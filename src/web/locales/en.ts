@@ -183,6 +183,7 @@ export const en: Messages = {
     autoIntro: (lead) =>
       `First describe what you need (the work and the expertise it takes). The lead agent (${lead}) picks a suitable template or designs a better-suited team. Once you confirm the team, ask your first question.`,
     drawerNote: "Role changes apply from the next turn. Switching a member's coding agent makes it re-read the conversation from the start.",
+    confirmCreateCwd: (dir) => `This working directory does not exist: ${dir}\nCreate it and save the team settings?`,
     drawerBusy: 'The team is replying; stop it to save',
     drawerChanged: 'The team changed while you were editing (for example, the lead agent designed it). Load it, then make your changes again.',
     drawerReload: 'Load the current team',

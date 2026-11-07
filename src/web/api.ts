@@ -1,3 +1,4 @@
+import { CWD_MISSING } from '../shared/types';
 import type {
   AgentConfig,
   ApprovalAnswer,
@@ -21,13 +22,28 @@ import type {
 } from '../shared/types';
 import { currentLang } from './i18n';
 
-/** A request the server answered with an error; `status` is the HTTP status. */
+/** A request the server answered with an error; `status` is the HTTP status, `code` tells some errors apart. */
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  readonly code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
+  }
+}
+
+/**
+ * Runs `call`; if the server says the working directory does not exist and `ask()` agrees,
+ * runs it again with `createCwd: true`. Any other error, or a refusal, is thrown.
+ */
+export async function orCreateCwd<T>(call: (createCwd: boolean) => Promise<T>, ask: () => boolean): Promise<T> {
+  try {
+    return await call(false);
+  } catch (e) {
+    if (!(e instanceof ApiError && e.code === CWD_MISSING) || !ask()) throw e;
+    return call(true);
   }
 }
 
@@ -44,7 +60,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError((data as { error?: string }).error ?? `${res.status} ${res.statusText}`, res.status);
+  if (!res.ok) {
+    const err = data as { error?: string; code?: string };
+    throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code);
+  }
   return data as T;
 }
 
@@ -78,7 +97,7 @@ export const api = {
   getConversation: (id: string) => request<Conversation>('GET', `/api/conversations/${id}`),
   createConversation: (b: { title?: string; agents: AgentConfig[]; settings: ConversationSettings; createCwd?: boolean }) =>
     request<Conversation>('POST', '/api/conversations', b),
-  updateConversation: (id: string, b: Partial<Pick<Conversation, 'title' | 'agents' | 'settings'>>) =>
+  updateConversation: (id: string, b: Partial<Pick<Conversation, 'title' | 'agents' | 'settings'>> & { createCwd?: boolean }) =>
     request<Conversation>('PATCH', `/api/conversations/${id}`, b),
   deleteConversation: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}`),
   /** While the team replies the message waits for the next turn (`queued`); `interrupt` stops the team and sends it now. */

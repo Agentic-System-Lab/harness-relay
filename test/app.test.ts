@@ -169,6 +169,7 @@ describe('settings', () => {
     const dir = join(project, 'new', 'chats');
     const missing = await put({ defaultCwd: dir });
     expect(missing.status).toBe(404);
+    expect(((await missing.json()) as { code?: string }).code).toBe('cwd-missing');
     expect(existsSync(dir)).toBe(false);
 
     // A bad lead is refused before anything is created.
@@ -209,6 +210,32 @@ describe('settings', () => {
     const auto = join(project, 'auto', 'team');
     expect((await post({ settings: { cwd: auto, autoTeam: true }, createCwd: true })).status).toBe(200);
     expect(statSync(auto).isDirectory()).toBe(true);
+  });
+
+  it('creates a missing directory when the team settings change, only when asked to', async () => {
+    const conv = await createConversation();
+    const patch = (id: string, body: Record<string, unknown>) => app.request(`/api/conversations/${id}`, json('PATCH', body));
+    const dir = join(project, 'moved', 'here');
+    const settings = { ...conv.settings, cwd: dir };
+
+    const missing = await patch(conv.id, { settings });
+    expect(missing.status).toBe(404);
+    expect(((await missing.json()) as { code?: string }).code).toBe('cwd-missing');
+    expect(existsSync(dir)).toBe(false);
+    // A conversation that does not exist is also a 404, but not about the directory.
+    const gone = await patch('no-such-conversation', { settings, createCwd: true });
+    expect(gone.status).toBe(404);
+    expect(((await gone.json()) as { code?: string }).code).toBeUndefined();
+    expect(existsSync(dir)).toBe(false);
+
+    // An invalid team is refused before anything is created.
+    expect((await patch(conv.id, { agents: [{ name: 'Bad name!', provider: 'claude' }], settings, createCwd: true })).status).toBe(400);
+    expect(existsSync(dir)).toBe(false);
+
+    const res = await patch(conv.id, { settings, createCwd: true });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Conversation).settings.cwd).toBe(dir);
+    expect(statSync(dir).isDirectory()).toBe(true);
   });
 });
 

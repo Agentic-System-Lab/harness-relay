@@ -10,7 +10,7 @@ import {
   type ProviderStatus,
   type ServerEvent,
 } from '../../shared/types';
-import { api, type AttachmentUpload } from '../api';
+import { api, orCreateCwd, type AttachmentUpload } from '../api';
 import { afterStreamError, applyStates as findApplyStates, draftStatus } from '../chat';
 import { conversationMarkdown } from '../copy';
 import { useT } from '../i18n';
@@ -630,7 +630,11 @@ function TeamDrawer({
     try {
       // While the lead agent has not designed the team yet, only the settings can change.
       const auto = team.settings.autoTeam && team.agents.length === 0;
-      await api.updateConversation(conv.id, auto ? { settings: team.settings } : { agents: team.agents, settings: team.settings });
+      const change = auto ? { settings: team.settings } : { agents: team.agents, settings: team.settings };
+      await orCreateCwd(
+        (createCwd) => api.updateConversation(conv.id, { ...change, createCwd }),
+        () => confirm(t.chat.confirmCreateCwd(team.settings.cwd.trim())),
+      );
       onClose();
     } catch (e) {
       onError((e as Error).message);

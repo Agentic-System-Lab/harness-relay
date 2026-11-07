@@ -185,6 +185,7 @@ export const zhTW = {
     autoIntro: (lead: string) =>
       `先描述你的需求（要完成什麼、需要哪些專長），首席 agent（${lead}）會挑選合適的範本，或設計一個更適合的新團隊。你確認團隊後，再開始問第一個問題。`,
     drawerNote: '角色修改會在下一個回合生效。更換成員的 coding agent 會讓他從頭讀一次對話紀錄。',
+    confirmCreateCwd: (dir: string) => `工作目錄不存在：${dir}\n要建立這個目錄並儲存團隊設定嗎？`,
     drawerBusy: '團隊回覆中，停止後才能儲存',
     drawerChanged: '你編輯的期間團隊已經變更（例如首席 agent 已設計好團隊）。請先載入目前的團隊，再重新修改。',
     drawerReload: '載入目前的團隊',

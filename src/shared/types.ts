@@ -3,6 +3,9 @@
 export type Provider = 'claude' | 'codex' | 'grok';
 export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok'];
 
+/** The error `code` (with a 404) for a working directory that does not exist; resend with `createCwd: true` to create it. */
+export const CWD_MISSING = 'cwd-missing';
+
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude Code',
   codex: 'Codex',

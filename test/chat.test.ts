@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentWorktree, ChatMessage, ConversationSettings } from '../src/shared/types';
-import { ApiError, api } from '../src/web/api';
+import { ApiError, api, orCreateCwd } from '../src/web/api';
 import { afterStreamError, applyStates, draftStatus } from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
 
@@ -13,6 +13,12 @@ describe('when the event stream drops', () => {
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).status).toBe(404);
     expect((err as ApiError).message).toBe('Conversation not found');
+  });
+
+  it('keeps the error code the server sends', async () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'Not found: /x', code: 'cwd-missing' }), { status: 404 }));
+    const err = (await api.getConversation('x').catch((e: unknown) => e)) as ApiError;
+    expect(err.code).toBe('cwd-missing');
   });
 
   it('stops only when the conversation is gone', () => {
@@ -109,5 +115,43 @@ describe('the team drawer draft', () => {
     expect(draftStatus(planning, edited, resent)).toBe('same');
     // Just saved: the team now is the draft.
     expect(draftStatus(planning, edited, { ...edited })).toBe('refresh');
+  });
+});
+
+describe('creating a missing working directory', () => {
+  const missing = new ApiError('Working directory not found: /x', 404, 'cwd-missing');
+
+  it('asks only when the directory is missing, then sends again with createCwd', async () => {
+    const calls: boolean[] = [];
+    const ask = vi.fn(() => true);
+    const result = await orCreateCwd(async (create) => {
+      calls.push(create);
+      if (!create) throw missing;
+      return 'saved';
+    }, ask);
+    expect(result).toBe('saved');
+    expect(calls).toEqual([false, true]);
+    expect(ask).toHaveBeenCalledOnce();
+
+    // No error: no question.
+    const quiet = vi.fn(() => true);
+    expect(await orCreateCwd(async () => 'ok', quiet)).toBe('ok');
+    expect(quiet).not.toHaveBeenCalled();
+  });
+
+  it('passes on other errors and a refusal without sending again', async () => {
+    const notFound = new ApiError('Conversation not found', 404);
+    const call = vi.fn(async (_create: boolean): Promise<string> => {
+      throw notFound;
+    });
+    const ask = vi.fn(() => true);
+    await expect(orCreateCwd(call, ask)).rejects.toBe(notFound);
+    expect(ask).not.toHaveBeenCalled();
+
+    const refused = vi.fn(async (_create: boolean): Promise<string> => {
+      throw missing;
+    });
+    await expect(orCreateCwd(refused, () => false)).rejects.toBe(missing);
+    expect(refused).toHaveBeenCalledOnce();
   });
 });

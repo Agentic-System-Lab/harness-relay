@@ -112,9 +112,9 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | 方法與路徑 | Body → 回應 |
 | --- | --- |
 | `GET /api/conversations` | → `ConversationSummary[]`（附側邊欄用的 `running`、`waiting` 與 `lastStatus`） |
-| `POST /api/conversations` | `{ title?, agents, settings, createCwd? }` → `Conversation`；`settings.autoTeam: true` 時 `agents` 可以是空的，由首席 agent 在第一則訊息時設計團隊；`settings.cwd` 不存在時回 404，除非帶 `createCwd: true`，此時會建立該目錄 |
+| `POST /api/conversations` | `{ title?, agents, settings, createCwd? }` → `Conversation`；`settings.autoTeam: true` 時 `agents` 可以是空的，由首席 agent 在第一則訊息時設計團隊；`settings.cwd` 不存在時回 404 並帶 `code: "cwd-missing"`，除非帶 `createCwd: true`，此時會建立該目錄 |
 | `GET /api/conversations/:id` | → `Conversation` |
-| `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation`（執行中回 409；設定 `agents` 會關閉自動組隊） |
+| `PATCH /api/conversations/:id` | `{ title?, agents?, settings?, createCwd? }` → `Conversation`（執行中回 409；設定 `agents` 會關閉自動組隊；`settings.cwd` 不存在時同 `POST`） |
 | `DELETE /api/conversations/:id` | 停止執行並刪除 |
 | `POST /api/conversations/:id/messages` | `{ text, attachments?, interrupt? }`（沒有文字也沒有檔案＝繼續）→ `202` `{ ok, queued }`。團隊回覆中（或團隊設計等待確認時）訊息會放進佇列（`queued: true`），在下一回合前送達；`interrupt: true` 會停止團隊並立刻送出。`attachments`：`[{ name, mimeType, data }]`，`data` 為 base64；最多 10 個檔案、每個 20 MB |
 | `DELETE /api/conversations/:id/queue/:messageId` | → `ChatMessage`：撤回一則還在等待送出的訊息（送達後回傳 404） |
@@ -129,7 +129,7 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | `POST /api/conversations/:id/agents/:agentId/apply` | 把 agent 的 worktree 結果套用到工作目錄 → `{ files }`（衝突時回 409） |
 | `GET /api/conversations/:id/events` | `ServerEvent` 的 SSE 串流 |
 | `GET /api/presets` · `POST /api/presets` · `DELETE /api/presets/:id` | 團隊範本 |
-| `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, createCwd?, lead? }`（`lead`：`{ provider, model?, effort? }`，自動組隊的首席 agent；`defaultCwd` 不存在時回 404，除非帶 `createCwd: true`，此時會建立該目錄） |
+| `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, createCwd?, lead? }`（`lead`：`{ provider, model?, effort? }`，自動組隊的首席 agent；`defaultCwd` 不存在時回 404 並帶 `code: "cwd-missing"`，除非帶 `createCwd: true`，此時會建立該目錄） |
 | `PUT /api/settings/providers/:provider` | `{ bin?, defaultModel?, defaultEffort?, apiKey? }`（`apiKey: null` 代表移除） |
 | `GET /api/providers[?refresh=1]` | → `ProviderStatus[]` |
 | `GET /api/models[?refresh=1]` | → `ProviderModels[]` |
@@ -216,10 +216,10 @@ npx vitest test/store.test.ts
 - `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 的快照、worktree、套用、衝突、CRLF 與非 UTF-8 內容逐位元組套用、很長或特殊的檔案清單、保留的快照 ref、範圍太大的 repository）。
 - `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
-- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的預設目錄或對話目錄、範本 id。
+- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id。
 - `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。
-- `test/chat.test.ts`：ChatView 的邏輯：何時重新連線事件串流、哪個 worktree 結果可以套用、團隊設定的草稿。
+- `test/chat.test.ts`：ChatView 的邏輯：何時重新連線事件串流、哪個 worktree 結果可以套用、團隊設定的草稿、建立不存在的工作目錄前先詢問。
 - `test/markdown.test.ts`：@ 標示與伺服器規則一致，並略過程式碼與連結；圖片以連結顯示。
 - `test/orchestrator.test.ts`：把假的 runner 換進 `runners` 跑完整流程：平行模式的 worktree 隔離與套用、圓桌模式的修改紀錄、目錄鎖（含自動組隊）、執行準備期間或套用期間收到的請求、agent 向使用者提問（團隊停下；使用者回覆後由提問者先回答，涵蓋圓桌、平行與接力；「繼續」會略過它；回覆給別人或編輯訊息時重新開始；期間寫的訊息等回答時一起送出）、團隊回覆時送出的訊息（在下一個該收到它的 agent 發言前依序送達、沒有回合接到時再開一輪、停止後保留、被 interrupt／下一則訊息／繼續先送出、撤回、重新啟動後仍在）、執行中刪除對話、全新 session 也失敗時保留原 session，以及把失敗回合改過的檔案告訴隊友。
 - `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`、JSON-RPC 連線。

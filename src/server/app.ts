@@ -53,7 +53,7 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
   const app = new Hono();
 
   app.onError((err, c) => {
-    if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
+    if (err instanceof HttpError) return c.json(err.code ? { error: err.message, code: err.code } : { error: err.message }, err.status);
     console.error('[server]', err);
     return c.json({ error: err.message || 'Internal error' }, 500);
   });
@@ -264,7 +264,7 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
 
   app.patch('/api/conversations/:id', async (c) => {
     const conv = getConv(c.req.param('id'));
-    const b = await body<Partial<Conversation>>(c);
+    const b = await body<Partial<Conversation> & { createCwd?: unknown }>(c);
     const save = () => {
       if (b.title !== undefined) conv.title = String(b.title).trim().slice(0, 200) || conv.title;
       conv.updatedAt = Date.now();
@@ -277,7 +277,8 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
     // Reserved while the workspace is prepared, so no run starts with half-changed settings.
     const res = await orchestrator.exclusive(conv.id, t().busySettings, async () => {
       const agents = b.agents ? validateAgents(b.agents) : conv.agents;
-      const next = b.settings ? validateSettings(b.settings, conv.settings.cwd) : { ...conv.settings };
+      // After the agents: creating a missing working directory is a side effect.
+      const next = b.settings ? validateSettings(b.settings, conv.settings.cwd, b.createCwd === true) : { ...conv.settings };
       // Edits never switch auto team on; a team set by hand replaces the lead agent's pending design.
       next.autoTeam = b.agents ? undefined : conv.settings.autoTeam;
       if (b.settings) await orchestrator.prepareWorkspace({ ...conv, settings: next });

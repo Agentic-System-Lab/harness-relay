@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
+  CWD_MISSING,
   PROVIDERS,
   VOICE_LANGUAGES,
   VOICE_MODELS,
@@ -41,15 +42,15 @@ export function expandPath(p: string): string {
 }
 
 /**
- * A working directory. A missing one is a 404, so the client can offer to
- * create it; with `create` it is created (parents too).
+ * A working directory. A missing one is a 404 with the code `CWD_MISSING`, so
+ * the client can offer to create it; with `create` it is created (parents too).
  */
 function directory(dir: string, create: boolean): string {
   if (existsSync(dir)) {
     if (!statSync(dir).isDirectory()) bad(t().cwdNotDirectory(dir));
     return dir;
   }
-  if (!create) throw new HttpError(404, t().cwdMissing(dir));
+  if (!create) throw new HttpError(404, t().cwdMissing(dir), CWD_MISSING);
   try {
     mkdirSync(dir, { recursive: true });
   } catch (e) {

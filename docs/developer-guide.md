@@ -112,9 +112,9 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 | Method & path | Body → response |
 | --- | --- |
 | `GET /api/conversations` | → `ConversationSummary[]` (with `running`, `waiting` and `lastStatus` for the sidebar) |
-| `POST /api/conversations` | `{ title?, agents, settings, createCwd? }` → `Conversation`; with `settings.autoTeam: true`, `agents` may be empty — the lead agent designs the team on the first message; a `settings.cwd` that does not exist is a 404 unless `createCwd: true`, which creates it |
+| `POST /api/conversations` | `{ title?, agents, settings, createCwd? }` → `Conversation`; with `settings.autoTeam: true`, `agents` may be empty — the lead agent designs the team on the first message; a `settings.cwd` that does not exist is a 404 with `code: "cwd-missing"` unless `createCwd: true`, which creates it |
 | `GET /api/conversations/:id` | → `Conversation` |
-| `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation` (409 while running; setting `agents` turns auto team off) |
+| `PATCH /api/conversations/:id` | `{ title?, agents?, settings?, createCwd? }` → `Conversation` (409 while running; setting `agents` turns auto team off; a missing `settings.cwd` as in `POST`) |
 | `DELETE /api/conversations/:id` | stops a run and deletes |
 | `POST /api/conversations/:id/messages` | `{ text, attachments?, interrupt? }` (empty text and no files = continue) → `202` `{ ok, queued }`. While the team replies (or its design waits for confirmation) the message waits in the queue (`queued: true`) and is delivered before the next turn; `interrupt: true` stops the team and sends it now. `attachments`: `[{ name, mimeType, data }]` with base64 `data`; at most 10 files of 20 MB each |
 | `DELETE /api/conversations/:id/queue/:messageId` | → `ChatMessage`: withdraws a message still waiting to be delivered (404 once it was delivered) |
@@ -129,7 +129,7 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 | `POST /api/conversations/:id/agents/:agentId/apply` | applies an agent's worktree result to the working directory → `{ files }` (409 on conflict) |
 | `GET /api/conversations/:id/events` | SSE stream of `ServerEvent` |
 | `GET /api/presets` · `POST /api/presets` · `DELETE /api/presets/:id` | team templates |
-| `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, createCwd?, lead? }` (`lead`: `{ provider, model?, effort? }`, the auto-team lead agent; a `defaultCwd` that does not exist is a 404 unless `createCwd: true`, which creates it) |
+| `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, createCwd?, lead? }` (`lead`: `{ provider, model?, effort? }`, the auto-team lead agent; a `defaultCwd` that does not exist is a 404 with `code: "cwd-missing"` unless `createCwd: true`, which creates it) |
 | `PUT /api/settings/providers/:provider` | `{ bin?, defaultModel?, defaultEffort?, apiKey? }` (`apiKey: null` removes) |
 | `GET /api/providers[?refresh=1]` | → `ProviderStatus[]` |
 | `GET /api/models[?refresh=1]` | → `ProviderModels[]` |
@@ -216,10 +216,10 @@ Current tests:
 - `test/workspace.test.ts` — git plumbing against real temporary repositories (auto init, snapshots that leave the repo untouched, worktrees, apply, conflicts, CRLF / non-UTF-8 content applied byte for byte, long and unusual file lists, kept snapshot refs, repositories that are too broad).
 - `test/process.test.ts` — process helpers: byte-exact output, stopping subprocesses that ignore SIGTERM (also after the CLI exited, and on shutdown), a missing working directory, relative executable paths.
 - `test/hub.test.ts` — SSE fan-out when a browser reconnects.
-- `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, creating a missing default or conversation directory only when asked, template ids.
+- `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, creating a missing working directory (default, new or edited conversation) only when asked, template ids.
 - `test/prompt.test.ts` — `@mention` parsing (text right after a name, code fences), `[PASS]`, forwarding of failed / stopped / passed replies, the parallel briefing.
 - `test/commands.test.ts` — reading shell command lines: publishing commands in their many forms, and "always allow" keys that do not let embedded commands through.
-- `test/chat.test.ts` — ChatView logic: when to reconnect the event stream, which worktree result can be applied, the team drawer's draft.
+- `test/chat.test.ts` — ChatView logic: when to reconnect the event stream, which worktree result can be applied, the team drawer's draft, asking before creating a missing working directory.
 - `test/markdown.test.ts` — mention chips follow the server's rule and skip code and links; images are shown as links.
 - `test/orchestrator.test.ts` — full runs with a fake runner swapped into `runners`: parallel worktree isolation and apply, change tracking in roundtable mode, the directory lock (also for auto team), requests that arrive while a run is set up or a result is applied, agents asking the user (the team stops; the one that asked answers first after the reply, in roundtable, parallel and relay; Continue skips it; a reply to someone else, or an edit, starts afresh; messages written meanwhile wait for the answer), messages sent while the team replies (delivered before the next turn of an agent they are for, in the order sent; a follow-up run for what no turn took; kept after Stop; sent first by an interrupt, the next message or Continue; withdrawn; kept across a restart), deleting a conversation mid-run, keeping a session when a fresh start fails too, and telling teammates what a failed turn changed.
 - `test/grok.test.ts` — the Grok ACP adapter: permission policy per level, session updates → `AgentEvent`s, and the JSON-RPC connection.

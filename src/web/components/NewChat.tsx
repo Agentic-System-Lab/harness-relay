@@ -9,7 +9,7 @@ import {
   type ProviderStatus,
   type TeamPreset,
 } from '../../shared/types';
-import { api, ApiError } from '../api';
+import { api, orCreateCwd } from '../api';
 import { useI18n } from '../i18n';
 import { leadLabel, newAgent } from '../util';
 import { PencilIcon } from './icons';
@@ -128,16 +128,10 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
     setBusy(true);
     setError('');
     try {
-      const create = (createCwd: boolean) =>
-        api.createConversation({ title, agents: team.agents, settings: team.settings, createCwd });
-      let conv: Conversation;
-      try {
-        conv = await create(false);
-      } catch (e) {
-        // 404: the working directory does not exist yet; create it if the user agrees.
-        if (!(e instanceof ApiError && e.status === 404) || !confirm(t.newChat.confirmCreateCwd(team.settings.cwd.trim()))) throw e;
-        conv = await create(true);
-      }
+      const conv = await orCreateCwd(
+        (createCwd) => api.createConversation({ title, agents: team.agents, settings: team.settings, createCwd }),
+        () => confirm(t.newChat.confirmCreateCwd(team.settings.cwd.trim())),
+      );
       write(LAST_CWD_KEY, conv.settings.cwd);
       write(LAST_CHOICE_KEY, choice);
       onCreated(conv);
