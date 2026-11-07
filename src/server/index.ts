@@ -1,7 +1,5 @@
-import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
-import { serveStatic } from '@hono/node-server/serve-static';
 import { createApp } from './app';
 import { openDatabase } from './db';
 import { Hub } from './hub';
@@ -12,6 +10,7 @@ import { openSystemKeyring } from './secrets';
 import { DB_FILE, SettingsStore } from './settings';
 import { Store } from './store';
 import { VoiceService } from './voice';
+import { serveWebApp } from './web';
 
 // A failure in a background task (a run winding down, a stream write) must not take the server — and
 // every other conversation — down with it.
@@ -39,11 +38,7 @@ const app = createApp({ store, settings, hub, orchestrator, providers, voice, ex
 
 // --- Static web app (production build) ------------------------------------------
 
-const webDir = resolve(process.cwd(), 'dist/web');
-if (existsSync(join(webDir, 'index.html'))) {
-  app.use('/*', serveStatic({ root: 'dist/web' }));
-  app.get('*', serveStatic({ path: 'dist/web/index.html' }));
-} else {
+if (!serveWebApp(app, resolve(process.cwd(), 'dist/web'))) {
   app.get('/', (c) => c.text('Web UI is not built. Run `npm run dev` (http://localhost:5173) or `npm run build` first.'));
 }
 

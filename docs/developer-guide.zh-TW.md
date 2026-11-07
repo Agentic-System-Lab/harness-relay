@@ -23,6 +23,7 @@ src/
   shared/mentions.ts       伺服器與介面共用的 @ 規則（只看 Markdown 中的一般文字）
   server/
     index.ts               組裝元件、靜態檔案、啟動與關閉
+    web.ts                 提供建置好的介面：帶雜湊的檔案永久快取，index.html 每次都檢查
     app.ts                 createApp()：路由、安全性中介層、SSE（可用 app.request() 測試）
     orchestrator.ts        團隊回合：排程、交付 prompt、把串流寫進訊息；自動組隊、重新傳送
     planner.ts             自動組隊：首席 agent 的 prompt、解析回覆、可執行的團隊、備援方案
@@ -81,6 +82,8 @@ npm test
 npm run build      # 介面 → dist/web
 npm start          # 單一程序：API + 建置好的介面，port 8787
 ```
+
+`npm run build` 會把頁面啟動時載入的函式庫放在各自的 chunk（`react`、`highlight`、`vendor`），讓瀏覽器在 app 更新後仍可沿用快取；Mermaid 仍是需要時才載入。啟動時載入的 chunk 超過 500 kB 時會發出警告（`vite.config.ts`）；Mermaid 延遲載入的 chunk 比這大，只在需要畫圖時才載入。
 
 `npm run dev` 會在每次檔案變更時重啟伺服器。重啟會中止正在執行的 agent 回合（訊息會標為已中斷），所以長回合執行中請避免修改伺服器檔案。
 
@@ -216,6 +219,7 @@ npx vitest test/store.test.ts
 - `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 的快照、worktree、套用、衝突、CRLF 與非 UTF-8 內容逐位元組套用、很長或特殊的檔案清單、保留的快照 ref、範圍太大的 repository）。
 - `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
+- `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。
 - `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id。
 - `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。

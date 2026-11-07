@@ -1,0 +1,62 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Hono } from 'hono';
+import { afterAll, describe, expect, it } from 'vitest';
+import { serveWebApp } from '../src/server/web';
+
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-web-')));
+afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+function built(): string {
+  const dir = mkdtempSync(join(root, 'dist-'));
+  mkdirSync(join(dir, 'assets'));
+  writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Relay</title>');
+  writeFileSync(join(dir, 'assets', 'index-abc123.js'), 'console.log(1)');
+  return dir;
+}
+
+describe('the built web app', () => {
+  it('lets a browser keep hashed assets for good', async () => {
+    const app = new Hono();
+    serveWebApp(app, built());
+    const res = await app.request('/assets/index-abc123.js');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/javascript/);
+    expect(res.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+    expect(await res.text()).toBe('console.log(1)');
+  });
+
+  it('has index.html checked every time, also for the client routes', async () => {
+    const app = new Hono();
+    serveWebApp(app, built());
+    for (const path of ['/', '/c/123']) {
+      const res = await app.request(path);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toBe('no-cache');
+      expect(await res.text()).toContain('<title>Relay</title>');
+    }
+  });
+
+  it('answers a missing asset with 404, not the page', async () => {
+    const app = new Hono();
+    serveWebApp(app, built());
+    const res = await app.request('/assets/index-old999.js');
+    expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBeNull();
+  });
+
+  it('leaves routes registered before it alone', async () => {
+    const app = new Hono();
+    app.get('/api/ping', (c) => c.json({ ok: true }));
+    serveWebApp(app, built());
+    const res = await app.request('/api/ping');
+    expect(res.headers.get('cache-control')).toBeNull();
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it('serves nothing without a build', () => {
+    const app = new Hono();
+    expect(serveWebApp(app, join(root, 'missing'))).toBe(false);
+  });
+});

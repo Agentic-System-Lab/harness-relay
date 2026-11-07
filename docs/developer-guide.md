@@ -23,6 +23,7 @@ src/
   shared/mentions.ts       the @mention rule shared by the server and the UI (Markdown prose only)
   server/
     index.ts               wiring, static files, startup and shutdown
+    web.ts                 serves the built UI: hashed assets cached for good, index.html checked every time
     app.ts                 createApp(): routes, security middleware, SSE (testable with app.request())
     orchestrator.ts        team turns: scheduling, prompt delivery, streaming into messages; auto team, resend
     planner.ts             auto team: lead-agent prompt, reply parsing, runnable team, fallback
@@ -81,6 +82,8 @@ npm test
 npm run build      # UI → dist/web
 npm start          # one process: API + built UI on :8787
 ```
+
+`npm run build` puts the libraries the page loads at startup in their own chunks (`react`, `highlight`, `vendor`), so a browser keeps them across app updates; Mermaid stays lazy. It warns when a chunk loaded at startup passes 500 kB (`vite.config.ts`); Mermaid's lazy chunks are larger and only load when a diagram needs them.
 
 `npm run dev` restarts the server on every file change. A restart aborts any running agent turn (its message is marked aborted), so avoid editing server files while a long turn is running.
 
@@ -216,6 +219,7 @@ Current tests:
 - `test/workspace.test.ts` — git plumbing against real temporary repositories (auto init, snapshots that leave the repo untouched, worktrees, apply, conflicts, CRLF / non-UTF-8 content applied byte for byte, long and unusual file lists, kept snapshot refs, repositories that are too broad).
 - `test/process.test.ts` — process helpers: byte-exact output, stopping subprocesses that ignore SIGTERM (also after the CLI exited, and on shutdown), a missing working directory, relative executable paths.
 - `test/hub.test.ts` — SSE fan-out when a browser reconnects.
+- `test/web.test.ts` — serving the built UI: hashed assets cached for good, index.html (also for client routes) checked every time, a missing asset is a 404, earlier routes untouched.
 - `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, creating a missing working directory (default, new or edited conversation) only when asked, template ids.
 - `test/prompt.test.ts` — `@mention` parsing (text right after a name, code fences), `[PASS]`, forwarding of failed / stopped / passed replies, the parallel briefing.
 - `test/commands.test.ts` — reading shell command lines: publishing commands in their many forms, and "always allow" keys that do not let embedded commands through.
