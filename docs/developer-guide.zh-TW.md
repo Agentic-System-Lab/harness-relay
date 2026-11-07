@@ -68,6 +68,9 @@ src/
                            useDialog（對話框的焦點處理）
 test/                      Vitest 測試
 .github/workflows/ci.yml   CI：pull request 與推送到 main 時執行型別檢查、測試與建置
+.github/workflows/pages.yml  把 site/ 發佈到 GitHub Pages
+scripts/preview-site.ts    npm run site:preview：在本機以 Pages 的方式提供 site/
+site/                      網站首頁（靜態 HTML，English + 繁體中文）；DESIGN-GUIDELINES.md 不會被發佈
 docs/                      文件（English + 繁體中文）
 data/                      執行時資料（relay.db），已列入 git ignore
 ```
@@ -260,6 +263,10 @@ npx vitest test/store.test.ts
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時執行：`npm ci`、`npm run typecheck`、`npm test` 與 `npm run build`，在 Ubuntu 上以 Node 22（支援的最低版本）與 Node 24 各跑一次。對同一個 pull request 再次推送時會取消前一次的執行。推送前請先在本機跑過同樣的指令。
 
 若要在檢查通過前禁止合併，請在 repository 設定中替 `main` 加上 branch protection rule（或 ruleset），並把 `Typecheck, test, build` 檢查設為必要。
+
+### 網站
+
+https://agentic-system-lab.github.io/harness-relay/zh-TW/ 的網站首頁是 [`site/`](../site/) 裡的純 HTML、CSS 與 JavaScript：`index.html`（English）、`zh-TW/index.html`（繁體中文）與共用的 `assets/`，不需要建置。[`.github/workflows/pages.yml`](../.github/workflows/pages.yml) 會在推送到 `main` 且改到 `site/`、`docs/media/` 或這個 workflow 時執行：把 `site/` 與 `docs/media/` 的示範影片複製到同一個資料夾、排除 Markdown 檔，再部署到 GitHub Pages（repository 設定 → Pages → Source：GitHub Actions）。用 `npm run site:preview`（[`scripts/preview-site.ts`](../scripts/preview-site.ts)）在本機預覽：它會在 http://127.0.0.1:4180 提供 `site/`（可用 `SITE_PORT` 換埠號），影片直接從 `docs/media/` 讀取，和 Pages 上的樣子相同。修改頁面前請先讀 [`site/DESIGN-GUIDELINES.md`](../site/DESIGN-GUIDELINES.md)，裡面也說明重錄示範影片後要更新哪些地方。
 
 ## 除錯技巧
 

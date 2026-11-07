@@ -1,0 +1,52 @@
+name: Pages
+
+# Publishes the landing page in site/ to GitHub Pages whenever it, or the demo videos it plays,
+# change on main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/media/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push waits instead of cancelling a deployment in progress.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The page plays the demo videos from docs/media, so they are copied in rather than stored twice.
+      # Markdown (the design guidelines) and image provenance sidecars stay in the repository only.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/media
+          cp -R site/. _site/
+          cp docs/media/demo-en.mp4 docs/media/demo-zh-TW.mp4 _site/media/
+          find _site \( -name '*.md' -o -name '*.webp.json' \) -delete
+          find _site -type f | sort
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

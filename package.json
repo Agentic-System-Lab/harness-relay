@@ -10,7 +10,8 @@
     "build": "vite build",
     "start": "NODE_ENV=production tsx src/server/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "site:preview": "tsx scripts/preview-site.ts"
   },
   "engines": {
     "node": ">=22.13"

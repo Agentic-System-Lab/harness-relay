@@ -68,6 +68,9 @@ src/
                            useDialog (focus handling for dialogs)
 test/                      Vitest tests
 .github/workflows/ci.yml   CI: typecheck, tests and build on pull requests and pushes to main
+.github/workflows/pages.yml  publishes site/ to GitHub Pages
+scripts/preview-site.ts    npm run site:preview: serves site/ locally like Pages
+site/                      the landing page (static HTML, English + 繁體中文); DESIGN-GUIDELINES.md is not served
 docs/                      documentation (English + 繁體中文)
 data/                      runtime data (relay.db) — git-ignored
 ```
@@ -260,6 +263,10 @@ Running real agents in tests costs money and needs logins, so keep automated tes
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and every push to `main`: `npm ci`, `npm run typecheck`, `npm test` and `npm run build`, on Ubuntu with Node 22 (the oldest supported) and Node 24. A new push to a pull request cancels its previous run. Run the same commands locally before pushing.
 
 To block merging until the checks pass, add a branch protection rule (or ruleset) for `main` in the repository settings and require the `Typecheck, test, build` checks.
+
+### Website
+
+The landing page at https://agentic-system-lab.github.io/harness-relay/ is plain HTML, CSS and JavaScript in [`site/`](../site/): `index.html` (English), `zh-TW/index.html` (繁體中文) and shared `assets/`. There is no build step. [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) runs on pushes to `main` that touch `site/`, `docs/media/` or the workflow itself: it copies `site/` and the demo videos from `docs/media/` into one folder, leaves out Markdown files, and deploys it to GitHub Pages (repository settings → Pages → Source: GitHub Actions). Preview it with `npm run site:preview` ([`scripts/preview-site.ts`](../scripts/preview-site.ts)): it serves `site/` on http://127.0.0.1:4180 (`SITE_PORT` changes the port) with the videos read from `docs/media/`, the way Pages will. Read [`site/DESIGN-GUIDELINES.md`](../site/DESIGN-GUIDELINES.md) before changing the page; it also says what to update when the demo is re-recorded.
 
 ## Debugging tips
 

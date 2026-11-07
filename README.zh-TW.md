@@ -4,6 +4,8 @@
 
 [![CI](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml)
 
+**網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/
+
 一個類似 ChatGPT 的群組聊天室，讓 **Claude Code、Codex 和 Grok** 一起處理你的程式碼或任何問題，並且彼此溝通。
 
 每次對話開始前，你先設計這個團隊：替每個 coding agent 決定定位（架構師、實作者、審查者、魔鬼代言人……）、選擇模型與推理強度，以及他們輪流發言的方式。Harness Relay 會在你的電腦上驅動真正的 CLI，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
@@ -44,7 +46,7 @@
 - 想使用的 agent CLI，已安裝且在 `PATH` 中：
   - [Claude Code](https://docs.claude.com/en/docs/claude-code)（`claude`）
   - [Codex CLI](https://github.com/openai/codex)（`codex`）
-  - Grok CLI（`grok`）
+  - [Grok CLI](https://github.com/xai-org/grok-build)（`grok`）
 
 不需要三個都裝；任何組合都能用，也可以在設定頁登入。
 
@@ -89,8 +91,9 @@ agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**
 | `npm start` | 由單一程序提供建置好的介面與 API |
 | `npm run typecheck` | 型別檢查伺服器、前端與測試 |
 | `npm test` | 執行測試（Vitest） |
+| `npm run site:preview` | 在 http://127.0.0.1:4180 預覽網站（`site/`） |
 
-每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。
+每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)是 [`site/`](site/) 裡的靜態頁面，由 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) 發佈到 GitHub Pages。
 
 ## 授權
 

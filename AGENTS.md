@@ -20,11 +20,12 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | --- | --- |
 | `npm install` | Install dependencies |
 | `npm run dev` | API server on :8787 (`tsx watch`) + Vite on :5173 (proxies `/api/`) |
-| `npm run typecheck` | `tsc --noEmit` over `src`, `test` and the config files |
+| `npm run typecheck` | `tsc --noEmit` over `src`, `test`, `scripts` and the config files |
 | `npm test` | All Vitest tests (offline) |
 | `npx vitest test/store.test.ts` | One test file |
 | `npm run build` | Build the UI into `dist/web` |
 | `npm start` | One process: API + built UI on :8787 |
+| `npm run site:preview` | Serve the landing page (`site/`) on 127.0.0.1:4180, as GitHub Pages will |
 
 Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same three on Node 22 and 24 for every pull request and every push to `main`.
 
@@ -42,6 +43,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 - `src/web/`: the React client. `components/`, `locales/` (`zh-TW.ts`, `en.ts`), `chat.ts` (ChatView's pure logic), `copy.ts`, `api.ts`.
 - `test/`: Vitest tests, roughly one file per module.
 - `data/`: runtime data (`relay.db`, worktrees). Git-ignored; never commit it.
+- `site/`: the landing page on GitHub Pages (static HTML, `index.html` and `zh-TW/index.html`), published by `.github/workflows/pages.yml`. Follow `site/DESIGN-GUIDELINES.md` when you change it, and change both languages together.
 
 ## Rules
 

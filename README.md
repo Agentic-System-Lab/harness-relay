@@ -4,6 +4,8 @@
 
 [![CI](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml)
 
+**Website:** https://agentic-system-lab.github.io/harness-relay/
+
 A ChatGPT-style group chat where **Claude Code, Codex and Grok** work together — on your code or any other question — and talk to each other.
 
 Before each conversation you design the team: give every coding agent a position (architect, builder, reviewer, skeptic…), pick its model and reasoning effort, and choose how they take turns. Harness Relay then drives the real CLIs on your machine, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
@@ -44,7 +46,7 @@ Auto team on this repository: you describe what you need, and the lead agent ada
 - The agent CLIs you want to use, installed and on your `PATH`:
   - [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`)
   - [Codex CLI](https://github.com/openai/codex) (`codex`)
-  - Grok CLI (`grok`)
+  - [Grok CLI](https://github.com/xai-org/grok-build) (`grok`)
 
 You don't need all three — the app works with any subset, and you can sign in from the Settings page.
 
@@ -89,8 +91,9 @@ API keys you save in Settings are kept in your operating system's credential sto
 | `npm start` | Serve the built UI and the API from one process |
 | `npm run typecheck` | Type-check server, client and tests |
 | `npm test` | Run the test suite (Vitest) |
+| `npm run site:preview` | Preview the website (`site/`) on http://127.0.0.1:4180 |
 
-Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The [website](https://agentic-system-lab.github.io/harness-relay/) is the static page in [`site/`](site/), published to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
 ## License
 
