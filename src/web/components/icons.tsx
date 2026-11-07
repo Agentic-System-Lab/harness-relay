@@ -63,6 +63,41 @@ export function MicIcon({ size }: { size?: number }) {
   );
 }
 
+export function SearchIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </Svg>
+  );
+}
+
+export function FolderIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.6l2 2.2h7.4A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5Z" />
+    </Svg>
+  );
+}
+
+export function FolderPlusIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.6l2 2.2h7.4A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5Z" />
+      <path d="M12 10.5v6M9 13.5h6" />
+    </Svg>
+  );
+}
+
+/** Points right; rotate it to point down (an expanded group). */
+export function ChevronIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="m9 6 6 6-6 6" />
+    </Svg>
+  );
+}
+
 /** Two sheets: copy. */
 export function CopyIcon({ size }: { size?: number }) {
   return (

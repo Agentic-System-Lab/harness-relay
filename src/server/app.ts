@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
+  GROUP_LIMITS,
   PROVIDERS,
   VOICE_MAX_SECONDS,
   type ApprovalAnswer,
@@ -23,6 +24,7 @@ import type { SettingsStore } from './settings';
 import type { Store } from './store';
 import {
   validDirectory,
+  validGroupName,
   validVoiceModel,
   validateAgents,
   validateLead,
@@ -225,11 +227,53 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
     return c.json({ ok: true });
   });
 
+  // --- Sidebar groups -------------------------------------------------------------
+
+  function getGroup(id: string) {
+    const group = store.getGroup(id);
+    if (!group) throw new HttpError(404, t().groupNotFound);
+    return group;
+  }
+
+  app.get('/api/groups', (c) => c.json(store.listGroups()));
+
+  app.post('/api/groups', async (c) => {
+    const b = await body<{ name?: unknown }>(c);
+    const groups = store.listGroups();
+    if (groups.length >= GROUP_LIMITS.maxGroups) throw new HttpError(400, t().tooManyGroups(GROUP_LIMITS.maxGroups));
+    const group = { id: randomUUID(), name: validGroupName(b.name, groups) };
+    store.createGroup(group);
+    return c.json(group);
+  });
+
+  app.patch('/api/groups/:id', async (c) => {
+    const group = getGroup(c.req.param('id'));
+    const b = await body<{ name?: unknown }>(c);
+    const name = validGroupName(b.name, store.listGroups(), group.id);
+    store.renameGroup(group.id, name);
+    return c.json({ ...group, name });
+  });
+
+  // Its conversations go to the default group ("Other").
+  app.delete('/api/groups/:id', (c) => {
+    store.deleteGroup(getGroup(c.req.param('id')).id);
+    return c.json({ ok: true });
+  });
+
   // --- Conversations ---------------------------------------------------------------
 
   app.get('/api/conversations', (c) =>
-    c.json(store.list((id) => orchestrator.isRunning(id), (id) => orchestrator.isWaiting(id))),
+    c.json(
+      store.list(
+        (id) => orchestrator.isRunning(id),
+        (id) => orchestrator.isWaiting(id),
+        (id) => orchestrator.isSorting(id),
+      ),
+    ),
   );
+
+  // Conversations whose title or messages contain every word of `q`.
+  app.get('/api/search', (c) => c.json(store.search(c.req.query('q') ?? '')));
 
   app.post('/api/conversations', async (c) => {
     const b = await body<Partial<Conversation> & { createCwd?: unknown }>(c);
@@ -290,6 +334,16 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
     // The team set by hand answers the question written while its design waited.
     if (confirmed) orchestrator.startQueued(conv);
     return res;
+  });
+
+  // Put a conversation in a sidebar group; `groupId: null` is the default group ("Other").
+  app.put('/api/conversations/:id/group', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ groupId?: unknown }>(c);
+    const groupId = b.groupId === null || b.groupId === undefined || b.groupId === '' ? null : String(b.groupId);
+    if (groupId !== null && !store.getGroup(groupId)) throw new HttpError(404, t().groupNotFound);
+    store.moveToGroup(conv.id, groupId);
+    return c.json({ ok: true });
   });
 
   app.delete('/api/conversations/:id', async (c) => {

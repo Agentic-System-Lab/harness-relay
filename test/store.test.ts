@@ -209,6 +209,121 @@ describe('Store (SQLite)', () => {
   });
 });
 
+describe('Store groups', () => {
+  it('keeps groups in the order they were made, and moves the conversations of a deleted group to Other', () => {
+    const store = new Store(db);
+    store.createGroup({ id: 'g1', name: '前端' });
+    store.createGroup({ id: 'g2', name: 'Docs' });
+    store.create({ ...sampleConversation(), id: 'c1' });
+    store.create({ ...sampleConversation(), id: 'c2' });
+    store.moveToGroup('c1', 'g1');
+    store.moveToGroup('c2', 'g2');
+    store.renameGroup('g2', 'Writing');
+
+    const again = new Store(reopen());
+    expect(again.listGroups()).toEqual([
+      { id: 'g1', name: '前端' },
+      { id: 'g2', name: 'Writing' },
+    ]);
+    const groupOf = (s: Store) => Object.fromEntries(s.list(() => false).map((c) => [c.id, c.groupId]));
+    expect(groupOf(again)).toEqual({ c1: 'g1', c2: 'g2' });
+
+    again.deleteGroup('g1');
+    expect(again.listGroups().map((g) => g.id)).toEqual(['g2']);
+    expect(groupOf(again)).toEqual({ c1: undefined, c2: 'g2' });
+    expect(again.isSorted('c1')).toBe(true); // the user sorted it: it is not sorted automatically again
+  });
+
+  it('sorts a conversation automatically only once, never over the user, and never into a deleted group', () => {
+    const store = new Store(db);
+    store.createGroup({ id: 'g1', name: 'Backend' });
+    store.createGroup({ id: 'g2', name: 'Ops' });
+    for (const id of ['auto', 'user', 'none', 'gone']) store.create({ ...sampleConversation(), id });
+    expect(store.isSorted('auto')).toBe(false);
+
+    expect(store.sortIntoGroup('auto', 'g1')).toBe(true);
+    expect(store.sortIntoGroup('auto', 'g2')).toBe(false); // once
+    store.moveToGroup('user', 'g2');
+    expect(store.sortIntoGroup('user', 'g1')).toBe(false); // the user moved it first
+    expect(store.sortIntoGroup('none', null)).toBe(true); // stays in Other, but it is sorted
+    expect(store.isSorted('none')).toBe(true);
+    store.deleteGroup('g2');
+    expect(store.sortIntoGroup('gone', 'g2')).toBe(false);
+    expect(store.isSorted('gone')).toBe(false);
+
+    const list = Object.fromEntries(store.list(() => false).map((c) => [c.id, c.groupId]));
+    expect(list).toEqual({ auto: 'g1', user: undefined, none: undefined, gone: undefined });
+    expect(store.groupTitles('g1', 5)).toEqual(['測試對話']);
+  });
+});
+
+describe('Store search', () => {
+  const msg = (id: string, kind: 'user' | 'agent' | 'system', text: string): ChatMessage => ({
+    id,
+    author: kind === 'agent' ? { kind, agentId: 'a1' } : { kind },
+    createdAt: 1,
+    parts: [{ type: 'text', text }],
+    status: 'done',
+  });
+
+  function seed(store: Store): void {
+    const add = (id: string, title: string, updatedAt: number, messages: ChatMessage[]) => {
+      const conv: Conversation = { ...sampleConversation(), id, title, updatedAt, messages: [] };
+      store.create(conv);
+      for (const m of messages) {
+        conv.messages.push(m);
+        store.saveMessage(id, m);
+      }
+    };
+    add('react', 'Sidebar layout', 30, [
+      msg('r1', 'user', 'How do I make the React sidebar collapsible?'),
+      msg('r2', 'agent', 'Use a CSS grid and a toggle. The sidebar keeps its width…'),
+    ]);
+    add('zh', '資料庫遷移', 20, [msg('z1', 'user', '請幫我把 SQLite 資料庫的 schema 升級，順便加上索引')]);
+    add('title', 'React hooks notes', 10, []);
+    add('system', 'Quiet', 40, [msg('s1', 'system', 'React stopped')]);
+    add('like', 'Odd', 5, [msg('l1', 'user', 'progress is 100% done_now')]);
+  }
+
+  it('finds conversations by what was written in them, every word, ignoring case', () => {
+    const store = new Store(db);
+    seed(store);
+    expect(store.search('')).toEqual([]);
+    // Title matches first, then the most recent; system notes are not searched.
+    expect(store.search('react').map((r) => r.id)).toEqual(['title', 'react']);
+    expect(store.search('REACT collapsible').map((r) => r.id)).toEqual(['react']);
+    expect(store.search('react nothing-like-this')).toEqual([]);
+    // Words may be found in different messages, or in the title.
+    expect(store.search('layout toggle').map((r) => r.id)).toEqual(['react']);
+    // Chinese: any part of a word.
+    expect(store.search('資料庫').map((r) => r.id)).toEqual(['zh']);
+    expect(store.search('索引').map((r) => r.id)).toEqual(['zh']);
+    // % and _ are plain characters.
+    expect(store.search('100%').map((r) => r.id)).toEqual(['like']);
+    expect(store.search('e_n').map((r) => r.id)).toEqual(['like']);
+    expect(store.search('0_d')).toEqual([]);
+  });
+
+  it('says where it matched and in how many messages', () => {
+    const store = new Store(db);
+    seed(store);
+    const [hit] = store.search('sidebar');
+    expect(hit).toMatchObject({ id: 'react', title: 'Sidebar layout', updatedAt: 30, matches: 2 });
+    expect(hit!.snippet).toContain('sidebar');
+    expect(store.search('hooks')[0]).toEqual({ id: 'title', title: 'React hooks notes', updatedAt: 10, matches: 0 });
+  });
+
+  it('searches replies that are still being written', () => {
+    const store = new Store(db);
+    const conv: Conversation = { ...sampleConversation(), messages: [] };
+    store.create(conv);
+    const reply = { ...msg('live', 'agent', 'streaming answer about kubernetes'), status: 'streaming' as const };
+    conv.messages.push(reply);
+    store.saveMessage(conv.id, reply); // debounced, not written yet
+    expect(store.search('kubernetes').map((r) => r.id)).toEqual([conv.id]);
+  });
+});
+
 describe('Store write errors', () => {
   it('keeps streamed messages pending and retries when a batched write fails, instead of throwing from the timer', () => {
     vi.useFakeTimers();

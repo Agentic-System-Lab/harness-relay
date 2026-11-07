@@ -1,21 +1,27 @@
-import { PROVIDER_LABEL, type ConversationSummary, type ProviderStatus } from '../../shared/types';
+import { useEffect, useState } from 'react';
+import { PROVIDER_LABEL, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { useT, type Messages } from '../i18n';
-import { convStatus, relativeTime } from '../util';
-import { PanelIcon } from './icons';
-import { MemberDots } from './MemberDots';
+import { FolderPlusIcon, PanelIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
+import { SidebarGroups } from './SidebarGroups';
+import { SearchBox, SearchResults } from './SidebarSearch';
 
 interface Props {
   route: Route;
   conversations: ConversationSummary[];
+  groups: ConversationGroup[];
   /** When the user last saw each conversation (its updatedAt then). */
   seen: Record<string, number>;
   providers: ProviderStatus[];
   onDeleted: (id: string) => void;
+  /** Groups or conversations changed: load them again. */
+  onChanged: () => void;
   /** Hide the sidebar (wide screens). */
   onCollapse: () => void;
+  /** Goes up when search should open and take the focus (the button of the collapsed sidebar). */
+  searchRequest: number;
 }
 
 export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
@@ -24,8 +30,27 @@ export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
   return 'ok';
 }
 
-export function Sidebar({ route, conversations, seen, providers, onDeleted, onCollapse }: Props) {
+export function Sidebar({ route, conversations, groups, seen, providers, onDeleted, onChanged, onCollapse, searchRequest }: Props) {
   const t = useT();
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState('');
+  /** Focuses the search field again when search is asked for while it is open. */
+  const [searchFocus, setSearchFocus] = useState(0);
+  const [creating, setCreating] = useState(false);
+
+  const openSearch = () => {
+    setCreating(false);
+    setSearching(true);
+    setSearchFocus((n) => n + 1);
+  };
+  const closeSearch = () => {
+    setSearching(false);
+    setQuery('');
+  };
+  useEffect(() => {
+    if (searchRequest) openSearch();
+  }, [searchRequest]);
+
   const remove = async (c: ConversationSummary) => {
     if (!confirm(t.sidebar.confirmDelete(c.title))) return;
     try {
@@ -50,36 +75,35 @@ export function Sidebar({ route, conversations, seen, providers, onDeleted, onCo
         <button className="new-chat" data-tour="new-chat" onClick={() => navigate({ page: 'new' })}>
           <span aria-hidden>＋</span> {t.sidebar.newChat}
         </button>
+        {searching ? (
+          <SearchBox query={query} onQuery={setQuery} onClose={closeSearch} focusToken={searchFocus} />
+        ) : (
+          <div className="sidebar-actions">
+            <button type="button" className="sidebar-action" onClick={() => setCreating(true)} aria-pressed={creating}>
+              <FolderPlusIcon size={16} /> {t.sidebar.newGroup}
+            </button>
+            <button type="button" className="sidebar-action" onClick={openSearch}>
+              <SearchIcon size={16} /> {t.sidebar.search}
+            </button>
+          </div>
+        )}
       </div>
 
       <nav className="conv-list" aria-label={t.sidebar.conversations}>
-        {conversations.length === 0 && <p className="muted small pad">{t.sidebar.empty}</p>}
-        {conversations.map((c) => {
-          const active = route.page === 'chat' && route.id === c.id;
-          const status = convStatus(c, seen[c.id]);
-          return (
-            <div key={c.id} className={`conv-item ${active ? 'active' : ''}`}>
-              <a href={`#/c/${c.id}`} className="conv-link">
-                <span className="conv-title">
-                  {status && <span className={`status-dot ${status}`} aria-hidden />}
-                  {c.title}
-                </span>
-                <span className="conv-meta">
-                  <MemberDots agents={c.agents} className="conv-dots" />
-                  {status && <span className={`conv-status ${status}`}>{t.sidebar.status[status]}</span>}
-                  {relativeTime(c.updatedAt, t)}
-                </span>
-              </a>
-              <button
-                className="icon-button conv-delete"
-                aria-label={t.sidebar.deleteConversation}
-                onClick={() => remove(c)}
-              >
-                ×
-              </button>
-            </div>
-          );
-        })}
+        {searching && query.trim() ? (
+          <SearchResults query={query} route={route} groups={groups} />
+        ) : (
+          <SidebarGroups
+            route={route}
+            conversations={conversations}
+            groups={groups}
+            seen={seen}
+            creating={creating}
+            onCreatingDone={() => setCreating(false)}
+            onChanged={onChanged}
+            onDelete={remove}
+          />
+        )}
       </nav>
 
       <div className="sidebar-bottom" data-tour="settings">

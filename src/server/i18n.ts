@@ -97,6 +97,12 @@ const zhTW = {
   keyringFailed: (e: string) => `無法把 API key 存進系統的金鑰儲存區：${e}`,
   noLogin: '沒有進行中的登入',
   presetNameRequired: '請輸入範本名稱',
+  otherGroup: '其他',
+  groupNameRequired: '請輸入群組名稱',
+  groupNameTooLong: (max: number) => `群組名稱最多 ${max} 個字`,
+  groupNameTaken: (name: string) => `已經有叫「${name}」的群組了`,
+  groupNotFound: '找不到這個群組',
+  tooManyGroups: (max: number) => `最多只能建立 ${max} 個群組`,
 
   // Validation
   needAgent: '至少需要一個 agent',
@@ -226,6 +232,12 @@ const en: ServerMessages = {
   keyringFailed: (e) => `Could not save the API key to the system credential store: ${e}`,
   noLogin: 'No sign-in in progress',
   presetNameRequired: 'Enter a template name',
+  otherGroup: 'Other',
+  groupNameRequired: 'Enter a group name',
+  groupNameTooLong: (max) => `A group name can be at most ${max} characters`,
+  groupNameTaken: (name) => `There is already a group called "${name}"`,
+  groupNotFound: 'Group not found',
+  tooManyGroups: (max) => `You can have at most ${max} groups`,
 
   needAgent: 'At least one agent is needed',
   tooManyAgents: (max) => `At most ${max} agents`,
@@ -289,6 +301,11 @@ const MESSAGES: Record<Lang, ServerMessages> = { 'zh-TW': zhTW, en };
 /** Messages in the language of the current request or run. */
 export function t(): ServerMessages {
   return MESSAGES[currentLang()];
+}
+
+/** The default group's name in any language: no group may be called that. */
+export function isOtherGroupName(name: string): boolean {
+  return LANGS.some((l) => MESSAGES[l].otherGroup.toLowerCase() === name.toLowerCase());
 }
 
 /** Titles a conversation gets before its first message, in any language. */

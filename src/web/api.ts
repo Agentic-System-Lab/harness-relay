@@ -4,6 +4,7 @@ import type {
   ApprovalAnswer,
   ChatMessage,
   Conversation,
+  ConversationGroup,
   ConversationSettings,
   ConversationSummary,
   FileChange,
@@ -14,6 +15,7 @@ import type {
   ProviderModels,
   ProviderSettingsUpdate,
   ProviderStatus,
+  SearchResult,
   SettingsView,
   TeamPreset,
   VoiceModelId,
@@ -100,6 +102,18 @@ export const api = {
   updateConversation: (id: string, b: Partial<Pick<Conversation, 'title' | 'agents' | 'settings'>> & { createCwd?: boolean }) =>
     request<Conversation>('PATCH', `/api/conversations/${id}`, b),
   deleteConversation: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}`),
+  /** `groupId: null` puts it in the default group ("Other"). */
+  moveToGroup: (id: string, groupId: string | null) =>
+    request<{ ok: true }>('PUT', `/api/conversations/${id}/group`, { groupId }),
+  /** Conversations whose title or messages contain every word of `q`. */
+  search: (q: string) => request<SearchResult[]>('GET', `/api/search?q=${encodeURIComponent(q)}`),
+
+  // sidebar groups
+  listGroups: () => request<ConversationGroup[]>('GET', '/api/groups'),
+  createGroup: (name: string) => request<ConversationGroup>('POST', '/api/groups', { name }),
+  renameGroup: (id: string, name: string) => request<ConversationGroup>('PATCH', `/api/groups/${id}`, { name }),
+  /** Its conversations go to the default group ("Other"). */
+  deleteGroup: (id: string) => request<{ ok: true }>('DELETE', `/api/groups/${id}`),
   /** While the team replies the message waits for the next turn (`queued`); `interrupt` stops the team and sends it now. */
   send: (id: string, text: string, attachments: AttachmentUpload[] = [], interrupt = false) =>
     request<{ ok: true; queued: boolean }>('POST', `/api/conversations/${id}/messages`, { text, attachments, interrupt }),

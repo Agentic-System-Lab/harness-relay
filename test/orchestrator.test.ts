@@ -16,6 +16,7 @@ const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { AgentRunError, runners } = await import('../src/server/agents');
 const { PLANNER_BRIEFING } = await import('../src/server/planner');
+const { GROUPER_BRIEFING } = await import('../src/server/grouping');
 const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
 
 let n = 0;
@@ -37,6 +38,10 @@ let calls: {
 let leadReply = '';
 /** When set, the fake lead agent waits for it before replying. */
 let leadGate: Promise<void> | undefined;
+/** What the fake lead agent replies when asked to sort a conversation into a sidebar group. */
+let sorterReply = '{"group": 0}';
+/** When set, the fake lead agent waits for it before sorting (or until it is stopped). */
+let sorterGate: Promise<void> | undefined;
 /** Runs inside an agent's fake CLI turn after it wrote its files (e.g. to commit them itself). */
 let during: ((name: string, cwd: string) => void) | undefined;
 /** Per-agent gates: when set, that agent waits for its own gate instead of `gate`. */
@@ -51,6 +56,16 @@ beforeAll(() => {
   runners.claude = {
     provider: 'claude',
     async run(o) {
+      if (o.systemPrompt === GROUPER_BRIEFING) {
+        calls.push({ name: 'sorter', prompt: o.prompt });
+        if (sorterGate && !o.signal?.aborted) {
+          await Promise.race([sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
+        }
+        if (o.signal?.aborted) throw new AgentRunError('stopped', true);
+        o.onEvent({ type: 'text', text: sorterReply });
+        o.onEvent({ type: 'text_end' });
+        return {};
+      }
       if (o.systemPrompt === PLANNER_BRIEFING) {
         calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt });
         if (leadGate) await leadGate;
@@ -109,6 +124,8 @@ beforeEach(() => {
   });
   leadReply = '';
   leadGate = undefined;
+  sorterReply = '{"group": 0}';
+  sorterGate = undefined;
   fail = undefined;
   during = undefined;
   gates = {};
@@ -1237,5 +1254,62 @@ describe('agents asking the user', () => {
     await orchestrator.send(conv.id, 'ANSWER: A');
     await finish(conv.id);
     expect(said(conv)).toEqual(['question', '@Alice', 'a note', 'ANSWER: A', '@Alice', '@Bob']);
+  });
+});
+
+describe('sorting new conversations into sidebar groups', () => {
+  const groupOf = (convId: string) => store.list(() => false).find((c) => c.id === convId)?.groupId;
+
+  it('lets the lead agent put a conversation in a group by its first message, next to the team', async () => {
+    store.createGroup({ id: 'g1', name: 'Frontend' });
+    store.createGroup({ id: 'g2', name: 'Docs' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    sorterReply = '```json\n{"group": 2}\n```';
+    await orchestrator.send(conv.id, 'Write the README for the API');
+    await finish(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(false));
+
+    expect(groupOf(conv.id)).toBe('g2');
+    const sorter = calls.find((c) => c.name === 'sorter')!;
+    expect(sorter.prompt).toContain('Write the README for the API');
+    expect(sorter.prompt).toContain('2. "Docs"');
+    expect(calls.map((c) => c.name).sort()).toEqual(['Alice', 'Bob', 'sorter']);
+
+    // Only the first message sorts it.
+    await orchestrator.send(conv.id, 'And the changelog');
+    await finish(conv.id);
+    expect(calls.filter((c) => c.name === 'sorter')).toHaveLength(1);
+  });
+
+  it('asks nobody without groups, and keeps a conversation where the user put it meanwhile', async () => {
+    const plain = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(plain.id, 'hello');
+    await finish(plain.id);
+    expect(calls.map((c) => c.name)).not.toContain('sorter');
+
+    store.createGroup({ id: 'g1', name: 'Frontend' });
+    store.createGroup({ id: 'g2', name: 'Docs' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    let release!: () => void;
+    sorterGate = new Promise((r) => (release = r));
+    sorterReply = '{"group": 2}';
+    await orchestrator.send(conv.id, 'Fix the sidebar');
+    await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(true));
+    expect(store.list(() => false, () => false, (id) => orchestrator.isSorting(id)).find((c) => c.id === conv.id)?.sorting).toBe(true);
+    store.moveToGroup(conv.id, 'g1');
+    release();
+    await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(false));
+    expect(groupOf(conv.id)).toBe('g1');
+  });
+
+  it('stops sorting a conversation that is deleted', async () => {
+    store.createGroup({ id: 'g1', name: 'Frontend' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    sorterGate = new Promise(() => {}); // never answers by itself
+    await orchestrator.send(conv.id, 'Fix the sidebar');
+    await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(true));
+    await orchestrator.deleteConversation(conv.id);
+    expect(orchestrator.isSorting(conv.id)).toBe(false);
+    expect(store.list(() => false).some((c) => c.id === conv.id)).toBe(false);
   });
 });

@@ -6,6 +6,7 @@ import type {
   MessageChanges,
   ChatMessage,
   Conversation,
+  ConversationGroup,
   ConversationSummary,
   MessagePart,
   Mode,
@@ -16,8 +17,10 @@ import type {
   TeamPreset,
   ToolStatus,
   MessageStatus,
+  SearchResult,
 } from '../shared/types';
 import { pendingPlan } from '../shared/types';
+import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
 import { currentLang } from './i18n';
 import { builtinPresets } from './presets';
@@ -261,10 +264,14 @@ export class Store {
 
   // Conversations ------------------------------------------------------------
 
-  list(running: (id: string) => boolean, waiting: (id: string) => boolean = () => false): ConversationSummary[] {
+  list(
+    running: (id: string) => boolean,
+    waiting: (id: string) => boolean = () => false,
+    sorting: (id: string) => boolean = () => false,
+  ): ConversationSummary[] {
     const rows = this.db
-      .prepare('SELECT id, title, updated_at, pause IS NOT NULL AS asking FROM conversations ORDER BY updated_at DESC')
-      .all() as (Pick<ConversationRow, 'id' | 'title' | 'updated_at'> & { asking: number })[];
+      .prepare('SELECT id, title, updated_at, group_id, pause IS NOT NULL AS asking FROM conversations ORDER BY updated_at DESC')
+      .all() as (Pick<ConversationRow, 'id' | 'title' | 'updated_at'> & { group_id: string | null; asking: number })[];
     const agents = this.db
       .prepare('SELECT conversation_id, name, provider FROM conversation_agents ORDER BY conversation_id, position')
       .all() as { conversation_id: string; name: string; provider: Provider }[];
@@ -307,6 +314,8 @@ export class Store {
           ...((live ? pendingPlan(live.messages) : confirming.has(r.id)) ? { confirmTeam: true } : {}),
           ...((live ? live.pause : r.asking) ? { asking: true } : {}),
           ...statusOf(live, lastStatus.get(r.id)),
+          ...(r.group_id ? { groupId: r.group_id } : {}),
+          ...(sorting(r.id) ? { sorting: true } : {}),
         };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -651,6 +660,139 @@ export class Store {
            branch = excluded.branch, base_commit = excluded.base_commit, needs_reset = excluded.needs_reset`,
       )
       .run(convId, agentId, w.root, w.path, w.branch, w.base, w.needsReset ? 1 : 0);
+  }
+
+  // Groups -------------------------------------------------------------------------
+
+  /** The user's groups, in the order they were made. (The default group, "Other", is not stored.) */
+  listGroups(): ConversationGroup[] {
+    return this.db.prepare('SELECT id, name FROM conversation_groups ORDER BY position, created_at').all() as unknown as ConversationGroup[];
+  }
+
+  getGroup(id: string): ConversationGroup | undefined {
+    return this.db.prepare('SELECT id, name FROM conversation_groups WHERE id = ?').get(id) as ConversationGroup | undefined;
+  }
+
+  /** A new group goes after the others. */
+  createGroup(group: ConversationGroup): void {
+    this.db
+      .prepare(
+        `INSERT INTO conversation_groups (id, name, position, created_at)
+         VALUES (?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM conversation_groups), ?)`,
+      )
+      .run(group.id, group.name, Date.now());
+  }
+
+  renameGroup(id: string, name: string): void {
+    this.db.prepare('UPDATE conversation_groups SET name = ? WHERE id = ?').run(name, id);
+  }
+
+  /** Its conversations go to the default group (the foreign key sets their group to NULL). */
+  deleteGroup(id: string): void {
+    this.db.prepare('DELETE FROM conversation_groups WHERE id = ?').run(id);
+  }
+
+  /** The user puts a conversation in a group (`null`: the default group). */
+  moveToGroup(convId: string, groupId: string | null): void {
+    this.db.prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?").run(groupId, convId);
+  }
+
+  /**
+   * The lead agent sorted a conversation by its first message: it goes into `groupId` (`null`: stays
+   * in the default group) unless it was sorted already — the user may have moved it meanwhile — or
+   * the group is gone. Returns whether it moved.
+   */
+  sortIntoGroup(convId: string, groupId: string | null): boolean {
+    if (this.deleted.has(convId)) return false;
+    const res = this.db
+      .prepare(
+        `UPDATE conversations SET group_id = ?, group_source = 'auto'
+         WHERE id = ? AND group_source IS NULL AND (? IS NULL OR EXISTS (SELECT 1 FROM conversation_groups WHERE id = ?))`,
+      )
+      .run(groupId, convId, groupId, groupId);
+    return res.changes > 0;
+  }
+
+  /** The conversation was put in a group already (or left in "Other" on purpose), by the user or the lead agent. */
+  isSorted(convId: string): boolean {
+    const row = this.db.prepare('SELECT group_source FROM conversations WHERE id = ?').get(convId) as
+      | { group_source: string | null }
+      | undefined;
+    return Boolean(row?.group_source);
+  }
+
+  /** Titles of a group's most recent conversations (shown to the lead agent as examples of what is in it). */
+  groupTitles(groupId: string, limit: number): string[] {
+    return (
+      this.db
+        .prepare('SELECT title FROM conversations WHERE group_id = ? ORDER BY updated_at DESC LIMIT ?')
+        .all(groupId, limit) as { title: string }[]
+    ).map((r) => r.title);
+  }
+
+  // Search -------------------------------------------------------------------------
+
+  /**
+   * Conversations whose title or messages (what the user and the agents wrote) contain every word of
+   * `query`, ignoring case: those whose title matches first, then the most recent.
+   */
+  search(query: string, limit = 50): SearchResult[] {
+    const terms = searchTerms(query);
+    if (!terms.length) return [];
+    try {
+      this.flushAll(); // replies still streaming are searchable too
+    } catch (err) {
+      console.error('[store] could not save messages before searching:', err);
+    }
+    const like = terms.map((t) => `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+    const hits = this.db
+      .prepare(
+        `SELECT m.conversation_id, m.id AS message_id, p.text FROM message_parts p JOIN messages m ON m.id = p.message_id
+         WHERE p.type = 'text' AND m.author_kind IN ('user', 'agent') AND (${like.map(() => "p.text LIKE ? ESCAPE '\\'").join(' OR ')})
+         ORDER BY m.conversation_id, m.seq, p.idx`,
+      )
+      .all(...like) as { conversation_id: string; message_id: string; text: string }[];
+    const byConv = new Map<string, typeof hits>();
+    for (const h of hits) {
+      const list = byConv.get(h.conversation_id) ?? [];
+      list.push(h);
+      byConv.set(h.conversation_id, list);
+    }
+    const rows = this.db.prepare('SELECT id, title, updated_at, group_id FROM conversations').all() as {
+      id: string;
+      title: string;
+      updated_at: number;
+      group_id: string | null;
+    }[];
+    const results: (SearchResult & { titleMatch: boolean })[] = [];
+    for (const r of rows) {
+      const live = this.cache.get(r.id);
+      const title = live?.title ?? r.title;
+      const found = new Set(termsIn(title, terms).map((t) => t.toLowerCase()));
+      const titleMatch = found.size === terms.length;
+      // LIKE ignores case for ASCII letters only; the check here is the one that counts.
+      const parts = (byConv.get(r.id) ?? []).filter((h) => termsIn(h.text, terms).length);
+      for (const h of parts) for (const t of termsIn(h.text, terms)) found.add(t.toLowerCase());
+      if (found.size < terms.length) continue;
+      // The excerpt comes from the part with the most of the words.
+      const best = parts.reduce<(typeof parts)[number] | undefined>(
+        (a, h) => (!a || termsIn(h.text, terms).length > termsIn(a.text, terms).length ? h : a),
+        undefined,
+      );
+      results.push({
+        id: r.id,
+        title,
+        updatedAt: live?.updatedAt ?? r.updated_at,
+        ...(r.group_id ? { groupId: r.group_id } : {}),
+        ...(best ? { snippet: snippetAround(best.text, terms) } : {}),
+        matches: new Set(parts.map((h) => h.message_id)).size,
+        titleMatch,
+      });
+    }
+    return results
+      .sort((a, b) => Number(b.titleMatch) - Number(a.titleMatch) || b.updatedAt - a.updatedAt)
+      .slice(0, limit)
+      .map(({ titleMatch: _titleMatch, ...r }) => r);
   }
 
   // Presets ------------------------------------------------------------------------

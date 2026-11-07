@@ -4,10 +4,12 @@ import { isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   CWD_MISSING,
+  GROUP_LIMITS,
   PROVIDERS,
   VOICE_LANGUAGES,
   VOICE_MODELS,
   type AgentConfig,
+  type ConversationGroup,
   type ConversationSettings,
   type LeadAgentSettings,
   type Mode,
@@ -19,7 +21,7 @@ import {
   type VoiceSettingsUpdate,
 } from '../shared/types';
 import { HttpError } from './errors';
-import { t } from './i18n';
+import { isOtherGroupName, t } from './i18n';
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
@@ -165,4 +167,17 @@ export function validateSettings(input: unknown, defaultCwd: string, create = fa
     ...(s.autoTeam === true ? { autoTeam: true } : {}),
     ...(s.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
   };
+}
+
+/**
+ * A group name: trimmed, spaces collapsed, not too long, and not the name of another group (`except`
+ * is the one being renamed) or of the default group in any language, ignoring case.
+ */
+export function validGroupName(input: unknown, groups: ConversationGroup[], except?: string): string {
+  const name = String(input ?? '').replace(/\s+/g, ' ').trim();
+  if (!name) bad(t().groupNameRequired);
+  if ([...name].length > GROUP_LIMITS.maxName) bad(t().groupNameTooLong(GROUP_LIMITS.maxName));
+  const key = name.toLowerCase();
+  if (isOtherGroupName(name) || groups.some((g) => g.id !== except && g.name.toLowerCase() === key)) bad(t().groupNameTaken(name));
+  return name;
 }

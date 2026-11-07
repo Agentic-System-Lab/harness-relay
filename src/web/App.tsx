@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ConversationSummary, ProviderModels, ProviderStatus } from '../shared/types';
+import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus } from '../shared/types';
 import { api } from './api';
 import { ChatView } from './components/ChatView';
 import { NewChat } from './components/NewChat';
 import { Onboarding, onboardingDone } from './components/Onboarding';
 import { SettingsPage } from './components/SettingsPage';
 import { Sidebar } from './components/Sidebar';
-import { PanelIcon, PlusIcon } from './components/icons';
+import { PanelIcon, PlusIcon, SearchIcon } from './components/icons';
 import { useT } from './i18n';
 
 type SeenMap = Record<string, number>;
@@ -57,6 +57,9 @@ export function App() {
   const [tourOpen, setTourOpen] = useState(() => !onboardingDone());
   const [route, setRoute] = useState<Route>(parseHash);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [groups, setGroups] = useState<ConversationGroup[]>([]);
+  /** Goes up when the sidebar should open its search (the button of the collapsed sidebar). */
+  const [searchRequest, setSearchRequest] = useState(0);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [catalog, setCatalog] = useState<ProviderModels[]>([]);
   /** Mobile: the sidebar drawer is open. */
@@ -82,11 +85,12 @@ export function App() {
   }, []);
 
   const [loaded, setLoaded] = useState(false);
+  // The conversations and the groups they are in (the lead agent sorts new ones in the background).
   const refreshConversations = useCallback(() => {
-    api
-      .listConversations()
-      .then((list) => {
+    Promise.all([api.listConversations(), api.listGroups()])
+      .then(([list, g]) => {
         setConversations(list);
+        setGroups(g);
         setLoaded(true);
       })
       .catch(console.error);
@@ -156,8 +160,11 @@ export function App() {
         onCollapse={() => setCollapsed(true)}
         route={route}
         conversations={conversations}
+        groups={groups}
         seen={seen ?? {}}
         providers={providers}
+        onChanged={refreshConversations}
+        searchRequest={searchRequest}
         onDeleted={(id) => {
           refreshConversations();
           if (route.page === 'chat' && route.id === id) navigate({ page: 'new' });
@@ -175,6 +182,17 @@ export function App() {
             </button>
             <button className="icon-button" onClick={() => navigate({ page: 'new' })} aria-label={t.sidebar.newChat} title={t.sidebar.newChat}>
               <PlusIcon />
+            </button>
+            <button
+              className="icon-button"
+              onClick={() => {
+                setCollapsed(false);
+                setSearchRequest((n) => n + 1);
+              }}
+              aria-label={t.sidebar.search}
+              title={t.sidebar.search}
+            >
+              <SearchIcon />
             </button>
           </div>
         )}

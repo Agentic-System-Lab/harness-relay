@@ -320,6 +320,34 @@ export interface ConversationSummary {
   asking?: boolean;
   /** How the latest agent reply ended (absent before the first one). */
   lastStatus?: MessageStatus;
+  /** The sidebar group it is in; absent = the default group, "Other". */
+  groupId?: string;
+  /** The lead agent is sorting it into one of the user's groups (by its first message). */
+  sorting?: boolean;
+}
+
+/**
+ * A group of conversations in the sidebar, made by the user. Conversations in no group are in the
+ * default group, "Other", which always exists and is not stored.
+ */
+export interface ConversationGroup {
+  id: string;
+  name: string;
+}
+
+/** The longest group name, and the most groups there can be. */
+export const GROUP_LIMITS = { maxName: 40, maxGroups: 50 };
+
+/** A conversation that matches a search (`GET /api/search`). */
+export interface SearchResult {
+  id: string;
+  title: string;
+  updatedAt: number;
+  groupId?: string;
+  /** The text around the first match in its messages; absent when only the title matched. */
+  snippet?: string;
+  /** How many of its messages match. */
+  matches: number;
 }
 
 /** Events pushed to the browser over SSE for one conversation. */

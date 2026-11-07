@@ -377,3 +377,73 @@ describe('messages sent while the team replies', () => {
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
   });
 });
+
+describe('sidebar groups', () => {
+  const create = (name: unknown, lang = 'en') => app.request('/api/groups', json('POST', { name }, { 'x-relay-lang': lang }));
+
+  it('creates, renames and deletes groups, with names that tell them apart', async () => {
+    const res = await create('  Front   end ');
+    expect(res.status).toBe(200);
+    const front = (await res.json()) as { id: string; name: string };
+    expect(front.name).toBe('Front end');
+    expect((await create('Docs')).status).toBe(200);
+
+    // Names must be new, not empty, not too long, and not the default group's, in either language.
+    for (const name of ['front END', '', '   ', 'x'.repeat(41), 'Other', '其他', 'other']) {
+      const bad = await create(name);
+      expect(bad.status, name).toBe(400);
+    }
+    expect(((await (await create('docs', 'zh-TW')).json()) as { error: string }).error).toBe('已經有叫「docs」的群組了');
+
+    const renamed = await app.request(`/api/groups/${front.id}`, json('PATCH', { name: 'Web' }));
+    expect(await renamed.json()).toEqual({ id: front.id, name: 'Web' });
+    expect((await app.request(`/api/groups/${front.id}`, json('PATCH', { name: 'web' }))).status).toBe(200); // its own name
+    expect((await app.request(`/api/groups/${front.id}`, json('PATCH', { name: 'Docs' }))).status).toBe(400);
+    expect((await app.request('/api/groups/nope', json('PATCH', { name: 'x' }))).status).toBe(404);
+
+    expect(((await (await get('/api/groups')).json()) as { name: string }[]).map((g) => g.name)).toEqual(['web', 'Docs']);
+    expect((await app.request(`/api/groups/${front.id}`, json('DELETE', {}))).status).toBe(200);
+    expect(((await (await get('/api/groups')).json()) as { name: string }[]).map((g) => g.name)).toEqual(['Docs']);
+    expect((await app.request(`/api/groups/${front.id}`, json('DELETE', {}))).status).toBe(404);
+  });
+
+  it('moves a conversation between groups; deleting its group puts it in Other', async () => {
+    const conv = await createConversation();
+    const group = (await (await create('Docs')).json()) as { id: string };
+    const move = (groupId: unknown) => app.request(`/api/conversations/${conv.id}/group`, json('PUT', { groupId }));
+    const listed = async () =>
+      ((await (await get('/api/conversations')).json()) as { id: string; groupId?: string }[]).find((c) => c.id === conv.id)!.groupId;
+
+    expect((await move(group.id)).status).toBe(200);
+    expect(await listed()).toBe(group.id);
+    expect((await move('missing')).status).toBe(404);
+    expect(await listed()).toBe(group.id);
+    expect((await app.request('/api/conversations/nope/group', json('PUT', { groupId: group.id }))).status).toBe(404);
+
+    expect((await move(null)).status).toBe(200);
+    expect(await listed()).toBeUndefined();
+    await move(group.id);
+    await app.request(`/api/groups/${group.id}`, json('DELETE', {}));
+    expect(await listed()).toBeUndefined();
+  });
+});
+
+describe('GET /api/search', () => {
+  it('finds conversations by title and by what was written in them', async () => {
+    const conv = await createConversation();
+    const stored = store.get(conv.id)!;
+    stored.title = 'Release checklist';
+    store.saveMeta(stored);
+    const msg = { id: 'm1', author: { kind: 'user' as const }, createdAt: 1, parts: [{ type: 'text' as const, text: '部署到 staging 之前要跑測試' }], status: 'done' as const };
+    stored.messages.push(msg);
+    store.saveMessage(conv.id, msg, true);
+
+    const search = async (q: string) => (await (await get(`/api/search?q=${encodeURIComponent(q)}`)).json()) as { id: string; snippet?: string }[];
+    expect((await search('release')).map((r) => r.id)).toEqual([conv.id]);
+    const [hit] = await search('staging 測試');
+    expect(hit?.id).toBe(conv.id);
+    expect(hit?.snippet).toBe('部署到 staging 之前要跑測試');
+    expect(await search('production')).toEqual([]);
+    expect(await search('')).toEqual([]);
+  });
+});

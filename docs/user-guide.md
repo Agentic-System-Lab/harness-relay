@@ -60,7 +60,7 @@ Under **Default model and reasoning effort** choose what an agent uses when its 
 
 ### Lead agent
 
-**✦ Lead agent** picks the CLI (and optionally the model and effort) that designs the team in [Auto team](#auto-team) conversations. Choose one that is signed in; a small, fast model is usually enough.
+**✦ Lead agent** picks the CLI (and optionally the model and effort) that designs the team in [Auto team](#auto-team) conversations, and that sorts new conversations into your [groups](#groups). Choose one that is signed in; a small, fast model is usually enough.
 
 **Default working directory** sets the folder new conversations start in. If the folder does not exist yet, Harness Relay asks whether to create it (so does the working directory of a new conversation, or one you change under the team settings).
 
@@ -200,7 +200,7 @@ In **Settings → Voice input** you can also install it from scratch, download a
 
 ### Conversation list
 
-The sidebar lists conversations, newest first, each with its state:
+The sidebar lists conversations in their [groups](#groups), newest first, each with its state:
 
 | Badge | Meaning |
 | --- | --- |
@@ -212,7 +212,20 @@ The sidebar lists conversations, newest first, each with its state:
 
 Conversations keep running when you switch to another one (or close the tab); the badges update by themselves. Click the title in the chat header to rename; hover a conversation and click × to delete it. A conversation with a large team shows its first few member dots and a **+N** count.
 
-To make room, collapse the sidebar with the panel button next to *Harness Relay*. Two buttons stay in the top-left corner: one brings the sidebar back, the other starts a new chat. The choice is remembered in this browser. (On a phone the sidebar is a drawer opened with ☰ instead, and the page does not zoom: no pinch or double-tap zoom, and no zooming in on the message box. On a phone or tablet the header is a single row: the title with **Copy chat** and **Team settings** (icons on a phone: two sheets, two people); the team, its mode and its permission are under **Team settings**, except that a red **Full access** tag beside the title warns when the agents may run any command. The message box stays one line until you type, and its buttons move below the text when they would leave it too little room.)
+To make room, collapse the sidebar with the panel button next to *Harness Relay*. Three buttons stay in the top-left corner: one brings the sidebar back, one starts a new chat, and one opens the sidebar with [search](#search) ready. The choice is remembered in this browser. (On a phone the sidebar is a drawer opened with ☰ instead, and the page does not zoom: no pinch or double-tap zoom, and no zooming in on the message box. On a phone or tablet the header is a single row: the title with **Copy chat** and **Team settings** (icons on a phone: two sheets, two people); the team, its mode and its permission are under **Team settings**, except that a red **Full access** tag beside the title warns when the agents may run any command. The message box stays one line until you type, and its buttons move below the text when they would leave it too little room.)
+
+### Groups
+
+Click **New group** under **New chat**, type a name and press Enter. Groups appear in the order you made them, and **Other** — the default group, which always exists — comes last: conversations in no group are there.
+
+- **Move a conversation**: drag it onto a group (the group lights up), or hover it, click the folder button and pick a group. On a phone or tablet, where dragging does not work, the folder button is always shown.
+- **Sorted for you**: when a new conversation gets its first message and you have groups, the lead agent ([Settings → Lead agent](#lead-agent)) reads the message, next to the team, and puts the conversation in the group it fits; while it decides, the conversation says **Sorting…**. When no group fits it stays in **Other**. This happens once per conversation, and never moves a conversation you have already moved yourself. With no groups, nothing is asked.
+- **Rename or delete a group**: hover its name and click the pencil or ×. Deleting a group moves its conversations to **Other**; they are not deleted. Names must be different from each other and from **Other**.
+- **Collapse a group**: click its name. A collapsed group shows the dot of its most urgent conversation (needs you, replying, error, new reply). Collapsed groups are remembered in this browser.
+
+### Search
+
+Click **Search** under **New chat** (or the magnifier in the corner of a collapsed sidebar) and type. Conversations whose title or messages — what you and the agents wrote — contain every word you typed are listed in place of the groups, ignoring case: those whose title matches first, then the most recent. Each result shows where it matched, with the words highlighted, its group and how many messages match. Click one to open it; press Escape or × to go back to the groups. Chinese works without spaces: any part of a word matches.
 
 ## 5. Tips for writing roles
 

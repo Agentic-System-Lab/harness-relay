@@ -20,6 +20,7 @@ import { AgentRunError, runners, type AgentEvent, type RunResult } from './agent
 import type { ApprovalRequest } from './agents/types';
 import { approvalKeys, isAllowed } from './approvals';
 import { HttpError } from './errors';
+import { AutoGrouper } from './grouping';
 import type { Hub } from './hub';
 import {
   PLANNER_BRIEFING,
@@ -160,6 +161,12 @@ function isFor(m: ChatMessage, recipients: AgentConfig[], agents: AgentConfig[])
 
 const attachmentsOf = (m: ChatMessage) => m.parts.filter((p): p is AttachmentPart => p.type === 'attachment');
 
+/** What a user message asks: its text, and the names of the files attached to it. */
+function questionOf(m: ChatMessage): string {
+  const files = attachmentsOf(m).map((p) => p.name);
+  return textOf(m) + (files.length ? `\n\n(Attached files: ${files.join(', ')})` : '');
+}
+
 /**
  * A finished reply that ends with the ask marker asks the user something: the marker is taken out of
  * the message. Returns whether it asks.
@@ -211,16 +218,25 @@ export class Orchestrator {
   private dirLocks = new Map<string, string>();
   /** Approval requests waiting for the user, by approval part id. */
   private approvals = new Map<string, { convId: string; resolve: (a: ApprovalAnswer & { expired?: boolean }) => void }>();
+  /** Sorts new conversations into the user's sidebar groups. */
+  private grouper: AutoGrouper;
 
   constructor(
     private store: Store,
     private hub: Hub,
     private settings: SettingsStore,
     private planner: PlannerSource = { context: async () => ({ available: [], catalog: [], presets: store.listPresets() }) },
-  ) {}
+  ) {
+    this.grouper = new AutoGrouper(store, settings);
+  }
 
   isRunning(id: string): boolean {
     return this.runs.has(id);
+  }
+
+  /** The lead agent is sorting this new conversation into one of the user's groups. */
+  isSorting(id: string): boolean {
+    return this.grouper.isSorting(id);
   }
 
   /** Running, or reserved by a request that will change it. */
@@ -275,6 +291,7 @@ export class Orchestrator {
         run.abort.abort();
         await run.done;
       }
+      await this.grouper.cancel(convId);
       const conv = this.store.get(convId);
       if (conv) await this.cleanupWorktrees(conv);
       this.store.delete(convId);
@@ -285,7 +302,7 @@ export class Orchestrator {
 
   /** Every run finished (or `ms` passed): used on shutdown before the database closes. */
   async settled(ms: number): Promise<void> {
-    const all = Promise.allSettled([...this.runs.values()].map((r) => r.done));
+    const all = Promise.allSettled([...this.runs.values()].map((r) => r.done).concat(this.grouper.settled()));
     await Promise.race([all, new Promise((r) => setTimeout(r, ms).unref())]);
   }
 
@@ -618,6 +635,8 @@ export class Orchestrator {
       this.store.saveMessage(conv.id, msg, true);
       this.hub.emit(conv.id, { type: 'message', message: msg });
       this.nameAfter(conv, msg);
+      // The first message says what the conversation is about: sort it into one of the user's groups.
+      if (conv.messages.filter((m) => m.author.kind === 'user').length === 1) this.grouper.start(conv, questionOf(msg));
     }
     conv.updatedAt = Date.now();
     this.store.saveMeta(conv);
@@ -641,6 +660,7 @@ export class Orchestrator {
   stopAll(): void {
     this.closing = true;
     for (const r of this.runs.values()) r.abort.abort();
+    this.grouper.stopAll();
   }
 
   emitConversation(conv: Conversation): void {

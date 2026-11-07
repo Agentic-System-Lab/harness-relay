@@ -21,12 +21,14 @@
 src/
   shared/types.ts          伺服器與前端共用的型別（以及 PROVIDERS、effortsFor…）
   shared/mentions.ts       伺服器與介面共用的 @ 規則（只看 Markdown 中的一般文字）
+  shared/search.ts         搜尋的詞、不分大小寫的比對、摘錄、標示關鍵字（伺服器與介面共用）
   server/
     index.ts               組裝元件、靜態檔案、啟動與關閉
     web.ts                 提供建置好的介面：帶雜湊的檔案永久快取，index.html 每次都檢查
     app.ts                 createApp()：路由、安全性中介層、SSE（可用 app.request() 測試）
     orchestrator.ts        團隊回合：排程、交付 prompt、把串流寫進訊息；自動組隊、重新傳送
     planner.ts             自動組隊：首席 agent 的 prompt、解析回覆、可執行的團隊、備援方案
+    grouping.ts            側邊欄群組：首席 agent 依第一則訊息把新對話分到群組
     prompt.ts              角色簡報、回合 prompt、@ 解析、[PASS]
     approvals.ts           「本對話都允許」的規則 key（這行指令執行的每個指令各一個）
     commands.ts            解析 shell 指令：拆出各個指令、sh -c、包裝程式、推送／發佈判斷
@@ -42,7 +44,7 @@ src/
     providers.ts           CLI 狀態、登入流程、登出、模型快取
     models.ts              各 CLI 的模型 / 推理強度探索
     db.ts                  開啟 SQLite、遷移、transaction()
-    store.ts               對話、訊息、agent session、範本
+    store.ts               對話、訊息、agent session、範本、側邊欄群組、搜尋
     settings.ts            provider 設定、預設工作目錄、子程序環境變數
     secrets.ts             存放 API key 的作業系統金鑰儲存區（keyring）、可用性檢查
     attachments.ts         訊息的附加檔案：儲存、安全檔名、交給 agent 的圖片
@@ -55,12 +57,14 @@ src/
   web/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
     chat.ts                ChatView 的純邏輯：串流是否重新連線、能否套用、團隊設定草稿
+    sidebar.ts             側邊欄的純邏輯：各群組的對話、還沒確認的移動、收合群組的狀態
     voice.ts               語音輸入的純邏輯：WAV 編碼、靜音判斷、把辨識結果插入游標處、安裝進度
     recorder.ts            在瀏覽器錄音，解碼成 16 kHz 單聲道
     useVoice.ts            語音輸入狀態的 hook（安裝時輪詢）
     i18n.tsx               語言偵測、provider、useT()
     locales/               zh-TW.ts（訊息結構的來源）、en.ts
-    components/            Sidebar、NewChat、TeamEditor、ModelPicker、ChatView、
+    components/            Sidebar、SidebarGroups（群組、拖放）、SidebarSearch、
+                           NewChat、TeamEditor、ModelPicker、ChatView、
                            MessageItem（含 plan 卡片）、ChangesCard、Composer、Markdown、
                            SettingsPage、CopyButton、Logo、Onboarding（使用導覽）、
                            MemberDots、icons、VoiceInput（麥克風、安裝說明對話框、安裝進度）、
@@ -117,7 +121,13 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 
 | 方法與路徑 | Body → 回應 |
 | --- | --- |
-| `GET /api/conversations` | → `ConversationSummary[]`（附側邊欄用的 `running`、`waiting` 與 `lastStatus`） |
+| `GET /api/conversations` | → `ConversationSummary[]`（附側邊欄用的 `running`、`waiting`、`lastStatus`、`groupId` 與 `sorting`） |
+| `GET /api/search?q=` | → `SearchResult[]`：標題或使用者／agent 訊息包含 `q` 每個詞（不分大小寫）的對話，標題符合的在前，其餘依最近時間；最多 50 筆 |
+| `PUT /api/conversations/:id/group` | `{ groupId }` → `{ ok }`：把對話放進側邊欄群組（`null` 代表「其他」）；群組不存在時回 404。使用者移動過的對話不會再自動分類 |
+| `GET /api/groups` | → `ConversationGroup[]`，依建立順序（預設群組「其他」不在清單中） |
+| `POST /api/groups` | `{ name }` → `ConversationGroup`（名稱空白、太長或重複——包括「其他」／Other——或超過 50 個群組時回 400） |
+| `PATCH /api/groups/:id` | `{ name }` → `ConversationGroup` |
+| `DELETE /api/groups/:id` | 刪除群組；裡面的對話會移到「其他」 |
 | `POST /api/conversations` | `{ title?, agents, settings, createCwd? }` → `Conversation`；`settings.autoTeam: true` 時 `agents` 可以是空的，由首席 agent 在第一則訊息時設計團隊；`settings.cwd` 不存在時回 404 並帶 `code: "cwd-missing"`，除非帶 `createCwd: true`，此時會建立該目錄 |
 | `GET /api/conversations/:id` | → `Conversation` |
 | `PATCH /api/conversations/:id` | `{ title?, agents?, settings?, createCwd? }` → `Conversation`（執行中回 409；設定 `agents` 會關閉自動組隊；`settings.cwd` 不存在時同 `POST`） |
@@ -195,6 +205,7 @@ sqlite3 data/relay.db 'select seq, author_kind, agent_name, status from messages
 - `forwardText()`：一則回覆如何呈現給其他 agent（文字 + `<actions>` 紀錄）。
 - `parseMentions()`：@ 解析；名字後面可以直接接文字，行內程式碼與各種程式碼區塊（含未結束的）中的 @ 會被忽略。
 - `buildPlannerPrompt()` / `PLANNER_BRIEFING`（`planner.ts`）：自動組隊模式中要問首席 agent 什麼，以及它必須回傳的 JSON。
+- `buildGroupPrompt()` / `GROUPER_BRIEFING`（`grouping.ts`）：怎麼請首席 agent 把新對話分到使用者的群組。
 
 prompt 刻意使用英文（agent 會用使用者的語言回覆）。給使用者看的文字則有翻譯，見[翻譯](#翻譯)。
 
@@ -218,12 +229,12 @@ npx vitest test/store.test.ts
 
 目前的測試：
 
-- `test/store.test.ts`：SQLite store 與設定（存取往返、串流更新、當機復原、連帶刪除、檔案權限），以及搭配假的金鑰儲存區測試 API key：絕不寫進資料庫、舊的資料庫金鑰會被移出並從檔案中清除、儲存區拒絕寫入的情況。
+- `test/store.test.ts`：SQLite store 與設定（存取往返、串流更新、當機復原、連帶刪除、檔案權限）、側邊欄群組（順序、重新命名、刪除群組時對話移到「其他」、自動分類只有一次，而且不會蓋過使用者的移動、不會分到已刪除的群組）、搜尋（每個詞都要符合、不分大小寫、標題符合的在前、中文、`%` 與 `_`、不含系統訊息、摘錄、仍在串流的回覆），以及搭配假的金鑰儲存區測試 API key：絕不寫進資料庫、舊的資料庫金鑰會被移出並從檔案中清除、儲存區拒絕寫入的情況。
 - `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 的快照、worktree、套用、衝突、CRLF 與非 UTF-8 內容逐位元組套用、很長或特殊的檔案清單、保留的快照 ref、範圍太大的 repository）。
 - `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
 - `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。
-- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id。
+- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話、不存在的群組）與搜尋。
 - `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。
 - `test/chat.test.ts`：ChatView 的邏輯：何時重新連線事件串流、哪個 worktree 結果可以套用、團隊設定的草稿、建立不存在的工作目錄前先詢問。
@@ -234,13 +245,15 @@ npx vitest test/store.test.ts
 - `test/copy.test.ts`：複製單則訊息或整段對話時產生的 Markdown（兩種語言）。
 - `test/approvals.test.ts`：「本對話都允許」的規則 key 與比對（串接指令、shell 包裝）。
 - `test/codex.test.ts`：Codex app-server 轉接器：thread 項目轉成 `AgentEvent`（文字、推理、計畫、指令輸出、用量），以及核准請求 / 回應。
-- `test/sidebar.test.ts`：側邊欄的對話狀態。
+- `test/sidebar.test.ts`：側邊欄的對話狀態、各群組的對話（「其他」在最後、群組不存在的對話放在「其他」）、還沒確認的移動，以及收合群組顯示的狀態。
+- `test/search.test.ts`：搜尋的詞、不分大小寫的比對（長的優先、重疊合併）、第一個符合處附近的摘錄、標示關鍵字。
+- `test/grouping.test.ts`：請首席 agent 分類對話的 prompt，以及解讀它的回覆（編號或名稱；0 或 null 代表都不適合；其他都拒絕）。
 - `test/planner.test.ts`：首席 agent 的回覆：擷取 JSON、範本與自訂團隊、驗證、改用已登入的 CLI、備援方案，以及 prompt。
 - `test/i18n.test.ts`：語言偵測（伺服器 header 與瀏覽器）、語言在非同步工作中的傳遞、雙語範本，以及兩份介面字典結構相同。
 - `test/voice.test.ts`：用假的下載、程序與引擎測試語音輸入：固定版本的下載清單、背景安裝（引擎、模型、檢查），涵蓋 Linux 與 macOS 的 Homebrew、SHA-256 不符、取消、硬碟空間、自訂引擎路徑、引擎無法啟動、引擎只聽 127.0.0.1 並藏在隨機路徑後、語音轉文字與辨識語言、切換與刪除模型、設定，以及 HTTP 路由。
 - `test/voice-web.test.ts`：瀏覽器端的語音輸入：WAV 編碼、靜音判斷、把辨識結果插入游標處，以及麥克風與設定頁顯示的狀態。
 
-`test/orchestrator.test.ts` 也涵蓋用假 agent 測試核准（詢問並等待、「本對話都允許」、拒絕時的說明、停止時過期、自動拒絕）、重試回覆、編輯使用者訊息（`resend`：之後的訊息會被刪除，每個 agent 都開新的 session），以及用假的首席 agent 測試自動組隊（自訂設計要等確認後團隊才回答、手動設定團隊也算確認、存成範本、使用範本、備援方案、編輯需求描述後重新設計，以及規劃時不上鎖），還有附加檔案（以安全檔名儲存、把圖片與路徑交給每個 agent、編輯訊息時保留、隨被刪除的訊息一起刪除、只傳檔案的訊息、錯誤的上傳）。
+`test/orchestrator.test.ts` 也涵蓋用假 agent 測試核准（詢問並等待、「本對話都允許」、拒絕時的說明、停止時過期、自動拒絕）、重試回覆、編輯使用者訊息（`resend`：之後的訊息會被刪除，每個 agent 都開新的 session），以及用假的首席 agent 測試自動組隊（自訂設計要等確認後團隊才回答、手動設定團隊也算確認、存成範本、使用範本、備援方案、編輯需求描述後重新設計，以及規劃時不上鎖）、用假的首席 agent 測試把新對話分到群組（只看第一則訊息、與團隊同時進行、沒有群組時不詢問、不蓋過使用者的移動、刪除對話時停止），還有附加檔案（以安全檔名儲存、把圖片與路徑交給每個 agent、編輯訊息時保留、隨被刪除的訊息一起刪除、只傳檔案的訊息、錯誤的上傳）。
 
 接下來適合補上的：
 

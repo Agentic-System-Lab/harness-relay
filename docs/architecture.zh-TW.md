@@ -48,6 +48,7 @@ flowchart LR
 | `src/server/web.ts` | 提供建置好的介面：`assets/` 下的檔案（以內容雜湊命名）永久快取，`index.html` 每次載入都檢查 |
 | `src/server/orchestrator.ts` | 執行一次「團隊回合」：依模式決定發言者、組出每個 agent 的 prompt、執行 CLI、串流結果；自動組隊的對話會先設計團隊 |
 | `src/server/planner.ts` | 自動組隊：首席 agent 的 prompt、解析它的 JSON 回覆、轉成可執行的團隊、備援方案 |
+| `src/server/grouping.ts` | 側邊欄群組：首席 agent 在背景依新對話的第一則訊息，把它分到使用者的某個群組（`AutoGrouper`） |
 | `src/server/prompt.ts` | 角色簡報（system prompt）、每回合的 prompt、`@` 解析、`[PASS]` 判斷 |
 | `src/server/approvals.ts` | 「本對話都允許」的規則 key 與比對 |
 | `src/server/commands.ts` | 解析一行 shell 指令實際會執行哪些程式（串接、命令替換、`sh -c`、`env`／`sudo`、git 的全域選項）：用於核准規則 key 與 Grok 的推送／發佈判斷 |
@@ -65,10 +66,11 @@ flowchart LR
 | `src/server/secrets.ts` | 存放 API key 的作業系統金鑰儲存區（`@napi-rs/keyring`）；系統沒有可用的儲存區時則為無 |
 | `src/server/db.ts` | 開啟 SQLite、套用 schema 遷移、交易輔助函式 |
 | `src/server/hub.ts` | 把每個對話的事件廣播給連線中的 SSE 用戶端 |
+| `src/shared/search.ts` | 搜尋對話：拆出搜尋的詞、找出符合的位置（不分大小寫）、第一個符合處附近的摘錄、標示關鍵字 |
 | `src/shared/mentions.ts` | 伺服器（判斷點名了誰）與介面（標示 @）共用的 `@` 規則：以 Markdown（GFM）解析訊息，只看一般文字，不含程式碼與連結文字 |
 | `src/shared/types.ts` | 伺服器與前端共用的型別 |
 | `src/shared/media.ts` | 哪些圖片與影片類型可以顯示，以及回覆中哪些圖片網址是本機檔案（相對或絕對路徑、`file:` 網址）而不是其他網站 |
-| `src/web/*` | React 介面：側邊欄、團隊設計、聊天畫面、設定頁、使用導覽；`i18n.tsx` 與 `locales/` 存放介面文字；`chat.ts` 存放聊天畫面的純邏輯（重新連線、能否套用、團隊設定草稿）；`recorder.ts` 負責麥克風錄音，`voice.ts` 存放語音輸入的純邏輯（WAV 編碼、靜音判斷、插入辨識結果） |
+| `src/web/*` | React 介面：側邊欄、團隊設計、聊天畫面、設定頁、使用導覽；`i18n.tsx` 與 `locales/` 存放介面文字；`chat.ts` 存放聊天畫面的純邏輯（重新連線、能否套用、團隊設定草稿）；`sidebar.ts` 存放側邊欄的純邏輯（各群組的對話、還沒確認的移動、收合群組的狀態）；`recorder.ts` 負責麥克風錄音，`voice.ts` 存放語音輸入的純邏輯（WAV 編碼、靜音判斷、插入辨識結果） |
 
 ## 對話模型
 
@@ -157,6 +159,14 @@ flowchart LR
 6. 在使用者確認團隊之前（`POST /api/conversations/:id/messages/:messageId/confirm-plan`，會清除 `awaitingConfirmation` 並設定 `plan.confirmedAt`），「繼續」會被拒絕（409），送出的訊息則放進佇列等待（首席 agent 設計期間送出的也一樣）。手動設定團隊（`PATCH … { agents }`）也算確認。確認時若有等待中的訊息，就為它們開始一次執行；否則使用者接著問第一個問題。無論哪種，團隊都照常回答，並會在歷史中看到那段需求描述作為背景。plan 訊息是系統訊息，所以永遠不會轉交給 agent。
 
 設計團隊的執行不會寫入任何東西（首席 agent 是唯讀的，其他人也不發言），所以不會鎖住目錄；團隊自己的執行則照確認後的模式上鎖。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把首席 agent 設計或調整的團隊（`planSavable()`）存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`；直接套用的範本不是新團隊，卡片不會提供儲存。編輯需求描述會連同 plan 一起刪除，於是 `autoTeam` 重新開啟：團隊會依修改後的需求重新設計，並再次等待確認；但若 plan 之後團隊被手動改過（成員或模式、輪數、交棒次數與 plan 不同），就保留那個團隊。手動設定團隊（`PATCH … { agents }`）會關閉自動組隊。
+
+## 側邊欄群組與搜尋
+
+使用者在側邊欄建立群組（`conversation_groups`：id、名稱、順序），再把對話放進去（`conversations.group_id`）。不屬於任何群組的對話都在預設群組 **其他**：它一定存在、不會存進資料庫，任何群組都不能用它在兩種語言中的名稱（`validGroupName()`）。刪除群組時，外鍵的 `ON DELETE SET NULL` 會把裡面對話的 `group_id` 設成 NULL，讓它們回到「其他」。對話列表帶有每個對話的 `groupId`，前端會一起載入群組。
+
+移動對話（`PUT /api/conversations/:id/group`，拖到群組上或用資料夾選單）會記下 `group_source = 'user'`。對話送出第一則使用者訊息時（`postUserMessage()`），如果使用者有群組，協調器的 `AutoGrouper` 會在團隊回覆的同時，在背景以唯讀方式執行一次**首席 agent**，系統 prompt 是 `GROUPER_BRIEFING`。prompt（`buildGroupPrompt()`）包含這則訊息（最多 4,000 字，加上附加檔案的名稱），以及編號的群組清單，每個群組附上最多五個最近的對話標題當作例子。首席 agent 回覆 `{"group": <編號>}`，0 代表都不適合；`parseGroupReply()` 也接受群組名稱。接著 `Store.sortIntoGroup()` 只在 `group_source` 仍是 NULL、而且群組還在時，才設定群組並記下 `group_source = 'auto'`：使用者自己的移動（即使是在首席 agent 決定時做的）一定優先，而且每個對話只會自動分類一次（選「都不適合」也算）。回覆失敗或無法使用時，對話留在「其他」、視為尚未分類；編輯第一則訊息會再試一次。分類期間對話列表會回報 `sorting`。刪除對話會停止分類並等它結束；關閉伺服器時會停止所有分類。
+
+搜尋（`GET /api/search?q=`）把查詢依空白拆成詞（最多 8 個），找出每個詞都出現在標題、或使用者與 agent 訊息文字段落中的對話（不含系統訊息、思考過程與工具輸出）。先用 SQLite 的 `LIKE`（跳脫 `%` 與 `_`）篩出段落，再用 JavaScript 重新比對一次，非 ASCII 字母也不分大小寫。因為比對的是文字的任何一部分，中文不需要斷詞。搜尋前會先寫入還在排程中的訊息，所以仍在串流的回覆也找得到。每個結果帶有「包含最多關鍵字的段落」中第一個符合處附近的摘錄（`snippetAround()`）與符合的訊息數；標題符合的排在前面，其餘依最近時間，最多 50 筆。前端在停止輸入 200 毫秒後才搜尋，只顯示最新一次搜尋的結果，並標示關鍵字（`highlightParts()`）。
 
 ## 語言
 
@@ -256,7 +266,7 @@ agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾�
 | `queue` | 等待送出的訊息 | 訊息放進佇列、送達或撤回 |
 | `conversation` | 標題、團隊、設定 | 標題或團隊變更 |
 
-對話列表（`GET /api/conversations`）帶有側邊欄要顯示的各對話狀態：`running`、`waiting`（有等待中的核准請求）與 `lastStatus`（最新一則 agent 回覆如何結束）；前端每 3 秒輪詢一次，並在 `localStorage` 記住使用者看過哪些內容，用來標示使用者在別處時完成的回覆。執行從不依賴瀏覽器是否連線。
+對話列表（`GET /api/conversations`）帶有側邊欄要顯示的各對話狀態：`running`、`waiting`（有等待中的核准請求）、`lastStatus`（最新一則 agent 回覆如何結束）、`groupId`，以及 `sorting`（首席 agent 正在幫它分群組）；前端每 3 秒輪詢一次，並在 `localStorage` 記住使用者看過哪些內容，用來標示使用者在別處時完成的回覆。執行從不依賴瀏覽器是否連線。
 
 伺服器在同一個同步步驟中訂閱事件並序列化 snapshot，所以之後的事件對前端來說都是新的；snapshot 還在寫出時收到的事件會排隊，依序接在 snapshot 後送出（包括 delta）。每 15 秒送一次 `ping`。snapshot 與 `GET /api/conversations/:id` 不包含 agent 的 session 紀錄（`agentState`）。
 
@@ -268,7 +278,8 @@ agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾�
 
 | 資料表 | 內容 |
 | --- | --- |
-| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`auto_team`、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON） |
+| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`auto_team`、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）與 `group_source`（`user` 或 `auto`；NULL 代表尚未分類） |
+| `conversation_groups` | 使用者的側邊欄群組（名稱、順序） |
 | `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度） |
 | `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit，以及存成 JSON 的團隊設計 `plan`），依 `seq` 排序 |
 | `message_changes` | 每則訊息修改的檔案（路徑、A/M/D、增刪行數） |
@@ -284,7 +295,7 @@ agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾�
 
 Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_version`（見 `src/server/db.ts`）。
 
-**關閉**（SIGINT／SIGTERM）：停止接受連線、停止所有執行、最多等 5 秒讓執行寫完最後的狀態、對每個 agent 的 process group（包括子程序）先送 SIGTERM 再送 SIGKILL，最後寫回並關閉資料庫。未處理的 promise rejection 會記錄下來，不會讓程序結束。
+**關閉**（SIGINT／SIGTERM）：停止接受連線、停止所有執行與群組分類、最多等 5 秒讓執行寫完最後的狀態、對每個 agent 的 process group（包括子程序）先送 SIGTERM 再送 SIGKILL，最後寫回並關閉資料庫。未處理的 promise rejection 會記錄下來，不會讓程序結束。
 
 ## Provider：狀態、登入與模型
 

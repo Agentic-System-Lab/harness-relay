@@ -48,6 +48,7 @@ flowchart LR
 | `src/server/web.ts` | Serves the built UI: files under `assets/` (named by content hash) cached for good, `index.html` checked on every load |
 | `src/server/orchestrator.ts` | Runs a "team turn": picks speakers by mode, builds each agent's prompt, runs the CLI, streams results; designs the team first in auto-team conversations |
 | `src/server/planner.ts` | Auto team: the lead agent's prompt, parsing its JSON reply, turning it into a runnable team, the fallback |
+| `src/server/grouping.ts` | Sidebar groups: the lead agent sorts a new conversation into one of the user's groups by its first message, in the background (`AutoGrouper`) |
 | `src/server/prompt.ts` | Role briefing (system prompt), per-turn prompt, `@mention` parsing, `[PASS]` detection |
 | `src/server/approvals.ts` | Rule keys for "always allow in this conversation" and matching them |
 | `src/server/commands.ts` | Reads a shell command line into the programs it runs (chains, substitutions, `sh -c`, `env` / `sudo`, git's global options): approval keys, Grok's publish check |
@@ -67,8 +68,9 @@ flowchart LR
 | `src/server/hub.ts` | Per-conversation event fan-out to connected SSE clients |
 | `src/shared/types.ts` | Types shared by server and client |
 | `src/shared/media.ts` | Which image and video types can be shown, and which image URLs in a reply are local files (relative or absolute paths, `file:` URLs) rather than other sites |
+| `src/shared/search.ts` | Searching conversations: the words of a search, where they match (ignoring case), the excerpt around the first match, highlighting |
 | `src/shared/mentions.ts` | The `@mention` rule used by both the server (who is addressed) and the UI (which mentions are highlighted): the message is read as Markdown (GFM) and only prose counts, not code or link text |
-| `src/web/*` | React UI: sidebar, team designer, chat view, settings page, guided tour; `i18n.tsx` + `locales/` hold the UI strings; `chat.ts` holds the chat view's pure logic (reconnecting, Apply availability, team-drawer draft); `recorder.ts` records the microphone and `voice.ts` holds voice input's pure logic (WAV encoding, silence, inserting the transcript) |
+| `src/web/*` | React UI: sidebar, team designer, chat view, settings page, guided tour; `i18n.tsx` + `locales/` hold the UI strings; `chat.ts` holds the chat view's pure logic (reconnecting, Apply availability, team-drawer draft); `sidebar.ts` the sidebar's (conversations in their groups, moves not yet confirmed, a collapsed group's state); `recorder.ts` records the microphone and `voice.ts` holds voice input's pure logic (WAV encoding, silence, inserting the transcript) |
 
 ## Conversation model
 
@@ -157,6 +159,14 @@ A conversation created with `settings.autoTeam` has no members yet. The user's f
 6. Until the user confirms the team (`POST /api/conversations/:id/messages/:messageId/confirm-plan`, which clears `awaitingConfirmation` and sets `plan.confirmedAt`), Continue is refused (409) and a message waits in the queue (as do messages sent while the lead designs). Setting the team by hand (`PATCH … { agents }`) confirms it too. Confirming starts a run for the waiting messages; otherwise the user then asks their first question. Either way the team answers as usual, seeing the request in the history as context. Plan messages are system messages, so they are never forwarded to agents.
 
 A run that designs the team writes nothing (the lead is read-only and nobody else speaks), so it locks no directory; the team's own runs lock by the confirmed mode as usual. `POST /api/conversations/:id/messages/:messageId/save-plan` saves a team the lead designed or adapted (`planSavable()`) as a user template (with the conversation's permission) and records `plan.savedPresetId`; a template used as it is is not new, so the card does not offer to save it. Editing the request drops the plan with it, which turns `autoTeam` back on: the team is designed again for the edited request and waits for confirmation again — unless the team was changed by hand after the plan (its members or mode, rounds and hops differ from the plan's), in which case that team is kept. A team set by hand (`PATCH … { agents }`) switches auto team off.
+
+## Sidebar groups and search
+
+The user makes groups in the sidebar (`conversation_groups`: id, name, position) and puts conversations in them (`conversations.group_id`). A conversation in no group is in the default group, **Other**: it always exists, is not stored, and no group may take its name in either language (`validGroupName()`). Deleting a group sets its conversations' `group_id` to NULL (the foreign key's `ON DELETE SET NULL`), so they go back to Other. The conversation list carries each conversation's `groupId`; the client loads the groups with it.
+
+Moving a conversation (`PUT /api/conversations/:id/group`, by dragging it onto a group or from the folder menu) records `group_source = 'user'`. When a conversation's first user message is posted (`postUserMessage()`) and the user has groups, the orchestrator's `AutoGrouper` runs the **lead agent** once, read-only, in the background next to the team's run, with `GROUPER_BRIEFING` as its system prompt. The prompt (`buildGroupPrompt()`) holds the message (at most 4,000 characters, with the names of attached files), and the groups numbered with up to five recent titles each as examples. The lead replies `{"group": <number>}`, 0 for none; `parseGroupReply()` also accepts a group's name. `Store.sortIntoGroup()` then sets the group with `group_source = 'auto'` only if `group_source` is still NULL and the group still exists, so the user's own move — even one made while the lead was deciding — always wins, and a conversation is sorted only once (picking none counts too). A failed or unusable reply leaves it in Other, unsorted; editing the first message tries again. While it runs the conversation list reports `sorting`. Deleting the conversation stops the sort and waits for it; shutdown stops every sort.
+
+Search (`GET /api/search?q=`) splits the query on whitespace (at most 8 words) and finds conversations where every word occurs in the title or in a text part of a user or agent message (not system notes, thinking or tool output). SQLite's `LIKE` (with `%` and `_` escaped) narrows the parts down; the words are then checked again in JavaScript, ignoring case also beyond ASCII. Matching any part of the text means Chinese works without word breaks. Pending message writes are flushed first, so replies still streaming are found. Each result carries the excerpt around the first match in the part with the most words (`snippetAround()`) and how many messages match; title matches come first, then the most recent, at most 50. The client searches 200 ms after typing stops, shows only the latest search's answer, and highlights the words (`highlightParts()`).
 
 ## Languages
 
@@ -256,7 +266,7 @@ The client opens `GET /api/conversations/:id/events` and receives JSON events:
 | `queue` | the messages waiting to be delivered | a message is queued, delivered or withdrawn |
 | `conversation` | title, team, settings | title or team changed |
 
-The conversation list (`GET /api/conversations`) carries each conversation's state for the sidebar — `running`, `waiting` (an approval is pending) and `lastStatus` (how the latest agent reply ended); the client polls it every 3 s and remembers in `localStorage` what the user has seen, to mark replies that finished while they were elsewhere. Runs never depend on a browser being connected.
+The conversation list (`GET /api/conversations`) carries each conversation's state for the sidebar — `running`, `waiting` (an approval is pending), `lastStatus` (how the latest agent reply ended), its `groupId` and `sorting` (the lead agent is putting it in a group); the client polls it every 3 s and remembers in `localStorage` what the user has seen, to mark replies that finished while they were elsewhere. Runs never depend on a browser being connected.
 
 The server subscribes and serializes the snapshot in the same synchronous step, so every event after it is new to the client; events that arrive while the snapshot is still being written are queued and sent after it, in order, deltas included. A `ping` comment is sent every 15 s. Snapshots and `GET /api/conversations/:id` leave out the agents' session bookkeeping (`agentState`).
 
@@ -268,7 +278,8 @@ Everything except API keys and attached files lives in one SQLite database, `dat
 
 | Table | Contents |
 | --- | --- |
-| `conversations` | id, title, timestamps, mode, rounds, max hops, permission, cwd, `auto_team`, `approvals` (`deny` to refuse automatically), `allow_rules` (JSON) |
+| `conversations` | id, title, timestamps, mode, rounds, max hops, permission, cwd, `auto_team`, `approvals` (`deny` to refuse automatically), `allow_rules` (JSON), `group_id` (its sidebar group; NULL = Other) and `group_source` (`user` or `auto`; NULL = not sorted yet) |
+| `conversation_groups` | the user's sidebar groups (name, position) |
 | `conversation_agents` | team members per conversation, in order (name, provider, role, model, effort) |
 | `messages` | one row per chat message (author, status, passed, error, round, duration, cost, tokens, the turn's change commits, and the team design as JSON in `plan`), ordered by `seq` |
 | `message_changes` | files changed per message (path, A/M/D, lines added/deleted) |
@@ -284,7 +295,7 @@ Conversations in use are kept in memory, because the orchestrator mutates them w
 
 Schema changes are applied by ordered migrations tracked in `PRAGMA user_version` (see `src/server/db.ts`).
 
-**Shutdown** (SIGINT / SIGTERM): stop accepting connections, stop every run, wait up to 5 s for the runs to write their final state, send SIGTERM and then SIGKILL to every agent process group (subprocesses included), then flush and close the database. Unhandled promise rejections are logged instead of ending the process.
+**Shutdown** (SIGINT / SIGTERM): stop accepting connections, stop every run and every group sort, wait up to 5 s for the runs to write their final state, send SIGTERM and then SIGKILL to every agent process group (subprocesses included), then flush and close the database. Unhandled promise rejections are logged instead of ending the process.
 
 ## Providers: status, login and models
 

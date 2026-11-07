@@ -36,6 +36,7 @@ Auto team on this repository: you describe what you need, and the lead agent ada
 - **See what agents think and do** — reasoning, plans / to-do lists and each tool's output stream into the chat.
 - **Copy, edit and retry** — copy any message or the whole chat as Markdown; edit one of your messages, or retry an agent's reply, and the team answers again from there.
 - **Clear status at a glance** — the sidebar marks conversations that need you, are replying, or have a new reply; conversations keep running when you switch away.
+- **Groups and search** — make groups in the sidebar and drag conversations into them; the lead agent puts each new conversation in the group its first message fits (or leaves it in **Other**). Search finds conversations by anything written in them.
 - **Settings & login page** — sign in to each CLI separately (device code / browser / paste-code flows), set API keys, executable paths, default model and effort, and the lead agent.
 - **English and 繁體中文** — the UI follows your browser language (switchable in Settings); a guided tour introduces the main features on the first visit.
 - **Local-first** — everything is stored in a single SQLite file; the server only listens on `127.0.0.1`.

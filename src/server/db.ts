@@ -189,6 +189,19 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversations ADD COLUMN pause TEXT;
   ALTER TABLE messages ADD COLUMN asked INTEGER;
   `,
+  // 8: sidebar groups. A conversation in no group is in the default group, "Other"; deleting a group
+  // moves its conversations there. group_source: who put it in its group ('user', or 'auto' when the
+  // lead agent sorted it by its first message); a conversation is sorted automatically only once.
+  `
+  CREATE TABLE conversation_groups (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    position   INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  ALTER TABLE conversations ADD COLUMN group_id TEXT REFERENCES conversation_groups(id) ON DELETE SET NULL;
+  ALTER TABLE conversations ADD COLUMN group_source TEXT;
+  `,
 ];
 
 function migrate(db: Database): void {

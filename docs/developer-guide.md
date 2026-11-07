@@ -21,12 +21,14 @@ How the code is organized, how to run and test it, and how to extend it. Read [A
 src/
   shared/types.ts          types shared by server and client (+ PROVIDERS, effortsFor…)
   shared/mentions.ts       the @mention rule shared by the server and the UI (Markdown prose only)
+  shared/search.ts         search words, matches ignoring case, excerpts, highlighting (server and UI)
   server/
     index.ts               wiring, static files, startup and shutdown
     web.ts                 serves the built UI: hashed assets cached for good, index.html checked every time
     app.ts                 createApp(): routes, security middleware, SSE (testable with app.request())
     orchestrator.ts        team turns: scheduling, prompt delivery, streaming into messages; auto team, resend
     planner.ts             auto team: lead-agent prompt, reply parsing, runnable team, fallback
+    grouping.ts            sidebar groups: the lead agent sorts a new conversation by its first message
     prompt.ts              role briefing, turn prompt, @mention parsing, [PASS]
     approvals.ts           "always allow" rule keys (one per command the line runs)
     commands.ts            reads a shell command line: simple commands, sh -c, wrappers, publish check
@@ -42,7 +44,7 @@ src/
     providers.ts           CLI status, login sessions, logout, model cache
     models.ts              model / effort discovery per CLI
     db.ts                  open SQLite, migrations, transaction()
-    store.ts               conversations, messages, agent sessions, presets
+    store.ts               conversations, messages, agent sessions, presets, sidebar groups, search
     settings.ts            provider settings, default cwd, child-process env
     secrets.ts             OS credential store for API keys (keyring), availability check
     attachments.ts         files attached to messages: storage, safe names, images for the agents
@@ -55,12 +57,14 @@ src/
   web/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
     chat.ts                ChatView's pure logic: stream reconnect decision, Apply availability, team-drawer draft
+    sidebar.ts             the sidebar's pure logic: conversations in their groups, pending moves, a collapsed group's state
     voice.ts               voice input's pure logic: WAV encoding, silence, inserting the transcript, install progress
     recorder.ts            microphone recording in the browser, decoded to 16 kHz mono
     useVoice.ts            the voice status hook (polls while an install runs)
     i18n.tsx               language detection, provider, useT()
     locales/               zh-TW.ts (source of the message shape), en.ts
-    components/            Sidebar, NewChat, TeamEditor, ModelPicker, ChatView,
+    components/            Sidebar, SidebarGroups (groups, drag and drop), SidebarSearch,
+                           NewChat, TeamEditor, ModelPicker, ChatView,
                            MessageItem (incl. plan card), ChangesCard, Composer, Markdown,
                            SettingsPage, CopyButton, Logo, Onboarding (guided tour),
                            MemberDots, icons, VoiceInput (microphone, setup dialog, install progress),
@@ -117,7 +121,13 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 
 | Method & path | Body → response |
 | --- | --- |
-| `GET /api/conversations` | → `ConversationSummary[]` (with `running`, `waiting` and `lastStatus` for the sidebar) |
+| `GET /api/conversations` | → `ConversationSummary[]` (with `running`, `waiting`, `lastStatus`, `groupId` and `sorting` for the sidebar) |
+| `GET /api/search?q=` | → `SearchResult[]`: conversations whose title or user / agent messages contain every word of `q` (ignoring case), title matches first, then the most recent; at most 50 |
+| `PUT /api/conversations/:id/group` | `{ groupId }` → `{ ok }`: puts the conversation in a sidebar group (`null` = Other); 404 for an unknown group. A conversation the user moved is never sorted automatically |
+| `GET /api/groups` | → `ConversationGroup[]`, in the order they were made (the default group, Other, is not listed) |
+| `POST /api/groups` | `{ name }` → `ConversationGroup` (400 for an empty, too long or taken name — including Other / 其他 — or more than 50 groups) |
+| `PATCH /api/groups/:id` | `{ name }` → `ConversationGroup` |
+| `DELETE /api/groups/:id` | deletes the group; its conversations go to Other |
 | `POST /api/conversations` | `{ title?, agents, settings, createCwd? }` → `Conversation`; with `settings.autoTeam: true`, `agents` may be empty — the lead agent designs the team on the first message; a `settings.cwd` that does not exist is a 404 with `code: "cwd-missing"` unless `createCwd: true`, which creates it |
 | `GET /api/conversations/:id` | → `Conversation` |
 | `PATCH /api/conversations/:id` | `{ title?, agents?, settings?, createCwd? }` → `Conversation` (409 while running; setting `agents` turns auto team off; a missing `settings.cwd` as in `POST`) |
@@ -195,6 +205,7 @@ sqlite3 data/relay.db 'select seq, author_kind, agent_name, status from messages
 - `forwardText()` — how a reply is shown to other agents (text + `<actions>` log).
 - `parseMentions()` — mention parsing; text may follow a name directly, and code spans and fenced blocks of any kind (also unclosed ones) are ignored.
 - `buildPlannerPrompt()` / `PLANNER_BRIEFING` (`planner.ts`) — what the lead agent is asked in auto-team mode, and the JSON it must return.
+- `buildGroupPrompt()` / `GROUPER_BRIEFING` (`grouping.ts`) — how the lead agent is asked to sort a new conversation into the user's groups.
 
 Prompts are in English on purpose (agents reply in the user's language). User-facing text is translated — see [Translations](#translations).
 
@@ -218,12 +229,12 @@ npx vitest test/store.test.ts
 
 Current tests:
 
-- `test/store.test.ts` — SQLite store and settings (round-trips, streaming updates, crash recovery, cascading deletes, file permissions), and API keys with a fake credential store: never written to the database, old database keys moved out and scrubbed from the files, a refusing store.
+- `test/store.test.ts` — SQLite store and settings (round-trips, streaming updates, crash recovery, cascading deletes, file permissions), sidebar groups (order, renaming, deleting a group moves its conversations to Other, automatic sorting only once and never over the user's move or into a deleted group), search (every word, ignoring case, title matches first, Chinese, `%` and `_`, system notes left out, the excerpt, replies still streaming), and API keys with a fake credential store: never written to the database, old database keys moved out and scrubbed from the files, a refusing store.
 - `test/workspace.test.ts` — git plumbing against real temporary repositories (auto init, snapshots that leave the repo untouched, worktrees, apply, conflicts, CRLF / non-UTF-8 content applied byte for byte, long and unusual file lists, kept snapshot refs, repositories that are too broad).
 - `test/process.test.ts` — process helpers: byte-exact output, stopping subprocesses that ignore SIGTERM (also after the CLI exited, and on shutdown), a missing working directory, relative executable paths.
 - `test/hub.test.ts` — SSE fan-out when a browser reconnects.
 - `test/web.test.ts` — serving the built UI: hashed assets cached for good, index.html (also for client routes) checked every time, a missing asset is a 404, earlier routes untouched.
-- `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, creating a missing working directory (default, new or edited conversation) only when asked, template ids.
+- `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, creating a missing working directory (default, new or edited conversation) only when asked, template ids, sidebar groups (names that must be new and not Other in either language, rename, delete, moving a conversation, unknown groups) and search.
 - `test/prompt.test.ts` — `@mention` parsing (text right after a name, code fences), `[PASS]`, forwarding of failed / stopped / passed replies, the parallel briefing.
 - `test/commands.test.ts` — reading shell command lines: publishing commands in their many forms, and "always allow" keys that do not let embedded commands through.
 - `test/chat.test.ts` — ChatView logic: when to reconnect the event stream, which worktree result can be applied, the team drawer's draft, asking before creating a missing working directory.
@@ -234,13 +245,15 @@ Current tests:
 - `test/copy.test.ts` — the Markdown written when copying a message or a whole conversation, in both languages.
 - `test/approvals.test.ts` — "always allow" rule keys and matching (chained commands, shell wrappers).
 - `test/codex.test.ts` — the Codex app-server adapter: thread items → `AgentEvent`s (text, reasoning, plan, command output, usage) and approval requests / responses.
-- `test/sidebar.test.ts` — the sidebar's conversation states.
+- `test/sidebar.test.ts` — the sidebar's conversation states, conversations in their groups (Other last, conversations of a missing group in Other), moves not yet confirmed, and the state a collapsed group shows.
+- `test/search.test.ts` — search words, matches ignoring case (longest first, overlaps merged), excerpts around the first match, highlighting.
+- `test/grouping.test.ts` — the prompt that asks the lead agent to sort a conversation, and reading its reply (a number or a name; 0 or null is none; anything else is refused).
 - `test/planner.test.ts` — the lead agent's reply: JSON extraction, templates vs. custom teams, validation, remapping to signed-in CLIs, the fallback, and the prompt.
 - `test/i18n.test.ts` — language detection (server header and browser), language carried through async work, bilingual templates, and the two UI dictionaries having the same shape.
 - `test/voice.test.ts` — voice input with fake downloads, processes and engine: the pinned catalogue, the background install (engine, model, check) on Linux and with Homebrew on macOS, a SHA-256 mismatch, cancelling, disk space, a custom engine path, an engine that does not start, the engine on 127.0.0.1 behind a secret path, transcription and its language, switching and deleting models, settings, and the HTTP routes.
 - `test/voice-web.test.ts` — voice input in the browser: WAV encoding, silence detection, inserting the transcript at the caret, and what the microphone and Settings show.
 
-`test/orchestrator.test.ts` also covers approvals with a fake agent (asking and waiting, "always allow", a decline note, expiry on stop, refusing automatically), retrying a reply, editing a user message (`resend`: later messages are dropped and every agent starts a fresh session) and auto team with a fake lead agent (a custom design that waits for confirmation before its team answers, a team set by hand as confirmation, saving it as a template, using a template, the fallback, designing again after the request is edited, and planning runs that lock nothing), and attached files (saved with safe names, images and paths delivered to each agent, kept when a message is edited, deleted with dropped messages, files-only messages, bad uploads).
+`test/orchestrator.test.ts` also covers approvals with a fake agent (asking and waiting, "always allow", a decline note, expiry on stop, refusing automatically), retrying a reply, editing a user message (`resend`: later messages are dropped and every agent starts a fresh session) and auto team with a fake lead agent (a custom design that waits for confirmation before its team answers, a team set by hand as confirmation, saving it as a template, using a template, the fallback, designing again after the request is edited, and planning runs that lock nothing), sorting a new conversation into a group with a fake lead agent (by its first message only, next to the team, not without groups, never over the user's move, stopped when the conversation is deleted), and attached files (saved with safe names, images and paths delivered to each agent, kept when a message is edited, deleted with dropped messages, files-only messages, bad uploads).
 
 Good next candidates:
 
