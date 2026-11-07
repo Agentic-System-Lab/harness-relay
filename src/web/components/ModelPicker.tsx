@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { effortsFor, type ProviderModels } from '../../shared/types';
-import { effortLabel } from '../util';
+import { useT } from '../i18n';
 
 const CUSTOM = '__custom__';
 
@@ -16,6 +16,7 @@ interface Props {
 
 /** Model + reasoning-effort selects driven by the models each CLI reports. */
 export function ModelPicker({ catalog, model, effort, onChange, inheritModelLabel, inheritEffortLabel }: Props) {
+  const t = useT();
   const models = catalog?.models ?? [];
   const known = !model || models.some((m) => m.id === model);
   const [customMode, setCustomMode] = useState(!known);
@@ -39,20 +40,20 @@ export function ModelPicker({ catalog, model, effort, onChange, inheritModelLabe
   return (
     <div className="model-picker">
       <label className="field">
-        <span>模型</span>
+        <span>{t.models.model}</span>
         <select value={custom ? CUSTOM : model} onChange={(e) => pickModel(e.target.value)}>
           <option value="">{inheritModelLabel}</option>
           {models.map((m) => (
             <option key={m.id} value={m.id}>
-              {m.label && m.label !== m.id ? `${m.label}（${m.id}）` : m.id}
+              {(m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id) + (m.latest ? ` · ${t.models.latest}` : '')}
             </option>
           ))}
-          <option value={CUSTOM}>自訂…</option>
+          <option value={CUSTOM}>{t.models.custom}</option>
         </select>
         {custom && (
           <input
             value={model}
-            placeholder="輸入模型 ID"
+            placeholder={t.models.modelIdPlaceholder}
             autoFocus={customMode && !model}
             onChange={(e) => onChange({ model: e.target.value.trim(), effort })}
             spellCheck={false}
@@ -60,12 +61,12 @@ export function ModelPicker({ catalog, model, effort, onChange, inheritModelLabe
         )}
       </label>
       <label className="field">
-        <span>推理強度</span>
+        <span>{t.models.effort}</span>
         <select value={effort} onChange={(e) => onChange({ model, effort: e.target.value })}>
           <option value="">{inheritEffortLabel(model)}</option>
           {effortOptions.map((e) => (
             <option key={e} value={e}>
-              {effortLabel(e)}
+              {t.effortLabel(e)}
             </option>
           ))}
         </select>

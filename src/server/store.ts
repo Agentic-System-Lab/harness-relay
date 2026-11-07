@@ -11,12 +11,14 @@ import type {
   Mode,
   Permission,
   Provider,
+  TeamPlan,
   TeamPreset,
   ToolStatus,
   MessageStatus,
 } from '../shared/types';
 import { nul, transaction, type Database } from './db';
-import { BUILTIN_PRESETS } from './presets';
+import { currentLang } from './i18n';
+import { builtinPresets } from './presets';
 
 interface ConversationRow {
   id: string;
@@ -28,6 +30,9 @@ interface ConversationRow {
   max_hops: number;
   permission: Permission;
   cwd: string;
+  auto_team: number;
+  approvals: string | null;
+  allow_rules: string | null;
 }
 
 interface AgentRow {
@@ -59,6 +64,7 @@ interface MessageRow {
   change_head: string | null;
   change_isolated: number | null;
   change_branch: string | null;
+  plan: string | null;
 }
 
 interface ChangeRow {
@@ -71,13 +77,25 @@ interface ChangeRow {
 
 interface PartRow {
   message_id: string;
-  type: 'text' | 'tool';
+  type: MessagePart['type'];
   text: string | null;
   tool_id: string | null;
   tool_name: string | null;
   tool_detail: string | null;
   tool_status: ToolStatus | null;
   tool_error: string | null;
+  tool_output: string | null;
+  /** JSON: plan entries, or the approval request. */
+  data: string | null;
+}
+
+function parseJson<T>(json: string | null, fallback: T): T {
+  if (!json) return fallback;
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 const opt = <T>(v: T | null): T | undefined => (v === null ? undefined : v);
@@ -87,17 +105,43 @@ function toAgent(r: AgentRow): AgentConfig {
 }
 
 function toPart(r: PartRow): MessagePart {
-  if (r.type === 'tool') {
-    return {
-      type: 'tool',
-      id: r.tool_id ?? '',
-      name: r.tool_name ?? 'tool',
-      detail: opt(r.tool_detail),
-      status: r.tool_status ?? 'done',
-      ...(r.tool_error ? { error: r.tool_error } : {}),
-    };
+  switch (r.type) {
+    case 'tool':
+      return {
+        type: 'tool',
+        id: r.tool_id ?? '',
+        name: r.tool_name ?? 'tool',
+        detail: opt(r.tool_detail),
+        status: r.tool_status ?? 'done',
+        ...(r.tool_error ? { error: r.tool_error } : {}),
+        ...(r.tool_output ? { output: r.tool_output } : {}),
+      };
+    case 'thinking':
+      return { type: 'thinking', text: r.text ?? '' };
+    case 'plan':
+      return { type: 'plan', entries: parseJson(r.data, []) };
+    case 'approval':
+      return { type: 'approval', ...parseJson(r.data, { id: '', kind: 'other' as const, status: 'expired' as const }) };
+    default:
+      return { type: 'text', text: r.text ?? '' };
   }
-  return { type: 'text', text: r.text ?? '' };
+}
+
+/** Columns of one part: text, tool_id, tool_name, tool_detail, tool_status, tool_error, tool_output, data. */
+function partColumns(p: MessagePart): (string | null)[] {
+  switch (p.type) {
+    case 'text':
+    case 'thinking':
+      return [p.text, null, null, null, null, null, null, null];
+    case 'tool':
+      return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), null];
+    case 'plan':
+      return [null, null, null, null, null, null, null, JSON.stringify(p.entries)];
+    case 'approval': {
+      const { type: _type, ...data } = p;
+      return [null, null, null, null, null, null, null, JSON.stringify(data)];
+    }
+  }
 }
 
 function toChanges(r: MessageRow, files: FileChange[]): MessageChanges | undefined {
@@ -133,7 +177,23 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     agentName: opt(r.agent_name),
     provider: opt(r.provider),
     changes: toChanges(r, files),
+    plan: parsePlan(r.plan),
   };
+}
+
+/** The latest agent reply's status, from memory when the conversation is open (it may be streaming). */
+function statusOf(live: Conversation | undefined, stored: MessageStatus | undefined): { lastStatus?: MessageStatus } {
+  const last = live ? [...live.messages].reverse().find((m) => m.author.kind === 'agent')?.status : stored;
+  return last ? { lastStatus: last } : {};
+}
+
+function parsePlan(json: string | null): TeamPlan | undefined {
+  if (!json) return undefined;
+  try {
+    return JSON.parse(json) as TeamPlan;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -152,13 +212,25 @@ export class Store {
 
   // Conversations ------------------------------------------------------------
 
-  list(running: (id: string) => boolean): ConversationSummary[] {
+  list(running: (id: string) => boolean, waiting: (id: string) => boolean = () => false): ConversationSummary[] {
     const rows = this.db
       .prepare('SELECT id, title, updated_at FROM conversations ORDER BY updated_at DESC')
       .all() as Pick<ConversationRow, 'id' | 'title' | 'updated_at'>[];
     const agents = this.db
       .prepare('SELECT conversation_id, name, provider FROM conversation_agents ORDER BY conversation_id, position')
       .all() as { conversation_id: string; name: string; provider: Provider }[];
+    // How each conversation's latest agent reply ended.
+    const lastStatus = new Map(
+      (
+        this.db
+          .prepare(
+            `SELECT m.conversation_id, m.status FROM messages m
+             JOIN (SELECT conversation_id, MAX(seq) AS seq FROM messages WHERE author_kind = 'agent' GROUP BY conversation_id) l
+               ON l.conversation_id = m.conversation_id AND l.seq = m.seq`,
+          )
+          .all() as { conversation_id: string; status: MessageStatus }[]
+      ).map((r) => [r.conversation_id, r.status]),
+    );
     const byConv = new Map<string, ConversationSummary['agents']>();
     for (const a of agents) {
       const list = byConv.get(a.conversation_id) ?? [];
@@ -174,6 +246,8 @@ export class Store {
           updatedAt: live?.updatedAt ?? r.updated_at,
           agents: byConv.get(r.id) ?? [],
           running: running(r.id),
+          ...(waiting(r.id) ? { waiting: true } : {}),
+          ...statusOf(live, lastStatus.get(r.id)),
         };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -213,7 +287,8 @@ export class Store {
 
     const partRows = this.db
       .prepare(
-        `SELECT p.message_id, p.type, p.text, p.tool_id, p.tool_name, p.tool_detail, p.tool_status, p.tool_error
+        `SELECT p.message_id, p.type, p.text, p.tool_id, p.tool_name, p.tool_detail, p.tool_status, p.tool_error,
+                p.tool_output, p.data
          FROM message_parts p JOIN messages m ON m.id = p.message_id
          WHERE m.conversation_id = ? ORDER BY m.seq, p.idx`,
       )
@@ -263,10 +338,19 @@ export class Store {
       createdAt: c.created_at,
       updatedAt: c.updated_at,
       agents,
-      settings: { mode: c.mode, rounds: c.rounds, maxHops: c.max_hops, permission: c.permission, cwd: c.cwd },
+      settings: {
+        mode: c.mode,
+        rounds: c.rounds,
+        maxHops: c.max_hops,
+        permission: c.permission,
+        cwd: c.cwd,
+        ...(c.auto_team ? { autoTeam: true } : {}),
+        ...(c.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
+      },
       messages,
       agentState,
       worktrees,
+      ...(c.allow_rules ? { allowRules: parseJson(c.allow_rules, []) } : {}),
     };
   }
 
@@ -275,10 +359,24 @@ export class Store {
       const s = conv.settings;
       this.db
         .prepare(
-          `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd, auto_team,
+                                     approvals, allow_rules)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(conv.id, conv.title, conv.createdAt, conv.updatedAt, s.mode, s.rounds, s.maxHops, s.permission, s.cwd);
+        .run(
+          conv.id,
+          conv.title,
+          conv.createdAt,
+          conv.updatedAt,
+          s.mode,
+          s.rounds,
+          s.maxHops,
+          s.permission,
+          s.cwd,
+          s.autoTeam ? 1 : 0,
+          nul(s.approvals),
+          conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
+        );
       this.writeAgents(conv);
     });
     this.cache.set(conv.id, conv);
@@ -290,10 +388,23 @@ export class Store {
       const s = conv.settings;
       this.db
         .prepare(
-          `UPDATE conversations SET title = ?, updated_at = ?, mode = ?, rounds = ?, max_hops = ?, permission = ?, cwd = ?
+          `UPDATE conversations SET title = ?, updated_at = ?, mode = ?, rounds = ?, max_hops = ?, permission = ?, cwd = ?,
+             auto_team = ?, approvals = ?, allow_rules = ?
            WHERE id = ?`,
         )
-        .run(conv.title, conv.updatedAt, s.mode, s.rounds, s.maxHops, s.permission, s.cwd, conv.id);
+        .run(
+          conv.title,
+          conv.updatedAt,
+          s.mode,
+          s.rounds,
+          s.maxHops,
+          s.permission,
+          s.cwd,
+          s.autoTeam ? 1 : 0,
+          nul(s.approvals),
+          conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
+          conv.id,
+        );
       this.writeAgents(conv);
     });
   }
@@ -346,14 +457,14 @@ export class Store {
     const upsert = this.db.prepare(
       `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                              status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
-                             change_root, change_base, change_head, change_isolated, change_branch)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             change_root, change_base, change_head, change_isolated, change_branch, plan)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
          round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
          input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
          change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
-         change_isolated = excluded.change_isolated, change_branch = excluded.change_branch`,
+         change_isolated = excluded.change_isolated, change_branch = excluded.change_branch, plan = excluded.plan`,
     );
     const clearChanges = this.db.prepare('DELETE FROM message_changes WHERE message_id = ?');
     const insertChange = this.db.prepare(
@@ -361,8 +472,9 @@ export class Store {
     );
     const clearParts = this.db.prepare('DELETE FROM message_parts WHERE message_id = ?');
     const insertPart = this.db.prepare(
-      `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
+                                  tool_output, data)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     transaction(this.db, () => {
@@ -392,14 +504,12 @@ export class Store {
           nul(m.changes?.head),
           m.changes ? (m.changes.isolated ? 1 : 0) : null,
           nul(m.changes?.branch),
+          m.plan ? JSON.stringify(m.plan) : null,
         );
         clearChanges.run(m.id);
         m.changes?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));
         clearParts.run(m.id);
-        m.parts.forEach((p, idx) => {
-          if (p.type === 'text') insertPart.run(m.id, idx, 'text', p.text, null, null, null, null, null);
-          else insertPart.run(m.id, idx, 'tool', null, p.id, p.name, nul(p.detail), p.status, nul(p.error));
-        });
+        m.parts.forEach((p, idx) => insertPart.run(m.id, idx, p.type, ...partColumns(p)));
       });
     });
   }
@@ -469,7 +579,7 @@ export class Store {
       agents: (agentStmt.all(r.id) as unknown as AgentRow[]).map(toAgent),
       settings: { mode: r.mode, rounds: r.rounds, maxHops: r.max_hops, permission: r.permission },
     }));
-    return [...BUILTIN_PRESETS, ...user];
+    return [...builtinPresets(currentLang()), ...user];
   }
 
   savePreset(p: TeamPreset): void {

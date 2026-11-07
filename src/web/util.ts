@@ -1,38 +1,24 @@
-import type { AgentConfig, Mode, Permission, Provider } from '../shared/types';
+import { PROVIDER_LABEL, type AgentConfig, type ConversationSummary, type LeadAgentSettings, type Provider } from '../shared/types';
+import type { Messages } from './i18n';
+import type { ConvStatus } from './locales/zh-TW';
+
+/**
+ * What the sidebar says about a conversation: needs you > replying > error > new reply > nothing.
+ * `seenAt` is the conversation's updatedAt when the user last had it open.
+ */
+export function convStatus(c: ConversationSummary, seenAt: number | undefined): ConvStatus | undefined {
+  if (c.waiting) return 'waiting';
+  if (c.running) return 'running';
+  if (!c.lastStatus || (seenAt ?? 0) >= c.updatedAt) return undefined;
+  if (c.lastStatus === 'error') return 'error';
+  return c.lastStatus === 'done' ? 'unread' : undefined;
+}
 
 export const PROVIDER_COLOR: Record<Provider, string> = {
   claude: 'var(--claude)',
   codex: 'var(--codex)',
   grok: 'var(--grok)',
 };
-
-export const MODE_INFO: Record<Mode, { label: string; hint: string }> = {
-  roundtable: { label: '圓桌', hint: '依序發言，後面的人看得到前面說了什麼；可設定多輪，全部 [PASS] 時提前結束。' },
-  parallel: { label: '平行', hint: '每一輪大家同時、獨立回答；下一輪才看得到彼此的答案。' },
-  relay: { label: '接力', hint: '一次一位發言；被 @ 的隊友接棒，沒人被 @ 就交還給你。' },
-};
-
-export const PERMISSION_INFO: Record<Permission, { label: string; hint: string }> = {
-  'read-only': { label: '唯讀', hint: '只能讀檔、分析與上網查資料，不會修改任何檔案。' },
-  edit: { label: '可編輯', hint: '可以在工作目錄內修改檔案，並執行測試、建置等專案指令；推送與發佈需要完全存取。' },
-  full: { label: '完全存取', hint: '可修改檔案並執行任何指令，不再詢問。請只在可信任的目錄使用。' },
-};
-
-const EFFORT_LABEL: Record<string, string> = {
-  none: '無',
-  minimal: '最低',
-  low: '低',
-  medium: '中',
-  high: '高',
-  xhigh: '超高',
-  max: '最高',
-  ultra: 'Ultra',
-};
-
-export function effortLabel(e: string): string {
-  const zh = EFFORT_LABEL[e];
-  return zh ? `${zh}（${e}）` : e;
-}
 
 export function newAgent(provider: Provider, taken: string[]): AgentConfig {
   const base = { claude: 'Claude', codex: 'Codex', grok: 'Grok' }[provider];
@@ -54,14 +40,24 @@ export function formatTokens(n?: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n);
 }
 
-export function relativeTime(ts: number): string {
+export function relativeTime(ts: number, t: Messages): string {
   const d = Date.now() - ts;
-  if (d < 60_000) return '剛剛';
-  if (d < 3_600_000) return `${Math.floor(d / 60_000)} 分鐘前`;
-  if (d < 86_400_000) return `${Math.floor(d / 3_600_000)} 小時前`;
+  if (d < 60_000) return t.time.justNow;
+  if (d < 3_600_000) return t.time.minutesAgo(Math.floor(d / 60_000));
+  if (d < 86_400_000) return t.time.hoursAgo(Math.floor(d / 3_600_000));
   return new Date(ts).toLocaleDateString();
+}
+
+/** "Claude Code · opus" */
+export function leadLabel(lead: LeadAgentSettings): string {
+  return `${PROVIDER_LABEL[lead.provider]}${lead.model ? ` · ${lead.model}` : ''}`;
 }
 
 export function initials(name: string): string {
   return [...name][0]?.toUpperCase() ?? '?';
+}
+
+/** "gpt-6.1-sol · 高（high）" — only the parts an agent overrides. */
+export function modelSummary(a: Pick<AgentConfig, 'model' | 'effort'>, t: Messages): string {
+  return [a.model, a.effort && t.effortLabel(a.effort)].filter(Boolean).join(' · ');
 }

@@ -167,6 +167,18 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE message_parts ADD COLUMN tool_error TEXT;
   `,
+  // 4: auto-team conversations (the lead agent designs the team) and its team design messages.
+  `
+  ALTER TABLE conversations ADD COLUMN auto_team INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE messages ADD COLUMN plan TEXT;
+  `,
+  // 5: approvals asked in the chat, agents' thinking / plans, and tool output.
+  `
+  ALTER TABLE conversations ADD COLUMN approvals TEXT;
+  ALTER TABLE conversations ADD COLUMN allow_rules TEXT;
+  ALTER TABLE message_parts ADD COLUMN tool_output TEXT;
+  ALTER TABLE message_parts ADD COLUMN data TEXT;
+  `,
 ];
 
 function migrate(db: Database): void {

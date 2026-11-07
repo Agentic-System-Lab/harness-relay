@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { t } from './i18n';
 
 export interface SpawnOptions {
   bin: string;
@@ -53,7 +54,7 @@ export function killTree(child: ChildProcess, sig: NodeJS.Signals = 'SIGTERM'): 
 
 export class CommandNotFoundError extends Error {
   constructor(public bin: string) {
-    super(`找不到指令「${bin}」。請確認已安裝，或在「設定」頁指定執行檔路徑。`);
+    super(t().commandNotFound(bin));
   }
 }
 

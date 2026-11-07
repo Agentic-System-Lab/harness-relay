@@ -21,11 +21,17 @@ src/
   shared/types.ts          types shared by server and client (+ PROVIDERS, effortsFor…)
   server/
     index.ts               routes, security middleware, SSE, static files, startup
-    orchestrator.ts        team turns: scheduling, prompt delivery, streaming into messages
+    orchestrator.ts        team turns: scheduling, prompt delivery, streaming into messages; auto team, resend
+    planner.ts             auto team: lead-agent prompt, reply parsing, runnable team, fallback
     prompt.ts              role briefing, turn prompt, @mention parsing, [PASS]
+    approvals.ts           "always allow" rule keys (one per chained command)
+    i18n.ts                server messages (zh-TW / en), language per request and run
     agents/
       types.ts             AgentRunner interface, AgentEvent, helpers
-      claude.ts codex.ts grok.ts   one adapter per CLI (parser + run)
+      claude.ts            Claude Code: stream-json both ways, can_use_tool control requests
+      codex.ts             Codex: `codex app-server` (thread / turn / approval requests)
+      grok.ts              Grok: ACP (`grok agent stdio`)
+      acp.ts               JSON-RPC peer used by the Codex and Grok adapters
       index.ts             runner registry
     process.ts             spawn/kill helpers (process groups, line streaming, timeouts)
     providers.ts           CLI status, login sessions, logout, model cache
@@ -33,15 +39,18 @@ src/
     db.ts                  open SQLite, migrations, transaction()
     store.ts               conversations, messages, agent sessions, presets
     settings.ts            provider settings, default cwd, child-process env
-    presets.ts             built-in team templates
+    presets.ts             built-in team templates, in both languages
     validate.ts            input validation for agents and settings
     workspace.ts           git: auto init, snapshots, worktrees, diffs, apply
     errors.ts              HttpError (user-facing errors with a status)
     hub.ts                 SSE fan-out
   web/
-    main.tsx App.tsx api.ts util.ts styles.css index.html
+    main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
+    i18n.tsx               language detection, provider, useT()
+    locales/               zh-TW.ts (source of the message shape), en.ts
     components/            Sidebar, NewChat, TeamEditor, ModelPicker, ChatView,
-                           MessageItem, ChangesCard, Composer, Markdown, SettingsPage
+                           MessageItem (incl. plan card), ChangesCard, Composer, Markdown,
+                           SettingsPage, CopyButton, Logo, Onboarding (guided tour)
 test/                      Vitest tests
 docs/                      documentation (English + 繁體中文)
 data/                      runtime data (relay.db) — git-ignored
@@ -75,31 +84,34 @@ The server passes its own environment to the CLIs, minus Claude Code's nesting v
 ## Request flow
 
 1. The client posts `POST /api/conversations/:id/messages` → `Orchestrator.send()` prepares the workspace (for edit / full access: `git init` if needed, and the directory lock unless the mode is parallel), appends the user message and starts `execute()` in the background (the request returns `202`).
-2. `execute()` chooses speakers by mode (creating per-agent worktrees first in parallel mode) and calls `turn()` for each.
-3. `turn()` creates a streaming agent message, records the starting state (worktree `HEAD` or a snapshot), computes the messages the agent hasn't seen, builds the prompt (`prompt.ts`), and calls `runners[provider].run()` in the right directory.
+2. `execute()` first lets the lead agent design the team when the conversation is in auto-team mode (`designTeam()`, see [Architecture → Auto team](architecture.md#auto-team)), then chooses speakers by mode (creating per-agent worktrees first in parallel mode) and calls `turn()` for each.
+3. `turn()` creates a streaming agent message, records the starting state (worktree `HEAD` or a snapshot), computes the messages the agent hasn't seen, builds the prompt (`prompt.ts`), and calls `runners[provider].run()` in the right directory, passing `requestApproval` unless the conversation refuses automatically.
 4. The adapter spawns the CLI (`process.ts`), parses each stdout line and emits `AgentEvent`s.
-5. `turn()` applies events to the message, emits SSE events through the `Hub`, and saves through the `Store`. When the CLI exits it records the files changed (commit in the worktree, or a second snapshot) on the message.
+5. `turn()` applies events to the message (text, thinking, plan, tool rows and output), emits SSE events through the `Hub`, and saves through the `Store`. An approval request adds an approval part and waits for `POST …/approvals/:approvalId`. When the CLI exits it records the files changed (commit in the worktree, or a second snapshot) on the message.
 
 ## HTTP API
 
-All write requests must send `Content-Type: application/json` (CSRF guard). Errors are `{ "error": string }` with status 400/404/409/415/500.
+All write requests must send `Content-Type: application/json` (CSRF guard). Errors are `{ "error": string }` with status 400/404/409/415/500. Send `X-Relay-Lang: zh-TW | en` to get errors, system notes and built-in templates in that language (the web app always does).
 
 | Method & path | Body → response |
 | --- | --- |
-| `GET /api/conversations` | → `ConversationSummary[]` |
-| `POST /api/conversations` | `{ title?, agents, settings }` → `Conversation` |
+| `GET /api/conversations` | → `ConversationSummary[]` (with `running`, `waiting` and `lastStatus` for the sidebar) |
+| `POST /api/conversations` | `{ title?, agents, settings }` → `Conversation`; with `settings.autoTeam: true`, `agents` may be empty — the lead agent designs the team on the first message |
 | `GET /api/conversations/:id` | → `Conversation` |
-| `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation` (409 while running) |
+| `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation` (409 while running; setting `agents` turns auto team off) |
 | `DELETE /api/conversations/:id` | stops a run and deletes |
 | `POST /api/conversations/:id/messages` | `{ text }` (empty = continue) → `202` |
 | `PUT /api/conversations/:id/messages/:messageId` | `{ text }` → `202`: edit a user message — it and everything after it are deleted, every agent starts a fresh session, and the team answers again (`Orchestrator.resend()`) |
+| `POST /api/conversations/:id/messages/:messageId/retry` | → `202`: delete an agent reply and what follows, and let that agent (and the later speakers of its round) answer again |
+| `POST /api/conversations/:id/approvals/:approvalId` | `{ allow, always?, note? }`: answer an agent's approval request (404 when already answered or expired) |
+| `POST /api/conversations/:id/messages/:messageId/save-plan` | `{ name? }` → `TeamPreset`: saves the lead agent's custom team design as a template |
 | `POST /api/conversations/:id/stop` | aborts the run |
 | `GET /api/conversations/:id/messages/:messageId/diff` | → unified diff (text) of that turn's changes |
 | `GET /api/conversations/:id/agents/:agentId/diff` | → unified diff (text) of an agent's whole worktree result |
 | `POST /api/conversations/:id/agents/:agentId/apply` | applies an agent's worktree result to the working directory → `{ files }` (409 on conflict) |
 | `GET /api/conversations/:id/events` | SSE stream of `ServerEvent` |
 | `GET /api/presets` · `POST /api/presets` · `DELETE /api/presets/:id` | team templates |
-| `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd? }` |
+| `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, lead? }` (`lead`: `{ provider, model?, effort? }`, the auto-team lead agent) |
 | `PUT /api/settings/providers/:provider` | `{ bin?, defaultModel?, defaultEffort?, apiKey? }` (`apiKey: null` removes) |
 | `GET /api/providers[?refresh=1]` | → `ProviderStatus[]` |
 | `GET /api/models[?refresh=1]` | → `ProviderModels[]` |
@@ -116,14 +128,16 @@ Types are in `src/shared/types.ts`.
 
 1. **Types** — add the id to `Provider`, `PROVIDERS` and `PROVIDER_LABEL` in `src/shared/types.ts`.
 2. **Adapter** — create `src/server/agents/<name>.ts`:
-   - a `create<Name>Parser(emit)` that turns one stdout line into `AgentEvent`s (`session`, `text`, `text_end`, `tool_start`, `tool_end`) and remembers the final result/error;
-   - an `AgentRunner` whose `run()` builds the arguments (prompt, system prompt, session new/resume, permission, model, effort), calls `runProcess()` and throws `AgentRunError` on failure (`aborted = true` when stopped).
+   - a `create<Name>Parser(emit)` (or update handler) that turns the CLI's output into `AgentEvent`s (`session`, `text`, `text_end`, `thinking`, `plan`, `tool_start`, `tool_end` with `output` / `error`) and remembers the final result/error;
+   - an `AgentRunner` whose `run()` builds the arguments (prompt, system prompt, session new/resume, permission, model, effort), calls `runProcess()` and throws `AgentRunError` on failure (`aborted = true` when stopped);
+   - approvals: when the CLI asks to do something the permission does not cover, call `o.requestApproval({ kind, detail, reason, tool })` and answer the CLI with the result (when `requestApproval` is absent, refuse).
    Keep the parser pure so it can be tested with recorded output lines.
 3. **Register** it in `src/server/agents/index.ts`.
 4. **Settings** — default binary name in `DEFAULT_BIN` and, if the CLI reads an API key from the environment, `API_KEY_ENV` (`src/server/settings.ts`).
 5. **Status & login** — `checkAuth()` and `LOGIN_METHODS` in `src/server/providers.ts`; the logout command in `logout()`.
 6. **Models** — a discovery function in `src/server/models.ts` (or a static list).
-7. **UI** — a color variable in `styles.css` (`--<name>`), `PROVIDER_COLOR` and `newAgent()` in `src/web/util.ts`, API-key help text in `SettingsPage.tsx`.
+7. **UI** — a color variable in `styles.css` (`--<name>`), `PROVIDER_COLOR` and `newAgent()` in `src/web/util.ts`, API-key help text in both locale files (`settings.apiKeyHelp`).
+8. **Messages** — login method labels in `src/server/i18n.ts` (`login`), in both languages.
 
 ## Database changes
 
@@ -148,8 +162,20 @@ sqlite3 data/relay.db 'select seq, author_kind, agent_name, status from messages
 - `buildTurnPrompt()` — the per-turn message with `<chat>` and the cue line.
 - `forwardText()` — how a reply is shown to other agents (text + `<actions>` log).
 - `parseMentions()` — mention parsing; code spans and fenced blocks are ignored.
+- `buildPlannerPrompt()` / `PLANNER_BRIEFING` (`planner.ts`) — what the lead agent is asked in auto-team mode, and the JSON it must return.
 
-Prompts are in English on purpose (agents reply in the user's language). UI strings are Traditional Chinese.
+Prompts are in English on purpose (agents reply in the user's language). User-facing text is translated — see [Translations](#translations).
+
+## Translations
+
+The UI and the server's user-facing text come in Traditional Chinese (`zh-TW`) and English (`en`).
+
+- **UI strings** — add the key to `src/web/locales/zh-TW.ts` first: its shape is the `Messages` type. `en.ts` is typed `Messages`, so TypeScript reports a missing or mistyped English entry; text with values is a function (`(n: number) => …`). In components use `const t = useT()` (or `useI18n()` for the language and `setLang`). Code outside React gets the messages passed in (`relativeTime(ts, t)`, `conversationMarkdown(conv, t)`).
+- **Server strings** — `src/server/i18n.ts` has both dictionaries; call `t()` where the text is produced. The language comes from the request (`X-Relay-Lang`) through AsyncLocalStorage and follows the runs the request starts, so do not cache translated text in long-lived objects.
+- **Built-in templates** — `src/server/presets.ts` keeps names, descriptions and roles in both languages.
+- **Another language** — add it to `Lang` / `LANGS` in `src/shared/types.ts`, add a locale file and a server dictionary, the template texts, and its detection rule in `browserLang()`.
+
+`test/i18n.test.ts` checks that both UI dictionaries have the same shape (including list lengths, which types don't check).
 
 ## Testing
 
@@ -165,9 +191,14 @@ Current tests:
 - `test/orchestrator.test.ts` — full runs with a fake runner swapped into `runners`: parallel worktree isolation and apply, change tracking in roundtable mode, and the directory lock.
 - `test/grok.test.ts` — the Grok ACP adapter: permission policy per level, session updates → `AgentEvent`s, and the JSON-RPC connection.
 - `test/claude.test.ts` — Claude's pre-approved tools and the reason shown for a refused tool call.
-- `test/copy.test.ts` — the Markdown written when copying a message or a whole conversation.
+- `test/copy.test.ts` — the Markdown written when copying a message or a whole conversation, in both languages.
+- `test/approvals.test.ts` — "always allow" rule keys and matching (chained commands, shell wrappers).
+- `test/codex.test.ts` — the Codex app-server adapter: thread items → `AgentEvent`s (text, reasoning, plan, command output, usage) and approval requests / responses.
+- `test/sidebar.test.ts` — the sidebar's conversation states.
+- `test/planner.test.ts` — the lead agent's reply: JSON extraction, templates vs. custom teams, validation, remapping to signed-in CLIs, the fallback, and the prompt.
+- `test/i18n.test.ts` — language detection (server header and browser), language carried through async work, bilingual templates, and the two UI dictionaries having the same shape.
 
-`test/orchestrator.test.ts` also covers editing a user message (`resend`): later messages are dropped and every agent starts a fresh session.
+`test/orchestrator.test.ts` also covers approvals with a fake agent (asking and waiting, "always allow", a decline note, expiry on stop, refusing automatically), retrying a reply, editing a user message (`resend`: later messages are dropped and every agent starts a fresh session) and auto team with a fake lead agent (a custom design and its team answering, saving it as a template, using a template, the fallback, and designing again after the first question is edited).
 
 Good next candidates:
 
@@ -175,8 +206,8 @@ Good next candidates:
 
   ```bash
   echo "hello" | claude -p --output-format stream-json --verbose --include-partial-messages > claude.jsonl
-  echo "hello" | codex exec --json --skip-git-repo-check - > codex.jsonl
-  # Grok runs over ACP; copy fixtures from the updates it keeps per session:
+  # Codex and Grok speak JSON-RPC; log what the adapter sees with a console.log in
+  # JsonRpcConnection.handleLine, or copy Grok's per-session updates from
   # ~/.grok/sessions/<url-encoded cwd>/<session-id>/updates.jsonl
   ```
 
@@ -189,6 +220,8 @@ Running real agents in tests costs money and needs logins, so keep automated tes
 
 - **Server logs** — the `[server]` lines in the `npm run dev` output; adapter failures include the CLI's stderr tail in the message's error.
 - **SSE** — `curl -N http://localhost:8787/api/conversations/<id>/events` shows the raw event stream.
+- **Language** — add `-H 'X-Relay-Lang: en'` to a `curl` call to see the English errors and templates.
+- **Auto team** — the lead agent's run is a normal CLI session in the conversation's working directory; its reply and its cost are on the plan message (`messages.plan`, `cost_usd`).
 - **Reproduce a CLI call** — the adapters' argument lists in `src/server/agents/*.ts` can be run by hand; add `--debug` (Claude, Grok) to see more.
 - **Worktrees** — `git -C <working dir> worktree list` and `git branch --list 'relay/*'` show what parallel conversations created; `data/worktrees/<conversation>/` holds the checkouts.
 - **Stale session** — with the server stopped, delete the agent's row in `agent_sessions` to force a fresh session with full history (open conversations are cached in memory, so edit the database only while the server is down).

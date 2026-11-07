@@ -1,162 +1,324 @@
-import type { Permission } from '../../shared/types';
+import type { ChildProcess } from 'node:child_process';
+import type { Permission, PlanEntry } from '../../shared/types';
+import { unwrapShell } from '../approvals';
+import { t } from '../i18n';
 import { runProcess, tail } from '../process';
+import { JsonRpcConnection, RpcError } from './acp';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
   clip,
-  parseJsonLine,
   summarizeInput,
+  tailText,
   type AgentEvent,
   type AgentRunner,
+  type ApprovalRequest,
   type RunResult,
 } from './types';
 
-/** `codex exec resume` has no `-s`, so the sandbox is always set through config overrides. */
-const PERMISSION_ARGS: Record<Permission, string[]> = {
-  'read-only': ['-c', 'sandbox_mode="read-only"', '-c', 'approval_policy="never"'],
-  edit: ['-c', 'sandbox_mode="workspace-write"', '-c', 'approval_policy="never"'],
-  full: ['--dangerously-bypass-approvals-and-sandbox'],
+/*
+ * Codex runs as `codex app-server` (JSON-RPC over stdio, the protocol of Codex's IDE extensions)
+ * rather than `codex exec`, so that it can ask the user for approvals and stream its reasoning,
+ * plan and command output.
+ *
+ * Commands always run in Codex's OS sandbox for the permission (read-only / workspace-write).
+ * When the conversation asks the user, the approval policy is "on-request": Codex asks before
+ * anything the sandbox does not allow (writing outside the working directory, network…), and
+ * the request goes to the user. Otherwise the policy is "never" and such actions just fail.
+ */
+
+const SANDBOX: Record<Permission, string> = {
+  'read-only': 'read-only',
+  edit: 'workspace-write',
+  full: 'danger-full-access',
 };
 
-/** JSON strings are valid TOML basic strings, which is what `-c key=value` parses. */
-function tomlString(s: string): string {
-  return JSON.stringify(s);
-}
+const PLAN_STATUS: Record<string, PlanEntry['status']> = {
+  pending: 'pending',
+  inProgress: 'in_progress',
+  completed: 'completed',
+};
 
-function describeItem(item: Record<string, any>): { name: string; detail?: string } | null {
+/** A tool row for a Codex thread item, or null for items that are not tool calls. */
+export function describeCodexItem(item: Record<string, any>): { name: string; detail?: string } | null {
   switch (item.type) {
-    case 'command_execution':
-      return { name: 'Shell', detail: clip(String(item.command ?? '')) };
-    case 'file_change': {
+    case 'commandExecution':
+      return { name: 'Shell', detail: clip(unwrapShell(String(item.command ?? ''))) };
+    case 'fileChange': {
       const changes: any[] = Array.isArray(item.changes) ? item.changes : [];
-      const detail = changes.map((c) => `${c.kind ?? 'edit'} ${c.path}`).join(', ');
-      return { name: 'Edit', detail: clip(detail) || undefined };
+      return { name: 'Edit', detail: clip(changes.map((c) => `${c.kind?.type ?? 'update'} ${c.path}`).join(', ')) || undefined };
     }
-    case 'mcp_tool_call':
+    case 'mcpToolCall':
       return { name: `${item.server ?? 'mcp'}:${item.tool ?? 'tool'}`, detail: summarizeInput(item.arguments) };
-    case 'web_search':
+    case 'dynamicToolCall':
+      return { name: String(item.tool ?? 'tool'), detail: summarizeInput(item.arguments) };
+    case 'webSearch':
       return { name: 'WebSearch', detail: item.query ? clip(String(item.query)) : undefined };
     default:
       return null;
   }
 }
 
-/** Parses `codex exec --json` JSONL events. */
-export function createCodexParser(emit: (e: AgentEvent) => void) {
-  const started = new Set<string>();
-  let threadId: string | undefined;
-  let completed = false;
-  let failure: string | undefined;
-  let lastError: string | undefined;
-  let usage: Record<string, number> | undefined;
+/** How a finished tool item went: ok, plus output or a failure reason. */
+function itemOutcome(item: Record<string, any>): { ok: boolean; output?: string; error?: string } {
+  switch (item.type) {
+    case 'commandExecution': {
+      const output = item.aggregatedOutput ? tailText(String(item.aggregatedOutput)) : undefined;
+      if (item.status === 'declined') return { ok: false, error: t().approvalDeclined };
+      const ok = item.status === 'completed' && (item.exitCode === null || item.exitCode === undefined || item.exitCode === 0);
+      return ok ? { ok, output } : { ok, output, error: item.exitCode != null ? `exit ${item.exitCode}` : undefined };
+    }
+    case 'fileChange':
+      return item.status === 'declined'
+        ? { ok: false, error: t().approvalDeclined }
+        : { ok: item.status === 'completed' || item.status === undefined };
+    case 'mcpToolCall': {
+      if (item.error) return { ok: false, error: clip(String(item.error.message ?? item.error), 240) };
+      const content = Array.isArray(item.result?.content) ? item.result.content : [];
+      const text = content.map((c: any) => (typeof c?.text === 'string' ? c.text : '')).join('\n').trim();
+      return { ok: item.status !== 'failed', output: text ? tailText(text) : undefined };
+    }
+    default:
+      return { ok: item.status !== 'failed' };
+  }
+}
 
-  function handle(line: string): void {
-    const ev = parseJsonLine(line);
-    if (!ev) return;
-    switch (ev.type) {
-      case 'thread.started':
-        threadId = ev.thread_id;
-        if (threadId) emit({ type: 'session', sessionId: threadId });
-        break;
-      case 'item.started':
-      case 'item.updated': {
-        const item = ev.item ?? {};
-        const d = describeItem(item);
-        if (d && item.id && !started.has(item.id)) {
-          started.add(item.id);
-          emit({ type: 'tool_start', id: item.id, ...d });
+/** Turns app-server notifications for one thread into AgentEvents. */
+export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
+  const started = new Set<string>();
+  const streamedText = new Set<string>();
+  const streamedThinking = new Set<string>();
+  /** File paths of file-change items, to show what an approval request is about. */
+  const filePaths = new Map<string, string>();
+  let usage = { input: 0, output: 0, seen: false };
+
+  const startTool = (item: Record<string, any>) => {
+    const d = describeCodexItem(item);
+    if (!d || !item.id || started.has(item.id)) return;
+    started.add(item.id);
+    if (item.type === 'fileChange') filePaths.set(item.id, (item.changes ?? []).map((c: any) => c.path).join(', '));
+    emit({ type: 'tool_start', id: item.id, ...d });
+  };
+
+  function handle(method: string, p: Record<string, any>): void {
+    switch (method) {
+      case 'item/agentMessage/delta':
+        if (p.delta) {
+          streamedText.add(p.itemId);
+          emit({ type: 'text', text: String(p.delta) });
         }
         break;
-      }
-      case 'item.completed': {
-        const item = ev.item ?? {};
-        if (item.type === 'agent_message') {
-          if (item.text) {
-            emit({ type: 'text', text: String(item.text) });
-            emit({ type: 'text_end' });
-          }
+      case 'item/reasoning/summaryTextDelta':
+        if (p.delta) {
+          streamedThinking.add(p.itemId);
+          emit({ type: 'thinking', text: String(p.delta) });
+        }
+        break;
+      case 'item/reasoning/summaryPartAdded':
+        if (streamedThinking.has(p.itemId)) emit({ type: 'thinking', text: '\n\n' });
+        break;
+      case 'item/started':
+        startTool(p.item ?? {});
+        break;
+      case 'item/completed': {
+        const item = p.item ?? {};
+        if (item.type === 'agentMessage') {
+          if (!streamedText.has(item.id) && item.text) emit({ type: 'text', text: String(item.text) });
+          emit({ type: 'text_end' });
           break;
         }
-        // `error` items are non-fatal warnings (e.g. hook config notices); fatal errors use turn.failed.
-        const d = describeItem(item);
-        if (!d || !item.id) break;
-        if (!started.has(item.id)) {
-          started.add(item.id);
-          emit({ type: 'tool_start', id: item.id, ...d });
+        if (item.type === 'reasoning') {
+          const summary = (Array.isArray(item.summary) ? item.summary : []).join('\n\n').trim();
+          if (!streamedThinking.has(item.id) && summary) emit({ type: 'thinking', text: summary });
+          break;
         }
-        const ok =
-          item.status !== 'failed' &&
-          item.status !== 'declined' &&
-          (item.exit_code === undefined || item.exit_code === null || item.exit_code === 0);
-        emit({ type: 'tool_end', id: item.id, ok });
+        if (!describeCodexItem(item)) break;
+        startTool(item);
+        const { ok, output, error } = itemOutcome(item);
+        emit({ type: 'tool_end', id: item.id, ok, ...(output ? { output } : {}), ...(error ? { error } : {}) });
         break;
       }
-      case 'turn.completed':
-        completed = true;
-        usage = ev.usage;
+      case 'turn/plan/updated': {
+        const plan: any[] = Array.isArray(p.plan) ? p.plan : [];
+        emit({ type: 'plan', entries: plan.map((s) => ({ text: String(s.step ?? ''), status: PLAN_STATUS[s.status] ?? 'pending' })) });
         break;
-      case 'turn.failed':
-        failure = ev.error?.message ?? 'Codex turn failed';
+      }
+      case 'thread/tokenUsage/updated': {
+        // One update per model call; `last` is that call's usage.
+        const last = p.tokenUsage?.last;
+        if (last) {
+          usage = {
+            input: usage.input + (last.inputTokens ?? 0),
+            output: usage.output + (last.outputTokens ?? 0) + (last.reasoningOutputTokens ?? 0),
+            seen: true,
+          };
+        }
         break;
-      case 'error':
-        lastError = ev.message;
-        break;
+      }
     }
   }
 
   return {
     handle,
-    get threadId() {
-      return threadId;
-    },
-    get completed() {
-      return completed;
-    },
-    get failure() {
-      return failure ?? (completed ? undefined : lastError);
+    filePaths(itemId: string): string | undefined {
+      return filePaths.get(itemId);
     },
     get usage() {
-      return usage;
+      return usage.seen ? { inputTokens: usage.input, outputTokens: usage.output } : {};
     },
   };
+}
+
+/** What to show the user for an app-server approval request. */
+export function codexApprovalRequest(
+  method: string,
+  p: Record<string, any>,
+  filePaths: (itemId: string) => string | undefined,
+): ApprovalRequest | null {
+  const reason = p.reason ? String(p.reason) : undefined;
+  switch (method) {
+    case 'item/commandExecution/requestApproval':
+      return { kind: 'command', detail: unwrapShell(String(p.command ?? '')), reason };
+    case 'item/fileChange/requestApproval':
+      return { kind: 'edit', detail: p.grantRoot ? String(p.grantRoot) : filePaths(String(p.itemId)), reason };
+    case 'item/permissions/requestApproval':
+      return { kind: 'other', tool: 'permissions', detail: clip(JSON.stringify(p.permissions ?? {})), reason };
+    case 'execCommandApproval':
+      return { kind: 'command', detail: unwrapShell((Array.isArray(p.command) ? p.command.join(' ') : String(p.command ?? ''))), reason };
+    case 'applyPatchApproval':
+      return { kind: 'edit', detail: Object.keys(p.fileChanges ?? {}).join(', ') || undefined, reason };
+    default:
+      return null;
+  }
+}
+
+/** The reply Codex expects for an approval request, allowed or not. */
+export function codexApprovalResponse(method: string, p: Record<string, any>, allow: boolean, note?: string): unknown {
+  switch (method) {
+    case 'item/permissions/requestApproval':
+      return allow
+        ? { permissions: { network: p.permissions?.network ?? undefined, fileSystem: p.permissions?.fileSystem ?? undefined }, scope: 'turn' }
+        : { permissions: {}, scope: 'turn' };
+    case 'execCommandApproval':
+    case 'applyPatchApproval':
+      return { decision: allow ? 'approved' : { denied: { rejection: note || 'The user declined this.' } } };
+    default:
+      return { decision: allow ? 'accept' : 'decline' };
+  }
 }
 
 export const codexRunner: AgentRunner = {
   provider: 'codex',
   async run(o): Promise<RunResult> {
-    const common = [
-      '--json',
-      '--skip-git-repo-check',
-      ...PERMISSION_ARGS[o.permission],
-      ...(o.model ? ['-m', o.model] : []),
-      ...(o.effort ? ['-c', `model_reasoning_effort=${tomlString(o.effort)}`] : []),
-      '-c',
-      `developer_instructions=${tomlString(o.systemPrompt)}`,
-    ];
-    const args = o.sessionId
-      ? ['exec', 'resume', ...common, o.sessionId, '-']
-      : ['exec', ...common, '-C', o.cwd, '-'];
-    const parser = createCodexParser(o.onEvent);
-    const res = await runProcess({
+    if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
+    const ask = Boolean(o.requestApproval) && o.permission !== 'full';
+    const args = ['app-server', '-c', 'model_reasoning_summary="auto"'];
+
+    let child: ChildProcess | undefined;
+    let threadId: string | undefined;
+    let turnId: string | undefined;
+    let userAborted = false;
+    let failure: string | undefined;
+    const stop = new AbortController();
+    const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
+
+    const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'), { versionField: false });
+    const updates = createCodexUpdateHandler(o.onEvent);
+    let resolveTurn: (turn: Record<string, any>) => void = () => {};
+    const turnDone = new Promise<Record<string, any>>((r) => (resolveTurn = r));
+
+    conn.onNotification = (method, params) => {
+      if (method === 'error' && params?.error?.message) failure = String(params.error.message);
+      if (!threadId || params?.threadId !== threadId) return; // other threads (sub-agents) and startup noise
+      if (method === 'turn/completed') resolveTurn(params.turn ?? {});
+      else updates.handle(method, params);
+    };
+    conn.onRequest = async (method, params) => {
+      if (method === 'item/tool/requestUserInput') return { answers: {} };
+      if (method === 'mcpServer/elicitation/request') return { action: 'decline', content: null, _meta: null };
+      const req = codexApprovalRequest(method, params ?? {}, (id) => updates.filePaths(id));
+      if (!req) throw new RpcError(-32601, `${method} is not supported`);
+      const answer = o.requestApproval ? await o.requestApproval(req) : { allow: false };
+      return codexApprovalResponse(method, params ?? {}, answer.allow, answer.note);
+    };
+
+    const onAbort = () => {
+      userAborted = true;
+      if (threadId && turnId) void conn.request('turn/interrupt', { threadId, turnId }).catch(() => undefined);
+      stopSoon(2000);
+    };
+    o.signal.addEventListener('abort', onAbort, { once: true });
+
+    const exited = runProcess({
       bin: o.bin,
       args,
       cwd: o.cwd,
       env: o.env,
-      stdin: o.prompt,
-      signal: o.signal,
+      signal: stop.signal,
       timeoutMs: TURN_TIMEOUT_MS,
-      onLine: parser.handle,
-    });
-    if (res.aborted) throw new AgentRunError('已停止', true);
-    if (res.timedOut) throw new AgentRunError('執行逾時');
-    if (parser.failure || !parser.completed) {
-      throw new AgentRunError(parser.failure ?? (tail(res.stderr) || `codex 結束（exit ${res.code}）但沒有完成回合`));
+      keepStdinOpen: true,
+      onSpawn: (c) => (child = c),
+      onLine: conn.handleLine,
+    }).then(
+      (res) => {
+        const why = res.timedOut ? t().timedOut : tail(res.stderr) || t().exitedWithoutTurn('codex', res.code);
+        conn.close(new AgentRunError(why));
+        resolveTurn({ status: 'failed', error: { message: why } });
+        return res;
+      },
+      (err: Error) => {
+        conn.close(err);
+        resolveTurn({ status: 'failed', error: { message: err.message } });
+        throw err;
+      },
+    );
+    exited.catch(() => undefined); // surfaced through the requests and the turn instead
+
+    try {
+      await conn.request('initialize', {
+        clientInfo: { name: 'harness_relay', title: 'Harness Relay', version: '0.1.0' },
+        capabilities: null,
+      });
+      conn.notify('initialized');
+      const threadParams = {
+        cwd: o.cwd,
+        approvalPolicy: ask ? 'on-request' : 'never',
+        sandbox: SANDBOX[o.permission],
+        developerInstructions: o.systemPrompt,
+        ...(o.model ? { model: o.model } : {}),
+        ...(o.effort ? { config: { model_reasoning_effort: o.effort } } : {}),
+      };
+      const thread = o.sessionId
+        ? await conn.request('thread/resume', { threadId: o.sessionId, ...threadParams })
+        : await conn.request('thread/start', threadParams);
+      threadId = String(thread?.thread?.id ?? o.sessionId ?? '');
+      if (!threadId) throw new AgentRunError(t().exitedWithoutTurn('codex', null));
+      o.onEvent({ type: 'session', sessionId: threadId });
+      if (userAborted) throw new AgentRunError(t().stopped, true);
+
+      const started = await conn.request('turn/start', {
+        threadId,
+        input: [{ type: 'text', text: o.prompt, text_elements: [] }],
+      });
+      turnId = started?.turn?.id;
+      const turn = await turnDone;
+
+      if (userAborted) throw new AgentRunError(t().stopped, true);
+      if (turn.status === 'failed' || turn.status === 'interrupted') {
+        const err = turn.error ?? {};
+        const message = [err.message, err.additionalDetails].filter(Boolean).join('\n') || failure;
+        throw new AgentRunError(message || t().exitedWithoutTurn('codex', null));
+      }
+      return { sessionId: threadId, ...updates.usage };
+    } catch (err) {
+      if (userAborted) throw new AgentRunError(t().stopped, true);
+      if (err instanceof AgentRunError) throw err;
+      throw new AgentRunError(err instanceof Error ? err.message : String(err));
+    } finally {
+      o.signal.removeEventListener('abort', onAbort);
+      child?.stdin?.end();
+      stopSoon(3000);
+      await exited.catch(() => undefined);
     }
-    const u = parser.usage;
-    return {
-      sessionId: parser.threadId ?? o.sessionId,
-      inputTokens: u?.input_tokens,
-      outputTokens: u ? (u.output_tokens ?? 0) + (u.reasoning_output_tokens ?? 0) : undefined,
-    };
   },
 };

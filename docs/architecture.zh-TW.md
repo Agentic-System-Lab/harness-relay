@@ -24,7 +24,7 @@ flowchart LR
   end
   DB[(data/relay.db SQLite)]
   CLAUDE[[claude -p]]
-  CODEX[[codex exec]]
+  CODEX[[codex app-server]]
   GROK[[grok agent stdio]]
 
   UI -- REST (JSON) --> API
@@ -44,23 +44,26 @@ flowchart LR
 | 模組 | 職責 |
 | --- | --- |
 | `src/server/index.ts` | HTTP 路由、安全性中介層、SSE 端點、靜態檔案、啟動與關閉 |
-| `src/server/orchestrator.ts` | 執行一次「團隊回合」：依模式決定發言者、組出每個 agent 的 prompt、執行 CLI、串流結果 |
+| `src/server/orchestrator.ts` | 執行一次「團隊回合」：依模式決定發言者、組出每個 agent 的 prompt、執行 CLI、串流結果；自動組隊的對話會先設計團隊 |
+| `src/server/planner.ts` | 自動組隊：首席 agent 的 prompt、解析它的 JSON 回覆、轉成可執行的團隊、備援方案 |
 | `src/server/prompt.ts` | 角色簡報（system prompt）、每回合的 prompt、`@` 解析、`[PASS]` 判斷 |
-| `src/server/agents/*` | 每個 CLI 一個轉接器：組參數、把 CLI 的 JSON 事件串流轉成共通事件 |
+| `src/server/approvals.ts` | 「本對話都允許」的規則 key 與比對 |
+| `src/server/agents/*` | 每個 CLI 一個轉接器：組參數、把 CLI 的 JSON 事件串流轉成共通事件（`acp.ts`：Grok ACP 的 JSON-RPC 對端） |
+| `src/server/i18n.ts` | 兩種語言的伺服器訊息；每個請求與執行所用的語言（AsyncLocalStorage） |
 | `src/server/process.ts` | 以獨立 process group 啟動程序、逐行讀 stdout、處理中止與逾時 |
 | `src/server/providers.ts` | CLI 狀態（是否安裝、版本、是否登入）、登入流程、登出、模型清單快取 |
 | `src/server/models.ts` | 從各 CLI 取得可用模型與推理強度 |
 | `src/server/workspace.ts` | git 相關操作：自動 `git init`、工作目錄快照、每個 agent 的 worktree、diff、套用結果 |
 | `src/server/store.ts` | 用 SQLite 保存對話、訊息、agent session 與範本 |
-| `src/server/settings.ts` | 各 CLI 設定（執行檔路徑、API key、預設模型與推理強度）、預設工作目錄、子程序環境變數 |
+| `src/server/settings.ts` | 各 CLI 設定（執行檔路徑、API key、預設模型與推理強度）、預設工作目錄、首席 agent、子程序環境變數 |
 | `src/server/db.ts` | 開啟 SQLite、套用 schema 遷移、交易輔助函式 |
 | `src/server/hub.ts` | 把每個對話的事件廣播給連線中的 SSE 用戶端 |
 | `src/shared/types.ts` | 伺服器與前端共用的型別 |
-| `src/web/*` | React 介面：側邊欄、團隊設計、聊天畫面、設定頁 |
+| `src/web/*` | React 介面：側邊欄、團隊設計、聊天畫面、設定頁、使用導覽；`i18n.tsx` 與 `locales/` 存放介面文字 |
 
 ## 對話模型
 
-一個**對話**包含團隊（`agents`）、設定（`mode`、`rounds`、`maxHops`、`permission`、`cwd`）以及有順序的**訊息**。訊息的作者可能是使用者、agent 或系統，由多個 **part** 組成：依發生順序排列的文字區塊與工具呼叫（`Read`、`Edit`、`Shell`……）。
+一個**對話**包含團隊（`agents`）、設定（`mode`、`rounds`、`maxHops`、`permission`、`cwd`；首席 agent 還沒設計團隊時另有 `autoTeam`）以及有順序的**訊息**。訊息的作者可能是使用者、agent 或系統，由多個 **part** 組成：依發生順序排列的文字區塊與工具呼叫（`Read`、`Edit`、`Shell`……）；失敗或被拒絕的工具呼叫會保留原因。系統訊息可能帶有一份 **plan**，也就是首席 agent 的團隊設計。
 
 對話也會為每個 agent 保存 **agent 狀態**：
 
@@ -121,36 +124,83 @@ flowchart LR
 
 同一個對話一次只能有一個執行；不同對話可以同時執行。「**停止**」會中止執行並結束正在跑的 CLI 程序（對 process group 送 `SIGTERM`，3 秒後 `SIGKILL`）。每個 agent 回合另有 45 分鐘的安全逾時。
 
+**重試 agent 的回覆**（`Orchestrator.retry()`）也是同樣的做法：刪除該則回覆與之後的所有內容，再由該 agent 重新回答；不是接力模式時，同一輪中回覆被一起刪除的 agent 也會接著回答，只跑一輪。
+
+**編輯使用者訊息**（`Orchestrator.resend()`）會刪除該則訊息與之後的所有訊息、重設每個 agent 的 session（CLI 的 session 無法倒轉，所以每個 agent 都以剩下的對話紀錄重新開始）、把平行模式的 worktree 標記為需要重設，再把修改後的文字當成新的一次執行送出。截斷要等工作區準備好並取得目錄鎖之後才會進行，所以啟動失敗時對話紀錄不受影響。被刪除的回合改過的檔案不會還原。
+
+## 自動組隊
+
+以 `settings.autoTeam` 建立的對話一開始沒有成員。第一次執行會先進行規劃步驟（協調器中的 `designTeam()`，以及 `src/server/planner.ts`）：
+
+1. 對話中出現一則 `plan.status = "planning"` 的系統訊息。
+2. **首席 agent**（在設定頁指定：provider，以及選填的模型與推理強度）以唯讀權限在對話的工作目錄中執行一次，system prompt 為 `PLANNER_BRIEFING`。prompt 內容包括使用者的第一則訊息、已登入的 CLI 及其模型與推理強度、三種模式、使用者選的權限與工作目錄（首席 agent 無法更改），以及所有範本（內建與使用者儲存的）。它必須回覆一個 JSON 物件：`{"choice": "template", "templateId", "reason"}` 或 `{"choice": "custom", "name", "description", "mode", "rounds", "maxHops", "agents": [{name, provider, role, model?, effort?}], "reason"}`。
+3. `parsePlanReply()` 從程式碼區塊（或最外層的大括號）取出 JSON；`decidePlan()` 把它轉成團隊。自訂成員會經過與手動設計團隊相同的驗證（`validateAgents`）：名稱中的空白會被替換，最多 5 位成員，輪數 1–5，交棒次數 1–30。`fitAgents()` 會把 CLI 尚未登入的成員改到首席 agent 的 CLI，並移除該 CLI 不提供的模型或推理強度。
+4. 若首席 agent 執行失敗或回覆無法使用，`fallbackPlan()` 會改用「一般問題智囊團」範本，卡片上會說明原因。若使用者停止執行，這則訊息會標為已中斷，`autoTeam` 維持開啟，下一則訊息會重新規劃。
+5. 團隊與模式寫入對話、清除 `autoTeam`，plan 卡片變成 `ready`（附上首席 agent 的費用與 token 數），接著照常以使用者的訊息繼續執行。plan 訊息是系統訊息，所以永遠不會轉交給 agent。
+
+規劃期間，這次執行會鎖住工作目錄（此時還不知道模式），規劃完再重新判斷是否在隔離的 worktree 中執行。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把自訂設計存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`。編輯第一則訊息會連同 plan 一起刪除，於是 `autoTeam` 重新開啟：團隊會針對新問題重新設計。手動設定團隊（`PATCH … { agents }`）會關閉自動組隊。
+
+## 語言
+
+介面提供繁體中文與英文（`src/web/locales/zh-TW.ts`、`en.ts`；英文字典的型別以中文字典為準，另有測試檢查兩者結構相同）。
+
+- **前端**：第一次開啟時依 `navigator.languages` 決定語言（任何 `zh*` → zh-TW，否則英文），並存在 `localStorage`（`relay:lang`）；可在設定頁更改。`<html lang>` 會跟著改變。
+- **伺服器**：每個 API 請求都帶有 `X-Relay-Lang`（沒有時改看 `Accept-Language`，再沒有就用 zh-TW）。`/api/*` 中介層會在 `withLang()`（AsyncLocalStorage）中處理請求，所以底下任何地方的 `t()` 都會回傳正確語言的訊息：驗證錯誤、轉接器錯誤、系統訊息，以及這個請求啟動的整個團隊執行（回應送出後仍會繼續）。
+- **內建範本**有兩種語言版本（`builtinPresets(lang)`）；首席 agent 看到的是介面語言的版本，自訂角色則用使用者提問的語言撰寫。
+- 給 agent 的 prompt（簡報、回合 prompt、規劃用的 prompt）維持英文；agent 會用使用者的語言回答。
+
 ## CLI 轉接器
 
-每個轉接器把一次 CLI 執行轉成共通事件串流：`session`、`text`、`text_end`、`tool_start`、`tool_end`。
+每個轉接器把一次 CLI 回合轉成共通事件串流：`session`、`text`、`text_end`、`thinking`、`plan`、`tool_start`、`tool_end`（附上呼叫的輸出或失敗原因）；CLI 要求做權限沒涵蓋的事時，則呼叫 `requestApproval`（見[核准](#核准)）。
 
 | | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |
-| 指令 | `claude -p --output-format stream-json --verbose --include-partial-messages` | `codex exec --json --skip-git-repo-check`（接續用 `exec resume <id>`） | `grok agent --no-leader stdio`（ACP：透過 stdin/stdout 傳 JSON-RPC，每輪一個行程） |
-| prompt 傳入方式 | stdin | stdin（`-`） | `session/prompt` |
-| 新建 / 接續 session | `--session-id <uuid>` / `--resume <id>` | 從 `thread.started` 取得 thread id / `exec resume <id>` | `session/new` / `session/resume` |
-| 模型 | `--model` | `-m` | `session/set_config_option`（`model`） |
-| 推理強度 | `--effort` | `-c model_reasoning_effort=…` | `session/set_config_option`（`reasoning_effort`） |
-| 文字串流 | `stream_event` 文字 delta | 整段 `agent_message` 項目 | `agent_message_chunk` 更新 |
-| 工具事件 | `tool_use` / `tool_result` 區塊 | `command_execution`、`file_change`、`mcp_tool_call`、`web_search` 項目 | `tool_call` / `tool_call_update` |
+| 指令 | `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages` | `codex app-server`（透過 stdin/stdout 傳 JSON-RPC，也就是 Codex IDE 擴充套件使用的協定） | `grok agent --no-leader stdio`（ACP：透過 stdin/stdout 傳 JSON-RPC） |
+| prompt 傳入方式 | stdin 上的一則 `user` 訊息 | `turn/start` | `session/prompt` |
+| 新建 / 接續 session | `--session-id <uuid>` / `--resume <id>` | `thread/start` / `thread/resume` | `session/new` / `session/resume` |
+| 模型 | `--model` | thread 上的 `model` | `session/set_config_option`（`model`） |
+| 推理強度 | `--effort` | thread 上的 `config.model_reasoning_effort` | `session/set_config_option`（`reasoning_effort`） |
+| 文字串流 | `stream_event` 文字 delta | `item/agentMessage/delta` | `agent_message_chunk` |
+| 思考過程 | `thinking_delta`（搭配 `--thinking-display summarized`） | `item/reasoning/summaryTextDelta`（`model_reasoning_summary="auto"`） | `agent_thought_chunk` |
+| 計畫 / 待辦清單 | `TodoWrite` 工具 | `turn/plan/updated` | `plan` 更新（它的 `todo_write` 呼叫不會顯示成工具列） |
+| 工具事件 | `tool_use` / `tool_result` 區塊 | `commandExecution`、`fileChange`、`mcpToolCall`、`webSearch` 項目 | `tool_call` / `tool_call_update` |
+| 請求核准 | `can_use_tool` 控制請求（`--permission-prompt-tool stdio`） | `item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/permissions/requestApproval` | `session/request_permission` |
+
+每個回合執行一個程序。Claude Code 的 `--thinking-display` 旗標沒有列在它的 `--help` 中；若某個版本不接受這個旗標，轉接器會記住，之後改為不帶它執行。
 
 ### 權限對應
 
+權限決定哪些操作**不必詢問**就能執行；其他操作在對話設定為詢問（預設）時交給使用者決定，設定為拒絕（`settings.approvals = "deny"`）時則自動拒絕。
+
 | Relay 權限 | Claude Code | Codex | Grok（ACP） |
 | --- | --- | --- | --- |
-| 唯讀 | `--permission-mode dontAsk --allowedTools WebFetch WebSearch` | `sandbox_mode="read-only"`、`approval_policy="never"` | 詢問模式（`_meta.yoloMode: false`）；adapter 核准讀網頁，其他一律拒絕 |
-| 可編輯 | `--permission-mode acceptEdits --allowedTools WebFetch WebSearch 'Bash(npm test:*)' …` | `sandbox_mode="workspace-write"`、`approval_policy="never"` | 詢問模式加上 `GROK_SANDBOX=workspace`；adapter 核准推送／發佈（`git push`、`npm publish`……）以外的所有操作 |
-| 完全存取 | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | 全部自動核准（`_meta.yoloMode: true`） |
+| 唯讀 | `--permission-mode manual`（拒絕時：`dontAsk`）、`--allowedTools WebFetch WebSearch`：讀檔與上網直接執行，其他都要詢問 | 沙箱 `read-only`、核准政策 `on-request`（拒絕時：`never`） | 詢問模式（`_meta.yoloMode: false`）：讀網頁直接執行，其他都要詢問 |
+| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問 | 沙箱 `workspace-write`、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=workspace` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`……）要詢問，其他都直接執行 |
+| 完全存取 | `--permission-mode bypassPermissions` | 沙箱 `danger-full-access`、核准政策 `never` | 全部自動核准（`_meta.yoloMode: true`） |
 
-工具呼叫被拒絕時，模型會收到通知並繼續這一輪；原因會顯示在對話中該工具底下（`tool_end.error`，存在 `message_parts.tool_error`）。
-
-- **Claude Code** 會把拒絕當成錯誤交給模型。各權限都預先允許讀網頁（Relay 的權限管的是檔案系統，不是網路）；可編輯模式另外預先允許常用的建置／測試／lint／格式化指令（`src/server/agents/claude.ts` 的 `CLAUDE_EDIT_COMMANDS`）。安裝套件、git 寫入與刪除檔案仍需要完全存取。
-- **Codex** 的每個指令都在作業系統沙箱裡執行；寫到允許範圍外會失敗，模型會看到錯誤。
-- **Grok** 以 ACP agent 執行，因為非互動的 `grok -p` 無法詢問核准：需要詢問的呼叫會被回報為「User cancelled」並**結束整輪**。改用 ACP 後，請求會送到 adapter（`src/server/agents/grok.ts` 的 `grokPermissionDecision`）。拒絕時回覆 `reject_once` 並附上 `_meta.followup_message`，Grok 會把它當成給模型的回饋，而不是取消這一輪。
+- **Claude Code** 把每個請求以 `can_use_tool` 控制請求送出，並等待我們的控制回應（允許，或拒絕並附上模型看得到的訊息）。對話設定為拒絕時，不會指定 permission prompt tool，由 Claude Code 自己拒絕這類呼叫。
+- **Codex** 的指令一律在作業系統沙箱中執行。使用 `on-request` 時，模型在需要超出沙箱（寫到工作目錄以外、存取網路……）時會提出請求；要不要詢問由模型決定，沒有詢問的話，沙箱就直接擋下呼叫，模型會看到錯誤。
+- **Grok** 透過 ACP 執行，因為非互動的 `grok -p` 無法詢問：需要詢問的呼叫會被回報為「User cancelled」並**結束整輪**。改用 ACP 後，請求會送到 adapter。拒絕（使用者拒絕或自動拒絕）時回覆 `reject_once` 並附上 `_meta.followup_message`，Grok 會把它當成給模型的回饋，而不是取消這一輪。
   - session 的模式一律明確指定，所以使用者在 `~/.grok/config.toml` 設的 `[ui] permission_mode = "always-approve"` 不會放寬唯讀或可編輯。
   - Grok 內建的唯讀工具與指令（包含單純的 `mkdir`／`touch`）仍會直接執行、不經詢問。
   - 唯讀模式不使用 Grok 的 `read-only` 沙箱設定檔：它在某些機器上無法啟動（例如 `/var/run/docker.sock` 是 symlink 時）。可編輯模式若沙箱無法啟動，這一輪會失敗並顯示 Grok 給的原因。
+
+被拒絕或失敗的呼叫會保留原因（`tool_end.error`，存在 `message_parts.tool_error`），這一輪會繼續進行。
+
+## 核准
+
+轉接器收到請求時，協調器（`turn()` 中的 `requestApproval`，以及 `src/server/approvals.ts`）會：
+
+1. 在 agent 的訊息中建立一個 **approval part**：種類（`command` / `edit` / `fetch` / `other`）、指令、檔案或網址、agent 說明的原因，以及「本對話都允許」用的規則 key。指令的 key 是串接中的每個指令各一個：程式名稱，若該工具有子指令再加上子指令（`npm install`、`git push`），所以允許 `npm test` 絕不會讓 `npm test && rm …` 通過。所有檔案修改共用一個 key，讀網頁用主機名稱，其他工具用工具名稱。
+2. 若所有 key 在這個對話中都已允許（`conversation.allowRules`），就立即同意，並把該 part 顯示為已自動允許。
+3. 否則該 part 為 `pending`，請求在 `orchestrator.approvals` 中等待，對話回報為 `waiting`（側邊欄與分頁標題會顯示）。`POST /api/conversations/:id/approvals/:approvalId` 帶上 `{ allow, always?, note? }` 回應請求；「always」會把這些 key 加進 `allowRules`。拒絕時附的說明會轉交給 agent。
+4. 停止執行時，所有等待中的請求都會以 `expired`（拒絕）結束。
+
+agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾時仍然適用。
+
+## agent 活動
+
+除了回覆文字與工具列，訊息還能顯示 agent 的思考與計畫：`thinking` part（串流顯示；介面中預設收合，串流時看得到最新一行）、`plan` part（agent 的待辦清單，原地更新），以及每個工具的 `output`（它回傳內容的最後一段，最多 4,000 個字元，展開工具列時顯示）。思考過程永遠不會轉交給其他 agent。
 
 ## 工作區與檔案修改
 
@@ -176,11 +226,13 @@ flowchart LR
 
 | 事件 | 內容 | 時機 |
 | --- | --- | --- |
-| `snapshot` | 完整對話、是否執行中、正在發言的 agent | 連線時 |
+| `snapshot` | 完整對話、是否執行中、正在發言的 agent | 連線時，以及使用者訊息被編輯後（對話紀錄被截斷） |
 | `message` | 整則訊息（依 id 新增或取代） | 建立訊息、工具開始/結束、回合結束 |
 | `delta` | `messageId`、`partIndex`、`text` | 每個串流文字片段 |
 | `status` | 是否執行中、正在發言的 agent id | agent 開始/結束、執行開始/結束 |
 | `conversation` | 標題、團隊、設定 | 標題或團隊變更 |
+
+對話列表（`GET /api/conversations`）帶有側邊欄要顯示的各對話狀態：`running`、`waiting`（有等待中的核准請求）與 `lastStatus`（最新一則 agent 回覆如何結束）；前端每 3 秒輪詢一次，並在 `localStorage` 記住使用者看過哪些內容，用來標示使用者在別處時完成的回覆。執行從不依賴瀏覽器是否連線。
 
 伺服器會先訂閱事件再送出 snapshot，之後補送排隊中的整則訊息事件（delta 會略過，因為 snapshot 已包含），所以連線過程中不會遺漏任何內容。每 15 秒送一次 `ping`。
 
@@ -190,17 +242,17 @@ flowchart LR
 
 | 資料表 | 內容 |
 | --- | --- |
-| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄 |
+| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`auto_team`、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON） |
 | `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度） |
-| `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token，以及該回合修改的 commit），依 `seq` 排序 |
+| `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit，以及存成 JSON 的團隊設計 `plan`），依 `seq` 排序 |
 | `message_changes` | 每則訊息修改的檔案（路徑、A/M/D、增刪行數） |
 | `agent_worktrees` | 平行模式中每個 agent 的 worktree（repository 根目錄、路徑、分支、起始快照、是否需要重設） |
-| `message_parts` | 每則訊息的文字區塊與工具呼叫，依 `idx` 排序 |
+| `message_parts` | 每則訊息依序（`idx`）排列的 part：文字、思考、計畫與核准 part（資料以 JSON 存在 `data`），以及工具呼叫，含 `tool_error`（呼叫失敗或被拒絕的原因）與 `tool_output` |
 | `agent_sessions` | 每個對話中每個 agent 的 CLI session id 與 provider |
 | `agent_seen` | 每個 agent 已看過哪些訊息 |
 | `presets`、`preset_agents` | 使用者儲存的團隊範本（內建範本寫在程式碼裡） |
 | `provider_settings` | 每個 CLI 的執行檔路徑、API key、預設模型、預設推理強度 |
-| `app_settings` | key/value 形式的應用程式設定（預設工作目錄） |
+| `app_settings` | key/value 形式的應用程式設定（預設工作目錄、首席 agent） |
 
 使用中的對話會保留在記憶體中，因為協調器在串流時會直接修改它們。寫入是明確觸發的：使用者訊息、新的 agent 訊息、結束的回合與 session id 會立即寫入；串流中的變動則批次處理，每秒最多寫一次，而且只寫有變動的訊息。伺服器當機時留下的 `streaming` 訊息，會在下次啟動時標為 `aborted`。
 
@@ -239,4 +291,9 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
 - 目錄鎖存在伺服器程序中；其他工具（或第二個 Harness Relay 伺服器）仍然可以修改同樣的檔案。
 - 開始新的 Codex 登入時，會先登出目前的 Codex 帳號。
 - Claude Code 沒有列出模型的指令；模型選單只提供別名與自訂欄位。
-- 長對話每回合只會傳送新訊息，但全新的 session（接續失敗或更換 provider 之後）會收到完整的對話紀錄。
+- 長對話每回合只會傳送新訊息，但全新的 session（接續失敗、更換 provider 或編輯訊息之後）會收到完整的對話紀錄。
+- 伺服器產生的文字使用產生當下的語言：系統訊息會一直維持那個語言，provider 狀態的細節也會維持那個語言，直到 20 秒的狀態快取過期。
+- 首席 agent 選得好不好，完全取決於它的回覆品質；回覆無法使用時會改用「一般問題智囊團」範本。
+- Codex 只有在它的模型決定要求超出沙箱的權限時才會詢問；被擋下但沒有詢問的呼叫就只會失敗。
+- Claude Code 的思考內容需要未列入文件的 `--thinking-display summarized` 旗標；Claude Code 的待辦清單只有在它的 `TodoWrite` 工具可用時才會出現。
+- 重試或編輯訊息會讓每個 agent 以剩下的對話紀錄開新的 CLI session。

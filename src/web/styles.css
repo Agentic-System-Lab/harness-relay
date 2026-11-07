@@ -11,6 +11,7 @@
   --danger: #dc2626;
   --ok: #16a34a;
   --warn: #d97706;
+  --info: #2563eb;
   --code-bg: #0d1117;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 24px rgb(0 0 0 / 0.06);
 
@@ -39,6 +40,7 @@
     --danger: #f87171;
     --ok: #4ade80;
     --warn: #fbbf24;
+    --info: #60a5fa;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 28px rgb(0 0 0 / 0.35);
     color-scheme: dark;
   }
@@ -108,6 +110,19 @@ select {
   background-size: 5px 5px;
   background-repeat: no-repeat;
   text-overflow: ellipsis;
+}
+
+/* One control height (~36px) for fields and the buttons beside them. */
+input,
+select {
+  line-height: 1.35;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.primary,
+.ghost {
+  line-height: 1.35;
 }
 
 input:focus,
@@ -262,18 +277,15 @@ p {
   padding: 2px 6px;
 }
 
-.brand-dots,
 .conv-dots,
 .preset-dots {
   display: inline-flex;
   gap: 3px;
 }
 
-.brand-dots i {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+.brand-logo {
   display: block;
+  flex-shrink: 0;
 }
 
 .new-chat {
@@ -1167,10 +1179,41 @@ details.sub .model-picker {
 
 .tool {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tool-line {
+  display: flex;
   column-gap: 8px;
   align-items: baseline;
   min-width: 0;
+}
+
+/* A tool with output: click its line to see what it returned. */
+.tool-group .tool-row > summary {
+  padding: 0;
+  color: inherit;
+  display: block;
+}
+
+.tool-row > summary .tool-name {
+  text-decoration: underline dotted color-mix(in srgb, var(--muted) 60%, transparent);
+  text-underline-offset: 3px;
+}
+
+.tool-output {
+  margin: 4px 0 4px 20px;
+  max-height: 260px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Why a call failed: its own line, aligned with the tool name. */
@@ -1882,10 +1925,16 @@ details.sub summary {
   color: var(--muted);
 }
 
-details.sub[open] {
+/* The spacing lives on a wrapper: some browsers ignore display: flex on <details>. */
+.sub-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+  padding: 12px 0 4px;
+}
+
+.sub-body > p {
+  margin: 0;
 }
 
 .pulse {
@@ -1993,4 +2042,479 @@ details.sub[open] {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Auto team ---------------------------------------------------------------- */
+
+.auto-note {
+  margin: 0 0 4px;
+}
+
+.auto-chip {
+  padding: 3px 10px;
+  color: var(--muted);
+}
+
+.plan-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.plan-card.planning {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  color: var(--muted);
+  padding: 10px 14px;
+}
+
+/* The app mark leads the plan card: the lead agent speaks for the whole team. */
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plan-headline {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.plan-reason {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.plan-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plan-members li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13.5px;
+}
+
+.plan-members .ellipsis {
+  min-width: 0;
+  flex: 1;
+}
+
+.plan-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.plan-actions .msg-meta {
+  margin-left: auto;
+}
+
+.plan-saved {
+  color: var(--ok);
+}
+
+.lang-switch {
+  align-self: flex-start;
+}
+
+/* Guided tour ----------------------------------------------------------------- */
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.tour-scrim {
+  position: absolute;
+  inset: 0;
+}
+
+.tour-scrim.dim {
+  background: rgb(0 0 0 / 0.45);
+}
+
+/* The highlighted element: everything around it is dimmed by the shadow. */
+.tour-spot {
+  position: absolute;
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+
+.tour-card {
+  position: absolute;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tour-card.centered {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px));
+}
+
+.tour-card h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.tour-card p {
+  margin: 0;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.tour-card ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.tour-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tour-dots {
+  display: flex;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.tour-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.tour-dots i.on {
+  background: var(--text);
+  width: 16px;
+}
+
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.tour-skip {
+  margin-right: auto;
+}
+
+@media (max-width: 820px) {
+  .tour-card.anchored {
+    left: 16px !important;
+    width: calc(100vw - 32px) !important;
+  }
+
+  .plan-actions .msg-meta {
+    margin-left: 0;
+  }
+}
+
+/* What agents think and plan --------------------------------------------------- */
+
+.thinking {
+  font-size: 13px;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.thinking > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.thinking > summary::-webkit-details-marker {
+  display: none;
+}
+
+.thinking-label {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+/* While it streams: the latest line, so you can follow along without opening it. */
+.thinking-tail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  font-style: italic;
+}
+
+.thinking-body {
+  margin: 6px 0 2px 22px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  white-space: pre-wrap;
+  line-height: 1.6;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.todo {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.todo-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.todo ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.todo-item {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.todo-mark {
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.todo-item.completed {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+.todo-item.completed .todo-mark {
+  color: var(--ok);
+}
+
+.todo-item.in_progress {
+  font-weight: 600;
+}
+
+.todo-item.in_progress .todo-mark {
+  color: var(--accent);
+}
+
+/* Approval requests ---------------------------------------------------------------- */
+
+.approval-card {
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: color-mix(in srgb, var(--warn) 7%, var(--bg));
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.approval-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.approval-icon {
+  color: var(--warn);
+}
+
+.approval-waiting {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.approval-detail {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.approval-reason {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.approval-note {
+  font-size: 13px;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.approval-deny:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+}
+
+/* An answered request: one quiet line. */
+.approval-done {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.approval-done code {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.approval-done.allowed .approval-mark {
+  color: var(--ok);
+}
+
+.approval-done.denied .approval-mark {
+  color: var(--danger);
+}
+
+.approval-banner {
+  display: block;
+  max-width: 840px;
+  margin: 0 auto 8px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: color-mix(in srgb, var(--warn) 9%, var(--bg));
+  color: var(--text);
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+/* Conversation states in the sidebar ------------------------------------------------ */
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.status-dot.running {
+  background: var(--info);
+  animation: breathe 1.2s ease-in-out infinite;
+}
+
+.status-dot.waiting {
+  background: var(--warn);
+}
+
+.status-dot.unread {
+  background: var(--ok);
+}
+
+.status-dot.error {
+  background: var(--danger);
+}
+
+.conv-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 7px;
+  border-radius: 999px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.conv-status.running {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+}
+
+.conv-status.waiting {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+.conv-status.unread {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+
+.conv-status.error {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* A new reply you have not opened yet: its title stands out too. */
+.conv-item:has(.status-dot.unread) .conv-title,
+.conv-item:has(.status-dot.waiting) .conv-title {
+  font-weight: 650;
 }

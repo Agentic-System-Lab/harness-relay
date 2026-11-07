@@ -1,6 +1,7 @@
 import { join, resolve } from 'node:path';
 import {
   PROVIDERS,
+  type LeadAgentSettings,
   type Provider,
   type ProviderSettingsUpdate,
   type SettingsView,
@@ -53,6 +54,7 @@ function mask(key: string): string {
 export class SettingsStore {
   private providers: Record<Provider, ProviderSettings>;
   private cwd: string;
+  private leadAgent: LeadAgentSettings = { provider: 'claude' };
 
   constructor(private db: Database) {
     const empty = (): ProviderSettings => ({ bin: '', apiKey: '', defaultModel: '', defaultEffort: '' });
@@ -71,6 +73,29 @@ export class SettingsStore {
     }
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'default_cwd'").get() as { value: string } | undefined;
     this.cwd = row?.value ?? process.env.RELAY_DEFAULT_CWD ?? process.cwd();
+    const lead = db.prepare("SELECT value FROM app_settings WHERE key = 'lead_agent'").get() as { value: string } | undefined;
+    if (lead) {
+      try {
+        const v = JSON.parse(lead.value) as LeadAgentSettings;
+        if (PROVIDERS.includes(v.provider)) this.leadAgent = { provider: v.provider, model: v.model || undefined, effort: v.effort || undefined };
+      } catch {
+        /* keep the default */
+      }
+    }
+  }
+
+  /** The agent that designs the team for auto-team conversations. */
+  get lead(): LeadAgentSettings {
+    return { ...this.leadAgent };
+  }
+
+  setLead(lead: LeadAgentSettings): void {
+    this.leadAgent = { provider: lead.provider, model: lead.model?.trim() || undefined, effort: lead.effort?.trim() || undefined };
+    this.db
+      .prepare(
+        "INSERT INTO app_settings (key, value) VALUES ('lead_agent', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
+      .run(JSON.stringify(this.leadAgent));
   }
 
   private saveProvider(p: Provider): void {
@@ -127,6 +152,7 @@ export class SettingsStore {
   view(): SettingsView {
     return {
       defaultCwd: this.cwd,
+      lead: this.lead,
       providers: PROVIDERS.map((p) => ({
         provider: p,
         bin: this.providers[p].bin,

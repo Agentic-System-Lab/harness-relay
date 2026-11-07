@@ -4,16 +4,29 @@ import { join } from 'node:path';
 import type {
   AgentConfig,
   AgentSessionState,
+  ApprovalAnswer,
   AgentWorktree,
   ChatMessage,
   Conversation,
   FileChange,
   MessageChanges,
   MessagePart,
+  TeamPreset,
 } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
+import type { ApprovalRequest } from './agents/types';
+import { approvalKeys, isAllowed } from './approvals';
 import { HttpError } from './errors';
 import type { Hub } from './hub';
+import {
+  PLANNER_BRIEFING,
+  buildPlannerPrompt,
+  decidePlan,
+  fallbackPlan,
+  parsePlanReply,
+  type PlanDecision,
+  type PlannerContext,
+} from './planner';
 import { buildBriefing, buildTurnPrompt, isPass, parseMentions, type BriefingWorkspace, type TurnInfo } from './prompt';
 import { DATA_DIR, type SettingsStore } from './settings';
 import type { Store } from './store';
@@ -29,6 +42,7 @@ import {
   worktreeCwd,
   worktreeHead,
 } from './workspace';
+import { isDefaultTitle, t } from './i18n';
 
 export { HttpError };
 
@@ -46,7 +60,10 @@ interface Run {
   ws: RunWorkspace;
 }
 
-export const DEFAULT_TITLE = '新對話';
+/** Where the lead agent's choices come from (signed-in CLIs, their models, the templates). */
+export interface PlannerSource {
+  context(): Promise<PlannerContext>;
+}
 
 function textOf(m: ChatMessage): string {
   return m.parts
@@ -64,11 +81,14 @@ export class Orchestrator {
   private runs = new Map<string, Run>();
   /** Repository root → conversation currently writing to its working tree. */
   private dirLocks = new Map<string, string>();
+  /** Approval requests waiting for the user, by approval part id. */
+  private approvals = new Map<string, { convId: string; resolve: (a: ApprovalAnswer) => void }>();
 
   constructor(
     private store: Store,
     private hub: Hub,
     private settings: SettingsStore,
+    private planner: PlannerSource = { context: async () => ({ available: [], catalog: [], presets: store.listPresets() }) },
   ) {}
 
   isRunning(id: string): boolean {
@@ -79,11 +99,24 @@ export class Orchestrator {
     return [...(this.runs.get(id)?.active ?? [])];
   }
 
+  /** An agent in this conversation is waiting for the user to approve something. */
+  isWaiting(id: string): boolean {
+    for (const a of this.approvals.values()) if (a.convId === id) return true;
+    return false;
+  }
+
+  /** The user's answer to an approval request shown in the chat. */
+  answerApproval(convId: string, approvalId: string, answer: ApprovalAnswer): void {
+    const pending = this.approvals.get(approvalId);
+    if (!pending || pending.convId !== convId) throw new HttpError(404, t().approvalNotFound);
+    pending.resolve({ allow: Boolean(answer.allow), always: Boolean(answer.always), note: answer.note ? String(answer.note).slice(0, 2000) : undefined });
+  }
+
   /** Post a user message (or, with empty text, let the team continue) and start the team's turn. */
   async send(convId: string, rawText: string): Promise<void> {
     const conv = this.getIdle(convId);
     const text = rawText.trim();
-    if (!text && !conv.messages.some((m) => m.author.kind === 'user')) throw new HttpError(400, '請先輸入訊息');
+    if (!text && !conv.messages.some((m) => m.author.kind === 'user')) throw new HttpError(400, t().typeFirst);
     await this.start(conv, text);
   }
 
@@ -95,24 +128,51 @@ export class Orchestrator {
   async resend(convId: string, messageId: string, rawText: string): Promise<void> {
     const conv = this.getIdle(convId);
     const text = rawText.trim();
-    if (!text) throw new HttpError(400, '訊息不能是空的');
+    if (!text) throw new HttpError(400, t().emptyMessage);
     const target = conv.messages.find((m) => m.id === messageId);
-    if (target?.author.kind !== 'user') throw new HttpError(404, '找不到這則訊息');
+    if (target?.author.kind !== 'user') throw new HttpError(404, t().messageNotFound);
     await this.start(conv, text, () => this.truncateFrom(conv, messageId));
+  }
+
+  /**
+   * Let an agent answer again: its reply and everything after it are deleted (like editing a
+   * message), then that agent speaks again — followed, outside relay mode, by the agents of the
+   * same round whose replies were dropped with it.
+   */
+  async retry(convId: string, messageId: string): Promise<void> {
+    const conv = this.getIdle(convId);
+    const index = conv.messages.findIndex((m) => m.id === messageId);
+    const target = conv.messages[index];
+    if (target?.author.kind !== 'agent') throw new HttpError(404, t().messageNotFound);
+    const agentOf = (m: ChatMessage) => {
+      const author = m.author;
+      return author.kind === 'agent' ? conv.agents.find((a) => a.id === author.agentId) : undefined;
+    };
+    const first = agentOf(target);
+    if (!first) throw new HttpError(400, t().retryAgentGone(target.agentName ?? 'agent'));
+    const again = [first];
+    if (conv.settings.mode !== 'relay') {
+      for (const m of conv.messages.slice(index + 1)) {
+        if (m.author.kind === 'user') break; // a later message started another run
+        const a = agentOf(m);
+        if (a && m.meta?.round === target.meta?.round && !again.includes(a)) again.push(a);
+      }
+    }
+    await this.start(conv, '', () => this.truncateFrom(conv, messageId), again);
   }
 
   private getIdle(convId: string): Conversation {
     const conv = this.store.get(convId);
-    if (!conv) throw new HttpError(404, '找不到對話');
-    if (this.runs.has(convId)) throw new HttpError(409, '團隊還在回覆中，請先等待或按停止');
-    if (conv.agents.length === 0) throw new HttpError(400, '這個對話沒有任何 agent');
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    if (this.runs.has(convId)) throw new HttpError(409, t().busy);
+    if (conv.agents.length === 0 && !conv.settings.autoTeam) throw new HttpError(400, t().noAgents);
     return conv;
   }
 
   /** Drop a message and everything after it, and make every agent start over. */
   private truncateFrom(conv: Conversation, messageId: string): void {
     const index = conv.messages.findIndex((m) => m.id === messageId);
-    if (index < 0) throw new HttpError(404, '找不到這則訊息');
+    if (index < 0) throw new HttpError(404, t().messageNotFound);
     const dropped = conv.messages.splice(index);
     this.store.deleteMessages(conv.id, dropped.map((m) => m.id));
     for (const agentId of new Set([...Object.keys(conv.agentState), ...conv.agents.map((a) => a.id)])) {
@@ -125,16 +185,20 @@ export class Orchestrator {
       w.needsReset = true;
       this.store.saveWorktree(conv.id, agentId, w);
     }
+    // The lead agent's team design went too: design the team again for the edited question.
+    if (dropped.some((m) => m.plan)) conv.settings = { ...conv.settings, autoTeam: true };
     this.hub.emit(conv.id, { type: 'snapshot', conversation: conv, running: false, activeAgentIds: [] });
   }
 
   /** Start a run; `beforePost` runs once the workspace is ready and locked, just before the message is posted. */
-  private async start(conv: Conversation, text: string, beforePost?: () => void): Promise<void> {
+  /** `only`: run just these agents, for one round (retrying replies). */
+  private async start(conv: Conversation, text: string, beforePost?: () => void, only?: AgentConfig[]): Promise<void> {
     const convId = conv.id;
     const ws = await this.prepareWorkspace(conv);
     // Re-check after the await: another request may have started a run meanwhile.
-    if (this.runs.has(convId)) throw new HttpError(409, '團隊還在回覆中，請先等待或按停止');
-    const lockRoot = ws.root && !ws.isolated ? ws.root : undefined;
+    if (this.runs.has(convId)) throw new HttpError(409, t().busy);
+    // An auto-team run does not know its mode yet, so it locks the directory to be safe.
+    const lockRoot = ws.root && (!ws.isolated || conv.settings.autoTeam) ? ws.root : undefined;
     if (lockRoot) this.lockDir(lockRoot, conv);
     try {
       beforePost?.();
@@ -154,7 +218,7 @@ export class Orchestrator {
       conv.messages.push(msg);
       this.store.saveMessage(conv.id, msg, true);
       this.hub.emit(conv.id, { type: 'message', message: msg });
-      if (conv.title === DEFAULT_TITLE) {
+      if (isDefaultTitle(conv.title)) {
         const line = text.split('\n')[0]!.trim();
         conv.title = line.length > 40 ? line.slice(0, 39) + '…' : line;
         this.emitConversation(conv);
@@ -167,13 +231,13 @@ export class Orchestrator {
     this.runs.set(convId, run);
     this.emitStatus(conv.id);
 
-    this.execute(conv, text, run)
+    this.execute(conv, text, run, only)
       .catch((err) => {
         console.error('[orchestrator] run failed:', err);
-        this.systemNote(conv, `執行失敗：${(err as Error).message}`);
+        this.systemNote(conv, t().runFailed((err as Error).message));
       })
       .finally(() => {
-        if (run.abort.signal.aborted) this.systemNote(conv, '已停止。');
+        if (run.abort.signal.aborted) this.systemNote(conv, t().stoppedNote);
         if (lockRoot) this.unlockDir(lockRoot, conv.id);
         this.runs.delete(convId);
         conv.updatedAt = Date.now();
@@ -207,7 +271,7 @@ export class Orchestrator {
   async prepareWorkspace(conv: Conversation): Promise<RunWorkspace> {
     if (conv.settings.permission === 'read-only') return { isolated: false };
     const { root, created } = await ensureRepo(conv.settings.cwd);
-    if (created) this.systemNote(conv, `工作目錄原本不是 git repository，已自動執行 git init：${root}`);
+    if (created) this.systemNote(conv, t().gitInitNote(root));
     return { root, isolated: conv.settings.mode === 'parallel' };
   }
 
@@ -215,7 +279,7 @@ export class Orchestrator {
     const holder = this.dirLocks.get(root);
     if (holder && holder !== conv.id) {
       const title = this.store.get(holder)?.title ?? holder;
-      throw new HttpError(409, `對話「${title}」正在修改 ${root}，請等它結束後再試（或改用唯讀 / 平行模式）。`);
+      throw new HttpError(409, t().dirLocked(title, root));
     }
     this.dirLocks.set(root, conv.id);
   }
@@ -250,11 +314,11 @@ export class Orchestrator {
   /** Apply everything an agent did in its worktree to the real working directory (uncommitted). */
   async applyAgentWork(convId: string, agentId: string): Promise<FileChange[]> {
     const conv = this.store.get(convId);
-    if (!conv) throw new HttpError(404, '找不到對話');
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
     const wt = conv.worktrees[agentId];
-    if (!wt) throw new HttpError(404, '這位成員沒有 worktree');
-    if (wt.needsReset) throw new HttpError(409, '工作目錄已經更新過，這份結果已過期；請讓團隊再跑一輪。');
-    if (this.runs.has(convId)) throw new HttpError(409, '團隊還在回覆中，請等回覆結束再套用');
+    if (!wt) throw new HttpError(404, t().noWorktree);
+    if (wt.needsReset) throw new HttpError(409, t().resultStale);
+    if (this.runs.has(convId)) throw new HttpError(409, t().busyApply);
     this.lockDir(wt.root, conv);
     try {
       const files = await applyToWorkingTree(wt.root, wt.base, await worktreeHead(wt.path));
@@ -263,10 +327,7 @@ export class Orchestrator {
         this.store.saveWorktree(conv.id, id, w);
       }
       const name = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
-      this.systemNote(
-        conv,
-        `已把 @${name} 的修改套用到工作目錄（${files.length} 個檔案，尚未 commit）。下一次平行作業會從新的工作目錄狀態開始。`,
-      );
+      this.systemNote(conv, t().appliedNote(name, files.length));
       this.emitConversation(conv);
       return files;
     } finally {
@@ -276,14 +337,106 @@ export class Orchestrator {
 
   async messageDiff(convId: string, messageId: string): Promise<string> {
     const msg = this.store.get(convId)?.messages.find((m) => m.id === messageId);
-    if (!msg?.changes) throw new HttpError(404, '這則訊息沒有檔案修改');
+    if (!msg?.changes) throw new HttpError(404, t().noChanges);
     return diffText(msg.changes.root, msg.changes.base, msg.changes.head);
   }
 
   async agentDiff(convId: string, agentId: string): Promise<string> {
     const wt = this.store.get(convId)?.worktrees[agentId];
-    if (!wt) throw new HttpError(404, '這位成員沒有 worktree');
+    if (!wt) throw new HttpError(404, t().noWorktree);
     return diffText(wt.root, wt.base, await worktreeHead(wt.path));
+  }
+
+  /**
+   * Auto team: the lead agent (Settings) picks a template or designs a team for the question, shown
+   * as a plan card. When planning fails the general-question template is used; when it is stopped
+   * the conversation stays in auto-team mode and plans again on the next message.
+   */
+  private async designTeam(conv: Conversation, text: string, run: Run): Promise<void> {
+    const lead = this.settings.lead;
+    const msg: ChatMessage = {
+      id: randomUUID(),
+      author: { kind: 'system' },
+      createdAt: Date.now(),
+      parts: [],
+      status: 'streaming',
+      plan: { status: 'planning', lead },
+    };
+    conv.messages.push(msg);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+    this.store.saveMessage(conv.id, msg, true);
+
+    const question = text || textOf([...conv.messages].reverse().find((m) => m.author.kind === 'user') ?? msg);
+    const started = Date.now();
+    let ctx: PlannerContext = { available: [], catalog: [], presets: this.store.listPresets() };
+    let decision: PlanDecision | undefined;
+    let result: RunResult | undefined;
+    try {
+      ctx = await this.planner.context();
+      let reply = '';
+      result = await runners[lead.provider].run({
+        bin: this.settings.bin(lead.provider),
+        env: this.settings.env(lead.provider),
+        prompt: buildPlannerPrompt(question, conv.settings, ctx),
+        systemPrompt: PLANNER_BRIEFING,
+        cwd: conv.settings.cwd,
+        permission: 'read-only',
+        model: lead.model || this.settings.defaultModel(lead.provider) || undefined,
+        effort: lead.effort || this.settings.defaultEffort(lead.provider) || undefined,
+        signal: run.abort.signal,
+        onEvent: (e) => {
+          if (e.type === 'text') reply += e.text;
+          else if (e.type === 'text_end') reply += '\n';
+        },
+      });
+      decision = decidePlan(parsePlanReply(reply), ctx, lead);
+    } catch (err) {
+      if (!run.abort.signal.aborted) {
+        console.warn('[orchestrator] team design failed:', (err as Error).message);
+        decision = fallbackPlan(ctx, lead, (err as Error).message);
+      }
+    }
+
+    msg.meta = {
+      durationMs: Date.now() - started,
+      costUsd: result?.costUsd,
+      inputTokens: result?.inputTokens,
+      outputTokens: result?.outputTokens,
+    };
+    if (run.abort.signal.aborted || !decision) {
+      msg.status = 'aborted';
+    } else {
+      conv.agents = decision.agents;
+      conv.settings = { ...conv.settings, ...decision.settings, autoTeam: false };
+      msg.plan = { status: 'ready', lead, ...decision };
+      msg.status = 'done';
+      this.store.saveMeta(conv);
+      this.emitConversation(conv);
+    }
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /** Save a team the lead agent designed itself as a user template. */
+  savePlanAsPreset(convId: string, messageId: string, name?: string): TeamPreset {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    const msg = conv.messages.find((m) => m.id === messageId);
+    const plan = msg?.plan;
+    if (!msg || plan?.status !== 'ready') throw new HttpError(404, t().planNotFound);
+    if (plan.source !== 'custom' || !plan.agents?.length || !plan.settings) throw new HttpError(400, t().planNotSavable);
+    const preset: TeamPreset = {
+      id: `user-${randomUUID()}`,
+      name: name?.trim() || plan.name || plan.agents.map((a) => a.name).join(' · '),
+      description: plan.description,
+      agents: plan.agents.map((a) => ({ ...a, id: randomUUID() })),
+      settings: { ...plan.settings, permission: conv.settings.permission },
+    };
+    this.store.savePreset(preset);
+    plan.savedPresetId = preset.id;
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+    return preset;
   }
 
   /** Remove a conversation's worktrees and branches (before deleting it). */
@@ -298,21 +451,27 @@ export class Orchestrator {
 
   // -------------------------------------------------------------------------
 
-  private async execute(conv: Conversation, text: string, run: Run): Promise<void> {
-    const { mode, rounds, maxHops } = conv.settings;
-    const mentioned = text ? parseMentions(text, conv.agents) : [];
+  private async execute(conv: Conversation, text: string, run: Run, only?: AgentConfig[]): Promise<void> {
+    if (conv.settings.autoTeam && !only) {
+      await this.designTeam(conv, text, run);
+      if (run.abort.signal.aborted || conv.settings.autoTeam) return;
+      run.ws = { root: run.ws.root, isolated: Boolean(run.ws.root) && conv.settings.mode === 'parallel' };
+    }
+    const { mode, maxHops } = conv.settings;
+    const rounds = only ? 1 : conv.settings.rounds;
+    const mentioned = only ?? (text ? parseMentions(text, conv.agents) : []);
     const participants = mentioned.length ? mentioned : conv.agents;
     const aborted = () => run.abort.signal.aborted;
     const spoke = (m: ChatMessage) => m.status === 'done' && !m.passed;
 
     if (mode === 'relay') {
-      const queue: { agent: AgentConfig; handedBy?: string }[] = (mentioned.length ? mentioned : [conv.agents[0]!]).map(
+      const queue: { agent: AgentConfig; handedBy?: string }[] = (mentioned.length ? mentioned.slice(0, only ? 1 : undefined) : [conv.agents[0]!]).map(
         (agent) => ({ agent }),
       );
       let hops = 0;
       while (queue.length && !aborted()) {
         if (hops >= maxHops) {
-          this.systemNote(conv, `已達接力上限（${maxHops} 棒），交還給使用者。可按「繼續」讓團隊接著做。`);
+          this.systemNote(conv, t().relayLimit(maxHops));
           break;
         }
         const { agent, handedBy } = queue.shift()!;
@@ -411,6 +570,28 @@ export class Orchestrator {
         case 'text_end':
           textOpen = false;
           return;
+        case 'thinking': {
+          textOpen = false;
+          const last = msg.parts[msg.parts.length - 1];
+          if (last?.type === 'thinking') {
+            last.text += e.text;
+            this.hub.emit(conv.id, { type: 'delta', messageId: msg.id, partIndex: msg.parts.length - 1, text: e.text });
+          } else {
+            msg.parts.push({ type: 'thinking', text: e.text });
+            this.hub.emit(conv.id, { type: 'message', message: msg });
+          }
+          break;
+        }
+        case 'plan': {
+          const current = msg.parts.find((p) => p.type === 'plan');
+          if (current?.type === 'plan') current.entries = e.entries;
+          else {
+            textOpen = false;
+            msg.parts.push({ type: 'plan', entries: e.entries });
+          }
+          this.hub.emit(conv.id, { type: 'message', message: msg });
+          break;
+        }
         case 'tool_start':
           textOpen = false;
           msg.parts.push({ type: 'tool', id: e.id, name: e.name, detail: e.detail, status: 'running' });
@@ -421,6 +602,7 @@ export class Orchestrator {
           if (part?.type === 'tool') {
             part.status = e.ok ? 'done' : 'error';
             if (e.error) part.error = e.error;
+            if (e.output) part.output = e.output;
             this.hub.emit(conv.id, { type: 'message', message: msg });
           }
           break;
@@ -428,6 +610,62 @@ export class Orchestrator {
       }
       this.store.saveMessage(conv.id, msg);
     };
+
+    // Ask the user in the chat; the CLI waits until they answer (or the run is stopped).
+    const requestApproval =
+      conv.settings.approvals === 'deny'
+        ? undefined
+        : async (req: ApprovalRequest): Promise<ApprovalAnswer> => {
+            const keys = approvalKeys(req.kind, req.detail, req.tool);
+            const part: Extract<MessagePart, { type: 'approval' }> = {
+              type: 'approval',
+              id: randomUUID(),
+              kind: req.kind,
+              tool: req.tool,
+              detail: req.detail,
+              reason: req.reason,
+              ruleLabel: keys.join(', ') || undefined,
+              status: 'pending',
+            };
+            textOpen = false;
+            msg.parts.push(part);
+            if (isAllowed(conv.allowRules, req.kind, keys)) {
+              Object.assign(part, { status: 'allowed', always: true, auto: true });
+              this.hub.emit(conv.id, { type: 'message', message: msg });
+              this.store.saveMessage(conv.id, msg, true);
+              return { allow: true };
+            }
+            this.hub.emit(conv.id, { type: 'message', message: msg });
+            this.store.saveMessage(conv.id, msg, true);
+
+            const answer = await new Promise<ApprovalAnswer & { expired?: boolean }>((resolve) => {
+              const onAbort = () => resolve({ allow: false, expired: true });
+              run.abort.signal.addEventListener('abort', onAbort, { once: true });
+              this.approvals.set(part.id, {
+                convId: conv.id,
+                resolve: (a) => {
+                  run.abort.signal.removeEventListener('abort', onAbort);
+                  resolve(a);
+                },
+              });
+              this.emitStatus(conv.id);
+              if (run.abort.signal.aborted) onAbort();
+            });
+            this.approvals.delete(part.id);
+            part.status = answer.expired ? 'expired' : answer.allow ? 'allowed' : 'denied';
+            if (answer.allow && answer.always) {
+              part.always = true;
+              const rules = conv.allowRules ?? [];
+              for (const key of keys) if (!isAllowed(rules, req.kind, [key])) rules.push({ kind: req.kind, key });
+              conv.allowRules = rules;
+              this.store.saveMeta(conv);
+            }
+            if (!answer.allow && answer.note?.trim()) part.note = answer.note.trim();
+            this.hub.emit(conv.id, { type: 'message', message: msg });
+            this.store.saveMessage(conv.id, msg, true);
+            this.emitStatus(conv.id);
+            return { allow: answer.allow, note: part.note };
+          };
 
     const attempt = async (fresh: boolean): Promise<RunResult> => {
       if (fresh) {
@@ -459,6 +697,7 @@ export class Orchestrator {
           effort: agent.effort?.trim() || this.settings.defaultEffort(agent.provider) || undefined,
           signal: run.abort.signal,
           onEvent,
+          requestApproval,
         });
         if (result.sessionId) state.sessionId = result.sessionId;
         return result;

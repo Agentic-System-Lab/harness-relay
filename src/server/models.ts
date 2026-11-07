@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { ModelOption, Provider, ProviderModels } from '../shared/types';
 import { capture, stripAnsi, tail } from './process';
+import { t } from './i18n';
 
 /** Discovered once per CLI and cached; defaults from Relay settings are layered on at request time. */
 export type DiscoveredModels = Omit<ProviderModels, 'defaultModel' | 'defaultEffort'>;
@@ -13,10 +14,10 @@ const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
 
 /** Claude Code accepts aliases that always point at the latest model of each family. */
 const CLAUDE_MODELS: ModelOption[] = [
-  { id: 'fable', label: 'Fable · 最新' },
-  { id: 'opus', label: 'Opus · 最新' },
-  { id: 'sonnet', label: 'Sonnet · 最新' },
-  { id: 'haiku', label: 'Haiku · 最新' },
+  { id: 'fable', label: 'Fable', latest: true },
+  { id: 'opus', label: 'Opus', latest: true },
+  { id: 'sonnet', label: 'Sonnet', latest: true },
+  { id: 'haiku', label: 'Haiku', latest: true },
 ];
 
 /** Top-level `key = "value"` pairs of a TOML file (before the first [table]). Enough for codex defaults. */
@@ -59,7 +60,7 @@ async function discoverCodex(bin: string, env: NodeJS.ProcessEnv): Promise<Disco
     const efforts = [...new Set(models.flatMap((m) => m.efforts ?? []))];
     return { ...base, models, efforts: efforts.length ? efforts : CODEX_EFFORTS, source: 'cli' };
   } catch {
-    return { ...base, error: tail(r.stderr || r.stdout, 200) || 'codex debug models 失敗' };
+    return { ...base, error: tail(r.stderr || r.stdout, 200) || t().codexModelsFailed };
   }
 }
 
@@ -78,7 +79,7 @@ async function discoverGrok(bin: string, env: NodeJS.ProcessEnv): Promise<Discov
     efforts: GROK_EFFORTS,
     cliDefaultModel,
     source: models.length ? 'cli' : 'builtin',
-    error: models.length ? undefined : tail(out, 200) || 'grok models 沒有回傳模型',
+    error: models.length ? undefined : tail(out, 200) || t().grokModelsEmpty,
   };
 }
 

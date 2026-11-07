@@ -4,6 +4,7 @@ import { isAbsolute, join, parse, relative, resolve } from 'node:path';
 import type { FileChange } from '../shared/types';
 import { HttpError } from './errors';
 import { capture, tail } from './process';
+import { t } from './i18n';
 
 /**
  * Git plumbing for Harness Relay:
@@ -47,7 +48,7 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
     maxCapture: o.maxCapture,
   });
   if (r.code !== 0 && !o.allowFail) {
-    throw new GitError(`git ${args[0]} 失敗：${tail(r.stderr || r.stdout, 500)}`);
+    throw new GitError(t().gitFailed(String(args[0]), tail(r.stderr || r.stdout, 500)));
   }
   return r;
 }
@@ -68,7 +69,7 @@ export async function ensureRepo(dir: string): Promise<{ root: string; created: 
 
   const real = realpathSync(dir);
   if (real === realpathSync(homedir()) || real === parse(real).root) {
-    throw new HttpError(400, `不會在 ${real} 自動建立 git repository，請改選一個專案資料夾作為工作目錄。`);
+    throw new HttpError(400, t().noAutoRepo(real));
   }
   await git(real, ['init', '-q']);
   const exclude = join(real, '.git', 'info', 'exclude');
@@ -176,14 +177,14 @@ export async function commitWorktree(path: string, message: string): Promise<str
  */
 export async function applyToWorkingTree(root: string, base: string, head: string): Promise<FileChange[]> {
   const files = await diffFiles(root, base, head);
-  if (!files.length) throw new HttpError(400, '沒有可套用的修改');
+  if (!files.length) throw new HttpError(400, t().nothingToApply);
   const patch = (await git(root, ['diff', '--binary', '--no-renames', base, head], { maxCapture: 256 * 1024 * 1024 }))
     .stdout;
   const check = await git(root, ['apply', '--check', '--whitespace=nowarn', '-'], { stdin: patch, allowFail: true });
   if (check.code !== 0) {
     throw new HttpError(
       409,
-      `工作目錄中的檔案跟這些修改有衝突，沒有套用任何變更：\n${tail(check.stderr, 800)}\n可以請 agent 改成以目前的工作目錄為基礎重做，或手動合併分支。`,
+      t().applyConflict(tail(check.stderr, 800)),
     );
   }
   await git(root, ['apply', '--whitespace=nowarn', '-'], { stdin: patch });

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { PROVIDER_LABEL, type AgentConfig } from '../../shared/types';
+import { useT } from '../i18n';
 import { PROVIDER_COLOR, initials } from '../util';
 
 interface Props {
@@ -15,6 +16,7 @@ interface Props {
 const TOKEN = /(^|[\s(（])@([\p{L}\p{N}_-]*)$/u;
 
 export function Composer({ agents, running, canContinue, placeholder, onSend, onStop, onContinue }: Props) {
+  const t = useT();
   const [text, setText] = useState('');
   const [caret, setCaret] = useState(0);
   const [pick, setPick] = useState(0);
@@ -49,9 +51,9 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
   };
 
   const submit = async () => {
-    const t = text.trim();
-    if (!t || running) return;
-    if (await onSend(t)) {
+    const trimmed = text.trim();
+    if (!trimmed || running) return;
+    if (await onSend(trimmed)) {
       setText('');
       setCaret(0);
     }
@@ -122,24 +124,24 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
         />
         <div className="composer-actions">
           {running ? (
-            <button className="stop" onClick={onStop} aria-label="停止">
-              ■ 停止
+            <button className="stop" onClick={onStop} aria-label={t.composer.stopLabel}>
+              {t.composer.stop}
             </button>
           ) : (
             <>
               {canContinue && (
-                <button className="ghost" onClick={onContinue} title="不輸入新訊息，讓團隊接著討論 / 做下去">
-                  繼續 ↻
+                <button className="ghost" onClick={onContinue} title={t.composer.continueTitle}>
+                  {t.composer.continue}
                 </button>
               )}
-              <button className="send" onClick={submit} disabled={!text.trim()} aria-label="送出">
+              <button className="send" onClick={submit} disabled={!text.trim()} aria-label={t.composer.sendLabel}>
                 ↑
               </button>
             </>
           )}
         </div>
       </div>
-      <p className="composer-hint muted small">Enter 送出 · Shift+Enter 換行 · 輸入 @ 指定成員（只有被 @ 的人會回覆）</p>
+      <p className="composer-hint muted small">{t.composer.hint}</p>
     </div>
   );
 }

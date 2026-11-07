@@ -24,7 +24,7 @@ flowchart LR
   end
   DB[(data/relay.db SQLite)]
   CLAUDE[[claude -p]]
-  CODEX[[codex exec]]
+  CODEX[[codex app-server]]
   GROK[[grok agent stdio]]
 
   UI -- REST (JSON) --> API
@@ -44,23 +44,26 @@ flowchart LR
 | Module | Responsibility |
 | --- | --- |
 | `src/server/index.ts` | HTTP routes, security middleware, SSE endpoint, static file serving, startup/shutdown |
-| `src/server/orchestrator.ts` | Runs a "team turn": picks speakers by mode, builds each agent's prompt, runs the CLI, streams results |
+| `src/server/orchestrator.ts` | Runs a "team turn": picks speakers by mode, builds each agent's prompt, runs the CLI, streams results; designs the team first in auto-team conversations |
+| `src/server/planner.ts` | Auto team: the lead agent's prompt, parsing its JSON reply, turning it into a runnable team, the fallback |
 | `src/server/prompt.ts` | Role briefing (system prompt), per-turn prompt, `@mention` parsing, `[PASS]` detection |
-| `src/server/agents/*` | One adapter per CLI: builds arguments, parses the CLI's JSON event stream into common events |
+| `src/server/approvals.ts` | Rule keys for "always allow in this conversation" and matching them |
+| `src/server/agents/*` | One adapter per CLI: builds arguments, parses the CLI's JSON event stream into common events (`acp.ts`: the JSON-RPC peer for Grok's ACP) |
+| `src/server/i18n.ts` | Server messages in both languages; the language of each request and run (AsyncLocalStorage) |
 | `src/server/process.ts` | Spawns processes in their own process group, streams stdout lines, handles abort/timeout |
 | `src/server/providers.ts` | CLI status (installed, version, signed in), login sessions, logout, model catalog cache |
 | `src/server/models.ts` | Discovers models and reasoning-effort levels from each CLI |
 | `src/server/workspace.ts` | Git plumbing: automatic `git init`, working-tree snapshots, per-agent worktrees, diffs, applying results |
 | `src/server/store.ts` | SQLite persistence for conversations, messages, agent sessions and presets |
-| `src/server/settings.ts` | Provider settings (binary path, API key, default model/effort), default working directory, child-process environment |
+| `src/server/settings.ts` | Provider settings (binary path, API key, default model/effort), default working directory, lead agent, child-process environment |
 | `src/server/db.ts` | Opens SQLite, applies schema migrations, transaction helper |
 | `src/server/hub.ts` | Per-conversation event fan-out to connected SSE clients |
 | `src/shared/types.ts` | Types shared by server and client |
-| `src/web/*` | React UI: sidebar, team designer, chat view, settings page |
+| `src/web/*` | React UI: sidebar, team designer, chat view, settings page, guided tour; `i18n.tsx` + `locales/` hold the UI strings |
 
 ## Conversation model
 
-A **conversation** has a team (`agents`), settings (`mode`, `rounds`, `maxHops`, `permission`, `cwd`) and an ordered list of **messages**. A message is authored by the user, an agent, or the system, and consists of **parts**: text blocks and tool calls (`Read`, `Edit`, `Shell`…) in the order they happened.
+A **conversation** has a team (`agents`), settings (`mode`, `rounds`, `maxHops`, `permission`, `cwd`, and `autoTeam` while the lead agent still has to design the team) and an ordered list of **messages**. A message is authored by the user, an agent, or the system, and consists of **parts**: text blocks and tool calls (`Read`, `Edit`, `Shell`…) in the order they happened; a failed or refused tool call keeps its reason. A system message may carry a **plan** — the lead agent's team design.
 
 For every agent the conversation also keeps **agent state**:
 
@@ -121,36 +124,83 @@ A reply that is exactly `[PASS]` (or empty with no tool calls) is marked as *pas
 
 Only one run per conversation can be active at a time; different conversations can run concurrently. **Stop** aborts the run and kills the active CLI processes (process group `SIGTERM`, then `SIGKILL` after 3 s). Each agent turn also has a 45-minute safety timeout.
 
+**Retrying an agent's reply** (`Orchestrator.retry()`) works the same way: the reply and everything after it are deleted, then that agent answers again — followed, outside relay mode, by the agents of the same round whose replies were dropped with it — for one round.
+
+**Editing a user message** (`Orchestrator.resend()`) deletes that message and everything after it, resets every agent's session (CLI sessions cannot be rewound, so each agent starts fresh with the remaining history), marks parallel worktrees for reset, and sends the edited text as a new run. The truncation happens only after the workspace is prepared and locked, so a failed start leaves the history intact. Files the dropped turns changed are not restored.
+
+## Auto team
+
+A conversation created with `settings.autoTeam` has no members yet. The first run starts with a planning step (`designTeam()` in the orchestrator, `src/server/planner.ts`):
+
+1. A system message with `plan.status = "planning"` appears in the chat.
+2. The **lead agent** (Settings: provider, optional model and effort) runs once, read-only, in the conversation's working directory, with `PLANNER_BRIEFING` as its system prompt. The prompt contains the user's first message, the signed-in CLIs with their models and effort levels, the three modes, the user's permission and working directory (which it cannot change), and every template (built-in and saved). It must reply with one JSON object: `{"choice": "template", "templateId", "reason"}` or `{"choice": "custom", "name", "description", "mode", "rounds", "maxHops", "agents": [{name, provider, role, model?, effort?}], "reason"}`.
+3. `parsePlanReply()` takes the JSON from a fenced block (or the outermost braces); `decidePlan()` turns it into a team. Custom members go through the same validation as a hand-made team (`validateAgents`), names have spaces replaced, at most 5 members, rounds 1–5, hops 1–30. `fitAgents()` moves members whose CLI is not signed in to the lead's CLI and drops models or efforts that CLI does not offer.
+4. If the lead fails or its reply is unusable, `fallbackPlan()` uses the General-question template and the card explains why. If the user stops the run, the message is marked aborted and `autoTeam` stays on, so the next message plans again.
+5. The team and mode are written to the conversation, `autoTeam` is cleared, the plan card becomes `ready` (with the lead's cost and tokens), and the run continues with the user's message as usual. Plan messages are system messages, so they are never forwarded to agents.
+
+The run locks the working directory while planning (its mode is not known yet) and recomputes whether it is isolated afterwards. `POST /api/conversations/:id/messages/:messageId/save-plan` saves a custom design as a user template (with the conversation's permission) and records `plan.savedPresetId`. Editing the first message drops the plan with it, which turns `autoTeam` back on: the team is designed again for the new question. A team set by hand (`PATCH … { agents }`) switches auto team off.
+
+## Languages
+
+The UI comes in Traditional Chinese and English (`src/web/locales/zh-TW.ts`, `en.ts`; the English dictionary is typed against the Chinese one, and a test checks that both have the same shape).
+
+- **Client** — on the first visit the language is taken from `navigator.languages` (any `zh*` → zh-TW, otherwise English) and saved in `localStorage` (`relay:lang`); Settings can change it. `<html lang>` follows.
+- **Server** — every API request carries `X-Relay-Lang` (falling back to `Accept-Language`, then zh-TW). The `/api/*` middleware runs the request inside `withLang()` (AsyncLocalStorage), so `t()` returns the right messages anywhere below it — validation errors, adapter errors, system notes, and the whole team run the request starts, which keeps going after the response is sent.
+- **Built-in templates** exist in both languages (`builtinPresets(lang)`); the lead agent sees them in the UI language and writes custom roles in the language of the user's question.
+- Prompts to agents (briefings, turn prompts, the planner prompt) stay in English; agents answer in the user's language.
+
 ## CLI adapters
 
-Every adapter turns one CLI invocation into a stream of common events: `session`, `text`, `text_end`, `tool_start`, `tool_end`.
+Every adapter turns one CLI turn into a stream of common events — `session`, `text`, `text_end`, `thinking`, `plan`, `tool_start`, `tool_end` (with the call's output or failure reason) — and, when the CLI asks to do something the permission does not cover, calls `requestApproval` (see [Approvals](#approvals)).
 
 | | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |
-| Command | `claude -p --output-format stream-json --verbose --include-partial-messages` | `codex exec --json --skip-git-repo-check` (`exec resume <id>` to continue) | `grok agent --no-leader stdio` (ACP: JSON-RPC over stdin/stdout, one process per turn) |
-| Prompt via | stdin | stdin (`-`) | `session/prompt` |
-| New / resume session | `--session-id <uuid>` / `--resume <id>` | thread id from `thread.started` / `exec resume <id>` | `session/new` / `session/resume` |
-| Model | `--model` | `-m` | `session/set_config_option` (`model`) |
-| Reasoning effort | `--effort` | `-c model_reasoning_effort=…` | `session/set_config_option` (`reasoning_effort`) |
-| Text streaming | `stream_event` text deltas | whole `agent_message` items | `agent_message_chunk` updates |
-| Tool events | `tool_use` / `tool_result` blocks | `command_execution`, `file_change`, `mcp_tool_call`, `web_search` items | `tool_call` / `tool_call_update` |
+| Command | `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages` | `codex app-server` (JSON-RPC over stdin/stdout, the protocol of Codex's IDE extensions) | `grok agent --no-leader stdio` (ACP: JSON-RPC over stdin/stdout) |
+| Prompt via | a `user` message on stdin | `turn/start` | `session/prompt` |
+| New / resume session | `--session-id <uuid>` / `--resume <id>` | `thread/start` / `thread/resume` | `session/new` / `session/resume` |
+| Model | `--model` | `model` on the thread | `session/set_config_option` (`model`) |
+| Reasoning effort | `--effort` | `config.model_reasoning_effort` on the thread | `session/set_config_option` (`reasoning_effort`) |
+| Text streaming | `stream_event` text deltas | `item/agentMessage/delta` | `agent_message_chunk` |
+| Thinking | `thinking_delta` (with `--thinking-display summarized`) | `item/reasoning/summaryTextDelta` (`model_reasoning_summary="auto"`) | `agent_thought_chunk` |
+| Plan / to-do | the `TodoWrite` tool | `turn/plan/updated` | `plan` updates (its `todo_write` calls are not shown as tool rows) |
+| Tool events | `tool_use` / `tool_result` blocks | `commandExecution`, `fileChange`, `mcpToolCall`, `webSearch` items | `tool_call` / `tool_call_update` |
+| Asks for approval | `can_use_tool` control request (`--permission-prompt-tool stdio`) | `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/permissions/requestApproval` | `session/request_permission` |
+
+One process runs per turn. Claude Code's `--thinking-display` flag is not in its `--help`; if a version rejects it, the adapter remembers that and runs without it.
 
 ### Permission mapping
 
+The permission decides what runs **without asking**; anything else goes to the user when the conversation asks (the default), or is refused automatically when it is set to refuse (`settings.approvals = "deny"`).
+
 | Relay permission | Claude Code | Codex | Grok (ACP) |
 | --- | --- | --- | --- |
-| Read-only | `--permission-mode dontAsk --allowedTools WebFetch WebSearch` | `sandbox_mode="read-only"`, `approval_policy="never"` | ask mode (`_meta.yoloMode: false`); the adapter approves web fetch and refuses everything else |
-| Edit | `--permission-mode acceptEdits --allowedTools WebFetch WebSearch 'Bash(npm test:*)' …` | `sandbox_mode="workspace-write"`, `approval_policy="never"` | ask mode with `GROK_SANDBOX=workspace`; the adapter approves everything except publishing (`git push`, `npm publish`…) |
-| Full access | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | always-approve (`_meta.yoloMode: true`) |
+| Read-only | `--permission-mode manual` (refuse: `dontAsk`), `--allowedTools WebFetch WebSearch`: reading and web run, anything else asks | sandbox `read-only`, approval policy `on-request` (refuse: `never`) | ask mode (`_meta.yoloMode: false`): web fetch runs, anything else asks |
+| Edit | `--permission-mode acceptEdits`, plus web and common build / test / lint commands (`CLAUDE_EDIT_COMMANDS`): other commands ask | sandbox `workspace-write`, approval policy `on-request` (refuse: `never`) | ask mode inside `GROK_SANDBOX=workspace`: everything runs except publishing (`git push`, `npm publish`…), which asks |
+| Full access | `--permission-mode bypassPermissions` | sandbox `danger-full-access`, policy `never` | always-approve (`_meta.yoloMode: true`) |
 
-When a tool call is refused, the model is told and the turn carries on; the reason is shown under the tool in the chat (`tool_end.error`, stored in `message_parts.tool_error`).
-
-- **Claude Code** answers a denied call with an error the model sees. Web access is pre-approved at every level (the relay permission is about the file system, not the network), and edit mode pre-approves common build / test / lint / format commands (`CLAUDE_EDIT_COMMANDS` in `src/server/agents/claude.ts`). Installs, git writes and deletes still need full access.
-- **Codex** runs every command inside its OS sandbox; a write outside the allowed area fails and the model sees the error.
-- **Grok** runs as an ACP agent because headless `grok -p` cannot ask for approval: a call that would prompt is reported as "User cancelled" and the **whole turn ends**. Over ACP the request comes to the adapter (`grokPermissionDecision` in `src/server/agents/grok.ts`). A refusal is sent as `reject_once` with `_meta.followup_message`, which Grok passes to the model as feedback instead of cancelling the turn.
+- **Claude Code** sends each request as a `can_use_tool` control request and waits for our control response (allow, or deny with a message the model sees). When the conversation refuses, no prompt tool is given and Claude Code denies such calls itself.
+- **Codex** always runs commands in its OS sandbox. With `on-request` the model asks to go beyond the sandbox (writing outside the working directory, network…) when it needs to; whether it asks is the model's decision — otherwise the sandbox just blocks the call and the model sees the error.
+- **Grok** runs over ACP because headless `grok -p` cannot ask: a call that would prompt is reported as "User cancelled" and the **whole turn ends**. Over ACP the request comes to the adapter. A refusal (the user's, or automatic) is sent as `reject_once` with `_meta.followup_message`, which Grok passes to the model as feedback instead of cancelling the turn.
   - The session mode is always set explicitly, so a user-level `[ui] permission_mode = "always-approve"` in `~/.grok/config.toml` cannot widen read-only or edit.
   - Grok still runs its built-in read-only tools and commands without asking, including bare `mkdir` / `touch`.
   - Read-only does not use Grok's `read-only` sandbox profile: it refuses to start on some machines (for example when `/var/run/docker.sock` is a symlink). In edit mode a sandbox that cannot start fails the turn with Grok's reason.
+
+A refused or failed call keeps its reason (`tool_end.error`, stored in `message_parts.tool_error`) and the turn carries on.
+
+## Approvals
+
+When an adapter receives a request, the orchestrator (`requestApproval` in `turn()`, `src/server/approvals.ts`):
+
+1. Builds an **approval part** in the agent's message: kind (`command` / `edit` / `fetch` / `other`), the command, file or URL, the agent's stated reason, and rule keys for "always allow". Command keys are one per command in a chain — the program, plus its subcommand for tools that have them (`npm install`, `git push`) — so allowing `npm test` never lets `npm test && rm …` through. Edits use one key for all edits, fetches the host name, other tools their name.
+2. If every key is already allowed in this conversation (`conversation.allowRules`), it answers yes at once and shows the part as allowed automatically.
+3. Otherwise the part is `pending`, the request waits in `orchestrator.approvals`, and the conversation reports `waiting` (the sidebar and the tab title show it). `POST /api/conversations/:id/approvals/:approvalId` with `{ allow, always?, note? }` resolves it; "always" adds the keys to `allowRules`. A declining note is passed to the agent.
+4. Stopping the run resolves every pending request as `expired` (refused).
+
+The agent's CLI waits the whole time; the turn's 45-minute safety timeout still applies.
+
+## Agent activity
+
+Besides reply text and tool rows, a message can show what the agent thinks and plans: a `thinking` part (streamed; collapsed in the UI with its latest line visible while it streams), a `plan` part (the agent's to-do list, updated in place), and each tool's `output` (the end of what it returned, up to 4,000 characters, shown when the tool row is expanded). Thinking is never forwarded to other agents.
 
 ## Workspaces and file changes
 
@@ -176,11 +226,13 @@ The client opens `GET /api/conversations/:id/events` and receives JSON events:
 
 | Event | Payload | When |
 | --- | --- | --- |
-| `snapshot` | full conversation, running flag, active agents | on connect |
+| `snapshot` | full conversation, running flag, active agents | on connect, and after a user message was edited (the history was cut) |
 | `message` | a whole message (upsert by id) | message created, tool started/finished, turn finished |
 | `delta` | `messageId`, `partIndex`, `text` | each streamed text chunk |
 | `status` | running flag, active agent ids | an agent starts/stops, run starts/ends |
 | `conversation` | title, team, settings | title or team changed |
+
+The conversation list (`GET /api/conversations`) carries each conversation's state for the sidebar — `running`, `waiting` (an approval is pending) and `lastStatus` (how the latest agent reply ended); the client polls it every 3 s and remembers in `localStorage` what the user has seen, to mark replies that finished while they were elsewhere. Runs never depend on a browser being connected.
 
 The server subscribes before sending the snapshot and replays queued whole-message events afterwards (deltas are skipped, since the snapshot already contains them), so nothing is lost while connecting. A `ping` comment is sent every 15 s.
 
@@ -190,17 +242,17 @@ Everything lives in one SQLite database, `data/relay.db` (WAL mode, foreign keys
 
 | Table | Contents |
 | --- | --- |
-| `conversations` | id, title, timestamps, mode, rounds, max hops, permission, cwd |
+| `conversations` | id, title, timestamps, mode, rounds, max hops, permission, cwd, `auto_team`, `approvals` (`deny` to refuse automatically), `allow_rules` (JSON) |
 | `conversation_agents` | team members per conversation, in order (name, provider, role, model, effort) |
-| `messages` | one row per chat message (author, status, passed, error, round, duration, cost, tokens, and the turn's change commits), ordered by `seq` |
+| `messages` | one row per chat message (author, status, passed, error, round, duration, cost, tokens, the turn's change commits, and the team design as JSON in `plan`), ordered by `seq` |
 | `message_changes` | files changed per message (path, A/M/D, lines added/deleted) |
 | `agent_worktrees` | per-agent worktree in parallel mode (repository root, path, branch, base snapshot, needs reset) |
-| `message_parts` | text blocks and tool calls of each message, ordered by `idx` |
+| `message_parts` | the parts of each message in order (`idx`): text, thinking, plan and approval parts (their data as JSON in `data`), and tool calls with `tool_error` (why a call failed or was refused) and `tool_output` |
 | `agent_sessions` | CLI session id and provider per agent per conversation |
 | `agent_seen` | which messages each agent has been shown |
 | `presets`, `preset_agents` | user-saved team templates (built-in templates live in code) |
 | `provider_settings` | per CLI: binary path, API key, default model, default effort |
-| `app_settings` | key/value app settings (default working directory) |
+| `app_settings` | key/value app settings (default working directory, lead agent) |
 
 Conversations in use are kept in memory, because the orchestrator mutates them while streaming. Writes are explicit: user messages, new agent messages, finished turns and session ids are written immediately; streaming changes are batched and written at most once per second, only for messages that changed. Messages left `streaming` by a crashed server are marked `aborted` at startup.
 
@@ -239,4 +291,9 @@ It is a single-user tool: there is no authentication, and any process that can r
 - The directory lock lives in the server process; other tools (or a second Harness Relay server) can still edit the same files.
 - Starting a new Codex login signs out the current Codex account first.
 - Claude Code has no model-list command; the model menu shows aliases plus a custom field.
-- Long conversations grow the per-turn prompt only by new messages, but a fresh session (after a resume failure or a provider change) receives the full history.
+- Long conversations grow the per-turn prompt only by new messages, but a fresh session (after a resume failure, a provider change, or an edited message) receives the full history.
+- Server text is written in the language active when it was produced: system notes stay in that language, and provider status details stay in it until the 20-second status cache expires.
+- The lead agent's choice is only as good as its reply; an unusable reply falls back to the General-question template.
+- Codex asks only when its model decides to request more than the sandbox allows; a blocked call it does not ask about just fails.
+- Claude Code's thinking text needs the undocumented `--thinking-display summarized` flag; Claude Code's to-do list appears only when its `TodoWrite` tool is available.
+- Retrying or editing makes every agent start a fresh CLI session with the remaining history.

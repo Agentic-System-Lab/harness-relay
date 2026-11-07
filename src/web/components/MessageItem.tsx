@@ -1,30 +1,73 @@
 import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { PROVIDER_LABEL, type ChatMessage, type Conversation, type MessagePart } from '../../shared/types';
-import { messageText } from '../copy';
-import { PROVIDER_COLOR, formatDuration, formatTokens, initials } from '../util';
+import {
+  PROVIDER_LABEL,
+  type ApprovalAnswer,
+  type ChatMessage,
+  type Conversation,
+  type MessageMeta,
+  type MessagePart,
+  type PlanEntry,
+} from '../../shared/types';
+import { messageText, planHeadline } from '../copy';
+import { useT } from '../i18n';
+import { PROVIDER_COLOR, formatDuration, formatTokens, initials, leadLabel } from '../util';
 import { ChangesCard, type ApplyState } from './ChangesCard';
 import { CopyButton } from './CopyButton';
+import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 
 type ToolPart = Extract<MessagePart, { type: 'tool' }>;
-type Segment = { kind: 'text'; text: string; key: number } | { kind: 'tools'; tools: ToolPart[]; key: number };
+type ApprovalPart = Extract<MessagePart, { type: 'approval' }>;
+type Segment =
+  | { kind: 'text'; text: string; key: number }
+  | { kind: 'tools'; tools: ToolPart[]; key: number }
+  | { kind: 'thinking'; text: string; key: number; last: boolean }
+  | { kind: 'todo'; entries: PlanEntry[]; key: number }
+  | { kind: 'approval'; part: ApprovalPart; key: number };
 
 function segments(parts: MessagePart[]): Segment[] {
   const out: Segment[] = [];
   parts.forEach((p, i) => {
     const last = out[out.length - 1];
-    if (p.type === 'text') {
-      if (p.text.trim()) out.push({ kind: 'text', text: p.text, key: i });
-    } else if (last?.kind === 'tools') last.tools.push(p);
-    else out.push({ kind: 'tools', tools: [p], key: i });
+    switch (p.type) {
+      case 'text':
+        if (p.text.trim()) out.push({ kind: 'text', text: p.text, key: i });
+        break;
+      case 'thinking':
+        if (p.text.trim()) out.push({ kind: 'thinking', text: p.text, key: i, last: i === parts.length - 1 });
+        break;
+      case 'plan':
+        if (p.entries.length) out.push({ kind: 'todo', entries: p.entries, key: i });
+        break;
+      case 'approval':
+        out.push({ kind: 'approval', part: p, key: i });
+        break;
+      case 'tool':
+        if (last?.kind === 'tools') last.tools.push(p);
+        else out.push({ kind: 'tools', tools: [p], key: i });
+        break;
+    }
   });
   return out;
 }
 
+function ToolLine({ x }: { x: ToolPart }) {
+  return (
+    <span className="tool-line">
+      <span className="tool-status" aria-label={x.status}>
+        {x.status === 'running' ? '…' : x.status === 'done' ? '✓' : '✗'}
+      </span>
+      <code className="tool-name">{x.name}</code>
+      {x.detail && <span className="tool-detail">{x.detail}</span>}
+    </span>
+  );
+}
+
 function ToolGroup({ tools, live }: { tools: ToolPart[]; live: boolean }) {
-  const running = tools.find((t) => t.status === 'running');
-  const failed = tools.filter((t) => t.status === 'error').length;
-  const summary = running && live ? `${running.name}${running.detail ? ` · ${running.detail}` : ''}` : `${tools.length} 個動作`;
+  const t = useT();
+  const running = tools.find((x) => x.status === 'running');
+  const failed = tools.filter((x) => x.status === 'error').length;
+  const summary = running && live ? `${running.name}${running.detail ? ` · ${running.detail}` : ''}` : t.message.actions(tools.length);
   return (
     <details className="tool-group">
       <summary>
@@ -32,21 +75,181 @@ function ToolGroup({ tools, live }: { tools: ToolPart[]; live: boolean }) {
           {running && live ? '◌' : '⚙'}
         </span>
         <span className="tool-summary">{summary}</span>
-        {failed > 0 && <span className="tool-failed">{failed} 個失敗</span>}
+        {failed > 0 && <span className="tool-failed">{t.message.failed(failed)}</span>}
       </summary>
       <ul>
-        {tools.map((t) => (
-          <li key={t.id} className={`tool ${t.status}`}>
-            <span className="tool-status" aria-label={t.status}>
-              {t.status === 'running' ? '…' : t.status === 'done' ? '✓' : '✗'}
-            </span>
-            <code className="tool-name">{t.name}</code>
-            {t.detail && <span className="tool-detail">{t.detail}</span>}
-            {t.status === 'error' && t.error && <div className="tool-error">{t.error}</div>}
+        {tools.map((x) => (
+          <li key={x.id} className={`tool ${x.status}`}>
+            {x.output ? (
+              <details className="tool-row">
+                <summary>
+                  <ToolLine x={x} />
+                </summary>
+                <pre className="tool-output" aria-label={t.activity.output}>
+                  {x.output}
+                </pre>
+              </details>
+            ) : (
+              <ToolLine x={x} />
+            )}
+            {x.status === 'error' && x.error && <div className="tool-error">{x.error}</div>}
           </li>
         ))}
       </ul>
     </details>
+  );
+}
+
+/** The agent's reasoning: collapsed, with the latest line showing while it streams. */
+function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
+  const t = useT();
+  const lastLine = text.trim().split('\n').filter(Boolean).pop() ?? '';
+  return (
+    <details className={`thinking ${live ? 'live' : ''}`}>
+      <summary>
+        <span className={`tool-icon ${live ? 'spin' : ''}`} aria-hidden>
+          {live ? '◌' : '💭'}
+        </span>
+        <span className="thinking-label">{live ? t.activity.thinking : t.activity.thought}</span>
+        {live && <span className="thinking-tail">{lastLine}</span>}
+      </summary>
+      <div className="thinking-body">{text.trim()}</div>
+    </details>
+  );
+}
+
+/** The agent's plan / to-do list. */
+function TodoList({ entries }: { entries: PlanEntry[] }) {
+  const t = useT();
+  const done = entries.filter((e) => e.status === 'completed').length;
+  return (
+    <div className="todo">
+      <div className="todo-head">
+        <strong>{t.activity.todo}</strong>
+        <span className="muted small">
+          {done} / {entries.length}
+        </span>
+      </div>
+      <ul>
+        {entries.map((e, i) => (
+          <li key={i} className={`todo-item ${e.status}`}>
+            <span className="todo-mark" aria-hidden>
+              {e.status === 'completed' ? '✓' : e.status === 'in_progress' ? '◐' : '○'}
+            </span>
+            <span>{e.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** An agent asks to do something its permission does not cover. */
+function ApprovalCard({
+  part,
+  agentName,
+  live,
+  onAnswer,
+}: {
+  part: ApprovalPart;
+  agentName: string;
+  live: boolean;
+  onAnswer: (approvalId: string, answer: ApprovalAnswer) => Promise<void>;
+}) {
+  const t = useT();
+  const [note, setNote] = useState('');
+  const [sending, setSending] = useState(false);
+  const status = part.status === 'pending' && !live ? 'expired' : part.status;
+  const heading = `@${agentName} ${t.approval.heading[part.kind]}${part.kind === 'other' && part.tool ? ` ${part.tool}` : ''}`;
+
+  if (status !== 'pending') {
+    const outcome =
+      status === 'allowed'
+        ? part.auto
+          ? t.approval.allowedAuto
+          : part.always
+            ? t.approval.allowedAlways
+            : t.approval.allowed
+        : status === 'denied'
+          ? t.approval.denied
+          : t.approval.expired;
+    return (
+      <div className={`approval-done ${status}`}>
+        <span className="approval-mark" aria-hidden>
+          {status === 'allowed' ? '✓' : status === 'denied' ? '✗' : '–'}
+        </span>
+        <span className="approval-what">{part.detail ? <code>{part.detail}</code> : heading}</span>
+        <span className="approval-outcome">
+          {outcome}
+          {part.note ? `：${part.note}` : ''}
+        </span>
+      </div>
+    );
+  }
+
+  const answer = async (a: ApprovalAnswer) => {
+    setSending(true);
+    try {
+      await onAnswer(part.id, a);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section className="approval-card" id={`approval-${part.id}`} aria-label={heading}>
+      <header className="approval-head">
+        <span className="approval-icon" aria-hidden>
+          ⏸
+        </span>
+        <strong>{heading}</strong>
+        <span className="approval-waiting">{t.approval.waiting}</span>
+      </header>
+      {part.detail && <pre className="approval-detail">{part.detail}</pre>}
+      {part.reason && part.reason !== part.detail && <p className="approval-reason">{part.reason}</p>}
+      <input
+        className="approval-note"
+        value={note}
+        placeholder={t.approval.notePlaceholder}
+        onChange={(e) => setNote(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing && note.trim()) void answer({ allow: false, note });
+        }}
+      />
+      <div className="approval-actions">
+        <button type="button" className="primary small-button" disabled={sending} onClick={() => answer({ allow: true })}>
+          {t.approval.allow}
+        </button>
+        {part.ruleLabel && (
+          <button type="button" className="ghost small-button" disabled={sending} onClick={() => answer({ allow: true, always: true })}>
+            {part.kind === 'edit' ? t.approval.alwaysEdits : t.approval.always(part.ruleLabel)}
+          </button>
+        )}
+        <button
+          type="button"
+          className="ghost small-button approval-deny"
+          disabled={sending}
+          onClick={() => answer({ allow: false, note: note.trim() || undefined })}
+        >
+          {t.approval.deny}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function hasMeta(m?: MessageMeta): m is MessageMeta {
+  return Boolean(m && (m.durationMs || m.costUsd || m.outputTokens));
+}
+
+function MetaText({ m }: { m: MessageMeta }) {
+  return (
+    <span className="msg-meta">
+      {formatDuration(m.durationMs)}
+      {m.costUsd !== undefined && ` · $${m.costUsd.toFixed(3)}`}
+      {m.inputTokens !== undefined && ` · ${formatTokens(m.inputTokens)} in`}
+      {m.outputTokens !== undefined && ` / ${formatTokens(m.outputTokens)} out`}
+    </span>
   );
 }
 
@@ -61,6 +264,88 @@ interface Props {
   onApply: (agentId: string) => Promise<void>;
   /** Replace a user message and run the team again from it; resolves true once sent. */
   onResend: (messageId: string, text: string) => Promise<boolean>;
+  /** Save the team the lead agent designed (auto team) as a template. */
+  onSavePlan: (messageId: string, name: string) => Promise<void>;
+  onAdjustTeam: () => void;
+  /** Answer an agent's approval request. */
+  onApproval: (approvalId: string, answer: ApprovalAnswer) => Promise<void>;
+  /** Let the agent answer again (drops this reply and what follows). */
+  onRetry: (messageId: string) => Promise<void>;
+}
+
+/** The lead agent's team design for an auto-team conversation. */
+function PlanCard({ msg, onSavePlan, onAdjustTeam }: Pick<Props, 'msg' | 'onSavePlan' | 'onAdjustTeam'>) {
+  const t = useT();
+  const [saving, setSaving] = useState(false);
+  const plan = msg.plan!;
+  const lead = leadLabel(plan.lead);
+
+  if (plan.status === 'planning') {
+    const live = msg.status === 'streaming';
+    return (
+      <div className="plan-card planning" role="status">
+        <span className={`tool-icon ${live ? 'spin' : ''}`} aria-hidden>
+          {live ? '◌' : '✦'}
+        </span>
+        <span>{live ? t.plan.planning(lead) : t.plan.aborted}</span>
+      </div>
+    );
+  }
+
+  const s = plan.settings!;
+  const detail = s.mode === 'relay' ? t.chat.hops(s.maxHops) : t.chat.rounds(s.rounds);
+  const save = async () => {
+    const name = prompt(t.newChat.templateNamePrompt, plan.name ?? '');
+    if (!name?.trim()) return;
+    setSaving(true);
+    try {
+      await onSavePlan(msg.id, name.trim());
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className={`plan-card ${plan.source ?? ''}`} aria-label={t.plan.title}>
+      <header className="plan-head">
+        <Logo size={18} />
+        <strong>{t.plan.title}</strong>
+        <span className="muted small">{t.plan.by(lead)}</span>
+      </header>
+      <p className="plan-headline">
+        <strong>{planHeadline(plan, t)}</strong>
+        <span className="muted small">{t.plan.howTheyWork(t.modes[s.mode].label, detail)}</span>
+      </p>
+      {plan.reason && <p className="plan-reason">{plan.reason}</p>}
+      <ul className="plan-members">
+        {plan.agents?.map((a) => (
+          <li key={a.id} style={{ ['--accent' as string]: PROVIDER_COLOR[a.provider] }} title={a.role}>
+            <span className="avatar sm">{initials(a.name)}</span>
+            <strong>@{a.name}</strong>
+            <span className="provider-tag">{PROVIDER_LABEL[a.provider]}</span>
+            <span className="muted small ellipsis">{a.role.trim().split('\n')[0]}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="plan-actions">
+        {plan.source === 'custom' &&
+          (plan.savedPresetId ? (
+            <span className="small plan-saved">✓ {t.plan.saved(plan.name ?? '')}</span>
+          ) : (
+            <>
+              <span className="small">{t.plan.askSave}</span>
+              <button type="button" className="primary small-button" onClick={save} disabled={saving}>
+                {saving ? t.plan.saving : t.plan.save}
+              </button>
+            </>
+          ))}
+        <button type="button" className="ghost small-button" onClick={onAdjustTeam}>
+          {t.plan.adjust}
+        </button>
+        {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
+      </div>
+    </section>
+  );
 }
 
 /** One of the user's messages, editable in place. */
@@ -75,6 +360,7 @@ function UserMessage({
   canEdit: boolean;
   onResend: Props['onResend'];
 }) {
+  const t = useT();
   const text = messageText(msg);
   const [draft, setDraft] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -98,7 +384,7 @@ function UserMessage({
           <CopyButton text={() => text} />
           {canEdit && (
             <button type="button" className="msg-action" onClick={() => setDraft(text)}>
-              編輯
+              {t.message.edit}
             </button>
           )}
         </div>
@@ -135,17 +421,15 @@ function UserMessage({
           onKeyDown={onKeyDown}
           rows={2}
           autoFocus
-          aria-label="編輯訊息"
+          aria-label={t.message.editLabel}
         />
         <div className="edit-foot">
-          <span className="muted small">
-            {canEdit ? '重新傳送後，這則之後的對話會被刪除，團隊從這裡重新回答。' : '團隊回覆中，停止後才能重新傳送。'}
-          </span>
+          <span className="muted small">{canEdit ? t.message.resendNote : t.message.busyNote}</span>
           <button type="button" className="ghost small-button" onClick={() => setDraft(null)}>
-            取消
+            {t.common.cancel}
           </button>
           <button type="button" className="primary small-button" disabled={!ready} onClick={submit}>
-            {sending ? '傳送中…' : '傳送'}
+            {sending ? t.common.sending : t.common.send}
           </button>
         </div>
       </div>
@@ -162,8 +446,15 @@ export const MessageItem = memo(function MessageItem({
   onDiff,
   onApply,
   onResend,
+  onSavePlan,
+  onAdjustTeam,
+  onApproval,
+  onRetry,
 }: Props) {
+  const t = useT();
+
   if (msg.author.kind === 'system') {
+    if (msg.plan) return <PlanCard msg={msg} onSavePlan={onSavePlan} onAdjustTeam={onAdjustTeam} />;
     return (
       <div className="msg-system">
         <span>{msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')}</span>
@@ -182,7 +473,6 @@ export const MessageItem = memo(function MessageItem({
   const live = msg.status === 'streaming';
   const segs = segments(msg.parts);
   const m = msg.meta;
-  const hasMeta = Boolean(m && (m.durationMs || m.costUsd || m.outputTokens));
   const copyable = !msg.passed && messageText(msg).length > 0;
 
   return (
@@ -193,25 +483,32 @@ export const MessageItem = memo(function MessageItem({
           <strong>@{name}</strong>
           <span className="provider-tag">{PROVIDER_LABEL[provider]}</span>
           {m?.round && conv.settings.mode !== 'relay' && conv.settings.rounds > 1 && (
-            <span className="round-tag">第 {m.round} 輪</span>
+            <span className="round-tag">{t.message.round(m.round)}</span>
           )}
-          {live && <span className="live-tag">回覆中</span>}
+          {live && <span className="live-tag">{t.message.live}</span>}
         </div>
 
         {msg.passed && msg.status === 'done' ? (
-          <p className="muted small">沒有補充（PASS）</p>
+          <p className="muted small">{t.message.passed}</p>
         ) : (
-          segs.map((s) =>
-            s.kind === 'text' ? (
-              <Markdown key={s.key} text={s.text} mentions={mentionNames} />
-            ) : (
-              <ToolGroup key={s.key} tools={s.tools} live={live} />
-            ),
-          )
+          segs.map((s) => {
+            switch (s.kind) {
+              case 'text':
+                return <Markdown key={s.key} text={s.text} mentions={mentionNames} />;
+              case 'tools':
+                return <ToolGroup key={s.key} tools={s.tools} live={live} />;
+              case 'thinking':
+                return <ThinkingBlock key={s.key} text={s.text} live={live && s.last} />;
+              case 'todo':
+                return <TodoList key={s.key} entries={s.entries} />;
+              case 'approval':
+                return <ApprovalCard key={s.key} part={s.part} agentName={name} live={live} onAnswer={onApproval} />;
+            }
+          })
         )}
 
         {live && segs.length === 0 && (
-          <div className="typing" aria-label="思考中">
+          <div className="typing" aria-label={t.message.thinking}>
             <i />
             <i />
             <i />
@@ -227,19 +524,17 @@ export const MessageItem = memo(function MessageItem({
           />
         )}
         {msg.status === 'error' && <div className="msg-error">⚠ {msg.error}</div>}
-        {msg.status === 'aborted' && <p className="muted small">（已中斷）</p>}
+        {msg.status === 'aborted' && <p className="muted small">{t.message.aborted}</p>}
 
-        {!live && (hasMeta || copyable) && (
+        {!live && (
           <div className="msg-actions">
-            {hasMeta && m && (
-              <span className="msg-meta">
-                {formatDuration(m.durationMs)}
-                {m.costUsd !== undefined && ` · $${m.costUsd.toFixed(3)}`}
-                {m.inputTokens !== undefined && ` · ${formatTokens(m.inputTokens)} in`}
-                {m.outputTokens !== undefined && ` / ${formatTokens(m.outputTokens)} out`}
-              </span>
-            )}
+            {hasMeta(m) && <MetaText m={m} />}
             {copyable && <CopyButton text={() => messageText(msg)} />}
+            {!running && (
+              <button type="button" className="msg-action" title={t.message.retryTitle} onClick={() => void onRetry(msg.id)}>
+                ↻ {t.message.retry}
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
+  type ApprovalAnswer,
   type ChatMessage,
-  type AgentConfig,
   type Conversation,
+  type LeadAgentSettings,
   type ProviderModels,
   type ProviderStatus,
   type ServerEvent,
 } from '../../shared/types';
 import { api } from '../api';
 import { conversationMarkdown } from '../copy';
-import { MODE_INFO, PERMISSION_INFO, PROVIDER_COLOR, effortLabel, initials } from '../util';
+import { useT } from '../i18n';
+import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView, type ApplyState } from './ChangesCard';
 import { Composer } from './Composer';
 import { CopyButton } from './CopyButton';
@@ -43,7 +45,8 @@ function reducer(s: State, e: ServerEvent): State {
       if (!msg) return s;
       const parts = [...msg.parts];
       const cur = parts[e.partIndex];
-      parts[e.partIndex] = cur?.type === 'text' ? { ...cur, text: cur.text + e.text } : { type: 'text', text: e.text };
+      parts[e.partIndex] =
+        cur?.type === 'text' || cur?.type === 'thinking' ? { ...cur, text: cur.text + e.text } : { type: 'text', text: e.text };
       return { ...s, conv: { ...s.conv, messages: upsert(s.conv.messages, { ...msg, parts }) } };
     }
     case 'conversation':
@@ -55,11 +58,6 @@ function reducer(s: State, e: ServerEvent): State {
   return s;
 }
 
-/** "gpt-6.1-sol · 高（high）" — only the parts the agent overrides. */
-function modelSummary(a: AgentConfig): string {
-  return [a.model, a.effort && effortLabel(a.effort)].filter(Boolean).join(' · ');
-}
-
 interface Props {
   id: string;
   providers: ProviderStatus[];
@@ -68,11 +66,13 @@ interface Props {
 }
 
 export function ChatView({ id, providers, catalog, onChanged }: Props) {
+  const t = useT();
   const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [] });
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(true);
   const [teamOpen, setTeamOpen] = useState(false);
   const [diff, setDiff] = useState<{ title: string; load: () => Promise<string> } | null>(null);
+  const [lead, setLead] = useState<LeadAgentSettings | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const onChangedRef = useRef(onChanged);
@@ -97,68 +97,98 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
     return () => es.close();
   }, [id]);
 
+  // Who designs the team, for auto-team conversations that have not started yet.
+  const autoTeam = Boolean(state.conv?.settings.autoTeam);
+  useEffect(() => {
+    if (autoTeam) api.getSettings().then((s) => setLead(s.lead), () => {});
+  }, [autoTeam]);
+
   // Follow the stream unless the user scrolled up to read.
   useEffect(() => {
     const el = scroller.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   });
 
-  const convId = state.conv?.id;
-  const onDiff = useCallback(
-    (msg: ChatMessage, scope: 'turn' | 'agent') => {
-      if (!convId) return;
-      const name = msg.agentName ?? 'agent';
-      if (scope === 'turn') setDiff({ title: `@${name} 這回合的修改`, load: () => api.messageDiff(convId, msg.id) });
-      else if (msg.author.kind === 'agent') {
-        const agentId = msg.author.agentId;
-        setDiff({ title: `@${name} 的完整結果（相對於起始快照）`, load: () => api.agentDiff(convId, agentId) });
-      }
-    },
-    [convId],
-  );
-  const onApply = useCallback(
-    async (agentId: string) => {
-      if (!convId) return;
-      try {
-        await api.applyAgent(convId, agentId);
-      } catch (e) {
-        setError((e as Error).message);
-      }
-    },
-    [convId],
-  );
-
   // Read through a ref so the callbacks stay stable while messages stream (MessageItem is memoised).
   const convRef = useRef(state.conv);
   convRef.current = state.conv;
+  const tRef = useRef(t);
+  tRef.current = t;
 
-  const onResend = useCallback(
-    async (messageId: string, text: string) => {
-      const c = convRef.current;
-      if (!c) return false;
-      const index = c.messages.findIndex((m) => m.id === messageId);
-      const later = c.messages.slice(index + 1);
-      const changed = later.filter((m) => m.changes && m.changes.files.length > 0).length;
-      if (
-        changed > 0 &&
-        !confirm(
-          `這則之後有 ${changed} 則回覆修改過檔案。重新傳送會刪除之後的對話，但那些檔案修改不會還原。\n\n確定要重新傳送嗎？`,
-        )
-      ) {
-        return false;
-      }
-      try {
-        setError('');
-        stick.current = true;
-        await api.resend(c.id, messageId, text);
-        return true;
-      } catch (e) {
-        setError((e as Error).message);
-        return false;
-      }
-    },
-    [],
-  );
+  const onDiff = useCallback((msg: ChatMessage, scope: 'turn' | 'agent') => {
+    const c = convRef.current;
+    if (!c) return;
+    const name = msg.agentName ?? 'agent';
+    if (scope === 'turn') setDiff({ title: tRef.current.chat.turnDiffTitle(name), load: () => api.messageDiff(c.id, msg.id) });
+    else if (msg.author.kind === 'agent') {
+      const agentId = msg.author.agentId;
+      setDiff({ title: tRef.current.chat.agentDiffTitle(name), load: () => api.agentDiff(c.id, agentId) });
+    }
+  }, []);
+
+  const onApply = useCallback(async (agentId: string) => {
+    const c = convRef.current;
+    if (!c) return;
+    try {
+      await api.applyAgent(c.id, agentId);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const onResend = useCallback(async (messageId: string, text: string) => {
+    const c = convRef.current;
+    if (!c) return false;
+    const index = c.messages.findIndex((m) => m.id === messageId);
+    const changed = c.messages.slice(index + 1).filter((m) => m.changes && m.changes.files.length > 0).length;
+    if (changed > 0 && !confirm(tRef.current.chat.resendConfirm(changed))) return false;
+    try {
+      setError('');
+      stick.current = true;
+      await api.resend(c.id, messageId, text);
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    }
+  }, []);
+
+  const onSavePlan = useCallback(async (messageId: string, name: string) => {
+    const c = convRef.current;
+    if (!c) return;
+    try {
+      await api.savePlan(c.id, messageId, name);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const onAdjustTeam = useCallback(() => setTeamOpen(true), []);
+
+  const onRetry = useCallback(async (messageId: string) => {
+    const c = convRef.current;
+    if (!c) return;
+    const later = c.messages.slice(c.messages.findIndex((m) => m.id === messageId) + 1);
+    const changed = later.filter((m) => m.changes && m.changes.files.length > 0).length;
+    if (later.length > 0 && !confirm(tRef.current.chat.retryConfirm(later.length, changed))) return;
+    try {
+      setError('');
+      stick.current = true;
+      await api.retry(c.id, messageId);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const onApproval = useCallback(async (approvalId: string, answer: ApprovalAnswer) => {
+    const c = convRef.current;
+    if (!c) return;
+    try {
+      await api.answerApproval(c.id, approvalId, answer);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
 
   // Only each agent's latest worktree result can be applied.
   const applyStates = useMemo(() => {
@@ -178,10 +208,20 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   }, [state.conv]);
 
   const { conv, running, active } = state;
-  if (!conv) return <div className="page-center muted">{error || '載入中…'}</div>;
+  if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
   const mentionNames = conv.agents.map((a) => a.name);
+  // Approval requests still waiting for an answer (only while the agent's turn is running).
+  const pending = conv.messages.flatMap((m) =>
+    m.status === 'streaming'
+      ? m.parts
+          .filter((p) => p.type === 'approval' && p.status === 'pending')
+          .map((p) => ({ id: (p as { id: string }).id, agent: m.agentName ?? 'agent' }))
+      : [],
+  );
   const hasUserMessage = conv.messages.some((m) => m.author.kind === 'user');
+  const waitingForTeam = autoTeam && conv.agents.length === 0;
+  const leadText = leadLabel(lead ?? { provider: 'claude' });
 
   const send = async (text: string) => {
     setError('');
@@ -196,7 +236,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   };
 
   const rename = async () => {
-    const title = prompt('對話標題', conv.title);
+    const title = prompt(t.chat.renamePrompt, conv.title);
     if (!title?.trim()) return;
     await api.updateConversation(conv.id, { title }).catch((e: Error) => setError(e.message));
   };
@@ -204,41 +244,44 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   return (
     <div className="chat">
       <header className="chat-head">
-        <button className="chat-title" onClick={rename} title="重新命名">
+        <button className="chat-title" onClick={rename} title={t.chat.rename}>
           {conv.title}
         </button>
         <div className="team-chips">
+          {waitingForTeam && <span className="team-chip auto-chip">✦ {t.chat.autoTeam}</span>}
           {conv.agents.map((a) => (
             <span
               key={a.id}
               className={`team-chip ${active.includes(a.id) ? 'speaking' : ''}`}
               style={{ ['--accent' as string]: PROVIDER_COLOR[a.provider] }}
-              title={`${PROVIDER_LABEL[a.provider]}${modelSummary(a) ? ` · ${modelSummary(a)}` : ''}\n${a.role}`}
+              title={`${PROVIDER_LABEL[a.provider]}${modelSummary(a, t) ? ` · ${modelSummary(a, t)}` : ''}\n${a.role}`}
             >
               <span className="avatar sm">{initials(a.name)}</span>@{a.name}
             </span>
           ))}
         </div>
-        <span className="badge" title={MODE_INFO[conv.settings.mode].hint}>
-          {MODE_INFO[conv.settings.mode].label}
-          {conv.settings.mode === 'relay' ? ` · ${conv.settings.maxHops} 棒` : ` · ${conv.settings.rounds} 輪`}
-        </span>
+        {!waitingForTeam && (
+          <span className="badge" title={t.modes[conv.settings.mode].hint}>
+            {t.modes[conv.settings.mode].label} ·{' '}
+            {conv.settings.mode === 'relay' ? t.chat.hops(conv.settings.maxHops) : t.chat.rounds(conv.settings.rounds)}
+          </span>
+        )}
         <span className={`badge ${conv.settings.permission === 'full' ? 'danger' : ''}`}>
-          {PERMISSION_INFO[conv.settings.permission].label}
+          {t.permissions[conv.settings.permission].label}
         </span>
         <CopyButton
           className="ghost small-button"
-          label="複製對話"
-          title="把整段對話複製成 Markdown"
+          label={t.chat.copyChat}
+          title={t.chat.copyChatTitle}
           disabled={conv.messages.length === 0}
-          text={() => (convRef.current ? conversationMarkdown(convRef.current) : '')}
+          text={() => (convRef.current ? conversationMarkdown(convRef.current, tRef.current) : '')}
         />
         <button className="ghost small-button" onClick={() => setTeamOpen(true)}>
-          團隊設定
+          {t.chat.teamSettings}
         </button>
       </header>
 
-      {!connected && !error && <div className="banner">連線中斷，重新連線中…</div>}
+      {!connected && !error && <div className="banner">{t.chat.reconnecting}</div>}
 
       <div
         className="messages"
@@ -249,7 +292,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
         }}
       >
         <div className="messages-inner">
-          {conv.messages.length === 0 && <TeamIntro conv={conv} />}
+          {conv.messages.length === 0 && <TeamIntro conv={conv} leadText={leadText} />}
           {conv.messages.map((m) => (
             <MessageItem
               key={m.id}
@@ -261,16 +304,29 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               onDiff={onDiff}
               onApply={onApply}
               onResend={onResend}
+              onSavePlan={onSavePlan}
+              onAdjustTeam={onAdjustTeam}
+              onApproval={onApproval}
+              onRetry={onRetry}
             />
           ))}
         </div>
       </div>
 
       <div className="composer-dock">
+        {pending.length > 0 && (
+          <button
+            type="button"
+            className="approval-banner"
+            onClick={() => document.getElementById(`approval-${pending[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+          >
+            ⏸ {pending.map((p) => `@${p.agent}`).join('、')} · {t.approval.waiting}
+          </button>
+        )}
         {error && (
           <div className="error-line" role="alert">
             {error}
-            <button className="icon-button" onClick={() => setError('')} aria-label="關閉">
+            <button className="icon-button" onClick={() => setError('')} aria-label={t.common.close}>
               ×
             </button>
           </div>
@@ -280,9 +336,11 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
           running={running}
           canContinue={hasUserMessage}
           placeholder={
-            conv.settings.mode === 'relay'
-              ? `傳訊息給團隊（預設由 @${conv.agents[0]?.name} 先接）`
-              : '傳訊息給團隊…'
+            waitingForTeam
+              ? t.chat.placeholderAuto
+              : conv.settings.mode === 'relay' && conv.agents[0]
+                ? t.chat.placeholderRelay(conv.agents[0].name)
+                : t.chat.placeholder
           }
           onSend={send}
           onStop={() => api.stop(conv.id).catch((e: Error) => setError(e.message))}
@@ -301,6 +359,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
           providers={providers}
           catalog={catalog}
           running={running}
+          leadText={leadText}
           onClose={() => setTeamOpen(false)}
           onError={setError}
         />
@@ -310,6 +369,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
 }
 
 function DiffModal({ title, load, onClose }: { title: string; load: () => Promise<string>; onClose: () => void }) {
+  const t = useT();
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState('');
 
@@ -328,29 +388,38 @@ function DiffModal({ title, load, onClose }: { title: string; load: () => Promis
       <div className="modal" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
         <header className="drawer-head">
           <h2>{title}</h2>
-          <button className="icon-button" onClick={onClose} aria-label="關閉">
+          <button className="icon-button" onClick={onClose} aria-label={t.common.close}>
             ×
           </button>
         </header>
         {error ? (
           <p className="error-line">{error}</p>
         ) : text === null ? (
-          <p className="muted">載入中…</p>
+          <p className="muted">{t.common.loading}</p>
         ) : text.trim() ? (
           <DiffView text={text} />
         ) : (
-          <p className="muted">沒有差異。</p>
+          <p className="muted">{t.chat.noDiff}</p>
         )}
       </div>
     </div>
   );
 }
 
-function TeamIntro({ conv }: { conv: Conversation }) {
+function TeamIntro({ conv, leadText }: { conv: Conversation; leadText: string }) {
+  const t = useT();
+  if (conv.settings.autoTeam && conv.agents.length === 0) {
+    return (
+      <div className="team-intro">
+        <h2>{t.chat.autoIntroTitle}</h2>
+        <p className="muted">{t.chat.autoIntro(leadText)}</p>
+      </div>
+    );
+  }
   return (
     <div className="team-intro">
-      <h2>團隊已就位</h2>
-      <p className="muted">{MODE_INFO[conv.settings.mode].hint}</p>
+      <h2>{t.chat.teamReady}</h2>
+      <p className="muted">{t.modes[conv.settings.mode].hint}</p>
       <div className="intro-grid">
         {conv.agents.map((a, i) => (
           <div key={a.id} className="intro-card" style={{ ['--accent' as string]: PROVIDER_COLOR[a.provider] }}>
@@ -360,12 +429,12 @@ function TeamIntro({ conv }: { conv: Conversation }) {
                 <strong>@{a.name}</strong>
                 <div className="muted small">
                   {PROVIDER_LABEL[a.provider]}
-                  {modelSummary(a) ? ` · ${modelSummary(a)}` : ''}
-                  {conv.settings.mode === 'relay' && i === 0 ? ' · 隊長' : ''}
+                  {modelSummary(a, t) ? ` · ${modelSummary(a, t)}` : ''}
+                  {conv.settings.mode === 'relay' && i === 0 ? ` · ${t.chat.leader}` : ''}
                 </div>
               </div>
             </div>
-            <p className="intro-role">{a.role || '（未設定角色）'}</p>
+            <p className="intro-role">{a.role || t.chat.noRole}</p>
           </div>
         ))}
       </div>
@@ -378,6 +447,7 @@ function TeamDrawer({
   providers,
   catalog,
   running,
+  leadText,
   onClose,
   onError,
 }: {
@@ -385,12 +455,14 @@ function TeamDrawer({
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   running: boolean;
+  leadText: string;
   onClose: () => void;
   onError: (s: string) => void;
 }) {
+  const t = useT();
   const [team, setTeam] = useState<Team>({ agents: conv.agents, settings: conv.settings });
   const [saving, setSaving] = useState(false);
-  const problems = teamProblems(team);
+  const problems = teamProblems(team, t);
 
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -401,7 +473,9 @@ function TeamDrawer({
   const save = async () => {
     setSaving(true);
     try {
-      await api.updateConversation(conv.id, { agents: team.agents, settings: team.settings });
+      // While the lead agent has not designed the team yet, only the settings can change.
+      const auto = team.settings.autoTeam && team.agents.length === 0;
+      await api.updateConversation(conv.id, auto ? { settings: team.settings } : { agents: team.agents, settings: team.settings });
       onClose();
     } catch (e) {
       onError((e as Error).message);
@@ -412,25 +486,23 @@ function TeamDrawer({
 
   return (
     <div className="drawer-scrim" onClick={onClose}>
-      <aside className="drawer" onClick={(e) => e.stopPropagation()} aria-label="團隊設定">
+      <aside className="drawer" onClick={(e) => e.stopPropagation()} aria-label={t.chat.teamSettings}>
         <header className="drawer-head">
-          <h2>團隊設定</h2>
-          <button className="icon-button" onClick={onClose} aria-label="關閉">
+          <h2>{t.chat.teamSettings}</h2>
+          <button className="icon-button" onClick={onClose} aria-label={t.common.close}>
             ×
           </button>
         </header>
-        <p className="muted small">
-          角色修改會在下一個回合生效。更換成員的 coding agent 會讓他從頭讀一次對話紀錄。
-        </p>
-        <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} />
+        <p className="muted small">{t.chat.drawerNote}</p>
+        <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} />
         <footer className="drawer-foot">
           {problems[0] && <span className="error-line">{problems[0]}</span>}
-          {running && <span className="muted small">團隊回覆中，停止後才能儲存</span>}
+          {running && <span className="muted small">{t.chat.drawerBusy}</span>}
           <button className="ghost" onClick={onClose}>
-            取消
+            {t.common.cancel}
           </button>
           <button className="primary" disabled={saving || running || problems.length > 0} onClick={save}>
-            儲存
+            {t.common.save}
           </button>
         </footer>
       </aside>

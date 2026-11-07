@@ -1,4 +1,4 @@
-import type { Permission, Provider } from '../../shared/types';
+import type { ApprovalAnswer, ApprovalKind, Permission, PlanEntry, Provider } from '../../shared/types';
 
 /** Normalised events every CLI adapter emits while an agent is working. */
 export type AgentEvent =
@@ -7,9 +7,27 @@ export type AgentEvent =
   | { type: 'text'; text: string }
   /** The current text block is finished; the next `text` starts a new block. */
   | { type: 'text_end' }
+  /** A chunk of the agent's reasoning (consecutive chunks join up). */
+  | { type: 'thinking'; text: string }
+  /** The agent's plan / to-do list, replacing the previous one. */
+  | { type: 'plan'; entries: PlanEntry[] }
   | { type: 'tool_start'; id: string; name: string; detail?: string }
-  /** `error` is the CLI's stated reason when a call failed or was refused (shown under the tool). */
-  | { type: 'tool_end'; id: string; ok: boolean; error?: string };
+  /**
+   * `error`: the CLI's stated reason when a call failed or was refused (shown under the tool).
+   * `output`: the end of what the call returned.
+   */
+  | { type: 'tool_end'; id: string; ok: boolean; error?: string; output?: string };
+
+/** Something an agent wants to do that its permission does not cover. */
+export interface ApprovalRequest {
+  kind: ApprovalKind;
+  /** The command, file path or URL. */
+  detail?: string;
+  /** The agent's own description of why / what (often its tool-call description). */
+  reason?: string;
+  /** The tool's name, for kind "other". */
+  tool?: string;
+}
 
 export interface RunOptions {
   bin: string;
@@ -26,6 +44,17 @@ export interface RunOptions {
   effort?: string;
   signal: AbortSignal;
   onEvent: (e: AgentEvent) => void;
+  /**
+   * Ask the user about something the permission does not cover; resolves with their answer.
+   * Absent when the conversation refuses such requests automatically.
+   */
+  requestApproval?: (req: ApprovalRequest) => Promise<ApprovalAnswer>;
+}
+
+/** Keep the end of long output (commands print their result last). */
+export function tailText(s: string, max = 4000): string {
+  const t = s.replace(/\r/g, '').trimEnd();
+  return t.length > max ? '…' + t.slice(t.length - max) : t;
 }
 
 export interface RunResult {

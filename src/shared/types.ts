@@ -9,6 +9,10 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   grok: 'Grok',
 };
 
+/** UI languages. The server localizes its messages from the `X-Relay-Lang` request header. */
+export type Lang = 'zh-TW' | 'en';
+export const LANGS: Lang[] = ['zh-TW', 'en'];
+
 /**
  * How a user message is routed through the team.
  * - roundtable: agents speak one after another, each seeing what earlier speakers said.
@@ -42,6 +46,40 @@ export interface ConversationSettings {
   permission: Permission;
   /** Working directory shared by all agents. */
   cwd: string;
+  /**
+   * The lead agent (Settings) designs the team from the first message — picking a template or
+   * designing a new team — before anyone answers. Cleared once the team is set.
+   */
+  autoTeam?: boolean;
+  /**
+   * What happens when an agent wants to do something its permission does not cover:
+   * ask the user in the chat (default), or refuse automatically.
+   */
+  approvals?: 'ask' | 'deny';
+}
+
+/** The agent that designs the team for auto-team conversations. */
+export interface LeadAgentSettings {
+  provider: Provider;
+  model?: string;
+  effort?: string;
+}
+
+/** What the lead agent decided for an auto-team conversation (shown as a card in the chat). */
+export interface TeamPlan {
+  status: 'planning' | 'ready';
+  lead: LeadAgentSettings;
+  /** template: an existing template; custom: a team the lead designed; fallback: planning failed. */
+  source?: 'template' | 'custom' | 'fallback';
+  presetId?: string;
+  name?: string;
+  description?: string;
+  /** The lead's explanation for the user (or, for a fallback, why planning failed). */
+  reason?: string;
+  settings?: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops'>;
+  agents?: AgentConfig[];
+  /** Set once the user saved a custom team as a template. */
+  savedPresetId?: string;
 }
 
 export interface TeamPreset {
@@ -60,10 +98,64 @@ export type Author =
 
 export type ToolStatus = 'running' | 'done' | 'error';
 
+/** What an agent asks to be allowed to do. */
+export type ApprovalKind = 'command' | 'edit' | 'fetch' | 'other';
+
+export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'expired';
+
+/** One step of an agent's plan / to-do list. */
+export interface PlanEntry {
+  text: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
 export type MessagePart =
   | { type: 'text'; text: string }
-  /** `error`: why the call failed or was refused, when the CLI said so. */
-  | { type: 'tool'; id: string; name: string; detail?: string; status: ToolStatus; error?: string };
+  /** The agent's reasoning, as far as its CLI shares it. Never forwarded to other agents. */
+  | { type: 'thinking'; text: string }
+  /** The agent's current plan / to-do list (updated in place). */
+  | { type: 'plan'; entries: PlanEntry[] }
+  /**
+   * `error`: why the call failed or was refused, when the CLI said so.
+   * `output`: the end of what the call returned (command output, fetched text…).
+   */
+  | { type: 'tool'; id: string; name: string; detail?: string; status: ToolStatus; error?: string; output?: string }
+  /** The agent asked to do something its permission does not cover; the user decides. */
+  | {
+      type: 'approval';
+      id: string;
+      kind: ApprovalKind;
+      /** The tool's name (shown for kind "other"). */
+      tool?: string;
+      /** The command, file or URL. */
+      detail?: string;
+      /** Why, when the agent said. */
+      reason?: string;
+      /** What "always allow in this conversation" would cover, e.g. "npm install". */
+      ruleLabel?: string;
+      status: ApprovalStatus;
+      /** Allowed for the rest of the conversation (or by such an earlier answer). */
+      always?: boolean;
+      /** Answered automatically by an earlier "always allow". */
+      auto?: boolean;
+      /** The user's message to the agent when declining. */
+      note?: string;
+    };
+
+/** "Always allow in this conversation": requests of this kind with this key are allowed without asking. */
+export interface AllowRule {
+  kind: ApprovalKind;
+  key: string;
+}
+
+/** The user's answer to an approval request. */
+export interface ApprovalAnswer {
+  allow: boolean;
+  /** Allow requests like this for the rest of the conversation. */
+  always?: boolean;
+  /** Message to the agent when declining. */
+  note?: string;
+}
 
 export type MessageStatus = 'streaming' | 'done' | 'error' | 'aborted';
 
@@ -123,6 +215,8 @@ export interface ChatMessage {
   provider?: Provider;
   /** Files the agent changed in this turn (only for conversations with edit / full permission). */
   changes?: MessageChanges;
+  /** A system message carrying the lead agent's team design (auto-team conversations). */
+  plan?: TeamPlan;
 }
 
 export interface AgentSessionState {
@@ -144,6 +238,8 @@ export interface Conversation {
   agentState: Record<string, AgentSessionState>;
   /** Parallel-mode worktrees by agent id. */
   worktrees: Record<string, AgentWorktree>;
+  /** "Always allow" answers given in this conversation. */
+  allowRules?: AllowRule[];
 }
 
 export interface ConversationSummary {
@@ -152,6 +248,10 @@ export interface ConversationSummary {
   updatedAt: number;
   agents: Pick<AgentConfig, 'name' | 'provider'>[];
   running: boolean;
+  /** An agent is waiting for the user to approve something. */
+  waiting?: boolean;
+  /** How the latest agent reply ended (absent before the first one). */
+  lastStatus?: MessageStatus;
 }
 
 /** Events pushed to the browser over SSE for one conversation. */
@@ -204,6 +304,8 @@ export interface ProviderSettingsView {
 export interface ModelOption {
   id: string;
   label?: string;
+  /** An alias that always points at the newest model of its family (the UI says so). */
+  latest?: boolean;
   /** Effort levels this model supports; undefined = use the provider-wide list. */
   efforts?: string[];
   defaultEffort?: string;
@@ -237,6 +339,8 @@ export function inheritedEffort(pm: ProviderModels, model?: string): string | un
 export interface SettingsView {
   providers: ProviderSettingsView[];
   defaultCwd: string;
+  /** Designs the team in auto-team conversations. */
+  lead: LeadAgentSettings;
 }
 
 export interface ProviderSettingsUpdate {

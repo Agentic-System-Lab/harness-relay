@@ -25,7 +25,11 @@ export class JsonRpcConnection {
   /** Answers a request from the peer; throw an RpcError to reply with an error. */
   onRequest?: (method: string, params: any) => unknown | Promise<unknown>;
 
-  constructor(private write: (line: string) => void) {}
+  /** `versionField: false` leaves out `"jsonrpc": "2.0"` (Codex's app-server protocol omits it). */
+  constructor(
+    private write: (line: string) => void,
+    private opts: { versionField?: boolean } = {},
+  ) {}
 
   request<T = any>(method: string, params?: unknown): Promise<T> {
     if (this.closedWith) return Promise.reject(this.closedWith);
@@ -83,7 +87,9 @@ export class JsonRpcConnection {
     this.pending.clear();
   }
 
-  private send(msg: unknown): void {
-    if (!this.closedWith) this.write(JSON.stringify(msg));
+  private send(msg: Record<string, unknown>): void {
+    if (this.closedWith) return;
+    if (this.opts.versionField === false) delete msg.jsonrpc;
+    this.write(JSON.stringify(msg));
   }
 }

@@ -1,26 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  LANGS,
   PROVIDERS,
   PROVIDER_LABEL,
+  inheritedEffort,
+  type LeadAgentSettings,
   type LoginMethod,
-  type ProviderModels,
   type LoginSessionView,
   type Provider,
+  type ProviderModels,
   type ProviderSettingsView,
   type ProviderStatus,
   type SettingsView,
 } from '../../shared/types';
 import { api } from '../api';
-import { PROVIDER_COLOR, effortLabel } from '../util';
+import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
+import { PROVIDER_COLOR } from '../util';
 import { ModelPicker } from './ModelPicker';
+import { providerState } from './Sidebar';
 
 interface Props {
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   refreshProviders: (force?: boolean) => Promise<void>;
+  onShowTour: () => void;
 }
 
-export function SettingsPage({ providers, catalog, refreshProviders }: Props) {
+export function SettingsPage({ providers, catalog, refreshProviders, onShowTour }: Props) {
+  const { t, lang, setLang } = useI18n();
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [cwd, setCwd] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -43,7 +50,7 @@ export function SettingsPage({ providers, catalog, refreshProviders }: Props) {
   const saveCwd = async () => {
     try {
       setSettings(await api.updateSettings({ defaultCwd: cwd }));
-      setMsg('已儲存預設工作目錄');
+      setMsg(t.settings.cwdSaved);
     } catch (e) {
       setMsg((e as Error).message);
     }
@@ -54,15 +61,25 @@ export function SettingsPage({ providers, catalog, refreshProviders }: Props) {
       <div className="page-inner">
         <header className="page-head row">
           <div>
-            <h1>設定與登入</h1>
-            <p className="muted">
-              Harness Relay 透過你電腦上的 CLI 呼叫各個 coding agent。在這裡分別登入、設定 API key 或執行檔路徑。
-            </p>
+            <h1>{t.settings.title}</h1>
+            <p className="muted">{t.settings.intro}</p>
           </div>
           <button className="ghost" onClick={refresh} disabled={refreshing}>
-            {refreshing ? '檢查中…' : '重新檢查狀態'}
+            {refreshing ? t.settings.checking : t.settings.recheck}
           </button>
         </header>
+
+        <section className="card">
+          <h3>{t.settings.language}</h3>
+          <p className="muted small">{t.settings.languageHint}</p>
+          <div className="segmented lang-switch" role="radiogroup" aria-label={t.settings.language}>
+            {LANGS.map((l) => (
+              <button key={l} role="radio" aria-checked={lang === l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)}>
+                {LANG_NAMES[l]}
+              </button>
+            ))}
+          </div>
+        </section>
 
         <div className="provider-list">
           {PROVIDERS.map((p) => (
@@ -78,36 +95,122 @@ export function SettingsPage({ providers, catalog, refreshProviders }: Props) {
           ))}
         </div>
 
+        {settings && <LeadCard lead={settings.lead} providers={providers} catalog={catalog} onSettings={setSettings} />}
+
         <section className="card">
-          <h3>預設工作目錄</h3>
-          <p className="muted small">新對話預設讓 agent 在這個目錄工作（每個對話仍可個別修改）。</p>
+          <h3>{t.settings.cwd}</h3>
+          <p className="muted small">{t.settings.cwdHint}</p>
           <div className="input-row">
             <input value={cwd} onChange={(e) => setCwd(e.target.value)} spellCheck={false} />
             <button className="primary" onClick={saveCwd} disabled={!settings || cwd === settings.defaultCwd}>
-              儲存
+              {t.common.save}
             </button>
           </div>
           {msg && <p className="muted small">{msg}</p>}
+        </section>
+
+        <section className="card">
+          <h3>{t.settings.tour}</h3>
+          <p className="muted small">{t.settings.tourHint}</p>
+          <div className="button-row">
+            <button className="ghost" onClick={onShowTour}>
+              {t.settings.replayTour}
+            </button>
+          </div>
         </section>
       </div>
     </div>
   );
 }
 
-function statusPill(s?: ProviderStatus): { text: string; cls: string } {
-  if (!s) return { text: '檢查中…', cls: '' };
-  if (!s.installed) return { text: '未安裝', cls: 'off' };
-  if (s.usingStoredApiKey) return { text: '使用 API key', cls: 'ok' };
-  if (s.auth.loggedIn) return { text: '已登入', cls: 'ok' };
-  if (s.auth.loggedIn === false) return { text: '未登入', cls: 'warn' };
-  return { text: '狀態未知', cls: '' };
+/** The agent that designs the team in auto-team conversations. */
+function LeadCard({
+  lead: saved,
+  providers,
+  catalog,
+  onSettings,
+}: {
+  lead: LeadAgentSettings;
+  providers: ProviderStatus[];
+  catalog: ProviderModels[];
+  onSettings: (s: SettingsView) => void;
+}) {
+  const t = useT();
+  const [lead, setLead] = useState<LeadAgentSettings>(saved);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setLead(saved), [saved]);
+
+  const status = providers.find((p) => p.provider === lead.provider);
+  const pm = catalog.find((c) => c.provider === lead.provider);
+  const unchanged =
+    lead.provider === saved.provider && (lead.model ?? '') === (saved.model ?? '') && (lead.effort ?? '') === (saved.effort ?? '');
+
+  const save = async () => {
+    setBusy(true);
+    setNote('');
+    try {
+      onSettings(await api.updateSettings({ lead }));
+      setNote(t.settings.leadSaved);
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card" style={{ ['--accent' as string]: PROVIDER_COLOR[lead.provider] }}>
+      <h3>✦ {t.settings.lead}</h3>
+      <p className="muted small">{t.settings.leadHint}</p>
+      <div className="segmented" role="radiogroup" aria-label={t.settings.lead}>
+        {PROVIDERS.map((p) => (
+          <button
+            key={p}
+            role="radio"
+            aria-checked={lead.provider === p}
+            className={lead.provider === p ? 'on' : ''}
+            style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
+            onClick={() => lead.provider !== p && setLead({ provider: p })}
+          >
+            {PROVIDER_LABEL[p]}
+          </button>
+        ))}
+      </div>
+      <ModelPicker
+        key={lead.provider}
+        catalog={pm}
+        model={lead.model ?? ''}
+        effort={lead.effort ?? ''}
+        onChange={(v) => setLead({ ...lead, model: v.model, effort: v.effort })}
+        inheritModelLabel={t.team.defaultModel(pm?.defaultModel ?? (pm ? t.team.cliDecides : t.common.loading))}
+        inheritEffortLabel={(model) => {
+          const e = pm && inheritedEffort(pm, model);
+          return t.team.defaultModel(e ? t.effortLabel(e) : t.team.cliDecides);
+        }}
+      />
+      {status && providerState(status) !== 'ok' && (
+        <p className="warn-line">{t.settings.leadNotReady(PROVIDER_LABEL[lead.provider])}</p>
+      )}
+      <div className="button-row">
+        <button className="primary" onClick={save} disabled={busy || unchanged}>
+          {t.common.save}
+        </button>
+      </div>
+      {note && <p className="muted small">{note}</p>}
+    </section>
+  );
 }
 
-const API_KEY_HELP: Record<Provider, string> = {
-  claude: '儲存後，Harness Relay 啟動 Claude Code 時會帶入 ANTHROPIC_API_KEY（改用 API 計費，優先於訂閱登入）。',
-  codex: '會執行 codex login --with-api-key，金鑰由 Codex 自己保存（取代目前的 ChatGPT 登入）。',
-  grok: '儲存後，Harness Relay 啟動 Grok 時會帶入 XAI_API_KEY。',
-};
+function statusPill(s: ProviderStatus | undefined, t: Messages): { text: string; cls: string } {
+  const p = t.settings.pill;
+  if (!s) return { text: p.checking, cls: '' };
+  if (!s.installed) return { text: p.notInstalled, cls: 'off' };
+  if (s.usingStoredApiKey) return { text: p.apiKey, cls: 'ok' };
+  if (s.auth.loggedIn) return { text: p.loggedIn, cls: 'ok' };
+  if (s.auth.loggedIn === false) return { text: p.notLoggedIn, cls: 'warn' };
+  return { text: p.unknown, cls: '' };
+}
 
 function ProviderCard({
   provider,
@@ -124,6 +227,7 @@ function ProviderCard({
   onSettings: (s: SettingsView) => void;
   onRefresh: () => Promise<void>;
 }) {
+  const { t, lang } = useI18n();
   const [methods, setMethods] = useState<LoginMethod[]>([]);
   const [method, setMethod] = useState('');
   const [login, setLogin] = useState<LoginSessionView | null>(null);
@@ -133,13 +237,17 @@ function ProviderCard({
   const [effort, setEffort] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const pill = statusPill(status);
+  const pill = statusPill(status, t);
 
+  // Method labels come from the server in the UI language.
   useEffect(() => {
     api.loginMethods(provider).then((m) => {
       setMethods(m);
-      setMethod(m[0]?.id ?? '');
+      setMethod((cur) => (m.some((x) => x.id === cur) ? cur : (m[0]?.id ?? '')));
     });
+  }, [provider, lang]);
+
+  useEffect(() => {
     api.getLogin(provider).then(setLogin);
   }, [provider]);
 
@@ -155,12 +263,12 @@ function ProviderCard({
   onRefreshRef.current = onRefresh;
   useEffect(() => {
     if (!running) return;
-    const t = setInterval(async () => {
+    const timer = setInterval(async () => {
       const v = await api.getLogin(provider).catch(() => null);
       setLogin(v);
       if (v && v.state !== 'running') void onRefreshRef.current();
     }, 1000);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
   }, [running, provider]);
 
   const act = async (fn: () => Promise<unknown>, ok?: string) => {
@@ -177,16 +285,16 @@ function ProviderCard({
   };
 
   const startLogin = () => {
-    if (provider === 'codex' && status?.auth.loggedIn && !confirm('開始新的 Codex 登入會先登出目前的帳號，確定要繼續？')) return;
+    if (provider === 'codex' && status?.auth.loggedIn && !confirm(t.settings.confirmCodexRelogin)) return;
     void act(async () => setLogin(await api.startLogin(provider, method)));
   };
 
   const logout = () => {
-    if (!confirm(`登出 ${PROVIDER_LABEL[provider]}？這會影響這台電腦上所有使用此 CLI 的地方。`)) return;
+    if (!confirm(t.settings.confirmLogout(PROVIDER_LABEL[provider]))) return;
     void act(async () => {
       await api.logout(provider);
       await onRefresh();
-    }, '已登出');
+    }, t.settings.loggedOut);
   };
 
   const saveKey = (remove = false) =>
@@ -194,13 +302,13 @@ function ProviderCard({
       onSettings(await api.updateProvider(provider, { apiKey: remove ? null : apiKey }));
       setApiKey('');
       await onRefresh();
-    }, remove ? '已移除 API key' : '已儲存 API key');
+    }, remove ? t.settings.keyRemoved : t.settings.keySaved);
 
   const saveAdvanced = () =>
     act(async () => {
       onSettings(await api.updateProvider(provider, { bin, defaultModel: model, defaultEffort: effort }));
       await onRefresh();
-    }, '已儲存');
+    }, t.settings.saved);
 
   const selected = methods.find((m) => m.id === method);
 
@@ -219,7 +327,10 @@ function ProviderCard({
       </header>
 
       {status && !status.installed && (
-        <p className="warn-line">{status.auth.detail ?? `找不到 ${status.bin}`}（可在下方「進階」指定執行檔路徑）</p>
+        <p className="warn-line">
+          {status.auth.detail ?? t.settings.cliMissing(status.bin)}
+          {t.settings.setBinBelow}
+        </p>
       )}
 
       <div className="login-block">
@@ -234,11 +345,11 @@ function ProviderCard({
         {selected && <p className="muted small">{selected.description}</p>}
         <div className="button-row">
           <button className="primary" onClick={startLogin} disabled={busy || running || !status?.installed}>
-            {status?.auth.loggedIn ? '重新登入' : '登入'}
+            {status?.auth.loggedIn ? t.settings.relogin : t.settings.login}
           </button>
           {status?.auth.loggedIn && (
             <button className="ghost" onClick={logout} disabled={busy || running}>
-              登出
+              {t.settings.logout}
             </button>
           )}
         </div>
@@ -246,58 +357,62 @@ function ProviderCard({
       </div>
 
       <details className="sub">
-        <summary>API key{settings?.apiKeyMasked ? `（已設定 ${settings.apiKeyMasked}）` : ''}</summary>
-        <p className="muted small">{API_KEY_HELP[provider]}</p>
-        <div className="input-row">
-          <input
-            type="password"
-            value={apiKey}
-            placeholder={provider === 'claude' ? 'sk-ant-…' : provider === 'codex' ? 'sk-…' : 'xai-…'}
-            onChange={(e) => setApiKey(e.target.value)}
-            autoComplete="off"
-          />
-          <button className="primary" onClick={() => saveKey()} disabled={busy || !apiKey.trim()}>
-            儲存
-          </button>
-          {settings?.apiKeyMasked && (
-            <button className="ghost" onClick={() => saveKey(true)} disabled={busy}>
-              移除
+        <summary>API key{settings?.apiKeyMasked ? t.settings.apiKeySet(settings.apiKeyMasked) : ''}</summary>
+        <div className="sub-body">
+          <p className="muted small">{t.settings.apiKeyHelp[provider]}</p>
+          <div className="input-row">
+            <input
+              type="password"
+              value={apiKey}
+              placeholder={provider === 'claude' ? 'sk-ant-…' : provider === 'codex' ? 'sk-…' : 'xai-…'}
+              onChange={(e) => setApiKey(e.target.value)}
+              autoComplete="off"
+            />
+            <button className="primary" onClick={() => saveKey()} disabled={busy || !apiKey.trim()}>
+              {t.common.save}
             </button>
-          )}
+            {settings?.apiKeyMasked && (
+              <button className="ghost" onClick={() => saveKey(true)} disabled={busy}>
+                {t.common.remove}
+              </button>
+            )}
+          </div>
         </div>
       </details>
 
       <details className="sub">
         <summary>
-          預設模型與推理強度
+          {t.settings.defaults}
           {(settings?.defaultModel || settings?.defaultEffort) &&
-            `（${[settings.defaultModel, settings.defaultEffort && effortLabel(settings.defaultEffort)].filter(Boolean).join(' · ')}）`}
+            ` (${[settings.defaultModel, settings.defaultEffort && t.effortLabel(settings.defaultEffort)].filter(Boolean).join(' · ')})`}
         </summary>
-        <p className="muted small">成員的模型 / 推理強度選「預設」時使用這裡的值；這裡也選「CLI 預設」就交給 {PROVIDER_LABEL[provider]} 自己的設定。</p>
-        {catalog?.error && <p className="warn-line">無法從 CLI 取得模型清單：{catalog.error}</p>}
-        <ModelPicker
-          key={`${settings?.defaultModel}|${catalog?.models.length ?? 0}`}
-          catalog={catalog}
-          model={model}
-          effort={effort}
-          onChange={(v) => {
-            setModel(v.model);
-            setEffort(v.effort);
-          }}
-          inheritModelLabel={`CLI 預設：${catalog?.cliDefaultModel ?? '未知'}`}
-          inheritEffortLabel={(m) => {
-            const e = catalog?.cliDefaultEffort ?? catalog?.models.find((x) => x.id === (m || catalog.cliDefaultModel))?.defaultEffort;
-            return `CLI 預設：${e ? effortLabel(e) : '未知'}`;
-          }}
-        />
-        <label className="field inline">
-          <span>執行檔</span>
-          <input value={bin} placeholder={provider} onChange={(e) => setBin(e.target.value)} spellCheck={false} />
-        </label>
-        <div className="button-row">
-          <button className="ghost" onClick={saveAdvanced} disabled={busy}>
-            儲存
-          </button>
+        <div className="sub-body">
+          <p className="muted small">{t.settings.defaultsHint(PROVIDER_LABEL[provider])}</p>
+          {catalog?.error && <p className="warn-line">{t.settings.modelsError(catalog.error)}</p>}
+          <ModelPicker
+            key={`${settings?.defaultModel}|${catalog?.models.length ?? 0}`}
+            catalog={catalog}
+            model={model}
+            effort={effort}
+            onChange={(v) => {
+              setModel(v.model);
+              setEffort(v.effort);
+            }}
+            inheritModelLabel={t.settings.cliDefault(catalog?.cliDefaultModel ?? t.settings.unknown)}
+            inheritEffortLabel={(m) => {
+              const e = catalog?.cliDefaultEffort ?? catalog?.models.find((x) => x.id === (m || catalog.cliDefaultModel))?.defaultEffort;
+              return t.settings.cliDefault(e ? t.effortLabel(e) : t.settings.unknown);
+            }}
+          />
+          <label className="field inline">
+            <span>{t.settings.bin}</span>
+            <input value={bin} placeholder={provider} onChange={(e) => setBin(e.target.value)} spellCheck={false} />
+          </label>
+          <div className="button-row">
+            <button className="ghost" onClick={saveAdvanced} disabled={busy}>
+              {t.common.save}
+            </button>
+          </div>
         </div>
       </details>
 
@@ -315,6 +430,7 @@ function LoginPanel({
   provider: Provider;
   onUpdate: (v: LoginSessionView | null) => void;
 }) {
+  const t = useT();
   const [code, setCode] = useState('');
   const [copied, setCopied] = useState('');
   const running = login.state === 'running';
@@ -333,16 +449,14 @@ function LoginPanel({
     setCode('');
   };
 
-  const stateText = { running: '等待授權中…', success: '登入成功 ✓', failed: '登入失敗', cancelled: '已取消' }[login.state];
-
   return (
     <div className={`login-panel ${login.state}`}>
       <div className="login-state">
         {running && <span className="pulse" />}
-        <strong>{stateText}</strong>
+        <strong>{t.settings.loginState[login.state]}</strong>
         {running && (
           <button className="ghost small-button" onClick={() => api.cancelLogin(provider).then(() => api.getLogin(provider)).then(onUpdate)}>
-            取消
+            {t.common.cancel}
           </button>
         )}
       </div>
@@ -351,7 +465,7 @@ function LoginPanel({
         <div className="login-step">
           <span className="step-no">1</span>
           <div>
-            <p>開啟授權頁面：</p>
+            <p>{t.settings.openAuthPage}</p>
             {login.urls.map((u) => (
               <a key={u} href={u} target="_blank" rel="noreferrer" className="login-url">
                 {u.length > 90 ? u.slice(0, 89) + '…' : u} ↗
@@ -365,11 +479,11 @@ function LoginPanel({
         <div className="login-step">
           <span className="step-no">2</span>
           <div>
-            <p>在頁面中輸入或確認這個代碼：</p>
+            <p>{t.settings.enterCode}</p>
             {login.codes.map((c) => (
-              <button key={c} className="device-code" onClick={() => copy(c)} title="點擊複製">
+              <button key={c} className="device-code" onClick={() => copy(c)} title={t.common.clickToCopy}>
                 {c}
-                <span className="small muted">{copied === c ? '已複製' : '複製'}</span>
+                <span className="small muted">{copied === c ? t.common.copied : t.common.copy}</span>
               </button>
             ))}
           </div>
@@ -380,18 +494,18 @@ function LoginPanel({
         <div className="login-step">
           <span className="step-no">2</span>
           <div className="grow">
-            <p>授權後頁面會顯示一組授權碼，貼到這裡：</p>
+            <p>{t.settings.pasteCode}</p>
             <div className="input-row">
               <input
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && void submitCode()}
-                placeholder="貼上授權碼"
+                placeholder={t.settings.codePlaceholder}
                 autoComplete="off"
                 spellCheck={false}
               />
               <button className="primary" onClick={submitCode} disabled={!code.trim()}>
-                送出
+                {t.settings.submit}
               </button>
             </div>
           </div>
@@ -399,8 +513,8 @@ function LoginPanel({
       )}
 
       <details className="login-output" open={login.state === 'failed'}>
-        <summary className="small muted">CLI 輸出</summary>
-        <pre>{login.output.trim() || '(尚無輸出)'}</pre>
+        <summary className="small muted">{t.settings.cliOutput}</summary>
+        <pre>{login.output.trim() || t.settings.noOutput}</pre>
       </details>
     </div>
   );

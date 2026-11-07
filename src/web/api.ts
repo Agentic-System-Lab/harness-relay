@@ -1,9 +1,11 @@
 import type {
   AgentConfig,
+  ApprovalAnswer,
   Conversation,
   ConversationSettings,
   ConversationSummary,
   FileChange,
+  LeadAgentSettings,
   LoginMethod,
   LoginSessionView,
   Provider,
@@ -13,12 +15,18 @@ import type {
   SettingsView,
   TeamPreset,
 } from '../shared/types';
+import { currentLang } from './i18n';
+
+/** Every request names the UI language, so server messages come back in it. */
+function headers(json: boolean): Record<string, string> {
+  return json ? { 'X-Relay-Lang': currentLang(), 'Content-Type': 'application/json' } : { 'X-Relay-Lang': currentLang() };
+}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     // Always JSON: the server rejects non-JSON writes as a CSRF guard.
-    headers: method === 'GET' ? undefined : { 'Content-Type': 'application/json' },
+    headers: headers(method !== 'GET'),
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
   });
   const data = await res.json().catch(() => ({}));
@@ -27,7 +35,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 async function requestText(path: string): Promise<string> {
-  const res = await fetch(path);
+  const res = await fetch(path, { headers: headers(false) });
   const text = await res.text();
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
@@ -53,6 +61,12 @@ export const api = {
   send: (id: string, text: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/messages`, { text }),
   resend: (id: string, messageId: string, text: string) =>
     request<{ ok: true }>('PUT', `/api/conversations/${id}/messages/${messageId}`, { text }),
+  retry: (id: string, messageId: string) =>
+    request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/retry`),
+  answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
+    request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
+  savePlan: (id: string, messageId: string, name?: string) =>
+    request<TeamPreset>('POST', `/api/conversations/${id}/messages/${messageId}/save-plan`, { name }),
   stop: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/stop`),
   messageDiff: (id: string, messageId: string) => requestText(`/api/conversations/${id}/messages/${messageId}/diff`),
   agentDiff: (id: string, agentId: string) => requestText(`/api/conversations/${id}/agents/${agentId}/diff`),
@@ -66,7 +80,7 @@ export const api = {
 
   // settings & providers
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
-  updateSettings: (b: { defaultCwd?: string }) => request<SettingsView>('PUT', '/api/settings', b),
+  updateSettings: (b: { defaultCwd?: string; lead?: LeadAgentSettings }) => request<SettingsView>('PUT', '/api/settings', b),
   updateProvider: (p: Provider, b: ProviderSettingsUpdate) =>
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),

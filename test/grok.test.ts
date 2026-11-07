@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { JsonRpcConnection, RpcError } from '../src/server/agents/acp';
-import { createGrokUpdateHandler, describeGrokCancel, grokPermissionDecision, type GrokToolCall } from '../src/server/agents/grok';
+import {
+  createGrokUpdateHandler,
+  describeGrokCancel,
+  grokApprovalRequest,
+  grokPermissionDecision,
+  type GrokToolCall,
+} from '../src/server/agents/grok';
 import type { AgentEvent } from '../src/server/agents/types';
 
 // Shapes below are trimmed from real `grok agent stdio` traffic (grok 1.0.77).
@@ -96,6 +102,40 @@ describe('grok session updates', () => {
     expect(h.lastFailure).toEqual({ tool: 'web_fetch', reason: 'User cancelled the execution for tool `web_fetch`' });
     expect(describeGrokCancel(h.lastFailure, 'read-only')).toContain('web_fetch');
     expect(describeGrokCancel(undefined, 'edit')).toContain('cancelled');
+  });
+});
+
+describe('grok activity and approvals', () => {
+  it('streams thinking and plans, hides to-do tool rows, and keeps tool output', () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    h.handle({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Let me check.' } });
+    h.handle({ sessionUpdate: 'tool_call', toolCallId: 'td', title: 'todo_write', _meta: { 'x.ai/tool': { name: 'todo_write' } } });
+    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'td', status: 'completed' });
+    h.handle({ sessionUpdate: 'plan', entries: [{ content: 'Run tests', status: 'in_progress', priority: 'high' }, { content: 'Report', status: 'pending' }] });
+    h.handle({ sessionUpdate: 'tool_call', toolCallId: 'c1', title: 'run_terminal_command', rawInput: { command: 'npm test' } });
+    h.handle({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'c1',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: 'ALL-TESTS-PASSED' } }],
+    });
+    expect(events).toEqual([
+      { type: 'thinking', text: 'Let me check.' },
+      { type: 'plan', entries: [{ text: 'Run tests', status: 'in_progress' }, { text: 'Report', status: 'pending' }] },
+      { type: 'tool_start', id: 'c1', name: 'run_terminal_command', detail: 'npm test' },
+      { type: 'tool_end', id: 'c1', ok: true, output: 'ALL-TESTS-PASSED' },
+    ]);
+  });
+
+  it('describes what grok asks about', () => {
+    expect(grokApprovalRequest(shell('git push origin main'))).toMatchObject({ kind: 'command', detail: 'git push origin main' });
+    expect(grokApprovalRequest(WRITE_CALL)).toMatchObject({ kind: 'edit', detail: '/repo/a.txt' });
+    expect(grokApprovalRequest(FETCH_CALL)).toMatchObject({ kind: 'fetch', detail: 'https://example.com' });
+    expect(grokApprovalRequest({ title: 'linear', kind: 'other', _meta: { 'x.ai/tool': { name: 'linear__create' } } })).toMatchObject({
+      kind: 'other',
+      tool: 'linear__create',
+    });
   });
 });
 

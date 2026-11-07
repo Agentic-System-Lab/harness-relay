@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { claudeAllowedTools, createClaudeParser } from '../src/server/agents/claude';
+import { claudeAllowedTools, claudeApprovalRequest, createClaudeParser, type ClaudeControlRequest } from '../src/server/agents/claude';
 import type { AgentEvent } from '../src/server/agents/types';
 
 describe('claude allowed tools', () => {
@@ -49,7 +49,56 @@ describe('claude parser', () => {
         ok: false,
         error: "Permission to use Bash has been denied because Claude Code is running in don't ask mode.",
       },
-      { type: 'tool_end', id: 'toolu_2', ok: true },
+      { type: 'tool_end', id: 'toolu_2', ok: true, output: 'ok' },
     ]);
+  });
+
+  it('shows a decline the user gave in the UI language, with their note', () => {
+    const events: AgentEvent[] = [];
+    const parser = createClaudeParser((e) => events.push(e));
+    const content =
+      'The user declined this. Their message: use yarn instead Do not retry it; continue without it, or explain in your reply why it is needed.';
+    parser.handle(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't', is_error: true, content }] } }));
+    expect(events).toEqual([{ type: 'tool_end', id: 't', ok: false, error: '使用者拒絕了這個操作。 use yarn instead' }]);
+  });
+
+  it('streams thinking, turns TodoWrite into a plan, and hands control requests over', () => {
+    const events: AgentEvent[] = [];
+    const controls: ClaudeControlRequest[] = [];
+    const parser = createClaudeParser((e) => events.push(e), (c) => controls.push(c));
+    const line = (o: unknown) => parser.handle(JSON.stringify(o));
+    line({ type: 'stream_event', event: { type: 'message_start', message: { id: 'm1' } } });
+    line({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } } });
+    line({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Compare logs.' } } });
+    line({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
+    line({
+      type: 'assistant',
+      message: {
+        id: 'm1',
+        content: [
+          { type: 'thinking', thinking: 'Compare logs.' },
+          { type: 'tool_use', id: 'todo1', name: 'TodoWrite', input: { todos: [{ content: 'Check', status: 'in_progress' }, { content: 'Answer', status: 'pending' }] } },
+          { type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'npm install' } },
+        ],
+      },
+    });
+    line({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'todo1', content: 'ok' }] } });
+    line({ type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'npm install' } } });
+
+    expect(events).toEqual([
+      { type: 'thinking', text: 'Compare logs.' },
+      { type: 'plan', entries: [{ text: 'Check', status: 'in_progress' }, { text: 'Answer', status: 'pending' }] },
+      { type: 'tool_start', id: 'b1', name: 'Bash', detail: 'npm install' },
+    ]);
+    expect(controls).toEqual([
+      { requestId: 'r1', subtype: 'can_use_tool', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'npm install' } } },
+    ]);
+  });
+
+  it('describes approval requests by tool', () => {
+    expect(claudeApprovalRequest('Bash', { command: 'git push', description: 'Push' })).toEqual({ kind: 'command', detail: 'git push', reason: 'Push' });
+    expect(claudeApprovalRequest('Write', { file_path: '/a.txt' })).toMatchObject({ kind: 'edit', detail: '/a.txt' });
+    expect(claudeApprovalRequest('WebFetch', { url: 'https://x.dev' })).toMatchObject({ kind: 'fetch', detail: 'https://x.dev' });
+    expect(claudeApprovalRequest('mcp__linear__create', { title: 'Bug' })).toMatchObject({ kind: 'other', tool: 'mcp__linear__create' });
   });
 });

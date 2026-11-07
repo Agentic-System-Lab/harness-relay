@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Conversation } from '../src/shared/types';
 import { conversationMarkdown, messageText } from '../src/web/copy';
+import { en } from '../src/web/locales/en';
+import { zhTW } from '../src/web/locales/zh-TW';
 
 const conv: Conversation = {
   id: 'c',
@@ -56,7 +58,7 @@ describe('copying a conversation', () => {
   });
 
   it('writes the whole conversation as Markdown, labelled by speaker', () => {
-    expect(conversationMarkdown(conv)).toBe(
+    expect(conversationMarkdown(conv, zhTW)).toBe(
       [
         '# 影片重點',
         '',
@@ -89,5 +91,11 @@ describe('copying a conversation', () => {
         '',
       ].join('\n'),
     );
+  });
+
+  it('labels the transcript in the UI language', () => {
+    const md = conversationMarkdown(conv, en);
+    expect(md).toContain('**User**\n\n幫我整理重點');
+    expect(md).not.toContain('使用者');
   });
 });

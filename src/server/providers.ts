@@ -12,6 +12,7 @@ import {
 import { discoverModels, type DiscoveredModels } from './models';
 import { CommandNotFoundError, capture, killTree, spawnInteractive, stripAnsi, tail } from './process';
 import type { SettingsStore } from './settings';
+import { t } from './i18n';
 
 // ---------------------------------------------------------------------------
 // Status
@@ -42,7 +43,7 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
         loggedIn: Boolean(j.loggedIn),
         method: j.authMethod,
         account: j.email ?? j.orgName,
-        detail: j.subscriptionType ? `方案：${j.subscriptionType}` : undefined,
+        detail: j.subscriptionType ? t().planDetail(j.subscriptionType) : undefined,
       };
     }
     case 'codex': {
@@ -59,7 +60,7 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
       if (/not (authenticated|signed in)/i.test(out)) return { loggedIn: false };
       const model = out.match(/Default model:\s*(\S+)/i)?.[1];
       return r.code === 0
-        ? { loggedIn: true, detail: model ? `預設模型：${model}` : undefined }
+        ? { loggedIn: true, detail: model ? t().defaultModelDetail(model) : undefined }
         : { loggedIn: null, detail: tail(out, 200) };
     }
   }
@@ -139,7 +140,10 @@ export class ProviderService {
   // Login / logout
 
   loginMethods(p: Provider): LoginMethod[] {
-    return LOGIN_METHODS[p].map(({ id, label, description }) => ({ id, label, description }));
+    return LOGIN_METHODS[p].map(({ id, key }) => {
+      const [label, description] = t().login[key]!;
+      return { id, label, description };
+    });
   }
 
   startLogin(p: Provider, methodId?: string): LoginSessionView {
@@ -170,7 +174,7 @@ export class ProviderService {
     const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
     const r = await capture(bin, args, this.settings.env(p), { timeoutMs: 30_000 });
     this.invalidate(p);
-    if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || `logout 失敗（exit ${r.code}）`);
+    if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || t().logoutFailed(r.code));
     return tail(r.stdout || r.stderr, 300);
   }
 
@@ -181,7 +185,7 @@ export class ProviderService {
       timeoutMs: 30_000,
     });
     this.invalidate('codex');
-    if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || `codex login 失敗（exit ${r.code}）`);
+    if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || t().codexLoginFailed(r.code));
     return tail(r.stdout || r.stderr, 300);
   }
 
@@ -193,46 +197,41 @@ export class ProviderService {
 // ---------------------------------------------------------------------------
 // Login sessions: run the CLI's own login flow headlessly and surface its URL / code.
 
-const LOGIN_METHODS: Record<Provider, (LoginMethod & { args: string[] })[]> = {
+/** `key` names the method's label and description in the server messages (i18n.ts). */
+const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[] }[]> = {
   claude: [
     {
       id: 'claudeai',
-      label: 'Claude 訂閱帳號',
-      description: '用 Claude Pro / Max 帳號登入。開啟連結授權後，把頁面顯示的授權碼貼回來。',
+      key: 'claudeSubscription',
       args: ['auth', 'login', '--claudeai'],
     },
     {
       id: 'console',
-      label: 'Anthropic Console',
-      description: '用 Console 帳號登入（依 API 用量計費）。',
+      key: 'claudeConsole',
       args: ['auth', 'login', '--console'],
     },
   ],
   codex: [
     {
       id: 'device',
-      label: 'ChatGPT 裝置碼',
-      description: '開啟連結、登入 ChatGPT，輸入下方一次性代碼。',
+      key: 'codexDevice',
       args: ['login', '--device-auth'],
     },
     {
       id: 'browser',
-      label: 'ChatGPT 瀏覽器登入',
-      description: '在這台電腦開啟瀏覽器完成登入（需要本機 localhost 回呼）。',
+      key: 'codexBrowser',
       args: ['login'],
     },
   ],
   grok: [
     {
       id: 'device',
-      label: 'xAI 裝置碼',
-      description: '開啟連結並確認下方代碼。',
+      key: 'grokDevice',
       args: ['login', '--device-auth'],
     },
     {
       id: 'oauth',
-      label: 'xAI 瀏覽器登入',
-      description: '在這台電腦開啟瀏覽器完成 OAuth 登入。',
+      key: 'grokBrowser',
       args: ['login', '--oauth'],
     },
   ],
@@ -253,7 +252,7 @@ class LoginSession {
 
   constructor(
     readonly provider: Provider,
-    readonly method: LoginMethod & { args: string[] },
+    readonly method: { id: string; args: string[] },
     bin: string,
     env: NodeJS.ProcessEnv,
     private onDone: () => void,

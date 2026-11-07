@@ -3,8 +3,30 @@ import type { ConversationSummary, ProviderModels, ProviderStatus } from '../sha
 import { api } from './api';
 import { ChatView } from './components/ChatView';
 import { NewChat } from './components/NewChat';
+import { Onboarding, onboardingDone } from './components/Onboarding';
 import { SettingsPage } from './components/SettingsPage';
 import { Sidebar } from './components/Sidebar';
+import { useT } from './i18n';
+
+type SeenMap = Record<string, number>;
+const SEEN_KEY = 'relay:seen';
+
+function readSeen(): SeenMap | null {
+  try {
+    const v = localStorage.getItem(SEEN_KEY);
+    return v ? (JSON.parse(v) as SeenMap) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSeen(m: SeenMap): void {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify(m));
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 export type Route = { page: 'new' } | { page: 'chat'; id: string } | { page: 'settings' };
 
@@ -20,6 +42,8 @@ export function navigate(r: Route): void {
 }
 
 export function App() {
+  const t = useT();
+  const [tourOpen, setTourOpen] = useState(() => !onboardingDone());
   const [route, setRoute] = useState<Route>(parseHash);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
@@ -35,8 +59,15 @@ export function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  const [loaded, setLoaded] = useState(false);
   const refreshConversations = useCallback(() => {
-    api.listConversations().then(setConversations).catch(console.error);
+    api
+      .listConversations()
+      .then((list) => {
+        setConversations(list);
+        setLoaded(true);
+      })
+      .catch(console.error);
   }, []);
 
   const refreshProviders = useCallback((force = false) => {
@@ -66,18 +97,43 @@ export function App() {
     void refreshProviderInfo();
   }, [refreshConversations, refreshProviderInfo]);
 
-  // Keep "running" badges in the sidebar fresh while something is running.
+  // What you have already seen of each conversation, to mark replies that arrived while you were elsewhere.
+  const [seen, setSeen] = useState<SeenMap | null>(readSeen);
   useEffect(() => {
-    if (!conversations.some((c) => c.running)) return;
-    const t = setInterval(refreshConversations, 3000);
-    return () => clearInterval(t);
-  }, [conversations, refreshConversations]);
+    if (!loaded) return;
+    // First visit: everything that already exists counts as seen.
+    const base = seen ?? Object.fromEntries(conversations.map((c) => [c.id, c.updatedAt]));
+    const open = route.page === 'chat' ? conversations.find((c) => c.id === route.id) : undefined;
+    const next = open && (base[open.id] ?? 0) < open.updatedAt ? { ...base, [open.id]: open.updatedAt } : base;
+    if (next !== seen) {
+      setSeen(next);
+      writeSeen(next);
+    }
+  }, [loaded, conversations, route, seen]);
+
+  // The tab title tells you when an agent is waiting for your approval in any conversation.
+  const waiting = conversations.filter((c) => c.waiting).length;
+  useEffect(() => {
+    document.title = waiting ? t.approval.pageTitle(waiting) : 'Harness Relay';
+  }, [waiting, t]);
+
+  // Keep the sidebar's states fresh for every conversation, including runs started elsewhere
+  // (another tab, or still going after you switched away). The list is a cheap local query.
+  useEffect(() => {
+    const timer = setInterval(refreshConversations, 3000);
+    window.addEventListener('focus', refreshConversations);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refreshConversations);
+    };
+  }, [refreshConversations]);
 
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''}`}>
       <Sidebar
         route={route}
         conversations={conversations}
+        seen={seen ?? {}}
         providers={providers}
         onDeleted={(id) => {
           refreshConversations();
@@ -86,7 +142,7 @@ export function App() {
       />
       <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />
       <main className="main">
-        <button className="menu-button" aria-label="開啟側邊欄" onClick={() => setSidebarOpen(true)}>
+        <button className="menu-button" aria-label={t.app.openSidebar} onClick={() => setSidebarOpen(true)}>
           ☰
         </button>
         {route.page === 'new' && (
@@ -113,9 +169,11 @@ export function App() {
             providers={providers}
             catalog={catalog}
             refreshProviders={refreshProviderInfo}
+            onShowTour={() => setTourOpen(true)}
           />
         )}
       </main>
+      {tourOpen && <Onboarding onClose={() => setTourOpen(false)} />}
     </div>
   );
 }

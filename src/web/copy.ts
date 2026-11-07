@@ -1,4 +1,5 @@
-import { PROVIDER_LABEL, type ChatMessage, type Conversation } from '../shared/types';
+import { PROVIDER_LABEL, type ChatMessage, type Conversation, type TeamPlan } from '../shared/types';
+import type { Messages } from './i18n';
 
 /** A message's text as Markdown. Tool activity is left out. */
 export function messageText(m: ChatMessage): string {
@@ -8,17 +9,24 @@ export function messageText(m: ChatMessage): string {
     .join('\n\n');
 }
 
+/** One line naming the team the lead agent chose ("Using the template …"). */
+export function planHeadline(plan: TeamPlan, t: Messages): string {
+  const name = plan.name ?? '';
+  return plan.source === 'custom' ? t.plan.custom(name) : plan.source === 'fallback' ? t.plan.fallback(name) : t.plan.template(name);
+}
+
 /** The whole conversation as Markdown: one block per message, labelled with who said it. */
-export function conversationMarkdown(conv: Conversation): string {
+export function conversationMarkdown(conv: Conversation, t: Messages): string {
   const blocks: string[] = [];
   for (const m of conv.messages) {
     const text = messageText(m);
     if (m.author.kind === 'system') {
-      if (text) blocks.push(`*${text}*`);
+      if (m.plan?.status === 'ready') blocks.push(`*${t.plan.title}: ${planHeadline(m.plan, t)}*`);
+      else if (text) blocks.push(`*${text}*`);
       continue;
     }
     if (m.author.kind === 'user') {
-      if (text) blocks.push(`**使用者**\n\n${text}`);
+      if (text) blocks.push(`**${t.transcript.user}**\n\n${text}`);
       continue;
     }
     if (m.passed) continue; // "[PASS]" adds nothing to a transcript
@@ -29,7 +37,7 @@ export function conversationMarkdown(conv: Conversation): string {
     const body = [
       text,
       m.status === 'error' && m.error ? `> ⚠ ${m.error}` : '',
-      m.status === 'aborted' ? '*（已中斷）*' : '',
+      m.status === 'aborted' ? `*${t.transcript.aborted}*` : '',
     ]
       .filter(Boolean)
       .join('\n\n');

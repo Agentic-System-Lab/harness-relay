@@ -2,7 +2,17 @@ import type { ChildProcess } from 'node:child_process';
 import type { Permission } from '../../shared/types';
 import { runProcess, tail } from '../process';
 import { JsonRpcConnection, RpcError } from './acp';
-import { AgentRunError, TURN_TIMEOUT_MS, summarizeInput, type AgentEvent, type AgentRunner, type RunResult } from './types';
+import {
+  AgentRunError,
+  TURN_TIMEOUT_MS,
+  summarizeInput,
+  tailText,
+  type AgentEvent,
+  type AgentRunner,
+  type ApprovalRequest,
+  type RunResult,
+} from './types';
+import { t } from '../i18n';
 
 /*
  * Grok runs as an ACP agent (`grok agent stdio`: JSON-RPC over stdin/stdout), not headless `grok -p`.
@@ -12,21 +22,17 @@ import { AgentRunError, TURN_TIMEOUT_MS, summarizeInput, type AgentEvent, type A
  * reply off mid-way. Over ACP the permission request comes to us instead, and rejecting it with a
  * `followup_message` hands our reason to the model, which then carries on with the turn.
  *
- * - read-only: grok asks; we approve web fetch and refuse everything else. Grok still runs its
- *   built-in read-only tools and commands without asking (and bare `mkdir` / `touch`).
+ * - read-only: grok asks; web fetch runs, anything else goes to the user (or is refused when the
+ *   conversation does not ask). Grok still runs its built-in read-only tools and commands without
+ *   asking (and bare `mkdir` / `touch`).
  * - edit: grok asks, inside the `workspace` sandbox (the kernel confines writes to the working
- *   directory and temp dirs); we approve everything except publishing (git push, npm publish…).
+ *   directory and temp dirs); everything runs except publishing (git push, npm publish…), which
+ *   goes to the user.
  * - full: always-approve.
  *
  * The session's mode is set explicitly (`_meta.yoloMode`) so a user-level
  * `[ui] permission_mode = "always-approve"` in ~/.grok/config.toml cannot widen read-only or edit.
  */
-
-const PERMISSION_LABEL: Record<Permission, string> = {
-  'read-only': '唯讀',
-  edit: '可編輯',
-  full: '完全存取',
-};
 
 /** Sandbox profile per permission (`GROK_SANDBOX`). Read-only relies on refusing requests instead:
  *  the `read-only` profile refuses to start on some machines (e.g. a symlinked /var/run/docker.sock). */
@@ -61,7 +67,7 @@ export function grokPermissionDecision(permission: Permission, call: GrokToolCal
         `Not run: this conversation is read-only (the user's Harness Relay setting), so "${what}" is not allowed. ` +
         'Do not retry it or try to work around it. Continue with read-only tools (read_file, list_dir, grep, ' +
         'read-only shell commands, web fetch/search) and describe any change you would make instead of making it.',
-      label: '唯讀模式不允許，已告知 Grok 改用唯讀工具',
+      label: t().grokRefusedReadOnly,
     };
   }
   const command = typeof call.rawInput?.command === 'string' ? call.rawInput.command : '';
@@ -71,10 +77,37 @@ export function grokPermissionDecision(permission: Permission, call: GrokToolCal
       reason:
         `Not run: "${what}" publishes outside this machine, which this conversation's edit permission does not allow. ` +
         'Leave pushing/publishing to the user and continue with the rest of the task.',
-      label: '可編輯模式不允許推送或發佈',
+      label: t().grokRefusedPublish,
     };
   }
   return { allow: true };
+}
+
+/** What to show the user when grok asks about a call the permission does not cover. */
+export function grokApprovalRequest(call: GrokToolCall): ApprovalRequest {
+  const tool = String(call._meta?.['x.ai/tool']?.name ?? '');
+  const input = call.rawInput ?? {};
+  const reason = typeof input.description === 'string' && input.description ? input.description : call.title;
+  if (call.kind === 'execute' || typeof input.command === 'string') {
+    return { kind: 'command', detail: String(input.command ?? ''), reason };
+  }
+  if (call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move' || /write|replace|edit/i.test(tool)) {
+    return { kind: 'edit', detail: input.file_path ?? input.path ?? input.target_file, reason: call.title };
+  }
+  if (call.kind === 'fetch') return { kind: 'fetch', detail: input.url, reason: call.title };
+  return { kind: 'other', tool: tool || call.title, detail: summarizeInput(input), reason: call.title };
+}
+
+/** The decision after the user declined (their note, if any, goes to the model). */
+function declined(call: GrokToolCall, note?: string): GrokDecision {
+  const what = call.title || String(call._meta?.['x.ai/tool']?.name ?? 'this tool call');
+  return {
+    allow: false,
+    reason:
+      `Not run: the user declined "${what}".${note ? ` Their message: ${note}` : ''} ` +
+      'Do not retry it; continue without it, or explain in your reply why it is needed.',
+    label: note ? `${t().approvalDeclined} ${note}` : t().approvalDeclined,
+  };
 }
 
 /** Builds the reply to `session/request_permission`. */
@@ -107,6 +140,8 @@ const DONE = new Set(['completed', 'failed', 'cancelled', 'rejected']);
 /** Turns ACP `session/update` payloads into AgentEvents. */
 export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
   const open = new Set<string>();
+  /** To-do updates arrive as `plan` updates too, so their tool calls are not shown as rows. */
+  const hidden = new Set<string>();
   const names = new Map<string, string>();
   const refused = new Map<string, string>();
   let inText = false;
@@ -122,13 +157,14 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
   const finishTool = (id: string, u: Record<string, any>) => {
     open.delete(id);
     const ok = u.status === 'completed';
+    const text = contentText(u.content);
     let error: string | undefined;
     if (!ok) {
-      const reason = contentText(u.content);
-      lastFailure = { tool: names.get(id) ?? 'tool', reason };
-      error = refused.get(id) ?? reason;
+      lastFailure = { tool: names.get(id) ?? 'tool', reason: text };
+      error = refused.get(id) ?? text;
     }
-    emit({ type: 'tool_end', id, ok, ...(error ? { error } : {}) });
+    const output = ok && text ? tailText(text) : undefined;
+    emit({ type: 'tool_end', id, ok, ...(error ? { error } : {}), ...(output ? { output } : {}) });
   };
 
   function handle(u: Record<string, any> | undefined): void {
@@ -142,10 +178,33 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
         }
         break;
       }
+      case 'agent_thought_chunk': {
+        const text = u.content?.text;
+        if (typeof text === 'string' && text) {
+          closeText();
+          emit({ type: 'thinking', text });
+        }
+        break;
+      }
+      case 'plan': {
+        const entries = Array.isArray(u.entries) ? u.entries : [];
+        emit({
+          type: 'plan',
+          entries: entries.map((e: any) => ({
+            text: String(e?.content ?? ''),
+            status: e?.status === 'completed' || e?.status === 'in_progress' ? e.status : 'pending',
+          })),
+        });
+        break;
+      }
       case 'tool_call': {
         closeText();
         const id = String(u.toolCallId ?? '');
-        if (!id) break;
+        if (!id || hidden.has(id)) break;
+        if (u._meta?.['x.ai/tool']?.name === 'todo_write' || u.title === 'todo_write') {
+          hidden.add(id);
+          break;
+        }
         if (!open.has(id)) {
           open.add(id);
           const name = String(u.title || u._meta?.['x.ai/tool']?.name || u.kind || 'tool');
@@ -182,11 +241,10 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
 
 /** Explains a turn grok ended itself (`stopReason: "cancelled"`) without us cancelling it. */
 export function describeGrokCancel(failure: { tool: string; reason?: string } | undefined, permission: Permission): string {
-  if (!failure) return 'Grok 自行中止了這一輪（stopReason: cancelled），沒有給出原因。';
-  const reason = failure.reason ? `（${failure.reason}）` : '';
-  const hint =
-    permission === 'full' ? '' : `目前的權限是「${PERMISSION_LABEL[permission]}」；若這個操作是必要的，可以把權限改成「完全存取」再試。`;
-  return `Grok 在執行工具「${failure.tool}」時中止了這一輪${reason}。${hint}`;
+  const m = t();
+  if (!failure) return m.grokCancelledNoReason;
+  const hint = permission === 'full' ? '' : m.grokCancelHint(m.permission[permission]);
+  return m.grokCancelled(failure.tool, failure.reason) + hint;
 }
 
 /** `costUsdTicks` are 1e-10 USD. */
@@ -195,7 +253,7 @@ const TICKS_PER_USD = 1e10;
 export const grokRunner: AgentRunner = {
   provider: 'grok',
   async run(o): Promise<RunResult> {
-    if (o.signal.aborted) throw new AgentRunError('已停止', true);
+    if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
     // Model and effort are set per session below: `grok agent --reasoning-effort` does not reach ACP sessions.
     const args = ['agent', '--no-leader', 'stdio'];
     const sandbox = SANDBOX[o.permission];
@@ -215,10 +273,15 @@ export const grokRunner: AgentRunner = {
       if (!sessionId || params?.sessionId !== sessionId) return; // sub-agents and pre-session noise
       updates.handle(params.update);
     };
-    conn.onRequest = (method, params) => {
+    conn.onRequest = async (method, params) => {
       if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
       const call: GrokToolCall = params?.toolCall ?? {};
-      const decision = grokPermissionDecision(o.permission, call);
+      let decision = grokPermissionDecision(o.permission, call);
+      // Not covered by the permission: the user decides, when the conversation asks.
+      if (!decision.allow && o.requestApproval) {
+        const answer = await o.requestApproval(grokApprovalRequest(call));
+        decision = answer.allow ? { allow: true } : declined(call, answer.note);
+      }
       if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, decision.label);
       return answerPermission(decision, Array.isArray(params?.options) ? params.options : []);
     };
@@ -243,9 +306,9 @@ export const grokRunner: AgentRunner = {
     }).then(
       (res) => {
         const why = res.timedOut
-          ? '執行逾時'
-          : tail(res.stderr) || `grok 結束（exit ${res.code}）但沒有完成回合`;
-        conn.close(new AgentRunError(sandbox && /sandbox/i.test(res.stderr) ? `Grok 無法啟動沙箱（可編輯模式需要）：${why}` : why));
+          ? t().timedOut
+          : tail(res.stderr) || t().exitedWithoutTurn('grok', res.code);
+        conn.close(new AgentRunError(sandbox && /sandbox/i.test(res.stderr) ? t().grokSandbox(why) : why));
         return res;
       },
       (err: Error) => {
@@ -269,28 +332,28 @@ export const grokRunner: AgentRunner = {
       } else {
         const r = await conn.request('session/new', { cwd: o.cwd, mcpServers: [], _meta: sessionMeta });
         sessionId = String(r?.sessionId ?? '');
-        if (!sessionId) throw new AgentRunError('grok 沒有回傳 session id');
+        if (!sessionId) throw new AgentRunError(t().grokNoSession);
         configOptions = r?.configOptions;
       }
       o.onEvent({ type: 'session', sessionId });
-      if (userAborted) throw new AgentRunError('已停止', true);
+      if (userAborted) throw new AgentRunError(t().stopped, true);
 
-      for (const [configId, value, label] of [
-        ['model', o.model, '模型'],
-        ['reasoning_effort', o.effort, '推理強度'],
+      for (const [configId, value, rejected] of [
+        ['model', o.model, t().grokRejectedModel],
+        ['reasoning_effort', o.effort, t().grokRejectedEffort],
       ] as const) {
         const current = configOptions?.find((c: any) => c?.id === configId)?.currentValue;
         if (!value || value === current) continue;
         await conn
           .request('session/set_config_option', { sessionId, configId, value })
           .catch((err: Error) => {
-            throw new AgentRunError(`Grok 不接受${label}「${value}」：${err.message}`);
+            throw new AgentRunError(rejected(value, err.message));
           });
       }
 
       const result = await conn.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: o.prompt }] });
       updates.finish();
-      if (userAborted) throw new AgentRunError('已停止', true);
+      if (userAborted) throw new AgentRunError(t().stopped, true);
       if (result?.stopReason === 'cancelled') throw new AgentRunError(describeGrokCancel(updates.lastFailure, o.permission));
 
       const u = result?._meta?.usage ?? {};
@@ -301,7 +364,7 @@ export const grokRunner: AgentRunner = {
         outputTokens: typeof u.outputTokens === 'number' ? u.outputTokens : undefined,
       };
     } catch (err) {
-      if (userAborted) throw new AgentRunError('已停止', true);
+      if (userAborted) throw new AgentRunError(t().stopped, true);
       if (err instanceof AgentRunError) throw err;
       throw new AgentRunError(err instanceof Error ? err.message : String(err));
     } finally {

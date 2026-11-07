@@ -7,7 +7,9 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
   PROVIDERS,
+  type ApprovalAnswer,
   type Conversation,
+  type LeadAgentSettings,
   type Provider,
   type ProviderSettingsUpdate,
   type ServerEvent,
@@ -15,19 +17,29 @@ import {
 } from '../shared/types';
 import { openDatabase } from './db';
 import { Hub } from './hub';
-import { DEFAULT_TITLE, HttpError, Orchestrator } from './orchestrator';
+import { HttpError, Orchestrator } from './orchestrator';
 import { killAll } from './process';
 import { ProviderService } from './providers';
 import { DB_FILE, SettingsStore } from './settings';
 import { Store } from './store';
 import { expandPath, validateAgents, validateSettings } from './validate';
+import { parseLang, t, withLang } from './i18n';
 
 const db = openDatabase(DB_FILE);
 const settings = new SettingsStore(db);
 const store = new Store(db);
 const hub = new Hub();
 const providers = new ProviderService(settings);
-const orchestrator = new Orchestrator(store, hub, settings);
+const orchestrator = new Orchestrator(store, hub, settings, {
+  // What the lead agent may choose from when it designs a team.
+  async context() {
+    const [statuses, catalog] = await Promise.all([providers.statusAll(), providers.modelsAll()]);
+    const available = statuses
+      .filter((s) => s.installed && (s.auth.loggedIn !== false || s.usingStoredApiKey))
+      .map((s) => s.provider);
+    return { available, catalog, presets: store.listPresets() };
+  },
+});
 
 const app = new Hono();
 
@@ -61,7 +73,8 @@ app.use('/api/*', async (c, next) => {
       return c.json({ error: 'Content-Type must be application/json' }, 415);
     }
   }
-  await next();
+  // User-facing server text follows the UI language — also in runs this request starts.
+  await withLang(parseLang(c.req.header('x-relay-lang'), c.req.header('accept-language')), () => next());
 });
 
 async function body<T>(c: Context): Promise<T> {
@@ -74,13 +87,13 @@ async function body<T>(c: Context): Promise<T> {
 
 function getConv(id: string): Conversation {
   const conv = store.get(id);
-  if (!conv) throw new HttpError(404, '找不到對話');
+  if (!conv) throw new HttpError(404, t().conversationNotFound);
   return conv;
 }
 
 function provider(c: Context): Provider {
   const p = c.req.param('provider') as Provider;
-  if (!PROVIDERS.includes(p)) throw new HttpError(404, `未知的 provider：${p}`);
+  if (!PROVIDERS.includes(p)) throw new HttpError(404, t().unknownProvider(p));
   return p;
 }
 
@@ -89,11 +102,16 @@ function provider(c: Context): Provider {
 app.get('/api/settings', (c) => c.json(settings.view()));
 
 app.put('/api/settings', async (c) => {
-  const b = await body<{ defaultCwd?: string }>(c);
+  const b = await body<{ defaultCwd?: string; lead?: Partial<LeadAgentSettings> }>(c);
   if (b.defaultCwd !== undefined) {
     const cwd = expandPath(b.defaultCwd);
-    if (!existsSync(cwd)) throw new HttpError(400, `目錄不存在：${cwd}`);
+    if (!existsSync(cwd)) throw new HttpError(400, t().dirNotFound(cwd));
     settings.setDefaultCwd(cwd);
+  }
+  if (b.lead !== undefined) {
+    const p = b.lead.provider as Provider;
+    if (!PROVIDERS.includes(p)) throw new HttpError(400, t().unknownProvider(String(p)));
+    settings.setLead({ provider: p, model: String(b.lead.model ?? ''), effort: String(b.lead.effort ?? '') });
   }
   return c.json(settings.view());
 });
@@ -127,7 +145,7 @@ app.get('/api/providers/:provider/login', (c) => c.json(providers.login(provider
 app.post('/api/providers/:provider/login/input', async (c) => {
   const b = await body<{ text?: string }>(c);
   const view = providers.sendLoginInput(provider(c), String(b.text ?? ''));
-  if (!view) throw new HttpError(404, '沒有進行中的登入');
+  if (!view) throw new HttpError(404, t().noLogin);
   return c.json(view);
 });
 
@@ -148,7 +166,7 @@ app.get('/api/presets', (c) => c.json(store.listPresets()));
 app.post('/api/presets', async (c) => {
   const b = await body<Partial<TeamPreset>>(c);
   const name = String(b.name ?? '').trim();
-  if (!name) throw new HttpError(400, '請輸入範本名稱');
+  if (!name) throw new HttpError(400, t().presetNameRequired);
   const s = validateSettings({ ...b.settings, cwd: settings.defaultCwd }, settings.defaultCwd);
   const preset: TeamPreset = {
     id: b.id && !b.builtin && /^[\w-]+$/.test(b.id) ? b.id : `user-${randomUUID()}`,
@@ -168,18 +186,22 @@ app.delete('/api/presets/:id', (c) => {
 
 // --- Conversations ---------------------------------------------------------------
 
-app.get('/api/conversations', (c) => c.json(store.list((id) => orchestrator.isRunning(id))));
+app.get('/api/conversations', (c) =>
+  c.json(store.list((id) => orchestrator.isRunning(id), (id) => orchestrator.isWaiting(id))),
+);
 
 app.post('/api/conversations', async (c) => {
   const b = await body<Partial<Conversation>>(c);
   const now = Date.now();
+  const s = validateSettings(b.settings, settings.defaultCwd);
   const conv: Conversation = {
     id: randomUUID(),
-    title: String(b.title ?? '').trim() || DEFAULT_TITLE,
+    title: String(b.title ?? '').trim() || t().defaultTitle,
     createdAt: now,
     updatedAt: now,
-    agents: validateAgents(b.agents),
-    settings: validateSettings(b.settings, settings.defaultCwd),
+    // Auto team: the lead agent designs the team from the first message.
+    agents: s.autoTeam ? [] : validateAgents(b.agents),
+    settings: s,
     messages: [],
     agentState: {},
     worktrees: {},
@@ -201,11 +223,13 @@ app.patch('/api/conversations/:id', async (c) => {
   const conv = getConv(c.req.param('id'));
   const b = await body<Partial<Conversation>>(c);
   if ((b.agents || b.settings) && orchestrator.isRunning(conv.id)) {
-    throw new HttpError(409, '團隊回覆中，無法修改設定');
+    throw new HttpError(409, t().busySettings);
   }
   if (b.title !== undefined) conv.title = String(b.title).trim() || conv.title;
   const agents = b.agents ? validateAgents(b.agents) : conv.agents;
-  const next = b.settings ? validateSettings(b.settings, conv.settings.cwd) : conv.settings;
+  const next = b.settings ? validateSettings(b.settings, conv.settings.cwd) : { ...conv.settings };
+  // Edits never switch auto team on; a team set by hand replaces the lead agent's pending design.
+  next.autoTeam = b.agents ? undefined : conv.settings.autoTeam;
   if (b.settings) await orchestrator.prepareWorkspace({ ...conv, settings: next });
   conv.agents = agents;
   conv.settings = next;
@@ -230,7 +254,6 @@ app.post('/api/conversations/:id/messages', async (c) => {
   return c.json({ ok: true }, 202);
 });
 
-// Changes made by agents: per-message diff, per-agent (worktree) diff, and applying a worktree result.
 // Edit one of the user's messages: everything after it is dropped and the team answers again.
 app.put('/api/conversations/:id/messages/:messageId', async (c) => {
   const b = await body<{ text?: string }>(c);
@@ -238,6 +261,26 @@ app.put('/api/conversations/:id/messages/:messageId', async (c) => {
   return c.json({ ok: true }, 202);
 });
 
+// Answer an agent's request to do something its permission does not cover.
+app.post('/api/conversations/:id/approvals/:approvalId', async (c) => {
+  const b = await body<ApprovalAnswer>(c);
+  orchestrator.answerApproval(c.req.param('id'), c.req.param('approvalId'), b);
+  return c.json({ ok: true });
+});
+
+// Let an agent answer again: its reply and everything after it are dropped.
+app.post('/api/conversations/:id/messages/:messageId/retry', async (c) => {
+  await orchestrator.retry(c.req.param('id'), c.req.param('messageId'));
+  return c.json({ ok: true }, 202);
+});
+
+// Save a team the lead agent designed (auto team) as a template.
+app.post('/api/conversations/:id/messages/:messageId/save-plan', async (c) => {
+  const b = await body<{ name?: string }>(c);
+  return c.json(orchestrator.savePlanAsPreset(c.req.param('id'), c.req.param('messageId'), b.name));
+});
+
+// Changes made by agents: per-message diff, per-agent (worktree) diff, and applying a worktree result.
 app.get('/api/conversations/:id/messages/:messageId/diff', async (c) =>
   c.text(await orchestrator.messageDiff(c.req.param('id'), c.req.param('messageId'))),
 );

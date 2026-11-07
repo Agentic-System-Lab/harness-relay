@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { copyText } from '../copy';
+import { useT } from '../i18n';
 
 interface Props {
   /** Called on click, so the latest content is copied. */
@@ -11,7 +12,8 @@ interface Props {
 }
 
 /** A text button that copies, then says so for a moment. */
-export function CopyButton({ text, label = '複製', className = 'msg-action', disabled, title }: Props) {
+export function CopyButton({ text, label, className = 'msg-action', disabled, title }: Props) {
+  const t = useT();
   const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -32,7 +34,7 @@ export function CopyButton({ text, label = '複製', className = 'msg-action', d
       title={title}
       aria-live="polite"
     >
-      {state === 'done' ? '已複製' : state === 'failed' ? '無法複製' : label}
+      {state === 'done' ? t.common.copied : state === 'failed' ? t.common.copyFailed : (label ?? t.common.copy)}
     </button>
   );
 }
