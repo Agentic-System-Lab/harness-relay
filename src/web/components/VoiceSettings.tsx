@@ -142,7 +142,7 @@ export function VoiceCard() {
 
       <div className="voice-row">
         <span className="voice-label">{t.voice.language}</span>
-        <div className="voice-value">
+        <div className="voice-value voice-language">
           <div className="segmented" role="radiogroup" aria-label={t.voice.language}>
             {VOICE_LANGUAGES.map((l) => (
               <button
