@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,7 +14,7 @@ const { Hub } = await import('../src/server/hub');
 const { Orchestrator } = await import('../src/server/orchestrator');
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
-const { runners } = await import('../src/server/agents');
+const { AgentRunError, runners } = await import('../src/server/agents');
 const { PLANNER_BRIEFING } = await import('../src/server/planner');
 const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
 
@@ -34,6 +35,12 @@ let calls: {
 }[] = [];
 /** What the fake lead agent replies when asked to design a team (auto team). */
 let leadReply = '';
+/** Runs inside an agent's fake CLI turn after it wrote its files (e.g. to commit them itself). */
+let during: ((name: string, cwd: string) => void) | undefined;
+/** Per-agent gates: when set, that agent waits for its own gate instead of `gate`. */
+let gates: Record<string, Promise<void>> = {};
+/** Makes an agent's fake CLI run fail (after it wrote its files), e.g. to simulate a rate limit. */
+let fail: ((name: string, sessionId?: string) => Error | undefined) | undefined;
 
 // A fake CLI: writes `<name>.txt` and `shared.txt` in its cwd, then replies.
 beforeAll(() => {
@@ -50,7 +57,19 @@ beforeAll(() => {
       calls.push({ name, sessionId: o.sessionId, prompt: o.prompt, images: o.images, attachmentsDir: o.attachmentsDir });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
-      await gate;
+      during?.(name, o.cwd);
+      // Like a real CLI, a run ends when it is stopped.
+      if (!o.signal?.aborted) {
+        await Promise.race([gates[name] ?? gate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
+      }
+      if (o.signal?.aborted) throw new AgentRunError('stopped', true);
+      const failure = fail?.(name, o.sessionId);
+      if (failure) throw failure;
+      if (o.prompt.includes('crash after asking')) {
+        // The CLI asks, then dies before the user answers.
+        void o.requestApproval?.({ kind: 'command', detail: 'npm install left-pad' });
+        throw new Error('CLI crashed');
+      }
       if (o.prompt.includes('please install')) {
         // Something the permission does not cover: ask (when the conversation asks).
         const answer = o.requestApproval
@@ -79,6 +98,9 @@ beforeEach(() => {
     context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }),
   });
   leadReply = '';
+  fail = undefined;
+  during = undefined;
+  gates = {};
   project = join(root, `project-${++n}`);
   rmSync(project, { recursive: true, force: true });
   mkdirSync(project, { recursive: true });
@@ -112,6 +134,7 @@ async function finish(convId: string): Promise<void> {
 }
 
 const agentMessages = (conv: Conversation) => conv.messages.filter((m) => m.author.kind === 'agent');
+const textOf = (m: Conversation['messages'][number]) => m.parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
 
 describe('parallel mode with edit permission', () => {
   it('gives each agent its own worktree so they cannot overwrite each other', async () => {
@@ -503,5 +526,366 @@ describe('attached files', () => {
     expect(safeFileName('.hidden')).toBe('hidden');
     expect(safeFileName('a\u0000b:c?.txt')).toBe('a_b_c_.txt');
     expect(safeFileName('')).toBe('file');
+  });
+});
+
+const firstUserMessage = (conv: Conversation) => conv.messages.find((m) => m.author.kind === 'user')!;
+
+describe('concurrent requests', () => {
+  it('refuses a second send or a settings change while a run is being set up', async () => {
+    const conv = conversation({ mode: 'roundtable' });
+    const sending = orchestrator.send(conv.id, 'go'); // reserves the conversation, then prepares the workspace
+    await expect(orchestrator.send(conv.id, 'again')).rejects.toThrow(/回覆中/);
+    await expect(orchestrator.exclusive(conv.id, 'busy', async () => {})).rejects.toThrow('busy');
+    await sending;
+    await finish(conv.id);
+    await orchestrator.exclusive(conv.id, 'busy', async () => {}); // free again
+  });
+
+  it('does not start the team while a result is being applied, and unlocks the directory afterwards', async () => {
+    const conv = conversation({ mode: 'parallel' });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+
+    const applying = orchestrator.applyAgentWork(conv.id, 'b');
+    await expect(orchestrator.send(conv.id, 'next')).rejects.toThrow(/回覆中/);
+    await applying;
+
+    const other = conversation({ mode: 'roundtable' }); // same directory
+    await orchestrator.send(other.id, 'go');
+    await finish(other.id);
+    await orchestrator.cleanupWorktrees(conv);
+  });
+});
+
+describe('shutting down', () => {
+  it('refuses new runs, applies and settings changes once everything was stopped', async () => {
+    const conv = conversation({ mode: 'roundtable' });
+    orchestrator.stopAll();
+    await expect(orchestrator.send(conv.id, 'go')).rejects.toMatchObject({ status: 503 });
+    await expect(orchestrator.exclusive(conv.id, 'busy', async () => {})).rejects.toMatchObject({ status: 503 });
+  });
+
+  it('does not start a run whose workspace was still being prepared when shutdown began', async () => {
+    const conv = conversation({ mode: 'roundtable' });
+    const sending = orchestrator.send(conv.id, 'go');
+    orchestrator.stopAll();
+    await expect(sending).rejects.toMatchObject({ status: 503 });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('kept snapshot refs', () => {
+  const refs = () =>
+    execFileSync('git', ['for-each-ref', '--format=%(refname)', 'refs/harness-relay/'], { cwd: project, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean);
+
+  it('are dropped with the messages that linked to them, and with the conversation', async () => {
+    const conv = conversation({ mode: 'roundtable' });
+    conv.agents = [agents[0]!];
+    let turn = 0;
+    during = (_name, cwd) => writeFileSync(join(cwd, 'turn.txt'), `turn ${++turn}\n`); // every turn changes a file
+    await orchestrator.send(conv.id, 'first');
+    await finish(conv.id);
+    const kept = refs();
+    expect(kept.length).toBe(2); // the turn's before and after snapshots
+
+    await orchestrator.send(conv.id, 'second');
+    await finish(conv.id);
+    // (Its "before" may be the first turn's "after": same tree, parent and second give the same commit.)
+    expect(refs().length).toBeGreaterThan(kept.length);
+
+    // Editing the second question drops its turn (and its refs); the first turn's stay.
+    const second = conv.messages.filter((m) => m.author.kind === 'user')[1]!;
+    during = undefined; // the edited turn changes nothing
+    await orchestrator.resend(conv.id, second.id, 'second, edited');
+    await finish(conv.id);
+    await vi.waitFor(() => expect(refs().sort()).toEqual([...kept].sort()));
+
+    await orchestrator.deleteConversation(conv.id);
+    expect(refs()).toEqual([]);
+  });
+});
+
+describe('deleting a conversation', () => {
+  it('waits for a settings change in progress, and then refuses further ones', async () => {
+    const conv = conversation({ mode: 'roundtable' });
+    let finishPatch!: () => void;
+    const patching = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (finishPatch = r)));
+    const deleting = orchestrator.deleteConversation(conv.id);
+    await expect(orchestrator.exclusive(conv.id, 'busy', async () => {})).rejects.toMatchObject({ status: 404 });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(store.get(conv.id)).toBeDefined(); // not deleted under the running change
+    finishPatch();
+    await patching;
+    await deleting;
+    expect(store.get(conv.id)).toBeUndefined();
+  });
+
+  it('stops the team and waits for the run to wind down before removing it', async () => {
+    gate = new Promise(() => {}); // the agents only finish when stopped
+    const conv = conversation({ mode: 'parallel' });
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(2));
+    const worktrees = Object.values(conv.worktrees).map((w) => w.path);
+
+    await orchestrator.deleteConversation(conv.id);
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+    expect(store.get(conv.id)).toBeUndefined();
+    for (const table of ['conversations', 'messages', 'agent_sessions', 'agent_worktrees', 'conversation_agents']) {
+      const key = table === 'conversations' ? 'id' : 'conversation_id';
+      expect(db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${key} = ?`).get(conv.id)).toEqual({ n: 0 });
+    }
+    expect(worktrees.some((p) => existsSync(p))).toBe(false);
+  });
+
+  it('does not start the team when the conversation is deleted while its run is being set up', async () => {
+    const conv = conversation({ mode: 'roundtable' });
+    const sending = orchestrator.send(conv.id, 'go').catch((err: Error) => err); // rejects while delete waits for it
+    await orchestrator.deleteConversation(conv.id);
+    expect(String(await sending)).toMatch(/找不到對話/);
+    expect(calls).toEqual([]);
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+  });
+});
+
+describe('auto team and the directory lock', () => {
+  const teamIn = (mode: string) =>
+    JSON.stringify({
+      choice: 'custom',
+      name: 'Pair',
+      mode,
+      rounds: 1,
+      agents: [
+        { name: 'Alice', provider: 'claude', role: 'Do it.' },
+        { name: 'Bob', provider: 'claude', role: 'Check it.' },
+      ],
+      reason: 'Two of us.',
+    });
+
+  it('locks the directory when the edited first question is planned again into a shared-directory mode', async () => {
+    const conv = conversation({ mode: 'roundtable', autoTeam: true });
+    conv.agents = [];
+    leadReply = teamIn('parallel');
+    await orchestrator.send(conv.id, 'First version');
+    await finish(conv.id);
+    expect(conv.settings.mode).toBe('parallel');
+
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    leadReply = teamIn('roundtable'); // this time the agents write to the real directory
+    await orchestrator.resend(conv.id, firstUserMessage(conv).id, 'Second version');
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(1), { interval: 20 });
+    expect(conv.settings.mode).toBe('roundtable');
+
+    const other = conversation({ mode: 'roundtable' }); // same directory
+    await expect(orchestrator.send(other.id, 'go')).rejects.toThrow(/正在修改/);
+    release();
+    await finish(conv.id);
+    await orchestrator.cleanupWorktrees(conv);
+  });
+
+  it('lets other conversations use the directory once the lead agent chose parallel mode', async () => {
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    const conv = conversation({ mode: 'roundtable', autoTeam: true });
+    conv.agents = [];
+    leadReply = teamIn('parallel');
+    await orchestrator.send(conv.id, 'Question');
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(2), { interval: 20 });
+
+    const other = conversation({ mode: 'roundtable' });
+    await orchestrator.send(other.id, 'go');
+    release();
+    await finish(conv.id);
+    await finish(other.id);
+    await orchestrator.cleanupWorktrees(conv);
+  });
+
+  it('keeps a team adjusted by hand when the first question is edited', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true });
+    conv.agents = [];
+    leadReply = teamIn('roundtable');
+    await orchestrator.send(conv.id, 'First version');
+    await finish(conv.id);
+
+    // What PATCH { agents } does: a team set by hand replaces the lead agent's design.
+    conv.agents = [{ id: 'z', name: 'Zed', provider: 'claude', role: 'My own pick.' }];
+    conv.settings = { ...conv.settings, autoTeam: undefined };
+    calls = [];
+    await orchestrator.resend(conv.id, firstUserMessage(conv).id, 'Second version');
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['Zed']);
+    expect(conv.agents.map((a) => a.name)).toEqual(['Zed']);
+  });
+
+  it('saves a plan as a template only once', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true });
+    conv.agents = [];
+    leadReply = teamIn('roundtable');
+    await orchestrator.send(conv.id, 'Question');
+    await finish(conv.id);
+    const plan = conv.messages.find((m) => m.plan)!;
+    const first = orchestrator.savePlanAsPreset(conv.id, plan.id, 'x'.repeat(500));
+    expect(first.name).toHaveLength(100);
+    const again = orchestrator.savePlanAsPreset(conv.id, plan.id, 'Another name');
+    expect(again.id).toBe(first.id);
+    expect(store.listPresets().filter((p) => !p.builtin)).toHaveLength(1);
+  });
+});
+
+describe('failed turns', () => {
+  it('keeps an agent\'s session when starting it fresh fails for the same reason', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.agents = [agents[0]!];
+    await orchestrator.send(conv.id, 'first');
+    await finish(conv.id);
+    expect(conv.agentState.a!.sessionId).toBe('session-Alice');
+
+    fail = () => new Error('rate limited'); // not a session problem: the fresh session fails too
+    calls = [];
+    await orchestrator.send(conv.id, 'second');
+    await finish(conv.id);
+    expect(calls.map((c) => c.sessionId)).toEqual(['session-Alice', undefined]);
+    expect(agentMessages(conv).at(-1)).toMatchObject({ status: 'error', error: 'rate limited' });
+    expect(conv.agentState.a!.sessionId).toBe('session-Alice');
+
+    fail = undefined;
+    calls = [];
+    await orchestrator.send(conv.id, 'third');
+    await finish(conv.id);
+    expect(calls[0]!.sessionId).toBe('session-Alice');
+    // The messages it missed are offered again.
+    expect(calls[0]!.prompt).toContain('second');
+  });
+
+  it('tells teammates which files a failed turn changed', async () => {
+    const conv = conversation({ mode: 'roundtable' });
+    fail = (name) => (name === 'Alice' ? new Error('crashed') : undefined);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const bob = calls.find((c) => c.name === 'Bob')!.prompt;
+    expect(bob).toMatch(/<message from="@Alice"[^>]* status="failed">/);
+    expect(bob).toMatch(/<changed_files>[\s\S]*A Alice\.txt/);
+
+    // Alice had no session (her first turn failed), so she starts fresh and is shown her failed reply too.
+    fail = undefined;
+    calls = [];
+    await orchestrator.send(conv.id, 'again');
+    await finish(conv.id);
+    expect(calls.find((c) => c.name === 'Alice')!.prompt).toMatch(/<message from="@Alice"[^>]* status="failed">/);
+  });
+
+  it("does not send an agent its own stopped reply when its session holds it", async () => {
+    const conv = conversation({ mode: 'roundtable' });
+    conv.agents = [agents[0]!];
+    await orchestrator.send(conv.id, 'first');
+    await finish(conv.id);
+    gate = new Promise(() => {}); // the next turn only ends when stopped
+    await orchestrator.send(conv.id, 'second');
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(1));
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    gate = Promise.resolve();
+    calls = [];
+    await orchestrator.send(conv.id, 'third');
+    await finish(conv.id);
+    expect(calls[0]!.sessionId).toBe('session-Alice');
+    expect(calls[0]!.prompt).not.toContain('from="@Alice"');
+    expect(calls[0]!.prompt).toContain('second'); // not delivered when it was stopped
+  });
+
+  it('keeps a parallel run going while a teammate still works, when saving one turn fails', async () => {
+    const conv = conversation({ mode: 'parallel' });
+    let releaseBob!: () => void;
+    gates.Bob = new Promise((r) => (releaseBob = r));
+    const save = store.saveMessage.bind(store);
+    store.saveMessage = (convId, m, immediate) => {
+      if (m.agentName === 'Alice' && m.status === 'done') throw new Error('database is locked');
+      return save(convId, m, immediate);
+    };
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toEqual(['b']));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(orchestrator.isRunning(conv.id)).toBe(true); // Bob is still working
+    releaseBob();
+    await finish(conv.id);
+    errors.mockRestore();
+    store.saveMessage = save;
+    await orchestrator.cleanupWorktrees(conv);
+  });
+});
+
+describe('approvals and the directory lock', () => {
+  const pending = (conv: Conversation) =>
+    conv.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as
+      | { id: string }
+      | undefined;
+
+  it('declines an approved action in a read-only conversation while another one writes the directory', async () => {
+    const writer = conversation({ mode: 'roundtable' });
+    writer.agents = [agents[0]!];
+    await orchestrator.send(writer.id, 'please install'); // waits for its approval, holding the lock
+    await vi.waitFor(() => expect(pending(writer)).toBeDefined());
+
+    const reader = conversation({ mode: 'roundtable', permission: 'read-only' });
+    reader.agents = [agents[0]!];
+    await orchestrator.send(reader.id, 'please install');
+    await vi.waitFor(() => expect(pending(reader)).toBeDefined());
+    orchestrator.answerApproval(reader.id, pending(reader)!.id, { allow: true });
+    await finish(reader.id);
+    expect(textOf(agentMessages(reader)[0]!)).toContain('skipped');
+    expect(agentMessages(reader)[0]!.parts.find((p) => p.type === 'approval')).toMatchObject({ status: 'denied' });
+
+    orchestrator.answerApproval(writer.id, pending(writer)!.id, { allow: true });
+    await finish(writer.id);
+  });
+
+  it('expires a request whose CLI died before the user answered', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.agents = [agents[0]!];
+    await orchestrator.send(conv.id, 'crash after asking');
+    await finish(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isWaiting(conv.id)).toBe(false));
+    const part = agentMessages(conv)[0]!.parts.find((p) => p.type === 'approval')!;
+    expect(part).toMatchObject({ status: 'expired' });
+    expect(() => orchestrator.answerApproval(conv.id, (part as { id: string }).id, { allow: true, always: true })).toThrow();
+    expect(conv.allowRules ?? []).toEqual([]);
+  });
+});
+
+describe('nested repositories', () => {
+  it('does not let two conversations write a repository and one nested inside it at once', async () => {
+    const inner = join(project, 'lib');
+    mkdirSync(inner);
+    execFileSync('git', ['init', '-q'], { cwd: inner });
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    const outer = conversation({ mode: 'roundtable' }); // project: a repository of its own is created
+    outer.agents = [agents[0]!];
+    await orchestrator.send(outer.id, 'go');
+    const nested = conversation({ mode: 'roundtable', cwd: inner });
+    nested.agents = [agents[1]!];
+    await expect(orchestrator.send(nested.id, 'go')).rejects.toThrow(/正在修改/);
+    release();
+    await finish(outer.id);
+  });
+});
+
+describe('parallel worktrees', () => {
+  it('records a turn whose agent committed its work itself', async () => {
+    const conv = conversation({ mode: 'parallel' });
+    during = (name, cwd) => {
+      if (name !== 'Alice') return;
+      execFileSync('git', ['add', '-A'], { cwd });
+      execFileSync('git', ['-c', 'user.name=a', '-c', 'user.email=a@x', 'commit', '-q', '-m', 'mine'], { cwd });
+    };
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const alice = agentMessages(conv).find((m) => m.agentName === 'Alice')!;
+    expect(alice.changes?.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
+    await orchestrator.cleanupWorktrees(conv);
   });
 });

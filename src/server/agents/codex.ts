@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import type { Permission, PlanEntry } from '../../shared/types';
-import { unwrapShell } from '../approvals';
+import { unwrapShell } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { JsonRpcConnection, RpcError } from './acp';
@@ -32,6 +32,18 @@ const SANDBOX: Record<Permission, string> = {
   edit: 'workspace-write',
   full: 'danger-full-access',
 };
+
+/**
+ * Config overrides for a thread. Edit mode keeps the sandbox off the network even when the user's
+ * ~/.codex/config.toml turns `sandbox_workspace_write.network_access` on: pushing and publishing
+ * (anything that leaves the machine) must go through an approval.
+ */
+export function codexConfig(permission: Permission, effort?: string): Record<string, unknown> {
+  return {
+    ...(effort ? { model_reasoning_effort: effort } : {}),
+    ...(permission === 'edit' ? { sandbox_workspace_write: { network_access: false } } : {}),
+  };
+}
 
 const PLAN_STATUS: Record<string, PlanEntry['status']> = {
   pending: 'pending',
@@ -178,13 +190,14 @@ export function codexApprovalRequest(
   const reason = p.reason ? String(p.reason) : undefined;
   switch (method) {
     case 'item/commandExecution/requestApproval':
-      return { kind: 'command', detail: unwrapShell(String(p.command ?? '')), reason };
+      return { kind: 'command', detail: unwrapShell(String(p.command ?? '')), command: String(p.command ?? ''), reason };
     case 'item/fileChange/requestApproval':
       return { kind: 'edit', detail: p.grantRoot ? String(p.grantRoot) : filePaths(String(p.itemId)), reason };
     case 'item/permissions/requestApproval':
       return { kind: 'other', tool: 'permissions', detail: clip(JSON.stringify(p.permissions ?? {})), reason };
     case 'execCommandApproval':
-      return { kind: 'command', detail: unwrapShell((Array.isArray(p.command) ? p.command.join(' ') : String(p.command ?? ''))), reason };
+      const command = Array.isArray(p.command) ? p.command.join(' ') : String(p.command ?? '');
+      return { kind: 'command', detail: unwrapShell(command), command, reason };
     case 'applyPatchApproval':
       return { kind: 'edit', detail: Object.keys(p.fileChanges ?? {}).join(', ') || undefined, reason };
     default:
@@ -286,7 +299,7 @@ export const codexRunner: AgentRunner = {
         sandbox: SANDBOX[o.permission],
         developerInstructions: o.systemPrompt,
         ...(o.model ? { model: o.model } : {}),
-        ...(o.effort ? { config: { model_reasoning_effort: o.effort } } : {}),
+        config: codexConfig(o.permission, o.effort),
       };
       const thread = o.sessionId
         ? await conn.request('thread/resume', { threadId: o.sessionId, ...threadParams })

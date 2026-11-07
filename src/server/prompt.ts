@@ -7,6 +7,7 @@ import {
   type Mode,
   type Permission,
 } from '../shared/types';
+import { mentionsInMarkdown } from '../shared/mentions';
 import { attachmentPath } from './attachments';
 
 export const PASS_TOKEN = '[PASS]';
@@ -45,9 +46,10 @@ export type BriefingWorkspace =
       /** Directory the agent runs in (inside its worktree). */
       cwd: string;
       branch: string;
-      /** Snapshot commit all parallel worktrees started from. */
+      /** Snapshot commit this agent's worktree started from. */
       base: string;
-      teammates: { name: string; branch: string }[];
+      /** Teammates' branches and the snapshot each one started from (they can differ). */
+      teammates: { name: string; branch: string; base: string }[];
     };
 
 function workspaceRules(conv: Conversation, ws: BriefingWorkspace): string {
@@ -57,12 +59,12 @@ function workspaceRules(conv: Conversation, ws: BriefingWorkspace): string {
 ${access}
 - Teammates may be changing the same files. Name the files you changed in your reply so others can review them.`;
   }
-  const base = ws.base.slice(0, 12);
+  const short = (c: string) => c.slice(0, 12);
   const mates = ws.teammates.length
-    ? ws.teammates.map((t) => `@${t.name} → ${t.branch}`).join(', ')
+    ? ws.teammates.map((t) => `@${t.name} → ${t.branch} (started from ${short(t.base)})`).join(', ')
     : '(none yet)';
-  return `- You work in your OWN isolated git worktree: ${ws.cwd} (branch ${ws.branch}). It started from a snapshot (${base}) of the user's working directory ${conv.settings.cwd}, which you must not modify.
-- Teammates work in parallel in their own worktrees. Their branches: ${mates}. To read a teammate's work: \`git diff ${base} <branch>\` or \`git show <branch>:<path>\`.
+  return `- You work in your OWN isolated git worktree: ${ws.cwd} (branch ${ws.branch}). It started from a snapshot (${short(ws.base)}) of the user's working directory ${conv.settings.cwd}, which you must not modify.
+- Teammates work in parallel in their own worktrees. Their branches: ${mates}. To read a teammate's work: \`git diff <the snapshot it started from> <branch>\` or \`git show <branch>:<path>\`.
 ${access}
 - Your changes are committed to your branch automatically after each turn; the user reviews the diffs and decides whose result to apply. Do not commit, merge, rebase or switch branches yourself.`;
 }
@@ -95,6 +97,28 @@ ${team}
 ${workspaceRules(conv, ws)}`;
 }
 
+/** The files a message's turn changed, as a block for teammates (empty when none). */
+function changeLog(m: ChatMessage): string {
+  const files = m.changes?.files ?? [];
+  return files.length
+    ? `\n\n<changed_files${m.changes!.branch ? ` branch="${m.changes!.branch}"` : ''}>\n${files
+        .slice(0, 30)
+        .map((f) => `${f.status} ${f.path}${f.added !== null ? ` (+${f.added} -${f.deleted})` : ''}`)
+        .join('\n')}${files.length > 30 ? `\n… and ${files.length - 30} more` : ''}\n</changed_files>`
+    : '';
+}
+
+/**
+ * Messages that are final and can be shown to teammates: finished ones, and agent replies that failed
+ * or were stopped but said something or changed files (the files changed anyway).
+ */
+export function isForwardable(m: ChatMessage): boolean {
+  if (m.author.kind === 'system') return false;
+  if (m.status === 'done') return true;
+  if (m.status !== 'error' && m.status !== 'aborted') return false;
+  return Boolean(m.changes?.files.length) || m.parts.some((p) => p.type === 'text' && p.text.trim());
+}
+
 /** Text of a message as shown to other agents: reply text plus a compact log of actions taken. */
 export function forwardText(m: ChatMessage): string {
   const text = m.parts
@@ -109,14 +133,7 @@ export function forwardText(m: ChatMessage): string {
     actions.length > 0
       ? `\n\n<actions>\n${actions.slice(0, 12).join('\n')}${actions.length > 12 ? `\n… and ${actions.length - 12} more` : ''}\n</actions>`
       : '';
-  const files = m.changes?.files ?? [];
-  const changeLog = files.length
-    ? `\n\n<changed_files${m.changes!.branch ? ` branch="${m.changes!.branch}"` : ''}>\n${files
-        .slice(0, 30)
-        .map((f) => `${f.status} ${f.path}${f.added !== null ? ` (+${f.added} -${f.deleted})` : ''}`)
-        .join('\n')}${files.length > 30 ? `\n… and ${files.length - 30} more` : ''}\n</changed_files>`
-    : '';
-  return text + actionLog + changeLog;
+  return text + actionLog + changeLog(m);
 }
 
 export function senderName(conv: Conversation, m: ChatMessage): string {
@@ -147,8 +164,10 @@ export function renderMessage(conv: Conversation, m: ChatMessage): string {
   const from = senderName(conv, m);
   if (m.author.kind === 'user') return `<message from="user">\n${[forwardText(m), attachmentList(conv, m)].filter(Boolean).join('\n\n')}\n</message>`;
   const via = m.provider ? ` via="${PROVIDER_LABEL[m.provider]}"` : '';
-  const body = m.passed ? PASS_TOKEN : forwardText(m);
-  return `<message from="@${from}"${via}>\n${body}\n</message>`;
+  const status = m.status === 'error' ? ' status="failed"' : m.status === 'aborted' ? ' status="stopped"' : '';
+  // A [PASS] still reports the files its turn changed.
+  const body = m.passed ? PASS_TOKEN + changeLog(m) : forwardText(m);
+  return `<message from="@${from}"${via}${status}>\n${body}\n</message>`;
 }
 
 export interface TurnInfo {
@@ -189,20 +208,18 @@ export function buildTurnPrompt(
   return `${header}${chat}\n\n${cue}`;
 }
 
-/** Remove code (fenced and inline) so @mentions inside code samples are ignored. */
-function stripCode(text: string): string {
-  return text.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]*`/g, ' ');
-}
-
-/** Agents @mentioned in `text`, in order of first appearance. */
+/**
+ * Agents @mentioned in `text`, in order of first mention. The rule is shared with the UI's mention
+ * highlighting (`src/shared/mentions.ts`): prose only — not code or link text — and text may follow a
+ * name directly (`@Builder請實作`), while `@Bobby` is not `@Bob`.
+ */
 export function parseMentions(text: string, agents: AgentConfig[], exclude?: string): AgentConfig[] {
-  const byName = new Map(agents.map((a) => [a.name.toLowerCase(), a]));
-  const out: AgentConfig[] = [];
-  for (const m of stripCode(text).matchAll(/(^|[^\w@.])@([\p{L}\p{N}_-]+)/gu)) {
-    const a = byName.get(m[2].toLowerCase());
-    if (a && a.id !== exclude && !out.includes(a)) out.push(a);
-  }
-  return out;
+  return mentionsInMarkdown(
+    text,
+    agents.map((a) => a.name),
+  )
+    .map((name) => agents.find((a) => a.name === name)!)
+    .filter((a) => a.id !== exclude);
 }
 
 export function isPass(text: string): boolean {

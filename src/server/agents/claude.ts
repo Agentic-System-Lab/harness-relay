@@ -79,7 +79,6 @@ export const CLAUDE_EDIT_COMMANDS = [
   'go build',
   'go test',
   'go vet',
-  'go run',
   'gofmt',
 ];
 
@@ -87,6 +86,65 @@ export const CLAUDE_EDIT_COMMANDS = [
 export function claudeAllowedTools(permission: Permission): string[] {
   if (permission === 'full') return [];
   return ['WebFetch', 'WebSearch', ...(permission === 'edit' ? CLAUDE_EDIT_COMMANDS.map((c) => `Bash(${c}:*)`) : [])];
+}
+
+/**
+ * Tools removed outright. Read-only drops the file-editing tools: `permissions.allow` rules in the
+ * user's or a trusted project's Claude Code settings would otherwise let them run without asking.
+ */
+export function claudeDisallowedTools(permission: Permission): string[] {
+  return permission === 'read-only' ? ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] : [];
+}
+
+/** Command-line flags a Claude Code version may not know yet; dropped (and remembered) when it rejects one. */
+const OPTIONAL_FLAGS = {
+  // Readable thinking summaries (by default the thinking text is left empty). Not in `--help`.
+  thinking: ['--thinking-display', 'summarized'],
+  // Without it, a resumed session keeps the system prompt of its first request, so role, team,
+  // mode and permission changes would never reach the agent.
+  freshPrompt: ['--system-prompt-snapshot', 'off'],
+} as const;
+type OptionalFlag = keyof typeof OPTIONAL_FLAGS;
+const unsupported = new Set<OptionalFlag>();
+
+/** The `claude` arguments for one turn. */
+export function claudeArgs(o: {
+  systemPrompt: string;
+  permission: Permission;
+  ask: boolean;
+  model?: string;
+  effort?: string;
+  sessionId?: string;
+  newSessionId?: string;
+  /** A directory of attached files outside the working directory that Claude may read. */
+  attachmentsDir?: string;
+  skip?: ReadonlySet<OptionalFlag>;
+}): string[] {
+  const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
+  const disallowed = claudeDisallowedTools(o.permission);
+  return [
+    '-p',
+    '--input-format',
+    'stream-json',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--include-partial-messages',
+    '--append-system-prompt',
+    o.systemPrompt,
+    // Variadic; the next `--flag` ends the list.
+    ...withAllowedTools(claudeAllowedTools(o.permission)),
+    ...(disallowed.length ? ['--disallowedTools', ...disallowed] : []),
+    // Lets Claude read the attached files outside the working directory (variadic too).
+    ...(o.attachmentsDir ? ['--add-dir', o.attachmentsDir] : []),
+    '--permission-mode',
+    PERMISSION_MODE[o.permission][o.ask ? 'ask' : 'deny'],
+    ...(o.ask ? ['--permission-prompt-tool', 'stdio'] : []),
+    ...(o.model ? ['--model', o.model] : []),
+    ...(o.effort ? ['--effort', o.effort] : []),
+    ...optional.flatMap((f) => OPTIONAL_FLAGS[f]),
+    ...(o.sessionId ? ['--resume', o.sessionId] : ['--session-id', o.newSessionId!]),
+  ];
 }
 
 /** Text of a `tool_result` block's content (a string or text blocks). */
@@ -238,53 +296,48 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
   };
 }
 
-/**
- * `--thinking-display summarized` makes Claude Code stream readable thinking summaries (by default
- * the thinking text is left empty). The flag is not in `--help`, so an older version that rejects
- * it is remembered and the run is retried without it.
- */
-let thinkingDisplay = true;
-
 export const claudeRunner: AgentRunner = {
   provider: 'claude',
   async run(o): Promise<RunResult> {
-    try {
-      return await runClaude(o, thinkingDisplay);
-    } catch (err) {
-      if (!(err instanceof UnsupportedFlag)) throw err;
-      thinkingDisplay = false;
-      return runClaude(o, false);
+    // An older Claude Code that rejects an optional flag: remember that and run again without it.
+    for (;;) {
+      try {
+        return await runClaude(o);
+      } catch (err) {
+        if (!(err instanceof UnsupportedFlag)) throw err;
+        unsupported.add(err.flag);
+      }
     }
   },
 };
 
-class UnsupportedFlag extends Error {}
+class UnsupportedFlag extends Error {
+  constructor(readonly flag: OptionalFlag) {
+    super(`unsupported flag ${OPTIONAL_FLAGS[flag][0]}`);
+  }
+}
 
-async function runClaude(o: Parameters<AgentRunner['run']>[0], withThinking: boolean): Promise<RunResult> {
+/** The optional flag an "unknown option" error is about, if it is one we can drop. */
+function rejectedFlag(stderr: string): OptionalFlag | undefined {
+  return (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).find(
+    (f) => !unsupported.has(f) && new RegExp(`unknown option.*${OPTIONAL_FLAGS[f][0]}`, 'i').test(stderr),
+  );
+}
+
+async function runClaude(o: Parameters<AgentRunner['run']>[0]): Promise<RunResult> {
   const newSessionId = o.sessionId ? undefined : randomUUID();
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
-  const args = [
-    '-p',
-    '--input-format',
-    'stream-json',
-    '--output-format',
-    'stream-json',
-    '--verbose',
-    '--include-partial-messages',
-    '--append-system-prompt',
-    o.systemPrompt,
-    // Variadic; the next `--flag` ends the list.
-    ...withAllowedTools(claudeAllowedTools(o.permission)),
-    // Lets Claude read the attached files outside the working directory (variadic too).
-    ...(o.attachmentsDir ? ['--add-dir', o.attachmentsDir] : []),
-    '--permission-mode',
-    PERMISSION_MODE[o.permission][ask ? 'ask' : 'deny'],
-    ...(ask ? ['--permission-prompt-tool', 'stdio'] : []),
-    ...(o.model ? ['--model', o.model] : []),
-    ...(o.effort ? ['--effort', o.effort] : []),
-    ...(withThinking ? ['--thinking-display', 'summarized'] : []),
-    ...(o.sessionId ? ['--resume', o.sessionId] : ['--session-id', newSessionId!]),
-  ];
+  const args = claudeArgs({
+    systemPrompt: o.systemPrompt,
+    permission: o.permission,
+    ask,
+    model: o.model,
+    effort: o.effort,
+    sessionId: o.sessionId,
+    newSessionId,
+    attachmentsDir: o.attachmentsDir,
+    skip: unsupported,
+  });
 
   let child: ChildProcess | undefined;
   const send = (msg: unknown) => {
@@ -341,7 +394,8 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], withThinking: boo
   if (res.timedOut) throw new AgentRunError(t().timedOut);
 
   const r = parser.result;
-  if (!r && withThinking && /unknown option.*thinking-display/i.test(res.stderr)) throw new UnsupportedFlag();
+  const rejected = r ? undefined : rejectedFlag(res.stderr);
+  if (rejected) throw new UnsupportedFlag(rejected);
   if (!r) throw new AgentRunError(tail(res.stderr || res.stdout) || t().exitedWithoutReply('claude', res.code));
   if (r.is_error) {
     const detail = typeof r.result === 'string' && r.result ? r.result : (r.errors ?? []).join('\n') || r.subtype;

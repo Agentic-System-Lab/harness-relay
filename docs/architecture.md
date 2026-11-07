@@ -43,14 +43,16 @@ flowchart LR
 
 | Module | Responsibility |
 | --- | --- |
-| `src/server/index.ts` | HTTP routes, security middleware, SSE endpoint, static file serving, startup/shutdown |
+| `src/server/app.ts` | HTTP routes, security middleware, SSE endpoint (`createApp`, testable with `app.request()`) |
+| `src/server/index.ts` | Wiring, static file serving, startup and shutdown |
 | `src/server/orchestrator.ts` | Runs a "team turn": picks speakers by mode, builds each agent's prompt, runs the CLI, streams results; designs the team first in auto-team conversations |
 | `src/server/planner.ts` | Auto team: the lead agent's prompt, parsing its JSON reply, turning it into a runnable team, the fallback |
 | `src/server/prompt.ts` | Role briefing (system prompt), per-turn prompt, `@mention` parsing, `[PASS]` detection |
 | `src/server/approvals.ts` | Rule keys for "always allow in this conversation" and matching them |
+| `src/server/commands.ts` | Reads a shell command line into the programs it runs (chains, substitutions, `sh -c`, `env` / `sudo`, git's global options): approval keys, Grok's publish check |
 | `src/server/agents/*` | One adapter per CLI: builds arguments, parses the CLI's JSON event stream into common events (`acp.ts`: the JSON-RPC peer for Grok's ACP) |
 | `src/server/i18n.ts` | Server messages in both languages; the language of each request and run (AsyncLocalStorage) |
-| `src/server/process.ts` | Spawns processes in their own process group, streams stdout lines, handles abort/timeout |
+| `src/server/process.ts` | Spawns processes in their own process group, streams stdout lines, keeps output as raw bytes, handles abort/timeout (SIGTERM, then SIGKILL to the whole group) |
 | `src/server/providers.ts` | CLI status (installed, version, signed in), login sessions, logout, model catalog cache |
 | `src/server/models.ts` | Discovers models and reasoning-effort levels from each CLI |
 | `src/server/workspace.ts` | Git plumbing: automatic `git init`, working-tree snapshots, per-agent worktrees, diffs, applying results |
@@ -61,7 +63,8 @@ flowchart LR
 | `src/server/db.ts` | Opens SQLite, applies schema migrations, transaction helper |
 | `src/server/hub.ts` | Per-conversation event fan-out to connected SSE clients |
 | `src/shared/types.ts` | Types shared by server and client |
-| `src/web/*` | React UI: sidebar, team designer, chat view, settings page, guided tour; `i18n.tsx` + `locales/` hold the UI strings |
+| `src/shared/mentions.ts` | The `@mention` rule used by both the server (who is addressed) and the UI (which mentions are highlighted): the message is read as Markdown (GFM) and only prose counts, not code or link text |
+| `src/web/*` | React UI: sidebar, team designer, chat view, settings page, guided tour; `i18n.tsx` + `locales/` hold the UI strings; `chat.ts` holds the chat view's pure logic (reconnecting, Apply availability, team-drawer draft) |
 
 ## Conversation model
 
@@ -101,7 +104,9 @@ Each agent has its own long-lived CLI session, so the server does **not** resend
 3. The CLI is resumed with its stored session id, so it remembers everything it saw before.
 4. When the turn succeeds, the delivered ids (and the agent's own reply) are added to `seen`. If the turn fails, the delivery is rolled back so the messages are offered again next time.
 
-If resuming fails before the agent produced any output (for example the session was removed, or the working directory changed and Claude Code keeps sessions per directory), the orchestrator retries once with a **fresh** session and the full chat history.
+If resuming fails before the agent produced any output (for example the session was removed, or the working directory changed and Claude Code keeps sessions per directory), the orchestrator retries once with a **fresh** session and the full chat history. If the fresh session fails too before any output, the problem was not the session (a rate limit, sign-in, network…), so the old session is kept for the next turn.
+
+Messages are forwarded once they are final: finished replies, and replies that failed or were stopped but said something or changed files (marked `status="failed"` / `status="stopped"`). A `[PASS]` reply is forwarded as `[PASS]` plus its `<changed_files>`.
 
 ### Role briefing
 
@@ -109,11 +114,11 @@ Each agent's role is injected through the CLI's system-prompt mechanism and **re
 
 | CLI | Mechanism |
 | --- | --- |
-| Claude Code | `--append-system-prompt <briefing>` |
-| Codex | `-c developer_instructions="<briefing>"` |
+| Claude Code | `--append-system-prompt <briefing>` with `--system-prompt-snapshot off` (otherwise a resumed session keeps the prompt of its first request) |
+| Codex | `developerInstructions` on `thread/start` / `thread/resume` |
 | Grok | `_meta.rules` on ACP `session/new` / `session/resume` |
 
-The briefing contains the agent's role, the team roster (with each teammate's role summary), the rules of the current mode, the `[PASS]` convention, the shared working directory and the permission level.
+The briefing contains the agent's role, the team roster (with each teammate's role summary), the rules of the current mode, the `[PASS]` convention, the shared working directory and the permission level. In parallel mode it also names the agent's worktree and branch, and each teammate's branch with the snapshot that teammate's worktree started from.
 
 ## Turn scheduling (modes)
 
@@ -122,7 +127,7 @@ When the user sends a message (or presses **Continue**, which sends nothing), th
 - **`@mentions` in the user message** restrict who takes part: only mentioned agents speak (in relay mode they start the relay).
 - **Roundtable** — for each round `1…rounds`, participants speak one after another in team order. Each sees what earlier speakers said. If everyone in a round passes (or fails), the run ends early.
 - **Parallel** — for each round, all participants run concurrently. Messages still streaming are not delivered, so agents don't see each other's answers until the next round.
-- **Relay** — a queue starts with the mentioned agents, or the first team member (the "lead"). After each reply, every teammate `@mentioned` outside code blocks is appended to the queue. The run ends when the queue is empty or after `maxHops` turns (a system note tells the user, who can press **Continue**).
+- **Relay** — a queue starts with the mentioned agents, or the first team member (the "lead"). After each reply, every teammate `@mentioned` in the reply's prose (not in code or link text, see `src/shared/mentions.ts`) is appended to the queue. The run ends when the queue is empty or after `maxHops` turns (a system note tells the user, who can press **Continue**).
 
 A reply that is exactly `[PASS]` (or empty with no tool calls) is marked as *passed* and rendered dimmed.
 
@@ -142,7 +147,7 @@ A conversation created with `settings.autoTeam` has no members yet. The first ru
 4. If the lead fails or its reply is unusable, `fallbackPlan()` uses the General-question template and the card explains why. If the user stops the run, the message is marked aborted and `autoTeam` stays on, so the next message plans again.
 5. The team and mode are written to the conversation, `autoTeam` is cleared, the plan card becomes `ready` (with the lead's cost and tokens), and the run continues with the user's message as usual. Plan messages are system messages, so they are never forwarded to agents.
 
-The run locks the working directory while planning (its mode is not known yet) and recomputes whether it is isolated afterwards. `POST /api/conversations/:id/messages/:messageId/save-plan` saves a custom design as a user template (with the conversation's permission) and records `plan.savedPresetId`. Editing the first message drops the plan with it, which turns `autoTeam` back on: the team is designed again for the new question. A team set by hand (`PATCH … { agents }`) switches auto team off.
+The run locks the working directory while planning (its mode is not known yet) and recomputes whether it is isolated afterwards; if the lead chose parallel, the lock is released. `POST /api/conversations/:id/messages/:messageId/save-plan` saves a custom design as a user template (with the conversation's permission) and records `plan.savedPresetId`. Editing the first message drops the plan with it, which turns `autoTeam` back on: the team is designed again for the new question — unless the team was changed by hand after the plan (its members or mode, rounds and hops differ from the plan's), in which case that team is kept. A team set by hand (`PATCH … { agents }`) switches auto team off.
 
 ## Languages
 
@@ -170,7 +175,7 @@ Every adapter turns one CLI turn into a stream of common events — `session`, `
 | Tool events | `tool_use` / `tool_result` blocks | `commandExecution`, `fileChange`, `mcpToolCall`, `webSearch` items | `tool_call` / `tool_call_update` |
 | Asks for approval | `can_use_tool` control request (`--permission-prompt-tool stdio`) | `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/permissions/requestApproval` | `session/request_permission` |
 
-One process runs per turn. Claude Code's `--thinking-display` flag is not in its `--help`; if a version rejects it, the adapter remembers that and runs without it.
+One process runs per turn. Claude Code's `--thinking-display` flag is not in its `--help`, and `--system-prompt-snapshot` is recent; if a version rejects either, the adapter remembers that and runs without it.
 
 ### Permission mapping
 
@@ -178,11 +183,11 @@ The permission decides what runs **without asking**; anything else goes to the u
 
 | Relay permission | Claude Code | Codex | Grok (ACP) |
 | --- | --- | --- | --- |
-| Read-only | `--permission-mode manual` (refuse: `dontAsk`), `--allowedTools WebFetch WebSearch`: reading and web run, anything else asks | sandbox `read-only`, approval policy `on-request` (refuse: `never`) | ask mode (`_meta.yoloMode: false`): web fetch runs, anything else asks |
-| Edit | `--permission-mode acceptEdits`, plus web and common build / test / lint commands (`CLAUDE_EDIT_COMMANDS`): other commands ask | sandbox `workspace-write`, approval policy `on-request` (refuse: `never`) | ask mode inside `GROK_SANDBOX=workspace`: everything runs except publishing (`git push`, `npm publish`…), which asks |
+| Read-only | `--permission-mode manual` (refuse: `dontAsk`), `--allowedTools WebFetch WebSearch`, `--disallowedTools Edit MultiEdit Write NotebookEdit`: reading and web run, file edits are not available, anything else asks | sandbox `read-only`, approval policy `on-request` (refuse: `never`) | ask mode (`_meta.yoloMode: false`): web fetch runs, anything else asks |
+| Edit | `--permission-mode acceptEdits`, plus web and common build / test / lint commands (`CLAUDE_EDIT_COMMANDS`): other commands ask | sandbox `workspace-write` with network access pinned off (`sandbox_workspace_write.network_access = false`, whatever `~/.codex/config.toml` says), approval policy `on-request` (refuse: `never`) | ask mode inside `GROK_SANDBOX=workspace`: everything runs except pushing and publishing (`git push`, `npm publish`, `gh release`…, read by `commands.ts`), which asks |
 | Full access | `--permission-mode bypassPermissions` | sandbox `danger-full-access`, policy `never` | always-approve (`_meta.yoloMode: true`) |
 
-- **Claude Code** sends each request as a `can_use_tool` control request and waits for our control response (allow, or deny with a message the model sees). When the conversation refuses, no prompt tool is given and Claude Code denies such calls itself.
+- **Claude Code** sends each request as a `can_use_tool` control request and waits for our control response (allow, or deny with a message the model sees). When the conversation refuses, no prompt tool is given and Claude Code denies such calls itself. Claude Code's own `permissions.allow` rules (user settings, or a project's once it is trusted) still apply; read-only removes the file-editing tools so such rules cannot let them run.
 - **Codex** always runs commands in its OS sandbox. With `on-request` the model asks to go beyond the sandbox (writing outside the working directory, network…) when it needs to; whether it asks is the model's decision — otherwise the sandbox just blocks the call and the model sees the error.
 - **Grok** runs over ACP because headless `grok -p` cannot ask: a call that would prompt is reported as "User cancelled" and the **whole turn ends**. Over ACP the request comes to the adapter. A refusal (the user's, or automatic) is sent as `reject_once` with `_meta.followup_message`, which Grok passes to the model as feedback instead of cancelling the turn.
   - The session mode is always set explicitly, so a user-level `[ui] permission_mode = "always-approve"` in `~/.grok/config.toml` cannot widen read-only or edit.
@@ -191,14 +196,17 @@ The permission decides what runs **without asking**; anything else goes to the u
 
 A refused or failed call keeps its reason (`tool_end.error`, stored in `message_parts.tool_error`) and the turn carries on.
 
+**Edit does not sandbox project code.** "Pushing and publishing ask" stops an agent from running those commands directly. But the commands edit mode runs without asking (tests, builds, `npm run` scripts, `make`) execute code the agent may have just edited, so with Claude Code and Grok a determined agent can still reach the network that way. Codex's sandbox keeps everything off the network. For code or instructions you do not trust, use read-only, or set **Actions beyond the permission** to refuse.
+
 ## Approvals
 
 When an adapter receives a request, the orchestrator (`requestApproval` in `turn()`, `src/server/approvals.ts`):
 
-1. Builds an **approval part** in the agent's message: kind (`command` / `edit` / `fetch` / `other`), the command, file or URL, the agent's stated reason, and rule keys for "always allow". Command keys are one per command in a chain — the program, plus its subcommand for tools that have them (`npm install`, `git push`) — so allowing `npm test` never lets `npm test && rm …` through. Edits use one key for all edits, fetches the host name, other tools their name.
+1. Builds an **approval part** in the agent's message: kind (`command` / `edit` / `fetch` / `other`), the command, file or URL, the agent's stated reason, and rule keys for "always allow". Command keys are one per command the line runs — chains, pipes, background jobs, `$( )` and backtick substitutions and `sh -c '…'` included (`src/server/commands.ts`) — each the program, plus its subcommand for tools that have them (`npm install`, `git push`, past git's global options such as `-C`); `env` / `sudo` prefixes and `VAR=value` assignments are skipped. So allowing `npm test` never lets `npm test && rm …` or `npm test $(rm …)` through. `sudo` / `doas` stay in the key; a command whose program is only known when it runs (`$(which x) …`) or a git command with settings that can run programs (`-c`, `GIT_*` variables) is keyed by its exact text. The keys of the first, simpler reading (whitespace words of each `&&` / `;` / `|` part) are always included as well, so a line the reader gets wrong can never be approved more readily than before. Keys are computed from the command exactly as the CLI runs it (Codex's quoted form, not the tidied-up one shown on the card). Edits use one key for all edits, fetches the host name, other tools their name.
 2. If every key is already allowed in this conversation (`conversation.allowRules`), it answers yes at once and shows the part as allowed automatically.
 3. Otherwise the part is `pending`, the request waits in `orchestrator.approvals`, and the conversation reports `waiting` (the sidebar and the tab title show it). `POST /api/conversations/:id/approvals/:approvalId` with `{ allow, always?, note? }` resolves it; "always" adds the keys to `allowRules`. A declining note is passed to the agent.
-4. Stopping the run resolves every pending request as `expired` (refused).
+4. Stopping the run, or the agent's CLI ending its turn (a crash, the timeout), resolves its pending requests as `expired` (refused); a late answer gets 404.
+5. An action allowed in a run that holds no directory lock (read-only) first takes the lock on the working directory for the rest of the run; if another conversation is writing there, the action is declined and the agent is told why.
 
 The agent's CLI waits the whole time; the turn's 45-minute safety timeout still applies.
 
@@ -210,19 +218,21 @@ Besides reply text and tool rows, a message can show what the agent thinks and p
 
 With **read-only** permission agents simply run in the working directory (`cwd`). With **edit** or **full access**, Harness Relay uses git to keep agents from overwriting each other and to record what each one changed (`src/server/workspace.ts`):
 
-- **Automatic repository** — if `cwd` is not inside a git repository, Harness Relay runs `git init` there and adds common generated folders (`node_modules/`, `.venv/`, `target/`…) to `.git/info/exclude`. It refuses to do this in the home directory or the filesystem root. Nothing is ever committed to the user's branch.
-- **Snapshots** — a snapshot is a commit of the current working tree (tracked and untracked files, honouring `.gitignore`) built with a temporary index (`git add -A`, `write-tree`, `commit-tree`). It does not move `HEAD`, touch the index or change any file.
+- **Automatic repository** — if `cwd` is not inside a git repository, Harness Relay runs `git init` there and adds common generated folders (`node_modules/`, `.venv/`, `target/`…) to `.git/info/exclude`. It refuses to do this in the home directory, a filesystem or volume root (`/Volumes/<name>`) or a folder above the home directory, and it refuses an existing repository rooted at the home directory or a filesystem root (for example a dotfiles repository), since every turn would snapshot all of it. Nothing is ever committed to the user's branch.
+- **Snapshots** — a snapshot is a commit of the current working tree (tracked and untracked files, honouring `.gitignore`) built with a temporary index (`git add -A`, `write-tree`, `commit-tree`). It does not move `HEAD`, touch the index or change any file. The commits a chat message links to (its `base` and `head`) are kept reachable under `refs/harness-relay/<conversation>/`, so `git gc` does not prune them; deleting the conversation removes those refs.
 
 | Mode | Where agents write | How changes are recorded |
 | --- | --- | --- |
 | Roundtable / Relay | The real working directory. Agents take turns, so only one writes at a time. | Snapshot before and after each turn; if the tree changed, the message records the diff. |
 | Parallel | Each agent's own **git worktree** (`data/worktrees/<conversation>/<agent>`, branch `relay/<conversation>/<name>`), created from one snapshot of the working directory. | Everything the agent changed is committed to its branch after each turn. |
 
-**Parallel mode.** Before the first round of a run every participant gets a worktree (kept across runs until it needs a reset). The briefing tells each agent its worktree, branch, the shared starting snapshot and its teammates' branches, so later rounds can read each other's work with `git diff <base> <branch>`. The user reviews each agent's diff in the chat and clicks **Apply** on the result they want: Harness Relay takes `base..branch` for that agent and applies it to the real working directory with `git apply`, after `git apply --check`, so a conflicting patch changes nothing. Nothing is committed; the changes are left for the user to review. All worktrees of the conversation are then marked for reset, so the next parallel run starts from the new state of the directory. Deleting the conversation removes its worktrees and branches.
+**Parallel mode.** Before the first round of a run every participant gets a worktree (kept across runs until it needs a reset). The briefing tells each agent its worktree, branch and starting snapshot, and each teammate's branch with the snapshot it started from (worktrees created at different times start from different snapshots), so later rounds can read each other's work with `git diff <teammate's snapshot> <branch>`. If an agent commits in its worktree itself, its commits are the turn's result. The user reviews each agent's diff in the chat and clicks **Apply** on the result they want: Harness Relay takes `base..branch` for that agent and applies it to the real working directory with `git apply`, after `git apply --check`, so a conflicting patch changes nothing. The patch is handled as bytes, so CRLF line endings and files in other encodings are applied unchanged. Nothing is committed; the changes are left for the user to review. All worktrees of the conversation are then marked for reset, so the next parallel run starts from the new state of the directory. Deleting the conversation removes its worktrees and branches.
 
-**Directory lock.** A run that writes to the real working directory (edit / full access, not parallel) locks the repository root. Another conversation trying to write to the same repository at the same time gets an error until the first run ends; applying a worktree result takes the same lock. Read-only runs and parallel runs (which only write to their worktrees) are not blocked.
+**Directory lock.** A run that writes to the real working directory (edit / full access, not parallel) locks the repository root. Another conversation trying to write to the same repository at the same time gets an error until the first run ends; applying a worktree result takes the same lock. Read-only runs and parallel runs (which only write to their worktrees) are not blocked, unless a read-only run is allowed an action (see [Approvals](#approvals)). Locks also conflict when one repository is nested inside the other. An auto-team run locks while the lead agent plans (the mode is not known yet), also when an edited first question is planned again, and lets go once the lead chose parallel.
 
-**Recorded changes.** An agent message with changes stores `root`, `base` and `head` (two commits) plus the changed files (A/M/D, lines added/deleted). The UI shows them as a card with a diff viewer (`git diff base head`) and, on each agent's latest worktree result, the **Apply** button. Teammates see the list in a `<changed_files>` block of the forwarded message.
+**One thing at a time per conversation.** Starting a run, applying a result and changing the team or settings each reserve the conversation from their check until they take effect (`Orchestrator.exclusive()`), including while the workspace is prepared, so another of these requests gets "busy" instead of slipping in between. Renaming is always allowed. Deleting a conversation lets a settings change or apply in progress finish (a run still being set up gives up), stops its run and waits until the run has written its final state before the rows, worktrees, branches and kept refs are removed; writes that still arrive for a deleted conversation are dropped. Once shutdown has begun, nothing new starts (503).
+
+**Recorded changes.** An agent message with changes stores `root`, `base` and `head` (two commits) plus the changed files (A/M/D, lines added/deleted). The UI shows them as a card with a diff viewer (`git diff base head`) and, on each agent's latest worktree result, the **Apply** button. Teammates see the list in a `<changed_files>` block of the forwarded message. The list comes from `git diff -z`, so it is complete however long it is, and file names keep quotes, tabs and non-ASCII characters.
 
 ## Live updates (SSE)
 
@@ -238,7 +248,9 @@ The client opens `GET /api/conversations/:id/events` and receives JSON events:
 
 The conversation list (`GET /api/conversations`) carries each conversation's state for the sidebar — `running`, `waiting` (an approval is pending) and `lastStatus` (how the latest agent reply ended); the client polls it every 3 s and remembers in `localStorage` what the user has seen, to mark replies that finished while they were elsewhere. Runs never depend on a browser being connected.
 
-The server subscribes before sending the snapshot and replays queued whole-message events afterwards (deltas are skipped, since the snapshot already contains them), so nothing is lost while connecting. A `ping` comment is sent every 15 s.
+The server subscribes and serializes the snapshot in the same synchronous step, so every event after it is new to the client; events that arrive while the snapshot is still being written are queued and sent after it, in order, deltas included. A `ping` comment is sent every 15 s. Snapshots and `GET /api/conversations/:id` leave out the agents' session bookkeeping (`agentState`).
+
+When the stream drops, the browser keeps retrying (and shows "reconnecting") unless the conversation is gone (404). If the server answers with an error status, which ends EventSource's own retries, the client opens a new stream itself after a few seconds.
 
 ## Persistence
 
@@ -261,6 +273,8 @@ Everything except API keys and attached files lives in one SQLite database, `dat
 Conversations in use are kept in memory, because the orchestrator mutates them while streaming. Writes are explicit: user messages, new agent messages, finished turns and session ids are written immediately; streaming changes are batched and written at most once per second, only for messages that changed. Messages left `streaming` by a crashed server are marked `aborted` at startup.
 
 Schema changes are applied by ordered migrations tracked in `PRAGMA user_version` (see `src/server/db.ts`).
+
+**Shutdown** (SIGINT / SIGTERM): stop accepting connections, stop every run, wait up to 5 s for the runs to write their final state, send SIGTERM and then SIGKILL to every agent process group (subprocesses included), then flush and close the database. Unhandled promise rejections are logged instead of ending the process.
 
 ## Providers: status, login and models
 
@@ -285,7 +299,9 @@ The server can start coding agents with write access, so it is locked down to th
 
 - binds to `127.0.0.1` by default;
 - rejects requests whose `Host` is not localhost (DNS-rebinding protection) and whose `Origin` is another site;
-- requires `Content-Type: application/json` on every write, so a cross-site form post cannot trigger a turn;
+- requires the media type `application/json` on every write (a `Content-Type` that merely contains the text is refused), so a cross-site form post cannot trigger a turn;
+- validates settings input (types, existing directories, effort names) and never lets a saved template take a built-in template's id;
+- shows images in agent replies as links instead of loading them, so a reply cannot make the browser contact another site;
 - API keys are kept in the OS credential store, not the database (see above); the SQLite file (and its WAL files) are readable by the owner only, and deleted rows are overwritten;
 - attached files are served with `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`; only PNG, JPEG, GIF and WebP are shown inline, and anything else is a download, so an attached HTML or SVG file can never run in the app's origin. File names are stripped of directories and control characters before they touch the disk;
 - environment variables that Claude Code sets for its own children are removed before spawning `claude`, so the app also works when started from inside a Claude Code session.
@@ -297,6 +313,11 @@ It is a single-user tool: there is no authentication, and any process that can r
 - Worktrees contain only what is in the snapshot: ignored files such as `node_modules/` or build output are not there, so an agent that wants to run tests in parallel mode may need to install dependencies in its worktree first.
 - In roundtable / relay mode, the before/after snapshot attributes every change made in the directory during a turn to that agent, including edits you make in your editor at the same time.
 - The directory lock lives in the server process; other tools (or a second Harness Relay server) can still edit the same files.
+- Nested repositories and submodules: worktrees contain them as empty folders, and changes inside them are not recorded (the snapshot only records which commit they point to).
+- Edit mode does not sandbox project code for Claude Code and Grok (see [Permission mapping](#permission-mapping)); detecting pushing and publishing commands is best effort.
+- Claude Code's own `permissions.allow` rules (in your user settings, or a trusted project's) still let commands run without asking.
+- With read-only and **Ask me**, Claude Code cannot ask to edit a file (its editing tools are removed); Codex and Grok can.
+- Kept snapshot refs (`refs/harness-relay/…`) show up in tools that list every ref (`git log --all`, some git GUIs) and are copied by `git push --mirror`. Editing a message drops the refs of the turns it removes; deleting the conversation drops the rest.
 - Starting a new Codex login signs out the current Codex account first.
 - Claude Code has no model-list command; the model menu shows aliases plus a custom field.
 - Long conversations grow the per-turn prompt only by new messages, but a fresh session (after a resume failure, a provider change, or an edited message) receives the full history.

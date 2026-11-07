@@ -17,6 +17,16 @@ import type {
 } from '../shared/types';
 import { currentLang } from './i18n';
 
+/** A request the server answered with an error; `status` is the HTTP status. */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 /** Every request names the UI language, so server messages come back in it. */
 function headers(json: boolean): Record<string, string> {
   return json ? { 'X-Relay-Lang': currentLang(), 'Content-Type': 'application/json' } : { 'X-Relay-Lang': currentLang() };
@@ -30,7 +40,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error ?? `${res.status} ${res.statusText}`);
+  if (!res.ok) throw new ApiError((data as { error?: string }).error ?? `${res.status} ${res.statusText}`, res.status);
   return data as T;
 }
 
@@ -44,7 +54,7 @@ async function requestText(path: string): Promise<string> {
     } catch {
       /* not JSON */
     }
-    throw new Error(msg);
+    throw new ApiError(msg, res.status);
   }
   return text;
 }

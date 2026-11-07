@@ -199,6 +199,23 @@ function parsePlan(json: string | null): TeamPlan | undefined {
   }
 }
 
+const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
+                       status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
+                       change_root, change_base, change_head, change_isolated, change_branch, plan)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ ON CONFLICT(id) DO UPDATE SET
+   seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
+   round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
+   input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
+   change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
+   change_isolated = excluded.change_isolated, change_branch = excluded.change_branch, plan = excluded.plan`;
+
+const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
+                            tool_output, data)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+const seenKey = (convId: string, agentId: string) => `${convId}\u0000${agentId}`;
+
 /**
  * SQLite-backed persistence. Conversations being used are kept in memory (the orchestrator mutates
  * them while streaming); changes are written back explicitly, message writes debounced.
@@ -207,6 +224,10 @@ export class Store {
   private cache = new Map<string, Conversation>();
   private dirty = new Map<string, Set<string>>();
   private timers = new Map<string, NodeJS.Timeout>();
+  /** Deleted conversations: late writes from a run that is still winding down are dropped. */
+  private deleted = new Set<string>();
+  /** The `agent_seen` rows in the database, per conversation and agent, so saves write only the difference. */
+  private savedSeen = new Map<string, Set<string>>();
 
   constructor(private db: Database) {
     // A previous server process died mid-turn.
@@ -287,6 +308,7 @@ export class Store {
       .prepare('SELECT agent_id, message_id FROM agent_seen WHERE conversation_id = ?')
       .all(id) as { agent_id: string; message_id: string }[];
     for (const s of seen) agentState[s.agent_id]?.seen.push(s.message_id);
+    for (const [agentId, state] of Object.entries(agentState)) this.savedSeen.set(seenKey(id, agentId), new Set(state.seen));
 
     const partRows = this.db
       .prepare(
@@ -387,6 +409,7 @@ export class Store {
 
   /** Persist title, timestamps, settings and the team. */
   saveMeta(conv: Conversation): void {
+    if (this.deleted.has(conv.id)) return;
     transaction(this.db, () => {
       const s = conv.settings;
       this.db
@@ -424,6 +447,8 @@ export class Store {
   }
 
   delete(id: string): void {
+    this.deleted.add(id);
+    for (const key of this.savedSeen.keys()) if (key.startsWith(seenKey(id, ''))) this.savedSeen.delete(key);
     clearTimeout(this.timers.get(id));
     this.timers.delete(id);
     this.dirty.delete(id);
@@ -435,6 +460,7 @@ export class Store {
 
   /** Queue a message for writing; `immediate` writes it (and anything else pending) now. */
   saveMessage(convId: string, msg: ChatMessage, immediate = false): void {
+    if (this.deleted.has(convId)) return;
     let set = this.dirty.get(convId);
     if (!set) this.dirty.set(convId, (set = new Set()));
     set.add(msg.id);
@@ -442,11 +468,23 @@ export class Store {
       this.flush(convId);
     } else if (!this.timers.has(convId)) {
       // Streaming changes a message many times per second; batch them.
-      this.timers.set(
-        convId,
-        setTimeout(() => this.flush(convId), 1000),
-      );
+      this.scheduleFlush(convId, 1000);
     }
+  }
+
+  /** Flush later; an error there (database busy, disk full) is logged and retried, never thrown. */
+  private scheduleFlush(convId: string, ms: number): void {
+    this.timers.set(
+      convId,
+      setTimeout(() => {
+        try {
+          this.flush(convId);
+        } catch (err) {
+          console.error('[store] could not save messages, retrying in 5 s:', err);
+          if (!this.timers.has(convId) && this.dirty.has(convId)) this.scheduleFlush(convId, 5000);
+        }
+      }, ms),
+    );
   }
 
   flush(convId: string): void {
@@ -457,29 +495,25 @@ export class Store {
     this.dirty.delete(convId);
     if (!ids?.size || !conv) return;
 
-    const upsert = this.db.prepare(
-      `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
-                             status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
-                             change_root, change_base, change_head, change_isolated, change_branch, plan)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
-         round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
-         input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
-         change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
-         change_isolated = excluded.change_isolated, change_branch = excluded.change_branch, plan = excluded.plan`,
-    );
+    try {
+      this.writeMessages(convId, conv, ids);
+    } catch (err) {
+      // Keep them pending for the next flush.
+      const pending = this.dirty.get(convId);
+      if (pending) for (const id of ids) pending.add(id);
+      else this.dirty.set(convId, ids);
+      throw err;
+    }
+  }
+
+  private writeMessages(convId: string, conv: Conversation, ids: Set<string>): void {
+    const upsert = this.db.prepare(UPSERT_MESSAGE);
     const clearChanges = this.db.prepare('DELETE FROM message_changes WHERE message_id = ?');
     const insertChange = this.db.prepare(
       'INSERT INTO message_changes (message_id, idx, path, status, added, deleted) VALUES (?, ?, ?, ?, ?, ?)',
     );
     const clearParts = this.db.prepare('DELETE FROM message_parts WHERE message_id = ?');
-    const insertPart = this.db.prepare(
-      `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
-                                  tool_output, data)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-
+    const insertPart = this.db.prepare(INSERT_PART);
     transaction(this.db, () => {
       conv.messages.forEach((m, seq) => {
         if (!ids.has(m.id)) return;
@@ -519,6 +553,7 @@ export class Store {
 
   /** Delete messages (with their parts and file changes); the caller has already removed them from `conv.messages`. */
   deleteMessages(convId: string, ids: string[]): void {
+    if (this.deleted.has(convId)) return;
     const pending = this.dirty.get(convId);
     for (const id of ids) pending?.delete(id);
     const del = this.db.prepare('DELETE FROM messages WHERE conversation_id = ? AND id = ?');
@@ -534,6 +569,7 @@ export class Store {
   // Agent sessions ---------------------------------------------------------------
 
   saveAgentState(convId: string, agentId: string, state: AgentSessionState): void {
+    if (this.deleted.has(convId)) return;
     transaction(this.db, () => {
       this.db
         .prepare(
@@ -541,15 +577,23 @@ export class Store {
            ON CONFLICT(conversation_id, agent_id) DO UPDATE SET provider = excluded.provider, session_id = excluded.session_id`,
         )
         .run(convId, agentId, nul(state.provider), nul(state.sessionId));
-      this.db.prepare('DELETE FROM agent_seen WHERE conversation_id = ? AND agent_id = ?').run(convId, agentId);
+      // Write only what changed since the last save: the list grows with the conversation.
+      const key = seenKey(convId, agentId);
+      const saved = this.savedSeen.get(key);
+      const current = new Set(state.seen);
+      if (!saved) this.db.prepare('DELETE FROM agent_seen WHERE conversation_id = ? AND agent_id = ?').run(convId, agentId);
+      const del = this.db.prepare('DELETE FROM agent_seen WHERE conversation_id = ? AND agent_id = ? AND message_id = ?');
+      for (const m of saved ?? []) if (!current.has(m)) del.run(convId, agentId, m);
       const insert = this.db.prepare('INSERT OR IGNORE INTO agent_seen (conversation_id, agent_id, message_id) VALUES (?, ?, ?)');
-      for (const m of state.seen) insert.run(convId, agentId, m);
+      for (const m of current) if (!saved?.has(m)) insert.run(convId, agentId, m);
+      this.savedSeen.set(key, current);
     });
   }
 
   // Worktrees ----------------------------------------------------------------------
 
   saveWorktree(convId: string, agentId: string, w: AgentWorktree): void {
+    if (this.deleted.has(convId)) return;
     this.db
       .prepare(
         `INSERT INTO agent_worktrees (conversation_id, agent_id, repo_root, path, branch, base_commit, needs_reset)

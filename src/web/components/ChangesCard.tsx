@@ -55,7 +55,7 @@ export function ChangesCard({ changes, agentName, applyState, onDiff, onApply }:
             <code className="file-path">{f.path}</code>
             <span className="diffstat small">
               {f.added === null ? (
-                'binary'
+                t.changes.binary
               ) : (
                 <>
                   {f.added > 0 && <span className="plus">+{f.added}</span>}{' '}

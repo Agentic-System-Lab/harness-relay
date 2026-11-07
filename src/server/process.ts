@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { t } from './i18n';
 
@@ -8,7 +10,7 @@ export interface SpawnOptions {
   cwd?: string;
   env: NodeJS.ProcessEnv;
   /** Written to stdin, which is then closed. When omitted stdin is /dev/null. */
-  stdin?: string;
+  stdin?: string | Buffer;
   /** Keep stdin open for a two-way protocol; the caller writes and ends it through `onSpawn`. */
   keepStdinOpen?: boolean;
   /** Called once the child is spawned (before any output is read). */
@@ -17,33 +19,89 @@ export interface SpawnOptions {
   timeoutMs?: number;
   /** Called for every stdout line (without the trailing newline). */
   onLine?: (line: string) => void;
-  /** Max bytes of stdout / stderr kept in the result (oldest output is dropped first). */
+  /** Max bytes of stdout kept in the result (the oldest output is dropped first, unless `keepStart`). */
   maxCapture?: number;
+  /** Keep the first `maxCapture` bytes of stdout instead of the last. */
+  keepStart?: boolean;
 }
 
 export interface SpawnResult {
   code: number | null;
   signal: NodeJS.Signals | null;
+  /** stdout decoded as UTF-8. */
   stdout: string;
+  /** stdout exactly as the process wrote it (for patches and other binary-safe output). */
+  stdoutBytes: Buffer;
+  /** More than `maxCapture` bytes of stdout were written, so some were dropped. */
+  stdoutTruncated: boolean;
+  /** How many bytes of stdout were written in total. */
+  stdoutSize: number;
   stderr: string;
   aborted: boolean;
   timedOut: boolean;
 }
 
 const MAX_CAPTURE = 64 * 1024;
+/** How long a stopped process group gets between SIGTERM and SIGKILL. */
+const KILL_GRACE_MS = 3000;
 const live = new Set<ChildProcess>();
+/** Stopped process groups still waiting for their SIGKILL (the CLI may be gone, subprocesses not). */
+const stopping = new Set<ChildProcess>();
 
-function appendCapped(buf: string, chunk: string, max = MAX_CAPTURE): string {
-  const next = buf + chunk;
-  return next.length > max ? next.slice(next.length - max) : next;
+/** Bytes kept from a stream: the latest `max` bytes, or the first ones with `keepStart`. */
+class Capture {
+  private chunks: Buffer[] = [];
+  private size = 0;
+  total = 0;
+  truncated = false;
+  constructor(
+    private max = MAX_CAPTURE,
+    private keepStart = false,
+  ) {}
+
+  add(chunk: Buffer): void {
+    this.total += chunk.length;
+    if (this.keepStart) {
+      const room = this.max - this.size;
+      if (chunk.length > room) this.truncated = true;
+      if (room > 0) {
+        const kept = chunk.length > room ? chunk.subarray(0, room) : chunk;
+        this.chunks.push(kept);
+        this.size += kept.length;
+      }
+      return;
+    }
+    this.chunks.push(chunk);
+    this.size += chunk.length;
+    while (this.size > this.max) {
+      this.truncated = true;
+      const first = this.chunks[0]!;
+      const excess = this.size - this.max;
+      if (first.length <= excess) {
+        this.chunks.shift();
+        this.size -= first.length;
+      } else {
+        this.chunks[0] = first.subarray(excess);
+        this.size -= excess;
+      }
+    }
+  }
+
+  bytes(): Buffer {
+    return Buffer.concat(this.chunks);
+  }
 }
 
-/** Kill the whole process group so tool subprocesses (shells, test runners…) die too. */
+/**
+ * Signal the whole process group so tool subprocesses (shells, test runners…) get it too. The group
+ * is signalled even after the CLI itself exited: its subprocesses may still be running.
+ */
 export function killTree(child: ChildProcess, sig: NodeJS.Signals = 'SIGTERM'): void {
-  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  if (child.pid === undefined) return;
   try {
     process.kill(-child.pid, sig);
   } catch {
+    if (child.exitCode !== null || child.signalCode !== null) return; // the group is gone
     try {
       child.kill(sig);
     } catch {
@@ -58,14 +116,35 @@ export class CommandNotFoundError extends Error {
   }
 }
 
+/** A relative executable path (`./bin/claude`) means the same file wherever the agent runs. */
+export function resolveBin(bin: string): string {
+  return bin.includes('/') && !isAbsolute(bin) ? resolve(bin) : bin;
+}
+
 /** Spawn a CLI, stream its stdout line by line, and resolve when it exits. */
 export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
-  return new Promise((resolve, reject) => {
+  return new Promise((done, reject) => {
     if (o.signal?.aborted) {
-      resolve({ code: null, signal: null, stdout: '', stderr: '', aborted: true, timedOut: false });
+      done({
+        code: null,
+        signal: null,
+        stdout: '',
+        stdoutBytes: Buffer.alloc(0),
+        stdoutTruncated: false,
+        stdoutSize: 0,
+        stderr: '',
+        aborted: true,
+        timedOut: false,
+      });
       return;
     }
-    const child = spawn(o.bin, o.args, {
+    // spawn() reports a missing cwd as ENOENT too, which would read as "command not found".
+    if (o.cwd && !existsSync(o.cwd)) {
+      reject(new Error(t().dirNotFound(o.cwd)));
+      return;
+    }
+    const bin = resolveBin(o.bin);
+    const child = spawn(bin, o.args, {
       cwd: o.cwd,
       env: o.env,
       detached: true,
@@ -78,15 +157,23 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
       });
     }
 
-    let stdout = '';
-    let stderr = '';
+    const stdout = new Capture(o.maxCapture, o.keepStart);
+    const stderr = new Capture();
     let aborted = false;
     let timedOut = false;
-    let killTimer: NodeJS.Timeout | undefined;
+    let stopRequested = false;
 
     const stop = () => {
+      if (stopRequested) return;
+      stopRequested = true;
       killTree(child, 'SIGTERM');
-      killTimer = setTimeout(() => killTree(child, 'SIGKILL'), 3000);
+      // Not cleared when the CLI exits: subprocesses that ignore SIGTERM may outlive it. Shutdown
+      // (`killAll`) kills these groups too, since this timer does not keep the server alive.
+      stopping.add(child);
+      setTimeout(() => {
+        stopping.delete(child);
+        killTree(child, 'SIGKILL');
+      }, KILL_GRACE_MS).unref();
     };
     const onAbort = () => {
       aborted = true;
@@ -100,20 +187,19 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
         }, o.timeoutMs)
       : undefined;
 
-    child.stdout!.setEncoding('utf8');
-    child.stderr!.setEncoding('utf8');
-    const rl = createInterface({ input: child.stdout! });
-    rl.on('line', (line) => {
-      stdout = appendCapped(stdout, line + '\n', o.maxCapture);
-      try {
-        o.onLine?.(line);
-      } catch (err) {
-        console.error('[process] line handler failed:', err);
-      }
-    });
-    child.stderr!.on('data', (chunk: string) => {
-      stderr = appendCapped(stderr, chunk);
-    });
+    // Raw bytes: decoding and re-joining lines would corrupt non-UTF-8 bytes and `\r`.
+    child.stdout!.on('data', (chunk: Buffer) => stdout.add(chunk));
+    child.stderr!.on('data', (chunk: Buffer) => stderr.add(chunk));
+    if (o.onLine) {
+      const onLine = o.onLine;
+      createInterface({ input: child.stdout!, crlfDelay: Infinity }).on('line', (line) => {
+        try {
+          onLine(line);
+        } catch (err) {
+          console.error('[process] line handler failed:', err);
+        }
+      });
+    }
 
     if (o.stdin !== undefined && !o.keepStdinOpen) {
       child.stdin!.on('error', () => {
@@ -127,7 +213,6 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
       live.delete(child);
       o.signal?.removeEventListener('abort', onAbort);
       if (timeout) clearTimeout(timeout);
-      if (killTimer) clearTimeout(killTimer);
     };
 
     child.on('error', (err: NodeJS.ErrnoException) => {
@@ -136,7 +221,18 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
     });
     child.on('close', (code, signal) => {
       cleanup();
-      resolve({ code, signal, stdout, stderr, aborted, timedOut });
+      const bytes = stdout.bytes();
+      done({
+        code,
+        signal,
+        stdout: bytes.toString('utf8'),
+        stdoutBytes: bytes,
+        stdoutTruncated: stdout.truncated,
+        stdoutSize: stdout.total,
+        stderr: stderr.bytes().toString('utf8'),
+        aborted,
+        timedOut,
+      });
     });
   });
 }
@@ -146,22 +242,32 @@ export async function capture(
   bin: string,
   args: string[],
   env: NodeJS.ProcessEnv,
-  opts: { timeoutMs?: number; stdin?: string; cwd?: string; maxCapture?: number } = {},
+  opts: { timeoutMs?: number; stdin?: string | Buffer; cwd?: string; maxCapture?: number; keepStart?: boolean } = {},
 ): Promise<SpawnResult> {
-  return runProcess({ bin, args, env, timeoutMs: opts.timeoutMs ?? 15000, stdin: opts.stdin, cwd: opts.cwd, maxCapture: opts.maxCapture });
+  return runProcess({ ...opts, bin, args, env, timeoutMs: opts.timeoutMs ?? 15000 });
 }
 
 /** Spawn a long-lived interactive process (used for login flows). */
 export function spawnInteractive(bin: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
-  const child = spawn(bin, args, { env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(resolveBin(bin), args, { env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
   live.add(child);
   child.on('close', () => live.delete(child));
   child.on('error', () => live.delete(child));
   return child;
 }
 
-export function killAll(): void {
-  for (const child of live) killTree(child, 'SIGTERM');
+/**
+ * Stop every process this server started (on shutdown): SIGTERM to each process group, then SIGKILL
+ * to the groups after a grace period, including subprocesses whose CLI already exited.
+ */
+export async function killAll(graceMs = KILL_GRACE_MS): Promise<void> {
+  const children = [...live];
+  for (const child of children) killTree(child, 'SIGTERM');
+  const deadline = Date.now() + graceMs;
+  while (live.size && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+  // Including groups stopped earlier whose CLI exited but whose SIGKILL is still pending.
+  for (const child of new Set([...children, ...live, ...stopping])) killTree(child, 'SIGKILL');
+  stopping.clear();
 }
 
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*(\u0007|\u001b\\)/g;

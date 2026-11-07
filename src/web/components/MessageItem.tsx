@@ -2,15 +2,15 @@ import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'rea
 import {
   PROVIDER_LABEL,
   isInlineImage,
+  type AgentConfig,
   type ApprovalAnswer,
   type ChatMessage,
-  type Conversation,
   type MessageMeta,
   type MessagePart,
   type PlanEntry,
 } from '../../shared/types';
 import { api } from '../api';
-import { messageText, planHeadline } from '../copy';
+import { messageText, planHeadline, speaker } from '../copy';
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
 import { ChangesCard, type ApplyState } from './ChangesCard';
@@ -55,9 +55,10 @@ function segments(parts: MessagePart[]): Segment[] {
 }
 
 function ToolLine({ x }: { x: ToolPart }) {
+  const t = useT();
   return (
     <span className="tool-line">
-      <span className="tool-status" aria-label={x.status}>
+      <span className="tool-status" aria-label={t.activity.status[x.status]}>
         {x.status === 'running' ? '…' : x.status === 'done' ? '✓' : '✗'}
       </span>
       <code className="tool-name">{x.name}</code>
@@ -184,7 +185,7 @@ function ApprovalCard({
         <span className="approval-what">{part.detail ? <code>{part.detail}</code> : heading}</span>
         <span className="approval-outcome">
           {outcome}
-          {part.note ? `：${part.note}` : ''}
+          {part.note ? t.approval.withNote(part.note) : ''}
         </span>
       </div>
     );
@@ -246,20 +247,28 @@ function hasMeta(m?: MessageMeta): m is MessageMeta {
 }
 
 function MetaText({ m }: { m: MessageMeta }) {
+  const t = useT();
   return (
     <span className="msg-meta">
       {formatDuration(m.durationMs)}
       {m.costUsd !== undefined && ` · $${m.costUsd.toFixed(3)}`}
-      {m.inputTokens !== undefined && ` · ${formatTokens(m.inputTokens)} in`}
-      {m.outputTokens !== undefined && ` / ${formatTokens(m.outputTokens)} out`}
+      {m.inputTokens !== undefined && ` · ${t.message.tokensIn(formatTokens(m.inputTokens))}`}
+      {m.outputTokens !== undefined && ` / ${t.message.tokensOut(formatTokens(m.outputTokens))}`}
     </span>
   );
 }
 
+// Every prop must keep its identity while other messages stream, so this item skips re-rendering.
 interface Props {
   msg: ChatMessage;
-  conv: Conversation;
+  /** The conversation's id (for links to attached files). */
+  convId: string;
+  /** The team (the conversation's array, which only changes when the team does). */
+  agents: AgentConfig[];
+  /** Memoised list of the team's names. */
   mentionNames: string[];
+  /** Label replies with their round (roundtable / parallel with more than one round). */
+  showRound: boolean;
   applyState?: ApplyState;
   /** The team is replying: messages cannot be edited until it stops. */
   running: boolean;
@@ -439,6 +448,7 @@ function UserMessage({
   const text = messageText(msg);
   const [draft, setDraft] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const ref = useRef<HTMLTextAreaElement>(null);
 
   // Auto-grow, like the composer.
@@ -469,11 +479,17 @@ function UserMessage({
   const hasFiles = msg.parts.some((p) => p.type === 'attachment');
   const ready = (draft.trim().length > 0 || hasFiles) && canEdit && !sending;
   const submit = async () => {
-    if (!ready) return;
+    // A ref, not state: a quick double Enter comes before the re-render that disables sending.
+    if (!ready || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
-    const ok = await onResend(msg.id, draft);
-    setSending(false);
-    if (ok) setDraft(null);
+    try {
+      const ok = await onResend(msg.id, draft);
+      if (ok) setDraft(null);
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
+    }
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return; // IME candidate selection
@@ -515,8 +531,10 @@ function UserMessage({
 
 export const MessageItem = memo(function MessageItem({
   msg,
-  conv,
+  convId,
+  agents,
   mentionNames,
+  showRound,
   applyState,
   running,
   onDiff,
@@ -539,13 +557,13 @@ export const MessageItem = memo(function MessageItem({
   }
 
   if (msg.author.kind === 'user') {
-    return <UserMessage msg={msg} convId={conv.id} mentionNames={mentionNames} canEdit={!running} onResend={onResend} />;
+    return <UserMessage msg={msg} convId={convId} mentionNames={mentionNames} canEdit={!running} onResend={onResend} />;
   }
 
   const agentId = msg.author.agentId;
-  const agent = conv.agents.find((a) => a.id === agentId);
-  const name = agent?.name ?? msg.agentName ?? 'agent';
-  const provider = msg.provider ?? agent?.provider ?? 'claude';
+  const who = speaker(msg, agents);
+  const name = who.name;
+  const provider = who.provider ?? 'claude';
   const live = msg.status === 'streaming';
   const segs = segments(msg.parts);
   const m = msg.meta;
@@ -558,7 +576,7 @@ export const MessageItem = memo(function MessageItem({
         <div className="msg-head">
           <strong>@{name}</strong>
           <span className="provider-tag">{PROVIDER_LABEL[provider]}</span>
-          {m?.round && conv.settings.mode !== 'relay' && conv.settings.rounds > 1 && (
+          {m?.round && showRound && (
             <span className="round-tag">{t.message.round(m.round)}</span>
           )}
           {live && <span className="live-tag">{t.message.live}</span>}

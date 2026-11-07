@@ -60,6 +60,7 @@ const zhTW = {
   busy: '團隊還在回覆中，請先等待或按停止',
   busySettings: '團隊回覆中，無法修改設定',
   busyApply: '團隊還在回覆中，請等回覆結束再套用',
+  shuttingDown: '伺服器正在關閉',
   noAgents: '這個對話沒有任何 agent',
   runFailed: (msg: string) => `執行失敗：${msg}`,
   stoppedNote: '已停止。',
@@ -101,10 +102,14 @@ const zhTW = {
   badProvider: (name: string) => `agent「${name}」的 provider 無效`,
   badEffort: (name: string, effort: string) => `agent「${name}」的推理強度「${effort}」無效`,
   cwdMissing: (cwd: string) => `工作目錄不存在：${cwd}`,
+  invalidField: (field: string) => `「${field}」的值無效`,
 
   // Workspace
   gitFailed: (cmd: string, out: string) => `git ${cmd} 失敗：${out}`,
   noAutoRepo: (dir: string) => `不會在 ${dir} 自動建立 git repository，請改選一個專案資料夾作為工作目錄。`,
+  repoTooBroad: (root: string) =>
+    `工作目錄位在 ${root} 這個 git repository 裡，範圍太大（每一輪都要記錄整個資料夾的狀態）。請改選一個專案資料夾，或在專案資料夾裡執行 git init。`,
+  outputTooLarge: (cmd: string) => `git ${cmd} 的輸出太大，無法處理`,
   nothingToApply: '沒有可套用的修改',
   applyConflict: (detail: string) =>
     `工作目錄中的檔案跟這些修改有衝突，沒有套用任何變更：\n${detail}\n可以請 agent 改成以目前的工作目錄為基礎重做，或手動合併分支。`,
@@ -159,6 +164,7 @@ const en: ServerMessages = {
   busy: 'The team is still replying — wait or press Stop',
   busySettings: 'The team is replying; settings cannot be changed now',
   busyApply: 'The team is still replying — apply once it has finished',
+  shuttingDown: 'The server is shutting down',
   noAgents: 'This conversation has no agents',
   runFailed: (msg) => `Run failed: ${msg}`,
   stoppedNote: 'Stopped.',
@@ -196,9 +202,13 @@ const en: ServerMessages = {
   badProvider: (name) => `Agent "${name}" has an invalid provider`,
   badEffort: (name, effort) => `Agent "${name}" has an invalid reasoning effort "${effort}"`,
   cwdMissing: (cwd) => `Working directory not found: ${cwd}`,
+  invalidField: (field) => `Invalid value for "${field}"`,
 
   gitFailed: (cmd, out) => `git ${cmd} failed: ${out}`,
   noAutoRepo: (dir) => `Will not create a git repository in ${dir}; pick a project folder as the working directory.`,
+  repoTooBroad: (root) =>
+    `The working directory is inside the git repository at ${root}, which is too broad (every turn records the state of the whole folder). Pick a project folder, or run git init in the project folder.`,
+  outputTooLarge: (cmd) => `The output of git ${cmd} is too large to handle`,
   nothingToApply: 'Nothing to apply',
   applyConflict: (detail) =>
     `Files in the working directory conflict with these changes; nothing was applied:\n${detail}\nAsk an agent to redo the work on top of the current directory, or merge the branch by hand.`,

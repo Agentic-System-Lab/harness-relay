@@ -20,12 +20,15 @@
 ```text
 src/
   shared/types.ts          伺服器與前端共用的型別（以及 PROVIDERS、effortsFor…）
+  shared/mentions.ts       伺服器與介面共用的 @ 規則（只看 Markdown 中的一般文字）
   server/
-    index.ts               路由、安全性中介層、SSE、靜態檔案、啟動
+    index.ts               組裝元件、靜態檔案、啟動與關閉
+    app.ts                 createApp()：路由、安全性中介層、SSE（可用 app.request() 測試）
     orchestrator.ts        團隊回合：排程、交付 prompt、把串流寫進訊息；自動組隊、重新傳送
     planner.ts             自動組隊：首席 agent 的 prompt、解析回覆、可執行的團隊、備援方案
     prompt.ts              角色簡報、回合 prompt、@ 解析、[PASS]
-    approvals.ts           「本對話都允許」的規則 key（串接指令中每個指令各一個）
+    approvals.ts           「本對話都允許」的規則 key（這行指令執行的每個指令各一個）
+    commands.ts            解析 shell 指令：拆出各個指令、sh -c、包裝程式、推送／發佈判斷
     i18n.ts                伺服器訊息（zh-TW / en）、每個請求與執行的語言
     agents/
       types.ts             AgentRunner 介面、AgentEvent、輔助函式
@@ -34,7 +37,7 @@ src/
       grok.ts              Grok：ACP（`grok agent stdio`）
       acp.ts               Codex 與 Grok 轉接器共用的 JSON-RPC 對端
       index.ts             runner 註冊表
-    process.ts             啟動/結束程序（process group、逐行串流、逾時）
+    process.ts             啟動/結束程序（process group、逐行串流、以位元組保存輸出、逾時）
     providers.ts           CLI 狀態、登入流程、登出、模型快取
     models.ts              各 CLI 的模型 / 推理強度探索
     db.ts                  開啟 SQLite、遷移、transaction()
@@ -49,12 +52,14 @@ src/
     hub.ts                 SSE 廣播
   web/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
+    chat.ts                ChatView 的純邏輯：串流是否重新連線、能否套用、團隊設定草稿
     i18n.tsx               語言偵測、provider、useT()
     locales/               zh-TW.ts（訊息結構的來源）、en.ts
     components/            Sidebar、NewChat、TeamEditor、ModelPicker、ChatView、
                            MessageItem（含 plan 卡片）、ChangesCard、Composer、Markdown、
                            SettingsPage、CopyButton、Logo、Onboarding（使用導覽）、
-                           MemberDots、icons
+                           MemberDots、icons、
+                           useDialog（對話框的焦點處理）
 test/                      Vitest 測試
 .github/workflows/ci.yml   CI：pull request 與推送到 main 時執行型別檢查、測試與建置
 docs/                      文件（English + 繁體中文）
@@ -168,7 +173,7 @@ sqlite3 data/relay.db 'select seq, author_kind, agent_name, status from messages
 - `buildBriefing()`：system 層級的簡報（角色、團隊、模式規則、工作目錄），每回合重新產生。
 - `buildTurnPrompt()`：每回合的訊息，包含 `<chat>` 與最後的提示句。
 - `forwardText()`：一則回覆如何呈現給其他 agent（文字 + `<actions>` 紀錄）。
-- `parseMentions()`：@ 解析；行內程式碼與程式碼區塊中的 @ 會被忽略。
+- `parseMentions()`：@ 解析；名字後面可以直接接文字，行內程式碼與各種程式碼區塊（含未結束的）中的 @ 會被忽略。
 - `buildPlannerPrompt()` / `PLANNER_BRIEFING`（`planner.ts`）：自動組隊模式中要問首席 agent 什麼，以及它必須回傳的 JSON。
 
 prompt 刻意使用英文（agent 會用使用者的語言回覆）。給使用者看的文字則有翻譯，見[翻譯](#翻譯)。
@@ -194,10 +199,17 @@ npx vitest test/store.test.ts
 目前的測試：
 
 - `test/store.test.ts`：SQLite store 與設定（存取往返、串流更新、當機復原、連帶刪除、檔案權限），以及搭配假的金鑰儲存區測試 API key：絕不寫進資料庫、舊的資料庫金鑰會被移出並從檔案中清除、儲存區拒絕寫入的情況。
-- `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 的快照、worktree、套用、衝突）。
-- `test/orchestrator.test.ts`：把假的 runner 換進 `runners` 跑完整流程：平行模式的 worktree 隔離與套用、圓桌模式的修改紀錄、目錄鎖。
+- `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 的快照、worktree、套用、衝突、CRLF 與非 UTF-8 內容逐位元組套用、很長或特殊的檔案清單、保留的快照 ref、範圍太大的 repository）。
+- `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
+- `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
+- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、範本 id。
+- `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報。
+- `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。
+- `test/chat.test.ts`：ChatView 的邏輯：何時重新連線事件串流、哪個 worktree 結果可以套用、團隊設定的草稿。
+- `test/markdown.test.ts`：@ 標示與伺服器規則一致，並略過程式碼與連結；圖片以連結顯示。
+- `test/orchestrator.test.ts`：把假的 runner 換進 `runners` 跑完整流程：平行模式的 worktree 隔離與套用、圓桌模式的修改紀錄、目錄鎖（含自動組隊）、執行準備期間或套用期間收到的請求、執行中刪除對話、全新 session 也失敗時保留原 session，以及把失敗回合改過的檔案告訴隊友。
 - `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`、JSON-RPC 連線。
-- `test/claude.test.ts`：Claude 預先允許的工具，以及工具被拒絕時顯示的原因。
+- `test/claude.test.ts`：Claude 預先允許與移除的工具、它的參數（`--system-prompt-snapshot off`、舊版不接受的旗標），以及工具被拒絕時顯示的原因。
 - `test/copy.test.ts`：複製單則訊息或整段對話時產生的 Markdown（兩種語言）。
 - `test/approvals.test.ts`：「本對話都允許」的規則 key 與比對（串接指令、shell 包裝）。
 - `test/codex.test.ts`：Codex app-server 轉接器：thread 項目轉成 `AgentEvent`（文字、推理、計畫、指令輸出、用量），以及核准請求 / 回應。
@@ -218,8 +230,8 @@ npx vitest test/store.test.ts
   # ~/.grok/sessions/<URL 編碼的 cwd>/<session-id>/updates.jsonl
   ```
 
-- **prompt 輔助函式**：`parseMentions`、`isPass`、`buildTurnPrompt`。
-- **更多協調器排程**：接力交棒、`[PASS]` 提前結束、接續失敗後重試，做法同 `test/orchestrator.test.ts` 的假 runner。
+- **prompt 輔助函式**：`buildTurnPrompt`。
+- **更多協調器排程**：接力交棒、`[PASS]` 提前結束，做法同 `test/orchestrator.test.ts` 的假 runner。
 
 在測試中跑真正的 agent 會花錢且需要登入，所以自動化測試請保持離線。測試也不會碰到真正的金鑰儲存區：`SettingsStore` 由建構子參數取得它，只有 `src/server/index.ts` 會傳入 `openSystemKeyring()`。
 

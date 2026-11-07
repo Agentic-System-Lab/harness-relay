@@ -43,14 +43,16 @@ flowchart LR
 
 | 模組 | 職責 |
 | --- | --- |
-| `src/server/index.ts` | HTTP 路由、安全性中介層、SSE 端點、靜態檔案、啟動與關閉 |
+| `src/server/app.ts` | HTTP 路由、安全性中介層、SSE 端點（`createApp`，可用 `app.request()` 測試） |
+| `src/server/index.ts` | 組裝各元件、靜態檔案、啟動與關閉 |
 | `src/server/orchestrator.ts` | 執行一次「團隊回合」：依模式決定發言者、組出每個 agent 的 prompt、執行 CLI、串流結果；自動組隊的對話會先設計團隊 |
 | `src/server/planner.ts` | 自動組隊：首席 agent 的 prompt、解析它的 JSON 回覆、轉成可執行的團隊、備援方案 |
 | `src/server/prompt.ts` | 角色簡報（system prompt）、每回合的 prompt、`@` 解析、`[PASS]` 判斷 |
 | `src/server/approvals.ts` | 「本對話都允許」的規則 key 與比對 |
+| `src/server/commands.ts` | 解析一行 shell 指令實際會執行哪些程式（串接、命令替換、`sh -c`、`env`／`sudo`、git 的全域選項）：用於核准規則 key 與 Grok 的推送／發佈判斷 |
 | `src/server/agents/*` | 每個 CLI 一個轉接器：組參數、把 CLI 的 JSON 事件串流轉成共通事件（`acp.ts`：Grok ACP 的 JSON-RPC 對端） |
 | `src/server/i18n.ts` | 兩種語言的伺服器訊息；每個請求與執行所用的語言（AsyncLocalStorage） |
-| `src/server/process.ts` | 以獨立 process group 啟動程序、逐行讀 stdout、處理中止與逾時 |
+| `src/server/process.ts` | 以獨立 process group 啟動程序、逐行讀 stdout、以原始位元組保存輸出、處理中止與逾時（先 SIGTERM，再對整個 process group 送 SIGKILL） |
 | `src/server/providers.ts` | CLI 狀態（是否安裝、版本、是否登入）、登入流程、登出、模型清單快取 |
 | `src/server/models.ts` | 從各 CLI 取得可用模型與推理強度 |
 | `src/server/workspace.ts` | git 相關操作：自動 `git init`、工作目錄快照、每個 agent 的 worktree、diff、套用結果 |
@@ -60,8 +62,9 @@ flowchart LR
 | `src/server/secrets.ts` | 存放 API key 的作業系統金鑰儲存區（`@napi-rs/keyring`）；系統沒有可用的儲存區時則為無 |
 | `src/server/db.ts` | 開啟 SQLite、套用 schema 遷移、交易輔助函式 |
 | `src/server/hub.ts` | 把每個對話的事件廣播給連線中的 SSE 用戶端 |
+| `src/shared/mentions.ts` | 伺服器（判斷點名了誰）與介面（標示 @）共用的 `@` 規則：以 Markdown（GFM）解析訊息，只看一般文字，不含程式碼與連結文字 |
 | `src/shared/types.ts` | 伺服器與前端共用的型別 |
-| `src/web/*` | React 介面：側邊欄、團隊設計、聊天畫面、設定頁、使用導覽；`i18n.tsx` 與 `locales/` 存放介面文字 |
+| `src/web/*` | React 介面：側邊欄、團隊設計、聊天畫面、設定頁、使用導覽；`i18n.tsx` 與 `locales/` 存放介面文字；`chat.ts` 存放聊天畫面的純邏輯（重新連線、能否套用、團隊設定草稿） |
 
 ## 對話模型
 
@@ -101,7 +104,9 @@ flowchart LR
 3. 用保存的 session id 接續 CLI，所以它記得之前看過的所有內容。
 4. 回合成功後，把這次交付的訊息 id（以及 agent 自己的回覆）加進 `seen`。若回合失敗，交付會被撤回，下一回合重新提供這些訊息。
 
-如果接續 session 失敗且 agent 還沒有任何輸出（例如 session 被刪除，或是工作目錄改了，而 Claude Code 是依目錄保存 session），協調器會用**全新** session 加上完整對話紀錄重試一次。
+如果接續 session 失敗且 agent 還沒有任何輸出（例如 session 被刪除，或是工作目錄改了，而 Claude Code 是依目錄保存 session），協調器會用**全新** session 加上完整對話紀錄重試一次。若全新 session 也在任何輸出前就失敗，代表問題不在 session（例如用量上限、登入、網路），所以會保留原本的 session，下一輪繼續使用。
+
+訊息確定之後才會轉交給隊友：已完成的回覆，以及失敗或被停止、但有說話或改過檔案的回覆（標記為 `status="failed"`／`status="stopped"`）。回覆 `[PASS]` 的訊息會以 `[PASS]` 加上它的 `<changed_files>` 轉交。
 
 ### 角色簡報
 
@@ -109,11 +114,11 @@ flowchart LR
 
 | CLI | 機制 |
 | --- | --- |
-| Claude Code | `--append-system-prompt <簡報>` |
-| Codex | `-c developer_instructions="<簡報>"` |
+| Claude Code | `--append-system-prompt <簡報>`，搭配 `--system-prompt-snapshot off`（否則接續的 session 會一直沿用第一次請求的 system prompt） |
+| Codex | `thread/start`／`thread/resume` 的 `developerInstructions` |
 | Grok | ACP `session/new`／`session/resume` 的 `_meta.rules` |
 
-簡報內容包括 agent 的角色、團隊名單（含每位隊友的角色摘要）、目前模式的規則、`[PASS]` 約定、共用的工作目錄與權限等級。
+簡報內容包括 agent 的角色、團隊名單（含每位隊友的角色摘要）、目前模式的規則、`[PASS]` 約定、共用的工作目錄與權限等級。平行模式中還會寫出 agent 自己的 worktree 與分支，以及每位隊友的分支和該隊友 worktree 的起始快照。
 
 ## 發言排程（模式）
 
@@ -122,7 +127,7 @@ flowchart LR
 - **使用者訊息中的 `@`** 會限制參與者：只有被 @ 的 agent 發言（接力模式下則由他們開始接力）。
 - **圓桌**：每一輪（`1…rounds`）參與者依團隊順序逐一發言，每個人都看得到前面的人說了什麼。若某一輪所有人都 pass（或失敗），提前結束。
 - **平行**：每一輪所有參與者同時執行。還在串流中的訊息不會被交付，所以要到下一輪才看得到彼此的答案。
-- **接力**：佇列從被 @ 的 agent 開始，沒有 @ 時從團隊第一位（「隊長」）開始。每次回覆後，程式碼區塊以外被 @ 到的隊友會加進佇列。佇列清空或達到 `maxHops` 次時結束（系統訊息會告知使用者，可按「繼續」）。
+- **接力**：佇列從被 @ 的 agent 開始，沒有 @ 時從團隊第一位（「隊長」）開始。每次回覆後，回覆的一般文字中（不含程式碼與連結文字，見 `src/shared/mentions.ts`）被 @ 到的隊友會加進佇列。佇列清空或達到 `maxHops` 次時結束（系統訊息會告知使用者，可按「繼續」）。
 
 回覆內容恰好是 `[PASS]`（或沒有工具呼叫的空回覆）會被標記為 *pass*，並以淡色顯示。
 
@@ -142,7 +147,7 @@ flowchart LR
 4. 若首席 agent 執行失敗或回覆無法使用，`fallbackPlan()` 會改用「一般問題智囊團」範本，卡片上會說明原因。若使用者停止執行，這則訊息會標為已中斷，`autoTeam` 維持開啟，下一則訊息會重新規劃。
 5. 團隊與模式寫入對話、清除 `autoTeam`，plan 卡片變成 `ready`（附上首席 agent 的費用與 token 數），接著照常以使用者的訊息繼續執行。plan 訊息是系統訊息，所以永遠不會轉交給 agent。
 
-規劃期間，這次執行會鎖住工作目錄（此時還不知道模式），規劃完再重新判斷是否在隔離的 worktree 中執行。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把自訂設計存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`。編輯第一則訊息會連同 plan 一起刪除，於是 `autoTeam` 重新開啟：團隊會針對新問題重新設計。手動設定團隊（`PATCH … { agents }`）會關閉自動組隊。
+規劃期間，這次執行會鎖住工作目錄（此時還不知道模式），規劃完再重新判斷是否在隔離的 worktree 中執行；若主導 agent 選了平行模式，就會解鎖。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把自訂設計存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`。編輯第一則訊息會連同 plan 一起刪除，於是 `autoTeam` 重新開啟：團隊會針對新問題重新設計；但若 plan 之後團隊被手動改過（成員或模式、輪數、交棒次數與 plan 不同），就保留那個團隊。手動設定團隊（`PATCH … { agents }`）會關閉自動組隊。
 
 ## 語言
 
@@ -170,7 +175,7 @@ flowchart LR
 | 工具事件 | `tool_use` / `tool_result` 區塊 | `commandExecution`、`fileChange`、`mcpToolCall`、`webSearch` 項目 | `tool_call` / `tool_call_update` |
 | 請求核准 | `can_use_tool` 控制請求（`--permission-prompt-tool stdio`） | `item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/permissions/requestApproval` | `session/request_permission` |
 
-每個回合執行一個程序。Claude Code 的 `--thinking-display` 旗標沒有列在它的 `--help` 中；若某個版本不接受這個旗標，轉接器會記住，之後改為不帶它執行。
+每個回合執行一個程序。Claude Code 的 `--thinking-display` 旗標沒有列在它的 `--help` 中，`--system-prompt-snapshot` 則是較新的旗標；若某個版本不接受其中之一，轉接器會記住，之後改為不帶它執行。
 
 ### 權限對應
 
@@ -178,11 +183,11 @@ flowchart LR
 
 | Relay 權限 | Claude Code | Codex | Grok（ACP） |
 | --- | --- | --- | --- |
-| 唯讀 | `--permission-mode manual`（拒絕時：`dontAsk`）、`--allowedTools WebFetch WebSearch`：讀檔與上網直接執行，其他都要詢問 | 沙箱 `read-only`、核准政策 `on-request`（拒絕時：`never`） | 詢問模式（`_meta.yoloMode: false`）：讀網頁直接執行，其他都要詢問 |
-| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問 | 沙箱 `workspace-write`、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=workspace` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`……）要詢問，其他都直接執行 |
+| 唯讀 | `--permission-mode manual`（拒絕時：`dontAsk`）、`--allowedTools WebFetch WebSearch`、`--disallowedTools Edit MultiEdit Write NotebookEdit`：讀檔與上網直接執行，沒有修改檔案的工具，其他都要詢問 | 沙箱 `read-only`、核准政策 `on-request`（拒絕時：`never`） | 詢問模式（`_meta.yoloMode: false`）：讀網頁直接執行，其他都要詢問 |
+| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問 | 沙箱 `workspace-write`，並固定關閉網路（`sandbox_workspace_write.network_access = false`，不受 `~/.codex/config.toml` 影響）、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=workspace` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`、`gh release`……，由 `commands.ts` 判斷）要詢問，其他都直接執行 |
 | 完全存取 | `--permission-mode bypassPermissions` | 沙箱 `danger-full-access`、核准政策 `never` | 全部自動核准（`_meta.yoloMode: true`） |
 
-- **Claude Code** 把每個請求以 `can_use_tool` 控制請求送出，並等待我們的控制回應（允許，或拒絕並附上模型看得到的訊息）。對話設定為拒絕時，不會指定 permission prompt tool，由 Claude Code 自己拒絕這類呼叫。
+- **Claude Code** 把每個請求以 `can_use_tool` 控制請求送出，並等待我們的控制回應（允許，或拒絕並附上模型看得到的訊息）。對話設定為拒絕時，不會指定 permission prompt tool，由 Claude Code 自己拒絕這類呼叫。Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍然有效；唯讀模式會移除修改檔案的工具，所以這類規則無法讓它們執行。
 - **Codex** 的指令一律在作業系統沙箱中執行。使用 `on-request` 時，模型在需要超出沙箱（寫到工作目錄以外、存取網路……）時會提出請求；要不要詢問由模型決定，沒有詢問的話，沙箱就直接擋下呼叫，模型會看到錯誤。
 - **Grok** 透過 ACP 執行，因為非互動的 `grok -p` 無法詢問：需要詢問的呼叫會被回報為「User cancelled」並**結束整輪**。改用 ACP 後，請求會送到 adapter。拒絕（使用者拒絕或自動拒絕）時回覆 `reject_once` 並附上 `_meta.followup_message`，Grok 會把它當成給模型的回饋，而不是取消這一輪。
   - session 的模式一律明確指定，所以使用者在 `~/.grok/config.toml` 設的 `[ui] permission_mode = "always-approve"` 不會放寬唯讀或可編輯。
@@ -191,14 +196,17 @@ flowchart LR
 
 被拒絕或失敗的呼叫會保留原因（`tool_end.error`，存在 `message_parts.tool_error`），這一輪會繼續進行。
 
+**可編輯模式不會把專案程式碼關進沙箱。**「推送與發佈要詢問」能擋住 agent 直接執行這些指令；但可編輯模式不經詢問就能執行的指令（測試、建置、`npm run` 腳本、`make`）跑的是 agent 剛剛可能改過的程式碼，所以使用 Claude Code 與 Grok 時，執意要連網的 agent 仍能透過這些指令做到。Codex 的沙箱會讓所有指令都無法連網。不信任的程式碼或指示，請使用唯讀，或把「超出權限的動作」設為自動拒絕。
+
 ## 核准
 
 轉接器收到請求時，協調器（`turn()` 中的 `requestApproval`，以及 `src/server/approvals.ts`）會：
 
-1. 在 agent 的訊息中建立一個 **approval part**：種類（`command` / `edit` / `fetch` / `other`）、指令、檔案或網址、agent 說明的原因，以及「本對話都允許」用的規則 key。指令的 key 是串接中的每個指令各一個：程式名稱，若該工具有子指令再加上子指令（`npm install`、`git push`），所以允許 `npm test` 絕不會讓 `npm test && rm …` 通過。所有檔案修改共用一個 key，讀網頁用主機名稱，其他工具用工具名稱。
+1. 在 agent 的訊息中建立一個 **approval part**：種類（`command` / `edit` / `fetch` / `other`）、指令、檔案或網址、agent 說明的原因，以及「本對話都允許」用的規則 key。指令的 key 是這行指令實際執行的每個指令各一個，包括串接、管線、背景執行、`$( )` 與反引號的命令替換，以及 `sh -c '…'` 裡的指令（`src/server/commands.ts`）：程式名稱，若該工具有子指令再加上子指令（`npm install`、`git push`，會略過 `-C` 這類 git 全域選項）；`env`／`sudo` 前綴與 `VAR=value` 會被略過。所以允許 `npm test` 絕不會讓 `npm test && rm …` 或 `npm test $(rm …)` 通過。`sudo`／`doas` 會保留在 key 中；執行時才知道是哪個程式的指令（`$(which x) …`），或帶有可執行程式之設定的 git 指令（`-c`、`GIT_*` 環境變數），則以完整指令文字當作 key。最初較簡單的解析方式（以空白拆開每個 `&&`／`;`／`|` 片段）得到的 key 也一律包含在內，所以就算解析有誤，也不會比以前更容易被自動允許。key 依 CLI 實際執行的指令計算（Codex 用的是它加上引號的原始形式，而不是卡片上整理過的版本）。所有檔案修改共用一個 key，讀網頁用主機名稱，其他工具用工具名稱。
 2. 若所有 key 在這個對話中都已允許（`conversation.allowRules`），就立即同意，並把該 part 顯示為已自動允許。
 3. 否則該 part 為 `pending`，請求在 `orchestrator.approvals` 中等待，對話回報為 `waiting`（側邊欄與分頁標題會顯示）。`POST /api/conversations/:id/approvals/:approvalId` 帶上 `{ allow, always?, note? }` 回應請求；「always」會把這些 key 加進 `allowRules`。拒絕時附的說明會轉交給 agent。
-4. 停止執行時，所有等待中的請求都會以 `expired`（拒絕）結束。
+4. 停止執行，或 agent 的 CLI 結束這一輪（當掉、逾時）時，它等待中的請求都會以 `expired`（拒絕）結束；之後才送來的回應會得到 404。
+5. 在沒有持有目錄鎖的執行中（唯讀）被允許的動作，會先鎖住工作目錄直到這次執行結束；若有其他對話正在寫入，這個動作會被拒絕，並告知 agent 原因。
 
 agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾時仍然適用。
 
@@ -210,19 +218,21 @@ agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾�
 
 **唯讀**權限時，agent 直接在工作目錄（`cwd`）執行，不做其他處理。**可編輯**或**完全存取**時，Harness Relay 用 git 避免 agent 互相覆蓋，並記錄每個人改了什麼（`src/server/workspace.ts`）：
 
-- **自動建立 repository**：若 `cwd` 不在任何 git repository 中，Harness Relay 會在該處執行 `git init`，並把常見的產生物資料夾（`node_modules/`、`.venv/`、`target/`……）加進 `.git/info/exclude`。在家目錄或檔案系統根目錄則會拒絕這麼做。絕不會 commit 到使用者的分支。
-- **快照**：快照是把目前工作目錄（已追蹤與未追蹤的檔案，遵守 `.gitignore`）做成的一個 commit，透過暫時的 index 建立（`git add -A`、`write-tree`、`commit-tree`）。不會移動 `HEAD`、不會動到 index，也不會修改任何檔案。
+- **自動建立 repository**：若 `cwd` 不在任何 git repository 中，Harness Relay 會在該處執行 `git init`，並把常見的產生物資料夾（`node_modules/`、`.venv/`、`target/`……）加進 `.git/info/exclude`。在家目錄、檔案系統或磁碟區的根目錄（`/Volumes/<名稱>`），或家目錄的上層資料夾則會拒絕這麼做；若既有的 repository 以家目錄或檔案系統根目錄為根目錄（例如 dotfiles repository）也會拒絕，因為每一輪都得替整個資料夾做快照。絕不會 commit 到使用者的分支。
+- **快照**：快照是把目前工作目錄（已追蹤與未追蹤的檔案，遵守 `.gitignore`）做成的一個 commit，透過暫時的 index 建立（`git add -A`、`write-tree`、`commit-tree`）。不會移動 `HEAD`、不會動到 index，也不會修改任何檔案。聊天訊息連結的 commit（它的 `base` 與 `head`）會保留在 `refs/harness-relay/<對話>/` 底下，`git gc` 不會清掉；刪除對話時會一併移除這些 ref。
 
 | 模式 | agent 寫在哪裡 | 如何記錄修改 |
 | --- | --- | --- |
 | 圓桌 / 接力 | 真正的工作目錄。agent 輪流發言，同一時間只有一個在寫。 | 每回合前後各做一次快照；若內容不同，就把 diff 記在該則訊息上。 |
 | 平行 | 每個 agent 自己的 **git worktree**（`data/worktrees/<對話>/<agent>`，分支 `relay/<對話>/<名稱>`），從同一份工作目錄快照建立。 | 每回合結束後，把 agent 改的所有內容 commit 到它的分支。 |
 
-**平行模式。**每次執行的第一輪前，每位參與者都會拿到一個 worktree（跨執行沿用，直到需要重設）。簡報會告訴每個 agent 它的 worktree、分支、共同的起始快照，以及隊友的分支，所以後面的輪次可以用 `git diff <base> <branch>` 看彼此的成果。使用者在聊天中檢視每個 agent 的 diff，對想要的結果按 **套用**：Harness Relay 取出該 agent 的 `base..branch`，先 `git apply --check` 再用 `git apply` 套用到真正的工作目錄，所以有衝突時不會改動任何檔案。不會自動 commit，修改留給使用者檢查。之後該對話所有的 worktree 都會被標記為需要重設，下一次平行執行會從工作目錄的新狀態開始。刪除對話時會一併移除它的 worktree 與分支。
+**平行模式。**每次執行的第一輪前，每位參與者都會拿到一個 worktree（跨執行沿用，直到需要重設）。簡報會告訴每個 agent 它的 worktree、分支與起始快照，以及每位隊友的分支和該隊友的起始快照（不同時間建立的 worktree 起始快照不同），所以後面的輪次可以用 `git diff <隊友的起始快照> <branch>` 看彼此的成果。若 agent 自己在 worktree 中 commit，那些 commit 就是這一輪的結果。使用者在聊天中檢視每個 agent 的 diff，對想要的結果按 **套用**：Harness Relay 取出該 agent 的 `base..branch`，先 `git apply --check` 再用 `git apply` 套用到真正的工作目錄，所以有衝突時不會改動任何檔案。patch 以位元組處理，所以 CRLF 換行與其他編碼的檔案都會原樣套用。不會自動 commit，修改留給使用者檢查。之後該對話所有的 worktree 都會被標記為需要重設，下一次平行執行會從工作目錄的新狀態開始。刪除對話時會一併移除它的 worktree 與分支。
 
-**目錄鎖。**會寫入真正工作目錄的執行（可編輯 / 完全存取，且不是平行模式）會鎖住該 repository。其他對話若同時要寫入同一個 repository，會收到錯誤，直到第一個執行結束；套用 worktree 結果也會取得同一把鎖。唯讀執行與平行執行（只寫入自己的 worktree）不受影響。
+**目錄鎖。**會寫入真正工作目錄的執行（可編輯 / 完全存取，且不是平行模式）會鎖住該 repository。其他對話若同時要寫入同一個 repository，會收到錯誤，直到第一個執行結束；套用 worktree 結果也會取得同一把鎖。唯讀執行與平行執行（只寫入自己的 worktree）不受影響，除非唯讀執行有動作被允許（見[核准](#核准)）。一個 repository 位在另一個裡面時，兩者的鎖也會互相衝突。自動組隊的執行在主導 agent 規劃期間會上鎖（此時還不知道模式），編輯第一個問題而重新規劃時也一樣；主導 agent 選了平行模式後就會解鎖。
 
-**修改紀錄。**有修改的 agent 訊息會保存 `root`、`base`、`head`（兩個 commit）以及修改的檔案（A/M/D、增刪行數）。介面會以卡片顯示，附 diff 檢視（`git diff base head`），並在每個 agent 最新的 worktree 結果上提供 **套用** 按鈕。隊友會在轉交訊息的 `<changed_files>` 區塊看到檔案清單。
+**同一個對話一次只做一件事。**開始執行、套用結果、修改團隊或設定，從檢查到生效（包括準備工作區的期間）都會先保留這個對話（`Orchestrator.exclusive()`），所以期間的其他這類請求會收到「忙碌中」，不會插進中間。改名則隨時可以。刪除對話時，會先讓進行中的設定修改或套用完成（還在準備中的執行會放棄），再停止執行並等它寫完最後的狀態，才移除資料列、worktree、分支與保留的 ref；之後才送到的寫入會被捨棄。伺服器開始關閉後，不會再開始任何新的工作（503）。
+
+**修改紀錄。**有修改的 agent 訊息會保存 `root`、`base`、`head`（兩個 commit）以及修改的檔案（A/M/D、增刪行數）。介面會以卡片顯示，附 diff 檢視（`git diff base head`），並在每個 agent 最新的 worktree 結果上提供 **套用** 按鈕。隊友會在轉交訊息的 `<changed_files>` 區塊看到檔案清單。清單來自 `git diff -z`，再長都完整，檔名中的引號、tab 與非 ASCII 字元也都保持原樣。
 
 ## 即時更新（SSE）
 
@@ -238,7 +248,9 @@ agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾�
 
 對話列表（`GET /api/conversations`）帶有側邊欄要顯示的各對話狀態：`running`、`waiting`（有等待中的核准請求）與 `lastStatus`（最新一則 agent 回覆如何結束）；前端每 3 秒輪詢一次，並在 `localStorage` 記住使用者看過哪些內容，用來標示使用者在別處時完成的回覆。執行從不依賴瀏覽器是否連線。
 
-伺服器會先訂閱事件再送出 snapshot，之後補送排隊中的整則訊息事件（delta 會略過，因為 snapshot 已包含），所以連線過程中不會遺漏任何內容。每 15 秒送一次 `ping`。
+伺服器在同一個同步步驟中訂閱事件並序列化 snapshot，所以之後的事件對前端來說都是新的；snapshot 還在寫出時收到的事件會排隊，依序接在 snapshot 後送出（包括 delta）。每 15 秒送一次 `ping`。snapshot 與 `GET /api/conversations/:id` 不包含 agent 的 session 紀錄（`agentState`）。
+
+串流中斷時，瀏覽器會持續重試（並顯示「重新連線中」），只有對話已不存在（404）時才停止。伺服器若回傳錯誤狀態碼，EventSource 自己的重試會停止，這時前端會在幾秒後自行重新連線。
 
 ## 資料保存
 
@@ -261,6 +273,8 @@ agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾�
 使用中的對話會保留在記憶體中，因為協調器在串流時會直接修改它們。寫入是明確觸發的：使用者訊息、新的 agent 訊息、結束的回合與 session id 會立即寫入；串流中的變動則批次處理，每秒最多寫一次，而且只寫有變動的訊息。伺服器當機時留下的 `streaming` 訊息，會在下次啟動時標為 `aborted`。
 
 Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_version`（見 `src/server/db.ts`）。
+
+**關閉**（SIGINT／SIGTERM）：停止接受連線、停止所有執行、最多等 5 秒讓執行寫完最後的狀態、對每個 agent 的 process group（包括子程序）先送 SIGTERM 再送 SIGKILL，最後寫回並關閉資料庫。未處理的 promise rejection 會記錄下來，不會讓程序結束。
 
 ## Provider：狀態、登入與模型
 
@@ -285,7 +299,9 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
 
 - 預設只綁定 `127.0.0.1`；
 - 拒絕 `Host` 不是 localhost 的請求（防 DNS rebinding），以及 `Origin` 來自其他網站的請求；
-- 所有寫入請求都必須是 `Content-Type: application/json`，所以跨站表單送出無法觸發回合；
+- 所有寫入請求的媒體類型都必須是 `application/json`（只是包含這段文字的 `Content-Type` 會被拒絕），所以跨站表單送出無法觸發回合；
+- 檢查設定的輸入（型別、目錄是否存在、推理強度名稱），儲存的範本也不能使用內建範本的 id；
+- agent 回覆中的圖片以連結顯示、不會自動載入，所以回覆無法讓瀏覽器連到其他網站；
 - API key 存在作業系統的金鑰儲存區而不是資料庫（見上方）；SQLite 檔案（及其 WAL 檔）只有擁有者可讀寫，刪除的資料列會被覆寫；
 - 附加檔案回傳時帶有 `X-Content-Type-Options: nosniff` 與沙箱化的 `Content-Security-Policy`；只有 PNG、JPEG、GIF、WebP 會直接顯示，其他一律下載，所以附加的 HTML 或 SVG 檔絕不會在本程式的 origin 中執行。檔名寫入磁碟前會去掉目錄與控制字元；
 - 啟動 `claude` 前會移除 Claude Code 替自己子程序設定的環境變數，所以即使從 Claude Code session 裡啟動本程式也能正常運作。
@@ -297,6 +313,11 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
 - worktree 只包含快照中的檔案：被忽略的檔案（例如 `node_modules/` 或建置產物）不在裡面，所以平行模式中想跑測試的 agent 可能要先在自己的 worktree 安裝相依套件。
 - 圓桌 / 接力模式中，回合前後的快照會把該回合期間目錄裡的所有變更都算在該 agent 頭上，包括你同時在編輯器做的修改。
 - 目錄鎖存在伺服器程序中；其他工具（或第二個 Harness Relay 伺服器）仍然可以修改同樣的檔案。
+- 巢狀 repository 與 submodule：在 worktree 中是空資料夾，裡面的修改也不會被記錄（快照只記錄它們指向哪個 commit）。
+- 使用 Claude Code 與 Grok 時，可編輯模式不會把專案程式碼關進沙箱（見[權限對應](#權限對應)）；判斷推送與發佈指令只能盡力而為。
+- Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍可讓指令不經詢問就執行。
+- 唯讀並選「詢問我」時，Claude Code 無法請求修改檔案（修改檔案的工具已移除）；Codex 與 Grok 可以。
+- 保留的快照 ref（`refs/harness-relay/…`）會出現在列出所有 ref 的工具中（`git log --all`、部分 git GUI），`git push --mirror` 也會一併推送。編輯訊息時會移除被刪掉回合的 ref，刪除對話時移除其餘的。
 - 開始新的 Codex 登入時，會先登出目前的 Codex 帳號。
 - Claude Code 沒有列出模型的指令；模型選單只提供別名與自訂欄位。
 - 長對話每回合只會傳送新訊息，但全新的 session（接續失敗、更換 provider 或編輯訊息之後）會收到完整的對話紀錄。

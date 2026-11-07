@@ -28,6 +28,8 @@ export interface ApprovalRequest {
   reason?: string;
   /** The tool's name, for kind "other". */
   tool?: string;
+  /** The command exactly as the CLI will run it, when `detail` is a tidied-up form for display. */
+  command?: string;
 }
 
 export interface RunOptions {

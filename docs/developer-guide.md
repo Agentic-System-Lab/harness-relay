@@ -20,12 +20,15 @@ How the code is organized, how to run and test it, and how to extend it. Read [A
 ```text
 src/
   shared/types.ts          types shared by server and client (+ PROVIDERS, effortsFor…)
+  shared/mentions.ts       the @mention rule shared by the server and the UI (Markdown prose only)
   server/
-    index.ts               routes, security middleware, SSE, static files, startup
+    index.ts               wiring, static files, startup and shutdown
+    app.ts                 createApp(): routes, security middleware, SSE (testable with app.request())
     orchestrator.ts        team turns: scheduling, prompt delivery, streaming into messages; auto team, resend
     planner.ts             auto team: lead-agent prompt, reply parsing, runnable team, fallback
     prompt.ts              role briefing, turn prompt, @mention parsing, [PASS]
-    approvals.ts           "always allow" rule keys (one per chained command)
+    approvals.ts           "always allow" rule keys (one per command the line runs)
+    commands.ts            reads a shell command line: simple commands, sh -c, wrappers, publish check
     i18n.ts                server messages (zh-TW / en), language per request and run
     agents/
       types.ts             AgentRunner interface, AgentEvent, helpers
@@ -34,7 +37,7 @@ src/
       grok.ts              Grok: ACP (`grok agent stdio`)
       acp.ts               JSON-RPC peer used by the Codex and Grok adapters
       index.ts             runner registry
-    process.ts             spawn/kill helpers (process groups, line streaming, timeouts)
+    process.ts             spawn/kill helpers (process groups, line streaming, raw-byte capture, timeouts)
     providers.ts           CLI status, login sessions, logout, model cache
     models.ts              model / effort discovery per CLI
     db.ts                  open SQLite, migrations, transaction()
@@ -49,12 +52,14 @@ src/
     hub.ts                 SSE fan-out
   web/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
+    chat.ts                ChatView's pure logic: stream reconnect decision, Apply availability, team-drawer draft
     i18n.tsx               language detection, provider, useT()
     locales/               zh-TW.ts (source of the message shape), en.ts
     components/            Sidebar, NewChat, TeamEditor, ModelPicker, ChatView,
                            MessageItem (incl. plan card), ChangesCard, Composer, Markdown,
                            SettingsPage, CopyButton, Logo, Onboarding (guided tour),
-                           MemberDots, icons
+                           MemberDots, icons,
+                           useDialog (focus handling for dialogs)
 test/                      Vitest tests
 .github/workflows/ci.yml   CI: typecheck, tests and build on pull requests and pushes to main
 docs/                      documentation (English + 繁體中文)
@@ -168,7 +173,7 @@ sqlite3 data/relay.db 'select seq, author_kind, agent_name, status from messages
 - `buildBriefing()` — the system-level briefing (role, team, mode rules, workspace). Rebuilt every turn.
 - `buildTurnPrompt()` — the per-turn message with `<chat>` and the cue line.
 - `forwardText()` — how a reply is shown to other agents (text + `<actions>` log).
-- `parseMentions()` — mention parsing; code spans and fenced blocks are ignored.
+- `parseMentions()` — mention parsing; text may follow a name directly, and code spans and fenced blocks of any kind (also unclosed ones) are ignored.
 - `buildPlannerPrompt()` / `PLANNER_BRIEFING` (`planner.ts`) — what the lead agent is asked in auto-team mode, and the JSON it must return.
 
 Prompts are in English on purpose (agents reply in the user's language). User-facing text is translated — see [Translations](#translations).
@@ -194,10 +199,17 @@ npx vitest test/store.test.ts
 Current tests:
 
 - `test/store.test.ts` — SQLite store and settings (round-trips, streaming updates, crash recovery, cascading deletes, file permissions), and API keys with a fake credential store: never written to the database, old database keys moved out and scrubbed from the files, a refusing store.
-- `test/workspace.test.ts` — git plumbing against real temporary repositories (auto init, snapshots that leave the repo untouched, worktrees, apply, conflicts).
-- `test/orchestrator.test.ts` — full runs with a fake runner swapped into `runners`: parallel worktree isolation and apply, change tracking in roundtable mode, and the directory lock.
+- `test/workspace.test.ts` — git plumbing against real temporary repositories (auto init, snapshots that leave the repo untouched, worktrees, apply, conflicts, CRLF / non-UTF-8 content applied byte for byte, long and unusual file lists, kept snapshot refs, repositories that are too broad).
+- `test/process.test.ts` — process helpers: byte-exact output, stopping subprocesses that ignore SIGTERM (also after the CLI exited, and on shutdown), a missing working directory, relative executable paths.
+- `test/hub.test.ts` — SSE fan-out when a browser reconnects.
+- `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, template ids.
+- `test/prompt.test.ts` — `@mention` parsing (text right after a name, code fences), `[PASS]`, forwarding of failed / stopped / passed replies, the parallel briefing.
+- `test/commands.test.ts` — reading shell command lines: publishing commands in their many forms, and "always allow" keys that do not let embedded commands through.
+- `test/chat.test.ts` — ChatView logic: when to reconnect the event stream, which worktree result can be applied, the team drawer's draft.
+- `test/markdown.test.ts` — mention chips follow the server's rule and skip code and links; images are shown as links.
+- `test/orchestrator.test.ts` — full runs with a fake runner swapped into `runners`: parallel worktree isolation and apply, change tracking in roundtable mode, the directory lock (also for auto team), requests that arrive while a run is set up or a result is applied, deleting a conversation mid-run, keeping a session when a fresh start fails too, and telling teammates what a failed turn changed.
 - `test/grok.test.ts` — the Grok ACP adapter: permission policy per level, session updates → `AgentEvent`s, and the JSON-RPC connection.
-- `test/claude.test.ts` — Claude's pre-approved tools and the reason shown for a refused tool call.
+- `test/claude.test.ts` — Claude's pre-approved and removed tools, its arguments (`--system-prompt-snapshot off`, flags an older version rejects) and the reason shown for a refused tool call.
 - `test/copy.test.ts` — the Markdown written when copying a message or a whole conversation, in both languages.
 - `test/approvals.test.ts` — "always allow" rule keys and matching (chained commands, shell wrappers).
 - `test/codex.test.ts` — the Codex app-server adapter: thread items → `AgentEvent`s (text, reasoning, plan, command output, usage) and approval requests / responses.
@@ -218,8 +230,8 @@ Good next candidates:
   # ~/.grok/sessions/<url-encoded cwd>/<session-id>/updates.jsonl
   ```
 
-- **Prompt helpers** — `parseMentions`, `isPass`, `buildTurnPrompt`.
-- **More orchestrator scheduling** — relay hand-offs, `[PASS]` early exit and resume-failure retry, with the same fake-runner approach as `test/orchestrator.test.ts`.
+- **Prompt helpers** — `buildTurnPrompt`.
+- **More orchestrator scheduling** — relay hand-offs and `[PASS]` early exit, with the same fake-runner approach as `test/orchestrator.test.ts`.
 
 Running real agents in tests costs money and needs logins, so keep automated tests offline. Tests never touch the real credential store either: `SettingsStore` takes it as a constructor argument, and only `src/server/index.ts` passes `openSystemKeyring()`.
 

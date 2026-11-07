@@ -112,7 +112,7 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
                     </div>
                   </div>
 
-                  <div className="segmented" role="radiogroup" aria-label="Coding agent">
+                  <div className="segmented" role="radiogroup" aria-label={t.team.codingAgent}>
                     {PROVIDERS.map((p) => (
                       <button
                         key={p}

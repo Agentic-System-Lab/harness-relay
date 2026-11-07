@@ -153,8 +153,12 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
 
   const deletePreset = async (p: TeamPreset) => {
     if (!confirm(t.newChat.confirmDeleteTemplate(p.name))) return;
-    await api.deletePreset(p.id);
-    setPresets((ps) => ps.filter((x) => x.id !== p.id));
+    try {
+      await api.deletePreset(p.id);
+      setPresets((ps) => ps.filter((x) => x.id !== p.id));
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
 
   return (
