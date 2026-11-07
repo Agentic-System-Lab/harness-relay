@@ -139,9 +139,16 @@ Every adapter turns one CLI invocation into a stream of common events: `session`
 
 | Relay permission | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |
-| Read-only | `--permission-mode dontAsk` | `sandbox_mode="read-only"`, `approval_policy="never"` | `--permission-mode dontAsk` |
-| Edit | `--permission-mode acceptEdits` | `sandbox_mode="workspace-write"`, `approval_policy="never"` | `--permission-mode acceptEdits` |
+| Read-only | `--permission-mode dontAsk` | `sandbox_mode="read-only"`, `approval_policy="never"` | `--permission-mode dontAsk --allow WebFetch` |
+| Edit | `--permission-mode acceptEdits` | `sandbox_mode="workspace-write"`, `approval_policy="never"` | `--permission-mode acceptEdits --allow WebFetch` + common project commands (below) |
 | Full access | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | `--permission-mode bypassPermissions` |
+
+Headless Grok cannot ask for approval: a tool call its mode would prompt for is reported as "User cancelled" and the **whole turn ends** (`end.stopReason: "cancelled"`) instead of the denial going back to the model. So the adapter pre-approves what each level should allow anyway (`grokPermissionArgs` in `src/server/agents/grok.ts`):
+
+- `web_fetch` is not on Grok's built-in read-only list, so read-only and edit both get `--allow WebFetch` (the relay permission is about the file system, not the network).
+- Edit mode also gets `--allow 'Bash(<prefix>)'` for common build / test / lint / format commands (`npm test`, `npm run `, `pytest`, `cargo test`, `go test`, `make`, `tsc`, `eslint`, `cd `, `mkdir `… — see `GROK_EDIT_COMMANDS`). Rules are plain prefixes matched against every segment of a chained command, so `cd app && npm test` is approved only because `cd ` is listed too. Installs, git writes and deletes are deliberately left out.
+
+Anything else that would prompt still ends the turn; the adapter turns `stopReason: "cancelled"` into a visible error naming the tool and Grok's reason.
 
 ## Workspaces and file changes
 

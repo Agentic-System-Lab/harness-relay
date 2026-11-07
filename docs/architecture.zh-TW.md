@@ -139,9 +139,16 @@ flowchart LR
 
 | Relay 權限 | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |
-| 唯讀 | `--permission-mode dontAsk` | `sandbox_mode="read-only"`、`approval_policy="never"` | `--permission-mode dontAsk` |
-| 可編輯 | `--permission-mode acceptEdits` | `sandbox_mode="workspace-write"`、`approval_policy="never"` | `--permission-mode acceptEdits` |
+| 唯讀 | `--permission-mode dontAsk` | `sandbox_mode="read-only"`、`approval_policy="never"` | `--permission-mode dontAsk --allow WebFetch` |
+| 可編輯 | `--permission-mode acceptEdits` | `sandbox_mode="workspace-write"`、`approval_policy="never"` | `--permission-mode acceptEdits --allow WebFetch` + 常用專案指令（見下方） |
 | 完全存取 | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | `--permission-mode bypassPermissions` |
+
+非互動模式的 Grok 無法詢問核准：只要某個工具呼叫在目前模式下需要詢問，Grok 就會回報「User cancelled」並**結束整輪**（`end.stopReason: "cancelled"`），而不是把拒絕訊息交還給模型繼續回答。因此 adapter 會預先核准各權限本來就該允許的操作（`src/server/agents/grok.ts` 的 `grokPermissionArgs`）：
+
+- `web_fetch` 不在 Grok 內建的唯讀清單裡，所以唯讀與可編輯都加上 `--allow WebFetch`（Relay 的權限管的是檔案系統，不是網路）。
+- 可編輯模式另外對常用的建置／測試／lint／格式化指令加上 `--allow 'Bash(<前綴>)'`（`npm test`、`npm run `、`pytest`、`cargo test`、`go test`、`make`、`tsc`、`eslint`、`cd `、`mkdir `……完整清單見 `GROK_EDIT_COMMANDS`）。規則是單純的前綴比對，且會套用到串接指令的每一段，所以 `cd app && npm test` 能通過是因為 `cd ` 也在清單裡。安裝套件、git 寫入與刪除檔案刻意不列入。
+
+其他需要詢問的呼叫仍會結束整輪；adapter 會把 `stopReason: "cancelled"` 轉成看得到的錯誤，寫出是哪個工具以及 Grok 給的原因。
 
 ## 工作區與檔案修改
 
