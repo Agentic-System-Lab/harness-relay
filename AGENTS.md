@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for coding agents (Claude Code, Codex, Grok and others) working in this repository. People should start with the [README](README.md) and the [developer guide](docs/developer-guide.md).
+Guidance for coding agents (Claude Code, Codex, Grok and others) working in this repository. People should start with the [README](README.md), [CONTRIBUTING.md](CONTRIBUTING.md) and the [developer guide](docs/developer-guide.md).
 
 ## What this is
 
@@ -78,8 +78,9 @@ The server can start agents with write access, so keep its defences intact (see 
 
 ### Documentation
 
-- Docs come in pairs: `README.md` / `README.zh-TW.md` and `docs/<name>.md` / `docs/<name>.zh-TW.md`. When a change affects behaviour, the HTTP API, the schema, settings, environment variables or the test list, update both languages in the same commit.
+- Docs come in pairs: `README.md` / `README.zh-TW.md`, `CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md` and `docs/<name>.md` / `docs/<name>.zh-TW.md`. When a change affects behaviour, the HTTP API, the schema, settings, environment variables or the test list, update both languages in the same commit.
 - The developer guide lists the HTTP API and what each test file covers; keep those lists current.
+- `CONTRIBUTING.md` restates the rules in this file for people. When you change a rule here that applies to everyone, change it there too, in both languages.
 
 ### Tests
 
