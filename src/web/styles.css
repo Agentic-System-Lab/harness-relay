@@ -280,7 +280,16 @@ p {
 .conv-dots,
 .preset-dots {
   display: inline-flex;
+  align-items: center;
   gap: 3px;
+  flex-shrink: 0;
+}
+
+.dots-more {
+  font-size: 11px;
+  line-height: 1;
+  margin-left: 2px;
+  color: var(--muted);
 }
 
 .brand-logo {
@@ -434,6 +443,46 @@ p {
   display: none;
 }
 
+.brand .collapse-sidebar {
+  margin-left: auto;
+}
+
+/* Wide screens: the sidebar can be collapsed; two buttons stay in the corner. */
+.sidebar {
+  transition:
+    margin-left 0.2s ease,
+    visibility 0s;
+}
+
+.sidebar-collapsed .sidebar {
+  margin-left: -268px;
+  visibility: hidden;
+  transition:
+    margin-left 0.2s ease,
+    visibility 0s linear 0.2s;
+}
+
+.sidebar-tools {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 20;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.sidebar-tools .icon-button {
+  width: 34px;
+  height: 34px;
+}
+
+.sidebar-collapsed .chat-head {
+  padding-left: 96px;
+}
+
 .sidebar-scrim {
   display: none;
 }
@@ -517,6 +566,24 @@ p {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.preset-row.build-modes {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 560px) {
+  .preset-row.build-modes {
+    grid-template-columns: 1fr;
+  }
+}
+
+.save-template-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .preset-delete {
@@ -783,6 +850,11 @@ details.sub .model-picker {
   min-width: 280px;
 }
 
+/* e.g. "Actions outside the permission" below the permission's notes */
+.team-editor section > .field + .field {
+  margin-top: 20px;
+}
+
 .start-bar {
   display: flex;
   gap: 10px;
@@ -818,11 +890,27 @@ details.sub .model-picker {
 .chat-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 18px;
+  gap: 12px;
+  padding: 8px 18px;
   border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
   min-height: 56px;
+}
+
+/* Title, with the team on one row beneath it */
+.chat-head-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.chat-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .chat-title {
@@ -830,9 +918,9 @@ details.sub .model-picker {
   border: none;
   font-weight: 650;
   font-size: 15px;
-  padding: 4px 6px;
+  padding: 2px 6px;
   border-radius: 8px;
-  max-width: 320px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -843,19 +931,38 @@ details.sub .model-picker {
 }
 
 .team-chips {
+  position: relative;
   display: flex;
   gap: 6px;
-  flex: 1;
-  flex-wrap: wrap;
-  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* Room for the speaking ring, which the scroll box would clip. */
+  padding: 3px;
+}
+
+/* Fade the right edge while chips are hidden there, so it reads as "scroll for more". */
+.team-chips.more {
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+
+.team-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.team-chips:empty {
+  display: none;
 }
 
 .team-chip {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
   gap: 6px;
-  font-size: 13px;
-  padding: 3px 10px 3px 4px;
+  font-size: 12.5px;
+  padding: 2px 10px 2px 3px;
   border-radius: 999px;
   background: var(--surface);
   border: 1px solid transparent;
@@ -1000,6 +1107,76 @@ details.sub .model-picker {
   border-radius: 20px;
   padding: 10px 18px;
   max-width: 78%;
+}
+
+/* A long user message, folded to its first lines */
+.bubble.folded .bubble-body {
+  max-height: 240px;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 65%, transparent);
+}
+
+.show-more {
+  display: block;
+  margin: 6px 0 0 auto;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.show-more:hover {
+  color: var(--text);
+}
+
+/* Files attached to a sent message */
+.msg-attachments {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 78%;
+}
+
+.msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.msg-images img {
+  display: block;
+  max-width: min(320px, 100%);
+  max-height: 240px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.file-chip:hover {
+  background: var(--surface);
+}
+
+.file-chip .muted {
+  flex-shrink: 0;
+  font-size: 12px;
 }
 
 .msg-system {
@@ -1593,15 +1770,103 @@ details.sub .model-picker {
   border: 1px solid var(--border);
   border-radius: 26px;
   background: var(--surface);
-  padding: 10px 10px 10px 20px;
+  padding: 10px 10px 10px 10px;
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 8px;
   box-shadow: var(--shadow);
+  transition: border-color 0.15s ease;
+}
+
+.composer.dragging {
+  border-color: var(--text);
+  border-style: dashed;
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.composer .attach-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+}
+
+.composer-notice {
+  margin: 0 0 8px;
+}
+
+/* Files waiting to be sent */
+.attach-tray {
+  list-style: none;
+  margin: 0;
+  padding: 2px 2px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attach-tray li {
+  position: relative;
+}
+
+.attach-thumb img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  max-width: 260px;
+  padding: 0 30px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  font-size: 13px;
+}
+
+.attach-chip .muted {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.attach-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 13px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+
+.attach-chip .attach-remove {
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  background: var(--surface-2);
+  color: var(--muted);
 }
 
 .composer textarea {
   flex: 1;
+  min-width: 0;
   border: none;
   background: transparent;
   resize: none;
@@ -1988,18 +2253,33 @@ details.sub summary {
     background: var(--bg);
   }
 
-  .chat-head {
+  .chat-head,
+  .sidebar-collapsed .chat-head {
     padding-left: 56px;
   }
 
-  .chat-title {
-    flex: 1;
-    max-width: none;
+  /* The drawer replaces collapsing on small screens. */
+  .sidebar-collapsed .sidebar {
+    margin-left: 0;
+    visibility: visible;
   }
 
-  .team-chips {
-    order: 3;
+  .sidebar-tools,
+  .brand .collapse-sidebar {
+    display: none;
+  }
+
+  .chat-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .chat-head-main {
     flex-basis: 100%;
+  }
+
+  .chat-head-actions {
+    flex-wrap: wrap;
   }
 
   .page-inner {

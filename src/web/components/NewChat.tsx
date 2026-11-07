@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  PROVIDERS,
   PROVIDER_LABEL,
+  type AgentConfig,
   type Conversation,
   type LeadAgentSettings,
   type ProviderModels,
@@ -9,14 +11,18 @@ import {
 } from '../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
-import { PROVIDER_COLOR, leadLabel } from '../util';
+import { leadLabel, newAgent } from '../util';
+import { PencilIcon } from './icons';
 import { Logo } from './Logo';
+import { MemberDots } from './MemberDots';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 
 const LAST_CWD_KEY = 'relay:lastCwd';
 const LAST_CHOICE_KEY = 'relay:lastTemplate';
 /** The "Auto team" card: the lead agent designs the team from the first message. */
 const AUTO = 'auto';
+/** The "Design your own" card: a blank team the user fills in. */
+const CUSTOM = 'custom';
 
 function read(key: string): string {
   try {
@@ -44,6 +50,14 @@ function fromPreset(p: TeamPreset, cwd: string): Team {
 
 function autoTeam(cwd: string, permission: Team['settings']['permission']): Team {
   return { agents: [], settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission, cwd, autoTeam: true } };
+}
+
+/** One member per CLI that is ready to use (all of them when none is known yet), roles left to the user. */
+function blankTeam(cwd: string, permission: Team['settings']['permission'], providers: ProviderStatus[]): Team {
+  const ready = providers.filter((s) => s.installed && (s.auth.loggedIn !== false || s.usingStoredApiKey)).map((s) => s.provider);
+  const agents: AgentConfig[] = [];
+  for (const p of ready.length ? ready : PROVIDERS) agents.push(newAgent(p, agents.map((a) => a.name)));
+  return { agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission, cwd } };
 }
 
 interface Props {
@@ -74,9 +88,18 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         initialized.current = true;
         // Start from the last choice (auto team the first time).
         const cwd = read(LAST_CWD_KEY) || settings.defaultCwd;
-        const preset = ps.find((p) => p.id === read(LAST_CHOICE_KEY));
-        setChoice(preset ? preset.id : AUTO);
-        setTeam(preset ? fromPreset(preset, cwd) : autoTeam(cwd, 'read-only'));
+        const last = read(LAST_CHOICE_KEY);
+        const preset = ps.find((p) => p.id === last);
+        if (preset) {
+          setChoice(preset.id);
+          setTeam(fromPreset(preset, cwd));
+        } else if (last === CUSTOM) {
+          setChoice(CUSTOM);
+          setTeam(blankTeam(cwd, 'read-only', providers));
+        } else {
+          setChoice(AUTO);
+          setTeam(autoTeam(cwd, 'read-only'));
+        }
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, [lang]);
@@ -91,6 +114,10 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
     setChoice(id);
     if (id === AUTO) {
       setTeam(autoTeam(team.settings.cwd, team.settings.permission));
+      return;
+    }
+    if (id === CUSTOM) {
+      setTeam(blankTeam(team.settings.cwd, team.settings.permission, providers));
       return;
     }
     const p = presets.find((x) => x.id === id);
@@ -140,9 +167,9 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
 
         <section>
           <div className="section-head">
-            <h3>{t.newChat.templates}</h3>
+            <h3>{t.newChat.buildTeam}</h3>
           </div>
-          <div className="preset-row">
+          <div className="preset-row build-modes">
             <div className={`preset-card auto ${choice === AUTO ? 'on' : ''}`}>
               <button className="preset-main" onClick={() => pick(AUTO)} aria-pressed={choice === AUTO}>
                 <Logo size={18} />
@@ -150,14 +177,26 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
                 <span className="muted small">{t.newChat.autoDescription(leadText)}</span>
               </button>
             </div>
+            <div className={`preset-card custom ${choice === CUSTOM ? 'on' : ''}`}>
+              <button className="preset-main" onClick={() => pick(CUSTOM)} aria-pressed={choice === CUSTOM}>
+                <PencilIcon />
+                <strong>{t.newChat.customName}</strong>
+                <span className="muted small">{t.newChat.customDescription}</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="section-head">
+            <h3>{t.newChat.templates}</h3>
+            <span className="muted small">{t.newChat.templatesHint}</span>
+          </div>
+          <div className="preset-row">
             {presets.map((p) => (
               <div key={p.id} className={`preset-card ${choice === p.id ? 'on' : ''}`}>
                 <button className="preset-main" onClick={() => pick(p.id)} aria-pressed={choice === p.id}>
-                  <span className="preset-dots">
-                    {p.agents.map((a) => (
-                      <i key={a.id} style={{ background: PROVIDER_COLOR[a.provider] }} />
-                    ))}
-                  </span>
+                  <MemberDots agents={p.agents} className="preset-dots" max={6} />
                   <strong>{p.name}</strong>
                   {p.description && <span className="muted small">{p.description}</span>}
                 </button>
@@ -173,6 +212,15 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
 
         <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} />
 
+        {!auto && (
+          <div className="save-template-row">
+            <span className="muted small">{t.newChat.saveTemplateHint}</span>
+            <button className="ghost" onClick={savePreset} disabled={problems.length > 0}>
+              {t.newChat.saveTemplate}
+            </button>
+          </div>
+        )}
+
         <footer className="start-bar">
           <input
             className="title-input"
@@ -180,11 +228,6 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
             placeholder={t.newChat.titlePlaceholder}
             onChange={(e) => setTitle(e.target.value)}
           />
-          {!auto && (
-            <button className="ghost" onClick={savePreset} disabled={problems.length > 0}>
-              {t.newChat.saveTemplate}
-            </button>
-          )}
           <button className="primary" onClick={start} disabled={busy || problems.length > 0}>
             {busy ? t.newChat.creating : t.newChat.start}
           </button>

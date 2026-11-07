@@ -1,6 +1,7 @@
 import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
   PROVIDER_LABEL,
+  isInlineImage,
   type ApprovalAnswer,
   type ChatMessage,
   type Conversation,
@@ -8,11 +9,13 @@ import {
   type MessagePart,
   type PlanEntry,
 } from '../../shared/types';
+import { api } from '../api';
 import { messageText, planHeadline } from '../copy';
 import { useT } from '../i18n';
-import { PROVIDER_COLOR, formatDuration, formatTokens, initials, leadLabel } from '../util';
+import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
 import { ChangesCard, type ApplyState } from './ChangesCard';
 import { CopyButton } from './CopyButton';
+import { PaperclipIcon } from './icons';
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 
@@ -349,13 +352,85 @@ function PlanCard({ msg, onSavePlan, onAdjustTeam }: Pick<Props, 'msg' | 'onSave
 }
 
 /** One of the user's messages, editable in place. */
+/** Files attached to a user message: image thumbnails, and chips for other files. */
+function Attachments({ msg, convId }: { msg: ChatMessage; convId: string }) {
+  const t = useT();
+  const files = msg.parts.flatMap((p) => (p.type === 'attachment' ? [p] : []));
+  if (!files.length) return null;
+  const images = files.filter((f) => isInlineImage(f.mimeType));
+  const others = files.filter((f) => !isInlineImage(f.mimeType));
+  return (
+    <div className="msg-attachments">
+      {images.length > 0 && (
+        <div className="msg-images">
+          {images.map((f) => (
+            <a key={f.id} href={api.attachmentUrl(convId, f.id)} target="_blank" rel="noreferrer" title={t.message.openImage(f.name)}>
+              <img src={api.attachmentUrl(convId, f.id)} alt={f.name} loading="lazy" />
+            </a>
+          ))}
+        </div>
+      )}
+      {others.map((f) => (
+        <a key={f.id} className="file-chip" href={api.attachmentUrl(convId, f.id)} download={f.name} title={t.message.download(f.name)}>
+          <PaperclipIcon size={14} />
+          <span className="ellipsis">{f.name}</span>
+          <span className="muted">{formatBytes(f.size)}</span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+/** Height a long user message is folded to (CSS `.bubble.folded`), and how much longer it must be to fold. */
+const FOLDED_HEIGHT = 240;
+const FOLD_MARGIN = 80;
+
+/** A user message's text; long ones are folded to a few lines with "Show more". */
+function UserBubble({ text, mentions }: { text: string; mentions: string[] }) {
+  const t = useT();
+  const body = useRef<HTMLDivElement>(null);
+  const [long, setLong] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    const measure = () => setLong(el.scrollHeight > FOLDED_HEIGHT + FOLD_MARGIN);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [text]);
+
+  const toggle = () => {
+    setOpen((o) => !o);
+    // Folding a long message back: keep it in view instead of leaving the reader far below it.
+    if (open) requestAnimationFrame(() => body.current?.closest('.msg-user')?.scrollIntoView({ block: 'nearest' }));
+  };
+
+  return (
+    <div className={`bubble ${long && !open ? 'folded' : ''}`}>
+      <div className="bubble-body" ref={body}>
+        <Markdown text={text} mentions={mentions} />
+      </div>
+      {long && (
+        <button type="button" className="show-more" onClick={toggle} aria-expanded={open}>
+          {open ? t.message.showLess : t.message.showMore}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function UserMessage({
   msg,
+  convId,
   mentionNames,
   canEdit,
   onResend,
 }: {
   msg: ChatMessage;
+  convId: string;
   mentionNames: string[];
   canEdit: boolean;
   onResend: Props['onResend'];
@@ -377,9 +452,8 @@ function UserMessage({
   if (draft === null) {
     return (
       <div className="msg-user">
-        <div className="bubble">
-          <Markdown text={text} mentions={mentionNames} />
-        </div>
+        <Attachments msg={msg} convId={convId} />
+        {text && <UserBubble text={text} mentions={mentionNames} />}
         <div className="msg-actions">
           <CopyButton text={() => text} />
           {canEdit && (
@@ -392,7 +466,8 @@ function UserMessage({
     );
   }
 
-  const ready = draft.trim().length > 0 && canEdit && !sending;
+  const hasFiles = msg.parts.some((p) => p.type === 'attachment');
+  const ready = (draft.trim().length > 0 || hasFiles) && canEdit && !sending;
   const submit = async () => {
     if (!ready) return;
     setSending(true);
@@ -413,6 +488,7 @@ function UserMessage({
 
   return (
     <div className="msg-user">
+      <Attachments msg={msg} convId={convId} />
       <div className="edit-box">
         <textarea
           ref={ref}
@@ -463,7 +539,7 @@ export const MessageItem = memo(function MessageItem({
   }
 
   if (msg.author.kind === 'user') {
-    return <UserMessage msg={msg} mentionNames={mentionNames} canEdit={!running} onResend={onResend} />;
+    return <UserMessage msg={msg} convId={conv.id} mentionNames={mentionNames} canEdit={!running} onResend={onResend} />;
   }
 
   const agentId = msg.author.agentId;

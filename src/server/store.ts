@@ -122,6 +122,8 @@ function toPart(r: PartRow): MessagePart {
       return { type: 'plan', entries: parseJson(r.data, []) };
     case 'approval':
       return { type: 'approval', ...parseJson(r.data, { id: '', kind: 'other' as const, status: 'expired' as const }) };
+    case 'attachment':
+      return { type: 'attachment', ...parseJson(r.data, { id: '', name: 'file', mimeType: 'application/octet-stream', size: 0 }) };
     default:
       return { type: 'text', text: r.text ?? '' };
   }
@@ -137,7 +139,8 @@ function partColumns(p: MessagePart): (string | null)[] {
       return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), null];
     case 'plan':
       return [null, null, null, null, null, null, null, JSON.stringify(p.entries)];
-    case 'approval': {
+    case 'approval':
+    case 'attachment': {
       const { type: _type, ...data } = p;
       return [null, null, null, null, null, null, null, JSON.stringify(data)];
     }

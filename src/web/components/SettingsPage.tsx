@@ -359,7 +359,11 @@ function ProviderCard({
       <details className="sub">
         <summary>API key{settings?.apiKeyMasked ? t.settings.apiKeySet(settings.apiKeyMasked) : ''}</summary>
         <div className="sub-body">
-          <p className="muted small">{t.settings.apiKeyHelp[provider]}</p>
+          <p className="muted small">
+            {t.settings.apiKeyHelp[provider]}
+            {settings?.apiKeyStorage && t.settings.keyStorage(t.settings.keyStorageName[settings.apiKeyStorage])}
+            {settings?.apiKeyStorage === 'database' && t.settings.keyEnvHint(provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY')}
+          </p>
           <div className="input-row">
             <input
               type="password"

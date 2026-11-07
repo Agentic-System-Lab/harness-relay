@@ -48,9 +48,11 @@ The panel turns green with **Signed in ✓** when the CLI finishes. Expand **CLI
 
 Under **API key** on each card:
 
-- **Claude Code** — stored by Harness Relay and passed as `ANTHROPIC_API_KEY` (API billing; it takes precedence over your subscription login).
-- **Grok** — stored by Harness Relay and passed as `XAI_API_KEY`.
+- **Claude Code** — passed as `ANTHROPIC_API_KEY` (API billing; it takes precedence over your subscription login).
+- **Grok** — passed as `XAI_API_KEY`.
 - **Codex** — handed to `codex login --with-api-key`; Codex stores it and it replaces the ChatGPT login.
+
+Harness Relay keeps the Claude Code and Grok keys in your system's credential store, filed under `harness-relay`: the macOS Keychain, Windows Credential Manager, or the Secret Service on Linux (GNOME Keyring, KWallet). The card says where. On a system without one — such as a Linux server with no desktop session — keys are kept in the database instead, readable only by your user; if you'd rather not, leave the field empty and set `ANTHROPIC_API_KEY` / `XAI_API_KEY` in the environment before starting Harness Relay. Keys saved by an earlier version are moved out of the database the next time the server starts. macOS may ask whether `node` may use the key (for example after Node.js is updated); choose **Always Allow**.
 
 ### Default model and reasoning effort
 
@@ -64,7 +66,11 @@ Under **Default model and reasoning effort** choose what an agent uses when its 
 
 ## 3. Design the team — New chat
 
-Click **＋ New chat**. Pick **Auto team** or a template, adjust the team if you like, and click **Start chat →**. The page remembers your last choice.
+Click **＋ New chat**. Under **How to build the team**, choose **Auto team** or **Design your own** — or pick one of the **Templates** below them. Adjust the team if you like, and click **Start chat →**. The page remembers your last choice.
+
+**Design your own** starts from a blank team: one member for each CLI that is ready to use, with empty roles. Write each member's position, add or remove members, and set the conversation rules (see [Team members](#team-members) and [Conversation rules](#conversation-rules)).
+
+Below the conversation rules, **Save as template** saves the current members and rules as a template, which then appears under **Templates** for new chats.
 
 ### Auto team
 
@@ -87,7 +93,7 @@ With **Auto team** you don't design the team yourself. When you send your first 
 | General-question panel | Roundtable, read-only | Analyst → Critic → Synthesizer; for any question, not just code |
 | Pair programming + QA | Roundtable, edit | Navigator guides, Driver codes, QA tests |
 
-Choosing a template fills in the team below; you can change anything. **Save as template** saves the current team for later; saved templates can be deleted with ×. Built-in templates follow the UI language.
+Choosing a template fills in the team below; you can change anything, then save the result with **Save as template**. Saved templates can be deleted with ×. Built-in templates follow the UI language.
 
 ### Team members
 
@@ -132,8 +138,10 @@ Add members with **＋ Claude Code / ＋ Codex / ＋ Grok** (up to 8).
 ## 4. Chat
 
 - **Send** with Enter; Shift+Enter for a new line. While typing with an input method (e.g. Chinese), Enter confirms the candidate and does not send.
+- **Attach files** — paste an image (such as a screenshot) straight into the message box, drag files onto it, or click 📎. Up to 10 files of 20 MB each per message, with or without text. Every agent that reads the message gets each file's path to open with its own tools, and images (PNG, JPEG, GIF, WebP) are also shown to it directly. Sent images appear as thumbnails (click to open the full image); other files as chips you can download.
+- **Long questions** are folded to their first lines in the chat; click **Show more** to read the whole message (and **Show less** to fold it again).
 - **`@mention`** — type `@` to pick a teammate. When your message mentions agents, **only those agents reply** (in relay mode they start the relay). Without mentions, the whole team takes part according to the mode.
-- **Streaming** — replies appear as they're written. Tool activity (file reads, edits, shell commands) is grouped in a collapsible row; a spinning icon shows the step in progress, and a refused or failed step shows its reason. The team chips in the header highlight who is speaking.
+- **Streaming** — replies appear as they're written. Tool activity (file reads, edits, shell commands) is grouped in a collapsible row; a spinning icon shows the step in progress, and a refused or failed step shows its reason. The team chips under the title highlight who is speaking; with a large team the row scrolls sideways (the mouse wheel works too) and follows the speaker.
 - **■ Stop** — stops the current run and kills the agents' processes.
 - **Continue ↻** — lets the team go on without a new message (another set of rounds, or another relay starting from the leader). Useful after a relay hits its hand-off limit.
 - **Passed replies** — an agent with nothing to add replies `[PASS]`; it is shown dimmed as *Nothing to add (PASS)*.
@@ -182,7 +190,9 @@ The sidebar lists conversations, newest first, each with its state:
 | **New reply** (green, bold title) | It finished while you were looking at something else. |
 | **Error** (red) | The last reply ended with an error you haven't looked at yet. |
 
-Conversations keep running when you switch to another one (or close the tab); the badges update by themselves. Click the title in the chat header to rename; hover a conversation and click × to delete it.
+Conversations keep running when you switch to another one (or close the tab); the badges update by themselves. Click the title in the chat header to rename; hover a conversation and click × to delete it. A conversation with a large team shows its first few member dots and a **+N** count.
+
+To make room, collapse the sidebar with the panel button next to *Harness Relay*. Two buttons stay in the top-left corner: one brings the sidebar back, the other starts a new chat. The choice is remembered in this browser. (On a phone the sidebar is a drawer opened with ☰ instead.)
 
 ## 5. Tips for writing roles
 
@@ -194,7 +204,7 @@ Conversations keep running when you switch to another one (or close the tab); th
 
 ## 6. Where data is stored
 
-All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`). Your language choice and whether you finished the tour are kept in the browser. Back up by copying `data/` while the app is stopped.
+All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`). Your language choice and whether you finished the tour are kept in the browser. Back up by copying `data/` while the app is stopped.
 
 ## 7. Troubleshooting
 
@@ -210,5 +220,6 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | Apply reports a conflict | Your working directory changed since the agents started. Nothing was applied; send a new message so the agents start again from the current state, or merge the agent's `relay/…` branch yourself. |
 | Agent in parallel mode can't run tests | Worktrees don't contain ignored files such as `node_modules/`; ask the agent to install dependencies in its worktree first. |
 | An agent seems stuck | Look for a **Needs you** badge or an approval card: it may be waiting for your answer. |
+| Saving an API key fails (*Could not save the API key to the system credential store*) | The keychain / keyring is locked or access was denied. Unlock it (or allow access when asked) and save again, or set the environment variable instead. |
 | Some messages are in the other language | System notes and errors are written in the language that was active when they happened; switching language doesn't translate them. |
 | Port already in use | Start with another port: `PORT=8790 npm run dev` (the UI proxy follows `PORT`). |

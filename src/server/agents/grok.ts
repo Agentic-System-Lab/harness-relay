@@ -5,14 +5,26 @@ import { JsonRpcConnection, RpcError } from './acp';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
+  imageData,
   summarizeInput,
   tailText,
   type AgentEvent,
   type AgentRunner,
   type ApprovalRequest,
+  type RunOptions,
   type RunResult,
 } from './types';
 import { t } from '../i18n';
+
+/** ACP prompt blocks: the text, plus attached images (Grok advertises promptCapabilities.image). */
+export function grokPrompt(prompt: string, images: RunOptions['images']): unknown[] {
+  const blocks: unknown[] = [{ type: 'text', text: prompt }];
+  for (const img of images ?? []) {
+    const data = imageData(img.path);
+    if (data) blocks.push({ type: 'image', data, mimeType: img.mimeType });
+  }
+  return blocks;
+}
 
 /*
  * Grok runs as an ACP agent (`grok agent stdio`: JSON-RPC over stdin/stdout), not headless `grok -p`.
@@ -351,7 +363,7 @@ export const grokRunner: AgentRunner = {
           });
       }
 
-      const result = await conn.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: o.prompt }] });
+      const result = await conn.request('session/prompt', { sessionId, prompt: grokPrompt(o.prompt, o.images) });
       updates.finish();
       if (userAborted) throw new AgentRunError(t().stopped, true);
       if (result?.stopReason === 'cancelled') throw new AgentRunError(describeGrokCancel(updates.lastFailure, o.permission));

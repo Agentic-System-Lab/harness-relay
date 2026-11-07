@@ -199,7 +199,8 @@ export function openDatabase(file: string): Database {
     chmodSync(file, 0o600); // SQLite gives the -wal / -shm files the same mode
   }
   const db = new DatabaseSync(file);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+  // secure_delete: overwrite deleted content (removed API keys, deleted chats) instead of leaving it in free pages.
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA secure_delete = ON;');
   migrate(db);
   return db;
 }

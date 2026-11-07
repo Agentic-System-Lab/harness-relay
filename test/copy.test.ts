@@ -98,4 +98,23 @@ describe('copying a conversation', () => {
     expect(md).toContain('**User**\n\n幫我整理重點');
     expect(md).not.toContain('使用者');
   });
+
+  it('lists the files attached to a user message', () => {
+    const withFiles: Conversation = {
+      ...conv,
+      messages: [
+        {
+          id: 'u',
+          author: { kind: 'user' },
+          createdAt: 1,
+          status: 'done',
+          parts: [
+            { type: 'text', text: 'Look at this' },
+            { type: 'attachment', id: 'f', name: 'screen.png', mimeType: 'image/png', size: 10 },
+          ],
+        },
+      ],
+    };
+    expect(conversationMarkdown(withFiles, en)).toContain('**User**\n\nLook at this\n\n📎 screen.png');
+  });
 });

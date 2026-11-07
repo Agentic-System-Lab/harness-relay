@@ -9,7 +9,7 @@ import {
   type ProviderStatus,
   type ServerEvent,
 } from '../../shared/types';
-import { api } from '../api';
+import { api, type AttachmentUpload } from '../api';
 import { conversationMarkdown } from '../copy';
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
@@ -74,6 +74,30 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   const [diff, setDiff] = useState<{ title: string; load: () => Promise<string> } | null>(null);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const chipsRef = useRef<HTMLDivElement>(null);
+  // The team row fades out on the right while more chips are hidden there.
+  const [moreChips, setMoreChips] = useState(false);
+  useEffect(() => {
+    const row = chipsRef.current;
+    if (!row) return;
+    const check = () => setMoreChips(row.scrollLeft + row.clientWidth < row.scrollWidth - 1);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(row);
+    row.addEventListener('scroll', check, { passive: true });
+    return () => {
+      observer.disconnect();
+      row.removeEventListener('scroll', check);
+    };
+  }, [state.conv?.agents.length]);
+
+  // Keep whoever is speaking visible in the team row (it scrolls when the team is large).
+  useEffect(() => {
+    const row = chipsRef.current;
+    const chip = row?.querySelector<HTMLElement>('.team-chip.speaking');
+    if (!row || !chip || row.scrollWidth <= row.clientWidth) return;
+    row.scrollTo({ left: chip.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2, behavior: 'smooth' });
+  }, [state.active]);
   const stick = useRef(true);
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
@@ -223,11 +247,11 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   const waitingForTeam = autoTeam && conv.agents.length === 0;
   const leadText = leadLabel(lead ?? { provider: 'claude' });
 
-  const send = async (text: string) => {
+  const send = async (text: string, attachments: AttachmentUpload[]) => {
     setError('');
     try {
       stick.current = true;
-      await api.send(conv.id, text);
+      await api.send(conv.id, text, attachments);
       return true;
     } catch (e) {
       setError((e as Error).message);
@@ -244,41 +268,52 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   return (
     <div className="chat">
       <header className="chat-head">
-        <button className="chat-title" onClick={rename} title={t.chat.rename}>
-          {conv.title}
-        </button>
-        <div className="team-chips">
-          {waitingForTeam && <span className="team-chip auto-chip">✦ {t.chat.autoTeam}</span>}
-          {conv.agents.map((a) => (
-            <span
-              key={a.id}
-              className={`team-chip ${active.includes(a.id) ? 'speaking' : ''}`}
-              style={{ ['--accent' as string]: PROVIDER_COLOR[a.provider] }}
-              title={`${PROVIDER_LABEL[a.provider]}${modelSummary(a, t) ? ` · ${modelSummary(a, t)}` : ''}\n${a.role}`}
-            >
-              <span className="avatar sm">{initials(a.name)}</span>@{a.name}
-            </span>
-          ))}
+        <div className="chat-head-main">
+          <button className="chat-title" onClick={rename} title={t.chat.rename}>
+            {conv.title}
+          </button>
+          {/* One row that scrolls sideways when the team is large (the wheel scrolls it too). */}
+          <div
+            className={`team-chips ${moreChips ? 'more' : ''}`}
+            ref={chipsRef}
+            onWheel={(e) => {
+              if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY;
+            }}
+          >
+            {waitingForTeam && <span className="team-chip auto-chip">✦ {t.chat.autoTeam}</span>}
+            {conv.agents.map((a) => (
+              <span
+                key={a.id}
+                className={`team-chip ${active.includes(a.id) ? 'speaking' : ''}`}
+                style={{ ['--accent' as string]: PROVIDER_COLOR[a.provider] }}
+                title={`${PROVIDER_LABEL[a.provider]}${modelSummary(a, t) ? ` · ${modelSummary(a, t)}` : ''}\n${a.role}`}
+              >
+                <span className="avatar sm">{initials(a.name)}</span>@{a.name}
+              </span>
+            ))}
+          </div>
         </div>
-        {!waitingForTeam && (
-          <span className="badge" title={t.modes[conv.settings.mode].hint}>
-            {t.modes[conv.settings.mode].label} ·{' '}
-            {conv.settings.mode === 'relay' ? t.chat.hops(conv.settings.maxHops) : t.chat.rounds(conv.settings.rounds)}
+        <div className="chat-head-actions">
+          {!waitingForTeam && (
+            <span className="badge" title={t.modes[conv.settings.mode].hint}>
+              {t.modes[conv.settings.mode].label} ·{' '}
+              {conv.settings.mode === 'relay' ? t.chat.hops(conv.settings.maxHops) : t.chat.rounds(conv.settings.rounds)}
+            </span>
+          )}
+          <span className={`badge ${conv.settings.permission === 'full' ? 'danger' : ''}`}>
+            {t.permissions[conv.settings.permission].label}
           </span>
-        )}
-        <span className={`badge ${conv.settings.permission === 'full' ? 'danger' : ''}`}>
-          {t.permissions[conv.settings.permission].label}
-        </span>
-        <CopyButton
-          className="ghost small-button"
-          label={t.chat.copyChat}
-          title={t.chat.copyChatTitle}
-          disabled={conv.messages.length === 0}
-          text={() => (convRef.current ? conversationMarkdown(convRef.current, tRef.current) : '')}
-        />
-        <button className="ghost small-button" onClick={() => setTeamOpen(true)}>
-          {t.chat.teamSettings}
-        </button>
+          <CopyButton
+            className="ghost small-button"
+            label={t.chat.copyChat}
+            title={t.chat.copyChatTitle}
+            disabled={conv.messages.length === 0}
+            text={() => (convRef.current ? conversationMarkdown(convRef.current, tRef.current) : '')}
+          />
+          <button className="ghost small-button" onClick={() => setTeamOpen(true)}>
+            {t.chat.teamSettings}
+          </button>
+        </div>
       </header>
 
       {!connected && !error && <div className="banner">{t.chat.reconnecting}</div>}
@@ -344,7 +379,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
           }
           onSend={send}
           onStop={() => api.stop(conv.id).catch((e: Error) => setError(e.message))}
-          onContinue={() => void send('')}
+          onContinue={() => void send('', [])}
         />
         <p className="cwd-line muted small" title={conv.settings.cwd}>
           📁 {conv.settings.cwd}

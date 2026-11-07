@@ -1,3 +1,4 @@
+import { readFileSync, statSync } from 'node:fs';
 import type { ApprovalAnswer, ApprovalKind, Permission, PlanEntry, Provider } from '../../shared/types';
 
 /** Normalised events every CLI adapter emits while an agent is working. */
@@ -49,6 +50,24 @@ export interface RunOptions {
    * Absent when the conversation refuses such requests automatically.
    */
   requestApproval?: (req: ApprovalRequest) => Promise<ApprovalAnswer>;
+  /** Images the user attached to the messages in this prompt, passed to the CLI as images. */
+  images?: { path: string; mimeType: string }[];
+  /** Folder holding the conversation's attached files (their paths are listed in the prompt). */
+  attachmentsDir?: string;
+}
+
+/**
+ * An attached image as base64, or undefined when it is missing or too large to send inline
+ * (the agent can still read it from its path). The default limit keeps it under the Anthropic
+ * API's 5 MB per image once base64-encoded.
+ */
+export function imageData(path: string, maxBytes = 3_750_000): string | undefined {
+  try {
+    if (statSync(path).size > maxBytes) return undefined;
+    return readFileSync(path).toString('base64');
+  } catch {
+    return undefined;
+  }
 }
 
 /** Keep the end of long output (commands print their result last). */

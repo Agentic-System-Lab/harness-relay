@@ -15,6 +15,7 @@ const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { runners } = await import('../src/server/agents');
 const { PLANNER_BRIEFING } = await import('../src/server/planner');
+const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
 
 let n = 0;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -24,7 +25,13 @@ let project: string;
 /** Resolves when the fake agent may finish its turn. */
 let gate: Promise<void> = Promise.resolve();
 /** Every fake CLI run, in order. */
-let calls: { name: string; sessionId?: string; prompt: string }[] = [];
+let calls: {
+  name: string;
+  sessionId?: string;
+  prompt: string;
+  images?: { path: string; mimeType: string }[];
+  attachmentsDir?: string;
+}[] = [];
 /** What the fake lead agent replies when asked to design a team (auto team). */
 let leadReply = '';
 
@@ -40,7 +47,7 @@ beforeAll(() => {
         return { costUsd: 0.01 };
       }
       const name = /You are @(\w+)/.exec(o.systemPrompt)![1]!;
-      calls.push({ name, sessionId: o.sessionId, prompt: o.prompt });
+      calls.push({ name, sessionId: o.sessionId, prompt: o.prompt, images: o.images, attachmentsDir: o.attachmentsDir });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
       await gate;
@@ -418,5 +425,83 @@ describe('retrying a reply', () => {
     const reply = agentMessages(conv)[0]!;
     conv.agents = [agents[1]!];
     await expect(orchestrator.retry(conv.id, reply.id)).rejects.toThrow(/不在團隊中/);
+  });
+});
+
+describe('attached files', () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const uploads = () => [
+    { name: 'shot.png', mimeType: 'image/png', data: png.toString('base64') },
+    { name: '../../notes.txt', mimeType: 'text/plain', data: Buffer.from('secret: marmalade\n').toString('base64') },
+  ];
+  const files = (m: { parts: { type: string }[] }) =>
+    m.parts.filter((p): p is Extract<Conversation['messages'][number]['parts'][number], { type: 'attachment' }> => p.type === 'attachment');
+
+  it('saves them, shows images to every agent and lists every file with its path', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'what is in these?', uploads());
+    await finish(conv.id);
+
+    const user = store.get(conv.id)!.messages[0]!;
+    const [image, notes] = files(user);
+    expect(image).toMatchObject({ name: 'shot.png', mimeType: 'image/png', size: png.length });
+    expect(notes!.name).toBe('notes.txt'); // no directories in names
+    expect(readFileSync(attachmentPath(conv.id, notes!), 'utf8')).toBe('secret: marmalade\n');
+
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+    for (const call of calls) {
+      expect(call.images).toEqual([{ path: attachmentPath(conv.id, image!), mimeType: 'image/png' }]);
+      expect(call.attachmentsDir).toBe(attachmentsDir(conv.id));
+      expect(call.prompt).toContain(`notes.txt (text/plain, 18 B): ${attachmentPath(conv.id, notes!)}`);
+    }
+
+    // A later message without files shows no images again.
+    calls = [];
+    await orchestrator.send(conv.id, 'thanks');
+    await finish(conv.id);
+    expect(calls.every((c) => c.images?.length === 0 && c.attachmentsDir === undefined)).toBe(true);
+  });
+
+  it('keeps the files of an edited message and deletes those of dropped messages', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'first', uploads());
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'second', [{ name: 'later.txt', mimeType: 'text/plain', data: 'aGk=' }]);
+    await finish(conv.id);
+    const before = store.get(conv.id)!.messages.filter((m) => m.author.kind === 'user');
+    const kept = files(before[0]!);
+    const dropped = files(before[1]!)[0]!;
+
+    await orchestrator.resend(conv.id, before[0]!.id, 'first, edited');
+    await finish(conv.id);
+    const user = store.get(conv.id)!.messages.filter((m) => m.author.kind === 'user');
+    expect(user).toHaveLength(1);
+    expect(files(user[0]!).map((p) => p.id)).toEqual(kept.map((p) => p.id));
+    expect(readFileSync(attachmentPath(conv.id, kept[1]!), 'utf8')).toContain('marmalade');
+    expect(() => readFileSync(attachmentPath(conv.id, dropped))).toThrow();
+  });
+
+  it('accepts a message that is only files, and rejects bad uploads', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.title = 'New chat'; // the default title, which the first message replaces
+    store.saveMeta(conv);
+    await expect(orchestrator.send(conv.id, 'x', [{ name: 'a.txt' }])).rejects.toMatchObject({ status: 400 });
+    const many = Array.from({ length: 11 }, (_, i) => ({ name: `${i}.txt`, mimeType: 'text/plain', data: 'aGk=' }));
+    await expect(orchestrator.send(conv.id, 'x', many)).rejects.toMatchObject({ status: 400 });
+    expect(store.get(conv.id)!.messages).toHaveLength(0);
+
+    await orchestrator.send(conv.id, '', [{ name: 'diagram.png', mimeType: 'image/png', data: png.toString('base64') }]);
+    await finish(conv.id);
+    const saved = store.get(conv.id)!;
+    expect(saved.messages[0]!.parts.map((p) => p.type)).toEqual(['attachment']);
+    expect(saved.title).toBe('diagram.png');
+  });
+
+  it('makes file names safe to put on disk', () => {
+    expect(safeFileName('../../etc/passwd')).toBe('passwd');
+    expect(safeFileName('C:\\Users\\me\\report.pdf')).toBe('report.pdf');
+    expect(safeFileName('.hidden')).toBe('hidden');
+    expect(safeFileName('a\u0000b:c?.txt')).toBe('a_b_c_.txt');
+    expect(safeFileName('')).toBe('file');
   });
 });

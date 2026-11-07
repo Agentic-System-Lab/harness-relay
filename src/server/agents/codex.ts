@@ -298,7 +298,10 @@ export const codexRunner: AgentRunner = {
 
       const started = await conn.request('turn/start', {
         threadId,
-        input: [{ type: 'text', text: o.prompt, text_elements: [] }],
+        input: [
+          { type: 'text', text: o.prompt, text_elements: [] },
+          ...(o.images ?? []).map((img) => ({ type: 'localImage', path: img.path })),
+        ],
       });
       turnId = started?.turn?.id;
       const turn = await turnDone;

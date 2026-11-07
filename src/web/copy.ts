@@ -9,6 +9,13 @@ export function messageText(m: ChatMessage): string {
     .join('\n\n');
 }
 
+/** The files attached to a message, one "📎 name" line each. */
+export function attachmentLines(m: ChatMessage): string {
+  return m.parts
+    .flatMap((p) => (p.type === 'attachment' ? [`📎 ${p.name}`] : []))
+    .join('\n');
+}
+
 /** One line naming the team the lead agent chose ("Using the template …"). */
 export function planHeadline(plan: TeamPlan, t: Messages): string {
   const name = plan.name ?? '';
@@ -26,7 +33,8 @@ export function conversationMarkdown(conv: Conversation, t: Messages): string {
       continue;
     }
     if (m.author.kind === 'user') {
-      if (text) blocks.push(`**${t.transcript.user}**\n\n${text}`);
+      const body = [text, attachmentLines(m)].filter(Boolean).join('\n\n');
+      if (body) blocks.push(`**${t.transcript.user}**\n\n${body}`);
       continue;
     }
     if (m.passed) continue; // "[PASS]" adds nothing to a transcript

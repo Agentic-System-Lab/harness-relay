@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ChatMessage, Conversation, TeamPreset } from '../src/shared/types';
 import { openDatabase, type Database } from '../src/server/db';
+import type { SecretStore } from '../src/server/secrets';
 import { SettingsStore } from '../src/server/settings';
 import { Store } from '../src/server/store';
 
@@ -109,6 +110,25 @@ describe('Store (SQLite)', () => {
     expect(loaded.messages[1]!.status).toBe('done');
   });
 
+  it('keeps the files attached to a user message', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const msg: ChatMessage = {
+      id: 'm9',
+      author: { kind: 'user' },
+      createdAt: 9,
+      status: 'done',
+      parts: [
+        { type: 'text', text: 'see attached' },
+        { type: 'attachment', id: 'f1', name: 'shot.png', mimeType: 'image/png', size: 1234 },
+      ],
+    };
+    conv.messages.push(msg);
+    store.saveMessage(conv.id, msg, true);
+    expect(new Store(reopen()).get(conv.id)!.messages.at(-1)!.parts).toEqual(msg.parts);
+  });
+
   it('marks messages left streaming by a crashed server as aborted', () => {
     const store = new Store(db);
     const conv = sampleConversation();
@@ -180,4 +200,77 @@ describe('SettingsStore (SQLite)', () => {
     expect(again.defaultCwd).toBe('/work');
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
+
+  it('keeps API keys in the system keyring, never in the database', () => {
+    const keyring = fakeKeyring();
+    const s = new SettingsStore(db, keyring);
+    s.update('claude', { apiKey: 'sk-ant-secret-1234' });
+    s.update('codex', { bin: '/opt/codex' });
+
+    expect(keyring.data.get('claude-api-key')).toBe('sk-ant-secret-1234');
+    expect(storedKeys()).toEqual(['', '']);
+    expect(s.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
+    const view = (v: SettingsStore) => Object.fromEntries(v.view().providers.map((p) => [p.provider, p.apiKeyStorage]));
+    expect(view(s)).toEqual({ claude: 'keychain', codex: undefined, grok: 'keychain' });
+
+    const again = new SettingsStore(reopen(), keyring);
+    expect(again.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
+    expect(again.view().providers[0]!.apiKeyMasked).toBe('sk-a…1234');
+
+    again.update('claude', { apiKey: null });
+    expect(keyring.data.has('claude-api-key')).toBe(false);
+    expect(new SettingsStore(reopen(), keyring).env('claude').ANTHROPIC_API_KEY).toBe(process.env.ANTHROPIC_API_KEY);
+    expect(readFileSync(file).includes('sk-ant-secret')).toBe(false);
+  });
+
+  it('moves keys saved in the database into the keyring and scrubs them', () => {
+    new SettingsStore(db).update('grok', { apiKey: 'xai-old-plaintext' });
+    expect(storedKeys()).toEqual(['xai-old-plaintext']);
+
+    const keyring = fakeKeyring();
+    const s = new SettingsStore(reopen(), keyring);
+    expect(keyring.data.get('grok-api-key')).toBe('xai-old-plaintext');
+    expect(storedKeys()).toEqual(['']);
+    expect(s.env('grok').XAI_API_KEY).toBe('xai-old-plaintext');
+    // Checked while the database is still open (closing would checkpoint it anyway).
+    for (const f of [file, `${file}-wal`]) {
+      expect(statSync(f, { throwIfNoEntry: false }) ? readFileSync(f).includes('xai-old-plaintext') : false).toBe(false);
+    }
+  });
+
+  it('leaves a key in the database when the keyring refuses it, and reports failed saves', () => {
+    new SettingsStore(db).update('grok', { apiKey: 'xai-stays-here' });
+    const broken: SecretStore = {
+      storage: 'secret-service',
+      get: () => null,
+      set: () => {
+        throw new Error('collection is locked');
+      },
+      delete: () => {},
+    };
+    const s = new SettingsStore(reopen(), broken);
+    expect(s.env('grok').XAI_API_KEY).toBe('xai-stays-here');
+    expect(storedKeys()).toEqual(['xai-stays-here']);
+    expect(s.view().providers.find((p) => p.provider === 'grok')!.apiKeyStorage).toBe('database');
+
+    expect(() => s.update('claude', { apiKey: 'sk-ant-x' })).toThrow(/collection is locked/);
+    expect(s.env('claude').ANTHROPIC_API_KEY).toBe(process.env.ANTHROPIC_API_KEY);
+    s.update('grok', { apiKey: null }); // removing still works, and clears the database copy
+    expect(storedKeys()).toEqual(['']);
+  });
 });
+
+function fakeKeyring(): SecretStore & { data: Map<string, string> } {
+  const data = new Map<string, string>();
+  return {
+    storage: 'keychain',
+    data,
+    get: (name) => data.get(name) ?? null,
+    set: (name, value) => void data.set(name, value),
+    delete: (name) => void data.delete(name),
+  };
+}
+
+function storedKeys(): string[] {
+  return (db.prepare('SELECT api_key FROM provider_settings ORDER BY provider').all() as { api_key: string }[]).map((r) => r.api_key);
+}

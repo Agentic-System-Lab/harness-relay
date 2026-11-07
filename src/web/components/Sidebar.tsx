@@ -2,7 +2,9 @@ import { PROVIDER_LABEL, type ConversationSummary, type ProviderStatus } from '.
 import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { useT, type Messages } from '../i18n';
-import { PROVIDER_COLOR, convStatus, relativeTime } from '../util';
+import { convStatus, relativeTime } from '../util';
+import { PanelIcon } from './icons';
+import { MemberDots } from './MemberDots';
 import { Logo } from './Logo';
 
 interface Props {
@@ -12,6 +14,8 @@ interface Props {
   seen: Record<string, number>;
   providers: ProviderStatus[];
   onDeleted: (id: string) => void;
+  /** Hide the sidebar (wide screens). */
+  onCollapse: () => void;
 }
 
 export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
@@ -20,7 +24,7 @@ export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
   return 'ok';
 }
 
-export function Sidebar({ route, conversations, seen, providers, onDeleted }: Props) {
+export function Sidebar({ route, conversations, seen, providers, onDeleted, onCollapse }: Props) {
   const t = useT();
   const remove = async (c: ConversationSummary) => {
     if (!confirm(t.sidebar.confirmDelete(c.title))) return;
@@ -34,6 +38,9 @@ export function Sidebar({ route, conversations, seen, providers, onDeleted }: Pr
         <div className="brand">
           <Logo />
           Harness Relay
+          <button className="icon-button collapse-sidebar" onClick={onCollapse} aria-label={t.app.collapseSidebar} title={t.app.collapseSidebar}>
+            <PanelIcon />
+          </button>
         </div>
         <button className="new-chat" data-tour="new-chat" onClick={() => navigate({ page: 'new' })}>
           <span aria-hidden>＋</span> {t.sidebar.newChat}
@@ -53,11 +60,7 @@ export function Sidebar({ route, conversations, seen, providers, onDeleted }: Pr
                   {c.title}
                 </span>
                 <span className="conv-meta">
-                  <span className="conv-dots">
-                    {c.agents.map((a, i) => (
-                      <i key={i} style={{ background: PROVIDER_COLOR[a.provider] }} title={`@${a.name}`} />
-                    ))}
-                  </span>
+                  <MemberDots agents={c.agents} className="conv-dots" />
                   {status && <span className={`conv-status ${status}`}>{t.sidebar.status[status]}</span>}
                   {relativeTime(c.updatedAt, t)}
                 </span>

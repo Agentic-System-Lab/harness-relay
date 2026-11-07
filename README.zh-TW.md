@@ -2,14 +2,23 @@
 
 # Harness Relay
 
+[![CI](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml)
+
 一個類似 ChatGPT 的群組聊天室，讓 **Claude Code、Codex 和 Grok** 一起處理你的程式碼或任何問題，並且彼此溝通。
 
 每次對話開始前，你先設計這個團隊：替每個 coding agent 決定定位（架構師、實作者、審查者、魔鬼代言人……）、選擇模型與推理強度，以及他們輪流發言的方式。Harness Relay 會在你的電腦上驅動真正的 CLI，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
 
+## 示範
+
+[![Harness Relay 示範：首席 agent 設計團隊，接著 Claude Code、Codex 與 Grok 閱讀程式碼並回答](docs/media/demo-zh-TW.webp)](docs/media/demo-zh-TW.mp4)
+
+在這個 repository 上使用自動組隊：首席 agent 先替問題設計團隊，接著 Claude Code、Codex 與 Grok 同時閱讀程式碼並各自回答，它們的思考與工具呼叫會即時出現在聊天中，超出權限的動作則以核准卡片詢問（agent 工作的片段已加速）。[觀看完整畫質影片（MP4）](docs/media/demo-zh-TW.mp4)。
+
 ## 功能
 
 - **三個 coding agent 同一個聊天室**：直接使用你已安裝的 `claude`、`codex`、`grok` CLI，保有它們各自的工具、session 與登入狀態。
-- **每個對話各自設計團隊**：角色、模型、推理強度、發言順序；內建五個範本（寫程式與一般問題），也能儲存自己的範本。對話中也能隨時修改角色。
+- **每個對話各自設計團隊**：角色、模型、推理強度、發言順序；可以從空白團隊自行設計，也能從五個內建範本（寫程式與一般問題）或自己存的範本開始。對話中也能隨時修改角色。
+- **附加檔案**：直接貼上截圖、拖曳檔案或按 📎；每個 agent 都拿得到檔案，圖片也會直接交給三種 CLI 看。
 - **自動組隊**：讓首席 agent 讀你的第一個問題，挑選範本或設計更適合的團隊；它設計的團隊可以存成範本。
 - **agent 之間互相溝通**，三種對話模式：
   - **圓桌**：依序發言、互相接續，最多 N 輪；所有人都回覆 `[PASS]` 時提前結束。
@@ -43,7 +52,7 @@ npm install
 npm run dev
 ```
 
-打開 **http://localhost:5173**，先到「**設定與登入**」確認每個 agent 都已登入，再點「**新對話**」、挑一個範本，就可以開始對話。
+打開 **http://localhost:5173**，先到「**設定與登入**」確認每個 agent 都已登入，再點「**新對話**」，選自動組隊、自行設計或挑一個範本，就可以開始對話。
 
 以單一伺服器方式執行（正式環境）：
 
@@ -64,6 +73,8 @@ npm start          # 在 http://127.0.0.1:8787 同時提供介面與 API
 
 agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**或**完全存取**）。完全存取會讓 agent 不經詢問就執行任何指令，請只在你信任的目錄使用。伺服器只綁定 `127.0.0.1` 並拒絕跨站請求，但任何能存取你電腦 localhost 的人都能操作這些 agent。詳見[架構 → 安全性](docs/architecture.zh-TW.md#安全性)。
 
+在設定頁儲存的 API key 會放在作業系統的金鑰儲存區（macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service，例如 GNOME Keyring、KWallet），而不是資料庫。只有在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，才會留在只有你的帳號能讀取的 `data/relay.db`；若想避免，可以不在設定頁儲存，改在啟動 Harness Relay 前設定 `ANTHROPIC_API_KEY` / `XAI_API_KEY`。
+
 ## 指令
 
 | 指令 | 說明 |
@@ -73,3 +84,5 @@ agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**
 | `npm start` | 由單一程序提供建置好的介面與 API |
 | `npm run typecheck` | 型別檢查伺服器、前端與測試 |
 | `npm test` | 執行測試（Vitest） |
+
+每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。

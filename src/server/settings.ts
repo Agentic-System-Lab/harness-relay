@@ -7,6 +7,8 @@ import {
   type SettingsView,
 } from '../shared/types';
 import type { Database } from './db';
+import { t } from './i18n';
+import type { SecretStore } from './secrets';
 
 export const DATA_DIR = resolve(process.env.RELAY_DATA_DIR ?? join(process.cwd(), 'data'));
 export const DB_FILE = join(DATA_DIR, 'relay.db');
@@ -50,13 +52,26 @@ function mask(key: string): string {
   return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
-/** Provider settings and app-wide settings, stored in SQLite and cached in memory. */
+/** Name of a provider's API key in the system keyring. */
+const keyName = (p: Provider) => `${p}-api-key`;
+
+/**
+ * Provider settings and app-wide settings, stored in SQLite and cached in memory.
+ *
+ * API keys go to `keyring` (the OS credential store) when there is one; without it they stay in
+ * the database, which only the current user can read.
+ */
 export class SettingsStore {
   private providers: Record<Provider, ProviderSettings>;
   private cwd: string;
   private leadAgent: LeadAgentSettings = { provider: 'claude' };
+  /** With a keyring: providers whose key is still in the database because moving it failed. */
+  private keysLeftInDb = new Set<Provider>();
 
-  constructor(private db: Database) {
+  constructor(
+    private db: Database,
+    private keyring?: SecretStore,
+  ) {
     const empty = (): ProviderSettings => ({ bin: '', apiKey: '', defaultModel: '', defaultEffort: '' });
     this.providers = { claude: empty(), codex: empty(), grok: empty() };
     const rows = db
@@ -82,6 +97,40 @@ export class SettingsStore {
         /* keep the default */
       }
     }
+    if (keyring) this.loadKeys(keyring);
+  }
+
+  /** Reads the keys from the keyring, moving any still in the database (saved before) into it. */
+  private loadKeys(keyring: SecretStore): void {
+    let moved = false;
+    for (const p of PROVIDERS) {
+      if (!API_KEY_ENV[p]) continue;
+      const s = this.providers[p];
+      if (s.apiKey) {
+        try {
+          keyring.set(keyName(p), s.apiKey);
+          if (keyring.get(keyName(p)) !== s.apiKey) throw new Error('the stored key reads back differently');
+          this.saveProvider(p); // clears the database copy
+          moved = true;
+        } catch (err) {
+          this.keysLeftInDb.add(p);
+          console.warn(`[settings] could not move the ${p} API key to the system keyring: ${(err as Error).message}`);
+        }
+        continue;
+      }
+      try {
+        s.apiKey = keyring.get(keyName(p)) ?? '';
+      } catch (err) {
+        console.warn(`[settings] could not read the ${p} API key from the system keyring: ${(err as Error).message}`);
+      }
+    }
+    // Write the scrubbed page into the database file now; until a checkpoint the old plaintext stays there.
+    if (moved) this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  }
+
+  /** The provider's key lives in the database rather than the keyring. */
+  private keyInDb(p: Provider): boolean {
+    return !this.keyring || this.keysLeftInDb.has(p);
   }
 
   /** The agent that designs the team for auto-team conversations. */
@@ -108,7 +157,7 @@ export class SettingsStore {
            bin = excluded.bin, api_key = excluded.api_key,
            default_model = excluded.default_model, default_effort = excluded.default_effort`,
       )
-      .run(p, s.bin, s.apiKey, s.defaultModel, s.defaultEffort);
+      .run(p, s.bin, this.keyInDb(p) ? s.apiKey : '', s.defaultModel, s.defaultEffort);
   }
 
   bin(p: Provider): string {
@@ -142,10 +191,23 @@ export class SettingsStore {
 
   update(p: Provider, u: ProviderSettingsUpdate): void {
     const s = this.providers[p];
+    if (u.apiKey !== undefined && API_KEY_ENV[p]) {
+      const key = (u.apiKey ?? '').trim();
+      if (this.keyring) {
+        // Never fall back to the database silently: say so and let the user decide.
+        try {
+          if (key) this.keyring.set(keyName(p), key);
+          else this.keyring.delete(keyName(p));
+        } catch (err) {
+          throw new Error(t().keyringFailed((err as Error).message));
+        }
+        this.keysLeftInDb.delete(p);
+      }
+      s.apiKey = key;
+    }
     if (u.bin !== undefined) s.bin = u.bin.trim();
     if (u.defaultModel !== undefined) s.defaultModel = u.defaultModel.trim();
     if (u.defaultEffort !== undefined) s.defaultEffort = u.defaultEffort.trim();
-    if (u.apiKey !== undefined && API_KEY_ENV[p]) s.apiKey = (u.apiKey ?? '').trim();
     this.saveProvider(p);
   }
 
@@ -157,6 +219,7 @@ export class SettingsStore {
         provider: p,
         bin: this.providers[p].bin,
         apiKeyMasked: mask(this.providers[p].apiKey),
+        apiKeyStorage: API_KEY_ENV[p] ? (this.keyInDb(p) ? 'database' : this.keyring!.storage) : undefined,
         defaultModel: this.providers[p].defaultModel,
         defaultEffort: this.providers[p].defaultEffort,
       })),

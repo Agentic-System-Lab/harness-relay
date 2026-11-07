@@ -53,6 +53,10 @@ const zhTW = {
   messageNotFound: '找不到這則訊息',
   emptyMessage: '訊息不能是空的',
   typeFirst: '請先輸入訊息',
+  badAttachment: '附加檔案的格式不正確',
+  tooManyAttachments: (n: number) => `一則訊息最多附加 ${n} 個檔案`,
+  attachmentTooLarge: (name: string, max: number) => `「${name}」太大了（上限 ${Math.round(max / 1024 / 1024)} MB）`,
+  attachmentNotFound: '找不到這個附加檔案',
   busy: '團隊還在回覆中，請先等待或按停止',
   busySettings: '團隊回覆中，無法修改設定',
   busyApply: '團隊還在回覆中，請等回覆結束再套用',
@@ -84,6 +88,7 @@ const zhTW = {
   // HTTP
   unknownProvider: (p: string) => `未知的 provider：${p}`,
   dirNotFound: (cwd: string) => `目錄不存在：${cwd}`,
+  keyringFailed: (e: string) => `無法把 API key 存進系統的金鑰儲存區：${e}`,
   noLogin: '沒有進行中的登入',
   presetNameRequired: '請輸入範本名稱',
 
@@ -147,6 +152,10 @@ const en: ServerMessages = {
   messageNotFound: 'Message not found',
   emptyMessage: 'The message cannot be empty',
   typeFirst: 'Type a message first',
+  badAttachment: 'An attached file is malformed',
+  tooManyAttachments: (n) => `You can attach up to ${n} files to one message`,
+  attachmentTooLarge: (name, max) => `"${name}" is too large (limit ${Math.round(max / 1024 / 1024)} MB)`,
+  attachmentNotFound: 'Attachment not found',
   busy: 'The team is still replying — wait or press Stop',
   busySettings: 'The team is replying; settings cannot be changed now',
   busyApply: 'The team is still replying — apply once it has finished',
@@ -175,6 +184,7 @@ const en: ServerMessages = {
 
   unknownProvider: (p) => `Unknown provider: ${p}`,
   dirNotFound: (cwd) => `Directory not found: ${cwd}`,
+  keyringFailed: (e) => `Could not save the API key to the system credential store: ${e}`,
   noLogin: 'No sign-in in progress',
   presetNameRequired: 'Enter a template name',
 

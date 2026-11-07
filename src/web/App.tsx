@@ -6,6 +6,7 @@ import { NewChat } from './components/NewChat';
 import { Onboarding, onboardingDone } from './components/Onboarding';
 import { SettingsPage } from './components/SettingsPage';
 import { Sidebar } from './components/Sidebar';
+import { PanelIcon, PlusIcon } from './components/icons';
 import { useT } from './i18n';
 
 type SeenMap = Record<string, number>;
@@ -37,6 +38,16 @@ function parseHash(): Route {
   return { page: 'new' };
 }
 
+const COLLAPSED_KEY = 'relay:sidebarCollapsed';
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function navigate(r: Route): void {
   window.location.hash = r.page === 'chat' ? `#/c/${r.id}` : r.page === 'settings' ? '#/settings' : '#/';
 }
@@ -48,7 +59,18 @@ export function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [catalog, setCatalog] = useState<ProviderModels[]>([]);
+  /** Mobile: the sidebar drawer is open. */
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  /** Wide screens: the sidebar is collapsed (remembered in this browser). */
+  const [collapsed, setCollapsedState] = useState(readCollapsed);
+  const setCollapsed = (v: boolean) => {
+    setCollapsedState(v);
+    try {
+      localStorage.setItem(COLLAPSED_KEY, v ? '1' : '0');
+    } catch {
+      /* storage unavailable */
+    }
+  };
 
   useEffect(() => {
     const onHash = () => {
@@ -129,8 +151,9 @@ export function App() {
   }, [refreshConversations]);
 
   return (
-    <div className={`app ${sidebarOpen ? 'sidebar-open' : ''}`}>
+    <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar
+        onCollapse={() => setCollapsed(true)}
         route={route}
         conversations={conversations}
         seen={seen ?? {}}
@@ -145,6 +168,16 @@ export function App() {
         <button className="menu-button" aria-label={t.app.openSidebar} onClick={() => setSidebarOpen(true)}>
           ☰
         </button>
+        {collapsed && (
+          <div className="sidebar-tools">
+            <button className="icon-button" onClick={() => setCollapsed(false)} aria-label={t.app.expandSidebar} title={t.app.expandSidebar}>
+              <PanelIcon />
+            </button>
+            <button className="icon-button" onClick={() => navigate({ page: 'new' })} aria-label={t.sidebar.newChat} title={t.sidebar.newChat}>
+              <PlusIcon />
+            </button>
+          </div>
+        )}
         {route.page === 'new' && (
           <NewChat
             providers={providers}

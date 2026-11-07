@@ -11,6 +11,7 @@
 | 語言 | TypeScript（strict）、ES modules |
 | 伺服器 | Node.js ≥ 22.13、[Hono](https://hono.dev)（`@hono/node-server`），以 `tsx` 執行（不需建置） |
 | 資料庫 | 透過內建的 `node:sqlite`（`DatabaseSync`）使用 SQLite |
+| API key | 透過 [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node) 使用作業系統的金鑰儲存區（預先編譯好的原生模組，不需編譯器） |
 | 前端 | React 19、Vite、`react-markdown` + `remark-gfm` + `rehype-highlight` |
 | 測試 | Vitest |
 
@@ -39,6 +40,8 @@ src/
     db.ts                  開啟 SQLite、遷移、transaction()
     store.ts               對話、訊息、agent session、範本
     settings.ts            provider 設定、預設工作目錄、子程序環境變數
+    secrets.ts             存放 API key 的作業系統金鑰儲存區（keyring）、可用性檢查
+    attachments.ts         訊息的附加檔案：儲存、安全檔名、交給 agent 的圖片
     presets.ts             內建團隊範本（兩種語言）
     validate.ts            agent 與設定的輸入驗證
     workspace.ts           git：自動 init、快照、worktree、diff、套用
@@ -50,8 +53,10 @@ src/
     locales/               zh-TW.ts（訊息結構的來源）、en.ts
     components/            Sidebar、NewChat、TeamEditor、ModelPicker、ChatView、
                            MessageItem（含 plan 卡片）、ChangesCard、Composer、Markdown、
-                           SettingsPage、CopyButton、Logo、Onboarding（使用導覽）
+                           SettingsPage、CopyButton、Logo、Onboarding（使用導覽）、
+                           MemberDots、icons
 test/                      Vitest 測試
+.github/workflows/ci.yml   CI：pull request 與推送到 main 時執行型別檢查、測試與建置
 docs/                      文件（English + 繁體中文）
 data/                      執行時資料（relay.db），已列入 git ignore
 ```
@@ -78,6 +83,7 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | `RELAY_DATA_DIR` | `./data` | `relay.db` 的位置 |
 | `RELAY_DEFAULT_CWD` | 程序的 cwd | 初始預設工作目錄（在設定頁修改前） |
 | `RELAY_ALLOWED_HOSTS` | — | Host/Origin 檢查額外允許的主機名稱，以逗號分隔 |
+| `RELAY_KEYRING` | — | 設為 `off` 時 API key 存在資料庫而不是作業系統的金鑰儲存區（例如用完即丟的資料目錄） |
 
 伺服器會把自己的環境變數傳給各 CLI，但移除 Claude Code 的巢狀執行變數，並加上已保存的 API key（`SettingsStore.env()`）。
 
@@ -100,7 +106,8 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | `GET /api/conversations/:id` | → `Conversation` |
 | `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation`（執行中回 409；設定 `agents` 會關閉自動組隊） |
 | `DELETE /api/conversations/:id` | 停止執行並刪除 |
-| `POST /api/conversations/:id/messages` | `{ text }`（空字串＝繼續）→ `202` |
+| `POST /api/conversations/:id/messages` | `{ text, attachments? }`（沒有文字也沒有檔案＝繼續）→ `202`。`attachments`：`[{ name, mimeType, data }]`，`data` 為 base64；最多 10 個檔案、每個 20 MB |
+| `GET /api/conversations/:id/attachments/:attachmentId` | → 附加的檔案（圖片直接顯示，其他一律下載） |
 | `PUT /api/conversations/:id/messages/:messageId` | `{ text }` → `202`：編輯使用者訊息——這則與之後的訊息都會刪除，每個 agent 開新 session，團隊重新回答（`Orchestrator.resend()`） |
 | `POST /api/conversations/:id/messages/:messageId/retry` | → `202`：刪除某則 agent 回覆與之後的內容，讓該 agent（以及同一輪中排在它後面的成員）重新回答 |
 | `POST /api/conversations/:id/approvals/:approvalId` | `{ allow, always?, note? }`：回應 agent 的核准請求（已回應或已過期時回 404） |
@@ -186,7 +193,7 @@ npx vitest test/store.test.ts
 
 目前的測試：
 
-- `test/store.test.ts`：SQLite store 與設定（存取往返、串流更新、當機復原、連帶刪除、檔案權限）。
+- `test/store.test.ts`：SQLite store 與設定（存取往返、串流更新、當機復原、連帶刪除、檔案權限），以及搭配假的金鑰儲存區測試 API key：絕不寫進資料庫、舊的資料庫金鑰會被移出並從檔案中清除、儲存區拒絕寫入的情況。
 - `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 的快照、worktree、套用、衝突）。
 - `test/orchestrator.test.ts`：把假的 runner 換進 `runners` 跑完整流程：平行模式的 worktree 隔離與套用、圓桌模式的修改紀錄、目錄鎖。
 - `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`、JSON-RPC 連線。
@@ -198,7 +205,7 @@ npx vitest test/store.test.ts
 - `test/planner.test.ts`：首席 agent 的回覆：擷取 JSON、範本與自訂團隊、驗證、改用已登入的 CLI、備援方案，以及 prompt。
 - `test/i18n.test.ts`：語言偵測（伺服器 header 與瀏覽器）、語言在非同步工作中的傳遞、雙語範本，以及兩份介面字典結構相同。
 
-`test/orchestrator.test.ts` 也涵蓋用假 agent 測試核准（詢問並等待、「本對話都允許」、拒絕時的說明、停止時過期、自動拒絕）、重試回覆、編輯使用者訊息（`resend`：之後的訊息會被刪除，每個 agent 都開新的 session），以及用假的首席 agent 測試自動組隊（自訂設計與該團隊的回答、存成範本、使用範本、備援方案，以及編輯第一個問題後重新設計）。
+`test/orchestrator.test.ts` 也涵蓋用假 agent 測試核准（詢問並等待、「本對話都允許」、拒絕時的說明、停止時過期、自動拒絕）、重試回覆、編輯使用者訊息（`resend`：之後的訊息會被刪除，每個 agent 都開新的 session），以及用假的首席 agent 測試自動組隊（自訂設計與該團隊的回答、存成範本、使用範本、備援方案，以及編輯第一個問題後重新設計），還有附加檔案（以安全檔名儲存、把圖片與路徑交給每個 agent、編輯訊息時保留、隨被刪除的訊息一起刪除、只傳檔案的訊息、錯誤的上傳）。
 
 接下來適合補上的：
 
@@ -214,7 +221,13 @@ npx vitest test/store.test.ts
 - **prompt 輔助函式**：`parseMentions`、`isPass`、`buildTurnPrompt`。
 - **更多協調器排程**：接力交棒、`[PASS]` 提前結束、接續失敗後重試，做法同 `test/orchestrator.test.ts` 的假 runner。
 
-在測試中跑真正的 agent 會花錢且需要登入，所以自動化測試請保持離線。
+在測試中跑真正的 agent 會花錢且需要登入，所以自動化測試請保持離線。測試也不會碰到真正的金鑰儲存區：`SettingsStore` 由建構子參數取得它，只有 `src/server/index.ts` 會傳入 `openSystemKeyring()`。
+
+## 持續整合（CI）
+
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時執行：`npm ci`、`npm run typecheck`、`npm test` 與 `npm run build`，在 Ubuntu 上以 Node 22（支援的最低版本）與 Node 24 各跑一次。對同一個 pull request 再次推送時會取消前一次的執行。推送前請先在本機跑過同樣的指令。
+
+若要在檢查通過前禁止合併，請在 repository 設定中替 `main` 加上 branch protection rule（或 ruleset），並把 `Typecheck, test, build` 檢查設為必要。
 
 ## 除錯技巧
 

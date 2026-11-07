@@ -52,7 +52,7 @@ export const en: Messages = {
     hoursAgo: (n) => `${n} h ago`,
   },
 
-  app: { openSidebar: 'Open sidebar' },
+  app: { openSidebar: 'Open sidebar', collapseSidebar: 'Collapse sidebar', expandSidebar: 'Expand sidebar' },
 
   sidebar: {
     newChat: 'New chat',
@@ -77,8 +77,12 @@ export const en: Messages = {
   newChat: {
     title: 'Design the team',
     intro:
-      'Pick a template, let the lead agent build the team, or design it from scratch: decide each coding agent\'s position and how they talk to each other. You can change it any time during the chat.',
+      'Let the lead agent build the team, design it yourself, or start from a template: decide each coding agent\'s position and how they talk to each other. You can change it any time during the chat.',
+    buildTeam: 'How to build the team',
+    customName: 'Design your own',
+    customDescription: "Start from a blank team: choose each member's CLI and position, and how they take turns.",
     templates: 'Templates',
+    templatesHint: 'Start from a ready-made team; you can still adjust it below.',
     autoName: 'Auto team',
     autoDescription: (lead) => `The lead agent (${lead}) reads your first question and picks a template or designs a better-suited team.`,
     autoNote: (lead) =>
@@ -87,6 +91,7 @@ export const en: Messages = {
     confirmDeleteTemplate: (name) => `Delete the template "${name}"?`,
     titlePlaceholder: 'Conversation title (optional; defaults to the first message)',
     saveTemplate: 'Save as template',
+    saveTemplateHint: 'Save these members and conversation rules as a template to pick for new chats.',
     templateNamePrompt: 'Template name',
     defaultTemplateName: 'My team',
     creating: 'Creating…',
@@ -117,7 +122,7 @@ export const en: Messages = {
       "Parallel mode: each member works in its own git worktree, so nobody overwrites anyone; review the diffs in the chat, then choose whose result to apply.",
     sharedNote:
       'Members change files directly in the working directory and every turn records what changed; only one conversation at a time may change a directory.',
-    gitInitNote: 'If the working directory is not a git repository yet, git init runs automatically.',
+    gitInitNote: ' If the working directory is not a git repository yet, git init runs automatically.',
     approvals: 'Actions beyond the permission',
     approvalsAsk: 'Ask me',
     approvalsDeny: 'Refuse automatically',
@@ -174,6 +179,8 @@ export const en: Messages = {
   },
 
   message: {
+    openImage: (name) => `Open ${name}`,
+    download: (name) => `Download ${name}`,
     actions: (n) => (n === 1 ? '1 action' : `${n} actions`),
     failed: (n) => `${n} failed`,
     passed: 'Nothing to add (PASS)',
@@ -183,6 +190,8 @@ export const en: Messages = {
     live: 'Replying',
     edit: 'Edit',
     editLabel: 'Edit message',
+    showMore: 'Show more',
+    showLess: 'Show less',
     retry: 'Retry',
     retryTitle: 'Let this member answer again',
     resendNote: 'Resending deletes everything after this message, and the team answers again from here.',
@@ -255,7 +264,13 @@ export const en: Messages = {
     continue: 'Continue ↻',
     continueTitle: 'Let the team keep discussing / working without a new message',
     sendLabel: 'Send',
-    hint: 'Enter to send · Shift+Enter for a new line · type @ to address members (only they reply)',
+    hint: 'Enter to send · Shift+Enter for a new line · type @ to address members (only they reply) · paste or drop files to attach',
+    attach: 'Attach files',
+    attachments: 'Files to send',
+    removeFile: (name) => `Remove ${name}`,
+    tooManyFiles: (n) => `You can attach up to ${n} files to one message.`,
+    fileTooLarge: (name, max) => `"${name}" is larger than ${max} and was not attached.`,
+    readFailed: 'Could not read an attached file.',
   },
 
   transcript: { user: 'User', aborted: '(stopped)' },
@@ -302,6 +317,14 @@ export const en: Messages = {
     keyRemoved: 'API key removed',
     saved: 'Saved',
     apiKeySet: (masked) => ` (set: ${masked})`,
+    keyStorage: (where) => ` Keys are kept in ${where}.`,
+    keyStorageName: {
+      keychain: 'the macOS Keychain',
+      'credential-manager': 'Windows Credential Manager',
+      'secret-service': 'your desktop keyring (Secret Service)',
+      database: "Harness Relay's database (readable only by your user account)",
+    },
+    keyEnvHint: (v) => ` To keep it out of the database, set ${v} before starting Harness Relay instead.`,
     defaults: 'Default model and reasoning effort',
     defaultsHint: (p) => `Used when a member's model / effort is left on "Default"; choose "CLI default" here too to leave it to ${p}'s own settings.`,
     modelsError: (e) => `Could not get the model list from the CLI: ${e}`,

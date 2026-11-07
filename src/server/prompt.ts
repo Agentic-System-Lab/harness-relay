@@ -1,11 +1,13 @@
 import {
   PROVIDER_LABEL,
+  isInlineImage,
   type AgentConfig,
   type ChatMessage,
   type Conversation,
   type Mode,
   type Permission,
 } from '../shared/types';
+import { attachmentPath } from './attachments';
 
 export const PASS_TOKEN = '[PASS]';
 
@@ -124,9 +126,26 @@ export function senderName(conv: Conversation, m: ChatMessage): string {
   return conv.agents.find((a) => a.id === agentId)?.name ?? m.agentName ?? 'agent';
 }
 
+/** The files attached to a user message, with the paths an agent can read them from. */
+function attachmentList(conv: Conversation, m: ChatMessage): string {
+  const files = m.parts.flatMap((p) => (p.type === 'attachment' ? [p] : []));
+  if (!files.length) return '';
+  const lines = files.map((f) => {
+    const shown = isInlineImage(f.mimeType) ? ', also shown to you as an image' : '';
+    return `- ${f.name} (${f.mimeType}, ${formatSize(f.size)}${shown}): ${attachmentPath(conv.id, f)}`;
+  });
+  return `<attachments>\nThe user attached these files; read them from these paths with your file tools:\n${lines.join('\n')}\n</attachments>`;
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 export function renderMessage(conv: Conversation, m: ChatMessage): string {
   const from = senderName(conv, m);
-  if (m.author.kind === 'user') return `<message from="user">\n${forwardText(m)}\n</message>`;
+  if (m.author.kind === 'user') return `<message from="user">\n${[forwardText(m), attachmentList(conv, m)].filter(Boolean).join('\n\n')}\n</message>`;
   const via = m.provider ? ` via="${PROVIDER_LABEL[m.provider]}"` : '';
   const body = m.passed ? PASS_TOKEN : forwardText(m);
   return `<message from="@${from}"${via}>\n${body}\n</message>`;

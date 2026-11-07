@@ -1,14 +1,41 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { PROVIDER_LABEL, type AgentConfig } from '../../shared/types';
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
+import { ATTACHMENT_LIMITS, PROVIDER_LABEL, isInlineImage, type AgentConfig } from '../../shared/types';
+import type { AttachmentUpload } from '../api';
 import { useT } from '../i18n';
-import { PROVIDER_COLOR, initials } from '../util';
+import { PROVIDER_COLOR, formatBytes, initials } from '../util';
+import { PaperclipIcon } from './icons';
+
+interface Pending {
+  id: string;
+  file: File;
+  /** Preview URL for images. */
+  url?: string;
+}
+
+function toBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Pasted screenshots are all called "image.png"; give them a time-stamped name. */
+function pastedName(file: File): string {
+  if (file.name && file.name !== 'image.png') return file.name;
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+  return `pasted-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.${ext}`;
+}
 
 interface Props {
   agents: AgentConfig[];
   running: boolean;
   canContinue: boolean;
   placeholder: string;
-  onSend: (text: string) => Promise<boolean>;
+  onSend: (text: string, attachments: AttachmentUpload[]) => Promise<boolean>;
   onStop: () => void;
   onContinue: () => void;
 }
@@ -21,7 +48,65 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
   const [caret, setCaret] = useState(0);
   const [pick, setPick] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const [files, setFiles] = useState<Pending[]>([]);
+  const [notice, setNotice] = useState('');
+  const [dragging, setDragging] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+
+  // Free the image previews when the composer goes away.
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  useEffect(() => () => filesRef.current.forEach((f) => f.url && URL.revokeObjectURL(f.url)), []);
+
+  const addFiles = (list: File[]) => {
+    if (!list.length) return;
+    setNotice('');
+    const accepted: Pending[] = [];
+    for (const file of list) {
+      if (files.length + accepted.length >= ATTACHMENT_LIMITS.maxFiles) {
+        setNotice(t.composer.tooManyFiles(ATTACHMENT_LIMITS.maxFiles));
+        break;
+      }
+      if (file.size > ATTACHMENT_LIMITS.maxBytes) {
+        setNotice(t.composer.fileTooLarge(file.name, formatBytes(ATTACHMENT_LIMITS.maxBytes)));
+        continue;
+      }
+      const named = file.name && file.name !== 'image.png' ? file : new File([file], pastedName(file), { type: file.type });
+      accepted.push({ id: crypto.randomUUID(), file: named, url: isInlineImage(named.type) ? URL.createObjectURL(named) : undefined });
+    }
+    setFiles((prev) => [...prev, ...accepted]);
+  };
+
+  const removeFile = (id: string) => {
+    const gone = files.find((f) => f.id === id);
+    if (gone?.url) URL.revokeObjectURL(gone.url);
+    setFiles((prev) => prev.filter((f) => f.id !== id));
+    setNotice('');
+  };
+
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = [...e.clipboardData.files];
+    if (!pasted.length) return;
+    // A copied image may come with text (e.g. from a web page): keep the text, attach the image.
+    if (!e.clipboardData.getData('text/plain')) e.preventDefault();
+    addFiles(pasted);
+  };
+
+  const onDragOver = (e: DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    setDragging(true);
+  };
+
+  const onDrop = (e: DragEvent) => {
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault();
+    setDragging(false);
+    addFiles([...e.dataTransfer.files]);
+    ref.current?.focus();
+  };
 
   // Auto-grow the textarea.
   useLayoutEffect(() => {
@@ -50,12 +135,30 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
     });
   };
 
+  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing;
+
   const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed || running) return;
-    if (await onSend(trimmed)) {
+    if (!canSend || running) return;
+    setPreparing(true);
+    let attachments: AttachmentUpload[];
+    try {
+      attachments = await Promise.all(
+        files.map(async (f) => ({ name: f.file.name, mimeType: f.file.type || 'application/octet-stream', data: await toBase64(f.file) })),
+      );
+    } catch {
+      setNotice(t.composer.readFailed);
+      setPreparing(false);
+      return;
+    }
+    const ok = await onSend(trimmed, attachments);
+    setPreparing(false);
+    if (ok) {
       setText('');
       setCaret(0);
+      files.forEach((f) => f.url && URL.revokeObjectURL(f.url));
+      setFiles([]);
+      setNotice('');
     }
   };
 
@@ -84,7 +187,15 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
   };
 
   return (
-    <div className="composer-wrap">
+    <div
+      className="composer-wrap"
+      onDragOver={onDragOver}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={onDrop}
+    >
+      {notice && <p className="error-line composer-notice">{notice}</p>}
       {menuOpen && (
         <ul className="mention-menu" role="listbox">
           {options.map((a, i) => (
@@ -107,38 +218,80 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
           ))}
         </ul>
       )}
-      <div className="composer">
-        <textarea
-          ref={ref}
-          value={text}
-          rows={1}
-          placeholder={placeholder}
-          onChange={(e) => {
-            setText(e.target.value);
-            setCaret(e.target.selectionStart);
-            setDismissed(false);
-            setPick(0);
-          }}
-          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-          onKeyDown={onKeyDown}
-        />
-        <div className="composer-actions">
-          {running ? (
-            <button className="stop" onClick={onStop} aria-label={t.composer.stopLabel}>
-              {t.composer.stop}
-            </button>
-          ) : (
-            <>
-              {canContinue && (
-                <button className="ghost" onClick={onContinue} title={t.composer.continueTitle}>
-                  {t.composer.continue}
+      <div className={`composer ${dragging ? 'dragging' : ''}`}>
+        {files.length > 0 && (
+          <ul className="attach-tray" aria-label={t.composer.attachments}>
+            {files.map((f) => (
+              <li key={f.id} className={f.url ? 'attach-thumb' : 'attach-chip'} title={f.file.name}>
+                {f.url ? (
+                  <img src={f.url} alt={f.file.name} />
+                ) : (
+                  <>
+                    <PaperclipIcon size={14} />
+                    <span className="ellipsis">{f.file.name}</span>
+                    <span className="muted">{formatBytes(f.file.size)}</span>
+                  </>
+                )}
+                <button type="button" className="attach-remove" onClick={() => removeFile(f.id)} aria-label={t.composer.removeFile(f.file.name)}>
+                  ×
                 </button>
-              )}
-              <button className="send" onClick={submit} disabled={!text.trim()} aria-label={t.composer.sendLabel}>
-                ↑
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="composer-row">
+          <button
+            type="button"
+            className="icon-button attach-button"
+            onClick={() => picker.current?.click()}
+            aria-label={t.composer.attach}
+            title={t.composer.attach}
+          >
+            <PaperclipIcon />
+          </button>
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              addFiles([...(e.target.files ?? [])]);
+              e.target.value = '';
+            }}
+          />
+          <textarea
+            ref={ref}
+            value={text}
+            rows={1}
+            placeholder={placeholder}
+            onChange={(e) => {
+              setText(e.target.value);
+              setCaret(e.target.selectionStart);
+              setDismissed(false);
+              setPick(0);
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+          />
+          <div className="composer-actions">
+            {running ? (
+              <button className="stop" onClick={onStop} aria-label={t.composer.stopLabel}>
+                {t.composer.stop}
               </button>
-            </>
-          )}
+            ) : (
+              <>
+                {canContinue && (
+                  <button className="ghost" onClick={onContinue} title={t.composer.continueTitle}>
+                    {t.composer.continue}
+                  </button>
+                )}
+                <button className="send" onClick={submit} disabled={!canSend} aria-label={t.composer.sendLabel}>
+                  ↑
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
       <p className="composer-hint muted small">{t.composer.hint}</p>

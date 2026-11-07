@@ -27,6 +27,12 @@ export function newAgent(provider: Provider, taken: string[]): AgentConfig {
   return { id: crypto.randomUUID(), name, provider, role: '' };
 }
 
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
 export function formatDuration(ms?: number): string {
   if (ms === undefined) return '';
   if (ms < 1000) return `${ms}ms`;

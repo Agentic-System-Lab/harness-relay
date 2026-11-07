@@ -1,4 +1,4 @@
-import type { ApprovalKind, Mode, Permission } from '../../shared/types';
+import type { ApprovalKind, KeyStorage, Mode, Permission } from '../../shared/types';
 
 /** A conversation's state as the sidebar shows it. */
 export type ConvStatus = 'waiting' | 'running' | 'error' | 'unread';
@@ -46,7 +46,7 @@ export const zhTW = {
     hoursAgo: (n: number) => `${n} 小時前`,
   },
 
-  app: { openSidebar: '開啟側邊欄' },
+  app: { openSidebar: '開啟側邊欄', collapseSidebar: '收合側邊欄', expandSidebar: '展開側邊欄' },
 
   sidebar: {
     newChat: '新對話',
@@ -70,8 +70,12 @@ export const zhTW = {
 
   newChat: {
     title: '設計這次的團隊',
-    intro: '挑一個範本、讓首席 agent 自動組隊，或從頭設計：決定每個 coding agent 的定位，以及他們怎麼互相溝通。對話中也能隨時調整。',
+    intro: '讓首席 agent 自動組隊、自己從頭設計，或從範本開始：決定每個 coding agent 的定位，以及他們怎麼互相溝通。對話中也能隨時調整。',
+    buildTeam: '組隊方式',
+    customName: '自行設計',
+    customDescription: '從空白團隊開始：自己決定每位成員用哪個 CLI、擔任什麼定位，以及怎麼輪流發言。',
     templates: '範本',
+    templatesHint: '從現成的團隊開始，選好後仍可在下方調整。',
     autoName: '自動組隊',
     autoDescription: (lead: string) => `由首席 agent（${lead}）讀你的第一個問題，挑選範本或設計更適合的團隊。`,
     autoNote: (lead: string) =>
@@ -80,6 +84,7 @@ export const zhTW = {
     confirmDeleteTemplate: (name: string) => `刪除範本「${name}」？`,
     titlePlaceholder: '對話標題（選填，預設取第一則訊息）',
     saveTemplate: '存成範本',
+    saveTemplateHint: '把目前的成員與對話規則存成範本，之後的新對話可以直接選用。',
     templateNamePrompt: '範本名稱',
     defaultTemplateName: '我的團隊',
     creating: '建立中…',
@@ -165,6 +170,8 @@ export const zhTW = {
   },
 
   message: {
+    openImage: (name: string) => `開啟 ${name}`,
+    download: (name: string) => `下載 ${name}`,
     actions: (n: number) => `${n} 個動作`,
     failed: (n: number) => `${n} 個失敗`,
     passed: '沒有補充（PASS）',
@@ -174,6 +181,8 @@ export const zhTW = {
     live: '回覆中',
     edit: '編輯',
     editLabel: '編輯訊息',
+    showMore: '顯示更多',
+    showLess: '收合',
     retry: '重試',
     retryTitle: '讓這位成員重新回答',
     resendNote: '重新傳送後，這則之後的對話會被刪除，團隊從這裡重新回答。',
@@ -246,7 +255,13 @@ export const zhTW = {
     continue: '繼續 ↻',
     continueTitle: '不輸入新訊息，讓團隊接著討論 / 做下去',
     sendLabel: '送出',
-    hint: 'Enter 送出 · Shift+Enter 換行 · 輸入 @ 指定成員（只有被 @ 的人會回覆）',
+    hint: 'Enter 送出 · Shift+Enter 換行 · 輸入 @ 指定成員（只有被 @ 的對象會回覆） · 可貼上或拖曳檔案來附加',
+    attach: '附加檔案',
+    attachments: '要傳送的檔案',
+    removeFile: (name: string) => `移除 ${name}`,
+    tooManyFiles: (n: number) => `一則訊息最多附加 ${n} 個檔案。`,
+    fileTooLarge: (name: string, max: string) => `「${name}」超過 ${max}，沒有附加。`,
+    readFailed: '無法讀取附加的檔案。',
   },
 
   transcript: { user: '使用者', aborted: '（已中斷）' },
@@ -293,6 +308,14 @@ export const zhTW = {
     keyRemoved: '已移除 API key',
     saved: '已儲存',
     apiKeySet: (masked: string) => `（已設定 ${masked}）`,
+    keyStorage: (where: string) => `金鑰存放於：${where}。`,
+    keyStorageName: {
+      keychain: 'macOS 鑰匙圈',
+      'credential-manager': 'Windows 認證管理員',
+      'secret-service': '桌面環境的金鑰圈（Secret Service）',
+      database: 'Harness Relay 的資料庫（只有你的使用者帳號能讀取）',
+    } as Record<KeyStorage, string>,
+    keyEnvHint: (v: string) => `不想存進資料庫的話，可以改在啟動 Harness Relay 前設定環境變數 ${v}。`,
     defaults: '預設模型與推理強度',
     defaultsHint: (p: string) => `成員的模型 / 推理強度選「預設」時使用這裡的值；這裡也選「CLI 預設」就交給 ${p} 自己的設定。`,
     modelsError: (e: string) => `無法從 CLI 取得模型清單：${e}`,

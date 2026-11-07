@@ -49,6 +49,15 @@ async function requestText(path: string): Promise<string> {
   return text;
 }
 
+
+/** A file attached to a message, as sent to the server. */
+export interface AttachmentUpload {
+  name: string;
+  mimeType: string;
+  /** Base64 contents. */
+  data: string;
+}
+
 export const api = {
   // conversations
   listConversations: () => request<ConversationSummary[]>('GET', '/api/conversations'),
@@ -58,7 +67,9 @@ export const api = {
   updateConversation: (id: string, b: Partial<Pick<Conversation, 'title' | 'agents' | 'settings'>>) =>
     request<Conversation>('PATCH', `/api/conversations/${id}`, b),
   deleteConversation: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}`),
-  send: (id: string, text: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/messages`, { text }),
+  send: (id: string, text: string, attachments: AttachmentUpload[] = []) =>
+    request<{ ok: true }>('POST', `/api/conversations/${id}/messages`, { text, attachments }),
+  attachmentUrl: (convId: string, attachmentId: string) => `/api/conversations/${convId}/attachments/${attachmentId}`,
   resend: (id: string, messageId: string, text: string) =>
     request<{ ok: true }>('PUT', `/api/conversations/${id}/messages/${messageId}`, { text }),
   retry: (id: string, messageId: string) =>

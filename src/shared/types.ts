@@ -140,7 +140,17 @@ export type MessagePart =
       auto?: boolean;
       /** The user's message to the agent when declining. */
       note?: string;
-    };
+    }
+  /** A file the user attached to their message (stored under data/attachments). */
+  | { type: 'attachment'; id: string; name: string; mimeType: string; size: number };
+
+/** Limits for files attached to one message. */
+export const ATTACHMENT_LIMITS = { maxFiles: 10, maxBytes: 20 * 1024 * 1024 };
+
+/** Image types shown inline in the chat and passed to the agents as images. */
+export function isInlineImage(mimeType: string): boolean {
+  return /^image\/(png|jpeg|gif|webp)$/.test(mimeType);
+}
 
 /** "Always allow in this conversation": requests of this kind with this key are allowed without asking. */
 export interface AllowRule {
@@ -289,12 +299,20 @@ export interface ProviderStatus {
   usingStoredApiKey: boolean;
 }
 
+/**
+ * Where Harness Relay keeps API keys: the operating system's credential store (macOS Keychain,
+ * Windows Credential Manager, Linux Secret Service) or, when there is none, its database.
+ */
+export type KeyStorage = 'keychain' | 'credential-manager' | 'secret-service' | 'database';
+
 export interface ProviderSettingsView {
   provider: Provider;
   /** Custom executable path; empty = use PATH. */
   bin: string;
   /** Masked API key, e.g. "sk-…a1b2", or empty when none is stored. */
   apiKeyMasked: string;
+  /** Where this provider's key is (or would be) stored; absent for Codex, which keeps its own. */
+  apiKeyStorage?: KeyStorage;
   /** Model used when an agent does not specify one. */
   defaultModel: string;
   /** Reasoning effort used when an agent does not specify one. */

@@ -2,14 +2,23 @@
 
 # Harness Relay
 
+[![CI](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml)
+
 A ChatGPT-style group chat where **Claude Code, Codex and Grok** work together — on your code or any other question — and talk to each other.
 
 Before each conversation you design the team: give every coding agent a position (architect, builder, reviewer, skeptic…), pick its model and reasoning effort, and choose how they take turns. Harness Relay then drives the real CLIs on your machine, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
 
+## Demo
+
+[![Harness Relay demo: the lead agent designs a team, then Claude Code, Codex and Grok read the code and answer](docs/media/demo-en.webp)](docs/media/demo-en.mp4)
+
+Auto team on this repository: the lead agent designs a team for the question, then Claude Code, Codex and Grok read the code and answer in turn, each building on and challenging the previous replies, while their thinking and tool calls stream into the chat (sped up while the agents work). [Watch the full-quality video (MP4)](docs/media/demo-en.mp4).
+
 ## Features
 
 - **Three coding agents in one chat** — runs the `claude`, `codex` and `grok` CLIs you already have, with their own tools, sessions and logins.
-- **Design the team per conversation** — roles, model, reasoning effort, turn order; five built-in templates (coding and general questions) plus your own saved templates. Roles can be edited mid-chat.
+- **Design the team per conversation** — roles, model, reasoning effort, turn order; design it yourself from a blank team, or start from five built-in templates (coding and general questions) or your own saved ones. Roles can be edited mid-chat.
+- **Attach files** — paste screenshots, drop files or use 📎; every agent gets the files, and images are shown to all three CLIs directly.
 - **Auto team** — let a lead agent read your first question and pick a template or design a better-suited team; save the teams it designs as templates.
 - **Agents talk to each other** — three conversation modes:
   - **Roundtable**: agents speak in order and build on each other, for up to N rounds; ends early when everyone replies `[PASS]`.
@@ -43,7 +52,7 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173**, go to **Settings & Login** to check that each agent is signed in, then click **New chat**, pick a template, and start talking.
+Open **http://localhost:5173**, go to **Settings & Login** to check that each agent is signed in, then click **New chat**, choose Auto team, design your own team or pick a template, and start talking.
 
 For a production-style single server:
 
@@ -64,6 +73,8 @@ npm start          # serves the UI and API on http://127.0.0.1:8787
 
 Agents run with the file-system permission you choose for the conversation (**read-only**, **edit**, or **full access**). Full access lets agents run any command without asking — use it only in directories you trust. The server binds to `127.0.0.1` and rejects cross-site requests, but anyone with access to your machine's localhost can drive the agents. See [Architecture → Security](docs/architecture.md#security).
 
+API keys you save in Settings are kept in your operating system's credential store — the macOS Keychain, Windows Credential Manager, or the Secret Service (GNOME Keyring, KWallet) on Linux — not in the database. Only on a system without one, such as a headless Linux server, do they stay in `data/relay.db`, which only your user can read; to avoid that, set `ANTHROPIC_API_KEY` / `XAI_API_KEY` before starting Harness Relay instead of saving a key.
+
 ## Scripts
 
 | Command | What it does |
@@ -73,3 +84,5 @@ Agents run with the file-system permission you choose for the conversation (**re
 | `npm start` | Serve the built UI and the API from one process |
 | `npm run typecheck` | Type-check server, client and tests |
 | `npm test` | Run the test suite (Vitest) |
+
+Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).

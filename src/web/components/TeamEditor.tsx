@@ -252,7 +252,8 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
           </span>
           {settings.permission !== 'read-only' && (
             <span className="small muted">
-              {!auto && (settings.mode === 'parallel' ? t.team.parallelNote : t.team.sharedNote)} {t.team.gitInitNote}
+              {!auto && (settings.mode === 'parallel' ? t.team.parallelNote : t.team.sharedNote)}
+              {t.team.gitInitNote}
             </span>
           )}
         </div>
@@ -260,7 +261,7 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
         {settings.permission !== 'full' && (
           <div className="field">
             <span>{t.team.approvals}</span>
-            <div className="segmented" role="radiogroup" aria-label={t.team.approvals}>
+            <div className="segmented wide" role="radiogroup" aria-label={t.team.approvals}>
               {(['ask', 'deny'] as const).map((v) => {
                 const on = (settings.approvals ?? 'ask') === v;
                 return (

@@ -56,6 +56,8 @@ flowchart LR
 | `src/server/workspace.ts` | Git plumbing: automatic `git init`, working-tree snapshots, per-agent worktrees, diffs, applying results |
 | `src/server/store.ts` | SQLite persistence for conversations, messages, agent sessions and presets |
 | `src/server/settings.ts` | Provider settings (binary path, API key, default model/effort), default working directory, lead agent, child-process environment |
+| `src/server/attachments.ts` | Files attached to user messages: saving them under `data/attachments`, safe file names, which ones go to the agents as images |
+| `src/server/secrets.ts` | The OS credential store for API keys (`@napi-rs/keyring`), or none when the system has no usable one |
 | `src/server/db.ts` | Opens SQLite, applies schema migrations, transaction helper |
 | `src/server/hub.ts` | Per-conversation event fan-out to connected SSE clients |
 | `src/shared/types.ts` | Types shared by server and client |
@@ -94,6 +96,8 @@ Each agent has its own long-lived CLI session, so the server does **not** resend
    ```
 
    The `<actions>` block summarizes file edits and commands the speaker ran, so teammates know what changed without seeing the raw tool output.
+
+   A user message with attached files also gets an `<attachments>` block listing each file's name, type, size and absolute path, which the agent opens with its own tools. Images (PNG, JPEG, GIF, WebP) in the delivered messages are passed natively as well: to Claude Code as base64 image blocks in its stream-json user message (plus `--add-dir` for the attachments folder so its Read tool may open the files), to Codex as `localImage` inputs on `turn/start`, and to Grok as ACP image blocks (it advertises `promptCapabilities.image`). Images over about 3.75 MB are only listed, to stay under the 5 MB per-image API limit.
 3. The CLI is resumed with its stored session id, so it remembers everything it saw before.
 4. When the turn succeeds, the delivered ids (and the agent's own reply) are added to `seen`. If the turn fails, the delivery is rolled back so the messages are offered again next time.
 
@@ -238,7 +242,7 @@ The server subscribes before sending the snapshot and replays queued whole-messa
 
 ## Persistence
 
-Everything lives in one SQLite database, `data/relay.db` (WAL mode, foreign keys on, file mode `0600` because it may contain API keys).
+Everything except API keys and attached files lives in one SQLite database, `data/relay.db` (WAL mode, foreign keys on, `secure_delete` on so removed rows are overwritten, file mode `0600`). Attached files are stored as `data/attachments/<conversation>/<attachment id>/<file name>` (mode `0600`) and referenced by `attachment` parts in `message_parts.data`; they are removed with their conversation, or when a resend or retry drops the messages they belonged to.
 
 | Table | Contents |
 | --- | --- |
@@ -251,7 +255,7 @@ Everything lives in one SQLite database, `data/relay.db` (WAL mode, foreign keys
 | `agent_sessions` | CLI session id and provider per agent per conversation |
 | `agent_seen` | which messages each agent has been shown |
 | `presets`, `preset_agents` | user-saved team templates (built-in templates live in code) |
-| `provider_settings` | per CLI: binary path, API key, default model, default effort |
+| `provider_settings` | per CLI: binary path, default model, default effort; the API key only when there is no system credential store |
 | `app_settings` | key/value app settings (default working directory, lead agent) |
 
 Conversations in use are kept in memory, because the orchestrator mutates them while streaming. Writes are explicit: user messages, new agent messages, finished turns and session ids are written immediately; streaming changes are batched and written at most once per second, only for messages that changed. Messages left `streaming` by a crashed server are marked `aborted` at startup.
@@ -269,7 +273,10 @@ Schema changes are applied by ordered migrations tracked in `PRAGMA user_version
   | Codex | `codex login --device-auth` / `codex login` (browser, localhost callback) |
   | Grok | `grok login --device-auth` / `grok login --oauth` |
 
-- **API keys** — Claude Code and Grok keys are stored in SQLite and injected as `ANTHROPIC_API_KEY` / `XAI_API_KEY` into those CLIs' environment only. Codex keys are piped to `codex login --with-api-key` and stored by Codex itself.
+- **API keys** — Claude Code and Grok keys are injected as `ANTHROPIC_API_KEY` / `XAI_API_KEY` into those CLIs' environment only. Codex keys are piped to `codex login --with-api-key` and stored by Codex itself.
+  - *Where they are kept*: the OS credential store through [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node) (prebuilt native binaries), service `harness-relay`, account `<provider>-api-key`: the macOS Keychain, Windows Credential Manager, or the Secret Service on Linux. Linux is pinned to the Secret Service because the library's other store, the kernel keyring, forgets everything on reboot. `SettingsStore` reads the keys into memory at startup.
+  - *Fallback*: `openSystemKeyring()` checks availability with a read at startup. Without a usable store (no binary for the platform, no D-Bus session, or `RELAY_KEYRING=off`) keys stay in the `provider_settings.api_key` column and Settings says so. If the store exists but refuses a save, the request fails with that error; it never falls back to the database silently.
+  - *Migration*: a key found in the database while a credential store is available (saved by an earlier version, or while there was none) is copied into the store, read back, cleared from the column, and the WAL is checkpointed so the plaintext does not linger in `relay.db-wal`. If moving it fails it stays in the database and Settings shows that.
 - **Models** — Codex: `codex debug models` (catalog with per-model effort levels and defaults; defaults from `~/.codex/config.toml`). Grok: `grok models`. Claude Code has no list command, so the UI offers its aliases (`fable`, `opus`, `sonnet`, `haiku`) and reads the default from `settings.json` in `CLAUDE_CONFIG_DIR` (or `~/.claude`). Cached for 10 minutes.
 
 ## Security
@@ -279,7 +286,8 @@ The server can start coding agents with write access, so it is locked down to th
 - binds to `127.0.0.1` by default;
 - rejects requests whose `Host` is not localhost (DNS-rebinding protection) and whose `Origin` is another site;
 - requires `Content-Type: application/json` on every write, so a cross-site form post cannot trigger a turn;
-- the SQLite file (and its WAL files) are readable by the owner only;
+- API keys are kept in the OS credential store, not the database (see above); the SQLite file (and its WAL files) are readable by the owner only, and deleted rows are overwritten;
+- attached files are served with `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`; only PNG, JPEG, GIF and WebP are shown inline, and anything else is a download, so an attached HTML or SVG file can never run in the app's origin. File names are stripped of directories and control characters before they touch the disk;
 - environment variables that Claude Code sets for its own children are removed before spawning `claude`, so the app also works when started from inside a Claude Code session.
 
 It is a single-user tool: there is no authentication, and any process that can reach your localhost can use it.

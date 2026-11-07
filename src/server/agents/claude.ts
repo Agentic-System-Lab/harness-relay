@@ -6,12 +6,14 @@ import {
   AgentRunError,
   TURN_TIMEOUT_MS,
   clip,
+  imageData,
   parseJsonLine,
   summarizeInput,
   tailText,
   type AgentEvent,
   type AgentRunner,
   type ApprovalRequest,
+  type RunOptions,
   type RunResult,
 } from './types';
 import { t } from '../i18n';
@@ -273,6 +275,8 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], withThinking: boo
     o.systemPrompt,
     // Variadic; the next `--flag` ends the list.
     ...withAllowedTools(claudeAllowedTools(o.permission)),
+    // Lets Claude read the attached files outside the working directory (variadic too).
+    ...(o.attachmentsDir ? ['--add-dir', o.attachmentsDir] : []),
     '--permission-mode',
     PERMISSION_MODE[o.permission][ask ? 'ask' : 'deny'],
     ...(ask ? ['--permission-prompt-tool', 'stdio'] : []),
@@ -323,7 +327,7 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], withThinking: boo
     onSpawn: (c) => {
       child = c;
       send({ type: 'control_request', request_id: `init-${randomUUID()}`, request: { subtype: 'initialize', hooks: null } });
-      send({ type: 'user', message: { role: 'user', content: o.prompt } });
+      send({ type: 'user', message: { role: 'user', content: claudeContent(o.prompt, o.images) } });
     },
     signal: o.signal,
     timeoutMs: TURN_TIMEOUT_MS,
@@ -349,6 +353,16 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], withThinking: boo
     inputTokens: sumInput(r.usage),
     outputTokens: r.usage?.output_tokens,
   };
+}
+
+/** The prompt, plus attached images as image blocks. */
+export function claudeContent(prompt: string, images: RunOptions['images']): string | unknown[] {
+  const blocks: unknown[] = [];
+  for (const img of images ?? []) {
+    const data = imageData(img.path);
+    if (data) blocks.push({ type: 'image', source: { type: 'base64', media_type: img.mimeType, data } });
+  }
+  return blocks.length ? [{ type: 'text', text: prompt }, ...blocks] : prompt;
 }
 
 function withAllowedTools(tools: string[]): string[] {

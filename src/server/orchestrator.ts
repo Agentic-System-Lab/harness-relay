@@ -27,6 +27,14 @@ import {
   type PlanDecision,
   type PlannerContext,
 } from './planner';
+import {
+  attachmentsDir,
+  imageInputs,
+  removeAttachments,
+  saveAttachments,
+  type AttachmentPart,
+  type AttachmentUpload,
+} from './attachments';
 import { buildBriefing, buildTurnPrompt, isPass, parseMentions, type BriefingWorkspace, type TurnInfo } from './prompt';
 import { DATA_DIR, type SettingsStore } from './settings';
 import type { Store } from './store';
@@ -113,11 +121,17 @@ export class Orchestrator {
   }
 
   /** Post a user message (or, with empty text, let the team continue) and start the team's turn. */
-  async send(convId: string, rawText: string): Promise<void> {
+  async send(convId: string, rawText: string, uploads?: AttachmentUpload[]): Promise<void> {
     const conv = this.getIdle(convId);
     const text = rawText.trim();
-    if (!text && !conv.messages.some((m) => m.author.kind === 'user')) throw new HttpError(400, t().typeFirst);
-    await this.start(conv, text);
+    if (!text && !uploads?.length && !conv.messages.some((m) => m.author.kind === 'user')) throw new HttpError(400, t().typeFirst);
+    const files = saveAttachments(conv.id, uploads);
+    try {
+      await this.start(conv, text, undefined, undefined, files);
+    } catch (err) {
+      removeAttachments(conv.id, files);
+      throw err;
+    }
   }
 
   /**
@@ -128,10 +142,12 @@ export class Orchestrator {
   async resend(convId: string, messageId: string, rawText: string): Promise<void> {
     const conv = this.getIdle(convId);
     const text = rawText.trim();
-    if (!text) throw new HttpError(400, t().emptyMessage);
     const target = conv.messages.find((m) => m.id === messageId);
     if (target?.author.kind !== 'user') throw new HttpError(404, t().messageNotFound);
-    await this.start(conv, text, () => this.truncateFrom(conv, messageId));
+    // The edited message keeps its attached files.
+    const files = target.parts.filter((p): p is AttachmentPart => p.type === 'attachment');
+    if (!text && !files.length) throw new HttpError(400, t().emptyMessage);
+    await this.start(conv, text, () => this.truncateFrom(conv, messageId, files), undefined, files);
   }
 
   /**
@@ -170,11 +186,17 @@ export class Orchestrator {
   }
 
   /** Drop a message and everything after it, and make every agent start over. */
-  private truncateFrom(conv: Conversation, messageId: string): void {
+  /** `keep`: attached files that live on in the edited message. */
+  private truncateFrom(conv: Conversation, messageId: string, keep: AttachmentPart[] = []): void {
     const index = conv.messages.findIndex((m) => m.id === messageId);
     if (index < 0) throw new HttpError(404, t().messageNotFound);
     const dropped = conv.messages.splice(index);
     this.store.deleteMessages(conv.id, dropped.map((m) => m.id));
+    const kept = new Set(keep.map((p) => p.id));
+    removeAttachments(
+      conv.id,
+      dropped.flatMap((m) => m.parts.filter((p): p is AttachmentPart => p.type === 'attachment' && !kept.has(p.id))),
+    );
     for (const agentId of new Set([...Object.keys(conv.agentState), ...conv.agents.map((a) => a.id)])) {
       const state: AgentSessionState = { provider: conv.agentState[agentId]?.provider, seen: [] };
       conv.agentState[agentId] = state;
@@ -192,7 +214,14 @@ export class Orchestrator {
 
   /** Start a run; `beforePost` runs once the workspace is ready and locked, just before the message is posted. */
   /** `only`: run just these agents, for one round (retrying replies). */
-  private async start(conv: Conversation, text: string, beforePost?: () => void, only?: AgentConfig[]): Promise<void> {
+  /** `files`: attached files of the new user message (already saved). */
+  private async start(
+    conv: Conversation,
+    text: string,
+    beforePost?: () => void,
+    only?: AgentConfig[],
+    files: AttachmentPart[] = [],
+  ): Promise<void> {
     const convId = conv.id;
     const ws = await this.prepareWorkspace(conv);
     // Re-check after the await: another request may have started a run meanwhile.
@@ -207,19 +236,19 @@ export class Orchestrator {
       throw err;
     }
 
-    if (text) {
+    if (text || files.length) {
       const msg: ChatMessage = {
         id: randomUUID(),
         author: { kind: 'user' },
         createdAt: Date.now(),
-        parts: [{ type: 'text', text }],
+        parts: [...(text ? [{ type: 'text' as const, text }] : []), ...files],
         status: 'done',
       };
       conv.messages.push(msg);
       this.store.saveMessage(conv.id, msg, true);
       this.hub.emit(conv.id, { type: 'message', message: msg });
       if (isDefaultTitle(conv.title)) {
-        const line = text.split('\n')[0]!.trim();
+        const line = (text.split('\n')[0] ?? '').trim() || files[0]!.name;
         conv.title = line.length > 40 ? line.slice(0, 39) + '…' : line;
         this.emitConversation(conv);
       }
@@ -366,7 +395,10 @@ export class Orchestrator {
     this.hub.emit(conv.id, { type: 'message', message: msg });
     this.store.saveMessage(conv.id, msg, true);
 
-    const question = text || textOf([...conv.messages].reverse().find((m) => m.author.kind === 'user') ?? msg);
+    const asked = [...conv.messages].reverse().find((m) => m.author.kind === 'user');
+    const fileNames = asked?.parts.flatMap((p) => (p.type === 'attachment' ? [p.name] : [])) ?? [];
+    const question =
+      (text || textOf(asked ?? msg)) + (fileNames.length ? `\n\n(Attached files: ${fileNames.join(', ')})` : '');
     const started = Date.now();
     let ctx: PlannerContext = { available: [], catalog: [], presets: this.store.listPresets() };
     let decision: PlanDecision | undefined;
@@ -447,6 +479,7 @@ export class Orchestrator {
       );
     }
     rmSync(join(DATA_DIR, 'worktrees', conv.id), { recursive: true, force: true });
+    removeAttachments(conv.id);
   }
 
   // -------------------------------------------------------------------------
@@ -682,6 +715,9 @@ export class Orchestrator {
         (m) => m.id !== msg.id && m.author.kind !== 'system' && m.status === 'done' && !seen.has(m.id),
       );
       const prompt = buildTurnPrompt(conv, agent, delta, !state.sessionId, info);
+      const files = delta.flatMap((m) =>
+        m.author.kind === 'user' ? m.parts.filter((p): p is AttachmentPart => p.type === 'attachment') : [],
+      );
       const seenBefore = state.seen;
       state.seen = [...state.seen, ...delta.map((m) => m.id)];
       try {
@@ -698,6 +734,8 @@ export class Orchestrator {
           signal: run.abort.signal,
           onEvent,
           requestApproval,
+          images: imageInputs(conv.id, files),
+          attachmentsDir: files.length ? attachmentsDir(conv.id) : undefined,
         });
         if (result.sessionId) state.sessionId = result.sessionId;
         return result;

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -20,13 +21,15 @@ import { Hub } from './hub';
 import { HttpError, Orchestrator } from './orchestrator';
 import { killAll } from './process';
 import { ProviderService } from './providers';
+import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
+import { openSystemKeyring } from './secrets';
 import { DB_FILE, SettingsStore } from './settings';
 import { Store } from './store';
 import { expandPath, validateAgents, validateSettings } from './validate';
 import { parseLang, t, withLang } from './i18n';
 
 const db = openDatabase(DB_FILE);
-const settings = new SettingsStore(db);
+const settings = new SettingsStore(db, openSystemKeyring());
 const store = new Store(db);
 const hub = new Hub();
 const providers = new ProviderService(settings);
@@ -249,9 +252,34 @@ app.delete('/api/conversations/:id', async (c) => {
 });
 
 app.post('/api/conversations/:id/messages', async (c) => {
-  const b = await body<{ text?: string }>(c);
-  await orchestrator.send(c.req.param('id'), String(b.text ?? ''));
+  const b = await body<{ text?: string; attachments?: AttachmentUpload[] }>(c);
+  await orchestrator.send(c.req.param('id'), String(b.text ?? ''), b.attachments);
   return c.json({ ok: true }, 202);
+});
+
+// A file attached to a user message. Only common image types are shown inline; anything else
+// is a download, so an attached HTML or SVG file can never run in this origin.
+app.get('/api/conversations/:id/attachments/:attachmentId', async (c) => {
+  const conv = getConv(c.req.param('id'));
+  const id = c.req.param('attachmentId');
+  const part = conv.messages
+    .flatMap((m) => m.parts)
+    .find((p): p is AttachmentPart => p.type === 'attachment' && p.id === id);
+  if (!part) throw new HttpError(404, t().attachmentNotFound);
+  let data: Buffer;
+  try {
+    data = await readFile(attachmentPath(conv.id, part));
+  } catch {
+    throw new HttpError(404, t().attachmentNotFound);
+  }
+  const inline = isInlineImage(part.mimeType);
+  return c.body(new Uint8Array(data), 200, {
+    'Content-Type': inline ? part.mimeType : 'application/octet-stream',
+    'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(part.name)}`,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+    'Cache-Control': 'private, max-age=31536000, immutable',
+  });
 });
 
 // Edit one of the user's messages: everything after it is dropped and the team answers again.

@@ -11,6 +11,7 @@ How the code is organized, how to run and test it, and how to extend it. Read [A
 | Language | TypeScript (strict), ES modules |
 | Server | Node.js ≥ 22.13, [Hono](https://hono.dev) on `@hono/node-server`, run with `tsx` (no build step) |
 | Database | SQLite via the built-in `node:sqlite` (`DatabaseSync`) |
+| API keys | OS credential store via [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node) (prebuilt binaries, no compiler needed) |
 | Client | React 19, Vite, `react-markdown` + `remark-gfm` + `rehype-highlight` |
 | Tests | Vitest |
 
@@ -39,6 +40,8 @@ src/
     db.ts                  open SQLite, migrations, transaction()
     store.ts               conversations, messages, agent sessions, presets
     settings.ts            provider settings, default cwd, child-process env
+    secrets.ts             OS credential store for API keys (keyring), availability check
+    attachments.ts         files attached to messages: storage, safe names, images for the agents
     presets.ts             built-in team templates, in both languages
     validate.ts            input validation for agents and settings
     workspace.ts           git: auto init, snapshots, worktrees, diffs, apply
@@ -50,8 +53,10 @@ src/
     locales/               zh-TW.ts (source of the message shape), en.ts
     components/            Sidebar, NewChat, TeamEditor, ModelPicker, ChatView,
                            MessageItem (incl. plan card), ChangesCard, Composer, Markdown,
-                           SettingsPage, CopyButton, Logo, Onboarding (guided tour)
+                           SettingsPage, CopyButton, Logo, Onboarding (guided tour),
+                           MemberDots, icons
 test/                      Vitest tests
+.github/workflows/ci.yml   CI: typecheck, tests and build on pull requests and pushes to main
 docs/                      documentation (English + 繁體中文)
 data/                      runtime data (relay.db) — git-ignored
 ```
@@ -78,6 +83,7 @@ npm start          # one process: API + built UI on :8787
 | `RELAY_DATA_DIR` | `./data` | Where `relay.db` lives |
 | `RELAY_DEFAULT_CWD` | process cwd | Initial default working directory (until changed in Settings) |
 | `RELAY_ALLOWED_HOSTS` | — | Extra comma-separated host names accepted by the Host/Origin check |
+| `RELAY_KEYRING` | — | `off` keeps API keys in the database instead of the OS credential store (e.g. for a throwaway data directory) |
 
 The server passes its own environment to the CLIs, minus Claude Code's nesting variables, plus stored API keys (`SettingsStore.env()`).
 
@@ -100,7 +106,8 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 | `GET /api/conversations/:id` | → `Conversation` |
 | `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation` (409 while running; setting `agents` turns auto team off) |
 | `DELETE /api/conversations/:id` | stops a run and deletes |
-| `POST /api/conversations/:id/messages` | `{ text }` (empty = continue) → `202` |
+| `POST /api/conversations/:id/messages` | `{ text, attachments? }` (empty text and no files = continue) → `202`. `attachments`: `[{ name, mimeType, data }]` with base64 `data`; at most 10 files of 20 MB each |
+| `GET /api/conversations/:id/attachments/:attachmentId` | → the attached file (images inline, anything else as a download) |
 | `PUT /api/conversations/:id/messages/:messageId` | `{ text }` → `202`: edit a user message — it and everything after it are deleted, every agent starts a fresh session, and the team answers again (`Orchestrator.resend()`) |
 | `POST /api/conversations/:id/messages/:messageId/retry` | → `202`: delete an agent reply and what follows, and let that agent (and the later speakers of its round) answer again |
 | `POST /api/conversations/:id/approvals/:approvalId` | `{ allow, always?, note? }`: answer an agent's approval request (404 when already answered or expired) |
@@ -186,7 +193,7 @@ npx vitest test/store.test.ts
 
 Current tests:
 
-- `test/store.test.ts` — SQLite store and settings (round-trips, streaming updates, crash recovery, cascading deletes, file permissions).
+- `test/store.test.ts` — SQLite store and settings (round-trips, streaming updates, crash recovery, cascading deletes, file permissions), and API keys with a fake credential store: never written to the database, old database keys moved out and scrubbed from the files, a refusing store.
 - `test/workspace.test.ts` — git plumbing against real temporary repositories (auto init, snapshots that leave the repo untouched, worktrees, apply, conflicts).
 - `test/orchestrator.test.ts` — full runs with a fake runner swapped into `runners`: parallel worktree isolation and apply, change tracking in roundtable mode, and the directory lock.
 - `test/grok.test.ts` — the Grok ACP adapter: permission policy per level, session updates → `AgentEvent`s, and the JSON-RPC connection.
@@ -198,7 +205,7 @@ Current tests:
 - `test/planner.test.ts` — the lead agent's reply: JSON extraction, templates vs. custom teams, validation, remapping to signed-in CLIs, the fallback, and the prompt.
 - `test/i18n.test.ts` — language detection (server header and browser), language carried through async work, bilingual templates, and the two UI dictionaries having the same shape.
 
-`test/orchestrator.test.ts` also covers approvals with a fake agent (asking and waiting, "always allow", a decline note, expiry on stop, refusing automatically), retrying a reply, editing a user message (`resend`: later messages are dropped and every agent starts a fresh session) and auto team with a fake lead agent (a custom design and its team answering, saving it as a template, using a template, the fallback, and designing again after the first question is edited).
+`test/orchestrator.test.ts` also covers approvals with a fake agent (asking and waiting, "always allow", a decline note, expiry on stop, refusing automatically), retrying a reply, editing a user message (`resend`: later messages are dropped and every agent starts a fresh session) and auto team with a fake lead agent (a custom design and its team answering, saving it as a template, using a template, the fallback, and designing again after the first question is edited), and attached files (saved with safe names, images and paths delivered to each agent, kept when a message is edited, deleted with dropped messages, files-only messages, bad uploads).
 
 Good next candidates:
 
@@ -214,7 +221,13 @@ Good next candidates:
 - **Prompt helpers** — `parseMentions`, `isPass`, `buildTurnPrompt`.
 - **More orchestrator scheduling** — relay hand-offs, `[PASS]` early exit and resume-failure retry, with the same fake-runner approach as `test/orchestrator.test.ts`.
 
-Running real agents in tests costs money and needs logins, so keep automated tests offline.
+Running real agents in tests costs money and needs logins, so keep automated tests offline. Tests never touch the real credential store either: `SettingsStore` takes it as a constructor argument, and only `src/server/index.ts` passes `openSystemKeyring()`.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and every push to `main`: `npm ci`, `npm run typecheck`, `npm test` and `npm run build`, on Ubuntu with Node 22 (the oldest supported) and Node 24. A new push to a pull request cancels its previous run. Run the same commands locally before pushing.
+
+To block merging until the checks pass, add a branch protection rule (or ruleset) for `main` in the repository settings and require the `Typecheck, test, build` checks.
 
 ## Debugging tips
 
