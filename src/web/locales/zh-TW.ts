@@ -1,4 +1,4 @@
-import type { ApprovalKind, KeyStorage, Mode, Permission } from '../../shared/types';
+import type { ApprovalKind, KeyStorage, Mode, Permission, ToolStatus } from '../../shared/types';
 
 /** A conversation's state as the sidebar shows it. */
 export type ConvStatus = 'waiting' | 'running' | 'error' | 'unread';
@@ -28,6 +28,7 @@ export const zhTW = {
     send: '傳送',
     sending: '傳送中…',
     clickToCopy: '點擊複製',
+    listSeparator: '、',
   },
   modes: {
     roundtable: { label: '圓桌', hint: '依序發言，後面的人看得到前面說了什麼；可設定多輪，全部 [PASS] 時提前結束。' },
@@ -57,6 +58,7 @@ export const zhTW = {
     waiting: '等你核准',
     status: { waiting: '等你核准', running: '回覆中', error: '出錯了', unread: '新回覆' } as Record<ConvStatus, string>,
     confirmDelete: (title: string) => `刪除對話「${title}」？`,
+    deleteFailed: (message: string) => `無法刪除對話：${message}`,
     settings: '設定與登入',
     health: {
       checking: '檢查中…',
@@ -96,6 +98,7 @@ export const zhTW = {
     relayOrder: '第一位是隊長：訊息沒有 @ 任何人時由他先接。',
     order: '順序就是發言順序。',
     agentName: 'Agent 名稱',
+    codingAgent: '使用的 coding agent',
     moveUp: '往前',
     moveDown: '往後',
     role: '定位 / 角色',
@@ -167,6 +170,8 @@ export const zhTW = {
       `送出第一個問題後，首席 agent（${lead}）會挑選合適的範本，或設計一個更適合的新團隊，再由團隊回答。`,
     drawerNote: '角色修改會在下一個回合生效。更換成員的 coding agent 會讓他從頭讀一次對話紀錄。',
     drawerBusy: '團隊回覆中，停止後才能儲存',
+    drawerChanged: '你編輯的期間團隊已經變更（例如首席 agent 已設計好團隊）。請先載入目前的團隊，再重新修改。',
+    drawerReload: '載入目前的團隊',
   },
 
   message: {
@@ -187,6 +192,8 @@ export const zhTW = {
     retryTitle: '讓這位成員重新回答',
     resendNote: '重新傳送後，這則之後的對話會被刪除，團隊從這裡重新回答。',
     busyNote: '團隊回覆中，停止後才能重新傳送。',
+    tokensIn: (n: string) => `輸入 ${n}`,
+    tokensOut: (n: string) => `輸出 ${n}`,
   },
 
   activity: {
@@ -194,6 +201,7 @@ export const zhTW = {
     thought: '思考過程',
     todo: '計畫',
     output: '輸出',
+    status: { running: '執行中', done: '完成', error: '失敗' } as Record<ToolStatus, string>,
   },
 
   approval: {
@@ -215,6 +223,7 @@ export const zhTW = {
     denied: '已拒絕',
     expired: '沒有回覆（這一輪已結束）',
     pageTitle: (n: number) => `(${n}) 等你核准 · Harness Relay`,
+    withNote: (note: string) => `：${note}`,
   },
 
   plan: {
@@ -247,6 +256,7 @@ export const zhTW = {
     apply: '套用到工作目錄',
     stale: '工作目錄已更新（已套用其中一份結果）',
     moreLines: (n: number) => `… 還有 ${n} 行未顯示`,
+    binary: '二進位檔',
   },
 
   composer: {
@@ -297,7 +307,7 @@ export const zhTW = {
       grok: '儲存後，Harness Relay 啟動 Grok 時會帶入 XAI_API_KEY。',
     },
     cliMissing: (bin: string) => `找不到 ${bin}`,
-    setBinBelow: '（可在下方「進階」指定執行檔路徑）',
+    setBinBelow: '（可在下方「預設模型與推理強度」指定執行檔路徑）',
     login: '登入',
     relogin: '重新登入',
     logout: '登出',
@@ -307,6 +317,7 @@ export const zhTW = {
     keySaved: '已儲存 API key',
     keyRemoved: '已移除 API key',
     saved: '已儲存',
+    apiKey: 'API key',
     apiKeySet: (masked: string) => `（已設定 ${masked}）`,
     keyStorage: (where: string) => `金鑰存放於：${where}。`,
     keyStorageName: {

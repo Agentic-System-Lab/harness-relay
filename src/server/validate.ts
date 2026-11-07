@@ -6,8 +6,11 @@ import {
   PROVIDERS,
   type AgentConfig,
   type ConversationSettings,
+  type LeadAgentSettings,
   type Mode,
   type Permission,
+  type Provider,
+  type ProviderSettingsUpdate,
 } from '../shared/types';
 import { HttpError } from './errors';
 import { t } from './i18n';
@@ -30,6 +33,48 @@ export function expandPath(p: string): string {
   const t = p.trim();
   if (t === '~' || t.startsWith('~/')) return resolve(homedir(), t.slice(2));
   return isAbsolute(t) ? resolve(t) : resolve(process.cwd(), t);
+}
+
+/** An existing directory, from user input (`~` expanded). */
+export function validDirectory(input: unknown): string {
+  if (typeof input !== 'string' || !input.trim()) bad(t().invalidField('defaultCwd'));
+  const dir = expandPath(input);
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) bad(t().cwdMissing(dir));
+  return dir;
+}
+
+function optionalString(v: unknown, field: string, max = 500): string | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== 'string' || v.length > max) bad(t().invalidField(field));
+  return v.trim();
+}
+
+/** The lead agent (auto team) from a settings update. */
+export function validateLead(input: unknown): LeadAgentSettings {
+  const l = (input ?? {}) as Partial<LeadAgentSettings>;
+  if (!PROVIDERS.includes(l.provider as Provider)) bad(t().unknownProvider(String(l.provider)));
+  return {
+    provider: l.provider as Provider,
+    model: optionalString(l.model, 'lead.model') ?? '',
+    effort: validEffort(optionalString(l.effort, 'lead.effort'), 'lead') ?? '',
+  };
+}
+
+/** A provider settings update: strings only, a valid effort, `apiKey` null to remove. */
+export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
+  const u = (input ?? {}) as Record<string, unknown>;
+  const out: ProviderSettingsUpdate = {};
+  const bin = optionalString(u.bin, 'bin', 4096);
+  if (bin !== undefined) out.bin = bin;
+  const model = optionalString(u.defaultModel, 'defaultModel');
+  if (model !== undefined) out.defaultModel = model;
+  if (u.defaultEffort !== undefined) out.defaultEffort = validEffort(optionalString(u.defaultEffort, 'defaultEffort'), 'default') ?? '';
+  if (u.apiKey === null) out.apiKey = null;
+  else {
+    const key = optionalString(u.apiKey, 'apiKey', 4096);
+    if (key !== undefined) out.apiKey = key;
+  }
+  return out;
 }
 
 function validEffort(v: unknown, name: string): string | undefined {

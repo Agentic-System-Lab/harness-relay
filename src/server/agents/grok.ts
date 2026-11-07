@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import type { Permission } from '../../shared/types';
+import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
 import { JsonRpcConnection, RpcError } from './acp';
 import {
@@ -50,7 +51,6 @@ export function grokPrompt(prompt: string, images: RunOptions['images']): unknow
  *  the `read-only` profile refuses to start on some machines (e.g. a symlinked /var/run/docker.sock). */
 const SANDBOX: Partial<Record<Permission, string>> = { edit: 'workspace' };
 
-const PUBLISH = /(^|[;&|(]\s*)(git\s+push|(npm|pnpm|yarn|bun|cargo|poetry|gem)\s+publish|twine\s+upload)\b/;
 
 /** The `toolCall` of an ACP `session/request_permission`. */
 export interface GrokToolCall {
@@ -83,7 +83,7 @@ export function grokPermissionDecision(permission: Permission, call: GrokToolCal
     };
   }
   const command = typeof call.rawInput?.command === 'string' ? call.rawInput.command : '';
-  if (PUBLISH.test(command)) {
+  if (isPublishCommand(command)) {
     return {
       allow: false,
       reason:

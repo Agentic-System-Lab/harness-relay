@@ -81,7 +81,7 @@ With **Auto team** you don't design the team yourself. When you send your first 
 - When the lead agent designed a team itself, the card asks whether to keep it: **Save as template** saves it (you can rename it), and it then shows up on the New chat page.
 - If the lead agent's answer can't be used (or its CLI fails), the General-question panel is used instead and the card says why. If you press **Stop** while it is designing, the next message designs the team again.
 - Members that would run on a CLI that isn't signed in are moved to the lead agent's CLI.
-- Editing your first question (see [Copying, editing and retrying](#copying-editing-and-retrying)) designs the team again for the new question.
+- Editing your first question (see [Copying, editing and retrying](#copying-editing-and-retrying)) designs the team again for the new question — unless you changed the team after it was designed, in which case your team answers.
 
 ### Templates
 
@@ -125,12 +125,14 @@ Add members with **＋ Claude Code / ＋ Codex / ＋ Grok** (up to 8).
 | Level | Runs without asking |
 | --- | --- |
 | Read-only | Reading, searching and looking things up on the web. |
-| Edit | Also editing files in the working directory and running project commands such as tests and builds (Claude Code: a list of common ones; Codex: anything inside its sandbox). Pushing and publishing are not included. |
+| Edit | Also editing files in the working directory and running project commands such as tests and builds (Claude Code: a list of common ones; Codex: anything inside its sandbox, which has no network). Pushing and publishing are not included. |
 | Full access | Everything, without asking. Use only in directories you trust. |
+
+Edit is meant for code you trust: tests, builds and project scripts run code the agents can edit, so an agent could still reach the network through them (Codex's sandbox prevents that). For code or instructions you don't trust, use read-only, or refuse actions beyond the permission. In read-only mode Claude Code's file-editing tools are switched off completely.
 
 **Actions beyond the permission** — **Ask me** (default): when an agent wants to do something the permission doesn't cover, the chat asks you (see [Approvals](#approvals)). **Refuse automatically**: such actions are refused right away; the agent is told and tries another way. (Not shown for full access.)
 
-**Git and file safety (edit / full access).** If the working directory is not a git repository yet, Harness Relay runs `git init` there automatically (never in your home directory). It never commits to your branch. Then:
+**Git and file safety (edit / full access).** If the working directory is not a git repository yet, Harness Relay runs `git init` there automatically (never in your home directory or a whole drive). A working directory inside a repository that spans your home directory (such as a dotfiles repository) is refused, because every turn would record the whole folder. It never commits to your branch. Then:
 
 - **Roundtable / relay** — agents take turns editing the working directory directly. Each reply records which files that agent changed. While such a conversation is running, other conversations cannot write to the same directory (you get an "is changing" message).
 - **Parallel** — each agent works in its **own copy** (a git worktree) so they can't overwrite each other. The working directory is not touched until you choose a result and apply it (see [Reviewing and applying changes](#reviewing-and-applying-changes)).
@@ -140,8 +142,8 @@ Add members with **＋ Claude Code / ＋ Codex / ＋ Grok** (up to 8).
 - **Send** with Enter; Shift+Enter for a new line. While typing with an input method (e.g. Chinese), Enter confirms the candidate and does not send.
 - **Attach files** — paste an image (such as a screenshot) straight into the message box, drag files onto it, or click 📎. Up to 10 files of 20 MB each per message, with or without text. Every agent that reads the message gets each file's path to open with its own tools, and images (PNG, JPEG, GIF, WebP) are also shown to it directly. Sent images appear as thumbnails (click to open the full image); other files as chips you can download.
 - **Long questions** are folded to their first lines in the chat; click **Show more** to read the whole message (and **Show less** to fold it again).
-- **`@mention`** — type `@` to pick a teammate. When your message mentions agents, **only those agents reply** (in relay mode they start the relay). Without mentions, the whole team takes part according to the mode.
-- **Streaming** — replies appear as they're written. Tool activity (file reads, edits, shell commands) is grouped in a collapsible row; a spinning icon shows the step in progress, and a refused or failed step shows its reason. The team chips under the title highlight who is speaking; with a large team the row scrolls sideways (the mouse wheel works too) and follows the speaker.
+- **`@mention`** — type `@` to pick a teammate. When your message mentions agents, **only those agents reply** (in relay mode they start the relay). Without mentions, the whole team takes part according to the mode. Text may follow the name directly (`@Builder請實作`); mentions inside code are ignored.
+- **Streaming** — replies appear as they're written. Tool activity (file reads, edits, shell commands) is grouped in a collapsible row; a spinning icon shows the step in progress, and a refused or failed step shows its reason. The team chips under the title highlight who is speaking; with a large team the row scrolls sideways (the mouse wheel works too) and follows the speaker. Images in replies are shown as links and are never loaded automatically.
 - **■ Stop** — stops the current run and kills the agents' processes.
 - **Continue ↻** — lets the team go on without a new message (another set of rounds, or another relay starting from the leader). Useful after a relay hits its hand-off limit.
 - **Passed replies** — an agent with nothing to add replies `[PASS]`; it is shown dimmed as *Nothing to add (PASS)*.
@@ -156,7 +158,7 @@ When an agent wants to do something its permission doesn't cover — install a p
 - **Always allow "…" in this chat** — this and later requests like it (for commands: the same program and subcommand, e.g. `npm install`; a chained command is only allowed when every part is) are allowed without asking for the rest of the conversation.
 - **Decline** — optionally type what it should do instead first; the agent gets your message and carries on.
 
-A banner above the message box points to waiting requests; the sidebar marks the conversation **Needs you** and the browser tab title shows how many are waiting. Pressing **■ Stop** declines everything still waiting. Codex runs commands in its sandbox and asks only when it decides it needs more than the sandbox allows.
+A banner above the message box points to waiting requests; the sidebar marks the conversation **Needs you** and the browser tab title shows how many are waiting. Pressing **■ Stop** declines everything still waiting, and a request whose agent stopped (it crashed or timed out) expires. If you allow something in a read-only conversation while another conversation is changing the same directory, it is declined and the agent is told why. Codex runs commands in its sandbox and asks only when it decides it needs more than the sandbox allows.
 
 ### Reviewing and applying changes
 
@@ -175,7 +177,7 @@ Click **Team settings** in the header to change roles, models, effort, mode, per
 
 ### Copying, editing and retrying
 
-- **Copy** under a message (shown when you point at it) copies that message's text as Markdown. **Copy chat** in the header copies the whole conversation, with each message labelled by who said it. Tool activity is left out.
+- **Copy** under a message (shown when you point at it) copies that message's text as Markdown. **Copy chat** in the header copies the whole conversation, with each message labelled by who said it (the name and CLI the agent had then); a code block a stopped reply left open is closed. Tool activity is left out.
 - **Edit** under one of your own messages lets you change it and send it again (Enter sends, Shift+Enter adds a line, Esc cancels). Everything after that message is deleted and the team answers again from there; every agent starts a fresh session and re-reads the history up to your edited message. Files the deleted replies changed are **not** restored — if any of them changed files you are asked to confirm first. Editing is not available while the team is replying.
 - **↻ Retry** under an agent's reply lets that agent answer again. Its reply and everything after it are deleted (you are asked to confirm when there is anything after it); outside relay mode, the later speakers of the same round answer again too.
 
@@ -221,5 +223,7 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | Agent in parallel mode can't run tests | Worktrees don't contain ignored files such as `node_modules/`; ask the agent to install dependencies in its worktree first. |
 | An agent seems stuck | Look for a **Needs you** badge or an approval card: it may be waiting for your answer. |
 | Saving an API key fails (*Could not save the API key to the system credential store*) | The keychain / keyring is locked or access was denied. Unlock it (or allow access when asked) and save again, or set the environment variable instead. |
+| "Reconnecting…" stays up | The server is down or restarting; the page reconnects by itself once it is back. |
+| "Too broad" when choosing a working directory | The folder is inside a git repository rooted at your home directory (such as a dotfiles repository). Pick a project folder, or run `git init` in the project folder. |
 | Some messages are in the other language | System notes and errors are written in the language that was active when they happened; switching language doesn't translate them. |
 | Port already in use | Start with another port: `PORT=8790 npm run dev` (the UI proxy follows `PORT`). |

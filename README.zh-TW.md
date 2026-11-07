@@ -71,7 +71,7 @@ npm start          # 在 http://127.0.0.1:8787 同時提供介面與 API
 
 ## 安全性
 
-agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**或**完全存取**）。完全存取會讓 agent 不經詢問就執行任何指令，請只在你信任的目錄使用。伺服器只綁定 `127.0.0.1` 並拒絕跨站請求，但任何能存取你電腦 localhost 的人都能操作這些 agent。詳見[架構 → 安全性](docs/architecture.zh-TW.md#安全性)。
+agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**或**完全存取**）。完全存取會讓 agent 不經詢問就執行任何指令，請只在你信任的目錄使用。可編輯模式也不會把專案程式碼關進沙箱：測試、建置和專案腳本執行的都是 agent 能修改的程式碼，所以不信任的程式碼或指示請用唯讀。伺服器只綁定 `127.0.0.1` 並拒絕跨站請求，但任何能存取你電腦 localhost 的人都能操作這些 agent。詳見[架構 → 安全性](docs/architecture.zh-TW.md#安全性)。
 
 在設定頁儲存的 API key 會放在作業系統的金鑰儲存區（macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service，例如 GNOME Keyring、KWallet），而不是資料庫。只有在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，才會留在只有你的帳號能讀取的 `data/relay.db`；若想避免，可以不在設定頁儲存，改在啟動 Harness Relay 前設定 `ANTHROPIC_API_KEY` / `XAI_API_KEY`。
 

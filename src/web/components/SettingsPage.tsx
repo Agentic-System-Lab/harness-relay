@@ -34,17 +34,23 @@ export function SettingsPage({ providers, catalog, refreshProviders, onShowTour 
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
-    api.getSettings().then((s) => {
-      setSettings(s);
-      setCwd(s.defaultCwd);
-    });
+    api.getSettings().then(
+      (s) => {
+        setSettings(s);
+        setCwd(s.defaultCwd);
+      },
+      (e: Error) => setMsg(e.message),
+    );
     void refreshProviders(true);
   }, [refreshProviders]);
 
   const refresh = async () => {
     setRefreshing(true);
-    await refreshProviders(true);
-    setRefreshing(false);
+    try {
+      await refreshProviders(true);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const saveCwd = async () => {
@@ -139,7 +145,8 @@ function LeadCard({
   const [lead, setLead] = useState<LeadAgentSettings>(saved);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => setLead(saved), [saved]);
+  // Saving any other setting returns a new (equal) lead object: keep the user's unsaved edits then.
+  useEffect(() => setLead(saved), [saved.provider, saved.model, saved.effort]);
 
   const status = providers.find((p) => p.provider === lead.provider);
   const pm = catalog.find((c) => c.provider === lead.provider);
@@ -241,14 +248,17 @@ function ProviderCard({
 
   // Method labels come from the server in the UI language.
   useEffect(() => {
-    api.loginMethods(provider).then((m) => {
-      setMethods(m);
-      setMethod((cur) => (m.some((x) => x.id === cur) ? cur : (m[0]?.id ?? '')));
-    });
+    api.loginMethods(provider).then(
+      (m) => {
+        setMethods(m);
+        setMethod((cur) => (m.some((x) => x.id === cur) ? cur : (m[0]?.id ?? '')));
+      },
+      (e: Error) => setNote(e.message),
+    );
   }, [provider, lang]);
 
   useEffect(() => {
-    api.getLogin(provider).then(setLogin);
+    api.getLogin(provider).then(setLogin, (e: Error) => setNote(e.message));
   }, [provider]);
 
   useEffect(() => {
@@ -353,11 +363,14 @@ function ProviderCard({
             </button>
           )}
         </div>
-        {login && <LoginPanel login={login} provider={provider} onUpdate={setLogin} />}
+        {login && <LoginPanel login={login} provider={provider} onUpdate={setLogin} onError={setNote} />}
       </div>
 
       <details className="sub">
-        <summary>API key{settings?.apiKeyMasked ? t.settings.apiKeySet(settings.apiKeyMasked) : ''}</summary>
+        <summary>
+          {t.settings.apiKey}
+          {settings?.apiKeyMasked ? t.settings.apiKeySet(settings.apiKeyMasked) : ''}
+        </summary>
         <div className="sub-body">
           <p className="muted small">
             {t.settings.apiKeyHelp[provider]}
@@ -429,10 +442,12 @@ function LoginPanel({
   login,
   provider,
   onUpdate,
+  onError,
 }: {
   login: LoginSessionView;
   provider: Provider;
   onUpdate: (v: LoginSessionView | null) => void;
+  onError: (message: string) => void;
 }) {
   const t = useT();
   const [code, setCode] = useState('');
@@ -449,9 +464,19 @@ function LoginPanel({
 
   const submitCode = async () => {
     if (!code.trim()) return;
-    onUpdate(await api.loginInput(provider, code));
-    setCode('');
+    try {
+      onUpdate(await api.loginInput(provider, code));
+      setCode('');
+    } catch (e) {
+      onError((e as Error).message);
+    }
   };
+
+  const cancel = () =>
+    api
+      .cancelLogin(provider)
+      .then(() => api.getLogin(provider))
+      .then(onUpdate, (e: Error) => onError(e.message));
 
   return (
     <div className={`login-panel ${login.state}`}>
@@ -459,7 +484,7 @@ function LoginPanel({
         {running && <span className="pulse" />}
         <strong>{t.settings.loginState[login.state]}</strong>
         {running && (
-          <button className="ghost small-button" onClick={() => api.cancelLogin(provider).then(() => api.getLogin(provider)).then(onUpdate)}>
+          <button className="ghost small-button" onClick={cancel}>
             {t.common.cancel}
           </button>
         )}

@@ -37,7 +37,7 @@ interface Props {
   placeholder: string;
   onSend: (text: string, attachments: AttachmentUpload[]) => Promise<boolean>;
   onStop: () => void;
-  onContinue: () => void;
+  onContinue: () => Promise<unknown>;
 }
 
 const TOKEN = /(^|[\s(（])@([\p{L}\p{N}_-]*)$/u;
@@ -52,6 +52,8 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
   const [notice, setNotice] = useState('');
   const [dragging, setDragging] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  // A ref, not just state: a quick double Enter / click arrives before React re-renders.
+  const sendingRef = useRef(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
 
@@ -137,30 +139,41 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
 
   const canSend = (text.trim().length > 0 || files.length > 0) && !preparing;
 
-  const submit = async () => {
-    const trimmed = text.trim();
-    if (!canSend || running) return;
+  /** Run one send (or Continue) at a time. */
+  const once = async (fn: () => Promise<void>) => {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
     setPreparing(true);
-    let attachments: AttachmentUpload[];
     try {
-      attachments = await Promise.all(
-        files.map(async (f) => ({ name: f.file.name, mimeType: f.file.type || 'application/octet-stream', data: await toBase64(f.file) })),
-      );
-    } catch {
-      setNotice(t.composer.readFailed);
+      await fn();
+    } finally {
+      sendingRef.current = false;
       setPreparing(false);
-      return;
-    }
-    const ok = await onSend(trimmed, attachments);
-    setPreparing(false);
-    if (ok) {
-      setText('');
-      setCaret(0);
-      files.forEach((f) => f.url && URL.revokeObjectURL(f.url));
-      setFiles([]);
-      setNotice('');
     }
   };
+
+  const submit = () =>
+    once(async () => {
+      const trimmed = text.trim();
+      if (!canSend || running) return;
+      let attachments: AttachmentUpload[];
+      try {
+        attachments = await Promise.all(
+          files.map(async (f) => ({ name: f.file.name, mimeType: f.file.type || 'application/octet-stream', data: await toBase64(f.file) })),
+        );
+      } catch {
+        setNotice(t.composer.readFailed);
+        return;
+      }
+      const ok = await onSend(trimmed, attachments);
+      if (ok) {
+        setText('');
+        setCaret(0);
+        files.forEach((f) => f.url && URL.revokeObjectURL(f.url));
+        setFiles([]);
+        setNotice('');
+      }
+    });
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return; // IME (注音/拼音) candidate selection
@@ -282,7 +295,12 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
             ) : (
               <>
                 {canContinue && (
-                  <button className="ghost" onClick={onContinue} title={t.composer.continueTitle}>
+                  <button
+                    className="ghost"
+                    disabled={preparing}
+                    onClick={() => void once(async () => void (await onContinue()))}
+                    title={t.composer.continueTitle}
+                  >
                     {t.composer.continue}
                   </button>
                 )}

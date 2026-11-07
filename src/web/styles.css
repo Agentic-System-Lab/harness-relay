@@ -373,8 +373,15 @@ p {
 }
 
 .conv-item:hover .conv-delete,
-.conv-item.active .conv-delete {
+.conv-item.active .conv-delete,
+.conv-item:focus-within .conv-delete {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .conv-delete {
+    opacity: 1;
+  }
 }
 
 .sidebar-bottom {
@@ -1551,6 +1558,12 @@ details.sub .model-picker {
   padding: 24px;
 }
 
+/* Focus moves to the dialog itself when it opens; it needs no ring. */
+.modal:focus,
+.drawer:focus {
+  outline: none;
+}
+
 .modal {
   width: min(1100px, 100%);
   max-height: 100%;
@@ -1699,6 +1712,11 @@ details.sub .model-picker {
 
 .markdown a {
   color: var(--codex);
+}
+
+/* Images in agent output are shown as links, never loaded. */
+.markdown a.image-link::before {
+  content: '🖼 ';
 }
 
 .mention {

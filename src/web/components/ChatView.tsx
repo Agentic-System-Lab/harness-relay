@@ -10,14 +10,19 @@ import {
   type ServerEvent,
 } from '../../shared/types';
 import { api, type AttachmentUpload } from '../api';
+import { afterStreamError, applyStates as findApplyStates, draftStatus } from '../chat';
 import { conversationMarkdown } from '../copy';
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
-import { DiffView, type ApplyState } from './ChangesCard';
+import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { CopyButton } from './CopyButton';
 import { MessageItem } from './MessageItem';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
+import { useDialog } from './useDialog';
+
+/** How long to wait before reconnecting when the browser gave up on the event stream. */
+const RECONNECT_MS = 3000;
 
 interface State {
   conv: Conversation | null;
@@ -70,6 +75,8 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [] });
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(true);
+  /** The conversation is gone (deleted): stop reconnecting. */
+  const [gone, setGone] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [diff, setDiff] = useState<{ title: string; load: () => Promise<string> } | null>(null);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
@@ -103,22 +110,44 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   onChangedRef.current = onChanged;
 
   useEffect(() => {
-    const es = new EventSource(`/api/conversations/${id}/events`);
-    es.onmessage = (ev) => {
-      const e = JSON.parse(ev.data) as ServerEvent;
-      dispatch(e);
-      if (e.type === 'status' || e.type === 'conversation') onChangedRef.current();
+    let es: EventSource;
+    let timer: number | undefined;
+    let closed = false;
+    const connect = () => {
+      const source = new EventSource(`/api/conversations/${id}/events`);
+      es = source;
+      source.onmessage = (ev) => {
+        const e = JSON.parse(ev.data) as ServerEvent;
+        dispatch(e);
+        if (e.type === 'status' || e.type === 'conversation') onChangedRef.current();
+      };
+      source.onopen = () => setConnected(true);
+      source.onerror = () => {
+        setConnected(false);
+        // Only a 404 means the conversation is gone; anything else (e.g. the server restarting) is retried.
+        const decide = (err: unknown) => {
+          if (closed || source !== es) return;
+          const next = afterStreamError(err, source.readyState === EventSource.CLOSED);
+          if (next === 'stop') {
+            source.close();
+            setGone(true);
+            setError((err as Error).message);
+          } else if (next === 'reconnect' && timer === undefined) {
+            timer = window.setTimeout(() => {
+              timer = undefined;
+              if (!closed) connect();
+            }, RECONNECT_MS);
+          }
+        };
+        api.getConversation(id).then(() => decide(undefined), decide);
+      };
     };
-    es.onopen = () => setConnected(true);
-    es.onerror = () => {
-      setConnected(false);
-      // 404: the conversation is gone; stop retrying.
-      api.getConversation(id).catch((err: Error) => {
-        setError(err.message);
-        es.close();
-      });
+    connect();
+    return () => {
+      closed = true;
+      window.clearTimeout(timer);
+      es.close();
     };
-    return () => es.close();
   }, [id]);
 
   // Who designs the team, for auto-team conversations that have not started yet.
@@ -189,18 +218,22 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
 
   const onAdjustTeam = useCallback(() => setTeamOpen(true), []);
 
+  const retrying = useRef(false);
   const onRetry = useCallback(async (messageId: string) => {
     const c = convRef.current;
-    if (!c) return;
+    if (!c || retrying.current) return; // a double click would get "busy" for the second request
     const later = c.messages.slice(c.messages.findIndex((m) => m.id === messageId) + 1);
     const changed = later.filter((m) => m.changes && m.changes.files.length > 0).length;
     if (later.length > 0 && !confirm(tRef.current.chat.retryConfirm(later.length, changed))) return;
+    retrying.current = true;
     try {
       setError('');
       stick.current = true;
       await api.retry(c.id, messageId);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      retrying.current = false;
     }
   }, []);
 
@@ -214,27 +247,18 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
     }
   }, []);
 
-  // Only each agent's latest worktree result can be applied.
-  const applyStates = useMemo(() => {
-    const out = new Map<string, ApplyState>();
-    if (!state.conv) return out;
-    const seen = new Set<string>();
-    for (let i = state.conv.messages.length - 1; i >= 0; i--) {
-      const m: ChatMessage = state.conv.messages[i]!;
-      if (m.author.kind !== 'agent' || !m.changes?.isolated || m.status === 'streaming') continue;
-      const agentId = m.author.agentId;
-      if (seen.has(agentId)) continue;
-      seen.add(agentId);
-      const wt = state.conv.worktrees?.[agentId];
-      if (wt && wt.branch === m.changes.branch) out.set(m.id, wt.needsReset ? 'stale' : 'available');
-    }
-    return out;
-  }, [state.conv]);
+  // Only each agent's latest result from its current worktree can be applied.
+  const messages = state.conv?.messages;
+  const worktrees = state.conv?.worktrees;
+  const applyStates = useMemo(() => findApplyStates(messages ?? [], worktrees ?? {}), [messages, worktrees]);
+
+  // Stable while messages stream, so MessageItem (memoised) only re-renders the message that changed.
+  const agents = state.conv?.agents;
+  const mentionNames = useMemo(() => (agents ?? []).map((a) => a.name), [agents]);
 
   const { conv, running, active } = state;
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
-  const mentionNames = conv.agents.map((a) => a.name);
   // Approval requests still waiting for an answer (only while the agent's turn is running).
   const pending = conv.messages.flatMap((m) =>
     m.status === 'streaming'
@@ -316,7 +340,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
         </div>
       </header>
 
-      {!connected && !error && <div className="banner">{t.chat.reconnecting}</div>}
+      {!connected && !gone && <div className="banner">{t.chat.reconnecting}</div>}
 
       <div
         className="messages"
@@ -332,8 +356,10 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
             <MessageItem
               key={m.id}
               msg={m}
-              conv={conv}
+              convId={conv.id}
+              agents={conv.agents}
               mentionNames={mentionNames}
+              showRound={conv.settings.mode !== 'relay' && conv.settings.rounds > 1}
               applyState={running ? undefined : applyStates.get(m.id)}
               running={running}
               onDiff={onDiff}
@@ -355,7 +381,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
             className="approval-banner"
             onClick={() => document.getElementById(`approval-${pending[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
           >
-            ⏸ {pending.map((p) => `@${p.agent}`).join('、')} · {t.approval.waiting}
+            ⏸ {pending.map((p) => `@${p.agent}`).join(t.common.listSeparator)} · {t.approval.waiting}
           </button>
         )}
         {error && (
@@ -379,7 +405,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
           }
           onSend={send}
           onStop={() => api.stop(conv.id).catch((e: Error) => setError(e.message))}
-          onContinue={() => void send('', [])}
+          onContinue={() => send('', [])}
         />
         <p className="cwd-line muted small" title={conv.settings.cwd}>
           📁 {conv.settings.cwd}
@@ -407,20 +433,24 @@ function DiffModal({ title, load, onClose }: { title: string; load: () => Promis
   const t = useT();
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialog(dialog, onClose);
 
   useEffect(() => {
     load().then(setText, (e: Error) => setError(e.message));
   }, [load]);
 
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   return (
     <div className="modal-scrim" onClick={onClose}>
-      <div className="modal" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={dialog}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="drawer-head">
           <h2>{title}</h2>
           <button className="icon-button" onClick={onClose} aria-label={t.common.close}>
@@ -495,15 +525,25 @@ function TeamDrawer({
   onError: (s: string) => void;
 }) {
   const t = useT();
-  const [team, setTeam] = useState<Team>({ agents: conv.agents, settings: conv.settings });
+  const current = useMemo<Team>(() => ({ agents: conv.agents, settings: conv.settings }), [conv.agents, conv.settings]);
+  /** The team as it was when the draft was copied from it. */
+  const [base, setBase] = useState<Team>(current);
+  const [team, setTeam] = useState<Team>(current);
   const [saving, setSaving] = useState(false);
   const problems = teamProblems(team, t);
+  const dialog = useRef<HTMLElement>(null);
+  useDialog(dialog, onClose);
 
+  // The team can change while the drawer is open (e.g. the lead agent designs it): follow it until
+  // the user edits; after that, saving would overwrite it, so ask to reload first.
+  const status = draftStatus(base, team, current);
+  const reload = useCallback(() => {
+    setBase(current);
+    setTeam(current);
+  }, [current]);
   useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    if (status === 'refresh') reload();
+  }, [status, reload]);
 
   const save = async () => {
     setSaving(true);
@@ -521,7 +561,15 @@ function TeamDrawer({
 
   return (
     <div className="drawer-scrim" onClick={onClose}>
-      <aside className="drawer" onClick={(e) => e.stopPropagation()} aria-label={t.chat.teamSettings}>
+      <aside
+        ref={dialog}
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t.chat.teamSettings}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="drawer-head">
           <h2>{t.chat.teamSettings}</h2>
           <button className="icon-button" onClick={onClose} aria-label={t.common.close}>
@@ -531,12 +579,25 @@ function TeamDrawer({
         <p className="muted small">{t.chat.drawerNote}</p>
         <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} />
         <footer className="drawer-foot">
-          {problems[0] && <span className="error-line">{problems[0]}</span>}
+          {status === 'conflict' ? (
+            <span className="error-line">
+              {t.chat.drawerChanged}{' '}
+              <button type="button" className="link-button" onClick={reload}>
+                {t.chat.drawerReload}
+              </button>
+            </span>
+          ) : (
+            problems[0] && <span className="error-line">{problems[0]}</span>
+          )}
           {running && <span className="muted small">{t.chat.drawerBusy}</span>}
           <button className="ghost" onClick={onClose}>
             {t.common.cancel}
           </button>
-          <button className="primary" disabled={saving || running || problems.length > 0} onClick={save}>
+          <button
+            className="primary"
+            disabled={saving || running || problems.length > 0 || status === 'conflict'}
+            onClick={save}
+          >
             {t.common.save}
           </button>
         </footer>

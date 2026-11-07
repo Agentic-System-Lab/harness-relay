@@ -25,6 +25,7 @@ export const en: Messages = {
     send: 'Send',
     sending: 'Sending…',
     clickToCopy: 'Click to copy',
+    listSeparator: ', ',
   },
   modes: {
     roundtable: {
@@ -63,6 +64,7 @@ export const en: Messages = {
     waiting: 'Needs your approval',
     status: { waiting: 'Needs you', running: 'Replying', error: 'Error', unread: 'New reply' },
     confirmDelete: (title) => `Delete the conversation "${title}"?`,
+    deleteFailed: (message) => `Could not delete the conversation: ${message}`,
     settings: 'Settings & sign-in',
     health: {
       checking: 'Checking…',
@@ -103,6 +105,7 @@ export const en: Messages = {
     relayOrder: 'The first member leads: they take messages that @mention no one.',
     order: 'The order is the speaking order.',
     agentName: 'Agent name',
+    codingAgent: 'Coding agent',
     moveUp: 'Move up',
     moveDown: 'Move down',
     role: 'Position / role',
@@ -176,6 +179,8 @@ export const en: Messages = {
       `Once you send your first question, the lead agent (${lead}) picks a suitable template or designs a better-suited team, and that team answers.`,
     drawerNote: "Role changes apply from the next turn. Switching a member's coding agent makes it re-read the conversation from the start.",
     drawerBusy: 'The team is replying; stop it to save',
+    drawerChanged: 'The team changed while you were editing (for example, the lead agent designed it). Load it, then make your changes again.',
+    drawerReload: 'Load the current team',
   },
 
   message: {
@@ -196,6 +201,8 @@ export const en: Messages = {
     retryTitle: 'Let this member answer again',
     resendNote: 'Resending deletes everything after this message, and the team answers again from here.',
     busyNote: 'The team is replying; stop it to resend.',
+    tokensIn: (n) => `${n} in`,
+    tokensOut: (n) => `${n} out`,
   },
 
   activity: {
@@ -203,6 +210,7 @@ export const en: Messages = {
     thought: 'Thinking',
     todo: 'Plan',
     output: 'Output',
+    status: { running: 'Running', done: 'Done', error: 'Failed' },
   },
 
   approval: {
@@ -224,6 +232,7 @@ export const en: Messages = {
     denied: 'Declined',
     expired: 'No answer (the turn ended)',
     pageTitle: (n) => `(${n}) Needs your approval · Harness Relay`,
+    withNote: (note) => `: ${note}`,
   },
 
   plan: {
@@ -256,6 +265,7 @@ export const en: Messages = {
     apply: 'Apply to working directory',
     stale: 'Working directory updated (one of the results was applied)',
     moreLines: (n) => `… ${n} more lines not shown`,
+    binary: 'binary',
   },
 
   composer: {
@@ -306,7 +316,7 @@ export const en: Messages = {
       grok: 'Once saved, Harness Relay passes XAI_API_KEY when it starts Grok.',
     },
     cliMissing: (bin) => `${bin} not found`,
-    setBinBelow: ' (set the executable path under "Advanced" below)',
+    setBinBelow: ' (set the executable path under "Default model and reasoning effort" below)',
     login: 'Sign in',
     relogin: 'Sign in again',
     logout: 'Sign out',
@@ -316,6 +326,7 @@ export const en: Messages = {
     keySaved: 'API key saved',
     keyRemoved: 'API key removed',
     saved: 'Saved',
+    apiKey: 'API key',
     apiKeySet: (masked) => ` (set: ${masked})`,
     keyStorage: (where) => ` Keys are kept in ${where}.`,
     keyStorageName: {

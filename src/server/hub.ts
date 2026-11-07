@@ -10,9 +10,14 @@ export class Hub {
     let set = this.listeners.get(conversationId);
     if (!set) this.listeners.set(conversationId, (set = new Set()));
     set.add(fn);
+    let subscribed = true;
+    // Idempotent, and never removes a newer set: an SSE connection unsubscribes twice (on abort and
+    // when its loop ends), possibly after the browser has reconnected and subscribed again.
     return () => {
+      if (!subscribed) return;
+      subscribed = false;
       set!.delete(fn);
-      if (set!.size === 0) this.listeners.delete(conversationId);
+      if (set!.size === 0 && this.listeners.get(conversationId) === set) this.listeners.delete(conversationId);
     };
   }
 

@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation, TeamPreset } from '../src/shared/types';
 import { openDatabase, type Database } from '../src/server/db';
 import type { SecretStore } from '../src/server/secrets';
@@ -182,6 +182,33 @@ describe('Store (SQLite)', () => {
     expect(loaded.slice(0, -1).every((p) => p.builtin)).toBe(true);
     new Store(db).deletePreset('user-1');
     expect(new Store(db).listPresets().some((p) => p.id === 'user-1')).toBe(false);
+  });
+});
+
+describe('Store write errors', () => {
+  it('keeps streamed messages pending and retries when a batched write fails, instead of throwing from the timer', () => {
+    vi.useFakeTimers();
+    try {
+      const store = new Store(db);
+      const conv = sampleConversation();
+      store.create(conv);
+      conv.messages.push(userMsg);
+      const original = (store as any).writeMessages.bind(store);
+      let failures = 1;
+      (store as any).writeMessages = (...args: unknown[]) => {
+        if (failures-- > 0) throw new Error('database is locked');
+        return original(...args);
+      };
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      store.saveMessage(conv.id, userMsg); // batched: written by a timer
+      expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+      expect(errors).toHaveBeenCalled();
+      vi.advanceTimersByTime(5000); // the retry
+      errors.mockRestore();
+      expect(new Store(db).get(conv.id)!.messages.map((m) => m.id)).toEqual(['m1']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

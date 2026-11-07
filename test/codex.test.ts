@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   codexApprovalRequest,
   codexApprovalResponse,
+  codexConfig,
   createCodexUpdateHandler,
   describeCodexItem,
 } from '../src/server/agents/codex';
@@ -67,7 +68,7 @@ describe('codex approvals', () => {
     const paths = (id: string) => (id === 'patch-1' ? 'src/a.ts' : undefined);
     expect(
       codexApprovalRequest('item/commandExecution/requestApproval', { command: "/bin/zsh -lc 'touch ../x'", reason: 'Outside the sandbox' }, paths),
-    ).toEqual({ kind: 'command', detail: 'touch ../x', reason: 'Outside the sandbox' });
+    ).toEqual({ kind: 'command', detail: 'touch ../x', command: "/bin/zsh -lc 'touch ../x'", reason: 'Outside the sandbox' });
     expect(codexApprovalRequest('item/fileChange/requestApproval', { itemId: 'patch-1' }, paths)).toMatchObject({ kind: 'edit', detail: 'src/a.ts' });
     expect(codexApprovalRequest('item/tool/call', {}, paths)).toBeNull();
 
@@ -78,5 +79,16 @@ describe('codex approvals', () => {
       permissions: { network: { enabled: true }, fileSystem: undefined },
       scope: 'turn',
     });
+  });
+});
+
+describe('codex thread config', () => {
+  it('keeps the edit-mode sandbox off the network whatever the user config says', () => {
+    expect(codexConfig('edit', 'high')).toEqual({
+      model_reasoning_effort: 'high',
+      sandbox_workspace_write: { network_access: false },
+    });
+    expect(codexConfig('read-only')).toEqual({});
+    expect(codexConfig('full')).toEqual({});
   });
 });

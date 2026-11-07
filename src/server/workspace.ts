@@ -1,6 +1,6 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { isAbsolute, join, parse, relative, resolve } from 'node:path';
+import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import type { FileChange } from '../shared/types';
 import { HttpError } from './errors';
 import { capture, tail } from './process';
@@ -26,14 +26,22 @@ const IDENTITY: NodeJS.ProcessEnv = {
 const DEFAULT_EXCLUDES = ['node_modules/', '.venv/', 'venv/', '__pycache__/', '.DS_Store', '.next/', '.turbo/', 'target/'];
 
 const MAX_DIFF_BYTES = 1024 * 1024;
+/** Output limit for file lists and patches; larger output is refused rather than silently cut. */
+const MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
+/** Snapshot commits recorded in the chat are kept reachable under this ref namespace (per conversation). */
+const REF_PREFIX = 'refs/harness-relay';
 
 export class GitError extends Error {}
 
 interface GitOptions {
   env?: NodeJS.ProcessEnv;
-  stdin?: string;
+  stdin?: string | Buffer;
   allowFail?: boolean;
   maxCapture?: number;
+  /** Fail instead of returning output that went over `maxCapture`. */
+  complete?: boolean;
+  /** Keep the first `maxCapture` bytes instead of the last. */
+  keepStart?: boolean;
 }
 
 async function git(cwd: string, args: string[], o: GitOptions = {}) {
@@ -46,11 +54,24 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
     stdin: o.stdin,
     timeoutMs: 120_000,
     maxCapture: o.maxCapture,
+    keepStart: o.keepStart,
   });
   if (r.code !== 0 && !o.allowFail) {
     throw new GitError(t().gitFailed(String(args[0]), tail(r.stderr || r.stdout, 500)));
   }
+  if (o.complete && r.stdoutTruncated) throw new GitError(t().outputTooLarge(String(args[0])));
   return r;
+}
+
+/** A repository too broad to snapshot on every turn: one rooted at the home directory or a file-system root. */
+function tooBroadRepo(root: string): boolean {
+  return root === realpathSync(homedir()) || root === parse(root).root;
+}
+
+/** Where not to create a repository: also a volume root or a folder above the home directory. */
+function tooBroadForInit(dir: string): boolean {
+  const home = realpathSync(homedir());
+  return tooBroadRepo(dir) || home.startsWith(dir.endsWith(sep) ? dir : dir + sep) || /^\/Volumes\/[^/]+$/.test(dir);
 }
 
 const out = (r: { stdout: string }) => r.stdout.trim();
@@ -65,12 +86,12 @@ export async function repoRoot(dir: string): Promise<string | null> {
 /** Make sure `dir` is inside a git repository, running `git init` when it is not. */
 export async function ensureRepo(dir: string): Promise<{ root: string; created: boolean }> {
   const existing = await repoRoot(dir);
+  // e.g. a dotfiles repository in the home directory: every turn would snapshot all of it.
+  if (existing && tooBroadRepo(existing)) throw new HttpError(400, t().repoTooBroad(existing));
   if (existing) return { root: existing, created: false };
 
   const real = realpathSync(dir);
-  if (real === realpathSync(homedir()) || real === parse(real).root) {
-    throw new HttpError(400, t().noAutoRepo(real));
-  }
+  if (tooBroadForInit(real)) throw new HttpError(400, t().noAutoRepo(real));
   await git(real, ['init', '-q']);
   const exclude = join(real, '.git', 'info', 'exclude');
   mkdirSync(join(real, '.git', 'info'), { recursive: true });
@@ -108,27 +129,62 @@ export async function snapshot(root: string): Promise<{ commit: string; tree: st
   }
 }
 
+const refDir = (convId: string) => `${REF_PREFIX}/${convId}`;
+
+/**
+ * Keep commits shown in a conversation (snapshots, worktree results) reachable, so `git gc` does
+ * not prune them while the conversation still links to their diff.
+ */
+export async function keepCommits(root: string, convId: string, commits: string[]): Promise<void> {
+  const unique = [...new Set(commits)];
+  if (!unique.length) return;
+  const stdin = unique.map((c) => `update ${refDir(convId)}/${c} ${c}\n`).join('');
+  await git(root, ['update-ref', '--stdin'], { stdin });
+}
+
+/** Stop keeping some of a conversation's commits (their messages were dropped). */
+export async function forgetCommits(root: string, convId: string, commits: string[]): Promise<void> {
+  const unique = [...new Set(commits)];
+  if (!unique.length || !existsSync(root)) return;
+  const stdin = unique.map((c) => `delete ${refDir(convId)}/${c}\n`).join('');
+  await git(root, ['update-ref', '--stdin'], { stdin, allowFail: true });
+}
+
+/** Drop the refs a conversation kept in this repository (when the conversation is deleted). */
+export async function dropKeptCommits(root: string, convId: string): Promise<void> {
+  if (!existsSync(root)) return;
+  const r = await git(root, ['for-each-ref', '--format=delete %(refname)', `${refDir(convId)}/`], {
+    allowFail: true,
+    maxCapture: MAX_OUTPUT_BYTES,
+  });
+  if (r.code !== 0 || !r.stdout.trim()) return;
+  await git(root, ['update-ref', '--stdin'], { stdin: r.stdout, allowFail: true });
+}
+
 export async function treeOf(root: string, commit: string): Promise<string> {
   return out(await git(root, ['rev-parse', `${commit}^{tree}`]));
 }
 
-/** Files changed between two commits. */
+/** Files changed between two commits. NUL-separated output keeps unusual file names intact. */
 export async function diffFiles(root: string, base: string, head: string): Promise<FileChange[]> {
+  const opts = { maxCapture: MAX_OUTPUT_BYTES, complete: true };
   const [names, nums] = await Promise.all([
-    git(root, ['diff', '--no-renames', '--name-status', base, head]),
-    git(root, ['diff', '--no-renames', '--numstat', base, head]),
+    git(root, ['diff', '--no-renames', '-z', '--name-status', base, head], opts),
+    git(root, ['diff', '--no-renames', '-z', '--numstat', base, head], opts),
   ]);
+  // --numstat -z: "<added>\t<deleted>\t<path>\0" ("-" for binary files).
   const counts = new Map<string, { added: number | null; deleted: number | null }>();
-  for (const line of nums.stdout.split('\n')) {
-    const [a, d, ...rest] = line.split('\t');
-    if (!rest.length) continue;
-    counts.set(rest.join('\t'), { added: a === '-' ? null : Number(a), deleted: d === '-' ? null : Number(d) });
+  for (const entry of nums.stdout.split('\0')) {
+    const m = /^(-|\d+)\t(-|\d+)\t([\s\S]+)$/.exec(entry);
+    if (m) counts.set(m[3]!, { added: m[1] === '-' ? null : Number(m[1]), deleted: m[2] === '-' ? null : Number(m[2]) });
   }
+  // --name-status -z: "<status>\0<path>\0" pairs.
+  const fields = names.stdout.split('\0');
   const files: FileChange[] = [];
-  for (const line of names.stdout.split('\n')) {
-    const [code, ...rest] = line.split('\t');
-    if (!code || !rest.length) continue;
-    const path = rest.join('\t');
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const code = fields[i]!;
+    const path = fields[i + 1]!;
+    if (!code) break;
     const status = code[0] === 'A' ? 'A' : code[0] === 'D' ? 'D' : 'M';
     files.push({ path, status, ...(counts.get(path) ?? { added: null, deleted: null }) });
   }
@@ -137,9 +193,9 @@ export async function diffFiles(root: string, base: string, head: string): Promi
 
 /** Unified diff between two commits, truncated for display. */
 export async function diffText(root: string, base: string, head: string): Promise<string> {
-  const r = await git(root, ['diff', '--no-color', '--no-renames', base, head], { maxCapture: 32 * 1024 * 1024 });
-  if (r.stdout.length <= MAX_DIFF_BYTES) return r.stdout;
-  return `${r.stdout.slice(0, MAX_DIFF_BYTES)}\n\n… diff truncated (${Math.round(r.stdout.length / 1024)} KB total)\n`;
+  const r = await git(root, ['diff', '--no-color', '--no-renames', base, head], { maxCapture: MAX_DIFF_BYTES, keepStart: true });
+  if (!r.stdoutTruncated) return r.stdout;
+  return `${r.stdout}\n\n… diff truncated (${Math.round(r.stdoutSize / 1024)} KB total)\n`;
 }
 
 /** Create (or recreate) a worktree on `branch` starting at `base`. */
@@ -178,8 +234,10 @@ export async function commitWorktree(path: string, message: string): Promise<str
 export async function applyToWorkingTree(root: string, base: string, head: string): Promise<FileChange[]> {
   const files = await diffFiles(root, base, head);
   if (!files.length) throw new HttpError(400, t().nothingToApply);
-  const patch = (await git(root, ['diff', '--binary', '--no-renames', base, head], { maxCapture: 256 * 1024 * 1024 }))
-    .stdout;
+  // The patch as bytes: CRLF line endings and non-UTF-8 content must reach `git apply` unchanged.
+  const patch = (
+    await git(root, ['diff', '--binary', '--no-renames', base, head], { maxCapture: MAX_OUTPUT_BYTES, complete: true })
+  ).stdoutBytes;
   const check = await git(root, ['apply', '--check', '--whitespace=nowarn', '-'], { stdin: patch, allowFail: true });
   if (check.code !== 0) {
     throw new HttpError(

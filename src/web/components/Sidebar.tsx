@@ -28,7 +28,12 @@ export function Sidebar({ route, conversations, seen, providers, onDeleted, onCo
   const t = useT();
   const remove = async (c: ConversationSummary) => {
     if (!confirm(t.sidebar.confirmDelete(c.title))) return;
-    await api.deleteConversation(c.id);
+    try {
+      await api.deleteConversation(c.id);
+    } catch (e) {
+      alert(t.sidebar.deleteFailed((e as Error).message));
+      return;
+    }
     onDeleted(c.id);
   };
 

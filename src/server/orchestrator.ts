@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, realpathSync, rmSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import type {
   AgentConfig,
   AgentSessionState,
@@ -35,7 +35,15 @@ import {
   type AttachmentPart,
   type AttachmentUpload,
 } from './attachments';
-import { buildBriefing, buildTurnPrompt, isPass, parseMentions, type BriefingWorkspace, type TurnInfo } from './prompt';
+import {
+  buildBriefing,
+  buildTurnPrompt,
+  isForwardable,
+  isPass,
+  parseMentions,
+  type BriefingWorkspace,
+  type TurnInfo,
+} from './prompt';
 import { DATA_DIR, type SettingsStore } from './settings';
 import type { Store } from './store';
 import {
@@ -44,7 +52,11 @@ import {
   createWorktree,
   diffFiles,
   diffText,
+  dropKeptCommits,
   ensureRepo,
+  forgetCommits,
+  keepCommits,
+  repoRoot,
   removeWorktree,
   snapshot,
   worktreeCwd,
@@ -53,6 +65,11 @@ import {
 import { isDefaultTitle, t } from './i18n';
 
 export { HttpError };
+
+/** A conversation as sent to the browser: without the agents' CLI session bookkeeping (it grows with the chat). */
+export function forClient(conv: Conversation): Conversation {
+  return { ...conv, agentState: {} };
+}
 
 /** Where agents of one run write. */
 interface RunWorkspace {
@@ -66,6 +83,27 @@ interface Run {
   abort: AbortController;
   active: Set<string>;
   ws: RunWorkspace;
+  /** Repository root this run holds the directory lock on. */
+  lockRoot?: string;
+  /** Settles once the run has finished, including its clean-up. */
+  done: Promise<void>;
+}
+
+/** Longest name of a template saved from a plan. */
+const MAX_PRESET_NAME = 100;
+
+/** The team the lead agent designed, compared with the conversation's current team. */
+function sameTeam(plan: NonNullable<ChatMessage['plan']>, conv: Conversation): boolean {
+  const key = (agents: AgentConfig[]) =>
+    JSON.stringify(agents.map((a) => [a.id, a.name, a.provider, a.role, a.model ?? '', a.effort ?? '']));
+  const s = plan.settings;
+  return (
+    Boolean(plan.agents && s) &&
+    key(plan.agents!) === key(conv.agents) &&
+    s!.mode === conv.settings.mode &&
+    s!.rounds === conv.settings.rounds &&
+    s!.maxHops === conv.settings.maxHops
+  );
 }
 
 /** Where the lead agent's choices come from (signed-in CLIs, their models, the templates). */
@@ -87,10 +125,19 @@ function textOf(m: ChatMessage): string {
  */
 export class Orchestrator {
   private runs = new Map<string, Run>();
+  /**
+   * Conversations between a request's check and its effect: a run being set up, a result being
+   * applied, settings being changed. Nothing else may start on them meanwhile.
+   */
+  private reserved = new Map<string, Promise<void>>();
+  /** Conversations being deleted. */
+  private deleting = new Set<string>();
+  /** The server is shutting down: nothing new starts. */
+  private closing = false;
   /** Repository root → conversation currently writing to its working tree. */
   private dirLocks = new Map<string, string>();
   /** Approval requests waiting for the user, by approval part id. */
-  private approvals = new Map<string, { convId: string; resolve: (a: ApprovalAnswer) => void }>();
+  private approvals = new Map<string, { convId: string; resolve: (a: ApprovalAnswer & { expired?: boolean }) => void }>();
 
   constructor(
     private store: Store,
@@ -101,6 +148,72 @@ export class Orchestrator {
 
   isRunning(id: string): boolean {
     return this.runs.has(id);
+  }
+
+  /** Running, or reserved by a request that will change it. */
+  private isBusy(id: string): boolean {
+    return this.runs.has(id) || this.reserved.has(id) || this.deleting.has(id);
+  }
+
+  /** Reserve a conversation; the returned function releases it (once). */
+  private reserve(convId: string): () => void {
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    this.reserved.set(convId, released);
+    return () => {
+      if (this.reserved.get(convId) === released) this.reserved.delete(convId);
+      release();
+    };
+  }
+
+  /** Why nothing new may start on this conversation now, if anything. */
+  private checkAvailable(convId: string, busyMessage: string): void {
+    if (this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
+    if (this.closing) throw new HttpError(503, t().shuttingDown);
+    if (this.isBusy(convId)) throw new HttpError(409, busyMessage);
+  }
+
+  /**
+   * Run `fn` with the conversation reserved: no run, apply or settings change can start on it until
+   * `fn` settles (requests in between get 409 `busyMessage`), and a delete waits for it.
+   */
+  async exclusive<T>(convId: string, busyMessage: string, fn: () => Promise<T>): Promise<T> {
+    this.checkAvailable(convId, busyMessage);
+    const release = this.reserve(convId);
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Delete a conversation: let a request that is changing it finish, stop its run and wait until the
+   * run has wound down (it still writes its final state), then remove its worktrees, kept snapshot
+   * refs and rows.
+   */
+  async deleteConversation(convId: string): Promise<void> {
+    this.deleting.add(convId);
+    try {
+      // A run being set up gives up when it sees the delete; a settings change or an apply finishes.
+      for (let pending = this.reserved.get(convId); pending; pending = this.reserved.get(convId)) await pending;
+      const run = this.runs.get(convId);
+      if (run) {
+        run.abort.abort();
+        await run.done;
+      }
+      const conv = this.store.get(convId);
+      if (conv) await this.cleanupWorktrees(conv);
+      this.store.delete(convId);
+    } finally {
+      this.deleting.delete(convId);
+    }
+  }
+
+  /** Every run finished (or `ms` passed): used on shutdown before the database closes. */
+  async settled(ms: number): Promise<void> {
+    const all = Promise.allSettled([...this.runs.values()].map((r) => r.done));
+    await Promise.race([all, new Promise((r) => setTimeout(r, ms).unref())]);
   }
 
   activeAgentIds(id: string): string[] {
@@ -127,7 +240,7 @@ export class Orchestrator {
     if (!text && !uploads?.length && !conv.messages.some((m) => m.author.kind === 'user')) throw new HttpError(400, t().typeFirst);
     const files = saveAttachments(conv.id, uploads);
     try {
-      await this.start(conv, text, undefined, undefined, files);
+      await this.start(conv, text, undefined, undefined, false, files);
     } catch (err) {
       removeAttachments(conv.id, files);
       throw err;
@@ -147,7 +260,7 @@ export class Orchestrator {
     // The edited message keeps its attached files.
     const files = target.parts.filter((p): p is AttachmentPart => p.type === 'attachment');
     if (!text && !files.length) throw new HttpError(400, t().emptyMessage);
-    await this.start(conv, text, () => this.truncateFrom(conv, messageId, files), undefined, files);
+    await this.start(conv, text, () => this.truncateFrom(conv, messageId, files), undefined, this.replans(conv, messageId), files);
   }
 
   /**
@@ -180,22 +293,41 @@ export class Orchestrator {
   private getIdle(convId: string): Conversation {
     const conv = this.store.get(convId);
     if (!conv) throw new HttpError(404, t().conversationNotFound);
-    if (this.runs.has(convId)) throw new HttpError(409, t().busy);
+    this.checkAvailable(convId, t().busy);
     if (conv.agents.length === 0 && !conv.settings.autoTeam) throw new HttpError(400, t().noAgents);
     return conv;
   }
 
-  /** Drop a message and everything after it, and make every agent start over. */
-  /** `keep`: attached files that live on in the edited message. */
+  /**
+   * Whether dropping `messageId` and what follows makes the lead agent design the team again: the
+   * lead's plan goes with it, and the team is still the one it designed (a team adjusted by hand
+   * afterwards is kept).
+   */
+  private replans(conv: Conversation, messageId: string): boolean {
+    const index = conv.messages.findIndex((m) => m.id === messageId);
+    if (index < 0) return false;
+    const plans = conv.messages.slice(index).filter((m) => m.plan?.status === 'ready');
+    const latest = plans[plans.length - 1]?.plan;
+    return Boolean(latest && sameTeam(latest, conv));
+  }
+
+  /**
+   * Drop a message and everything after it, and make every agent start over. `keep`: attached files
+   * that live on in the edited message.
+   */
   private truncateFrom(conv: Conversation, messageId: string, keep: AttachmentPart[] = []): void {
     const index = conv.messages.findIndex((m) => m.id === messageId);
     if (index < 0) throw new HttpError(404, t().messageNotFound);
+    const replan = this.replans(conv, messageId);
     const dropped = conv.messages.splice(index);
     this.store.deleteMessages(conv.id, dropped.map((m) => m.id));
     const kept = new Set(keep.map((p) => p.id));
     removeAttachments(
       conv.id,
       dropped.flatMap((m) => m.parts.filter((p): p is AttachmentPart => p.type === 'attachment' && !kept.has(p.id))),
+    );
+    void this.forgetChanges(conv, dropped).catch((err) =>
+      console.warn('[orchestrator] snapshot ref cleanup failed:', (err as Error).message),
     );
     for (const agentId of new Set([...Object.keys(conv.agentState), ...conv.agents.map((a) => a.id)])) {
       const state: AgentSessionState = { provider: conv.agentState[agentId]?.provider, seen: [] };
@@ -208,34 +340,76 @@ export class Orchestrator {
       this.store.saveWorktree(conv.id, agentId, w);
     }
     // The lead agent's team design went too: design the team again for the edited question.
-    if (dropped.some((m) => m.plan)) conv.settings = { ...conv.settings, autoTeam: true };
-    this.hub.emit(conv.id, { type: 'snapshot', conversation: conv, running: false, activeAgentIds: [] });
+    if (replan) conv.settings = { ...conv.settings, autoTeam: true };
+    this.hub.emit(conv.id, { type: 'snapshot', conversation: forClient(conv), running: false, activeAgentIds: [] });
   }
 
-  /** Start a run; `beforePost` runs once the workspace is ready and locked, just before the message is posted. */
-  /** `only`: run just these agents, for one round (retrying replies). */
-  /** `files`: attached files of the new user message (already saved). */
+  /**
+   * Start a run; `beforePost` runs once the workspace is ready and locked, just before the message is
+   * posted. `only`: run just these agents, for one round (retrying replies). `willPlan`: `beforePost`
+   * turns auto team on, so the lead agent designs the team first. `files`: attached files of the new
+   * user message (already saved).
+   */
   private async start(
     conv: Conversation,
     text: string,
     beforePost?: () => void,
     only?: AgentConfig[],
+    willPlan = false,
     files: AttachmentPart[] = [],
   ): Promise<void> {
     const convId = conv.id;
-    const ws = await this.prepareWorkspace(conv);
-    // Re-check after the await: another request may have started a run meanwhile.
-    if (this.runs.has(convId)) throw new HttpError(409, t().busy);
-    // An auto-team run does not know its mode yet, so it locks the directory to be safe.
-    const lockRoot = ws.root && (!ws.isolated || conv.settings.autoTeam) ? ws.root : undefined;
-    if (lockRoot) this.lockDir(lockRoot, conv);
+    // Reserved until the run is registered, so a second send, a settings change or an apply cannot
+    // slip in while the workspace is prepared, and a delete waits for it.
+    const release = this.reserve(convId);
+    let lockRoot: string | undefined;
+    let run: Run;
     try {
+      const ws = await this.prepareWorkspace(conv);
+      // Deleted meanwhile (the delete may even have finished already), or the server is stopping.
+      if (this.deleting.has(convId) || this.store.get(convId) !== conv) {
+        throw new HttpError(404, t().conversationNotFound);
+      }
+      if (this.closing) throw new HttpError(503, t().shuttingDown);
+      // An auto-team run does not know its mode yet, so it locks the directory to be safe; it lets
+      // go once the lead agent chose parallel mode.
+      lockRoot = ws.root && (!ws.isolated || conv.settings.autoTeam || willPlan) ? ws.root : undefined;
+      if (lockRoot) this.lockDir(lockRoot, conv);
       beforePost?.();
+      this.postUserMessage(conv, text, files);
+      run = { abort: new AbortController(), active: new Set(), ws, lockRoot, done: Promise.resolve() };
+      this.runs.set(convId, run);
     } catch (err) {
-      if (lockRoot) this.unlockDir(lockRoot, convId);
+      if (lockRoot && !this.runs.has(convId)) this.unlockDir(lockRoot, convId);
       throw err;
+    } finally {
+      release();
     }
+    this.emitStatus(conv.id);
 
+    run.done = this.execute(conv, text, run, only)
+      .catch((err) => {
+        console.error('[orchestrator] run failed:', err);
+        this.systemNote(conv, t().runFailed((err as Error).message));
+      })
+      .finally(() => {
+        try {
+          if (run.abort.signal.aborted) this.systemNote(conv, t().stoppedNote);
+          conv.updatedAt = Date.now();
+          this.store.flush(conv.id);
+          this.store.saveMeta(conv);
+        } catch (err) {
+          console.error('[orchestrator] could not save the end of a run:', err);
+        } finally {
+          if (run.lockRoot) this.unlockDir(run.lockRoot, conv.id);
+          this.runs.delete(convId);
+          this.emitStatus(conv.id);
+        }
+      });
+  }
+
+  /** Post the user's message (none for Continue / retry) and name the conversation after it. */
+  private postUserMessage(conv: Conversation, text: string, files: AttachmentPart[]): void {
     if (text || files.length) {
       const msg: ChatMessage = {
         id: randomUUID(),
@@ -255,32 +429,15 @@ export class Orchestrator {
     }
     conv.updatedAt = Date.now();
     this.store.saveMeta(conv);
-
-    const run: Run = { abort: new AbortController(), active: new Set(), ws };
-    this.runs.set(convId, run);
-    this.emitStatus(conv.id);
-
-    this.execute(conv, text, run, only)
-      .catch((err) => {
-        console.error('[orchestrator] run failed:', err);
-        this.systemNote(conv, t().runFailed((err as Error).message));
-      })
-      .finally(() => {
-        if (run.abort.signal.aborted) this.systemNote(conv, t().stoppedNote);
-        if (lockRoot) this.unlockDir(lockRoot, conv.id);
-        this.runs.delete(convId);
-        conv.updatedAt = Date.now();
-        this.store.flush(conv.id);
-        this.store.saveMeta(conv);
-        this.emitStatus(conv.id);
-      });
   }
 
   stop(convId: string): void {
     this.runs.get(convId)?.abort.abort();
   }
 
+  /** Shutting down: stop every run, and refuse new runs, applies and settings changes. */
   stopAll(): void {
+    this.closing = true;
     for (const r of this.runs.values()) r.abort.abort();
   }
 
@@ -304,17 +461,45 @@ export class Orchestrator {
     return { root, isolated: conv.settings.mode === 'parallel' };
   }
 
+  /**
+   * Lock a directory for this conversation's writes. Another conversation's lock on the same
+   * directory, or on one inside or around it (nested repositories), conflicts.
+   */
   private lockDir(root: string, conv: Conversation): void {
-    const holder = this.dirLocks.get(root);
-    if (holder && holder !== conv.id) {
-      const title = this.store.get(holder)?.title ?? holder;
-      throw new HttpError(409, t().dirLocked(title, root));
+    const within = (a: string, b: string) => a.startsWith(b.endsWith(sep) ? b : b + sep);
+    for (const [held, holder] of this.dirLocks) {
+      if (holder !== conv.id && (held === root || within(held, root) || within(root, held))) {
+        const title = this.store.get(holder)?.title ?? holder;
+        throw new HttpError(409, t().dirLocked(title, held));
+      }
     }
     this.dirLocks.set(root, conv.id);
   }
 
   private unlockDir(root: string, convId: string): void {
     if (this.dirLocks.get(root) === convId) this.dirLocks.delete(root);
+  }
+
+  /**
+   * An approved action in a run that holds no directory lock (read-only, which never locks) writes
+   * the shared directory too: take the lock first. Returns why it cannot, when another conversation
+   * is writing there (the action is then declined).
+   */
+  private lockForApproval(conv: Conversation, run: Run, cwd: string): string | undefined {
+    if (run.ws.isolated || run.lockRoot) return undefined;
+    let dir: string;
+    try {
+      dir = realpathSync(cwd);
+    } catch {
+      return undefined;
+    }
+    try {
+      this.lockDir(dir, conv);
+      run.lockRoot = dir;
+      return undefined;
+    } catch (err) {
+      return (err as Error).message;
+    }
   }
 
   /** Give every participant its own worktree, starting from a snapshot of the working directory. */
@@ -343,25 +528,27 @@ export class Orchestrator {
   /** Apply everything an agent did in its worktree to the real working directory (uncommitted). */
   async applyAgentWork(convId: string, agentId: string): Promise<FileChange[]> {
     const conv = this.store.get(convId);
-    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     const wt = conv.worktrees[agentId];
     if (!wt) throw new HttpError(404, t().noWorktree);
     if (wt.needsReset) throw new HttpError(409, t().resultStale);
-    if (this.runs.has(convId)) throw new HttpError(409, t().busyApply);
-    this.lockDir(wt.root, conv);
-    try {
-      const files = await applyToWorkingTree(wt.root, wt.base, await worktreeHead(wt.path));
-      for (const [id, w] of Object.entries(conv.worktrees)) {
-        w.needsReset = true;
-        this.store.saveWorktree(conv.id, id, w);
+    // Reserved, so the team cannot start writing (and take over this lock) while the patch is applied.
+    return this.exclusive(convId, t().busyApply, async () => {
+      this.lockDir(wt.root, conv);
+      try {
+        const files = await applyToWorkingTree(wt.root, wt.base, await worktreeHead(wt.path));
+        for (const [id, w] of Object.entries(conv.worktrees)) {
+          w.needsReset = true;
+          this.store.saveWorktree(conv.id, id, w);
+        }
+        const name = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
+        this.systemNote(conv, t().appliedNote(name, files.length));
+        this.emitConversation(conv);
+        return files;
+      } finally {
+        this.unlockDir(wt.root, conv.id);
       }
-      const name = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
-      this.systemNote(conv, t().appliedNote(name, files.length));
-      this.emitConversation(conv);
-      return files;
-    } finally {
-      this.unlockDir(wt.root, conv.id);
-    }
+    });
   }
 
   async messageDiff(convId: string, messageId: string): Promise<string> {
@@ -457,9 +644,12 @@ export class Orchestrator {
     const plan = msg?.plan;
     if (!msg || plan?.status !== 'ready') throw new HttpError(404, t().planNotFound);
     if (plan.source !== 'custom' || !plan.agents?.length || !plan.settings) throw new HttpError(400, t().planNotSavable);
+    // Saving again returns the template already saved from this plan.
+    const saved = plan.savedPresetId && this.store.listPresets().find((p) => p.id === plan.savedPresetId);
+    if (saved) return saved;
     const preset: TeamPreset = {
       id: `user-${randomUUID()}`,
-      name: name?.trim() || plan.name || plan.agents.map((a) => a.name).join(' · '),
+      name: (name?.trim() || plan.name || plan.agents.map((a) => a.name).join(' · ')).slice(0, MAX_PRESET_NAME),
       description: plan.description,
       agents: plan.agents.map((a) => ({ ...a, id: randomUUID() })),
       settings: { ...plan.settings, permission: conv.settings.permission },
@@ -471,7 +661,19 @@ export class Orchestrator {
     return preset;
   }
 
-  /** Remove a conversation's worktrees and branches (before deleting it). */
+  /** Stop keeping the commits of dropped messages that no remaining message links to. */
+  private async forgetChanges(conv: Conversation, dropped: ChatMessage[]): Promise<void> {
+    const inUse = new Set(conv.messages.flatMap((m) => (m.changes ? [m.changes.base, m.changes.head] : [])));
+    const byRoot = new Map<string, string[]>();
+    for (const m of dropped) {
+      if (!m.changes) continue;
+      const commits = [m.changes.base, m.changes.head].filter((c) => !inUse.has(c));
+      byRoot.set(m.changes.root, [...(byRoot.get(m.changes.root) ?? []), ...commits]);
+    }
+    for (const [root, commits] of byRoot) await forgetCommits(root, conv.id, commits);
+  }
+
+  /** Remove a conversation's worktrees and branches, and the snapshot refs it kept (before deleting it). */
   async cleanupWorktrees(conv: Conversation): Promise<void> {
     for (const wt of Object.values(conv.worktrees)) {
       await removeWorktree(wt.root, wt.path, wt.branch).catch((err) =>
@@ -480,6 +682,17 @@ export class Orchestrator {
     }
     rmSync(join(DATA_DIR, 'worktrees', conv.id), { recursive: true, force: true });
     removeAttachments(conv.id);
+    const cwdRoot = await repoRoot(conv.settings.cwd).catch(() => null);
+    const roots = new Set([
+      ...Object.values(conv.worktrees).map((w) => w.root),
+      ...conv.messages.flatMap((m) => (m.changes ? [m.changes.root] : [])),
+      ...(cwdRoot ? [cwdRoot] : []),
+    ]);
+    for (const root of roots) {
+      await dropKeptCommits(root, conv.id).catch((err) =>
+        console.warn('[orchestrator] snapshot ref cleanup failed:', (err as Error).message),
+      );
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -489,6 +702,11 @@ export class Orchestrator {
       await this.designTeam(conv, text, run);
       if (run.abort.signal.aborted || conv.settings.autoTeam) return;
       run.ws = { root: run.ws.root, isolated: Boolean(run.ws.root) && conv.settings.mode === 'parallel' };
+      // Parallel agents write only to their worktrees: other conversations may use the directory.
+      if (run.ws.isolated && run.lockRoot) {
+        this.unlockDir(run.lockRoot, conv.id);
+        run.lockRoot = undefined;
+      }
     }
     const { mode, maxHops } = conv.settings;
     const rounds = only ? 1 : conv.settings.rounds;
@@ -524,7 +742,11 @@ export class Orchestrator {
       const info: TurnInfo = { mode, round, rounds };
       let msgs: ChatMessage[];
       if (mode === 'parallel') {
-        msgs = await Promise.all(participants.map((a) => this.turn(conv, a, run, info)));
+        // Every turn settles before the run can end, even when one of them fails.
+        const settled = await Promise.allSettled(participants.map((a) => this.turn(conv, a, run, info)));
+        const failed = settled.find((r) => r.status === 'rejected');
+        if (failed) throw failed.reason;
+        msgs = settled.map((r) => (r as PromiseFulfilledResult<ChatMessage>).value);
       } else {
         msgs = [];
         for (const a of participants) {
@@ -563,33 +785,48 @@ export class Orchestrator {
 
     // Where this agent works, and the state before its turn (to record what it changed).
     const wt = run.ws.isolated ? conv.worktrees[agent.id] : undefined;
-    const cwd = wt ? worktreeCwd(wt.root, conv.settings.cwd, wt.path) : conv.settings.cwd;
-    const workspace: BriefingWorkspace = wt
-      ? {
+    let cwd = conv.settings.cwd;
+    let workspace: BriefingWorkspace = { kind: 'shared' };
+    let before: { commit: string; tree?: string } | undefined;
+    let setupError: unknown;
+    try {
+      if (wt) {
+        cwd = worktreeCwd(wt.root, conv.settings.cwd, wt.path);
+        workspace = {
           kind: 'isolated',
           cwd,
           branch: wt.branch,
           base: wt.base,
           teammates: conv.agents
             .filter((a) => a.id !== agent.id && conv.worktrees[a.id] && !conv.worktrees[a.id]!.needsReset)
-            .map((a) => ({ name: a.name, branch: conv.worktrees[a.id]!.branch })),
-        }
-      : { kind: 'shared' };
-    let before: { commit: string; tree?: string } | undefined;
+            .map((a) => ({ name: a.name, branch: conv.worktrees[a.id]!.branch, base: conv.worktrees[a.id]!.base })),
+        };
+      }
+    } catch (err) {
+      setupError = err; // reported as this turn's error below
+    }
     try {
-      if (wt) before = { commit: await worktreeHead(wt.path) };
-      else if (run.ws.root) before = await snapshot(run.ws.root);
+      if (wt && !setupError) before = { commit: await worktreeHead(wt.path) };
+      else if (run.ws.root && !wt) before = await snapshot(run.ws.root);
     } catch (err) {
       console.warn('[orchestrator] could not snapshot before turn:', (err as Error).message);
     }
 
     let textOpen = false;
+    /** What this agent had seen before the current attempt (what a crash mid-turn should keep). */
+    let committedSeen = state.seen;
+    /** Approval requests of this turn still waiting for the user (expired when the turn ends). */
+    const waiting = new Set<string>();
+    /** The session was rolled back to the one before this turn (a fresh retry failed too). */
+    let keptOldSession = false;
     const onEvent = (e: AgentEvent) => {
       switch (e.type) {
         case 'session':
           if (state.sessionId !== e.sessionId) {
             state.sessionId = e.sessionId;
-            this.store.saveAgentState(conv.id, agent.id, state); // keep it even if the server dies mid-turn
+            // Keep it even if the server dies mid-turn, but without this turn's messages: they count
+            // as delivered only once the turn ends, so a crash offers them again.
+            this.store.saveAgentState(conv.id, agent.id, { ...state, seen: committedSeen });
           }
           return;
         case 'text': {
@@ -649,7 +886,8 @@ export class Orchestrator {
       conv.settings.approvals === 'deny'
         ? undefined
         : async (req: ApprovalRequest): Promise<ApprovalAnswer> => {
-            const keys = approvalKeys(req.kind, req.detail, req.tool);
+            // Keys come from the command as it will run; `detail` may be tidied up for display.
+            const keys = approvalKeys(req.kind, req.command ?? req.detail, req.tool);
             const part: Extract<MessagePart, { type: 'approval' }> = {
               type: 'approval',
               id: randomUUID(),
@@ -663,15 +901,17 @@ export class Orchestrator {
             textOpen = false;
             msg.parts.push(part);
             if (isAllowed(conv.allowRules, req.kind, keys)) {
-              Object.assign(part, { status: 'allowed', always: true, auto: true });
+              const busy = this.lockForApproval(conv, run, cwd);
+              Object.assign(part, busy ? { status: 'denied', note: busy } : { status: 'allowed', always: true, auto: true });
               this.hub.emit(conv.id, { type: 'message', message: msg });
               this.store.saveMessage(conv.id, msg, true);
-              return { allow: true };
+              return busy ? { allow: false, note: busy } : { allow: true };
             }
             this.hub.emit(conv.id, { type: 'message', message: msg });
             this.store.saveMessage(conv.id, msg, true);
 
-            const answer = await new Promise<ApprovalAnswer & { expired?: boolean }>((resolve) => {
+            waiting.add(part.id);
+            let answer = await new Promise<ApprovalAnswer & { expired?: boolean }>((resolve) => {
               const onAbort = () => resolve({ allow: false, expired: true });
               run.abort.signal.addEventListener('abort', onAbort, { once: true });
               this.approvals.set(part.id, {
@@ -684,7 +924,10 @@ export class Orchestrator {
               this.emitStatus(conv.id);
               if (run.abort.signal.aborted) onAbort();
             });
+            waiting.delete(part.id);
             this.approvals.delete(part.id);
+            const busy = answer.allow ? this.lockForApproval(conv, run, cwd) : undefined;
+            if (busy) answer = { allow: false, note: busy };
             part.status = answer.expired ? 'expired' : answer.allow ? 'allowed' : 'denied';
             if (answer.allow && answer.always) {
               part.always = true;
@@ -711,14 +954,13 @@ export class Orchestrator {
       const seen = new Set(state.seen);
       // Everything this agent hasn't been shown yet, including its own earlier replies when starting fresh.
       // Messages still streaming (parallel peers) stay unseen and are delivered next turn.
-      const delta = conv.messages.filter(
-        (m) => m.id !== msg.id && m.author.kind !== 'system' && m.status === 'done' && !seen.has(m.id),
-      );
+      const delta = conv.messages.filter((m) => m.id !== msg.id && isForwardable(m) && !seen.has(m.id));
       const prompt = buildTurnPrompt(conv, agent, delta, !state.sessionId, info);
       const files = delta.flatMap((m) =>
         m.author.kind === 'user' ? m.parts.filter((p): p is AttachmentPart => p.type === 'attachment') : [],
       );
       const seenBefore = state.seen;
+      committedSeen = seenBefore;
       state.seen = [...state.seen, ...delta.map((m) => m.id)];
       try {
         const result = await runners[agent.provider].run({
@@ -747,6 +989,7 @@ export class Orchestrator {
 
     const started = Date.now();
     try {
+      if (setupError) throw setupError;
       const hadSession = Boolean(state.sessionId);
       let result: RunResult;
       try {
@@ -756,7 +999,18 @@ export class Orchestrator {
         const aborted = err instanceof AgentRunError && err.aborted;
         if (!hadSession || aborted || msg.parts.length > 0) throw err;
         console.warn(`[orchestrator] resume failed for @${agent.name}, retrying fresh:`, (err as Error).message);
-        result = await attempt(true);
+        const kept = { sessionId: state.sessionId, seen: state.seen };
+        try {
+          result = await attempt(true);
+        } catch (freshErr) {
+          // The fresh session failed too before saying anything (rate limit, sign-in, network…): the
+          // problem was not the session, so keep it for the next turn.
+          if (msg.parts.length === 0) {
+            Object.assign(state, kept);
+            keptOldSession = true;
+          }
+          throw freshErr;
+        }
       }
       const text = textOf(msg);
       msg.passed = isPass(text) || (!text && !msg.parts.some((p) => p.type === 'tool'));
@@ -771,15 +1025,20 @@ export class Orchestrator {
       state.seen.push(msg.id);
     } catch (err) {
       const aborted = err instanceof AgentRunError && err.aborted;
+      // The session this agent resumes next holds its own reply, even a failed one, so the reply is
+      // not news to it; without such a session (it starts fresh) it is shown the reply.
+      if (state.sessionId && !keptOldSession) state.seen.push(msg.id);
       msg.status = aborted ? 'aborted' : 'error';
       msg.error = aborted ? undefined : (err as Error).message;
       msg.meta = { ...msg.meta, durationMs: Date.now() - started };
       for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
     } finally {
+      // The CLI is gone: requests it was still waiting on can no longer be answered.
+      for (const id of waiting) this.approvals.get(id)?.resolve({ allow: false, expired: true });
       // Record file changes even when the turn failed or was stopped: the files changed anyway.
       if (before) {
         try {
-          msg.changes = await this.captureChanges(run.ws.root!, before, wt, agent);
+          msg.changes = await this.captureChanges(conv.id, run.ws.root!, before, wt, agent);
         } catch (err) {
           console.warn('[orchestrator] could not record changes:', (err as Error).message);
         }
@@ -788,28 +1047,39 @@ export class Orchestrator {
       conv.updatedAt = Date.now();
       this.hub.emit(conv.id, { type: 'message', message: msg });
       this.emitStatus(conv.id);
-      this.store.saveMessage(conv.id, msg, true);
-      this.store.saveAgentState(conv.id, agent.id, state);
-      this.store.saveMeta(conv);
+      // A failed write must not end the turn early: in parallel mode the run would end while
+      // teammates still work.
+      try {
+        this.store.saveMessage(conv.id, msg, true);
+        this.store.saveAgentState(conv.id, agent.id, state);
+        this.store.saveMeta(conv);
+      } catch (err) {
+        console.error('[orchestrator] could not save the end of a turn:', err);
+      }
     }
     return msg;
   }
 
   private async captureChanges(
+    convId: string,
     root: string,
     before: { commit: string; tree?: string },
     wt: AgentWorktree | undefined,
     agent: AgentConfig,
   ): Promise<MessageChanges | undefined> {
     if (wt) {
-      const head = await commitWorktree(wt.path, `@${agent.name} (Harness Relay)`);
-      if (!head) return undefined;
+      // An agent that committed by itself leaves nothing staged: its commits are the turn's result.
+      const head = (await commitWorktree(wt.path, `@${agent.name} (Harness Relay)`)) ?? (await worktreeHead(wt.path));
+      if (head === before.commit) return undefined;
       const files = await diffFiles(wt.root, before.commit, head);
+      // The branch moves on a reset; keep this turn's commits so its diff stays viewable.
+      await keepCommits(wt.root, convId, [before.commit, head]);
       return { root: wt.root, base: before.commit, head, files, isolated: true, branch: wt.branch };
     }
     const after = await snapshot(root);
     if (after.tree === before.tree) return undefined;
     const files = await diffFiles(root, before.commit, after.commit);
+    await keepCommits(root, convId, [before.commit, after.commit]);
     return { root, base: before.commit, head: after.commit, files, isolated: false };
   }
 
