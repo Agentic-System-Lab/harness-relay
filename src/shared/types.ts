@@ -249,6 +249,8 @@ export interface ChatMessage {
   changes?: MessageChanges;
   /** A system message carrying the lead agent's team design (auto-team conversations). */
   plan?: TeamPlan;
+  /** A user message sent while the team was replying: it waited in the queue for a later turn. */
+  queued?: boolean;
 }
 
 export interface AgentSessionState {
@@ -272,6 +274,11 @@ export interface Conversation {
   worktrees: Record<string, AgentWorktree>;
   /** "Always allow" answers given in this conversation. */
   allowRules?: AllowRule[];
+  /**
+   * The user's messages waiting to be delivered, oldest first: sent while the team replies, they are
+   * posted before the next turn of an agent they are for (see `Orchestrator.send`).
+   */
+  queue?: ChatMessage[];
 }
 
 export interface ConversationSummary {
@@ -294,6 +301,7 @@ export type ServerEvent =
   | { type: 'message'; message: ChatMessage }
   | { type: 'delta'; messageId: string; partIndex: number; text: string }
   | { type: 'status'; running: boolean; activeAgentIds: string[] }
+  | { type: 'queue'; queue: ChatMessage[] }
   | {
       type: 'conversation';
       title: string;

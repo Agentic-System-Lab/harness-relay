@@ -224,8 +224,9 @@ export function createApp({ store, settings, hub, orchestrator, providers, extra
       return c.json(forClient(conv));
     };
     if (!b.agents && !b.settings) return save(); // renaming is fine while the team replies
+    let confirmed = false;
     // Reserved while the workspace is prepared, so no run starts with half-changed settings.
-    return orchestrator.exclusive(conv.id, t().busySettings, async () => {
+    const res = await orchestrator.exclusive(conv.id, t().busySettings, async () => {
       const agents = b.agents ? validateAgents(b.agents) : conv.agents;
       const next = b.settings ? validateSettings(b.settings, conv.settings.cwd) : { ...conv.settings };
       // Edits never switch auto team on; a team set by hand replaces the lead agent's pending design.
@@ -233,9 +234,12 @@ export function createApp({ store, settings, hub, orchestrator, providers, extra
       if (b.settings) await orchestrator.prepareWorkspace({ ...conv, settings: next });
       conv.agents = agents;
       conv.settings = next;
-      if (b.agents) orchestrator.confirmPendingPlan(conv);
+      if (b.agents) confirmed = orchestrator.confirmPendingPlan(conv);
       return save();
     });
+    // The team set by hand answers the question written while its design waited.
+    if (confirmed) orchestrator.startQueued(conv);
+    return res;
   });
 
   app.delete('/api/conversations/:id', async (c) => {
@@ -244,18 +248,26 @@ export function createApp({ store, settings, hub, orchestrator, providers, extra
     return c.json({ ok: true });
   });
 
+  // Send a message. While the team replies it waits in the queue for the next turn ({ queued: true });
+  // `interrupt` stops the team first and sends it now.
   app.post('/api/conversations/:id/messages', async (c) => {
-    const b = await body<{ text?: string; attachments?: AttachmentUpload[] }>(c);
-    await orchestrator.send(c.req.param('id'), String(b.text ?? ''), b.attachments);
-    return c.json({ ok: true }, 202);
+    const b = await body<{ text?: string; attachments?: AttachmentUpload[]; interrupt?: boolean }>(c);
+    const { queued } = await orchestrator.send(c.req.param('id'), String(b.text ?? ''), b.attachments, b.interrupt === true);
+    return c.json({ ok: true, queued }, 202);
   });
+
+  // Take back a message still waiting in the queue; it is returned so the user can edit it.
+  app.delete('/api/conversations/:id/queue/:messageId', (c) =>
+    c.json(orchestrator.withdraw(c.req.param('id'), c.req.param('messageId'))),
+  );
 
   // A file attached to a user message. Only common image types are shown inline; anything else
   // is a download, so an attached HTML or SVG file can never run in this origin.
   app.get('/api/conversations/:id/attachments/:attachmentId', async (c) => {
     const conv = getConv(c.req.param('id'));
     const id = c.req.param('attachmentId');
-    const part = conv.messages
+    // Messages waiting in the queue show their files too.
+    const part = [...conv.messages, ...(conv.queue ?? [])]
       .flatMap((m) => m.parts)
       .find((p): p is AttachmentPart => p.type === 'attachment' && p.id === id);
     if (!part) throw new HttpError(404, t().attachmentNotFound);

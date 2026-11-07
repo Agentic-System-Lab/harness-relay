@@ -90,6 +90,19 @@ interface Run {
   done: Promise<void>;
 }
 
+interface StartOptions {
+  /** Runs once the workspace is ready and locked, just before the message is posted. */
+  beforePost?: () => void;
+  /** Run just these agents, for one round (retrying replies). */
+  only?: AgentConfig[];
+  /** `beforePost` turns auto team on, so the lead agent designs the team first. */
+  willPlan?: boolean;
+  /** Attached files of the new user message (already saved). */
+  files?: AttachmentPart[];
+  /** Post the messages waiting in the queue first: they were sent before this one, and start the run too. */
+  queue?: boolean;
+}
+
 /** Longest name of a template saved from a plan. */
 const MAX_PRESET_NAME = 100;
 
@@ -120,6 +133,31 @@ function textOf(m: ChatMessage): string {
     .trim();
 }
 
+/** Most messages that may wait in a conversation's queue. */
+const MAX_QUEUE = 20;
+
+/**
+ * Who answers a run the user's `messages` start: the agents they @mention, or the whole team when
+ * none does or one of them mentions nobody (it is for everyone).
+ */
+function mentionsOf(messages: ChatMessage[], agents: AgentConfig[]): AgentConfig[] {
+  const named: AgentConfig[] = [];
+  for (const m of messages) {
+    const found = parseMentions(textOf(m), agents);
+    if (!found.length) return [];
+    for (const a of found) if (!named.includes(a)) named.push(a);
+  }
+  return named;
+}
+
+/** A waiting message is for these agents: it @mentions one of them, or nobody. */
+function isFor(m: ChatMessage, recipients: AgentConfig[], agents: AgentConfig[]): boolean {
+  const named = parseMentions(textOf(m), agents);
+  return !named.length || named.some((a) => recipients.some((r) => r.id === a.id));
+}
+
+const attachmentsOf = (m: ChatMessage) => m.parts.filter((p): p is AttachmentPart => p.type === 'attachment');
+
 /**
  * Drives a conversation: decides which agent speaks next, builds each agent's prompt from the
  * messages it hasn't seen yet, runs the CLI, and streams the result to connected browsers.
@@ -131,6 +169,8 @@ export class Orchestrator {
    * applied, settings being changed. Nothing else may start on them meanwhile.
    */
   private reserved = new Map<string, Promise<void>>();
+  /** Conversations whose run is being set up: a message sent meanwhile waits in the queue. */
+  private starting = new Set<string>();
   /** Conversations being deleted. */
   private deleting = new Set<string>();
   /** The server is shutting down: nothing new starts. */
@@ -234,19 +274,131 @@ export class Orchestrator {
     pending.resolve({ allow: Boolean(answer.allow), always: Boolean(answer.always), note: answer.note ? String(answer.note).slice(0, 2000) : undefined });
   }
 
-  /** Post a user message (or, with empty text, let the team continue) and start the team's turn. */
-  async send(convId: string, rawText: string, uploads?: AttachmentUpload[]): Promise<void> {
+  /**
+   * Post a user message (or, with empty text, let the team continue) and start the team's turn.
+   *
+   * While the team replies (or its run is being set up, or the lead agent's team design waits for
+   * confirmation) the message waits in the conversation's queue instead: it is posted before the
+   * next turn of an agent it is for, and what no turn took starts another run when this one ends
+   * (see `deliverQueued`, `startQueued`). `interrupt` stops the team first and sends it, after the
+   * messages waiting, now.
+   */
+  async send(convId: string, rawText: string, uploads?: AttachmentUpload[], interrupt = false): Promise<{ queued: boolean }> {
+    const text = rawText.trim();
+    const content = Boolean(text || uploads?.length);
+    const found = this.store.get(convId);
+    if (!found) throw new HttpError(404, t().conversationNotFound);
+    if (interrupt && (content || found.queue?.length)) await this.interrupt(convId);
+    if (content && this.queues(found)) {
+      this.enqueue(found, text, uploads);
+      return { queued: true };
+    }
     const conv = this.getIdle(convId);
     if (pendingPlan(conv.messages)) throw new HttpError(409, t().planAwaitingConfirm);
-    const text = rawText.trim();
-    if (!text && !uploads?.length && !conv.messages.some((m) => m.author.kind === 'user')) throw new HttpError(400, t().typeFirst);
+    if (!content && !conv.queue?.length && !conv.messages.some((m) => m.author.kind === 'user')) {
+      throw new HttpError(400, t().typeFirst);
+    }
     const files = saveAttachments(conv.id, uploads);
     try {
-      await this.start(conv, text, undefined, undefined, false, files);
+      await this.start(conv, text, { files, queue: true });
     } catch (err) {
       removeAttachments(conv.id, files);
       throw err;
     }
+    return { queued: false };
+  }
+
+  /** Take back a message that is still waiting in the queue (it is returned, e.g. to edit it). */
+  withdraw(convId: string, messageId: string): ChatMessage {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    const index = conv.queue?.findIndex((m) => m.id === messageId) ?? -1;
+    if (index < 0) throw new HttpError(404, t().queuedNotFound);
+    const [msg] = conv.queue!.splice(index, 1);
+    this.saveQueue(conv);
+    removeAttachments(conv.id, attachmentsOf(msg!));
+    return msg!;
+  }
+
+  /** Stop the conversation's run, if there is one, and wait until it has wound down. */
+  private async interrupt(convId: string): Promise<void> {
+    const run = this.runs.get(convId);
+    if (!run) return;
+    run.abort.abort();
+    await run.done;
+  }
+
+  /** A message sent now waits in the queue (anything else that keeps the conversation busy refuses it). */
+  private queues(conv: Conversation): boolean {
+    if (this.deleting.has(conv.id) || this.closing) return false;
+    return this.runs.has(conv.id) || this.starting.has(conv.id) || Boolean(pendingPlan(conv.messages));
+  }
+
+  private enqueue(conv: Conversation, text: string, uploads?: AttachmentUpload[]): void {
+    const queue = (conv.queue ??= []);
+    if (queue.length >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
+    const files = saveAttachments(conv.id, uploads);
+    // Marked only when it joins a team's discussion: not a first question written while the lead
+    // agent designs the team or waits for confirmation.
+    const midReply = (this.runs.has(conv.id) || this.starting.has(conv.id)) && !conv.settings.autoTeam;
+    queue.push({
+      id: randomUUID(),
+      author: { kind: 'user' },
+      createdAt: Date.now(),
+      parts: [...(text ? [{ type: 'text' as const, text }] : []), ...files],
+      status: 'done',
+      ...(midReply ? { queued: true } : {}),
+    });
+    try {
+      this.saveQueue(conv);
+    } catch (err) {
+      queue.pop();
+      removeAttachments(conv.id, files);
+      throw err;
+    }
+  }
+
+  private saveQueue(conv: Conversation): void {
+    this.store.saveQueue(conv);
+    this.hub.emit(conv.id, { type: 'queue', queue: conv.queue ?? [] });
+  }
+
+  /**
+   * Post waiting messages, oldest first, and return them: before a turn, those for `recipients` —
+   * one that @mentions only other agents waits for them, and the ones behind it wait too, so the
+   * chat keeps the order they were sent in; when a run starts, those in `ids` (sent before it).
+   */
+  private deliverQueued(conv: Conversation, which: { recipients: AgentConfig[] } | { ids: Set<string> }): ChatMessage[] {
+    const queue = conv.queue ?? [];
+    const posted: ChatMessage[] = [];
+    while (queue.length) {
+      const next = queue[0]!;
+      if ('ids' in which ? !which.ids.has(next.id) : !isFor(next, which.recipients, conv.agents)) break;
+      // Posted before it leaves the saved queue: a crash in between keeps it once, as delivered.
+      conv.messages.push(next);
+      queue.shift();
+      this.store.saveMessage(conv.id, next, true);
+      this.hub.emit(conv.id, { type: 'message', message: next });
+      this.nameAfter(conv, next);
+      posted.push(next);
+    }
+    if (posted.length) this.saveQueue(conv);
+    return posted;
+  }
+
+  /**
+   * Start a run for the messages still waiting, when nothing else is going on and the team may
+   * answer (the lead agent's team design is not waiting for confirmation). Returns whether it starts;
+   * a run that fails to start says why in the chat, and its messages keep waiting.
+   */
+  startQueued(conv: Conversation): boolean {
+    if (!conv.queue?.length || this.isBusy(conv.id) || this.closing || this.store.get(conv.id) !== conv) return false;
+    if (pendingPlan(conv.messages) || (conv.agents.length === 0 && !conv.settings.autoTeam)) return false;
+    this.start(conv, '', { queue: true }).catch((err) => {
+      if (!(err instanceof HttpError && err.status === 404)) this.systemNote(conv, t().runFailed((err as Error).message));
+      this.emitStatus(conv.id);
+    });
+    return true;
   }
 
   /**
@@ -262,7 +414,11 @@ export class Orchestrator {
     // The edited message keeps its attached files.
     const files = target.parts.filter((p): p is AttachmentPart => p.type === 'attachment');
     if (!text && !files.length) throw new HttpError(400, t().emptyMessage);
-    await this.start(conv, text, () => this.truncateFrom(conv, messageId, files), undefined, this.replans(conv, messageId), files);
+    await this.start(conv, text, {
+      beforePost: () => this.truncateFrom(conv, messageId, files),
+      willPlan: this.replans(conv, messageId),
+      files,
+    });
   }
 
   /**
@@ -289,7 +445,7 @@ export class Orchestrator {
         if (a && m.meta?.round === target.meta?.round && !again.includes(a)) again.push(a);
       }
     }
-    await this.start(conv, '', () => this.truncateFrom(conv, messageId), again);
+    await this.start(conv, '', { beforePost: () => this.truncateFrom(conv, messageId), only: again });
   }
 
   private getIdle(convId: string): Conversation {
@@ -346,26 +502,19 @@ export class Orchestrator {
     this.hub.emit(conv.id, { type: 'snapshot', conversation: forClient(conv), running: false, activeAgentIds: [] });
   }
 
-  /**
-   * Start a run; `beforePost` runs once the workspace is ready and locked, just before the message is
-   * posted. `only`: run just these agents, for one round (retrying replies). `willPlan`: `beforePost`
-   * turns auto team on, so the lead agent designs the team first. `files`: attached files of the new
-   * user message (already saved).
-   */
-  private async start(
-    conv: Conversation,
-    text: string,
-    beforePost?: () => void,
-    only?: AgentConfig[],
-    willPlan = false,
-    files: AttachmentPart[] = [],
-  ): Promise<void> {
+  /** Start a run that posts `text` (if any) as the user's message; see `StartOptions`. */
+  private async start(conv: Conversation, text: string, opts: StartOptions = {}): Promise<void> {
+    const { beforePost, only, willPlan = false, files = [] } = opts;
     const convId = conv.id;
-    // Reserved until the run is registered, so a second send, a settings change or an apply cannot
-    // slip in while the workspace is prepared, and a delete waits for it.
+    // Reserved until the run is registered, so a settings change or an apply cannot slip in while the
+    // workspace is prepared, and a delete waits for it; a message sent meanwhile waits in the queue.
     const release = this.reserve(convId);
+    this.starting.add(convId);
+    // Messages queued from now on were sent after this one: they wait for the first turn.
+    const ahead = opts.queue ? new Set((conv.queue ?? []).map((m) => m.id)) : undefined;
     let lockRoot: string | undefined;
     let run: Run;
+    let posted: ChatMessage[] = [];
     try {
       const ws = await this.prepareWorkspace(conv);
       // Deleted meanwhile (the delete may even have finished already), or the server is stopping.
@@ -379,18 +528,21 @@ export class Orchestrator {
       lockRoot = ws.root && !ws.isolated && !planning ? ws.root : undefined;
       if (lockRoot) this.lockDir(lockRoot, conv);
       beforePost?.();
-      this.postUserMessage(conv, text, files);
+      if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
+      const own = this.postUserMessage(conv, text, files);
+      if (own) posted.push(own);
       run = { abort: new AbortController(), active: new Set(), ws, lockRoot, done: Promise.resolve() };
       this.runs.set(convId, run);
     } catch (err) {
       if (lockRoot && !this.runs.has(convId)) this.unlockDir(lockRoot, convId);
       throw err;
     } finally {
+      this.starting.delete(convId);
       release();
     }
     this.emitStatus(conv.id);
 
-    run.done = this.execute(conv, text, run, only)
+    run.done = this.execute(conv, posted, run, only)
       .catch((err) => {
         console.error('[orchestrator] run failed:', err);
         this.systemNote(conv, t().runFailed((err as Error).message));
@@ -406,15 +558,18 @@ export class Orchestrator {
         } finally {
           if (run.lockRoot) this.unlockDir(run.lockRoot, conv.id);
           this.runs.delete(convId);
-          this.emitStatus(conv.id);
+          // Messages sent while the team replied that no turn took: the team answers them now. After
+          // Stop they keep waiting, for the user to send or withdraw.
+          if (run.abort.signal.aborted || !this.startQueued(conv)) this.emitStatus(conv.id);
         }
       });
   }
 
   /** Post the user's message (none for Continue / retry) and name the conversation after it. */
-  private postUserMessage(conv: Conversation, text: string, files: AttachmentPart[]): void {
+  private postUserMessage(conv: Conversation, text: string, files: AttachmentPart[]): ChatMessage | undefined {
+    let msg: ChatMessage | undefined;
     if (text || files.length) {
-      const msg: ChatMessage = {
+      msg = {
         id: randomUUID(),
         author: { kind: 'user' },
         createdAt: Date.now(),
@@ -424,14 +579,20 @@ export class Orchestrator {
       conv.messages.push(msg);
       this.store.saveMessage(conv.id, msg, true);
       this.hub.emit(conv.id, { type: 'message', message: msg });
-      if (isDefaultTitle(conv.title)) {
-        const line = (text.split('\n')[0] ?? '').trim() || files[0]!.name;
-        conv.title = line.length > 40 ? line.slice(0, 39) + '…' : line;
-        this.emitConversation(conv);
-      }
+      this.nameAfter(conv, msg);
     }
     conv.updatedAt = Date.now();
     this.store.saveMeta(conv);
+    return msg;
+  }
+
+  /** A conversation still called "New chat" is named after the first line of the user's message. */
+  private nameAfter(conv: Conversation, msg: ChatMessage): void {
+    if (!isDefaultTitle(conv.title)) return;
+    const line = (textOf(msg).split('\n')[0] ?? '').trim() || attachmentsOf(msg)[0]?.name;
+    if (!line) return;
+    conv.title = line.length > 40 ? line.slice(0, 39) + '…' : line;
+    this.emitConversation(conv);
   }
 
   stop(convId: string): void {
@@ -571,7 +732,7 @@ export class Orchestrator {
    * as a plan card. When planning fails the general-question template is used; when it is stopped
    * the conversation stays in auto-team mode and plans again on the next message.
    */
-  private async designTeam(conv: Conversation, text: string, run: Run): Promise<void> {
+  private async designTeam(conv: Conversation, run: Run): Promise<void> {
     const lead = this.settings.lead;
     const msg: ChatMessage = {
       id: randomUUID(),
@@ -585,10 +746,13 @@ export class Orchestrator {
     this.hub.emit(conv.id, { type: 'message', message: msg });
     this.store.saveMessage(conv.id, msg, true);
 
-    const asked = [...conv.messages].reverse().find((m) => m.author.kind === 'user');
-    const fileNames = asked?.parts.flatMap((p) => (p.type === 'attachment' ? [p.name] : [])) ?? [];
+    // Everything the user said since the last team design: a stopped design leaves its request
+    // standing, and messages sent while the lead worked add to it.
+    const since = conv.messages.findLastIndex((m) => m.plan?.status === 'ready') + 1;
+    const asked = conv.messages.slice(since).filter((m) => m.author.kind === 'user');
+    const fileNames = asked.flatMap((m) => attachmentsOf(m).map((p) => p.name));
     const question =
-      (text || textOf(asked ?? msg)) + (fileNames.length ? `\n\n(Attached files: ${fileNames.join(', ')})` : '');
+      asked.map(textOf).filter(Boolean).join('\n\n') + (fileNames.length ? `\n\n(Attached files: ${fileNames.join(', ')})` : '');
     const started = Date.now();
     let ctx: PlannerContext = { available: [], catalog: [], presets: this.store.listPresets() };
     let decision: PlanDecision | undefined;
@@ -645,21 +809,26 @@ export class Orchestrator {
     if (!conv) throw new HttpError(404, t().conversationNotFound);
     const msg = conv.messages.find((m) => m.id === messageId);
     if (msg?.plan?.status !== 'ready') throw new HttpError(404, t().planNotFound);
-    this.markConfirmed(conv, msg);
+    // A question written while the team waited for confirmation goes to the team now.
+    if (this.markConfirmed(conv, msg)) this.startQueued(conv);
   }
 
-  /** A team set by hand is the user's decision too: it confirms a design that was waiting. */
-  confirmPendingPlan(conv: Conversation): void {
+  /**
+   * A team set by hand is the user's decision too: it confirms a design that was waiting. Returns
+   * whether it did (the caller then starts the questions waiting, `startQueued`).
+   */
+  confirmPendingPlan(conv: Conversation): boolean {
     const msg = pendingPlan(conv.messages);
-    if (msg) this.markConfirmed(conv, msg);
+    return msg ? this.markConfirmed(conv, msg) : false;
   }
 
-  private markConfirmed(conv: Conversation, msg: ChatMessage): void {
-    if (!msg.plan?.awaitingConfirmation) return;
+  private markConfirmed(conv: Conversation, msg: ChatMessage): boolean {
+    if (!msg.plan?.awaitingConfirmation) return false;
     delete msg.plan.awaitingConfirmation;
     msg.plan.confirmedAt = Date.now();
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
+    return true;
   }
 
   /** Save a team the lead agent designed or adapted as a user template. */
@@ -723,16 +892,20 @@ export class Orchestrator {
 
   // -------------------------------------------------------------------------
 
-  private async execute(conv: Conversation, text: string, run: Run, only?: AgentConfig[]): Promise<void> {
+  /**
+   * The team's turns for the user's `posted` messages (none for Continue / retry). Messages sent while
+   * it runs are delivered before the next turn of an agent they are for (`deliverQueued`).
+   */
+  private async execute(conv: Conversation, posted: ChatMessage[], run: Run, only?: AgentConfig[]): Promise<void> {
     if (conv.settings.autoTeam && !only) {
       // The user described what they need: the lead agent designs the team, and that is all this
       // run does. The user confirms the team, then asks their first question.
-      await this.designTeam(conv, text, run);
+      await this.designTeam(conv, run);
       return;
     }
     const { mode, maxHops } = conv.settings;
     const rounds = only ? 1 : conv.settings.rounds;
-    const mentioned = only ?? (text ? parseMentions(text, conv.agents) : []);
+    const mentioned = only ?? mentionsOf(posted, conv.agents);
     const participants = mentioned.length ? mentioned : conv.agents;
     const aborted = () => run.abort.signal.aborted;
     const spoke = (m: ChatMessage) => m.status === 'done' && !m.passed;
@@ -749,6 +922,7 @@ export class Orchestrator {
         }
         const { agent, handedBy } = queue.shift()!;
         hops++;
+        this.deliverQueued(conv, { recipients: [agent] });
         const msg = await this.turn(conv, agent, run, { mode, round: 1, rounds: 1, handedBy, hopsLeft: maxHops - hops });
         if (!spoke(msg)) continue;
         for (const next of parseMentions(textOf(msg), conv.agents, agent.id)) {
@@ -764,6 +938,8 @@ export class Orchestrator {
       const info: TurnInfo = { mode, round, rounds };
       let msgs: ChatMessage[];
       if (mode === 'parallel') {
+        // The round's turns run side by side: they all see what was sent before it starts.
+        this.deliverQueued(conv, { recipients: participants });
         // Every turn settles before the run can end, even when one of them fails.
         const settled = await Promise.allSettled(participants.map((a) => this.turn(conv, a, run, info)));
         const failed = settled.find((r) => r.status === 'rejected');
@@ -773,6 +949,7 @@ export class Orchestrator {
         msgs = [];
         for (const a of participants) {
           if (aborted()) break;
+          this.deliverQueued(conv, { recipients: [a] });
           msgs.push(await this.turn(conv, a, run, info));
         }
       }

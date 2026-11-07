@@ -501,6 +501,11 @@ function UserMessage({
         <Attachments msg={msg} convId={convId} />
         {text && <UserBubble text={text} mentions={mentionNames} />}
         <div className="msg-actions">
+          {msg.queued && (
+            <span className="queued-tag" title={t.message.queuedTitle}>
+              {t.message.queuedTag}
+            </span>
+          )}
           <CopyButton text={() => text} />
           {canEdit && (
             <button type="button" className="msg-action" onClick={() => setDraft(text)}>

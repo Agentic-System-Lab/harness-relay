@@ -307,15 +307,21 @@ describe('auto team', () => {
     ]);
     expect(conv.settings.autoTeam).toBeFalsy();
 
-    // Nobody answers until the user confirms the team.
-    await expect(orchestrator.send(conv.id, 'What is a monad?')).rejects.toThrow(/確認/);
+    // Nobody answers until the user confirms the team: a question asked meanwhile waits for it.
+    expect(await orchestrator.send(conv.id, 'What is a monad?')).toEqual({ queued: true });
     await expect(orchestrator.send(conv.id, '')).rejects.toThrow(/確認/);
+    expect(conv.messages).toHaveLength(2);
+    expect(calls.map((c) => c.name)).toEqual(['lead']);
     orchestrator.confirmPlan(conv.id, plan!.id);
     expect(plan!.plan!.awaitingConfirmation).toBeUndefined();
     expect(plan!.plan!.confirmedAt).toEqual(expect.any(Number));
 
-    await orchestrator.send(conv.id, 'What is a monad?');
+    // Confirming sends it.
+    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2), { timeout: 20_000 });
     await finish(conv.id);
+    expect(conv.messages[2]!.author.kind).toBe('user');
+    expect(conv.messages[2]!.queued).toBeUndefined(); // a first question, not one added mid-reply
+    expect(conv.queue).toEqual([]);
     expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
     // The team sees the request as context, and the question; never the plan.
     expect(calls[1]!.prompt).toContain('I want to understand functional programming');
@@ -331,6 +337,26 @@ describe('auto team', () => {
     expect(reloaded.messages[1]!.plan).toMatchObject({ source: 'custom', savedPresetId: preset.id, confirmedAt: plan!.plan!.confirmedAt });
     expect(reloaded.messages[1]!.plan!.awaitingConfirmation).toBeUndefined();
     expect(reloaded.settings.autoTeam).toBeUndefined();
+  });
+
+  it('keeps a question asked while the lead agent designs the team until the user confirms it', async () => {
+    const conv = autoConversation();
+    conv.agents = [];
+    leadReply = customTeam;
+    let release!: () => void;
+    leadGate = new Promise((r) => (release = r));
+    await orchestrator.send(conv.id, 'Help me learn Haskell');
+    expect(await orchestrator.send(conv.id, 'What is a monad?')).toEqual({ queued: true });
+    release();
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['lead']);
+    expect(conv.queue!.map(textOf)).toEqual(['What is a monad?']);
+
+    orchestrator.confirmPlan(conv.id, conv.messages.find((m) => m.plan)!.id);
+    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
+    expect(calls[1]!.prompt).toContain('What is a monad?');
   });
 
   it('takes a team set by hand as confirmation', async () => {
@@ -572,13 +598,17 @@ describe('attached files', () => {
 const firstUserMessage = (conv: Conversation) => conv.messages.find((m) => m.author.kind === 'user')!;
 
 describe('concurrent requests', () => {
-  it('refuses a second send or a settings change while a run is being set up', async () => {
+  it('queues a second send and refuses a settings change while a run is being set up', async () => {
     const conv = conversation({ mode: 'roundtable' });
     const sending = orchestrator.send(conv.id, 'go'); // reserves the conversation, then prepares the workspace
-    await expect(orchestrator.send(conv.id, 'again')).rejects.toThrow(/回覆中/);
+    expect(await orchestrator.send(conv.id, 'again')).toEqual({ queued: true });
+    await expect(orchestrator.send(conv.id, '')).rejects.toThrow(/回覆中/); // nothing to queue
     await expect(orchestrator.exclusive(conv.id, 'busy', async () => {})).rejects.toThrow('busy');
     await sending;
     await finish(conv.id);
+    // Sent after "go", so it waited for the first turn.
+    const chat = conv.messages.filter((m) => m.author.kind !== 'system'); // not the "git init" note
+    expect(chat.map((m) => (m.author.kind === 'user' ? textOf(m) : m.agentName))).toEqual(['go', 'again', 'Alice', 'Bob']);
     await orchestrator.exclusive(conv.id, 'busy', async () => {}); // free again
   });
 
@@ -938,5 +968,145 @@ describe('parallel worktrees', () => {
     const alice = agentMessages(conv).find((m) => m.agentName === 'Alice')!;
     expect(alice.changes?.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
     await orchestrator.cleanupWorktrees(conv);
+  });
+});
+
+describe('messages sent while the team replies', () => {
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const roundtable = (rounds = 1) => conversation({ mode: 'roundtable', permission: 'read-only', rounds });
+  /** The chat as a list: what the user said, who replied, and notes. */
+  const said = (conv: Conversation) =>
+    conv.messages.map((m) => (m.author.kind === 'user' ? textOf(m) : m.author.kind === 'agent' ? `@${m.agentName}` : 'note'));
+  /** Make an agent wait in its turn; returns the function that lets it finish. */
+  const hold = (name: string) => {
+    let release!: () => void;
+    gates[name] = new Promise((r) => (release = r));
+    return () => release();
+  };
+  /** A follow-up run starts after a short gap, so wait for its replies instead of the first run's end. */
+  const replied = (conv: Conversation, n: number) =>
+    vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status !== 'streaming')).toHaveLength(n), { timeout: 20_000 });
+
+  it('reach the next speaker before its turn; the one speaking sees them on its next turn', async () => {
+    const conv = roundtable(2);
+    const alice = hold('Alice');
+    await orchestrator.send(conv.id, 'question');
+    await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
+    expect(await orchestrator.send(conv.id, 'also check the tests')).toEqual({ queued: true });
+    expect(conv.queue!.map(textOf)).toEqual(['also check the tests']);
+    expect(said(conv)).toEqual(['question', '@Alice']); // not in the chat until it is delivered
+    alice();
+    await finish(conv.id);
+
+    expect(said(conv)).toEqual(['question', '@Alice', 'also check the tests', '@Bob', '@Alice', '@Bob']);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob', 'Alice', 'Bob']);
+    expect(calls[0]!.prompt).not.toContain('also check the tests');
+    expect(calls[1]!.prompt).toContain('also check the tests');
+    expect(calls[2]!.prompt).toContain('also check the tests');
+    expect(calls[3]!.prompt).not.toContain('also check the tests'); // Bob has seen it already
+    expect(conv.queue).toEqual([]);
+
+    const reloaded = new Store(db).get(conv.id)!;
+    expect(reloaded.messages.map((m) => m.id)).toEqual(conv.messages.map((m) => m.id));
+    expect(reloaded.messages[2]!.queued).toBe(true);
+    expect(reloaded.queue).toBeUndefined();
+  });
+
+  it('start another run when no turn took them', async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only' });
+    const alice = hold('Alice');
+    const bob = hold('Bob');
+    await orchestrator.send(conv.id, 'question');
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    await orchestrator.send(conv.id, 'one more thing');
+    alice();
+    bob();
+    await replied(conv, 4);
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['question', '@Alice', '@Bob', 'one more thing', '@Alice', '@Bob']);
+    expect(calls.slice(2).every((c) => c.prompt.includes('one more thing'))).toBe(true);
+  });
+
+  it('wait for the agents they @mention', async () => {
+    const conv = roundtable();
+    const alice = hold('Alice');
+    await orchestrator.send(conv.id, 'question');
+    await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
+    await orchestrator.send(conv.id, '@Alice what about X?');
+    alice();
+    await replied(conv, 3);
+    await finish(conv.id);
+    // Bob spoke next, but the message was for Alice: she answers it once the round is over.
+    expect(said(conv)).toEqual(['question', '@Alice', '@Bob', '@Alice what about X?', '@Alice']);
+    expect(calls[1]!.prompt).not.toContain('what about X');
+  });
+
+  it('stay in the order they were sent', async () => {
+    const conv = roundtable();
+    const alice = hold('Alice');
+    await orchestrator.send(conv.id, 'question');
+    await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
+    await orchestrator.send(conv.id, '@Alice what about X?');
+    await orchestrator.send(conv.id, 'and Y, everyone');
+    alice();
+    await replied(conv, 4);
+    await finish(conv.id);
+    // The second one is for Bob too, but it waits behind the first; then both start a run for everyone.
+    expect(said(conv)).toEqual(['question', '@Alice', '@Bob', '@Alice what about X?', 'and Y, everyone', '@Alice', '@Bob']);
+  });
+
+  it('keep waiting after Stop; Stop and send posts them first', async () => {
+    const conv = roundtable();
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    await orchestrator.send(conv.id, 'question');
+    await orchestrator.send(conv.id, 'first addition');
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['question', '@Alice', 'note']);
+    expect(conv.queue!.map(textOf)).toEqual(['first addition']);
+
+    // The next message sends what was waiting first.
+    await orchestrator.send(conv.id, 'second question');
+    await orchestrator.send(conv.id, 'second addition');
+    expect(await orchestrator.send(conv.id, 'do this instead', undefined, true)).toEqual({ queued: false });
+    expect(said(conv)).toEqual([
+      'question', '@Alice', 'note',
+      'first addition', 'second question', '@Alice', 'note',
+      'second addition', 'do this instead', '@Alice',
+    ]);
+    release();
+    await finish(conv.id);
+    expect(said(conv).slice(-2)).toEqual(['@Alice', '@Bob']);
+  });
+
+  it('can be withdrawn, survive a restart, are limited, and Continue sends them', async () => {
+    const conv = roundtable();
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    await orchestrator.send(conv.id, 'question');
+    await orchestrator.send(conv.id, 'look', [{ name: 'shot.png', mimeType: 'image/png', data: png }]);
+    const [waiting] = conv.queue!;
+    const file = waiting!.parts.find((p) => p.type === 'attachment') as Parameters<typeof attachmentPath>[1];
+    expect(existsSync(attachmentPath(conv.id, file))).toBe(true);
+    expect(new Store(db).get(conv.id)!.queue!.map((m) => m.id)).toEqual([waiting!.id]);
+
+    expect(orchestrator.withdraw(conv.id, waiting!.id).id).toBe(waiting!.id);
+    expect(conv.queue).toEqual([]);
+    expect(existsSync(attachmentPath(conv.id, file))).toBe(false);
+    expect(() => orchestrator.withdraw(conv.id, waiting!.id)).toThrow(/已經送出或撤回/);
+
+    for (let i = 0; i < 20; i++) await orchestrator.send(conv.id, `note ${i}`);
+    await expect(orchestrator.send(conv.id, 'one too many')).rejects.toThrow(/最多 20 則/);
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    expect(conv.queue).toHaveLength(20);
+
+    release();
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    expect(conv.queue).toEqual([]);
+    expect(conv.messages.filter((m) => m.queued)).toHaveLength(20);
+    expect(said(conv).slice(-2)).toEqual(['@Alice', '@Bob']);
   });
 });

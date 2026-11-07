@@ -244,13 +244,22 @@ describe('a team design waiting for confirmation', () => {
     return conv;
   }
 
-  it('refuses messages until it is confirmed', async () => {
+  it('holds messages until it is confirmed, then the team answers them', async () => {
     const conv = await waiting();
     const send = () => app.request(`/api/conversations/${conv.id}/messages`, json('POST', { text: 'first question' }));
-    expect((await send()).status).toBe(409);
+    const sent = await send();
+    expect(sent.status).toBe(202);
+    expect(await sent.json()).toEqual({ ok: true, queued: true });
+    expect(store.get(conv.id)!.queue).toHaveLength(1);
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+
     const res = await app.request(`/api/conversations/${conv.id}/messages/plan/confirm-plan`, json('POST', {}));
     expect(res.status).toBe(200);
     expect(store.get(conv.id)!.messages[1]!.plan).toMatchObject({ confirmedAt: expect.any(Number) });
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(true));
+    expect(store.get(conv.id)!.messages[2]).toMatchObject({ parts: [{ type: 'text', text: 'first question' }] });
+    orchestrator.stop(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
     expect((await app.request(`/api/conversations/${conv.id}/messages/nope/confirm-plan`, json('POST', {}))).status).toBe(404);
   });
 
@@ -262,5 +271,35 @@ describe('a team design waiting for confirmation', () => {
     );
     expect(res.status).toBe(200);
     expect(store.get(conv.id)!.messages[1]!.plan!.awaitingConfirmation).toBeUndefined();
+  });
+});
+
+describe('messages sent while the team replies', () => {
+  it('wait in the queue, can be withdrawn, and interrupt sends one now', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const send = (b: Record<string, unknown>) => app.request(`/api/conversations/${conv.id}/messages`, json('POST', b));
+    const withdraw = (messageId: string) =>
+      app.request(`/api/conversations/${conv.id}/queue/${messageId}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
+    expect(await (await send({ text: 'go' })).json()).toEqual({ ok: true, queued: false });
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(1));
+
+    const queued = await send({ text: 'and this' });
+    expect(queued.status).toBe(202);
+    expect(await queued.json()).toEqual({ ok: true, queued: true });
+    const waiting = store.get(conv.id)!.queue![0]!;
+    const taken = await withdraw(waiting.id);
+    expect(taken.status).toBe(200);
+    expect(await taken.json()).toMatchObject({ id: waiting.id, parts: [{ type: 'text', text: 'and this' }], queued: true });
+    expect(store.get(conv.id)!.queue).toEqual([]);
+    expect((await withdraw(waiting.id)).status).toBe(404);
+
+    // Stop the team and send this now.
+    expect(await (await send({ text: 'do this instead', interrupt: true })).json()).toEqual({ ok: true, queued: false });
+    const live = store.get(conv.id)!;
+    expect(live.messages.map((m) => m.author.kind)).toEqual(['user', 'agent', 'system', 'user', 'agent']);
+    expect(live.messages[1]!.status).toBe('aborted');
+    expect(live.messages[3]!.parts).toEqual([{ type: 'text', text: 'do this instead' }]);
+    orchestrator.stop(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
   });
 });

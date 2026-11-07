@@ -65,6 +65,8 @@ const zhTW = {
   noAgents: '這個對話沒有任何 agent',
   runFailed: (msg: string) => `執行失敗：${msg}`,
   stoppedNote: '已停止。',
+  queuedNotFound: '這則訊息已經送出或撤回了',
+  queueFull: (n: number) => `最多 ${n} 則訊息等待送出，請等團隊回覆後再送`,
   gitInitNote: (root: string) => `工作目錄原本不是 git repository，已自動執行 git init：${root}`,
   dirLocked: (title: string, root: string) =>
     `對話「${title}」正在修改 ${root}，請等它結束後再試（或改用唯讀 / 平行模式）。`,
@@ -172,6 +174,8 @@ const en: ServerMessages = {
   noAgents: 'This conversation has no agents',
   runFailed: (msg) => `Run failed: ${msg}`,
   stoppedNote: 'Stopped.',
+  queuedNotFound: 'That message was already delivered or withdrawn',
+  queueFull: (n: number) => `Up to ${n} messages can wait to be delivered — wait for the team to reply`,
   gitInitNote: (root) => `The working directory was not a git repository; ran git init: ${root}`,
   dirLocked: (title, root) =>
     `Conversation "${title}" is changing ${root}; try again when it finishes (or use read-only / parallel mode).`,

@@ -1,6 +1,7 @@
 import type {
   AgentConfig,
   ApprovalAnswer,
+  ChatMessage,
   Conversation,
   ConversationSettings,
   ConversationSummary,
@@ -77,8 +78,11 @@ export const api = {
   updateConversation: (id: string, b: Partial<Pick<Conversation, 'title' | 'agents' | 'settings'>>) =>
     request<Conversation>('PATCH', `/api/conversations/${id}`, b),
   deleteConversation: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}`),
-  send: (id: string, text: string, attachments: AttachmentUpload[] = []) =>
-    request<{ ok: true }>('POST', `/api/conversations/${id}/messages`, { text, attachments }),
+  /** While the team replies the message waits for the next turn (`queued`); `interrupt` stops the team and sends it now. */
+  send: (id: string, text: string, attachments: AttachmentUpload[] = [], interrupt = false) =>
+    request<{ ok: true; queued: boolean }>('POST', `/api/conversations/${id}/messages`, { text, attachments, interrupt }),
+  /** Take back a message still waiting to be delivered; returns it. */
+  withdraw: (id: string, messageId: string) => request<ChatMessage>('DELETE', `/api/conversations/${id}/queue/${messageId}`),
   attachmentUrl: (convId: string, attachmentId: string) => `/api/conversations/${convId}/attachments/${attachmentId}`,
   /** Serves the images and videos a message embeds; add `?path=`. */
   mediaBase: (convId: string, messageId: string) => `/api/conversations/${convId}/messages/${messageId}/media`,

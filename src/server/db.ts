@@ -179,6 +179,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE message_parts ADD COLUMN tool_output TEXT;
   ALTER TABLE message_parts ADD COLUMN data TEXT;
   `,
+  // 6: messages sent while the team replies wait in a queue, and are marked once delivered.
+  `
+  ALTER TABLE conversations ADD COLUMN queue TEXT;
+  ALTER TABLE messages ADD COLUMN queued INTEGER;
+  `,
 ];
 
 function migrate(db: Database): void {

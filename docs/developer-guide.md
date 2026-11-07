@@ -111,7 +111,8 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 | `GET /api/conversations/:id` | → `Conversation` |
 | `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation` (409 while running; setting `agents` turns auto team off) |
 | `DELETE /api/conversations/:id` | stops a run and deletes |
-| `POST /api/conversations/:id/messages` | `{ text, attachments? }` (empty text and no files = continue) → `202`. `attachments`: `[{ name, mimeType, data }]` with base64 `data`; at most 10 files of 20 MB each |
+| `POST /api/conversations/:id/messages` | `{ text, attachments?, interrupt? }` (empty text and no files = continue) → `202` `{ ok, queued }`. While the team replies (or its design waits for confirmation) the message waits in the queue (`queued: true`) and is delivered before the next turn; `interrupt: true` stops the team and sends it now. `attachments`: `[{ name, mimeType, data }]` with base64 `data`; at most 10 files of 20 MB each |
+| `DELETE /api/conversations/:id/queue/:messageId` | → `ChatMessage`: withdraws a message still waiting to be delivered (404 once it was delivered) |
 | `GET /api/conversations/:id/attachments/:attachmentId` | → the attached file (images inline, anything else as a download) |
 | `PUT /api/conversations/:id/messages/:messageId` | `{ text }` → `202`: edit a user message — it and everything after it are deleted, every agent starts a fresh session, and the team answers again (`Orchestrator.resend()`) |
 | `POST /api/conversations/:id/messages/:messageId/retry` | → `202`: delete an agent reply and what follows, and let that agent (and the later speakers of its round) answer again |
@@ -207,7 +208,7 @@ Current tests:
 - `test/commands.test.ts` — reading shell command lines: publishing commands in their many forms, and "always allow" keys that do not let embedded commands through.
 - `test/chat.test.ts` — ChatView logic: when to reconnect the event stream, which worktree result can be applied, the team drawer's draft.
 - `test/markdown.test.ts` — mention chips follow the server's rule and skip code and links; images are shown as links.
-- `test/orchestrator.test.ts` — full runs with a fake runner swapped into `runners`: parallel worktree isolation and apply, change tracking in roundtable mode, the directory lock (also for auto team), requests that arrive while a run is set up or a result is applied, deleting a conversation mid-run, keeping a session when a fresh start fails too, and telling teammates what a failed turn changed.
+- `test/orchestrator.test.ts` — full runs with a fake runner swapped into `runners`: parallel worktree isolation and apply, change tracking in roundtable mode, the directory lock (also for auto team), requests that arrive while a run is set up or a result is applied, messages sent while the team replies (delivered before the next turn of an agent they are for, in the order sent; a follow-up run for what no turn took; kept after Stop; sent first by an interrupt, the next message or Continue; withdrawn; kept across a restart), deleting a conversation mid-run, keeping a session when a fresh start fails too, and telling teammates what a failed turn changed.
 - `test/grok.test.ts` — the Grok ACP adapter: permission policy per level, session updates → `AgentEvent`s, and the JSON-RPC connection.
 - `test/claude.test.ts` — Claude's pre-approved and removed tools, its arguments (`--system-prompt-snapshot off`, flags an older version rejects) and the reason shown for a refused tool call.
 - `test/copy.test.ts` — the Markdown written when copying a message or a whole conversation, in both languages.

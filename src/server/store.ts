@@ -34,6 +34,7 @@ interface ConversationRow {
   auto_team: number;
   approvals: string | null;
   allow_rules: string | null;
+  queue: string | null;
 }
 
 interface AgentRow {
@@ -66,6 +67,7 @@ interface MessageRow {
   change_isolated: number | null;
   change_branch: string | null;
   plan: string | null;
+  queued: number | null;
 }
 
 interface ChangeRow {
@@ -182,6 +184,7 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     provider: opt(r.provider),
     changes: toChanges(r, files),
     plan: parsePlan(r.plan),
+    queued: r.queued ? true : undefined,
   };
 }
 
@@ -189,6 +192,17 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
 function statusOf(live: Conversation | undefined, stored: MessageStatus | undefined): { lastStatus?: MessageStatus } {
   const last = live ? [...live.messages].reverse().find((m) => m.author.kind === 'agent')?.status : stored;
   return last ? { lastStatus: last } : {};
+}
+
+/**
+ * The waiting messages. A message is posted (saved as a message) before it leaves the queue, so one
+ * that is in both was delivered just before the server died: it counts as delivered.
+ */
+function queueOf(json: string | null, messages: ChatMessage[]): Pick<Conversation, 'queue'> {
+  if (!json) return {};
+  const posted = new Set(messages.map((m) => m.id));
+  const queue = parseJson<ChatMessage[]>(json, []).filter((m) => !posted.has(m.id));
+  return queue.length ? { queue } : {};
 }
 
 function parsePlan(json: string | null): TeamPlan | undefined {
@@ -202,14 +216,15 @@ function parsePlan(json: string | null): TeamPlan | undefined {
 
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
-                       change_root, change_base, change_head, change_isolated, change_branch, plan)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       change_root, change_base, change_head, change_isolated, change_branch, plan, queued)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
    input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
    change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
-   change_isolated = excluded.change_isolated, change_branch = excluded.change_branch, plan = excluded.plan`;
+   change_isolated = excluded.change_isolated, change_branch = excluded.change_branch, plan = excluded.plan,
+   queued = excluded.queued`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
                             tool_output, data)
@@ -386,6 +401,7 @@ export class Store {
       agentState,
       worktrees,
       ...(c.allow_rules ? { allowRules: parseJson(c.allow_rules, []) } : {}),
+      ...queueOf(c.queue, messages),
     };
   }
 
@@ -464,6 +480,14 @@ export class Store {
     this.dirty.delete(id);
     this.cache.delete(id);
     this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+  }
+
+  /** Persist the messages waiting to be delivered. */
+  saveQueue(conv: Conversation): void {
+    if (this.deleted.has(conv.id)) return;
+    this.db
+      .prepare('UPDATE conversations SET queue = ? WHERE id = ?')
+      .run(conv.queue?.length ? JSON.stringify(conv.queue) : null, conv.id);
   }
 
   // Messages -------------------------------------------------------------------
@@ -552,6 +576,7 @@ export class Store {
           m.changes ? (m.changes.isolated ? 1 : 0) : null,
           nul(m.changes?.branch),
           m.plan ? JSON.stringify(m.plan) : null,
+          m.queued ? 1 : null,
         );
         clearChanges.run(m.id);
         m.changes?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));

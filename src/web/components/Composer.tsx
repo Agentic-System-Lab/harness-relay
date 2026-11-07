@@ -32,19 +32,25 @@ function pastedName(file: File): string {
 
 interface Props {
   agents: AgentConfig[];
+  /** The team is replying: what is sent waits for the next turn, and Stop is offered. */
   running: boolean;
   canContinue: boolean;
-  /** Typing is fine, sending is not yet (the lead agent's team design waits for confirmation). */
+  /** The team is being designed or waits for confirmation: what is sent waits for it (no Continue, no interrupting). */
   locked?: boolean;
   placeholder: string;
-  onSend: (text: string, attachments: AttachmentUpload[]) => Promise<boolean>;
+  /** `interrupt`: stop the team and send this now (Cmd/Ctrl+Enter while it replies). */
+  onSend: (text: string, attachments: AttachmentUpload[], interrupt: boolean) => Promise<boolean>;
   onStop: () => void;
   onContinue: () => Promise<unknown>;
+  /** Text to put back in the composer (a withdrawn message to edit); a new object each time. */
+  restore?: { text: string };
 }
+
+const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
 
 const TOKEN = /(^|[\s(（])@([\p{L}\p{N}_-]*)$/u;
 
-export function Composer({ agents, running, canContinue, locked = false, placeholder, onSend, onStop, onContinue }: Props) {
+export function Composer({ agents, running, canContinue, locked = false, placeholder, onSend, onStop, onContinue, restore }: Props) {
   const t = useT();
   const [text, setText] = useState('');
   const [caret, setCaret] = useState(0);
@@ -112,6 +118,13 @@ export function Composer({ agents, running, canContinue, locked = false, placeho
     ref.current?.focus();
   };
 
+  // A withdrawn message comes back for editing, ahead of anything typed since.
+  useEffect(() => {
+    if (!restore) return;
+    setText((cur) => (cur.trim() ? `${restore.text}\n${cur}` : restore.text));
+    requestAnimationFrame(() => ref.current?.focus());
+  }, [restore]);
+
   // Auto-grow the textarea.
   useLayoutEffect(() => {
     const el = ref.current;
@@ -139,7 +152,8 @@ export function Composer({ agents, running, canContinue, locked = false, placeho
     });
   };
 
-  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing && !locked;
+  // While the team replies (or its design waits), a message waits for the next turn: sending is always fine.
+  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing;
 
   /** Run one send (or Continue) at a time. */
   const once = async (fn: () => Promise<void>) => {
@@ -154,10 +168,10 @@ export function Composer({ agents, running, canContinue, locked = false, placeho
     }
   };
 
-  const submit = () =>
+  const submit = (interrupt = false) =>
     once(async () => {
       const trimmed = text.trim();
-      if (!canSend || running) return;
+      if (!canSend) return;
       let attachments: AttachmentUpload[];
       try {
         attachments = await Promise.all(
@@ -167,7 +181,7 @@ export function Composer({ agents, running, canContinue, locked = false, placeho
         setNotice(t.composer.readFailed);
         return;
       }
-      const ok = await onSend(trimmed, attachments);
+      const ok = await onSend(trimmed, attachments, interrupt && running && !locked);
       if (ok) {
         setText('');
         setCaret(0);
@@ -197,7 +211,7 @@ export function Composer({ agents, running, canContinue, locked = false, placeho
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      void submit();
+      void submit(e.metaKey || e.ctrlKey);
     }
   };
 
@@ -295,26 +309,34 @@ export function Composer({ agents, running, canContinue, locked = false, placeho
                 {t.composer.stop}
               </button>
             ) : (
-              <>
-                {canContinue && !locked && (
-                  <button
-                    className="ghost"
-                    disabled={preparing}
-                    onClick={() => void once(async () => void (await onContinue()))}
-                    title={t.composer.continueTitle}
-                  >
-                    {t.composer.continue}
-                  </button>
-                )}
-                <button className="send" onClick={submit} disabled={!canSend} aria-label={t.composer.sendLabel}>
-                  ↑
+              canContinue &&
+              !locked && (
+                <button
+                  className="ghost"
+                  disabled={preparing}
+                  onClick={() => void once(async () => void (await onContinue()))}
+                  title={t.composer.continueTitle}
+                >
+                  {t.composer.continue}
                 </button>
-              </>
+              )
             )}
+            {/* Never replaced by Stop: what is sent while the team replies waits for the next turn. */}
+            <button
+              className="send"
+              onClick={() => void submit()}
+              disabled={!canSend}
+              aria-label={running && !locked ? t.composer.queueLabel : t.composer.sendLabel}
+              title={running && !locked ? t.composer.queueLabel : undefined}
+            >
+              ↑
+            </button>
           </div>
         </div>
       </div>
-      <p className="composer-hint muted small">{t.composer.hint}</p>
+      <p className="composer-hint muted small">
+        {locked ? t.composer.hintConfirm : running ? t.composer.hintBusy(MOD_KEY) : t.composer.hint}
+      </p>
     </div>
   );
 }

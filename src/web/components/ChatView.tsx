@@ -19,6 +19,7 @@ import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { CopyButton } from './CopyButton';
 import { MessageItem } from './MessageItem';
+import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 import { useDialog } from './useDialog';
@@ -56,6 +57,8 @@ function reducer(s: State, e: ServerEvent): State {
         cur?.type === 'text' || cur?.type === 'thinking' ? { ...cur, text: cur.text + e.text } : { type: 'text', text: e.text };
       return { ...s, conv: { ...s.conv, messages: upsert(s.conv.messages, { ...msg, parts }) } };
     }
+    case 'queue':
+      return { ...s, conv: { ...s.conv, queue: e.queue } };
     case 'conversation':
       return {
         ...s,
@@ -82,6 +85,8 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   const [teamOpen, setTeamOpen] = useState(false);
   const [diff, setDiff] = useState<{ title: string; load: () => Promise<string> } | null>(null);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
+  /** A withdrawn message's text, going back into the composer to be edited. */
+  const [restore, setRestore] = useState<{ text: string }>();
   const scroller = useRef<HTMLDivElement>(null);
   const chipsRef = useRef<HTMLDivElement>(null);
   // The team row fades out on the right while more chips are hidden there.
@@ -285,17 +290,32 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   const waitingForTeam = autoTeam && conv.agents.length === 0;
   // The lead agent's team design waits for the user: they confirm it, then ask their first question.
   const awaitingConfirm = Boolean(pendingPlan(conv.messages));
+  // The lead agent is designing the team: what the user sends meanwhile waits for the confirmed team.
+  const designing = running && autoTeam;
   const leadText = leadLabel(lead ?? { provider: 'claude' });
 
-  const send = async (text: string, attachments: AttachmentUpload[]) => {
+  const send = async (text: string, attachments: AttachmentUpload[], interrupt = false) => {
     setError('');
     try {
       stick.current = true;
-      await api.send(conv.id, text, attachments);
+      await api.send(conv.id, text, attachments, interrupt);
       return true;
     } catch (e) {
       setError((e as Error).message);
       return false;
+    }
+  };
+
+  const withdraw = async (msg: ChatMessage, edit: boolean) => {
+    setError('');
+    try {
+      const taken = await api.withdraw(conv.id, msg.id);
+      if (edit) {
+        const text = taken.parts.map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+        setRestore({ text });
+      }
+    } catch (e) {
+      setError((e as Error).message);
     }
   };
 
@@ -409,23 +429,32 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
             </button>
           </div>
         )}
+        <QueueTray
+          queue={conv.queue ?? []}
+          state={awaitingConfirm || designing ? 'confirm' : running ? 'busy' : 'stopped'}
+          onSendNow={() => send('', [], running)}
+          onWithdraw={withdraw}
+        />
         <Composer
           agents={conv.agents}
           running={running}
           canContinue={hasUserMessage}
-          locked={awaitingConfirm}
+          locked={awaitingConfirm || designing}
           placeholder={
-            awaitingConfirm
+            awaitingConfirm || designing
               ? t.chat.placeholderConfirm
-              : waitingForTeam
-              ? t.chat.placeholderAuto
-              : conv.settings.mode === 'relay' && conv.agents[0]
-                ? t.chat.placeholderRelay(conv.agents[0].name)
-                : t.chat.placeholder
+              : running
+                ? t.chat.placeholderBusy
+                : waitingForTeam
+                  ? t.chat.placeholderAuto
+                  : conv.settings.mode === 'relay' && conv.agents[0]
+                    ? t.chat.placeholderRelay(conv.agents[0].name)
+                    : t.chat.placeholder
           }
           onSend={send}
           onStop={() => api.stop(conv.id).catch((e: Error) => setError(e.message))}
           onContinue={() => send('', [])}
+          restore={restore}
         />
         <p className="cwd-line muted small" title={conv.settings.cwd}>
           📁 {conv.settings.cwd}
