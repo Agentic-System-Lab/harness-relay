@@ -212,7 +212,7 @@ The sidebar lists conversations, newest first, each with its state:
 
 Conversations keep running when you switch to another one (or close the tab); the badges update by themselves. Click the title in the chat header to rename; hover a conversation and click × to delete it. A conversation with a large team shows its first few member dots and a **+N** count.
 
-To make room, collapse the sidebar with the panel button next to *Harness Relay*. Two buttons stay in the top-left corner: one brings the sidebar back, the other starts a new chat. The choice is remembered in this browser. (On a phone the sidebar is a drawer opened with ☰ instead.)
+To make room, collapse the sidebar with the panel button next to *Harness Relay*. Two buttons stay in the top-left corner: one brings the sidebar back, the other starts a new chat. The choice is remembered in this browser. (On a phone the sidebar is a drawer opened with ☰ instead, and the page does not zoom: no pinch or double-tap zoom, and no zooming in on the message box.)
 
 ## 5. Tips for writing roles
 
