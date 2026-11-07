@@ -81,18 +81,67 @@ export class Orchestrator {
 
   /** Post a user message (or, with empty text, let the team continue) and start the team's turn. */
   async send(convId: string, rawText: string): Promise<void> {
+    const conv = this.getIdle(convId);
+    const text = rawText.trim();
+    if (!text && !conv.messages.some((m) => m.author.kind === 'user')) throw new HttpError(400, '請先輸入訊息');
+    await this.start(conv, text);
+  }
+
+  /**
+   * Replace one of the user's messages and run the team again from there: the message and
+   * everything after it are deleted. CLI sessions cannot be rewound, so every agent starts a
+   * fresh session and is given the remaining history. Files the dropped turns changed stay as they are.
+   */
+  async resend(convId: string, messageId: string, rawText: string): Promise<void> {
+    const conv = this.getIdle(convId);
+    const text = rawText.trim();
+    if (!text) throw new HttpError(400, '訊息不能是空的');
+    const target = conv.messages.find((m) => m.id === messageId);
+    if (target?.author.kind !== 'user') throw new HttpError(404, '找不到這則訊息');
+    await this.start(conv, text, () => this.truncateFrom(conv, messageId));
+  }
+
+  private getIdle(convId: string): Conversation {
     const conv = this.store.get(convId);
     if (!conv) throw new HttpError(404, '找不到對話');
     if (this.runs.has(convId)) throw new HttpError(409, '團隊還在回覆中，請先等待或按停止');
     if (conv.agents.length === 0) throw new HttpError(400, '這個對話沒有任何 agent');
-    const text = rawText.trim();
-    if (!text && !conv.messages.some((m) => m.author.kind === 'user')) throw new HttpError(400, '請先輸入訊息');
+    return conv;
+  }
 
+  /** Drop a message and everything after it, and make every agent start over. */
+  private truncateFrom(conv: Conversation, messageId: string): void {
+    const index = conv.messages.findIndex((m) => m.id === messageId);
+    if (index < 0) throw new HttpError(404, '找不到這則訊息');
+    const dropped = conv.messages.splice(index);
+    this.store.deleteMessages(conv.id, dropped.map((m) => m.id));
+    for (const agentId of new Set([...Object.keys(conv.agentState), ...conv.agents.map((a) => a.id)])) {
+      const state: AgentSessionState = { provider: conv.agentState[agentId]?.provider, seen: [] };
+      conv.agentState[agentId] = state;
+      this.store.saveAgentState(conv.id, agentId, state);
+    }
+    // Parallel worktrees hold the dropped turns' work: start them again from the working directory.
+    for (const [agentId, w] of Object.entries(conv.worktrees)) {
+      w.needsReset = true;
+      this.store.saveWorktree(conv.id, agentId, w);
+    }
+    this.hub.emit(conv.id, { type: 'snapshot', conversation: conv, running: false, activeAgentIds: [] });
+  }
+
+  /** Start a run; `beforePost` runs once the workspace is ready and locked, just before the message is posted. */
+  private async start(conv: Conversation, text: string, beforePost?: () => void): Promise<void> {
+    const convId = conv.id;
     const ws = await this.prepareWorkspace(conv);
     // Re-check after the await: another request may have started a run meanwhile.
     if (this.runs.has(convId)) throw new HttpError(409, '團隊還在回覆中，請先等待或按停止');
     const lockRoot = ws.root && !ws.isolated ? ws.root : undefined;
     if (lockRoot) this.lockDir(lockRoot, conv);
+    try {
+      beforePost?.();
+    } catch (err) {
+      if (lockRoot) this.unlockDir(lockRoot, convId);
+      throw err;
+    }
 
     if (text) {
       const msg: ChatMessage = {

@@ -51,6 +51,8 @@ export const api = {
     request<Conversation>('PATCH', `/api/conversations/${id}`, b),
   deleteConversation: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}`),
   send: (id: string, text: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/messages`, { text }),
+  resend: (id: string, messageId: string, text: string) =>
+    request<{ ok: true }>('PUT', `/api/conversations/${id}/messages/${messageId}`, { text }),
   stop: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/stop`),
   messageDiff: (id: string, messageId: string) => requestText(`/api/conversations/${id}/messages/${messageId}/diff`),
   agentDiff: (id: string, agentId: string) => requestText(`/api/conversations/${id}/agents/${agentId}/diff`),

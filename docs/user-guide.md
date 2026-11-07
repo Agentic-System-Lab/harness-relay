@@ -133,6 +133,11 @@ After you apply one result, the other agents' results are marked as out of date 
 
 Click **團隊設定 (Team settings)** in the header to change roles, models, effort, mode, permission or working directory. Changes apply from the next turn. Changing an agent's CLI makes that agent start a new session and re-read the chat history. Settings can't be saved while the team is replying.
 
+### Copying and editing messages
+
+- **複製 (Copy)** under a message (shown when you point at it) copies that message's text as Markdown. **複製對話 (Copy chat)** in the header copies the whole conversation, with each message labelled by who said it. Tool activity is left out.
+- **編輯 (Edit)** under one of your own messages lets you change it and send it again (Enter sends, Shift+Enter adds a line, Esc cancels). Everything after that message is deleted and the team answers again from there; every agent starts a fresh session and re-reads the history up to your edited message. Files the deleted replies changed are **not** restored — if any of them changed files you are asked to confirm first. Editing is not available while the team is replying.
+
 ### Conversation list
 
 The sidebar lists conversations, newest first; a pulsing dot marks one that is running. Click the title in the chat header to rename; hover a conversation and click × to delete it.

@@ -404,6 +404,16 @@ export class Store {
     });
   }
 
+  /** Delete messages (with their parts and file changes); the caller has already removed them from `conv.messages`. */
+  deleteMessages(convId: string, ids: string[]): void {
+    const pending = this.dirty.get(convId);
+    for (const id of ids) pending?.delete(id);
+    const del = this.db.prepare('DELETE FROM messages WHERE conversation_id = ? AND id = ?');
+    transaction(this.db, () => {
+      for (const id of ids) del.run(convId, id);
+    });
+  }
+
   flushAll(): void {
     for (const id of [...this.dirty.keys()]) this.flush(id);
   }

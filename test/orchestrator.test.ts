@@ -18,9 +18,12 @@ const { runners } = await import('../src/server/agents');
 let n = 0;
 let orchestrator: InstanceType<typeof Orchestrator>;
 let store: InstanceType<typeof Store>;
+let db: ReturnType<typeof openDatabase>;
 let project: string;
 /** Resolves when the fake agent may finish its turn. */
 let gate: Promise<void> = Promise.resolve();
+/** Every fake CLI run, in order. */
+let calls: { name: string; sessionId?: string; prompt: string }[] = [];
 
 // A fake CLI: writes `<name>.txt` and `shared.txt` in its cwd, then replies.
 beforeAll(() => {
@@ -28,6 +31,7 @@ beforeAll(() => {
     provider: 'claude',
     async run(o) {
       const name = /You are @(\w+)/.exec(o.systemPrompt)![1]!;
+      calls.push({ name, sessionId: o.sessionId, prompt: o.prompt });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
       await gate;
@@ -41,7 +45,8 @@ beforeAll(() => {
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 beforeEach(() => {
-  const db = openDatabase(':memory:');
+  calls = [];
+  db = openDatabase(':memory:');
   store = new Store(db);
   orchestrator = new Orchestrator(store, new Hub(), new SettingsStore(db));
   project = join(root, `project-${++n}`);
@@ -152,5 +157,58 @@ describe('roundtable mode with edit permission', () => {
     await finish(reader.id);
     await orchestrator.send(second.id, 'go');
     await finish(second.id);
+  });
+});
+
+describe('editing a user message', () => {
+  const kinds = (conv: Conversation) => conv.messages.map((m) => m.author.kind);
+
+  it('drops it and everything after, then every agent starts over from the remaining history', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'first question');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'second question');
+    await finish(conv.id);
+    expect(kinds(conv)).toEqual(['user', 'agent', 'agent', 'user', 'agent', 'agent']);
+    expect(calls.at(-1)!.sessionId).toBe('session-Bob'); // resumed normally so far
+
+    const edited = conv.messages[3]!;
+    const dropped = conv.messages.slice(3).map((m) => m.id);
+    calls = [];
+    await orchestrator.resend(conv.id, edited.id, 'second question, edited');
+    await finish(conv.id);
+
+    expect(kinds(conv)).toEqual(['user', 'agent', 'agent', 'user', 'agent', 'agent']);
+    expect(conv.messages[3]!.parts).toEqual([{ type: 'text', text: 'second question, edited' }]);
+    expect(conv.messages.some((m) => dropped.includes(m.id))).toBe(false);
+
+    // Fresh CLI sessions, given the history up to the edit and nothing after it.
+    expect(calls.map((c) => [c.name, c.sessionId])).toEqual([
+      ['Alice', undefined],
+      ['Bob', undefined],
+    ]);
+    expect(calls[0]!.prompt).toContain('first question');
+    expect(calls[0]!.prompt).toContain('second question, edited');
+    expect(calls[0]!.prompt.match(/second question/g)).toHaveLength(1); // the dropped original is gone
+
+    // The database agrees with memory.
+    const reloaded = new Store(db).get(conv.id)!;
+    expect(reloaded.messages.map((m) => m.id)).toEqual(conv.messages.map((m) => m.id));
+  });
+
+  it('refuses while the team is replying, and for messages that are not the user\'s', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    await orchestrator.send(conv.id, 'question');
+    const userMsg = conv.messages[0]!;
+    await expect(orchestrator.resend(conv.id, userMsg.id, 'changed')).rejects.toThrow(/回覆中/);
+    release();
+    await finish(conv.id);
+
+    const agentMsg = conv.messages.find((m) => m.author.kind === 'agent')!;
+    await expect(orchestrator.resend(conv.id, agentMsg.id, 'x')).rejects.toThrow(/找不到這則訊息/);
+    await expect(orchestrator.resend(conv.id, userMsg.id, '   ')).rejects.toThrow(/不能是空的/);
+    expect(conv.messages[0]!.id).toBe(userMsg.id); // nothing was dropped
   });
 });

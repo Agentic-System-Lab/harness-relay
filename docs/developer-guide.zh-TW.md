@@ -92,6 +92,7 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation`（執行中回 409） |
 | `DELETE /api/conversations/:id` | 停止執行並刪除 |
 | `POST /api/conversations/:id/messages` | `{ text }`（空字串＝繼續）→ `202` |
+| `PUT /api/conversations/:id/messages/:messageId` | `{ text }` → `202`：編輯使用者訊息——這則與之後的訊息都會刪除，每個 agent 開新 session，團隊重新回答（`Orchestrator.resend()`） |
 | `POST /api/conversations/:id/stop` | 中止執行 |
 | `GET /api/conversations/:id/messages/:messageId/diff` | → 該回合修改的 unified diff（純文字） |
 | `GET /api/conversations/:id/agents/:agentId/diff` | → 某個 agent 整份 worktree 結果的 unified diff（純文字） |
@@ -164,6 +165,9 @@ npx vitest test/store.test.ts
 - `test/orchestrator.test.ts`：把假的 runner 換進 `runners` 跑完整流程：平行模式的 worktree 隔離與套用、圓桌模式的修改紀錄、目錄鎖。
 - `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`、JSON-RPC 連線。
 - `test/claude.test.ts`：Claude 預先允許的工具，以及工具被拒絕時顯示的原因。
+- `test/copy.test.ts`：複製單則訊息或整段對話時產生的 Markdown。
+
+`test/orchestrator.test.ts` 也涵蓋編輯使用者訊息（`resend`）：之後的訊息會被刪除，每個 agent 都開新的 session。
 
 接下來適合補上的：
 

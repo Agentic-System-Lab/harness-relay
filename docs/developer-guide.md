@@ -92,6 +92,7 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 | `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation` (409 while running) |
 | `DELETE /api/conversations/:id` | stops a run and deletes |
 | `POST /api/conversations/:id/messages` | `{ text }` (empty = continue) → `202` |
+| `PUT /api/conversations/:id/messages/:messageId` | `{ text }` → `202`: edit a user message — it and everything after it are deleted, every agent starts a fresh session, and the team answers again (`Orchestrator.resend()`) |
 | `POST /api/conversations/:id/stop` | aborts the run |
 | `GET /api/conversations/:id/messages/:messageId/diff` | → unified diff (text) of that turn's changes |
 | `GET /api/conversations/:id/agents/:agentId/diff` | → unified diff (text) of an agent's whole worktree result |
@@ -164,6 +165,9 @@ Current tests:
 - `test/orchestrator.test.ts` — full runs with a fake runner swapped into `runners`: parallel worktree isolation and apply, change tracking in roundtable mode, and the directory lock.
 - `test/grok.test.ts` — the Grok ACP adapter: permission policy per level, session updates → `AgentEvent`s, and the JSON-RPC connection.
 - `test/claude.test.ts` — Claude's pre-approved tools and the reason shown for a refused tool call.
+- `test/copy.test.ts` — the Markdown written when copying a message or a whole conversation.
+
+`test/orchestrator.test.ts` also covers editing a user message (`resend`): later messages are dropped and every agent starts a fresh session.
 
 Good next candidates:
 

@@ -893,7 +893,94 @@ details.sub .model-picker {
 
 .msg-user {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+/* Copy / edit under a message: shown on hover or keyboard focus; always shown on touch screens. */
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  flex-wrap: wrap;
+}
+
+.msg-action {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.msg-action:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.msg-user:hover .msg-action,
+.msg-agent:hover .msg-action,
+.msg-action:focus-visible,
+.msg-action.copy-done,
+.msg-action.copy-failed {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .msg-action {
+    opacity: 1;
+  }
+}
+
+.copy-done {
+  color: var(--ok);
+}
+
+.copy-failed {
+  color: var(--danger);
+}
+
+/* A user message being edited in place. */
+.edit-box {
+  width: min(100%, 640px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 10px 12px 10px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edit-box:focus-within {
+  border-color: color-mix(in srgb, var(--text) 45%, var(--border));
+}
+
+.edit-box textarea {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  resize: none;
+  padding: 4px 0;
+  line-height: 1.5;
+  max-height: 320px;
+}
+
+.edit-foot {
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.edit-foot > span {
+  margin-right: auto;
 }
 
 .msg-user .bubble {

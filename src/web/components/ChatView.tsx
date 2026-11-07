@@ -9,9 +9,11 @@ import {
   type ServerEvent,
 } from '../../shared/types';
 import { api } from '../api';
+import { conversationMarkdown } from '../copy';
 import { MODE_INFO, PERMISSION_INFO, PROVIDER_COLOR, effortLabel, initials } from '../util';
 import { DiffView, type ApplyState } from './ChangesCard';
 import { Composer } from './Composer';
+import { CopyButton } from './CopyButton';
 import { MessageItem } from './MessageItem';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 
@@ -126,6 +128,38 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
     [convId],
   );
 
+  // Read through a ref so the callbacks stay stable while messages stream (MessageItem is memoised).
+  const convRef = useRef(state.conv);
+  convRef.current = state.conv;
+
+  const onResend = useCallback(
+    async (messageId: string, text: string) => {
+      const c = convRef.current;
+      if (!c) return false;
+      const index = c.messages.findIndex((m) => m.id === messageId);
+      const later = c.messages.slice(index + 1);
+      const changed = later.filter((m) => m.changes && m.changes.files.length > 0).length;
+      if (
+        changed > 0 &&
+        !confirm(
+          `這則之後有 ${changed} 則回覆修改過檔案。重新傳送會刪除之後的對話，但那些檔案修改不會還原。\n\n確定要重新傳送嗎？`,
+        )
+      ) {
+        return false;
+      }
+      try {
+        setError('');
+        stick.current = true;
+        await api.resend(c.id, messageId, text);
+        return true;
+      } catch (e) {
+        setError((e as Error).message);
+        return false;
+      }
+    },
+    [],
+  );
+
   // Only each agent's latest worktree result can be applied.
   const applyStates = useMemo(() => {
     const out = new Map<string, ApplyState>();
@@ -192,6 +226,13 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
         <span className={`badge ${conv.settings.permission === 'full' ? 'danger' : ''}`}>
           {PERMISSION_INFO[conv.settings.permission].label}
         </span>
+        <CopyButton
+          className="ghost small-button"
+          label="複製對話"
+          title="把整段對話複製成 Markdown"
+          disabled={conv.messages.length === 0}
+          text={() => (convRef.current ? conversationMarkdown(convRef.current) : '')}
+        />
         <button className="ghost small-button" onClick={() => setTeamOpen(true)}>
           團隊設定
         </button>
@@ -216,8 +257,10 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               conv={conv}
               mentionNames={mentionNames}
               applyState={running ? undefined : applyStates.get(m.id)}
+              running={running}
               onDiff={onDiff}
               onApply={onApply}
+              onResend={onResend}
             />
           ))}
         </div>

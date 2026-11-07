@@ -231,6 +231,13 @@ app.post('/api/conversations/:id/messages', async (c) => {
 });
 
 // Changes made by agents: per-message diff, per-agent (worktree) diff, and applying a worktree result.
+// Edit one of the user's messages: everything after it is dropped and the team answers again.
+app.put('/api/conversations/:id/messages/:messageId', async (c) => {
+  const b = await body<{ text?: string }>(c);
+  await orchestrator.resend(c.req.param('id'), c.req.param('messageId'), String(b.text ?? ''));
+  return c.json({ ok: true }, 202);
+});
+
 app.get('/api/conversations/:id/messages/:messageId/diff', async (c) =>
   c.text(await orchestrator.messageDiff(c.req.param('id'), c.req.param('messageId'))),
 );
