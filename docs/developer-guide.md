@@ -162,6 +162,8 @@ Current tests:
 - `test/store.test.ts` — SQLite store and settings (round-trips, streaming updates, crash recovery, cascading deletes, file permissions).
 - `test/workspace.test.ts` — git plumbing against real temporary repositories (auto init, snapshots that leave the repo untouched, worktrees, apply, conflicts).
 - `test/orchestrator.test.ts` — full runs with a fake runner swapped into `runners`: parallel worktree isolation and apply, change tracking in roundtable mode, and the directory lock.
+- `test/grok.test.ts` — the Grok ACP adapter: permission policy per level, session updates → `AgentEvent`s, and the JSON-RPC connection.
+- `test/claude.test.ts` — Claude's pre-approved tools and the reason shown for a refused tool call.
 
 Good next candidates:
 
@@ -170,7 +172,8 @@ Good next candidates:
   ```bash
   echo "hello" | claude -p --output-format stream-json --verbose --include-partial-messages > claude.jsonl
   echo "hello" | codex exec --json --skip-git-repo-check - > codex.jsonl
-  echo "hello" > p.md && grok --prompt-file p.md --output-format streaming-json > grok.jsonl
+  # Grok runs over ACP; copy fixtures from the updates it keeps per session:
+  # ~/.grok/sessions/<url-encoded cwd>/<session-id>/updates.jsonl
   ```
 
 - **Prompt helpers** — `parseMentions`, `isPass`, `buildTurnPrompt`.

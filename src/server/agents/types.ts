@@ -8,7 +8,8 @@ export type AgentEvent =
   /** The current text block is finished; the next `text` starts a new block. */
   | { type: 'text_end' }
   | { type: 'tool_start'; id: string; name: string; detail?: string }
-  | { type: 'tool_end'; id: string; ok: boolean };
+  /** `error` is the CLI's stated reason when a call failed or was refused (shown under the tool). */
+  | { type: 'tool_end'; id: string; ok: boolean; error?: string };
 
 export interface RunOptions {
   bin: string;

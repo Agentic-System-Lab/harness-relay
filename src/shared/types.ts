@@ -62,7 +62,8 @@ export type ToolStatus = 'running' | 'done' | 'error';
 
 export type MessagePart =
   | { type: 'text'; text: string }
-  | { type: 'tool'; id: string; name: string; detail?: string; status: ToolStatus };
+  /** `error`: why the call failed or was refused, when the CLI said so. */
+  | { type: 'tool'; id: string; name: string; detail?: string; status: ToolStatus; error?: string };
 
 export type MessageStatus = 'streaming' | 'done' | 'error' | 'aborted';
 

@@ -1080,9 +1080,19 @@ details.sub .model-picker {
 
 .tool {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  column-gap: 8px;
   align-items: baseline;
   min-width: 0;
+}
+
+/* Why a call failed: its own line, aligned with the tool name. */
+.tool-error {
+  flex-basis: 100%;
+  padding-left: 20px;
+  color: var(--danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .tool-status {

@@ -8,6 +8,10 @@ export interface SpawnOptions {
   env: NodeJS.ProcessEnv;
   /** Written to stdin, which is then closed. When omitted stdin is /dev/null. */
   stdin?: string;
+  /** Keep stdin open for a two-way protocol; the caller writes and ends it through `onSpawn`. */
+  keepStdinOpen?: boolean;
+  /** Called once the child is spawned (before any output is read). */
+  onSpawn?: (child: ChildProcess) => void;
   signal?: AbortSignal;
   timeoutMs?: number;
   /** Called for every stdout line (without the trailing newline). */
@@ -64,9 +68,14 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
       cwd: o.cwd,
       env: o.env,
       detached: true,
-      stdio: [o.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      stdio: [o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
     live.add(child);
+    if (o.keepStdinOpen) {
+      child.stdin!.on('error', () => {
+        /* the CLI may exit while we are still writing */
+      });
+    }
 
     let stdout = '';
     let stderr = '';
@@ -105,12 +114,13 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
       stderr = appendCapped(stderr, chunk);
     });
 
-    if (o.stdin !== undefined) {
+    if (o.stdin !== undefined && !o.keepStdinOpen) {
       child.stdin!.on('error', () => {
         /* the CLI may exit before reading stdin */
       });
       child.stdin!.end(o.stdin);
     }
+    o.onSpawn?.(child);
 
     const cleanup = () => {
       live.delete(child);

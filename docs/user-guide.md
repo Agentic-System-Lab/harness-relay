@@ -97,8 +97,8 @@ Add members with **＋ Claude Code / ＋ Codex / ＋ Grok** (up to 8).
 
 | Level | Meaning |
 | --- | --- |
-| 唯讀 Read-only | Agents can read and analyze but not modify files. |
-| 可編輯 Edit | Agents can edit files in the working directory. |
+| 唯讀 Read-only | Agents can read, analyze and look things up on the web, but not modify files. A refused action is shown under the tool and the agent carries on. |
+| 可編輯 Edit | Agents can edit files in the working directory and run project commands such as tests and builds (Claude Code: a list of common ones). Pushing and publishing need full access. |
 | 完全存取 Full access | Agents can edit files and run any command without asking. Use only in directories you trust. |
 
 **Git and file safety (edit / full access).** If the working directory is not a git repository yet, Harness Relay runs `git init` there automatically (never in your home directory). It never commits to your branch. Then:

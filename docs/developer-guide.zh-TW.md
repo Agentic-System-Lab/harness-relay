@@ -162,6 +162,8 @@ npx vitest test/store.test.ts
 - `test/store.test.ts`：SQLite store 與設定（存取往返、串流更新、當機復原、連帶刪除、檔案權限）。
 - `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 的快照、worktree、套用、衝突）。
 - `test/orchestrator.test.ts`：把假的 runner 換進 `runners` 跑完整流程：平行模式的 worktree 隔離與套用、圓桌模式的修改紀錄、目錄鎖。
+- `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`、JSON-RPC 連線。
+- `test/claude.test.ts`：Claude 預先允許的工具，以及工具被拒絕時顯示的原因。
 
 接下來適合補上的：
 
@@ -170,7 +172,8 @@ npx vitest test/store.test.ts
   ```bash
   echo "hello" | claude -p --output-format stream-json --verbose --include-partial-messages > claude.jsonl
   echo "hello" | codex exec --json --skip-git-repo-check - > codex.jsonl
-  echo "hello" > p.md && grok --prompt-file p.md --output-format streaming-json > grok.jsonl
+  # Grok 走 ACP；fixture 可以從它為每個 session 保存的更新紀錄複製：
+  # ~/.grok/sessions/<URL 編碼的 cwd>/<session-id>/updates.jsonl
   ```
 
 - **prompt 輔助函式**：`parseMentions`、`isPass`、`buildTurnPrompt`。

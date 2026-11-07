@@ -4,6 +4,7 @@ import { runProcess, tail } from '../process';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
+  clip,
   parseJsonLine,
   summarizeInput,
   type AgentEvent,
@@ -17,6 +18,72 @@ const PERMISSION_MODE: Record<Permission, string> = {
   edit: 'acceptEdits',
   full: 'bypassPermissions',
 };
+
+/**
+ * Shell commands pre-approved in edit mode: building, testing, linting and formatting the project.
+ * Any other command that needs approval is denied (the model is told and carries on). Installs,
+ * git writes and deletes still need full access.
+ */
+export const CLAUDE_EDIT_COMMANDS = [
+  'mkdir',
+  'make',
+  // Node
+  'npm test',
+  'npm run',
+  'pnpm test',
+  'pnpm run',
+  'yarn test',
+  'yarn run',
+  'bun test',
+  'bun run',
+  'npx tsc',
+  'npx vitest',
+  'npx jest',
+  'npx eslint',
+  'npx prettier',
+  'tsc',
+  'vitest',
+  'jest',
+  'eslint',
+  'prettier',
+  // Python
+  'pytest',
+  'python -m pytest',
+  'python3 -m pytest',
+  'uv run pytest',
+  'ruff',
+  'mypy',
+  'black',
+  // Rust / Go
+  'cargo build',
+  'cargo check',
+  'cargo test',
+  'cargo clippy',
+  'cargo fmt',
+  'cargo run',
+  'go build',
+  'go test',
+  'go vet',
+  'go run',
+  'gofmt',
+];
+
+/** Tools approved up front. Web access is not about the file system, so every level gets it. */
+export function claudeAllowedTools(permission: Permission): string[] {
+  if (permission === 'full') return [];
+  return ['WebFetch', 'WebSearch', ...(permission === 'edit' ? CLAUDE_EDIT_COMMANDS.map((c) => `Bash(${c}:*)`) : [])];
+}
+
+/** Text of a `tool_result` block's content (a string or text blocks). */
+function resultText(content: unknown): string | undefined {
+  const text =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.map((b) => (typeof b?.text === 'string' ? b.text : '')).join(' ')
+        : '';
+  return text.trim() ? clip(text, 240) : undefined;
+}
 
 /** Parses `claude -p --output-format stream-json --verbose --include-partial-messages`. */
 export function createClaudeParser(emit: (e: AgentEvent) => void) {
@@ -63,7 +130,9 @@ export function createClaudeParser(emit: (e: AgentEvent) => void) {
       case 'user': {
         const content = ev.message?.content;
         for (const block of Array.isArray(content) ? content : []) {
-          if (block.type === 'tool_result') emit({ type: 'tool_end', id: block.tool_use_id, ok: !block.is_error });
+          if (block.type !== 'tool_result') continue;
+          const error = block.is_error ? resultText(block.content) : undefined;
+          emit({ type: 'tool_end', id: block.tool_use_id, ok: !block.is_error, ...(error ? { error } : {}) });
         }
         break;
       }
@@ -96,6 +165,8 @@ export const claudeRunner: AgentRunner = {
       '--include-partial-messages',
       '--append-system-prompt',
       o.systemPrompt,
+      // Variadic; the next `--flag` ends the list.
+      ...withAllowedTools(claudeAllowedTools(o.permission)),
       '--permission-mode',
       PERMISSION_MODE[o.permission],
       ...(o.model ? ['--model', o.model] : []),
@@ -130,6 +201,10 @@ export const claudeRunner: AgentRunner = {
     };
   },
 };
+
+function withAllowedTools(tools: string[]): string[] {
+  return tools.length ? ['--allowedTools', ...tools] : [];
+}
 
 function sumInput(u: any): number | undefined {
   if (!u) return undefined;

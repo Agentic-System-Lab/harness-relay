@@ -25,7 +25,7 @@ flowchart LR
   DB[(data/relay.db SQLite)]
   CLAUDE[[claude -p]]
   CODEX[[codex exec]]
-  GROK[[grok --prompt-file]]
+  GROK[[grok agent stdio]]
 
   UI -- REST (JSON) --> API
   HUB -- SSE events --> UI
@@ -104,7 +104,7 @@ Each agent's role is injected through the CLI's system-prompt mechanism and **re
 | --- | --- |
 | Claude Code | `--append-system-prompt <briefing>` |
 | Codex | `-c developer_instructions="<briefing>"` |
-| Grok | `--rules <briefing>` |
+| Grok | `_meta.rules` on ACP `session/new` / `session/resume` |
 
 The briefing contains the agent's role, the team roster (with each teammate's role summary), the rules of the current mode, the `[PASS]` convention, the shared working directory and the permission level.
 
@@ -127,28 +127,30 @@ Every adapter turns one CLI invocation into a stream of common events: `session`
 
 | | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |
-| Command | `claude -p --output-format stream-json --verbose --include-partial-messages` | `codex exec --json --skip-git-repo-check` (`exec resume <id>` to continue) | `grok --prompt-file <file> --verbatim --output-format streaming-json` |
-| Prompt via | stdin | stdin (`-`) | temp file |
-| New / resume session | `--session-id <uuid>` / `--resume <id>` | thread id from `thread.started` / `exec resume <id>` | `--session-id <uuid>` / `--resume <id>` |
-| Model | `--model` | `-m` | `--model` |
-| Reasoning effort | `--effort` | `-c model_reasoning_effort=…` | `--reasoning-effort` |
-| Text streaming | `stream_event` text deltas | whole `agent_message` items | `text` chunks |
+| Command | `claude -p --output-format stream-json --verbose --include-partial-messages` | `codex exec --json --skip-git-repo-check` (`exec resume <id>` to continue) | `grok agent --no-leader stdio` (ACP: JSON-RPC over stdin/stdout, one process per turn) |
+| Prompt via | stdin | stdin (`-`) | `session/prompt` |
+| New / resume session | `--session-id <uuid>` / `--resume <id>` | thread id from `thread.started` / `exec resume <id>` | `session/new` / `session/resume` |
+| Model | `--model` | `-m` | `session/set_config_option` (`model`) |
+| Reasoning effort | `--effort` | `-c model_reasoning_effort=…` | `session/set_config_option` (`reasoning_effort`) |
+| Text streaming | `stream_event` text deltas | whole `agent_message` items | `agent_message_chunk` updates |
 | Tool events | `tool_use` / `tool_result` blocks | `command_execution`, `file_change`, `mcp_tool_call`, `web_search` items | `tool_call` / `tool_call_update` |
 
 ### Permission mapping
 
-| Relay permission | Claude Code | Codex | Grok |
+| Relay permission | Claude Code | Codex | Grok (ACP) |
 | --- | --- | --- | --- |
-| Read-only | `--permission-mode dontAsk` | `sandbox_mode="read-only"`, `approval_policy="never"` | `--permission-mode dontAsk --allow WebFetch` |
-| Edit | `--permission-mode acceptEdits` | `sandbox_mode="workspace-write"`, `approval_policy="never"` | `--permission-mode acceptEdits --allow WebFetch` + common project commands (below) |
-| Full access | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | `--permission-mode bypassPermissions` |
+| Read-only | `--permission-mode dontAsk --allowedTools WebFetch WebSearch` | `sandbox_mode="read-only"`, `approval_policy="never"` | ask mode (`_meta.yoloMode: false`); the adapter approves web fetch and refuses everything else |
+| Edit | `--permission-mode acceptEdits --allowedTools WebFetch WebSearch 'Bash(npm test:*)' …` | `sandbox_mode="workspace-write"`, `approval_policy="never"` | ask mode with `GROK_SANDBOX=workspace`; the adapter approves everything except publishing (`git push`, `npm publish`…) |
+| Full access | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | always-approve (`_meta.yoloMode: true`) |
 
-Headless Grok cannot ask for approval: a tool call its mode would prompt for is reported as "User cancelled" and the **whole turn ends** (`end.stopReason: "cancelled"`) instead of the denial going back to the model. So the adapter pre-approves what each level should allow anyway (`grokPermissionArgs` in `src/server/agents/grok.ts`):
+When a tool call is refused, the model is told and the turn carries on; the reason is shown under the tool in the chat (`tool_end.error`, stored in `message_parts.tool_error`).
 
-- `web_fetch` is not on Grok's built-in read-only list, so read-only and edit both get `--allow WebFetch` (the relay permission is about the file system, not the network).
-- Edit mode also gets `--allow 'Bash(<prefix>)'` for common build / test / lint / format commands (`npm test`, `npm run `, `pytest`, `cargo test`, `go test`, `make`, `tsc`, `eslint`, `cd `, `mkdir `… — see `GROK_EDIT_COMMANDS`). Rules are plain prefixes matched against every segment of a chained command, so `cd app && npm test` is approved only because `cd ` is listed too. Installs, git writes and deletes are deliberately left out.
-
-Anything else that would prompt still ends the turn; the adapter turns `stopReason: "cancelled"` into a visible error naming the tool and Grok's reason.
+- **Claude Code** answers a denied call with an error the model sees. Web access is pre-approved at every level (the relay permission is about the file system, not the network), and edit mode pre-approves common build / test / lint / format commands (`CLAUDE_EDIT_COMMANDS` in `src/server/agents/claude.ts`). Installs, git writes and deletes still need full access.
+- **Codex** runs every command inside its OS sandbox; a write outside the allowed area fails and the model sees the error.
+- **Grok** runs as an ACP agent because headless `grok -p` cannot ask for approval: a call that would prompt is reported as "User cancelled" and the **whole turn ends**. Over ACP the request comes to the adapter (`grokPermissionDecision` in `src/server/agents/grok.ts`). A refusal is sent as `reject_once` with `_meta.followup_message`, which Grok passes to the model as feedback instead of cancelling the turn.
+  - The session mode is always set explicitly, so a user-level `[ui] permission_mode = "always-approve"` in `~/.grok/config.toml` cannot widen read-only or edit.
+  - Grok still runs its built-in read-only tools and commands without asking, including bare `mkdir` / `touch`.
+  - Read-only does not use Grok's `read-only` sandbox profile: it refuses to start on some machines (for example when `/var/run/docker.sock` is a symlink). In edit mode a sandbox that cannot start fails the turn with Grok's reason.
 
 ## Workspaces and file changes
 

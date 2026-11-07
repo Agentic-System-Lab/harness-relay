@@ -25,7 +25,7 @@ flowchart LR
   DB[(data/relay.db SQLite)]
   CLAUDE[[claude -p]]
   CODEX[[codex exec]]
-  GROK[[grok --prompt-file]]
+  GROK[[grok agent stdio]]
 
   UI -- REST (JSON) --> API
   HUB -- SSE 事件 --> UI
@@ -104,7 +104,7 @@ flowchart LR
 | --- | --- |
 | Claude Code | `--append-system-prompt <簡報>` |
 | Codex | `-c developer_instructions="<簡報>"` |
-| Grok | `--rules <簡報>` |
+| Grok | ACP `session/new`／`session/resume` 的 `_meta.rules` |
 
 簡報內容包括 agent 的角色、團隊名單（含每位隊友的角色摘要）、目前模式的規則、`[PASS]` 約定、共用的工作目錄與權限等級。
 
@@ -127,28 +127,30 @@ flowchart LR
 
 | | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |
-| 指令 | `claude -p --output-format stream-json --verbose --include-partial-messages` | `codex exec --json --skip-git-repo-check`（接續用 `exec resume <id>`） | `grok --prompt-file <檔案> --verbatim --output-format streaming-json` |
-| prompt 傳入方式 | stdin | stdin（`-`） | 暫存檔 |
-| 新建 / 接續 session | `--session-id <uuid>` / `--resume <id>` | 從 `thread.started` 取得 thread id / `exec resume <id>` | `--session-id <uuid>` / `--resume <id>` |
-| 模型 | `--model` | `-m` | `--model` |
-| 推理強度 | `--effort` | `-c model_reasoning_effort=…` | `--reasoning-effort` |
-| 文字串流 | `stream_event` 文字 delta | 整段 `agent_message` 項目 | `text` 片段 |
+| 指令 | `claude -p --output-format stream-json --verbose --include-partial-messages` | `codex exec --json --skip-git-repo-check`（接續用 `exec resume <id>`） | `grok agent --no-leader stdio`（ACP：透過 stdin/stdout 傳 JSON-RPC，每輪一個行程） |
+| prompt 傳入方式 | stdin | stdin（`-`） | `session/prompt` |
+| 新建 / 接續 session | `--session-id <uuid>` / `--resume <id>` | 從 `thread.started` 取得 thread id / `exec resume <id>` | `session/new` / `session/resume` |
+| 模型 | `--model` | `-m` | `session/set_config_option`（`model`） |
+| 推理強度 | `--effort` | `-c model_reasoning_effort=…` | `session/set_config_option`（`reasoning_effort`） |
+| 文字串流 | `stream_event` 文字 delta | 整段 `agent_message` 項目 | `agent_message_chunk` 更新 |
 | 工具事件 | `tool_use` / `tool_result` 區塊 | `command_execution`、`file_change`、`mcp_tool_call`、`web_search` 項目 | `tool_call` / `tool_call_update` |
 
 ### 權限對應
 
-| Relay 權限 | Claude Code | Codex | Grok |
+| Relay 權限 | Claude Code | Codex | Grok（ACP） |
 | --- | --- | --- | --- |
-| 唯讀 | `--permission-mode dontAsk` | `sandbox_mode="read-only"`、`approval_policy="never"` | `--permission-mode dontAsk --allow WebFetch` |
-| 可編輯 | `--permission-mode acceptEdits` | `sandbox_mode="workspace-write"`、`approval_policy="never"` | `--permission-mode acceptEdits --allow WebFetch` + 常用專案指令（見下方） |
-| 完全存取 | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | `--permission-mode bypassPermissions` |
+| 唯讀 | `--permission-mode dontAsk --allowedTools WebFetch WebSearch` | `sandbox_mode="read-only"`、`approval_policy="never"` | 詢問模式（`_meta.yoloMode: false`）；adapter 核准讀網頁，其他一律拒絕 |
+| 可編輯 | `--permission-mode acceptEdits --allowedTools WebFetch WebSearch 'Bash(npm test:*)' …` | `sandbox_mode="workspace-write"`、`approval_policy="never"` | 詢問模式加上 `GROK_SANDBOX=workspace`；adapter 核准推送／發佈（`git push`、`npm publish`……）以外的所有操作 |
+| 完全存取 | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | 全部自動核准（`_meta.yoloMode: true`） |
 
-非互動模式的 Grok 無法詢問核准：只要某個工具呼叫在目前模式下需要詢問，Grok 就會回報「User cancelled」並**結束整輪**（`end.stopReason: "cancelled"`），而不是把拒絕訊息交還給模型繼續回答。因此 adapter 會預先核准各權限本來就該允許的操作（`src/server/agents/grok.ts` 的 `grokPermissionArgs`）：
+工具呼叫被拒絕時，模型會收到通知並繼續這一輪；原因會顯示在對話中該工具底下（`tool_end.error`，存在 `message_parts.tool_error`）。
 
-- `web_fetch` 不在 Grok 內建的唯讀清單裡，所以唯讀與可編輯都加上 `--allow WebFetch`（Relay 的權限管的是檔案系統，不是網路）。
-- 可編輯模式另外對常用的建置／測試／lint／格式化指令加上 `--allow 'Bash(<前綴>)'`（`npm test`、`npm run `、`pytest`、`cargo test`、`go test`、`make`、`tsc`、`eslint`、`cd `、`mkdir `……完整清單見 `GROK_EDIT_COMMANDS`）。規則是單純的前綴比對，且會套用到串接指令的每一段，所以 `cd app && npm test` 能通過是因為 `cd ` 也在清單裡。安裝套件、git 寫入與刪除檔案刻意不列入。
-
-其他需要詢問的呼叫仍會結束整輪；adapter 會把 `stopReason: "cancelled"` 轉成看得到的錯誤，寫出是哪個工具以及 Grok 給的原因。
+- **Claude Code** 會把拒絕當成錯誤交給模型。各權限都預先允許讀網頁（Relay 的權限管的是檔案系統，不是網路）；可編輯模式另外預先允許常用的建置／測試／lint／格式化指令（`src/server/agents/claude.ts` 的 `CLAUDE_EDIT_COMMANDS`）。安裝套件、git 寫入與刪除檔案仍需要完全存取。
+- **Codex** 的每個指令都在作業系統沙箱裡執行；寫到允許範圍外會失敗，模型會看到錯誤。
+- **Grok** 以 ACP agent 執行，因為非互動的 `grok -p` 無法詢問核准：需要詢問的呼叫會被回報為「User cancelled」並**結束整輪**。改用 ACP 後，請求會送到 adapter（`src/server/agents/grok.ts` 的 `grokPermissionDecision`）。拒絕時回覆 `reject_once` 並附上 `_meta.followup_message`，Grok 會把它當成給模型的回饋，而不是取消這一輪。
+  - session 的模式一律明確指定，所以使用者在 `~/.grok/config.toml` 設的 `[ui] permission_mode = "always-approve"` 不會放寬唯讀或可編輯。
+  - Grok 內建的唯讀工具與指令（包含單純的 `mkdir`／`touch`）仍會直接執行、不經詢問。
+  - 唯讀模式不使用 Grok 的 `read-only` 沙箱設定檔：它在某些機器上無法啟動（例如 `/var/run/docker.sock` 是 symlink 時）。可編輯模式若沙箱無法啟動，這一輪會失敗並顯示 Grok 給的原因。
 
 ## 工作區與檔案修改
 

@@ -371,6 +371,7 @@ export class Orchestrator {
           const part = msg.parts.find((p) => p.type === 'tool' && p.id === e.id);
           if (part?.type === 'tool') {
             part.status = e.ok ? 'done' : 'error';
+            if (e.error) part.error = e.error;
             this.hub.emit(conv.id, { type: 'message', message: msg });
           }
           break;

@@ -13,8 +13,8 @@ export const MODE_INFO: Record<Mode, { label: string; hint: string }> = {
 };
 
 export const PERMISSION_INFO: Record<Permission, { label: string; hint: string }> = {
-  'read-only': { label: '唯讀', hint: '只能讀檔與分析，不會修改任何檔案。' },
-  edit: { label: '可編輯', hint: '可以在工作目錄內修改檔案。' },
+  'read-only': { label: '唯讀', hint: '只能讀檔、分析與上網查資料，不會修改任何檔案。' },
+  edit: { label: '可編輯', hint: '可以在工作目錄內修改檔案，並執行測試、建置等專案指令；推送與發佈需要完全存取。' },
   full: { label: '完全存取', hint: '可修改檔案並執行任何指令，不再詢問。請只在可信任的目錄使用。' },
 };
 

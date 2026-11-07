@@ -163,6 +163,10 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (conversation_id, agent_id)
   );
   `,
+  // 3: why a tool call failed or was refused.
+  `
+  ALTER TABLE message_parts ADD COLUMN tool_error TEXT;
+  `,
 ];
 
 function migrate(db: Database): void {

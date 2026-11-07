@@ -77,6 +77,7 @@ interface PartRow {
   tool_name: string | null;
   tool_detail: string | null;
   tool_status: ToolStatus | null;
+  tool_error: string | null;
 }
 
 const opt = <T>(v: T | null): T | undefined => (v === null ? undefined : v);
@@ -93,6 +94,7 @@ function toPart(r: PartRow): MessagePart {
       name: r.tool_name ?? 'tool',
       detail: opt(r.tool_detail),
       status: r.tool_status ?? 'done',
+      ...(r.tool_error ? { error: r.tool_error } : {}),
     };
   }
   return { type: 'text', text: r.text ?? '' };
@@ -211,7 +213,7 @@ export class Store {
 
     const partRows = this.db
       .prepare(
-        `SELECT p.message_id, p.type, p.text, p.tool_id, p.tool_name, p.tool_detail, p.tool_status
+        `SELECT p.message_id, p.type, p.text, p.tool_id, p.tool_name, p.tool_detail, p.tool_status, p.tool_error
          FROM message_parts p JOIN messages m ON m.id = p.message_id
          WHERE m.conversation_id = ? ORDER BY m.seq, p.idx`,
       )
@@ -359,8 +361,8 @@ export class Store {
     );
     const clearParts = this.db.prepare('DELETE FROM message_parts WHERE message_id = ?');
     const insertPart = this.db.prepare(
-      `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     transaction(this.db, () => {
@@ -395,8 +397,8 @@ export class Store {
         m.changes?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));
         clearParts.run(m.id);
         m.parts.forEach((p, idx) => {
-          if (p.type === 'text') insertPart.run(m.id, idx, 'text', p.text, null, null, null, null);
-          else insertPart.run(m.id, idx, 'tool', null, p.id, p.name, nul(p.detail), p.status);
+          if (p.type === 'text') insertPart.run(m.id, idx, 'text', p.text, null, null, null, null, null);
+          else insertPart.run(m.id, idx, 'tool', null, p.id, p.name, nul(p.detail), p.status, nul(p.error));
         });
       });
     });

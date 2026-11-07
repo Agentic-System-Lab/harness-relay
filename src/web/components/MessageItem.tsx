@@ -40,6 +40,7 @@ function ToolGroup({ tools, live }: { tools: ToolPart[]; live: boolean }) {
             </span>
             <code className="tool-name">{t.name}</code>
             {t.detail && <span className="tool-detail">{t.detail}</span>}
+            {t.status === 'error' && t.error && <div className="tool-error">{t.error}</div>}
           </li>
         ))}
       </ul>

@@ -66,7 +66,7 @@ const agentMsg: ChatMessage = {
   parts: [
     { type: 'text', text: '先看檔案' },
     { type: 'tool', id: 't1', name: 'Read', detail: 'src/a.ts', status: 'done' },
-    { type: 'tool', id: 't2', name: 'Bash', status: 'error' },
+    { type: 'tool', id: 't2', name: 'Bash', status: 'error', error: 'Permission to use Bash has been denied' },
     { type: 'text', text: '計畫如下… @Builder' },
   ],
   status: 'done',
