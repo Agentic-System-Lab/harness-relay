@@ -878,8 +878,15 @@ details.sub .model-picker {
   border-top: 1px solid var(--border);
 }
 
+/* One line on every screen: the field gives way, the button keeps its size. */
 .title-input {
   flex: 1;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.start-bar .primary {
+  flex-shrink: 0;
 }
 
 .error-line {
@@ -2795,14 +2802,6 @@ details.sub summary {
 
   .msg-user .bubble {
     max-width: 90%;
-  }
-
-  .start-bar {
-    flex-wrap: wrap;
-  }
-
-  .title-input {
-    flex-basis: 100%;
   }
 }
 
