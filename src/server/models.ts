@@ -1,0 +1,110 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import type { ModelOption, Provider, ProviderModels } from '../shared/types';
+import { capture, stripAnsi, tail } from './process';
+
+/** Discovered once per CLI and cached; defaults from Relay settings are layered on at request time. */
+export type DiscoveredModels = Omit<ProviderModels, 'defaultModel' | 'defaultEffort'>;
+
+const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const GROK_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+
+/** Claude Code accepts aliases that always point at the latest model of each family. */
+const CLAUDE_MODELS: ModelOption[] = [
+  { id: 'fable', label: 'Fable · 最新' },
+  { id: 'opus', label: 'Opus · 最新' },
+  { id: 'sonnet', label: 'Sonnet · 最新' },
+  { id: 'haiku', label: 'Haiku · 最新' },
+];
+
+/** Top-level `key = "value"` pairs of a TOML file (before the first [table]). Enough for codex defaults. */
+function readTopLevelToml(file: string): Record<string, string> {
+  if (!existsSync(file)) return {};
+  const out: Record<string, string> = {};
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (/^\s*\[/.test(line)) break;
+    const m = line.match(/^\s*([A-Za-z0-9_.-]+)\s*=\s*"([^"]*)"/);
+    if (m) out[m[1]!] = m[2]!;
+  }
+  return out;
+}
+
+async function discoverCodex(bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
+  const codexHome = env.CODEX_HOME || join(homedir(), '.codex');
+  const cfg = readTopLevelToml(join(codexHome, 'config.toml'));
+  const base: DiscoveredModels = {
+    provider: 'codex',
+    models: [],
+    efforts: CODEX_EFFORTS,
+    cliDefaultModel: cfg.model,
+    cliDefaultEffort: cfg.model_reasoning_effort,
+    source: 'builtin',
+  };
+  // The catalog embeds each model's full instructions, so it is several MB of JSON.
+  const r = await capture(bin, ['debug', 'models'], env, { timeoutMs: 30_000, maxCapture: 64 * 1024 * 1024 });
+  try {
+    const catalog = JSON.parse(r.stdout) as { models?: Record<string, any>[] };
+    const models: ModelOption[] = (catalog.models ?? [])
+      .filter((m) => m.slug && m.visibility !== 'hide')
+      .map((m) => ({
+        id: String(m.slug),
+        label: m.display_name ? String(m.display_name) : undefined,
+        efforts: Array.isArray(m.supported_reasoning_levels)
+          ? m.supported_reasoning_levels.map((l: any) => String(l.effort ?? l)).filter(Boolean)
+          : undefined,
+        defaultEffort: m.default_reasoning_level ? String(m.default_reasoning_level) : undefined,
+      }));
+    const efforts = [...new Set(models.flatMap((m) => m.efforts ?? []))];
+    return { ...base, models, efforts: efforts.length ? efforts : CODEX_EFFORTS, source: 'cli' };
+  } catch {
+    return { ...base, error: tail(r.stderr || r.stdout, 200) || 'codex debug models 失敗' };
+  }
+}
+
+async function discoverGrok(bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
+  const r = await capture(bin, ['models'], env, { timeoutMs: 20_000 });
+  const out = stripAnsi(`${r.stdout}\n${r.stderr}`);
+  const models: ModelOption[] = [];
+  for (const line of out.split('\n')) {
+    const m = line.match(/^\s*[*-]\s+([A-Za-z0-9._:/-]+)/);
+    if (m && !models.some((x) => x.id === m[1])) models.push({ id: m[1]! });
+  }
+  const cliDefaultModel = out.match(/Default model:\s*(\S+)/i)?.[1];
+  return {
+    provider: 'grok',
+    models,
+    efforts: GROK_EFFORTS,
+    cliDefaultModel,
+    source: models.length ? 'cli' : 'builtin',
+    error: models.length ? undefined : tail(out, 200) || 'grok models 沒有回傳模型',
+  };
+}
+
+function discoverClaude(env: NodeJS.ProcessEnv): DiscoveredModels {
+  // Claude Code has no list command; read the user's configured default if there is one.
+  const dir = env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+  let cliDefaultModel: string | undefined = env.ANTHROPIC_MODEL;
+  let cliDefaultEffort: string | undefined = env.CLAUDE_CODE_EFFORT_LEVEL;
+  try {
+    const s = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>;
+    if (!cliDefaultModel && typeof s.model === 'string') cliDefaultModel = s.model;
+    if (!cliDefaultEffort && typeof s.effortLevel === 'string') cliDefaultEffort = s.effortLevel;
+  } catch {
+    /* no settings file */
+  }
+  return { provider: 'claude', models: CLAUDE_MODELS, efforts: CLAUDE_EFFORTS, cliDefaultModel, cliDefaultEffort, source: 'builtin' };
+}
+
+export async function discoverModels(p: Provider, bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
+  try {
+    if (p === 'claude') return discoverClaude(env);
+    if (p === 'codex') return await discoverCodex(bin, env);
+    return await discoverGrok(bin, env);
+  } catch (err) {
+    const efforts = p === 'claude' ? CLAUDE_EFFORTS : p === 'codex' ? CODEX_EFFORTS : GROK_EFFORTS;
+    return { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
+  }
+}
+

@@ -1,0 +1,38 @@
+{
+  "name": "harness-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A ChatGPT-style group chat where Claude Code, Codex and Grok collaborate with you and with each other.",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,magenta \"tsx watch --clear-screen=false src/server/index.ts\" \"vite\"",
+    "build": "vite build",
+    "start": "NODE_ENV=production tsx src/server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.6",
+    "highlight.js": "^11.12.0",
+    "hono": "^4.13.17",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "concurrently": "^10.0.7",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

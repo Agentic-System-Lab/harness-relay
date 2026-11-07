@@ -1,0 +1,316 @@
+import { randomUUID } from 'node:crypto';
+import type { ChildProcess } from 'node:child_process';
+import {
+  PROVIDERS,
+  type LoginMethod,
+  type LoginSessionView,
+  type Provider,
+  type ProviderAuth,
+  type ProviderModels,
+  type ProviderStatus,
+} from '../shared/types';
+import { discoverModels, type DiscoveredModels } from './models';
+import { CommandNotFoundError, capture, killTree, spawnInteractive, stripAnsi, tail } from './process';
+import type { SettingsStore } from './settings';
+
+// ---------------------------------------------------------------------------
+// Status
+
+function parseVersion(out: string): string | undefined {
+  const m = stripAnsi(out).match(/\d+\.\d+\.\d+[\w.-]*/);
+  return m?.[0];
+}
+
+function firstJsonObject(s: string): Record<string, any> | null {
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(s.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Promise<ProviderAuth> {
+  switch (p) {
+    case 'claude': {
+      const r = await capture(bin, ['auth', 'status'], env);
+      const j = firstJsonObject(r.stdout);
+      if (!j) return { loggedIn: null, detail: tail(r.stderr || r.stdout, 200) };
+      return {
+        loggedIn: Boolean(j.loggedIn),
+        method: j.authMethod,
+        account: j.email ?? j.orgName,
+        detail: j.subscriptionType ? `方案：${j.subscriptionType}` : undefined,
+      };
+    }
+    case 'codex': {
+      const r = await capture(bin, ['login', 'status'], env);
+      const out = stripAnsi(`${r.stdout}\n${r.stderr}`).trim();
+      const notLogged = /not logged in/i.test(out);
+      const logged = !notLogged && /logged in/i.test(out);
+      const method = out.match(/logged in using ([^\n]+)/i)?.[1]?.trim();
+      return { loggedIn: logged ? true : notLogged ? false : null, method, detail: out.split('\n')[0] };
+    }
+    case 'grok': {
+      const r = await capture(bin, ['models'], env);
+      const out = stripAnsi(`${r.stdout}\n${r.stderr}`);
+      if (/not (authenticated|signed in)/i.test(out)) return { loggedIn: false };
+      const model = out.match(/Default model:\s*(\S+)/i)?.[1];
+      return r.code === 0
+        ? { loggedIn: true, detail: model ? `預設模型：${model}` : undefined }
+        : { loggedIn: null, detail: tail(out, 200) };
+    }
+  }
+}
+
+export class ProviderService {
+  private cache = new Map<Provider, { at: number; status: ProviderStatus }>();
+  private logins = new Map<Provider, LoginSession>();
+  private modelCache = new Map<Provider, { at: number; models: Promise<DiscoveredModels> }>();
+
+  constructor(private settings: SettingsStore) {}
+
+  invalidate(p?: Provider): void {
+    if (p) {
+      this.cache.delete(p);
+      this.modelCache.delete(p);
+    } else {
+      this.cache.clear();
+      this.modelCache.clear();
+    }
+  }
+
+  /** Models / effort levels per provider, with Relay's own defaults layered over the CLI's. */
+  async models(p: Provider, refresh = false): Promise<ProviderModels> {
+    let entry = this.modelCache.get(p);
+    if (refresh || !entry || Date.now() - entry.at > 10 * 60_000) {
+      entry = { at: Date.now(), models: discoverModels(p, this.settings.bin(p), this.settings.env(p)) };
+      this.modelCache.set(p, entry);
+    }
+    const d = await entry.models;
+    return {
+      ...d,
+      defaultModel: this.settings.defaultModel(p) || d.cliDefaultModel,
+      // Model-specific defaults (e.g. codex catalog) are applied by the client per selected model.
+      defaultEffort: this.settings.defaultEffort(p) || d.cliDefaultEffort,
+    };
+  }
+
+  modelsAll(refresh = false): Promise<ProviderModels[]> {
+    return Promise.all(PROVIDERS.map((p) => this.models(p, refresh)));
+  }
+
+  async status(p: Provider, refresh = false): Promise<ProviderStatus> {
+    const cached = this.cache.get(p);
+    if (!refresh && cached && Date.now() - cached.at < 20_000) return cached.status;
+    const bin = this.settings.bin(p);
+    const env = this.settings.env(p);
+    let status: ProviderStatus;
+    try {
+      const v = await capture(bin, ['--version'], env, { timeoutMs: 10_000 });
+      const version = parseVersion(v.stdout || v.stderr);
+      let auth: ProviderAuth;
+      try {
+        auth = await checkAuth(p, bin, env);
+      } catch (err) {
+        auth = { loggedIn: null, detail: (err as Error).message };
+      }
+      status = { provider: p, installed: true, bin, version, auth, usingStoredApiKey: this.settings.hasStoredApiKey(p) };
+    } catch (err) {
+      status = {
+        provider: p,
+        installed: false,
+        bin,
+        auth: { loggedIn: null, detail: err instanceof CommandNotFoundError ? err.message : (err as Error).message },
+        usingStoredApiKey: this.settings.hasStoredApiKey(p),
+      };
+    }
+    this.cache.set(p, { at: Date.now(), status });
+    return status;
+  }
+
+  statusAll(refresh = false): Promise<ProviderStatus[]> {
+    return Promise.all(PROVIDERS.map((p) => this.status(p, refresh)));
+  }
+
+  // -------------------------------------------------------------------------
+  // Login / logout
+
+  loginMethods(p: Provider): LoginMethod[] {
+    return LOGIN_METHODS[p].map(({ id, label, description }) => ({ id, label, description }));
+  }
+
+  startLogin(p: Provider, methodId?: string): LoginSessionView {
+    const method = LOGIN_METHODS[p].find((m) => m.id === methodId) ?? LOGIN_METHODS[p][0];
+    this.logins.get(p)?.cancel();
+    const session = new LoginSession(p, method, this.settings.bin(p), this.settings.env(p), () => this.invalidate(p));
+    this.logins.set(p, session);
+    return session.view();
+  }
+
+  login(p: Provider): LoginSessionView | null {
+    return this.logins.get(p)?.view() ?? null;
+  }
+
+  sendLoginInput(p: Provider, text: string): LoginSessionView | null {
+    const s = this.logins.get(p);
+    if (!s) return null;
+    s.write(text);
+    return s.view();
+  }
+
+  cancelLogin(p: Provider): void {
+    this.logins.get(p)?.cancel();
+  }
+
+  async logout(p: Provider): Promise<string> {
+    const bin = this.settings.bin(p);
+    const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
+    const r = await capture(bin, args, this.settings.env(p), { timeoutMs: 30_000 });
+    this.invalidate(p);
+    if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || `logout 失敗（exit ${r.code}）`);
+    return tail(r.stdout || r.stderr, 300);
+  }
+
+  /** Codex stores API keys itself; the key is piped to `codex login --with-api-key` and not kept here. */
+  async codexApiKeyLogin(key: string): Promise<string> {
+    const r = await capture(this.settings.bin('codex'), ['login', '--with-api-key'], this.settings.env('codex'), {
+      stdin: key.trim() + '\n',
+      timeoutMs: 30_000,
+    });
+    this.invalidate('codex');
+    if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || `codex login 失敗（exit ${r.code}）`);
+    return tail(r.stdout || r.stderr, 300);
+  }
+
+  shutdown(): void {
+    for (const s of this.logins.values()) s.cancel();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Login sessions: run the CLI's own login flow headlessly and surface its URL / code.
+
+const LOGIN_METHODS: Record<Provider, (LoginMethod & { args: string[] })[]> = {
+  claude: [
+    {
+      id: 'claudeai',
+      label: 'Claude 訂閱帳號',
+      description: '用 Claude Pro / Max 帳號登入。開啟連結授權後，把頁面顯示的授權碼貼回來。',
+      args: ['auth', 'login', '--claudeai'],
+    },
+    {
+      id: 'console',
+      label: 'Anthropic Console',
+      description: '用 Console 帳號登入（依 API 用量計費）。',
+      args: ['auth', 'login', '--console'],
+    },
+  ],
+  codex: [
+    {
+      id: 'device',
+      label: 'ChatGPT 裝置碼',
+      description: '開啟連結、登入 ChatGPT，輸入下方一次性代碼。',
+      args: ['login', '--device-auth'],
+    },
+    {
+      id: 'browser',
+      label: 'ChatGPT 瀏覽器登入',
+      description: '在這台電腦開啟瀏覽器完成登入（需要本機 localhost 回呼）。',
+      args: ['login'],
+    },
+  ],
+  grok: [
+    {
+      id: 'device',
+      label: 'xAI 裝置碼',
+      description: '開啟連結並確認下方代碼。',
+      args: ['login', '--device-auth'],
+    },
+    {
+      id: 'oauth',
+      label: 'xAI 瀏覽器登入',
+      description: '在這台電腦開啟瀏覽器完成 OAuth 登入。',
+      args: ['login', '--oauth'],
+    },
+  ],
+};
+
+const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
+const URL_RE = /https?:\/\/[^\s"'<>\u001b]+/g;
+const CODE_RE = /\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b/g;
+
+class LoginSession {
+  readonly id = randomUUID();
+  readonly startedAt = Date.now();
+  private child: ChildProcess;
+  private output = '';
+  private state: LoginSessionView['state'] = 'running';
+  private exitCode: number | null | undefined;
+  private timer: NodeJS.Timeout;
+
+  constructor(
+    readonly provider: Provider,
+    readonly method: LoginMethod & { args: string[] },
+    bin: string,
+    env: NodeJS.ProcessEnv,
+    private onDone: () => void,
+  ) {
+    this.child = spawnInteractive(bin, method.args, env);
+    const onData = (chunk: Buffer) => {
+      this.output += chunk.toString('utf8');
+      if (this.output.length > 32_000) this.output = this.output.slice(-32_000);
+    };
+    this.child.stdout!.on('data', onData);
+    this.child.stderr!.on('data', onData);
+    this.child.stdin!.on('error', () => {});
+    this.child.on('error', (err: NodeJS.ErrnoException) => {
+      this.output += `\n${err.code === 'ENOENT' ? new CommandNotFoundError(bin).message : err.message}\n`;
+      this.finish('failed', null);
+    });
+    this.child.on('close', (code) => {
+      if (this.state === 'running') this.finish(code === 0 ? 'success' : 'failed', code);
+    });
+    this.timer = setTimeout(() => this.cancel(), LOGIN_TIMEOUT_MS);
+  }
+
+  private finish(state: LoginSessionView['state'], code: number | null): void {
+    this.state = state;
+    this.exitCode = code;
+    clearTimeout(this.timer);
+    this.onDone();
+  }
+
+  write(text: string): void {
+    if (this.state !== 'running' || !this.child.stdin?.writable) return;
+    this.child.stdin.write(text.trim() + '\n');
+  }
+
+  cancel(): void {
+    if (this.state !== 'running') return;
+    this.finish('cancelled', null);
+    killTree(this.child, 'SIGTERM');
+    setTimeout(() => killTree(this.child, 'SIGKILL'), 2000);
+  }
+
+  view(): LoginSessionView {
+    const clean = stripAnsi(this.output).replace(/\r/g, '');
+    const urls = [...new Set(clean.match(URL_RE) ?? [])];
+    const codes = [...new Set(clean.match(CODE_RE) ?? [])];
+    const lastLine = clean.trimEnd().split('\n').pop() ?? '';
+    return {
+      id: this.id,
+      provider: this.provider,
+      method: this.method.id,
+      state: this.state,
+      startedAt: this.startedAt,
+      output: clean,
+      urls,
+      codes,
+      wantsInput: this.state === 'running' && /(paste|enter).*code|code.*>\s*$/i.test(lastLine),
+      exitCode: this.exitCode,
+    };
+  }
+}

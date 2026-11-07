@@ -1,0 +1,28 @@
+import type { ServerEvent } from '../shared/types';
+
+type Listener = (e: ServerEvent) => void;
+
+/** Fan-out of conversation events to connected SSE clients. */
+export class Hub {
+  private listeners = new Map<string, Set<Listener>>();
+
+  subscribe(conversationId: string, fn: Listener): () => void {
+    let set = this.listeners.get(conversationId);
+    if (!set) this.listeners.set(conversationId, (set = new Set()));
+    set.add(fn);
+    return () => {
+      set!.delete(fn);
+      if (set!.size === 0) this.listeners.delete(conversationId);
+    };
+  }
+
+  emit(conversationId: string, e: ServerEvent): void {
+    for (const fn of this.listeners.get(conversationId) ?? []) {
+      try {
+        fn(e);
+      } catch (err) {
+        console.error('[hub] listener failed:', err);
+      }
+    }
+  }
+}

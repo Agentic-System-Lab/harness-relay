@@ -1,0 +1,269 @@
+// Types shared by the server and the web client.
+
+export type Provider = 'claude' | 'codex' | 'grok';
+export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok'];
+
+export const PROVIDER_LABEL: Record<Provider, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  grok: 'Grok',
+};
+
+/**
+ * How a user message is routed through the team.
+ * - roundtable: agents speak one after another, each seeing what earlier speakers said.
+ * - parallel:   agents answer simultaneously each round; later rounds see earlier answers.
+ * - relay:      one agent at a time; an agent hands off by @mentioning a teammate.
+ */
+export type Mode = 'roundtable' | 'parallel' | 'relay';
+
+/** File-system permission granted to every agent in a conversation. */
+export type Permission = 'read-only' | 'edit' | 'full';
+
+export interface AgentConfig {
+  id: string;
+  /** Handle used for @mentions. Letters, digits, `_` and `-` only. */
+  name: string;
+  provider: Provider;
+  /** The agent's position / role / persona for this conversation. */
+  role: string;
+  /** Optional model override; empty means the CLI's default. */
+  model?: string;
+  /** Optional reasoning-effort override (e.g. low / medium / high / xhigh); empty means default. */
+  effort?: string;
+}
+
+export interface ConversationSettings {
+  mode: Mode;
+  /** Number of rounds for roundtable / parallel mode. */
+  rounds: number;
+  /** Maximum number of agent turns per user message in relay mode. */
+  maxHops: number;
+  permission: Permission;
+  /** Working directory shared by all agents. */
+  cwd: string;
+}
+
+export interface TeamPreset {
+  id: string;
+  name: string;
+  description?: string;
+  builtin?: boolean;
+  agents: AgentConfig[];
+  settings: Omit<ConversationSettings, 'cwd'>;
+}
+
+export type Author =
+  | { kind: 'user' }
+  | { kind: 'agent'; agentId: string }
+  | { kind: 'system' };
+
+export type ToolStatus = 'running' | 'done' | 'error';
+
+export type MessagePart =
+  | { type: 'text'; text: string }
+  | { type: 'tool'; id: string; name: string; detail?: string; status: ToolStatus };
+
+export type MessageStatus = 'streaming' | 'done' | 'error' | 'aborted';
+
+export interface MessageMeta {
+  round?: number;
+  durationMs?: number;
+  costUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+export interface FileChange {
+  path: string;
+  /** A = added, M = modified, D = deleted. */
+  status: 'A' | 'M' | 'D';
+  /** Line counts; null for binary files. */
+  added: number | null;
+  deleted: number | null;
+}
+
+/** Files an agent changed during one turn, as two git commits (diff base..head). */
+export interface MessageChanges {
+  /** Repository root the commits live in. */
+  root: string;
+  base: string;
+  head: string;
+  files: FileChange[];
+  /** The changes live in the agent's own worktree and are not in the working directory yet. */
+  isolated: boolean;
+  branch?: string;
+}
+
+/** A per-agent git worktree used in parallel mode so agents don't overwrite each other. */
+export interface AgentWorktree {
+  /** Repository root of the conversation's working directory. */
+  root: string;
+  path: string;
+  branch: string;
+  /** Snapshot of the working directory the worktree started from. */
+  base: string;
+  /** The working directory changed (e.g. a result was applied); recreate before the next parallel turn. */
+  needsReset: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  author: Author;
+  createdAt: number;
+  parts: MessagePart[];
+  status: MessageStatus;
+  /** The agent replied with [PASS]. */
+  passed?: boolean;
+  error?: string;
+  meta?: MessageMeta;
+  /** Snapshot of the agent at the time of the message (agents can be edited later). */
+  agentName?: string;
+  provider?: Provider;
+  /** Files the agent changed in this turn (only for conversations with edit / full permission). */
+  changes?: MessageChanges;
+}
+
+export interface AgentSessionState {
+  /** CLI-native session / thread id used to resume the agent's own context. */
+  sessionId?: string;
+  provider?: Provider;
+  /** Ids of chat messages this agent has already been shown. */
+  seen: string[];
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  agents: AgentConfig[];
+  settings: ConversationSettings;
+  messages: ChatMessage[];
+  agentState: Record<string, AgentSessionState>;
+  /** Parallel-mode worktrees by agent id. */
+  worktrees: Record<string, AgentWorktree>;
+}
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  updatedAt: number;
+  agents: Pick<AgentConfig, 'name' | 'provider'>[];
+  running: boolean;
+}
+
+/** Events pushed to the browser over SSE for one conversation. */
+export type ServerEvent =
+  | { type: 'snapshot'; conversation: Conversation; running: boolean; activeAgentIds: string[] }
+  | { type: 'message'; message: ChatMessage }
+  | { type: 'delta'; messageId: string; partIndex: number; text: string }
+  | { type: 'status'; running: boolean; activeAgentIds: string[] }
+  | {
+      type: 'conversation';
+      title: string;
+      agents: AgentConfig[];
+      settings: ConversationSettings;
+      worktrees: Record<string, AgentWorktree>;
+    };
+
+// ---------------------------------------------------------------------------
+// Provider settings, health and login
+
+export interface ProviderAuth {
+  /** null = could not determine. */
+  loggedIn: boolean | null;
+  method?: string;
+  account?: string;
+  detail?: string;
+}
+
+export interface ProviderStatus {
+  provider: Provider;
+  installed: boolean;
+  bin: string;
+  version?: string;
+  auth: ProviderAuth;
+  /** An API key is stored in Harness Relay and injected into this CLI's environment. */
+  usingStoredApiKey: boolean;
+}
+
+export interface ProviderSettingsView {
+  provider: Provider;
+  /** Custom executable path; empty = use PATH. */
+  bin: string;
+  /** Masked API key, e.g. "sk-…a1b2", or empty when none is stored. */
+  apiKeyMasked: string;
+  /** Model used when an agent does not specify one. */
+  defaultModel: string;
+  /** Reasoning effort used when an agent does not specify one. */
+  defaultEffort: string;
+}
+
+export interface ModelOption {
+  id: string;
+  label?: string;
+  /** Effort levels this model supports; undefined = use the provider-wide list. */
+  efforts?: string[];
+  defaultEffort?: string;
+}
+
+/** Models and reasoning-effort levels a provider offers, as discovered from its CLI. */
+export interface ProviderModels {
+  provider: Provider;
+  models: ModelOption[];
+  efforts: string[];
+  /** The CLI's own defaults (from its config or catalog). */
+  cliDefaultModel?: string;
+  cliDefaultEffort?: string;
+  /** What actually runs when an agent leaves the field on "default": Relay setting first, then the CLI default. */
+  defaultModel?: string;
+  defaultEffort?: string;
+  source: 'cli' | 'builtin';
+  error?: string;
+}
+
+/** Effort levels valid for a model (falls back to the provider-wide list). */
+export function effortsFor(pm: Pick<ProviderModels, 'models' | 'efforts'>, model?: string): string[] {
+  return pm.models.find((m) => m.id === model)?.efforts ?? pm.efforts;
+}
+
+/** The effort that runs when an agent leaves effort on default, for the model it will use. */
+export function inheritedEffort(pm: ProviderModels, model?: string): string | undefined {
+  return pm.defaultEffort ?? pm.models.find((m) => m.id === (model || pm.defaultModel))?.defaultEffort;
+}
+
+export interface SettingsView {
+  providers: ProviderSettingsView[];
+  defaultCwd: string;
+}
+
+export interface ProviderSettingsUpdate {
+  bin?: string;
+  defaultModel?: string;
+  defaultEffort?: string;
+  /** string = set / replace, null = remove. */
+  apiKey?: string | null;
+}
+
+export type LoginState = 'running' | 'success' | 'failed' | 'cancelled';
+
+export interface LoginSessionView {
+  id: string;
+  provider: Provider;
+  method: string;
+  state: LoginState;
+  startedAt: number;
+  output: string;
+  urls: string[];
+  codes: string[];
+  /** The CLI is waiting for something to be pasted on stdin (e.g. Claude's auth code). */
+  wantsInput: boolean;
+  exitCode?: number | null;
+}
+
+export interface LoginMethod {
+  id: string;
+  label: string;
+  description: string;
+}
