@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentConfig, ChatMessage, Conversation } from '../src/shared/types';
-import { buildBriefing, isForwardable, isPass, parseMentions, renderMessage } from '../src/server/prompt';
+import { buildBriefing, buildTurnPrompt, isForwardable, isPass, parseMentions, renderMessage } from '../src/server/prompt';
+import { ASK_TOKEN, splitAsk } from '../src/shared/ask';
 
 const team: AgentConfig[] = [
   { id: 'b', name: 'Builder', provider: 'claude', role: '' },
@@ -126,5 +127,31 @@ describe('buildBriefing', () => {
     const briefing = buildBriefing(conv, team[0]!);
     expect(briefing).toContain('![Sales by month](charts/sales.png)');
     expect(briefing).toContain('Images from websites are shown only as links');
+  });
+});
+
+describe('asking the user', () => {
+  it('finds the ask marker at the end of a reply, however it is dressed up', () => {
+    expect(splitAsk('Which one, A or B?\n\n[ASK_USER]')).toEqual({ text: 'Which one, A or B?', asks: true });
+    expect(splitAsk('Which one? [ASK_USER]')).toEqual({ text: 'Which one?', asks: true });
+    expect(splitAsk('Which one?\n**[ASK_USER]**.\n')).toEqual({ text: 'Which one?', asks: true });
+    expect(splitAsk('Which one?\n`[ask_user]`')).toEqual({ text: 'Which one?', asks: true });
+  });
+
+  it('only counts the marker at the end, and only with something to ask', () => {
+    expect(splitAsk('I would end with [ASK_USER] if I had a question.')).toEqual({
+      text: 'I would end with [ASK_USER] if I had a question.',
+      asks: false,
+    });
+    expect(splitAsk('  [ASK_USER]  ')).toEqual({ text: '', asks: false });
+  });
+
+  it('tells agents when to ask, and the one that asked that the user replied', () => {
+    expect(buildBriefing(conv, team[0]!)).toContain(`end your reply with ${ASK_TOKEN} on its own line`);
+    const answered = buildTurnPrompt(conv, team[0]!, [], false, { mode: 'roundtable', round: 1, rounds: 1, answered: true });
+    expect(answered).toContain('You asked the user a question and their reply is above');
+    const relay = buildTurnPrompt(conv, team[0]!, [], false, { mode: 'relay', round: 1, rounds: 1, answered: true });
+    expect(relay).toContain('Mention a teammate to hand off');
+    expect(buildTurnPrompt(conv, team[0]!, [], false, { mode: 'roundtable', round: 1, rounds: 1 })).not.toContain('You asked');
   });
 });

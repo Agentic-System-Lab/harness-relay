@@ -3015,6 +3015,24 @@ details.sub summary {
   font-size: 13px;
 }
 
+/* An agent's question the team stopped for, until the user answers */
+.ask-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: color-mix(in srgb, var(--warn) 9%, var(--bg));
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.ask-card .muted {
+  flex: 1 1 240px;
+}
+
 /* Conversation states in the sidebar ------------------------------------------------ */
 
 .status-dot {
@@ -3031,7 +3049,8 @@ details.sub summary {
 }
 
 .status-dot.waiting,
-.status-dot.confirm {
+.status-dot.confirm,
+.status-dot.answer {
   background: var(--warn);
 }
 
@@ -3058,7 +3077,8 @@ details.sub summary {
 }
 
 .conv-status.waiting,
-.conv-status.confirm {
+.conv-status.confirm,
+.conv-status.answer {
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
@@ -3076,6 +3096,7 @@ details.sub summary {
 /* A new reply you have not opened yet: its title stands out too. */
 .conv-item:has(.status-dot.unread) .conv-title,
 .conv-item:has(.status-dot.waiting) .conv-title,
-.conv-item:has(.status-dot.confirm) .conv-title {
+.conv-item:has(.status-dot.confirm) .conv-title,
+.conv-item:has(.status-dot.answer) .conv-title {
   font-weight: 650;
 }

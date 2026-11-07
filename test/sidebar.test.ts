@@ -17,6 +17,8 @@ describe('sidebar status', () => {
     expect(convStatus(conv({ confirmTeam: true, lastStatus: 'done' }), 100)).toBe('confirm');
     expect(convStatus(conv({ confirmTeam: true, waiting: true }), 0)).toBe('waiting');
     expect(convStatus(conv({ running: true, lastStatus: 'done' }), 100)).toBe('running');
+    expect(convStatus(conv({ asking: true, lastStatus: 'done' }), 100)).toBe('answer');
+    expect(convStatus(conv({ asking: true, waiting: true }), 0)).toBe('waiting');
   });
 
   it('marks finished replies the user has not seen yet', () => {

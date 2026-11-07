@@ -10,6 +10,7 @@ import {
   type MessagePart,
   type PlanEntry,
 } from '../../shared/types';
+import { splitAsk } from '../../shared/ask';
 import { api } from '../api';
 import { messageText, planHeadline, speaker } from '../copy';
 import { useT } from '../i18n';
@@ -287,6 +288,10 @@ interface Props {
   onApproval: (approvalId: string, answer: ApprovalAnswer) => Promise<void>;
   /** Let the agent answer again (drops this reply and what follows). */
   onRetry: (messageId: string) => Promise<void>;
+  /** This reply's question waits for the user's answer (the team stopped for it). */
+  waitingAnswer?: boolean;
+  /** Let the team go on without answering. */
+  onSkipQuestion?: () => void;
 }
 
 /** The lead agent's team design for an auto-team conversation. */
@@ -586,6 +591,8 @@ export const MessageItem = memo(function MessageItem({
   onAdjustTeam,
   onApproval,
   onRetry,
+  waitingAnswer,
+  onSkipQuestion,
 }: Props) {
   const t = useT();
 
@@ -622,6 +629,7 @@ export const MessageItem = memo(function MessageItem({
             <span className="round-tag">{t.message.round(m.round)}</span>
           )}
           {live && <span className="live-tag">{t.message.live}</span>}
+          {msg.asked && !waitingAnswer && <span className="round-tag">{t.message.askedTag}</span>}
         </div>
 
         {msg.passed && msg.status === 'done' ? (
@@ -630,7 +638,15 @@ export const MessageItem = memo(function MessageItem({
           segs.map((s) => {
             switch (s.kind) {
               case 'text':
-                return <Markdown key={s.key} text={s.text} mentions={mentionNames} mediaBase={api.mediaBase(convId, msg.id)} />;
+                // A question's closing marker is taken out when the reply ends; hide it while it streams.
+                return (
+                  <Markdown
+                    key={s.key}
+                    text={live ? splitAsk(s.text).text : s.text}
+                    mentions={mentionNames}
+                    mediaBase={api.mediaBase(convId, msg.id)}
+                  />
+                );
               case 'tools':
                 return <ToolGroup key={s.key} tools={s.tools} live={live} />;
               case 'thinking':
@@ -658,6 +674,17 @@ export const MessageItem = memo(function MessageItem({
             onDiff={(scope) => onDiff(msg, scope)}
             onApply={() => onApply(agentId)}
           />
+        )}
+        {waitingAnswer && (
+          <div className="ask-card" id={`ask-${msg.id}`}>
+            <strong>{t.message.askWaiting}</strong>
+            <span className="muted">{t.message.askNote(name)}</span>
+            {onSkipQuestion && (
+              <button type="button" className="ghost small-button" onClick={onSkipQuestion}>
+                {t.message.askSkip}
+              </button>
+            )}
+          </div>
         )}
         {msg.status === 'error' && <div className="msg-error">⚠ {msg.error}</div>}
         {msg.status === 'aborted' && <p className="muted small">{t.message.aborted}</p>}

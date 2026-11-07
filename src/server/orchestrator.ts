@@ -11,8 +11,10 @@ import type {
   FileChange,
   MessageChanges,
   MessagePart,
+  RunPause,
   TeamPreset,
 } from '../shared/types';
+import { splitAsk } from '../shared/ask';
 import { pendingPlan, planSavable } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import type { ApprovalRequest } from './agents/types';
@@ -157,6 +159,36 @@ function isFor(m: ChatMessage, recipients: AgentConfig[], agents: AgentConfig[])
 }
 
 const attachmentsOf = (m: ChatMessage) => m.parts.filter((p): p is AttachmentPart => p.type === 'attachment');
+
+/**
+ * A finished reply that ends with the ask marker asks the user something: the marker is taken out of
+ * the message. Returns whether it asks.
+ */
+function takeAsk(msg: ChatMessage): boolean {
+  for (let i = msg.parts.length - 1; i >= 0; i--) {
+    const part = msg.parts[i]!;
+    if (part.type !== 'text') continue;
+    const { text, asks } = splitAsk(part.text);
+    if (text === part.text) return false;
+    if (text) part.text = text;
+    else msg.parts.splice(i, 1);
+    return asks;
+  }
+  return false;
+}
+
+/** Where a run begins: round 1 with everyone taking part, or — after the user answered a question — where the team stopped. */
+interface Schedule {
+  participants: AgentConfig[];
+  round: number;
+  rounds: number;
+  /** Who speaks in the first round, in order (relay: the first queue). */
+  first: { agent: AgentConfig; handedBy?: string }[];
+  /** Relay: handoffs left. */
+  hopsLeft: number;
+  /** Agents whose question the user just answered: told so on their next turn. */
+  answering: Set<string>;
+}
 
 /**
  * Drives a conversation: decides which agent speaks next, builds each agent's prompt from the
@@ -394,6 +426,8 @@ export class Orchestrator {
   startQueued(conv: Conversation): boolean {
     if (!conv.queue?.length || this.isBusy(conv.id) || this.closing || this.store.get(conv.id) !== conv) return false;
     if (pendingPlan(conv.messages) || (conv.agents.length === 0 && !conv.settings.autoTeam)) return false;
+    // An agent asked the user something: what was written before the question waits for the answer.
+    if (conv.pause) return false;
     this.start(conv, '', { queue: true }).catch((err) => {
       if (!(err instanceof HttpError && err.status === 404)) this.systemNote(conv, t().runFailed((err as Error).message));
       this.emitStatus(conv.id);
@@ -499,6 +533,8 @@ export class Orchestrator {
     }
     // The lead agent's team design went too: design the team again for the edited request.
     if (replan) conv.settings = { ...conv.settings, autoTeam: true };
+    // Whatever question the team waited on is answered by starting over from here.
+    conv.pause = undefined;
     this.hub.emit(conv.id, { type: 'snapshot', conversation: forClient(conv), running: false, activeAgentIds: [] });
   }
 
@@ -515,6 +551,7 @@ export class Orchestrator {
     let lockRoot: string | undefined;
     let run: Run;
     let posted: ChatMessage[] = [];
+    let resume: Schedule | undefined;
     try {
       const ws = await this.prepareWorkspace(conv);
       // Deleted meanwhile (the delete may even have finished already), or the server is stopping.
@@ -531,6 +568,7 @@ export class Orchestrator {
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
       const own = this.postUserMessage(conv, text, files);
       if (own) posted.push(own);
+      resume = this.takePause(conv, posted, only);
       run = { abort: new AbortController(), active: new Set(), ws, lockRoot, done: Promise.resolve() };
       this.runs.set(convId, run);
     } catch (err) {
@@ -542,7 +580,7 @@ export class Orchestrator {
     }
     this.emitStatus(conv.id);
 
-    run.done = this.execute(conv, posted, run, only)
+    run.done = this.execute(conv, posted, run, only, resume)
       .catch((err) => {
         console.error('[orchestrator] run failed:', err);
         this.systemNote(conv, t().runFailed((err as Error).message));
@@ -612,6 +650,7 @@ export class Orchestrator {
       agents: conv.agents,
       settings: conv.settings,
       worktrees: conv.worktrees,
+      pause: conv.pause,
     });
   }
 
@@ -894,9 +933,16 @@ export class Orchestrator {
 
   /**
    * The team's turns for the user's `posted` messages (none for Continue / retry). Messages sent while
-   * it runs are delivered before the next turn of an agent they are for (`deliverQueued`).
+   * it runs are delivered before the next turn of an agent they are for (`deliverQueued`). A reply that
+   * asks the user something stops the run there (`pauseFor`); `resume` picks it up once they replied.
    */
-  private async execute(conv: Conversation, posted: ChatMessage[], run: Run, only?: AgentConfig[]): Promise<void> {
+  private async execute(
+    conv: Conversation,
+    posted: ChatMessage[],
+    run: Run,
+    only?: AgentConfig[],
+    resume?: Schedule,
+  ): Promise<void> {
     if (conv.settings.autoTeam && !only) {
       // The user described what they need: the lead agent designs the team, and that is all this
       // run does. The user confirms the team, then asks their first question.
@@ -904,26 +950,30 @@ export class Orchestrator {
       return;
     }
     const { mode, maxHops } = conv.settings;
-    const rounds = only ? 1 : conv.settings.rounds;
-    const mentioned = only ?? mentionsOf(posted, conv.agents);
-    const participants = mentioned.length ? mentioned : conv.agents;
+    const s = resume ?? this.schedule(conv, posted, only);
     const aborted = () => run.abort.signal.aborted;
     const spoke = (m: ChatMessage) => m.status === 'done' && !m.passed;
+    const ids = (agents: AgentConfig[]) => agents.map((a) => a.id);
+    /** The user's reply answers this agent's question (it is told on this turn only). */
+    const answered = (a: AgentConfig) => s.answering.delete(a.id);
 
     if (mode === 'relay') {
-      const queue: { agent: AgentConfig; handedBy?: string }[] = (mentioned.length ? mentioned.slice(0, only ? 1 : undefined) : [conv.agents[0]!]).map(
-        (agent) => ({ agent }),
-      );
-      let hops = 0;
+      const queue = [...s.first];
+      let hopsLeft = s.hopsLeft;
       while (queue.length && !aborted()) {
-        if (hops >= maxHops) {
+        if (hopsLeft <= 0) {
           this.systemNote(conv, t().relayLimit(maxHops));
           break;
         }
         const { agent, handedBy } = queue.shift()!;
-        hops++;
+        hopsLeft--;
         this.deliverQueued(conv, { recipients: [agent] });
-        const msg = await this.turn(conv, agent, run, { mode, round: 1, rounds: 1, handedBy, hopsLeft: maxHops - hops });
+        const msg = await this.turn(conv, agent, run, { mode, round: 1, rounds: 1, handedBy, hopsLeft, answered: answered(agent) });
+        if (msg.asked) {
+          const rest = queue.map((q) => ({ agentId: q.agent.id, handedBy: q.handedBy }));
+          this.pauseFor(conv, { mode, askers: [agent.id], rest, participants: [], round: 1, rounds: 1, hopsLeft });
+          return;
+        }
         if (!spoke(msg)) continue;
         for (const next of parseMentions(textOf(msg), conv.agents, agent.id)) {
           if (!queue.some((q) => q.agent.id === next.id)) queue.push({ agent: next, handedBy: agent.name });
@@ -932,29 +982,107 @@ export class Orchestrator {
       return;
     }
 
-    if (mode === 'parallel' && run.ws.isolated) await this.prepareWorktrees(conv, participants, run.ws.root!);
+    if (mode === 'parallel' && run.ws.isolated) await this.prepareWorktrees(conv, s.participants, run.ws.root!);
 
-    for (let round = 1; round <= rounds && !aborted(); round++) {
-      const info: TurnInfo = { mode, round, rounds };
-      let msgs: ChatMessage[];
+    for (let round = s.round; round <= s.rounds && !aborted(); round++) {
+      const speakers = round === s.round ? s.first.map((f) => f.agent) : s.participants;
+      const info = (a: AgentConfig): TurnInfo => ({ mode, round, rounds: s.rounds, answered: answered(a) });
+      const pause = (askers: AgentConfig[], rest: AgentConfig[]) =>
+        this.pauseFor(conv, {
+          mode,
+          askers: ids(askers),
+          rest: rest.map((a) => ({ agentId: a.id })),
+          participants: ids(s.participants),
+          round,
+          rounds: s.rounds,
+        });
+      const msgs: ChatMessage[] = [];
       if (mode === 'parallel') {
+        if (!speakers.length) continue; // the user let the team go on without answering
         // The round's turns run side by side: they all see what was sent before it starts.
-        this.deliverQueued(conv, { recipients: participants });
+        this.deliverQueued(conv, { recipients: speakers });
         // Every turn settles before the run can end, even when one of them fails.
-        const settled = await Promise.allSettled(participants.map((a) => this.turn(conv, a, run, info)));
+        const settled = await Promise.allSettled(speakers.map((a) => this.turn(conv, a, run, info(a))));
         const failed = settled.find((r) => r.status === 'rejected');
         if (failed) throw failed.reason;
-        msgs = settled.map((r) => (r as PromiseFulfilledResult<ChatMessage>).value);
+        msgs.push(...settled.map((r) => (r as PromiseFulfilledResult<ChatMessage>).value));
+        // The others answered already; the ones that asked answer again once the user replied.
+        const askers = speakers.filter((_, i) => msgs[i]!.asked);
+        if (askers.length) return pause(askers, []);
       } else {
-        msgs = [];
-        for (const a of participants) {
+        for (const [i, a] of speakers.entries()) {
           if (aborted()) break;
           this.deliverQueued(conv, { recipients: [a] });
-          msgs.push(await this.turn(conv, a, run, info));
+          const msg = await this.turn(conv, a, run, info(a));
+          msgs.push(msg);
+          if (msg.asked) return pause([a], speakers.slice(i + 1));
         }
       }
-      if (!msgs.some(spoke)) break; // everyone passed: the discussion has converged
+      if (msgs.length && !msgs.some(spoke)) break; // everyone passed: the discussion has converged
     }
+  }
+
+  /** Who speaks in a run the user's `posted` messages (or Continue, or a retry of `only`) start. */
+  private schedule(conv: Conversation, posted: ChatMessage[], only?: AgentConfig[]): Schedule {
+    const mentioned = only ?? mentionsOf(posted, conv.agents);
+    const participants = mentioned.length ? mentioned : conv.agents;
+    // Relay: the mentioned agents start (a retry: just the one), or the leader.
+    const first =
+      conv.settings.mode === 'relay'
+        ? mentioned.length
+          ? mentioned.slice(0, only ? 1 : undefined)
+          : [conv.agents[0]!]
+        : participants;
+    return {
+      participants,
+      round: 1,
+      rounds: only ? 1 : conv.settings.rounds,
+      first: first.map((agent) => ({ agent })),
+      hopsLeft: conv.settings.maxHops,
+      answering: new Set(),
+    };
+  }
+
+  /** An agent asked the user something: the run stops here, and the team waits for the answer. */
+  private pauseFor(conv: Conversation, pause: RunPause): void {
+    conv.pause = pause;
+    this.store.saveMeta(conv);
+    this.emitConversation(conv);
+  }
+
+  /**
+   * The user replied while the team waited for an answer: the team picks up where it stopped, and
+   * the agents that asked answer first — unless the reply is Continue (nothing posted), which lets
+   * the others go on without them. A reply that @mentions anyone else, a retry, a team design or a
+   * changed mode starts afresh, as does Continue with nobody left to speak. Either way the team no
+   * longer waits.
+   */
+  private takePause(conv: Conversation, posted: ChatMessage[], only?: AgentConfig[]): Schedule | undefined {
+    const pause = conv.pause;
+    if (!pause) return undefined;
+    conv.pause = undefined;
+    this.store.saveMeta(conv);
+    this.emitConversation(conv);
+    if (only || conv.settings.autoTeam || pause.mode !== conv.settings.mode) return undefined;
+    if (posted.some((m) => parseMentions(textOf(m), conv.agents).some((a) => !pause.askers.includes(a.id)))) return undefined;
+    const byId = (id: string) => conv.agents.find((a) => a.id === id);
+    const askers = pause.askers.flatMap((id) => byId(id) ?? []);
+    const skip = posted.length === 0;
+    const rest = pause.rest.flatMap((r) => {
+      const agent = byId(r.agentId);
+      return agent ? [{ agent, handedBy: r.handedBy }] : [];
+    });
+    const first = [...(skip ? [] : askers.map((agent) => ({ agent }))), ...rest];
+    if (!first.length && (pause.mode === 'relay' || pause.round >= pause.rounds)) return undefined;
+    const participants = pause.participants.flatMap((id) => byId(id) ?? []);
+    return {
+      participants: participants.length ? participants : conv.agents,
+      round: pause.round,
+      rounds: pause.rounds,
+      first,
+      hopsLeft: pause.hopsLeft ?? conv.settings.maxHops,
+      answering: new Set(skip ? [] : askers.map((a) => a.id)),
+    };
   }
 
   /** One agent turn: build its prompt, run the CLI, stream into a new chat message. */
@@ -1211,6 +1339,7 @@ export class Orchestrator {
           throw freshErr;
         }
       }
+      if (takeAsk(msg)) msg.asked = true;
       const text = textOf(msg);
       msg.passed = isPass(text) || (!text && !msg.parts.some((p) => p.type === 'tool'));
       msg.status = 'done';

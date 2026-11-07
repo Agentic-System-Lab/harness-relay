@@ -251,6 +251,26 @@ export interface ChatMessage {
   plan?: TeamPlan;
   /** A user message sent while the team was replying: it waited in the queue for a later turn. */
   queued?: boolean;
+  /** An agent reply that asks the user something (it ended with `ASK_TOKEN`): the team waited for the answer. */
+  asked?: boolean;
+}
+
+/**
+ * Where the team stopped because an agent asked the user something. Once the user replies, the
+ * agents that asked answer first and the run goes on from here (`Orchestrator.execute`).
+ */
+export interface RunPause {
+  mode: Mode;
+  /** The agents that asked, by id. */
+  askers: string[];
+  /** Who was still to speak after them: the rest of the round (roundtable), or the relay queue. */
+  rest: { agentId: string; handedBy?: string }[];
+  /** The run's participants by id: later rounds go on with them. */
+  participants: string[];
+  round: number;
+  rounds: number;
+  /** Relay: handoffs left. */
+  hopsLeft?: number;
 }
 
 export interface AgentSessionState {
@@ -279,6 +299,8 @@ export interface Conversation {
    * posted before the next turn of an agent they are for (see `Orchestrator.send`).
    */
   queue?: ChatMessage[];
+  /** An agent asked the user something and the team waits for the answer. */
+  pause?: RunPause;
 }
 
 export interface ConversationSummary {
@@ -291,6 +313,8 @@ export interface ConversationSummary {
   waiting?: boolean;
   /** The lead agent's team design waits for the user to confirm it (auto team). */
   confirmTeam?: boolean;
+  /** An agent asked the user something and the team waits for the answer. */
+  asking?: boolean;
   /** How the latest agent reply ended (absent before the first one). */
   lastStatus?: MessageStatus;
 }
@@ -308,6 +332,7 @@ export type ServerEvent =
       agents: AgentConfig[];
       settings: ConversationSettings;
       worktrees: Record<string, AgentWorktree>;
+      pause?: RunPause;
     };
 
 // ---------------------------------------------------------------------------

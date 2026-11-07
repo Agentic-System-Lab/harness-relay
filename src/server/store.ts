@@ -11,6 +11,7 @@ import type {
   Mode,
   Permission,
   Provider,
+  RunPause,
   TeamPlan,
   TeamPreset,
   ToolStatus,
@@ -35,6 +36,7 @@ interface ConversationRow {
   approvals: string | null;
   allow_rules: string | null;
   queue: string | null;
+  pause: string | null;
 }
 
 interface AgentRow {
@@ -68,6 +70,7 @@ interface MessageRow {
   change_branch: string | null;
   plan: string | null;
   queued: number | null;
+  asked: number | null;
 }
 
 interface ChangeRow {
@@ -185,6 +188,7 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     changes: toChanges(r, files),
     plan: parsePlan(r.plan),
     queued: r.queued ? true : undefined,
+    asked: r.asked ? true : undefined,
   };
 }
 
@@ -205,6 +209,11 @@ function queueOf(json: string | null, messages: ChatMessage[]): Pick<Conversatio
   return queue.length ? { queue } : {};
 }
 
+function pauseOf(json: string | null): Pick<Conversation, 'pause'> {
+  const pause = parseJson<RunPause | null>(json, null);
+  return pause ? { pause } : {};
+}
+
 function parsePlan(json: string | null): TeamPlan | undefined {
   if (!json) return undefined;
   try {
@@ -216,15 +225,15 @@ function parsePlan(json: string | null): TeamPlan | undefined {
 
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
-                       change_root, change_base, change_head, change_isolated, change_branch, plan, queued)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       change_root, change_base, change_head, change_isolated, change_branch, plan, queued, asked)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
    input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
    change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
    change_isolated = excluded.change_isolated, change_branch = excluded.change_branch, plan = excluded.plan,
-   queued = excluded.queued`;
+   queued = excluded.queued, asked = excluded.asked`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
                             tool_output, data)
@@ -254,8 +263,8 @@ export class Store {
 
   list(running: (id: string) => boolean, waiting: (id: string) => boolean = () => false): ConversationSummary[] {
     const rows = this.db
-      .prepare('SELECT id, title, updated_at FROM conversations ORDER BY updated_at DESC')
-      .all() as Pick<ConversationRow, 'id' | 'title' | 'updated_at'>[];
+      .prepare('SELECT id, title, updated_at, pause IS NOT NULL AS asking FROM conversations ORDER BY updated_at DESC')
+      .all() as (Pick<ConversationRow, 'id' | 'title' | 'updated_at'> & { asking: number })[];
     const agents = this.db
       .prepare('SELECT conversation_id, name, provider FROM conversation_agents ORDER BY conversation_id, position')
       .all() as { conversation_id: string; name: string; provider: Provider }[];
@@ -296,6 +305,7 @@ export class Store {
           running: running(r.id),
           ...(waiting(r.id) ? { waiting: true } : {}),
           ...((live ? pendingPlan(live.messages) : confirming.has(r.id)) ? { confirmTeam: true } : {}),
+          ...((live ? live.pause : r.asking) ? { asking: true } : {}),
           ...statusOf(live, lastStatus.get(r.id)),
         };
       })
@@ -402,6 +412,7 @@ export class Store {
       worktrees,
       ...(c.allow_rules ? { allowRules: parseJson(c.allow_rules, []) } : {}),
       ...queueOf(c.queue, messages),
+      ...pauseOf(c.pause),
     };
   }
 
@@ -411,8 +422,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd, auto_team,
-                                     approvals, allow_rules)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                     approvals, allow_rules, pause)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           conv.id,
@@ -427,13 +438,14 @@ export class Store {
           s.autoTeam ? 1 : 0,
           nul(s.approvals),
           conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
+          conv.pause ? JSON.stringify(conv.pause) : null,
         );
       this.writeAgents(conv);
     });
     this.cache.set(conv.id, conv);
   }
 
-  /** Persist title, timestamps, settings and the team. */
+  /** Persist title, timestamps, settings, the team, and where the team waits for the user's answer. */
   saveMeta(conv: Conversation): void {
     if (this.deleted.has(conv.id)) return;
     transaction(this.db, () => {
@@ -441,7 +453,7 @@ export class Store {
       this.db
         .prepare(
           `UPDATE conversations SET title = ?, updated_at = ?, mode = ?, rounds = ?, max_hops = ?, permission = ?, cwd = ?,
-             auto_team = ?, approvals = ?, allow_rules = ?
+             auto_team = ?, approvals = ?, allow_rules = ?, pause = ?
            WHERE id = ?`,
         )
         .run(
@@ -455,6 +467,7 @@ export class Store {
           s.autoTeam ? 1 : 0,
           nul(s.approvals),
           conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
+          conv.pause ? JSON.stringify(conv.pause) : null,
           conv.id,
         );
       this.writeAgents(conv);
@@ -577,6 +590,7 @@ export class Store {
           nul(m.changes?.branch),
           m.plan ? JSON.stringify(m.plan) : null,
           m.queued ? 1 : null,
+          m.asked ? 1 : null,
         );
         clearChanges.run(m.id);
         m.changes?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));

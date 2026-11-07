@@ -62,7 +62,7 @@ function reducer(s: State, e: ServerEvent): State {
     case 'conversation':
       return {
         ...s,
-        conv: { ...s.conv, title: e.title, agents: e.agents, settings: e.settings, worktrees: e.worktrees },
+        conv: { ...s.conv, title: e.title, agents: e.agents, settings: e.settings, worktrees: e.worktrees, pause: e.pause },
       };
   }
   return s;
@@ -256,6 +256,14 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
     }
   }, []);
 
+  // Continue: the team goes on without the answer an agent asked for.
+  const onSkipQuestion = useCallback(() => {
+    const c = convRef.current;
+    if (!c) return;
+    setError('');
+    api.send(c.id, '', []).catch((e: Error) => setError(e.message));
+  }, []);
+
   const onApproval = useCallback(async (approvalId: string, answer: ApprovalAnswer) => {
     const c = convRef.current;
     if (!c) return;
@@ -293,6 +301,11 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   // The lead agent is designing the team: what the user sends meanwhile waits for the confirmed team.
   const designing = running && autoTeam;
   const leadText = leadLabel(lead ?? { provider: 'claude' });
+  // An agent asked the user something and the team waits: its latest questions, and who asked.
+  const lastUser = conv.messages.findLastIndex((m) => m.author.kind === 'user');
+  const questions = conv.pause && !running ? conv.messages.filter((m, i) => m.asked && i > lastUser) : [];
+  const askIds = new Set(questions.map((m) => m.id));
+  const askers = questions.map((m) => `@${m.agentName ?? 'agent'}`).join(t.common.listSeparator);
 
   const send = async (text: string, attachments: AttachmentUpload[], interrupt = false) => {
     setError('');
@@ -406,6 +419,8 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               onAdjustTeam={onAdjustTeam}
               onApproval={onApproval}
               onRetry={onRetry}
+              waitingAnswer={askIds.has(m.id)}
+              onSkipQuestion={onSkipQuestion}
             />
           ))}
         </div>
@@ -419,6 +434,15 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
             onClick={() => document.getElementById(`approval-${pending[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
           >
             ⏸ {pending.map((p) => `@${p.agent}`).join(t.common.listSeparator)} · {t.approval.waiting}
+          </button>
+        )}
+        {questions.length > 0 && pending.length === 0 && (
+          <button
+            type="button"
+            className="approval-banner"
+            onClick={() => document.getElementById(`ask-${questions[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+          >
+            ❓ {t.chat.asking(askers)}
           </button>
         )}
         {error && (
@@ -440,10 +464,13 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
           running={running}
           canContinue={hasUserMessage}
           locked={awaitingConfirm || designing}
+          skipQuestion={questions.length > 0}
           placeholder={
             awaitingConfirm || designing
               ? t.chat.placeholderConfirm
-              : running
+              : questions.length > 0
+                ? t.chat.placeholderAnswer(askers)
+                : running
                 ? t.chat.placeholderBusy
                 : waitingForTeam
                   ? t.chat.placeholderAuto

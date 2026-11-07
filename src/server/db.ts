@@ -184,6 +184,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversations ADD COLUMN queue TEXT;
   ALTER TABLE messages ADD COLUMN queued INTEGER;
   `,
+  // 7: an agent asked the user something: where the team stopped, and the question.
+  `
+  ALTER TABLE conversations ADD COLUMN pause TEXT;
+  ALTER TABLE messages ADD COLUMN asked INTEGER;
+  `,
 ];
 
 function migrate(db: Database): void {

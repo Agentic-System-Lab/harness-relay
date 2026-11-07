@@ -41,6 +41,8 @@ let leadGate: Promise<void> | undefined;
 let during: ((name: string, cwd: string) => void) | undefined;
 /** Per-agent gates: when set, that agent waits for its own gate instead of `gate`. */
 let gates: Record<string, Promise<void>> = {};
+/** Agents that ask the user a question until their prompt carries an answer ("ANSWER:"). */
+let asking = new Set<string>();
 /** Makes an agent's fake CLI run fail (after it wrote its files), e.g. to simulate a rate limit. */
 let fail: ((name: string, sessionId?: string) => Error | undefined) | undefined;
 
@@ -83,6 +85,11 @@ beforeAll(() => {
         o.onEvent({ type: 'text_end' });
         return { sessionId: `session-${name}` };
       }
+      if (asking.has(name) && !o.prompt.includes('ANSWER:')) {
+        o.onEvent({ type: 'text', text: `${name} asks: A or B?\n\n[ASK_USER]` });
+        o.onEvent({ type: 'text_end' });
+        return { sessionId: `session-${name}` };
+      }
       o.onEvent({ type: 'text', text: `${name} done` });
       o.onEvent({ type: 'text_end' });
       return { sessionId: `session-${name}` };
@@ -105,6 +112,7 @@ beforeEach(() => {
   fail = undefined;
   during = undefined;
   gates = {};
+  asking = new Set();
   project = join(root, `project-${++n}`);
   rmSync(project, { recursive: true, force: true });
   mkdirSync(project, { recursive: true });
@@ -1108,5 +1116,126 @@ describe('messages sent while the team replies', () => {
     expect(conv.queue).toEqual([]);
     expect(conv.messages.filter((m) => m.queued)).toHaveLength(20);
     expect(said(conv).slice(-2)).toEqual(['@Alice', '@Bob']);
+  });
+});
+
+describe('agents asking the user', () => {
+  const said = (conv: Conversation) =>
+    conv.messages.map((m) => (m.author.kind === 'user' ? textOf(m) : m.author.kind === 'agent' ? `@${m.agentName}` : 'note'));
+  const told = (name: string) => calls.filter((c) => c.name === name).map((c) => c.prompt.includes('You asked the user a question'));
+
+  it('stop the team until the user answers; then the one that asked answers first and the round goes on', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'which school of therapy?');
+    await finish(conv.id);
+
+    expect(said(conv)).toEqual(['which school of therapy?', '@Alice']); // Bob waits
+    const question = conv.messages[1]!;
+    expect(question.asked).toBe(true);
+    expect(textOf(question)).toBe('Alice asks: A or B?'); // the marker is not part of the chat
+    expect(conv.pause).toEqual({ mode: 'roundtable', askers: ['a'], rest: [{ agentId: 'b' }], participants: ['a', 'b'], round: 1, rounds: 1 });
+    const reloaded = new Store(db).get(conv.id)!;
+    expect(reloaded.pause).toEqual(conv.pause);
+    expect(reloaded.messages[1]!.asked).toBe(true);
+    expect(store.list(() => false).find((c) => c.id === conv.id)!.asking).toBe(true);
+
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['which school of therapy?', '@Alice', 'ANSWER: A', '@Alice', '@Bob']);
+    expect(told('Alice')).toEqual([false, true]);
+    expect(told('Bob')).toEqual([false]);
+    expect(calls.at(-1)!.prompt).toContain('Alice asks: A or B?'); // Bob sees the question and the answer
+    expect(conv.pause).toBeUndefined();
+    expect(new Store(db).get(conv.id)!.pause).toBeUndefined();
+  });
+
+  it('let the others go on when the user presses Continue', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['question', '@Alice', '@Bob']);
+    expect(conv.pause).toBeUndefined();
+  });
+
+  it('start afresh when the reply is for someone else', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, '@Alice ANSWER: A'); // addressed to the one that asked: still an answer
+    await finish(conv.id);
+    expect(said(conv).slice(2)).toEqual(['@Alice ANSWER: A', '@Alice', '@Bob']);
+    expect(told('Alice')).toEqual([false, true]);
+
+    calls = [];
+    asking = new Set(['Bob']);
+    await orchestrator.send(conv.id, 'next question');
+    await finish(conv.id);
+    expect(conv.pause).toMatchObject({ askers: ['b'], rest: [] });
+    await orchestrator.send(conv.id, '@Alice what do you think?');
+    await finish(conv.id);
+    expect(said(conv).slice(-2)).toEqual(['@Alice what do you think?', '@Alice']);
+    expect(conv.pause).toBeUndefined();
+    expect(told('Alice')).toEqual([false, false]);
+  });
+
+  it('in parallel mode, let the ones that asked answer again before the next round', async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', rounds: 2 });
+    asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['question', '@Alice', '@Bob']); // round 1 ran side by side
+    expect(conv.pause).toMatchObject({ askers: ['a'], rest: [], round: 1, rounds: 2 });
+
+    await orchestrator.send(conv.id, 'ANSWER: B');
+    await finish(conv.id);
+    expect(said(conv).slice(3)).toEqual(['ANSWER: B', '@Alice', '@Alice', '@Bob']);
+    expect(agentMessages(conv).map((m) => m.meta?.round)).toEqual([1, 1, 1, 2, 2]);
+  });
+
+  it('in relay mode, give the floor back to the one that asked', async () => {
+    const conv = conversation({ mode: 'relay', permission: 'read-only', maxHops: 5 });
+    asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    expect(conv.pause).toMatchObject({ mode: 'relay', askers: ['a'], rest: [], hopsLeft: 4 });
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['question', '@Alice', 'ANSWER: A', '@Alice']);
+    expect(calls.at(-1)!.prompt).toContain('You asked the user a question');
+    expect(calls.at(-1)!.prompt).toContain('Mention a teammate to hand off');
+  });
+
+  it('are answered by editing the question that led to them', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    await orchestrator.resend(conv.id, conv.messages[0]!.id, 'question, ANSWER: B');
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['question, ANSWER: B', '@Alice', '@Bob']);
+    expect(conv.pause).toBeUndefined();
+  });
+
+  it('keep what the user wrote meanwhile waiting for the answer', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    asking = new Set(['Alice']);
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    await orchestrator.send(conv.id, 'question');
+    await orchestrator.send(conv.id, 'a note');
+    release();
+    await finish(conv.id);
+    // Alice asked: the note does not start another run.
+    expect(said(conv)).toEqual(['question', '@Alice']);
+    expect(conv.queue!.map(textOf)).toEqual(['a note']);
+
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['question', '@Alice', 'a note', 'ANSWER: A', '@Alice', '@Bob']);
   });
 });

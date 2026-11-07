@@ -1,7 +1,7 @@
 import type { ApprovalKind, KeyStorage, Mode, Permission, ToolStatus } from '../../shared/types';
 
 /** A conversation's state as the sidebar shows it. */
-export type ConvStatus = 'waiting' | 'confirm' | 'running' | 'error' | 'unread';
+export type ConvStatus = 'waiting' | 'confirm' | 'answer' | 'running' | 'error' | 'unread';
 
 const EFFORT: Record<string, string> = {
   none: '無',
@@ -56,7 +56,7 @@ export const zhTW = {
     replying: '回覆中',
     deleteConversation: '刪除對話',
     waiting: '等你核准',
-    status: { waiting: '等你核准', confirm: '等你確認團隊', running: '回覆中', error: '出錯了', unread: '新回覆' } as Record<ConvStatus, string>,
+    status: { waiting: '等你核准', confirm: '等你確認團隊', answer: '等你回答', running: '回覆中', error: '出錯了', unread: '新回覆' } as Record<ConvStatus, string>,
     confirmDelete: (title: string) => `刪除對話「${title}」？`,
     deleteFailed: (message: string) => `無法刪除對話：${message}`,
     settings: '設定與登入',
@@ -157,6 +157,8 @@ export const zhTW = {
     placeholderAuto: '描述你的需求（要做什麼、需要哪些專長），首席 agent 會先為它組隊…',
     placeholderConfirm: '可以先寫下第一個問題，確認團隊後就會送出…',
     placeholderBusy: '插話給團隊…（下一位發言前送達）',
+    placeholderAnswer: (names: string) => `回答 ${names} 的問題…`,
+    asking: (names: string) => `${names} 在等你回答`,
     retryConfirm: (later: number, changed: number) =>
       `重試會刪除這則回覆與之後的 ${later} 則訊息，再讓這位成員重新回答。${changed ? `其中有 ${changed} 則回覆修改過檔案，那些修改不會還原。` : ''}\n\n確定要重試嗎？`,
     resendConfirm: (n: number) =>
@@ -201,6 +203,10 @@ export const zhTW = {
     resendNote: '重新傳送後，這則之後的對話會被刪除，團隊從這裡重新回答。',
     busyNote: '團隊回覆中，停止後才能重新傳送。',
     queuedTag: '插話',
+    askedTag: '向你提問',
+    askWaiting: '等你回答',
+    askNote: (name: string) => `直接在下方回覆：@${name} 會依你的回答給出完整答案，團隊再接著往下。`,
+    askSkip: '略過，讓團隊繼續',
     queuedTitle: '在團隊回覆途中送出，於之後的回合送達；當時正在發言的成員，下一次發言時才會看到。',
     tokensIn: (n: string) => `輸入 ${n}`,
     tokensOut: (n: string) => `輸出 ${n}`,
@@ -279,6 +285,8 @@ export const zhTW = {
     stopLabel: '停止',
     continue: '繼續 ↻',
     continueTitle: '不輸入新訊息，讓團隊接著討論 / 做下去',
+    skip: '略過問題 ↷',
+    skipTitle: '不回答，讓其他成員接著做下去',
     sendLabel: '送出',
     queueLabel: '插話',
     hint: 'Enter 送出 · Shift+Enter 換行 · 輸入 @ 指定成員（只有被 @ 的對象會回覆） · 可貼上或拖曳檔案來附加',

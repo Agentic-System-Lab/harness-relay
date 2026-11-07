@@ -7,6 +7,7 @@ import {
   type Mode,
   type Permission,
 } from '../shared/types';
+import { ASK_TOKEN } from '../shared/ask';
 import { mentionsInMarkdown } from '../shared/mentions';
 import { attachmentPath } from './attachments';
 
@@ -91,6 +92,7 @@ ${team}
 - Each turn you receive the chat messages that are new to you, wrapped in <message> tags. Your entire reply is posted to the group verbatim.
 - Address teammates by @Name. Stay within your role; don't do a teammate's job unless asked.
 - Be concise and don't restate what others already said. If you have nothing useful to add, reply with exactly ${PASS_TOKEN}.
+- If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled.
 - Reply in the same language the user writes in.
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
 
@@ -178,6 +180,8 @@ export interface TurnInfo {
   /** Relay: who handed the floor over (undefined = the user). */
   handedBy?: string;
   hopsLeft?: number;
+  /** This agent asked the user something, and the user has replied. */
+  answered?: boolean;
 }
 
 export function buildTurnPrompt(
@@ -196,7 +200,11 @@ export function buildTurnPrompt(
   const chat = delta.length ? `\n<chat>\n${delta.map((m) => renderMessage(conv, m)).join('\n')}\n</chat>` : '';
 
   let cue: string;
-  if (turn.mode === 'relay') {
+  const answered = 'You asked the user a question and their reply is above: now give your full answer, adjusted to it.';
+  if (turn.answered) {
+    cue = `It's your turn, @${agent.name}. ${answered}`;
+    if (turn.mode === 'relay') cue += ' Mention a teammate to hand off; otherwise the floor returns to the user.';
+  } else if (turn.mode === 'relay') {
     const by = turn.handedBy ? `@${turn.handedBy} handed the floor to you.` : 'The user is addressing you.';
     cue = `${by} It's your turn, @${agent.name}. Mention a teammate to hand off; otherwise the floor returns to the user.`;
     if (turn.hopsLeft !== undefined && turn.hopsLeft <= 2) cue += ` (Only ${turn.hopsLeft} handoff(s) left — wrap up soon.)`;

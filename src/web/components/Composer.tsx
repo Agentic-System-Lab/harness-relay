@@ -44,13 +44,26 @@ interface Props {
   onContinue: () => Promise<unknown>;
   /** Text to put back in the composer (a withdrawn message to edit); a new object each time. */
   restore?: { text: string };
+  /** An agent asked the user something: Continue lets the team go on without the answer. */
+  skipQuestion?: boolean;
 }
 
 const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
 
 const TOKEN = /(^|[\s(（])@([\p{L}\p{N}_-]*)$/u;
 
-export function Composer({ agents, running, canContinue, locked = false, placeholder, onSend, onStop, onContinue, restore }: Props) {
+export function Composer({
+  agents,
+  running,
+  canContinue,
+  locked = false,
+  placeholder,
+  onSend,
+  onStop,
+  onContinue,
+  restore,
+  skipQuestion = false,
+}: Props) {
   const t = useT();
   const [text, setText] = useState('');
   const [caret, setCaret] = useState(0);
@@ -315,9 +328,9 @@ export function Composer({ agents, running, canContinue, locked = false, placeho
                   className="ghost"
                   disabled={preparing}
                   onClick={() => void once(async () => void (await onContinue()))}
-                  title={t.composer.continueTitle}
+                  title={skipQuestion ? t.composer.skipTitle : t.composer.continueTitle}
                 >
-                  {t.composer.continue}
+                  {skipQuestion ? t.composer.skip : t.composer.continue}
                 </button>
               )
             )}
