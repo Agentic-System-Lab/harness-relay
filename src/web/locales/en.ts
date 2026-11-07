@@ -62,7 +62,7 @@ export const en: Messages = {
     replying: 'Replying',
     deleteConversation: 'Delete conversation',
     waiting: 'Needs your approval',
-    status: { waiting: 'Needs you', running: 'Replying', error: 'Error', unread: 'New reply' },
+    status: { waiting: 'Needs you', confirm: 'Confirm the team', running: 'Replying', error: 'Error', unread: 'New reply' },
     confirmDelete: (title) => `Delete the conversation "${title}"?`,
     deleteFailed: (message) => `Could not delete the conversation: ${message}`,
     settings: 'Settings & sign-in',
@@ -86,9 +86,9 @@ export const en: Messages = {
     templates: 'Templates',
     templatesHint: 'Start from a ready-made team; you can still adjust it below.',
     autoName: 'Auto team',
-    autoDescription: (lead) => `The lead agent (${lead}) reads your first question and picks a template or designs a better-suited team.`,
+    autoDescription: (lead) => `Describe what you need; the lead agent (${lead}) picks a template or designs a better-suited team, and you confirm it before asking anything.`,
     autoNote: (lead) =>
-      `The members, conversation mode and rounds are decided by the lead agent (${lead}) from your first question; you only choose the working directory and file permission. You can change the lead agent in Settings.`,
+      `The members, conversation mode and rounds are decided by the lead agent (${lead}) from what you describe, and you confirm the team before asking anything; you only choose the working directory and file permission. You can change the lead agent in Settings.`,
     deleteTemplate: 'Delete template',
     confirmDeleteTemplate: (name) => `Delete the template "${name}"?`,
     titlePlaceholder: 'Conversation title (optional; defaults to the first message)',
@@ -163,7 +163,8 @@ export const en: Messages = {
     reconnecting: 'Connection lost, reconnecting…',
     placeholder: 'Message the team…',
     placeholderRelay: (name) => `Message the team (@${name} answers first by default)`,
-    placeholderAuto: 'Ask your question; the lead agent builds a team for it first…',
+    placeholderAuto: 'Describe what you need (the work, the expertise it takes); the lead agent builds a team for it first…',
+    placeholderConfirm: 'Confirm the team above, then ask your first question…',
     retryConfirm: (later, changed) =>
       `Retrying deletes this reply and the ${later} messages after it, then this member answers again.${changed ? ` ${changed} of them changed files; those changes are not undone.` : ''}\n\nRetry anyway?`,
     resendConfirm: (n) =>
@@ -176,7 +177,7 @@ export const en: Messages = {
     noRole: '(no role set)',
     autoIntroTitle: 'The lead agent builds the team first',
     autoIntro: (lead) =>
-      `Once you send your first question, the lead agent (${lead}) picks a suitable template or designs a better-suited team, and that team answers.`,
+      `First describe what you need (the work and the expertise it takes). The lead agent (${lead}) picks a suitable template or designs a better-suited team. Once you confirm the team, ask your first question.`,
     drawerNote: "Role changes apply from the next turn. Switching a member's coding agent makes it re-read the conversation from the start.",
     drawerBusy: 'The team is replying; stop it to save',
     drawerChanged: 'The team changed while you were editing (for example, the lead agent designed it). Load it, then make your changes again.',
@@ -237,12 +238,12 @@ export const en: Messages = {
     allowedAuto: 'Allowed automatically (earlier answer in this chat)',
     denied: 'Declined',
     expired: 'No answer (the turn ended)',
-    pageTitle: (n) => `(${n}) Needs your approval · Harness Relay`,
+    pageTitle: (n) => `(${n}) Needs you · Harness Relay`,
     withNote: (note) => `: ${note}`,
   },
 
   plan: {
-    planning: (lead) => `The lead agent (${lead}) is designing a team for this question…`,
+    planning: (lead) => `The lead agent (${lead}) is designing a team for what you need…`,
     title: 'Team design',
     by: (lead) => `Lead agent: ${lead}`,
     template: (name) => `Using the template "${name}"`,
@@ -255,6 +256,10 @@ export const en: Messages = {
     saving: 'Saving…',
     saved: (name) => `Saved as the template "${name}"`,
     adjust: 'Adjust team',
+    confirm: 'Confirm team',
+    confirming: 'Confirming…',
+    confirmHint: 'Confirm this team, then ask your first question.',
+    confirmed: 'Team confirmed',
     aborted: 'Team design was stopped; the next message designs it again.',
   },
 
@@ -300,7 +305,7 @@ export const en: Messages = {
     language: 'Language',
     languageHint: 'Chosen from your browser language on the first visit, then remembered in this browser.',
     lead: 'Lead agent',
-    leadHint: 'In "Auto team" conversations this agent reads your first question and picks a template or designs a better-suited team.',
+    leadHint: 'In "Auto team" conversations this agent reads what you need and picks a template or designs a better-suited team.',
     leadSaved: 'Lead agent saved',
     leadNotReady: (p) => `${p} is not available right now; sign in first or pick another agent.`,
     tour: 'Guided tour',
@@ -381,7 +386,7 @@ export const en: Messages = {
       },
       {
         title: 'Auto team',
-        body: 'With "Auto team", the lead agent reads your first question, picks a suitable template or designs a better-suited team, and then the team answers. A team it designed itself can be saved as a template in one click.',
+        body: 'With "Auto team", you first describe what you need; the lead agent uses a suitable template, adapts one, or designs a new team. Once you confirm the team, ask your first question. A team it designed or adapted can be saved as a template in one click.',
         points: ['Change the lead agent in Settings', 'The file permission is always yours to choose; the lead agent never changes it'],
       },
       {

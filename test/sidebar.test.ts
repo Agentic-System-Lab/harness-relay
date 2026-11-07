@@ -14,6 +14,8 @@ const conv = (extra: Partial<ConversationSummary>): ConversationSummary => ({
 describe('sidebar status', () => {
   it('puts what needs the user first, then replying', () => {
     expect(convStatus(conv({ running: true, waiting: true }), 0)).toBe('waiting');
+    expect(convStatus(conv({ confirmTeam: true, lastStatus: 'done' }), 100)).toBe('confirm');
+    expect(convStatus(conv({ confirmTeam: true, waiting: true }), 0)).toBe('waiting');
     expect(convStatus(conv({ running: true, lastStatus: 'done' }), 100)).toBe('running');
   });
 

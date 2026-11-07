@@ -141,15 +141,16 @@ flowchart LR
 
 ## 自動組隊
 
-以 `settings.autoTeam` 建立的對話一開始沒有成員。第一次執行會先進行規劃步驟（協調器中的 `designTeam()`，以及 `src/server/planner.ts`）：
+以 `settings.autoTeam` 建立的對話一開始沒有成員。使用者的第一則訊息是描述需求，這次執行只會設計團隊（協調器中的 `designTeam()`，以及 `src/server/planner.ts`）：
 
 1. 對話中出現一則 `plan.status = "planning"` 的系統訊息。
 2. **首席 agent**（在設定頁指定：provider，以及選填的模型與推理強度）以唯讀權限在對話的工作目錄中執行一次，system prompt 為 `PLANNER_BRIEFING`。prompt 內容包括使用者的第一則訊息、已登入的 CLI 及其模型與推理強度、三種模式、使用者選的權限與工作目錄（首席 agent 無法更改），以及所有範本（內建與使用者儲存的）的完整內容（JSON）：說明、模式、輪數或交棒次數，以及每位成員的 CLI、模型、推理強度與完整角色。它必須回覆一個 JSON 物件：直接套用範本是 `{"choice": "template", "templateId", "reason"}`；依範本調整是 `{"choice": "adapted", "baseTemplateId", …團隊, "reason"}`；從頭設計是 `{"choice": "custom", …團隊, "reason"}`，其中團隊為 `"name", "description", "mode", "rounds", "maxHops", "agents": [{name, provider, role, model?, effort?}]`。reason 是給使用者看的說明：為什麼這個範本適合、改了什麼與原因，或為什麼沒有範本適合。
 3. `parsePlanReply()` 從程式碼區塊（或最外層的大括號）取出 JSON；`decidePlan()` 把它轉成團隊。自訂成員會經過與手動設計團隊相同的驗證（`validateAgents`）：名稱中的空白會被替換，最多 5 位成員，輪數 1–5，交棒次數 1–30。`fitAgents()` 會把 CLI 尚未登入的成員改到首席 agent 的 CLI，並移除該 CLI 不提供的模型或推理強度。直接套用範本時若首席 agent 沒給原因，會補上預設說明。調整過的團隊會在 `plan.basedOn` 記下原本的範本（id 與名稱）；若原本範本的 id 不存在，就當成自訂團隊。調整或自訂的團隊若與某個範本完全相同（`sameTeam()`：成員、CLI、角色、模型、推理強度、模式與輪數或交棒次數都一樣），就記為直接套用該範本。
 4. 若首席 agent 執行失敗或回覆無法使用，`fallbackPlan()` 會改用「一般問題智囊團」範本，卡片上會說明原因。若使用者停止執行，這則訊息會標為已中斷，`autoTeam` 維持開啟，下一則訊息會重新規劃。
-5. 團隊與模式寫入對話、清除 `autoTeam`，plan 卡片變成 `ready`（附上首席 agent 的費用與 token 數），接著照常以使用者的訊息繼續執行。plan 訊息是系統訊息，所以永遠不會轉交給 agent。
+5. 團隊與模式寫入對話、清除 `autoTeam`，plan 卡片變成 `ready` 並帶有 `awaitingConfirmation`（附上首席 agent 的費用與 token 數）。這次執行到此結束：沒有人回答這段需求描述。
+6. 在使用者確認團隊之前（`POST /api/conversations/:id/messages/:messageId/confirm-plan`，會清除 `awaitingConfirmation` 並設定 `plan.confirmedAt`），送出訊息或「繼續」都會被拒絕（409），介面也會鎖住輸入框。手動設定團隊（`PATCH … { agents }`）也算確認。之後使用者才開始問第一個問題，團隊照常回答，並會在歷史中看到那段需求描述作為背景。plan 訊息是系統訊息，所以永遠不會轉交給 agent。
 
-規劃期間，這次執行會鎖住工作目錄（此時還不知道模式），規劃完再重新判斷是否在隔離的 worktree 中執行；若主導 agent 選了平行模式，就會解鎖。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把首席 agent 設計或調整的團隊（`planSavable()`）存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`；直接套用的範本不是新團隊，卡片不會提供儲存。編輯第一則訊息會連同 plan 一起刪除，於是 `autoTeam` 重新開啟：團隊會針對新問題重新設計；但若 plan 之後團隊被手動改過（成員或模式、輪數、交棒次數與 plan 不同），就保留那個團隊。手動設定團隊（`PATCH … { agents }`）會關閉自動組隊。
+設計團隊的執行不會寫入任何東西（首席 agent 是唯讀的，其他人也不發言），所以不會鎖住目錄；團隊自己的執行則照確認後的模式上鎖。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把首席 agent 設計或調整的團隊（`planSavable()`）存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`；直接套用的範本不是新團隊，卡片不會提供儲存。編輯需求描述會連同 plan 一起刪除，於是 `autoTeam` 重新開啟：團隊會依修改後的需求重新設計，並再次等待確認；但若 plan 之後團隊被手動改過（成員或模式、輪數、交棒次數與 plan 不同），就保留那個團隊。手動設定團隊（`PATCH … { agents }`）會關閉自動組隊。
 
 ## 語言
 
@@ -230,7 +231,7 @@ agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾�
 
 **平行模式。**每次執行的第一輪前，每位參與者都會拿到一個 worktree（跨執行沿用，直到需要重設）。簡報會告訴每個 agent 它的 worktree、分支與起始快照，以及每位隊友的分支和該隊友的起始快照（不同時間建立的 worktree 起始快照不同），所以後面的輪次可以用 `git diff <隊友的起始快照> <branch>` 看彼此的成果。若 agent 自己在 worktree 中 commit，那些 commit 就是這一輪的結果。使用者在聊天中檢視每個 agent 的 diff，對想要的結果按 **套用**：Harness Relay 取出該 agent 的 `base..branch`，先 `git apply --check` 再用 `git apply` 套用到真正的工作目錄，所以有衝突時不會改動任何檔案。patch 以位元組處理，所以 CRLF 換行與其他編碼的檔案都會原樣套用。不會自動 commit，修改留給使用者檢查。之後該對話所有的 worktree 都會被標記為需要重設，下一次平行執行會從工作目錄的新狀態開始。刪除對話時會一併移除它的 worktree 與分支。
 
-**目錄鎖。**會寫入真正工作目錄的執行（可編輯 / 完全存取，且不是平行模式）會鎖住該 repository。其他對話若同時要寫入同一個 repository，會收到錯誤，直到第一個執行結束；套用 worktree 結果也會取得同一把鎖。唯讀執行與平行執行（只寫入自己的 worktree）不受影響，除非唯讀執行有動作被允許（見[核准](#核准)）。一個 repository 位在另一個裡面時，兩者的鎖也會互相衝突。自動組隊的執行在主導 agent 規劃期間會上鎖（此時還不知道模式），編輯第一個問題而重新規劃時也一樣；主導 agent 選了平行模式後就會解鎖。
+**目錄鎖。**會寫入真正工作目錄的執行（可編輯 / 完全存取，且不是平行模式）會鎖住該 repository。其他對話若同時要寫入同一個 repository，會收到錯誤，直到第一個執行結束；套用 worktree 結果也會取得同一把鎖。唯讀執行與平行執行（只寫入自己的 worktree）不受影響，除非唯讀執行有動作被允許（見[核准](#核准)）。一個 repository 位在另一個裡面時，兩者的鎖也會互相衝突。只設計團隊的執行（自動組隊）不會上鎖。
 
 **同一個對話一次只做一件事。**開始執行、套用結果、修改團隊或設定，從檢查到生效（包括準備工作區的期間）都會先保留這個對話（`Orchestrator.exclusive()`），所以期間的其他這類請求會收到「忙碌中」，不會插進中間。改名則隨時可以。刪除對話時，會先讓進行中的設定修改或套用完成（還在準備中的執行會放棄），再停止執行並等它寫完最後的狀態，才移除資料列、worktree、分支與保留的 ref；之後才送到的寫入會被捨棄。伺服器開始關閉後，不會再開始任何新的工作（503）。
 

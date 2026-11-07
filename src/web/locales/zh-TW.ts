@@ -1,7 +1,7 @@
 import type { ApprovalKind, KeyStorage, Mode, Permission, ToolStatus } from '../../shared/types';
 
 /** A conversation's state as the sidebar shows it. */
-export type ConvStatus = 'waiting' | 'running' | 'error' | 'unread';
+export type ConvStatus = 'waiting' | 'confirm' | 'running' | 'error' | 'unread';
 
 const EFFORT: Record<string, string> = {
   none: '無',
@@ -56,7 +56,7 @@ export const zhTW = {
     replying: '回覆中',
     deleteConversation: '刪除對話',
     waiting: '等你核准',
-    status: { waiting: '等你核准', running: '回覆中', error: '出錯了', unread: '新回覆' } as Record<ConvStatus, string>,
+    status: { waiting: '等你核准', confirm: '等你確認團隊', running: '回覆中', error: '出錯了', unread: '新回覆' } as Record<ConvStatus, string>,
     confirmDelete: (title: string) => `刪除對話「${title}」？`,
     deleteFailed: (message: string) => `無法刪除對話：${message}`,
     settings: '設定與登入',
@@ -79,9 +79,9 @@ export const zhTW = {
     templates: '範本',
     templatesHint: '從現成的團隊開始，選好後仍可在下方調整。',
     autoName: '自動組隊',
-    autoDescription: (lead: string) => `由首席 agent（${lead}）讀你的第一個問題，挑選範本或設計更適合的團隊。`,
+    autoDescription: (lead: string) => `描述你的需求，由首席 agent（${lead}）挑選範本或設計更適合的團隊，你確認後再開始提問。`,
     autoNote: (lead: string) =>
-      `成員、對話模式與輪數會由首席 agent（${lead}）根據你的第一個問題決定；你只需要選工作目錄與檔案權限。首席 agent 可以在設定頁更換。`,
+      `成員、對話模式與輪數會由首席 agent（${lead}）根據你描述的需求決定，你確認團隊後再開始提問；你只需要選工作目錄與檔案權限。首席 agent 可以在設定頁更換。`,
     deleteTemplate: '刪除範本',
     confirmDeleteTemplate: (name: string) => `刪除範本「${name}」？`,
     titlePlaceholder: '對話標題（選填，預設取第一則訊息）',
@@ -154,7 +154,8 @@ export const zhTW = {
     reconnecting: '連線中斷，重新連線中…',
     placeholder: '傳訊息給團隊…',
     placeholderRelay: (name: string) => `傳訊息給團隊（預設由 @${name} 先接）`,
-    placeholderAuto: '輸入你的問題，首席 agent 會先為它組隊…',
+    placeholderAuto: '描述你的需求（要做什麼、需要哪些專長），首席 agent 會先為它組隊…',
+    placeholderConfirm: '先確認上方的團隊，再開始提問…',
     retryConfirm: (later: number, changed: number) =>
       `重試會刪除這則回覆與之後的 ${later} 則訊息，再讓這位成員重新回答。${changed ? `其中有 ${changed} 則回覆修改過檔案，那些修改不會還原。` : ''}\n\n確定要重試嗎？`,
     resendConfirm: (n: number) =>
@@ -167,7 +168,7 @@ export const zhTW = {
     noRole: '（未設定角色）',
     autoIntroTitle: '首席 agent 會先組隊',
     autoIntro: (lead: string) =>
-      `送出第一個問題後，首席 agent（${lead}）會挑選合適的範本，或設計一個更適合的新團隊，再由團隊回答。`,
+      `先描述你的需求（要完成什麼、需要哪些專長），首席 agent（${lead}）會挑選合適的範本，或設計一個更適合的新團隊。你確認團隊後，再開始問第一個問題。`,
     drawerNote: '角色修改會在下一個回合生效。更換成員的 coding agent 會讓他從頭讀一次對話紀錄。',
     drawerBusy: '團隊回覆中，停止後才能儲存',
     drawerChanged: '你編輯的期間團隊已經變更（例如首席 agent 已設計好團隊）。請先載入目前的團隊，再重新修改。',
@@ -228,12 +229,12 @@ export const zhTW = {
     allowedAuto: '已依本對話的設定自動允許',
     denied: '已拒絕',
     expired: '沒有回覆（這一輪已結束）',
-    pageTitle: (n: number) => `(${n}) 等你核准 · Harness Relay`,
+    pageTitle: (n: number) => `(${n}) 等你回覆 · Harness Relay`,
     withNote: (note: string) => `：${note}`,
   },
 
   plan: {
-    planning: (lead: string) => `首席 agent（${lead}）正在為這個問題設計團隊…`,
+    planning: (lead: string) => `首席 agent（${lead}）正在依你的需求設計團隊…`,
     title: '團隊設計',
     by: (lead: string) => `首席 agent：${lead}`,
     template: (name: string) => `使用範本「${name}」`,
@@ -246,6 +247,10 @@ export const zhTW = {
     saving: '儲存中…',
     saved: (name: string) => `已存成範本「${name}」`,
     adjust: '調整團隊',
+    confirm: '確認團隊',
+    confirming: '確認中…',
+    confirmHint: '確認這個團隊後，就可以開始問第一個問題。',
+    confirmed: '已確認團隊',
     aborted: '團隊設計已中斷；下一則訊息會重新設計。',
   },
 
@@ -291,7 +296,7 @@ export const zhTW = {
     language: '介面語言',
     languageHint: '第一次開啟時依瀏覽器語言決定，之後記在這個瀏覽器。',
     lead: '首席 agent',
-    leadHint: '「自動組隊」的對話中，由這個 agent 讀你的第一個問題，挑選範本或設計更適合的團隊。',
+    leadHint: '「自動組隊」的對話中，由這個 agent 讀你描述的需求，挑選範本或設計更適合的團隊。',
     leadSaved: '已儲存首席 agent',
     leadNotReady: (p: string) => `${p} 目前無法使用，請先登入或改選其他 agent。`,
     tour: '使用導覽',
@@ -372,7 +377,7 @@ export const zhTW = {
       },
       {
         title: '自動組隊',
-        body: '選「自動組隊」後，首席 agent 會先讀你的第一個問題，挑選合適的範本或設計更適合的團隊，再開始回答。它自己設計的團隊可以一鍵存成範本。',
+        body: '選「自動組隊」後，先描述你的需求，首席 agent 會挑選合適的範本、依範本調整，或設計新團隊。你確認團隊後再開始提問。它設計或調整的團隊可以一鍵存成範本。',
         points: ['首席 agent 可以在設定頁更換', '檔案權限一律由你決定，首席 agent 不會改動'],
       },
       {

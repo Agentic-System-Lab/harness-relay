@@ -16,17 +16,28 @@ const alive = (pid: number) => {
   }
 };
 
-/** A CLI that starts a subprocess which ignores SIGTERM, prints its pid, and waits. */
-const STUBBORN = `sh -c 'trap "" TERM; echo $$; while :; do sleep 1; done' & wait`;
-/** The same, but the subprocess lets go of stdout, so the run ends as soon as the CLI exits. */
-const STUBBORN_DETACHED = `sh -c 'trap "" TERM; echo $$; exec >/dev/null 2>&1; while :; do sleep 1; done' & wait`;
+/**
+ * A fake CLI: an executable script, run directly like the real CLIs (runProcess never goes through
+ * a shell, and the tests do not either).
+ */
+function cli(name: string, body: string): string {
+  const file = join(dir, name);
+  writeFileSync(file, `#!/bin/sh\n${body}\n`);
+  chmodSync(file, 0o755);
+  return file;
+}
 
-async function stopAfterFirstLine(script: string) {
+/** A CLI that starts a subprocess which ignores SIGTERM, prints its pid, and waits. */
+const STUBBORN = cli('stubborn', `sh -c 'trap "" TERM; echo $$; while :; do sleep 1; done' & wait`);
+/** The same, but the subprocess lets go of stdout, so the run ends as soon as the CLI exits. */
+const STUBBORN_DETACHED = cli('stubborn-detached', `sh -c 'trap "" TERM; echo $$; exec >/dev/null 2>&1; while :; do sleep 1; done' & wait`);
+
+async function stopAfterFirstLine(bin: string) {
   const abort = new AbortController();
   let pid = 0;
   const res = await runProcess({
-    bin: 'sh',
-    args: ['-c', script],
+    bin,
+    args: [],
     env: process.env,
     signal: abort.signal,
     onLine: (line) => {
@@ -58,7 +69,7 @@ describe('runProcess', () => {
   });
 
   it('reports a missing working directory as such, not as a missing command', async () => {
-    const err = await runProcess({ bin: 'sh', args: ['-c', 'true'], env: process.env, cwd: join(dir, 'gone') }).catch((e) => e);
+    const err = await runProcess({ bin: cli('ok', 'true'), args: [], env: process.env, cwd: join(dir, 'gone') }).catch((e) => e);
     expect(err).not.toBeInstanceOf(CommandNotFoundError);
     expect(String(err.message)).toContain(join(dir, 'gone'));
     const missing = await runProcess({ bin: 'no-such-cli-xyz', args: [], env: process.env }).catch((e) => e);
@@ -66,9 +77,7 @@ describe('runProcess', () => {
   });
 
   it('resolves a relative executable path against the server directory, wherever the CLI runs', async () => {
-    const script = join(dir, 'fake-cli.sh');
-    writeFileSync(script, '#!/bin/sh\necho ok\n');
-    chmodSync(script, 0o755);
+    const script = cli('fake-cli.sh', 'echo ok');
     const res = await capture(`./${relative(process.cwd(), script)}`, [], process.env, { cwd: tmpdir() });
     expect(res.stdout).toBe('ok\n');
   });
@@ -77,7 +86,7 @@ describe('runProcess', () => {
 describe('killAll', () => {
   it('kills every process group on shutdown, including subprocesses that ignore SIGTERM', async () => {
     let pid = 0;
-    const run = runProcess({ bin: 'sh', args: ['-c', STUBBORN], env: process.env, onLine: (l) => (pid = Number(l)) });
+    const run = runProcess({ bin: STUBBORN, args: [], env: process.env, onLine: (l) => (pid = Number(l)) });
     await vi.waitFor(() => expect(pid).toBeGreaterThan(0));
     await killAll(500);
     await run;

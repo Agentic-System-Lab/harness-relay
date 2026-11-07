@@ -13,7 +13,7 @@ import type {
   MessagePart,
   TeamPreset,
 } from '../shared/types';
-import { planSavable } from '../shared/types';
+import { pendingPlan, planSavable } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import type { ApprovalRequest } from './agents/types';
 import { approvalKeys, isAllowed } from './approvals';
@@ -237,6 +237,7 @@ export class Orchestrator {
   /** Post a user message (or, with empty text, let the team continue) and start the team's turn. */
   async send(convId: string, rawText: string, uploads?: AttachmentUpload[]): Promise<void> {
     const conv = this.getIdle(convId);
+    if (pendingPlan(conv.messages)) throw new HttpError(409, t().planAwaitingConfirm);
     const text = rawText.trim();
     if (!text && !uploads?.length && !conv.messages.some((m) => m.author.kind === 'user')) throw new HttpError(400, t().typeFirst);
     const files = saveAttachments(conv.id, uploads);
@@ -340,7 +341,7 @@ export class Orchestrator {
       w.needsReset = true;
       this.store.saveWorktree(conv.id, agentId, w);
     }
-    // The lead agent's team design went too: design the team again for the edited question.
+    // The lead agent's team design went too: design the team again for the edited request.
     if (replan) conv.settings = { ...conv.settings, autoTeam: true };
     this.hub.emit(conv.id, { type: 'snapshot', conversation: forClient(conv), running: false, activeAgentIds: [] });
   }
@@ -372,9 +373,10 @@ export class Orchestrator {
         throw new HttpError(404, t().conversationNotFound);
       }
       if (this.closing) throw new HttpError(503, t().shuttingDown);
-      // An auto-team run does not know its mode yet, so it locks the directory to be safe; it lets
-      // go once the lead agent chose parallel mode.
-      lockRoot = ws.root && (!ws.isolated || conv.settings.autoTeam || willPlan) ? ws.root : undefined;
+      // A run that designs the team writes nothing (the lead agent is read-only and nobody else
+      // speaks), so it locks nothing.
+      const planning = (conv.settings.autoTeam || willPlan) && !only;
+      lockRoot = ws.root && !ws.isolated && !planning ? ws.root : undefined;
       if (lockRoot) this.lockDir(lockRoot, conv);
       beforePost?.();
       this.postUserMessage(conv, text, files);
@@ -565,7 +567,7 @@ export class Orchestrator {
   }
 
   /**
-   * Auto team: the lead agent (Settings) picks a template or designs a team for the question, shown
+   * Auto team: the lead agent (Settings) picks a template or designs a team for the user's request, shown
    * as a plan card. When planning fails the general-question template is used; when it is stopped
    * the conversation stays in auto-team mode and plans again on the next message.
    */
@@ -628,11 +630,34 @@ export class Orchestrator {
     } else {
       conv.agents = decision.agents;
       conv.settings = { ...conv.settings, ...decision.settings, autoTeam: false };
-      msg.plan = { status: 'ready', lead, ...decision };
+      msg.plan = { status: 'ready', lead, ...decision, awaitingConfirmation: true };
       msg.status = 'done';
       this.store.saveMeta(conv);
       this.emitConversation(conv);
     }
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /** The user accepts the lead agent's team design; from now on the team answers. */
+  confirmPlan(convId: string, messageId: string): void {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    const msg = conv.messages.find((m) => m.id === messageId);
+    if (msg?.plan?.status !== 'ready') throw new HttpError(404, t().planNotFound);
+    this.markConfirmed(conv, msg);
+  }
+
+  /** A team set by hand is the user's decision too: it confirms a design that was waiting. */
+  confirmPendingPlan(conv: Conversation): void {
+    const msg = pendingPlan(conv.messages);
+    if (msg) this.markConfirmed(conv, msg);
+  }
+
+  private markConfirmed(conv: Conversation, msg: ChatMessage): void {
+    if (!msg.plan?.awaitingConfirmation) return;
+    delete msg.plan.awaitingConfirmation;
+    msg.plan.confirmedAt = Date.now();
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
   }
@@ -700,14 +725,10 @@ export class Orchestrator {
 
   private async execute(conv: Conversation, text: string, run: Run, only?: AgentConfig[]): Promise<void> {
     if (conv.settings.autoTeam && !only) {
+      // The user described what they need: the lead agent designs the team, and that is all this
+      // run does. The user confirms the team, then asks their first question.
       await this.designTeam(conv, text, run);
-      if (run.abort.signal.aborted || conv.settings.autoTeam) return;
-      run.ws = { root: run.ws.root, isolated: Boolean(run.ws.root) && conv.settings.mode === 'parallel' };
-      // Parallel agents write only to their worktrees: other conversations may use the directory.
-      if (run.ws.isolated && run.lockRoot) {
-        this.unlockDir(run.lockRoot, conv.id);
-        run.lockRoot = undefined;
-      }
+      return;
     }
     const { mode, maxHops } = conv.settings;
     const rounds = only ? 1 : conv.settings.rounds;

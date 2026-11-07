@@ -34,6 +34,8 @@ interface Props {
   agents: AgentConfig[];
   running: boolean;
   canContinue: boolean;
+  /** Typing is fine, sending is not yet (the lead agent's team design waits for confirmation). */
+  locked?: boolean;
   placeholder: string;
   onSend: (text: string, attachments: AttachmentUpload[]) => Promise<boolean>;
   onStop: () => void;
@@ -42,7 +44,7 @@ interface Props {
 
 const TOKEN = /(^|[\s(（])@([\p{L}\p{N}_-]*)$/u;
 
-export function Composer({ agents, running, canContinue, placeholder, onSend, onStop, onContinue }: Props) {
+export function Composer({ agents, running, canContinue, locked = false, placeholder, onSend, onStop, onContinue }: Props) {
   const t = useT();
   const [text, setText] = useState('');
   const [caret, setCaret] = useState(0);
@@ -137,7 +139,7 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
     });
   };
 
-  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing;
+  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing && !locked;
 
   /** Run one send (or Continue) at a time. */
   const once = async (fn: () => Promise<void>) => {
@@ -294,7 +296,7 @@ export function Composer({ agents, running, canContinue, placeholder, onSend, on
               </button>
             ) : (
               <>
-                {canContinue && (
+                {canContinue && !locked && (
                   <button
                     className="ghost"
                     disabled={preparing}

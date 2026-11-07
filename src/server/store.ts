@@ -16,6 +16,7 @@ import type {
   ToolStatus,
   MessageStatus,
 } from '../shared/types';
+import { pendingPlan } from '../shared/types';
 import { nul, transaction, type Database } from './db';
 import { currentLang } from './i18n';
 import { builtinPresets } from './presets';
@@ -255,6 +256,14 @@ export class Store {
           .all() as { conversation_id: string; status: MessageStatus }[]
       ).map((r) => [r.conversation_id, r.status]),
     );
+    // Team designs waiting for the user's confirmation (JSON.stringify writes the flag this way).
+    const confirming = new Set(
+      (
+        this.db
+          .prepare(`SELECT DISTINCT conversation_id FROM messages WHERE plan LIKE '%"awaitingConfirmation":true%'`)
+          .all() as { conversation_id: string }[]
+      ).map((r) => r.conversation_id),
+    );
     const byConv = new Map<string, ConversationSummary['agents']>();
     for (const a of agents) {
       const list = byConv.get(a.conversation_id) ?? [];
@@ -271,6 +280,7 @@ export class Store {
           agents: byConv.get(r.id) ?? [],
           running: running(r.id),
           ...(waiting(r.id) ? { waiting: true } : {}),
+          ...((live ? pendingPlan(live.messages) : confirming.has(r.id)) ? { confirmTeam: true } : {}),
           ...statusOf(live, lastStatus.get(r.id)),
         };
       })

@@ -168,6 +168,30 @@ describe('Store (SQLite)', () => {
     ]);
   });
 
+  it('marks conversations whose team design waits for confirmation, also after a restart', () => {
+    const store = new Store(db);
+    const conv: Conversation = { ...sampleConversation(), id: 'auto', messages: [] };
+    store.create(conv);
+    const plan: ChatMessage = {
+      id: 'plan',
+      author: { kind: 'system' },
+      createdAt: 1,
+      parts: [],
+      status: 'done',
+      plan: { status: 'ready', lead: { provider: 'claude' }, source: 'template', name: 'x', agents: [], awaitingConfirmation: true },
+    };
+    conv.messages.push(plan);
+    store.saveMessage(conv.id, plan, true);
+    expect(store.list(() => false).find((c) => c.id === 'auto')?.confirmTeam).toBe(true);
+    expect(new Store(db).list(() => false).find((c) => c.id === 'auto')?.confirmTeam).toBe(true); // from the database
+
+    delete plan.plan!.awaitingConfirmation;
+    plan.plan!.confirmedAt = 2;
+    store.saveMessage(conv.id, plan, true);
+    expect(store.list(() => false).find((c) => c.id === 'auto')?.confirmTeam).toBeUndefined();
+    expect(new Store(db).list(() => false).find((c) => c.id === 'auto')?.confirmTeam).toBeUndefined();
+  });
+
   it('saves user presets after the built-in ones', () => {
     const store = new Store(db);
     const preset: TeamPreset = {

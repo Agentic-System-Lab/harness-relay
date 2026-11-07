@@ -88,6 +88,8 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/retry`),
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
+  confirmPlan: (id: string, messageId: string) =>
+    request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/confirm-plan`),
   savePlan: (id: string, messageId: string, name?: string) =>
     request<TeamPreset>('POST', `/api/conversations/${id}/messages/${messageId}/save-plan`, { name }),
   stop: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/stop`),

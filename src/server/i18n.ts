@@ -86,7 +86,8 @@ const zhTW = {
   planFailed: (why: string) => `首席 agent 沒有給出可用的團隊設計（${why}），改用預設範本。`,
   planUnparsable: '回覆中找不到 JSON 團隊設計',
   planUnknownTemplate: (id: string) => `沒有 id 為「${id}」的範本`,
-  planTemplateFits: (name: string) => `首席 agent 判斷範本「${name}」適合這個問題，直接套用。`,
+  planTemplateFits: (name: string) => `首席 agent 判斷範本「${name}」適合你的需求，直接套用。`,
+  planAwaitingConfirm: '請先確認首席 agent 設計的團隊，再開始提問',
 
   // HTTP
   unknownProvider: (p: string) => `未知的 provider：${p}`,
@@ -190,7 +191,8 @@ const en: ServerMessages = {
   planFailed: (why) => `The lead agent did not produce a usable team design (${why}); using the default template instead.`,
   planUnparsable: 'no JSON team design found in the reply',
   planUnknownTemplate: (id) => `there is no template with id "${id}"`,
-  planTemplateFits: (name) => `The lead agent found the template "${name}" a good fit for this question and uses it as it is.`,
+  planTemplateFits: (name) => `The lead agent found the template "${name}" a good fit for what you need and uses it as it is.`,
+  planAwaitingConfirm: 'Confirm the team the lead agent designed before asking your first question',
 
   unknownProvider: (p) => `Unknown provider: ${p}`,
   dirNotFound: (cwd) => `Directory not found: ${cwd}`,

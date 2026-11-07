@@ -86,6 +86,17 @@ export interface TeamPlan {
   agents?: AgentConfig[];
   /** Set once the user saved a custom team as a template. */
   savedPresetId?: string;
+  /**
+   * The design waits for the user: nobody answers until they confirm it (or set the team by hand),
+   * and then they ask their first question. (Plans from before this step have neither field.)
+   */
+  awaitingConfirmation?: boolean;
+  confirmedAt?: number;
+}
+
+/** The lead agent's team design that is waiting for the user's confirmation, if any. */
+export function pendingPlan(messages: ChatMessage[]): ChatMessage | undefined {
+  return messages.find((m) => m.plan?.status === 'ready' && m.plan.awaitingConfirmation);
 }
 
 /** Only a team the lead designed or adapted is new, and can be saved as a template. */
@@ -271,6 +282,8 @@ export interface ConversationSummary {
   running: boolean;
   /** An agent is waiting for the user to approve something. */
   waiting?: boolean;
+  /** The lead agent's team design waits for the user to confirm it (auto team). */
+  confirmTeam?: boolean;
   /** How the latest agent reply ended (absent before the first one). */
   lastStatus?: MessageStatus;
 }

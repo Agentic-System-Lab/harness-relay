@@ -133,8 +133,8 @@ export function App() {
     }
   }, [loaded, conversations, route, seen]);
 
-  // The tab title tells you when an agent is waiting for your approval in any conversation.
-  const waiting = conversations.filter((c) => c.waiting).length;
+  // The tab title tells you when a conversation needs you: an approval, or a team to confirm.
+  const waiting = conversations.filter((c) => c.waiting || c.confirmTeam).length;
   useEffect(() => {
     document.title = waiting ? t.approval.pageTitle(waiting) : 'Harness Relay';
   }, [waiting, t]);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
+  pendingPlan,
   type ApprovalAnswer,
   type ChatMessage,
   type Conversation,
@@ -207,6 +208,18 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
     }
   }, []);
 
+  const onConfirmPlan = useCallback(async (messageId: string) => {
+    const c = convRef.current;
+    if (!c) return;
+    try {
+      setError('');
+      await api.confirmPlan(c.id, messageId);
+      onChangedRef.current(); // the sidebar stops asking
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
   const onSavePlan = useCallback(async (messageId: string, name: string) => {
     const c = convRef.current;
     if (!c) return;
@@ -270,6 +283,8 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   );
   const hasUserMessage = conv.messages.some((m) => m.author.kind === 'user');
   const waitingForTeam = autoTeam && conv.agents.length === 0;
+  // The lead agent's team design waits for the user: they confirm it, then ask their first question.
+  const awaitingConfirm = Boolean(pendingPlan(conv.messages));
   const leadText = leadLabel(lead ?? { provider: 'claude' });
 
   const send = async (text: string, attachments: AttachmentUpload[]) => {
@@ -366,6 +381,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               onDiff={onDiff}
               onApply={onApply}
               onResend={onResend}
+              onConfirmPlan={onConfirmPlan}
               onSavePlan={onSavePlan}
               onAdjustTeam={onAdjustTeam}
               onApproval={onApproval}
@@ -397,8 +413,11 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
           agents={conv.agents}
           running={running}
           canContinue={hasUserMessage}
+          locked={awaitingConfirm}
           placeholder={
-            waitingForTeam
+            awaitingConfirm
+              ? t.chat.placeholderConfirm
+              : waitingForTeam
               ? t.chat.placeholderAuto
               : conv.settings.mode === 'relay' && conv.agents[0]
                 ? t.chat.placeholderRelay(conv.agents[0].name)

@@ -74,14 +74,15 @@ Below the conversation rules, **Save as template** saves the current members and
 
 ### Auto team
 
-With **Auto team** you don't design the team yourself. When you send your first question, the **lead agent** (see [Lead agent](#lead-agent)) reads it together with every template in full (built-in and your own: members, roles, mode and rounds), and then either uses a template as it is, adapts one to the question (for example adds or drops a member, rewrites roles, or changes the mode or rounds), or designs a new team from scratch. Then that team answers.
+With **Auto team** you don't design the team yourself. Start by describing what you need (the work, the expertise it takes) instead of asking a question. The **lead agent** (see [Lead agent](#lead-agent)) reads it together with every template in full (built-in and your own: members, roles, mode and rounds), and then either uses a template as it is, adapts one to the question (for example adds or drops a member, rewrites roles, or changes the mode or rounds), or designs a new team from scratch. Nobody answers yet: you review the team first.
 
 - You choose only the **working directory** and the **file permission**; the lead agent cannot change the permission.
+- Click **Confirm team** on the card, and then ask your first question; until then the message box is locked and the sidebar marks the conversation **Confirm the team**. Setting the team yourself with **Adjust team** also counts as confirming. The team sees your description as context. To have the team designed again, edit your description.
 - The decision appears in the chat as a **Team design** card: the template it used, the template it adapted, or its new team; why (why the template fits, what it changed, or why no template fits); and each member's full role, folded to a few lines when long (**Show more** shows the rest). **Adjust team** opens the team settings.
 - When the lead agent designed or adapted a team, the card asks whether to keep it: **Save as template** saves it (you can rename it), and it then shows up on the New chat page. A template used as it is is already saved, so the card doesn't ask.
 - If the lead agent's answer can't be used (or its CLI fails), the General-question panel is used instead and the card says why. If you press **Stop** while it is designing, the next message designs the team again.
 - Members that would run on a CLI that isn't signed in are moved to the lead agent's CLI.
-- Editing your first question (see [Copying, editing and retrying](#copying-editing-and-retrying)) designs the team again for the new question — unless you changed the team after it was designed, in which case your team answers.
+- Editing your description (see [Copying, editing and retrying](#copying-editing-and-retrying)) designs the team again, to be confirmed again — unless you changed the team after it was designed, in which case your team answers.
 
 ### Templates
 
@@ -158,7 +159,7 @@ When an agent wants to do something its permission doesn't cover — install a p
 - **Always allow "…" in this chat** — this and later requests like it (for commands: the same program and subcommand, e.g. `npm install`; a chained command is only allowed when every part is) are allowed without asking for the rest of the conversation.
 - **Decline** — optionally type what it should do instead first; the agent gets your message and carries on.
 
-A banner above the message box points to waiting requests; the sidebar marks the conversation **Needs you** and the browser tab title shows how many are waiting. Pressing **■ Stop** declines everything still waiting, and a request whose agent stopped (it crashed or timed out) expires. If you allow something in a read-only conversation while another conversation is changing the same directory, it is declined and the agent is told why. Codex runs commands in its sandbox and asks only when it decides it needs more than the sandbox allows.
+A banner above the message box points to waiting requests; the sidebar marks the conversation **Needs you** and the browser tab title shows how many conversations need you. Pressing **■ Stop** declines everything still waiting, and a request whose agent stopped (it crashed or timed out) expires. If you allow something in a read-only conversation while another conversation is changing the same directory, it is declined and the agent is told why. Codex runs commands in its sandbox and asks only when it decides it needs more than the sandbox allows.
 
 ### Reviewing and applying changes
 
@@ -188,6 +189,7 @@ The sidebar lists conversations, newest first, each with its state:
 | Badge | Meaning |
 | --- | --- |
 | **Needs you** (orange) | An agent is waiting for your approval. |
+| **Confirm the team** (orange) | The lead agent designed a team; confirm it, then ask your first question ([Auto team](#auto-team)). |
 | **Replying** (blue, pulsing) | The team is working. |
 | **New reply** (green, bold title) | It finished while you were looking at something else. |
 | **Error** (red) | The last reply ended with an error you haven't looked at yet. |

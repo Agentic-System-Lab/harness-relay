@@ -15,9 +15,9 @@ import { t } from './i18n';
 import { validateAgents } from './validate';
 
 /*
- * Auto team: before anyone answers the first message of an auto-team conversation, the lead agent
- * (Settings) reads every template in full and either uses one as it is, adapts one to the question,
- * or designs a team from scratch. Its reply is a JSON object, turned here into a team that can
+ * Auto team: the user's first message in an auto-team conversation describes what they need. The
+ * lead agent (Settings) reads every template in full and either uses one as it is, adapts one to the
+ * request, or designs a team from scratch; the user confirms the team before asking anything. Its reply is a JSON object, turned here into a team that can
  * actually run: only signed-in CLIs, only models and efforts those CLIs offer. Anything unusable
  * falls back to the general-question template.
  */
@@ -41,7 +41,7 @@ const MAX_MEMBERS = 5;
 export const PLANNER_BRIEFING =
   'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok) ' +
   'work together on the user\'s questions. Right now your only job is to choose the team for a new conversation. ' +
-  'Do not answer the user\'s question yourself. Reply with the JSON object you are asked for and nothing else.';
+  'Do not do the work the user describes yourself. Reply with the JSON object you are asked for and nothing else.';
 
 const MODE_HELP: Record<Mode, string> = {
   roundtable: 'members speak one after another in order, each seeing what earlier speakers said; `rounds` (1-5) passes',
@@ -71,7 +71,7 @@ const TEAM_FIELDS =
   '"name": "<short team name>", "description": "<one line>", "mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, ' +
   '"agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}]';
 
-export function buildPlannerPrompt(question: string, settings: ConversationSettings, ctx: PlannerContext): string {
+export function buildPlannerPrompt(request: string, settings: ConversationSettings, ctx: PlannerContext): string {
   const available = ctx.available.length ? ctx.available : (Object.keys(PROVIDER_LABEL) as Provider[]);
   const agents = available
     .map((p) => {
@@ -84,11 +84,11 @@ export function buildPlannerPrompt(question: string, settings: ConversationSetti
     .join('\n');
   const templates = JSON.stringify(ctx.presets.map(templateForLead), null, 2);
 
-  return `The user just started a new conversation. Choose the team that should answer it: use one of the templates below as it is, adapt one of them to this question, or design a new team from scratch.
+  return `The user is starting a new conversation and has described what they need a team for. Choose that team: use one of the templates below as it is, adapt one of them to this request, or design a new team from scratch. The user reviews and confirms your team before asking anything, so design it for the work they described as a whole, not just its first step.
 
-<first_message>
-${question}
-</first_message>
+<request>
+${request}
+</request>
 
 Coding agents you can use (only these):
 ${agents}
@@ -104,19 +104,19 @@ ${templates}
 </templates>
 
 How to decide: read the templates first, then pick exactly one of these three.
-1. "template": a template fits the question as it is (its members, roles, mode and rounds all suit it). Prefer this whenever it is true; do not change a good template just to change it. Your reason tells the user why this template fits the question.
-2. "adapted": a template is close, but this question needs changes: members added, removed or swapped, roles rewritten for the question, another mode, or more or fewer rounds. Start from that template, return the whole changed team and the template's id as "baseTemplateId". Your reason tells the user what you changed and why.
+1. "template": a template fits the request as it is (its members, roles, mode and rounds all suit it). Prefer this whenever it is true; do not change a good template just to change it. Your reason tells the user why this template fits what they need.
+2. "adapted": a template is close, but this request needs changes: members added, removed or swapped, roles rewritten for it, another mode, or more or fewer rounds. Start from that template, return the whole changed team and the template's id as "baseTemplateId". Your reason tells the user what you changed and why.
 3. "custom": no template is close; design a team from scratch. Your reason tells the user why none of the templates fits.
 
-Whichever you pick, keep it proportionate: a simple question needs 1-2 members and one round; reserve big teams and several rounds for hard or open-ended problems. At most ${MAX_MEMBERS} members.
+Whichever you pick, keep it proportionate: simple work needs 1-2 members and one round; reserve big teams and several rounds for hard or open-ended problems. At most ${MAX_MEMBERS} members.
 
 For an adapted or custom team:
 - Mixing coding agents helps: different models catch different things.
 - Write each member's role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev.
-- Leave "model" and "effort" out unless the question clearly needs a stronger or faster model than the default.
+- Leave "model" and "effort" out unless the work clearly needs a stronger or faster model than the default.
 
-Write the reason (and for a new team its name, description and roles) in the language of the user's message. Do not use tools unless the choice depends on the files in the working directory.
+Write the reason (and for a new team its name, description and roles) in the language of the user's request. Do not use tools unless the choice depends on the files in the working directory.
 
 Reply with only one of these JSON objects, in a \`\`\`json code block:
 - template as it is: {"choice": "template", "templateId": "<id>", "reason": "<why it fits: one or two sentences for the user>"}

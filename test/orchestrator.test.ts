@@ -35,6 +35,8 @@ let calls: {
 }[] = [];
 /** What the fake lead agent replies when asked to design a team (auto team). */
 let leadReply = '';
+/** When set, the fake lead agent waits for it before replying. */
+let leadGate: Promise<void> | undefined;
 /** Runs inside an agent's fake CLI turn after it wrote its files (e.g. to commit them itself). */
 let during: ((name: string, cwd: string) => void) | undefined;
 /** Per-agent gates: when set, that agent waits for its own gate instead of `gate`. */
@@ -49,6 +51,7 @@ beforeAll(() => {
     async run(o) {
       if (o.systemPrompt === PLANNER_BRIEFING) {
         calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt });
+        if (leadGate) await leadGate;
         o.onEvent({ type: 'text', text: leadReply });
         o.onEvent({ type: 'text_end' });
         return { costUsd: 0.01 };
@@ -98,6 +101,7 @@ beforeEach(() => {
     context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }),
   });
   leadReply = '';
+  leadGate = undefined;
   fail = undefined;
   during = undefined;
   gates = {};
@@ -281,36 +285,69 @@ describe('auto team', () => {
     reason: 'Two views beat one.',
   });
 
-  it('lets the lead agent design the team, then that team answers', async () => {
+  it('lets the lead agent design the team from the request; the team answers once the user confirmed it', async () => {
     const conv = autoConversation();
     conv.agents = [];
     leadReply = 'Here is my choice:\n```json\n' + customTeam + '\n```';
-    await orchestrator.send(conv.id, 'What is a monad?');
+    await orchestrator.send(conv.id, 'I want to understand functional programming');
     await finish(conv.id);
 
-    expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
-    expect(calls[0]!.prompt).toContain('What is a monad?');
-    const [user, plan, ...replies] = conv.messages;
-    expect(user!.author.kind).toBe('user');
-    expect(plan!.plan).toMatchObject({ status: 'ready', source: 'custom', name: 'Research pair', reason: 'Two views beat one.' });
+    // Only the lead agent ran: the request is not a question for the team.
+    expect(calls.map((c) => c.name)).toEqual(['lead']);
+    expect(calls[0]!.prompt).toContain('<request>\nI want to understand functional programming\n</request>');
+    const [request, plan] = conv.messages;
+    expect(conv.messages).toHaveLength(2);
+    expect(request!.author.kind).toBe('user');
+    expect(plan!.plan).toMatchObject({ status: 'ready', source: 'custom', name: 'Research pair', reason: 'Two views beat one.', awaitingConfirmation: true });
     expect(plan!.meta?.costUsd).toBe(0.01);
-    expect(replies.map((m) => m.agentName)).toEqual(['Alice', 'Bob']);
     // Grok is not available here, so Bob runs on the lead's CLI.
     expect(conv.agents.map((a) => [a.name, a.provider])).toEqual([
       ['Alice', 'claude'],
       ['Bob', 'claude'],
     ]);
     expect(conv.settings.autoTeam).toBeFalsy();
-    // The plan was never shown to the team as a chat message.
+
+    // Nobody answers until the user confirms the team.
+    await expect(orchestrator.send(conv.id, 'What is a monad?')).rejects.toThrow(/確認/);
+    await expect(orchestrator.send(conv.id, '')).rejects.toThrow(/確認/);
+    orchestrator.confirmPlan(conv.id, plan!.id);
+    expect(plan!.plan!.awaitingConfirmation).toBeUndefined();
+    expect(plan!.plan!.confirmedAt).toEqual(expect.any(Number));
+
+    await orchestrator.send(conv.id, 'What is a monad?');
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
+    // The team sees the request as context, and the question; never the plan.
+    expect(calls[1]!.prompt).toContain('I want to understand functional programming');
+    expect(calls[1]!.prompt).toContain('What is a monad?');
     expect(calls[1]!.prompt).not.toContain('Research pair');
+    expect(agentMessages(conv).map((m) => m.agentName)).toEqual(['Alice', 'Bob']);
 
     const preset = orchestrator.savePlanAsPreset(conv.id, plan!.id, 'My research pair');
     expect(store.listPresets().find((p) => p.id === preset.id)).toMatchObject({ name: 'My research pair' });
     expect(plan!.plan!.savedPresetId).toBe(preset.id);
 
     const reloaded = new Store(db).get(conv.id)!;
-    expect(reloaded.messages[1]!.plan).toMatchObject({ source: 'custom', savedPresetId: preset.id });
+    expect(reloaded.messages[1]!.plan).toMatchObject({ source: 'custom', savedPresetId: preset.id, confirmedAt: plan!.plan!.confirmedAt });
+    expect(reloaded.messages[1]!.plan!.awaitingConfirmation).toBeUndefined();
     expect(reloaded.settings.autoTeam).toBeUndefined();
+  });
+
+  it('takes a team set by hand as confirmation', async () => {
+    const conv = autoConversation();
+    conv.agents = [];
+    leadReply = customTeam;
+    await orchestrator.send(conv.id, 'Help me plan a trip');
+    await finish(conv.id);
+    const plan = conv.messages.find((m) => m.plan)!;
+    expect(plan.plan!.awaitingConfirmation).toBe(true);
+    orchestrator.confirmPendingPlan(conv); // what PATCH { agents } does
+    expect(plan.plan!.awaitingConfirmation).toBeUndefined();
+    // Confirming again, or a plan that never waited, changes nothing.
+    const at = plan.plan!.confirmedAt;
+    orchestrator.confirmPlan(conv.id, plan.id);
+    expect(plan.plan!.confirmedAt).toBe(at);
+    expect(() => orchestrator.confirmPlan(conv.id, 'nope')).toThrow(/找不到這份團隊設計/);
   });
 
   it('uses an existing template when the lead picks one, and the default one when its reply is unusable', async () => {
@@ -332,18 +369,21 @@ describe('auto team', () => {
     expect(other.agents.map((a) => a.name)).toEqual(['Analyst', 'Critic', 'Synthesizer']);
   });
 
-  it('designs the team again when the first question is edited', async () => {
+  it('designs the team again when the request is edited', async () => {
     const conv = autoConversation();
     conv.agents = [];
     leadReply = customTeam;
     await orchestrator.send(conv.id, 'First version');
     await finish(conv.id);
     calls = [];
+    // Editing is allowed while the design waits; it is designed again and waits again.
     await orchestrator.resend(conv.id, conv.messages[0]!.id, 'Second version');
     await finish(conv.id);
-    expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
+    expect(calls.map((c) => c.name)).toEqual(['lead']);
     expect(calls[0]!.prompt).toContain('Second version');
-    expect(conv.messages.filter((m) => m.plan)).toHaveLength(1);
+    const plans = conv.messages.filter((m) => m.plan);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]!.plan!.awaitingConfirmation).toBe(true);
   });
 });
 
@@ -664,43 +704,54 @@ describe('auto team and the directory lock', () => {
       reason: 'Two of us.',
     });
 
-  it('locks the directory when the edited first question is planned again into a shared-directory mode', async () => {
-    const conv = conversation({ mode: 'roundtable', autoTeam: true });
-    conv.agents = [];
-    leadReply = teamIn('parallel');
-    await orchestrator.send(conv.id, 'First version');
-    await finish(conv.id);
-    expect(conv.settings.mode).toBe('parallel');
-
+  it('locks nothing while the lead agent designs the team', async () => {
     let release!: () => void;
-    gate = new Promise((r) => (release = r));
-    leadReply = teamIn('roundtable'); // this time the agents write to the real directory
-    await orchestrator.resend(conv.id, firstUserMessage(conv).id, 'Second version');
-    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(1), { interval: 20 });
-    expect(conv.settings.mode).toBe('roundtable');
+    leadGate = new Promise((r) => (release = r));
+    const conv = conversation({ mode: 'roundtable', autoTeam: true }); // may edit files
+    conv.agents = [];
+    leadReply = teamIn('roundtable');
+    await orchestrator.send(conv.id, 'Request');
+    await vi.waitFor(() => expect(calls.map((c) => c.name)).toContain('lead'), { interval: 20 });
 
     const other = conversation({ mode: 'roundtable' }); // same directory
-    await expect(orchestrator.send(other.id, 'go')).rejects.toThrow(/正在修改/);
+    await orchestrator.send(other.id, 'go');
+    await finish(other.id);
     release();
     await finish(conv.id);
-    await orchestrator.cleanupWorktrees(conv);
   });
 
-  it('lets other conversations use the directory once the lead agent chose parallel mode', async () => {
+  it('locks the directory by the confirmed team\'s mode once the user asks', async () => {
+    const plan = async (mode: string) => {
+      const conv = conversation({ mode: 'roundtable', autoTeam: true });
+      conv.agents = [];
+      leadReply = teamIn(mode);
+      await orchestrator.send(conv.id, 'Request');
+      await finish(conv.id);
+      orchestrator.confirmPlan(conv.id, conv.messages.find((m) => m.plan)!.id);
+      return conv;
+    };
     let release!: () => void;
-    gate = new Promise((r) => (release = r));
-    const conv = conversation({ mode: 'roundtable', autoTeam: true });
-    conv.agents = [];
-    leadReply = teamIn('parallel');
-    await orchestrator.send(conv.id, 'Question');
-    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(2), { interval: 20 });
 
+    // Parallel: the agents write to their own worktrees, so the directory stays free.
+    const parallel = await plan('parallel');
+    gate = new Promise((r) => (release = r));
+    await orchestrator.send(parallel.id, 'Question');
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(parallel.id)).toHaveLength(2), { interval: 20 });
     const other = conversation({ mode: 'roundtable' });
     await orchestrator.send(other.id, 'go');
     release();
-    await finish(conv.id);
+    await finish(parallel.id);
     await finish(other.id);
-    await orchestrator.cleanupWorktrees(conv);
+    await orchestrator.cleanupWorktrees(parallel);
+
+    // Roundtable: the agents write to the directory itself.
+    const shared = await plan('roundtable');
+    gate = new Promise((r) => (release = r));
+    await orchestrator.send(shared.id, 'Question');
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(shared.id)).toHaveLength(1), { interval: 20 });
+    await expect(orchestrator.send(conversation({ mode: 'roundtable' }).id, 'go')).rejects.toThrow(/正在修改/);
+    release();
+    await finish(shared.id);
   });
 
   it('keeps a team adjusted by hand when the first question is edited', async () => {

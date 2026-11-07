@@ -225,3 +225,42 @@ describe('images and videos in replies', () => {
     expect((await get(base + 'out/chart.png', { origin: 'https://evil.example' })).status).toBe(403);
   });
 });
+
+describe('a team design waiting for confirmation', () => {
+  async function waiting(): Promise<Conversation> {
+    const conv = await createConversation({ permission: 'read-only' });
+    const live = store.get(conv.id)!;
+    live.messages.push(
+      { id: 'req', author: { kind: 'user' }, createdAt: Date.now(), parts: [{ type: 'text', text: 'I need a team' }], status: 'done' },
+      {
+        id: 'plan',
+        author: { kind: 'system' },
+        createdAt: Date.now(),
+        parts: [],
+        status: 'done',
+        plan: { status: 'ready', lead: { provider: 'claude' }, source: 'template', name: 'x', agents: live.agents, awaitingConfirmation: true },
+      },
+    );
+    return conv;
+  }
+
+  it('refuses messages until it is confirmed', async () => {
+    const conv = await waiting();
+    const send = () => app.request(`/api/conversations/${conv.id}/messages`, json('POST', { text: 'first question' }));
+    expect((await send()).status).toBe(409);
+    const res = await app.request(`/api/conversations/${conv.id}/messages/plan/confirm-plan`, json('POST', {}));
+    expect(res.status).toBe(200);
+    expect(store.get(conv.id)!.messages[1]!.plan).toMatchObject({ confirmedAt: expect.any(Number) });
+    expect((await app.request(`/api/conversations/${conv.id}/messages/nope/confirm-plan`, json('POST', {}))).status).toBe(404);
+  });
+
+  it('is confirmed by a team set by hand', async () => {
+    const conv = await waiting();
+    const res = await app.request(
+      `/api/conversations/${conv.id}`,
+      json('PATCH', { agents: [{ name: 'Zed', provider: 'claude', role: 'Mine.' }] }),
+    );
+    expect(res.status).toBe(200);
+    expect(store.get(conv.id)!.messages[1]!.plan!.awaitingConfirmation).toBeUndefined();
+  });
+});

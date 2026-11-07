@@ -2534,6 +2534,25 @@ details.sub summary {
   padding-left: 28px;
 }
 
+/* A design waiting for the user: confirm it, then ask the first question. */
+.plan-card.awaiting {
+  border-color: color-mix(in srgb, var(--info) 55%, var(--border));
+}
+
+.plan-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--info) 9%, transparent);
+}
+
+.plan-confirm > span {
+  margin-right: auto;
+}
+
 .plan-actions {
   display: flex;
   align-items: center;
@@ -2897,7 +2916,8 @@ details.sub summary {
   animation: breathe 1.2s ease-in-out infinite;
 }
 
-.status-dot.waiting {
+.status-dot.waiting,
+.status-dot.confirm {
   background: var(--warn);
 }
 
@@ -2923,7 +2943,8 @@ details.sub summary {
   background: color-mix(in srgb, var(--info) 12%, transparent);
 }
 
-.conv-status.waiting {
+.conv-status.waiting,
+.conv-status.confirm {
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
@@ -2940,6 +2961,7 @@ details.sub summary {
 
 /* A new reply you have not opened yet: its title stands out too. */
 .conv-item:has(.status-dot.unread) .conv-title,
-.conv-item:has(.status-dot.waiting) .conv-title {
+.conv-item:has(.status-dot.waiting) .conv-title,
+.conv-item:has(.status-dot.confirm) .conv-title {
   font-weight: 650;
 }

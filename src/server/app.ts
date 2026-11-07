@@ -233,6 +233,7 @@ export function createApp({ store, settings, hub, orchestrator, providers, extra
       if (b.settings) await orchestrator.prepareWorkspace({ ...conv, settings: next });
       conv.agents = agents;
       conv.settings = next;
+      if (b.agents) orchestrator.confirmPendingPlan(conv);
       return save();
     });
   });
@@ -322,6 +323,12 @@ export function createApp({ store, settings, hub, orchestrator, providers, extra
   app.post('/api/conversations/:id/messages/:messageId/retry', async (c) => {
     await orchestrator.retry(c.req.param('id'), c.req.param('messageId'));
     return c.json({ ok: true }, 202);
+  });
+
+  // Accept the team the lead agent designed (auto team); then the user asks their first question.
+  app.post('/api/conversations/:id/messages/:messageId/confirm-plan', async (c) => {
+    orchestrator.confirmPlan(c.req.param('id'), c.req.param('messageId'));
+    return c.json({ ok: true });
   });
 
   // Save a team the lead agent designed (auto team) as a template.

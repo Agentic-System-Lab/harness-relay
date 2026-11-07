@@ -278,6 +278,8 @@ interface Props {
   onApply: (agentId: string) => Promise<void>;
   /** Replace a user message and run the team again from it; resolves true once sent. */
   onResend: (messageId: string, text: string) => Promise<boolean>;
+  /** Accept the team the lead agent designed (auto team), so the user can ask their first question. */
+  onConfirmPlan: (messageId: string) => Promise<void>;
   /** Save the team the lead agent designed (auto team) as a template. */
   onSavePlan: (messageId: string, name: string) => Promise<void>;
   onAdjustTeam: () => void;
@@ -288,9 +290,15 @@ interface Props {
 }
 
 /** The lead agent's team design for an auto-team conversation. */
-function PlanCard({ msg, onSavePlan, onAdjustTeam }: Pick<Props, 'msg' | 'onSavePlan' | 'onAdjustTeam'>) {
+function PlanCard({
+  msg,
+  onConfirmPlan,
+  onSavePlan,
+  onAdjustTeam,
+}: Pick<Props, 'msg' | 'onConfirmPlan' | 'onSavePlan' | 'onAdjustTeam'>) {
   const t = useT();
   const [saving, setSaving] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const plan = msg.plan!;
   const lead = leadLabel(plan.lead);
 
@@ -319,8 +327,18 @@ function PlanCard({ msg, onSavePlan, onAdjustTeam }: Pick<Props, 'msg' | 'onSave
     }
   };
 
+  const awaiting = Boolean(plan.awaitingConfirmation);
+  const confirm = async () => {
+    setConfirming(true);
+    try {
+      await onConfirmPlan(msg.id);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   return (
-    <section className={`plan-card ${plan.source ?? ''}`} aria-label={t.plan.title}>
+    <section className={`plan-card ${plan.source ?? ''} ${awaiting ? 'awaiting' : ''}`} aria-label={t.plan.title}>
       <header className="plan-head">
         <Logo size={18} />
         <strong>{t.plan.title}</strong>
@@ -343,21 +361,35 @@ function PlanCard({ msg, onSavePlan, onAdjustTeam }: Pick<Props, 'msg' | 'onSave
           </li>
         ))}
       </ul>
+      {awaiting && (
+        <div className="plan-confirm">
+          <span className="small">{t.plan.confirmHint}</span>
+          <button type="button" className="primary small-button" onClick={confirm} disabled={confirming}>
+            {confirming ? t.plan.confirming : t.plan.confirm}
+          </button>
+          <button type="button" className="ghost small-button" onClick={onAdjustTeam}>
+            {t.plan.adjust}
+          </button>
+        </div>
+      )}
       <div className="plan-actions">
+        {plan.confirmedAt && <span className="small plan-saved">✓ {t.plan.confirmed}</span>}
         {planSavable(plan) &&
           (plan.savedPresetId ? (
             <span className="small plan-saved">✓ {t.plan.saved(plan.name ?? '')}</span>
           ) : (
             <>
               <span className="small">{t.plan.askSave}</span>
-              <button type="button" className="primary small-button" onClick={save} disabled={saving}>
+              <button type="button" className={`${awaiting ? 'ghost' : 'primary'} small-button`} onClick={save} disabled={saving}>
                 {saving ? t.plan.saving : t.plan.save}
               </button>
             </>
           ))}
-        <button type="button" className="ghost small-button" onClick={onAdjustTeam}>
-          {t.plan.adjust}
-        </button>
+        {!awaiting && (
+          <button type="button" className="ghost small-button" onClick={onAdjustTeam}>
+            {t.plan.adjust}
+          </button>
+        )}
         {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
       </div>
     </section>
@@ -544,6 +576,7 @@ export const MessageItem = memo(function MessageItem({
   onDiff,
   onApply,
   onResend,
+  onConfirmPlan,
   onSavePlan,
   onAdjustTeam,
   onApproval,
@@ -552,7 +585,7 @@ export const MessageItem = memo(function MessageItem({
   const t = useT();
 
   if (msg.author.kind === 'system') {
-    if (msg.plan) return <PlanCard msg={msg} onSavePlan={onSavePlan} onAdjustTeam={onAdjustTeam} />;
+    if (msg.plan) return <PlanCard msg={msg} onConfirmPlan={onConfirmPlan} onSavePlan={onSavePlan} onAdjustTeam={onAdjustTeam} />;
     return (
       <div className="msg-system">
         <span>{msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')}</span>
