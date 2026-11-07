@@ -106,7 +106,7 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 - Voice: plain, specific, second person, short sentences. Name real things (`claude`, `codex app-server`, `127.0.0.1`). No hype words.
 - Use the app's own terms. English: Auto team, Roundtable, Parallel, Relay, Read-only, Edit, Full access, lead agent. 繁體中文: 自動組隊、圓桌、平行、接力、唯讀、可編輯、完全存取、首席 agent (see `src/web/locales/zh-TW.ts`).
 - English page: `site/index.html`. Chinese page: `site/zh-TW/index.html` (`lang="zh-Hant-TW"`). A change to one is a change to both.
-- On the first visit, the English page redirects a browser whose first language is Chinese to `zh-TW/`, as the app does. Clicking the language switch stores the choice (`localStorage` key `hr-lang`) and stops the redirect.
+- The site remembers the visitor's language. Clicking the language switch (header or footer, `data-lang`) stores the choice in `localStorage` under `harness-relay.lang` (`en` or `zh-TW`). On every later visit the inline script in each page's `<head>` sends the visitor to the page in that language before anything renders, keeping the `#section` anchor. Until they choose, the English page follows the browser like the app does: a browser whose first language is Chinese gets `zh-TW/`; a Chinese page opened directly stays as it is.
 - Template names and descriptions come from `src/server/presets.ts`; keep them in sync.
 - CLI links: Claude Code https://docs.claude.com/en/docs/claude-code, Codex https://github.com/openai/codex, Grok https://github.com/xai-org/grok-build.
 
@@ -144,4 +144,4 @@ The origin of each raster is also embedded in the file (PNG text chunk) or in a 
 npm run site:preview   # http://127.0.0.1:4180/ and /zh-TW/ (SITE_PORT changes the port)
 ```
 
-[`scripts/preview-site.ts`](../scripts/preview-site.ts) serves `site/` the way GitHub Pages will: the demo videos come from `docs/media/` under `/media/`, and Markdown files and `*.webp.json` sidecars are not served. To see the first-visit language redirect, clear the `hr-lang` key in the browser's local storage.
+[`scripts/preview-site.ts`](../scripts/preview-site.ts) serves `site/` the way GitHub Pages will: the demo videos come from `docs/media/` under `/media/`, and Markdown files and `*.webp.json` sidecars are not served. To see the first-visit language redirect again, remove the `harness-relay.lang` key from the browser's local storage.

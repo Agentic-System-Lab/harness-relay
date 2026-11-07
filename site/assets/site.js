@@ -13,10 +13,10 @@ function store(key, value) {
   return null;
 }
 
-// ---------- Language: remember an explicit choice so the root page stops redirecting ----------
+// ---------- Language: remember the visitor's choice; both pages' <head> scripts honour it ----------
 
 for (const link of document.querySelectorAll('[data-lang]')) {
-  link.addEventListener('click', () => store('hr-lang', link.dataset.lang));
+  link.addEventListener('click', () => store('harness-relay.lang', link.dataset.lang));
 }
 
 // ---------- Header border once the page scrolls ----------

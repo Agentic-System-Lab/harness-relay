@@ -33,11 +33,12 @@
     <link rel="stylesheet" href="assets/site.css" />
     <script>
       document.documentElement.classList.add('js');
-      // First visit with a Chinese browser: show the Traditional Chinese page, like the app does.
+      // Show the language the visitor picked last time. Before they pick one, follow the
+      // browser like the app does: Chinese gets the Traditional Chinese page.
       try {
-        if (!localStorage.getItem('hr-lang') && /^zh/i.test((navigator.languages || [])[0] || navigator.language || '')) {
-          location.replace('zh-TW/');
-        }
+        var lang = localStorage.getItem('harness-relay.lang');
+        var browserZh = /^zh/i.test((navigator.languages || [])[0] || navigator.language || '');
+        if (lang === 'zh-TW' || (!lang && browserZh)) location.replace('zh-TW/' + location.hash);
       } catch (e) {}
     </script>
     <script src="assets/site.js" defer></script>

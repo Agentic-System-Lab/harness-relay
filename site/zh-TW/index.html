@@ -33,6 +33,10 @@
     <link rel="stylesheet" href="../assets/site.css" />
     <script>
       document.documentElement.classList.add('js');
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../' + location.hash);
+      } catch (e) {}
     </script>
     <script src="../assets/site.js" defer></script>
   </head>
