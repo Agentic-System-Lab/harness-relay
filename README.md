@@ -86,3 +86,7 @@ API keys you save in Settings are kept in your operating system's credential sto
 | `npm test` | Run the test suite (Vitest) |
 
 Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
+## License
+
+This project's code is licensed under the [Apache License 2.0](LICENSE).

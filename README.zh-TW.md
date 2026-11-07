@@ -86,3 +86,7 @@ agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**
 | `npm test` | 執行測試（Vitest） |
 
 每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。
+
+## 授權
+
+本專案的程式碼以 [Apache License 2.0](LICENSE) 授權。

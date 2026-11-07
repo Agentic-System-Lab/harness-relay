@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "A ChatGPT-style group chat where Claude Code, Codex and Grok collaborate with you and with each other.",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n server,web -c blue,magenta \"tsx watch --clear-screen=false src/server/index.ts\" \"vite\"",
