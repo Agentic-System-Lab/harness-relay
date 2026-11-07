@@ -60,13 +60,14 @@ flowchart LR
 | `src/server/settings.ts` | Provider settings (binary path, API key, default model/effort), default working directory, lead agent, child-process environment |
 | `src/server/attachments.ts` | Files attached to user messages: saving them under `data/attachments`, safe file names, which ones go to the agents as images |
 | `src/server/media.ts` | Images and videos a reply embeds: which directories they may come from, resolving a path safely (real path inside one of them, media types only), byte ranges |
+| `src/server/voice.ts` | Voice input: installs the whisper.cpp engine and models (pinned, SHA-256 checked) in the background, runs `whisper-server` on demand, transcribes recordings |
 | `src/server/secrets.ts` | The OS credential store for API keys (`@napi-rs/keyring`), or none when the system has no usable one |
 | `src/server/db.ts` | Opens SQLite, applies schema migrations, transaction helper |
 | `src/server/hub.ts` | Per-conversation event fan-out to connected SSE clients |
 | `src/shared/types.ts` | Types shared by server and client |
 | `src/shared/media.ts` | Which image and video types can be shown, and which image URLs in a reply are local files (relative or absolute paths, `file:` URLs) rather than other sites |
 | `src/shared/mentions.ts` | The `@mention` rule used by both the server (who is addressed) and the UI (which mentions are highlighted): the message is read as Markdown (GFM) and only prose counts, not code or link text |
-| `src/web/*` | React UI: sidebar, team designer, chat view, settings page, guided tour; `i18n.tsx` + `locales/` hold the UI strings; `chat.ts` holds the chat view's pure logic (reconnecting, Apply availability, team-drawer draft) |
+| `src/web/*` | React UI: sidebar, team designer, chat view, settings page, guided tour; `i18n.tsx` + `locales/` hold the UI strings; `chat.ts` holds the chat view's pure logic (reconnecting, Apply availability, team-drawer draft); `recorder.ts` records the microphone and `voice.ts` holds voice input's pure logic (WAV encoding, silence, inserting the transcript) |
 
 ## Conversation model
 
@@ -276,7 +277,7 @@ Everything except API keys and attached files lives in one SQLite database, `dat
 | `agent_seen` | which messages each agent has been shown |
 | `presets`, `preset_agents` | user-saved team templates (built-in templates live in code) |
 | `provider_settings` | per CLI: binary path, default model, default effort; the API key only when there is no system credential store |
-| `app_settings` | key/value app settings (default working directory, lead agent) |
+| `app_settings` | key/value app settings (default working directory, lead agent, voice input) |
 
 Conversations in use are kept in memory, because the orchestrator mutates them while streaming. Writes are explicit: user messages, new agent messages, finished turns and session ids are written immediately; streaming changes are batched and written at most once per second, only for messages that changed. Messages left `streaming` by a crashed server are marked `aborted` at startup.
 
@@ -301,6 +302,39 @@ Schema changes are applied by ordered migrations tracked in `PRAGMA user_version
   - *Migration*: a key found in the database while a credential store is available (saved by an earlier version, or while there was none) is copied into the store, read back, cleared from the column, and the WAL is checkpointed so the plaintext does not linger in `relay.db-wal`. If moving it fails it stays in the database and Settings shows that.
 - **Models** — Codex: `codex debug models` (catalog with per-model effort levels and defaults; defaults from `~/.codex/config.toml`). Grok: `grok models`. Claude Code has no list command, so the UI offers its aliases (`fable`, `opus`, `sonnet`, `haiku`) and reads the default from `settings.json` in `CLAUDE_CONFIG_DIR` (or `~/.claude`). Cached for 10 minutes.
 
+## Voice input
+
+Optional speech-to-text for the message box, done on this computer by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`src/server/voice.ts`). Nothing is installed until the user asks for it, from the microphone in the message box or from Settings → Voice input. Recognition never leaves the computer; the only network access is downloading the engine and the model when the user installs them, so the server still calls no model API.
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant S as Server (VoiceService)
+  participant W as whisper-server (127.0.0.1, random port)
+  B->>S: POST /api/voice/prepare (recording starts)
+  S->>W: start it with the selected model, if it is not running
+  B->>B: MediaRecorder → decode → 16 kHz mono → skip silence → WAV
+  B->>S: POST /api/voice/transcribe { audio: base64 WAV }
+  S->>W: POST /<secret>/inference (multipart: file, language, prompt)
+  W-->>S: { text }
+  S-->>B: { text } (cleaned up)
+  B->>B: insert at the caret (not sent)
+```
+
+- **Install** — `POST /api/voice/install` starts a background job with the steps that are missing, and the UI polls `GET /api/voice` for its progress (bytes, speed, the installer's output). Only one runs at a time; it can be cancelled, and its error is rendered in the language of whoever looks.
+
+  | Step | macOS | Linux (x64, arm64) | Windows (x64, arm64) |
+  | --- | --- | --- | --- |
+  | Engine | `brew install whisper-cpp` (Metal GPU; needs Homebrew) | official prebuilt build of the pinned release (CPU), unpacked with `tar` into `data/voice/engine/<tag>/` | the same (`tar` reads the `.zip` on Windows 10 and later) |
+  | Model | `ggml-<model>.bin` from Hugging Face, pinned to one commit, into `data/voice/models/` | same | same |
+  | Check | `whisper-server --help`, then start it with the model | same | same |
+
+  Every download is checked against its pinned size and SHA-256 while it streams into a `.part` file, which is renamed only when both match and deleted otherwise. The disk is checked for room first. An engine already on the computer is used instead (the path set in Settings, the one Harness Relay downloaded, or `whisper-server` on PATH or in Homebrew's directories).
+- **Models** — Base, Small, Large v3 Turbo (quantized q5_0), Large v3 Turbo, Large v3 (q5_0). Apple silicon is offered Large v3 Turbo q5_0; other computers, which run the engine on the CPU, are offered Small. Switching to a downloaded model is a setting; another one is installed first.
+- **Engine process** — `whisper-server`, spawned through `process.ts`, listens on `127.0.0.1` on a free port under a random 128-bit path prefix (`--request-path`), with `--public` pointed at an empty folder. whisper-server answers any origin (`Access-Control-Allow-Origin: *`), so the secret prefix is what keeps other web pages from using it. It starts on first use (or as soon as recording starts), restarts when the model or the engine path changes, and stops after 10 idle minutes and on shutdown.
+- **Language** — `follow` (the UI language), `auto`, `zh` or `en`. For Chinese a short Traditional-Chinese prompt steers Whisper to Traditional characters. The transcript is cleaned up: markers such as `[BLANK_AUDIO]` are dropped and no spaces are left between CJK segments. The browser does not send recordings that are too short or never louder than background noise, because Whisper invents text for silence.
+- **Settings** — the model, language and engine path are kept as JSON under the `voice` key of `app_settings`.
+
 ## Security
 
 The server can start coding agents with write access, so it is locked down to the local UI:
@@ -313,7 +347,8 @@ The server can start coding agents with write access, so it is locked down to th
 - draws ```` ```mermaid ```` blocks by showing Mermaid's SVG (rendered with `securityLevel: 'strict'`) as an `<img>`, in which the browser runs no scripts and loads nothing, so a diagram cannot contact another site either;
 - API keys are kept in the OS credential store, not the database (see above); the SQLite file (and its WAL files) are readable by the owner only, and deleted rows are overwritten;
 - attached files are served with `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`; only PNG, JPEG, GIF and WebP are shown inline, and anything else is a download, so an attached HTML or SVG file can never run in the app's origin. File names are stripped of directories and control characters before they touch the disk;
-- environment variables that Claude Code sets for its own children are removed before spawning `claude`, so the app also works when started from inside a Claude Code session.
+- environment variables that Claude Code sets for its own children are removed before spawning `claude`, so the app also works when started from inside a Claude Code session;
+- voice input keeps recordings on the computer: the speech engine listens on `127.0.0.1` behind a random path prefix, and the engine and models it downloads are pinned to a release or commit and checked by SHA-256 (see [Voice input](#voice-input)).
 
 It is a single-user tool: there is no authentication, and any process that can reach your localhost can use it.
 
@@ -335,3 +370,4 @@ It is a single-user tool: there is no authentication, and any process that can r
 - Codex asks only when its model decides to request more than the sandbox allows; a blocked call it does not ask about just fails.
 - Claude Code's thinking text needs the undocumented `--thinking-display summarized` flag; Claude Code's to-do list appears only when its `TodoWrite` tool is available.
 - Retrying or editing makes every agent start a fresh CLI session with the remaining history.
+- Voice input: the prebuilt Linux and Windows engines run on the CPU (no CUDA or Vulkan), so large models are slow there; the Linux build needs glibc 2.34 or later (Ubuntu 22.04, Debian 12 and newer, not musl); on macOS it needs Homebrew, which also installs whisper.cpp's dependencies. Text appears after you stop speaking, not while you speak. Whisper can still write Simplified characters, or make up a phrase from noise.

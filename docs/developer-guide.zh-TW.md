@@ -47,18 +47,23 @@ src/
     attachments.ts         訊息的附加檔案：儲存、安全檔名、交給 agent 的圖片
     presets.ts             內建團隊範本（兩種語言）
     validate.ts            agent 與設定的輸入驗證
+    voice.ts               語音輸入：安裝 whisper.cpp 引擎與模型（固定版本、檢查 SHA-256）、引擎程序、語音轉文字
     workspace.ts           git：自動 init、快照、worktree、diff、套用
     errors.ts              HttpError（帶狀態碼、給使用者看的錯誤）
     hub.ts                 SSE 廣播
   web/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
     chat.ts                ChatView 的純邏輯：串流是否重新連線、能否套用、團隊設定草稿
+    voice.ts               語音輸入的純邏輯：WAV 編碼、靜音判斷、把辨識結果插入游標處、安裝進度
+    recorder.ts            在瀏覽器錄音，解碼成 16 kHz 單聲道
+    useVoice.ts            語音輸入狀態的 hook（安裝時輪詢）
     i18n.tsx               語言偵測、provider、useT()
     locales/               zh-TW.ts（訊息結構的來源）、en.ts
     components/            Sidebar、NewChat、TeamEditor、ModelPicker、ChatView、
                            MessageItem（含 plan 卡片）、ChangesCard、Composer、Markdown、
                            SettingsPage、CopyButton、Logo、Onboarding（使用導覽）、
-                           MemberDots、icons、
+                           MemberDots、icons、VoiceInput（麥克風、安裝說明對話框、安裝進度）、
+                           VoiceSettings（設定 → 語音輸入）、
                            useDialog（對話框的焦點處理）
 test/                      Vitest 測試
 .github/workflows/ci.yml   CI：pull request 與推送到 main 時執行型別檢查、測試與建置
@@ -134,6 +139,14 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | `POST /api/providers/:provider/login/input` | `{ text }` → 寫入登入程序的 stdin |
 | `DELETE /api/providers/:provider/login` | 取消登入 |
 | `POST /api/providers/:provider/logout` | 登出該 CLI |
+| `GET /api/voice` | → `VoiceStatus`：引擎、模型、選用的模型與語言、進行中或最近一次的安裝（`job`）、引擎程序（`job.state` 為 `running` 時輪詢） |
+| `PUT /api/voice/settings` | `{ model?, language?, bin? }` → `VoiceStatus`（`bin`：`whisper-server` 的路徑，留空代表自動尋找） |
+| `POST /api/voice/install` | `{ model? }` → `VoiceStatus`：在背景安裝缺少的部分（引擎、模型），完成後改用該模型（已有安裝在進行時 409；這台電腦無法自動安裝或硬碟空間不足時 400） |
+| `DELETE /api/voice/install` | 取消安裝 |
+| `DELETE /api/voice/models/:model` | 刪除下載的模型 |
+| `DELETE /api/voice` | 刪除下載的模型與引擎（Homebrew 安裝的會保留） |
+| `POST /api/voice/prepare` | 先啟動引擎，準備語音轉文字（開始錄音時送出） |
+| `POST /api/voice/transcribe` | `{ audio }`（base64 的 16 kHz 單聲道 16-bit WAV，最長 120 秒）→ `{ text }`（尚未設定語音輸入時 409） |
 
 型別定義在 `src/shared/types.ts`。
 
@@ -217,6 +230,8 @@ npx vitest test/store.test.ts
 - `test/sidebar.test.ts`：側邊欄的對話狀態。
 - `test/planner.test.ts`：首席 agent 的回覆：擷取 JSON、範本與自訂團隊、驗證、改用已登入的 CLI、備援方案，以及 prompt。
 - `test/i18n.test.ts`：語言偵測（伺服器 header 與瀏覽器）、語言在非同步工作中的傳遞、雙語範本，以及兩份介面字典結構相同。
+- `test/voice.test.ts`：用假的下載、程序與引擎測試語音輸入：固定版本的下載清單、背景安裝（引擎、模型、檢查），涵蓋 Linux 與 macOS 的 Homebrew、SHA-256 不符、取消、硬碟空間、自訂引擎路徑、引擎無法啟動、引擎只聽 127.0.0.1 並藏在隨機路徑後、語音轉文字與辨識語言、切換與刪除模型、設定，以及 HTTP 路由。
+- `test/voice-web.test.ts`：瀏覽器端的語音輸入：WAV 編碼、靜音判斷、把辨識結果插入游標處，以及麥克風與設定頁顯示的狀態。
 
 `test/orchestrator.test.ts` 也涵蓋用假 agent 測試核准（詢問並等待、「本對話都允許」、拒絕時的說明、停止時過期、自動拒絕）、重試回覆、編輯使用者訊息（`resend`：之後的訊息會被刪除，每個 agent 都開新的 session），以及用假的首席 agent 測試自動組隊（自訂設計要等確認後團隊才回答、手動設定團隊也算確認、存成範本、使用範本、備援方案、編輯需求描述後重新設計，以及規劃時不上鎖），還有附加檔案（以安全檔名儲存、把圖片與路徑交給每個 agent、編輯訊息時保留、隨被刪除的訊息一起刪除、只傳檔案的訊息、錯誤的上傳）。
 
@@ -250,6 +265,7 @@ npx vitest test/store.test.ts
 - **自動組隊**：首席 agent 的執行就是對話工作目錄中一個普通的 CLI session；它的回覆與費用記在 plan 訊息上（`messages.plan`、`cost_usd`）。
 - **重現 CLI 呼叫**：`src/server/agents/*.ts` 中的參數可以手動執行；加上 `--debug`（Claude、Grok）可看到更多資訊。
 - **worktree**：`git -C <工作目錄> worktree list` 與 `git branch --list 'relay/*'` 可以看到平行對話建立了哪些 worktree；實際檔案在 `data/worktrees/<對話>/`。
+- **語音輸入**：`GET /api/voice` 會列出安裝了什麼，以及最近一次安裝的紀錄；引擎以 `whisper-server` 程序執行（可用 `ps` 查看），閒置 10 分鐘後停止。下載的檔案放在 `data/voice/`（`models/`，以及 Linux 與 Windows 上的 `engine/`）。
 - **session 卡住**：先停止伺服器，再刪除 `agent_sessions` 中該 agent 的那一列，就會強制開新 session 並提供完整紀錄（使用中的對話快取在記憶體裡，所以只在伺服器停止時修改資料庫）。
 
 ## 慣例

@@ -3,7 +3,9 @@ import { ATTACHMENT_LIMITS, PROVIDER_LABEL, isInlineImage, type AgentConfig } fr
 import type { AttachmentUpload } from '../api';
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, initials } from '../util';
+import { insertTranscript } from '../voice';
 import { PaperclipIcon } from './icons';
+import { VoiceButton } from './VoiceInput';
 
 interface Pending {
   id: string;
@@ -77,6 +79,8 @@ export function Composer({
   const sendingRef = useRef(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const textRef = useRef(text);
+  textRef.current = text;
 
   // Free the image previews when the composer goes away.
   const filesRef = useRef(files);
@@ -162,6 +166,22 @@ export function Composer({
       el.focus();
       el.setSelectionRange(before.length, before.length);
       setCaret(before.length);
+    });
+  };
+
+  /** A voice transcript goes where the caret is (or replaces the selection); it is not sent by itself. */
+  const insertVoice = (piece: string) => {
+    const el = ref.current;
+    const cur = textRef.current;
+    const start = el ? el.selectionStart : cur.length;
+    const end = el ? el.selectionEnd : cur.length;
+    const next = insertTranscript(cur, start, end, piece);
+    setText(next.text);
+    setCaret(next.caret);
+    setNotice('');
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(next.caret, next.caret);
     });
   };
 
@@ -317,6 +337,7 @@ export function Composer({
             onPaste={onPaste}
           />
           <div className="composer-actions">
+            <VoiceButton onText={insertVoice} onError={setNotice} />
             {running ? (
               <button className="stop" onClick={onStop} aria-label={t.composer.stopLabel}>
                 {t.composer.stop}

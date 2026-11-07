@@ -185,6 +185,19 @@ Click **Team settings** in the header to change roles, models, effort, mode, per
 - **Edit** under one of your own messages lets you change it and send it again (Enter sends, Shift+Enter adds a line, Esc cancels). Everything after that message is deleted and the team answers again from there; every agent starts a fresh session and re-reads the history up to your edited message. Files the deleted replies changed are **not** restored — if any of them changed files you are asked to confirm first. Editing is not available while the team is replying.
 - **↻ Retry** under an agent's reply lets that agent answer again. Its reply and everything after it are deleted (you are asked to confirm when there is anything after it); outside relay mode, the later speakers of the same round answer again too.
 
+### Voice input
+
+Press 🎙 next to Send and speak; press it again (it shows a red timer while recording) and the text appears where the cursor is, so you can fix it, add an `@mention` and send it yourself. Esc cancels a recording, and one recording lasts at most two minutes. Speech is turned into text on your computer by whisper.cpp; the recording is never uploaded.
+
+Voice input is optional. The first time you press 🎙, a dialog explains what will be downloaded and where it goes:
+
+- **The engine** (whisper.cpp) — on macOS it is installed with Homebrew (`brew install whisper-cpp`) and uses the GPU (Metal); on Linux and Windows Harness Relay downloads the official build (about 5–10 MB), which runs on the CPU. If you have whisper.cpp already, it is used.
+- **A model** — pick one; the dialog suggests the best fit for your computer (Large v3 Turbo on Apple silicon, Small elsewhere).
+
+Click **Download and install** and keep working: it installs in the background (a dot on 🎙 shows it), and **Settings → Voice input** shows each step, the download progress and the installer's output, with **Cancel install**. Every file is checked against its known contents (SHA-256) before it is used.
+
+In **Settings → Voice input** you can also install it from scratch, download and switch models (**Download and use**, **Use**, **Remove**), choose the spoken language (follow the UI language, auto-detect, Chinese written in Traditional characters, or English), point to your own `whisper-server`, and **Remove voice input** to delete what was downloaded. The engine starts the first time you speak and stops after 10 idle minutes, which frees the memory the model takes.
+
 ### Conversation list
 
 The sidebar lists conversations, newest first, each with its state:
@@ -211,7 +224,7 @@ To make room, collapse the sidebar with the panel button next to *Harness Relay*
 
 ## 6. Where data is stored
 
-All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`). Your language choice and whether you finished the tour are kept in the browser. Back up by copying `data/` while the app is stopped.
+All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`). Voice input's models (and, on Linux and Windows, its engine) are in `data/voice/`; **Settings → Voice input → Remove voice input** deletes them. Your language choice and whether you finished the tour are kept in the browser. Back up by copying `data/` while the app is stopped.
 
 ## 7. Troubleshooting
 
@@ -231,4 +244,8 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | "Reconnecting…" stays up | The server is down or restarting; the page reconnects by itself once it is back. |
 | "Too broad" when choosing a working directory | The folder is inside a git repository rooted at your home directory (such as a dotfiles repository). Pick a project folder, or run `git init` in the project folder. |
 | Some messages are in the other language | System notes and errors are written in the language that was active when they happened; switching language doesn't translate them. |
+| 🎙 says the microphone is not available | Allow this page to use the microphone (the site permissions next to the address bar), and check the system's privacy settings for your browser. |
+| Voice input install fails | Open **Settings → Voice input** and read the error and the install log. On macOS install [Homebrew](https://brew.sh) first; on an older Linux (glibc before 2.34) install whisper.cpp yourself and set the **whisper-server path** under **Advanced**. |
+| Transcription is slow | Choose a smaller model in **Settings → Voice input** (Small or Base); without a GPU the large models take several seconds. The first transcription after a while also loads the model. |
+| Transcribed Chinese uses Simplified characters, or the wrong language | Set **Spoken language** to Chinese (Traditional) or English instead of auto-detect; a larger model also helps. |
 | Port already in use | Start with another port: `PORT=8790 npm run dev` (the UI proxy follows `PORT`). |

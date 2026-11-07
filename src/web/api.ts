@@ -15,6 +15,9 @@ import type {
   ProviderStatus,
   SettingsView,
   TeamPreset,
+  VoiceModelId,
+  VoiceSettingsUpdate,
+  VoiceStatus,
 } from '../shared/types';
 import { currentLang } from './i18n';
 
@@ -121,4 +124,16 @@ export const api = {
     request<LoginSessionView>('POST', `/api/providers/${p}/login/input`, { text }),
   cancelLogin: (p: Provider) => request<{ ok: true }>('DELETE', `/api/providers/${p}/login`),
   logout: (p: Provider) => request<{ ok: true; output: string }>('POST', `/api/providers/${p}/logout`),
+
+  // voice input
+  voice: () => request<VoiceStatus>('GET', '/api/voice'),
+  updateVoice: (b: VoiceSettingsUpdate) => request<VoiceStatus>('PUT', '/api/voice/settings', b),
+  /** Installs what is missing for `model` in the background (the engine, the model). */
+  installVoice: (model?: VoiceModelId) => request<VoiceStatus>('POST', '/api/voice/install', { model }),
+  cancelVoiceInstall: () => request<VoiceStatus>('DELETE', '/api/voice/install'),
+  deleteVoiceModel: (model: VoiceModelId) => request<VoiceStatus>('DELETE', `/api/voice/models/${model}`),
+  uninstallVoice: () => request<VoiceStatus>('DELETE', '/api/voice'),
+  prepareVoice: () => request<{ ok: true }>('POST', '/api/voice/prepare'),
+  /** `audio`: base64 16 kHz mono WAV. */
+  transcribe: (audio: string) => request<{ text: string }>('POST', '/api/voice/transcribe', { audio }),
 };

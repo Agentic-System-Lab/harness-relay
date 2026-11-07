@@ -1,10 +1,14 @@
 import { join, resolve } from 'node:path';
 import {
   PROVIDERS,
+  VOICE_LANGUAGES,
+  VOICE_MODELS,
   type LeadAgentSettings,
   type Provider,
   type ProviderSettingsUpdate,
   type SettingsView,
+  type VoiceLanguage,
+  type VoiceModelId,
 } from '../shared/types';
 import type { Database } from './db';
 import { t } from './i18n';
@@ -12,6 +16,13 @@ import type { SecretStore } from './secrets';
 
 export const DATA_DIR = resolve(process.env.RELAY_DATA_DIR ?? join(process.cwd(), 'data'));
 export const DB_FILE = join(DATA_DIR, 'relay.db');
+
+/** Voice input; an unset model means the one recommended for this computer. */
+export interface VoiceSettings {
+  model?: VoiceModelId;
+  language: VoiceLanguage;
+  bin: string;
+}
 
 interface ProviderSettings {
   bin: string;
@@ -65,6 +76,7 @@ export class SettingsStore {
   private providers: Record<Provider, ProviderSettings>;
   private cwd: string;
   private leadAgent: LeadAgentSettings = { provider: 'claude' };
+  private voiceSettings: VoiceSettings = { language: 'follow', bin: '' };
   /** With a keyring: providers whose key is still in the database because moving it failed. */
   private keysLeftInDb = new Set<Provider>();
 
@@ -95,6 +107,19 @@ export class SettingsStore {
         if (PROVIDERS.includes(v.provider)) this.leadAgent = { provider: v.provider, model: v.model || undefined, effort: v.effort || undefined };
       } catch {
         /* keep the default */
+      }
+    }
+    const voice = db.prepare("SELECT value FROM app_settings WHERE key = 'voice'").get() as { value: string } | undefined;
+    if (voice) {
+      try {
+        const v = JSON.parse(voice.value) as Partial<VoiceSettings>;
+        this.voiceSettings = {
+          model: VOICE_MODELS.includes(v.model as VoiceModelId) ? v.model : undefined,
+          language: VOICE_LANGUAGES.includes(v.language as VoiceLanguage) ? v.language! : 'follow',
+          bin: typeof v.bin === 'string' ? v.bin : '',
+        };
+      } catch {
+        /* keep the defaults */
       }
     }
     if (keyring) this.loadKeys(keyring);
@@ -145,6 +170,22 @@ export class SettingsStore {
         "INSERT INTO app_settings (key, value) VALUES ('lead_agent', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       )
       .run(JSON.stringify(this.leadAgent));
+  }
+
+  /** Voice input settings. */
+  get voice(): VoiceSettings {
+    return { ...this.voiceSettings };
+  }
+
+  setVoice(update: Partial<VoiceSettings>): void {
+    const next = { ...this.voiceSettings };
+    if (update.model !== undefined) next.model = update.model;
+    if (update.language !== undefined) next.language = update.language;
+    if (update.bin !== undefined) next.bin = update.bin.trim();
+    this.voiceSettings = next;
+    this.db
+      .prepare("INSERT INTO app_settings (key, value) VALUES ('voice', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(JSON.stringify(next));
   }
 
   private saveProvider(p: Provider): void {

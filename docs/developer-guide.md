@@ -47,18 +47,23 @@ src/
     attachments.ts         files attached to messages: storage, safe names, images for the agents
     presets.ts             built-in team templates, in both languages
     validate.ts            input validation for agents and settings
+    voice.ts               voice input: whisper.cpp engine and model installs (pinned, SHA-256 checked), the engine process, transcription
     workspace.ts           git: auto init, snapshots, worktrees, diffs, apply
     errors.ts              HttpError (user-facing errors with a status)
     hub.ts                 SSE fan-out
   web/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
     chat.ts                ChatView's pure logic: stream reconnect decision, Apply availability, team-drawer draft
+    voice.ts               voice input's pure logic: WAV encoding, silence, inserting the transcript, install progress
+    recorder.ts            microphone recording in the browser, decoded to 16 kHz mono
+    useVoice.ts            the voice status hook (polls while an install runs)
     i18n.tsx               language detection, provider, useT()
     locales/               zh-TW.ts (source of the message shape), en.ts
     components/            Sidebar, NewChat, TeamEditor, ModelPicker, ChatView,
                            MessageItem (incl. plan card), ChangesCard, Composer, Markdown,
                            SettingsPage, CopyButton, Logo, Onboarding (guided tour),
-                           MemberDots, icons,
+                           MemberDots, icons, VoiceInput (microphone, setup dialog, install progress),
+                           VoiceSettings (Settings → Voice input),
                            useDialog (focus handling for dialogs)
 test/                      Vitest tests
 .github/workflows/ci.yml   CI: typecheck, tests and build on pull requests and pushes to main
@@ -134,6 +139,14 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 | `POST /api/providers/:provider/login/input` | `{ text }` → writes to the login process's stdin |
 | `DELETE /api/providers/:provider/login` | cancels the login |
 | `POST /api/providers/:provider/logout` | signs the CLI out |
+| `GET /api/voice` | → `VoiceStatus`: engine, models, selected model and language, the current or last install (`job`), the engine process (poll while `job.state` is `running`) |
+| `PUT /api/voice/settings` | `{ model?, language?, bin? }` → `VoiceStatus` (`bin`: path to `whisper-server`, empty = find it) |
+| `POST /api/voice/install` | `{ model? }` → `VoiceStatus`: installs what is missing (engine, model) in the background, then selects the model (409 while another install runs; 400 when it cannot be installed here or the disk is too full) |
+| `DELETE /api/voice/install` | cancels the install |
+| `DELETE /api/voice/models/:model` | deletes a downloaded model |
+| `DELETE /api/voice` | deletes the downloaded models and engine (one installed with Homebrew stays) |
+| `POST /api/voice/prepare` | starts the engine ahead of a transcription (sent when recording starts) |
+| `POST /api/voice/transcribe` | `{ audio }` (base64 16 kHz mono 16-bit WAV, at most 120 s) → `{ text }` (409 when voice input is not set up) |
 
 Types are in `src/shared/types.ts`.
 
@@ -217,6 +230,8 @@ Current tests:
 - `test/sidebar.test.ts` — the sidebar's conversation states.
 - `test/planner.test.ts` — the lead agent's reply: JSON extraction, templates vs. custom teams, validation, remapping to signed-in CLIs, the fallback, and the prompt.
 - `test/i18n.test.ts` — language detection (server header and browser), language carried through async work, bilingual templates, and the two UI dictionaries having the same shape.
+- `test/voice.test.ts` — voice input with fake downloads, processes and engine: the pinned catalogue, the background install (engine, model, check) on Linux and with Homebrew on macOS, a SHA-256 mismatch, cancelling, disk space, a custom engine path, an engine that does not start, the engine on 127.0.0.1 behind a secret path, transcription and its language, switching and deleting models, settings, and the HTTP routes.
+- `test/voice-web.test.ts` — voice input in the browser: WAV encoding, silence detection, inserting the transcript at the caret, and what the microphone and Settings show.
 
 `test/orchestrator.test.ts` also covers approvals with a fake agent (asking and waiting, "always allow", a decline note, expiry on stop, refusing automatically), retrying a reply, editing a user message (`resend`: later messages are dropped and every agent starts a fresh session) and auto team with a fake lead agent (a custom design that waits for confirmation before its team answers, a team set by hand as confirmation, saving it as a template, using a template, the fallback, designing again after the request is edited, and planning runs that lock nothing), and attached files (saved with safe names, images and paths delivered to each agent, kept when a message is edited, deleted with dropped messages, files-only messages, bad uploads).
 
@@ -250,6 +265,7 @@ To block merging until the checks pass, add a branch protection rule (or ruleset
 - **Auto team** — the lead agent's run is a normal CLI session in the conversation's working directory; its reply and its cost are on the plan message (`messages.plan`, `cost_usd`).
 - **Reproduce a CLI call** — the adapters' argument lists in `src/server/agents/*.ts` can be run by hand; add `--debug` (Claude, Grok) to see more.
 - **Worktrees** — `git -C <working dir> worktree list` and `git branch --list 'relay/*'` show what parallel conversations created; `data/worktrees/<conversation>/` holds the checkouts.
+- **Voice input** — `GET /api/voice` shows what is installed and the last install's log; the engine runs as `whisper-server` (see `ps`) and stops after 10 idle minutes. Downloads go to `data/voice/` (`models/`, and `engine/` on Linux and Windows).
 - **Stale session** — with the server stopped, delete the agent's row in `agent_sessions` to force a fresh session with full history (open conversations are cached in memory, so edit the database only while the server is down).
 
 ## Conventions

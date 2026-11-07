@@ -60,13 +60,14 @@ flowchart LR
 | `src/server/settings.ts` | 各 CLI 設定（執行檔路徑、API key、預設模型與推理強度）、預設工作目錄、首席 agent、子程序環境變數 |
 | `src/server/attachments.ts` | 使用者訊息附加的檔案：存到 `data/attachments`、安全的檔名、哪些以圖片交給 agent |
 | `src/server/media.ts` | 回覆中嵌入的圖片與影片：可以從哪些目錄取得、安全地解析路徑（實際路徑必須在其中之一、只限媒體類型）、位元組範圍 |
+| `src/server/voice.ts` | 語音輸入：在背景安裝 whisper.cpp 引擎與模型（固定版本、檢查 SHA-256）、需要時執行 `whisper-server`、把錄音轉成文字 |
 | `src/server/secrets.ts` | 存放 API key 的作業系統金鑰儲存區（`@napi-rs/keyring`）；系統沒有可用的儲存區時則為無 |
 | `src/server/db.ts` | 開啟 SQLite、套用 schema 遷移、交易輔助函式 |
 | `src/server/hub.ts` | 把每個對話的事件廣播給連線中的 SSE 用戶端 |
 | `src/shared/mentions.ts` | 伺服器（判斷點名了誰）與介面（標示 @）共用的 `@` 規則：以 Markdown（GFM）解析訊息，只看一般文字，不含程式碼與連結文字 |
 | `src/shared/types.ts` | 伺服器與前端共用的型別 |
 | `src/shared/media.ts` | 哪些圖片與影片類型可以顯示，以及回覆中哪些圖片網址是本機檔案（相對或絕對路徑、`file:` 網址）而不是其他網站 |
-| `src/web/*` | React 介面：側邊欄、團隊設計、聊天畫面、設定頁、使用導覽；`i18n.tsx` 與 `locales/` 存放介面文字；`chat.ts` 存放聊天畫面的純邏輯（重新連線、能否套用、團隊設定草稿） |
+| `src/web/*` | React 介面：側邊欄、團隊設計、聊天畫面、設定頁、使用導覽；`i18n.tsx` 與 `locales/` 存放介面文字；`chat.ts` 存放聊天畫面的純邏輯（重新連線、能否套用、團隊設定草稿）；`recorder.ts` 負責麥克風錄音，`voice.ts` 存放語音輸入的純邏輯（WAV 編碼、靜音判斷、插入辨識結果） |
 
 ## 對話模型
 
@@ -276,7 +277,7 @@ agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾�
 | `agent_seen` | 每個 agent 已看過哪些訊息 |
 | `presets`、`preset_agents` | 使用者儲存的團隊範本（內建範本寫在程式碼裡） |
 | `provider_settings` | 每個 CLI 的執行檔路徑、預設模型、預設推理強度；只有在系統沒有金鑰儲存區時才存 API key |
-| `app_settings` | key/value 形式的應用程式設定（預設工作目錄、首席 agent） |
+| `app_settings` | key/value 形式的應用程式設定（預設工作目錄、首席 agent、語音輸入） |
 
 使用中的對話會保留在記憶體中，因為協調器在串流時會直接修改它們。寫入是明確觸發的：使用者訊息、新的 agent 訊息、結束的回合與 session id 會立即寫入；串流中的變動則批次處理，每秒最多寫一次，而且只寫有變動的訊息。伺服器當機時留下的 `streaming` 訊息，會在下次啟動時標為 `aborted`。
 
@@ -301,6 +302,39 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
   - *搬移*：在儲存區可用時，若資料庫裡還有金鑰（舊版存的，或當時沒有儲存區），會先複製到儲存區、讀回確認、清空欄位，再對 WAL 做 checkpoint，讓明文不會殘留在 `relay.db-wal`。搬移失敗時金鑰會留在資料庫，設定頁也會顯示。
 - **模型**：Codex 用 `codex debug models`（含每個模型支援的推理強度與預設值；預設模型讀 `~/.codex/config.toml`）。Grok 用 `grok models`。Claude Code 沒有列出模型的指令，所以介面提供它的別名（`fable`、`opus`、`sonnet`、`haiku`），預設值從 `CLAUDE_CONFIG_DIR`（或 `~/.claude`）的 `settings.json` 讀取。快取 10 分鐘。
 
+## 語音輸入
+
+輸入框可選用的語音轉文字，由這台電腦上的 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) 處理（`src/server/voice.ts`）。使用者要求之前什麼都不會安裝；可以從輸入框的麥克風或「設定 → 語音輸入」開始。辨識不會離開這台電腦；唯一的網路存取是使用者安裝時下載引擎與模型，所以伺服器仍然不呼叫任何模型 API。
+
+```mermaid
+sequenceDiagram
+  participant B as 瀏覽器
+  participant S as 伺服器（VoiceService）
+  participant W as whisper-server（127.0.0.1、隨機埠）
+  B->>S: POST /api/voice/prepare（開始錄音）
+  S->>W: 還沒執行的話，用選用的模型啟動
+  B->>B: MediaRecorder → 解碼 → 16 kHz 單聲道 → 略過靜音 → WAV
+  B->>S: POST /api/voice/transcribe { audio: base64 WAV }
+  S->>W: POST /<secret>/inference（multipart：file、language、prompt）
+  W-->>S: { text }
+  S-->>B: { text }（整理過）
+  B->>B: 插入游標處（不會自動送出）
+```
+
+- **安裝**：`POST /api/voice/install` 會在背景開始一個工作，只執行缺少的步驟；介面輪詢 `GET /api/voice` 取得進度（位元組、速度、安裝程式的輸出）。同時只會有一個安裝；可以取消，錯誤訊息會以查看者的語言呈現。
+
+  | 步驟 | macOS | Linux（x64、arm64） | Windows（x64、arm64） |
+  | --- | --- | --- | --- |
+  | 引擎 | `brew install whisper-cpp`（Metal GPU；需要 Homebrew） | 固定版本的官方預先編譯版（CPU），用 `tar` 解壓到 `data/voice/engine/<tag>/` | 同左（Windows 10 以後的 `tar` 能讀 `.zip`） |
+  | 模型 | 從 Hugging Face 下載 `ggml-<model>.bin`（固定在某個 commit），放到 `data/voice/models/` | 同左 | 同左 |
+  | 檢查 | `whisper-server --help`，再用該模型啟動 | 同左 | 同左 |
+
+  每個下載都會邊寫入 `.part` 檔邊比對固定的大小與 SHA-256，兩者都相符才改名，否則刪除。下載前會先檢查硬碟空間。電腦上已有的引擎會直接使用（設定中指定的路徑、Harness Relay 下載的，或 PATH 與 Homebrew 目錄中的 `whisper-server`）。
+- **模型**：Base、Small、Large v3 Turbo（q5_0 量化）、Large v3 Turbo、Large v3（q5_0）。Apple Silicon 推薦 Large v3 Turbo q5_0；其他電腦用 CPU 執行引擎，推薦 Small。改用已下載的模型只是改設定；未下載的會先安裝。
+- **引擎程序**：`whisper-server` 透過 `process.ts` 啟動，只聽 `127.0.0.1` 上的空閒埠，並加上隨機 128 位元的路徑前綴（`--request-path`），`--public` 指向空資料夾。whisper-server 對任何 origin 都回應（`Access-Control-Allow-Origin: *`），所以是靠這個祕密前綴讓其他網頁無法使用它。第一次使用時（或一開始錄音時）啟動，模型或引擎路徑改變時重新啟動，閒置 10 分鐘或伺服器關閉時停止。
+- **語言**：`follow`（跟隨介面語言）、`auto`、`zh` 或 `en`。中文會附上一段繁體中文的 prompt，引導 Whisper 輸出繁體字。辨識結果會整理過：去掉 `[BLANK_AUDIO]` 之類的標記，中日韓文字之間不留空白。瀏覽器不會送出太短、或從未高過背景噪音的錄音，因為 Whisper 會替靜音編出文字。
+- **設定**：模型、語言與引擎路徑以 JSON 存在 `app_settings` 的 `voice` key。
+
 ## 安全性
 
 這個伺服器可以啟動有寫入權限的 coding agent，因此只允許本機介面使用：
@@ -313,7 +347,8 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
 - ```` ```mermaid ```` 區塊會把 Mermaid 產生的 SVG（以 `securityLevel: 'strict'` 繪製）當成 `<img>` 顯示；瀏覽器在圖片中不執行任何腳本、也不載入任何資源，所以圖表同樣無法連到其他網站；
 - API key 存在作業系統的金鑰儲存區而不是資料庫（見上方）；SQLite 檔案（及其 WAL 檔）只有擁有者可讀寫，刪除的資料列會被覆寫；
 - 附加檔案回傳時帶有 `X-Content-Type-Options: nosniff` 與沙箱化的 `Content-Security-Policy`；只有 PNG、JPEG、GIF、WebP 會直接顯示，其他一律下載，所以附加的 HTML 或 SVG 檔絕不會在本程式的 origin 中執行。檔名寫入磁碟前會去掉目錄與控制字元；
-- 啟動 `claude` 前會移除 Claude Code 替自己子程序設定的環境變數，所以即使從 Claude Code session 裡啟動本程式也能正常運作。
+- 啟動 `claude` 前會移除 Claude Code 替自己子程序設定的環境變數，所以即使從 Claude Code session 裡啟動本程式也能正常運作；
+- 語音輸入的錄音不會離開這台電腦：語音引擎只聽 `127.0.0.1`，並藏在隨機路徑前綴之後；它下載的引擎與模型固定在某個版本或 commit，並檢查 SHA-256（見[語音輸入](#語音輸入)）。
 
 這是單人使用的工具：沒有帳號驗證，任何能連到你 localhost 的程序都能使用它。
 
@@ -335,3 +370,4 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
 - Codex 只有在它的模型決定要求超出沙箱的權限時才會詢問；被擋下但沒有詢問的呼叫就只會失敗。
 - Claude Code 的思考內容需要未列入文件的 `--thinking-display summarized` 旗標；Claude Code 的待辦清單只有在它的 `TodoWrite` 工具可用時才會出現。
 - 重試或編輯訊息會讓每個 agent 以剩下的對話紀錄開新的 CLI session。
+- 語音輸入：Linux 與 Windows 的預先編譯引擎用 CPU 執行（沒有 CUDA 或 Vulkan），大模型會比較慢；Linux 版需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新，不支援 musl）；macOS 需要 Homebrew，它也會一併安裝 whisper.cpp 的相依套件。文字要等說完才出現，不會邊說邊顯示。Whisper 仍可能寫出簡體字，或從雜音編出一句話。

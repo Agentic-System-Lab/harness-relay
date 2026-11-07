@@ -447,3 +447,94 @@ export interface LoginMethod {
   label: string;
   description: string;
 }
+
+// --- Voice input (whisper.cpp, on this computer) -----------------------------------
+
+/** Speech-recognition models users can pick from (multilingual ggml models of whisper.cpp). */
+export const VOICE_MODELS = ['base', 'small', 'large-v3-turbo-q5_0', 'large-v3-turbo', 'large-v3-q5_0'] as const;
+export type VoiceModelId = (typeof VOICE_MODELS)[number];
+
+/** `follow`: the UI language (zh-TW → Chinese written in Traditional characters, en → English). */
+export const VOICE_LANGUAGES = ['follow', 'auto', 'zh', 'en'] as const;
+export type VoiceLanguage = (typeof VOICE_LANGUAGES)[number];
+
+/** The longest recording that is transcribed, in seconds. */
+export const VOICE_MAX_SECONDS = 120;
+
+export interface VoiceModelInfo {
+  id: VoiceModelId;
+  /** Download size in bytes. */
+  size: number;
+  downloaded: boolean;
+  /** The model suggested for this computer. */
+  recommended: boolean;
+}
+
+/**
+ * Where the whisper.cpp engine came from: the path set in Settings, downloaded by Harness Relay,
+ * installed with Homebrew, or found on PATH.
+ */
+export type VoiceEngineSource = 'custom' | 'relay' | 'homebrew' | 'path';
+
+export interface VoiceEngineInfo {
+  installed: boolean;
+  /** `whisper-server` that runs the model. */
+  path?: string;
+  source?: VoiceEngineSource;
+  version?: string;
+  /** How Harness Relay installs the engine on this platform; `none` when it cannot. */
+  installer: 'homebrew' | 'download' | 'none';
+  /** Why the engine cannot be installed automatically (when `installer` is `none`). */
+  installerNote?: string;
+  /** Why the engine set in Settings cannot be used (its path does not exist). */
+  problem?: string;
+  /** Bytes downloaded to install the engine (the prebuilt Linux and Windows builds). */
+  downloadSize?: number;
+  /** Metal (GPU) on macOS; the prebuilt Linux and Windows engines run on the CPU. */
+  accel: 'metal' | 'cpu' | 'unknown';
+}
+
+export type VoiceJobStep = 'engine' | 'model' | 'check';
+
+/** A background install: the engine (when missing), then the model, then a check that it runs. */
+export interface VoiceJobView {
+  id: string;
+  model: VoiceModelId;
+  state: LoginState;
+  steps: VoiceJobStep[];
+  step: VoiceJobStep;
+  /** Bytes of the current download so far, its size, and the recent speed. */
+  received?: number;
+  total?: number;
+  bytesPerSecond?: number;
+  startedAt: number;
+  finishedAt?: number;
+  /** Output of the installer (Homebrew, tar). */
+  log: string;
+  error?: string;
+}
+
+export interface VoiceStatus {
+  /** The engine is installed and the selected model is downloaded. */
+  ready: boolean;
+  engine: VoiceEngineInfo;
+  models: VoiceModelInfo[];
+  /** The selected model. */
+  model: VoiceModelId;
+  language: VoiceLanguage;
+  /** `whisper-server` path set in Settings ('' = find it automatically). */
+  bin: string;
+  /** Where models (and the engine Harness Relay downloads) are kept. */
+  dir: string;
+  platform: string;
+  /** The current or last install. */
+  job?: VoiceJobView;
+  /** The engine process: started on first use, stopped after a while without use. */
+  server: 'stopped' | 'starting' | 'running';
+}
+
+export interface VoiceSettingsUpdate {
+  model?: VoiceModelId;
+  language?: VoiceLanguage;
+  bin?: string;
+}

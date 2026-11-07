@@ -11,6 +11,7 @@ import { ProviderService } from './providers';
 import { openSystemKeyring } from './secrets';
 import { DB_FILE, SettingsStore } from './settings';
 import { Store } from './store';
+import { VoiceService } from './voice';
 
 // A failure in a background task (a run winding down, a stream write) must not take the server — and
 // every other conversation — down with it.
@@ -21,6 +22,7 @@ const settings = new SettingsStore(db, openSystemKeyring());
 const store = new Store(db);
 const hub = new Hub();
 const providers = new ProviderService(settings);
+const voice = new VoiceService(settings);
 const orchestrator = new Orchestrator(store, hub, settings, {
   // What the lead agent may choose from when it designs a team.
   async context() {
@@ -33,7 +35,7 @@ const orchestrator = new Orchestrator(store, hub, settings, {
 });
 
 const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
-const app = createApp({ store, settings, hub, orchestrator, providers, extraHosts });
+const app = createApp({ store, settings, hub, orchestrator, providers, voice, extraHosts });
 
 // --- Static web app (production build) ------------------------------------------
 
@@ -61,6 +63,7 @@ async function shutdown(): Promise<void> {
   server.close();
   orchestrator.stopAll();
   providers.shutdown();
+  voice.shutdown();
   // Let stopped runs write their final state while the database is still open.
   await orchestrator.settled(5000);
   // SIGTERM, then SIGKILL every agent process group that is still around (including subprocesses).

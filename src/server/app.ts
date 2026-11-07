@@ -7,6 +7,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
   PROVIDERS,
+  VOICE_MAX_SECONDS,
   type ApprovalAnswer,
   type Conversation,
   type Provider,
@@ -20,7 +21,16 @@ import { HttpError, forClient, type Orchestrator } from './orchestrator';
 import type { ProviderService } from './providers';
 import type { SettingsStore } from './settings';
 import type { Store } from './store';
-import { validDirectory, validateAgents, validateLead, validateProviderUpdate, validateSettings } from './validate';
+import {
+  validDirectory,
+  validVoiceModel,
+  validateAgents,
+  validateLead,
+  validateProviderUpdate,
+  validateSettings,
+  validateVoiceUpdate,
+} from './validate';
+import { VoiceService } from './voice';
 import { parseLang, t, withLang } from './i18n';
 
 export interface AppDeps {
@@ -29,12 +39,17 @@ export interface AppDeps {
   hub: Hub;
   orchestrator: Orchestrator;
   providers: ProviderService;
+  /** Voice input; created on demand when not given (it does nothing until used). */
+  voice?: VoiceService;
   /** Extra Host names allowed besides localhost (RELAY_ALLOWED_HOSTS). */
   extraHosts?: string[];
 }
 
+/** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
+const VOICE_MAX_BASE64 = Math.ceil(((VOICE_MAX_SECONDS + 10) * 32_000 * 4) / 3) + 1024;
+
 /** The HTTP API (`/api/*`). Static files and the listening server are set up in `index.ts`. */
-export function createApp({ store, settings, hub, orchestrator, providers, extraHosts = [] }: AppDeps): Hono {
+export function createApp({ store, settings, hub, orchestrator, providers, voice = new VoiceService(settings), extraHosts = [] }: AppDeps): Hono {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -150,6 +165,38 @@ export function createApp({ store, settings, hub, orchestrator, providers, extra
   app.post('/api/providers/:provider/logout', async (c) => {
     const output = await providers.logout(provider(c));
     return c.json({ ok: true, output });
+  });
+
+  // --- Voice input -------------------------------------------------------------------
+
+  app.get('/api/voice', (c) => c.json(voice.status()));
+
+  app.put('/api/voice/settings', async (c) => c.json(voice.update(validateVoiceUpdate(await body<unknown>(c)))));
+
+  // Install what is missing for a model (the engine, the model) in the background; poll GET /api/voice.
+  app.post('/api/voice/install', async (c) => {
+    const b = await body<{ model?: unknown }>(c);
+    return c.json(voice.install(b.model === undefined ? voice.status().model : validVoiceModel(b.model)));
+  });
+
+  app.delete('/api/voice/install', (c) => c.json(voice.cancel()));
+
+  app.delete('/api/voice/models/:model', (c) => c.json(voice.deleteModel(validVoiceModel(c.req.param('model')))));
+
+  // Delete the downloaded models and engine.
+  app.delete('/api/voice', (c) => c.json(voice.uninstall()));
+
+  // The user started recording: load the model while they speak.
+  app.post('/api/voice/prepare', (c) => {
+    voice.prepare();
+    return c.json({ ok: true });
+  });
+
+  // A recording (base64 16-bit PCM WAV) to text.
+  app.post('/api/voice/transcribe', async (c) => {
+    const b = await body<{ audio?: unknown }>(c);
+    if (typeof b.audio !== 'string' || b.audio.length > VOICE_MAX_BASE64) throw new HttpError(400, t().voiceBadAudio);
+    return c.json({ text: await voice.transcribe(Buffer.from(b.audio, 'base64')) });
   });
 
   // --- Presets -------------------------------------------------------------------

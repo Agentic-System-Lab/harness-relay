@@ -18,6 +18,7 @@ import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
 import { PROVIDER_COLOR } from '../util';
 import { ModelPicker } from './ModelPicker';
 import { providerState } from './Sidebar';
+import { VoiceCard } from './VoiceSettings';
 
 interface Props {
   providers: ProviderStatus[];
@@ -102,6 +103,8 @@ export function SettingsPage({ providers, catalog, refreshProviders, onShowTour 
         </div>
 
         {settings && <LeadCard lead={settings.lead} providers={providers} catalog={catalog} onSettings={setSettings} />}
+
+        <VoiceCard />
 
         <section className="card">
           <h3>{t.settings.cwd}</h3>

@@ -19,6 +19,7 @@ Auto team on this repository: you describe what you need, and the lead agent ada
 - **Three coding agents in one chat** — runs the `claude`, `codex` and `grok` CLIs you already have, with their own tools, sessions and logins.
 - **Design the team per conversation** — roles, model, reasoning effort, turn order; design it yourself from a blank team, or start from five built-in templates (coding and general questions) or your own saved ones. Roles can be edited mid-chat.
 - **Attach files** — paste screenshots, drop files or use 📎; every agent gets the files, and images are shown to all three CLIs directly.
+- **Voice input (optional)** — press 🎙 in the message box and speak; [whisper.cpp](https://github.com/ggml-org/whisper.cpp) turns it into text on your computer, and recordings never leave it. Nothing is installed until you want it: the first press explains what gets downloaded, then installs the engine and a model in the background (follow it, switch models or remove it in Settings). macOS (Homebrew, Metal GPU), Linux and Windows (x64 / arm64).
 - **Auto team** — describe what you need; a lead agent reads it and every template in full, then uses a template as it is, adapts one, or designs a new team, and says why. You confirm the team, then ask your first question; save the teams it designs or adapts as templates.
 - **Agents talk to each other** — three conversation modes:
   - **Roundtable**: agents speak in order and build on each other, for up to N rounds; ends early when everyone replies `[PASS]`.
@@ -46,6 +47,8 @@ Auto team on this repository: you describe what you need, and the lead agent ada
   - Grok CLI (`grok`)
 
 You don't need all three — the app works with any subset, and you can sign in from the Settings page.
+
+Voice input is optional and installs itself when you turn it on: on macOS it needs [Homebrew](https://brew.sh); on Linux the prebuilt engine needs glibc 2.34 or later (Ubuntu 22.04, Debian 12 and newer).
 
 ## Quick start
 

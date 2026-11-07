@@ -4,6 +4,8 @@ import { isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   PROVIDERS,
+  VOICE_LANGUAGES,
+  VOICE_MODELS,
   type AgentConfig,
   type ConversationSettings,
   type LeadAgentSettings,
@@ -11,6 +13,9 @@ import {
   type Permission,
   type Provider,
   type ProviderSettingsUpdate,
+  type VoiceLanguage,
+  type VoiceModelId,
+  type VoiceSettingsUpdate,
 } from '../shared/types';
 import { HttpError } from './errors';
 import { t } from './i18n';
@@ -58,6 +63,25 @@ export function validateLead(input: unknown): LeadAgentSettings {
     model: optionalString(l.model, 'lead.model') ?? '',
     effort: validEffort(optionalString(l.effort, 'lead.effort'), 'lead') ?? '',
   };
+}
+
+export function validVoiceModel(input: unknown): VoiceModelId {
+  if (!VOICE_MODELS.includes(input as VoiceModelId)) bad(t().invalidField('model'));
+  return input as VoiceModelId;
+}
+
+/** A voice settings update: a known model and language, the engine path as a string. */
+export function validateVoiceUpdate(input: unknown): VoiceSettingsUpdate {
+  const u = (input ?? {}) as Record<string, unknown>;
+  const out: VoiceSettingsUpdate = {};
+  if (u.model !== undefined) out.model = validVoiceModel(u.model);
+  if (u.language !== undefined) {
+    if (!VOICE_LANGUAGES.includes(u.language as VoiceLanguage)) bad(t().invalidField('language'));
+    out.language = u.language as VoiceLanguage;
+  }
+  const bin = optionalString(u.bin, 'bin', 4096);
+  if (bin !== undefined) out.bin = bin;
+  return out;
 }
 
 /** A provider settings update: strings only, a valid effort, `apiKey` null to remove. */

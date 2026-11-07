@@ -148,6 +148,8 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
       cwd: o.cwd,
       env: o.env,
       detached: true,
+      // On Windows a detached child would get a console window of its own.
+      windowsHide: true,
       stdio: [o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
     live.add(child);
@@ -249,7 +251,7 @@ export async function capture(
 
 /** Spawn a long-lived interactive process (used for login flows). */
 export function spawnInteractive(bin: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
-  const child = spawn(resolveBin(bin), args, { env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(resolveBin(bin), args, { env, detached: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   live.add(child);
   child.on('close', () => live.delete(child));
   child.on('error', () => live.delete(child));
