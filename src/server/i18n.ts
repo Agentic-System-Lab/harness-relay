@@ -57,6 +57,7 @@ const zhTW = {
   tooManyAttachments: (n: number) => `一則訊息最多附加 ${n} 個檔案`,
   attachmentTooLarge: (name: string, max: number) => `「${name}」太大了（上限 ${Math.round(max / 1024 / 1024)} MB）`,
   attachmentNotFound: '找不到這個附加檔案',
+  mediaNotFound: '找不到這個圖片或影片（只能顯示工作目錄裡的圖片與影片）',
   busy: '團隊還在回覆中，請先等待或按停止',
   busySettings: '團隊回覆中，無法修改設定',
   busyApply: '團隊還在回覆中，請等回覆結束再套用',
@@ -81,10 +82,11 @@ const zhTW = {
 
   // Auto team
   planNotFound: '找不到這份團隊設計',
-  planNotSavable: '只有首席 agent 自行設計的團隊可以存成範本',
+  planNotSavable: '只有首席 agent 設計或調整過的團隊可以存成範本',
   planFailed: (why: string) => `首席 agent 沒有給出可用的團隊設計（${why}），改用預設範本。`,
   planUnparsable: '回覆中找不到 JSON 團隊設計',
   planUnknownTemplate: (id: string) => `沒有 id 為「${id}」的範本`,
+  planTemplateFits: (name: string) => `首席 agent 判斷範本「${name}」適合這個問題，直接套用。`,
 
   // HTTP
   unknownProvider: (p: string) => `未知的 provider：${p}`,
@@ -161,6 +163,7 @@ const en: ServerMessages = {
   tooManyAttachments: (n) => `You can attach up to ${n} files to one message`,
   attachmentTooLarge: (name, max) => `"${name}" is too large (limit ${Math.round(max / 1024 / 1024)} MB)`,
   attachmentNotFound: 'Attachment not found',
+  mediaNotFound: 'Image or video not found (only images and videos in the working directory can be shown)',
   busy: 'The team is still replying — wait or press Stop',
   busySettings: 'The team is replying; settings cannot be changed now',
   busyApply: 'The team is still replying — apply once it has finished',
@@ -183,10 +186,11 @@ const en: ServerMessages = {
   retryAgentGone: (name) => `@${name} is no longer on the team, so this reply cannot be retried`,
 
   planNotFound: 'Team design not found',
-  planNotSavable: 'Only a team the lead agent designed itself can be saved as a template',
+  planNotSavable: 'Only a team the lead agent designed or adapted can be saved as a template',
   planFailed: (why) => `The lead agent did not produce a usable team design (${why}); using the default template instead.`,
   planUnparsable: 'no JSON team design found in the reply',
   planUnknownTemplate: (id) => `there is no template with id "${id}"`,
+  planTemplateFits: (name) => `The lead agent found the template "${name}" a good fit for this question and uses it as it is.`,
 
   unknownProvider: (p) => `Unknown provider: ${p}`,
   dirNotFound: (cwd) => `Directory not found: ${cwd}`,

@@ -185,6 +185,7 @@ export const en: Messages = {
 
   message: {
     openImage: (name) => `Open ${name}`,
+    mediaMissing: (path) => `⚠ Can't show ${path}`,
     download: (name) => `Download ${name}`,
     actions: (n) => (n === 1 ? '1 action' : `${n} actions`),
     failed: (n) => `${n} failed`,
@@ -197,6 +198,11 @@ export const en: Messages = {
     editLabel: 'Edit message',
     showMore: 'Show more',
     showLess: 'Show less',
+    diagram: 'Diagram',
+    diagramSource: 'Source',
+    diagramActual: 'Show at actual size',
+    diagramFit: 'Fit to width',
+    diagramFailed: 'This Mermaid diagram could not be drawn, so its source is shown.',
     retry: 'Retry',
     retryTitle: 'Let this member answer again',
     resendNote: 'Resending deletes everything after this message, and the team answers again from here.',
@@ -241,6 +247,7 @@ export const en: Messages = {
     by: (lead) => `Lead agent: ${lead}`,
     template: (name) => `Using the template "${name}"`,
     custom: (name) => `Custom team "${name}"`,
+    adapted: (name, base) => `Team "${name}", adapted from the template "${base}"`,
     fallback: (name) => `Using the template "${name}" instead`,
     howTheyWork: (mode, detail) => `${mode} · ${detail}`,
     askSave: 'Save this team as a template? You can then pick it for new chats.',

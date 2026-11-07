@@ -69,9 +69,15 @@ export interface LeadAgentSettings {
 export interface TeamPlan {
   status: 'planning' | 'ready';
   lead: LeadAgentSettings;
-  /** template: an existing template; custom: a team the lead designed; fallback: planning failed. */
-  source?: 'template' | 'custom' | 'fallback';
+  /**
+   * template: an existing template, as it is; adapted: a template the lead changed for the question;
+   * custom: a team the lead designed from scratch; fallback: planning failed.
+   */
+  source?: 'template' | 'adapted' | 'custom' | 'fallback';
+  /** The template used (template, fallback). */
   presetId?: string;
+  /** The template the team was adapted from (adapted). */
+  basedOn?: { id: string; name: string };
   name?: string;
   description?: string;
   /** The lead's explanation for the user (or, for a fallback, why planning failed). */
@@ -80,6 +86,11 @@ export interface TeamPlan {
   agents?: AgentConfig[];
   /** Set once the user saved a custom team as a template. */
   savedPresetId?: string;
+}
+
+/** Only a team the lead designed or adapted is new, and can be saved as a template. */
+export function planSavable(plan: Pick<TeamPlan, 'source'>): boolean {
+  return plan.source === 'custom' || plan.source === 'adapted';
 }
 
 export interface TeamPreset {

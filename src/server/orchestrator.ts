@@ -13,6 +13,7 @@ import type {
   MessagePart,
   TeamPreset,
 } from '../shared/types';
+import { planSavable } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import type { ApprovalRequest } from './agents/types';
 import { approvalKeys, isAllowed } from './approvals';
@@ -636,14 +637,14 @@ export class Orchestrator {
     this.hub.emit(conv.id, { type: 'message', message: msg });
   }
 
-  /** Save a team the lead agent designed itself as a user template. */
+  /** Save a team the lead agent designed or adapted as a user template. */
   savePlanAsPreset(convId: string, messageId: string, name?: string): TeamPreset {
     const conv = this.store.get(convId);
     if (!conv) throw new HttpError(404, t().conversationNotFound);
     const msg = conv.messages.find((m) => m.id === messageId);
     const plan = msg?.plan;
     if (!msg || plan?.status !== 'ready') throw new HttpError(404, t().planNotFound);
-    if (plan.source !== 'custom' || !plan.agents?.length || !plan.settings) throw new HttpError(400, t().planNotSavable);
+    if (!planSavable(plan) || !plan.agents?.length || !plan.settings) throw new HttpError(400, t().planNotSavable);
     // Saving again returns the template already saved from this plan.
     const saved = plan.savedPresetId && this.store.listPresets().find((p) => p.id === plan.savedPresetId);
     if (saved) return saved;

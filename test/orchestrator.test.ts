@@ -321,7 +321,7 @@ describe('auto team', () => {
     await finish(conv.id);
     expect(conv.messages[1]!.plan).toMatchObject({ source: 'template', presetId: 'builtin-parallel' });
     expect(conv.settings.mode).toBe('parallel');
-    expect(() => orchestrator.savePlanAsPreset(conv.id, conv.messages[1]!.id)).toThrow(/自行設計/);
+    expect(() => orchestrator.savePlanAsPreset(conv.id, conv.messages[1]!.id)).toThrow(/設計或調整/);
 
     const other = autoConversation();
     other.agents = [];

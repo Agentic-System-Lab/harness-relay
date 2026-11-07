@@ -121,4 +121,10 @@ describe('buildBriefing', () => {
     expect(briefing).toContain('snapshot (111111111111)');
     expect(briefing).toContain('@Reviewer → relay/c/Reviewer (started from 222222222222)');
   });
+
+  it('tells agents how to show images and videos in the chat', () => {
+    const briefing = buildBriefing(conv, team[0]!);
+    expect(briefing).toContain('![Sales by month](charts/sales.png)');
+    expect(briefing).toContain('Images from websites are shown only as links');
+  });
 });

@@ -2,6 +2,7 @@ import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'rea
 import {
   PROVIDER_LABEL,
   isInlineImage,
+  planSavable,
   type AgentConfig,
   type ApprovalAnswer,
   type ChatMessage,
@@ -18,6 +19,7 @@ import { CopyButton } from './CopyButton';
 import { PaperclipIcon } from './icons';
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
+import { RoleText } from './RoleText';
 
 type ToolPart = Extract<MessagePart, { type: 'tool' }>;
 type ApprovalPart = Extract<MessagePart, { type: 'approval' }>;
@@ -331,16 +333,18 @@ function PlanCard({ msg, onSavePlan, onAdjustTeam }: Pick<Props, 'msg' | 'onSave
       {plan.reason && <p className="plan-reason">{plan.reason}</p>}
       <ul className="plan-members">
         {plan.agents?.map((a) => (
-          <li key={a.id} style={{ ['--accent' as string]: PROVIDER_COLOR[a.provider] }} title={a.role}>
-            <span className="avatar sm">{initials(a.name)}</span>
-            <strong>@{a.name}</strong>
-            <span className="provider-tag">{PROVIDER_LABEL[a.provider]}</span>
-            <span className="muted small ellipsis">{a.role.trim().split('\n')[0]}</span>
+          <li key={a.id} style={{ ['--accent' as string]: PROVIDER_COLOR[a.provider] }}>
+            <div className="plan-member-head">
+              <span className="avatar sm">{initials(a.name)}</span>
+              <strong>@{a.name}</strong>
+              <span className="provider-tag">{PROVIDER_LABEL[a.provider]}</span>
+            </div>
+            {a.role.trim() && <RoleText text={a.role.trim()} className="plan-member-role" />}
           </li>
         ))}
       </ul>
       <div className="plan-actions">
-        {plan.source === 'custom' &&
+        {planSavable(plan) &&
           (plan.savedPresetId ? (
             <span className="small plan-saved">✓ {t.plan.saved(plan.name ?? '')}</span>
           ) : (
@@ -588,7 +592,7 @@ export const MessageItem = memo(function MessageItem({
           segs.map((s) => {
             switch (s.kind) {
               case 'text':
-                return <Markdown key={s.key} text={s.text} mentions={mentionNames} />;
+                return <Markdown key={s.key} text={s.text} mentions={mentionNames} mediaBase={api.mediaBase(convId, msg.id)} />;
               case 'tools':
                 return <ToolGroup key={s.key} tools={s.tools} live={live} />;
               case 'thinking':

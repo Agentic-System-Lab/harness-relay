@@ -3,9 +3,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { AgentConfig } from '../src/shared/types';
 import { parseMentions } from '../src/server/prompt';
-import { Markdown, findMentions } from '../src/web/components/Markdown';
+import { Markdown, findMentions, mermaidSource } from '../src/web/components/Markdown';
+import { I18nProvider } from '../src/web/i18n';
 
-const html = (text: string, mentions = ['Claude', 'Bob']) => renderToStaticMarkup(createElement(Markdown, { text, mentions }));
+const html = (text: string, mentions = ['Claude', 'Bob']) =>
+  renderToStaticMarkup(createElement(I18nProvider, null, createElement(Markdown, { text, mentions })));
 const chip = (name: string) => `<span class="mention">${name}</span>`;
 
 describe('@mention chips', () => {
@@ -103,5 +105,45 @@ describe('images in agent output', () => {
     expect(badge).not.toContain('<img');
     expect(badge).not.toContain('evil.example');
     expect(badge.match(/<a /g)).toHaveLength(1);
+  });
+});
+
+describe('mermaid blocks', () => {
+  it('are picked out by their language, with their source intact', () => {
+    const pre = (className: string[], text: string) => ({
+      type: 'element',
+      tagName: 'pre',
+      children: [{ type: 'element', tagName: 'code', properties: { className }, children: [{ type: 'text', value: text }] }],
+    });
+    expect(mermaidSource(pre(['language-mermaid'], 'flowchart TD\n  A --> B\n'))).toBe('flowchart TD\n  A --> B\n');
+    expect(mermaidSource(pre(['hljs', 'language-mermaid'], 'graph LR'))).toBe('graph LR');
+    expect(mermaidSource(pre(['language-ts'], 'const a = 1'))).toBeUndefined();
+    expect(mermaidSource(undefined)).toBeUndefined();
+  });
+
+  it('show their source until the diagram is drawn, and leave other code blocks alone', () => {
+    const out = html(['```mermaid', 'flowchart TD', '  A["a <b>b</b>"] --> B', '```', '', '```ts', 'const a = 1', '```'].join('\n'));
+    expect(out).toContain('<div class="mermaid-block"><pre><code class="language-mermaid">flowchart TD\n  A[&quot;a &lt;b&gt;b&lt;/b&gt;&quot;] --&gt; B\n</code></pre></div>');
+    expect(out).toContain('<pre><code class="hljs language-ts">');
+  });
+});
+
+describe('images and videos from this computer', () => {
+  const media = (text: string) =>
+    renderToStaticMarkup(createElement(I18nProvider, null, createElement(Markdown, { text, mediaBase: '/api/conversations/c/messages/m/media' })));
+
+  it('are shown through the app, while other sites stay links', () => {
+    const out = media('Here: ![Sales](charts/sales.png) and ![remote](https://evil.example/x.png)');
+    expect(out).toContain('<img class="chat-media" src="/api/conversations/c/messages/m/media?path=charts%2Fsales.png" alt="Sales"');
+    expect(out).not.toContain('src="https://evil.example');
+    expect(out).toContain('href="https://evil.example/x.png"');
+    const video = media('![Demo](file:///Users/me/p/demo.mp4)');
+    expect(video).toContain('<video class="chat-media" src="/api/conversations/c/messages/m/media?path=%2FUsers%2Fme%2Fp%2Fdemo.mp4"');
+  });
+
+  it('stay links without a media URL, inside links, and for other files', () => {
+    expect(html('![Sales](charts/sales.png)')).not.toContain('<img');
+    expect(media('[![Sales](charts/sales.png)](https://ci.example)')).not.toContain('<img');
+    expect(media('![doc](docs/readme.md)')).not.toContain('<img');
   });
 });

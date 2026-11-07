@@ -176,6 +176,7 @@ export const zhTW = {
 
   message: {
     openImage: (name: string) => `開啟 ${name}`,
+    mediaMissing: (path: string) => `⚠ 無法顯示 ${path}`,
     download: (name: string) => `下載 ${name}`,
     actions: (n: number) => `${n} 個動作`,
     failed: (n: number) => `${n} 個失敗`,
@@ -188,6 +189,11 @@ export const zhTW = {
     editLabel: '編輯訊息',
     showMore: '顯示更多',
     showLess: '收合',
+    diagram: '圖表',
+    diagramSource: '原始碼',
+    diagramActual: '以實際大小顯示',
+    diagramFit: '縮放至符合寬度',
+    diagramFailed: '這張 Mermaid 圖無法繪製，因此顯示原始碼。',
     retry: '重試',
     retryTitle: '讓這位成員重新回答',
     resendNote: '重新傳送後，這則之後的對話會被刪除，團隊從這裡重新回答。',
@@ -232,6 +238,7 @@ export const zhTW = {
     by: (lead: string) => `首席 agent：${lead}`,
     template: (name: string) => `使用範本「${name}」`,
     custom: (name: string) => `自訂團隊「${name}」`,
+    adapted: (name: string, base: string) => `依範本「${base}」調整的團隊「${name}」`,
     fallback: (name: string) => `改用範本「${name}」`,
     howTheyWork: (mode: string, detail: string) => `${mode} · ${detail}`,
     askSave: '要把這個團隊存成範本嗎？之後開新對話就能直接選用。',

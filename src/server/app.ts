@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
+import { basename } from 'node:path';
+import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
@@ -12,6 +15,7 @@ import {
 } from '../shared/types';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import type { Hub } from './hub';
+import { byteRange, mediaRoots, mediaType, resolveMedia } from './media';
 import { HttpError, forClient, type Orchestrator } from './orchestrator';
 import type { ProviderService } from './providers';
 import type { SettingsStore } from './settings';
@@ -268,6 +272,36 @@ export function createApp({ store, settings, hub, orchestrator, providers, extra
       'Content-Security-Policy': "default-src 'none'; sandbox",
       'Cache-Control': 'private, max-age=31536000, immutable',
     });
+  });
+
+  // An image or video a reply embeds, e.g. ![chart](out/chart.png): only media files inside the
+  // working directory (or the agent's worktree, or the attachments), served so they never run here.
+  app.get('/api/conversations/:id/messages/:messageId/media', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
+    const file = msg && resolveMedia(c.req.query('path') ?? '', mediaRoots(conv, msg));
+    if (!file) throw new HttpError(404, t().mediaNotFound);
+    const { size, mtimeMs } = await stat(file);
+    const etag = `W/"${size}-${Math.floor(mtimeMs)}"`;
+    const headers: Record<string, string> = {
+      'Content-Type': mediaType(file)!,
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(basename(file))}`,
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      // Agents may write the file again: check before reusing a cached copy.
+      'Cache-Control': 'private, no-cache',
+      ETag: etag,
+      'Accept-Ranges': 'bytes',
+    };
+    if (c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers });
+    // Videos are fetched in ranges (Safari plays nothing otherwise, and seeking needs them).
+    const range = byteRange(c.req.header('range'), size);
+    if (range === 'invalid') return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } });
+    const { start, end } = range ?? { start: 0, end: size - 1 };
+    if (range) headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
+    headers['Content-Length'] = String(size ? end - start + 1 : 0);
+    const body = size ? (Readable.toWeb(createReadStream(file, { start, end })) as ReadableStream) : null;
+    return new Response(body, { status: range ? 206 : 200, headers });
   });
 
   // Edit one of the user's messages: everything after it is dropped and the team answers again.

@@ -16,9 +16,10 @@ import { validateAgents } from './validate';
 
 /*
  * Auto team: before anyone answers the first message of an auto-team conversation, the lead agent
- * (Settings) either picks one of the templates or designs a team for the question. Its reply is a
- * JSON object, turned here into a team that can actually run: only signed-in CLIs, only models and
- * efforts those CLIs offer. Anything unusable falls back to the general-question template.
+ * (Settings) reads every template in full and either uses one as it is, adapts one to the question,
+ * or designs a team from scratch. Its reply is a JSON object, turned here into a team that can
+ * actually run: only signed-in CLIs, only models and efforts those CLIs offer. Anything unusable
+ * falls back to the general-question template.
  */
 
 /** What the lead agent may choose from. */
@@ -31,7 +32,7 @@ export interface PlannerContext {
 
 /** The parts of a TeamPlan the planner decides. */
 export type PlanDecision = Required<Pick<TeamPlan, 'source' | 'name' | 'reason' | 'settings' | 'agents'>> &
-  Pick<TeamPlan, 'presetId' | 'description'>;
+  Pick<TeamPlan, 'presetId' | 'basedOn' | 'description'>;
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const FALLBACK_PRESET = 'builtin-general';
@@ -48,10 +49,27 @@ const MODE_HELP: Record<Mode, string> = {
   relay: 'one member at a time; a member hands off by @mentioning a teammate; the first member leads; `maxHops` (1-30) caps the hand-offs',
 };
 
-function firstLine(s: string, n = 140): string {
-  const line = s.trim().split('\n')[0] ?? '';
-  return line.length > n ? line.slice(0, n - 1) + '…' : line;
+/** A template as the lead sees it: everything in it, roles in full, so it can be reused or adapted. */
+function templateForLead(p: TeamPreset): Record<string, unknown> {
+  return {
+    id: p.id,
+    name: p.name,
+    ...(p.description ? { description: p.description } : {}),
+    mode: p.settings.mode,
+    ...(p.settings.mode === 'relay' ? { maxHops: p.settings.maxHops } : { rounds: p.settings.rounds }),
+    agents: p.agents.map((a) => ({
+      name: a.name,
+      provider: a.provider,
+      ...(a.model ? { model: a.model } : {}),
+      ...(a.effort ? { effort: a.effort } : {}),
+      role: a.role.trim(),
+    })),
+  };
 }
+
+const TEAM_FIELDS =
+  '"name": "<short team name>", "description": "<one line>", "mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, ' +
+  '"agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}]';
 
 export function buildPlannerPrompt(question: string, settings: ConversationSettings, ctx: PlannerContext): string {
   const available = ctx.available.length ? ctx.available : (Object.keys(PROVIDER_LABEL) as Provider[]);
@@ -64,15 +82,9 @@ export function buildPlannerPrompt(question: string, settings: ConversationSetti
       }`;
     })
     .join('\n');
-  const templates = ctx.presets
-    .map((p) => {
-      const members = p.agents.map((a) => `${a.name} (${a.provider}): ${firstLine(a.role, 100)}`).join('; ');
-      const rounds = p.settings.mode === 'relay' ? `maxHops ${p.settings.maxHops}` : `rounds ${p.settings.rounds}`;
-      return `- id "${p.id}" — ${p.name}: ${p.description ?? ''} [${p.settings.mode}, ${rounds}] Members: ${members}`;
-    })
-    .join('\n');
+  const templates = JSON.stringify(ctx.presets.map(templateForLead), null, 2);
 
-  return `The user just started a new conversation. Choose the team that should answer it: reuse one of the templates below, or design a better-suited team.
+  return `The user just started a new conversation. Choose the team that should answer it: use one of the templates below as it is, adapt one of them to this question, or design a new team from scratch.
 
 <first_message>
 ${question}
@@ -86,21 +98,30 @@ ${MODES.map((m) => `- ${m}: ${MODE_HELP[m]}`).join('\n')}
 
 The user already chose the file permission "${settings.permission}" and the working directory ${settings.cwd}; you cannot change them.
 
-Templates:
+Templates (built-in and saved by the user), in full:
+<templates>
 ${templates}
+</templates>
 
-How to decide:
-- Use a template when one fits the question well. Design a custom team when the question needs different expertise, a different number of members, or a different way of working.
-- Keep it proportionate: a simple question needs 1-2 members and one round; reserve big teams and several rounds for hard or open-ended problems. At most ${MAX_MEMBERS} members.
+How to decide: read the templates first, then pick exactly one of these three.
+1. "template": a template fits the question as it is (its members, roles, mode and rounds all suit it). Prefer this whenever it is true; do not change a good template just to change it. Your reason tells the user why this template fits the question.
+2. "adapted": a template is close, but this question needs changes: members added, removed or swapped, roles rewritten for the question, another mode, or more or fewer rounds. Start from that template, return the whole changed team and the template's id as "baseTemplateId". Your reason tells the user what you changed and why.
+3. "custom": no template is close; design a team from scratch. Your reason tells the user why none of the templates fits.
+
+Whichever you pick, keep it proportionate: a simple question needs 1-2 members and one round; reserve big teams and several rounds for hard or open-ended problems. At most ${MAX_MEMBERS} members.
+
+For an adapted or custom team:
 - Mixing coding agents helps: different models catch different things.
-- For a custom team, write each member's role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay. Write roles, the team name, the description and the reason in the language of the user's message.
+- Write each member's role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev.
 - Leave "model" and "effort" out unless the question clearly needs a stronger or faster model than the default.
-- Do not use tools unless the choice depends on the files in the working directory.
 
-Reply with only this JSON object, in a \`\`\`json code block:
-- to use a template: {"choice": "template", "templateId": "<id>", "reason": "<one or two sentences for the user>"}
-- to design a team: {"choice": "custom", "name": "<short team name>", "description": "<one line>", "mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}], "reason": "<one or two sentences for the user>"}`;
+Write the reason (and for a new team its name, description and roles) in the language of the user's message. Do not use tools unless the choice depends on the files in the working directory.
+
+Reply with only one of these JSON objects, in a \`\`\`json code block:
+- template as it is: {"choice": "template", "templateId": "<id>", "reason": "<why it fits: one or two sentences for the user>"}
+- adapted template: {"choice": "adapted", "baseTemplateId": "<id>", ${TEAM_FIELDS}, "reason": "<what you changed and why: one or two sentences for the user>"}
+- new team: {"choice": "custom", ${TEAM_FIELDS}, "reason": "<why no template fits: one or two sentences for the user>"}`;
 }
 
 /** The JSON object in the lead's reply (a ```json block, or the outermost braces). */
@@ -146,6 +167,39 @@ export function fitAgents(agents: AgentConfig[], ctx: PlannerContext, lead: Lead
   });
 }
 
+/** A template's team, as it is. */
+function templateDecision(preset: TeamPreset, source: 'template' | 'fallback', reason: string, ctx: PlannerContext, lead: LeadAgentSettings): PlanDecision {
+  return {
+    source,
+    presetId: preset.id,
+    name: preset.name,
+    description: preset.description,
+    reason,
+    settings: { mode: preset.settings.mode, rounds: preset.settings.rounds, maxHops: preset.settings.maxHops },
+    agents: fitAgents(preset.agents, ctx, lead),
+  };
+}
+
+/** The same members (names, CLIs, roles, models, efforts) working the same way. */
+export function sameTeam(preset: TeamPreset, settings: PlanDecision['settings'], agents: AgentConfig[]): boolean {
+  const s = preset.settings;
+  if (s.mode !== settings.mode) return false;
+  if (s.mode === 'relay' ? s.maxHops !== settings.maxHops : s.rounds !== settings.rounds) return false;
+  return (
+    preset.agents.length === agents.length &&
+    preset.agents.every((p, i) => {
+      const a = agents[i]!;
+      return (
+        p.name === a.name &&
+        p.provider === a.provider &&
+        p.role.trim() === a.role.trim() &&
+        (p.model || undefined) === (a.model || undefined) &&
+        (p.effort || undefined) === (a.effort || undefined)
+      );
+    })
+  );
+}
+
 /** Turn the lead's JSON into a team. Throws (with a user-readable message) when it is unusable. */
 export function decidePlan(raw: Record<string, any>, ctx: PlannerContext, lead: LeadAgentSettings): PlanDecision {
   const reason = String(raw.reason ?? '').trim().slice(0, 800);
@@ -153,15 +207,7 @@ export function decidePlan(raw: Record<string, any>, ctx: PlannerContext, lead: 
     const id = String(raw.templateId ?? '');
     const preset = ctx.presets.find((p) => p.id === id);
     if (!preset) throw new Error(t().planUnknownTemplate(id));
-    return {
-      source: 'template',
-      presetId: preset.id,
-      name: preset.name,
-      description: preset.description,
-      reason,
-      settings: { mode: preset.settings.mode, rounds: preset.settings.rounds, maxHops: preset.settings.maxHops },
-      agents: fitAgents(preset.agents, ctx, lead),
-    };
+    return templateDecision(preset, 'template', reason || t().planTemplateFits(preset.name), ctx, lead);
   }
   const members = Array.isArray(raw.agents) ? raw.agents.slice(0, MAX_MEMBERS) : [];
   const agents = validateAgents(
@@ -174,12 +220,19 @@ export function decidePlan(raw: Record<string, any>, ctx: PlannerContext, lead: 
     })),
   );
   const mode: Mode = MODES.includes(raw.mode) ? raw.mode : 'roundtable';
+  const settings = { mode, rounds: clampInt(raw.rounds, 1, 5, 1), maxHops: clampInt(raw.maxHops, 1, 30, 8) };
+  // A "new" team that is exactly a template is that template: nothing new to save. The lead's
+  // reason would describe changes that were not made, so the card says plainly what happened.
+  const same = ctx.presets.find((p) => sameTeam(p, settings, agents));
+  if (same) return templateDecision(same, 'template', t().planTemplateFits(same.name), ctx, lead);
+  const base = raw.choice === 'adapted' ? ctx.presets.find((p) => p.id === String(raw.baseTemplateId ?? '')) : undefined;
   return {
-    source: 'custom',
+    source: base ? 'adapted' : 'custom',
+    ...(base ? { basedOn: { id: base.id, name: base.name } } : {}),
     name: String(raw.name ?? '').trim().slice(0, 80) || agents.map((a) => a.name).join(' · '),
     description: String(raw.description ?? '').trim().slice(0, 200) || undefined,
     reason,
-    settings: { mode, rounds: clampInt(raw.rounds, 1, 5, 1), maxHops: clampInt(raw.maxHops, 1, 30, 8) },
+    settings,
     agents: fitAgents(agents, ctx, lead),
   };
 }
@@ -187,13 +240,5 @@ export function decidePlan(raw: Record<string, any>, ctx: PlannerContext, lead: 
 /** The general-question template, used when planning fails. */
 export function fallbackPlan(ctx: PlannerContext, lead: LeadAgentSettings, why: string): PlanDecision {
   const preset = ctx.presets.find((p) => p.id === FALLBACK_PRESET) ?? ctx.presets[0]!;
-  return {
-    source: 'fallback',
-    presetId: preset.id,
-    name: preset.name,
-    description: preset.description,
-    reason: t().planFailed(why),
-    settings: { mode: preset.settings.mode, rounds: preset.settings.rounds, maxHops: preset.settings.maxHops },
-    agents: fitAgents(preset.agents, ctx, lead),
-  };
+  return templateDecision(preset, 'fallback', t().planFailed(why), ctx, lead);
 }

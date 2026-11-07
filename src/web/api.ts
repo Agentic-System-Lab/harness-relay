@@ -80,6 +80,8 @@ export const api = {
   send: (id: string, text: string, attachments: AttachmentUpload[] = []) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages`, { text, attachments }),
   attachmentUrl: (convId: string, attachmentId: string) => `/api/conversations/${convId}/attachments/${attachmentId}`,
+  /** Serves the images and videos a message embeds; add `?path=`. */
+  mediaBase: (convId: string, messageId: string) => `/api/conversations/${convId}/messages/${messageId}/media`,
   resend: (id: string, messageId: string, text: string) =>
     request<{ ok: true }>('PUT', `/api/conversations/${id}/messages/${messageId}`, { text }),
   retry: (id: string, messageId: string) =>

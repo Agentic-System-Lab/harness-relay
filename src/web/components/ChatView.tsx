@@ -18,6 +18,7 @@ import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { CopyButton } from './CopyButton';
 import { MessageItem } from './MessageItem';
+import { RoleText } from './RoleText';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 import { useDialog } from './useDialog';
 
@@ -499,7 +500,11 @@ function TeamIntro({ conv, leadText }: { conv: Conversation; leadText: string })
                 </div>
               </div>
             </div>
-            <p className="intro-role">{a.role || t.chat.noRole}</p>
+            {a.role.trim() ? (
+              <RoleText text={a.role.trim()} lines={6} />
+            ) : (
+              <p className="intro-role">{t.chat.noRole}</p>
+            )}
           </div>
         ))}
       </div>

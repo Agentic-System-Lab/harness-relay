@@ -25,10 +25,40 @@ const WITH_SUBCOMMANDS = new Set(
   ).split(' '),
 );
 
+/**
+ * The line split at `&&`, `||`, `|`, `;` and newlines, except inside quotes: there they are text,
+ * like the `|` in `grep -E 'a|b'`. (Commands that do run inside quotes, `"$(…)"` and `sh -c '…'`,
+ * are found by the full reading.)
+ */
+export function splitChain(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+    if (ch === '\\' && quote !== "'" && i + 1 < line.length) {
+      cur += ch + line[++i];
+    } else if (quote) {
+      if (ch === quote) quote = null;
+      cur += ch;
+    } else if (ch === "'" || ch === '"') {
+      quote = ch;
+      cur += ch;
+    } else if (ch === ';' || ch === '\n' || ch === '|' || (ch === '&' && line[i + 1] === '&')) {
+      if (ch !== ';' && ch !== '\n' && line[i + 1] === ch) i++; // && and ||
+      out.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
 /** The first version's keys: whitespace-separated words of each command in a chain. */
 function legacyKeys(detail: string): string[] {
-  return unwrapShell(detail)
-    .split(/&&|\|\||[;|\n]/)
+  return splitChain(unwrapShell(detail))
     .map((segment) => {
       const words = segment.trim().split(/\s+/).filter(Boolean);
       while (words.length && /^\w+=/.test(words[0]!)) words.shift(); // FOO=bar cmd

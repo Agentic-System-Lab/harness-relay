@@ -249,10 +249,15 @@ export async function applyToWorkingTree(root: string, base: string, head: strin
   return files;
 }
 
-/** Where the agent should run inside its worktree: the same sub-directory as the conversation's cwd. */
-export function worktreeCwd(root: string, cwd: string, worktreePath: string): string {
+/** The same sub-directory of the worktree as the conversation's cwd is of the repository. */
+export function worktreeDir(root: string, cwd: string, worktreePath: string): string {
   const rel = relative(root, realpathSync(cwd));
-  const dir = rel && !rel.startsWith('..') ? join(worktreePath, rel) : worktreePath;
+  return rel && !rel.startsWith('..') ? join(worktreePath, rel) : worktreePath;
+}
+
+/** Where the agent should run inside its worktree (created if missing). */
+export function worktreeCwd(root: string, cwd: string, worktreePath: string): string {
+  const dir = worktreeDir(root, cwd, worktreePath);
   mkdirSync(dir, { recursive: true });
   return dir;
 }

@@ -18,6 +18,7 @@ const { AgentRunError, runners } = await import('../src/server/agents');
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
+let store: InstanceType<typeof Store>;
 let project: string;
 let n = 0;
 
@@ -39,7 +40,7 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 beforeEach(() => {
   const db = openDatabase(':memory:');
   const settings = new SettingsStore(db);
-  const store = new Store(db);
+  store = new Store(db);
   const hub = new Hub();
   orchestrator = new Orchestrator(store, hub, settings);
   app = createApp({ store, settings, hub, orchestrator, providers: new ProviderService(settings) });
@@ -175,5 +176,52 @@ describe('POST /api/presets', () => {
     expect(preset.id).toMatch(/^user-/);
     const presets = (await (await get('/api/presets')).json()) as { id: string; name: string }[];
     expect(presets.filter((p) => p.id === 'builtin-general')).toHaveLength(1);
+  });
+});
+
+describe('images and videos in replies', () => {
+  async function replyIn(): Promise<{ conv: Conversation; base: string }> {
+    const conv = await createConversation({ permission: 'read-only' });
+    const live = store.get(conv.id)!;
+    const msg = { id: 'reply-1', author: { kind: 'agent' as const, agentId: live.agents[0]!.id }, createdAt: Date.now(), parts: [], status: 'done' as const };
+    live.messages.push(msg);
+    mkdirSync(join(project, 'out'), { recursive: true });
+    writeFileSync(join(project, 'out', 'chart.png'), 'not really a png');
+    writeFileSync(join(project, 'out', 'demo.mp4'), '0123456789');
+    writeFileSync(join(project, 'notes.txt'), 'secret');
+    return { conv, base: `/api/conversations/${conv.id}/messages/reply-1/media?path=` };
+  }
+
+  it('serves media files from the working directory so they cannot run in the app', async () => {
+    const { base } = await replyIn();
+    const res = await get(base + encodeURIComponent('out/chart.png'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/png');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-security-policy')).toContain('sandbox');
+    expect(await res.text()).toBe('not really a png');
+    const absolute = await get(base + encodeURIComponent(join(project, 'out', 'chart.png')));
+    expect(absolute.status).toBe(200);
+    // Unchanged since: no body again.
+    expect((await get(base + 'out/chart.png', { 'if-none-match': res.headers.get('etag')! })).status).toBe(304);
+  });
+
+  it('serves video in byte ranges', async () => {
+    const { base } = await replyIn();
+    const res = await get(base + 'out/demo.mp4', { range: 'bytes=2-5' });
+    expect(res.status).toBe(206);
+    expect(res.headers.get('content-range')).toBe('bytes 2-5/10');
+    expect(await res.text()).toBe('2345');
+    expect((await get(base + 'out/demo.mp4', { range: 'bytes=50-' })).status).toBe(416);
+  });
+
+  it('refuses anything else', async () => {
+    const { conv, base } = await replyIn();
+    expect((await get(base + 'notes.txt')).status).toBe(404);
+    expect((await get(base + encodeURIComponent('../' + 'x.png'))).status).toBe(404);
+    expect((await get(base + 'missing.png')).status).toBe(404);
+    expect((await get(base)).status).toBe(404);
+    expect((await get(`/api/conversations/${conv.id}/messages/nope/media?path=out/chart.png`)).status).toBe(404);
+    expect((await get(base + 'out/chart.png', { origin: 'https://evil.example' })).status).toBe(403);
   });
 });

@@ -1,8 +1,11 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import ReactMarkdown, { type Components, type Options } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
+import { localMediaPath } from '../../shared/media';
 import { findMentions } from '../../shared/mentions';
+import { LocalMedia } from './LocalMedia';
+import { MermaidBlock } from './Mermaid';
 
 export { findMentions };
 
@@ -47,42 +50,90 @@ function imageAsLink(img: MdNode, inLink: boolean): MdNode {
     : { type: 'linkReference', identifier: img.identifier, label: img.label, referenceType: img.referenceType, children: [text], data };
 }
 
-function transform(node: MdNode, inLink: boolean, names: string[]): void {
+function transform(node: MdNode, inLink: boolean, names: string[], media: boolean): void {
   if (!node.children) return;
   const link = inLink || node.type === 'link' || node.type === 'linkReference';
   node.children = node.children.flatMap((child) => {
+    // A file on this computer is shown (by path, through the server); anything else is a link.
+    const local = media && !link && child.type === 'image' ? localMediaPath(child.url ?? '') : undefined;
+    if (local) return [{ ...child, data: { hProperties: { dataMedia: local } } }];
     if (child.type === 'image' || child.type === 'imageReference') return [imageAsLink(child, link)];
     // Code (inline, fenced, indented) is its own node type, so only prose text gets here.
     if (child.type === 'text') return link ? [child] : splitMentions(child, names);
-    transform(child, link, names);
+    transform(child, link, names, media);
     return [child];
   });
 }
 
 /**
  * Agent output is untrusted. Images become links: loading them would let a prompt-injected agent call
- * any URL. And @mentions of the team (and `@user`) are highlighted in prose, not in code or link text.
+ * any URL. With `media`, images and videos that are files on this computer are kept, to be shown from
+ * this app's server. And @mentions of the team (and `@user`) are highlighted in prose, not in code or link text.
  */
-export function remarkRelay({ mentions }: { mentions: string[] }) {
+export function remarkRelay({ mentions, media = false }: { mentions: string[]; media?: boolean }) {
   const names = mentions.length ? [...mentions, 'user'] : [];
-  return (tree: MdNode) => transform(tree, false, names);
+  return (tree: MdNode) => transform(tree, false, names, media);
 }
 
-const rehypePlugins: Options['rehypePlugins'] = [[rehypeHighlight, { detect: false, ignoreMissing: true }]];
+const rehypePlugins: Options['rehypePlugins'] = [[rehypeHighlight, { detect: false, ignoreMissing: true, plainText: ['mermaid'] }]];
 
-const components: Components = {
-  a: ({ href, className, children }) => (
-    <a href={href} className={className} target="_blank" rel="noreferrer">
-      {children}
-    </a>
-  ),
-};
+/** The few fields of an HTML syntax tree (hast) node used here. */
+interface HtmlNode {
+  type: string;
+  tagName?: string;
+  value?: string;
+  properties?: { className?: unknown; dataMedia?: unknown };
+  children?: HtmlNode[];
+}
 
-export const Markdown = memo(function Markdown({ text, mentions = [] }: { text: string; mentions?: string[] }) {
+const textOf = (node: HtmlNode): string => (node.type === 'text' ? (node.value ?? '') : (node.children ?? []).map(textOf).join(''));
+
+/** The source of a ```mermaid code block, given its <pre>. */
+export function mermaidSource(pre: HtmlNode | undefined): string | undefined {
+  const code = pre?.children?.find((c) => c.type === 'element');
+  const classes = code?.tagName === 'code' ? code.properties?.className : undefined;
+  return code && Array.isArray(classes) && classes.includes('language-mermaid') ? textOf(code) : undefined;
+}
+
+function makeComponents(mediaBase: string | undefined): Components {
+  return {
+    a: ({ href, className, children }) => (
+      <a href={href} className={className} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    ),
+    pre: ({ node, children, ...props }) => {
+      const mermaid = mermaidSource(node as HtmlNode | undefined);
+      return mermaid === undefined ? <pre {...props}>{children}</pre> : <MermaidBlock code={mermaid} />;
+    },
+    // Only local media reach here as images (see remarkRelay); nothing else is ever loaded.
+    img: ({ node, alt }) => {
+      const path = (node as HtmlNode | undefined)?.properties?.dataMedia;
+      return typeof path === 'string' && mediaBase ? (
+        <LocalMedia src={`${mediaBase}?path=${encodeURIComponent(path)}`} path={path} alt={alt ?? ''} />
+      ) : null;
+    },
+  };
+}
+
+/**
+ * `mediaBase`: the URL that serves this message's images and videos (`…/media`); without it, every
+ * image is a link.
+ */
+export const Markdown = memo(function Markdown({
+  text,
+  mentions = [],
+  mediaBase,
+}: {
+  text: string;
+  mentions?: string[];
+  mediaBase?: string;
+}) {
+  const components = useMemo(() => makeComponents(mediaBase), [mediaBase]);
   return (
     <div className="markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, [remarkRelay, { mentions }]]}
+        remarkPlugins={[remarkGfm, [remarkRelay, { mentions, media: Boolean(mediaBase) }]]}
         rehypePlugins={rehypePlugins}
         components={components}
       >

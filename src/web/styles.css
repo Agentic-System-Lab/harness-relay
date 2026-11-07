@@ -1685,6 +1685,102 @@ details.sub .model-picker {
   padding: 0;
 }
 
+/* An image or video from this computer that a reply embeds */
+.chat-media-link {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+}
+
+.chat-media {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 4px 0;
+  background: var(--surface);
+}
+
+video.chat-media {
+  width: 100%;
+  max-width: 640px;
+  background: #000;
+}
+
+.media-missing {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* A ```mermaid block, drawn as a diagram */
+.mermaid-block {
+  margin: 0 0 12px;
+  min-width: 0;
+}
+
+.mermaid-block pre {
+  margin: 0;
+}
+
+.mermaid-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.mermaid-action {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.mermaid-action:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.mermaid-view {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  overflow-x: auto;
+}
+
+.mermaid-zoom {
+  display: block;
+  margin: 0 auto;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+
+.mermaid-zoom img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-view.actual .mermaid-zoom {
+  cursor: zoom-out;
+}
+
+.mermaid-view.actual .mermaid-zoom img {
+  max-width: none;
+}
+
+.mermaid-block .mermaid-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .markdown blockquote {
   background: var(--surface);
   border-radius: 10px;
@@ -1757,14 +1853,27 @@ details.sub .model-picker {
   align-items: center;
 }
 
-.intro-role {
+.intro-role,
+.role-text p {
+  margin: 0;
   font-size: 13px;
+  line-height: 1.55;
   color: var(--muted);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* An agent's role, folded to its first lines (RoleText) */
+.role-text p.folded {
   display: -webkit-box;
-  -webkit-line-clamp: 6;
+  -webkit-line-clamp: var(--lines, 3);
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.role-text .show-more {
+  margin: 2px 0 0;
+  font-size: 12.5px;
 }
 
 /* Composer */
@@ -2401,20 +2510,28 @@ details.sub summary {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
 }
 
 .plan-members li {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
   font-size: 13.5px;
 }
 
-.plan-members .ellipsis {
+.plan-member-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   min-width: 0;
-  flex: 1;
+}
+
+/* Under the name: the small avatar (20px) plus the gap (8px) */
+.plan-member-role {
+  padding-left: 28px;
 }
 
 .plan-actions {
@@ -2710,6 +2827,16 @@ details.sub summary {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* "Always allow …" names every command in the line: wrap inside the card instead of running past it. */
+.approval-actions button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  border-radius: 16px;
 }
 
 .approval-deny:hover:not(:disabled) {

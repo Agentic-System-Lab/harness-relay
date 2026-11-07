@@ -72,7 +72,16 @@ export function attachmentLines(m: ChatMessage): string {
 /** One line naming the team the lead agent chose ("Using the template …"). */
 export function planHeadline(plan: TeamPlan, t: Messages): string {
   const name = plan.name ?? '';
-  return plan.source === 'custom' ? t.plan.custom(name) : plan.source === 'fallback' ? t.plan.fallback(name) : t.plan.template(name);
+  switch (plan.source) {
+    case 'custom':
+      return t.plan.custom(name);
+    case 'adapted':
+      return t.plan.adapted(name, plan.basedOn?.name ?? '');
+    case 'fallback':
+      return t.plan.fallback(name);
+    default:
+      return t.plan.template(name);
+  }
 }
 
 /** The whole conversation as Markdown: one block per message, labelled with who said it. */
