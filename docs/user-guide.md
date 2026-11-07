@@ -212,7 +212,7 @@ The sidebar lists conversations, newest first, each with its state:
 
 Conversations keep running when you switch to another one (or close the tab); the badges update by themselves. Click the title in the chat header to rename; hover a conversation and click × to delete it. A conversation with a large team shows its first few member dots and a **+N** count.
 
-To make room, collapse the sidebar with the panel button next to *Harness Relay*. Two buttons stay in the top-left corner: one brings the sidebar back, the other starts a new chat. The choice is remembered in this browser. (On a phone the sidebar is a drawer opened with ☰ instead, and the page does not zoom: no pinch or double-tap zoom, and no zooming in on the message box.)
+To make room, collapse the sidebar with the panel button next to *Harness Relay*. Two buttons stay in the top-left corner: one brings the sidebar back, the other starts a new chat. The choice is remembered in this browser. (On a phone the sidebar is a drawer opened with ☰ instead, and the page does not zoom: no pinch or double-tap zoom, and no zooming in on the message box. On a phone or tablet the header is a single row: the title with **Copy chat** and **Team settings** (icons on a phone: two sheets, two people); the team, its mode and its permission are under **Team settings**, except that a red **Full access** tag beside the title warns when the agents may run any command. The message box stays one line until you type, and its buttons move below the text when they would leave it too little room.)
 
 ## 5. Tips for writing roles
 

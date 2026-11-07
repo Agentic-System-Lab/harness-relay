@@ -142,12 +142,13 @@ export function Composer({
     requestAnimationFrame(() => ref.current?.focus());
   }, [restore]);
 
-  // Auto-grow the textarea.
+  // Auto-grow the textarea. Empty, it stays one line: Safari counts a wrapped placeholder in
+  // scrollHeight, and the placeholder is cut to one line (styles.css) so it fits on a phone.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
+    if (text) el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
   }, [text]);
 
   const token = TOKEN.exec(text.slice(0, caret));

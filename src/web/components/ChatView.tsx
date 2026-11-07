@@ -18,6 +18,7 @@ import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { CopyButton } from './CopyButton';
+import { CopyIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
@@ -340,11 +341,35 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
 
   return (
     <div className="chat">
+      {/* Wide screens: title over the team, badges and actions on the right. Phones and tablets:
+          only the title and actions, plus a warning beside the title for full access (see .chat-head
+          in styles.css). */}
       <header className="chat-head">
-        <div className="chat-head-main">
+        <div className="chat-head-top">
           <button className="chat-title" onClick={rename} title={t.chat.rename}>
             {conv.title}
           </button>
+          {conv.settings.permission === 'full' && (
+            <span className="badge danger head-warning" title={t.permissions.full.hint}>
+              {t.permissions.full.label}
+            </span>
+          )}
+          <div className="chat-head-actions">
+            <CopyButton
+              className="ghost small-button head-button"
+              label={t.chat.copyChat}
+              title={t.chat.copyChatTitle}
+              icon={<CopyIcon size={16} />}
+              disabled={conv.messages.length === 0}
+              text={() => (convRef.current ? conversationMarkdown(convRef.current, tRef.current) : '')}
+            />
+            <button className="ghost small-button head-button" onClick={() => setTeamOpen(true)}>
+              <UsersIcon size={16} />
+              <span className="button-label">{t.chat.teamSettings}</span>
+            </button>
+          </div>
+        </div>
+        <div className="chat-head-sub">
           {/* One row that scrolls sideways when the team is large (the wheel scrolls it too). */}
           <div
             className={`team-chips ${moreChips ? 'more' : ''}`}
@@ -365,27 +390,17 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               </span>
             ))}
           </div>
-        </div>
-        <div className="chat-head-actions">
-          {!waitingForTeam && (
-            <span className="badge" title={t.modes[conv.settings.mode].hint}>
-              {t.modes[conv.settings.mode].label} ·{' '}
-              {conv.settings.mode === 'relay' ? t.chat.hops(conv.settings.maxHops) : t.chat.rounds(conv.settings.rounds)}
+          <div className="chat-head-badges">
+            {!waitingForTeam && (
+              <span className="badge" title={t.modes[conv.settings.mode].hint}>
+                {t.modes[conv.settings.mode].label} ·{' '}
+                {conv.settings.mode === 'relay' ? t.chat.hops(conv.settings.maxHops) : t.chat.rounds(conv.settings.rounds)}
+              </span>
+            )}
+            <span className={`badge ${conv.settings.permission === 'full' ? 'danger' : ''}`}>
+              {t.permissions[conv.settings.permission].label}
             </span>
-          )}
-          <span className={`badge ${conv.settings.permission === 'full' ? 'danger' : ''}`}>
-            {t.permissions[conv.settings.permission].label}
-          </span>
-          <CopyButton
-            className="ghost small-button"
-            label={t.chat.copyChat}
-            title={t.chat.copyChatTitle}
-            disabled={conv.messages.length === 0}
-            text={() => (convRef.current ? conversationMarkdown(convRef.current, tRef.current) : '')}
-          />
-          <button className="ghost small-button" onClick={() => setTeamOpen(true)}>
-            {t.chat.teamSettings}
-          </button>
+          </div>
         </div>
       </header>
 

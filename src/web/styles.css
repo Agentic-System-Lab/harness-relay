@@ -254,6 +254,8 @@ p {
   display: flex;
   height: 100dvh;
   overflow: hidden;
+  /* viewport-fit=cover (index.html): keep clear of a notch in landscape and a translucent status bar. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 }
 
 .sidebar {
@@ -391,7 +393,7 @@ p {
 
 .sidebar-bottom {
   border-top: 1px solid var(--border);
-  padding: 10px 12px 14px;
+  padding: 10px 12px max(14px, env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -906,30 +908,68 @@ details.sub .model-picker {
   min-height: 0;
 }
 
+/* Title, with the team on one row beneath it; badges and actions on the right. The markup's two
+   rows (.chat-head-top, .chat-head-sub) join one grid here; phones and tablets show only the top one. */
 .chat-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'title badges actions'
+    'chips badges actions';
+  align-content: center;
   align-items: center;
-  gap: 12px;
+  column-gap: 8px;
+  row-gap: 2px;
   padding: 8px 18px;
   border-bottom: 1px solid var(--border);
   min-height: 56px;
 }
 
-/* Title, with the team on one row beneath it */
-.chat-head-main {
-  flex: 1;
-  min-width: 0;
+.chat-head-top,
+.chat-head-sub {
+  display: contents;
+}
+
+.chat-head .chat-title {
+  grid-area: title;
+  justify-self: start;
+}
+
+.chat-head .team-chips {
+  grid-area: chips;
+}
+
+.chat-head-badges {
+  grid-area: badges;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
+  margin-left: 4px;
 }
 
 .chat-head-actions {
+  grid-area: actions;
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+/* Copy chat, team settings: text on wide screens, icons on phones. */
+.head-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.head-button svg {
+  display: none;
+}
+
+/* Full access, beside the title on phones and tablets (the badges row shows it on wide screens). */
+.head-warning {
+  display: none;
 }
 
 .chat-title {
@@ -1208,7 +1248,9 @@ details.sub .model-picker {
   color: var(--muted);
   background: var(--surface);
   padding: 4px 12px;
-  border-radius: 999px;
+  /* A pill on one line, a rounded box when it wraps (a long path on a phone). */
+  border-radius: 14px;
+  overflow-wrap: anywhere;
 }
 
 .msg-agent {
@@ -1897,8 +1939,9 @@ video.chat-media {
 
 /* Composer */
 
+/* Above the home indicator on phones (index.html sets viewport-fit=cover). */
 .composer-dock {
-  padding: 0 20px 10px;
+  padding: 0 20px max(10px, env(safe-area-inset-bottom));
 }
 
 .composer-dock > .error-line {
@@ -1929,8 +1972,10 @@ video.chat-media {
   border-style: dashed;
 }
 
+/* When the buttons (Continue, Stop, a recording) leave the text too little room, they wrap below it. */
 .composer-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 6px;
 }
@@ -2011,7 +2056,7 @@ video.chat-media {
 }
 
 .composer textarea {
-  flex: 1;
+  flex: 1 1 120px;
   min-width: 0;
   border: none;
   background: transparent;
@@ -2021,10 +2066,18 @@ video.chat-media {
   line-height: 1.5;
 }
 
+/* One line, cut with an ellipsis: a wrapped placeholder made the empty box three lines tall on a phone. */
+.composer textarea::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .composer-actions {
   display: flex;
   gap: 6px;
   align-items: center;
+  margin-left: auto;
 }
 
 .composer .send {
@@ -2780,9 +2833,44 @@ details.sub summary {
     background: var(--bg);
   }
 
+  /* One row: the title and actions beside the menu button. The team, mode and permission are left
+     out here (Team settings shows them); only full access is flagged, beside the title. */
   .chat-head,
   .sidebar-collapsed .chat-head {
-    padding-left: 56px;
+    display: block;
+    padding: 10px 12px 10px 10px;
+    min-height: 0;
+  }
+
+  .chat-head-sub {
+    display: none;
+  }
+
+  /* Level with the menu button (top: 10px, 36px tall). */
+  .chat-head-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 36px;
+    padding-left: 44px;
+  }
+
+  .chat-head .chat-title {
+    min-width: 0;
+  }
+
+  .head-warning {
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  .chat-head-top .chat-head-actions {
+    margin-left: auto;
+  }
+
+  .sidebar {
+    padding-top: env(safe-area-inset-top);
   }
 
   /* The drawer replaces collapsing on small screens. */
@@ -2794,19 +2882,6 @@ details.sub summary {
   .sidebar-tools,
   .brand .collapse-sidebar {
     display: none;
-  }
-
-  .chat-head {
-    flex-wrap: wrap;
-    row-gap: 6px;
-  }
-
-  .chat-head-main {
-    flex-basis: 100%;
-  }
-
-  .chat-head-actions {
-    flex-wrap: wrap;
   }
 
   .page-inner {
@@ -2822,7 +2897,7 @@ details.sub summary {
   }
 
   .composer-dock {
-    padding: 0 12px 8px;
+    padding: 0 12px max(8px, env(safe-area-inset-bottom));
   }
 
   .composer-hint {
@@ -2831,6 +2906,75 @@ details.sub summary {
 
   .msg-user .bubble {
     max-width: 90%;
+  }
+}
+
+/* Phones: icon buttons in the chat header (like the menu button), a slimmer message box. */
+@media (max-width: 560px) {
+  .head-button {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 10px;
+  }
+
+  .head-button svg {
+    display: block;
+  }
+
+  /* Still read out by screen readers. */
+  .head-button .button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .composer {
+    padding: 6px;
+  }
+
+  .composer-row,
+  .composer-actions {
+    gap: 4px;
+  }
+
+  .composer-actions .ghost,
+  .composer .stop {
+    padding: 7px 12px;
+  }
+
+  .messages-inner {
+    padding: 16px 12px 28px;
+    gap: 22px;
+  }
+
+  /* A reply uses the full width; the avatar stays beside the name. */
+  .msg-agent {
+    grid-template-columns: 28px minmax(0, 1fr);
+    column-gap: 10px;
+    row-gap: 6px;
+  }
+
+  .msg-agent > .avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+  }
+
+  .msg-body {
+    display: contents;
+  }
+
+  .msg-body > * {
+    grid-column: 1 / -1;
+  }
+
+  .msg-body > .msg-head {
+    grid-column: 2;
+    min-height: 28px;
   }
 }
 

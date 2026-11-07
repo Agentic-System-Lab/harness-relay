@@ -62,3 +62,33 @@ export function MicIcon({ size }: { size?: number }) {
     </Svg>
   );
 }
+
+/** Two sheets: copy. */
+export function CopyIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <rect x="9" y="9" width="12" height="12" rx="2.5" />
+      <path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5" />
+    </Svg>
+  );
+}
+
+export function CheckIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="m5 12.5 4.5 4.5L19 7.5" />
+    </Svg>
+  );
+}
+
+/** Two people: the team. */
+export function UsersIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0" />
+      <path d="M16 4.6a3.5 3.5 0 0 1 0 6.8" />
+      <path d="M18.5 14.3a6.5 6.5 0 0 1 3 5.7" />
+    </Svg>
+  );
+}
