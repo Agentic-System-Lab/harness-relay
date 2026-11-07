@@ -107,6 +107,8 @@ const zhTW = {
   badProvider: (name: string) => `agent「${name}」的 provider 無效`,
   badEffort: (name: string, effort: string) => `agent「${name}」的推理強度「${effort}」無效`,
   cwdMissing: (cwd: string) => `工作目錄不存在：${cwd}`,
+  cwdNotDirectory: (cwd: string) => `這不是資料夾：${cwd}`,
+  cwdCreateFailed: (cwd: string, reason: string) => `無法建立工作目錄 ${cwd}（${reason}）`,
   invalidField: (field: string) => `「${field}」的值無效`,
 
   // Workspace
@@ -233,6 +235,8 @@ const en: ServerMessages = {
   badProvider: (name) => `Agent "${name}" has an invalid provider`,
   badEffort: (name, effort) => `Agent "${name}" has an invalid reasoning effort "${effort}"`,
   cwdMissing: (cwd) => `Working directory not found: ${cwd}`,
+  cwdNotDirectory: (cwd) => `Not a folder: ${cwd}`,
+  cwdCreateFailed: (cwd, reason) => `Could not create the working directory ${cwd} (${reason})`,
   invalidField: (field) => `Invalid value for "${field}"`,
 
   gitFailed: (cmd, out) => `git ${cmd} failed: ${out}`,

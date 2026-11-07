@@ -95,6 +95,7 @@ export const zhTW = {
       `成員、對話模式與輪數會由首席 agent（${lead}）根據你描述的需求決定，你確認團隊後再開始提問；你只需要選工作目錄與檔案權限。首席 agent 可以在設定頁更換。`,
     deleteTemplate: '刪除範本',
     confirmDeleteTemplate: (name: string) => `刪除範本「${name}」？`,
+    confirmCreateCwd: (dir: string) => `工作目錄不存在：${dir}\n要建立這個目錄並開始對話嗎？`,
     titlePlaceholder: '對話標題（選填，預設取第一則訊息）',
     saveTemplate: '存成範本',
     saveTemplateHint: '把目前的成員與對話規則存成範本，之後的新對話可以直接選用。',
@@ -418,6 +419,8 @@ export const zhTW = {
     cwd: '預設工作目錄',
     cwdHint: '新對話預設讓 agent 在這個目錄工作（每個對話仍可個別修改）。',
     cwdSaved: '已儲存預設工作目錄',
+    confirmCreateCwd: (dir: string) => `目錄不存在：${dir}\n要建立這個目錄並設為預設工作目錄嗎？`,
+    cwdCreated: (dir: string) => `已建立 ${dir} 並設為預設工作目錄`,
     pill: {
       checking: '檢查中…',
       notInstalled: '未安裝',

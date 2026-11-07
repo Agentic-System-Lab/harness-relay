@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -40,12 +40,28 @@ export function expandPath(p: string): string {
   return isAbsolute(t) ? resolve(t) : resolve(process.cwd(), t);
 }
 
-/** An existing directory, from user input (`~` expanded). */
-export function validDirectory(input: unknown): string {
-  if (typeof input !== 'string' || !input.trim()) bad(t().invalidField('defaultCwd'));
-  const dir = expandPath(input);
-  if (!existsSync(dir) || !statSync(dir).isDirectory()) bad(t().cwdMissing(dir));
+/**
+ * A working directory. A missing one is a 404, so the client can offer to
+ * create it; with `create` it is created (parents too).
+ */
+function directory(dir: string, create: boolean): string {
+  if (existsSync(dir)) {
+    if (!statSync(dir).isDirectory()) bad(t().cwdNotDirectory(dir));
+    return dir;
+  }
+  if (!create) throw new HttpError(404, t().cwdMissing(dir));
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch (e) {
+    bad(t().cwdCreateFailed(dir, (e as NodeJS.ErrnoException).code ?? (e as Error).message));
+  }
   return dir;
+}
+
+/** A directory from user input (`~` expanded); see `directory()` for a missing one. */
+export function validDirectory(input: unknown, create = false): string {
+  if (typeof input !== 'string' || !input.trim()) bad(t().invalidField('defaultCwd'));
+  return directory(expandPath(input), create);
 }
 
 function optionalString(v: unknown, field: string, max = 500): string | undefined {
@@ -135,10 +151,10 @@ export function validateAgents(input: unknown): AgentConfig[] {
   });
 }
 
-export function validateSettings(input: unknown, defaultCwd: string): ConversationSettings {
+/** Conversation settings; with `create`, a missing working directory is created. */
+export function validateSettings(input: unknown, defaultCwd: string, create = false): ConversationSettings {
   const s = (input ?? {}) as Partial<ConversationSettings>;
-  const cwd = expandPath(String(s.cwd || defaultCwd));
-  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) bad(t().cwdMissing(cwd));
+  const cwd = directory(expandPath(String(s.cwd || defaultCwd)), create);
   return {
     mode: MODES.includes(s.mode as Mode) ? (s.mode as Mode) : 'roundtable',
     rounds: clampInt(s.rounds, 1, 5, 1),

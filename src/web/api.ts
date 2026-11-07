@@ -76,7 +76,7 @@ export const api = {
   // conversations
   listConversations: () => request<ConversationSummary[]>('GET', '/api/conversations'),
   getConversation: (id: string) => request<Conversation>('GET', `/api/conversations/${id}`),
-  createConversation: (b: { title?: string; agents: AgentConfig[]; settings: ConversationSettings }) =>
+  createConversation: (b: { title?: string; agents: AgentConfig[]; settings: ConversationSettings; createCwd?: boolean }) =>
     request<Conversation>('POST', '/api/conversations', b),
   updateConversation: (id: string, b: Partial<Pick<Conversation, 'title' | 'agents' | 'settings'>>) =>
     request<Conversation>('PATCH', `/api/conversations/${id}`, b),
@@ -112,7 +112,7 @@ export const api = {
 
   // settings & providers
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
-  updateSettings: (b: { defaultCwd?: string; lead?: LeadAgentSettings }) => request<SettingsView>('PUT', '/api/settings', b),
+  updateSettings: (b: { defaultCwd?: string; createCwd?: boolean; lead?: LeadAgentSettings }) => request<SettingsView>('PUT', '/api/settings', b),
   updateProvider: (p: Provider, b: ProviderSettingsUpdate) =>
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),

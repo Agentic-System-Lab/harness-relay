@@ -112,7 +112,7 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | 方法與路徑 | Body → 回應 |
 | --- | --- |
 | `GET /api/conversations` | → `ConversationSummary[]`（附側邊欄用的 `running`、`waiting` 與 `lastStatus`） |
-| `POST /api/conversations` | `{ title?, agents, settings }` → `Conversation`；`settings.autoTeam: true` 時 `agents` 可以是空的，由首席 agent 在第一則訊息時設計團隊 |
+| `POST /api/conversations` | `{ title?, agents, settings, createCwd? }` → `Conversation`；`settings.autoTeam: true` 時 `agents` 可以是空的，由首席 agent 在第一則訊息時設計團隊；`settings.cwd` 不存在時回 404，除非帶 `createCwd: true`，此時會建立該目錄 |
 | `GET /api/conversations/:id` | → `Conversation` |
 | `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation`（執行中回 409；設定 `agents` 會關閉自動組隊） |
 | `DELETE /api/conversations/:id` | 停止執行並刪除 |
@@ -129,7 +129,7 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | `POST /api/conversations/:id/agents/:agentId/apply` | 把 agent 的 worktree 結果套用到工作目錄 → `{ files }`（衝突時回 409） |
 | `GET /api/conversations/:id/events` | `ServerEvent` 的 SSE 串流 |
 | `GET /api/presets` · `POST /api/presets` · `DELETE /api/presets/:id` | 團隊範本 |
-| `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, lead? }`（`lead`：`{ provider, model?, effort? }`，自動組隊的首席 agent） |
+| `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, createCwd?, lead? }`（`lead`：`{ provider, model?, effort? }`，自動組隊的首席 agent；`defaultCwd` 不存在時回 404，除非帶 `createCwd: true`，此時會建立該目錄） |
 | `PUT /api/settings/providers/:provider` | `{ bin?, defaultModel?, defaultEffort?, apiKey? }`（`apiKey: null` 代表移除） |
 | `GET /api/providers[?refresh=1]` | → `ProviderStatus[]` |
 | `GET /api/models[?refresh=1]` | → `ProviderModels[]` |
@@ -216,7 +216,7 @@ npx vitest test/store.test.ts
 - `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 的快照、worktree、套用、衝突、CRLF 與非 UTF-8 內容逐位元組套用、很長或特殊的檔案清單、保留的快照 ref、範圍太大的 repository）。
 - `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
-- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、範本 id。
+- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的預設目錄或對話目錄、範本 id。
 - `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。
 - `test/chat.test.ts`：ChatView 的邏輯：何時重新連線事件串流、哪個 worktree 結果可以套用、團隊設定的草稿。

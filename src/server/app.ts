@@ -115,10 +115,10 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
   app.get('/api/settings', (c) => c.json(settings.view()));
 
   app.put('/api/settings', async (c) => {
-    const b = await body<{ defaultCwd?: unknown; lead?: unknown }>(c);
-    // Validate everything before saving anything.
-    const cwd = b.defaultCwd !== undefined ? validDirectory(b.defaultCwd) : undefined;
+    const b = await body<{ defaultCwd?: unknown; createCwd?: unknown; lead?: unknown }>(c);
+    // Validate everything before saving anything; the directory last, since creating it is a side effect.
     const lead = b.lead !== undefined ? validateLead(b.lead) : undefined;
+    const cwd = b.defaultCwd !== undefined ? validDirectory(b.defaultCwd, b.createCwd === true) : undefined;
     if (cwd !== undefined) settings.setDefaultCwd(cwd);
     if (lead !== undefined) settings.setLead(lead);
     return c.json(settings.view());
@@ -232,16 +232,18 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
   );
 
   app.post('/api/conversations', async (c) => {
-    const b = await body<Partial<Conversation>>(c);
+    const b = await body<Partial<Conversation> & { createCwd?: unknown }>(c);
     const now = Date.now();
-    const s = validateSettings(b.settings, settings.defaultCwd);
+    // Auto team: the lead agent designs the team from the first message.
+    // The agents first: creating a missing working directory is a side effect.
+    const agents = b.settings?.autoTeam === true ? [] : validateAgents(b.agents);
+    const s = validateSettings(b.settings, settings.defaultCwd, b.createCwd === true);
     const conv: Conversation = {
       id: randomUUID(),
       title: String(b.title ?? '').trim() || t().defaultTitle,
       createdAt: now,
       updatedAt: now,
-      // Auto team: the lead agent designs the team from the first message.
-      agents: s.autoTeam ? [] : validateAgents(b.agents),
+      agents,
       settings: s,
       messages: [],
       agentState: {},

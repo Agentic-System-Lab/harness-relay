@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -162,6 +162,53 @@ describe('settings', () => {
     expect((await provider({ bin: 123 })).status).toBe(400);
     expect((await provider({ defaultEffort: 'way too much effort' })).status).toBe(400);
     expect((await provider({ defaultModel: 'sonnet', defaultEffort: 'low' })).status).toBe(200);
+  });
+
+  it('creates a missing default directory only when asked to', async () => {
+    const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
+    const dir = join(project, 'new', 'chats');
+    const missing = await put({ defaultCwd: dir });
+    expect(missing.status).toBe(404);
+    expect(existsSync(dir)).toBe(false);
+
+    // A bad lead is refused before anything is created.
+    expect((await put({ defaultCwd: dir, createCwd: true, lead: { provider: 'nope' } })).status).toBe(400);
+    expect(existsSync(dir)).toBe(false);
+
+    const created = await put({ defaultCwd: dir, createCwd: true });
+    expect(created.status).toBe(200);
+    expect(((await created.json()) as { defaultCwd: string }).defaultCwd).toBe(dir);
+    expect(statSync(dir).isDirectory()).toBe(true);
+    // Saving an existing directory again is fine.
+    expect((await put({ defaultCwd: dir, createCwd: true })).status).toBe(200);
+
+    // A path through a file cannot be created.
+    const file = join(project, 'plain.txt');
+    writeFileSync(file, '');
+    expect((await put({ defaultCwd: file, createCwd: true })).status).toBe(400);
+    expect((await put({ defaultCwd: join(file, 'sub'), createCwd: true })).status).toBe(400);
+  });
+
+  it('creates a missing conversation directory only when asked to, after checking the team', async () => {
+    const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body));
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const dir = join(project, 'brand', 'new');
+    expect((await post({ agents, settings: { cwd: dir } })).status).toBe(404);
+    expect(existsSync(dir)).toBe(false);
+
+    // An invalid team is refused before anything is created.
+    expect((await post({ agents: [{ name: 'Bad name!', provider: 'claude' }], settings: { cwd: dir }, createCwd: true })).status).toBe(400);
+    expect(existsSync(dir)).toBe(false);
+
+    const res = await post({ agents, settings: { cwd: dir }, createCwd: true });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Conversation).settings.cwd).toBe(dir);
+    expect(statSync(dir).isDirectory()).toBe(true);
+
+    // Auto team needs no agents, and still creates the directory.
+    const auto = join(project, 'auto', 'team');
+    expect((await post({ settings: { cwd: auto, autoTeam: true }, createCwd: true })).status).toBe(200);
+    expect(statSync(auto).isDirectory()).toBe(true);
   });
 });
 

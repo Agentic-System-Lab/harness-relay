@@ -112,7 +112,7 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 | Method & path | Body → response |
 | --- | --- |
 | `GET /api/conversations` | → `ConversationSummary[]` (with `running`, `waiting` and `lastStatus` for the sidebar) |
-| `POST /api/conversations` | `{ title?, agents, settings }` → `Conversation`; with `settings.autoTeam: true`, `agents` may be empty — the lead agent designs the team on the first message |
+| `POST /api/conversations` | `{ title?, agents, settings, createCwd? }` → `Conversation`; with `settings.autoTeam: true`, `agents` may be empty — the lead agent designs the team on the first message; a `settings.cwd` that does not exist is a 404 unless `createCwd: true`, which creates it |
 | `GET /api/conversations/:id` | → `Conversation` |
 | `PATCH /api/conversations/:id` | `{ title?, agents?, settings? }` → `Conversation` (409 while running; setting `agents` turns auto team off) |
 | `DELETE /api/conversations/:id` | stops a run and deletes |
@@ -129,7 +129,7 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 | `POST /api/conversations/:id/agents/:agentId/apply` | applies an agent's worktree result to the working directory → `{ files }` (409 on conflict) |
 | `GET /api/conversations/:id/events` | SSE stream of `ServerEvent` |
 | `GET /api/presets` · `POST /api/presets` · `DELETE /api/presets/:id` | team templates |
-| `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, lead? }` (`lead`: `{ provider, model?, effort? }`, the auto-team lead agent) |
+| `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, createCwd?, lead? }` (`lead`: `{ provider, model?, effort? }`, the auto-team lead agent; a `defaultCwd` that does not exist is a 404 unless `createCwd: true`, which creates it) |
 | `PUT /api/settings/providers/:provider` | `{ bin?, defaultModel?, defaultEffort?, apiKey? }` (`apiKey: null` removes) |
 | `GET /api/providers[?refresh=1]` | → `ProviderStatus[]` |
 | `GET /api/models[?refresh=1]` | → `ProviderModels[]` |
@@ -216,7 +216,7 @@ Current tests:
 - `test/workspace.test.ts` — git plumbing against real temporary repositories (auto init, snapshots that leave the repo untouched, worktrees, apply, conflicts, CRLF / non-UTF-8 content applied byte for byte, long and unusual file lists, kept snapshot refs, repositories that are too broad).
 - `test/process.test.ts` — process helpers: byte-exact output, stopping subprocesses that ignore SIGTERM (also after the CLI exited, and on shutdown), a missing working directory, relative executable paths.
 - `test/hub.test.ts` — SSE fan-out when a browser reconnects.
-- `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, template ids.
+- `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, creating a missing default or conversation directory only when asked, template ids.
 - `test/prompt.test.ts` — `@mention` parsing (text right after a name, code fences), `[PASS]`, forwarding of failed / stopped / passed replies, the parallel briefing.
 - `test/commands.test.ts` — reading shell command lines: publishing commands in their many forms, and "always allow" keys that do not let embedded commands through.
 - `test/chat.test.ts` — ChatView logic: when to reconnect the event stream, which worktree result can be applied, the team drawer's draft.

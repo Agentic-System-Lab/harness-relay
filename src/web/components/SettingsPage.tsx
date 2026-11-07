@@ -13,7 +13,7 @@ import {
   type ProviderStatus,
   type SettingsView,
 } from '../../shared/types';
-import { api } from '../api';
+import { api, ApiError } from '../api';
 import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
 import { PROVIDER_COLOR } from '../util';
 import { ModelPicker } from './ModelPicker';
@@ -59,7 +59,17 @@ export function SettingsPage({ providers, catalog, refreshProviders, onShowTour 
       setSettings(await api.updateSettings({ defaultCwd: cwd }));
       setMsg(t.settings.cwdSaved);
     } catch (e) {
-      setMsg((e as Error).message);
+      // 404: the folder does not exist yet; create it if the user agrees.
+      if (!(e instanceof ApiError && e.status === 404)) return setMsg((e as Error).message);
+      if (!confirm(t.settings.confirmCreateCwd(cwd.trim()))) return setMsg(e.message);
+      try {
+        const s = await api.updateSettings({ defaultCwd: cwd, createCwd: true });
+        setSettings(s);
+        setCwd(s.defaultCwd);
+        setMsg(t.settings.cwdCreated(s.defaultCwd));
+      } catch (e2) {
+        setMsg((e2 as Error).message);
+      }
     }
   };
 

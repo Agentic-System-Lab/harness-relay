@@ -91,6 +91,7 @@ export const en: Messages = {
       `The members, conversation mode and rounds are decided by the lead agent (${lead}) from what you describe, and you confirm the team before asking anything; you only choose the working directory and file permission. You can change the lead agent in Settings.`,
     deleteTemplate: 'Delete template',
     confirmDeleteTemplate: (name) => `Delete the template "${name}"?`,
+    confirmCreateCwd: (dir) => `This working directory does not exist: ${dir}\nCreate it and start the conversation?`,
     titlePlaceholder: 'Conversation title (optional; defaults to the first message)',
     saveTemplate: 'Save as template',
     saveTemplateHint: 'Save these members and conversation rules as a template to pick for new chats.',
@@ -416,6 +417,8 @@ export const en: Messages = {
     cwd: 'Default working directory',
     cwdHint: 'New conversations let agents work in this directory by default (each conversation can still change it).',
     cwdSaved: 'Default working directory saved',
+    confirmCreateCwd: (dir: string) => `This folder does not exist: ${dir}\nCreate it and make it the default working directory?`,
+    cwdCreated: (dir: string) => `Created ${dir} and made it the default working directory`,
     pill: {
       checking: 'Checking…',
       notInstalled: 'Not installed',

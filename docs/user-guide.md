@@ -62,7 +62,7 @@ Under **Default model and reasoning effort** choose what an agent uses when its 
 
 **✦ Lead agent** picks the CLI (and optionally the model and effort) that designs the team in [Auto team](#auto-team) conversations. Choose one that is signed in; a small, fast model is usually enough.
 
-**Default working directory** sets the folder new conversations start in.
+**Default working directory** sets the folder new conversations start in. If the folder does not exist yet, Harness Relay asks whether to create it (the working directory of a new conversation works the same way).
 
 ## 3. Design the team — New chat
 
