@@ -1129,7 +1129,7 @@ details.sub .model-picker {
 
 /* New conversation: the form scrolls; the start bar below it stays at the bottom of the window,
    however long or short the form is. */
-.new-chat {
+.new-chat-page {
   display: flex;
   flex-direction: column;
 }

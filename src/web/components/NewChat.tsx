@@ -165,7 +165,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
   };
 
   return (
-    <div className="page new-chat">
+    <div className="page new-chat-page">
       <div className="scroll new-chat-body">
         <div className="page-inner">
           <header className="page-head">
