@@ -59,17 +59,15 @@
 git clone https://github.com/Agentic-System-Lab/harness-relay
 cd harness-relay
 npm install
-npm run dev
-```
-
-打開 **http://localhost:5173**，先到「**設定與登入**」確認每個 agent 都已登入，再點「**新對話**」，選自動組隊、自行設計或挑一個範本，就可以開始對話。
-
-以單一伺服器方式執行（正式環境）：
-
-```bash
 npm run build
-npm start          # 在 http://127.0.0.1:8787 同時提供介面與 API
+npm start
 ```
+
+打開 **http://127.0.0.1:8787**，先到「**設定與登入**」確認每個 agent 都已登入，再點「**新對話**」，選自動組隊、自行設計或挑一個範本，就可以開始對話。
+
+`git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。
+
+要開發 Harness Relay 本身？改用 `npm run dev`：改程式時伺服器會自動重啟、介面會自動重新載入，網址是 http://localhost:5173。詳見[開發者說明](docs/developer-guide.zh-TW.md)。
 
 ## 文件
 
@@ -89,9 +87,9 @@ agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**
 
 | 指令 | 說明 |
 | --- | --- |
-| `npm run dev` | API 伺服器（port 8787，自動重啟）+ Vite 開發伺服器（port 5173） |
+| `npm run dev` | 開發用：API 伺服器（port 8787，自動重啟）+ Vite 開發伺服器（port 5173） |
 | `npm run build` | 把網頁介面建置到 `dist/web` |
-| `npm start` | 由單一程序提供建置好的介面與 API |
+| `npm start` | 由單一程序在 http://127.0.0.1:8787 提供建置好的介面與 API |
 | `npm run typecheck` | 型別檢查伺服器、前端與測試 |
 | `npm test` | 執行測試（Vitest） |
 | `npm run site:preview` | 在 http://127.0.0.1:4180 預覽網站（`site/`） |

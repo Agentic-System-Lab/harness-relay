@@ -10,10 +10,11 @@
 
 ```bash
 npm install
-npm run dev
+npm run build
+npm start
 ```
 
-打開 **http://localhost:5173**。（若先執行 `npm run build` 再執行 `npm start`，網址則是 http://127.0.0.1:8787。）
+打開 **http://127.0.0.1:8787**。`git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。（要開發 Harness Relay 本身，改用 `npm run dev` 並打開 http://localhost:5173；詳見[開發者說明](developer-guide.zh-TW.md)。）
 
 側邊欄底部的圓點代表各 agent 的狀態：綠色＝可以使用、橘色＝尚未登入、紅色＝找不到 CLI。
 
@@ -261,4 +262,4 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 | 語音輸入安裝失敗 | 到 **設定 → 語音輸入** 查看錯誤與安裝紀錄。macOS 請先安裝 [Homebrew](https://brew.sh)；較舊的 Linux（glibc 早於 2.34）請自行安裝 whisper.cpp，再到 **進階** 設定 **whisper-server 路徑**。 |
 | 語音轉文字很慢 | 在 **設定 → 語音輸入** 改用較小的模型（Small 或 Base）；沒有 GPU 時大模型要好幾秒。隔一段時間後的第一次辨識也要先載入模型。 |
 | 辨識出簡體字或錯誤的語言 | 把 **辨識語言** 從自動偵測改成「中文（繁體）」或 English；較大的模型也會比較準。 |
-| port 被佔用 | 換一個 port 啟動：macOS 與 Linux 用 `PORT=8790 npm run dev`，Windows PowerShell 用 `$env:PORT=8790; npm run dev`（介面的代理會跟著 `PORT`）。 |
+| port 被佔用 | 換一個 port 啟動：macOS 與 Linux 用 `PORT=8790 npm start`，Windows PowerShell 用 `$env:PORT=8790; npm start`。`npm run dev` 也一樣，介面的代理會跟著 `PORT`。 |

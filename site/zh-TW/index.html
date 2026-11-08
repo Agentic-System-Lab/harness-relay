@@ -128,7 +128,8 @@
               <pre id="cmd-hero"><span class="prompt">$ </span>git clone https://github.com/Agentic-System-Lab/harness-relay
 <span class="prompt">$ </span>cd harness-relay
 <span class="prompt">$ </span>npm install
-<span class="prompt">$ </span>npm run dev</pre>
+<span class="prompt">$ </span>npm run build
+<span class="prompt">$ </span>npm start</pre>
               <button class="copy" type="button" data-copy="cmd-hero" aria-label="複製指令" data-done="已複製">
                 <svg class="i-copy" aria-hidden="true"><use href="#i-copy" /></svg>
                 <svg class="i-check" aria-hidden="true"><use href="#i-check" /></svg>
@@ -670,7 +671,8 @@
                 <pre id="cmd-start"><span class="prompt">$ </span>git clone https://github.com/Agentic-System-Lab/harness-relay
 <span class="prompt">$ </span>cd harness-relay
 <span class="prompt">$ </span>npm install
-<span class="prompt">$ </span>npm run dev</pre>
+<span class="prompt">$ </span>npm run build
+<span class="prompt">$ </span>npm start</pre>
                 <button class="copy" type="button" data-copy="cmd-start" aria-label="複製指令" data-done="已複製">
                   <svg class="i-copy" aria-hidden="true"><use href="#i-copy" /></svg>
                   <svg class="i-check" aria-hidden="true"><use href="#i-check" /></svg>
@@ -680,12 +682,12 @@
             <li>
               <h3>登入，然後開始聊天</h3>
               <p>
-                打開 <b>http://localhost:5173</b>，在「設定與登入」確認每個 agent 都已登入，再按「新對話」：選擇自動組隊、自行設計，或挑一個範本。
+                打開 <b>http://127.0.0.1:8787</b>，在「設定與登入」確認每個 agent 都已登入，再按「新對話」：選擇自動組隊、自行設計，或挑一個範本。
               </p>
             </li>
           </ol>
           <div class="start-foot">
-            <p>想用單一程序執行：先執行 <code>npm run build</code>，再執行 <code>npm start</code>，就會在 http://127.0.0.1:8787 提供整個 app。</p>
+            <p>要開發 Harness Relay 本身？改用 <code>npm run dev</code>：改程式時伺服器會自動重啟、介面會自動重新載入，網址是 http://localhost:5173。</p>
             <nav class="docs" aria-label="文件">
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md">使用者說明</a>
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/architecture.zh-TW.md">架構</a>

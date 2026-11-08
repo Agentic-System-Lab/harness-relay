@@ -5,7 +5,7 @@ How the Harness Relay landing page (`site/`) looks, reads and behaves, and what 
 ## Goal
 
 - **Reader:** a developer who already uses one or more of the Claude Code, Codex and Grok CLIs.
-- **Job of the page:** within a minute, show three real CLIs working in one chat, then get the reader to clone and run it (`git clone`, `npm install`, `npm run dev`) or open the repository.
+- **Job of the page:** within a minute, show three real CLIs working in one chat, then get the reader to clone and run it (`git clone`, `npm install`, `npm run build`, `npm start`) or open the repository. `npm run dev` is only for people working on Harness Relay itself, so it appears once, under the quick start.
 - **Primary action:** the copyable clone-and-run command and the GitHub button in the hero. The page ends on the quick start, never on a dead end.
 
 ## Principles

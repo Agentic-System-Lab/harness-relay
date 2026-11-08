@@ -59,17 +59,15 @@ Voice input is optional and installs itself when you turn it on: on macOS it nee
 git clone https://github.com/Agentic-System-Lab/harness-relay
 cd harness-relay
 npm install
-npm run dev
-```
-
-Open **http://localhost:5173**, go to **Settings & Login** to check that each agent is signed in, then click **New chat**, choose Auto team, design your own team or pick a template, and start talking.
-
-For a production-style single server:
-
-```bash
 npm run build
-npm start          # serves the UI and API on http://127.0.0.1:8787
+npm start
 ```
+
+Open **http://127.0.0.1:8787**, go to **Settings & Login** to check that each agent is signed in, then click **New chat**, choose Auto team, design your own team or pick a template, and start talking.
+
+After a `git pull`, run `npm install` and `npm run build` again, then `npm start`.
+
+Working on Harness Relay itself? Run `npm run dev` instead: the server restarts and the UI reloads as you edit, at http://localhost:5173. See the [developer guide](docs/developer-guide.md).
 
 ## Documentation
 
@@ -89,9 +87,9 @@ API keys you save in Settings are kept in your operating system's credential sto
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | API server (port 8787, auto-restart) + Vite dev server (port 5173) |
+| `npm run dev` | For development: API server (port 8787, auto-restart) + Vite dev server (port 5173) |
 | `npm run build` | Build the web UI into `dist/web` |
-| `npm start` | Serve the built UI and the API from one process |
+| `npm start` | Serve the built UI and the API from one process on http://127.0.0.1:8787 |
 | `npm run typecheck` | Type-check server, client and tests |
 | `npm test` | Run the test suite (Vitest) |
 | `npm run site:preview` | Preview the website (`site/`) on http://127.0.0.1:4180 |
