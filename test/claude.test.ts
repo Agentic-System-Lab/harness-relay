@@ -4,6 +4,7 @@ import {
   claudeApprovalRequest,
   claudeArgs,
   claudeMcpConfig,
+  claudeNativeEnv,
   claudeReadRule,
   createClaudeParser,
   type ClaudeControlRequest,
@@ -135,6 +136,28 @@ describe('claude parser', () => {
     expect(claudeApprovalRequest('Write', { file_path: '/a.txt' })).toMatchObject({ kind: 'edit', detail: '/a.txt' });
     expect(claudeApprovalRequest('WebFetch', { url: 'https://x.dev' })).toMatchObject({ kind: 'fetch', detail: 'https://x.dev' });
     expect(claudeApprovalRequest('mcp__linear__create', { title: 'Bug' })).toMatchObject({ kind: 'other', tool: 'mcp__linear__create' });
+  });
+});
+
+describe('leaving out what Claude Code loads by itself', () => {
+  const base = { systemPrompt: 'briefing', ask: true, newSessionId: 'new-id', permission: 'edit' as const };
+
+  it("turns off its own skills and MCP servers with flags, keeping the tool library's servers", () => {
+    const args = claudeArgs({ ...base, mcpConfig: '/tmp/x/mcp.json', nativeOff: ['skills', 'mcp'] });
+    expect(args).toContain('--disable-slash-commands');
+    expect(args).toContain('--strict-mcp-config');
+    expect(args[args.indexOf('--mcp-config') + 1]).toBe('/tmp/x/mcp.json');
+    expect(args[args.indexOf('--mcp-config') + 2]).toMatch(/^--/);
+    expect(claudeArgs(base)).not.toContain('--strict-mcp-config');
+    expect(claudeArgs(base)).not.toContain('--disable-slash-commands');
+    // Instruction files and memory are left out through the environment, not flags.
+    expect(claudeArgs({ ...base, nativeOff: ['instructions', 'memory'] })).toEqual(claudeArgs(base));
+  });
+
+  it('turns off its instruction files and auto memory with variables', () => {
+    expect(claudeNativeEnv(['instructions', 'memory'])).toEqual({ CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+    expect(claudeNativeEnv(['skills', 'mcp'])).toEqual({});
+    expect(claudeNativeEnv()).toEqual({});
   });
 });
 

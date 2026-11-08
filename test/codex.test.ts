@@ -5,6 +5,8 @@ import {
   codexConfig,
   codexElicitationResponse,
   codexMcpToolApproval,
+  codexConfiguredMcpServers,
+  codexNativeConfig,
   createCodexUpdateHandler,
   describeCodexItem,
 } from '../src/server/agents/codex';
@@ -137,5 +139,31 @@ describe('codex thread config', () => {
     expect(codexConfig('full', undefined, [gh])).toEqual({ 'mcp_servers.gh': { command: 'gh-mcp', args: [], default_tools_approval_mode: 'approve' } });
     // Below full access Codex asks, and the user answers in the chat.
     expect(codexConfig('edit', undefined, [gh])['mcp_servers.gh']).not.toHaveProperty('default_tools_approval_mode');
+  });
+
+  it('leaves out what Codex loads by itself; its configured MCP servers one by one', () => {
+    const gh = { name: 'gh', transport: 'stdio' as const, command: 'npx', args: ['gh'], url: '', env: {}, headers: {} };
+    expect(
+      codexConfig('read-only', undefined, [gh], {
+        off: ['skills', 'mcp', 'instructions', 'memory'],
+        userMcpServers: ['headroom', 'gh', 'not.a.bare.key'],
+      }),
+    ).toEqual({
+      'skills.include_instructions': false,
+      'features.apps': false,
+      // gh is the tool library's (it replaces the user's gh); a name that cannot be a key part is skipped.
+      'mcp_servers.headroom.enabled': false,
+      project_doc_max_bytes: 0,
+      'features.memories': false,
+      'mcp_servers.gh': { command: 'npx', args: ['gh'] },
+    });
+    expect(codexNativeConfig([], ['headroom'])).toEqual({});
+    expect(codexNativeConfig(['instructions'])).toEqual({ project_doc_max_bytes: 0 });
+  });
+
+  it('reads the configured MCP servers from config/read', () => {
+    expect(codexConfiguredMcpServers({ config: { mcp_servers: { headroom: {}, node_repl: {} } } })).toEqual(['headroom', 'node_repl']);
+    expect(codexConfiguredMcpServers({ config: {} })).toEqual([]);
+    expect(codexConfiguredMcpServers(undefined)).toEqual([]);
   });
 });

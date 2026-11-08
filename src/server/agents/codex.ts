@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import type { Permission, PlanEntry } from '../../shared/types';
+import type { NativePart, Permission, PlanEntry } from '../../shared/types';
 import { unwrapShell } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
@@ -39,12 +39,50 @@ const SANDBOX: Record<Permission, string> = {
  * ~/.codex/config.toml turns `sandbox_workspace_write.network_access` on: pushing and publishing
  * (anything that leaves the machine) must go through an approval.
  */
-export function codexConfig(permission: Permission, effort?: string, mcpServers: McpServerSpec[] = []): Record<string, unknown> {
+export function codexConfig(
+  permission: Permission,
+  effort?: string,
+  mcpServers: McpServerSpec[] = [],
+  native: { off: readonly NativePart[]; userMcpServers: string[] } = { off: [], userMcpServers: [] },
+): Record<string, unknown> {
   return {
     ...(effort ? { model_reasoning_effort: effort } : {}),
     ...(permission === 'edit' ? { sandbox_workspace_write: { network_access: false } } : {}),
+    ...codexNativeConfig(
+      native.off,
+      native.userMcpServers.filter((n) => !mcpServers.some((s) => s.name === n)),
+    ),
     ...codexMcpConfig(mcpServers, permission === 'full'),
   };
+}
+
+/** A name that can be one part of a dotted config key. */
+const BARE_KEY = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Config overrides that leave out what Codex loads by itself, for one thread: the skills list in its
+ * instructions; the MCP servers in its config (`userMcpServers`) and ChatGPT apps; the project's
+ * AGENTS.md files (no setting reaches its own ~/.codex/AGENTS.md); its memories. Dotted keys, so the
+ * user's other settings in those tables stay.
+ */
+export function codexNativeConfig(off: readonly NativePart[], userMcpServers: string[] = []): Record<string, unknown> {
+  return {
+    ...(off.includes('skills') ? { 'skills.include_instructions': false } : {}),
+    ...(off.includes('mcp')
+      ? {
+          'features.apps': false,
+          ...Object.fromEntries(userMcpServers.filter((n) => BARE_KEY.test(n)).map((n) => [`mcp_servers.${n}.enabled`, false])),
+        }
+      : {}),
+    ...(off.includes('instructions') ? { project_doc_max_bytes: 0 } : {}),
+    ...(off.includes('memory') ? { 'features.memories': false } : {}),
+  };
+}
+
+/** The names of the MCP servers in a `config/read` answer. */
+export function codexConfiguredMcpServers(read: unknown): string[] {
+  const servers = (read as { config?: { mcp_servers?: unknown } } | undefined)?.config?.mcp_servers;
+  return servers && typeof servers === 'object' ? Object.keys(servers) : [];
 }
 
 /**
@@ -344,13 +382,16 @@ export const codexRunner: AgentRunner = {
         capabilities: null,
       });
       conn.notify('initialized');
+      const off = o.nativeOff ?? [];
+      // Its own MCP servers are turned off one by one, so ask which there are.
+      const userMcpServers = off.includes('mcp') ? codexConfiguredMcpServers(await conn.request('config/read', { cwd: o.cwd })) : [];
       const threadParams = {
         cwd: o.cwd,
         approvalPolicy: ask ? 'on-request' : 'never',
         sandbox: SANDBOX[o.permission],
         developerInstructions: o.systemPrompt,
         ...(o.model ? { model: o.model } : {}),
-        config: codexConfig(o.permission, o.effort, o.mcpServers),
+        config: codexConfig(o.permission, o.effort, o.mcpServers, { off, userMcpServers }),
       };
       const thread = o.sessionId
         ? await conn.request('thread/resume', { threadId: o.sessionId, ...threadParams })

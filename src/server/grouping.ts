@@ -101,6 +101,7 @@ export class AutoGrouper {
     await runners[lead.provider].run({
       bin: this.settings.bin(lead.provider),
       env: this.settings.env(lead.provider),
+      nativeOff: this.settings.nativeOff(lead.provider),
       prompt,
       systemPrompt: GROUPER_BRIEFING,
       cwd: conv.settings.cwd,

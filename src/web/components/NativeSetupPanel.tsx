@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FilePreview, NativeSetup, Provider } from '../../shared/types';
+import type { FilePreview, NativeSetup, Provider, ProviderSettingsView, SettingsView } from '../../shared/types';
 import { api } from '../api';
 import { isMarkdown, lineCount } from '../files';
 import { useT } from '../i18n';
 import { formatBytes, relativeTime } from '../util';
 import { TextContent } from './FileBrowser';
 import { GrokTrustNote } from './GrokTrust';
+import { NativeOffSwitches } from './NativeOffSwitches';
 import { useDialog } from './useDialog';
 
 type Tab = 'skills' | 'mcp' | 'memory';
@@ -14,7 +15,15 @@ type Tab = 'skills' | 'mcp' | 'memory';
  * What a CLI loads by itself (its own skills, MCP servers and memory files), asked from the CLI when
  * the section is first opened: asking starts the CLI briefly.
  */
-export function NativeSetupPanel({ provider }: { provider: Provider }) {
+export function NativeSetupPanel({
+  provider,
+  settings,
+  onSettings,
+}: {
+  provider: Provider;
+  settings?: ProviderSettingsView;
+  onSettings: (s: SettingsView) => void;
+}) {
   const t = useT();
   const [setup, setSetup] = useState<NativeSetup | null>(null);
   const [loading, setLoading] = useState(false);
@@ -45,8 +54,10 @@ export function NativeSetupPanel({ provider }: { provider: Provider }) {
       <summary>
         {t.native.title}
         {counts && ` (${t.native.summary(counts.skills, counts.mcp, counts.memory)})`}
+        {settings?.nativeOff.length ? <span className="badge">{t.native.offCount(settings.nativeOff.length)}</span> : null}
       </summary>
       <div className="sub-body">
+        <NativeOffSwitches provider={provider} settings={settings} onSettings={onSettings} />
         <p className="muted small">{t.native.hint}</p>
         <div className="button-row">
           {setup && <span className="muted small">{t.native.checked(setup.cwd, relativeTime(setup.checkedAt, t))}</span>}

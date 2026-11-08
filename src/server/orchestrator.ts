@@ -822,6 +822,7 @@ export class Orchestrator {
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider),
+        nativeOff: this.settings.nativeOff(lead.provider),
         prompt: buildPlannerPrompt(question, conv.settings, ctx),
         systemPrompt: PLANNER_BRIEFING,
         cwd: conv.settings.cwd,
@@ -1315,6 +1316,7 @@ export class Orchestrator {
         const result = await runners[agent.provider].run({
           bin: this.settings.bin(agent.provider),
           env: this.settings.env(agent.provider),
+          nativeOff: this.settings.nativeOff(agent.provider),
           prompt,
           systemPrompt: buildBriefing(conv, agent, workspace, tools),
           sessionId: state.sessionId,

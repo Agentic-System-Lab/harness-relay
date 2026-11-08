@@ -367,6 +367,20 @@ describe('SettingsStore (SQLite)', () => {
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
+  it("keeps what each CLI's runs leave out, only what that CLI can leave out", () => {
+    const s = new SettingsStore(db);
+    s.update('grok', { nativeOff: ['instructions', 'mcp', 'skills', 'mcp'] });
+    s.update('claude', { nativeOff: ['memory', 'instructions'] });
+
+    const again = new SettingsStore(reopen());
+    expect(again.nativeOff('grok')).toEqual(['skills', 'mcp']); // Grok cannot leave out instruction files
+    expect(again.nativeOff('claude')).toEqual(['instructions', 'memory']);
+    expect(again.nativeOff('codex')).toEqual([]);
+    expect(again.view().providers.find((p) => p.provider === 'grok')!.nativeOff).toEqual(['skills', 'mcp']);
+    again.update('claude', { nativeOff: [] });
+    expect(new SettingsStore(reopen()).nativeOff('claude')).toEqual([]);
+  });
+
   it('keeps API keys in the system keyring, never in the database', () => {
     const keyring = fakeKeyring();
     const s = new SettingsStore(db, keyring);

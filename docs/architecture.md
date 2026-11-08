@@ -260,6 +260,18 @@ Each CLI's card in Settings can list what that CLI loads by itself for the defau
 
 Asking starts the CLI for a moment: Claude Code runs the user's SessionStart hooks and connects its MCP servers. It is a POST, and the folder is always the default working directory, so another site cannot start a CLI anywhere. Answers are kept for a minute per CLI, executable and folder (`refresh: true` asks again); what a CLI did not report is listed, in the language of each request. The reported instruction and memory files, and skills' `SKILL.md`, can be opened in the UI (`POST /api/providers/:provider/native/file`): only a path in the CLI's latest answer is read, so no other file on the computer can be. Only names, descriptions, paths and states are returned; MCP server configs, which can hold tokens, are not.
 
+### Leaving them out of Harness Relay's runs
+
+Per CLI, the user can leave its own skills, MCP servers, instruction files or memory out of every run Harness Relay starts (`ProviderSettingsView.nativeOff`, column `provider_settings.native_off`; `RunOptions.nativeOff`, passed by the orchestrator for members and the lead agent, and by the group sorter). Each adapter turns them off for that run only, never in the CLI's own settings files. `NATIVE_OFF_SUPPORT` in `src/shared/types.ts` lists what each CLI can leave out; the server drops the rest. Each mechanism was checked against the real CLI (Claude Code 2.1.319, Codex 0.167.0, Grok 1.0.77) without calling a model:
+
+| | Skills | MCP servers | Instruction files | Memory |
+| --- | --- | --- | --- | --- |
+| Claude Code | `--disable-slash-commands` (plugin and custom commands too) | `--strict-mcp-config`: only the tool library's `--mcp-config` stays | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` |
+| Codex (thread `config`) | `skills.include_instructions = false` | `mcp_servers.<name>.enabled = false` for each configured server (read with `config/read` before the thread starts; a tool library server of the same name replaces it instead), and `features.apps = false` | `project_doc_max_bytes = 0`: the project's `AGENTS.md` files; no setting reaches `~/.codex/AGENTS.md` | `features.memories = false` |
+| Grok (environment) | `GROK_CLAUDE_SKILLS_ENABLED` / `GROK_CURSOR_SKILLS_ENABLED=false`: only what it loads from Claude Code and Cursor | `GROK_CLAUDE_MCPS_ENABLED` / `GROK_CURSOR_MCPS_ENABLED=false`: likewise | none (its rules switch leaves `CLAUDE.md` loaded) | `GROK_MEMORY=0` |
+
+Grok's own skills and MCP servers can only be turned off in `~/.grok/config.toml` (`skills.disabled`, `mcp_servers.<name>.enabled`), which Harness Relay does not edit. The probe above asks without these switches, so the list keeps showing what the CLI loads by itself.
+
 ## Workspaces and file changes
 
 With **read-only** permission agents simply run in the working directory (`cwd`). With **edit** or **full access**, Harness Relay uses git to keep agents from overwriting each other and to record what each one changed (`src/server/workspace.ts`):

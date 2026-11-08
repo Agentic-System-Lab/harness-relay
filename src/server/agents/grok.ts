@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import type { Permission } from '../../shared/types';
+import type { NativePart, Permission } from '../../shared/types';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
 import { JsonRpcConnection, RpcError } from './acp';
@@ -278,6 +278,19 @@ export function grokMcpServers(servers: McpServerSpec[], http = true): Record<st
 /** `costUsdTicks` are 1e-10 USD. */
 const TICKS_PER_USD = 1e10;
 
+/**
+ * Variables that make Grok leave out, for one run, the skills and MCP servers it loads from Claude
+ * Code's and Cursor's settings, and its memory. Its own skills and MCP servers have no such switch
+ * (they are turned off in ~/.grok/config.toml), and neither have instruction files.
+ */
+export function grokNativeEnv(off: readonly NativePart[] = []): Record<string, string> {
+  return {
+    ...(off.includes('skills') ? { GROK_CLAUDE_SKILLS_ENABLED: 'false', GROK_CURSOR_SKILLS_ENABLED: 'false' } : {}),
+    ...(off.includes('mcp') ? { GROK_CLAUDE_MCPS_ENABLED: 'false', GROK_CURSOR_MCPS_ENABLED: 'false' } : {}),
+    ...(off.includes('memory') ? { GROK_MEMORY: '0' } : {}),
+  };
+}
+
 export const grokRunner: AgentRunner = {
   provider: 'grok',
   async run(o): Promise<RunResult> {
@@ -285,7 +298,7 @@ export const grokRunner: AgentRunner = {
     // Model and effort are set per session below: `grok agent --reasoning-effort` does not reach ACP sessions.
     const args = ['agent', '--no-leader', 'stdio'];
     const sandbox = SANDBOX[o.permission];
-    const env = sandbox ? { ...o.env, GROK_SANDBOX: sandbox } : o.env;
+    const env = { ...o.env, ...grokNativeEnv(o.nativeOff), ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
 
     let child: ChildProcess | undefined;
     let sessionId: string | undefined;

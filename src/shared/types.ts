@@ -155,6 +155,27 @@ export interface ToolLibraryUpdate {
 
 // --- What each CLI loads by itself (its own skills, MCP servers and memory) -------------------
 
+/** The kinds of things a CLI loads by itself that Harness Relay can leave out of its runs. */
+export const NATIVE_PARTS = ['skills', 'mcp', 'instructions', 'memory'] as const;
+export type NativePart = (typeof NATIVE_PARTS)[number];
+
+/**
+ * What each CLI can be told to leave out for one run, without changing its own settings. Codex
+ * still reads its own ~/.codex/AGENTS.md; Grok's switches reach only what it loads from Claude
+ * Code and Cursor (its own skills and MCP servers are turned off in ~/.grok/config.toml), and it
+ * has none for instruction files.
+ */
+export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
+  claude: ['skills', 'mcp', 'instructions', 'memory'],
+  codex: ['skills', 'mcp', 'instructions', 'memory'],
+  grok: ['skills', 'mcp', 'memory'],
+};
+
+/** The parts in `parts` that `provider` can leave out, once each, in NATIVE_PARTS order. */
+export function nativeOffFor(provider: Provider, parts: readonly string[]): NativePart[] {
+  return NATIVE_PARTS.filter((p) => NATIVE_OFF_SUPPORT[provider].includes(p) && parts.includes(p));
+}
+
 export interface NativeSkill {
   name: string;
   description: string;
@@ -630,6 +651,8 @@ export interface ProviderSettingsView {
   defaultModel: string;
   /** Reasoning effort used when an agent does not specify one. */
   defaultEffort: string;
+  /** What this CLI loads by itself that Harness Relay's runs leave out (see NATIVE_OFF_SUPPORT). */
+  nativeOff: NativePart[];
 }
 
 export interface ModelOption {
@@ -680,6 +703,8 @@ export interface ProviderSettingsUpdate {
   defaultEffort?: string;
   /** string = set / replace, null = remove. */
   apiKey?: string | null;
+  /** The whole list, replacing the current one; parts the CLI cannot leave out are dropped. */
+  nativeOff?: NativePart[];
 }
 
 export type LoginState = 'running' | 'success' | 'failed' | 'cancelled';

@@ -1,9 +1,11 @@
 import { join, resolve } from 'node:path';
 import {
+  nativeOffFor,
   PROVIDERS,
   VOICE_LANGUAGES,
   VOICE_MODELS,
   type LeadAgentSettings,
+  type NativePart,
   type Provider,
   type ProviderSettingsUpdate,
   type SettingsView,
@@ -30,6 +32,7 @@ interface ProviderSettings {
   apiKey: string;
   defaultModel: string;
   defaultEffort: string;
+  nativeOff: NativePart[];
 }
 
 /** Env var each CLI reads an API key from. Codex keys go through `codex login --with-api-key` instead. */
@@ -87,11 +90,11 @@ export class SettingsStore {
     private db: Database,
     private keyring?: SecretStore,
   ) {
-    const empty = (): ProviderSettings => ({ bin: '', apiKey: '', defaultModel: '', defaultEffort: '' });
+    const empty = (): ProviderSettings => ({ bin: '', apiKey: '', defaultModel: '', defaultEffort: '', nativeOff: [] });
     this.providers = { claude: empty(), codex: empty(), grok: empty() };
     const rows = db
-      .prepare('SELECT provider, bin, api_key, default_model, default_effort FROM provider_settings')
-      .all() as { provider: Provider; bin: string; api_key: string; default_model: string; default_effort: string }[];
+      .prepare('SELECT provider, bin, api_key, default_model, default_effort, native_off FROM provider_settings')
+      .all() as { provider: Provider; bin: string; api_key: string; default_model: string; default_effort: string; native_off: string }[];
     for (const r of rows) {
       if (!PROVIDERS.includes(r.provider)) continue;
       this.providers[r.provider] = {
@@ -99,6 +102,7 @@ export class SettingsStore {
         apiKey: r.api_key,
         defaultModel: r.default_model,
         defaultEffort: r.default_effort,
+        nativeOff: nativeOffFor(r.provider, r.native_off.split(',')),
       };
     }
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'default_cwd'").get() as { value: string } | undefined;
@@ -196,13 +200,14 @@ export class SettingsStore {
     const s = this.providers[p];
     this.db
       .prepare(
-        `INSERT INTO provider_settings (provider, bin, api_key, default_model, default_effort)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO provider_settings (provider, bin, api_key, default_model, default_effort, native_off)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(provider) DO UPDATE SET
            bin = excluded.bin, api_key = excluded.api_key,
-           default_model = excluded.default_model, default_effort = excluded.default_effort`,
+           default_model = excluded.default_model, default_effort = excluded.default_effort,
+           native_off = excluded.native_off`,
       )
-      .run(p, s.bin, this.keyInDb(p) ? s.apiKey : '', s.defaultModel, s.defaultEffort);
+      .run(p, s.bin, this.keyInDb(p) ? s.apiKey : '', s.defaultModel, s.defaultEffort, s.nativeOff.join(','));
   }
 
   bin(p: Provider): string {
@@ -215,6 +220,11 @@ export class SettingsStore {
 
   defaultEffort(p: Provider): string {
     return this.providers[p].defaultEffort.trim();
+  }
+
+  /** What this CLI loads by itself that Harness Relay's runs leave out. */
+  nativeOff(p: Provider): NativePart[] {
+    return [...this.providers[p].nativeOff];
   }
 
   hasStoredApiKey(p: Provider): boolean {
@@ -253,6 +263,7 @@ export class SettingsStore {
     if (u.bin !== undefined) s.bin = u.bin.trim();
     if (u.defaultModel !== undefined) s.defaultModel = u.defaultModel.trim();
     if (u.defaultEffort !== undefined) s.defaultEffort = u.defaultEffort.trim();
+    if (u.nativeOff !== undefined) s.nativeOff = nativeOffFor(p, u.nativeOff);
     this.saveProvider(p);
   }
 
@@ -267,6 +278,7 @@ export class SettingsStore {
         apiKeyStorage: API_KEY_ENV[p] ? (this.keyInDb(p) ? 'database' : this.keyring!.storage) : undefined,
         defaultModel: this.providers[p].defaultModel,
         defaultEffort: this.providers[p].defaultEffort,
+        nativeOff: this.nativeOff(p),
       })),
     };
   }

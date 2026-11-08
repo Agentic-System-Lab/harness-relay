@@ -4640,8 +4640,57 @@ details.sub summary {
 }
 
 /* What a CLI loads by itself (Settings, in each CLI's card) */
+.native-setup > summary .badge {
+  margin-left: 8px;
+  vertical-align: 1px;
+}
+
 .native-setup .native-tabs {
   max-width: 520px;
+}
+
+/* Leaving those out of Harness Relay's runs */
+.native-off {
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.native-off legend {
+  padding: 0 4px;
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.native-off > p {
+  margin: 0 0 8px;
+}
+
+.native-off ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.native-off li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 0;
+}
+
+.native-off li > .muted {
+  overflow-wrap: anywhere;
+}
+
+.native-off .check-row.unsupported {
+  color: var(--muted);
+  cursor: default;
 }
 
 .native-setup input[type='search'] {

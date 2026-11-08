@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Permission, PlanEntry } from '../../shared/types';
+import type { NativePart, Permission, PlanEntry } from '../../shared/types';
 import { runProcess, tail } from '../process';
 import {
   AgentRunError,
@@ -124,6 +124,17 @@ export function claudeMcpConfig(servers: McpServerSpec[]): { mcpServers: Record<
   };
 }
 
+/**
+ * Variables that make Claude Code leave out its instruction files (CLAUDE.md, rules) and its auto
+ * memory for one run; its skills and MCP servers are left out with flags (`claudeArgs`).
+ */
+export function claudeNativeEnv(off: readonly NativePart[] = []): Record<string, string> {
+  return {
+    ...(off.includes('instructions') ? { CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1' } : {}),
+    ...(off.includes('memory') ? { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' } : {}),
+  };
+}
+
 /** A file only this user can read, in a new temporary folder that `remove()` deletes. */
 function privateTempFile(name: string, content: string): { file: string; remove: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'harness-relay-'));
@@ -158,6 +169,8 @@ export function claudeArgs(o: {
   readDirs?: string[];
   /** The `--mcp-config` file with the tool library's MCP servers. */
   mcpConfig?: string;
+  /** What Claude Code loads by itself to leave out (instructions and memory go through `claudeNativeEnv`). */
+  nativeOff?: readonly NativePart[];
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
@@ -180,6 +193,10 @@ export function claudeArgs(o: {
     ...(o.attachmentsDir ? ['--add-dir', o.attachmentsDir] : []),
     // Added to the user's own MCP servers (variadic too).
     ...(o.mcpConfig ? ['--mcp-config', o.mcpConfig] : []),
+    // Leave out Claude Code's own skills (and other custom commands), and its own MCP servers: only
+    // the tool library's, from --mcp-config, stay.
+    ...(o.nativeOff?.includes('skills') ? ['--disable-slash-commands'] : []),
+    ...(o.nativeOff?.includes('mcp') ? ['--strict-mcp-config'] : []),
     '--permission-mode',
     PERMISSION_MODE[o.permission][o.ask ? 'ask' : 'deny'],
     ...(o.ask ? ['--permission-prompt-tool', 'stdio'] : []),
@@ -387,6 +404,7 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: strin
     attachmentsDir: o.attachmentsDir,
     readDirs: o.readDirs,
     mcpConfig,
+    nativeOff: o.nativeOff,
     skip: unsupported,
   });
 
@@ -426,7 +444,7 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: strin
     bin: o.bin,
     args,
     cwd: o.cwd,
-    env: o.env,
+    env: { ...o.env, ...claudeNativeEnv(o.nativeOff) },
     keepStdinOpen: true,
     onSpawn: (c) => {
       child = c;

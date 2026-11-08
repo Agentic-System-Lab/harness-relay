@@ -33,7 +33,9 @@ let calls: {
   prompt: string;
   images?: { path: string; mimeType: string }[];
   attachmentsDir?: string;
+  nativeOff?: readonly string[];
 }[] = [];
+let settings: InstanceType<typeof SettingsStore>;
 /** What the fake lead agent replies when asked to design a team (auto team). */
 let leadReply = '';
 /** When set, the fake lead agent waits for it before replying. */
@@ -67,14 +69,14 @@ beforeAll(() => {
         return {};
       }
       if (o.systemPrompt === PLANNER_BRIEFING) {
-        calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt });
+        calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt, nativeOff: o.nativeOff });
         if (leadGate) await leadGate;
         o.onEvent({ type: 'text', text: leadReply });
         o.onEvent({ type: 'text_end' });
         return { costUsd: 0.01 };
       }
       const name = /You are @(\w+)/.exec(o.systemPrompt)![1]!;
-      calls.push({ name, sessionId: o.sessionId, prompt: o.prompt, images: o.images, attachmentsDir: o.attachmentsDir });
+      calls.push({ name, sessionId: o.sessionId, prompt: o.prompt, images: o.images, attachmentsDir: o.attachmentsDir, nativeOff: o.nativeOff });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
       during?.(name, o.cwd);
@@ -119,7 +121,8 @@ beforeEach(() => {
   db = openDatabase(':memory:');
   store = new Store(db);
   // Only the fake claude CLI exists here, so the lead agent may only staff claude members.
-  orchestrator = new Orchestrator(store, new Hub(), new SettingsStore(db), {
+  settings = new SettingsStore(db);
+  orchestrator = new Orchestrator(store, new Hub(), settings, {
     context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }),
   });
   leadReply = '';
@@ -205,6 +208,18 @@ describe('parallel mode with edit permission', () => {
     expect(readFileSync(join(aliceWt, 'Bob.txt'), 'utf8')).toBe('Bob\n');
 
     await orchestrator.cleanupWorktrees(conv);
+  });
+});
+
+describe('what a CLI loads by itself', () => {
+  it("leaves out of every agent's run what the user turned off for that CLI", async () => {
+    settings.update('claude', { nativeOff: ['mcp', 'memory'] });
+    const conv = conversation({ mode: 'roundtable' });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const turns = calls.filter((c) => c.name === 'Alice' || c.name === 'Bob');
+    expect(turns).toHaveLength(2);
+    expect(turns.every((c) => c.nativeOff?.join() === 'mcp,memory')).toBe(true);
   });
 });
 

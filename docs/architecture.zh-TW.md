@@ -260,6 +260,18 @@ Harness Relay 提供給成員的 MCP 伺服器、skill 與記憶，每個 CLI �
 
 查詢時會短暫啟動 CLI：Claude Code 會執行使用者的 SessionStart hooks 並連線它的 MCP 伺服器。它用 POST，資料夾固定是預設工作目錄，所以其他網站無法在任何地方啟動 CLI。每個 CLI、執行檔與資料夾的結果保留一分鐘（`refresh: true` 重新查詢）；CLI 沒有回報的部分會列出來，並依每次請求的語言顯示。回報的指示與記憶檔，以及 skill 的 `SKILL.md`，可以在介面中打開（`POST /api/providers/:provider/native/file`）：只會讀 CLI 最近一次回答裡的路徑，所以讀不到電腦上的其他檔案。只回傳名稱、說明、路徑與狀態；可能含有 token 的 MCP 伺服器設定不會回傳。
 
+### 在 Harness Relay 的執行中不載入
+
+使用者可以針對每個 CLI，讓 Harness Relay 啟動它的每一次執行都不載入它自己的 skill、MCP 伺服器、指示檔或記憶（`ProviderSettingsView.nativeOff`，欄位 `provider_settings.native_off`；`RunOptions.nativeOff`，由 orchestrator 傳給成員與首席 agent，群組分類也會傳）。各轉接器只在那一次執行中關掉，絕不修改 CLI 自己的設定檔。`src/shared/types.ts` 的 `NATIVE_OFF_SUPPORT` 列出各 CLI 能關掉的項目，其他的伺服器會丟掉。每個機制都在不呼叫模型的情況下，對真正的 CLI 驗證過（Claude Code 2.1.319、Codex 0.167.0、Grok 1.0.77）：
+
+| | Skill | MCP 伺服器 | 指示檔 | 記憶 |
+| --- | --- | --- | --- | --- |
+| Claude Code | `--disable-slash-commands`（也包括 plugin 與自訂指令） | `--strict-mcp-config`：只保留工具庫的 `--mcp-config` | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` |
+| Codex（thread `config`） | `skills.include_instructions = false` | 每個設定的伺服器都設 `mcp_servers.<name>.enabled = false`（thread 開始前用 `config/read` 讀取；同名的工具庫伺服器會直接取代它），加上 `features.apps = false` | `project_doc_max_bytes = 0`：專案裡的 `AGENTS.md`；沒有設定能略過 `~/.codex/AGENTS.md` | `features.memories = false` |
+| Grok（環境變數） | `GROK_CLAUDE_SKILLS_ENABLED` / `GROK_CURSOR_SKILLS_ENABLED=false`：只有從 Claude Code 與 Cursor 載入的 | `GROK_CLAUDE_MCPS_ENABLED` / `GROK_CURSOR_MCPS_ENABLED=false`：同上 | 沒有（它的 rules 開關仍會載入 `CLAUDE.md`） | `GROK_MEMORY=0` |
+
+Grok 自己的 skill 與 MCP 伺服器只能在 `~/.grok/config.toml` 關閉（`skills.disabled`、`mcp_servers.<name>.enabled`），Harness Relay 不會修改它。上面的查詢不套用這些開關，所以清單仍然顯示 CLI 自己載入的內容。
+
 ## 工作區與檔案修改
 
 **唯讀**權限時，agent 直接在工作目錄（`cwd`）執行，不做其他處理。**可編輯**或**完全存取**時，Harness Relay 用 git 避免 agent 互相覆蓋，並記錄每個人改了什麼（`src/server/workspace.ts`）：
