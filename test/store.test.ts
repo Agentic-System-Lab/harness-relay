@@ -378,7 +378,17 @@ describe('SettingsStore (SQLite)', () => {
     expect(again.nativeOff('codex')).toEqual([]);
     expect(again.view().providers.find((p) => p.provider === 'grok')!.nativeOff).toEqual(['skills', 'mcp']);
     again.update('claude', { nativeOff: [] });
-    expect(new SettingsStore(reopen()).nativeOff('claude')).toEqual([]);
+    const cleared = new SettingsStore(reopen());
+    expect(cleared.nativeOff('claude')).toEqual([]);
+
+    // Hooks, subagents and plugins: Claude Code all three, Codex no subagents, Grok only hooks.
+    cleared.update('claude', { nativeOff: ['plugins', 'agents', 'hooks'] });
+    cleared.update('codex', { nativeOff: ['plugins', 'agents', 'hooks'] });
+    cleared.update('grok', { nativeOff: ['plugins', 'agents', 'hooks', 'skills'] });
+    const later = new SettingsStore(reopen());
+    expect(later.nativeOff('claude')).toEqual(['hooks', 'agents', 'plugins']);
+    expect(later.nativeOff('codex')).toEqual(['hooks', 'plugins']);
+    expect(later.nativeOff('grok')).toEqual(['skills', 'hooks']);
   });
 
   it('keeps API keys in the system keyring, never in the database', () => {

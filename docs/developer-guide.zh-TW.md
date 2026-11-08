@@ -49,7 +49,7 @@ src/
     secrets.ts             存放 API key 的作業系統金鑰儲存區（keyring）、可用性檢查
     tools.ts               工具庫：MCP 伺服器（機密值放在 keyring）、skill（SKILL.md 的 front matter）、記憶；每位成員拿到哪些
     files.ts               瀏覽對話的檔案：可瀏覽的資料夾、列表、預覽、路徑檢查
-    native.ts              各 CLI 自己載入的內容（它的 skill、MCP 伺服器、記憶檔），不送 prompt 查詢
+    native.ts              各 CLI 自己載入的內容（它的 skill、MCP 伺服器、hook、subagent、plugin、記憶檔），不送 prompt 查詢，以及 Harness Relay 執行時不載入哪些
     grokTrust.ts           在使用者確認後記錄 Grok 對資料夾的信任（和 grok --trust 相同）
     attachments.ts         訊息的附加檔案：儲存、安全檔名、交給 agent 的圖片
     presets.ts             內建團隊範本（兩種語言）
@@ -65,6 +65,7 @@ src/
     sidebar.ts             側邊欄的純邏輯：各群組的對話、還沒確認的移動、收合群組的狀態
     files.ts               檔案瀏覽的純邏輯：路徑導覽列、篩選、程式語言、行數
     tools.ts               團隊編輯器的工具選擇：工具庫項目、依 CLI 的預設、成員的例外設定
+    native.ts              NativeSetupPanel 的純邏輯：CLI 有回報的清單各一個分頁、執行時不載入幾項、開關是否已變更
     route.ts               前端放在網址 hash 的路由，包括 #/settings/<區塊>
     voice.ts               語音輸入的純邏輯：WAV 編碼、靜音判斷、把辨識結果插入游標處、安裝進度
     recorder.ts            在瀏覽器錄音，解碼成 16 kHz 單聲道
@@ -162,7 +163,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `GET /api/conversations/:id/events` | `ServerEvent` 的 SSE 串流 |
 | `GET /api/presets` · `POST /api/presets` · `DELETE /api/presets/:id` | 團隊範本 |
 | `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, createCwd?, lead? }`（`lead`：`{ provider, model?, effort? }`，自動組隊的首席 agent；`defaultCwd` 不存在時回 404 並帶 `code: "cwd-missing"`，除非帶 `createCwd: true`，此時會建立該目錄） |
-| `PUT /api/settings/providers/:provider` | `{ bin?, defaultModel?, defaultEffort?, apiKey?, nativeOff? }`（`apiKey: null` 代表移除；`nativeOff`：Harness Relay 執行這個 CLI 時不載入的它自己的項目，完整清單，可為 `skills`、`mcp`、`instructions`、`memory`；CLI 不能關掉的項目會被丟掉） |
+| `PUT /api/settings/providers/:provider` | `{ bin?, defaultModel?, defaultEffort?, apiKey?, nativeOff? }`（`apiKey: null` 代表移除；`nativeOff`：Harness Relay 執行這個 CLI 時不載入的它自己的項目，完整清單，可為 `skills`、`mcp`、`instructions`、`memory`、`hooks`、`agents`、`plugins`；CLI 不能關掉的項目會被丟掉） |
 | `GET /api/tools` | → `ToolLibraryView`：MCP 伺服器（變數與標頭的值已遮蔽）、skill（當下從 `SKILL.md` 讀取，無法使用時附 `problem`）、各範圍的記憶，以及機密值存放的位置 |
 | `PUT /api/tools` | `{ skills?, memory? }` → `ToolLibraryView`。`skills` 會取代整個清單（`[{ path, providers? }]`；新的路徑可以是 skill 集合資料夾，且至少要有一個 skill）；`memory` 修改給定的部分（`all`、`claude`、`codex`、`grok`；每份最多 20,000 字） |
 | `PUT /api/tools/mcp/:name` | `{ transport, command?, args?, url?, env?, headers?, providers?, previousName? }` → `ToolLibraryView`：新增伺服器，或帶 `previousName` 取代或改名。沒有 `value` 的變數或標頭保留原本的值。名稱已被使用時回 409 |
@@ -170,7 +171,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `GET /api/tools/skills/scan?path=` | → `{ path, skills: SkillCandidate[] }`：資料夾底下的 skill（資料夾本身，以及往下兩層內的 skill 資料夾，最多 300 個），已加入的會標示；不會儲存任何東西 |
 | `GET /api/providers[?refresh=1]` | → `ProviderStatus[]` |
 | `GET /api/models[?refresh=1]` | → `ProviderModels[]` |
-| `POST /api/providers/:provider/native` | `{ refresh? }` → `NativeSetup`：這個 CLI 在預設工作目錄自己載入的 skill、MCP 伺服器（只有名稱、類型與狀態）和記憶檔，`errors` 列出它沒有回報的部分。會在不送 prompt 的情況下短暫啟動 CLI（用 POST，所以其他網站無法觸發）；每個 CLI、執行檔與資料夾的結果保留一分鐘（`refresh: true` 重新查詢） |
+| `POST /api/providers/:provider/native` | `{ refresh? }` → `NativeSetup`：這個 CLI 在預設工作目錄自己載入的 skill、MCP 伺服器（只有名稱、類型與狀態）、hook（不含指令）、subagent 與 plugin（CLI 有列出時）和記憶檔，`errors` 列出它沒有回報的部分。有項目設為不載入時，會再依 Harness Relay 啟動它的方式問一次：`nativeOff` 與 `asRun` 會說明，那時不載入的項目帶有 `leftOut: true`。會在不送 prompt 的情況下短暫啟動 CLI（用 POST，所以其他網站無法觸發）；每個 CLI、執行檔與資料夾的結果保留一分鐘，前提是不載入的項目沒有變（`refresh: true` 重新查詢） |
 | `POST /api/providers/:provider/native/file` | `{ path }` → `FilePreview`：CLI 回報過的檔案之一（指示或記憶檔，或 skill 的 `SKILL.md`，路徑要完全相同），供介面閱讀；其他路徑一律 404。比對的是 CLI 最近一次的回答（不論多久以前），所以開啟檔案不會再啟動一次 CLI |
 | `POST /api/providers/grok/folder-trust` | `{ cwd?, trust?, folder? }` → `GrokFolderTrust` `{ cwd, folder, above, trusted }`：Grok 是否信任 `cwd`（預設為預設工作目錄），取自 `grok inspect`。`folder` 是 Grok 用來決定信任的資料夾（儲存庫根目錄，解析連結後；不在儲存庫裡則是 `cwd` 的實際路徑）；`above` 表示它是 `cwd` 上層的儲存庫根目錄。帶 `trust: true`（只在使用者確認 `folder` 後送出）時，會再問一次 Grok，並用和 `grok --trust` 相同的方式替這個資料夾記錄在 `$GROK_HOME/trusted_folders.toml`；Grok 現在回報的資料夾和送來的 `folder` 不同，或記錄後仍回報未信任（檔案會還原成原本的內容）時回 409 |
 | `GET /api/providers/:provider/login-methods` | → `LoginMethod[]` |
@@ -255,7 +256,7 @@ npx vitest test/store.test.ts
 
 目前的測試：
 
-- `test/store.test.ts`：SQLite store 與設定（存取往返、串流更新、當機復原、連帶刪除、檔案權限）、側邊欄群組（順序、重新命名、刪除群組時對話移到「其他」、自動分類只有一次，而且不會蓋過使用者的移動、不會分到已刪除的群組）、搜尋（每個詞都要符合、不分大小寫、標題符合的在前、中文、`%` 與 `_`、不含系統訊息、摘錄、仍在串流的回覆），以及搭配假的金鑰儲存區測試 API key：絕不寫進資料庫、舊的資料庫金鑰會被移出並從檔案中清除、儲存區拒絕寫入的情況。也測試各 CLI 執行時不載入的項目（會保存，且只保留那個 CLI 能關掉的）。
+- `test/store.test.ts`：SQLite store 與設定（存取往返、串流更新、當機復原、連帶刪除、檔案權限）、側邊欄群組（順序、重新命名、刪除群組時對話移到「其他」、自動分類只有一次，而且不會蓋過使用者的移動、不會分到已刪除的群組）、搜尋（每個詞都要符合、不分大小寫、標題符合的在前、中文、`%` 與 `_`、不含系統訊息、摘錄、仍在串流的回覆），以及搭配假的金鑰儲存區測試 API key：絕不寫進資料庫、舊的資料庫金鑰會被移出並從檔案中清除、儲存區拒絕寫入的情況。也測試各 CLI 執行時不載入的項目（會保存，且只保留那個 CLI 能關掉的，包括 hook、subagent 與 plugin）。
 - `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 的快照、worktree、套用、衝突、CRLF 與非 UTF-8 內容逐位元組套用、很長或特殊的檔案清單、保留的快照 ref、範圍太大的 repository）。
 - `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
@@ -267,11 +268,11 @@ npx vitest test/store.test.ts
 - `test/chat.test.ts`：ChatView 的邏輯：Enter 何時送出（手機和平板上不會）、何時重新連線事件串流、哪個 worktree 結果可以套用、團隊設定的草稿、建立不存在的工作目錄前先詢問。
 - `test/markdown.test.ts`：@ 標示與伺服器規則一致，並略過程式碼與連結；圖片以連結顯示；使用者自己的訊息保留換行；表格儲存格維持一行或以好讀的寬度換行，讓太寬的表格左右捲動。
 - `test/orchestrator.test.ts`：把假的 runner 換進 `runners` 跑完整流程：平行模式的 worktree 隔離與套用、圓桌模式的修改紀錄、目錄鎖（含自動組隊）、執行準備期間或套用期間收到的請求、agent 向使用者提問（團隊停下；使用者回覆後由提問者先回答，涵蓋圓桌、平行與接力；「繼續」會略過它；回覆給別人或編輯訊息時重新開始；期間寫的訊息等回答時一起送出）、團隊回覆時送出的訊息（在下一個該收到它的 agent 發言前依序送達、沒有回合接到時再開一輪、停止後保留、被 interrupt／下一則訊息／繼續先送出、撤回、重新啟動後仍在）、執行中刪除對話、全新 session 也失敗時保留原 session，以及把失敗回合改過的檔案告訴隊友。也測試使用者關掉的 CLI 自己的項目會傳給每個成員的執行，以及首席 agent 與群組分類的執行。
-- `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`、JSON-RPC 連線。也測試工具庫的 MCP 伺服器轉成 ACP 的格式。HTTP MCP 伺服器只傳給宣告支援的 Grok。也測試不載入 Grok 從 Claude Code、Cursor 載入的內容與它的記憶所用的環境變數，以及它們和使用者的環境變數、sandbox 並存。
-- `test/claude.test.ts`：Claude 預先允許與移除的工具、它的參數（`--system-prompt-snapshot off`、舊版不接受的旗標），以及工具被拒絕時顯示的原因。也測試工具庫：`--mcp-config` 檔案與 skill 資料夾的 `Read` 規則（完整存取時不加）、Windows 路徑的 `Read` 規則，以及 `--mcp-config` 的內容。也測試不載入 Claude Code 自己的內容：skill 與 MCP 的旗標（工具庫的 `--mcp-config` 會保留），以及指示檔與記憶的環境變數。
+- `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`、JSON-RPC 連線。也測試工具庫的 MCP 伺服器轉成 ACP 的格式。HTTP MCP 伺服器只傳給宣告支援的 Grok。也測試不載入 Grok 從 Claude Code、Cursor 載入的內容（skill、MCP 伺服器、hook）與它的記憶所用的環境變數，以及它們和使用者的環境變數、sandbox 並存。
+- `test/claude.test.ts`：Claude 預先允許與移除的工具、它的參數（`--system-prompt-snapshot off`、舊版不接受的旗標），以及工具被拒絕時顯示的原因。也測試工具庫：`--mcp-config` 檔案與 skill 資料夾的 `Read` 規則（完整存取時不加）、Windows 路徑的 `Read` 規則，以及 `--mcp-config` 的內容。也測試不載入 Claude Code 自己的內容：skill 與 MCP 的旗標（工具庫的 `--mcp-config` 會保留）、指示檔與記憶的環境變數、用 `--settings` 關掉 hook 與每個已安裝的 plugin、讀取 `claude plugin list --json`，以及在送出 prompt 前拒絕它自己的 subagent（依名稱與說明，只拒絕非內建的；做不到，或 `initialize` 沒有列出 subagent 時，不送 prompt、直接失敗）。執行透過替身 `claude`（`test/fake-claude.ts`，依 Claude Code 2.1.319 的回答格式）測試：關掉 hook 與 plugin、送出 prompt 前拒絕 subagent（包括取代內建 subagent 的同名 subagent）、無法不載入 subagent 或 plugin 時清楚地失敗、等待中按下停止，以及舊版不接受某個旗標時不帶它重試。
 - `test/copy.test.ts`：複製單則訊息或整段對話時產生的 Markdown（兩種語言）；單則訊息照原文複製（網址、格式、CRLF 換行），沒有剪貼簿 API 時也一樣。
 - `test/approvals.test.ts`：「本對話都允許」的規則 key 與比對（串接指令、shell 包裝）。
-- `test/codex.test.ts`：Codex app-server 轉接器：thread 項目轉成 `AgentEvent`（文字、推理、計畫、指令輸出、用量），以及核准請求 / 回應。也測試工具庫的 MCP 伺服器放在一個 `mcp_servers` 表（完整存取下自行核准工具），以及 Codex 的 MCP 工具呼叫核准（codex-cli 0.167.0 送出的格式）和其他核准一樣顯示，其他 elicitation 則拒絕。也測試不載入 Codex 自己的內容：各項覆寫；在同一個表裡關掉它設定的每個 MCP 伺服器，不論名稱（工具庫取代的除外）；只在不載入 MCP 伺服器時才用 `config/read` 詢問，問不到時以清楚的訊息讓執行失敗；以及帶著這一切的 `thread/start` / `thread/resume` 請求。
+- `test/codex.test.ts`：Codex app-server 轉接器：thread 項目轉成 `AgentEvent`（文字、推理、計畫、指令輸出、用量），以及核准請求 / 回應。也測試工具庫的 MCP 伺服器放在一個 `mcp_servers` 表（完整存取下自行核准工具），以及 Codex 的 MCP 工具呼叫核准（codex-cli 0.167.0 送出的格式）和其他核准一樣顯示，其他 elicitation 則拒絕。也測試不載入 Codex 自己的內容：各項覆寫（包括 hook 與 plugin），以及改用 `-c` 參數傳入的同樣覆寫（inline table、key 加引號）；thread 開始後檢查設為不載入的 hook 與 plugin 確實關掉了（Codex 仍列出開著的或無法回答就失敗，沒有這個方法時照常執行），以及透過替身 `codex app-server` 的執行（開關也放在它的命令列、回合開始前檢查、Codex 忽略開關時失敗、檢查中按下停止就不開始回合）；在同一個表裡關掉它設定的每個 MCP 伺服器，不論名稱（工具庫取代的除外）；只在不載入 MCP 伺服器時才用 `config/read` 詢問，問不到時以清楚的訊息讓執行失敗；以及帶著這一切的 `thread/start` / `thread/resume` 請求。
 - `test/sidebar.test.ts`：側邊欄的對話狀態、各群組的對話（「其他」在最後、群組不存在的對話放在「其他」）、還沒確認的移動，以及收合群組顯示的狀態。
 - `test/search.test.ts`：搜尋的詞、不分大小寫的比對（長的優先、重疊合併）、第一個符合處附近的摘錄、標示關鍵字。
 - `test/grouping.test.ts`：請首席 agent 分類對話的 prompt，以及解讀它的回覆（編號或名稱；0 或 null 代表都不適合；其他都拒絕）。
@@ -284,7 +285,8 @@ npx vitest test/store.test.ts
 - `test/files.test.ts`：用真的暫存資料夾測試瀏覽檔案：資料夾外、經由符號連結或進入 `.git`（不分大小寫）的路徑、列表順序與項目上限、文字 / 圖片 / 二進位檔的預覽與長檔案截斷、raw 只給媒體檔，以及對話提供的資料夾。經由連結進入的資料夾保留當初要求的路徑，截斷的列表保留顯示順序的前面幾項。
 - `test/files-web.test.ts`：檔案瀏覽的路徑導覽列、篩選、程式語言與行數。
 - `test/tools-web.test.ts`：團隊編輯器的工具選擇：項目、各 CLI 的記憶、依 CLI 的預設，以及只記錄例外。
-- `test/native.test.ts`：各 CLI 自己載入的內容：讀取 Claude Code、Codex、Grok 的回答（實測格式；MCP 設定與其中的 token 會被丟掉）、Claude Code 與 Codex 會讀的指示和記憶檔（真的暫存資料夾），無法啟動的 CLI、依執行檔分開的快取、不論多久以前的最近一次回答（開啟回報過的檔案時用）、依請求語言的問題說明，以及哪些檔案可以讀（只有回報過的）。
+- `test/native-web.test.ts`：CLI 自己載入的內容那一區：CLI 有回報的清單各一個分頁、執行時不載入幾項，以及查詢後開關是否已變更。
+- `test/native.test.ts`：各 CLI 自己載入的內容：讀取 Claude Code、Codex、Grok 的回答（實測格式；MCP 設定與其中的 token 會被丟掉）、Claude Code 與 Codex 會讀的指示和記憶檔（真的暫存資料夾），無法啟動的 CLI、依執行檔與不載入項目分開的快取、不論多久以前的最近一次回答（開啟回報過的檔案時用）、依請求語言的問題說明，以及哪些檔案可以讀（只有回報過的）。也測試 hook（不含指令）、subagent 與 plugin；標示 Harness Relay 執行時不載入的項目（不含 CLI 自己就關掉的）；Claude Code 與 Codex 依環境變數與設定略過的檔案；以及透過替身 `claude`、`codex`、`grok` 執行檔，依 Harness Relay 啟動各 CLI 的方式再問一次（和執行時相同的旗標、覆寫設定與環境變數；失敗時不標示任何項目；第二次回答缺少的清單會在錯誤中列出；只有指示檔或記憶時不再啟動 Claude Code；取代內建 subagent 的同名 subagent 不算內建；無法列出 plugin 的情況）。
 - `test/route.test.ts`：前端的 hash 路由，包括設定頁的區塊，以及正在看哪張設定卡片（在連結列標亮）。
 - `test/grok-trust.test.ts`：記錄 Grok 對資料夾的信任：和 `grok --trust` 相同的紀錄、取代標為不信任的紀錄並保留其他內容、Windows 路徑的 TOML 跳脫、寫在暫存 `GROK_HOME` 的檔案（只有擁有者能讀）、還原成原本的內容，從 `grok inspect` 讀出信任狀態與決定信任的資料夾（去掉結尾斜線的專案根目錄，是否在資料夾上層，否則就是資料夾本身），以及開始新對話時什麼情況會詢問（有 Grok 成員與資料夾，不含自動組隊）。
 - `test/util.test.ts`：把成員或首席 agent 切到另一個 CLI 再切回來，會還原每個 CLI 選過的模型與推理強度。

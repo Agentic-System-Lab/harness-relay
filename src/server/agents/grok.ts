@@ -279,15 +279,17 @@ export function grokMcpServers(servers: McpServerSpec[], http = true): Record<st
 const TICKS_PER_USD = 1e10;
 
 /**
- * Variables that make Grok leave out, for one run, the skills and MCP servers it loads from Claude
- * Code's and Cursor's settings, and its memory. Its own skills and MCP servers have no such switch
- * (they are turned off in ~/.grok/config.toml), and neither have instruction files.
+ * Variables that make Grok leave out, for one run, the skills, MCP servers and hooks it loads from
+ * Claude Code's and Cursor's settings (Claude Code plugins' skills too, but not their hooks), and
+ * its memory. Its own skills, MCP servers and hooks have no such switch (they are turned off in
+ * ~/.grok/config.toml), and neither have instruction files, its own subagents or plugins.
  */
 export function grokNativeEnv(off: readonly NativePart[] = []): Record<string, string> {
   return {
     ...(off.includes('skills') ? { GROK_CLAUDE_SKILLS_ENABLED: 'false', GROK_CURSOR_SKILLS_ENABLED: 'false' } : {}),
     ...(off.includes('mcp') ? { GROK_CLAUDE_MCPS_ENABLED: 'false', GROK_CURSOR_MCPS_ENABLED: 'false' } : {}),
     ...(off.includes('memory') ? { GROK_MEMORY: '0' } : {}),
+    ...(off.includes('hooks') ? { GROK_CLAUDE_HOOKS_ENABLED: 'false', GROK_CURSOR_HOOKS_ENABLED: 'false' } : {}),
   };
 }
 

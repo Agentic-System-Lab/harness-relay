@@ -5,7 +5,8 @@ import { useT } from '../i18n';
 
 /**
  * Switches that leave what a CLI loads by itself (its own skills, MCP servers, instruction files,
- * memory) out of Harness Relay's runs. Saved as soon as one is changed; the CLI's own settings stay.
+ * memory, hooks, subagents, plugins) out of Harness Relay's runs. Saved as soon as one is changed;
+ * the CLI's own settings stay.
  */
 export function NativeOffSwitches({
   provider,

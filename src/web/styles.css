@@ -1352,6 +1352,11 @@ details.sub .model-picker {
   border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
 }
 
+.badge.warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+}
+
 .banner {
   text-align: center;
   font-size: 13px;
@@ -4661,7 +4666,7 @@ details.sub summary {
 }
 
 .native-setup .native-tabs {
-  max-width: 520px;
+  max-width: 760px;
 }
 
 /* Leaving those out of Harness Relay's runs */

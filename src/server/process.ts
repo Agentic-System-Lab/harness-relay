@@ -249,6 +249,52 @@ export async function capture(
   return runProcess({ ...opts, bin, args, env, timeoutMs: opts.timeoutMs ?? 15000 });
 }
 
+/**
+ * Runs a CLI that speaks JSON lines on stdin/stdout, for a short exchange: `open` writes the first
+ * message, `onMessage` answers and calls `finish` when it has what it needs (which stops the CLI).
+ * Resolves on finish, exit or timeout.
+ */
+export async function converse(o: {
+  bin: string;
+  args: string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  timeoutMs: number;
+  open: (write: (msg: unknown) => void) => void;
+  onMessage: (msg: Record<string, any>, write: (msg: unknown) => void, finish: () => void) => void;
+}): Promise<{ stderr: string; timedOut: boolean }> {
+  const stop = new AbortController();
+  let write: (msg: unknown) => void = () => undefined;
+  const res = await runProcess({
+    bin: o.bin,
+    args: o.args,
+    cwd: o.cwd,
+    env: o.env,
+    keepStdinOpen: true,
+    signal: stop.signal,
+    timeoutMs: o.timeoutMs,
+    maxCapture: 1024,
+    onSpawn: (child) => {
+      write = (msg) => {
+        if (child.stdin?.writable) child.stdin.write(JSON.stringify(msg) + '\n');
+      };
+      o.open(write);
+    },
+    onLine: (line) => {
+      const text = line.trim();
+      if (!text.startsWith('{') || stop.signal.aborted) return;
+      let msg: Record<string, any>;
+      try {
+        msg = JSON.parse(text) as Record<string, any>;
+      } catch {
+        return;
+      }
+      o.onMessage(msg, write, () => stop.abort());
+    },
+  });
+  return { stderr: res.stderr, timedOut: res.timedOut };
+}
+
 /** Spawn a long-lived interactive process (used for login flows). */
 export function spawnInteractive(bin: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
   const child = spawn(resolveBin(bin), args, { env, detached: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });

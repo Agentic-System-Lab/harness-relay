@@ -57,8 +57,9 @@ export function codexConfig(
 /**
  * Config overrides that leave out what Codex loads by itself, for one thread: the skills list in its
  * instructions; ChatGPT apps (its own MCP servers are turned off in `codexMcpConfig`); the project's
- * AGENTS.md files (no setting reaches its own ~/.codex/AGENTS.md); its memories. Dotted keys, so the
- * user's other settings in those tables stay.
+ * AGENTS.md files (no setting reaches its own ~/.codex/AGENTS.md); its memories; its hooks (plugins'
+ * hooks too); its plugins (their skills, MCP servers and hooks). Dotted keys, so the user's other
+ * settings in those tables stay.
  */
 export function codexNativeConfig(off: readonly NativePart[]): Record<string, unknown> {
   return {
@@ -66,7 +67,31 @@ export function codexNativeConfig(off: readonly NativePart[]): Record<string, un
     ...(off.includes('mcp') ? { 'features.apps': false } : {}),
     ...(off.includes('instructions') ? { project_doc_max_bytes: 0 } : {}),
     ...(off.includes('memory') ? { 'features.memories': false } : {}),
+    ...(off.includes('hooks') ? { 'features.hooks': false } : {}),
+    ...(off.includes('plugins') ? { 'features.plugins': false } : {}),
   };
+}
+
+/** A value written as TOML, for `-c`: tables inline, their keys quoted (so `a.b` stays one key). */
+function tomlValue(v: unknown): string {
+  if (typeof v === 'string') return JSON.stringify(v);
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return `[${v.map(tomlValue).join(', ')}]`;
+  if (v && typeof v === 'object') {
+    return `{ ${Object.entries(v as Record<string, unknown>)
+      .map(([k, x]) => `${JSON.stringify(k)} = ${tomlValue(x)}`)
+      .join(', ')} }`;
+  }
+  return '""';
+}
+
+/**
+ * Thread config overrides as `codex -c key=value` arguments, for asking `codex app-server` what a
+ * thread with them would load. Codex merges an inline table into the user's (checked with Codex
+ * 0.167 for `mcp_servers`), as it does a thread's config.
+ */
+export function codexOverrideArgs(config: Record<string, unknown>): string[] {
+  return Object.entries(config).flatMap(([key, value]) => ['-c', `${key}=${tomlValue(value)}`]);
 }
 
 /** The names of the MCP servers in a `config/read` answer. */
@@ -121,6 +146,48 @@ export async function codexUserMcpServers(
   } catch (err) {
     throw new AgentRunError(t().codexMcpListFailed(err instanceof Error ? err.message : String(err)));
   }
+}
+
+/** Whether an answer lists any entry that is on (`enabled` not false), among `items` of each of `groups`. */
+function anyOn(groups: unknown, items: string, keep: (x: Record<string, unknown>) => boolean = () => true): boolean {
+  const list = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v : []);
+  return list(groups).some((g) => list(g[items]).some((x) => keep(x) && x.enabled !== false));
+}
+
+/**
+ * Whether a request failed because Codex does not have that method: -32601 (method not found), or
+ * -32600 with "unknown variant", as Codex 0.167 answers an unknown method.
+ */
+export const isUnknownMethod = (err: unknown) =>
+  err instanceof RpcError && (err.code === -32601 || (err.code === -32600 && /unknown variant/i.test(err.message)));
+
+/**
+ * Checks, once the thread has started, that Codex took the switches for hooks and plugins: Codex
+ * ignores a config key it does not know (an older version, a renamed key), so they could be left on
+ * without a word. When it still lists hooks or installed plugins that are on, the run fails with a
+ * message that says so. A Codex without `hooks/list` or `plugin/installed` is older than these
+ * features, and goes on; any other failure to answer fails the run, which could not be checked.
+ */
+export async function codexConfirmLeftOut(
+  conn: { request(method: string, params?: unknown): Promise<unknown> },
+  o: Pick<RunOptions, 'cwd' | 'nativeOff'>,
+  threadId: string,
+): Promise<void> {
+  const off = o.nativeOff ?? [];
+  const still: ('hooks' | 'plugins')[] = [];
+  const ask = (method: string, params: unknown) =>
+    conn.request(method, params).then(
+      (r) => r as Record<string, unknown> | undefined,
+      (err: unknown) => {
+        if (isUnknownMethod(err)) return undefined;
+        throw new AgentRunError(t().codexLeftOutUnchecked(err instanceof Error ? err.message : String(err)));
+      },
+    );
+  if (off.includes('hooks') && anyOn((await ask('hooks/list', { threadId }))?.data, 'hooks')) still.push('hooks');
+  if (off.includes('plugins') && anyOn((await ask('plugin/installed', { cwds: [o.cwd] }))?.marketplaces, 'plugins', (p) => p.installed === true)) {
+    still.push('plugins');
+  }
+  if (still.length) throw new AgentRunError(t().codexStillLoaded(still));
 }
 
 /** The request that starts the run's thread, or resumes the agent's session. */
@@ -345,7 +412,9 @@ export const codexRunner: AgentRunner = {
   provider: 'codex',
   async run(o): Promise<RunResult> {
     if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
-    const args = ['app-server', '-c', 'model_reasoning_summary="auto"'];
+    // Also for the whole app-server, as asking Codex what a run loads does (the thread gets them too):
+    // none of these carries a secret, unlike the MCP servers, which only go in the thread's config.
+    const args = ['app-server', '-c', 'model_reasoning_summary="auto"', ...codexOverrideArgs(codexNativeConfig(o.nativeOff ?? []))];
 
     let child: ChildProcess | undefined;
     let threadId: string | undefined;
@@ -422,6 +491,9 @@ export const codexRunner: AgentRunner = {
       threadId = String(thread?.thread?.id ?? o.sessionId ?? '');
       if (!threadId) throw new AgentRunError(t().exitedWithoutTurn('codex', null));
       o.onEvent({ type: 'session', sessionId: threadId });
+      if (userAborted) throw new AgentRunError(t().stopped, true);
+      await codexConfirmLeftOut(conn, o, threadId);
+      // Stopped during the check: there is no turn to interrupt yet, so do not start one.
       if (userAborted) throw new AgentRunError(t().stopped, true);
 
       const started = await conn.request('turn/start', {

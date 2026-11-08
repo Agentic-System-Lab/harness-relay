@@ -192,6 +192,10 @@ describe('leaving out what Grok loads by itself', () => {
     });
     expect(grokNativeEnv(['instructions'])).toEqual({});
     expect(grokNativeEnv()).toEqual({});
+    // The hooks it takes from Claude Code's and Cursor's settings files (not plugins', not its own).
+    expect(grokNativeEnv(['hooks'])).toEqual({ GROK_CLAUDE_HOOKS_ENABLED: 'false', GROK_CURSOR_HOOKS_ENABLED: 'false' });
+    // Its own subagents and plugins have no switch for one run.
+    expect(grokNativeEnv(['agents', 'plugins'])).toEqual({});
   });
 
   it("keeps the user's variables and the sandbox next to them", () => {

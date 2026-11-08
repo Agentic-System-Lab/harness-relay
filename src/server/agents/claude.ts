@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { NativePart, Permission, PlanEntry } from '../../shared/types';
-import { runProcess, tail } from '../process';
+import { converse, runProcess, tail } from '../process';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
@@ -126,12 +126,225 @@ export function claudeMcpConfig(servers: McpServerSpec[]): { mcpServers: Record<
 
 /**
  * Variables that make Claude Code leave out its instruction files (CLAUDE.md, rules) and its auto
- * memory for one run; its skills and MCP servers are left out with flags (`claudeArgs`).
+ * memory for one run; the rest is left out with flags (`claudeNativeArgs`), and its own subagents
+ * once it has started (`claudeAgentsGate`).
  */
 export function claudeNativeEnv(off: readonly NativePart[] = []): Record<string, string> {
   return {
     ...(off.includes('instructions') ? { CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1' } : {}),
     ...(off.includes('memory') ? { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' } : {}),
+  };
+}
+
+/**
+ * Settings for one run (`--settings`, the flag layer above the user's and the project's files):
+ * no hooks, from settings files or plugins; and each installed plugin turned off by its id, which
+ * also takes away its skills, commands, subagents, hooks and MCP servers. Claude Code has no switch
+ * for all plugins, hence the ids (`claudePlugins`).
+ */
+export function claudeNativeSettings(off: readonly NativePart[] = [], pluginIds: readonly string[] = []): Record<string, unknown> | undefined {
+  const settings = {
+    ...(off.includes('hooks') ? { disableAllHooks: true } : {}),
+    ...(off.includes('plugins') && pluginIds.length ? { enabledPlugins: Object.fromEntries(pluginIds.map((id) => [id, false])) } : {}),
+  };
+  return Object.keys(settings).length ? settings : undefined;
+}
+
+/**
+ * The flags that leave out what Claude Code loads by itself: its skills (and other custom
+ * commands), its own MCP servers (only the tool library's, from --mcp-config, stay), and its hooks
+ * and plugins (`claudeNativeSettings`).
+ */
+export function claudeNativeArgs(off: readonly NativePart[] = [], pluginIds: readonly string[] = []): string[] {
+  const settings = claudeNativeSettings(off, pluginIds);
+  return [
+    ...(off.includes('skills') ? ['--disable-slash-commands'] : []),
+    ...(off.includes('mcp') ? ['--strict-mcp-config'] : []),
+    ...(settings ? ['--settings', JSON.stringify(settings)] : []),
+  ];
+}
+
+/** How long a short question to Claude Code (its plugins, its built-in subagents) may take. */
+const PROBE_TIMEOUT_MS = 30_000;
+
+/** The arguments that start Claude Code for control requests only (the stream-json protocol, no prompt). */
+export const CLAUDE_PROBE_ARGS = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'];
+
+/** An installed plugin as `claude plugin list --json` reports it. */
+export interface ClaudePlugin {
+  id: string;
+  enabled?: boolean;
+  scope?: string;
+}
+
+/** The plugins in `claude plugin list --json`, once each; undefined when the output is not that list. */
+export function parseClaudePluginList(stdout: string): ClaudePlugin[] | undefined {
+  let list: unknown;
+  try {
+    list = JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(list)) return undefined;
+  const seen = new Set<string>();
+  const plugins: ClaudePlugin[] = [];
+  for (const p of list) {
+    if (typeof p?.id !== 'string' || !p.id || seen.has(p.id)) continue;
+    seen.add(p.id);
+    plugins.push({
+      id: p.id,
+      ...(typeof p.enabled === 'boolean' ? { enabled: p.enabled } : {}),
+      ...(typeof p.scope === 'string' ? { scope: p.scope } : {}),
+    });
+  }
+  return plugins;
+}
+
+/** Claude Code's installed plugins (user, project and the rest), asked with `claude plugin list --json`. */
+export async function claudePlugins(bin: string, env: NodeJS.ProcessEnv, cwd: string, signal?: AbortSignal): Promise<ClaudePlugin[]> {
+  const res = await runProcess({ bin, args: ['plugin', 'list', '--json'], cwd, env, signal, timeoutMs: PROBE_TIMEOUT_MS, maxCapture: 4 * 1024 * 1024 });
+  const list = res.code === 0 ? parseClaudePluginList(res.stdout) : undefined;
+  if (!list) throw new Error(res.timedOut ? 'timed out' : tail(res.stderr || res.stdout) || `exit ${res.code}`);
+  return list;
+}
+
+/** A subagent as Claude Code's `initialize` answer names it. */
+export interface ClaudeAgent {
+  name: string;
+  description: string;
+}
+
+/**
+ * The subagents in an `initialize` answer; undefined when it does not list them, or lists one
+ * without a name (it could not be denied).
+ */
+export function claudeAgents(init: unknown): ClaudeAgent[] | undefined {
+  const agents = (init as { agents?: unknown } | undefined)?.agents;
+  if (!Array.isArray(agents) || agents.some((a) => typeof a?.name !== 'string' || !a.name)) return undefined;
+  return agents.map((a) => ({ name: a.name as string, description: typeof a.description === 'string' ? a.description : '' }));
+}
+
+/** Claude Code's built-in subagents: each name with its description. */
+export type ClaudeBuiltinAgents = ReadonlyMap<string, string>;
+
+/**
+ * Whether a subagent is a built-in one: its name and description as Claude Code has them with
+ * nothing around it. A user's or project's subagent of the same name replaces the built-in one,
+ * and its own description gives it away.
+ */
+export const isBuiltinAgent = (agent: ClaudeAgent, builtins: ClaudeBuiltinAgents) => builtins.get(agent.name) === agent.description;
+
+/**
+ * Permission rules that deny the subagents that are not built in (one that replaces a built-in
+ * one too, which leaves that name without a subagent). Claude Code takes a denied subagent off the
+ * Agent tool's list and refuses to start it.
+ */
+export function claudeAgentDenyRules(agents: readonly ClaudeAgent[], builtins: ClaudeBuiltinAgents): string[] {
+  return [...new Set(agents.filter((a) => !isBuiltinAgent(a, builtins)).map((a) => a.name))].map((name) => `Agent(${name})`);
+}
+
+const builtinAgents = new Map<string, Promise<ClaudeBuiltinAgents>>();
+
+/**
+ * Claude Code's built-in subagents (with any an organisation's managed settings add): the ones it
+ * reports with no settings files, plugins or project around it. Its `initialize` answer does not
+ * say where a subagent comes from. Asked once per executable, version and config folder, in an
+ * empty folder; no model is called.
+ */
+export function claudeBuiltinAgents(bin: string, env: NodeJS.ProcessEnv, version = ''): Promise<ClaudeBuiltinAgents> {
+  const key = `${bin}\0${version}\0${env.CLAUDE_CONFIG_DIR ?? ''}`;
+  let hit = builtinAgents.get(key);
+  if (!hit) {
+    hit = askBuiltinAgents(bin, env);
+    builtinAgents.set(key, hit);
+    hit.catch(() => builtinAgents.delete(key));
+  }
+  return hit;
+}
+
+async function askBuiltinAgents(bin: string, env: NodeJS.ProcessEnv): Promise<ClaudeBuiltinAgents> {
+  const dir = mkdtempSync(join(tmpdir(), 'harness-relay-'));
+  try {
+    let agents: ClaudeAgent[] | undefined;
+    let error: string | undefined;
+    const res = await converse({
+      bin,
+      cwd: dir,
+      env,
+      timeoutMs: PROBE_TIMEOUT_MS,
+      args: [
+        ...CLAUDE_PROBE_ARGS,
+        '--setting-sources',
+        '',
+        '--strict-mcp-config',
+        '--settings',
+        JSON.stringify({ disableAllHooks: true }),
+      ],
+      open: (write) => write({ type: 'control_request', request_id: 'relay-builtin', request: { subtype: 'initialize' } }),
+      onMessage: (m, _write, finish) => {
+        if (m.type !== 'control_response' || m.response?.request_id !== 'relay-builtin') return;
+        if (m.response.subtype === 'error') {
+          error = String(m.response.error ?? 'error');
+        } else {
+          agents = claudeAgents(m.response.response);
+          if (!agents) error = 'it did not list its subagents';
+        }
+        finish();
+      },
+    });
+    if (!agents) throw new Error(error ?? (res.timedOut ? 'timed out' : tail(res.stderr) || 'no answer'));
+    return new Map(agents.map((a) => [a.name, a.description]));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Leaves Claude Code's own subagents out of a run, before the prompt is sent: once the answer to
+ * `initialize` names the subagents it loaded, those that are not built in are denied for the
+ * session (an `apply_flag_settings` control request with `Agent(name)` rules), and then `start`
+ * sends the prompt. Returns a handler for the CLI's messages that says which ones it took. Anything
+ * that goes wrong calls `fail`, a list of subagents missing from the answer too: going on would
+ * quietly run the subagents the user turned off.
+ */
+export function claudeAgentsGate(o: {
+  initId: string;
+  builtins: (version: string | undefined) => Promise<ClaudeBuiltinAgents>;
+  send: (msg: unknown) => void;
+  start: () => void;
+  fail: (detail: string) => void;
+}): (msg: Record<string, any>) => boolean {
+  const denyId = `${o.initId}-agents`;
+  return (msg) => {
+    if (msg.type !== 'control_response') return false;
+    const r = msg.response ?? {};
+    if (r.request_id === o.initId) {
+      if (r.subtype === 'error') {
+        o.fail(String(r.error ?? 'initialize failed'));
+        return true;
+      }
+      const agents = claudeAgents(r.response);
+      if (!agents) {
+        o.fail('it did not list its subagents');
+        return true;
+      }
+      const version = typeof r.response?.claude_code_version === 'string' ? r.response.claude_code_version : undefined;
+      o.builtins(version).then(
+        (builtins) => {
+          const deny = claudeAgentDenyRules(agents, builtins);
+          if (!deny.length) return o.start();
+          o.send({ type: 'control_request', request_id: denyId, request: { subtype: 'apply_flag_settings', settings: { permissions: { deny } } } });
+        },
+        (err: unknown) => o.fail(err instanceof Error ? err.message : String(err)),
+      );
+      return true;
+    }
+    if (r.request_id === denyId) {
+      if (r.subtype === 'error') o.fail(String(r.error ?? 'apply_flag_settings failed'));
+      else o.start();
+      return true;
+    }
+    return false;
   };
 }
 
@@ -171,6 +384,8 @@ export function claudeArgs(o: {
   mcpConfig?: string;
   /** What Claude Code loads by itself to leave out (instructions and memory go through `claudeNativeEnv`). */
   nativeOff?: readonly NativePart[];
+  /** The installed plugins, turned off when plugins are left out. */
+  pluginIds?: readonly string[];
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
@@ -193,10 +408,9 @@ export function claudeArgs(o: {
     ...(o.attachmentsDir ? ['--add-dir', o.attachmentsDir] : []),
     // Added to the user's own MCP servers (variadic too).
     ...(o.mcpConfig ? ['--mcp-config', o.mcpConfig] : []),
-    // Leave out Claude Code's own skills (and other custom commands), and its own MCP servers: only
-    // the tool library's, from --mcp-config, stay.
-    ...(o.nativeOff?.includes('skills') ? ['--disable-slash-commands'] : []),
-    ...(o.nativeOff?.includes('mcp') ? ['--strict-mcp-config'] : []),
+    // Leave out what Claude Code loads by itself: its skills, its own MCP servers (the tool
+    // library's, from --mcp-config, stay), its hooks and plugins.
+    ...claudeNativeArgs(o.nativeOff, o.pluginIds),
     '--permission-mode',
     PERMISSION_MODE[o.permission][o.ask ? 'ask' : 'deny'],
     ...(o.ask ? ['--permission-prompt-tool', 'stdio'] : []),
@@ -390,9 +604,25 @@ function rejectedFlag(stderr: string): OptionalFlag | undefined {
   );
 }
 
+/**
+ * The ids of the installed plugins, to turn each off for a run that leaves plugins out. When Claude
+ * Code cannot list them the run fails with a message that says so: going on would quietly load
+ * the plugins the user turned off.
+ */
+async function pluginIdsForRun(o: Parameters<AgentRunner['run']>[0]): Promise<string[]> {
+  if (!o.nativeOff?.includes('plugins')) return [];
+  try {
+    return (await claudePlugins(o.bin, o.env, o.cwd, o.signal)).map((p) => p.id);
+  } catch (err) {
+    if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
+    throw new AgentRunError(t().claudePluginsFailed(err instanceof Error ? err.message : String(err)));
+  }
+}
+
 async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: string): Promise<RunResult> {
   const newSessionId = o.sessionId ? undefined : randomUUID();
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
+  const pluginIds = await pluginIdsForRun(o);
   const args = claudeArgs({
     systemPrompt: o.systemPrompt,
     permission: o.permission,
@@ -405,6 +635,7 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: strin
     readDirs: o.readDirs,
     mcpConfig,
     nativeOff: o.nativeOff,
+    pluginIds,
     skip: unsupported,
   });
 
@@ -440,6 +671,27 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: strin
   };
 
   const parser = createClaudeParser(o.onEvent, onControl);
+  const initId = `init-${randomUUID()}`;
+  const sendPrompt = () => send({ type: 'user', message: { role: 'user', content: claudeContent(o.prompt, o.images) } });
+  // Our own stop as well as the user's, to end the run when its subagents cannot be left out.
+  const stop = new AbortController();
+  const relayStop = () => stop.abort();
+  if (o.signal.aborted) stop.abort();
+  else o.signal.addEventListener('abort', relayStop, { once: true });
+  let failure: AgentRunError | undefined;
+  // When its own subagents are left out, the prompt waits until they are denied.
+  const gate = o.nativeOff?.includes('agents')
+    ? claudeAgentsGate({
+        initId,
+        builtins: (version) => claudeBuiltinAgents(o.bin, o.env, version),
+        send,
+        start: sendPrompt,
+        fail: (detail) => {
+          failure ??= new AgentRunError(t().claudeAgentsFailed(detail));
+          stop.abort();
+        },
+      })
+    : undefined;
   const res = await runProcess({
     bin: o.bin,
     args,
@@ -448,17 +700,22 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: strin
     keepStdinOpen: true,
     onSpawn: (c) => {
       child = c;
-      send({ type: 'control_request', request_id: `init-${randomUUID()}`, request: { subtype: 'initialize', hooks: null } });
-      send({ type: 'user', message: { role: 'user', content: claudeContent(o.prompt, o.images) } });
+      send({ type: 'control_request', request_id: initId, request: { subtype: 'initialize', hooks: null } });
+      if (!gate) sendPrompt();
     },
-    signal: o.signal,
+    signal: stop.signal,
     timeoutMs: TURN_TIMEOUT_MS,
     onLine: (line) => {
+      if (gate) {
+        const msg = parseJsonLine(line);
+        if (msg && gate(msg)) return;
+      }
       parser.handle(line);
       // One prompt per run: once the turn has its result, let Claude Code exit.
       if (parser.result) child?.stdin?.end();
     },
-  });
+  }).finally(() => o.signal.removeEventListener('abort', relayStop));
+  if (failure && !o.signal.aborted) throw failure;
   if (res.aborted) throw new AgentRunError(t().stopped, true);
   if (res.timedOut) throw new AgentRunError(t().timedOut);
 

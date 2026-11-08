@@ -494,21 +494,33 @@ export const zhTW = {
     saved: '已儲存',
   },
   native: {
-    title: '這個 CLI 自己載入的 skill、MCP 與記憶',
+    title: '這個 CLI 自己載入的 skill、MCP、hook 與記憶等',
     summary: (s: number, m: number, f: number) => `${s} 個 skill · ${m} 個 MCP · ${f} 個檔案`,
-    hint: '這些是 CLI 自己的設定，和工具庫無關，以預設工作目錄為準。查詢時會短暫啟動這個 CLI，不會呼叫模型；Claude Code 會執行你設定的 hooks，並連線它的 MCP 伺服器。結果保留一分鐘。',
+    hint: '這些是 CLI 自己的設定，和工具庫無關，以預設工作目錄為準。查詢時會短暫啟動這個 CLI，不會呼叫模型；Claude Code 會執行你設定的 hook，並連線它的 MCP 伺服器。有勾選不載入的項目時，會再依 Harness Relay 啟動它的方式問一次，標出實際不載入的項目。結果保留一分鐘。',
     load: '查詢',
     reload: '重新查詢',
     loading: '查詢中…',
     checked: (cwd: string, when: string) => `${cwd} · ${when}`,
-    tabs: { skills: 'Skills', mcp: 'MCP 伺服器', memory: '記憶與指示' } as Record<'skills' | 'mcp' | 'memory', string>,
+    tabs: { skills: 'Skills', mcp: 'MCP 伺服器', memory: '記憶與指示', hooks: 'Hooks', agents: 'Subagents', plugins: 'Plugins' } as Record<
+      'skills' | 'mcp' | 'memory' | 'hooks' | 'agents' | 'plugins',
+      string
+    >,
     filter: '篩選',
     none: '沒有。',
     off: '已停用',
+    leftOut: '不載入',
+    leftOutTitle: 'Harness Relay 啟動這個 CLI 時不會載入',
+    asRun: (n: number) =>
+      n
+        ? `已依 Harness Relay 啟動這個 CLI 的方式再問一次：標示「不載入」的 ${n} 項不會載入，其餘照常載入。`
+        : '已依 Harness Relay 啟動這個 CLI 的方式再問一次：這些清單裡的項目都照常載入，勾選的開關沒有關掉其中任何一項。',
+    asRunStale: '「不載入」的勾選在查詢後變更了，按「重新查詢」以檢查 Harness Relay 實際載入的項目。',
     source: (s: string) => `來源：${s}`,
     tools: (n: number) => `${n} 個工具`,
     claudeSkills: 'Claude Code 只回報名稱與說明：skill、plugin 指令和自訂指令都列在這裡（不含內建指令）。',
-    fromFiles: '這個 CLI 沒有提供清單，這裡是依它的讀檔規則找到、目前存在的檔案。',
+    claudeAgents: 'Claude Code 不回報 subagent 的來源。標示 built-in 的，是在沒有任何設定檔、plugin 與專案時仍然存在的 subagent。',
+    hooksNote: '只顯示事件與來源；hook 的指令可能含有 token，所以不顯示。',
+    fromFiles: '這個 CLI 沒有提供清單，這裡是依它的讀檔規則找到、目前存在的檔案；是否載入也是依它的設定判斷。',
     fromCli: '由 CLI 回報。',
     grokMemory: 'Grok 的自動記憶（有開啟時）只在對話中才知道位置，不在這裡列出。',
     instructions: '指示',
@@ -516,28 +528,42 @@ export const zhTW = {
     preview: '預覽內容',
     offTitle: '在 Harness Relay 中不載入',
     offHint: '只在 Harness Relay 啟動這個 CLI 時生效：不會修改 CLI 自己的設定檔，你在終端機使用它也不受影響。工具庫的項目照常提供。',
-    offParts: { skills: 'Skill', mcp: 'MCP 伺服器', instructions: '指示檔', memory: '記憶' } as Record<NativePart, string>,
+    offParts: { skills: 'Skill', mcp: 'MCP 伺服器', instructions: '指示檔', memory: '記憶', hooks: 'Hook', agents: 'Subagent', plugins: 'Plugin' } as Record<
+      NativePart,
+      string
+    >,
     offNotes: {
       claude: {
         skills: '也包括 plugin 指令與自訂指令',
         mcp: '只保留工具庫的 MCP 伺服器',
         instructions: '各層的 CLAUDE.md 與規則檔',
         memory: '自動記憶',
+        hooks: '設定檔與 plugin 裡的 hook',
+        agents: '自訂與 plugin 的 subagent；內建的照常提供',
+        plugins: '每個已安裝的 plugin，連同它的 skill、subagent、hook 與 MCP 伺服器',
       },
       codex: {
         skills: '指示裡不再列出 skill',
         mcp: '也包括 ChatGPT apps；只保留工具庫的 MCP 伺服器',
         instructions: '只有專案裡的 AGENTS.md，~/.codex/AGENTS.md 仍會讀取',
         memory: 'memories 功能',
+        hooks: '也包括 plugin 的 hook',
+        agents: 'Codex 沒有只略過自訂 subagent 的設定',
+        plugins: '連同它們的 skill、MCP 伺服器與 hook',
       },
       grok: {
-        skills: '只有從 Claude Code、Cursor 載入的；Grok 自己的 skill 要在 ~/.grok/config.toml 關閉',
-        mcp: '只有從 Claude Code、Cursor 載入的；Grok 自己的 MCP 伺服器要在 ~/.grok/config.toml 關閉',
+        skills:
+          '只關掉從 Claude Code、Cursor 匯入的 skill（包括專案的 .claude/skills 與 Claude Code plugin 的）。Grok 自己找到的照常載入，包括 ~/.agents/skills、~/.grok/skills、專案裡 .grok/skills 與 .agents/skills 的 skill，以及內建、Grok 自己 plugin 與 [skills] paths 設定的 skill；要關掉它們，請在 ~/.grok/config.toml 的 skills.disabled 列出名稱（這是 Grok 的全域設定，也會影響你在終端機使用 Grok；Harness Relay 不會修改它）',
+        mcp: '只關掉從 Claude Code、Cursor 匯入的；Grok 自己的 MCP 伺服器照常載入，要在 ~/.grok/config.toml 關閉（mcp_servers.<名稱>.enabled = false）（這是 Grok 的全域設定，也會影響你在終端機使用 Grok；Harness Relay 不會修改它）',
         instructions: 'Grok 沒有能單次略過指示檔的設定',
         memory: '跨對話記憶',
+        hooks: '只關掉從 Claude Code、Cursor 設定檔匯入的 hook；plugin 的 hook 與 Grok 自己的 hook 照常執行',
+        agents: 'Grok 沒有只略過自訂 subagent 的設定',
+        plugins: 'Grok 的 plugin（包括它載入的 Claude Code plugin）只能在 ~/.grok/config.toml 的 plugins.disabled 關閉（這是 Grok 的全域設定，也會影響你在終端機使用 Grok；Harness Relay 不會修改它）',
       },
     } as Record<Provider, Record<NativePart, string>>,
-    offCodexThreads: 'Codex 會沿用對話開始時載入的 skill 清單、指示檔與記憶：這三項的變更從新對話開始生效。MCP 伺服器的變更下一回合就生效。',
+    offCodexThreads:
+      'Codex 會沿用對話開始時載入的 skill 清單、指示檔與記憶：這些項目的變更（包括 plugin 帶來的 skill）從新對話開始生效。MCP 伺服器與 hook 的變更下一回合就生效。',
     offCount: (n: number) => `Relay 中不載入 ${n} 項`,
   },
   grokTrust: {

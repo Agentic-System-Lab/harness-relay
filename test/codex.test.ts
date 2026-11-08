@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { appendFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   codexApprovalRequest,
   codexApprovalResponse,
@@ -6,7 +9,11 @@ import {
   codexElicitationResponse,
   codexMcpToolApproval,
   codexConfiguredMcpServers,
+  codexConfirmLeftOut,
   codexNativeConfig,
+  codexRunner,
+  isUnknownMethod,
+  codexOverrideArgs,
   codexThreadRequest,
   codexUserMcpServers,
   createCodexUpdateHandler,
@@ -168,6 +175,26 @@ describe('codex thread config', () => {
     });
     expect(codexNativeConfig([])).toEqual({});
     expect(codexNativeConfig(['instructions'])).toEqual({ project_doc_max_bytes: 0 });
+    // Its hooks (plugins' too) and its plugins, each with its feature switch.
+    expect(codexNativeConfig(['hooks', 'plugins'])).toEqual({ 'features.hooks': false, 'features.plugins': false });
+  });
+
+  it('writes the same overrides as -c arguments, tables inline with every key quoted', () => {
+    expect(
+      codexOverrideArgs({
+        'features.hooks': false,
+        project_doc_max_bytes: 0,
+        mcp_servers: { headroom: { enabled: false }, 'a.b': { enabled: false }, 'say "hi"': { args: ['x', 'y'] } },
+      }),
+    ).toEqual([
+      '-c',
+      'features.hooks=false',
+      '-c',
+      'project_doc_max_bytes=0',
+      '-c',
+      'mcp_servers={ "headroom" = { "enabled" = false }, "a.b" = { "enabled" = false }, "say \\"hi\\"" = { "args" = ["x", "y"] } }',
+    ]);
+    expect(codexOverrideArgs({})).toEqual([]);
   });
 
   it('asks Codex for its MCP servers only when they are left out, and fails the run plainly when it cannot say', async () => {
@@ -226,9 +253,142 @@ describe('codex thread config', () => {
     expect(codexThreadRequest({ ...run, requestApproval: undefined }, []).params.approvalPolicy).toBe('never');
   });
 
+  it('checks after the thread starts that Codex took the hooks and plugins switches', async () => {
+    const asked: string[] = [];
+    const conn = (answers: Record<string, unknown>) => ({
+      request: async (method: string) => {
+        asked.push(method);
+        if (!(method in answers)) throw new RpcError(-32600, `Invalid request: unknown variant \`${method}\``);
+        return answers[method];
+      },
+    });
+    const run = { cwd: '/repo', nativeOff: ['hooks' as const, 'plugins' as const] };
+    const took = conn({ 'hooks/list': { data: [{ cwd: '/repo', hooks: [] }] }, 'plugin/installed': { marketplaces: [{ name: 'm', plugins: [] }] } });
+    await expect(codexConfirmLeftOut(took, run, 'thr-1')).resolves.toBeUndefined();
+    expect(asked).toEqual(['hooks/list', 'plugin/installed']);
+
+    // Nothing to check when neither is left out.
+    asked.length = 0;
+    await codexConfirmLeftOut(took, { cwd: '/repo', nativeOff: ['skills'] }, 'thr-1');
+    expect(asked).toEqual([]);
+
+    // A Codex that ignored the keys still lists them on: the run must not go on quietly.
+    const ignored = conn({
+      'hooks/list': { data: [{ cwd: '/repo', hooks: [{ key: 'h', eventName: 'stop', enabled: true }, { key: 'o', eventName: 'stop', enabled: false }] }] },
+      'plugin/installed': { marketplaces: [{ name: 'm', plugins: [{ id: 'deck@m', installed: true, enabled: true }] }] },
+    });
+    const failure = withLang('en', () => codexConfirmLeftOut(ignored, run, 'thr-1'));
+    await expect(failure).rejects.toBeInstanceOf(AgentRunError);
+    await expect(failure).rejects.toThrow(/^Codex still loaded its hooks and plugins although they are left out of this run/);
+    // Only off ones, or plugins that are not installed: nothing still on.
+    const quiet = conn({
+      'hooks/list': { data: [{ hooks: [{ eventName: 'stop', enabled: false }] }] },
+      'plugin/installed': { marketplaces: [{ plugins: [{ id: 'x@m', installed: false, enabled: true }] }] },
+    });
+    await expect(codexConfirmLeftOut(quiet, run, 'thr-1')).resolves.toBeUndefined();
+    // A Codex older than these lists goes on: it answers an unknown method as 0.167 does.
+    await expect(codexConfirmLeftOut(conn({}), run, 'thr-1')).resolves.toBeUndefined();
+    expect(isUnknownMethod(new RpcError(-32600, 'Invalid request: unknown variant `hooks/list`'))).toBe(true);
+    expect(isUnknownMethod(new RpcError(-32601, 'method not found'))).toBe(true);
+    expect(isUnknownMethod(new RpcError(-32600, 'Invalid request: missing field `threadId`'))).toBe(false);
+    // Any other failure could not be checked, and the run does not go on.
+    const broken = { request: async () => Promise.reject(new RpcError(-32603, 'thread not loaded')) };
+    await expect(withLang('en', () => codexConfirmLeftOut(broken, run, 'thr-1'))).rejects.toThrow(
+      /^Could not check that Codex left out the hooks or plugins this run leaves out \(thread not loaded\)/,
+    );
+  });
+
   it('reads the configured MCP servers from config/read', () => {
     expect(codexConfiguredMcpServers({ config: { mcp_servers: { headroom: {}, node_repl: {} } } })).toEqual(['headroom', 'node_repl']);
     expect(codexConfiguredMcpServers({ config: {} })).toEqual([]);
     expect(codexConfiguredMcpServers(undefined)).toEqual([]);
+  });
+});
+
+describe('a Codex run that leaves out hooks and plugins (stand-in codex app-server)', () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-codex-')));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  // Answers like codex-cli 0.167.0's app-server. FAKE_CODEX_IGNORE plays a Codex that ignores the
+  // two keys; FAKE_CODEX_SLOW answers hooks/list after two seconds. Each request goes to the log.
+  const FAKE_CODEX = `#!/usr/bin/env node
+const fs = require('node:fs');
+const log = (o) => fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify(o) + '\\n');
+const args = process.argv.slice(2);
+log({ args });
+const set = []; for (let i = 0; i < args.length; i++) if (args[i] === '-c') set.push(args[++i]);
+const off = (key) => !process.env.FAKE_CODEX_IGNORE && set.includes(key + '=false');
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  log({ method: m.method });
+  const reply = (result) => out({ id: m.id, result });
+  switch (m.method) {
+    case 'initialize': return reply({});
+    case 'thread/start': return reply({ thread: { id: 'thr-1' } });
+    case 'hooks/list': {
+      const r = { data: [{ hooks: off('features.hooks') ? [] : [{ key: 'h', eventName: 'stop', enabled: true }] }] };
+      return process.env.FAKE_CODEX_SLOW ? setTimeout(() => reply(r), 2000) : reply(r);
+    }
+    case 'plugin/installed':
+      return reply({ marketplaces: [{ name: 'm', plugins: off('features.plugins') ? [] : [{ id: 'deck@m', installed: true, enabled: true }] }] });
+    case 'turn/start':
+      reply({ turn: { id: 'turn-1' } });
+      return out({ method: 'turn/completed', params: { threadId: 'thr-1', turn: { id: 'turn-1', status: 'completed' } } });
+    default:
+      return out({ id: m.id, error: { code: -32600, message: 'Invalid request: unknown variant ' + m.method } });
+  }
+});
+`;
+  const bin = join(dir, 'codex');
+  writeFileSync(bin, FAKE_CODEX, { mode: 0o755 });
+  let n = 0;
+  function run(extra: Record<string, string> = {}, signal = new AbortController().signal) {
+    const log = join(dir, `log-${++n}.jsonl`);
+    appendFileSync(log, '');
+    const result = withLang('en', () =>
+      codexRunner.run({
+        bin,
+        env: { ...process.env, FAKE_CODEX_LOG: log, ...extra },
+        prompt: 'hello',
+        systemPrompt: 'briefing',
+        cwd: dir,
+        permission: 'read-only',
+        signal,
+        onEvent: () => undefined,
+        nativeOff: ['hooks', 'plugins'],
+      }),
+    );
+    const lines = () =>
+      readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l) as { args?: string[]; method?: string });
+    return { result, lines, methods: () => lines().flatMap((l) => (l.method ? [l.method] : [])) };
+  }
+
+  it('gives its app-server the switches too, and checks them before the turn starts', async () => {
+    const r = run();
+    await expect(r.result).resolves.toMatchObject({ sessionId: 'thr-1' });
+    const args = r.lines()[0]!.args!;
+    expect(args.slice(0, 1)).toEqual(['app-server']);
+    expect(args).toEqual(expect.arrayContaining(['-c', 'features.hooks=false', 'features.plugins=false']));
+    expect(r.methods()).toEqual(['initialize', 'thread/start', 'hooks/list', 'plugin/installed', 'turn/start']);
+  });
+
+  it('fails before the turn when Codex ignored them', async () => {
+    const r = run({ FAKE_CODEX_IGNORE: '1' });
+    await expect(r.result).rejects.toThrow(/^Codex still loaded its hooks and plugins although they are left out of this run/);
+    expect(r.methods()).not.toContain('turn/start');
+  });
+
+  it('does not start the turn when stopped during the check', async () => {
+    const stop = new AbortController();
+    const r = run({ FAKE_CODEX_SLOW: '1' }, stop.signal);
+    await vi.waitFor(() => expect(r.methods()).toContain('hooks/list'));
+    stop.abort();
+    await expect(r.result).rejects.toMatchObject({ message: 'Stopped' });
+    expect(r.methods()).not.toContain('turn/start');
   });
 });

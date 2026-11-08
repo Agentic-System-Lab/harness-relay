@@ -3,19 +3,35 @@ import type { FilePreview, NativeSetup, Provider, ProviderSettingsView, Settings
 import { api } from '../api';
 import { isMarkdown, lineCount } from '../files';
 import { useT } from '../i18n';
+import { nativeLeftOutCount, nativeTabs, sameNativeParts, type NativeTab } from '../native';
 import { formatBytes, relativeTime } from '../util';
 import { TextContent } from './FileBrowser';
 import { GrokTrustNote } from './GrokTrust';
 import { NativeOffSwitches } from './NativeOffSwitches';
 import { useDialog } from './useDialog';
 
-type Tab = 'skills' | 'mcp' | 'memory';
+/** The badges an item gets: turned off by the CLI itself, or left out of Harness Relay's runs. */
+function StateBadges({ item }: { item: { enabled?: boolean; leftOut?: boolean } }) {
+  const t = useT();
+  return (
+    <>
+      {item.enabled === false && <span className="badge">{t.native.off}</span>}
+      {item.leftOut && (
+        <span className="badge warn" title={t.native.leftOutTitle}>
+          {t.native.leftOut}
+        </span>
+      )}
+    </>
+  );
+}
 
 /**
- * What a CLI loads by itself (its own skills, MCP servers and memory files), and the switches that
- * leave them out of Harness Relay's runs. The CLI is asked only when the user clicks Ask: asking
- * starts it briefly (Claude Code runs SessionStart hooks and connects MCP servers), and someone may
- * open this section to turn off an MCP server precisely because starting it does harm.
+ * What a CLI loads by itself (its own skills, MCP servers, hooks, subagents, plugins and memory
+ * files), and the switches that leave them out of Harness Relay's runs. The CLI is asked only when
+ * the user clicks Ask: asking starts it briefly (Claude Code runs SessionStart hooks and connects
+ * MCP servers), and someone may open this section to turn off an MCP server precisely because
+ * starting it does harm. With something left out, the server asks the CLI again the way Harness
+ * Relay starts it and marks what is then left out.
  */
 export function NativeSetupPanel({
   provider,
@@ -30,7 +46,7 @@ export function NativeSetupPanel({
   const [setup, setSetup] = useState<NativeSetup | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<Tab>('skills');
+  const [tab, setTab] = useState<NativeTab>('skills');
   const [query, setQuery] = useState('');
   /** The reported file being read. */
   const [viewing, setViewing] = useState<string | null>(null);
@@ -49,7 +65,11 @@ export function NativeSetupPanel({
 
   const q = query.trim().toLowerCase();
   const match = (...texts: (string | undefined)[]) => !q || texts.some((s) => s?.toLowerCase().includes(q));
+  const tabs = setup ? nativeTabs(setup) : [];
   const counts = setup ? { skills: setup.skills.length, mcp: setup.mcpServers.length, memory: setup.memory.length } : null;
+  // The switches changed since this answer, so its marks may no longer hold.
+  const stale = Boolean(setup && settings && !sameNativeParts(setup.nativeOff, settings.nativeOff));
+  const shown = tabs.some((x) => x.tab === tab) ? tab : 'skills';
 
   return (
     <details className="sub native-setup">
@@ -83,19 +103,24 @@ export function NativeSetupPanel({
             {e}
           </p>
         ))}
+        {stale ? (
+          <p className="warn-line small">{t.native.asRunStale}</p>
+        ) : (
+          setup?.asRun && <p className="muted small">{t.native.asRun(nativeLeftOutCount(setup))}</p>
+        )}
         {setup && counts && (
           <>
             <div className="segmented native-tabs" role="tablist">
-              {(['skills', 'mcp', 'memory'] as const).map((k) => (
-                <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
-                  {t.native.tabs[k]} ({counts[k]})
+              {tabs.map(({ tab: k, count }) => (
+                <button key={k} role="tab" aria-selected={shown === k} className={shown === k ? 'on' : ''} onClick={() => setTab(k)}>
+                  {t.native.tabs[k]} ({count})
                 </button>
               ))}
             </div>
-            {tab !== 'memory' && (
+            {shown !== 'memory' && (
               <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.native.filter} aria-label={t.native.filter} />
             )}
-            {tab === 'skills' && (
+            {shown === 'skills' && (
               <>
                 {provider === 'claude' && <p className="muted small">{t.native.claudeSkills}</p>}
                 <ul className="native-list">
@@ -112,7 +137,7 @@ export function NativeSetupPanel({
                             s.name
                           )}
                           {s.source && <span className="badge">{s.source}</span>}
-                          {s.enabled === false && <span className="badge">{t.native.off}</span>}
+                          <StateBadges item={s} />
                         </span>
                         {s.description && <span className="native-description">{s.description}</span>}
                       </li>
@@ -121,7 +146,7 @@ export function NativeSetupPanel({
                 {!setup.skills.length && <p className="muted small">{t.native.none}</p>}
               </>
             )}
-            {tab === 'mcp' && (
+            {shown === 'mcp' && (
               <>
                 <ul className="native-list">
                   {setup.mcpServers
@@ -132,6 +157,7 @@ export function NativeSetupPanel({
                           {s.name}
                           {s.transport && <span className="badge">{s.transport}</span>}
                           {s.status && <span className={`badge ${s.status === 'connected' ? 'ok' : ''}`}>{s.status}</span>}
+                          <StateBadges item={s} />
                         </span>
                         <span className="native-description">
                           {[s.source && t.native.source(s.source), s.tools !== undefined && t.native.tools(s.tools)].filter(Boolean).join(' · ')}
@@ -142,7 +168,70 @@ export function NativeSetupPanel({
                 {!setup.mcpServers.length && <p className="muted small">{t.native.none}</p>}
               </>
             )}
-            {tab === 'memory' && (
+            {shown === 'hooks' && setup.hooks && (
+              <>
+                <p className="muted small">{t.native.hooksNote}</p>
+                <ul className="native-list">
+                  {setup.hooks
+                    .filter((h) => match(h.event, h.matcher, h.source, h.file))
+                    .map((h, i) => (
+                      <li key={`${h.event}-${i}`}>
+                        <span className="native-name">
+                          {h.event}
+                          {h.matcher && <code>{h.matcher}</code>}
+                          {h.source && <span className="badge">{h.source}</span>}
+                          <StateBadges item={h} />
+                        </span>
+                        {h.file && (
+                          <span className="native-description">
+                            <code>{h.file}</code>
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                </ul>
+                {!setup.hooks.length && <p className="muted small">{t.native.none}</p>}
+              </>
+            )}
+            {shown === 'agents' && setup.agents && (
+              <>
+                {provider === 'claude' && <p className="muted small">{t.native.claudeAgents}</p>}
+                <ul className="native-list">
+                  {setup.agents
+                    .filter((a) => match(a.name, a.description, a.source))
+                    .map((a, i) => (
+                      <li key={`${a.name}-${i}`}>
+                        <span className="native-name">
+                          {a.name}
+                          {a.source && <span className="badge">{a.source}</span>}
+                          <StateBadges item={a} />
+                        </span>
+                        {a.description && <span className="native-description">{a.description}</span>}
+                      </li>
+                    ))}
+                </ul>
+                {!setup.agents.length && <p className="muted small">{t.native.none}</p>}
+              </>
+            )}
+            {shown === 'plugins' && setup.plugins && (
+              <>
+                <ul className="native-list">
+                  {setup.plugins
+                    .filter((p) => match(p.name, p.source))
+                    .map((p, i) => (
+                      <li key={`${p.name}-${i}`}>
+                        <span className="native-name">
+                          {p.name}
+                          {p.source && <span className="badge">{p.source}</span>}
+                          <StateBadges item={p} />
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+                {!setup.plugins.length && <p className="muted small">{t.native.none}</p>}
+              </>
+            )}
+            {shown === 'memory' && (
               <>
                 <p className="muted small">{setup.memoryFromFiles ? t.native.fromFiles : t.native.fromCli}</p>
                 {provider === 'grok' && <p className="muted small">{t.native.grokMemory}</p>}
@@ -154,6 +243,7 @@ export function NativeSetupPanel({
                           <code>{m.path}</code>
                         </button>
                         <span className="badge">{m.kind === 'memory' ? t.native.memoryFile : t.native.instructions}</span>
+                        <StateBadges item={m} />
                       </span>
                     </li>
                   ))}

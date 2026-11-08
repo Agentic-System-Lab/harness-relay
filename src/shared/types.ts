@@ -155,20 +155,24 @@ export interface ToolLibraryUpdate {
 
 // --- What each CLI loads by itself (its own skills, MCP servers and memory) -------------------
 
-/** The kinds of things a CLI loads by itself that Harness Relay can leave out of its runs. */
-export const NATIVE_PARTS = ['skills', 'mcp', 'instructions', 'memory'] as const;
+/**
+ * The kinds of things a CLI loads by itself that Harness Relay can leave out of its runs. `agents`
+ * are the CLI's own subagents (its built-in ones stay).
+ */
+export const NATIVE_PARTS = ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'agents', 'plugins'] as const;
 export type NativePart = (typeof NATIVE_PARTS)[number];
 
 /**
  * What each CLI can be told to leave out for one run, without changing its own settings. Codex
- * still reads its own ~/.codex/AGENTS.md; Grok's switches reach only what it loads from Claude
- * Code and Cursor (its own skills and MCP servers are turned off in ~/.grok/config.toml), and it
- * has none for instruction files.
+ * still reads its own ~/.codex/AGENTS.md, and has no setting that leaves out only its own
+ * subagents. Grok's switches reach only what it loads from Claude Code and Cursor (its own skills,
+ * MCP servers and hooks are turned off in ~/.grok/config.toml), and it has none for instruction
+ * files, its own subagents or plugins.
  */
 export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
-  claude: ['skills', 'mcp', 'instructions', 'memory'],
-  codex: ['skills', 'mcp', 'instructions', 'memory'],
-  grok: ['skills', 'mcp', 'memory'],
+  claude: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'agents', 'plugins'],
+  codex: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'plugins'],
+  grok: ['skills', 'mcp', 'memory', 'hooks'],
 };
 
 /** The parts in `parts` that `provider` can leave out, once each, in NATIVE_PARTS order. */
@@ -176,17 +180,25 @@ export function nativeOffFor(provider: Provider, parts: readonly string[]): Nati
   return NATIVE_PARTS.filter((p) => NATIVE_OFF_SUPPORT[provider].includes(p) && parts.includes(p));
 }
 
-export interface NativeSkill {
+/**
+ * What every item a CLI reports can say about itself. `leftOut`: the CLI loads it, but not when
+ * Harness Relay starts it with the switches that are on (found by asking it again that way).
+ */
+interface NativeItem {
+  /** False when the CLI has it turned off by itself. */
+  enabled?: boolean;
+  leftOut?: boolean;
+}
+
+export interface NativeSkill extends NativeItem {
   name: string;
   description: string;
   /** Where the CLI found it (user, repo, system, plugin, bundled…), when it says. */
   source?: string;
   path?: string;
-  /** False when the CLI has it turned off. */
-  enabled?: boolean;
 }
 
-export interface NativeMcpServer {
+export interface NativeMcpServer extends NativeItem {
   name: string;
   /** stdio, http… */
   transport?: string;
@@ -197,10 +209,36 @@ export interface NativeMcpServer {
   tools?: number;
 }
 
-export interface NativeMemoryFile {
+export interface NativeMemoryFile extends NativeItem {
   path: string;
   /** Instructions (CLAUDE.md, AGENTS.md…) or notes the CLI keeps by itself. */
   kind: 'instructions' | 'memory';
+}
+
+/** A hook: when it runs and where it comes from (never its command, which may hold a token). */
+export interface NativeHook extends NativeItem {
+  /** SessionStart, preToolUse… as the CLI names it. */
+  event: string;
+  /** Which tools it applies to, when it says. */
+  matcher?: string;
+  /** Where it is set (user settings, a plugin…). */
+  source?: string;
+  /** The file it is defined in, when the CLI says. */
+  file?: string;
+}
+
+/** One of the CLI's subagents. */
+export interface NativeAgent extends NativeItem {
+  name: string;
+  description: string;
+  /** built-in, user, plugin…, when known. */
+  source?: string;
+}
+
+export interface NativePlugin extends NativeItem {
+  /** The CLI's id for it (Claude Code and Codex: `name@marketplace`). */
+  name: string;
+  source?: string;
 }
 
 /** What one CLI loads by itself for a working directory, asked from the CLI (no prompt is sent). */
@@ -210,8 +248,19 @@ export interface NativeSetup {
   skills: NativeSkill[];
   mcpServers: NativeMcpServer[];
   memory: NativeMemoryFile[];
+  /** Undefined when the CLI does not list them. */
+  hooks?: NativeHook[];
+  agents?: NativeAgent[];
+  plugins?: NativePlugin[];
   /** The memory list comes from reading the files the CLI is known to read, not from the CLI. */
   memoryFromFiles: boolean;
+  /**
+   * The parts left out of Harness Relay's runs when the CLI was asked. With any, the CLI was asked
+   * a second time the way Harness Relay starts it, and `asRun` says whether it answered: items it
+   * then left out are marked `leftOut`.
+   */
+  nativeOff: NativePart[];
+  asRun: boolean;
   /**
    * Grok: whether the folder is trusted. Untrusted, Grok leaves out the project's own instructions,
    * skills, MCP servers and hooks.

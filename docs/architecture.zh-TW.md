@@ -250,33 +250,50 @@ Harness Relay 提供給成員的 MCP 伺服器、skill 與記憶，每個 CLI �
 
 ## 各 CLI 自己載入的內容
 
-設定頁每個 CLI 的卡片可以列出這個 CLI 在預設工作目錄下自己載入的內容：它自己的 skill、MCP 伺服器與記憶，和工具庫分開（`src/server/native.ts`，`POST /api/providers/:provider/native`）。查詢方式和 IDE 一樣，不送 prompt，所以不會呼叫模型：
+設定頁每個 CLI 的卡片可以列出這個 CLI 在預設工作目錄下自己載入的內容：它自己的 skill、MCP 伺服器、hook、subagent、plugin 與記憶，和工具庫分開（`src/server/native.ts`，`POST /api/providers/:provider/native`）。查詢方式和 IDE 一樣，不送 prompt，所以不會呼叫模型：
 
-| | Skill | MCP 伺服器 | 記憶與指示 |
+| | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |
-| Claude Code | stream-json 的 `initialize` 控制請求：非內建的指令（skill、plugin 與自訂指令；只有名稱與說明） | `mcp_status` 控制請求（名稱、狀態、範圍、工具數） | 沒有清單：依文件列出它會讀、且目前存在的檔案（設定資料夾的 `CLAUDE.md` 與 `rules/`，從資料夾往上各層的 `CLAUDE.md` / `CLAUDE.local.md` / `.claude/CLAUDE.md` / `.claude/rules/`，以及 `projects/<資料夾>/memory/` 下的自動記憶），會依 `CLAUDE_CONFIG_DIR` |
-| Codex | `codex app-server` 的 `skills/list` | `config/read`（設定的伺服器；不會啟動任何伺服器） | 沒有清單：`CODEX_HOME` 與 repository 根目錄往下各層的 `AGENTS.override.md` 或 `AGENTS.md`，以及它的 `memories/` |
-| Grok | `grok inspect --json` | `grok inspect --json` | `grok inspect --json`（指示檔） |
+| Skill | stream-json 的 `initialize` 控制請求：非內建的指令（skill、plugin 與自訂指令；只有名稱與說明） | `codex app-server` 的 `skills/list` | `grok inspect --json` |
+| MCP 伺服器 | `mcp_status` 控制請求（名稱、狀態、範圍、工具數） | `config/read`（設定的伺服器；不會啟動任何伺服器） | `grok inspect --json` |
+| Hook | `get_hooks_listing` 控制請求（事件、matcher、來源） | `hooks/list`（事件、matcher、來源、檔案） | `grok inspect --json`（檔案型 hook 的檔案） |
+| Subagent | `initialize`（名稱與說明），加上 `get_settings` 得知權限規則拒絕了哪些。它不說 subagent 從哪裡來，所以另外詢問哪些是內建的（見下文） | 沒有清單 | `grok inspect --json` |
+| Plugin | `claude plugin list --json`（id、範圍、開或關），加上 `get_settings` 得知設定關掉了哪些 | `plugin/installed`（已安裝的） | `grok inspect --json` |
+| 記憶與指示 | 沒有清單：依文件列出它會讀、且目前存在的檔案（設定資料夾的 `CLAUDE.md` 與 `rules/`，從資料夾往上各層的 `CLAUDE.md` / `CLAUDE.local.md` / `.claude/CLAUDE.md` / `.claude/rules/`，以及 `projects/<資料夾>/memory/` 下的自動記憶），會依 `CLAUDE_CONFIG_DIR` | 沒有清單：`CODEX_HOME` 與 repository 根目錄往下各層的 `AGENTS.override.md` 或 `AGENTS.md`，以及它的 `memories/` | `grok inspect --json`（指示檔） |
 
-查詢時會短暫啟動 CLI：Claude Code 會執行使用者的 SessionStart hooks 並連線它的 MCP 伺服器。因此介面只在使用者按下 **查詢** 時才詢問，展開這一區時不會：使用者可能正是因為某個 MCP 伺服器一啟動就會造成問題，才打開這一區要關掉它。它用 POST，資料夾固定是預設工作目錄，所以其他網站無法在任何地方啟動 CLI。每個 CLI、執行檔與資料夾的結果保留一分鐘（`refresh: true` 重新查詢）；CLI 沒有回報的部分會列出來，並依每次請求的語言顯示。回報的指示與記憶檔，以及 skill 的 `SKILL.md`，可以在介面中打開（`POST /api/providers/:provider/native/file`）：只會讀 CLI 最近一次回答裡的路徑，所以讀不到電腦上的其他檔案。只回傳名稱、說明、路徑與狀態；可能含有 token 的 MCP 伺服器設定不會回傳。
+查詢時會短暫啟動 CLI：Claude Code 會執行使用者的 SessionStart hooks 並連線它的 MCP 伺服器。因此介面只在使用者按下 **查詢** 時才詢問，展開這一區時不會：使用者可能正是因為某個 MCP 伺服器一啟動就會造成問題，才打開這一區要關掉它。它用 POST，資料夾固定是預設工作目錄，所以其他網站無法在任何地方啟動 CLI。每個 CLI、執行檔與資料夾的結果保留一分鐘，前提是不載入的項目（見下文）沒有變（`refresh: true` 重新查詢）；CLI 沒有回報的部分會列出來，並依每次請求的語言顯示。回報的指示與記憶檔，以及 skill 的 `SKILL.md`，可以在介面中打開（`POST /api/providers/:provider/native/file`）：只會讀 CLI 最近一次回答裡的路徑，所以讀不到電腦上的其他檔案。只回傳名稱、說明、路徑與狀態；可能含有 token 的 MCP 伺服器設定與 hook 指令不會回傳。
 
 ### 在 Harness Relay 的執行中不載入
 
-使用者可以針對每個 CLI，讓 Harness Relay 啟動它的每一次執行都不載入它自己的 skill、MCP 伺服器、指示檔或記憶（`ProviderSettingsView.nativeOff`，欄位 `provider_settings.native_off`；`RunOptions.nativeOff`，由 orchestrator 傳給成員與首席 agent，群組分類也會傳）。各轉接器只在那一次執行中關掉，絕不修改 CLI 自己的設定檔。`src/shared/types.ts` 的 `NATIVE_OFF_SUPPORT` 列出各 CLI 能關掉的項目，其他的伺服器會丟掉。每個機制都在不呼叫模型的情況下，對真正的 CLI 驗證過（Claude Code 2.1.319、Codex 0.167.0、Grok 1.0.77）：
+使用者可以針對每個 CLI，讓 Harness Relay 啟動它的每一次執行都不載入它自己的 skill、MCP 伺服器、指示檔、記憶、hook、subagent 或 plugin（`ProviderSettingsView.nativeOff`，欄位 `provider_settings.native_off`；`RunOptions.nativeOff`，由 orchestrator 傳給成員與首席 agent，群組分類也會傳）。各轉接器只在那一次執行中關掉，絕不修改 CLI 自己的設定檔。`src/shared/types.ts` 的 `NATIVE_OFF_SUPPORT` 列出各 CLI 能關掉的項目，其他的伺服器會丟掉。除了 Grok 的 hook（見下文），每個機制都在不呼叫模型的情況下，對真正的 CLI 驗證過（Claude Code 2.1.319、Codex 0.167.0、Grok 1.0.77）：
 
-| | Skill | MCP 伺服器 | 指示檔 | 記憶 |
-| --- | --- | --- | --- | --- |
-| Claude Code | `--disable-slash-commands`（也包括 plugin 與自訂指令） | `--strict-mcp-config`：只保留工具庫的 `--mcp-config` | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` |
-| Codex（thread `config`） | `skills.include_instructions = false` | 每個設定的伺服器都設 `enabled = false`（thread 開始前用 `config/read` 讀取；同名的工具庫伺服器會直接取代它），和工具庫的伺服器放在同一個 `mcp_servers` 表；加上 `features.apps = false` | `project_doc_max_bytes = 0`：專案裡的 `AGENTS.md`；沒有設定能略過 `~/.codex/AGENTS.md` | `features.memories = false` |
-| Grok（環境變數） | `GROK_CLAUDE_SKILLS_ENABLED` / `GROK_CURSOR_SKILLS_ENABLED=false`：只有從 Claude Code 與 Cursor 載入的 | `GROK_CLAUDE_MCPS_ENABLED` / `GROK_CURSOR_MCPS_ENABLED=false`：同上 | 沒有（它的 rules 開關仍會載入 `CLAUDE.md`） | `GROK_MEMORY=0` |
+| | Claude Code | Codex（thread `config`） | Grok（環境變數） |
+| --- | --- | --- | --- |
+| Skill | `--disable-slash-commands`（也包括 plugin 與自訂指令） | `skills.include_instructions = false` | `GROK_CLAUDE_SKILLS_ENABLED` / `GROK_CURSOR_SKILLS_ENABLED=false`：只有從 Claude Code（包括它的 plugin 的 skill）與 Cursor 匯入的 |
+| MCP 伺服器 | `--strict-mcp-config`：只保留工具庫的 `--mcp-config` | 每個設定的伺服器都設 `enabled = false`（thread 開始前用 `config/read` 讀取；同名的工具庫伺服器會直接取代它），和工具庫的伺服器放在同一個 `mcp_servers` 表；加上 `features.apps = false` | `GROK_CLAUDE_MCPS_ENABLED` / `GROK_CURSOR_MCPS_ENABLED=false`：同上 |
+| 指示檔 | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` | `project_doc_max_bytes = 0`：專案裡的 `AGENTS.md`；沒有設定能略過 `~/.codex/AGENTS.md` | 沒有（它的 rules 與 agents 開關仍會載入 `CLAUDE.md`） |
+| 記憶 | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` | `features.memories = false` | `GROK_MEMORY=0` |
+| Hook | `--settings '{"disableAllHooks":true}'`：設定檔與 plugin 裡的 hook | `features.hooks = false`（也包括 plugin 的 hook）；也傳給這次執行的 app-server，並會檢查（見下文） | `GROK_CLAUDE_HOOKS_ENABLED` / `GROK_CURSOR_HOOKS_ENABLED=false`：只有從 Claude Code、Cursor 設定檔匯入的 |
+| Subagent | 啟動後拒絕（見下文） | 沒有：它的 agent role 沒有開關，`features.multi_agent = false` 會連內建的 subagent 一起拿掉 | 沒有：`subagents.enabled`（單次執行也可用 `GROK_SUBAGENTS=0` 或 `--no-subagents`）會連內建的 subagent 一起關掉 |
+| Plugin | `--settings '{"enabledPlugins":{"<id>":false,…}}'`，列出 `claude plugin list --json` 回報的每個 plugin（它沒有關掉所有 plugin 的開關）；plugin 的 skill、指令、subagent、hook 與 MCP 伺服器會一起拿掉 | `features.plugins = false`（也包括它們的 skill、MCP 伺服器與 hook）；也傳給這次執行的 app-server，並會檢查（見下文） | 沒有（`plugins.disabled`，只能在 `config.toml` 設定） |
+
+Claude Code 的 `--settings` 是它的旗標層，位在使用者與專案的設定檔之上，那些檔案保持不變。`claude plugin list --json` 失敗時，這次執行會失敗，並說明無法不載入 plugin，而不是默默照常載入。
+
+Claude Code 沒有只略過它自己 subagent 的開關（`--safe-mode` 會連工具庫的 `--mcp-config` 伺服器一起拿掉，`--bare` 不讀 OAuth 登入，`--setting-sources` 則會略過整個設定檔）。因此不載入 subagent 時，這次執行會先不送 prompt（`claudeAgentsGate`）：Claude Code 回應 `initialize`、列出它載入的 subagent 之後，每個非內建的 subagent 都透過 `apply_flag_settings` 控制請求加上權限規則 `Agent(<名稱>)`（併入這個 session 的旗標層），之後才送出 prompt。被拒絕的 subagent 會從 Agent 工具的清單中拿掉，也無法啟動；實際跑一回合時，模型只會列出內建的 subagent 類型。內建的 subagent，是 Claude Code 在空的暫存資料夾、不讀任何設定來源（`--setting-sources ''`、`--strict-mcp-config`、關掉 hook）時回報的那些，每個執行檔、版本與設定資料夾只問一次（`claudeBuiltinAgents`）；組織的受管設定加上的 subagent 也算內建。名稱與說明都和內建的相同，才算內建：使用者或專案裡同名的 subagent 會取代內建的那一個，所以會被拒絕，這次執行中那個名稱就沒有 subagent。任一步驟失敗時（例如舊版 Claude Code 沒有 `apply_flag_settings`，或 `initialize` 的回答沒有列出 subagent），這次執行會失敗並說明，而不是照常執行它們。
+
+Codex 不認得的設定 key 會直接忽略，所以開關可能默默失效（舊版 Codex，或 key 改名）。因此這次執行也會把上面的覆寫設定以 `-c` 參數傳給它的 app-server（其中沒有任何秘密；MCP 伺服器仍只放在 thread 的設定裡），並在 thread 開始後詢問 `hooks/list` 與 `plugin/installed`：設為不載入的 hook 或已安裝的 plugin 仍然開著時，這次執行會在回合開始前失敗並說明。沒有這些方法的 Codex（回答方法不存在）比這些功能還舊，會照常執行；其他無法回答的情況無法確認，這次執行會失敗。
 
 Codex 會把 `mcp_servers` 表合併進使用者的設定，所以使用者的其他伺服器與設定都會保留。之所以用一個表，而不是每個伺服器一個點分隔的 key，是因為 Codex 會在每個 `.` 切開 key（加引號也一樣），名為 `a.b` 的伺服器就無法指定。`config/read` 失敗時（例如舊版 `codex`），這次執行會失敗，並說明無法不載入那些伺服器，而不是默默照常執行它們。
 
-Codex 在 thread 開始時，會把它的 skill 清單、專案的 `AGENTS.md` 與記憶寫進 thread，`thread/resume` 時會重播。所以對 Codex 來說，這三個開關從新對話開始生效，它的卡片上也會說明。MCP 伺服器與 apps 在每次開始與續接時都會設定，所以下一回合就生效。Claude Code 每次執行都會重新組出它的指示。
+Codex 在 thread 開始時，會把它的 skill 清單（包括 plugin 帶來的 skill）、專案的 `AGENTS.md` 與記憶寫進 thread，`thread/resume` 時會重播。所以對 Codex 來說，這些開關從新對話開始生效，它的卡片上也會說明。MCP 伺服器、apps、hook 與 plugin 在每次開始與續接時都會設定；MCP 伺服器與 hook 的變更下一回合就生效。Claude Code 每次執行都會重新組出它的指示。
 
 agent 的 CLI 不載入它自己的 skill 時，簡報裡工具庫的 skill 區塊不會再說 CLI 自己的 skill 照常可用。
 
-Grok 自己的 skill 與 MCP 伺服器只能在 `~/.grok/config.toml` 關閉（`skills.disabled`、`mcp_servers.<name>.enabled`），Harness Relay 不會修改它。上面的查詢不套用這些開關，所以清單仍然顯示 CLI 自己載入的內容。
+Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `~/.grok/config.toml` 關閉（`skills.disabled`、`mcp_servers.<name>.enabled`、`plugins.disabled`），這是 Grok 的全域設定，在終端機使用 Grok 時也有效，Harness Relay 不會修改它；它的 subagent 只能連同內建的一起關掉（`subagents.enabled`、`GROK_SUBAGENTS=0`）；ACP client 可以傳的覆寫層 `GROK_CONFIG` 只接受 `models`、`features`、`toolset` 與 `shell_environment_policy`。所以它的 skill 開關只略過從 Claude Code 與 Cursor 匯入的（包括專案的 `.claude/skills`）：Grok 自己找到的 skill（`~/.agents/skills`、`~/.grok/skills`、專案的 `.grok/skills` 與 `.agents/skills`、內建的）照常載入，卡片上也會說明。`grok inspect` 會顯示 Grok 讀到了 hook 的環境變數（它的 `externalCompat`，來源為 `env`），但不會列出它從 Claude Code 設定檔匯入的 hook，所以 hook 本身無法驗證；這個開關依據的是 Grok 自己的文件（`compat.claude.hooks`，也可用 `GROK_CLAUDE_HOOKS_ENABLED`）。plugin 的 hook 不在其中，仍會執行。
+
+### 檢查執行時不載入的項目
+
+有項目設為不載入時，查詢（見上文）會再依 Harness Relay 啟動它的方式問一次：Claude Code 用執行時的旗標與環境變數，subagent 也像執行時一樣拒絕（只有指示檔或記憶設為不載入時不會再啟動它：這兩項依環境變數判斷）；`codex app-server` 把 thread 的覆寫設定改用 `-c` 參數傳入（Codex 合併 inline table 的方式和 thread 的設定相同；用 0.167 驗證過）；Grok 用執行時的環境變數。CLI 自己會載入、但第二次回答裡沒有或回報為關閉的項目，會標示為 `leftOut`；CLI 自己就關掉的不會標示。Claude Code 與 Codex 沒有列出它們讀取的指示與記憶檔，所以這些檔案在第二次回答中，是依執行時的環境變數（Claude Code）或 Codex 回報的設定判斷。回答會記下詢問時不載入的項目（`nativeOff`）與第二次回答是否成功（`asRun`）；失敗時會有錯誤說明，而且不會標示任何項目；第二次回答缺少的清單會在錯誤中列出，不會標示。回答之後若開關有變更，介面會提示重新查詢，下一次查詢也不會沿用舊的回答。
 
 ## 工作區與檔案修改
 

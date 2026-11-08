@@ -164,11 +164,13 @@ describe('settings', () => {
     expect((await provider({ defaultEffort: 'way too much effort' })).status).toBe(400);
     expect((await provider({ defaultModel: 'sonnet', defaultEffort: 'low' })).status).toBe(200);
     expect((await provider({ nativeOff: 'skills' })).status).toBe(400);
-    expect((await provider({ nativeOff: ['skills', 'hooks'] })).status).toBe(400);
+    expect((await provider({ nativeOff: ['skills', 'rules'] })).status).toBe(400);
     const off = await provider({ nativeOff: ['mcp', 'skills'] });
     expect(off.status).toBe(200);
     const view = (await off.json()) as SettingsView;
     expect(view.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['skills', 'mcp']);
+    const more = (await (await provider({ nativeOff: ['plugins', 'hooks', 'agents'] })).json()) as SettingsView;
+    expect(more.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
   });
 
   it('creates a missing default directory only when asked to', async () => {

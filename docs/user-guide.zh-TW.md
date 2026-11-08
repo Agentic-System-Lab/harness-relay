@@ -69,13 +69,13 @@ Claude Code 與 Grok 的金鑰由 Harness Relay 存放在系統的金鑰儲存�
 
 ### 各 CLI 自己載入的內容
 
-每個 CLI 的卡片都有 **這個 CLI 自己載入的 skill、MCP 與記憶**：展開後按 **查詢**，就能看這個 CLI 在預設工作目錄下自己的設定，和工具庫分開，包括它的 skill（附來源）、MCP 伺服器（CLI 有回報時附狀態），以及它會讀的指示和記憶檔。Harness Relay 查詢時不會送 prompt，所以不會呼叫模型；Claude Code 回答時會執行你設定的 hooks，並連線它的 MCP 伺服器。展開這一區不會查詢，所以你可以先改下方的開關，不必啟動 CLI。Claude Code 和 Codex 沒有提供指示檔清單，所以列出的是依它們的讀檔規則找到、目前存在的檔案。點檔案或有路徑的 skill 就能閱讀內容（Markdown 可切換預覽與原始內容）。
+每個 CLI 的卡片都有 **這個 CLI 自己載入的 skill、MCP、hook 與記憶等**：展開後按 **查詢**，就能看這個 CLI 在預設工作目錄下自己的設定，和工具庫分開，包括它的 skill（附來源）、MCP 伺服器（CLI 有回報時附狀態）、hook（何時執行、在哪裡設定，不顯示指令）、subagent（Claude Code 與 Grok）、plugin，以及它會讀的指示和記憶檔。Harness Relay 查詢時不會送 prompt，所以不會呼叫模型；Claude Code 回答時會執行你設定的 hooks，並連線它的 MCP 伺服器。展開這一區不會查詢，所以你可以先改下方的開關，不必啟動 CLI。Claude Code 和 Codex 沒有提供指示檔清單，所以列出的是依它們的讀檔規則找到、目前存在的檔案。點檔案或有路徑的 skill 就能閱讀內容（Markdown 可切換預覽與原始內容）。
 
-這一區最上方的 **在 Harness Relay 中不載入**，可以在 Harness Relay 啟動這個 CLI 的每一次執行中（成員的回合、首席 agent、把對話分類到群組）關掉它自己的 **Skill**、**MCP 伺服器**、**指示檔** 或 **記憶**。每個開關一改就會儲存，這一區的標題會顯示關掉幾項。CLI 自己的設定檔不會被修改，所以在終端機使用它不受影響，工具庫的項目也照常提供；下方的清單仍然列出 CLI 自己載入的內容。各開關能關到哪裡，依 CLI 而定：
+這一區最上方的 **在 Harness Relay 中不載入**，可以在 Harness Relay 啟動這個 CLI 的每一次執行中（成員的回合、首席 agent、把對話分類到群組）關掉它自己的 **Skill**、**MCP 伺服器**、**指示檔**、**記憶**、**Hook**、**Subagent** 或 **Plugin**。每個開關一改就會儲存，這一區的標題會顯示關掉幾項。CLI 自己的設定檔不會被修改，所以在終端機使用它不受影響，工具庫的項目也照常提供。有項目設為不載入時，**查詢** 也會依 Harness Relay 啟動它的方式再問一次，把那時不會載入的項目標示為 **不載入**，讓你看到執行時實際拿到什麼；查詢後若改了開關，請重新查詢。各開關能關到哪裡，依 CLI 而定：
 
-- **Claude Code**：四項都可以。Skill 也包括 plugin 指令與自訂指令；指示檔是各層的 `CLAUDE.md` 與規則檔；記憶是它的自動記憶。
-- **Codex**：MCP 開關也會關掉 ChatGPT apps。指示檔是專案裡的 `AGENTS.md`：Codex 仍會讀它自己的 `~/.codex/AGENTS.md`。Codex 會沿用對話開始時載入的 skill 清單、指示檔與記憶，所以這三項的變更從新對話開始生效；MCP 伺服器的變更下一回合就生效。Codex 無法列出它的 MCP 伺服器時，這次執行會失敗並說明原因，而不是照常執行它們。
-- **Grok**：skill 與 MCP 伺服器只有從 Claude Code、Cursor 載入的（Grok 自己的要在 `~/.grok/config.toml` 關閉）。Grok 沒有指示檔的開關。
+- **Claude Code**：七項都可以。Skill 也包括 plugin 指令與自訂指令；指示檔是各層的 `CLAUDE.md` 與規則檔；記憶是它的自動記憶；hook 是設定檔與 plugin 裡的 hook；subagent 是你自己的與 plugin 的（內建的照常提供，除非你或專案有同名的 subagent 取代了它：這時那個名稱在執行中就沒有 subagent）；plugin 會關掉每個已安裝的 plugin，連同它的 skill、subagent、hook 與 MCP 伺服器。Claude Code 無法列出它的 plugin，或無法不載入它的 subagent 時（舊版 Claude Code），這次執行會失敗並說明原因，而不是照常載入。
+- **Codex**：MCP 開關也會關掉 ChatGPT apps。指示檔是專案裡的 `AGENTS.md`：Codex 仍會讀它自己的 `~/.codex/AGENTS.md`。Hook 也包括 plugin 的 hook；plugin 會關掉它的 plugin，連同它們的 skill、MCP 伺服器與 hook。設為不載入的 hook 或 plugin 若仍被 Codex 載入（不認得這項設定的舊版 Codex），這次執行會失敗並說明原因。Codex 沒有只略過它自己 subagent 的開關。Codex 會沿用對話開始時載入的 skill 清單（包括 plugin 帶來的 skill）、指示檔與記憶，所以這些變更從新對話開始生效；MCP 伺服器與 hook 的變更下一回合就生效。Codex 無法列出它的 MCP 伺服器時，這次執行會失敗並說明原因，而不是照常執行它們。
+- **Grok**：skill、MCP 伺服器與 hook 只有從 Claude Code、Cursor 匯入的（包括專案的 `.claude/skills` 與 Claude Code plugin 的 skill，但不包括它們的 hook）。Grok 自己找到的 skill 照常載入，包括 `~/.agents/skills`、`~/.grok/skills`、專案的 `.grok/skills` 與 `.agents/skills`，以及內建的：要關掉，請在 `~/.grok/config.toml` 的 `skills.disabled` 列出名稱，Grok 自己的 MCP 伺服器也在那裡關閉。這個檔案是 Grok 的全域設定：在那裡的變更也會影響你在終端機使用 Grok，Harness Relay 不會修改它。指示檔與它的 plugin 沒有單次執行的開關（plugin 要在 `~/.grok/config.toml` 的 `plugins.disabled` 關閉），也沒有只略過它自己 subagent 的開關（它的 subagent 開關會連內建的一起關掉）。
 
 Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks。資料夾尚未信任時，Grok 卡片會標示出來；團隊裡有 Grok 成員時，團隊編輯器的工作目錄下方也會提示。在這種資料夾開始一個有 Grok 成員的新對話時，會先問你：**信任並開始**、**不信任，直接開始**或 **取消**。Grok 是以整個專案決定信任：工作目錄在 git 儲存庫裡時，被信任的是儲存庫的根目錄（解析連結後），確認時也會這樣說明。按 **信任這個資料夾** 會先請你確認這個資料夾，再用和 `grok --trust` 相同的方式記錄（在 `~/.grok/trusted_folders.toml`，或 `$GROK_HOME`）。請只信任你信任的專案：信任後 Grok 也會執行專案的 hooks。工具庫的項目不管有沒有信任都會提供給 Grok。**重新查詢** 會更新結果（結果保留一分鐘）。
 
