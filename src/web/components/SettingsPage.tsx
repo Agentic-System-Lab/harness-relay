@@ -299,8 +299,13 @@ function ProviderCard({
     );
   }, [provider, lang]);
 
+  // Pick up a login still running from before (the page was left or reloaded). A finished one's
+  // result was shown where it finished; coming back to the page starts clean.
   useEffect(() => {
-    api.getLogin(provider).then(setLogin, (e: Error) => setNote(e.message));
+    api.getLogin(provider).then(
+      (v) => setLogin(v?.state === 'running' ? v : null),
+      (e: Error) => setNote(e.message),
+    );
   }, [provider]);
 
   useEffect(() => {
