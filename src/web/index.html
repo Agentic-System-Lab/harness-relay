@@ -10,6 +10,13 @@
       rel="icon"
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='9' cy='16' r='6' fill='%23d97757'/><circle cx='23' cy='10' r='5' fill='%2310a37f'/><circle cx='23' cy='23' r='5' fill='%237c5cff'/></svg>"
     />
+    <!-- Added to a home screen or installed as an app: the manifest and icons in public/ (npm run icons).
+         The Apple title keeps the name when the tab title counts waiting approvals, e.g. "(1) …". -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Harness Relay" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#212121" media="(prefers-color-scheme: dark)" />
   </head>
   <body>
     <div id="root"></div>

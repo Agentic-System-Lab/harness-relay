@@ -102,6 +102,7 @@ agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**
 | `npm run typecheck` | 型別檢查伺服器、前端與測試 |
 | `npm test` | 執行測試（Vitest） |
 | `npm run site:preview` | 在 http://127.0.0.1:4180 預覽網站（`site/`） |
+| `npm run icons` | 重新畫出 `src/web/public/` 的主畫面圖示與 web app manifest |
 
 每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)是 [`site/`](site/) 裡的靜態頁面，由 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) 發佈到 GitHub Pages。
 

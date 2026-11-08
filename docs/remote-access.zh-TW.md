@@ -74,23 +74,23 @@ npm start
 
 ## 4. 加到主畫面
 
-把圖示放到主畫面，點一下就能打開聊天室。手機的 Tailscale 必須開著、而且連得到那台電腦，圖示才能用。
+把圖示（Harness Relay 的三個圓點）放到主畫面，點一下就能打開聊天室。手機的 Tailscale 必須開著、而且連得到那台電腦，圖示才能用。
 
 ### iPhone 與 iPad（Safari）
 
 1. 用 Safari 打開網址。
 2. 點 **分享**（看不到的話先點 **⋯**），再點 **加入主畫面**。可能要往下捲才看得到。
-3. 保持 **以網頁 App 開啟**（Open as Web App）為開啟，可以改名稱，然後點 **加入**。
+3. 如果有 **以網頁 App 開啟**（Open as Web App），保持開啟。可以改名稱，然後點 **加入**。
 
-在 iOS 與 iPadOS 26 以後，圖示會把 Harness Relay 當成網頁 App 打開：全螢幕，沒有 Safari 的網址列。較舊的版本則是在 Safari 裡打開。網頁 App 的儲存空間跟 Safari 分開，所以第一次在那裡打開時會再出現一次使用導覽，介面語言也會先跟著手機的語言設定。iOS 上的 Chrome 與 Edge，分享選單裡也有 **加入主畫面**。
+圖示會把 Harness Relay 當成網頁 App 打開：全螢幕，沒有 Safari 的網址列，在 App 切換器裡也是獨立的一個。網頁 App 的儲存空間跟 Safari 分開，所以第一次在那裡打開時會再出現一次使用導覽，介面語言也會先跟著手機的語言設定。iOS 上的 Chrome 與 Edge，分享選單裡也有 **加入主畫面**。
 
 ### Android（Chrome）
 
 1. 用 Chrome 打開網址。
-2. 點右上角的 **⋮**，再點 **加到主畫面**（Add to home screen）。較新版本的 Chrome 改叫 **安裝並建立捷徑**（Install and create shortcut）。
-3. Chrome 有提供 **安裝**（Install）就選它，否則選 **建立捷徑**（Create shortcut），再點 **新增**。也可以直接把圖示拖到想放的位置。
+2. 點右上角的 **⋮**，再點 **安裝應用程式**（Install app）。依 Chrome 版本不同，也可能叫 **加到主畫面**（Add to home screen）或 **安裝並建立捷徑**（Install and create shortcut）。
+3. 點 **安裝**（Install）。Chrome 也可能自己在頁面底部跳出安裝提示。
 
-圖示上有小 Chrome 標誌的捷徑，會在 Chrome 裡打開頁面。Samsung Internet 也有同樣的功能，在選單的 **新增頁面至 → 主螢幕**（Add page to → Home screen）。
+這樣安裝後，Harness Relay 會像獨立的 App 一樣打開，沒有 Chrome 的網址列，也會出現在你的應用程式清單裡。如果 Chrome 只提供 **建立捷徑**（Create shortcut），例如用 `http://` 網址打開時，這個捷徑會在 Chrome 裡打開頁面，圖示上會有小小的 Chrome 標誌。Samsung Internet 也有同樣的功能，在選單的 **新增頁面至 → 主螢幕**（Add page to → Home screen）。
 
 ## 讓它一直執行
 

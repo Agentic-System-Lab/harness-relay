@@ -60,6 +60,7 @@ src/
     hub.ts                 SSE 廣播
   web/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
+    public/                原封不動複製到建置結果：manifest.webmanifest 與主畫面圖示（npm run icons）
     chat.ts                ChatView 的純邏輯：串流是否重新連線、能否套用、團隊設定草稿
     sidebar.ts             側邊欄的純邏輯：各群組的對話、還沒確認的移動、收合群組的狀態
     files.ts               檔案瀏覽的純邏輯：路徑導覽列、篩選、程式語言、行數
@@ -83,6 +84,7 @@ test/                      Vitest 測試
 .github/workflows/ci.yml   CI：pull request 與推送到 main 時執行型別檢查、測試與建置
 .github/workflows/pages.yml  把 site/ 發佈到 GitHub Pages
 scripts/preview-site.ts    npm run site:preview：在本機以 Pages 的方式提供 site/
+scripts/app-icons.ts       npm run icons：畫出主畫面圖示，並寫出 web app manifest
 site/                      網站首頁（靜態 HTML，English + 繁體中文）；DESIGN-GUIDELINES.md 不會被發佈
 docs/                      文件（English + 繁體中文）
 data/                      執行時資料（relay.db），已列入 git ignore
@@ -100,6 +102,8 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 ```
 
 `npm run build` 會把頁面啟動時載入的函式庫放在各自的 chunk（`react`、`highlight`、`vendor`），讓瀏覽器在 app 更新後仍可沿用快取；Mermaid 仍是需要時才載入。啟動時載入的 chunk 超過 500 kB 時會發出警告（`vite.config.ts`）；Mermaid 延遲載入的 chunk 比這大，只在需要畫圖時才載入。
+
+web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App 顯示）的圖示，都在 `src/web/public/`。它們由 `npm run icons`（`scripts/app-icons.ts`）畫出，用的是跟 favicon 和 `Logo.tsx` 相同的三個圓，不需要影像處理函式庫；改了標誌、圖示尺寸或 manifest 之後，請重新執行並 commit 它寫出的檔案。
 
 `npm run dev` 會在每次檔案變更時重啟伺服器。重啟會中止正在執行的 agent 回合（訊息會標為已中斷），所以長回合執行中請避免修改伺服器檔案。
 
@@ -255,7 +259,8 @@ npx vitest test/store.test.ts
 - `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 的快照、worktree、套用、衝突、CRLF 與非 UTF-8 內容逐位元組套用、很長或特殊的檔案清單、保留的快照 ref、範圍太大的 repository）。
 - `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
-- `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。
+- `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）與 web app manifest（以 `application/manifest+json` 提供）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。
+- `test/app-icons.test.ts`：主畫面圖示與 web app manifest：每個圖示的像素都跟 `npm run icons` 畫出的相同（不透明的 RGB、尺寸正確），manifest 就是它寫出的那份且可以安裝（192 與 512 px 圖示、maskable 圖示、`standalone`），maskable 圖示的標誌落在所有啟動器都會保留的圓內，`index.html` 也有連到 manifest 與 Apple touch icon。
 - `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話、不存在的群組）與搜尋。也測試工具庫的路由（遮蔽的值、不合法的名稱、網址、CLI 與變數名稱、重複名稱、skill 與記憶、列出資料夾底下的 skill）、成員的工具例外設定、成員執行時拿到的項目，以及瀏覽檔案（列表、預覽、raw 只給圖片、資料夾外或 `.git` 的路徑、未知的資料夾）。也用假的服務測試查詢 CLI 自己載入的內容（只用預設工作目錄、重新查詢、依請求語言的問題說明、未知的 CLI、不接受 GET 或表單 POST），只能讀回報過的檔案（不會再問一次 CLI），以及透過真正的查詢與一個依 grok 1.0.77 方式決定信任的替身 `grok` 測試 Grok 的資料夾信任（不在儲存庫裡的資料夾、儲存庫子資料夾改為信任儲存庫根目錄、經由連結進入的資料夾信任實際路徑、和確認時不同的資料夾、Grok 不接受紀錄時還原或移除檔案、不存在的資料夾、不接受表單 POST）。也測試更新 CLI 設定時不載入的項目（只接受已知項目的清單）。
 - `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報。也測試簡報中的記憶與 skill 區塊：只有在使用者沒有關掉 CLI 自己的 skill 時，才會說它們照常可用。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。

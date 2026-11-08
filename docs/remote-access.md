@@ -74,23 +74,23 @@ Turn Tailscale on in the phone and open the address from step 1, for example `ht
 
 ## 4. Add it to the home screen
 
-An icon on the home screen opens the chat with one tap. It only works while Tailscale is on in the phone and the computer can be reached.
+An icon on the home screen, Harness Relay's three dots, opens the chat with one tap. It only works while Tailscale is on in the phone and the computer can be reached.
 
 ### iPhone and iPad (Safari)
 
 1. Open the address in Safari.
 2. Tap **Share** (if you don't see it, tap **⋯** first), then **Add to Home Screen**. You may have to scroll down the list.
-3. Keep **Open as Web App** on, change the name if you like, and tap **Add**.
+3. If you see **Open as Web App**, keep it on. Change the name if you like, and tap **Add**.
 
-On iOS and iPadOS 26 and later, the icon opens Harness Relay as a web app: full screen, without Safari's address bar. On earlier versions it opens the page in Safari. The web app keeps its own storage apart from Safari, so the guided tour opens once more there, and the language starts from your phone's setting. Chrome and Edge on iOS have **Add to Home Screen** in their share menu too.
+The icon opens Harness Relay as a web app: full screen, without Safari's address bar, with its own place in the app switcher. The web app keeps its own storage apart from Safari, so the guided tour opens once more there, and the language starts from your phone's setting. Chrome and Edge on iOS have **Add to Home Screen** in their share menu too.
 
 ### Android (Chrome)
 
 1. Open the address in Chrome.
-2. Tap **⋮** at the top right, then **Add to home screen**. In newer versions of Chrome it is called **Install and create shortcut**.
-3. Choose **Install** if Chrome offers it, otherwise **Create shortcut**, then tap **Add**. You can also drag the icon to where you want it.
+2. Tap **⋮** at the top right, then **Install app**. Depending on the version of Chrome it may be called **Add to home screen** or **Install and create shortcut**.
+3. Tap **Install**. Chrome may also offer it by itself, in a bar at the bottom of the page.
 
-A shortcut whose icon has a small Chrome logo opens the page in Chrome. Samsung Internet has the same under its menu: **Add page to → Home screen**.
+Installed this way, Harness Relay opens as its own app, without Chrome's address bar, and shows up with your other apps. If Chrome offers only **Create shortcut** (for example on an `http://` address), the shortcut opens the page in Chrome; you can tell it by the small Chrome logo on its icon. Samsung Internet has the same under its menu: **Add page to → Home screen**.
 
 ## Keep it running
 

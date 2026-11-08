@@ -18,7 +18,7 @@ Open **http://127.0.0.1:8787**. After a `git pull`, run `npm install` and `npm r
 
 The dots at the bottom of the sidebar show each agent's status: green = ready, orange = not signed in, red = CLI not found.
 
-To use Harness Relay from your phone, a tablet or another computer, share it with your tailnet through `tailscale serve` and add it to the phone's home screen: see [Use it from your phone (Tailscale)](remote-access.md).
+To use Harness Relay from your phone, a tablet or another computer, share it with your tailnet through `tailscale serve` and add it to the phone's home screen: see [Use it from your phone (Tailscale)](remote-access.md). On the computer, Chrome and Edge can also install it as an app (the install button in the address bar), and Safari on macOS can add it to the Dock (**File → Add to Dock**).
 
 ### Language and the guided tour
 
