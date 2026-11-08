@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { withLang } from '../src/server/i18n';
 import {
   NativeSetupService,
@@ -181,6 +181,25 @@ describe('NativeSetupService', () => {
     expect(await service.get('grok', root, true)).not.toBe(first);
     bin = join(root, 'another-cli');
     expect(await service.get('grok', root)).not.toBe(first);
+  });
+
+  it('gives the latest answer however old, asking the CLI only when there is none', async () => {
+    const bin = join(root, 'no-such-cli');
+    const service = new NativeSetupService({ bin: () => bin, env: () => process.env });
+    const now = vi.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(1_000_000);
+      const first = await service.latest('codex', root);
+      expect(first.provider).toBe('codex');
+      // An hour later, `get` asks again, `latest` (opening a reported file) does not.
+      now.mockReturnValue(1_000_000 + 3_600_000);
+      expect(await service.latest('codex', root)).toBe(first);
+      const fresh = await service.get('codex', root);
+      expect(fresh).not.toBe(first);
+      expect(await service.latest('codex', root)).toBe(fresh);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('puts problems into words in the language of each request, not when the answer is cached', () => {

@@ -56,7 +56,13 @@ export function NativeSetupPanel({ provider }: { provider: Provider }) {
         </div>
         {error && <p className="error-line">{error}</p>}
         {setup && provider === 'grok' && setup.folderTrusted !== undefined && (
-          <GrokTrustNote cwd={setup.cwd} trusted={setup.folderTrusted} onTrusted={() => load(true)} />
+          <GrokTrustNote
+            cwd={setup.cwd}
+            folder={setup.trustFolder}
+            above={setup.trustFolderAbove}
+            trusted={setup.folderTrusted}
+            onTrusted={() => load(true)}
+          />
         )}
         {setup?.errors.map((e, i) => (
           <p key={i} className="warn-line small">

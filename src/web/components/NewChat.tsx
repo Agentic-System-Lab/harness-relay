@@ -4,6 +4,7 @@ import {
   PROVIDER_LABEL,
   type AgentConfig,
   type Conversation,
+  type GrokFolderTrust,
   type LeadAgentSettings,
   type ProviderModels,
   type ProviderStatus,
@@ -76,7 +77,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [trustAsk, setTrustAsk] = useState<{ cwd: string; resolve: (a: GrokTrustAnswer) => void } | null>(null);
+  const [trustAsk, setTrustAsk] = useState<{ status: GrokFolderTrust; resolve: (a: GrokTrustAnswer) => void } | null>(null);
 
   const initialized = useRef(false);
 
@@ -127,7 +128,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
   };
 
   /** Asks whether Grok should trust the team's folder (the dialog below answers). */
-  const askTrust = (cwd: string) => new Promise<GrokTrustAnswer>((resolve) => setTrustAsk({ cwd, resolve }));
+  const askTrust = (status: GrokFolderTrust) => new Promise<GrokTrustAnswer>((resolve) => setTrustAsk({ status, resolve }));
 
   const start = async () => {
     setBusy(true);
@@ -139,9 +140,9 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
       if (asksGrokTrust(team)) {
         const status = await api.grokFolderTrust(team.settings.cwd).catch(() => undefined);
         if (status?.trusted === false) {
-          const answer = await askTrust(status.cwd);
+          const answer = await askTrust(status);
           if (answer === 'cancel') return;
-          if (answer === 'trust') await api.grokFolderTrust(status.cwd, true);
+          if (answer === 'trust') await api.grokFolderTrust(status.cwd, status.folder);
         }
       }
       const conv = await orCreateCwd(
@@ -264,7 +265,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
       </footer>
       {trustAsk && (
         <GrokTrustDialog
-          cwd={trustAsk.cwd}
+          status={trustAsk.status}
           onAnswer={(a) => {
             trustAsk.resolve(a);
             setTrustAsk(null);

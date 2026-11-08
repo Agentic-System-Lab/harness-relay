@@ -33,6 +33,10 @@ const en = (fn: () => unknown) => () => withLang('en', fn);
 const agent = (provider: AgentConfig['provider'], tools?: AgentConfig['tools']) => ({ provider, tools });
 const stored = (db: Database) =>
   JSON.parse((db.prepare("SELECT value FROM app_settings WHERE key = 'tool_library'").get() as { value: string }).value);
+/** A server's id, from the library's view. */
+const idOf = (lib: ToolLibrary, name: string) => lib.view().mcpServers.find((s) => s.name === name)!.id;
+/** A server's entry in the credential store: named after its id, so a rename keeps it. */
+const entry = (lib: ToolLibrary, name: string) => `mcp-${idOf(lib, name)}`;
 
 describe('parseFrontMatter', () => {
   it('reads plain, quoted and block values', () => {
@@ -114,7 +118,8 @@ describe('ToolLibrary', () => {
     });
     expect(view.secretStorage).toBe('keychain');
     expect(JSON.stringify(stored(db))).not.toContain('ghp_1234567890abcdef');
-    expect(JSON.parse(keyring.data.get('mcp-github')!)).toEqual({ env: { GITHUB_TOKEN: 'ghp_1234567890abcdef' }, headers: {} });
+    expect([...keyring.data.keys()]).toEqual([entry(lib, 'github')]);
+    expect(JSON.parse(keyring.data.get(entry(lib, 'github'))!)).toEqual({ env: { GITHUB_TOKEN: 'ghp_1234567890abcdef' }, headers: {} });
     // A restart reads the values back.
     expect(new ToolLibrary(db, keyring).forAgent(agent('claude')).mcpServers[0]!.env).toEqual({ GITHUB_TOKEN: 'ghp_1234567890abcdef' });
   });
@@ -123,13 +128,16 @@ describe('ToolLibrary', () => {
     const keyring = fakeKeyring();
     const lib = new ToolLibrary(db, keyring);
     lib.saveServer('api', { transport: 'http', url: 'https://x.test/mcp', headers: [{ name: 'Authorization', value: 'Bearer abc' }] });
+    const before = entry(lib, 'api');
     lib.saveServer('docs', {
       transport: 'http',
       url: 'https://x.test/mcp2',
       headers: [{ name: 'Authorization' }, { name: 'X-Extra', value: '1' }],
       previousName: 'api',
     });
-    expect(keyring.data.has('mcp-api')).toBe(false);
+    // The same entry: a rename does not touch the credential store's names.
+    expect([...keyring.data.keys()]).toEqual([before]);
+    expect(entry(lib, 'docs')).toBe(before);
     expect(lib.forAgent(agent('codex')).mcpServers).toEqual([
       {
         name: 'docs',
@@ -141,6 +149,22 @@ describe('ToolLibrary', () => {
         headers: { Authorization: 'Bearer abc', 'X-Extra': '1' },
       },
     ]);
+  });
+
+  it('keeps the values over a rename in letter case only, on a store whose names ignore case', () => {
+    // Like Windows Credential Manager: `mcp-github` and `mcp-GitHub` are one entry.
+    const data = new Map<string, string>();
+    const caseless: SecretStore = {
+      storage: 'keychain',
+      get: (name) => data.get(name.toLowerCase()) ?? null,
+      set: (name, value) => void data.set(name.toLowerCase(), value),
+      delete: (name) => void data.delete(name.toLowerCase()),
+    };
+    const lib = new ToolLibrary(db, caseless);
+    lib.saveServer('github', { transport: 'stdio', command: 'x', env: [{ name: 'TOKEN', value: 'ghp_secret' }] });
+    lib.saveServer('GitHub', { transport: 'stdio', command: 'x', env: [{ name: 'TOKEN' }], previousName: 'github' });
+    // After a restart, the values are read back from the store.
+    expect(new ToolLibrary(db, caseless).forAgent(agent('claude')).mcpServers).toMatchObject([{ name: 'GitHub', env: { TOKEN: 'ghp_secret' } }]);
   });
 
   it("keeps agents' exceptions when a server or a skill is renamed", () => {
@@ -175,33 +199,36 @@ describe('ToolLibrary', () => {
   });
 
   it('keeps secrets in the database without a credential store, and moves them once there is one', () => {
-    new ToolLibrary(db).saveServer('s', { transport: 'stdio', command: 'x', env: [{ name: 'K', value: 'secret-value' }] });
-    expect(stored(db).secrets).toEqual({ s: { env: { K: 'secret-value' }, headers: {} } });
+    const plain = new ToolLibrary(db);
+    plain.saveServer('s', { transport: 'stdio', command: 'x', env: [{ name: 'K', value: 'secret-value' }] });
+    const id = idOf(plain, 's');
+    expect(stored(db).secrets).toEqual({ [id]: { env: { K: 'secret-value' }, headers: {} } });
     const keyring = fakeKeyring();
     const lib = new ToolLibrary(db, keyring);
     expect(stored(db).secrets).toBeUndefined();
-    expect(keyring.data.get('mcp-s')).toContain('secret-value');
+    expect(keyring.data.get(`mcp-${id}`)).toContain('secret-value');
     expect(lib.forAgent(agent('grok')).mcpServers[0]!.env).toEqual({ K: 'secret-value' });
     lib.deleteServer('s');
-    expect(keyring.data.has('mcp-s')).toBe(false);
+    expect(keyring.data.size).toBe(0);
   });
 
   it('keeps values in the database when moving them to the credential store fails', () => {
     const plain = new ToolLibrary(db);
     plain.saveServer('a', { transport: 'stdio', command: 'x', env: [{ name: 'A', value: 'value-a' }] });
     plain.saveServer('b', { transport: 'stdio', command: 'x', env: [{ name: 'B', value: 'value-b' }] });
+    const [a, b] = [entry(plain, 'a'), idOf(plain, 'b')];
     const keyring = fakeKeyring();
     const refusing: SecretStore = {
       ...keyring,
       set: (name, value) => {
-        if (name === 'mcp-b') throw new Error('locked');
+        if (name === `mcp-${b}`) throw new Error('locked');
         keyring.set(name, value);
       },
     };
     const lib = new ToolLibrary(db, refusing);
     lib.update({ memory: { all: 'any later save' } });
-    expect(stored(db).secrets).toEqual({ b: { env: { B: 'value-b' }, headers: {} } });
-    expect(keyring.data.get('mcp-a')).toContain('value-a');
+    expect(stored(db).secrets).toEqual({ [b]: { env: { B: 'value-b' }, headers: {} } });
+    expect(keyring.data.get(a)).toContain('value-a');
     // The next start tries again and finds both.
     const again = new ToolLibrary(db, keyring);
     expect(again.forAgent(agent('claude')).mcpServers.map((s) => s.env)).toEqual([{ A: 'value-a' }, { B: 'value-b' }]);
@@ -210,17 +237,19 @@ describe('ToolLibrary', () => {
 
   it('never saves values it could not read over the real ones', () => {
     const keyring = fakeKeyring();
-    new ToolLibrary(db, keyring).saveServer('s', { transport: 'stdio', command: 'x', env: [{ name: 'K', value: 'real' }] });
+    const first = new ToolLibrary(db, keyring);
+    first.saveServer('s', { transport: 'stdio', command: 'x', env: [{ name: 'K', value: 'real' }] });
+    const name = entry(first, 's');
     const locked: SecretStore = { ...keyring, get: () => { throw new Error('locked'); } };
     const lib = new ToolLibrary(db, locked);
     expect(en(() => lib.saveServer('s', { transport: 'stdio', command: 'y', env: [{ name: 'K' }], previousName: 's' }))).toThrow(
       /could not be read/,
     );
-    expect(keyring.data.get('mcp-s')).toContain('real');
+    expect(keyring.data.get(name)).toContain('real');
     // Agents do not get a server started without its token.
     expect(lib.forAgent(agent('claude')).mcpServers).toEqual([]);
     lib.saveServer('s', { transport: 'stdio', command: 'y', env: [{ name: 'K', value: 'typed again' }], previousName: 's' });
-    expect(keyring.data.get('mcp-s')).toContain('typed again');
+    expect(keyring.data.get(name)).toContain('typed again');
   });
 
   it('reads values again once the credential store opens', () => {

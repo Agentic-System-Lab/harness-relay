@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, realpathSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { Readable } from 'node:stream';
@@ -17,7 +17,7 @@ import {
 } from '../shared/types';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileRoots, listFolder, mediaInRoot, previewFile, readPreview } from './files';
-import { trustGrokFolder } from './grokTrust';
+import { restoreGrokTrust, trustGrokFolder } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, mediaRoots, mediaType, resolveMedia } from './media';
@@ -57,6 +57,15 @@ export interface AppDeps {
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
 const VOICE_MAX_BASE64 = Math.ceil(((VOICE_MAX_SECONDS + 10) * 32_000 * 4) / 3) + 1024;
+
+/** A folder's real path (links resolved), as Grok sees it; the path itself when it cannot be resolved. */
+function realDir(dir: string): string {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return dir;
+  }
+}
 
 /** The HTTP API (`/api/*`). Static files and the listening server are set up in `index.ts`. */
 export function createApp({
@@ -194,15 +203,25 @@ export function createApp({
   // `trust: true` — sent after the user confirmed — record that it does, as `grok --trust` would.
   // A POST with a JSON body, so no other site can send it.
   app.post('/api/providers/grok/folder-trust', async (c) => {
-    const b = await body<{ cwd?: unknown; trust?: unknown }>(c);
+    const b = await body<{ cwd?: unknown; trust?: unknown; folder?: unknown }>(c);
     const cwd = validDirectory(typeof b.cwd === 'string' && b.cwd.trim() ? b.cwd : settings.defaultCwd);
-    if (b.trust === true) {
-      trustGrokFolder(cwd, settings.env('grok'));
-      const after = await native.get('grok', cwd, true);
-      if (after.folderTrusted === false) throw new HttpError(409, t().grokTrustNotTaken(cwd));
-      return c.json({ cwd, trusted: after.folderTrusted });
+    const trust = b.trust === true;
+    // Trusting asks Grok again, so the folder recorded is the one Grok decides trust for right now.
+    const before = await native.get('grok', cwd, trust);
+    const folder = before.trustFolder ?? realDir(cwd);
+    const above = before.trustFolderAbove === true;
+    if (!trust || before.folderTrusted === true) return c.json({ cwd, folder, above, trusted: before.folderTrusted });
+    // The user confirmed trust in the folder they were shown; if Grok now names another, ask again.
+    if (typeof b.folder === 'string' && b.folder !== folder) throw new HttpError(409, t().grokTrustFolderChanged(folder));
+    const env = settings.env('grok');
+    const previous = trustGrokFolder(folder, env);
+    const after = await native.get('grok', cwd, true);
+    if (after.folderTrusted === false) {
+      // Grok did not take it: leave no entry behind that does nothing.
+      restoreGrokTrust(previous, env);
+      throw new HttpError(409, t().grokTrustNotTaken(folder));
     }
-    return c.json({ cwd, trusted: (await native.get('grok', cwd)).folderTrusted });
+    return c.json({ cwd, folder, above, trusted: after.folderTrusted });
   });
 
   // One of the files the CLI reported (an instruction or memory file, a skill's SKILL.md), to read
@@ -211,7 +230,8 @@ export function createApp({
     const p = provider(c);
     const b = await body<{ path?: unknown }>(c);
     const path = typeof b.path === 'string' ? b.path : '';
-    const probe = await native.get(p, validDirectory(settings.defaultCwd));
+    // Checked against the answer the UI showed, however old: opening a file must not start the CLI.
+    const probe = await native.latest(p, validDirectory(settings.defaultCwd));
     if (!path || !listedFile(probe, path)) throw new HttpError(404, t().nativeFileNotListed);
     return c.json(readPreview(path, path, t().nativeFileNotListed));
   });

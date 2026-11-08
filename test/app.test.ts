@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -590,11 +590,23 @@ describe("what each CLI loads by itself", () => {
   it('asks the CLI for the default working directory, only from the app itself', async () => {
     const asked: [string, string, boolean][] = [];
     const reported: { path: string; kind: 'instructions' }[] = [];
+    const answer = (provider: string, cwd: string) => ({
+      provider,
+      cwd,
+      skills: [],
+      mcpServers: [],
+      memory: [...reported],
+      memoryFromFiles: true,
+      problems: [{ kind: 'timeout' }],
+      checkedAt: 1,
+    });
     const native = {
       get: async (provider: string, cwd: string, refresh = false) => {
         asked.push([provider, cwd, refresh]);
-        return { provider, cwd, skills: [], mcpServers: [], memory: [...reported], memoryFromFiles: true, problems: [{ kind: 'timeout' }], checkedAt: 1 };
+        return answer(provider, cwd);
       },
+      // Opening a reported file checks the latest answer and does not start the CLI.
+      latest: async (provider: string, cwd: string) => answer(provider, cwd),
     } as unknown as InstanceType<typeof NativeSetupService>;
     const db = openDatabase(':memory:');
     const settings = new SettingsStore(db);
@@ -634,6 +646,7 @@ describe("what each CLI loads by itself", () => {
     }
     rmSync(notes);
     expect((await call('/api/providers/claude/native/file', { path: notes })).status).toBe(404);
+    expect(asked).toHaveLength(2);
 
     // Not a GET, and not a form post: a page elsewhere cannot set it off.
     expect((await local.request('/api/providers/claude/native', { headers: HOST })).status).toBe(404);
@@ -642,38 +655,113 @@ describe("what each CLI loads by itself", () => {
 });
 
 describe("Grok's folder trust", () => {
-  it('says whether Grok trusts a folder, and trusts it when asked', async () => {
+  /*
+   * A stand-in for `grok inspect --json` that keys trust the way grok 1.0.77 does: on the repository
+   * root (reported with a trailing `/`), else on the folder it runs in, links resolved either way.
+   * With FAKE_GROK_REFUSE set it reports every folder untrusted, as an organisation policy would.
+   */
+  const FAKE_GROK = `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const cwd = process.cwd();
+let root;
+for (let d = cwd; ; d = path.dirname(d)) {
+  if (fs.existsSync(path.join(d, '.git'))) { root = d; break; }
+  if (path.dirname(d) === d) break;
+}
+let store = '';
+try { store = fs.readFileSync(path.join(process.env.GROK_HOME, 'trusted_folders.toml'), 'utf8'); } catch {}
+const trusted = !process.env.FAKE_GROK_REFUSE && store.includes('[folders.' + JSON.stringify(root || cwd) + ']\\ntrusted = true');
+process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null, projectTrusted: trusted }));
+`;
+
+  it('trusts the folder Grok decides trust for: the repository root, links resolved', async () => {
     const home = join(root, `grok-home-${++n}`);
-    const before = process.env.GROK_HOME;
+    const storeFile = join(home, 'trusted_folders.toml');
+    const fakeGrok = join(root, `fake-grok-${n}`);
+    writeFileSync(fakeGrok, FAKE_GROK, { mode: 0o755 });
+    const repo = join(root, `repo-${n}`);
+    const sub = join(repo, 'packages', 'app');
+    mkdirSync(join(repo, '.git'), { recursive: true });
+    mkdirSync(sub, { recursive: true });
+    const link = join(root, `link-${n}`);
+    symlinkSync(project, link);
+    const saved = { home: process.env.GROK_HOME, refuse: process.env.FAKE_GROK_REFUSE };
     process.env.GROK_HOME = home;
-    // Grok's own answer: trusted once the store names the folder.
-    const native = {
-      get: async (_provider: string, cwd: string) => {
-        let store = '';
-        try {
-          store = readFileSync(join(home, 'trusted_folders.toml'), 'utf8');
-        } catch {
-          /* none yet */
-        }
-        return { provider: 'grok', cwd, skills: [], mcpServers: [], memory: [], memoryFromFiles: false, problems: [], checkedAt: 1, folderTrusted: store.includes(`"${cwd}"`) };
-      },
-    } as unknown as InstanceType<typeof NativeSetupService>;
+    delete process.env.FAKE_GROK_REFUSE;
     const db = openDatabase(':memory:');
     const settings = new SettingsStore(db);
     settings.setDefaultCwd(project);
     const s = new Store(db);
     const hub = new Hub();
+    // The real probe, running the stand-in.
+    const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
     const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
-    const call = (body: unknown) => local.request('/api/providers/grok/folder-trust', json('POST', body));
+    const call = (body: unknown) => local.request('/api/providers/grok/folder-trust', json('POST', body, { 'x-relay-lang': 'en' }));
     try {
-      expect(await (await call({})).json()).toEqual({ cwd: project, trusted: false });
-      expect(await (await call({ cwd: project, trust: true })).json()).toEqual({ cwd: project, trusted: true });
-      expect(readFileSync(join(home, 'trusted_folders.toml'), 'utf8')).toContain(`[folders."${project}"]`);
+      // A folder outside a repository: trust is decided for that folder.
+      expect(await (await call({})).json()).toEqual({ cwd: project, folder: project, above: false, trusted: false });
+
+      // A repository's subfolder: the repository root is the one trusted, and the answer says it is above.
+      expect(await (await call({ cwd: sub })).json()).toEqual({ cwd: sub, folder: repo, above: true, trusted: false });
+      // Trusting a folder other than the one the user confirmed is refused, and nothing is written.
+      const wrong = await call({ cwd: sub, trust: true, folder: sub });
+      expect(wrong.status).toBe(409);
+      expect((await wrong.json()).error).toContain(repo);
+      expect(existsSync(storeFile)).toBe(false);
+      expect(await (await call({ cwd: sub, trust: true, folder: repo })).json()).toEqual({ cwd: sub, folder: repo, above: true, trusted: true });
+      const afterRepo = readFileSync(storeFile, 'utf8');
+      expect(afterRepo).toContain(`[folders."${repo}"]`);
+      expect(afterRepo).not.toContain(sub);
+
+      // A folder reached through a link: its real path is the one trusted.
+      expect(await (await call({ cwd: link })).json()).toEqual({ cwd: link, folder: project, above: false, trusted: false });
+
+      // Grok does not take the entry (a policy): the store is put back as it was, byte for byte.
+      process.env.FAKE_GROK_REFUSE = '1';
+      const refused = await call({ cwd: link, trust: true, folder: project });
+      expect(refused.status).toBe(409);
+      expect((await refused.json()).error).toMatch(/undone/);
+      expect(readFileSync(storeFile, 'utf8')).toBe(afterRepo);
+      delete process.env.FAKE_GROK_REFUSE;
+
+      expect(await (await call({ cwd: link, trust: true, folder: project })).json()).toEqual({ cwd: link, folder: project, above: false, trusted: true });
+      expect(readFileSync(storeFile, 'utf8')).toContain(`[folders."${project}"]`);
+      expect(readFileSync(storeFile, 'utf8')).not.toContain(link);
+
       expect((await call({ cwd: join(root, 'missing') })).status).toBe(404);
       expect((await local.request('/api/providers/grok/folder-trust', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
     } finally {
-      if (before === undefined) delete process.env.GROK_HOME;
-      else process.env.GROK_HOME = before;
+      if (saved.home === undefined) delete process.env.GROK_HOME;
+      else process.env.GROK_HOME = saved.home;
+      if (saved.refuse === undefined) delete process.env.FAKE_GROK_REFUSE;
+      else process.env.FAKE_GROK_REFUSE = saved.refuse;
+    }
+  });
+
+  it('removes the store again when there was none and Grok does not take the entry', async () => {
+    const home = join(root, `grok-home-${++n}`);
+    const fakeGrok = join(root, `fake-grok-${n}`);
+    writeFileSync(fakeGrok, FAKE_GROK, { mode: 0o755 });
+    const saved = { home: process.env.GROK_HOME, refuse: process.env.FAKE_GROK_REFUSE };
+    process.env.GROK_HOME = home;
+    process.env.FAKE_GROK_REFUSE = '1';
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    settings.setDefaultCwd(project);
+    const s = new Store(db);
+    const hub = new Hub();
+    const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
+    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    try {
+      const res = await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }));
+      expect(res.status).toBe(409);
+      expect(existsSync(join(home, 'trusted_folders.toml'))).toBe(false);
+    } finally {
+      if (saved.home === undefined) delete process.env.GROK_HOME;
+      else process.env.GROK_HOME = saved.home;
+      if (saved.refuse === undefined) delete process.env.FAKE_GROK_REFUSE;
+      else process.env.FAKE_GROK_REFUSE = saved.refuse;
     }
   });
 });

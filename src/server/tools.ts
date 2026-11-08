@@ -35,6 +35,8 @@ import type { SecretStore } from './secrets';
  *
  * The values of an MCP server's environment variables and headers are secrets (tokens): they go to
  * the OS credential store when there is one, like API keys, and the UI only ever sees them masked.
+ * They are kept by the server's id, not its name, so a rename never touches them (a store with
+ * case-insensitive names, like Windows', would otherwise see `github` → `GitHub` as one entry).
  */
 
 interface StoredServer {
@@ -60,7 +62,7 @@ interface Stored {
   mcpServers: StoredServer[];
   skills: { path: string; providers: Provider[] }[];
   memory: Record<MemoryScope, string>;
-  /** Without a credential store: the secret values, by server name. */
+  /** Without a credential store: the secret values, by server id. */
   secrets?: Record<string, Secrets>;
 }
 
@@ -82,7 +84,8 @@ export interface AgentTools {
 }
 
 const SETTINGS_KEY = 'tool_library';
-const secretName = (server: string) => `mcp-${server}`;
+/** A server's entry in the credential store, named after its id. */
+const secretName = (serverId: string) => `mcp-${serverId}`;
 const SKILL_FILE = 'SKILL.md';
 const MAX_DESCRIPTION = 1024;
 
@@ -204,6 +207,7 @@ function readSkill(dir: string): { name: string; description: string } | undefin
 
 export class ToolLibrary {
   private data: Stored = { mcpServers: [], skills: [], memory: emptyMemory() };
+  /** The secret values, by server id. */
   private secrets = new Map<string, Secrets>();
 
   constructor(
@@ -238,40 +242,40 @@ export class ToolLibrary {
     }
     let moved = false;
     for (const s of this.data.mcpServers) {
-      let secrets: Secrets | undefined = this.data.secrets?.[s.name];
+      let secrets: Secrets | undefined = this.data.secrets?.[s.id];
       if (keyring && secrets) {
         // Saved while there was no credential store: move the values there, or keep them where they are.
         try {
-          this.writeSecrets(s.name, secrets);
+          this.writeSecrets(s.id, secrets);
           moved = true;
         } catch (err) {
-          this.leftInDb.add(s.name);
+          this.leftInDb.add(s.id);
           console.warn(`[tools] could not move the values of MCP server ${s.name} to the credential store: ${(err as Error).message}`);
         }
       } else if (keyring) {
         try {
-          const raw = keyring.get(secretName(s.name));
+          const raw = keyring.get(secretName(s.id));
           if (raw) secrets = JSON.parse(raw) as Secrets;
         } catch (err) {
-          this.unreadable.add(s.name);
+          this.unreadable.add(s.id);
           console.warn(`[tools] could not read the values of MCP server ${s.name}: ${(err as Error).message}`);
         }
       }
-      this.secrets.set(s.name, { env: secrets?.env ?? {}, headers: secrets?.headers ?? {} });
+      this.secrets.set(s.id, { env: secrets?.env ?? {}, headers: secrets?.headers ?? {} });
     }
     delete this.data.secrets;
     if (moved) this.save();
   }
 
-  /** With a credential store: servers whose values are still in the database because moving them failed. */
+  /** With a credential store: servers (ids) whose values are still in the database because moving them failed. */
   private leftInDb = new Set<string>();
-  /** Servers whose values could not be read from the credential store (it may be locked). */
+  /** Servers (ids) whose values could not be read from the credential store (it may be locked). */
   private unreadable = new Set<string>();
 
   private save(): void {
     const stored: Stored = { mcpServers: this.data.mcpServers, skills: this.data.skills, memory: this.data.memory };
     const inDb = this.keyring ? [...this.leftInDb] : [...this.secrets.keys()];
-    if (inDb.length) stored.secrets = Object.fromEntries(inDb.map((name) => [name, this.secrets.get(name)!]));
+    if (inDb.length) stored.secrets = Object.fromEntries(inDb.map((id) => [id, this.secrets.get(id)!]));
     this.db
       .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run(SETTINGS_KEY, JSON.stringify(stored));
@@ -281,24 +285,24 @@ export class ToolLibrary {
     return this.keyring?.storage ?? 'database';
   }
 
-  private writeSecrets(name: string, secrets: Secrets): void {
+  private writeSecrets(id: string, secrets: Secrets): void {
     if (!this.keyring) return;
     const empty = !Object.keys(secrets.env).length && !Object.keys(secrets.headers).length;
     try {
-      if (empty) this.keyring.delete(secretName(name));
-      else this.keyring.set(secretName(name), JSON.stringify(secrets));
+      if (empty) this.keyring.delete(secretName(id));
+      else this.keyring.set(secretName(id), JSON.stringify(secrets));
     } catch (err) {
       if (empty) return; // nothing was there
       throw new Error(t().secretsFailed((err as Error).message));
     }
   }
 
-  private deleteSecrets(name: string): void {
-    this.secrets.delete(name);
-    this.leftInDb.delete(name);
-    this.unreadable.delete(name);
+  private deleteSecrets(id: string): void {
+    this.secrets.delete(id);
+    this.leftInDb.delete(id);
+    this.unreadable.delete(id);
     try {
-      this.keyring?.delete(secretName(name));
+      this.keyring?.delete(secretName(id));
     } catch {
       /* nothing stored */
     }
@@ -309,7 +313,7 @@ export class ToolLibrary {
       names.map((name) => ({ name, masked: mask(values[name] ?? '') }));
     return {
       mcpServers: this.data.mcpServers.map<McpServerView>((s) => {
-        const secrets = this.secrets.get(s.name) ?? { env: {}, headers: {} };
+        const secrets = this.secrets.get(s.id) ?? { env: {}, headers: {} };
         return {
           id: s.id,
           name: s.name,
@@ -345,17 +349,18 @@ export class ToolLibrary {
     }
     if (index < 0 && servers.length >= TOOL_LIMITS.maxMcpServers) throw new HttpError(400, t().tooManyMcp(TOOL_LIMITS.maxMcpServers));
 
-    const old = (prev !== undefined && this.secrets.get(prev)) || { env: {}, headers: {} };
+    const id = index < 0 ? randomUUID().replace(/-/g, '').slice(0, 12) : servers[index]!.id;
+    const old = (index >= 0 && this.secrets.get(id)) || { env: {}, headers: {} };
     const http = u.transport === 'http';
     const vars = (http ? u.headers : u.env) ?? [];
     // Values that could not be read cannot be kept: they would be saved empty over the real ones.
-    if (prev !== undefined && this.unreadable.has(prev) && vars.some((v) => v.value === undefined)) {
-      throw new HttpError(409, t().secretsUnreadable(prev));
+    if (index >= 0 && this.unreadable.has(id) && vars.some((v) => v.value === undefined)) {
+      throw new HttpError(409, t().secretsUnreadable(servers[index]!.name));
     }
     const pick = (from: Record<string, string>) => Object.fromEntries(vars.map((v) => [v.name, v.value ?? from[v.name] ?? '']));
     const secrets: Secrets = { env: http ? {} : pick(old.env), headers: http ? pick(old.headers) : {} };
     const server: StoredServer = {
-      id: index < 0 ? randomUUID().replace(/-/g, '').slice(0, 12) : servers[index]!.id,
+      id,
       name,
       transport: u.transport,
       command: http ? '' : (u.command ?? ''),
@@ -366,11 +371,11 @@ export class ToolLibrary {
       providers: u.providers ?? [...PROVIDERS],
     };
 
-    this.writeSecrets(name, secrets); // first: when the credential store fails, nothing changes
-    if (prev !== undefined && prev !== name) this.deleteSecrets(prev);
-    this.secrets.set(name, secrets);
-    this.leftInDb.delete(name);
-    this.unreadable.delete(name);
+    // First: when the credential store fails, nothing changes. A rename keeps the same entry.
+    this.writeSecrets(id, secrets);
+    this.secrets.set(id, secrets);
+    this.leftInDb.delete(id);
+    this.unreadable.delete(id);
     if (index < 0) servers.push(server);
     else servers[index] = server;
     this.save();
@@ -380,8 +385,8 @@ export class ToolLibrary {
   deleteServer(name: string): ToolLibraryView {
     const index = this.data.mcpServers.findIndex((s) => s.name === name);
     if (index < 0) throw new HttpError(404, t().mcpNotFound(name));
-    this.data.mcpServers.splice(index, 1);
-    this.deleteSecrets(name);
+    const [server] = this.data.mcpServers.splice(index, 1);
+    this.deleteSecrets(server!.id);
     this.save();
     return this.view();
   }
@@ -435,12 +440,12 @@ export class ToolLibrary {
   /** Tries again to read values the credential store would not give at startup (it may be unlocked now). */
   private readAgain(): void {
     if (!this.keyring) return;
-    for (const name of [...this.unreadable]) {
+    for (const id of [...this.unreadable]) {
       try {
-        const raw = this.keyring.get(secretName(name));
+        const raw = this.keyring.get(secretName(id));
         const secrets = raw ? (JSON.parse(raw) as Partial<Secrets>) : {};
-        this.secrets.set(name, { env: secrets.env ?? {}, headers: secrets.headers ?? {} });
-        this.unreadable.delete(name);
+        this.secrets.set(id, { env: secrets.env ?? {}, headers: secrets.headers ?? {} });
+        this.unreadable.delete(id);
       } catch {
         /* still locked */
       }
@@ -455,9 +460,9 @@ export class ToolLibrary {
     this.readAgain();
     const on = (key: string, providers: Provider[]) => agentHasTool(agent, key, providers.includes(agent.provider));
     const mcpServers = this.data.mcpServers
-      .filter((s) => !this.unreadable.has(s.name) && on(toolKey('mcp', s.id), s.providers))
+      .filter((s) => !this.unreadable.has(s.id) && on(toolKey('mcp', s.id), s.providers))
       .map<McpServerSpec>((s) => {
-        const secrets = this.secrets.get(s.name) ?? { env: {}, headers: {} };
+        const secrets = this.secrets.get(s.id) ?? { env: {}, headers: {} };
         return {
           name: s.name,
           transport: s.transport,

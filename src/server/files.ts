@@ -36,7 +36,13 @@ function within(root: string, path: string): string | undefined {
   return rel.split(sep).join('/');
 }
 
-const hidden = (rel: string) => rel.split('/').includes('.git');
+/**
+ * Whether a name is `.git`, in any letter case: on a case-insensitive filesystem (macOS, Windows)
+ * `.GIT/config` opens `.git/config`, and `realpathSync` keeps the case it was asked with.
+ */
+const isGit = (name: string) => name.toLowerCase() === '.git';
+
+const hidden = (rel: string) => rel.split('/').some(isGit);
 
 /** A path as the client asked for it, tidied up ('' = the root); a link in it is not followed here. */
 function askedPath(rel: string): string {
@@ -79,7 +85,7 @@ export function listFolder(root: string, rel: string): { path: string; entries: 
   const realRoot = realpathSync(root);
   // Sort the names first (a link to a folder counts as a file here), so a cut keeps the first ones.
   const all = readdirSync(dir.real, { withFileTypes: true })
-    .filter((d) => d.name !== '.git')
+    .filter((d) => !isGit(d.name))
     .sort((a, b) => (a.isDirectory() === b.isDirectory() ? byName(a.name, b.name) : a.isDirectory() ? -1 : 1));
   const truncated = all.length > FILE_LIMITS.maxEntries;
   const entries: FileEntry[] = [];

@@ -137,7 +137,8 @@ const zhTW = {
   nativeTimeout: (cli: string) => `${cli} 沒有在時間內回應。`,
   nativeFileNotListed: '這個檔案不在這個 CLI 回報的清單裡，或已經不存在。',
   grokTrustFailed: (e: string) => `無法記錄 Grok 對這個資料夾的信任：${e}`,
-  grokTrustNotTaken: (dir: string) => `已記錄信任 ${dir}，但 Grok 仍回報這個資料夾未受信任（可能被組織的設定限制）。`,
+  grokTrustNotTaken: (dir: string) => `記錄信任 ${dir} 後，Grok 仍回報這個資料夾未受信任（可能被組織的設定限制），所以已還原這項變更。`,
+  grokTrustFolderChanged: (dir: string) => `Grok 現在是依 ${dir} 決定信任，不是你確認的資料夾。請重新確認。`,
   nativeFailed: (cli: string, detail: string) => `${cli} 回報錯誤：${detail}`,
   nativeNoAnswer: (cli: string, part: 'all' | 'skills' | 'mcp') =>
     part === 'all' ? `${cli} 沒有回應。` : `${cli} 沒有回報它的${part === 'skills' ? ' skill' : ' MCP 伺服器'}。`,
@@ -298,7 +299,9 @@ const en: ServerMessages = {
   nativeTimeout: (cli) => `${cli} did not answer in time.`,
   nativeFileNotListed: 'This file is not one the CLI reported, or it no longer exists.',
   grokTrustFailed: (e) => `Could not record Grok's trust in this folder: ${e}`,
-  grokTrustNotTaken: (dir) => `Trust in ${dir} was recorded, but Grok still reports the folder as untrusted (an organisation policy may prevent it).`,
+  grokTrustNotTaken: (dir) =>
+    `After trust in ${dir} was recorded, Grok still reported the folder as untrusted (an organisation policy may prevent it), so the change was undone.`,
+  grokTrustFolderChanged: (dir) => `Grok now decides trust for ${dir}, not the folder you confirmed. Please confirm again.`,
   nativeFailed: (cli, detail) => `${cli} reported an error: ${detail}`,
   nativeNoAnswer: (cli, part) => (part === 'all' ? `${cli} did not answer.` : `${cli} did not report its ${part === 'skills' ? 'skills' : 'MCP servers'}.`),
 

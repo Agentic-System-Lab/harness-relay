@@ -282,8 +282,25 @@ async function probeCodex(bin: string, env: NodeJS.ProcessEnv, cwd: string): Pro
 
 // --- Grok ----------------------------------------------------------------------------------
 
+/**
+ * A folder as Grok's trust store names it: `grok inspect` writes the project root with a trailing
+ * `/` that the store leaves out. Grok keys trust on the project root (the repository root, links
+ * resolved), else on the folder it ran in (also a real path); outside a repository, trust in a
+ * parent folder does not count.
+ */
+function grokTrustFolder(dir: unknown): string | undefined {
+  if (typeof dir !== 'string' || !dir) return undefined;
+  const trimmed = dir.length > 1 ? dir.replace(/[\\/]+$/, '') : dir;
+  // `C:\` keeps its separator: without it the path would mean the current folder on that drive.
+  return /^[A-Za-z]:$/.test(trimmed) ? `${trimmed}\\` : trimmed || undefined;
+}
+
 /** Skills, MCP servers and instruction files from `grok inspect --json`. */
-export function parseGrokInspect(d: Json | undefined): Pick<NativeSetup, 'skills' | 'mcpServers' | 'memory' | 'folderTrusted'> {
+export function parseGrokInspect(
+  d: Json | undefined,
+): Pick<NativeSetup, 'skills' | 'mcpServers' | 'memory' | 'folderTrusted' | 'trustFolder' | 'trustFolderAbove'> {
+  const trustFolder = grokTrustFolder(d?.projectRoot) ?? grokTrustFolder(d?.cwd);
+  const ranIn = grokTrustFolder(d?.cwd);
   const list = (v: unknown): Json[] => (Array.isArray(v) ? v : []);
   const source = (s: Json | undefined) => (s?.plugin_name ? `plugin: ${s.plugin_name}` : typeof s?.type === 'string' ? s.type : undefined);
   return {
@@ -306,6 +323,8 @@ export function parseGrokInspect(d: Json | undefined): Pick<NativeSetup, 'skills
       .filter((p) => typeof p.path === 'string')
       .map((p) => ({ path: p.path, kind: 'instructions' as const })),
     ...(typeof d?.projectTrusted === 'boolean' ? { folderTrusted: d.projectTrusted } : {}),
+    ...(trustFolder ? { trustFolder } : {}),
+    ...(trustFolder && ranIn && trustFolder !== ranIn ? { trustFolderAbove: true } : {}),
   };
 }
 
@@ -335,9 +354,22 @@ export class NativeSetupService {
 
   constructor(private settings: { bin(p: Provider): string; env(p: Provider): NodeJS.ProcessEnv }) {}
 
+  private key(provider: Provider, cwd: string): string {
+    return `${provider}\0${this.settings.bin(provider)}\0${cwd}`;
+  }
+
+  /**
+   * The latest answer for this CLI, executable and folder, however old; the CLI is asked only when
+   * there is none yet. For checks against what the UI was shown (opening a reported file), which
+   * should not start the CLI again.
+   */
+  latest(provider: Provider, cwd: string): Promise<NativeProbe> {
+    return this.cache.get(this.key(provider, cwd))?.result ?? this.get(provider, cwd);
+  }
+
   get(provider: Provider, cwd: string, refresh = false): Promise<NativeProbe> {
     const bin = this.settings.bin(provider);
-    const key = `${provider}\0${bin}\0${cwd}`;
+    const key = this.key(provider, cwd);
     const hit = this.cache.get(key);
     if (hit && !refresh && Date.now() - hit.at < CACHE_MS) return hit.result;
     const result = PROBES[provider](bin, this.settings.env(provider), cwd).catch(

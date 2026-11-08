@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentConfig, ConversationSettings } from '../../shared/types';
+import type { AgentConfig, ConversationSettings, GrokFolderTrust } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { useDialog } from './useDialog';
@@ -14,8 +14,11 @@ export function asksGrokTrust(team: { agents: AgentConfig[]; settings: Pick<Conv
 
 export type GrokTrustAnswer = 'trust' | 'skip' | 'cancel';
 
-/** Asked before a team with a Grok member starts in a folder Grok does not trust. */
-export function GrokTrustDialog({ cwd, onAnswer }: { cwd: string; onAnswer: (a: GrokTrustAnswer) => void }) {
+/**
+ * Asked before a team with a Grok member starts in a folder Grok does not trust. `status.folder` is
+ * the one Grok decides trust for (the repository root above `cwd`, links resolved): that one is trusted.
+ */
+export function GrokTrustDialog({ status, onAnswer }: { status: GrokFolderTrust; onAnswer: (a: GrokTrustAnswer) => void }) {
   const t = useT();
   const dialog = useRef<HTMLDivElement>(null);
   useDialog(dialog, () => onAnswer('cancel'));
@@ -38,8 +41,9 @@ export function GrokTrustDialog({ cwd, onAnswer }: { cwd: string; onAnswer: (a: 
         </header>
         <p>{t.grokTrust.dialogBody}</p>
         <p>
-          <code className="grok-trust-path">{cwd}</code>
+          <code className="grok-trust-path">{status.folder}</code>
         </p>
+        {status.above && <p className="small">{t.grokTrust.projectRoot(status.cwd)}</p>}
         <p className="warn-line small">{t.grokTrust.dialogWarn}</p>
         <footer className="button-row end">
           <button className="ghost" onClick={() => onAnswer('cancel')}>
@@ -60,39 +64,71 @@ export function GrokTrustDialog({ cwd, onAnswer }: { cwd: string; onAnswer: (a: 
 /**
  * Whether Grok trusts a folder, with a button to trust it once the user confirms. Untrusted, Grok
  * leaves out the project's own instructions, skills, MCP servers and hooks. `trusted` given: shown
- * as it is (the Grok card); not given: asked for `cwd`, and shown only when it is untrusted.
+ * as it is (the Grok card), with the `folder` Grok decides trust for; not given: asked for `cwd`,
+ * and shown only when it is untrusted.
  */
-export function GrokTrustNote({ cwd, trusted: given, onTrusted }: { cwd: string; trusted?: boolean; onTrusted?: () => void }) {
+export function GrokTrustNote({
+  cwd,
+  folder: givenFolder,
+  above: givenAbove = false,
+  trusted: given,
+  onTrusted,
+}: {
+  cwd: string;
+  folder?: string;
+  above?: boolean;
+  trusted?: boolean;
+  onTrusted?: () => void;
+}) {
   const t = useT();
-  const [trusted, setTrusted] = useState<boolean | undefined>(given);
+  type Status = Pick<GrokFolderTrust, 'trusted' | 'folder' | 'above'>;
+  const unknown = (): Status => ({ trusted: undefined, folder: cwd, above: false });
+  const [status, setStatus] = useState<Status>({ trusted: given, folder: givenFolder ?? cwd, above: givenAbove });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // The folder shown now: an answer for one typed earlier must not replace the answer for it.
+  const current = useRef(cwd);
+  useEffect(() => {
+    current.current = cwd;
+  }, [cwd]);
 
-  useEffect(() => setTrusted(given), [given]);
+  useEffect(() => setStatus({ trusted: given, folder: givenFolder ?? cwd, above: givenAbove }), [given, givenFolder, givenAbove, cwd]);
   useEffect(() => {
     if (given !== undefined || !cwd.trim()) return;
-    setTrusted(undefined);
+    let live = true;
+    setStatus(unknown());
     setError('');
     // Asking starts grok briefly: wait until the folder stops changing as it is typed.
     const id = window.setTimeout(
-      () => api.grokFolderTrust(cwd).then((r) => setTrusted(r.trusted), () => setTrusted(undefined)),
+      () =>
+        api.grokFolderTrust(cwd).then(
+          (r) => live && setStatus(r),
+          () => live && setStatus(unknown()),
+        ),
       600,
     );
-    return () => window.clearTimeout(id);
+    return () => {
+      live = false;
+      window.clearTimeout(id);
+    };
   }, [cwd, given]);
 
+  const { trusted, folder, above } = status;
   if (trusted === undefined) return null;
   if (trusted) return given !== undefined ? <p className="muted small">✓ {t.grokTrust.trusted}</p> : null;
 
   const trust = async () => {
-    if (!confirm(t.grokTrust.confirm(cwd))) return;
+    if (!confirm(t.grokTrust.confirm(folder, above ? cwd : undefined))) return;
+    const asked = cwd;
     setBusy(true);
     setError('');
     try {
-      setTrusted((await api.grokFolderTrust(cwd, true)).trusted);
+      const r = await api.grokFolderTrust(cwd, folder);
+      if (current.current !== asked) return;
+      setStatus(r);
       onTrusted?.();
     } catch (e) {
-      setError((e as Error).message);
+      if (current.current === asked) setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -101,7 +137,7 @@ export function GrokTrustNote({ cwd, trusted: given, onTrusted }: { cwd: string;
   return (
     <div className="grok-trust">
       <p className="warn-line small">
-        {t.grokTrust.untrusted(cwd)}{' '}
+        {t.grokTrust.untrusted(folder)}{' '}
         <button type="button" className="link-button" disabled={busy} onClick={trust}>
           {t.grokTrust.trust}
         </button>

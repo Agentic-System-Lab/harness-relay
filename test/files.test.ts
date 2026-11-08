@@ -15,6 +15,9 @@ mkdirSync(join(project, '.git'), { recursive: true });
 mkdirSync(join(project, 'Docs'));
 mkdirSync(outside);
 writeFileSync(join(project, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+// `.git` in another letter case (on macOS and Windows, the same folder as `.git`).
+mkdirSync(join(project, 'Docs', '.Git'));
+writeFileSync(join(project, 'Docs', '.Git', 'config'), '[remote "origin"]\n\turl = https://token@example.com/r\n');
 writeFileSync(join(project, 'src', 'app.ts'), 'export const a = 1;\n');
 writeFileSync(join(project, 'file10.txt'), 'ten');
 writeFileSync(join(project, 'file2.txt'), 'two');
@@ -37,7 +40,7 @@ describe('resolveInRoot', () => {
   });
 
   it('refuses anything outside the folder, .git, and missing paths', () => {
-    for (const bad of ['..', '../outside/secret.txt', 'src/../../outside', 'leak.txt', 'leak-dir', '.git', '.git/HEAD', 'C:/x', 'missing', 'a\0b']) {
+    for (const bad of ['..', '../outside/secret.txt', 'src/../../outside', 'leak.txt', 'leak-dir', '.git', '.git/HEAD', '.GIT/HEAD', '.Git', 'src/../.GiT/HEAD', 'Docs/.Git/config', 'Docs/.GIT/config', 'C:/x', 'missing', 'a\0b']) {
       expect(() => resolveInRoot(project, bad), bad).toThrow(notFound);
     }
     expect(() => resolveInRoot(join(root, 'gone'), '')).toThrow();
@@ -63,6 +66,8 @@ describe('listFolder', () => {
     // A folder reached through a link keeps the path it was asked for (the browser shows that one).
     expect(listFolder(project, 'src-link')).toMatchObject({ path: 'src-link', entries: [{ name: 'deep' }, { name: 'app.ts' }] });
     expect(listFolder(project, './src/').path).toBe('src');
+    // `.git` is left out in any letter case.
+    expect(listFolder(project, 'Docs').entries).toEqual([]);
   });
 
   it('refuses files and folders outside', () => {
@@ -90,6 +95,7 @@ describe('previewFile', () => {
     expect(previewFile(project, 'logo.png').text).toBeUndefined();
     expect(previewFile(project, 'data.bin')).toMatchObject({ kind: 'binary' });
     expect(() => previewFile(project, 'src')).toThrow(notFound);
+    for (const git of ['.GIT/HEAD', '.Git/HEAD', 'Docs/.git/config']) expect(() => previewFile(project, git), git).toThrow(notFound);
   });
 
   it('cuts a long file at the limit without a broken character', () => {

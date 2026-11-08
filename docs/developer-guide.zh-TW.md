@@ -167,8 +167,8 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | `GET /api/providers[?refresh=1]` | → `ProviderStatus[]` |
 | `GET /api/models[?refresh=1]` | → `ProviderModels[]` |
 | `POST /api/providers/:provider/native` | `{ refresh? }` → `NativeSetup`：這個 CLI 在預設工作目錄自己載入的 skill、MCP 伺服器（只有名稱、類型與狀態）和記憶檔，`errors` 列出它沒有回報的部分。會在不送 prompt 的情況下短暫啟動 CLI（用 POST，所以其他網站無法觸發）；每個 CLI、執行檔與資料夾的結果保留一分鐘（`refresh: true` 重新查詢） |
-| `POST /api/providers/:provider/native/file` | `{ path }` → `FilePreview`：CLI 回報過的檔案之一（指示或記憶檔，或 skill 的 `SKILL.md`，路徑要完全相同），供介面閱讀；其他路徑一律 404 |
-| `POST /api/providers/grok/folder-trust` | `{ cwd?, trust? }` → `GrokFolderTrust` `{ cwd, trusted }`：Grok 是否信任 `cwd`（預設為預設工作目錄），取自 `grok inspect`。帶 `trust: true`（只在使用者確認後送出）時，會先用和 `grok --trust` 相同的方式記錄在 `$GROK_HOME/trusted_folders.toml`；Grok 仍回報未信任時回 409 |
+| `POST /api/providers/:provider/native/file` | `{ path }` → `FilePreview`：CLI 回報過的檔案之一（指示或記憶檔，或 skill 的 `SKILL.md`，路徑要完全相同），供介面閱讀；其他路徑一律 404。比對的是 CLI 最近一次的回答（不論多久以前），所以開啟檔案不會再啟動一次 CLI |
+| `POST /api/providers/grok/folder-trust` | `{ cwd?, trust?, folder? }` → `GrokFolderTrust` `{ cwd, folder, above, trusted }`：Grok 是否信任 `cwd`（預設為預設工作目錄），取自 `grok inspect`。`folder` 是 Grok 用來決定信任的資料夾（儲存庫根目錄，解析連結後；不在儲存庫裡則是 `cwd` 的實際路徑）；`above` 表示它是 `cwd` 上層的儲存庫根目錄。帶 `trust: true`（只在使用者確認 `folder` 後送出）時，會再問一次 Grok，並用和 `grok --trust` 相同的方式替這個資料夾記錄在 `$GROK_HOME/trusted_folders.toml`；Grok 現在回報的資料夾和送來的 `folder` 不同，或記錄後仍回報未信任（檔案會還原成原本的內容）時回 409 |
 | `GET /api/providers/:provider/login-methods` | → `LoginMethod[]` |
 | `POST /api/providers/:provider/login` | `{ method }` → `LoginSessionView` |
 | `GET /api/providers/:provider/login` | → `LoginSessionView \| null`（執行中時輪詢） |
@@ -256,7 +256,7 @@ npx vitest test/store.test.ts
 - `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
 - `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。
-- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話、不存在的群組）與搜尋。也測試工具庫的路由（遮蔽的值、不合法的名稱、網址、CLI 與變數名稱、重複名稱、skill 與記憶、列出資料夾底下的 skill）、成員的工具例外設定、成員執行時拿到的項目，以及瀏覽檔案（列表、預覽、raw 只給圖片、資料夾外或 `.git` 的路徑、未知的資料夾）。也用假的服務測試查詢 CLI 自己載入的內容（只用預設工作目錄、重新查詢、依請求語言的問題說明、未知的 CLI、不接受 GET 或表單 POST），只能讀回報過的檔案，以及 Grok 的資料夾信任（狀態、確認後信任、不存在的資料夾、不接受表單 POST）。
+- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話、不存在的群組）與搜尋。也測試工具庫的路由（遮蔽的值、不合法的名稱、網址、CLI 與變數名稱、重複名稱、skill 與記憶、列出資料夾底下的 skill）、成員的工具例外設定、成員執行時拿到的項目，以及瀏覽檔案（列表、預覽、raw 只給圖片、資料夾外或 `.git` 的路徑、未知的資料夾）。也用假的服務測試查詢 CLI 自己載入的內容（只用預設工作目錄、重新查詢、依請求語言的問題說明、未知的 CLI、不接受 GET 或表單 POST），只能讀回報過的檔案（不會再問一次 CLI），以及透過真正的查詢與一個依 grok 1.0.77 方式決定信任的替身 `grok` 測試 Grok 的資料夾信任（不在儲存庫裡的資料夾、儲存庫子資料夾改為信任儲存庫根目錄、經由連結進入的資料夾信任實際路徑、和確認時不同的資料夾、Grok 不接受紀錄時還原或移除檔案、不存在的資料夾、不接受表單 POST）。
 - `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報。也測試簡報中的記憶與 skill 區塊。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。
 - `test/chat.test.ts`：ChatView 的邏輯：Enter 何時送出（手機和平板上不會）、何時重新連線事件串流、哪個 worktree 結果可以套用、團隊設定的草稿、建立不存在的工作目錄前先詢問。
@@ -275,13 +275,13 @@ npx vitest test/store.test.ts
 - `test/i18n.test.ts`：語言偵測（伺服器 header 與瀏覽器）、語言在非同步工作中的傳遞、雙語範本，以及兩份介面字典結構相同。
 - `test/voice.test.ts`：用假的下載、程序與引擎測試語音輸入：固定版本的下載清單、背景安裝（引擎、模型、檢查），涵蓋 Linux 與 macOS 的 Homebrew、SHA-256 不符、取消、硬碟空間、自訂引擎路徑、引擎無法啟動、引擎只聽 127.0.0.1 並藏在隨機路徑後、語音轉文字與辨識語言、切換與刪除模型、設定，以及 HTTP 路由。
 - `test/voice-web.test.ts`：瀏覽器端的語音輸入：WAV 編碼、靜音判斷、把辨識結果插入游標處，以及麥克風與設定頁顯示的狀態。
-- `test/tools.test.ts`：工具庫：front matter、找出 skill（往下兩層、本身就是 skill 的資料夾、列出名稱並標示是否已加入）、用假的金鑰儲存區測試 MCP 機密值（遮蔽、沒送出時保留、改名時帶過去、從資料庫移出、儲存區失敗），依 CLI 的預設與成員的例外設定、被標示的 skill，以及還沒有 CLI 範圍時存下的舊資料。另外：伺服器或 skill 改名後成員的例外設定仍有效；沒能搬走的值留在資料庫；讀不到的值不會被覆蓋，金鑰儲存區打開後會再讀一次。
-- `test/files.test.ts`：用真的暫存資料夾測試瀏覽檔案：資料夾外、經由符號連結或進入 `.git` 的路徑、列表順序與項目上限、文字 / 圖片 / 二進位檔的預覽與長檔案截斷、raw 只給媒體檔，以及對話提供的資料夾。經由連結進入的資料夾保留當初要求的路徑，截斷的列表保留顯示順序的前面幾項。
+- `test/tools.test.ts`：工具庫：front matter、找出 skill（往下兩層、本身就是 skill 的資料夾、列出名稱並標示是否已加入）、用假的金鑰儲存區測試 MCP 機密值（遮蔽、沒送出時保留、改名時仍以伺服器 id 保存，包括在名稱不分大小寫的儲存區只改大小寫、從資料庫移出、儲存區失敗），依 CLI 的預設與成員的例外設定、被標示的 skill，以及還沒有 CLI 範圍時存下的舊資料。另外：伺服器或 skill 改名後成員的例外設定仍有效；沒能搬走的值留在資料庫；讀不到的值不會被覆蓋，金鑰儲存區打開後會再讀一次。
+- `test/files.test.ts`：用真的暫存資料夾測試瀏覽檔案：資料夾外、經由符號連結或進入 `.git`（不分大小寫）的路徑、列表順序與項目上限、文字 / 圖片 / 二進位檔的預覽與長檔案截斷、raw 只給媒體檔，以及對話提供的資料夾。經由連結進入的資料夾保留當初要求的路徑，截斷的列表保留顯示順序的前面幾項。
 - `test/files-web.test.ts`：檔案瀏覽的路徑導覽列、篩選、程式語言與行數。
 - `test/tools-web.test.ts`：團隊編輯器的工具選擇：項目、各 CLI 的記憶、依 CLI 的預設，以及只記錄例外。
-- `test/native.test.ts`：各 CLI 自己載入的內容：讀取 Claude Code、Codex、Grok 的回答（實測格式；MCP 設定與其中的 token 會被丟掉）、Claude Code 與 Codex 會讀的指示和記憶檔（真的暫存資料夾），無法啟動的 CLI、依執行檔分開的快取、依請求語言的問題說明，以及哪些檔案可以讀（只有回報過的）。
+- `test/native.test.ts`：各 CLI 自己載入的內容：讀取 Claude Code、Codex、Grok 的回答（實測格式；MCP 設定與其中的 token 會被丟掉）、Claude Code 與 Codex 會讀的指示和記憶檔（真的暫存資料夾），無法啟動的 CLI、依執行檔分開的快取、不論多久以前的最近一次回答（開啟回報過的檔案時用）、依請求語言的問題說明，以及哪些檔案可以讀（只有回報過的）。
 - `test/route.test.ts`：前端的 hash 路由，包括設定頁的區塊，以及正在看哪張設定卡片（在連結列標亮）。
-- `test/grok-trust.test.ts`：記錄 Grok 對資料夾的信任：和 `grok --trust` 相同的紀錄、取代標為不信任的紀錄並保留其他內容、Windows 路徑的 TOML 跳脫、寫在暫存 `GROK_HOME` 的檔案（只有擁有者能讀），從 `grok inspect` 讀出信任狀態，以及開始新對話時什麼情況會詢問（有 Grok 成員與資料夾，不含自動組隊）。
+- `test/grok-trust.test.ts`：記錄 Grok 對資料夾的信任：和 `grok --trust` 相同的紀錄、取代標為不信任的紀錄並保留其他內容、Windows 路徑的 TOML 跳脫、寫在暫存 `GROK_HOME` 的檔案（只有擁有者能讀）、還原成原本的內容，從 `grok inspect` 讀出信任狀態與決定信任的資料夾（去掉結尾斜線的專案根目錄，是否在資料夾上層，否則就是資料夾本身），以及開始新對話時什麼情況會詢問（有 Grok 成員與資料夾，不含自動組隊）。
 - `test/util.test.ts`：把成員或首席 agent 切到另一個 CLI 再切回來，會還原每個 CLI 選過的模型與推理強度。
 - `test/quickstart.test.ts`：使用者複製的指令在任何 shell 都能執行：npm scripts 不用 Unix 的方式設定環境變數（npm 在 Windows 上用 cmd.exe 執行），首頁、README 與使用指南不用 `&&` 串接指令（Windows PowerShell 5.1 不接受），README 的快速開始從 clone 開始，首頁、README 與使用指南安裝的都是建置好的 app（先 `npm run build` 再 `npm start`，網址 http://127.0.0.1:8787），首頁只在開發時提到 `npm run dev`。
 

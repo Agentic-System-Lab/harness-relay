@@ -196,6 +196,13 @@ export interface NativeSetup {
    * skills, MCP servers and hooks.
    */
   folderTrusted?: boolean;
+  /**
+   * Grok: the folder its trust is decided for: the project root (the repository root, links
+   * resolved), else the working directory's real path. Trusting it trusts the whole project.
+   */
+  trustFolder?: string;
+  /** Grok: `trustFolder` is above the working directory (its repository root), so trusting it trusts more. */
+  trustFolderAbove?: boolean;
   /** What could not be found out, and why. */
   errors: string[];
   checkedAt: number;
@@ -214,6 +221,13 @@ export interface FileRoot {
 /** Whether Grok trusts a folder (`POST /api/providers/grok/folder-trust`). */
 export interface GrokFolderTrust {
   cwd: string;
+  /**
+   * The folder Grok decides trust for (`NativeSetup.trustFolder`): the repository root when `cwd`
+   * is inside one, links resolved. This is the folder that is trusted.
+   */
+  folder: string;
+  /** `folder` is above `cwd` (its repository root): trusting it trusts the whole repository. */
+  above: boolean;
   /** Undefined when Grok could not be asked. */
   trusted?: boolean;
 }

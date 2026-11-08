@@ -515,17 +515,18 @@ export const zhTW = {
   },
   grokTrust: {
     trusted: 'Grok 已信任這個資料夾：會載入專案自己的指示、skill 與 MCP。',
-    untrusted: (cwd: string) =>
-      `Grok 尚未信任 ${cwd}：專案自己的 AGENTS.md / CLAUDE.md、skill、MCP 伺服器與 hooks 不會載入（工具庫的項目不受影響）。`,
+    untrusted: (folder: string) =>
+      `Grok 尚未信任 ${folder}：專案自己的 AGENTS.md / CLAUDE.md、skill、MCP 伺服器與 hooks 不會載入（工具庫的項目不受影響）。`,
     trust: '信任這個資料夾',
     dialogTitle: '要讓 Grok 信任這個資料夾嗎？',
     dialogBody:
-      '團隊裡有 Grok 成員，但 Grok 尚未信任這個工作目錄。不信任的話，Grok 不會載入這個專案自己的 AGENTS.md / CLAUDE.md、skill、MCP 伺服器與 hooks（工具庫的項目照常提供）。',
+      '團隊裡有 Grok 成員，但 Grok 尚未信任這個專案的資料夾。不信任的話，Grok 不會載入這個專案自己的 AGENTS.md / CLAUDE.md、skill、MCP 伺服器與 hooks（工具庫的項目照常提供）。',
+    projectRoot: (cwd: string) => `這是 ${cwd} 所在儲存庫的根目錄：Grok 以整個專案決定信任，所以會信任整個儲存庫。`,
     dialogWarn: '信任後 Grok 也會執行這個專案的 hooks，等同在這個資料夾執行 grok --trust。請只信任你信任的專案。',
     trustAndStart: '信任並開始',
     startWithout: '不信任，直接開始',
-    confirm: (cwd: string) =>
-      `要讓 Grok 信任 ${cwd} 嗎？\n\n信任後，Grok 會載入這個專案的 AGENTS.md / CLAUDE.md、skill 和 MCP 伺服器，並執行它的 hooks，等同在這個資料夾執行 grok --trust。請只信任你信任的專案。`,
+    confirm: (folder: string, cwd?: string) =>
+      `要讓 Grok 信任 ${folder} 嗎？${cwd ? `\n\n這是 ${cwd} 所在儲存庫的根目錄：Grok 以整個專案決定信任，所以會信任整個儲存庫。` : ''}\n\n信任後，Grok 會載入這個專案的 AGENTS.md / CLAUDE.md、skill 和 MCP 伺服器，並執行它的 hooks，等同在這個資料夾執行 grok --trust。請只信任你信任的專案。`,
   },
   files: {
     title: '檔案',
