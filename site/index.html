@@ -717,6 +717,29 @@
                 New chat: choose Auto team, design your own, or pick a template.
               </p>
             </li>
+            <li>
+              <h3>Open it on your phone</h3>
+              <div class="step-body">
+                <p>
+                  Optional. Install <a href="https://tailscale.com">Tailscale</a> on the computer and on the phone. Stop the
+                  server, share it with your tailnet, and start it again with the name <code>tailscale serve</code> prints:
+                </p>
+                <div class="cmd">
+                  <pre id="cmd-phone"><span class="prompt">$ </span>tailscale serve --bg 8787
+<span class="prompt">$ </span>RELAY_ALLOWED_HOSTS=my-computer.tail1234.ts.net npm start</pre>
+                  <button class="copy" type="button" data-copy="cmd-phone" aria-label="Copy commands" data-done="Copied">
+                    <svg class="i-copy" aria-hidden="true"><use href="#i-copy" /></svg>
+                    <svg class="i-check" aria-hidden="true"><use href="#i-check" /></svg>
+                  </button>
+                </div>
+                <p>
+                  Open that <b>https://</b> address on the phone. Only devices in your tailnet can reach it, and the server
+                  stays on <code>127.0.0.1</code>. To add it to the home screen: <b>Share → Add to Home Screen</b> in Safari on
+                  iPhone, <b>⋮ → Add to home screen</b> in Chrome on Android.
+                </p>
+                <p><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md">Step by step, with keeping it running and troubleshooting</a></p>
+              </div>
+            </li>
           </ol>
           <div class="start-foot">
             <p>Working on Harness Relay itself? Run <code>npm run dev</code> instead: the server restarts and the UI reloads as you edit, at http://localhost:5173.</p>
@@ -724,6 +747,7 @@
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md">User guide</a>
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/architecture.md">Architecture</a>
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/developer-guide.md">Developer guide</a>
+              <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md">Phone access</a>
             </nav>
           </div>
         </div>

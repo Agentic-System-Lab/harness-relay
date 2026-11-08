@@ -1622,6 +1622,12 @@ p {
   background: var(--bg);
 }
 
+/* A step with several blocks keeps them together in the right-hand column. */
+.step-body {
+  display: grid;
+  gap: 12px;
+}
+
 .start-foot {
   display: flex;
   flex-wrap: wrap;

@@ -111,7 +111,7 @@ npm start          # one process: API + built UI on :8787
 | `HOST` | `127.0.0.1` | Bind address |
 | `RELAY_DATA_DIR` | `./data` | Where `relay.db` lives |
 | `RELAY_DEFAULT_CWD` | process cwd | Initial default working directory (until changed in Settings) |
-| `RELAY_ALLOWED_HOSTS` | — | Extra comma-separated host names accepted by the Host/Origin check |
+| `RELAY_ALLOWED_HOSTS` | — | Extra comma-separated host names accepted by the Host/Origin check, such as the machine's Tailscale name (see [Use it from your phone](remote-access.md)) |
 | `RELAY_KEYRING` | — | `off` keeps API keys in the database instead of the OS credential store (e.g. for a throwaway data directory) |
 
 The server passes its own environment to the CLIs, minus Claude Code's nesting variables, plus stored API keys (`SettingsStore.env()`).
