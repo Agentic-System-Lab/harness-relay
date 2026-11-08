@@ -5,6 +5,7 @@ import {
   describeGrokCancel,
   grokApprovalRequest,
   grokMcpServers,
+  grokEnv,
   grokNativeEnv,
   grokPermissionDecision,
   type GrokToolCall,
@@ -191,6 +192,17 @@ describe('leaving out what Grok loads by itself', () => {
     });
     expect(grokNativeEnv(['instructions'])).toEqual({});
     expect(grokNativeEnv()).toEqual({});
+  });
+
+  it("keeps the user's variables and the sandbox next to them", () => {
+    expect(grokEnv({ env: { PATH: '/bin', GROK_MEMORY: '1' }, nativeOff: ['memory', 'mcp'], permission: 'edit' })).toEqual({
+      PATH: '/bin',
+      GROK_MEMORY: '0',
+      GROK_CLAUDE_MCPS_ENABLED: 'false',
+      GROK_CURSOR_MCPS_ENABLED: 'false',
+      GROK_SANDBOX: 'workspace',
+    });
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' })).toEqual({ PATH: '/bin' });
   });
 });
 

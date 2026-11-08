@@ -56,6 +56,7 @@ export function NativeOffSwitches({
           );
         })}
       </ul>
+      {provider === 'codex' && <p className="muted small">{t.native.offCodexThreads}</p>}
       {error && <p className="error-line">{error}</p>}
     </fieldset>
   );

@@ -537,6 +537,7 @@ export const zhTW = {
         memory: '跨對話記憶',
       },
     } as Record<Provider, Record<NativePart, string>>,
+    offCodexThreads: 'Codex 會沿用對話開始時載入的 skill 清單、指示檔與記憶：這三項的變更從新對話開始生效。MCP 伺服器的變更下一回合就生效。',
     offCount: (n: number) => `Relay 中不載入 ${n} 項`,
   },
   grokTrust: {

@@ -532,6 +532,8 @@ export const en: Messages = {
         memory: 'cross-session memory',
       },
     },
+    offCodexThreads:
+      "Codex keeps the skills list, instruction files and memory a chat started with: changes to these three take effect in new chats. A change to MCP servers takes effect at the next turn.",
     offCount: (n) => `${n} left out in Relay`,
   },
   grokTrust: {

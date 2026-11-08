@@ -12,8 +12,10 @@ import { useDialog } from './useDialog';
 type Tab = 'skills' | 'mcp' | 'memory';
 
 /**
- * What a CLI loads by itself (its own skills, MCP servers and memory files), asked from the CLI when
- * the section is first opened: asking starts the CLI briefly.
+ * What a CLI loads by itself (its own skills, MCP servers and memory files), and the switches that
+ * leave them out of Harness Relay's runs. The CLI is asked only when the user clicks Ask: asking
+ * starts it briefly (Claude Code runs SessionStart hooks and connects MCP servers), and someone may
+ * open this section to turn off an MCP server precisely because starting it does harm.
  */
 export function NativeSetupPanel({
   provider,
@@ -50,7 +52,7 @@ export function NativeSetupPanel({
   const counts = setup ? { skills: setup.skills.length, mcp: setup.mcpServers.length, memory: setup.memory.length } : null;
 
   return (
-    <details className="sub native-setup" onToggle={(e) => e.currentTarget.open && !setup && !loading && load()}>
+    <details className="sub native-setup">
       <summary>
         {t.native.title}
         {counts && ` (${t.native.summary(counts.skills, counts.mcp, counts.memory)})`}

@@ -59,7 +59,7 @@ beforeAll(() => {
     provider: 'claude',
     async run(o) {
       if (o.systemPrompt === GROUPER_BRIEFING) {
-        calls.push({ name: 'sorter', prompt: o.prompt });
+        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff });
         if (sorterGate && !o.signal?.aborted) {
           await Promise.race([sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
@@ -220,6 +220,20 @@ describe('what a CLI loads by itself', () => {
     const turns = calls.filter((c) => c.name === 'Alice' || c.name === 'Bob');
     expect(turns).toHaveLength(2);
     expect(turns.every((c) => c.nativeOff?.join() === 'mcp,memory')).toBe(true);
+  });
+
+  it("leaves it out of the lead agent's and the group sorter's runs too", async () => {
+    settings.update('claude', { nativeOff: ['skills', 'instructions'] });
+    store.createGroup({ id: 'g1', name: 'Docs' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    conv.agents = [];
+    leadReply = JSON.stringify({ choice: 'template', templateId: 'builtin-parallel', reason: 'Compare.' });
+    await orchestrator.send(conv.id, 'Write the README');
+    await finish(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(false));
+    const helpers = calls.filter((c) => c.name === 'lead' || c.name === 'sorter');
+    expect(helpers.map((c) => c.name).sort()).toEqual(['lead', 'sorter']);
+    expect(helpers.every((c) => c.nativeOff?.join() === 'skills,instructions')).toBe(true);
   });
 });
 

@@ -7,10 +7,14 @@ import {
   codexMcpToolApproval,
   codexConfiguredMcpServers,
   codexNativeConfig,
+  codexThreadRequest,
+  codexUserMcpServers,
   createCodexUpdateHandler,
   describeCodexItem,
 } from '../src/server/agents/codex';
-import type { AgentEvent } from '../src/server/agents/types';
+import { RpcError } from '../src/server/agents/acp';
+import { AgentRunError, type AgentEvent } from '../src/server/agents/types';
+import { withLang } from '../src/server/i18n';
 
 // Shapes trimmed from real `codex app-server` traffic (codex-cli 0.167.0).
 const command = (extra: Record<string, unknown>) => ({
@@ -122,43 +126,104 @@ describe('codex thread config', () => {
     expect(codexConfig('full')).toEqual({});
   });
 
-  it("adds library MCP servers one key each, so the user's own servers stay", () => {
+  it("adds library MCP servers in one mcp_servers table, which Codex merges into the user's own", () => {
     expect(
       codexConfig('read-only', undefined, [
         { name: 'gh', transport: 'stdio', command: 'npx', args: ['gh'], url: '', env: { TOKEN: 't' }, headers: {} },
         { name: 'docs', transport: 'http', command: '', args: [], url: 'https://x.test/mcp', env: {}, headers: { Authorization: 'Bearer b' } },
       ]),
     ).toEqual({
-      'mcp_servers.gh': { command: 'npx', args: ['gh'], env: { TOKEN: 't' } },
-      'mcp_servers.docs': { url: 'https://x.test/mcp', http_headers: { Authorization: 'Bearer b' } },
+      mcp_servers: {
+        gh: { command: 'npx', args: ['gh'], env: { TOKEN: 't' } },
+        docs: { url: 'https://x.test/mcp', http_headers: { Authorization: 'Bearer b' } },
+      },
     });
   });
 
   it("lets the library's servers approve their own tools in full access, where Codex would refuse every MCP call", () => {
     const gh = { name: 'gh', transport: 'stdio' as const, command: 'gh-mcp', args: [], url: '', env: {}, headers: {} };
-    expect(codexConfig('full', undefined, [gh])).toEqual({ 'mcp_servers.gh': { command: 'gh-mcp', args: [], default_tools_approval_mode: 'approve' } });
+    expect(codexConfig('full', undefined, [gh])).toEqual({ mcp_servers: { gh: { command: 'gh-mcp', args: [], default_tools_approval_mode: 'approve' } } });
     // Below full access Codex asks, and the user answers in the chat.
-    expect(codexConfig('edit', undefined, [gh])['mcp_servers.gh']).not.toHaveProperty('default_tools_approval_mode');
+    expect((codexConfig('edit', undefined, [gh]).mcp_servers as Record<string, object>).gh).not.toHaveProperty('default_tools_approval_mode');
   });
 
-  it('leaves out what Codex loads by itself; its configured MCP servers one by one', () => {
+  it('leaves out what Codex loads by itself; each of its configured MCP servers, whatever its name', () => {
     const gh = { name: 'gh', transport: 'stdio' as const, command: 'npx', args: ['gh'], url: '', env: {}, headers: {} };
     expect(
       codexConfig('read-only', undefined, [gh], {
         off: ['skills', 'mcp', 'instructions', 'memory'],
-        userMcpServers: ['headroom', 'gh', 'not.a.bare.key'],
+        userMcpServers: ['headroom', 'gh', 'a.b'],
       }),
     ).toEqual({
       'skills.include_instructions': false,
       'features.apps': false,
-      // gh is the tool library's (it replaces the user's gh); a name that cannot be a key part is skipped.
-      'mcp_servers.headroom.enabled': false,
       project_doc_max_bytes: 0,
       'features.memories': false,
-      'mcp_servers.gh': { command: 'npx', args: ['gh'] },
+      // gh is the tool library's (it replaces the user's gh). A dotted key could not reach "a.b"; the table can.
+      mcp_servers: { headroom: { enabled: false }, 'a.b': { enabled: false }, gh: { command: 'npx', args: ['gh'] } },
     });
-    expect(codexNativeConfig([], ['headroom'])).toEqual({});
+    // The user's servers stay on unless MCP servers are left out.
+    expect(codexConfig('read-only', undefined, [], { off: ['skills'], userMcpServers: ['headroom'] })).toEqual({
+      'skills.include_instructions': false,
+    });
+    expect(codexNativeConfig([])).toEqual({});
     expect(codexNativeConfig(['instructions'])).toEqual({ project_doc_max_bytes: 0 });
+  });
+
+  it('asks Codex for its MCP servers only when they are left out, and fails the run plainly when it cannot say', async () => {
+    const asked: [string, unknown][] = [];
+    const conn = (answer: () => Promise<unknown>) => ({
+      request: (method: string, params?: unknown) => (asked.push([method, params]), answer()),
+    });
+    const ok = conn(async () => ({ config: { mcp_servers: { headroom: {} } } }));
+    expect(await codexUserMcpServers(ok, { cwd: '/repo', nativeOff: ['skills', 'memory'] })).toEqual([]);
+    expect(await codexUserMcpServers(ok, { cwd: '/repo' })).toEqual([]);
+    expect(asked).toEqual([]);
+    expect(await codexUserMcpServers(ok, { cwd: '/repo', nativeOff: ['mcp'] })).toEqual(['headroom']);
+    expect(asked).toEqual([['config/read', { cwd: '/repo' }]]);
+
+    // An older codex without config/read, say: going on would run the servers the user turned off.
+    const old = conn(async () => {
+      throw new RpcError(-32601, 'config/read is not supported');
+    });
+    const failure = withLang('en', () => codexUserMcpServers(old, { cwd: '/repo', nativeOff: ['mcp'] }));
+    await expect(failure).rejects.toBeInstanceOf(AgentRunError);
+    await expect(failure).rejects.toThrow(/^Codex could not list its MCP servers, so they could not be left out of this run \(config\/read is not supported\)/);
+  });
+
+  it("starts or resumes the thread with the run's settings and the user's MCP servers turned off", () => {
+    const run = {
+      cwd: '/repo',
+      permission: 'edit' as const,
+      systemPrompt: 'You are @Alice',
+      model: 'gpt-5.5',
+      nativeOff: ['mcp' as const],
+      requestApproval: async () => ({ allow: true }),
+    };
+    const start = codexThreadRequest(run, ['headroom']);
+    expect(start).toEqual({
+      method: 'thread/start',
+      params: {
+        cwd: '/repo',
+        approvalPolicy: 'on-request',
+        sandbox: 'workspace-write',
+        developerInstructions: 'You are @Alice',
+        model: 'gpt-5.5',
+        config: {
+          sandbox_workspace_write: { network_access: false },
+          'features.apps': false,
+          mcp_servers: { headroom: { enabled: false } },
+        },
+      },
+    });
+    // Resuming gets the same settings, so a switch changed mid-chat reaches the next turn.
+    expect(codexThreadRequest({ ...run, sessionId: 'thr-1' }, ['headroom'])).toEqual({
+      method: 'thread/resume',
+      params: { threadId: 'thr-1', ...start.params },
+    });
+    // Full access, or a conversation that refuses automatically, never asks.
+    expect(codexThreadRequest({ ...run, permission: 'full' }, []).params.approvalPolicy).toBe('never');
+    expect(codexThreadRequest({ ...run, requestApproval: undefined }, []).params.approvalPolicy).toBe('never');
   });
 
   it('reads the configured MCP servers from config/read', () => {

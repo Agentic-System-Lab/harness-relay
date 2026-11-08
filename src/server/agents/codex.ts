@@ -14,6 +14,7 @@ import {
   type AgentRunner,
   type ApprovalRequest,
   type McpServerSpec,
+  type RunOptions,
   type RunResult,
 } from './types';
 
@@ -48,32 +49,21 @@ export function codexConfig(
   return {
     ...(effort ? { model_reasoning_effort: effort } : {}),
     ...(permission === 'edit' ? { sandbox_workspace_write: { network_access: false } } : {}),
-    ...codexNativeConfig(
-      native.off,
-      native.userMcpServers.filter((n) => !mcpServers.some((s) => s.name === n)),
-    ),
-    ...codexMcpConfig(mcpServers, permission === 'full'),
+    ...codexNativeConfig(native.off),
+    ...codexMcpConfig(mcpServers, permission === 'full', native.off.includes('mcp') ? native.userMcpServers : []),
   };
 }
 
-/** A name that can be one part of a dotted config key. */
-const BARE_KEY = /^[A-Za-z0-9_-]+$/;
-
 /**
  * Config overrides that leave out what Codex loads by itself, for one thread: the skills list in its
- * instructions; the MCP servers in its config (`userMcpServers`) and ChatGPT apps; the project's
+ * instructions; ChatGPT apps (its own MCP servers are turned off in `codexMcpConfig`); the project's
  * AGENTS.md files (no setting reaches its own ~/.codex/AGENTS.md); its memories. Dotted keys, so the
  * user's other settings in those tables stay.
  */
-export function codexNativeConfig(off: readonly NativePart[], userMcpServers: string[] = []): Record<string, unknown> {
+export function codexNativeConfig(off: readonly NativePart[]): Record<string, unknown> {
   return {
     ...(off.includes('skills') ? { 'skills.include_instructions': false } : {}),
-    ...(off.includes('mcp')
-      ? {
-          'features.apps': false,
-          ...Object.fromEntries(userMcpServers.filter((n) => BARE_KEY.test(n)).map((n) => [`mcp_servers.${n}.enabled`, false])),
-        }
-      : {}),
+    ...(off.includes('mcp') ? { 'features.apps': false } : {}),
     ...(off.includes('instructions') ? { project_doc_max_bytes: 0 } : {}),
     ...(off.includes('memory') ? { 'features.memories': false } : {}),
   };
@@ -86,27 +76,73 @@ export function codexConfiguredMcpServers(read: unknown): string[] {
 }
 
 /**
- * The tool library's MCP servers as config overrides. One dotted key per server
- * (`mcp_servers.<name>`), so the servers in the user's config.toml stay.
+ * The MCP servers as one config override, `mcp_servers`: the tool library's servers, and the user's
+ * own servers named in `turnOff` with `enabled = false` (a library server of the same name replaces
+ * the user's instead). Codex merges this table into the user's config.toml, so their other servers
+ * and settings stay (checked with Codex 0.167). One table rather than a dotted key per server:
+ * Codex splits a dotted key at every `.`, quotes or not, so a server named `a.b` could not be reached.
  *
  * Codex asks before every MCP tool call, and with the approval policy "never" (full access, or a
  * conversation that refuses automatically) it refuses the call instead. In full access the
  * library's servers therefore approve their own tools (`default_tools_approval_mode`), as full
  * access promises: everything, without asking.
  */
-export function codexMcpConfig(servers: McpServerSpec[], approveTools = false): Record<string, unknown> {
+export function codexMcpConfig(servers: McpServerSpec[], approveTools = false, turnOff: string[] = []): Record<string, unknown> {
   const has = (vars: Record<string, string>) => Object.keys(vars).length > 0;
-  return Object.fromEntries(
-    servers.map((s) => [
-      `mcp_servers.${s.name}`,
-      {
-        ...(s.transport === 'http'
-          ? { url: s.url, ...(has(s.headers) ? { http_headers: s.headers } : {}) }
-          : { command: s.command, args: s.args, ...(has(s.env) ? { env: s.env } : {}) }),
-        ...(approveTools ? { default_tools_approval_mode: 'approve' } : {}),
-      },
-    ]),
-  );
+  const table = {
+    ...Object.fromEntries(turnOff.map((name) => [name, { enabled: false }])),
+    ...Object.fromEntries(
+      servers.map((s) => [
+        s.name,
+        {
+          ...(s.transport === 'http'
+            ? { url: s.url, ...(has(s.headers) ? { http_headers: s.headers } : {}) }
+            : { command: s.command, args: s.args, ...(has(s.env) ? { env: s.env } : {}) }),
+          ...(approveTools ? { default_tools_approval_mode: 'approve' } : {}),
+        },
+      ]),
+    ),
+  };
+  return Object.keys(table).length ? { mcp_servers: table } : {};
+}
+
+/**
+ * The MCP servers in the user's Codex config, so that each can be turned off; asked (`config/read`)
+ * only when MCP servers are left out. When Codex cannot say, the run fails with a message that says
+ * so: going on would quietly run the servers the user turned off.
+ */
+export async function codexUserMcpServers(
+  conn: { request(method: string, params?: unknown): Promise<unknown> },
+  o: Pick<RunOptions, 'cwd' | 'nativeOff'>,
+): Promise<string[]> {
+  if (!o.nativeOff?.includes('mcp')) return [];
+  try {
+    return codexConfiguredMcpServers(await conn.request('config/read', { cwd: o.cwd }));
+  } catch (err) {
+    throw new AgentRunError(t().codexMcpListFailed(err instanceof Error ? err.message : String(err)));
+  }
+}
+
+/** The request that starts the run's thread, or resumes the agent's session. */
+export function codexThreadRequest(
+  o: Pick<
+    RunOptions,
+    'cwd' | 'permission' | 'systemPrompt' | 'model' | 'effort' | 'sessionId' | 'requestApproval' | 'mcpServers' | 'nativeOff'
+  >,
+  userMcpServers: string[],
+): { method: 'thread/start' | 'thread/resume'; params: Record<string, unknown> } {
+  const ask = Boolean(o.requestApproval) && o.permission !== 'full';
+  const params = {
+    cwd: o.cwd,
+    approvalPolicy: ask ? 'on-request' : 'never',
+    sandbox: SANDBOX[o.permission],
+    developerInstructions: o.systemPrompt,
+    ...(o.model ? { model: o.model } : {}),
+    config: codexConfig(o.permission, o.effort, o.mcpServers, { off: o.nativeOff ?? [], userMcpServers }),
+  };
+  return o.sessionId
+    ? { method: 'thread/resume', params: { threadId: o.sessionId, ...params } }
+    : { method: 'thread/start', params };
 }
 
 const PLAN_STATUS: Record<string, PlanEntry['status']> = {
@@ -309,7 +345,6 @@ export const codexRunner: AgentRunner = {
   provider: 'codex',
   async run(o): Promise<RunResult> {
     if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
-    const ask = Boolean(o.requestApproval) && o.permission !== 'full';
     const args = ['app-server', '-c', 'model_reasoning_summary="auto"'];
 
     let child: ChildProcess | undefined;
@@ -382,20 +417,8 @@ export const codexRunner: AgentRunner = {
         capabilities: null,
       });
       conn.notify('initialized');
-      const off = o.nativeOff ?? [];
-      // Its own MCP servers are turned off one by one, so ask which there are.
-      const userMcpServers = off.includes('mcp') ? codexConfiguredMcpServers(await conn.request('config/read', { cwd: o.cwd })) : [];
-      const threadParams = {
-        cwd: o.cwd,
-        approvalPolicy: ask ? 'on-request' : 'never',
-        sandbox: SANDBOX[o.permission],
-        developerInstructions: o.systemPrompt,
-        ...(o.model ? { model: o.model } : {}),
-        config: codexConfig(o.permission, o.effort, o.mcpServers, { off, userMcpServers }),
-      };
-      const thread = o.sessionId
-        ? await conn.request('thread/resume', { threadId: o.sessionId, ...threadParams })
-        : await conn.request('thread/start', threadParams);
+      const { method, params } = codexThreadRequest(o, await codexUserMcpServers(conn, o));
+      const thread = await conn.request(method, params);
       threadId = String(thread?.thread?.id ?? o.sessionId ?? '');
       if (!threadId) throw new AgentRunError(t().exitedWithoutTurn('codex', null));
       o.onEvent({ type: 'session', sessionId: threadId });

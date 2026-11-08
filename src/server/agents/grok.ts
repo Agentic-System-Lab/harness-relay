@@ -291,6 +291,12 @@ export function grokNativeEnv(off: readonly NativePart[] = []): Record<string, s
   };
 }
 
+/** The environment of one run: the user's, what leaves out Grok's own setup, and the sandbox for the permission. */
+export function grokEnv(o: Pick<RunOptions, 'env' | 'nativeOff' | 'permission'>): NodeJS.ProcessEnv {
+  const sandbox = SANDBOX[o.permission];
+  return { ...o.env, ...grokNativeEnv(o.nativeOff), ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
+}
+
 export const grokRunner: AgentRunner = {
   provider: 'grok',
   async run(o): Promise<RunResult> {
@@ -298,7 +304,7 @@ export const grokRunner: AgentRunner = {
     // Model and effort are set per session below: `grok agent --reasoning-effort` does not reach ACP sessions.
     const args = ['agent', '--no-leader', 'stdio'];
     const sandbox = SANDBOX[o.permission];
-    const env = { ...o.env, ...grokNativeEnv(o.nativeOff), ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
+    const env = grokEnv(o);
 
     let child: ChildProcess | undefined;
     let sessionId: string | undefined;
