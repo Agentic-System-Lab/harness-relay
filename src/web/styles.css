@@ -1115,15 +1115,23 @@ details.sub .model-picker {
   box-shadow: inset 0 0 0 1px var(--text);
 }
 
+/* One field per row: rounds (or the relay limit), then the working directory across the width. */
 .settings-grid {
   display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
 .settings-grid .grow {
-  min-width: 280px;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.settings-grid .grow input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* e.g. "Actions outside the permission" below the permission's notes */
@@ -4726,4 +4734,12 @@ details.sub summary {
 
 .grok-trust-path {
   overflow-wrap: anywhere;
+}
+
+/* The Grok trust note under the working directory, apart from the next field. */
+.settings-grid + .grok-trust {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: -4px 0 20px;
 }
