@@ -12,9 +12,9 @@
 
 ## 示範
 
-[![Harness Relay 示範：新增群組並描述需求，首席 agent 把對話歸進群組並設計團隊，確認後 Claude Code、Codex 與 Grok 閱讀程式碼並回答，最後用搜尋找回對話](docs/media/demo-zh-TW.webp)](docs/media/demo-zh-TW.mp4)
+[![Harness Relay 示範：新增群組並描述需求，首席 agent 把對話歸進群組並設計團隊，確認後 Claude Code、Codex 與 Grok 閱讀程式碼並回答，接著在檔案瀏覽器裡看它們討論到的程式碼，最後用搜尋找回對話](docs/media/demo-zh-TW.webp)](docs/media/demo-zh-TW.mp4)
 
-先新增群組，再在這個 repository 上使用自動組隊：描述需求後，首席 agent 依第一則訊息把對話歸進群組，並以「三方辯論」範本調整出三人團隊、說明原因。確認團隊後再提問，Claude Code、Codex 與 Grok 以圓桌方式輪流閱讀程式碼並回答兩輪，每位都接續並挑戰前面的說法，它們的思考與工具呼叫會即時出現在聊天中（agent 工作的片段已加速）。最後用搜尋，依 agent 寫下的內容找回這段對話。[觀看完整畫質影片（MP4）](docs/media/demo-zh-TW.mp4)。
+先新增群組，再在這個 repository 上使用自動組隊：描述需求後，首席 agent 依第一則訊息把對話歸進群組，並以「三方辯論」範本調整出三人團隊、說明原因。確認團隊後再提問，Claude Code、Codex 與 Grok 以圓桌方式輪流閱讀程式碼並回答兩輪，每位都接續並挑戰前面的說法，它們的思考與工具呼叫會即時出現在聊天中；Grok 想實際執行指令驗證時超出唯讀權限，便以核准卡片詢問你（agent 工作的片段已加速）。接著打開**檔案**，直接在對話的工作目錄裡看它們討論到的 `orchestrator.ts` 交棒程式碼；最後用搜尋，依 agent 寫下的內容找回這段對話。[觀看完整畫質影片（MP4）](docs/media/demo-zh-TW.mp4)。
 
 ## 功能
 

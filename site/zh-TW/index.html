@@ -157,7 +157,7 @@
               playsinline
               preload="none"
               poster="../assets/media/poster-zh-TW.webp"
-              aria-label="示範錄影：新增群組，在 Harness Relay 的 repository 上使用自動組隊，最後搜尋對話"
+              aria-label="示範錄影：新增群組，在 Harness Relay 的 repository 上使用自動組隊，瀏覽對話的檔案，最後搜尋對話"
             >
               <source src="../media/demo-zh-TW.mp4" type="video/mp4" />
               <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/docs/media/demo-zh-TW.mp4">下載示範影片（MP4）</a>
@@ -165,7 +165,7 @@
           </div>
           <div class="rail">
             <h2 id="demo-title">看一次完整流程</h2>
-            <p class="rail-note">先新增群組，再在這個 repository 上使用自動組隊，從描述需求、得到答案到搜尋。agent 工作的片段已加速。</p>
+            <p class="rail-note">先新增群組，再在這個 repository 上使用自動組隊，從描述需求、得到答案、查看討論到的程式碼到搜尋。agent 工作的片段已加速。</p>
             <ol class="chapters">
               <li>
                 <button class="chapter" type="button" data-t="0">
@@ -184,8 +184,8 @@
                 </button>
               </li>
               <li>
-                <button class="chapter t-claude" type="button" data-t="18">
-                  <time>0:18</time>
+                <button class="chapter t-claude" type="button" data-t="19">
+                  <time>0:19</time>
                   <span class="actor"
                     ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
                     ><span class="via">Claude Code</span></span
@@ -218,7 +218,7 @@
                   <time>0:37</time>
                   <span class="actor"
                     ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">A</span><span class="av t-codex">E</span><span class="av t-grok">S</span></span
+                      ><span class="av t-claude">D</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
                     ><span class="who">三位成員</span></span
                   >
                   <span class="say">兩輪圓桌：依序讀程式碼，每位都接續並挑戰前面的說法。</span>
@@ -226,20 +226,38 @@
                 </button>
               </li>
               <li>
-                <button class="chapter t-team" type="button" data-t="64">
-                  <time>1:04</time>
+                <button class="chapter t-grok" type="button" data-t="50">
+                  <time>0:50</time>
                   <span class="actor"
-                    ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">A</span><span class="av t-codex">E</span><span class="av t-grok">S</span></span
-                    ><span class="who">三位成員</span></span
+                    ><span class="av" aria-hidden="true">S</span><span class="who">@Skeptic</span><span class="via">Grok</span></span
                   >
-                  <span class="say">結論與建議：先修哪些、哪些暫不採納，依優先順序排好。</span>
+                  <span class="say">想實際執行一段指令來驗證 @ 點名的解析，超出唯讀，在聊天裡等你核准。</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter" type="button" data-t="82">
-                  <time>1:22</time>
+                <button class="chapter t-team" type="button" data-t="68">
+                  <time>1:08</time>
+                  <span class="actor"
+                    ><span class="stack" aria-hidden="true"
+                      ><span class="av t-claude">D</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
+                    ><span class="who">三位成員</span></span
+                  >
+                  <span class="say">結論：一份排好優先順序的修改建議，連同還沒蓋到的邊界情況。</span>
+                  <span class="bar" aria-hidden="true"></span>
+                </button>
+              </li>
+              <li>
+                <button class="chapter" type="button" data-t="86">
+                  <time>1:26</time>
+                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                  <span class="say">打開「檔案」，直接在對話的工作目錄裡看 orchestrator.ts 中接力模式交棒的程式碼。</span>
+                  <span class="bar" aria-hidden="true"></span>
+                </button>
+              </li>
+              <li>
+                <button class="chapter" type="button" data-t="110">
+                  <time>1:50</time>
                   <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
                   <span class="say">搜尋「maxHops」，依對話內容找回這段對話。</span>
                   <span class="bar" aria-hidden="true"></span>
