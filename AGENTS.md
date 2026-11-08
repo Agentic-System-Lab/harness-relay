@@ -39,6 +39,9 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 - `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations, persistence, provider settings and child-process env, API keys in the OS keyring.
 - `src/server/workspace.ts`: git: auto init, snapshots, worktrees, diffs, apply.
 - `src/server/process.ts`: spawning, streaming and killing child processes.
+- `src/server/tools.ts`: the tool library: MCP servers (their secret values in the OS keyring, by server id), skills and memory, and what each agent gets from it.
+- `src/server/native.ts`, `grokTrust.ts`: what each CLI loads by itself (asked without a prompt); recording Grok's trust in a project root.
+- `src/server/files.ts`: browsing a chat's working directory and agents' worktrees (inside the folder only, never `.git`).
 - `src/server/i18n.ts`, `presets.ts`: server-side messages and built-in team templates, both in two languages.
 - `src/web/`: the React client. `components/`, `locales/` (`zh-TW.ts`, `en.ts`), `chat.ts` (ChatView's pure logic), `copy.ts`, `api.ts`.
 - `test/`: Vitest tests, roughly one file per module.

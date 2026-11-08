@@ -117,6 +117,36 @@ const zhTW = {
   cwdCreateFailed: (cwd: string, reason: string) => `無法建立工作目錄 ${cwd}（${reason}）`,
   invalidField: (field: string) => `「${field}」的值無效`,
 
+  // Tool library
+  badMcpName: (name: string) => `MCP 伺服器名稱「${name}」無效：只能用英文字母、數字、_ 和 -，最多 40 個字`,
+  badVarName: (name: string) => `名稱「${name}」無效或重複：只能用英文字母、數字、_、. 和 -，不能以數字開頭`,
+  mcpNeedsCommand: '請填寫要執行的指令',
+  mcpNeedsUrl: '請填寫 http:// 或 https:// 開頭的網址',
+  mcpNotFound: (name: string) => `找不到 MCP 伺服器「${name}」`,
+  mcpExists: (name: string) => `已經有名為「${name}」的 MCP 伺服器`,
+  tooManyMcp: (n: number) => `最多可以設定 ${n} 個 MCP 伺服器`,
+  secretsFailed: (e: string) => `無法把 MCP 伺服器的變數存進系統的金鑰儲存區：${e}`,
+  secretsUnreadable: (name: string) => `讀不到 MCP 伺服器「${name}」存在金鑰儲存區的值（可能被鎖住了），請重新輸入每個值，或解鎖後重新啟動 Harness Relay。`,
+  memoryTooLong: (n: number) => `記憶最多 ${n} 個字`,
+  tooManySkills: (n: number) => `最多可以加入 ${n} 個 skill`,
+  noSkillsIn: (path: string) => `${path} 裡沒有 skill（要有 SKILL.md 的資料夾，或包含這種資料夾的資料夾）`,
+  skillMissing: '找不到 SKILL.md',
+  skillDuplicate: (name: string) => `已經有另一個名為「${name}」的 skill，這個不會提供給 agent`,
+
+  // What each CLI loads by itself
+  nativeTimeout: (cli: string) => `${cli} 沒有在時間內回應。`,
+  nativeFileNotListed: '這個檔案不在這個 CLI 回報的清單裡，或已經不存在。',
+  grokTrustFailed: (e: string) => `無法記錄 Grok 對這個資料夾的信任：${e}`,
+  grokTrustNotTaken: (dir: string) => `記錄信任 ${dir} 後，Grok 仍回報這個資料夾未受信任（可能被組織的設定限制），所以已還原這項變更。`,
+  grokTrustFolderChanged: (dir: string) => `Grok 現在是依 ${dir} 決定信任，不是你確認的資料夾。請重新確認。`,
+  nativeFailed: (cli: string, detail: string) => `${cli} 回報錯誤：${detail}`,
+  nativeNoAnswer: (cli: string, part: 'all' | 'skills' | 'mcp') =>
+    part === 'all' ? `${cli} 沒有回應。` : `${cli} 沒有回報它的${part === 'skills' ? ' skill' : ' MCP 伺服器'}。`,
+
+  // Files
+  fileNotFound: '找不到這個檔案或資料夾（只能瀏覽工作目錄裡的內容）',
+  fileRootNotFound: '這個資料夾已經不存在',
+
   // Workspace
   gitFailed: (cmd: string, out: string) => `git ${cmd} 失敗：${out}`,
   noAutoRepo: (dir: string) => `不會在 ${dir} 自動建立 git repository，請改選一個專案資料夾作為工作目錄。`,
@@ -250,6 +280,33 @@ const en: ServerMessages = {
   cwdNotDirectory: (cwd) => `Not a folder: ${cwd}`,
   cwdCreateFailed: (cwd, reason) => `Could not create the working directory ${cwd} (${reason})`,
   invalidField: (field) => `Invalid value for "${field}"`,
+
+  badMcpName: (name) => `Invalid MCP server name "${name}": use letters, digits, _ and - only, up to 40 characters`,
+  badVarName: (name) => `Invalid or repeated name "${name}": use letters, digits, _, . and -, not starting with a digit`,
+  mcpNeedsCommand: 'Enter the command to run',
+  mcpNeedsUrl: 'Enter a URL starting with http:// or https://',
+  mcpNotFound: (name) => `No MCP server named "${name}"`,
+  mcpExists: (name) => `There is already an MCP server named "${name}"`,
+  tooManyMcp: (n) => `You can set up at most ${n} MCP servers`,
+  secretsFailed: (e) => `Could not save the MCP server's values to the system credential store: ${e}`,
+  secretsUnreadable: (name) => `The values of MCP server "${name}" could not be read from the credential store (it may be locked): enter every value again, or unlock it and restart Harness Relay.`,
+  memoryTooLong: (n) => `Memory can be at most ${n} characters`,
+  tooManySkills: (n) => `You can add at most ${n} skills`,
+  noSkillsIn: (path) => `No skills in ${path} (pick a folder with a SKILL.md, or a folder of such folders)`,
+  skillMissing: 'SKILL.md not found',
+  skillDuplicate: (name) => `Another skill is already named "${name}"; agents do not get this one`,
+
+  nativeTimeout: (cli) => `${cli} did not answer in time.`,
+  nativeFileNotListed: 'This file is not one the CLI reported, or it no longer exists.',
+  grokTrustFailed: (e) => `Could not record Grok's trust in this folder: ${e}`,
+  grokTrustNotTaken: (dir) =>
+    `After trust in ${dir} was recorded, Grok still reported the folder as untrusted (an organisation policy may prevent it), so the change was undone.`,
+  grokTrustFolderChanged: (dir) => `Grok now decides trust for ${dir}, not the folder you confirmed. Please confirm again.`,
+  nativeFailed: (cli, detail) => `${cli} reported an error: ${detail}`,
+  nativeNoAnswer: (cli, part) => (part === 'all' ? `${cli} did not answer.` : `${cli} did not report its ${part === 'skills' ? 'skills' : 'MCP servers'}.`),
+
+  fileNotFound: 'File or folder not found (only what is inside the working directory can be browsed)',
+  fileRootNotFound: 'This folder no longer exists',
 
   gitFailed: (cmd, out) => `git ${cmd} failed: ${out}`,
   noAutoRepo: (dir) => `Will not create a git repository in ${dir}; pick a project folder as the working directory.`,

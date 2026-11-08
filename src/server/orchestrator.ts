@@ -1309,12 +1309,14 @@ export class Orchestrator {
       const seenBefore = state.seen;
       committedSeen = seenBefore;
       state.seen = [...state.seen, ...delta.map((m) => m.id)];
+      // Read on every turn, so library changes reach agents at their next turn.
+      const tools = this.settings.tools.forAgent(agent);
       try {
         const result = await runners[agent.provider].run({
           bin: this.settings.bin(agent.provider),
           env: this.settings.env(agent.provider),
           prompt,
-          systemPrompt: buildBriefing(conv, agent, workspace),
+          systemPrompt: buildBriefing(conv, agent, workspace, tools),
           sessionId: state.sessionId,
           cwd,
           permission: conv.settings.permission,
@@ -1325,6 +1327,8 @@ export class Orchestrator {
           requestApproval,
           images: imageInputs(conv.id, files),
           attachmentsDir: files.length ? attachmentsDir(conv.id) : undefined,
+          mcpServers: tools.mcpServers,
+          readDirs: tools.skills.map((s) => s.dir),
         });
         if (result.sessionId) state.sessionId = result.sessionId;
         return result;

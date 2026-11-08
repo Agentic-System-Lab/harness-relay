@@ -124,7 +124,7 @@ Each agent's role is injected through the CLI's system-prompt mechanism and **re
 | Codex | `developerInstructions` on `thread/start` / `thread/resume` |
 | Grok | `_meta.rules` on ACP `session/new` / `session/resume` |
 
-The briefing contains the agent's role, the team roster (with each teammate's role summary), the rules of the current mode, the `[PASS]` convention, the shared working directory and the permission level. In parallel mode it also names the agent's worktree and branch, and each teammate's branch with the snapshot that teammate's worktree started from.
+The briefing contains the agent's role, the team roster (with each teammate's role summary), the rules of the current mode, the `[PASS]` convention, the shared working directory and the permission level. In parallel mode it also names the agent's worktree and branch, and each teammate's branch with the snapshot that teammate's worktree started from. With the [tool library](#tool-library), it also holds the agent's memory and a list of its skills.
 
 ## Turn scheduling (modes)
 
@@ -233,6 +233,33 @@ The agent's CLI waits the whole time; the turn's 45-minute safety timeout still 
 
 Besides reply text and tool rows, a message can show what the agent thinks and plans: a `thinking` part (streamed; collapsed in the UI with its latest line visible while it streams), a `plan` part (the agent's to-do list, updated in place), and each tool's `output` (the end of what it returned, up to 4,000 characters, shown when the tool row is expanded). Thinking is never forwarded to other agents.
 
+## Tool library
+
+MCP servers, skills and memory that Harness Relay gives its agents, the same way for every CLI and in addition to each CLI's own configuration (`src/server/tools.ts`, `ToolLibrary`, reached as `settings.tools`). The library is stored as JSON under the `tool_library` key of `app_settings`.
+
+- **Scope.** Each MCP server and skill lists the CLIs whose agents get it by default (`providers`; empty = no one). The memory has a part for everyone (`all`) and one per CLI. An agent's exceptions live in `AgentConfig.tools`, keyed `mcp:<id>` (a server's id, which stays when it is renamed), `skill:<folder>`, `memory` or `memory:<provider>`: `true` gives an item the defaults leave out, `false` takes one away. Only exceptions are stored (column `tools` of `conversation_agents` and `preset_agents`, schema version 9).
+- **Every turn** the orchestrator asks `tools.forAgent(agent)` for the agent's items, so library changes and team edits take effect at the next turn. Memory and skills go into the briefing; MCP servers and the skill folders go to the adapter (`RunOptions.mcpServers`, `RunOptions.readDirs`).
+- **Skills** are folders with a `SKILL.md`; their name and description come from its YAML front matter (`parseFrontMatter`). The briefing lists them with the path of `SKILL.md`, and agents read the file when a task matches, so every CLI uses them the same way. Before adding a folder, the UI lists the skills under it (`scanSkills`: the folder itself and skill folders up to two levels down, not inside a skill, hidden folders or `node_modules`) for the user to tick. Library skills come in addition to the skills each CLI loads by itself, which the library cannot take away. A skill whose file is gone, or whose name an earlier skill has, is marked in the UI and not given.
+- **Secrets.** The values of a server's environment variables (stdio) and headers (HTTP) go to the OS credential store, one entry `mcp-<id>` per server (JSON, named after the server's id, which a rename keeps), and are read into memory at startup; without a credential store they stay in the database, also by id. The UI only gets masked values; an edit that leaves a value out keeps it, and a rename does not touch the credential store at all (so a store whose names ignore letter case, like Windows Credential Manager, cannot lose them over `github` → `GitHub`). Values that could not be moved to the credential store stay in the database until a later start moves them, and a server whose values could not be read (a locked store) cannot be saved without typing them again, so they are never overwritten with empty ones; agents do not get it until its values can be read (tried again at each turn).
+
+| | Claude Code | Codex | Grok |
+| --- | --- | --- | --- |
+| MCP servers | `--mcp-config <file>`: a `0600` file in a new private temporary folder, deleted after the turn (tokens never appear on the command line) | one config override per server on `thread/start` / `thread/resume`, `mcp_servers.<name>` (`command`, `args`, `env` or `url`, `http_headers`), so `config.toml`'s servers stay | `mcpServers` on ACP `session/new` / `session/resume` (`env` and `headers` as name/value lists; HTTP servers only when Grok advertises them) |
+| Reading skills | a `Read(//<folder>/**)` rule per skill folder below full access (read only: `--add-dir` would also allow edits) | the sandbox lets it read anywhere | it reads anywhere |
+| MCP tool calls | `can_use_tool` like any tool: asked or refused per the permission | Codex asks with an MCP elicitation marked as a tool-call approval (`_meta.codex_approval_kind: "mcp_tool_call"`), shown and answered like any approval; other elicitations are declined. With the policy `never` Codex refuses MCP calls, so in full access the library's servers get `default_tools_approval_mode = "approve"` | `session/request_permission` like any tool |
+
+## What each CLI loads by itself
+
+Each CLI's card in Settings can list what that CLI loads by itself for the default working directory — its own skills, MCP servers and memory — separate from the tool library (`src/server/native.ts`, `POST /api/providers/:provider/native`). The CLI is asked the way an IDE would ask it, without a prompt, so no model is called:
+
+| | Skills | MCP servers | Memory and instructions |
+| --- | --- | --- | --- |
+| Claude Code | `initialize` control request over stream-json: its commands that are not built in (skills, plugin and custom commands; names and descriptions only) | `mcp_status` control request (name, status, scope, number of tools) | no list: the files it is documented to read that exist (`CLAUDE.md` and `rules/` in its config folder, `CLAUDE.md` / `CLAUDE.local.md` / `.claude/CLAUDE.md` / `.claude/rules/` up from the folder, its auto memory under `projects/<folder>/memory/`), honouring `CLAUDE_CONFIG_DIR` |
+| Codex | `skills/list` over `codex app-server` | `config/read` (the configured servers; none is started) | no list: `AGENTS.override.md` or `AGENTS.md` in `CODEX_HOME` and in each folder from the repository root down, and its `memories/` |
+| Grok | `grok inspect --json` | `grok inspect --json` | `grok inspect --json` (instruction files) |
+
+Asking starts the CLI for a moment: Claude Code runs the user's SessionStart hooks and connects its MCP servers. It is a POST, and the folder is always the default working directory, so another site cannot start a CLI anywhere. Answers are kept for a minute per CLI, executable and folder (`refresh: true` asks again); what a CLI did not report is listed, in the language of each request. The reported instruction and memory files, and skills' `SKILL.md`, can be opened in the UI (`POST /api/providers/:provider/native/file`): only a path in the CLI's latest answer is read, so no other file on the computer can be. Only names, descriptions, paths and states are returned; MCP server configs, which can hold tokens, are not.
+
 ## Workspaces and file changes
 
 With **read-only** permission agents simply run in the working directory (`cwd`). With **edit** or **full access**, Harness Relay uses git to keep agents from overwriting each other and to record what each one changed (`src/server/workspace.ts`):
@@ -252,6 +279,10 @@ With **read-only** permission agents simply run in the working directory (`cwd`)
 **One thing at a time per conversation.** Starting a run, applying a result and changing the team or settings each reserve the conversation from their check until they take effect (`Orchestrator.exclusive()`), including while the workspace is prepared, so another of these requests gets "busy" instead of slipping in between (a message sent while a run is set up waits in the queue instead). Renaming is always allowed. Deleting a conversation lets a settings change or apply in progress finish (a run still being set up gives up), stops its run and waits until the run has written its final state before the rows, worktrees, branches and kept refs are removed; writes that still arrive for a deleted conversation are dropped. Once shutdown has begun, nothing new starts (503).
 
 **Recorded changes.** An agent message with changes stores `root`, `base` and `head` (two commits) plus the changed files (A/M/D, lines added/deleted). The UI shows them as a card with a diff viewer (`git diff base head`) and, on each agent's latest worktree result, the **Apply** button. Teammates see the list in a `<changed_files>` block of the forwarded message. The list comes from `git diff -z`, so it is complete however long it is, and file names keep quotes, tabs and non-ASCII characters.
+
+## Browsing files
+
+**Files** in the chat header opens a browser for the conversation's working directory, and in parallel mode for each agent's worktree (`src/server/files.ts`; `GET /api/conversations/:id/files`, `…/files/preview`, `…/files/raw`). A path is resolved against the chosen folder's real path and followed through symlinks; anything that ends up outside it, or inside a `.git` folder (compared without letter case: on macOS and Windows `.GIT/config` opens `.git/config`), is a 404, and links that lead outside are left out of listings. A folder lists at most 2,000 entries (the first ones in display order). A folder reached through a link inside the root keeps the path it was asked for. A preview returns text as JSON (the first 512 KB of a long file); images and videos are only marked, and the browser loads them from `…/files/raw`, which serves those media types only, with the media endpoint's `nosniff` and sandboxing `Content-Security-Policy` headers. The UI highlights code with highlight.js (whose output is escaped text in `<span>`s) and renders Markdown with the chat's renderer, so a previewed file cannot run scripts or load remote content either.
 
 ## Live updates (SSE)
 
@@ -280,16 +311,16 @@ Everything except API keys and attached files lives in one SQLite database, `dat
 | --- | --- |
 | `conversations` | id, title, timestamps, mode, rounds, max hops, permission, cwd, `auto_team`, `approvals` (`deny` to refuse automatically), `allow_rules` (JSON), `group_id` (its sidebar group; NULL = Other) and `group_source` (`user` or `auto`; NULL = not sorted yet) |
 | `conversation_groups` | the user's sidebar groups (name, position) |
-| `conversation_agents` | team members per conversation, in order (name, provider, role, model, effort) |
+| `conversation_agents` | team members per conversation, in order (name, provider, role, model, effort, `tools`: the agent's tool library exceptions as JSON) |
 | `messages` | one row per chat message (author, status, passed, error, round, duration, cost, tokens, the turn's change commits, and the team design as JSON in `plan`), ordered by `seq` |
 | `message_changes` | files changed per message (path, A/M/D, lines added/deleted) |
 | `agent_worktrees` | per-agent worktree in parallel mode (repository root, path, branch, base snapshot, needs reset) |
 | `message_parts` | the parts of each message in order (`idx`): text, thinking, plan and approval parts (their data as JSON in `data`), and tool calls with `tool_error` (why a call failed or was refused) and `tool_output` |
 | `agent_sessions` | CLI session id and provider per agent per conversation |
 | `agent_seen` | which messages each agent has been shown |
-| `presets`, `preset_agents` | user-saved team templates (built-in templates live in code) |
+| `presets`, `preset_agents` | user-saved team templates (built-in templates live in code); `preset_agents.tools` as above |
 | `provider_settings` | per CLI: binary path, default model, default effort; the API key only when there is no system credential store |
-| `app_settings` | key/value app settings (default working directory, lead agent, voice input) |
+| `app_settings` | key/value app settings (default working directory, lead agent, voice input, the tool library) |
 
 Conversations in use are kept in memory, because the orchestrator mutates them while streaming. Writes are explicit: user messages, new agent messages, finished turns and session ids are written immediately; streaming changes are batched and written at most once per second, only for messages that changed. Messages left `streaming` by a crashed server are marked `aborted` at startup.
 
@@ -360,6 +391,9 @@ The server can start coding agents with write access, so it is locked down to th
 - API keys are kept in the OS credential store, not the database (see above); the SQLite file (and its WAL files) are readable by the owner only, and deleted rows are overwritten;
 - attached files are served with `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`; only PNG, JPEG, GIF and WebP are shown inline, and anything else is a download, so an attached HTML or SVG file can never run in the app's origin. File names are stripped of directories and control characters before they touch the disk;
 - environment variables that Claude Code sets for its own children are removed before spawning `claude`, so the app also works when started from inside a Claude Code session;
+- the values of MCP servers' variables and headers are secrets like API keys: kept in the credential store, sent to the UI masked, and handed to Claude Code in a private temporary file rather than on its command line;
+- Grok's trust in a folder is only recorded after the user confirms it in the UI, through a JSON POST (no other site can send it);
+- browsing files only reads inside the working directory or an agent's worktree (after following symlinks), never `.git` (in any letter case, since `.GIT` opens `.git` on a case-insensitive filesystem), and serves images and videos like the media endpoint (see [Browsing files](#browsing-files));
 - voice input keeps recordings on the computer: the speech engine listens on `127.0.0.1` behind a random path prefix, and the engine and models it downloads are pinned to a release or commit and checked by SHA-256 (see [Voice input](#voice-input)).
 
 It is a single-user tool: there is no authentication, and any process that can reach your localhost can use it.
@@ -382,4 +416,5 @@ It is a single-user tool: there is no authentication, and any process that can r
 - Codex asks only when its model decides to request more than the sandbox allows; a blocked call it does not ask about just fails.
 - Claude Code's thinking text needs the undocumented `--thinking-display summarized` flag; Claude Code's to-do list appears only when its `TodoWrite` tool is available.
 - Retrying or editing makes every agent start a fresh CLI session with the remaining history.
+- Grok reads a project's own `AGENTS.md` / `CLAUDE.md`, skills, MCP servers and hooks only in a folder the user trusted, and `grok agent stdio` cannot be told to trust one. Harness Relay shows when a folder is not trusted (in the Grok card, and under the working directory of a team with a Grok member), asks before a new chat with a Grok member starts there, and, after the user confirms, records the trust the way `grok --trust` does (`src/server/grokTrust.ts`: a `[folders."<path>"]` entry in `$GROK_HOME/trusted_folders.toml`, `0600`, then checked with `grok inspect`). Grok keys trust on the project root, not on the working directory as typed: the repository root it reports as `projectRoot` (links resolved), else the working directory's real path. That folder is the one recorded and shown in the confirmation, which says when it is a repository root above the working directory (the whole repository is then trusted); if Grok names another folder by the time the user confirms, the request is refused, and if Grok still reports the folder untrusted afterwards, the file is put back as it was. The library's items do not depend on it. In parallel mode Grok works in a worktree under `data/worktrees/`, a different folder, which the working directory's trust may not cover. Codex asks before each MCP tool call too: below full access the request is shown in the chat, and in a conversation that refuses automatically the call fails; in full access only the library's servers run without asking (the user's own servers in `config.toml` follow their own settings). Other Codex MCP elicitations are declined. Grok gets the library's HTTP MCP servers only when it advertises `mcpCapabilities.http`; otherwise they are left out with a warning in the server log. Claude Code asks before each MCP tool call below full access (no MCP tool is pre-approved), so in a conversation that refuses automatically it cannot use them.
 - Voice input: the prebuilt Linux and Windows engines run on the CPU (no CUDA or Vulkan), so large models are slow there; the Linux build needs glibc 2.34 or later (Ubuntu 22.04, Debian 12 and newer, not musl); on macOS it needs Homebrew, which also installs whisper.cpp's dependencies. Text appears after you stop speaking, not while you speak. Whisper can still write Simplified characters, or make up a phrase from noise.

@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import type { ConversationGroup, ConversationSummary } from '../../shared/types';
 import { GROUP_LIMITS } from '../../shared/types';
 import { api } from '../api';
@@ -16,7 +16,7 @@ import {
   type GroupSection,
 } from '../sidebar';
 import { convStatus, relativeTime } from '../util';
-import { ChevronIcon, FolderIcon, PencilIcon } from './icons';
+import { ChevronIcon, FolderIcon, FolderPlusIcon, PencilIcon } from './icons';
 import { MemberDots } from './MemberDots';
 
 interface Props {
@@ -24,12 +24,81 @@ interface Props {
   conversations: ConversationSummary[];
   groups: ConversationGroup[];
   seen: Record<string, number>;
-  /** The New group field is open. */
-  creating: boolean;
-  onCreatingDone: () => void;
   /** Groups or conversations changed: load them again. */
   onChanged: () => void;
   onDelete: (c: ConversationSummary) => void;
+}
+
+/**
+ * The new group's name field, which takes the place of the New group / Search buttons the way the
+ * search field does: Enter creates the group, Escape or × closes it.
+ */
+export function NewGroupBox({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const t = useT();
+  const input = useRef<HTMLInputElement>(null);
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => input.current?.focus(), []);
+
+  const save = async () => {
+    const value = name.trim();
+    if (busy || !value) return;
+    setBusy(true);
+    try {
+      await api.createGroup(value);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+      input.current?.focus();
+      return;
+    }
+    onCreated();
+    onClose();
+  };
+
+  return (
+    <form
+      className="sidebar-new-group"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <div className="sidebar-field">
+        <FolderPlusIcon size={16} />
+        <input
+          ref={input}
+          value={name}
+          maxLength={GROUP_LIMITS.maxName}
+          placeholder={t.sidebar.groupName}
+          aria-label={t.sidebar.groupName}
+          aria-invalid={error ? true : undefined}
+          enterKeyHint="done"
+          disabled={busy}
+          onChange={(e) => {
+            setName(e.target.value);
+            setError('');
+          }}
+          onKeyDown={(e) => {
+            // Escape ends an IME composition first (Safari: keyCode 229), not the field.
+            if (e.key === 'Escape' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+              e.preventDefault();
+              onClose();
+            }
+          }}
+        />
+        <button type="button" className="icon-button" onClick={onClose} aria-label={t.common.cancel} title={t.common.cancel}>
+          ×
+        </button>
+      </div>
+      {error && (
+        <p className="group-error" role="alert">
+          {error}
+        </p>
+      )}
+    </form>
+  );
 }
 
 /** A field for a group's name: Enter saves, Escape cancels, leaving it saves what was typed (or cancels when empty). */
@@ -98,7 +167,7 @@ function GroupNameField({
 }
 
 /** The conversations in their groups: the user's groups, then "Other". Conversations are dragged between groups. */
-export function SidebarGroups({ route, conversations, groups, seen, creating, onCreatingDone, onChanged, onDelete }: Props) {
+export function SidebarGroups({ route, conversations, groups, seen, onChanged, onDelete }: Props) {
   const t = useT();
   const [collapsed, setCollapsed] = useState(readCollapsedGroups);
   /** Moves not yet reported back by the server, so the conversation does not jump back meanwhile. */
@@ -128,16 +197,6 @@ export function SidebarGroups({ route, conversations, groups, seen, creating, on
       setMoves(({ [convId]: _dropped, ...rest }) => rest);
       alert(t.sidebar.moveFailed((e as Error).message));
     }
-    onChanged();
-  };
-
-  const create = async (name: string) => {
-    try {
-      await api.createGroup(name);
-    } catch (e) {
-      return (e as Error).message;
-    }
-    onCreatingDone();
     onChanged();
   };
 
@@ -189,8 +248,7 @@ export function SidebarGroups({ route, conversations, groups, seen, creating, on
 
   return (
     <>
-      {creating && <GroupNameField onSave={create} onCancel={onCreatingDone} />}
-      {empty && !creating && <p className="muted small pad">{t.sidebar.empty}</p>}
+      {empty && <p className="muted small pad">{t.sidebar.empty}</p>}
       {!empty &&
         sections.map((section) => {
           const key = sectionKey(section);

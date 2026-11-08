@@ -47,6 +47,10 @@ src/
     store.ts               conversations, messages, agent sessions, presets, sidebar groups, search
     settings.ts            provider settings, default cwd, child-process env
     secrets.ts             OS credential store for API keys (keyring), availability check
+    tools.ts               the tool library: MCP servers (secrets in the keyring), skills (SKILL.md front matter), memory; what each agent gets
+    files.ts               browsing a conversation's files: roots, listing, preview, path checks
+    native.ts              what each CLI loads by itself (its skills, MCP servers, memory files), asked without a prompt
+    grokTrust.ts           records Grok's trust in a folder (as grok --trust does), when the user confirms
     attachments.ts         files attached to messages: storage, safe names, images for the agents
     presets.ts             built-in team templates, in both languages
     validate.ts            input validation for agents and settings
@@ -58,6 +62,9 @@ src/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
     chat.ts                ChatView's pure logic: stream reconnect decision, Apply availability, team-drawer draft
     sidebar.ts             the sidebar's pure logic: conversations in their groups, pending moves, a collapsed group's state
+    files.ts               the file browser's pure logic: breadcrumb, filter, code language, line count
+    tools.ts               the team editor's tool picker: library items, defaults per CLI, an agent's exceptions
+    route.ts               the client's routes in the URL hash, including #/settings/<section>
     voice.ts               voice input's pure logic: WAV encoding, silence, inserting the transcript, install progress
     recorder.ts            microphone recording in the browser, decoded to 16 kHz mono
     useVoice.ts            the voice status hook (polls while an install runs)
@@ -68,7 +75,9 @@ src/
                            MessageItem (incl. plan card), ChangesCard, Composer, Markdown,
                            SettingsPage, CopyButton, Logo, Onboarding (guided tour),
                            MemberDots, icons, VoiceInput (microphone, setup dialog, install progress),
-                           VoiceSettings (Settings → Voice input),
+                           VoiceSettings (Settings → Voice input), ToolsSettings (Settings → Tool library),
+                           FileBrowser (the Files dialog), NativeSetupPanel (what a CLI loads by itself),
+                           GrokTrust (Grok's trust in a folder), SectionTitle,
                            useDialog (focus handling for dialogs)
 test/                      Vitest tests
 .github/workflows/ci.yml   CI: typecheck, tests and build on pull requests and pushes to main
@@ -140,6 +149,9 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 | `POST /api/conversations/:id/approvals/:approvalId` | `{ allow, always?, note? }`: answer an agent's approval request (404 when already answered or expired) |
 | `POST /api/conversations/:id/messages/:messageId/save-plan` | `{ name? }` → `TeamPreset`: saves the lead agent's custom team design as a template |
 | `POST /api/conversations/:id/stop` | aborts the run |
+| `GET /api/conversations/:id/files?root=&path=` | → `FileListing`: the folders that can be browsed (`roots`: `cwd`, plus each agent's worktree in parallel mode), and the entries of `path` in `root` (folders first; `.git` and links leading outside left out; at most 2,000). 404 for anything outside the folder |
+| `GET /api/conversations/:id/files/preview?root=&path=` | → `FilePreview`: the text of a file (the first 512 KB), or that it is an image, a video or binary |
+| `GET /api/conversations/:id/files/raw?root=&path=` | → an image or video in the folder, served like the media endpoint (anything else is a 404) |
 | `GET /api/conversations/:id/messages/:messageId/diff` | → unified diff (text) of that turn's changes |
 | `GET /api/conversations/:id/agents/:agentId/diff` | → unified diff (text) of an agent's whole worktree result |
 | `POST /api/conversations/:id/agents/:agentId/apply` | applies an agent's worktree result to the working directory → `{ files }` (409 on conflict) |
@@ -147,8 +159,16 @@ All write requests must send `Content-Type: application/json` (CSRF guard). Erro
 | `GET /api/presets` · `POST /api/presets` · `DELETE /api/presets/:id` | team templates |
 | `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, createCwd?, lead? }` (`lead`: `{ provider, model?, effort? }`, the auto-team lead agent; a `defaultCwd` that does not exist is a 404 with `code: "cwd-missing"` unless `createCwd: true`, which creates it) |
 | `PUT /api/settings/providers/:provider` | `{ bin?, defaultModel?, defaultEffort?, apiKey? }` (`apiKey: null` removes) |
+| `GET /api/tools` | → `ToolLibraryView`: MCP servers (variable and header values masked), skills (read from their `SKILL.md` now, with a `problem` when one cannot be used), memory per scope, where secrets are kept |
+| `PUT /api/tools` | `{ skills?, memory? }` → `ToolLibraryView`. `skills` replaces the list (`[{ path, providers? }]`; a new path may be a folder of skills, and must hold at least one); `memory` changes the given parts (`all`, `claude`, `codex`, `grok`; at most 20,000 characters each) |
+| `PUT /api/tools/mcp/:name` | `{ transport, command?, args?, url?, env?, headers?, providers?, previousName? }` → `ToolLibraryView`: adds a server, or with `previousName` replaces or renames one. A variable or header without `value` keeps its stored value. 409 for a taken name |
+| `DELETE /api/tools/mcp/:name` | → `ToolLibraryView` (its values are removed from the credential store) |
+| `GET /api/tools/skills/scan?path=` | → `{ path, skills: SkillCandidate[] }`: the skills under a folder (the folder itself and skill folders up to two levels down, at most 300), marked when already added; nothing is saved |
 | `GET /api/providers[?refresh=1]` | → `ProviderStatus[]` |
 | `GET /api/models[?refresh=1]` | → `ProviderModels[]` |
+| `POST /api/providers/:provider/native` | `{ refresh? }` → `NativeSetup`: the skills, MCP servers (names, kinds and states only) and memory files the CLI loads by itself for the default working directory, with `errors` for what it did not report. Starts the CLI briefly without a prompt (a POST, so other sites cannot set it off); kept for a minute per CLI, executable and folder (`refresh: true` asks again) |
+| `POST /api/providers/:provider/native/file` | `{ path }` → `FilePreview`: one of the files the CLI reported (an instruction or memory file, or a skill's `SKILL.md`, matched exactly), to read in the UI; any other path is a 404. Checked against the CLI's latest answer however old, so opening a file does not start the CLI again |
+| `POST /api/providers/grok/folder-trust` | `{ cwd?, trust?, folder? }` → `GrokFolderTrust` `{ cwd, folder, above, trusted }`: whether Grok trusts `cwd` (default: the default working directory), from `grok inspect`. `folder` is the one Grok decides trust for (the repository root, links resolved, else `cwd`'s real path); `above` says it is a repository root above `cwd`. With `trust: true` (sent only after the user confirmed `folder`) it asks Grok again and records the trust for that folder as `grok --trust` would, in `$GROK_HOME/trusted_folders.toml`; 409 when Grok now names another folder than the `folder` sent, or still reports it untrusted (the file is then put back as it was) |
 | `GET /api/providers/:provider/login-methods` | → `LoginMethod[]` |
 | `POST /api/providers/:provider/login` | `{ method }` → `LoginSessionView` |
 | `GET /api/providers/:provider/login` | → `LoginSessionView \| null` (poll while running) |
@@ -236,17 +256,17 @@ Current tests:
 - `test/process.test.ts` — process helpers: byte-exact output, stopping subprocesses that ignore SIGTERM (also after the CLI exited, and on shutdown), a missing working directory, relative executable paths.
 - `test/hub.test.ts` — SSE fan-out when a browser reconnects.
 - `test/web.test.ts` — serving the built UI: hashed assets cached for good, index.html (also for client routes) checked every time, a missing asset is a 404, earlier routes untouched.
-- `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, creating a missing working directory (default, new or edited conversation) only when asked, template ids, sidebar groups (names that must be new and not Other in either language, rename, delete, moving a conversation, unknown groups) and search.
-- `test/prompt.test.ts` — `@mention` parsing (text right after a name, code fences), `[PASS]`, forwarding of failed / stopped / passed replies, the parallel briefing.
+- `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, creating a missing working directory (default, new or edited conversation) only when asked, template ids, sidebar groups (names that must be new and not Other in either language, rename, delete, moving a conversation, unknown groups) and search. Also the tool library routes (masked values, bad names, URLs, CLIs and variable names, taken names, skills and memory, listing the skills under a folder), agents' tool exceptions, what an agent gets when it runs, and browsing files (listing, preview, raw images only, paths outside the folder or into `.git`, unknown roots). Also asking what a CLI loads by itself with a fake service (the default working directory only, refresh, problems in the request's language, unknown CLI, not a GET or a form post), reading a reported file but no other path (without asking the CLI again), and Grok's folder trust through the real probe and a stand-in `grok` that keys trust like grok 1.0.77 (a folder outside a repository, a repository's subfolder trusting the repository root, a folder reached through a link trusting its real path, a different folder than the one confirmed, Grok not taking the entry and the file put back or removed, a missing folder, not a form post).
+- `test/prompt.test.ts` — `@mention` parsing (text right after a name, code fences), `[PASS]`, forwarding of failed / stopped / passed replies, the parallel briefing. Also the memory and skills sections of the briefing.
 - `test/commands.test.ts` — reading shell command lines: publishing commands in their many forms, and "always allow" keys that do not let embedded commands through.
 - `test/chat.test.ts` — ChatView logic: when Enter sends (not on a phone or tablet), when to reconnect the event stream, which worktree result can be applied, the team drawer's draft, asking before creating a missing working directory.
 - `test/markdown.test.ts` — mention chips follow the server's rule and skip code and links; images are shown as links; the user's own messages keep their line breaks; table cells stay on one line or wrap at a readable width, so wide tables scroll sideways.
 - `test/orchestrator.test.ts` — full runs with a fake runner swapped into `runners`: parallel worktree isolation and apply, change tracking in roundtable mode, the directory lock (also for auto team), requests that arrive while a run is set up or a result is applied, agents asking the user (the team stops; the one that asked answers first after the reply, in roundtable, parallel and relay; Continue skips it; a reply to someone else, or an edit, starts afresh; messages written meanwhile wait for the answer), messages sent while the team replies (delivered before the next turn of an agent they are for, in the order sent; a follow-up run for what no turn took; kept after Stop; sent first by an interrupt, the next message or Continue; withdrawn; kept across a restart), deleting a conversation mid-run, keeping a session when a fresh start fails too, and telling teammates what a failed turn changed.
-- `test/grok.test.ts` — the Grok ACP adapter: permission policy per level, session updates → `AgentEvent`s, and the JSON-RPC connection.
-- `test/claude.test.ts` — Claude's pre-approved and removed tools, its arguments (`--system-prompt-snapshot off`, flags an older version rejects) and the reason shown for a refused tool call.
+- `test/grok.test.ts` — the Grok ACP adapter: permission policy per level, session updates → `AgentEvent`s, and the JSON-RPC connection. Also the tool library's MCP servers in ACP's form. HTTP MCP servers only for a Grok that advertises them.
+- `test/claude.test.ts` — Claude's pre-approved and removed tools, its arguments (`--system-prompt-snapshot off`, flags an older version rejects) and the reason shown for a refused tool call. Also the tool library: the `--mcp-config` file and `Read` rules for skill folders (none at full access), `Read` rules on Windows paths, and the `--mcp-config` document.
 - `test/copy.test.ts` — the Markdown written when copying a message or a whole conversation, in both languages; a message is copied exactly as written (URLs, formatting, CRLF), also without the clipboard API.
 - `test/approvals.test.ts` — "always allow" rule keys and matching (chained commands, shell wrappers).
-- `test/codex.test.ts` — the Codex app-server adapter: thread items → `AgentEvent`s (text, reasoning, plan, command output, usage) and approval requests / responses.
+- `test/codex.test.ts` — the Codex app-server adapter: thread items → `AgentEvent`s (text, reasoning, plan, command output, usage) and approval requests / responses. Also the tool library's MCP servers as one `mcp_servers.<name>` override each (approving their own tools in full access), and Codex's MCP tool-call approvals (as codex-cli 0.167.0 sends them) shown like any approval while other elicitations are declined.
 - `test/sidebar.test.ts` — the sidebar's conversation states, conversations in their groups (Other last, conversations of a missing group in Other), moves not yet confirmed, and the state a collapsed group shows.
 - `test/search.test.ts` — search words, matches ignoring case (longest first, overlaps merged), excerpts around the first match, highlighting.
 - `test/grouping.test.ts` — the prompt that asks the lead agent to sort a conversation, and reading its reply (a number or a name; 0 or null is none; anything else is refused).
@@ -255,6 +275,14 @@ Current tests:
 - `test/i18n.test.ts` — language detection (server header and browser), language carried through async work, bilingual templates, and the two UI dictionaries having the same shape.
 - `test/voice.test.ts` — voice input with fake downloads, processes and engine: the pinned catalogue, the background install (engine, model, check) on Linux and with Homebrew on macOS, a SHA-256 mismatch, cancelling, disk space, a custom engine path, an engine that does not start, the engine on 127.0.0.1 behind a secret path, transcription and its language, switching and deleting models, settings, and the HTTP routes.
 - `test/voice-web.test.ts` — voice input in the browser: WAV encoding, silence detection, inserting the transcript at the caret, and what the microphone and Settings show.
+- `test/tools.test.ts` — the tool library: front matter, finding skills (two levels down, a folder that is a skill itself, offered with names and whether they are added), MCP secrets in a fake credential store (masked, kept when not sent, kept under the server's id over a rename, also a rename in letter case only on a store whose names ignore case, moved out of the database, a failing store), defaults per CLI and an agent's exceptions, marked skills, and data saved before items had CLIs. Also: renaming a server or a skill keeps agents' exceptions; values that could not be moved stay in the database; values that could not be read are never saved over, and are read again once the store opens.
+- `test/files.test.ts` — browsing files against a real temporary folder: paths outside it, through symlinks or into `.git` (in any letter case), listing order and the entry limit, text / image / binary previews and cutting a long file, media only for raw, and the folders a conversation offers. A folder reached through a link keeps the path it was asked for, and a cut listing keeps the first entries in display order.
+- `test/files-web.test.ts` — the file browser's breadcrumb, filter, code language and line count.
+- `test/tools-web.test.ts` — the team editor's tool picker: items, the memory part per CLI, defaults per CLI and recording only exceptions.
+- `test/native.test.ts` — what each CLI loads by itself: reading Claude Code's, Codex's and Grok's answers (recorded shapes; MCP configs and their tokens are dropped), the instruction and memory files Claude Code and Codex read (real temporary folders), a CLI that cannot be started, the cache per executable, the latest answer however old (for opening a reported file), problems worded per request, and which files may be read (only the reported ones).
+- `test/route.test.ts` — the client's hash routes, including the settings sections, and which settings card is being read (highlighted in the links).
+- `test/grok-trust.test.ts` — recording Grok's trust in a folder: the entry `grok --trust` writes, replacing an untrusted one and keeping the rest, TOML escaping of Windows paths, the file in a temporary `GROK_HOME` (owner-only), putting it back as it was, reading the trust and the folder it is decided for from `grok inspect` (a project root without its trailing slash, above the folder or not, else the folder itself), and when starting a new chat asks about it (a Grok member and a folder, not an auto team).
+- `test/util.test.ts` — switching an agent or the lead agent to another CLI and back restores the model and effort picked for each CLI.
 - `test/quickstart.test.ts` — the commands people copy run in any shell: npm scripts set no variables the Unix way (npm runs them with cmd.exe on Windows), the landing page, README and user guide never join commands with `&&` (Windows PowerShell 5.1 rejects it), the README quick start starts from a fresh clone, and the landing page, README and user guide install the built app (`npm run build`, then `npm start`, at http://127.0.0.1:8787); the landing page mentions `npm run dev` only for development.
 
 `test/orchestrator.test.ts` also covers approvals with a fake agent (asking and waiting, "always allow", a decline note, expiry on stop, refusing automatically), retrying a reply, editing a user message (`resend`: later messages are dropped and every agent starts a fresh session) and auto team with a fake lead agent (a custom design that waits for confirmation before its team answers, a team set by hand as confirmation, saving it as a template, using a template, the fallback, designing again after the request is edited, and planning runs that lock nothing), sorting a new conversation into a group with a fake lead agent (by its first message only, next to the team, not without groups, never over the user's move, stopped when the conversation is deleted), and attached files (saved with safe names, images and paths delivered to each agent, kept when a message is edited, deleted with dropped messages, files-only messages, bad uploads).

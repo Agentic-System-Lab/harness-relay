@@ -6,6 +6,8 @@ import { useVoiceStatus } from '../useVoice';
 import { formatBytes } from '../util';
 import { setupBytes, voicePill, type VoicePill } from '../voice';
 import { JobProgress } from './VoiceInput';
+import { sectionId } from '../route';
+import { SectionTitle } from './SectionTitle';
 
 const PILL_CLASS: Record<VoicePill, string> = { off: '', installing: 'warn', ready: 'ok', needsModel: 'warn', broken: 'off' };
 
@@ -33,8 +35,8 @@ export function VoiceCard() {
 
   if (!status) {
     return (
-      <section className="card">
-        <h3>{t.voice.title}</h3>
+      <section className="card" id={sectionId('voice')}>
+        <SectionTitle section="voice">{t.voice.title}</SectionTitle>
         <p className="muted small">{error || t.common.loading}</p>
       </section>
     );
@@ -47,9 +49,9 @@ export function VoiceCard() {
   const bytes = setupBytes(status);
 
   return (
-    <section className="card voice-card">
+    <section className="card voice-card" id={sectionId('voice')}>
       <header className="provider-head">
-        <h3>{t.voice.title}</h3>
+        <SectionTitle section="voice">{t.voice.title}</SectionTitle>
         <span className={`pill ${PILL_CLASS[pill]}`}>{t.voice.pill[pill]}</span>
       </header>
       <p className="muted small">{t.voice.hint}</p>

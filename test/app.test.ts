@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +15,7 @@ const { ProviderService } = await import('../src/server/providers');
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { AgentRunError, runners } = await import('../src/server/agents');
+const { NativeSetupService } = await import('../src/server/native');
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -445,5 +446,322 @@ describe('GET /api/search', () => {
     expect(hit?.snippet).toBe('部署到 staging 之前要跑測試');
     expect(await search('production')).toEqual([]);
     expect(await search('')).toEqual([]);
+  });
+});
+
+describe('tool library', () => {
+  it('saves MCP servers with masked values and refuses bad input', async () => {
+    const save = (name: string, body: unknown) => app.request(`/api/tools/mcp/${name}`, json('PUT', body, { 'x-relay-lang': 'en' }));
+    const ok = await save('github', {
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'gh'],
+      env: [{ name: 'GITHUB_TOKEN', value: 'ghp_secret_value_123' }],
+      providers: ['claude', 'grok'],
+    });
+    expect(ok.status).toBe(200);
+    const view = await ok.json();
+    expect(JSON.stringify(view)).not.toContain('ghp_secret_value_123');
+    expect(view.mcpServers[0]).toMatchObject({ name: 'github', providers: ['claude', 'grok'], env: [{ name: 'GITHUB_TOKEN', masked: 'ghp…123' }] });
+    expect(JSON.stringify(await (await get('/api/tools')).json())).not.toContain('ghp_secret_value_123');
+
+    expect((await save('bad.name', { transport: 'stdio', command: 'x' })).status).toBe(400);
+    expect((await save('x', { transport: 'stdio', command: '' })).status).toBe(400);
+    expect((await save('x', { transport: 'http', url: 'file:///etc/passwd' })).status).toBe(400);
+    expect((await save('x', { transport: 'stdio', command: 'x', providers: ['gemini'] })).status).toBe(400);
+    expect((await save('x', { transport: 'stdio', command: 'x', env: [{ name: 'A B', value: '1' }] })).status).toBe(400);
+    expect((await save('GitHub', { transport: 'stdio', command: 'x' })).status).toBe(409);
+    expect((await app.request('/api/tools/mcp/nope', { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } })).status).toBe(404);
+    const del = await app.request('/api/tools/mcp/github', { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
+    expect((await del.json()).mcpServers).toEqual([]);
+  });
+
+  it('saves skills and memory, and gives agents what applies to them', async () => {
+    const skills = join(project, 'skills', 'commit');
+    mkdirSync(skills, { recursive: true });
+    writeFileSync(join(skills, 'SKILL.md'), '---\nname: commit\ndescription: Commit well.\n---\n');
+    const res = await app.request(
+      '/api/tools',
+      json('PUT', { skills: [{ path: join(project, 'skills'), providers: ['codex'] }], memory: { all: 'Be brief.', claude: 'Use pnpm.' } }),
+    );
+    expect(res.status).toBe(200);
+    const view = await res.json();
+    expect(view.skills).toEqual([{ path: skills, name: 'commit', description: 'Commit well.', providers: ['codex'] }]);
+    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '' });
+    expect((await app.request('/api/tools', json('PUT', { memory: { gemini: 'x' } }))).status).toBe(400);
+    expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
+    expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);
+  });
+
+  it('lists the skills under a folder without adding them', async () => {
+    for (const name of ['one', 'two']) {
+      mkdirSync(join(project, 'pack', name), { recursive: true });
+      writeFileSync(join(project, 'pack', name, 'SKILL.md'), `---\nname: ${name}\n---\n`);
+    }
+    const res = await get(`/api/tools/skills/scan?path=${encodeURIComponent(join(project, 'pack'))}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      path: join(project, 'pack'),
+      skills: [
+        { path: join(project, 'pack', 'one'), name: 'one', description: '', added: false },
+        { path: join(project, 'pack', 'two'), name: 'two', description: '', added: false },
+      ],
+    });
+    expect((await (await get('/api/tools')).json()).skills).toEqual([]);
+    expect((await get('/api/tools/skills/scan?path=')).status).toBe(400);
+  });
+
+  it("keeps an agent's tool exceptions and drops unknown keys", async () => {
+    const res = await app.request(
+      '/api/conversations',
+      json('POST', {
+        agents: [{ name: 'Alice', provider: 'claude', role: '', tools: { 'mcp:github': false, memory: true, 'memory:codex': true, bogus: true, 'mcp:x': 'yes' } }],
+        settings: { mode: 'roundtable', permission: 'read-only', cwd: project },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const conv = (await res.json()) as Conversation;
+    expect(conv.agents[0]!.tools).toEqual({ 'mcp:github': false, memory: true, 'memory:codex': true });
+  });
+
+  it("hands each agent its library items when it runs", async () => {
+    writeFileSync(join(project, 'SKILL.md'), '---\nname: solo\n---\n');
+    await app.request('/api/tools', json('PUT', { skills: [{ path: project }], memory: { all: 'Shared note.' } }));
+    await app.request('/api/tools/mcp/gh', json('PUT', { transport: 'stdio', command: 'gh-mcp', env: [{ name: 'T', value: 'tok' }] }));
+    const seen: { mcp: unknown; readDirs: unknown; briefing: string }[] = [];
+    const before = runners.claude;
+    runners.claude = {
+      provider: 'claude',
+      async run(o) {
+        seen.push({ mcp: o.mcpServers, readDirs: o.readDirs, briefing: o.systemPrompt });
+        o.onEvent({ type: 'text', text: 'ok' });
+        return {};
+      },
+    };
+    try {
+      const conv = await createConversation({ permission: 'read-only' });
+      await app.request(`/api/conversations/${conv.id}/messages`, json('POST', { text: 'hi' }));
+      await vi.waitFor(() => expect(seen).toHaveLength(1));
+    } finally {
+      runners.claude = before;
+    }
+    expect(seen[0]!.mcp).toEqual([{ name: 'gh', transport: 'stdio', command: 'gh-mcp', args: [], url: '', env: { T: 'tok' }, headers: {} }]);
+    expect(seen[0]!.readDirs).toEqual([project]);
+    expect(seen[0]!.briefing).toContain('Shared note.');
+    expect(seen[0]!.briefing).toContain(`- solo (${join(project, 'SKILL.md')})`);
+  });
+});
+
+describe('browsing files', () => {
+  it('lists folders, previews text and serves images safely', async () => {
+    mkdirSync(join(project, 'src'));
+    writeFileSync(join(project, 'src', 'a.ts'), 'const a = 1;\n');
+    writeFileSync(join(project, 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const conv = await createConversation({ permission: 'read-only' });
+    const base = `/api/conversations/${conv.id}/files`;
+
+    const list = await (await get(`${base}?root=cwd&path=`)).json();
+    expect(list.roots).toEqual([{ id: 'cwd', path: project }]);
+    expect(list.entries.map((e: { name: string }) => e.name)).toEqual(['src', 'pic.png']);
+    expect((await (await get(`${base}?path=src`)).json()).entries).toMatchObject([{ name: 'a.ts', kind: 'file', size: 13 }]);
+
+    const preview = await (await get(`${base}/preview?path=src/a.ts`)).json();
+    expect(preview).toMatchObject({ path: 'src/a.ts', kind: 'text', text: 'const a = 1;\n' });
+    expect((await (await get(`${base}/preview?path=pic.png`)).json()).kind).toBe('image');
+
+    const raw = await get(`${base}/raw?path=pic.png`);
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get('content-type')).toBe('image/png');
+    expect(raw.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(raw.headers.get('content-security-policy')).toContain('sandbox');
+    expect((await get(`${base}/raw?path=src/a.ts`)).status).toBe(404);
+
+    for (const bad of ['..', '../..', '/etc/passwd', '.git', 'missing']) {
+      expect((await get(`${base}?path=${encodeURIComponent(bad)}`)).status, bad).toBe(404);
+      expect((await get(`${base}/preview?path=${encodeURIComponent(bad)}`)).status, bad).toBe(404);
+    }
+    expect((await get(`${base}?root=someone`)).status).toBe(404);
+    expect((await get(`/api/conversations/nope/files`)).status).toBe(404);
+    expect((await app.request(`${base}?path=`, { headers: { host: 'evil.example' } })).status).toBe(403);
+  });
+});
+
+describe("what each CLI loads by itself", () => {
+  it('asks the CLI for the default working directory, only from the app itself', async () => {
+    const asked: [string, string, boolean][] = [];
+    const reported: { path: string; kind: 'instructions' }[] = [];
+    const answer = (provider: string, cwd: string) => ({
+      provider,
+      cwd,
+      skills: [],
+      mcpServers: [],
+      memory: [...reported],
+      memoryFromFiles: true,
+      problems: [{ kind: 'timeout' }],
+      checkedAt: 1,
+    });
+    const native = {
+      get: async (provider: string, cwd: string, refresh = false) => {
+        asked.push([provider, cwd, refresh]);
+        return answer(provider, cwd);
+      },
+      // Opening a reported file checks the latest answer and does not start the CLI.
+      latest: async (provider: string, cwd: string) => answer(provider, cwd),
+    } as unknown as InstanceType<typeof NativeSetupService>;
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    settings.setDefaultCwd(project);
+    const s = new Store(db);
+    const hub = new Hub();
+    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const call = (path: string, body: unknown = {}) => local.request(path, json('POST', body, { 'x-relay-lang': 'en' }));
+
+    const res = await call('/api/providers/codex/native');
+    expect(await res.json()).toEqual({
+      provider: 'codex',
+      cwd: project,
+      skills: [],
+      mcpServers: [],
+      memory: [],
+      memoryFromFiles: true,
+      errors: ['Codex did not answer in time.'],
+      checkedAt: 1,
+    });
+    // A folder cannot be chosen: other sites must not be able to start a CLI in one.
+    await call('/api/providers/grok/native', { refresh: true, cwd: root });
+    expect(asked.slice(0, 2)).toEqual([
+      ['codex', project, false],
+      ['grok', project, true],
+    ]);
+    expect((await call('/api/providers/gemini/native')).status).toBe(404);
+
+    // Reading a reported file, and nothing else.
+    const notes = join(project, 'CLAUDE.md');
+    writeFileSync(notes, '# Notes\n');
+    reported.push({ path: notes, kind: 'instructions' });
+    const file = await call('/api/providers/claude/native/file', { path: notes });
+    expect(await file.json()).toMatchObject({ path: notes, kind: 'text', text: '# Notes\n' });
+    for (const path of [join(project, 'other.md'), '/etc/passwd', `${project}/../${project.split('/').pop()}/CLAUDE.md`, '']) {
+      expect((await call('/api/providers/claude/native/file', { path })).status, path).toBe(404);
+    }
+    rmSync(notes);
+    expect((await call('/api/providers/claude/native/file', { path: notes })).status).toBe(404);
+    expect(asked).toHaveLength(2);
+
+    // Not a GET, and not a form post: a page elsewhere cannot set it off.
+    expect((await local.request('/api/providers/claude/native', { headers: HOST })).status).toBe(404);
+    expect((await local.request('/api/providers/claude/native', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
+  });
+});
+
+describe("Grok's folder trust", () => {
+  /*
+   * A stand-in for `grok inspect --json` that keys trust the way grok 1.0.77 does: on the repository
+   * root (reported with a trailing `/`), else on the folder it runs in, links resolved either way.
+   * With FAKE_GROK_REFUSE set it reports every folder untrusted, as an organisation policy would.
+   */
+  const FAKE_GROK = `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const cwd = process.cwd();
+let root;
+for (let d = cwd; ; d = path.dirname(d)) {
+  if (fs.existsSync(path.join(d, '.git'))) { root = d; break; }
+  if (path.dirname(d) === d) break;
+}
+let store = '';
+try { store = fs.readFileSync(path.join(process.env.GROK_HOME, 'trusted_folders.toml'), 'utf8'); } catch {}
+const trusted = !process.env.FAKE_GROK_REFUSE && store.includes('[folders.' + JSON.stringify(root || cwd) + ']\\ntrusted = true');
+process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null, projectTrusted: trusted }));
+`;
+
+  it('trusts the folder Grok decides trust for: the repository root, links resolved', async () => {
+    const home = join(root, `grok-home-${++n}`);
+    const storeFile = join(home, 'trusted_folders.toml');
+    const fakeGrok = join(root, `fake-grok-${n}`);
+    writeFileSync(fakeGrok, FAKE_GROK, { mode: 0o755 });
+    const repo = join(root, `repo-${n}`);
+    const sub = join(repo, 'packages', 'app');
+    mkdirSync(join(repo, '.git'), { recursive: true });
+    mkdirSync(sub, { recursive: true });
+    const link = join(root, `link-${n}`);
+    symlinkSync(project, link);
+    const saved = { home: process.env.GROK_HOME, refuse: process.env.FAKE_GROK_REFUSE };
+    process.env.GROK_HOME = home;
+    delete process.env.FAKE_GROK_REFUSE;
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    settings.setDefaultCwd(project);
+    const s = new Store(db);
+    const hub = new Hub();
+    // The real probe, running the stand-in.
+    const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
+    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const call = (body: unknown) => local.request('/api/providers/grok/folder-trust', json('POST', body, { 'x-relay-lang': 'en' }));
+    try {
+      // A folder outside a repository: trust is decided for that folder.
+      expect(await (await call({})).json()).toEqual({ cwd: project, folder: project, above: false, trusted: false });
+
+      // A repository's subfolder: the repository root is the one trusted, and the answer says it is above.
+      expect(await (await call({ cwd: sub })).json()).toEqual({ cwd: sub, folder: repo, above: true, trusted: false });
+      // Trusting a folder other than the one the user confirmed is refused, and nothing is written.
+      const wrong = await call({ cwd: sub, trust: true, folder: sub });
+      expect(wrong.status).toBe(409);
+      expect((await wrong.json()).error).toContain(repo);
+      expect(existsSync(storeFile)).toBe(false);
+      expect(await (await call({ cwd: sub, trust: true, folder: repo })).json()).toEqual({ cwd: sub, folder: repo, above: true, trusted: true });
+      const afterRepo = readFileSync(storeFile, 'utf8');
+      expect(afterRepo).toContain(`[folders."${repo}"]`);
+      expect(afterRepo).not.toContain(sub);
+
+      // A folder reached through a link: its real path is the one trusted.
+      expect(await (await call({ cwd: link })).json()).toEqual({ cwd: link, folder: project, above: false, trusted: false });
+
+      // Grok does not take the entry (a policy): the store is put back as it was, byte for byte.
+      process.env.FAKE_GROK_REFUSE = '1';
+      const refused = await call({ cwd: link, trust: true, folder: project });
+      expect(refused.status).toBe(409);
+      expect((await refused.json()).error).toMatch(/undone/);
+      expect(readFileSync(storeFile, 'utf8')).toBe(afterRepo);
+      delete process.env.FAKE_GROK_REFUSE;
+
+      expect(await (await call({ cwd: link, trust: true, folder: project })).json()).toEqual({ cwd: link, folder: project, above: false, trusted: true });
+      expect(readFileSync(storeFile, 'utf8')).toContain(`[folders."${project}"]`);
+      expect(readFileSync(storeFile, 'utf8')).not.toContain(link);
+
+      expect((await call({ cwd: join(root, 'missing') })).status).toBe(404);
+      expect((await local.request('/api/providers/grok/folder-trust', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
+    } finally {
+      if (saved.home === undefined) delete process.env.GROK_HOME;
+      else process.env.GROK_HOME = saved.home;
+      if (saved.refuse === undefined) delete process.env.FAKE_GROK_REFUSE;
+      else process.env.FAKE_GROK_REFUSE = saved.refuse;
+    }
+  });
+
+  it('removes the store again when there was none and Grok does not take the entry', async () => {
+    const home = join(root, `grok-home-${++n}`);
+    const fakeGrok = join(root, `fake-grok-${n}`);
+    writeFileSync(fakeGrok, FAKE_GROK, { mode: 0o755 });
+    const saved = { home: process.env.GROK_HOME, refuse: process.env.FAKE_GROK_REFUSE };
+    process.env.GROK_HOME = home;
+    process.env.FAKE_GROK_REFUSE = '1';
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    settings.setDefaultCwd(project);
+    const s = new Store(db);
+    const hub = new Hub();
+    const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
+    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    try {
+      const res = await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }));
+      expect(res.status).toBe(409);
+      expect(existsSync(join(home, 'trusted_folders.toml'))).toBe(false);
+    } finally {
+      if (saved.home === undefined) delete process.env.GROK_HOME;
+      else process.env.GROK_HOME = saved.home;
+      if (saved.refuse === undefined) delete process.env.FAKE_GROK_REFUSE;
+      else process.env.FAKE_GROK_REFUSE = saved.refuse;
+    }
   });
 });

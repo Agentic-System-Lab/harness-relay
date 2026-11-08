@@ -10,6 +10,7 @@ import {
 import { ASK_TOKEN } from '../shared/ask';
 import { mentionsInMarkdown } from '../shared/mentions';
 import { attachmentPath } from './attachments';
+import type { AgentTools } from './tools';
 
 export const PASS_TOKEN = '[PASS]';
 
@@ -70,8 +71,34 @@ ${access}
 - Your changes are committed to your branch automatically after each turn; the user reviews the diffs and decides whose result to apply. Do not commit, merge, rebase or switch branches yourself.`;
 }
 
+/** The tool library's memory and skills for this agent, as briefing sections ('' when it gets neither). */
+function toolSections(tools: Pick<AgentTools, 'memory' | 'skills'>): string {
+  const out: string[] = [];
+  if (tools.memory) {
+    out.push(`# Memory
+Notes the user keeps for every agent in Harness Relay, shared by all conversations. Use them as background; what the user says in this chat takes precedence.
+<memory>
+${tools.memory}
+</memory>`);
+  }
+  if (tools.skills.length) {
+    const list = tools.skills
+      .map((s) => `- ${s.name}${s.description ? `: ${s.description.replace(/\s+/g, ' ')}` : ''} (${s.file})`)
+      .join('\n');
+    out.push(`# Skills
+Skills are instructions for particular tasks, each in a SKILL.md file. When a task matches a skill's description, read its SKILL.md with your file-reading tool before you start, and follow it; paths in it are relative to the skill's folder. Skills your own CLI provides work as usual.
+${list}`);
+  }
+  return out.length ? `\n\n${out.join('\n\n')}` : '';
+}
+
 /** The system-level briefing for one agent. Rebuilt on every turn so role edits take effect immediately. */
-export function buildBriefing(conv: Conversation, agent: AgentConfig, ws: BriefingWorkspace = { kind: 'shared' }): string {
+export function buildBriefing(
+  conv: Conversation,
+  agent: AgentConfig,
+  ws: BriefingWorkspace = { kind: 'shared' },
+  tools: Pick<AgentTools, 'memory' | 'skills'> = { skills: [] },
+): string {
   const { settings, agents } = conv;
   const order = agents.map((a) => `@${a.name}`).join(' → ');
   const team = agents
@@ -97,7 +124,7 @@ ${team}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
 
 # Workspace
-${workspaceRules(conv, ws)}`;
+${workspaceRules(conv, ws)}${toolSections(tools)}`;
 }
 
 /** The files a message's turn changed, as a block for teammates (empty when none). */

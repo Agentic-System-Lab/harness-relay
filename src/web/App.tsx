@@ -5,6 +5,7 @@ import { ChatView } from './components/ChatView';
 import { NewChat } from './components/NewChat';
 import { Onboarding, onboardingDone } from './components/Onboarding';
 import { SettingsPage } from './components/SettingsPage';
+import { hashFor, routeFromHash, type Route } from './route';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon, PlusIcon, SearchIcon } from './components/icons';
 import { useT } from './i18n';
@@ -29,14 +30,9 @@ function writeSeen(m: SeenMap): void {
   }
 }
 
-export type Route = { page: 'new' } | { page: 'chat'; id: string } | { page: 'settings' };
+export type { Route };
 
-function parseHash(): Route {
-  const h = window.location.hash.replace(/^#\/?/, '');
-  if (h.startsWith('c/')) return { page: 'chat', id: h.slice(2) };
-  if (h === 'settings') return { page: 'settings' };
-  return { page: 'new' };
-}
+const parseHash = (): Route => routeFromHash(window.location.hash);
 
 const COLLAPSED_KEY = 'relay:sidebarCollapsed';
 
@@ -49,7 +45,7 @@ function readCollapsed(): boolean {
 }
 
 export function navigate(r: Route): void {
-  window.location.hash = r.page === 'chat' ? `#/c/${r.id}` : r.page === 'settings' ? '#/settings' : '#/';
+  window.location.hash = hashFor(r);
 }
 
 export function App() {
@@ -217,6 +213,7 @@ export function App() {
         )}
         {route.page === 'settings' && (
           <SettingsPage
+            section={route.section}
             providers={providers}
             catalog={catalog}
             refreshProviders={refreshProviderInfo}

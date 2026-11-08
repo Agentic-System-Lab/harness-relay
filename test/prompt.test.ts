@@ -123,6 +123,18 @@ describe('buildBriefing', () => {
     expect(briefing).toContain('@Reviewer → relay/c/Reviewer (started from 222222222222)');
   });
 
+  it("adds the agent's memory and skills from the tool library, and nothing without them", () => {
+    const briefing = buildBriefing(conv, team[0]!, { kind: 'shared' }, {
+      memory: 'Lead with the answer.',
+      skills: [{ name: 'commit', description: 'Write a\n commit.', dir: '/s/commit', file: '/s/commit/SKILL.md' }],
+    });
+    expect(briefing).toContain('<memory>\nLead with the answer.\n</memory>');
+    expect(briefing).toContain('- commit: Write a commit. (/s/commit/SKILL.md)');
+    const plain = buildBriefing(conv, team[0]!);
+    expect(plain).not.toContain('# Memory');
+    expect(plain).not.toContain('# Skills');
+  });
+
   it('tells agents how to show images and videos in the chat', () => {
     const briefing = buildBriefing(conv, team[0]!);
     expect(briefing).toContain('![Sales by month](charts/sales.png)');

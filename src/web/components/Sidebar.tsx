@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { PROVIDER_LABEL, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
+import { settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
 import { FolderPlusIcon, PanelIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
-import { SidebarGroups } from './SidebarGroups';
+import { NewGroupBox, SidebarGroups } from './SidebarGroups';
 import { SearchBox, SearchResults } from './SidebarSearch';
 
 interface Props {
@@ -77,9 +78,11 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
         </button>
         {searching ? (
           <SearchBox query={query} onQuery={setQuery} onClose={closeSearch} focusToken={searchFocus} />
+        ) : creating ? (
+          <NewGroupBox onClose={() => setCreating(false)} onCreated={onChanged} />
         ) : (
           <div className="sidebar-actions" data-tour="organize">
-            <button type="button" className="sidebar-action" onClick={() => setCreating(true)} aria-pressed={creating}>
+            <button type="button" className="sidebar-action" onClick={() => setCreating(true)}>
               <FolderPlusIcon size={16} /> {t.sidebar.newGroup}
             </button>
             <button type="button" className="sidebar-action" onClick={openSearch}>
@@ -98,8 +101,6 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
             conversations={conversations}
             groups={groups}
             seen={seen}
-            creating={creating}
-            onCreatingDone={() => setCreating(false)}
             onChanged={onChanged}
             onDelete={remove}
           />
@@ -112,10 +113,10 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
             const p = providers.find((x) => x.provider === id);
             const s = providerState(p);
             return (
-              <span key={id} className={`health ${s}`} title={healthTitle(p, t)}>
+              <a key={id} href={settingsHref(id)} className={`health ${s}`} title={healthTitle(p, t)}>
                 <i />
                 {PROVIDER_LABEL[id]}
-              </span>
+              </a>
             );
           })}
         </div>

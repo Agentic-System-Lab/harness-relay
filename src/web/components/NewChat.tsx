@@ -4,6 +4,7 @@ import {
   PROVIDER_LABEL,
   type AgentConfig,
   type Conversation,
+  type GrokFolderTrust,
   type LeadAgentSettings,
   type ProviderModels,
   type ProviderStatus,
@@ -15,6 +16,7 @@ import { leadLabel, newAgent } from '../util';
 import { PencilIcon } from './icons';
 import { Logo } from './Logo';
 import { MemberDots } from './MemberDots';
+import { GrokTrustDialog, asksGrokTrust, type GrokTrustAnswer } from './GrokTrust';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 
 const LAST_CWD_KEY = 'relay:lastCwd';
@@ -75,6 +77,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [trustAsk, setTrustAsk] = useState<{ status: GrokFolderTrust; resolve: (a: GrokTrustAnswer) => void } | null>(null);
 
   const initialized = useRef(false);
 
@@ -124,10 +127,24 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
     if (p) setTeam(fromPreset(p, team.settings.cwd));
   };
 
+  /** Asks whether Grok should trust the team's folder (the dialog below answers). */
+  const askTrust = (status: GrokFolderTrust) => new Promise<GrokTrustAnswer>((resolve) => setTrustAsk({ status, resolve }));
+
   const start = async () => {
     setBusy(true);
     setError('');
     try {
+      // A Grok member would miss the project's own instructions, skills, MCP servers and hooks in a
+      // folder Grok does not trust: ask before the chat starts. A folder that does not exist yet is
+      // not asked about (it is created below, empty).
+      if (asksGrokTrust(team)) {
+        const status = await api.grokFolderTrust(team.settings.cwd).catch(() => undefined);
+        if (status?.trusted === false) {
+          const answer = await askTrust(status);
+          if (answer === 'cancel') return;
+          if (answer === 'trust') await api.grokFolderTrust(status.cwd, status.folder);
+        }
+      }
       const conv = await orCreateCwd(
         (createCwd) => api.createConversation({ title, agents: team.agents, settings: team.settings, createCwd }),
         () => confirm(t.newChat.confirmCreateCwd(team.settings.cwd.trim())),
@@ -246,6 +263,15 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         </div>
         {(problems.length > 0 || error) && <p className="error-line">{error || problems[0]}</p>}
       </footer>
+      {trustAsk && (
+        <GrokTrustDialog
+          status={trustAsk.status}
+          onAnswer={(a) => {
+            trustAsk.resolve(a);
+            setTrustAsk(null);
+          }}
+        />
+      )}
     </div>
   );
 }

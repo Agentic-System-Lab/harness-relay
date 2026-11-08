@@ -605,8 +605,10 @@
             <li><b>看見思考與動作</b>推理過程、計畫與每個工具的輸出即時串流；Mermaid 程式碼區塊會畫成圖表。</li>
             <li><b>複製、編輯與重試</b>把一則訊息或整段對話複製成 Markdown；編輯自己的訊息或重試某則回覆，團隊就從那裡重新回答。</li>
             <li><b>狀態一目了然</b>側邊欄標示需要你處理、正在回覆或有新回覆的對話；切換到別的對話時，原本的對話會繼續執行。</li>
-            <li><b>在 app 裡登入</b>每個 CLI 都能用裝置碼、瀏覽器或貼上授權碼登入，也能設定 API key、執行檔路徑與預設模型。</li>
+            <li><b>在 app 裡登入</b>每個 CLI 都能用裝置碼、瀏覽器或貼上授權碼登入，也能設定 API key、執行檔路徑與預設模型，並查看各 CLI 自己載入的 skill、MCP 與記憶。</li>
             <li><b>聊天室裡的圖片與影片</b>agent 存在工作目錄裡的圖片與影片，會直接顯示在對話中。</li>
+            <li><b>瀏覽工作目錄</b>上方的「檔案」列出工作目錄或某位成員的 worktree，並預覽附行號的程式碼、Markdown、圖片與影片。</li>
+            <li><b>三種 CLI 共用的工具庫</b>MCP 伺服器、skill 與記憶設定一次，Claude Code、Codex 和 Grok 都能用，而且加在各 CLI 自己的設定之外；每一項可以只給某幾種 CLI 或特定成員。</li>
             <li><b>English 與繁體中文</b>介面跟著瀏覽器的語言，第一次開啟時有使用導覽。</li>
           </ul>
         </div>
@@ -620,7 +622,7 @@
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>只綁定 <code>127.0.0.1</code>，並拒絕跨站請求。</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>每個改檔的回合都有 git 快照；平行模式的 agent 在各自的 worktree 工作。</span></li>
-              <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service。</span></li>
+              <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 與 MCP 伺服器的 token 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service。</span></li>
               <li><svg aria-hidden="true"><use href="#i-db" /></svg><span>所有對話都存在一個 SQLite 檔案裡。</span></li>
             </ul>
           </div>

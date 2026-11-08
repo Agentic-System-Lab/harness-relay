@@ -37,7 +37,9 @@ A new group, then Auto team on this repository: you create a group and describe 
 - **Copy, edit and retry** — copy any message or the whole chat as Markdown; edit one of your messages, or retry an agent's reply, and the team answers again from there.
 - **Clear status at a glance** — the sidebar marks conversations that need you, are replying, or have a new reply; conversations keep running when you switch away.
 - **Groups and search** — make groups in the sidebar and drag conversations into them; the lead agent puts each new conversation in the group its first message fits (or leaves it in **Other**). Search finds conversations by anything written in them.
-- **Settings & login page** — sign in to each CLI separately (device code / browser / paste-code flows), set API keys, executable paths, default model and effort, and the lead agent.
+- **Tool library: MCP servers, skills and memory** — set them up once in Settings and agents get them whichever CLI they run on, in addition to each CLI's own setup. Give each to every member or only to the members of some CLIs, keep memory for everyone plus a part per CLI, and change it per member. Tokens go to your system's credential store.
+- **Browse the working directory** — **Files** in a conversation's header lists the working directory (or, in parallel mode, an agent's worktree) and previews code with line numbers and highlighting, Markdown, images and videos.
+- **Settings & login page** — sign in to each CLI separately (device code / browser / paste-code flows), set API keys, executable paths, default model and effort, and the lead agent, and see the skills, MCP servers and memory each CLI loads by itself.
 - **English and 繁體中文** — the UI follows your browser language (switchable in Settings); a guided tour introduces the main features on the first visit.
 - **Local-first** — everything is stored in a single SQLite file; the server only listens on `127.0.0.1`.
 
@@ -76,12 +78,15 @@ Working on Harness Relay itself? Run `npm run dev` instead: the server restarts 
 | User guide | [docs/user-guide.md](docs/user-guide.md) | [docs/user-guide.zh-TW.md](docs/user-guide.zh-TW.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) | [docs/architecture.zh-TW.md](docs/architecture.zh-TW.md) |
 | Developer guide | [docs/developer-guide.md](docs/developer-guide.md) | [docs/developer-guide.zh-TW.md](docs/developer-guide.zh-TW.md) |
+| Proposals (not implemented yet) | [docs/proposals/README.md](docs/proposals/README.md) | [docs/proposals/README.zh-TW.md](docs/proposals/README.zh-TW.md) |
+| ↳ Scheduled and event-triggered runs | [docs/proposals/triggers.md](docs/proposals/triggers.md) | [docs/proposals/triggers.zh-TW.md](docs/proposals/triggers.zh-TW.md) |
+| ↳ Shared memory across agents | [docs/proposals/shared-memory.md](docs/proposals/shared-memory.md) | [docs/proposals/shared-memory.zh-TW.md](docs/proposals/shared-memory.zh-TW.md) |
 
 ## Safety
 
 Agents run with the file-system permission you choose for the conversation (**read-only**, **edit**, or **full access**). Full access lets agents run any command without asking — use it only in directories you trust. Edit mode does not sandbox project code either: tests, builds and project scripts run code the agents can change, so use read-only for code or instructions you don't trust. The server binds to `127.0.0.1` and rejects cross-site requests, but anyone with access to your machine's localhost can drive the agents. See [Architecture → Security](docs/architecture.md#security).
 
-API keys you save in Settings are kept in your operating system's credential store — the macOS Keychain, Windows Credential Manager, or the Secret Service (GNOME Keyring, KWallet) on Linux — not in the database. Only on a system without one, such as a headless Linux server, do they stay in `data/relay.db`, which only your user can read; to avoid that, set `ANTHROPIC_API_KEY` / `XAI_API_KEY` before starting Harness Relay instead of saving a key.
+API keys you save in Settings, and the values of MCP servers' environment variables and headers in the tool library, are kept in your operating system's credential store — the macOS Keychain, Windows Credential Manager, or the Secret Service (GNOME Keyring, KWallet) on Linux — not in the database. Only on a system without one, such as a headless Linux server, do they stay in `data/relay.db`, which only your user can read; to avoid that, set `ANTHROPIC_API_KEY` / `XAI_API_KEY` before starting Harness Relay instead of saving a key.
 
 ## Scripts
 

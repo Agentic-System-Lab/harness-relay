@@ -1,0 +1,63 @@
+// The client's routes, kept in the URL hash: #/ (new chat), #/c/<id>, #/settings and #/settings/<section>.
+
+import { PROVIDERS, type Provider } from '../shared/types';
+
+/** `section`: the card of the settings page to scroll to. */
+export type Route = { page: 'new' } | { page: 'chat'; id: string } | { page: 'settings'; section?: SettingsSection };
+
+/** The cards of the settings page, in page order; each is the element `settings-<section>`. */
+export const SETTINGS_SECTIONS = ['language', ...PROVIDERS, 'lead', 'tools', 'voice', 'cwd', 'tour'] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+
+export function routeFromHash(hash: string): Route {
+  const h = hash.replace(/^#\/?/, '');
+  if (h.startsWith('c/')) return { page: 'chat', id: h.slice(2) };
+  if (h === 'settings') return { page: 'settings' };
+  if (h.startsWith('settings/')) {
+    const section = h.slice('settings/'.length) as SettingsSection;
+    return SETTINGS_SECTIONS.includes(section) ? { page: 'settings', section } : { page: 'settings' };
+  }
+  return { page: 'new' };
+}
+
+export function hashFor(r: Route): string {
+  if (r.page === 'chat') return `#/c/${r.id}`;
+  if (r.page === 'settings') return r.section ? `#/settings/${r.section}` : '#/settings';
+  return '#/';
+}
+
+/** The link to a card of the settings page. */
+export const settingsHref = (section: SettingsSection | Provider) => hashFor({ page: 'settings', section });
+
+/** The element id of a settings card. */
+export const sectionId = (section: SettingsSection) => `settings-${section}`;
+
+/**
+ * Scrolls to a settings card. Links call it too, because following a link to the hash already in
+ * the address bar does not change the route.
+ */
+export function scrollToSection(section: SettingsSection): void {
+  document.getElementById(sectionId(section))?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+/** The settings card being read: the last one whose top has scrolled up to `line`, else the first card. */
+export function currentSection(tops: { section: SettingsSection; top: number }[], line: number): SettingsSection | undefined {
+  if (!tops.length) return undefined;
+  let current = tops[0]!.section;
+  for (const t of tops) if (t.top <= line) current = t.section;
+  return current;
+}
+
+/**
+ * Where a card's top must reach to count as being read: just under the sticky links. Over the last
+ * half screen of scrolling the line moves down to the bottom of the view, so the short cards at the
+ * end of the page, which can never scroll up to the links, are each reached in turn.
+ */
+export function readingLine(v: { linksBottom: number; viewBottom: number; scrollTop: number; scrollHeight: number; clientHeight: number }): number {
+  const line = v.linksBottom + 24;
+  const scrollable = v.scrollHeight - v.clientHeight;
+  const sweep = Math.min(v.clientHeight / 2, scrollable);
+  const remaining = scrollable - v.scrollTop;
+  if (sweep <= 0 || remaining >= sweep) return line;
+  return line + (v.viewBottom - line) * (1 - Math.max(0, remaining) / sweep);
+}

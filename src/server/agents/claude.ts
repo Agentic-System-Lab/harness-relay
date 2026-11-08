@@ -1,5 +1,8 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Permission, PlanEntry } from '../../shared/types';
 import { runProcess, tail } from '../process';
 import {
@@ -13,6 +16,7 @@ import {
   type AgentEvent,
   type AgentRunner,
   type ApprovalRequest,
+  type McpServerSpec,
   type RunOptions,
   type RunResult,
 } from './types';
@@ -96,6 +100,38 @@ export function claudeDisallowedTools(permission: Permission): string[] {
   return permission === 'read-only' ? ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] : [];
 }
 
+/**
+ * A `Read` permission rule for everything in an absolute folder (`//` starts an absolute path in
+ * Claude Code's rules; Windows paths are written as /c/…).
+ */
+export function claudeReadRule(dir: string): string {
+  const posix = /^[A-Za-z]:[\\/]/.test(dir) ? `/${dir[0]!.toLowerCase()}${dir.slice(2)}` : dir;
+  return `Read(/${posix.replace(/\\/g, '/').replace(/\/+$/, '')}/**)`;
+}
+
+/** Claude Code's `--mcp-config` content for the tool library's MCP servers. */
+export function claudeMcpConfig(servers: McpServerSpec[]): { mcpServers: Record<string, unknown> } {
+  const has = (vars: Record<string, string>) => Object.keys(vars).length > 0;
+  return {
+    mcpServers: Object.fromEntries(
+      servers.map((s) => [
+        s.name,
+        s.transport === 'http'
+          ? { type: 'http', url: s.url, ...(has(s.headers) ? { headers: s.headers } : {}) }
+          : { type: 'stdio', command: s.command, args: s.args, ...(has(s.env) ? { env: s.env } : {}) },
+      ]),
+    ),
+  };
+}
+
+/** A file only this user can read, in a new temporary folder that `remove()` deletes. */
+function privateTempFile(name: string, content: string): { file: string; remove: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), 'harness-relay-'));
+  const file = join(dir, name);
+  writeFileSync(file, content, { mode: 0o600 });
+  return { file, remove: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
 /** Command-line flags a Claude Code version may not know yet; dropped (and remembered) when it rejects one. */
 const OPTIONAL_FLAGS = {
   // Readable thinking summaries (by default the thinking text is left empty). Not in `--help`.
@@ -118,10 +154,15 @@ export function claudeArgs(o: {
   newSessionId?: string;
   /** A directory of attached files outside the working directory that Claude may read. */
   attachmentsDir?: string;
+  /** Other folders outside the working directory Claude may read (not write), e.g. skills. */
+  readDirs?: string[];
+  /** The `--mcp-config` file with the tool library's MCP servers. */
+  mcpConfig?: string;
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
   const disallowed = claudeDisallowedTools(o.permission);
+  const reads = o.permission === 'full' ? [] : (o.readDirs ?? []).map(claudeReadRule);
   return [
     '-p',
     '--input-format',
@@ -133,10 +174,12 @@ export function claudeArgs(o: {
     '--append-system-prompt',
     o.systemPrompt,
     // Variadic; the next `--flag` ends the list.
-    ...withAllowedTools(claudeAllowedTools(o.permission)),
+    ...withAllowedTools([...claudeAllowedTools(o.permission), ...reads]),
     ...(disallowed.length ? ['--disallowedTools', ...disallowed] : []),
     // Lets Claude read the attached files outside the working directory (variadic too).
     ...(o.attachmentsDir ? ['--add-dir', o.attachmentsDir] : []),
+    // Added to the user's own MCP servers (variadic too).
+    ...(o.mcpConfig ? ['--mcp-config', o.mcpConfig] : []),
     '--permission-mode',
     PERMISSION_MODE[o.permission][o.ask ? 'ask' : 'deny'],
     ...(o.ask ? ['--permission-prompt-tool', 'stdio'] : []),
@@ -299,14 +342,20 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
 export const claudeRunner: AgentRunner = {
   provider: 'claude',
   async run(o): Promise<RunResult> {
-    // An older Claude Code that rejects an optional flag: remember that and run again without it.
-    for (;;) {
-      try {
-        return await runClaude(o);
-      } catch (err) {
-        if (!(err instanceof UnsupportedFlag)) throw err;
-        unsupported.add(err.flag);
+    // The servers' tokens go in a private file for this turn, not on the command line (which `ps` shows).
+    const mcp = o.mcpServers?.length ? privateTempFile('mcp.json', JSON.stringify(claudeMcpConfig(o.mcpServers))) : undefined;
+    try {
+      // An older Claude Code that rejects an optional flag: remember that and run again without it.
+      for (;;) {
+        try {
+          return await runClaude(o, mcp?.file);
+        } catch (err) {
+          if (!(err instanceof UnsupportedFlag)) throw err;
+          unsupported.add(err.flag);
+        }
       }
+    } finally {
+      mcp?.remove();
     }
   },
 };
@@ -324,7 +373,7 @@ function rejectedFlag(stderr: string): OptionalFlag | undefined {
   );
 }
 
-async function runClaude(o: Parameters<AgentRunner['run']>[0]): Promise<RunResult> {
+async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: string): Promise<RunResult> {
   const newSessionId = o.sessionId ? undefined : randomUUID();
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
   const args = claudeArgs({
@@ -336,6 +385,8 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0]): Promise<RunResul
     sessionId: o.sessionId,
     newSessionId,
     attachmentsDir: o.attachmentsDir,
+    readDirs: o.readDirs,
+    mcpConfig,
     skip: unsupported,
   });
 

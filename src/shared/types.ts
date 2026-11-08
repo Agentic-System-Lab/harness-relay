@@ -38,7 +38,232 @@ export interface AgentConfig {
   model?: string;
   /** Optional reasoning-effort override (e.g. low / medium / high / xhigh); empty means default. */
   effort?: string;
+  /**
+   * This agent's exceptions to the tool library's defaults, by tool key (see `toolKey`): true = it
+   * gets the tool although the tool is off by default, false = it does not get a tool that is on.
+   */
+  tools?: Record<string, boolean>;
 }
+
+// --- Tool library: MCP servers, skills and memory every agent can be given ------------------
+
+/**
+ * Tool keys: `mcp:<server id>`, `skill:<skill folder>`, `memory` (the memory for everyone) or
+ * `memory:<provider>` (the memory for one CLI's agents). Ids and folders stay when things are renamed.
+ */
+export type ToolKind = 'mcp' | 'skill' | 'memory';
+
+export function toolKey(kind: ToolKind, name = ''): string {
+  if (kind === 'memory') return name && name !== 'all' ? `memory:${name}` : 'memory';
+  return `${kind}:${name}`;
+}
+
+/** Whether an agent gets a library tool that is `defaultOn` (or not) for its CLI. */
+export function agentHasTool(agent: Pick<AgentConfig, 'tools'>, key: string, defaultOn: boolean): boolean {
+  return agent.tools?.[key] ?? defaultOn;
+}
+
+/** The shared memory has a part for everyone and a part for each CLI's agents. */
+export type MemoryScope = 'all' | Provider;
+export const MEMORY_SCOPES: MemoryScope[] = ['all', ...PROVIDERS];
+
+/** MCP server names: they become part of tool names (`mcp__<name>__…`) and config keys. */
+export const MCP_NAME_RE = /^[A-Za-z0-9_-]{1,40}$/;
+export const TOOL_LIMITS = { maxMcpServers: 30, maxSkills: 100, maxMemoryChars: 20_000, maxVars: 30 };
+
+export type McpTransport = 'stdio' | 'http';
+
+/** A named secret (an environment variable or HTTP header) as the UI sees it. */
+export interface MaskedVar {
+  name: string;
+  masked: string;
+}
+
+/** An MCP server Harness Relay gives its agents, in addition to the ones each CLI is set up with. */
+export interface McpServerView {
+  /** Stays when the server is renamed; agents' exceptions use it. */
+  id: string;
+  name: string;
+  transport: McpTransport;
+  /** stdio: the program and its arguments. */
+  command: string;
+  args: string[];
+  /** http: the server's URL (Streamable HTTP). */
+  url: string;
+  /** stdio: environment variables; http: request headers. Their values are kept as secrets. */
+  env: MaskedVar[];
+  headers: MaskedVar[];
+  /**
+   * Agents of these CLIs get it unless they turn it off; others only when they turn it on
+   * (none = no agent by default).
+   */
+  providers: Provider[];
+}
+
+export interface McpServerUpdate {
+  transport: McpTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  /** Each name to keep; without a `value`, the value stored for that name stays. */
+  env?: { name: string; value?: string }[];
+  headers?: { name: string; value?: string }[];
+  /** Absent: every CLI. */
+  providers?: Provider[];
+  /** When renaming: the server's current name (its stored values carry over). */
+  previousName?: string;
+}
+
+/** A skill: a folder with a SKILL.md, whose front matter names and describes it. */
+export interface SkillView {
+  path: string;
+  name: string;
+  description: string;
+  /** As for MCP servers: the CLIs whose agents get it by default. */
+  providers: Provider[];
+  /** Why agents cannot use it right now (no SKILL.md, a name another skill has). */
+  problem?: string;
+}
+
+/** A skill found under a folder the user picked, before it is added. */
+export interface SkillCandidate {
+  path: string;
+  name: string;
+  description: string;
+  /** Already in the library. */
+  added: boolean;
+}
+
+export interface ToolLibraryView {
+  mcpServers: McpServerView[];
+  skills: SkillView[];
+  /**
+   * Notes agents get in their briefing, in every conversation: `all` for every agent, and a part for
+   * each CLI's agents. Empty = none.
+   */
+  memory: Record<MemoryScope, string>;
+  /** Where the MCP servers' variable and header values are kept. */
+  secretStorage: KeyStorage;
+}
+
+export interface ToolLibraryUpdate {
+  /** The whole list, replacing the current one. A folder of skills adds each skill in it. */
+  skills?: { path: string; providers?: Provider[] }[];
+  /** The parts to change. */
+  memory?: Partial<Record<MemoryScope, string>>;
+}
+
+// --- What each CLI loads by itself (its own skills, MCP servers and memory) -------------------
+
+export interface NativeSkill {
+  name: string;
+  description: string;
+  /** Where the CLI found it (user, repo, system, plugin, bundled…), when it says. */
+  source?: string;
+  path?: string;
+  /** False when the CLI has it turned off. */
+  enabled?: boolean;
+}
+
+export interface NativeMcpServer {
+  name: string;
+  /** stdio, http… */
+  transport?: string;
+  /** connected, failed, needs-auth, disabled… when the CLI reports it. */
+  status?: string;
+  source?: string;
+  /** How many tools it offers, when the CLI connected to it. */
+  tools?: number;
+}
+
+export interface NativeMemoryFile {
+  path: string;
+  /** Instructions (CLAUDE.md, AGENTS.md…) or notes the CLI keeps by itself. */
+  kind: 'instructions' | 'memory';
+}
+
+/** What one CLI loads by itself for a working directory, asked from the CLI (no prompt is sent). */
+export interface NativeSetup {
+  provider: Provider;
+  cwd: string;
+  skills: NativeSkill[];
+  mcpServers: NativeMcpServer[];
+  memory: NativeMemoryFile[];
+  /** The memory list comes from reading the files the CLI is known to read, not from the CLI. */
+  memoryFromFiles: boolean;
+  /**
+   * Grok: whether the folder is trusted. Untrusted, Grok leaves out the project's own instructions,
+   * skills, MCP servers and hooks.
+   */
+  folderTrusted?: boolean;
+  /**
+   * Grok: the folder its trust is decided for: the project root (the repository root, links
+   * resolved), else the working directory's real path. Trusting it trusts the whole project.
+   */
+  trustFolder?: string;
+  /** Grok: `trustFolder` is above the working directory (its repository root), so trusting it trusts more. */
+  trustFolderAbove?: boolean;
+  /** What could not be found out, and why. */
+  errors: string[];
+  checkedAt: number;
+}
+
+// --- Browsing a conversation's files ----------------------------------------------------------
+
+/** A folder that can be browsed: the working directory, or an agent's worktree (parallel mode). */
+export interface FileRoot {
+  /** `cwd`, or the agent's id. */
+  id: string;
+  path: string;
+  agentId?: string;
+}
+
+/** Whether Grok trusts a folder (`POST /api/providers/grok/folder-trust`). */
+export interface GrokFolderTrust {
+  cwd: string;
+  /**
+   * The folder Grok decides trust for (`NativeSetup.trustFolder`): the repository root when `cwd`
+   * is inside one, links resolved. This is the folder that is trusted.
+   */
+  folder: string;
+  /** `folder` is above `cwd` (its repository root): trusting it trusts the whole repository. */
+  above: boolean;
+  /** Undefined when Grok could not be asked. */
+  trusted?: boolean;
+}
+
+export interface FileEntry {
+  name: string;
+  kind: 'dir' | 'file';
+  size: number;
+  mtime: number;
+  /** A symbolic link (to a file or folder inside the root). */
+  link?: boolean;
+}
+
+export interface FileListing {
+  roots: FileRoot[];
+  root: string;
+  /** Relative to the root, with `/`; '' is the root itself. */
+  path: string;
+  entries: FileEntry[];
+  /** The folder has more entries than are listed. */
+  truncated: boolean;
+}
+
+export type FilePreviewKind = 'text' | 'image' | 'video' | 'binary';
+
+export interface FilePreview {
+  path: string;
+  size: number;
+  mtime: number;
+  kind: FilePreviewKind;
+  /** For text: the content (the beginning, when `truncated`). */
+  text?: string;
+  truncated?: boolean;
+}
+
+export const FILE_LIMITS = { maxEntries: 2000, maxPreviewBytes: 512 * 1024 };
 
 export interface ConversationSettings {
   mode: Mode;
