@@ -3,6 +3,8 @@ import {
   codexApprovalRequest,
   codexApprovalResponse,
   codexConfig,
+  codexElicitationResponse,
+  codexMcpToolApproval,
   createCodexUpdateHandler,
   describeCodexItem,
 } from '../src/server/agents/codex';
@@ -80,6 +82,32 @@ describe('codex approvals', () => {
       scope: 'turn',
     });
   });
+
+  it("shows Codex's MCP tool-call approvals like any other, and declines other elicitations", () => {
+    // As codex-cli 0.167.0 sends it.
+    const ask = {
+      threadId: 't',
+      turnId: 'u',
+      serverName: 'relay-test',
+      mode: 'form',
+      _meta: {
+        codex_approval_kind: 'mcp_tool_call',
+        persist: ['session', 'always'],
+        tool_name: 'relay_secret_word',
+        tool_description: 'Returns the secret word.',
+        tool_params: {},
+        tool_params_display: [],
+      },
+      message: 'Allow the relay-test MCP server to run tool "relay_secret_word"?',
+      requestedSchema: { type: 'object', properties: {} },
+    };
+    expect(codexMcpToolApproval(ask)).toEqual({ kind: 'other', tool: 'relay-test:relay_secret_word' });
+    expect(codexMcpToolApproval({ ...ask, _meta: { ...ask._meta, tool_params: { repo: 'a/b' } } })).toMatchObject({ detail: '{"repo":"a/b"}' });
+    // A form the server itself wants filled in is not an approval.
+    expect(codexMcpToolApproval({ serverName: 'x', mode: 'form', message: 'Your name?', requestedSchema: {} })).toBeNull();
+    expect(codexElicitationResponse(true)).toEqual({ action: 'accept', content: {}, _meta: null });
+    expect(codexElicitationResponse(false)).toEqual({ action: 'decline', content: null, _meta: null });
+  });
 });
 
 describe('codex thread config', () => {
@@ -102,5 +130,12 @@ describe('codex thread config', () => {
       'mcp_servers.gh': { command: 'npx', args: ['gh'], env: { TOKEN: 't' } },
       'mcp_servers.docs': { url: 'https://x.test/mcp', http_headers: { Authorization: 'Bearer b' } },
     });
+  });
+
+  it("lets the library's servers approve their own tools in full access, where Codex would refuse every MCP call", () => {
+    const gh = { name: 'gh', transport: 'stdio' as const, command: 'gh-mcp', args: [], url: '', env: {}, headers: {} };
+    expect(codexConfig('full', undefined, [gh])).toEqual({ 'mcp_servers.gh': { command: 'gh-mcp', args: [], default_tools_approval_mode: 'approve' } });
+    // Below full access Codex asks, and the user answers in the chat.
+    expect(codexConfig('edit', undefined, [gh])['mcp_servers.gh']).not.toHaveProperty('default_tools_approval_mode');
   });
 });

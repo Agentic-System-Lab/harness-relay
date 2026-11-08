@@ -43,22 +43,30 @@ export function codexConfig(permission: Permission, effort?: string, mcpServers:
   return {
     ...(effort ? { model_reasoning_effort: effort } : {}),
     ...(permission === 'edit' ? { sandbox_workspace_write: { network_access: false } } : {}),
-    ...codexMcpConfig(mcpServers),
+    ...codexMcpConfig(mcpServers, permission === 'full'),
   };
 }
 
 /**
  * The tool library's MCP servers as config overrides. One dotted key per server
  * (`mcp_servers.<name>`), so the servers in the user's config.toml stay.
+ *
+ * Codex asks before every MCP tool call, and with the approval policy "never" (full access, or a
+ * conversation that refuses automatically) it refuses the call instead. In full access the
+ * library's servers therefore approve their own tools (`default_tools_approval_mode`), as full
+ * access promises: everything, without asking.
  */
-export function codexMcpConfig(servers: McpServerSpec[]): Record<string, unknown> {
+export function codexMcpConfig(servers: McpServerSpec[], approveTools = false): Record<string, unknown> {
   const has = (vars: Record<string, string>) => Object.keys(vars).length > 0;
   return Object.fromEntries(
     servers.map((s) => [
       `mcp_servers.${s.name}`,
-      s.transport === 'http'
-        ? { url: s.url, ...(has(s.headers) ? { http_headers: s.headers } : {}) }
-        : { command: s.command, args: s.args, ...(has(s.env) ? { env: s.env } : {}) },
+      {
+        ...(s.transport === 'http'
+          ? { url: s.url, ...(has(s.headers) ? { http_headers: s.headers } : {}) }
+          : { command: s.command, args: s.args, ...(has(s.env) ? { env: s.env } : {}) }),
+        ...(approveTools ? { default_tools_approval_mode: 'approve' } : {}),
+      },
     ]),
   );
 }
@@ -223,6 +231,27 @@ export function codexApprovalRequest(
   }
 }
 
+/**
+ * Codex asks before an MCP tool runs with an MCP elicitation marked as a tool-call approval
+ * (`_meta.codex_approval_kind: "mcp_tool_call"`, Codex 0.167): what to show the user for it. Null
+ * for any other elicitation (a form an MCP server wants filled in), which is declined.
+ */
+export function codexMcpToolApproval(p: Record<string, any>): ApprovalRequest | null {
+  const meta = p?._meta;
+  if (meta?.codex_approval_kind !== 'mcp_tool_call' || typeof meta.tool_name !== 'string') return null;
+  const params = meta.tool_params && typeof meta.tool_params === 'object' && Object.keys(meta.tool_params).length ? meta.tool_params : undefined;
+  return {
+    kind: 'other',
+    tool: p.serverName ? `${p.serverName}:${meta.tool_name}` : meta.tool_name,
+    ...(params ? { detail: clip(JSON.stringify(params)) } : {}),
+  };
+}
+
+/** The reply to an MCP elicitation: an accepted tool-call approval has no form, so no content. */
+export function codexElicitationResponse(accept: boolean): unknown {
+  return accept ? { action: 'accept', content: {}, _meta: null } : { action: 'decline', content: null, _meta: null };
+}
+
 /** The reply Codex expects for an approval request, allowed or not. */
 export function codexApprovalResponse(method: string, p: Record<string, any>, allow: boolean, note?: string): unknown {
   switch (method) {
@@ -266,7 +295,11 @@ export const codexRunner: AgentRunner = {
     };
     conn.onRequest = async (method, params) => {
       if (method === 'item/tool/requestUserInput') return { answers: {} };
-      if (method === 'mcpServer/elicitation/request') return { action: 'decline', content: null, _meta: null };
+      if (method === 'mcpServer/elicitation/request') {
+        const tool = codexMcpToolApproval(params ?? {});
+        if (!tool || !o.requestApproval) return codexElicitationResponse(false);
+        return codexElicitationResponse((await o.requestApproval(tool)).allow);
+      }
       const req = codexApprovalRequest(method, params ?? {}, (id) => updates.filePaths(id));
       if (!req) throw new RpcError(-32601, `${method} is not supported`);
       const answer = o.requestApproval ? await o.requestApproval(req) : { allow: false };

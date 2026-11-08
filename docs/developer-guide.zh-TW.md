@@ -266,7 +266,7 @@ npx vitest test/store.test.ts
 - `test/claude.test.ts`：Claude 預先允許與移除的工具、它的參數（`--system-prompt-snapshot off`、舊版不接受的旗標），以及工具被拒絕時顯示的原因。也測試工具庫：`--mcp-config` 檔案與 skill 資料夾的 `Read` 規則（完整存取時不加）、Windows 路徑的 `Read` 規則，以及 `--mcp-config` 的內容。
 - `test/copy.test.ts`：複製單則訊息或整段對話時產生的 Markdown（兩種語言）；單則訊息照原文複製（網址、格式、CRLF 換行），沒有剪貼簿 API 時也一樣。
 - `test/approvals.test.ts`：「本對話都允許」的規則 key 與比對（串接指令、shell 包裝）。
-- `test/codex.test.ts`：Codex app-server 轉接器：thread 項目轉成 `AgentEvent`（文字、推理、計畫、指令輸出、用量），以及核准請求 / 回應。也測試工具庫的 MCP 伺服器各自成為一個 `mcp_servers.<name>` 覆寫。
+- `test/codex.test.ts`：Codex app-server 轉接器：thread 項目轉成 `AgentEvent`（文字、推理、計畫、指令輸出、用量），以及核准請求 / 回應。也測試工具庫的 MCP 伺服器各自成為一個 `mcp_servers.<name>` 覆寫（完整存取下自行核准工具），以及 Codex 的 MCP 工具呼叫核准（codex-cli 0.167.0 送出的格式）和其他核准一樣顯示，其他 elicitation 則拒絕。
 - `test/sidebar.test.ts`：側邊欄的對話狀態、各群組的對話（「其他」在最後、群組不存在的對話放在「其他」）、還沒確認的移動，以及收合群組顯示的狀態。
 - `test/search.test.ts`：搜尋的詞、不分大小寫的比對（長的優先、重疊合併）、第一個符合處附近的摘錄、標示關鍵字。
 - `test/grouping.test.ts`：請首席 agent 分類對話的 prompt，以及解讀它的回覆（編號或名稱；0 或 null 代表都不適合；其他都拒絕）。
