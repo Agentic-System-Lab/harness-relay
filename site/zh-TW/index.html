@@ -154,7 +154,7 @@
               playsinline
               preload="none"
               poster="../assets/media/poster-zh-TW.webp"
-              aria-label="示範錄影：在 Harness Relay 的 repository 上使用自動組隊"
+              aria-label="示範錄影：新增群組，在 Harness Relay 的 repository 上使用自動組隊，最後搜尋對話"
             >
               <source src="../media/demo-zh-TW.mp4" type="video/mp4" />
               <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/docs/media/demo-zh-TW.mp4">下載示範影片（MP4）</a>
@@ -162,27 +162,38 @@
           </div>
           <div class="rail">
             <h2 id="demo-title">看一次完整流程</h2>
-            <p class="rail-note">在這個 repository 上使用自動組隊，從描述需求到得到答案。agent 工作的片段已加速。</p>
+            <p class="rail-note">先新增群組，再在這個 repository 上使用自動組隊，從描述需求、得到答案到搜尋。agent 工作的片段已加速。</p>
             <ol class="chapters">
               <li>
                 <button class="chapter" type="button" data-t="0">
                   <time>0:00</time>
                   <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
-                  <span class="say">開新對話，選擇「自動組隊」。</span>
+                  <span class="say">新增群組「設計評審」。</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter" type="button" data-t="4">
-                  <time>0:04</time>
+                <button class="chapter" type="button" data-t="5">
+                  <time>0:05</time>
                   <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
-                  <span class="say">先描述需求，還不用提問。</span>
+                  <span class="say">開新對話，選擇「自動組隊」並描述需求，還不用提問。</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter t-claude" type="button" data-t="14">
-                  <time>0:14</time>
+                <button class="chapter t-claude" type="button" data-t="18">
+                  <time>0:18</time>
+                  <span class="actor"
+                    ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
+                    ><span class="via">Claude Code</span></span
+                  >
+                  <span class="say">依你的第一則訊息，把對話歸進「設計評審」。</span>
+                  <span class="bar" aria-hidden="true"></span>
+                </button>
+              </li>
+              <li>
+                <button class="chapter t-claude" type="button" data-t="22">
+                  <time>0:22</time>
                   <span class="actor"
                     ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
                     ><span class="via">Claude Code</span></span
@@ -192,56 +203,42 @@
                 </button>
               </li>
               <li>
-                <button class="chapter" type="button" data-t="22">
-                  <time>0:22</time>
+                <button class="chapter" type="button" data-t="28">
+                  <time>0:28</time>
                   <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
                   <span class="say">確認團隊，接著提問：「接力模式是好的設計嗎？」</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter t-team" type="button" data-t="30">
-                  <time>0:30</time>
+                <button class="chapter t-team" type="button" data-t="37">
+                  <time>0:37</time>
                   <span class="actor"
                     ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">E</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
+                      ><span class="av t-claude">A</span><span class="av t-codex">E</span><span class="av t-grok">S</span></span
                     ><span class="who">三位成員</span></span
                   >
-                  <span class="say">第 1 輪：圓桌依序讀程式碼，每位都接續前面的說法。</span>
+                  <span class="say">兩輪圓桌：依序讀程式碼，每位都接續並挑戰前面的說法。</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter t-grok" type="button" data-t="46">
-                  <time>0:46</time>
+                <button class="chapter t-team" type="button" data-t="64">
+                  <time>1:04</time>
                   <span class="actor"
-                    ><span class="av" aria-hidden="true">S</span><span class="who">@Skeptic</span><span class="via">Grok</span></span
+                    ><span class="stack" aria-hidden="true"
+                      ><span class="av t-claude">A</span><span class="av t-codex">E</span><span class="av t-grok">S</span></span
+                    ><span class="who">三位成員</span></span
                   >
-                  <span class="say">想執行超出唯讀的指令，在聊天裡等你核准。</span>
+                  <span class="say">結論與建議：先修哪些、哪些暫不採納，依優先順序排好。</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter t-team" type="button" data-t="51">
-                  <time>0:51</time>
-                  <span class="actor"
-                    ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">E</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
-                    ><span class="who">三位成員</span></span
-                  >
-                  <span class="say">第 2 輪：互相評估彼此的發現。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-team" type="button" data-t="63">
-                  <time>1:03</time>
-                  <span class="actor"
-                    ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">E</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
-                    ><span class="who">三位成員</span></span
-                  >
-                  <span class="say">結論與建議，連流程圖都畫好了。</span>
+                <button class="chapter" type="button" data-t="82">
+                  <time>1:22</time>
+                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                  <span class="say">搜尋「maxHops」，依對話內容找回這段對話。</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>

@@ -12,9 +12,9 @@ Before each conversation you design the team: give every coding agent a position
 
 ## Demo
 
-[![Harness Relay demo: you describe what you need, the lead agent designs a team, you confirm it, then Claude Code, Codex and Grok read the code and answer](docs/media/demo-en.webp)](docs/media/demo-en.mp4)
+[![Harness Relay demo: you create a group and describe what you need, the lead agent sorts the chat into the group and designs a team, you confirm it, Claude Code, Codex and Grok read the code and answer, and a search finds the chat again](docs/media/demo-en.webp)](docs/media/demo-en.mp4)
 
-Auto team on this repository: you describe what you need, and the lead agent adapts a template into a three-member team, explaining why. You confirm the team and ask your question; Claude Code, Codex and Grok read the code and answer in parallel, then weigh each other's findings in a second round. Their thinking and tool calls stream into the chat, and actions beyond the permission are asked in approval cards (sped up while the agents work). [Watch the full-quality video (MP4)](docs/media/demo-en.mp4).
+A new group, then Auto team on this repository: you create a group and describe what you need. The lead agent sorts the chat into the group, going by your first message, and adapts a template into a three-member team, explaining why. You confirm the team and ask your question; Claude Code, Codex and Grok read the code and answer in parallel, then weigh each other's findings in a second round, with their thinking and tool calls streaming into the chat (sped up while the agents work). At the end, a search finds the chat by what the agents wrote. [Watch the full-quality video (MP4)](docs/media/demo-en.mp4).
 
 ## Features
 
