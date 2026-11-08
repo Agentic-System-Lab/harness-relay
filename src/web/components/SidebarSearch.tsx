@@ -28,7 +28,7 @@ export function SearchBox({
   }, [focusToken]);
 
   return (
-    <div className="sidebar-search" role="search">
+    <div className="sidebar-field" role="search">
       <SearchIcon size={16} />
       <input
         ref={input}

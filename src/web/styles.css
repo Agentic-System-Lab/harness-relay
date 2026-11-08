@@ -398,8 +398,16 @@ p {
 
 /* Closer to New chat than New chat is to the brand. */
 .sidebar-actions,
-.sidebar-search {
+.sidebar-top > .sidebar-field,
+.sidebar-new-group {
   margin-top: -5px;
+}
+
+/* The buttons and the search / new group field that take their place are the same height, so
+   nothing below moves when one replaces the other. */
+.sidebar-action,
+.sidebar-field {
+  height: 34px;
 }
 
 .sidebar-actions {
@@ -429,7 +437,7 @@ p {
   color: var(--text);
 }
 
-.sidebar-search {
+.sidebar-field {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -440,20 +448,20 @@ p {
   color: var(--muted);
 }
 
-.sidebar-search:focus-within {
+.sidebar-field:focus-within {
   border-color: color-mix(in srgb, var(--text) 45%, var(--border));
 }
 
-.sidebar-search input {
+.sidebar-field input {
   flex: 1;
   border: none;
   background: transparent;
-  padding: 6px 0;
+  padding: 0;
   font-size: 14px;
   color: var(--text);
 }
 
-.sidebar-search input::-webkit-search-cancel-button {
+.sidebar-field input::-webkit-search-cancel-button {
   display: none;
 }
 
