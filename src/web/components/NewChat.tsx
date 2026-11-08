@@ -19,7 +19,6 @@ import { MemberDots } from './MemberDots';
 import { GrokTrustDialog, asksGrokTrust, type GrokTrustAnswer } from './GrokTrust';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 
-const LAST_CWD_KEY = 'relay:lastCwd';
 const LAST_CHOICE_KEY = 'relay:lastTemplate';
 /** The "Auto team" card: the lead agent designs the team from the first message. */
 const AUTO = 'auto';
@@ -89,8 +88,8 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         setLead(settings.lead);
         if (initialized.current) return;
         initialized.current = true;
-        // Start from the last choice (auto team the first time).
-        const cwd = read(LAST_CWD_KEY) || settings.defaultCwd;
+        // Start from the last choice (auto team the first time), in the default working directory from Settings.
+        const cwd = settings.defaultCwd;
         const last = read(LAST_CHOICE_KEY);
         const preset = ps.find((p) => p.id === last);
         if (preset) {
@@ -149,7 +148,6 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         (createCwd) => api.createConversation({ title, agents: team.agents, settings: team.settings, createCwd }),
         () => confirm(t.newChat.confirmCreateCwd(team.settings.cwd.trim())),
       );
-      write(LAST_CWD_KEY, conv.settings.cwd);
       write(LAST_CHOICE_KEY, choice);
       onCreated(conv);
     } catch (e) {
