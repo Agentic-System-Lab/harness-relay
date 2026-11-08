@@ -325,6 +325,10 @@ export const zhTW = {
     hint: 'Enter 送出 · Shift+Enter 換行 · 輸入 @ 指定成員（只有被 @ 的對象會回覆） · 可貼上或拖曳檔案來附加',
     hintBusy: (mod: string) => `Enter 插話（下一位發言前送達） · ${mod}+Enter 停止並改問這個 · Shift+Enter 換行`,
     hintConfirm: 'Enter 送出（確認團隊後才會交給團隊） · Shift+Enter 換行',
+    // Phones and tablets: Enter starts a new line, the ↑ button sends.
+    hintTouch: '按 ↑ 送出 · Enter 換行 · 輸入 @ 指定成員（只有被 @ 的對象會回覆） · 按 📎 附加檔案',
+    hintBusyTouch: '按 ↑ 插話（下一位發言前送達） · Enter 換行',
+    hintConfirmTouch: '按 ↑ 送出（確認團隊後才會交給團隊） · Enter 換行',
     attach: '附加檔案',
     attachments: '要傳送的檔案',
     removeFile: (name: string) => `移除 ${name}`,
@@ -532,7 +536,7 @@ export const zhTW = {
       },
       {
         title: '傳送訊息',
-        body: 'Enter 送出，Shift+Enter 換行。',
+        body: 'Enter 送出，Shift+Enter 換行；在手機和平板上 Enter 換行，按 ↑ 送出。',
         points: [
           '輸入 @成員，只有被點名的人會回覆',
           '貼上截圖、拖曳檔案或按 📎 附加檔案，每位 agent 都讀得到',

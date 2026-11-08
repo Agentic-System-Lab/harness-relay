@@ -323,6 +323,9 @@ export const en: Messages = {
     hint: 'Enter to send · Shift+Enter for a new line · type @ to address members (only they reply) · paste or drop files to attach',
     hintBusy: (mod) => `Enter to add it (delivered before the next turn) · ${mod}+Enter to stop and ask this instead · Shift+Enter for a new line`,
     hintConfirm: 'Enter to send (the team gets it once you confirm the team) · Shift+Enter for a new line',
+    hintTouch: '↑ to send · Enter for a new line · type @ to address members (only they reply) · 📎 to attach files',
+    hintBusyTouch: '↑ to add it (delivered before the next turn) · Enter for a new line',
+    hintConfirmTouch: '↑ to send (the team gets it once you confirm the team) · Enter for a new line',
     attach: 'Attach files',
     attachments: 'Files to send',
     removeFile: (name) => `Remove ${name}`,
@@ -530,7 +533,7 @@ export const en: Messages = {
       },
       {
         title: 'Write your message',
-        body: 'Enter sends; Shift+Enter starts a new line.',
+        body: 'Enter sends; Shift+Enter starts a new line. On a phone or tablet, Enter starts a new line and ↑ sends.',
         points: [
           'Type @Member and only that member replies',
           'Paste a screenshot, drop files or click 📎 to attach them; every agent can read them',

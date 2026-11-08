@@ -140,7 +140,7 @@ Edit is meant for code you trust: tests, builds and project scripts run code the
 
 ## 4. Chat
 
-- **Send** with Enter; Shift+Enter for a new line. While typing with an input method (e.g. Chinese), Enter confirms the candidate and does not send.
+- **Send** with Enter; Shift+Enter for a new line. While typing with an input method (e.g. Chinese), Enter confirms the candidate and does not send. On a phone or tablet, Enter starts a new line and the **↑** button sends (with a hardware keyboard, ⌘/Ctrl+Enter sends too).
 - **Attach files** — paste an image (such as a screenshot) straight into the message box, drag files onto it, or click 📎. Up to 10 files of 20 MB each per message, with or without text. Every agent that reads the message gets each file's path to open with its own tools, and images (PNG, JPEG, GIF, WebP) are also shown to it directly. Sent images appear as thumbnails (click to open the full image); other files as chips you can download.
 - **Long questions** are folded to their first lines in the chat; click **Show more** to read the whole message (and **Show less** to fold it again).
 - **`@mention`** — type `@` to pick a teammate. When your message mentions agents, **only those agents reply** (in relay mode they start the relay). Without mentions, the whole team takes part according to the mode. Text may follow the name directly (`@Builder請實作`); mentions inside code are ignored.
@@ -182,7 +182,7 @@ Click **Team settings** in the header to change roles, models, effort, mode, per
 ### Copying, editing and retrying
 
 - **Copy** under a message (shown when you point at it) copies that message's text as Markdown. **Copy chat** in the header copies the whole conversation, with each message labelled by who said it (the name and CLI the agent had then); a code block a stopped reply left open is closed. Tool activity is left out.
-- **Edit** under one of your own messages lets you change it and send it again (Enter sends, Shift+Enter adds a line, Esc cancels). Everything after that message is deleted and the team answers again from there; every agent starts a fresh session and re-reads the history up to your edited message. Files the deleted replies changed are **not** restored — if any of them changed files you are asked to confirm first. Editing is not available while the team is replying.
+- **Edit** under one of your own messages lets you change it and send it again (Enter sends, Shift+Enter adds a line, Esc cancels; on a phone or tablet Enter adds a line and **Send** sends). Everything after that message is deleted and the team answers again from there; every agent starts a fresh session and re-reads the history up to your edited message. Files the deleted replies changed are **not** restored — if any of them changed files you are asked to confirm first. Editing is not available while the team is replying.
 - **↻ Retry** under an agent's reply lets that agent answer again. Its reply and everything after it are deleted (you are asked to confirm when there is anything after it); outside relay mode, the later speakers of the same round answer again too.
 
 ### Voice input

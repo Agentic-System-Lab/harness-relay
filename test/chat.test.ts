@@ -1,8 +1,34 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentWorktree, ChatMessage, ConversationSettings } from '../src/shared/types';
 import { ApiError, api, orCreateCwd } from '../src/web/api';
-import { afterStreamError, applyStates, draftStatus } from '../src/web/chat';
+import { afterStreamError, applyStates, draftStatus, enterSends } from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
+
+describe('Enter in a message box', () => {
+  const key = (k: string, mods: Partial<{ shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }> = {}) => ({
+    key: k,
+    shiftKey: false,
+    metaKey: false,
+    ctrlKey: false,
+    ...mods,
+  });
+
+  it('sends with a keyboard and mouse; Shift+Enter starts a new line', () => {
+    expect(enterSends(key('Enter'), false)).toBe(true);
+    expect(enterSends(key('Enter', { metaKey: true }), false)).toBe(true);
+    expect(enterSends(key('Enter', { ctrlKey: true }), false)).toBe(true);
+    expect(enterSends(key('Enter', { shiftKey: true }), false)).toBe(false);
+    expect(enterSends(key('a'), false)).toBe(false);
+  });
+
+  it('starts a new line on a phone or tablet, where the send button sends', () => {
+    expect(enterSends(key('Enter'), true)).toBe(false);
+    expect(enterSends(key('Enter', { shiftKey: true }), true)).toBe(false);
+    // A hardware keyboard on a tablet can still send with ⌘/Ctrl+Enter.
+    expect(enterSends(key('Enter', { metaKey: true }), true)).toBe(true);
+    expect(enterSends(key('Enter', { ctrlKey: true }), true)).toBe(true);
+  });
+});
 
 describe('when the event stream drops', () => {
   afterEach(() => vi.unstubAllGlobals());

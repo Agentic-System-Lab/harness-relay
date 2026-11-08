@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { ATTACHMENT_LIMITS, PROVIDER_LABEL, isInlineImage, type AgentConfig } from '../../shared/types';
 import type { AttachmentUpload } from '../api';
+import { enterSends, isTouchScreen } from '../chat';
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, initials } from '../util';
 import { insertTranscript } from '../voice';
@@ -243,11 +244,17 @@ export function Composer({
         return;
       }
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // On a phone or tablet Enter starts a new line, and the send button sends.
+    if (enterSends(e, isTouchScreen())) {
       e.preventDefault();
       void submit(e.metaKey || e.ctrlKey);
     }
   };
+
+  const c = t.composer;
+  const hint = isTouchScreen()
+    ? locked ? c.hintConfirmTouch : running ? c.hintBusyTouch : c.hintTouch
+    : locked ? c.hintConfirm : running ? c.hintBusy(MOD_KEY) : c.hint;
 
   return (
     <div
@@ -369,9 +376,7 @@ export function Composer({
           </div>
         </div>
       </div>
-      <p className="composer-hint muted small">
-        {locked ? t.composer.hintConfirm : running ? t.composer.hintBusy(MOD_KEY) : t.composer.hint}
-      </p>
+      <p className="composer-hint muted small">{hint}</p>
     </div>
   );
 }

@@ -61,3 +61,18 @@ export function draftStatus(base: Team, draft: Team, current: Team): 'same' | 'r
   if (sameTeam(base, current)) return 'same';
   return sameTeam(base, draft) || sameTeam(draft, current) ? 'refresh' : 'conflict';
 }
+
+/** A phone or tablet: touch is the main input and nothing hovers (like `@media (hover: none)` in styles.css). */
+export function isTouchScreen(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(hover: none) and (pointer: coarse)').matches;
+}
+
+/**
+ * Whether a key press in a message box sends what was typed. Enter sends; Shift+Enter starts a new line.
+ * On a touch screen Enter starts a new line, since an on-screen keyboard has no Shift+Enter, and the send
+ * button sends; ⌘/Ctrl+Enter from a hardware keyboard still sends.
+ */
+export function enterSends(key: { key: string; shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }, touch: boolean): boolean {
+  if (key.key !== 'Enter' || key.shiftKey) return false;
+  return !touch || key.metaKey || key.ctrlKey;
+}

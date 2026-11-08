@@ -12,6 +12,7 @@ import {
 } from '../../shared/types';
 import { splitAsk } from '../../shared/ask';
 import { api } from '../api';
+import { enterSends, isTouchScreen } from '../chat';
 import { messageText, planHeadline, speaker } from '../copy';
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
@@ -542,7 +543,7 @@ function UserMessage({
     if (e.key === 'Escape') {
       e.preventDefault();
       setDraft(null);
-    } else if (e.key === 'Enter' && !e.shiftKey) {
+    } else if (enterSends(e, isTouchScreen())) {
       e.preventDefault();
       void submit();
     }
