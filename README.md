@@ -6,9 +6,9 @@
 
 **Website:** https://agentic-system-lab.github.io/harness-relay/
 
-A ChatGPT-style group chat where **Claude Code, Codex and Grok** work together — on your code or any other question — and talk to each other.
+A local group chat for the real **Claude Code, Codex and Grok** CLIs: give each a role, choose how they take turns, and they work on your code, or any question, and answer each other.
 
-Before each conversation you design the team: give every coding agent a position (architect, builder, reviewer, skeptic…), pick its model and reasoning effort, and choose how they take turns. Harness Relay then drives the real CLIs on your machine, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
+Before each conversation you design the team: a position for every agent (architect, builder, reviewer, skeptic…), its model and reasoning effort, and a mode (roundtable, parallel or relay), or let a lead agent design it for you. Harness Relay then runs `claude`, `codex` and `grok` with your own logins and tools, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
 
 ## Demo
 
