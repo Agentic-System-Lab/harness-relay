@@ -63,7 +63,8 @@ export function NativeSetupPanel({
         <p className="muted small">{t.native.hint}</p>
         <div className="button-row">
           {setup && <span className="muted small">{t.native.checked(setup.cwd, relativeTime(setup.checkedAt, t))}</span>}
-          <button className="ghost small-button" onClick={() => load(true)} disabled={loading}>
+          {/* The first Ask may get an answer kept from the last minute; Ask again always asks the CLI. */}
+          <button className="ghost small-button" onClick={() => load(Boolean(setup))} disabled={loading}>
             {loading ? t.native.loading : setup ? t.native.reload : t.native.load}
           </button>
         </div>
