@@ -5,7 +5,7 @@ How the Harness Relay landing page (`site/`) looks, reads and behaves, and what 
 ## Goal
 
 - **Reader:** a developer who already uses one or more of the Claude Code, Codex and Grok CLIs.
-- **Job of the page:** within a minute, show three real CLIs working in one chat, then get the reader to clone and run it (`npm install && npm run dev`) or open the repository.
+- **Job of the page:** within a minute, show three real CLIs working in one chat, then get the reader to clone and run it (`git clone`, `npm install`, `npm run dev`) or open the repository.
 - **Primary action:** the copyable clone-and-run command and the GitHub button in the hero. The page ends on the quick start, never on a dead end.
 
 ## Principles
@@ -71,7 +71,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 - **Avatar** (`.av`): the member's initial on a `-deep` fill, like the app. Initials match the template or demo member names.
 - **Pill** (`.pill`): the app's CLI badge, tinted agent colour with `-ink` text. **Chip** (`.chip`): neutral outline for mode, permission and round labels.
 - **Buttons:** primary is ink on light (`.btn-primary`), secondary is outlined (`.btn-ghost`). One primary per view.
-- **Command block** (`.cmd`): `$` prompts are not copied; the copy button copies the commands only and confirms with a check.
+- **Command block** (`.cmd`): `$` prompts are not copied; the copy button copies the commands only and confirms with a check. One command per line, never joined with `&&`: Windows PowerShell 5.1, still the default shell on Windows, rejects `&&`, while separate lines run in every shell.
 - **UI excerpts** (`.ui`): approval card, question, changed files, waiting message tray. They recreate the app's components with sample content, and the page says so under them. Keep them faithful to the app when the app changes.
 - **Icons:** drawn inline SVG symbols in one 1.8px stroke. No emoji or Unicode glyphs as icons.
 
