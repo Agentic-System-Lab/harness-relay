@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { grokHome, trustGrokFolder, withTrustedFolder } from '../src/server/grokTrust';
 import { parseGrokInspect } from '../src/server/native';
+import { asksGrokTrust } from '../src/web/components/GrokTrust';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-trust-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -57,5 +58,18 @@ describe("Grok's folder trust", () => {
     expect(parseGrokInspect({ projectTrusted: false }).folderTrusted).toBe(false);
     expect(parseGrokInspect({ projectTrusted: true }).folderTrusted).toBe(true);
     expect(parseGrokInspect({}).folderTrusted).toBeUndefined();
+  });
+});
+
+describe('asking about trust when a chat starts', () => {
+  const grok = { id: 'g', name: 'G', provider: 'grok' as const, role: '' };
+  const claude = { id: 'c', name: 'C', provider: 'claude' as const, role: '' };
+
+  it('asks only for a team with a Grok member and a folder', () => {
+    expect(asksGrokTrust({ agents: [claude, grok], settings: { cwd: '/p' } })).toBe(true);
+    expect(asksGrokTrust({ agents: [claude], settings: { cwd: '/p' } })).toBe(false);
+    expect(asksGrokTrust({ agents: [grok], settings: { cwd: '  ' } })).toBe(false);
+    // An auto team has no members yet: the lead agent picks them later.
+    expect(asksGrokTrust({ agents: [], settings: { cwd: '/p', autoTeam: true } })).toBe(false);
   });
 });

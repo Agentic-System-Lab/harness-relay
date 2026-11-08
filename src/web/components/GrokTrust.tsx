@@ -1,6 +1,61 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { AgentConfig, ConversationSettings } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
+import { useDialog } from './useDialog';
+
+/**
+ * Whether starting this team should first ask about Grok's trust in its folder: it has a Grok member
+ * (an auto team has none yet) and a folder.
+ */
+export function asksGrokTrust(team: { agents: AgentConfig[]; settings: Pick<ConversationSettings, 'cwd' | 'autoTeam'> }): boolean {
+  return !team.settings.autoTeam && Boolean(team.settings.cwd.trim()) && team.agents.some((a) => a.provider === 'grok');
+}
+
+export type GrokTrustAnswer = 'trust' | 'skip' | 'cancel';
+
+/** Asked before a team with a Grok member starts in a folder Grok does not trust. */
+export function GrokTrustDialog({ cwd, onAnswer }: { cwd: string; onAnswer: (a: GrokTrustAnswer) => void }) {
+  const t = useT();
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialog(dialog, () => onAnswer('cancel'));
+  return (
+    <div className="modal-scrim" onClick={() => onAnswer('cancel')}>
+      <div
+        ref={dialog}
+        className="modal grok-trust-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t.grokTrust.dialogTitle}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="drawer-head">
+          <h2>{t.grokTrust.dialogTitle}</h2>
+          <button className="icon-button" onClick={() => onAnswer('cancel')} aria-label={t.common.close}>
+            ×
+          </button>
+        </header>
+        <p>{t.grokTrust.dialogBody}</p>
+        <p>
+          <code className="grok-trust-path">{cwd}</code>
+        </p>
+        <p className="warn-line small">{t.grokTrust.dialogWarn}</p>
+        <footer className="button-row end">
+          <button className="ghost" onClick={() => onAnswer('cancel')}>
+            {t.common.cancel}
+          </button>
+          <button className="ghost" onClick={() => onAnswer('skip')}>
+            {t.grokTrust.startWithout}
+          </button>
+          <button className="primary" onClick={() => onAnswer('trust')}>
+            {t.grokTrust.trustAndStart}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Whether Grok trusts a folder, with a button to trust it once the user confirms. Untrusted, Grok

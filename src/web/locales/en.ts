@@ -515,6 +515,12 @@ export const en: Messages = {
     untrusted: (cwd) =>
       `Grok does not trust ${cwd}: it leaves out the project's own AGENTS.md / CLAUDE.md, skills, MCP servers and hooks (the tool library's items still reach it).`,
     trust: 'Trust this folder',
+    dialogTitle: 'Let Grok trust this folder?',
+    dialogBody:
+      "The team has a Grok member, but Grok does not trust this working directory. Untrusted, Grok leaves out the project's own AGENTS.md / CLAUDE.md, skills, MCP servers and hooks (the tool library's items still reach it).",
+    dialogWarn: "Trusted, Grok also runs this project's hooks, as `grok --trust` in this folder would. Only trust projects you trust.",
+    trustAndStart: 'Trust and start',
+    startWithout: 'Start without trusting',
     confirm: (cwd) =>
       `Let Grok trust ${cwd}?\n\nGrok then loads this project's AGENTS.md / CLAUDE.md, skills and MCP servers and runs its hooks, as \`grok --trust\` in this folder would. Only trust projects you trust.`,
   },

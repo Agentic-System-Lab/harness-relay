@@ -4714,3 +4714,16 @@ details.sub summary {
 .grok-trust p {
   margin: 0;
 }
+
+/* Asked before a team with a Grok member starts in a folder Grok does not trust */
+.modal.grok-trust-dialog {
+  width: min(560px, 100%);
+}
+
+.grok-trust-dialog p {
+  margin: 0;
+}
+
+.grok-trust-path {
+  overflow-wrap: anywhere;
+}
