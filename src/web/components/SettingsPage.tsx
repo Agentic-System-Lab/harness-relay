@@ -16,7 +16,7 @@ import {
 import { api, orCreateCwd } from '../api';
 import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
 import { SETTINGS_SECTIONS, currentSection, readingLine, scrollToSection, sectionId, settingsHref, type SettingsSection } from '../route';
-import { PROVIDER_COLOR } from '../util';
+import { PROVIDER_COLOR, switchProvider, type ModelChoice } from '../util';
 import { ModelPicker } from './ModelPicker';
 import { NativeSetupPanel } from './NativeSetupPanel';
 import { SectionTitle } from './SectionTitle';
@@ -175,6 +175,8 @@ function LeadCard({
   // A failed save is shown as an error, so it cannot pass for "saved".
   const [note, setNote] = useState<{ text: string; error?: boolean }>({ text: '' });
   const [busy, setBusy] = useState(false);
+  /** The model and effort picked for each CLI while switching between them, so switching back restores them. */
+  const kept = useRef<Partial<Record<Provider, ModelChoice>>>({});
   // Saving any other setting returns a new (equal) lead object: keep the user's unsaved edits then.
   useEffect(() => setLead(saved), [saved.provider, saved.model, saved.effort]);
 
@@ -208,7 +210,12 @@ function LeadCard({
             aria-checked={lead.provider === p}
             className={lead.provider === p ? 'on' : ''}
             style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
-            onClick={() => lead.provider !== p && setLead({ provider: p })}
+            onClick={() => {
+              if (lead.provider === p) return;
+              const next = switchProvider(lead, p, kept.current);
+              kept.current = next.kept;
+              setLead(next.value);
+            }}
           >
             {PROVIDER_LABEL[p]}
           </button>

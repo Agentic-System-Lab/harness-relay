@@ -23,6 +23,27 @@ export const PROVIDER_COLOR: Record<Provider, string> = {
   grok: 'var(--grok)',
 };
 
+/** A model and reasoning effort picked for one CLI ('' or absent: that CLI's default). */
+export interface ModelChoice {
+  model?: string;
+  effort?: string;
+}
+
+/**
+ * Switching an agent (or the lead agent) to another CLI. Models and efforts belong to a CLI, so they
+ * cannot carry over; instead the ones picked for the CLI being left are kept, and the ones picked
+ * earlier for the CLI switched to come back — switching away and back loses nothing.
+ */
+export function switchProvider<T extends { provider: Provider } & ModelChoice>(
+  current: T,
+  next: Provider,
+  kept: Partial<Record<Provider, ModelChoice>>,
+): { value: T; kept: Partial<Record<Provider, ModelChoice>> } {
+  const remembered = { ...kept, [current.provider]: { model: current.model ?? '', effort: current.effort ?? '' } };
+  const back = remembered[next];
+  return { value: { ...current, provider: next, model: back?.model ?? '', effort: back?.effort ?? '' }, kept: remembered };
+}
+
 export function newAgent(provider: Provider, taken: string[]): AgentConfig {
   const base = { claude: 'Claude', codex: 'Codex', grok: 'Grok' }[provider];
   let name = base;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
@@ -7,6 +7,7 @@ import {
   type ConversationSettings,
   type Mode,
   type Permission,
+  type Provider,
   type ProviderModels,
   type ProviderStatus,
 } from '../../shared/types';
@@ -14,7 +15,7 @@ import { api } from '../api';
 import { useT, type Messages } from '../i18n';
 import { settingsHref } from '../route';
 import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
-import { PROVIDER_COLOR, initials, newAgent } from '../util';
+import { PROVIDER_COLOR, initials, newAgent, switchProvider, type ModelChoice } from '../util';
 import { GrokTrustNote } from './GrokTrust';
 import { ModelPicker } from './ModelPicker';
 import { providerState } from './Sidebar';
@@ -56,6 +57,8 @@ export function teamProblems(team: Team, t: Messages): string[] {
 export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: Props) {
   const t = useT();
   const { agents, settings } = value;
+  /** Per member: the model and effort picked for each CLI, so switching a member's CLI and back restores them. */
+  const kept = useRef(new Map<string, Partial<Record<Provider, ModelChoice>>>());
   const [tools, setTools] = useState<ToolItem[]>([]);
   const [toolsError, setToolsError] = useState('');
   useEffect(() => {
@@ -133,7 +136,12 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
                         aria-checked={a.provider === p}
                         className={a.provider === p ? 'on' : ''}
                         style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
-                        onClick={() => a.provider !== p && updateAgent(a.id, { provider: p, model: '', effort: '' })}
+                        onClick={() => {
+                          if (a.provider === p) return;
+                          const next = switchProvider(a, p, kept.current.get(a.id) ?? {});
+                          kept.current.set(a.id, next.kept);
+                          updateAgent(a.id, { provider: p, model: next.value.model, effort: next.value.effort });
+                        }}
                       >
                         {PROVIDER_LABEL[p]}
                       </button>
