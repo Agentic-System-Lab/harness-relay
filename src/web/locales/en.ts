@@ -508,6 +508,7 @@ export const en: Messages = {
     grokMemory: "Grok's automatic memory (when it is on) is only known inside a conversation, so it is not listed here.",
     instructions: 'instructions',
     memoryFile: 'memory',
+    preview: 'Preview',
   },
   files: {
     title: 'Files',

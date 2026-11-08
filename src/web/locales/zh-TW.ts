@@ -511,6 +511,7 @@ export const zhTW = {
     grokMemory: 'Grok 的自動記憶（有開啟時）只在對話中才知道位置，不在這裡列出。',
     instructions: '指示',
     memoryFile: '記憶',
+    preview: '預覽內容',
   },
   files: {
     title: '檔案',

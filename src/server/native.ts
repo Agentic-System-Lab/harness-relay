@@ -356,6 +356,14 @@ export class NativeSetupService {
   }
 }
 
+/**
+ * Whether `path` is one of the files the probe reported (an instruction or memory file, or a
+ * skill's SKILL.md): only those can be previewed, so no other file on the computer can be read.
+ */
+export function listedFile(probe: Pick<NativeSetup, 'memory' | 'skills'>, path: string): boolean {
+  return probe.memory.some((m) => m.path === path) || probe.skills.some((s) => s.path === path);
+}
+
 /** A probe's answer for the client, its problems in the language of this request. */
 export function nativeForClient(probe: NativeProbe): NativeSetup {
   const { problems, ...rest } = probe;

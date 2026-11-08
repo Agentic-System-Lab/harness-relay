@@ -258,7 +258,7 @@ Each CLI's card in Settings can list what that CLI loads by itself for the defau
 | Codex | `skills/list` over `codex app-server` | `config/read` (the configured servers; none is started) | no list: `AGENTS.override.md` or `AGENTS.md` in `CODEX_HOME` and in each folder from the repository root down, and its `memories/` |
 | Grok | `grok inspect --json` | `grok inspect --json` | `grok inspect --json` (instruction files) |
 
-Asking starts the CLI for a moment: Claude Code runs the user's SessionStart hooks and connects its MCP servers. It is a POST, and the folder is always the default working directory, so another site cannot start a CLI anywhere. Answers are kept for a minute per CLI, executable and folder (`refresh: true` asks again); what a CLI did not report is listed, in the language of each request. Only names, descriptions, paths and states are returned; MCP server configs, which can hold tokens, are not.
+Asking starts the CLI for a moment: Claude Code runs the user's SessionStart hooks and connects its MCP servers. It is a POST, and the folder is always the default working directory, so another site cannot start a CLI anywhere. Answers are kept for a minute per CLI, executable and folder (`refresh: true` asks again); what a CLI did not report is listed, in the language of each request. The reported instruction and memory files, and skills' `SKILL.md`, can be opened in the UI (`POST /api/providers/:provider/native/file`): only a path in the CLI's latest answer is read, so no other file on the computer can be. Only names, descriptions, paths and states are returned; MCP server configs, which can hold tokens, are not.
 
 ## Workspaces and file changes
 

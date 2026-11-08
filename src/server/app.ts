@@ -16,8 +16,8 @@ import {
   type TeamPreset,
 } from '../shared/types';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
-import { fileRoots, listFolder, mediaInRoot, previewFile } from './files';
-import { NativeSetupService, nativeForClient } from './native';
+import { fileRoots, listFolder, mediaInRoot, previewFile, readPreview } from './files';
+import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, mediaRoots, mediaType, resolveMedia } from './media';
 import { HttpError, forClient, type Orchestrator } from './orchestrator';
@@ -187,6 +187,17 @@ export function createApp({
     const b = await body<{ refresh?: unknown }>(c);
     const cwd = validDirectory(settings.defaultCwd);
     return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true)));
+  });
+
+  // One of the files the CLI reported (an instruction or memory file, a skill's SKILL.md), to read
+  // it in the UI. Any other path is refused, so this cannot read other files on the computer.
+  app.post('/api/providers/:provider/native/file', async (c) => {
+    const p = provider(c);
+    const b = await body<{ path?: unknown }>(c);
+    const path = typeof b.path === 'string' ? b.path : '';
+    const probe = await native.get(p, validDirectory(settings.defaultCwd));
+    if (!path || !listedFile(probe, path)) throw new HttpError(404, t().nativeFileNotListed);
+    return c.json(readPreview(path, path, t().nativeFileNotListed));
   });
 
   app.get('/api/providers/:provider/login-methods', (c) => c.json(providers.loginMethods(provider(c))));

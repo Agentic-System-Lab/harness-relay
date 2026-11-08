@@ -4677,3 +4677,27 @@ details.sub summary {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* A file a CLI reported, read in a dialog */
+.modal.reported-file {
+  width: min(960px, 100%);
+  height: min(820px, 100%);
+}
+
+.reported-file .drawer-head {
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.reported-file .preview-title h2 {
+  margin: 0;
+}
+
+.reported-file .preview-title code {
+  overflow-wrap: anywhere;
+}
+
+.native-file {
+  text-align: left;
+  overflow-wrap: anywhere;
+}

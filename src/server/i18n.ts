@@ -135,6 +135,7 @@ const zhTW = {
 
   // What each CLI loads by itself
   nativeTimeout: (cli: string) => `${cli} 沒有在時間內回應。`,
+  nativeFileNotListed: '這個檔案不在這個 CLI 回報的清單裡，或已經不存在。',
   nativeFailed: (cli: string, detail: string) => `${cli} 回報錯誤：${detail}`,
   nativeNoAnswer: (cli: string, part: 'all' | 'skills' | 'mcp') =>
     part === 'all' ? `${cli} 沒有回應。` : `${cli} 沒有回報它的${part === 'skills' ? ' skill' : ' MCP 伺服器'}。`,
@@ -293,6 +294,7 @@ const en: ServerMessages = {
   skillDuplicate: (name) => `Another skill is already named "${name}"; agents do not get this one`,
 
   nativeTimeout: (cli) => `${cli} did not answer in time.`,
+  nativeFileNotListed: 'This file is not one the CLI reported, or it no longer exists.',
   nativeFailed: (cli, detail) => `${cli} reported an error: ${detail}`,
   nativeNoAnswer: (cli, part) => (part === 'all' ? `${cli} did not answer.` : `${cli} did not report its ${part === 'skills' ? 'skills' : 'MCP servers'}.`),
 

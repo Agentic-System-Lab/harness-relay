@@ -1,8 +1,11 @@
-import { useState } from 'react';
-import type { NativeSetup, Provider } from '../../shared/types';
+import { useEffect, useRef, useState } from 'react';
+import type { FilePreview, NativeSetup, Provider } from '../../shared/types';
 import { api } from '../api';
+import { isMarkdown, lineCount } from '../files';
 import { useT } from '../i18n';
-import { relativeTime } from '../util';
+import { formatBytes, relativeTime } from '../util';
+import { TextContent } from './FileBrowser';
+import { useDialog } from './useDialog';
 
 type Tab = 'skills' | 'mcp' | 'memory';
 
@@ -17,6 +20,8 @@ export function NativeSetupPanel({ provider }: { provider: Provider }) {
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>('skills');
   const [query, setQuery] = useState('');
+  /** The reported file being read. */
+  const [viewing, setViewing] = useState<string | null>(null);
 
   const load = async (refresh = false) => {
     setLoading(true);
@@ -75,7 +80,13 @@ export function NativeSetupPanel({ provider }: { provider: Provider }) {
                     .map((s, i) => (
                       <li key={`${s.name}-${i}`} title={s.path}>
                         <span className="native-name">
-                          {s.name}
+                          {s.path ? (
+                            <button type="button" className="link-button" onClick={() => setViewing(s.path!)}>
+                              {s.name}
+                            </button>
+                          ) : (
+                            s.name
+                          )}
                           {s.source && <span className="badge">{s.source}</span>}
                           {s.enabled === false && <span className="badge">{t.native.off}</span>}
                         </span>
@@ -115,7 +126,9 @@ export function NativeSetupPanel({ provider }: { provider: Provider }) {
                   {setup.memory.map((m) => (
                     <li key={m.path}>
                       <span className="native-name">
-                        <code>{m.path}</code>
+                        <button type="button" className="link-button native-file" onClick={() => setViewing(m.path)} title={t.native.preview}>
+                          <code>{m.path}</code>
+                        </button>
                         <span className="badge">{m.kind === 'memory' ? t.native.memoryFile : t.native.instructions}</span>
                       </span>
                     </li>
@@ -127,6 +140,66 @@ export function NativeSetupPanel({ provider }: { provider: Provider }) {
           </>
         )}
       </div>
+      {viewing && <ReportedFile provider={provider} path={viewing} onClose={() => setViewing(null)} />}
     </details>
+  );
+}
+
+/** One of the files the CLI reported, read in a dialog. */
+function ReportedFile({ provider, path, onClose }: { provider: Provider; path: string; onClose: () => void }) {
+  const t = useT();
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialog(dialog, onClose);
+  const [preview, setPreview] = useState<FilePreview | null>(null);
+  const [error, setError] = useState('');
+  const [source, setSource] = useState(false);
+  const name = path.split(/[\\/]/).pop() || path;
+
+  useEffect(() => {
+    api.nativeFile(provider, path).then(setPreview, (e: Error) => setError(e.message));
+  }, [provider, path]);
+
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div
+        ref={dialog}
+        className="modal reported-file"
+        role="dialog"
+        aria-modal="true"
+        aria-label={name}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="drawer-head">
+          <div className="preview-title">
+            <h2>{name}</h2>
+            <span className="muted small">
+              <code>{path}</code>
+              {preview?.kind === 'text' && ` · ${formatBytes(preview.size)} · ${t.files.lines(lineCount(preview.text ?? ''))}`}
+            </span>
+          </div>
+          {preview?.kind === 'text' && isMarkdown(name) && (
+            <div className="segmented" role="radiogroup">
+              <button role="radio" aria-checked={!source} className={!source ? 'on' : ''} onClick={() => setSource(false)}>
+                {t.files.rendered}
+              </button>
+              <button role="radio" aria-checked={source} className={source ? 'on' : ''} onClick={() => setSource(true)}>
+                {t.files.source}
+              </button>
+            </div>
+          )}
+          <button className="icon-button" onClick={onClose} aria-label={t.common.close}>
+            ×
+          </button>
+        </header>
+        {error ? (
+          <p className="error-line">{error}</p>
+        ) : !preview ? (
+          <p className="muted small">{t.common.loading}</p>
+        ) : (
+          <TextContent name={name} preview={preview} source={source} />
+        )}
+      </div>
+    </div>
   );
 }

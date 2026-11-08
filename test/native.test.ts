@@ -6,6 +6,7 @@ import { withLang } from '../src/server/i18n';
 import {
   NativeSetupService,
   claudeMemoryFiles,
+  listedFile,
   nativeForClient,
   claudeProjectSlug,
   codexMemoryFiles,
@@ -152,6 +153,20 @@ describe('memory files', () => {
       { path: inner, kind: 'instructions' },
       { path: note, kind: 'memory' },
     ]);
+  });
+});
+
+describe('listedFile', () => {
+  it('lets only the files the CLI reported be read', () => {
+    const probe = {
+      memory: [{ path: '/u/.claude/CLAUDE.md', kind: 'instructions' as const }],
+      skills: [{ name: 'commit', description: '', path: '/u/skills/commit/SKILL.md' }, { name: 'no-path', description: '' }],
+    };
+    expect(listedFile(probe, '/u/.claude/CLAUDE.md')).toBe(true);
+    expect(listedFile(probe, '/u/skills/commit/SKILL.md')).toBe(true);
+    expect(listedFile(probe, '/etc/passwd')).toBe(false);
+    expect(listedFile(probe, '/u/.claude/../.claude/CLAUDE.md')).toBe(false);
+    expect(listedFile(probe, '')).toBe(false);
   });
 });
 

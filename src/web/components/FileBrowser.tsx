@@ -279,23 +279,29 @@ function Preview({
         <div className="preview-media">
           <video src={raw} controls preload="metadata" />
         </div>
-      ) : preview.kind === 'binary' ? (
-        <p className="muted preview-empty">{t.files.binary}</p>
-      ) : !preview.text ? (
-        <p className="muted preview-empty">{t.files.emptyFile}</p>
       ) : (
-        <>
-          {preview.truncated && <p className="warn-line small">{t.files.truncatedText(formatBytes(FILE_LIMITS.maxPreviewBytes))}</p>}
-          {isMarkdown(name) && !source ? (
-            <div className="preview-markdown">
-              <Markdown text={preview.text} />
-            </div>
-          ) : (
-            <CodeView text={preview.text} name={name} />
-          )}
-        </>
+        <TextContent name={name} preview={preview} source={source} />
       )}
     </div>
+  );
+}
+
+/** A text file's content: Markdown rendered (unless `source`), anything else as code; or why it is not shown. */
+export function TextContent({ name, preview, source }: { name: string; preview: FilePreview; source: boolean }) {
+  const t = useT();
+  if (preview.kind !== 'text') return <p className="muted preview-empty">{t.files.binary}</p>;
+  if (!preview.text) return <p className="muted preview-empty">{t.files.emptyFile}</p>;
+  return (
+    <>
+      {preview.truncated && <p className="warn-line small">{t.files.truncatedText(formatBytes(FILE_LIMITS.maxPreviewBytes))}</p>}
+      {isMarkdown(name) && !source ? (
+        <div className="preview-markdown">
+          <Markdown text={preview.text} />
+        </div>
+      ) : (
+        <CodeView text={preview.text} name={name} />
+      )}
+    </>
   );
 }
 

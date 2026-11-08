@@ -111,10 +111,23 @@ export function listFolder(root: string, rel: string): { path: string; entries: 
 
 /** What the UI shows for a file: its text (the beginning of a long one), or that it is an image, a video or binary. */
 export function previewFile(root: string, rel: string): FilePreview {
-  const file = resolveInRoot(root, rel);
-  const st = statSync(file.real);
-  if (!st.isFile()) throw new HttpError(404, t().fileNotFound);
-  const base = { path: askedPath(rel), size: st.size, mtime: Math.floor(st.mtimeMs) };
+  return readPreview(resolveInRoot(root, rel).real, askedPath(rel));
+}
+
+/**
+ * The preview of the file at `real`, shown under `path`. The caller has checked that it may be read;
+ * a missing file, or anything but a file, is a 404.
+ */
+export function readPreview(real: string, path: string, notFound = t().fileNotFound): FilePreview {
+  let st;
+  try {
+    st = statSync(real);
+  } catch {
+    throw new HttpError(404, notFound);
+  }
+  if (!st.isFile()) throw new HttpError(404, notFound);
+  const file = { real };
+  const base = { path, size: st.size, mtime: Math.floor(st.mtimeMs) };
   const media = mediaType(file.real);
   if (media) return { ...base, kind: media.startsWith('video/') ? 'video' : 'image' };
   const length = Math.min(st.size, FILE_LIMITS.maxPreviewBytes);

@@ -589,10 +589,11 @@ describe('browsing files', () => {
 describe("what each CLI loads by itself", () => {
   it('asks the CLI for the default working directory, only from the app itself', async () => {
     const asked: [string, string, boolean][] = [];
+    const reported: { path: string; kind: 'instructions' }[] = [];
     const native = {
       get: async (provider: string, cwd: string, refresh = false) => {
         asked.push([provider, cwd, refresh]);
-        return { provider, cwd, skills: [], mcpServers: [], memory: [], memoryFromFiles: true, problems: [{ kind: 'timeout' }], checkedAt: 1 };
+        return { provider, cwd, skills: [], mcpServers: [], memory: [...reported], memoryFromFiles: true, problems: [{ kind: 'timeout' }], checkedAt: 1 };
       },
     } as unknown as InstanceType<typeof NativeSetupService>;
     const db = openDatabase(':memory:');
@@ -616,11 +617,24 @@ describe("what each CLI loads by itself", () => {
     });
     // A folder cannot be chosen: other sites must not be able to start a CLI in one.
     await call('/api/providers/grok/native', { refresh: true, cwd: root });
-    expect(asked).toEqual([
+    expect(asked.slice(0, 2)).toEqual([
       ['codex', project, false],
       ['grok', project, true],
     ]);
     expect((await call('/api/providers/gemini/native')).status).toBe(404);
+
+    // Reading a reported file, and nothing else.
+    const notes = join(project, 'CLAUDE.md');
+    writeFileSync(notes, '# Notes\n');
+    reported.push({ path: notes, kind: 'instructions' });
+    const file = await call('/api/providers/claude/native/file', { path: notes });
+    expect(await file.json()).toMatchObject({ path: notes, kind: 'text', text: '# Notes\n' });
+    for (const path of [join(project, 'other.md'), '/etc/passwd', `${project}/../${project.split('/').pop()}/CLAUDE.md`, '']) {
+      expect((await call('/api/providers/claude/native/file', { path })).status, path).toBe(404);
+    }
+    rmSync(notes);
+    expect((await call('/api/providers/claude/native/file', { path: notes })).status).toBe(404);
+
     // Not a GET, and not a form post: a page elsewhere cannot set it off.
     expect((await local.request('/api/providers/claude/native', { headers: HOST })).status).toBe(404);
     expect((await local.request('/api/providers/claude/native', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
