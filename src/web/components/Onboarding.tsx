@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 
+/** The version of the tour this browser last finished (or skipped); before versions, `'1'`. */
 const DONE_KEY = 'relay:onboarded';
 
 /**
+ * Raise it when the steps change in a way worth seeing: people who finished an earlier version see the tour again
+ * once, on their next visit. `test/tour.test.ts` fails when the steps change, as a reminder.
+ */
+export const TOUR_VERSION = 2;
+
+/**
  * Element each step points at (`data-tour`), by the index of the step in `t.tour.steps`; none = a centred card.
- * Keep it as long as the steps (`test/i18n.test.ts` checks).
+ * Keep it as long as the steps (`test/tour.test.ts` checks).
  */
 export const TOUR_TARGETS: (string | undefined)[] = [
   undefined, // welcome
@@ -21,9 +28,14 @@ export const TOUR_TARGETS: (string | undefined)[] = [
   'settings', // settings
 ];
 
+/** Whether the stored version (`DONE_KEY`) means the current tour was seen; a newer one counts too. */
+export function tourSeen(stored: string | null, version = TOUR_VERSION): boolean {
+  return Number(stored) >= version;
+}
+
 export function onboardingDone(): boolean {
   try {
-    return localStorage.getItem(DONE_KEY) === '1';
+    return tourSeen(localStorage.getItem(DONE_KEY));
   } catch {
     return true; // no storage: don't show the tour on every visit
   }
@@ -31,7 +43,7 @@ export function onboardingDone(): boolean {
 
 function markDone(): void {
   try {
-    localStorage.setItem(DONE_KEY, '1');
+    localStorage.setItem(DONE_KEY, String(TOUR_VERSION));
   } catch {
     /* storage unavailable */
   }

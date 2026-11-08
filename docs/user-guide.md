@@ -21,7 +21,7 @@ The dots at the bottom of the sidebar show each agent's status: green = ready, o
 
 The UI is available in **English** and **繁體中文**. On your first visit it follows your browser's language (any Chinese → 繁體中文, otherwise English) and remembers the choice in this browser; switch any time under **Settings & sign-in → Language**. Error messages and system notes from the server follow the same language.
 
-The first visit also opens a short **guided tour** that points out the main features step by step (← / → to move, Esc to skip). Replay it from **Settings & sign-in → Guided tour**.
+The first visit also opens a short **guided tour** that points out the main features step by step (← / → to move, Esc to skip). When an update changes the tour (for example to show new features), it opens once more on your next visit. Replay it any time from **Settings & sign-in → Guided tour**.
 
 ## 2. Sign in to each agent — Settings & sign-in
 
@@ -237,7 +237,7 @@ Click **Search** under **New chat** (or the magnifier in the corner of a collaps
 
 ## 6. Where data is stored
 
-All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`). Voice input's models (and, on Linux and Windows, its engine) are in `data/voice/`; **Settings → Voice input → Remove voice input** deletes them. Your language choice and whether you finished the tour are kept in the browser. Back up by copying `data/` while the app is stopped.
+All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`). Voice input's models (and, on Linux and Windows, its engine) are in `data/voice/`; **Settings → Voice input → Remove voice input** deletes them. Your language choice and which version of the tour you finished are kept in the browser. Back up by copying `data/` while the app is stopped.
 
 ## 7. Troubleshooting
 
