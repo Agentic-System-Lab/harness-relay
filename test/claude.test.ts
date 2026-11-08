@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -10,6 +11,9 @@ import {
   claudeApprovalRequest,
   claudeArgs,
   claudeMcpConfig,
+  claudeExcludePattern,
+  claudeItemsBesideLibrary,
+  claudeMcpName,
   claudeNativeEnv,
   claudeNativeSettings,
   claudeReadRule,
@@ -19,8 +23,11 @@ import {
   type ClaudeControlRequest,
 } from '../src/server/agents/claude';
 import { AgentRunError, type AgentEvent } from '../src/server/agents/types';
-import type { NativePart } from '../src/shared/types';
+import type { NativeItemsOff, NativePart } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
+
+// The glob matcher Claude Code uses for claudeMdExcludes (here through Vitest's own dependencies).
+const picomatch = createRequire(import.meta.url)('picomatch') as (patterns: string[], options?: { dot?: boolean }) => (path: string) => boolean;
 import { writeFakeClaude } from './fake-claude';
 
 describe('claude allowed tools', () => {
@@ -184,6 +191,66 @@ describe('leaving out what Claude Code loads by itself', () => {
     expect(claudeArgs({ ...base, nativeOff: ['agents'] })).toEqual(claudeArgs(base));
   });
 
+  it('turns off all its built-in tools with --tools "", which leaves its MCP tools', () => {
+    const args = claudeArgs({ ...base, nativeOff: ['tools'] });
+    expect(args[args.indexOf('--tools') + 1]).toBe('');
+    expect(args[args.indexOf('--tools') + 2]).toMatch(/^--/);
+    expect(claudeArgs(base)).not.toContain('--tools');
+  });
+
+  it('leaves out single skills, files, tools, MCP servers, subagents and plugins with --settings', () => {
+    const items = {
+      skills: ['commit'],
+      instructions: ['/repo/CLAUDE.md'],
+      tools: ['WebSearch'],
+      mcp: ['mcp__claude_ai_Gmail'],
+      mcpTools: ['mcp__local__search'],
+      agents: ['Explore'],
+      plugins: ['deck@market'],
+    };
+    expect(claudeNativeSettings([], [], items)).toEqual({
+      enabledPlugins: { 'deck@market': false },
+      skillOverrides: { commit: 'off' },
+      claudeMdExcludes: ['/repo/CLAUDE.md'],
+      permissions: { deny: ['WebSearch', 'mcp__claude_ai_Gmail', 'mcp__local__search', 'Agent(Explore)'] },
+    });
+    const args = claudeArgs({ ...base, nativeItems: items });
+    expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual(claudeNativeSettings([], [], items));
+    // A part left out whole needs no single items; plugins then go by every id, and subagents stay
+    // denied by name (the switch keeps the built-in ones). Rules for single MCP servers would also
+    // reach a tool library server of the same name, so none are added once all are left out.
+    expect(claudeNativeSettings(['skills', 'instructions', 'tools', 'mcp', 'plugins'], ['deck@market', 'lsp@market'], items)).toEqual({
+      enabledPlugins: { 'deck@market': false, 'lsp@market': false },
+      permissions: { deny: ['Agent(Explore)'] },
+    });
+    expect(claudeNativeSettings([], [], {})).toBeUndefined();
+  });
+
+  it("names an MCP server as Claude Code's rules do, and writes a file as a pattern that matches only it", () => {
+    expect(claudeMcpName('claude.ai Claude Docs')).toBe('claude_ai_Claude_Docs');
+    expect(claudeMcpName('claude.ai wrenai-1.0-revamp-new')).toBe('claude_ai_wrenai-1_0-revamp-new');
+    expect(claudeMcpName('my.server')).toBe('my_server');
+    expect(claudeMcpName('local')).toBe('local');
+    expect(claudeExcludePattern('/a/b c/CLAUDE.md')).toBe('/a/b c/CLAUDE.md');
+    expect(claudeExcludePattern('/a/[x]/(y)/c{1,2}/*?.md')).toBe('/a/[[]x]/[(]y[)]/c[{]1,2[}]/[*][?].md');
+    expect(claudeExcludePattern('C:\\repo\\CLAUDE.md')).toBe('C:/repo/CLAUDE.md');
+    // Matched as Claude Code 2.1.319 matches them: every \\ in a pattern turned into / first, then picomatch.
+    const matches = (pattern: string, path: string) => picomatch([pattern.replaceAll('\\', '/')], { dot: true })(path);
+    for (const path of ['/x/proj [old]/CLAUDE.md', '/app/[slug]/CLAUDE.md', '/a/(y)/c{1,2}/*?.md', '/a/b]c/CLAUDE.md', '/a/!(z)/+(q)/@(r).md']) {
+      expect(matches(claudeExcludePattern(path), path)).toBe(true);
+      expect(matches(claudeExcludePattern(path), '/x/proj o/CLAUDE.md')).toBe(false);
+    }
+    expect(matches(claudeExcludePattern('/app/[slug]/CLAUDE.md'), '/app/s/CLAUDE.md')).toBe(false);
+    expect(matches(claudeExcludePattern('/a/*/CLAUDE.md'), '/a/b/CLAUDE.md')).toBe(false);
+  });
+
+  it("leaves a tool library server's tools alone when a server of its name is ticked", () => {
+    const items = { mcp: ['mcp__local', 'mcp__other'], mcpTools: ['mcp__local__fetch', 'mcp__other__x', 'mcp__localx__y'], skills: ['commit'] };
+    expect(claudeItemsBesideLibrary(items, [{ name: 'local' }])).toEqual({ skills: ['commit'], mcp: ['mcp__other'], mcpTools: ['mcp__other__x', 'mcp__localx__y'] });
+    expect(claudeItemsBesideLibrary(items, [{ name: 'claude.ai Gmail' }, { name: 'local' }, { name: 'other' }])).toEqual({ skills: ['commit'], mcpTools: ['mcp__localx__y'] });
+    expect(claudeItemsBesideLibrary(items, [])).toBe(items);
+  });
+
   it('reads its plugin list and subagent names, and denies only the subagents that are not built in', () => {
     const list = [{ id: 'deck@market', enabled: true, scope: 'user', installPath: '/p' }, { id: 'deck@market' }, { id: 'lsp@market', enabled: false }, { name: 'no id' }];
     expect(parseClaudePluginList(JSON.stringify(list))).toEqual([{ id: 'deck@market', enabled: true, scope: 'user' }, { id: 'lsp@market', enabled: false }]);
@@ -285,7 +352,7 @@ describe('a Claude Code run that leaves out its own setup (stand-in claude)', ()
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   const bin = writeFakeClaude(join(dir, 'claude'));
   let n = 0;
-  function run(nativeOff: NativePart[], extra: Record<string, string> = {}) {
+  function run(nativeOff: NativePart[], extra: Record<string, string> = {}, nativeItems: NativeItemsOff = {}) {
     const log = join(dir, `log-${++n}.jsonl`);
     const result = claudeRunner.run({
       bin,
@@ -297,6 +364,7 @@ describe('a Claude Code run that leaves out its own setup (stand-in claude)', ()
       signal: new AbortController().signal,
       onEvent: () => undefined,
       nativeOff,
+      nativeItems,
     });
     const lines = () => {
       try {
@@ -314,7 +382,7 @@ describe('a Claude Code run that leaves out its own setup (stand-in claude)', ()
     await expect(r.result).resolves.toMatchObject({ sessionId: 'fake-session' });
     const lines = r.lines();
     const start = turn(lines)!;
-    expect(JSON.parse(start.args[start.args.indexOf('--settings') + 1])).toEqual({
+    expect(start.settings).toEqual({
       disableAllHooks: true,
       enabledPlugins: { 'deck@market': false, 'lsp@market': false },
     });
@@ -323,6 +391,24 @@ describe('a Claude Code run that leaves out its own setup (stand-in claude)', ()
     expect(lines.find((l) => 'prompt' in l)).toEqual({ prompt: 'hello', denied: ['Agent(reviewer)'] });
     // The built-in ones were asked of a Claude Code started with no settings sources.
     expect(lines.some((l) => Array.isArray(l.args) && l.args[l.args.indexOf('--setting-sources') + 1] === '')).toBe(true);
+  });
+
+  it('leaves out single items through --settings in a private file, and sends the prompt at once', async () => {
+    const r = run([], {}, { skills: ['commit'], agents: ['reviewer'], plugins: ['deck@market'], tools: ['WebSearch'], mcpTools: ['mcp__local__fetch'] });
+    await expect(r.result).resolves.toMatchObject({ sessionId: 'fake-session' });
+    const start = turn(r.lines())!;
+    // A file, not the command line, and gone once the run is over.
+    const file = start.args[start.args.indexOf('--settings') + 1];
+    expect(file).toMatch(/settings\.json$/);
+    expect(existsSync(file)).toBe(false);
+    expect(start.settings).toEqual({
+      enabledPlugins: { 'deck@market': false },
+      skillOverrides: { commit: 'off' },
+      permissions: { deny: ['WebSearch', 'mcp__local__fetch', 'Agent(reviewer)'] },
+    });
+    // Named up front: no subagents to wait for.
+    expect(r.lines().filter((l) => 'deny' in l)).toEqual([]);
+    expect(r.lines().find((l) => 'prompt' in l)).toEqual({ prompt: 'hello', denied: [] });
   });
 
   it('denies plugin subagents too when only subagents are left out, and sends the prompt at once otherwise', async () => {

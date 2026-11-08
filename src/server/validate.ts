@@ -6,7 +6,10 @@ import {
   CWD_MISSING,
   GROUP_LIMITS,
   MCP_NAME_RE,
+  MAX_NATIVE_ITEM_ID,
+  MAX_NATIVE_ITEMS,
   MEMORY_SCOPES,
+  NATIVE_ITEM_KINDS,
   NATIVE_PARTS,
   PROVIDERS,
   TOOL_LIMITS,
@@ -196,7 +199,10 @@ export function validateVoiceUpdate(input: unknown): VoiceSettingsUpdate {
   return out;
 }
 
-/** A provider settings update: strings, a valid effort, `apiKey` null to remove, `nativeOff` a list of known parts. */
+/**
+ * A provider settings update: strings, a valid effort, `apiKey` null to remove, `nativeOff` a list of
+ * known parts, `nativeItems` lists of ids by known kind.
+ */
 export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
   const out: ProviderSettingsUpdate = {};
@@ -214,6 +220,22 @@ export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
     const parts = u.nativeOff;
     if (!Array.isArray(parts) || parts.some((x) => !(NATIVE_PARTS as readonly unknown[]).includes(x))) bad(t().invalidField('nativeOff'));
     out.nativeOff = parts as ProviderSettingsUpdate['nativeOff'];
+  }
+  if (u.nativeItems !== undefined) {
+    const items = u.nativeItems as Record<string, unknown> | null;
+    const valid =
+      items !== null &&
+      typeof items === 'object' &&
+      !Array.isArray(items) &&
+      Object.entries(items).every(
+        ([kind, ids]) =>
+          (NATIVE_ITEM_KINDS as readonly string[]).includes(kind) &&
+          Array.isArray(ids) &&
+          ids.length <= MAX_NATIVE_ITEMS &&
+          ids.every((id) => typeof id === 'string' && id.length > 0 && id.length <= MAX_NATIVE_ITEM_ID),
+      );
+    if (!valid) bad(t().invalidField('nativeItems'));
+    out.nativeItems = items as ProviderSettingsUpdate['nativeItems'];
   }
   return out;
 }

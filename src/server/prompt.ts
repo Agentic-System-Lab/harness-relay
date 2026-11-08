@@ -5,8 +5,10 @@ import {
   type ChatMessage,
   type Conversation,
   type Mode,
+  type NativeItemsOff,
   type NativePart,
   type Permission,
+  type Provider,
 } from '../shared/types';
 import { ASK_TOKEN } from '../shared/ask';
 import { mentionsInMarkdown } from '../shared/mentions';
@@ -73,10 +75,20 @@ ${access}
 }
 
 /**
- * The tool library's memory and skills for this agent, as briefing sections ('' when it gets neither).
- * `ownSkills`: the agent's CLI still loads its own skills (the user did not leave them out).
+ * Whether an agent can read a file in its runs: not a Claude Code left with no tool that reads one
+ * (all its built-in tools left out, or both `Read` and `Bash`).
  */
-function toolSections(tools: Pick<AgentTools, 'memory' | 'skills'>, ownSkills: boolean): string {
+export function canReadFiles(provider: Provider, off: readonly NativePart[] = [], items: NativeItemsOff = {}): boolean {
+  if (provider !== 'claude') return true;
+  return !off.includes('tools') && !['Read', 'Bash'].every((tool) => items.tools?.includes(tool));
+}
+
+/**
+ * The tool library's memory and skills for this agent, as briefing sections ('' when it gets neither).
+ * `ownSkills`: the agent's CLI still loads its own skills (the user did not leave them out). `reads`:
+ * it can read files; skills are read from their SKILL.md, so without that they are not listed.
+ */
+function toolSections(tools: Pick<AgentTools, 'memory' | 'skills'>, ownSkills: boolean, reads = true): string {
   const out: string[] = [];
   if (tools.memory) {
     out.push(`# Memory
@@ -85,7 +97,7 @@ Notes the user keeps for every agent in Harness Relay, shared by all conversatio
 ${tools.memory}
 </memory>`);
   }
-  if (tools.skills.length) {
+  if (tools.skills.length && reads) {
     const list = tools.skills
       .map((s) => `- ${s.name}${s.description ? `: ${s.description.replace(/\s+/g, ' ')}` : ''} (${s.file})`)
       .join('\n');
@@ -102,8 +114,9 @@ export function buildBriefing(
   agent: AgentConfig,
   ws: BriefingWorkspace = { kind: 'shared' },
   tools: Pick<AgentTools, 'memory' | 'skills'> = { skills: [] },
-  /** What the user left out of this agent's CLI in Harness Relay's runs. */
+  /** What the user left out of this agent's CLI in Harness Relay's runs, all of a kind and single items. */
   nativeOff: readonly NativePart[] = [],
+  nativeItems: NativeItemsOff = {},
 ): string {
   const { settings, agents } = conv;
   const order = agents.map((a) => `@${a.name}`).join(' → ');
@@ -130,7 +143,7 @@ ${team}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
 
 # Workspace
-${workspaceRules(conv, ws)}${toolSections(tools, !nativeOff.includes('skills'))}`;
+${workspaceRules(conv, ws)}${toolSections(tools, !nativeOff.includes('skills'), canReadFiles(agent.provider, nativeOff, nativeItems))}`;
 }
 
 /** The files a message's turn changed, as a block for teammates (empty when none). */

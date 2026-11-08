@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { NativePart, Permission, PlanEntry } from '../../shared/types';
+import type { NativeItemsOff, NativePart, Permission, PlanEntry } from '../../shared/types';
 import { converse, runProcess, tail } from '../process';
 import {
   AgentRunError,
@@ -137,31 +137,104 @@ export function claudeNativeEnv(off: readonly NativePart[] = []): Record<string,
 }
 
 /**
- * Settings for one run (`--settings`, the flag layer above the user's and the project's files):
- * no hooks, from settings files or plugins; and each installed plugin turned off by its id, which
- * also takes away its skills, commands, subagents, hooks and MCP servers. Claude Code has no switch
- * for all plugins, hence the ids (`claudePlugins`).
+ * Claude Code's name for an MCP server in its tool names and permission rules
+ * (`mcp__<name>__<tool>`): every character but letters, digits, `_` and `-` becomes `_`, and for a
+ * claude.ai connector runs of `_` become one and none is left at either end (as Claude Code 2.1.319
+ * does).
  */
-export function claudeNativeSettings(off: readonly NativePart[] = [], pluginIds: readonly string[] = []): Record<string, unknown> | undefined {
+export function claudeMcpName(server: string): string {
+  const name = server.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return server.startsWith('claude.ai ') ? name.replace(/_+/g, '_').replace(/^_|_$/g, '') : name;
+}
+
+/**
+ * A file path as a `claudeMdExcludes` pattern that matches only that file: Claude Code matches the
+ * patterns as globs (picomatch) against paths written with `/`, so the characters a glob gives a
+ * meaning to are put in brackets. Not with a backslash: Claude Code turns every `\\` in a pattern
+ * into `/` first. With every `[` in brackets, a `]` is plain.
+ */
+export function claudeExcludePattern(path: string): string {
+  return path.replace(/\\/g, '/').replace(/[*?[{}()]/g, (c) => `[${c}]`);
+}
+
+/**
+ * Single items without the MCP servers (and their tools) the tool library gives this run: a rule
+ * `mcp__<server>` goes by name, so it would also take away a library server of the same name, which
+ * replaces the user's own anyway.
+ */
+export function claudeItemsBesideLibrary(items: NativeItemsOff, servers: readonly { name: string }[]): NativeItemsOff {
+  const library = servers.map((s) => `mcp__${claudeMcpName(s.name)}`);
+  if (!library.length || (!items.mcp?.length && !items.mcpTools?.length)) return items;
+  const mcp = (items.mcp ?? []).filter((id) => !library.includes(id));
+  const mcpTools = (items.mcpTools ?? []).filter((id) => !library.some((server) => id.startsWith(`${server}__`)));
+  const { mcp: _m, mcpTools: _t, ...rest } = items;
+  return { ...rest, ...(mcp.length ? { mcp } : {}), ...(mcpTools.length ? { mcpTools } : {}) };
+}
+
+/**
+ * Settings for one run (`--settings`, the flag layer above the user's and the project's files):
+ * - no hooks, from settings files or plugins;
+ * - plugins turned off by id (all installed ones when plugins are left out: Claude Code has no
+ *   switch for all of them, hence the ids from `claudePlugins`), which also takes away their skills,
+ *   commands, subagents, hooks and MCP servers;
+ * - single skills by name (`skillOverrides` "off": hidden from the model and from /name);
+ * - single instruction files by path (`claudeMdExcludes`);
+ * - permission rules that deny single built-in tools, MCP servers (`mcp__<server>`: all its tools;
+ *   the server still starts), MCP tools and subagents (`Agent(name)`).
+ * Single items of a part left out whole are left to that part's switch, except subagents (the
+ * switch keeps the built-in ones) and plugins; with all MCP servers left out, rules for single ones
+ * are not added, since they would also reach a tool library server of the same name.
+ */
+export function claudeNativeSettings(
+  off: readonly NativePart[] = [],
+  pluginIds: readonly string[] = [],
+  items: NativeItemsOff = {},
+): Record<string, unknown> | undefined {
+  const plugins = off.includes('plugins') ? pluginIds : (items.plugins ?? []);
+  const skills = off.includes('skills') ? [] : (items.skills ?? []);
+  const files = off.includes('instructions') ? [] : (items.instructions ?? []);
+  const deny = [
+    ...(off.includes('tools') ? [] : (items.tools ?? [])),
+    ...(off.includes('mcp') ? [] : [...(items.mcp ?? []), ...(items.mcpTools ?? [])]),
+    ...(items.agents ?? []).map((name) => `Agent(${name})`),
+  ];
   const settings = {
     ...(off.includes('hooks') ? { disableAllHooks: true } : {}),
-    ...(off.includes('plugins') && pluginIds.length ? { enabledPlugins: Object.fromEntries(pluginIds.map((id) => [id, false])) } : {}),
+    ...(plugins.length ? { enabledPlugins: Object.fromEntries(plugins.map((id) => [id, false])) } : {}),
+    ...(skills.length ? { skillOverrides: Object.fromEntries(skills.map((name) => [name, 'off'])) } : {}),
+    ...(files.length ? { claudeMdExcludes: files.map(claudeExcludePattern) } : {}),
+    ...(deny.length ? { permissions: { deny } } : {}),
   };
   return Object.keys(settings).length ? settings : undefined;
 }
 
 /**
  * The flags that leave out what Claude Code loads by itself: its skills (and other custom
- * commands), its own MCP servers (only the tool library's, from --mcp-config, stay), and its hooks
- * and plugins (`claudeNativeSettings`).
+ * commands), its own MCP servers (only the tool library's, from --mcp-config, stay), all its
+ * built-in tools (`--tools ""`), and through `--settings` its hooks, plugins and single items
+ * (`claudeNativeSettings`).
  */
-export function claudeNativeArgs(off: readonly NativePart[] = [], pluginIds: readonly string[] = []): string[] {
-  const settings = claudeNativeSettings(off, pluginIds);
+export function claudeNativeArgs(
+  off: readonly NativePart[] = [],
+  pluginIds: readonly string[] = [],
+  items: NativeItemsOff = {},
+  settingsFile?: string,
+): string[] {
+  const settings = claudeNativeSettings(off, pluginIds, items);
   return [
     ...(off.includes('skills') ? ['--disable-slash-commands'] : []),
     ...(off.includes('mcp') ? ['--strict-mcp-config'] : []),
-    ...(settings ? ['--settings', JSON.stringify(settings)] : []),
+    ...(off.includes('tools') ? ['--tools', ''] : []),
+    ...(settings ? ['--settings', settingsFile ?? JSON.stringify(settings)] : []),
   ];
+}
+
+/**
+ * The run's `--settings` in a private file for the run, when there are any: with many single items
+ * left out they would not fit a command line (Windows takes 32,767 characters).
+ */
+export function claudeSettingsFile(settings: Record<string, unknown> | undefined): { file: string; remove: () => void } | undefined {
+  return settings ? privateTempFile('settings.json', JSON.stringify(settings)) : undefined;
 }
 
 /** How long a short question to Claude Code (its plugins, its built-in subagents) may take. */
@@ -384,8 +457,12 @@ export function claudeArgs(o: {
   mcpConfig?: string;
   /** What Claude Code loads by itself to leave out (instructions and memory go through `claudeNativeEnv`). */
   nativeOff?: readonly NativePart[];
+  /** Single items of it to leave out. */
+  nativeItems?: NativeItemsOff;
   /** The installed plugins, turned off when plugins are left out. */
   pluginIds?: readonly string[];
+  /** A file holding the `--settings` that leave things out (else they go on the command line). */
+  settingsFile?: string;
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
@@ -409,8 +486,8 @@ export function claudeArgs(o: {
     // Added to the user's own MCP servers (variadic too).
     ...(o.mcpConfig ? ['--mcp-config', o.mcpConfig] : []),
     // Leave out what Claude Code loads by itself: its skills, its own MCP servers (the tool
-    // library's, from --mcp-config, stay), its hooks and plugins.
-    ...claudeNativeArgs(o.nativeOff, o.pluginIds),
+    // library's, from --mcp-config, stay), its built-in tools, hooks and plugins, and single items.
+    ...claudeNativeArgs(o.nativeOff, o.pluginIds, o.nativeItems, o.settingsFile),
     '--permission-mode',
     PERMISSION_MODE[o.permission][o.ask ? 'ask' : 'deny'],
     ...(o.ask ? ['--permission-prompt-tool', 'stdio'] : []),
@@ -620,9 +697,22 @@ async function pluginIdsForRun(o: Parameters<AgentRunner['run']>[0]): Promise<st
 }
 
 async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: string): Promise<RunResult> {
+  const pluginIds = await pluginIdsForRun(o);
+  const nativeItems = claudeItemsBesideLibrary(o.nativeItems ?? {}, o.mcpServers ?? []);
+  const settings = claudeSettingsFile(claudeNativeSettings(o.nativeOff, pluginIds, nativeItems));
+  try {
+    return await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file });
+  } finally {
+    settings?.remove();
+  }
+}
+
+async function runClaudeTurn(
+  o: Parameters<AgentRunner['run']>[0],
+  run: { mcpConfig?: string; pluginIds: string[]; nativeItems: NativeItemsOff; settingsFile?: string },
+): Promise<RunResult> {
   const newSessionId = o.sessionId ? undefined : randomUUID();
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
-  const pluginIds = await pluginIdsForRun(o);
   const args = claudeArgs({
     systemPrompt: o.systemPrompt,
     permission: o.permission,
@@ -633,9 +723,11 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: strin
     newSessionId,
     attachmentsDir: o.attachmentsDir,
     readDirs: o.readDirs,
-    mcpConfig,
+    mcpConfig: run.mcpConfig,
     nativeOff: o.nativeOff,
-    pluginIds,
+    nativeItems: run.nativeItems,
+    pluginIds: run.pluginIds,
+    settingsFile: run.settingsFile,
     skip: unsupported,
   });
 

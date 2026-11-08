@@ -173,6 +173,21 @@ describe('settings', () => {
     expect(view.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['skills', 'mcp']);
     const more = (await (await provider({ nativeOff: ['plugins', 'hooks', 'agents'] })).json()) as SettingsView;
     expect(more.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
+
+    // Single items: lists of ids by known kind.
+    expect((await provider({ nativeItems: ['skills'] })).status).toBe(400);
+    expect((await provider({ nativeItems: null })).status).toBe(400);
+    expect((await provider({ nativeItems: { rules: ['x'] } })).status).toBe(400);
+    expect((await provider({ nativeItems: { skills: 'commit' } })).status).toBe(400);
+    expect((await provider({ nativeItems: { skills: [''] } })).status).toBe(400);
+    expect((await provider({ nativeItems: { skills: [7] } })).status).toBe(400);
+    expect((await provider({ nativeItems: { skills: ['x'.repeat(4097)] } })).status).toBe(400);
+    expect((await provider({ nativeItems: { skills: Array.from({ length: 2001 }, (_, i) => `s${i}`) } })).status).toBe(400);
+    const items = await provider({ nativeItems: { skills: ['commit'], mcpTools: ['mcp__local__fetch'], hooks: ['h1'] } });
+    expect(items.status).toBe(200);
+    const withItems = ((await items.json()) as SettingsView).providers.find((p) => p.provider === 'claude')!;
+    expect(withItems.nativeItems).toEqual({ skills: ['commit'], mcpTools: ['mcp__local__fetch'] });
+    expect(withItems.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
   });
 
   it("sets the CLIs' own folder: created when missing, never the home folder itself", async () => {

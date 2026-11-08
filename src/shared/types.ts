@@ -156,10 +156,11 @@ export interface ToolLibraryUpdate {
 // --- What each CLI loads by itself (its own skills, MCP servers and memory) -------------------
 
 /**
- * The kinds of things a CLI loads by itself that Harness Relay can leave out of its runs. `agents`
- * are the CLI's own subagents (its built-in ones stay).
+ * The kinds of things a CLI loads by itself that Harness Relay can leave out of its runs, all of a
+ * kind at once. `agents` are the CLI's own subagents (its built-in ones stay); `tools` its built-in
+ * tools.
  */
-export const NATIVE_PARTS = ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'agents', 'plugins'] as const;
+export const NATIVE_PARTS = ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins'] as const;
 export type NativePart = (typeof NATIVE_PARTS)[number];
 
 /**
@@ -167,10 +168,10 @@ export type NativePart = (typeof NATIVE_PARTS)[number];
  * still reads its own ~/.codex/AGENTS.md, and has no setting that leaves out only its own
  * subagents. Grok's switches reach only what it loads from Claude Code and Cursor (its own skills,
  * MCP servers and hooks are turned off in ~/.grok/config.toml), and it has none for instruction
- * files, its own subagents or plugins.
+ * files, its own subagents or plugins. Only Claude Code lists its built-in tools.
  */
 export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
-  claude: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'agents', 'plugins'],
+  claude: ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins'],
   codex: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'plugins'],
   grok: ['skills', 'mcp', 'memory', 'hooks'],
 };
@@ -181,13 +182,89 @@ export function nativeOffFor(provider: Provider, parts: readonly string[]): Nati
 }
 
 /**
+ * The kinds of single items Harness Relay can leave out of a CLI's runs. `mcp` is an MCP server and
+ * `mcpTools` one of its tools; `tools` are built-in tools; `instructions` instruction files.
+ */
+export const NATIVE_ITEM_KINDS = ['skills', 'mcp', 'mcpTools', 'tools', 'instructions', 'hooks', 'agents', 'plugins'] as const;
+export type NativeItemKind = (typeof NATIVE_ITEM_KINDS)[number];
+
+/**
+ * Single items left out of a CLI's runs, by kind, each by the id the CLI's answer gave it
+ * (`NativeItem.id`), on top of the parts left out whole.
+ */
+export type NativeItemsOff = Partial<Record<NativeItemKind, string[]>>;
+
+/**
+ * Which kinds of single items each CLI can leave out for one run, without changing its own
+ * settings. Claude Code: skills by name (`skillOverrides`), MCP servers and their tools and its
+ * built-in tools by permission rules (an MCP server still starts: only its tools are taken away),
+ * instruction files by path (`claudeMdExcludes`), subagents by name, plugins by id. Codex: skills by
+ * path, MCP servers and their tools, hooks by key, plugins by id. Grok has no such setting for a
+ * single run.
+ */
+export const NATIVE_ITEM_SUPPORT: Record<Provider, readonly NativeItemKind[]> = {
+  claude: ['skills', 'mcp', 'mcpTools', 'tools', 'instructions', 'agents', 'plugins'],
+  codex: ['skills', 'mcp', 'mcpTools', 'hooks', 'plugins'],
+  grok: [],
+};
+
+/** The part (and tab) each kind of item belongs to. */
+export const NATIVE_ITEM_PART: Record<NativeItemKind, NativePart> = {
+  skills: 'skills',
+  mcp: 'mcp',
+  mcpTools: 'mcp',
+  tools: 'tools',
+  instructions: 'instructions',
+  hooks: 'hooks',
+  agents: 'agents',
+  plugins: 'plugins',
+};
+
+/** At most this many items of one kind are left out, each id at most MAX_NATIVE_ITEM_ID characters. */
+export const MAX_NATIVE_ITEMS = 2000;
+export const MAX_NATIVE_ITEM_ID = 4096;
+
+/**
+ * The items in `items` that `provider` can leave out: kinds it supports, in NATIVE_ITEM_KINDS order,
+ * non-empty strings once each (in the order given); kinds left with none are dropped.
+ */
+export function nativeItemsFor(provider: Provider, items: unknown): NativeItemsOff {
+  const out: NativeItemsOff = {};
+  if (!items || typeof items !== 'object' || Array.isArray(items)) return out;
+  for (const kind of NATIVE_ITEM_KINDS) {
+    const list = (items as Record<string, unknown>)[kind];
+    if (!NATIVE_ITEM_SUPPORT[provider].includes(kind) || !Array.isArray(list)) continue;
+    const ids = [...new Set(list.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= MAX_NATIVE_ITEM_ID))];
+    if (ids.length) out[kind] = ids.slice(0, MAX_NATIVE_ITEMS);
+  }
+  return out;
+}
+
+/** The same single items, in any order. */
+export function sameNativeItems(a: NativeItemsOff, b: NativeItemsOff): boolean {
+  const kinds = new Set([...Object.keys(a), ...Object.keys(b)] as NativeItemKind[]);
+  return [...kinds].every((k) => {
+    const x = a[k] ?? [];
+    const y = b[k] ?? [];
+    return x.length === y.length && x.every((id) => y.includes(id));
+  });
+}
+
+/** How many single items are left out. */
+export const nativeItemCount = (items: NativeItemsOff): number => Object.values(items).reduce((n, ids) => n + (ids?.length ?? 0), 0);
+
+/**
  * What every item a CLI reports can say about itself. `leftOut`: the CLI loads it, but not when
- * Harness Relay starts it with the switches that are on (found by asking it again that way).
+ * Harness Relay starts it with what is left out (found by asking it again that way).
  */
 interface NativeItem {
   /** False when the CLI has it turned off by itself. */
   enabled?: boolean;
   leftOut?: boolean;
+  /** The id this item is left out by (`NativeItemsOff`), when the CLI can leave out this one alone. */
+  id?: string;
+  /** Picked to be left out, but the CLI, asked again the way Harness Relay starts it, still loads it. */
+  stillLoaded?: boolean;
 }
 
 export interface NativeSkill extends NativeItem {
@@ -205,8 +282,13 @@ export interface NativeMcpServer extends NativeItem {
   /** connected, failed, needs-auth, disabled… when the CLI reports it. */
   status?: string;
   source?: string;
-  /** How many tools it offers, when the CLI connected to it. */
-  tools?: number;
+  /** The tools it offers, when the CLI connected to it and says. */
+  tools?: NativeTool[];
+}
+
+/** A tool: one of an MCP server's (its own name, without the server's), or one built into the CLI. */
+export interface NativeTool extends NativeItem {
+  name: string;
 }
 
 export interface NativeMemoryFile extends NativeItem {
@@ -252,14 +334,17 @@ export interface NativeSetup {
   hooks?: NativeHook[];
   agents?: NativeAgent[];
   plugins?: NativePlugin[];
+  /** Its built-in tools (Claude Code). */
+  builtinTools?: NativeTool[];
   /** The memory list comes from reading the files the CLI is known to read, not from the CLI. */
   memoryFromFiles: boolean;
   /**
-   * The parts left out of Harness Relay's runs when the CLI was asked. With any, the CLI was asked
-   * a second time the way Harness Relay starts it, and `asRun` says whether it answered: items it
-   * then left out are marked `leftOut`.
+   * The parts and single items left out of Harness Relay's runs when the CLI was asked. With any,
+   * the CLI was asked a second time the way Harness Relay starts it, and `asRun` says whether it
+   * answered: items it then left out are marked `leftOut`.
    */
   nativeOff: NativePart[];
+  nativeItems: NativeItemsOff;
   asRun: boolean;
   /**
    * Grok: whether the folder is trusted. Untrusted, Grok leaves out the project's own instructions,
@@ -700,8 +785,10 @@ export interface ProviderSettingsView {
   defaultModel: string;
   /** Reasoning effort used when an agent does not specify one. */
   defaultEffort: string;
-  /** What this CLI loads by itself that Harness Relay's runs leave out (see NATIVE_OFF_SUPPORT). */
+  /** What this CLI loads by itself that Harness Relay's runs leave out, all of a kind (see NATIVE_OFF_SUPPORT). */
   nativeOff: NativePart[];
+  /** Single items Harness Relay's runs leave out (see NATIVE_ITEM_SUPPORT). */
+  nativeItems: NativeItemsOff;
 }
 
 export interface ModelOption {
@@ -787,6 +874,8 @@ export interface ProviderSettingsUpdate {
   apiKey?: string | null;
   /** The whole list, replacing the current one; parts the CLI cannot leave out are dropped. */
   nativeOff?: NativePart[];
+  /** All the single items, replacing the current ones; kinds the CLI cannot leave out are dropped. */
+  nativeItems?: NativeItemsOff;
 }
 
 export type LoginState = 'running' | 'success' | 'failed' | 'cancelled';

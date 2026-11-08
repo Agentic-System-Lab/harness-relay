@@ -212,6 +212,11 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE provider_settings ADD COLUMN native_off TEXT NOT NULL DEFAULT '';
   `,
+  // 11: single items of what each CLI loads by itself that Harness Relay's runs leave out (JSON:
+  // kind -> ids, see NativeItemsOff).
+  `
+  ALTER TABLE provider_settings ADD COLUMN native_items TEXT NOT NULL DEFAULT '{}';
+  `,
 ];
 
 function migrate(db: Database): void {

@@ -442,6 +442,30 @@ describe('SettingsStore (SQLite)', () => {
     expect(later.nativeOff('grok')).toEqual(['skills', 'hooks']);
   });
 
+  it("keeps the single items each CLI's runs leave out, only kinds that CLI can leave out alone", () => {
+    const s = new SettingsStore(db);
+    expect(s.nativeItems('claude')).toEqual({});
+    s.update('claude', { nativeItems: { skills: ['commit', 'commit'], tools: ['WebSearch'], hooks: ['h1'], instructions: [] } });
+    s.update('codex', { nativeItems: { hooks: ['h1'], tools: ['Bash'], mcpTools: ['["node","js"]'] } });
+    s.update('grok', { nativeItems: { skills: ['x'] } });
+
+    const again = new SettingsStore(reopen());
+    // Claude Code cannot leave out one hook, Codex lists no built-in tools, Grok can leave out no single item.
+    expect(again.nativeItems('claude')).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
+    expect(again.nativeItems('codex')).toEqual({ mcpTools: ['["node","js"]'], hooks: ['h1'] });
+    expect(again.nativeItems('grok')).toEqual({});
+    expect(again.view().providers.find((p) => p.provider === 'claude')!.nativeItems).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
+    // A copy: changing it changes nothing stored.
+    again.nativeItems('claude').skills!.push('other');
+    expect(again.nativeItems('claude').skills).toEqual(['commit']);
+    // Other updates keep them; an empty object clears them.
+    again.update('claude', { defaultModel: 'opus' });
+    const kept = new SettingsStore(reopen());
+    expect(kept.nativeItems('claude')).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
+    kept.update('claude', { nativeItems: {} });
+    expect(new SettingsStore(reopen()).nativeItems('claude')).toEqual({});
+  });
+
   it('keeps API keys in the system keyring, never in the database', () => {
     const keyring = fakeKeyring();
     const s = new SettingsStore(db, keyring);

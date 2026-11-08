@@ -35,15 +35,15 @@ const zhTW = {
   exitedWithoutReply: (cli: string, code: number | null) => `${cli} 結束（exit ${code}）但沒有回應`,
   exitedWithoutTurn: (cli: string, code: number | null) => `${cli} 結束（exit ${code}）但沒有完成回合`,
   codexMcpListFailed: (detail: string) =>
-    `Codex 無法列出它的 MCP 伺服器，因此無法在這次執行中不載入它們（${detail}）。請更新 Codex，或在「設定」的「在 Harness Relay 中不載入」取消勾選「MCP 伺服器」。`,
+    `Codex 無法列出它的 MCP 伺服器，因此無法在這次執行中不載入它們或它們的工具（${detail}）。請更新 Codex，或在「設定」裡 Codex 的「這個 CLI 自己載入的…」中，取消「MCP 工具」分頁的不載入勾選。`,
   codexLeftOutUnchecked: (detail: string) =>
-    `無法確認 Codex 在這次執行中沒有載入設為不載入的 hook 或 plugin（${detail}），所以沒有執行。請再試一次，或在「設定」的「在 Harness Relay 中不載入」取消勾選。`,
-  codexStillLoaded: (parts: ('hooks' | 'plugins')[]) =>
-    `Codex 仍載入了它的${parts.map((p) => (p === 'hooks' ? ' hook' : ' plugin')).join(' 與')}，雖然這次執行設定為不載入（可能是不認得這項設定的舊版 Codex）。請更新 Codex，或在「設定」的「在 Harness Relay 中不載入」取消勾選${parts.map((p) => (p === 'hooks' ? '「Hook」' : '「Plugin」')).join('與')}。`,
+    `無法確認 Codex 在這次執行中沒有載入設為不載入的 skill、hook 或 plugin（${detail}），所以沒有執行。請再試一次，或在「設定」裡 Codex 的「這個 CLI 自己載入的…」中取消這些不載入勾選。`,
+  codexStillLoaded: (parts: ('skills' | 'hooks' | 'plugins')[]) =>
+    `Codex 仍載入了設為不載入的${parts.map((p) => ` ${p === 'skills' ? 'skill' : p === 'hooks' ? 'hook' : 'plugin'}`).join(' 與')}（可能是不認得這項設定的舊版 Codex）。請更新 Codex，或在「設定」裡 Codex 的「這個 CLI 自己載入的…」中，取消${parts.map((p) => `「${p === 'skills' ? 'Skills' : p === 'hooks' ? 'Hooks' : 'Plugins'}」`).join('與')}分頁的不載入勾選。`,
   claudePluginsFailed: (detail: string) =>
-    `Claude Code 無法列出它的 plugin，因此無法在這次執行中不載入它們（${detail}）。請更新 Claude Code，或在「設定」的「在 Harness Relay 中不載入」取消勾選「Plugin」。`,
+    `Claude Code 無法列出它的 plugin，因此無法在這次執行中不載入它們（${detail}）。請更新 Claude Code，或在「設定」裡 Claude Code 的「這個 CLI 自己載入的…」中，取消「Plugins」分頁的「全部不載入」。`,
   claudeAgentsFailed: (detail: string) =>
-    `無法讓 Claude Code 在這次執行中不載入它自己的 subagent（${detail}）。請更新 Claude Code，或在「設定」的「在 Harness Relay 中不載入」取消勾選「Subagent」。`,
+    `無法讓 Claude Code 在這次執行中不載入它自己的 subagent（${detail}）。請更新 Claude Code，或在「設定」裡 Claude Code 的「這個 CLI 自己載入的…」中，取消「Subagents」分頁的「全部不載入」。`,
   claudeError: 'Claude Code 回報錯誤',
   commandNotFound: (bin: string) => `找不到指令「${bin}」。請確認已安裝，或在「設定」頁指定執行檔路徑。`,
   permission: { 'read-only': '唯讀', edit: '可編輯', full: '完全存取' } as Record<Permission, string>,
@@ -159,11 +159,12 @@ const zhTW = {
   grokTrustNotTaken: (dir: string) => `記錄信任 ${dir} 後，Grok 仍回報這個資料夾未受信任（可能被組織的設定限制），所以已還原這項變更。`,
   grokTrustFolderChanged: (dir: string) => `Grok 現在是依 ${dir} 決定信任，不是你確認的資料夾。請重新確認。`,
   nativeFailed: (cli: string, detail: string) => `${cli} 回報錯誤：${detail}`,
-  nativeNoAnswer: (cli: string, part: 'all' | 'skills' | 'mcp' | 'hooks' | 'agents' | 'plugins') =>
+  nativeNoAnswer: (cli: string, part: 'all' | 'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins') =>
     part === 'all'
       ? `${cli} 沒有回應。`
-      : `${cli} 沒有回報它的${{ skills: ' skill', mcp: ' MCP 伺服器', hooks: ' hook', agents: ' subagent', plugins: ' plugin' }[part]}。`,
+      : `${cli} 沒有回報它的${{ skills: ' skill', mcp: ' MCP 伺服器', tools: '內建工具', hooks: ' hook', agents: ' subagent', plugins: ' plugin' }[part]}。`,
   nativeAsRunFailed: (cli: string, detail: string) => `依 Harness Relay 啟動 ${cli} 的方式再問一次時失敗，所以沒有標示哪些項目不載入：${detail}`,
+  nativeAsRunPartial: (cli: string) => `依 Harness Relay 啟動 ${cli} 的方式再問一次時逾時：已回答的部分有標示不載入的項目，其餘沒有標示。`,
 
   // Files
   fileNotFound: '找不到這個檔案或資料夾（只能瀏覽工作目錄裡的內容）',
@@ -225,15 +226,15 @@ const en: ServerMessages = {
   exitedWithoutReply: (cli, code) => `${cli} exited (exit ${code}) without a reply`,
   exitedWithoutTurn: (cli, code) => `${cli} exited (exit ${code}) without finishing the turn`,
   codexMcpListFailed: (detail) =>
-    `Codex could not list its MCP servers, so they could not be left out of this run (${detail}). Update Codex, or clear "MCP servers" under "Leave out of Harness Relay's runs" in Settings.`,
+    `Codex could not list its MCP servers, so they or their tools could not be left out of this run (${detail}). Update Codex, or clear what is left out on the MCP tools tab of "…this CLI loads by itself" in Codex's settings.`,
   codexLeftOutUnchecked: (detail) =>
-    `Could not check that Codex left out the hooks or plugins this run leaves out (${detail}), so it did not run. Try again, or clear them under "Leave out of Harness Relay's runs" in Settings.`,
+    `Could not check that Codex left out the skills, hooks or plugins this run leaves out (${detail}), so it did not run. Try again, or clear them in "…this CLI loads by itself" in Codex's settings.`,
   codexStillLoaded: (parts) =>
-    `Codex still loaded its ${parts.join(' and ')} although they are left out of this run (an older Codex that does not know the setting, say). Update Codex, or clear ${parts.map((p) => (p === 'hooks' ? '"Hooks"' : '"Plugins"')).join(' and ')} under "Leave out of Harness Relay's runs" in Settings.`,
+    `Codex still loaded ${parts.join(' and ')} that are left out of this run (an older Codex that does not know the setting, say). Update Codex, or clear what is left out on the ${parts.map((p) => (p === 'skills' ? 'Skills' : p === 'hooks' ? 'Hooks' : 'Plugins')).join(' and ')} ${parts.length > 1 ? 'tabs' : 'tab'} of "…this CLI loads by itself" in Codex's settings.`,
   claudePluginsFailed: (detail) =>
-    `Claude Code could not list its plugins, so they could not be left out of this run (${detail}). Update Claude Code, or clear "Plugins" under "Leave out of Harness Relay's runs" in Settings.`,
+    `Claude Code could not list its plugins, so they could not be left out of this run (${detail}). Update Claude Code, or clear "Leave all out" on the Plugins tab of "…this CLI loads by itself" in Claude Code's settings.`,
   claudeAgentsFailed: (detail) =>
-    `Claude Code's own subagents could not be left out of this run (${detail}). Update Claude Code, or clear "Subagents" under "Leave out of Harness Relay's runs" in Settings.`,
+    `Claude Code's own subagents could not be left out of this run (${detail}). Update Claude Code, or clear "Leave all out" on the Subagents tab of "…this CLI loads by itself" in Claude Code's settings.`,
   claudeError: 'Claude Code reported an error',
   commandNotFound: (bin) => `Command "${bin}" not found. Make sure it is installed, or set its path on the Settings page.`,
   permission: { 'read-only': 'Read-only', edit: 'Edit', full: 'Full access' },
@@ -347,8 +348,9 @@ const en: ServerMessages = {
   nativeNoAnswer: (cli, part) =>
     part === 'all'
       ? `${cli} did not answer.`
-      : `${cli} did not report its ${{ skills: 'skills', mcp: 'MCP servers', hooks: 'hooks', agents: 'subagents', plugins: 'plugins' }[part]}.`,
+      : `${cli} did not report its ${{ skills: 'skills', mcp: 'MCP servers', tools: 'built-in tools', hooks: 'hooks', agents: 'subagents', plugins: 'plugins' }[part]}.`,
   nativeAsRunFailed: (cli, detail) => `Asking ${cli} again the way Harness Relay starts it failed, so what is left out is not marked: ${detail}`,
+  nativeAsRunPartial: (cli) => `Asking ${cli} again the way Harness Relay starts it ran out of time: what it had answered is marked, the rest is not.`,
 
   fileNotFound: 'File or folder not found (only what is inside the working directory can be browsed)',
   fileRootNotFound: 'This folder no longer exists',

@@ -34,6 +34,7 @@ let calls: {
   images?: { path: string; mimeType: string }[];
   attachmentsDir?: string;
   nativeOff?: readonly string[];
+  nativeItems?: Record<string, string[]>;
 }[] = [];
 let settings: InstanceType<typeof SettingsStore>;
 /** What the fake lead agent replies when asked to design a team (auto team). */
@@ -59,7 +60,7 @@ beforeAll(() => {
     provider: 'claude',
     async run(o) {
       if (o.systemPrompt === GROUPER_BRIEFING) {
-        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff });
+        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems });
         if (sorterGate && !o.signal?.aborted) {
           await Promise.race([sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
@@ -69,14 +70,22 @@ beforeAll(() => {
         return { sessionId: 'sorter-session' };
       }
       if (o.systemPrompt === PLANNER_BRIEFING) {
-        calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt, nativeOff: o.nativeOff });
+        calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems });
         if (leadGate) await leadGate;
         o.onEvent({ type: 'text', text: leadReply });
         o.onEvent({ type: 'text_end' });
         return { costUsd: 0.01, sessionId: 'lead-session' };
       }
       const name = /You are @(\w+)/.exec(o.systemPrompt)![1]!;
-      calls.push({ name, sessionId: o.sessionId, prompt: o.prompt, images: o.images, attachmentsDir: o.attachmentsDir, nativeOff: o.nativeOff });
+      calls.push({
+        name,
+        sessionId: o.sessionId,
+        prompt: o.prompt,
+        images: o.images,
+        attachmentsDir: o.attachmentsDir,
+        nativeOff: o.nativeOff,
+        nativeItems: o.nativeItems,
+      });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
       during?.(name, o.cwd);
@@ -314,17 +323,18 @@ describe('parallel mode with edit permission', () => {
 
 describe('what a CLI loads by itself', () => {
   it("leaves out of every agent's run what the user turned off for that CLI", async () => {
-    settings.update('claude', { nativeOff: ['mcp', 'memory'] });
+    settings.update('claude', { nativeOff: ['mcp', 'memory'], nativeItems: { skills: ['commit'] } });
     const conv = conversation({ mode: 'roundtable' });
     await orchestrator.send(conv.id, 'go');
     await finish(conv.id);
     const turns = calls.filter((c) => c.name === 'Alice' || c.name === 'Bob');
     expect(turns).toHaveLength(2);
     expect(turns.every((c) => c.nativeOff?.join() === 'mcp,memory')).toBe(true);
+    expect(turns.every((c) => c.nativeItems?.skills?.join() === 'commit')).toBe(true);
   });
 
   it("leaves it out of the lead agent's and the group sorter's runs too", async () => {
-    settings.update('claude', { nativeOff: ['skills', 'instructions'] });
+    settings.update('claude', { nativeOff: ['skills', 'instructions'], nativeItems: { tools: ['WebSearch'] } });
     store.createGroup({ id: 'g1', name: 'Docs' });
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
     conv.agents = [];
@@ -335,6 +345,7 @@ describe('what a CLI loads by itself', () => {
     const helpers = calls.filter((c) => c.name === 'lead' || c.name === 'sorter');
     expect(helpers.map((c) => c.name).sort()).toEqual(['lead', 'sorter']);
     expect(helpers.every((c) => c.nativeOff?.join() === 'skills,instructions')).toBe(true);
+    expect(helpers.every((c) => c.nativeItems?.tools?.join() === 'WebSearch')).toBe(true);
   });
 });
 

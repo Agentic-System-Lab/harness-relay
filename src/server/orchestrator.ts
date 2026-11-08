@@ -863,6 +863,7 @@ export class Orchestrator {
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider),
         nativeOff: this.settings.nativeOff(lead.provider),
+        nativeItems: this.settings.nativeItems(lead.provider),
         prompt: buildPlannerPrompt(question, conv.settings, ctx),
         systemPrompt: PLANNER_BRIEFING,
         cwd: conv.settings.cwd,
@@ -1355,13 +1356,15 @@ export class Orchestrator {
       // Read on every turn, so library changes reach agents at their next turn.
       const tools = this.settings.tools.forAgent(agent);
       const nativeOff = this.settings.nativeOff(agent.provider);
+      const nativeItems = this.settings.nativeItems(agent.provider);
       try {
         const result = await runners[agent.provider].run({
           bin: this.settings.bin(agent.provider),
           env: this.settings.env(agent.provider),
           nativeOff,
+          nativeItems,
           prompt,
-          systemPrompt: buildBriefing(conv, agent, workspace, tools, nativeOff),
+          systemPrompt: buildBriefing(conv, agent, workspace, tools, nativeOff, nativeItems),
           sessionId: state.sessionId,
           cwd,
           permission: conv.settings.permission,

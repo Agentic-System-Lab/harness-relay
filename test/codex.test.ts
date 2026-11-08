@@ -8,14 +8,16 @@ import {
   codexConfig,
   codexElicitationResponse,
   codexMcpToolApproval,
-  codexConfiguredMcpServers,
   codexConfirmLeftOut,
   codexNativeConfig,
   codexRunner,
   isUnknownMethod,
   codexOverrideArgs,
   codexThreadRequest,
-  codexUserMcpServers,
+  codexUserMcp,
+  codexUserMcpConfig,
+  codexMcpOff,
+  codexMcpToolId,
   createCodexUpdateHandler,
   describeCodexItem,
 } from '../src/server/agents/codex';
@@ -159,7 +161,7 @@ describe('codex thread config', () => {
     expect(
       codexConfig('read-only', undefined, [gh], {
         off: ['skills', 'mcp', 'instructions', 'memory'],
-        userMcpServers: ['headroom', 'gh', 'a.b'],
+        user: { names: ['headroom', 'gh', 'a.b'], disabledTools: {} },
       }),
     ).toEqual({
       'skills.include_instructions': false,
@@ -170,13 +172,54 @@ describe('codex thread config', () => {
       mcp_servers: { headroom: { enabled: false }, 'a.b': { enabled: false }, gh: { command: 'npx', args: ['gh'] } },
     });
     // The user's servers stay on unless MCP servers are left out.
-    expect(codexConfig('read-only', undefined, [], { off: ['skills'], userMcpServers: ['headroom'] })).toEqual({
+    expect(codexConfig('read-only', undefined, [], { off: ['skills'], user: { names: ['headroom'], disabledTools: {} } })).toEqual({
       'skills.include_instructions': false,
     });
     expect(codexNativeConfig([])).toEqual({});
     expect(codexNativeConfig(['instructions'])).toEqual({ project_doc_max_bytes: 0 });
     // Its hooks (plugins' too) and its plugins, each with its feature switch.
     expect(codexNativeConfig(['hooks', 'plugins'])).toEqual({ 'features.hooks': false, 'features.plugins': false });
+  });
+
+  it('leaves out single skills by path, hooks by key and plugins by id, as tables Codex merges', () => {
+    const items = { skills: ['/s/a/SKILL.md'], hooks: ['/u/.codex/hooks.json:stop:0:0'], plugins: ['pdf@openai'] };
+    expect(codexNativeConfig([], items)).toEqual({
+      'skills.config': [{ path: '/s/a/SKILL.md', enabled: false }],
+      'hooks.state': { '/u/.codex/hooks.json:stop:0:0': { enabled: false } },
+      plugins: { 'pdf@openai': { enabled: false } },
+    });
+    // Hooks and plugins left out whole go by their feature switch alone.
+    expect(codexNativeConfig(['hooks', 'plugins'], items)).toEqual({
+      'skills.config': [{ path: '/s/a/SKILL.md', enabled: false }],
+      'features.hooks': false,
+      'features.plugins': false,
+    });
+    expect(codexOverrideArgs(codexNativeConfig([], items))).toEqual([
+      '-c',
+      'skills.config=[{ "path" = "/s/a/SKILL.md", "enabled" = false }]',
+      '-c',
+      'hooks.state={ "/u/.codex/hooks.json:stop:0:0" = { "enabled" = false } }',
+      '-c',
+      'plugins={ "pdf@openai" = { "enabled" = false } }',
+    ]);
+  });
+
+  it("turns off single MCP servers and tools of the user's own, keeping the tools they already turned off", () => {
+    const user = codexUserMcpConfig({ config: { mcp_servers: { headroom: { command: 'h' }, node: { command: 'n', disabled_tools: ['old'] }, 'a.b': {} } } });
+    expect(user).toEqual({ names: ['headroom', 'node', 'a.b'], disabledTools: { node: ['old'] } });
+    const items = {
+      mcp: ['headroom', 'gone'],
+      mcpTools: [codexMcpToolId('node', 'js_reset'), codexMcpToolId('a.b', 'x/y'), codexMcpToolId('headroom', 'run'), codexMcpToolId('gone', 'z'), 'not json'],
+    };
+    // Only servers in the user's config (an entry for another would be a server without a command),
+    // and no tools of a server that is off anyway.
+    expect(codexMcpOff([], items, user)).toEqual({ turnOff: ['headroom'], toolsOff: { node: ['old', 'js_reset'], 'a.b': ['x/y'] } });
+    expect(codexMcpOff(['mcp'], items, user)).toEqual({ turnOff: ['headroom', 'node', 'a.b'], toolsOff: {} });
+    expect(codexConfig('read-only', undefined, [], { off: [], items, user })).toEqual({
+      mcp_servers: { node: { disabled_tools: ['old', 'js_reset'] }, 'a.b': { disabled_tools: ['x/y'] }, headroom: { enabled: false } },
+    });
+    expect(codexUserMcpConfig(undefined)).toEqual({ names: [], disabledTools: {} });
+    expect(codexUserMcpConfig({ config: {} })).toEqual({ names: [], disabledTools: {} });
   });
 
   it('writes the same overrides as -c arguments, tables inline with every key quoted', () => {
@@ -202,20 +245,25 @@ describe('codex thread config', () => {
     const conn = (answer: () => Promise<unknown>) => ({
       request: (method: string, params?: unknown) => (asked.push([method, params]), answer()),
     });
-    const ok = conn(async () => ({ config: { mcp_servers: { headroom: {} } } }));
-    expect(await codexUserMcpServers(ok, { cwd: '/repo', nativeOff: ['skills', 'memory'] })).toEqual([]);
-    expect(await codexUserMcpServers(ok, { cwd: '/repo' })).toEqual([]);
+    const ok = conn(async () => ({ config: { mcp_servers: { headroom: { disabled_tools: ['x'] } } } }));
+    const none = { names: [], disabledTools: {} };
+    expect(await codexUserMcp(ok, { cwd: '/repo', nativeOff: ['skills', 'memory'], nativeItems: { skills: ['/s/SKILL.md'] } })).toEqual(none);
+    expect(await codexUserMcp(ok, { cwd: '/repo' })).toEqual(none);
     expect(asked).toEqual([]);
-    expect(await codexUserMcpServers(ok, { cwd: '/repo', nativeOff: ['mcp'] })).toEqual(['headroom']);
+    const headroom = { names: ['headroom'], disabledTools: { headroom: ['x'] } };
+    expect(await codexUserMcp(ok, { cwd: '/repo', nativeOff: ['mcp'] })).toEqual(headroom);
     expect(asked).toEqual([['config/read', { cwd: '/repo' }]]);
+    // Single servers or tools need the list too.
+    expect(await codexUserMcp(ok, { cwd: '/repo', nativeItems: { mcp: ['headroom'] } })).toEqual(headroom);
+    expect(await codexUserMcp(ok, { cwd: '/repo', nativeItems: { mcpTools: [codexMcpToolId('headroom', 'y')] } })).toEqual(headroom);
 
     // An older codex without config/read, say: going on would run the servers the user turned off.
     const old = conn(async () => {
       throw new RpcError(-32601, 'config/read is not supported');
     });
-    const failure = withLang('en', () => codexUserMcpServers(old, { cwd: '/repo', nativeOff: ['mcp'] }));
+    const failure = withLang('en', () => codexUserMcp(old, { cwd: '/repo', nativeOff: ['mcp'] }));
     await expect(failure).rejects.toBeInstanceOf(AgentRunError);
-    await expect(failure).rejects.toThrow(/^Codex could not list its MCP servers, so they could not be left out of this run \(config\/read is not supported\)/);
+    await expect(failure).rejects.toThrow(/^Codex could not list its MCP servers, so they or their tools could not be left out of this run \(config\/read is not supported\)/);
   });
 
   it("starts or resumes the thread with the run's settings and the user's MCP servers turned off", () => {
@@ -227,7 +275,8 @@ describe('codex thread config', () => {
       nativeOff: ['mcp' as const],
       requestApproval: async () => ({ allow: true }),
     };
-    const start = codexThreadRequest(run, ['headroom']);
+    const user = { names: ['headroom'], disabledTools: {} };
+    const start = codexThreadRequest(run, user);
     expect(start).toEqual({
       method: 'thread/start',
       params: {
@@ -244,13 +293,18 @@ describe('codex thread config', () => {
       },
     });
     // Resuming gets the same settings, so a switch changed mid-chat reaches the next turn.
-    expect(codexThreadRequest({ ...run, sessionId: 'thr-1' }, ['headroom'])).toEqual({
+    expect(codexThreadRequest({ ...run, sessionId: 'thr-1' }, user)).toEqual({
       method: 'thread/resume',
       params: { threadId: 'thr-1', ...start.params },
     });
     // Full access, or a conversation that refuses automatically, never asks.
-    expect(codexThreadRequest({ ...run, permission: 'full' }, []).params.approvalPolicy).toBe('never');
-    expect(codexThreadRequest({ ...run, requestApproval: undefined }, []).params.approvalPolicy).toBe('never');
+    expect(codexThreadRequest({ ...run, permission: 'full' }).params.approvalPolicy).toBe('never');
+    expect(codexThreadRequest({ ...run, requestApproval: undefined }).params.approvalPolicy).toBe('never');
+    // Single items go in the thread's config as well.
+    expect(codexThreadRequest({ ...run, nativeOff: [], nativeItems: { plugins: ['pdf@openai'] } }).params.config).toEqual({
+      sandbox_workspace_write: { network_access: false },
+      plugins: { 'pdf@openai': { enabled: false } },
+    });
   });
 
   it('checks after the thread starts that Codex took the hooks and plugins switches', async () => {
@@ -279,7 +333,7 @@ describe('codex thread config', () => {
     });
     const failure = withLang('en', () => codexConfirmLeftOut(ignored, run, 'thr-1'));
     await expect(failure).rejects.toBeInstanceOf(AgentRunError);
-    await expect(failure).rejects.toThrow(/^Codex still loaded its hooks and plugins although they are left out of this run/);
+    await expect(failure).rejects.toThrow(/^Codex still loaded hooks and plugins that are left out of this run/);
     // Only off ones, or plugins that are not installed: nothing still on.
     const quiet = conn({
       'hooks/list': { data: [{ hooks: [{ eventName: 'stop', enabled: false }] }] },
@@ -294,15 +348,31 @@ describe('codex thread config', () => {
     // Any other failure could not be checked, and the run does not go on.
     const broken = { request: async () => Promise.reject(new RpcError(-32603, 'thread not loaded')) };
     await expect(withLang('en', () => codexConfirmLeftOut(broken, run, 'thr-1'))).rejects.toThrow(
-      /^Could not check that Codex left out the hooks or plugins this run leaves out \(thread not loaded\)/,
+      /^Could not check that Codex left out the skills, hooks or plugins this run leaves out \(thread not loaded\)/,
     );
   });
 
-  it('reads the configured MCP servers from config/read', () => {
-    expect(codexConfiguredMcpServers({ config: { mcp_servers: { headroom: {}, node_repl: {} } } })).toEqual(['headroom', 'node_repl']);
-    expect(codexConfiguredMcpServers({ config: {} })).toEqual([]);
-    expect(codexConfiguredMcpServers(undefined)).toEqual([]);
+  it('checks the single skills, hooks and plugins left out, and only those', async () => {
+    const asked: string[] = [];
+    const answers: Record<string, unknown> = {
+      'skills/list': { data: [{ skills: [{ name: 'a', path: '/s/a/SKILL.md', enabled: false }, { name: 'b', path: '/s/b/SKILL.md', enabled: true }] }] },
+      'hooks/list': { data: [{ hooks: [{ key: 'h1', eventName: 'stop', enabled: false }, { key: 'h2', eventName: 'stop', enabled: true }] }] },
+      'plugin/installed': { marketplaces: [{ plugins: [{ id: 'pdf@o', installed: true, enabled: false }, { id: 'docs@o', installed: true, enabled: true }] }] },
+    };
+    const conn = { request: async (method: string) => (asked.push(method), answers[method]) };
+    const took = { cwd: '/repo', nativeItems: { skills: ['/s/a/SKILL.md'], hooks: ['h1'], plugins: ['pdf@o'] } };
+    await expect(codexConfirmLeftOut(conn, took, 'thr-1')).resolves.toBeUndefined();
+    expect(asked).toEqual(['skills/list', 'hooks/list', 'plugin/installed']);
+    // One it still loads fails the run, named by its kind.
+    const still = { cwd: '/repo', nativeItems: { skills: ['/s/b/SKILL.md'], hooks: ['h2'], plugins: ['docs@o'] } };
+    await expect(withLang('en', () => codexConfirmLeftOut(conn, still, 'thr-1'))).rejects.toThrow(
+      /^Codex still loaded skills and hooks and plugins that are left out of this run/,
+    );
+    await expect(withLang('zh-TW', () => codexConfirmLeftOut(conn, { cwd: '/repo', nativeItems: { hooks: ['h2'] } }, 'thr-1'))).rejects.toThrow(
+      /^Codex 仍載入了設為不載入的 hook/,
+    );
   });
+
 });
 
 describe('a Codex run that leaves out hooks and plugins (stand-in codex app-server)', () => {
@@ -379,7 +449,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
 
   it('fails before the turn when Codex ignored them', async () => {
     const r = run({ FAKE_CODEX_IGNORE: '1' });
-    await expect(r.result).rejects.toThrow(/^Codex still loaded its hooks and plugins although they are left out of this run/);
+    await expect(r.result).rejects.toThrow(/^Codex still loaded hooks and plugins that are left out of this run/);
     expect(r.methods()).not.toContain('turn/start');
   });
 

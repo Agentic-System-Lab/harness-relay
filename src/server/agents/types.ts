@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
-import type { ApprovalAnswer, ApprovalKind, NativePart, Permission, PlanEntry, Provider } from '../../shared/types';
+import type { ApprovalAnswer, ApprovalKind, NativeItemsOff, NativePart, Permission, PlanEntry, Provider } from '../../shared/types';
 
 /** Normalised events every CLI adapter emits while an agent is working. */
 export type AgentEvent =
@@ -60,8 +60,10 @@ export interface RunOptions {
   mcpServers?: McpServerSpec[];
   /** Folders outside the working directory the agent may read (its skills). */
   readDirs?: string[];
-  /** What the CLI loads by itself to leave out of this run (its own skills, MCP servers…). */
+  /** What the CLI loads by itself to leave out of this run, all of a kind (its own skills, MCP servers…). */
   nativeOff?: readonly NativePart[];
+  /** Single items of what the CLI loads by itself to leave out of this run. */
+  nativeItems?: NativeItemsOff;
 }
 
 /** An MCP server to hand to a CLI, with its secret values. */

@@ -491,40 +491,70 @@ export const en: Messages = {
   native: {
     title: 'Skills, MCP servers, hooks, memory and more this CLI loads by itself',
     summary: (s, m, f) => `${s} skills · ${m} MCP · ${f} files`,
-    hint: "This is the CLI's own setup, separate from the tool library, for the default working directory. Asking starts the CLI briefly, without calling a model; Claude Code runs your hooks and connects its MCP servers. When something is left out, the CLI is asked again the way Harness Relay starts it, and what it then leaves out is marked. Answers are kept for a minute.",
+    hint: "This is the CLI's own setup, separate from the tool library, for the default working directory. Asking starts the CLI briefly, without calling a model; Claude Code and Codex start their MCP servers, and Claude Code runs your hooks. When something is left out, the CLI is asked again the way Harness Relay starts it, and what it then leaves out is marked. Answers are kept for a minute.",
+    offHint:
+      "\"Leave out\" applies only when Harness Relay starts this CLI: the CLI's own settings files are not changed, and using it in a terminal is not affected. The tool library's items are still provided. Each tab can leave out all of its kind, or, once the CLI has been asked, single items.",
     load: 'Ask',
     reload: 'Ask again',
     loading: 'Asking…',
     checked: (cwd, when) => `${cwd} · ${when}`,
-    tabs: { skills: 'Skills', mcp: 'MCP servers', memory: 'Memory and instructions', hooks: 'Hooks', agents: 'Subagents', plugins: 'Plugins' },
+    tabs: {
+      skills: 'Skills',
+      mcp: 'MCP tools',
+      tools: 'Built-in tools',
+      hooks: 'Hooks',
+      agents: 'Subagents',
+      plugins: 'Plugins',
+      instructions: 'Instructions',
+      memory: 'Memory',
+    },
+    tabOff: 'all left out',
+    tabPicked: (n) => `${n} left out`,
     filter: 'Filter',
     none: 'None.',
+    askFirst: "Ask the CLI to list what it loads, then tick single items to leave out.",
+    notListed: 'This CLI does not report this list.',
     off: 'off',
     leftOut: 'left out',
     leftOutTitle: 'Not loaded when Harness Relay starts this CLI',
+    stillLoaded: 'still loaded',
+    stillLoadedTitle: 'Ticked to leave out, but asked again the way Harness Relay starts it, the CLI still loads it',
     asRun: (n) =>
       n
         ? `Asked again the way Harness Relay starts this CLI: the ${n === 1 ? 'item' : `${n} items`} marked "left out" ${n === 1 ? 'is' : 'are'} not loaded; the rest is.`
-        : 'Asked again the way Harness Relay starts this CLI: everything in these lists still loads; the switches that are on leave none of it out.',
+        : 'Asked again the way Harness Relay starts this CLI: everything in these lists still loads; what is left out takes none of it away.',
     asRunStale: 'What is left out changed after this answer: ask again to check what Harness Relay actually loads.',
+    offAll: 'Leave all out',
+    offAllOn: 'All left out; the single items ticked below are kept, and apply again when "Leave all out" is cleared.',
+    pick: (name) => `Leave ${name} out of Harness Relay's runs`,
+    picked: (n) => (n === 1 ? '1 item ticked to leave out.' : `${n} items ticked to leave out.`),
+    clearPicked: 'Clear',
+    unlisted: (n) =>
+      `${n === 1 ? '1 more ticked item is' : `${n} more ticked items are`} not in this list (gone, or in a project other than the default working directory).`,
+    clearUnlisted: 'Clear those',
+    cannotPick: (cli) => `${cli} has no setting that leaves out one of these alone, only all of them.`,
+    claudeHooks: "Claude Code's hooks have no names, so they can only be left out all at once.",
+    claudeMcp:
+      'Claude Code: a ticked MCP server still starts; only its tools are kept from the agents. To keep the servers from starting, use "Leave all out".',
+    codexMcp:
+      "Codex: only the MCP servers in your config files are listed; plugins' servers are set on the Plugins tab, and ChatGPT apps go with \"Leave all out\".",
+    claudeTools:
+      "Claude Code's built-in tools. Agents cannot use a tool left out; tools Harness Relay turns off for the permission (Edit and Write when read-only, say) stay off whatever is set here.",
     source: (s) => `from ${s}`,
     tools: (n) => (n === 1 ? '1 tool' : `${n} tools`),
     claudeSkills: 'Claude Code reports names and descriptions only: skills, plugin commands and custom commands are all listed here (built-in commands are not).',
-    claudeAgents: 'Claude Code does not say where a subagent comes from. Those marked built-in are the ones it has with no settings files, plugins or project around it.',
+    claudeAgents:
+      'Claude Code does not say where a subagent comes from. Those marked built-in are the ones it has with no settings files, plugins or project around it; "Leave all out" keeps them, but they can be ticked one by one.',
     hooksNote: "Only each hook's event and source are shown; its command may hold a token.",
     fromFiles: 'This CLI gives no list, so these are the files it is documented to read that exist now; whether it reads them follows its settings.',
     fromCli: 'As the CLI reports them.',
     grokMemory: "Grok's automatic memory (when it is on) is only known inside a conversation, so it is not listed here.",
-    instructions: 'instructions',
-    memoryFile: 'memory',
     preview: 'Preview',
-    offTitle: "Leave out of Harness Relay's runs",
-    offHint: "Only when Harness Relay starts this CLI: the CLI's own settings files are not changed, and using it in a terminal is not affected. The tool library's items are still provided.",
-    offParts: { skills: 'Skills', mcp: 'MCP servers', instructions: 'Instruction files', memory: 'Memory', hooks: 'Hooks', agents: 'Subagents', plugins: 'Plugins' },
     offNotes: {
       claude: {
         skills: 'plugin and custom commands too',
-        mcp: "only the tool library's MCP servers stay",
+        mcp: "none of its own MCP servers start; only the tool library's stay",
+        tools: 'every built-in tool (Bash, Read, Edit…); agents can only talk and use MCP tools',
         instructions: 'CLAUDE.md files and rules at every level',
         memory: 'auto memory',
         hooks: 'hooks in settings files and plugins',
@@ -534,6 +564,7 @@ export const en: Messages = {
       codex: {
         skills: 'its instructions no longer list skills',
         mcp: "ChatGPT apps too; only the tool library's MCP servers stay",
+        tools: 'Codex does not report its built-in tools',
         instructions: "the project's AGENTS.md files only; ~/.codex/AGENTS.md is still read",
         memory: 'the memories feature',
         hooks: "plugins' hooks too",
@@ -544,6 +575,7 @@ export const en: Messages = {
         skills:
           "only the skills it takes from Claude Code and Cursor (the project's .claude/skills and Claude Code plugins' too). The skills Grok finds by itself still load: ~/.agents/skills, ~/.grok/skills, those in the project's .grok/skills and .agents/skills, its built-in ones, and those from Grok's own plugins and [skills] paths; to turn those off, list their names in skills.disabled in ~/.grok/config.toml (Grok's own global setting: it also applies when you use Grok in a terminal, and Harness Relay does not change it)",
         mcp: "only those it takes from Claude Code and Cursor; Grok's own MCP servers still load, and are turned off in ~/.grok/config.toml (mcp_servers.<name>.enabled = false) (Grok's own global setting: it also applies when you use Grok in a terminal, and Harness Relay does not change it)",
+        tools: 'Grok does not report its built-in tools',
         instructions: 'Grok has no setting to skip instruction files for one run',
         memory: 'cross-session memory',
         hooks: "only the hooks it takes from Claude Code's and Cursor's settings files; plugins' hooks and Grok's own still run",
@@ -552,7 +584,7 @@ export const en: Messages = {
       },
     },
     offCodexThreads:
-      "Codex keeps the skills list, instruction files and memory a chat started with: changes to these (plugins' skills among them) take effect in new chats. Changes to MCP servers and hooks take effect at the next turn.",
+      "Codex keeps the skills list, instruction files and memory a chat started with: changes to these (plugins' skills among them) take effect in new chats. Changes to MCP servers, their tools and hooks take effect at the next turn.",
     offCount: (n) => `${n} left out in Relay`,
   },
   grokTrust: {

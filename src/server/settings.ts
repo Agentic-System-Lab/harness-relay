@@ -1,11 +1,13 @@
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
+  nativeItemsFor,
   nativeOffFor,
   PROVIDERS,
   VOICE_LANGUAGES,
   VOICE_MODELS,
   type LeadAgentSettings,
+  type NativeItemsOff,
   type NativePart,
   type Provider,
   type ProviderSettingsUpdate,
@@ -34,6 +36,7 @@ interface ProviderSettings {
   defaultModel: string;
   defaultEffort: string;
   nativeOff: NativePart[];
+  nativeItems: NativeItemsOff;
 }
 
 /** Env var each CLI reads an API key from. Codex keys go through `codex login --with-api-key` instead. */
@@ -75,6 +78,15 @@ function mask(key: string): string {
   return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
+/** A stored JSON value, or undefined when it does not parse. */
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Name of a provider's API key in the system keyring. */
 const keyName = (p: Provider) => `${p}-api-key`;
 
@@ -106,11 +118,19 @@ export class SettingsStore {
     private db: Database,
     private keyring?: SecretStore,
   ) {
-    const empty = (): ProviderSettings => ({ bin: '', apiKey: '', defaultModel: '', defaultEffort: '', nativeOff: [] });
+    const empty = (): ProviderSettings => ({ bin: '', apiKey: '', defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} });
     this.providers = { claude: empty(), codex: empty(), grok: empty() };
     const rows = db
-      .prepare('SELECT provider, bin, api_key, default_model, default_effort, native_off FROM provider_settings')
-      .all() as { provider: Provider; bin: string; api_key: string; default_model: string; default_effort: string; native_off: string }[];
+      .prepare('SELECT provider, bin, api_key, default_model, default_effort, native_off, native_items FROM provider_settings')
+      .all() as {
+      provider: Provider;
+      bin: string;
+      api_key: string;
+      default_model: string;
+      default_effort: string;
+      native_off: string;
+      native_items: string;
+    }[];
     for (const r of rows) {
       if (!PROVIDERS.includes(r.provider)) continue;
       this.providers[r.provider] = {
@@ -119,6 +139,7 @@ export class SettingsStore {
         defaultModel: r.default_model,
         defaultEffort: r.default_effort,
         nativeOff: nativeOffFor(r.provider, r.native_off.split(',')),
+        nativeItems: nativeItemsFor(r.provider, parseJson(r.native_items)),
       };
     }
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'default_cwd'").get() as { value: string } | undefined;
@@ -266,14 +287,14 @@ export class SettingsStore {
     const s = this.providers[p];
     this.db
       .prepare(
-        `INSERT INTO provider_settings (provider, bin, api_key, default_model, default_effort, native_off)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO provider_settings (provider, bin, api_key, default_model, default_effort, native_off, native_items)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(provider) DO UPDATE SET
            bin = excluded.bin, api_key = excluded.api_key,
            default_model = excluded.default_model, default_effort = excluded.default_effort,
-           native_off = excluded.native_off`,
+           native_off = excluded.native_off, native_items = excluded.native_items`,
       )
-      .run(p, s.bin, this.keyInDb(p) ? s.apiKey : '', s.defaultModel, s.defaultEffort, s.nativeOff.join(','));
+      .run(p, s.bin, this.keyInDb(p) ? s.apiKey : '', s.defaultModel, s.defaultEffort, s.nativeOff.join(','), JSON.stringify(s.nativeItems));
   }
 
   bin(p: Provider): string {
@@ -291,6 +312,11 @@ export class SettingsStore {
   /** What this CLI loads by itself that Harness Relay's runs leave out. */
   nativeOff(p: Provider): NativePart[] {
     return [...this.providers[p].nativeOff];
+  }
+
+  /** Single items of what this CLI loads by itself that Harness Relay's runs leave out. */
+  nativeItems(p: Provider): NativeItemsOff {
+    return Object.fromEntries(Object.entries(this.providers[p].nativeItems).map(([kind, ids]) => [kind, [...(ids ?? [])]]));
   }
 
   hasStoredApiKey(p: Provider): boolean {
@@ -330,6 +356,7 @@ export class SettingsStore {
     if (u.defaultModel !== undefined) s.defaultModel = u.defaultModel.trim();
     if (u.defaultEffort !== undefined) s.defaultEffort = u.defaultEffort.trim();
     if (u.nativeOff !== undefined) s.nativeOff = nativeOffFor(p, u.nativeOff);
+    if (u.nativeItems !== undefined) s.nativeItems = nativeItemsFor(p, u.nativeItems);
     this.saveProvider(p);
   }
 
@@ -348,6 +375,7 @@ export class SettingsStore {
         defaultModel: this.providers[p].defaultModel,
         defaultEffort: this.providers[p].defaultEffort,
         nativeOff: this.nativeOff(p),
+        nativeItems: this.nativeItems(p),
       })),
     };
   }

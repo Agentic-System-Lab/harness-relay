@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentConfig, ChatMessage, Conversation } from '../src/shared/types';
-import { buildBriefing, buildTurnPrompt, isForwardable, isPass, parseMentions, renderMessage } from '../src/server/prompt';
+import { buildBriefing, buildTurnPrompt, canReadFiles, isForwardable, isPass, parseMentions, renderMessage } from '../src/server/prompt';
 import { ASK_TOKEN, splitAsk } from '../src/shared/ask';
 
 const team: AgentConfig[] = [
@@ -143,6 +143,19 @@ describe('buildBriefing', () => {
     const off = buildBriefing(conv, team[0]!, { kind: 'shared' }, tools, ['skills']);
     expect(off).toContain('- commit (/s/commit/SKILL.md)');
     expect(off).not.toContain(own);
+  });
+
+  it('lists no skills to an agent left with no tool that reads a file, and keeps its memory', () => {
+    const tools = { memory: 'Lead with the answer.', skills: [{ name: 'commit', description: '', dir: '/s/commit', file: '/s/commit/SKILL.md' }] };
+    const claude = { ...team[0]!, provider: 'claude' as const };
+    const none = buildBriefing(conv, claude, { kind: 'shared' }, tools, ['tools']);
+    expect(none).not.toContain('# Skills');
+    expect(none).toContain('<memory>\nLead with the answer.\n</memory>');
+    expect(buildBriefing(conv, claude, { kind: 'shared' }, tools, [], { tools: ['Read', 'Bash'] })).not.toContain('# Skills');
+    // One of the two is enough to read a file.
+    expect(buildBriefing(conv, claude, { kind: 'shared' }, tools, [], { tools: ['Read'] })).toContain('# Skills');
+    expect(canReadFiles('claude', [], { tools: ['Bash'] })).toBe(true);
+    expect(canReadFiles('codex', ['tools'])).toBe(true);
   });
 
   it('tells agents how to show images and videos in the chat', () => {

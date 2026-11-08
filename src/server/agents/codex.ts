@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import type { NativePart, Permission, PlanEntry } from '../../shared/types';
+import type { NativeItemsOff, NativePart, Permission, PlanEntry } from '../../shared/types';
 import { unwrapShell } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
@@ -44,13 +44,14 @@ export function codexConfig(
   permission: Permission,
   effort?: string,
   mcpServers: McpServerSpec[] = [],
-  native: { off: readonly NativePart[]; userMcpServers: string[] } = { off: [], userMcpServers: [] },
+  native: { off: readonly NativePart[]; items?: NativeItemsOff; user?: CodexUserMcp } = { off: [] },
 ): Record<string, unknown> {
+  const mcpOff = codexMcpOff(native.off, native.items ?? {}, native.user ?? NO_USER_MCP);
   return {
     ...(effort ? { model_reasoning_effort: effort } : {}),
     ...(permission === 'edit' ? { sandbox_workspace_write: { network_access: false } } : {}),
-    ...codexNativeConfig(native.off),
-    ...codexMcpConfig(mcpServers, permission === 'full', native.off.includes('mcp') ? native.userMcpServers : []),
+    ...codexNativeConfig(native.off, native.items),
+    ...codexMcpConfig(mcpServers, permission === 'full', mcpOff.turnOff, mcpOff.toolsOff),
   };
 }
 
@@ -60,16 +61,77 @@ export function codexConfig(
  * AGENTS.md files (no setting reaches its own ~/.codex/AGENTS.md); its memories; its hooks (plugins'
  * hooks too); its plugins (their skills, MCP servers and hooks). Dotted keys, so the user's other
  * settings in those tables stay.
+ *
+ * Single items: skills by path (`skills.config`: Codex still applies the entries of the user's own
+ * config files, checked with Codex 0.167), hooks by key (`hooks.state`) and plugins by id
+ * (`plugins`), as tables Codex merges into the user's. Single hooks or plugins of a part left out
+ * whole are left to its switch.
  */
-export function codexNativeConfig(off: readonly NativePart[]): Record<string, unknown> {
+export function codexNativeConfig(off: readonly NativePart[], items: NativeItemsOff = {}): Record<string, unknown> {
+  const skills = items.skills ?? [];
+  const hooks = off.includes('hooks') ? [] : (items.hooks ?? []);
+  const plugins = off.includes('plugins') ? [] : (items.plugins ?? []);
   return {
     ...(off.includes('skills') ? { 'skills.include_instructions': false } : {}),
+    ...(skills.length ? { 'skills.config': skills.map((path) => ({ path, enabled: false })) } : {}),
     ...(off.includes('mcp') ? { 'features.apps': false } : {}),
     ...(off.includes('instructions') ? { project_doc_max_bytes: 0 } : {}),
     ...(off.includes('memory') ? { 'features.memories': false } : {}),
     ...(off.includes('hooks') ? { 'features.hooks': false } : {}),
+    ...(hooks.length ? { 'hooks.state': Object.fromEntries(hooks.map((key) => [key, { enabled: false }])) } : {}),
     ...(off.includes('plugins') ? { 'features.plugins': false } : {}),
+    ...(plugins.length ? { plugins: Object.fromEntries(plugins.map((id) => [id, { enabled: false }])) } : {}),
   };
+}
+
+/** The id one of an MCP server's tools is left out by: the server and the tool, as JSON (either may hold any character). */
+export const codexMcpToolId = (server: string, tool: string) => JSON.stringify([server, tool]);
+
+/** The server and tool of a `codexMcpToolId`, or undefined. */
+function codexMcpTool(id: string): [string, string] | undefined {
+  try {
+    const v: unknown = JSON.parse(id);
+    return Array.isArray(v) && v.length === 2 && typeof v[0] === 'string' && typeof v[1] === 'string' ? [v[0], v[1]] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The user's own MCP servers in Codex's config, with the tools each already has turned off (`disabled_tools`). */
+export interface CodexUserMcp {
+  names: string[];
+  disabledTools: Record<string, string[]>;
+}
+
+const NO_USER_MCP: CodexUserMcp = { names: [], disabledTools: {} };
+
+/** The user's MCP servers in a `config/read` answer. */
+export function codexUserMcpConfig(read: unknown): CodexUserMcp {
+  const servers = (read as { config?: { mcp_servers?: unknown } } | undefined)?.config?.mcp_servers;
+  if (!servers || typeof servers !== 'object') return NO_USER_MCP;
+  const disabledTools: Record<string, string[]> = {};
+  for (const [name, c] of Object.entries(servers as Record<string, { disabled_tools?: unknown }>)) {
+    const tools = Array.isArray(c?.disabled_tools) ? c.disabled_tools.filter((x): x is string => typeof x === 'string') : [];
+    if (tools.length) disabledTools[name] = tools;
+  }
+  return { names: Object.keys(servers), disabledTools };
+}
+
+/**
+ * Which of the user's MCP servers a run turns off, and which tools of the others (each with the
+ * tools the user already turned off: a list in an override replaces the user's). Only servers in
+ * the user's config: an entry for any other would be a server without a command.
+ */
+export function codexMcpOff(off: readonly NativePart[], items: NativeItemsOff, user: CodexUserMcp): { turnOff: string[]; toolsOff: Record<string, string[]> } {
+  if (off.includes('mcp')) return { turnOff: user.names, toolsOff: {} };
+  const turnOff = (items.mcp ?? []).filter((name) => user.names.includes(name));
+  const toolsOff: Record<string, string[]> = {};
+  for (const id of items.mcpTools ?? []) {
+    const pair = codexMcpTool(id);
+    if (!pair || !user.names.includes(pair[0]) || turnOff.includes(pair[0])) continue;
+    toolsOff[pair[0]] = [...new Set([...(toolsOff[pair[0]] ?? user.disabledTools[pair[0]] ?? []), pair[1]])];
+  }
+  return { turnOff, toolsOff };
 }
 
 /** A value written as TOML, for `-c`: tables inline, their keys quoted (so `a.b` stays one key). */
@@ -94,16 +156,10 @@ export function codexOverrideArgs(config: Record<string, unknown>): string[] {
   return Object.entries(config).flatMap(([key, value]) => ['-c', `${key}=${tomlValue(value)}`]);
 }
 
-/** The names of the MCP servers in a `config/read` answer. */
-export function codexConfiguredMcpServers(read: unknown): string[] {
-  const servers = (read as { config?: { mcp_servers?: unknown } } | undefined)?.config?.mcp_servers;
-  return servers && typeof servers === 'object' ? Object.keys(servers) : [];
-}
-
 /**
- * The MCP servers as one config override, `mcp_servers`: the tool library's servers, and the user's
- * own servers named in `turnOff` with `enabled = false` (a library server of the same name replaces
- * the user's instead). Codex merges this table into the user's config.toml, so their other servers
+ * The MCP servers as one config override, `mcp_servers`: the tool library's servers, the user's own
+ * servers named in `turnOff` with `enabled = false`, and those in `toolsOff` with the tools to turn
+ * off (`disabled_tools`; a library server of the same name replaces the user's instead). Codex merges this table into the user's config.toml, so their other servers
  * and settings stay (checked with Codex 0.167). One table rather than a dotted key per server:
  * Codex splits a dotted key at every `.`, quotes or not, so a server named `a.b` could not be reached.
  *
@@ -112,9 +168,15 @@ export function codexConfiguredMcpServers(read: unknown): string[] {
  * library's servers therefore approve their own tools (`default_tools_approval_mode`), as full
  * access promises: everything, without asking.
  */
-export function codexMcpConfig(servers: McpServerSpec[], approveTools = false, turnOff: string[] = []): Record<string, unknown> {
+export function codexMcpConfig(
+  servers: McpServerSpec[],
+  approveTools = false,
+  turnOff: string[] = [],
+  toolsOff: Record<string, string[]> = {},
+): Record<string, unknown> {
   const has = (vars: Record<string, string>) => Object.keys(vars).length > 0;
   const table = {
+    ...Object.fromEntries(Object.entries(toolsOff).map(([name, tools]) => [name, { disabled_tools: tools }])),
     ...Object.fromEntries(turnOff.map((name) => [name, { enabled: false }])),
     ...Object.fromEntries(
       servers.map((s) => [
@@ -132,17 +194,18 @@ export function codexMcpConfig(servers: McpServerSpec[], approveTools = false, t
 }
 
 /**
- * The MCP servers in the user's Codex config, so that each can be turned off; asked (`config/read`)
- * only when MCP servers are left out. When Codex cannot say, the run fails with a message that says
- * so: going on would quietly run the servers the user turned off.
+ * The MCP servers in the user's Codex config, so that each (or some of its tools) can be turned off;
+ * asked (`config/read`) only when MCP servers or their tools are left out. When Codex cannot say,
+ * the run fails with a message that says so: going on would quietly run the servers the user turned
+ * off.
  */
-export async function codexUserMcpServers(
+export async function codexUserMcp(
   conn: { request(method: string, params?: unknown): Promise<unknown> },
-  o: Pick<RunOptions, 'cwd' | 'nativeOff'>,
-): Promise<string[]> {
-  if (!o.nativeOff?.includes('mcp')) return [];
+  o: Pick<RunOptions, 'cwd' | 'nativeOff' | 'nativeItems'>,
+): Promise<CodexUserMcp> {
+  if (!o.nativeOff?.includes('mcp') && !o.nativeItems?.mcp?.length && !o.nativeItems?.mcpTools?.length) return NO_USER_MCP;
   try {
-    return codexConfiguredMcpServers(await conn.request('config/read', { cwd: o.cwd }));
+    return codexUserMcpConfig(await conn.request('config/read', { cwd: o.cwd }));
   } catch (err) {
     throw new AgentRunError(t().codexMcpListFailed(err instanceof Error ? err.message : String(err)));
   }
@@ -162,19 +225,21 @@ export const isUnknownMethod = (err: unknown) =>
   err instanceof RpcError && (err.code === -32601 || (err.code === -32600 && /unknown variant/i.test(err.message)));
 
 /**
- * Checks, once the thread has started, that Codex took the switches for hooks and plugins: Codex
- * ignores a config key it does not know (an older version, a renamed key), so they could be left on
- * without a word. When it still lists hooks or installed plugins that are on, the run fails with a
- * message that says so. A Codex without `hooks/list` or `plugin/installed` is older than these
- * features, and goes on; any other failure to answer fails the run, which could not be checked.
+ * Checks, once the thread has started, that Codex took the switches for hooks and plugins, and the
+ * single skills, hooks and plugins left out: Codex ignores a config key it does not know (an older
+ * version, a renamed key), so they could be left on without a word. When it still lists one of them
+ * on, the run fails with a message that says so. A Codex without `hooks/list`, `plugin/installed`
+ * or `skills/list` is older than these features, and goes on; any other failure to answer fails the
+ * run, which could not be checked.
  */
 export async function codexConfirmLeftOut(
   conn: { request(method: string, params?: unknown): Promise<unknown> },
-  o: Pick<RunOptions, 'cwd' | 'nativeOff'>,
+  o: Pick<RunOptions, 'cwd' | 'nativeOff' | 'nativeItems'>,
   threadId: string,
 ): Promise<void> {
   const off = o.nativeOff ?? [];
-  const still: ('hooks' | 'plugins')[] = [];
+  const items = o.nativeItems ?? {};
+  const still: ('skills' | 'hooks' | 'plugins')[] = [];
   const ask = (method: string, params: unknown) =>
     conn.request(method, params).then(
       (r) => r as Record<string, unknown> | undefined,
@@ -183,8 +248,26 @@ export async function codexConfirmLeftOut(
         throw new AgentRunError(t().codexLeftOutUnchecked(err instanceof Error ? err.message : String(err)));
       },
     );
-  if (off.includes('hooks') && anyOn((await ask('hooks/list', { threadId }))?.data, 'hooks')) still.push('hooks');
-  if (off.includes('plugins') && anyOn((await ask('plugin/installed', { cwds: [o.cwd] }))?.marketplaces, 'plugins', (p) => p.installed === true)) {
+  const hookKeys = off.includes('hooks') ? undefined : new Set(items.hooks ?? []);
+  const pluginIds = off.includes('plugins') ? undefined : new Set(items.plugins ?? []);
+  const skillPaths = new Set(items.skills ?? []);
+  if (skillPaths.size && anyOn((await ask('skills/list', { cwds: [o.cwd] }))?.data, 'skills', (s) => skillPaths.has(String(s.path)))) {
+    still.push('skills');
+  }
+  if (
+    (!hookKeys || hookKeys.size) &&
+    anyOn((await ask('hooks/list', { threadId }))?.data, 'hooks', (h) => !hookKeys || hookKeys.has(String(h.key)))
+  ) {
+    still.push('hooks');
+  }
+  if (
+    (!pluginIds || pluginIds.size) &&
+    anyOn(
+      (await ask('plugin/installed', { cwds: [o.cwd] }))?.marketplaces,
+      'plugins',
+      (p) => p.installed === true && (!pluginIds || pluginIds.has(String(p.id ?? p.name))),
+    )
+  ) {
     still.push('plugins');
   }
   if (still.length) throw new AgentRunError(t().codexStillLoaded(still));
@@ -194,9 +277,9 @@ export async function codexConfirmLeftOut(
 export function codexThreadRequest(
   o: Pick<
     RunOptions,
-    'cwd' | 'permission' | 'systemPrompt' | 'model' | 'effort' | 'sessionId' | 'requestApproval' | 'mcpServers' | 'nativeOff'
+    'cwd' | 'permission' | 'systemPrompt' | 'model' | 'effort' | 'sessionId' | 'requestApproval' | 'mcpServers' | 'nativeOff' | 'nativeItems'
   >,
-  userMcpServers: string[],
+  user: CodexUserMcp = NO_USER_MCP,
 ): { method: 'thread/start' | 'thread/resume'; params: Record<string, unknown> } {
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
   const params = {
@@ -205,7 +288,7 @@ export function codexThreadRequest(
     sandbox: SANDBOX[o.permission],
     developerInstructions: o.systemPrompt,
     ...(o.model ? { model: o.model } : {}),
-    config: codexConfig(o.permission, o.effort, o.mcpServers, { off: o.nativeOff ?? [], userMcpServers }),
+    config: codexConfig(o.permission, o.effort, o.mcpServers, { off: o.nativeOff ?? [], items: o.nativeItems, user }),
   };
   return o.sessionId
     ? { method: 'thread/resume', params: { threadId: o.sessionId, ...params } }
@@ -414,7 +497,7 @@ export const codexRunner: AgentRunner = {
     if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
     // Also for the whole app-server, as asking Codex what a run loads does (the thread gets them too):
     // none of these carries a secret, unlike the MCP servers, which only go in the thread's config.
-    const args = ['app-server', '-c', 'model_reasoning_summary="auto"', ...codexOverrideArgs(codexNativeConfig(o.nativeOff ?? []))];
+    const args = ['app-server', '-c', 'model_reasoning_summary="auto"', ...codexOverrideArgs(codexNativeConfig(o.nativeOff ?? [], o.nativeItems))];
 
     let child: ChildProcess | undefined;
     let threadId: string | undefined;
@@ -486,7 +569,7 @@ export const codexRunner: AgentRunner = {
         capabilities: null,
       });
       conn.notify('initialized');
-      const { method, params } = codexThreadRequest(o, await codexUserMcpServers(conn, o));
+      const { method, params } = codexThreadRequest(o, await codexUserMcp(conn, o));
       const thread = await conn.request(method, params);
       threadId = String(thread?.thread?.id ?? o.sessionId ?? '');
       if (!threadId) throw new AgentRunError(t().exitedWithoutTurn('codex', null));

@@ -109,6 +109,7 @@ export class AutoGrouper {
       bin: this.settings.bin(lead.provider),
       env: this.settings.env(lead.provider),
       nativeOff: this.settings.nativeOff(lead.provider),
+      nativeItems: this.settings.nativeItems(lead.provider),
       prompt,
       systemPrompt: GROUPER_BRIEFING,
       cwd: conv.settings.cwd,

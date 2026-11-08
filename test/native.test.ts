@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -17,8 +17,11 @@ import {
   codexMemoryState,
   parseClaudeProbe,
   parseCodexProbe,
+  CLAUDE_TOOLS_TURN,
+  claudeAnswersUsage,
   parseGrokInspect,
 } from '../src/server/native';
+import { codexMcpToolId } from '../src/server/agents/codex';
 import { writeFakeClaude } from './fake-claude';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-native-')));
@@ -55,14 +58,27 @@ describe('parseClaudeProbe', () => {
       ],
     };
     const parsed = parseClaudeProbe({ init, mcp });
+    // Each with the id it is left out by: a skill's name, an MCP server's (and tool's) permission rule.
     expect(parsed.skills).toEqual([
-      { name: 'hf-cli', description: 'Hugging Face Hub CLI' },
-      { name: 'impeccable:impeccable', description: 'Design work' },
+      { name: 'hf-cli', description: 'Hugging Face Hub CLI', id: 'hf-cli' },
+      { name: 'impeccable:impeccable', description: 'Design work', id: 'impeccable:impeccable' },
     ]);
     expect(parsed.mcpServers).toEqual([
-      { name: 'claude.ai Claude Docs', status: 'connected', source: 'claudeai', transport: 'claudeai-proxy', tools: 2 },
-      { name: 'local', status: 'failed', source: 'user', transport: 'stdio' },
+      {
+        name: 'claude.ai Claude Docs',
+        id: 'mcp__claude_ai_Claude_Docs',
+        status: 'connected',
+        source: 'claudeai',
+        transport: 'claudeai-proxy',
+        tools: [
+          { name: 'create', id: 'mcp__claude_ai_Claude_Docs__create' },
+          { name: 'read', id: 'mcp__claude_ai_Claude_Docs__read' },
+        ],
+      },
+      { name: 'local', id: 'mcp__local', status: 'failed', source: 'user', transport: 'stdio' },
     ]);
+    // No tools turn: no list of built-in tools (and no tab), rather than an empty one.
+    expect(parsed).not.toHaveProperty('builtinTools');
     // No subagents in its answer: no list (and no tab), rather than an empty one.
     expect(parsed).not.toHaveProperty('agents');
     expect(JSON.stringify(parsed)).not.toContain('secret');
@@ -92,17 +108,65 @@ describe('parseClaudeProbe', () => {
       { event: 'SessionStart', source: 'userSettings' },
     ]);
     expect(parsed.agents).toEqual([
-      { name: 'Explore', description: 'Search', source: 'built-in' },
-      { name: 'reviewer', description: 'Reviews', enabled: false },
-      { name: 'impeccable:documenter', description: 'Docs' },
+      { name: 'Explore', description: 'Search', id: 'Explore', source: 'built-in' },
+      { name: 'reviewer', description: 'Reviews', id: 'reviewer', enabled: false },
+      { name: 'impeccable:documenter', description: 'Docs', id: 'impeccable:documenter' },
     ]);
     expect(parsed.plugins).toEqual([
-      { name: 'impeccable@impeccable', source: 'user', enabled: false },
-      { name: 'swift-lsp@official', enabled: false },
-      { name: 'rust-lsp@official' },
+      { name: 'impeccable@impeccable', id: 'impeccable@impeccable', source: 'user', enabled: false },
+      { name: 'swift-lsp@official', id: 'swift-lsp@official', enabled: false },
+      { name: 'rust-lsp@official', id: 'rust-lsp@official' },
     ]);
     expect(JSON.stringify(parsed)).not.toContain('secret');
     expect(JSON.stringify(parsed)).not.toContain('touch');
+  });
+
+  it('reads its built-in and MCP tools from the tools turn, by server, with servers only that turn names', () => {
+    const parsed = parseClaudeProbe({
+      mcp: { mcpServers: [{ name: 'local', status: 'pending', scope: 'user' }] },
+      session: {
+        type: 'system',
+        subtype: 'init',
+        tools: ['Bash', 'WebSearch', 'mcp__local__search', 'mcp__claude_ai_Claude_Docs__batch', 'mcp__claude_ai_Claude_Docs__read', 'mcp__plugin_x_y__go'],
+        mcp_servers: [
+          { name: 'local', status: 'connected', source: 'other' },
+          { name: 'claude.ai Claude Docs', status: 'connected', source: 'claudeai' },
+          { name: 'claude.ai Gmail', status: 'needs-auth', source: 'claudeai' },
+        ],
+      },
+    });
+    expect(parsed.builtinTools).toEqual([
+      { name: 'Bash', id: 'Bash' },
+      { name: 'WebSearch', id: 'WebSearch' },
+    ]);
+    expect(parsed.mcpServers).toEqual([
+      // Its later status from the turn; its source from mcp_status.
+      { name: 'local', id: 'mcp__local', status: 'connected', source: 'user', tools: [{ name: 'search', id: 'mcp__local__search' }] },
+      {
+        name: 'claude.ai Claude Docs',
+        id: 'mcp__claude_ai_Claude_Docs',
+        status: 'connected',
+        source: 'claudeai',
+        tools: [
+          { name: 'batch', id: 'mcp__claude_ai_Claude_Docs__batch' },
+          { name: 'read', id: 'mcp__claude_ai_Claude_Docs__read' },
+        ],
+      },
+      // Not connected: its tools are not known.
+      { name: 'claude.ai Gmail', id: 'mcp__claude_ai_Gmail', status: 'needs-auth', source: 'claudeai' },
+      // A server neither list names, from its tool's name.
+      { name: 'plugin_x_y', id: 'mcp__plugin_x_y', tools: [{ name: 'go', id: 'mcp__plugin_x_y__go' }] },
+    ]);
+  });
+
+  it('sends the tools turn only when /usage is its own command', () => {
+    const builtin = { name: 'usage', description: 'Usage', builtin: true };
+    expect(claudeAnswersUsage({ commands: [builtin] })).toBe(true);
+    // A skill or command named usage would take the prompt to the model.
+    expect(claudeAnswersUsage({ commands: [builtin, { name: 'usage', description: 'Mine' }] })).toBe(false);
+    expect(claudeAnswersUsage({ commands: [{ name: 'compact', builtin: true }] })).toBe(false);
+    expect(claudeAnswersUsage(undefined)).toBe(false);
+    expect(CLAUDE_TOOLS_TURN).toBe('/usage');
   });
 });
 
@@ -126,13 +190,13 @@ describe('parseCodexProbe', () => {
       },
     });
     expect(parsed.skills).toEqual([
-      { name: 'autoplan', description: 'Short', source: 'user', path: '/s/autoplan/SKILL.md' },
-      { name: 'off', description: 'd', source: 'system', path: '/s/off/SKILL.md', enabled: false },
+      { name: 'autoplan', description: 'Short', source: 'user', path: '/s/autoplan/SKILL.md', id: '/s/autoplan/SKILL.md' },
+      { name: 'off', description: 'd', source: 'system', path: '/s/off/SKILL.md', id: '/s/off/SKILL.md', enabled: false },
     ]);
     expect(parsed.mcpServers).toEqual([
-      { name: 'headroom', transport: 'stdio' },
-      { name: 'docs', transport: 'http' },
-      { name: 'computer-use', transport: 'stdio', status: 'disabled' },
+      { name: 'headroom', id: 'headroom', transport: 'stdio' },
+      { name: 'docs', id: 'docs', transport: 'http' },
+      { name: 'computer-use', id: 'computer-use', transport: 'stdio', status: 'disabled' },
     ]);
     expect(parsed).not.toHaveProperty('hooks');
     expect(JSON.stringify(parsed)).not.toContain('secret');
@@ -161,16 +225,42 @@ describe('parseCodexProbe', () => {
         ],
       },
     });
-    expect(parsed.skills).toEqual([{ name: 'mine', description: 'Mine', source: 'user', path: '/s/mine/SKILL.md', enabled: false }]);
+    expect(parsed.skills).toEqual([{ name: 'mine', description: 'Mine', source: 'user', path: '/s/mine/SKILL.md', id: '/s/mine/SKILL.md', enabled: false }]);
     expect(parsed.hooks).toEqual([
-      { event: 'preToolUse', matcher: 'shell', source: 'user', file: '/u/.codex/hooks.json' },
-      { event: 'stop', source: 'plugin: codex@openai', enabled: false },
+      { event: 'preToolUse', id: 'h1', matcher: 'shell', source: 'user', file: '/u/.codex/hooks.json' },
+      { event: 'stop', id: 'h2', source: 'plugin: codex@openai', enabled: false },
     ]);
     expect(parsed.plugins).toEqual([
-      { name: 'codex@openai', source: 'openai' },
-      { name: 'old@openai', source: 'openai', enabled: false },
+      { name: 'codex@openai', id: 'codex@openai', source: 'openai' },
+      { name: 'old@openai', id: 'old@openai', source: 'openai', enabled: false },
     ]);
     expect(JSON.stringify(parsed)).not.toContain('secret');
+  });
+
+  it("lists each MCP server's tools as mcpServerStatus/list gives them, not filtered by the config it echoes", () => {
+    const parsed = parseCodexProbe({
+      config: { config: { mcp_servers: { node: { command: 'n', disabled_tools: ['old'] }, broken: { command: 'b' }, quiet: { command: 'q' } } } },
+      mcpStatus: {
+        node: { data: [{ name: 'node', tools: { js: { name: 'js' }, old: { name: 'old' }, 'a/b': { name: 'a/b' } } }] },
+        broken: { data: [{ name: 'broken', tools: {}, toolsError: 'MCP startup failed' }] },
+      },
+    });
+    expect(parsed.mcpServers).toEqual([
+      {
+        name: 'node',
+        id: 'node',
+        transport: 'stdio',
+        // Codex itself leaves out the tools it turned off; one it still lists is still there.
+        tools: [
+          { name: 'js', id: codexMcpToolId('node', 'js') },
+          { name: 'old', id: codexMcpToolId('node', 'old') },
+          { name: 'a/b', id: codexMcpToolId('node', 'a/b') },
+        ],
+      },
+      // One that failed to start, or was not asked: its tools are not known.
+      { name: 'broken', id: 'broken', transport: 'stdio' },
+      { name: 'quiet', id: 'quiet', transport: 'stdio' },
+    ]);
   });
 });
 
@@ -235,6 +325,8 @@ describe('memory files', () => {
     const memory = file(join(config, 'projects', claudeProjectSlug(repo), 'memory', 'MEMORY.md'));
     const found = claudeMemoryFiles(cwd, config);
     expect(found.filter((f) => f.kind === 'instructions').map((f) => f.path)).toEqual(files);
+    // Instruction files are left out one by one by their path; auto memory only all at once.
+    expect(found.every((f) => (f.kind === 'instructions' ? f.id === f.path : f.id === undefined))).toBe(true);
     expect(found.filter((f) => f.kind === 'memory').map((f) => f.path)).toEqual([memory]);
     expect(claudeProjectSlug('/Users/me/my.app')).toBe('-Users-me-my-app');
   });
@@ -325,6 +417,7 @@ describe('NativeSetupService', () => {
       memory: [],
       memoryFromFiles: true,
       nativeOff: [],
+      nativeItems: {},
       asRun: false,
       problems: [
         { kind: 'timeout' as const },
@@ -386,6 +479,47 @@ describe('marking what Harness Relay leaves out', () => {
     expect(markLeftOut({ skills: [], mcpServers: [], memory: [] }, {})).toEqual({ skills: [], mcpServers: [], memory: [] });
   });
 
+  it('marks an item picked to be left out that the second answer still loads, only in the lists it gave', () => {
+    const own = {
+      skills: [{ name: 'kept', description: '', id: 'kept' }, { name: 'gone', description: '', id: 'gone' }],
+      mcpServers: [
+        { name: 'local', id: 'mcp__local', tools: [{ name: 'a', id: 'mcp__local__a' }, { name: 'b', id: 'mcp__local__b' }] },
+        { name: 'auth', id: 'mcp__auth', status: 'needs-auth' },
+      ],
+      memory: [],
+      plugins: [{ name: 'deck', id: 'deck' }],
+    };
+    const items = { skills: ['kept', 'gone'], mcpTools: ['mcp__local__a'], mcp: ['mcp__auth'], plugins: ['deck'] };
+    const marked = markLeftOut(
+      own,
+      {
+        skills: [{ name: 'kept', description: '', id: 'kept' }],
+        mcpServers: [{ name: 'local', tools: [{ name: 'a' }, { name: 'b' }] }, { name: 'auth', status: 'needs-auth' }],
+        memory: [],
+        // No plugins the second time: not judged.
+      },
+      items,
+      true,
+    );
+    expect(marked.skills).toEqual([
+      { name: 'kept', description: '', id: 'kept', stillLoaded: true },
+      { name: 'gone', description: '', id: 'gone', leftOut: true },
+    ]);
+    expect(marked.mcpServers[0]!.tools).toEqual([
+      { name: 'a', id: 'mcp__local__a', stillLoaded: true },
+      { name: 'b', id: 'mcp__local__b' },
+    ]);
+    // Claude Code takes a server's tools away; with none listed, whether it did cannot be told.
+    expect(marked.mcpServers[1]).toEqual(own.mcpServers[1]);
+    expect(marked.plugins).toEqual(own.plugins);
+    // Codex turns a server off, which its answer shows whatever its tools.
+    const codex = markLeftOut({ ...own, plugins: undefined }, { mcpServers: [{ name: 'auth' }] }, { mcp: ['mcp__auth', 'auth'] });
+    expect(codex.mcpServers[0]).toMatchObject({ name: 'local', leftOut: true });
+    expect(markLeftOut({ skills: [], mcpServers: [{ name: 'auth', id: 'auth' }], memory: [] }, { mcpServers: [{ name: 'auth' }] }, { mcp: ['auth'] }).mcpServers).toEqual([
+      { name: 'auth', id: 'auth', stillLoaded: true },
+    ]);
+  });
+
   it("knows which files Claude Code and Codex skip with their variables and settings", () => {
     const files = [
       { path: '/u/.claude/CLAUDE.md', kind: 'instructions' as const },
@@ -394,6 +528,8 @@ describe('marking what Harness Relay leaves out', () => {
     expect(claudeMemoryState(files, {})).toEqual(files);
     expect(claudeMemoryState(files, { CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1' })).toEqual([{ ...files[0], enabled: false }, files[1]]);
     expect(claudeMemoryState(files, { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' })).toEqual([files[0], { ...files[1], enabled: false }]);
+    // A file excluded by its path (`claudeMdExcludes`); memory is not reached that way.
+    expect(claudeMemoryState(files, {}, ['/u/.claude/CLAUDE.md', '/u/.claude/projects/p/memory/MEMORY.md'])).toEqual([{ ...files[0], enabled: false }, files[1]]);
 
     const home = join(root, 'codex-state-home');
     const codex = [
@@ -429,24 +565,156 @@ describe('asking again the way Harness Relay starts each CLI (stand-in CLIs)', (
     expect(probe.problems).toEqual([]);
     expect(probe).toMatchObject({ asRun: true, nativeOff: ['skills', 'mcp', 'instructions', 'hooks', 'agents', 'plugins'] });
     expect(probe.skills).toEqual([
-      { name: 'commit', description: 'commit it', leftOut: true },
-      { name: 'deck:slides', description: 'deck:slides it', leftOut: true },
+      { name: 'commit', description: 'commit it', id: 'commit', leftOut: true },
+      { name: 'deck:slides', description: 'deck:slides it', id: 'deck:slides', leftOut: true },
     ]);
-    expect(probe.mcpServers).toEqual([{ name: 'local', status: 'connected', source: 'user', transport: 'stdio', leftOut: true }]);
+    expect(probe.mcpServers).toEqual([
+      {
+        name: 'local',
+        id: 'mcp__local',
+        status: 'connected',
+        source: 'user',
+        transport: 'stdio',
+        tools: [
+          { name: 'search', id: 'mcp__local__search' },
+          { name: 'fetch', id: 'mcp__local__fetch' },
+        ],
+        leftOut: true,
+      },
+    ]);
+    // Its built-in tools, from the tools turn: none of them is left out by these switches.
+    expect(probe.builtinTools).toEqual(['Bash', 'Read', 'Edit', 'WebSearch'].map((name) => ({ name, id: name })));
     expect(probe.hooks).toEqual([{ event: 'SessionStart', source: 'userSettings', leftOut: true }]);
     expect(probe.agents).toEqual([
-      { name: 'general-purpose', description: 'The general-purpose', source: 'built-in' },
-      { name: 'Explore', description: 'The Explore', source: 'built-in' },
-      { name: 'reviewer', description: 'The reviewer', leftOut: true },
-      { name: 'deck:designer', description: 'The deck:designer', leftOut: true },
+      { name: 'general-purpose', description: 'The general-purpose', id: 'general-purpose', source: 'built-in' },
+      { name: 'Explore', description: 'The Explore', id: 'Explore', source: 'built-in' },
+      { name: 'reviewer', description: 'The reviewer', id: 'reviewer', leftOut: true },
+      { name: 'deck:designer', description: 'The deck:designer', id: 'deck:designer', leftOut: true },
     ]);
     // lsp@market is off by itself, so it is not something Harness Relay leaves out.
     expect(probe.plugins).toEqual([
-      { name: 'deck@market', source: 'user', leftOut: true },
-      { name: 'lsp@market', source: 'project', enabled: false },
+      { name: 'deck@market', id: 'deck@market', source: 'user', leftOut: true },
+      { name: 'lsp@market', id: 'lsp@market', source: 'project', enabled: false },
     ]);
-    expect(probe.memory).toEqual([{ path: instructions, kind: 'instructions', leftOut: true }]);
+    expect(probe.memory).toEqual([{ path: instructions, kind: 'instructions', id: instructions, leftOut: true }]);
     expect(JSON.stringify(probe)).not.toContain('secret');
+  });
+
+  it('Claude Code: marks the single skills, tools, MCP servers and tools, subagents, plugins and files a run leaves out', async () => {
+    const bin = writeFakeClaude(join(root, 'fake-claude-items'));
+    const log = join(root, 'claude-items.jsonl');
+    const config = join(root, 'claude-items-config');
+    const kept = file(join(config, 'CLAUDE.md'));
+    const cwd = join(root, 'claude-items-cwd');
+    const dropped = file(join(cwd, 'CLAUDE.md'));
+    const service = new NativeSetupService({
+      bin: () => bin,
+      env: () => env({ CLAUDE_CONFIG_DIR: config, FAKE_CLAUDE_LOG: log }),
+      nativeItems: () => ({
+        skills: ['commit'],
+        tools: ['WebSearch'],
+        mcpTools: ['mcp__local__fetch'],
+        agents: ['Explore'],
+        plugins: ['deck@market'],
+        instructions: [dropped],
+      }),
+    });
+    const probe = await service.get('claude', cwd);
+    expect(probe.problems).toEqual([]);
+    expect(probe.asRun).toBe(true);
+    expect(probe.nativeItems.skills).toEqual(['commit']);
+    // The plugin's command and subagent go with it.
+    expect(probe.skills.map((x) => [x.name, x.leftOut])).toEqual([
+      ['commit', true],
+      ['deck:slides', true],
+    ]);
+    expect(probe.builtinTools?.filter((x) => x.leftOut).map((x) => x.name)).toEqual(['WebSearch']);
+    expect(probe.mcpServers[0]).toMatchObject({ name: 'local', tools: [{ name: 'search' }, { name: 'fetch', leftOut: true }] });
+    expect(probe.mcpServers[0]!.leftOut).toBeUndefined();
+    // A built-in subagent can be left out by name too.
+    expect(probe.agents?.filter((a) => a.leftOut).map((a) => a.name)).toEqual(['Explore', 'deck:designer']);
+    expect(probe.plugins?.map((p) => [p.name, p.leftOut])).toEqual([
+      ['deck@market', true],
+      ['lsp@market', undefined],
+    ]);
+    expect(probe.memory).toEqual([
+      { path: kept, kind: 'instructions', id: kept },
+      { path: dropped, kind: 'instructions', id: dropped, leftOut: true },
+    ]);
+    // Asked with the run's settings; the only prompt either Claude Code got was /usage, without a session file.
+    const lines = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { args?: string[]; prompt?: string; settings?: object });
+    // In a private file, removed once asked.
+    const asRun = lines.find((l) => l.args?.includes('--settings'))!;
+    expect(existsSync(asRun.args![asRun.args!.indexOf('--settings') + 1]!)).toBe(false);
+    const settings = lines.flatMap((l) => (l.args?.includes('--settings') ? [l.settings] : []));
+    expect(settings).toContainEqual({
+      enabledPlugins: { 'deck@market': false },
+      skillOverrides: { commit: 'off' },
+      claudeMdExcludes: [dropped],
+      permissions: { deny: ['WebSearch', 'mcp__local__fetch', 'Agent(Explore)'] },
+    });
+    expect(lines.filter((l) => 'prompt' in l).map((l) => l.prompt)).toEqual(['/usage', '/usage']);
+    expect(lines.filter((l) => l.args?.includes('-p') && !l.args.includes('--setting-sources')).every((l) => l.args!.includes('--no-session-persistence'))).toBe(true);
+  });
+
+  it('Claude Code: marks a whole MCP server whose tools a run takes away, though it still starts', async () => {
+    const bin = writeFakeClaude(join(root, 'fake-claude-server'));
+    const service = new NativeSetupService({ bin: () => bin, env: () => env(), nativeItems: () => ({ mcp: ['mcp__local'] }) });
+    const probe = await service.get('claude', join(root, 'claude-probe-cwd'));
+    expect(probe.problems).toEqual([]);
+    expect(probe.mcpServers).toEqual([
+      expect.objectContaining({ name: 'local', status: 'connected', leftOut: true, tools: [expect.not.objectContaining({ leftOut: true }), expect.anything()] }),
+    ]);
+  });
+
+  it('Claude Code: sends /usage again with all its skills left out (it lists no commands then, but answers it by itself)', async () => {
+    const bin = writeFakeClaude(join(root, 'fake-claude-noskills'));
+    const log = join(root, 'claude-noskills.jsonl');
+    const service = new NativeSetupService({ bin: () => bin, env: () => env({ FAKE_CLAUDE_LOG: log }), nativeOff: () => ['skills'], nativeItems: () => ({ tools: ['WebSearch'] }) });
+    const probe = await service.get('claude', join(root, 'claude-probe-cwd'));
+    expect(probe.problems).toEqual([]);
+    expect(probe.skills.every((x) => x.leftOut)).toBe(true);
+    expect(probe.builtinTools?.filter((x) => x.leftOut).map((x) => x.name)).toEqual(['WebSearch']);
+    expect(readFileSync(log, 'utf8').match(/"prompt":"\/usage"/g)).toHaveLength(2);
+  });
+
+  it('Claude Code: keeps what it answered when asking again runs out of time', async () => {
+    const bin = writeFakeClaude(join(root, 'fake-claude-hang'));
+    const service = new NativeSetupService(
+      { bin: () => bin, env: () => env({ FAKE_CLAUDE_HANG_AS_RUN: '1' }), nativeItems: () => ({ skills: ['commit'], tools: ['WebSearch'] }) },
+      3000,
+    );
+    const probe = await service.get('claude', join(root, 'claude-probe-cwd'));
+    expect(probe.asRun).toBe(true);
+    // Its control requests were answered: the skill is marked. Its tools turn was not: not marked, and said so.
+    expect(probe.skills.find((x) => x.name === 'commit')?.leftOut).toBe(true);
+    expect(probe.builtinTools?.some((x) => x.leftOut)).toBe(false);
+    expect(probe.problems).toEqual([{ kind: 'as-run-partial' }, { kind: 'as-run', cause: { kind: 'no-answer', part: 'tools' } }]);
+    expect(withLang('en', () => nativeForClient(probe).errors[0])).toBe(
+      'Asking Claude Code again the way Harness Relay starts it ran out of time: what it had answered is marked, the rest is not.',
+    );
+  });
+
+  it('Claude Code: never sends /usage when a skill of that name would take it to the model', async () => {
+    const bin = writeFakeClaude(join(root, 'fake-claude-usage'));
+    const log = join(root, 'claude-usage.jsonl');
+    const service = new NativeSetupService({ bin: () => bin, env: () => env({ FAKE_CLAUDE_OWN_USAGE: '1', FAKE_CLAUDE_LOG: log }), nativeItems: () => ({ tools: ['Bash'] }) });
+    const probe = await service.get('claude', join(root, 'claude-probe-cwd'));
+    expect(readFileSync(log, 'utf8')).not.toContain('"prompt"');
+    expect(probe.builtinTools).toBeUndefined();
+    // Said once: with no list the first time, there is nothing the second answer could leave unmarked.
+    expect(probe.problems).toEqual([{ kind: 'no-answer', part: 'tools' }]);
+  });
+
+  it('Claude Code: asks without the tools turn when it does not know --no-session-persistence', async () => {
+    const bin = writeFakeClaude(join(root, 'fake-claude-nosession'));
+    const service = new NativeSetupService({ bin: () => bin, env: () => env({ FAKE_CLAUDE_NO_SESSION_FLAG: '1' }), nativeOff: () => ['skills'] });
+    const probe = await service.get('claude', join(root, 'claude-probe-cwd'));
+    expect(probe.asRun).toBe(true);
+    expect(probe.skills.every((x) => x.leftOut)).toBe(true);
+    expect(probe.builtinTools).toBeUndefined();
+    expect(probe.mcpServers.map((x) => x.name)).toEqual(['local']);
+    expect(probe.problems).toEqual([{ kind: 'no-answer', part: 'tools' }]);
   });
 
   it('Claude Code: does not count a subagent that replaces a built-in one as built-in', async () => {
@@ -454,8 +722,13 @@ describe('asking again the way Harness Relay starts each CLI (stand-in CLIs)', (
     const service = new NativeSetupService({ bin: () => bin, env: () => env({ FAKE_CLAUDE_OWN_EXPLORE: '1' }), nativeOff: () => ['agents'] });
     const probe = await service.get('claude', join(root, 'claude-probe-cwd'));
     expect(probe.problems).toEqual([]);
-    expect(probe.agents?.find((a) => a.name === 'Explore')).toEqual({ name: 'Explore', description: 'My own Explore', leftOut: true });
-    expect(probe.agents?.find((a) => a.name === 'general-purpose')).toEqual({ name: 'general-purpose', description: 'The general-purpose', source: 'built-in' });
+    expect(probe.agents?.find((a) => a.name === 'Explore')).toEqual({ name: 'Explore', description: 'My own Explore', id: 'Explore', leftOut: true });
+    expect(probe.agents?.find((a) => a.name === 'general-purpose')).toEqual({
+      name: 'general-purpose',
+      description: 'The general-purpose',
+      id: 'general-purpose',
+      source: 'built-in',
+    });
   });
 
   it('Claude Code: is not started again when only its instruction files or memory are left out', async () => {
@@ -466,11 +739,12 @@ describe('asking again the way Harness Relay starts each CLI (stand-in CLIs)', (
     const service = new NativeSetupService({
       bin: () => bin,
       env: () => env({ CLAUDE_CONFIG_DIR: config, FAKE_CLAUDE_LOG: log }),
-      nativeOff: () => ['instructions'],
+      nativeOff: () => ['memory'],
+      nativeItems: () => ({ instructions: [instructions] }),
     });
     const probe = await service.get('claude', join(root, 'claude-probe-cwd'));
     expect(probe).toMatchObject({ asRun: true, problems: [] });
-    expect(probe.memory).toEqual([{ path: instructions, kind: 'instructions', leftOut: true }]);
+    expect(probe.memory).toEqual([{ path: instructions, kind: 'instructions', id: instructions, leftOut: true }]);
     const starts = readFileSync(log, 'utf8')
       .trim()
       .split('\n')
@@ -531,17 +805,28 @@ const has = (s) => set.includes(s);
 const mcp = set.find((s) => s.startsWith('mcp_servers=')) || '';
 const servers = { headroom: { command: 'headroom', env: { TOKEN: 'secret' } }, 'a.b': { url: 'https://x.test/mcp' } };
 for (const name of Object.keys(servers)) if (mcp.includes(JSON.stringify(name) + ' = { "enabled" = false }')) servers[name].enabled = false;
+if (mcp.includes('"headroom" = { "disabled_tools" = ["fetch"] }')) servers.headroom.disabled_tools = ['fetch'];
 const pluginsOff = has('features.plugins=false');
+const setting = (key) => set.find((s) => s.startsWith(key + '=')) || '';
+const skillOff = (path) => setting('skills.config').includes(JSON.stringify(path) + ', "enabled" = false');
+const hookOff = setting('hooks.state').includes('"h1" = { "enabled" = false }');
+const deckOff = setting('plugins').includes('"deck@market" = { "enabled" = false }');
 const answers = {
-  'skills/list': { data: [{ cwd: process.cwd(), skills: [{ name: 'mine', description: 'Mine', scope: 'user', path: '/s/mine/SKILL.md' }].concat(pluginsOff ? [] : [{ name: 'deck', description: 'Deck', scope: 'user', path: '/p/deck/SKILL.md' }]) }] },
+  'skills/list': { data: [{ cwd: process.cwd(), skills: [{ name: 'mine', description: 'Mine', scope: 'user', path: '/s/mine/SKILL.md' }].concat(pluginsOff || deckOff ? [] : [{ name: 'deck', description: 'Deck', scope: 'user', path: '/p/deck/SKILL.md' }]).map((x) => ({ ...x, enabled: !skillOff(x.path) })) }] },
   'config/read': { config: { mcp_servers: servers, ...(has('skills.include_instructions=false') ? { skills: { include_instructions: false } } : {}), ...(has('project_doc_max_bytes=0') ? { project_doc_max_bytes: 0 } : {}) } },
-  'hooks/list': { data: [{ cwd: process.cwd(), hooks: has('features.hooks=false') ? [] : [{ key: 'h1', eventName: 'preToolUse', matcher: 'shell', source: 'user', sourcePath: '/u/.codex/hooks.json', enabled: true }] }] },
-  'plugin/installed': { marketplaces: [{ name: 'market', plugins: pluginsOff ? [] : [{ id: 'deck@market', installed: true, enabled: true }, { id: 'old@market', installed: true, enabled: false }] }] },
+  'hooks/list': { data: [{ cwd: process.cwd(), hooks: has('features.hooks=false') ? [] : [{ key: 'h1', eventName: 'preToolUse', matcher: 'shell', source: 'user', sourcePath: '/u/.codex/hooks.json', enabled: !hookOff }] }] },
+  'plugin/installed': { marketplaces: [{ name: 'market', plugins: pluginsOff ? [] : [{ id: 'deck@market', installed: true, enabled: !deckOff }, { id: 'old@market', installed: true, enabled: false }] }] },
+};
+// A server's tools, without those its config turns off; asking starts it (logged).
+const status = (name) => {
+  if (process.env.FAKE_CODEX_LOG) require('node:fs').appendFileSync(process.env.FAKE_CODEX_LOG, name + '\\n');
+  const off = process.env.FAKE_CODEX_IGNORE_TOOLS ? [] : servers[name].disabled_tools || [];
+  return { data: [{ name, tools: Object.fromEntries(['search', 'fetch'].filter((t) => !off.includes(t)).map((t) => [t, { name: t }])) }] };
 };
 require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
   if (m.id === undefined) return;
-  const result = m.method === 'initialize' ? {} : answers[m.method];
+  const result = m.method === 'initialize' ? {} : m.method === 'mcpServerStatus/list' ? status(m.params.serverName) : answers[m.method];
   process.stdout.write(JSON.stringify(result ? { id: m.id, result } : { id: m.id, error: { message: 'unknown method' } }) + '\\n');
 });
 `;
@@ -564,21 +849,63 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       ['mine', true],
       ['deck', true],
     ]);
-    // Each of the user's servers turned off in one table, whatever its name.
+    // Each of the user's servers turned off in one table, whatever its name; their tools from the first answer.
+    const tools = (server: string) => ['search', 'fetch'].map((name) => ({ name, id: codexMcpToolId(server, name) }));
     expect(probe.mcpServers).toEqual([
-      { name: 'headroom', transport: 'stdio', leftOut: true },
-      { name: 'a.b', transport: 'http', leftOut: true },
+      { name: 'headroom', id: 'headroom', transport: 'stdio', tools: tools('headroom'), leftOut: true },
+      { name: 'a.b', id: 'a.b', transport: 'http', tools: tools('a.b'), leftOut: true },
     ]);
-    expect(probe.hooks).toEqual([{ event: 'preToolUse', matcher: 'shell', source: 'user', file: '/u/.codex/hooks.json', leftOut: true }]);
+    expect(probe.hooks).toEqual([{ event: 'preToolUse', id: 'h1', matcher: 'shell', source: 'user', file: '/u/.codex/hooks.json', leftOut: true }]);
     expect(probe.plugins).toEqual([
-      { name: 'deck@market', source: 'market', leftOut: true },
-      { name: 'old@market', source: 'market', enabled: false },
+      { name: 'deck@market', id: 'deck@market', source: 'market', leftOut: true },
+      { name: 'old@market', id: 'old@market', source: 'market', enabled: false },
     ]);
     expect(probe.memory).toEqual([
       { path: own, kind: 'instructions' },
       { path: project, kind: 'instructions', leftOut: true },
     ]);
     expect(JSON.stringify(probe)).not.toContain('secret');
+
+    // Single items: a skill by path, a server, a tool of another, a hook and a plugin (with its skill).
+    const log = join(root, 'codex-items.log');
+    const items = new NativeSetupService({
+      bin: () => bin,
+      env: () => env({ CODEX_HOME: home, FAKE_CODEX_LOG: log }),
+      nativeItems: () => ({
+        skills: ['/s/mine/SKILL.md'],
+        mcp: ['a.b'],
+        mcpTools: [codexMcpToolId('headroom', 'fetch')],
+        hooks: ['h1'],
+        plugins: ['deck@market'],
+      }),
+    });
+    const picked = await items.get('codex', repo);
+    expect(picked.problems).toEqual([]);
+    expect(picked.asRun).toBe(true);
+    expect(picked.skills.map((s) => [s.name, s.leftOut])).toEqual([
+      ['mine', true],
+      ['deck', true],
+    ]);
+    expect(picked.mcpServers).toEqual([
+      { name: 'headroom', id: 'headroom', transport: 'stdio', tools: [tools('headroom')[0], { ...tools('headroom')[1], leftOut: true }] },
+      { name: 'a.b', id: 'a.b', transport: 'http', tools: tools('a.b'), leftOut: true },
+    ]);
+    expect(picked.hooks?.[0]?.leftOut).toBe(true);
+    expect(picked.plugins?.map((p) => [p.name, p.leftOut])).toEqual([
+      ['deck@market', true],
+      ['old@market', undefined],
+    ]);
+    // A server turned off is not started the second time to list its tools.
+    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual(['headroom', 'a.b', 'headroom']);
+
+    // A Codex that ignored disabled_tools (though its config echoes them) still lists the tool: not marked.
+    const ignoring = new NativeSetupService({
+      bin: () => bin,
+      env: () => env({ CODEX_HOME: home, FAKE_CODEX_IGNORE_TOOLS: '1' }),
+      nativeItems: () => ({ mcpTools: [codexMcpToolId('headroom', 'fetch')] }),
+    });
+    const ignored = await ignoring.get('codex', repo);
+    expect(ignored.mcpServers[0]!.tools).toEqual([tools('headroom')[0], { ...tools('headroom')[1], stillLoaded: true }]);
   });
 
   it("Grok: asks with the run's variables, and marks what Grok then reports turned off", async () => {
