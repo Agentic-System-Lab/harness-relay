@@ -165,70 +165,75 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
   };
 
   return (
-    <div className="page scroll">
-      <div className="page-inner">
-        <header className="page-head">
-          <h1>{t.newChat.title}</h1>
-          <p className="muted">{t.newChat.intro}</p>
-        </header>
+    <div className="page new-chat">
+      <div className="scroll new-chat-body">
+        <div className="page-inner">
+          <header className="page-head">
+            <h1>{t.newChat.title}</h1>
+            <p className="muted">{t.newChat.intro}</p>
+          </header>
 
-        <section>
-          <div className="section-head">
-            <h3>{t.newChat.buildTeam}</h3>
-          </div>
-          <div className="preset-row build-modes">
-            <div className={`preset-card auto ${choice === AUTO ? 'on' : ''}`}>
-              <button className="preset-main" onClick={() => pick(AUTO)} aria-pressed={choice === AUTO}>
-                <Logo size={18} />
-                <strong>{t.newChat.autoName}</strong>
-                <span className="muted small">{t.newChat.autoDescription(leadText)}</span>
-              </button>
+          <section>
+            <div className="section-head">
+              <h3>{t.newChat.buildTeam}</h3>
             </div>
-            <div className={`preset-card custom ${choice === CUSTOM ? 'on' : ''}`}>
-              <button className="preset-main" onClick={() => pick(CUSTOM)} aria-pressed={choice === CUSTOM}>
-                <PencilIcon />
-                <strong>{t.newChat.customName}</strong>
-                <span className="muted small">{t.newChat.customDescription}</span>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section>
-          <div className="section-head">
-            <h3>{t.newChat.templates}</h3>
-            <span className="muted small">{t.newChat.templatesHint}</span>
-          </div>
-          <div className="preset-row">
-            {presets.map((p) => (
-              <div key={p.id} className={`preset-card ${choice === p.id ? 'on' : ''}`}>
-                <button className="preset-main" onClick={() => pick(p.id)} aria-pressed={choice === p.id}>
-                  <MemberDots agents={p.agents} className="preset-dots" max={6} />
-                  <strong>{p.name}</strong>
-                  {p.description && <span className="muted small">{p.description}</span>}
+            <div className="preset-row build-modes">
+              <div className={`preset-card auto ${choice === AUTO ? 'on' : ''}`}>
+                <button className="preset-main" onClick={() => pick(AUTO)} aria-pressed={choice === AUTO}>
+                  <Logo size={18} />
+                  <strong>{t.newChat.autoName}</strong>
+                  <span className="muted small">{t.newChat.autoDescription(leadText)}</span>
                 </button>
-                {!p.builtin && (
-                  <button className="icon-button preset-delete" aria-label={t.newChat.deleteTemplate} onClick={() => deletePreset(p)}>
-                    ×
-                  </button>
-                )}
               </div>
-            ))}
-          </div>
-        </section>
+              <div className={`preset-card custom ${choice === CUSTOM ? 'on' : ''}`}>
+                <button className="preset-main" onClick={() => pick(CUSTOM)} aria-pressed={choice === CUSTOM}>
+                  <PencilIcon />
+                  <strong>{t.newChat.customName}</strong>
+                  <span className="muted small">{t.newChat.customDescription}</span>
+                </button>
+              </div>
+            </div>
+          </section>
 
-        <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} />
+          <section>
+            <div className="section-head">
+              <h3>{t.newChat.templates}</h3>
+              <span className="muted small">{t.newChat.templatesHint}</span>
+            </div>
+            <div className="preset-row">
+              {presets.map((p) => (
+                <div key={p.id} className={`preset-card ${choice === p.id ? 'on' : ''}`}>
+                  <button className="preset-main" onClick={() => pick(p.id)} aria-pressed={choice === p.id}>
+                    <MemberDots agents={p.agents} className="preset-dots" max={6} />
+                    <strong>{p.name}</strong>
+                    {p.description && <span className="muted small">{p.description}</span>}
+                  </button>
+                  {!p.builtin && (
+                    <button className="icon-button preset-delete" aria-label={t.newChat.deleteTemplate} onClick={() => deletePreset(p)}>
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
 
-        {!auto && (
-          <div className="save-template-row">
-            <span className="muted small">{t.newChat.saveTemplateHint}</span>
-            <button className="ghost" onClick={savePreset} disabled={problems.length > 0}>
-              {t.newChat.saveTemplate}
-            </button>
-          </div>
-        )}
+          <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} />
 
-        <footer className="start-bar">
+          {!auto && (
+            <div className="save-template-row">
+              <span className="muted small">{t.newChat.saveTemplateHint}</span>
+              <button className="ghost" onClick={savePreset} disabled={problems.length > 0}>
+                {t.newChat.saveTemplate}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Outside the scrolling area, so it stays at the bottom of the window. */}
+      <footer className="start-dock">
+        <div className="start-bar">
           <input
             className="title-input"
             value={title}
@@ -238,9 +243,9 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
           <button className="primary" onClick={start} disabled={busy || problems.length > 0}>
             {busy ? t.newChat.creating : t.newChat.start}
           </button>
-        </footer>
+        </div>
         {(problems.length > 0 || error) && <p className="error-line">{error || problems[0]}</p>}
-      </div>
+      </footer>
     </div>
   );
 }

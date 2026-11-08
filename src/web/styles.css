@@ -1127,13 +1127,38 @@ details.sub .model-picker {
   margin-top: 20px;
 }
 
+/* New conversation: the form scrolls; the start bar below it stays at the bottom of the window,
+   however long or short the form is. */
+.new-chat {
+  display: flex;
+  flex-direction: column;
+}
+
+.new-chat-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.new-chat-body > .page-inner {
+  padding-bottom: 30px;
+}
+
+/* Same width as .page-inner; above the home indicator on phones. */
+.start-dock {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 24px env(safe-area-inset-bottom);
+}
+
+.start-dock > .error-line {
+  margin: 0 0 12px;
+}
+
 .start-bar {
   display: flex;
   gap: 10px;
   align-items: center;
-  position: sticky;
-  bottom: 0;
-  background: var(--bg);
   padding: 14px 0;
   border-top: 1px solid var(--border);
 }
@@ -3162,6 +3187,11 @@ details.sub summary {
 
   .page-inner {
     padding: 60px 16px 40px;
+  }
+
+  .start-dock {
+    padding-left: 16px;
+    padding-right: 16px;
   }
 
   .option-row {
