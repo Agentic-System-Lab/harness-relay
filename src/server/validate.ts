@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   CWD_MISSING,
@@ -44,9 +44,10 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
 }
 
+/** A path from user input: `~` is the home folder (`~/` or, on Windows, `~\`); relative paths start at the server's folder. */
 export function expandPath(p: string): string {
   const t = p.trim();
-  if (t === '~' || t.startsWith('~/')) return resolve(homedir(), t.slice(2));
+  if (t === '~' || t.startsWith('~/') || t.startsWith('~\\')) return resolve(homedir(), t.slice(2));
   return isAbsolute(t) ? resolve(t) : resolve(process.cwd(), t);
 }
 
@@ -72,6 +73,91 @@ function directory(dir: string, create: boolean): string {
 export function validDirectory(input: unknown, create = false): string {
   if (typeof input !== 'string' || !input.trim()) bad(t().invalidField('defaultCwd'));
   return directory(expandPath(input), create);
+}
+
+/** Folder names compare ignoring case where the filesystem usually does (macOS, Windows). */
+const foldCase = (p: string) => (process.platform === 'darwin' || process.platform === 'win32' ? p.toLowerCase() : p);
+
+function samePath(a: string, b: string): boolean {
+  return foldCase(resolve(a)) === foldCase(resolve(b));
+}
+
+/** `child` is `parent` or lies inside it. */
+function isInside(child: string, parent: string): boolean {
+  const r = relative(foldCase(resolve(parent)), foldCase(resolve(child)));
+  return r === '' || (r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r));
+}
+
+/**
+ * The folder for the CLIs' own homes (not created yet: see `ensureFolder`); empty = off. It must be
+ * an absolute or `~` path, not the home folder or a root (the CLIs' subfolders would sit loose
+ * in it), and not inside `outside` (Harness Relay's own folder, the default working directory):
+ * a working directory's snapshots would then take in the CLIs' sign-ins and transcripts.
+ */
+export function validAgentHome(input: unknown, outside: string[] = []): string {
+  if (typeof input !== 'string' || input.length > 4096) bad(t().invalidField('agentHome'));
+  const raw = input.trim();
+  if (!raw) return '';
+  if (!(raw === '~' || raw.startsWith('~/') || raw.startsWith('~\\') || isAbsolute(raw))) bad(t().agentHomeNotAbsolute(raw));
+  const dir = expandPath(raw);
+  if (samePath(dir, homedir()) || samePath(dir, parse(dir).root)) bad(t().agentHomeTooBroad(dir));
+  for (const folder of outside) {
+    // A working directory as broad as the home folder or a root is refused by itself (workspace.ts).
+    if (!folder || samePath(folder, homedir()) || samePath(folder, parse(folder).root)) continue;
+    if (isInside(dir, folder)) bad(t().agentHomeInside(dir, folder));
+  }
+  if (existsSync(dir) && !statSync(dir).isDirectory()) bad(t().cwdNotDirectory(dir));
+  return dir;
+}
+
+/** Creates a folder (and its parents) readable by the owner only, when missing. */
+export function ensureFolder(dir: string): void {
+  if (existsSync(dir)) return;
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+  } catch (e) {
+    bad(t().agentHomeCreateFailed(dir, (e as NodeJS.ErrnoException).code ?? (e as Error).message));
+  }
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * AgentsView's address: http(s) on this computer only, since conversations are sent there. Empty =
+ * off. Returns the origin (scheme, host and port).
+ */
+export function validAgentsViewUrl(input: unknown): string {
+  if (typeof input !== 'string' || input.length > 2048) bad(t().invalidField('agentsViewUrl'));
+  const raw = input.trim();
+  if (!raw) return '';
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    bad(t().agentsViewUrlInvalid(raw));
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !LOOPBACK_HOSTS.has(url.hostname)) {
+    bad(t().agentsViewUrlInvalid(raw));
+  }
+  return url.origin;
+}
+
+/**
+ * Where "Open AgentsView" goes: any http(s) address without credentials (it is only shown as a
+ * link, nothing is sent there), such as the one `tailscale serve` gives AgentsView. Empty = off.
+ */
+export function validAgentsViewLink(input: unknown): string {
+  if (typeof input !== 'string' || input.length > 2048) bad(t().invalidField('agentsViewLink'));
+  const raw = input.trim();
+  if (!raw) return '';
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    bad(t().agentsViewLinkInvalid(raw));
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) bad(t().agentsViewLinkInvalid(raw));
+  return url.href;
 }
 
 function optionalString(v: unknown, field: string, max = 500): string | undefined {

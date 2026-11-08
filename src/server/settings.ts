@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   nativeOffFor,
@@ -43,6 +44,13 @@ export const API_KEY_ENV: Partial<Record<Provider, string>> = {
 
 const DEFAULT_BIN: Record<Provider, string> = { claude: 'claude', codex: 'codex', grok: 'grok' };
 
+/** The variable that moves each CLI's home: its sign-in, settings and session transcripts. */
+export const AGENT_HOME_ENV: Record<Provider, string> = {
+  claude: 'CLAUDE_CONFIG_DIR',
+  codex: 'CODEX_HOME',
+  grok: 'GROK_HOME',
+};
+
 /**
  * Variables Claude Code sets for its own child processes. If Harness Relay is started from inside
  * a Claude Code session they would make the spawned `claude` think it is nested.
@@ -81,6 +89,14 @@ export class SettingsStore {
   private cwd: string;
   private leadAgent: LeadAgentSettings = { provider: 'claude' };
   private voiceSettings: VoiceSettings = { language: 'follow', bin: '' };
+  /** Folder of the CLIs' own homes (absolute); empty = their usual homes. */
+  private agentHomeDir: string;
+  /** AgentsView's origin; empty = off. */
+  private agentsView: string;
+  /** Where "Open AgentsView" goes, when not to `agentsView`. */
+  private agentsViewLinkValue: string;
+  /** Agent homes already created (env() runs for every CLI start and status check). */
+  private madeHomes = new Set<string>();
   /** With a keyring: providers whose key is still in the database because moving it failed. */
   private keysLeftInDb = new Set<Provider>();
   /** MCP servers, skills and memory for the agents. */
@@ -107,6 +123,9 @@ export class SettingsStore {
     }
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'default_cwd'").get() as { value: string } | undefined;
     this.cwd = row?.value ?? process.env.RELAY_DEFAULT_CWD ?? process.cwd();
+    this.agentHomeDir = this.appSetting('agent_home') ?? '';
+    this.agentsView = this.appSetting('agentsview_url') ?? '';
+    this.agentsViewLinkValue = this.appSetting('agentsview_link') ?? '';
     const lead = db.prepare("SELECT value FROM app_settings WHERE key = 'lead_agent'").get() as { value: string } | undefined;
     if (lead) {
       try {
@@ -164,6 +183,53 @@ export class SettingsStore {
   /** The provider's key lives in the database rather than the keyring. */
   private keyInDb(p: Provider): boolean {
     return !this.keyring || this.keysLeftInDb.has(p);
+  }
+
+  private appSetting(key: string): string | undefined {
+    const row = this.db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value;
+  }
+
+  private saveAppSetting(key: string, value: string): void {
+    this.db
+      .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run(key, value);
+  }
+
+  /** Folder of the CLIs' own homes when Harness Relay runs them; empty = each CLI's usual home. */
+  get agentHome(): string {
+    return this.agentHomeDir;
+  }
+
+  /** `dir`: an absolute path (validated by the caller), or empty to turn it off. */
+  setAgentHome(dir: string): void {
+    this.agentHomeDir = dir;
+    this.saveAppSetting('agent_home', dir);
+  }
+
+  /** The home a CLI uses under Harness Relay, or undefined when it uses its usual one. */
+  agentHomeFor(p: Provider): string | undefined {
+    return this.agentHomeDir ? join(this.agentHomeDir, p) : undefined;
+  }
+
+  /** AgentsView's origin, e.g. http://127.0.0.1:8080; empty = off. */
+  get agentsViewUrl(): string {
+    return this.agentsView;
+  }
+
+  setAgentsViewUrl(url: string): void {
+    this.agentsView = url;
+    this.saveAppSetting('agentsview_url', url);
+  }
+
+  /** Where "Open AgentsView" goes (e.g. its Tailscale address); empty = `agentsViewUrl`. Only shown as a link. */
+  get agentsViewLink(): string {
+    return this.agentsViewLinkValue;
+  }
+
+  setAgentsViewLink(url: string): void {
+    this.agentsViewLinkValue = url;
+    this.saveAppSetting('agentsview_link', url);
   }
 
   /** The agent that designs the team for auto-team conversations. */
@@ -271,6 +337,9 @@ export class SettingsStore {
     return {
       defaultCwd: this.cwd,
       lead: this.lead,
+      agentHome: this.agentHomeDir,
+      agentsViewUrl: this.agentsView,
+      agentsViewLink: this.agentsViewLinkValue,
       providers: PROVIDERS.map((p) => ({
         provider: p,
         bin: this.providers[p].bin,
@@ -283,13 +352,30 @@ export class SettingsStore {
     };
   }
 
-  /** Environment for a spawned CLI: the server's env, minus nesting markers, plus stored API keys. */
+  /**
+   * Environment for a spawned CLI: the server's env, minus nesting markers, plus stored API keys.
+   * With an agent home set, the CLI's home variable points into it, replacing any the server was
+   * started with, so the CLI's sign-in, settings and sessions are Harness Relay's own.
+   */
   env(p: Provider): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
     for (const k of NESTED_AGENT_VARS) delete env[k];
     const keyVar = API_KEY_ENV[p];
     const key = this.providers[p].apiKey;
     if (keyVar && key) env[keyVar] = key;
+    const home = this.agentHomeFor(p);
+    if (home) {
+      // Codex refuses a CODEX_HOME that does not exist.
+      if (!this.madeHomes.has(home)) {
+        try {
+          mkdirSync(home, { recursive: true, mode: 0o700 });
+          this.madeHomes.add(home);
+        } catch (err) {
+          console.warn(`[settings] could not create ${home}: ${(err as Error).message}`);
+        }
+      }
+      env[AGENT_HOME_ENV[p]] = home;
+    }
     return env;
   }
 }

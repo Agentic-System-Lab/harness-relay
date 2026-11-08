@@ -2,7 +2,9 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { openDatabase } from '../src/server/db';
 import { withLang } from '../src/server/i18n';
+import { SettingsStore } from '../src/server/settings';
 import {
   NativeSetupService,
   claudeMemoryFiles,
@@ -279,6 +281,20 @@ describe('NativeSetupService', () => {
     expect(await service.get('grok', root, true)).not.toBe(first);
     bin = join(root, 'another-cli');
     expect(await service.get('grok', root)).not.toBe(first);
+  });
+
+  it("asks again when the CLI's home moved (the agent home setting)", async () => {
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    settings.update('grok', { bin: join(root, 'no-such-cli') });
+    const service = new NativeSetupService(settings);
+    settings.setAgentHome(join(root, 'homes-a'));
+    const first = await service.get('grok', root);
+    expect(await service.get('grok', root)).toBe(first);
+    settings.setAgentHome(join(root, 'homes-b'));
+    const moved = await service.get('grok', root);
+    expect(moved).not.toBe(first);
+    settings.setAgentHome('');
+    expect(await service.get('grok', root)).not.toBe(moved);
   });
 
   it('gives the latest answer however old, asking the CLI only when there is none', async () => {

@@ -92,6 +92,35 @@ The icon opens Harness Relay as a web app: full screen, without Safari's address
 
 Installed this way, Harness Relay opens as its own app, without Chrome's address bar, and shows up with your other apps. If Chrome offers only **Create shortcut** (for example on an `http://` address), the shortcut opens the page in Chrome; you can tell it by the small Chrome logo on its icon. Samsung Internet has the same under its menu: **Add page to → Home screen**.
 
+## 5. Browse AgentsView too (optional)
+
+If you send conversations to [AgentsView](user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), you can browse it from the phone as well. It stays on `127.0.0.1` too, and `tailscale serve` shares it on a port of its own. These steps assume the setup from the user guide: AgentsView's data in `~/.relay-agents/agentsview`, listening on port 9999.
+
+1. Share AgentsView with your tailnet, on HTTPS port 9999:
+
+   ```bash
+   tailscale serve --bg --https=9999 9999
+   ```
+
+   It answers at the same name as Harness Relay, on that port: `https://my-computer.tail1234.ts.net:9999`.
+2. Tell AgentsView that address. Without it, AgentsView shows its page but refuses its own requests (*403*), so the page stays empty. Add this line at the very top of `~/.relay-agents/agentsview/config.toml`, above the `[agents.…]` sections:
+
+   ```toml
+   public_url = "https://my-computer.tail1234.ts.net:9999"
+   ```
+
+3. Restart AgentsView, with the same `AGENTSVIEW_DATA_DIR` as when you started it (see the [user guide](user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview) for Windows):
+
+   ```bash
+   AGENTSVIEW_DATA_DIR=~/.relay-agents/agentsview agentsview serve stop
+   AGENTSVIEW_DATA_DIR=~/.relay-agents/agentsview agentsview serve --port 9999 --background
+   ```
+
+   The sharing comes back by itself after a restart of the computer; AgentsView doesn't, so start it again then.
+4. Open `https://my-computer.tail1234.ts.net:9999` on the phone. You can add it to the home screen like Harness Relay.
+
+In **Settings → Agent sessions → AgentsView**, keep `http://127.0.0.1:9999` as the address: Harness Relay sends the conversations from the computer itself. Enter the tailnet address (`https://my-computer.tail1234.ts.net:9999`) under **Address to open it**, so that **Open AgentsView** opens it, on the phone too.
+
 ## Keep it running
 
 Your phone can reach Harness Relay only while the computer is awake and the server is running.
@@ -173,7 +202,8 @@ On a server:
 - **Don't use `tailscale funnel`.** It publishes the page to the whole internet.
 - **Don't start the server with `HOST=0.0.0.0`** to reach it over your Wi-Fi. Anyone on the same network could then drive agents with write access, over plain HTTP, and the phone's browser would not allow the microphone.
 - **Your machine's name becomes public.** With HTTPS certificates on, Tailscale records the full name of each machine that gets a certificate (`my-computer.tail1234.ts.net`) in public Certificate Transparency logs. Don't use a machine name you want to keep private.
-- **To stop sharing:** `tailscale serve --https=443 off`. (`tailscale serve reset` removes everything the computer shares, including other services.)
+- **AgentsView has no login either** (Harness Relay's updates need it that way), and every device in your tailnet can browse every session in it and remove them from its list. The same access controls cover it.
+- **To stop sharing:** `tailscale serve --https=443 off`, and `tailscale serve --https=9999 off` for AgentsView. (`tailscale serve reset` removes everything the computer shares, including other services.)
 
 ## Troubleshooting
 
@@ -183,6 +213,7 @@ On a server:
 | The address doesn't open at all | Check that Tailscale is on in the phone and signed in to the same tailnet as the computer (the Tailscale app can switch between accounts), that the computer is awake, and that `tailscale serve status` on the computer still shows the address. |
 | *Access denied* from `tailscale serve` on Linux | Run it with `sudo`, or run `sudo tailscale set --operator=$USER` once. |
 | Another program's page or certificate shows up | Another program on the computer listens on port 443 and answers when nothing is shared. Check `tailscale serve status`: if the address is gone, run step 1 again. If it is listed and the other program still answers, share on another port: `tailscale serve --bg --https=8443 8787`, then open `https://my-computer.tail1234.ts.net:8443` (`RELAY_ALLOWED_HOSTS` stays the same). |
+| AgentsView's page opens on the phone but stays empty | Its requests are refused because `public_url` doesn't match the address you opened. Check the line at the top of `~/.relay-agents/agentsview/config.toml` (the exact address, with `https://` and `:9999`), then restart AgentsView. |
 | An agent shows *Command not found* only when it runs as a service | The service's `PATH` doesn't include that CLI. Find it with `command -v claude` (or `codex`, `grok`), add its folder to `Environment=PATH=` and restart. |
 | 🎙 says the microphone is not available on the phone | Open the `https://` address, not an `http://` one. Allow the microphone for this site in the browser, and in the phone's settings for that browser. |
 | The home-screen icon opens a blank or error page | Turn Tailscale on in the phone, then open the icon again. |

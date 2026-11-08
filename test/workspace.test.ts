@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -11,6 +11,7 @@ import {
   diffText,
   dropKeptCommits,
   ensureRepo,
+  excludePathspecs,
   keepCommits,
   removeWorktree,
   snapshot,
@@ -75,6 +76,26 @@ describe('snapshot', () => {
     expect((await snapshot(repo)).tree).toBe(snap.tree);
     writeFileSync(join(repo, 'README.md'), 'changed\n');
     expect((await snapshot(repo)).tree).not.toBe(snap.tree);
+  });
+
+  it("leaves out the CLIs' own homes when they lie in the repository, also through a link", async () => {
+    await ensureRepo(repo);
+    // The CLIs' folder inside the repository (beside the working directory `src`), with a sign-in in it.
+    mkdirSync(join(repo, 'agents', 'codex'), { recursive: true });
+    writeFileSync(join(repo, 'agents', 'codex', 'auth.json'), '{"token":"secret"}');
+    mkdirSync(join(repo, 'agents-notes'));
+    writeFileSync(join(repo, 'agents-notes', 'keep.md'), 'not the folder\n');
+    const files = async (exclude: string[]) =>
+      git(repo, 'ls-tree', '-r', '--name-only', (await snapshot(repo, exclude)).commit).split('\n').sort();
+
+    expect(await files([])).toContain('agents/codex/auth.json');
+    expect(await files([join(repo, 'agents')])).toEqual(['README.md', 'agents-notes/keep.md', 'src/app.ts']);
+    // Named through a link, it is still found inside the repository.
+    symlinkSync(join(repo, 'agents'), join(dir, 'agents-link'));
+    expect(await files([join(dir, 'agents-link')])).toEqual(['README.md', 'agents-notes/keep.md', 'src/app.ts']);
+    // Outside the repository it needs nothing.
+    expect(excludePathspecs(repo, [join(dir, 'elsewhere'), dir, ''])).toEqual([]);
+    expect(excludePathspecs(repo, [join(repo, 'agents', 'codex')])).toEqual([':(exclude,literal)agents/codex']);
   });
 });
 

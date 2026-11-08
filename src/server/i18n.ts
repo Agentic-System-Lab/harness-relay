@@ -126,6 +126,15 @@ const zhTW = {
   cwdNotDirectory: (cwd: string) => `這不是資料夾：${cwd}`,
   cwdCreateFailed: (cwd: string, reason: string) => `無法建立工作目錄 ${cwd}（${reason}）`,
   invalidField: (field: string) => `「${field}」的值無效`,
+  agentHomeTooBroad: (dir: string) => `請用一個專用的資料夾（例如 ~/.relay-agents），不要用 ${dir}`,
+  agentHomeCreateFailed: (dir: string, reason: string) => `無法建立資料夾 ${dir}（${reason}）`,
+  agentHomeNotAbsolute: (dir: string) => `請填完整路徑，或以 ~ 開頭的路徑（例如 ~/.relay-agents），不要用 ${dir}`,
+  agentHomeInside: (dir: string, folder: string) =>
+    `${dir} 在 ${folder} 裡面：那裡的快照會把各 CLI 的登入與 session 紀錄一起收進去。請選這個資料夾以外的位置，例如 ~/.relay-agents`,
+  agentHomeBusy: '有對話正在執行，或首席 agent 正在替對話分群。請等它們結束（或停止對話）再更改各 CLI 自己的資料夾。',
+  agentsViewLinkInvalid: (url: string) => `開啟 AgentsView 的網址無效：${url}。請填 http:// 或 https:// 開頭的網址，例如 https://my-computer.tail1234.ts.net:9999`,
+  agentsViewUrlInvalid: (url: string) =>
+    `AgentsView 網址無效：${url}。只接受這台電腦上的 http(s) 位址，例如 http://127.0.0.1:8080`,
 
   // Tool library
   badMcpName: (name: string) => `MCP 伺服器名稱「${name}」無效：只能用英文字母、數字、_ 和 -，最多 40 個字`,
@@ -303,6 +312,15 @@ const en: ServerMessages = {
   cwdNotDirectory: (cwd) => `Not a folder: ${cwd}`,
   cwdCreateFailed: (cwd, reason) => `Could not create the working directory ${cwd} (${reason})`,
   invalidField: (field) => `Invalid value for "${field}"`,
+  agentHomeTooBroad: (dir) => `Use a folder of its own (for example ~/.relay-agents), not ${dir}`,
+  agentHomeCreateFailed: (dir, reason) => `Could not create the folder ${dir} (${reason})`,
+  agentHomeNotAbsolute: (dir) => `Enter a full path, or one that starts with ~ (for example ~/.relay-agents), not ${dir}`,
+  agentHomeInside: (dir, folder) =>
+    `${dir} is inside ${folder}: its snapshots would take in the CLIs' sign-ins and session records. Pick a place outside it, such as ~/.relay-agents`,
+  agentHomeBusy: 'A conversation is running, or the lead agent is sorting one into a group. Wait until they finish (or stop the conversation) before changing the CLIs\' own folder.',
+  agentsViewLinkInvalid: (url) => `Invalid address to open AgentsView: ${url}. Enter one that starts with http:// or https://, such as https://my-computer.tail1234.ts.net:9999`,
+  agentsViewUrlInvalid: (url) =>
+    `Invalid AgentsView address: ${url}. Only http(s) addresses on this computer are accepted, such as http://127.0.0.1:8080`,
 
   badMcpName: (name) => `Invalid MCP server name "${name}": use letters, digits, _ and - only, up to 40 characters`,
   badVarName: (name) => `Invalid or repeated name "${name}": use letters, digits, _, . and -, not starting with a digit`,

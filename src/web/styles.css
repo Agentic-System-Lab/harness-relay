@@ -3875,7 +3875,9 @@ details.sub summary {
 
 /* Tool library (Settings) ------------------------------------------------------ */
 
-.tools-section {
+/* A titled part of a settings card: the tool library's lists, the agent sessions' two settings. */
+.tools-section,
+.settings-part {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -3883,12 +3885,14 @@ details.sub summary {
   border-top: 1px solid var(--border);
 }
 
-.tools-section h4 {
+.tools-section h4,
+.settings-part h4 {
   margin: 0;
   font-size: 14px;
 }
 
-.tools-section p {
+.tools-section p,
+.settings-part p {
   margin: 0;
 }
 

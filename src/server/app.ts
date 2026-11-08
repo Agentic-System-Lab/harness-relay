@@ -15,6 +15,7 @@ import {
   type ServerEvent,
   type TeamPreset,
 } from '../shared/types';
+import type { AgentsViewSync } from './agentsview';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileRoots, listFolder, mediaInRoot, previewFile, readPreview } from './files';
 import { restoreGrokTrust, trustGrokFolder } from './grokTrust';
@@ -26,6 +27,10 @@ import type { ProviderService } from './providers';
 import type { SettingsStore } from './settings';
 import type { Store } from './store';
 import {
+  ensureFolder,
+  validAgentHome,
+  validAgentsViewLink,
+  validAgentsViewUrl,
   validDirectory,
   validGroupName,
   validVoiceModel,
@@ -51,6 +56,8 @@ export interface AppDeps {
   voice?: VoiceService;
   /** Asks each CLI what it loads by itself; created when not given. */
   native?: NativeSetupService;
+  /** Sends conversations to AgentsView; its last failure is shown with the settings. */
+  agentsView?: AgentsViewSync;
   /** Extra Host names allowed besides localhost (RELAY_ALLOWED_HOSTS). */
   extraHosts?: string[];
 }
@@ -76,6 +83,7 @@ export function createApp({
   providers,
   voice = new VoiceService(settings),
   native = new NativeSetupService(settings),
+  agentsView,
   extraHosts = [],
 }: AppDeps): Hono {
   const app = new Hono();
@@ -140,16 +148,47 @@ export function createApp({
 
   // --- Settings & providers ----------------------------------------------------
 
-  app.get('/api/settings', (c) => c.json(settings.view()));
+  /** The settings, with how the last update of AgentsView (at the current address) went. */
+  const settingsView = () => {
+    const v = settings.view();
+    const error = agentsView?.error;
+    return error ? { ...v, agentsViewError: error } : v;
+  };
+
+  app.get('/api/settings', (c) => c.json(settingsView()));
 
   app.put('/api/settings', async (c) => {
-    const b = await body<{ defaultCwd?: unknown; createCwd?: unknown; lead?: unknown }>(c);
-    // Validate everything before saving anything; the directory last, since creating it is a side effect.
+    const b = await body<{
+      defaultCwd?: unknown;
+      createCwd?: unknown;
+      lead?: unknown;
+      agentHome?: unknown;
+      agentsViewUrl?: unknown;
+      agentsViewLink?: unknown;
+    }>(c);
+    // Validate everything before saving anything; the folders last, since creating them is a side effect.
     const lead = b.lead !== undefined ? validateLead(b.lead) : undefined;
+    const viewUrl = b.agentsViewUrl !== undefined ? validAgentsViewUrl(b.agentsViewUrl) : undefined;
+    const viewLink = b.agentsViewLink !== undefined ? validAgentsViewLink(b.agentsViewLink) : undefined;
     const cwd = b.defaultCwd !== undefined ? validDirectory(b.defaultCwd, b.createCwd === true) : undefined;
+    // Not inside Harness Relay's folder or the default working directory (the new one, when it changes too).
+    const home = b.agentHome !== undefined ? validAgentHome(b.agentHome, [process.cwd(), cwd ?? settings.defaultCwd]) : undefined;
+    // A turn that starts in the new home would find its CLI signed out, and its session elsewhere.
+    if (home !== undefined && home !== settings.agentHome && orchestrator.anyRunning()) throw new HttpError(409, t().agentHomeBusy);
+    // Created only now that nothing refuses the request.
+    if (home) ensureFolder(home);
     if (cwd !== undefined) settings.setDefaultCwd(cwd);
     if (lead !== undefined) settings.setLead(lead);
-    return c.json(settings.view());
+    if (viewUrl !== undefined) settings.setAgentsViewUrl(viewUrl);
+    if (viewLink !== undefined) settings.setAgentsViewLink(viewLink);
+    if (home !== undefined && home !== settings.agentHome) {
+      settings.setAgentHome(home);
+      // Another home: another sign-in, other models and other parts of its own. A sign-in still
+      // running would finish in the old home.
+      providers.invalidate();
+      for (const p of PROVIDERS) providers.cancelLogin(p);
+    }
+    return c.json(settingsView());
   });
 
   // --- Tool library: MCP servers, skills and memory for the agents --------------
@@ -182,7 +221,7 @@ export function createApp({
     }
     settings.update(p, b);
     providers.invalidate(p);
-    return c.json(settings.view());
+    return c.json(settingsView());
   });
 
   app.get('/api/providers', async (c) => c.json(await providers.statusAll(c.req.query('refresh') === '1')));
@@ -407,6 +446,8 @@ export function createApp({
       conv.updatedAt = Date.now();
       store.saveMeta(conv);
       orchestrator.emitConversation(conv);
+      // AgentsView shows the title as the thread's name (not for a conversation being deleted).
+      if (b.title !== undefined) orchestrator.trace(conv);
       return c.json(forClient(conv));
     };
     if (!b.agents && !b.settings) return save(); // renaming is fine while the team replies

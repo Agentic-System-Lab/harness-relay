@@ -66,14 +66,14 @@ beforeAll(() => {
         if (o.signal?.aborted) throw new AgentRunError('stopped', true);
         o.onEvent({ type: 'text', text: sorterReply });
         o.onEvent({ type: 'text_end' });
-        return {};
+        return { sessionId: 'sorter-session' };
       }
       if (o.systemPrompt === PLANNER_BRIEFING) {
         calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt, nativeOff: o.nativeOff });
         if (leadGate) await leadGate;
         o.onEvent({ type: 'text', text: leadReply });
         o.onEvent({ type: 'text_end' });
-        return { costUsd: 0.01 };
+        return { costUsd: 0.01, sessionId: 'lead-session' };
       }
       const name = /You are @(\w+)/.exec(o.systemPrompt)![1]!;
       calls.push({ name, sessionId: o.sessionId, prompt: o.prompt, images: o.images, attachmentsDir: o.attachmentsDir, nativeOff: o.nativeOff });
@@ -167,6 +167,107 @@ async function finish(convId: string): Promise<void> {
 
 const agentMessages = (conv: Conversation) => conv.messages.filter((m) => m.author.kind === 'agent');
 const textOf = (m: Conversation['messages'][number]) => m.parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
+
+describe('AgentsView', () => {
+  /** A sink that records what it was told. */
+  function sink() {
+    const told: { id: string; sessions: (string | undefined)[]; replies: number }[] = [];
+    const links: string[] = [];
+    const forgotten: string[] = [];
+    return {
+      told,
+      links,
+      forgotten,
+      schedule: (c: Conversation) =>
+        told.push({ id: c.id, sessions: Object.values(c.agentState).map((s) => s.sessionId), replies: agentMessages(c).length }),
+      link: (c: Conversation, provider: string, sessionId: string) => links.push(`${c.id} ${provider}:${sessionId}`),
+      forget: (id: string) => forgotten.push(id),
+    };
+  }
+
+  it("is told after every turn and when the run ends, with the agents' sessions known by then", async () => {
+    const traces = sink();
+    orchestrator = new Orchestrator(store, new Hub(), settings, undefined, traces);
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+
+    expect(traces.told.map((x) => x.id)).toEqual([conv.id, conv.id, conv.id]);
+    expect(traces.told[0]).toMatchObject({ sessions: ['session-Alice'], replies: 1 });
+    expect(traces.told[2]).toMatchObject({ sessions: ['session-Alice', 'session-Bob'], replies: 2 });
+  });
+
+  it("links the lead agent's and the group sorter's sessions to the conversation", async () => {
+    const traces = sink();
+    orchestrator = new Orchestrator(
+      store,
+      new Hub(),
+      settings,
+      { context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }) },
+      traces,
+    );
+    store.createGroup({ id: 'g1', name: 'Docs' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    leadReply = '{"template": "general-panel", "reason": "fits"}';
+    await orchestrator.send(conv.id, 'what should we write?');
+    await finish(conv.id);
+    await orchestrator.settled(5000);
+    expect(traces.links).toEqual(expect.arrayContaining([`${conv.id} claude:lead-session`, `${conv.id} claude:sorter-session`]));
+  });
+
+  it('sends the conversation again when the group sorter finishes after the run', async () => {
+    const events: string[] = [];
+    const traces = {
+      schedule: () => events.push('schedule'),
+      link: (_c: Conversation, provider: string, sessionId: string) => events.push(`link ${provider}:${sessionId}`),
+    };
+    orchestrator = new Orchestrator(store, new Hub(), settings, undefined, traces);
+    store.createGroup({ id: 'g1', name: 'Docs' });
+    let release!: () => void;
+    sorterGate = new Promise((r) => (release = r));
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', rounds: 1 });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(events).not.toContain('link claude:sorter-session');
+    release();
+    await orchestrator.settled(5000);
+    expect(events.slice(-2)).toEqual(['link claude:sorter-session', 'schedule']);
+  });
+
+  it('is not told about a conversation deleted while it replies, only to forget it', async () => {
+    gate = new Promise(() => {}); // the agents only finish when stopped
+    const traces = sink();
+    orchestrator = new Orchestrator(store, new Hub(), settings, undefined, traces);
+    const conv = conversation({ mode: 'parallel', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(true));
+    await orchestrator.deleteConversation(conv.id);
+    expect(traces.told).toEqual([]);
+    expect(traces.forgotten).toEqual([conv.id]);
+  });
+
+  it('keeps the run whole when telling fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    orchestrator = new Orchestrator(store, new Hub(), settings, undefined, {
+      schedule: () => {
+        throw new Error('sink broke');
+      },
+    });
+    try {
+      const conv = conversation({ mode: 'roundtable' }); // edit: locks the directory
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      expect(agentMessages(conv).map((m) => m.status)).toEqual(['done', 'done']);
+      // The directory is free again: another conversation can write there.
+      const next = conversation({ mode: 'roundtable' });
+      await orchestrator.send(next.id, 'go');
+      await finish(next.id);
+      expect(agentMessages(next)).toHaveLength(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
 
 describe('parallel mode with edit permission', () => {
   it('gives each agent its own worktree so they cannot overwrite each other', async () => {

@@ -91,6 +91,71 @@ The links at the top of Settings stay in view while you scroll, highlight the ca
 
 **Given by default to** — each MCP server and skill is given to the agents of the CLIs you pick: all three (the default), some, or none (then only to members you tick in the team settings). To change it for one member, see **Tools** under [Team members](#team-members).
 
+### Agent sessions: the CLIs' own folder and AgentsView
+
+**Settings → Agent sessions** has two optional settings. Harness Relay keeps them with its other settings, so you start it with `npm start` (or `npm run dev`) as usual, on macOS, Linux and Windows alike.
+
+**The CLIs' own folder** — by default each CLI uses its usual home (`~/.claude`, `~/.codex`, `~/.grok`), the one you also use when you run it yourself. Enter a folder here (a full path, or one that starts with `~`), or click **Use ~/.relay-agents**, and Harness Relay gives each CLI a home of its own in it: the `claude`, `codex` and `grok` subfolders. Each CLI's sign-in, settings and session records then go there, apart from your own use of the CLIs.
+
+- Sign in to each CLI again (in its card above, or set an API key): the new homes start empty.
+- The CLIs no longer read the settings, MCP servers, skills, memory and plugins in your usual homes. The [tool library](#tool-library-mcp-servers-skills-and-memory) still gives its tools to every agent.
+- Agents start a fresh session at their next turn, with the conversation's full history: their earlier sessions stay in the old homes.
+- The session records are in `claude/projects/`, `codex/sessions/` and `grok/sessions/` in that folder.
+
+Pick a folder outside your projects: Harness Relay refuses one inside its own folder or the default working directory, whose snapshots would take in the CLIs' sign-ins and session records. The folder can't be changed while a conversation runs. Empty the field to go back to the usual homes.
+
+**AgentsView** — [AgentsView](https://www.agentsview.io) is a free tool for browsing agent sessions on your computer: every message, tool call, token and cost. Enter its address here and Harness Relay sends it the conversation after every turn, and when you rename it. Each conversation becomes one session in AgentsView, named after the conversation, with each agent's own session nested under it (the lead agent's and the group sorter's too) and their costs added up. Only addresses on this computer are accepted. When an update fails (for example, AgentsView is not running), the card says why; the chat is not affected.
+
+- Conversations from before you set the address are sent at their next turn.
+- Deleting a conversation in Harness Relay leaves what was sent in AgentsView; remove it there if you like.
+- **Address to open it (optional)** — **Open AgentsView** opens the address above. To open AgentsView from another device, such as your phone over [Tailscale](remote-access.md#5-browse-agentsview-too-optional), enter that address here instead. Conversations are still sent to the address above.
+
+To see only Harness Relay's sessions in AgentsView, set the CLIs' own folder (above), then run an AgentsView of its own that reads only that folder:
+
+1. Install AgentsView (see [its quick start](https://www.agentsview.io/docs/quickstart/)).
+2. Create the file `.relay-agents/agentsview/config.toml` in your home folder:
+
+   ```toml
+   [agents.claude]
+   dirs = []
+   homes = ["~/.relay-agents/claude"]
+
+   [agents.codex]
+   dirs = []
+   homes = ["~/.relay-agents/codex"]
+
+   [agents.grok]
+   dirs = ["~/.relay-agents/grok/sessions"]
+   ```
+
+   AgentsView also reads the default folders of the other tools it supports (Cursor, Gemini CLI…) when they exist on your computer. To leave them out, list them in `disabled_agents` (see [AgentsView's configuration](https://www.agentsview.io/docs/configuration/)).
+3. Start it with its data in that folder, on a port of your choice (9999 here). macOS and Linux:
+
+   ```bash
+   AGENTSVIEW_DATA_DIR=~/.relay-agents/agentsview agentsview serve --port 9999
+   ```
+
+   Windows PowerShell:
+
+   ```powershell
+   $env:AGENTSVIEW_DATA_DIR = "$HOME\.relay-agents\agentsview"
+   agentsview serve --port 9999
+   ```
+
+   Windows Command Prompt:
+
+   ```bat
+   set AGENTSVIEW_DATA_DIR=%USERPROFILE%\.relay-agents\agentsview
+   agentsview serve --port 9999
+   ```
+
+   Add `--background` to keep it running after you close the terminal; `agentsview serve stop` (with the same `AGENTSVIEW_DATA_DIR`) stops it.
+4. In **Settings → Agent sessions → AgentsView**, enter `http://127.0.0.1:9999` and click **Save**.
+
+AgentsView hides sessions with only one message from the user by default. A conversation with a single message of yours shows up after your next message, or when you turn on **Include single-turn** in AgentsView's session filter.
+
+To browse AgentsView from your phone too, see [Use it from your phone](remote-access.md#5-browse-agentsview-too-optional).
+
 ## 3. Design the team — New chat
 
 Click **＋ New chat**. Under **How to build the team**, choose **Auto team** or **Design your own** — or pick one of the **Templates** below them. Adjust the team if you like, and click **Start chat →**. The page remembers your last choice.
@@ -269,7 +334,7 @@ Click **Search** under **New chat** (or the magnifier in the corner of a collaps
 
 ## 6. Where data is stored
 
-All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`). Voice input's models (and, on Linux and Windows, its engine) are in `data/voice/`; **Settings → Voice input → Remove voice input** deletes them. The [tool library](#tool-library-mcp-servers-skills-and-memory) is in `data/relay.db` too, except the values of MCP servers' variables and headers, which go to the credential store like API keys. Your language choice and which version of the tour you finished are kept in the browser. Back up by copying `data/` while the app is stopped.
+All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`), or in [the CLIs' own folder](#agent-sessions-the-clis-own-folder-and-agentsview) when you set one. Voice input's models (and, on Linux and Windows, its engine) are in `data/voice/`; **Settings → Voice input → Remove voice input** deletes them. The [tool library](#tool-library-mcp-servers-skills-and-memory) is in `data/relay.db` too, except the values of MCP servers' variables and headers, which go to the credential store like API keys. Your language choice and which version of the tour you finished are kept in the browser. Back up by copying `data/` while the app is stopped.
 
 ## 7. Troubleshooting
 
@@ -294,4 +359,7 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | Voice input install fails | Open **Settings → Voice input** and read the error and the install log. On macOS install [Homebrew](https://brew.sh) first; on an older Linux (glibc before 2.34) install whisper.cpp yourself and set the **whisper-server path** under **Advanced**. |
 | Transcription is slow | Choose a smaller model in **Settings → Voice input** (Small or Base); without a GPU the large models take several seconds. The first transcription after a while also loads the model. |
 | Transcribed Chinese uses Simplified characters, or the wrong language | Set **Spoken language** to Chinese (Traditional) or English instead of auto-detect; a larger model also helps. |
+| Every agent is *Not signed in* after setting the CLIs' own folder | Expected: the CLIs' new homes start empty. Sign in to each CLI again in Settings, or set API keys. |
+| Settings says *The last update of AgentsView failed* | Start AgentsView, or check the address and port in **Settings → Agent sessions**. `ECONNREFUSED` means nothing listens there. A conversation is sent again after its next turn. |
+| A conversation is missing in AgentsView | AgentsView hides sessions with only one message from the user: turn on **Include single-turn** in its session filter. |
 | Port already in use | Start with another port: `PORT=8790 npm start` on macOS and Linux, `$env:PORT=8790; npm start` in Windows PowerShell. The same works for `npm run dev`, whose UI proxy follows `PORT`. |

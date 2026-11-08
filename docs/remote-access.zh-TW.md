@@ -92,6 +92,35 @@ npm start
 
 這樣安裝後，Harness Relay 會像獨立的 App 一樣打開，沒有 Chrome 的網址列，也會出現在你的應用程式清單裡。如果 Chrome 只提供 **建立捷徑**（Create shortcut），例如用 `http://` 網址打開時，這個捷徑會在 Chrome 裡打開頁面，圖示上會有小小的 Chrome 標誌。Samsung Internet 也有同樣的功能，在選單的 **新增頁面至 → 主螢幕**（Add page to → Home screen）。
 
+## 5. 也瀏覽 AgentsView（選用）
+
+如果你把對話送到 [AgentsView](user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)，也可以用手機瀏覽它。它同樣留在 `127.0.0.1`，由 `tailscale serve` 用另一個 port 分享。以下步驟沿用使用者說明中的設定：AgentsView 的資料放在 `~/.relay-agents/agentsview`，監聽 port 9999。
+
+1. 把 AgentsView 分享到 tailnet，使用 HTTPS port 9999：
+
+   ```bash
+   tailscale serve --bg --https=9999 9999
+   ```
+
+   它和 Harness Relay 用同一個名稱，只是在這個 port：`https://my-computer.tail1234.ts.net:9999`。
+2. 告訴 AgentsView 這個網址。沒有設定時，AgentsView 雖然打得開頁面，卻會拒絕自己的請求（*403*），頁面一直是空的。在 `~/.relay-agents/agentsview/config.toml` 的最上方、所有 `[agents.…]` 區塊之前加上這一行：
+
+   ```toml
+   public_url = "https://my-computer.tail1234.ts.net:9999"
+   ```
+
+3. 用啟動時同樣的 `AGENTSVIEW_DATA_DIR` 重新啟動 AgentsView（Windows 的寫法見[使用者說明](user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)）：
+
+   ```bash
+   AGENTSVIEW_DATA_DIR=~/.relay-agents/agentsview agentsview serve stop
+   AGENTSVIEW_DATA_DIR=~/.relay-agents/agentsview agentsview serve --port 9999 --background
+   ```
+
+   電腦重新開機後，分享會自己恢復，AgentsView 則不會，請再啟動一次。
+4. 用手機打開 `https://my-computer.tail1234.ts.net:9999`。也可以像 Harness Relay 一樣加到主畫面。
+
+在 **設定 → Agent 的 session → AgentsView**，網址請維持 `http://127.0.0.1:9999`：Harness Relay 是在電腦上把對話送過去。把 tailnet 的網址（`https://my-computer.tail1234.ts.net:9999`）填在 **開啟用的網址**，**開啟 AgentsView** 就會打開它，在手機上也能用。
+
 ## 讓它一直執行
 
 只有在電腦醒著、伺服器也在執行時，手機才連得到 Harness Relay。
@@ -173,7 +202,8 @@ systemctl --user restart harness-relay
 - **不要用 `tailscale funnel`。** 它會把頁面公開到整個網際網路。
 - **不要為了用 Wi-Fi 連線而用 `HOST=0.0.0.0` 啟動伺服器。** 這樣同一個網路上的任何人都能透過未加密的 HTTP 操作有寫入權限的 agent，手機瀏覽器也不會允許使用麥克風。
 - **電腦的名稱會被公開。** 開啟 HTTPS 憑證後，Tailscale 會把每台取得憑證的電腦的完整名稱（`my-computer.tail1234.ts.net`）記錄在公開的 Certificate Transparency 紀錄中。不要用帶有私人資訊的電腦名稱。
-- **停止分享：** `tailscale serve --https=443 off`。（`tailscale serve reset` 會移除這台電腦分享的所有內容，包含其他服務。）
+- **AgentsView 也沒有登入機制**（Harness Relay 的更新需要這樣），tailnet 裡的每台裝置都能瀏覽其中所有 session，也能把它們從清單中移除。同樣的存取控制也涵蓋它。
+- **停止分享：** `tailscale serve --https=443 off`；AgentsView 用 `tailscale serve --https=9999 off`。（`tailscale serve reset` 會移除這台電腦分享的所有內容，包含其他服務。）
 
 ## 疑難排解
 
@@ -183,6 +213,7 @@ systemctl --user restart harness-relay
 | 網址完全打不開 | 確認手機的 Tailscale 已開啟，並登入跟電腦同一個 tailnet（Tailscale App 可以切換帳號）；確認電腦醒著；確認電腦上的 `tailscale serve status` 還顯示這個網址。 |
 | Linux 上的 `tailscale serve` 出現 *Access denied* | 加上 `sudo` 執行，或先執行一次 `sudo tailscale set --operator=$USER`。 |
 | 出現其他程式的頁面或憑證 | 電腦上有其他程式在監聽 443 port，沒有分享時就由它回應。先看 `tailscale serve status`：網址不見了就重做第 1 步。如果網址還在、卻仍由那個程式回應，就改用其他 port 分享：`tailscale serve --bg --https=8443 8787`，然後打開 `https://my-computer.tail1234.ts.net:8443`（`RELAY_ALLOWED_HOSTS` 不用改）。 |
+| 手機上 AgentsView 的頁面打得開，但一直是空的 | `public_url` 跟你打開的網址不一樣，所以它的請求被拒絕。檢查 `~/.relay-agents/agentsview/config.toml` 最上方那一行（完整網址，含 `https://` 與 `:9999`），然後重新啟動 AgentsView。 |
 | 只有以 service 執行時，agent 顯示「找不到指令」 | service 的 `PATH` 裡沒有那個 CLI。用 `command -v claude`（或 `codex`、`grok`）找到它的位置，把所在資料夾加進 `Environment=PATH=`，再重新啟動。 |
 | 手機上 🎙 顯示無法使用麥克風 | 請打開 `https://` 開頭的網址，不要用 `http://`。在瀏覽器允許這個網站使用麥克風，並在手機設定中允許該瀏覽器使用麥克風。 |
 | 主畫面圖示打開後是空白或錯誤頁 | 開啟手機的 Tailscale，再點一次圖示。 |

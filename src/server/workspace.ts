@@ -104,11 +104,37 @@ async function headCommit(cwd: string): Promise<string | null> {
   return r.code === 0 ? out(r) : null;
 }
 
+/** A folder's real path (links resolved), or the path itself when it does not exist. */
+function realOr(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * Pathspecs that leave `folders` out of `git add`, for those inside `root` (links resolved, so a
+ * folder reached through a link is still found). Paths outside it need nothing.
+ */
+export function excludePathspecs(root: string, folders: string[]): string[] {
+  const top = realOr(root);
+  const specs: string[] = [];
+  for (const folder of folders) {
+    if (!folder) continue;
+    const rel = relative(top, realOr(folder));
+    if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
+    specs.push(`:(exclude,literal)${rel.split(sep).join('/')}`);
+  }
+  return specs;
+}
+
 /**
  * Commit the current state of the working tree (tracked + untracked, honouring ignores) without
  * changing HEAD, the index or any file: stage into a temporary copy of the index instead.
+ * `exclude`: folders never taken in, such as the CLIs' own homes (their sign-ins and transcripts).
  */
-export async function snapshot(root: string): Promise<{ commit: string; tree: string }> {
+export async function snapshot(root: string, exclude: string[] = []): Promise<{ commit: string; tree: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'relay-index-'));
   const index = join(dir, 'index');
   try {
@@ -117,7 +143,8 @@ export async function snapshot(root: string): Promise<{ commit: string; tree: st
     // Starting from the real index lets git reuse its stat cache instead of re-hashing every file.
     if (existsSync(realIndex)) copyFileSync(realIndex, index);
     const env = { GIT_INDEX_FILE: index };
-    await git(root, ['add', '-A'], { env });
+    const skip = excludePathspecs(root, exclude);
+    await git(root, ['add', '-A', ...(skip.length ? ['--', '.', ...skip] : [])], { env });
     const tree = out(await git(root, ['write-tree'], { env }));
     const parent = await headCommit(root);
     const commit = out(

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation, SettingsView } from '../src/shared/types';
@@ -16,6 +16,8 @@ const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { AgentRunError, runners } = await import('../src/server/agents');
 const { NativeSetupService } = await import('../src/server/native');
+const { AgentsViewSync } = await import('../src/server/agentsview');
+const { expandPath } = await import('../src/server/validate');
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -171,6 +173,145 @@ describe('settings', () => {
     expect(view.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['skills', 'mcp']);
     const more = (await (await provider({ nativeOff: ['plugins', 'hooks', 'agents'] })).json()) as SettingsView;
     expect(more.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
+  });
+
+  it("sets the CLIs' own folder: created when missing, never the home folder itself", async () => {
+    const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
+    const home = join(project, 'relay-agents');
+    const set = await put({ agentHome: home });
+    expect(set.status).toBe(200);
+    expect(((await set.json()) as SettingsView).agentHome).toBe(home);
+    expect(statSync(home).isDirectory()).toBe(true);
+
+    expect((await put({ agentHome: '~' })).status).toBe(400);
+    expect((await put({ agentHome: '/' })).status).toBe(400);
+    expect((await put({ agentHome: 7 })).status).toBe(400);
+    const file = join(project, 'plain.txt');
+    writeFileSync(file, '');
+    expect((await put({ agentHome: file })).status).toBe(400);
+
+    const off = (await (await put({ agentHome: '  ' })).json()) as SettingsView;
+    expect(off.agentHome).toBe('');
+  });
+
+  it("accepts AgentsView only on this computer, sends a renamed conversation, and shows the last update's failure", async () => {
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    const store = new Store(db);
+    const hub = new Hub();
+    const sent: string[] = [];
+    // AgentsView is not running.
+    const fetchImpl = (async (input: string | URL | Request) => {
+      sent.push(new URL(String(input)).origin);
+      throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    }) as typeof fetch;
+    const agentsView = new AgentsViewSync(() => settings.agentsViewUrl, fetchImpl);
+    const orchestrator = new Orchestrator(store, hub, settings, undefined, agentsView);
+    const app = createApp({ store, settings, hub, orchestrator, providers: new ProviderService(settings), agentsView });
+    const put = async (body: unknown) => app.request('/api/settings', json('PUT', body));
+
+    for (const url of ['http://example.com:8080', 'ftp://127.0.0.1:21', 'http://me:secret@127.0.0.1:8080', 'not a url', 42]) {
+      expect((await put({ agentsViewUrl: url })).status).toBe(400);
+    }
+    // Saved as its origin.
+    expect(((await (await put({ agentsViewUrl: 'http://localhost:8080' })).json()) as SettingsView).agentsViewUrl).toBe('http://localhost:8080');
+    expect(((await (await put({ agentsViewUrl: 'http://[::1]:8080' })).json()) as SettingsView).agentsViewUrl).toBe('http://[::1]:8080');
+    const set = (await (await put({ agentsViewUrl: 'http://127.0.0.1:9999/sessions?x=1' })).json()) as SettingsView;
+    expect(set.agentsViewUrl).toBe('http://127.0.0.1:9999');
+
+    // Renaming sends the conversation (its title names the thread), here to an AgentsView that is down.
+    const conv: Conversation = {
+      id: 'conv-renamed',
+      title: 'Old name',
+      createdAt: 0,
+      updatedAt: 0,
+      agents: [{ id: 'a', name: 'Alice', provider: 'claude', role: '' }],
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 3, permission: 'read-only', cwd: project },
+      messages: [{ id: 'm1', author: { kind: 'user' }, createdAt: 1, parts: [{ type: 'text', text: 'hello' }], status: 'done' }],
+      agentState: {},
+      worktrees: {},
+    };
+    store.create(conv);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect((await app.request(`/api/conversations/${conv.id}`, json('PATCH', { title: 'New name' }))).status).toBe(200);
+      await agentsView.idle();
+    } finally {
+      warn.mockRestore();
+    }
+    expect(sent).toContain('http://127.0.0.1:9999');
+    const failing = (await (await app.request('/api/settings', { headers: HOST })).json()) as SettingsView;
+    expect(failing.agentsViewError).toBe('http://127.0.0.1:9999: ECONNREFUSED');
+
+    // Another address: the old failure is not about it.
+    const moved = (await (await put({ agentsViewUrl: 'http://127.0.0.1:8080' })).json()) as SettingsView;
+    expect(moved.agentsViewError).toBeUndefined();
+    const off = (await (await put({ agentsViewUrl: '' })).json()) as SettingsView;
+    expect(off).toMatchObject({ agentsViewUrl: '' });
+    expect(off.agentsViewError).toBeUndefined();
+  });
+
+  it('takes any http(s) address to open AgentsView, without changing where conversations go', async () => {
+    const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
+    for (const link of ['javascript:alert(1)', 'ftp://my-computer.tail1234.ts.net', 'https://me:secret@my-computer.tail1234.ts.net', 'not a url', 7]) {
+      expect((await put({ agentsViewLink: link })).status).toBe(400);
+    }
+    await put({ agentsViewUrl: 'http://127.0.0.1:9999' });
+    const set = (await (await put({ agentsViewLink: ' https://my-computer.tail1234.ts.net:9999 ' })).json()) as SettingsView;
+    expect(set).toMatchObject({ agentsViewLink: 'https://my-computer.tail1234.ts.net:9999/', agentsViewUrl: 'http://127.0.0.1:9999' });
+    const off = (await (await put({ agentsViewLink: '' })).json()) as SettingsView;
+    expect(off).toMatchObject({ agentsViewLink: '', agentsViewUrl: 'http://127.0.0.1:9999' });
+  });
+
+  it("keeps the CLIs' own folder out of Harness Relay's folder and the default working directory", async () => {
+    const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
+    expect((await put({ agentHome: 'relay-agents' })).status).toBe(400); // relative
+    expect((await put({ agentHome: join(process.cwd(), 'relay-agents-test') })).status).toBe(400);
+    expect(existsSync(join(process.cwd(), 'relay-agents-test'))).toBe(false);
+    expect((await put({ defaultCwd: project })).status).toBe(200);
+    expect((await put({ agentHome: join(project, '.agents') })).status).toBe(400);
+    // Changing the default working directory in the same request is checked against the new one.
+    const other = join(root, `other-${n}`);
+    mkdirSync(other, { recursive: true });
+    expect((await put({ defaultCwd: other, agentHome: join(other, 'agents') })).status).toBe(400);
+    expect((await put({ defaultCwd: other, agentHome: join(project, '.agents') })).status).toBe(200);
+  });
+
+  it("drops cached sign-in state and sign-ins in progress when the CLIs' folder changes, and not when it stays", async () => {
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    const store = new Store(db);
+    const hub = new Hub();
+    const providers = new ProviderService(settings);
+    const invalidate = vi.spyOn(providers, 'invalidate');
+    const cancelLogin = vi.spyOn(providers, 'cancelLogin');
+    const app = createApp({ store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers });
+    const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
+    const home = join(project, 'homes');
+    expect((await put({ agentHome: home })).status).toBe(200);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(cancelLogin.mock.calls.map((c) => c[0])).toEqual(['claude', 'codex', 'grok']);
+    // The same folder spelled another way changes nothing.
+    expect((await put({ agentHome: `${home}/` })).status).toBe(200);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to move the CLIs' folder while a conversation runs", async () => {
+    const conv = await createConversation();
+    await app.request(`/api/conversations/${conv.id}/messages`, json('POST', { text: 'go' }));
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(true));
+    const busy = await app.request('/api/settings', json('PUT', { agentHome: join(project, 'homes') }));
+    expect(busy.status).toBe(409);
+    expect(existsSync(join(project, 'homes'))).toBe(false); // nothing created for a refused change
+    await app.request(`/api/conversations/${conv.id}/stop`, json('POST', {}));
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+    expect((await app.request('/api/settings', json('PUT', { agentHome: join(project, 'homes') }))).status).toBe(200);
+  });
+
+  it('reads ~ as the home folder, the Windows way too', () => {
+    expect(expandPath('~')).toBe(homedir());
+    expect(expandPath('~/.relay-agents')).toBe(join(homedir(), '.relay-agents'));
+    expect(expandPath('~\\.relay-agents')).toBe(join(homedir(), '.relay-agents'));
   });
 
   it('creates a missing default directory only when asked to', async () => {

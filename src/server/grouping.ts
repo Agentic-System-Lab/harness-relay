@@ -1,4 +1,4 @@
-import type { Conversation, ConversationGroup } from '../shared/types';
+import type { Conversation, ConversationGroup, Provider } from '../shared/types';
 import { runners } from './agents';
 import { parsePlanReply } from './planner';
 import type { SettingsStore } from './settings';
@@ -70,11 +70,18 @@ export class AutoGrouper {
   constructor(
     private store: Store,
     private settings: SettingsStore,
+    /** Told about the sorter's session, so AgentsView files it under the conversation. */
+    private onSession?: (conv: Conversation, provider: Provider, sessionId: string) => void,
   ) {}
 
   /** The lead agent is sorting this conversation right now. */
   isSorting(convId: string): boolean {
     return this.runs.has(convId);
+  }
+
+  /** The lead agent is sorting some conversation. */
+  get busy(): boolean {
+    return this.runs.size > 0;
   }
 
   /** Sort `conv` by its first message, unless it is sorted already or there are no groups to choose from. */
@@ -98,7 +105,7 @@ export class AutoGrouper {
       groups.map((g) => ({ name: g.name, examples: this.store.groupTitles(g.id, EXAMPLE_TITLES) })),
     );
     let reply = '';
-    await runners[lead.provider].run({
+    const result = await runners[lead.provider].run({
       bin: this.settings.bin(lead.provider),
       env: this.settings.env(lead.provider),
       nativeOff: this.settings.nativeOff(lead.provider),
@@ -114,6 +121,7 @@ export class AutoGrouper {
         else if (e.type === 'text_end') reply += '\n';
       },
     });
+    if (result.sessionId && !signal.aborted) this.onSession?.(conv, lead.provider, result.sessionId);
     if (signal.aborted) return;
     // Groups deleted meanwhile are skipped by the store.
     this.store.sortIntoGroup(conv.id, parseGroupReply(reply, groups)?.id ?? null);

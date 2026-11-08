@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -365,6 +365,57 @@ describe('SettingsStore (SQLite)', () => {
     expect(again.view().providers.find((p) => p.provider === 'grok')!.apiKeyMasked).toBe('xai-…7890');
     expect(again.defaultCwd).toBe('/work');
     expect(statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it('gives each CLI its own home in the agent home folder, in place of the one the server was started with', () => {
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '/users/me/.claude-personal');
+    vi.stubEnv('CODEX_HOME', '');
+    try {
+      const s = new SettingsStore(db);
+      // Off: each CLI keeps the home it would have anyway.
+      expect(s.agentHomeFor('claude')).toBeUndefined();
+      expect(s.env('claude').CLAUDE_CONFIG_DIR).toBe('/users/me/.claude-personal');
+
+      const home = join(dir, 'relay-agents');
+      s.setAgentHome(home);
+      s.setAgentsViewUrl('http://127.0.0.1:9999');
+      s.setAgentsViewLink('https://my-computer.tail1234.ts.net:9999/');
+      const again = new SettingsStore(reopen());
+      expect(again.env('claude').CLAUDE_CONFIG_DIR).toBe(join(home, 'claude'));
+      expect(again.env('codex').CODEX_HOME).toBe(join(home, 'codex'));
+      expect(again.env('grok').GROK_HOME).toBe(join(home, 'grok'));
+      // Only its own variable: Claude Code does not get Codex's home.
+      expect(again.env('claude').CODEX_HOME).toBe('');
+      // Created, since Codex refuses a CODEX_HOME that does not exist.
+      expect(statSync(join(home, 'codex')).isDirectory()).toBe(true);
+      expect(again.view()).toMatchObject({
+        agentHome: home,
+        agentsViewUrl: 'http://127.0.0.1:9999',
+        agentsViewLink: 'https://my-computer.tail1234.ts.net:9999/',
+      });
+
+      again.setAgentHome('');
+      again.setAgentsViewUrl('');
+      const off = new SettingsStore(reopen());
+      expect(off.env('claude').CLAUDE_CONFIG_DIR).toBe('/users/me/.claude-personal');
+      expect(off.view()).toMatchObject({ agentHome: '', agentsViewUrl: '' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("still points the CLI at its home when the folder cannot be created, and says so", () => {
+    const blocker = join(dir, 'a-file');
+    writeFileSync(blocker, '');
+    const s = new SettingsStore(db);
+    s.setAgentHome(blocker); // a file: its subfolders cannot be made
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(s.env('codex').CODEX_HOME).toBe(join(blocker, 'codex'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not create'));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("keeps what each CLI's runs leave out, only what that CLI can leave out", () => {

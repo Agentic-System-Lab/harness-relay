@@ -595,7 +595,7 @@ export const en: Messages = {
   },
   settings: {
     title: 'Settings & sign-in',
-    intro: "Harness Relay runs each agent through the claude, codex and grok CLIs on your computer. Sign in to each CLI here, set API keys, executable paths and default models, see the skills, MCP servers and memory each CLI loads by itself, and manage the tool library every CLI shares.",
+    intro: "Harness Relay runs each agent through the claude, codex and grok CLIs on your computer. Sign in to each CLI here, set API keys, executable paths and default models, see the skills, MCP servers and memory each CLI loads by itself, manage the tool library every CLI shares, and choose where the CLIs keep their session records and whether to view each conversation in AgentsView.",
     checking: 'Checking…',
     recheck: 'Check again',
     language: 'Language',
@@ -614,6 +614,26 @@ export const en: Messages = {
     cwdSaved: 'Default working directory saved',
     confirmCreateCwd: (dir: string) => `This folder does not exist: ${dir}\nCreate it and make it the default working directory?`,
     cwdCreated: (dir: string) => `Created ${dir} and made it the default working directory`,
+    sessions: 'Agent sessions',
+    sessionsHint:
+      'Where claude, codex and grok keep their sign-in, settings and session records when Harness Relay runs them, and whether to view each conversation in AgentsView.',
+    agentHome: "The CLIs' own folder",
+    agentHomeHint:
+      "When set, Harness Relay has claude, codex and grok use its claude, codex and grok subfolders as their homes: their sign-in, settings and session records go there, apart from your own use of the CLIs. Sign in to each CLI again above (or set an API key). They also stop reading the settings, MCP servers, skills, memory and plugins in your usual homes; those in Harness Relay's tool library are still given. Leave it empty to use each CLI's usual home.",
+    agentHomeUse: (dir: string) => `Use ${dir}`,
+    agentHomeSaved: (dir: string) => `The CLIs now use the folders in ${dir}. Sign in to them again above.`,
+    agentHomeOff: 'The CLIs use their usual homes again',
+    agentsView: 'AgentsView',
+    agentsViewHint:
+      "AgentsView is a tool for viewing agent sessions on this computer. With its address set, Harness Relay sends the conversation after every turn: each conversation is one thread in AgentsView, with each agent's own session under it, including tool calls, tokens and cost. Only addresses on this computer are accepted.",
+    agentsViewOpen: 'Open AgentsView ↗',
+    agentsViewLink: 'Address to open it (optional)',
+    agentsViewLinkHint:
+      '"Open AgentsView" goes here instead, for example the address tailscale serve gives it (https://my-computer.tail1234.ts.net:9999), so it also works on your phone. Harness Relay still sends conversations to the address above. Leave it empty to open the address above.',
+    agentsViewLinkSaved: 'Address to open it saved',
+    agentsViewSaved: 'AgentsView is set; it is updated after every turn',
+    agentsViewOff: 'No longer sending to AgentsView',
+    agentsViewFailed: (error: string) => `The last update of AgentsView failed: ${error}`,
     pill: {
       checking: 'Checking…',
       notInstalled: 'Not installed',
@@ -768,8 +788,17 @@ export const en: Messages = {
         ],
       },
       {
+        title: 'Agent sessions and AgentsView',
+        body: 'Want a close look at what each agent did? In Settings → Agent sessions:',
+        points: [
+          "Give the CLIs a folder of their own (such as ~/.relay-agents): their sign-in, settings and session records stay apart from your own use of the CLIs",
+          "Enter AgentsView's address: each conversation becomes one thread in AgentsView, with each agent's own session under it, including tool calls, tokens and cost",
+          'Both are optional, and only an AgentsView on this computer is accepted',
+        ],
+      },
+      {
         title: 'Adjust any time',
-        body: 'In Settings you can switch the language (繁體中文 / English), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, manage voice input, and replay this tour. The links at the top jump straight to each one.',
+        body: 'In Settings you can switch the language (繁體中文 / English), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, manage voice input and agent sessions, and replay this tour. The links at the top jump straight to each one.',
       },
     ],
   },

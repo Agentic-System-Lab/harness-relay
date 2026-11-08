@@ -91,6 +91,71 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 **預設提供給**：每個 MCP 伺服器和 skill 都可以選要給哪幾種 CLI 的成員：三種都給（預設）、只給其中幾種，或都不給（這時只給你在團隊設定裡勾選的成員）。要針對單一成員調整，見[團隊成員](#團隊成員)的 **工具**。
 
+### Agent 的 session：各 CLI 自己的資料夾與 AgentsView
+
+**設定 → Agent 的 session** 有兩個選用的設定。它們和其他設定一起存在 Harness Relay 裡，所以不論 macOS、Linux 或 Windows，都照常用 `npm start`（或 `npm run dev`）啟動。
+
+**各 CLI 自己的資料夾**：預設各 CLI 用它們平常的家目錄（`~/.claude`、`~/.codex`、`~/.grok`），也就是你自己執行 CLI 時用的那一個。在這裡填入一個資料夾（完整路徑，或以 `~` 開頭的路徑），或按 **使用 ~/.relay-agents**，Harness Relay 就會在裡面替每個 CLI 準備自己的家目錄：`claude`、`codex`、`grok` 子資料夾。之後各 CLI 的登入、設定與 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。
+
+- 各 CLI 要重新登入一次（在上方各 CLI 的卡片，或設定 API key）：新的家目錄一開始是空的。
+- 各 CLI 不再讀你平常家目錄裡的設定、MCP 伺服器、skill、記憶與 plugin；[工具庫](#工具庫mcp-伺服器skill-與記憶)裡的工具照常提供給每位成員。
+- 成員在下一回合會開新的 session，並取得對話的完整紀錄：之前的 session 留在原本的家目錄。
+- session 紀錄在那個資料夾的 `claude/projects/`、`codex/sessions/` 與 `grok/sessions/`。
+
+請選專案以外的資料夾：在 Harness Relay 自己的資料夾或預設工作目錄裡面的會被拒絕，因為那裡的快照會把各 CLI 的登入與 session 紀錄一起收進去。有對話正在執行時不能更改這個資料夾。把欄位清空，就會改回平常的家目錄。
+
+**AgentsView**：[AgentsView](https://www.agentsview.io) 是在你電腦上瀏覽 agent session 的免費工具，看得到每則訊息、每個工具呼叫、token 與成本。在這裡填入它的網址，Harness Relay 會在每個回合結束後、以及你重新命名對話時，把對話送過去。每個對話在 AgentsView 中是一個以對話標題命名的 session，底下是各 agent 自己的 session（首席 agent 和分群用的 session 也在內），成本也會加總。只接受這台電腦上的網址。更新失敗時（例如 AgentsView 沒有在執行），卡片上會說明原因，不影響對話。
+
+- 設定網址之前就有的對話，會在它的下一回合結束後送出。
+- 在 Harness Relay 刪除對話，已經送到 AgentsView 的內容會留著；需要的話請在 AgentsView 裡移除。
+- **開啟用的網址（選用）**：**開啟 AgentsView** 預設打開上面的網址。想從其他裝置打開 AgentsView，例如[透過 Tailscale](remote-access.zh-TW.md#5-也瀏覽-agentsview選用) 用手機打開，就在這裡填那個網址。對話仍然送到上面的網址。
+
+想在 AgentsView 中只看到 Harness Relay 的 session，先設定各 CLI 自己的資料夾（見上方），再執行一個只讀那個資料夾的 AgentsView：
+
+1. 安裝 AgentsView（見[它的快速入門](https://www.agentsview.io/docs/quickstart/)）。
+2. 在你的家目錄建立 `.relay-agents/agentsview/config.toml`：
+
+   ```toml
+   [agents.claude]
+   dirs = []
+   homes = ["~/.relay-agents/claude"]
+
+   [agents.codex]
+   dirs = []
+   homes = ["~/.relay-agents/codex"]
+
+   [agents.grok]
+   dirs = ["~/.relay-agents/grok/sessions"]
+   ```
+
+   電腦上有 AgentsView 支援的其他工具（Cursor、Gemini CLI……）時，它也會讀那些工具的預設資料夾。不想要的話，把它們列在 `disabled_agents`（見 [AgentsView 的設定說明](https://www.agentsview.io/docs/configuration/)）。
+3. 讓它的資料放在那個資料夾，用你選的 port 啟動（這裡用 9999）。macOS 與 Linux：
+
+   ```bash
+   AGENTSVIEW_DATA_DIR=~/.relay-agents/agentsview agentsview serve --port 9999
+   ```
+
+   Windows PowerShell：
+
+   ```powershell
+   $env:AGENTSVIEW_DATA_DIR = "$HOME\.relay-agents\agentsview"
+   agentsview serve --port 9999
+   ```
+
+   Windows 命令提示字元：
+
+   ```bat
+   set AGENTSVIEW_DATA_DIR=%USERPROFILE%\.relay-agents\agentsview
+   agentsview serve --port 9999
+   ```
+
+   加上 `--background` 可以在關掉終端機後繼續執行；要停止時，用同樣的 `AGENTSVIEW_DATA_DIR` 執行 `agentsview serve stop`。
+4. 在 **設定 → Agent 的 session → AgentsView** 填入 `http://127.0.0.1:9999`，按 **儲存**。
+
+AgentsView 預設會隱藏使用者只說了一則訊息的 session。你只傳過一則訊息的對話，會在你傳下一則訊息後出現，或在 AgentsView 的 session 篩選中開啟 **Include single-turn** 後出現。
+
+想用手機瀏覽 AgentsView，見[用手機連線](remote-access.zh-TW.md#5-也瀏覽-agentsview選用)。
+
 ## 3. 設計團隊：新對話
 
 點 **＋ 新對話**。在 **組隊方式** 選 **自動組隊** 或 **自行設計**，或從下方的 **範本** 挑一個。視需要調整團隊，再按 **開始對話 →**。頁面會記住你上次的選擇。
@@ -269,7 +334,7 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 
 ## 6. 資料存在哪裡
 
-所有對話、範本與設定都存在專案資料夾的 `data/relay.db`（SQLite），只有你的帳號能讀取。API key 例外：它們放在系統的金鑰儲存區（見上方「API key（選用）」）。附加的檔案存在 `data/attachments/<對話>/`，只有你的帳號能讀取，刪除對話時（或編輯較早的訊息而刪掉它們所屬的訊息時）會一併刪除。平行模式的 worktree 放在 `data/worktrees/`（對應你 repository 中的 `relay/…` 分支），刪除對話時會一併移除。各 CLI 也會在它們平常的位置（`~/.claude…`、`~/.codex`、`~/.grok`）保存自己的 session 紀錄。語音輸入的模型（以及 Linux 與 Windows 上的引擎）放在 `data/voice/`；**設定 → 語音輸入 → 移除語音輸入** 會把它們刪除。[工具庫](#工具庫mcp-伺服器skill-與記憶)也存在 `data/relay.db`，但 MCP 伺服器變數和標頭的值例外，它們跟 API key 一樣放在金鑰儲存區。介面語言與看完的導覽版本則記在瀏覽器中。要備份時，先停止程式再複製 `data/`。
+所有對話、範本與設定都存在專案資料夾的 `data/relay.db`（SQLite），只有你的帳號能讀取。API key 例外：它們放在系統的金鑰儲存區（見上方「API key（選用）」）。附加的檔案存在 `data/attachments/<對話>/`，只有你的帳號能讀取，刪除對話時（或編輯較早的訊息而刪掉它們所屬的訊息時）會一併刪除。平行模式的 worktree 放在 `data/worktrees/`（對應你 repository 中的 `relay/…` 分支），刪除對話時會一併移除。各 CLI 也會在它們平常的位置（`~/.claude…`、`~/.codex`、`~/.grok`）保存自己的 session 紀錄；設定了[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)時則放在那個資料夾。語音輸入的模型（以及 Linux 與 Windows 上的引擎）放在 `data/voice/`；**設定 → 語音輸入 → 移除語音輸入** 會把它們刪除。[工具庫](#工具庫mcp-伺服器skill-與記憶)也存在 `data/relay.db`，但 MCP 伺服器變數和標頭的值例外，它們跟 API key 一樣放在金鑰儲存區。介面語言與看完的導覽版本則記在瀏覽器中。要備份時，先停止程式再複製 `data/`。
 
 ## 7. 疑難排解
 
@@ -294,4 +359,7 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 | 語音輸入安裝失敗 | 到 **設定 → 語音輸入** 查看錯誤與安裝紀錄。macOS 請先安裝 [Homebrew](https://brew.sh)；較舊的 Linux（glibc 早於 2.34）請自行安裝 whisper.cpp，再到 **進階** 設定 **whisper-server 路徑**。 |
 | 語音轉文字很慢 | 在 **設定 → 語音輸入** 改用較小的模型（Small 或 Base）；沒有 GPU 時大模型要好幾秒。隔一段時間後的第一次辨識也要先載入模型。 |
 | 辨識出簡體字或錯誤的語言 | 把 **辨識語言** 從自動偵測改成「中文（繁體）」或 English；較大的模型也會比較準。 |
+| 設定各 CLI 自己的資料夾後，每個 agent 都顯示「未登入」 | 正常現象：新的家目錄一開始是空的。到設定頁重新登入各 CLI，或設定 API key。 |
+| 設定頁顯示「上次更新 AgentsView 失敗」 | 啟動 AgentsView，或檢查 **設定 → Agent 的 session** 中的網址與 port。`ECONNREFUSED` 表示那裡沒有程式在接收。對話會在下一回合結束後再送一次。 |
+| AgentsView 裡找不到某個對話 | AgentsView 會隱藏使用者只說了一則訊息的 session：在它的 session 篩選中開啟 **Include single-turn**。 |
 | port 被佔用 | 換一個 port 啟動：macOS 與 Linux 用 `PORT=8790 npm start`，Windows PowerShell 用 `$env:PORT=8790; npm start`。`npm run dev` 也一樣，介面的代理會跟著 `PORT`。 |

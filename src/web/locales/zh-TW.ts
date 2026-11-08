@@ -606,7 +606,7 @@ export const zhTW = {
   },
   settings: {
     title: '設定與登入',
-    intro: 'Harness Relay 用你電腦上的 claude、codex、grok CLI 執行各個 agent。在這裡登入各個 CLI、設定 API key、執行檔路徑與預設模型，查看各 CLI 自己載入的 skill、MCP 與記憶，並管理所有 CLI 共用的工具庫。',
+    intro: 'Harness Relay 用你電腦上的 claude、codex、grok CLI 執行各個 agent。在這裡登入各個 CLI，設定 API key、執行檔路徑與預設模型，查看各 CLI 自己載入的 skill、MCP 與記憶，管理所有 CLI 共用的工具庫，並決定各 CLI 的 session 紀錄放在哪裡、要不要在 AgentsView 中檢視每個對話。',
     checking: '檢查中…',
     recheck: '重新檢查狀態',
     language: '介面語言',
@@ -625,6 +625,25 @@ export const zhTW = {
     cwdSaved: '已儲存預設工作目錄',
     confirmCreateCwd: (dir: string) => `目錄不存在：${dir}\n要建立這個目錄並設為預設工作目錄嗎？`,
     cwdCreated: (dir: string) => `已建立 ${dir} 並設為預設工作目錄`,
+    sessions: 'Agent 的 session',
+    sessionsHint: 'Harness Relay 啟動 claude、codex、grok 時，它們把登入、設定與 session 紀錄放在哪裡，以及是否在 AgentsView 中檢視每個對話。',
+    agentHome: '各 CLI 自己的資料夾',
+    agentHomeHint:
+      '設定後，Harness Relay 讓 claude、codex、grok 分別用這個資料夾下的 claude、codex、grok 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們也不再讀你平常家目錄裡的設定、MCP、skill、記憶與 plugin，Harness Relay 工具庫裡的照常提供。留空則使用各 CLI 平常的家目錄。',
+    agentHomeUse: (dir: string) => `使用 ${dir}`,
+    agentHomeSaved: (dir: string) => `各 CLI 現在使用 ${dir} 下的資料夾，請在上方重新登入`,
+    agentHomeOff: '各 CLI 已改回使用平常的家目錄',
+    agentsView: 'AgentsView',
+    agentsViewHint:
+      'AgentsView 是在這台電腦上檢視 agent session 的工具。填入它的網址後，每個回合結束時，Harness Relay 會把對話送過去：一個對話在 AgentsView 中是一個 thread，底下是各 agent 自己的 session，包含工具呼叫、token 與成本。只接受這台電腦上的網址。',
+    agentsViewOpen: '開啟 AgentsView ↗',
+    agentsViewLink: '開啟用的網址（選用）',
+    agentsViewLinkHint:
+      '「開啟 AgentsView」改開這個網址，例如 tailscale serve 給它的網址（https://my-computer.tail1234.ts.net:9999），這樣在手機上也能點開。Harness Relay 仍然把對話送到上面的網址。留空則開啟上面的網址。',
+    agentsViewLinkSaved: '已儲存開啟用的網址',
+    agentsViewSaved: '已設定 AgentsView，之後每個回合結束時都會更新',
+    agentsViewOff: '已停止傳送到 AgentsView',
+    agentsViewFailed: (error: string) => `上次更新 AgentsView 失敗：${error}`,
     pill: {
       checking: '檢查中…',
       notInstalled: '未安裝',
@@ -779,8 +798,17 @@ export const zhTW = {
         ],
       },
       {
+        title: 'Agent 的 session 與 AgentsView',
+        body: '想仔細看每個 agent 做了什麼？在「設定 → Agent 的 session」：',
+        points: [
+          '讓各 CLI 用自己的資料夾（例如 ~/.relay-agents）：登入、設定與 session 紀錄和你平常直接使用 CLI 時分開',
+          '填入 AgentsView 的網址：每個對話在 AgentsView 中是一個 thread，底下是各 agent 自己的 session，包含工具呼叫、token 與成本',
+          '兩項都是選用的，只接受這台電腦上的 AgentsView',
+        ],
+      },
+      {
         title: '隨時調整',
-        body: '在設定頁可以切換介面語言（繁體中文 / English）、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、管理語音輸入，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
+        body: '在設定頁可以切換介面語言（繁體中文 / English）、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、管理語音輸入與 agent 的 session，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
       },
     ] as { title: string; body: string; points?: string[] }[],
   },

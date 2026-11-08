@@ -20,6 +20,7 @@ import { PROVIDER_COLOR, switchProvider, type ModelChoice } from '../util';
 import { ModelPicker } from './ModelPicker';
 import { NativeSetupPanel } from './NativeSetupPanel';
 import { SectionTitle } from './SectionTitle';
+import { SessionsCard } from './SessionsSettings';
 import { providerState } from './Sidebar';
 import { ToolsCard } from './ToolsSettings';
 import { VoiceCard } from './VoiceSettings';
@@ -143,6 +144,8 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
           </div>
           {msg.text && <p className={msg.error ? 'error-line' : 'muted small'}>{msg.text}</p>}
         </section>
+
+        {settings && <SessionsCard settings={settings} onSettings={setSettings} onHomeChanged={() => void refreshProviders(true)} />}
 
         <section className="card" id={sectionId('tour')}>
           <SectionTitle section="tour">{t.settings.tour}</SectionTitle>
@@ -703,6 +706,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     tools: t.tools.title,
     voice: t.voice.title,
     cwd: t.settings.cwd,
+    sessions: t.settings.sessions,
     tour: t.settings.tour,
   };
   return (

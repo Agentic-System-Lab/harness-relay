@@ -744,7 +744,40 @@ export interface SettingsView {
   defaultCwd: string;
   /** Designs the team in auto-team conversations. */
   lead: LeadAgentSettings;
+  /**
+   * The folder the CLIs keep their own sign-in, settings and sessions in when Harness Relay runs
+   * them (a subfolder per CLI: `claude`, `codex`, `grok`); empty = each CLI's usual home.
+   */
+  agentHome: string;
+  /** AgentsView (a local viewer of agent sessions) that each conversation is sent to as one thread; empty = off. */
+  agentsViewUrl: string;
+  /**
+   * Where "Open AgentsView" goes, when not to `agentsViewUrl`: an address other devices can open,
+   * such as the one `tailscale serve` gives it. Conversations are still sent to `agentsViewUrl`.
+   */
+  agentsViewLink: string;
+  /** Why the last update of AgentsView failed; absent after a success. */
+  agentsViewError?: string;
 }
+
+/** `PUT /api/settings`: only the fields given change. */
+export interface SettingsUpdate {
+  defaultCwd?: string;
+  /** Create `defaultCwd` when it does not exist. */
+  createCwd?: boolean;
+  lead?: LeadAgentSettings;
+  /** Empty = the CLIs use their usual homes again. */
+  agentHome?: string;
+  /** Empty = off. */
+  agentsViewUrl?: string;
+  /** Empty = the link opens `agentsViewUrl`. */
+  agentsViewLink?: string;
+}
+
+/** Suggested folder for the CLIs' own homes. */
+export const SUGGESTED_AGENT_HOME = '~/.relay-agents';
+/** AgentsView's default address (`agentsview serve`). */
+export const AGENTSVIEW_DEFAULT_URL = 'http://127.0.0.1:8080';
 
 export interface ProviderSettingsUpdate {
   bin?: string;

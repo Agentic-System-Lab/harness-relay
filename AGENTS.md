@@ -37,7 +37,8 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 - `src/server/orchestrator.ts`: team runs: speakers by mode, prompt delivery, streaming into messages, auto team, the message queue, pausing for the user's answer, retry and resend.
 - `src/server/prompt.ts` and `planner.ts`: agent briefings and turn prompts; the auto-team lead agent's prompt and reply parsing.
 - `src/server/agents/`: one adapter per CLI. `claude.ts` (stream-json), `codex.ts` (`codex app-server`), `grok.ts` (ACP), `acp.ts` (the JSON-RPC peer), `index.ts` (registry).
-- `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations, persistence, provider settings and child-process env, API keys in the OS keyring.
+- `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations, persistence, provider settings and child-process env (including the CLIs' own homes), API keys in the OS keyring.
+- `src/server/agentsview.ts`: sends each conversation to AgentsView as one thread and links the agents' own sessions under it.
 - `src/server/workspace.ts`: git: auto init, snapshots, worktrees, diffs, apply.
 - `src/server/process.ts`: spawning, streaming and killing child processes.
 - `src/server/tools.ts`: the tool library: MCP servers (their secret values in the OS keyring, by server id), skills and memory, and what each agent gets from it.

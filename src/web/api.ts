@@ -11,7 +11,6 @@ import type {
   FileListing,
   FilePreview,
   GrokFolderTrust,
-  LeadAgentSettings,
   LoginMethod,
   LoginSessionView,
   McpServerUpdate,
@@ -21,6 +20,7 @@ import type {
   ProviderSettingsUpdate,
   ProviderStatus,
   SearchResult,
+  SettingsUpdate,
   SettingsView,
   SkillCandidate,
   TeamPreset,
@@ -171,7 +171,7 @@ export const api = {
   rawFileUrl: (id: string, root: string, path: string) => `/api/conversations/${id}/files/raw?${fileQuery(root, path)}`,
 
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
-  updateSettings: (b: { defaultCwd?: string; createCwd?: boolean; lead?: LeadAgentSettings }) => request<SettingsView>('PUT', '/api/settings', b),
+  updateSettings: (b: SettingsUpdate) => request<SettingsView>('PUT', '/api/settings', b),
   updateProvider: (p: Provider, b: ProviderSettingsUpdate) =>
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),

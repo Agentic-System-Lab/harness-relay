@@ -11,6 +11,7 @@ import type {
   FileChange,
   MessageChanges,
   MessagePart,
+  Provider,
   RunPause,
   TeamPreset,
 } from '../shared/types';
@@ -18,6 +19,7 @@ import { splitAsk } from '../shared/ask';
 import { pendingPlan, planSavable } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import type { ApprovalRequest } from './agents/types';
+import type { TraceSink } from './agentsview';
 import { approvalKeys, isAllowed } from './approvals';
 import { HttpError } from './errors';
 import { AutoGrouper } from './grouping';
@@ -226,8 +228,10 @@ export class Orchestrator {
     private hub: Hub,
     private settings: SettingsStore,
     private planner: PlannerSource = { context: async () => ({ available: [], catalog: [], presets: store.listPresets() }) },
+    /** Told after each turn and run, to send the conversation to AgentsView. */
+    private traces?: TraceSink,
   ) {
-    this.grouper = new AutoGrouper(store, settings);
+    this.grouper = new AutoGrouper(store, settings, (conv, provider, sessionId) => this.linkSession(conv, provider, sessionId));
   }
 
   isRunning(id: string): boolean {
@@ -237,6 +241,11 @@ export class Orchestrator {
   /** The lead agent is sorting this new conversation into one of the user's groups. */
   isSorting(id: string): boolean {
     return this.grouper.isSorting(id);
+  }
+
+  /** Some conversation is replying, being set up, or being sorted into a group. */
+  anyRunning(): boolean {
+    return this.runs.size > 0 || this.starting.size > 0 || this.grouper.busy;
   }
 
   /** Running, or reserved by a request that will change it. */
@@ -295,6 +304,7 @@ export class Orchestrator {
       const conv = this.store.get(convId);
       if (conv) await this.cleanupWorktrees(conv);
       this.store.delete(convId);
+      this.traces?.forget?.(convId);
     } finally {
       this.deleting.delete(convId);
     }
@@ -616,8 +626,38 @@ export class Orchestrator {
           // Messages sent while the team replied that no turn took: the team answers them now. After
           // Stop they keep waiting, for the user to send or withdraw.
           if (run.abort.signal.aborted || !this.startQueued(conv)) this.emitStatus(conv.id);
+          this.trace(conv);
         }
       });
+  }
+
+  /**
+   * A session the conversation started besides its members' (the lead agent's, the group sorter's):
+   * filed under it in AgentsView now, also when it ends after the run (the sorter often does).
+   */
+  private linkSession(conv: Conversation, provider: Provider, sessionId: string): void {
+    if (this.deleting.has(conv.id) || this.store.get(conv.id) !== conv) return;
+    try {
+      this.traces?.link?.(conv, provider, sessionId);
+    } catch (err) {
+      console.warn('[orchestrator] could not tell AgentsView:', (err as Error).message);
+    }
+    this.trace(conv);
+  }
+
+  /** Folders snapshots never take in: the CLIs' own homes, with their sign-ins and transcripts. */
+  private snapshotExcludes(): string[] {
+    return this.settings.agentHome ? [this.settings.agentHome] : [];
+  }
+
+  /** Send the conversation to AgentsView, unless it is being deleted (a run winding down after the delete). */
+  trace(conv: Conversation): void {
+    if (this.deleting.has(conv.id) || this.store.get(conv.id) !== conv) return;
+    try {
+      this.traces?.schedule(conv);
+    } catch (err) {
+      console.warn('[orchestrator] could not tell AgentsView:', (err as Error).message);
+    }
   }
 
   /** Post the user's message (none for Continue / retry) and name the conversation after it. */
@@ -732,7 +772,7 @@ export class Orchestrator {
       const cur = conv.worktrees[a.id];
       if (cur && cur.root === root && !cur.needsReset && existsSync(cur.path)) continue;
       if (cur && cur.root !== root) await removeWorktree(cur.root, cur.path, cur.branch).catch(() => {});
-      base ??= (await snapshot(root)).commit;
+      base ??= (await snapshot(root, this.snapshotExcludes())).commit;
       const reuse = cur && cur.root === root;
       const wt: AgentWorktree = {
         root,
@@ -835,6 +875,8 @@ export class Orchestrator {
           else if (e.type === 'text_end') reply += '\n';
         },
       });
+      // The lead agent's session belongs to this conversation too.
+      if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
       decision = decidePlan(parsePlanReply(reply), ctx, lead);
     } catch (err) {
       if (!run.abort.signal.aborted) {
@@ -1155,7 +1197,7 @@ export class Orchestrator {
     }
     try {
       if (wt && !setupError) before = { commit: await worktreeHead(wt.path) };
-      else if (run.ws.root && !wt) before = await snapshot(run.ws.root);
+      else if (run.ws.root && !wt) before = await snapshot(run.ws.root, this.snapshotExcludes());
     } catch (err) {
       console.warn('[orchestrator] could not snapshot before turn:', (err as Error).message);
     }
@@ -1411,6 +1453,7 @@ export class Orchestrator {
       } catch (err) {
         console.error('[orchestrator] could not save the end of a turn:', err);
       }
+      this.trace(conv);
     }
     return msg;
   }
@@ -1431,7 +1474,7 @@ export class Orchestrator {
       await keepCommits(wt.root, convId, [before.commit, head]);
       return { root: wt.root, base: before.commit, head, files, isolated: true, branch: wt.branch };
     }
-    const after = await snapshot(root);
+    const after = await snapshot(root, this.snapshotExcludes());
     if (after.tree === before.tree) return undefined;
     const files = await diffFiles(root, before.commit, after.commit);
     await keepCommits(root, convId, [before.commit, after.commit]);

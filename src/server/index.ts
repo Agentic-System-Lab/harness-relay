@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
+import { AgentsViewSync } from './agentsview';
 import { createApp } from './app';
 import { openDatabase } from './db';
 import { Hub } from './hub';
@@ -22,19 +23,27 @@ const store = new Store(db);
 const hub = new Hub();
 const providers = new ProviderService(settings);
 const voice = new VoiceService(settings);
-const orchestrator = new Orchestrator(store, hub, settings, {
-  // What the lead agent may choose from when it designs a team.
-  async context() {
-    const [statuses, catalog] = await Promise.all([providers.statusAll(), providers.modelsAll()]);
-    const available = statuses
-      .filter((s) => s.installed && (s.auth.loggedIn !== false || s.usingStoredApiKey))
-      .map((s) => s.provider);
-    return { available, catalog, presets: store.listPresets() };
+// Sends each conversation to AgentsView, when its address is set.
+const agentsView = new AgentsViewSync(() => settings.agentsViewUrl);
+const orchestrator = new Orchestrator(
+  store,
+  hub,
+  settings,
+  {
+    // What the lead agent may choose from when it designs a team.
+    async context() {
+      const [statuses, catalog] = await Promise.all([providers.statusAll(), providers.modelsAll()]);
+      const available = statuses
+        .filter((s) => s.installed && (s.auth.loggedIn !== false || s.usingStoredApiKey))
+        .map((s) => s.provider);
+      return { available, catalog, presets: store.listPresets() };
+    },
   },
-});
+  agentsView,
+);
 
 const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
-const app = createApp({ store, settings, hub, orchestrator, providers, voice, extraHosts });
+const app = createApp({ store, settings, hub, orchestrator, providers, voice, agentsView, extraHosts });
 
 // --- Static web app (production build) ------------------------------------------
 
@@ -61,6 +70,8 @@ async function shutdown(): Promise<void> {
   voice.shutdown();
   // Let stopped runs write their final state while the database is still open.
   await orchestrator.settled(5000);
+  // And give AgentsView the last turns (each request times out on its own).
+  await Promise.race([agentsView.idle(), new Promise((r) => setTimeout(r, 3000))]);
   // SIGTERM, then SIGKILL every agent process group that is still around (including subprocesses).
   await killAll();
   store.flushAll();

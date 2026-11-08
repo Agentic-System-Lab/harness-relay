@@ -29,6 +29,7 @@ import { codexConfiguredMcpServers, codexMcpConfig, codexNativeConfig, codexOver
 import { grokNativeEnv } from './agents/grok';
 import { t } from './i18n';
 import { converse, runProcess } from './process';
+import { AGENT_HOME_ENV } from './settings';
 
 /*
  * What each CLI loads by itself — its own skills, MCP servers, hooks, subagents, plugins and
@@ -765,8 +766,10 @@ export class NativeSetupService {
     private settings: { bin(p: Provider): string; env(p: Provider): NodeJS.ProcessEnv; nativeOff?(p: Provider): readonly NativePart[] },
   ) {}
 
+  /** Per CLI, executable, folder and CLI home (the agent home setting moves it). */
   private key(provider: Provider, cwd: string): string {
-    return `${provider}\0${this.settings.bin(provider)}\0${cwd}`;
+    const home = this.settings.env(provider)[AGENT_HOME_ENV[provider]] ?? '';
+    return `${provider}\0${this.settings.bin(provider)}\0${cwd}\0${home}`;
   }
 
   /**
