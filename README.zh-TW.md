@@ -56,6 +56,8 @@
 ## 快速開始
 
 ```bash
+git clone https://github.com/Agentic-System-Lab/harness-relay
+cd harness-relay
 npm install
 npm run dev
 ```

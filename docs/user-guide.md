@@ -13,7 +13,7 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173**. (With `npm run build && npm start` the app is served at http://127.0.0.1:8787 instead.)
+Open **http://localhost:5173**. (After `npm run build`, then `npm start`, the app is served at http://127.0.0.1:8787 instead.)
 
 The dots at the bottom of the sidebar show each agent's status: green = ready, orange = not signed in, red = CLI not found.
 
@@ -261,4 +261,4 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | Voice input install fails | Open **Settings → Voice input** and read the error and the install log. On macOS install [Homebrew](https://brew.sh) first; on an older Linux (glibc before 2.34) install whisper.cpp yourself and set the **whisper-server path** under **Advanced**. |
 | Transcription is slow | Choose a smaller model in **Settings → Voice input** (Small or Base); without a GPU the large models take several seconds. The first transcription after a while also loads the model. |
 | Transcribed Chinese uses Simplified characters, or the wrong language | Set **Spoken language** to Chinese (Traditional) or English instead of auto-detect; a larger model also helps. |
-| Port already in use | Start with another port: `PORT=8790 npm run dev` (the UI proxy follows `PORT`). |
+| Port already in use | Start with another port: `PORT=8790 npm run dev` on macOS and Linux, `$env:PORT=8790; npm run dev` in Windows PowerShell (the UI proxy follows `PORT`). |

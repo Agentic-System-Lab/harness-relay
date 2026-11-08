@@ -56,6 +56,8 @@ Voice input is optional and installs itself when you turn it on: on macOS it nee
 ## Quick start
 
 ```bash
+git clone https://github.com/Agentic-System-Lab/harness-relay
+cd harness-relay
 npm install
 npm run dev
 ```
