@@ -140,7 +140,7 @@ Edit is meant for code you trust: tests, builds and project scripts run code the
 
 ## 4. Chat
 
-- **Send** with Enter; Shift+Enter for a new line. While typing with an input method (e.g. Chinese), Enter confirms the candidate and does not send. On a phone or tablet, Enter starts a new line and the **↑** button sends (with a hardware keyboard, ⌘/Ctrl+Enter sends too).
+- **Send** with Enter; Shift+Enter for a new line. While typing with an input method (e.g. Chinese), Enter confirms the candidate and does not send. On a phone or tablet, Enter starts a new line and the **↑** button sends (with a hardware keyboard, ⌘/Ctrl+Enter sends too). Your messages keep their line breaks as typed; agent replies are formatted as Markdown.
 - **Attach files** — paste an image (such as a screenshot) straight into the message box, drag files onto it, or click 📎. Up to 10 files of 20 MB each per message, with or without text. Every agent that reads the message gets each file's path to open with its own tools, and images (PNG, JPEG, GIF, WebP) are also shown to it directly. Sent images appear as thumbnails (click to open the full image); other files as chips you can download.
 - **Long questions** are folded to their first lines in the chat; click **Show more** to read the whole message (and **Show less** to fold it again).
 - **`@mention`** — type `@` to pick a teammate. When your message mentions agents, **only those agents reply** (in relay mode they start the relay). Without mentions, the whole team takes part according to the mode. Text may follow the name directly (`@Builder請實作`); mentions inside code are ignored.

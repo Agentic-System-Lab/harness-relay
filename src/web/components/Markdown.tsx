@@ -50,17 +50,33 @@ function imageAsLink(img: MdNode, inLink: boolean): MdNode {
     : { type: 'linkReference', identifier: img.identifier, label: img.label, referenceType: img.referenceType, children: [text], data };
 }
 
-function transform(node: MdNode, inLink: boolean, names: string[], media: boolean): void {
+/** A text node with each line break in it turned into a break node (`<br>`). */
+function splitLines(node: MdNode): MdNode[] {
+  const lines = (node.value ?? '').split(/\r?\n/);
+  if (lines.length === 1) return [node];
+  return lines.flatMap((line, i) => [...(i ? [{ type: 'break' }] : []), ...(line ? [{ type: 'text', value: line }] : [])]);
+}
+
+interface RelayOptions {
+  names: string[];
+  media: boolean;
+  breaks: boolean;
+}
+
+function transform(node: MdNode, inLink: boolean, opts: RelayOptions): void {
   if (!node.children) return;
   const link = inLink || node.type === 'link' || node.type === 'linkReference';
   node.children = node.children.flatMap((child) => {
     // A file on this computer is shown (by path, through the server); anything else is a link.
-    const local = media && !link && child.type === 'image' ? localMediaPath(child.url ?? '') : undefined;
+    const local = opts.media && !link && child.type === 'image' ? localMediaPath(child.url ?? '') : undefined;
     if (local) return [{ ...child, data: { hProperties: { dataMedia: local } } }];
     if (child.type === 'image' || child.type === 'imageReference') return [imageAsLink(child, link)];
     // Code (inline, fenced, indented) is its own node type, so only prose text gets here.
-    if (child.type === 'text') return link ? [child] : splitMentions(child, names);
-    transform(child, link, names, media);
+    if (child.type === 'text') {
+      const lines = opts.breaks ? splitLines(child) : [child];
+      return link ? lines : lines.flatMap((n) => (n.type === 'text' ? splitMentions(n, opts.names) : [n]));
+    }
+    transform(child, link, opts);
     return [child];
   });
 }
@@ -69,10 +85,11 @@ function transform(node: MdNode, inLink: boolean, names: string[], media: boolea
  * Agent output is untrusted. Images become links: loading them would let a prompt-injected agent call
  * any URL. With `media`, images and videos that are files on this computer are kept, to be shown from
  * this app's server. And @mentions of the team (and `@user`) are highlighted in prose, not in code or link text.
+ * With `breaks`, every line break in prose is kept (Markdown joins the lines of a paragraph).
  */
-export function remarkRelay({ mentions, media = false }: { mentions: string[]; media?: boolean }) {
+export function remarkRelay({ mentions, media = false, breaks = false }: { mentions: string[]; media?: boolean; breaks?: boolean }) {
   const names = mentions.length ? [...mentions, 'user'] : [];
-  return (tree: MdNode) => transform(tree, false, names, media);
+  return (tree: MdNode) => transform(tree, false, { names, media, breaks });
 }
 
 const rehypePlugins: Options['rehypePlugins'] = [[rehypeHighlight, { detect: false, ignoreMissing: true, plainText: ['mermaid'] }]];
@@ -142,22 +159,25 @@ function makeComponents(mediaBase: string | undefined): Components {
 
 /**
  * `mediaBase`: the URL that serves this message's images and videos (`…/media`); without it, every
- * image is a link.
+ * image is a link. `breaks`: show each line break as it was typed (the user's own messages), instead of
+ * joining the lines of a paragraph as Markdown does.
  */
 export const Markdown = memo(function Markdown({
   text,
   mentions = [],
   mediaBase,
+  breaks = false,
 }: {
   text: string;
   mentions?: string[];
   mediaBase?: string;
+  breaks?: boolean;
 }) {
   const components = useMemo(() => makeComponents(mediaBase), [mediaBase]);
   return (
     <div className="markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, [remarkRelay, { mentions, media: Boolean(mediaBase) }]]}
+        remarkPlugins={[remarkGfm, [remarkRelay, { mentions, media: Boolean(mediaBase), breaks }]]}
         rehypePlugins={rehypePlugins}
         components={components}
       >

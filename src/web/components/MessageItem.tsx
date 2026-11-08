@@ -462,7 +462,8 @@ function UserBubble({ text, mentions }: { text: string; mentions: string[] }) {
   return (
     <div className={`bubble ${long && !open ? 'folded' : ''}`}>
       <div className="bubble-body" ref={body}>
-        <Markdown text={text} mentions={mentions} />
+        {/* Line breaks as typed: Enter (Shift+Enter with a keyboard) starts a new line. */}
+        <Markdown text={text} mentions={mentions} breaks />
       </div>
       {long && (
         <button type="button" className="show-more" onClick={toggle} aria-expanded={open}>

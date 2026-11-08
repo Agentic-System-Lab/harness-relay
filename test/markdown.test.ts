@@ -151,6 +151,25 @@ describe('tables', () => {
   });
 });
 
+describe("the user's own messages", () => {
+  const user = (text: string) =>
+    renderToStaticMarkup(createElement(I18nProvider, null, createElement(Markdown, { text, mentions: ['Claude'], breaks: true })));
+
+  it('keep each line break as typed', () => {
+    expect(user('第一行\n第二行\r\n第三行')).toContain('<p>第一行<br/>\n第二行<br/>\n第三行</p>');
+    expect(user('a\n\nb')).toContain('<p>a</p>\n<p>b</p>');
+    // Agent replies stay plain Markdown: the lines of a paragraph are joined.
+    expect(html('第一行\n第二行')).toContain('<p>第一行\n第二行</p>');
+  });
+
+  it('still mark mentions, and leave code and links alone', () => {
+    expect(user('hi\n@Claude please')).toContain('<p>hi<br/>\n<span class="mention">@Claude</span> please</p>');
+    expect(user('```\na\nb\n```')).toContain('<code>a\nb\n</code>');
+    expect(user('`a\nb`')).not.toContain('<br/>');
+    expect(user('[a\n@Claude](https://x.example)')).toContain('>a<br/>\n@Claude</a>');
+  });
+});
+
 describe('images and videos from this computer', () => {
   const media = (text: string) =>
     renderToStaticMarkup(createElement(I18nProvider, null, createElement(Markdown, { text, mediaBase: '/api/conversations/c/messages/m/media' })));
