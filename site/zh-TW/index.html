@@ -687,6 +687,26 @@
                 打開 <b>http://127.0.0.1:8787</b>，在「設定與登入」確認每個 agent 都已登入，再按「新對話」：選擇自動組隊、自行設計，或挑一個範本。
               </p>
             </li>
+            <li>
+              <h3>用手機打開</h3>
+              <div class="step-body">
+                <p>
+                  選用。在電腦和手機都裝好 <a href="https://tailscale.com">Tailscale</a>。先停止伺服器，把它分享到你的 tailnet，再用 <code>tailscale serve</code> 印出的名稱重新啟動：
+                </p>
+                <div class="cmd">
+                  <pre id="cmd-phone"><span class="prompt">$ </span>tailscale serve --bg 8787
+<span class="prompt">$ </span>RELAY_ALLOWED_HOSTS=my-computer.tail1234.ts.net npm start</pre>
+                  <button class="copy" type="button" data-copy="cmd-phone" aria-label="複製指令" data-done="已複製">
+                    <svg class="i-copy" aria-hidden="true"><use href="#i-copy" /></svg>
+                    <svg class="i-check" aria-hidden="true"><use href="#i-check" /></svg>
+                  </button>
+                </div>
+                <p>
+                  用手機打開那個 <b>https://</b> 網址。只有 tailnet 裡的裝置連得到，伺服器仍然只綁定 <code>127.0.0.1</code>。加到主畫面：iPhone 用 Safari 點<b>分享 → 加入主畫面</b>，Android 用 Chrome 點 <b>⋮ → 安裝應用程式</b>。
+                </p>
+                <p><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.zh-TW.md">完整步驟，以及讓它一直執行與疑難排解</a></p>
+              </div>
+            </li>
           </ol>
           <div class="start-foot">
             <p>要開發 Harness Relay 本身？改用 <code>npm run dev</code>：改程式時伺服器會自動重啟、介面會自動重新載入，網址是 http://localhost:5173。</p>
@@ -694,6 +714,7 @@
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md">使用者說明</a>
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/architecture.zh-TW.md">架構</a>
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/developer-guide.zh-TW.md">開發者說明</a>
+              <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.zh-TW.md">用手機連線</a>
             </nav>
           </div>
         </div>

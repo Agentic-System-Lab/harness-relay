@@ -38,6 +38,17 @@ describe('the built web app', () => {
     }
   });
 
+  it('serves the web app manifest as a manifest, checked every time', async () => {
+    const app = new Hono();
+    const dir = built();
+    writeFileSync(join(dir, 'manifest.webmanifest'), '{"name":"Harness Relay"}');
+    serveWebApp(app, dir);
+    const res = await app.request('/manifest.webmanifest');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/^application\/manifest\+json/);
+    expect(res.headers.get('cache-control')).toBe('no-cache');
+  });
+
   it('answers a missing asset with 404, not the page', async () => {
     const app = new Hono();
     serveWebApp(app, built());

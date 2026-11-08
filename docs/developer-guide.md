@@ -60,6 +60,7 @@ src/
     hub.ts                 SSE fan-out
   web/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
+    public/                copied into the build as it is: manifest.webmanifest and the home-screen icons (npm run icons)
     chat.ts                ChatView's pure logic: stream reconnect decision, Apply availability, team-drawer draft
     sidebar.ts             the sidebar's pure logic: conversations in their groups, pending moves, a collapsed group's state
     files.ts               the file browser's pure logic: breadcrumb, filter, code language, line count
@@ -83,6 +84,7 @@ test/                      Vitest tests
 .github/workflows/ci.yml   CI: typecheck, tests and build on pull requests and pushes to main
 .github/workflows/pages.yml  publishes site/ to GitHub Pages
 scripts/preview-site.ts    npm run site:preview: serves site/ locally like Pages
+scripts/app-icons.ts       npm run icons: draws the home-screen icons and writes the web app manifest
 site/                      the landing page (static HTML, English + 繁體中文); DESIGN-GUIDELINES.md is not served
 docs/                      documentation (English + 繁體中文)
 data/                      runtime data (relay.db) — git-ignored
@@ -101,6 +103,8 @@ npm start          # one process: API + built UI on :8787
 
 `npm run build` puts the libraries the page loads at startup in their own chunks (`react`, `highlight`, `vendor`), so a browser keeps them across app updates; Mermaid stays lazy. It warns when a chunk loaded at startup passes 500 kB (`vite.config.ts`); Mermaid's lazy chunks are larger and only load when a diagram needs them.
 
+The web app manifest and the icons a phone puts on its home screen (or a browser shows for the installed app) are in `src/web/public/`. They are drawn by `npm run icons` (`scripts/app-icons.ts`) from the same three circles as the favicon and `Logo.tsx`, without an image library; run it again after changing the mark, the icons' sizes or the manifest, and commit what it writes.
+
 `npm run dev` restarts the server on every file change. A restart aborts any running agent turn (its message is marked aborted), so avoid editing server files while a long turn is running.
 
 ### Environment variables
@@ -111,7 +115,7 @@ npm start          # one process: API + built UI on :8787
 | `HOST` | `127.0.0.1` | Bind address |
 | `RELAY_DATA_DIR` | `./data` | Where `relay.db` lives |
 | `RELAY_DEFAULT_CWD` | process cwd | Initial default working directory (until changed in Settings) |
-| `RELAY_ALLOWED_HOSTS` | — | Extra comma-separated host names accepted by the Host/Origin check |
+| `RELAY_ALLOWED_HOSTS` | — | Extra comma-separated host names accepted by the Host/Origin check, such as the machine's Tailscale name (see [Use it from your phone](remote-access.md)) |
 | `RELAY_KEYRING` | — | `off` keeps API keys in the database instead of the OS credential store (e.g. for a throwaway data directory) |
 
 The server passes its own environment to the CLIs, minus Claude Code's nesting variables, plus stored API keys (`SettingsStore.env()`).
@@ -255,7 +259,8 @@ Current tests:
 - `test/workspace.test.ts` — git plumbing against real temporary repositories (auto init, snapshots that leave the repo untouched, worktrees, apply, conflicts, CRLF / non-UTF-8 content applied byte for byte, long and unusual file lists, kept snapshot refs, repositories that are too broad).
 - `test/process.test.ts` — process helpers: byte-exact output, stopping subprocesses that ignore SIGTERM (also after the CLI exited, and on shutdown), a missing working directory, relative executable paths.
 - `test/hub.test.ts` — SSE fan-out when a browser reconnects.
-- `test/web.test.ts` — serving the built UI: hashed assets cached for good, index.html (also for client routes) checked every time, a missing asset is a 404, earlier routes untouched.
+- `test/web.test.ts` — serving the built UI: hashed assets cached for good, index.html (also for client routes) and the web app manifest (as `application/manifest+json`) checked every time, a missing asset is a 404, earlier routes untouched.
+- `test/app-icons.test.ts` — the home-screen icons and the web app manifest: each icon's pixels are what `npm run icons` draws (opaque RGB, the right size), the manifest is the one it writes and can be installed (192 and 512 px icons, a maskable one, `standalone`), a maskable icon's mark stays inside the circle every launcher keeps, and `index.html` links the manifest and the Apple touch icon.
 - `test/app.test.ts` — the HTTP API through `createApp()` and `app.request()`: Host / Origin / Content-Type checks, deleting a conversation while it replies, changes refused while the team replies, settings validation, creating a missing working directory (default, new or edited conversation) only when asked, template ids, sidebar groups (names that must be new and not Other in either language, rename, delete, moving a conversation, unknown groups) and search. Also the tool library routes (masked values, bad names, URLs, CLIs and variable names, taken names, skills and memory, listing the skills under a folder), agents' tool exceptions, what an agent gets when it runs, and browsing files (listing, preview, raw images only, paths outside the folder or into `.git`, unknown roots). Also asking what a CLI loads by itself with a fake service (the default working directory only, refresh, problems in the request's language, unknown CLI, not a GET or a form post), reading a reported file but no other path (without asking the CLI again), and Grok's folder trust through the real probe and a stand-in `grok` that keys trust like grok 1.0.77 (a folder outside a repository, a repository's subfolder trusting the repository root, a folder reached through a link trusting its real path, a different folder than the one confirmed, Grok not taking the entry and the file put back or removed, a missing folder, not a form post). Also the parts a CLI's runs leave out, in a provider update (a list of known parts only).
 - `test/prompt.test.ts` — `@mention` parsing (text right after a name, code fences), `[PASS]`, forwarding of failed / stopped / passed replies, the parallel briefing. Also the memory and skills sections of the briefing, which says the CLI's own skills work as usual only while the user has not left them out.
 - `test/commands.test.ts` — reading shell command lines: publishing commands in their many forms, and "always allow" keys that do not let embedded commands through.

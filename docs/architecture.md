@@ -401,7 +401,7 @@ sequenceDiagram
 The server can start coding agents with write access, so it is locked down to the local UI:
 
 - binds to `127.0.0.1` by default;
-- rejects requests whose `Host` is not localhost (DNS-rebinding protection) and whose `Origin` is another site;
+- rejects requests whose `Host` is not localhost or a name listed in `RELAY_ALLOWED_HOSTS` (DNS-rebinding protection) and whose `Origin` is another site;
 - requires the media type `application/json` on every write (a `Content-Type` that merely contains the text is refused), so a cross-site form post cannot trigger a turn;
 - validates settings input (types, existing directories, effort names) and never lets a saved template take a built-in template's id;
 - shows images in agent replies as links instead of loading them, so a reply cannot make the browser contact another site. The exception is images and videos on this computer (`![chart](out/chart.png)`, an absolute path or a `file:` URL), which the UI loads from `GET /api/conversations/:id/messages/:messageId/media?path=…`. That endpoint serves only image and video types (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), and only when the file's real path (after following symlinks, and again checked for a media type) lies inside the working directory, the replying agent's worktree or the conversation's attachments. It answers with `nosniff` and a sandboxing `Content-Security-Policy`, so an SVG opened on its own cannot run scripts. It supports byte ranges for video and revalidates with an ETag, because agents may rewrite a file. The agents' briefing tells them to embed media this way;
@@ -415,6 +415,8 @@ The server can start coding agents with write access, so it is locked down to th
 - voice input keeps recordings on the computer: the speech engine listens on `127.0.0.1` behind a random path prefix, and the engine and models it downloads are pinned to a release or commit and checked by SHA-256 (see [Voice input](#voice-input)).
 
 It is a single-user tool: there is no authentication, and any process that can reach your localhost can use it.
+
+To use it from a phone, the server stays on `127.0.0.1` and `tailscale serve` on the same computer passes it the requests from the user's tailnet, over HTTPS; the tailnet name goes in `RELAY_ALLOWED_HOSTS`, since Tailscale keeps the original `Host` header. Every device in that tailnet can then use it. Binding to `0.0.0.0` instead would let anyone on the local network drive the agents over plain HTTP. See [Use it from your phone](remote-access.md).
 
 ## Known limitations
 

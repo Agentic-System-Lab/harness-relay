@@ -18,6 +18,8 @@ Open **http://127.0.0.1:8787**. After a `git pull`, run `npm install` and `npm r
 
 The dots at the bottom of the sidebar show each agent's status: green = ready, orange = not signed in, red = CLI not found.
 
+To use Harness Relay from your phone, a tablet or another computer, share it with your tailnet through `tailscale serve` and add it to the phone's home screen: see [Use it from your phone (Tailscale)](remote-access.md). On the computer, Chrome and Edge can also install it as an app (the install button in the address bar), and Safari on macOS can add it to the Dock (**File → Add to Dock**).
+
 ### Language and the guided tour
 
 The UI is available in **English** and **繁體中文**. On your first visit it follows your browser's language (any Chinese → 繁體中文, otherwise English) and remembers the choice in this browser; switch any time under **Settings & sign-in → Language**. Error messages and system notes from the server follow the same language.
@@ -285,6 +287,7 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | An agent seems stuck | Look for a **Needs you** badge or an approval card: it may be waiting for your answer. |
 | Saving an API key fails (*Could not save the API key to the system credential store*) | The keychain / keyring is locked or access was denied. Unlock it (or allow access when asked) and save again, or set the environment variable instead. |
 | "Reconnecting…" stays up | The server is down or restarting; the page reconnects by itself once it is back. |
+| *Forbidden host* when you open it from your phone or another device | Start Harness Relay with that address in `RELAY_ALLOWED_HOSTS`; see [Use it from your phone](remote-access.md#troubleshooting). |
 | "Too broad" when choosing a working directory | The folder is inside a git repository rooted at your home directory (such as a dotfiles repository). Pick a project folder, or run `git init` in the project folder. |
 | Some messages are in the other language | System notes and errors are written in the language that was active when they happened; switching language doesn't translate them. |
 | 🎙 says the microphone is not available | Allow this page to use the microphone (the site permissions next to the address bar), and check the system's privacy settings for your browser. |

@@ -71,6 +71,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 - **Avatar** (`.av`): the member's initial on a `-deep` fill, like the app. Initials match the template or demo member names.
 - **Pill** (`.pill`): the app's CLI badge, tinted agent colour with `-ink` text. **Chip** (`.chip`): neutral outline for mode, permission and round labels.
 - **Buttons:** primary is ink on light (`.btn-primary`), secondary is outlined (`.btn-ghost`). One primary per view.
+- **Quick start step:** a step with more than one block (text, command, text) wraps them in `.step-body`, so they stay together in the right-hand column.
 - **Command block** (`.cmd`): `$` prompts are not copied; the copy button copies the commands only and confirms with a check. One command per line, never joined with `&&`: Windows PowerShell 5.1, still the default shell on Windows, rejects `&&`, while separate lines run in every shell.
 - **UI excerpts** (`.ui`): approval card, question, changed files, waiting message tray. They recreate the app's components with sample content, and the page says so under them. Keep them faithful to the app when the app changes.
 - **Icons:** drawn inline SVG symbols in one 1.8px stroke. No emoji or Unicode glyphs as icons.
@@ -88,7 +89,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 7 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray |
 | 8 | Also in every chat (`#more`) | The remaining features as a two-column list |
 | 9 | Safety (`#safety`) | Local-only facts and the permission table |
-| 10 | Quick start (`#start`) | One row per step (title left, content right): requirements, commands, first steps; then links to the docs |
+| 10 | Quick start (`#start`) | One row per step (title left, content right): requirements, commands, first steps, then (optional) opening it on a phone through `tailscale serve`; then links to the docs |
 
 Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numbers, gradient text, stat counters.
 
