@@ -455,6 +455,9 @@ p {
 .sidebar-field input {
   flex: 1;
   border: none;
+  /* The field draws the rounded border. A rounded input only one line high would cut its left
+     end into a half circle, and the caret at the start of an empty field with it. */
+  border-radius: 0;
   background: transparent;
   padding: 0;
   font-size: 14px;
