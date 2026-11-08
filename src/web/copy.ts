@@ -113,7 +113,10 @@ export function conversationMarkdown(conv: Conversation, t: Messages): string {
   return `# ${conv.title}\n\n${blocks.join('\n\n---\n\n')}\n`;
 }
 
-/** Copy text to the clipboard; falls back to a hidden textarea where the async API is unavailable. */
+/**
+ * Copy text to the clipboard exactly as it is. Where the async API is unavailable (a page that is not
+ * https or localhost, e.g. a phone opening the app over the network), copy the legacy way.
+ */
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -121,18 +124,39 @@ export async function copyText(text: string): Promise<boolean> {
   } catch {
     /* not a secure context, or permission denied: try the legacy way */
   }
+  return legacyCopy(text);
+}
+
+/**
+ * `execCommand('copy')` copies the selection, so select a hidden textarea holding the text: some browsers
+ * (Safari) only copy when something is selected. A textarea turns CRLF line endings into LF, so the copy
+ * event puts the text itself on the clipboard instead.
+ */
+function legacyCopy(text: string): boolean {
+  const focused = document.activeElement;
+  const ta = document.createElement('textarea');
+  const onCopy = (e: ClipboardEvent) => {
+    if (!e.clipboardData) return; // keep what is selected: the same text, with LF line endings
+    e.clipboardData.setData('text/plain', text);
+    e.preventDefault();
+  };
   try {
-    const ta = document.createElement('textarea');
     ta.value = text;
-    ta.setAttribute('readonly', '');
+    ta.setAttribute('readonly', ''); // no on-screen keyboard
     ta.style.position = 'fixed';
+    ta.style.top = '0';
     ta.style.opacity = '0';
+    ta.style.fontSize = '12pt'; // iOS zooms in on smaller text it focuses
     document.body.appendChild(ta);
+    document.addEventListener('copy', onCopy);
     ta.select();
-    const ok = document.execCommand('copy');
-    ta.remove();
-    return ok;
+    ta.setSelectionRange(0, ta.value.length); // iOS selects nothing with select() alone
+    return document.execCommand('copy');
   } catch {
     return false;
+  } finally {
+    document.removeEventListener('copy', onCopy);
+    ta.remove();
+    if (focused && 'focus' in focused) (focused as HTMLElement).focus();
   }
 }

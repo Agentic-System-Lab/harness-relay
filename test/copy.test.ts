@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
-import { closeFences, conversationMarkdown, messageText } from '../src/web/copy';
+import { closeFences, conversationMarkdown, copyText, messageText } from '../src/web/copy';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
@@ -190,5 +190,89 @@ describe('copying code and errors', () => {
     // Old messages without a snapshot fall back to the agent as it is now.
     const fallback = conversationMarkdown({ ...renamed, messages: [agentMsg('x', { parts: [{ type: 'text', text: 'hi' }] })] }, en);
     expect(fallback).toContain('**@Researcher** · Codex\n\nhi');
+  });
+});
+
+describe('copying exactly what was written', () => {
+  const original = [
+    'Links: https://example.com/a_b_c?x=1&y=2#frag_1 and <https://example.com/path(with)parens>',
+    '[文件](https://github.com/org/repo/blob/main/docs/a%20b.md "標題") ![圖](https://example.com/x.png?d=1&e=2)',
+    '**粗體** _斜體_ ~~刪除~~ ``a ` b`` \\*escaped\\* &amp; &lt;div&gt; <b>raw</b> @Bob',
+    'two trailing spaces  ',
+    'tab\there',
+    '',
+    '| a | b |',
+    '| - | - |',
+    '| `x\\|y` | [l](https://x.example/?q=a%7Cb) |',
+    '',
+    '```ts',
+    'const url = "https://example.com/?a=1&b=2";   ',
+    '```',
+    '😀 全形：「」\r\nCRLF line\r\nlast line',
+  ].join('\n');
+
+  it('keeps URLs, Markdown, HTML, whitespace and line endings of a reply as they are', () => {
+    const tool = { type: 'tool', id: 't', name: 'Read', status: 'done' } as unknown as ChatMessage['parts'][number];
+    const m: ChatMessage = {
+      id: 'm',
+      author: { kind: 'agent', agentId: 'a' },
+      createdAt: 0,
+      status: 'done',
+      parts: [{ type: 'text', text: original }, tool, { type: 'text', text: 'second https://example.com/end_(x)' }],
+    };
+    expect(messageText(m)).toBe(`${original}\n\nsecond https://example.com/end_(x)`);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('puts the text on the clipboard as it is', async () => {
+    let written: string | undefined;
+    vi.stubGlobal('navigator', { clipboard: { writeText: async (t: string) => void (written = t) } });
+    expect(await copyText(original)).toBe(true);
+    expect(written).toBe(original);
+  });
+
+  /** A page without the clipboard API (not https or localhost); its textarea turns CRLF into LF. */
+  function legacyPage() {
+    const steps: string[] = [];
+    const listeners = new Map<string, (e: unknown) => void>();
+    let value = '';
+    let copied: string | undefined;
+    const textarea = {
+      style: {},
+      get value() {
+        return value;
+      },
+      set value(v: string) {
+        value = v.replace(/\r\n/g, '\n');
+      },
+      setAttribute: () => {},
+      select: () => steps.push('select'),
+      setSelectionRange: (from: number, to: number) => steps.push(`range ${from}-${to}`),
+      remove: () => steps.push('removed'),
+    };
+    const document = {
+      activeElement: { focus: () => steps.push('focus back') },
+      body: { appendChild: () => {} },
+      createElement: () => textarea,
+      addEventListener: (type: string, fn: (e: unknown) => void) => listeners.set(type, fn),
+      removeEventListener: (type: string, fn: unknown) => listeners.get(type) === fn && listeners.delete(type),
+      execCommand: (command: string) => {
+        listeners.get(command)?.({ clipboardData: { setData: (_: string, d: string) => (copied = d) }, preventDefault: () => {} });
+        return copied !== undefined;
+      },
+    };
+    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('document', document);
+    return { steps, listeners, copied: () => copied, selected: () => value };
+  }
+
+  it('keeps CRLF line endings when it has to copy the legacy way', async () => {
+    const page = legacyPage();
+    expect(await copyText(original)).toBe(true);
+    expect(page.copied()).toBe(original);
+    // Selected in full first (iOS needs the range), then cleaned up, and focus goes back to the button.
+    expect(page.steps).toEqual(['select', `range 0-${page.selected().length}`, 'removed', 'focus back']);
+    expect(page.listeners.size).toBe(0);
   });
 });
