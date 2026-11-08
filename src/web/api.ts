@@ -10,6 +10,7 @@ import type {
   FileChange,
   FileListing,
   FilePreview,
+  GrokFolderTrust,
   LeadAgentSettings,
   LoginMethod,
   LoginSessionView,
@@ -177,6 +178,9 @@ export const api = {
   providers: (refresh = false) => request<ProviderStatus[]>('GET', `/api/providers${refresh ? '?refresh=1' : ''}`),
   nativeSetup: (p: Provider, refresh = false) => request<NativeSetup>('POST', `/api/providers/${p}/native`, { refresh }),
   nativeFile: (p: Provider, path: string) => request<FilePreview>('POST', `/api/providers/${p}/native/file`, { path }),
+  /** Whether Grok trusts `cwd`; with `trust`, trust it first (only after the user confirmed). */
+  grokFolderTrust: (cwd: string, trust = false) =>
+    request<GrokFolderTrust>('POST', '/api/providers/grok/folder-trust', { cwd, ...(trust ? { trust: true } : {}) }),
   loginMethods: (p: Provider) => request<LoginMethod[]>('GET', `/api/providers/${p}/login-methods`),
   startLogin: (p: Provider, method: string) => request<LoginSessionView>('POST', `/api/providers/${p}/login`, { method }),
   getLogin: (p: Provider) => request<LoginSessionView | null>('GET', `/api/providers/${p}/login`),

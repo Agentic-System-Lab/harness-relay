@@ -17,6 +17,7 @@ import {
 } from '../shared/types';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileRoots, listFolder, mediaInRoot, previewFile, readPreview } from './files';
+import { trustGrokFolder } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, mediaRoots, mediaType, resolveMedia } from './media';
@@ -187,6 +188,21 @@ export function createApp({
     const b = await body<{ refresh?: unknown }>(c);
     const cwd = validDirectory(settings.defaultCwd);
     return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true)));
+  });
+
+  // Whether Grok trusts a folder (the default working directory unless `cwd` names one), and with
+  // `trust: true` — sent after the user confirmed — record that it does, as `grok --trust` would.
+  // A POST with a JSON body, so no other site can send it.
+  app.post('/api/providers/grok/folder-trust', async (c) => {
+    const b = await body<{ cwd?: unknown; trust?: unknown }>(c);
+    const cwd = validDirectory(typeof b.cwd === 'string' && b.cwd.trim() ? b.cwd : settings.defaultCwd);
+    if (b.trust === true) {
+      trustGrokFolder(cwd, settings.env('grok'));
+      const after = await native.get('grok', cwd, true);
+      if (after.folderTrusted === false) throw new HttpError(409, t().grokTrustNotTaken(cwd));
+      return c.json({ cwd, trusted: after.folderTrusted });
+    }
+    return c.json({ cwd, trusted: (await native.get('grok', cwd)).folderTrusted });
   });
 
   // One of the files the CLI reported (an instruction or memory file, a skill's SKILL.md), to read

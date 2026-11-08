@@ -513,6 +513,14 @@ export const zhTW = {
     memoryFile: '記憶',
     preview: '預覽內容',
   },
+  grokTrust: {
+    trusted: 'Grok 已信任這個資料夾：會載入專案自己的指示、skill 與 MCP。',
+    untrusted: (cwd: string) =>
+      `Grok 尚未信任 ${cwd}：專案自己的 AGENTS.md / CLAUDE.md、skill、MCP 伺服器與 hooks 不會載入（工具庫的項目不受影響）。`,
+    trust: '信任這個資料夾',
+    confirm: (cwd: string) =>
+      `要讓 Grok 信任 ${cwd} 嗎？\n\n信任後，Grok 會載入這個專案的 AGENTS.md / CLAUDE.md、skill 和 MCP 伺服器，並執行它的 hooks，等同在這個資料夾執行 grok --trust。請只信任你信任的專案。`,
+  },
   files: {
     title: '檔案',
     workingDir: '工作目錄',

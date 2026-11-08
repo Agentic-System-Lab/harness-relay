@@ -50,6 +50,7 @@ src/
     tools.ts               工具庫：MCP 伺服器（機密值放在 keyring）、skill（SKILL.md 的 front matter）、記憶；每位成員拿到哪些
     files.ts               瀏覽對話的檔案：可瀏覽的資料夾、列表、預覽、路徑檢查
     native.ts              各 CLI 自己載入的內容（它的 skill、MCP 伺服器、記憶檔），不送 prompt 查詢
+    grokTrust.ts           在使用者確認後記錄 Grok 對資料夾的信任（和 grok --trust 相同）
     attachments.ts         訊息的附加檔案：儲存、安全檔名、交給 agent 的圖片
     presets.ts             內建團隊範本（兩種語言）
     validate.ts            agent 與設定的輸入驗證
@@ -76,6 +77,7 @@ src/
                            MemberDots、icons、VoiceInput（麥克風、安裝說明對話框、安裝進度）、
                            VoiceSettings（設定 → 語音輸入）、ToolsSettings（設定 → 工具庫）、
                            FileBrowser（「檔案」對話框）、NativeSetupPanel（CLI 自己載入的內容）、
+                           GrokTrust（Grok 對資料夾的信任）、SectionTitle、
                            useDialog（對話框的焦點處理）
 test/                      Vitest 測試
 .github/workflows/ci.yml   CI：pull request 與推送到 main 時執行型別檢查、測試與建置
@@ -166,6 +168,7 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | `GET /api/models[?refresh=1]` | → `ProviderModels[]` |
 | `POST /api/providers/:provider/native` | `{ refresh? }` → `NativeSetup`：這個 CLI 在預設工作目錄自己載入的 skill、MCP 伺服器（只有名稱、類型與狀態）和記憶檔，`errors` 列出它沒有回報的部分。會在不送 prompt 的情況下短暫啟動 CLI（用 POST，所以其他網站無法觸發）；每個 CLI、執行檔與資料夾的結果保留一分鐘（`refresh: true` 重新查詢） |
 | `POST /api/providers/:provider/native/file` | `{ path }` → `FilePreview`：CLI 回報過的檔案之一（指示或記憶檔，或 skill 的 `SKILL.md`，路徑要完全相同），供介面閱讀；其他路徑一律 404 |
+| `POST /api/providers/grok/folder-trust` | `{ cwd?, trust? }` → `GrokFolderTrust` `{ cwd, trusted }`：Grok 是否信任 `cwd`（預設為預設工作目錄），取自 `grok inspect`。帶 `trust: true`（只在使用者確認後送出）時，會先用和 `grok --trust` 相同的方式記錄在 `$GROK_HOME/trusted_folders.toml`；Grok 仍回報未信任時回 409 |
 | `GET /api/providers/:provider/login-methods` | → `LoginMethod[]` |
 | `POST /api/providers/:provider/login` | `{ method }` → `LoginSessionView` |
 | `GET /api/providers/:provider/login` | → `LoginSessionView \| null`（執行中時輪詢） |
@@ -253,7 +256,7 @@ npx vitest test/store.test.ts
 - `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
 - `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。
-- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話、不存在的群組）與搜尋。也測試工具庫的路由（遮蔽的值、不合法的名稱、網址、CLI 與變數名稱、重複名稱、skill 與記憶、列出資料夾底下的 skill）、成員的工具例外設定、成員執行時拿到的項目，以及瀏覽檔案（列表、預覽、raw 只給圖片、資料夾外或 `.git` 的路徑、未知的資料夾）。也用假的服務測試查詢 CLI 自己載入的內容（只用預設工作目錄、重新查詢、依請求語言的問題說明、未知的 CLI、不接受 GET 或表單 POST），以及只能讀回報過的檔案。
+- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話、不存在的群組）與搜尋。也測試工具庫的路由（遮蔽的值、不合法的名稱、網址、CLI 與變數名稱、重複名稱、skill 與記憶、列出資料夾底下的 skill）、成員的工具例外設定、成員執行時拿到的項目，以及瀏覽檔案（列表、預覽、raw 只給圖片、資料夾外或 `.git` 的路徑、未知的資料夾）。也用假的服務測試查詢 CLI 自己載入的內容（只用預設工作目錄、重新查詢、依請求語言的問題說明、未知的 CLI、不接受 GET 或表單 POST），只能讀回報過的檔案，以及 Grok 的資料夾信任（狀態、確認後信任、不存在的資料夾、不接受表單 POST）。
 - `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報。也測試簡報中的記憶與 skill 區塊。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。
 - `test/chat.test.ts`：ChatView 的邏輯：Enter 何時送出（手機和平板上不會）、何時重新連線事件串流、哪個 worktree 結果可以套用、團隊設定的草稿、建立不存在的工作目錄前先詢問。
@@ -278,6 +281,7 @@ npx vitest test/store.test.ts
 - `test/tools-web.test.ts`：團隊編輯器的工具選擇：項目、各 CLI 的記憶、依 CLI 的預設，以及只記錄例外。
 - `test/native.test.ts`：各 CLI 自己載入的內容：讀取 Claude Code、Codex、Grok 的回答（實測格式；MCP 設定與其中的 token 會被丟掉）、Claude Code 與 Codex 會讀的指示和記憶檔（真的暫存資料夾），無法啟動的 CLI、依執行檔分開的快取、依請求語言的問題說明，以及哪些檔案可以讀（只有回報過的）。
 - `test/route.test.ts`：前端的 hash 路由，包括設定頁的區塊，以及正在看哪張設定卡片（在連結列標亮）。
+- `test/grok-trust.test.ts`：記錄 Grok 對資料夾的信任：和 `grok --trust` 相同的紀錄、取代標為不信任的紀錄並保留其他內容、Windows 路徑的 TOML 跳脫、寫在暫存 `GROK_HOME` 的檔案（只有擁有者能讀），以及從 `grok inspect` 讀出信任狀態。
 - `test/quickstart.test.ts`：使用者複製的指令在任何 shell 都能執行：npm scripts 不用 Unix 的方式設定環境變數（npm 在 Windows 上用 cmd.exe 執行），首頁、README 與使用指南不用 `&&` 串接指令（Windows PowerShell 5.1 不接受），README 的快速開始從 clone 開始，首頁、README 與使用指南安裝的都是建置好的 app（先 `npm run build` 再 `npm start`，網址 http://127.0.0.1:8787），首頁只在開發時提到 `npm run dev`。
 
 `test/orchestrator.test.ts` 也涵蓋用假 agent 測試核准（詢問並等待、「本對話都允許」、拒絕時的說明、停止時過期、自動拒絕）、重試回覆、編輯使用者訊息（`resend`：之後的訊息會被刪除，每個 agent 都開新的 session），以及用假的首席 agent 測試自動組隊（自訂設計要等確認後團隊才回答、手動設定團隊也算確認、存成範本、使用範本、備援方案、編輯需求描述後重新設計，以及規劃時不上鎖）、用假的首席 agent 測試把新對話分到群組（只看第一則訊息、與團隊同時進行、沒有群組時不詢問、不蓋過使用者的移動、刪除對話時停止），還有附加檔案（以安全檔名儲存、把圖片與路徑交給每個 agent、編輯訊息時保留、隨被刪除的訊息一起刪除、只傳檔案的訊息、錯誤的上傳）。

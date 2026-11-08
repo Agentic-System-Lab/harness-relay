@@ -191,6 +191,11 @@ export interface NativeSetup {
   memory: NativeMemoryFile[];
   /** The memory list comes from reading the files the CLI is known to read, not from the CLI. */
   memoryFromFiles: boolean;
+  /**
+   * Grok: whether the folder is trusted. Untrusted, Grok leaves out the project's own instructions,
+   * skills, MCP servers and hooks.
+   */
+  folderTrusted?: boolean;
   /** What could not be found out, and why. */
   errors: string[];
   checkedAt: number;
@@ -204,6 +209,13 @@ export interface FileRoot {
   id: string;
   path: string;
   agentId?: string;
+}
+
+/** Whether Grok trusts a folder (`POST /api/providers/grok/folder-trust`). */
+export interface GrokFolderTrust {
+  cwd: string;
+  /** Undefined when Grok could not be asked. */
+  trusted?: boolean;
 }
 
 export interface FileEntry {

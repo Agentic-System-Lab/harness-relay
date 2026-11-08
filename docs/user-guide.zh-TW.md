@@ -67,7 +67,9 @@ Claude Code 與 Grok 的金鑰由 Harness Relay 存放在系統的金鑰儲存�
 
 ### 各 CLI 自己載入的內容
 
-每個 CLI 的卡片都有 **這個 CLI 自己載入的 skill、MCP 與記憶**：展開就能看這個 CLI 在預設工作目錄下自己的設定，和工具庫分開，包括它的 skill（附來源）、MCP 伺服器（CLI 有回報時附狀態），以及它會讀的指示和記憶檔。Harness Relay 查詢時不會送 prompt，所以不會呼叫模型；Claude Code 回答時會執行你設定的 hooks，並連線它的 MCP 伺服器。Claude Code 和 Codex 沒有提供指示檔清單，所以列出的是依它們的讀檔規則找到、目前存在的檔案。點檔案或有路徑的 skill 就能閱讀內容（Markdown 可切換預覽與原始內容）。**重新查詢** 會更新結果（結果保留一分鐘）。
+每個 CLI 的卡片都有 **這個 CLI 自己載入的 skill、MCP 與記憶**：展開就能看這個 CLI 在預設工作目錄下自己的設定，和工具庫分開，包括它的 skill（附來源）、MCP 伺服器（CLI 有回報時附狀態），以及它會讀的指示和記憶檔。Harness Relay 查詢時不會送 prompt，所以不會呼叫模型；Claude Code 回答時會執行你設定的 hooks，並連線它的 MCP 伺服器。Claude Code 和 Codex 沒有提供指示檔清單，所以列出的是依它們的讀檔規則找到、目前存在的檔案。點檔案或有路徑的 skill 就能閱讀內容（Markdown 可切換預覽與原始內容）。
+
+Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks。資料夾尚未信任時，Grok 卡片會標示出來；團隊裡有 Grok 成員時，團隊編輯器的工作目錄下方也會提示。按 **信任這個資料夾** 會先請你確認，再用和 `grok --trust` 相同的方式記錄（在 `~/.grok/trusted_folders.toml`，或 `$GROK_HOME`）。請只信任你信任的專案：信任後 Grok 也會執行專案的 hooks。工具庫的項目不管有沒有信任都會提供給 Grok。**重新查詢** 會更新結果（結果保留一分鐘）。
 
 設定頁上方的區塊連結在捲動時會固定在頂端，並標亮你正在看的卡片，點了會跳到對應的卡片；每張卡片的標題也連到自己（例如 `#/settings/tools`），可以加入書籤。app 其他地方的連結（尚未登入的 CLI、首席 agent、語音輸入、工具庫）也會直接打開對應的卡片。
 

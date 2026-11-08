@@ -5,6 +5,7 @@ import { isMarkdown, lineCount } from '../files';
 import { useT } from '../i18n';
 import { formatBytes, relativeTime } from '../util';
 import { TextContent } from './FileBrowser';
+import { GrokTrustNote } from './GrokTrust';
 import { useDialog } from './useDialog';
 
 type Tab = 'skills' | 'mcp' | 'memory';
@@ -54,6 +55,9 @@ export function NativeSetupPanel({ provider }: { provider: Provider }) {
           </button>
         </div>
         {error && <p className="error-line">{error}</p>}
+        {setup && provider === 'grok' && setup.folderTrusted !== undefined && (
+          <GrokTrustNote cwd={setup.cwd} trusted={setup.folderTrusted} onTrusted={() => load(true)} />
+        )}
         {setup?.errors.map((e, i) => (
           <p key={i} className="warn-line small">
             {e}

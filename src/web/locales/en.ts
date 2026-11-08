@@ -510,6 +510,14 @@ export const en: Messages = {
     memoryFile: 'memory',
     preview: 'Preview',
   },
+  grokTrust: {
+    trusted: "Grok trusts this folder: it loads the project's own instructions, skills and MCP servers.",
+    untrusted: (cwd) =>
+      `Grok does not trust ${cwd}: it leaves out the project's own AGENTS.md / CLAUDE.md, skills, MCP servers and hooks (the tool library's items still reach it).`,
+    trust: 'Trust this folder',
+    confirm: (cwd) =>
+      `Let Grok trust ${cwd}?\n\nGrok then loads this project's AGENTS.md / CLAUDE.md, skills and MCP servers and runs its hooks, as \`grok --trust\` in this folder would. Only trust projects you trust.`,
+  },
   files: {
     title: 'Files',
     workingDir: 'Working directory',

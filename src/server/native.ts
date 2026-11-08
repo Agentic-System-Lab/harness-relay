@@ -283,7 +283,7 @@ async function probeCodex(bin: string, env: NodeJS.ProcessEnv, cwd: string): Pro
 // --- Grok ----------------------------------------------------------------------------------
 
 /** Skills, MCP servers and instruction files from `grok inspect --json`. */
-export function parseGrokInspect(d: Json | undefined): Pick<NativeSetup, 'skills' | 'mcpServers' | 'memory'> {
+export function parseGrokInspect(d: Json | undefined): Pick<NativeSetup, 'skills' | 'mcpServers' | 'memory' | 'folderTrusted'> {
   const list = (v: unknown): Json[] => (Array.isArray(v) ? v : []);
   const source = (s: Json | undefined) => (s?.plugin_name ? `plugin: ${s.plugin_name}` : typeof s?.type === 'string' ? s.type : undefined);
   return {
@@ -305,6 +305,7 @@ export function parseGrokInspect(d: Json | undefined): Pick<NativeSetup, 'skills
     memory: list(d?.projectInstructions)
       .filter((p) => typeof p.path === 'string')
       .map((p) => ({ path: p.path, kind: 'instructions' as const })),
+    ...(typeof d?.projectTrusted === 'boolean' ? { folderTrusted: d.projectTrusted } : {}),
   };
 }
 

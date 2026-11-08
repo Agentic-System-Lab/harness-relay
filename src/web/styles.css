@@ -4701,3 +4701,16 @@ details.sub summary {
   text-align: left;
   overflow-wrap: anywhere;
 }
+
+/* Segmented tabs whose labels do not fit a phone: the buttons shrink and their labels wrap, instead of running past the edge. */
+.native-tabs button,
+.memory-scopes button,
+.mcp-form .segmented button {
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.grok-trust p {
+  margin: 0;
+}

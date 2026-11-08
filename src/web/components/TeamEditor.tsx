@@ -15,6 +15,7 @@ import { useT, type Messages } from '../i18n';
 import { settingsHref } from '../route';
 import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
 import { PROVIDER_COLOR, initials, newAgent } from '../util';
+import { GrokTrustNote } from './GrokTrust';
 import { ModelPicker } from './ModelPicker';
 import { providerState } from './Sidebar';
 
@@ -250,6 +251,7 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
             />
           </label>
         </div>
+        {agents.some((a) => a.provider === 'grok') && <GrokTrustNote cwd={settings.cwd} />}
 
         <div className="field">
           <span>{t.team.permission}</span>
