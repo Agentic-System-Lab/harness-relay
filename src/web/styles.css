@@ -1021,8 +1021,16 @@ p {
   flex: 1;
 }
 
+/* The number box is sized outright, not only by flex, and the unit after it never wraps: on a phone,
+   "rounds / message" could wrap onto three lines. */
 .field.inline input[type='number'] {
   flex: 0 0 72px;
+  width: 72px;
+}
+
+.field.inline .unit {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .field textarea {

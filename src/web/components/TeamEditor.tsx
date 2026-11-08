@@ -206,7 +206,7 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
                   value={settings.maxHops}
                   onChange={(e) => setSettings({ maxHops: Number(e.target.value) })}
                 />
-                <span className="muted small">{t.team.hopsUnit}</span>
+                <span className="unit muted small">{t.team.hopsUnit}</span>
               </label>
             ) : (
               <label className="field inline">
@@ -218,7 +218,7 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
                   value={settings.rounds}
                   onChange={(e) => setSettings({ rounds: Number(e.target.value) })}
                 />
-                <span className="muted small">{t.team.roundsUnit}</span>
+                <span className="unit muted small">{t.team.roundsUnit}</span>
               </label>
             ))}
 
