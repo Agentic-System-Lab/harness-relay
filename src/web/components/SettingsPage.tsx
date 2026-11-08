@@ -480,7 +480,7 @@ function ProviderCard({
         </div>
       </details>
 
-      <NativeSetupPanel provider={provider} />
+      <NativeSetupPanel provider={provider} settings={settings} onSettings={onSettings} />
 
       {note && <p className="muted small">{note}</p>}
     </section>

@@ -34,6 +34,8 @@ const zhTW = {
   timedOut: '執行逾時',
   exitedWithoutReply: (cli: string, code: number | null) => `${cli} 結束（exit ${code}）但沒有回應`,
   exitedWithoutTurn: (cli: string, code: number | null) => `${cli} 結束（exit ${code}）但沒有完成回合`,
+  codexMcpListFailed: (detail: string) =>
+    `Codex 無法列出它的 MCP 伺服器，因此無法在這次執行中不載入它們（${detail}）。請更新 Codex，或在「設定」的「在 Harness Relay 中不載入」取消勾選「MCP 伺服器」。`,
   claudeError: 'Claude Code 回報錯誤',
   commandNotFound: (bin: string) => `找不到指令「${bin}」。請確認已安裝，或在「設定」頁指定執行檔路徑。`,
   permission: { 'read-only': '唯讀', edit: '可編輯', full: '完全存取' } as Record<Permission, string>,
@@ -202,6 +204,8 @@ const en: ServerMessages = {
   timedOut: 'Timed out',
   exitedWithoutReply: (cli, code) => `${cli} exited (exit ${code}) without a reply`,
   exitedWithoutTurn: (cli, code) => `${cli} exited (exit ${code}) without finishing the turn`,
+  codexMcpListFailed: (detail) =>
+    `Codex could not list its MCP servers, so they could not be left out of this run (${detail}). Update Codex, or clear "MCP servers" under "Leave out of Harness Relay's runs" in Settings.`,
   claudeError: 'Claude Code reported an error',
   commandNotFound: (bin) => `Command "${bin}" not found. Make sure it is installed, or set its path on the Settings page.`,
   permission: { 'read-only': 'Read-only', edit: 'Edit', full: 'Full access' },

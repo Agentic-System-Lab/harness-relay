@@ -509,6 +509,32 @@ export const en: Messages = {
     instructions: 'instructions',
     memoryFile: 'memory',
     preview: 'Preview',
+    offTitle: "Leave out of Harness Relay's runs",
+    offHint: "Only when Harness Relay starts this CLI: the CLI's own settings files are not changed, and using it in a terminal is not affected. The tool library's items are still provided.",
+    offParts: { skills: 'Skills', mcp: 'MCP servers', instructions: 'Instruction files', memory: 'Memory' },
+    offNotes: {
+      claude: {
+        skills: 'plugin and custom commands too',
+        mcp: "only the tool library's MCP servers stay",
+        instructions: 'CLAUDE.md files and rules at every level',
+        memory: 'auto memory',
+      },
+      codex: {
+        skills: 'its instructions no longer list skills',
+        mcp: "ChatGPT apps too; only the tool library's MCP servers stay",
+        instructions: "the project's AGENTS.md files only; ~/.codex/AGENTS.md is still read",
+        memory: 'the memories feature',
+      },
+      grok: {
+        skills: "only those it loads from Claude Code and Cursor; Grok's own skills are turned off in ~/.grok/config.toml",
+        mcp: "only those it loads from Claude Code and Cursor; Grok's own MCP servers are turned off in ~/.grok/config.toml",
+        instructions: 'Grok has no setting to skip instruction files for one run',
+        memory: 'cross-session memory',
+      },
+    },
+    offCodexThreads:
+      "Codex keeps the skills list, instruction files and memory a chat started with: changes to these three take effect in new chats. A change to MCP servers takes effect at the next turn.",
+    offCount: (n) => `${n} left out in Relay`,
   },
   grokTrust: {
     trusted: "Grok trusts this folder: it loads the project's own instructions, skills and MCP servers.",

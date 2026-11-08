@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Conversation } from '../src/shared/types';
+import type { Conversation, SettingsView } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -163,6 +163,12 @@ describe('settings', () => {
     expect((await provider({ bin: 123 })).status).toBe(400);
     expect((await provider({ defaultEffort: 'way too much effort' })).status).toBe(400);
     expect((await provider({ defaultModel: 'sonnet', defaultEffort: 'low' })).status).toBe(200);
+    expect((await provider({ nativeOff: 'skills' })).status).toBe(400);
+    expect((await provider({ nativeOff: ['skills', 'hooks'] })).status).toBe(400);
+    const off = await provider({ nativeOff: ['mcp', 'skills'] });
+    expect(off.status).toBe(200);
+    const view = (await off.json()) as SettingsView;
+    expect(view.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['skills', 'mcp']);
   });
 
   it('creates a missing default directory only when asked to', async () => {

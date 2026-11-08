@@ -7,6 +7,7 @@ import {
   GROUP_LIMITS,
   MCP_NAME_RE,
   MEMORY_SCOPES,
+  NATIVE_PARTS,
   PROVIDERS,
   TOOL_LIMITS,
   VOICE_LANGUAGES,
@@ -109,7 +110,7 @@ export function validateVoiceUpdate(input: unknown): VoiceSettingsUpdate {
   return out;
 }
 
-/** A provider settings update: strings only, a valid effort, `apiKey` null to remove. */
+/** A provider settings update: strings, a valid effort, `apiKey` null to remove, `nativeOff` a list of known parts. */
 export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
   const out: ProviderSettingsUpdate = {};
@@ -122,6 +123,11 @@ export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
   else {
     const key = optionalString(u.apiKey, 'apiKey', 4096);
     if (key !== undefined) out.apiKey = key;
+  }
+  if (u.nativeOff !== undefined) {
+    const parts = u.nativeOff;
+    if (!Array.isArray(parts) || parts.some((x) => !(NATIVE_PARTS as readonly unknown[]).includes(x))) bad(t().invalidField('nativeOff'));
+    out.nativeOff = parts as ProviderSettingsUpdate['nativeOff'];
   }
   return out;
 }

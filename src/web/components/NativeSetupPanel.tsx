@@ -1,20 +1,31 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FilePreview, NativeSetup, Provider } from '../../shared/types';
+import type { FilePreview, NativeSetup, Provider, ProviderSettingsView, SettingsView } from '../../shared/types';
 import { api } from '../api';
 import { isMarkdown, lineCount } from '../files';
 import { useT } from '../i18n';
 import { formatBytes, relativeTime } from '../util';
 import { TextContent } from './FileBrowser';
 import { GrokTrustNote } from './GrokTrust';
+import { NativeOffSwitches } from './NativeOffSwitches';
 import { useDialog } from './useDialog';
 
 type Tab = 'skills' | 'mcp' | 'memory';
 
 /**
- * What a CLI loads by itself (its own skills, MCP servers and memory files), asked from the CLI when
- * the section is first opened: asking starts the CLI briefly.
+ * What a CLI loads by itself (its own skills, MCP servers and memory files), and the switches that
+ * leave them out of Harness Relay's runs. The CLI is asked only when the user clicks Ask: asking
+ * starts it briefly (Claude Code runs SessionStart hooks and connects MCP servers), and someone may
+ * open this section to turn off an MCP server precisely because starting it does harm.
  */
-export function NativeSetupPanel({ provider }: { provider: Provider }) {
+export function NativeSetupPanel({
+  provider,
+  settings,
+  onSettings,
+}: {
+  provider: Provider;
+  settings?: ProviderSettingsView;
+  onSettings: (s: SettingsView) => void;
+}) {
   const t = useT();
   const [setup, setSetup] = useState<NativeSetup | null>(null);
   const [loading, setLoading] = useState(false);
@@ -41,16 +52,19 @@ export function NativeSetupPanel({ provider }: { provider: Provider }) {
   const counts = setup ? { skills: setup.skills.length, mcp: setup.mcpServers.length, memory: setup.memory.length } : null;
 
   return (
-    <details className="sub native-setup" onToggle={(e) => e.currentTarget.open && !setup && !loading && load()}>
+    <details className="sub native-setup">
       <summary>
         {t.native.title}
         {counts && ` (${t.native.summary(counts.skills, counts.mcp, counts.memory)})`}
+        {settings?.nativeOff.length ? <span className="badge">{t.native.offCount(settings.nativeOff.length)}</span> : null}
       </summary>
       <div className="sub-body">
+        <NativeOffSwitches provider={provider} settings={settings} onSettings={onSettings} />
         <p className="muted small">{t.native.hint}</p>
         <div className="button-row">
           {setup && <span className="muted small">{t.native.checked(setup.cwd, relativeTime(setup.checkedAt, t))}</span>}
-          <button className="ghost small-button" onClick={() => load(true)} disabled={loading}>
+          {/* The first Ask may get an answer kept from the last minute; Ask again always asks the CLI. */}
+          <button className="ghost small-button" onClick={() => load(Boolean(setup))} disabled={loading}>
             {loading ? t.native.loading : setup ? t.native.reload : t.native.load}
           </button>
         </div>

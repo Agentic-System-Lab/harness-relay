@@ -258,7 +258,25 @@ Each CLI's card in Settings can list what that CLI loads by itself for the defau
 | Codex | `skills/list` over `codex app-server` | `config/read` (the configured servers; none is started) | no list: `AGENTS.override.md` or `AGENTS.md` in `CODEX_HOME` and in each folder from the repository root down, and its `memories/` |
 | Grok | `grok inspect --json` | `grok inspect --json` | `grok inspect --json` (instruction files) |
 
-Asking starts the CLI for a moment: Claude Code runs the user's SessionStart hooks and connects its MCP servers. It is a POST, and the folder is always the default working directory, so another site cannot start a CLI anywhere. Answers are kept for a minute per CLI, executable and folder (`refresh: true` asks again); what a CLI did not report is listed, in the language of each request. The reported instruction and memory files, and skills' `SKILL.md`, can be opened in the UI (`POST /api/providers/:provider/native/file`): only a path in the CLI's latest answer is read, so no other file on the computer can be. Only names, descriptions, paths and states are returned; MCP server configs, which can hold tokens, are not.
+Asking starts the CLI for a moment: Claude Code runs the user's SessionStart hooks and connects its MCP servers. So the UI asks only when the user clicks **Ask**, not when the section is opened: someone may open it to turn off an MCP server because starting that server does harm. It is a POST, and the folder is always the default working directory, so another site cannot start a CLI anywhere. Answers are kept for a minute per CLI, executable and folder (`refresh: true` asks again); what a CLI did not report is listed, in the language of each request. The reported instruction and memory files, and skills' `SKILL.md`, can be opened in the UI (`POST /api/providers/:provider/native/file`): only a path in the CLI's latest answer is read, so no other file on the computer can be. Only names, descriptions, paths and states are returned; MCP server configs, which can hold tokens, are not.
+
+### Leaving them out of Harness Relay's runs
+
+Per CLI, the user can leave its own skills, MCP servers, instruction files or memory out of every run Harness Relay starts (`ProviderSettingsView.nativeOff`, column `provider_settings.native_off`; `RunOptions.nativeOff`, passed by the orchestrator for members and the lead agent, and by the group sorter). Each adapter turns them off for that run only, never in the CLI's own settings files. `NATIVE_OFF_SUPPORT` in `src/shared/types.ts` lists what each CLI can leave out; the server drops the rest. Each mechanism was checked against the real CLI (Claude Code 2.1.319, Codex 0.167.0, Grok 1.0.77) without calling a model:
+
+| | Skills | MCP servers | Instruction files | Memory |
+| --- | --- | --- | --- | --- |
+| Claude Code | `--disable-slash-commands` (plugin and custom commands too) | `--strict-mcp-config`: only the tool library's `--mcp-config` stays | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` |
+| Codex (thread `config`) | `skills.include_instructions = false` | `enabled = false` for each configured server (read with `config/read` before the thread starts; a tool library server of the same name replaces it instead), in the one `mcp_servers` table that also carries the tool library's servers; and `features.apps = false` | `project_doc_max_bytes = 0`: the project's `AGENTS.md` files; no setting reaches `~/.codex/AGENTS.md` | `features.memories = false` |
+| Grok (environment) | `GROK_CLAUDE_SKILLS_ENABLED` / `GROK_CURSOR_SKILLS_ENABLED=false`: only what it loads from Claude Code and Cursor | `GROK_CLAUDE_MCPS_ENABLED` / `GROK_CURSOR_MCPS_ENABLED=false`: likewise | none (its rules switch leaves `CLAUDE.md` loaded) | `GROK_MEMORY=0` |
+
+Codex merges the `mcp_servers` table into the user's config, so their other servers and settings stay. It is one table rather than a dotted key per server because Codex splits a dotted key at every `.`, with or without quotes, so a server named `a.b` could not be reached. If `config/read` fails (an older `codex`, say), the run fails with a message saying that the servers could not be left out, rather than quietly running them.
+
+Codex writes its skills list, the project's `AGENTS.md` and its memories into a thread when the thread starts, and `thread/resume` replays them. So for Codex those three switches take effect in new chats, and its card says so. The MCP servers and apps are set on every start and resume, so they take effect at the next turn. Claude Code builds its instructions anew on every run.
+
+When an agent's CLI leaves out its own skills, the briefing's tool library skills section no longer says that the CLI's own skills work as usual.
+
+Grok's own skills and MCP servers can only be turned off in `~/.grok/config.toml` (`skills.disabled`, `mcp_servers.<name>.enabled`), which Harness Relay does not edit. The probe above asks without these switches, so the list keeps showing what the CLI loads by itself.
 
 ## Workspaces and file changes
 

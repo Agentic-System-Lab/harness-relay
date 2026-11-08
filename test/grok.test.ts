@@ -5,6 +5,8 @@ import {
   describeGrokCancel,
   grokApprovalRequest,
   grokMcpServers,
+  grokEnv,
+  grokNativeEnv,
   grokPermissionDecision,
   type GrokToolCall,
 } from '../src/server/agents/grok';
@@ -176,6 +178,31 @@ describe('JSON-RPC connection', () => {
     conn.close(new Error('grok exited'));
     await expect(pending).rejects.toThrow('grok exited');
     await expect(conn.request('initialize')).rejects.toThrow('grok exited');
+  });
+});
+
+describe('leaving out what Grok loads by itself', () => {
+  it('turns off what it loads from Claude Code and Cursor, and its memory, with variables', () => {
+    expect(grokNativeEnv(['skills', 'mcp', 'memory'])).toEqual({
+      GROK_CLAUDE_SKILLS_ENABLED: 'false',
+      GROK_CURSOR_SKILLS_ENABLED: 'false',
+      GROK_CLAUDE_MCPS_ENABLED: 'false',
+      GROK_CURSOR_MCPS_ENABLED: 'false',
+      GROK_MEMORY: '0',
+    });
+    expect(grokNativeEnv(['instructions'])).toEqual({});
+    expect(grokNativeEnv()).toEqual({});
+  });
+
+  it("keeps the user's variables and the sandbox next to them", () => {
+    expect(grokEnv({ env: { PATH: '/bin', GROK_MEMORY: '1' }, nativeOff: ['memory', 'mcp'], permission: 'edit' })).toEqual({
+      PATH: '/bin',
+      GROK_MEMORY: '0',
+      GROK_CLAUDE_MCPS_ENABLED: 'false',
+      GROK_CURSOR_MCPS_ENABLED: 'false',
+      GROK_SANDBOX: 'workspace',
+    });
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' })).toEqual({ PATH: '/bin' });
   });
 });
 

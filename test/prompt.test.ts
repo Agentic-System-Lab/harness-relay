@@ -135,6 +135,16 @@ describe('buildBriefing', () => {
     expect(plain).not.toContain('# Skills');
   });
 
+  it("says the CLI's own skills still work only while the user has not left them out", () => {
+    const tools = { skills: [{ name: 'commit', description: '', dir: '/s/commit', file: '/s/commit/SKILL.md' }] };
+    const own = 'Skills your own CLI provides work as usual.';
+    expect(buildBriefing(conv, team[0]!, { kind: 'shared' }, tools)).toContain(own);
+    expect(buildBriefing(conv, team[0]!, { kind: 'shared' }, tools, ['mcp'])).toContain(own);
+    const off = buildBriefing(conv, team[0]!, { kind: 'shared' }, tools, ['skills']);
+    expect(off).toContain('- commit (/s/commit/SKILL.md)');
+    expect(off).not.toContain(own);
+  });
+
   it('tells agents how to show images and videos in the chat', () => {
     const briefing = buildBriefing(conv, team[0]!);
     expect(briefing).toContain('![Sales by month](charts/sales.png)');

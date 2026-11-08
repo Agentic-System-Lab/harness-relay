@@ -207,6 +207,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversation_agents ADD COLUMN tools TEXT;
   ALTER TABLE preset_agents ADD COLUMN tools TEXT;
   `,
+  // 10: what each CLI loads by itself that Harness Relay's runs leave out (comma-separated parts:
+  // skills, mcp, instructions, memory).
+  `
+  ALTER TABLE provider_settings ADD COLUMN native_off TEXT NOT NULL DEFAULT '';
+  `,
 ];
 
 function migrate(db: Database): void {
