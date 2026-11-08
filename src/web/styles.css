@@ -3396,6 +3396,9 @@ details.sub summary {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* Long steps scroll inside the card on short screens. */
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
 }
 
 .tour-card.centered {

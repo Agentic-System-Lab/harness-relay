@@ -3,8 +3,23 @@ import { useT } from '../i18n';
 
 const DONE_KEY = 'relay:onboarded';
 
-/** Element each step points at (`data-tour`), by step index; none = a centred card. */
-const TARGETS: (string | undefined)[] = [undefined, 'settings', 'new-chat', undefined, undefined, undefined, undefined, 'settings'];
+/**
+ * Element each step points at (`data-tour`), by the index of the step in `t.tour.steps`; none = a centred card.
+ * Keep it as long as the steps (`test/i18n.test.ts` checks).
+ */
+export const TOUR_TARGETS: (string | undefined)[] = [
+  undefined, // welcome
+  'settings', // sign in
+  'new-chat', // new chat
+  undefined, // auto team
+  undefined, // modes
+  undefined, // writing a message
+  undefined, // while the team replies
+  undefined, // when the team needs you
+  undefined, // file permission
+  'organize', // groups and search
+  'settings', // settings
+];
 
 export function onboardingDone(): boolean {
   try {
@@ -74,7 +89,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
 
   // Track the target (layout can change: resizing, the sidebar opening).
   useLayoutEffect(() => {
-    const update = () => setBox(targetBox(TARGETS[i]));
+    const update = () => setBox(targetBox(TOUR_TARGETS[i]));
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);

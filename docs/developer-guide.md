@@ -220,6 +220,8 @@ The UI and the server's user-facing text come in Traditional Chinese (`zh-TW`) a
 
 `test/i18n.test.ts` checks that both UI dictionaries have the same shape (including list lengths, which types don't check).
 
+The guided tour's steps are `tour.steps` in the locales; the element each step points at (its `data-tour` attribute) is `TOUR_TARGETS` in `src/web/components/Onboarding.tsx`, by step index. When you add, remove or reorder steps, change both locales and `TOUR_TARGETS` together; the same test checks their lengths.
+
 ## Testing
 
 ```bash
@@ -249,7 +251,7 @@ Current tests:
 - `test/search.test.ts` — search words, matches ignoring case (longest first, overlaps merged), excerpts around the first match, highlighting.
 - `test/grouping.test.ts` — the prompt that asks the lead agent to sort a conversation, and reading its reply (a number or a name; 0 or null is none; anything else is refused).
 - `test/planner.test.ts` — the lead agent's reply: JSON extraction, templates vs. custom teams, validation, remapping to signed-in CLIs, the fallback, and the prompt.
-- `test/i18n.test.ts` — language detection (server header and browser), language carried through async work, bilingual templates, and the two UI dictionaries having the same shape.
+- `test/i18n.test.ts` — language detection (server header and browser), language carried through async work, bilingual templates, the two UI dictionaries having the same shape, and the guided tour having one target per step.
 - `test/voice.test.ts` — voice input with fake downloads, processes and engine: the pinned catalogue, the background install (engine, model, check) on Linux and with Homebrew on macOS, a SHA-256 mismatch, cancelling, disk space, a custom engine path, an engine that does not start, the engine on 127.0.0.1 behind a secret path, transcription and its language, switching and deleting models, settings, and the HTTP routes.
 - `test/voice-web.test.ts` — voice input in the browser: WAV encoding, silence detection, inserting the transcript at the caret, and what the microphone and Settings show.
 

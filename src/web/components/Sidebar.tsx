@@ -78,7 +78,7 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
         {searching ? (
           <SearchBox query={query} onQuery={setQuery} onClose={closeSearch} focusToken={searchFocus} />
         ) : (
-          <div className="sidebar-actions">
+          <div className="sidebar-actions" data-tour="organize">
             <button type="button" className="sidebar-action" onClick={() => setCreating(true)} aria-pressed={creating}>
               <FolderPlusIcon size={16} /> {t.sidebar.newGroup}
             </button>

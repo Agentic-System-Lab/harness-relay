@@ -500,7 +500,7 @@ export const en: Messages = {
     steps: [
       {
         title: 'Welcome to Harness Relay',
-        body: 'A group chat where Claude Code, Codex and Grok answer your questions and work on your code together. The next few steps show you around.',
+        body: 'A group chat where Claude Code, Codex and Grok answer your questions and work on your code together, all on your own computer. The next few steps show you around.',
       },
       {
         title: 'Check that each agent is signed in',
@@ -513,7 +513,11 @@ export const en: Messages = {
       {
         title: 'Auto team',
         body: 'With "Auto team", you first describe what you need; the lead agent uses a suitable template, adapts one, or designs a new team. Once you confirm the team, ask your first question. A team it designed or adapted can be saved as a template in one click.',
-        points: ['Change the lead agent in Settings', 'The file permission is always yours to choose; the lead agent never changes it'],
+        points: [
+          'You can write your first question before confirming; it goes to the team as soon as you confirm',
+          'Change the lead agent in Settings',
+          'The file permission is always yours to choose; the lead agent never changes it',
+        ],
       },
       {
         title: 'Three conversation modes',
@@ -525,13 +529,31 @@ export const en: Messages = {
         ],
       },
       {
-        title: 'In the chat',
-        body: 'Things you will use often:',
+        title: 'Write your message',
+        body: 'Enter sends; Shift+Enter starts a new line.',
         points: [
           'Type @Member and only that member replies',
+          'Paste a screenshot, drop files or click 📎 to attach them; every agent can read them',
+          'Press 🎙 and speak: whisper.cpp turns it into text on your computer, and the recording is never uploaded (installed the first time you use it)',
+          'Point at a message to copy it; your own messages can be edited and resent; "Copy chat" at the top copies the whole conversation as Markdown',
+        ],
+      },
+      {
+        title: 'While the team replies',
+        body: "Replies appear as they are written: you see each agent's thinking, its to-do list and every tool step, and the images, videos and Mermaid diagrams it makes are shown right in the chat.",
+        points: [
+          'The message box stays open: Enter adds your message to the discussion, delivered before the next turn; until then you can edit or withdraw it',
+          '⌘/Ctrl+Enter stops the team and asks your message instead',
           '■ Stop interrupts at any time; "Continue" lets the team keep going',
-          'Point at a message to copy it; your own messages can be edited and resent',
-          '"Copy chat" at the top copies the whole conversation as Markdown',
+        ],
+      },
+      {
+        title: 'When the team needs you',
+        body: "Agents don't overstep and don't guess:",
+        points: [
+          "To do something the file permission doesn't cover (install a package, push code…), an agent asks in the chat: allow it once, always allow it in this chat, or decline and say what to do instead",
+          'When a good answer depends on something only you know, an agent asks you first and the team waits for your answer; or skip the question and let the team go on',
+          'The sidebar marks the conversations waiting for you: "Needs you" and "Answer needed"',
         ],
       },
       {
@@ -545,8 +567,17 @@ export const en: Messages = {
         ],
       },
       {
+        title: 'Groups and search',
+        body: 'When the list grows, sort it into groups:',
+        points: [
+          '"New group" makes a group; drag conversations onto it (or use the folder button)',
+          "Once you have groups, the lead agent reads a new conversation's first message and puts it in the group it fits",
+          '"Search" looks through titles and everything you and the agents wrote',
+        ],
+      },
+      {
         title: 'Adjust any time',
-        body: 'In Settings you can switch the language (繁體中文 / English), change the lead agent, and replay this tour.',
+        body: 'In Settings you can switch the language (繁體中文 / English), change the lead agent, set the default working directory for new chats, manage voice input, and replay this tour.',
       },
     ],
   },

@@ -220,6 +220,8 @@ prompt 刻意使用英文（agent 會用使用者的語言回覆）。給使用�
 
 `test/i18n.test.ts` 會檢查兩份介面字典的結構相同（包括型別檢查不到的清單長度）。
 
+使用導覽的步驟是語系檔中的 `tour.steps`；每一步指向的元素（它的 `data-tour` 屬性）是 `src/web/components/Onboarding.tsx` 的 `TOUR_TARGETS`，依步驟順序排列。新增、刪除或調整步驟順序時，兩份語系檔和 `TOUR_TARGETS` 要一起改；同一個測試會檢查兩者長度相同。
+
 ## 測試
 
 ```bash
@@ -249,7 +251,7 @@ npx vitest test/store.test.ts
 - `test/search.test.ts`：搜尋的詞、不分大小寫的比對（長的優先、重疊合併）、第一個符合處附近的摘錄、標示關鍵字。
 - `test/grouping.test.ts`：請首席 agent 分類對話的 prompt，以及解讀它的回覆（編號或名稱；0 或 null 代表都不適合；其他都拒絕）。
 - `test/planner.test.ts`：首席 agent 的回覆：擷取 JSON、範本與自訂團隊、驗證、改用已登入的 CLI、備援方案，以及 prompt。
-- `test/i18n.test.ts`：語言偵測（伺服器 header 與瀏覽器）、語言在非同步工作中的傳遞、雙語範本，以及兩份介面字典結構相同。
+- `test/i18n.test.ts`：語言偵測（伺服器 header 與瀏覽器）、語言在非同步工作中的傳遞、雙語範本、兩份介面字典結構相同，以及使用導覽每一步都有對應的目標。
 - `test/voice.test.ts`：用假的下載、程序與引擎測試語音輸入：固定版本的下載清單、背景安裝（引擎、模型、檢查），涵蓋 Linux 與 macOS 的 Homebrew、SHA-256 不符、取消、硬碟空間、自訂引擎路徑、引擎無法啟動、引擎只聽 127.0.0.1 並藏在隨機路徑後、語音轉文字與辨識語言、切換與刪除模型、設定，以及 HTTP 路由。
 - `test/voice-web.test.ts`：瀏覽器端的語音輸入：WAV 編碼、靜音判斷、把辨識結果插入游標處，以及麥克風與設定頁顯示的狀態。
 

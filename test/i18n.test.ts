@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { currentLang, isDefaultTitle, parseLang, t, withLang } from '../src/server/i18n';
 import { builtinPresets } from '../src/server/presets';
+import { TOUR_TARGETS } from '../src/web/components/Onboarding';
 import { browserLang } from '../src/web/i18n';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
@@ -55,5 +56,10 @@ describe('web language', () => {
     expect(en.effortLabel('xhigh')).toBe('Extra high (xhigh)');
     expect(en.effortLabel('high')).toBe('High');
     expect(zhTW.effortLabel('high')).toBe('高（high）');
+  });
+
+  it('points the guided tour at one target (or none) per step', () => {
+    expect(TOUR_TARGETS).toHaveLength(en.tour.steps.length);
+    expect(TOUR_TARGETS).toHaveLength(zhTW.tour.steps.length);
   });
 });
