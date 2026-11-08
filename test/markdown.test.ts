@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { AgentConfig } from '../src/shared/types';
 import { parseMentions } from '../src/server/prompt';
-import { Markdown, findMentions, mermaidSource } from '../src/web/components/Markdown';
+import { Markdown, findMentions, mermaidSource, tableCellClass, textWidthEm } from '../src/web/components/Markdown';
 import { I18nProvider } from '../src/web/i18n';
 
 const html = (text: string, mentions = ['Claude', 'Bob']) =>
@@ -125,6 +125,29 @@ describe('mermaid blocks', () => {
     const out = html(['```mermaid', 'flowchart TD', '  A["a <b>b</b>"] --> B', '```', '', '```ts', 'const a = 1', '```'].join('\n'));
     expect(out).toContain('<div class="mermaid-block"><pre><code class="language-mermaid">flowchart TD\n  A[&quot;a &lt;b&gt;b&lt;/b&gt;&quot;] --&gt; B\n</code></pre></div>');
     expect(out).toContain('<pre><code class="hljs language-ts">');
+  });
+});
+
+describe('tables', () => {
+  it('measure text roughly: wide characters 1em, the rest about half', () => {
+    expect(textWidthEm('結束條件')).toBe(4);
+    expect(textWidthEm('Roundtable')).toBeCloseTo(5.5);
+    expect(textWidthEm('最多 5 輪')).toBeCloseTo(3 + 3 * 0.55);
+    expect(textWidthEm('')).toBe(0);
+  });
+
+  it('keep short cells on one line and let long ones wrap at a readable width', () => {
+    for (const text of ['Roundtable', 'OK', '模式', '結束條件', '`Promise.allSettled`', ' 小表格 ']) expect(tableCellClass(text), text).toBe('one-line');
+    for (const text of ['依隊伍順序一個接一個發言，後面的人看得到前面的發言', 'Speakers take turns in team order, each seeing earlier replies'])
+      expect(tableCellClass(text), text).toBe('wrap');
+  });
+
+  it('mark each cell, and keep its alignment', () => {
+    const out = html(['| 模式 | 排程 | OK |', '| --- | --- | :-: |', '| Roundtable | 依隊伍順序一個接一個發言，後面的人看得到前面的發言 | ✓ |'].join('\n'));
+    expect(out).toContain('<th class="one-line">模式</th>');
+    expect(out).toContain('<td class="one-line">Roundtable</td>');
+    expect(out).toContain('<td class="wrap">依隊伍順序');
+    expect(out).toContain('<th style="text-align:center" class="one-line">OK</th>');
   });
 });
 

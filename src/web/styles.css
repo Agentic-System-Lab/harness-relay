@@ -2117,6 +2117,24 @@ video.chat-media {
   background: var(--surface);
 }
 
+/* A wide table scrolls sideways instead of squeezing its columns (tableCellClass in Markdown.tsx):
+   a short cell stays on one line; a longer one wraps, but no narrower than 12em, and without
+   breaking words (links still may). */
+.markdown th.one-line,
+.markdown td.one-line {
+  white-space: nowrap;
+}
+
+.markdown th.wrap,
+.markdown td.wrap {
+  min-width: 12em;
+  overflow-wrap: break-word;
+}
+
+.markdown .wrap a {
+  overflow-wrap: anywhere;
+}
+
 .markdown a {
   color: var(--codex);
 }

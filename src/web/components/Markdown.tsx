@@ -95,8 +95,32 @@ export function mermaidSource(pre: HtmlNode | undefined): string | undefined {
   return code && Array.isArray(classes) && classes.includes('language-mermaid') ? textOf(code) : undefined;
 }
 
+/** East Asian wide characters (CJK, kana, Hangul, full-width forms, emoji): about 1em each. */
+const WIDE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff01-\uff60\uffe0-\uffe6\p{Emoji_Presentation}]/u;
+
+/** Roughly how wide `text` is on one line, in em: wide characters take 1em, the rest about half. */
+export function textWidthEm(text: string): number {
+  let em = 0;
+  for (const ch of text) em += WIDE.test(ch) ? 1 : 0.55;
+  return em;
+}
+
+/** Keep in step with `min-width` of `.markdown td.wrap` in styles.css. */
+const CELL_WRAP_EM = 12;
+
+/**
+ * How a table cell is laid out, so that a wide table scrolls sideways instead of squeezing its columns
+ * down to a letter per line: a short cell stays on one line ('one-line'); a longer one wraps, but no
+ * narrower than CELL_WRAP_EM ('wrap').
+ */
+export function tableCellClass(text: string): 'one-line' | 'wrap' {
+  return textWidthEm(text.trim()) <= CELL_WRAP_EM ? 'one-line' : 'wrap';
+}
+
 function makeComponents(mediaBase: string | undefined): Components {
   return {
+    th: ({ node, ...props }) => <th {...props} className={tableCellClass(node ? textOf(node as HtmlNode) : '')} />,
+    td: ({ node, ...props }) => <td {...props} className={tableCellClass(node ? textOf(node as HtmlNode) : '')} />,
     a: ({ href, className, children }) => (
       <a href={href} className={className} target="_blank" rel="noreferrer">
         {children}
