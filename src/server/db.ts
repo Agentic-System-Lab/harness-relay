@@ -202,6 +202,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversations ADD COLUMN group_id TEXT REFERENCES conversation_groups(id) ON DELETE SET NULL;
   ALTER TABLE conversations ADD COLUMN group_source TEXT;
   `,
+  // 9: each agent's exceptions to the tool library's defaults (JSON: tool key -> on / off).
+  `
+  ALTER TABLE conversation_agents ADD COLUMN tools TEXT;
+  ALTER TABLE preset_agents ADD COLUMN tools TEXT;
+  `,
 ];
 
 function migrate(db: Database): void {

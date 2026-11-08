@@ -15,24 +15,39 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
+import { SETTINGS_SECTIONS, currentSection, readingLine, scrollToSection, sectionId, settingsHref, type SettingsSection } from '../route';
 import { PROVIDER_COLOR } from '../util';
 import { ModelPicker } from './ModelPicker';
+import { NativeSetupPanel } from './NativeSetupPanel';
+import { SectionTitle } from './SectionTitle';
 import { providerState } from './Sidebar';
+import { ToolsCard } from './ToolsSettings';
 import { VoiceCard } from './VoiceSettings';
 
 interface Props {
+  /** The card to scroll to (#/settings/<section>). */
+  section?: SettingsSection;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   refreshProviders: (force?: boolean) => Promise<void>;
   onShowTour: () => void;
 }
 
-export function SettingsPage({ providers, catalog, refreshProviders, onShowTour }: Props) {
+export function SettingsPage({ section, providers, catalog, refreshProviders, onShowTour }: Props) {
   const { t, lang, setLang } = useI18n();
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [cwd, setCwd] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [msg, setMsg] = useState('');
+  const [msg, setMsg] = useState<{ text: string; error?: boolean }>({ text: '' });
+
+  // A link such as #/settings/tools: scroll to that card once the cards above it have their content
+  // (not again when a save brings new settings).
+  const loaded = settings !== null;
+  useEffect(() => {
+    if (!section || !loaded) return;
+    const id = window.setTimeout(() => scrollToSection(section), 150);
+    return () => window.clearTimeout(id);
+  }, [section, loaded]);
 
   useEffect(() => {
     api.getSettings().then(
@@ -40,7 +55,7 @@ export function SettingsPage({ providers, catalog, refreshProviders, onShowTour 
         setSettings(s);
         setCwd(s.defaultCwd);
       },
-      (e: Error) => setMsg(e.message),
+      (e: Error) => setMsg({ text: e.message, error: true }),
     );
     void refreshProviders(true);
   }, [refreshProviders]);
@@ -63,27 +78,30 @@ export function SettingsPage({ providers, catalog, refreshProviders, onShowTour 
       );
       setSettings(s);
       setCwd(s.defaultCwd);
-      setMsg(created ? t.settings.cwdCreated(s.defaultCwd) : t.settings.cwdSaved);
+      setMsg({ text: created ? t.settings.cwdCreated(s.defaultCwd) : t.settings.cwdSaved });
     } catch (e) {
-      setMsg((e as Error).message);
+      setMsg({ text: (e as Error).message, error: true });
     }
   };
 
   return (
     <div className="page scroll">
       <div className="page-inner">
-        <header className="page-head row">
-          <div>
+        {/* The title and its button share a row; the intro below takes the whole width (phones too). */}
+        <header className="page-head">
+          <div className="page-title-row">
             <h1>{t.settings.title}</h1>
-            <p className="muted">{t.settings.intro}</p>
+            <button className="ghost" onClick={refresh} disabled={refreshing}>
+              {refreshing ? t.settings.checking : t.settings.recheck}
+            </button>
           </div>
-          <button className="ghost" onClick={refresh} disabled={refreshing}>
-            {refreshing ? t.settings.checking : t.settings.recheck}
-          </button>
+          <p className="muted">{t.settings.intro}</p>
         </header>
 
-        <section className="card">
-          <h3>{t.settings.language}</h3>
+        <SettingsNav section={section} />
+
+        <section className="card" id={sectionId('language')}>
+          <SectionTitle section="language">{t.settings.language}</SectionTitle>
           <p className="muted small">{t.settings.languageHint}</p>
           <div className="segmented lang-switch" role="radiogroup" aria-label={t.settings.language}>
             {LANGS.map((l) => (
@@ -110,10 +128,12 @@ export function SettingsPage({ providers, catalog, refreshProviders, onShowTour 
 
         {settings && <LeadCard lead={settings.lead} providers={providers} catalog={catalog} onSettings={setSettings} />}
 
+        <ToolsCard />
+
         <VoiceCard />
 
-        <section className="card">
-          <h3>{t.settings.cwd}</h3>
+        <section className="card" id={sectionId('cwd')}>
+          <SectionTitle section="cwd">{t.settings.cwd}</SectionTitle>
           <p className="muted small">{t.settings.cwdHint}</p>
           <div className="input-row">
             <input value={cwd} onChange={(e) => setCwd(e.target.value)} spellCheck={false} />
@@ -121,11 +141,11 @@ export function SettingsPage({ providers, catalog, refreshProviders, onShowTour 
               {t.common.save}
             </button>
           </div>
-          {msg && <p className="muted small">{msg}</p>}
+          {msg.text && <p className={msg.error ? 'error-line' : 'muted small'}>{msg.text}</p>}
         </section>
 
-        <section className="card">
-          <h3>{t.settings.tour}</h3>
+        <section className="card" id={sectionId('tour')}>
+          <SectionTitle section="tour">{t.settings.tour}</SectionTitle>
           <p className="muted small">{t.settings.tourHint}</p>
           <div className="button-row">
             <button className="ghost" onClick={onShowTour}>
@@ -152,7 +172,8 @@ function LeadCard({
 }) {
   const t = useT();
   const [lead, setLead] = useState<LeadAgentSettings>(saved);
-  const [note, setNote] = useState('');
+  // A failed save is shown as an error, so it cannot pass for "saved".
+  const [note, setNote] = useState<{ text: string; error?: boolean }>({ text: '' });
   const [busy, setBusy] = useState(false);
   // Saving any other setting returns a new (equal) lead object: keep the user's unsaved edits then.
   useEffect(() => setLead(saved), [saved.provider, saved.model, saved.effort]);
@@ -164,20 +185,20 @@ function LeadCard({
 
   const save = async () => {
     setBusy(true);
-    setNote('');
+    setNote({ text: '' });
     try {
       onSettings(await api.updateSettings({ lead }));
-      setNote(t.settings.leadSaved);
+      setNote({ text: t.settings.leadSaved });
     } catch (e) {
-      setNote((e as Error).message);
+      setNote({ text: (e as Error).message, error: true });
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <section className="card" style={{ ['--accent' as string]: PROVIDER_COLOR[lead.provider] }}>
-      <h3>✦ {t.settings.lead}</h3>
+    <section className="card" id={sectionId('lead')} style={{ ['--accent' as string]: PROVIDER_COLOR[lead.provider] }}>
+      <SectionTitle section="lead">✦ {t.settings.lead}</SectionTitle>
       <p className="muted small">{t.settings.leadHint}</p>
       <div className="segmented" role="radiogroup" aria-label={t.settings.lead}>
         {PROVIDERS.map((p) => (
@@ -206,14 +227,19 @@ function LeadCard({
         }}
       />
       {status && providerState(status) !== 'ok' && (
-        <p className="warn-line">{t.settings.leadNotReady(PROVIDER_LABEL[lead.provider])}</p>
+        <p className="warn-line">
+          {t.settings.leadNotReady(PROVIDER_LABEL[lead.provider])}{' '}
+          <a href={settingsHref(lead.provider)} onClick={() => scrollToSection(lead.provider)}>
+            {t.settings.goSignIn(PROVIDER_LABEL[lead.provider])}
+          </a>
+        </p>
       )}
       <div className="button-row">
         <button className="primary" onClick={save} disabled={busy || unchanged}>
           {t.common.save}
         </button>
       </div>
-      {note && <p className="muted small">{note}</p>}
+      {note.text && <p className={note.error ? 'error-line' : 'muted small'}>{note.text}</p>}
     </section>
   );
 }
@@ -332,10 +358,10 @@ function ProviderCard({
   const selected = methods.find((m) => m.id === method);
 
   return (
-    <section className="card provider-card" style={{ ['--accent' as string]: PROVIDER_COLOR[provider] }}>
+    <section className="card provider-card" id={sectionId(provider)} style={{ ['--accent' as string]: PROVIDER_COLOR[provider] }}>
       <header className="provider-head">
         <span className="provider-swatch" />
-        <h3>{PROVIDER_LABEL[provider]}</h3>
+        <SectionTitle section={provider}>{PROVIDER_LABEL[provider]}</SectionTitle>
         <span className={`pill ${pill.cls}`}>{pill.text}</span>
         <span className="muted small">
           {status?.version && `v${status.version}`}
@@ -441,6 +467,8 @@ function ProviderCard({
           </div>
         </div>
       </details>
+
+      <NativeSetupPanel provider={provider} />
 
       {note && <p className="muted small">{note}</p>}
     </section>
@@ -555,5 +583,139 @@ function LoginPanel({
         <pre>{login.output.trim() || t.settings.noOutput}</pre>
       </details>
     </div>
+  );
+}
+
+/** Links to every card of the page, in page order; they stay at the top while the page scrolls. */
+function SettingsNav({ section }: { section?: SettingsSection }) {
+  const t = useT();
+  // Whether the links are stuck to the top: on phones they then make room for the menu button.
+  const marker = useRef<HTMLSpanElement>(null);
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    const el = marker.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(([e]) => setStuck(!e!.isIntersecting), { root: el.closest('.scroll') });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // The card being read is highlighted: checked as the page scrolls, and when cards change size (they load their content).
+  const nav = useRef<HTMLElement>(null);
+  const row = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState<SettingsSection>();
+  // A card picked with a link stays highlighted while the page scrolls there, and until the reader scrolls on.
+  const picked = useRef<{ until: number } | null>(null);
+  const pick = (s: SettingsSection) => {
+    picked.current = { until: Date.now() + 600 };
+    setActive(s);
+  };
+  useEffect(() => {
+    if (section) pick(section);
+  }, [section]);
+  useEffect(() => {
+    const scroller = marker.current?.closest<HTMLElement>('.scroll');
+    if (!scroller) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const tops = SETTINGS_SECTIONS.flatMap((s) => {
+        const card = document.getElementById(sectionId(s));
+        return card ? [{ section: s, top: card.getBoundingClientRect().top }] : [];
+      });
+      const view = scroller.getBoundingClientRect();
+      const line = readingLine({
+        linksBottom: nav.current?.getBoundingClientRect().bottom ?? view.top,
+        viewBottom: view.bottom,
+        scrollTop: scroller.scrollTop,
+        scrollHeight: scroller.scrollHeight,
+        clientHeight: scroller.clientHeight,
+      });
+      setActive(currentSection(tops, line));
+    };
+    const later = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    const onScroll = () => {
+      const p = picked.current;
+      if (p) {
+        const now = Date.now();
+        // Still the jump's own scrolling: keep the picked card.
+        if (now < p.until) {
+          p.until = Math.max(p.until, now + 250);
+          return;
+        }
+        picked.current = null;
+      }
+      later();
+    };
+    const onResize = () => {
+      if (!picked.current) later();
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
+    const sizes = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(onResize);
+    if (scroller.firstElementChild) sizes?.observe(scroller.firstElementChild);
+    if (!picked.current) update();
+    return () => {
+      cancelAnimationFrame(frame);
+      scroller.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+      sizes?.disconnect();
+    };
+  }, []);
+
+  // Cards stop below the links when scrolled to, however tall the links are (they wrap on narrow screens).
+  useEffect(() => {
+    const el = nav.current;
+    const scroller = el?.closest<HTMLElement>('.scroll');
+    if (!el || !scroller || typeof ResizeObserver === 'undefined') return;
+    const sizes = new ResizeObserver(() => scroller.style.setProperty('--settings-nav-height', `${el.offsetHeight}px`));
+    sizes.observe(el);
+    return () => sizes.disconnect();
+  }, []);
+
+  // On phones the links scroll sideways: keep the highlighted one in view.
+  useEffect(() => {
+    const links = row.current;
+    const chip = active && links?.querySelector<HTMLElement>(`[data-section="${active}"]`);
+    if (!links || !chip || links.scrollWidth <= links.clientWidth) return;
+    links.scrollTo({ left: chip.offsetLeft - (links.clientWidth - chip.offsetWidth) / 2, behavior: 'smooth' });
+  }, [active]);
+  const label: Record<SettingsSection, string> = {
+    language: t.settings.language,
+    claude: PROVIDER_LABEL.claude,
+    codex: PROVIDER_LABEL.codex,
+    grok: PROVIDER_LABEL.grok,
+    lead: t.settings.lead,
+    tools: t.tools.title,
+    voice: t.voice.title,
+    cwd: t.settings.cwd,
+    tour: t.settings.tour,
+  };
+  return (
+    <>
+      <span ref={marker} className="settings-nav-marker" aria-hidden="true" />
+      {/* The links scroll inside their own row, so nothing scrolls under the menu button beside it. */}
+      <nav ref={nav} className={`settings-nav ${stuck ? 'stuck' : ''}`} aria-label={t.settings.sections}>
+        <div ref={row} className="settings-nav-links">
+          {SETTINGS_SECTIONS.map((s) => (
+            <a
+              key={s}
+              href={settingsHref(s)}
+              data-section={s}
+              className={active === s ? 'active' : undefined}
+              aria-current={active === s ? 'location' : undefined}
+              onClick={() => {
+                pick(s);
+                scrollToSection(s);
+              }}
+            >
+              {label[s]}
+            </a>
+          ))}
+        </div>
+      </nav>
+    </>
   );
 }

@@ -13,6 +13,7 @@ import {
 import type { Database } from './db';
 import { t } from './i18n';
 import type { SecretStore } from './secrets';
+import { ToolLibrary } from './tools';
 
 export const DATA_DIR = resolve(process.env.RELAY_DATA_DIR ?? join(process.cwd(), 'data'));
 export const DB_FILE = join(DATA_DIR, 'relay.db');
@@ -79,6 +80,8 @@ export class SettingsStore {
   private voiceSettings: VoiceSettings = { language: 'follow', bin: '' };
   /** With a keyring: providers whose key is still in the database because moving it failed. */
   private keysLeftInDb = new Set<Provider>();
+  /** MCP servers, skills and memory for the agents. */
+  readonly tools: ToolLibrary;
 
   constructor(
     private db: Database,
@@ -123,6 +126,7 @@ export class SettingsStore {
       }
     }
     if (keyring) this.loadKeys(keyring);
+    this.tools = new ToolLibrary(db, keyring);
   }
 
   /** Reads the keys from the keyring, moving any still in the database (saved before) into it. */

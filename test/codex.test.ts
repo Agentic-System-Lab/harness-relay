@@ -91,4 +91,16 @@ describe('codex thread config', () => {
     expect(codexConfig('read-only')).toEqual({});
     expect(codexConfig('full')).toEqual({});
   });
+
+  it("adds library MCP servers one key each, so the user's own servers stay", () => {
+    expect(
+      codexConfig('read-only', undefined, [
+        { name: 'gh', transport: 'stdio', command: 'npx', args: ['gh'], url: '', env: { TOKEN: 't' }, headers: {} },
+        { name: 'docs', transport: 'http', command: '', args: [], url: 'https://x.test/mcp', env: {}, headers: { Authorization: 'Bearer b' } },
+      ]),
+    ).toEqual({
+      'mcp_servers.gh': { command: 'npx', args: ['gh'], env: { TOKEN: 't' } },
+      'mcp_servers.docs': { url: 'https://x.test/mcp', http_headers: { Authorization: 'Bearer b' } },
+    });
+  });
 });

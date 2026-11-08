@@ -47,6 +47,9 @@ src/
     store.ts               對話、訊息、agent session、範本、側邊欄群組、搜尋
     settings.ts            provider 設定、預設工作目錄、子程序環境變數
     secrets.ts             存放 API key 的作業系統金鑰儲存區（keyring）、可用性檢查
+    tools.ts               工具庫：MCP 伺服器（機密值放在 keyring）、skill（SKILL.md 的 front matter）、記憶；每位成員拿到哪些
+    files.ts               瀏覽對話的檔案：可瀏覽的資料夾、列表、預覽、路徑檢查
+    native.ts              各 CLI 自己載入的內容（它的 skill、MCP 伺服器、記憶檔），不送 prompt 查詢
     attachments.ts         訊息的附加檔案：儲存、安全檔名、交給 agent 的圖片
     presets.ts             內建團隊範本（兩種語言）
     validate.ts            agent 與設定的輸入驗證
@@ -58,6 +61,9 @@ src/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
     chat.ts                ChatView 的純邏輯：串流是否重新連線、能否套用、團隊設定草稿
     sidebar.ts             側邊欄的純邏輯：各群組的對話、還沒確認的移動、收合群組的狀態
+    files.ts               檔案瀏覽的純邏輯：路徑導覽列、篩選、程式語言、行數
+    tools.ts               團隊編輯器的工具選擇：工具庫項目、依 CLI 的預設、成員的例外設定
+    route.ts               前端放在網址 hash 的路由，包括 #/settings/<區塊>
     voice.ts               語音輸入的純邏輯：WAV 編碼、靜音判斷、把辨識結果插入游標處、安裝進度
     recorder.ts            在瀏覽器錄音，解碼成 16 kHz 單聲道
     useVoice.ts            語音輸入狀態的 hook（安裝時輪詢）
@@ -68,7 +74,8 @@ src/
                            MessageItem（含 plan 卡片）、ChangesCard、Composer、Markdown、
                            SettingsPage、CopyButton、Logo、Onboarding（使用導覽）、
                            MemberDots、icons、VoiceInput（麥克風、安裝說明對話框、安裝進度）、
-                           VoiceSettings（設定 → 語音輸入）、
+                           VoiceSettings（設定 → 語音輸入）、ToolsSettings（設定 → 工具庫）、
+                           FileBrowser（「檔案」對話框）、NativeSetupPanel（CLI 自己載入的內容）、
                            useDialog（對話框的焦點處理）
 test/                      Vitest 測試
 .github/workflows/ci.yml   CI：pull request 與推送到 main 時執行型別檢查、測試與建置
@@ -140,6 +147,9 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | `POST /api/conversations/:id/approvals/:approvalId` | `{ allow, always?, note? }`：回應 agent 的核准請求（已回應或已過期時回 404） |
 | `POST /api/conversations/:id/messages/:messageId/save-plan` | `{ name? }` → `TeamPreset`：把首席 agent 的自訂團隊設計存成範本 |
 | `POST /api/conversations/:id/stop` | 中止執行 |
+| `GET /api/conversations/:id/files?root=&path=` | → `FileListing`：可瀏覽的資料夾（`roots`：`cwd`，平行模式下再加上每位成員的 worktree），以及 `root` 裡 `path` 的項目（資料夾在前；`.git` 與指向外面的連結不列出；最多 2,000 項）。資料夾以外的路徑一律 404 |
+| `GET /api/conversations/:id/files/preview?root=&path=` | → `FilePreview`：檔案的文字（前 512 KB），或標示它是圖片、影片或二進位檔 |
+| `GET /api/conversations/:id/files/raw?root=&path=` | → 資料夾裡的圖片或影片，提供方式和媒體端點相同（其他檔案一律 404） |
 | `GET /api/conversations/:id/messages/:messageId/diff` | → 該回合修改的 unified diff（純文字） |
 | `GET /api/conversations/:id/agents/:agentId/diff` | → 某個 agent 整份 worktree 結果的 unified diff（純文字） |
 | `POST /api/conversations/:id/agents/:agentId/apply` | 把 agent 的 worktree 結果套用到工作目錄 → `{ files }`（衝突時回 409） |
@@ -147,8 +157,14 @@ npm start          # 單一程序：API + 建置好的介面，port 8787
 | `GET /api/presets` · `POST /api/presets` · `DELETE /api/presets/:id` | 團隊範本 |
 | `GET /api/settings` · `PUT /api/settings` | `{ defaultCwd?, createCwd?, lead? }`（`lead`：`{ provider, model?, effort? }`，自動組隊的首席 agent；`defaultCwd` 不存在時回 404 並帶 `code: "cwd-missing"`，除非帶 `createCwd: true`，此時會建立該目錄） |
 | `PUT /api/settings/providers/:provider` | `{ bin?, defaultModel?, defaultEffort?, apiKey? }`（`apiKey: null` 代表移除） |
+| `GET /api/tools` | → `ToolLibraryView`：MCP 伺服器（變數與標頭的值已遮蔽）、skill（當下從 `SKILL.md` 讀取，無法使用時附 `problem`）、各範圍的記憶，以及機密值存放的位置 |
+| `PUT /api/tools` | `{ skills?, memory? }` → `ToolLibraryView`。`skills` 會取代整個清單（`[{ path, providers? }]`；新的路徑可以是 skill 集合資料夾，且至少要有一個 skill）；`memory` 修改給定的部分（`all`、`claude`、`codex`、`grok`；每份最多 20,000 字） |
+| `PUT /api/tools/mcp/:name` | `{ transport, command?, args?, url?, env?, headers?, providers?, previousName? }` → `ToolLibraryView`：新增伺服器，或帶 `previousName` 取代或改名。沒有 `value` 的變數或標頭保留原本的值。名稱已被使用時回 409 |
+| `DELETE /api/tools/mcp/:name` | → `ToolLibraryView`（它的值會從金鑰儲存區刪除） |
+| `GET /api/tools/skills/scan?path=` | → `{ path, skills: SkillCandidate[] }`：資料夾底下的 skill（資料夾本身，以及往下兩層內的 skill 資料夾，最多 300 個），已加入的會標示；不會儲存任何東西 |
 | `GET /api/providers[?refresh=1]` | → `ProviderStatus[]` |
 | `GET /api/models[?refresh=1]` | → `ProviderModels[]` |
+| `POST /api/providers/:provider/native` | `{ refresh? }` → `NativeSetup`：這個 CLI 在預設工作目錄自己載入的 skill、MCP 伺服器（只有名稱、類型與狀態）和記憶檔，`errors` 列出它沒有回報的部分。會在不送 prompt 的情況下短暫啟動 CLI（用 POST，所以其他網站無法觸發）；每個 CLI、執行檔與資料夾的結果保留一分鐘（`refresh: true` 重新查詢） |
 | `GET /api/providers/:provider/login-methods` | → `LoginMethod[]` |
 | `POST /api/providers/:provider/login` | `{ method }` → `LoginSessionView` |
 | `GET /api/providers/:provider/login` | → `LoginSessionView \| null`（執行中時輪詢） |
@@ -236,17 +252,17 @@ npx vitest test/store.test.ts
 - `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
 - `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。
-- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話、不存在的群組）與搜尋。
-- `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報。
+- `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話、不存在的群組）與搜尋。也測試工具庫的路由（遮蔽的值、不合法的名稱、網址、CLI 與變數名稱、重複名稱、skill 與記憶、列出資料夾底下的 skill）、成員的工具例外設定、成員執行時拿到的項目，以及瀏覽檔案（列表、預覽、raw 只給圖片、資料夾外或 `.git` 的路徑、未知的資料夾）。也用假的服務測試查詢 CLI 自己載入的內容（只用預設工作目錄、重新查詢、依請求語言的問題說明、未知的 CLI、不接受 GET 或表單 POST）。
+- `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報。也測試簡報中的記憶與 skill 區塊。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。
 - `test/chat.test.ts`：ChatView 的邏輯：Enter 何時送出（手機和平板上不會）、何時重新連線事件串流、哪個 worktree 結果可以套用、團隊設定的草稿、建立不存在的工作目錄前先詢問。
 - `test/markdown.test.ts`：@ 標示與伺服器規則一致，並略過程式碼與連結；圖片以連結顯示；使用者自己的訊息保留換行；表格儲存格維持一行或以好讀的寬度換行，讓太寬的表格左右捲動。
 - `test/orchestrator.test.ts`：把假的 runner 換進 `runners` 跑完整流程：平行模式的 worktree 隔離與套用、圓桌模式的修改紀錄、目錄鎖（含自動組隊）、執行準備期間或套用期間收到的請求、agent 向使用者提問（團隊停下；使用者回覆後由提問者先回答，涵蓋圓桌、平行與接力；「繼續」會略過它；回覆給別人或編輯訊息時重新開始；期間寫的訊息等回答時一起送出）、團隊回覆時送出的訊息（在下一個該收到它的 agent 發言前依序送達、沒有回合接到時再開一輪、停止後保留、被 interrupt／下一則訊息／繼續先送出、撤回、重新啟動後仍在）、執行中刪除對話、全新 session 也失敗時保留原 session，以及把失敗回合改過的檔案告訴隊友。
-- `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`、JSON-RPC 連線。
-- `test/claude.test.ts`：Claude 預先允許與移除的工具、它的參數（`--system-prompt-snapshot off`、舊版不接受的旗標），以及工具被拒絕時顯示的原因。
+- `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`、JSON-RPC 連線。也測試工具庫的 MCP 伺服器轉成 ACP 的格式。HTTP MCP 伺服器只傳給宣告支援的 Grok。
+- `test/claude.test.ts`：Claude 預先允許與移除的工具、它的參數（`--system-prompt-snapshot off`、舊版不接受的旗標），以及工具被拒絕時顯示的原因。也測試工具庫：`--mcp-config` 檔案與 skill 資料夾的 `Read` 規則（完整存取時不加）、Windows 路徑的 `Read` 規則，以及 `--mcp-config` 的內容。
 - `test/copy.test.ts`：複製單則訊息或整段對話時產生的 Markdown（兩種語言）；單則訊息照原文複製（網址、格式、CRLF 換行），沒有剪貼簿 API 時也一樣。
 - `test/approvals.test.ts`：「本對話都允許」的規則 key 與比對（串接指令、shell 包裝）。
-- `test/codex.test.ts`：Codex app-server 轉接器：thread 項目轉成 `AgentEvent`（文字、推理、計畫、指令輸出、用量），以及核准請求 / 回應。
+- `test/codex.test.ts`：Codex app-server 轉接器：thread 項目轉成 `AgentEvent`（文字、推理、計畫、指令輸出、用量），以及核准請求 / 回應。也測試工具庫的 MCP 伺服器各自成為一個 `mcp_servers.<name>` 覆寫。
 - `test/sidebar.test.ts`：側邊欄的對話狀態、各群組的對話（「其他」在最後、群組不存在的對話放在「其他」）、還沒確認的移動，以及收合群組顯示的狀態。
 - `test/search.test.ts`：搜尋的詞、不分大小寫的比對（長的優先、重疊合併）、第一個符合處附近的摘錄、標示關鍵字。
 - `test/grouping.test.ts`：請首席 agent 分類對話的 prompt，以及解讀它的回覆（編號或名稱；0 或 null 代表都不適合；其他都拒絕）。
@@ -255,6 +271,12 @@ npx vitest test/store.test.ts
 - `test/i18n.test.ts`：語言偵測（伺服器 header 與瀏覽器）、語言在非同步工作中的傳遞、雙語範本，以及兩份介面字典結構相同。
 - `test/voice.test.ts`：用假的下載、程序與引擎測試語音輸入：固定版本的下載清單、背景安裝（引擎、模型、檢查），涵蓋 Linux 與 macOS 的 Homebrew、SHA-256 不符、取消、硬碟空間、自訂引擎路徑、引擎無法啟動、引擎只聽 127.0.0.1 並藏在隨機路徑後、語音轉文字與辨識語言、切換與刪除模型、設定，以及 HTTP 路由。
 - `test/voice-web.test.ts`：瀏覽器端的語音輸入：WAV 編碼、靜音判斷、把辨識結果插入游標處，以及麥克風與設定頁顯示的狀態。
+- `test/tools.test.ts`：工具庫：front matter、找出 skill（往下兩層、本身就是 skill 的資料夾、列出名稱並標示是否已加入）、用假的金鑰儲存區測試 MCP 機密值（遮蔽、沒送出時保留、改名時帶過去、從資料庫移出、儲存區失敗），依 CLI 的預設與成員的例外設定、被標示的 skill，以及還沒有 CLI 範圍時存下的舊資料。另外：伺服器或 skill 改名後成員的例外設定仍有效；沒能搬走的值留在資料庫；讀不到的值不會被覆蓋，金鑰儲存區打開後會再讀一次。
+- `test/files.test.ts`：用真的暫存資料夾測試瀏覽檔案：資料夾外、經由符號連結或進入 `.git` 的路徑、列表順序與項目上限、文字 / 圖片 / 二進位檔的預覽與長檔案截斷、raw 只給媒體檔，以及對話提供的資料夾。經由連結進入的資料夾保留當初要求的路徑，截斷的列表保留顯示順序的前面幾項。
+- `test/files-web.test.ts`：檔案瀏覽的路徑導覽列、篩選、程式語言與行數。
+- `test/tools-web.test.ts`：團隊編輯器的工具選擇：項目、各 CLI 的記憶、依 CLI 的預設，以及只記錄例外。
+- `test/native.test.ts`：各 CLI 自己載入的內容：讀取 Claude Code、Codex、Grok 的回答（實測格式；MCP 設定與其中的 token 會被丟掉）、Claude Code 與 Codex 會讀的指示和記憶檔（真的暫存資料夾），無法啟動的 CLI、依執行檔分開的快取，以及依請求語言的問題說明。
+- `test/route.test.ts`：前端的 hash 路由，包括設定頁的區塊，以及正在看哪張設定卡片（在連結列標亮）。
 - `test/quickstart.test.ts`：使用者複製的指令在任何 shell 都能執行：npm scripts 不用 Unix 的方式設定環境變數（npm 在 Windows 上用 cmd.exe 執行），首頁、README 與使用指南不用 `&&` 串接指令（Windows PowerShell 5.1 不接受），README 的快速開始從 clone 開始，首頁、README 與使用指南安裝的都是建置好的 app（先 `npm run build` 再 `npm start`，網址 http://127.0.0.1:8787），首頁只在開發時提到 `npm run dev`。
 
 `test/orchestrator.test.ts` 也涵蓋用假 agent 測試核准（詢問並等待、「本對話都允許」、拒絕時的說明、停止時過期、自動拒絕）、重試回覆、編輯使用者訊息（`resend`：之後的訊息會被刪除，每個 agent 都開新的 session），以及用假的首席 agent 測試自動組隊（自訂設計要等確認後團隊才回答、手動設定團隊也算確認、存成範本、使用範本、備援方案、編輯需求描述後重新設計，以及規劃時不上鎖）、用假的首席 agent 測試把新對話分到群組（只看第一則訊息、與團隊同時進行、沒有群組時不詢問、不蓋過使用者的移動、刪除對話時停止），還有附加檔案（以安全檔名儲存、把圖片與路徑交給每個 agent、編輯訊息時保留、隨被刪除的訊息一起刪除、只傳檔案的訊息、錯誤的上傳）。

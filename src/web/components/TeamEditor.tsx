@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
@@ -9,7 +10,10 @@ import {
   type ProviderModels,
   type ProviderStatus,
 } from '../../shared/types';
+import { api } from '../api';
 import { useT, type Messages } from '../i18n';
+import { settingsHref } from '../route';
+import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
 import { PROVIDER_COLOR, initials, newAgent } from '../util';
 import { ModelPicker } from './ModelPicker';
 import { providerState } from './Sidebar';
@@ -51,6 +55,14 @@ export function teamProblems(team: Team, t: Messages): string[] {
 export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: Props) {
   const t = useT();
   const { agents, settings } = value;
+  const [tools, setTools] = useState<ToolItem[]>([]);
+  const [toolsError, setToolsError] = useState('');
+  useEffect(() => {
+    api.tools().then(
+      (lib) => setTools(toolItems(lib)),
+      (e: Error) => setToolsError(e.message),
+    );
+  }, []);
   const auto = Boolean(settings.autoTeam);
   const setAgents = (next: AgentConfig[]) => onChange({ ...value, agents: next });
   const setSettings = (patch: Partial<ConversationSettings>) => onChange({ ...value, settings: { ...settings, ...patch } });
@@ -144,10 +156,12 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
                     onChange={(v) => updateAgent(a.id, v)}
                   />
 
+                  <AgentTools agent={a} items={tools} error={toolsError} onChange={(next) => updateAgent(a.id, { tools: next })} />
+
                   {state !== 'ok' && status && (
                     <p className="warn-line">
                       {status.installed ? t.team.notLoggedIn(PROVIDER_LABEL[a.provider]) : t.team.cliMissing(PROVIDER_LABEL[a.provider])}
-                      <a href="#/settings">{t.team.goSettings}</a>
+                      <a href={settingsHref(a.provider)}>{t.team.goSettings}</a>
                     </p>
                   )}
                 </div>
@@ -177,7 +191,11 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
           <h3>{t.team.rules}</h3>
         </div>
         {auto ? (
-          leadLabel && <p className="muted small auto-note">{t.newChat.autoNote(leadLabel)}</p>
+          leadLabel && (
+            <p className="muted small auto-note">
+              {t.newChat.autoNote(leadLabel)} <a href={settingsHref('lead')}>{t.newChat.changeLead}</a>
+            </p>
+          )
         ) : (
           <div className="option-row">
             {MODES.map((m) => (
@@ -281,6 +299,80 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/** The tool library items this agent gets, as chips; "Change" opens the list to tick them. */
+function AgentTools({
+  agent,
+  items: all,
+  error,
+  onChange,
+}: {
+  agent: AgentConfig;
+  items: ToolItem[];
+  /** The library could not be loaded: say so rather than call it empty. */
+  error: string;
+  onChange: (tools: AgentConfig['tools']) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const items = itemsFor(all, agent.provider);
+  const given = items.filter((i) => hasTool(agent, i));
+  const label = (i: ToolItem) =>
+    i.kind !== 'memory' ? i.name : i.name === 'all' ? t.team.toolMemory : t.team.toolProviderMemory(PROVIDER_LABEL[agent.provider]);
+  const kind = (i: ToolItem) => (i.kind === 'mcp' ? 'MCP' : i.kind === 'skill' ? 'Skill' : '');
+  return (
+    <div className="field agent-tools">
+      <span>{t.team.tools}</span>
+      {error ? (
+        <p className="warn-line small">{error}</p>
+      ) : items.length === 0 ? (
+        <p className="muted small">
+          {t.team.toolsEmpty} <a href={settingsHref('tools')}>{t.team.goToolLibrary}</a>
+        </p>
+      ) : (
+        <>
+          <div className="agent-tools-summary">
+            {given.length ? (
+              given.map((i) => (
+                <span key={i.key} className="tool-chip" title={i.problem}>
+                  {kind(i) && <span className="tool-kind">{kind(i)}</span>}
+                  {label(i)}
+                </span>
+              ))
+            ) : (
+              <span className="muted small">{t.team.toolsNone}</span>
+            )}
+            <button type="button" className="link-button" aria-expanded={open} onClick={() => setOpen(!open)}>
+              {open ? t.team.toolsDone : t.team.toolsEdit}
+            </button>
+          </div>
+          {open && (
+            <>
+              <p className="muted small">{t.team.toolsHint}</p>
+              <ul>
+                {items.map((i) => (
+                  <li key={i.key}>
+                    <label className="check-row">
+                      <input type="checkbox" checked={hasTool(agent, i)} onChange={(e) => onChange(setTool(agent, i, e.target.checked))} />
+                      {kind(i) && <span className="tool-kind">{kind(i)}</span>}
+                      <span>{label(i)}</span>
+                      {!defaultOn(i, agent.provider) && <span className="muted small">· {t.team.toolOffByDefault}</span>}
+                      {i.problem && (
+                        <span className="warn-line small" title={i.problem}>
+                          · {t.team.toolProblem}
+                        </span>
+                      )}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

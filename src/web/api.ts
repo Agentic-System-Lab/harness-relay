@@ -8,16 +8,23 @@ import type {
   ConversationSettings,
   ConversationSummary,
   FileChange,
+  FileListing,
+  FilePreview,
   LeadAgentSettings,
   LoginMethod,
   LoginSessionView,
+  McpServerUpdate,
+  NativeSetup,
   Provider,
   ProviderModels,
   ProviderSettingsUpdate,
   ProviderStatus,
   SearchResult,
   SettingsView,
+  SkillCandidate,
   TeamPreset,
+  ToolLibraryUpdate,
+  ToolLibraryView,
   VoiceModelId,
   VoiceSettingsUpdate,
   VoiceStatus,
@@ -93,6 +100,8 @@ export interface AttachmentUpload {
   data: string;
 }
 
+const fileQuery = (root: string, path: string) => new URLSearchParams({ root, path }).toString();
+
 export const api = {
   // conversations
   listConversations: () => request<ConversationSummary[]>('GET', '/api/conversations'),
@@ -144,12 +153,29 @@ export const api = {
   deletePreset: (id: string) => request<{ ok: true }>('DELETE', `/api/presets/${id}`),
 
   // settings & providers
+  // Tool library
+  tools: () => request<ToolLibraryView>('GET', '/api/tools'),
+  updateTools: (b: ToolLibraryUpdate) => request<ToolLibraryView>('PUT', '/api/tools', b),
+  saveMcpServer: (name: string, b: McpServerUpdate) =>
+    request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
+  deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),
+  scanSkills: (path: string) =>
+    request<{ path: string; skills: SkillCandidate[] }>('GET', `/api/tools/skills/scan?path=${encodeURIComponent(path)}`),
+
+  // Files of a conversation's working directory (root: 'cwd' or an agent id)
+  listFiles: (id: string, root: string, path: string) =>
+    request<FileListing>('GET', `/api/conversations/${id}/files?${fileQuery(root, path)}`),
+  previewFile: (id: string, root: string, path: string) =>
+    request<FilePreview>('GET', `/api/conversations/${id}/files/preview?${fileQuery(root, path)}`),
+  rawFileUrl: (id: string, root: string, path: string) => `/api/conversations/${id}/files/raw?${fileQuery(root, path)}`,
+
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   updateSettings: (b: { defaultCwd?: string; createCwd?: boolean; lead?: LeadAgentSettings }) => request<SettingsView>('PUT', '/api/settings', b),
   updateProvider: (p: Provider, b: ProviderSettingsUpdate) =>
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),
   providers: (refresh = false) => request<ProviderStatus[]>('GET', `/api/providers${refresh ? '?refresh=1' : ''}`),
+  nativeSetup: (p: Provider, refresh = false) => request<NativeSetup>('POST', `/api/providers/${p}/native`, { refresh }),
   loginMethods: (p: Provider) => request<LoginMethod[]>('GET', `/api/providers/${p}/login-methods`),
   startLogin: (p: Provider, method: string) => request<LoginSessionView>('POST', `/api/providers/${p}/login`, { method }),
   getLogin: (p: Provider) => request<LoginSessionView | null>('GET', `/api/providers/${p}/login`),

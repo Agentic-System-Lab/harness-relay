@@ -5,17 +5,23 @@ import { randomUUID } from 'node:crypto';
 import {
   CWD_MISSING,
   GROUP_LIMITS,
+  MCP_NAME_RE,
+  MEMORY_SCOPES,
   PROVIDERS,
+  TOOL_LIMITS,
   VOICE_LANGUAGES,
   VOICE_MODELS,
   type AgentConfig,
   type ConversationGroup,
   type ConversationSettings,
   type LeadAgentSettings,
+  type McpServerUpdate,
+  type MemoryScope,
   type Mode,
   type Permission,
   type Provider,
   type ProviderSettingsUpdate,
+  type ToolLibraryUpdate,
   type VoiceLanguage,
   type VoiceModelId,
   type VoiceSettingsUpdate,
@@ -150,8 +156,116 @@ export function validateAgents(input: unknown): AgentConfig[] {
       role: String(a.role ?? '').slice(0, 8000),
       model: String(a.model ?? '').trim() || undefined,
       effort: validEffort(a.effort, name),
+      ...validAgentTools(a.tools),
     };
   });
+}
+
+const TOOL_KEY_RE = /^(memory|memory:(claude|codex|grok)|mcp:[A-Za-z0-9_-]{1,40}|skill:[^\0]{1,4000})$/;
+
+/** The CLIs a library item is on for by default; absent = all of them. */
+function validProviders(input: unknown, field: string): Provider[] {
+  if (input === undefined || input === null) return [...PROVIDERS];
+  if (!Array.isArray(input) || input.some((p) => !PROVIDERS.includes(p as Provider))) bad(t().invalidField(field));
+  return PROVIDERS.filter((p) => input.includes(p));
+}
+
+/** An agent's tool exceptions: tool key -> boolean; anything else is dropped. */
+function validAgentTools(input: unknown): { tools?: Record<string, boolean> } {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  const tools: Record<string, boolean> = {};
+  for (const [key, on] of Object.entries(input).slice(0, 200)) {
+    if (typeof on === 'boolean' && TOOL_KEY_RE.test(key)) tools[key] = on;
+  }
+  return Object.keys(tools).length ? { tools } : {};
+}
+
+/** Names of environment variables and HTTP headers: no spaces, `=` or control characters. */
+const VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,99}$/;
+
+function validVars(input: unknown, field: string): { name: string; value?: string }[] | undefined {
+  if (input === undefined) return undefined;
+  if (!Array.isArray(input)) bad(t().invalidField(field));
+  if (input.length > TOOL_LIMITS.maxVars) bad(t().invalidField(field));
+  const seen = new Set<string>();
+  return input.map((raw) => {
+    const v = (raw ?? {}) as { name?: unknown; value?: unknown };
+    const name = String(v.name ?? '').trim();
+    if (!VAR_NAME_RE.test(name) || seen.has(name.toLowerCase())) bad(t().badVarName(name));
+    seen.add(name.toLowerCase());
+    if (v.value === undefined || v.value === null) return { name };
+    if (typeof v.value !== 'string' || v.value.length > 8000 || /[\0\r\n]/.test(v.value)) bad(t().invalidField(field));
+    return { name, value: v.value };
+  });
+}
+
+/** The server's name (from the URL) and its settings. */
+export function validateMcpServer(nameInput: unknown, input: unknown): { name: string; update: McpServerUpdate } {
+  const name = String(nameInput ?? '').trim();
+  if (!MCP_NAME_RE.test(name)) bad(t().badMcpName(name));
+  const b = (input ?? {}) as Partial<Record<keyof McpServerUpdate, unknown>>;
+  const transport = b.transport === 'http' ? 'http' : b.transport === 'stdio' ? 'stdio' : bad(t().invalidField('transport'));
+  const update: McpServerUpdate = { transport, providers: validProviders(b.providers, 'providers') };
+  if (transport === 'stdio') {
+    const command = String(b.command ?? '').trim();
+    if (!command || command.length > 1000 || /[\0\r\n]/.test(command)) bad(t().mcpNeedsCommand);
+    update.command = command;
+    if (b.args !== undefined && (!Array.isArray(b.args) || b.args.length > 100)) bad(t().invalidField('args'));
+    update.args = ((b.args as unknown[] | undefined) ?? []).map((a) => {
+      if (typeof a !== 'string' || a.length > 2000 || a.includes('\0')) bad(t().invalidField('args'));
+      return a;
+    });
+    update.env = validVars(b.env, 'env') ?? [];
+  } else {
+    const url = String(b.url ?? '').trim();
+    let parsed: URL | undefined;
+    try {
+      parsed = new URL(url);
+    } catch {
+      /* reported below */
+    }
+    if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) bad(t().mcpNeedsUrl);
+    update.url = url;
+    update.headers = validVars(b.headers, 'headers') ?? [];
+  }
+  if (b.previousName !== undefined && b.previousName !== null && b.previousName !== '') {
+    const prev = String(b.previousName);
+    if (!MCP_NAME_RE.test(prev)) bad(t().badMcpName(prev));
+    update.previousName = prev;
+  }
+  return { name, update };
+}
+
+/** A folder (or SKILL.md) to look for skills in. */
+export function validSkillPath(input: unknown): string {
+  const path = String(input ?? '').trim();
+  if (!path || path.length > 4000 || path.includes('\0')) bad(t().invalidField('path'));
+  return expandPath(path);
+}
+
+export function validateToolLibraryUpdate(input: unknown): ToolLibraryUpdate {
+  const b = (input ?? {}) as Partial<Record<keyof ToolLibraryUpdate, unknown>>;
+  const out: ToolLibraryUpdate = {};
+  if (b.memory !== undefined) {
+    if (!b.memory || typeof b.memory !== 'object' || Array.isArray(b.memory)) bad(t().invalidField('memory'));
+    const memory: Partial<Record<MemoryScope, string>> = {};
+    for (const [scope, text] of Object.entries(b.memory)) {
+      if (!MEMORY_SCOPES.includes(scope as MemoryScope) || typeof text !== 'string') bad(t().invalidField('memory'));
+      if (text.length > TOOL_LIMITS.maxMemoryChars) bad(t().memoryTooLong(TOOL_LIMITS.maxMemoryChars));
+      memory[scope as MemoryScope] = text;
+    }
+    out.memory = memory;
+  }
+  if (b.skills !== undefined) {
+    if (!Array.isArray(b.skills) || b.skills.length > TOOL_LIMITS.maxSkills) bad(t().invalidField('skills'));
+    out.skills = b.skills.map((raw) => {
+      const s = (raw ?? {}) as { path?: unknown; providers?: unknown };
+      const path = String(s.path ?? '').trim();
+      if (!path || path.length > 4000 || path.includes('\0')) bad(t().invalidField('skills'));
+      return { path: expandPath(path), providers: validProviders(s.providers, 'providers') };
+    });
+  }
+  return out;
 }
 
 /** Conversation settings; with `create`, a missing working directory is created. */

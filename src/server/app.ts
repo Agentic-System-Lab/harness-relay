@@ -16,6 +16,8 @@ import {
   type TeamPreset,
 } from '../shared/types';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
+import { fileRoots, listFolder, mediaInRoot, previewFile } from './files';
+import { NativeSetupService, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, mediaRoots, mediaType, resolveMedia } from './media';
 import { HttpError, forClient, type Orchestrator } from './orchestrator';
@@ -28,9 +30,12 @@ import {
   validVoiceModel,
   validateAgents,
   validateLead,
+  validateMcpServer,
   validateProviderUpdate,
   validateSettings,
+  validateToolLibraryUpdate,
   validateVoiceUpdate,
+  validSkillPath,
 } from './validate';
 import { VoiceService } from './voice';
 import { parseLang, t, withLang } from './i18n';
@@ -43,6 +48,8 @@ export interface AppDeps {
   providers: ProviderService;
   /** Voice input; created on demand when not given (it does nothing until used). */
   voice?: VoiceService;
+  /** Asks each CLI what it loads by itself; created when not given. */
+  native?: NativeSetupService;
   /** Extra Host names allowed besides localhost (RELAY_ALLOWED_HOSTS). */
   extraHosts?: string[];
 }
@@ -51,7 +58,16 @@ export interface AppDeps {
 const VOICE_MAX_BASE64 = Math.ceil(((VOICE_MAX_SECONDS + 10) * 32_000 * 4) / 3) + 1024;
 
 /** The HTTP API (`/api/*`). Static files and the listening server are set up in `index.ts`. */
-export function createApp({ store, settings, hub, orchestrator, providers, voice = new VoiceService(settings), extraHosts = [] }: AppDeps): Hono {
+export function createApp({
+  store,
+  settings,
+  hub,
+  orchestrator,
+  providers,
+  voice = new VoiceService(settings),
+  native = new NativeSetupService(settings),
+  extraHosts = [],
+}: AppDeps): Hono {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -126,6 +142,26 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
     return c.json(settings.view());
   });
 
+  // --- Tool library: MCP servers, skills and memory for the agents --------------
+
+  app.get('/api/tools', (c) => c.json(settings.tools.view()));
+
+  app.put('/api/tools', async (c) => c.json(settings.tools.update(validateToolLibraryUpdate(await body<unknown>(c)))));
+
+  // Adds a server, or (with `previousName`) replaces or renames one.
+  app.put('/api/tools/mcp/:name', async (c) => {
+    const { name, update } = validateMcpServer(c.req.param('name'), await body<unknown>(c));
+    return c.json(settings.tools.saveServer(name, update));
+  });
+
+  app.delete('/api/tools/mcp/:name', (c) => c.json(settings.tools.deleteServer(c.req.param('name'))));
+
+  // The skills under a folder, to pick from before adding them (nothing is saved).
+  app.get('/api/tools/skills/scan', (c) => {
+    const path = validSkillPath(c.req.query('path'));
+    return c.json({ path, skills: settings.tools.scanSkills(path) });
+  });
+
   app.put('/api/settings/providers/:provider', async (c) => {
     const p = provider(c);
     const b = validateProviderUpdate(await body<unknown>(c));
@@ -142,6 +178,16 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
   app.get('/api/providers', async (c) => c.json(await providers.statusAll(c.req.query('refresh') === '1')));
 
   app.get('/api/models', async (c) => c.json(await providers.modelsAll(c.req.query('refresh') === '1')));
+
+  // What the CLI loads by itself (its own skills, MCP servers, memory) for the default working
+  // directory. A POST, because it starts the CLI (Claude Code runs the project's hooks): the JSON
+  // content-type check keeps other sites from setting it off. Answers are kept for a minute.
+  app.post('/api/providers/:provider/native', async (c) => {
+    const p = provider(c);
+    const b = await body<{ refresh?: unknown }>(c);
+    const cwd = validDirectory(settings.defaultCwd);
+    return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true)));
+  });
 
   app.get('/api/providers/:provider/login-methods', (c) => c.json(providers.loginMethods(provider(c))));
 
@@ -398,6 +444,38 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
     const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
     const file = msg && resolveMedia(c.req.query('path') ?? '', mediaRoots(conv, msg));
     if (!file) throw new HttpError(404, t().mediaNotFound);
+    return sendMedia(c, file);
+  });
+
+  // --- Browsing the working directory (and agents' worktrees) -------------------
+
+  /** The folder a files request names (`root`: `cwd` or an agent id) and the path inside it. */
+  function fileTarget(c: Context): { roots: ReturnType<typeof fileRoots>; root: string; path: string } {
+    const roots = fileRoots(getConv(c.req.param('id') ?? ''));
+    const root = roots.find((r) => r.id === (c.req.query('root') || 'cwd'));
+    if (!root) throw new HttpError(404, t().fileRootNotFound);
+    return { roots, root: root.id, path: c.req.query('path') ?? '' };
+  }
+  const rootPath = (roots: ReturnType<typeof fileRoots>, id: string) => roots.find((r) => r.id === id)!.path;
+
+  app.get('/api/conversations/:id/files', (c) => {
+    const { roots, root, path } = fileTarget(c);
+    return c.json({ roots, root, ...listFolder(rootPath(roots, root), path) });
+  });
+
+  app.get('/api/conversations/:id/files/preview', (c) => {
+    const { roots, root, path } = fileTarget(c);
+    return c.json(previewFile(rootPath(roots, root), path));
+  });
+
+  // Images and videos only, served like the media endpoint; text comes as JSON from /preview.
+  app.get('/api/conversations/:id/files/raw', (c) => {
+    const { roots, root, path } = fileTarget(c);
+    return sendMedia(c, mediaInRoot(rootPath(roots, root), path));
+  });
+
+  /** An image or video file, so that it can never run in this origin. */
+  async function sendMedia(c: Context, file: string): Promise<Response> {
     const { size, mtimeMs } = await stat(file);
     const etag = `W/"${size}-${Math.floor(mtimeMs)}"`;
     const headers: Record<string, string> = {
@@ -419,7 +497,7 @@ export function createApp({ store, settings, hub, orchestrator, providers, voice
     headers['Content-Length'] = String(size ? end - start + 1 : 0);
     const body = size ? (Readable.toWeb(createReadStream(file, { start, end })) as ReadableStream) : null;
     return new Response(body, { status: range ? 206 : 200, headers });
-  });
+  }
 
   // Edit one of the user's messages: everything after it is dropped and the team answers again.
   app.put('/api/conversations/:id/messages/:messageId', async (c) => {

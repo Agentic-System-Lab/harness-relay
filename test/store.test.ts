@@ -40,7 +40,7 @@ function sampleConversation(): Conversation {
     createdAt: 1000,
     updatedAt: 2000,
     agents: [
-      { id: 'a1', name: 'Architect', provider: 'claude', role: '規劃', model: 'opus', effort: 'high' },
+      { id: 'a1', name: 'Architect', provider: 'claude', role: '規劃', model: 'opus', effort: 'high', tools: { 'mcp:github': false, memory: true } },
       { id: 'a2', name: 'Builder', provider: 'codex', role: '實作' },
     ],
     settings: { mode: 'relay', rounds: 1, maxHops: 6, permission: 'edit', cwd: '/tmp' },

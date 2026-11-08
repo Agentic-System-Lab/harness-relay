@@ -56,6 +56,21 @@ export interface RunOptions {
   images?: { path: string; mimeType: string }[];
   /** Folder holding the conversation's attached files (their paths are listed in the prompt). */
   attachmentsDir?: string;
+  /** MCP servers from Harness Relay's tool library, besides the CLI's own. */
+  mcpServers?: McpServerSpec[];
+  /** Folders outside the working directory the agent may read (its skills). */
+  readDirs?: string[];
+}
+
+/** An MCP server to hand to a CLI, with its secret values. */
+export interface McpServerSpec {
+  name: string;
+  transport: 'stdio' | 'http';
+  command: string;
+  args: string[];
+  url: string;
+  env: Record<string, string>;
+  headers: Record<string, string>;
 }
 
 /**

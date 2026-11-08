@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { PROVIDER_LABEL, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
+import { settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
 import { FolderPlusIcon, PanelIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
@@ -112,10 +113,10 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
             const p = providers.find((x) => x.provider === id);
             const s = providerState(p);
             return (
-              <span key={id} className={`health ${s}`} title={healthTitle(p, t)}>
+              <a key={id} href={settingsHref(id)} className={`health ${s}`} title={healthTitle(p, t)}>
                 <i />
                 {PROVIDER_LABEL[id]}
-              </span>
+              </a>
             );
           })}
         </div>

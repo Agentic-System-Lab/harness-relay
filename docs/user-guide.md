@@ -65,6 +65,22 @@ Under **Default model and reasoning effort** choose what an agent uses when its 
 
 **Default working directory** sets the folder new conversations start in. If the folder does not exist yet, Harness Relay asks whether to create it (so does the working directory of a new conversation, or one you change under the team settings).
 
+### What each CLI loads by itself
+
+Each CLI's card has **Skills, MCP servers and memory this CLI loads by itself**: open it to see that CLI's own setup for the default working directory, separate from the tool library — its skills (with where they come from), its MCP servers (with their state when the CLI reports it) and the instruction and memory files it reads. Harness Relay asks the CLI without sending a prompt, so no model is called; Claude Code runs your hooks and connects its MCP servers while it answers. Claude Code and Codex give no list of their instruction files, so those are the files they are documented to read that exist. **Ask again** refreshes the answer (it is kept for a minute).
+
+The links at the top of Settings stay in view while you scroll, highlight the card you are reading, and jump to each card; each card's title links to itself (for example `#/settings/tools`), so you can bookmark a card. Links elsewhere in the app (a CLI that is not signed in, the lead agent, voice input, the tool library) open the right card.
+
+### Tool library: MCP servers, skills and memory
+
+**Settings → Tool library** sets up tools once for every agent, whichever CLI it runs on. They are given in addition to each CLI's own setup (your `~/.claude`, `~/.codex/config.toml`, `~/.grok` settings keep working), and changes reach an agent at its next turn.
+
+- **MCP servers** — **Add MCP server**, give it a name (letters, digits, `_` and `-`), then either a **local command** (stdio: the command, one argument per line, environment variables) or a **URL** (Streamable HTTP, with HTTP headers). The values of environment variables and headers are usually tokens: they are kept in your system's credential store (like API keys), and the page only shows them masked. When you edit a server, leave a value empty to keep it. Tool calls follow the conversation's permission like any other action: anything beyond it asks you in the chat (or is refused, if the conversation refuses automatically).
+- **Skills** — enter a folder with a `SKILL.md`, or a folder of skills (for example `~/.claude/skills`), and click **Add**. When there is more than one skill, every skill in it (the folder itself, and skill folders up to two levels down) is listed: tick the ones to add, or filter and **Select all**. These skills come in addition to each CLI's own: a skill a CLI reads by itself (Claude Code and Grok read `~/.claude/skills`) keeps working whether or not you add it here; adding it here lets every CLI use it and lets you choose who gets it. Each agent's briefing lists the skills' names and descriptions (from the front matter of `SKILL.md`), and the agent reads a skill's `SKILL.md` when a task calls for it. A skill whose `SKILL.md` is gone, or whose name another skill already has, is marked and not given.
+- **Memory** — notes put in agents' briefings in every conversation, such as your preferences and project conventions. **All members** is for everyone; the **Claude Code**, **Codex** and **Grok** tabs are only for that CLI's agents and come after the shared part.
+
+**Given by default to** — each MCP server and skill is given to the agents of the CLIs you pick: all three (the default), some, or none (then only to members you tick in the team settings). To change it for one member, see **Tools** under [Team members](#team-members).
+
 ## 3. Design the team — New chat
 
 Click **＋ New chat**. Under **How to build the team**, choose **Auto team** or **Design your own** — or pick one of the **Templates** below them. Adjust the team if you like, and click **Start chat →**. The page remembers your last choice.
@@ -107,6 +123,7 @@ Each card is one agent:
 - **Model** — models reported by the CLI, or **Custom…** to type an id. *Default* uses the default from Settings, or the CLI's own default.
 - **Reasoning effort** — only levels the selected model supports are listed (e.g. low / medium / high / xhigh). Switching to a model that doesn't support the chosen level resets it to default.
 - **↑ ↓** — reorder. Order is the speaking order in roundtable mode, and the first agent is the **leader** in relay mode.
+- **Tools** — what this member gets from the [tool library](#tool-library-mcp-servers-skills-and-memory), as chips; **Change** opens the list to tick them. Ticks start from the library's defaults for the member's CLI (items not given to that CLI by default say so), and the memory tab of another CLI is not listed. Renaming a server or a skill keeps the choices. With an empty library, a link takes you to it. These come in addition to the CLI's own skills and MCP servers, which keep working.
 
 Add members with **＋ Claude Code / ＋ Codex / ＋ Grok** (up to 8).
 
@@ -180,6 +197,10 @@ After you apply one result, the other agents' results are marked as out of date,
 
 Click **Team settings** in the header to change roles, models, effort, mode, permission or working directory. Changes apply from the next turn. Changing an agent's CLI makes that agent start a new session and re-read the chat history. Settings can't be saved while the team is replying.
 
+### Browsing files
+
+**Files** in the header opens the conversation's working directory: folders first, a filter for the folder you are in, and ↑ to go up. Click a file to preview it: code with line numbers and highlighting, Markdown rendered (or its source), images and videos. **Copy path** copies the file's full path. In parallel mode you can also pick an agent's worktree, to look at its result before you apply it. Only what is inside the chosen folder is shown, `.git` folders are left out, and files over 512 KB show their beginning. On a phone, the list and the preview take turns; **Back to the list** returns.
+
 ### Copying, editing and retrying
 
 - **Copy** under a message (shown when you point at it) copies that message's text as Markdown, exactly as it was written: links keep their full URLs, and formatting, tables, code and line breaks stay as they are (also when you open the app over plain http, for example from a phone). Selecting text yourself copies what is shown instead (a link's text without its URL). **Copy chat** in the header copies the whole conversation, with each message labelled by who said it (the name and CLI the agent had then); a code block a stopped reply left open is closed. Tool activity is left out.
@@ -238,7 +259,7 @@ Click **Search** under **New chat** (or the magnifier in the corner of a collaps
 
 ## 6. Where data is stored
 
-All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`). Voice input's models (and, on Linux and Windows, its engine) are in `data/voice/`; **Settings → Voice input → Remove voice input** deletes them. Your language choice and which version of the tour you finished are kept in the browser. Back up by copying `data/` while the app is stopped.
+All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`). Voice input's models (and, on Linux and Windows, its engine) are in `data/voice/`; **Settings → Voice input → Remove voice input** deletes them. The [tool library](#tool-library-mcp-servers-skills-and-memory) is in `data/relay.db` too, except the values of MCP servers' variables and headers, which go to the credential store like API keys. Your language choice and which version of the tour you finished are kept in the browser. Back up by copying `data/` while the app is stopped.
 
 ## 7. Troubleshooting
 

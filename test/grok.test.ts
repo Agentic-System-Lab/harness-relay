@@ -4,6 +4,7 @@ import {
   createGrokUpdateHandler,
   describeGrokCancel,
   grokApprovalRequest,
+  grokMcpServers,
   grokPermissionDecision,
   type GrokToolCall,
 } from '../src/server/agents/grok';
@@ -175,5 +176,30 @@ describe('JSON-RPC connection', () => {
     conn.close(new Error('grok exited'));
     await expect(pending).rejects.toThrow('grok exited');
     await expect(conn.request('initialize')).rejects.toThrow('grok exited');
+  });
+});
+
+describe('grok and the tool library', () => {
+  it("passes library MCP servers in ACP's form", () => {
+    expect(
+      grokMcpServers([
+        { name: 'gh', transport: 'stdio', command: 'npx', args: ['gh'], url: '', env: { TOKEN: 't' }, headers: {} },
+        { name: 'docs', transport: 'http', command: '', args: [], url: 'https://x.test/mcp', env: {}, headers: { Authorization: 'Bearer b' } },
+      ]),
+    ).toEqual([
+      { name: 'gh', command: 'npx', args: ['gh'], env: [{ name: 'TOKEN', value: 't' }] },
+      { type: 'http', name: 'docs', url: 'https://x.test/mcp', headers: [{ name: 'Authorization', value: 'Bearer b' }] },
+    ]);
+    expect(grokMcpServers([])).toEqual([]);
+    // An agent that does not advertise HTTP MCP support gets the stdio servers only.
+    expect(
+      grokMcpServers(
+        [
+          { name: 'gh', transport: 'stdio', command: 'npx', args: [], url: '', env: {}, headers: {} },
+          { name: 'docs', transport: 'http', command: '', args: [], url: 'https://x.test/mcp', env: {}, headers: {} },
+        ],
+        false,
+      ).map((s) => s.name),
+    ).toEqual(['gh']);
   });
 });

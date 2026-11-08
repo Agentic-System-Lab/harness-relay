@@ -12,6 +12,7 @@ import {
   type AgentEvent,
   type AgentRunner,
   type ApprovalRequest,
+  type McpServerSpec,
   type RunOptions,
   type RunResult,
 } from './types';
@@ -259,6 +260,21 @@ export function describeGrokCancel(failure: { tool: string; reason?: string } | 
   return m.grokCancelled(failure.tool, failure.reason) + hint;
 }
 
+/**
+ * The tool library's MCP servers in ACP's form. Grok adds the ones from its own config files. HTTP
+ * servers only go to an agent that says it takes them (`mcpCapabilities.http`); ACP forbids them otherwise.
+ */
+export function grokMcpServers(servers: McpServerSpec[], http = true): Record<string, unknown>[] {
+  const list = (vars: Record<string, string>) => Object.entries(vars).map(([name, value]) => ({ name, value }));
+  const skipped = http ? [] : servers.filter((s) => s.transport === 'http');
+  if (skipped.length) console.warn(`[grok] this grok does not take HTTP MCP servers; left out: ${skipped.map((s) => s.name).join(', ')}`);
+  return servers.filter((s) => http || s.transport !== 'http').map((s) =>
+    s.transport === 'http'
+      ? { type: 'http', name: s.name, url: s.url, headers: list(s.headers) }
+      : { name: s.name, command: s.command, args: s.args, env: list(s.env) },
+  );
+}
+
 /** `costUsdTicks` are 1e-10 USD. */
 const TICKS_PER_USD = 1e10;
 
@@ -331,18 +347,19 @@ export const grokRunner: AgentRunner = {
     exited.catch(() => undefined); // surfaced through the pending requests instead
 
     try {
-      await conn.request('initialize', {
+      const init = await conn.request('initialize', {
         protocolVersion: 1,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
       });
+      const mcpServers = grokMcpServers(o.mcpServers ?? [], Boolean(init?.agentCapabilities?.mcpCapabilities?.http));
       const sessionMeta = { rules: o.systemPrompt, yoloMode: o.permission === 'full' };
       let configOptions: any[] | undefined;
       if (o.sessionId) {
-        const r = await conn.request('session/resume', { sessionId: o.sessionId, cwd: o.cwd, mcpServers: [], _meta: sessionMeta });
+        const r = await conn.request('session/resume', { sessionId: o.sessionId, cwd: o.cwd, mcpServers, _meta: sessionMeta });
         sessionId = o.sessionId;
         configOptions = r?.configOptions;
       } else {
-        const r = await conn.request('session/new', { cwd: o.cwd, mcpServers: [], _meta: sessionMeta });
+        const r = await conn.request('session/new', { cwd: o.cwd, mcpServers, _meta: sessionMeta });
         sessionId = String(r?.sessionId ?? '');
         if (!sessionId) throw new AgentRunError(t().grokNoSession);
         configOptions = r?.configOptions;

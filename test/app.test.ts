@@ -15,6 +15,7 @@ const { ProviderService } = await import('../src/server/providers');
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { AgentRunError, runners } = await import('../src/server/agents');
+const { NativeSetupService } = await import('../src/server/native');
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -445,5 +446,183 @@ describe('GET /api/search', () => {
     expect(hit?.snippet).toBe('部署到 staging 之前要跑測試');
     expect(await search('production')).toEqual([]);
     expect(await search('')).toEqual([]);
+  });
+});
+
+describe('tool library', () => {
+  it('saves MCP servers with masked values and refuses bad input', async () => {
+    const save = (name: string, body: unknown) => app.request(`/api/tools/mcp/${name}`, json('PUT', body, { 'x-relay-lang': 'en' }));
+    const ok = await save('github', {
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'gh'],
+      env: [{ name: 'GITHUB_TOKEN', value: 'ghp_secret_value_123' }],
+      providers: ['claude', 'grok'],
+    });
+    expect(ok.status).toBe(200);
+    const view = await ok.json();
+    expect(JSON.stringify(view)).not.toContain('ghp_secret_value_123');
+    expect(view.mcpServers[0]).toMatchObject({ name: 'github', providers: ['claude', 'grok'], env: [{ name: 'GITHUB_TOKEN', masked: 'ghp…123' }] });
+    expect(JSON.stringify(await (await get('/api/tools')).json())).not.toContain('ghp_secret_value_123');
+
+    expect((await save('bad.name', { transport: 'stdio', command: 'x' })).status).toBe(400);
+    expect((await save('x', { transport: 'stdio', command: '' })).status).toBe(400);
+    expect((await save('x', { transport: 'http', url: 'file:///etc/passwd' })).status).toBe(400);
+    expect((await save('x', { transport: 'stdio', command: 'x', providers: ['gemini'] })).status).toBe(400);
+    expect((await save('x', { transport: 'stdio', command: 'x', env: [{ name: 'A B', value: '1' }] })).status).toBe(400);
+    expect((await save('GitHub', { transport: 'stdio', command: 'x' })).status).toBe(409);
+    expect((await app.request('/api/tools/mcp/nope', { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } })).status).toBe(404);
+    const del = await app.request('/api/tools/mcp/github', { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
+    expect((await del.json()).mcpServers).toEqual([]);
+  });
+
+  it('saves skills and memory, and gives agents what applies to them', async () => {
+    const skills = join(project, 'skills', 'commit');
+    mkdirSync(skills, { recursive: true });
+    writeFileSync(join(skills, 'SKILL.md'), '---\nname: commit\ndescription: Commit well.\n---\n');
+    const res = await app.request(
+      '/api/tools',
+      json('PUT', { skills: [{ path: join(project, 'skills'), providers: ['codex'] }], memory: { all: 'Be brief.', claude: 'Use pnpm.' } }),
+    );
+    expect(res.status).toBe(200);
+    const view = await res.json();
+    expect(view.skills).toEqual([{ path: skills, name: 'commit', description: 'Commit well.', providers: ['codex'] }]);
+    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '' });
+    expect((await app.request('/api/tools', json('PUT', { memory: { gemini: 'x' } }))).status).toBe(400);
+    expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
+    expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);
+  });
+
+  it('lists the skills under a folder without adding them', async () => {
+    for (const name of ['one', 'two']) {
+      mkdirSync(join(project, 'pack', name), { recursive: true });
+      writeFileSync(join(project, 'pack', name, 'SKILL.md'), `---\nname: ${name}\n---\n`);
+    }
+    const res = await get(`/api/tools/skills/scan?path=${encodeURIComponent(join(project, 'pack'))}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      path: join(project, 'pack'),
+      skills: [
+        { path: join(project, 'pack', 'one'), name: 'one', description: '', added: false },
+        { path: join(project, 'pack', 'two'), name: 'two', description: '', added: false },
+      ],
+    });
+    expect((await (await get('/api/tools')).json()).skills).toEqual([]);
+    expect((await get('/api/tools/skills/scan?path=')).status).toBe(400);
+  });
+
+  it("keeps an agent's tool exceptions and drops unknown keys", async () => {
+    const res = await app.request(
+      '/api/conversations',
+      json('POST', {
+        agents: [{ name: 'Alice', provider: 'claude', role: '', tools: { 'mcp:github': false, memory: true, 'memory:codex': true, bogus: true, 'mcp:x': 'yes' } }],
+        settings: { mode: 'roundtable', permission: 'read-only', cwd: project },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const conv = (await res.json()) as Conversation;
+    expect(conv.agents[0]!.tools).toEqual({ 'mcp:github': false, memory: true, 'memory:codex': true });
+  });
+
+  it("hands each agent its library items when it runs", async () => {
+    writeFileSync(join(project, 'SKILL.md'), '---\nname: solo\n---\n');
+    await app.request('/api/tools', json('PUT', { skills: [{ path: project }], memory: { all: 'Shared note.' } }));
+    await app.request('/api/tools/mcp/gh', json('PUT', { transport: 'stdio', command: 'gh-mcp', env: [{ name: 'T', value: 'tok' }] }));
+    const seen: { mcp: unknown; readDirs: unknown; briefing: string }[] = [];
+    const before = runners.claude;
+    runners.claude = {
+      provider: 'claude',
+      async run(o) {
+        seen.push({ mcp: o.mcpServers, readDirs: o.readDirs, briefing: o.systemPrompt });
+        o.onEvent({ type: 'text', text: 'ok' });
+        return {};
+      },
+    };
+    try {
+      const conv = await createConversation({ permission: 'read-only' });
+      await app.request(`/api/conversations/${conv.id}/messages`, json('POST', { text: 'hi' }));
+      await vi.waitFor(() => expect(seen).toHaveLength(1));
+    } finally {
+      runners.claude = before;
+    }
+    expect(seen[0]!.mcp).toEqual([{ name: 'gh', transport: 'stdio', command: 'gh-mcp', args: [], url: '', env: { T: 'tok' }, headers: {} }]);
+    expect(seen[0]!.readDirs).toEqual([project]);
+    expect(seen[0]!.briefing).toContain('Shared note.');
+    expect(seen[0]!.briefing).toContain(`- solo (${join(project, 'SKILL.md')})`);
+  });
+});
+
+describe('browsing files', () => {
+  it('lists folders, previews text and serves images safely', async () => {
+    mkdirSync(join(project, 'src'));
+    writeFileSync(join(project, 'src', 'a.ts'), 'const a = 1;\n');
+    writeFileSync(join(project, 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const conv = await createConversation({ permission: 'read-only' });
+    const base = `/api/conversations/${conv.id}/files`;
+
+    const list = await (await get(`${base}?root=cwd&path=`)).json();
+    expect(list.roots).toEqual([{ id: 'cwd', path: project }]);
+    expect(list.entries.map((e: { name: string }) => e.name)).toEqual(['src', 'pic.png']);
+    expect((await (await get(`${base}?path=src`)).json()).entries).toMatchObject([{ name: 'a.ts', kind: 'file', size: 13 }]);
+
+    const preview = await (await get(`${base}/preview?path=src/a.ts`)).json();
+    expect(preview).toMatchObject({ path: 'src/a.ts', kind: 'text', text: 'const a = 1;\n' });
+    expect((await (await get(`${base}/preview?path=pic.png`)).json()).kind).toBe('image');
+
+    const raw = await get(`${base}/raw?path=pic.png`);
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get('content-type')).toBe('image/png');
+    expect(raw.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(raw.headers.get('content-security-policy')).toContain('sandbox');
+    expect((await get(`${base}/raw?path=src/a.ts`)).status).toBe(404);
+
+    for (const bad of ['..', '../..', '/etc/passwd', '.git', 'missing']) {
+      expect((await get(`${base}?path=${encodeURIComponent(bad)}`)).status, bad).toBe(404);
+      expect((await get(`${base}/preview?path=${encodeURIComponent(bad)}`)).status, bad).toBe(404);
+    }
+    expect((await get(`${base}?root=someone`)).status).toBe(404);
+    expect((await get(`/api/conversations/nope/files`)).status).toBe(404);
+    expect((await app.request(`${base}?path=`, { headers: { host: 'evil.example' } })).status).toBe(403);
+  });
+});
+
+describe("what each CLI loads by itself", () => {
+  it('asks the CLI for the default working directory, only from the app itself', async () => {
+    const asked: [string, string, boolean][] = [];
+    const native = {
+      get: async (provider: string, cwd: string, refresh = false) => {
+        asked.push([provider, cwd, refresh]);
+        return { provider, cwd, skills: [], mcpServers: [], memory: [], memoryFromFiles: true, problems: [{ kind: 'timeout' }], checkedAt: 1 };
+      },
+    } as unknown as InstanceType<typeof NativeSetupService>;
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    settings.setDefaultCwd(project);
+    const s = new Store(db);
+    const hub = new Hub();
+    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const call = (path: string, body: unknown = {}) => local.request(path, json('POST', body, { 'x-relay-lang': 'en' }));
+
+    const res = await call('/api/providers/codex/native');
+    expect(await res.json()).toEqual({
+      provider: 'codex',
+      cwd: project,
+      skills: [],
+      mcpServers: [],
+      memory: [],
+      memoryFromFiles: true,
+      errors: ['Codex did not answer in time.'],
+      checkedAt: 1,
+    });
+    // A folder cannot be chosen: other sites must not be able to start a CLI in one.
+    await call('/api/providers/grok/native', { refresh: true, cwd: root });
+    expect(asked).toEqual([
+      ['codex', project, false],
+      ['grok', project, true],
+    ]);
+    expect((await call('/api/providers/gemini/native')).status).toBe(404);
+    // Not a GET, and not a form post: a page elsewhere cannot set it off.
+    expect((await local.request('/api/providers/claude/native', { headers: HOST })).status).toBe(404);
+    expect((await local.request('/api/providers/claude/native', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
   });
 });

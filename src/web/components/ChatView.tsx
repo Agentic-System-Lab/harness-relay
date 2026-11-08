@@ -18,7 +18,8 @@ import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { CopyButton } from './CopyButton';
-import { CopyIcon, UsersIcon } from './icons';
+import { FileBrowser } from './FileBrowser';
+import { CopyIcon, FolderIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
@@ -84,6 +85,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   /** The conversation is gone (deleted): stop reconnecting. */
   const [gone, setGone] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [diff, setDiff] = useState<{ title: string; load: () => Promise<string> } | null>(null);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
   /** A withdrawn message's text, going back into the composer to be edited. */
@@ -363,6 +365,10 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               disabled={conv.messages.length === 0}
               text={() => (convRef.current ? conversationMarkdown(convRef.current, tRef.current) : '')}
             />
+            <button className="ghost small-button head-button" onClick={() => setFilesOpen(true)} title={t.chat.filesTitle}>
+              <FolderIcon size={16} />
+              <span className="button-label">{t.chat.files}</span>
+            </button>
             <button className="ghost small-button head-button" onClick={() => setTeamOpen(true)}>
               <UsersIcon size={16} />
               <span className="button-label">{t.chat.teamSettings}</span>
@@ -516,6 +522,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
           onError={setError}
         />
       )}
+      {filesOpen && <FileBrowser conv={conv} onClose={() => setFilesOpen(false)} />}
     </div>
   );
 }

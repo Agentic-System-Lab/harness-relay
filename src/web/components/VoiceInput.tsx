@@ -8,6 +8,7 @@ import { formatBytes } from '../util';
 import { encodeWav, formatClock, isSilent, jobPercent, jobSecondsLeft, setupBytes, toBase64, voiceMode } from '../voice';
 import { MicIcon } from './icons';
 import { useDialog } from './useDialog';
+import { settingsHref } from '../route';
 
 type RecState = 'idle' | 'starting' | 'recording' | 'transcribing';
 
@@ -195,7 +196,7 @@ function VoiceSetupDialog({
 
   const openSettings = () => {
     onClose();
-    window.location.hash = '#/settings';
+    window.location.hash = settingsHref('voice');
   };
 
   return (

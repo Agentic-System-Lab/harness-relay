@@ -13,6 +13,7 @@ import {
   type AgentEvent,
   type AgentRunner,
   type ApprovalRequest,
+  type McpServerSpec,
   type RunResult,
 } from './types';
 
@@ -38,11 +39,28 @@ const SANDBOX: Record<Permission, string> = {
  * ~/.codex/config.toml turns `sandbox_workspace_write.network_access` on: pushing and publishing
  * (anything that leaves the machine) must go through an approval.
  */
-export function codexConfig(permission: Permission, effort?: string): Record<string, unknown> {
+export function codexConfig(permission: Permission, effort?: string, mcpServers: McpServerSpec[] = []): Record<string, unknown> {
   return {
     ...(effort ? { model_reasoning_effort: effort } : {}),
     ...(permission === 'edit' ? { sandbox_workspace_write: { network_access: false } } : {}),
+    ...codexMcpConfig(mcpServers),
   };
+}
+
+/**
+ * The tool library's MCP servers as config overrides. One dotted key per server
+ * (`mcp_servers.<name>`), so the servers in the user's config.toml stay.
+ */
+export function codexMcpConfig(servers: McpServerSpec[]): Record<string, unknown> {
+  const has = (vars: Record<string, string>) => Object.keys(vars).length > 0;
+  return Object.fromEntries(
+    servers.map((s) => [
+      `mcp_servers.${s.name}`,
+      s.transport === 'http'
+        ? { url: s.url, ...(has(s.headers) ? { http_headers: s.headers } : {}) }
+        : { command: s.command, args: s.args, ...(has(s.env) ? { env: s.env } : {}) },
+    ]),
+  );
 }
 
 const PLAN_STATUS: Record<string, PlanEntry['status']> = {
@@ -299,7 +317,7 @@ export const codexRunner: AgentRunner = {
         sandbox: SANDBOX[o.permission],
         developerInstructions: o.systemPrompt,
         ...(o.model ? { model: o.model } : {}),
-        config: codexConfig(o.permission, o.effort),
+        config: codexConfig(o.permission, o.effort, o.mcpServers),
       };
       const thread = o.sessionId
         ? await conn.request('thread/resume', { threadId: o.sessionId, ...threadParams })
