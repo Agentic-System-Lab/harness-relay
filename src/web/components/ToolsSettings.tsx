@@ -102,20 +102,20 @@ function McpSection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
         {t.tools.mcpHint} {t.tools.secretsIn(t.settings.keyStorageName[lib.secretStorage])}
       </p>
       {lib.mcpServers.length === 0 && editing === null && <p className="muted small">{t.tools.noMcp}</p>}
-      <ul className="tool-list">
+      <ul className="lib-list">
         {lib.mcpServers.map((s) =>
           editing === s.name ? (
             <li key={s.name}>
               <McpForm server={s} change={change} onDone={() => setEditing(null)} />
             </li>
           ) : (
-            <li key={s.name} className="tool-row">
-              <div className="tool-row-main">
-                <span className="tool-name">{s.name}</span>
-                <code className="tool-detail">{s.transport === 'http' ? s.url : [s.command, ...s.args].join(' ')}</code>
+            <li key={s.name} className="lib-row">
+              <div className="lib-row-main">
+                <span className="lib-name">{s.name}</span>
+                <code className="lib-detail">{s.transport === 'http' ? s.url : [s.command, ...s.args].join(' ')}</code>
                 <span className={`tool-scope ${s.providers.length ? '' : 'off'}`}>{givenTo(s.providers, t)}</span>
               </div>
-              <div className="tool-row-actions">
+              <div className="lib-row-actions">
                 <button className="ghost small-button" onClick={() => setEditing(s.name)}>
                   {t.tools.edit}
                 </button>
@@ -323,13 +323,13 @@ function SkillsSection({ lib, change }: { lib: ToolLibraryView; change: Change }
       <h4>{t.tools.skills}</h4>
       <p className="muted small">{t.tools.skillsHint}</p>
       {lib.skills.length === 0 && <p className="muted small">{t.tools.noSkills}</p>}
-      <ul className="tool-list">
+      <ul className="lib-list">
         {lib.skills.map((s, i) => (
-          <li key={s.path} className="tool-row">
-            <div className="tool-row-main">
-              <span className="tool-name">{s.name}</span>
-              {s.description && <span className="tool-description">{s.description}</span>}
-              <code className="tool-detail" title={s.path}>
+          <li key={s.path} className="lib-row">
+            <div className="lib-row-main">
+              <span className="lib-name">{s.name}</span>
+              {s.description && <span className="lib-description">{s.description}</span>}
+              <code className="lib-detail" title={s.path}>
                 {s.path}
               </code>
               {s.problem && <span className="warn-line">{s.problem}</span>}
@@ -342,7 +342,7 @@ function SkillsSection({ lib, change }: { lib: ToolLibraryView; change: Change }
                 />
               </div>
             </div>
-            <div className="tool-row-actions">
+            <div className="lib-row-actions">
               <button
                 className="icon-button danger"
                 aria-label={t.common.remove}

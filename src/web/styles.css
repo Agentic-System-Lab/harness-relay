@@ -3732,7 +3732,7 @@ details.sub summary {
   border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
 }
 
-/* An answered request: one quiet line. */
+/* An answered request: one quiet line; a long command wraps beside the mark, not below it. */
 .approval-done {
   display: flex;
   align-items: baseline;
@@ -3740,12 +3740,24 @@ details.sub summary {
   font-size: 12.5px;
   color: var(--muted);
   min-width: 0;
-  flex-wrap: wrap;
+}
+
+.approval-mark {
+  flex-shrink: 0;
+}
+
+.approval-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.approval-what {
+  margin-right: 8px;
 }
 
 .approval-done code {
   font-family: var(--mono);
-  overflow-wrap: anywhere;
 }
 
 .approval-done.allowed .approval-mark {
@@ -3875,7 +3887,7 @@ details.sub summary {
   margin: 0;
 }
 
-.tool-list {
+.lib-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -3884,7 +3896,7 @@ details.sub summary {
   gap: 8px;
 }
 
-.tool-row {
+.lib-row {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -3893,7 +3905,7 @@ details.sub summary {
   border-radius: 10px;
 }
 
-.tool-row-main {
+.lib-row-main {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -3902,17 +3914,20 @@ details.sub summary {
   gap: 4px 10px;
 }
 
-.tool-name {
+/* Named lib-*, not tool-*: the chat's tool activity owns .tool-row, .tool-name and .tool-detail. */
+.lib-name {
+  font-family: var(--mono);
+  font-size: 12px;
   font-weight: 650;
 }
 
-.tool-description {
+.lib-description {
   flex-basis: 100%;
   font-size: 13px;
   color: var(--muted);
 }
 
-.tool-detail {
+.lib-detail {
   flex-basis: 100%;
   min-width: 0;
   font-family: var(--mono);
@@ -3923,12 +3938,12 @@ details.sub summary {
   white-space: nowrap;
 }
 
-.tool-row .warn-line {
+.lib-row .warn-line {
   flex-basis: 100%;
   margin: 0;
 }
 
-.tool-row-actions {
+.lib-row-actions {
   display: flex;
   align-items: center;
   gap: 6px;

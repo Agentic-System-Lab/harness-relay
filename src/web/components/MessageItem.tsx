@@ -186,10 +186,13 @@ function ApprovalCard({
         <span className="approval-mark" aria-hidden>
           {status === 'allowed' ? '✓' : status === 'denied' ? '✗' : '–'}
         </span>
-        <span className="approval-what">{part.detail ? <code>{part.detail}</code> : heading}</span>
-        <span className="approval-outcome">
-          {outcome}
-          {part.note ? t.approval.withNote(part.note) : ''}
+        {/* One run of text, so a long command wraps under itself and the mark stays beside it. */}
+        <span className="approval-text">
+          <span className="approval-what">{part.detail ? <code>{part.detail}</code> : heading}</span>
+          <span className="approval-outcome">
+            {outcome}
+            {part.note ? t.approval.withNote(part.note) : ''}
+          </span>
         </span>
       </div>
     );
