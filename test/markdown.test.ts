@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentConfig } from '../src/shared/types';
 import { parseMentions } from '../src/server/prompt';
-import { Markdown, findMentions, mermaidSource, tableCellClass, textWidthEm } from '../src/web/components/Markdown';
+import { FileLink, Markdown, findMentions, mermaidSource, tableCellClass, textWidthEm } from '../src/web/components/Markdown';
 import { checkDownload } from '../src/web/download';
 import { I18nProvider } from '../src/web/i18n';
 
@@ -243,6 +243,18 @@ describe('files a reply links to', () => {
     // Another computer's share is never a download (on Windows the server would connect to it).
     expect(reply(String.raw`[a](<\\\\host\share\a.pdf>)`)).not.toContain('file-link');
     expect(reply('[a](%5C%5Chost%5Cshare%5Ca.pdf)')).not.toContain('file-link');
+  });
+
+  it('keep the link and its text when the file is not there, and say why', () => {
+    const link = (initial?: 'missing' | 'ok') =>
+      renderToStaticMarkup(
+        createElement(I18nProvider, null, createElement(FileLink, { href: `${base}?path=out%2Freport.pdf`, path: 'out/report.pdf', initial, children: 'the report' })),
+      );
+    const missing = link('missing');
+    expect(missing).toContain(`<a href="${base}?path=out%2Freport.pdf" class="file-link" download="report.pdf" title="Download report.pdf">the report<svg`);
+    expect(missing).toContain('</a><span class="media-missing file-missing" title="out/report.pdf"> ⚠ Cannot download: not a file in the working directory');
+    expect(link('ok')).not.toContain('file-missing');
+    expect(link()).not.toContain('file-missing');
   });
 
   it('are checked before a click, so a file the server cannot hand over says so', async () => {

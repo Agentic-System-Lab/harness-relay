@@ -227,7 +227,7 @@ export const en: Messages = {
     openImage: (name) => `Open ${name}`,
     mediaMissing: (path) => `⚠ Can't show ${path}`,
     download: (name) => `Download ${name}`,
-    downloadMissing: (path) => `⚠ Cannot download ${path}: file not found (only files in the working directory can be downloaded)`,
+    downloadMissing: '⚠ Cannot download: not a file in the working directory (click again once it is made)',
     actions: (n) => (n === 1 ? '1 action' : `${n} actions`),
     failed: (n) => `${n} failed`,
     passed: 'Nothing to add (PASS)',

@@ -599,9 +599,9 @@ export function createApp({
     };
     if (c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers });
     // Videos are fetched in ranges (Safari plays nothing otherwise, and seeking needs them), and a
-    // download can go on where it stopped. A range of a file that changed since (If-Range, which may
-    // not name a weak ETag) is the whole file again.
-    const ifRange = c.req.header('if-range');
+    // download can go on where it stopped. A download's range of a file that changed since (If-Range,
+    // which may not name a weak ETag) is the whole file again; video seeking stays as it was.
+    const ifRange = download ? c.req.header('if-range') : undefined;
     const range = !ifRange || ifRange === lastModified ? byteRange(c.req.header('range'), size) : null;
     if (range === 'invalid') return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } });
     const { start, end } = range ?? { start: 0, end: size - 1 };

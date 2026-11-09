@@ -2,6 +2,9 @@
 
 export type DownloadState = 'ok' | 'missing' | 'unknown';
 
+/** How long a link waits before it is checked, so a URL still streaming in is not checked at every step. */
+export const CHECK_DELAY_MS = 300;
+
 /**
  * Whether the file at a download URL is there, by a HEAD request (nothing is downloaded): 'missing'
  * for a 404 (not in the working directory, or gone), 'unknown' when the server could not say (the

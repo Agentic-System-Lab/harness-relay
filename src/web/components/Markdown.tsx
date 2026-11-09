@@ -1,10 +1,10 @@
-import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown, { type Components, type Options } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { fileName, localFilePath, localMediaPath } from '../../shared/media';
 import { findMentions } from '../../shared/mentions';
-import { checkDownload, type DownloadState } from '../download';
+import { CHECK_DELAY_MS, checkDownload, type DownloadState } from '../download';
 import { useT } from '../i18n';
 import { DownloadIcon } from './icons';
 import { LocalMedia } from './LocalMedia';
@@ -179,31 +179,76 @@ export function tableCellClass(text: string): 'one-line' | 'wrap' {
 
 /**
  * A link to a file on this computer that a reply hands over: downloaded from this app's server. It
- * is checked first, so that a file the server cannot hand over says why instead of failing to download.
+ * is checked first, so that a file the server cannot hand over says why instead of failing to
+ * download. The link stays: a click checks again (the file may have been made since), and downloads
+ * once it is there. `initial` is the state before the first check (for tests rendered on the server).
  */
-function FileLink({ href, path, className, children }: { href: string; path: string; className?: string; children: ReactNode }) {
+export function FileLink({
+  href,
+  path,
+  className,
+  children,
+  initial = 'unknown',
+}: {
+  href: string;
+  path: string;
+  className?: string;
+  children: ReactNode;
+  initial?: DownloadState;
+}) {
   const t = useT();
-  const [state, setState] = useState<DownloadState>('unknown');
+  // The state belongs to one URL: another one (a reference definition still streaming in) starts over.
+  const [checked, setChecked] = useState<{ href: string; state: DownloadState }>({ href, state: initial });
+  const state = checked.href === href ? checked.state : 'unknown';
+  // Set while a click that a new check let through is sent again.
+  const resend = useRef(false);
   useEffect(() => {
     let current = true;
-    void checkDownload(href).then((s) => current && setState(s));
+    const timer = setTimeout(() => {
+      void checkDownload(href).then((s) => current && setChecked({ href, state: s }));
+    }, CHECK_DELAY_MS);
     return () => {
       current = false;
+      clearTimeout(timer);
     };
   }, [href]);
   const name = fileName(path);
-  if (state === 'missing') {
-    return (
-      <span className="media-missing" title={path}>
-        {t.message.downloadMissing(path)}
-      </span>
-    );
-  }
+
+  const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (resend.current) {
+      resend.current = false;
+      return;
+    }
+    if (state !== 'missing') return;
+    e.preventDefault();
+    const link = e.currentTarget;
+    void checkDownload(href).then((s) => {
+      setChecked({ href, state: s });
+      if (s === 'missing') return;
+      resend.current = true;
+      link.click();
+    });
+  };
+
   return (
-    <a href={href} className={className ? `${className} file-link` : 'file-link'} download={name} title={t.message.download(name)}>
-      {children}
-      <DownloadIcon size={14} />
-    </a>
+    <>
+      <a
+        href={href}
+        className={className ? `${className} file-link` : 'file-link'}
+        download={name}
+        title={t.message.download(name)}
+        onClick={onClick}
+      >
+        {children}
+        <DownloadIcon size={14} />
+      </a>
+      {state === 'missing' && (
+        <span className="media-missing file-missing" title={path}>
+          {' '}
+          {t.message.downloadMissing}
+        </span>
+      )}
+    </>
   );
 }
 

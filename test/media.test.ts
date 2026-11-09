@@ -148,6 +148,15 @@ describe('files a reply links to', () => {
     expect(resolveDownload('//host/share/a.pdf', [cwd])).toBeUndefined();
   });
 
+  it('looks nothing up outside the directories, not even a link there that leads back in', () => {
+    // Followed, this would resolve inside; but a path outside is never touched (on Windows a
+    // \\\\host\\share path would make this computer connect to another one).
+    const back = join(root, 'downloads-back.pptx');
+    symlinkSync(join(root, 'downloads', 'out', 'deck.pptx'), back);
+    expect(resolveDownload(back, [join(root, 'downloads')])).toBeUndefined();
+    expect(resolveDownload('../downloads-back.pptx', [join(root, 'downloads')])).toBeUndefined();
+  });
+
   it('takes an absolute path written through a link to the root, as the agent sees the folder', () => {
     const linked = join(root, 'downloads-link');
     symlinkSync(join(root, 'downloads'), linked);

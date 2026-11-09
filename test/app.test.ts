@@ -450,6 +450,8 @@ describe('images and videos in replies', () => {
     const { base } = await replyIn();
     const res = await get(base + 'out/demo.mp4', { range: 'bytes=2-5' });
     expect(res.status).toBe(206);
+    // Seeking is never turned into a whole download (If-Range applies to downloads only).
+    expect((await get(base + 'out/demo.mp4', { range: 'bytes=2-5', 'if-range': 'W/"x"' })).status).toBe(206);
     expect(res.headers.get('content-range')).toBe('bytes 2-5/10');
     expect(await res.text()).toBe('2345');
     expect((await get(base + 'out/demo.mp4', { range: 'bytes=50-' })).status).toBe(416);
@@ -509,7 +511,7 @@ describe('files replies link to', () => {
     expect((await get(pdf, { 'if-none-match': res.headers.get('etag')! })).status).toBe(304);
   });
 
-  it('answers HEAD without sending (or opening) the file, so the chat can check a link first', async () => {
+  it('answers HEAD with the headers only, so the chat can check a link first', async () => {
     const { base } = await replyIn();
     const head = await app.request(base + 'out/slides.html', { method: 'HEAD', headers: HOST });
     expect(head.status).toBe(200);
