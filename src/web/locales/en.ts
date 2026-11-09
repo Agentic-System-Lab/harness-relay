@@ -194,6 +194,7 @@ export const en: Messages = {
     teamSettings: 'Team settings',
     files: 'Files',
     filesTitle: 'Browse the files in the working directory',
+    more: 'More',
     autoTeam: 'Auto team',
     reconnecting: 'Connection lost, reconnecting…',
     placeholder: 'Message the team…',
@@ -892,7 +893,7 @@ export const en: Messages = {
       },
       {
         title: 'Browse the working directory',
-        body: "Files in a chat's header opens its working directory, so you can see what the agents made without leaving the chat:",
+        body: "Files in a chat's header (under ⋯ on a phone) opens its working directory, so you can see what the agents made without leaving the chat:",
         points: [
           'Code with line numbers and highlighting, Markdown rendered or as source, images and videos shown',
           "In parallel mode, look at each member's worktree before you apply its result",
@@ -900,7 +901,7 @@ export const en: Messages = {
       },
       {
         title: 'Messages on a schedule',
-        body: "Schedule in a chat's header sends its team a message at set times, as if you had sent it:",
+        body: "Schedule in a chat's header (under ⋯ on a phone) sends its team a message at set times, as if you had sent it:",
         points: [
           'Once, every day, every week on the days you pick, or every few hours; once saved, "Run once now" tries it out',
           'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat) and the agent works around it; or choose "Ask me"',

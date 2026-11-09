@@ -12,10 +12,12 @@ interface Props {
   title?: string;
   /** Shown before the label (a check once copied); the label goes in a `.button-label` span, which CSS may hide. */
   icon?: ReactNode;
+  /** Called once it has copied (or failed to) and says so. */
+  onDone?: () => void;
 }
 
 /** A text button that copies, then says so for a moment. */
-export function CopyButton({ text, label, className = 'msg-action', disabled, title, icon }: Props) {
+export function CopyButton({ text, label, className = 'msg-action', disabled, title, icon, onDone }: Props) {
   const t = useT();
   const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
   const timer = useRef<number | undefined>(undefined);
@@ -26,6 +28,7 @@ export function CopyButton({ text, label, className = 'msg-action', disabled, ti
     setState(ok ? 'done' : 'failed');
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setState('idle'), 1600);
+    onDone?.();
   };
 
   const caption = state === 'done' ? t.common.copied : state === 'failed' ? t.common.copyFailed : (label ?? t.common.copy);

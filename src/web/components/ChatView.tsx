@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
   pendingPlan,
@@ -20,7 +20,7 @@ import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { CopyButton } from './CopyButton';
 import { FileBrowser } from './FileBrowser';
-import { ClockIcon, CopyIcon, FolderIcon, UsersIcon } from './icons';
+import { ClockIcon, CopyIcon, FolderIcon, MoreIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
@@ -126,6 +126,62 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
     if (!row || !chip || row.scrollWidth <= row.clientWidth) return;
     row.scrollTo({ left: chip.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2, behavior: 'smooth' });
   }, [state.active]);
+
+  // On phones the header's actions are a menu under ⋯ (.more-button in styles.css); wider screens
+  // show them in a row and never open it.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuId = useId();
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const menuTimer = useRef<number | undefined>(undefined);
+  /** Closes the menu; with `refocus`, focus goes to ⋯ (the menu's buttons are about to be hidden). */
+  const closeMenu = useCallback((refocus: boolean) => {
+    window.clearTimeout(menuTimer.current);
+    if (refocus) moreRef.current?.focus();
+    setMenuOpen(false);
+  }, []);
+  useEffect(() => {
+    if (!menuOpen) return;
+    // A tap or Tab elsewhere closes it, and focus stays where it went.
+    const onOutside = (e: Event) => {
+      const target = e.target as Node;
+      if (!moreRef.current?.contains(target) && !actionsRef.current?.contains(target)) closeMenu(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      closeMenu(true);
+    };
+    // Same width as the @media rule that makes it a menu: past it the row is shown instead.
+    const phone = window.matchMedia('(max-width: 560px)');
+    const onWidth = () => closeMenu(false);
+    document.addEventListener('pointerdown', onOutside);
+    document.addEventListener('focusin', onOutside);
+    document.addEventListener('keydown', onKey);
+    phone.addEventListener('change', onWidth);
+    return () => {
+      document.removeEventListener('pointerdown', onOutside);
+      document.removeEventListener('focusin', onOutside);
+      document.removeEventListener('keydown', onKey);
+      phone.removeEventListener('change', onWidth);
+    };
+  }, [menuOpen, closeMenu]);
+  useEffect(() => () => window.clearTimeout(menuTimer.current), []);
+  /**
+   * Opens a drawer from the header. From the menu, focus moves to ⋯ first: the drawer gives focus
+   * back on close to whatever had it, and the button that was clicked is hidden by then.
+   */
+  const openFromHead = (open: (value: boolean) => void) => () => {
+    if (menuOpen) closeMenu(true);
+    open(true);
+  };
+  /** After Copy chat in the menu says it copied, the menu closes. */
+  const copiedFromHead = () => {
+    if (!menuOpen) return;
+    window.clearTimeout(menuTimer.current);
+    menuTimer.current = window.setTimeout(() => closeMenu(actionsRef.current?.contains(document.activeElement) ?? false), 1000);
+  };
+
   const stick = useRef(true);
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
@@ -355,8 +411,8 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   return (
     <div className="chat">
       {/* Wide screens: title over the team, badges and actions on the right. Phones and tablets:
-          only the title and actions, plus a warning beside the title for full access (see .chat-head
-          in styles.css). */}
+          only the title and actions, plus a warning beside the title for full access; on phones the
+          actions are a menu under ⋯ (see .chat-head and .more-button in styles.css). */}
       <header className="chat-head">
         <div className="chat-head-top">
           <button className="chat-title" onClick={rename} title={t.chat.rename}>
@@ -367,7 +423,20 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               {t.permissions.full.label}
             </span>
           )}
-          <div className="chat-head-actions">
+          {/* Phones only; a dot while a schedule is on, as the clock is blue then. */}
+          <button
+            ref={moreRef}
+            type="button"
+            className={`ghost small-button more-button ${conv.schedule?.enabled ? 'schedule-on' : ''}`}
+            aria-label={t.chat.more}
+            title={t.chat.more}
+            aria-expanded={menuOpen}
+            aria-controls={menuId}
+            onClick={() => (menuOpen ? closeMenu(false) : setMenuOpen(true))}
+          >
+            <MoreIcon size={18} />
+          </button>
+          <div className={`chat-head-actions ${menuOpen ? 'open' : ''}`} id={menuId} ref={actionsRef}>
             <CopyButton
               className="ghost small-button head-button"
               label={t.chat.copyChat}
@@ -375,14 +444,15 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               icon={<CopyIcon size={16} />}
               disabled={conv.messages.length === 0}
               text={() => (convRef.current ? conversationMarkdown(convRef.current, tRef.current) : '')}
+              onDone={copiedFromHead}
             />
-            <button className="ghost small-button head-button" onClick={() => setFilesOpen(true)} title={t.chat.filesTitle}>
+            <button className="ghost small-button head-button" onClick={openFromHead(setFilesOpen)} title={t.chat.filesTitle}>
               <FolderIcon size={16} />
               <span className="button-label">{t.chat.files}</span>
             </button>
             <button
               className={`ghost small-button head-button ${conv.schedule?.enabled ? 'has-schedule' : ''}`}
-              onClick={() => setScheduleOpen(true)}
+              onClick={openFromHead(setScheduleOpen)}
               title={
                 conv.schedule
                   ? `${describeRepeat(conv.schedule.repeat, t, lang)} · ${scheduleState(conv.schedule, t, lang)}`
@@ -392,7 +462,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               <ClockIcon size={16} />
               <span className="button-label">{t.schedule.button}</span>
             </button>
-            <button className="ghost small-button head-button" onClick={() => setTeamOpen(true)}>
+            <button className="ghost small-button head-button" onClick={openFromHead(setTeamOpen)}>
               <UsersIcon size={16} />
               <span className="button-label">{t.chat.teamSettings}</span>
             </button>

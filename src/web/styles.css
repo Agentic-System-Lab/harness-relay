@@ -1261,7 +1261,7 @@ details.sub .model-picker {
   flex-shrink: 0;
 }
 
-/* Copy chat, team settings: text on wide screens, icons on phones. */
+/* Copy chat, files, schedule, team settings: text in a row, icon and text in the phone menu. */
 .head-button {
   display: inline-flex;
   align-items: center;
@@ -1270,6 +1270,11 @@ details.sub .model-picker {
 }
 
 .head-button svg {
+  display: none;
+}
+
+/* ⋯ opens those actions as a menu on phones (see the 560px rules). */
+.more-button {
   display: none;
 }
 
@@ -3431,25 +3436,76 @@ details.sub summary {
 
 /* Phones: icon buttons in the chat header (like the menu button), a slimmer message box. */
 @media (max-width: 560px) {
-  .head-button {
+  /* The header keeps the title, the full access tag and ⋯; ⋯ opens the actions below it, each
+     with its icon and name. The menu hangs from the header, over the messages. */
+  .chat-head {
+    position: relative;
+  }
+
+  .more-button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
     width: 36px;
     height: 36px;
     padding: 0;
+    margin-left: auto;
     border-radius: 10px;
   }
 
-  .head-button svg {
-    display: block;
+  .more-button[aria-expanded='true'] {
+    background: var(--surface);
   }
 
-  /* Still read out by screen readers. */
-  .head-button .button-label {
+  /* A schedule is on (the clock in the menu is blue then). */
+  .more-button.schedule-on::after {
+    content: '';
     position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+    top: 5px;
+    right: 5px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--info);
+    box-shadow: 0 0 0 2px var(--bg);
+  }
+
+  .chat-head-top .chat-head-actions {
+    display: none;
+    position: absolute;
+    top: calc(100% - 6px);
+    right: 12px;
+    z-index: 25;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    min-width: 190px;
+    margin-left: 0;
+    padding: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+  }
+
+  .chat-head-top .chat-head-actions.open {
+    display: flex;
+  }
+
+  .chat-head-actions .head-button {
+    justify-content: flex-start;
+    gap: 10px;
+    min-height: 40px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 9px;
+    font-size: 14px;
+  }
+
+  .chat-head-actions .head-button svg {
+    display: block;
+    flex-shrink: 0;
   }
 
   .composer {
