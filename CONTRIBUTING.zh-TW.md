@@ -13,7 +13,7 @@
 - 你做了什麼、預期會發生什麼，以及實際發生了什麼；
 - 作業系統、Node.js 版本（`node --version`）與 Harness Relay 的 commit（`git rev-parse --short HEAD`）；
 - 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`）；
-- 對話的模式（圓桌、平行、接力或自動組隊）與權限（唯讀、可編輯或完全存取）；
+- 對話的模式（圓桌、平行或接力）、權限（唯讀、可編輯或完全存取），以及是否直接採用首席 agent 組的團隊；
 - 訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間 `npm run dev` 輸出中的 `[server]` 行。
 
 貼上 log 或截圖之前，請先移除 API key、token，以及專案中任何你不想公開的內容。請不要附上 `data/relay.db`：裡面有你的對話紀錄；在沒有作業系統金鑰儲存區的系統上，也存著你的 API key。

@@ -11,7 +11,7 @@ import {
   type ServerEvent,
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
-import { afterStreamError, applyStates as findApplyStates, draftStatus } from '../chat';
+import { afterStreamError, applyStates as findApplyStates, draftStatus, teamToEdit } from '../chat';
 import { conversationMarkdown } from '../copy';
 import { useI18n, useT } from '../i18n';
 import { describeRepeat, scheduleState, scheduleTrouble } from '../schedule';
@@ -233,7 +233,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
     };
   }, [id]);
 
-  // Who designs the team, for auto-team conversations that have not started yet.
+  // Who designs the team, for auto-team conversations.
   const autoTeam = Boolean(state.conv?.settings.autoTeam);
   useEffect(() => {
     if (autoTeam) api.getSettings().then((s) => setLead(s.lead), () => {});
@@ -295,6 +295,18 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
     try {
       setError('');
       await api.confirmPlan(c.id, messageId);
+      onChangedRef.current(); // the sidebar stops asking
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const onDeclinePlan = useCallback(async (messageId: string) => {
+    const c = convRef.current;
+    if (!c) return;
+    try {
+      setError('');
+      await api.declinePlan(c.id, messageId);
       onChangedRef.current(); // the sidebar stops asking
     } catch (e) {
       setError((e as Error).message);
@@ -372,10 +384,11 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   );
   const hasUserMessage = conv.messages.some((m) => m.author.kind === 'user');
   const waitingForTeam = autoTeam && conv.agents.length === 0;
-  // The lead agent's team design waits for the user: they confirm it, then ask their first question.
+  // The lead agent's team design waits for the user: once they confirm it, the team answers.
   const awaitingConfirm = Boolean(pendingPlan(conv.messages));
   // The lead agent is designing the team: what the user sends meanwhile waits for the confirmed team.
-  const designing = running && autoTeam;
+  const designing = running && conv.messages.some((m) => m.plan?.status === 'planning' && m.status === 'streaming');
+  const latestPlanId = conv.messages.findLast((m) => m.plan?.status === 'ready')?.id;
   const leadText = leadLabel(lead ?? { provider: 'claude' });
   // An agent asked the user something and the team waits: its latest questions, and who asked.
   const lastUser = conv.messages.findLastIndex((m) => m.author.kind === 'user');
@@ -547,6 +560,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               key={m.id}
               msg={m}
               convId={conv.id}
+              cwd={conv.settings.cwd}
               agents={conv.agents}
               mentionNames={mentionNames}
               showRound={conv.settings.mode !== 'relay' && conv.settings.rounds > 1}
@@ -556,6 +570,8 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               onApply={onApply}
               onResend={onResend}
               onConfirmPlan={onConfirmPlan}
+              onDeclinePlan={onDeclinePlan}
+              latestPlan={m.id === latestPlanId}
               onSavePlan={onSavePlan}
               onAdjustTeam={onAdjustTeam}
               onApproval={onApproval}
@@ -607,7 +623,9 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
           locked={awaitingConfirm || designing}
           skipQuestion={questions.length > 0}
           placeholder={
-            awaitingConfirm || designing
+            designing
+              ? t.chat.placeholderDesigning
+              : awaitingConfirm
               ? t.chat.placeholderConfirm
               : questions.length > 0
                 ? t.chat.placeholderAnswer(askers)
@@ -615,7 +633,9 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
                 ? t.chat.placeholderBusy
                 : waitingForTeam
                   ? t.chat.placeholderAuto
-                  : conv.settings.mode === 'relay' && conv.agents[0]
+                  : autoTeam
+                    ? t.chat.placeholderNext
+                    : conv.settings.mode === 'relay' && conv.agents[0]
                     ? t.chat.placeholderRelay(conv.agents[0].name)
                     : t.chat.placeholder
           }
@@ -705,7 +725,7 @@ function TeamIntro({ conv, leadText }: { conv: Conversation; leadText: string })
     return (
       <div className="team-intro">
         <h2>{t.chat.autoIntroTitle}</h2>
-        <p className="muted">{t.chat.autoIntro(leadText)}</p>
+        <p className="muted">{t.chat.autoIntro(leadText, !conv.settings.autoConfirm)}</p>
       </div>
     );
   }
@@ -757,12 +777,20 @@ function TeamDrawer({
   onError: (s: string) => void;
 }) {
   const { t, lang } = useI18n();
-  const current = useMemo<Team>(() => ({ agents: conv.agents, settings: conv.settings }), [conv.agents, conv.settings]);
+  // While the lead agent's design waits for confirmation, the drawer edits that design: saving it
+  // settles the design with the team as edited.
+  const pending = pendingPlan(conv.messages)?.plan;
+  const { team: current, proposed } = useMemo(
+    () => teamToEdit({ agents: conv.agents, settings: conv.settings }, pending),
+    [conv.agents, conv.settings, pending],
+  );
   /** The team as it was when the draft was copied from it. */
   const [base, setBase] = useState<Team>(current);
   const [team, setTeam] = useState<Team>(current);
   const [saving, setSaving] = useState(false);
-  const problems = teamProblems(team, t);
+  // Auto team: there are members to edit once the lead agent has designed a team.
+  const members = !conv.settings.autoTeam || current.agents.length > 0;
+  const problems = teamProblems(team, t, { members });
   const dialog = useRef<HTMLElement>(null);
   useDialog(dialog, onClose);
 
@@ -780,9 +808,8 @@ function TeamDrawer({
   const save = async () => {
     setSaving(true);
     try {
-      // While the lead agent has not designed the team yet, only the settings can change.
-      const auto = team.settings.autoTeam && team.agents.length === 0;
-      const change = auto ? { settings: team.settings } : { agents: team.agents, settings: team.settings };
+      // While the lead agent has not designed a team yet, only the settings can change.
+      const change = members ? { agents: team.agents, settings: team.settings } : { settings: team.settings };
       await orCreateCwd(
         (createCwd) => api.updateConversation(conv.id, { ...change, createCwd }),
         () => confirm(t.chat.confirmCreateCwd(team.settings.cwd.trim())),
@@ -813,6 +840,7 @@ function TeamDrawer({
           </button>
         </header>
         <p className="muted small">{t.chat.drawerNote}</p>
+        {proposed && <p className="small drawer-pending">{t.chat.drawerPending}</p>}
         {conv.schedule?.enabled && (
           <p className="schedule-note small">
             <ClockIcon size={14} />
@@ -824,6 +852,8 @@ function TeamDrawer({
           onChange={setTeam}
           providers={providers}
           catalog={catalog}
+          members={members}
+          proposed={proposed}
           leadLabel={leadText}
           schedule={conv.schedule}
         />

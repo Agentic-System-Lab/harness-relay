@@ -1,64 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentConfig, ConversationSettings, GrokFolderTrust } from '../../shared/types';
+import type { AgentConfig, GrokFolderTrust } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
-import { useDialog } from './useDialog';
 
 /**
- * Whether starting this team should first ask about Grok's trust in its folder: it has a Grok member
- * (an auto team has none yet) and a folder.
+ * Whether a team waiting for the user's confirmation should say how Grok trusts its folder first: it
+ * has a Grok member, and there is a folder.
  */
-export function asksGrokTrust(team: { agents: AgentConfig[]; settings: Pick<ConversationSettings, 'cwd' | 'autoTeam'> }): boolean {
-  return !team.settings.autoTeam && Boolean(team.settings.cwd.trim()) && team.agents.some((a) => a.provider === 'grok');
-}
-
-export type GrokTrustAnswer = 'trust' | 'skip' | 'cancel';
-
-/**
- * Asked before a team with a Grok member starts in a folder Grok does not trust. `status.folder` is
- * the one Grok decides trust for (the repository root above `cwd`, links resolved): that one is trusted.
- */
-export function GrokTrustDialog({ status, onAnswer }: { status: GrokFolderTrust; onAnswer: (a: GrokTrustAnswer) => void }) {
-  const t = useT();
-  const dialog = useRef<HTMLDivElement>(null);
-  useDialog(dialog, () => onAnswer('cancel'));
-  return (
-    <div className="modal-scrim" onClick={() => onAnswer('cancel')}>
-      <div
-        ref={dialog}
-        className="modal grok-trust-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t.grokTrust.dialogTitle}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="drawer-head">
-          <h2>{t.grokTrust.dialogTitle}</h2>
-          <button className="icon-button" onClick={() => onAnswer('cancel')} aria-label={t.common.close}>
-            ×
-          </button>
-        </header>
-        <p>{t.grokTrust.dialogBody}</p>
-        <p>
-          <code className="grok-trust-path">{status.folder}</code>
-        </p>
-        {status.above && <p className="small">{t.grokTrust.projectRoot(status.cwd)}</p>}
-        <p className="warn-line small">{t.grokTrust.dialogWarn}</p>
-        <footer className="button-row end">
-          <button className="ghost" onClick={() => onAnswer('cancel')}>
-            {t.common.cancel}
-          </button>
-          <button className="ghost" onClick={() => onAnswer('skip')}>
-            {t.grokTrust.startWithout}
-          </button>
-          <button className="primary" onClick={() => onAnswer('trust')}>
-            {t.grokTrust.trustAndStart}
-          </button>
-        </footer>
-      </div>
-    </div>
-  );
+export function asksGrokTrust(agents: AgentConfig[], cwd: string): boolean {
+  return Boolean(cwd.trim()) && agents.some((a) => a.provider === 'grok');
 }
 
 /**

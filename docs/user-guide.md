@@ -2,7 +2,7 @@
 
 # User guide
 
-This guide walks through installing Harness Relay, signing in to the agents, designing a team (or letting the lead agent design it), and chatting with it.
+This guide walks through installing Harness Relay, signing in to the agents, starting a chat (the lead agent designs a team for each question, from your templates), and chatting with the team.
 
 ## 1. Install and start
 
@@ -156,37 +156,42 @@ AgentsView hides sessions with only one message from the user by default. A conv
 
 To browse AgentsView from your phone too, see [Use it from your phone](remote-access.md#5-browse-agentsview-too-optional).
 
-## 3. Design the team — New chat
+## 3. Start a chat — New chat and templates
 
-Click **＋ New chat**. Under **How to build the team**, choose **Auto team** or **Design your own** — or pick one of the **Templates** below them. Adjust the team if you like, and click **Start chat →**. The page remembers your last choice.
+Click **＋ New chat**. Here you choose where the team works and what it may do — the **working directory**, the **file permission** and what happens to **actions beyond the permission** (see [Conversation rules](#conversation-rules)) — and whether you confirm the lead agent's teams (**Use the lead agent's team without asking me**; the page remembers your choice). Click **Start chat →** and ask your first question.
 
-**Design your own** starts from a blank team: one member for each CLI that is ready to use, with empty roles. Write each member's position, add or remove members, and set the conversation rules (see [Team members](#team-members) and [Conversation rules](#conversation-rules)).
-
-Below the conversation rules, **Save as template** saves the current members and rules as a template, which then appears under **Templates** for new chats.
+You don't pick a team for the chat: the lead agent chooses one for each question (see [Auto team](#auto-team)), from the [templates](#templates) on this page, where you design teams.
 
 ### Auto team
 
-With **Auto team** you don't design the team yourself. Start by describing what you need (the work, the expertise it takes) instead of asking a question. The **lead agent** (see [Lead agent](#lead-agent)) reads it together with every template in full (built-in and your own: members, roles, mode and rounds), and then either uses a template as it is, adapts one to the question (for example adds or drops a member, rewrites roles, or changes the mode or rounds), or designs a new team from scratch. Nobody answers yet: you review the team first.
+Every new question gets its team. The **lead agent** (see [Lead agent](#lead-agent)) reads your question, the conversation so far (in short), the current team and every template in full (built-in and your own: members, roles, mode and rounds), and then keeps the current team, uses a template as it is, adapts one to the question (for example adds or drops a member, rewrites roles, or changes the mode or rounds), or designs a new team from scratch.
 
-- You choose only the **working directory** and the **file permission**; the lead agent cannot change the permission.
-- Click **Confirm team** on the card, and then ask your first question; until then the sidebar marks the conversation **Confirm the team**. You can write your first question before confirming (even while the lead agent is still designing): it waits above the message box and goes to the team as soon as you confirm. Setting the team yourself with **Adjust team** also counts as confirming. The team sees your description as context. To have the team designed again, edit your description.
-- The decision appears in the chat as a **Team design** card: the template it used, the template it adapted, or its new team; why (why the template fits, what it changed, or why no template fits); and each member's full role, folded to a few lines when long (**Show more** shows the rest). **Adjust team** opens the team settings.
-- When the lead agent designed or adapted a team, the card asks whether to keep it: **Save as template** saves it (you can rename it), and it then shows up on the New chat page. A template used as it is is already saved, so the card doesn't ask.
-- If the lead agent's answer can't be used (or its CLI fails), the General-question panel is used instead and the card says why. If you press **Stop** while it is designing, the next message designs the team again.
+- The decision appears in the chat as a **Team design** card: the current team kept, the template it used, the template it adapted, or its new team; why; and each member's full role, folded to a few lines when long (**Show more** shows the rest).
+- By default you confirm it: click **Confirm team** on the card and the team answers your question. Until then the sidebar marks the conversation **Confirm the team**, and what you write meanwhile (even while the lead agent is still designing) waits above the message box and goes to the team with your question. **Adjust team** opens the team settings; saving your changes there counts as confirming too. Only the latest design offers **Adjust team**: it is the team now, while earlier cards are history.
+- Tick **Use the lead agent's team without asking me** (on the New chat page, or later in **Team settings**) and the team answers right away; the card still shows what the lead agent chose and why (**Used without asking**).
+- Not every message is a new question. An answer to an agent's question, a message that @mentions members of the current team (they answer it), **Continue**, **↻ Retry** and scheduled messages go to the current team without a new design.
+- Members who stay on (same name and CLI) keep their session and what they learned; new members read the conversation from the start.
+- You choose the working directory and the file permission; the lead agent cannot change them.
+- When the lead agent designed or adapted a team, the card asks whether to keep it: **Save as template** saves it (you can rename it), and it then shows up under **Templates**, for the lead agent to pick as it is. A template used as it is, or the current team kept, is already there, so the card doesn't ask.
+- If the lead agent's answer can't be used (or its CLI fails), the current team is kept (for a first question, the General-question panel is used) and the card says why. If you press **Stop** while it is designing, **Continue** or your next question designs the team again.
 - Members that would run on a CLI that isn't signed in are moved to the lead agent's CLI.
-- Editing your description (see [Copying, editing and retrying](#copying-editing-and-retrying)) designs the team again, to be confirmed again — unless you changed the team after it was designed, in which case your team answers.
+- Editing a question (see [Copying, editing and retrying](#copying-editing-and-retrying)) designs its team again (unless the edit @mentions members, who then answer), to be confirmed again unless you use the lead agent's team without asking.
+- **No, keep the current team** on the card turns the design down: the team you had answers instead (not offered for a first question, or when the lead agent kept the team). Until you confirm or decline, the conversation keeps its current team: **↻ Retry** or editing an earlier message still uses it (and drops the waiting design). **Team settings** shows the waiting design while it waits, and saving there uses it as you edited it.
+- When the team has a Grok member and Grok doesn't trust the working directory, the card says so before you confirm, with **Trust this folder**.
 
 ### Templates
 
+Templates are where you design teams; the lead agent picks, adapts or replaces them for each question. The built-in ones:
+
 | Template | Mode | Team |
 | --- | --- | --- |
-| Architect → Builder → Reviewer | Relay, edit | Claude plans, Codex implements, Grok reviews; they hand off with `@` |
-| Three-way debate | Roundtable ×2, read-only | Proposer, pragmatist and skeptic — for design and technology choices |
-| Parallel comparison | Parallel, read-only | All three solve the same problem independently |
-| General-question panel | Roundtable, read-only | Analyst → Critic → Synthesizer; for any question, not just code |
-| Pair programming + QA | Roundtable, edit | Navigator guides, Driver codes, QA tests |
+| Architect → Builder → Reviewer | Relay | Claude plans, Codex implements, Grok reviews; they hand off with `@` |
+| Three-way debate | Roundtable ×2 | Proposer, pragmatist and skeptic — for design and technology choices |
+| Parallel comparison | Parallel | All three solve the same problem independently |
+| General-question panel | Roundtable | Analyst → Critic → Synthesizer; for any question, not just code |
+| Pair programming + QA | Roundtable | Navigator guides, Driver codes, QA tests |
 
-Choosing a template fills in the team below; you can change anything, then save the result with **Save as template**. Saved templates can be deleted with ×. Built-in templates follow the UI language.
+Click a template (or **＋ New template**) to open it in a dialog: its **name**, a **description** (the lead agent reads it when it picks a template, so say what the team is good for), its **members** (see [Team members](#team-members)) and how they take turns (mode, and rounds or hand-offs; see [Conversation rules](#conversation-rules)). Your own templates are saved in place with **Save template** (once you have changed something) and deleted with ×. Built-in templates can't be changed, but once you have changed something, **Save as my template** keeps your adjusted copy. **＋ New template** starts from a blank team: one member for each CLI that is ready to use, with empty roles. Closing the dialog with changes not saved asks first. A template has no working directory or permission: those belong to the conversation. Built-in templates follow the UI language.
 
 ### Team members
 
@@ -270,7 +275,7 @@ After you apply one result, the other agents' results are marked as out of date,
 
 ### Editing the team mid-chat
 
-Click **Team settings** in the header to change roles, models, effort, mode, permission or working directory. Changes apply from the next turn. Changing an agent's CLI makes that agent start a new session and re-read the chat history. Settings can't be saved while the team is replying.
+Click **Team settings** in the header to change roles, models, effort, mode, permission or working directory. Changes apply from the next turn. Changing an agent's CLI makes that agent start a new session and re-read the chat history. Settings can't be saved while the team is replying. The members shown are the **current team**: the lead agent may change it at your next question (see [Auto team](#auto-team)). Here you can also tick or untick **Use the lead agent's team without asking me**.
 
 ### Schedules
 
@@ -282,7 +287,7 @@ Click **Team settings** in the header to change roles, models, effort, mode, per
 - **Missed times** — Harness Relay only sends while it is running. A time missed while it was closed or the computer slept is **skipped**, with a note in the chat, or **sent once when it starts** (only once, however many were missed).
 - **On** — untick it to pause the schedule without deleting it.
 
-The header shows the schedule (point at it for the next time), and the sidebar shows a clock next to the conversation; both turn amber when the last time was not sent. A message the schedule sent is marked **Scheduled**. A scheduled message waits while the team is replying, like one you send then; it is held back (with a note) while an agent waits for your answer (it never counts as your answer), while the team is still to be confirmed, or while the previous scheduled message is still waiting for the team. If the team was stopped with a scheduled message still waiting, it goes out at the next time. When another conversation is changing the same folder, it is tried again for up to 30 minutes. If you answer an agent's question while a scheduled message waits, your answer goes first and the scheduled message follows; if it is for an agent who does not speak in that run, it then gets a run of its own, which refuses approvals like any scheduled run unless the schedule says to ask. **Run once now** sends it right away to try it out; **Delete schedule** removes it. A conversation has one schedule, and you need a confirmed team to turn it on. With a schedule on, **Team settings** reminds you that your changes apply to its runs, and warns when the team has full access.
+The header shows the schedule (point at it for the next time), and the sidebar shows a clock next to the conversation; both turn amber when the last time was not sent. A message the schedule sent is marked **Scheduled**. A scheduled message waits while the team is replying, like one you send then; it is held back (with a note) while an agent waits for your answer (it never counts as your answer), while the team is still to be confirmed, or while the previous scheduled message is still waiting for the team. If the team was stopped with a scheduled message still waiting, it goes out at the next time. When another conversation is changing the same folder, it is tried again for up to 30 minutes. If you answer an agent's question while a scheduled message waits, your answer goes first and the scheduled message follows; if it is for an agent who does not speak in that run, it then gets a run of its own, which refuses approvals like any scheduled run unless the schedule says to ask. **Run once now** sends it right away to try it out; **Delete schedule** removes it. A conversation has one schedule, and you need a confirmed team to turn it on. Scheduled messages go to the current team: the lead agent doesn't design a team for them, since nobody may be there to confirm it. With a schedule on, **Team settings** reminds you that your changes apply to its runs, and warns when the team has full access.
 
 ### Browsing files
 
@@ -314,7 +319,7 @@ The sidebar lists conversations in their [groups](#groups), newest first, each w
 | Badge | Meaning |
 | --- | --- |
 | **Needs you** (orange) | An agent is waiting for your approval. |
-| **Confirm the team** (orange) | The lead agent designed a team; confirm it, then ask your first question ([Auto team](#auto-team)). |
+| **Confirm the team** (orange) | The lead agent designed a team for your question; confirm it and the team answers ([Auto team](#auto-team)). |
 | **Replying** (blue, pulsing) | The team is working. |
 | **New reply** (green, bold title) | It finished while you were looking at something else. |
 | **Error** (red) | The last reply ended with an error you haven't looked at yet. |
@@ -342,7 +347,7 @@ Click **Search** under **New chat** (or the magnifier in the corner of a collaps
 - In relay mode, say explicitly whom to hand off to and when ("when done, list changed files and `@Reviewer`").
 - Put the final say with one agent ("you speak last and give the user the final answer").
 - To compare several implementations, use **parallel** mode with edit permission: every agent gets its own copy and you apply the one you like. For a plan → build → review flow, use **relay** so each agent builds on the previous one's changes.
-- Not sure? Start with **Auto team**, and save the designs that work well as templates.
+- Save the teams the lead agent designed that work well as templates, and give each of your templates a description: the lead agent reads it when it picks one.
 
 ## 6. Where data is stored
 
@@ -355,7 +360,7 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | Agent shows *Not signed in* | Sign in from Settings & sign-in, or set an API key. Then click **Check again**. |
 | *Command not found* | Install the CLI, or set **Executable** under the provider's **Default model and reasoning effort** section in Settings. |
 | A reply ends with an error box | Read the message: it is the CLI's own error (rate limits, auth, invalid model…). Fix it and press **Continue** or resend. |
-| Auto team always falls back to the General-question panel | The card says why. Check that the lead agent's CLI is signed in (Settings → Lead agent), or pick another lead agent. |
+| Auto team always keeps the current team, or falls back to the General-question panel | The card says why. Check that the lead agent's CLI is signed in (Settings → Lead agent), or pick another lead agent. |
 | Agent seems to have forgotten the conversation | If its CLI session could not be resumed, Harness Relay automatically starts a fresh session with the full history; this is expected after changing the working directory or the agent's CLI. |
 | Model list is empty or outdated | Click **Check again** on the Settings page to refresh; you can always pick **Custom…** and type a model id. |
 | "Is changing" when sending | Another conversation is writing to the same directory. Wait until it finishes, stop it, or use parallel / read-only mode. |

@@ -617,7 +617,21 @@ describe('a team design waiting for confirmation', () => {
     expect((await app.request(`/api/conversations/${conv.id}/messages/nope/confirm-plan`, json('POST', {}))).status).toBe(404);
   });
 
-  it('is confirmed by a team set by hand', async () => {
+  it('can be declined: the current team stays and answers', async () => {
+    const conv = await waiting();
+    const live = store.get(conv.id)!;
+    live.messages[1]!.plan!.agents = [{ id: 'z', name: 'Zed', provider: 'claude', role: '' }];
+    const res = await app.request(`/api/conversations/${conv.id}/messages/plan/decline-plan`, json('POST', {}));
+    expect(res.status).toBe(200);
+    expect(live.messages[1]!.plan).toMatchObject({ declinedAt: expect.any(Number) });
+    expect(live.agents.map((a) => a.name)).toEqual(['Alice']);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(true));
+    orchestrator.stop(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+    expect((await app.request(`/api/conversations/${conv.id}/messages/nope/decline-plan`, json('POST', {}))).status).toBe(404);
+  });
+
+  it('is confirmed by a team set by hand, which then answers', async () => {
     const conv = await waiting();
     const res = await app.request(
       `/api/conversations/${conv.id}`,
@@ -625,6 +639,33 @@ describe('a team design waiting for confirmation', () => {
     );
     expect(res.status).toBe(200);
     expect(store.get(conv.id)!.messages[1]!.plan!.awaitingConfirmation).toBeUndefined();
+    // The team set by hand is the one that answers, not the design.
+    expect(store.get(conv.id)!.agents.map((a) => a.name)).toEqual(['Zed']);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(true));
+    orchestrator.stop(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+  });
+
+  it('keeps auto team on when the team or settings are changed by hand, and saves whether to ask', async () => {
+    const res = await app.request(
+      '/api/conversations',
+      json('POST', { settings: { autoTeam: true, mode: 'roundtable', permission: 'read-only', cwd: project } }),
+    );
+    const conv = (await res.json()) as Conversation;
+    expect(conv.settings).toMatchObject({ autoTeam: true });
+    expect(conv.settings.autoConfirm).toBeUndefined();
+    const patch = (body: Record<string, unknown>) => app.request(`/api/conversations/${conv.id}`, json('PATCH', body));
+
+    // The settings, without autoTeam (the drawer may leave it out): it stays on; autoConfirm follows.
+    const patched = (await (await patch({ settings: { ...conv.settings, autoTeam: undefined, autoConfirm: true } })).json()) as Conversation;
+    expect(patched.settings).toMatchObject({ autoTeam: true, autoConfirm: true });
+    // A team set by hand does not switch it off either.
+    const team = (await (await patch({ agents: [{ name: 'Zed', provider: 'claude', role: '' }] })).json()) as Conversation;
+    expect(team.settings).toMatchObject({ autoTeam: true, autoConfirm: true });
+    // Nor can an edit switch it on in a conversation without it.
+    const fixed = await createConversation({ permission: 'read-only' });
+    const on = await app.request(`/api/conversations/${fixed.id}`, json('PATCH', { settings: { ...fixed.settings, autoTeam: true } }));
+    expect(((await on.json()) as Conversation).settings.autoTeam).toBeUndefined();
   });
 });
 
@@ -1103,6 +1144,10 @@ describe('schedules', () => {
     expect(refused.status).toBe(409);
     expect(((await refused.json()) as { error: string }).error).toMatch(/Confirm the team/);
     expect((await put(auto.id, { ...valid, enabled: false })).status).toBe(200); // kept off until there is a team
+
+    // Once it has a team, the current team takes the scheduled messages.
+    store.get(auto.id)!.agents = [{ id: 'z', name: 'Zed', provider: 'claude', role: '' }];
+    expect((await put(auto.id, valid)).status).toBe(200);
   });
 
   it('runs the schedule now: sent, then waiting while the team replies, then held back', async () => {

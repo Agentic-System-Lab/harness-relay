@@ -477,16 +477,16 @@
       <section class="section" id="teams" aria-labelledby="teams-title">
         <div class="wrap teams-grid">
           <div class="teams-copy">
-            <h2 id="teams-title">Design the team, or let the lead agent do it</h2>
+            <h2 id="teams-title">A team for every question</h2>
             <p>
-              <strong>Design it yourself.</strong> Give each agent a position (architect, builder, reviewer, skeptic),
-              pick its model and reasoning effort, and set the speaking order. Up to eight members, several on the same
-              CLI if you like. Roles can change mid-chat.
+              <strong>The lead agent picks it.</strong> For each new question, it reads the question, the conversation so
+              far, the current team and every template in full. Then it keeps the team, uses a template as it is, adapts
+              one, or designs a new team, and says why. You confirm before the team answers, or let it answer right away.
             </p>
             <p>
-              <strong>Or use Auto team.</strong> Describe what you need. The lead agent reads it with every template in
-              full, then uses one as it is, adapts one, or designs a new team, and says why. You confirm before anyone
-              answers, and can keep its team as a template.
+              <strong>You design the templates.</strong> Give each agent a position (architect, builder, reviewer,
+              skeptic), pick its model and reasoning effort, and set the speaking order. Up to eight members, several on
+              the same CLI if you like. A team the lead agent designed can be kept as a template in one click.
             </p>
           </div>
           <div class="picker">
@@ -494,41 +494,41 @@
             <div class="tpl auto">
               <span class="members"><span class="spark" aria-hidden="true"><svg><use href="#i-spark" /></svg></span></span>
               <span class="tpl-title">Auto team <span class="chip">You confirm first</span></span>
-              <p>The lead agent picks or designs the team for what you describe.</p>
+              <p>For each question, the lead agent picks a template, adapts one, or designs the team.</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
                 ><span class="av t-claude">A</span><span class="av t-codex">B</span><span class="av t-grok">R</span></span
               >
-              <span class="tpl-title">Architect → Builder → Reviewer <span class="chip">Relay · Edit</span></span>
+              <span class="tpl-title">Architect → Builder → Reviewer <span class="chip">Relay</span></span>
               <p>Claude plans, Codex builds, Grok reviews, handing off with @mentions.</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
                 ><span class="av t-claude">P</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
               >
-              <span class="tpl-title">Three-way debate <span class="chip">Roundtable × 2 · Read-only</span></span>
+              <span class="tpl-title">Three-way debate <span class="chip">Roundtable × 2</span></span>
               <p>Propose, challenge, converge. Good for technology choices and design discussions.</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
                 ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
               >
-              <span class="tpl-title">Parallel comparison <span class="chip">Parallel · Read-only</span></span>
+              <span class="tpl-title">Parallel comparison <span class="chip">Parallel</span></span>
               <p>Three agents solve the same problem independently at the same time, for easy comparison.</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
                 ><span class="av t-claude">A</span><span class="av t-grok">C</span><span class="av t-codex">S</span></span
               >
-              <span class="tpl-title">General-question panel <span class="chip">Roundtable · Read-only</span></span>
+              <span class="tpl-title">General-question panel <span class="chip">Roundtable</span></span>
               <p>Not just code: analyse, fact-check and combine into one clear answer.</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
                 ><span class="av t-claude">N</span><span class="av t-codex">D</span><span class="av t-grok">Q</span></span
               >
-              <span class="tpl-title">Pair programming + QA <span class="chip">Roundtable · Edit</span></span>
+              <span class="tpl-title">Pair programming + QA <span class="chip">Roundtable</span></span>
               <p>The Navigator directs, the Driver writes the code, QA writes tests and verifies.</p>
             </div>
           </div>
@@ -724,7 +724,7 @@
               <h3>Sign in, then chat</h3>
               <p>
                 Open <b>http://127.0.0.1:8787</b>. Under Settings &amp; sign-in, check that each agent is signed in. Then
-                New chat: choose Auto team, design your own, or pick a template.
+                New chat: choose the working directory and permission, and ask your first question.
               </p>
             </li>
             <li>

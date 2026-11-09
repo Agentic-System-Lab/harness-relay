@@ -40,6 +40,7 @@ interface ConversationRow {
   permission: Permission;
   cwd: string;
   auto_team: number;
+  auto_confirm: number;
   approvals: string | null;
   allow_rules: string | null;
   queue: string | null;
@@ -519,6 +520,7 @@ export class Store {
         permission: c.permission,
         cwd: c.cwd,
         ...(c.auto_team ? { autoTeam: true } : {}),
+        ...(c.auto_confirm ? { autoConfirm: true } : {}),
         ...(c.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
       },
       messages,
@@ -537,8 +539,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd, auto_team,
-                                     approvals, allow_rules, pause)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                     auto_confirm, approvals, allow_rules, pause)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           conv.id,
@@ -551,6 +553,7 @@ export class Store {
           s.permission,
           s.cwd,
           s.autoTeam ? 1 : 0,
+          s.autoConfirm ? 1 : 0,
           nul(s.approvals),
           conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
           conv.pause ? JSON.stringify(conv.pause) : null,
@@ -568,7 +571,7 @@ export class Store {
       this.db
         .prepare(
           `UPDATE conversations SET title = ?, updated_at = ?, mode = ?, rounds = ?, max_hops = ?, permission = ?, cwd = ?,
-             auto_team = ?, approvals = ?, allow_rules = ?, pause = ?
+             auto_team = ?, auto_confirm = ?, approvals = ?, allow_rules = ?, pause = ?
            WHERE id = ?`,
         )
         .run(
@@ -580,6 +583,7 @@ export class Store {
           s.permission,
           s.cwd,
           s.autoTeam ? 1 : 0,
+          s.autoConfirm ? 1 : 0,
           nul(s.approvals),
           conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
           conv.pause ? JSON.stringify(conv.pause) : null,

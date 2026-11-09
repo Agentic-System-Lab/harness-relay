@@ -77,8 +77,11 @@ export function planHeadline(plan: TeamPlan, t: Messages): string {
       return t.plan.custom(name);
     case 'adapted':
       return t.plan.adapted(name, plan.basedOn?.name ?? '');
+    case 'kept':
+      return t.plan.kept;
     case 'fallback':
-      return t.plan.fallback(name);
+      // Without a template, the current team was kept.
+      return plan.presetId ? t.plan.fallback(name) : t.plan.kept;
     default:
       return t.plan.template(name);
   }
@@ -90,7 +93,10 @@ export function conversationMarkdown(conv: Conversation, t: Messages): string {
   for (const m of conv.messages) {
     const text = closeFences(messageText(m));
     if (m.author.kind === 'system') {
-      if (m.plan?.status === 'ready') blocks.push(`*${t.plan.title}: ${planHeadline(m.plan, t)}*`);
+      // A declined design did not answer: say so.
+      if (m.plan?.status === 'ready') {
+        blocks.push(`*${t.plan.title}: ${planHeadline(m.plan, t)}${m.plan.declinedAt ? ` (${t.plan.declined})` : ''}*`);
+      }
       else if (text) blocks.push(`*${text}*`);
       continue;
     }

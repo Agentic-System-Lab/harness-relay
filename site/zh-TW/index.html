@@ -478,13 +478,13 @@
       <section class="section" id="teams" aria-labelledby="teams-title">
         <div class="wrap teams-grid">
           <div class="teams-copy">
-            <h2 id="teams-title">自己設計團隊，或交給首席 agent</h2>
+            <h2 id="teams-title">每個問題都有適合的團隊</h2>
             <p>
-              <strong>自己設計。</strong>替每個 agent 決定定位（架構師、實作者、審查者、魔鬼代言人），選擇模型與推理強度，並安排發言順序。最多八位成員，同一個
-              CLI 也可以有好幾位；對話中也能隨時修改角色。
+              <strong>首席 agent 負責挑。</strong>每個新問題，它都會讀問題、先前的對話、目前的團隊與所有範本的完整內容，再決定沿用團隊、直接套用範本、依範本調整，或從頭設計新團隊，並說明原因。你確認後團隊才開始回答，也可以設定為直接採用。
             </p>
             <p>
-              <strong>或使用自動組隊。</strong>描述你的需求，首席 agent 會讀它與所有範本的完整內容，再決定直接套用範本、依範本調整，或從頭設計新團隊，並說明原因。你確認後才有人開始回答，它設計的團隊也能存成範本。
+              <strong>範本由你設計。</strong>替每個 agent 決定定位（架構師、實作者、審查者、魔鬼代言人），選擇模型與推理強度，並安排發言順序。最多八位成員，同一個
+              CLI 也可以有好幾位；首席 agent 設計的團隊也能一鍵存成範本。
             </p>
           </div>
           <div class="picker">
@@ -492,41 +492,41 @@
             <div class="tpl auto">
               <span class="members"><span class="spark" aria-hidden="true"><svg><use href="#i-spark" /></svg></span></span>
               <span class="tpl-title">自動組隊 <span class="chip">你先確認</span></span>
-              <p>首席 agent 依你描述的需求，挑選或設計團隊。</p>
+              <p>每個問題，首席 agent 都會挑選範本、依範本調整，或設計團隊。</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
                 ><span class="av t-claude">A</span><span class="av t-codex">B</span><span class="av t-grok">R</span></span
               >
-              <span class="tpl-title">架構師 → 實作者 → 審查者 <span class="chip">接力 · 可編輯</span></span>
+              <span class="tpl-title">架構師 → 實作者 → 審查者 <span class="chip">接力</span></span>
               <p>Claude 規劃、Codex 實作、Grok 審查，用 @ 互相交棒。</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
                 ><span class="av t-claude">P</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
               >
-              <span class="tpl-title">三方辯論 <span class="chip">圓桌 × 2 · 唯讀</span></span>
+              <span class="tpl-title">三方辯論 <span class="chip">圓桌 × 2</span></span>
               <p>提案、挑戰、收斂，適合技術選型與設計討論。</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
                 ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
               >
-              <span class="tpl-title">平行解題比較 <span class="chip">平行 · 唯讀</span></span>
+              <span class="tpl-title">平行解題比較 <span class="chip">平行</span></span>
               <p>三個 agent 同時、獨立解同一個問題，方便比較。</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
                 ><span class="av t-claude">A</span><span class="av t-grok">C</span><span class="av t-codex">S</span></span
               >
-              <span class="tpl-title">一般問題智囊團 <span class="chip">圓桌 · 唯讀</span></span>
+              <span class="tpl-title">一般問題智囊團 <span class="chip">圓桌</span></span>
               <p>不限寫程式：分析、查核、整合成一個清楚的答案。</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
                 ><span class="av t-claude">N</span><span class="av t-codex">D</span><span class="av t-grok">Q</span></span
               >
-              <span class="tpl-title">結對程式 + QA <span class="chip">圓桌 · 可編輯</span></span>
+              <span class="tpl-title">結對程式 + QA <span class="chip">圓桌</span></span>
               <p>Navigator 指路、Driver 寫碼、QA 寫測試並驗證。</p>
             </div>
           </div>
@@ -704,7 +704,7 @@
             <li>
               <h3>登入，然後開始聊天</h3>
               <p>
-                打開 <b>http://127.0.0.1:8787</b>，在「設定與登入」確認每個 agent 都已登入，再按「新對話」：選擇自動組隊、自行設計，或挑一個範本。
+                打開 <b>http://127.0.0.1:8787</b>，在「設定與登入」確認每個 agent 都已登入，再按「新對話」：選好工作目錄與權限，直接提出第一個問題。
               </p>
             </li>
             <li>

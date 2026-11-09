@@ -88,15 +88,13 @@ describe("Grok's folder trust", () => {
   });
 });
 
-describe('asking about trust when a chat starts', () => {
+describe('saying how Grok trusts the folder before a team is confirmed', () => {
   const grok = { id: 'g', name: 'G', provider: 'grok' as const, role: '' };
   const claude = { id: 'c', name: 'C', provider: 'claude' as const, role: '' };
 
   it('asks only for a team with a Grok member and a folder', () => {
-    expect(asksGrokTrust({ agents: [claude, grok], settings: { cwd: '/p' } })).toBe(true);
-    expect(asksGrokTrust({ agents: [claude], settings: { cwd: '/p' } })).toBe(false);
-    expect(asksGrokTrust({ agents: [grok], settings: { cwd: '  ' } })).toBe(false);
-    // An auto team has no members yet: the lead agent picks them later.
-    expect(asksGrokTrust({ agents: [], settings: { cwd: '/p', autoTeam: true } })).toBe(false);
+    expect(asksGrokTrust([claude, grok], '/p')).toBe(true);
+    expect(asksGrokTrust([claude], '/p')).toBe(false);
+    expect(asksGrokTrust([grok], '  ')).toBe(false);
   });
 });

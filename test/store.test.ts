@@ -92,6 +92,24 @@ describe('Store (SQLite)', () => {
     expect(loaded).toEqual({ ...conv, agentState: { a1: { provider: 'claude', sessionId: 'sess-1', seen: ['m1', 'm2'] } } });
   });
 
+  it('keeps auto team and whether to ask, and turns auto team on for conversations from before it was per question', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    conv.settings = { ...conv.settings, autoTeam: true, autoConfirm: true };
+    store.create(conv);
+    const fixed = { ...sampleConversation(), id: 'conv-2' };
+    store.create(fixed);
+    expect(new Store(reopen()).get(conv.id)!.settings).toMatchObject({ autoTeam: true, autoConfirm: true });
+    expect(new Store(db).get(fixed.id)!.settings.autoTeam).toBeUndefined();
+
+    // A database from before schema version 13: every conversation gets auto team, none skips asking.
+    db.exec('ALTER TABLE conversations DROP COLUMN auto_confirm; PRAGMA user_version = 12;');
+    const migrated = new Store(reopen());
+    expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
+    expect(migrated.get(fixed.id)!.settings.autoConfirm).toBeUndefined();
+    expect(migrated.get(conv.id)!.settings.autoConfirm).toBeUndefined();
+  });
+
   it('keeps message order and updates a streaming message in place', () => {
     const store = new Store(db);
     const conv = sampleConversation();

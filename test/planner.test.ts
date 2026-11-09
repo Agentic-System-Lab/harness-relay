@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { planSavable, type ProviderModels, type TeamPreset } from '../src/shared/types';
+import { planSavable, type AgentConfig, type ChatMessage, type ProviderModels, type TeamPreset } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
-import { buildPlannerPrompt, decidePlan, fallbackPlan, fitAgents, parsePlanReply, sameTeam, type PlannerContext } from '../src/server/planner';
+import {
+  buildPlannerPrompt,
+  decidePlan,
+  fallbackPlan,
+  fitAgents,
+  historyForLead,
+  keepMemberIds,
+  parsePlanReply,
+  sameTeam,
+  type PlannerContext,
+} from '../src/server/planner';
 import { builtinPresets } from '../src/server/presets';
 
 const catalog: ProviderModels[] = [
@@ -160,5 +170,96 @@ describe('lead agent reply', () => {
     expect(prompt).toContain('"id": "builtin-general"');
     expect(prompt).toContain('"read-only"');
     expect(prompt).toContain('```json');
+  });
+});
+
+describe('a question in a conversation', () => {
+  const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'read-only' as const, cwd: '/tmp' };
+  const team: AgentConfig[] = [
+    { id: 'a1', name: 'Alice', provider: 'claude', role: 'Research it.' },
+    { id: 'b1', name: 'Bob', provider: 'codex', role: 'Check it.', model: 'gpt-x' },
+  ];
+  const current = { agents: team, settings: { mode: 'relay' as const, rounds: 1, maxHops: 6 } };
+
+  it('shows the lead the conversation so far and the current team, and lets it keep that team', () => {
+    const prompt = buildPlannerPrompt('And functors?', settings, ctx, { history: '[User]: What is a monad?', current });
+    expect(prompt).toContain('The user asked a new question in this conversation');
+    expect(prompt).toContain('<conversation>\n[User]: What is a monad?\n</conversation>');
+    const json = prompt.slice(prompt.indexOf('<current_team>') + '<current_team>'.length, prompt.indexOf('</current_team>'));
+    expect(JSON.parse(json)).toEqual({
+      mode: 'relay',
+      maxHops: 6,
+      agents: [
+        { name: 'Alice', provider: 'claude', role: 'Research it.' },
+        { name: 'Bob', provider: 'codex', model: 'gpt-x', role: 'Check it.' },
+      ],
+    });
+    expect(prompt).toContain('1. "keep"');
+    expect(prompt).toContain('{"choice": "keep"');
+    expect(prompt).toContain('The user reviews your team');
+    expect(buildPlannerPrompt('Q', { ...settings, autoConfirm: true }, ctx, { current })).toContain('Your team answers the question right away.');
+  });
+
+  it('keeps the current team as it is, ids included, and offers no saving', () => {
+    const d = withLang('en', () => decidePlan({ choice: 'keep' }, ctx, lead, current));
+    expect(d).toMatchObject({ source: 'kept', name: 'Alice · Bob', settings: { mode: 'relay', rounds: 1, maxHops: 6 } });
+    expect(d.reason).toContain('current team');
+    expect(d.agents).toEqual(team);
+    expect(d.agents[0]).not.toBe(team[0]);
+    expect(planSavable(d)).toBe(false);
+    // Nothing to keep in a new conversation.
+    expect(() => decidePlan({ choice: 'keep' }, ctx, lead)).toThrow();
+  });
+
+  it('keeps the current team when planning fails, and the general template when there is none', () => {
+    const d = withLang('en', () => fallbackPlan(ctx, lead, 'no JSON', current));
+    expect(d).toMatchObject({ source: 'fallback', agents: team });
+    expect(d.presetId).toBeUndefined();
+    expect(d.reason).toContain('keeping the current team');
+    expect(fallbackPlan(ctx, lead, 'no JSON').presetId).toBe('builtin-general');
+  });
+
+  it('lets members who stay on keep their ids', () => {
+    const next: AgentConfig[] = [
+      { id: 'n1', name: 'alice', provider: 'claude', role: 'New role.' },
+      { id: 'n2', name: 'Bob', provider: 'claude', role: 'Another CLI.' },
+      { id: 'n3', name: 'Carol', provider: 'grok', role: '' },
+    ];
+    expect(keepMemberIds(next, team).map((a) => a.id)).toEqual(['a1', 'n2', 'n3']);
+    expect(keepMemberIds(next, team)[0]!.role).toBe('New role.');
+  });
+
+  it('gives the lead the conversation in short: what was said, not tool calls, notes or plans', () => {
+    const msg = (m: Partial<ChatMessage> & Pick<ChatMessage, 'author'>): ChatMessage => ({
+      id: Math.random().toString(36),
+      createdAt: 0,
+      status: 'done',
+      parts: [],
+      ...m,
+    });
+    const text = (t: string) => [{ type: 'text' as const, text: t }];
+    const history = historyForLead([
+      msg({ author: { kind: 'user' }, parts: [...text('Look at this'), { type: 'attachment', id: 'f', name: 'log.txt', mimeType: 'text/plain', size: 3 }] }),
+      msg({ author: { kind: 'system' }, parts: text('A note'), plan: { status: 'ready', lead } }),
+      msg({
+        author: { kind: 'agent', agentId: 'a1' },
+        agentName: 'Alice',
+        provider: 'claude',
+        parts: [{ type: 'tool', id: 't', name: 'Read', detail: 'secret.txt', status: 'done' }, ...text('Found it.')],
+      }),
+      msg({ author: { kind: 'agent', agentId: 'b1' }, agentName: 'Bob', provider: 'codex', parts: text('[PASS]'), passed: true }),
+      msg({ author: { kind: 'agent', agentId: 'b1' }, agentName: 'Bob', provider: 'codex', parts: text('x'.repeat(5000)) }),
+    ]);
+    expect(history.split('\n\n')).toEqual([
+      '[User]: Look at this\n(Attached files: log.txt)',
+      '[@Alice (Claude Code)]: Found it.',
+      `[@Bob (Codex)]: ${'x'.repeat(1499)}…`,
+    ]);
+    // A long conversation: the latest messages are kept.
+    const long = historyForLead(Array.from({ length: 40 }, (_, i) => msg({ author: { kind: 'user' }, parts: text(`${i} ${'y'.repeat(600)}`) })));
+    expect(long.startsWith('(earlier messages left out)')).toBe(true);
+    expect(long).toContain('[User]: 39 ');
+    expect(long).not.toContain('[User]: 0 ');
+    expect(long.length).toBeLessThan(13000);
   });
 });

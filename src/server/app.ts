@@ -414,7 +414,7 @@ export function createApp({
   app.post('/api/conversations', async (c) => {
     const b = await body<Partial<Conversation> & { createCwd?: unknown }>(c);
     const now = Date.now();
-    // Auto team: the lead agent designs the team from the first message.
+    // Auto team: the lead agent designs the team for each question, starting with the first.
     // The agents first: creating a missing working directory is a side effect.
     const agents = b.settings?.autoTeam === true ? [] : validateAgents(b.agents);
     const s = validateSettings(b.settings, settings.defaultCwd, b.createCwd === true);
@@ -461,16 +461,18 @@ export function createApp({
       const agents = b.agents ? validateAgents(b.agents) : conv.agents;
       // After the agents: creating a missing working directory is a side effect.
       const next = b.settings ? validateSettings(b.settings, conv.settings.cwd, b.createCwd === true) : { ...conv.settings };
-      // Edits never switch auto team on; a team set by hand replaces the lead agent's pending design.
-      next.autoTeam = b.agents ? undefined : conv.settings.autoTeam;
+      // Edits never switch auto team on or off; a team set by hand replaces the lead agent's pending
+      // design (the next question is designed again).
+      if (conv.settings.autoTeam) next.autoTeam = true;
+      else delete next.autoTeam;
       if (b.settings) await orchestrator.prepareWorkspace({ ...conv, settings: next });
       conv.agents = agents;
       conv.settings = next;
       if (b.agents) confirmed = orchestrator.confirmPendingPlan(conv);
       return save();
     });
-    // The team set by hand answers the question written while its design waited.
-    if (confirmed) orchestrator.startQueued(conv);
+    // The team set by hand answers the question its design was for.
+    if (confirmed) orchestrator.startConfirmed(conv);
     return res;
   });
 
@@ -490,8 +492,8 @@ export function createApp({
     const conv = getConv(c.req.param('id'));
     const now = Date.now();
     const update = validateSchedule(await body<unknown>(c), now);
-    // A team still being designed, or waiting for confirmation, could not take the message.
-    if (update.enabled && (conv.settings.autoTeam || conv.agents.length === 0 || pendingPlan(conv.messages))) {
+    // Scheduled messages go to the current team: there must be one, and not one waiting for confirmation.
+    if (update.enabled && (conv.agents.length === 0 || pendingPlan(conv.messages))) {
       throw new HttpError(409, t().scheduleNeedsTeam);
     }
     const prev = conv.schedule;
@@ -687,9 +689,15 @@ export function createApp({
     return c.json({ ok: true }, 202);
   });
 
-  // Accept the team the lead agent designed (auto team); then the user asks their first question.
+  // Accept the team the lead agent designed for a question (auto team); that team then answers it.
   app.post('/api/conversations/:id/messages/:messageId/confirm-plan', async (c) => {
     orchestrator.confirmPlan(c.req.param('id'), c.req.param('messageId'));
+    return c.json({ ok: true });
+  });
+
+  // Decline it: the current team stays, and answers the question.
+  app.post('/api/conversations/:id/messages/:messageId/decline-plan', async (c) => {
+    orchestrator.declinePlan(c.req.param('id'), c.req.param('messageId'));
     return c.json({ ok: true });
   });
 

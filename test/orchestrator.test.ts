@@ -452,47 +452,70 @@ describe('auto team', () => {
     reason: 'Two views beat one.',
   });
 
-  it('lets the lead agent design the team from the request; the team answers once the user confirmed it', async () => {
+  /** The conversation after its first question was designed for, confirmed and answered by the research pair. */
+  const answered = async () => {
+    const conv = autoConversation();
+    conv.agents = [];
+    leadReply = customTeam;
+    await orchestrator.send(conv.id, 'I want to understand functional programming');
+    await finish(conv.id);
+    orchestrator.confirmPlan(conv.id, conv.messages.find((m) => m.plan)!.id);
+    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+    calls = [];
+    return conv;
+  };
+  const plans = (conv: Conversation) => conv.messages.filter((m) => m.plan);
+
+  it('lets the lead agent design the team for the question; the team answers it once the user confirmed it', async () => {
     const conv = autoConversation();
     conv.agents = [];
     leadReply = 'Here is my choice:\n```json\n' + customTeam + '\n```';
     await orchestrator.send(conv.id, 'I want to understand functional programming');
     await finish(conv.id);
 
-    // Only the lead agent ran: the request is not a question for the team.
+    // Only the lead agent ran, for a new conversation: nothing to keep, no history.
     expect(calls.map((c) => c.name)).toEqual(['lead']);
-    expect(calls[0]!.prompt).toContain('<request>\nI want to understand functional programming\n</request>');
+    expect(calls[0]!.prompt).toContain('<question>\nI want to understand functional programming\n</question>');
+    expect(calls[0]!.prompt).toContain('The user started a new conversation');
+    expect(calls[0]!.prompt).not.toContain('<conversation>');
+    expect(calls[0]!.prompt).not.toContain('"choice": "keep"');
     const [request, plan] = conv.messages;
     expect(conv.messages).toHaveLength(2);
     expect(request!.author.kind).toBe('user');
     expect(plan!.plan).toMatchObject({ status: 'ready', source: 'custom', name: 'Research pair', reason: 'Two views beat one.', awaitingConfirmation: true });
     expect(plan!.meta?.costUsd).toBe(0.01);
     // Grok is not available here, so Bob runs on the lead's CLI.
-    expect(conv.agents.map((a) => [a.name, a.provider])).toEqual([
+    expect(plan!.plan!.agents!.map((a) => [a.name, a.provider])).toEqual([
       ['Alice', 'claude'],
       ['Bob', 'claude'],
     ]);
-    expect(conv.settings.autoTeam).toBeFalsy();
+    // The team is the conversation's once the user confirms it.
+    expect(conv.agents).toEqual([]);
+    // Auto team stays on: the next question is designed too.
+    expect(conv.settings.autoTeam).toBe(true);
 
-    // Nobody answers until the user confirms the team: a question asked meanwhile waits for it.
-    expect(await orchestrator.send(conv.id, 'What is a monad?')).toEqual({ queued: true });
+    // Nobody answers until the user confirms the team: a message written meanwhile waits for it.
+    expect(await orchestrator.send(conv.id, 'Start with monads')).toEqual({ queued: true });
     await expect(orchestrator.send(conv.id, '')).rejects.toThrow(/確認/);
     expect(conv.messages).toHaveLength(2);
     expect(calls.map((c) => c.name)).toEqual(['lead']);
     orchestrator.confirmPlan(conv.id, plan!.id);
     expect(plan!.plan!.awaitingConfirmation).toBeUndefined();
     expect(plan!.plan!.confirmedAt).toEqual(expect.any(Number));
+    expect(conv.agents.map((a) => a.name)).toEqual(['Alice', 'Bob']);
+    expect(new Store(db).get(conv.id)!.agents.map((a) => a.name)).toEqual(['Alice', 'Bob']);
 
-    // Confirming sends it.
+    // Confirming lets the team answer the question, with the message that waited.
     await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2), { timeout: 20_000 });
     await finish(conv.id);
     expect(conv.messages[2]!.author.kind).toBe('user');
-    expect(conv.messages[2]!.queued).toBeUndefined(); // a first question, not one added mid-reply
+    expect(conv.messages[2]!.queued).toBeUndefined(); // written before the team replied, not added mid-reply
     expect(conv.queue).toEqual([]);
     expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
-    // The team sees the request as context, and the question; never the plan.
+    // The team sees the question and what waited; never the plan.
     expect(calls[1]!.prompt).toContain('I want to understand functional programming');
-    expect(calls[1]!.prompt).toContain('What is a monad?');
+    expect(calls[1]!.prompt).toContain('Start with monads');
     expect(calls[1]!.prompt).not.toContain('Research pair');
     expect(agentMessages(conv).map((m) => m.agentName)).toEqual(['Alice', 'Bob']);
 
@@ -503,7 +526,264 @@ describe('auto team', () => {
     const reloaded = new Store(db).get(conv.id)!;
     expect(reloaded.messages[1]!.plan).toMatchObject({ source: 'custom', savedPresetId: preset.id, confirmedAt: plan!.plan!.confirmedAt });
     expect(reloaded.messages[1]!.plan!.awaitingConfirmation).toBeUndefined();
-    expect(reloaded.settings.autoTeam).toBeUndefined();
+    expect(reloaded.settings.autoTeam).toBe(true);
+  });
+
+  it('designs the team for each new question, with the conversation so far, and keeps members who stay on', async () => {
+    const conv = await answered();
+    const [alice, bob] = conv.agents;
+
+    // The lead keeps the team: the same members, who carry on in their sessions.
+    leadReply = JSON.stringify({ choice: 'keep', reason: 'Same topic.' });
+    await orchestrator.send(conv.id, 'And what is a functor?');
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['lead']);
+    const prompt = calls[0]!.prompt;
+    expect(prompt).toContain('The user asked a new question in this conversation');
+    expect(prompt).toContain('<question>\nAnd what is a functor?\n</question>');
+    // What was said before, and the team that answered it.
+    expect(prompt).toContain('[User]: I want to understand functional programming');
+    expect(prompt).toContain('[@Alice (Claude Code)]: Alice done');
+    expect(prompt).toMatch(/<current_team>[\s\S]*"name": "Bob"[\s\S]*<\/current_team>/);
+    expect(prompt).toContain('"choice": "keep"');
+    expect(plans(conv)[1]!.plan).toMatchObject({ source: 'kept', reason: 'Same topic.', awaitingConfirmation: true });
+    expect(conv.agents.map((a) => a.id)).toEqual([alice!.id, bob!.id]);
+
+    orchestrator.confirmPlan(conv.id, plans(conv)[1]!.id);
+    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(4), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(calls.slice(1).map((c) => [c.name, c.sessionId])).toEqual([
+      ['Alice', 'session-Alice'],
+      ['Bob', 'session-Bob'],
+    ]);
+
+    // A new team for the next question: Alice stays on (same name and CLI), Carol joins.
+    calls = [];
+    leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Writers',
+      mode: 'relay',
+      maxHops: 4,
+      agents: [
+        { name: 'alice', provider: 'claude', role: 'Draft it.' },
+        { name: 'Carol', provider: 'claude', role: 'Edit it.' },
+      ],
+      reason: 'A writing job.',
+    });
+    await orchestrator.send(conv.id, 'Now write a blog post about it');
+    await finish(conv.id);
+    // Only the new question is the question; the earlier one is history.
+    expect(calls[0]!.prompt).toContain('<question>\nNow write a blog post about it\n</question>');
+    expect(calls[0]!.prompt).toContain('[User]: And what is a functor?');
+    // Until the user confirms it, the current team stays.
+    expect(conv.agents.map((a) => a.id)).toEqual([alice!.id, bob!.id]);
+    expect(conv.settings.mode).toBe('roundtable');
+    orchestrator.confirmPlan(conv.id, plans(conv)[2]!.id);
+    expect(conv.agents.map((a) => a.name)).toEqual(['alice', 'Carol']);
+    expect(conv.agents[0]!.id).toBe(alice!.id);
+    expect(conv.agents[1]!.id).not.toBe(bob!.id);
+    expect(conv.settings).toMatchObject({ mode: 'relay', maxHops: 4, autoTeam: true });
+    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(5), { timeout: 20_000 });
+    await finish(conv.id);
+    // Relay: the leader answers, and keeps its session.
+    expect(calls.slice(1).map((c) => [c.name, c.sessionId])).toEqual([['alice', 'session-Alice']]);
+  });
+
+  it('keeps the current team while a design waits: the user may decline it, retry or edit an earlier message', async () => {
+    const conv = await answered();
+    const team = conv.agents.map((a) => a.id);
+    const solo = JSON.stringify({ choice: 'custom', name: 'Solo', agents: [{ name: 'Zed', provider: 'claude', role: 'Alone.' }], reason: 'One is enough.' });
+    leadReply = solo;
+    await orchestrator.send(conv.id, 'A small thing');
+    await finish(conv.id);
+    expect(conv.agents.map((a) => a.id)).toEqual(team);
+
+    // Retrying an earlier reply drops the waiting design with what follows; the team that wrote it answers.
+    calls = [];
+    await orchestrator.retry(conv.id, agentMessages(conv)[0]!.id);
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+    expect(plans(conv)).toHaveLength(1);
+    expect(conv.agents.map((a) => a.id)).toEqual(team);
+
+    // Declining keeps the current team, which answers the question.
+    calls = [];
+    await orchestrator.send(conv.id, 'A small thing');
+    await finish(conv.id);
+    const waiting = plans(conv)[1]!;
+    expect(() => orchestrator.declinePlan(conv.id, 'nope')).toThrow(/找不到這份團隊設計/);
+    orchestrator.declinePlan(conv.id, waiting.id);
+    expect(waiting.plan).toMatchObject({ declinedAt: expect.any(Number) });
+    expect(waiting.plan!.awaitingConfirmation).toBeUndefined();
+    expect(waiting.plan!.confirmedAt).toBeUndefined();
+    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(4), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
+    expect(conv.agents.map((a) => a.id)).toEqual(team);
+    // Answered already: confirming it later changes nothing.
+    orchestrator.confirmPlan(conv.id, waiting.id);
+    expect(conv.agents.map((a) => a.id)).toEqual(team);
+
+    // A first question has no team to keep.
+    const fresh = autoConversation();
+    fresh.agents = [];
+    await orchestrator.send(fresh.id, 'Hello');
+    await finish(fresh.id);
+    expect(() => orchestrator.declinePlan(fresh.id, plans(fresh)[0]!.id)).toThrow(/還沒有團隊/);
+  });
+
+  it('lets the current team take an interjection, and an edit that @mentions a member; designs for "stop and ask this instead"', async () => {
+    const conv = await answered();
+    // Written while Bob replies and taken by no turn: the current team answers it in a run of its own.
+    let release!: () => void;
+    gates = { Bob: new Promise<void>((r) => (release = r)) };
+    await orchestrator.send(conv.id, '@Bob say more');
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toEqual([conv.agents[1]!.id]), { interval: 20 });
+    expect(await orchestrator.send(conv.id, 'And one more thing')).toEqual({ queued: true });
+    release();
+    await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Bob', 'Alice', 'Bob']), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(conv.messages.find((m) => textOf(m) === 'And one more thing')!.queued).toBe(true);
+
+    // Editing a question so that it @mentions a member: that member answers, no design.
+    calls = [];
+    await orchestrator.resend(conv.id, firstUserMessage(conv).id, '@Alice explain monads again');
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['Alice']);
+
+    // Stop and ask this instead: a new question, so the lead designs its team.
+    calls = [];
+    gates = { Alice: new Promise<void>(() => {}) };
+    await orchestrator.send(conv.id, '@Alice and then?');
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(1), { interval: 20 });
+    leadReply = JSON.stringify({ choice: 'keep' });
+    await orchestrator.send(conv.id, 'Something else entirely', undefined, true);
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'lead']);
+    expect(plans(conv).at(-1)!.plan).toMatchObject({ source: 'kept', awaitingConfirmation: true });
+  });
+
+  it('says why when the team used at once cannot start, and Continue lets it answer without a new design', async () => {
+    // Another conversation is writing in the same folder.
+    let release!: () => void;
+    gate = new Promise<void>((r) => (release = r));
+    const writer = conversation({ mode: 'roundtable' });
+    await orchestrator.send(writer.id, 'go');
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(writer.id)).toHaveLength(1), { interval: 20 });
+
+    const conv = conversation({ mode: 'roundtable', autoTeam: true, autoConfirm: true }); // may edit files
+    conv.agents = [];
+    leadReply = customTeam;
+    await orchestrator.send(conv.id, 'Fix the bug');
+    await vi.waitFor(() => expect(conv.messages.at(-1)!.author.kind).toBe('system'), { timeout: 20_000 });
+    await vi.waitFor(() => expect(textOf(conv.messages.at(-1)!)).toMatch(/正在修改/), { timeout: 20_000 });
+    expect(agentMessages(conv)).toHaveLength(0);
+    expect(plans(conv)[0]!.plan).toMatchObject({ autoConfirmed: true });
+
+    release();
+    await finish(writer.id);
+    calls = [];
+    await orchestrator.send(conv.id, '');
+    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+  });
+
+  it('refuses to confirm while something else holds the conversation', async () => {
+    const conv = autoConversation();
+    conv.agents = [];
+    leadReply = customTeam;
+    await orchestrator.send(conv.id, 'Question');
+    await finish(conv.id);
+    let release!: () => void;
+    const held = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (release = r)));
+    expect(() => orchestrator.confirmPlan(conv.id, plans(conv)[0]!.id)).toThrow(/回覆中/);
+    expect(plans(conv)[0]!.plan!.awaitingConfirmation).toBe(true);
+    expect(conv.agents).toEqual([]);
+    release();
+    await held;
+    orchestrator.confirmPlan(conv.id, plans(conv)[0]!.id);
+    await vi.waitFor(() => expect(agentMessages(conv)).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+  });
+
+  it('lets the current team take an answer, a message for its members, Continue and a retry without a new design', async () => {
+    const conv = await answered();
+    // A message that @mentions a member goes to that member.
+    await orchestrator.send(conv.id, '@Bob can you say more?');
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['Bob']);
+
+    // An answer to an agent's question.
+    calls = [];
+    asking = new Set(['Alice']);
+    leadReply = JSON.stringify({ choice: 'keep' });
+    await orchestrator.send(conv.id, 'One more thing');
+    await finish(conv.id);
+    orchestrator.confirmPlan(conv.id, plans(conv).at(-1)!.id);
+    await vi.waitFor(() => expect(conv.pause).toBeDefined(), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice']);
+    calls = [];
+    asking = new Set();
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+
+    // Continue, and a retry.
+    calls = [];
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    await orchestrator.retry(conv.id, agentMessages(conv).at(-1)!.id);
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).not.toContain('lead');
+    expect(plans(conv)).toHaveLength(2);
+  });
+
+  it('uses the lead agent\'s team at once when the conversation does not ask', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, autoConfirm: true });
+    conv.agents = [];
+    leadReply = customTeam;
+    await orchestrator.send(conv.id, 'Explain closures');
+    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
+    expect(calls[0]!.prompt).toContain('Your team answers the question right away.');
+    expect(plans(conv)[0]!.plan).toMatchObject({ source: 'custom', autoConfirmed: true, confirmedAt: expect.any(Number) });
+    expect(plans(conv)[0]!.plan!.awaitingConfirmation).toBeUndefined();
+    expect(new Store(db).get(conv.id)!.settings.autoConfirm).toBe(true);
+  });
+
+  it('keeps the current team when the design fails, and designs again on Continue after a stopped design', async () => {
+    const conv = await answered();
+    const ids = conv.agents.map((a) => a.id);
+    leadReply = 'No idea.';
+    await orchestrator.send(conv.id, 'Something else');
+    await finish(conv.id);
+    expect(plans(conv)[1]!.plan).toMatchObject({ source: 'fallback', awaitingConfirmation: true });
+    expect(plans(conv)[1]!.plan!.presetId).toBeUndefined();
+    expect(conv.agents.map((a) => a.id)).toEqual(ids);
+    orchestrator.confirmPlan(conv.id, plans(conv)[1]!.id);
+    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(4), { timeout: 20_000 });
+    await finish(conv.id);
+
+    // Stopped while designing: Continue designs again, for the question that still waits.
+    calls = [];
+    let release!: () => void;
+    leadGate = new Promise((r) => (release = r));
+    leadReply = JSON.stringify({ choice: 'keep' });
+    await orchestrator.send(conv.id, 'A third question');
+    await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['lead']), { interval: 20 });
+    orchestrator.stop(conv.id);
+    release();
+    await finish(conv.id);
+    expect(plans(conv).at(-1)!.status).toBe('aborted');
+    leadGate = undefined;
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['lead', 'lead']);
+    expect(calls[1]!.prompt).toContain('<question>\nA third question\n</question>');
+    expect(plans(conv).at(-1)!.plan).toMatchObject({ status: 'ready', source: 'kept', awaitingConfirmation: true });
   });
 
   it('keeps a question asked while the lead agent designs the team until the user confirms it', async () => {
@@ -549,8 +829,7 @@ describe('auto team', () => {
     leadReply = JSON.stringify({ choice: 'template', templateId: 'builtin-parallel', reason: 'Compare.' });
     await orchestrator.send(conv.id, 'Sort a list in three languages');
     await finish(conv.id);
-    expect(conv.messages[1]!.plan).toMatchObject({ source: 'template', presetId: 'builtin-parallel' });
-    expect(conv.settings.mode).toBe('parallel');
+    expect(conv.messages[1]!.plan).toMatchObject({ source: 'template', presetId: 'builtin-parallel', settings: { mode: 'parallel' } });
     expect(() => orchestrator.savePlanAsPreset(conv.id, conv.messages[1]!.id)).toThrow(/設計或調整/);
 
     const other = autoConversation();
@@ -559,10 +838,10 @@ describe('auto team', () => {
     await orchestrator.send(other.id, 'Hello');
     await finish(other.id);
     expect(other.messages[1]!.plan).toMatchObject({ source: 'fallback', presetId: 'builtin-general' });
-    expect(other.agents.map((a) => a.name)).toEqual(['Analyst', 'Critic', 'Synthesizer']);
+    expect(other.messages[1]!.plan!.agents!.map((a) => a.name)).toEqual(['Analyst', 'Critic', 'Synthesizer']);
   });
 
-  it('designs the team again when the request is edited', async () => {
+  it('designs the team again when the question is edited', async () => {
     const conv = autoConversation();
     conv.agents = [];
     leadReply = customTeam;
@@ -917,22 +1196,21 @@ describe('auto team and the directory lock', () => {
     await finish(conv.id);
   });
 
-  it('locks the directory by the confirmed team\'s mode once the user asks', async () => {
+  it('locks the directory by the confirmed team\'s mode once it answers', async () => {
+    let release!: () => void;
     const plan = async (mode: string) => {
       const conv = conversation({ mode: 'roundtable', autoTeam: true });
       conv.agents = [];
       leadReply = teamIn(mode);
-      await orchestrator.send(conv.id, 'Request');
+      await orchestrator.send(conv.id, 'Question');
       await finish(conv.id);
+      gate = new Promise((r) => (release = r));
       orchestrator.confirmPlan(conv.id, conv.messages.find((m) => m.plan)!.id);
       return conv;
     };
-    let release!: () => void;
 
     // Parallel: the agents write to their own worktrees, so the directory stays free.
     const parallel = await plan('parallel');
-    gate = new Promise((r) => (release = r));
-    await orchestrator.send(parallel.id, 'Question');
     await vi.waitFor(() => expect(orchestrator.activeAgentIds(parallel.id)).toHaveLength(2), { interval: 20 });
     const other = conversation({ mode: 'roundtable' });
     await orchestrator.send(other.id, 'go');
@@ -943,29 +1221,33 @@ describe('auto team and the directory lock', () => {
 
     // Roundtable: the agents write to the directory itself.
     const shared = await plan('roundtable');
-    gate = new Promise((r) => (release = r));
-    await orchestrator.send(shared.id, 'Question');
     await vi.waitFor(() => expect(orchestrator.activeAgentIds(shared.id)).toHaveLength(1), { interval: 20 });
     await expect(orchestrator.send(conversation({ mode: 'roundtable' }).id, 'go')).rejects.toThrow(/正在修改/);
     release();
     await finish(shared.id);
   });
 
-  it('keeps a team adjusted by hand when the first question is edited', async () => {
-    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true });
+  it('designs again for an edited question, with what came before it as history', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, autoConfirm: true });
     conv.agents = [];
     leadReply = teamIn('roundtable');
-    await orchestrator.send(conv.id, 'First version');
+    await orchestrator.send(conv.id, 'First question');
+    await vi.waitFor(() => expect(agentMessages(conv)).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'Second question');
+    await vi.waitFor(() => expect(agentMessages(conv)).toHaveLength(4), { timeout: 20_000 });
     await finish(conv.id);
 
-    // What PATCH { agents } does: a team set by hand replaces the lead agent's design.
-    conv.agents = [{ id: 'z', name: 'Zed', provider: 'claude', role: 'My own pick.' }];
-    conv.settings = { ...conv.settings, autoTeam: undefined };
     calls = [];
-    await orchestrator.resend(conv.id, firstUserMessage(conv).id, 'Second version');
+    const second = conv.messages.filter((m) => m.author.kind === 'user')[1]!;
+    await orchestrator.resend(conv.id, second.id, 'Second question, edited');
+    await vi.waitFor(() => expect(agentMessages(conv)).toHaveLength(4), { timeout: 20_000 });
     await finish(conv.id);
-    expect(calls.map((c) => c.name)).toEqual(['Zed']);
-    expect(conv.agents.map((a) => a.name)).toEqual(['Zed']);
+    expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
+    expect(calls[0]!.prompt).toContain('<question>\nSecond question, edited\n</question>');
+    expect(calls[0]!.prompt).toContain('[User]: First question');
+    expect(calls[0]!.prompt).not.toContain('Second question\n');
+    expect(conv.messages.filter((m) => m.plan)).toHaveLength(2);
   });
 
   it('saves a plan as a template only once', async () => {
@@ -1650,6 +1932,16 @@ describe('schedules', () => {
     await scheduler().tick();
     expect(said(auto)).toEqual(['note']);
     expect(auto.schedule).toMatchObject({ lastResult: 'skipped', lastError: 'the team is not confirmed yet' });
+
+    // With a team, auto team or not, the current team takes it: no design nobody could confirm.
+    const withTeam = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true });
+    schedule(withTeam, { nextRunAt: now });
+    calls = [];
+    asking = new Set();
+    await scheduler().tick();
+    await finish(withTeam.id);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+    expect(withTeam.messages.some((m) => m.plan)).toBe(false);
   });
 
   it('skips a time missed while it was not running, or sends it once late, as the schedule says', async () => {

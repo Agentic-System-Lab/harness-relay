@@ -821,48 +821,169 @@ p {
 .preset-row {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  /* Every row as tall as the tallest: with names on one line and descriptions on three at most, the cards are all one size. */
+  grid-auto-rows: 1fr;
   gap: 10px;
 }
 
 .preset-card {
   position: relative;
+  /* Shrinks with its column: a long name must not widen the grid. */
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
 }
 
-.preset-card.on {
-  border-color: var(--text);
-  box-shadow: inset 0 0 0 1px var(--text);
-}
-
 .preset-main {
   width: 100%;
+  height: 100%;
+  min-width: 0;
   background: none;
   border: none;
   text-align: left;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
   gap: 6px;
 }
 
-.preset-row.build-modes {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.preset-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  /* As tall with the "Built-in" tag as without it, so names line up. */
+  height: 22px;
+}
+
+/* One line; a longer name ends in "…". */
+.preset-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* At most three lines; a longer description ends in "…" (long words break rather than overflow). */
+.preset-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* "Built-in", at the top right of a template's card. */
+.preset-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.preset-card.new-template {
+  border-style: dashed;
+}
+
+/* A template, in a dialog opened from its card: name, description, members and how they take turns.
+   The body scrolls; the title and the buttons stay in view. */
+.modal.template-editor {
+  width: min(1000px, 100%);
+  padding: 18px 20px 0;
+  gap: 0;
+}
+
+.template-editor .drawer-head {
+  gap: 12px;
+  padding-bottom: 12px;
+}
+
+.template-editor .drawer-head h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.template-editor-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-bottom: 18px;
+}
+
+.template-editor-body > .muted {
+  margin: 0;
+}
+
+.template-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 14px;
+}
+
+.template-fields textarea {
+  resize: vertical;
+}
+
+.template-editor-foot {
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.template-editor-foot .error-line,
+.template-editor-foot .muted {
+  margin: 0 auto 0 0;
 }
 
 @media (max-width: 560px) {
-  .preset-row.build-modes {
+  .modal-scrim:has(.template-editor) {
+    padding: 8px;
+  }
+
+  .modal.template-editor {
+    padding: 14px 14px 0;
+  }
+
+  .template-fields {
     grid-template-columns: 1fr;
   }
 }
 
-.save-template-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+/* The team settings while the lead agent's design waits: saving settles it. */
+.drawer-pending {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+}
+
+/* Auto team, in the team settings: the team the lead agent designed, which the next question may change. */
+.team-editor .current-note {
+  margin: -4px 0 14px;
+}
+
+/* Auto team: the lead agent's note and whether its team needs confirming. */
+.field.auto-team {
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.field.auto-team .auto-note {
+  margin: 0;
 }
 
 .preset-delete {
@@ -3646,7 +3767,7 @@ details.sub summary {
   padding-left: 28px;
 }
 
-/* A design waiting for the user: confirm it, then ask the first question. */
+/* A design waiting for the user: confirm it (or decline it) and the team answers. */
 .plan-card.awaiting {
   border-color: color-mix(in srgb, var(--info) 55%, var(--border));
 }
@@ -5082,17 +5203,9 @@ details.sub summary {
   margin: 0;
 }
 
-/* Asked before a team with a Grok member starts in a folder Grok does not trust */
-.modal.grok-trust-dialog {
-  width: min(560px, 100%);
-}
-
-.grok-trust-dialog p {
-  margin: 0;
-}
-
-.grok-trust-path {
-  overflow-wrap: anywhere;
+/* On a team design waiting for confirmation, above its buttons. */
+.plan-card > .grok-trust {
+  padding: 0 14px 10px;
 }
 
 /* The Grok trust note under the working directory, apart from the next field. */

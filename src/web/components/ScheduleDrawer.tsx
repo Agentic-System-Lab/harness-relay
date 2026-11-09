@@ -63,7 +63,8 @@ export function ScheduleDrawer({
   const now = Date.now();
   const problems = draftProblems(draft, now, t);
   const changed = draftChanged(draft, saved);
-  const teamReady = !conv.settings.autoTeam && conv.agents.length > 0 && !pendingPlan(conv.messages);
+  // Scheduled messages go to the current team (the lead agent designs none for them).
+  const teamReady = conv.agents.length > 0 && !pendingPlan(conv.messages);
   const upcoming = problems.length ? [] : previewRuns(draft, now, saved);
   const { mode, rounds, maxHops, permission, cwd } = conv.settings;
   /** Times of day are in the schedule's time zone; a moment or an interval does not depend on one. */
@@ -311,6 +312,7 @@ export function ScheduleDrawer({
                 {t.schedule.editTeam}
               </button>
             </div>
+            {conv.settings.autoTeam && <span className="small muted">{t.schedule.currentTeam}</span>}
             {permission === 'full' && draft.enabled && <span className="small danger-text">{t.schedule.fullWarning}</span>}
           </div>
         </section>

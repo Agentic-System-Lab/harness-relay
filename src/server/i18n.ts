@@ -99,8 +99,11 @@ const zhTW = {
   planFailed: (why: string) => `首席 agent 沒有給出可用的團隊設計（${why}），改用預設範本。`,
   planUnparsable: '回覆中找不到 JSON 團隊設計',
   planUnknownTemplate: (id: string) => `沒有 id 為「${id}」的範本`,
-  planTemplateFits: (name: string) => `首席 agent 判斷範本「${name}」適合你的需求，直接套用。`,
-  planAwaitingConfirm: '請先確認首席 agent 設計的團隊，再開始提問',
+  planTemplateFits: (name: string) => `首席 agent 判斷範本「${name}」適合這個問題，直接套用。`,
+  planFailedKept: (why: string) => `首席 agent 沒有給出可用的團隊設計（${why}），沿用目前的團隊。`,
+  planKeepFits: '首席 agent 判斷目前的團隊也適合這個問題，沿用不變。',
+  planNoCurrentTeam: '這個對話還沒有團隊可以沿用',
+  planAwaitingConfirm: '請先確認首席 agent 設計的團隊，團隊才會開始回答',
 
   // Schedules
   scheduleNotFound: '這個對話沒有排程',
@@ -312,8 +315,11 @@ const en: ServerMessages = {
   planFailed: (why) => `The lead agent did not produce a usable team design (${why}); using the default template instead.`,
   planUnparsable: 'no JSON team design found in the reply',
   planUnknownTemplate: (id) => `there is no template with id "${id}"`,
-  planTemplateFits: (name) => `The lead agent found the template "${name}" a good fit for what you need and uses it as it is.`,
-  planAwaitingConfirm: 'Confirm the team the lead agent designed before asking your first question',
+  planTemplateFits: (name) => `The lead agent found the template "${name}" a good fit for this question and uses it as it is.`,
+  planFailedKept: (why) => `The lead agent did not produce a usable team design (${why}); keeping the current team.`,
+  planKeepFits: 'The lead agent found the current team a good fit for this question too and keeps it as it is.',
+  planNoCurrentTeam: 'this conversation has no team to keep yet',
+  planAwaitingConfirm: 'Confirm the team the lead agent designed first; then the team answers',
 
   scheduleNotFound: 'This conversation has no schedule',
   scheduleTextRequired: 'Type the message the schedule sends the team',

@@ -1,4 +1,4 @@
-import type { AgentWorktree, ChatMessage } from '../shared/types';
+import type { AgentWorktree, ChatMessage, Conversation, TeamPlan } from '../shared/types';
 import { ApiError } from './api';
 import type { ApplyState } from './components/ChangesCard';
 import type { Team } from './components/TeamEditor';
@@ -57,6 +57,17 @@ export function sameTeam(a: Team, b: Team): boolean {
  * untouched draft follows it ('refresh'); an edited one must not be saved over it ('conflict'), unless
  * the team now is what the draft says (e.g. the draft was just saved).
  */
+/**
+ * The team the team drawer edits: the lead agent's design while it waits for confirmation (`pending`,
+ * see `pendingPlan`; saving settles the design with the team as edited), otherwise the conversation's team.
+ */
+export function teamToEdit(conv: Pick<Conversation, 'agents' | 'settings'>, pending?: TeamPlan): { team: Team; proposed: boolean } {
+  if (pending?.agents?.length && pending.settings) {
+    return { team: { agents: pending.agents, settings: { ...conv.settings, ...pending.settings } }, proposed: true };
+  }
+  return { team: { agents: conv.agents, settings: conv.settings }, proposed: false };
+}
+
 export function draftStatus(base: Team, draft: Team, current: Team): 'same' | 'refresh' | 'conflict' {
   if (sameTeam(base, current)) return 'same';
   return sameTeam(base, draft) || sameTeam(draft, current) ? 'refresh' : 'conflict';

@@ -398,6 +398,7 @@ export function validateSettings(input: unknown, defaultCwd: string, create = fa
     permission: PERMISSIONS.includes(s.permission as Permission) ? (s.permission as Permission) : 'read-only',
     cwd,
     ...(s.autoTeam === true ? { autoTeam: true } : {}),
+    ...(s.autoConfirm === true ? { autoConfirm: true } : {}),
     ...(s.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
   };
 }

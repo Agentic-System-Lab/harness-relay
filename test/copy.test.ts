@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
-import { closeFences, conversationMarkdown, copyText, messageText } from '../src/web/copy';
+import { closeFences, conversationMarkdown, copyText, messageText, planHeadline } from '../src/web/copy';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
@@ -51,6 +51,31 @@ const conv: Conversation = {
   agentState: {},
   worktrees: {},
 };
+
+describe('naming the team the lead agent chose', () => {
+  const lead = { provider: 'claude' as const };
+  it('says whether the current team was kept, a template used, adapted or designed', () => {
+    expect(planHeadline({ status: 'ready', lead, source: 'kept', name: 'A · B' }, en)).toBe('Keeping the current team');
+    // A failed design keeps the current team, or uses the default template when there is none.
+    expect(planHeadline({ status: 'ready', lead, source: 'fallback', name: 'A · B' }, en)).toBe('Keeping the current team');
+    expect(planHeadline({ status: 'ready', lead, source: 'fallback', presetId: 'builtin-general', name: 'General' }, en)).toBe(
+      'Using the template "General" instead',
+    );
+    expect(planHeadline({ status: 'ready', lead, source: 'adapted', name: 'Pair', basedOn: { id: 'x', name: 'Debate' } }, zhTW)).toBe(
+      '依範本「Debate」調整的團隊「Pair」',
+    );
+  });
+
+  it('says in a copied conversation when the user declined the design', () => {
+    const declined: Conversation = {
+      ...conv,
+      messages: [
+        { id: 'p', author: { kind: 'system' }, createdAt: 0, status: 'done', parts: [], plan: { status: 'ready', lead, source: 'custom', name: 'Solo', declinedAt: 1 } },
+      ],
+    };
+    expect(conversationMarkdown(declined, en)).toContain('*Team design: Custom team "Solo" (Not used; the current team answered)*');
+  });
+});
 
 describe('copying a conversation', () => {
   it('joins a message\'s text blocks and leaves tool activity out', () => {

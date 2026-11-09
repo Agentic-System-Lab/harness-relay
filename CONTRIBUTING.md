@@ -13,7 +13,7 @@ Open an issue and include:
 - what you did, what you expected and what happened instead;
 - your operating system, Node.js version (`node --version`) and Harness Relay commit (`git rev-parse --short HEAD`);
 - the agent CLIs involved and their versions (`claude --version`, `codex --version`, `grok --version`);
-- the conversation's mode (roundtable, parallel, relay or auto team) and permission (read-only, edit or full access);
+- the conversation's mode (roundtable, parallel or relay), permission (read-only, edit or full access), and whether the lead agent's team is used without asking;
 - the error shown on the message (it includes the end of the CLI's stderr) and the `[server]` lines from the `npm run dev` output around that time.
 
 Before you paste logs or screenshots, remove API keys, tokens and anything from your projects you don't want public. Don't attach `data/relay.db`: it holds your conversations and, on a system without an OS credential store, your API keys.

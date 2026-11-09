@@ -18,6 +18,7 @@ import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
 import { ChangesCard, type ApplyState } from './ChangesCard';
 import { CopyButton } from './CopyButton';
+import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
 import { ClockIcon, PaperclipIcon } from './icons';
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
@@ -270,6 +271,8 @@ interface Props {
   msg: ChatMessage;
   /** The conversation's id (for links to attached files). */
   convId: string;
+  /** The conversation's working directory (whether Grok trusts it, for a team design to confirm). */
+  cwd: string;
   /** The team (the conversation's array, which only changes when the team does). */
   agents: AgentConfig[];
   /** Memoised list of the team's names. */
@@ -283,8 +286,12 @@ interface Props {
   onApply: (agentId: string) => Promise<void>;
   /** Replace a user message and run the team again from it; resolves true once sent. */
   onResend: (messageId: string, text: string) => Promise<boolean>;
-  /** Accept the team the lead agent designed (auto team), so the user can ask their first question. */
+  /** Accept the team the lead agent designed for a question (auto team), so it answers. */
   onConfirmPlan: (messageId: string) => Promise<void>;
+  /** Decline it: the current team answers instead. */
+  onDeclinePlan: (messageId: string) => Promise<void>;
+  /** The conversation's latest team design: one used at once still says how Grok trusts the folder. */
+  latestPlan?: boolean;
   /** Save the team the lead agent designed (auto team) as a template. */
   onSavePlan: (messageId: string, name: string) => Promise<void>;
   onAdjustTeam: () => void;
@@ -298,13 +305,17 @@ interface Props {
   onSkipQuestion?: () => void;
 }
 
-/** The lead agent's team design for an auto-team conversation. */
+/** The lead agent's team design for a question in an auto-team conversation. */
 function PlanCard({
   msg,
+  cwd,
+  agents,
+  latestPlan,
   onConfirmPlan,
+  onDeclinePlan,
   onSavePlan,
   onAdjustTeam,
-}: Pick<Props, 'msg' | 'onConfirmPlan' | 'onSavePlan' | 'onAdjustTeam'>) {
+}: Pick<Props, 'msg' | 'cwd' | 'agents' | 'latestPlan' | 'onConfirmPlan' | 'onDeclinePlan' | 'onSavePlan' | 'onAdjustTeam'>) {
   const t = useT();
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -337,10 +348,13 @@ function PlanCard({
   };
 
   const awaiting = Boolean(plan.awaitingConfirmation);
-  const confirm = async () => {
+  // Declining keeps the current team: offered when there is one and the design is another team.
+  const keepsTeam = plan.source === 'kept' || (plan.source === 'fallback' && !plan.presetId);
+  const declinable = awaiting && agents.length > 0 && !keepsTeam;
+  const answer = async (fn: (id: string) => Promise<void>) => {
     setConfirming(true);
     try {
-      await onConfirmPlan(msg.id);
+      await fn(msg.id);
     } finally {
       setConfirming(false);
     }
@@ -370,19 +384,27 @@ function PlanCard({
           </li>
         ))}
       </ul>
+      {/* Before the user lets a team with a Grok member answer: Grok may not load this project's own setup. */}
+      {(awaiting || (plan.autoConfirmed && latestPlan)) && asksGrokTrust(plan.agents ?? [], cwd) && <GrokTrustNote cwd={cwd} />}
       {awaiting && (
         <div className="plan-confirm">
           <span className="small">{t.plan.confirmHint}</span>
-          <button type="button" className="primary small-button" onClick={confirm} disabled={confirming}>
+          <button type="button" className="primary small-button" onClick={() => answer(onConfirmPlan)} disabled={confirming}>
             {confirming ? t.plan.confirming : t.plan.confirm}
           </button>
           <button type="button" className="ghost small-button" onClick={onAdjustTeam}>
             {t.plan.adjust}
           </button>
+          {declinable && (
+            <button type="button" className="ghost small-button" onClick={() => answer(onDeclinePlan)} disabled={confirming}>
+              {t.plan.decline}
+            </button>
+          )}
         </div>
       )}
       <div className="plan-actions">
-        {plan.confirmedAt && <span className="small plan-saved">✓ {t.plan.confirmed}</span>}
+        {plan.confirmedAt && <span className="small plan-saved">✓ {plan.autoConfirmed ? t.plan.autoConfirmed : t.plan.confirmed}</span>}
+        {plan.declinedAt && <span className="small plan-saved">{t.plan.declined}</span>}
         {planSavable(plan) &&
           (plan.savedPresetId ? (
             <span className="small plan-saved">✓ {t.plan.saved(plan.name ?? '')}</span>
@@ -394,7 +416,8 @@ function PlanCard({
               </button>
             </>
           ))}
-        {!awaiting && (
+        {/* Only the latest design is the team now: an earlier card has nothing left to adjust. */}
+        {!awaiting && latestPlan && (
           <button type="button" className="ghost small-button" onClick={onAdjustTeam}>
             {t.plan.adjust}
           </button>
@@ -590,6 +613,7 @@ function UserMessage({
 export const MessageItem = memo(function MessageItem({
   msg,
   convId,
+  cwd,
   agents,
   mentionNames,
   showRound,
@@ -599,6 +623,8 @@ export const MessageItem = memo(function MessageItem({
   onApply,
   onResend,
   onConfirmPlan,
+  onDeclinePlan,
+  latestPlan,
   onSavePlan,
   onAdjustTeam,
   onApproval,
@@ -609,7 +635,20 @@ export const MessageItem = memo(function MessageItem({
   const t = useT();
 
   if (msg.author.kind === 'system') {
-    if (msg.plan) return <PlanCard msg={msg} onConfirmPlan={onConfirmPlan} onSavePlan={onSavePlan} onAdjustTeam={onAdjustTeam} />;
+    if (msg.plan) {
+      return (
+        <PlanCard
+          msg={msg}
+          cwd={cwd}
+          agents={agents}
+          latestPlan={latestPlan}
+          onConfirmPlan={onConfirmPlan}
+          onDeclinePlan={onDeclinePlan}
+          onSavePlan={onSavePlan}
+          onAdjustTeam={onAdjustTeam}
+        />
+      );
+    }
     return (
       <div className="msg-system">
         <span>{msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')}</span>

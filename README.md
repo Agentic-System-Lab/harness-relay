@@ -8,7 +8,7 @@
 
 A local group chat for the real **Claude Code, Codex and Grok** CLIs: give each a role, choose how they take turns, and they work on your code, or any question, and answer each other.
 
-Before each conversation you design the team: a position for every agent (architect, builder, reviewer, skeptic…), its model and reasoning effort, and a mode (roundtable, parallel or relay), or let a lead agent design it for you. Harness Relay then runs `claude`, `codex` and `grok` with your own logins and tools, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
+For each question, a lead agent picks the team from your templates (or adapts one, or designs a new one), and you confirm it: a position for every agent (architect, builder, reviewer, skeptic…), its model and reasoning effort, and a mode (roundtable, parallel or relay). You design teams as templates. Harness Relay then runs `claude`, `codex` and `grok` with your own logins and tools, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
 
 ## Demo
 
@@ -19,10 +19,10 @@ A new group, then Auto team on this repository: you create a group and describe 
 ## Features
 
 - **Three coding agents in one chat** — runs the `claude`, `codex` and `grok` CLIs you already have, with their own tools, sessions and logins.
-- **Design the team per conversation** — roles, model, reasoning effort, turn order; design it yourself from a blank team, or start from five built-in templates (coding and general questions) or your own saved ones. Roles can be edited mid-chat.
+- **Design teams as templates** — roles, model, reasoning effort, turn order; five built-in templates (coding and general questions) to copy, and your own to add and change on the New chat page. The current team can be adjusted mid-chat.
 - **Attach files** — paste screenshots, drop files or use 📎; every agent gets the files, and images are shown to all three CLIs directly.
 - **Voice input (optional)** — press 🎙 in the message box and speak; [whisper.cpp](https://github.com/ggml-org/whisper.cpp) turns it into text on your computer, and recordings never leave it. Nothing is installed until you want it: the first press explains what gets downloaded, then installs the engine and a model in the background (follow it, switch models or remove it in Settings). macOS (Homebrew, Metal GPU), Linux and Windows (x64 / arm64).
-- **Auto team** — describe what you need; a lead agent reads it and every template in full, then uses a template as it is, adapts one, or designs a new team, and says why. You confirm the team, then ask your first question; save the teams it designs or adapts as templates.
+- **A team for every question** — a lead agent reads your question, the conversation so far, the current team and every template in full, then keeps the team, uses a template as it is, adapts one, or designs a new team, and says why. You confirm it (or let it answer right away) and the team answers; follow-ups that @mention a member go straight to them. Save the teams it designs or adapts as templates.
 - **Agents talk to each other** — three conversation modes:
   - **Roundtable**: agents speak in order and build on each other, for up to N rounds; ends early when everyone replies `[PASS]`.
   - **Parallel**: everyone answers independently each round; later rounds see the earlier answers.
@@ -68,7 +68,7 @@ npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:8787**, go to **Settings & Login** to check that each agent is signed in, then click **New chat**, choose Auto team, design your own team or pick a template, and start talking.
+Open **http://127.0.0.1:8787**, go to **Settings & Login** to check that each agent is signed in, then click **New chat**, choose the working directory and permission, and ask your first question: the lead agent proposes a team for it.
 
 After a `git pull`, run `npm install` and `npm run build` again, then `npm start`.
 

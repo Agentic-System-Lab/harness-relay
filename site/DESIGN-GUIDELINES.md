@@ -85,7 +85,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
 | 4 | Your CLIs (`#agents`) | How each CLI is driven; the mark at page scale |
 | 5 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
-| 6 | Teams (`#teams`) | Design your own vs Auto team; the five built-in templates |
+| 6 | Teams (`#teams`) | A team for every question: the lead agent picks it, you design the templates; the five built-in templates |
 | 7 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray |
 | 8 | Also in every chat (`#more`) | The remaining features as a two-column list |
 | 9 | Safety (`#safety`) | Local-only facts and the permission table |

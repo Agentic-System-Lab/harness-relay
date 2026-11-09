@@ -29,7 +29,10 @@ import {
   buildPlannerPrompt,
   decidePlan,
   fallbackPlan,
+  historyForLead,
+  keepMemberIds,
   parsePlanReply,
+  type PlanConversation,
   type PlanDecision,
   type PlannerContext,
 } from './planner';
@@ -97,6 +100,10 @@ interface Run {
    * always allows them. Cleared once one of the user's own messages reaches the run: they are here.
    */
   refuseApprovals?: boolean;
+  /** Auto team: the lead agent designs the team for the question, and that is all this run does. */
+  designs?: boolean;
+  /** The design needed no confirmation (`autoConfirm`): once this run ends, the team answers. */
+  answerNext?: boolean;
   /** Settles once the run has finished, including its clean-up. */
   done: Promise<void>;
 }
@@ -106,8 +113,14 @@ interface StartOptions {
   beforePost?: () => void;
   /** Run just these agents, for one round (retrying replies). */
   only?: AgentConfig[];
-  /** `beforePost` turns auto team on, so the lead agent designs the team first. */
-  willPlan?: boolean;
+  /**
+   * The user's message is a question of their own (sent, or edited): in an auto-team conversation the
+   * lead agent designs the team for it first, unless it answers an agent's question (`new` only) or
+   * @mentions members of the current team, who answer it.
+   */
+  question?: 'new' | 'edited';
+  /** The current team answers: no team design (the team was just confirmed, or a schedule or a waiting message starts the run). */
+  keepTeam?: boolean;
   /** Attached files of the new user message (already saved). */
   files?: AttachmentPart[];
   /** Post the messages waiting in the queue first: they were sent before this one, and start the run too. */
@@ -134,18 +147,25 @@ export type ScheduledSend =
 /** Longest name of a template saved from a plan. */
 const MAX_PRESET_NAME = 100;
 
-/** The team the lead agent designed, compared with the conversation's current team. */
-function sameTeam(plan: NonNullable<ChatMessage['plan']>, conv: Conversation): boolean {
-  const key = (agents: AgentConfig[]) =>
-    JSON.stringify(agents.map((a) => [a.id, a.name, a.provider, a.role, a.model ?? '', a.effort ?? '']));
-  const s = plan.settings;
-  return (
-    Boolean(plan.agents && s) &&
-    key(plan.agents!) === key(conv.agents) &&
-    s!.mode === conv.settings.mode &&
-    s!.rounds === conv.settings.rounds &&
-    s!.maxHops === conv.settings.maxHops
-  );
+/**
+ * A team design was stopped (or cut short) since the team last spoke: the question it was for still
+ * waits for its team, so Continue designs it again.
+ */
+function designOwed(messages: ChatMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.author.kind === 'agent') return false;
+    if (m.plan) return m.plan.status !== 'ready';
+  }
+  return false;
+}
+
+/**
+ * Where the lead agent's question starts: after the team last spoke or a team was designed, so what
+ * the user said meanwhile counts (a stopped design's question too).
+ */
+function questionStart(messages: ChatMessage[]): number {
+  return messages.findLastIndex((m) => m.author.kind === 'agent' || m.plan?.status === 'ready') + 1;
 }
 
 /** Where the lead agent's choices come from (signed-in CLIs, their models, the templates). */
@@ -239,6 +259,8 @@ export class Orchestrator {
   private reserved = new Map<string, Promise<void>>();
   /** Conversations whose run is being set up: a message sent meanwhile waits in the queue. */
   private starting = new Set<string>();
+  /** Conversations whose run (running or being set up) only designs the team: nobody is replying yet. */
+  private designing = new Set<string>();
   /** Conversations being deleted. */
   private deleting = new Set<string>();
   /** The server is shutting down: nothing new starts. */
@@ -386,7 +408,7 @@ export class Orchestrator {
     }
     const files = saveAttachments(conv.id, uploads);
     try {
-      await this.start(conv, text, { files, queue: true });
+      await this.start(conv, text, { files, queue: true, ...(content ? { question: 'new' as const } : {}) });
     } catch (err) {
       removeAttachments(conv.id, files);
       throw err;
@@ -422,7 +444,9 @@ export class Orchestrator {
     if (!s) throw new HttpError(404, t().scheduleNotFound);
     // Not lost: sent (or counted as missed) when the server is back.
     if (this.closing) return { result: 'busy', reason: t().shuttingDown };
-    if (conv.settings.autoTeam || conv.agents.length === 0 || pendingPlan(conv.messages)) {
+    // The current team takes it (a schedule never has the lead agent design a team: nobody may be
+    // there to confirm it), so there must be one.
+    if (conv.agents.length === 0 || pendingPlan(conv.messages)) {
       return { result: 'skipped', reason: t().scheduleNoTeam };
     }
     const replying = this.runs.has(convId) || this.starting.has(convId);
@@ -442,7 +466,12 @@ export class Orchestrator {
       // user sends meanwhile is not left in the queue of a run that then cannot start.
       const locked = this.folderLockedBy(conv);
       if (locked) return { result: 'busy', reason: locked };
-      await this.start(conv, waiting ? '' : s.text, { queue: true, scheduled: !waiting, refuseApprovals: s.approvals !== 'ask' });
+      await this.start(conv, waiting ? '' : s.text, {
+        queue: true,
+        keepTeam: true,
+        scheduled: !waiting,
+        refuseApprovals: s.approvals !== 'ask',
+      });
       return { result: 'sent' };
     } catch (err) {
       if (err instanceof HttpError) {
@@ -472,9 +501,9 @@ export class Orchestrator {
     const queue = (conv.queue ??= []);
     if (queue.length >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
     const files = saveAttachments(conv.id, uploads);
-    // Marked only when it joins a team's discussion: not a first question written while the lead
-    // agent designs the team or waits for confirmation.
-    const midReply = (this.runs.has(conv.id) || this.starting.has(conv.id)) && !conv.settings.autoTeam;
+    // Marked only when it joins a team's discussion: not a question written while the lead agent
+    // designs the team or its design waits for confirmation.
+    const midReply = (this.runs.has(conv.id) || this.starting.has(conv.id)) && !this.designing.has(conv.id);
     queue.push({
       id: randomUUID(),
       author: { kind: 'user' },
@@ -532,21 +561,42 @@ export class Orchestrator {
 
   /**
    * Start a run for the messages still waiting, when nothing else is going on and the team may
-   * answer (the lead agent's team design is not waiting for confirmation). Returns whether it starts;
-   * a run that fails to start says why in the chat, and its messages keep waiting.
+   * answer (the lead agent's team design is not waiting for confirmation). They were written while the
+   * team worked, so the current team answers them. Returns whether it starts; a run that fails to
+   * start says why in the chat, and its messages keep waiting.
    */
   startQueued(conv: Conversation): boolean {
-    if (!conv.queue?.length || this.isBusy(conv.id) || this.closing || this.store.get(conv.id) !== conv) return false;
-    if (pendingPlan(conv.messages) || (conv.agents.length === 0 && !conv.settings.autoTeam)) return false;
+    if (!conv.queue?.length || !this.mayStart(conv)) return false;
     // An agent asked the user something: what was written before the question waits for the answer.
     if (conv.pause) return false;
     // Only the schedule's message waits: nobody may be watching this run either.
     const unattended = conv.queue.every((m) => m.scheduled) && conv.schedule?.approvals !== 'ask';
-    this.start(conv, '', { queue: true, refuseApprovals: unattended }).catch((err) => {
+    this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals: unattended });
+    return true;
+  }
+
+  /**
+   * The team the lead agent designed was confirmed (by the user, or at once): it answers the question
+   * the design was for, with the messages waiting. Returns whether a run starts.
+   */
+  startConfirmed(conv: Conversation, refuseApprovals = false): boolean {
+    if (!this.mayStart(conv)) return false;
+    this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals });
+    return true;
+  }
+
+  /** Nothing else is going on, and a team may answer (none is waiting for confirmation). */
+  private mayStart(conv: Conversation): boolean {
+    if (this.isBusy(conv.id) || this.closing || this.store.get(conv.id) !== conv) return false;
+    return !pendingPlan(conv.messages) && (conv.agents.length > 0 || Boolean(conv.settings.autoTeam));
+  }
+
+  /** Start a run nobody waits for; one that fails to start says why in the chat. */
+  private startInBackground(conv: Conversation, opts: StartOptions): void {
+    this.start(conv, '', opts).catch((err) => {
       if (!(err instanceof HttpError && err.status === 404)) this.systemNote(conv, t().runFailed((err as Error).message));
       this.emitStatus(conv.id);
     });
-    return true;
   }
 
   /**
@@ -564,7 +614,7 @@ export class Orchestrator {
     if (!text && !files.length) throw new HttpError(400, t().emptyMessage);
     await this.start(conv, text, {
       beforePost: () => this.truncateFrom(conv, messageId, files),
-      willPlan: this.replans(conv, messageId),
+      question: 'edited',
       files,
     });
   }
@@ -605,26 +655,12 @@ export class Orchestrator {
   }
 
   /**
-   * Whether dropping `messageId` and what follows makes the lead agent design the team again: the
-   * lead's plan goes with it, and the team is still the one it designed (a team adjusted by hand
-   * afterwards is kept).
-   */
-  private replans(conv: Conversation, messageId: string): boolean {
-    const index = conv.messages.findIndex((m) => m.id === messageId);
-    if (index < 0) return false;
-    const plans = conv.messages.slice(index).filter((m) => m.plan?.status === 'ready');
-    const latest = plans[plans.length - 1]?.plan;
-    return Boolean(latest && sameTeam(latest, conv));
-  }
-
-  /**
    * Drop a message and everything after it, and make every agent start over. `keep`: attached files
    * that live on in the edited message.
    */
   private truncateFrom(conv: Conversation, messageId: string, keep: AttachmentPart[] = []): void {
     const index = conv.messages.findIndex((m) => m.id === messageId);
     if (index < 0) throw new HttpError(404, t().messageNotFound);
-    const replan = this.replans(conv, messageId);
     const dropped = conv.messages.splice(index);
     this.store.deleteMessages(conv.id, dropped.map((m) => m.id));
     const kept = new Set(keep.map((p) => p.id));
@@ -645,21 +681,40 @@ export class Orchestrator {
       w.needsReset = true;
       this.store.saveWorktree(conv.id, agentId, w);
     }
-    // The lead agent's team design went too: design the team again for the edited request.
-    if (replan) conv.settings = { ...conv.settings, autoTeam: true };
     // Whatever question the team waited on is answered by starting over from here.
     conv.pause = undefined;
     this.hub.emit(conv.id, { type: 'snapshot', conversation: forClient(conv), running: false, activeAgentIds: [] });
   }
 
+  /**
+   * Whether a run first has the lead agent design the team (auto team): when the conversation has no
+   * team yet; for a question of the user's own sent while nothing runs (also with "stop and ask this
+   * instead", which stops the team first), unless it answers an agent's question or @mentions members
+   * of the current team; and on Continue after a design was stopped. A retry, a schedule, a confirmed
+   * team and messages written while the team worked (delivered to its next turns, or answered in a
+   * run of their own after it) keep the current team.
+   */
+  private designs(conv: Conversation, text: string, opts: StartOptions): boolean {
+    if (!conv.settings.autoTeam || opts.only) return false;
+    if (conv.agents.length === 0) return true;
+    if (opts.keepTeam) return false;
+    if (opts.question === 'new' && conv.pause) return false;
+    if (opts.question) return parseMentions(text, conv.agents).length === 0;
+    return designOwed(conv.messages);
+  }
+
   /** Start a run that posts `text` (if any) as the user's message; see `StartOptions`. */
   private async start(conv: Conversation, text: string, opts: StartOptions = {}): Promise<void> {
-    const { beforePost, only, willPlan = false, files = [] } = opts;
+    const { beforePost, only, files = [] } = opts;
     const convId = conv.id;
+    // A run that designs the team writes nothing (the lead agent is read-only and nobody else
+    // speaks), so it locks nothing.
+    const planning = this.designs(conv, text, opts);
     // Reserved until the run is registered, so a settings change or an apply cannot slip in while the
     // workspace is prepared, and a delete waits for it; a message sent meanwhile waits in the queue.
     const release = this.reserve(convId);
     this.starting.add(convId);
+    if (planning) this.designing.add(convId);
     // Messages queued from now on were sent after this one: they wait for the first turn. When the
     // user answers an agent's question, scheduled messages stay queued too: the run picks up where
     // the team stopped, so they wait for a turn of an agent they are for, or for a run of their own.
@@ -677,16 +732,13 @@ export class Orchestrator {
         throw new HttpError(404, t().conversationNotFound);
       }
       if (this.closing) throw new HttpError(503, t().shuttingDown);
-      // A run that designs the team writes nothing (the lead agent is read-only and nobody else
-      // speaks), so it locks nothing.
-      const planning = (conv.settings.autoTeam || willPlan) && !only;
       lockRoot = ws.root && !ws.isolated && !planning ? ws.root : undefined;
       if (lockRoot) this.lockDir(lockRoot, conv);
       beforePost?.();
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
       const own = this.postUserMessage(conv, text, files, opts.scheduled);
       if (own) posted.push(own);
-      resume = this.takePause(conv, posted, only);
+      resume = this.takePause(conv, posted, only, planning);
       run = {
         abort: new AbortController(),
         active: new Set(),
@@ -694,11 +746,13 @@ export class Orchestrator {
         lockRoot,
         // Only while nothing the user wrote starts it: when they write, they are here.
         ...(opts.refuseApprovals && posted.every((m) => m.scheduled) ? { refuseApprovals: true } : {}),
+        ...(planning ? { designs: true } : {}),
         done: Promise.resolve(),
       };
       this.runs.set(convId, run);
     } catch (err) {
       if (lockRoot && !this.runs.has(convId)) this.unlockDir(lockRoot, convId);
+      this.designing.delete(convId);
       throw err;
     } finally {
       this.starting.delete(convId);
@@ -722,9 +776,14 @@ export class Orchestrator {
         } finally {
           if (run.lockRoot) this.unlockDir(run.lockRoot, conv.id);
           this.runs.delete(convId);
-          // Messages sent while the team replied that no turn took: the team answers them now. After
-          // Stop they keep waiting, for the user to send or withdraw.
-          if (run.abort.signal.aborted || !this.startQueued(conv)) this.emitStatus(conv.id);
+          this.designing.delete(convId);
+          // The team the lead agent just designed answers at once, when it needs no confirmation.
+          // Otherwise, messages sent while the team replied that no turn took: the team answers them
+          // now. After Stop they keep waiting, for the user to send or withdraw.
+          const next =
+            !run.abort.signal.aborted &&
+            (run.answerNext ? this.startConfirmed(conv, run.refuseApprovals) : this.startQueued(conv));
+          if (!next) this.emitStatus(conv.id);
           this.trace(conv);
         }
       });
@@ -950,9 +1009,12 @@ export class Orchestrator {
   }
 
   /**
-   * Auto team: the lead agent (Settings) picks a template or designs a team for the user's request, shown
-   * as a plan card. When planning fails the general-question template is used; when it is stopped
-   * the conversation stays in auto-team mode and plans again on the next message.
+   * Auto team: the lead agent (Settings) chooses the team for the user's question — keeping the
+   * current team, using or adapting a template, or designing a new one — shown as a plan card. When
+   * planning fails the current team is kept (the general-question template when there is none); when
+   * it is stopped, the next question or Continue designs again. The team waits for the user's
+   * confirmation, unless the conversation uses it at once (`autoConfirm`: it then answers when this
+   * run ends).
    */
   private async designTeam(conv: Conversation, run: Run): Promise<void> {
     const lead = this.settings.lead;
@@ -968,13 +1030,17 @@ export class Orchestrator {
     this.hub.emit(conv.id, { type: 'message', message: msg });
     this.store.saveMessage(conv.id, msg, true);
 
-    // Everything the user said since the last team design: a stopped design leaves its request
-    // standing, and messages sent while the lead worked add to it.
-    const since = conv.messages.findLastIndex((m) => m.plan?.status === 'ready') + 1;
+    // The question: everything the user said since the team last spoke or a team was designed (a
+    // stopped design leaves its question standing). What was said before is its context.
+    const since = questionStart(conv.messages);
     const asked = conv.messages.slice(since).filter((m) => m.author.kind === 'user');
     const fileNames = asked.flatMap((m) => attachmentsOf(m).map((p) => p.name));
     const question =
       asked.map(textOf).filter(Boolean).join('\n\n') + (fileNames.length ? `\n\n(Attached files: ${fileNames.join(', ')})` : '');
+    const current: PlanConversation['current'] = conv.agents.length
+      ? { agents: conv.agents, settings: { mode: conv.settings.mode, rounds: conv.settings.rounds, maxHops: conv.settings.maxHops } }
+      : undefined;
+    const history = historyForLead(conv.messages.slice(0, since));
     const started = Date.now();
     let ctx: PlannerContext = { available: [], catalog: [], presets: this.store.listPresets() };
     let decision: PlanDecision | undefined;
@@ -987,7 +1053,7 @@ export class Orchestrator {
         env: this.settings.env(lead.provider),
         nativeOff: this.settings.nativeOff(lead.provider),
         nativeItems: this.settings.nativeItems(lead.provider),
-        prompt: buildPlannerPrompt(question, conv.settings, ctx),
+        prompt: buildPlannerPrompt(question, conv.settings, ctx, { history, current }),
         systemPrompt: PLANNER_BRIEFING,
         cwd: conv.settings.cwd,
         permission: 'read-only',
@@ -1001,11 +1067,11 @@ export class Orchestrator {
       });
       // The lead agent's session belongs to this conversation too.
       if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
-      decision = decidePlan(parsePlanReply(reply), ctx, lead);
+      decision = decidePlan(parsePlanReply(reply), ctx, lead, current);
     } catch (err) {
       if (!run.abort.signal.aborted) {
         console.warn('[orchestrator] team design failed:', (err as Error).message);
-        decision = fallbackPlan(ctx, lead, (err as Error).message);
+        decision = fallbackPlan(ctx, lead, (err as Error).message, current);
       }
     }
 
@@ -1018,43 +1084,83 @@ export class Orchestrator {
     if (run.abort.signal.aborted || !decision) {
       msg.status = 'aborted';
     } else {
-      conv.agents = decision.agents;
-      conv.settings = { ...conv.settings, ...decision.settings, autoTeam: false };
-      msg.plan = { status: 'ready', lead, ...decision, awaitingConfirmation: true };
+      // Members who stay on keep their ids, and with them their sessions.
+      const agents = keepMemberIds(decision.agents, conv.agents);
+      const now = Boolean(conv.settings.autoConfirm);
+      msg.plan = {
+        status: 'ready',
+        lead,
+        ...decision,
+        agents,
+        ...(now ? { confirmedAt: Date.now(), autoConfirmed: true } : { awaitingConfirmation: true }),
+      };
       msg.status = 'done';
-      this.store.saveMeta(conv);
-      this.emitConversation(conv);
+      // Used at once, or kept on the card until the user confirms it: until then the current team
+      // stays, so declining it, a retry or an edit of an earlier message still has that team.
+      if (now) {
+        this.applyPlan(conv, msg.plan);
+        run.answerNext = true;
+      }
     }
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
   }
 
-  /** The user accepts the lead agent's team design; from now on the team answers. */
+  /** The lead agent's team becomes the conversation's team (members and how they take turns). */
+  private applyPlan(conv: Conversation, plan: NonNullable<ChatMessage['plan']>): void {
+    if (!plan.agents?.length || !plan.settings) return;
+    conv.agents = plan.agents.map((a) => ({ ...a }));
+    conv.settings = { ...conv.settings, ...plan.settings };
+    this.store.saveMeta(conv);
+    this.emitConversation(conv);
+  }
+
+  /** The user accepts the lead agent's team design: it becomes the team, and answers the question. */
   confirmPlan(convId: string, messageId: string): void {
+    this.answerPlan(convId, messageId, 'confirm');
+  }
+
+  /**
+   * The user declines the lead agent's team design: the current team stays, and answers the question.
+   * Only when there is a team to keep (not for a conversation's first question).
+   */
+  declinePlan(convId: string, messageId: string): void {
+    this.answerPlan(convId, messageId, 'decline');
+  }
+
+  private answerPlan(convId: string, messageId: string, answer: 'confirm' | 'decline'): void {
     const conv = this.store.get(convId);
     if (!conv) throw new HttpError(404, t().conversationNotFound);
     const msg = conv.messages.find((m) => m.id === messageId);
     if (msg?.plan?.status !== 'ready') throw new HttpError(404, t().planNotFound);
-    // A question written while the team waited for confirmation goes to the team now.
-    if (this.markConfirmed(conv, msg)) this.startQueued(conv);
+    if (!msg.plan.awaitingConfirmation) return; // answered already
+    if (answer === 'decline' && conv.agents.length === 0) throw new HttpError(400, t().planNoCurrentTeam);
+    // Not while something else holds the conversation: the team could not answer now.
+    this.checkAvailable(convId, t().busy);
+    if (answer === 'confirm') this.applyPlan(conv, msg.plan);
+    this.markAnswered(conv, msg, answer);
+    // The team answers the question now, with what the user wrote while it waited for confirmation.
+    this.startConfirmed(conv);
   }
 
   /**
-   * A team set by hand is the user's decision too: it confirms a design that was waiting. Returns
-   * whether it did (the caller then starts the questions waiting, `startQueued`).
+   * A team set by hand is the user's decision too: it settles a design that was waiting (the team
+   * set by hand is the one that answers). Returns whether it did (the caller then lets the team
+   * answer, `startConfirmed`).
    */
   confirmPendingPlan(conv: Conversation): boolean {
     const msg = pendingPlan(conv.messages);
-    return msg ? this.markConfirmed(conv, msg) : false;
+    if (!msg) return false;
+    this.markAnswered(conv, msg, 'confirm');
+    return true;
   }
 
-  private markConfirmed(conv: Conversation, msg: ChatMessage): boolean {
-    if (!msg.plan?.awaitingConfirmation) return false;
-    delete msg.plan.awaitingConfirmation;
-    msg.plan.confirmedAt = Date.now();
+  private markAnswered(conv: Conversation, msg: ChatMessage, answer: 'confirm' | 'decline'): void {
+    delete msg.plan!.awaitingConfirmation;
+    if (answer === 'confirm') msg.plan!.confirmedAt = Date.now();
+    else msg.plan!.declinedAt = Date.now();
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
-    return true;
   }
 
   /** Save a team the lead agent designed or adapted as a user template. */
@@ -1130,9 +1236,9 @@ export class Orchestrator {
     only?: AgentConfig[],
     resume?: Schedule,
   ): Promise<void> {
-    if (conv.settings.autoTeam && !only) {
-      // The user described what they need: the lead agent designs the team, and that is all this
-      // run does. The user confirms the team, then asks their first question.
+    if (run.designs) {
+      // The lead agent designs the team for the question, and that is all this run does. Once the
+      // team is confirmed (or needs no confirmation), a run of its own answers the question.
       await this.designTeam(conv, run);
       return;
     }
@@ -1253,13 +1359,13 @@ export class Orchestrator {
    * longer waits. Only what the user wrote counts: a scheduled message that waited in the queue is no
    * answer, and its @mentions do not start afresh.
    */
-  private takePause(conv: Conversation, posted: ChatMessage[], only?: AgentConfig[]): Schedule | undefined {
+  private takePause(conv: Conversation, posted: ChatMessage[], only: AgentConfig[] | undefined, planning: boolean): Schedule | undefined {
     const pause = conv.pause;
     if (!pause) return undefined;
     conv.pause = undefined;
     this.store.saveMeta(conv);
     this.emitConversation(conv);
-    if (only || conv.settings.autoTeam || pause.mode !== conv.settings.mode) return undefined;
+    if (only || planning || pause.mode !== conv.settings.mode) return undefined;
     const replies = posted.filter((m) => !m.scheduled);
     if (replies.some((m) => parseMentions(textOf(m), conv.agents).some((a) => !pause.askers.includes(a.id)))) return undefined;
     const byId = (id: string) => conv.agents.find((a) => a.id === id);

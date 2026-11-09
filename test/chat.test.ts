@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentWorktree, ChatMessage, ConversationSettings } from '../src/shared/types';
 import { ApiError, api, orCreateCwd } from '../src/web/api';
-import { afterStreamError, applyStates, draftStatus, enterSends } from '../src/web/chat';
+import { afterStreamError, applyStates, draftStatus, enterSends, teamToEdit } from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
 
 describe('Enter in a message box', () => {
@@ -121,6 +121,24 @@ const designed: Team = {
   agents: [{ id: 'x', name: 'Builder', provider: 'codex', role: 'builds' }],
   settings: { ...settings, mode: 'parallel', rounds: 2, autoTeam: false },
 };
+
+describe('the team the team drawer edits', () => {
+  const current = [{ id: 'a', name: 'Alice', provider: 'claude' as const, role: '' }];
+  const proposal = [{ id: 'z', name: 'Zed', provider: 'codex' as const, role: 'New.' }];
+  const conv = { agents: current, settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/p', autoTeam: true } };
+
+  it("is the lead agent's design while it waits for confirmation, with how it takes turns", () => {
+    const pending = { status: 'ready' as const, lead: { provider: 'claude' as const }, agents: proposal, settings: { mode: 'relay' as const, rounds: 1, maxHops: 4 }, awaitingConfirmation: true };
+    expect(teamToEdit(conv, pending)).toEqual({
+      team: { agents: proposal, settings: { ...conv.settings, mode: 'relay', maxHops: 4 } },
+      proposed: true,
+    });
+  });
+
+  it('is the current team otherwise', () => {
+    expect(teamToEdit(conv)).toEqual({ team: { agents: current, settings: conv.settings }, proposed: false });
+  });
+});
 
 describe('the team drawer draft', () => {
   it('follows the team while the user has not edited it', () => {

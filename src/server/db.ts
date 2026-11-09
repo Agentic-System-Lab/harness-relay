@@ -238,6 +238,13 @@ const MIGRATIONS: string[] = [
   CREATE INDEX schedules_due ON schedules(enabled, next_run_at);
   ALTER TABLE messages ADD COLUMN scheduled INTEGER;
   `,
+  // 13: auto team for every question. auto_team no longer means "the team is still to be designed"
+  // but "the lead agent designs the team for each new question", so every conversation gets it;
+  // auto_confirm: the lead agent's team answers without waiting for the user to confirm it.
+  `
+  ALTER TABLE conversations ADD COLUMN auto_confirm INTEGER NOT NULL DEFAULT 0;
+  UPDATE conversations SET auto_team = 1;
+  `,
 ];
 
 function migrate(db: Database): void {

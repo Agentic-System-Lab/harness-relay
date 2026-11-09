@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  PROVIDERS,
   PROVIDER_LABEL,
-  type AgentConfig,
   type Conversation,
-  type GrokFolderTrust,
   type LeadAgentSettings,
   type ProviderModels,
   type ProviderStatus,
@@ -12,18 +9,13 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { useI18n } from '../i18n';
-import { leadLabel, newAgent } from '../util';
-import { PencilIcon } from './icons';
-import { Logo } from './Logo';
+import { leadLabel } from '../util';
 import { MemberDots } from './MemberDots';
-import { GrokTrustDialog, asksGrokTrust, type GrokTrustAnswer } from './GrokTrust';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
+import { TemplateEditor } from './TemplateEditor';
 
-const LAST_CHOICE_KEY = 'relay:lastTemplate';
-/** The "Auto team" card: the lead agent designs the team from the first message. */
-const AUTO = 'auto';
-/** The "Design your own" card: a blank team the user fills in. */
-const CUSTOM = 'custom';
+/** Whether the last new chat used the lead agent's teams without asking ("1"), so the next one starts the same way. */
+const AUTO_CONFIRM_KEY = 'relay:autoConfirm';
 
 function read(key: string): string {
   try {
@@ -35,31 +27,23 @@ function read(key: string): string {
 
 function write(key: string, value: string): void {
   try {
-    localStorage.setItem(key, value);
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
   } catch {
     /* storage unavailable */
   }
 }
 
-function fromPreset(p: TeamPreset, cwd: string): Team {
+/** A new conversation: the lead agent designs the team for each question, so only the settings are chosen here. */
+function autoTeam(cwd: string, autoConfirm: boolean): Team {
   return {
-    // Fresh ids so edits never leak back into the preset object.
-    agents: p.agents.map((a) => ({ ...a, id: crypto.randomUUID() })),
-    settings: { ...p.settings, cwd },
+    agents: [],
+    settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd, autoTeam: true, ...(autoConfirm ? { autoConfirm } : {}) },
   };
 }
 
-function autoTeam(cwd: string, permission: Team['settings']['permission']): Team {
-  return { agents: [], settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission, cwd, autoTeam: true } };
-}
-
-/** One member per CLI that is ready to use (all of them when none is known yet), roles left to the user. */
-function blankTeam(cwd: string, permission: Team['settings']['permission'], providers: ProviderStatus[]): Team {
-  const ready = providers.filter((s) => s.installed && (s.auth.loggedIn !== false || s.usingStoredApiKey)).map((s) => s.provider);
-  const agents: AgentConfig[] = [];
-  for (const p of ready.length ? ready : PROVIDERS) agents.push(newAgent(p, agents.map((a) => a.name)));
-  return { agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission, cwd } };
-}
+/** The template open in the dialog (none: a new one); `key` gives each opening a fresh editor. */
+type Editing = { key: string; preset?: TeamPreset };
 
 interface Props {
   providers: ProviderStatus[];
@@ -71,12 +55,11 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
   const { t, lang } = useI18n();
   const [presets, setPresets] = useState<TeamPreset[]>([]);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
-  const [choice, setChoice] = useState<string>('');
   const [team, setTeam] = useState<Team | null>(null);
+  const [editing, setEditing] = useState<Editing | null>(null);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [trustAsk, setTrustAsk] = useState<{ status: GrokFolderTrust; resolve: (a: GrokTrustAnswer) => void } | null>(null);
 
   const initialized = useRef(false);
 
@@ -88,20 +71,8 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         setLead(settings.lead);
         if (initialized.current) return;
         initialized.current = true;
-        // Start from the last choice (auto team the first time), in the default working directory from Settings.
-        const cwd = settings.defaultCwd;
-        const last = read(LAST_CHOICE_KEY);
-        const preset = ps.find((p) => p.id === last);
-        if (preset) {
-          setChoice(preset.id);
-          setTeam(fromPreset(preset, cwd));
-        } else if (last === CUSTOM) {
-          setChoice(CUSTOM);
-          setTeam(blankTeam(cwd, 'read-only', providers));
-        } else {
-          setChoice(AUTO);
-          setTeam(autoTeam(cwd, 'read-only'));
-        }
+        // The default working directory from Settings; asking first unless the last chat did not.
+        setTeam(autoTeam(settings.defaultCwd, read(AUTO_CONFIRM_KEY) === '1'));
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, [lang]);
@@ -109,46 +80,17 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
   if (!team) return <div className="page-center muted">{error || t.common.loading}</div>;
 
   const problems = teamProblems(team, t);
-  const auto = Boolean(team.settings.autoTeam);
   const leadText = lead ? leadLabel(lead) : PROVIDER_LABEL.claude;
-
-  const pick = (id: string) => {
-    setChoice(id);
-    if (id === AUTO) {
-      setTeam(autoTeam(team.settings.cwd, team.settings.permission));
-      return;
-    }
-    if (id === CUSTOM) {
-      setTeam(blankTeam(team.settings.cwd, team.settings.permission, providers));
-      return;
-    }
-    const p = presets.find((x) => x.id === id);
-    if (p) setTeam(fromPreset(p, team.settings.cwd));
-  };
-
-  /** Asks whether Grok should trust the team's folder (the dialog below answers). */
-  const askTrust = (status: GrokFolderTrust) => new Promise<GrokTrustAnswer>((resolve) => setTrustAsk({ status, resolve }));
 
   const start = async () => {
     setBusy(true);
     setError('');
     try {
-      // A Grok member would miss the project's own instructions, skills, MCP servers and hooks in a
-      // folder Grok does not trust: ask before the chat starts. A folder that does not exist yet is
-      // not asked about (it is created below, empty).
-      if (asksGrokTrust(team)) {
-        const status = await api.grokFolderTrust(team.settings.cwd).catch(() => undefined);
-        if (status?.trusted === false) {
-          const answer = await askTrust(status);
-          if (answer === 'cancel') return;
-          if (answer === 'trust') await api.grokFolderTrust(status.cwd, status.folder);
-        }
-      }
       const conv = await orCreateCwd(
-        (createCwd) => api.createConversation({ title, agents: team.agents, settings: team.settings, createCwd }),
+        (createCwd) => api.createConversation({ title, agents: [], settings: team.settings, createCwd }),
         () => confirm(t.newChat.confirmCreateCwd(team.settings.cwd.trim())),
       );
-      write(LAST_CHOICE_KEY, choice);
+      write(AUTO_CONFIRM_KEY, team.settings.autoConfirm ? '1' : '');
       onCreated(conv);
     } catch (e) {
       setError((e as Error).message);
@@ -157,16 +99,11 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
     }
   };
 
-  const savePreset = async () => {
-    const name = prompt(t.newChat.templateNamePrompt, title || t.newChat.defaultTemplateName);
-    if (!name) return;
-    try {
-      const saved = await api.savePreset({ name, agents: team.agents, settings: team.settings });
-      setPresets((ps) => [...ps.filter((p) => p.id !== saved.id), saved]);
-      setChoice(saved.id);
-    } catch (e) {
-      setError((e as Error).message);
-    }
+  const open = (preset?: TeamPreset) => setEditing({ key: preset ? preset.id : `new-${Date.now()}`, preset });
+
+  const saved = (p: TeamPreset) => {
+    setPresets((ps) => (ps.some((x) => x.id === p.id) ? ps.map((x) => (x.id === p.id ? p : x)) : [...ps, p]));
+    setEditing(null);
   };
 
   const deletePreset = async (p: TeamPreset) => {
@@ -174,6 +111,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
     try {
       await api.deletePreset(p.id);
       setPresets((ps) => ps.filter((x) => x.id !== p.id));
+      if (editing?.preset?.id === p.id) setEditing(null);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -185,30 +123,8 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         <div className="page-inner">
           <header className="page-head">
             <h1>{t.newChat.title}</h1>
-            <p className="muted">{t.newChat.intro}</p>
+            <p className="muted">{t.newChat.intro(leadText)}</p>
           </header>
-
-          <section>
-            <div className="section-head">
-              <h3>{t.newChat.buildTeam}</h3>
-            </div>
-            <div className="preset-row build-modes">
-              <div className={`preset-card auto ${choice === AUTO ? 'on' : ''}`}>
-                <button className="preset-main" onClick={() => pick(AUTO)} aria-pressed={choice === AUTO}>
-                  <Logo size={18} />
-                  <strong>{t.newChat.autoName}</strong>
-                  <span className="muted small">{t.newChat.autoDescription(leadText)}</span>
-                </button>
-              </div>
-              <div className={`preset-card custom ${choice === CUSTOM ? 'on' : ''}`}>
-                <button className="preset-main" onClick={() => pick(CUSTOM)} aria-pressed={choice === CUSTOM}>
-                  <PencilIcon />
-                  <strong>{t.newChat.customName}</strong>
-                  <span className="muted small">{t.newChat.customDescription}</span>
-                </button>
-              </div>
-            </div>
-          </section>
 
           <section>
             <div className="section-head">
@@ -217,11 +133,21 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
             </div>
             <div className="preset-row">
               {presets.map((p) => (
-                <div key={p.id} className={`preset-card ${choice === p.id ? 'on' : ''}`}>
-                  <button className="preset-main" onClick={() => pick(p.id)} aria-pressed={choice === p.id}>
-                    <MemberDots agents={p.agents} className="preset-dots" max={6} />
-                    <strong>{p.name}</strong>
-                    {p.description && <span className="muted small">{p.description}</span>}
+                <div key={p.id} className="preset-card">
+                  {/* Every card the same size: a long name or description ends in "…" (in full on hover). */}
+                  <button className="preset-main" onClick={() => open(p)} aria-haspopup="dialog">
+                    <span className="preset-top">
+                      <MemberDots agents={p.agents} className="preset-dots" max={6} />
+                      {p.builtin && <span className="preset-tag">{t.newChat.builtin}</span>}
+                    </span>
+                    <strong className="preset-name" title={p.name}>
+                      {p.name}
+                    </strong>
+                    {p.description && (
+                      <span className="muted small preset-desc" title={p.description}>
+                        {p.description}
+                      </span>
+                    )}
                   </button>
                   {!p.builtin && (
                     <button className="icon-button preset-delete" aria-label={t.newChat.deleteTemplate} onClick={() => deletePreset(p)}>
@@ -230,19 +156,16 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
                   )}
                 </div>
               ))}
+              <div className="preset-card new-template">
+                <button className="preset-main" onClick={() => open()} aria-haspopup="dialog">
+                  <strong className="preset-name">＋ {t.newChat.newTemplate}</strong>
+                  <span className="muted small preset-desc">{t.newChat.newTemplateDescription}</span>
+                </button>
+              </div>
             </div>
           </section>
 
           <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} />
-
-          {!auto && (
-            <div className="save-template-row">
-              <span className="muted small">{t.newChat.saveTemplateHint}</span>
-              <button className="ghost" onClick={savePreset} disabled={problems.length > 0}>
-                {t.newChat.saveTemplate}
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
@@ -261,13 +184,14 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         </div>
         {(problems.length > 0 || error) && <p className="error-line">{error || problems[0]}</p>}
       </footer>
-      {trustAsk && (
-        <GrokTrustDialog
-          status={trustAsk.status}
-          onAnswer={(a) => {
-            trustAsk.resolve(a);
-            setTrustAsk(null);
-          }}
+      {editing && (
+        <TemplateEditor
+          key={editing.key}
+          preset={editing.preset}
+          providers={providers}
+          catalog={catalog}
+          onSaved={saved}
+          onClose={() => setEditing(null)}
         />
       )}
     </div>

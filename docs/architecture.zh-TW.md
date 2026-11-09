@@ -46,8 +46,8 @@ flowchart LR
 | `src/server/app.ts` | HTTP 路由、安全性中介層、SSE 端點（`createApp`，可用 `app.request()` 測試） |
 | `src/server/index.ts` | 組裝各元件、靜態檔案、啟動與關閉 |
 | `src/server/web.ts` | 提供建置好的介面：`assets/` 下的檔案（以內容雜湊命名）永久快取，`index.html` 每次載入都檢查 |
-| `src/server/orchestrator.ts` | 執行一次「團隊回合」：依模式決定發言者、組出每個 agent 的 prompt、執行 CLI、串流結果；自動組隊的對話會先設計團隊 |
-| `src/server/planner.ts` | 自動組隊：首席 agent 的 prompt、解析它的 JSON 回覆、轉成可執行的團隊、備援方案 |
+| `src/server/orchestrator.ts` | 執行一次「團隊回合」：依模式決定發言者、組出每個 agent 的 prompt、執行 CLI、串流結果；自動組隊的對話中，每個新問題都先讓首席 agent 設計團隊 |
+| `src/server/planner.ts` | 自動組隊：首席 agent 的 prompt（問題、到目前為止的對話、目前的團隊、範本）、解析它的 JSON 回覆、轉成可執行的團隊、備援方案 |
 | `src/server/grouping.ts` | 側邊欄群組：首席 agent 在背景依新對話的第一則訊息，把它分到使用者的某個群組（`AutoGrouper`） |
 | `src/server/prompt.ts` | 角色簡報（system prompt）、每回合的 prompt、`@` 解析、`[PASS]` 判斷 |
 | `src/server/approvals.ts` | 「本對話都允許」的規則 key 與比對 |
@@ -74,7 +74,7 @@ flowchart LR
 
 ## 對話模型
 
-一個**對話**包含團隊（`agents`）、設定（`mode`、`rounds`、`maxHops`、`permission`、`cwd`；首席 agent 還沒設計團隊時另有 `autoTeam`）以及有順序的**訊息**。訊息的作者可能是使用者、agent 或系統，由多個 **part** 組成：依發生順序排列的文字區塊與工具呼叫（`Read`、`Edit`、`Shell`……）；失敗或被拒絕的工具呼叫會保留原因。系統訊息可能帶有一份 **plan**，也就是首席 agent 的團隊設計。
+一個**對話**包含團隊（`agents`）、設定（`mode`、`rounds`、`maxHops`、`permission`、`cwd`；[自動組隊](#自動組隊)時另有 `autoTeam`，直接採用首席 agent 的團隊、不必確認時再加上 `autoConfirm`）以及有順序的**訊息**。訊息的作者可能是使用者、agent 或系統，由多個 **part** 組成：依發生順序排列的文字區塊與工具呼叫（`Read`、`Edit`、`Shell`……）；失敗或被拒絕的工具呼叫會保留原因。系統訊息可能帶有一份 **plan**，也就是首席 agent 的團隊設計。
 
 對話也會為每個 agent 保存 **agent 狀態**：
 
@@ -141,7 +141,7 @@ flowchart LR
 
 **團隊回覆時送出的訊息**（`Orchestrator.send()`）不會開始第二個執行。執行進行中或正在準備、或首席 agent 的團隊設計還在等確認時，訊息會放進對話的佇列（`conversation.queue`，存在 `conversations.queue`，最多 20 則），瀏覽器把它顯示在輸入框上方（`queue` 事件）。`deliverQueued()` 會在下一個「該收到它的 agent」發言前，依送出順序貼出等待中的訊息：圓桌在每位發言者之前、接力在每一棒之前、平行在每一輪開始時（讓同一輪的人看到相同的訊息）。只 @ 了其他 agent 的訊息會等到其中一位發言，排在它後面的訊息也一起等，所以對話維持送出的順序。送達的訊息就是一般的使用者訊息，另外標上 `queued`（介面顯示「插話」）；每個 agent 跟其他訊息一樣，從「還沒看過的訊息」收到它，所以當時正在發言的 agent 會在下一次發言時看到。執行結束時若還有訊息在等、而且不是被停止的，`startQueued()` 會為它們再開一次執行，參與者依它們的 @ 決定（每則都有 @：就是那些 agent；否則全員）。按「停止」後它們會繼續等使用者處理（`DELETE /api/conversations/:id/queue/:messageId` 撤回一則）；下一次送出或「繼續」會把它們排在新訊息前面送出。以 `interrupt: true` 送出時，會停止執行、等它結束，再把等待中的訊息與這則新訊息當成新的執行送出。訊息會先存成訊息、才從存好的佇列移除，所以當機後兩邊都有的訊息算已送達。
 
-**向使用者提問。** briefing 會告訴 agent：好答案取決於只有使用者知道的事時，要先問、不要猜，並在這種回覆的最後單獨一行寫 `[ASK_USER]`（`src/shared/ask.ts`；介面在回覆串流時會隱藏這個標記）。回合結束時，`takeAsk()` 會把標記從訊息中移除、標上 `asked`，執行就在這裡停下：`pauseFor()` 記下停在哪裡（`conversation.pause`，一個 `RunPause`，存在 `conversations.pause`，並隨 `conversation` 事件送給瀏覽器）。圓桌會立刻停下並記住這一輪剩下的人；平行會讓這一輪跑完，再記住提問的 agent；接力則記住剩下的佇列與剩餘棒數。團隊等待期間，佇列中的訊息不會開始新的執行。下一次執行（`takePause()`）從那裡接續：提問的 agent 先發言，並在那個回合被告知使用者已經回覆（`TurnInfo.answered`），接著是這一輪剩下的人（或接力佇列）與剩下的輪次。沒有任何訊息的「繼續」會略過提問的 agent。回覆中 @ 了其他人、編輯或重試（`truncateFrom()` 會清除暫停）、重新設計團隊或模式改變時，則重新開始。對話清單會回報 `asking` 給側邊欄。
+**向使用者提問。** briefing 會告訴 agent：好答案取決於只有使用者知道的事時，要先問、不要猜，並在這種回覆的最後單獨一行寫 `[ASK_USER]`（`src/shared/ask.ts`；介面在回覆串流時會隱藏這個標記）。回合結束時，`takeAsk()` 會把標記從訊息中移除、標上 `asked`，執行就在這裡停下：`pauseFor()` 記下停在哪裡（`conversation.pause`，一個 `RunPause`，存在 `conversations.pause`，並隨 `conversation` 事件送給瀏覽器）。圓桌會立刻停下並記住這一輪剩下的人；平行會讓這一輪跑完，再記住提問的 agent；接力則記住剩下的佇列與剩餘棒數。團隊等待期間，佇列中的訊息不會開始新的執行。下一次執行（`takePause()`）從那裡接續：提問的 agent 先發言，並在那個回合被告知使用者已經回覆（`TurnInfo.answered`），接著是這一輪剩下的人（或接力佇列）與剩下的輪次。沒有任何訊息的「繼續」會略過提問的 agent。回覆中 @ 了其他人、編輯或重試（`truncateFrom()` 會清除暫停）、重新設計團隊或模式改變時，則重新開始。使用者的回覆是回答、不是新問題，所以[自動組隊](#自動組隊)不會為它設計團隊。對話清單會回報 `asking` 給側邊欄。
 
 **重試 agent 的回覆**（`Orchestrator.retry()`）也是同樣的做法：刪除該則回覆與之後的所有內容，再由該 agent 重新回答；不是接力模式時，同一輪中回覆被一起刪除的 agent 也會接著回答，只跑一輪。
 
@@ -149,23 +149,27 @@ flowchart LR
 
 ## 自動組隊
 
-以 `settings.autoTeam` 建立的對話一開始沒有成員。使用者的第一則訊息是描述需求，這次執行只會設計團隊（協調器中的 `designTeam()`，以及 `src/server/planner.ts`）：
+介面建立的每個對話都有 `settings.autoTeam`：團隊回答新問題之前，**首席 agent** 會先為這個問題設計團隊（協調器中的 `designTeam()`，以及 `src/server/planner.ts`）。使用者以**範本**設計團隊（在「新對話」頁面：可以複製內建範本，也可以新增、修改與刪除自己的範本；`POST /api/presets`），首席 agent 則針對每個問題挑選、調整或取代它們。新對話在第一個問題之前沒有成員。
+
+**哪些執行會設計團隊。** 執行開始時由 `Orchestrator.designs()` 決定：對話還沒有團隊時，首席 agent 會設計；使用者自己的問題（沒有執行時送出的訊息，或編輯過的訊息）也會，除非它是在回答 agent 的問題（`conversation.pause`），或 @ 了目前團隊的成員（那就由他們回答）；團隊上次發言之後若有設計被停止，按「繼續」時也會設計（`designOwed()`）。重試、排程訊息、為佇列中等待的訊息開始的執行，以及確認之後接著的執行，都沿用目前的團隊（`StartOptions.keepTeam`）。沒有 `autoTeam` 的對話（透過 API 帶著團隊建立的）永遠不會設計團隊。
+
+**設計團隊的執行**只會設計團隊：
 
 1. 對話中出現一則 `plan.status = "planning"` 的系統訊息。
-2. **首席 agent**（在設定頁指定：provider，以及選填的模型與推理強度）以唯讀權限在對話的工作目錄中執行一次，system prompt 為 `PLANNER_BRIEFING`。prompt 內容包括使用者的第一則訊息、已登入的 CLI 及其模型與推理強度、三種模式、使用者選的權限與工作目錄（首席 agent 無法更改），以及所有範本（內建與使用者儲存的）的完整內容（JSON）：說明、模式、輪數或交棒次數，以及每位成員的 CLI、模型、推理強度與完整角色。它必須回覆一個 JSON 物件：直接套用範本是 `{"choice": "template", "templateId", "reason"}`；依範本調整是 `{"choice": "adapted", "baseTemplateId", …團隊, "reason"}`；從頭設計是 `{"choice": "custom", …團隊, "reason"}`，其中團隊為 `"name", "description", "mode", "rounds", "maxHops", "agents": [{name, provider, role, model?, effort?}]`。reason 是給使用者看的說明：為什麼這個範本適合、改了什麼與原因，或為什麼沒有範本適合。
-3. `parsePlanReply()` 從程式碼區塊（或最外層的大括號）取出 JSON；`decidePlan()` 把它轉成團隊。自訂成員會經過與手動設計團隊相同的驗證（`validateAgents`）：名稱中的空白會被替換，最多 5 位成員，輪數 1–5，交棒次數 1–30。`fitAgents()` 會把 CLI 尚未登入的成員改到首席 agent 的 CLI，並移除該 CLI 不提供的模型或推理強度。直接套用範本時若首席 agent 沒給原因，會補上預設說明。調整過的團隊會在 `plan.basedOn` 記下原本的範本（id 與名稱）；若原本範本的 id 不存在，就當成自訂團隊。調整或自訂的團隊若與某個範本完全相同（`sameTeam()`：成員、CLI、角色、模型、推理強度、模式與輪數或交棒次數都一樣），就記為直接套用該範本。
-4. 若首席 agent 執行失敗或回覆無法使用，`fallbackPlan()` 會改用「一般問題智囊團」範本，卡片上會說明原因。若使用者停止執行，這則訊息會標為已中斷，`autoTeam` 維持開啟，下一則訊息會重新規劃。首席 agent 會拿到上一次團隊設計之後使用者說的所有內容，所以被停止的那次需求仍然算數。
-5. 團隊與模式寫入對話、清除 `autoTeam`，plan 卡片變成 `ready` 並帶有 `awaitingConfirmation`（附上首席 agent 的費用與 token 數）。這次執行到此結束：沒有人回答這段需求描述。
-6. 在使用者確認團隊之前（`POST /api/conversations/:id/messages/:messageId/confirm-plan`，會清除 `awaitingConfirmation` 並設定 `plan.confirmedAt`），「繼續」會被拒絕（409），送出的訊息則放進佇列等待（首席 agent 設計期間送出的也一樣）。手動設定團隊（`PATCH … { agents }`）也算確認。確認時若有等待中的訊息，就為它們開始一次執行；否則使用者接著問第一個問題。無論哪種，團隊都照常回答，並會在歷史中看到那段需求描述作為背景。plan 訊息是系統訊息，所以永遠不會轉交給 agent。
+2. 首席 agent（在設定頁指定：provider，以及選填的模型與推理強度）以唯讀權限在對話的工作目錄中執行一次，system prompt 為 `PLANNER_BRIEFING`。prompt（`buildPlannerPrompt()`）內容包括**問題**——團隊上次發言或上次設計團隊之後使用者說的所有內容（`questionStart()`），所以被停止的那次設計的問題仍然算數——在它之前**到目前為止的對話**（`historyForLead()`：使用者的訊息與 agent 的回覆，由舊到新，不含工具呼叫、系統訊息、plan、pass 與失敗的回覆；每則最多 1,500 個字元，全部最多 12,000 個字元，保留最新的部分）、**目前的團隊**（模式、輪數或交棒次數，以及每位成員的 CLI、模型、推理強度與完整角色）、已登入的 CLI 及其模型與推理強度、三種模式、使用者選的權限與工作目錄（首席 agent 無法更改）、使用者會先檢視團隊還是團隊立刻回答，以及所有範本（內建與使用者儲存的）的完整內容（JSON）。它必須回覆一個 JSON 物件：保留目前的團隊是 `{"choice": "keep", "reason"}`（只有已經有團隊時才提供；同一件工作的後續問題優先選它，因為成員會保有他們已經知道的事）；直接套用範本是 `{"choice": "template", "templateId", "reason"}`；依範本調整是 `{"choice": "adapted", "baseTemplateId", …團隊, "reason"}`；從頭設計是 `{"choice": "custom", …團隊, "reason"}`，其中團隊為 `"name", "description", "mode", "rounds", "maxHops", "agents": [{name, provider, role, model?, effort?}]`。reason 是給使用者看的說明。
+3. `parsePlanReply()` 從程式碼區塊（或最外層的大括號）取出 JSON；`decidePlan()` 把它轉成團隊。保留的團隊就是目前的團隊原樣（id 也一樣）。自訂成員會經過與手動設計團隊相同的驗證（`validateAgents`）：名稱中的空白會被替換，最多 5 位成員，輪數 1–5，交棒次數 1–30。`fitAgents()` 會把 CLI 尚未登入的成員改到首席 agent 的 CLI，並移除該 CLI 不提供的模型或推理強度。直接套用範本時若首席 agent 沒給原因，會補上預設說明。調整過的團隊會在 `plan.basedOn` 記下原本的範本（id 與名稱）；若原本範本的 id 不存在，就當成自訂團隊。調整或自訂的團隊若與某個範本完全相同（`sameTeam()`：成員、CLI、角色、模型、推理強度、模式與輪數或交棒次數都一樣），就記為直接套用該範本。
+4. 若首席 agent 執行失敗或回覆無法使用，`fallbackPlan()` 會保留目前的團隊，沒有團隊時改用「一般問題智囊團」範本，卡片上會說明原因（`source: "fallback"`，只有改用範本時才帶 `presetId`）。若使用者停止執行，這則訊息會標為已中斷；下一個問題或「繼續」會重新設計。
+5. 留下來的成員（名稱與目前某位成員相同、不分大小寫，CLI 也相同；`keepMemberIds()`）保留原本的 id，連帶保留他們的 CLI session 與 worktree；其他成員從頭開始，跟任何新成員一樣，從「還沒看過的訊息」讀到這段對話。plan 卡片變成 `ready`（附上首席 agent 的費用與 token 數），團隊記在卡片上（`plan.agents`、`plan.settings`）。這次執行到此結束。
+6. **確認。** 預設情況下 plan 會等待確認（`awaitingConfirmation`），對話仍保留目前的團隊，所以這時重試或編輯較早的訊息（會連同後面等待中的 plan 一起刪除）仍由那個團隊處理。使用者回應之前，「繼續」會被拒絕（409），訊息則放進佇列等待（首席 agent 設計期間送出的也一樣）。使用者可以確認（`POST /api/conversations/:id/messages/:messageId/confirm-plan`：plan 的團隊與模式成為對話的團隊，設定 `plan.confirmedAt`）、不採用（`…/decline-plan`：保留目前的團隊，設定 `plan.declinedAt`；第一個問題沒有團隊可以保留，所以不行），或手動設定團隊（`PATCH … { agents }`，以送出的團隊作為決定：團隊設定抽屜會編輯等待中的設計，並說明儲存就會採用它）。有其他操作佔用這個對話時，兩個按鈕都會被拒絕（409）。無論哪種，團隊接著都會回答（`startConfirmed()`）：用現在的團隊開始一次執行，先貼出等待中的訊息，並在歷史中看到那個問題。設了 `settings.autoConfirm` 時，plan 的團隊會立刻採用（`confirmedAt`、`autoConfirmed`），團隊的執行在設計團隊的執行結束時開始（`Run.answerNext`）；若無法開始（另一個對話正在修改同一個資料夾），對話中會說明原因，按「繼續」就由團隊回答，不會重新設計。plan 訊息是系統訊息，所以永遠不會轉交給 agent。
 
-設計團隊的執行不會寫入任何東西（首席 agent 是唯讀的，其他人也不發言），所以不會鎖住目錄；團隊自己的執行則照確認後的模式上鎖。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把首席 agent 設計或調整的團隊（`planSavable()`）存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`；直接套用的範本不是新團隊，卡片不會提供儲存。編輯需求描述會連同 plan 一起刪除，於是 `autoTeam` 重新開啟：團隊會依修改後的需求重新設計，並再次等待確認；但若 plan 之後團隊被手動改過（成員或模式、輪數、交棒次數與 plan 不同），就保留那個團隊。手動設定團隊（`PATCH … { agents }`）會關閉自動組隊。
+設計團隊的執行不會寫入任何東西（首席 agent 是唯讀的，其他人也不發言），所以不會鎖住目錄；團隊自己的執行則照確認後的模式上鎖。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把首席 agent 設計或調整的團隊（`planSavable()`）存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`；直接套用的範本或保留的目前團隊都不是新團隊，卡片不會提供儲存。編輯問題會連同它的 plan 一起刪除，並依修改後的問題重新設計，之前的內容作為歷史。手動設定團隊或修改設定都不會開啟或關閉自動組隊（`PATCH` 會保留原本的 `autoTeam`）；`autoConfirm` 可以在團隊設定中修改。schema 第 13 版（`conversations.auto_confirm`）為在它之前儲存的每個對話開啟了自動組隊。
 
 ## 排程
 
 一個對話可以有一個**排程**（`conversation.schedule`，型別 `ConversationSchedule`，存在 `schedules` 資料表）：在設定的時間把一則訊息傳給團隊，就在同一個對話裡，如同使用者自己送出。這是[觸發提案](proposals/triggers.zh-TW.md)的第一步，每個對話一個排程。
 
 - **時間。** `repeat` 可以是一次（某個時刻）、每天 `HH:MM`、選定的星期幾 `HH:MM`，或從最後一次設定時間起每隔 1–168 小時（只改訊息或其他選項時，節奏不變）。一天中的時間是排程時區裡的牆上時間（儲存時瀏覽器的時區；沒有給就用伺服器的）。`nextRun()`（`src/shared/schedule.ts`）算出下一次：時鐘跳過的時間往後移一個跳躍量，重複出現的時間取第一次。瀏覽器用同一個函式在儲存前顯示接下來三次，並以排程自己的時區顯示時間（附有改用這台裝置時區的按鈕）。
-- **儲存**（`PUT /api/conversations/:id/schedule`，由 `validateSchedule()` 檢查）會取代原本的排程、算出 `nextRunAt`（關閉時沒有）、記下介面語言作為它寫入說明的語言，並保留上一次的結果。啟用的排程需要團隊：首席 agent 還要設計、或使用者還沒確認時都不行（409）。
+- **儲存**（`PUT /api/conversations/:id/schedule`，由 `validateSchedule()` 檢查）會取代原本的排程、算出 `nextRunAt`（關閉時沒有）、記下介面語言作為它寫入說明的語言，並保留上一次的結果。啟用的排程需要團隊：首席 agent 還要設計第一個團隊、或使用者還沒確認團隊時都不行（409）。排程訊息交給目前的團隊：在[自動組隊](#自動組隊)的對話中，首席 agent 不會為它們設計團隊，因為那時可能沒有人在場確認。
 - **送出。** `Scheduler`（`src/server/scheduler.ts`，伺服器開始監聽後啟動，關閉時最先停止）每 15 秒檢查一次——用 unref 的 interval，並和牆上時鐘比較，所以電腦睡眠醒來後就會送出——找出啟用且到期的排程（`Store.dueSchedules()`），最久過期的先，一次一個，並在 `withLang(schedule.lang)` 之中執行。接著 `Orchestrator.sendScheduled()`：
   - 團隊接不了時先不送（`skipped`，附原因）：沒有確認的團隊；agent 的問題正在等使用者回答，而且沒有正在準備、帶著回答的執行（訊息會被當成回答）；團隊回覆中，先前的排程訊息還在佇列裡（不會越積越多）；佇列已滿；
   - 團隊回覆中或執行正在準備時放進佇列（`queued`），和回覆途中送出的訊息一樣；
@@ -385,7 +389,7 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 
 | 資料表 | 內容 |
 | --- | --- |
-| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`auto_team`、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）與 `group_source`（`user` 或 `auto`；NULL 代表尚未分類） |
+| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）與 `group_source`（`user` 或 `auto`；NULL 代表尚未分類） |
 | `conversation_groups` | 使用者的側邊欄群組（名稱、順序） |
 | `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度、`tools`：成員對工具庫的例外設定，JSON） |
 | `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`，以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`），依 `seq` 排序 |
@@ -510,11 +514,11 @@ sequenceDiagram
 - Claude Code 沒有列出模型的指令；模型選單只提供別名與自訂欄位。
 - 長對話每回合只會傳送新訊息，但全新的 session（接續失敗、更換 provider 或編輯訊息之後）會收到完整的對話紀錄。
 - 伺服器產生的文字使用產生當下的語言：系統訊息會一直維持那個語言，provider 狀態的細節也會維持那個語言，直到 20 秒的狀態快取過期。
-- 首席 agent 選得好不好，完全取決於它的回覆品質；回覆無法使用時會改用「一般問題智囊團」範本。
+- 首席 agent 選得好不好，完全取決於它的回覆品質；回覆無法使用時會保留目前的團隊，沒有團隊時改用「一般問題智囊團」範本。它讀的是精簡過的對話（說過的話中最新的 12,000 個字元），不是團隊改過的檔案。每次設計都是首席 agent 的 CLI 的一次執行，所以每個新問題都要多一次執行（預設還要多按一次確認）。被首席 agent 換掉的成員會從頭開始：重試已經不在團隊裡的成員的回覆會被拒絕。
 - Codex 只有在它的模型決定要求超出沙箱的權限時才會詢問；被擋下但沒有詢問的呼叫就只會失敗。
 - Claude Code 的思考內容需要未列入文件的 `--thinking-display summarized` 旗標；Claude Code 的待辦清單只有在它的 `TodoWrite` 工具可用時才會出現。
 - 重試或編輯訊息會讓每個 agent 以剩下的對話紀錄開新的 CLI session。
-- Grok 只有在使用者信任過的資料夾才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks，而 `grok agent stdio` 無法指定信任。Harness Relay 會標示資料夾尚未信任（在 Grok 卡片，以及有 Grok 成員的團隊的工作目錄下方），在那裡開始有 Grok 成員的新對話前會先詢問，並在使用者確認後，用和 `grok --trust` 相同的方式記錄信任（`src/server/grokTrust.ts`：在 `$GROK_HOME/trusted_folders.toml` 加入 `[folders."<路徑>"]`，權限 `0600`，再用 `grok inspect` 確認）。Grok 是以專案根目錄決定信任，而不是輸入的工作目錄：也就是它以 `projectRoot` 回報的儲存庫根目錄（解析連結後），不在儲存庫裡時則是工作目錄的實際路徑。記錄與確認時顯示的都是這個資料夾；它是工作目錄上層的儲存庫根目錄時，確認畫面會說明整個儲存庫都會被信任。使用者確認時若 Grok 已改為另一個資料夾，請求會被拒絕；記錄後 Grok 仍回報未信任時，檔案會還原成原本的內容。工具庫的項目不受影響。平行模式下 Grok 在 `data/worktrees/` 下的 worktree 工作，那是另一個資料夾，工作目錄的信任不一定涵蓋。Codex 每次呼叫 MCP 工具前也會詢問：完整存取以外的權限下會在聊天室顯示核准請求，在設成自動拒絕的對話裡呼叫會失敗；完整存取下只有工具庫的伺服器不經詢問就執行（使用者 `config.toml` 裡自己的伺服器依它們自己的設定）。Codex 其他的 MCP elicitation 一律拒絕。Grok 只有在宣告支援 `mcpCapabilities.http` 時才會拿到工具庫的 HTTP MCP 伺服器，否則會略過並在伺服器 log 留下警告。完整存取以外的權限下，Claude Code 每次呼叫 MCP 工具都會詢問（沒有預先允許任何 MCP 工具），所以在設成自動拒絕的對話裡用不到它們。
+- Grok 只有在使用者信任過的資料夾才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks，而 `grok agent stdio` 無法指定信任。Harness Relay 會標示資料夾尚未信任（在 Grok 卡片、有 Grok 成員的團隊的工作目錄下方，以及等待確認、或最近一次直接採用、有 Grok 成員的團隊設計上），並在使用者確認後，用和 `grok --trust` 相同的方式記錄信任（`src/server/grokTrust.ts`：在 `$GROK_HOME/trusted_folders.toml` 加入 `[folders."<路徑>"]`，權限 `0600`，再用 `grok inspect` 確認）。Grok 是以專案根目錄決定信任，而不是輸入的工作目錄：也就是它以 `projectRoot` 回報的儲存庫根目錄（解析連結後），不在儲存庫裡時則是工作目錄的實際路徑。記錄與確認時顯示的都是這個資料夾；它是工作目錄上層的儲存庫根目錄時，確認畫面會說明整個儲存庫都會被信任。使用者確認時若 Grok 已改為另一個資料夾，請求會被拒絕；記錄後 Grok 仍回報未信任時，檔案會還原成原本的內容。工具庫的項目不受影響。平行模式下 Grok 在 `data/worktrees/` 下的 worktree 工作，那是另一個資料夾，工作目錄的信任不一定涵蓋。Codex 每次呼叫 MCP 工具前也會詢問：完整存取以外的權限下會在聊天室顯示核准請求，在設成自動拒絕的對話裡呼叫會失敗；完整存取下只有工具庫的伺服器不經詢問就執行（使用者 `config.toml` 裡自己的伺服器依它們自己的設定）。Codex 其他的 MCP elicitation 一律拒絕。Grok 只有在宣告支援 `mcpCapabilities.http` 時才會拿到工具庫的 HTTP MCP 伺服器，否則會略過並在伺服器 log 留下警告。完整存取以外的權限下，Claude Code 每次呼叫 MCP 工具都會詢問（沒有預先允許任何 MCP 工具），所以在設成自動拒絕的對話裡用不到它們。
 - Agent 的家目錄：各 CLI 不再讀使用者自己的設定、MCP 伺服器、skill、記憶與 plugin，而且要在新的家目錄重新登入。AgentsView：它的上傳只接受 Claude Code 的 session 紀錄，所以 thread 會被列為 Claude Code 的 session，所有回覆都是 assistant turn；它預設隱藏使用者只說了一則訊息的 session（直到對話有第二則，或開啟 **Include single-turn**）；不支援需要 token 的 AgentsView（`require_auth`）；成員開新 session 後，舊的 session 仍連在 thread 下，之後只會重新連結目前的 session；首席 agent 與分群用的 session 只在執行它們的伺服器還開著時才會連結；刪除對話後，它的 thread 仍留在 AgentsView。
 - 語音輸入：Linux 與 Windows 的預先編譯引擎用 CPU 執行（沒有 CUDA 或 Vulkan），大模型會比較慢；Linux 版需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新，不支援 musl）；macOS 需要 Homebrew，它也會一併安裝 whisper.cpp 的相依套件。文字要等說完才出現，不會邊說邊顯示。Whisper 仍可能寫出簡體字，或從雜音編出一句話。
 - 排程只在 Harness Relay 執行時送出（背後沒有系統排程器）；期間錯過的時間會略過，或晚一點補送一次。每個對話一個排程、間隔以整數小時計，也還沒有事件（webhook）觸發：見[提案](proposals/triggers.zh-TW.md)。每次排程執行都接著同樣的 agent session，所以長期的排程對話會一直變長。

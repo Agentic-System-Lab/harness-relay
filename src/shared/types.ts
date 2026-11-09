@@ -430,10 +430,13 @@ export interface ConversationSettings {
   /** Working directory shared by all agents. */
   cwd: string;
   /**
-   * The lead agent (Settings) designs the team from the first message — picking a template or
-   * designing a new team — before anyone answers. Cleared once the team is set.
+   * Auto team: before the team answers a new question, the lead agent (Settings) chooses the team for
+   * it from the question and the conversation so far — keeping the current team, using a template as
+   * it is, adapting one, or designing a new team. Every conversation started in the app has it.
    */
   autoTeam?: boolean;
+  /** Auto team: the lead agent's team answers at once, without waiting for the user to confirm it. */
+  autoConfirm?: boolean;
   /**
    * What happens when an agent wants to do something its permission does not cover:
    * ask the user in the chat (default), or refuse automatically.
@@ -448,15 +451,16 @@ export interface LeadAgentSettings {
   effort?: string;
 }
 
-/** What the lead agent decided for an auto-team conversation (shown as a card in the chat). */
+/** What the lead agent decided for a question in an auto-team conversation (shown as a card in the chat). */
 export interface TeamPlan {
   status: 'planning' | 'ready';
   lead: LeadAgentSettings;
   /**
-   * template: an existing template, as it is; adapted: a template the lead changed for the question;
-   * custom: a team the lead designed from scratch; fallback: planning failed.
+   * kept: the current team, as it is; template: an existing template, as it is; adapted: a template
+   * the lead changed for the question; custom: a team the lead designed from scratch; fallback:
+   * planning failed (the current team is kept when there is one, otherwise the general template).
    */
-  source?: 'template' | 'adapted' | 'custom' | 'fallback';
+  source?: 'kept' | 'template' | 'adapted' | 'custom' | 'fallback';
   /** The template used (template, fallback). */
   presetId?: string;
   /** The template the team was adapted from (adapted). */
@@ -470,11 +474,17 @@ export interface TeamPlan {
   /** Set once the user saved a custom team as a template. */
   savedPresetId?: string;
   /**
-   * The design waits for the user: nobody answers until they confirm it (or set the team by hand),
-   * and then they ask their first question. (Plans from before this step have neither field.)
+   * The design waits for the user: nobody answers until they confirm it, set the team by hand or
+   * decline it (keeping the current team); then the team answers the question. Until then the
+   * conversation keeps its current team. (Plans from before this step have none of these fields.)
    */
   awaitingConfirmation?: boolean;
+  /** The user confirmed it: the team became this one. */
   confirmedAt?: number;
+  /** The user declined it: the current team stayed, and answered the question. */
+  declinedAt?: number;
+  /** Confirmed without asking: the conversation uses the lead agent's team at once (`autoConfirm`). */
+  autoConfirmed?: boolean;
 }
 
 /** The lead agent's team design that is waiting for the user's confirmation, if any. */
