@@ -549,6 +549,13 @@ function UserMessage({
         <Attachments msg={msg} convId={convId} />
         {text && <UserBubble text={text} mentions={mentionNames} />}
         <div className="msg-actions">
+          <CopyButton text={() => text} />
+          {canEdit && (
+            <button type="button" className="msg-action" onClick={() => setDraft(text)}>
+              {t.message.edit}
+            </button>
+          )}
+          {/* Last, so the tag sits at the right edge under the bubble: copy and edit only turn transparent off hover and still take their space. */}
           {msg.scheduled ? (
             <span className="queued-tag scheduled-tag" title={t.schedule.tagTitle}>
               <ClockIcon size={11} />
@@ -560,12 +567,6 @@ function UserMessage({
                 {t.message.queuedTag}
               </span>
             )
-          )}
-          <CopyButton text={() => text} />
-          {canEdit && (
-            <button type="button" className="msg-action" onClick={() => setDraft(text)}>
-              {t.message.edit}
-            </button>
           )}
         </div>
       </div>
