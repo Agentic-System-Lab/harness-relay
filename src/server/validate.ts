@@ -84,7 +84,7 @@ export function validDirectory(input: unknown, create = false): string {
 }
 
 /** Folder names compare ignoring case where the filesystem usually does (macOS, Windows). */
-const foldCase = (p: string) => (process.platform === 'darwin' || process.platform === 'win32' ? p.toLowerCase() : p);
+export const foldCase = (p: string) => (process.platform === 'darwin' || process.platform === 'win32' ? p.toLowerCase() : p);
 
 function samePath(a: string, b: string): boolean {
   return foldCase(resolve(a)) === foldCase(resolve(b));

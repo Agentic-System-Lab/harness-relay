@@ -188,6 +188,18 @@ describe('Store (SQLite)', () => {
     ]);
   });
 
+  it('lists the working directories in use once each, the most recently used first', () => {
+    const store = new Store(db);
+    const at = (id: string, cwd: string, updatedAt: number) =>
+      store.create({ ...sampleConversation(), id, updatedAt, settings: { ...sampleConversation().settings, cwd } });
+    expect(store.listCwds()).toEqual([]);
+    at('a', '/work/a', 1);
+    at('b', '/work/b', 2);
+    at('c', '/work/a', 3);
+    at('d', '/work/c', 0);
+    expect(store.listCwds()).toEqual(['/work/a', '/work/b', '/work/c']);
+  });
+
   it('marks conversations whose team design waits for confirmation, also after a restart', () => {
     const store = new Store(db);
     const conv: Conversation = { ...sampleConversation(), id: 'auto', messages: [] };

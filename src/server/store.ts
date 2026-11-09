@@ -915,6 +915,13 @@ export class Store {
     ).map((r) => r.title);
   }
 
+  /** The conversations' working directories, each once, the most recently used first. */
+  listCwds(): string[] {
+    return (
+      this.db.prepare('SELECT cwd FROM conversations GROUP BY cwd ORDER BY MAX(updated_at) DESC, cwd').all() as { cwd: string }[]
+    ).map((r) => r.cwd);
+  }
+
   // Search -------------------------------------------------------------------------
 
   /**

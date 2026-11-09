@@ -464,6 +464,16 @@ export interface ConversationSettings {
   approvals?: 'ask' | 'deny';
 }
 
+/**
+ * The working directories the working directory box offers (`GET /api/cwds`): the default one (Settings)
+ * first, then the conversations' own, the most recently used first; only folders that still exist.
+ */
+export interface WorkingDirectories {
+  /** The home folder, so a typed `~` matches it. */
+  home: string;
+  dirs: { path: string; /** The default working directory (Settings). */ default?: true }[];
+}
+
 /** The agent that designs the team for auto-team conversations. */
 export interface LeadAgentSettings {
   provider: Provider;

@@ -31,6 +31,7 @@ import type {
   VoiceModelId,
   VoiceSettingsUpdate,
   VoiceStatus,
+  WorkingDirectories,
   ZipCheck,
 } from '../shared/types';
 import { currentLang } from './i18n';
@@ -130,6 +131,8 @@ export const api = {
   runSchedule: (id: string) => request<{ ok: true; queued: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
   /** Conversations whose title or messages contain every word of `q`. */
   search: (q: string) => request<SearchResult[]>('GET', `/api/search?q=${encodeURIComponent(q)}`),
+  /** The working directories to offer: the default one, then the conversations', the most recently used first. */
+  cwds: () => request<WorkingDirectories>('GET', '/api/cwds'),
 
   // sidebar groups
   listGroups: () => request<ConversationGroup[]>('GET', '/api/groups'),

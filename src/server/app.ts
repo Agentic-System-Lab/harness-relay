@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { createReadStream, realpathSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -17,6 +18,7 @@ import {
   type Provider,
   type ServerEvent,
   type TeamPreset,
+  type WorkingDirectories,
   type ZipCheck,
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
@@ -33,6 +35,8 @@ import type { SettingsStore } from './settings';
 import type { Store } from './store';
 import {
   ensureFolder,
+  expandPath,
+  foldCase,
   validAgentHome,
   validAgentsViewLink,
   validAgentsViewUrl,
@@ -413,6 +417,24 @@ export function createApp({
 
   // Conversations whose title or messages contain every word of `q`.
   app.get('/api/search', (c) => c.json(store.search(c.req.query('q') ?? '')));
+
+  // The working directories the working directory box offers: the default one, then the conversations'
+  // own, the most recently used first; only folders that still exist.
+  app.get('/api/cwds', async (c) => {
+    // As a new conversation reads it (`~` expanded), so it is the folder conversations get by default.
+    const def = expandPath(settings.defaultCwd);
+    // Each folder once, also when spelled in another case where the filesystem ignores case.
+    const seen = new Set<string>();
+    const paths = [def, ...store.listCwds()].filter((p) => {
+      const key = foldCase(resolve(p));
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const isDir = await Promise.all(paths.map((p) => stat(p).then((s) => s.isDirectory(), () => false)));
+    const dirs = paths.filter((_, i) => isDir[i]).map((path) => (path === def ? { path, default: true as const } : { path }));
+    return c.json({ home: homedir(), dirs } satisfies WorkingDirectories);
+  });
 
   /** Save a new conversation and set up its working directory; one that cannot be set up is not kept. */
   async function newConversation(conv: Conversation): Promise<void> {

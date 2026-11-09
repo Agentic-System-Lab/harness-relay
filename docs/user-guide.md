@@ -217,7 +217,7 @@ Add members with **＋ Claude Code / ＋ Codex / ＋ Grok** (up to 8).
 | Parallel | All agents answer at the same time, independently. In later rounds they see the previous round's answers. | Comparing approaches, getting independent opinions |
 | Relay | One agent at a time. An agent hands the floor to a teammate by `@mentioning` them; if it mentions nobody, the floor returns to you. Set the maximum number of hand-offs per message (1–30). | Pipelines: plan → implement → review |
 
-**Working directory** — the folder all agents work in. They share it.
+**Working directory** — the folder all agents work in. They share it. Click the box or its arrow, or press ↓, to pick from the working directories in use: the default one first (marked **Default**), then the ones your conversations work in, the most recently used first; folders that no longer exist are left out. As you type, the list keeps only the paths that contain every word you typed (ignoring case, with `~` for your home folder, and `/` and `\` alike on Windows), so a folder name with spaces matches too. Pick one with the mouse, or with ↑ ↓ and Enter; Esc closes the list. The default working directory in Settings has the same list.
 
 **File permission** — what every agent in the conversation may do **without asking**:
 

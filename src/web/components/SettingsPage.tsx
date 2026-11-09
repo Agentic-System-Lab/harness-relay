@@ -17,6 +17,7 @@ import { api, orCreateCwd } from '../api';
 import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
 import { SETTINGS_SECTIONS, currentSection, readingLine, scrollToSection, sectionId, settingsHref, type SettingsSection } from '../route';
 import { PROVIDER_COLOR, switchProvider, type ModelChoice } from '../util';
+import { CwdInput } from './CwdInput';
 import { ModelPicker } from './ModelPicker';
 import { NativeSetupPanel } from './NativeSetupPanel';
 import { SectionTitle } from './SectionTitle';
@@ -137,7 +138,7 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
           <SectionTitle section="cwd">{t.settings.cwd}</SectionTitle>
           <p className="muted small">{t.settings.cwdHint}</p>
           <div className="input-row">
-            <input value={cwd} onChange={(e) => setCwd(e.target.value)} spellCheck={false} />
+            <CwdInput value={cwd} onChange={setCwd} ariaLabel={t.settings.cwd} />
             <button className="primary" onClick={saveCwd} disabled={!settings || cwd === settings.defaultCwd}>
               {t.common.save}
             </button>

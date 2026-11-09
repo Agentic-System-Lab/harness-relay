@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FILE_LIMITS, type Conversation, type SettingsView } from '../src/shared/types';
+import { FILE_LIMITS, type Conversation, type SettingsView, type WorkingDirectories } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -767,6 +767,64 @@ describe('GET /api/search', () => {
     expect(hit?.snippet).toBe('部署到 staging 之前要跑測試');
     expect(await search('production')).toEqual([]);
     expect(await search('')).toEqual([]);
+  });
+});
+
+describe('GET /api/cwds', () => {
+  it('offers the default working directory, then those in use, the most recently used first, only folders that exist', async () => {
+    expect((await app.request('/api/settings', json('PUT', { defaultCwd: project }))).status).toBe(200);
+    const [a, b, gone] = ['a', 'b with spaces', 'gone'].map((name) => join(project, name));
+    for (const [cwd, at] of [[a, 3], [b, 2], [gone, 4], [project, 1], [a, 1]] as const) {
+      mkdirSync(cwd, { recursive: true });
+      const conv = store.get((await createConversation({ cwd })).id)!;
+      conv.updatedAt = at;
+      store.saveMeta(conv);
+    }
+    rmSync(gone, { recursive: true, force: true });
+
+    const res = await get('/api/cwds');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ home: homedir(), dirs: [{ path: project, default: true }, { path: a }, { path: b }] });
+  });
+
+  it('expands a ~ in the default, as a new conversation reads it', async () => {
+    const before = process.env.RELAY_DEFAULT_CWD;
+    process.env.RELAY_DEFAULT_CWD = '~';
+    try {
+      const db = openDatabase(':memory:');
+      const s = new SettingsStore(db);
+      const st = new Store(db);
+      const hub = new Hub();
+      const own = createApp({ store: st, settings: s, hub, orchestrator: new Orchestrator(st, hub, s), providers: new ProviderService(s) });
+      const res = await own.request('/api/cwds', { headers: HOST });
+      expect(((await res.json()) as WorkingDirectories).dirs).toEqual([{ path: homedir(), default: true }]);
+    } finally {
+      if (before === undefined) delete process.env.RELAY_DEFAULT_CWD;
+      else process.env.RELAY_DEFAULT_CWD = before;
+    }
+  });
+
+  it('lists a folder once, also spelled in another case where the filesystem ignores case', async () => {
+    expect((await app.request('/api/settings', json('PUT', { defaultCwd: project }))).status).toBe(200);
+    const conv = await createConversation();
+    // Saved as it is: on a case-insensitive filesystem (macOS, Windows) it is the same folder.
+    const other = join(root, basename(project).toUpperCase());
+    store.create({ ...conv, id: 'upper', updatedAt: conv.updatedAt + 1, settings: { ...conv.settings, cwd: other } });
+    expect(((await (await get('/api/cwds')).json()) as WorkingDirectories).dirs).toEqual([{ path: project, default: true }]);
+  });
+
+  it('leaves the default out once its folder is gone', async () => {
+    const other = join(project, 'other');
+    mkdirSync(other);
+    await createConversation({ cwd: other });
+    const def = join(project, 'default');
+    mkdirSync(def);
+    expect((await app.request('/api/settings', json('PUT', { defaultCwd: def }))).status).toBe(200);
+    const dirs = async () => ((await (await get('/api/cwds')).json()) as WorkingDirectories).dirs;
+    expect(await dirs()).toEqual([{ path: def, default: true }, { path: other }]);
+
+    rmSync(def, { recursive: true, force: true });
+    expect(await dirs()).toEqual([{ path: other }]);
   });
 });
 

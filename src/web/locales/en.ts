@@ -165,6 +165,10 @@ export const en: Messages = {
     rounds: 'Rounds',
     roundsUnit: 'rounds / message',
     cwd: 'Working directory',
+    cwdList: 'Working directories in use',
+    cwdShowList: 'List the working directories in use',
+    cwdHideList: 'Hide the list of working directories',
+    cwdDefault: 'Default',
     permission: 'File permission (shared by all members)',
     parallelNote:
       "Parallel mode: each member works in its own git worktree, so nobody overwrites anyone; review the diffs in the chat, then choose whose result to apply.",

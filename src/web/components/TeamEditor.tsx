@@ -18,6 +18,7 @@ import { useT, type Messages } from '../i18n';
 import { settingsHref } from '../route';
 import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
 import { PROVIDER_COLOR, initials, newAgent, switchProvider, type ModelChoice } from '../util';
+import { CwdInput } from './CwdInput';
 import { GrokTrustNote } from './GrokTrust';
 import { ModelPicker } from './ModelPicker';
 import { providerState } from './Sidebar';
@@ -83,6 +84,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
   }, []);
   const auto = Boolean(settings.autoTeam) && !template;
   const confirmHint = useId();
+  const cwdId = useId();
   const showMembers = members ?? !auto;
   // Members renamed or removed: the schedule's message may @mention someone the team no longer has.
   const names = agents.map((a) => a.name).join('\n');
@@ -291,15 +293,13 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
             ))}
 
           {!template && (
-            <label className="field inline grow">
-              <span>{t.team.cwd}</span>
-              <input
-                value={settings.cwd}
-                placeholder="/path/to/project"
-                onChange={(e) => setSettings({ cwd: e.target.value })}
-                spellCheck={false}
-              />
-            </label>
+            // Beside its label, not inside it: a <label> may not hold the box's list and button.
+            <div className="field inline grow">
+              <span>
+                <label htmlFor={cwdId}>{t.team.cwd}</label>
+              </span>
+              <CwdInput id={cwdId} value={settings.cwd} placeholder="/path/to/project" onChange={(cwd) => setSettings({ cwd })} />
+            </div>
           )}
         </div>
         {!template && agents.some((a) => a.provider === 'grok') && <GrokTrustNote cwd={settings.cwd} />}
