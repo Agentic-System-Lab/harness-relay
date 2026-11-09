@@ -12,6 +12,8 @@ import {
   NATIVE_ITEM_KINDS,
   NATIVE_PARTS,
   PROVIDERS,
+  SCHEDULE_KINDS,
+  SCHEDULE_LIMITS,
   TOOL_LIMITS,
   VOICE_LANGUAGES,
   VOICE_MODELS,
@@ -25,11 +27,14 @@ import {
   type Permission,
   type Provider,
   type ProviderSettingsUpdate,
+  type ScheduleRepeat,
+  type ScheduleUpdate,
   type ToolLibraryUpdate,
   type VoiceLanguage,
   type VoiceModelId,
   type VoiceSettingsUpdate,
 } from '../shared/types';
+import { parseTime, validTimeZone } from '../shared/schedule';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
 
@@ -408,4 +413,62 @@ export function validGroupName(input: unknown, groups: ConversationGroup[], exce
   const key = name.toLowerCase();
   if (isOtherGroupName(name) || groups.some((g) => g.id !== except && g.name.toLowerCase() === key)) bad(t().groupNameTaken(name));
   return name;
+}
+
+/** The time zone of the computer Harness Relay runs on. */
+export function serverTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
+function validRepeat(input: unknown, enabled: boolean, now: number): ScheduleRepeat {
+  const r = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const kind = r.kind as ScheduleRepeat['kind'];
+  if (!SCHEDULE_KINDS.includes(kind)) bad(t().scheduleBadRepeat);
+  const time = () => {
+    const v = typeof r.time === 'string' ? r.time.trim() : '';
+    if (!parseTime(v)) bad(t().scheduleBadTime);
+    return v;
+  };
+  switch (kind) {
+    case 'once': {
+      const at = Number(r.at);
+      if (!Number.isSafeInteger(at) || at <= 0) bad(t().scheduleBadMoment);
+      // A time that has passed would never send (a schedule kept off may keep it, to be changed later).
+      if (enabled && at <= now) bad(t().scheduleInPast);
+      return { kind, at };
+    }
+    case 'daily':
+      return { kind, time: time() };
+    case 'weekly': {
+      const days = Array.isArray(r.days) ? r.days : [];
+      if (days.some((d) => !Number.isInteger(d) || (d as number) < 0 || (d as number) > 6)) bad(t().scheduleNeedDays);
+      const unique = [...new Set(days as number[])].sort((a, b) => a - b);
+      if (!unique.length) bad(t().scheduleNeedDays);
+      return { kind, time: time(), days: unique };
+    }
+    case 'interval': {
+      const hours = Number(r.hours);
+      if (!Number.isInteger(hours) || hours < 1 || hours > SCHEDULE_LIMITS.maxHours) bad(t().scheduleBadHours(SCHEDULE_LIMITS.maxHours));
+      return { kind, hours };
+    }
+  }
+}
+
+/** A schedule to save. Missing choices take their defaults: on, refuse approvals, skip missed times. */
+export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const text = typeof b.text === 'string' ? b.text.trim() : '';
+  if (!text) bad(t().scheduleTextRequired);
+  if (text.length > SCHEDULE_LIMITS.maxText) bad(t().scheduleTextTooLong(SCHEDULE_LIMITS.maxText));
+  const enabled = b.enabled !== false;
+  const tz = typeof b.timeZone === 'string' && b.timeZone.trim() ? b.timeZone.trim().slice(0, 100) : serverTimeZone();
+  if (!validTimeZone(tz)) bad(t().scheduleBadTimeZone(tz));
+  return {
+    text,
+    repeat: validRepeat(b.repeat, enabled, now),
+    timeZone: tz,
+    enabled,
+    approvals: b.approvals === 'ask' ? 'ask' : 'deny',
+    missed: b.missed === 'run' ? 'run' : 'skip',
+  };
 }

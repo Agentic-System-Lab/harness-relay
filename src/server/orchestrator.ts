@@ -91,6 +91,11 @@ interface Run {
   ws: RunWorkspace;
   /** Repository root this run holds the directory lock on. */
   lockRoot?: string;
+  /**
+   * A schedule started it and nobody may be watching: actions the permission does not cover are
+   * refused automatically instead of asked (the schedule's `approvals`).
+   */
+  refuseApprovals?: boolean;
   /** Settles once the run has finished, including its clean-up. */
   done: Promise<void>;
 }
@@ -106,7 +111,17 @@ interface StartOptions {
   files?: AttachmentPart[];
   /** Post the messages waiting in the queue first: they were sent before this one, and start the run too. */
   queue?: boolean;
+  /** The conversation's schedule sends the message (it is marked `scheduled`). */
+  scheduled?: boolean;
+  /** Refuse approval requests automatically in this run (see `Run.refuseApprovals`). */
+  refuseApprovals?: boolean;
 }
+
+/** How a scheduled message went (`busy`: the conversation is being changed; try again shortly). */
+export type ScheduledSend =
+  | { result: 'sent' | 'queued' }
+  | { result: 'busy' }
+  | { result: 'skipped' | 'failed'; reason: string };
 
 /** Longest name of a template saved from a plan. */
 const MAX_PRESET_NAME = 100;
@@ -379,6 +394,41 @@ export class Orchestrator {
     return msg!;
   }
 
+  /**
+   * The conversation's schedule came due (or the user ran it now): send its message to the team as if
+   * the user had, marked `scheduled`. While the team replies it waits in the queue like any message.
+   * It is held back (`skipped`) when the team cannot take it: no confirmed team, an agent's question
+   * waiting for the user's answer (the message would count as the answer), an earlier scheduled
+   * message still waiting, or a full queue. The run it starts refuses approval requests unless the
+   * schedule asks.
+   */
+  async sendScheduled(convId: string): Promise<ScheduledSend> {
+    const conv = this.store.get(convId);
+    if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
+    const s = conv.schedule;
+    if (!s) throw new HttpError(404, t().scheduleNotFound);
+    if (this.closing) return { result: 'failed', reason: t().shuttingDown };
+    if (conv.settings.autoTeam || conv.agents.length === 0 || pendingPlan(conv.messages)) {
+      return { result: 'skipped', reason: t().scheduleNoTeam };
+    }
+    if (conv.pause) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
+    if (conv.queue?.some((m) => m.scheduled)) return { result: 'skipped', reason: t().scheduleStillQueued };
+    if (this.queues(conv) && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
+    try {
+      if (this.queues(conv)) {
+        this.enqueue(conv, s.text, undefined, true);
+        return { result: 'queued' };
+      }
+      // A settings change or an apply holds the conversation for a moment.
+      if (this.isBusy(convId)) return { result: 'busy' };
+      await this.start(conv, s.text, { queue: true, scheduled: true, refuseApprovals: s.approvals !== 'ask' });
+      return { result: 'sent' };
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 404) throw err;
+      return { result: 'failed', reason: (err as Error).message };
+    }
+  }
+
   /** Stop the conversation's run, if there is one, and wait until it has wound down. */
   private async interrupt(convId: string): Promise<void> {
     const run = this.runs.get(convId);
@@ -393,7 +443,7 @@ export class Orchestrator {
     return this.runs.has(conv.id) || this.starting.has(conv.id) || Boolean(pendingPlan(conv.messages));
   }
 
-  private enqueue(conv: Conversation, text: string, uploads?: AttachmentUpload[]): void {
+  private enqueue(conv: Conversation, text: string, uploads?: AttachmentUpload[], scheduled = false): void {
     const queue = (conv.queue ??= []);
     if (queue.length >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
     const files = saveAttachments(conv.id, uploads);
@@ -407,6 +457,7 @@ export class Orchestrator {
       parts: [...(text ? [{ type: 'text' as const, text }] : []), ...files],
       status: 'done',
       ...(midReply ? { queued: true } : {}),
+      ...(scheduled ? { scheduled: true } : {}),
     });
     try {
       this.saveQueue(conv);
@@ -455,7 +506,9 @@ export class Orchestrator {
     if (pendingPlan(conv.messages) || (conv.agents.length === 0 && !conv.settings.autoTeam)) return false;
     // An agent asked the user something: what was written before the question waits for the answer.
     if (conv.pause) return false;
-    this.start(conv, '', { queue: true }).catch((err) => {
+    // Only the schedule's message waits: nobody may be watching this run either.
+    const unattended = conv.queue.every((m) => m.scheduled) && conv.schedule?.approvals !== 'ask';
+    this.start(conv, '', { queue: true, refuseApprovals: unattended }).catch((err) => {
       if (!(err instanceof HttpError && err.status === 404)) this.systemNote(conv, t().runFailed((err as Error).message));
       this.emitStatus(conv.id);
     });
@@ -593,10 +646,17 @@ export class Orchestrator {
       if (lockRoot) this.lockDir(lockRoot, conv);
       beforePost?.();
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
-      const own = this.postUserMessage(conv, text, files);
+      const own = this.postUserMessage(conv, text, files, opts.scheduled);
       if (own) posted.push(own);
       resume = this.takePause(conv, posted, only);
-      run = { abort: new AbortController(), active: new Set(), ws, lockRoot, done: Promise.resolve() };
+      run = {
+        abort: new AbortController(),
+        active: new Set(),
+        ws,
+        lockRoot,
+        ...(opts.refuseApprovals ? { refuseApprovals: true } : {}),
+        done: Promise.resolve(),
+      };
       this.runs.set(convId, run);
     } catch (err) {
       if (lockRoot && !this.runs.has(convId)) this.unlockDir(lockRoot, convId);
@@ -661,7 +721,7 @@ export class Orchestrator {
   }
 
   /** Post the user's message (none for Continue / retry) and name the conversation after it. */
-  private postUserMessage(conv: Conversation, text: string, files: AttachmentPart[]): ChatMessage | undefined {
+  private postUserMessage(conv: Conversation, text: string, files: AttachmentPart[], scheduled = false): ChatMessage | undefined {
     let msg: ChatMessage | undefined;
     if (text || files.length) {
       msg = {
@@ -670,6 +730,7 @@ export class Orchestrator {
         createdAt: Date.now(),
         parts: [...(text ? [{ type: 'text' as const, text }] : []), ...files],
         status: 'done',
+        ...(scheduled ? { scheduled: true } : {}),
       };
       conv.messages.push(msg);
       this.store.saveMessage(conv.id, msg, true);
@@ -711,6 +772,7 @@ export class Orchestrator {
       settings: conv.settings,
       worktrees: conv.worktrees,
       pause: conv.pause,
+      schedule: conv.schedule,
     });
   }
 
@@ -1274,7 +1336,7 @@ export class Orchestrator {
 
     // Ask the user in the chat; the CLI waits until they answer (or the run is stopped).
     const requestApproval =
-      conv.settings.approvals === 'deny'
+      conv.settings.approvals === 'deny' || run.refuseApprovals
         ? undefined
         : async (req: ApprovalRequest): Promise<ApprovalAnswer> => {
             // Keys come from the command as it will run; `detail` may be tidied up for display.

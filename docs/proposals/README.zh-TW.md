@@ -2,11 +2,11 @@
 
 # 提案
 
-Harness Relay 還沒有的功能的設計。這個資料夾裡的東西都還沒實作：app 現在的樣子以[架構](../architecture.zh-TW.md)和[開發者說明](../developer-guide.zh-TW.md)為準。
+Harness Relay 還沒有的功能的設計。這個資料夾裡的東西都還沒實作，除了各提案狀態寫明已完成的部分：app 現在的樣子以[架構](../architecture.zh-TW.md)和[開發者說明](../developer-guide.zh-TW.md)為準。
 
 | 提案 | 狀態 | 摘要 |
 | --- | --- | --- |
-| [排程與事件觸發的執行](triggers.zh-TW.md) | 尚未開始 | 對話自己開始一輪：依排程，或在本機程式回報事件時。 |
+| [排程與事件觸發的執行](triggers.zh-TW.md) | 第一步已完成（排程） | 對話自己開始一輪：依排程，或在本機程式回報事件時。 |
 | [agent 之間共用的記憶](shared-memory.zh-TW.md) | 尚未開始 | agent 建議要記下的筆記，由使用者決定是否加進工具庫的記憶；依專案分的記憶；匯入各 CLI 自己記住的東西。 |
 
 ## 這個資料夾的用法

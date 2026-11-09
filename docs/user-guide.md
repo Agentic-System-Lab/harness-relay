@@ -272,6 +272,18 @@ After you apply one result, the other agents' results are marked as out of date,
 
 Click **Team settings** in the header to change roles, models, effort, mode, permission or working directory. Changes apply from the next turn. Changing an agent's CLI makes that agent start a new session and re-read the chat history. Settings can't be saved while the team is replying.
 
+### Schedules
+
+**Schedule** in the header sends the team a message at set times, in this conversation, as if you had sent it — for example "@Reviewer look at the pull requests merged yesterday and list the risks" every weekday at 09:00.
+
+- **Message** — what to send. As usual, when you @mention members, only they answer.
+- **When** — **Once** (a date and time), **Every day** or **Every week** (pick the days) at a time, or **Every few hours** (counted from when you save it). The next three times and the time zone are shown before you save.
+- **Actions outside the permission** — in the runs the schedule starts, nobody may be watching: by default anything an agent wants to do beyond the conversation's permission is **refused automatically** (the agent is told and works around it). Choose **Ask me** to be asked in the chat as usual; the agent then waits for you (up to 45 minutes per turn). A conversation set to refuse automatically, or with full access, is not changed by this.
+- **Missed times** — Harness Relay only sends while it is running. A time missed while it was closed or the computer slept is **skipped**, with a note in the chat, or **sent once when it starts** (only once, however many were missed).
+- **On** — untick it to pause the schedule without deleting it.
+
+The header shows the schedule (point at it for the next time), and the sidebar shows a clock next to the conversation; both turn amber when the last time was not sent. A message the schedule sent is marked **Scheduled**. A scheduled message waits while the team is replying, like one you send then; it is held back (with a note) while an agent waits for your answer, while the team is still to be confirmed, or while the previous scheduled message is still waiting. **Run once now** sends it right away to try it out; **Delete schedule** removes it. A conversation has one schedule, and you need a confirmed team to turn it on. With a schedule on, **Team settings** reminds you that your changes apply to its runs, and warns when the team has full access.
+
 ### Browsing files
 
 **Files** in the header opens the conversation's working directory: folders first, a filter for the folder you are in, and ↑ to go up. Click a file to preview it: code with line numbers and highlighting, Markdown rendered (or its source), images and videos. **Copy path** copies the file's full path. In parallel mode you can also pick an agent's worktree, to look at its result before you apply it. Only what is inside the chosen folder is shown, `.git` folders are left out, and files over 512 KB show their beginning. On a phone, the list and the preview take turns; **Back to the list** returns.
@@ -307,9 +319,9 @@ The sidebar lists conversations in their [groups](#groups), newest first, each w
 | **New reply** (green, bold title) | It finished while you were looking at something else. |
 | **Error** (red) | The last reply ended with an error you haven't looked at yet. |
 
-Conversations keep running when you switch to another one (or close the tab); the badges update by themselves. Click the title in the chat header to rename; hover a conversation and click × to delete it. A conversation with a large team shows its first few member dots and a **+N** count.
+A clock after the time means the conversation has a [schedule](#schedules) (point at it for the next time); it is amber when the last time was not sent. Conversations keep running when you switch to another one (or close the tab); the badges update by themselves. Click the title in the chat header to rename; hover a conversation and click × to delete it. A conversation with a large team shows its first few member dots and a **+N** count.
 
-To make room, collapse the sidebar with the panel button next to *Harness Relay*. Three buttons stay in the top-left corner: one brings the sidebar back, one starts a new chat, and one opens the sidebar with [search](#search) ready. The choice is remembered in this browser. (On a phone the sidebar is a drawer opened with ☰ instead, and the page does not zoom: no pinch or double-tap zoom, and no zooming in on the message box. On a phone or tablet the header is a single row: the title with **Copy chat** and **Team settings** (icons on a phone: two sheets, two people); the team, its mode and its permission are under **Team settings**, except that a red **Full access** tag beside the title warns when the agents may run any command. The message box stays one line until you type, and its buttons move below the text when they would leave it too little room.)
+To make room, collapse the sidebar with the panel button next to *Harness Relay*. Three buttons stay in the top-left corner: one brings the sidebar back, one starts a new chat, and one opens the sidebar with [search](#search) ready. The choice is remembered in this browser. (On a phone the sidebar is a drawer opened with ☰ instead, and the page does not zoom: no pinch or double-tap zoom, and no zooming in on the message box. On a phone or tablet the header is a single row: the title with **Copy chat**, **Files**, **Schedule** and **Team settings** (icons on a phone: two sheets, a folder, a clock, two people; the clock is blue while a schedule is on); the team, its mode and its permission are under **Team settings**, except that a red **Full access** tag beside the title warns when the agents may run any command. The message box stays one line until you type, and its buttons move below the text when they would leave it too little room.)
 
 ### Groups
 

@@ -539,3 +539,59 @@ function fakeKeyring(): SecretStore & { data: Map<string, string> } {
 function storedKeys(): string[] {
   return (db.prepare('SELECT api_key FROM provider_settings ORDER BY provider').all() as { api_key: string }[]).map((r) => r.api_key);
 }
+
+describe('Store schedules', () => {
+  const schedule: NonNullable<Conversation['schedule']> = {
+    text: '每日檢查 @Builder',
+    repeat: { kind: 'weekly', time: '09:00', days: [1, 3] },
+    timeZone: 'Asia/Taipei',
+    lang: 'zh-TW',
+    enabled: true,
+    approvals: 'ask',
+    missed: 'run',
+    updatedAt: 10,
+    nextRunAt: 100,
+    lastRunAt: 50,
+    lastResult: 'failed',
+    lastError: '工作目錄不存在',
+  };
+
+  it("keeps a conversation's schedule and the messages it sent, and lists it for the sidebar", () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    conv.schedule = schedule;
+    store.saveSchedule(conv);
+    const sent: ChatMessage = { ...userMsg, id: 'sent', scheduled: true };
+    conv.messages.push(sent);
+    store.saveMessage(conv.id, sent, true);
+
+    const reloaded = new Store(reopen());
+    expect(reloaded.get(conv.id)!.schedule).toEqual(schedule);
+    expect(reloaded.get(conv.id)!.messages[0]!.scheduled).toBe(true);
+    expect(new Store(db).list(() => false)[0]!.schedule).toEqual({ enabled: true, nextRunAt: 100, lastResult: 'failed' });
+    expect(reloaded.list(() => false)[0]!.schedule).toEqual({ enabled: true, nextRunAt: 100, lastResult: 'failed' }); // from memory
+  });
+
+  it('finds the schedules that are on and due, and forgets one that is removed or whose conversation is deleted', () => {
+    const store = new Store(db);
+    const a = { ...sampleConversation(), id: 'a', schedule: { ...schedule, nextRunAt: 200 } };
+    const b = { ...sampleConversation(), id: 'b', schedule: { ...schedule, nextRunAt: 100 } };
+    const off = { ...sampleConversation(), id: 'off', schedule: { ...schedule, enabled: false, nextRunAt: 50 } };
+    for (const c of [a, b, off]) {
+      store.create(c);
+      store.saveSchedule(c);
+    }
+    expect(store.dueSchedules(99)).toEqual([]);
+    expect(store.dueSchedules(300)).toEqual(['b', 'a']); // the most overdue first
+
+    b.schedule = undefined as never;
+    store.saveSchedule(b);
+    expect(new Store(db).get('b')!.schedule).toBeUndefined();
+    expect(store.list(() => false).find((c) => c.id === 'b')!.schedule).toBeUndefined();
+
+    store.delete('a');
+    expect(store.dueSchedules(300)).toEqual([]);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schedules').get()).toEqual({ n: 1 }); // only the one switched off
+  });
+});

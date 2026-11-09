@@ -2685,6 +2685,180 @@ video.chat-media {
   margin-right: auto;
 }
 
+/* Schedules ---------------------------------------------------------------- */
+
+.schedule-drawer {
+  width: min(680px, 100%);
+}
+
+/* The saved schedule: when it sends, how last time went, run it now or delete it. */
+.schedule-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.schedule-status.warn {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+}
+
+.schedule-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.schedule-status.warn .schedule-status-text .small {
+  color: var(--warn);
+}
+
+.schedule-info {
+  color: var(--ok);
+}
+
+.schedule-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ghost.danger {
+  color: var(--danger);
+}
+
+.schedule-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.schedule-sub {
+  margin-top: 4px;
+}
+
+.schedule-when {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.schedule-input {
+  width: auto;
+  max-width: 240px;
+}
+
+.day-picker {
+  display: flex;
+  gap: 4px;
+}
+
+.day-picker button {
+  min-width: 36px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.day-picker button.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-contrast);
+  font-weight: 600;
+}
+
+.schedule-preview {
+  overflow-wrap: anywhere;
+}
+
+.schedule-team {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.schedule-cwd {
+  font-family: var(--mono);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schedule-enabled {
+  margin-right: auto;
+}
+
+/* The team drawer of a conversation with a schedule. */
+.schedule-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 8%, transparent);
+}
+
+.schedule-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* The chat header: the schedule's badge opens the schedule. */
+.schedule-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.schedule-badge:hover {
+  color: var(--text);
+}
+
+.schedule-badge.off {
+  opacity: 0.7;
+}
+
+.head-button.has-schedule {
+  color: var(--info);
+}
+
+.scheduled-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.queue-scheduled {
+  display: inline-flex;
+  color: var(--info);
+}
+
+.conv-schedule {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.conv-schedule.warn {
+  color: var(--warn);
+}
+
 /* Settings ------------------------------------------------------------------ */
 
 .provider-list {
@@ -4860,4 +5034,9 @@ details.sub summary {
   flex-direction: column;
   gap: 4px;
   margin: -4px 0 20px;
+}
+
+/* Phones: the schedule's footer wraps rather than squeezing its buttons. */
+.schedule-drawer .drawer-foot {
+  flex-wrap: wrap;
 }

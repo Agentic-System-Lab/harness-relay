@@ -636,7 +636,67 @@ export interface ChatMessage {
   queued?: boolean;
   /** An agent reply that asks the user something (it ended with `ASK_TOKEN`): the team waited for the answer. */
   asked?: boolean;
+  /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */
+  scheduled?: boolean;
 }
+
+/**
+ * When a schedule sends its message. `daily` and `weekly` times are wall-clock times ("HH:MM") in the
+ * schedule's time zone; `days` are weekdays, 0 = Sunday. `interval` repeats every so many hours from
+ * when the schedule was saved; `once` is a moment (epoch ms).
+ */
+export type ScheduleRepeat =
+  | { kind: 'once'; at: number }
+  | { kind: 'daily'; time: string }
+  | { kind: 'weekly'; time: string; days: number[] }
+  | { kind: 'interval'; hours: number };
+
+export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['once', 'daily', 'weekly', 'interval'];
+
+/**
+ * How the last time a schedule came due went: its message started a run (`sent`), waited in the queue
+ * while the team replied (`queued`), was not sent because Harness Relay was not running then
+ * (`missed`), was held back because the team could not take it (`skipped`: it waited for the user's
+ * answer, had no confirmed team, or the previous scheduled message was still waiting), or could not
+ * start (`failed`). `lastError` says why for the last two.
+ */
+export type ScheduleResult = 'sent' | 'queued' | 'missed' | 'skipped' | 'failed';
+
+/** Longest scheduled message, and the longest interval in hours. */
+export const SCHEDULE_LIMITS = { maxText: 4000, maxHours: 168 };
+
+/**
+ * A conversation's schedule: a message the team is sent at set times, in the same conversation, as
+ * if the user had sent it (it is marked `scheduled`). One per conversation.
+ */
+export interface ConversationSchedule {
+  text: string;
+  repeat: ScheduleRepeat;
+  /** IANA time zone the times are in (the browser's when it was saved). */
+  timeZone: string;
+  /** Language of the notes it writes in the chat (the UI's when it was saved). */
+  lang: Lang;
+  enabled: boolean;
+  /**
+   * In runs the schedule starts, what happens when an agent wants to do something its permission
+   * does not cover: refused automatically (default), or asked in the chat like in any run.
+   */
+  approvals: 'deny' | 'ask';
+  /** A time missed while Harness Relay was not running (or the computer slept): skipped, or run once as soon as it can. */
+  missed: 'skip' | 'run';
+  /** When it was saved: where an interval's cadence starts. */
+  updatedAt: number;
+  /** When it sends next; absent while it is off, or when it will not send again. */
+  nextRunAt?: number;
+  /** The time it last came due. */
+  lastRunAt?: number;
+  lastResult?: ScheduleResult;
+  /** Why it was skipped or failed last time. */
+  lastError?: string;
+}
+
+/** What the browser sends to save a schedule (`PUT /api/conversations/:id/schedule`). */
+export type ScheduleUpdate = Pick<ConversationSchedule, 'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed'>;
 
 /**
  * Where the team stopped because an agent asked the user something. Once the user replies, the
@@ -684,6 +744,8 @@ export interface Conversation {
   queue?: ChatMessage[];
   /** An agent asked the user something and the team waits for the answer. */
   pause?: RunPause;
+  /** A message the team is sent at set times. */
+  schedule?: ConversationSchedule;
 }
 
 export interface ConversationSummary {
@@ -704,6 +766,8 @@ export interface ConversationSummary {
   groupId?: string;
   /** The lead agent is sorting it into one of the user's groups (by its first message). */
   sorting?: boolean;
+  /** It has a schedule: whether it is on, when it sends next, and how the last time went. */
+  schedule?: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult'>;
 }
 
 /**
@@ -744,6 +808,7 @@ export type ServerEvent =
       settings: ConversationSettings;
       worktrees: Record<string, AgentWorktree>;
       pause?: RunPause;
+      schedule?: ConversationSchedule;
     };
 
 // ---------------------------------------------------------------------------

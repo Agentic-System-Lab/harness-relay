@@ -13,16 +13,18 @@ import {
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
 import { afterStreamError, applyStates as findApplyStates, draftStatus } from '../chat';
 import { conversationMarkdown } from '../copy';
-import { useT } from '../i18n';
+import { useI18n, useT } from '../i18n';
+import { describeRepeat, scheduleState, scheduleTrouble } from '../schedule';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { CopyButton } from './CopyButton';
 import { FileBrowser } from './FileBrowser';
-import { CopyIcon, FolderIcon, UsersIcon } from './icons';
+import { ClockIcon, CopyIcon, FolderIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
+import { ScheduleDrawer } from './ScheduleDrawer';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 import { useDialog } from './useDialog';
 
@@ -64,7 +66,15 @@ function reducer(s: State, e: ServerEvent): State {
     case 'conversation':
       return {
         ...s,
-        conv: { ...s.conv, title: e.title, agents: e.agents, settings: e.settings, worktrees: e.worktrees, pause: e.pause },
+        conv: {
+          ...s.conv,
+          title: e.title,
+          agents: e.agents,
+          settings: e.settings,
+          worktrees: e.worktrees,
+          pause: e.pause,
+          schedule: e.schedule,
+        },
       };
   }
   return s;
@@ -78,13 +88,14 @@ interface Props {
 }
 
 export function ChatView({ id, providers, catalog, onChanged }: Props) {
-  const t = useT();
+  const { t, lang } = useI18n();
   const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [] });
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(true);
   /** The conversation is gone (deleted): stop reconnecting. */
   const [gone, setGone] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [diff, setDiff] = useState<{ title: string; load: () => Promise<string> } | null>(null);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
@@ -369,6 +380,14 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               <FolderIcon size={16} />
               <span className="button-label">{t.chat.files}</span>
             </button>
+            <button
+              className={`ghost small-button head-button ${conv.schedule?.enabled ? 'has-schedule' : ''}`}
+              onClick={() => setScheduleOpen(true)}
+              title={conv.schedule ? `${describeRepeat(conv.schedule.repeat, t, lang)} · ${scheduleState(conv.schedule, t, lang)}` : t.schedule.buttonTitle}
+            >
+              <ClockIcon size={16} />
+              <span className="button-label">{t.schedule.button}</span>
+            </button>
             <button className="ghost small-button head-button" onClick={() => setTeamOpen(true)}>
               <UsersIcon size={16} />
               <span className="button-label">{t.chat.teamSettings}</span>
@@ -406,6 +425,23 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
             <span className={`badge ${conv.settings.permission === 'full' ? 'danger' : ''}`}>
               {t.permissions[conv.settings.permission].label}
             </span>
+            {conv.schedule && (
+              <button
+                type="button"
+                className={`badge schedule-badge ${scheduleTrouble(conv.schedule) ? 'warn' : ''} ${conv.schedule.enabled ? '' : 'off'}`}
+                onClick={() => setScheduleOpen(true)}
+                title={
+                  scheduleTrouble(conv.schedule) && conv.schedule.lastResult
+                    ? t.schedule.sidebar.problem(t.schedule.results[conv.schedule.lastResult])
+                    : scheduleState(conv.schedule, t, lang)
+                }
+              >
+                <ClockIcon size={12} />
+                {describeRepeat(conv.schedule.repeat, t, lang)}
+                {/* The next time is in the title: the header has little room. */}
+                {!(conv.schedule.enabled && conv.schedule.nextRunAt !== undefined) && ` · ${scheduleState(conv.schedule, t, lang)}`}
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -511,6 +547,16 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
 
       {diff && <DiffModal title={diff.title} load={diff.load} onClose={() => setDiff(null)} />}
 
+      {scheduleOpen && (
+        <ScheduleDrawer
+          conv={conv}
+          onClose={() => setScheduleOpen(false)}
+          onEditTeam={() => {
+            setScheduleOpen(false);
+            setTeamOpen(true);
+          }}
+        />
+      )}
       {teamOpen && (
         <TeamDrawer
           conv={conv}
@@ -626,7 +672,7 @@ function TeamDrawer({
   onClose: () => void;
   onError: (s: string) => void;
 }) {
-  const t = useT();
+  const { t, lang } = useI18n();
   const current = useMemo<Team>(() => ({ agents: conv.agents, settings: conv.settings }), [conv.agents, conv.settings]);
   /** The team as it was when the draft was copied from it. */
   const [base, setBase] = useState<Team>(current);
@@ -683,7 +729,20 @@ function TeamDrawer({
           </button>
         </header>
         <p className="muted small">{t.chat.drawerNote}</p>
-        <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} />
+        {conv.schedule?.enabled && (
+          <p className="schedule-note small">
+            <ClockIcon size={14} />
+            {t.schedule.teamNote(describeRepeat(conv.schedule.repeat, t, lang))}
+          </p>
+        )}
+        <TeamEditor
+          value={team}
+          onChange={setTeam}
+          providers={providers}
+          catalog={catalog}
+          leadLabel={leadText}
+          schedule={conv.schedule}
+        />
         <footer className="drawer-foot">
           {status === 'conflict' ? (
             <span className="error-line">

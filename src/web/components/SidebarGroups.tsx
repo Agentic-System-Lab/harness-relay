@@ -3,7 +3,8 @@ import type { ConversationGroup, ConversationSummary } from '../../shared/types'
 import { GROUP_LIMITS } from '../../shared/types';
 import { api } from '../api';
 import type { Route } from '../App';
-import { useT } from '../i18n';
+import { useI18n, useT } from '../i18n';
+import { scheduleTrouble, sidebarScheduleTitle } from '../schedule';
 import {
   DRAG_TYPE,
   groupOf,
@@ -16,7 +17,7 @@ import {
   type GroupSection,
 } from '../sidebar';
 import { convStatus, relativeTime } from '../util';
-import { ChevronIcon, FolderIcon, FolderPlusIcon, PencilIcon } from './icons';
+import { ChevronIcon, ClockIcon, FolderIcon, FolderPlusIcon, PencilIcon } from './icons';
 import { MemberDots } from './MemberDots';
 
 interface Props {
@@ -168,7 +169,7 @@ function GroupNameField({
 
 /** The conversations in their groups: the user's groups, then "Other". Conversations are dragged between groups. */
 export function SidebarGroups({ route, conversations, groups, seen, onChanged, onDelete }: Props) {
-  const t = useT();
+  const { t, lang } = useI18n();
   const [collapsed, setCollapsed] = useState(readCollapsedGroups);
   /** Moves not yet reported back by the server, so the conversation does not jump back meanwhile. */
   const [moves, setMoves] = useState<Record<string, string | null>>({});
@@ -324,6 +325,16 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
                             <MemberDots agents={c.agents} className="conv-dots" />
                             {s && <span className={`conv-status ${s}`}>{t.sidebar.status[s]}</span>}
                             {c.sorting && <span className="conv-sorting">{t.sidebar.sorting}</span>}
+                            {c.schedule && (c.schedule.enabled || scheduleTrouble(c.schedule)) && (
+                              <span
+                                className={`conv-schedule ${scheduleTrouble(c.schedule) ? 'warn' : ''}`}
+                                title={sidebarScheduleTitle(c.schedule, t, lang)}
+                                role="img"
+                                aria-label={sidebarScheduleTitle(c.schedule, t, lang)}
+                              >
+                                <ClockIcon size={12} />
+                              </span>
+                            )}
                             {relativeTime(c.updatedAt, t)}
                           </span>
                         </a>

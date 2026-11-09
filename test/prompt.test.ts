@@ -190,3 +190,41 @@ describe('asking the user', () => {
     expect(buildTurnPrompt(conv, team[0]!, [], false, { mode: 'roundtable', round: 1, rounds: 1 })).not.toContain('You asked');
   });
 });
+
+describe('scheduled messages', () => {
+  const scheduled: ChatMessage = {
+    id: 's1',
+    author: { kind: 'user' },
+    createdAt: 0,
+    parts: [{ type: 'text', text: 'daily check' }],
+    status: 'done',
+    scheduled: true,
+  };
+  const withSchedule = (approvals: 'deny' | 'ask'): Conversation => ({
+    ...conv,
+    schedule: {
+      text: 'daily check',
+      repeat: { kind: 'daily', time: '09:00' },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals,
+      missed: 'skip',
+      updatedAt: 0,
+    },
+  });
+
+  it('are marked as sent by the schedule', () => {
+    expect(renderMessage(conv, scheduled)).toBe('<message from="user" via="schedule">\ndaily check\n</message>');
+    expect(renderMessage(conv, { ...scheduled, scheduled: undefined })).toBe('<message from="user">\ndaily check\n</message>');
+  });
+
+  it('are explained in the briefing of a conversation with a schedule, which says when approvals are refused', () => {
+    expect(buildBriefing(conv, team[0]!)).not.toContain('via="schedule"');
+    const refusing = buildBriefing(withSchedule('deny'), team[0]!);
+    expect(refusing).toContain('A user message marked via="schedule" was sent automatically');
+    expect(refusing).toContain(`ask the user (${ASK_TOKEN}) only when no reasonable answer is possible`);
+    expect(refusing).toContain('refused automatically');
+    expect(buildBriefing(withSchedule('ask'), team[0]!)).not.toContain('refused automatically');
+  });
+});

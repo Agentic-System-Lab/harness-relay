@@ -9,8 +9,10 @@ import {
   GROUP_LIMITS,
   PROVIDERS,
   VOICE_MAX_SECONDS,
+  pendingPlan,
   type ApprovalAnswer,
   type Conversation,
+  type ConversationSchedule,
   type Provider,
   type ServerEvent,
   type TeamPreset,
@@ -38,13 +40,15 @@ import {
   validateLead,
   validateMcpServer,
   validateProviderUpdate,
+  validateSchedule,
   validateSettings,
   validateToolLibraryUpdate,
   validateVoiceUpdate,
   validSkillPath,
 } from './validate';
 import { VoiceService } from './voice';
-import { parseLang, t, withLang } from './i18n';
+import { nextRun } from '../shared/schedule';
+import { currentLang, parseLang, t, withLang } from './i18n';
 
 export interface AppDeps {
   store: Store;
@@ -478,6 +482,53 @@ export function createApp({
     if (groupId !== null && !store.getGroup(groupId)) throw new HttpError(404, t().groupNotFound);
     store.moveToGroup(conv.id, groupId);
     return c.json({ ok: true });
+  });
+
+  // Set the conversation's schedule: a message the team is sent at set times (it replaces the one
+  // there was). Saving starts its times afresh; what happened last time is kept.
+  app.put('/api/conversations/:id/schedule', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const now = Date.now();
+    const update = validateSchedule(await body<unknown>(c), now);
+    // A team still being designed, or waiting for confirmation, could not take the message.
+    if (update.enabled && (conv.settings.autoTeam || conv.agents.length === 0 || pendingPlan(conv.messages))) {
+      throw new HttpError(409, t().scheduleNeedsTeam);
+    }
+    const prev = conv.schedule;
+    const schedule: ConversationSchedule = {
+      ...update,
+      lang: currentLang(),
+      updatedAt: now,
+      ...(prev?.lastRunAt !== undefined ? { lastRunAt: prev.lastRunAt } : {}),
+      ...(prev?.lastResult ? { lastResult: prev.lastResult } : {}),
+      ...(prev?.lastError ? { lastError: prev.lastError } : {}),
+    };
+    const next = update.enabled ? nextRun(schedule, now) : undefined;
+    if (next !== undefined) schedule.nextRunAt = next;
+    conv.schedule = schedule;
+    store.saveSchedule(conv);
+    orchestrator.emitConversation(conv);
+    return c.json(schedule);
+  });
+
+  app.delete('/api/conversations/:id/schedule', (c) => {
+    const conv = getConv(c.req.param('id'));
+    if (conv.schedule) {
+      conv.schedule = undefined;
+      store.saveSchedule(conv);
+      orchestrator.emitConversation(conv);
+    }
+    return c.json({ ok: true });
+  });
+
+  // Send the schedule's message now, as it would be sent when it comes due (its times stay as they are).
+  app.post('/api/conversations/:id/schedule/run', async (c) => {
+    const sent = await orchestrator.sendScheduled(c.req.param('id'));
+    if (sent.result === 'busy') throw new HttpError(409, t().scheduleBusy);
+    if (sent.result === 'skipped' || sent.result === 'failed') {
+      throw new HttpError(409, sent.reason.charAt(0).toUpperCase() + sent.reason.slice(1));
+    }
+    return c.json({ ok: true, queued: sent.result === 'queued' }, 202);
   });
 
   app.delete('/api/conversations/:id', async (c) => {

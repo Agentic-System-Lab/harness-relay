@@ -2,11 +2,11 @@
 
 # Proposals
 
-Designs for features Harness Relay does not have yet. Nothing in this folder is implemented: the [architecture](../architecture.md) and the [developer guide](../developer-guide.md) describe the app as it is.
+Designs for features Harness Relay does not have yet. What is in this folder is not built yet, apart from the parts each proposal's status names: the [architecture](../architecture.md) and the [developer guide](../developer-guide.md) describe the app as it is.
 
 | Proposal | Status | Summary |
 | --- | --- | --- |
-| [Scheduled and event-triggered runs](triggers.md) | Not started | A conversation starts a run by itself: on a schedule, or when a local program reports an event. |
+| [Scheduled and event-triggered runs](triggers.md) | Step 1 built (schedules) | A conversation starts a run by itself: on a schedule, or when a local program reports an event. |
 | [Shared memory across agents](shared-memory.md) | Not started | Agents suggest notes for the tool library's memory; the user accepts them. Memory per project, and importing what each CLI remembered. |
 
 ## How to use this folder

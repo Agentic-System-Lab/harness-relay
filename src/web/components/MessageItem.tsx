@@ -18,7 +18,7 @@ import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
 import { ChangesCard, type ApplyState } from './ChangesCard';
 import { CopyButton } from './CopyButton';
-import { PaperclipIcon } from './icons';
+import { ClockIcon, PaperclipIcon } from './icons';
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
@@ -511,10 +511,17 @@ function UserMessage({
         <Attachments msg={msg} convId={convId} />
         {text && <UserBubble text={text} mentions={mentionNames} />}
         <div className="msg-actions">
-          {msg.queued && (
-            <span className="queued-tag" title={t.message.queuedTitle}>
-              {t.message.queuedTag}
+          {msg.scheduled ? (
+            <span className="queued-tag scheduled-tag" title={t.schedule.tagTitle}>
+              <ClockIcon size={11} />
+              {t.schedule.tag}
             </span>
+          ) : (
+            msg.queued && (
+              <span className="queued-tag" title={t.message.queuedTitle}>
+                {t.message.queuedTag}
+              </span>
+            )
           )}
           <CopyButton text={() => text} />
           {canEdit && (

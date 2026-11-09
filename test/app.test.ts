@@ -929,3 +929,73 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
     }
   });
 });
+
+describe('schedules', () => {
+  const HOUR = 3_600_000;
+  const valid = { text: 'check the build', repeat: { kind: 'daily', time: '09:00' }, timeZone: 'UTC' };
+  const put = (id: string, b: unknown) => app.request(`/api/conversations/${id}/schedule`, json('PUT', b, { 'x-relay-lang': 'en' }));
+
+  it('saves a schedule, works out when it sends next, and shows it with the conversation', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const before = Date.now();
+    const res = await put(conv.id, valid);
+    expect(res.status).toBe(200);
+    const saved = (await res.json()) as NonNullable<Conversation['schedule']>;
+    expect(saved).toMatchObject({ text: 'check the build', enabled: true, approvals: 'deny', missed: 'skip', lang: 'en', timeZone: 'UTC' });
+    expect(saved.nextRunAt! - before).toBeGreaterThan(0);
+    expect(saved.nextRunAt! - before).toBeLessThanOrEqual(24 * HOUR);
+    expect(new Date(saved.nextRunAt!).getUTCHours()).toBe(9);
+
+    expect(((await (await get(`/api/conversations/${conv.id}`)).json()) as Conversation).schedule).toEqual(saved);
+    const list = (await (await get('/api/conversations')).json()) as { id: string; schedule?: unknown }[];
+    expect(list.find((c) => c.id === conv.id)!.schedule).toEqual({ enabled: true, nextRunAt: saved.nextRunAt });
+
+    // Switched off, it has no next time; deleted, it is gone.
+    const off = (await (await put(conv.id, { ...valid, enabled: false })).json()) as NonNullable<Conversation['schedule']>;
+    expect(off.enabled).toBe(false);
+    expect(off.nextRunAt).toBeUndefined();
+    expect((await app.request(`/api/conversations/${conv.id}/schedule`, json('DELETE', {}))).status).toBe(200);
+    expect(((await (await get(`/api/conversations/${conv.id}`)).json()) as Conversation).schedule).toBeUndefined();
+  });
+
+  it('refuses a schedule that could never send, and one for a team that is not confirmed yet', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const bad = await put(conv.id, { ...valid, repeat: { kind: 'weekly', time: '09:00', days: [] } });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toMatch(/at least one day/);
+    expect((await put('missing', valid)).status).toBe(404);
+
+    const res = await app.request(
+      '/api/conversations',
+      json('POST', { settings: { autoTeam: true, mode: 'roundtable', permission: 'read-only', cwd: project } }),
+    );
+    const auto = (await res.json()) as Conversation;
+    const refused = await put(auto.id, valid);
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/Confirm the team/);
+    expect((await put(auto.id, { ...valid, enabled: false })).status).toBe(200); // kept off until there is a team
+  });
+
+  it('runs the schedule now: sent, then waiting while the team replies, then held back', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const run = () => app.request(`/api/conversations/${conv.id}/schedule/run`, json('POST', {}, { 'x-relay-lang': 'en' }));
+    expect((await run()).status).toBe(404); // no schedule yet
+    await put(conv.id, valid);
+
+    const first = await run();
+    expect(first.status).toBe(202);
+    expect(await first.json()).toEqual({ ok: true, queued: false });
+    expect(orchestrator.isRunning(conv.id)).toBe(true);
+    expect(await (await run()).json()).toEqual({ ok: true, queued: true });
+    const third = await run();
+    expect(third.status).toBe(409);
+    expect(((await third.json()) as { error: string }).error).toBe('The previous scheduled message is still waiting to be delivered');
+
+    const live = store.get(conv.id)!;
+    expect(live.messages[0]).toMatchObject({ scheduled: true });
+    expect(live.queue).toEqual([expect.objectContaining({ scheduled: true })]);
+    expect(live.schedule!.lastResult).toBeUndefined(); // running it by hand leaves the schedule's record as it is
+    orchestrator.stop(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+  });
+});

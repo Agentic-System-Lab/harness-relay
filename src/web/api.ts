@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   Conversation,
   ConversationGroup,
+  ConversationSchedule,
   ConversationSettings,
   ConversationSummary,
   FileChange,
@@ -19,6 +20,7 @@ import type {
   ProviderModels,
   ProviderSettingsUpdate,
   ProviderStatus,
+  ScheduleUpdate,
   SearchResult,
   SettingsUpdate,
   SettingsView,
@@ -115,6 +117,11 @@ export const api = {
   /** `groupId: null` puts it in the default group ("Other"). */
   moveToGroup: (id: string, groupId: string | null) =>
     request<{ ok: true }>('PUT', `/api/conversations/${id}/group`, { groupId }),
+  /** Set the conversation's schedule (it replaces the one there was). */
+  saveSchedule: (id: string, b: ScheduleUpdate) => request<ConversationSchedule>('PUT', `/api/conversations/${id}/schedule`, b),
+  deleteSchedule: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule`),
+  /** Send the schedule's message now; `queued` while the team replies. */
+  runSchedule: (id: string) => request<{ ok: true; queued: boolean }>('POST', `/api/conversations/${id}/schedule/run`),
   /** Conversations whose title or messages contain every word of `q`. */
   search: (q: string) => request<SearchResult[]>('GET', `/api/search?q=${encodeURIComponent(q)}`),
 

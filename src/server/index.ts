@@ -7,6 +7,7 @@ import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
 import { killAll } from './process';
 import { ProviderService } from './providers';
+import { Scheduler } from './scheduler';
 import { openSystemKeyring } from './secrets';
 import { DB_FILE, SettingsStore } from './settings';
 import { Store } from './store';
@@ -42,6 +43,9 @@ const orchestrator = new Orchestrator(
   agentsView,
 );
 
+// Sends each conversation's scheduled message when it comes due.
+const scheduler = new Scheduler(store, orchestrator);
+
 const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
 const app = createApp({ store, settings, hub, orchestrator, providers, voice, agentsView, extraHosts });
 
@@ -57,6 +61,8 @@ const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? '127.0.0.1';
 const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   console.log(`Harness Relay API listening on http://${host}:${info.port}`);
+  // Times missed while the server was not running are handled now, by each schedule's choice.
+  scheduler.start();
 });
 
 let shuttingDown = false;
@@ -65,6 +71,7 @@ async function shutdown(): Promise<void> {
   shuttingDown = true;
   setTimeout(() => process.exit(1), 10_000).unref(); // never hang on the way out
   server.close();
+  scheduler.stop();
   orchestrator.stopAll();
   providers.shutdown();
   voice.shutdown();

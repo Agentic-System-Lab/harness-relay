@@ -2,7 +2,19 @@
 
 # Scheduled and event-triggered runs
 
-> **Status: proposal, not implemented.** See [Proposals](README.md).
+> **Status: step 1 built (schedules), the rest is a proposal.** See [Proposals](README.md).
+
+## What was built
+
+Step 1, schedules in the same conversation, is in the app: see [Architecture → Schedules](../architecture.md#schedules). It follows this design, with these differences:
+
+- **One schedule per conversation**, without a name (`conversation.schedule`, the `schedules` table, `PUT` / `DELETE /api/conversations/:id/schedule` and `POST …/schedule/run`), not a list of triggers. Its messages carry `scheduled: true` rather than `trigger: { id, name, kind }`, are marked **Scheduled** in the chat, and reach the agents as `via="schedule"`.
+- **Intervals in whole hours** (1–168, counted from when the schedule was saved); no minutes yet.
+- **Times in the schedule's time zone**: the browser's when it was saved (the server's when none is given), so a daily time stays right across clock changes.
+- **Approvals are the schedule's own choice** instead of a warning that offers to change the conversation: the runs a schedule starts refuse approval requests automatically unless the schedule says to ask; runs the user starts are not affected.
+- The scheduler looks every 15 seconds, and a time more than 10 minutes late counts as missed (`missed: 'skip' | 'run'`). A time that was not sent leaves a note in the chat, and the schedule is also held back while an agent waits for the user's answer.
+
+Still open: webhook triggers (step 2), several named triggers per conversation, intervals in minutes, and a new conversation per fire (step 3).
 
 Let a conversation start a run without the user typing: at set times ("every weekday at 9:00, review yesterday's commits"), or when a program on this computer reports an event ("CI failed on `main`").
 

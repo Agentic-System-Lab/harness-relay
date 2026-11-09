@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import type { ChatMessage } from '../../shared/types';
 import { useT } from '../i18n';
-import { PaperclipIcon } from './icons';
+import { ClockIcon, PaperclipIcon } from './icons';
 
 /**
  * busy: the team replies, the messages go before its next turn; confirm: they wait for the user to
@@ -60,6 +60,11 @@ export function QueueTray({ queue, state, onSendNow, onWithdraw }: Props) {
           const files = m.parts.filter((p) => p.type === 'attachment').length;
           return (
             <li key={m.id} className="queue-item">
+              {m.scheduled && (
+                <span className="queue-scheduled" title={t.schedule.tagTitle}>
+                  <ClockIcon size={12} />
+                </span>
+              )}
               <span className="queue-text" title={text}>
                 {text.split('\n')[0]}
               </span>

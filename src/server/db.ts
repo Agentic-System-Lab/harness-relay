@@ -217,6 +217,27 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE provider_settings ADD COLUMN native_items TEXT NOT NULL DEFAULT '{}';
   `,
+  // 12: schedules — a message a conversation's team is sent at set times (one per conversation;
+  // repeat: JSON ScheduleRepeat) — and the user messages they sent.
+  `
+  CREATE TABLE schedules (
+    conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    text        TEXT NOT NULL,
+    repeat      TEXT NOT NULL,
+    time_zone   TEXT NOT NULL,
+    lang        TEXT NOT NULL,
+    enabled     INTEGER NOT NULL,
+    approvals   TEXT NOT NULL,
+    missed      TEXT NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    next_run_at INTEGER,
+    last_run_at INTEGER,
+    last_result TEXT,
+    last_error  TEXT
+  );
+  CREATE INDEX schedules_due ON schedules(enabled, next_run_at);
+  ALTER TABLE messages ADD COLUMN scheduled INTEGER;
+  `,
 ];
 
 function migrate(db: Database): void {

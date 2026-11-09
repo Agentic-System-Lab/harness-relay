@@ -160,6 +160,24 @@ flowchart LR
 
 設計團隊的執行不會寫入任何東西（首席 agent 是唯讀的，其他人也不發言），所以不會鎖住目錄；團隊自己的執行則照確認後的模式上鎖。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把首席 agent 設計或調整的團隊（`planSavable()`）存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`；直接套用的範本不是新團隊，卡片不會提供儲存。編輯需求描述會連同 plan 一起刪除，於是 `autoTeam` 重新開啟：團隊會依修改後的需求重新設計，並再次等待確認；但若 plan 之後團隊被手動改過（成員或模式、輪數、交棒次數與 plan 不同），就保留那個團隊。手動設定團隊（`PATCH … { agents }`）會關閉自動組隊。
 
+## 排程
+
+一個對話可以有一個**排程**（`conversation.schedule`，型別 `ConversationSchedule`，存在 `schedules` 資料表）：在設定的時間把一則訊息傳給團隊，就在同一個對話裡，如同使用者自己送出。這是[觸發提案](proposals/triggers.zh-TW.md)的第一步，每個對話一個排程。
+
+- **時間。** `repeat` 可以是一次（某個時刻）、每天 `HH:MM`、選定的星期幾 `HH:MM`，或從儲存時起每隔 1–168 小時。一天中的時間是排程時區裡的牆上時間（儲存時瀏覽器的時區；沒有給就用伺服器的）。`nextRun()`（`src/shared/schedule.ts`）算出下一次：時鐘跳過的時間往後移一個跳躍量，重複出現的時間取第一次。瀏覽器用同一個函式在儲存前顯示接下來三次。
+- **儲存**（`PUT /api/conversations/:id/schedule`，由 `validateSchedule()` 檢查）會取代原本的排程、算出 `nextRunAt`（關閉時沒有）、記下介面語言作為它寫入說明的語言，並保留上一次的結果。啟用的排程需要團隊：首席 agent 還要設計、或使用者還沒確認時都不行（409）。
+- **送出。** `Scheduler`（`src/server/scheduler.ts`，伺服器開始監聽後啟動，關閉時最先停止）每 15 秒檢查一次——用 unref 的 interval，並和牆上時鐘比較，所以電腦睡眠醒來後就會送出——找出啟用且到期的排程（`Store.dueSchedules()`），最久過期的先，一次一個，並在 `withLang(schedule.lang)` 之中執行。接著 `Orchestrator.sendScheduled()`：
+  - 團隊接不了時先不送（`skipped`，附原因）：沒有確認的團隊；agent 的問題正在等使用者回答（訊息會被當成回答）；先前的排程訊息還在佇列中（不會越積越多）；佇列已滿；
+  - 團隊回覆中或執行正在準備時放進佇列（`queued`），和回覆途中送出的訊息一樣；
+  - 否則用它開始一次執行（`sent`），已在等待的訊息先送。
+
+  這則訊息是一般的使用者訊息，帶有 `scheduled: true`（`messages.scheduled`），所以 @、模式與交付方式都照常。agent 看到的是 `<message from="user" via="schedule">`，而有排程的對話，其簡報會告訴 agent 使用者可能不在：說明假設後把事情做完，只有沒有使用者就無法合理回答時才發問（`[ASK_USER]`）。
+- **核准。** 排程開始的執行（`Run.refuseApprovals`），或只為排程訊息接著開始的執行（`startQueued()`），會自動拒絕核准請求，除非排程的 `approvals` 是 `ask`。本來就自動拒絕的對話照樣拒絕，完全存取則不會詢問。排程啟用時，團隊設定會說明排程執行的情況，並對完全存取提出警告。
+- **之後。** 排程器記下 `lastRunAt`（到期的時間）、`lastResult` 與 `lastError`，以及現在之後的下一次；一次性的排程會自己關閉。回答 `busy`（設定變更或套用暫時占用對話）時留著到期狀態，下一次檢查再試。沒有送出的時間（`missed`、`skipped`、`failed`）會在對話中留下一則系統說明。如果送出期間排程被換掉，新的排程保留自己的時間。
+- **錯過的時間。** 過了超過 10 分鐘的時間（`MISSED_AFTER_MS`：Harness Relay 沒在執行，或電腦在睡眠）會略過並留下說明（`missed: 'skip'`，預設），或晚一點補送（`'run'`）——錯過幾次都只補一次。
+- **立即執行一次**（`POST /api/conversations/:id/schedule/run`）用同樣的方式送出已儲存的訊息，不改變排程的時間與紀錄。
+- `conversation` 事件帶有排程，所以開著的對話會更新標頭的徽章；對話列表帶有 `schedule`（是否啟用、下一次、上次結果），供側邊欄的時鐘使用，上次沒有送出時時鐘變成琥珀色。
+
 ## 側邊欄群組與搜尋
 
 使用者在側邊欄建立群組（`conversation_groups`：id、名稱、順序），再把對話放進去（`conversations.group_id`）。不屬於任何群組的對話都在預設群組 **其他**：它一定存在、不會存進資料庫，任何群組都不能用它在兩種語言中的名稱（`validGroupName()`）。刪除群組時，外鍵的 `ON DELETE SET NULL` 會把裡面對話的 `group_id` 設成 NULL，讓它們回到「其他」。對話列表帶有每個對話的 `groupId`，前端會一起載入群組。
@@ -351,9 +369,9 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 | `delta` | `messageId`、`partIndex`、`text` | 每個串流文字片段 |
 | `status` | 是否執行中、正在發言的 agent id | agent 開始/結束、執行開始/結束 |
 | `queue` | 等待送出的訊息 | 訊息放進佇列、送達或撤回 |
-| `conversation` | 標題、團隊、設定 | 標題或團隊變更 |
+| `conversation` | 標題、團隊、設定、團隊在哪裡等使用者回答、排程 | 標題、團隊或排程變更 |
 
-對話列表（`GET /api/conversations`）帶有側邊欄要顯示的各對話狀態：`running`、`waiting`（有等待中的核准請求）、`lastStatus`（最新一則 agent 回覆如何結束）、`groupId`，以及 `sorting`（首席 agent 正在幫它分群組）；前端每 3 秒輪詢一次，並在 `localStorage` 記住使用者看過哪些內容，用來標示使用者在別處時完成的回覆。執行從不依賴瀏覽器是否連線。
+對話列表（`GET /api/conversations`）帶有側邊欄要顯示的各對話狀態：`running`、`waiting`（有等待中的核准請求）、`lastStatus`（最新一則 agent 回覆如何結束）、`groupId`、`sorting`（首席 agent 正在幫它分群組），以及 `schedule`（排程是否啟用、下一次何時送出、上次結果如何）；前端每 3 秒輪詢一次，並在 `localStorage` 記住使用者看過哪些內容，用來標示使用者在別處時完成的回覆。執行從不依賴瀏覽器是否連線。
 
 伺服器在同一個同步步驟中訂閱事件並序列化 snapshot，所以之後的事件對前端來說都是新的；snapshot 還在寫出時收到的事件會排隊，依序接在 snapshot 後送出（包括 delta）。每 15 秒送一次 `ping`。snapshot 與 `GET /api/conversations/:id` 不包含 agent 的 session 紀錄（`agentState`）。
 
@@ -368,7 +386,8 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 | `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`auto_team`、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）與 `group_source`（`user` 或 `auto`；NULL 代表尚未分類） |
 | `conversation_groups` | 使用者的側邊欄群組（名稱、順序） |
 | `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度、`tools`：成員對工具庫的例外設定，JSON） |
-| `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit，以及存成 JSON 的團隊設計 `plan`），依 `seq` 排序 |
+| `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`，以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`），依 `seq` 排序 |
+| `schedules` | 每個對話一個，隨對話刪除：訊息、`repeat`（JSON）、時區、語言、是否啟用、核准與錯過時間的選擇、下一次，以及上次結果 |
 | `message_changes` | 每則訊息修改的檔案（路徑、A/M/D、增刪行數） |
 | `agent_worktrees` | 平行模式中每個 agent 的 worktree（repository 根目錄、路徑、分支、起始快照、是否需要重設） |
 | `message_parts` | 每則訊息依序（`idx`）排列的 part：文字、思考、計畫與核准 part（資料以 JSON 存在 `data`），以及工具呼叫，含 `tool_error`（呼叫失敗或被拒絕的原因）與 `tool_output` |
@@ -382,7 +401,7 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 
 Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_version`（見 `src/server/db.ts`）。
 
-**關閉**（SIGINT／SIGTERM）：停止接受連線、停止所有執行與群組分類、最多等 5 秒讓執行寫完最後的狀態、對每個 agent 的 process group（包括子程序）先送 SIGTERM 再送 SIGKILL，最後寫回並關閉資料庫。未處理的 promise rejection 會記錄下來，不會讓程序結束。
+**關閉**（SIGINT／SIGTERM）：停止接受連線、停止排程器、停止所有執行與群組分類、最多等 5 秒讓執行寫完最後的狀態、對每個 agent 的 process group（包括子程序）先送 SIGTERM 再送 SIGKILL，最後寫回並關閉資料庫。未處理的 promise rejection 會記錄下來，不會讓程序結束。
 
 ## Provider：狀態、登入與模型
 
@@ -495,3 +514,4 @@ sequenceDiagram
 - Grok 只有在使用者信任過的資料夾才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks，而 `grok agent stdio` 無法指定信任。Harness Relay 會標示資料夾尚未信任（在 Grok 卡片，以及有 Grok 成員的團隊的工作目錄下方），在那裡開始有 Grok 成員的新對話前會先詢問，並在使用者確認後，用和 `grok --trust` 相同的方式記錄信任（`src/server/grokTrust.ts`：在 `$GROK_HOME/trusted_folders.toml` 加入 `[folders."<路徑>"]`，權限 `0600`，再用 `grok inspect` 確認）。Grok 是以專案根目錄決定信任，而不是輸入的工作目錄：也就是它以 `projectRoot` 回報的儲存庫根目錄（解析連結後），不在儲存庫裡時則是工作目錄的實際路徑。記錄與確認時顯示的都是這個資料夾；它是工作目錄上層的儲存庫根目錄時，確認畫面會說明整個儲存庫都會被信任。使用者確認時若 Grok 已改為另一個資料夾，請求會被拒絕；記錄後 Grok 仍回報未信任時，檔案會還原成原本的內容。工具庫的項目不受影響。平行模式下 Grok 在 `data/worktrees/` 下的 worktree 工作，那是另一個資料夾，工作目錄的信任不一定涵蓋。Codex 每次呼叫 MCP 工具前也會詢問：完整存取以外的權限下會在聊天室顯示核准請求，在設成自動拒絕的對話裡呼叫會失敗；完整存取下只有工具庫的伺服器不經詢問就執行（使用者 `config.toml` 裡自己的伺服器依它們自己的設定）。Codex 其他的 MCP elicitation 一律拒絕。Grok 只有在宣告支援 `mcpCapabilities.http` 時才會拿到工具庫的 HTTP MCP 伺服器，否則會略過並在伺服器 log 留下警告。完整存取以外的權限下，Claude Code 每次呼叫 MCP 工具都會詢問（沒有預先允許任何 MCP 工具），所以在設成自動拒絕的對話裡用不到它們。
 - Agent 的家目錄：各 CLI 不再讀使用者自己的設定、MCP 伺服器、skill、記憶與 plugin，而且要在新的家目錄重新登入。AgentsView：它的上傳只接受 Claude Code 的 session 紀錄，所以 thread 會被列為 Claude Code 的 session，所有回覆都是 assistant turn；它預設隱藏使用者只說了一則訊息的 session（直到對話有第二則，或開啟 **Include single-turn**）；不支援需要 token 的 AgentsView（`require_auth`）；成員開新 session 後，舊的 session 仍連在 thread 下，之後只會重新連結目前的 session；首席 agent 與分群用的 session 只在執行它們的伺服器還開著時才會連結；刪除對話後，它的 thread 仍留在 AgentsView。
 - 語音輸入：Linux 與 Windows 的預先編譯引擎用 CPU 執行（沒有 CUDA 或 Vulkan），大模型會比較慢；Linux 版需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新，不支援 musl）；macOS 需要 Homebrew，它也會一併安裝 whisper.cpp 的相依套件。文字要等說完才出現，不會邊說邊顯示。Whisper 仍可能寫出簡體字，或從雜音編出一句話。
+- 排程只在 Harness Relay 執行時送出（背後沒有系統排程器）；期間錯過的時間會略過，或晚一點補送一次。每個對話一個排程、間隔以整數小時計，也還沒有事件（webhook）觸發：見[提案](proposals/triggers.zh-TW.md)。每次排程執行都接著同樣的 agent session，所以長期的排程對話會一直變長。

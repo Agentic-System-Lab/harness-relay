@@ -7,12 +7,16 @@ import type {
   ChatMessage,
   Conversation,
   ConversationGroup,
+  ConversationSchedule,
   ConversationSummary,
+  Lang,
   MessagePart,
   Mode,
   Permission,
   Provider,
   RunPause,
+  ScheduleRepeat,
+  ScheduleResult,
   TeamPlan,
   TeamPreset,
   ToolStatus,
@@ -75,6 +79,23 @@ interface MessageRow {
   plan: string | null;
   queued: number | null;
   asked: number | null;
+  scheduled: number | null;
+}
+
+interface ScheduleRow {
+  conversation_id: string;
+  text: string;
+  repeat: string;
+  time_zone: string;
+  lang: Lang;
+  enabled: number;
+  approvals: string;
+  missed: string;
+  updated_at: number;
+  next_run_at: number | null;
+  last_run_at: number | null;
+  last_result: ScheduleResult | null;
+  last_error: string | null;
 }
 
 interface ChangeRow {
@@ -213,6 +234,35 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     plan: parsePlan(r.plan),
     queued: r.queued ? true : undefined,
     asked: r.asked ? true : undefined,
+    scheduled: r.scheduled ? true : undefined,
+  };
+}
+
+function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
+  const repeat = parseJson<ScheduleRepeat | null>(r.repeat, null);
+  if (!repeat) return undefined;
+  return {
+    text: r.text,
+    repeat,
+    timeZone: r.time_zone,
+    lang: r.lang,
+    enabled: Boolean(r.enabled),
+    approvals: r.approvals === 'ask' ? 'ask' : 'deny',
+    missed: r.missed === 'run' ? 'run' : 'skip',
+    updatedAt: r.updated_at,
+    ...(r.next_run_at !== null ? { nextRunAt: r.next_run_at } : {}),
+    ...(r.last_run_at !== null ? { lastRunAt: r.last_run_at } : {}),
+    ...(r.last_result ? { lastResult: r.last_result } : {}),
+    ...(r.last_error ? { lastError: r.last_error } : {}),
+  };
+}
+
+/** What the sidebar shows of a schedule. */
+function scheduleSummary(s: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult'>): ConversationSummary['schedule'] {
+  return {
+    enabled: s.enabled,
+    ...(s.nextRunAt !== undefined ? { nextRunAt: s.nextRunAt } : {}),
+    ...(s.lastResult ? { lastResult: s.lastResult } : {}),
   };
 }
 
@@ -233,6 +283,15 @@ function queueOf(json: string | null, messages: ChatMessage[]): Pick<Conversatio
   return queue.length ? { queue } : {};
 }
 
+/** The sidebar's view of a conversation's schedule, from memory when the conversation is open. */
+function scheduleOf(
+  live: Conversation | undefined,
+  stored: ConversationSummary['schedule'],
+): Pick<ConversationSummary, 'schedule'> {
+  const schedule = live ? live.schedule && scheduleSummary(live.schedule) : stored;
+  return schedule ? { schedule } : {};
+}
+
 function pauseOf(json: string | null): Pick<Conversation, 'pause'> {
   const pause = parseJson<RunPause | null>(json, null);
   return pause ? { pause } : {};
@@ -249,15 +308,15 @@ function parsePlan(json: string | null): TeamPlan | undefined {
 
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
-                       change_root, change_base, change_head, change_isolated, change_branch, plan, queued, asked)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       change_root, change_base, change_head, change_isolated, change_branch, plan, queued, asked, scheduled)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
    input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
    change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
    change_isolated = excluded.change_isolated, change_branch = excluded.change_branch, plan = excluded.plan,
-   queued = excluded.queued, asked = excluded.asked`;
+   queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
                             tool_output, data)
@@ -316,6 +375,17 @@ export class Store {
           .all() as { conversation_id: string }[]
       ).map((r) => r.conversation_id),
     );
+    const schedules = new Map(
+      (
+        this.db.prepare('SELECT conversation_id, enabled, next_run_at, last_result FROM schedules').all() as Pick<
+          ScheduleRow,
+          'conversation_id' | 'enabled' | 'next_run_at' | 'last_result'
+        >[]
+      ).map((r) => [
+        r.conversation_id,
+        scheduleSummary({ enabled: Boolean(r.enabled), nextRunAt: opt(r.next_run_at), lastResult: opt(r.last_result) }),
+      ]),
+    );
     const byConv = new Map<string, ConversationSummary['agents']>();
     for (const a of agents) {
       const list = byConv.get(a.conversation_id) ?? [];
@@ -337,6 +407,7 @@ export class Store {
           ...statusOf(live, lastStatus.get(r.id)),
           ...(r.group_id ? { groupId: r.group_id } : {}),
           ...(sorting(r.id) ? { sorting: true } : {}),
+          ...scheduleOf(live, schedules.get(r.id)),
         };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -422,6 +493,9 @@ export class Store {
       };
     }
 
+    const scheduleRow = this.db.prepare('SELECT * FROM schedules WHERE conversation_id = ?').get(id) as ScheduleRow | undefined;
+    const schedule = scheduleRow && toSchedule(scheduleRow);
+
     return {
       id: c.id,
       title: c.title,
@@ -443,6 +517,7 @@ export class Store {
       ...(c.allow_rules ? { allowRules: parseJson(c.allow_rules, []) } : {}),
       ...queueOf(c.queue, messages),
       ...pauseOf(c.pause),
+      ...(schedule ? { schedule } : {}),
     };
   }
 
@@ -533,6 +608,52 @@ export class Store {
       .run(conv.queue?.length ? JSON.stringify(conv.queue) : null, conv.id);
   }
 
+  // Schedules ----------------------------------------------------------------------
+
+  /** Persist the conversation's schedule (none: delete it). */
+  saveSchedule(conv: Conversation): void {
+    if (this.deleted.has(conv.id)) return;
+    const s = conv.schedule;
+    if (!s) {
+      this.db.prepare('DELETE FROM schedules WHERE conversation_id = ?').run(conv.id);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO schedules (conversation_id, text, repeat, time_zone, lang, enabled, approvals, missed, updated_at,
+                                next_run_at, last_run_at, last_result, last_error)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(conversation_id) DO UPDATE SET text = excluded.text, repeat = excluded.repeat,
+           time_zone = excluded.time_zone, lang = excluded.lang, enabled = excluded.enabled, approvals = excluded.approvals,
+           missed = excluded.missed, updated_at = excluded.updated_at, next_run_at = excluded.next_run_at,
+           last_run_at = excluded.last_run_at, last_result = excluded.last_result, last_error = excluded.last_error`,
+      )
+      .run(
+        conv.id,
+        s.text,
+        JSON.stringify(s.repeat),
+        s.timeZone,
+        s.lang,
+        s.enabled ? 1 : 0,
+        s.approvals,
+        s.missed,
+        s.updatedAt,
+        nul(s.nextRunAt),
+        nul(s.lastRunAt),
+        nul(s.lastResult),
+        nul(s.lastError),
+      );
+  }
+
+  /** Conversations whose schedule is on and due by `now`, the most overdue first. */
+  dueSchedules(now: number): string[] {
+    return (
+      this.db
+        .prepare('SELECT conversation_id FROM schedules WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at')
+        .all(now) as { conversation_id: string }[]
+    ).map((r) => r.conversation_id);
+  }
+
   // Messages -------------------------------------------------------------------
 
   /** Queue a message for writing; `immediate` writes it (and anything else pending) now. */
@@ -621,6 +742,7 @@ export class Store {
           m.plan ? JSON.stringify(m.plan) : null,
           m.queued ? 1 : null,
           m.asked ? 1 : null,
+          m.scheduled ? 1 : null,
         );
         clearChanges.run(m.id);
         m.changes?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));

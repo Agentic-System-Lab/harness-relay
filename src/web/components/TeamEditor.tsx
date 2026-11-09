@@ -4,6 +4,7 @@ import {
   PROVIDER_LABEL,
   inheritedEffort,
   type AgentConfig,
+  type ConversationSchedule,
   type ConversationSettings,
   type Mode,
   type Permission,
@@ -32,6 +33,8 @@ interface Props {
   catalog: ProviderModels[];
   /** Auto team: the lead agent decides members, mode and rounds; only shown when set. */
   leadLabel?: string;
+  /** The conversation's schedule: its runs may have nobody watching. */
+  schedule?: ConversationSchedule;
 }
 
 const NAME_RE = /^[\p{L}\p{N}_-]{1,32}$/u;
@@ -54,7 +57,7 @@ export function teamProblems(team: Team, t: Messages): string[] {
   return out;
 }
 
-export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: Props) {
+export function TeamEditor({ value, onChange, providers, catalog, leadLabel, schedule }: Props) {
   const t = useT();
   const { agents, settings } = value;
   /** Per member: the model and effort picked for each CLI, so switching a member's CLI and back restores them. */
@@ -278,6 +281,7 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
           <span className={`small ${settings.permission === 'full' ? 'danger-text' : 'muted'}`}>
             {t.permissions[settings.permission].hint}
           </span>
+          {schedule?.enabled && settings.permission === 'full' && <span className="small danger-text">{t.schedule.fullWarning}</span>}
           {settings.permission !== 'read-only' && (
             <span className="small muted">
               {!auto && (settings.mode === 'parallel' ? t.team.parallelNote : t.team.sharedNote)}
@@ -306,6 +310,9 @@ export function TeamEditor({ value, onChange, providers, catalog, leadLabel }: P
               })}
             </div>
             <span className="small muted">{t.team.approvalsHint[settings.approvals ?? 'ask']}</span>
+            {schedule?.enabled && (settings.approvals ?? 'ask') === 'ask' && (
+              <span className="small muted">{t.schedule.approvalsOverride[schedule.approvals]}</span>
+            )}
           </div>
         )}
       </section>

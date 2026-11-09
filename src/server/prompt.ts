@@ -108,6 +108,20 @@ ${list}`);
   return out.length ? `\n\n${out.join('\n\n')}` : '';
 }
 
+/**
+ * How to treat messages the conversation's schedule sends ('' when it has none): the user may be away,
+ * so a question can wait for hours.
+ */
+function scheduleRules(conv: Conversation): string {
+  const s = conv.schedule;
+  if (!s) return '';
+  const refused =
+    s.approvals === 'deny'
+      ? ' In the runs a schedule starts, anything your file access does not cover is refused automatically, so work within it.'
+      : '';
+  return `\n- A user message marked via="schedule" was sent automatically by a schedule the user set up, at a time they chose; they may not be watching. Do the task with reasonable assumptions and say what you assumed; ask the user (${ASK_TOKEN}) only when no reasonable answer is possible without them.${refused}`;
+}
+
 /** The system-level briefing for one agent. Rebuilt on every turn so role edits take effect immediately. */
 export function buildBriefing(
   conv: Conversation,
@@ -139,7 +153,7 @@ ${team}
 - Address teammates by @Name. Stay within your role; don't do a teammate's job unless asked.
 - Be concise and don't restate what others already said. If you have nothing useful to add, reply with exactly ${PASS_TOKEN}.
 - If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled.
-- Reply in the same language the user writes in.
+- Reply in the same language the user writes in.${scheduleRules(conv)}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
 
 # Workspace
@@ -211,7 +225,10 @@ function formatSize(bytes: number): string {
 
 export function renderMessage(conv: Conversation, m: ChatMessage): string {
   const from = senderName(conv, m);
-  if (m.author.kind === 'user') return `<message from="user">\n${[forwardText(m), attachmentList(conv, m)].filter(Boolean).join('\n\n')}\n</message>`;
+  if (m.author.kind === 'user') {
+    const via = m.scheduled ? ' via="schedule"' : '';
+    return `<message from="user"${via}>\n${[forwardText(m), attachmentList(conv, m)].filter(Boolean).join('\n\n')}\n</message>`;
+  }
   const via = m.provider ? ` via="${PROVIDER_LABEL[m.provider]}"` : '';
   const status = m.status === 'error' ? ' status="failed"' : m.status === 'aborted' ? ' status="stopped"' : '';
   // A [PASS] still reports the files its turn changed.
