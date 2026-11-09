@@ -66,6 +66,7 @@ export const zhTW = {
 
   sidebar: {
     newChat: '新對話',
+    newSchedule: '新排程',
     conversations: '對話列表',
     empty: '還沒有對話',
     replying: '回覆中',
@@ -256,6 +257,16 @@ export const zhTW = {
     drawerReload: '載入目前的團隊',
   },
 
+  newSchedule: {
+    title: '新排程',
+    intro: (lead: string) =>
+      `設定一則在固定時間傳給團隊的訊息。建立後，首席 agent（${lead}）會為這則訊息組隊；你確認團隊後，排程就會在設定的時間執行。建立時不會先執行。`,
+    schedule: '排程',
+    titlePlaceholder: '對話名稱（選填，預設用訊息的第一行）',
+    create: '建立排程',
+    creating: '建立中…',
+  },
+
   schedule: {
     button: '排程',
     buttonTitle: '在設定的時間自動傳訊息給團隊',
@@ -278,6 +289,14 @@ export const zhTW = {
     useLocalZone: (tz: string) => `改用這台裝置的時區（${tz}）`,
     upcoming: '接下來：',
     never: '這個設定之後不會再執行',
+    newChat: '每次開新對話',
+    newChatHint: {
+      on: '每次到時間就開一個新對話，沿用同樣的團隊、設定、「本對話都允許」的動作與側邊欄群組，在那裡送出訊息。每次都從乾淨的上下文開始，但 agent 不記得前幾次做過什麼；要延續的事，請 agent 寫進工作目錄的檔案。',
+      off: '訊息送進這個對話，agent 接著之前的 session，記得前幾次做過什麼；對話會越來越長。',
+    } as Record<'on' | 'off', string>,
+    newChatParallel: '平行模式下，每個新對話都有自己的 worktree 與 relay/* 分支，刪除那個對話時才會清掉。',
+    openChat: '開啟對話',
+    sentInNewChat: '已在新對話中送出',
     unattended: '沒人看著的時候',
     approvals: '權限範圍以外的動作',
     approvalsDeny: '自動拒絕',
@@ -307,6 +326,10 @@ export const zhTW = {
     confirmRemove: '刪除這個排程？',
     saving: '儲存中…',
     needsTeam: '先確認團隊才能設定排程：新對話請先提出問題，再確認首席 agent 為它組的團隊。',
+    confirmTeamFirst: '首席 agent 已為排程組好團隊，請在對話中確認；確認後排程才會執行，也才能修改。',
+    designingTeam: '首席 agent 正在為排程組隊…',
+    noTeamYet: '這個排程還沒有團隊，到時間時會略過。',
+    designTeam: '請首席 agent 組隊',
     currentTeam: '排程的訊息交給目前的團隊回答，首席 agent 不會為它重新組隊。',
     summary: {
       once: (when: string) => `${when}（一次）`,
@@ -440,6 +463,9 @@ export const zhTW = {
     decline: '不採用，沿用目前的團隊',
     declined: '未採用，由目前的團隊回答',
     aborted: '團隊設計已中斷；按「繼續」或提出新問題會重新組隊。',
+    planningSchedule: (lead: string) => `首席 agent（${lead}）正在為這個排程組隊…`,
+    confirmHintSchedule: '確認後，這個團隊會在排程的時間收到訊息；現在不會執行。',
+    abortedSchedule: '團隊設計已中斷；在排程視窗按「請首席 agent 組隊」可以重新組隊。',
   },
 
   changes: {

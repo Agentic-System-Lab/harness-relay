@@ -109,15 +109,24 @@ ${list}`);
 }
 
 /**
- * How to treat messages the conversation's schedule sends ('' when it has none): the user may be away,
- * so a question can wait for hours.
+ * The conversation's schedule, when it sends its message here: one that opens a new conversation each
+ * time never does.
  */
-function scheduleRules(conv: Conversation): string {
-  const s = conv.schedule;
-  if (!s) return '';
+function ownSchedule(conv: Conversation): Conversation['schedule'] {
+  return conv.schedule && !conv.schedule.newChat ? conv.schedule : undefined;
+}
+
+/**
+ * How to treat messages a schedule sends ('' when no schedule sends any here and there is no scheduled
+ * message — a conversation a schedule opened has the message but no schedule of its own): the user
+ * may be away, so a question can wait for hours. `unattended`: this run refuses approval requests.
+ */
+function scheduleRules(conv: Conversation, unattended: boolean): string {
+  const s = ownSchedule(conv);
+  if (!s && !conv.messages.some((m) => m.scheduled)) return '';
   // Full access asks nothing, so nothing is refused.
   const refused =
-    s.approvals === 'deny' && conv.settings.permission !== 'full'
+    (unattended || s?.approvals === 'deny') && conv.settings.permission !== 'full'
       ? ' In the runs a schedule starts, anything your file access does not cover is refused automatically (unless the user always allows it in this chat), so work within it.'
       : '';
   return `\n- A user message marked via="schedule" was sent automatically by a schedule the user set up, at a time they chose; they may not be watching. Do the task with reasonable assumptions and say what you assumed; ask the user (${ASK_TOKEN}) only when no reasonable answer is possible without them.${refused}`;
@@ -132,6 +141,8 @@ export function buildBriefing(
   /** What the user left out of this agent's CLI in Harness Relay's runs, all of a kind and single items. */
   nativeOff: readonly NativePart[] = [],
   nativeItems: NativeItemsOff = {},
+  /** This run refuses approval requests: a schedule started it and nobody may be watching. */
+  unattended = false,
 ): string {
   const { settings, agents } = conv;
   const order = agents.map((a) => `@${a.name}`).join(' → ');
@@ -154,7 +165,7 @@ ${team}
 - Address teammates by @Name. Stay within your role; don't do a teammate's job unless asked.
 - Be concise and don't restate what others already said. If you have nothing useful to add, reply with exactly ${PASS_TOKEN}.
 - If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled.
-- Reply in the same language the user writes in.${scheduleRules(conv)}
+- Reply in the same language the user writes in.${scheduleRules(conv, unattended)}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
 - To hand the user a file you made (a PDF, slides, a document, a spreadsheet, an archive…), save it inside your working directory and link it with a path relative to that directory, e.g. \`[Q3 report](out/report.pdf)\`, or \`[Deck](<out/Q3 deck.pptx>)\` when the path has spaces. The user downloads it from that link, on this computer or another device; only files inside your working directory can be downloaded.
 
@@ -266,7 +277,7 @@ export function buildTurnPrompt(
 
   let cue: string;
   const answered = `You asked the user a question and their reply is among the messages above${
-    conv.schedule ? ' (one marked via="schedule" is not their reply)' : ''
+    ownSchedule(conv) || delta.some((m) => m.scheduled) ? ' (one marked via="schedule" is not their reply)' : ''
   }: now give your full answer, adjusted to it.`;
   if (turn.answered) {
     cue = `It's your turn, @${agent.name}. ${answered}`;

@@ -471,5 +471,6 @@ export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
     enabled,
     approvals: b.approvals === 'ask' ? 'ask' : 'deny',
     missed: b.missed === 'run' ? 'run' : 'skip',
+    newChat: b.newChat === true,
   };
 }

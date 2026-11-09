@@ -485,6 +485,11 @@ export interface TeamPlan {
   declinedAt?: number;
   /** Confirmed without asking: the conversation uses the lead agent's team at once (`autoConfirm`). */
   autoConfirmed?: boolean;
+  /**
+   * Designed for the conversation's schedule (its message, which nobody posted): once confirmed, the
+   * team answers nothing now; it gets the message when the schedule sends it.
+   */
+  forSchedule?: boolean;
 }
 
 /** The lead agent's team design that is waiting for the user's confirmation, if any. */
@@ -676,8 +681,9 @@ export type ScheduleResult = 'sent' | 'queued' | 'missed' | 'skipped' | 'failed'
 export const SCHEDULE_LIMITS = { maxText: 4000, maxHours: 168 };
 
 /**
- * A conversation's schedule: a message the team is sent at set times, in the same conversation, as
- * if the user had sent it (it is marked `scheduled`). One per conversation.
+ * A conversation's schedule: a message the team is sent at set times, as if the user had sent it (it
+ * is marked `scheduled`): in this conversation, or (`newChat`) in a new one each time. One per
+ * conversation.
  */
 export interface ConversationSchedule {
   text: string;
@@ -694,6 +700,11 @@ export interface ConversationSchedule {
   approvals: 'deny' | 'ask';
   /** A time missed while Harness Relay was not running (or the computer slept): skipped, or run once as soon as it can. */
   missed: 'skip' | 'run';
+  /**
+   * Each time, open a new conversation with the same team, settings, "always allow" answers and sidebar
+   * group, and send the message there, instead of in this one: every run starts with a clean context.
+   */
+  newChat: boolean;
   /** When its times (`repeat`, `timeZone`) were last set: where an interval's cadence starts. */
   updatedAt: number;
   /** When it sends next; absent while it is off, or when it will not send again. */
@@ -703,6 +714,8 @@ export interface ConversationSchedule {
   lastResult?: ScheduleResult;
   /** Why it was skipped or failed last time. */
   lastError?: string;
+  /** The conversation the last time opened (`newChat`), when it was sent. */
+  lastChatId?: string;
 }
 
 /** A moment's wall-clock date and time in a time zone (`zonedParts()`). */
@@ -719,7 +732,7 @@ export interface ZonedParts {
 }
 
 /** What the browser sends to save a schedule (`PUT /api/conversations/:id/schedule`). */
-export type ScheduleUpdate = Pick<ConversationSchedule, 'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed'>;
+export type ScheduleUpdate = Pick<ConversationSchedule, 'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat'>;
 
 /**
  * Where the team stopped because an agent asked the user something. Once the user replies, the

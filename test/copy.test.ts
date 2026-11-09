@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
-import { closeFences, conversationMarkdown, copyText, messageText, planHeadline } from '../src/web/copy';
+import { closeFences, conversationMarkdown, copyText, messageText, planHeadline, planWording } from '../src/web/copy';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
@@ -54,6 +54,19 @@ const conv: Conversation = {
 
 describe('naming the team the lead agent chose', () => {
   const lead = { provider: 'claude' as const };
+  it("words a design for a schedule's message apart from one for a question", () => {
+    const question = planWording({ status: 'ready', lead }, en, 'Claude Code');
+    expect(question.confirmHint).toBe(en.plan.confirmHint);
+    expect(question.aborted).toBe(en.plan.aborted);
+    const schedule = planWording({ status: 'planning', lead, forSchedule: true }, zhTW, 'Claude Code');
+    expect(schedule).toEqual({
+      planning: '首席 agent（Claude Code）正在為這個排程組隊…',
+      confirmHint: zhTW.plan.confirmHintSchedule,
+      aborted: zhTW.plan.abortedSchedule,
+    });
+    expect(schedule.confirmHint).toMatch(/不會執行/);
+  });
+
   it('says whether the current team was kept, a template used, adapted or designed', () => {
     expect(planHeadline({ status: 'ready', lead, source: 'kept', name: 'A · B' }, en)).toBe('Keeping the current team');
     // A failed design keeps the current team, or uses the default template when there is none.

@@ -2,7 +2,7 @@
 
 # Scheduled and event-triggered runs
 
-> **Status: step 1 built (schedules), the rest is a proposal.** See [Proposals](README.md).
+> **Status: step 1 built (schedules), and step 3 as a schedule option; webhook triggers (step 2) are still a proposal.** See [Proposals](README.md).
 
 ## What was built
 
@@ -13,8 +13,10 @@ Step 1, schedules in the same conversation, is in the app: see [Architecture →
 - **Times in the schedule's time zone**: the browser's when it was saved (the server's when none is given), so a daily time stays right across clock changes.
 - **Approvals are the schedule's own choice** instead of a warning that offers to change the conversation: the runs a schedule starts refuse approval requests automatically (except what the chat always allows) unless the schedule says to ask; runs the user starts, or writes into, are not affected.
 - The scheduler looks every 15 seconds, and a time more than 10 minutes late counts as missed (`missed: 'skip' | 'run'`). A time that was not sent leaves a note in the chat, and the schedule is also held back while an agent waits for the user's answer.
+- **A new conversation per fire (step 3) is a choice of each schedule** (`newChat`, **Start a new chat each time**), which answers the open question below by leaving it to the user: each time opens a conversation with the same team, settings, "always allow" answers and sidebar group, and sends the message there. See [Architecture → Schedules](../architecture.md#schedules).
+- **A schedule can be where a conversation starts** (**New schedule** in the sidebar): the lead agent designs the team for its message when it is created, while the user is there to confirm it, not each time it fires; nothing runs until then.
 
-Still open: webhook triggers (step 2), several named triggers per conversation, intervals in minutes, and a new conversation per fire (step 3).
+Still open: webhook triggers (step 2), several named triggers per conversation, and intervals in minutes.
 
 Let a conversation start a run without the user typing: at set times ("every weekday at 9:00, review yesterday's commits"), or when a program on this computer reports an event ("CI failed on `main`").
 
@@ -150,7 +152,7 @@ One migration appended to `MIGRATIONS` in `src/server/db.ts`:
 
 1. Schedule triggers in the same conversation, with the UI, missed-run rule and warnings.
 2. Webhook triggers.
-3. Maybe: a trigger that starts a **new conversation** each time (the same team, settings and sidebar group), so a daily trigger does not grow one conversation forever. See open questions.
+3. A trigger that starts a **new conversation** each time (the same team, settings and sidebar group), so a daily trigger does not grow one conversation forever. Built for schedules, as an option.
 
 ## External events
 
@@ -170,7 +172,7 @@ Exposing the server through a tunnel is out of scope. If it is ever done, only `
 
 ## Open questions
 
-- Same conversation or a new one per fire (step 3)? A long-lived conversation keeps the agents' context but grows; a new one per fire starts clean but loses what earlier runs learned unless it goes into [shared memory](shared-memory.md).
+- Same conversation or a new one per fire (step 3)? A long-lived conversation keeps the agents' context but grows; a new one per fire starts clean but loses what earlier runs learned unless it goes into [shared memory](shared-memory.md). Settled for schedules by letting each one choose; a webhook trigger would offer the same choice.
 - Should a trigger be able to run with a lower permission than its conversation (for example read-only for webhook triggers)?
 - Should a trigger be saved in team templates (`presets`), so a template can bring its schedule along?
 - How small may the interval be? 5 minutes keeps cost and noise down; polling CI may want less.

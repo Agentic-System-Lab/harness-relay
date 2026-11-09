@@ -69,6 +69,19 @@ export function attachmentLines(m: ChatMessage): string {
     .join('\n');
 }
 
+/**
+ * What a team design's card says while it is designed, waits for confirmation or was stopped: worded
+ * for the schedule's message when it is for one (it then answers nothing when confirmed).
+ */
+export function planWording(plan: TeamPlan, t: Messages, lead: string): { planning: string; confirmHint: string; aborted: string } {
+  const s = Boolean(plan.forSchedule);
+  return {
+    planning: s ? t.plan.planningSchedule(lead) : t.plan.planning(lead),
+    confirmHint: s ? t.plan.confirmHintSchedule : t.plan.confirmHint,
+    aborted: s ? t.plan.abortedSchedule : t.plan.aborted,
+  };
+}
+
 /** One line naming the team the lead agent chose ("Using the template …"). */
 export function planHeadline(plan: TeamPlan, t: Messages): string {
   const name = plan.name ?? '';

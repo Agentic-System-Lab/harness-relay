@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { SCHEDULE_KINDS, SCHEDULE_LIMITS, pendingPlan, type Conversation } from '../../shared/types';
+import { pendingPlan, type Conversation } from '../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
+import { hashFor } from '../route';
 import {
-  browserTimeZone,
   describeRepeat,
   draftChanged,
   draftFrom,
   draftProblems,
   formatWhen,
-  localInput,
-  previewRuns,
   scheduleState,
   scheduleTrouble,
   shownZone,
@@ -18,10 +16,8 @@ import {
   type ScheduleDraft,
 } from '../schedule';
 import { MemberDots } from './MemberDots';
+import { ScheduleForm } from './ScheduleForm';
 import { useDialog } from './useDialog';
-
-/** Monday first, as a week is read. */
-const WEEK = [1, 2, 3, 4, 5, 6, 0];
 
 /**
  * The conversation's schedule: a message the team is sent at set times, and what happens when nobody
@@ -29,10 +25,13 @@ const WEEK = [1, 2, 3, 4, 5, 6, 0];
  */
 export function ScheduleDrawer({
   conv,
+  running,
   onClose,
   onEditTeam,
 }: {
   conv: Conversation;
+  /** The team (or the lead agent designing it) is at work. */
+  running: boolean;
   onClose: () => void;
   onEditTeam: () => void;
 }) {
@@ -45,6 +44,8 @@ export function ScheduleDrawer({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  /** The conversation "Run now" just opened (a schedule that opens a new one each time). */
+  const [ranIn, setRanIn] = useState<string>();
   const dialog = useRef<HTMLElement>(null);
   useDialog(dialog, onClose);
 
@@ -58,18 +59,33 @@ export function ScheduleDrawer({
     setTouched(true);
     setError('');
     setInfo('');
+    setRanIn(undefined);
   };
 
-  const now = Date.now();
-  const problems = draftProblems(draft, now, t);
+  const problems = draftProblems(draft, Date.now(), t);
   const changed = draftChanged(draft, saved);
-  // Scheduled messages go to the current team (the lead agent designs none for them).
-  const teamReady = conv.agents.length > 0 && !pendingPlan(conv.messages);
-  const upcoming = problems.length ? [] : previewRuns(draft, now, saved);
+  // Scheduled messages go to the current team (the lead agent designs none when one comes due).
+  const waitingPlan = Boolean(pendingPlan(conv.messages));
+  const teamReady = conv.agents.length > 0 && !waitingPlan;
+  // The latest team design is for the schedule's message (New schedule), not for a question.
+  const forSchedule = Boolean(conv.messages.findLast((m) => m.plan)?.plan?.forSchedule);
   const { mode, rounds, maxHops, permission, cwd } = conv.settings;
-  /** Times of day are in the schedule's time zone; a moment or an interval does not depend on one. */
-  const localZone = browserTimeZone();
-  const draftZone = shownZone({ repeat: { kind: draft.kind }, timeZone: draft.timeZone });
+  /** A saved schedule without a team, in a chat whose lead agent may design one for it now. */
+  const mayDesign = Boolean(saved) && !teamReady && !waitingPlan && !running && Boolean(conv.settings.autoTeam);
+  const [designing, setDesigning] = useState(false);
+
+  const design = async () => {
+    setDesigning(true);
+    setError('');
+    try {
+      await api.designSchedule(conv.id);
+      onClose(); // the team's card is in the chat
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDesigning(false);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -98,18 +114,17 @@ export function ScheduleDrawer({
     setSending(true);
     setError('');
     setInfo('');
+    setRanIn(undefined);
     try {
-      const { queued } = await api.runSchedule(conv.id);
-      setInfo(queued ? t.schedule.queuedNow : t.schedule.sentNow);
+      const { queued, chatId } = await api.runSchedule(conv.id);
+      setInfo(chatId ? t.schedule.sentInNewChat : queued ? t.schedule.queuedNow : t.schedule.sentNow);
+      setRanIn(chatId);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setSending(false);
     }
   };
-
-  const toggleDay = (day: number) =>
-    edit({ days: draft.days.includes(day) ? draft.days.filter((d) => d !== day) : [...draft.days, day] });
 
   return (
     <div className="drawer-scrim" onClick={onClose}>
@@ -140,9 +155,29 @@ export function ScheduleDrawer({
                 <span className="small">
                   {t.schedule.last(formatWhen(saved.lastRunAt, lang, shownZone(saved)), t.schedule.results[saved.lastResult])}
                   {saved.lastError && (scheduleTrouble(saved) ? t.common.listSeparator + saved.lastError : '')}
+                  {saved.lastChatId && saved.lastResult === 'sent' && (
+                    <>
+                      {' · '}
+                      <a className="link-button" href={hashFor({ page: 'chat', id: saved.lastChatId })}>
+                        {t.schedule.openChat}
+                      </a>
+                    </>
+                  )}
                 </span>
               )}
-              {info && <span className="small schedule-info">{info}</span>}
+              {info && (
+                <span className="small schedule-info">
+                  {info}
+                  {ranIn && (
+                    <>
+                      {' · '}
+                      <a className="link-button" href={hashFor({ page: 'chat', id: ranIn })}>
+                        {t.schedule.openChat}
+                      </a>
+                    </>
+                  )}
+                </span>
+              )}
             </div>
             <div className="schedule-status-actions">
               <button
@@ -161,141 +196,25 @@ export function ScheduleDrawer({
           </div>
         )}
 
-        {!teamReady && <p className="warn-line">{t.schedule.needsTeam}</p>}
-
-        <section className="schedule-form">
-          <label className="field">
-            <span>{t.schedule.message}</span>
-            <textarea
-              value={draft.text}
-              rows={4}
-              maxLength={SCHEDULE_LIMITS.maxText}
-              placeholder={t.schedule.messagePlaceholder}
-              onChange={(e) => edit({ text: e.target.value })}
-            />
-            <span className="small muted">{t.schedule.messageHint}</span>
-          </label>
-
-          <div className="field">
-            <span>{t.schedule.repeat}</span>
-            <div className="segmented wide" role="radiogroup" aria-label={t.schedule.repeat}>
-              {SCHEDULE_KINDS.map((k) => (
-                <button key={k} type="button" role="radio" aria-checked={draft.kind === k} className={draft.kind === k ? 'on' : ''} onClick={() => edit({ kind: k })}>
-                  {t.schedule.kinds[k]}
-                </button>
-              ))}
-            </div>
-
-            {draft.kind === 'once' && (
-              <input
-                type="datetime-local"
-                className="schedule-input"
-                aria-label={t.schedule.at}
-                value={draft.at}
-                min={localInput(now)}
-                onChange={(e) => edit({ at: e.target.value })}
-              />
+        {!teamReady && (
+          <p className="warn-line">
+            {waitingPlan && forSchedule
+              ? t.schedule.confirmTeamFirst
+              : running && forSchedule
+                ? t.schedule.designingTeam
+                : mayDesign
+                  ? t.schedule.noTeamYet
+                  : t.schedule.needsTeam}
+            {mayDesign && (
+              <button type="button" className="link-button" disabled={designing} onClick={design}>
+                {t.schedule.designTeam}
+              </button>
             )}
+          </p>
+        )}
 
-            {(draft.kind === 'daily' || draft.kind === 'weekly') && (
-              <div className="schedule-when">
-                {draft.kind === 'weekly' && (
-                  <div className="day-picker" role="group" aria-label={t.schedule.days}>
-                    {WEEK.map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        className={draft.days.includes(d) ? 'on' : ''}
-                        aria-pressed={draft.days.includes(d)}
-                        aria-label={t.schedule.weekdayNames[d]}
-                        title={t.schedule.weekdayNames[d]}
-                        onClick={() => toggleDay(d)}
-                      >
-                        {t.schedule.weekdays[d]}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <input
-                  type="time"
-                  className="schedule-input"
-                  aria-label={t.schedule.time}
-                  value={draft.time}
-                  onChange={(e) => edit({ time: e.target.value })}
-                />
-              </div>
-            )}
-
-            {draft.kind === 'interval' && (
-              <label className="field inline">
-                <span>{t.schedule.every}</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={SCHEDULE_LIMITS.maxHours}
-                  value={Number.isNaN(draft.hours) ? '' : draft.hours}
-                  onChange={(e) => edit({ hours: e.target.value === '' ? NaN : Number(e.target.value) })}
-                />
-                <span className="unit muted small">
-                  {t.schedule.hoursUnit} · {t.schedule.intervalHint}
-                </span>
-              </label>
-            )}
-
-            <span className="small muted schedule-preview">
-              {problems.length
-                ? problems[0]
-                : upcoming.length
-                  ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
-                  : t.schedule.never}
-              {draftZone && (
-                <>
-                  {' · '}
-                  {t.schedule.timeZone(draft.timeZone)}
-                  {draft.timeZone !== localZone && (
-                    <>
-                      {' · '}
-                      <button type="button" className="link-button" onClick={() => edit({ timeZone: localZone })}>
-                        {t.schedule.useLocalZone(localZone)}
-                      </button>
-                    </>
-                  )}
-                </>
-              )}
-            </span>
-          </div>
-
-          <h3 className="schedule-sub">{t.schedule.unattended}</h3>
-
-          <div className="field">
-            <span>{t.schedule.approvals}</span>
-            <div className="segmented wide" role="radiogroup" aria-label={t.schedule.approvals}>
-              {(['deny', 'ask'] as const).map((v) => (
-                <button key={v} type="button" role="radio" aria-checked={draft.approvals === v} className={draft.approvals === v ? 'on' : ''} onClick={() => edit({ approvals: v })}>
-                  {v === 'deny' ? t.schedule.approvalsDeny : t.schedule.approvalsAsk}
-                </button>
-              ))}
-            </div>
-            <span className="small muted">
-              {permission === 'full'
-                ? t.schedule.approvalsFull
-                : conv.settings.approvals === 'deny'
-                  ? t.schedule.approvalsTeamDeny
-                  : t.schedule.approvalsHint[draft.approvals]}
-            </span>
-          </div>
-
-          <div className="field">
-            <span>{t.schedule.missed}</span>
-            <div className="segmented wide" role="radiogroup" aria-label={t.schedule.missed}>
-              {(['skip', 'run'] as const).map((v) => (
-                <button key={v} type="button" role="radio" aria-checked={draft.missed === v} className={draft.missed === v ? 'on' : ''} onClick={() => edit({ missed: v })}>
-                  {v === 'skip' ? t.schedule.missedSkip : t.schedule.missedRun}
-                </button>
-              ))}
-            </div>
-            <span className="small muted">{t.schedule.missedHint[draft.missed]}</span>
-          </div>
+        <div className="schedule-form">
+          <ScheduleForm draft={draft} onEdit={edit} saved={saved} settings={conv.settings} />
 
           <div className="field">
             <span>{t.schedule.team}</span>
@@ -315,7 +234,7 @@ export function ScheduleDrawer({
             {conv.settings.autoTeam && <span className="small muted">{t.schedule.currentTeam}</span>}
             {permission === 'full' && draft.enabled && <span className="small danger-text">{t.schedule.fullWarning}</span>}
           </div>
-        </section>
+        </div>
 
         <footer className="drawer-foot">
           {error ? (

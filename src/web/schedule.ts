@@ -18,6 +18,7 @@ export interface ScheduleDraft {
   enabled: boolean;
   approvals: ConversationSchedule['approvals'];
   missed: ConversationSchedule['missed'];
+  newChat: boolean;
 }
 
 /** The time zone of this browser. */
@@ -59,6 +60,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     enabled: true,
     approvals: 'deny',
     missed: 'skip',
+    newChat: false,
   };
   if (!s) return draft;
   const r = s.repeat;
@@ -74,6 +76,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     enabled: s.enabled,
     approvals: s.approvals,
     missed: s.missed,
+    newChat: s.newChat,
   };
 }
 
@@ -99,6 +102,7 @@ export function toUpdate(d: ScheduleDraft): ScheduleUpdate {
     enabled: d.enabled,
     approvals: d.approvals,
     missed: d.missed,
+    newChat: d.newChat,
   };
 }
 

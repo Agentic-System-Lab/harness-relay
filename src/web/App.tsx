@@ -3,6 +3,7 @@ import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderSt
 import { api } from './api';
 import { ChatView } from './components/ChatView';
 import { NewChat } from './components/NewChat';
+import { NewSchedule } from './components/NewSchedule';
 import { Onboarding, onboardingDone } from './components/Onboarding';
 import { SettingsPage } from './components/SettingsPage';
 import { hashFor, routeFromHash, type Route } from './route';
@@ -194,6 +195,16 @@ export function App() {
         )}
         {route.page === 'new' && (
           <NewChat
+            providers={providers}
+            catalog={catalog}
+            onCreated={(conv) => {
+              refreshConversations();
+              navigate({ page: 'chat', id: conv.id });
+            }}
+          />
+        )}
+        {route.page === 'schedule' && (
+          <NewSchedule
             providers={providers}
             catalog={catalog}
             onCreated={(conv) => {

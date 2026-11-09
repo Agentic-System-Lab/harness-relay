@@ -34,8 +34,14 @@ function write(key: string, value: string): void {
   }
 }
 
+/** Whether the last new chat (or schedule) used the lead agent's teams without asking. */
+export const lastAutoConfirm = () => read(AUTO_CONFIRM_KEY) === '1';
+
+/** Remember whether this one did, so the next one starts the same way. */
+export const rememberAutoConfirm = (on: boolean | undefined) => write(AUTO_CONFIRM_KEY, on ? '1' : '');
+
 /** A new conversation: the lead agent designs the team for each question, so only the settings are chosen here. */
-function autoTeam(cwd: string, autoConfirm: boolean): Team {
+export function autoTeam(cwd: string, autoConfirm: boolean): Team {
   return {
     agents: [],
     settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd, autoTeam: true, ...(autoConfirm ? { autoConfirm } : {}) },
@@ -72,7 +78,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         if (initialized.current) return;
         initialized.current = true;
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam(autoTeam(settings.defaultCwd, read(AUTO_CONFIRM_KEY) === '1'));
+        setTeam(autoTeam(settings.defaultCwd, lastAutoConfirm()));
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, [lang]);
@@ -90,7 +96,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         (createCwd) => api.createConversation({ title, agents: [], settings: team.settings, createCwd }),
         () => confirm(t.newChat.confirmCreateCwd(team.settings.cwd.trim())),
       );
-      write(AUTO_CONFIRM_KEY, team.settings.autoConfirm ? '1' : '');
+      rememberAutoConfirm(team.settings.autoConfirm);
       onCreated(conv);
     } catch (e) {
       setError((e as Error).message);

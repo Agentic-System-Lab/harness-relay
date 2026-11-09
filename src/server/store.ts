@@ -97,6 +97,8 @@ interface ScheduleRow {
   last_run_at: number | null;
   last_result: ScheduleResult | null;
   last_error: string | null;
+  new_chat: number;
+  last_chat_id: string | null;
 }
 
 interface ChangeRow {
@@ -250,11 +252,13 @@ function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
     enabled: Boolean(r.enabled),
     approvals: r.approvals === 'ask' ? 'ask' : 'deny',
     missed: r.missed === 'run' ? 'run' : 'skip',
+    newChat: Boolean(r.new_chat),
     updatedAt: r.updated_at,
     ...(r.next_run_at !== null ? { nextRunAt: r.next_run_at } : {}),
     ...(r.last_run_at !== null ? { lastRunAt: r.last_run_at } : {}),
     ...(r.last_result ? { lastResult: r.last_result } : {}),
     ...(r.last_error ? { lastError: r.last_error } : {}),
+    ...(r.last_chat_id ? { lastChatId: r.last_chat_id } : {}),
   };
 }
 
@@ -604,14 +608,29 @@ export class Store {
     );
   }
 
-  delete(id: string): void {
+  /**
+   * Delete a conversation. A schedule that opened it forgets it (`lastChatId`): returns the
+   * conversations whose schedule did, so their open chats can be told.
+   */
+  delete(id: string): string[] {
     this.deleted.add(id);
     for (const key of this.savedSeen.keys()) if (key.startsWith(seenKey(id, ''))) this.savedSeen.delete(key);
     clearTimeout(this.timers.get(id));
     this.timers.delete(id);
     this.dirty.delete(id);
     this.cache.delete(id);
-    this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+    const linked = (
+      this.db.prepare('SELECT conversation_id FROM schedules WHERE last_chat_id = ?').all(id) as { conversation_id: string }[]
+    ).map((r) => r.conversation_id);
+    transaction(this.db, () => {
+      this.db.prepare('UPDATE schedules SET last_chat_id = NULL WHERE last_chat_id = ?').run(id);
+      this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+    });
+    for (const convId of linked) {
+      const s = this.cache.get(convId)?.schedule;
+      if (s?.lastChatId === id) delete s.lastChatId;
+    }
+    return linked;
   }
 
   /** Persist the messages waiting to be delivered. */
@@ -634,13 +653,14 @@ export class Store {
     }
     this.db
       .prepare(
-        `INSERT INTO schedules (conversation_id, text, repeat, time_zone, lang, enabled, approvals, missed, updated_at,
-                                next_run_at, last_run_at, last_result, last_error)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO schedules (conversation_id, text, repeat, time_zone, lang, enabled, approvals, missed, new_chat, updated_at,
+                                next_run_at, last_run_at, last_result, last_error, last_chat_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(conversation_id) DO UPDATE SET text = excluded.text, repeat = excluded.repeat,
            time_zone = excluded.time_zone, lang = excluded.lang, enabled = excluded.enabled, approvals = excluded.approvals,
-           missed = excluded.missed, updated_at = excluded.updated_at, next_run_at = excluded.next_run_at,
-           last_run_at = excluded.last_run_at, last_result = excluded.last_result, last_error = excluded.last_error`,
+           missed = excluded.missed, new_chat = excluded.new_chat, updated_at = excluded.updated_at,
+           next_run_at = excluded.next_run_at, last_run_at = excluded.last_run_at, last_result = excluded.last_result,
+           last_error = excluded.last_error, last_chat_id = excluded.last_chat_id`,
       )
       .run(
         conv.id,
@@ -651,11 +671,13 @@ export class Store {
         s.enabled ? 1 : 0,
         s.approvals,
         s.missed,
+        s.newChat ? 1 : 0,
         s.updatedAt,
         nul(s.nextRunAt),
         nul(s.lastRunAt),
         nul(s.lastResult),
         nul(s.lastError),
+        nul(s.lastChatId),
       );
   }
 
@@ -847,6 +869,12 @@ export class Store {
   /** Its conversations go to the default group (the foreign key sets their group to NULL). */
   deleteGroup(id: string): void {
     this.db.prepare('DELETE FROM conversation_groups WHERE id = ?').run(id);
+  }
+
+  /** The sidebar group a conversation is in (`null`: the default group, "Other"). */
+  groupOf(convId: string): string | null {
+    const row = this.db.prepare('SELECT group_id FROM conversations WHERE id = ?').get(convId) as { group_id: string | null } | undefined;
+    return row?.group_id ?? null;
   }
 
   /** The user puts a conversation in a group (`null`: the default group). */

@@ -145,7 +145,7 @@ describe('validateSchedule', () => {
     return 'ok';
   };
 
-  it('trims the message and fills in the defaults: on, refuse approvals, skip missed times', () => {
+  it('trims the message and fills in the defaults: on, refuse approvals, skip missed times, in this chat', () => {
     expect(validateSchedule(valid, MON)).toEqual({
       text: 'check the build',
       repeat: { kind: 'daily', time: '09:00' },
@@ -153,12 +153,16 @@ describe('validateSchedule', () => {
       enabled: true,
       approvals: 'deny',
       missed: 'skip',
+      newChat: false,
     });
-    expect(validateSchedule({ ...valid, enabled: false, approvals: 'ask', missed: 'run' }, MON)).toMatchObject({
+    expect(validateSchedule({ ...valid, enabled: false, approvals: 'ask', missed: 'run', newChat: true }, MON)).toMatchObject({
       enabled: false,
       approvals: 'ask',
       missed: 'run',
+      newChat: true,
     });
+    // Only a real true opens a new chat each time.
+    expect(validateSchedule({ ...valid, newChat: 'yes' }, MON).newChat).toBe(false);
     // Days come back once each, in order.
     expect(validateSchedule({ ...valid, repeat: { kind: 'weekly', time: '18:30', days: [5, 1, 5] } }, MON).repeat).toEqual({
       kind: 'weekly',
@@ -198,13 +202,14 @@ describe('the schedule form', () => {
     enabled: true,
     approvals: 'ask',
     missed: 'run',
+    newChat: false,
     updatedAt: MON,
     nextRunAt: MON + DAY,
   };
 
   it('starts a new schedule on weekdays at 09:00, and reads a saved one back unchanged', () => {
     const fresh = draftFrom(undefined, MON, 'UTC');
-    expect(fresh).toMatchObject({ kind: 'weekly', time: '09:00', days: [1, 2, 3, 4, 5], enabled: true, approvals: 'deny', missed: 'skip' });
+    expect(fresh).toMatchObject({ kind: 'weekly', time: '09:00', days: [1, 2, 3, 4, 5], enabled: true, approvals: 'deny', missed: 'skip', newChat: false });
     expect(draftChanged(fresh, undefined)).toBe(true);
 
     const draft = draftFrom(saved, MON);
@@ -215,9 +220,13 @@ describe('the schedule form', () => {
       enabled: true,
       approvals: 'ask',
       missed: 'run',
+      newChat: false,
     });
     expect(draftChanged(draft, { ...saved, repeat: { kind: 'weekly', time: '18:30', days: [1, 5] } })).toBe(false);
     expect(draftChanged({ ...draft, text: 'other' }, saved)).toBe(true);
+    // Opening a new chat each time is a change to save, and is read back.
+    expect(draftChanged({ ...draft, newChat: true }, saved)).toBe(true);
+    expect(draftFrom({ ...saved, newChat: true }, MON).newChat).toBe(true);
     // Switching kinds keeps the other kinds' fields.
     expect(toUpdate({ ...draft, kind: 'interval' }).repeat).toEqual({ kind: 'interval', hours: 6 });
   });

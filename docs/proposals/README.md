@@ -6,7 +6,7 @@ Designs for features Harness Relay does not have yet. What is in this folder is 
 
 | Proposal | Status | Summary |
 | --- | --- | --- |
-| [Scheduled and event-triggered runs](triggers.md) | Step 1 built (schedules) | A conversation starts a run by itself: on a schedule, or when a local program reports an event. |
+| [Scheduled and event-triggered runs](triggers.md) | Step 1 built (schedules), step 3 as a schedule option | A conversation starts a run by itself: on a schedule, or when a local program reports an event. |
 | [Shared memory across agents](shared-memory.md) | Not started | Agents suggest notes for the tool library's memory; the user accepts them. Memory per project, and importing what each CLI remembered. |
 
 ## How to use this folder

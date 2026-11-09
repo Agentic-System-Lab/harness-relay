@@ -103,7 +103,9 @@ describe('Store (SQLite)', () => {
     expect(new Store(db).get(fixed.id)!.settings.autoTeam).toBeUndefined();
 
     // A database from before schema version 13: every conversation gets auto team, none skips asking.
-    db.exec('ALTER TABLE conversations DROP COLUMN auto_confirm; PRAGMA user_version = 12;');
+    db.exec(`ALTER TABLE conversations DROP COLUMN auto_confirm;
+             ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
+             PRAGMA user_version = 12;`);
     const migrated = new Store(reopen());
     expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
     expect(migrated.get(fixed.id)!.settings.autoConfirm).toBeUndefined();
@@ -245,10 +247,13 @@ describe('Store groups', () => {
     ]);
     const groupOf = (s: Store) => Object.fromEntries(s.list(() => false).map((c) => [c.id, c.groupId]));
     expect(groupOf(again)).toEqual({ c1: 'g1', c2: 'g2' });
+    expect(again.groupOf('c1')).toBe('g1');
 
     again.deleteGroup('g1');
     expect(again.listGroups().map((g) => g.id)).toEqual(['g2']);
     expect(groupOf(again)).toEqual({ c1: undefined, c2: 'g2' });
+    expect(again.groupOf('c1')).toBeNull(); // Other
+    expect(again.groupOf('missing')).toBeNull();
     expect(again.isSorted('c1')).toBe(true); // the user sorted it: it is not sorted automatically again
   });
 
@@ -567,6 +572,7 @@ describe('Store schedules', () => {
     enabled: true,
     approvals: 'ask',
     missed: 'run',
+    newChat: false,
     updatedAt: 10,
     nextRunAt: 100,
     lastRunAt: 50,
@@ -615,5 +621,21 @@ describe('Store schedules', () => {
     store.delete('a');
     expect(store.dueSchedules(300)).toEqual([]);
     expect(db.prepare('SELECT COUNT(*) AS n FROM schedules').get()).toEqual({ n: 1 }); // only the one switched off
+  });
+
+  it('keeps whether a schedule opens a new chat each time, and the chat it last opened', () => {
+    const store = new Store(db);
+    const conv = { ...sampleConversation(), schedule: { ...schedule, newChat: true, lastResult: 'sent' as const, lastChatId: 'chat-9' } };
+    delete (conv.schedule as { lastError?: string }).lastError;
+    store.create(conv);
+    store.saveSchedule(conv);
+    expect(new Store(reopen()).get(conv.id)!.schedule).toEqual(conv.schedule);
+
+    // Schedules from before schema version 14 send in their own conversation.
+    db.exec(`ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
+             PRAGMA user_version = 13;`);
+    const migrated = new Store(reopen()).get(conv.id)!.schedule!;
+    expect(migrated.newChat).toBe(false);
+    expect(migrated.lastChatId).toBeUndefined();
   });
 });

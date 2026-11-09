@@ -148,6 +148,17 @@ export function ClockIcon({ size }: { size?: number }) {
   );
 }
 
+/** A clock with a plus: a new schedule. */
+export function ClockPlusIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <circle cx="10.5" cy="10.5" r="7.5" />
+      <path d="M10.5 6.5v4l2.5 1.5" />
+      <path d="M18.5 15.5v6M15.5 18.5h6" />
+    </Svg>
+  );
+}
+
 /** Three dots: more actions (a chat's header on phones). */
 export function MoreIcon({ size }: { size?: number }) {
   return (

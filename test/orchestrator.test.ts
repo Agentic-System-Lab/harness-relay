@@ -18,7 +18,7 @@ const { AgentRunError, runners } = await import('../src/server/agents');
 const { PLANNER_BRIEFING } = await import('../src/server/planner');
 const { GROUPER_BRIEFING } = await import('../src/server/grouping');
 const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
-const { BUSY_RETRY_MS, MISSED_AFTER_MS, Scheduler } = await import('../src/server/scheduler');
+const { BUSY_RETRY_MS, MISSED_AFTER_MS, Scheduler, scheduleTime } = await import('../src/server/scheduler');
 
 let n = 0;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -32,6 +32,7 @@ let calls: {
   name: string;
   sessionId?: string;
   prompt: string;
+  systemPrompt?: string;
   images?: { path: string; mimeType: string }[];
   attachmentsDir?: string;
   nativeOff?: readonly string[];
@@ -82,6 +83,7 @@ beforeAll(() => {
         name,
         sessionId: o.sessionId,
         prompt: o.prompt,
+        systemPrompt: o.systemPrompt,
         images: o.images,
         attachmentsDir: o.attachmentsDir,
         nativeOff: o.nativeOff,
@@ -1754,6 +1756,7 @@ describe('schedules', () => {
       enabled: true,
       approvals: 'deny',
       missed: 'skip',
+      newChat: false,
       updatedAt: T0,
       nextRunAt: T0 + HOUR,
       ...s,
@@ -2315,5 +2318,372 @@ describe('schedules', () => {
     await expect(orchestrator.sendScheduled(conv.id)).rejects.toThrow();
     await scheduler().tick();
     expect(calls).toEqual([]);
+  });
+
+  describe('a team the lead agent designs for a schedule', () => {
+    const pair = JSON.stringify({
+      choice: 'custom',
+      name: 'Report pair',
+      description: 'Write it, then check it',
+      mode: 'roundtable',
+      rounds: 1,
+      agents: [
+        { name: 'Alice', provider: 'claude', role: 'Write the report.' },
+        { name: 'Bob', provider: 'claude', role: 'Check it.' },
+      ],
+      reason: 'One writes, one checks.',
+    });
+    /** A conversation made for a schedule (New schedule): auto team, no team yet. */
+    const forSchedule = (s: Partial<ConversationSchedule> = {}, settings: Partial<ConversationSettings> = {}) => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, ...settings });
+      conv.agents = [];
+      store.saveMeta(conv);
+      schedule(conv, { text: 'Weekly report', ...s });
+      leadReply = pair;
+      return conv;
+    };
+    const planOf = (conv: Conversation) => conv.messages.find((m) => m.plan)!;
+
+    it('designs the team for the message, which nobody posts, and runs nothing once it is confirmed', async () => {
+      const conv = forSchedule({ newChat: true });
+      await orchestrator.designForSchedule(conv.id);
+      await finish(conv.id);
+      expect(calls.map((c) => c.name)).toEqual(['lead']);
+      expect(calls[0]!.prompt).toContain('The user is setting up a schedule');
+      expect(calls[0]!.prompt).toContain('each time in a new conversation');
+      expect(calls[0]!.prompt).toContain('The scheduled message:\n<question>\nWeekly report\n</question>');
+      expect(conv.messages.map((m) => m.author.kind)).toEqual(['system']); // only the team's card
+      expect(planOf(conv).plan).toMatchObject({ status: 'ready', forSchedule: true, awaitingConfirmation: true });
+
+      orchestrator.confirmPlan(conv.id, planOf(conv).id);
+      expect(conv.agents.map((a) => a.name)).toEqual(['Alice', 'Bob']);
+      expect(orchestrator.isRunning(conv.id)).toBe(false);
+      expect(calls.map((c) => c.name)).toEqual(['lead']);
+      expect(new Store(db).get(conv.id)!.messages[0]!.plan!.forSchedule).toBe(true);
+
+      // When it comes due, that team gets the message, in a new chat.
+      now = T0 + HOUR;
+      await scheduler().tick();
+      const chat = store.get(conv.schedule!.lastChatId!)!;
+      await finish(chat.id);
+      expect(said(chat)).toEqual(['note', 'Weekly report', '@Alice', '@Bob']);
+      expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
+    });
+
+    it('uses the team at once when asked to, still running nothing, and answers what the user wrote while it waited', async () => {
+      const auto = forSchedule({}, { autoConfirm: true });
+      await orchestrator.designForSchedule(auto.id);
+      await finish(auto.id);
+      expect(planOf(auto).plan).toMatchObject({ forSchedule: true, autoConfirmed: true });
+      expect(auto.agents.map((a) => a.name)).toEqual(['Alice', 'Bob']);
+      expect(calls.map((c) => c.name)).toEqual(['lead']);
+      expect(calls[0]!.prompt).toContain('each time in this conversation');
+
+      calls = [];
+      const asks = forSchedule();
+      await orchestrator.designForSchedule(asks.id);
+      await finish(asks.id);
+      expect(await orchestrator.send(asks.id, 'Use last week as the template')).toEqual({ queued: true });
+      orchestrator.confirmPlan(asks.id, planOf(asks).id);
+      await vi.waitFor(() => expect(agentMessages(asks).filter((m) => m.status === 'done')).toHaveLength(2), { timeout: 20_000 });
+      await finish(asks.id);
+      expect(said(asks).slice(1)).toEqual(['Use last week as the template', '@Alice', '@Bob']);
+    });
+
+    it('designs for a later question in that chat as usual', async () => {
+      const conv = forSchedule();
+      await orchestrator.designForSchedule(conv.id);
+      await finish(conv.id);
+      orchestrator.confirmPlan(conv.id, planOf(conv).id);
+      calls = [];
+      await orchestrator.send(conv.id, 'Also compare with last month');
+      await finish(conv.id);
+      expect(calls.map((c) => c.name)).toEqual(['lead']);
+      expect(calls[0]!.prompt).toContain('The user asked a new question in this conversation.');
+      expect(calls[0]!.prompt).toContain('<question>\nAlso compare with last month\n</question>');
+      expect(conv.messages.filter((m) => m.plan).at(-1)!.plan!.forSchedule).toBeUndefined();
+    });
+
+    it('tells an open chat when the chat its schedule last opened is deleted', async () => {
+      const hub = new Hub();
+      orchestrator = new Orchestrator(store, hub, settings);
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      schedule(conv, { newChat: true });
+      now = T0 + HOUR;
+      await scheduler().tick();
+      const chatId = conv.schedule!.lastChatId!;
+      await finish(chatId);
+      const events: { type: string; schedule?: unknown }[] = [];
+      hub.subscribe(conv.id, (e) => events.push(e as never));
+      await orchestrator.deleteConversation(chatId);
+      expect(events).toEqual([expect.objectContaining({ type: 'conversation', schedule: expect.not.objectContaining({ lastChatId: chatId }) })]);
+    });
+
+    it('runs nothing either when the user sets the team by hand instead', async () => {
+      const conv = forSchedule();
+      await orchestrator.designForSchedule(conv.id);
+      await finish(conv.id);
+      conv.agents = [agents[0]!];
+      expect(orchestrator.confirmPendingPlan(conv)).toBe(true);
+      expect(orchestrator.startConfirmed(conv)).toBe(false);
+      expect(orchestrator.isRunning(conv.id)).toBe(false);
+    });
+
+    it('keeps a time that comes due while the team is designed or waits, and sends it once the team is confirmed', async () => {
+      const conv = forSchedule({ repeat: { kind: 'once', at: T0 + HOUR } });
+      let release!: () => void;
+      leadGate = new Promise((r) => (release = r));
+      await orchestrator.designForSchedule(conv.id);
+      expect(conv.messages.find((m) => m.plan)!.plan).toMatchObject({ status: 'planning', forSchedule: true });
+      now = T0 + HOUR;
+      const s = scheduler();
+      await s.tick(); // the lead agent is still designing
+      expect(conv.schedule).toMatchObject({ enabled: true, nextRunAt: T0 + HOUR });
+      expect(conv.schedule!.lastResult).toBeUndefined();
+      release();
+      await finish(conv.id);
+      now += 60_000;
+      await s.tick(); // the team waits for confirmation
+      expect(conv.schedule!.lastResult).toBeUndefined();
+
+      orchestrator.confirmPlan(conv.id, planOf(conv).id);
+      now += 60_000;
+      await s.tick();
+      await finish(conv.id);
+      expect(said(conv).slice(-3)).toEqual(['Weekly report', '@Alice', '@Bob']);
+      expect(conv.schedule).toMatchObject({ lastResult: 'sent', lastRunAt: T0 + HOUR, enabled: false }); // the one time went out
+    });
+
+    it('gives up on a time after a while when nobody confirms the team, and refuses what it cannot design for', async () => {
+      const conv = forSchedule();
+      await orchestrator.designForSchedule(conv.id);
+      await finish(conv.id);
+      now = T0 + HOUR;
+      const s = scheduler();
+      await s.tick();
+      now = T0 + HOUR + BUSY_RETRY_MS + 1000;
+      await s.tick();
+      expect(conv.schedule).toMatchObject({ lastResult: 'skipped', lastError: 'the team is not confirmed yet', nextRunAt: T0 + 2 * HOUR });
+      await expect(orchestrator.designForSchedule(conv.id)).rejects.toThrow(/確認/); // a design waits already
+      orchestrator.confirmPlan(conv.id, planOf(conv).id);
+      await expect(orchestrator.designForSchedule(conv.id)).rejects.toThrow(/已經有團隊/); // and then it has a team
+
+      const none = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true });
+      await expect(orchestrator.designForSchedule(none.id)).rejects.toThrow(/沒有排程/);
+      const fixed = conversation({ mode: 'roundtable', permission: 'read-only' });
+      schedule(fixed);
+      await expect(orchestrator.designForSchedule(fixed.id)).rejects.toThrow(/首席 agent/);
+    });
+  });
+
+  describe('opening a new chat each time', () => {
+    /** The conversations the schedule of `conv` opened. */
+    const opened = (conv: Conversation) =>
+      store
+        .list(() => false)
+        .filter((c) => c.id !== conv.id)
+        .map((c) => store.get(c.id)!);
+
+    it('opens a new chat with the same team, settings, "always allow" answers and group, and sends the message there', async () => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      conv.allowRules = [{ kind: 'command', key: 'npm install' }];
+      store.saveMeta(conv);
+      store.createGroup({ id: 'g1', name: 'Ops' });
+      store.moveToGroup(conv.id, 'g1');
+      schedule(conv, { newChat: true });
+      now = T0 + HOUR;
+      await scheduler().tick();
+      const [chat] = opened(conv);
+      expect(chat).toBeDefined();
+      await finish(chat!.id);
+
+      expect(conv.messages).toEqual([]); // nothing in the schedule's own chat
+      expect(chat!.title).toBe(`test · ${scheduleTime(T0 + HOUR, conv.schedule!)}`);
+      expect(chat!.agents).toEqual(conv.agents);
+      expect(chat!.agents).not.toBe(conv.agents);
+      expect(chat!.settings).toEqual(conv.settings);
+      expect(chat!.allowRules).toEqual(conv.allowRules);
+      expect(chat!.schedule).toBeUndefined();
+      expect(said(chat!)).toEqual(['note', 'scheduled check', '@Alice', '@Bob']);
+      expect(notes(chat!)[0]).toBe('The schedule of "test" opened this conversation to send its message here.');
+      expect(chat!.messages[1]!.scheduled).toBe(true);
+      // In the group of the schedule's chat, as the user put it: the lead agent does not sort it.
+      expect(store.groupOf(chat!.id)).toBe('g1');
+      expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+      expect(calls[0]!.prompt).toContain('<message from="user" via="schedule">');
+      expect(calls[0]!.systemPrompt).toContain('A user message marked via="schedule" was sent automatically');
+      expect(conv.schedule).toMatchObject({ lastResult: 'sent', lastRunAt: T0 + HOUR, lastChatId: chat!.id, nextRunAt: T0 + 2 * HOUR });
+      expect(new Store(db).get(conv.id)!.schedule!.lastChatId).toBe(chat!.id);
+      expect(new Store(db).get(chat!.id)!.messages.map((m) => m.author.kind)).toEqual(['system', 'user', 'agent', 'agent']);
+
+      // The next time opens another one, where the agents start new sessions.
+      now = T0 + 2 * HOUR;
+      await scheduler().tick();
+      const second = opened(conv).find((c) => c.id !== chat!.id)!;
+      await finish(second.id);
+      expect(opened(conv)).toHaveLength(2);
+      expect(said(second)).toEqual(['note', 'scheduled check', '@Alice', '@Bob']);
+      expect(calls.slice(2).map((c) => c.sessionId)).toEqual([undefined, undefined]);
+      expect(conv.schedule!.lastChatId).toBe(second.id);
+      expect(conv.messages).toEqual([]);
+    });
+
+    it('refuses approvals there too, unless the schedule says to ask, and asks once the user writes in it', async () => {
+      const conv = solo();
+      schedule(conv, { text: 'please install', newChat: true });
+      now = T0 + HOUR;
+      await scheduler().tick();
+      const chat = store.get(conv.schedule!.lastChatId!)!;
+      await finish(chat.id);
+      expect(textOf(agentMessages(chat).at(-1)!)).toMatch(/^Alice skipped \(This run was started by a schedule and nobody may be watching/);
+      expect(approvalParts(chat)[0]).toMatchObject({ status: 'denied', note: 'Refused automatically: nobody may be watching a scheduled run' });
+      expect(calls[0]!.systemPrompt).toContain('refused automatically');
+
+      // The user writes in the new chat: they are here, so the run asks.
+      await orchestrator.send(chat.id, 'please install');
+      await vi.waitFor(() => expect(orchestrator.isWaiting(chat.id)).toBe(true));
+      expect(calls.at(-1)!.systemPrompt).toContain('A user message marked via="schedule" was sent automatically');
+      expect(calls.at(-1)!.systemPrompt).not.toContain('refused automatically');
+      orchestrator.stop(chat.id);
+      await finish(chat.id);
+
+      schedule(conv, { text: 'please install', newChat: true, approvals: 'ask', nextRunAt: T0 + 2 * HOUR });
+      now = T0 + 2 * HOUR;
+      await scheduler().tick();
+      const asks = store.get(conv.schedule!.lastChatId!)!;
+      expect(asks.id).not.toBe(chat.id);
+      await vi.waitFor(() => expect(orchestrator.isWaiting(asks.id)).toBe(true));
+      orchestrator.answerApproval(asks.id, pendingPart(asks)!.id, { allow: true });
+      await finish(asks.id);
+      expect(textOf(agentMessages(asks).at(-1)!)).toBe('Alice installed');
+    });
+
+    it("goes ahead whatever this conversation is doing: waiting for the user's answer, or replying", async () => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      schedule(conv, { newChat: true });
+      asking = new Set(['Alice']);
+      await orchestrator.send(conv.id, 'which one?');
+      await finish(conv.id);
+      expect(conv.pause).toBeDefined();
+      asking = new Set();
+
+      now = T0 + HOUR;
+      await scheduler().tick();
+      const chat = store.get(conv.schedule!.lastChatId!)!;
+      await finish(chat.id);
+      expect(said(chat)).toEqual(['note', 'scheduled check', '@Alice', '@Bob']);
+      // This conversation still waits for the answer, with nothing taken for it or queued.
+      expect(said(conv)).toEqual(['which one?', '@Alice']);
+      expect(conv.pause).toBeDefined();
+      expect(conv.queue ?? []).toEqual([]);
+
+      const alice = hold('Alice');
+      await orchestrator.send(conv.id, 'ANSWER: A');
+      await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(true));
+      now = T0 + 2 * HOUR;
+      await scheduler().tick();
+      expect(conv.schedule).toMatchObject({ lastResult: 'sent', nextRunAt: T0 + 3 * HOUR });
+      expect(conv.queue ?? []).toEqual([]);
+      alice();
+      await finish(conv.id);
+      await finish(conv.schedule!.lastChatId!);
+    });
+
+    it('waits while this or another conversation writes in the same folder, and leaves no chat behind', async () => {
+      const conv = solo({ permission: 'edit' });
+      schedule(conv, { newChat: true });
+      const alice = hold('Alice');
+      await orchestrator.send(conv.id, 'go'); // this conversation writes in the folder
+      await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
+
+      now = T0 + HOUR;
+      const s = scheduler();
+      await s.tick();
+      expect(opened(conv)).toEqual([]);
+      expect(conv.schedule!.lastResult).toBeUndefined(); // tried again at the next look
+
+      alice();
+      await finish(conv.id);
+      now += 60_000;
+      await s.tick();
+      const chat = store.get(conv.schedule!.lastChatId!)!;
+      await finish(chat.id);
+      expect(said(chat)).toEqual(['note', 'scheduled check', '@Alice']);
+      expect(conv.schedule).toMatchObject({ lastResult: 'sent', lastRunAt: T0 + HOUR });
+      expect(chat.title).toBe(`test · ${scheduleTime(T0 + HOUR, conv.schedule!)}`); // the time it came due, not when it went out
+    });
+
+    it('removes a chat whose run could not start after all: the server began to stop meanwhile', async () => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      schedule(conv, { newChat: true });
+      const sending = orchestrator.sendScheduled(conv.id);
+      orchestrator.stopAll();
+      expect(await sending).toEqual({ result: 'busy', reason: expect.any(String) });
+      expect(opened(conv)).toEqual([]);
+      expect(calls).toEqual([]);
+    });
+
+    it('keeps a chat opened from a conversation in Other there, unsorted, and gives parallel teams worktrees of its own', async () => {
+      const conv = conversation({ mode: 'parallel', permission: 'edit' });
+      store.createGroup({ id: 'g1', name: 'Ops' }); // there are groups, but the conversation is in Other
+      schedule(conv, { newChat: true });
+      const sent = await orchestrator.sendScheduled(conv.id);
+      const chat = store.get((sent as { chatId: string }).chatId)!;
+      await finish(chat.id);
+      expect(store.groupOf(chat.id)).toBeNull();
+      expect(store.isSorted(chat.id)).toBe(true);
+      expect(calls.map((c) => c.name).sort()).toEqual(['Alice', 'Bob']); // no sorter
+      expect(Object.keys(chat.worktrees).sort()).toEqual(['a', 'b']);
+      expect(Object.values(chat.worktrees).every((w) => w.branch.startsWith(`relay/${chat.id.slice(0, 8)}/`))).toBe(true);
+      expect(conv.worktrees).toEqual({});
+    });
+
+    it('names the chats after the message while the schedule\'s conversation has no name, and forgets a chat that is deleted', async () => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      conv.title = 'New chat';
+      store.saveMeta(conv);
+      schedule(conv, { newChat: true, text: 'Weekly report\nwith the numbers' });
+      now = T0 + HOUR;
+      await scheduler().tick();
+      const chatId = conv.schedule!.lastChatId!;
+      await finish(chatId);
+      expect(store.get(chatId)!.title).toBe(`Weekly report · ${scheduleTime(T0 + HOUR, conv.schedule!)}`);
+
+      await orchestrator.deleteConversation(chatId);
+      expect(conv.schedule!.lastChatId).toBeUndefined();
+      expect(conv.schedule!.lastResult).toBe('sent');
+      expect(new Store(db).get(conv.id)!.schedule!.lastChatId).toBeUndefined();
+    });
+
+    it('opens no chat without a confirmed team, removes one whose run cannot start, and forgets the last chat then', async () => {
+      const auto = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true });
+      auto.agents = [];
+      store.saveMeta(auto);
+      schedule(auto, { newChat: true });
+      now = T0 + HOUR;
+      await scheduler().tick();
+      expect(auto.schedule).toMatchObject({ lastResult: 'skipped', lastError: 'the team is not confirmed yet' });
+
+      const gone = conversation({ mode: 'roundtable', permission: 'edit', cwd: join(project, 'gone') });
+      schedule(gone, { newChat: true, lastResult: 'sent', lastChatId: 'earlier-chat' });
+      await scheduler().tick();
+      expect(gone.schedule).toMatchObject({ lastResult: 'failed', nextRunAt: T0 + 2 * HOUR });
+      expect(gone.schedule!.lastChatId).toBeUndefined();
+      expect(notes(gone).at(-1)).toMatch(/could not be sent/);
+      expect(store.list(() => false).map((c) => c.id).sort()).toEqual([auto.id, gone.id].sort());
+      expect(calls).toEqual([]);
+    });
+
+    it('says which chat "Run now" opened, and leaves what the schedule recorded alone', async () => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      schedule(conv, { newChat: true });
+      const sent = await orchestrator.sendScheduled(conv.id);
+      expect(sent).toEqual({ result: 'sent', chatId: expect.any(String) });
+      const chat = store.get((sent as { chatId: string }).chatId)!;
+      await finish(chat.id);
+      expect(said(chat)).toEqual(['note', 'scheduled check', '@Alice', '@Bob']);
+      expect(conv.schedule!.lastChatId).toBeUndefined();
+      expect(conv.schedule!.lastResult).toBeUndefined();
+    });
   });
 });

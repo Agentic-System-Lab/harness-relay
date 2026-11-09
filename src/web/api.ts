@@ -120,8 +120,13 @@ export const api = {
   /** Set the conversation's schedule (it replaces the one there was). */
   saveSchedule: (id: string, b: ScheduleUpdate) => request<ConversationSchedule>('PUT', `/api/conversations/${id}/schedule`, b),
   deleteSchedule: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule`),
-  /** Send the schedule's message now; `queued` while the team replies. */
-  runSchedule: (id: string) => request<{ ok: true; queued: boolean }>('POST', `/api/conversations/${id}/schedule/run`),
+  /** A new schedule in a conversation of its own, whose lead agent designs the team for it now. */
+  createSchedule: (b: { title?: string; settings: Partial<ConversationSettings>; createCwd?: boolean; schedule: ScheduleUpdate }) =>
+    request<Conversation>('POST', '/api/schedules', b),
+  /** Have the lead agent design the team for the schedule's message (again). */
+  designSchedule: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/schedule/design`),
+  /** Send the schedule's message now; `queued` while the team replies, `chatId` when it opened a new conversation. */
+  runSchedule: (id: string) => request<{ ok: true; queued: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
   /** Conversations whose title or messages contain every word of `q`. */
   search: (q: string) => request<SearchResult[]>('GET', `/api/search?q=${encodeURIComponent(q)}`),
 

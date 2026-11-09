@@ -17,6 +17,9 @@ export const BUSY_RETRY_MS = 30 * 60_000;
 /** How often due schedules are looked for. */
 const TICK_MS = 15_000;
 
+/** How a time that came due went; `chatId`: the conversation it opened (`newChat`). */
+type Outcome = { result: ScheduleResult; reason?: string; chatId?: string };
+
 /** The time a schedule came due, as its notes in the chat write it. */
 export function scheduleTime(at: number, s: Pick<ConversationSchedule, 'lang' | 'timeZone'>): string {
   try {
@@ -100,11 +103,11 @@ export class Scheduler {
     const since = retry?.due === due ? retry.since : undefined;
     // Notes and the run's system messages are written in the language the schedule was saved in.
     await withLang(s.lang, async () => {
-      let outcome: { result: ScheduleResult; reason?: string };
+      let outcome: Outcome;
       if (late && since === undefined && s.missed === 'skip') {
         outcome = { result: 'missed' };
       } else {
-        const sent = await this.orchestrator.sendScheduled(convId);
+        const sent = await this.orchestrator.sendScheduled(convId, due);
         if (this.stopped) return; // shutting down: the time is still due when the server is back
         if (sent.result === 'busy') {
           // Tried again at the next look; after a while, given up.
@@ -124,8 +127,8 @@ export class Scheduler {
     });
   }
 
-  private record(conv: Conversation, s: ConversationSchedule, due: number, now: number, outcome: { result: ScheduleResult; reason?: string }): void {
-    const { nextRunAt: _done, lastError: _error, ...rest } = s;
+  private record(conv: Conversation, s: ConversationSchedule, due: number, now: number, outcome: Outcome): void {
+    const { nextRunAt: _done, lastError: _error, lastChatId: _chat, ...rest } = s;
     const next = s.repeat.kind === 'once' ? undefined : nextRun(s, Math.max(now, due));
     conv.schedule = {
       ...rest,
@@ -135,6 +138,7 @@ export class Scheduler {
       lastRunAt: due,
       lastResult: outcome.result,
       ...(outcome.reason ? { lastError: outcome.reason } : {}),
+      ...(outcome.chatId ? { lastChatId: outcome.chatId } : {}),
     };
     this.store.saveSchedule(conv);
     this.orchestrator.emitConversation(conv);

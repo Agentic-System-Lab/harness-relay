@@ -39,6 +39,11 @@ export interface PlanConversation {
   history?: string;
   /** The team that answers now; the lead may keep it. */
   current?: { agents: AgentConfig[]; settings: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops'> };
+  /**
+   * The question is a schedule's message: the team gets it automatically at set times (`newChat`: in a
+   * new conversation each time), and nobody may be watching then.
+   */
+  schedule?: { newChat: boolean };
 }
 
 /** The parts of a TeamPlan the planner decides. */
@@ -154,9 +159,21 @@ export function buildPlannerPrompt(
   const history = conv.history?.trim();
   // Like a template, without an id: it is not one.
   const currentTeam = current && JSON.stringify(teamForLead(current.settings, current.agents), null, 2);
-  const review = settings.autoConfirm
-    ? 'Your team answers the question right away.'
-    : 'The user reviews your team, and then it answers the question.';
+  const scheduled = conv.schedule;
+  const review = scheduled
+    ? settings.autoConfirm
+      ? 'Your team is used as it is; it answers the message each time the schedule sends it.'
+      : 'The user reviews your team; then it answers the message each time the schedule sends it.'
+    : settings.autoConfirm
+      ? 'Your team answers the question right away.'
+      : 'The user reviews your team, and then it answers the question.';
+  const opening = scheduled
+    ? `The user is setting up a schedule: the message below is sent to the team automatically at set times, ${
+        scheduled.newChat ? 'each time in a new conversation' : 'each time in this conversation'
+      }, and nobody may be watching then, so the team must do the work without asking. Treat the message as the question.`
+    : current
+      ? 'The user asked a new question in this conversation.'
+      : 'The user started a new conversation with this question.';
   const options = current
     ? 'keep the current team, use one of the templates below as it is, adapt one of them to this question, or design a new team from scratch'
     : 'use one of the templates below as it is, adapt one of them to this question, or design a new team from scratch';
@@ -172,7 +189,7 @@ export function buildPlannerPrompt(
     `"custom": no template is close${current ? ' and the current team does not fit' : ''}; design a team from scratch. Your reason tells the user why none of the templates fits.`,
   ];
 
-  return `${current ? 'The user asked a new question in this conversation.' : 'The user started a new conversation with this question.'} Choose the team that answers it: ${options}. ${review} Choose for this question, with the conversation so far in mind.
+  return `${opening} Choose the team that answers it: ${options}. ${review} Choose for this question, with the conversation so far in mind.
 ${
   history
     ? `
@@ -192,7 +209,7 @@ ${currentTeam}
 `
     : ''
 }
-The new question:
+${scheduled ? 'The scheduled message' : 'The new question'}:
 <question>
 ${question}
 </question>

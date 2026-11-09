@@ -57,6 +57,7 @@ export const en: Messages = {
 
   sidebar: {
     newChat: 'New chat',
+    newSchedule: 'New schedule',
     conversations: 'Conversations',
     empty: 'No conversations yet',
     replying: 'Replying',
@@ -249,6 +250,16 @@ export const en: Messages = {
     drawerReload: 'Load the current team',
   },
 
+  newSchedule: {
+    title: 'New schedule',
+    intro: (lead) =>
+      `Set a message the team is sent at set times. Once you create it, the lead agent (${lead}) designs a team for the message; after you confirm the team, the schedule runs at the set times. Nothing runs when you create it.`,
+    schedule: 'Schedule',
+    titlePlaceholder: 'Chat name (optional; the first line of the message by default)',
+    create: 'Create schedule',
+    creating: 'Creating…',
+  },
+
   schedule: {
     button: 'Schedule',
     buttonTitle: 'Send the team a message automatically at set times',
@@ -271,6 +282,14 @@ export const en: Messages = {
     useLocalZone: (tz) => `Use this device's time zone (${tz})`,
     upcoming: 'Next:',
     never: 'With these settings it will not send again',
+    newChat: 'Start a new chat each time',
+    newChatHint: {
+      on: 'Each time, a new chat opens with the same team, settings, "always allow" answers and sidebar group, and the message is sent there. Every run starts with a clean context, but the agents do not remember earlier runs: have them keep what must carry over in a file in the working directory.',
+      off: 'The message is sent in this chat: the agents continue their sessions and remember earlier runs, and the chat keeps growing.',
+    },
+    newChatParallel: 'In parallel mode each new chat gets worktrees and relay/* branches of its own, removed only when you delete that chat.',
+    openChat: 'Open the chat',
+    sentInNewChat: 'Sent in a new chat',
     unattended: 'When nobody is watching',
     approvals: 'Actions outside the permission',
     approvalsDeny: 'Refuse automatically',
@@ -300,6 +319,10 @@ export const en: Messages = {
     confirmRemove: 'Delete this schedule?',
     saving: 'Saving…',
     needsTeam: 'Confirm a team before you set a schedule: in a new chat, ask a question first, then confirm the team the lead agent chose for it.',
+    confirmTeamFirst: 'The lead agent has designed a team for this schedule: confirm it in the chat. The schedule runs, and can be changed, once it is confirmed.',
+    designingTeam: 'The lead agent is designing a team for this schedule…',
+    noTeamYet: 'This schedule has no team yet: its times are skipped until it has one.',
+    designTeam: 'Have the lead agent design the team',
     currentTeam: 'Scheduled messages go to the current team; the lead agent does not choose a team for them.',
     summary: {
       once: (when) => `${when} (once)`,
@@ -433,6 +456,9 @@ export const en: Messages = {
     decline: 'No, keep the current team',
     declined: 'Not used; the current team answered',
     aborted: 'Team design was stopped; Continue or a new question chooses the team again.',
+    planningSchedule: (lead) => `The lead agent (${lead}) is designing a team for this schedule…`,
+    confirmHintSchedule: 'Once you confirm this team, it gets the message at the schedule\'s times; nothing runs now.',
+    abortedSchedule: 'The team design was stopped; "Have the lead agent design the team" in the schedule window designs it again.',
   },
 
   changes: {

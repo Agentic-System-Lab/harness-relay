@@ -8,6 +8,7 @@ import type {
   AgentWorktree,
   ChatMessage,
   Conversation,
+  ConversationSchedule,
   FileChange,
   MessageChanges,
   MessagePart,
@@ -72,6 +73,7 @@ import {
   worktreeHead,
 } from './workspace';
 import { isDefaultTitle, t } from './i18n';
+import { scheduleTime } from './scheduler';
 
 export { HttpError };
 
@@ -102,6 +104,8 @@ interface Run {
   refuseApprovals?: boolean;
   /** Auto team: the lead agent designs the team for the question, and that is all this run does. */
   designs?: boolean;
+  /** The design is for the conversation's schedule: this is its message, which nobody posted (`designForSchedule`). */
+  designFor?: string;
   /** The design needed no confirmation (`autoConfirm`): once this run ends, the team answers. */
   answerNext?: boolean;
   /** Settles once the run has finished, including its clean-up. */
@@ -127,6 +131,8 @@ interface StartOptions {
   queue?: boolean;
   /** The conversation's schedule sends the message (it is marked `scheduled`). */
   scheduled?: boolean;
+  /** The lead agent designs the team for the conversation's schedule, and nobody answers (`designForSchedule`). */
+  designSchedule?: boolean;
   /**
    * Refuse approval requests automatically in this run (see `Run.refuseApprovals`) — if every message
    * it starts with came from the schedule.
@@ -137,12 +143,25 @@ interface StartOptions {
 /**
  * How a scheduled message went. `busy`: not now — a settings change or an apply holds the
  * conversation, another conversation is writing in the same folder, or the server is stopping — so
- * try again shortly (`reason` says why).
+ * try again shortly (`reason` says why). `chatId`: the conversation it opened (`newChat`).
  */
 export type ScheduledSend =
-  | { result: 'sent' | 'queued' }
+  | { result: 'sent'; chatId?: string }
+  | { result: 'queued' }
   | { result: 'busy'; reason?: string }
   | { result: 'skipped' | 'failed'; reason: string };
+
+/** A run that could not start: another conversation is writing in the same folder (409) or the server is stopping (503), or else it failed. */
+function sendFailure(err: unknown): ScheduledSend {
+  if (err instanceof HttpError && (err.status === 409 || err.status === 503)) return { result: 'busy', reason: err.message };
+  return { result: 'failed', reason: (err as Error).message };
+}
+
+/** A conversation's name taken from a message: its first line, shortened to 40 characters. */
+export function titleFrom(text: string): string {
+  const line = (text.split('\n')[0] ?? '').trim();
+  return line.length > 40 ? line.slice(0, 39) + '…' : line;
+}
 
 /** Longest name of a template saved from a plan. */
 const MAX_PRESET_NAME = 100;
@@ -292,6 +311,11 @@ export class Orchestrator {
     return this.grouper.isSorting(id);
   }
 
+  /** Have the lead agent sort a new conversation into one of the user's sidebar groups, by what it is about. */
+  sortIntoGroup(conv: Conversation, about: string): void {
+    this.grouper.start(conv, about);
+  }
+
   /** Some conversation is replying, being set up, or being sorted into a group. */
   anyRunning(): boolean {
     return this.runs.size > 0 || this.starting.size > 0 || this.grouper.busy;
@@ -352,7 +376,11 @@ export class Orchestrator {
       await this.grouper.cancel(convId);
       const conv = this.store.get(convId);
       if (conv) await this.cleanupWorktrees(conv);
-      this.store.delete(convId);
+      // A schedule that opened it no longer links to it.
+      for (const id of this.store.delete(convId)) {
+        const linked = this.store.get(id);
+        if (linked) this.emitConversation(linked);
+      }
       this.traces?.forget?.(convId);
     } finally {
       this.deleting.delete(convId);
@@ -435,9 +463,10 @@ export class Orchestrator {
    * waiting for the user's answer (the message would count as the answer), an earlier scheduled
    * message still waiting for the team, or a full queue. An earlier one left waiting while nothing
    * runs (the team was stopped, or the server restarted) is sent now instead, once. The run it starts
-   * refuses approval requests unless the schedule asks.
+   * refuses approval requests unless the schedule asks. A schedule that opens a new conversation each
+   * time sends it there (`sendInNewChat`); `at` is the time it came due, which names that conversation.
    */
-  async sendScheduled(convId: string): Promise<ScheduledSend> {
+  async sendScheduled(convId: string, at = Date.now()): Promise<ScheduledSend> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     const s = conv.schedule;
@@ -447,8 +476,11 @@ export class Orchestrator {
     // The current team takes it (a schedule never has the lead agent design a team: nobody may be
     // there to confirm it), so there must be one.
     if (conv.agents.length === 0 || pendingPlan(conv.messages)) {
-      return { result: 'skipped', reason: t().scheduleNoTeam };
+      // Its first team is being designed, or waits for the user: tried again for a while, not lost.
+      const coming = conv.agents.length === 0 && (this.designing.has(convId) || Boolean(pendingPlan(conv.messages)));
+      return { result: coming ? 'busy' : 'skipped', reason: t().scheduleNoTeam };
     }
+    if (s.newChat) return this.sendInNewChat(conv, s, at);
     const replying = this.runs.has(convId) || this.starting.has(convId);
     // A run being set up may be the user's answer: the message then waits for its next turn instead.
     if (conv.pause && !replying) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
@@ -474,13 +506,64 @@ export class Orchestrator {
       });
       return { result: 'sent' };
     } catch (err) {
-      if (err instanceof HttpError) {
-        if (err.status === 404) throw err;
-        // Another conversation is writing in the same folder (409), or the server is stopping (503).
-        if (err.status === 409 || err.status === 503) return { result: 'busy', reason: err.message };
-      }
-      return { result: 'failed', reason: (err as Error).message };
+      if (err instanceof HttpError && err.status === 404) throw err;
+      return sendFailure(err);
     }
+  }
+
+  /**
+   * Send the schedule's message in a new conversation: a copy of this one's team, settings, "always
+   * allow" answers and sidebar group (the lead agent does not sort it), named after it and the time it
+   * came due, which says where it comes from. Whatever this conversation is doing — replying, waiting
+   * for the user's answer, holding messages in its queue — does not matter; only another conversation
+   * writing in the same folder (this one included) makes it wait. A conversation whose run could not
+   * start is removed again: nothing was sent in it.
+   */
+  private async sendInNewChat(conv: Conversation, s: ConversationSchedule, at: number): Promise<ScheduledSend> {
+    const id = randomUUID();
+    const locked = this.folderLockedBy({ ...conv, id });
+    if (locked) return { result: 'busy', reason: locked };
+    const now = Date.now();
+    // Named after the schedule's conversation, or after its message while that one has no name yet.
+    const name = isDefaultTitle(conv.title) ? titleFrom(s.text) : conv.title.slice(0, 160);
+    const chat: Conversation = {
+      id,
+      title: `${name} · ${scheduleTime(at, s)}`,
+      createdAt: now,
+      updatedAt: now,
+      agents: structuredClone(conv.agents),
+      settings: structuredClone(conv.settings),
+      messages: [],
+      agentState: {},
+      worktrees: {},
+      ...(conv.allowRules?.length ? { allowRules: structuredClone(conv.allowRules) } : {}),
+    };
+    try {
+      this.store.create(chat);
+      this.store.moveToGroup(id, this.store.groupOf(conv.id));
+      this.systemNote(chat, t().scheduleChatNote(name));
+      await this.start(chat, s.text, { keepTeam: true, scheduled: true, refuseApprovals: s.approvals !== 'ask' });
+      return { result: 'sent', chatId: id };
+    } catch (err) {
+      if (!this.runs.has(id)) this.store.delete(id);
+      return sendFailure(err);
+    }
+  }
+
+  /**
+   * Have the lead agent design the team for the conversation's schedule (auto team), for its message,
+   * which nobody posts now. Once the team is confirmed (or at once, with `autoConfirm`), it answers
+   * nothing now: it gets the message each time the schedule sends it.
+   */
+  async designForSchedule(convId: string): Promise<void> {
+    const conv = this.getIdle(convId);
+    if (!conv.schedule) throw new HttpError(404, t().scheduleNotFound);
+    if (!conv.settings.autoTeam) throw new HttpError(400, t().scheduleNoLead);
+    if (pendingPlan(conv.messages)) throw new HttpError(409, t().planAwaitingConfirm);
+    // Only for a conversation without a team: one that has a team keeps it (and an agent's question
+    // waiting for the user stays as it is).
+    if (conv.agents.length > 0) throw new HttpError(409, t().scheduleHasTeam);
+    await this.start(conv, '', { designSchedule: true });
   }
 
   /** Stop the conversation's run, if there is one, and wait until it has wound down. */
@@ -577,9 +660,11 @@ export class Orchestrator {
 
   /**
    * The team the lead agent designed was confirmed (by the user, or at once): it answers the question
-   * the design was for, with the messages waiting. Returns whether a run starts.
+   * the design was for, with the messages waiting. A team designed for the schedule answers its message
+   * when the schedule sends it: now only what the user wrote meanwhile. Returns whether a run starts.
    */
   startConfirmed(conv: Conversation, refuseApprovals = false): boolean {
+    if (conv.messages.findLast((m) => m.plan?.status === 'ready')?.plan?.forSchedule) return this.startQueued(conv);
     if (!this.mayStart(conv)) return false;
     this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals });
     return true;
@@ -696,7 +781,7 @@ export class Orchestrator {
    */
   private designs(conv: Conversation, text: string, opts: StartOptions): boolean {
     if (!conv.settings.autoTeam || opts.only) return false;
-    if (conv.agents.length === 0) return true;
+    if (opts.designSchedule || conv.agents.length === 0) return true;
     if (opts.keepTeam) return false;
     if (opts.question === 'new' && conv.pause) return false;
     if (opts.question) return parseMentions(text, conv.agents).length === 0;
@@ -747,6 +832,7 @@ export class Orchestrator {
         // Only while nothing the user wrote starts it: when they write, they are here.
         ...(opts.refuseApprovals && posted.every((m) => m.scheduled) ? { refuseApprovals: true } : {}),
         ...(planning ? { designs: true } : {}),
+        ...(planning && opts.designSchedule && conv.schedule ? { designFor: conv.schedule.text } : {}),
         done: Promise.resolve(),
       };
       this.runs.set(convId, run);
@@ -845,9 +931,9 @@ export class Orchestrator {
   /** A conversation still called "New chat" is named after the first line of the user's message. */
   private nameAfter(conv: Conversation, msg: ChatMessage): void {
     if (!isDefaultTitle(conv.title)) return;
-    const line = (textOf(msg).split('\n')[0] ?? '').trim() || attachmentsOf(msg)[0]?.name;
+    const line = titleFrom(textOf(msg)) || (attachmentsOf(msg)[0]?.name ?? '');
     if (!line) return;
-    conv.title = line.length > 40 ? line.slice(0, 39) + '…' : line;
+    conv.title = titleFrom(line);
     this.emitConversation(conv);
   }
 
@@ -1024,7 +1110,7 @@ export class Orchestrator {
       createdAt: Date.now(),
       parts: [],
       status: 'streaming',
-      plan: { status: 'planning', lead },
+      plan: { status: 'planning', lead, ...(run.designFor !== undefined ? { forSchedule: true } : {}) },
     };
     conv.messages.push(msg);
     this.hub.emit(conv.id, { type: 'message', message: msg });
@@ -1035,7 +1121,9 @@ export class Orchestrator {
     const since = questionStart(conv.messages);
     const asked = conv.messages.slice(since).filter((m) => m.author.kind === 'user');
     const fileNames = asked.flatMap((m) => attachmentsOf(m).map((p) => p.name));
+    // A design for the schedule is for its message, which nobody posted.
     const question =
+      run.designFor ??
       asked.map(textOf).filter(Boolean).join('\n\n') + (fileNames.length ? `\n\n(Attached files: ${fileNames.join(', ')})` : '');
     const current: PlanConversation['current'] = conv.agents.length
       ? { agents: conv.agents, settings: { mode: conv.settings.mode, rounds: conv.settings.rounds, maxHops: conv.settings.maxHops } }
@@ -1053,7 +1141,11 @@ export class Orchestrator {
         env: this.settings.env(lead.provider),
         nativeOff: this.settings.nativeOff(lead.provider),
         nativeItems: this.settings.nativeItems(lead.provider),
-        prompt: buildPlannerPrompt(question, conv.settings, ctx, { history, current }),
+        prompt: buildPlannerPrompt(question, conv.settings, ctx, {
+          history,
+          current,
+          ...(run.designFor !== undefined ? { schedule: { newChat: Boolean(conv.schedule?.newChat) } } : {}),
+        }),
         systemPrompt: PLANNER_BRIEFING,
         cwd: conv.settings.cwd,
         permission: 'read-only',
@@ -1093,13 +1185,15 @@ export class Orchestrator {
         ...decision,
         agents,
         ...(now ? { confirmedAt: Date.now(), autoConfirmed: true } : { awaitingConfirmation: true }),
+        ...(run.designFor !== undefined ? { forSchedule: true } : {}),
       };
       msg.status = 'done';
       // Used at once, or kept on the card until the user confirms it: until then the current team
-      // stays, so declining it, a retry or an edit of an earlier message still has that team.
+      // stays, so declining it, a retry or an edit of an earlier message still has that team. A team
+      // for the schedule answers when the schedule sends its message.
       if (now) {
         this.applyPlan(conv, msg.plan);
-        run.answerNext = true;
+        if (run.designFor === undefined) run.answerNext = true;
       }
     }
     this.store.saveMessage(conv.id, msg, true);
@@ -1610,7 +1704,7 @@ export class Orchestrator {
           nativeOff,
           nativeItems,
           prompt,
-          systemPrompt: buildBriefing(conv, agent, workspace, tools, nativeOff, nativeItems),
+          systemPrompt: buildBriefing(conv, agent, workspace, tools, nativeOff, nativeItems, Boolean(run.refuseApprovals)),
           sessionId: state.sessionId,
           cwd,
           permission: conv.settings.permission,

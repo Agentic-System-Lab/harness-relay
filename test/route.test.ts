@@ -6,6 +6,7 @@ describe('client routes', () => {
     expect(routeFromHash('')).toEqual({ page: 'new' });
     expect(routeFromHash('#/')).toEqual({ page: 'new' });
     expect(routeFromHash('#/c/abc')).toEqual({ page: 'chat', id: 'abc' });
+    expect(routeFromHash('#/schedule')).toEqual({ page: 'schedule' });
     expect(routeFromHash('#/settings')).toEqual({ page: 'settings' });
     expect(routeFromHash('#/settings/tools')).toEqual({ page: 'settings', section: 'tools' });
     expect(routeFromHash('#/settings/codex')).toEqual({ page: 'settings', section: 'codex' });
@@ -14,7 +15,7 @@ describe('client routes', () => {
   });
 
   it('writes it back the same way', () => {
-    for (const hash of ['#/', '#/c/abc', '#/settings', ...SETTINGS_SECTIONS.map((s) => `#/settings/${s}`)]) {
+    for (const hash of ['#/', '#/schedule', '#/c/abc', '#/settings', ...SETTINGS_SECTIONS.map((s) => `#/settings/${s}`)]) {
       expect(hashFor(routeFromHash(hash))).toBe(hash);
     }
     expect(settingsHref('lead')).toBe('#/settings/lead');

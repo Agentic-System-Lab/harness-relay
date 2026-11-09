@@ -1206,6 +1206,104 @@ describe('schedules', () => {
     expect(retimed.nextRunAt).toBe(retimed.updatedAt + 2 * HOUR);
   });
 
+  it('opens a new chat each time when asked, says which one "Run now" opened, and keeps the last one across a save', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const run = () => app.request(`/api/conversations/${conv.id}/schedule/run`, json('POST', {}, { 'x-relay-lang': 'en' }));
+    const saved = (await (await put(conv.id, { ...valid, newChat: true })).json()) as NonNullable<Conversation['schedule']>;
+    expect(saved.newChat).toBe(true);
+    expect(((await (await get(`/api/conversations/${conv.id}`)).json()) as Conversation).schedule!.newChat).toBe(true);
+
+    const res = await run();
+    expect(res.status).toBe(202);
+    const sent = (await res.json()) as { ok: true; queued: boolean; chatId: string };
+    expect(sent).toEqual({ ok: true, queued: false, chatId: expect.any(String) });
+    expect(sent.chatId).not.toBe(conv.id);
+    expect(orchestrator.isRunning(sent.chatId)).toBe(true);
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+    const list = (await (await get('/api/conversations')).json()) as { id: string }[];
+    expect(list.map((c) => c.id)).toContain(sent.chatId);
+    const chat = (await (await get(`/api/conversations/${sent.chatId}`)).json()) as Conversation;
+    expect(chat.messages.map((m) => m.author.kind)).toEqual(['system', 'user', 'agent']);
+    expect(chat.messages[1]).toMatchObject({ scheduled: true });
+    // Its team is busy in the new chat only: "Run now" opens another one.
+    const second = (await (await run()).json()) as { chatId: string };
+    expect(second.chatId).not.toBe(sent.chatId);
+
+    Object.assign(store.get(conv.id)!.schedule!, { lastRunAt: 5, lastResult: 'sent', lastChatId: sent.chatId });
+    const again = (await (await put(conv.id, { ...valid, text: 'another message' })).json()) as NonNullable<Conversation['schedule']>;
+    expect(again).toMatchObject({ newChat: false, lastResult: 'sent', lastChatId: sent.chatId });
+    for (const id of [sent.chatId, second.chatId]) {
+      orchestrator.stop(id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(id)).toBe(false));
+    }
+  });
+
+  it('creates a schedule in a chat of its own, whose lead agent designs its team now and nothing else runs', async () => {
+    const create = (b: Record<string, unknown>) => app.request('/api/schedules', json('POST', b, { 'x-relay-lang': 'en' }));
+    const res = await create({ settings: { permission: 'read-only', cwd: project }, schedule: { ...valid, text: 'Weekly report\nwith numbers', newChat: true } });
+    expect(res.status).toBe(200);
+    const conv = (await res.json()) as Conversation;
+    expect(conv.title).toBe('Weekly report');
+    expect(conv.agents).toEqual([]);
+    expect(conv.settings).toMatchObject({ autoTeam: true, permission: 'read-only', cwd: project });
+    expect(conv.schedule).toMatchObject({ text: 'Weekly report\nwith numbers', enabled: true, newChat: true, lang: 'en', nextRunAt: expect.any(Number) });
+    const live = store.get(conv.id)!;
+    expect(orchestrator.isRunning(conv.id)).toBe(true); // the lead agent designs the team
+    expect(live.messages.map((m) => m.author.kind)).toEqual(['system', 'system']);
+    expect(live.messages[0]!.parts).toEqual([{ type: 'text', text: expect.stringMatching(/^Schedule created\./) }]);
+    expect(live.messages[1]!.plan).toMatchObject({ status: 'planning' });
+    expect(live.messages.some((m) => m.author.kind === 'user')).toBe(false);
+
+    const design = () => app.request(`/api/conversations/${conv.id}/schedule/design`, json('POST', {}, { 'x-relay-lang': 'en' }));
+    expect((await design()).status).toBe(409); // designing already
+    orchestrator.stop(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+    // A design that was stopped can be asked for again.
+    expect((await design()).status).toBe(202);
+    expect(orchestrator.isRunning(conv.id)).toBe(true);
+    orchestrator.stop(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+
+    const titled = (await (await create({ title: ' Reports ', settings: { cwd: project }, schedule: valid })).json()) as Conversation;
+    expect(titled.title).toBe('Reports');
+    orchestrator.stop(titled.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(titled.id)).toBe(false));
+  });
+
+  it("sorts a new schedule's chat into the user's groups by its message, and creates nothing while the server stops", async () => {
+    const create = (b: Record<string, unknown>) => app.request('/api/schedules', json('POST', b, { 'x-relay-lang': 'en' }));
+    await app.request('/api/groups', json('POST', { name: 'Reports' }));
+    const conv = (await (await create({ settings: { cwd: project }, schedule: valid })).json()) as Conversation;
+    expect(orchestrator.isSorting(conv.id)).toBe(true);
+    await orchestrator.deleteConversation(conv.id); // stops the design and the sorting
+    expect(orchestrator.isSorting(conv.id)).toBe(false);
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+
+    orchestrator.stopAll();
+    expect((await create({ settings: { cwd: project }, schedule: valid })).status).toBe(503);
+    expect(store.list(() => false)).toEqual([]);
+  });
+
+  it('creates no schedule that could never send, nor a working directory it was not asked to', async () => {
+    const create = (b: Record<string, unknown>) => app.request('/api/schedules', json('POST', b, { 'x-relay-lang': 'en' }));
+    const dir = join(project, 'brand', 'new');
+    const bad = await create({ settings: { cwd: dir }, createCwd: true, schedule: { ...valid, text: ' ' } });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toMatch(/Type the message/);
+    expect(existsSync(dir)).toBe(false); // checked before anything is created
+    expect((await create({ settings: { cwd: dir }, schedule: valid })).status).toBe(404);
+    expect(existsSync(dir)).toBe(false);
+    expect(store.list(() => false)).toEqual([]);
+
+    const made = await create({ settings: { cwd: dir }, createCwd: true, schedule: valid });
+    expect(made.status).toBe(200);
+    expect(statSync(dir).isDirectory()).toBe(true);
+    const id = ((await made.json()) as Conversation).id;
+    orchestrator.stop(id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(id)).toBe(false));
+    expect((await app.request('/api/conversations/missing/schedule/design', json('POST', {}))).status).toBe(404);
+  });
+
   it('runs a switched-off schedule now, and says why when the conversation is busy', async () => {
     const conv = await createConversation({ permission: 'read-only' });
     const run = () => app.request(`/api/conversations/${conv.id}/schedule/run`, json('POST', {}, { 'x-relay-lang': 'en' }));

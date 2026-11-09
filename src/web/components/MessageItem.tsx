@@ -13,7 +13,7 @@ import {
 import { splitAsk } from '../../shared/ask';
 import { api } from '../api';
 import { enterSends, isTouchScreen } from '../chat';
-import { messageText, planHeadline, speaker } from '../copy';
+import { messageText, planHeadline, planWording, speaker } from '../copy';
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
 import { ChangesCard, type ApplyState } from './ChangesCard';
@@ -321,6 +321,7 @@ function PlanCard({
   const [confirming, setConfirming] = useState(false);
   const plan = msg.plan!;
   const lead = leadLabel(plan.lead);
+  const wording = planWording(plan, t, lead);
 
   if (plan.status === 'planning') {
     const live = msg.status === 'streaming';
@@ -329,7 +330,7 @@ function PlanCard({
         <span className={`tool-icon ${live ? 'spin' : ''}`} aria-hidden>
           {live ? '◌' : '✦'}
         </span>
-        <span>{live ? t.plan.planning(lead) : t.plan.aborted}</span>
+        <span>{live ? wording.planning : wording.aborted}</span>
       </div>
     );
   }
@@ -388,7 +389,7 @@ function PlanCard({
       {(awaiting || (plan.autoConfirmed && latestPlan)) && asksGrokTrust(plan.agents ?? [], cwd) && <GrokTrustNote cwd={cwd} />}
       {awaiting && (
         <div className="plan-confirm">
-          <span className="small">{t.plan.confirmHint}</span>
+          <span className="small">{wording.confirmHint}</span>
           <button type="button" className="primary small-button" onClick={() => answer(onConfirmPlan)} disabled={confirming}>
             {confirming ? t.plan.confirming : t.plan.confirm}
           </button>

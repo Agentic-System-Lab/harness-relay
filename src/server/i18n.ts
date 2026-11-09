@@ -127,6 +127,10 @@ const zhTW = {
   scheduleMissedNote: (when: string) => `${when} 的排程訊息沒有送出：當時 Harness Relay 沒有在執行。`,
   scheduleSkippedNote: (when: string, why: string) => `${when} 的排程訊息沒有送出：${why}。`,
   scheduleFailedNote: (when: string, why: string) => `${when} 的排程訊息無法送出：${why}`,
+  scheduleChatNote: (title: string) => `這個對話由「${title}」的排程開啟，排程的訊息在這裡送出。`,
+  scheduleNoLead: '這個對話沒有讓首席 agent 組隊',
+  scheduleHasTeam: '這個排程已經有團隊了',
+  scheduleCreatedNote: '已建立排程。首席 agent 會為排程的訊息組隊；團隊確認後，排程會在設定的時間把訊息傳給它，現在不會先執行。',
 
   // HTTP
   unknownProvider: (p: string) => `未知的 provider：${p}`,
@@ -342,6 +346,10 @@ const en: ServerMessages = {
   scheduleMissedNote: (when) => `The scheduled message of ${when} was not sent: Harness Relay was not running then.`,
   scheduleSkippedNote: (when, why) => `The scheduled message of ${when} was not sent: ${why}.`,
   scheduleFailedNote: (when, why) => `The scheduled message of ${when} could not be sent: ${why}`,
+  scheduleChatNote: (title) => `The schedule of "${title}" opened this conversation to send its message here.`,
+  scheduleNoLead: 'The lead agent does not design the team in this conversation',
+  scheduleHasTeam: 'This schedule has a team already',
+  scheduleCreatedNote: 'Schedule created. The lead agent designs a team for its message; once the team is confirmed, the schedule sends it the message at the set times. Nothing runs now.',
 
   unknownProvider: (p) => `Unknown provider: ${p}`,
   dirNotFound: (cwd) => `Directory not found: ${cwd}`,

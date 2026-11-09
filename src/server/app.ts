@@ -24,7 +24,7 @@ import { restoreGrokTrust, trustGrokFolder } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
-import { HttpError, forClient, type Orchestrator } from './orchestrator';
+import { HttpError, forClient, titleFrom, type Orchestrator } from './orchestrator';
 import type { ProviderService } from './providers';
 import type { SettingsStore } from './settings';
 import type { Store } from './store';
@@ -411,6 +411,18 @@ export function createApp({
   // Conversations whose title or messages contain every word of `q`.
   app.get('/api/search', (c) => c.json(store.search(c.req.query('q') ?? '')));
 
+  /** Save a new conversation and set up its working directory; one that cannot be set up is not kept. */
+  async function newConversation(conv: Conversation): Promise<void> {
+    store.create(conv);
+    // Agents that may write need a git repository; set it up now so problems surface immediately.
+    try {
+      await orchestrator.prepareWorkspace(conv);
+    } catch (err) {
+      store.delete(conv.id);
+      throw err;
+    }
+  }
+
   app.post('/api/conversations', async (c) => {
     const b = await body<Partial<Conversation> & { createCwd?: unknown }>(c);
     const now = Date.now();
@@ -429,14 +441,45 @@ export function createApp({
       agentState: {},
       worktrees: {},
     };
-    store.create(conv);
-    // Agents that may write need a git repository; set it up now so problems surface immediately.
+    await newConversation(conv);
+    return c.json(forClient(conv));
+  });
+
+  // A new schedule (New schedule in the sidebar): a conversation for it, with auto team, whose lead
+  // agent designs the team for the schedule's message now. Nothing runs until the schedule sends it;
+  // until the team is confirmed, a time that comes due is skipped.
+  app.post('/api/schedules', async (c) => {
+    const b = await body<{ title?: unknown; settings?: Record<string, unknown>; createCwd?: unknown; schedule?: unknown }>(c);
+    const now = Date.now();
+    // The schedule first: creating a missing working directory is a side effect.
+    const update = validateSchedule(b.schedule, now);
+    const s = validateSettings({ ...(b.settings ?? {}), autoTeam: true }, settings.defaultCwd, b.createCwd === true);
+    const conv: Conversation = {
+      id: randomUUID(),
+      title: String(b.title ?? '').trim().slice(0, 200) || titleFrom(update.text) || t().defaultTitle,
+      createdAt: now,
+      updatedAt: now,
+      agents: [],
+      settings: s,
+      messages: [],
+      agentState: {},
+      worktrees: {},
+    };
+    const schedule: ConversationSchedule = { ...update, lang: currentLang(), updatedAt: now };
+    const next = update.enabled ? nextRun(schedule, now) : undefined;
+    if (next !== undefined) schedule.nextRunAt = next;
+    await newConversation(conv);
     try {
-      await orchestrator.prepareWorkspace(conv);
+      conv.schedule = schedule;
+      store.saveSchedule(conv);
+      orchestrator.systemNote(conv, t().scheduleCreatedNote);
+      await orchestrator.designForSchedule(conv.id);
     } catch (err) {
-      store.delete(conv.id);
+      await orchestrator.deleteConversation(conv.id);
       throw err;
     }
+    // Sorted into the user's sidebar groups by its message, as a new chat is by its first question.
+    orchestrator.sortIntoGroup(conv, update.text);
     return c.json(forClient(conv));
   });
 
@@ -506,6 +549,7 @@ export function createApp({
       ...(prev?.lastRunAt !== undefined ? { lastRunAt: prev.lastRunAt } : {}),
       ...(prev?.lastResult ? { lastResult: prev.lastResult } : {}),
       ...(prev?.lastError ? { lastError: prev.lastError } : {}),
+      ...(prev?.lastChatId ? { lastChatId: prev.lastChatId } : {}),
     };
     const next = update.enabled ? nextRun(schedule, now) : undefined;
     if (next !== undefined) schedule.nextRunAt = next;
@@ -525,14 +569,23 @@ export function createApp({
     return c.json({ ok: true });
   });
 
+  // Have the lead agent design the team for the schedule's message (again), e.g. after a design was
+  // stopped. Nothing runs once it is confirmed: the team gets the message when the schedule sends it.
+  app.post('/api/conversations/:id/schedule/design', async (c) => {
+    await orchestrator.designForSchedule(getConv(c.req.param('id')).id);
+    return c.json({ ok: true }, 202);
+  });
+
   // Send the schedule's message now, as it would be sent when it comes due (its times stay as they are).
+  // `chatId`: the conversation it opened, for a schedule that opens a new one each time.
   app.post('/api/conversations/:id/schedule/run', async (c) => {
     const sent = await orchestrator.sendScheduled(c.req.param('id'));
     if (sent.result === 'busy' || sent.result === 'skipped' || sent.result === 'failed') {
       const reason = sent.reason ?? t().scheduleBusy;
       throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1));
     }
-    return c.json({ ok: true, queued: sent.result === 'queued' }, 202);
+    const chatId = sent.result === 'sent' ? sent.chatId : undefined;
+    return c.json({ ok: true, queued: sent.result === 'queued', ...(chatId ? { chatId } : {}) }, 202);
   });
 
   app.delete('/api/conversations/:id', async (c) => {

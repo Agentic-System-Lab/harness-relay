@@ -245,6 +245,12 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversations ADD COLUMN auto_confirm INTEGER NOT NULL DEFAULT 0;
   UPDATE conversations SET auto_team = 1;
   `,
+  // 14: a schedule may open a new conversation each time (new_chat), and remembers the last one it
+  // opened (last_chat_id).
+  `
+  ALTER TABLE schedules ADD COLUMN new_chat INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE schedules ADD COLUMN last_chat_id TEXT;
+  `,
 ];
 
 function migrate(db: Database): void {

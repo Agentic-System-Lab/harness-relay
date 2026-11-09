@@ -217,6 +217,7 @@ describe('scheduled messages', () => {
       enabled: true,
       approvals,
       missed: 'skip',
+      newChat: false,
       updatedAt: 0,
     },
   });
@@ -236,5 +237,36 @@ describe('scheduled messages', () => {
     // Full access asks nothing, so nothing is refused.
     const full = { ...withSchedule('deny'), settings: { ...conv.settings, permission: 'full' as const } };
     expect(buildBriefing(full, team[0]!)).not.toContain('refused automatically');
+  });
+
+  it('are explained in a chat a schedule opened, which has no schedule of its own, and refused there only in a run nobody may be watching', () => {
+    const opened: Conversation = { ...conv, messages: [scheduled] };
+    const unattended = buildBriefing(opened, team[0]!, undefined, undefined, [], {}, true);
+    expect(unattended).toContain('A user message marked via="schedule" was sent automatically');
+    expect(unattended).toContain('refused automatically');
+    // Once the user writes in it, they are here: the run asks.
+    const attended = buildBriefing(opened, team[0]!);
+    expect(attended).toContain('A user message marked via="schedule" was sent automatically');
+    expect(attended).not.toContain('refused automatically');
+    const full = { ...opened, settings: { ...conv.settings, permission: 'full' as const } };
+    expect(buildBriefing(full, team[0]!, undefined, undefined, [], {}, true)).not.toContain('refused automatically');
+  });
+
+  it('are not mentioned in a conversation whose schedule sends them in a new chat each time', () => {
+    const elsewhere: Conversation = { ...withSchedule('deny'), schedule: { ...withSchedule('deny').schedule!, newChat: true } };
+    expect(buildBriefing(elsewhere, team[0]!)).not.toContain('via="schedule"');
+    // Messages it sent here before it opened new chats are still explained.
+    const before = buildBriefing({ ...elsewhere, messages: [scheduled] }, team[0]!);
+    expect(before).toContain('A user message marked via="schedule" was sent automatically');
+    expect(before).not.toContain('refused automatically');
+    const info = { mode: 'roundtable' as const, round: 1, rounds: 1, answered: true };
+    expect(buildTurnPrompt(elsewhere, team[0]!, [], false, info)).not.toContain('via="schedule"');
+  });
+
+  it("tell an agent that asked that the scheduled message among the new ones is not the user's reply", () => {
+    const reply: ChatMessage = { ...scheduled, id: 'r1', scheduled: undefined, parts: [{ type: 'text', text: 'A' }] };
+    const info = { mode: 'roundtable' as const, round: 1, rounds: 1, answered: true };
+    expect(buildTurnPrompt(conv, team[0]!, [scheduled, reply], false, info)).toContain('one marked via="schedule" is not their reply');
+    expect(buildTurnPrompt(conv, team[0]!, [reply], false, info)).not.toContain('via="schedule"');
   });
 });

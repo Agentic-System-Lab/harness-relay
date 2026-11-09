@@ -654,6 +654,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
       {scheduleOpen && (
         <ScheduleDrawer
           conv={conv}
+          running={running}
           onClose={() => setScheduleOpen(false)}
           onEditTeam={() => {
             setScheduleOpen(false);
