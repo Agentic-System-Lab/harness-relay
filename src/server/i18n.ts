@@ -181,7 +181,7 @@ const zhTW = {
   agentHomeNotAbsolute: (dir: string) => `請填完整路徑，或以 ~ 開頭的路徑（例如 ~/.relay-agents），不要用 ${dir}`,
   agentHomeInside: (dir: string, folder: string) =>
     `${dir} 在 ${folder} 裡面：那裡的快照會把各 CLI 的登入與 session 紀錄一起收進去。請選這個資料夾以外的位置，例如 ~/.relay-agents`,
-  agentHomeBusy: '有對話正在執行，或首席 agent 正在替對話分群。請等它們結束（或停止對話）再更改各 CLI 自己的資料夾。',
+  agentHomeBusy: '有對話正在執行，或首席 agent 正在替對話分群或調整團隊。請等它們結束（或停止對話、關閉團隊設定）再更改各 CLI 自己的資料夾。',
   agentsViewLinkInvalid: (url: string) => `開啟 AgentsView 的網址無效：${url}。請填 http:// 或 https:// 開頭的網址，例如 https://my-computer.tail1234.ts.net:9999`,
   agentsViewUrlInvalid: (url: string) =>
     `AgentsView 網址無效：${url}。只接受這台電腦上的 http(s) 位址，例如 http://127.0.0.1:8080`,
@@ -416,7 +416,7 @@ const en: ServerMessages = {
   agentHomeNotAbsolute: (dir) => `Enter a full path, or one that starts with ~ (for example ~/.relay-agents), not ${dir}`,
   agentHomeInside: (dir, folder) =>
     `${dir} is inside ${folder}: its snapshots would take in the CLIs' sign-ins and session records. Pick a place outside it, such as ~/.relay-agents`,
-  agentHomeBusy: 'A conversation is running, or the lead agent is sorting one into a group. Wait until they finish (or stop the conversation) before changing the CLIs\' own folder.',
+  agentHomeBusy: 'A conversation is running, or the lead agent is sorting one into a group or changing a team. Wait until they finish (or stop the conversation, or close Team settings) before changing the CLIs\' own folder.',
   agentsViewLinkInvalid: (url) => `Invalid address to open AgentsView: ${url}. Enter one that starts with http:// or https://, such as https://my-computer.tail1234.ts.net:9999`,
   agentsViewUrlInvalid: (url) =>
     `Invalid AgentsView address: ${url}. Only http(s) addresses on this computer are accepted, such as http://127.0.0.1:8080`,

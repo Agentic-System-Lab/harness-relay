@@ -271,6 +271,20 @@ export const zhTW = {
     unchanged: '首席 agent 沒有改動團隊。',
     undo: '復原',
     changedMeanwhile: '首席 agent 調整期間團隊已經變更，這次的調整沒有套用，請再試一次。',
+    changesTitle: '改了什麼：',
+    /** One change the lead agent made, as listed under its note. */
+    change: {
+      added: (name: string, cli: string) => `新增 @${name}（${cli}）`,
+      removed: (name: string) => `移除 @${name}`,
+      renamed: (from: string, name: string) => `@${from} 改名為 @${name}`,
+      cli: (name: string, cli: string) => `@${name} 改用 ${cli}`,
+      role: (name: string) => `改寫 @${name} 的角色`,
+      model: (name: string) => `調整 @${name} 的模型或推理強度`,
+      order: '調整發言順序',
+      mode: (mode: string) => `改成${mode}模式`,
+      rounds: (n: number) => `改成 ${n} 輪`,
+      hops: (n: number) => `最多交棒 ${n} 次`,
+    },
   },
 
   newSchedule: {

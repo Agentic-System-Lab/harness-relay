@@ -32,6 +32,7 @@ let calls: {
   name: string;
   sessionId?: string;
   prompt: string;
+  cwd?: string;
   systemPrompt?: string;
   images?: { path: string; mimeType: string }[];
   attachmentsDir?: string;
@@ -47,6 +48,10 @@ let leadGate: Promise<void> | undefined;
 let reviseReply = '';
 /** When set, the fake lead agent waits for it before changing the team (or until it is stopped). */
 let reviseGate: Promise<void> | undefined;
+/** When set, the next fake lead agent run, once stopped, ends only when it resolves (a CLI slow to exit). */
+let reviseLinger: Promise<void> | undefined;
+/** When set, the fake lead agent's CLI fails with this message when asked to change a team. */
+let reviseFail: string | undefined;
 /** What the fake lead agent replies when asked to sort a conversation into a sidebar group. */
 let sorterReply = '{"group": 0}';
 /** When set, the fake lead agent waits for it before sorting (or until it is stopped). */
@@ -76,11 +81,17 @@ beforeAll(() => {
         return { sessionId: 'sorter-session' };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
-        calls.push({ name: 'reviser', prompt: o.prompt });
+        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd });
+        // Only the run that starts while it is set lingers.
+        const linger = reviseLinger;
+        reviseLinger = undefined;
         if (reviseGate && !o.signal?.aborted) {
           await Promise.race([reviseGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
+        // Like a CLI that takes a while to end once it is stopped.
+        if (o.signal?.aborted && linger) await linger;
         if (o.signal?.aborted) throw new AgentRunError('stopped', true);
+        if (reviseFail) throw new Error(reviseFail);
         o.onEvent({ type: 'text', text: reviseReply });
         o.onEvent({ type: 'text_end' });
         return { costUsd: 0.02, sessionId: 'reviser-session' };
@@ -155,6 +166,8 @@ beforeEach(() => {
   leadGate = undefined;
   reviseReply = '';
   reviseGate = undefined;
+  reviseLinger = undefined;
+  reviseFail = undefined;
   sorterReply = '{"group": 0}';
   sorterGate = undefined;
   fail = undefined;
@@ -1218,7 +1231,6 @@ describe('asking the lead agent to change the team', () => {
       ['b', 'Bob', 'claude'],
       [r.agents[2]!.id, 'Tester', 'claude'],
     ]);
-    expect(r.lead).toEqual(settings.lead);
     expect(r.meta?.costUsd).toBe(0.02);
     // The drawer shows it until the user saves it.
     expect(conv.agents).toEqual(before.agents);
@@ -1286,6 +1298,123 @@ describe('asking the lead agent to change the team', () => {
     await orchestrator.deleteConversation(conv.id);
     await stopped;
     expect(orchestrator.anyRunning()).toBe(false);
+  });
+  it("reads the drawer's permission and folder, works in the saved folder, and the schedule's message only when it is on", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    reviseReply = withTester;
+    await orchestrator.reviseTeam(conv.id, { request: 'more', agents, settings: { ...draft.settings, permission: 'full', cwd: '/not/saved/yet' } });
+    expect(calls.at(-1)!.prompt).toContain('The file permission "full" and the working directory /not/saved/yet');
+    expect(calls.at(-1)!.cwd).toBe(project);
+    expect(calls.at(-1)!.prompt).not.toContain('<scheduled_message>');
+
+    const schedule: ConversationSchedule = {
+      text: '@Alice check the build',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: false,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+      nextRunAt: 0,
+    } as ConversationSchedule;
+    conv.schedule = schedule;
+    await orchestrator.reviseTeam(conv.id, { request: 'more', ...draft });
+    expect(calls.at(-1)!.prompt).not.toContain('<scheduled_message>');
+    conv.schedule = { ...schedule, enabled: true };
+    await orchestrator.reviseTeam(conv.id, { request: 'more', ...draft });
+    expect(calls.at(-1)!.prompt).toContain('<scheduled_message>\n@Alice check the build\n</scheduled_message>');
+  });
+
+  it("tells the lead when the waiting design is the schedule's, and keeps a renamed member's id", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.messages.push({
+      id: 'plan',
+      author: { kind: 'system' },
+      createdAt: 0,
+      parts: [],
+      status: 'done',
+      plan: { status: 'ready', lead: { provider: 'claude' }, source: 'custom', agents, awaitingConfirmation: true, forSchedule: true },
+    });
+    reviseReply = JSON.stringify({ agents: [{ name: 'Lead', provider: 'claude', was: 'Alice' }, { name: 'Bob', provider: 'claude' }], reason: 'Renamed.' });
+    const r = await orchestrator.reviseTeam(conv.id, { request: 'rename Alice to Lead', ...draft });
+    expect(calls.at(-1)!.prompt).toContain("designed for the conversation's schedule");
+    expect(r.agents.map((a) => [a.id, a.name])).toEqual([
+      ['a', 'Lead'],
+      ['b', 'Bob'],
+    ]);
+  });
+
+  it("keeps the team when the lead declines, refuses a drawer team with a bad name, and says when the lead's CLI fails", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    reviseReply = JSON.stringify({ reason: 'The permission is yours to set.' });
+    const kept = await orchestrator.reviseTeam(conv.id, { request: 'give it full access', ...draft });
+    expect(kept.agents.map((a) => a.id)).toEqual(['a', 'b']);
+    expect(kept.reason).toBe('The permission is yours to set.');
+
+    await expect(
+      orchestrator.reviseTeam(conv.id, { request: 'more', agents: [{ id: 'a', name: 'Bad name', provider: 'claude', role: '' }], settings: draft.settings }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    reviseFail = 'rate limited';
+    await expect(orchestrator.reviseTeam(conv.id, { request: 'more', ...draft })).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringContaining('rate limited'),
+    });
+  });
+
+  it("links the lead agent's session to the conversation in AgentsView", async () => {
+    const links: string[] = [];
+    orchestrator = new Orchestrator(
+      store,
+      new Hub(),
+      settings,
+      { context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }) },
+      { schedule: () => undefined, link: (c: Conversation, provider: string, sessionId: string) => links.push(`${c.id} ${provider}:${sessionId}`) },
+    );
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    reviseReply = withTester;
+    await orchestrator.reviseTeam(conv.id, { request: 'more', ...draft });
+    expect(links).toEqual([`${conv.id} claude:reviser-session`]);
+  });
+
+  it('waits for a replaced request until its lead process has ended, on delete too', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    reviseGate = new Promise(() => {});
+    let exit!: () => void;
+    reviseLinger = new Promise((r) => (exit = r));
+    const older = orchestrator.reviseTeam(conv.id, { request: 'one', ...draft });
+    const olderStopped = expect(older).rejects.toMatchObject({ status: 409 });
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    const newer = orchestrator.reviseTeam(conv.id, { request: 'two', ...draft });
+    const newerStopped = expect(newer).rejects.toMatchObject({ status: 409 });
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+
+    // The newer one is stopped and ends at once; the older one's process is still ending.
+    let deleted = false;
+    const deleting = orchestrator.deleteConversation(conv.id).then(() => (deleted = true));
+    await newerStopped;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(deleted).toBe(false);
+    expect(orchestrator.anyRunning()).toBe(true);
+    exit();
+    await deleting;
+    await olderStopped;
+    expect(orchestrator.anyRunning()).toBe(false);
+  });
+
+  it('stops on shutdown, which waits for it, and refuses new requests then', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    reviseGate = new Promise(() => {});
+    const running = orchestrator.reviseTeam(conv.id, { request: 'one', ...draft });
+    const stopped = expect(running).rejects.toMatchObject({ status: 409 });
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    orchestrator.stopAll();
+    await orchestrator.settled(5_000);
+    await stopped;
+    expect(orchestrator.anyRunning()).toBe(false);
+    await expect(orchestrator.reviseTeam(conv.id, { request: 'two', ...draft })).rejects.toMatchObject({ status: 503 });
   });
 });
 

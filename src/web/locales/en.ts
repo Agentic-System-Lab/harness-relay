@@ -263,6 +263,19 @@ export const en: Messages = {
     unchanged: 'The lead agent left the team as it was.',
     undo: 'Undo',
     changedMeanwhile: 'The team changed while the lead agent was working, so its change was not applied. Try again.',
+    changesTitle: 'What changed:',
+    change: {
+      added: (name, cli) => `added @${name} (${cli})`,
+      removed: (name) => `removed @${name}`,
+      renamed: (from, name) => `renamed @${from} to @${name}`,
+      cli: (name, cli) => `moved @${name} to ${cli}`,
+      role: (name) => `rewrote @${name}'s role`,
+      model: (name) => `changed @${name}'s model or effort`,
+      order: 'changed the speaking order',
+      mode: (mode) => `switched to ${mode} mode`,
+      rounds: (n) => `${n} round${n === 1 ? '' : 's'}`,
+      hops: (n) => `at most ${n} hand-off${n === 1 ? '' : 's'}`,
+    },
   },
 
   newSchedule: {

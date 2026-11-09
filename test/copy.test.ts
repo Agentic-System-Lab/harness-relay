@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
-import { closeFences, conversationMarkdown, copyText, mentionWarning, messageText, planChecksMentions, planHeadline, planWording } from '../src/web/copy';
+import { closeFences, conversationMarkdown, copyText, mentionWarning, messageText, planChecksMentions, planHeadline, planWording, teamChangeText } from '../src/web/copy';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
@@ -336,5 +336,46 @@ describe('copying exactly what was written', () => {
     // Selected in full first (iOS needs the range), then cleaned up, and focus goes back to the button.
     expect(page.steps).toEqual(['select', `range 0-${page.selected().length}`, 'removed', 'focus back']);
     expect(page.listeners.size).toBe(0);
+  });
+});
+
+describe("the lead agent's changes to a team, in words", () => {
+  it('says each kind of change in both languages', () => {
+    const changes = [
+      { kind: 'added', name: 'Tester', provider: 'codex' },
+      { kind: 'removed', name: 'Bob' },
+      { kind: 'renamed', from: 'Bob', name: 'Builder' },
+      { kind: 'cli', name: 'Builder', provider: 'grok' },
+      { kind: 'role', name: 'Alice' },
+      { kind: 'model', name: 'Alice' },
+      { kind: 'order' },
+      { kind: 'mode', mode: 'relay' },
+      { kind: 'rounds', rounds: 1 },
+      { kind: 'hops', maxHops: 4 },
+    ] as const;
+    expect(changes.map((c) => teamChangeText(c, en))).toEqual([
+      'added @Tester (Codex)',
+      'removed @Bob',
+      'renamed @Bob to @Builder',
+      'moved @Builder to Grok',
+      "rewrote @Alice's role",
+      "changed @Alice's model or effort",
+      'changed the speaking order',
+      'switched to Relay mode',
+      '1 round',
+      'at most 4 hand-offs',
+    ]);
+    expect(changes.map((c) => teamChangeText(c, zhTW))).toEqual([
+      '新增 @Tester（Codex）',
+      '移除 @Bob',
+      '@Bob 改名為 @Builder',
+      '@Builder 改用 Grok',
+      '改寫 @Alice 的角色',
+      '調整 @Alice 的模型或推理強度',
+      '調整發言順序',
+      '改成接力模式',
+      '改成 1 輪',
+      '最多交棒 4 次',
+    ]);
   });
 });

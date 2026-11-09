@@ -166,7 +166,7 @@ flowchart LR
 
 設計團隊的執行不會寫入任何東西（首席 agent 是唯讀的，其他人也不發言），所以不會鎖住目錄；團隊自己的執行則照確認後的模式上鎖。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把首席 agent 設計或調整的團隊（`planSavable()`）存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`；直接套用的範本或保留的目前團隊都不是新團隊，卡片不會提供儲存。編輯問題會連同它的 plan 一起刪除，並依修改後的問題重新設計，之前的內容作為歷史。手動設定團隊或修改設定都不會開啟或關閉自動組隊（`PATCH` 會保留原本的 `autoTeam`）；`autoConfirm` 可以在團隊設定中修改。schema 第 13 版（`conversations.auto_confirm`）為在它之前儲存的每個對話開啟了自動組隊。
 
-**依使用者的要求修改團隊。** 團隊設定可以請首席 agent 修改它顯示的團隊（對話的團隊，或等待確認的設計，連同使用者已經做的修改）。`POST /api/conversations/:id/revise-team` 帶著 `{ request, agents, settings }`，以 `REVISER_BRIEFING` 與 `buildRevisePrompt()` 在工作目錄中以唯讀方式執行首席 agent：要求、團隊、目前為止的對話、這個團隊是否是等待確認的設計、排程的訊息、可以用的 CLI 與範本。它以 JSON 回覆整個團隊，再由 `decideRevision()` 讓它可以執行：留下來的成員（名字相同，不分大小寫，CLI 也相同）保留 id（也就保留 session）、工具，以及首席 agent 沒有給的模型與推理強度；即使它的 CLI 沒有登入也不換，因為那是使用者選的。新成員，以及改過的模型與推理強度，則和設計團隊時一樣調整成可用的。回應是 `TeamRevision`（成員、輪流方式、首席 agent 的說明、首席 agent 與這次執行的花費）。對話本身不會有任何變更：團隊設定會顯示這個團隊，直到使用者照常用 `PATCH` 儲存（等待中的設計也因此確認）。每個對話一次只有一個修改：新的要求會停止前一個（409），關閉請求（關掉團隊設定，或按停止）、刪除對話與關閉伺服器也一樣。首席 agent 的 session 會在 AgentsView 中連到這個對話。
+**依使用者的要求修改團隊。** 團隊設定可以請首席 agent 修改它顯示的團隊（對話的團隊，或等待確認的設計，連同使用者已經做的修改）。`POST /api/conversations/:id/revise-team` 帶著 `{ request, agents, settings }`（`settings`：成員的輪流方式，以及團隊設定裡的權限與工作目錄，不論是否已儲存，首席 agent 只會讀到它們：`draftPlace()`），以 `REVISER_BRIEFING` 與 `buildRevisePrompt()` 在已儲存的工作目錄中以唯讀方式執行首席 agent：要求、團隊、目前為止的對話、這個團隊是否是等待確認的設計（針對最新的問題，或針對排程的訊息）、排程開啟時的排程訊息、可以用的 CLI 與範本。它以 JSON 回覆整個團隊，再由 `decideRevision()` 讓它可以執行。首席 agent 用 `was` 指出的成員（改名或換到另一個 CLI），或名字（不分大小寫）與 CLI 都沒變的成員，仍是同一位成員：保留 id（也就保留 session；換到另一個 CLI 時 session 會重新開始，和手動修改一樣）、工具，以及首席 agent 沒有給的角色、模型與推理強度（模型與推理強度不會帶到另一個 CLI）；首席 agent 照抄但去掉前後空白的角色，維持使用者原本寫的樣子；CLI 沒變的成員即使那個 CLI 沒有登入也不換，因為那是使用者選的。新成員、換 CLI 的成員，以及改過的模型與推理強度，則和設計團隊時一樣調整成可用的。沒有成員的回覆（首席 agent 婉拒並說明原因）會保留原本的成員。回應是 `TeamRevision`（成員、輪流方式、首席 agent 的說明，以及這次執行的時間與花費）。對話本身不會有任何變更：團隊設定會顯示這個團隊、列出改了什麼（`src/web/chat.ts` 的 `teamChanges()`，空的模型與角色前後的空白不算改變）並提供復原，直到使用者照常用 `PATCH` 儲存（等待中的設計也因此確認）。如果這段期間團隊設定重新載入了團隊，或已經無法儲存，就不採用這個回應（`revisionOutcome()`）。新的要求會停止前一個（409），關閉請求（關掉團隊設定，或按停止）、刪除對話與關閉伺服器也一樣；被停止的修改在刪除對話與關閉伺服器時仍會等到首席 agent 的程序結束。首席 agent 的 session 會在 AgentsView 中連到這個對話。
 
 ## 排程
 
@@ -419,7 +419,7 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 
 Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_version`（見 `src/server/db.ts`）。
 
-**關閉**（SIGINT／SIGTERM）：停止接受連線、停止排程器、停止所有執行與群組分類、最多等 5 秒讓執行寫完最後的狀態、對每個 agent 的 process group（包括子程序）先送 SIGTERM 再送 SIGKILL，最後寫回並關閉資料庫。未處理的 promise rejection 會記錄下來，不會讓程序結束。
+**關閉**（SIGINT／SIGTERM）：停止接受連線、停止排程器、停止所有執行、群組分類與首席 agent 正在進行的團隊修改、最多等 5 秒讓它們結束、讓執行寫完最後的狀態、對每個 agent 的 process group（包括子程序）先送 SIGTERM 再送 SIGKILL，最後寫回並關閉資料庫。未處理的 promise rejection 會記錄下來，不會讓程序結束。
 
 ## Provider：狀態、登入與模型
 
@@ -442,7 +442,7 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
 
 兩者都是選用的設定，存在 `app_settings`（`agent_home`、`agentsview_url`，以及介面連結打開的網址 `agentsview_link`），在 **設定 → Agent 的 session** 編輯，透過 `PUT /api/settings` 送出。兩者都不需要環境變數，所以在每個平台上 `npm start` 和 `npm run dev` 都不必改。
 
-**Agent 的家目錄。** 設定資料夾後，`SettingsStore.env(p)` 會把各 CLI 的家目錄變數指到裡面：`CLAUDE_CONFIG_DIR=<資料夾>/claude`、`CODEX_HOME=<資料夾>/codex`、`GROK_HOME=<資料夾>/grok`。這個值會取代伺服器繼承來的值（例如使用者為自己的 Claude Code 在 shell 設定的 `CLAUDE_CONFIG_DIR`），資料夾在第一次使用時建立，因為 Codex 不接受不存在的 `CODEX_HOME`。每次啟動 CLI 都經過 `env(p)`：執行、狀態檢查、從設定頁開始的登入、模型查詢、詢問 CLI 自己載入了什麼（快取也以家目錄區分）以及 Grok 的資料夾信任。所以從設定頁登入的 CLI 是登入在 Relay 的家目錄，session 紀錄也寫在那裡（`claude/projects/`、`codex/sessions/`、`grok/sessions/`）。更換資料夾會清掉 provider 狀態與模型的快取，並取消進行中的登入（它們會登入在舊的家目錄）；有對話正在執行、設定中或正在分群時會拒絕更換（409，且不會建立資料夾），因為回合會在 CLI 尚未登入的家目錄開始。更換前的 session 無法從新的家目錄接續，該回合會像其他接續失敗時一樣，開新 session 並提供完整紀錄。資料夾會先驗證（`validAgentHome`）：必須是完整路徑或 `~` 開頭的路徑（`~/` 與 `~\`），不可以是家目錄本身或檔案系統的根目錄，也不可以在 Harness Relay 自己的資料夾或預設工作目錄裡面，因為那裡的快照（`git add -A` 到暫存的 index）會把各 CLI 的登入與 session 紀錄一起收進去。在 macOS 與 Windows 上比對路徑時不分大小寫。資料夾只在請求不會被拒絕時才建立，而且只有擁有者能存取（`0700`）。這個檢查只是提早提醒；快照本身也會排除這個資料夾，不論它在 repository 的哪裡（`snapshot(root, exclude)` 加上 `:(exclude,literal)` pathspec，並解析連結），所以之後改的預設工作目錄、其他對話的工作目錄，或位於工作目錄上層的 repository 根目錄，也都不會把它收進去。
+**Agent 的家目錄。** 設定資料夾後，`SettingsStore.env(p)` 會把各 CLI 的家目錄變數指到裡面：`CLAUDE_CONFIG_DIR=<資料夾>/claude`、`CODEX_HOME=<資料夾>/codex`、`GROK_HOME=<資料夾>/grok`。這個值會取代伺服器繼承來的值（例如使用者為自己的 Claude Code 在 shell 設定的 `CLAUDE_CONFIG_DIR`），資料夾在第一次使用時建立，因為 Codex 不接受不存在的 `CODEX_HOME`。每次啟動 CLI 都經過 `env(p)`：執行、狀態檢查、從設定頁開始的登入、模型查詢、詢問 CLI 自己載入了什麼（快取也以家目錄區分）以及 Grok 的資料夾信任。所以從設定頁登入的 CLI 是登入在 Relay 的家目錄，session 紀錄也寫在那裡（`claude/projects/`、`codex/sessions/`、`grok/sessions/`）。更換資料夾會清掉 provider 狀態與模型的快取，並取消進行中的登入（它們會登入在舊的家目錄）；有對話正在執行、設定中、正在分群或首席 agent 正在修改團隊時會拒絕更換（409，且不會建立資料夾），因為回合會在 CLI 尚未登入的家目錄開始。更換前的 session 無法從新的家目錄接續，該回合會像其他接續失敗時一樣，開新 session 並提供完整紀錄。資料夾會先驗證（`validAgentHome`）：必須是完整路徑或 `~` 開頭的路徑（`~/` 與 `~\`），不可以是家目錄本身或檔案系統的根目錄，也不可以在 Harness Relay 自己的資料夾或預設工作目錄裡面，因為那裡的快照（`git add -A` 到暫存的 index）會把各 CLI 的登入與 session 紀錄一起收進去。在 macOS 與 Windows 上比對路徑時不分大小寫。資料夾只在請求不會被拒絕時才建立，而且只有擁有者能存取（`0700`）。這個檢查只是提早提醒；快照本身也會排除這個資料夾，不論它在 repository 的哪裡（`snapshot(root, exclude)` 加上 `:(exclude,literal)` pathspec，並解析連結），所以之後改的預設工作目錄、其他對話的工作目錄，或位於工作目錄上層的 repository 根目錄，也都不會把它收進去。
 
 **AgentsView。** [AgentsView](https://www.agentsview.io) 會索引各 CLI 的 session 紀錄，每個 agent 一個 session，但沒有東西把同一個對話的 session 串在一起。`src/server/agentsview.ts` 補上這一點：
 

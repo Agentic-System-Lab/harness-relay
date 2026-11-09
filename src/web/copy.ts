@@ -7,6 +7,7 @@ import {
   type TeamPlan,
 } from '../shared/types';
 import { mentionsInMarkdown, unknownMentions } from '../shared/mentions';
+import type { TeamChange } from './chat';
 import type { Messages } from './i18n';
 
 /** An opening or closing code fence: up to 3 spaces, then 3+ backticks or tildes. */
@@ -203,5 +204,32 @@ function legacyCopy(text: string): boolean {
     document.removeEventListener('copy', onCopy);
     ta.remove();
     if (focused && 'focus' in focused) (focused as HTMLElement).focus();
+  }
+}
+
+/** One change the lead agent made to a team (team drawer), in words. */
+export function teamChangeText(c: TeamChange, t: Messages): string {
+  const w = t.revise.change;
+  switch (c.kind) {
+    case 'added':
+      return w.added(c.name, PROVIDER_LABEL[c.provider]);
+    case 'removed':
+      return w.removed(c.name);
+    case 'renamed':
+      return w.renamed(c.from, c.name);
+    case 'cli':
+      return w.cli(c.name, PROVIDER_LABEL[c.provider]);
+    case 'role':
+      return w.role(c.name);
+    case 'model':
+      return w.model(c.name);
+    case 'order':
+      return w.order;
+    case 'mode':
+      return w.mode(t.modes[c.mode].label);
+    case 'rounds':
+      return w.rounds(c.rounds);
+    case 'hops':
+      return w.hops(c.maxHops);
   }
 }

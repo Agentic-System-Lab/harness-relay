@@ -1,15 +1,24 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { REVISE_REQUEST_MAX } from '../../shared/types';
+import { REVISE_REQUEST_MAX, type MessageMeta } from '../../shared/types';
 import { api } from '../api';
-import { revisedTeam, sameTeam, teamTurns } from '../chat';
+import { reviseRequest, revisionOutcome, sameTeam, type TeamChange } from '../chat';
+import { teamChangeText } from '../copy';
 import { useT } from '../i18n';
 import { Logo } from './Logo';
+import { MetaText, hasMeta } from './MessageItem';
 import type { Team } from './TeamEditor';
 
 interface Props {
   convId: string;
   /** The team in the drawer: the one the lead agent changes. */
   team: Team;
+  /**
+   * The team the drawer's copy was made from (`base`): a new one (the drawer loaded the team again)
+   * clears what the lead agent said about the copy before.
+   */
+  base: Team;
+  /** The drawer cannot save its team (it changed underneath): nothing to ask for until it is loaded again. */
+  blocked: boolean;
   /** Who the lead agent is (Settings), named in the note. */
   leadText: string;
   onChange: (team: Team) => void;
@@ -17,20 +26,21 @@ interface Props {
   onBusy: (busy: boolean) => void;
 }
 
-/** What the lead agent did last: why, and the team before and after, for Undo. */
+/** What the lead agent did last: why, what changed, the team before and after (for Undo), its cost. */
 interface Done {
   reason: string;
+  changes: TeamChange[];
   before: Team;
-  after: Team;
-  changed: boolean;
+  after?: Team;
+  meta?: MessageMeta;
 }
 
 /**
  * The team drawer's "Ask the lead agent": the user says how the team should change, and the lead agent
- * changes the team in the drawer. Nothing is saved: the user reviews the team and saves it (or undoes
- * the change). Closing the drawer stops the lead agent.
+ * changes the team in the drawer. Nothing is saved: the user reviews the team (what changed is listed)
+ * and saves it, or undoes the change. Closing the drawer stops the lead agent.
  */
-export function TeamReviser({ convId, team, leadText, onChange, onBusy }: Props) {
+export function TeamReviser({ convId, team, base, blocked, leadText, onChange, onBusy }: Props) {
   const t = useT();
   const titleId = useId();
   const hintId = useId();
@@ -39,14 +49,19 @@ export function TeamReviser({ convId, team, leadText, onChange, onBusy }: Props)
   const [error, setError] = useState('');
   const [done, setDone] = useState<Done | null>(null);
   const abort = useRef<AbortController | null>(null);
-  /** The drawer's team now: it may change while the lead agent works (the drawer reloaded it). */
-  const latest = useRef(team);
-  latest.current = team;
+  /** The drawer now: its team and whether it can save it may change while the lead agent works. */
+  const latest = useRef({ team, blocked });
+  latest.current = { team, blocked };
   useEffect(() => () => abort.current?.abort(), []);
+  // The drawer loaded the team again: what the lead said was about the copy before.
+  useEffect(() => {
+    setDone(null);
+    setError('');
+  }, [base]);
 
   const ask = async () => {
     const request = text.trim();
-    if (!request || busy) return;
+    if (!request || busy || blocked) return;
     const sent = team;
     const ctrl = new AbortController();
     abort.current = ctrl;
@@ -55,18 +70,22 @@ export function TeamReviser({ convId, team, leadText, onChange, onBusy }: Props)
     setError('');
     setDone(null);
     try {
-      const revision = await api.reviseTeam(convId, { request, ...teamTurns(sent) }, ctrl.signal);
-      // The drawer loaded another team meanwhile: the change was made to the one before it.
-      if (!sameTeam(latest.current, sent)) {
+      const revision = await api.reviseTeam(convId, reviseRequest(request, sent), ctrl.signal);
+      const outcome = revisionOutcome({ sent, now: latest.current.team, blocked: latest.current.blocked, revision });
+      if (outcome.kind === 'stale') {
         setError(t.revise.changedMeanwhile);
         return;
       }
-      const after = revisedTeam(sent, revision);
-      const changed = !sameTeam(sent, after);
-      onChange(after);
-      setDone({ reason: revision.reason, before: sent, after, changed });
+      if (outcome.kind === 'changed') onChange(outcome.team);
+      setDone({
+        reason: revision.reason,
+        changes: outcome.kind === 'changed' ? outcome.changes : [],
+        before: sent,
+        after: outcome.kind === 'changed' ? outcome.team : undefined,
+        meta: revision.meta,
+      });
       // Kept when nothing changed, to say it another way.
-      if (changed) setText('');
+      if (outcome.kind === 'changed') setText('');
     } catch (e) {
       if (!ctrl.signal.aborted) setError((e as Error).message);
     } finally {
@@ -77,7 +96,7 @@ export function TeamReviser({ convId, team, leadText, onChange, onBusy }: Props)
   };
 
   // Undo only while the team is still as the lead agent left it: later edits are not thrown away.
-  const undoable = done?.changed && sameTeam(team, done.after);
+  const undoable = done?.after && sameTeam(team, done.after);
 
   return (
     <section className="team-reviser" aria-labelledby={titleId}>
@@ -88,6 +107,7 @@ export function TeamReviser({ convId, team, leadText, onChange, onBusy }: Props)
       <p className="muted small" id={hintId}>
         {t.revise.hint(leadText)}
       </p>
+      {/* Read-only, not disabled, while the lead agent works: the box keeps the focus. */}
       <textarea
         aria-labelledby={titleId}
         aria-describedby={hintId}
@@ -95,7 +115,8 @@ export function TeamReviser({ convId, team, leadText, onChange, onBusy }: Props)
         value={text}
         maxLength={REVISE_REQUEST_MAX}
         placeholder={t.revise.placeholder}
-        disabled={busy}
+        readOnly={busy}
+        aria-busy={busy}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
@@ -105,23 +126,23 @@ export function TeamReviser({ convId, team, leadText, onChange, onBusy }: Props)
         }}
       />
       <div className="team-reviser-actions">
-        {busy ? (
-          <>
-            <span className="muted small" role="status">
-              <span className="tool-icon spin" aria-hidden>
-                ◌
-              </span>{' '}
-              {t.revise.working(leadText)}
-            </span>
-            <button type="button" className="ghost small-button" onClick={() => abort.current?.abort()}>
-              {t.revise.stop}
-            </button>
-          </>
-        ) : (
-          <button type="button" className="primary small-button" disabled={!text.trim()} onClick={() => void ask()}>
-            {t.revise.submit}
-          </button>
+        {busy && (
+          <span className="muted small" role="status">
+            <span className="tool-icon spin" aria-hidden>
+              ◌
+            </span>{' '}
+            {t.revise.working(leadText)}
+          </span>
         )}
+        {/* One button for asking and stopping, so the focus stays on it. */}
+        <button
+          type="button"
+          className={`${busy ? 'ghost' : 'primary'} small-button`}
+          disabled={!busy && (!text.trim() || blocked)}
+          onClick={() => (busy ? abort.current?.abort() : void ask())}
+        >
+          {busy ? t.revise.stop : t.revise.submit}
+        </button>
       </div>
       {error && (
         <p className="error-line small" role="alert">
@@ -131,8 +152,18 @@ export function TeamReviser({ convId, team, leadText, onChange, onBusy }: Props)
       {done && (
         <div className="team-reviser-result" role="status">
           {done.reason && <p>{done.reason}</p>}
+          {done.changes.length > 0 && (
+            <div className="team-reviser-changes small">
+              <span>{t.revise.changesTitle}</span>
+              <ul>
+                {done.changes.map((c, i) => (
+                  <li key={i}>{teamChangeText(c, t)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <p className="small">
-            {done.changed ? t.revise.review : t.revise.unchanged}
+            {done.after ? t.revise.review : t.revise.unchanged}
             {undoable && (
               <>
                 {' '}
@@ -149,6 +180,7 @@ export function TeamReviser({ convId, team, leadText, onChange, onBusy }: Props)
               </>
             )}
           </p>
+          {hasMeta(done.meta) && <MetaText m={done.meta} />}
         </div>
       )}
     </section>

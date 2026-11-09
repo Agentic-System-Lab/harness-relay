@@ -580,7 +580,7 @@ export interface TeamRevision {
   settings: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops'>;
   /** What the lead changed and why, for the user. */
   reason: string;
-  lead: LeadAgentSettings;
+  /** How long the lead agent took, and what it cost. */
   meta?: MessageMeta;
 }
 

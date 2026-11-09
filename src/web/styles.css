@@ -5698,7 +5698,7 @@ a.share-action {
   --accent: var(--info);
 }
 
-/* What the lead agent changed, and Undo. */
+/* What the lead agent changed: its reason, each change, Undo, and what it took. */
 .team-reviser-result {
   display: flex;
   flex-direction: column;
@@ -5710,6 +5710,11 @@ a.share-action {
   line-height: 1.55;
 }
 
+.team-reviser-changes ul {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+
 /* The team editor holds still while the lead agent changes the team. */
 .team-fieldset {
   border: 0;
@@ -5718,11 +5723,8 @@ a.share-action {
   min-width: 0;
 }
 
-.team-fieldset:disabled {
-  opacity: 0.6;
-}
-
-/* Dimmed once, with the rest of the editor. */
-.team-fieldset:disabled button:disabled {
-  opacity: 1;
+/* Buttons dim by themselves when disabled (those disabled anyway look the same); fields and the role
+   boxes dim the same way. */
+.team-fieldset:disabled :is(input, textarea, select) {
+  opacity: 0.45;
 }

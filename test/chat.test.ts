@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentWorktree, ChatMessage, ConversationSettings, MessagePart } from '../src/shared/types';
+import type { AgentConfig, AgentWorktree, ChatMessage, ConversationSettings, MessagePart } from '../src/shared/types';
 import { ApiError, api, orCreateCwd } from '../src/web/api';
 import {
   activityCounts,
@@ -7,9 +7,11 @@ import {
   applyStates,
   draftStatus,
   enterSends,
+  reviseRequest,
   revisedTeam,
-  sameTeam,
+  revisionOutcome,
   segments,
+  teamChanges,
   teamToEdit,
   teamTurns,
   thoughtTail,
@@ -176,15 +178,61 @@ describe('the team drawer draft', () => {
 });
 
 describe("the lead agent's change in the team drawer", () => {
-  it('sends the members and how they take turns, and changes only those', () => {
-    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/work', approvals: 'deny' as const };
-    const draft = { agents: [{ id: 'a', name: 'Alice', provider: 'claude' as const, role: '' }], settings };
+  const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/work', approvals: 'deny' as const };
+  const alice: AgentConfig = { id: 'a', name: 'Alice', provider: 'claude', role: 'Lead.\n', model: '', effort: '', tools: { memory: false } };
+  const bob: AgentConfig = { id: 'b', name: 'Bob', provider: 'codex', role: 'Build.', model: 'gpt-5' };
+  const draft = { agents: [alice, bob], settings };
+  /** The team as the server sends it back: empty values dropped, roles as the lead copied them. */
+  const asServer = (a: AgentConfig): AgentConfig => ({ ...a, role: a.role.trim(), model: a.model || undefined, effort: a.effort || undefined });
+
+  it("sends the members, how they take turns, and the drawer's permission and folder", () => {
     expect(teamTurns(draft)).toEqual({ agents: draft.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 8 } });
-    const agents = [...draft.agents, { id: 'b', name: 'Bob', provider: 'codex' as const, role: 'Test.' }];
-    const next = revisedTeam(draft, { agents, settings: { mode: 'relay', rounds: 1, maxHops: 4 } });
-    expect(next).toEqual({ agents, settings: { ...settings, mode: 'relay', maxHops: 4 } });
-    // Nothing changed: the same team, so the drawer has nothing to undo or save.
-    expect(sameTeam(revisedTeam(draft, teamTurns(draft)), draft)).toBe(true);
+    expect(reviseRequest('add a tester', draft)).toEqual({
+      request: 'add a tester',
+      agents: draft.agents,
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: '/work' },
+    });
+  });
+
+  it('sees no change in a team that works the same (empty model, space around a role)', () => {
+    const back = { agents: draft.agents.map(asServer), settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8 } };
+    expect(teamChanges(draft, revisedTeam(draft, back))).toEqual([]);
+    // The drawer keeps its own members, so nothing looks edited afterwards.
+    expect(revisedTeam(draft, back).agents[0]).toBe(alice);
+    expect(revisionOutcome({ sent: draft, now: draft, blocked: false, revision: back })).toEqual({ kind: 'unchanged' });
+  });
+
+  it('lists every change: members added, removed, renamed, moved, with another role or model; order; mode and its count', () => {
+    const tester: AgentConfig = { id: 't', name: 'Tester', provider: 'grok', role: 'Test.' };
+    const after = revisedTeam(draft, {
+      agents: [{ ...asServer(bob), name: 'Builder', provider: 'claude', model: 'opus', role: 'Build it all.' }, tester],
+      settings: { mode: 'relay', rounds: 1, maxHops: 4 },
+    });
+    expect(teamChanges(draft, after)).toEqual([
+      { kind: 'renamed', from: 'Bob', name: 'Builder' },
+      { kind: 'cli', name: 'Builder', provider: 'claude' },
+      { kind: 'role', name: 'Builder' },
+      { kind: 'model', name: 'Builder' },
+      { kind: 'added', name: 'Tester', provider: 'grok' },
+      { kind: 'removed', name: 'Alice' },
+      { kind: 'mode', mode: 'relay' },
+      { kind: 'hops', maxHops: 4 },
+    ]);
+    const swapped = revisedTeam(draft, { agents: [bob, alice], settings: { mode: 'roundtable', rounds: 3, maxHops: 8 } });
+    expect(teamChanges(draft, swapped)).toEqual([{ kind: 'order' }, { kind: 'rounds', rounds: 3 }]);
+    // Only what is counted in the mode: hand-offs do not matter in roundtable.
+    expect(teamChanges(draft, revisedTeam(draft, { agents: draft.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 20 } }))).toEqual([]);
+  });
+
+  it("shows the lead's team only when the drawer still has the team it changed, and can save it", () => {
+    const revision = { agents: [alice, bob, { id: 't', name: 'Tester', provider: 'claude' as const, role: '' }], settings: draft.settings };
+    const changed = revisionOutcome({ sent: draft, now: draft, blocked: false, revision });
+    expect(changed).toMatchObject({ kind: 'changed', changes: [{ kind: 'added', name: 'Tester' }] });
+    expect(changed.kind === 'changed' && changed.team.settings).toEqual(settings);
+    // The drawer loaded another team meanwhile, or can no longer save its own.
+    const reloaded = { ...draft, agents: [bob] };
+    expect(revisionOutcome({ sent: draft, now: reloaded, blocked: false, revision })).toEqual({ kind: 'stale' });
+    expect(revisionOutcome({ sent: draft, now: draft, blocked: true, revision })).toEqual({ kind: 'stale' });
   });
 });
 

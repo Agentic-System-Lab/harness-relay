@@ -252,11 +252,12 @@ function ApprovalCard({
   );
 }
 
-function hasMeta(m?: MessageMeta): m is MessageMeta {
+export function hasMeta(m?: MessageMeta): m is MessageMeta {
   return Boolean(m && (m.durationMs || m.costUsd || m.outputTokens));
 }
 
-function MetaText({ m }: { m: MessageMeta }) {
+/** How long a reply (or the lead agent) took, what it cost, and its tokens. */
+export function MetaText({ m }: { m: MessageMeta }) {
   const t = useT();
   return (
     <span className="msg-meta">

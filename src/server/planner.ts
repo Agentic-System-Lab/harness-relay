@@ -7,6 +7,7 @@ import {
   type ConversationSettings,
   type LeadAgentSettings,
   type Mode,
+  type Permission,
   type Provider,
   type ProviderModels,
   type TeamPlan,
@@ -441,14 +442,35 @@ export interface TeamDraft {
 export interface ReviseConversation {
   /** What was said so far, as the lead reads it (`historyForLead`). */
   history?: string;
-  /** The team is the lead's design for the user's latest question, waiting for confirmation. */
-  pending?: boolean;
+  /**
+   * The team is the lead's design waiting for confirmation: for the user's latest question, or for
+   * the conversation's schedule (its message, which nobody posted).
+   */
+  pending?: 'question' | 'schedule';
   /** The conversation's schedule sends this message to the team at set times. */
   scheduleText?: string;
 }
 
 /** Most members a team may have (as in the team editor). */
 const MAX_TEAM = 8;
+
+const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
+
+/**
+ * The file permission and working directory as the team drawer has them (maybe changed, not saved
+ * yet), for the lead to read; anything missing or invalid is the conversation's own.
+ */
+export function draftPlace(
+  raw: unknown,
+  saved: Pick<ConversationSettings, 'permission' | 'cwd'>,
+): Pick<ConversationSettings, 'permission' | 'cwd'> {
+  const s = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const cwd = typeof s.cwd === 'string' ? s.cwd.trim().slice(0, 4096) : '';
+  return {
+    permission: PERMISSIONS.includes(s.permission as Permission) ? (s.permission as Permission) : saved.permission,
+    cwd: cwd || saved.cwd,
+  };
+}
 
 /** How a team takes turns, from what was sent; anything missing or invalid is taken from `fallback`. */
 export function teamSettings(raw: unknown, fallback: TeamDraft['settings']): TeamDraft['settings'] {
@@ -469,9 +491,12 @@ export function buildRevisePrompt(
 ): string {
   const history = conv.history?.trim();
   const scheduled = conv.scheduleText?.trim();
-  const opening = conv.pending
-    ? "The user is reviewing the team you designed for their latest question, which it has not answered yet, and asks you to change it. Once the user saves the team, it answers that question."
-    : 'The user is editing the team of this conversation and asks you to change it. The changed team answers from the next turn on.';
+  const opening =
+    conv.pending === 'schedule'
+      ? "The user is reviewing the team you designed for the conversation's schedule, and asks you to change it. Once the user saves the team, it answers the schedule's message each time the schedule sends it."
+      : conv.pending === 'question'
+        ? "The user is reviewing the team you designed for their latest question, which it has not answered yet, and asks you to change it. Once the user saves the team, it answers that question."
+        : 'The user is editing the team of this conversation and asks you to change it. The changed team answers from the next turn on.';
   return `${opening} Change the team the way the user asks, and keep everything else as it is. The user reviews your team before it is used.
 ${
   history
@@ -518,7 +543,7 @@ ${JSON.stringify(ctx.presets.map(templateForLead), null, 2)}
 
 How to change the team:
 - Change only what the user asks for, and what that change needs (for example, roles that hand off to a member who was renamed or removed). Copy every other member exactly as it is.
-- A member who stays keeps its name and coding agent: then it keeps what it learned in this conversation. Renaming a member or moving it to another coding agent starts it afresh, so do that only when the user asks for it.
+- A member who stays keeps its name and coding agent: then it keeps what it learned in this conversation. Rename a member or move it to another coding agent only when the user asks for it, and then give its current name as "was", so it stays the same member with its settings (moved to another coding agent, it reads this conversation afresh).
 - Write a new or rewritten role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. At most ${MAX_TEAM} members.
 - "model" and "effort": for a member who stays, leave them out to keep what it has, or give "" for its coding agent's default. For a new member, leave them out unless the work clearly needs a stronger or faster model than the default.
@@ -527,15 +552,19 @@ How to change the team:
 Write the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools unless the change depends on the files in the working directory.
 
 Reply with only this JSON object, in a \`\`\`json code block, with the whole team (every member, in speaking order):
-{"mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}], "reason": "<what you changed and why: one or two sentences for the user>"}`;
+{"mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>", "was": "<its current name: only for a member you renamed or moved to another coding agent>"}], "reason": "<what you changed and why: one or two sentences for the user>"}`;
 }
 
 /**
- * Turn the lead's revised team into one that can run. Members who stay (same name, ignoring case, and
- * same CLI) keep what the lead does not see — their id (and with it their CLI session) and their tools
- * — and the model and effort the lead left out. A changed model or effort, and every new member, is
- * fitted to the CLIs here (`fitAgents`); a member who stays keeps its CLI even when that one is signed
- * out, since the user chose it. Throws (with a user-readable message) when the team is unusable.
+ * Turn the lead's revised team into one that can run. A member stays the same member when the lead
+ * names it as "was" (renamed, or moved to another CLI), or keeps its name (ignoring case) and CLI. It
+ * then keeps what the lead does not see — its id (and with it its CLI session, which starts afresh on
+ * another CLI) and its tools — and the role, model and effort the lead left out (a model or effort of
+ * its old CLI does not carry over to another one). A role the lead copied, trimmed, stays as the user
+ * wrote it. A changed model or effort, and every new or moved member, is fitted to the CLIs here
+ * (`fitAgents`); a member who stays on its CLI keeps it even when that one is signed out, since the
+ * user chose it. A reply without members (the lead declined, saying why) keeps the members as they
+ * are. Throws (with a user-readable message) when the team is unusable.
  */
 export function decideRevision(
   raw: Record<string, any>,
@@ -543,30 +572,40 @@ export function decideRevision(
   ctx: PlannerContext,
   lead: LeadAgentSettings,
 ): TeamDraft & { reason: string } {
-  const taken = new Map<string, AgentConfig>(); // id → the draft member who stays
-  const members = (Array.isArray(raw.agents) ? raw.agents.slice(0, MAX_TEAM) : []).map((a: any) => {
+  const reason = String(raw.reason ?? '').trim().slice(0, 800);
+  const settings = teamSettings(raw, draft.settings);
+  if (!Array.isArray(raw.agents) || raw.agents.length === 0) return { agents: draft.agents, settings, reason };
+  const taken = new Map<string, AgentConfig>(); // id → the draft member it is
+  const free = (d: AgentConfig) => !taken.has(d.id);
+  const handle = (v: unknown) => String(v ?? '').trim().replace(/^@/, '').replace(/\s+/g, '_');
+  const members = raw.agents.slice(0, MAX_TEAM).map((a: unknown) => {
     const m = a && typeof a === 'object' ? (a as Record<string, unknown>) : {};
-    const name = String(m.name ?? '').trim().replace(/^@/, '').replace(/\s+/g, '_');
+    const name = handle(m.name);
     const provider = String(m.provider ?? '').toLowerCase();
-    const same = draft.agents.find((d) => !taken.has(d.id) && d.provider === provider && d.name.toLowerCase() === name.toLowerCase());
+    const was = handle(m.was).toLowerCase();
+    const same =
+      (was ? draft.agents.find((d) => free(d) && d.name.toLowerCase() === was) : undefined) ??
+      draft.agents.find((d) => free(d) && d.provider === provider && d.name.toLowerCase() === name.toLowerCase());
     if (same) taken.set(same.id, same);
-    // Left out: as it was (a member who stays), or the CLI's default (a new one); "" is the default.
-    const kept = (key: 'model' | 'effort' | 'role') => (key in m ? String(m[key] ?? '') : (same?.[key] ?? ''));
+    const sameCli = same?.provider === provider;
+    // Left out: as it was on the same CLI; otherwise (a new member, another CLI) the default. "" is the default.
+    const kept = (key: 'model' | 'effort') => (key in m ? String(m[key] ?? '') : sameCli ? (same?.[key] ?? '') : '');
+    const role = 'role' in m ? String(m.role ?? '') : (same?.role ?? '');
     return {
       ...(same ? { id: same.id, ...(same.tools ? { tools: same.tools } : {}) } : {}),
       name,
       provider,
-      role: kept('role'),
+      role: same && role.trim() === same.role.trim() ? same.role : role,
       model: kept('model'),
       effort: kept('effort').toLowerCase(),
     };
   });
   const agents = validateAgents(members).map((a) => {
     const same = taken.get(a.id);
-    if (!same) return fitAgents([a], ctx, lead)[0]!;
+    if (!same || same.provider !== a.provider) return { ...fitAgents([a], ctx, lead)[0]!, id: a.id };
     if ((a.model || undefined) === (same.model || undefined) && (a.effort || undefined) === (same.effort || undefined)) return a;
     // Its CLI stays (no remapping); only a model or effort that CLI does not offer is dropped.
     return { ...fitAgents([a], { ...ctx, available: [] }, lead)[0]!, id: a.id };
   });
-  return { agents, settings: teamSettings(raw, draft.settings), reason: String(raw.reason ?? '').trim().slice(0, 800) };
+  return { agents, settings, reason };
 }

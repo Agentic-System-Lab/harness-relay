@@ -20,6 +20,7 @@ const { AgentsViewSync } = await import('../src/server/agentsview');
 const { expandPath } = await import('../src/server/validate');
 const { attachmentsDir } = await import('../src/server/attachments');
 const { readZip } = await import('./zipReader');
+const { REVISER_BRIEFING } = await import('../src/server/planner');
 const { ShareError } = await import('../src/server/share');
 
 let app: ReturnType<typeof createApp>;
@@ -648,6 +649,53 @@ describe('a team design waiting for confirmation', () => {
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
   });
 
+  it("is changed by the lead agent at the user's request, then saved: the changed team answers", async () => {
+    const conv = await waiting();
+    const live = store.get(conv.id)!;
+    const before = runners.claude;
+    const briefings: string[] = [];
+    runners.claude = {
+      provider: 'claude',
+      async run(o) {
+        if (o.systemPrompt === REVISER_BRIEFING) {
+          const team = { agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Tester', provider: 'claude', role: 'Test it.' }], reason: 'Added a tester.' };
+          o.onEvent({ type: 'text', text: JSON.stringify(team) });
+          return {};
+        }
+        briefings.push(o.systemPrompt);
+        if (!o.signal?.aborted) await new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }));
+        throw new AgentRunError('stopped', true);
+      },
+    };
+    try {
+      const plan = live.messages[1]!.plan!;
+      const res = await app.request(
+        `/api/conversations/${conv.id}/revise-team`,
+        json('POST', { request: 'add a tester', agents: plan.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 8 } }),
+      );
+      const revised = (await res.json()) as TeamRevision;
+      // Nothing changes until it is saved: the design still waits.
+      expect(live.messages[1]!.plan!.awaitingConfirmation).toBe(true);
+      expect(live.agents.map((a) => a.name)).toEqual(['Alice']);
+
+      const saved = await app.request(`/api/conversations/${conv.id}`, json('PATCH', { agents: revised.agents }));
+      expect(saved.status).toBe(200);
+      expect(live.messages[1]!.plan!.awaitingConfirmation).toBeUndefined();
+      expect(live.agents.map((a) => [a.id, a.name])).toEqual([
+        [conv.agents[0]!.id, 'Alice'],
+        [revised.agents[1]!.id, 'Tester'],
+      ]);
+      // The changed team answers the question its design was for.
+      await vi.waitFor(() => expect(briefings).toHaveLength(1));
+      expect(briefings[0]).toContain('You are @Alice');
+      expect(briefings[0]).toContain('@Tester');
+    } finally {
+      orchestrator.stop(conv.id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+      runners.claude = before;
+    }
+  });
+
   it('keeps auto team on when the team or settings are changed by hand, and saves whether to ask', async () => {
     const res = await app.request(
       '/api/conversations',
@@ -714,6 +762,19 @@ describe('POST /api/conversations/:id/revise-team', () => {
     const empty = await revise(conv.id, { request: ' ', agents: conv.agents, settings: conv.settings });
     expect(empty.status).toBe(400);
     expect(((await empty.json()) as { error: string }).error).toBe('Say how the team should change first');
+  });
+
+  it("refuses to change the CLIs' own folder while the lead agent changes a team", async () => {
+    // The fake CLI waits until it is stopped.
+    const conv = await createConversation({ permission: 'read-only' });
+    const closed = new AbortController();
+    const res = revise(conv.id, { request: 'more', agents: conv.agents, settings: conv.settings }, { signal: closed.signal });
+    await vi.waitFor(() => expect(orchestrator.anyRunning()).toBe(true));
+    const busy = await app.request('/api/settings', json('PUT', { agentHome: join(project, 'agents') }, { 'x-relay-lang': 'en' }));
+    expect(busy.status).toBe(409);
+    expect(((await busy.json()) as { error: string }).error).toContain('changing a team');
+    closed.abort();
+    expect((await res).status).toBe(409);
   });
 
   it('stops the lead agent when the request is closed', async () => {

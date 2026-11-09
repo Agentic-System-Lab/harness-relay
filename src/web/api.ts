@@ -1,4 +1,5 @@
 import { CWD_MISSING } from '../shared/types';
+import type { ReviseRequest } from './chat';
 import type {
   AgentConfig,
   ApprovalAnswer,
@@ -166,7 +167,7 @@ export const api = {
   savePlan: (id: string, messageId: string, name?: string) =>
     request<TeamPreset>('POST', `/api/conversations/${id}/messages/${messageId}/save-plan`, { name }),
   /** Ask the lead agent to change the team being edited (nothing is saved); aborting `signal` stops it. */
-  reviseTeam: (id: string, b: { request: string } & Pick<TeamRevision, 'agents' | 'settings'>, signal?: AbortSignal) =>
+  reviseTeam: (id: string, b: ReviseRequest, signal?: AbortSignal) =>
     request<TeamRevision>('POST', `/api/conversations/${id}/revise-team`, b, signal),
   stop: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/stop`),
   /** Put the conversation's shared page (made by sharePage.tsx) on the web as a secret gist; `upTo`: the reply it ends with. */

@@ -851,7 +851,17 @@ function TeamDrawer({
           </p>
         )}
         {/* Before the lead agent has designed a team there are no members to change. */}
-        {members && <TeamReviser convId={conv.id} team={team} leadText={leadText} onChange={setTeam} onBusy={setRevising} />}
+        {members && (
+          <TeamReviser
+            convId={conv.id}
+            team={team}
+            base={base}
+            blocked={status === 'conflict'}
+            leadText={leadText}
+            onChange={setTeam}
+            onBusy={setRevising}
+          />
+        )}
         {/* While the lead agent changes the team, it holds still. */}
         <fieldset className="team-fieldset" disabled={revising}>
           <TeamEditor

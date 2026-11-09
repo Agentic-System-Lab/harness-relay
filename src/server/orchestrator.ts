@@ -33,6 +33,7 @@ import {
   buildRevisePrompt,
   decidePlan,
   decideRevision,
+  draftPlace,
   fallbackPlan,
   historyForLead,
   keepMemberIds,
@@ -297,8 +298,11 @@ export class Orchestrator {
   private approvals = new Map<string, { convId: string; resolve: (a: ApprovalAnswer & { expired?: boolean }) => void }>();
   /** Sorts new conversations into the user's sidebar groups. */
   private grouper: AutoGrouper;
-  /** The lead agent changing a team at the user's request (team drawer), by conversation: one at a time each. */
-  private revisions = new Map<string, { abort: AbortController; done: Promise<TeamRevision> }>();
+  /**
+   * The lead agent changing a team at the user's request (team drawer), by conversation: the latest
+   * request, and any it replaced whose lead process has not ended yet. Only the latest one answers.
+   */
+  private revisions = new Map<string, Set<{ abort: AbortController; done: Promise<unknown> }>>();
 
   constructor(
     private store: Store,
@@ -383,11 +387,10 @@ export class Orchestrator {
         await run.done;
       }
       await this.grouper.cancel(convId);
-      const revision = this.revisions.get(convId);
-      if (revision) {
-        revision.abort.abort();
-        await revision.done.catch(() => undefined);
-      }
+      // Stop every one first, then wait: one slow to end must not keep the others going.
+      const revisions = [...(this.revisions.get(convId) ?? [])];
+      for (const r of revisions) r.abort.abort();
+      await Promise.all(revisions.map((r) => r.done.catch(() => undefined)));
       const conv = this.store.get(convId);
       if (conv) await this.cleanupWorktrees(conv);
       // A schedule that opened it no longer links to it.
@@ -405,7 +408,7 @@ export class Orchestrator {
   async settled(ms: number): Promise<void> {
     const all = Promise.allSettled([
       ...[...this.runs.values()].map((r) => r.done),
-      ...[...this.revisions.values()].map((r) => r.done),
+      ...[...this.revisions.values()].flatMap((set) => [...set].map((r) => r.done)),
       this.grouper.settled(),
     ]);
     await Promise.race([all, new Promise((r) => setTimeout(r, ms).unref())]);
@@ -963,7 +966,7 @@ export class Orchestrator {
   stopAll(): void {
     this.closing = true;
     for (const r of this.runs.values()) r.abort.abort();
-    for (const r of this.revisions.values()) r.abort.abort();
+    for (const set of this.revisions.values()) for (const r of set) r.abort.abort();
     this.grouper.stopAll();
   }
 
@@ -1307,7 +1310,8 @@ export class Orchestrator {
    * waiting for confirmation, maybe edited by hand already). The lead returns the whole team with that
    * change; nothing changes in the conversation, since the drawer shows the team until the user saves
    * it. A new request for the conversation stops one still running; so does `signal` (the drawer was
-   * closed, or the user stopped it).
+   * closed, or the user stopped it). A stopped one is still waited for (on delete and shutdown) until
+   * its lead process has ended.
    */
   async reviseTeam(convId: string, input: { request?: unknown; agents?: unknown; settings?: unknown }, signal?: AbortSignal): Promise<TeamRevision> {
     const conv = this.store.get(convId);
@@ -1317,26 +1321,43 @@ export class Orchestrator {
     if (!request) throw new HttpError(400, t().reviseEmpty);
     if (request.length > REVISE_REQUEST_MAX) throw new HttpError(400, t().reviseTooLong(REVISE_REQUEST_MAX));
     const draft: TeamDraft = { agents: validateAgents(input.agents), settings: teamSettings(input.settings, conv.settings) };
+    // What the drawer says (maybe not saved yet), for the lead to read; it works in the saved folder.
+    const place = draftPlace(input.settings, conv.settings);
 
-    this.revisions.get(convId)?.abort.abort();
+    const running = this.revisions.get(convId) ?? new Set();
+    for (const r of running) r.abort.abort();
     const abort = new AbortController();
     const stop = () => abort.abort();
     if (signal?.aborted) abort.abort();
     signal?.addEventListener('abort', stop, { once: true });
-    const entry = { abort, done: this.runRevision(conv, request, draft, abort.signal) };
-    this.revisions.set(convId, entry);
+    const done = this.runRevision(conv, request, draft, place, abort.signal);
+    const entry = { abort, done };
+    running.add(entry);
+    this.revisions.set(convId, running);
+    void done
+      .catch(() => undefined)
+      .finally(() => {
+        running.delete(entry);
+        if (!running.size && this.revisions.get(convId) === running) this.revisions.delete(convId);
+      });
     try {
-      return await entry.done;
+      return await done;
     } finally {
       signal?.removeEventListener('abort', stop);
-      if (this.revisions.get(convId) === entry) this.revisions.delete(convId);
     }
   }
 
-  private async runRevision(conv: Conversation, request: string, draft: TeamDraft, signal: AbortSignal): Promise<TeamRevision> {
+  private async runRevision(
+    conv: Conversation,
+    request: string,
+    draft: TeamDraft,
+    place: Pick<Conversation['settings'], 'permission' | 'cwd'>,
+    signal: AbortSignal,
+  ): Promise<TeamRevision> {
     const lead = this.settings.lead;
     const started = Date.now();
     const stopped = () => new HttpError(409, t().reviseStopped);
+    const waiting = pendingPlan(conv.messages)?.plan;
     let reply = '';
     let result: RunResult;
     let ctx: PlannerContext;
@@ -1348,9 +1369,9 @@ export class Orchestrator {
         env: this.settings.env(lead.provider),
         nativeOff: this.settings.nativeOff(lead.provider),
         nativeItems: this.settings.nativeItems(lead.provider),
-        prompt: buildRevisePrompt(request, draft, conv.settings, ctx, {
+        prompt: buildRevisePrompt(request, draft, place, ctx, {
           history: historyForLead(conv.messages),
-          pending: Boolean(pendingPlan(conv.messages)),
+          pending: waiting ? (waiting.forSchedule ? 'schedule' : 'question') : undefined,
           scheduleText: conv.schedule?.enabled ? conv.schedule.text : undefined,
         }),
         systemPrompt: REVISER_BRIEFING,
@@ -1376,7 +1397,6 @@ export class Orchestrator {
       const revised = decideRevision(parsePlanReply(reply), draft, ctx, lead);
       return {
         ...revised,
-        lead,
         meta: { durationMs: Date.now() - started, costUsd: result.costUsd, inputTokens: result.inputTokens, outputTokens: result.outputTokens },
       };
     } catch (err) {

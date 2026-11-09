@@ -6,6 +6,7 @@ import {
   buildRevisePrompt,
   decidePlan,
   decideRevision,
+  draftPlace,
   fallbackPlan,
   fitAgents,
   historyForLead,
@@ -316,7 +317,7 @@ describe('changing a team at the user\'s request', () => {
   });
 
   it("tells the lead when the team is its design waiting for confirmation, and about the schedule's message", () => {
-    const prompt = buildRevisePrompt('Use relay', draft, where, ctx, { pending: true, scheduleText: '@Alice check the build' });
+    const prompt = buildRevisePrompt('Use relay', draft, where, ctx, { pending: 'question', scheduleText: '@Alice check the build' });
     expect(prompt).toContain('reviewing the team you designed for their latest question');
     expect(prompt).toContain('<scheduled_message>\n@Alice check the build\n</scheduled_message>');
     expect(prompt).toContain('keep the members it @mentions under those names');
@@ -380,7 +381,6 @@ describe('changing a team at the user\'s request', () => {
   });
 
   it('rejects a team that cannot run', () => {
-    expect(() => decideRevision({ agents: [] }, draft, ctx, lead)).toThrow();
     expect(() => decideRevision({ agents: [{ name: 'A', provider: 'claude' }, { name: 'a', provider: 'codex' }] }, draft, ctx, lead)).toThrow();
     expect(() => decideRevision({ agents: [{ name: 'A!', provider: 'claude' }] }, draft, ctx, lead)).toThrow();
   });
@@ -389,5 +389,78 @@ describe('changing a team at the user\'s request', () => {
     const was = { mode: 'parallel' as const, rounds: 3, maxHops: 7 };
     expect(teamSettings(undefined, was)).toEqual(was);
     expect(teamSettings({ mode: 'chaos', rounds: 99, maxHops: '4' }, was)).toEqual({ mode: 'parallel', rounds: 5, maxHops: 4 });
+  });
+
+  it("tells the lead a design for the schedule answers the schedule's message, not a question", () => {
+    const prompt = buildRevisePrompt('Add a tester', draft, where, ctx, { pending: 'schedule', scheduleText: 'check the build' });
+    expect(prompt).toContain("reviewing the team you designed for the conversation's schedule");
+    expect(prompt).toContain("answers the schedule's message each time the schedule sends it");
+    expect(prompt).not.toContain('latest question');
+  });
+
+  it('asks the lead to say which member it renamed or moved', () => {
+    const prompt = buildRevisePrompt('Rename Gus', draft, where, ctx);
+    expect(prompt).toContain('give its current name as "was"');
+    expect(prompt).toContain('"was": "<its current name: only for a member you renamed or moved to another coding agent>"');
+  });
+
+  it('keeps a member renamed or moved by the lead the same member, with its tools', () => {
+    const r = decideRevision(
+      {
+        agents: [
+          // Renamed (same CLI): id, tools, model and role kept.
+          { name: 'Researcher', provider: 'claude', was: '@alice' },
+          // Moved to codex: id kept; grok's effort does not carry over.
+          { name: 'Gus', provider: 'codex', role: 'Doubt it.', was: 'Gus' },
+        ],
+      },
+      draft,
+      ctx,
+      lead,
+    );
+    expect(r.agents[0]).toEqual({ id: 'a1', name: 'Researcher', provider: 'claude', role: 'Research it.', model: 'opus', effort: undefined, tools: { memory: false } });
+    expect(r.agents[1]).toMatchObject({ id: 'g1', name: 'Gus', provider: 'codex', effort: undefined });
+    // "was" naming nobody, or a member already taken: a new member.
+    const odd = decideRevision(
+      { agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Twin', provider: 'claude', was: 'Alice' }, { name: 'X', provider: 'claude', was: 'Nobody' }] },
+      draft,
+      ctx,
+      lead,
+    );
+    expect(odd.agents.map((a) => a.id).slice(0, 1)).toEqual(['a1']);
+    expect(odd.agents.slice(1).map((a) => a.id)).not.toContain('a1');
+    expect(odd.agents.slice(1).map((a) => a.id)).not.toContain('g1');
+  });
+
+  it('keeps a role the lead copied without its surrounding space as the user wrote it', () => {
+    const spaced: TeamDraft = { ...draft, agents: [{ ...draft.agents[0]!, role: '  Research it.\n' }, draft.agents[1]!] };
+    const r = decideRevision({ agents: [{ name: 'Alice', provider: 'claude', role: 'Research it.' }, { name: 'Gus', provider: 'grok' }] }, spaced, ctx, lead);
+    expect(r.agents[0]!.role).toBe('  Research it.\n');
+    expect(r.agents[1]!.role).toBe('Doubt it.');
+  });
+
+  it('keeps the members when the lead declines and only says why (how they take turns may still change)', () => {
+    expect(decideRevision({ reason: 'I cannot change the permission.' }, draft, ctx, lead)).toEqual({
+      agents: draft.agents,
+      settings: draft.settings,
+      reason: 'I cannot change the permission.',
+    });
+    expect(decideRevision({ agents: [], mode: 'relay', reason: 'Relay.' }, draft, ctx, lead).settings.mode).toBe('relay');
+  });
+
+  it('refuses the same member twice, and cuts a team longer than 8', () => {
+    expect(() => decideRevision({ agents: [{ name: 'Alice', provider: 'claude' }, { name: 'alice', provider: 'claude' }] }, draft, ctx, lead)).toThrow();
+    const many = Array.from({ length: 11 }, (_, i) => ({ name: `M${i}`, provider: 'claude', role: '' }));
+    expect(decideRevision({ agents: many }, draft, ctx, lead).agents.map((a) => a.name)).toEqual(many.slice(0, 8).map((m) => m.name));
+  });
+
+  it("reads the drawer's permission and folder for the lead, or the conversation's", () => {
+    const saved = { permission: 'read-only' as const, cwd: '/saved' };
+    expect(draftPlace({ permission: 'full', cwd: ' /draft ' }, saved)).toEqual({ permission: 'full', cwd: '/draft' });
+    expect(draftPlace({ permission: 'root', cwd: '   ' }, saved)).toEqual(saved);
+    expect(draftPlace(undefined, saved)).toEqual(saved);
+    expect(buildRevisePrompt('x', draft, draftPlace({ permission: 'full', cwd: '/draft' }, saved), ctx)).toContain(
+      'The file permission "full" and the working directory /draft',
+    );
   });
 });

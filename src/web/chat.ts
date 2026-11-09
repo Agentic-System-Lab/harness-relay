@@ -1,4 +1,15 @@
-import type { AgentWorktree, ChatMessage, Conversation, MessagePart, PlanEntry, TeamPlan, TeamRevision } from '../shared/types';
+import type {
+  AgentConfig,
+  AgentWorktree,
+  ChatMessage,
+  Conversation,
+  MessagePart,
+  Mode,
+  PlanEntry,
+  Provider,
+  TeamPlan,
+  TeamRevision,
+} from '../shared/types';
 import { ApiError } from './api';
 import type { ApplyState } from './components/ChangesCard';
 import type { Team } from './components/TeamEditor';
@@ -79,12 +90,100 @@ export function teamTurns(team: Team): Pick<TeamRevision, 'agents' | 'settings'>
   return { agents: team.agents, settings: { mode, rounds, maxHops } };
 }
 
+/** What the drawer sends the lead agent: the request, the members, how they take turns, and (for the lead to read) the permission and folder the drawer has, saved or not. */
+export function reviseRequest(request: string, team: Team): ReviseRequest {
+  const { agents, settings } = teamTurns(team);
+  return { request, agents, settings: { ...settings, permission: team.settings.permission, cwd: team.settings.cwd } };
+}
+
+export type ReviseRequest = { request: string; agents: AgentConfig[]; settings: TeamRevision['settings'] & Pick<Team['settings'], 'permission' | 'cwd'> };
+
+/** A member as it works: an empty model or effort is the default, and space around a role means nothing. */
+function working(a: AgentConfig) {
+  return { name: a.name, provider: a.provider, role: a.role.trim(), model: a.model || undefined, effort: a.effort || undefined };
+}
+
+/** What changed in a team, member by member (by id), then in how they take turns. */
+export type TeamChange =
+  | { kind: 'added'; name: string; provider: Provider }
+  | { kind: 'removed'; name: string }
+  | { kind: 'renamed'; from: string; name: string }
+  | { kind: 'cli'; name: string; provider: Provider }
+  | { kind: 'role'; name: string }
+  | { kind: 'model'; name: string }
+  | { kind: 'order' }
+  | { kind: 'mode'; mode: Mode }
+  | { kind: 'rounds'; rounds: number }
+  | { kind: 'hops'; maxHops: number };
+
+/**
+ * What changed from `before` to `after`, as the user should check it: members added, removed,
+ * renamed, moved to another CLI, with another role, model or effort; the speaking order; and the mode
+ * and its rounds or hand-offs. Empty when the team works the same (an empty model and none are the
+ * same, and so are roles that differ only in surrounding space).
+ */
+export function teamChanges(before: Team, after: Team): TeamChange[] {
+  const out: TeamChange[] = [];
+  const was = new Map(before.agents.map((a) => [a.id, a]));
+  const now = new Set(after.agents.map((a) => a.id));
+  for (const a of after.agents) {
+    const b = was.get(a.id);
+    if (!b) {
+      out.push({ kind: 'added', name: a.name, provider: a.provider });
+      continue;
+    }
+    const x = working(b);
+    const y = working(a);
+    if (x.name !== y.name) out.push({ kind: 'renamed', from: x.name, name: y.name });
+    if (x.provider !== y.provider) out.push({ kind: 'cli', name: y.name, provider: y.provider });
+    if (x.role !== y.role) out.push({ kind: 'role', name: y.name });
+    if (x.model !== y.model || x.effort !== y.effort) out.push({ kind: 'model', name: y.name });
+  }
+  for (const b of before.agents) if (!now.has(b.id)) out.push({ kind: 'removed', name: b.name });
+  const order = (team: Team, keep: (id: string) => boolean) => team.agents.map((a) => a.id).filter(keep).join('\n');
+  if (order(before, (id) => now.has(id)) !== order(after, (id) => was.has(id))) out.push({ kind: 'order' });
+  const s = before.settings;
+  const t = after.settings;
+  if (s.mode !== t.mode) out.push({ kind: 'mode', mode: t.mode });
+  if (t.mode === 'relay' ? s.maxHops !== t.maxHops : s.rounds !== t.rounds) {
+    out.push(t.mode === 'relay' ? { kind: 'hops', maxHops: t.maxHops } : { kind: 'rounds', rounds: t.rounds });
+  }
+  return out;
+}
+
 /**
  * The drawer's team as the lead agent changed it: its members and how they take turns; everything else
- * (working directory, permission, approvals, auto team) stays as it was in the drawer.
+ * (working directory, permission, approvals, auto team) stays as it was in the drawer, and so does each
+ * member the lead left as it works (as the drawer had it, not as the server spells it).
  */
 export function revisedTeam(draft: Team, revision: Pick<TeamRevision, 'agents' | 'settings'>): Team {
-  return { agents: revision.agents, settings: { ...draft.settings, ...revision.settings } };
+  const was = new Map(draft.agents.map((a) => [a.id, a]));
+  const agents = revision.agents.map((a) => {
+    const b = was.get(a.id);
+    return b && JSON.stringify(working(a)) === JSON.stringify(working(b)) && canonical(a.tools ?? {}) === canonical(b.tools ?? {}) ? b : a;
+  });
+  return { agents, settings: { ...draft.settings, ...revision.settings } };
+}
+
+/**
+ * What the drawer does with the lead agent's answer. `sent`: the drawer's team when it asked; `now`:
+ * its team now; `blocked`: the drawer cannot save its team (the team changed underneath, see
+ * `draftStatus`). Stale when the drawer's team is no longer the one the lead changed, or could not be
+ * saved anyway; unchanged when the lead's team works the same; otherwise the team to show, and what
+ * changed in it.
+ */
+export type RevisionOutcome = { kind: 'stale' } | { kind: 'unchanged' } | { kind: 'changed'; team: Team; changes: TeamChange[] };
+
+export function revisionOutcome(o: {
+  sent: Team;
+  now: Team;
+  blocked: boolean;
+  revision: Pick<TeamRevision, 'agents' | 'settings'>;
+}): RevisionOutcome {
+  if (o.blocked || !sameTeam(o.now, o.sent)) return { kind: 'stale' };
+  const team = revisedTeam(o.sent, o.revision);
+  const changes = teamChanges(o.sent, team);
+  return changes.length ? { kind: 'changed', team, changes } : { kind: 'unchanged' };
 }
 
 /** A phone or tablet: touch is the main input and nothing hovers (like `@media (hover: none)` in styles.css). */
