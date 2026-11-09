@@ -130,6 +130,17 @@ export function RetryIcon({ size }: { size?: number }) {
   );
 }
 
+/** A box with an arrow out of it: share. */
+export function ShareIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M12 15V3" />
+      <path d="m8 7 4-4 4 4" />
+      <path d="M8 11H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-2" />
+    </Svg>
+  );
+}
+
 export function CheckIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>

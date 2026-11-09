@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SETTINGS_SECTIONS, currentSection, hashFor, readingLine, routeFromHash, sectionId, settingsHref } from '../src/web/route';
+import { SETTINGS_SECTIONS, currentSection, hashFor, readingLine, revealLink, routeFromHash, sectionId, settingsHref } from '../src/web/route';
 
 describe('client routes', () => {
   it('reads the hash', () => {
@@ -23,7 +23,7 @@ describe('client routes', () => {
   });
 
   it('has a settings section for every CLI', () => {
-    expect(SETTINGS_SECTIONS).toEqual(['language', 'claude', 'codex', 'grok', 'lead', 'tools', 'voice', 'cwd', 'sessions', 'tour']);
+    expect(SETTINGS_SECTIONS).toEqual(['language', 'claude', 'codex', 'grok', 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'tour']);
   });
 });
 
@@ -49,5 +49,27 @@ describe('the settings card being read', () => {
     expect(readingLine({ ...view, scrollTop: 2100 })).toBe(900); // the end: the bottom of the view
     // A page that does not scroll keeps the line under the links.
     expect(readingLine({ ...view, scrollHeight: 900, scrollTop: 0 })).toBe(84);
+  });
+});
+
+describe('the settings links following the card being read', () => {
+  // A row 976px wide holding 980px of links: they all but fit (a wide window).
+  const nearlyFits = { scrollLeft: 0, clientWidth: 976, scrollWidth: 980 };
+
+  it('stays still while the highlighted link shows', () => {
+    expect(revealLink(nearlyFits, { left: 12, width: 90 })).toBeUndefined();
+    expect(revealLink(nearlyFits, { left: 880, width: 88 })).toBeUndefined(); // the last link, ending at 968
+    expect(revealLink({ scrollLeft: 100, clientWidth: 400, scrollWidth: 980 }, { left: 200, width: 80 })).toBeUndefined();
+  });
+
+  it('scrolls just far enough to show a link that is cut off, clear of the faded end', () => {
+    const row = { scrollLeft: 0, clientWidth: 400, scrollWidth: 980 };
+    expect(revealLink(row, { left: 380, width: 80 })).toBe(380 + 80 + 12 - 400);
+    expect(revealLink({ ...row, scrollLeft: 300 }, { left: 200, width: 80 })).toBe(200 - 12);
+  });
+
+  it('never scrolls past either end', () => {
+    expect(revealLink({ scrollLeft: 100, clientWidth: 400, scrollWidth: 980 }, { left: 6, width: 80 })).toBe(0);
+    expect(revealLink({ scrollLeft: 0, clientWidth: 400, scrollWidth: 980 }, { left: 900, width: 80 })).toBe(580);
   });
 });

@@ -24,6 +24,7 @@ import type {
   SearchResult,
   SettingsUpdate,
   SettingsView,
+  SharedPage,
   SkillCandidate,
   TeamPreset,
   ToolLibraryUpdate,
@@ -163,6 +164,12 @@ export const api = {
   savePlan: (id: string, messageId: string, name?: string) =>
     request<TeamPreset>('POST', `/api/conversations/${id}/messages/${messageId}/save-plan`, { name }),
   stop: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/stop`),
+  /** Put the conversation's shared page (made by sharePage.tsx) on the web as a secret gist; `upTo`: the reply it ends with. */
+  share: (id: string, html: string, upTo?: string) => request<SharedPage>('POST', `/api/conversations/${id}/share`, { html, upTo }),
+  /** The conversations shared so far, the newest first. */
+  listShares: () => request<SharedPage[]>('GET', '/api/shares'),
+  /** Delete a share's gist (its link stops working) and forget it. */
+  deleteShare: (id: string) => request<{ ok: true }>('DELETE', `/api/shares/${id}`),
   messageDiff: (id: string, messageId: string) => requestText(`/api/conversations/${id}/messages/${messageId}/diff`),
   agentDiff: (id: string, agentId: string) => requestText(`/api/conversations/${id}/agents/${agentId}/diff`),
   applyAgent: (id: string, agentId: string) =>

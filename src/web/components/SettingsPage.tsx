@@ -15,13 +15,23 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
-import { SETTINGS_SECTIONS, currentSection, readingLine, scrollToSection, sectionId, settingsHref, type SettingsSection } from '../route';
+import {
+  SETTINGS_SECTIONS,
+  currentSection,
+  readingLine,
+  revealLink,
+  scrollToSection,
+  sectionId,
+  settingsHref,
+  type SettingsSection,
+} from '../route';
 import { PROVIDER_COLOR, switchProvider, type ModelChoice } from '../util';
 import { CwdInput } from './CwdInput';
 import { ModelPicker } from './ModelPicker';
 import { NativeSetupPanel } from './NativeSetupPanel';
 import { SectionTitle } from './SectionTitle';
 import { SessionsCard } from './SessionsSettings';
+import { SharesCard } from './SharesSettings';
 import { providerState } from './Sidebar';
 import { ToolsCard } from './ToolsSettings';
 import { VoiceCard } from './VoiceSettings';
@@ -147,6 +157,8 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
         </section>
 
         {settings && <SessionsCard settings={settings} onSettings={setSettings} onHomeChanged={() => void refreshProviders(true)} />}
+
+        <SharesCard />
 
         <section className="card" id={sectionId('tour')}>
           <SectionTitle section="tour">{t.settings.tour}</SectionTitle>
@@ -706,12 +718,14 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     return () => links.removeEventListener('wheel', onWheel);
   }, []);
 
-  // Where the links do not fit (narrow windows, phones), they scroll sideways: keep the highlighted one in view.
+  // Where the links do not fit (narrow windows, phones), they scroll sideways: bring the highlighted one
+  // into view when it is not, and otherwise leave the row where it is, so it does not slide as the page scrolls.
   useEffect(() => {
     const links = row.current;
     const chip = active && links?.querySelector<HTMLElement>(`[data-section="${active}"]`);
-    if (!links || !chip || links.scrollWidth <= links.clientWidth) return;
-    links.scrollTo({ left: chip.offsetLeft - (links.clientWidth - chip.offsetWidth) / 2, behavior: 'smooth' });
+    if (!links || !chip) return;
+    const left = revealLink(links, { left: chip.offsetLeft, width: chip.offsetWidth });
+    if (left !== undefined) links.scrollTo({ left, behavior: 'smooth' });
   }, [active]);
   // Short labels, so the links fit on one line in every language (the cards keep their full titles).
   const short = t.settings.nav;
@@ -725,6 +739,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     voice: short.voice,
     cwd: short.cwd,
     sessions: short.sessions,
+    shares: short.shares,
     tour: short.tour,
   };
   return (

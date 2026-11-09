@@ -110,7 +110,7 @@ export function relayEnginePath(dir: string, platform: string, arch: string): st
 }
 
 /** Where Homebrew puts its commands; a server started outside a terminal may not have them on PATH. */
-const BREW_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/home/linuxbrew/.linuxbrew/bin'];
+export const BREW_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/home/linuxbrew/.linuxbrew/bin'];
 
 /** The engine stops after this long without use, which frees the memory the model takes. */
 const IDLE_MS = 10 * 60 * 1000;

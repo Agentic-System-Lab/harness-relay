@@ -105,6 +105,7 @@ describe('Store (SQLite)', () => {
     // A database from before schema version 13: every conversation gets auto team, none skips asking.
     db.exec(`ALTER TABLE conversations DROP COLUMN auto_confirm;
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
+             DROP TABLE shares;
              PRAGMA user_version = 12;`);
     const migrated = new Store(reopen());
     expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
@@ -289,6 +290,36 @@ describe('Store groups', () => {
     const list = Object.fromEntries(store.list(() => false).map((c) => [c.id, c.groupId]));
     expect(list).toEqual({ auto: 'g1', user: undefined, none: undefined, gone: undefined });
     expect(store.groupTitles('g1', 5)).toEqual(['測試對話']);
+  });
+});
+
+describe('Store shares', () => {
+  const share = (id: string, createdAt: number) => ({
+    id,
+    conversationId: 'c1',
+    title: 'Plan',
+    url: `https://gistpreview.github.io/?${id}`,
+    gistUrl: `https://gist.github.com/me/${id}`,
+    createdAt,
+  });
+
+  it('keeps shares, the newest first, with the reply they end with', () => {
+    const store = new Store(db);
+    store.create({ ...sampleConversation(), id: 'c1' });
+    store.addShare(share('aaaa', 1));
+    store.addShare({ ...share('bbbb', 2), upTo: { messageId: 'm9', agentName: 'builder' } });
+    const again = new Store(reopen());
+    expect(again.listShares()).toEqual([{ ...share('bbbb', 2), upTo: { messageId: 'm9', agentName: 'builder' } }, share('aaaa', 1)]);
+    expect(again.getShare('aaaa')).toEqual(share('aaaa', 1));
+  });
+
+  it('says when its conversation was deleted, and forgets a share', () => {
+    const store = new Store(db);
+    store.addShare(share('aaaa', 1));
+    expect(store.listShares()).toEqual([{ ...share('aaaa', 1), conversationGone: true }]);
+    store.deleteShare('aaaa');
+    expect(store.listShares()).toEqual([]);
+    expect(store.getShare('aaaa')).toBeUndefined();
   });
 });
 
@@ -645,6 +676,7 @@ describe('Store schedules', () => {
 
     // Schedules from before schema version 14 send in their own conversation.
     db.exec(`ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
+             DROP TABLE shares;
              PRAGMA user_version = 13;`);
     const migrated = new Store(reopen()).get(conv.id)!.schedule!;
     expect(migrated.newChat).toBe(false);

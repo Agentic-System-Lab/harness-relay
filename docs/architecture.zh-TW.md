@@ -66,6 +66,7 @@ flowchart LR
 | `src/server/secrets.ts` | 存放 API key 的作業系統金鑰儲存區（`@napi-rs/keyring`）；系統沒有可用的儲存區時則為無 |
 | `src/server/db.ts` | 開啟 SQLite、套用 schema 遷移、交易輔助函式 |
 | `src/server/hub.ts` | 把每個對話的事件廣播給連線中的 SSE 用戶端 |
+| `src/server/share.ts` | 分享對話：介面做好的頁面透過使用者自己的 `gh` 上傳成 GitHub 上的 secret gist（`gh gist create`，在 gistpreview.github.io 閱讀），移除時用 `gh gist delete` 刪掉 |
 | `src/shared/search.ts` | 搜尋對話：拆出搜尋的詞、找出符合的位置（不分大小寫）、第一個符合處附近的摘錄、標示關鍵字 |
 | `src/shared/mentions.ts` | 伺服器（判斷點名了誰）與介面（標示 @）共用的 `@` 規則：以 Markdown（GFM）解析訊息，只看一般文字，不含程式碼與連結文字 |
 | `src/shared/links.ts` | 沒有用 `<…>` 或 `[文字](…)` 包起來的網址在哪裡結束：GFM 只在空白處結束網址，所以直接接在後面的中文會被當成連結的一部分。`endBareUrls()` 也讓網址在中日韓或全形標點結束，以及在前面既不是另一個中日韓字、也不是 `/ ? # & = . - _ + (` 的中日韓字結束（所以 `/wiki/臺灣` 與 `?q=中文` 仍是連結），再像 GFM 一樣去掉結尾的標點；後面的文字中若還有網址，也會變成連結。介面的 Markdown 顯示與 `@` 規則都使用它，讓兩者對訊息的解讀一致 |
@@ -410,6 +411,7 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 | `presets`、`preset_agents` | 使用者儲存的團隊範本（內建範本寫在程式碼裡）；`preset_agents.tools` 同上 |
 | `provider_settings` | 每個 CLI 的執行檔路徑、預設模型、預設推理強度；只有在系統沒有金鑰儲存區時才存 API key |
 | `app_settings` | key/value 形式的應用程式設定（預設工作目錄、首席 agent、語音輸入、工具庫、各 CLI 自己的資料夾、AgentsView 網址） |
+| `shares` | 分享成 secret gist 的對話（gist id、對話、當時的標題、結束的那則回覆、頁面與 gist 的連結）；沒有外鍵，因為對話刪除後 gist 仍在（schema 第 15 版） |
 
 使用中的對話會保留在記憶體中，因為協調器在串流時會直接修改它們。寫入是明確觸發的：使用者訊息、新的 agent 訊息、結束的回合與 session id 會立即寫入；串流中的變動則批次處理，每秒最多寫一次，而且只寫有變動的訊息。伺服器當機時留下的 `streaming` 訊息，會在下次啟動時標為 `aborted`。
 
@@ -484,6 +486,12 @@ sequenceDiagram
 - **語言**：`follow`（跟隨介面語言）、`auto`、`zh` 或 `en`。中文會附上一段繁體中文的 prompt，引導 Whisper 輸出繁體字。辨識結果會整理過：去掉 `[BLANK_AUDIO]` 之類的標記，中日韓文字之間不留空白。瀏覽器不會送出太短、或從未高過背景噪音的錄音，因為 Whisper 會替靜音編出文字。
 - **設定**：模型、語言與引擎路徑以 JSON 存在 `app_settings` 的 `voice` key。
 
+## 分享對話
+
+**分享**（在上方，或在 agent 回覆下方分享到那則回覆為止的內容）會在瀏覽器裡做出一個 HTML 頁面（`src/web/sharePage.tsx`，不需要 DOM 的部分在 `src/web/share.ts`）：複製畫面上的聊天室（標題列，以及每則訊息，`MessageItem` 依序每則一個元素），但不含工具呼叫與思考過程（`SHARE_DROP`：動作列、待辦清單、權限請求、變更的檔案），也不含 app 的按鈕、輸入框與連回 app 的連結。app 的樣式表整份放進一個 `<style>`。這台電腦上的圖片會畫成 data URL（WebP，或 JPEG），一步步縮小，還是放不下就從最大的開始不放，直到頁面小於 `SHARE_MAX_BYTES`（1 MB：gistpreview.github.io 透過 GitHub 的 API 讀取 gist，檔案內容超過 1 MB 會被截斷）；Mermaid 圖表本來就是 data URL。頁尾有一列 Harness Relay 的名稱、logo 與網站。頁面自帶的 `Content-Security-Policy`（`default-src 'none'`，只允許內嵌樣式與 `data:` 圖片）讓它不執行任何腳本、不載入任何東西，被 gistpreview 寫進它自己的頁面時也一樣。
+
+`POST /api/conversations/:id/share` 會再檢查一次大小，然後執行 `gh gist create --filename index.html --desc … -`，頁面從 stdin 傳入（`src/server/share.ts`）：在使用者自己的 GitHub 帳號建立 secret gist。伺服器只保留一筆紀錄（`shares`：gist id、對話、當時的標題、結束的那則回覆、連結），**設定 → 分享的對話** 會列出它們；`DELETE /api/shares/:id` 執行 `gh gist delete <id> --yes`，然後刪掉紀錄。gh 對屬於另一個帳號的 gist（之後 gh 登入了別的帳號）也說「找不到或不是你的」，但它仍在網路上，所以只有 `gh api gists/<id>` 也找不到這個 gist 時才刪掉紀錄；否則請使用者切回原本的帳號。`gh` 會在 `PATH` 與 Homebrew 的資料夾中尋找。範圍內還有回覆在串流、有訊息正在編輯，或開啟對話框的那則回覆已經不在時，都不會建立連結（也絕不會改成分享整段對話）。沒有 `gh` 或沒有登入時，會用使用者的語言說明，並附上錯誤 `code`（`gh-missing`、`gh-signed-out`），介面依它列出處理步驟與連結（`GhHelp`），並且不留紀錄。
+
 ## 安全性
 
 這個伺服器可以啟動有寫入權限的 coding agent，因此只允許本機介面使用：
@@ -503,6 +511,7 @@ sequenceDiagram
 - 對話只會送到這台電腦上的 AgentsView：`validAgentsViewUrl` 只接受 `localhost`、`127.0.0.1` 或 `[::1]` 的 `http(s)` 網址，不能帶帳號密碼，並只儲存 origin；也不跟隨重新導向。介面連結打開的網址（`agentsViewLink`）可以是任何 http(s) 網址，因為不會有資料送過去；
 - 瀏覽檔案（以及把資料夾下載成 ZIP 檔）只會讀取工作目錄或成員 worktree 裡的內容（跟隨符號連結之後），絕不讀 `.git`（不分大小寫，因為在不分大小寫的檔案系統上 `.GIT` 會開到 `.git`；結尾多一個點或空白，或 Windows 的短檔名如 `GIT~1` 也一樣，在 Windows 上會再用系統自己的真實路徑檢查），圖片與影片的提供方式和媒體端點相同，其他檔案只以下載提供（見[瀏覽檔案](#瀏覽檔案)）；
 - 語音輸入的錄音不會離開這台電腦：語音引擎只聽 `127.0.0.1`，並藏在隨機路徑前綴之後；它下載的引擎與模型固定在某個版本或 commit，並檢查 SHA-256（見[語音輸入](#語音輸入)）。
+- 只有使用者在分享對話框中建立連結時，Harness Relay 才會把對話發布出去（各 CLI 仍照常把每一輪送到它們的模型服務），對話框會先說明它會去哪裡（使用者 GitHub 帳號上的 secret gist）；頁面不含工具呼叫與思考過程、圖片都包在頁面裡，並以自己的 `Content-Security-Policy` 禁止執行腳本；移除分享時只會把十六進位的 gist id 交給 `gh`。
 
 這是單人使用的工具：沒有帳號驗證，任何能連到你 localhost 的程序都能使用它。
 

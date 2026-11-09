@@ -12,19 +12,18 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
 import { afterStreamError, applyStates as findApplyStates, draftStatus, teamToEdit } from '../chat';
-import { conversationMarkdown } from '../copy';
 import { useI18n, useT } from '../i18n';
 import { describeRepeat, scheduleState, scheduleTrouble } from '../schedule';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
-import { CopyButton } from './CopyButton';
 import { FileBrowser } from './FileBrowser';
-import { ClockIcon, CopyIcon, FolderIcon, MoreIcon, UsersIcon } from './icons';
+import { ClockIcon, FolderIcon, MoreIcon, ShareIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
 import { ScheduleDrawer } from './ScheduleDrawer';
+import { ShareDialog } from './ShareDialog';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 import { useDialog } from './useDialog';
 
@@ -97,6 +96,9 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   const [teamOpen, setTeamOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  /** The share dialog is open: for the whole conversation, or up to and including one reply (`upTo`). */
+  const [share, setShare] = useState<{ upTo?: string } | null>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
   const [diff, setDiff] = useState<{ title: string; load: () => Promise<string> } | null>(null);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
   /** A withdrawn message's text, going back into the composer to be edited. */
@@ -130,9 +132,6 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   // On phones the header's actions are a menu under ⋯ (.more-button in styles.css); wider screens
   // show them in a row and never open it.
   const [menuOpen, setMenuOpen] = useState(false);
-  // For callbacks that run after an await (Copy chat), when this render's value may be stale.
-  const menuOpenRef = useRef(menuOpen);
-  menuOpenRef.current = menuOpen;
   const menuId = useId();
   const moreRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -180,12 +179,6 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   const openFromHead = (open: (value: boolean) => void) => () => {
     if (menuOpen) closeMenu(true);
     open(true);
-  };
-  /** After Copy chat in the menu says it copied, the menu closes. */
-  const copiedFromHead = () => {
-    if (!menuOpenRef.current) return;
-    window.clearTimeout(menuTimer.current);
-    menuTimer.current = window.setTimeout(() => closeMenu(actionsRef.current?.contains(document.activeElement) ?? false), 1000);
   };
 
   const stick = useRef(true);
@@ -344,7 +337,10 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
     }
   }, []);
 
+  const onShare = useCallback((messageId: string) => setShare({ upTo: messageId }), []);
+
   // Continue: the team goes on without the answer an agent asked for.
+
   const onSkipQuestion = useCallback(() => {
     const c = convRef.current;
     if (!c) return;
@@ -428,7 +424,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   };
 
   return (
-    <div className="chat">
+    <div className="chat" ref={chatRef}>
       {/* Wide screens: title over the team, badges and actions on the right. Phones and tablets:
           only the title and actions, plus a warning beside the title for full access; on phones the
           actions are a menu under ⋯ (see .chat-head and .more-button in styles.css). */}
@@ -460,15 +456,15 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
             <MoreIcon size={18} />
           </button>
           <div className={`chat-head-actions ${menuOpen ? 'open' : ''}`} id={menuId} ref={actionsRef}>
-            <CopyButton
+            <button
               className="ghost small-button head-button"
-              label={t.chat.copyChat}
-              title={t.chat.copyChatTitle}
-              icon={<CopyIcon size={16} />}
+              onClick={openFromHead(() => setShare({}))}
+              title={t.share.buttonTitle}
               disabled={conv.messages.length === 0}
-              text={() => (convRef.current ? conversationMarkdown(convRef.current, tRef.current) : '')}
-              onDone={copiedFromHead}
-            />
+            >
+              <ShareIcon size={16} />
+              <span className="button-label">{t.share.button}</span>
+            </button>
             <button className="ghost small-button head-button" onClick={openFromHead(setFilesOpen)} title={t.chat.filesTitle}>
               <FolderIcon size={16} />
               <span className="button-label">{t.chat.files}</span>
@@ -579,6 +575,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               onRetry={onRetry}
               waitingAnswer={askIds.has(m.id)}
               onSkipQuestion={onSkipQuestion}
+              onShare={onShare}
             />
           ))}
         </div>
@@ -675,6 +672,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
         />
       )}
       {filesOpen && <FileBrowser conv={conv} onClose={() => setFilesOpen(false)} />}
+      {share && <ShareDialog conv={conv} upTo={share.upTo} chat={() => chatRef.current} onClose={() => setShare(null)} />}
     </div>
   );
 }

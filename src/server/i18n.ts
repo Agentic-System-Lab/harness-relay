@@ -60,6 +60,18 @@ const zhTW = {
   // Conversations and runs
   defaultTitle: '新對話',
   conversationNotFound: '找不到對話',
+  // Sharing a conversation (a gist through the GitHub CLI)
+  shareEmpty: '沒有可以分享的內容',
+  shareTooLarge: (mb: string) => `這個分享頁有 ${mb} MB，超過 gistpreview 能顯示的 1 MB。請改成分享到比較前面的某則回覆。`,
+  shareNoGh: '找不到 GitHub CLI（gh）。請從 https://cli.github.com 安裝，並在終端機執行 gh auth login 後再試一次。',
+  shareSignedOut: 'GitHub CLI（gh）尚未登入。請在終端機執行 gh auth login 後再試一次。',
+  shareFailed: (detail: string) => `無法建立 gist：${detail}`,
+  shareNoDetail: 'gh 沒有說明原因',
+  shareNoUrl: 'gh 沒有回傳 github.com 上的 gist 網址（gistpreview 只能顯示 github.com 的 gist）。如果已經建立了 gist，可以用 gh gist list 找到它再刪除',
+  unshareFailed: (detail: string) => `無法刪除 gist：${detail}`,
+  unshareNotOwner:
+    '這個 gist 還在 GitHub 上，但不屬於 gh 目前登入的帳號，所以無法刪除。請用 gh auth switch 切回建立它的帳號，再移除一次。',
+  shareNotFound: '找不到這個分享',
   messageNotFound: '找不到這則訊息',
   emptyMessage: '訊息不能是空的',
   typeFirst: '請先輸入訊息',
@@ -283,6 +295,17 @@ const en: ServerMessages = {
 
   defaultTitle: 'New chat',
   conversationNotFound: 'Conversation not found',
+  shareEmpty: 'Nothing to share',
+  shareTooLarge: (mb) => `This page is ${mb} MB, over the 1 MB that gistpreview can show. Share up to an earlier reply instead.`,
+  shareNoGh: 'GitHub CLI (gh) not found. Install it from https://cli.github.com, run gh auth login in a terminal, then try again.',
+  shareSignedOut: 'GitHub CLI (gh) is not signed in. Run gh auth login in a terminal, then try again.',
+  shareFailed: (detail) => `Could not create the gist: ${detail}`,
+  shareNoDetail: 'gh gave no reason',
+  shareNoUrl: 'gh did not return a gist address on github.com (gistpreview can only show gists on github.com). If a gist was created, find it with gh gist list and delete it',
+  unshareFailed: (detail) => `Could not delete the gist: ${detail}`,
+  unshareNotOwner:
+    'The gist is still on GitHub, but it belongs to another account than the one gh is signed in to, so it could not be deleted. Switch back with gh auth switch, then remove it again.',
+  shareNotFound: 'Share not found',
   messageNotFound: 'Message not found',
   emptyMessage: 'The message cannot be empty',
   typeFirst: 'Type a message first',

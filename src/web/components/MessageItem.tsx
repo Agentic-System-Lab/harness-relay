@@ -28,7 +28,7 @@ import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, le
 import { ChangesCard, type ApplyState } from './ChangesCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
-import { ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon } from './icons';
+import { ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
@@ -307,6 +307,8 @@ interface Props {
   waitingAnswer?: boolean;
   /** Let the team go on without answering. */
   onSkipQuestion?: () => void;
+  /** Copy or share the conversation up to and including this reply. */
+  onShare?: (messageId: string) => void;
 }
 
 /** Names the conversation's scheduled message @mentions that a team design does not have. */
@@ -427,7 +429,7 @@ function PlanCard({
             <span className="small plan-saved">✓ {t.plan.saved(plan.name ?? '')}</span>
           ) : (
             <>
-              <span className="small">{t.plan.askSave}</span>
+              <span className="small plan-ask-save">{t.plan.askSave}</span>
               <button type="button" className={`${awaiting ? 'ghost' : 'primary'} small-button`} onClick={save} disabled={saving}>
                 {saving ? t.plan.saving : t.plan.save}
               </button>
@@ -656,6 +658,7 @@ export const MessageItem = memo(function MessageItem({
   onRetry,
   waitingAnswer,
   onSkipQuestion,
+  onShare,
 }: Props) {
   const t = useT();
 
@@ -779,6 +782,17 @@ export const MessageItem = memo(function MessageItem({
                 onClick={() => void onRetry(msg.id)}
               >
                 <RetryIcon size={16} />
+              </button>
+            )}
+            {copyable && onShare && (
+              <button
+                type="button"
+                className="msg-action icon-action"
+                title={t.message.shareTitle}
+                aria-label={t.message.share}
+                onClick={() => onShare(msg.id)}
+              >
+                <ShareIcon size={16} />
               </button>
             )}
             {/* The buttons sit on the left, like a chat app's; the time, cost and tokens at the right edge. */}

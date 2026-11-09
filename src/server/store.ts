@@ -22,12 +22,42 @@ import type {
   ToolStatus,
   MessageStatus,
   SearchResult,
+  SharedPage,
 } from '../shared/types';
 import { pendingPlan } from '../shared/types';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
 import { currentLang } from './i18n';
 import { builtinPresets } from './presets';
+
+interface ShareRow {
+  id: string;
+  conversation_id: string;
+  title: string;
+  up_to_message_id: string | null;
+  up_to_agent: string | null;
+  url: string;
+  gist_url: string;
+  created_at: number;
+  /** How many conversations have its conversation's id: 0 once it was deleted. */
+  live: number;
+}
+
+/** A share with whether its conversation is still there. */
+const SHARE_SELECT = 'SELECT s.*, (SELECT COUNT(*) FROM conversations c WHERE c.id = s.conversation_id) AS live FROM shares s';
+
+function shareFromRow(r: ShareRow): SharedPage {
+  return {
+    id: r.id,
+    conversationId: r.conversation_id,
+    title: r.title,
+    ...(r.up_to_message_id ? { upTo: { messageId: r.up_to_message_id, agentName: r.up_to_agent ?? '' } } : {}),
+    url: r.url,
+    gistUrl: r.gist_url,
+    createdAt: r.created_at,
+    ...(r.live ? {} : { conversationGone: true }),
+  };
+}
 
 interface ConversationRow {
   id: string;
@@ -839,6 +869,31 @@ export class Store {
            branch = excluded.branch, base_commit = excluded.base_commit, needs_reset = excluded.needs_reset`,
       )
       .run(convId, agentId, w.root, w.path, w.branch, w.base, w.needsReset ? 1 : 0);
+  }
+
+  // --- Shared conversations (secret gists) ----------------------------------------------
+
+  addShare(s: SharedPage): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO shares (id, conversation_id, title, up_to_message_id, up_to_agent, url, gist_url, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(s.id, s.conversationId, s.title, nul(s.upTo?.messageId), nul(s.upTo?.agentName), s.url, s.gistUrl, s.createdAt);
+  }
+
+  /** Every share, the newest first. */
+  listShares(): SharedPage[] {
+    return (this.db.prepare(`${SHARE_SELECT} ORDER BY s.created_at DESC, s.rowid DESC`).all() as unknown as ShareRow[]).map(shareFromRow);
+  }
+
+  getShare(id: string): SharedPage | undefined {
+    const row = this.db.prepare(`${SHARE_SELECT} WHERE s.id = ?`).get(id) as ShareRow | undefined;
+    return row && shareFromRow(row);
+  }
+
+  deleteShare(id: string): void {
+    this.db.prepare('DELETE FROM shares WHERE id = ?').run(id);
   }
 
   // Groups -------------------------------------------------------------------------

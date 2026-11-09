@@ -5411,3 +5411,246 @@ details.sub summary {
   white-space: nowrap;
   border: 0;
 }
+
+/* Sharing a conversation ---------------------------------------------------- */
+
+.modal.share-dialog {
+  width: min(560px, 100%);
+  overflow-y: auto;
+}
+
+.share-dialog p {
+  margin: 0;
+}
+
+.share-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.share-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.share-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+a.share-action {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.share-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.share-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.share-link-row input {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+@media (max-width: 560px) {
+  .share-option {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .share-link-row {
+    flex-wrap: wrap;
+  }
+
+  .share-link-row input {
+    flex-basis: 100%;
+  }
+}
+
+/* A shared page (sharePage.tsx): the chat as the app shows it, with Harness Relay's name, logo and
+   website in a bar where the composer is. */
+.share-brand {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.share-brand a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.share-brand .share-brand-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.share-brand .share-brand-site {
+  margin-left: auto;
+}
+
+.share-brand .share-brand-site:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* A shared page has no menu button for the title to make room for. */
+.share-page .chat-head-top {
+  padding-left: 0;
+}
+
+@media (max-width: 560px) {
+  .share-brand {
+    padding: 8px 14px;
+  }
+
+  .share-brand .share-brand-tagline {
+    display: none;
+  }
+}
+
+/* Settings: the conversations shared as links (SharesSettings.tsx). */
+.share-list-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.share-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.share-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.share-row + .share-row {
+  border-top: 1px solid var(--border);
+}
+
+.share-row.selected {
+  background: var(--surface);
+}
+
+.share-row > input {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.share-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.share-row-title {
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-row-title:hover {
+  text-decoration: underline;
+}
+
+.share-row .small a {
+  color: inherit;
+}
+
+.share-note {
+  white-space: pre-line;
+}
+
+/* What to do when the GitHub CLI is missing or not signed in (GhHelp.tsx). */
+.gh-help {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warn) 7%, var(--bg));
+  font-size: 13.5px;
+}
+
+.gh-help p {
+  margin: 0;
+}
+
+.gh-help ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gh-help ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.gh-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.gh-command code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+  overflow-wrap: anywhere;
+}
+
+.gh-command .gh-copy {
+  width: 24px;
+  height: 24px;
+}

@@ -6,6 +6,13 @@ export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok'];
 /** The error `code` (with a 404) for a working directory that does not exist; resend with `createCwd: true` to create it. */
 export const CWD_MISSING = 'cwd-missing';
 
+/**
+ * The error `code` (with a 502) of the share routes when the GitHub CLI cannot be used: not installed
+ * (`GH_MISSING`) or not signed in (`GH_SIGNED_OUT`). The UI then says what to do about it.
+ */
+export const GH_MISSING = 'gh-missing';
+export const GH_SIGNED_OUT = 'gh-signed-out';
+
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
@@ -438,6 +445,32 @@ export interface ZipSize {
 export interface ZipCheck {
   all: ZipSize | null;
   unignored?: ZipSize | null;
+}
+
+/**
+ * The largest shared page, in UTF-8 bytes. A shared page is a secret GitHub gist that
+ * gistpreview.github.io shows, and it reads the gist's file through GitHub's API, which cuts a file's
+ * content off at 1 MB.
+ */
+export const SHARE_MAX_BYTES = 1_000_000;
+
+/** Where a shared conversation can be read: the page (`url`, on gistpreview) and the gist (`id`) itself. */
+export interface ShareLink {
+  id: string;
+  url: string;
+  gistUrl: string;
+}
+
+/** A conversation put on the web, as Harness Relay keeps track of it (Settings lists them to remove). */
+export interface SharedPage extends ShareLink {
+  conversationId: string;
+  /** The conversation's title when it was shared. */
+  title: string;
+  /** Shared up to and including this agent reply; the whole conversation without it. */
+  upTo?: { messageId: string; agentName: string };
+  createdAt: number;
+  /** The conversation was deleted since (its page is still on the web). */
+  conversationGone?: boolean;
 }
 
 export interface ConversationSettings {

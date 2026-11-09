@@ -66,6 +66,7 @@ flowchart LR
 | `src/server/secrets.ts` | The OS credential store for API keys (`@napi-rs/keyring`), or none when the system has no usable one |
 | `src/server/db.ts` | Opens SQLite, applies schema migrations, transaction helper |
 | `src/server/hub.ts` | Per-conversation event fan-out to connected SSE clients |
+| `src/server/share.ts` | Sharing a conversation: the page the UI made goes up to GitHub as a secret gist through the user's own `gh` (`gh gist create`, read on gistpreview.github.io), and comes down with `gh gist delete` |
 | `src/shared/types.ts` | Types shared by server and client |
 | `src/shared/media.ts` | Which image and video types can be shown, and which image and link URLs in a reply are local files (relative or absolute paths, `file:` URLs, `file:line`) rather than other sites |
 | `src/shared/search.ts` | Searching conversations: the words of a search, where they match (ignoring case), the excerpt around the first match, highlighting |
@@ -410,6 +411,7 @@ Everything except API keys and attached files lives in one SQLite database, `dat
 | `presets`, `preset_agents` | user-saved team templates (built-in templates live in code); `preset_agents.tools` as above |
 | `provider_settings` | per CLI: binary path, default model, default effort; the API key only when there is no system credential store |
 | `app_settings` | key/value app settings (default working directory, lead agent, voice input, the tool library, the CLIs' own folder, AgentsView's address) |
+| `shares` | conversations shared as secret gists (gist id, the conversation, its title then, the reply it ends with, the page and gist links); no foreign key, since the gist outlives a deleted conversation (schema version 15) |
 
 Conversations in use are kept in memory, because the orchestrator mutates them while streaming. Writes are explicit: user messages, new agent messages, finished turns and session ids are written immediately; streaming changes are batched and written at most once per second, only for messages that changed. Messages left `streaming` by a crashed server are marked `aborted` at startup.
 
@@ -484,6 +486,12 @@ sequenceDiagram
 - **Language** — `follow` (the UI language), `auto`, `zh` or `en`. For Chinese a short Traditional-Chinese prompt steers Whisper to Traditional characters. The transcript is cleaned up: markers such as `[BLANK_AUDIO]` are dropped and no spaces are left between CJK segments. The browser does not send recordings that are too short or never louder than background noise, because Whisper invents text for silence.
 - **Settings** — the model, language and engine path are kept as JSON under the `voice` key of `app_settings`.
 
+## Sharing a conversation
+
+**Share** (in the header, or under an agent's reply for everything up to it) makes one HTML page in the browser (`src/web/sharePage.tsx`, its DOM-free parts in `src/web/share.ts`): a copy of the chat on screen (the header, and each message, which `MessageItem` renders as one element, in order) without tool calls and thinking (`SHARE_DROP`: activity rows, to-do lists, approvals, changed files) and without the app's buttons, inputs and links into the app. The app's stylesheets go in as one `<style>`. Images of this computer are drawn into data URLs (WebP, or JPEG), smaller step by step, and the largest left out until the page fits in `SHARE_MAX_BYTES` (1 MB: gistpreview.github.io reads the gist through GitHub's API, which cuts a file's content off at 1 MB); Mermaid diagrams already are data URLs. A bar at the foot carries Harness Relay's name, logo and website. The page's own `Content-Security-Policy` (`default-src 'none'`, inline styles and `data:` images only) means it runs no script and loads nothing, also when gistpreview writes it into its own page.
+
+`POST /api/conversations/:id/share` checks the size again and runs `gh gist create --filename index.html --desc … -` with the page on stdin (`src/server/share.ts`): a secret gist on the user's own GitHub account. The server keeps only a record of it (`shares`: the gist id, the conversation, its title then, the reply it ends with, the links), which **Settings → Shared conversations** lists; `DELETE /api/shares/:id` runs `gh gist delete <id> --yes` and then forgets it. gh says the same "not found or not owned by you" for a gist of another account (gh signed in to another one since), which is still online, so the record is only forgotten when `gh api gists/<id>` cannot find the gist either; otherwise the user is told to switch back. `gh` is looked for on the `PATH` and in Homebrew's folders. A link is not made while a reply in the range is still streaming, while a message in it is being edited, or once the reply it was opened from is gone (never the whole conversation instead). A missing `gh`, or one not signed in, is reported in the user's language with an error `code` (`gh-missing`, `gh-signed-out`) that the UI turns into the steps to fix it, with links (`GhHelp`), and nothing is recorded.
+
 ## Security
 
 The server can start coding agents with write access, so it is locked down to the local UI:
@@ -503,6 +511,7 @@ The server can start coding agents with write access, so it is locked down to th
 - browsing files (and downloading a folder as a ZIP file) only reads inside the working directory or an agent's worktree (after following symlinks), never `.git` (in any letter case, since `.GIT` opens `.git` on a case-insensitive filesystem, nor with a trailing dot or space, nor by a Windows short name such as `GIT~1`, checked against the system's own real path there), serves images and videos like the media endpoint, and any other file only as a download (see [Browsing files](#browsing-files));
 - conversations are sent to AgentsView only at an address on this computer: `validAgentsViewUrl` accepts `http(s)` to `localhost`, `127.0.0.1` or `[::1]` without credentials, and saves the origin alone; redirects are not followed. The address the UI's link opens (`agentsViewLink`) may be any http(s) address, since nothing is sent there;
 - voice input keeps recordings on the computer: the speech engine listens on `127.0.0.1` behind a random path prefix, and the engine and models it downloads are pinned to a release or commit and checked by SHA-256 (see [Voice input](#voice-input)).
+- Harness Relay itself publishes a conversation only when the user creates a link in the share dialog (the CLIs send each turn to their model providers as always), which first says where it goes (a secret gist on their GitHub account); the page leaves out tool calls and thinking, holds its own images, and runs no script under its own `Content-Security-Policy`; removing a share hands `gh` nothing but a hex gist id.
 
 It is a single-user tool: there is no authentication, and any process that can reach your localhost can use it.
 

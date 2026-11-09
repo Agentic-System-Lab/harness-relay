@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FILE_LIMITS, type Conversation, type SettingsView, type WorkingDirectories } from '../src/shared/types';
+import { FILE_LIMITS, SHARE_MAX_BYTES, type Conversation, type SettingsView, type WorkingDirectories } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -20,6 +20,7 @@ const { AgentsViewSync } = await import('../src/server/agentsview');
 const { expandPath } = await import('../src/server/validate');
 const { attachmentsDir } = await import('../src/server/attachments');
 const { readZip } = await import('./zipReader');
+const { ShareError } = await import('../src/server/share');
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -1429,5 +1430,123 @@ describe('schedules', () => {
     expect((await run()).status).toBe(202);
     orchestrator.stop(conv.id);
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+  });
+});
+
+describe('sharing conversations', () => {
+  const ID = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+  const link = (id = ID) => ({ id, url: `https://gistpreview.github.io/?${id}`, gistUrl: `https://gist.github.com/me/${id}` });
+
+  function shareApp(gists: { create?: (html: string, description: string) => Promise<ReturnType<typeof link>>; remove?: (id: string) => Promise<void> }) {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const never = async () => {
+      throw new Error('should not be called');
+    };
+    return createApp({
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      gists: { create: gists.create ?? never, remove: gists.remove ?? never },
+    });
+  }
+
+  it("puts the page on the web, described by the conversation's title, and lists it", async () => {
+    const conv = await createConversation();
+    const calls: [string, string][] = [];
+    const own = shareApp({
+      create: async (html, description) => {
+        calls.push([html, description]);
+        return link();
+      },
+    });
+    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<!doctype html><p>hi</p>' }));
+    expect(res.status).toBe(200);
+    const shared = await res.json();
+    expect(shared).toMatchObject({ ...link(), conversationId: conv.id, title: conv.title });
+    expect(shared.upTo).toBeUndefined();
+    expect(calls).toEqual([['<!doctype html><p>hi</p>', `${conv.title} · Harness Relay`]]);
+    expect(await (await own.request('/api/shares', { headers: HOST })).json()).toEqual([shared]);
+  });
+
+  it('records the agent reply a page ends with', async () => {
+    const conv = await createConversation();
+    const agentId = conv.agents[0]!.id;
+    const cached = store.get(conv.id)!;
+    cached.messages.push({ id: 'r1', author: { kind: 'agent', agentId }, agentName: 'Alice', createdAt: 1, parts: [{ type: 'text', text: 'hi' }], status: 'done' });
+    const own = shareApp({ create: async () => link() });
+    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<p>hi</p>', upTo: 'r1' }));
+    expect((await res.json()).upTo).toEqual({ messageId: 'r1', agentName: 'Alice' });
+  });
+
+  it('records no reply for an upTo that is not an agent reply of the conversation', async () => {
+    const conv = await createConversation();
+    store.get(conv.id)!.messages.push({ id: 'u1', author: { kind: 'user' }, createdAt: 1, parts: [{ type: 'text', text: 'hi' }], status: 'done' });
+    let n = 0;
+    const own = shareApp({ create: async () => link((++n).toString(16).padStart(32, '0')) });
+    for (const upTo of ['u1', 'missing', 42]) {
+      const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<p>hi</p>', upTo }));
+      expect(res.status).toBe(200);
+      expect((await res.json()).upTo, String(upTo)).toBeUndefined();
+    }
+  });
+
+  it('refuses an empty page, one too large for gistpreview, and an unknown conversation', async () => {
+    const conv = await createConversation();
+    const own = shareApp({});
+    const send = (id: string, body: unknown) => own.request(`/api/conversations/${id}/share`, json('POST', body));
+    expect((await send(conv.id, { html: '  ' })).status).toBe(400);
+    expect((await send(conv.id, { html: 42 })).status).toBe(400);
+    expect((await send(conv.id, { html: 'é'.repeat(SHARE_MAX_BYTES / 2 + 1) })).status).toBe(413);
+    expect((await send('missing', { html: '<p>hi</p>' })).status).toBe(404);
+    expect(store.listShares()).toEqual([]);
+  });
+
+  it("reports gh's trouble to the user, with the code the UI explains, and records nothing", async () => {
+    const conv = await createConversation();
+    const own = shareApp({
+      create: async () => {
+        throw new ShareError('GitHub CLI (gh) is not signed in.', 'gh-signed-out');
+      },
+    });
+    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<p>hi</p>' }));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'GitHub CLI (gh) is not signed in.', code: 'gh-signed-out' });
+    const other = shareApp({
+      create: async () => {
+        throw new ShareError('Could not create the gist: HTTP 500');
+      },
+    });
+    const failed = await other.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<p>hi</p>' }));
+    expect(await failed.json()).toEqual({ error: 'Could not create the gist: HTTP 500' });
+    expect(store.listShares()).toEqual([]);
+  });
+
+  it('deletes the gist, then forgets the share', async () => {
+    const conv = await createConversation();
+    const removed: string[] = [];
+    const own = shareApp({ create: async () => link(), remove: async (id) => void removed.push(id) });
+    await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<p>hi</p>' }));
+    const res = await own.request(`/api/shares/${ID}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
+    expect(res.status).toBe(200);
+    expect(removed).toEqual([ID]);
+    expect(store.listShares()).toEqual([]);
+  });
+
+  it('keeps a share whose gist could not be deleted, and knows only its own', async () => {
+    const conv = await createConversation();
+    const own = shareApp({
+      create: async () => link(),
+      remove: async () => {
+        throw new ShareError('Could not delete the gist: HTTP 500');
+      },
+    });
+    await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<p>hi</p>' }));
+    const del = (id: string) => own.request(`/api/shares/${id}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
+    expect((await del(ID)).status).toBe(502);
+    expect(store.listShares().map((s) => s.id)).toEqual([ID]);
+    expect((await del('ffffffffffffffffffffffff')).status).toBe(404);
+    expect((await del('--help')).status).toBe(404);
   });
 });

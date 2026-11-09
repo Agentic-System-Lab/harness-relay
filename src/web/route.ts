@@ -7,7 +7,7 @@ import { PROVIDERS, type Provider } from '../shared/types';
 export type Route = { page: 'new' } | { page: 'schedule' } | { page: 'chat'; id: string } | { page: 'settings'; section?: SettingsSection };
 
 /** The cards of the settings page, in page order; each is the element `settings-<section>`. */
-export const SETTINGS_SECTIONS = ['language', ...PROVIDERS, 'lead', 'tools', 'voice', 'cwd', 'sessions', 'tour'] as const;
+export const SETTINGS_SECTIONS = ['language', ...PROVIDERS, 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'tour'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export function routeFromHash(hash: string): Route {
@@ -49,6 +49,25 @@ export function currentSection(tops: { section: SettingsSection; top: number }[]
   let current = tops[0]!.section;
   for (const t of tops) if (t.top <= line) current = t.section;
   return current;
+}
+
+/** How wide the settings links' faded ends are (`.settings-nav-links` in styles.css). */
+export const LINKS_FADE = 12;
+
+/**
+ * Where the row of settings links (scrolling sideways where it does not fit) should scroll so the
+ * highlighted link shows: undefined while it already does, so the row stays still as the page scrolls;
+ * otherwise just far enough to bring it clear of the faded end. `link.left` is from the row's start.
+ */
+export function revealLink(
+  row: { scrollLeft: number; clientWidth: number; scrollWidth: number },
+  link: { left: number; width: number },
+  fade = LINKS_FADE,
+): number | undefined {
+  const right = link.left + link.width;
+  if (link.left >= row.scrollLeft && right <= row.scrollLeft + row.clientWidth) return undefined;
+  const target = link.left < row.scrollLeft ? link.left - fade : right + fade - row.clientWidth;
+  return Math.round(Math.min(Math.max(0, row.scrollWidth - row.clientWidth), Math.max(0, target)));
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   FILE_LIMITS,
   GROUP_LIMITS,
   PROVIDERS,
+  SHARE_MAX_BYTES,
   VOICE_MAX_SECONDS,
   pendingPlan,
   type ApprovalAnswer,
@@ -17,6 +18,8 @@ import {
   type ConversationSchedule,
   type Provider,
   type ServerEvent,
+  type ShareLink,
+  type SharedPage,
   type TeamPreset,
   type WorkingDirectories,
   type ZipCheck,
@@ -32,6 +35,7 @@ import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, 
 import { HttpError, forClient, titleFrom, type Orchestrator } from './orchestrator';
 import type { ProviderService } from './providers';
 import type { SettingsStore } from './settings';
+import { ShareError, gistDescription, shareToGist, unshareGist, validGistId } from './share';
 import type { Store } from './store';
 import {
   ensureFolder,
@@ -71,6 +75,8 @@ export interface AppDeps {
   agentsView?: AgentsViewSync;
   /** Extra Host names allowed besides localhost (RELAY_ALLOWED_HOSTS). */
   extraHosts?: string[];
+  /** Puts a shared conversation's page on the web and takes it down (secret gists through `gh`; fakes in tests). */
+  gists?: { create(html: string, description: string): Promise<ShareLink>; remove(id: string): Promise<void> };
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
@@ -96,6 +102,7 @@ export function createApp({
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
+  gists = { create: shareToGist, remove: unshareGist },
 }: AppDeps): Hono {
   const app = new Hono();
 
@@ -616,6 +623,52 @@ export function createApp({
   app.delete('/api/conversations/:id', async (c) => {
     // Stops a run first and waits for it to wind down, so nothing writes to the deleted conversation.
     await orchestrator.deleteConversation(c.req.param('id'));
+    return c.json({ ok: true });
+  });
+
+  // Share the conversation: the web app makes the page (what it shows, without tool calls and
+  // thinking); it goes up to GitHub as a secret gist with the user's GitHub CLI, read on gistpreview.
+  // `upTo`: the agent reply it ends with (recorded, for the list in Settings).
+  app.post('/api/conversations/:id/share', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ html?: unknown; upTo?: unknown }>(c);
+    if (typeof b.html !== 'string' || !b.html.trim()) throw new HttpError(400, t().shareEmpty);
+    const bytes = Buffer.byteLength(b.html);
+    if (bytes > SHARE_MAX_BYTES) throw new HttpError(413, t().shareTooLarge((bytes / 1_000_000).toFixed(1)));
+    const reply = typeof b.upTo === 'string' ? conv.messages.find((m) => m.id === b.upTo) : undefined;
+    const author = reply?.author;
+    const agentName =
+      author?.kind === 'agent' ? (reply!.agentName ?? conv.agents.find((a) => a.id === author.agentId)?.name ?? '') : undefined;
+    const link = await gistCall(() => gists.create(b.html as string, gistDescription(conv.title)));
+    const shared: SharedPage = {
+      ...link,
+      conversationId: conv.id,
+      title: conv.title,
+      ...(reply && agentName !== undefined ? { upTo: { messageId: reply.id, agentName } } : {}),
+      createdAt: Date.now(),
+    };
+    store.addShare(shared);
+    return c.json(shared);
+  });
+
+  /** A gist call, its trouble reported to the user (gh missing, not signed in…). */
+  async function gistCall<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof ShareError) throw new HttpError(502, err.message, err.code);
+      throw err;
+    }
+  }
+
+  // The conversations shared so far, the newest first; removing one deletes its gist.
+  app.get('/api/shares', (c) => c.json(store.listShares()));
+
+  app.delete('/api/shares/:id', async (c) => {
+    const id = c.req.param('id');
+    if (!validGistId(id) || !store.getShare(id)) throw new HttpError(404, t().shareNotFound);
+    await gistCall(() => gists.remove(id));
+    store.deleteShare(id);
     return c.json({ ok: true });
   });
 

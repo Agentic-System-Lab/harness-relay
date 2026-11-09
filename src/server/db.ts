@@ -251,6 +251,20 @@ const MIGRATIONS: string[] = [
   ALTER TABLE schedules ADD COLUMN new_chat INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE schedules ADD COLUMN last_chat_id TEXT;
   `,
+  // 15: conversations shared as secret gists (id: the gist's), listed in Settings to remove. A share
+  // outlives its conversation (the gist is still on GitHub), so it has no foreign key.
+  `
+  CREATE TABLE shares (
+    id               TEXT PRIMARY KEY,
+    conversation_id  TEXT NOT NULL,
+    title            TEXT NOT NULL,
+    up_to_message_id TEXT,
+    up_to_agent      TEXT,
+    url              TEXT NOT NULL,
+    gist_url         TEXT NOT NULL,
+    created_at       INTEGER NOT NULL
+  );
+  `,
 ];
 
 function migrate(db: Database): void {
