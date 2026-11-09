@@ -8,7 +8,7 @@ import { Onboarding, onboardingDone } from './components/Onboarding';
 import { SettingsPage } from './components/SettingsPage';
 import { hashFor, routeFromHash, type Route } from './route';
 import { Sidebar } from './components/Sidebar';
-import { PanelIcon, PlusIcon, SearchIcon } from './components/icons';
+import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
 
 type SeenMap = Record<string, number>;
@@ -55,8 +55,6 @@ export function App() {
   const [route, setRoute] = useState<Route>(parseHash);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [groups, setGroups] = useState<ConversationGroup[]>([]);
-  /** Goes up when the sidebar should open its search (the button of the collapsed sidebar). */
-  const [searchRequest, setSearchRequest] = useState(0);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [catalog, setCatalog] = useState<ProviderModels[]>([]);
   /** Mobile: the sidebar drawer is open. */
@@ -161,7 +159,6 @@ export function App() {
         seen={seen ?? {}}
         providers={providers}
         onChanged={refreshConversations}
-        searchRequest={searchRequest}
         onDeleted={(id) => {
           refreshConversations();
           if (route.page === 'chat' && route.id === id) navigate({ page: 'new' });
@@ -176,20 +173,6 @@ export function App() {
           <div className="sidebar-tools">
             <button className="icon-button" onClick={() => setCollapsed(false)} aria-label={t.app.expandSidebar} title={t.app.expandSidebar}>
               <PanelIcon />
-            </button>
-            <button className="icon-button" onClick={() => navigate({ page: 'new' })} aria-label={t.sidebar.newChat} title={t.sidebar.newChat}>
-              <PlusIcon />
-            </button>
-            <button
-              className="icon-button"
-              onClick={() => {
-                setCollapsed(false);
-                setSearchRequest((n) => n + 1);
-              }}
-              aria-label={t.sidebar.search}
-              title={t.sidebar.search}
-            >
-              <SearchIcon />
             </button>
           </div>
         )}

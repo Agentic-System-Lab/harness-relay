@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { PROVIDER_LABEL, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
@@ -21,8 +21,6 @@ interface Props {
   onChanged: () => void;
   /** Hide the sidebar (wide screens). */
   onCollapse: () => void;
-  /** Goes up when search should open and take the focus (the button of the collapsed sidebar). */
-  searchRequest: number;
 }
 
 export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
@@ -31,7 +29,7 @@ export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
   return 'ok';
 }
 
-export function Sidebar({ route, conversations, groups, seen, providers, onDeleted, onChanged, onCollapse, searchRequest }: Props) {
+export function Sidebar({ route, conversations, groups, seen, providers, onDeleted, onChanged, onCollapse }: Props) {
   const t = useT();
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -48,9 +46,6 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
     setSearching(false);
     setQuery('');
   };
-  useEffect(() => {
-    if (searchRequest) openSearch();
-  }, [searchRequest]);
 
   const remove = async (c: ConversationSummary) => {
     if (!confirm(t.sidebar.confirmDelete(c.title))) return;

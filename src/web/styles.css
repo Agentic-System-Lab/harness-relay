@@ -749,7 +749,7 @@ p {
   margin-left: auto;
 }
 
-/* Wide screens: the sidebar can be collapsed; two buttons stay in the corner. */
+/* Wide screens: the sidebar can be collapsed; its button stays in the corner. */
 .sidebar {
   transition:
     margin-left 0.2s ease,
@@ -782,7 +782,7 @@ p {
 }
 
 .sidebar-collapsed .chat-head {
-  padding-left: 132px;
+  padding-left: 60px;
 }
 
 .sidebar-scrim {
@@ -5029,10 +5029,10 @@ details.sub summary {
   scroll-margin-top: calc(var(--settings-nav-height, 56px) + 16px);
 }
 
-/* With the sidebar collapsed its buttons sit in the corner (as for .chat-head): the stuck links start after them. */
+/* With the sidebar collapsed its button sits in the corner (as for .chat-head): the stuck links start after it. */
 @media (min-width: 821px) {
   .sidebar-collapsed .settings-nav.stuck {
-    padding-left: max(var(--page-pad, 24px), calc(132px - max(0px, (100vw - 1000px) / 2)));
+    padding-left: max(var(--page-pad, 24px), calc(60px - max(0px, (100vw - 1000px) / 2)));
   }
 }
 
