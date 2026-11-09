@@ -118,7 +118,7 @@ describe('the shared page', () => {
     expect(shareDocument({ lang: 'en', title: 't', css: '', body: '', icon: 'https://evil.example/i.png' })).not.toContain('rel="icon"');
   });
 
-  it("carries Harness Relay's name and logo, and a share icon beside the time; both link to its website", () => {
+  it("carries Harness Relay's name and logo, and a link icon beside the time; both link to its website", () => {
     const foot = shareFooter({
       logo: '<svg class="brand-logo"></svg>',
       icon: '<svg class="share"></svg>',

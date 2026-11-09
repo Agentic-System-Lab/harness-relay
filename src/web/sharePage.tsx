@@ -6,7 +6,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { SHARE_MAX_BYTES, type ChatMessage } from '../shared/types';
 import { Logo } from './components/Logo';
-import { ShareIcon } from './components/icons';
+import { LinkIcon } from './components/icons';
 import type { Messages } from './i18n';
 import {
   IMAGE_STEPS,
@@ -180,7 +180,7 @@ export async function sharePage(o: {
     'beforeend',
     shareFooter({
       logo: svgOf(<Logo size={20} />),
-      icon: svgOf(<ShareIcon size={14} />),
+      icon: svgOf(<LinkIcon size={14} />),
       tagline: t.share.page.tagline,
       note: t.share.page.note(date),
       siteLabel: t.share.page.site,

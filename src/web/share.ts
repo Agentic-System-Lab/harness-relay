@@ -99,7 +99,7 @@ export const SHARE_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src
 
 /**
  * The bar at the foot of a shared page, where the composer is in the app: Harness Relay's logo and
- * name, its tagline, and when the page was shared with a share icon beside it. The logo and the icon
+ * name, its tagline, and when the page was shared with a link icon beside it. The logo and the icon
  * both link to Harness Relay's website (`siteLabel` names it for the icon, which has no text).
  */
 export function shareFooter(o: { logo: string; icon: string; tagline: string; note: string; siteLabel: string }): string {

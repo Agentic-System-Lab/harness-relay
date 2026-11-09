@@ -5486,7 +5486,7 @@ a.share-action {
 }
 
 /* A shared page (sharePage.tsx): the chat as the app shows it, with Harness Relay's name and logo,
-   and when it was shared, in a bar where the composer is. The logo and the share icon beside the time
+   and when it was shared, in a bar where the composer is. The logo and the link icon beside the time
    link to Harness Relay's website. */
 .share-brand {
   display: flex;
