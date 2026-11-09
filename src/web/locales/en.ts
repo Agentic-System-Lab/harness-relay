@@ -635,6 +635,7 @@ export const en: Messages = {
     page: {
       tagline: 'A local group chat for the real Claude Code, Codex and Grok CLIs',
       note: (date) => `Shared ${date}`,
+      site: "Harness Relay's website",
       image: (name) => `(Image not included${name ? `: ${name}` : ''})`,
       video: (name) => `(Video not included${name ? `: ${name}` : ''})`,
     },

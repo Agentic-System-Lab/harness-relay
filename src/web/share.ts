@@ -97,18 +97,24 @@ export function keepImages(base: number, sizes: (number | undefined)[], limit = 
  */
 export const SHARE_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'";
 
-/** The bar at the foot of a shared page, where the composer is in the app: Harness Relay's name, logo and website. */
-export function shareFooter(o: { logo: string; tagline: string; note: string }): string {
-  const site = HARNESS_RELAY_URL.replace(/^https:\/\//, '').replace(/\/$/, '');
-  const link = (cls: string, inner: string) =>
-    `<a class="${cls}" href="${HARNESS_RELAY_URL}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+/**
+ * The bar at the foot of a shared page, where the composer is in the app: Harness Relay's logo and
+ * name, its tagline, and when the page was shared with a share icon beside it. The logo and the icon
+ * both link to Harness Relay's website (`siteLabel` names it for the icon, which has no text).
+ */
+export function shareFooter(o: { logo: string; icon: string; tagline: string; note: string; siteLabel: string }): string {
+  const link = (cls: string, inner: string, label?: string) =>
+    `<a class="${cls}" href="${HARNESS_RELAY_URL}" target="_blank" rel="noopener noreferrer"${
+      label ? ` aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"` : ''
+    }>${inner}</a>`;
   return (
     '<footer class="share-brand">' +
     link('share-brand-name', `${o.logo}<span>Harness Relay</span>`) +
     `<span class="share-brand-tagline">${escapeHtml(o.tagline)}</span>` +
-    `<span class="share-brand-note">${escapeHtml(o.note)}</span>` +
-    link('share-brand-site', escapeHtml(site)) +
-    '</footer>'
+    // Together, so the icon stays beside the time when the bar wraps.
+    `<span class="share-brand-shared"><span class="share-brand-note">${escapeHtml(o.note)}</span>` +
+    link('share-brand-site', o.icon, o.siteLabel) +
+    '</span></footer>'
   );
 }
 

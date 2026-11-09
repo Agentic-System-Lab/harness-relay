@@ -644,6 +644,8 @@ export const zhTW = {
     page: {
       tagline: '讓真正的 Claude Code、Codex 和 Grok CLI 一起工作的本機群組聊天室',
       note: (date: string) => `分享於 ${date}`,
+      /** The share icon beside the time: it links to Harness Relay's website. */
+      site: 'Harness Relay 網站',
       image: (name: string) => `（未附上圖片${name ? `：${name}` : ''}）`,
       video: (name: string) => `（未附上影片${name ? `：${name}` : ''}）`,
     },

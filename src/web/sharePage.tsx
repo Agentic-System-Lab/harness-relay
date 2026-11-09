@@ -6,6 +6,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { SHARE_MAX_BYTES, type ChatMessage } from '../shared/types';
 import { Logo } from './components/Logo';
+import { ShareIcon } from './components/icons';
 import type { Messages } from './i18n';
 import {
   IMAGE_STEPS,
@@ -51,10 +52,10 @@ function appCss(): string {
 }
 
 /** The Harness Relay mark as SVG markup. */
-function logoSvg(): string {
+function svgOf(node: React.ReactNode): string {
   const box = document.createElement('div');
   const root = createRoot(box);
-  flushSync(() => root.render(<Logo size={20} />));
+  flushSync(() => root.render(node));
   const svg = box.innerHTML;
   root.unmount();
   return svg;
@@ -175,7 +176,16 @@ export async function sharePage(o: {
   strip(page, t);
 
   const date = new Intl.DateTimeFormat(o.lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date());
-  page.insertAdjacentHTML('beforeend', shareFooter({ logo: logoSvg(), tagline: t.share.page.tagline, note: t.share.page.note(date) }));
+  page.insertAdjacentHTML(
+    'beforeend',
+    shareFooter({
+      logo: svgOf(<Logo size={20} />),
+      icon: svgOf(<ShareIcon size={14} />),
+      tagline: t.share.page.tagline,
+      note: t.share.page.note(date),
+      siteLabel: t.share.page.site,
+    }),
+  );
 
   // The images the page holds as data URLs (diagrams already are): left empty while the page is measured.
   const images = Array.from(page.querySelectorAll('img')).filter((img) => !img.getAttribute('src')?.startsWith('data:'));

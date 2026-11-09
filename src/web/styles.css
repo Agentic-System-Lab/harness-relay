@@ -5485,8 +5485,9 @@ a.share-action {
   }
 }
 
-/* A shared page (sharePage.tsx): the chat as the app shows it, with Harness Relay's name, logo and
-   website in a bar where the composer is. */
+/* A shared page (sharePage.tsx): the chat as the app shows it, with Harness Relay's name and logo,
+   and when it was shared, in a bar where the composer is. The logo and the share icon beside the time
+   link to Harness Relay's website. */
 .share-brand {
   display: flex;
   align-items: center;
@@ -5512,13 +5513,21 @@ a.share-action {
   color: var(--text);
 }
 
-.share-brand .share-brand-site {
-  margin-left: auto;
+.share-brand .share-brand-shared {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.share-brand .share-brand-site:hover {
+.share-brand .share-brand-site {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.share-brand .share-brand-site:hover,
+.share-brand .share-brand-site:focus-visible {
   color: var(--text);
-  text-decoration: underline;
 }
 
 /* A shared page has no menu button for the title to make room for. */

@@ -118,12 +118,29 @@ describe('the shared page', () => {
     expect(shareDocument({ lang: 'en', title: 't', css: '', body: '', icon: 'https://evil.example/i.png' })).not.toContain('rel="icon"');
   });
 
-  it("carries Harness Relay's name, logo and website", () => {
-    const foot = shareFooter({ logo: '<svg class="brand-logo"></svg>', tagline: 'A <group> chat', note: 'Shared today' });
+  it("carries Harness Relay's name and logo, and a share icon beside the time; both link to its website", () => {
+    const foot = shareFooter({
+      logo: '<svg class="brand-logo"></svg>',
+      icon: '<svg class="share"></svg>',
+      tagline: 'A <group> chat',
+      note: 'Shared <today>',
+      siteLabel: 'Harness Relay\'s "website"',
+    });
     expect(foot).toContain('<svg class="brand-logo"></svg><span>Harness Relay</span>');
-    expect(foot).toContain(`href="${HARNESS_RELAY_URL}"`);
-    expect(foot).toContain('>agentic-system-lab.github.io/harness-relay</a>');
     expect(foot).toContain('A &lt;group&gt; chat');
+    // The logo and the icon go to the same place; the address itself is not shown.
+    const links = [...foot.matchAll(/<a class="([^"]+)" href="([^"]+)"/g)].map((m) => [m[1], m[2]]);
+    expect(links).toEqual([
+      ['share-brand-name', HARNESS_RELAY_URL],
+      ['share-brand-site', HARNESS_RELAY_URL],
+    ]);
+    expect(foot).not.toContain('>agentic-system-lab.github.io');
+    // The icon follows the time, and is named for screen readers.
+    expect(foot).toContain(
+      '<span class="share-brand-shared"><span class="share-brand-note">Shared &lt;today&gt;</span>' +
+        `<a class="share-brand-site" href="${HARNESS_RELAY_URL}" target="_blank" rel="noopener noreferrer" ` +
+        'aria-label="Harness Relay\'s &quot;website&quot;" title="Harness Relay\'s &quot;website&quot;"><svg class="share"></svg></a></span>',
+    );
     expect(HARNESS_RELAY_URL).toBe('https://agentic-system-lab.github.io/harness-relay/');
   });
 });
