@@ -568,6 +568,22 @@ export function planSavable(plan: Pick<TeamPlan, 'source'>): boolean {
   return plan.source === 'custom' || plan.source === 'adapted';
 }
 
+/** Longest request to the lead agent to change a team (the team drawer's "Ask the lead agent"). */
+export const REVISE_REQUEST_MAX = 4000;
+
+/**
+ * The team being edited in the team drawer, as the lead agent changed it at the user's request. It
+ * is not used until the user saves it.
+ */
+export interface TeamRevision {
+  agents: AgentConfig[];
+  settings: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops'>;
+  /** What the lead changed and why, for the user. */
+  reason: string;
+  lead: LeadAgentSettings;
+  meta?: MessageMeta;
+}
+
 export interface TeamPreset {
   id: string;
   name: string;

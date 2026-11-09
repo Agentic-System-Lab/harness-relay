@@ -7,8 +7,11 @@ import {
   applyStates,
   draftStatus,
   enterSends,
+  revisedTeam,
+  sameTeam,
   segments,
   teamToEdit,
+  teamTurns,
   thoughtTail,
   thoughtTitle,
 } from '../src/web/chat';
@@ -169,6 +172,19 @@ describe('the team drawer draft', () => {
     expect(draftStatus(planning, edited, resent)).toBe('same');
     // Just saved: the team now is the draft.
     expect(draftStatus(planning, edited, { ...edited })).toBe('refresh');
+  });
+});
+
+describe("the lead agent's change in the team drawer", () => {
+  it('sends the members and how they take turns, and changes only those', () => {
+    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/work', approvals: 'deny' as const };
+    const draft = { agents: [{ id: 'a', name: 'Alice', provider: 'claude' as const, role: '' }], settings };
+    expect(teamTurns(draft)).toEqual({ agents: draft.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 8 } });
+    const agents = [...draft.agents, { id: 'b', name: 'Bob', provider: 'codex' as const, role: 'Test.' }];
+    const next = revisedTeam(draft, { agents, settings: { mode: 'relay', rounds: 1, maxHops: 4 } });
+    expect(next).toEqual({ agents, settings: { ...settings, mode: 'relay', maxHops: 4 } });
+    // Nothing changed: the same team, so the drawer has nothing to undo or save.
+    expect(sameTeam(revisedTeam(draft, teamTurns(draft)), draft)).toBe(true);
   });
 });
 

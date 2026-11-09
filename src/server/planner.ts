@@ -139,14 +139,10 @@ const TEAM_FIELDS =
   '"name": "<short team name>", "description": "<one line>", "mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, ' +
   '"agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}]';
 
-export function buildPlannerPrompt(
-  question: string,
-  settings: ConversationSettings,
-  ctx: PlannerContext,
-  conv: PlanConversation = {},
-): string {
+/** The coding agents the lead may staff, one line each: the signed-in CLIs, their models and efforts. */
+function agentsForLead(ctx: PlannerContext): string {
   const available = ctx.available.length ? ctx.available : (Object.keys(PROVIDER_LABEL) as Provider[]);
-  const agents = available
+  return available
     .map((p) => {
       const c = ctx.catalog.find((x) => x.provider === p);
       const models = c?.models.map((m) => m.id).join(', ');
@@ -155,6 +151,15 @@ export function buildPlannerPrompt(
       }`;
     })
     .join('\n');
+}
+
+export function buildPlannerPrompt(
+  question: string,
+  settings: ConversationSettings,
+  ctx: PlannerContext,
+  conv: PlanConversation = {},
+): string {
+  const agents = agentsForLead(ctx);
   const templates = JSON.stringify(ctx.presets.map(templateForLead), null, 2);
   const current = conv.current?.agents.length ? conv.current : undefined;
   const history = conv.history?.trim();
@@ -412,4 +417,156 @@ export function keepMemberIds(next: AgentConfig[], current: AgentConfig[]): Agen
     taken.add(same.id);
     return { ...a, id: same.id };
   });
+}
+
+/*
+ * Revising a team: in the team drawer the user tells the lead agent what to change in the team being
+ * edited (the conversation's team, or the lead's design waiting for confirmation, maybe edited by hand
+ * already). The lead returns the whole team with that change, turned here into a team that can run.
+ * Nothing changes in the conversation: the drawer shows the team, and the user saves it.
+ */
+
+export const REVISER_BRIEFING =
+  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok) ' +
+  'work together on the user\'s questions. Right now your only job is to change the conversation\'s team the way the user asks. ' +
+  'Do not answer the conversation\'s questions or do the work yourself. Reply with the JSON object you are asked for and nothing else.';
+
+/** A team being edited: its members and how they take turns. */
+export interface TeamDraft {
+  agents: AgentConfig[];
+  settings: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops'>;
+}
+
+/** The conversation whose team is revised. */
+export interface ReviseConversation {
+  /** What was said so far, as the lead reads it (`historyForLead`). */
+  history?: string;
+  /** The team is the lead's design for the user's latest question, waiting for confirmation. */
+  pending?: boolean;
+  /** The conversation's schedule sends this message to the team at set times. */
+  scheduleText?: string;
+}
+
+/** Most members a team may have (as in the team editor). */
+const MAX_TEAM = 8;
+
+/** How a team takes turns, from what was sent; anything missing or invalid is taken from `fallback`. */
+export function teamSettings(raw: unknown, fallback: TeamDraft['settings']): TeamDraft['settings'] {
+  const s = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    mode: MODES.includes(s.mode as Mode) ? (s.mode as Mode) : fallback.mode,
+    rounds: clampInt(s.rounds ?? fallback.rounds, 1, 5, fallback.rounds),
+    maxHops: clampInt(s.maxHops ?? fallback.maxHops, 1, 30, fallback.maxHops),
+  };
+}
+
+export function buildRevisePrompt(
+  request: string,
+  team: TeamDraft,
+  settings: Pick<ConversationSettings, 'permission' | 'cwd'>,
+  ctx: PlannerContext,
+  conv: ReviseConversation = {},
+): string {
+  const history = conv.history?.trim();
+  const scheduled = conv.scheduleText?.trim();
+  const opening = conv.pending
+    ? "The user is reviewing the team you designed for their latest question, which it has not answered yet, and asks you to change it. Once the user saves the team, it answers that question."
+    : 'The user is editing the team of this conversation and asks you to change it. The changed team answers from the next turn on.';
+  return `${opening} Change the team the way the user asks, and keep everything else as it is. The user reviews your team before it is used.
+${
+  history
+    ? `
+The conversation so far, oldest first (long messages are shortened):
+<conversation>
+${history}
+</conversation>
+`
+    : ''
+}
+The team now (members in speaking order):
+<team>
+${JSON.stringify(teamForLead(team.settings, team.agents), null, 2)}
+</team>
+${
+  scheduled
+    ? `
+The conversation has a schedule: the team also gets this message at set times, with nobody watching:
+<scheduled_message>
+${scheduled}
+</scheduled_message>
+Only the members a message @mentions answer it, so keep the members it @mentions under those names unless the user asks otherwise.
+`
+    : ''
+}
+What the user asks you to change:
+<request>
+${request}
+</request>
+
+Coding agents you can use (only these):
+${agentsForLead(ctx)}
+
+Conversation modes:
+${MODES.map((m) => `- ${m}: ${MODE_HELP[m]}`).join('\n')}
+
+The file permission "${settings.permission}" and the working directory ${settings.cwd} are the user's to set; you cannot change them.
+
+Templates (built-in and saved by the user), in full, in case the user refers to one:
+<templates>
+${JSON.stringify(ctx.presets.map(templateForLead), null, 2)}
+</templates>
+
+How to change the team:
+- Change only what the user asks for, and what that change needs (for example, roles that hand off to a member who was renamed or removed). Copy every other member exactly as it is.
+- A member who stays keeps its name and coding agent: then it keeps what it learned in this conversation. Renaming a member or moving it to another coding agent starts it afresh, so do that only when the user asks for it.
+- Write a new or rewritten role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
+- Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. At most ${MAX_TEAM} members.
+- "model" and "effort": for a member who stays, leave them out to keep what it has, or give "" for its coding agent's default. For a new member, leave them out unless the work clearly needs a stronger or faster model than the default.
+- When the request cannot be done this way (for example, it asks to change the file permission), return the team as it is and say why in the reason.
+
+Write the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools unless the change depends on the files in the working directory.
+
+Reply with only this JSON object, in a \`\`\`json code block, with the whole team (every member, in speaking order):
+{"mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}], "reason": "<what you changed and why: one or two sentences for the user>"}`;
+}
+
+/**
+ * Turn the lead's revised team into one that can run. Members who stay (same name, ignoring case, and
+ * same CLI) keep what the lead does not see — their id (and with it their CLI session) and their tools
+ * — and the model and effort the lead left out. A changed model or effort, and every new member, is
+ * fitted to the CLIs here (`fitAgents`); a member who stays keeps its CLI even when that one is signed
+ * out, since the user chose it. Throws (with a user-readable message) when the team is unusable.
+ */
+export function decideRevision(
+  raw: Record<string, any>,
+  draft: TeamDraft,
+  ctx: PlannerContext,
+  lead: LeadAgentSettings,
+): TeamDraft & { reason: string } {
+  const taken = new Map<string, AgentConfig>(); // id → the draft member who stays
+  const members = (Array.isArray(raw.agents) ? raw.agents.slice(0, MAX_TEAM) : []).map((a: any) => {
+    const m = a && typeof a === 'object' ? (a as Record<string, unknown>) : {};
+    const name = String(m.name ?? '').trim().replace(/^@/, '').replace(/\s+/g, '_');
+    const provider = String(m.provider ?? '').toLowerCase();
+    const same = draft.agents.find((d) => !taken.has(d.id) && d.provider === provider && d.name.toLowerCase() === name.toLowerCase());
+    if (same) taken.set(same.id, same);
+    // Left out: as it was (a member who stays), or the CLI's default (a new one); "" is the default.
+    const kept = (key: 'model' | 'effort' | 'role') => (key in m ? String(m[key] ?? '') : (same?.[key] ?? ''));
+    return {
+      ...(same ? { id: same.id, ...(same.tools ? { tools: same.tools } : {}) } : {}),
+      name,
+      provider,
+      role: kept('role'),
+      model: kept('model'),
+      effort: kept('effort').toLowerCase(),
+    };
+  });
+  const agents = validateAgents(members).map((a) => {
+    const same = taken.get(a.id);
+    if (!same) return fitAgents([a], ctx, lead)[0]!;
+    if ((a.model || undefined) === (same.model || undefined) && (a.effort || undefined) === (same.effort || undefined)) return a;
+    // Its CLI stays (no remapping); only a model or effort that CLI does not offer is dropped.
+    return { ...fitAgents([a], { ...ctx, available: [] }, lead)[0]!, id: a.id };
+  });
+  return { agents, settings: teamSettings(raw, draft.settings), reason: String(raw.reason ?? '').trim().slice(0, 800) };
 }

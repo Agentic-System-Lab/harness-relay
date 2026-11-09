@@ -25,6 +25,7 @@ import { RoleText } from './RoleText';
 import { ScheduleDrawer } from './ScheduleDrawer';
 import { ShareDialog } from './ShareDialog';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
+import { TeamReviser } from './TeamReviser';
 import { useDialog } from './useDialog';
 
 /** How long to wait before reconnecting when the browser gave up on the event stream. */
@@ -788,6 +789,8 @@ function TeamDrawer({
   const [base, setBase] = useState<Team>(current);
   const [team, setTeam] = useState<Team>(current);
   const [saving, setSaving] = useState(false);
+  /** The lead agent is changing the team at the user's request. */
+  const [revising, setRevising] = useState(false);
   // Auto team: there are members to edit once the lead agent has designed a team.
   const members = !conv.settings.autoTeam || current.agents.length > 0;
   const problems = teamProblems(team, t, { members });
@@ -847,16 +850,21 @@ function TeamDrawer({
             {t.schedule.teamNote(describeRepeat(conv.schedule.repeat, t, lang))}
           </p>
         )}
-        <TeamEditor
-          value={team}
-          onChange={setTeam}
-          providers={providers}
-          catalog={catalog}
-          members={members}
-          proposed={proposed}
-          leadLabel={leadText}
-          schedule={conv.schedule}
-        />
+        {/* Before the lead agent has designed a team there are no members to change. */}
+        {members && <TeamReviser convId={conv.id} team={team} leadText={leadText} onChange={setTeam} onBusy={setRevising} />}
+        {/* While the lead agent changes the team, it holds still. */}
+        <fieldset className="team-fieldset" disabled={revising}>
+          <TeamEditor
+            value={team}
+            onChange={setTeam}
+            providers={providers}
+            catalog={catalog}
+            members={members}
+            proposed={proposed}
+            leadLabel={leadText}
+            schedule={conv.schedule}
+          />
+        </fieldset>
         <footer className="drawer-foot">
           {status === 'conflict' ? (
             <span className="error-line">
@@ -874,7 +882,7 @@ function TeamDrawer({
           </button>
           <button
             className="primary"
-            disabled={saving || running || problems.length > 0 || status === 'conflict'}
+            disabled={saving || running || revising || problems.length > 0 || status === 'conflict'}
             onClick={save}
           >
             {t.common.save}

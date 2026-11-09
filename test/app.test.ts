@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FILE_LIMITS, SHARE_MAX_BYTES, type Conversation, type SettingsView, type WorkingDirectories } from '../src/shared/types';
+import { FILE_LIMITS, SHARE_MAX_BYTES, type Conversation, type SettingsView, type TeamRevision, type WorkingDirectories } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -668,6 +668,63 @@ describe('a team design waiting for confirmation', () => {
     const fixed = await createConversation({ permission: 'read-only' });
     const on = await app.request(`/api/conversations/${fixed.id}`, json('PATCH', { settings: { ...fixed.settings, autoTeam: true } }));
     expect(((await on.json()) as Conversation).settings.autoTeam).toBeUndefined();
+  });
+});
+
+describe('POST /api/conversations/:id/revise-team', () => {
+  const revise = (id: string, body: unknown, init: RequestInit = {}) =>
+    app.request(`/api/conversations/${id}/revise-team`, { ...json('POST', body, { 'x-relay-lang': 'en' }), ...init });
+
+  it("returns the lead agent's change to the team sent, and saves nothing", async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const before = runners.claude;
+    let prompt = '';
+    runners.claude = {
+      provider: 'claude',
+      async run(o) {
+        prompt = o.prompt;
+        const team = {
+          mode: 'parallel',
+          rounds: 2,
+          agents: [
+            { name: 'Alice', provider: 'claude', role: 'Lead.' },
+            { name: 'Bob', provider: 'claude', role: 'Check.' },
+          ],
+          reason: 'Added Bob.',
+        };
+        o.onEvent({ type: 'text', text: JSON.stringify(team) });
+        return {};
+      },
+    };
+    try {
+      const res = await revise(conv.id, { request: 'add Bob', agents: conv.agents, settings: conv.settings });
+      expect(res.status).toBe(200);
+      const r = (await res.json()) as TeamRevision;
+      expect(r).toMatchObject({ reason: 'Added Bob.', settings: { mode: 'parallel', rounds: 2, maxHops: conv.settings.maxHops } });
+      expect(r.agents.map((a) => a.name)).toEqual(['Alice', 'Bob']);
+      expect(r.agents[0]!.id).toBe(conv.agents[0]!.id);
+      expect(prompt).toContain('<request>\nadd Bob\n</request>');
+    } finally {
+      runners.claude = before;
+    }
+    const saved = (await (await get(`/api/conversations/${conv.id}`)).json()) as Conversation;
+    expect(saved.agents).toEqual(conv.agents);
+    expect(saved.settings).toEqual(conv.settings);
+
+    const empty = await revise(conv.id, { request: ' ', agents: conv.agents, settings: conv.settings });
+    expect(empty.status).toBe(400);
+    expect(((await empty.json()) as { error: string }).error).toBe('Say how the team should change first');
+  });
+
+  it('stops the lead agent when the request is closed', async () => {
+    // The fake CLI waits until it is stopped.
+    const conv = await createConversation({ permission: 'read-only' });
+    const closed = new AbortController();
+    const res = revise(conv.id, { request: 'more', agents: conv.agents, settings: conv.settings }, { signal: closed.signal });
+    await vi.waitFor(() => expect(orchestrator.anyRunning()).toBe(true));
+    closed.abort();
+    expect((await res).status).toBe(409);
+    expect(orchestrator.anyRunning()).toBe(false);
   });
 });
 

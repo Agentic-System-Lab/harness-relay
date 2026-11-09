@@ -15,7 +15,7 @@ const { Orchestrator } = await import('../src/server/orchestrator');
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { AgentRunError, runners } = await import('../src/server/agents');
-const { PLANNER_BRIEFING } = await import('../src/server/planner');
+const { PLANNER_BRIEFING, REVISER_BRIEFING } = await import('../src/server/planner');
 const { GROUPER_BRIEFING } = await import('../src/server/grouping');
 const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
 const { BUSY_RETRY_MS, MISSED_AFTER_MS, Scheduler, scheduleTime } = await import('../src/server/scheduler');
@@ -43,6 +43,10 @@ let settings: InstanceType<typeof SettingsStore>;
 let leadReply = '';
 /** When set, the fake lead agent waits for it before replying. */
 let leadGate: Promise<void> | undefined;
+/** What the fake lead agent replies when asked to change a team (team drawer). */
+let reviseReply = '';
+/** When set, the fake lead agent waits for it before changing the team (or until it is stopped). */
+let reviseGate: Promise<void> | undefined;
 /** What the fake lead agent replies when asked to sort a conversation into a sidebar group. */
 let sorterReply = '{"group": 0}';
 /** When set, the fake lead agent waits for it before sorting (or until it is stopped). */
@@ -70,6 +74,16 @@ beforeAll(() => {
         o.onEvent({ type: 'text', text: sorterReply });
         o.onEvent({ type: 'text_end' });
         return { sessionId: 'sorter-session' };
+      }
+      if (o.systemPrompt === REVISER_BRIEFING) {
+        calls.push({ name: 'reviser', prompt: o.prompt });
+        if (reviseGate && !o.signal?.aborted) {
+          await Promise.race([reviseGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
+        }
+        if (o.signal?.aborted) throw new AgentRunError('stopped', true);
+        o.onEvent({ type: 'text', text: reviseReply });
+        o.onEvent({ type: 'text_end' });
+        return { costUsd: 0.02, sessionId: 'reviser-session' };
       }
       if (o.systemPrompt === PLANNER_BRIEFING) {
         calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems });
@@ -139,6 +153,8 @@ beforeEach(() => {
   });
   leadReply = '';
   leadGate = undefined;
+  reviseReply = '';
+  reviseGate = undefined;
   sorterReply = '{"group": 0}';
   sorterGate = undefined;
   fail = undefined;
@@ -1165,6 +1181,111 @@ describe('deleting a conversation', () => {
     expect(String(await sending)).toMatch(/找不到對話/);
     expect(calls).toEqual([]);
     expect(orchestrator.isRunning(conv.id)).toBe(false);
+  });
+});
+
+describe('asking the lead agent to change the team', () => {
+  const draft = { agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 5 } };
+  const withTester = JSON.stringify({
+    mode: 'relay',
+    maxHops: 4,
+    agents: [
+      { name: 'Alice', provider: 'claude', role: 'Lead, hand off to @Tester.' },
+      { name: 'Bob', provider: 'claude', role: '' },
+      { name: 'Tester', provider: 'codex', role: 'Test it.' },
+    ],
+    reason: 'Added a tester.',
+  });
+
+  it('returns the changed team and changes nothing in the conversation', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'Fix the login bug');
+    await finish(conv.id);
+    calls = [];
+    const before = { agents: structuredClone(conv.agents), settings: structuredClone(conv.settings), messages: conv.messages.length };
+    reviseReply = 'Done:\n```json\n' + withTester + '\n```';
+
+    const r = await orchestrator.reviseTeam(conv.id, { request: '  add a tester  ', ...draft });
+    expect(calls.map((c) => c.name)).toEqual(['reviser']);
+    expect(calls[0]!.prompt).toContain('<request>\nadd a tester\n</request>');
+    expect(calls[0]!.prompt).toContain('[User]: Fix the login bug');
+    expect(calls[0]!.prompt).toContain('The user is editing the team of this conversation');
+    expect(r.reason).toBe('Added a tester.');
+    expect(r.settings).toEqual({ mode: 'relay', rounds: 1, maxHops: 4 });
+    // Alice and Bob stay (their ids, and with them their sessions); only claude is signed in here.
+    expect(r.agents.map((a) => [a.id, a.name, a.provider])).toEqual([
+      ['a', 'Alice', 'claude'],
+      ['b', 'Bob', 'claude'],
+      [r.agents[2]!.id, 'Tester', 'claude'],
+    ]);
+    expect(r.lead).toEqual(settings.lead);
+    expect(r.meta?.costUsd).toBe(0.02);
+    // The drawer shows it until the user saves it.
+    expect(conv.agents).toEqual(before.agents);
+    expect(conv.settings).toEqual(before.settings);
+    expect(conv.messages).toHaveLength(before.messages);
+    expect(store.get(conv.id)!.agents).toEqual(before.agents);
+  });
+
+  it("changes the lead agent's design waiting for confirmation, which keeps waiting", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    conv.agents = [];
+    leadReply = JSON.stringify({ choice: 'custom', name: 'Pair', mode: 'roundtable', rounds: 1, agents: draft.agents, reason: 'Two.' });
+    await orchestrator.send(conv.id, 'Plan the migration');
+    await finish(conv.id);
+    const plan = conv.messages.find((m) => m.plan)!;
+    reviseReply = withTester;
+
+    const r = await orchestrator.reviseTeam(conv.id, { request: 'add a tester', agents: plan.plan!.agents, settings: plan.plan!.settings });
+    expect(calls.at(-1)!.prompt).toContain('reviewing the team you designed for their latest question');
+    expect(calls.at(-1)!.prompt).toContain('[User]: Plan the migration');
+    // Members who stay keep the ids the design gave them.
+    expect(r.agents.slice(0, 2).map((a) => a.id)).toEqual(plan.plan!.agents!.slice(0, 2).map((a) => a.id));
+    expect(plan.plan!.awaitingConfirmation).toBe(true);
+    expect(conv.agents).toEqual([]);
+  });
+
+  it('refuses an empty request or team, and says why the lead agent could not change it', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await expect(orchestrator.reviseTeam(conv.id, { request: '   ', ...draft })).rejects.toMatchObject({ status: 400 });
+    await expect(orchestrator.reviseTeam(conv.id, { request: 'x'.repeat(4001), ...draft })).rejects.toMatchObject({ status: 400 });
+    await expect(orchestrator.reviseTeam(conv.id, { request: 'more', agents: [], settings: draft.settings })).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(orchestrator.reviseTeam('nope', { request: 'more', ...draft })).rejects.toMatchObject({ status: 404 });
+    expect(calls).toEqual([]);
+
+    reviseReply = 'Sorry, I cannot.';
+    await expect(orchestrator.reviseTeam(conv.id, { request: 'more', ...draft })).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringContaining('首席 agent 沒能調整團隊'),
+    });
+    reviseReply = JSON.stringify({ agents: [{ name: 'Bad name', provider: 'nobody' }] });
+    await expect(orchestrator.reviseTeam(conv.id, { request: 'more', ...draft })).rejects.toMatchObject({ status: 503 });
+  });
+
+  it('stops when the request goes away, when a newer one comes, and when the conversation is deleted', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    reviseGate = new Promise(() => {});
+    reviseReply = withTester;
+
+    const left = new AbortController();
+    const first = orchestrator.reviseTeam(conv.id, { request: 'one', ...draft }, left.signal);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(orchestrator.anyRunning()).toBe(true);
+    left.abort();
+    await expect(first).rejects.toMatchObject({ status: 409 });
+    expect(orchestrator.anyRunning()).toBe(false);
+
+    const older = orchestrator.reviseTeam(conv.id, { request: 'two', ...draft });
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    const newer = orchestrator.reviseTeam(conv.id, { request: 'three', ...draft });
+    await expect(older).rejects.toMatchObject({ status: 409 });
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    const stopped = expect(newer).rejects.toMatchObject({ status: 409 });
+    await orchestrator.deleteConversation(conv.id);
+    await stopped;
+    expect(orchestrator.anyRunning()).toBe(false);
   });
 });
 

@@ -118,6 +118,11 @@ const zhTW = {
   planKeepFits: '首席 agent 判斷目前的團隊也適合這個問題，沿用不變。',
   planNoCurrentTeam: '這個對話還沒有團隊可以沿用',
   planAwaitingConfirm: '請先確認首席 agent 設計的團隊，團隊才會開始回答',
+  // Asking the lead agent to change a team (team drawer)
+  reviseEmpty: '請先說明想怎麼調整團隊',
+  reviseTooLong: (max: number) => `調整說明最多 ${max} 個字`,
+  reviseStopped: '已停止調整團隊',
+  reviseFailed: (why: string) => `首席 agent 沒能調整團隊（${why}）。團隊維持原樣，可以換個說法再試一次。`,
 
   // Schedules
   scheduleNotFound: '這個對話沒有排程',
@@ -352,6 +357,10 @@ const en: ServerMessages = {
   planKeepFits: 'The lead agent found the current team a good fit for this question too and keeps it as it is.',
   planNoCurrentTeam: 'this conversation has no team to keep yet',
   planAwaitingConfirm: 'Confirm the team the lead agent designed first; then the team answers',
+  reviseEmpty: 'Say how the team should change first',
+  reviseTooLong: (max) => `The request can be at most ${max} characters`,
+  reviseStopped: 'Stopped changing the team',
+  reviseFailed: (why) => `The lead agent could not change the team (${why}). The team is as it was; try saying it another way.`,
 
   scheduleNotFound: 'This conversation has no schedule',
   scheduleTextRequired: 'Type the message the schedule sends the team',

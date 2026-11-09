@@ -259,6 +259,20 @@ export const zhTW = {
     drawerReload: '載入目前的團隊',
   },
 
+  // The team drawer: asking the lead agent to change the team
+  revise: {
+    title: '請首席 agent 調整',
+    hint: (lead: string) => `說說想怎麼改，首席 agent（${lead}）會直接改好下面的團隊；你看過、按「儲存」才會套用。`,
+    placeholder: '例如：加一位用 Codex 的測試人員、改成接力模式、讓 Reviewer 專注在安全性',
+    submit: '請首席 agent 調整',
+    working: (lead: string) => `首席 agent（${lead}）正在調整團隊…`,
+    stop: '停止',
+    review: '下面的團隊已經改好，看過後按「儲存」才會套用。',
+    unchanged: '首席 agent 沒有改動團隊。',
+    undo: '復原',
+    changedMeanwhile: '首席 agent 調整期間團隊已經變更，這次的調整沒有套用，請再試一次。',
+  },
+
   newSchedule: {
     title: '新排程',
     intro: (lead: string) =>

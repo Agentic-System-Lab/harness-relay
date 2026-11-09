@@ -1,4 +1,4 @@
-import type { AgentWorktree, ChatMessage, Conversation, MessagePart, PlanEntry, TeamPlan } from '../shared/types';
+import type { AgentWorktree, ChatMessage, Conversation, MessagePart, PlanEntry, TeamPlan, TeamRevision } from '../shared/types';
 import { ApiError } from './api';
 import type { ApplyState } from './components/ChangesCard';
 import type { Team } from './components/TeamEditor';
@@ -71,6 +71,20 @@ export function teamToEdit(conv: Pick<Conversation, 'agents' | 'settings'>, pend
 export function draftStatus(base: Team, draft: Team, current: Team): 'same' | 'refresh' | 'conflict' {
   if (sameTeam(base, current)) return 'same';
   return sameTeam(base, draft) || sameTeam(draft, current) ? 'refresh' : 'conflict';
+}
+
+/** What the lead agent changes in a team (team drawer): its members and how they take turns. */
+export function teamTurns(team: Team): Pick<TeamRevision, 'agents' | 'settings'> {
+  const { mode, rounds, maxHops } = team.settings;
+  return { agents: team.agents, settings: { mode, rounds, maxHops } };
+}
+
+/**
+ * The drawer's team as the lead agent changed it: its members and how they take turns; everything else
+ * (working directory, permission, approvals, auto team) stays as it was in the drawer.
+ */
+export function revisedTeam(draft: Team, revision: Pick<TeamRevision, 'agents' | 'settings'>): Team {
+  return { agents: revision.agents, settings: { ...draft.settings, ...revision.settings } };
 }
 
 /** A phone or tablet: touch is the main input and nothing hovers (like `@media (hover: none)` in styles.css). */

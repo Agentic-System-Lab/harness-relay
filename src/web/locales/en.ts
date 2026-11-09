@@ -252,6 +252,19 @@ export const en: Messages = {
     drawerReload: 'Load the current team',
   },
 
+  revise: {
+    title: 'Ask the lead agent',
+    hint: (lead) => `Say how the team should change, and the lead agent (${lead}) changes the team below; it is used once you review it and press Save.`,
+    placeholder: 'For example: add a tester on Codex, switch to relay, have the Reviewer focus on security',
+    submit: 'Ask the lead agent',
+    working: (lead) => `The lead agent (${lead}) is changing the team…`,
+    stop: 'Stop',
+    review: 'The team below is changed. Review it, then press Save to use it.',
+    unchanged: 'The lead agent left the team as it was.',
+    undo: 'Undo',
+    changedMeanwhile: 'The team changed while the lead agent was working, so its change was not applied. Try again.',
+  },
+
   newSchedule: {
     title: 'New schedule',
     intro: (lead) =>

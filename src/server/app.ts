@@ -874,6 +874,14 @@ export function createApp({
     return c.json(orchestrator.savePlanAsPreset(c.req.param('id'), c.req.param('messageId'), b.name));
   });
 
+  // Ask the lead agent to change the team being edited in the team drawer (the drawer's team comes
+  // along). It returns the changed team, which the drawer shows until the user saves it; nothing in the
+  // conversation changes here. Closing the request (the drawer, or Stop) stops the lead agent.
+  app.post('/api/conversations/:id/revise-team', async (c) => {
+    const b = await body<{ request?: unknown; agents?: unknown; settings?: unknown }>(c);
+    return c.json(await orchestrator.reviseTeam(c.req.param('id'), b, c.req.raw.signal));
+  });
+
   // Changes made by agents: per-message diff, per-agent (worktree) diff, and applying a worktree result.
   app.get('/api/conversations/:id/messages/:messageId/diff', async (c) =>
     c.text(await orchestrator.messageDiff(c.req.param('id'), c.req.param('messageId'))),

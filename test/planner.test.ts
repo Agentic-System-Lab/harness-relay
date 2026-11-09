@@ -3,14 +3,18 @@ import { planSavable, type AgentConfig, type ChatMessage, type ProviderModels, t
 import { withLang } from '../src/server/i18n';
 import {
   buildPlannerPrompt,
+  buildRevisePrompt,
   decidePlan,
+  decideRevision,
   fallbackPlan,
   fitAgents,
   historyForLead,
   keepMemberIds,
   parsePlanReply,
   sameTeam,
+  teamSettings,
   type PlannerContext,
+  type TeamDraft,
 } from '../src/server/planner';
 import { builtinPresets } from '../src/server/presets';
 
@@ -271,5 +275,119 @@ describe('a question in a conversation', () => {
     expect(long).toContain('[User]: 39 ');
     expect(long).not.toContain('[User]: 0 ');
     expect(long.length).toBeLessThan(13000);
+  });
+});
+
+describe('changing a team at the user\'s request', () => {
+  const draft: TeamDraft = {
+    settings: { mode: 'roundtable', rounds: 2, maxHops: 8 },
+    agents: [
+      { id: 'a1', name: 'Alice', provider: 'claude', role: 'Research it.', model: 'opus', tools: { memory: false } },
+      { id: 'g1', name: 'Gus', provider: 'grok', role: 'Doubt it.', effort: 'high' },
+    ],
+  };
+  const where = { permission: 'edit' as const, cwd: '/work' };
+
+  it('shows the lead the team, the request and the conversation, and asks for the whole team back', () => {
+    const prompt = buildRevisePrompt('加一位用 Codex 的測試人員', draft, where, ctx, { history: '[User]: Fix the login bug' });
+    expect(prompt).toContain('The user is editing the team of this conversation');
+    expect(prompt).toContain('<request>\n加一位用 Codex 的測試人員\n</request>');
+    expect(prompt).toContain('<conversation>\n[User]: Fix the login bug\n</conversation>');
+    const json = prompt.slice(prompt.indexOf('<team>') + '<team>'.length, prompt.indexOf('</team>'));
+    expect(JSON.parse(json)).toEqual({
+      mode: 'roundtable',
+      rounds: 2,
+      agents: [
+        { name: 'Alice', provider: 'claude', model: 'opus', role: 'Research it.' },
+        { name: 'Gus', provider: 'grok', effort: 'high', role: 'Doubt it.' },
+      ],
+    });
+    // What it may use and must leave alone, and the templates it may be pointed at.
+    expect(prompt).toContain('- codex (Codex)');
+    expect(prompt).not.toContain('- grok (Grok)');
+    expect(prompt).toContain('The file permission "edit" and the working directory /work are the user\'s to set');
+    expect(prompt).toContain('"id": "builtin-general"');
+    expect(prompt).toContain('Copy every other member exactly as it is.');
+    expect(prompt).toContain('"reason": "<what you changed and why');
+    // No conversation yet, no schedule: neither is mentioned.
+    const bare = buildRevisePrompt('Fewer members', draft, where, ctx);
+    expect(bare).not.toContain('<conversation>');
+    expect(bare).not.toContain('<scheduled_message>');
+  });
+
+  it("tells the lead when the team is its design waiting for confirmation, and about the schedule's message", () => {
+    const prompt = buildRevisePrompt('Use relay', draft, where, ctx, { pending: true, scheduleText: '@Alice check the build' });
+    expect(prompt).toContain('reviewing the team you designed for their latest question');
+    expect(prompt).toContain('<scheduled_message>\n@Alice check the build\n</scheduled_message>');
+    expect(prompt).toContain('keep the members it @mentions under those names');
+  });
+
+  it('keeps what the lead does not see for members who stay, and fits new members to the CLIs here', () => {
+    const r = decideRevision(
+      {
+        mode: 'relay',
+        maxHops: 5,
+        agents: [
+          // Stays: renamed only in case, model and effort left out (kept), role rewritten.
+          { name: 'alice', provider: 'claude', role: 'Research it, then hand off to @Tester.' },
+          // Stays on a CLI that is signed out here: the user chose it, so it is not moved.
+          { name: 'Gus', provider: 'grok', role: 'Doubt it.', effort: 'high' },
+          // New, on a CLI that is not signed in, with a model the lead made up: fitted.
+          { name: 'Test er', provider: 'Grok', role: 'Test it.', model: 'grok-9' },
+        ],
+        reason: 'Added a tester, relay so Alice hands off.',
+      },
+      draft,
+      ctx,
+      lead,
+    );
+    expect(r.reason).toBe('Added a tester, relay so Alice hands off.');
+    expect(r.settings).toEqual({ mode: 'relay', rounds: 2, maxHops: 5 });
+    expect(r.agents[0]).toEqual({
+      id: 'a1',
+      name: 'alice',
+      provider: 'claude',
+      role: 'Research it, then hand off to @Tester.',
+      model: 'opus',
+      effort: undefined,
+      tools: { memory: false },
+    });
+    expect(r.agents[1]).toMatchObject({ id: 'g1', provider: 'grok', effort: 'high' });
+    expect(r.agents[2]).toMatchObject({ name: 'Test_er', provider: 'claude', model: undefined });
+    expect(r.agents[2]!.id).not.toMatch(/^(a1|g1)$/);
+  });
+
+  it('clears a model given as "", drops one the CLI does not offer, and moves a member to another CLI afresh', () => {
+    const r = decideRevision(
+      {
+        agents: [
+          { name: 'Alice', provider: 'claude', model: '', effort: 'turbo' },
+          { name: 'Gus', provider: 'codex', role: 'Doubt it.' },
+        ],
+      },
+      draft,
+      ctx,
+      lead,
+    );
+    // Left out: the role stays; the effort is one claude does not offer.
+    expect(r.agents[0]).toMatchObject({ id: 'a1', role: 'Research it.', model: undefined, effort: undefined });
+    // Another CLI: a new member, who starts afresh (new id, no effort carried over).
+    expect(r.agents[1]).toMatchObject({ name: 'Gus', provider: 'codex', role: 'Doubt it.', effort: undefined });
+    expect(r.agents[1]!.id).not.toBe('g1');
+    // How they take turns: what the lead left out stays.
+    expect(r.settings).toEqual(draft.settings);
+    expect(r.reason).toBe('');
+  });
+
+  it('rejects a team that cannot run', () => {
+    expect(() => decideRevision({ agents: [] }, draft, ctx, lead)).toThrow();
+    expect(() => decideRevision({ agents: [{ name: 'A', provider: 'claude' }, { name: 'a', provider: 'codex' }] }, draft, ctx, lead)).toThrow();
+    expect(() => decideRevision({ agents: [{ name: 'A!', provider: 'claude' }] }, draft, ctx, lead)).toThrow();
+  });
+
+  it('reads how a team takes turns, keeping what is missing or invalid', () => {
+    const was = { mode: 'parallel' as const, rounds: 3, maxHops: 7 };
+    expect(teamSettings(undefined, was)).toEqual(was);
+    expect(teamSettings({ mode: 'chaos', rounds: 99, maxHops: '4' }, was)).toEqual({ mode: 'parallel', rounds: 5, maxHops: 4 });
   });
 });

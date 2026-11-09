@@ -27,6 +27,7 @@ import type {
   SharedPage,
   SkillCandidate,
   TeamPreset,
+  TeamRevision,
   ToolLibraryUpdate,
   ToolLibraryView,
   VoiceModelId,
@@ -67,12 +68,13 @@ function headers(json: boolean): Record<string, string> {
   return json ? { 'X-Relay-Lang': currentLang(), 'Content-Type': 'application/json' } : { 'X-Relay-Lang': currentLang() };
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, {
     method,
     // Always JSON: the server rejects non-JSON writes as a CSRF guard.
     headers: headers(method !== 'GET'),
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -163,6 +165,9 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/decline-plan`),
   savePlan: (id: string, messageId: string, name?: string) =>
     request<TeamPreset>('POST', `/api/conversations/${id}/messages/${messageId}/save-plan`, { name }),
+  /** Ask the lead agent to change the team being edited (nothing is saved); aborting `signal` stops it. */
+  reviseTeam: (id: string, b: { request: string } & Pick<TeamRevision, 'agents' | 'settings'>, signal?: AbortSignal) =>
+    request<TeamRevision>('POST', `/api/conversations/${id}/revise-team`, b, signal),
   stop: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/stop`),
   /** Put the conversation's shared page (made by sharePage.tsx) on the web as a secret gist; `upTo`: the reply it ends with. */
   share: (id: string, html: string, upTo?: string) => request<SharedPage>('POST', `/api/conversations/${id}/share`, { html, upTo }),

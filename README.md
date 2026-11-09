@@ -17,7 +17,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 ## Features
 
 - **Three coding agents in one chat** — runs the `claude`, `codex` and `grok` CLIs you already have, with their own tools, sessions and logins.
-- **Design teams as templates** — roles, model, reasoning effort, turn order; five built-in templates (coding and general questions) to copy, and your own to add and change on the New chat page. The current team can be adjusted mid-chat.
+- **Design teams as templates** — roles, model, reasoning effort, turn order; five built-in templates (coding and general questions) to copy, and your own to add and change on the New chat page. The current team can be adjusted mid-chat, by hand or by telling the lead agent what to change.
 - **Attach files** — paste screenshots, drop files or use 📎; every agent gets the files, and images are shown to all three CLIs directly.
 - **Voice input (optional)** — press 🎙 in the message box and speak; [whisper.cpp](https://github.com/ggml-org/whisper.cpp) turns it into text on your computer, and recordings never leave it. Nothing is installed until you want it: the first press explains what gets downloaded, then installs the engine and a model in the background (follow it, switch models or remove it in Settings). macOS (Homebrew, Metal GPU), Linux and Windows (x64 / arm64).
 - **A team for every question** — a lead agent reads your question, the conversation so far, the current team and every template in full, then keeps the team, uses a template as it is, adapts one, or designs a new team, and says why. You confirm it (or let it answer right away) and the team answers; follow-ups that @mention a member go straight to them. Save the teams it designs or adapts as templates.

@@ -15,9 +15,10 @@ import type {
   Provider,
   RunPause,
   TeamPreset,
+  TeamRevision,
 } from '../shared/types';
 import { splitAsk } from '../shared/ask';
-import { pendingPlan, planSavable } from '../shared/types';
+import { REVISE_REQUEST_MAX, pendingPlan, planSavable } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import type { ApprovalRequest } from './agents/types';
 import type { TraceSink } from './agentsview';
@@ -27,15 +28,20 @@ import { AutoGrouper } from './grouping';
 import type { Hub } from './hub';
 import {
   PLANNER_BRIEFING,
+  REVISER_BRIEFING,
   buildPlannerPrompt,
+  buildRevisePrompt,
   decidePlan,
+  decideRevision,
   fallbackPlan,
   historyForLead,
   keepMemberIds,
   parsePlanReply,
+  teamSettings,
   type PlanConversation,
   type PlanDecision,
   type PlannerContext,
+  type TeamDraft,
 } from './planner';
 import {
   attachmentsDir,
@@ -73,6 +79,7 @@ import {
   worktreeHead,
 } from './workspace';
 import { isDefaultTitle, t } from './i18n';
+import { validateAgents } from './validate';
 import { scheduleTime } from './scheduler';
 
 export { HttpError };
@@ -290,6 +297,8 @@ export class Orchestrator {
   private approvals = new Map<string, { convId: string; resolve: (a: ApprovalAnswer & { expired?: boolean }) => void }>();
   /** Sorts new conversations into the user's sidebar groups. */
   private grouper: AutoGrouper;
+  /** The lead agent changing a team at the user's request (team drawer), by conversation: one at a time each. */
+  private revisions = new Map<string, { abort: AbortController; done: Promise<TeamRevision> }>();
 
   constructor(
     private store: Store,
@@ -318,7 +327,7 @@ export class Orchestrator {
 
   /** Some conversation is replying, being set up, or being sorted into a group. */
   anyRunning(): boolean {
-    return this.runs.size > 0 || this.starting.size > 0 || this.grouper.busy;
+    return this.runs.size > 0 || this.starting.size > 0 || this.grouper.busy || this.revisions.size > 0;
   }
 
   /** Running, or reserved by a request that will change it. */
@@ -374,6 +383,11 @@ export class Orchestrator {
         await run.done;
       }
       await this.grouper.cancel(convId);
+      const revision = this.revisions.get(convId);
+      if (revision) {
+        revision.abort.abort();
+        await revision.done.catch(() => undefined);
+      }
       const conv = this.store.get(convId);
       if (conv) await this.cleanupWorktrees(conv);
       // A schedule that opened it no longer links to it.
@@ -389,7 +403,11 @@ export class Orchestrator {
 
   /** Every run finished (or `ms` passed): used on shutdown before the database closes. */
   async settled(ms: number): Promise<void> {
-    const all = Promise.allSettled([...this.runs.values()].map((r) => r.done).concat(this.grouper.settled()));
+    const all = Promise.allSettled([
+      ...[...this.runs.values()].map((r) => r.done),
+      ...[...this.revisions.values()].map((r) => r.done),
+      this.grouper.settled(),
+    ]);
     await Promise.race([all, new Promise((r) => setTimeout(r, ms).unref())]);
   }
 
@@ -945,6 +963,7 @@ export class Orchestrator {
   stopAll(): void {
     this.closing = true;
     for (const r of this.runs.values()) r.abort.abort();
+    for (const r of this.revisions.values()) r.abort.abort();
     this.grouper.stopAll();
   }
 
@@ -1280,6 +1299,89 @@ export class Orchestrator {
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
     return preset;
+  }
+
+  /**
+   * The user asks the lead agent to change the team they are editing in the team drawer (`input`: the
+   * request, and the team as it stands in the drawer: the conversation's team or the lead's design
+   * waiting for confirmation, maybe edited by hand already). The lead returns the whole team with that
+   * change; nothing changes in the conversation, since the drawer shows the team until the user saves
+   * it. A new request for the conversation stops one still running; so does `signal` (the drawer was
+   * closed, or the user stopped it).
+   */
+  async reviseTeam(convId: string, input: { request?: unknown; agents?: unknown; settings?: unknown }, signal?: AbortSignal): Promise<TeamRevision> {
+    const conv = this.store.get(convId);
+    if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
+    if (this.closing) throw new HttpError(503, t().shuttingDown);
+    const request = typeof input.request === 'string' ? input.request.trim() : '';
+    if (!request) throw new HttpError(400, t().reviseEmpty);
+    if (request.length > REVISE_REQUEST_MAX) throw new HttpError(400, t().reviseTooLong(REVISE_REQUEST_MAX));
+    const draft: TeamDraft = { agents: validateAgents(input.agents), settings: teamSettings(input.settings, conv.settings) };
+
+    this.revisions.get(convId)?.abort.abort();
+    const abort = new AbortController();
+    const stop = () => abort.abort();
+    if (signal?.aborted) abort.abort();
+    signal?.addEventListener('abort', stop, { once: true });
+    const entry = { abort, done: this.runRevision(conv, request, draft, abort.signal) };
+    this.revisions.set(convId, entry);
+    try {
+      return await entry.done;
+    } finally {
+      signal?.removeEventListener('abort', stop);
+      if (this.revisions.get(convId) === entry) this.revisions.delete(convId);
+    }
+  }
+
+  private async runRevision(conv: Conversation, request: string, draft: TeamDraft, signal: AbortSignal): Promise<TeamRevision> {
+    const lead = this.settings.lead;
+    const started = Date.now();
+    const stopped = () => new HttpError(409, t().reviseStopped);
+    let reply = '';
+    let result: RunResult;
+    let ctx: PlannerContext;
+    try {
+      ctx = await this.planner.context();
+      if (signal.aborted) throw stopped();
+      result = await runners[lead.provider].run({
+        bin: this.settings.bin(lead.provider),
+        env: this.settings.env(lead.provider),
+        nativeOff: this.settings.nativeOff(lead.provider),
+        nativeItems: this.settings.nativeItems(lead.provider),
+        prompt: buildRevisePrompt(request, draft, conv.settings, ctx, {
+          history: historyForLead(conv.messages),
+          pending: Boolean(pendingPlan(conv.messages)),
+          scheduleText: conv.schedule?.enabled ? conv.schedule.text : undefined,
+        }),
+        systemPrompt: REVISER_BRIEFING,
+        cwd: conv.settings.cwd,
+        permission: 'read-only',
+        model: lead.model || this.settings.defaultModel(lead.provider) || undefined,
+        effort: lead.effort || this.settings.defaultEffort(lead.provider) || undefined,
+        signal,
+        onEvent: (e) => {
+          if (e.type === 'text') reply += e.text;
+          else if (e.type === 'text_end') reply += '\n';
+        },
+      });
+    } catch (err) {
+      if (signal.aborted) throw stopped();
+      console.warn('[orchestrator] team revision failed:', (err as Error).message);
+      throw new HttpError(503, t().reviseFailed((err as Error).message));
+    }
+    // The lead agent's session belongs to this conversation too.
+    if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
+    if (signal.aborted) throw stopped();
+    try {
+      const revised = decideRevision(parsePlanReply(reply), draft, ctx, lead);
+      return {
+        ...revised,
+        lead,
+        meta: { durationMs: Date.now() - started, costUsd: result.costUsd, inputTokens: result.inputTokens, outputTokens: result.outputTokens },
+      };
+    } catch (err) {
+      throw new HttpError(503, t().reviseFailed((err as Error).message));
+    }
   }
 
   /** Stop keeping the commits of dropped messages that no remaining message links to. */
