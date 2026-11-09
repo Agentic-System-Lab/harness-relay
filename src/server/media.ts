@@ -29,22 +29,59 @@ export function mediaRoots(conv: Conversation, msg: ChatMessage): string[] {
   return [...roots, attachmentsDir(conv.id)];
 }
 
+/** Whether `real`, inside `root`, is in a `.git` folder (in any letter case: `.GIT` opens `.git` on macOS and Windows). */
+function inGit(real: string, root: string): boolean {
+  return relative(root, real)
+    .split(sep)
+    .some((part) => part.toLowerCase() === '.git');
+}
+
 /**
- * The real path of the image or video `ref` names, when it is one (by extension, also after
- * following symlinks) and lies inside one of `roots`. A relative `ref` is resolved against each root.
+ * The real path of the file `ref` names, when it lies inside one of `roots` (after following
+ * symlinks), outside `.git`, and `accept`s it. A relative `ref` is resolved against each root in turn.
  */
-export function resolveMedia(ref: string, roots: string[]): string | undefined {
-  if (!ref || ref.includes('\0') || !mediaType(ref)) return undefined;
+function resolveIn(ref: string, roots: string[], accept: (real: string) => boolean): string | undefined {
+  if (!ref || ref.includes('\0')) return undefined;
   for (const root of roots) {
     try {
       const realRoot = realpathSync(root);
-      const real = realpathSync(isAbsolute(ref) ? ref : resolve(realRoot, ref));
-      if (inside(real, realRoot) && mediaType(real) && statSync(real).isFile()) return real;
+      const target = resolve(realRoot, ref);
+      // Look nothing up outside the root, not even to follow a link: on Windows, \\host\… would
+      // make this computer connect to another one (and offer it the user's credentials).
+      if (!inside(target, realRoot) && !inside(target, resolve(root))) continue;
+      const real = realpathSync(target);
+      if (inside(real, realRoot) && !inGit(real, realRoot) && accept(real) && statSync(real).isFile()) return real;
     } catch {
       /* not there: try the next root */
     }
   }
   return undefined;
+}
+
+/**
+ * The real path of the image or video `ref` names, when it is one (by extension, also after
+ * following symlinks) and lies inside one of `roots`. A relative `ref` is resolved against each root.
+ */
+export function resolveMedia(ref: string, roots: string[]): string | undefined {
+  return mediaType(ref) ? resolveIn(ref, roots, (real) => Boolean(mediaType(real))) : undefined;
+}
+
+/**
+ * The real path of the file a reply links to (a PDF, slides, anything), for downloading it: inside
+ * one of `roots` after following symlinks, never in `.git`. A relative `ref` is resolved against each root.
+ */
+export function resolveDownload(ref: string, roots: string[]): string | undefined {
+  return resolveIn(ref, roots, () => true);
+}
+
+/**
+ * A Content-Disposition header for a file `name`: `inline` to show it, `attachment` to save it. The
+ * name is percent-encoded as RFC 5987 asks (also ' ( ) *), with a plain-ASCII fallback for old clients.
+ */
+export function contentDisposition(kind: 'inline' | 'attachment', name: string): string {
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+  const ascii = name.replace(/[^\x20-\x7e]|["\\%]/g, '_');
+  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
 /** A byte range from a Range header: null when there is none (or it is not a single byte range), 'invalid' when it cannot be met. */

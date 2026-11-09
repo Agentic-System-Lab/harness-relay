@@ -1,9 +1,12 @@
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown, { type Components, type Options } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
-import { localMediaPath } from '../../shared/media';
+import { fileName, localFilePath, localMediaPath } from '../../shared/media';
 import { findMentions } from '../../shared/mentions';
+import { checkDownload, checkLater, fileClicks, type DownloadState } from '../download';
+import { useT } from '../i18n';
+import { DownloadIcon } from './icons';
 import { LocalMedia } from './LocalMedia';
 import { MermaidBlock } from './Mermaid';
 
@@ -41,13 +44,36 @@ function splitMentions(node: MdNode, names: string[]): MdNode[] {
 }
 
 /** An image as a link to it (or just its text inside another link: links do not nest). */
-function imageAsLink(img: MdNode, inLink: boolean): MdNode {
+function imageAsLink(img: MdNode, inLink: boolean, opts: RelayOptions): MdNode {
   const text: MdNode = { type: 'text', value: img.alt || img.url || img.label || '' };
   if (inLink) return text;
   const data = { hProperties: { className: ['image-link'] } };
-  return img.type === 'image'
-    ? { type: 'link', url: img.url, title: img.title, children: [text], data }
-    : { type: 'linkReference', identifier: img.identifier, label: img.label, referenceType: img.referenceType, children: [text], data };
+  const link: MdNode =
+    img.type === 'image'
+      ? { type: 'link', url: img.url, title: img.title, children: [text], data }
+      : { type: 'linkReference', identifier: img.identifier, label: img.label, referenceType: img.referenceType, children: [text], data };
+  markFile(link, opts);
+  return link;
+}
+
+/** The file on this computer a link points to (by its URL, or its definition's), when there is one. */
+function linkedFile(link: MdNode, opts: RelayOptions): string | undefined {
+  if (!opts.files) return undefined;
+  const url = link.type === 'link' ? link.url : link.type === 'linkReference' ? opts.definitions.get(link.identifier ?? '') : undefined;
+  return url === undefined ? undefined : localFilePath(url);
+}
+
+/** Mark a link to a file on this computer, to be downloaded through the server (see `remarkRelay`). */
+function markFile(link: MdNode, opts: RelayOptions): void {
+  const file = linkedFile(link, opts);
+  if (file) link.data = { ...link.data, hProperties: { ...link.data?.hProperties, dataFile: file } };
+}
+
+/** The URL of each link definition (`[id]: url`), by its identifier. */
+function definitions(node: MdNode, out = new Map<string, string>()): Map<string, string> {
+  if (node.type === 'definition' && node.identifier && !out.has(node.identifier)) out.set(node.identifier, node.url ?? '');
+  for (const child of node.children ?? []) definitions(child, out);
+  return out;
 }
 
 /** A text node with each line break in it turned into a break node (`<br>`). */
@@ -60,7 +86,9 @@ function splitLines(node: MdNode): MdNode[] {
 interface RelayOptions {
   names: string[];
   media: boolean;
+  files: boolean;
   breaks: boolean;
+  definitions: Map<string, string>;
 }
 
 function transform(node: MdNode, inLink: boolean, opts: RelayOptions): void {
@@ -68,9 +96,11 @@ function transform(node: MdNode, inLink: boolean, opts: RelayOptions): void {
   const link = inLink || node.type === 'link' || node.type === 'linkReference';
   node.children = node.children.flatMap((child) => {
     // A file on this computer is shown (by path, through the server); anything else is a link.
-    const local = opts.media && !link && child.type === 'image' ? localMediaPath(child.url ?? '') : undefined;
-    if (local) return [{ ...child, data: { hProperties: { dataMedia: local } } }];
-    if (child.type === 'image' || child.type === 'imageReference') return [imageAsLink(child, link)];
+    const url = child.type === 'image' ? child.url : child.type === 'imageReference' ? opts.definitions.get(child.identifier ?? '') : undefined;
+    const local = opts.media && !link && url !== undefined ? localMediaPath(url) : undefined;
+    if (local) return [{ type: 'image', url, alt: child.alt, title: child.title, data: { hProperties: { dataMedia: local } } }];
+    if (child.type === 'image' || child.type === 'imageReference') return [imageAsLink(child, link, opts)];
+    if (child.type === 'link' || child.type === 'linkReference') markFile(child, opts);
     // Code (inline, fenced, indented) is its own node type, so only prose text gets here.
     if (child.type === 'text') {
       const lines = opts.breaks ? splitLines(child) : [child];
@@ -84,12 +114,25 @@ function transform(node: MdNode, inLink: boolean, opts: RelayOptions): void {
 /**
  * Agent output is untrusted. Images become links: loading them would let a prompt-injected agent call
  * any URL. With `media`, images and videos that are files on this computer are kept, to be shown from
- * this app's server. And @mentions of the team (and `@user`) are highlighted in prose, not in code or link text.
+ * this app's server. With `files`, links to other files on this computer (a PDF, slides…) are marked
+ * to be downloaded from this app's server; a browser opens no file: link from a web page, and none
+ * on another device. And @mentions of the team (and `@user`) are highlighted in prose, not in code or link text.
  * With `breaks`, every line break in prose is kept (Markdown joins the lines of a paragraph).
  */
-export function remarkRelay({ mentions, media = false, breaks = false }: { mentions: string[]; media?: boolean; breaks?: boolean }) {
+export function remarkRelay({
+  mentions,
+  media = false,
+  files = false,
+  breaks = false,
+}: {
+  mentions: string[];
+  media?: boolean;
+  files?: boolean;
+  breaks?: boolean;
+}) {
   const names = mentions.length ? [...mentions, 'user'] : [];
-  return (tree: MdNode) => transform(tree, false, { names, media, breaks });
+  return (tree: MdNode) =>
+    transform(tree, false, { names, media, files, breaks, definitions: media || files ? definitions(tree) : new Map() });
 }
 
 const rehypePlugins: Options['rehypePlugins'] = [[rehypeHighlight, { detect: false, ignoreMissing: true, plainText: ['mermaid'] }]];
@@ -99,7 +142,7 @@ interface HtmlNode {
   type: string;
   tagName?: string;
   value?: string;
-  properties?: { className?: unknown; dataMedia?: unknown };
+  properties?: { className?: unknown; dataMedia?: unknown; dataFile?: unknown };
   children?: HtmlNode[];
 }
 
@@ -134,15 +177,82 @@ export function tableCellClass(text: string): 'one-line' | 'wrap' {
   return textWidthEm(text.trim()) <= CELL_WRAP_EM ? 'one-line' : 'wrap';
 }
 
-function makeComponents(mediaBase: string | undefined): Components {
+/**
+ * A link to a file on this computer that a reply hands over: downloaded from this app's server. It
+ * is checked first, so that a file the server cannot hand over says why instead of failing to
+ * download. The link stays: a click checks again (the file may have been made since), and downloads
+ * once it is there. `initial` is the state before the first check (for tests rendered on the server).
+ */
+export function FileLink({
+  href,
+  path,
+  className,
+  children,
+  initial = 'unknown',
+}: {
+  href: string;
+  path: string;
+  className?: string;
+  children: ReactNode;
+  initial?: DownloadState;
+}) {
+  const t = useT();
+  // The state belongs to one URL: another one (a reference definition still streaming in) starts over.
+  const [checked, setChecked] = useState<{ href: string; state: DownloadState }>({ href, state: initial });
+  const state = checked.href === href ? checked.state : 'unknown';
+  useEffect(() => checkLater(href, (s) => setChecked({ href, state: s })), [href]);
+  const click = useMemo(
+    () =>
+      fileClicks(
+        () => checkDownload(href),
+        (s) => setChecked({ href, state: s }),
+      ),
+    [href],
+  );
+  const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (!click(state, e.currentTarget)) e.preventDefault();
+  };
+  const name = fileName(path);
+
+  return (
+    <>
+      <a
+        href={href}
+        className={className ? `${className} file-link` : 'file-link'}
+        download={name}
+        title={t.message.download(name)}
+        onClick={onClick}
+      >
+        {children}
+        <DownloadIcon size={14} />
+      </a>
+      {state === 'missing' && (
+        <span className="media-missing file-missing" title={path}>
+          {' '}
+          {t.message.downloadMissing}
+        </span>
+      )}
+    </>
+  );
+}
+
+function makeComponents(mediaBase: string | undefined, downloadBase: string | undefined): Components {
   return {
     th: ({ node, ...props }) => <th {...props} className={tableCellClass(node ? textOf(node as HtmlNode) : '')} />,
     td: ({ node, ...props }) => <td {...props} className={tableCellClass(node ? textOf(node as HtmlNode) : '')} />,
-    a: ({ href, className, children }) => (
-      <a href={href} className={className} target="_blank" rel="noreferrer">
-        {children}
-      </a>
-    ),
+    a: ({ node, href, className, children }) => {
+      // Marked by remarkRelay (only with a download URL): its href would point into this app, or nowhere.
+      const file = (node as HtmlNode | undefined)?.properties?.dataFile;
+      return typeof file === 'string' && downloadBase ? (
+        <FileLink href={`${downloadBase}?path=${encodeURIComponent(file)}`} path={file} className={className}>
+          {children}
+        </FileLink>
+      ) : (
+        <a href={href} className={className} target="_blank" rel="noreferrer">
+          {children}
+        </a>
+      );
+    },
     pre: ({ node, children, ...props }) => {
       const mermaid = mermaidSource(node as HtmlNode | undefined);
       return mermaid === undefined ? <pre {...props}>{children}</pre> : <MermaidBlock code={mermaid} />;
@@ -159,25 +269,28 @@ function makeComponents(mediaBase: string | undefined): Components {
 
 /**
  * `mediaBase`: the URL that serves this message's images and videos (`…/media`); without it, every
- * image is a link. `breaks`: show each line break as it was typed (the user's own messages), instead of
- * joining the lines of a paragraph as Markdown does.
+ * image is a link. `downloadBase`: the URL that serves the files its links point to (`…/download`);
+ * without it, such a link stays as written. `breaks`: show each line break as it was typed (the user's
+ * own messages), instead of joining the lines of a paragraph as Markdown does.
  */
 export const Markdown = memo(function Markdown({
   text,
   mentions = [],
   mediaBase,
+  downloadBase,
   breaks = false,
 }: {
   text: string;
   mentions?: string[];
   mediaBase?: string;
+  downloadBase?: string;
   breaks?: boolean;
 }) {
-  const components = useMemo(() => makeComponents(mediaBase), [mediaBase]);
+  const components = useMemo(() => makeComponents(mediaBase, downloadBase), [mediaBase, downloadBase]);
   return (
     <div className="markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, [remarkRelay, { mentions, media: Boolean(mediaBase), breaks }]]}
+        remarkPlugins={[remarkGfm, [remarkRelay, { mentions, media: Boolean(mediaBase), files: Boolean(downloadBase), breaks }]]}
         rehypePlugins={rehypePlugins}
         components={components}
       >

@@ -657,6 +657,7 @@ export const MessageItem = memo(function MessageItem({
                     text={live ? splitAsk(s.text).text : s.text}
                     mentions={mentionNames}
                     mediaBase={api.mediaBase(convId, msg.id)}
+                    downloadBase={api.downloadBase(convId, msg.id)}
                   />
                 );
               case 'tools':

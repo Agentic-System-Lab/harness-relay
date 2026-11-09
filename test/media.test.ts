@@ -2,8 +2,10 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { isVideo, localMediaPath, mediaType } from '../src/shared/media';
-import { byteRange, resolveMedia } from '../src/server/media';
+import { fileName, isVideo, localFilePath, localMediaPath, mediaType } from '../src/shared/media';
+import type { ChatMessage, Conversation } from '../src/shared/types';
+import { attachmentsDir } from '../src/server/attachments';
+import { byteRange, contentDisposition, mediaRoots, resolveDownload, resolveMedia } from '../src/server/media';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-media-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -58,6 +60,13 @@ describe('local media in replies', () => {
     expect(resolveMedia('other.png', [cwd, outside])).toBe(join(outside, 'other.png'));
   });
 
+  it('serves no media from a .git folder', () => {
+    const cwd = join(root, 'git-media');
+    mkdirSync(join(cwd, '.git'), { recursive: true });
+    writeFileSync(join(cwd, '.git', 'a.png'), 'png');
+    expect(resolveMedia('.git/a.png', [cwd])).toBeUndefined();
+  });
+
   it('reads byte ranges for video', () => {
     expect(byteRange(undefined, 100)).toBeNull();
     expect(byteRange('bytes=0-', 100)).toEqual({ start: 0, end: 99 });
@@ -66,5 +75,139 @@ describe('local media in replies', () => {
     expect(byteRange('bytes=-10', 100)).toEqual({ start: 90, end: 99 });
     expect(byteRange('bytes=100-', 100)).toBe('invalid');
     expect(byteRange('bytes=0-1,5-6', 100)).toBeNull();
+  });
+});
+
+describe('files a reply links to', () => {
+  it('takes relative and absolute paths, file: URLs and a file:line, never other sites', () => {
+    expect(localFilePath('out/deck.pptx')).toBe('out/deck.pptx');
+    expect(localFilePath('./out/Q3%20deck.pdf')).toBe('./out/Q3 deck.pdf');
+    expect(localFilePath('/Users/me/p/report.pdf?x=1#page=2')).toBe('/Users/me/p/report.pdf');
+    expect(localFilePath('file:///Users/me/p/report.pdf')).toBe('/Users/me/p/report.pdf');
+    expect(localFilePath('C:\\Users\\me\\report.pdf')).toBe('C:\\Users\\me\\report.pdf');
+    expect(localFilePath('Makefile')).toBe('Makefile');
+    expect(localFilePath('src/app.ts:42')).toBe('src/app.ts');
+    expect(localFilePath('app.ts:42:7')).toBe('app.ts');
+    expect(localFilePath('src/app.ts:10-20')).toBe('src/app.ts');
+    expect(localFilePath('src/app.ts#L42')).toBe('src/app.ts');
+    expect(localFilePath('file:///C:/Users/me/report.pdf')).toBe('C:/Users/me/report.pdf');
+    for (const url of [
+      'https://example.com/report.pdf',
+      'http://example.com:8080',
+      '//evil.example/a.pdf',
+      'mailto:me@example.com',
+      'tel:123',
+      'javascript:alert(1)//.pdf',
+      'data:application/pdf;base64,AAAA',
+      '#intro',
+      '?x=1',
+      '',
+      'out/',
+      '.',
+      '..',
+      'out/..',
+      'a%00.pdf',
+      // Another computer's share: on Windows, even looking it up would connect to it.
+      '\\\\host\\share\\a.pdf',
+      '%5C%5Chost%5Cshare%5Ca.pdf',
+      '/%2Fhost/share/a.pdf',
+      'file:////host/share/a.pdf',
+    ]) {
+      expect(localFilePath(url), url).toBeUndefined();
+    }
+    expect(fileName('out/Q3 deck.pptx')).toBe('Q3 deck.pptx');
+    expect(fileName('C:\\x\\r.pdf')).toBe('r.pdf');
+  });
+
+  it('downloads any file inside the allowed directories, never from .git or outside', () => {
+    const cwd = join(root, 'downloads');
+    const outside = join(root, 'downloads-outside');
+    mkdirSync(join(cwd, 'out'), { recursive: true });
+    mkdirSync(join(cwd, '.git'), { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(cwd, 'out', 'deck.pptx'), 'pptx');
+    writeFileSync(join(cwd, '.git', 'config'), 'secret');
+    writeFileSync(join(outside, 'other.pdf'), 'pdf');
+    symlinkSync(join(outside, 'other.pdf'), join(cwd, 'escape.pdf'));
+    symlinkSync(join(cwd, '.git', 'config'), join(cwd, 'config.txt'));
+
+    expect(resolveDownload('out/deck.pptx', [cwd])).toBe(join(cwd, 'out', 'deck.pptx'));
+    expect(resolveDownload(join(cwd, 'out', 'deck.pptx'), [cwd])).toBe(join(cwd, 'out', 'deck.pptx'));
+    expect(resolveDownload('.git/config', [cwd])).toBeUndefined();
+    expect(resolveDownload('.GIT/config', [cwd])).toBeUndefined(); // the same folder on a case-insensitive disk
+    expect(resolveDownload('config.txt', [cwd])).toBeUndefined(); // a link into .git
+    expect(resolveDownload('escape.pdf', [cwd])).toBeUndefined(); // a link out of the directory
+    expect(resolveDownload('../downloads-outside/other.pdf', [cwd])).toBeUndefined();
+    expect(resolveDownload(join(outside, 'other.pdf'), [cwd])).toBeUndefined();
+    expect(resolveDownload('out', [cwd])).toBeUndefined(); // a folder
+    expect(resolveDownload('missing.pdf', [cwd])).toBeUndefined();
+    expect(resolveDownload('', [cwd])).toBeUndefined();
+    expect(resolveDownload('a\0b', [cwd])).toBeUndefined();
+    // Later roots are tried in turn.
+    expect(resolveDownload('other.pdf', [cwd, outside])).toBe(join(outside, 'other.pdf'));
+    expect(resolveDownload('//host/share/a.pdf', [cwd])).toBeUndefined();
+  });
+
+  /** A folder of its own with out/deck.pptx and .git/config, so each test runs alone too. */
+  function project(name: string): string {
+    const dir = join(root, name);
+    mkdirSync(join(dir, 'out'), { recursive: true });
+    mkdirSync(join(dir, '.git'), { recursive: true });
+    writeFileSync(join(dir, 'out', 'deck.pptx'), 'pptx');
+    writeFileSync(join(dir, '.git', 'config'), 'secret');
+    return dir;
+  }
+
+  it('looks nothing up outside the directories, not even a link there that leads back in', () => {
+    // Followed, this would resolve inside; but a path outside is never touched (on Windows a
+    // \\host\share path would make this computer connect to another one).
+    const dir = project('lookup');
+    const back = join(root, 'lookup-back.pptx');
+    symlinkSync(join(dir, 'out', 'deck.pptx'), back);
+    expect(resolveDownload(join(dir, 'out', 'deck.pptx'), [dir])).toBe(join(dir, 'out', 'deck.pptx'));
+    expect(resolveDownload(back, [dir])).toBeUndefined();
+    expect(resolveDownload('../lookup-back.pptx', [dir])).toBeUndefined();
+  });
+
+  it('takes an absolute path written through a link to the root, as the agent sees the folder', () => {
+    const dir = project('through-link');
+    const linked = join(root, 'through-link-alias');
+    symlinkSync(dir, linked);
+    expect(resolveDownload(join(linked, 'out', 'deck.pptx'), [linked])).toBe(join(dir, 'out', 'deck.pptx'));
+    expect(resolveDownload(join(linked, '.git', 'config'), [linked])).toBeUndefined();
+  });
+
+  it('looks in the agent’s own worktree first for an isolated turn, then the working directory, then the attachments', () => {
+    const cwd = join(root, 'roots-cwd');
+    const wt = join(root, 'roots-wt');
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(wt, { recursive: true });
+    const conv = {
+      id: 'c1',
+      settings: { cwd },
+      worktrees: { a: { root: cwd, path: wt, branch: 'relay/a', base: 'x', needsReset: false } },
+    } as unknown as Conversation;
+    const reply = (isolated: boolean) =>
+      ({
+        id: 'm',
+        author: { kind: 'agent', agentId: 'a' },
+        parts: [],
+        changes: { root: cwd, base: 'x', head: 'y', files: [], isolated },
+      }) as unknown as ChatMessage;
+    expect(mediaRoots(conv, reply(true))).toEqual([wt, cwd, attachmentsDir('c1')]);
+    expect(mediaRoots(conv, reply(false))).toEqual([cwd, wt, attachmentsDir('c1')]);
+    const user = { id: 'u', author: { kind: 'user' }, parts: [] } as unknown as ChatMessage;
+    expect(mediaRoots(conv, user)).toEqual([cwd, attachmentsDir('c1')]);
+  });
+
+  it('names the file for saving, safely for any name', () => {
+    expect(contentDisposition('attachment', 'deck.pptx')).toBe(`attachment; filename="deck.pptx"; filename*=UTF-8''deck.pptx`);
+    // ' ( ) * are not allowed unencoded in filename* (RFC 5987).
+    expect(contentDisposition('attachment', "Jimmy's deck (1)*.pptx")).toBe(
+      `attachment; filename="Jimmy's deck (1)*.pptx"; filename*=UTF-8''Jimmy%27s%20deck%20%281%29%2A.pptx`,
+    );
+    expect(contentDisposition('inline', 'Q3 報告 "final" \\ 100%.pdf')).toBe(
+      `inline; filename="Q3 __ _final_ _ 100_.pdf"; filename*=UTF-8''Q3%20%E5%A0%B1%E5%91%8A%20%22final%22%20%5C%20100%25.pdf`,
+    );
   });
 });

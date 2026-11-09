@@ -19,11 +19,11 @@ import {
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
-import { fileRoots, listFolder, mediaInRoot, previewFile, readPreview } from './files';
+import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview } from './files';
 import { restoreGrokTrust, trustGrokFolder } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
-import { byteRange, mediaRoots, mediaType, resolveMedia } from './media';
+import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
 import { HttpError, forClient, type Orchestrator } from './orchestrator';
 import type { ProviderService } from './providers';
 import type { SettingsStore } from './settings';
@@ -571,7 +571,7 @@ export function createApp({
     const inline = isInlineImage(part.mimeType);
     return c.body(new Uint8Array(data), 200, {
       'Content-Type': inline ? part.mimeType : 'application/octet-stream',
-      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(part.name)}`,
+      'Content-Disposition': contentDisposition(inline ? 'inline' : 'attachment', part.name),
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; sandbox",
       'Cache-Control': 'private, max-age=31536000, immutable',
@@ -585,7 +585,17 @@ export function createApp({
     const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
     const file = msg && resolveMedia(c.req.query('path') ?? '', mediaRoots(conv, msg));
     if (!file) throw new HttpError(404, t().mediaNotFound);
-    return sendMedia(c, file);
+    return sendFile(c, file);
+  });
+
+  // A file a reply links to, e.g. [Slides](out/deck.pptx): any file inside the same folders as its
+  // media (never in .git), always as a download, so an HTML or SVG file can never run here.
+  app.get('/api/conversations/:id/messages/:messageId/download', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
+    const file = msg && resolveDownload(c.req.query('path') ?? '', mediaRoots(conv, msg));
+    if (!file) throw new HttpError(404, t().downloadNotFound);
+    return sendFile(c, file, true);
   });
 
   // --- Browsing the working directory (and agents' worktrees) -------------------
@@ -612,32 +622,49 @@ export function createApp({
   // Images and videos only, served like the media endpoint; text comes as JSON from /preview.
   app.get('/api/conversations/:id/files/raw', (c) => {
     const { roots, root, path } = fileTarget(c);
-    return sendMedia(c, mediaInRoot(rootPath(roots, root), path));
+    return sendFile(c, mediaInRoot(rootPath(roots, root), path));
   });
 
-  /** An image or video file, so that it can never run in this origin. */
-  async function sendMedia(c: Context, file: string): Promise<Response> {
+  // Any file in the folder, as a download.
+  app.get('/api/conversations/:id/files/download', (c) => {
+    const { roots, root, path } = fileTarget(c);
+    return sendFile(c, fileInRoot(rootPath(roots, root), path), true);
+  });
+
+  /**
+   * An image or video to show, or (`download`) any file to save, so that it can never run in this
+   * origin: a download has no type the browser could render, and both are sandboxed.
+   */
+  async function sendFile(c: Context, file: string, download = false): Promise<Response> {
     const { size, mtimeMs } = await stat(file);
     const etag = `W/"${size}-${Math.floor(mtimeMs)}"`;
+    const lastModified = new Date(mtimeMs).toUTCString();
     const headers: Record<string, string> = {
-      'Content-Type': mediaType(file)!,
-      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(basename(file))}`,
+      'Content-Type': download ? 'application/octet-stream' : mediaType(file)!,
+      'Content-Disposition': contentDisposition(download ? 'attachment' : 'inline', basename(file)),
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; sandbox",
       // Agents may write the file again: check before reusing a cached copy.
       'Cache-Control': 'private, no-cache',
       ETag: etag,
+      'Last-Modified': lastModified,
       'Accept-Ranges': 'bytes',
     };
     if (c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers });
-    // Videos are fetched in ranges (Safari plays nothing otherwise, and seeking needs them).
-    const range = byteRange(c.req.header('range'), size);
+    // Videos are fetched in ranges (Safari plays nothing otherwise, and seeking needs them), and a
+    // download can go on where it stopped. A download's range of a file that changed since (If-Range,
+    // which may not name a weak ETag) is the whole file again; video seeking stays as it was.
+    const ifRange = download ? c.req.header('if-range') : undefined;
+    const range = !ifRange || ifRange === lastModified ? byteRange(c.req.header('range'), size) : null;
     if (range === 'invalid') return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } });
     const { start, end } = range ?? { start: 0, end: size - 1 };
     if (range) headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
     headers['Content-Length'] = String(size ? end - start + 1 : 0);
+    const status = range ? 206 : 200;
+    // HEAD (asked to check that a file is there) gets the headers only: no file is opened.
+    if (c.req.method === 'HEAD') return new Response(null, { status, headers });
     const body = size ? (Readable.toWeb(createReadStream(file, { start, end })) as ReadableStream) : null;
-    return new Response(body, { status: range ? 206 : 200, headers });
+    return new Response(body, { status, headers });
   }
 
   // Edit one of the user's messages: everything after it is dropped and the team answers again.

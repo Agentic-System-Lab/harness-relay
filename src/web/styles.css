@@ -2205,6 +2205,17 @@ video.chat-media {
   content: '🖼 ';
 }
 
+/* A file on this computer that a reply links to: downloaded through the server. */
+.markdown a.image-link.file-link::before {
+  content: none;
+}
+
+.markdown a.file-link svg {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-left: 3px;
+}
+
 .mention {
   font-weight: 600;
   background: var(--surface-2);

@@ -6,7 +6,7 @@ import { useT } from '../i18n';
 import { codeLanguage, crumbs, filterEntries, isMarkdown, joinPath, lineCount, parentPath } from '../files';
 import { formatBytes, relativeTime } from '../util';
 import { CopyButton } from './CopyButton';
-import { ChevronIcon, CopyIcon, FolderIcon } from './icons';
+import { ChevronIcon, CopyIcon, DownloadIcon, FolderIcon } from './icons';
 import { Markdown } from './Markdown';
 import { useDialog } from './useDialog';
 
@@ -259,6 +259,17 @@ function Preview({
           {(preview?.kind === 'image' || preview?.kind === 'video') && (
             <a className="ghost small-button button-link" href={raw} target="_blank" rel="noreferrer">
               {t.files.openRaw}
+            </a>
+          )}
+          {preview && (
+            <a
+              className="ghost small-button button-link"
+              href={api.downloadFileUrl(conv.id, root, path)}
+              download={name}
+              title={t.files.downloadHint(name)}
+            >
+              <DownloadIcon size={14} />
+              {t.files.download}
             </a>
           )}
           <CopyButton className="ghost small-button" label={t.files.copyPath} icon={<CopyIcon size={14} />} text={() => fullPath} />

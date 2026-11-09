@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,6 +18,7 @@ const { AgentRunError, runners } = await import('../src/server/agents');
 const { NativeSetupService } = await import('../src/server/native');
 const { AgentsViewSync } = await import('../src/server/agentsview');
 const { expandPath } = await import('../src/server/validate');
+const { attachmentsDir } = await import('../src/server/attachments');
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -449,6 +450,8 @@ describe('images and videos in replies', () => {
     const { base } = await replyIn();
     const res = await get(base + 'out/demo.mp4', { range: 'bytes=2-5' });
     expect(res.status).toBe(206);
+    // Seeking is never turned into a whole download (If-Range applies to downloads only).
+    expect((await get(base + 'out/demo.mp4', { range: 'bytes=2-5', 'if-range': 'W/"x"' })).status).toBe(206);
     expect(res.headers.get('content-range')).toBe('bytes 2-5/10');
     expect(await res.text()).toBe('2345');
     expect((await get(base + 'out/demo.mp4', { range: 'bytes=50-' })).status).toBe(416);
@@ -462,6 +465,118 @@ describe('images and videos in replies', () => {
     expect((await get(base)).status).toBe(404);
     expect((await get(`/api/conversations/${conv.id}/messages/nope/media?path=out/chart.png`)).status).toBe(404);
     expect((await get(base + 'out/chart.png', { origin: 'https://evil.example' })).status).toBe(403);
+  });
+});
+
+describe('files replies link to', () => {
+  async function replyIn(): Promise<{ conv: Conversation; base: string }> {
+    const conv = await createConversation({ permission: 'read-only' });
+    const live = store.get(conv.id)!;
+    live.messages.push({ id: 'reply-1', author: { kind: 'agent', agentId: live.agents[0]!.id }, createdAt: Date.now(), parts: [], status: 'done' });
+    mkdirSync(join(project, 'out'), { recursive: true });
+    mkdirSync(join(project, '.git'), { recursive: true });
+    writeFileSync(join(project, 'out', 'Q3 報告.pdf'), '%PDF-1.7 0123456789');
+    writeFileSync(join(project, 'out', 'slides.html'), '<script>alert(1)</script>');
+    writeFileSync(join(project, '.git', 'config'), 'secret');
+    return { conv, base: `/api/conversations/${conv.id}/messages/reply-1/download?path=` };
+  }
+
+  it('serves any file in the working directory as a download that cannot run in the app', async () => {
+    const { base } = await replyIn();
+    const res = await get(base + encodeURIComponent('out/Q3 報告.pdf'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/octet-stream');
+    expect(res.headers.get('content-disposition')).toBe(`attachment; filename="Q3 __.pdf"; filename*=UTF-8''${encodeURIComponent('Q3 報告.pdf')}`);
+    expect(res.headers.get('content-length')).toBe('19');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-security-policy')).toContain('sandbox');
+    expect(await res.text()).toBe('%PDF-1.7 0123456789');
+    // An HTML file is a download too, never a page in this origin.
+    const html = await get(base + 'out/slides.html');
+    expect(html.headers.get('content-type')).toBe('application/octet-stream');
+    expect(html.headers.get('content-disposition')).toMatch(/^attachment;/);
+    expect((await get(base + encodeURIComponent(join(project, 'out', 'slides.html')))).status).toBe(200);
+    // A download that was cut off can go on where it stopped, unless the file changed since.
+    const pdf = base + encodeURIComponent('out/Q3 報告.pdf');
+    const since = res.headers.get('last-modified')!;
+    const rest = await get(pdf, { range: 'bytes=9-', 'if-range': since });
+    expect(rest.status).toBe(206);
+    expect(await rest.text()).toBe('0123456789');
+    const changed = await get(pdf, { range: 'bytes=9-', 'if-range': 'Thu, 01 Jan 2015 00:00:00 GMT' });
+    expect(changed.status).toBe(200);
+    expect(await changed.text()).toBe('%PDF-1.7 0123456789');
+    // A weak ETag may not be used for If-Range: the whole file again.
+    expect((await get(pdf, { range: 'bytes=9-', 'if-range': res.headers.get('etag')! })).status).toBe(200);
+    expect((await get(pdf, { range: 'bytes=50-' })).status).toBe(416);
+    expect((await get(pdf, { 'if-none-match': res.headers.get('etag')! })).status).toBe(304);
+  });
+
+  it('answers HEAD with the headers only, so the chat can check a link first', async () => {
+    const { base } = await replyIn();
+    const head = await app.request(base + 'out/slides.html', { method: 'HEAD', headers: HOST });
+    expect(head.status).toBe(200);
+    expect(head.headers.get('content-length')).toBe('25');
+    expect(head.headers.get('content-disposition')).toMatch(/^attachment;/);
+    expect(await head.text()).toBe('');
+    expect((await app.request(base + 'out/missing.pdf', { method: 'HEAD', headers: HOST })).status).toBe(404);
+  });
+
+  // A stream reads ahead 64 KiB: a smaller file closes by itself, a larger one stayed open for good.
+  it.skipIf(process.platform === 'win32')('opens no file for HEAD, so checking links leaves nothing open', async () => {
+    const { base } = await replyIn();
+    writeFileSync(join(project, 'out', 'big.pptx'), Buffer.alloc(1024 * 1024, 1));
+    const open = () => readdirSync('/dev/fd').length;
+    const before = open();
+    for (let i = 0; i < 40; i++) {
+      const res = await app.request(base + 'out/big.pptx', { method: 'HEAD', headers: HOST });
+      expect(res.headers.get('content-length')).toBe(String(1024 * 1024));
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    expect(open() - before).toBeLessThan(10);
+  });
+
+  it("serves an isolated turn's file from the agent's own worktree, and attached files", async () => {
+    const { conv, base } = await replyIn();
+    const live = store.get(conv.id)!;
+    const agentId = live.agents[0]!.id;
+    const wt = join(root, `worktree-${n}`);
+    mkdirSync(join(wt, 'out'), { recursive: true });
+    writeFileSync(join(wt, 'out', 'slides.html'), 'from the worktree');
+    live.worktrees[agentId] = { root: project, path: wt, branch: 'relay/x', base: 'b', needsReset: false };
+    const reply = live.messages.find((m) => m.id === 'reply-1')!;
+    reply.changes = { root: project, base: 'b', head: 'h', files: [], isolated: true };
+    expect(await (await get(base + 'out/slides.html')).text()).toBe('from the worktree');
+    // Not yet applied, so only the worktree has it; a shared turn looks in the working directory first.
+    writeFileSync(join(wt, 'out', 'only-here.csv'), 'a,b');
+    expect((await get(base + 'out/only-here.csv')).status).toBe(200);
+    reply.changes = { ...reply.changes, isolated: false };
+    expect(await (await get(base + 'out/slides.html')).text()).toBe('<script>alert(1)</script>');
+
+    const attached = join(attachmentsDir(conv.id), 'att-1', 'brief.docx');
+    mkdirSync(join(attachmentsDir(conv.id), 'att-1'), { recursive: true });
+    writeFileSync(attached, 'docx');
+    expect(await (await get(base + encodeURIComponent(attached))).text()).toBe('docx');
+  });
+
+  it('works through a host name the server was told to allow, such as its Tailscale name', async () => {
+    const { base } = await replyIn();
+    // As started with RELAY_ALLOWED_HOSTS=my-computer.tail1234.ts.net, behind `tailscale serve`.
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    app = createApp({ store, settings, hub: new Hub(), orchestrator, providers: new ProviderService(settings), extraHosts: ['my-computer.tail1234.ts.net'] });
+    const viaTailnet = (host: string) => app.request(base + 'out/slides.html', { headers: { host } });
+    expect((await viaTailnet('my-computer.tail1234.ts.net')).status).toBe(200);
+    expect((await viaTailnet('my-computer.tail1234.ts.net:443')).status).toBe(200);
+    expect((await viaTailnet('other.tail1234.ts.net')).status).toBe(403);
+  });
+
+  it('refuses files outside the working directory, in .git, folders and unknown messages', async () => {
+    const { conv, base } = await replyIn();
+    writeFileSync(join(root, `outside-${n}.pdf`), 'pdf');
+    for (const bad of ['', 'out', 'missing.pdf', '.git/config', '.GIT/config', `../outside-${n}.pdf`, join(root, `outside-${n}.pdf`)]) {
+      expect((await get(base + encodeURIComponent(bad))).status, bad).toBe(404);
+    }
+    expect((await get(`/api/conversations/${conv.id}/messages/nope/download?path=out/slides.html`)).status).toBe(404);
+    expect((await get(base + 'out/slides.html', { origin: 'https://evil.example' })).status).toBe(403);
   });
 });
 
@@ -739,6 +854,20 @@ describe('browsing files', () => {
     expect(raw.headers.get('x-content-type-options')).toBe('nosniff');
     expect(raw.headers.get('content-security-policy')).toContain('sandbox');
     expect((await get(`${base}/raw?path=src/a.ts`)).status).toBe(404);
+
+    // Any file can be downloaded, never so that it runs in the app.
+    const download = await get(`${base}/download?path=src/a.ts`);
+    expect(download.status).toBe(200);
+    expect(download.headers.get('content-type')).toBe('application/octet-stream');
+    expect(download.headers.get('content-disposition')).toBe(`attachment; filename="a.ts"; filename*=UTF-8''a.ts`);
+    expect(download.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(download.headers.get('content-security-policy')).toContain('sandbox');
+    expect(await download.text()).toBe('const a = 1;\n');
+    mkdirSync(join(project, '.git'), { recursive: true });
+    writeFileSync(join(project, '.git', 'config'), 'secret');
+    for (const bad of ['src', '.git/config', '.GIT/config', '../x', '/etc/passwd', 'missing']) {
+      expect((await get(`${base}/download?path=${encodeURIComponent(bad)}`)).status, bad).toBe(404);
+    }
 
     for (const bad of ['..', '../..', '/etc/passwd', '.git', 'missing']) {
       expect((await get(`${base}?path=${encodeURIComponent(bad)}`)).status, bad).toBe(404);
