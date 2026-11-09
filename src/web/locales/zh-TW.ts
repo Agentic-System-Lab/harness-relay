@@ -679,6 +679,7 @@ export const zhTW = {
       upTo: (name: string) => `到 @${name} 的回覆`,
       openChat: '開啟對話',
       chatGone: '對話已刪除',
+      openGist: '開啟 GitHub 上的 gist',
       removed: (n: number) => `已移除 ${n} 個分享。`,
       failed: (title: string, error: string) => `「${title}」沒有移除：${error}`,
     },

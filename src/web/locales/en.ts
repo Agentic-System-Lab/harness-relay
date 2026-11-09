@@ -668,6 +668,7 @@ export const en: Messages = {
       upTo: (name) => `Up to @${name}'s reply`,
       openChat: 'Open chat',
       chatGone: 'Chat deleted',
+      openGist: 'Open the gist on GitHub',
       removed: (n) => `Removed ${n} shared ${n === 1 ? 'page' : 'pages'}.`,
       failed: (title, error) => `"${title}" was not removed: ${error}`,
     },
