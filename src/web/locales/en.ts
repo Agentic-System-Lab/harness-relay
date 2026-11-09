@@ -899,6 +899,16 @@ export const en: Messages = {
         ],
       },
       {
+        title: 'Messages on a schedule',
+        body: "Schedule in a chat's header sends its team a message at set times, as if you had sent it:",
+        points: [
+          'Once, every day, every week on the days you pick, or every few hours; once saved, "Run once now" tries it out',
+          'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat) and the agent works around it; or choose "Ask me"',
+          'It sends only while Harness Relay runs: a missed time is skipped, or sent once when it starts if you choose',
+          'A clock in the sidebar marks the conversation, amber when the last time was not sent',
+        ],
+      },
+      {
         title: 'Groups and search',
         body: 'When the list grows, sort it into groups:',
         points: [
