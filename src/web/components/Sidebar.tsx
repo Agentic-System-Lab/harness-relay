@@ -80,6 +80,7 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
           {/* An icon only, so New chat keeps the row: a calendar with a plus, unlike Search's magnifier. */}
           <button
             className="new-chat new-schedule"
+            data-tour="new-schedule"
             onClick={() => navigate({ page: 'schedule' })}
             aria-label={t.sidebar.newSchedule}
             title={t.sidebar.newSchedule}

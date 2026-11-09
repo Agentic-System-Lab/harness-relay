@@ -25,7 +25,7 @@ export const TOUR_TARGETS: (string | undefined)[] = [
   undefined, // when the team needs you
   undefined, // file permission
   undefined, // browsing files (the button is in a chat's header)
-  undefined, // schedules (the button is in a chat's header too)
+  'new-schedule', // schedules (New schedule, beside New chat)
   'organize', // groups and search
   'settings', // tool library
   'settings', // agent sessions and AgentsView

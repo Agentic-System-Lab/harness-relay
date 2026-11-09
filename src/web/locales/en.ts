@@ -898,7 +898,7 @@ export const en: Messages = {
       },
       {
         title: 'Start a new chat',
-        body: "A new chat only needs a working directory and a file permission. Team design lives in templates: on the new chat page you can look at the built-in ones, or add and change your own, choosing each member's position, model and reasoning effort. The calendar button beside it starts a new schedule instead: set the message and the times, and the lead agent designs its team.",
+        body: "A new chat only needs a working directory and a file permission. Team design lives in templates: on the new chat page you can look at the built-in ones, or add and change your own, choosing each member's position, model and reasoning effort.",
       },
       {
         title: 'A team for every question',
@@ -967,7 +967,7 @@ export const en: Messages = {
       },
       {
         title: 'Messages on a schedule',
-        body: "Schedule in a chat's header (under ⋯ on a phone) sends its team a message at set times, as if you had sent it:",
+        body: "New schedule, the calendar button beside New chat at the top left of the sidebar, sends a team a message at set times, as if you had sent it: write the message, pick the times, and the lead agent designs its team. For a chat you already have, use Schedule in its header (under ⋯ on a phone):",
         points: [
           'Once, every day, every week on the days you pick, or every few hours; once saved, "Run once now" tries it out',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
