@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
+  FILE_LIMITS,
   GROUP_LIMITS,
   PROVIDERS,
   VOICE_MAX_SECONDS,
@@ -16,10 +17,12 @@ import {
   type Provider,
   type ServerEvent,
   type TeamPreset,
+  type ZipCheck,
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
-import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview } from './files';
+import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
+import { zipStream } from './zip';
 import { restoreGrokTrust, trustGrokFolder } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
@@ -684,6 +687,42 @@ export function createApp({
   app.get('/api/conversations/:id/files/download', (c) => {
     const { roots, root, path } = fileTarget(c);
     return sendFile(c, fileInRoot(rootPath(roots, root), path), true);
+  });
+
+  /** The name a root's ZIP file goes by: an agent's worktree is named after the folder and the agent. */
+  const zipName = (c: Context, root: string): string | undefined => {
+    if (root === 'cwd') return undefined;
+    const conv = getConv(c.req.param('id') ?? '');
+    const agent = conv.agents.find((a) => a.id === root);
+    return `${basename(conv.settings.cwd)}-${agent?.name ?? root}`;
+  };
+
+  // What downloading a folder as a ZIP file would hold: all of it, or (when that is too much) only
+  // what git does not ignore. Nothing is read or zipped.
+  app.get('/api/conversations/:id/files/zip/check', async (c) => {
+    const { roots, root, path } = fileTarget(c);
+    const dir = rootPath(roots, root);
+    const size = (p: ZipPlan | null) => (p ? { files: p.files, bytes: p.bytes } : null);
+    const all = await zipPlan(dir, path);
+    const check: ZipCheck = { all: size(all), ...(all ? {} : { unignored: size(await zipPlan(dir, path, { unignored: true })) }) };
+    return c.json(check);
+  });
+
+  // A folder (the root too) as a ZIP file, zipped as it is sent; `unignored=1`: only what git does not
+  // ignore. Like any download, it has no type the browser could render here.
+  app.get('/api/conversations/:id/files/zip', async (c) => {
+    const { roots, root, path } = fileTarget(c);
+    const plan = await zipPlan(rootPath(roots, root), path, { unignored: c.req.query('unignored') === '1', name: zipName(c, root) });
+    if (!plan) throw new HttpError(413, t().zipTooBig(FILE_LIMITS.zipItems, FILE_LIMITS.zipBytes / 1024 ** 3));
+    const headers = {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': contentDisposition('attachment', `${plan.name}.zip`),
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Cache-Control': 'no-store',
+    };
+    if (c.req.method === 'HEAD') return new Response(null, { headers });
+    return new Response(Readable.toWeb(Readable.from(zipStream(plan.entries))) as ReadableStream, { headers });
   });
 
   /**

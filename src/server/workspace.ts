@@ -83,6 +83,22 @@ export async function repoRoot(dir: string): Promise<string | null> {
   return r.code === 0 ? realpathSync(out(r)) : null;
 }
 
+/**
+ * The files under `dir` that git does not ignore (tracked, or untracked and not ignored), relative to
+ * `dir` with `/`; null when `dir` is not in a repository, 'too-many' when the list is huge (16 MB).
+ */
+export async function unignoredFiles(dir: string): Promise<string[] | 'too-many' | null> {
+  const r = await git(dir, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
+    allowFail: true,
+    maxCapture: 16 * 1024 * 1024,
+    keepStart: true,
+  });
+  if (r.code !== 0) return null;
+  if (r.stdoutTruncated) return 'too-many';
+  // A tracked file deleted from the working tree is listed too: the caller skips what is not there.
+  return [...new Set(r.stdout.split('\0').filter(Boolean))];
+}
+
 /** Make sure `dir` is inside a git repository, running `git init` when it is not. */
 export async function ensureRepo(dir: string): Promise<{ root: string; created: boolean }> {
   const existing = await repoRoot(dir);

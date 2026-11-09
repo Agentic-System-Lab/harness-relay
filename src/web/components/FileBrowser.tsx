@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FILE_LIMITS, type Conversation, type FileEntry, type FileListing, type FilePreview } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
-import { codeLanguage, crumbs, filterEntries, isMarkdown, joinPath, lineCount, parentPath } from '../files';
+import { codeLanguage, crumbs, filterEntries, isMarkdown, joinPath, lineCount, parentPath, zipChoice } from '../files';
 import { formatBytes, relativeTime } from '../util';
 import { CopyButton } from './CopyButton';
 import { ChevronIcon, CopyIcon, DownloadIcon, FolderIcon } from './icons';
@@ -29,6 +29,9 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
   const [listError, setListError] = useState('');
   const [query, setQuery] = useState('');
   const [reload, setReload] = useState(0);
+  /** The folder being zipped (its name), and why the last one could not be. */
+  const [zipping, setZipping] = useState<string | null>(null);
+  const [zipError, setZipError] = useState('');
 
   useEffect(() => {
     lastPlace.set(conv.id, { root, dir, file });
@@ -66,6 +69,34 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
     if (id === 'cwd') return t.files.workingDir;
     const agent = conv.agents.find((a) => a.id === id);
     return t.files.worktree(agent?.name ?? id);
+  };
+
+  /**
+   * Download a folder (the root too) as a ZIP file. Asked first how much it holds: one that is too large
+   * is offered without what git ignores (node_modules and the like), or said to be too large.
+   */
+  const downloadZip = async (path: string) => {
+    const name = path.split('/').pop() || rootName(root);
+    setZipping(name);
+    setZipError('');
+    try {
+      const check = await api.checkZip(conv.id, root, path);
+      const choice = zipChoice(check);
+      if (choice === 'tooBig') {
+        setZipError(t.files.zipTooBig(name, FILE_LIMITS.zipItems, FILE_LIMITS.zipBytes / 1024 ** 3));
+        return;
+      }
+      const unignored = choice === 'unignored';
+      if (unignored && !confirm(t.files.zipUnignored(name, check.unignored!.files, formatBytes(check.unignored!.bytes)))) return;
+      const link = document.createElement('a');
+      link.href = api.zipUrl(conv.id, root, path, unignored);
+      link.setAttribute('download', ''); // the server names it (after the folder, or for a worktree, the agent)
+      link.click();
+    } catch (e) {
+      setZipError((e as Error).message);
+    } finally {
+      setZipping(null);
+    }
   };
   const roots = listing?.roots ?? [{ id: 'cwd', path: conv.settings.cwd }];
   const rootPath = roots.find((r) => r.id === root)?.path ?? conv.settings.cwd;
@@ -144,7 +175,24 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
               <button className="icon-button" onClick={() => setReload((n) => n + 1)} aria-label={t.files.refresh} title={t.files.refresh}>
                 ↻
               </button>
+              {/* This folder, as it is listed here (the root too). */}
+              <button
+                className="icon-button"
+                disabled={zipping !== null}
+                onClick={() => downloadZip(dir)}
+                aria-label={t.files.downloadFolder(dir.split('/').pop() || rootName(root))}
+                title={t.files.downloadFolder(dir.split('/').pop() || rootName(root))}
+              >
+                <DownloadIcon size={15} />
+              </button>
             </div>
+            {zipping ? (
+              <p className="muted small" role="status">
+                {t.files.zipPreparing(zipping)}
+              </p>
+            ) : (
+              zipError && <p className="error-line small">{zipError}</p>
+            )}
             {listError ? (
               <p className="error-line">{listError}</p>
             ) : loading ? (
@@ -155,7 +203,7 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
                   {entries.map((e) => {
                     const path = joinPath(dir, e.name);
                     return (
-                      <li key={e.name}>
+                      <li key={e.name} className="file-row">
                         <button
                           className={`file-item ${e.kind} ${file === path ? 'selected' : ''}`}
                           onClick={() => open(e)}
@@ -170,6 +218,17 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
                           </span>
                           <span className="file-meta">{e.kind === 'dir' ? <ChevronIcon size={14} /> : formatBytes(e.size)}</span>
                         </button>
+                        {e.kind === 'dir' && (
+                          <button
+                            className="icon-button file-row-zip"
+                            disabled={zipping !== null}
+                            onClick={() => downloadZip(path)}
+                            aria-label={t.files.downloadFolder(e.name)}
+                            title={t.files.downloadFolder(e.name)}
+                          >
+                            <DownloadIcon size={14} />
+                          </button>
+                        )}
                       </li>
                     );
                   })}

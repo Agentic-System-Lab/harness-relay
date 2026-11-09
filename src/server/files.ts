@@ -1,10 +1,12 @@
-import { closeSync, existsSync, openSync, readSync, readdirSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
-import { FILE_LIMITS, type Conversation, type FileEntry, type FilePreview, type FileRoot } from '../shared/types';
+import { closeSync, existsSync, openSync, readSync, readdirSync, realpathSync, statSync, type Stats } from 'node:fs';
+import { readdir, realpath, stat } from 'node:fs/promises';
+import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
+import { FILE_LIMITS, type Conversation, type FileEntry, type FilePreview, type FileRoot, type ZipSize } from '../shared/types';
 import { mediaType } from '../shared/media';
 import { HttpError } from './errors';
 import { t } from './i18n';
-import { worktreeDir } from './workspace';
+import { unignoredFiles, worktreeDir } from './workspace';
+import type { ZipEntry } from './zip';
 
 /*
  * Browsing a conversation's files from the UI: the working directory, and in parallel mode each
@@ -38,11 +40,26 @@ function within(root: string, path: string): string | undefined {
 
 /**
  * Whether a name is `.git`, in any letter case: on a case-insensitive filesystem (macOS, Windows)
- * `.GIT/config` opens `.git/config`, and `realpathSync` keeps the case it was asked with.
+ * `.GIT/config` opens `.git/config`, and `realpathSync` keeps the case it was asked with. Windows also
+ * drops a trailing dot or space, so `.git.` opens `.git` there.
  */
-const isGit = (name: string) => name.toLowerCase() === '.git';
+const isGit = (name: string) => name.toLowerCase().replace(/[. ]+$/, '') === '.git';
 
 const hidden = (rel: string) => rel.split('/').some(isGit);
+
+/**
+ * On Windows a short name (`GIT~1`) opens `.git` as well, and `realpathSync` keeps it: the system's own
+ * real path spells it out. Whether that path is outside `realRoot`, or in `.git`.
+ */
+function hiddenNatively(realRoot: string, real: string): boolean {
+  if (process.platform !== 'win32') return false;
+  try {
+    const rel = within(realpathSync.native(realRoot), realpathSync.native(real));
+    return rel === undefined || hidden(rel);
+  } catch {
+    return true;
+  }
+}
 
 /** A path as the client asked for it, tidied up ('' = the root); a link in it is not followed here. */
 function askedPath(rel: string): string {
@@ -69,7 +86,7 @@ export function resolveInRoot(root: string, rel: string): { real: string; rel: s
     throw notFound();
   }
   const inside = within(realRoot, real);
-  if (inside === undefined || hidden(inside)) throw notFound();
+  if (inside === undefined || hidden(inside) || hiddenNatively(realRoot, real)) throw notFound();
   return { real, rel: inside };
 }
 
@@ -163,4 +180,124 @@ export function mediaInRoot(root: string, rel: string): string {
   const file = fileInRoot(root, rel);
   if (!mediaType(file)) throw new HttpError(404, t().fileNotFound);
   return file;
+}
+
+/** A folder to download as a ZIP file: its name, and what goes in it (inside a folder of that name). */
+export interface ZipPlan extends ZipSize {
+  name: string;
+  entries: ZipEntry[];
+}
+
+/** How much a ZIP file may hold: files and folders together, and bytes before compression (FILE_LIMITS; smaller in tests). */
+export type ZipLimits = { items: number; bytes: number };
+
+const ZIP_LIMITS: ZipLimits = { items: FILE_LIMITS.zipItems, bytes: FILE_LIMITS.zipBytes };
+
+/** How deep repositories inside repositories are followed when taking only what git does not ignore. */
+const MAX_NESTED_REPOS = 8;
+
+/**
+ * What a folder inside `root` holds, to download as a ZIP file: every file and folder under it, as the
+ * browser lists them (no `.git`, links only to what is inside `root`, each folder once), or with
+ * `unignored` only the files git does not ignore — in repositories inside it and submodules too (the
+ * whole folder when it is in no repository). The entries sit in a folder named after it (`name` for a
+ * root, which has no name of its own to show). Null as soon as it is more than `limits` allows. Reads
+ * the disk without blocking the server.
+ */
+export async function zipPlan(
+  root: string,
+  rel: string,
+  opts: { unignored?: boolean; limits?: ZipLimits; name?: string } = {},
+): Promise<ZipPlan | null> {
+  const limits = opts.limits ?? ZIP_LIMITS;
+  const dir = resolveInRoot(root, rel);
+  const self = await stat(dir.real);
+  if (!self.isDirectory()) throw new HttpError(404, t().fileNotFound);
+  const realRoot = realpathSync(root);
+  const top = askedPath(rel).split('/').pop() || opts.name || basename(realRoot) || 'files';
+  const plan: ZipPlan = { name: top, entries: [{ name: `${top}/`, mtime: self.mtimeMs, mode: self.mode }], files: 0, bytes: 0 };
+  /** Files and folders so far: what keeps a tree of empty folders from going on and on. */
+  let items = 1;
+  /** Every folder once: a link to a folder already in the archive (or around it) is left out. */
+  const seen = new Set([dir.real]);
+
+  /** The real path of `full` when it may go in (inside the root, not in `.git`), else undefined. */
+  const allowed = async (full: string): Promise<string | undefined> => {
+    try {
+      const real = await realpath(full);
+      const inside = within(realRoot, real);
+      return inside === undefined || hidden(inside) || hiddenNatively(realRoot, real) ? undefined : real;
+    } catch {
+      return undefined; // gone, or a broken link
+    }
+  };
+  const statOf = async (path: string): Promise<Stats | undefined> => {
+    try {
+      return await stat(path);
+    } catch {
+      return undefined;
+    }
+  };
+  /** Count an entry in; false once that is too much. */
+  const add = (name: string, st: Stats, source?: string): boolean => {
+    items++;
+    if (source) {
+      plan.files++;
+      plan.bytes += st.size;
+    }
+    if (items > limits.items || plan.bytes > limits.bytes) return false;
+    plan.entries.push({ name, mtime: st.mtimeMs, mode: st.mode, ...(source ? { source } : {}) });
+    return true;
+  };
+
+  /**
+   * What git does not ignore under `real`, into `prefix`: false once it is too much, null when `real`
+   * is in no repository. A folder it lists is a repository of its own (untracked) or a submodule.
+   */
+  const fromGit = async (real: string, prefix: string, depth: number): Promise<boolean | null> => {
+    const listed = await unignoredFiles(real);
+    if (listed === null) return null;
+    if (listed === 'too-many' || listed.length > limits.items) return false;
+    for (const path of listed.sort(byName)) {
+      const clean = path.replace(/\/+$/, '');
+      if (!clean || clean.split('/').some(isGit)) continue;
+      const target = await allowed(join(real, ...clean.split('/')));
+      const st = target && (await statOf(target));
+      if (!target || !st) continue;
+      if (st.isFile()) {
+        if (!add(`${prefix}${clean}`, st, target)) return false;
+      } else if (st.isDirectory() && depth < MAX_NESTED_REPOS && !seen.has(target) && existsSync(join(target, '.git'))) {
+        seen.add(target);
+        if ((await fromGit(target, `${prefix}${clean}/`, depth + 1)) === false) return false;
+      }
+    }
+    return true;
+  };
+
+  const walk = async (real: string, prefix: string): Promise<boolean> => {
+    let names: string[];
+    try {
+      names = (await readdir(real)).filter((n) => !isGit(n)).sort(byName);
+    } catch {
+      return true; // not readable: left out
+    }
+    for (const n of names) {
+      const target = await allowed(join(real, n));
+      const st = target && (await statOf(target));
+      if (!target || !st) continue;
+      const name = `${prefix}${n}`;
+      if (st.isDirectory()) {
+        if (seen.has(target)) continue;
+        seen.add(target);
+        if (!add(`${name}/`, st) || !(await walk(target, `${name}/`))) return false;
+      } else if (st.isFile() && !add(name, st, target)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const git = opts.unignored ? await fromGit(dir.real, `${top}/`, 0) : null;
+  if (git !== null) return git ? plan : null;
+  return (await walk(dir.real, `${top}/`)) ? plan : null;
 }

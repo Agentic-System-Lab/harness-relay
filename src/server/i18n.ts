@@ -199,6 +199,7 @@ const zhTW = {
 
   // Files
   fileNotFound: '找不到這個檔案或資料夾（只能瀏覽工作目錄裡的內容）',
+  zipTooBig: (items: number, gb: number) => `這個資料夾太大，無法打包成 zip：最多 ${items.toLocaleString('zh-TW')} 個檔案與資料夾、共 ${gb} GB。請下載其中的子資料夾。`,
   fileRootNotFound: '這個資料夾已經不存在',
 
   // Workspace
@@ -414,6 +415,7 @@ const en: ServerMessages = {
   nativeAsRunPartial: (cli) => `Asking ${cli} again the way Harness Relay starts it ran out of time: what it had answered is marked, the rest is not.`,
 
   fileNotFound: 'File or folder not found (only what is inside the working directory can be browsed)',
+  zipTooBig: (items, gb) => `This folder is too large for a ZIP file: at most ${items.toLocaleString('en')} files and folders, ${gb} GB in all. Download a folder inside it instead.`,
   fileRootNotFound: 'This folder no longer exists',
 
   gitFailed: (cmd, out) => `git ${cmd} failed: ${out}`,

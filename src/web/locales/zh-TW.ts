@@ -774,6 +774,12 @@ export const zhTW = {
     lines: (n: number) => `${n} 行`,
     back: '返回列表',
     linkHint: '符號連結',
+    downloadFolder: (name: string) => `把「${name}」下載成 zip`,
+    zipPreparing: (name: string) => `正在準備「${name}」的 zip…`,
+    zipUnignored: (name: string, files: number, size: string) =>
+      `「${name}」太大，無法整個打包成 zip，通常是因為裡面有 node_modules 這類被 git 忽略的檔案。\n\n要只下載沒有被 git 忽略的檔案嗎？共 ${files.toLocaleString('zh-TW')} 個檔案、${size}。`,
+    zipTooBig: (name: string, items: number, gb: number) =>
+      `「${name}」太大，無法打包成 zip：最多 ${items.toLocaleString('zh-TW')} 個檔案與資料夾、共 ${gb} GB。請下載其中的子資料夾。`,
   },
   settings: {
     title: '設定與登入',

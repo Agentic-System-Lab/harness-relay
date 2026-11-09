@@ -31,6 +31,7 @@ import type {
   VoiceModelId,
   VoiceSettingsUpdate,
   VoiceStatus,
+  ZipCheck,
 } from '../shared/types';
 import { currentLang } from './i18n';
 
@@ -186,6 +187,11 @@ export const api = {
     request<FilePreview>('GET', `/api/conversations/${id}/files/preview?${fileQuery(root, path)}`),
   rawFileUrl: (id: string, root: string, path: string) => `/api/conversations/${id}/files/raw?${fileQuery(root, path)}`,
   downloadFileUrl: (id: string, root: string, path: string) => `/api/conversations/${id}/files/download?${fileQuery(root, path)}`,
+  /** What a folder's ZIP file would hold (nothing is zipped). */
+  checkZip: (id: string, root: string, path: string) => request<ZipCheck>('GET', `/api/conversations/${id}/files/zip/check?${fileQuery(root, path)}`),
+  /** A folder as a ZIP file; `unignored`: only what git does not ignore. */
+  zipUrl: (id: string, root: string, path: string, unignored = false) =>
+    `/api/conversations/${id}/files/zip?${fileQuery(root, path)}${unignored ? '&unignored=1' : ''}`,
 
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   updateSettings: (b: SettingsUpdate) => request<SettingsView>('PUT', '/api/settings', b),

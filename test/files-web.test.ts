@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codeLanguage, crumbs, filterEntries, isMarkdown, joinPath, lineCount, parentPath } from '../src/web/files';
+import { codeLanguage, crumbs, filterEntries, isMarkdown, joinPath, lineCount, parentPath, zipChoice } from '../src/web/files';
 import type { FileEntry } from '../src/shared/types';
 
 describe('file browser paths', () => {
@@ -49,5 +49,16 @@ describe('file browser listing and preview', () => {
     expect(lineCount('a')).toBe(1);
     expect(lineCount('a\n')).toBe(1);
     expect(lineCount('a\nb')).toBe(2);
+  });
+});
+
+describe('downloading a folder as a ZIP file', () => {
+  it('takes all of it, offers what git does not ignore when that is too much, or says it is too large', () => {
+    expect(zipChoice({ all: { files: 3, bytes: 10 } })).toBe('all');
+    expect(zipChoice({ all: { files: 0, bytes: 0 } })).toBe('all'); // an empty folder
+    expect(zipChoice({ all: null, unignored: { files: 12, bytes: 400 } })).toBe('unignored');
+    expect(zipChoice({ all: null, unignored: { files: 0, bytes: 0 } })).toBe('tooBig'); // all of it ignored
+    expect(zipChoice({ all: null, unignored: null })).toBe('tooBig');
+    expect(zipChoice({ all: null })).toBe('tooBig');
   });
 });

@@ -4580,6 +4580,34 @@ details.sub summary {
   background: var(--surface);
 }
 
+/* A folder's row: the folder, and a button to download it as a ZIP file (shown on hover where there is one). */
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.file-row .file-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-row-zip {
+  flex: none;
+  color: var(--muted);
+}
+
+@media (hover: hover) {
+  .file-row-zip {
+    opacity: 0;
+  }
+
+  .file-row:hover .file-row-zip,
+  .file-row-zip:focus-visible {
+    opacity: 1;
+  }
+}
+
 .file-item.selected {
   background: var(--surface-2);
   font-weight: 600;
@@ -4608,10 +4636,6 @@ details.sub summary {
   flex-shrink: 0;
   font-size: 11.5px;
   color: var(--muted);
-}
-
-.file-meta svg {
-  transform: rotate(-90deg);
 }
 
 .preview {

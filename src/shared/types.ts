@@ -418,7 +418,27 @@ export interface FilePreview {
   truncated?: boolean;
 }
 
-export const FILE_LIMITS = { maxEntries: 2000, maxPreviewBytes: 512 * 1024 };
+/**
+ * `zipItems` / `zipBytes`: the most files and folders together, and bytes before compression, a folder
+ * downloaded as a ZIP file may hold (it is streamed, and stays well under ZIP's 4 GB and 65,535 entries).
+ */
+export const FILE_LIMITS = { maxEntries: 2000, maxPreviewBytes: 512 * 1024, zipItems: 10_000, zipBytes: 1024 * 1024 * 1024 };
+
+/** How many files a folder's ZIP holds, and their size before compression. */
+export interface ZipSize {
+  files: number;
+  bytes: number;
+}
+
+/**
+ * What downloading a folder as a ZIP file would hold (`GET …/files/zip/check`): `all` of it, or null
+ * when that is more than FILE_LIMITS allows; then, for a folder in a git repository, only what git
+ * does not ignore (`unignored`; null when that is too much too, or the folder is not in a repository).
+ */
+export interface ZipCheck {
+  all: ZipSize | null;
+  unignored?: ZipSize | null;
+}
 
 export interface ConversationSettings {
   mode: Mode;

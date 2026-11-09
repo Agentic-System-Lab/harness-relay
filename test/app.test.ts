@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Conversation, SettingsView } from '../src/shared/types';
+import { FILE_LIMITS, type Conversation, type SettingsView } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -19,6 +19,7 @@ const { NativeSetupService } = await import('../src/server/native');
 const { AgentsViewSync } = await import('../src/server/agentsview');
 const { expandPath } = await import('../src/server/validate');
 const { attachmentsDir } = await import('../src/server/attachments');
+const { readZip } = await import('./zipReader');
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -917,6 +918,58 @@ describe('browsing files', () => {
     expect((await get(`${base}?root=someone`)).status).toBe(404);
     expect((await get(`/api/conversations/nope/files`)).status).toBe(404);
     expect((await app.request(`${base}?path=`, { headers: { host: 'evil.example' } })).status).toBe(403);
+  });
+
+  it('downloads a folder, or the whole working directory, as a ZIP file', async () => {
+    mkdirSync(join(project, 'src', 'empty'), { recursive: true });
+    writeFileSync(join(project, 'src', 'a.ts'), 'const a = 1;\n');
+    writeFileSync(join(project, '報告.md'), '# 報告\n');
+    const conv = await createConversation({ permission: 'read-only' });
+    const base = `/api/conversations/${conv.id}/files`;
+    const top = basename(project);
+
+    expect(await (await get(`${base}/zip/check?path=`)).json()).toEqual({ all: { files: 2, bytes: 13 + Buffer.byteLength('# 報告\n') } });
+    const res = await get(`${base}/zip?root=cwd&path=`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/zip');
+    expect(res.headers.get('content-disposition')).toContain(`filename*=UTF-8''${top}.zip`);
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-security-policy')).toContain('sandbox');
+    const all = readZip(Buffer.from(await res.arrayBuffer()));
+    expect(all.map((e) => e.name).sort()).toEqual([`${top}/`, `${top}/src/`, `${top}/src/a.ts`, `${top}/src/empty/`, `${top}/報告.md`].sort());
+    expect(all.find((e) => e.name.endsWith('報告.md'))!.data.toString()).toBe('# 報告\n');
+
+    // HEAD: the headers only.
+    const head = await app.request(`${base}/zip?path=src`, { method: 'HEAD', headers: HOST });
+    expect(head.status).toBe(200);
+    expect(head.headers.get('content-type')).toBe('application/zip');
+    expect(head.body).toBeNull();
+
+    const src = readZip(Buffer.from(await (await get(`${base}/zip?path=src`)).arrayBuffer()));
+    expect(src.map((e) => e.name)).toEqual(['src/', 'src/a.ts', 'src/empty/']);
+    for (const bad of ['src/a.ts', '..', '.git', 'missing']) {
+      expect((await get(`${base}/zip?path=${encodeURIComponent(bad)}`)).status, bad).toBe(404);
+      expect((await get(`${base}/zip/check?path=${encodeURIComponent(bad)}`)).status, bad).toBe(404);
+    }
+  });
+
+  it('offers a folder too large to zip without what git ignores, and refuses all of it', async () => {
+    const conv = await createConversation({ permission: 'edit' }); // a git repository
+    writeFileSync(join(project, '.gitignore'), 'node_modules/\n');
+    writeFileSync(join(project, 'index.js'), 'require("pkg");\n');
+    const modules = join(project, 'node_modules', 'pkg');
+    mkdirSync(modules, { recursive: true });
+    for (let i = 0; i <= FILE_LIMITS.zipItems; i++) writeFileSync(join(modules, `f${i}.js`), '');
+    const base = `/api/conversations/${conv.id}/files`;
+
+    const check = await (await get(`${base}/zip/check?path=`)).json();
+    expect(check).toEqual({ all: null, unignored: { files: 2, bytes: Buffer.byteLength('node_modules/\n') + Buffer.byteLength('require("pkg");\n') } });
+    const big = await get(`${base}/zip?path=`, { 'x-relay-lang': 'en' });
+    expect(big.status).toBe(413);
+    expect(((await big.json()) as { error: string }).error).toMatch(/too large for a ZIP file: at most 10,000 files and folders, 1 GB/);
+    const res = await get(`${base}/zip?path=&unignored=1`);
+    expect(res.status).toBe(200);
+    expect(readZip(Buffer.from(await res.arrayBuffer())).map((e) => e.name.split('/').slice(1).join('/')).sort()).toEqual(['', '.gitignore', 'index.js']);
   });
 });
 

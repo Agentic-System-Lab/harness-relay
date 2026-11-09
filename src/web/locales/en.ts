@@ -772,6 +772,12 @@ export const en: Messages = {
     lines: (n) => (n === 1 ? '1 line' : `${n} lines`),
     back: 'Back to the list',
     linkHint: 'Symbolic link',
+    downloadFolder: (name) => `Download "${name}" as a ZIP file`,
+    zipPreparing: (name) => `Preparing the ZIP file of "${name}"…`,
+    zipUnignored: (name, files, size) =>
+      `"${name}" is too large to zip in full, usually because of files git ignores, such as node_modules.\n\nDownload only the files git does not ignore? ${files.toLocaleString('en')} files, ${size}.`,
+    zipTooBig: (name, items, gb) =>
+      `"${name}" is too large for a ZIP file: at most ${items.toLocaleString('en')} files and folders, ${gb} GB in all. Download a folder inside it instead.`,
   },
   settings: {
     title: 'Settings & sign-in',

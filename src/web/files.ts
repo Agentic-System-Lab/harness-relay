@@ -1,6 +1,6 @@
 // The file browser's pure logic (paths are relative to the browsed folder and use `/`).
 
-import type { FileEntry } from '../shared/types';
+import type { FileEntry, ZipCheck } from '../shared/types';
 
 /** The breadcrumb for a folder: the root ('') first, then each folder down to `path`. */
 export function crumbs(path: string): { name: string; path: string }[] {
@@ -77,4 +77,13 @@ export function lineCount(text: string): number {
   if (!text) return 0;
   const breaks = text.match(/\n/g)?.length ?? 0;
   return text.endsWith('\n') ? breaks : breaks + 1;
+}
+
+/**
+ * What downloading a folder as a ZIP file does, given what it would hold: all of it; or, when that is
+ * too much but what git does not ignore is not (and is something), offer that; or it is too large.
+ */
+export function zipChoice(check: ZipCheck): 'all' | 'unignored' | 'tooBig' {
+  if (check.all) return 'all';
+  return check.unignored && check.unignored.files > 0 ? 'unignored' : 'tooBig';
 }

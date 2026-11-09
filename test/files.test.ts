@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
-import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, resolveInRoot } from '../src/server/files';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, resolveInRoot, zipPlan } from '../src/server/files';
 import { FILE_LIMITS, type Conversation } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-files-')));
@@ -143,5 +144,128 @@ describe('fileRoots', () => {
       { id: 'cwd', path: project },
       { id: 'a', path: join(project, 'src'), agentId: 'a' },
     ]);
+  });
+});
+
+describe('zipPlan', () => {
+  // The preview tests above leave a long file behind.
+  beforeAll(() => rmSync(join(project, 'long.txt'), { force: true }));
+  const names = (plan: Awaited<ReturnType<typeof zipPlan>>) => plan!.entries.map((e) => e.name).sort();
+
+  it('takes what the browser lists, in a folder of its name: no .git, no links outside, each folder once', async () => {
+    const plan = await zipPlan(project, '');
+    expect(plan!.name).toBe('project');
+    expect(names(plan)).toEqual(
+      [
+        'project/',
+        'project/.env',
+        'project/Docs/', // only a .Git folder in it: an empty folder
+        'project/data.bin',
+        'project/file10.txt',
+        'project/file2.txt',
+        'project/logo.png',
+        'project/src/',
+        'project/src/app.ts',
+        'project/src/deep/',
+      ].sort(),
+    );
+    expect(plan!.files).toBe(6);
+    expect(plan!.bytes).toBe(4 + 3 + 3 + 7 + 4 + 20);
+    // Folders have no source; files are read from their real path.
+    expect(plan!.entries.find((e) => e.name === 'project/src/app.ts')!.source).toBe(join(project, 'src', 'app.ts'));
+    expect(plan!.entries.find((e) => e.name === 'project/src/')!.source).toBeUndefined();
+
+    // A folder inside it, by its own name; through a link inside the root too.
+    expect(names(await zipPlan(project, 'src'))).toEqual(['src/', 'src/app.ts', 'src/deep/']);
+    expect(names(await zipPlan(project, 'src-link'))).toEqual(['src-link/', 'src-link/app.ts', 'src-link/deep/']);
+  });
+
+  it('refuses a file, anything outside the folder and .git', async () => {
+    for (const bad of ['file2.txt', 'leak-dir', '..', '.git', 'Docs/.Git', 'missing']) {
+      await expect(zipPlan(project, bad), bad).rejects.toThrow(notFound);
+    }
+  });
+
+  it('gives up once there are more files and folders, or bytes, than allowed', async () => {
+    // The folder itself, 3 folders in it and 6 files.
+    expect(await zipPlan(project, '', { limits: { items: 9, bytes: 1e9 } })).toBeNull();
+    expect(await zipPlan(project, '', { limits: { items: 10, bytes: 1e9 } })).not.toBeNull();
+    expect(await zipPlan(project, '', { limits: { items: 100, bytes: 40 } })).toBeNull();
+    // Folders count too: a tree of empty folders cannot go on and on.
+    const empty = join(root, 'empty-folders');
+    for (let i = 0; i < 30; i++) mkdirSync(join(empty, `d${i}`), { recursive: true });
+    expect(await zipPlan(empty, '', { limits: { items: 20, bytes: 1e9 } })).toBeNull();
+    expect((await zipPlan(empty, '', { limits: { items: 31, bytes: 1e9 } }))!.files).toBe(0);
+  });
+
+  it('keeps permission bits, names a root as asked, and leaves out .git however it is spelled', async () => {
+    const tools = join(root, 'tools');
+    mkdirSync(join(tools, '.git.'), { recursive: true }); // Windows opens .git for it
+    writeFileSync(join(tools, '.git.', 'config'), 'secret');
+    writeFileSync(join(tools, 'run.sh'), '#!/bin/sh\n');
+    chmodSync(join(tools, 'run.sh'), 0o755);
+    writeFileSync(join(tools, 'notes.txt'), 'n');
+    chmodSync(join(tools, 'notes.txt'), 0o640);
+    const plan = (await zipPlan(tools, '', { name: 'project-Alice' }))!;
+    expect(plan.name).toBe('project-Alice');
+    expect(names(plan)).toEqual(['project-Alice/', 'project-Alice/notes.txt', 'project-Alice/run.sh']);
+    const mode = (n: string) => plan.entries.find((e) => e.name.endsWith(n))!.mode! & 0o777;
+    expect([mode('run.sh'), mode('notes.txt')]).toEqual([0o755, 0o640]);
+    // A folder inside keeps its own name.
+    expect((await zipPlan(project, 'src', { name: 'ignored' }))!.name).toBe('src');
+    await expect(zipPlan(tools, '.git.')).rejects.toThrow(notFound);
+    expect(listFolder(tools, '').entries.map((e) => e.name)).toEqual(['notes.txt', 'run.sh']);
+  });
+
+  it('leaves a link that loops back out', async () => {
+    const loop = join(root, 'loop');
+    mkdirSync(join(loop, 'a'), { recursive: true });
+    writeFileSync(join(loop, 'a', 'x.txt'), 'x');
+    symlinkSync(loop, join(loop, 'a', 'up'));
+    expect(names(await zipPlan(loop, ''))).toEqual(['a/', 'a/x.txt', 'loop/'].map((n) => (n === 'loop/' ? n : `loop/${n}`)).sort());
+  });
+
+  it('takes only what git does not ignore, when asked, in a repository', async () => {
+    const repo = join(root, 'repo');
+    mkdirSync(join(repo, 'node_modules', 'pkg'), { recursive: true });
+    mkdirSync(join(repo, 'src'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' });
+    git('init', '-q');
+    writeFileSync(join(repo, '.gitignore'), 'node_modules/\n*.log\n');
+    writeFileSync(join(repo, 'node_modules', 'pkg', 'index.js'), 'module.exports = 1;\n');
+    writeFileSync(join(repo, 'src', 'a.ts'), 'a');
+    writeFileSync(join(repo, 'src', 'gone.ts'), 'g');
+    writeFileSync(join(repo, 'debug.log'), 'noise');
+    git('add', '.');
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init');
+    unlinkSync(join(repo, 'src', 'gone.ts')); // tracked, but deleted
+    writeFileSync(join(repo, 'new.md'), 'untracked, not ignored');
+
+    expect(names(await zipPlan(repo, '', { unignored: true }))).toEqual(['repo/', 'repo/.gitignore', 'repo/new.md', 'repo/src/a.ts']);
+    expect(names(await zipPlan(repo, 'src', { unignored: true }))).toEqual(['src/', 'src/a.ts']);
+    // Everything, when not asked.
+    expect(names(await zipPlan(repo, ''))).toContain('repo/node_modules/pkg/index.js');
+    // Inside an ignored folder, nothing is left.
+    expect((await zipPlan(repo, 'node_modules', { unignored: true }))!.files).toBe(0);
+    // Still limited.
+    expect(await zipPlan(repo, '', { unignored: true, limits: { items: 2, bytes: 1e9 } })).toBeNull();
+    // Not a repository: everything.
+    expect(names(await zipPlan(project, 'src', { unignored: true }))).toEqual(['src/', 'src/app.ts', 'src/deep/']);
+  });
+
+  it("takes what nested repositories don't ignore, and no tracked link that leads outside or into .git", async () => {
+    const repo = join(root, 'repo2');
+    mkdirSync(join(repo, 'nested', 'build'), { recursive: true });
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' });
+    git(repo, 'init', '-q');
+    git(join(repo, 'nested'), 'init', '-q'); // a repository of its own, untracked in the outer one
+    writeFileSync(join(repo, 'nested', '.gitignore'), 'build/\n');
+    writeFileSync(join(repo, 'nested', 'n.txt'), 'n');
+    writeFileSync(join(repo, 'nested', 'build', 'out.bin'), 'o');
+    writeFileSync(join(repo, 'top.txt'), 't');
+    symlinkSync(join(outside, 'secret.txt'), join(repo, 'leak.txt'));
+    symlinkSync(join(repo, '.git', 'config'), join(repo, 'config-link'));
+    git(repo, 'add', 'top.txt', 'leak.txt', 'config-link');
+    expect(names(await zipPlan(repo, '', { unignored: true }))).toEqual(['repo2/', 'repo2/nested/.gitignore', 'repo2/nested/n.txt', 'repo2/top.txt']);
   });
 });
