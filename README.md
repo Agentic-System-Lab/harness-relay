@@ -14,8 +14,6 @@ For each question, a lead agent picks the team from your templates (or adapts on
 
 [![Harness Relay demo: you create a group and ask a question, the lead agent sorts the chat into the group and designs a team for the question, you confirm it, Claude Code, Codex and Grok read the code and answer, a follow-up question gets a team of its own, you open the code they discussed in the file browser, and a search finds the chat again](docs/media/demo-en.webp)](docs/media/demo-en.mp4)
 
-A new group, then two questions on this repository. You open a template (teams are designed in templates), start a chat and ask straight away: is relay mode a good design? The lead agent sorts the chat into the group, going by your first message, adapts the Three-way debate template into a two-round review by three members, and says why. You confirm it; Claude Code, Codex and Grok read the code and answer in two rounds, each building on and challenging the last, with their thinking and tool calls streaming into the chat (sped up while the agents work). When Grok wants to run a script beyond read-only, it asks in the chat, and you decline. A follow-up question, a README note on relay mode, gets a team of its own: two of the reviewers, one round. Then you open **Files** and read relay mode's hand-off in `orchestrator.ts`, right in the chat's working directory, and a search finds the chat by what the agents wrote. [Watch the full-quality video (MP4)](docs/media/demo-en.mp4).
-
 ## Features
 
 - **Three coding agents in one chat** — runs the `claude`, `codex` and `grok` CLIs you already have, with their own tools, sessions and logins.
