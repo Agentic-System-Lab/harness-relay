@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
-import { closeFences, conversationMarkdown, copyText, messageText, planHeadline, planWording } from '../src/web/copy';
+import { closeFences, conversationMarkdown, copyText, mentionWarning, messageText, planChecksMentions, planHeadline, planWording } from '../src/web/copy';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
@@ -51,6 +51,30 @@ const conv: Conversation = {
   agentState: {},
   worktrees: {},
 };
+
+describe('a scheduled message that @mentions someone the team does not have', () => {
+  it('says that name reaches nobody, and who answers then: the members it does @mention, or the whole team', () => {
+    expect(mentionWarning('@Alice look', ['Alice'], en, 'form')).toBeUndefined();
+    expect(mentionWarning('@Zed look', ['Alice'], en, 'form')).toBe('@Zed in the message is not on this team, so it reaches nobody; with no member @mentioned, the whole team answers.');
+    expect(mentionWarning('@Alice and @Zed', ['Alice'], en, 'form')).toBe('@Zed in the message is not on this team, so it reaches nobody; only @Alice answers.');
+    expect(mentionWarning('@Alice, @Bob, @Zed and @Yan', ['Alice', 'Bob'], en, 'team')).toBe(
+      '@Zed, @Yan in the scheduled message are not on this team, so they reach nobody; only @Alice, @Bob answer.',
+    );
+    expect(mentionWarning('@dddd 看一下', ['Reviewer'], zhTW, 'card')).toBe(
+      '排程訊息裡的 @dddd 不在這個團隊裡，不會傳給任何人；訊息沒有 @ 任何成員，所以由整個團隊回答。可以按「調整團隊」為成員改名。',
+    );
+    expect(mentionWarning('@Reviewer 和 @dddd', ['Reviewer'], zhTW, 'form')).toBe('訊息裡的 @dddd 不在這個團隊裡，不會傳給任何人；只有 @Reviewer 會回答。');
+  });
+
+  it("checks a team design's members while it waits for confirmation, or when it was used at once and is the latest", () => {
+    const lead = { provider: 'claude' as const };
+    expect(planChecksMentions({ status: 'ready', lead, awaitingConfirmation: true }, false)).toBe(true);
+    expect(planChecksMentions({ status: 'ready', lead, autoConfirmed: true, confirmedAt: 1 }, true)).toBe(true);
+    expect(planChecksMentions({ status: 'ready', lead, autoConfirmed: true, confirmedAt: 1 }, false)).toBe(false); // an older one
+    expect(planChecksMentions({ status: 'ready', lead, confirmedAt: 1 }, true)).toBe(false); // confirmed: the team editor warns now
+    expect(planChecksMentions({ status: 'planning', lead }, true)).toBe(false);
+  });
+});
 
 describe('naming the team the lead agent chose', () => {
   const lead = { provider: 'claude' as const };

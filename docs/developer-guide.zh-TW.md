@@ -73,7 +73,7 @@ src/
     download.ts            在使用者點下前，先確認回覆連結的檔案能不能下載（連結出現一會兒後的 HEAD 請求），以及檔案不存在時點擊會做什麼
     tools.ts               團隊編輯器的工具選擇：工具庫項目、依 CLI 的預設、成員的例外設定
     native.ts              NativeSetupPanel 的純邏輯：各 CLI 的分頁與數量、勾選個別項目、執行時不載入幾項、設定是否已變更
-    route.ts               前端放在網址 hash 的路由，包括 #/settings/<區塊>
+    route.ts               前端放在網址 hash 的路由，包括 #/schedule 與 #/settings/<區塊>
     voice.ts               語音輸入的純邏輯：WAV 編碼、靜音判斷、把辨識結果插入游標處、安裝進度
     recorder.ts            在瀏覽器錄音，解碼成 16 kHz 單聲道
     useVoice.ts            語音輸入狀態的 hook（安裝時輪詢）
@@ -247,11 +247,11 @@ sqlite3 data/relay.db 'select seq, author_kind, agent_name, status from messages
 
 ## 修改 prompt
 
-- `buildBriefing()`：system 層級的簡報（角色、團隊、模式規則、工作目錄），每回合重新產生。
+- `buildBriefing()`：system 層級的簡報（角色、團隊、模式規則、工作目錄），每回合重新產生。`scheduleRules()` 說明排程送出的訊息（`via="schedule"`），`unattended`（這次執行會自動拒絕核准）時也會說明。
 - `buildTurnPrompt()`：每回合的訊息，包含 `<chat>` 與最後的提示句。
 - `forwardText()`：一則回覆如何呈現給其他 agent（文字 + `<actions>` 紀錄）。
 - `parseMentions()`：@ 解析；名字後面可以直接接文字，行內程式碼與各種程式碼區塊（含未結束的）中的 @ 會被忽略。
-- `buildPlannerPrompt()` / `PLANNER_BRIEFING`（`planner.ts`）：自動組隊模式中要問首席 agent 什麼，以及它必須回傳的 JSON。
+- `buildPlannerPrompt()` / `PLANNER_BRIEFING`（`planner.ts`）：自動組隊模式中要問首席 agent 什麼，以及它必須回傳的 JSON。為排程訊息組隊時（`schedule`），會說明團隊會依排程、在可能沒人看著時收到它，並請首席 agent 依訊息 @ 的名字為成員命名。
 - `buildGroupPrompt()` / `GROUPER_BRIEFING`（`grouping.ts`）：怎麼請首席 agent 把新對話分到使用者的群組。
 
 prompt 刻意使用英文（agent 會用使用者的語言回覆）。給使用者看的文字則有翻譯，見[翻譯](#翻譯)。
@@ -293,15 +293,15 @@ npx vitest test/store.test.ts
 - `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`、JSON-RPC 連線。也測試工具庫的 MCP 伺服器轉成 ACP 的格式。HTTP MCP 伺服器只傳給宣告支援的 Grok。也測試不載入 Grok 從 Claude Code、Cursor 載入的內容（skill、MCP 伺服器、hook）與它的記憶所用的環境變數，以及它們和使用者的環境變數、sandbox 並存。
 - `test/claude.test.ts`：Claude 預先允許與移除的工具、它的參數（`--system-prompt-snapshot off`、舊版不接受的旗標），以及工具被拒絕時顯示的原因。也測試工具庫：`--mcp-config` 檔案與 skill 資料夾的 `Read` 規則（完整存取時不加）、Windows 路徑的 `Read` 規則，以及 `--mcp-config` 的內容。也測試不載入 Claude Code 自己的內容：skill 與 MCP 的旗標（工具庫的 `--mcp-config` 會保留）、指示檔與記憶的環境變數、用 `--settings` 關掉 hook 與每個已安裝的 plugin、讀取 `claude plugin list --json`，以及在送出 prompt 前拒絕它自己的 subagent（依名稱與說明，只拒絕非內建的；做不到，或 `initialize` 沒有列出 subagent 時，不送 prompt、直接失敗）。也測試用 `--settings` 不載入個別項目：skill（`skillOverrides`）、指示檔（`claudeMdExcludes`，路徑寫成只符合那個檔案，並用 picomatch 依 Claude Code 的比對方式驗證）、內建工具、MCP 伺服器與工具（依 Claude Code 的命名）與 subagent 的拒絕規則、依 id 關掉 plugin、整類不載入時不再加個別項目（subagent 與 plugin 除外）、工具庫給這次執行的伺服器不加規則，以及用 `--tools ""` 關掉所有內建工具。執行透過替身 `claude`（`test/fake-claude.ts`，依 Claude Code 2.1.319 的回答格式）測試：關掉 hook 與 plugin、用放在私有檔案（執行後刪除）的 `--settings` 不載入個別項目並立刻送出 prompt、送出 prompt 前拒絕 subagent（包括取代內建 subagent 的同名 subagent）、無法不載入 subagent 或 plugin 時清楚地失敗、等待中按下停止，以及舊版不接受某個旗標時不帶它重試。
 - `test/templates.test.ts`：判斷範本編輯器有沒有修改範本（成員 id、前後空白與空的選填欄位不算；名稱、說明、成員、模式、輪數與交棒次數都算）。
-- `test/copy.test.ts`：複製單則訊息或整段對話時產生的 Markdown（兩種語言）；說明首席 agent 選了哪個團隊的那一行（保留、備援、調整），以及註明未採用的設計；單則訊息照原文複製（網址、格式、CRLF 換行），沒有剪貼簿 API 時也一樣。
+- `test/copy.test.ts`：複製單則訊息或整段對話時產生的 Markdown（兩種語言）；說明首席 agent 選了哪個團隊的那一行（保留、備援、調整），以及註明未採用的設計；單則訊息照原文複製（網址、格式、CRLF 換行），沒有剪貼簿 API 時也一樣。也測試排程訊息 @ 了團隊沒有的名字時，排程表單、團隊編輯器與團隊卡片怎麼說（改由誰回答，兩種語言），以及卡片什麼時候檢查。
 - `test/approvals.test.ts`：「本對話都允許」的規則 key 與比對（串接指令、shell 包裝）。
 - `test/codex.test.ts`：Codex app-server 轉接器：thread 項目轉成 `AgentEvent`（文字、推理、計畫、指令輸出、用量），以及核准請求 / 回應。也測試工具庫的 MCP 伺服器放在一個 `mcp_servers` 表（完整存取下自行核准工具），以及 Codex 的 MCP 工具呼叫核准（codex-cli 0.167.0 送出的格式）和其他核准一樣顯示，其他 elicitation 則拒絕。也測試不載入 Codex 自己的內容：各項覆寫（包括 hook 與 plugin），以及改用 `-c` 參數傳入的同樣覆寫（inline table、key 加引號）；thread 開始後檢查設為不載入的 hook 與 plugin 確實關掉了（Codex 仍列出開著的或無法回答就失敗，沒有這個方法時照常執行），以及透過替身 `codex app-server` 的執行（開關也放在它的命令列、回合開始前檢查、Codex 忽略開關時失敗、檢查中按下停止就不開始回合）；在同一個表裡關掉它設定的每個 MCP 伺服器，不論名稱（工具庫取代的除外）；只在不載入 MCP 伺服器（全部、個別伺服器或它們的工具）時才用 `config/read` 詢問，問不到時以清楚的訊息讓執行失敗；個別的 skill（`skills.config`）、hook（`hooks.state`）與 plugin（`plugins`），寫成表與 `-c` 參數；只針對使用者設定裡的個別伺服器與工具（`disabled_tools` 保留使用者已關掉的）；檢查個別 skill、hook 與 plugin 確實關掉了；以及帶著這一切的 `thread/start` / `thread/resume` 請求。
 - `test/schedule.test.ts`：排程何時送出：`HH:MM` 與時區、把牆上時間換成時刻（時鐘跳過的時間往後移、重複的時間取第一次）、每天（今天或明天，時鐘調整前後時間不變）、每週（只在選定的日子，必要時到下週）、每隔幾小時（從儲存時算起）與一次性排程，以及讀不懂的時間；時鐘往回撥的那一夜、午夜與半小時的調整（聖地牙哥、豪勳爵島）、時鐘調整前後的每週時間，以及依排程所在地的星期幾（東京）。也測試 `validateSchedule()`（預設值、星期去重並排序、永遠不會送出的設定、關閉時保留過去的一次性排程）與排程視窗的邏輯：新表單與讀回已儲存的排程、瀏覽器輸入的日期時間、表單顯示的問題（和伺服器一致）、接下來的時間、以排程自己的時區顯示時間、用幾個字描述排程（星期一在前）、何時需要注意，以及一次性排程何時算完成；是否每次開新對話（只有真正的 `true` 才算），在表單中與讀回時。
 - `test/sidebar.test.ts`：側邊欄的對話狀態、各群組的對話（「其他」在最後、群組不存在的對話放在「其他」）、還沒確認的移動，以及收合群組顯示的狀態。
 - `test/search.test.ts`：搜尋的詞、不分大小寫的比對（長的優先、重疊合併）、第一個符合處附近的摘錄、標示關鍵字。
 - `test/grouping.test.ts`：請首席 agent 分類對話的 prompt，以及解讀它的回覆（編號或名稱；0 或 null 代表都不適合；其他都拒絕）。
-- `test/mentions.test.ts`：訊息 @ 了但不在團隊裡的名字（`unknownMentions`）：不分大小寫、每個只列一次、已知名字後直接接中文、較長的單字，以及只看一般文字（不含程式碼、連結與 email）。
-- `test/planner.test.ts`：首席 agent 的回覆：擷取 JSON、範本與自訂團隊、驗證、改用已登入的 CLI、備援方案，以及 prompt。也測試對話中的問題：prompt 中的歷史與目前的團隊、保留目前的團隊（id 也一樣）、備援方案保留它、留下來的成員保留 id，以及精簡過的對話（不含工具呼叫、系統訊息、plan 與 pass；過長的訊息與對話會縮短，保留最新的部分）。也測試問題 @ 了但沒有成員叫這個名字的名字，首席 agent 會被要求用這些名字為成員命名（排程訊息也一樣）。
+- `test/mentions.test.ts`：訊息 @ 了但不在團隊裡的名字（`unknownMentions`）：不分大小寫、每個只列一次、已知名字後直接接中文、較長的單字、已知與未知的名字同時出現、套件 scope 與 decorator 當成程式碼、標題、強調與表格，以及只看一般文字（不含程式碼、連結與 email）。
+- `test/planner.test.ts`：首席 agent 的回覆：擷取 JSON、範本與自訂團隊、驗證、改用已登入的 CLI、備援方案，以及 prompt。也測試對話中的問題：prompt 中的歷史與目前的團隊、保留目前的團隊（id 也一樣）、備援方案保留它、留下來的成員保留 id，以及精簡過的對話（不含工具呼叫、系統訊息、plan 與 pass；過長的訊息與對話會縮短，保留最新的部分）。也測試排程訊息 @ 了但沒有成員叫這個名字的名字，首席 agent 會被要求用這些名字為成員命名（一般問題不會，套件 scope 與 decorator 也不算）。
 - `test/tour.test.ts`：使用導覽：每一步都有對應的目標、新版本會再顯示一次，以及步驟的 fingerprint（步驟改了卻沒有換新版本時會失敗）。
 - `test/i18n.test.ts`：語言偵測（伺服器 header 與瀏覽器）、語言在非同步工作中的傳遞、雙語範本，以及兩份介面字典結構相同。
 - `test/voice.test.ts`：用假的下載、程序與引擎測試語音輸入：固定版本的下載清單、背景安裝（引擎、模型、檢查），涵蓋 Linux 與 macOS 的 Homebrew、SHA-256 不符、取消、硬碟空間、自訂引擎路徑、引擎無法啟動、引擎只聽 127.0.0.1 並藏在隨機路徑後、語音轉文字與辨識語言、切換與刪除模型、設定，以及 HTTP 路由。

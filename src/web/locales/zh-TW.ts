@@ -271,13 +271,19 @@ export const zhTW = {
     button: '排程',
     buttonTitle: '在設定的時間自動傳訊息給團隊',
     title: '排程',
-    intro: '在設定的時間，把這則訊息傳給這個對話的團隊，就像你自己送出的一樣。Harness Relay 要開著才會執行。',
+    intro: '在設定的時間，把這則訊息傳給這個對話的團隊（在這裡，或依設定每次開新對話），就像你自己送出的一樣。Harness Relay 要開著才會執行。',
     message: '要傳給團隊的訊息',
     messagePlaceholder: '例如：@Reviewer 看一下昨天合併的 PR，列出可能的風險。',
     messageHint: '用 @ 指定成員時，只有被 @ 的成員回答，和平常一樣。',
     messageHintNoTeam: '還沒有團隊：訊息裡 @ 的名字會交給首席 agent，請它用這些名字為成員命名；之後只有被 @ 的成員回答。',
-    unknownMentions: (names: string) => `訊息裡的 ${names} 不是這個團隊的成員：送出時沒有成員被 @，會由整個團隊回答。`,
-    teamMissesMention: (names: string) => `排程訊息裡的 ${names} 不在團隊裡：排程送出時會由整個團隊回答。`,
+    /** A name the (scheduled) message @mentions that the team does not have, and who answers then. */
+    mentions: {
+      notOnTeam: (names: string, _n: number) => `訊息裡的 ${names} 不在這個團隊裡，不會傳給任何人`,
+      notOnTeamScheduled: (names: string, _n: number) => `排程訊息裡的 ${names} 不在這個團隊裡，不會傳給任何人`,
+      wholeTeam: '；訊息沒有 @ 任何成員，所以由整個團隊回答。',
+      onlyThey: (names: string, _n: number) => `；只有 ${names} 會回答。`,
+      adjust: '可以按「調整團隊」為成員改名。',
+    },
     repeat: '時間',
     kinds: { once: '一次', daily: '每天', weekly: '每週', interval: '每隔幾小時' } as Record<ScheduleRepeat['kind'], string>,
     at: '日期與時間',
@@ -328,7 +334,7 @@ export const zhTW = {
     remove: '刪除排程',
     confirmRemove: '刪除這個排程？',
     saving: '儲存中…',
-    needsTeam: '先確認團隊才能設定排程：新對話請先提出問題，再確認首席 agent 為它組的團隊。',
+    needsTeam: '先確認團隊才能設定排程：新對話請先提出問題，再確認首席 agent 為它組的團隊；或從側邊欄的「新排程」開始。',
     confirmTeamFirst: '首席 agent 已為排程組好團隊，請在對話中確認；確認後排程才會執行，也才能修改。',
     designingTeam: '首席 agent 正在為排程組隊…',
     noTeamYet: '這個排程還沒有團隊，到時間時會略過。',
@@ -467,7 +473,6 @@ export const zhTW = {
     declined: '未採用，由目前的團隊回答',
     aborted: '團隊設計已中斷；按「繼續」或提出新問題會重新組隊。',
     planningSchedule: (lead: string) => `首席 agent（${lead}）正在為這個排程組隊…`,
-    missesMention: (names: string) => `排程訊息裡的 ${names} 不在這個團隊裡：送出時會由整個團隊回答。可以按「調整團隊」為成員改名。`,
     confirmHintSchedule: '確認後，這個團隊會在排程的時間收到訊息；現在不會執行。',
     abortedSchedule: '團隊設計已中斷；在排程視窗按「請首席 agent 組隊」可以重新組隊。',
   },
@@ -778,12 +783,12 @@ export const zhTW = {
     lines: (n: number) => `${n} 行`,
     back: '返回列表',
     linkHint: '符號連結',
-    downloadFolder: (name: string) => `把「${name}」下載成 zip`,
-    zipPreparing: (name: string) => `正在準備「${name}」的 zip…`,
+    downloadFolder: (name: string) => `把「${name}」下載成 ZIP 檔`,
+    zipPreparing: (name: string) => `正在準備「${name}」的 ZIP 檔…`,
     zipUnignored: (name: string, files: number, size: string) =>
-      `「${name}」太大，無法整個打包成 zip，通常是因為裡面有 node_modules 這類被 git 忽略的檔案。\n\n要只下載沒有被 git 忽略的檔案嗎？共 ${files.toLocaleString('zh-TW')} 個檔案、${size}。`,
+      `「${name}」太大，無法整個打包成 ZIP 檔，通常是因為裡面有 node_modules 這類被 git 忽略的檔案。\n\n要只下載沒有被 git 忽略的檔案嗎？共 ${files.toLocaleString('zh-TW')} 個檔案、${size}。`,
     zipTooBig: (name: string, items: number, gb: number) =>
-      `「${name}」太大，無法打包成 zip：最多 ${items.toLocaleString('zh-TW')} 個檔案與資料夾、共 ${gb} GB。請下載其中的子資料夾。`,
+      `「${name}」太大，無法打包成 ZIP 檔：最多 ${items.toLocaleString('zh-TW')} 個檔案與資料夾、共 ${gb} GB。請下載其中的子資料夾。`,
   },
   settings: {
     title: '設定與登入',
@@ -895,7 +900,7 @@ export const zhTW = {
       },
       {
         title: '建立新對話',
-        body: '新對話只需要選工作目錄與檔案權限。團隊設計放在範本裡：在新對話頁可以檢視內建範本，或新增、修改你自己的範本，決定每位成員的定位、模型與推理強度。',
+        body: '新對話只需要選工作目錄與檔案權限。團隊設計放在範本裡：在新對話頁可以檢視內建範本，或新增、修改你自己的範本，決定每位成員的定位、模型與推理強度。旁邊的月曆按鈕則是建立新排程：設定好訊息和時間，首席 agent 會為它組隊。',
       },
       {
         title: '每個問題自動組隊',
@@ -959,6 +964,7 @@ export const zhTW = {
         points: [
           '程式碼附行號和語法上色，Markdown 可以切換預覽與原始內容，圖片和影片直接顯示',
           '平行模式下也能看每位成員的 worktree，套用前先確認結果',
+          '資料夾可以下載成 ZIP 檔，目前所在的資料夾（包括整個工作目錄）也可以；太大時可以只下載沒被 git 忽略的檔案',
         ],
       },
       {
@@ -966,6 +972,7 @@ export const zhTW = {
         body: '對話上方的「排程」（手機上在 ⋯ 裡）會在設定的時間把訊息傳給這個對話的團隊，就像你自己送出的一樣：',
         points: [
           '一次、每天、每週選定的星期幾，或每隔幾小時；儲存後可以按「立即執行一次」先試試看',
+          '勾選「每次開新對話」，每次都在新對話中從乾淨的上下文開始，沿用同樣的團隊與設定',
           '排程執行時可能沒人看著：預設會拒絕檔案權限以外的動作（已設為「本對話都允許」的除外），agent 會改用其他方式；也可以選「詢問我」',
           'Harness Relay 開著才會送出：錯過的時間會略過，也可以選擇在開啟後補送一次',
           '側邊欄的對話旁會出現時鐘；上次沒有送出時會變成琥珀色',

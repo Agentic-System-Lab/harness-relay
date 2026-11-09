@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { unknownMentions } from '../../shared/mentions';
 import { SCHEDULE_KINDS, SCHEDULE_LIMITS, type ConversationSchedule, type ConversationSettings } from '../../shared/types';
+import { mentionWarning } from '../copy';
 import { useI18n } from '../i18n';
 import { browserTimeZone, draftProblems, formatWhen, localInput, previewRuns, shownZone, type ScheduleDraft } from '../schedule';
 
@@ -28,8 +28,8 @@ export function ScheduleForm({
   team?: string[];
 }) {
   const { t, lang } = useI18n();
-  // @mentions that reach nobody on the team: then the whole team answers.
-  const unknown = useMemo(() => (team ? unknownMentions(draft.text, team) : []), [draft.text, team]);
+  // @mentions that reach nobody on the team.
+  const warning = useMemo(() => (team ? mentionWarning(draft.text, team, t, 'form') : undefined), [draft.text, team, t]);
   const now = Date.now();
   // The preview under the times is about the times: a message still to be typed is said elsewhere.
   const problems = draftProblems({ ...draft, text: draft.text.trim() || '-' }, now, t);
@@ -54,9 +54,7 @@ export function ScheduleForm({
           onChange={(e) => onEdit({ text: e.target.value })}
         />
         <span className="small muted">{team ? t.schedule.messageHint : t.schedule.messageHintNoTeam}</span>
-        {unknown.length > 0 && (
-          <span className="small warn-text">{t.schedule.unknownMentions(unknown.map((n) => `@${n}`).join(t.common.listSeparator))}</span>
-        )}
+        {warning && <span className="small warn-text">{warning}</span>}
       </label>
 
       <div className="field">

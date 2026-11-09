@@ -32,10 +32,12 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 
 ## Where things are
 
-- `src/shared/`: code shared by server and client. `types.ts` (all shared types, `PROVIDERS`), `mentions.ts` (the `@mention` rule), `ask.ts` (`[ASK_USER]`), `media.ts`.
+- `src/shared/`: code shared by server and client. `types.ts` (all shared types, `PROVIDERS`), `mentions.ts` (the `@mention` rule, and `unknownMentions`), `ask.ts` (`[ASK_USER]`), `media.ts`, `schedule.ts` (a schedule's next times), `search.ts`.
 - `src/server/app.ts`: routes, security middleware, SSE (`createApp()`, testable with `app.request()`).
 - `src/server/orchestrator.ts`: team runs: speakers by mode, prompt delivery, streaming into messages, auto team, the message queue, pausing for the user's answer, retry and resend.
 - `src/server/prompt.ts` and `planner.ts`: agent briefings and turn prompts; the auto-team lead agent's prompt and reply parsing.
+- `src/server/scheduler.ts`: sends each schedule's message when it comes due (missed times, busy retries), through `Orchestrator.sendScheduled()` (`sendInNewChat()` for a new chat each time; `designForSchedule()` has the lead agent design a schedule's team).
+- `src/server/grouping.ts`: the lead agent sorts a new conversation into the user's sidebar groups.
 - `src/server/agents/`: one adapter per CLI. `claude.ts` (stream-json), `codex.ts` (`codex app-server`), `grok.ts` (ACP), `acp.ts` (the JSON-RPC peer), `index.ts` (registry).
 - `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations, persistence, provider settings and child-process env (including the CLIs' own homes), API keys in the OS keyring.
 - `src/server/agentsview.ts`: sends each conversation to AgentsView as one thread and links the agents' own sessions under it.
@@ -43,7 +45,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 - `src/server/process.ts`: spawning, streaming and killing child processes.
 - `src/server/tools.ts`: the tool library: MCP servers (their secret values in the OS keyring, by server id), skills and memory, and what each agent gets from it.
 - `src/server/native.ts`, `grokTrust.ts`: what each CLI loads by itself (asked without a prompt); recording Grok's trust in a project root.
-- `src/server/files.ts`: browsing a chat's working directory and agents' worktrees (inside the folder only, never `.git`).
+- `src/server/files.ts`: browsing a chat's working directory and agents' worktrees (inside the folder only, never `.git`), and what a folder's ZIP download holds; `zip.ts` writes that ZIP file as it is sent.
 - `src/server/i18n.ts`, `presets.ts`: server-side messages and built-in team templates, both in two languages.
 - `src/web/`: the React client. `components/`, `locales/` (`zh-TW.ts`, `en.ts`), `chat.ts` (ChatView's pure logic), `copy.ts`, `api.ts`, `public/` (the web app manifest and home-screen icons, written by `npm run icons`; don't edit them by hand).
 - `test/`: Vitest tests, roughly one file per module.

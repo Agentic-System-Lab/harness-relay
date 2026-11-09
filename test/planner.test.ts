@@ -200,13 +200,14 @@ describe('a question in a conversation', () => {
     expect(buildPlannerPrompt('Q', { ...settings, autoConfirm: true }, ctx, { current })).toContain('Your team answers the question right away.');
   });
 
-  it('asks for members named as the question @mentions them, unless the team has them', () => {
-    const prompt = buildPlannerPrompt('@Reviewer 看一下 @dddd 的 PR', settings, ctx, { current });
-    expect(prompt).toContain('It addresses @Reviewer, @dddd by name');
-    expect(buildPlannerPrompt('@alice what now?', settings, ctx, { current })).not.toContain('by name');
-    expect(buildPlannerPrompt('`@code` only', settings, ctx)).not.toContain('by name');
-    // A schedule's message, with no team yet.
-    expect(buildPlannerPrompt('@Reviewer daily', settings, ctx, { schedule: { newChat: false } })).toContain('It addresses @Reviewer by name');
+  it("asks for members named as a schedule's message @mentions them, unless the team has them", () => {
+    const schedule = { newChat: false };
+    const prompt = buildPlannerPrompt('@Reviewer 看一下 @dddd 的 PR', settings, ctx, { schedule });
+    expect(prompt).toContain('It @mentions @Reviewer, @dddd. If these name the people or roles it is for');
+    expect(buildPlannerPrompt('@alice what now?', settings, ctx, { current, schedule })).not.toContain('It @mentions');
+    expect(buildPlannerPrompt('Upgrade @angular/core and @types/node, keep @Component(…)', settings, ctx, { schedule })).not.toContain('It @mentions');
+    // An ordinary question's @-words are as often code: no hint.
+    expect(buildPlannerPrompt('@Reviewer please look', settings, ctx, { current })).not.toContain('It @mentions');
   });
 
   it('keeps the current team as it is, ids included, and offers no saving', () => {

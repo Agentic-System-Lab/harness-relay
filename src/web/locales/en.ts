@@ -264,13 +264,19 @@ export const en: Messages = {
     button: 'Schedule',
     buttonTitle: 'Send the team a message automatically at set times',
     title: 'Schedule',
-    intro: 'At the times you set, this message is sent to the team of this conversation, as if you had sent it. Harness Relay must be running for it to send.',
+    intro: 'At the times you set, this message is sent to the team of this conversation (here, or in a new chat each time if you choose), as if you had sent it. Harness Relay must be running for it to send.',
     message: 'Message to send the team',
     messagePlaceholder: 'For example: @Reviewer look at the pull requests merged yesterday and list the risks.',
     messageHint: 'As usual, when you @mention members, only they answer.',
     messageHintNoTeam: 'No team yet: the names the message @mentions go to the lead agent, which names the members after them; then only the members @mentioned answer.',
-    unknownMentions: (names) => `${names} in the message is not on this team: with nobody @mentioned, the whole team answers.`,
-    teamMissesMention: (names) => `${names} in the scheduled message is not on the team: the whole team answers when it is sent.`,
+    mentions: {
+      notOnTeam: (names, n) => `${names} in the message ${n > 1 ? 'are' : 'is'} not on this team, so ${n > 1 ? 'they reach' : 'it reaches'} nobody`,
+      notOnTeamScheduled: (names, n) =>
+        `${names} in the scheduled message ${n > 1 ? 'are' : 'is'} not on this team, so ${n > 1 ? 'they reach' : 'it reaches'} nobody`,
+      wholeTeam: '; with no member @mentioned, the whole team answers.',
+      onlyThey: (names, n) => `; only ${names} ${n > 1 ? 'answer' : 'answers'}.`,
+      adjust: ' "Adjust team" lets you rename a member.',
+    },
     repeat: 'When',
     kinds: { once: 'Once', daily: 'Every day', weekly: 'Every week', interval: 'Every few hours' },
     at: 'Date and time',
@@ -321,7 +327,7 @@ export const en: Messages = {
     remove: 'Delete schedule',
     confirmRemove: 'Delete this schedule?',
     saving: 'Saving…',
-    needsTeam: 'Confirm a team before you set a schedule: in a new chat, ask a question first, then confirm the team the lead agent chose for it.',
+    needsTeam: 'Confirm a team before you set a schedule: in a new chat, ask a question first, then confirm the team the lead agent chose for it; or start from New schedule in the sidebar.',
     confirmTeamFirst: 'The lead agent has designed a team for this schedule: confirm it in the chat. The schedule runs, and can be changed, once it is confirmed.',
     designingTeam: 'The lead agent is designing a team for this schedule…',
     noTeamYet: 'This schedule has no team yet: its times are skipped until it has one.',
@@ -460,7 +466,6 @@ export const en: Messages = {
     declined: 'Not used; the current team answered',
     aborted: 'Team design was stopped; Continue or a new question chooses the team again.',
     planningSchedule: (lead) => `The lead agent (${lead}) is designing a team for this schedule…`,
-    missesMention: (names) => `${names} in the scheduled message is not on this team: the whole team answers when it is sent. "Adjust team" lets you rename a member.`,
     confirmHintSchedule: 'Once you confirm this team, it gets the message at the schedule\'s times; nothing runs now.',
     abortedSchedule: 'The team design was stopped; "Have the lead agent design the team" in the schedule window designs it again.',
   },
@@ -893,7 +898,7 @@ export const en: Messages = {
       },
       {
         title: 'Start a new chat',
-        body: "A new chat only needs a working directory and a file permission. Team design lives in templates: on the new chat page you can look at the built-in ones, or add and change your own, choosing each member's position, model and reasoning effort.",
+        body: "A new chat only needs a working directory and a file permission. Team design lives in templates: on the new chat page you can look at the built-in ones, or add and change your own, choosing each member's position, model and reasoning effort. The calendar button beside it starts a new schedule instead: set the message and the times, and the lead agent designs its team.",
       },
       {
         title: 'A team for every question',
@@ -957,6 +962,7 @@ export const en: Messages = {
         points: [
           'Code with line numbers and highlighting, Markdown rendered or as source, images and videos shown',
           "In parallel mode, look at each member's worktree before you apply its result",
+          'Download a folder as a ZIP file, the one you are in too (the whole working directory included); one too large can come without the files git ignores',
         ],
       },
       {
@@ -964,6 +970,7 @@ export const en: Messages = {
         body: "Schedule in a chat's header (under ⋯ on a phone) sends its team a message at set times, as if you had sent it:",
         points: [
           'Once, every day, every week on the days you pick, or every few hours; once saved, "Run once now" tries it out',
+          'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
           'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat) and the agent works around it; or choose "Ask me"',
           'It sends only while Harness Relay runs: a missed time is skipped, or sent once when it starts if you choose',
           'A clock in the sidebar marks the conversation, amber when the last time was not sent',

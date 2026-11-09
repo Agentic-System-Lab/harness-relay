@@ -1,5 +1,4 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { unknownMentions } from '../../shared/mentions';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
@@ -14,6 +13,7 @@ import {
   type ProviderStatus,
 } from '../../shared/types';
 import { api } from '../api';
+import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
 import { settingsHref } from '../route';
 import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
@@ -86,9 +86,10 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
   const showMembers = members ?? !auto;
   // Members renamed or removed: the schedule's message may @mention someone the team no longer has.
   const names = agents.map((a) => a.name).join('\n');
+  const scheduleText = schedule?.text;
   const missing = useMemo(
-    () => (schedule && names ? unknownMentions(schedule.text, names.split('\n')) : []),
-    [schedule, names],
+    () => (scheduleText && names ? mentionWarning(scheduleText, names.split('\n'), t, 'team') : undefined),
+    [scheduleText, names, t],
   );
   const setAgents = (next: AgentConfig[]) => onChange({ ...value, agents: next });
   const setSettings = (patch: Partial<ConversationSettings>) => onChange({ ...value, settings: { ...settings, ...patch } });
@@ -111,9 +112,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
             <span className="muted small">{settings.mode === 'relay' ? t.team.relayOrder : t.team.order}</span>
           </div>
           {auto && !proposed && <p className="muted small current-note">{t.team.currentNote}</p>}
-          {missing.length > 0 && (
-            <p className="small warn-text">{t.schedule.teamMissesMention(missing.map((n) => `@${n}`).join(t.common.listSeparator))}</p>
-          )}
+          {missing && <p className="small warn-text">{missing}</p>}
 
           <div className="agent-grid">
             {agents.map((a, i) => {

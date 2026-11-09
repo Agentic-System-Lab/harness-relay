@@ -18,6 +18,13 @@ describe('unknownMentions', () => {
     expect(mentionsInMarkdown('@Bobby', ['Bob'])).toEqual([]);
   });
 
+  it('takes package scopes and decorators for code, and finds names in any prose', () => {
+    expect(unknownMentions('Upgrade @angular/core and @types/node; keep @Component(…) and @Input()', [])).toEqual([]);
+    expect(unknownMentions('@Alice and @Zed', ['Alice'])).toEqual(['Zed']);
+    expect(unknownMentions('# @Head\n\n**@Bold** _@em_\n\n| a |\n|---|\n| @Cell |', [])).toEqual(['Head', 'Bold', 'em', 'Cell']);
+    expect(unknownMentions('@Bob- and @Bob_', ['Bob'])).toEqual(['Bob-', 'Bob_']); // as routing reads them: not @Bob
+  });
+
   it('looks at prose only: not code, links or e-mail addresses', () => {
     expect(unknownMentions('`@code` [@link](https://example.com) mail me@example.com\n\n```\n@block\n```', [])).toEqual([]);
     expect(unknownMentions('@ alone, or @', [])).toEqual([]);

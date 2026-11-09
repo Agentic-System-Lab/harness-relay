@@ -161,8 +161,9 @@ export function buildPlannerPrompt(
   // Like a template, without an id: it is not one.
   const currentTeam = current && JSON.stringify(teamForLead(current.settings, current.agents), null, 2);
   const scheduled = conv.schedule;
-  // Names the question @mentions that no member has yet: the user means the members they address.
-  const addressed = unknownMentions(question, current?.agents.map((a) => a.name) ?? []);
+  // Names a schedule's message @mentions that no member has yet: the members it is for, most likely.
+  // (Only for a schedule: an ordinary question's @-words are as often code, like decorators.)
+  const addressed = scheduled ? unknownMentions(question, current?.agents.map((a) => a.name) ?? []) : [];
   const review = scheduled
     ? settings.autoConfirm
       ? 'Your team is used as it is; it answers the message each time the schedule sends it.'
@@ -219,7 +220,7 @@ ${question}
 ${
   addressed.length
     ? `
-It addresses ${addressed.map((n) => `@${n}`).join(', ')} by name: only the members a message @mentions answer it, so name the members it is for exactly so (a template whose members have these names, or one adapted with its members renamed), or nobody is addressed and the whole team answers.
+It @mentions ${addressed.map((n) => `@${n}`).join(', ')}. If these name the people or roles it is for (not package scopes, decorators or CSS rules), name the members it is for exactly so (a template whose members have these names, or one adapted with its members renamed): only the members a message @mentions answer it, and a name no member has reaches nobody.
 `
     : ''
 }

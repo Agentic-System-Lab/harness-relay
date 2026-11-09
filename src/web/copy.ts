@@ -6,6 +6,7 @@ import {
   type Provider,
   type TeamPlan,
 } from '../shared/types';
+import { mentionsInMarkdown, unknownMentions } from '../shared/mentions';
 import type { Messages } from './i18n';
 
 /** An opening or closing code fence: up to 3 spaces, then 3+ backticks or tildes. */
@@ -80,6 +81,31 @@ export function planWording(plan: TeamPlan, t: Messages, lead: string): { planni
     confirmHint: s ? t.plan.confirmHintSchedule : t.plan.confirmHint,
     aborted: s ? t.plan.abortedSchedule : t.plan.aborted,
   };
+}
+
+/**
+ * What to say when a (scheduled) message @mentions names the team does not have; undefined when it
+ * does not. Those reach nobody: the members it does @mention answer, or with none, the whole team.
+ * `where`: the schedule form (the message being written), the team editor, or a team design's card
+ * (the scheduled message; the card also says how to rename a member).
+ */
+export function mentionWarning(text: string, names: string[], t: Messages, where: 'form' | 'team' | 'card'): string | undefined {
+  const unknown = unknownMentions(text, names);
+  if (!unknown.length) return undefined;
+  const known = mentionsInMarkdown(text, names);
+  const list = (ns: string[]) => ns.map((n) => `@${n}`).join(t.common.listSeparator);
+  const m = t.schedule.mentions;
+  const head = where === 'form' ? m.notOnTeam(list(unknown), unknown.length) : m.notOnTeamScheduled(list(unknown), unknown.length);
+  const then = known.length ? m.onlyThey(list(known), known.length) : m.wholeTeam;
+  return head + then + (where === 'card' ? m.adjust : '');
+}
+
+/**
+ * Whether a team design's card checks the scheduled message's @mentions against its members: while it
+ * waits for confirmation, or when it was used at once and is the latest (it is the team now).
+ */
+export function planChecksMentions(plan: TeamPlan, latest: boolean): boolean {
+  return plan.status === 'ready' && (Boolean(plan.awaitingConfirmation) || (Boolean(plan.autoConfirmed) && latest));
 }
 
 /** One line naming the team the lead agent chose ("Using the template …"). */
