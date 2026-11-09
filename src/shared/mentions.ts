@@ -66,3 +66,27 @@ export function mentionsInMarkdown(text: string, names: string[]): string[] {
   }
   return out;
 }
+
+/**
+ * Names @mentioned in Markdown `text` that are none of `names` (case-insensitive), in order, each once:
+ * mentions that will reach nobody, so everybody answers. Prose only, as for `mentionsInMarkdown`. A
+ * name made of ASCII letters, digits, `_` and `-` ends where they end; any other ends at a space or
+ * punctuation, so Chinese text written right after one is taken as part of it (`@小明請看`).
+ */
+export function unknownMentions(text: string, names: string[]): string[] {
+  const tree = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) as MentionNode;
+  const known = new Set(names.map((n) => n.toLowerCase()));
+  const out: string[] = [];
+  for (const node of proseTexts(tree)) {
+    const value = node.value ?? '';
+    const taken = new Set(findMentions(value, names).map((m) => m.start));
+    for (const m of value.matchAll(/(^|[^\w@.])@/g)) {
+      const start = m.index + m[0].length - 1;
+      if (taken.has(start)) continue;
+      const rest = value.slice(start + 1);
+      const name = (/^[A-Za-z0-9_-]{1,32}/.exec(rest) ?? /^[\p{L}\p{N}_-]{1,32}/u.exec(rest))?.[0];
+      if (name && !known.has(name.toLowerCase()) && !out.some((o) => o.toLowerCase() === name.toLowerCase())) out.push(name);
+    }
+  }
+  return out;
+}

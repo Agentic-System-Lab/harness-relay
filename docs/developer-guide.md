@@ -20,7 +20,7 @@ How the code is organized, how to run and test it, and how to extend it. Read [A
 ```text
 src/
   shared/types.ts          types shared by server and client (+ PROVIDERS, effortsFor…)
-  shared/mentions.ts       the @mention rule shared by the server and the UI (Markdown prose only)
+  shared/mentions.ts       the @mention rule shared by the server and the UI (Markdown prose only), and the names no member has
   shared/search.ts         search words, matches ignoring case, excerpts, highlighting (server and UI)
   shared/schedule.ts       when a schedule sends next: wall-clock times in a time zone, clock changes (server and UI)
   server/
@@ -300,7 +300,8 @@ Current tests:
 - `test/sidebar.test.ts` — the sidebar's conversation states, conversations in their groups (Other last, conversations of a missing group in Other), moves not yet confirmed, and the state a collapsed group shows.
 - `test/search.test.ts` — search words, matches ignoring case (longest first, overlaps merged), excerpts around the first match, highlighting.
 - `test/grouping.test.ts` — the prompt that asks the lead agent to sort a conversation, and reading its reply (a number or a name; 0 or null is none; anything else is refused).
-- `test/planner.test.ts` — the lead agent's reply: JSON extraction, templates vs. custom teams, validation, remapping to signed-in CLIs, the fallback, and the prompt. Also a question in a conversation: the history and the current team in the prompt, keeping the current team (ids too), the fallback keeping it, members who stay on keeping their ids, and the conversation in short (no tool calls, notes, plans or passes; long messages and conversations shortened, the latest kept).
+- `test/mentions.test.ts` — the names a message @mentions that are not on the team (`unknownMentions`): case-insensitive, once each, Chinese text right after a known name, longer words, prose only (not code, links or e-mail addresses).
+- `test/planner.test.ts` — the lead agent's reply: JSON extraction, templates vs. custom teams, validation, remapping to signed-in CLIs, the fallback, and the prompt. Also a question in a conversation: the history and the current team in the prompt, keeping the current team (ids too), the fallback keeping it, members who stay on keeping their ids, and the conversation in short (no tool calls, notes, plans or passes; long messages and conversations shortened, the latest kept). Also the names a question @mentions that no member has, which the lead is asked to give the members (for a schedule's message too).
 - `test/tour.test.ts` — the guided tour: one target per step, showing it again after a new version, and a fingerprint of the steps that fails when they change without a new version.
 - `test/i18n.test.ts` — language detection (server header and browser), language carried through async work, bilingual templates, and the two UI dictionaries having the same shape.
 - `test/voice.test.ts` — voice input with fake downloads, processes and engine: the pinned catalogue, the background install (engine, model, check) on Linux and with Homebrew on macOS, a SHA-256 mismatch, cancelling, disk space, a custom engine path, an engine that does not start, the engine on 127.0.0.1 behind a secret path, transcription and its language, switching and deleting models, settings, and the HTTP routes.

@@ -572,6 +572,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
               onConfirmPlan={onConfirmPlan}
               onDeclinePlan={onDeclinePlan}
               latestPlan={m.id === latestPlanId}
+              scheduleText={m.plan?.forSchedule ? conv.schedule?.text : undefined}
               onSavePlan={onSavePlan}
               onAdjustTeam={onAdjustTeam}
               onApproval={onApproval}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { pendingPlan, type Conversation } from '../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
@@ -70,6 +70,8 @@ export function ScheduleDrawer({
   // The latest team design is for the schedule's message (New schedule), not for a question.
   const forSchedule = Boolean(conv.messages.findLast((m) => m.plan)?.plan?.forSchedule);
   const { mode, rounds, maxHops, permission, cwd } = conv.settings;
+  /** The team the scheduled message goes to; none yet while the lead agent still has to design one. */
+  const teamNames = useMemo(() => (conv.agents.length ? conv.agents.map((a) => a.name) : undefined), [conv.agents]);
   /** A saved schedule without a team, in a chat whose lead agent may design one for it now. */
   const mayDesign = Boolean(saved) && !teamReady && !waitingPlan && !running && Boolean(conv.settings.autoTeam);
   const [designing, setDesigning] = useState(false);
@@ -214,7 +216,7 @@ export function ScheduleDrawer({
         )}
 
         <div className="schedule-form">
-          <ScheduleForm draft={draft} onEdit={edit} saved={saved} settings={conv.settings} />
+          <ScheduleForm draft={draft} onEdit={edit} saved={saved} settings={conv.settings} team={teamNames} />
 
           <div className="field">
             <span>{t.schedule.team}</span>

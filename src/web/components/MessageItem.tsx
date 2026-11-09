@@ -11,6 +11,7 @@ import {
   type PlanEntry,
 } from '../../shared/types';
 import { splitAsk } from '../../shared/ask';
+import { unknownMentions } from '../../shared/mentions';
 import { api } from '../api';
 import { enterSends, isTouchScreen } from '../chat';
 import { messageText, planHeadline, planWording, speaker } from '../copy';
@@ -292,6 +293,8 @@ interface Props {
   onDeclinePlan: (messageId: string) => Promise<void>;
   /** The conversation's latest team design: one used at once still says how Grok trusts the folder. */
   latestPlan?: boolean;
+  /** The conversation's scheduled message: a team designed for it should have the members it @mentions. */
+  scheduleText?: string;
   /** Save the team the lead agent designed (auto team) as a template. */
   onSavePlan: (messageId: string, name: string) => Promise<void>;
   onAdjustTeam: () => void;
@@ -306,16 +309,25 @@ interface Props {
 }
 
 /** The lead agent's team design for a question in an auto-team conversation. */
+/** Names the scheduled message @mentions that the team designed for it does not have. */
+function MissedMentions({ text, names }: { text: string; names: string[] }) {
+  const t = useT();
+  const missing = unknownMentions(text, names);
+  if (!missing.length) return null;
+  return <p className="small warn-text plan-note">{t.plan.missesMention(missing.map((n) => `@${n}`).join(t.common.listSeparator))}</p>;
+}
+
 function PlanCard({
   msg,
   cwd,
   agents,
   latestPlan,
+  scheduleText,
   onConfirmPlan,
   onDeclinePlan,
   onSavePlan,
   onAdjustTeam,
-}: Pick<Props, 'msg' | 'cwd' | 'agents' | 'latestPlan' | 'onConfirmPlan' | 'onDeclinePlan' | 'onSavePlan' | 'onAdjustTeam'>) {
+}: Pick<Props, 'msg' | 'cwd' | 'agents' | 'latestPlan' | 'scheduleText' | 'onConfirmPlan' | 'onDeclinePlan' | 'onSavePlan' | 'onAdjustTeam'>) {
   const t = useT();
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -385,6 +397,10 @@ function PlanCard({
           </li>
         ))}
       </ul>
+      {/* A team for the schedule that misses someone its message @mentions: said before it is confirmed. */}
+      {plan.forSchedule && (awaiting || (plan.autoConfirmed && latestPlan)) && scheduleText && (
+        <MissedMentions text={scheduleText} names={(plan.agents ?? []).map((a) => a.name)} />
+      )}
       {/* Before the user lets a team with a Grok member answer: Grok may not load this project's own setup. */}
       {(awaiting || (plan.autoConfirmed && latestPlan)) && asksGrokTrust(plan.agents ?? [], cwd) && <GrokTrustNote cwd={cwd} />}
       {awaiting && (
@@ -626,6 +642,7 @@ export const MessageItem = memo(function MessageItem({
   onConfirmPlan,
   onDeclinePlan,
   latestPlan,
+  scheduleText,
   onSavePlan,
   onAdjustTeam,
   onApproval,
@@ -643,6 +660,7 @@ export const MessageItem = memo(function MessageItem({
           cwd={cwd}
           agents={agents}
           latestPlan={latestPlan}
+          scheduleText={scheduleText}
           onConfirmPlan={onConfirmPlan}
           onDeclinePlan={onDeclinePlan}
           onSavePlan={onSavePlan}

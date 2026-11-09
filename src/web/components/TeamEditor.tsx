@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { unknownMentions } from '../../shared/mentions';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
@@ -83,6 +84,12 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
   const auto = Boolean(settings.autoTeam) && !template;
   const confirmHint = useId();
   const showMembers = members ?? !auto;
+  // Members renamed or removed: the schedule's message may @mention someone the team no longer has.
+  const names = agents.map((a) => a.name).join('\n');
+  const missing = useMemo(
+    () => (schedule && names ? unknownMentions(schedule.text, names.split('\n')) : []),
+    [schedule, names],
+  );
   const setAgents = (next: AgentConfig[]) => onChange({ ...value, agents: next });
   const setSettings = (patch: Partial<ConversationSettings>) => onChange({ ...value, settings: { ...settings, ...patch } });
   const updateAgent = (id: string, patch: Partial<AgentConfig>) =>
@@ -104,6 +111,9 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
             <span className="muted small">{settings.mode === 'relay' ? t.team.relayOrder : t.team.order}</span>
           </div>
           {auto && !proposed && <p className="muted small current-note">{t.team.currentNote}</p>}
+          {missing.length > 0 && (
+            <p className="small warn-text">{t.schedule.teamMissesMention(missing.map((n) => `@${n}`).join(t.common.listSeparator))}</p>
+          )}
 
           <div className="agent-grid">
             {agents.map((a, i) => {

@@ -1003,6 +1003,12 @@ p {
   margin: -4px 0 14px;
 }
 
+/* The schedule's message @mentions someone the team does not have. */
+.team-editor .section-head + .warn-text,
+.team-editor .current-note + .warn-text {
+  margin: -4px 0 14px;
+}
+
 /* Auto team: the lead agent's note and whether its team needs confirming. */
 .field.auto-team {
   gap: 8px;
@@ -3762,6 +3768,11 @@ details.sub summary {
   margin: 0;
   font-size: 13.5px;
   line-height: 1.55;
+}
+
+/* A team for the schedule that misses someone its message @mentions. */
+.plan-note {
+  margin: 0;
 }
 
 .plan-members {

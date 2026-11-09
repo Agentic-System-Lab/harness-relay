@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { unknownMentions } from '../../shared/mentions';
 import { SCHEDULE_KINDS, SCHEDULE_LIMITS, type ConversationSchedule, type ConversationSettings } from '../../shared/types';
 import { useI18n } from '../i18n';
 import { browserTimeZone, draftProblems, formatWhen, localInput, previewRuns, shownZone, type ScheduleDraft } from '../schedule';
@@ -14,6 +16,7 @@ export function ScheduleForm({
   onEdit,
   saved,
   settings,
+  team,
 }: {
   draft: ScheduleDraft;
   onEdit: (patch: Partial<ScheduleDraft>) => void;
@@ -21,8 +24,12 @@ export function ScheduleForm({
   saved?: ConversationSchedule;
   /** The conversation's settings (or the new one's): the hints depend on its mode and permission. */
   settings: Pick<ConversationSettings, 'mode' | 'permission' | 'approvals'>;
+  /** The team's names; absent while there is no team yet (the lead agent names its members after the @mentions). */
+  team?: string[];
 }) {
   const { t, lang } = useI18n();
+  // @mentions that reach nobody on the team: then the whole team answers.
+  const unknown = useMemo(() => (team ? unknownMentions(draft.text, team) : []), [draft.text, team]);
   const now = Date.now();
   // The preview under the times is about the times: a message still to be typed is said elsewhere.
   const problems = draftProblems({ ...draft, text: draft.text.trim() || '-' }, now, t);
@@ -46,7 +53,10 @@ export function ScheduleForm({
           placeholder={t.schedule.messagePlaceholder}
           onChange={(e) => onEdit({ text: e.target.value })}
         />
-        <span className="small muted">{t.schedule.messageHint}</span>
+        <span className="small muted">{team ? t.schedule.messageHint : t.schedule.messageHintNoTeam}</span>
+        {unknown.length > 0 && (
+          <span className="small warn-text">{t.schedule.unknownMentions(unknown.map((n) => `@${n}`).join(t.common.listSeparator))}</span>
+        )}
       </label>
 
       <div className="field">

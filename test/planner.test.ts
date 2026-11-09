@@ -200,6 +200,15 @@ describe('a question in a conversation', () => {
     expect(buildPlannerPrompt('Q', { ...settings, autoConfirm: true }, ctx, { current })).toContain('Your team answers the question right away.');
   });
 
+  it('asks for members named as the question @mentions them, unless the team has them', () => {
+    const prompt = buildPlannerPrompt('@Reviewer 看一下 @dddd 的 PR', settings, ctx, { current });
+    expect(prompt).toContain('It addresses @Reviewer, @dddd by name');
+    expect(buildPlannerPrompt('@alice what now?', settings, ctx, { current })).not.toContain('by name');
+    expect(buildPlannerPrompt('`@code` only', settings, ctx)).not.toContain('by name');
+    // A schedule's message, with no team yet.
+    expect(buildPlannerPrompt('@Reviewer daily', settings, ctx, { schedule: { newChat: false } })).toContain('It addresses @Reviewer by name');
+  });
+
   it('keeps the current team as it is, ids included, and offers no saving', () => {
     const d = withLang('en', () => decidePlan({ choice: 'keep' }, ctx, lead, current));
     expect(d).toMatchObject({ source: 'kept', name: 'Alice · Bob', settings: { mode: 'relay', rounds: 1, maxHops: 6 } });

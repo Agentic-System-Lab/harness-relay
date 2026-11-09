@@ -12,6 +12,7 @@ import {
   type TeamPlan,
   type TeamPreset,
 } from '../shared/types';
+import { unknownMentions } from '../shared/mentions';
 import { t } from './i18n';
 import { validateAgents } from './validate';
 
@@ -160,6 +161,8 @@ export function buildPlannerPrompt(
   // Like a template, without an id: it is not one.
   const currentTeam = current && JSON.stringify(teamForLead(current.settings, current.agents), null, 2);
   const scheduled = conv.schedule;
+  // Names the question @mentions that no member has yet: the user means the members they address.
+  const addressed = unknownMentions(question, current?.agents.map((a) => a.name) ?? []);
   const review = scheduled
     ? settings.autoConfirm
       ? 'Your team is used as it is; it answers the message each time the schedule sends it.'
@@ -213,7 +216,13 @@ ${scheduled ? 'The scheduled message' : 'The new question'}:
 <question>
 ${question}
 </question>
-
+${
+  addressed.length
+    ? `
+It addresses ${addressed.map((n) => `@${n}`).join(', ')} by name: only the members a message @mentions answer it, so name the members it is for exactly so (a template whose members have these names, or one adapted with its members renamed), or nobody is addressed and the whole team answers.
+`
+    : ''
+}
 Coding agents you can use (only these):
 ${agents}
 

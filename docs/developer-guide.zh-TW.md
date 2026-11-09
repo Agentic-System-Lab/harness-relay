@@ -20,7 +20,7 @@
 ```text
 src/
   shared/types.ts          伺服器與前端共用的型別（以及 PROVIDERS、effortsFor…）
-  shared/mentions.ts       伺服器與介面共用的 @ 規則（只看 Markdown 中的一般文字）
+  shared/mentions.ts       伺服器與介面共用的 @ 規則（只看 Markdown 中的一般文字），以及沒有成員叫這個名字的 @
   shared/search.ts         搜尋的詞、不分大小寫的比對、摘錄、標示關鍵字（伺服器與介面共用）
   shared/schedule.ts       排程下一次何時送出：時區中的牆上時間、時鐘調整（伺服器與介面共用）
   server/
@@ -300,7 +300,8 @@ npx vitest test/store.test.ts
 - `test/sidebar.test.ts`：側邊欄的對話狀態、各群組的對話（「其他」在最後、群組不存在的對話放在「其他」）、還沒確認的移動，以及收合群組顯示的狀態。
 - `test/search.test.ts`：搜尋的詞、不分大小寫的比對（長的優先、重疊合併）、第一個符合處附近的摘錄、標示關鍵字。
 - `test/grouping.test.ts`：請首席 agent 分類對話的 prompt，以及解讀它的回覆（編號或名稱；0 或 null 代表都不適合；其他都拒絕）。
-- `test/planner.test.ts`：首席 agent 的回覆：擷取 JSON、範本與自訂團隊、驗證、改用已登入的 CLI、備援方案，以及 prompt。也測試對話中的問題：prompt 中的歷史與目前的團隊、保留目前的團隊（id 也一樣）、備援方案保留它、留下來的成員保留 id，以及精簡過的對話（不含工具呼叫、系統訊息、plan 與 pass；過長的訊息與對話會縮短，保留最新的部分）。
+- `test/mentions.test.ts`：訊息 @ 了但不在團隊裡的名字（`unknownMentions`）：不分大小寫、每個只列一次、已知名字後直接接中文、較長的單字，以及只看一般文字（不含程式碼、連結與 email）。
+- `test/planner.test.ts`：首席 agent 的回覆：擷取 JSON、範本與自訂團隊、驗證、改用已登入的 CLI、備援方案，以及 prompt。也測試對話中的問題：prompt 中的歷史與目前的團隊、保留目前的團隊（id 也一樣）、備援方案保留它、留下來的成員保留 id，以及精簡過的對話（不含工具呼叫、系統訊息、plan 與 pass；過長的訊息與對話會縮短，保留最新的部分）。也測試問題 @ 了但沒有成員叫這個名字的名字，首席 agent 會被要求用這些名字為成員命名（排程訊息也一樣）。
 - `test/tour.test.ts`：使用導覽：每一步都有對應的目標、新版本會再顯示一次，以及步驟的 fingerprint（步驟改了卻沒有換新版本時會失敗）。
 - `test/i18n.test.ts`：語言偵測（伺服器 header 與瀏覽器）、語言在非同步工作中的傳遞、雙語範本，以及兩份介面字典結構相同。
 - `test/voice.test.ts`：用假的下載、程序與引擎測試語音輸入：固定版本的下載清單、背景安裝（引擎、模型、檢查），涵蓋 Linux 與 macOS 的 Homebrew、SHA-256 不符、取消、硬碟空間、自訂引擎路徑、引擎無法啟動、引擎只聽 127.0.0.1 並藏在隨機路徑後、語音轉文字與辨識語言、切換與刪除模型、設定，以及 HTTP 路由。
