@@ -10,7 +10,7 @@ interface Props {
   className?: string;
   disabled?: boolean;
   title?: string;
-  /** Shown before the label (a check once copied); the label goes in a `.button-label` span, which CSS may hide. */
+  /** Shown before the label (a check once copied); the label goes in a `.button-label` span. */
   icon?: ReactNode;
   /** Called once it has copied (or failed to) and says so. */
   onDone?: () => void;

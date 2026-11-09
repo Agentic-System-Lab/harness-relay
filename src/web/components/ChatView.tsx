@@ -130,6 +130,9 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   // On phones the header's actions are a menu under ⋯ (.more-button in styles.css); wider screens
   // show them in a row and never open it.
   const [menuOpen, setMenuOpen] = useState(false);
+  // For callbacks that run after an await (Copy chat), when this render's value may be stale.
+  const menuOpenRef = useRef(menuOpen);
+  menuOpenRef.current = menuOpen;
   const menuId = useId();
   const moreRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -142,9 +145,12 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   }, []);
   useEffect(() => {
     if (!menuOpen) return;
-    // A tap or Tab elsewhere closes it, and focus stays where it went.
+    // A tap or Tab elsewhere closes it, and focus stays where it went. Focus outside the app is
+    // left alone: copying over plain http focuses a textarea put in <body> for a moment (copy.ts).
+    const app = document.getElementById('root');
     const onOutside = (e: Event) => {
       const target = e.target as Node;
+      if (e.type === 'focusin' && !app?.contains(target)) return;
       if (!moreRef.current?.contains(target) && !actionsRef.current?.contains(target)) closeMenu(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -177,7 +183,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
   };
   /** After Copy chat in the menu says it copied, the menu closes. */
   const copiedFromHead = () => {
-    if (!menuOpen) return;
+    if (!menuOpenRef.current) return;
     window.clearTimeout(menuTimer.current);
     menuTimer.current = window.setTimeout(() => closeMenu(actionsRef.current?.contains(document.activeElement) ?? false), 1000);
   };
@@ -432,7 +438,11 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
             title={t.chat.more}
             aria-expanded={menuOpen}
             aria-controls={menuId}
-            onClick={() => (menuOpen ? closeMenu(false) : setMenuOpen(true))}
+            onClick={() => {
+              if (menuOpen) return closeMenu(false);
+              window.clearTimeout(menuTimer.current);
+              setMenuOpen(true);
+            }}
           >
             <MoreIcon size={18} />
           </button>

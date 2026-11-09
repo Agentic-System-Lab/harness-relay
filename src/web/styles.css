@@ -3434,7 +3434,7 @@ details.sub summary {
   }
 }
 
-/* Phones: icon buttons in the chat header (like the menu button), a slimmer message box. */
+/* Phones: the chat header's actions in a menu under ⋯, a slimmer message box. */
 @media (max-width: 560px) {
   /* The header keeps the title, the full access tag and ⋯; ⋯ opens the actions below it, each
      with its icon and name. The menu hangs from the header, over the messages. */
