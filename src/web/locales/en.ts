@@ -238,7 +238,7 @@ export const en: Messages = {
     days: 'Days',
     every: 'Every',
     hoursUnit: 'hours',
-    intervalHint: 'Counted from when you save it.',
+    intervalHint: 'Counted from when you set the interval; changing only the message keeps the rhythm.',
     weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     weekdayNames: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
     timeZone: (tz) => `Time zone: ${tz}`,

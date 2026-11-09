@@ -164,6 +164,10 @@ function textOf(m: ChatMessage): string {
 /** Most messages that may wait in a conversation's queue. */
 const MAX_QUEUE = 20;
 
+/** Why an action was refused in a run a schedule started, as the agent is told (prompts stay in English). */
+const UNATTENDED_REFUSAL =
+  'This run was started by a schedule and nobody may be watching, so actions outside your permission are refused automatically.';
+
 /**
  * Who answers a run the user's `messages` start: the agents they @mention, or the whole team when
  * none does or one of them mentions nobody (it is for everyone).
@@ -434,6 +438,10 @@ export class Orchestrator {
       }
       // A settings change or an apply holds the conversation for a moment.
       if (this.isBusy(convId)) return { result: 'busy', reason: t().scheduleConvBusy };
+      // Another conversation is writing in its folder: known before the run is set up, so a message the
+      // user sends meanwhile is not left in the queue of a run that then cannot start.
+      const locked = this.folderLockedBy(conv);
+      if (locked) return { result: 'busy', reason: locked };
       await this.start(conv, waiting ? '' : s.text, { queue: true, scheduled: !waiting, refuseApprovals: s.approvals !== 'ask' });
       return { result: 'sent' };
     } catch (err) {
@@ -643,8 +651,12 @@ export class Orchestrator {
     // workspace is prepared, and a delete waits for it; a message sent meanwhile waits in the queue.
     const release = this.reserve(convId);
     this.starting.add(convId);
-    // Messages queued from now on were sent after this one: they wait for the first turn.
-    const ahead = opts.queue ? new Set((conv.queue ?? []).map((m) => m.id)) : undefined;
+    // Messages queued from now on were sent after this one: they wait for the first turn. When the
+    // user answers an agent's question, scheduled messages stay queued too: the run picks up where
+    // the team stopped, so they wait for a turn of an agent they are for, or for a run of their own.
+    const ahead = opts.queue
+      ? new Set((conv.queue ?? []).filter((m) => !(conv.pause && m.scheduled)).map((m) => m.id))
+      : undefined;
     let lockRoot: string | undefined;
     let run: Run;
     let posted: ChatMessage[] = [];
@@ -817,6 +829,28 @@ export class Orchestrator {
       }
     }
     this.dirLocks.set(root, conv.id);
+  }
+
+  /**
+   * Why a run of this conversation could not take its directory lock now, as far as can be told without
+   * git: another conversation holds a lock on a folder around or inside its working directory. (The
+   * lock taken when the run starts is the one that counts.)
+   */
+  private folderLockedBy(conv: Conversation): string | undefined {
+    if (conv.settings.permission === 'read-only' || conv.settings.mode === 'parallel') return undefined;
+    let cwd: string;
+    try {
+      cwd = realpathSync(conv.settings.cwd);
+    } catch {
+      return undefined;
+    }
+    const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
+    for (const [held, holder] of this.dirLocks) {
+      if (holder !== conv.id && (within(cwd, held) || within(held, cwd))) {
+        return t().dirLocked(this.store.get(holder)?.title ?? holder, held);
+      }
+    }
+    return undefined;
   }
 
   private unlockDir(root: string, convId: string): void {
@@ -1393,7 +1427,7 @@ export class Orchestrator {
               Object.assign(part, { status: 'denied', note: t().scheduleRefused });
               this.hub.emit(conv.id, { type: 'message', message: msg });
               this.store.saveMessage(conv.id, msg, true);
-              return { allow: false, note: part.note };
+              return { allow: false, note: UNATTENDED_REFUSAL };
             }
             this.hub.emit(conv.id, { type: 'message', message: msg });
             this.store.saveMessage(conv.id, msg, true);

@@ -257,12 +257,16 @@ function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
   };
 }
 
-/** What the sidebar shows of a schedule. */
-function scheduleSummary(s: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult'>): ConversationSummary['schedule'] {
+/** What the sidebar shows of a schedule; times of day are shown in the schedule's time zone. */
+function scheduleSummary(
+  s: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult' | 'timeZone'> & { repeat?: Pick<ScheduleRepeat, 'kind'> },
+): ConversationSummary['schedule'] {
+  const ofDay = s.repeat?.kind === 'daily' || s.repeat?.kind === 'weekly';
   return {
     enabled: s.enabled,
     ...(s.nextRunAt !== undefined ? { nextRunAt: s.nextRunAt } : {}),
     ...(s.lastResult ? { lastResult: s.lastResult } : {}),
+    ...(ofDay ? { timeZone: s.timeZone } : {}),
   };
 }
 
@@ -377,13 +381,19 @@ export class Store {
     );
     const schedules = new Map(
       (
-        this.db.prepare('SELECT conversation_id, enabled, next_run_at, last_result FROM schedules').all() as Pick<
+        this.db.prepare('SELECT conversation_id, enabled, next_run_at, last_result, time_zone, repeat FROM schedules').all() as Pick<
           ScheduleRow,
-          'conversation_id' | 'enabled' | 'next_run_at' | 'last_result'
+          'conversation_id' | 'enabled' | 'next_run_at' | 'last_result' | 'time_zone' | 'repeat'
         >[]
       ).map((r) => [
         r.conversation_id,
-        scheduleSummary({ enabled: Boolean(r.enabled), nextRunAt: opt(r.next_run_at), lastResult: opt(r.last_result) }),
+        scheduleSummary({
+          enabled: Boolean(r.enabled),
+          nextRunAt: opt(r.next_run_at),
+          lastResult: opt(r.last_result),
+          timeZone: r.time_zone,
+          repeat: parseJson<ScheduleRepeat | undefined>(r.repeat, undefined),
+        }),
       ]),
     );
     const byConv = new Map<string, ConversationSummary['agents']>();

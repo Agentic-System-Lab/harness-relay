@@ -135,9 +135,26 @@ export function draftProblems(d: ScheduleDraft, now: number, t: Messages): strin
   return out;
 }
 
-/** The next times the form would send, counted from `now` as if it were saved now. */
-export function previewRuns(d: ScheduleDraft, now: number, count = 3): number[] {
-  return upcomingRuns({ repeat: repeatOf(d), timeZone: d.timeZone, updatedAt: now }, now, count);
+/**
+ * Whether saving the form keeps the saved schedule's times (its `repeat` and time zone), and so an
+ * interval's cadence (the server keeps `updatedAt` then).
+ */
+export function sameTimes(d: ScheduleDraft, s: ConversationSchedule | undefined): boolean {
+  return Boolean(s) && JSON.stringify(repeatOf(d)) === JSON.stringify(s!.repeat) && d.timeZone === s!.timeZone;
+}
+
+/** The next times the form would send once saved now: an interval counts from when its times were set. */
+export function previewRuns(d: ScheduleDraft, now: number, saved?: ConversationSchedule, count = 3): number[] {
+  const updatedAt = saved && sameTimes(d, saved) ? saved.updatedAt : now;
+  return upcomingRuns({ repeat: repeatOf(d), timeZone: d.timeZone, updatedAt }, now, count);
+}
+
+/**
+ * The time zone a schedule's times are shown in: its own for times of day, so they read as they were
+ * set; this browser's for a one-time schedule, typed here as a moment, and for intervals.
+ */
+export function shownZone(s: { repeat: Pick<ScheduleRepeat, 'kind'>; timeZone: string }): string | undefined {
+  return s.repeat.kind === 'daily' || s.repeat.kind === 'weekly' ? s.timeZone : undefined;
 }
 
 /**
@@ -161,11 +178,11 @@ export function formatWhen(ms: number, lang: string, timeZone?: string): string 
 }
 
 /** When a schedule sends, in a few words: "Weekdays at 09:00", "每 6 小時". */
-export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string, timeZone?: string): string {
+export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string): string {
   const s = t.schedule.summary;
   switch (r.kind) {
     case 'once':
-      return s.once(formatWhen(r.at, lang, timeZone));
+      return s.once(formatWhen(r.at, lang)); // typed in this browser's time zone
     case 'daily':
       return s.daily(r.time);
     case 'weekly': {
@@ -188,7 +205,7 @@ export function scheduleTrouble(s: Pick<ConversationSchedule, 'lastResult'> | un
 
 /** The schedule's state in a few words: when it sends next, paused, or (a one-time schedule that came due) done. */
 export function scheduleState(s: ConversationSchedule, t: Messages, lang: string): string {
-  if (s.enabled && s.nextRunAt !== undefined) return t.schedule.next(formatWhen(s.nextRunAt, lang, s.timeZone));
+  if (s.enabled && s.nextRunAt !== undefined) return t.schedule.next(formatWhen(s.nextRunAt, lang, shownZone(s)));
   const r = s.repeat;
   return r.kind === 'once' && s.lastRunAt !== undefined && s.lastRunAt >= r.at ? t.schedule.finished : t.schedule.paused;
 }
@@ -197,5 +214,5 @@ export function scheduleState(s: ConversationSchedule, t: Messages, lang: string
 export function sidebarScheduleTitle(s: NonNullable<ConversationSummary['schedule']>, t: Messages, lang: string): string {
   if (scheduleTrouble(s)) return t.schedule.sidebar.problem(t.schedule.results[s.lastResult!]);
   if (!s.enabled || s.nextRunAt === undefined) return t.schedule.sidebar.paused;
-  return t.schedule.sidebar.next(formatWhen(s.nextRunAt, lang));
+  return t.schedule.sidebar.next(formatWhen(s.nextRunAt, lang, s.timeZone));
 }

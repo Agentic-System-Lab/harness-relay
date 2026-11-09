@@ -948,7 +948,7 @@ describe('schedules', () => {
 
     expect(((await (await get(`/api/conversations/${conv.id}`)).json()) as Conversation).schedule).toEqual(saved);
     const list = (await (await get('/api/conversations')).json()) as { id: string; schedule?: unknown }[];
-    expect(list.find((c) => c.id === conv.id)!.schedule).toEqual({ enabled: true, nextRunAt: saved.nextRunAt });
+    expect(list.find((c) => c.id === conv.id)!.schedule).toEqual({ enabled: true, nextRunAt: saved.nextRunAt, timeZone: 'UTC' });
 
     // Switched off, it has no next time; deleted, it is gone.
     const off = (await (await put(conv.id, { ...valid, enabled: false })).json()) as NonNullable<Conversation['schedule']>;
@@ -1040,7 +1040,7 @@ describe('schedules', () => {
     const held = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (release = r)));
     const busy = await run();
     expect(busy.status).toBe(409);
-    expect(((await busy.json()) as { error: string }).error).toBe('The conversation was busy with a settings change or an apply');
+    expect(((await busy.json()) as { error: string }).error).toBe('The conversation is busy with a settings change or an apply');
     release();
     await held;
     expect((await run()).status).toBe(202);

@@ -569,8 +569,12 @@ describe('Store schedules', () => {
     const reloaded = new Store(reopen());
     expect(reloaded.get(conv.id)!.schedule).toEqual(schedule);
     expect(reloaded.get(conv.id)!.messages[0]!.scheduled).toBe(true);
-    expect(new Store(db).list(() => false)[0]!.schedule).toEqual({ enabled: true, nextRunAt: 100, lastResult: 'failed' });
-    expect(reloaded.list(() => false)[0]!.schedule).toEqual({ enabled: true, nextRunAt: 100, lastResult: 'failed' }); // from memory
+    const summary = { enabled: true, nextRunAt: 100, lastResult: 'failed', timeZone: 'Asia/Taipei' };
+    expect(new Store(db).list(() => false)[0]!.schedule).toEqual(summary);
+    expect(reloaded.list(() => false)[0]!.schedule).toEqual(summary); // from memory
+    // An interval does not depend on a time zone: the browser shows it in its own.
+    reloaded.get(conv.id)!.schedule = { ...schedule, repeat: { kind: 'interval', hours: 2 } };
+    expect(reloaded.list(() => false)[0]!.schedule).toEqual({ enabled: true, nextRunAt: 100, lastResult: 'failed' });
   });
 
   it('finds the schedules that are on and due, and forgets one that is removed or whose conversation is deleted', () => {

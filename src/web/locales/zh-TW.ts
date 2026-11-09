@@ -244,7 +244,7 @@ export const zhTW = {
     days: '星期',
     every: '每隔',
     hoursUnit: '小時',
-    intervalHint: '從儲存的時間開始算。',
+    intervalHint: '從設定這個間隔的時候開始算；只改訊息時節奏不變。',
     weekdays: ['日', '一', '二', '三', '四', '五', '六'],
     weekdayNames: ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'],
     timeZone: (tz: string) => `時區：${tz}`,

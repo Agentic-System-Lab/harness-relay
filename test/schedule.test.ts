@@ -244,6 +244,11 @@ describe('the schedule form', () => {
     expect(draftProblems({ ...draft, text: 'go', kind: 'once', at: localInput(MON - HOUR), enabled: false }, MON, en)).toEqual([]);
     expect(draftProblems({ ...draft, text: 'go', kind: 'once', at: '' }, MON, en)).toEqual([p.moment]);
     expect(previewRuns({ ...draft, text: 'go', kind: 'interval', hours: 2 }, MON)).toEqual([MON + 2 * HOUR, MON + 4 * HOUR, MON + 6 * HOUR]);
+    // A saved interval whose times stay the same keeps its cadence, as the server does on saving.
+    const every6: ConversationSchedule = { ...saved, repeat: { kind: 'interval', hours: 6 }, updatedAt: MON - 2 * HOUR };
+    const editing = { ...draftFrom(every6, MON), text: 'another message' };
+    expect(previewRuns(editing, MON, every6)).toEqual([MON + 4 * HOUR, MON + 10 * HOUR, MON + 16 * HOUR]);
+    expect(previewRuns({ ...editing, hours: 3 }, MON, every6)[0]).toBe(MON + 3 * HOUR); // new times: from now
   });
 
   it('describes when it sends in a few words, Monday first', () => {

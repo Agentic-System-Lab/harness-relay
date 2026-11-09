@@ -779,8 +779,11 @@ export interface ConversationSummary {
   groupId?: string;
   /** The lead agent is sorting it into one of the user's groups (by its first message). */
   sorting?: boolean;
-  /** It has a schedule: whether it is on, when it sends next, and how the last time went. */
-  schedule?: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult'>;
+  /**
+   * It has a schedule: whether it is on, when it sends next, how the last time went, and the time zone
+   * its times are shown in (a daily or weekly schedule's own; absent: the browser's).
+   */
+  schedule?: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult'> & { timeZone?: string };
 }
 
 /**

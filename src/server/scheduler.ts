@@ -8,6 +8,12 @@ import type { Store } from './store';
 /** A time missed by more than this (Harness Relay was not running, the computer slept) counts as missed. */
 export const MISSED_AFTER_MS = 10 * 60_000;
 
+/**
+ * How long a time the conversation cannot take yet (`busy`) is tried again, from the first try: long
+ * enough for another conversation's run in the same folder to end.
+ */
+export const BUSY_RETRY_MS = 30 * 60_000;
+
 /** How often due schedules are looked for. */
 const TICK_MS = 15_000;
 
@@ -31,17 +37,17 @@ export function scheduleTime(at: number, s: Pick<ConversationSchedule, 'lang' | 
  * Sends each conversation's scheduled message when it comes due (`Orchestrator.sendScheduled`), then
  * works out the next time. A time missed by more than `MISSED_AFTER_MS` is skipped or sent late, as
  * the schedule says; either way only once, however many times were missed. When the conversation
- * cannot take it right now (`busy`), it is tried again at each look for up to `MISSED_AFTER_MS`, then
- * skipped. What happened is kept with the schedule (`lastResult`), and a time that was not sent
- * leaves a note in the chat.
+ * cannot take it right now (`busy`), it is tried again at each look for up to `BUSY_RETRY_MS` from the
+ * first try, then skipped. What happened is kept with the schedule (`lastResult`), and a time that was
+ * not sent leaves a note in the chat.
  */
 export class Scheduler {
   private timer?: NodeJS.Timeout;
   private ticking?: Promise<void>;
   /** Stopped (the server is shutting down): what is being sent now is not recorded. */
   private stopped = false;
-  /** Conversations whose due time was found busy, by that time: they are being retried, not missed. */
-  private retrying = new Map<string, number>();
+  /** Conversations whose due time was found busy: that time, and when it was first tried. Retried, not missed. */
+  private retrying = new Map<string, { due: number; since: number }>();
 
   constructor(
     private store: Store,
@@ -90,19 +96,20 @@ export class Scheduler {
     if (!s.enabled || s.nextRunAt === undefined || s.nextRunAt > now) return;
     const due = s.nextRunAt;
     const late = now - due > MISSED_AFTER_MS;
-    const retried = this.retrying.get(convId) === due;
+    const retry = this.retrying.get(convId);
+    const since = retry?.due === due ? retry.since : undefined;
     // Notes and the run's system messages are written in the language the schedule was saved in.
     await withLang(s.lang, async () => {
       let outcome: { result: ScheduleResult; reason?: string };
-      if (late && !retried && s.missed === 'skip') {
+      if (late && since === undefined && s.missed === 'skip') {
         outcome = { result: 'missed' };
       } else {
         const sent = await this.orchestrator.sendScheduled(convId);
         if (this.stopped) return; // shutting down: the time is still due when the server is back
         if (sent.result === 'busy') {
           // Tried again at the next look; after a while, given up.
-          if (!late) {
-            this.retrying.set(convId, due);
+          if (now - (since ?? now) < BUSY_RETRY_MS) {
+            this.retrying.set(convId, { due, since: since ?? now });
             return;
           }
           outcome = { result: 'skipped', reason: sent.reason ?? t().scheduleBusy };
@@ -132,8 +139,10 @@ export class Scheduler {
     this.store.saveSchedule(conv);
     this.orchestrator.emitConversation(conv);
     const when = scheduleTime(due, s);
+    // The note ends the sentence itself.
+    const why = (outcome.reason ?? '').replace(/[.。]\s*$/, '');
     if (outcome.result === 'missed') this.orchestrator.systemNote(conv, t().scheduleMissedNote(when));
-    else if (outcome.result === 'skipped') this.orchestrator.systemNote(conv, t().scheduleSkippedNote(when, outcome.reason ?? ''));
+    else if (outcome.result === 'skipped') this.orchestrator.systemNote(conv, t().scheduleSkippedNote(when, why));
     else if (outcome.result === 'failed') this.orchestrator.systemNote(conv, t().scheduleFailedNote(when, outcome.reason ?? ''));
   }
 }

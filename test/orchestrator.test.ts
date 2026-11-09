@@ -18,7 +18,7 @@ const { AgentRunError, runners } = await import('../src/server/agents');
 const { PLANNER_BRIEFING } = await import('../src/server/planner');
 const { GROUPER_BRIEFING } = await import('../src/server/grouping');
 const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
-const { MISSED_AFTER_MS, Scheduler } = await import('../src/server/scheduler');
+const { BUSY_RETRY_MS, MISSED_AFTER_MS, Scheduler } = await import('../src/server/scheduler');
 
 let n = 0;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -1535,9 +1535,9 @@ describe('schedules', () => {
     now = T0 + HOUR;
     await scheduler().tick();
     await finish(conv.id);
-    const refused = 'Refused automatically: nobody may be watching a scheduled run';
-    expect(textOf(agentMessages(conv).at(-1)!)).toBe(`Alice skipped (${refused})`);
-    expect(approvalParts(conv)[0]).toMatchObject({ status: 'denied', note: refused }); // shown in the chat
+    // The agent is told in English; the card shows it in the schedule's language.
+    expect(textOf(agentMessages(conv).at(-1)!)).toMatch(/^Alice skipped \(This run was started by a schedule and nobody may be watching/);
+    expect(approvalParts(conv)[0]).toMatchObject({ status: 'denied', note: 'Refused automatically: nobody may be watching a scheduled run' });
 
     // What the user always allows in this chat goes through.
     conv.allowRules = [{ kind: 'command', key: 'npm install' }];
@@ -1712,7 +1712,8 @@ describe('schedules', () => {
     const conv = await questionWithScheduledWaiting('@Bob daily report');
     await orchestrator.send(conv.id, 'ANSWER: A');
     await finish(conv.id);
-    expect(said(conv)).toEqual(['which one?', '@Alice', '@Bob daily report', 'ANSWER: A', '@Alice', '@Bob']);
+    // The answer goes first; the scheduled message waits for Bob's turn.
+    expect(said(conv)).toEqual(['which one?', '@Alice', 'ANSWER: A', '@Alice', '@Bob daily report', '@Bob']);
     expect(told('Alice')).toEqual([false, true]); // told that the user replied
   });
 
@@ -1764,12 +1765,104 @@ describe('schedules', () => {
     expect(conv.schedule!.lastResult).toBeUndefined();
 
     now = T0 + HOUR + MISSED_AFTER_MS + 1000;
-    await s.tick(); // still busy: given up, not counted as missed
+    await s.tick(); // still busy, and late: tried again, not counted as missed
+    expect(conv.schedule!.lastResult).toBeUndefined();
+
+    now = T0 + HOUR + BUSY_RETRY_MS + 1000;
+    await s.tick(); // given up
     expect(conv.schedule).toMatchObject({ lastResult: 'skipped', nextRunAt: T0 + 2 * HOUR });
     expect(conv.schedule!.lastError).toMatch(/is changing/);
     expect(notes(conv)).toHaveLength(1);
+    expect(notes(conv)[0]).not.toMatch(/\.\.$/); // one full stop
     orchestrator.stop(writer.id);
     await finish(writer.id);
+  });
+
+  it('stays queued after an answer to a question the team was not asked as a whole, until the agent it is for speaks', async () => {
+    for (const mode of ['roundtable', 'relay'] as const) {
+      calls = [];
+      const conv = conversation({ mode, permission: 'read-only' });
+      schedule(conv, { text: '@Bob daily report', nextRunAt: now + HOUR });
+      asking = new Set(['Alice']);
+      const alice = hold('Alice');
+      await orchestrator.send(conv.id, '@Alice which one?');
+      await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
+      const due = conv.schedule!.nextRunAt!;
+      const was = now;
+      now = due;
+      await scheduler().tick();
+      alice();
+      await finish(conv.id);
+      expect(conv.pause).toBeDefined();
+
+      await orchestrator.send(conv.id, 'ANSWER: A');
+      // The answer run ends with Alice; the scheduled message then gets a run of its own, for Bob.
+      await vi.waitFor(() => expect(said(conv).at(-1)).toBe('@Bob'), { timeout: 20_000 });
+      await finish(conv.id);
+      expect(said(conv)).toEqual(['@Alice which one?', '@Alice', 'ANSWER: A', '@Alice', '@Bob daily report', '@Bob']);
+      expect(conv.queue ?? []).toEqual([]);
+      now = was;
+      gates = {};
+    }
+  });
+
+  it('holds a new time back while a question waits and the earlier scheduled message waits with it', async () => {
+    const conv = await questionWithScheduledWaiting('daily report');
+    now = T0 + 2 * HOUR;
+    await scheduler().tick();
+    expect(conv.schedule).toMatchObject({ lastResult: 'skipped', lastError: 'the team is waiting for your answer' });
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+    expect(conv.queue).toHaveLength(1);
+  });
+
+  it('retries a time that is already late when the conversation is busy, and sends it once free', async () => {
+    const writer = conversation({ mode: 'roundtable', permission: 'edit' });
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    schedule(conv, { missed: 'run' });
+    const alice = hold('Alice');
+    await orchestrator.send(writer.id, 'go');
+    await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
+    now = T0 + HOUR + 3 * MISSED_AFTER_MS; // the server was off; the folder is taken
+    const s = scheduler();
+    await s.tick();
+    expect(conv.schedule!.lastResult).toBeUndefined();
+    // Something the user sends meanwhile is not left in a queue nobody runs.
+    await expect(orchestrator.send(conv.id, 'hello')).rejects.toThrow(/正在修改|is changing/);
+    expect(conv.queue ?? []).toEqual([]);
+
+    alice();
+    await finish(writer.id);
+    now += 60_000;
+    await s.tick();
+    await finish(conv.id);
+    expect(conv.schedule).toMatchObject({ lastResult: 'sent', lastRunAt: T0 + HOUR });
+  });
+
+  it('refuses without asking in a conversation that refuses automatically', async () => {
+    const conv = solo({ approvals: 'deny' });
+    schedule(conv, { text: 'please install', approvals: 'ask' });
+    now = T0 + HOUR;
+    await scheduler().tick();
+    await finish(conv.id);
+    expect(textOf(agentMessages(conv).at(-1)!)).toBe('Alice not asked');
+    expect(approvalParts(conv)).toEqual([]);
+  });
+
+  it('asks for approvals again once the user writes into a scheduled run in parallel mode', async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', rounds: 2 });
+    schedule(conv);
+    const alice = hold('Alice');
+    const bob = hold('Bob');
+    now = T0 + HOUR;
+    await scheduler().tick();
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(await orchestrator.send(conv.id, 'please install')).toEqual({ queued: true });
+    alice();
+    bob();
+    await vi.waitFor(() => expect(orchestrator.isWaiting(conv.id)).toBe(true)); // round 2 asks
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    expect(approvalParts(conv).every((p) => p.status !== 'denied')).toBe(true);
   });
 
   it('asks for approvals again once the user writes into a scheduled run', async () => {
