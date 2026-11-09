@@ -148,13 +148,13 @@ export function ClockIcon({ size }: { size?: number }) {
   );
 }
 
-/** A clock with a plus: a new schedule. */
-export function ClockPlusIcon({ size }: { size?: number }) {
+/** A calendar with a plus: a new schedule. */
+export function CalendarPlusIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>
-      <circle cx="10.5" cy="10.5" r="7.5" />
-      <path d="M10.5 6.5v4l2.5 1.5" />
-      <path d="M18.5 15.5v6M15.5 18.5h6" />
+      <rect x="3" y="5" width="18" height="16" rx="2.5" />
+      <path d="M8 3v4M16 3v4M3 10h18" />
+      <path d="M12 13v5M9.5 15.5h5" />
     </Svg>
   );
 }

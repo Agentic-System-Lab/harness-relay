@@ -4,7 +4,7 @@ import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
-import { ClockPlusIcon, FolderPlusIcon, PanelIcon, SearchIcon } from './icons';
+import { CalendarPlusIcon, FolderPlusIcon, PanelIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
 import { SearchBox, SearchResults } from './SidebarSearch';
@@ -77,14 +77,14 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
           <button className="new-chat" data-tour="new-chat" onClick={() => navigate({ page: 'new' })}>
             <span aria-hidden>＋</span> {t.sidebar.newChat}
           </button>
-          {/* An icon only, so New chat keeps the row: the clock stands for schedules across the app. */}
+          {/* An icon only, so New chat keeps the row: a calendar with a plus, unlike Search's magnifier. */}
           <button
             className="new-chat new-schedule"
             onClick={() => navigate({ page: 'schedule' })}
             aria-label={t.sidebar.newSchedule}
             title={t.sidebar.newSchedule}
           >
-            <ClockPlusIcon size={18} />
+            <CalendarPlusIcon size={18} />
           </button>
         </div>
         {searching ? (
