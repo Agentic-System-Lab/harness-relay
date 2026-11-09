@@ -184,7 +184,7 @@ describe('asking the user', () => {
   it('tells agents when to ask, and the one that asked that the user replied', () => {
     expect(buildBriefing(conv, team[0]!)).toContain(`end your reply with ${ASK_TOKEN} on its own line`);
     const answered = buildTurnPrompt(conv, team[0]!, [], false, { mode: 'roundtable', round: 1, rounds: 1, answered: true });
-    expect(answered).toContain('You asked the user a question and their reply is above');
+    expect(answered).toContain('You asked the user a question and their reply is among the messages above:');
     const relay = buildTurnPrompt(conv, team[0]!, [], false, { mode: 'relay', round: 1, rounds: 1, answered: true });
     expect(relay).toContain('Mention a teammate to hand off');
     expect(buildTurnPrompt(conv, team[0]!, [], false, { mode: 'roundtable', round: 1, rounds: 1 })).not.toContain('You asked');

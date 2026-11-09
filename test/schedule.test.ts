@@ -16,6 +16,7 @@ import {
   previewRuns,
   scheduleState,
   scheduleTrouble,
+  shownZone,
   sidebarScheduleTitle,
   toUpdate,
 } from '../src/web/schedule';
@@ -221,6 +222,13 @@ describe('the schedule form', () => {
     expect(toUpdate({ ...draft, kind: 'interval' }).repeat).toEqual({ kind: 'interval', hours: 6 });
   });
 
+  it('shows times of day in the schedule\'s time zone, and moments and intervals in the browser\'s', () => {
+    expect(shownZone({ repeat: { kind: 'daily' }, timeZone: 'Asia/Taipei' })).toBe('Asia/Taipei');
+    expect(shownZone({ repeat: { kind: 'weekly' }, timeZone: 'Asia/Taipei' })).toBe('Asia/Taipei');
+    expect(shownZone({ repeat: { kind: 'once' }, timeZone: 'Asia/Taipei' })).toBeUndefined();
+    expect(shownZone({ repeat: { kind: 'interval' }, timeZone: 'Asia/Taipei' })).toBeUndefined();
+  });
+
   it("shows a schedule's times in its own time zone", () => {
     expect(formatWhen(Date.UTC(2026, 0, 5, 1, 0), 'en', 'Asia/Taipei')).toMatch(/09:00/);
     expect(formatWhen(Date.UTC(2026, 0, 5, 1, 0), 'en', 'UTC')).toMatch(/01:00/);
@@ -271,5 +279,10 @@ describe('the schedule form', () => {
     expect(scheduleState(saved, en, 'en')).toMatch(/^next /);
     expect(sidebarScheduleTitle({ enabled: true, nextRunAt: MON, lastResult: 'failed' }, en, 'en')).toBe('Schedule last time: could not be sent');
     expect(sidebarScheduleTitle({ enabled: false }, en, 'en')).toBe('Schedule paused');
+    // The next time in the schedule's own time zone when it has one, else the browser's.
+    const next = Date.UTC(2026, 0, 5, 1, 0);
+    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next, timeZone: 'Asia/Taipei' }, en, 'en')).toMatch(/09:00/);
+    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next, timeZone: 'UTC' }, en, 'en')).toMatch(/01:00/);
+    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next }, en, 'en')).toBe(`Schedule: next ${formatWhen(next, 'en')}`);
   });
 });

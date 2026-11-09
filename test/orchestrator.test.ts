@@ -1806,6 +1806,52 @@ describe('schedules', () => {
     }
   });
 
+  /** An agent asks; meanwhile the schedule's message and then one the user wrote wait in the queue: [S, U]. */
+  async function questionWithBothWaiting(question: string, text: string) {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    schedule(conv, { text });
+    asking = new Set(['Alice']);
+    const alice = hold('Alice');
+    await orchestrator.send(conv.id, question);
+    await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
+    now = T0 + HOUR;
+    await scheduler().tick();
+    expect(await orchestrator.send(conv.id, 'user note U')).toEqual({ queued: true });
+    alice();
+    await finish(conv.id);
+    expect(conv.pause).toBeDefined();
+    expect(conv.queue!.map((m) => (m.scheduled ? 'S' : 'U'))).toEqual(['S', 'U']);
+    return conv;
+  }
+
+  it("sends the user's own message waiting behind a scheduled one with their answer, in the order written", async () => {
+    const conv = await questionWithBothWaiting('which one?', 'daily report');
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['which one?', '@Alice', 'user note U', 'ANSWER: A', 'daily report', '@Alice', '@Bob']);
+    expect(told('Alice')).toEqual([false, true]);
+    const answering = calls.filter((c) => c.name === 'Alice')[1]!.prompt;
+    expect(answering.indexOf('user note U')).toBeLessThan(answering.indexOf('ANSWER: A'));
+    expect(answering).toContain('one marked via="schedule" is not their reply');
+  });
+
+  it("counts the user's own waiting message as their reply on Continue, whatever waits ahead of it", async () => {
+    const conv = await questionWithBothWaiting('which one?', 'daily report');
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    expect(said(conv).slice(0, 5)).toEqual(['which one?', '@Alice', 'user note U', 'daily report', '@Alice']);
+    expect(told('Alice')).toEqual([false, true]); // as without a schedule: the message the user wrote is the reply
+  });
+
+  it("gives the agent that asked the user's own waiting message, while a scheduled one for another agent waits for it", async () => {
+    const conv = await questionWithBothWaiting('@Alice which one?', '@Bob daily report');
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await vi.waitFor(() => expect(said(conv).at(-1)).toBe('@Bob'), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['@Alice which one?', '@Alice', 'user note U', 'ANSWER: A', '@Alice', '@Bob daily report', '@Bob']);
+    expect(calls.filter((c) => c.name === 'Alice')[1]!.prompt).toContain('user note U');
+  });
+
   it('holds a new time back while a question waits and the earlier scheduled message waits with it', async () => {
     const conv = await questionWithScheduledWaiting('daily report');
     now = T0 + 2 * HOUR;

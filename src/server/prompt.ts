@@ -264,7 +264,9 @@ export function buildTurnPrompt(
   const chat = delta.length ? `\n<chat>\n${delta.map((m) => renderMessage(conv, m)).join('\n')}\n</chat>` : '';
 
   let cue: string;
-  const answered = 'You asked the user a question and their reply is above: now give your full answer, adjusted to it.';
+  const answered = `You asked the user a question and their reply is among the messages above${
+    conv.schedule ? ' (one marked via="schedule" is not their reply)' : ''
+  }: now give your full answer, adjusted to it.`;
   if (turn.answered) {
     cue = `It's your turn, @${agent.name}. ${answered}`;
     if (turn.mode === 'relay') cue += ' Mention a teammate to hand off; otherwise the floor returns to the user.';

@@ -501,17 +501,26 @@ export class Orchestrator {
   /**
    * Post waiting messages, oldest first, and return them: before a turn, those for `recipients` —
    * one that @mentions only other agents waits for them, and the ones behind it wait too, so the
-   * chat keeps the order they were sent in; when a run starts, those in `ids` (sent before it).
+   * chat keeps the order they were sent in; when a run starts, those in `ids` (sent before it),
+   * wherever they are — a scheduled message kept back while the user answers stays where it is, and
+   * what the user wrote behind it still goes now.
    */
   private deliverQueued(conv: Conversation, which: { recipients: AgentConfig[] } | { ids: Set<string> }): ChatMessage[] {
     const queue = conv.queue ?? [];
     const posted: ChatMessage[] = [];
-    while (queue.length) {
-      const next = queue[0]!;
-      if ('ids' in which ? !which.ids.has(next.id) : !isFor(next, which.recipients, conv.agents)) break;
+    for (let i = 0; i < queue.length; ) {
+      const next = queue[i]!;
+      if ('ids' in which) {
+        if (!which.ids.has(next.id)) {
+          i++;
+          continue;
+        }
+      } else if (!isFor(next, which.recipients, conv.agents)) {
+        break;
+      }
       // Posted before it leaves the saved queue: a crash in between keeps it once, as delivered.
       conv.messages.push(next);
-      queue.shift();
+      queue.splice(i, 1);
       this.store.saveMessage(conv.id, next, true);
       this.hub.emit(conv.id, { type: 'message', message: next });
       this.nameAfter(conv, next);
