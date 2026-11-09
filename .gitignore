@@ -4,3 +4,8 @@ data/
 *.log
 .DS_Store
 .impeccable/
+
+# Coding agents' own git worktrees (see AGENTS.md, "Worktrees")
+.claude/worktrees/
+.codex/worktrees/
+.grok/worktrees/

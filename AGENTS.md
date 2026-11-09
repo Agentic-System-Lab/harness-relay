@@ -95,6 +95,14 @@ The server can start agents with write access, so keep its defences intact (see 
 - Add or update tests with every behaviour change.
 - Keep tests offline: no real CLI runs, no network, no real credential store. Follow the existing patterns: a fake runner swapped into `runners` (`test/orchestrator.test.ts`), recorded CLI messages for adapters, real temporary git repositories for `workspace.ts`, `app.request()` for the HTTP API, and a fake keyring passed to `SettingsStore`.
 
+### Worktrees
+
+- If you work in a separate git worktree, put it inside this repository, in your own CLI's folder at the root: Claude Code in `.claude/worktrees/<name>`, Codex in `.codex/worktrees/<name>`, Grok in `.grok/worktrees/<name>`. Any other agent uses `.<agent>/worktrees/<name>` the same way. For example: `git worktree add .codex/worktrees/fix-links -b fix-links`.
+- Don't create worktrees next to the repository (such as `../harness-relay-<branch>`) or anywhere else outside it. Remove one with `git worktree remove` when you are done.
+- `.gitignore` ignores these folders. If you add a folder for another agent, add it to `.gitignore` in the same commit.
+- A new worktree has no `node_modules/`; run `npm install` in it before the commands above.
+- These are your own worktrees for changing this code. They are separate from the worktrees the app makes for parallel mode under `data/`.
+
 ### Commits
 
 - Write commit messages in English. The subject is an imperative sentence about what the user gets, for example `Let agents ask the user before answering, and wait for the answer`.
