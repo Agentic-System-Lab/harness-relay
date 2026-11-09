@@ -14,7 +14,7 @@ npm run build
 npm start
 ```
 
-打開 **http://127.0.0.1:8787**。`git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。（要開發 Harness Relay 本身，改用 `npm run dev` 並打開 http://localhost:5173；詳見[開發者說明](developer-guide.zh-TW.md)。）
+打開 **<http://127.0.0.1:8787>**。`git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。（要開發 Harness Relay 本身，改用 `npm run dev` 並打開 <http://localhost:5173>；詳見[開發者說明](developer-guide.zh-TW.md)。）
 
 側邊欄底部的圓點代表各 agent 的狀態：綠色＝可以使用、橘色＝尚未登入、紅色＝找不到 CLI。
 

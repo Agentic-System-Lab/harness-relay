@@ -53,8 +53,18 @@ describe('commands people copy', () => {
     for (const doc of ['README.md', 'README.zh-TW.md']) {
       expect(read(doc), doc).toContain(
         'git clone https://github.com/Agentic-System-Lab/harness-relay\ncd harness-relay\nnpm install\nnpm run build\nnpm start\n```\n\n' +
-          (doc === 'README.md' ? 'Open **http://127.0.0.1:8787**' : '打開 **http://127.0.0.1:8787**'),
+          (doc === 'README.md' ? 'Open **http://127.0.0.1:8787**' : '打開 **<http://127.0.0.1:8787>**'),
       );
+    }
+  });
+
+  it('no bare address runs into the Chinese text after it, which GitHub would link along with it', () => {
+    const docs = ['README.zh-TW.md', 'CONTRIBUTING.zh-TW.md', ...['architecture', 'developer-guide', 'user-guide', 'remote-access'].map((d) => `docs/${d}.zh-TW.md`)];
+    for (const doc of docs) {
+      // Outside code: an address written as <…>, [text](…) or in backticks ends where it should.
+      const prose = read(doc).replace(/```[\s\S]*?```|`[^`\n]+`/g, '');
+      const bare = [...prose.matchAll(/(?<![<(\["'])https?:\/\/[^\s)>\]"']*[^\x00-\x7F]/g)].map((m) => m[0]);
+      expect(bare, doc).toEqual([]);
     }
   });
 

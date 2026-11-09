@@ -66,13 +66,13 @@ npm run build
 npm start
 ```
 
-打開 **http://127.0.0.1:8787**，先到「**設定與登入**」確認每個 agent 都已登入，再點「**新對話**」，選好工作目錄與權限，直接提出第一個問題：首席 agent 會先為它組隊。
+打開 **<http://127.0.0.1:8787>**，先到「**設定與登入**」確認每個 agent 都已登入，再點「**新對話**」，選好工作目錄與權限，直接提出第一個問題：首席 agent 會先為它組隊。
 
 `git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。
 
 要用手機或其他裝置使用，把它分享到你的 tailnet：詳見[用手機連線（Tailscale）](docs/remote-access.zh-TW.md)。
 
-要開發 Harness Relay 本身？改用 `npm run dev`：改程式時伺服器會自動重啟、介面會自動重新載入，網址是 http://localhost:5173。詳見[開發者說明](docs/developer-guide.zh-TW.md)。
+要開發 Harness Relay 本身？改用 `npm run dev`：改程式時伺服器會自動重啟、介面會自動重新載入，網址是 <http://localhost:5173>。詳見[開發者說明](docs/developer-guide.zh-TW.md)。
 
 ## 文件
 
