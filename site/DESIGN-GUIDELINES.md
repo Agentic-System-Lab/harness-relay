@@ -116,8 +116,8 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 | File | Source |
 | --- | --- |
 | `media/demo-en.mp4`, `media/demo-zh-TW.mp4` | Copied from `docs/media/` by the Pages workflow; not stored twice |
-| `assets/media/poster-en.webp` | Frame at 0:27.0 of `docs/media/demo-en.mp4` |
-| `assets/media/poster-zh-TW.webp` | Frame at 0:24.0 of `docs/media/demo-zh-TW.mp4` |
+| `assets/media/poster-en.webp` | Frame at 0:27.5 of `docs/media/demo-en.mp4` |
+| `assets/media/poster-zh-TW.webp` | Frame at 0:22.5 of `docs/media/demo-zh-TW.mp4` |
 | `assets/media/og-en.png`, `og-zh-TW.png` | Social preview cards (1200×630) rendered from the page's own styles |
 | `assets/fonts/bricolage-grotesque-latin.woff2` | Google Fonts, SIL Open Font License (`assets/fonts/OFL.txt`) |
 | `favicon.svg` | Same drawing as the app's favicon |

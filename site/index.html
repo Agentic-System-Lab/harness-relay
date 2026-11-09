@@ -161,7 +161,7 @@
               playsinline
               preload="none"
               poster="assets/media/poster-en.webp"
-              aria-label="Demo recording: a new group, Auto team on the Harness Relay repository, the chat's files, and a search"
+              aria-label="Demo recording: a new group, two questions on the Harness Relay repository, each with a team the lead agent chose for it, the chat's files, and a search"
             >
               <source src="media/demo-en.mp4" type="video/mp4" />
               <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/docs/media/demo-en.mp4">Download the demo (MP4)</a>
@@ -169,89 +169,112 @@
           </div>
           <div class="rail">
             <h2 id="demo-title">Watch one run</h2>
-            <p class="rail-note">A new group, then Auto team on this repository, from the request to the answers, the code they discussed and a search. Sped up while the agents work.</p>
+            <p class="rail-note">A new group, then two questions on this repository, each with the team the lead agent chose for it, from the question to the answers, the code they discussed and a search. Sped up while the agents work.</p>
             <ol class="chapters">
               <li>
                 <button class="chapter" type="button" data-t="0">
                   <time>0:00</time>
                   <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
-                  <span class="say">Create a group: “Design reviews”.</span>
+                  <span class="say">Create a group, “Design reviews”, and open a template: teams are designed in templates.</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter" type="button" data-t="5">
-                  <time>0:05</time>
+                <button class="chapter" type="button" data-t="16">
+                  <time>0:16</time>
                   <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
-                  <span class="say">Start a new chat with Auto team and describe what you need. No question yet.</span>
+                  <span class="say">Start a new chat and ask straight away: “Is relay mode a good design?”</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter t-claude" type="button" data-t="22">
-                  <time>0:22</time>
+                <button class="chapter t-claude" type="button" data-t="24">
+                  <time>0:24</time>
                   <span class="actor"
                     ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
                     ><span class="via">Claude Code</span></span
                   >
-                  <span class="say">Sorts the chat into Design reviews, going by your first message.</span>
+                  <span class="say">Sorts the chat into Design reviews, adapts the Three-way debate template for the question, and says why.</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter t-claude" type="button" data-t="25">
-                  <time>0:25</time>
-                  <span class="actor"
-                    ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
-                    ><span class="via">Claude Code</span></span
-                  >
-                  <span class="say">Adapts the Parallel comparison template into a two-round review by three, and says why.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter" type="button" data-t="31">
+                <button class="chapter t-team" type="button" data-t="31">
                   <time>0:31</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
-                  <span class="say">Confirm the team, then ask: “Is relay mode a good design?”</span>
+                  <span class="actor"
+                    ><span class="stack" aria-hidden="true"
+                      ><span class="av t-claude">P</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
+                    ><span class="who">All three</span></span
+                  >
+                  <span class="say">Once you confirm, two rounds: they read the code, each building on and challenging the last.</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter t-team" type="button" data-t="42">
+                <button class="chapter t-grok" type="button" data-t="42">
                   <time>0:42</time>
                   <span class="actor"
-                    ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">A</span><span class="av t-codex">E</span><span class="av t-grok">S</span></span
-                    ><span class="who">All three</span></span
+                    ><span class="av" aria-hidden="true">S</span><span class="who">@Skeptic</span
+                    ><span class="via">Grok</span></span
                   >
-                  <span class="say">Two rounds: they read the code at the same time, then weigh each other’s findings.</span>
+                  <span class="say">Wants to run a script to probe the @mention parser, beyond read-only: it waits in the chat, and you decline.</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter t-team" type="button" data-t="66">
-                  <time>1:06</time>
+                <button class="chapter t-team" type="button" data-t="59">
+                  <time>0:59</time>
                   <span class="actor"
                     ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">A</span><span class="av t-codex">E</span><span class="av t-grok">S</span></span
+                      ><span class="av t-claude">P</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
                     ><span class="who">All three</span></span
                   >
-                  <span class="say">The answers, down to the two changes that matter most.</span>
+                  <span class="say">The answers, down to a ranked list of what to change first.</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter" type="button" data-t="83">
-                  <time>1:23</time>
+                <button class="chapter" type="button" data-t="71">
+                  <time>1:11</time>
+                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                  <span class="say">Ask a new question: a short README note on relay mode.</span>
+                  <span class="bar" aria-hidden="true"></span>
+                </button>
+              </li>
+              <li>
+                <button class="chapter t-claude" type="button" data-t="78">
+                  <time>1:18</time>
+                  <span class="actor"
+                    ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
+                    ><span class="via">Claude Code</span></span
+                  >
+                  <span class="say">Picks a team for it: two who stay on from the review, one round. The review team stays until you confirm.</span>
+                  <span class="bar" aria-hidden="true"></span>
+                </button>
+              </li>
+              <li>
+                <button class="chapter t-team" type="button" data-t="85">
+                  <time>1:25</time>
+                  <span class="actor"
+                    ><span class="stack" aria-hidden="true"
+                      ><span class="av t-claude">P</span><span class="av t-grok">S</span></span
+                    ><span class="who">Proposer and Skeptic</span></span
+                  >
+                  <span class="say">Draft the note and check it against the code.</span>
+                  <span class="bar" aria-hidden="true"></span>
+                </button>
+              </li>
+              <li>
+                <button class="chapter" type="button" data-t="98">
+                  <time>1:38</time>
                   <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                   <span class="say">Open Files and read relay mode’s hand-off in orchestrator.ts, right in the chat’s working directory.</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
               <li>
-                <button class="chapter" type="button" data-t="107">
-                  <time>1:47</time>
+                <button class="chapter" type="button" data-t="114">
+                  <time>1:54</time>
                   <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                   <span class="say">Search for “maxHops” and find the chat by what the agents wrote.</span>
                   <span class="bar" aria-hidden="true"></span>
