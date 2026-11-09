@@ -387,6 +387,7 @@ export const en: Messages = {
     download: (name) => `Download ${name}`,
     downloadMissing: '⚠ Cannot download: not a file in the working directory (click again once it is made)',
     actions: (n) => (n === 1 ? '1 action' : `${n} actions`),
+    thoughts: (n) => (n === 1 ? '1 thought' : `${n} thoughts`),
     failed: (n) => `${n} failed`,
     passed: 'Nothing to add (PASS)',
     thinking: 'Thinking',

@@ -1974,6 +1974,12 @@ details.sub .model-picker {
   font-size: 12px;
 }
 
+/* While a step runs, how many the row holds so far. */
+.activity-count {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
 .tool-group ul {
   list-style: none;
   margin: 0;
@@ -4062,44 +4068,34 @@ details.sub summary {
 
 /* What agents think and plan --------------------------------------------------- */
 
-.thinking {
-  font-size: 13px;
-  color: var(--muted);
-  min-width: 0;
-}
-
-.thinking > summary {
-  cursor: pointer;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.thinking > summary::-webkit-details-marker {
-  display: none;
-}
-
+/* Thinking lives in the activity row (.tool-group): its latest line while it streams, each stretch in the open list. */
 .thinking-label {
-  flex-shrink: 0;
   font-weight: 600;
 }
 
-/* While it streams: the latest line, so you can follow along without opening it. */
 .thinking-tail {
+  font-style: italic;
+}
+
+.thought .tool-status {
+  font-size: 10px;
+}
+
+.thought-title {
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-  font-style: italic;
 }
 
 .thinking-body {
-  margin: 6px 0 2px 22px;
+  margin: 4px 0 4px 20px;
   padding-left: 12px;
   border-left: 2px solid var(--border);
+  color: var(--muted);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   line-height: 1.6;
   max-height: 360px;
   overflow: auto;

@@ -7,12 +7,21 @@ import {
   type ApprovalAnswer,
   type ChatMessage,
   type MessageMeta,
-  type MessagePart,
   type PlanEntry,
 } from '../../shared/types';
 import { splitAsk } from '../../shared/ask';
 import { api } from '../api';
-import { enterSends, isTouchScreen } from '../chat';
+import {
+  activityCounts,
+  enterSends,
+  isTouchScreen,
+  segments,
+  thoughtTail,
+  thoughtTitle,
+  type ActivityItem,
+  type ApprovalPart,
+  type ToolPart,
+} from '../chat';
 import { mentionWarning, messageText, planChecksMentions, planHeadline, planWording, speaker } from '../copy';
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
@@ -23,41 +32,6 @@ import { ClockIcon, PaperclipIcon } from './icons';
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
-
-type ToolPart = Extract<MessagePart, { type: 'tool' }>;
-type ApprovalPart = Extract<MessagePart, { type: 'approval' }>;
-type Segment =
-  | { kind: 'text'; text: string; key: number }
-  | { kind: 'tools'; tools: ToolPart[]; key: number }
-  | { kind: 'thinking'; text: string; key: number; last: boolean }
-  | { kind: 'todo'; entries: PlanEntry[]; key: number }
-  | { kind: 'approval'; part: ApprovalPart; key: number };
-
-function segments(parts: MessagePart[]): Segment[] {
-  const out: Segment[] = [];
-  parts.forEach((p, i) => {
-    const last = out[out.length - 1];
-    switch (p.type) {
-      case 'text':
-        if (p.text.trim()) out.push({ kind: 'text', text: p.text, key: i });
-        break;
-      case 'thinking':
-        if (p.text.trim()) out.push({ kind: 'thinking', text: p.text, key: i, last: i === parts.length - 1 });
-        break;
-      case 'plan':
-        if (p.entries.length) out.push({ kind: 'todo', entries: p.entries, key: i });
-        break;
-      case 'approval':
-        out.push({ kind: 'approval', part: p, key: i });
-        break;
-      case 'tool':
-        if (last?.kind === 'tools') last.tools.push(p);
-        else out.push({ kind: 'tools', tools: [p], key: i });
-        break;
-    }
-  });
-  return out;
-}
 
 function ToolLine({ x }: { x: ToolPart }) {
   const t = useT();
@@ -72,57 +46,85 @@ function ToolLine({ x }: { x: ToolPart }) {
   );
 }
 
-function ToolGroup({ tools, live }: { tools: ToolPart[]; live: boolean }) {
+function ToolStep({ x }: { x: ToolPart }) {
   const t = useT();
-  const running = tools.find((x) => x.status === 'running');
-  const failed = tools.filter((x) => x.status === 'error').length;
-  const summary = running && live ? `${running.name}${running.detail ? ` · ${running.detail}` : ''}` : t.message.actions(tools.length);
   return (
-    <details className="tool-group">
-      <summary>
-        <span className={`tool-icon ${running && live ? 'spin' : ''}`} aria-hidden>
-          {running && live ? '◌' : '⚙'}
-        </span>
-        <span className="tool-summary">{summary}</span>
-        {failed > 0 && <span className="tool-failed">{t.message.failed(failed)}</span>}
-      </summary>
-      <ul>
-        {tools.map((x) => (
-          <li key={x.id} className={`tool ${x.status}`}>
-            {x.output ? (
-              <details className="tool-row">
-                <summary>
-                  <ToolLine x={x} />
-                </summary>
-                <pre className="tool-output" aria-label={t.activity.output}>
-                  {x.output}
-                </pre>
-              </details>
-            ) : (
-              <ToolLine x={x} />
-            )}
-            {x.status === 'error' && x.error && <div className="tool-error">{x.error}</div>}
-          </li>
-        ))}
-      </ul>
-    </details>
+    <li className={`tool ${x.status}`}>
+      {x.output ? (
+        <details className="tool-row">
+          <summary>
+            <ToolLine x={x} />
+          </summary>
+          <pre className="tool-output" aria-label={t.activity.output}>
+            {x.output}
+          </pre>
+        </details>
+      ) : (
+        <ToolLine x={x} />
+      )}
+      {x.status === 'error' && x.error && <div className="tool-error">{x.error}</div>}
+    </li>
   );
 }
 
-/** The agent's reasoning: collapsed, with the latest line showing while it streams. */
-function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
+/** A stretch of reasoning in the open list: its first line, click to read all of it. */
+function ThoughtStep({ text }: { text: string }) {
   const t = useT();
-  const lastLine = text.trim().split('\n').filter(Boolean).pop() ?? '';
   return (
-    <details className={`thinking ${live ? 'live' : ''}`}>
+    <li className="tool thought">
+      <details className="tool-row">
+        <summary>
+          <span className="tool-line">
+            <span className="tool-status" aria-hidden>
+              💭
+            </span>
+            <span className="thought-title">{thoughtTitle(text) || t.activity.thought}</span>
+          </span>
+        </summary>
+        <div className="thinking-body">{text.trim()}</div>
+      </details>
+    </li>
+  );
+}
+
+/**
+ * The tool calls and thinking between two pieces of reply text, as one collapsed row: how many actions
+ * and thoughts, or while it streams, the step in progress. Open it to see every step in order.
+ */
+function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boolean; last: boolean }) {
+  const t = useT();
+  const { actions, thoughts, failed } = activityCounts(items);
+  const tail = items[items.length - 1];
+  const thinking = live && last && tail.kind === 'thinking' ? tail.text : undefined;
+  const running = live
+    ? items.find((i): i is Extract<ActivityItem, { kind: 'tool' }> => i.kind === 'tool' && i.part.status === 'running')?.part
+    : undefined;
+  const counts = [actions > 0 && t.message.actions(actions), thoughts > 0 && t.message.thoughts(thoughts)].filter(Boolean).join(' · ');
+  const busy = thinking !== undefined || running !== undefined;
+  return (
+    <details className="tool-group">
       <summary>
-        <span className={`tool-icon ${live ? 'spin' : ''}`} aria-hidden>
-          {live ? '◌' : '💭'}
+        <span className={`tool-icon ${busy ? 'spin' : ''}`} aria-hidden>
+          {busy ? '◌' : actions > 0 ? '⚙' : '💭'}
         </span>
-        <span className="thinking-label">{live ? t.activity.thinking : t.activity.thought}</span>
-        {live && <span className="thinking-tail">{lastLine}</span>}
+        {thinking !== undefined ? (
+          <span className="tool-summary">
+            <span className="thinking-label">{t.activity.thinking}</span> <span className="thinking-tail">{thoughtTail(thinking)}</span>
+          </span>
+        ) : running ? (
+          <span className="tool-summary">
+            {running.name}
+            {running.detail ? ` · ${running.detail}` : ''}
+          </span>
+        ) : (
+          <span className="tool-summary">{actions === 0 && thoughts === 1 ? t.activity.thought : counts}</span>
+        )}
+        {busy && items.length > 1 && <span className="activity-count">{counts}</span>}
+        {failed > 0 && <span className="tool-failed">{t.message.failed(failed)}</span>}
       </summary>
-      <div className="thinking-body">{text.trim()}</div>
+      <ul>
+        {items.map((i) => (i.kind === 'tool' ? <ToolStep key={i.key} x={i.part} /> : <ThoughtStep key={i.key} text={i.text} />))}
+      </ul>
     </details>
   );
 }
@@ -717,10 +719,8 @@ export const MessageItem = memo(function MessageItem({
                     downloadBase={api.downloadBase(convId, msg.id)}
                   />
                 );
-              case 'tools':
-                return <ToolGroup key={s.key} tools={s.tools} live={live} />;
-              case 'thinking':
-                return <ThinkingBlock key={s.key} text={s.text} live={live && s.last} />;
+              case 'activity':
+                return <ActivityGroup key={s.key} items={s.items} live={live} last={s.last} />;
               case 'todo':
                 return <TodoList key={s.key} entries={s.entries} />;
               case 'approval':

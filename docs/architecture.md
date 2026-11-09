@@ -71,7 +71,7 @@ flowchart LR
 | `src/shared/search.ts` | Searching conversations: the words of a search, where they match (ignoring case), the excerpt around the first match, highlighting |
 | `src/shared/mentions.ts` | The `@mention` rule used by both the server (who is addressed) and the UI (which mentions are highlighted): the message is read as Markdown (GFM) and only prose counts, not code or link text |
 | `src/shared/links.ts` | Where a bare URL ends: GFM ends one only at a space, so Chinese written right after it would be part of the link. `endBareUrls()` also ends it at CJK or full-width punctuation, and at a CJK character that follows neither another one nor `/ ? # & = . - _ + (` (so `/wiki/臺灣` and `?q=中文` stay links), then leaves out trailing punctuation as GFM does; the prose after it may hold more URLs. Used by the UI's renderer and by the `@mention` rule, so both read a message alike |
-| `src/web/*` | React UI: sidebar, team designer, chat view, settings page, guided tour; `i18n.tsx` + `locales/` hold the UI strings; `chat.ts` holds the chat view's pure logic (reconnecting, Apply availability, team-drawer draft); `sidebar.ts` the sidebar's (conversations in their groups, moves not yet confirmed, a collapsed group's state); `recorder.ts` records the microphone and `voice.ts` holds voice input's pure logic (WAV encoding, silence, inserting the transcript) |
+| `src/web/*` | React UI: sidebar, team designer, chat view, settings page, guided tour; `i18n.tsx` + `locales/` hold the UI strings; `chat.ts` holds the chat view's pure logic (reconnecting, Apply availability, team-drawer draft, grouping a message's tool calls and thinking into activity rows); `sidebar.ts` the sidebar's (conversations in their groups, moves not yet confirmed, a collapsed group's state); `recorder.ts` records the microphone and `voice.ts` holds voice input's pure logic (WAV encoding, silence, inserting the transcript) |
 
 ## Conversation model
 
@@ -263,7 +263,7 @@ The agent's CLI waits the whole time; the turn's 45-minute safety timeout still 
 
 ## Agent activity
 
-Besides reply text and tool rows, a message can show what the agent thinks and plans: a `thinking` part (streamed; collapsed in the UI with its latest line visible while it streams), a `plan` part (the agent's to-do list, updated in place), and each tool's `output` (the end of what it returned, up to 4,000 characters, shown when the tool row is expanded). Thinking is never forwarded to other agents.
+Besides reply text and tool rows, a message can show what the agent thinks and plans: a `thinking` part (streamed; in the UI, thinking and tool calls that follow each other with no reply text between them share one collapsed row, which shows the latest line of thinking while it streams), a `plan` part (the agent's to-do list, updated in place), and each tool's `output` (the end of what it returned, up to 4,000 characters, shown when the tool row is expanded). Thinking is never forwarded to other agents.
 
 ## Tool library
 

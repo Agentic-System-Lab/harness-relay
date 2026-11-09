@@ -394,6 +394,7 @@ export const zhTW = {
     download: (name: string) => `下載 ${name}`,
     downloadMissing: '⚠ 無法下載：這不是工作目錄裡的檔案（檔案做好後再點一次）',
     actions: (n: number) => `${n} 個動作`,
+    thoughts: (n: number) => `${n} 段思考`,
     failed: (n: number) => `${n} 個失敗`,
     passed: '沒有補充（PASS）',
     thinking: '思考中',

@@ -1,7 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentWorktree, ChatMessage, ConversationSettings } from '../src/shared/types';
+import type { AgentWorktree, ChatMessage, ConversationSettings, MessagePart } from '../src/shared/types';
 import { ApiError, api, orCreateCwd } from '../src/web/api';
-import { afterStreamError, applyStates, draftStatus, enterSends, teamToEdit } from '../src/web/chat';
+import {
+  activityCounts,
+  afterStreamError,
+  applyStates,
+  draftStatus,
+  enterSends,
+  segments,
+  teamToEdit,
+  thoughtTail,
+  thoughtTitle,
+} from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
 
 describe('Enter in a message box', () => {
@@ -197,5 +207,60 @@ describe('creating a missing working directory', () => {
     });
     await expect(orCreateCwd(refused, () => false)).rejects.toBe(missing);
     expect(refused).toHaveBeenCalledOnce();
+  });
+});
+
+describe("an agent's work between its words", () => {
+  const tool = (id: string, status: 'running' | 'done' | 'error' = 'done'): MessagePart => ({ type: 'tool', id, name: 'Bash', status });
+  const think = (text: string): MessagePart => ({ type: 'thinking', text });
+  const text = (t: string): MessagePart => ({ type: 'text', text: t });
+
+  it('makes one activity row of tool calls and thinking that follow each other', () => {
+    const segs = segments([
+      text('Looking at the permission logic.'),
+      tool('a'),
+      think('**Checking callerSecrets**\nIt is read before the hash check.'),
+      tool('b'),
+      think('Next, the SQL pairs PR.'),
+      tool('c', 'error'),
+      text('Here is what I found.'),
+    ]);
+    expect(segs.map((s) => s.kind)).toEqual(['text', 'activity', 'text']);
+    const activity = segs[1];
+    if (activity.kind !== 'activity') throw new Error('expected activity');
+    expect(activity.items.map((i) => i.kind)).toEqual(['tool', 'thinking', 'tool', 'thinking', 'tool']);
+    expect(activity.key).toBe(1);
+    expect(activity.last).toBe(false);
+    expect(activityCounts(activity.items)).toEqual({ actions: 3, thoughts: 2, failed: 1 });
+  });
+
+  it('is not split by blank text or blank thinking, but is by plans and approvals', () => {
+    const segs = segments([
+      tool('a'),
+      text('\n\n'),
+      think('  '),
+      tool('b'),
+      { type: 'plan', entries: [{ text: 'Read the PR', status: 'in_progress' }] },
+      tool('c'),
+      { type: 'approval', id: 'x', kind: 'command', status: 'pending' } as MessagePart,
+      think('Waiting.'),
+    ]);
+    expect(segs.map((s) => s.kind)).toEqual(['activity', 'todo', 'activity', 'approval', 'activity']);
+    expect(segs.map((s) => (s.kind === 'activity' ? s.items.length : 0))).toEqual([2, 0, 1, 0, 1]);
+  });
+
+  it('keeps its key while steps stream in, and marks the row that ends the message', () => {
+    const first = segments([text('On it.'), tool('a', 'running')]);
+    const later = segments([text('On it.'), tool('a'), think('Hmm.'), tool('b', 'running')]);
+    expect(first[1]).toMatchObject({ kind: 'activity', key: 1, last: true });
+    expect(later[1]).toMatchObject({ kind: 'activity', key: 1, last: true });
+    expect(segments([tool('a'), text('Done.')])[0]).toMatchObject({ kind: 'activity', last: false });
+  });
+
+  it('names a stretch of thinking by its first line and follows its latest line', () => {
+    const t = '\n**Examining the hash check**\n\nThe hash is compared after\n## the secrets load\n';
+    expect(thoughtTitle(t)).toBe('Examining the hash check');
+    expect(thoughtTail(t)).toBe('the secrets load');
+    expect(thoughtTitle('   ')).toBe('');
   });
 });
