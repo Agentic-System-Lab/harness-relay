@@ -68,7 +68,7 @@ Put several names in one list, separated by commas. On the computer itself, http
 Turn Tailscale on in the phone and open the address from step 1, for example `https://my-computer.tail1234.ts.net`. The chat, **Settings & sign-in** and voice input work as they do on the computer, in a layout made for small screens.
 
 - **Working directories** are folders on the computer, not on the phone.
-- **Files the agents make** (a PDF, slides, a spreadsheet…): tap the link in the reply, or **Download** in **Files**, and the file is saved on the phone.
+- **Files the agents make** (a PDF, slides, a spreadsheet…): tap the link in the reply, or **Download** in **Files**, and the file is saved on the phone: on an iPhone or iPad in the Files app under **Downloads** (Safari may ask first), on Android in **Downloads**.
 - **Signing in an agent** from the phone: pick a method that shows a link or a code. Codex's *ChatGPT browser sign-in* opens a browser on the computer, not on the phone; use *ChatGPT device code* instead.
 - **Conversations keep running** on the computer when the phone locks or you close the page. When you come back, the page reconnects and catches up.
 - **Voice input**: allow the microphone when the browser asks. The recording goes to the computer, which turns it into text; it is never sent anywhere else.

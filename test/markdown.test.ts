@@ -1,9 +1,10 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgentConfig } from '../src/shared/types';
 import { parseMentions } from '../src/server/prompt';
 import { Markdown, findMentions, mermaidSource, tableCellClass, textWidthEm } from '../src/web/components/Markdown';
+import { checkDownload } from '../src/web/download';
 import { I18nProvider } from '../src/web/i18n';
 
 const html = (text: string, mentions = ['Claude', 'Bob']) =>
@@ -188,6 +189,13 @@ describe('images and videos from this computer', () => {
     expect(media('[![Sales](charts/sales.png)](https://ci.example)')).not.toContain('<img');
     expect(media('![doc](docs/readme.md)')).not.toContain('<img');
   });
+
+  it('are shown when written as reference images too', () => {
+    const out = media('![Sales][s] and ![remote][r]\n\n[s]: charts/sales.png\n[r]: https://evil.example/x.png');
+    expect(out).toContain('<img class="chat-media" src="/api/conversations/c/messages/m/media?path=charts%2Fsales.png" alt="Sales"');
+    expect(out).not.toContain('src="https://evil.example');
+    expect(out).toContain('<a href="https://evil.example/x.png" class="image-link" target="_blank" rel="noreferrer">remote</a>');
+  });
 });
 
 describe('files a reply links to', () => {
@@ -226,5 +234,27 @@ describe('files a reply links to', () => {
     expect(out).toContain('<a href="https://example.com/a.pdf" target="_blank" rel="noreferrer">site</a>');
     expect(out).toContain('<a href="out/" target="_blank" rel="noreferrer">folder</a>');
     expect(html('[the deck](out/deck.pptx)')).toContain('<a href="out/deck.pptx" target="_blank" rel="noreferrer">the deck</a>');
+  });
+
+  it('drop a line number or anchor, and name the download, not the agent’s title', () => {
+    expect(reply('[app.ts](src/app.ts:10-20)')).toContain(`href="${base}?path=src%2Fapp.ts"`);
+    expect(reply('[app.ts](src/app.ts#L42)')).toContain(`href="${base}?path=src%2Fapp.ts"`);
+    expect(reply('[deck](out/deck.pptx "click me")')).toContain('title="Download deck.pptx"');
+    // Another computer's share is never a download (on Windows the server would connect to it).
+    expect(reply(String.raw`[a](<\\\\host\share\a.pdf>)`)).not.toContain('file-link');
+    expect(reply('[a](%5C%5Chost%5Cshare%5Ca.pdf)')).not.toContain('file-link');
+  });
+
+  it('are checked before a click, so a file the server cannot hand over says so', async () => {
+    const answer = (status: number) => vi.fn(async (_url: string, _init?: RequestInit) => new Response(null, { status }));
+    const ok = answer(200);
+    expect(await checkDownload(`${base}?path=out%2Fdeck.pptx`, ok as unknown as typeof fetch)).toBe('ok');
+    expect(ok).toHaveBeenCalledWith(`${base}?path=out%2Fdeck.pptx`, { method: 'HEAD' });
+    expect(await checkDownload(base, answer(404) as unknown as typeof fetch)).toBe('missing');
+    expect(await checkDownload(base, answer(500) as unknown as typeof fetch)).toBe('unknown');
+    const offline = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    expect(await checkDownload(base, offline as unknown as typeof fetch)).toBe('unknown');
   });
 });

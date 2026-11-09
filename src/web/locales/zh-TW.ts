@@ -231,6 +231,7 @@ export const zhTW = {
     openImage: (name: string) => `開啟 ${name}`,
     mediaMissing: (path: string) => `⚠ 無法顯示 ${path}`,
     download: (name: string) => `下載 ${name}`,
+    downloadMissing: (path: string) => `⚠ 無法下載 ${path}：找不到檔案（只能下載工作目錄裡的檔案）`,
     actions: (n: number) => `${n} 個動作`,
     failed: (n: number) => `${n} 個失敗`,
     passed: '沒有補充（PASS）',

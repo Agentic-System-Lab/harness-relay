@@ -45,7 +45,11 @@ function resolveIn(ref: string, roots: string[], accept: (real: string) => boole
   for (const root of roots) {
     try {
       const realRoot = realpathSync(root);
-      const real = realpathSync(isAbsolute(ref) ? ref : resolve(realRoot, ref));
+      const target = resolve(realRoot, ref);
+      // Look nothing up outside the root, not even to follow a link: on Windows, \\host\… would
+      // make this computer connect to another one (and offer it the user's credentials).
+      if (!inside(target, realRoot) && !inside(target, resolve(root))) continue;
+      const real = realpathSync(target);
       if (inside(real, realRoot) && !inGit(real, realRoot) && accept(real) && statSync(real).isFile()) return real;
     } catch {
       /* not there: try the next root */
@@ -68,6 +72,16 @@ export function resolveMedia(ref: string, roots: string[]): string | undefined {
  */
 export function resolveDownload(ref: string, roots: string[]): string | undefined {
   return resolveIn(ref, roots, () => true);
+}
+
+/**
+ * A Content-Disposition header for a file `name`: `inline` to show it, `attachment` to save it. The
+ * name is percent-encoded as RFC 5987 asks (also ' ( ) *), with a plain-ASCII fallback for old clients.
+ */
+export function contentDisposition(kind: 'inline' | 'attachment', name: string): string {
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+  const ascii = name.replace(/[^\x20-\x7e]|["\\%]/g, '_');
+  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
 /** A byte range from a Range header: null when there is none (or it is not a single byte range), 'invalid' when it cannot be met. */

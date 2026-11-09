@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { fileName, isVideo, localFilePath, localMediaPath, mediaType } from '../src/shared/media';
-import { byteRange, resolveDownload, resolveMedia } from '../src/server/media';
+import type { ChatMessage, Conversation } from '../src/shared/types';
+import { attachmentsDir } from '../src/server/attachments';
+import { byteRange, contentDisposition, mediaRoots, resolveDownload, resolveMedia } from '../src/server/media';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-media-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -86,6 +88,9 @@ describe('files a reply links to', () => {
     expect(localFilePath('Makefile')).toBe('Makefile');
     expect(localFilePath('src/app.ts:42')).toBe('src/app.ts');
     expect(localFilePath('app.ts:42:7')).toBe('app.ts');
+    expect(localFilePath('src/app.ts:10-20')).toBe('src/app.ts');
+    expect(localFilePath('src/app.ts#L42')).toBe('src/app.ts');
+    expect(localFilePath('file:///C:/Users/me/report.pdf')).toBe('C:/Users/me/report.pdf');
     for (const url of [
       'https://example.com/report.pdf',
       'http://example.com:8080',
@@ -102,6 +107,11 @@ describe('files a reply links to', () => {
       '..',
       'out/..',
       'a%00.pdf',
+      // Another computer's share: on Windows, even looking it up would connect to it.
+      '\\\\host\\share\\a.pdf',
+      '%5C%5Chost%5Cshare%5Ca.pdf',
+      '/%2Fhost/share/a.pdf',
+      'file:////host/share/a.pdf',
     ]) {
       expect(localFilePath(url), url).toBeUndefined();
     }
@@ -135,5 +145,47 @@ describe('files a reply links to', () => {
     expect(resolveDownload('a\0b', [cwd])).toBeUndefined();
     // Later roots are tried in turn.
     expect(resolveDownload('other.pdf', [cwd, outside])).toBe(join(outside, 'other.pdf'));
+    expect(resolveDownload('//host/share/a.pdf', [cwd])).toBeUndefined();
+  });
+
+  it('takes an absolute path written through a link to the root, as the agent sees the folder', () => {
+    const linked = join(root, 'downloads-link');
+    symlinkSync(join(root, 'downloads'), linked);
+    expect(resolveDownload(join(linked, 'out', 'deck.pptx'), [linked])).toBe(join(root, 'downloads', 'out', 'deck.pptx'));
+    expect(resolveDownload(join(linked, '.git', 'config'), [linked])).toBeUndefined();
+  });
+
+  it('looks in the agent’s own worktree first for an isolated turn, then the working directory, then the attachments', () => {
+    const cwd = join(root, 'roots-cwd');
+    const wt = join(root, 'roots-wt');
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(wt, { recursive: true });
+    const conv = {
+      id: 'c1',
+      settings: { cwd },
+      worktrees: { a: { root: cwd, path: wt, branch: 'relay/a', base: 'x', needsReset: false } },
+    } as unknown as Conversation;
+    const reply = (isolated: boolean) =>
+      ({
+        id: 'm',
+        author: { kind: 'agent', agentId: 'a' },
+        parts: [],
+        changes: { root: cwd, base: 'x', head: 'y', files: [], isolated },
+      }) as unknown as ChatMessage;
+    expect(mediaRoots(conv, reply(true))).toEqual([wt, cwd, attachmentsDir('c1')]);
+    expect(mediaRoots(conv, reply(false))).toEqual([cwd, wt, attachmentsDir('c1')]);
+    const user = { id: 'u', author: { kind: 'user' }, parts: [] } as unknown as ChatMessage;
+    expect(mediaRoots(conv, user)).toEqual([cwd, attachmentsDir('c1')]);
+  });
+
+  it('names the file for saving, safely for any name', () => {
+    expect(contentDisposition('attachment', 'deck.pptx')).toBe(`attachment; filename="deck.pptx"; filename*=UTF-8''deck.pptx`);
+    // ' ( ) * are not allowed unencoded in filename* (RFC 5987).
+    expect(contentDisposition('attachment', "Jimmy's deck (1)*.pptx")).toBe(
+      `attachment; filename="Jimmy's deck (1)*.pptx"; filename*=UTF-8''Jimmy%27s%20deck%20%281%29%2A.pptx`,
+    );
+    expect(contentDisposition('inline', 'Q3 報告 "final" \\ 100%.pdf')).toBe(
+      `inline; filename="Q3 __ _final_ _ 100_.pdf"; filename*=UTF-8''Q3%20%E5%A0%B1%E5%91%8A%20%22final%22%20%5C%20100%25.pdf`,
+    );
   });
 });

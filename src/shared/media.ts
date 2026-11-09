@@ -31,12 +31,12 @@ export function isVideo(path: string): boolean {
 
 /**
  * The file path a link (or an image's URL) in a reply points to, when it is a file on this
- * computer: a relative or absolute path, or a file: URL. A `:line` after a file name is dropped.
- * Undefined for other sites (any other scheme, or //host/…), anchors and folders.
+ * computer: a relative or absolute path, or a file: URL. A `:line` (`:line:column`, `:from-to`) after a file name is dropped.
+ * Undefined for other sites (any other scheme, //host/… or \\host\…), anchors and folders.
  */
 export function localFilePath(url: string): string | undefined {
   // `app.ts:12` is a file and a line, not a URL with the scheme `app.ts:`.
-  const withoutLine = (p: string) => p.replace(/^(.*\.[a-z0-9]+):\d+(:\d+)?$/i, '$1');
+  const withoutLine = (p: string) => p.replace(/^(.*\.[a-z0-9]+):\d+([:-]\d+)?$/i, '$1');
   let path = url.trim();
   const drive = /^[a-z]:[\\/]/i.test(path); // a Windows path, C:\…
   if (/^file:/i.test(path)) path = path.replace(/^file:(\/\/(localhost)?)?/i, '');
@@ -47,7 +47,10 @@ export function localFilePath(url: string): string | undefined {
   } catch {
     /* keep it as written */
   }
-  path = withoutLine(path);
+  // file:///C:/… names C:/…
+  path = withoutLine(path).replace(/^\/([a-z]:[\\/])/i, '$1');
+  // Never \\host\share\… (or //host/…): on Windows the server would connect to that computer.
+  if (/^[\\/]{2}/.test(path)) return undefined;
   return path && !path.includes('\0') && !/(^|[\\/])\.{0,2}$/.test(path) ? path : undefined;
 }
 

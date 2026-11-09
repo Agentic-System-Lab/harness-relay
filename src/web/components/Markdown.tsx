@@ -1,9 +1,10 @@
-import { memo, useMemo, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown, { type Components, type Options } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { fileName, localFilePath, localMediaPath } from '../../shared/media';
 import { findMentions } from '../../shared/mentions';
+import { checkDownload, type DownloadState } from '../download';
 import { useT } from '../i18n';
 import { DownloadIcon } from './icons';
 import { LocalMedia } from './LocalMedia';
@@ -95,8 +96,9 @@ function transform(node: MdNode, inLink: boolean, opts: RelayOptions): void {
   const link = inLink || node.type === 'link' || node.type === 'linkReference';
   node.children = node.children.flatMap((child) => {
     // A file on this computer is shown (by path, through the server); anything else is a link.
-    const local = opts.media && !link && child.type === 'image' ? localMediaPath(child.url ?? '') : undefined;
-    if (local) return [{ ...child, data: { hProperties: { dataMedia: local } } }];
+    const url = child.type === 'image' ? child.url : child.type === 'imageReference' ? opts.definitions.get(child.identifier ?? '') : undefined;
+    const local = opts.media && !link && url !== undefined ? localMediaPath(url) : undefined;
+    if (local) return [{ type: 'image', url, alt: child.alt, title: child.title, data: { hProperties: { dataMedia: local } } }];
     if (child.type === 'image' || child.type === 'imageReference') return [imageAsLink(child, link, opts)];
     if (child.type === 'link' || child.type === 'linkReference') markFile(child, opts);
     // Code (inline, fenced, indented) is its own node type, so only prose text gets here.
@@ -129,7 +131,8 @@ export function remarkRelay({
   breaks?: boolean;
 }) {
   const names = mentions.length ? [...mentions, 'user'] : [];
-  return (tree: MdNode) => transform(tree, false, { names, media, files, breaks, definitions: files ? definitions(tree) : new Map() });
+  return (tree: MdNode) =>
+    transform(tree, false, { names, media, files, breaks, definitions: media || files ? definitions(tree) : new Map() });
 }
 
 const rehypePlugins: Options['rehypePlugins'] = [[rehypeHighlight, { detect: false, ignoreMissing: true, plainText: ['mermaid'] }]];
@@ -174,10 +177,28 @@ export function tableCellClass(text: string): 'one-line' | 'wrap' {
   return textWidthEm(text.trim()) <= CELL_WRAP_EM ? 'one-line' : 'wrap';
 }
 
-/** A link to a file on this computer that a reply hands over: downloaded from this app's server. */
+/**
+ * A link to a file on this computer that a reply hands over: downloaded from this app's server. It
+ * is checked first, so that a file the server cannot hand over says why instead of failing to download.
+ */
 function FileLink({ href, path, className, children }: { href: string; path: string; className?: string; children: ReactNode }) {
   const t = useT();
+  const [state, setState] = useState<DownloadState>('unknown');
+  useEffect(() => {
+    let current = true;
+    void checkDownload(href).then((s) => current && setState(s));
+    return () => {
+      current = false;
+    };
+  }, [href]);
   const name = fileName(path);
+  if (state === 'missing') {
+    return (
+      <span className="media-missing" title={path}>
+        {t.message.downloadMissing(path)}
+      </span>
+    );
+  }
   return (
     <a href={href} className={className ? `${className} file-link` : 'file-link'} download={name} title={t.message.download(name)}>
       {children}

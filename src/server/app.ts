@@ -21,7 +21,7 @@ import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPrevie
 import { restoreGrokTrust, trustGrokFolder } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
-import { byteRange, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
+import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
 import { HttpError, forClient, type Orchestrator } from './orchestrator';
 import type { ProviderService } from './providers';
 import type { SettingsStore } from './settings';
@@ -518,7 +518,7 @@ export function createApp({
     const inline = isInlineImage(part.mimeType);
     return c.body(new Uint8Array(data), 200, {
       'Content-Type': inline ? part.mimeType : 'application/octet-stream',
-      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(part.name)}`,
+      'Content-Disposition': contentDisposition(inline ? 'inline' : 'attachment', part.name),
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; sandbox",
       'Cache-Control': 'private, max-age=31536000, immutable',
@@ -585,25 +585,33 @@ export function createApp({
   async function sendFile(c: Context, file: string, download = false): Promise<Response> {
     const { size, mtimeMs } = await stat(file);
     const etag = `W/"${size}-${Math.floor(mtimeMs)}"`;
+    const lastModified = new Date(mtimeMs).toUTCString();
     const headers: Record<string, string> = {
       'Content-Type': download ? 'application/octet-stream' : mediaType(file)!,
-      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(basename(file))}`,
+      'Content-Disposition': contentDisposition(download ? 'attachment' : 'inline', basename(file)),
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; sandbox",
       // Agents may write the file again: check before reusing a cached copy.
       'Cache-Control': 'private, no-cache',
       ETag: etag,
+      'Last-Modified': lastModified,
       'Accept-Ranges': 'bytes',
     };
     if (c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers });
-    // Videos are fetched in ranges (Safari plays nothing otherwise, and seeking needs them).
-    const range = byteRange(c.req.header('range'), size);
+    // Videos are fetched in ranges (Safari plays nothing otherwise, and seeking needs them), and a
+    // download can go on where it stopped. A range of a file that changed since (If-Range, which may
+    // not name a weak ETag) is the whole file again.
+    const ifRange = c.req.header('if-range');
+    const range = !ifRange || ifRange === lastModified ? byteRange(c.req.header('range'), size) : null;
     if (range === 'invalid') return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } });
     const { start, end } = range ?? { start: 0, end: size - 1 };
     if (range) headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
     headers['Content-Length'] = String(size ? end - start + 1 : 0);
+    const status = range ? 206 : 200;
+    // HEAD (asked to check that a file is there) gets the headers only: no file is opened.
+    if (c.req.method === 'HEAD') return new Response(null, { status, headers });
     const body = size ? (Readable.toWeb(createReadStream(file, { start, end })) as ReadableStream) : null;
-    return new Response(body, { status: range ? 206 : 200, headers });
+    return new Response(body, { status, headers });
   }
 
   // Edit one of the user's messages: everything after it is dropped and the team answers again.
