@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AgentConfig } from '../src/shared/types';
 import { parseMentions } from '../src/server/prompt';
 import { FileLink, Markdown, findMentions, mermaidSource, tableCellClass, textWidthEm } from '../src/web/components/Markdown';
-import { checkDownload } from '../src/web/download';
+import { CHECK_DELAY_MS, checkDownload, checkLater, fileClicks } from '../src/web/download';
 import { I18nProvider } from '../src/web/i18n';
 
 const html = (text: string, mentions = ['Claude', 'Bob']) =>
@@ -255,6 +255,58 @@ describe('files a reply links to', () => {
     expect(missing).toContain('</a><span class="media-missing file-missing" title="out/report.pdf"> ⚠ Cannot download: not a file in the working directory');
     expect(link('ok')).not.toContain('file-missing');
     expect(link()).not.toContain('file-missing');
+  });
+
+  it('are checked a moment after they appear, and not for a URL that changed or went away', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchFn = vi.fn(async () => new Response(null, { status: 404 }));
+      const states: string[] = [];
+      checkLater('/a', (s) => states.push(s), fetchFn as unknown as typeof fetch);
+      await vi.advanceTimersByTimeAsync(CHECK_DELAY_MS - 1);
+      expect(fetchFn).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(states).toEqual(['missing']);
+
+      // Cancelled before the check (the URL is still streaming in), or before its answer.
+      const cancelEarly = checkLater('/b', (s) => states.push(s), fetchFn as unknown as typeof fetch);
+      cancelEarly();
+      await vi.advanceTimersByTimeAsync(CHECK_DELAY_MS);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      const cancelLate = checkLater('/c', (s) => states.push(s), fetchFn as unknown as typeof fetch);
+      await vi.advanceTimersByTimeAsync(CHECK_DELAY_MS - 1);
+      const answer = vi.advanceTimersByTimeAsync(1);
+      cancelLate();
+      await answer;
+      expect(states).toEqual(['missing']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('download on a click, or check again first while the file is missing', async () => {
+    let found: 'ok' | 'missing' = 'missing';
+    const check = vi.fn(async () => found);
+    const states: string[] = [];
+    const click = fileClicks(check, (s) => states.push(s));
+    const link = { click: vi.fn(() => click('missing', link)) };
+
+    expect(click('ok', link)).toBe(true);
+    expect(click('unknown', link)).toBe(true);
+    expect(check).not.toHaveBeenCalled();
+
+    // Still missing: the click is stopped, and nothing is clicked for the user.
+    expect(click('missing', link)).toBe(false);
+    await vi.waitFor(() => expect(states).toEqual(['missing']));
+    expect(link.click).not.toHaveBeenCalled();
+
+    // Made since: the link is clicked once more, and that click goes through (no loop).
+    found = 'ok';
+    expect(click('missing', link)).toBe(false);
+    await vi.waitFor(() => expect(link.click).toHaveBeenCalledTimes(1));
+    expect(link.click.mock.results[0]!.value).toBe(true);
+    expect(states).toEqual(['missing', 'ok']);
+    expect(check).toHaveBeenCalledTimes(2);
   });
 
   it('are checked before a click, so a file the server cannot hand over says so', async () => {

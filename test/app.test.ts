@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -519,6 +519,20 @@ describe('files replies link to', () => {
     expect(head.headers.get('content-disposition')).toMatch(/^attachment;/);
     expect(await head.text()).toBe('');
     expect((await app.request(base + 'out/missing.pdf', { method: 'HEAD', headers: HOST })).status).toBe(404);
+  });
+
+  // A stream reads ahead 64 KiB: a smaller file closes by itself, a larger one stayed open for good.
+  it.skipIf(process.platform === 'win32')('opens no file for HEAD, so checking links leaves nothing open', async () => {
+    const { base } = await replyIn();
+    writeFileSync(join(project, 'out', 'big.pptx'), Buffer.alloc(1024 * 1024, 1));
+    const open = () => readdirSync('/dev/fd').length;
+    const before = open();
+    for (let i = 0; i < 40; i++) {
+      const res = await app.request(base + 'out/big.pptx', { method: 'HEAD', headers: HOST });
+      expect(res.headers.get('content-length')).toBe(String(1024 * 1024));
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    expect(open() - before).toBeLessThan(10);
   });
 
   it("serves an isolated turn's file from the agent's own worktree, and attached files", async () => {

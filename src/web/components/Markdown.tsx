@@ -1,10 +1,10 @@
-import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown, { type Components, type Options } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { fileName, localFilePath, localMediaPath } from '../../shared/media';
 import { findMentions } from '../../shared/mentions';
-import { CHECK_DELAY_MS, checkDownload, type DownloadState } from '../download';
+import { checkDownload, checkLater, fileClicks, type DownloadState } from '../download';
 import { useT } from '../i18n';
 import { DownloadIcon } from './icons';
 import { LocalMedia } from './LocalMedia';
@@ -200,35 +200,19 @@ export function FileLink({
   // The state belongs to one URL: another one (a reference definition still streaming in) starts over.
   const [checked, setChecked] = useState<{ href: string; state: DownloadState }>({ href, state: initial });
   const state = checked.href === href ? checked.state : 'unknown';
-  // Set while a click that a new check let through is sent again.
-  const resend = useRef(false);
-  useEffect(() => {
-    let current = true;
-    const timer = setTimeout(() => {
-      void checkDownload(href).then((s) => current && setChecked({ href, state: s }));
-    }, CHECK_DELAY_MS);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-  }, [href]);
-  const name = fileName(path);
-
+  useEffect(() => checkLater(href, (s) => setChecked({ href, state: s })), [href]);
+  const click = useMemo(
+    () =>
+      fileClicks(
+        () => checkDownload(href),
+        (s) => setChecked({ href, state: s }),
+      ),
+    [href],
+  );
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (resend.current) {
-      resend.current = false;
-      return;
-    }
-    if (state !== 'missing') return;
-    e.preventDefault();
-    const link = e.currentTarget;
-    void checkDownload(href).then((s) => {
-      setChecked({ href, state: s });
-      if (s === 'missing') return;
-      resend.current = true;
-      link.click();
-    });
+    if (!click(state, e.currentTarget)) e.preventDefault();
   };
+  const name = fileName(path);
 
   return (
     <>

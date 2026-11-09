@@ -148,19 +148,32 @@ describe('files a reply links to', () => {
     expect(resolveDownload('//host/share/a.pdf', [cwd])).toBeUndefined();
   });
 
+  /** A folder of its own with out/deck.pptx and .git/config, so each test runs alone too. */
+  function project(name: string): string {
+    const dir = join(root, name);
+    mkdirSync(join(dir, 'out'), { recursive: true });
+    mkdirSync(join(dir, '.git'), { recursive: true });
+    writeFileSync(join(dir, 'out', 'deck.pptx'), 'pptx');
+    writeFileSync(join(dir, '.git', 'config'), 'secret');
+    return dir;
+  }
+
   it('looks nothing up outside the directories, not even a link there that leads back in', () => {
     // Followed, this would resolve inside; but a path outside is never touched (on Windows a
-    // \\\\host\\share path would make this computer connect to another one).
-    const back = join(root, 'downloads-back.pptx');
-    symlinkSync(join(root, 'downloads', 'out', 'deck.pptx'), back);
-    expect(resolveDownload(back, [join(root, 'downloads')])).toBeUndefined();
-    expect(resolveDownload('../downloads-back.pptx', [join(root, 'downloads')])).toBeUndefined();
+    // \\host\share path would make this computer connect to another one).
+    const dir = project('lookup');
+    const back = join(root, 'lookup-back.pptx');
+    symlinkSync(join(dir, 'out', 'deck.pptx'), back);
+    expect(resolveDownload(join(dir, 'out', 'deck.pptx'), [dir])).toBe(join(dir, 'out', 'deck.pptx'));
+    expect(resolveDownload(back, [dir])).toBeUndefined();
+    expect(resolveDownload('../lookup-back.pptx', [dir])).toBeUndefined();
   });
 
   it('takes an absolute path written through a link to the root, as the agent sees the folder', () => {
-    const linked = join(root, 'downloads-link');
-    symlinkSync(join(root, 'downloads'), linked);
-    expect(resolveDownload(join(linked, 'out', 'deck.pptx'), [linked])).toBe(join(root, 'downloads', 'out', 'deck.pptx'));
+    const dir = project('through-link');
+    const linked = join(root, 'through-link-alias');
+    symlinkSync(dir, linked);
+    expect(resolveDownload(join(linked, 'out', 'deck.pptx'), [linked])).toBe(join(dir, 'out', 'deck.pptx'));
     expect(resolveDownload(join(linked, '.git', 'config'), [linked])).toBeUndefined();
   });
 
