@@ -762,6 +762,8 @@ export const zhTW = {
     leadNotReady: (p: string) => `${p} 目前無法使用，請先登入或改選其他 agent。`,
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
+    /** The links at the top of the page: short, so they stay on one line. */
+    nav: { language: '介面語言', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', tour: '使用導覽' },
     tour: '使用導覽',
     tourHint: '一步一步介紹主要功能。',
     replayTour: '重新觀看導覽',

@@ -4921,8 +4921,21 @@ details.sub summary {
   /* The links' offsetLeft is measured from here (keeping the highlighted one in view). */
   position: relative;
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
+  /* One row in every language: where it does not fit (narrow windows, phones), it scrolls sideways. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  /* Fade the ends: there is more to scroll to. */
+  mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+  /* Room for a link's focus ring, which the scrolling row would cut off. */
+  padding: 3px 12px;
+  margin: -3px -12px;
+}
+
+.settings-nav-links::-webkit-scrollbar {
+  display: none;
 }
 
 .settings-nav a {
@@ -4950,7 +4963,7 @@ details.sub summary {
 }
 
 .card[id^='settings-'] {
-  /* Clear of the sticky links above (their height is measured: they wrap on narrow screens). */
+  /* Clear of the sticky links above (their height is measured). */
   scroll-margin-top: calc(var(--settings-nav-height, 56px) + 16px);
 }
 
@@ -4961,23 +4974,7 @@ details.sub summary {
   }
 }
 
-/* Phones: the links scroll sideways in one row. */
 @media (max-width: 820px) {
-  .settings-nav-links {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    overscroll-behavior-x: contain;
-    /* Fade the ends: there is more to scroll to. */
-    mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
-    padding: 0 12px;
-    margin: 0 -12px;
-  }
-
-  .settings-nav-links::-webkit-scrollbar {
-    display: none;
-  }
-
   /* Stuck to the top: the row starts right of the menu button (36px at 10px from the edge). */
   .settings-nav.stuck {
     padding-left: 60px;

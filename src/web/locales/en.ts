@@ -760,6 +760,7 @@ export const en: Messages = {
     leadNotReady: (p) => `${p} is not available right now; sign in first or pick another agent.`,
     goSignIn: (p) => `Sign in to ${p} →`,
     sections: 'Sections of this page',
+    nav: { language: 'Language', lead: 'Lead agent', tools: 'Tools', voice: 'Voice', cwd: 'Default folder', sessions: 'Sessions', tour: 'Tour' },
     tour: 'Guided tour',
     tourHint: 'A step-by-step introduction to the main features.',
     replayTour: 'Replay the tour',

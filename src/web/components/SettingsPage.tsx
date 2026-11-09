@@ -680,7 +680,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     };
   }, []);
 
-  // Cards stop below the links when scrolled to, however tall the links are (they wrap on narrow screens).
+  // Cards stop below the links when scrolled to, however tall the links are.
   useEffect(() => {
     const el = nav.current;
     const scroller = el?.closest<HTMLElement>('.scroll');
@@ -690,24 +690,41 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     return () => sizes.disconnect();
   }, []);
 
-  // On phones the links scroll sideways: keep the highlighted one in view.
+  // Where the links do not fit, a mouse wheel over them scrolls them sideways (its scrollbar is hidden).
+  useEffect(() => {
+    const links = row.current;
+    if (!links) return;
+    const onWheel = (e: WheelEvent) => {
+      if (links.scrollWidth <= links.clientWidth || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const before = links.scrollLeft;
+      links.scrollLeft += e.deltaY;
+      // At either end the wheel scrolls the page as usual.
+      if (links.scrollLeft !== before) e.preventDefault();
+    };
+    links.addEventListener('wheel', onWheel, { passive: false });
+    return () => links.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // Where the links do not fit (narrow windows, phones), they scroll sideways: keep the highlighted one in view.
   useEffect(() => {
     const links = row.current;
     const chip = active && links?.querySelector<HTMLElement>(`[data-section="${active}"]`);
     if (!links || !chip || links.scrollWidth <= links.clientWidth) return;
     links.scrollTo({ left: chip.offsetLeft - (links.clientWidth - chip.offsetWidth) / 2, behavior: 'smooth' });
   }, [active]);
+  // Short labels, so the links fit on one line in every language (the cards keep their full titles).
+  const short = t.settings.nav;
   const label: Record<SettingsSection, string> = {
-    language: t.settings.language,
+    language: short.language,
     claude: PROVIDER_LABEL.claude,
     codex: PROVIDER_LABEL.codex,
     grok: PROVIDER_LABEL.grok,
-    lead: t.settings.lead,
-    tools: t.tools.title,
-    voice: t.voice.title,
-    cwd: t.settings.cwd,
-    sessions: t.settings.sessions,
-    tour: t.settings.tour,
+    lead: short.lead,
+    tools: short.tools,
+    voice: short.voice,
+    cwd: short.cwd,
+    sessions: short.sessions,
+    tour: short.tour,
   };
   return (
     <>
