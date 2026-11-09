@@ -29,4 +29,10 @@ describe('unknownMentions', () => {
     expect(unknownMentions('`@code` [@link](https://example.com) mail me@example.com\n\n```\n@block\n```', [])).toEqual([]);
     expect(unknownMentions('@ alone, or @', [])).toEqual([]);
   });
+
+  it('reads Chinese text written right after a bare URL as prose, as the UI shows it', () => {
+    expect(unknownMentions('看https://a.example/pr/1請@小明，謝謝', [])).toEqual(['小明']);
+    expect(mentionsInMarkdown('看https://a.example/pr/1請@Bob處理', ['Bob'])).toEqual(['Bob']);
+    expect(mentionsInMarkdown('看https://a.example/@Bob處理', ['Bob'])).toEqual([]); // still in the URL
+  });
 });

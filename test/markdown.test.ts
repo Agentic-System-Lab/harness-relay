@@ -81,10 +81,23 @@ describe('chips and the server agree on Markdown structure', () => {
       '_@Claude_ and __@Bob__ and _note_@Builder',
       '@Builder請實作，@Claude 檢查',
       '```ts\nconst a = "@Builder";',
+      '看https://x.example/pr/1請@Builder處理，<https://x.example/請@Claude>',
     ];
     for (const text of texts) expect(chips(text), text).toEqual(parseMentions(text, agents).map((a) => a.name));
     // A Java annotation in a code block inside a list does not hand the floor to @Builder.
     expect(parseMentions(texts[4]!, agents).map((a) => a.name)).toEqual(['Bob']);
+  });
+});
+
+describe('bare URLs', () => {
+  it('end where Chinese text written right after them starts', () => {
+    const out = html('檢查https://github.com/Canner/WrenAI-saas及https://github.com/Canner/wren-agent-stack是否有新的PR，說明');
+    const link = (url: string) => `<a href="${url}" target="_blank" rel="noreferrer">${url}</a>`;
+    expect(out).toContain(
+      `<p>檢查${link('https://github.com/Canner/WrenAI-saas')}及${link('https://github.com/Canner/wren-agent-stack')}是否有新的PR，說明</p>`,
+    );
+    // Chinese that is part of the URL stays in the link.
+    expect(html('https://zh.wikipedia.org/wiki/臺灣，見')).toContain('>https://zh.wikipedia.org/wiki/臺灣</a>，見');
   });
 });
 

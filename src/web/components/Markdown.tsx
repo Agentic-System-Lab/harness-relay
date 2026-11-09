@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } f
 import ReactMarkdown, { type Components, type Options } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
+import { endBareUrls } from '../../shared/links';
 import { fileName, localFilePath, localMediaPath } from '../../shared/media';
 import { findMentions } from '../../shared/mentions';
 import { checkDownload, checkLater, fileClicks, type DownloadState } from '../download';
@@ -117,7 +118,8 @@ function transform(node: MdNode, inLink: boolean, opts: RelayOptions): void {
  * this app's server. With `files`, links to other files on this computer (a PDF, slides…) are marked
  * to be downloaded from this app's server; a browser opens no file: link from a web page, and none
  * on another device. And @mentions of the team (and `@user`) are highlighted in prose, not in code or link text.
- * With `breaks`, every line break in prose is kept (Markdown joins the lines of a paragraph).
+ * With `breaks`, every line break in prose is kept (Markdown joins the lines of a paragraph). A bare URL
+ * ends where `endBareUrls` ends it, so Chinese text written right after one is not part of the link.
  */
 export function remarkRelay({
   mentions,
@@ -131,8 +133,10 @@ export function remarkRelay({
   breaks?: boolean;
 }) {
   const names = mentions.length ? [...mentions, 'user'] : [];
-  return (tree: MdNode) =>
+  return (tree: MdNode) => {
+    endBareUrls(tree);
     transform(tree, false, { names, media, files, breaks, definitions: media || files ? definitions(tree) : new Map() });
+  };
 }
 
 const rehypePlugins: Options['rehypePlugins'] = [[rehypeHighlight, { detect: false, ignoreMissing: true, plainText: ['mermaid'] }]];

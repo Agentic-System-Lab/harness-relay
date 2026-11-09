@@ -1,11 +1,13 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { gfmFromMarkdown } from 'mdast-util-gfm';
 import { gfm } from 'micromark-extension-gfm';
+import { endBareUrls, type LinkNode } from './links';
 
 /*
  * One @mention rule for the server (who is addressed) and the UI (which mentions are highlighted).
  * Both read the message as Markdown with the same parser (GFM) and look only at prose: text outside
  * code (inline, fenced, indented) and outside links (including autolinked URLs and e-mail addresses).
+ * A bare URL ends where `endBareUrls` ends it, so Chinese text right after one is prose.
  */
 
 const ASCII_WORD = /[A-Za-z0-9_-]/;
@@ -53,9 +55,16 @@ export function proseTexts(node: MentionNode, out: MentionNode[] = []): MentionN
   return out;
 }
 
+/** Markdown `text` as a syntax tree, read as the UI reads it (GFM, bare URLs ended by `endBareUrls`). */
+function parse(text: string): MentionNode {
+  const tree = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) as LinkNode;
+  endBareUrls(tree);
+  return tree;
+}
+
 /** Names from `names` @mentioned in Markdown `text`, in order of first mention (as given in `names`). */
 export function mentionsInMarkdown(text: string, names: string[]): string[] {
-  const tree = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) as MentionNode;
+  const tree = parse(text);
   const byLower = new Map(names.map((n) => [n.toLowerCase(), n]));
   const out: string[] = [];
   for (const node of proseTexts(tree)) {
@@ -75,7 +84,7 @@ export function mentionsInMarkdown(text: string, names: string[]): string[] {
  * not a name: a package scope (`@types/node`) or a decorator (`@Component(…)`).
  */
 export function unknownMentions(text: string, names: string[]): string[] {
-  const tree = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) as MentionNode;
+  const tree = parse(text);
   const known = new Set(names.map((n) => n.toLowerCase()));
   const out: string[] = [];
   for (const node of proseTexts(tree)) {
