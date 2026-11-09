@@ -99,6 +99,7 @@ test/                      Vitest 測試
 .github/workflows/pages.yml  把 site/ 發佈到 GitHub Pages
 scripts/preview-site.ts    npm run site:preview：在本機以 Pages 的方式提供 site/
 scripts/app-icons.ts       npm run icons：畫出主畫面圖示，並寫出 web app manifest
+scripts/demo/              npm run demo：重錄示範影片，並更新影片、截圖與章節列
 site/                      網站首頁（靜態 HTML，English + 繁體中文）；DESIGN-GUIDELINES.md 不會被發佈
 docs/                      文件（English + 繁體中文）
 data/                      執行時資料（relay.db），已列入 git ignore
@@ -288,6 +289,7 @@ npx vitest test/store.test.ts
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
 - `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）與 web app manifest（以 `application/manifest+json` 提供）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。
 - `test/app-icons.test.ts`：主畫面圖示與 web app manifest：每個圖示的像素都跟 `npm run icons` 畫出的相同（不透明的 RGB、尺寸正確），manifest 就是它寫出的那份且可以安裝（192 與 512 px 圖示、maskable 圖示、`standalone`），maskable 圖示的標誌落在所有啟動器都會保留的圓內，`index.html` 也有連到 manifest 與 Apple touch icon。
+- `test/demo.test.ts`：錄製示範影片的腳本：剪輯（沒有加速片段時照實際時間、agent 的工作加速到目標長度、加速片段不短於下限、略過的片段剪掉、沒錄完的錄影會被拒絕、給 FFmpeg 的畫面清單），章節列（每個章節依標記計時；團隊、首席 agent、請求核准的 agent、群組與搜尋詞依錄影填入；標記沒出現的章節會省略；兩種語言的用詞；頁面使用的標記且有跳脫），問題點名三個 CLI、設計準則裡的畫面時間，以及截圖（PNG 文字區塊只寫一次且 CRC 正確；社群預覽卡只替換原本顯示舊海報的螢幕像素）。
 - `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、團隊設計由按鈕或手動設定團隊確認（接著由那個團隊回答）或不採用（由目前的團隊回答）、團隊與設定變更時自動組隊維持開啟（並保存 `autoConfirm`）、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話、不存在的群組）與搜尋。也測試工具庫的路由（遮蔽的值、不合法的名稱、網址、CLI 與變數名稱、重複名稱、skill 與記憶、列出資料夾底下的 skill）、成員的工具例外設定、成員執行時拿到的項目，以及瀏覽檔案（列表、預覽、raw 只給圖片、下載任何檔案、資料夾外或 `.git` 的路徑、未知的資料夾）。也測試回覆中嵌入的圖片與影片和連結的檔案：`/media` 只給媒體類型，`/download` 把任何檔案（包含 HTML；分段、只對下載而不對影片的 `If-Range`、304、416，以及不開啟檔案的 HEAD：用 1 MiB 的檔案和開啟的檔案數確認）以沙箱化的 `octet-stream` 下載提供，隔離回合先找成員的 worktree，也能下載附件，都不會給工作目錄外或 `.git` 裡的檔案；透過 `RELAY_ALLOWED_HOSTS` 允許的主機名稱（例如 Tailscale 名稱）可以下載，其他名稱則不行。也用假的服務測試查詢 CLI 自己載入的內容（只用預設工作目錄、重新查詢、依請求語言的問題說明、未知的 CLI、不接受 GET 或表單 POST），只能讀回報過的檔案（不會再問一次 CLI），以及透過真正的查詢與一個依 grok 1.0.77 方式決定信任的替身 `grok` 測試 Grok 的資料夾信任（不在儲存庫裡的資料夾、儲存庫子資料夾改為信任儲存庫根目錄、經由連結進入的資料夾信任實際路徑、和確認時不同的資料夾、Grok 不接受紀錄時還原或移除檔案、不存在的資料夾、不接受表單 POST）。也測試更新 CLI 設定時不載入的項目（只接受已知項目的清單），以及逐項不載入的項目（依已知種類列出 id，有數量與長度上限；CLI 不能單獨略過的種類會丟掉）。另外也測試各 CLI 自己的資料夾（不存在時建立，不可以是家目錄、根目錄、檔案、相對路徑，或在 Harness Relay 自己的資料夾、預設工作目錄裡面；有對話執行時拒絕且不建立任何東西；更換時清掉登入狀態快取與進行中的登入，同一個資料夾換個寫法則不會）、AgentsView 網址（只接受這台電腦、存成 origin、重新命名的對話會送出、顯示上次的失敗且不套用到其他網址）與開啟用的網址（任何 http(s) 網址，不影響對話送到哪裡），以及 Windows 寫法的 `~\`。也測試排程：儲存（下一次的時間、請求的語言、顯示在對話與列表中）、關閉與刪除、拒絕永遠不會送出或團隊還要設計或確認的排程（自動組隊的對話有了團隊之後則允許）、儲存時保留上次結果，以及時間不變時保留間隔的節奏，還有立即執行一次（送出、團隊回覆中放進佇列、接著先不送，排程的紀錄不變；關閉時也可以，對話正忙時說明原因）。也測試每次開新對話的排程：儲存，以及「立即執行一次」回傳它開的對話（每次都是另一個），上次開的對話在儲存後仍保留。也測試 `POST /api/schedules`：自動組隊的對話、排程（以訊息命名，或用給定的標題）與為它組隊的首席 agent，不會貼出訊息；第一次組隊停止後才能再請它組隊；永遠不會送出的排程什麼都不建立（連資料夾也不建立），缺少的資料夾只在要求時建立。也測試把資料夾或整個工作目錄下載成 ZIP 檔（標頭、`HEAD`、讀回的項目、404），以及太大而無法整個打包的資料夾（被忽略的 node_modules 裡超過 10,000 個檔案）：提供只包沒被 git 忽略的檔案，整個打包則為 413。也測試 `GET /api/cwds`：預設工作目錄在前，接著是使用中的工作目錄（包括名稱含空格的資料夾），最近用過的在前，不列出已經不存在的資料夾，預設工作目錄也一樣；預設工作目錄裡的 `~` 會展開，檔案系統不分大小寫時，大小寫不同的同一個資料夾只列一次。
 - `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報，以及簡報如何告訴 agent 顯示媒體、連結檔案讓使用者下載。也測試簡報中的記憶與 skill 區塊：只有在使用者沒有關掉 CLI 自己的 skill 時，才會說它們照常可用；沒有任何能讀檔工具的 Claude Code 成員不會列出 skill。也測試排程送出的訊息（`via="schedule"`），以及有排程的對話的簡報（只有沒有合理答案時才發問；除非排程設為詢問，否則自動拒絕核准），還有排程開的、自己沒有排程的對話的簡報（只在可能沒人看著的那一輪自動拒絕核准）；提問的 agent 會被告知新訊息中的排程訊息不是使用者的回答。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。
@@ -353,6 +355,23 @@ npx vitest test/store.test.ts
 ### 網站
 
 https://agentic-system-lab.github.io/harness-relay/zh-TW/ 的網站首頁是 [`site/`](../site/) 裡的純 HTML、CSS 與 JavaScript：`index.html`（English）、`zh-TW/index.html`（繁體中文）與共用的 `assets/`，不需要建置。[`.github/workflows/pages.yml`](../.github/workflows/pages.yml) 會在推送到 `main` 且改到 `site/`、`docs/media/` 或這個 workflow 時執行：把 `site/` 與 `docs/media/` 的示範影片複製到同一個資料夾、排除 Markdown 檔，再部署到 GitHub Pages（repository 設定 → Pages → Source：GitHub Actions）。用 `npm run site:preview`（[`scripts/preview-site.ts`](../scripts/preview-site.ts)）在本機預覽：它會在 http://127.0.0.1:4180 提供 `site/`（可用 `SITE_PORT` 換埠號），影片直接從 `docs/media/` 讀取，和 Pages 上的樣子相同。修改頁面前請先讀 [`site/DESIGN-GUIDELINES.md`](../site/DESIGN-GUIDELINES.md)，裡面也說明重錄示範影片後要更新哪些地方。
+
+### 錄製示範影片
+
+README 與網站首頁的示範影片（`docs/media/demo-*.mp4` 與 `.webp`）是實際執行的錄影，由 `npm run demo`（[`scripts/demo/`](../scripts/demo/)）錄製。影片經過的介面改變時，請重新錄製。需要：三個 CLI 都已安裝並登入、FFmpeg 與 libwebp（macOS：`brew install ffmpeg webp`），以及 `playwright-core` 驅動的 Chromium（執行一次 `npx playwright-core install chromium-headless-shell`，或用 `DEMO_CHROME` 指定 Chrome 或 Chromium 的執行檔）。
+
+```bash
+npm run demo                          # 錄製兩種語言，剪輯並發布
+npm run demo -- record --dry          # 不跑 agent，只檢查到開啟對話為止的操作流程（不到一分鐘）
+npm run demo -- record --lang en      # 只跑一個步驟、一種語言
+npm run demo -- cut publish           # 重新剪輯並發布上次的錄影
+```
+
+1. **record**：建置 UI，在獨立的埠號（8791，第二種語言用 8792）啟動 Harness Relay，資料放在 `data/demo/<lang>/` 裡的空資料夾，不會動到你自己的對話與設定；對話的工作目錄是這個 repository（唯讀）。接著 headless 瀏覽器像人一樣操作（畫出游標）：新增群組、打開「三方辯論」範本、開新對話並提出點名三個 CLI 的問題、確認首席 agent 的團隊、等待回答（超出唯讀的請求會顯示後拒絕，agent 問的問題會略過）、問一個有自己團隊的新問題、在「檔案」裡打開 `orchestrator.ts` 中接力模式交棒的地方，最後搜尋。兩種語言同時錄，用真正的 CLI 約需半小時。每個步驟都會在 `marks.json` 留下標記。
+2. **cut**：把 agent 工作的片段加速，讓影片長約兩分鐘（`--length`），寫出 `video.mp4`（1600×1000、24 fps）、`animation.webp`（880×550、8 fps）與 `timeline.json`。如果錄影時白等了一段，在 `marks.json` 加一對 `skip-start` / `skip-end` 再剪一次。
+3. **publish**：把影片與動畫複製到 `docs/media/`，從第一個團隊卡片出現的畫面（`poster` 標記）重新擷取海報、截圖與社群預覽卡，重新計時 `site/index.html` 與 `site/zh-TW/index.html` 的章節列，以及 `site/DESIGN-GUIDELINES.md` 裡的畫面時間，並寫出 `data/demo/<lang>/review.md`：寫入的章節、團隊、核准請求、搜尋詞與每則回覆。
+
+之後讀 `review.md` 並看過影片。章節的句子在 `scripts/demo/chapters.ts`；團隊、名字、輪數、群組與搜尋詞會依錄影填入，但如果 agent 做了句子沒描述到的事，請在那裡修改，再執行 `npm run demo -- publish`。也請檢查 README 的影片說明與章節列的註記，再把影音檔、`site/` 與腳本一起 commit。
 
 ## 除錯技巧
 

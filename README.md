@@ -104,6 +104,7 @@ API keys you save in Settings, and the values of MCP servers' environment variab
 | `npm test` | Run the test suite (Vitest) |
 | `npm run site:preview` | Preview the website (`site/`) on http://127.0.0.1:4180 |
 | `npm run icons` | Redraw the home-screen icons and the web app manifest in `src/web/public/` |
+| `npm run demo` | Record the demo again with the real CLIs, in both languages, and update the videos, stills and the website's chapters |
 
 Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The [website](https://agentic-system-lab.github.io/harness-relay/) is the static page in [`site/`](site/), published to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 

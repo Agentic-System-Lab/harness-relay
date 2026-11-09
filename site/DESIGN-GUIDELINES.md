@@ -116,8 +116,8 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 | File | Source |
 | --- | --- |
 | `media/demo-en.mp4`, `media/demo-zh-TW.mp4` | Copied from `docs/media/` by the Pages workflow; not stored twice |
-| `assets/media/poster-en.webp` | Frame at 0:27.5 of `docs/media/demo-en.mp4` |
-| `assets/media/poster-zh-TW.webp` | Frame at 0:22.5 of `docs/media/demo-zh-TW.mp4` |
+| `assets/media/poster-en.webp` | Frame at 0:28.0 of `docs/media/demo-en.mp4` |
+| `assets/media/poster-zh-TW.webp` | Frame at 0:24.0 of `docs/media/demo-zh-TW.mp4` |
 | `assets/media/og-en.png`, `og-zh-TW.png` | Social preview cards (1200×630) rendered from the page's own styles |
 | `assets/fonts/bricolage-grotesque-latin.woff2` | Google Fonts, SIL Open Font License (`assets/fonts/OFL.txt`) |
 | `favicon.svg` | Same drawing as the app's favicon |
@@ -125,6 +125,8 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 The origin of each raster is also embedded in the file (PNG text chunk) or in a `*.webp.json` sidecar next to it.
 
 ### When the demo is re-recorded
+
+`npm run demo` records the demo again and does all four steps below for both pages (see [Recording the demo](../docs/developer-guide.md#recording-the-demo)). Afterwards, check the chapter sentences against `data/demo/<lang>/review.md`, which lists what the agents did; the sentences are in `scripts/demo/chapters.ts`.
 
 1. Replace the videos in `docs/media/`.
 2. Re-cut both posters from a frame that shows the three agents (the team design card works well), and the two screenshots from the same frames: `docs/media/screenshot-en.png` and `docs/media/screenshot-zh-TW.png`, full-size PNGs with their origin in a PNG text chunk. The org's homepage (https://agentic-system-lab.github.io/) and its GitHub profile show them from `main`, so they change there as soon as you push.
