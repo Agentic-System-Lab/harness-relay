@@ -1645,13 +1645,25 @@ details.sub .model-picker {
   gap: 4px;
 }
 
-/* Copy / edit under a message: shown on hover or keyboard focus; always shown on touch screens. */
+/* Copy, edit and retry icons under a message: always shown under an agent's reply; under the user's own
+   message on hover or keyboard focus (always on touch screens). */
 .msg-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 24px;
+  gap: 2px;
+  min-height: 28px;
   flex-wrap: wrap;
+}
+
+/* Under an agent's reply: copy and retry on the left, the time, cost and tokens at the right edge. */
+.msg-actions .msg-meta {
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+/* The scheduled or added-mid-reply tag after a user message's copy and edit. */
+.msg-actions .queued-tag {
+  margin-left: 6px;
 }
 
 .msg-action {
@@ -1665,13 +1677,25 @@ details.sub .model-picker {
   transition: opacity 0.12s ease;
 }
 
+/* An icon on its own: copy, edit, retry. */
+.msg-action.icon-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+}
+
 .msg-action:hover:not(:disabled) {
   background: var(--surface);
   color: var(--text);
 }
 
 .msg-user:hover .msg-action,
-.msg-agent:hover .msg-action,
+.msg-agent .msg-action,
 .msg-action:focus-visible,
 .msg-action.copy-done,
 .msg-action.copy-failed {
@@ -5373,4 +5397,17 @@ details.sub summary {
 /* Phones: the schedule's footer wraps rather than squeezing its buttons. */
 .schedule-drawer .drawer-foot {
   flex-wrap: wrap;
+}
+
+/* Read by screen readers, not shown. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }

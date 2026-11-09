@@ -28,7 +28,7 @@ import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, le
 import { ChangesCard, type ApplyState } from './ChangesCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
-import { ClockIcon, PaperclipIcon } from './icons';
+import { ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon } from './icons';
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
@@ -551,10 +551,16 @@ function UserMessage({
         <Attachments msg={msg} convId={convId} />
         {text && <UserBubble text={text} mentions={mentionNames} />}
         <div className="msg-actions">
-          <CopyButton text={() => text} />
+          <CopyButton className="msg-action icon-action" iconOnly icon={<CopyIcon size={16} />} text={() => text} />
           {canEdit && (
-            <button type="button" className="msg-action" onClick={() => setDraft(text)}>
-              {t.message.edit}
+            <button
+              type="button"
+              className="msg-action icon-action"
+              title={t.message.edit}
+              aria-label={t.message.edit}
+              onClick={() => setDraft(text)}
+            >
+              <PencilIcon size={16} />
             </button>
           )}
           {/* Last, so the tag sits at the right edge under the bubble: copy and edit only turn transparent off hover and still take their space. */}
@@ -761,13 +767,22 @@ export const MessageItem = memo(function MessageItem({
 
         {!live && (
           <div className="msg-actions">
-            {hasMeta(m) && <MetaText m={m} />}
-            {copyable && <CopyButton text={() => messageText(msg)} />}
+            {copyable && (
+              <CopyButton className="msg-action icon-action" iconOnly icon={<CopyIcon size={16} />} text={() => messageText(msg)} />
+            )}
             {!running && (
-              <button type="button" className="msg-action" title={t.message.retryTitle} onClick={() => void onRetry(msg.id)}>
-                ↻ {t.message.retry}
+              <button
+                type="button"
+                className="msg-action icon-action"
+                title={t.message.retryTitle}
+                aria-label={t.message.retry}
+                onClick={() => void onRetry(msg.id)}
+              >
+                <RetryIcon size={16} />
               </button>
             )}
+            {/* The buttons sit on the left, like a chat app's; the time, cost and tokens at the right edge. */}
+            {hasMeta(m) && <MetaText m={m} />}
           </div>
         )}
       </div>

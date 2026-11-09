@@ -118,6 +118,18 @@ export function CopyIcon({ size }: { size?: number }) {
   );
 }
 
+/** Two arrows chasing round a circle: answer again. */
+export function RetryIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M3.5 12a8.5 8.5 0 0 1 14.5-6L20.5 8.5" />
+      <path d="M20.5 3.5v5h-5" />
+      <path d="M20.5 12A8.5 8.5 0 0 1 6 18l-2.5-2.5" />
+      <path d="M8.5 15.5h-5v5" />
+    </Svg>
+  );
+}
+
 export function CheckIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>
