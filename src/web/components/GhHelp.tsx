@@ -1,4 +1,4 @@
-import { GH_MISSING, GH_SIGNED_OUT } from '../../shared/types';
+import { GH_MIN_VERSION, GH_MISSING, GH_SIGNED_OUT } from '../../shared/types';
 import { useT } from '../i18n';
 import { GH_INSTALL, GH_LINKS } from '../share';
 import { CopyButton } from './CopyButton';
@@ -36,7 +36,7 @@ export function GhHelp({ problem, retry }: { problem: typeof GH_MISSING | typeof
       <ol>
         {missing && (
           <li>
-            {g.install}
+            {g.install(GH_MIN_VERSION)}
             <Link href={GH_LINKS.site}>{g.installSite}</Link>
             {g.installOr}
             <ul>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { GH_MISSING, GH_SIGNED_OUT } from '../src/shared/types';
-import { t } from '../src/server/i18n';
+import { GH_MIN_VERSION, GH_MISSING, GH_SIGNED_OUT } from '../src/shared/types';
+import { t, withLang } from '../src/server/i18n';
 import { CommandNotFoundError, type SpawnOptions, type SpawnResult } from '../src/server/process';
 import {
   SHARE_FILE,
@@ -10,7 +10,9 @@ import {
   gistArgs,
   gistExistsArgs,
   gistDescription,
+  ghTooOld,
   gistError,
+  parseGhVersion,
   parseGistUrl,
   shareToGist,
   unshareGist,
@@ -81,7 +83,7 @@ describe('shareToGist', () => {
     const run = async (): Promise<SpawnResult> => {
       throw new CommandNotFoundError('gh');
     };
-    await expect(shareToGist('x', 'd', run)).rejects.toThrow(new ShareError(t().shareNoGh, GH_MISSING));
+    await expect(shareToGist('x', 'd', run)).rejects.toThrow(new ShareError(t().shareNoGh(GH_MIN_VERSION), GH_MISSING));
     await expect(shareToGist('x', 'd', run)).rejects.toMatchObject({ code: GH_MISSING });
   });
 
@@ -146,7 +148,35 @@ describe('unshareGist', () => {
     const missing = async (): Promise<SpawnResult> => {
       throw new CommandNotFoundError('gh');
     };
-    await expect(unshareGist(ID, missing)).rejects.toMatchObject({ message: t().shareNoGh, code: GH_MISSING });
+    await expect(unshareGist(ID, missing)).rejects.toMatchObject({ message: t().shareNoGh(GH_MIN_VERSION), code: GH_MISSING });
+    expect(t().shareNoGh(GH_MIN_VERSION)).toContain('2.66.0');
+  });
+
+  // What a gh before 2.66.0 says: it has no --yes for gist delete.
+  const oldGh = 'unknown flag: --yes\n\nUsage:  gh gist delete {<id> | <url>} [flags]\n\n';
+
+  it('says which gh it needs, and which one is there, when gh is too old', async () => {
+    const calls: string[][] = [];
+    const run = async (o: SpawnOptions) => {
+      calls.push(o.args);
+      return o.args[0] === '--version'
+        ? result({ stdout: 'gh version 2.40.1 (2023-12-13)\nhttps://github.com/cli/cli/releases/tag/v2.40.1\n' })
+        : result({ code: 1, stderr: oldGh });
+    };
+    await expect(unshareGist(ID, run)).rejects.toMatchObject({ message: t().ghTooOld(GH_MIN_VERSION, '2.40.1') });
+    expect(calls).toEqual([deleteGistArgs(ID), ['--version']]);
+    expect(t().ghTooOld(GH_MIN_VERSION, '2.40.1')).toMatch(/2\.40\.1.*2\.66\.0/);
+    expect(withLang('en', () => t().ghTooOld(GH_MIN_VERSION, '2.40.1'))).toMatch(/2\.40\.1.*2\.66\.0/);
+  });
+
+  it('still says which gh it needs when gh does not say its version', async () => {
+    const run = async (o: SpawnOptions) => (o.args[0] === '--version' ? result({ code: 1 }) : result({ code: 1, stderr: oldGh }));
+    await expect(unshareGist(ID, run)).rejects.toMatchObject({ message: t().ghTooOld(GH_MIN_VERSION) });
+    expect(t().ghTooOld(GH_MIN_VERSION)).toContain('2.66.0');
+    expect(ghTooOld(oldGh)).toBe(true);
+    expect(ghTooOld('HTTP 500: oops')).toBe(false);
+    expect(parseGhVersion('gh version 2.88.1 (2026-03-12)\n')).toBe('2.88.1');
+    expect(parseGhVersion('')).toBeUndefined();
   });
 
   it('looks for gh where Homebrew puts it too, and otherwise lets the PATH find it', () => {

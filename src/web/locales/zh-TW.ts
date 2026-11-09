@@ -651,7 +651,7 @@ export const zhTW = {
     gh: {
       missingTitle: '找不到 GitHub CLI（gh）',
       missingIntro: '建立和移除連結都要用執行 Harness Relay 那台電腦上的 GitHub CLI。請在那台電腦上：',
-      install: '安裝 GitHub CLI：',
+      install: (min: string) => `安裝 GitHub CLI（${min} 以上）：`,
       installSite: '下載頁 cli.github.com',
       installOr: '，或用指令安裝：',
       linuxGuide: '安裝說明',

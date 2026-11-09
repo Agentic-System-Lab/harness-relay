@@ -13,6 +13,9 @@ export const CWD_MISSING = 'cwd-missing';
 export const GH_MISSING = 'gh-missing';
 export const GH_SIGNED_OUT = 'gh-signed-out';
 
+/** The oldest GitHub CLI that shares work with: `gh gist delete --yes` came in 2.66.0. */
+export const GH_MIN_VERSION = '2.66.0';
+
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude Code',
   codex: 'Codex',

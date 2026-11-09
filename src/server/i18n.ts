@@ -63,7 +63,9 @@ const zhTW = {
   // Sharing a conversation (a gist through the GitHub CLI)
   shareEmpty: '沒有可以分享的內容',
   shareTooLarge: (mb: string) => `這個分享頁有 ${mb} MB，超過 gistpreview 能顯示的 1 MB。請改成分享到比較前面的某則回覆。`,
-  shareNoGh: '找不到 GitHub CLI（gh）。請從 https://cli.github.com 安裝，並在終端機執行 gh auth login 後再試一次。',
+  shareNoGh: (min: string) => `找不到 GitHub CLI（gh）。請從 https://cli.github.com 安裝 ${min} 以上的版本，並在終端機執行 gh auth login 後再試一次。`,
+  ghTooOld: (min: string, version?: string) =>
+    `GitHub CLI（gh）版本太舊${version ? `（目前是 ${version}）` : ''}：需要 ${min} 以上。請從 https://cli.github.com 更新 gh（用 Homebrew 裝的可以執行 brew upgrade gh）後再試一次。`,
   shareSignedOut: 'GitHub CLI（gh）尚未登入。請在終端機執行 gh auth login 後再試一次。',
   shareFailed: (detail: string) => `無法建立 gist：${detail}`,
   shareNoDetail: 'gh 沒有說明原因',
@@ -297,7 +299,9 @@ const en: ServerMessages = {
   conversationNotFound: 'Conversation not found',
   shareEmpty: 'Nothing to share',
   shareTooLarge: (mb) => `This page is ${mb} MB, over the 1 MB that gistpreview can show. Share up to an earlier reply instead.`,
-  shareNoGh: 'GitHub CLI (gh) not found. Install it from https://cli.github.com, run gh auth login in a terminal, then try again.',
+  shareNoGh: (min) => `GitHub CLI (gh) not found. Install ${min} or later from https://cli.github.com, run gh auth login in a terminal, then try again.`,
+  ghTooOld: (min, version) =>
+    `GitHub CLI (gh) is too old${version ? ` (this one is ${version})` : ''}: Harness Relay needs ${min} or later. Update gh from https://cli.github.com (installed with Homebrew: brew upgrade gh), then try again.`,
   shareSignedOut: 'GitHub CLI (gh) is not signed in. Run gh auth login in a terminal, then try again.',
   shareFailed: (detail) => `Could not create the gist: ${detail}`,
   shareNoDetail: 'gh gave no reason',

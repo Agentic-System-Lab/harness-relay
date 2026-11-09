@@ -641,7 +641,7 @@ export const en: Messages = {
     gh: {
       missingTitle: 'GitHub CLI (gh) not found',
       missingIntro: 'Links are created and removed with the GitHub CLI on the computer that runs Harness Relay. On that computer:',
-      install: 'Install the GitHub CLI: ',
+      install: (min) => `Install the GitHub CLI (${min} or later): `,
       installSite: 'download page, cli.github.com',
       installOr: ', or with a command:',
       linuxGuide: 'install guide',

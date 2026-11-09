@@ -1,7 +1,7 @@
 // Sharing a conversation: the page the web app made of it goes up to GitHub as a secret gist, created
 // with the user's own GitHub CLI (`gh`), and is read through gistpreview.github.io.
 
-import { GH_MISSING, GH_SIGNED_OUT, type ShareLink } from '../shared/types';
+import { GH_MIN_VERSION, GH_MISSING, GH_SIGNED_OUT, type ShareLink } from '../shared/types';
 import { t } from './i18n';
 import { CommandNotFoundError, runProcess, type SpawnOptions, type SpawnResult } from './process';
 import { BREW_DIRS, findOnPath } from './voice';
@@ -47,6 +47,19 @@ export function signedOut(stderr: string): boolean {
   return /gh auth login|not logged in|authentication required|HTTP 401/i.test(stderr);
 }
 
+/**
+ * gh does not know a flag or command it was given: a gh older than GH_MIN_VERSION (one before 2.66.0
+ * answers `gist delete --yes` with "unknown flag: --yes" and its usage).
+ */
+export function ghTooOld(stderr: string): boolean {
+  return /unknown (shorthand )?flag|unknown command/i.test(stderr);
+}
+
+/** The version `gh --version` printed ("gh version 2.88.1 (2026-03-12)"). */
+export function parseGhVersion(stdout: string): string | undefined {
+  return /gh version (\d+\.\d+\.\d+)/.exec(stdout)?.[1];
+}
+
 /** What went wrong, in words for the user, when `gh` failed (to create a gist, or with `failed`, to delete one). */
 export function gistError(r: Pick<SpawnResult, 'stderr' | 'timedOut'>, failed: (detail: string) => string = t().shareFailed): string {
   if (r.timedOut) return failed(t().timedOut);
@@ -87,9 +100,29 @@ async function gh(run: (o: SpawnOptions) => Promise<SpawnResult>, args: string[]
   try {
     return await run({ bin: ghBin(), args, env: { ...process.env }, stdin, timeoutMs: 60_000 });
   } catch (err) {
-    if (err instanceof CommandNotFoundError) throw new ShareError(t().shareNoGh, GH_MISSING);
+    if (err instanceof CommandNotFoundError) throw new ShareError(t().shareNoGh(GH_MIN_VERSION), GH_MISSING);
     throw err;
   }
+}
+
+/** The installed gh's version, if it says. */
+async function ghVersion(run: (o: SpawnOptions) => Promise<SpawnResult>): Promise<string | undefined> {
+  try {
+    const r = await run({ bin: ghBin(), args: ['--version'], env: { ...process.env }, timeoutMs: 10_000 });
+    return r.code === 0 ? parseGhVersion(r.stdout) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The error for a gh that failed, saying which gh is needed when this one is too old. */
+async function ghFailure(
+  run: (o: SpawnOptions) => Promise<SpawnResult>,
+  r: SpawnResult,
+  failed?: (detail: string) => string,
+): Promise<ShareError> {
+  if (!r.timedOut && ghTooOld(r.stderr)) return new ShareError(t().ghTooOld(GH_MIN_VERSION, await ghVersion(run)));
+  return failure(r, failed);
 }
 
 /** Creates the gist: `run` spawns `gh` (a fake one in tests). */
@@ -101,7 +134,7 @@ export async function shareToGist(
   const r = await gh(run, gistArgs(description), html);
   const link = r.code === 0 ? parseGistUrl(r.stdout) : undefined;
   if (link) return link;
-  throw r.code === 0 ? new ShareError(t().shareFailed(t().shareNoUrl)) : failure(r);
+  throw r.code === 0 ? new ShareError(t().shareFailed(t().shareNoUrl)) : await ghFailure(run, r);
 }
 
 /**
@@ -118,7 +151,7 @@ export async function unshareGist(id: string, run: (o: SpawnOptions) => Promise<
     if (/\b404\b|not found/i.test(check.stderr)) return;
     throw failure(check, t().unshareFailed);
   }
-  throw failure(r, t().unshareFailed);
+  throw await ghFailure(run, r, t().unshareFailed);
 }
 
 /** Asks GitHub for the gist (a secret gist can be read by anyone with its id), printing nothing. */
