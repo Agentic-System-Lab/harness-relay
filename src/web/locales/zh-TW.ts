@@ -248,6 +248,7 @@ export const zhTW = {
     weekdays: ['日', '一', '二', '三', '四', '五', '六'],
     weekdayNames: ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'],
     timeZone: (tz: string) => `時區：${tz}`,
+    useLocalZone: (tz: string) => `改用這台裝置的時區（${tz}）`,
     upcoming: '接下來：',
     never: '這個設定之後不會再執行',
     unattended: '沒人看著的時候',
@@ -294,7 +295,7 @@ export const zhTW = {
     last: (when: string, result: string) => `上次（${when}）：${result}`,
     results: {
       sent: '已送出',
-      queued: '團隊回覆中，排入等待後送出',
+      queued: '團隊回覆中，已排入等待',
       missed: '錯過了（當時 Harness Relay 沒有在執行）',
       skipped: '沒有送出',
       failed: '無法送出',

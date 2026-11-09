@@ -684,7 +684,7 @@ export interface ConversationSchedule {
   approvals: 'deny' | 'ask';
   /** A time missed while Harness Relay was not running (or the computer slept): skipped, or run once as soon as it can. */
   missed: 'skip' | 'run';
-  /** When it was saved: where an interval's cadence starts. */
+  /** When its times (`repeat`, `timeZone`) were last set: where an interval's cadence starts. */
   updatedAt: number;
   /** When it sends next; absent while it is off, or when it will not send again. */
   nextRunAt?: number;
@@ -693,6 +693,19 @@ export interface ConversationSchedule {
   lastResult?: ScheduleResult;
   /** Why it was skipped or failed last time. */
   lastError?: string;
+}
+
+/** A moment's wall-clock date and time in a time zone (`zonedParts()`). */
+export interface ZonedParts {
+  year: number;
+  /** 1–12 */
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  /** 0 = Sunday */
+  weekday: number;
 }
 
 /** What the browser sends to save a schedule (`PUT /api/conversations/:id/schedule`). */

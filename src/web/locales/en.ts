@@ -242,6 +242,7 @@ export const en: Messages = {
     weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     weekdayNames: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
     timeZone: (tz) => `Time zone: ${tz}`,
+    useLocalZone: (tz) => `Use this device's time zone (${tz})`,
     upcoming: 'Next:',
     never: 'With these settings it will not send again',
     unattended: 'When nobody is watching',
@@ -288,7 +289,7 @@ export const en: Messages = {
     last: (when, result) => `Last time (${when}): ${result}`,
     results: {
       sent: 'sent',
-      queued: 'the team was replying; sent after waiting in the queue',
+      queued: 'the team was replying, so it waited in the queue',
       missed: 'missed (Harness Relay was not running)',
       skipped: 'not sent',
       failed: 'could not be sent',

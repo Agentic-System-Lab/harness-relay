@@ -93,7 +93,8 @@ interface Run {
   lockRoot?: string;
   /**
    * A schedule started it and nobody may be watching: actions the permission does not cover are
-   * refused automatically instead of asked (the schedule's `approvals`).
+   * refused automatically instead of asked (the schedule's `approvals`), unless the conversation
+   * always allows them. Cleared once one of the user's own messages reaches the run: they are here.
    */
   refuseApprovals?: boolean;
   /** Settles once the run has finished, including its clean-up. */
@@ -113,14 +114,21 @@ interface StartOptions {
   queue?: boolean;
   /** The conversation's schedule sends the message (it is marked `scheduled`). */
   scheduled?: boolean;
-  /** Refuse approval requests automatically in this run (see `Run.refuseApprovals`). */
+  /**
+   * Refuse approval requests automatically in this run (see `Run.refuseApprovals`) — if every message
+   * it starts with came from the schedule.
+   */
   refuseApprovals?: boolean;
 }
 
-/** How a scheduled message went (`busy`: the conversation is being changed; try again shortly). */
+/**
+ * How a scheduled message went. `busy`: not now — a settings change or an apply holds the
+ * conversation, another conversation is writing in the same folder, or the server is stopping — so
+ * try again shortly (`reason` says why).
+ */
 export type ScheduledSend =
   | { result: 'sent' | 'queued' }
-  | { result: 'busy' }
+  | { result: 'busy'; reason?: string }
   | { result: 'skipped' | 'failed'; reason: string };
 
 /** Longest name of a template saved from a plan. */
@@ -399,32 +407,41 @@ export class Orchestrator {
    * the user had, marked `scheduled`. While the team replies it waits in the queue like any message.
    * It is held back (`skipped`) when the team cannot take it: no confirmed team, an agent's question
    * waiting for the user's answer (the message would count as the answer), an earlier scheduled
-   * message still waiting, or a full queue. The run it starts refuses approval requests unless the
-   * schedule asks.
+   * message still waiting for the team, or a full queue. An earlier one left waiting while nothing
+   * runs (the team was stopped, or the server restarted) is sent now instead, once. The run it starts
+   * refuses approval requests unless the schedule asks.
    */
   async sendScheduled(convId: string): Promise<ScheduledSend> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     const s = conv.schedule;
     if (!s) throw new HttpError(404, t().scheduleNotFound);
-    if (this.closing) return { result: 'failed', reason: t().shuttingDown };
+    // Not lost: sent (or counted as missed) when the server is back.
+    if (this.closing) return { result: 'busy', reason: t().shuttingDown };
     if (conv.settings.autoTeam || conv.agents.length === 0 || pendingPlan(conv.messages)) {
       return { result: 'skipped', reason: t().scheduleNoTeam };
     }
-    if (conv.pause) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
-    if (conv.queue?.some((m) => m.scheduled)) return { result: 'skipped', reason: t().scheduleStillQueued };
-    if (this.queues(conv) && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
+    const replying = this.runs.has(convId) || this.starting.has(convId);
+    // A run being set up may be the user's answer: the message then waits for its next turn instead.
+    if (conv.pause && !replying) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
+    const waiting = Boolean(conv.queue?.some((m) => m.scheduled));
+    if (waiting && replying) return { result: 'skipped', reason: t().scheduleStillQueued };
+    if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
     try {
-      if (this.queues(conv)) {
+      if (replying) {
         this.enqueue(conv, s.text, undefined, true);
         return { result: 'queued' };
       }
       // A settings change or an apply holds the conversation for a moment.
-      if (this.isBusy(convId)) return { result: 'busy' };
-      await this.start(conv, s.text, { queue: true, scheduled: true, refuseApprovals: s.approvals !== 'ask' });
+      if (this.isBusy(convId)) return { result: 'busy', reason: t().scheduleConvBusy };
+      await this.start(conv, waiting ? '' : s.text, { queue: true, scheduled: !waiting, refuseApprovals: s.approvals !== 'ask' });
       return { result: 'sent' };
     } catch (err) {
-      if (err instanceof HttpError && err.status === 404) throw err;
+      if (err instanceof HttpError) {
+        if (err.status === 404) throw err;
+        // Another conversation is writing in the same folder (409), or the server is stopping (503).
+        if (err.status === 409 || err.status === 503) return { result: 'busy', reason: err.message };
+      }
       return { result: 'failed', reason: (err as Error).message };
     }
   }
@@ -654,7 +671,8 @@ export class Orchestrator {
         active: new Set(),
         ws,
         lockRoot,
-        ...(opts.refuseApprovals ? { refuseApprovals: true } : {}),
+        // Only while nothing the user wrote starts it: when they write, they are here.
+        ...(opts.refuseApprovals && posted.every((m) => m.scheduled) ? { refuseApprovals: true } : {}),
         done: Promise.resolve(),
       };
       this.runs.set(convId, run);
@@ -1093,7 +1111,7 @@ export class Orchestrator {
         }
         const { agent, handedBy } = queue.shift()!;
         hopsLeft--;
-        this.deliverQueued(conv, { recipients: [agent] });
+        this.deliverBefore(conv, run, [agent]);
         const msg = await this.turn(conv, agent, run, { mode, round: 1, rounds: 1, handedBy, hopsLeft, answered: answered(agent) });
         if (msg.asked) {
           const rest = queue.map((q) => ({ agentId: q.agent.id, handedBy: q.handedBy }));
@@ -1126,7 +1144,7 @@ export class Orchestrator {
       if (mode === 'parallel') {
         if (!speakers.length) continue; // the user let the team go on without answering
         // The round's turns run side by side: they all see what was sent before it starts.
-        this.deliverQueued(conv, { recipients: speakers });
+        this.deliverBefore(conv, run, speakers);
         // Every turn settles before the run can end, even when one of them fails.
         const settled = await Promise.allSettled(speakers.map((a) => this.turn(conv, a, run, info(a))));
         const failed = settled.find((r) => r.status === 'rejected');
@@ -1138,7 +1156,7 @@ export class Orchestrator {
       } else {
         for (const [i, a] of speakers.entries()) {
           if (aborted()) break;
-          this.deliverQueued(conv, { recipients: [a] });
+          this.deliverBefore(conv, run, [a]);
           const msg = await this.turn(conv, a, run, info(a));
           msgs.push(msg);
           if (msg.asked) return pause([a], speakers.slice(i + 1));
@@ -1146,6 +1164,14 @@ export class Orchestrator {
       }
       if (msgs.length && !msgs.some(spoke)) break; // everyone passed: the discussion has converged
     }
+  }
+
+  /**
+   * Post the waiting messages for these speakers before their turn (`deliverQueued`). One the user
+   * wrote means they are here: the run asks for approvals again, even if a schedule started it.
+   */
+  private deliverBefore(conv: Conversation, run: Run, recipients: AgentConfig[]): void {
+    if (this.deliverQueued(conv, { recipients }).some((m) => !m.scheduled)) run.refuseApprovals = false;
   }
 
   /** Who speaks in a run the user's `posted` messages (or Continue, or a retry of `only`) start. */
@@ -1181,7 +1207,8 @@ export class Orchestrator {
    * the agents that asked answer first — unless the reply is Continue (nothing posted), which lets
    * the others go on without them. A reply that @mentions anyone else, a retry, a team design or a
    * changed mode starts afresh, as does Continue with nobody left to speak. Either way the team no
-   * longer waits.
+   * longer waits. Only what the user wrote counts: a scheduled message that waited in the queue is no
+   * answer, and its @mentions do not start afresh.
    */
   private takePause(conv: Conversation, posted: ChatMessage[], only?: AgentConfig[]): Schedule | undefined {
     const pause = conv.pause;
@@ -1190,10 +1217,11 @@ export class Orchestrator {
     this.store.saveMeta(conv);
     this.emitConversation(conv);
     if (only || conv.settings.autoTeam || pause.mode !== conv.settings.mode) return undefined;
-    if (posted.some((m) => parseMentions(textOf(m), conv.agents).some((a) => !pause.askers.includes(a.id)))) return undefined;
+    const replies = posted.filter((m) => !m.scheduled);
+    if (replies.some((m) => parseMentions(textOf(m), conv.agents).some((a) => !pause.askers.includes(a.id)))) return undefined;
     const byId = (id: string) => conv.agents.find((a) => a.id === id);
     const askers = pause.askers.flatMap((id) => byId(id) ?? []);
-    const skip = posted.length === 0;
+    const skip = replies.length === 0;
     const rest = pause.rest.flatMap((r) => {
       const agent = byId(r.agentId);
       return agent ? [{ agent, handedBy: r.handedBy }] : [];
@@ -1334,9 +1362,10 @@ export class Orchestrator {
       this.store.saveMessage(conv.id, msg);
     };
 
-    // Ask the user in the chat; the CLI waits until they answer (or the run is stopped).
+    // Ask the user in the chat; the CLI waits until they answer (or the run is stopped). In a run a
+    // schedule started, only what the conversation always allows goes through; the rest is refused.
     const requestApproval =
-      conv.settings.approvals === 'deny' || run.refuseApprovals
+      conv.settings.approvals === 'deny'
         ? undefined
         : async (req: ApprovalRequest): Promise<ApprovalAnswer> => {
             // Keys come from the command as it will run; `detail` may be tidied up for display.
@@ -1359,6 +1388,12 @@ export class Orchestrator {
               this.hub.emit(conv.id, { type: 'message', message: msg });
               this.store.saveMessage(conv.id, msg, true);
               return busy ? { allow: false, note: busy } : { allow: true };
+            }
+            if (run.refuseApprovals) {
+              Object.assign(part, { status: 'denied', note: t().scheduleRefused });
+              this.hub.emit(conv.id, { type: 'message', message: msg });
+              this.store.saveMessage(conv.id, msg, true);
+              return { allow: false, note: part.note };
             }
             this.hub.emit(conv.id, { type: 'message', message: msg });
             this.store.saveMessage(conv.id, msg, true);

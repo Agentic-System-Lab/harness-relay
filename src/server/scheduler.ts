@@ -30,12 +30,18 @@ export function scheduleTime(at: number, s: Pick<ConversationSchedule, 'lang' | 
 /**
  * Sends each conversation's scheduled message when it comes due (`Orchestrator.sendScheduled`), then
  * works out the next time. A time missed by more than `MISSED_AFTER_MS` is skipped or sent late, as
- * the schedule says; either way only once, however many times were missed. What happened is kept
- * with the schedule (`lastResult`), and a time that was not sent leaves a note in the chat.
+ * the schedule says; either way only once, however many times were missed. When the conversation
+ * cannot take it right now (`busy`), it is tried again at each look for up to `MISSED_AFTER_MS`, then
+ * skipped. What happened is kept with the schedule (`lastResult`), and a time that was not sent
+ * leaves a note in the chat.
  */
 export class Scheduler {
   private timer?: NodeJS.Timeout;
   private ticking?: Promise<void>;
+  /** Stopped (the server is shutting down): what is being sent now is not recorded. */
+  private stopped = false;
+  /** Conversations whose due time was found busy, by that time: they are being retried, not missed. */
+  private retrying = new Map<string, number>();
 
   constructor(
     private store: Store,
@@ -46,12 +52,14 @@ export class Scheduler {
   /** Look for due schedules now and every `TICK_MS` (also right after the computer wakes up). */
   start(): void {
     if (this.timer) return;
+    this.stopped = false;
     this.timer = setInterval(() => void this.tick(), TICK_MS);
     this.timer.unref();
     void this.tick();
   }
 
   stop(): void {
+    this.stopped = true;
     clearInterval(this.timer);
     this.timer = undefined;
   }
@@ -73,20 +81,36 @@ export class Scheduler {
   }
 
   private async fire(convId: string, now: number): Promise<void> {
+    if (this.stopped) return;
     const conv = this.store.get(convId);
-    const s = conv?.schedule;
-    if (!conv || !s?.enabled || s.nextRunAt === undefined || s.nextRunAt > now) return;
+    if (!conv) return;
+    const s = conv.schedule;
+    // A row that cannot be read would stay due forever: drop it.
+    if (!s) return this.store.saveSchedule(conv);
+    if (!s.enabled || s.nextRunAt === undefined || s.nextRunAt > now) return;
     const due = s.nextRunAt;
+    const late = now - due > MISSED_AFTER_MS;
+    const retried = this.retrying.get(convId) === due;
     // Notes and the run's system messages are written in the language the schedule was saved in.
     await withLang(s.lang, async () => {
       let outcome: { result: ScheduleResult; reason?: string };
-      if (now - due > MISSED_AFTER_MS && s.missed === 'skip') {
+      if (late && !retried && s.missed === 'skip') {
         outcome = { result: 'missed' };
       } else {
         const sent = await this.orchestrator.sendScheduled(convId);
-        if (sent.result === 'busy') return; // tried again on the next look
-        outcome = sent;
+        if (this.stopped) return; // shutting down: the time is still due when the server is back
+        if (sent.result === 'busy') {
+          // Tried again at the next look; after a while, given up.
+          if (!late) {
+            this.retrying.set(convId, due);
+            return;
+          }
+          outcome = { result: 'skipped', reason: sent.reason ?? t().scheduleBusy };
+        } else {
+          outcome = sent;
+        }
       }
+      this.retrying.delete(convId);
       // Changed or removed while it was being sent: the new one keeps its own times.
       if (conv.schedule !== s) return;
       this.record(conv, s, due, now, outcome);

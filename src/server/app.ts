@@ -495,10 +495,12 @@ export function createApp({
       throw new HttpError(409, t().scheduleNeedsTeam);
     }
     const prev = conv.schedule;
+    // Changing the message or the other choices keeps an interval's cadence; changing the times restarts it.
+    const sameTimes = prev && JSON.stringify(prev.repeat) === JSON.stringify(update.repeat) && prev.timeZone === update.timeZone;
     const schedule: ConversationSchedule = {
       ...update,
       lang: currentLang(),
-      updatedAt: now,
+      updatedAt: sameTimes ? prev.updatedAt : now,
       ...(prev?.lastRunAt !== undefined ? { lastRunAt: prev.lastRunAt } : {}),
       ...(prev?.lastResult ? { lastResult: prev.lastResult } : {}),
       ...(prev?.lastError ? { lastError: prev.lastError } : {}),
@@ -524,9 +526,9 @@ export function createApp({
   // Send the schedule's message now, as it would be sent when it comes due (its times stay as they are).
   app.post('/api/conversations/:id/schedule/run', async (c) => {
     const sent = await orchestrator.sendScheduled(c.req.param('id'));
-    if (sent.result === 'busy') throw new HttpError(409, t().scheduleBusy);
-    if (sent.result === 'skipped' || sent.result === 'failed') {
-      throw new HttpError(409, sent.reason.charAt(0).toUpperCase() + sent.reason.slice(1));
+    if (sent.result === 'busy' || sent.result === 'skipped' || sent.result === 'failed') {
+      const reason = sent.reason ?? t().scheduleBusy;
+      throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1));
     }
     return c.json({ ok: true, queued: sent.result === 'queued' }, 202);
   });

@@ -115,9 +115,10 @@ ${list}`);
 function scheduleRules(conv: Conversation): string {
   const s = conv.schedule;
   if (!s) return '';
+  // Full access asks nothing, so nothing is refused.
   const refused =
-    s.approvals === 'deny'
-      ? ' In the runs a schedule starts, anything your file access does not cover is refused automatically, so work within it.'
+    s.approvals === 'deny' && conv.settings.permission !== 'full'
+      ? ' In the runs a schedule starts, anything your file access does not cover is refused automatically (unless the user always allows it in this chat), so work within it.'
       : '';
   return `\n- A user message marked via="schedule" was sent automatically by a schedule the user set up, at a time they chose; they may not be watching. Do the task with reasonable assumptions and say what you assumed; ask the user (${ASK_TOKEN}) only when no reasonable answer is possible without them.${refused}`;
 }

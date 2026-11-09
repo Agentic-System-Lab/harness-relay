@@ -226,5 +226,8 @@ describe('scheduled messages', () => {
     expect(refusing).toContain(`ask the user (${ASK_TOKEN}) only when no reasonable answer is possible`);
     expect(refusing).toContain('refused automatically');
     expect(buildBriefing(withSchedule('ask'), team[0]!)).not.toContain('refused automatically');
+    // Full access asks nothing, so nothing is refused.
+    const full = { ...withSchedule('deny'), settings: { ...conv.settings, permission: 'full' as const } };
+    expect(buildBriefing(full, team[0]!)).not.toContain('refused automatically');
   });
 });

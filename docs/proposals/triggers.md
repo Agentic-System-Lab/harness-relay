@@ -11,7 +11,7 @@ Step 1, schedules in the same conversation, is in the app: see [Architecture →
 - **One schedule per conversation**, without a name (`conversation.schedule`, the `schedules` table, `PUT` / `DELETE /api/conversations/:id/schedule` and `POST …/schedule/run`), not a list of triggers. Its messages carry `scheduled: true` rather than `trigger: { id, name, kind }`, are marked **Scheduled** in the chat, and reach the agents as `via="schedule"`.
 - **Intervals in whole hours** (1–168, counted from when the schedule was saved); no minutes yet.
 - **Times in the schedule's time zone**: the browser's when it was saved (the server's when none is given), so a daily time stays right across clock changes.
-- **Approvals are the schedule's own choice** instead of a warning that offers to change the conversation: the runs a schedule starts refuse approval requests automatically unless the schedule says to ask; runs the user starts are not affected.
+- **Approvals are the schedule's own choice** instead of a warning that offers to change the conversation: the runs a schedule starts refuse approval requests automatically (except what the chat always allows) unless the schedule says to ask; runs the user starts, or writes into, are not affected.
 - The scheduler looks every 15 seconds, and a time more than 10 minutes late counts as missed (`missed: 'skip' | 'run'`). A time that was not sent leaves a note in the chat, and the schedule is also held back while an agent waits for the user's answer.
 
 Still open: webhook triggers (step 2), several named triggers per conversation, intervals in minutes, and a new conversation per fire (step 3).

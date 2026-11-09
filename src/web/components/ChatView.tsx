@@ -383,7 +383,11 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
             <button
               className={`ghost small-button head-button ${conv.schedule?.enabled ? 'has-schedule' : ''}`}
               onClick={() => setScheduleOpen(true)}
-              title={conv.schedule ? `${describeRepeat(conv.schedule.repeat, t, lang)} · ${scheduleState(conv.schedule, t, lang)}` : t.schedule.buttonTitle}
+              title={
+                conv.schedule
+                  ? `${describeRepeat(conv.schedule.repeat, t, lang, conv.schedule.timeZone)} · ${scheduleState(conv.schedule, t, lang)}`
+                  : t.schedule.buttonTitle
+              }
             >
               <ClockIcon size={16} />
               <span className="button-label">{t.schedule.button}</span>
@@ -437,7 +441,7 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
                 }
               >
                 <ClockIcon size={12} />
-                {describeRepeat(conv.schedule.repeat, t, lang)}
+                {describeRepeat(conv.schedule.repeat, t, lang, conv.schedule.timeZone)}
                 {/* The next time is in the title: the header has little room. */}
                 {!(conv.schedule.enabled && conv.schedule.nextRunAt !== undefined) && ` · ${scheduleState(conv.schedule, t, lang)}`}
               </button>
@@ -732,7 +736,7 @@ function TeamDrawer({
         {conv.schedule?.enabled && (
           <p className="schedule-note small">
             <ClockIcon size={14} />
-            {t.schedule.teamNote(describeRepeat(conv.schedule.repeat, t, lang))}
+            {t.schedule.teamNote(describeRepeat(conv.schedule.repeat, t, lang, conv.schedule.timeZone))}
           </p>
         )}
         <TeamEditor

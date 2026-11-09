@@ -3,6 +3,7 @@ import { SCHEDULE_KINDS, SCHEDULE_LIMITS, pendingPlan, type Conversation } from 
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import {
+  browserTimeZone,
   describeRepeat,
   draftChanged,
   draftFrom,
@@ -64,6 +65,8 @@ export function ScheduleDrawer({
   const teamReady = !conv.settings.autoTeam && conv.agents.length > 0 && !pendingPlan(conv.messages);
   const upcoming = problems.length ? [] : previewRuns(draft, now);
   const { mode, rounds, maxHops, permission, cwd } = conv.settings;
+  /** A one-time schedule is a moment, typed in this browser's time zone; the others use the schedule's. */
+  const localZone = browserTimeZone();
 
   const save = async () => {
     setSaving(true);
@@ -128,11 +131,11 @@ export function ScheduleDrawer({
           <div className={`schedule-status ${scheduleTrouble(saved) ? 'warn' : ''}`}>
             <div className="schedule-status-text">
               <strong>
-                {describeRepeat(saved.repeat, t, lang)} · {scheduleState(saved, t, lang)}
+                {describeRepeat(saved.repeat, t, lang, saved.timeZone)} · {scheduleState(saved, t, lang)}
               </strong>
               {saved.lastResult && saved.lastRunAt !== undefined && (
                 <span className="small">
-                  {t.schedule.last(formatWhen(saved.lastRunAt, lang), t.schedule.results[saved.lastResult])}
+                  {t.schedule.last(formatWhen(saved.lastRunAt, lang, saved.timeZone), t.schedule.results[saved.lastResult])}
                   {saved.lastError && (scheduleTrouble(saved) ? t.common.listSeparator + saved.lastError : '')}
                 </span>
               )}
@@ -237,9 +240,25 @@ export function ScheduleDrawer({
             )}
 
             <span className="small muted schedule-preview">
-              {problems.length ? problems[0] : upcoming.length ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang)).join(t.common.listSeparator)}` : t.schedule.never}
-              {' · '}
-              {t.schedule.timeZone(draft.timeZone)}
+              {problems.length
+                ? problems[0]
+                : upcoming.length
+                  ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draft.kind === 'once' ? undefined : draft.timeZone)).join(t.common.listSeparator)}`
+                  : t.schedule.never}
+              {draft.kind !== 'once' && (
+                <>
+                  {' · '}
+                  {t.schedule.timeZone(draft.timeZone)}
+                  {draft.timeZone !== localZone && (
+                    <>
+                      {' · '}
+                      <button type="button" className="link-button" onClick={() => edit({ timeZone: localZone })}>
+                        {t.schedule.useLocalZone(localZone)}
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
             </span>
           </div>
 

@@ -1,4 +1,4 @@
-import type { ConversationSchedule } from './types';
+import type { ConversationSchedule, ZonedParts } from './types';
 
 /*
  * When a conversation's schedule sends its message. Pure functions, used by the server (to decide when
@@ -42,18 +42,6 @@ function formatter(tz: string): Intl.DateTimeFormat {
     formatters.set(tz, f);
   }
   return f;
-}
-
-export interface ZonedParts {
-  year: number;
-  /** 1–12 */
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-  /** 0 = Sunday */
-  weekday: number;
 }
 
 /** The wall-clock date and time of an instant in a time zone. */

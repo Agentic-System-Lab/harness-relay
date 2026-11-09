@@ -10,6 +10,7 @@ import {
   draftChanged,
   draftFrom,
   draftProblems,
+  formatWhen,
   fromLocalInput,
   localInput,
   previewRuns,
@@ -93,6 +94,31 @@ describe('nextRun', () => {
     expect(nextRun(every6, MON + 6 * HOUR)).toBe(MON + 12 * HOUR);
     expect(nextRun(every6, MON + 3 * DAY + 1)).toBe(MON + 3 * DAY + 6 * HOUR);
     expect(nextRun(every6, MON - HOUR)).toBe(MON + 6 * HOUR); // a clock that went back
+  });
+
+  it('goes to the next day after the first of a time that happens twice', () => {
+    const daily = at({ kind: 'daily', time: '01:30' }, 'America/New_York');
+    const first = Date.UTC(2026, 10, 1, 5, 30); // 1 November, 01:30 EDT
+    expect(nextRun(daily, first - 1)).toBe(first);
+    expect(nextRun(daily, first)).toBe(Date.UTC(2026, 10, 2, 6, 30)); // not the second 01:30 (EST) that night
+  });
+
+  it('moves a time skipped at midnight or by half an hour forward by the jump', () => {
+    // Santiago: on 6 September 2026 midnight becomes 01:00, so 00:30 is 01:30.
+    const santiago = nextRun(at({ kind: 'daily', time: '00:30' }, 'America/Santiago'), Date.UTC(2026, 8, 5, 12));
+    expect(santiago).toBe(Date.UTC(2026, 8, 6, 4, 30));
+    expect(zonedParts(santiago!, 'America/Santiago')).toMatchObject({ day: 6, hour: 1, minute: 30 });
+    // Lord Howe: on 4 October 2026 02:00 becomes 02:30, so 02:15 is 02:45.
+    const lordHowe = nextRun(at({ kind: 'daily', time: '02:15' }, 'Australia/Lord_Howe'), Date.UTC(2026, 9, 3, 12));
+    expect(zonedParts(lordHowe!, 'Australia/Lord_Howe')).toMatchObject({ day: 4, hour: 2, minute: 45 });
+  });
+
+  it('keeps a weekly time across a change of clocks, and reads the weekday where the schedule is', () => {
+    const sundays = at({ kind: 'weekly', time: '09:00', days: [0] }, 'America/New_York');
+    expect(upcomingRuns(sundays, Date.UTC(2026, 1, 28), 2)).toEqual([Date.UTC(2026, 2, 1, 14, 0), Date.UTC(2026, 2, 8, 13, 0)]);
+    // Monday 08:00 in Tokyo is still Sunday in UTC.
+    const tokyoMondays = at({ kind: 'weekly', time: '08:00', days: [1] }, 'Asia/Tokyo');
+    expect(nextRun(tokyoMondays, Date.UTC(2026, 0, 4, 12))).toBe(Date.UTC(2026, 0, 4, 23, 0));
   });
 
   it('sends a one-time schedule once, if its time is still to come', () => {
@@ -195,6 +221,12 @@ describe('the schedule form', () => {
     expect(toUpdate({ ...draft, kind: 'interval' }).repeat).toEqual({ kind: 'interval', hours: 6 });
   });
 
+  it("shows a schedule's times in its own time zone", () => {
+    expect(formatWhen(Date.UTC(2026, 0, 5, 1, 0), 'en', 'Asia/Taipei')).toMatch(/09:00/);
+    expect(formatWhen(Date.UTC(2026, 0, 5, 1, 0), 'en', 'UTC')).toMatch(/01:00/);
+    expect(formatWhen(Date.UTC(2026, 0, 5, 1, 0), 'en', 'Nowhere/Land')).toBeTruthy(); // falls back to this browser's
+  });
+
   it('turns a date and time typed in the browser into a moment and back', () => {
     const value = localInput(MON);
     expect(value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
@@ -229,6 +261,8 @@ describe('the schedule form', () => {
     for (const r of ['missed', 'skipped', 'failed'] as const) expect(scheduleTrouble({ lastResult: r })).toBe(true);
     expect(scheduleState({ ...saved, enabled: false }, en, 'en')).toBe('paused');
     expect(scheduleState({ ...saved, repeat: { kind: 'once', at: MON }, enabled: false, nextRunAt: undefined, lastRunAt: MON }, en, 'en')).toBe('done');
+    // Changed to a one-time schedule, switched off: the earlier time it came due does not make it done.
+    expect(scheduleState({ ...saved, repeat: { kind: 'once', at: MON + DAY }, enabled: false, nextRunAt: undefined, lastRunAt: MON }, en, 'en')).toBe('paused');
     expect(scheduleState(saved, en, 'en')).toMatch(/^next /);
     expect(sidebarScheduleTitle({ enabled: true, nextRunAt: MON, lastResult: 'failed' }, en, 'en')).toBe('Schedule last time: could not be sent');
     expect(sidebarScheduleTitle({ enabled: false }, en, 'en')).toBe('Schedule paused');

@@ -140,24 +140,32 @@ export function previewRuns(d: ScheduleDraft, now: number, count = 3): number[] 
   return upcomingRuns({ repeat: repeatOf(d), timeZone: d.timeZone, updatedAt: now }, now, count);
 }
 
-/** A moment as the schedule UI shows it: weekday, date and time, in this browser's time zone. */
-export function formatWhen(ms: number, lang: string): string {
-  return new Date(ms).toLocaleString(lang, {
+/**
+ * A moment as the schedule UI shows it: weekday, date and time, in `timeZone` (the schedule's, so its
+ * times read as they were set) or this browser's.
+ */
+export function formatWhen(ms: number, lang: string, timeZone?: string): string {
+  const options: Intl.DateTimeFormatOptions = {
     month: 'numeric',
     day: 'numeric',
     weekday: 'short',
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
-  });
+  };
+  try {
+    return new Date(ms).toLocaleString(lang, { ...options, timeZone });
+  } catch {
+    return new Date(ms).toLocaleString(lang, options); // a time zone this browser does not know
+  }
 }
 
 /** When a schedule sends, in a few words: "Weekdays at 09:00", "每 6 小時". */
-export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string): string {
+export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string, timeZone?: string): string {
   const s = t.schedule.summary;
   switch (r.kind) {
     case 'once':
-      return s.once(formatWhen(r.at, lang));
+      return s.once(formatWhen(r.at, lang, timeZone));
     case 'daily':
       return s.daily(r.time);
     case 'weekly': {
@@ -178,10 +186,11 @@ export function scheduleTrouble(s: Pick<ConversationSchedule, 'lastResult'> | un
   return s?.lastResult === 'missed' || s?.lastResult === 'skipped' || s?.lastResult === 'failed';
 }
 
-/** The schedule's state in a few words: when it sends next, paused, or (a one-time schedule that ran) done. */
+/** The schedule's state in a few words: when it sends next, paused, or (a one-time schedule that came due) done. */
 export function scheduleState(s: ConversationSchedule, t: Messages, lang: string): string {
-  if (s.enabled && s.nextRunAt !== undefined) return t.schedule.next(formatWhen(s.nextRunAt, lang));
-  return s.repeat.kind === 'once' && s.lastRunAt !== undefined ? t.schedule.finished : t.schedule.paused;
+  if (s.enabled && s.nextRunAt !== undefined) return t.schedule.next(formatWhen(s.nextRunAt, lang, s.timeZone));
+  const r = s.repeat;
+  return r.kind === 'once' && s.lastRunAt !== undefined && s.lastRunAt >= r.at ? t.schedule.finished : t.schedule.paused;
 }
 
 /** The sidebar's tooltip for a conversation's schedule. */

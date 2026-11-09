@@ -998,4 +998,53 @@ describe('schedules', () => {
     orchestrator.stop(conv.id);
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
   });
+
+  it('refuses a schedule while the team design waits for confirmation', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const live = store.get(conv.id)!;
+    live.messages.push({
+      id: 'plan',
+      author: { kind: 'system' },
+      createdAt: 1,
+      parts: [],
+      status: 'done',
+      plan: { status: 'ready', lead: { provider: 'claude' }, source: 'template', name: 'x', agents: [], awaitingConfirmation: true },
+    });
+    expect((await put(conv.id, valid)).status).toBe(409);
+  });
+
+  it("keeps how it went last time across a save, and an interval's cadence while its times stay the same", async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const every6 = { ...valid, repeat: { kind: 'interval', hours: 6 } };
+    const first = (await (await put(conv.id, every6)).json()) as NonNullable<Conversation['schedule']>;
+    const live = store.get(conv.id)!;
+    Object.assign(live.schedule!, { lastRunAt: 5, lastResult: 'failed', lastError: 'boom' });
+
+    const renamed = (await (await put(conv.id, { ...every6, text: 'another message' })).json()) as NonNullable<Conversation['schedule']>;
+    expect(renamed).toMatchObject({ text: 'another message', updatedAt: first.updatedAt, nextRunAt: first.nextRunAt });
+    expect(renamed).toMatchObject({ lastRunAt: 5, lastResult: 'failed', lastError: 'boom' });
+
+    await new Promise((r) => setTimeout(r, 5));
+    const retimed = (await (await put(conv.id, { ...every6, repeat: { kind: 'interval', hours: 2 } })).json()) as NonNullable<
+      Conversation['schedule']
+    >;
+    expect(retimed.updatedAt).toBeGreaterThan(first.updatedAt); // new times: a new cadence
+    expect(retimed.nextRunAt).toBe(retimed.updatedAt + 2 * HOUR);
+  });
+
+  it('runs a switched-off schedule now, and says why when the conversation is busy', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const run = () => app.request(`/api/conversations/${conv.id}/schedule/run`, json('POST', {}, { 'x-relay-lang': 'en' }));
+    await put(conv.id, { ...valid, enabled: false });
+    let release!: () => void;
+    const held = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (release = r)));
+    const busy = await run();
+    expect(busy.status).toBe(409);
+    expect(((await busy.json()) as { error: string }).error).toBe('The conversation was busy with a settings change or an apply');
+    release();
+    await held;
+    expect((await run()).status).toBe(202);
+    orchestrator.stop(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+  });
 });
