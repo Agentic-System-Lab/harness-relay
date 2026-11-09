@@ -163,6 +163,13 @@ describe('buildBriefing', () => {
     expect(briefing).toContain('![Sales by month](charts/sales.png)');
     expect(briefing).toContain('Images from websites are shown only as links');
   });
+
+  it('tells agents how to hand the user a file to download', () => {
+    const briefing = buildBriefing(conv, team[0]!);
+    expect(briefing).toContain('[Q3 report](out/report.pdf)');
+    expect(briefing).toContain('[Deck](<out/Q3 deck.pptx>)');
+    expect(briefing).toContain('only files inside your working directory can be downloaded');
+  });
 });
 
 describe('asking the user', () => {

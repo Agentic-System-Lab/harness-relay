@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { fileRoots, listFolder, mediaInRoot, previewFile, resolveInRoot } from '../src/server/files';
+import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, resolveInRoot } from '../src/server/files';
 import { FILE_LIMITS, type Conversation } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-files-')));
@@ -113,6 +113,16 @@ describe('mediaInRoot', () => {
   it('serves images and videos only', () => {
     expect(mediaInRoot(project, 'logo.png')).toBe(join(project, 'logo.png'));
     expect(() => mediaInRoot(project, 'src/app.ts')).toThrow(notFound);
+  });
+});
+
+describe('fileInRoot', () => {
+  it('gives any file inside the folder for downloading, never a folder, .git or what a link leads out to', () => {
+    expect(fileInRoot(project, 'data.bin')).toBe(join(project, 'data.bin'));
+    expect(fileInRoot(project, 'src-link/app.ts')).toBe(join(project, 'src', 'app.ts'));
+    for (const bad of ['', 'src', '.git/HEAD', 'Docs/.Git/config', 'leak.txt', 'leak-dir/secret.txt', '../outside/secret.txt', 'missing']) {
+      expect(() => fileInRoot(project, bad), bad).toThrow(notFound);
+    }
   });
 });
 

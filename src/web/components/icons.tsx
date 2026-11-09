@@ -45,6 +45,16 @@ export function PencilIcon({ size }: { size?: number }) {
   );
 }
 
+/** An arrow down onto a tray: save a file. */
+export function DownloadIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M12 4v11M7 10l5 5 5-5" />
+      <path d="M5 20h14" />
+    </Svg>
+  );
+}
+
 export function PaperclipIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>

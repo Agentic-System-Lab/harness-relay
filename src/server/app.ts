@@ -17,11 +17,11 @@ import {
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
-import { fileRoots, listFolder, mediaInRoot, previewFile, readPreview } from './files';
+import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview } from './files';
 import { restoreGrokTrust, trustGrokFolder } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
-import { byteRange, mediaRoots, mediaType, resolveMedia } from './media';
+import { byteRange, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
 import { HttpError, forClient, type Orchestrator } from './orchestrator';
 import type { ProviderService } from './providers';
 import type { SettingsStore } from './settings';
@@ -532,7 +532,17 @@ export function createApp({
     const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
     const file = msg && resolveMedia(c.req.query('path') ?? '', mediaRoots(conv, msg));
     if (!file) throw new HttpError(404, t().mediaNotFound);
-    return sendMedia(c, file);
+    return sendFile(c, file);
+  });
+
+  // A file a reply links to, e.g. [Slides](out/deck.pptx): any file inside the same folders as its
+  // media (never in .git), always as a download, so an HTML or SVG file can never run here.
+  app.get('/api/conversations/:id/messages/:messageId/download', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
+    const file = msg && resolveDownload(c.req.query('path') ?? '', mediaRoots(conv, msg));
+    if (!file) throw new HttpError(404, t().downloadNotFound);
+    return sendFile(c, file, true);
   });
 
   // --- Browsing the working directory (and agents' worktrees) -------------------
@@ -559,16 +569,25 @@ export function createApp({
   // Images and videos only, served like the media endpoint; text comes as JSON from /preview.
   app.get('/api/conversations/:id/files/raw', (c) => {
     const { roots, root, path } = fileTarget(c);
-    return sendMedia(c, mediaInRoot(rootPath(roots, root), path));
+    return sendFile(c, mediaInRoot(rootPath(roots, root), path));
   });
 
-  /** An image or video file, so that it can never run in this origin. */
-  async function sendMedia(c: Context, file: string): Promise<Response> {
+  // Any file in the folder, as a download.
+  app.get('/api/conversations/:id/files/download', (c) => {
+    const { roots, root, path } = fileTarget(c);
+    return sendFile(c, fileInRoot(rootPath(roots, root), path), true);
+  });
+
+  /**
+   * An image or video to show, or (`download`) any file to save, so that it can never run in this
+   * origin: a download has no type the browser could render, and both are sandboxed.
+   */
+  async function sendFile(c: Context, file: string, download = false): Promise<Response> {
     const { size, mtimeMs } = await stat(file);
     const etag = `W/"${size}-${Math.floor(mtimeMs)}"`;
     const headers: Record<string, string> = {
-      'Content-Type': mediaType(file)!,
-      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(basename(file))}`,
+      'Content-Type': download ? 'application/octet-stream' : mediaType(file)!,
+      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(basename(file))}`,
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; sandbox",
       // Agents may write the file again: check before reusing a cached copy.

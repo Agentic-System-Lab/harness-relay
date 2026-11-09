@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { isVideo, localMediaPath, mediaType } from '../src/shared/media';
-import { byteRange, resolveMedia } from '../src/server/media';
+import { fileName, isVideo, localFilePath, localMediaPath, mediaType } from '../src/shared/media';
+import { byteRange, resolveDownload, resolveMedia } from '../src/server/media';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-media-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -58,6 +58,13 @@ describe('local media in replies', () => {
     expect(resolveMedia('other.png', [cwd, outside])).toBe(join(outside, 'other.png'));
   });
 
+  it('serves no media from a .git folder', () => {
+    const cwd = join(root, 'git-media');
+    mkdirSync(join(cwd, '.git'), { recursive: true });
+    writeFileSync(join(cwd, '.git', 'a.png'), 'png');
+    expect(resolveMedia('.git/a.png', [cwd])).toBeUndefined();
+  });
+
   it('reads byte ranges for video', () => {
     expect(byteRange(undefined, 100)).toBeNull();
     expect(byteRange('bytes=0-', 100)).toEqual({ start: 0, end: 99 });
@@ -66,5 +73,67 @@ describe('local media in replies', () => {
     expect(byteRange('bytes=-10', 100)).toEqual({ start: 90, end: 99 });
     expect(byteRange('bytes=100-', 100)).toBe('invalid');
     expect(byteRange('bytes=0-1,5-6', 100)).toBeNull();
+  });
+});
+
+describe('files a reply links to', () => {
+  it('takes relative and absolute paths, file: URLs and a file:line, never other sites', () => {
+    expect(localFilePath('out/deck.pptx')).toBe('out/deck.pptx');
+    expect(localFilePath('./out/Q3%20deck.pdf')).toBe('./out/Q3 deck.pdf');
+    expect(localFilePath('/Users/me/p/report.pdf?x=1#page=2')).toBe('/Users/me/p/report.pdf');
+    expect(localFilePath('file:///Users/me/p/report.pdf')).toBe('/Users/me/p/report.pdf');
+    expect(localFilePath('C:\\Users\\me\\report.pdf')).toBe('C:\\Users\\me\\report.pdf');
+    expect(localFilePath('Makefile')).toBe('Makefile');
+    expect(localFilePath('src/app.ts:42')).toBe('src/app.ts');
+    expect(localFilePath('app.ts:42:7')).toBe('app.ts');
+    for (const url of [
+      'https://example.com/report.pdf',
+      'http://example.com:8080',
+      '//evil.example/a.pdf',
+      'mailto:me@example.com',
+      'tel:123',
+      'javascript:alert(1)//.pdf',
+      'data:application/pdf;base64,AAAA',
+      '#intro',
+      '?x=1',
+      '',
+      'out/',
+      '.',
+      '..',
+      'out/..',
+      'a%00.pdf',
+    ]) {
+      expect(localFilePath(url), url).toBeUndefined();
+    }
+    expect(fileName('out/Q3 deck.pptx')).toBe('Q3 deck.pptx');
+    expect(fileName('C:\\x\\r.pdf')).toBe('r.pdf');
+  });
+
+  it('downloads any file inside the allowed directories, never from .git or outside', () => {
+    const cwd = join(root, 'downloads');
+    const outside = join(root, 'downloads-outside');
+    mkdirSync(join(cwd, 'out'), { recursive: true });
+    mkdirSync(join(cwd, '.git'), { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(cwd, 'out', 'deck.pptx'), 'pptx');
+    writeFileSync(join(cwd, '.git', 'config'), 'secret');
+    writeFileSync(join(outside, 'other.pdf'), 'pdf');
+    symlinkSync(join(outside, 'other.pdf'), join(cwd, 'escape.pdf'));
+    symlinkSync(join(cwd, '.git', 'config'), join(cwd, 'config.txt'));
+
+    expect(resolveDownload('out/deck.pptx', [cwd])).toBe(join(cwd, 'out', 'deck.pptx'));
+    expect(resolveDownload(join(cwd, 'out', 'deck.pptx'), [cwd])).toBe(join(cwd, 'out', 'deck.pptx'));
+    expect(resolveDownload('.git/config', [cwd])).toBeUndefined();
+    expect(resolveDownload('.GIT/config', [cwd])).toBeUndefined(); // the same folder on a case-insensitive disk
+    expect(resolveDownload('config.txt', [cwd])).toBeUndefined(); // a link into .git
+    expect(resolveDownload('escape.pdf', [cwd])).toBeUndefined(); // a link out of the directory
+    expect(resolveDownload('../downloads-outside/other.pdf', [cwd])).toBeUndefined();
+    expect(resolveDownload(join(outside, 'other.pdf'), [cwd])).toBeUndefined();
+    expect(resolveDownload('out', [cwd])).toBeUndefined(); // a folder
+    expect(resolveDownload('missing.pdf', [cwd])).toBeUndefined();
+    expect(resolveDownload('', [cwd])).toBeUndefined();
+    expect(resolveDownload('a\0b', [cwd])).toBeUndefined();
+    // Later roots are tried in turn.
+    expect(resolveDownload('other.pdf', [cwd, outside])).toBe(join(outside, 'other.pdf'));
   });
 });

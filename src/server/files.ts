@@ -151,9 +151,16 @@ export function readPreview(real: string, path: string, notFound = t().fileNotFo
   return { ...base, kind: 'text', text, ...(truncated ? { truncated: true } : {}) };
 }
 
+/** The real path of a file inside `root`, for downloading it; 404 for a folder or anything outside. */
+export function fileInRoot(root: string, rel: string): string {
+  const file = resolveInRoot(root, rel);
+  if (!statSync(file.real).isFile()) throw new HttpError(404, t().fileNotFound);
+  return file.real;
+}
+
 /** The real path of an image or video inside `root`, for serving it; 404 for anything else. */
 export function mediaInRoot(root: string, rel: string): string {
-  const file = resolveInRoot(root, rel);
-  if (!mediaType(file.real) || !statSync(file.real).isFile()) throw new HttpError(404, t().fileNotFound);
-  return file.real;
+  const file = fileInRoot(root, rel);
+  if (!mediaType(file)) throw new HttpError(404, t().fileNotFound);
+  return file;
 }

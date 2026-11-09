@@ -1,7 +1,8 @@
 /*
- * Images and videos an agent shows in the chat: files on this computer, embedded in a reply with
- * Markdown image syntax, e.g. ![chart](out/chart.png). Only these types are ever served; images
- * from other sites stay links, so a reply cannot make the browser contact another site.
+ * Files on this computer that a reply shows or hands over. Images and videos are embedded with
+ * Markdown image syntax, e.g. ![chart](out/chart.png), and only these types are ever shown; images
+ * from other sites stay links, so a reply cannot make the browser contact another site. A link to
+ * any other local file, e.g. [Slides](out/deck.pptx), becomes a download.
  */
 
 const MEDIA_TYPES: Record<string, string> = {
@@ -29,18 +30,34 @@ export function isVideo(path: string): boolean {
 }
 
 /**
- * The file path an image's URL points to, when it is a local image or video: a relative or
- * absolute path, or a file: URL. Undefined for other sites (any other scheme, or //host/…).
+ * The file path a link (or an image's URL) in a reply points to, when it is a file on this
+ * computer: a relative or absolute path, or a file: URL. A `:line` after a file name is dropped.
+ * Undefined for other sites (any other scheme, or //host/…), anchors and folders.
  */
-export function localMediaPath(url: string): string | undefined {
+export function localFilePath(url: string): string | undefined {
+  // `app.ts:12` is a file and a line, not a URL with the scheme `app.ts:`.
+  const withoutLine = (p: string) => p.replace(/^(.*\.[a-z0-9]+):\d+(:\d+)?$/i, '$1');
   let path = url.trim();
+  const drive = /^[a-z]:[\\/]/i.test(path); // a Windows path, C:\…
   if (/^file:/i.test(path)) path = path.replace(/^file:(\/\/(localhost)?)?/i, '');
-  else if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith('//')) return undefined;
+  else if (!drive && (/^[a-z][a-z0-9+.-]*:/i.test(withoutLine(path)) || path.startsWith('//'))) return undefined;
   path = path.split(/[?#]/)[0]!;
   try {
     path = decodeURIComponent(path);
   } catch {
     /* keep it as written */
   }
-  return path && !path.includes('\0') && mediaType(path) ? path : undefined;
+  path = withoutLine(path);
+  return path && !path.includes('\0') && !/(^|[\\/])\.{0,2}$/.test(path) ? path : undefined;
+}
+
+/** The file path an image's URL points to, when it is a local image or video (see `localFilePath`). */
+export function localMediaPath(url: string): string | undefined {
+  const path = localFilePath(url);
+  return path && mediaType(path) ? path : undefined;
+}
+
+/** The last part of a path, for naming a download. */
+export function fileName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }

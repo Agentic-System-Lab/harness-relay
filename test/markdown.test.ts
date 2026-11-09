@@ -189,3 +189,42 @@ describe('images and videos from this computer', () => {
     expect(media('![doc](docs/readme.md)')).not.toContain('<img');
   });
 });
+
+describe('files a reply links to', () => {
+  const base = '/api/conversations/c/messages/m/download';
+  const reply = (text: string) =>
+    renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(Markdown, { text, mediaBase: '/api/conversations/c/messages/m/media', downloadBase: base })),
+    );
+
+  it('are downloaded through the app, also from another device', () => {
+    const out = reply('Here is [the deck](out/deck.pptx) and [the report](</Users/me/p/Q3 report.pdf>).');
+    expect(out).toContain(`<a href="${base}?path=out%2Fdeck.pptx" class="file-link" download="deck.pptx" title="Download deck.pptx">the deck<svg`);
+    expect(out).toContain(`href="${base}?path=%2FUsers%2Fme%2Fp%2FQ3%20report.pdf"`);
+    expect(out).toContain('download="Q3 report.pdf"');
+    expect(out).not.toContain('target="_blank"');
+    // A file: URL, which a browser would not open from a web page (and react-markdown would drop).
+    expect(reply('<file:///Users/me/p/slides.html>')).toContain(`href="${base}?path=%2FUsers%2Fme%2Fp%2Fslides.html"`);
+  });
+
+  it('cover reference links and files written as images', () => {
+    const ref = reply('See [the deck][d] and [notes].\n\n[d]: out/deck.pptx\n[notes]: https://example.com/notes');
+    expect(ref).toContain(`href="${base}?path=out%2Fdeck.pptx"`);
+    expect(ref).toContain('<a href="https://example.com/notes" target="_blank" rel="noreferrer">notes</a>');
+    const asImage = reply('![report](out/report.pdf)');
+    expect(asImage).toContain(`href="${base}?path=out%2Freport.pdf"`);
+    expect(asImage).toContain('class="image-link file-link"');
+    // A local image is still shown, and a link around it downloads what it points to.
+    const wrapped = reply('[![chart](out/chart.png)](out/data.csv)');
+    expect(wrapped).toContain(`href="${base}?path=out%2Fdata.csv"`);
+    expect(wrapped).not.toContain('<img');
+  });
+
+  it('leave links to sites, anchors and folders alone, and every link without a download URL', () => {
+    const out = reply('[site](https://example.com/a.pdf) [mail](mailto:me@example.com) [top](#top) [folder](out/)');
+    expect(out).not.toContain('file-link');
+    expect(out).toContain('<a href="https://example.com/a.pdf" target="_blank" rel="noreferrer">site</a>');
+    expect(out).toContain('<a href="out/" target="_blank" rel="noreferrer">folder</a>');
+    expect(html('[the deck](out/deck.pptx)')).toContain('<a href="out/deck.pptx" target="_blank" rel="noreferrer">the deck</a>');
+  });
+});

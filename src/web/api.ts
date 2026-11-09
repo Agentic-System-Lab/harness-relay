@@ -132,6 +132,8 @@ export const api = {
   attachmentUrl: (convId: string, attachmentId: string) => `/api/conversations/${convId}/attachments/${attachmentId}`,
   /** Serves the images and videos a message embeds; add `?path=`. */
   mediaBase: (convId: string, messageId: string) => `/api/conversations/${convId}/messages/${messageId}/media`,
+  /** Downloads the files a message links to; add `?path=`. */
+  downloadBase: (convId: string, messageId: string) => `/api/conversations/${convId}/messages/${messageId}/download`,
   resend: (id: string, messageId: string, text: string) =>
     request<{ ok: true }>('PUT', `/api/conversations/${id}/messages/${messageId}`, { text }),
   retry: (id: string, messageId: string) =>
@@ -169,6 +171,7 @@ export const api = {
   previewFile: (id: string, root: string, path: string) =>
     request<FilePreview>('GET', `/api/conversations/${id}/files/preview?${fileQuery(root, path)}`),
   rawFileUrl: (id: string, root: string, path: string) => `/api/conversations/${id}/files/raw?${fileQuery(root, path)}`,
+  downloadFileUrl: (id: string, root: string, path: string) => `/api/conversations/${id}/files/download?${fileQuery(root, path)}`,
 
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   updateSettings: (b: SettingsUpdate) => request<SettingsView>('PUT', '/api/settings', b),
