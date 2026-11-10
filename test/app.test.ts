@@ -90,6 +90,23 @@ async function createConversation(settings: Record<string, unknown> = {}): Promi
   return (await res.json()) as Conversation;
 }
 
+describe("Harness Relay's own folder as a working directory", () => {
+  it('is refused in edit mode, on creating, scheduling and changing a conversation', async () => {
+    const { RELAY_ROOT } = await import('../src/server/protect');
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const refused = await app.request('/api/conversations', json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: RELAY_ROOT } }, { 'x-relay-lang': 'en' }));
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ code: 'relay-folder', error: expect.stringMatching(/holds Harness Relay itself/) });
+    const schedule = { text: 'Daily check', repeat: { kind: 'daily', time: '09:00' }, timeZone: 'UTC', enabled: true };
+    expect((await app.request('/api/schedules', json('POST', { settings: { permission: 'edit', cwd: RELAY_ROOT }, schedule }))).status).toBe(400);
+    // Read-only asks before writing: allowed, but not switched to edit later.
+    const reader = await createConversation({ permission: 'read-only', cwd: RELAY_ROOT });
+    const change = await app.request(`/api/conversations/${reader.id}`, json('PATCH', { settings: { ...reader.settings, permission: 'edit' } }));
+    expect(change.status).toBe(400);
+    expect((await createConversation({ permission: 'full', cwd: RELAY_ROOT })).settings.permission).toBe('full');
+  });
+});
+
 describe('request checks', () => {
   it('only lets the local UI in', async () => {
     expect((await app.request('/api/settings', { headers: { host: 'evil.example' } })).status).toBe(403);

@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative } from 'node:path';
 import type { NativeItemsOff, NativePart, Permission, PlanEntry } from '../../shared/types';
@@ -21,6 +21,7 @@ import {
   type RunResult,
 } from './types';
 import { t } from '../i18n';
+import { protectedReads, relayTmpDir } from '../protect';
 
 /*
  * Claude Code runs as `claude -p` with stream-json in both directions. The prompt goes in as a
@@ -100,17 +101,35 @@ export const CLAUDE_UNSANDBOXED_RULE = 'Bash(dangerouslyDisableSandbox:true)';
  * - `failIfUnavailable`: no sandbox, no run, rather than commands run without one.
  * - `autoAllowBashIfSandboxed: false`: the permission, not the sandbox, still decides what runs
  *   without asking.
+ * - `denyRead` / `denyWrite`: the paths it may not read or write (`protectedReads()`: the browsers'
+ *   folders, Harness Relay's database, also when the working directory holds it); and `Read` deny
+ *   rules for the same, since its own file tools are outside the sandbox.
  * Claude Code has no sandbox on native Windows, so there it runs without one, as before.
  */
 export function claudeSandboxSettings(
   permission: Permission,
   platform: NodeJS.Platform = process.platform,
+  denyRead: readonly string[] = [],
 ): Record<string, unknown> | undefined {
   if (permission === 'full' || platform === 'win32') return undefined;
   return {
-    sandbox: { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: false },
-    permissions: { ask: [CLAUDE_UNSANDBOXED_RULE] },
+    sandbox: {
+      enabled: true,
+      failIfUnavailable: true,
+      autoAllowBashIfSandboxed: false,
+      ...(denyRead.length ? { filesystem: { denyRead: [...denyRead], denyWrite: [...denyRead] } } : {}),
+    },
+    permissions: {
+      ask: [CLAUDE_UNSANDBOXED_RULE],
+      ...(denyRead.length ? { deny: denyRead.flatMap(claudeDenyReadRules) } : {}),
+    },
   };
+}
+
+/** `Read` deny rules for a path, a file or a folder (Claude Code's `Read` rules cover its Grep and Glob too). */
+export function claudeDenyReadRules(path: string): string[] {
+  const folder = claudeReadRule(path); // Read(//path/**)
+  return [folder.replace(/\/\*\*\)$/, ')'), folder];
 }
 
 /** The `--settings` of one turn: what it leaves out (`claudeNativeSettings`) and the sandbox. */
@@ -120,11 +139,16 @@ export function claudeRunSettings(
   pluginIds: readonly string[] = [],
   items: NativeItemsOff = {},
   platform: NodeJS.Platform = process.platform,
+  denyRead: readonly string[] = [],
 ): Record<string, unknown> | undefined {
   const native = claudeNativeSettings(off, pluginIds, items);
-  const sandbox = claudeSandboxSettings(permission, platform);
+  const sandbox = claudeSandboxSettings(permission, platform, denyRead);
   if (!native || !sandbox) return native ?? sandbox;
-  return { ...native, ...sandbox, permissions: { ...(native.permissions as object | undefined), ...(sandbox.permissions as object) } };
+  type Rules = { deny?: string[]; ask?: string[] };
+  const a = (native.permissions ?? {}) as Rules;
+  const b = sandbox.permissions as Rules;
+  const deny = [...(a.deny ?? []), ...(b.deny ?? [])];
+  return { ...native, ...sandbox, permissions: { ...(deny.length ? { deny } : {}), ask: [...(a.ask ?? []), ...(b.ask ?? [])] } };
 }
 
 /** Tools approved up front. Web access is not about the file system, so every level gets it. */
@@ -463,9 +487,12 @@ export function claudeAgentsGate(o: {
   };
 }
 
-/** A file only this user can read, in a new temporary folder that `remove()` deletes. */
+/** A file only this user can read, in a new folder in Harness Relay's own temporary folder, that `remove()` deletes. */
 function privateTempFile(name: string, content: string): { file: string; remove: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'harness-relay-'));
+  // Not in the system's temporary folder, where sandboxed commands could change it (`relayTmpDir`).
+  const root = relayTmpDir();
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const dir = mkdtempSync(join(root, 'claude-'));
   const file = join(dir, name);
   writeFileSync(file, content, { mode: 0o600 });
   return { file, remove: () => rmSync(dir, { recursive: true, force: true }) };
@@ -507,6 +534,8 @@ export function claudeArgs(o: {
   settingsFile?: string;
   /** The platform Claude Code runs on, which decides whether it has a sandbox. */
   platform?: NodeJS.Platform;
+  /** Paths its sandbox may not let it read (`protectedReads()`). */
+  protectedPaths?: readonly string[];
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
@@ -537,7 +566,7 @@ export function claudeArgs(o: {
       o.pluginIds,
       o.nativeItems,
       o.settingsFile,
-      claudeRunSettings(o.permission, o.nativeOff, o.pluginIds, o.nativeItems, o.platform),
+      claudeRunSettings(o.permission, o.nativeOff, o.pluginIds, o.nativeItems, o.platform, o.protectedPaths),
     ),
     '--permission-mode',
     PERMISSION_MODE[o.permission][o.ask ? 'ask' : 'deny'],
@@ -804,9 +833,10 @@ async function pluginIdsForRun(o: Parameters<AgentRunner['run']>[0]): Promise<st
 async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: string): Promise<RunResult> {
   const pluginIds = await pluginIdsForRun(o);
   const nativeItems = claudeItemsBesideLibrary(o.nativeItems ?? {}, o.mcpServers ?? []);
-  const settings = claudeSettingsFile(claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems));
+  const protectedPaths = o.protectedPaths ?? protectedReads();
+  const settings = claudeSettingsFile(claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths));
   try {
-    return await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file });
+    return await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file, protectedPaths });
   } finally {
     settings?.remove();
   }
@@ -814,7 +844,7 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: strin
 
 async function runClaudeTurn(
   o: Parameters<AgentRunner['run']>[0],
-  run: { mcpConfig?: string; pluginIds: string[]; nativeItems: NativeItemsOff; settingsFile?: string },
+  run: { mcpConfig?: string; pluginIds: string[]; nativeItems: NativeItemsOff; settingsFile?: string; protectedPaths: readonly string[] },
 ): Promise<RunResult> {
   const newSessionId = o.sessionId ? undefined : randomUUID();
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
@@ -835,6 +865,7 @@ async function runClaudeTurn(
     nativeItems: run.nativeItems,
     pluginIds: run.pluginIds,
     settingsFile: run.settingsFile,
+    protectedPaths: run.protectedPaths,
     skip: unsupported,
   });
 

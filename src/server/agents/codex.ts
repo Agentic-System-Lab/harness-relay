@@ -1,8 +1,10 @@
 import type { ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import type { NativeItemsOff, NativePart, Permission, PlanEntry } from '../../shared/types';
 import { unwrapShell } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
+import { protectedReads } from '../protect';
 import { JsonRpcConnection, RpcError } from './acp';
 import {
   AgentRunError,
@@ -34,6 +36,39 @@ const SANDBOX: Record<Permission, string> = {
   edit: 'workspace-write',
   full: 'danger-full-access',
 };
+
+/** The start of the permission profile's name Harness Relay defines in a thread's config, below full access. */
+export const CODEX_PROFILE = 'harness-relay';
+
+/**
+ * The profile's name for one run: `harness-relay-` and a random part. Codex merges a profile of the
+ * same name from its other config layers (the user's config.toml, a trusted project's
+ * .codex/config.toml) into this one, and a more specific `read` entry there would open a denied
+ * path again (checked with Codex 0.167); a name nobody knows in advance cannot be added to.
+ */
+export function codexProfileId(): string {
+  return `${CODEX_PROFILE}-${randomBytes(8).toString('hex')}`;
+}
+
+/**
+ * The thread's permission profile below full access, which lets Codex's sandbox deny reading the
+ * protected paths (`protectedReads()`: the browsers' folders, Harness Relay's database): the sandbox
+ * of the permission (`:read-only` / `:workspace`, both without network) plus a `deny` entry for each.
+ * A thread names it (`permissions`, an experimental field), which wins over a `sandbox_mode` in the
+ * user's config. Undefined, for the legacy `sandbox` mode instead: full access, native Windows (whose
+ * legacy sandbox cannot deny reading everywhere) and nothing to protect.
+ */
+export function codexProfile(
+  permission: Permission,
+  protectedPaths: readonly string[] = [],
+  platform: NodeJS.Platform = process.platform,
+): Record<string, unknown> | undefined {
+  if (permission === 'full' || platform === 'win32' || !protectedPaths.length) return undefined;
+  return {
+    extends: permission === 'read-only' ? ':read-only' : ':workspace',
+    filesystem: Object.fromEntries(protectedPaths.map((path) => [path, 'deny'])),
+  };
+}
 
 /**
  * Config overrides for a thread. Edit mode keeps the sandbox off the network even when the user's
@@ -277,22 +312,50 @@ export async function codexConfirmLeftOut(
 export function codexThreadRequest(
   o: Pick<
     RunOptions,
-    'cwd' | 'permission' | 'systemPrompt' | 'model' | 'effort' | 'sessionId' | 'requestApproval' | 'mcpServers' | 'nativeOff' | 'nativeItems'
+    | 'cwd'
+    | 'permission'
+    | 'systemPrompt'
+    | 'model'
+    | 'effort'
+    | 'sessionId'
+    | 'requestApproval'
+    | 'mcpServers'
+    | 'nativeOff'
+    | 'nativeItems'
+    | 'protectedPaths'
   >,
   user: CodexUserMcp = NO_USER_MCP,
+  platform: NodeJS.Platform = process.platform,
+  /** The profile's name (`codexProfileId()`, a new one for each run). */
+  profileId: string = CODEX_PROFILE,
 ): { method: 'thread/start' | 'thread/resume'; params: Record<string, unknown> } {
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
+  const profile = codexProfile(o.permission, o.protectedPaths, platform);
+  const config = codexConfig(o.permission, o.effort, o.mcpServers, { off: o.nativeOff ?? [], items: o.nativeItems, user });
+  // A profile keeps the network off by itself; the legacy setting is for the legacy sandbox only.
+  if (profile) delete config.sandbox_workspace_write;
   const params = {
     cwd: o.cwd,
     approvalPolicy: ask ? 'on-request' : 'never',
-    sandbox: SANDBOX[o.permission],
+    ...(profile ? { permissions: profileId } : { sandbox: SANDBOX[o.permission] }),
     developerInstructions: o.systemPrompt,
     ...(o.model ? { model: o.model } : {}),
-    config: codexConfig(o.permission, o.effort, o.mcpServers, { off: o.nativeOff ?? [], items: o.nativeItems, user }),
+    config: profile ? { ...config, permissions: { [profileId]: profile } } : config,
   };
   return o.sessionId
     ? { method: 'thread/resume', params: { threadId: o.sessionId, ...params } }
     : { method: 'thread/start', params };
+}
+
+/**
+ * Throws unless Codex runs the thread in the permission profile the request named: one that does
+ * not know the field ignores it, and would run in the user's own `sandbox_mode` without a word.
+ * Codex answers the profile it applied (`activePermissionProfile`, Codex 0.167).
+ */
+export function codexCheckProfile(params: Record<string, unknown>, response: unknown): void {
+  if (typeof params.permissions !== 'string') return;
+  const active = (response as { activePermissionProfile?: { id?: unknown } } | undefined)?.activePermissionProfile?.id;
+  if (active !== params.permissions) throw new AgentRunError(t().codexNoProfile(typeof active === 'string' ? active : undefined));
 }
 
 const PLAN_STATUS: Record<string, PlanEntry['status']> = {
@@ -493,8 +556,11 @@ export function codexApprovalResponse(method: string, p: Record<string, any>, al
 
 export const codexRunner: AgentRunner = {
   provider: 'codex',
-  async run(o): Promise<RunResult> {
-    if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
+  async run(given): Promise<RunResult> {
+    if (given.signal.aborted) throw new AgentRunError(t().stopped, true);
+    const o = { ...given, protectedPaths: given.protectedPaths ?? protectedReads() };
+    // A permission profile is an experimental thread field, which the client opts into.
+    const profile = codexProfile(o.permission, o.protectedPaths);
     // Also for the whole app-server, as asking Codex what a run loads does (the thread gets them too):
     // none of these carries a secret, unlike the MCP servers, which only go in the thread's config.
     const args = ['app-server', '-c', 'model_reasoning_summary="auto"', ...codexOverrideArgs(codexNativeConfig(o.nativeOff ?? [], o.nativeItems))];
@@ -520,6 +586,8 @@ export const codexRunner: AgentRunner = {
     };
     conn.onRequest = async (method, params) => {
       if (method === 'item/tool/requestUserInput') return { answers: {} };
+      // Asked only of clients that take the experimental API, as a profile needs.
+      if (method === 'currentTime/read') return { currentTimeAt: Math.floor(Date.now() / 1000) };
       if (method === 'mcpServer/elicitation/request') {
         const tool = codexMcpToolApproval(params ?? {});
         if (!tool || !o.requestApproval) return codexElicitationResponse(false);
@@ -566,11 +634,12 @@ export const codexRunner: AgentRunner = {
     try {
       await conn.request('initialize', {
         clientInfo: { name: 'harness_relay', title: 'Harness Relay', version: '0.1.0' },
-        capabilities: null,
+        capabilities: profile ? { experimentalApi: true } : null,
       });
       conn.notify('initialized');
-      const { method, params } = codexThreadRequest(o, await codexUserMcp(conn, o));
+      const { method, params } = codexThreadRequest(o, await codexUserMcp(conn, o), process.platform, codexProfileId());
       const thread = await conn.request(method, params);
+      codexCheckProfile(params, thread);
       threadId = String(thread?.thread?.id ?? o.sessionId ?? '');
       if (!threadId) throw new AgentRunError(t().exitedWithoutTurn('codex', null));
       o.onEvent({ type: 'session', sessionId: threadId });

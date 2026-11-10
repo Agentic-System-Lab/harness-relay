@@ -66,6 +66,12 @@ export interface RunOptions {
   nativeOff?: readonly NativePart[];
   /** Single items of what the CLI loads by itself to leave out of this run. */
   nativeItems?: NativeItemsOff;
+  /**
+   * Paths the agent's sandbox may not let it read below full access: the browsers' folders,
+   * Harness Relay's database and its own temporary folder (`protectedReads()`, worked out by the
+   * adapter when not given).
+   */
+  protectedPaths?: string[];
 }
 
 /** An MCP server to hand to a CLI, with its secret values. */

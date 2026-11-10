@@ -3,6 +3,17 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+
+// A data folder of its own: a turn's --settings and --mcp-config files go in its tmp folder.
+const dataDir = await vi.hoisted(async () => {
+  const { mkdtempSync, realpathSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  process.env.RELAY_DATA_DIR = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-data-')));
+  return process.env.RELAY_DATA_DIR;
+});
+afterAll(() => rmSync(dataDir, { recursive: true, force: true }));
+
 import {
   claudeAgentDenyRules,
   claudeAgents,
@@ -406,6 +417,9 @@ describe('a Claude Code run that leaves out its own setup (stand-in claude)', ()
     const file = start.args[start.args.indexOf('--settings') + 1];
     expect(file).toMatch(/settings\.json$/);
     expect(existsSync(file)).toBe(false);
+    // In Harness Relay's own temporary folder, which sandboxed commands can neither change nor read,
+    // not in the system's, which they can.
+    expect(file.startsWith(join(dataDir, 'tmp') + '/')).toBe(true);
     expect(start.settings).toEqual({
       enabledPlugins: { 'deck@market': false },
       skillOverrides: { commit: 'off' },
@@ -541,6 +555,11 @@ describe("Claude Code's sandbox below full access", () => {
       permissions: { deny: ['WebSearch'], ask: ['Bash(dangerouslyDisableSandbox:true)'] },
     });
     expect(claudeRunSettings('full', ['hooks'], [], {}, 'linux')).toEqual({ disableAllHooks: true });
+    // What a turn leaves out and the protected paths are both denied.
+    expect(claudeRunSettings('edit', [], [], { tools: ['WebSearch'] }, 'linux', ['/home/me/.mozilla'])).toMatchObject({
+      permissions: { deny: ['WebSearch', 'Read(//home/me/.mozilla)', 'Read(//home/me/.mozilla/**)'], ask: ['Bash(dangerouslyDisableSandbox:true)'] },
+    });
+    expect(claudeRunSettings('full', [], [], {}, 'linux', ['/home/me/.mozilla'])).toBeUndefined();
     expect(claudeRunSettings('edit', [], [], {}, 'win32')).toBeUndefined();
     const base = { systemPrompt: 'briefing', ask: true, newSessionId: 'new-id' };
     const args = claudeArgs({ ...base, permission: 'edit', platform: 'linux' });
@@ -586,7 +605,7 @@ describe("Claude Code's sandbox below full access", () => {
     afterAll(() => rmSync(dir, { recursive: true, force: true }));
     const bin = writeFakeClaude(join(dir, 'claude'));
     let n = 0;
-    function run(permission: 'read-only' | 'edit' | 'full', extra: Record<string, string> = {}) {
+    function run(permission: 'read-only' | 'edit' | 'full', extra: Record<string, string> = {}, protectedPaths: string[] = []) {
       const log = join(dir, `log-${++n}.jsonl`);
       const result = claudeRunner.run({
         bin,
@@ -597,6 +616,7 @@ describe("Claude Code's sandbox below full access", () => {
         permission,
         signal: new AbortController().signal,
         onEvent: () => undefined,
+        protectedPaths,
       });
       const start = () =>
         readFileSync(log, 'utf8')
@@ -616,6 +636,18 @@ describe("Claude Code's sandbox below full access", () => {
       const full = run('full');
       await full.result;
       expect(full.start()!.args).not.toContain('--settings');
+    });
+
+    it('keeps it from reading or writing the protected paths, with its sandbox and with Read rules', async () => {
+      const r = run('edit', {}, ['/home/me/.mozilla', '/srv/relay/data/relay.db']);
+      await r.result;
+      expect(r.start()!.settings).toEqual({
+        sandbox: { ...sandbox.sandbox, filesystem: { denyRead: ['/home/me/.mozilla', '/srv/relay/data/relay.db'], denyWrite: ['/home/me/.mozilla', '/srv/relay/data/relay.db'] } },
+        permissions: {
+          deny: ['Read(//home/me/.mozilla)', 'Read(//home/me/.mozilla/**)', 'Read(//srv/relay/data/relay.db)', 'Read(//srv/relay/data/relay.db/**)'],
+          ask: sandbox.permissions.ask,
+        },
+      });
     });
 
     it('says how to fix it when the sandbox cannot run, instead of running without it', async () => {

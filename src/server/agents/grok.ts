@@ -1,7 +1,12 @@
 import type { ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { NativePart, Permission } from '../../shared/types';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
+import { protectedReads } from '../protect';
 import { JsonRpcConnection, RpcError } from './acp';
 import {
   AgentRunError,
@@ -50,14 +55,74 @@ export function grokPrompt(prompt: string, images: RunOptions['images']): unknow
  */
 
 /**
- * Sandbox profile per permission (`GROK_SANDBOX`). Read-only uses `workspace` too, and keeps the
- * project's files to what the user allows: Grok's `read-only` and `strict` profiles refuse to start
- * on some machines (e.g. a symlinked /var/run/docker.sock), and a profile cannot be lifted once
- * applied, so a write the user allowed in read-only would fail under them. One profile for both
- * also lets a session resume after the permission changes between them (Grok refuses to resume a
- * session under a different profile).
+ * The custom sandbox profile Harness Relay keeps in Grok's `sandbox.toml`, for read-only and edit:
+ * `workspace` plus a kernel `deny` for the protected paths (`protectedReads()`: the browsers'
+ * folders, Harness Relay's database). A custom profile Grok cannot apply makes it refuse to start,
+ * where a built-in one might run without a sandbox.
+ * - Read-only uses it too, and keeps the project's files to what the user allows: Grok's `read-only`
+ *   and `strict` profiles refuse to start on some machines (e.g. a symlinked /var/run/docker.sock),
+ *   and a profile cannot be lifted once applied, so a write the user allowed would fail under them.
+ * - One profile for both also lets a session resume after the permission changes between them
+ *   (Grok refuses to resume a session under a different profile).
+ * - A project's own `.grok/sandbox.toml` cannot redefine it: the user's file wins.
  */
-const SANDBOX: Partial<Record<Permission, string>> = { 'read-only': 'workspace', edit: 'workspace' };
+export const GROK_PROFILE = 'harness-relay';
+
+/** The profile per permission (`GROK_SANDBOX`): none with full access; on Windows, where Grok has no sandbox, `workspace` as before. */
+export function grokSandboxProfile(permission: Permission, platform: NodeJS.Platform = process.platform): string | undefined {
+  if (permission === 'full') return undefined;
+  return platform === 'win32' ? 'workspace' : GROK_PROFILE;
+}
+
+const PROFILE_BEGIN = '# >>> harness-relay: written by Harness Relay before each run; changes here are replaced';
+const PROFILE_END = '# <<< harness-relay';
+
+/**
+ * The block of `sandbox.toml` that defines the profile. A JSON string is a TOML basic string, once
+ * DEL, which JSON leaves as it is and TOML does not allow there, is escaped too.
+ */
+export function grokProfileBlock(deny: readonly string[]): string {
+  const toml = (path: string) => JSON.stringify(path).replace(/\u007f/g, '\\u007F');
+  return [
+    PROFILE_BEGIN,
+    `[profiles.${GROK_PROFILE}]`,
+    'extends = "workspace"',
+    `deny = [${deny.map(toml).join(', ')}]`,
+    PROFILE_END,
+  ].join('\n');
+}
+
+/** `sandbox.toml` with the profile's block in place of the one there was, or after the user's own profiles. */
+export function withGrokProfile(existing: string, block: string): string {
+  const start = existing.indexOf(PROFILE_BEGIN);
+  const end = start < 0 ? -1 : existing.indexOf(PROFILE_END, start);
+  if (end >= 0) return existing.slice(0, start) + block + existing.slice(end + PROFILE_END.length);
+  const before = existing.trimEnd();
+  return `${before ? `${before}\n\n` : ''}${block}\n`;
+}
+
+/** Grok's home: the CLIs' own folder for it when Harness Relay gives it one, else ~/.grok. */
+export function grokHome(env: NodeJS.ProcessEnv): string {
+  return env.GROK_HOME || join(homedir(), '.grok');
+}
+
+/**
+ * Writes the profile into `<home>/sandbox.toml` when it is not there as it should be. Written beside
+ * it and renamed into place, so a Grok starting meanwhile (another agent of a parallel team) reads
+ * the old file or the new one, never half of one. A `sandbox.toml` that is a link (to the user's
+ * dotfiles, say) stays one: the file it leads to is written.
+ */
+export function writeGrokProfile(home: string, deny: readonly string[]): void {
+  const path = join(home, 'sandbox.toml');
+  const file = existsSync(path) ? realpathSync(path) : path;
+  const existing = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  const next = withGrokProfile(existing, grokProfileBlock(deny));
+  if (next === existing) return;
+  mkdirSync(home, { recursive: true });
+  const temp = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
+  writeFileSync(temp, next);
+  renameSync(temp, file);
+}
 
 
 /** The `toolCall` of an ACP `session/request_permission`. */
@@ -301,8 +366,8 @@ export function grokNativeEnv(off: readonly NativePart[] = []): Record<string, s
 }
 
 /** The environment of one run: the user's, what leaves out Grok's own setup, and the sandbox for the permission. */
-export function grokEnv(o: Pick<RunOptions, 'env' | 'nativeOff' | 'permission'>): NodeJS.ProcessEnv {
-  const sandbox = SANDBOX[o.permission];
+export function grokEnv(o: Pick<RunOptions, 'env' | 'nativeOff' | 'permission'>, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  const sandbox = grokSandboxProfile(o.permission, platform);
   return { ...o.env, ...grokNativeEnv(o.nativeOff), ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
 }
 
@@ -312,8 +377,15 @@ export const grokRunner: AgentRunner = {
     if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
     // Model and effort are set per session below: `grok agent --reasoning-effort` does not reach ACP sessions.
     const args = ['agent', '--no-leader', 'stdio'];
-    const sandbox = SANDBOX[o.permission];
+    const sandbox = grokSandboxProfile(o.permission);
     const env = grokEnv(o);
+    if (sandbox === GROK_PROFILE) {
+      try {
+        writeGrokProfile(grokHome(env), o.protectedPaths ?? protectedReads());
+      } catch (err) {
+        throw new AgentRunError(t().grokSandbox((err as Error).message));
+      }
+    }
 
     let child: ChildProcess | undefined;
     let sessionId: string | undefined;

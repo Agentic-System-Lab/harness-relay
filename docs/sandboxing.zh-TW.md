@@ -21,13 +21,33 @@ Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` �
 
 | Relay 權限 | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |
-| 唯讀 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 沙箱 `read-only` | 設定檔 `workspace`，可以連網 |
-| 可編輯 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 沙箱 `workspace-write`，關閉網路 | 設定檔 `workspace`，可以連網 |
+| 唯讀 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 由 `:read-only` 延伸的設定檔 `harness-relay-…` | 由 `workspace` 延伸的設定檔 `harness-relay`，可以連網 |
+| 可編輯 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 由 `:workspace` 延伸的設定檔 `harness-relay-…`，關閉網路 | 由 `workspace` 延伸的設定檔 `harness-relay`，可以連網 |
 | 完全存取 | 沒有沙箱 | 沒有（`danger-full-access`） | 沒有 |
 
 - **Claude Code** 的沙箱涵蓋它的 Bash 工具（`sandbox` 設定）。在完全存取以外的權限，Harness Relay 會在這一輪的 `--settings` 中開啟它，並設定 `failIfUnavailable`（沒有沙箱就不執行）、`autoAllowBashIfSandboxed: false`（哪些操作不必詢問仍由權限決定），以及詢問規則 `Bash(dangerouslyDisableSandbox:true)`（模型要在沙箱外執行的每個指令都會詢問）；在 Claude Code 沒有沙箱的原生 Windows 上，則不使用沙箱執行。在 Mac 上兩種模式都試過：在工作目錄中寫入可以（唯讀模式下要先允許）；寫入家目錄會先詢問並註明會在沙箱外執行，拒絕後就失敗；連到 example.com 會先詢問，拒絕後就被擋下。
-- **Codex** 在完全存取以外的權限，每個指令都在沙箱中執行。在 Mac 上以 `workspace-write` 試過：在工作目錄中寫入可以；寫入家目錄或 `~/.npm`、連到 github.com 都被拒絕；讀取家目錄可以。
-- **Grok** 在唯讀模式下同樣使用 `workspace` 設定檔，而不是它的 `read-only` 設定檔，因為後者在某些機器上無法啟動：在裝了 OrbStack 的 Mac 上，`/var/run/docker.sock` 是 symlink，Grok 會以 `could not apply the 'read-only' sandbox profile … Refusing to start with its protections missing` 停止。在 Mac 上兩種模式都試過：在工作目錄中寫入可以，寫入家目錄會以 `Operation not permitted` 失敗，也連得到 example.com，因為 `workspace` 允許連網（`~/.grok/sessions/sandbox-events.jsonl` 中為 `"restrict_network": false`，並有 `"enforced": true`）。Harness Relay 只在完全存取以外的權限設定設定檔（`GROK_SANDBOX`），所以完全存取時，Grok 自己 `config.toml` 中的 `[sandbox] profile`，或啟動伺服器時的 `GROK_SANDBOX`，仍會生效。
+- **Codex** 在完全存取以外的權限，每個指令都在沙箱中執行，使用的是 Harness Relay 在 thread 的設定中定義的權限設定檔（`harness-relay-` 加上每次執行都不同的隨機部分，由 `:read-only` 或 `:workspace` 延伸），並在 thread 中指名它（`permissions`，它選擇使用的實驗性欄位）；這會勝過你設定中的 `sandbox_mode`。Codex 沒有回報它套用了這個設定檔時（舊版 Codex 會忽略這個欄位），這次執行會失敗。在原生 Windows 上則和以前一樣使用舊的沙箱模式。在 Mac 上以 `workspace-write` 試過：在工作目錄中寫入可以；寫入家目錄或 `~/.npm`、連到 github.com 都被拒絕；讀取家目錄可以。
+- **Grok** 在唯讀與可編輯模式下使用它的自訂設定檔 `harness-relay`：Grok 的 `workspace` 加上下文的路徑。唯讀模式不使用它的 `read-only` 設定檔，因為後者在某些機器上無法啟動：在裝了 OrbStack 的 Mac 上，`/var/run/docker.sock` 是 symlink，Grok 會以 `could not apply the 'read-only' sandbox profile … Refusing to start with its protections missing` 停止。在 Mac 上兩種模式都試過：在工作目錄中寫入可以，寫入家目錄會以 `Operation not permitted` 失敗，也連得到 example.com，因為 `workspace` 允許連網（`~/.grok/sessions/sandbox-events.jsonl` 中為 `"restrict_network": false`，並有 `"enforced": true`）。這些是在 `harness-relay` 之前以 `workspace` 試的；`harness-relay` 也確實套用了（`"enforced": true`，並有它的 `deny_paths`）。Harness Relay 只在完全存取以外的權限設定設定檔（`GROK_SANDBOX`），所以完全存取時，Grok 自己 `config.toml` 中的 `[sandbox] profile`，或啟動伺服器時的 `GROK_SANDBOX`，仍會生效。
+
+## agent 不能讀寫的地方
+
+在完全存取以外的權限，Harness Relay 會讓每個 agent 的沙箱碰不到這些地方（`src/server/protect.ts`），在 macOS 與 Linux 上：
+
+- **瀏覽器自己的資料夾**：已登入的瀏覽器把送給 Harness Relay 的金鑰（有些瀏覽器還有 cookie）存放在磁碟上的位置：Chrome、Chromium、Edge、Brave、Arc、Vivaldi、Opera、Firefox、LibreWolf、Zen、Orion、Floorp、Waterfox、Helium、DuckDuckGo 與 GNOME Web，以及 Safari 與 WebKit 的資料夾（macOS 上的 `~/Library/…`；Linux 上的 `~/.config/…` 與 `$XDG_CONFIG_HOME/…`、`~/.mozilla`、snap 與 Flatpak 資料夾）。只列出實際存在的，每個也連同它的真實路徑。
+- **Harness Relay 的資料庫**（`relay.db` 與 SQLite 放在它旁邊的檔案），即使工作目錄包含它也一樣。
+- **Harness Relay 自己的暫存資料夾**（`data/tmp`），Claude Code 一輪的 `--settings` 與 MCP 設定放在這裡等它讀取。若放在每個沙箱都讓指令寫入的系統暫存資料夾，另一個 agent 的指令就能在 Claude Code 讀取前改掉它們（關掉它的沙箱，或把自己的指令當成 MCP 伺服器，在任何沙箱之外啟動），或讀到 MCP 伺服器的秘密值。
+
+各 CLI 的做法：
+
+- **Claude Code**：`sandbox.filesystem.denyRead` 與 `denyWrite`，以及給它自己的檔案工具（在它的沙箱之外）的 `Read` 拒絕規則。
+- **Codex**：thread 的 `harness-relay-…` 權限設定檔中，每個路徑一個 `deny` 項目（Windows 除外，它舊的沙箱無法在任何地方禁止讀取）。它的名稱每次執行都不同：Codex 會把它其他設定檔（例如已信任專案的 `.codex/config.toml`）中同名的設定檔合併進來，而那裡更具體的項目（對被禁止的資料夾內的某個資料夾設 `read`）會讓這個路徑重新可讀（用 `codex sandbox` 試過）。
+- **Grok**：它的自訂設定檔 `harness-relay` 的 `deny` 清單。Harness Relay 在每次執行前把它寫進 Grok 自己資料夾（`~/.grok`，或各 CLI 自己的資料夾中的 `grok`）的 `sandbox.toml`，放在 `# >>> harness-relay` 與 `# <<< harness-relay` 之間，檔案的其餘部分保持原樣。Grok 無法套用自訂設定檔時會拒絕啟動；在 Linux 上，它的 `deny` 清單需要 bubblewrap。
+
+在 Mac 上以可編輯模式對每個 CLI 都試過：用 shell 列出 `~/Library/Application Support/Firefox`、讀取 `data/relay.db` 都以 `Operation not permitted` 失敗，用 Claude Code 的 Read 工具或 Grok 的檔案工具讀取資料庫會被拒絕，而在工作目錄中寫入可以。
+
+它涵蓋不到的：資料夾不在清單上的瀏覽器（新的、可攜版，或用 `--user-data-dir` 放在別處的 Chrome）；使用者允許在沙箱外執行的指令；CLI 在沙箱外執行的東西，例如 Claude Code 的 hooks 與本機 MCP 伺服器（見[沙箱管不到的事](#沙箱管不到的事)）；名稱含 `*`、`?` 或 `[` 的路徑，Grok 與 Claude Code 會把它當成樣式；完全存取；原生 Windows。
+
+工作目錄包含 Harness Relay 本身（它的資料夾或資料資料夾；平行模式的 worktree 位於資料資料夾內，不受影響）時，也會拒絕可編輯模式：agent 在那裡不經詢問就能修改檔案，也就能改動 Harness Relay 的程式碼。對話在建立、排程或改成這樣時會被拒絕，每一輪開始時也會。唯讀模式在那裡仍可使用，因為它寫入前會詢問（Codex 則完全不能寫）。要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。
 
 ## 各平台
 
@@ -35,7 +55,7 @@ Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` �
 | --- | --- | --- | --- | --- |
 | **Codex** | ✅ Seatbelt | ✅ bubblewrap + seccomp | ✅ 自己的沙箱（見下文） | ✅ Linux 的沙箱 |
 | **Claude Code** | ✅ Seatbelt | ✅ bubblewrap + socat | ❌ 指令在沙箱外執行 | ✅ Linux 的沙箱 |
-| **Grok** | ⚠️ Seatbelt，但擋不了網路 | ✅ Landlock + seccomp | ❌ 文件中沒有列出 | 未驗證 |
+| **Grok** | ⚠️ Seatbelt，但擋不了網路 | ✅ Landlock + seccomp，Harness Relay 的執行還要 bubblewrap | ❌ 文件中沒有列出 | 未驗證 |
 
 Harness Relay 本身在這三種平台上都能執行，所以在原生 Windows 上只有 Codex 有沙箱。
 
@@ -50,7 +70,7 @@ Harness Relay 本身在這三種平台上都能執行，所以在原生 Windows 
 
 - **Claude Code** 需要 `bubblewrap` 與 `socat`（`sudo apt-get install bubblewrap socat`，或 `sudo dnf install bubblewrap socat`）。要連 Unix socket 也一起擋，需要 `npm install -g @anthropic-ai/sandbox-runtime` 提供的 seccomp 過濾器。每個指令都有自己的 localhost，所以連不到這台電腦 localhost 上的伺服器。
 - **Codex** 使用 bubblewrap 與 seccomp。它採用 `PATH` 上第一個（工作目錄以外的）`bwrap`，找不到就改用它自己附帶的，並在啟動時顯示警告。它舊的 Landlock 程式碼（`features.use_legacy_landlock`）在限制檔案的政策下會被拒絕。
-- **Grok** 使用 Landlock，需要 kernel 5.13 以上。kernel 6.2（Landlock ABI 3）以前（Ubuntu 22.04 與 Debian 12 預設的 kernel 都更舊），指令仍能用 `truncate` 截短可寫入路徑以外的檔案。有 `deny` 清單的自訂設定檔也需要 bubblewrap。它的文件也說，`workspace`、`read-only` 與 `strict` 在 Linux 上「without verified read-only mounts」時會拒絕啟動（這些掛載讓 Grok 自己的設定與 hook 無法被寫入）。網路封鎖（`restrict_network`）使用 seccomp，在 Linux 上有效。
+- **Grok** 使用 Landlock，需要 kernel 5.13 以上。kernel 6.2（Landlock ABI 3）以前（Ubuntu 22.04 與 Debian 12 預設的 kernel 都更舊），指令仍能用 `truncate` 截短可寫入路徑以外的檔案。有 `deny` 清單的自訂設定檔也需要 bubblewrap，所以 Harness Relay 在完全存取以外的執行都需要（它們的清單一定有它的資料庫）。它的文件也說，`workspace`、`read-only` 與 `strict` 在 Linux 上「without verified read-only mounts」時會拒絕啟動（這些掛載讓 Grok 自己的設定與 hook 無法被寫入）。網路封鎖（`restrict_network`）使用 seccomp，在 Linux 上有效。
 - bubblewrap 需要 unprivileged user namespace。Ubuntu 從 23.10 起用 AppArmor 限制它，這可能讓 bubblewrap 無法運作；Claude Code 的文件說，這時要為 `/usr/bin/bwrap` 加上 AppArmor 設定檔，其他位置的 `bwrap` 則用 `sysctl` 解除限制。
 
 ### Docker 與 dev container
@@ -84,17 +104,17 @@ Harness Relay 本身在這三種平台上都能執行，所以在原生 Windows 
 | --- | --- | --- | --- | --- | --- |
 | **Claude Code** | 只需設定 | 先裝 `bubblewrap` 與 `socat`，再設定 | 沒有沙箱：改用 WSL2 | 同 Linux | 同 Linux，再加 `enableWeakerNestedSandbox` |
 | **Codex** | 只需設定 | 設定（建議安裝 `bubblewrap`） | `[windows] sandbox` | 同 Linux | 讓容器提供 bubblewrap 需要的條件，或讓容器本身當作沙箱 |
-| **Grok** | 只需設定 | kernel 5.13 以上且有 Landlock，再設定 | 文件中沒有：改用 WSL2 | 同 Linux，前提是它的 kernel 有 Landlock（未驗證） | 沒有試過 |
+| **Grok** | 只需設定 | kernel 5.13 以上且有 Landlock，Harness Relay 的執行還要 `bubblewrap`，再設定 | 文件中沒有：改用 WSL2 | 同 Linux，前提是它的 kernel 有 Landlock（未驗證） | 沒有試過 |
 
 ### Harness Relay 的執行從哪裡讀這些設定
 
 | | Harness Relay 的執行會讀的設定 | Harness Relay 自己設定的部分 |
 | --- | --- | --- |
-| Claude Code | `~/.claude/settings.json`，或[各 CLI 自己的資料夾](user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)中的 `claude/settings.json`；專案的 `.claude/settings.json` 與 `.claude/settings.local.json`；managed settings | 完全存取以外的權限（原生 Windows 除外）設定 `sandbox.enabled`、`failIfUnavailable`、`autoAllowBashIfSandboxed: false` 與上述的詢問規則；你其他的 `sandbox` 鍵，例如 `network.allowedDomains`，會照原樣保留（沒有試過） |
-| Codex | `~/.codex/config.toml`，或各 CLI 自己的資料夾中的 `codex/config.toml` | 依權限設定沙箱模式（所以你的 `sandbox_mode` 不會被採用），可編輯模式再加上 `network_access = false`；其他鍵不會設定，例如 `writable_roots` 或 `[windows] sandbox` |
-| Grok | 啟動 Harness Relay 時環境中的 `GROK_SANDBOX`；沒有的話，是 `~/.grok/config.toml`，或各 CLI 自己的資料夾中 `grok/config.toml` 的 `[sandbox] profile` | 唯讀與可編輯模式設定 `GROK_SANDBOX=workspace`；完全存取時，你設定的會生效 |
+| Claude Code | `~/.claude/settings.json`，或[各 CLI 自己的資料夾](user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)中的 `claude/settings.json`；專案的 `.claude/settings.json` 與 `.claude/settings.local.json`；managed settings | 完全存取以外的權限（原生 Windows 除外）設定 `sandbox.enabled`、`failIfUnavailable`、`autoAllowBashIfSandboxed: false`、上述的詢問規則與受保護的路徑（`denyRead`、`denyWrite`、`Read` 拒絕規則，見下文）；你其他的 `sandbox` 鍵，例如 `network.allowedDomains`，會照原樣保留（沒有試過） |
+| Codex | `~/.codex/config.toml`，或各 CLI 自己的資料夾中的 `codex/config.toml` | 完全存取以外的權限，thread 使用 `harness-relay-…` 權限設定檔（所以你的 `sandbox_mode` 與 `[sandbox_workspace_write]` 不會被採用）；在 Windows 上依權限設定沙箱模式，可編輯模式再加上 `network_access = false`；其他鍵不會設定，例如 `[windows] sandbox` |
+| Grok | 啟動 Harness Relay 時環境中的 `GROK_SANDBOX`；沒有的話，是 `~/.grok/config.toml`，或各 CLI 自己的資料夾中 `grok/config.toml` 的 `[sandbox] profile` | 唯讀與可編輯模式設定 `GROK_SANDBOX=harness-relay`（Windows 上為 `workspace`），以及 Grok 自己資料夾中 `sandbox.toml` 的 `[profiles.harness-relay]` 區塊（見下文）；完全存取時，你設定的會生效 |
 
-Grok 會讓一個 session 在整個生命週期都使用它開始時的設定檔，並拒絕以不同的設定檔續用它（它的文件）。Harness Relay 每一輪都會續用各 agent 的 session。唯讀與可編輯使用同一個設定檔，所以只有切換到完全存取或從完全存取切回來，或改變你設定的設定檔，才可能讓下一次續用失敗（沒有試過）。
+Grok 會讓一個 session 在整個生命週期都使用它開始時的設定檔，並拒絕以不同的設定檔續用它（它的文件）。Harness Relay 每一輪都會續用各 agent 的 session，續用失敗時會帶著目前為止的對話開始新的 session。唯讀與可編輯使用同一個設定檔，所以只有切換到完全存取或從完全存取切回來，或改變你設定的設定檔，才會這樣（`harness-relay` 之前的 Grok session 也會重新開始一次）。
 
 ### 在 macOS 上
 
@@ -165,7 +185,7 @@ deny = ["~/.ssh", "**/.env", "**/*.pem"]
 ```
 
 - `devbox` 是給用完即丟的機器用的：它幾乎到處都能寫入，包括家目錄。`restrict_network = true` 在 macOS 上沒有作用（見 [macOS](#macos)）。
-- Harness Relay 在完全存取以外的權限已經讓 Grok 使用 `workspace`；啟動它時的 `GROK_SANDBOX` 只會套用到完全存取的 Grok 執行。
+- Harness Relay 在完全存取以外的權限已經讓 Grok 使用它自己由 `workspace` 延伸的設定檔 `harness-relay`；啟動它時的 `GROK_SANDBOX` 只會套用到完全存取的 Grok 執行。
 
 ### 在 Linux 上
 
@@ -287,7 +307,7 @@ Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原
 
 ## 沙箱管不到的事
 
-- **讀取。** 三者預設都讓指令讀取幾乎整台電腦，包括 `~/.ssh` 和 `~/.aws`；只有 Grok 的 `strict` 設定檔會限制讀取（工作目錄、系統路徑與 `~/.grok`）。要讓機密不離開這台電腦，靠的是擋網路，而 Grok 在 macOS 上做不到。
+- **讀取。** 三者預設都讓指令讀取幾乎整台電腦，包括 `~/.ssh` 和 `~/.aws`；只有 Grok 的 `strict` 設定檔會限制讀取（工作目錄、系統路徑與 `~/.grok`）。Harness Relay 不讓它們讀取瀏覽器的資料夾與它自己的資料庫（見 [agent 不能讀寫的地方](#agent-不能讀寫的地方)），其他的不在此限。要讓機密不離開這台電腦，靠的是擋網路，而 Grok 在 macOS 上做不到。
 - **Harness Relay 自己的 API。** Grok 的沙箱讓指令連得到 localhost（在 Mac 上試過：可編輯模式下，Grok 執行的 `curl http://127.0.0.1:…` 得到了回應），但 Harness Relay 在 `127.0.0.1:8787` 的 API 只接受已登入的瀏覽器：沒有瀏覽器 cookie 與金鑰的程式會收到 401（用 `curl` 試過），所以這類指令無法開始一輪執行（它擋不住的見[架構 → 登入](architecture.zh-TW.md#登入)）。同樣的測試中，Claude Code 與 Codex 的沙箱都擋下了 localhost。
 - **Claude Code 自己的工具。** 它的沙箱只涵蓋 Bash 指令及它們啟動的行程，不包括它的 Read、Edit、Write、WebFetch、WebSearch 工具（這些由它的權限規則管）、hooks、本機的 MCP 伺服器（包括工具庫的）和 LSP 伺服器。
 - **寫到工作目錄與暫存資料夾以外會失敗**，包括套件快取（`~/.npm`、pip、cargo、Go 的 build cache）。如果網路也關閉，安裝相依套件就會失敗。

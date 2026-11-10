@@ -30,6 +30,7 @@ const { Store } = await import('../src/server/store');
 const { AgentRunError, runners } = await import('../src/server/agents');
 const { PLANNER_BRIEFING, REVISER_BRIEFING } = await import('../src/server/planner');
 const { GROUPER_BRIEFING } = await import('../src/server/grouping');
+const { withLang } = await import('../src/server/i18n');
 const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
 const { mediaRoots, resolveMedia } = await import('../src/server/media');
 const { worktreeDir } = await import('../src/server/workspace');
@@ -223,6 +224,22 @@ async function finish(convId: string): Promise<void> {
 
 const agentMessages = (conv: Conversation) => conv.messages.filter((m) => m.author.kind === 'agent');
 const textOf = (m: Conversation['messages'][number]) => m.parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
+
+describe("Harness Relay's own folder", () => {
+  it('refuses an edit-mode turn there, also for a conversation saved before the check', async () => {
+    const { RELAY_ROOT } = await import('../src/server/protect');
+    orchestrator = new Orchestrator(store, new Hub(), settings);
+    const conv = conversation({ mode: 'roundtable', permission: 'edit', cwd: RELAY_ROOT });
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+    const replies = agentMessages(store.get(conv.id)!);
+    expect(replies.length).toBeGreaterThan(0);
+    for (const m of replies) {
+      expect(m.status).toBe('error');
+      expect(m.error).toMatch(/holds Harness Relay itself/);
+    }
+  });
+});
 
 describe('AgentsView', () => {
   /** A sink that records what it was told. */

@@ -13,6 +13,9 @@ import {
   codexRunner,
   isUnknownMethod,
   codexOverrideArgs,
+  codexCheckProfile,
+  codexProfile,
+  codexProfileId,
   codexThreadRequest,
   codexUserMcp,
   codexUserMcpConfig,
@@ -292,6 +295,33 @@ describe('codex thread config', () => {
         },
       },
     });
+    // With paths to protect, a permission profile instead of the legacy sandbox: the permission's
+    // sandbox and a deny entry for each; the profile keeps the network off by itself.
+    const guarded = codexThreadRequest({ ...run, protectedPaths: ['/home/me/.mozilla', '/srv/relay/data/relay.db'] }, user, 'linux', 'harness-relay-1a2b');
+    expect(guarded.params).toMatchObject({ permissions: 'harness-relay-1a2b' });
+    expect(guarded.params).not.toHaveProperty('sandbox');
+    expect(guarded.params.config).toEqual({
+      'features.apps': false,
+      mcp_servers: { headroom: { enabled: false } },
+      permissions: { 'harness-relay-1a2b': { extends: ':workspace', filesystem: { '/home/me/.mozilla': 'deny', '/srv/relay/data/relay.db': 'deny' } } },
+    });
+    // A new name for each run: a profile of the same name in Codex's other config layers (a trusted
+    // project's .codex/config.toml) would be merged into it, and could open a denied path again.
+    expect(codexProfileId()).toMatch(/^harness-relay-[0-9a-f]{16}$/);
+    expect(codexProfileId()).not.toBe(codexProfileId());
+    // Codex must say it applied that profile: one that ignores the field would run in the user's sandbox_mode.
+    expect(() => codexCheckProfile(guarded.params, { activePermissionProfile: { id: 'harness-relay-1a2b', extends: ':workspace' } })).not.toThrow();
+    expect(() => withLang('en', () => codexCheckProfile(guarded.params, { thread: { id: 'thr-1' } }))).toThrow(
+      /^Codex did not run this thread in the permission profile Harness Relay gave it \(it answered no profile;/,
+    );
+    expect(() => withLang('en', () => codexCheckProfile(guarded.params, { activePermissionProfile: { id: ':workspace' } }))).toThrow(/answered ":workspace"/);
+    expect(() => codexCheckProfile(start.params, { thread: { id: 'thr-1' } })).not.toThrow();
+    expect(codexProfile('read-only', ['/x'], 'darwin')).toEqual({ extends: ':read-only', filesystem: { '/x': 'deny' } });
+    // Full access, Windows (its legacy sandbox cannot deny reads everywhere) and nothing to protect: the legacy sandbox.
+    expect(codexProfile('full', ['/x'], 'linux')).toBeUndefined();
+    expect(codexProfile('edit', ['/x'], 'win32')).toBeUndefined();
+    expect(codexProfile('edit', [], 'linux')).toBeUndefined();
+    expect(codexThreadRequest({ ...run, protectedPaths: ['/x'] }, user, 'win32').params).toMatchObject({ sandbox: 'workspace-write' });
     // Resuming gets the same settings, so a switch changed mid-chat reaches the next turn.
     expect(codexThreadRequest({ ...run, sessionId: 'thr-1' }, user)).toEqual({
       method: 'thread/resume',
@@ -379,7 +409,8 @@ describe('a Codex run that leaves out hooks and plugins (stand-in codex app-serv
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-codex-')));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   // Answers like codex-cli 0.167.0's app-server. FAKE_CODEX_IGNORE plays a Codex that ignores the
-  // two keys; FAKE_CODEX_SLOW answers hooks/list after two seconds. Each request goes to the log.
+  // two keys; FAKE_CODEX_SLOW answers hooks/list after two seconds; FAKE_CODEX_NO_PROFILE a Codex
+  // that ignores the thread's permission profile. Each request goes to the log.
   const FAKE_CODEX = `#!/usr/bin/env node
 const fs = require('node:fs');
 const log = (o) => fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify(o) + '\\n');
@@ -388,14 +419,20 @@ log({ args });
 const set = []; for (let i = 0; i < args.length; i++) if (args[i] === '-c') set.push(args[++i]);
 const off = (key) => !process.env.FAKE_CODEX_IGNORE && set.includes(key + '=false');
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+let init = {};
 require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
   if (m.id === undefined) return;
+  if (!m.method) return log({ answer: m }); // the client's answer to a request of ours
   log({ method: m.method });
   const reply = (result) => out({ id: m.id, result });
   switch (m.method) {
-    case 'initialize': return reply({});
-    case 'thread/start': return reply({ thread: { id: 'thr-1' } });
+    case 'initialize': init = m.params; return reply({});
+    case 'thread/start': {
+      const profile = m.params.permissions && !process.env.FAKE_CODEX_NO_PROFILE ? { activePermissionProfile: { id: m.params.permissions } } : {};
+      log({ capabilities: init.capabilities ?? null, permissions: m.params.permissions ?? null, sandbox: m.params.sandbox ?? null });
+      return reply({ thread: { id: 'thr-1' }, ...profile });
+    }
     case 'hooks/list': {
       const r = { data: [{ hooks: off('features.hooks') ? [] : [{ key: 'h', eventName: 'stop', enabled: true }] }] };
       return process.env.FAKE_CODEX_SLOW ? setTimeout(() => reply(r), 2000) : reply(r);
@@ -404,7 +441,9 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       return reply({ marketplaces: [{ name: 'm', plugins: off('features.plugins') ? [] : [{ id: 'deck@m', installed: true, enabled: true }] }] });
     case 'turn/start':
       reply({ turn: { id: 'turn-1' } });
-      return out({ method: 'turn/completed', params: { threadId: 'thr-1', turn: { id: 'turn-1', status: 'completed' } } });
+      // Asked of clients that take the experimental API.
+      if (init.capabilities?.experimentalApi) out({ id: 'time-1', method: 'currentTime/read', params: { threadId: 'thr-1' } });
+      return setTimeout(() => out({ method: 'turn/completed', params: { threadId: 'thr-1', turn: { id: 'turn-1', status: 'completed' } } }), 100);
     default:
       return out({ id: m.id, error: { code: -32600, message: 'Invalid request: unknown variant ' + m.method } });
   }
@@ -413,7 +452,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   const bin = join(dir, 'codex');
   writeFileSync(bin, FAKE_CODEX, { mode: 0o755 });
   let n = 0;
-  function run(extra: Record<string, string> = {}, signal = new AbortController().signal) {
+  function run(extra: Record<string, string> = {}, signal = new AbortController().signal, protectedPaths: string[] = []) {
     const log = join(dir, `log-${++n}.jsonl`);
     appendFileSync(log, '');
     const result = withLang('en', () =>
@@ -427,6 +466,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         signal,
         onEvent: () => undefined,
         nativeOff: ['hooks', 'plugins'],
+        protectedPaths,
       }),
     );
     const lines = () =>
@@ -434,7 +474,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         .trim()
         .split('\n')
         .filter(Boolean)
-        .map((l) => JSON.parse(l) as { args?: string[]; method?: string });
+        .map((l) => JSON.parse(l) as { args?: string[]; method?: string; capabilities?: unknown; permissions?: string | null; sandbox?: string | null });
     return { result, lines, methods: () => lines().flatMap((l) => (l.method ? [l.method] : [])) };
   }
 
@@ -450,6 +490,29 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   it('fails before the turn when Codex ignored them', async () => {
     const r = run({ FAKE_CODEX_IGNORE: '1' });
     await expect(r.result).rejects.toThrow(/^Codex still loaded hooks and plugins that are left out of this run/);
+    expect(r.methods()).not.toContain('turn/start');
+  });
+
+  it('runs the thread in its own permission profile when there are paths to protect, and checks Codex took it', async () => {
+    const r = run({}, undefined, ['/home/me/.mozilla']);
+    await expect(r.result).resolves.toMatchObject({ sessionId: 'thr-1' });
+    const started = r.lines().find((l) => 'permissions' in l)!;
+    expect(started.capabilities).toEqual({ experimentalApi: true });
+    expect(started.permissions).toMatch(/^harness-relay-[0-9a-f]{16}$/);
+    expect(started.sandbox).toBeNull();
+    // And it answers the experimental API's requests, such as the time.
+    const answer = r.lines().find((l) => 'answer' in l) as { answer?: { id: string; result?: { currentTimeAt: number } } } | undefined;
+    expect(answer?.answer).toMatchObject({ id: 'time-1', result: { currentTimeAt: expect.any(Number) } });
+    expect(Math.abs(answer!.answer!.result!.currentTimeAt - Date.now() / 1000)).toBeLessThan(60);
+    // Nothing to protect: the legacy sandbox, without the experimental API.
+    const legacy = run();
+    await legacy.result;
+    expect(legacy.lines().find((l) => 'permissions' in l)).toMatchObject({ capabilities: null, permissions: null, sandbox: 'read-only' });
+  });
+
+  it('fails before the turn when Codex did not apply the permission profile', async () => {
+    const r = run({ FAKE_CODEX_NO_PROFILE: '1' }, undefined, ['/home/me/.mozilla']);
+    await expect(r.result).rejects.toThrow(/^Codex did not run this thread in the permission profile Harness Relay gave it/);
     expect(r.methods()).not.toContain('turn/start');
   });
 

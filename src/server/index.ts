@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { AgentsViewSync } from './agentsview';
@@ -12,7 +13,8 @@ import { ProviderService } from './providers';
 import { Scheduler } from './scheduler';
 import { clearShareTmp } from './share';
 import { openSystemKeyring } from './secrets';
-import { DB_FILE, SettingsStore } from './settings';
+import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
+import { dataDirInTemp, relayTmpDir } from './protect';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { serveWebApp } from './web';
@@ -64,11 +66,16 @@ if (!built) {
 
 // What shares left behind when the server stopped during them (none is being made yet).
 await clearShareTmp().catch((err: unknown) => console.error('[server] could not clear the temporary share folders:', err));
+// There before any agent runs, so that every sandbox is kept out of it from the first turn (protectedReads).
+mkdirSync(relayTmpDir(), { recursive: true, mode: 0o700 });
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? '127.0.0.1';
 const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   console.log(`Harness Relay API listening on http://${host}:${info.port}`);
+  if (dataDirInTemp()) {
+    console.warn(`[server] The data folder ${DATA_DIR} is in a temp folder, which agents' sandboxes may write in: set RELAY_DATA_DIR to a folder elsewhere.`);
+  }
   // Only this terminal gets the code (nothing keeps it but its hash): a browser opens the link once.
   // With `npm run dev`, the link is Vite's, also when an older build is there.
   const { code } = auth.createCode(CODE_TTL_MS.startup);

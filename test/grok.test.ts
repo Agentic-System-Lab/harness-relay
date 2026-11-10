@@ -1,3 +1,6 @@
+import { lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { JsonRpcConnection, RpcError } from '../src/server/agents/acp';
 import {
@@ -6,6 +9,11 @@ import {
   grokApprovalRequest,
   grokMcpServers,
   grokEnv,
+  grokHome,
+  grokProfileBlock,
+  grokSandboxProfile,
+  withGrokProfile,
+  writeGrokProfile,
   grokNativeEnv,
   grokPermissionDecision,
   type GrokToolCall,
@@ -199,17 +207,19 @@ describe('leaving out what Grok loads by itself', () => {
   });
 
   it("keeps the user's variables and the sandbox next to them", () => {
-    expect(grokEnv({ env: { PATH: '/bin', GROK_MEMORY: '1' }, nativeOff: ['memory', 'mcp'], permission: 'edit' })).toEqual({
+    expect(grokEnv({ env: { PATH: '/bin', GROK_MEMORY: '1' }, nativeOff: ['memory', 'mcp'], permission: 'edit' }, 'linux')).toEqual({
       PATH: '/bin',
       GROK_MEMORY: '0',
       GROK_CLAUDE_MCPS_ENABLED: 'false',
       GROK_CURSOR_MCPS_ENABLED: 'false',
-      GROK_SANDBOX: 'workspace',
+      GROK_SANDBOX: 'harness-relay',
     });
     // Read-only runs in the same profile: Grok's `read-only` one refuses to start on some machines,
     // and a session resumes only under the profile it started with.
-    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' })).toEqual({ PATH: '/bin', GROK_SANDBOX: 'workspace' });
-    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'full' })).toEqual({ PATH: '/bin' });
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' }, 'darwin')).toEqual({ PATH: '/bin', GROK_SANDBOX: 'harness-relay' });
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'full' }, 'linux')).toEqual({ PATH: '/bin' });
+    // Windows: no sandbox to give a deny list to; the built-in profile as before.
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'edit' }, 'win32')).toEqual({ PATH: '/bin', GROK_SANDBOX: 'workspace' });
   });
 });
 
@@ -235,5 +245,55 @@ describe('grok and the tool library', () => {
         false,
       ).map((s) => s.name),
     ).toEqual(['gh']);
+  });
+});
+
+describe("Grok's sandbox profile", () => {
+  it('is its own profile below full access, and the built-in one on Windows', () => {
+    expect(grokSandboxProfile('read-only', 'darwin')).toBe('harness-relay');
+    expect(grokSandboxProfile('edit', 'linux')).toBe('harness-relay');
+    expect(grokSandboxProfile('full', 'linux')).toBeUndefined();
+    expect(grokSandboxProfile('edit', 'win32')).toBe('workspace');
+    expect(grokHome({ GROK_HOME: '/agents/grok' })).toBe('/agents/grok');
+    expect(grokHome({})).toMatch(/\.grok$/);
+  });
+
+  it('is written into sandbox.toml beside the user\'s own profiles, and replaced in place', () => {
+    const block = grokProfileBlock(['/home/me/.mozilla', '/srv/a "b"/relay.db']);
+    expect(block).toContain('[profiles.harness-relay]\nextends = "workspace"\ndeny = ["/home/me/.mozilla", "/srv/a \\"b\\"/relay.db"]');
+    // Control characters are escaped as TOML takes them, DEL included (JSON leaves it as it is).
+    expect(grokProfileBlock(['/a\tb\n\u0001\u007f'])).toContain('deny = ["/a\\tb\\n\\u0001\\u007F"]');
+    const user = '[profiles.mine]\nextends = "strict"\n';
+    const once = withGrokProfile(user, block);
+    expect(once.startsWith(user)).toBe(true);
+    expect(once).toContain(block);
+    // Written again with another list: the block is replaced, the user's profile kept, nothing added twice.
+    const again = withGrokProfile(once, grokProfileBlock(['/x']));
+    expect(again.startsWith(user)).toBe(true);
+    expect(again.match(/\[profiles\.harness-relay\]/g)).toHaveLength(1);
+    expect(again).toContain('deny = ["/x"]');
+    expect(withGrokProfile('', block)).toBe(`${block}\n`);
+  });
+
+  it("writes the file in Grok's home only when it changes", () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-home-'));
+    try {
+      writeGrokProfile(home, ['/x']);
+      const file = join(home, 'sandbox.toml');
+      expect(readFileSync(file, 'utf8')).toContain('deny = ["/x"]');
+      writeFileSync(file, `# mine\n${readFileSync(file, 'utf8')}`);
+      writeGrokProfile(home, ['/x']);
+      expect(readFileSync(file, 'utf8').startsWith('# mine\n')).toBe(true);
+      // A link to the user's own file stays a link; the file it leads to gets the profile.
+      const dotfile = join(home, 'dotfiles-sandbox.toml');
+      writeFileSync(dotfile, '[profiles.mine]\nextends = "strict"\n');
+      rmSync(file);
+      symlinkSync(dotfile, file);
+      writeGrokProfile(home, ['/y']);
+      expect(lstatSync(file).isSymbolicLink()).toBe(true);
+      expect(readFileSync(dotfile, 'utf8')).toContain('deny = ["/y"]');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

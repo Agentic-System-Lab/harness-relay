@@ -10,6 +10,9 @@ export const AUTH_KEY_HEADER = 'x-relay-key';
 /** The error code of a request from a browser that is not signed in. */
 export const SIGNED_OUT = 'signed-out';
 
+/** The error code of edit mode refused in a working directory that holds Harness Relay itself. */
+export const RELAY_FOLDER = 'relay-folder';
+
 /** The fragment a sign-in link ends with: `#code=ABCD-EFGH`. */
 export const CODE_FRAGMENT = 'code=';
 

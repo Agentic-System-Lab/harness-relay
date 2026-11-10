@@ -37,7 +37,7 @@ npm install
 npm run dev        # API on :8787 (restarts on changes) + UI on http://localhost:5173
 ```
 
-`npm run dev` restarts the server whenever a server file changes, and a restart aborts any agent turn that is running. Runtime data goes to `data/` (git-ignored); set `RELAY_DATA_DIR` to keep a test setup apart from your own conversations. The [developer guide](docs/developer-guide.md#running) lists the other environment variables.
+`npm run dev` restarts the server whenever a server file changes, and a restart aborts any agent turn that is running. Runtime data goes to `data/` (git-ignored); set `RELAY_DATA_DIR` to keep a test setup apart from your own conversations. The [developer guide](docs/developer-guide.md#running) lists the other environment variables. Harness Relay refuses edit mode in a working directory that holds itself, so to work on this repository with Harness Relay, run the copy you use from another checkout.
 
 ## Making a change
 

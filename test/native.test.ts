@@ -2,6 +2,17 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+
+// A data folder of its own: asking Claude Code what it loads puts a --settings file in its tmp folder.
+const dataDir = await vi.hoisted(async () => {
+  const { mkdtempSync, realpathSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  process.env.RELAY_DATA_DIR = realpathSync(mkdtempSync(join(tmpdir(), 'relay-native-data-')));
+  return process.env.RELAY_DATA_DIR;
+});
+afterAll(() => rmSync(dataDir, { recursive: true, force: true }));
+
 import { openDatabase } from '../src/server/db';
 import { withLang } from '../src/server/i18n';
 import { SettingsStore } from '../src/server/settings';

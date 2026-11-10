@@ -37,7 +37,7 @@ npm install
 npm run dev        # API 在 :8787（檔案變更時重啟）+ 介面在 http://localhost:5173
 ```
 
-`npm run dev` 會在伺服器檔案變更時重啟伺服器，重啟會中止正在執行的 agent 回合。執行時的資料放在 `data/`（已被 git 忽略）；想讓測試用的設定和自己的對話分開，可以設定 `RELAY_DATA_DIR`。其他環境變數列在[開發者說明](docs/developer-guide.zh-TW.md#執行)。
+`npm run dev` 會在伺服器檔案變更時重啟伺服器，重啟會中止正在執行的 agent 回合。執行時的資料放在 `data/`（已被 git 忽略）；想讓測試用的設定和自己的對話分開，可以設定 `RELAY_DATA_DIR`。其他環境變數列在[開發者說明](docs/developer-guide.zh-TW.md#執行)。工作目錄包含 Harness Relay 本身時，它會拒絕可編輯模式；所以要用 Harness Relay 開發這個 repository，請從另一份 checkout 執行你使用的那份。
 
 ## 進行修改
 
