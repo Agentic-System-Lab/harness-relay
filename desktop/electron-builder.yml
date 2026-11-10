@@ -1,0 +1,55 @@
+# Installers for the desktop app (`npm run desktop:dist`, and the Release workflow), for the system it
+# runs on. They are not signed for distribution: see docs/user-guide.md, "Desktop app".
+appId: io.github.agentic-system-lab.harness-relay
+productName: Harness Relay
+copyright: Copyright © Harness Relay contributors
+directories:
+  app: build/app
+  buildResources: build/resources
+  output: release
+# The server stays outside the app archive: a utility process loads it from Resources/server.
+extraResources:
+  - from: build/server
+    to: server
+  # electron-builder always leaves out a node_modules folder at the top of what it copies, so the
+  # keyring module (native code, not bundled into server.mjs) is copied as its own folder.
+  - from: build/server/node_modules
+    to: server/node_modules
+npmRebuild: false
+electronFuses:
+  # Nobody may run the app's binary as plain Node (macOS would let that code use the app's privacy permissions).
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+  # Signed ad hoc, the same on every computer (not with a certificate found in the keychain): Apple
+  # Silicon runs no unsigned code, and the fuses above change the binary after it was linked.
+  identity: '-'
+  # One app for Apple Silicon and Intel (the Release workflow builds it --universal). The keyring
+  # module's native parts for both processors are in it, the same files in both halves: the server
+  # loads the one for the processor it runs on.
+  x64ArchFiles: 'Contents/Resources/server/node_modules/@napi-rs/keyring-darwin-*/*.node'
+  # The microphone, for voice input in the chat's window: the hardened runtime needs the entitlement,
+  # and macOS shows the reason (Info.plist, translated in macos/*.lproj) when it asks.
+  entitlements: entitlements.mac.plist
+  entitlementsInherit: entitlements.mac.plist
+  extendInfo:
+    # Starts in the menu bar only: the Dock icon shows while the chat's window is open.
+    LSUIElement: true
+    NSMicrophoneUsageDescription: 'Harness Relay uses the microphone for voice input: your speech is turned into text on this computer.'
+  extraResources:
+    - from: macos/en.lproj/InfoPlist.strings
+      to: en.lproj/InfoPlist.strings
+    - from: macos/zh_TW.lproj/InfoPlist.strings
+      to: zh_TW.lproj/InfoPlist.strings
+win:
+  target: nsis
+nsis:
+  oneClick: true
+  perMachine: false
+linux:
+  target: AppImage
+  category: Development

@@ -58,6 +58,8 @@ export function navigate(r: Route): void {
 export function App() {
   const [auth, setAuth] = useState<'checking' | 'in' | 'out'>('checking');
   const [error, setError] = useState<string>();
+  /** Started by the desktop app: the sign-in page points at its menu, not at a terminal. */
+  const [desktopApp, setDesktopApp] = useState(false);
   const state = useRef(auth);
   state.current = auth;
 
@@ -89,7 +91,8 @@ export function App() {
     };
     void (async () => {
       if (await fromLink()) return;
-      const status = await api.authStatus().catch(() => ({ signedIn: false }));
+      const status = await api.authStatus().catch(() => ({ signedIn: false, desktop: false }));
+      if (live) setDesktopApp(status.desktop === true);
       if (live) setAuth(status.signedIn ? 'in' : 'out');
     })();
     const onHash = () => void fromLink();
@@ -105,7 +108,7 @@ export function App() {
 
   if (auth === 'checking') return null;
   // Keyed by the error, so a link with a wrong code shows its message on a page already open.
-  if (auth === 'out') return <SignIn key={error} error={error} onSignedIn={() => setAuth('in')} />;
+  if (auth === 'out') return <SignIn key={error} error={error} desktopApp={desktopApp} onSignedIn={() => setAuth('in')} />;
   return <RelayApp />;
 }
 

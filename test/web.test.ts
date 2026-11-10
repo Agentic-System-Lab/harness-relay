@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { afterAll, describe, expect, it } from 'vitest';
-import { serveWebApp } from '../src/server/web';
+import { serveWebApp, webAppDir } from '../src/server/web';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-web-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -69,5 +69,14 @@ describe('the built web app', () => {
   it('serves nothing without a build', () => {
     const app = new Hono();
     expect(serveWebApp(app, join(root, 'missing'))).toBe(false);
+  });
+});
+
+describe('where the built web app is', () => {
+  it('is dist/web in the folder the server started from, unless RELAY_WEB_DIR says otherwise', () => {
+    expect(webAppDir({}, '/repo')).toBe(join('/repo', 'dist', 'web'));
+    expect(webAppDir({ RELAY_WEB_DIR: ' ' }, '/repo')).toBe(join('/repo', 'dist', 'web'));
+    expect(webAppDir({ RELAY_WEB_DIR: '/app/server/web' }, '/repo')).toBe(join('/app', 'server', 'web'));
+    expect(webAppDir({ RELAY_WEB_DIR: 'build/web' }, '/repo')).toBe(join('/repo', 'build', 'web'));
   });
 });

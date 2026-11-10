@@ -37,6 +37,8 @@ npm install
 npm run dev        # API 在 :8787（檔案變更時重啟）+ 介面在 http://localhost:5173
 ```
 
+要修改桌面 app（`desktop/`）？先執行一次 `npm install --prefix desktop`，再用 `npm run desktop` 建置並執行它；它的運作方式見[開發者說明](docs/developer-guide.zh-TW.md#桌面-app)。
+
 `npm run dev` 會在伺服器檔案變更時重啟伺服器，重啟會中止正在執行的 agent 回合。執行時的資料放在 `data/`（已被 git 忽略）；想讓測試用的設定和自己的對話分開，可以設定 `RELAY_DATA_DIR`。其他環境變數列在[開發者說明](docs/developer-guide.zh-TW.md#執行)。工作目錄包含 Harness Relay 本身時，它會拒絕可編輯模式；所以要用 Harness Relay 開發這個 repository，請從另一份 checkout 執行你使用的那份。
 
 ## 進行修改
@@ -97,6 +99,10 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+如果修改了桌面 app，也要執行 `npm run desktop:typecheck`，並用 `npm run desktop` 試用。
+
+發佈只由維護者透過發佈 workflow 進行（**Actions → Release**，從 `main`，以今天的日期為版本）：絕不要手動建立版本 tag。詳見開發者說明的[發佈](docs/developer-guide.zh-TW.md#發佈)。
 
 [CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行這些檢查。
 

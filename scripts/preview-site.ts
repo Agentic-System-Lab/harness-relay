@@ -24,7 +24,7 @@ const TYPES: Record<string, string> = {
 };
 
 /** Files that stay in the repository only, like the Pages workflow leaves them out. */
-const hidden = (file: string) => file.endsWith('.md') || file.endsWith('.webp.json');
+const hidden = (file: string) => file.endsWith('.md') || file.endsWith('.webp.json') || file.endsWith('.d.ts');
 
 function inside(base: string, rel: string): string | null {
   const file = resolve(base, rel);

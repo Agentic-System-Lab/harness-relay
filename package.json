@@ -14,7 +14,12 @@
     "test": "vitest run",
     "site:preview": "tsx scripts/preview-site.ts",
     "icons": "tsx scripts/app-icons.ts",
-    "demo": "tsx scripts/demo/index.ts"
+    "demo": "tsx scripts/demo/index.ts",
+    "desktop": "npm run build && npm --prefix desktop run build && npm --prefix desktop start",
+    "desktop:dist": "npm run build && npm --prefix desktop run build && npm --prefix desktop run dist",
+    "desktop:typecheck": "npm --prefix desktop run typecheck",
+    "release:next": "tsx scripts/release.ts next --remote",
+    "release:check": "tsx scripts/release.ts check"
   },
   "engines": {
     "node": ">=22.13"

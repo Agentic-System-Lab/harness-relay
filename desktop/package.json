@@ -1,0 +1,19 @@
+{
+  "name": "harness-relay-desktop",
+  "private": true,
+  "description": "The Harness Relay desktop app: runs the server in the background, with an icon in the menu bar or system tray, and opens the chat in the browser.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsx scripts/build.ts",
+    "start": "electron build/app",
+    "dist": "tsx scripts/dist.ts",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2"
+  }
+}

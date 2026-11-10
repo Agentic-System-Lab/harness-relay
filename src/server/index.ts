@@ -1,5 +1,4 @@
 import { mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { AgentsViewSync } from './agentsview';
 import { createApp } from './app';
@@ -8,6 +7,7 @@ import { signInLink } from './signin';
 import { openDatabase } from './db';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
+import { desktopParent } from './parent';
 import { killAll } from './process';
 import { ProviderService } from './providers';
 import { Scheduler } from './scheduler';
@@ -17,7 +17,7 @@ import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import { dataDirInTemp, relayTmpDir } from './protect';
 import { Store } from './store';
 import { VoiceService } from './voice';
-import { serveWebApp } from './web';
+import { serveWebApp, webAppDir } from './web';
 
 // A failure in a background task (a run winding down, a stream write) must not take the server — and
 // every other conversation — down with it.
@@ -52,12 +52,15 @@ const orchestrator = new Orchestrator(
 // Sends each conversation's scheduled message when it comes due.
 const scheduler = new Scheduler(store, orchestrator);
 
+// The desktop app, when it started this server (desktop/); undefined for `npm start` and `npm run dev`.
+const parent = desktopParent();
+
 const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
-const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, agentsView, extraHosts });
+const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, agentsView, extraHosts, desktopApp: Boolean(parent) });
 
 // --- Static web app (production build) ------------------------------------------
 
-const built = serveWebApp(app, resolve(process.cwd(), 'dist/web'));
+const built = serveWebApp(app, webAppDir());
 if (!built) {
   app.get('/', (c) => c.text('Web UI is not built. Run `npm run dev` (http://localhost:5173) or `npm run build` first.'));
 }
@@ -76,17 +79,31 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   if (dataDirInTemp()) {
     console.warn(`[server] The data folder ${DATA_DIR} is in a temp folder, which agents' sandboxes may write in: set RELAY_DATA_DIR to a folder elsewhere.`);
   }
-  // Only this terminal gets the code (nothing keeps it but its hash): a browser opens the link once.
-  // With `npm run dev`, the link is Vite's, also when an older build is there.
-  const { code } = auth.createCode(CODE_TTL_MS.startup);
-  const dev = !built || process.env.npm_lifecycle_event === 'dev';
-  console.log(`Sign this browser in (once, within an hour): ${signInLink(code, { host, port: info.port, dev })}`);
+  if (parent) {
+    // The desktop app asks for a link each time it opens the chat (over its port: none goes to the
+    // log, which agents could read), so no code is printed.
+    parent.onSignInLink(() => signInLink(auth.createCode(CODE_TTL_MS.desktop).code, { host, port: info.port }));
+    parent.send({ type: 'listening', host, port: info.port });
+  } else {
+    // Only this terminal gets the code (nothing keeps it but its hash): a browser opens the link once.
+    // With `npm run dev`, the link is Vite's, also when an older build is there.
+    const { code } = auth.createCode(CODE_TTL_MS.startup);
+    const dev = !built || process.env.npm_lifecycle_event === 'dev';
+    console.log(`Sign this browser in (once, within an hour): ${signInLink(code, { host, port: info.port, dev })}`);
+  }
   // Times missed while the server was not running are handled now, by each schedule's choice.
   scheduler.start();
 });
+// Without a listener, a port already in use would end the process with a stack trace.
+server.on('error', (err: NodeJS.ErrnoException) => {
+  const hint = err.code === 'EADDRINUSE' ? ' Another program (or another Harness Relay) is using it; start with another PORT.' : '';
+  console.error(`[server] could not listen on http://${host}:${port}: ${err.message}.${hint}`);
+  parent?.send({ type: 'error', code: err.code ?? 'ERROR', message: err.message });
+  void shutdown(1);
+});
 
 let shuttingDown = false;
-async function shutdown(): Promise<void> {
+async function shutdown(code = 0): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   setTimeout(() => process.exit(1), 10_000).unref(); // never hang on the way out
@@ -103,7 +120,9 @@ async function shutdown(): Promise<void> {
   await killAll();
   store.flushAll();
   db.close();
-  process.exit(0);
+  process.exit(code);
 }
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => void shutdown());
+process.on('SIGTERM', () => void shutdown());
+// The desktop app asks over its port: on Windows it has no signal to send.
+parent?.onShutdown(() => void shutdown());

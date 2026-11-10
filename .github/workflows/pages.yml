@@ -33,13 +33,14 @@ jobs:
       - uses: actions/checkout@v7
 
       # The page plays the demo videos from docs/media, so they are copied in rather than stored twice.
-      # Markdown (the design guidelines) and image provenance sidecars stay in the repository only.
+      # Markdown (the design guidelines), image provenance sidecars and type declarations (for the
+      # tests) stay in the repository only.
       - name: Assemble the site
         run: |
           mkdir -p _site/media
           cp -R site/. _site/
           cp docs/media/demo-en.mp4 docs/media/demo-zh-TW.mp4 _site/media/
-          find _site \( -name '*.md' -o -name '*.webp.json' \) -delete
+          find _site \( -name '*.md' -o -name '*.webp.json' -o -name '*.d.ts' \) -delete
           find _site -type f | sort
 
       - uses: actions/configure-pages@v6

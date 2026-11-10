@@ -8,7 +8,7 @@ import { Logo } from './Logo';
  * printed in its terminal (which fills it in by itself), `npm run login`, or a browser already
  * signed in (for a phone).
  */
-export function SignIn({ error, onSignedIn }: { error?: string; onSignedIn: () => void }) {
+export function SignIn({ error, desktopApp, onSignedIn }: { error?: string; desktopApp?: boolean; onSignedIn: () => void }) {
   const t = useT();
   const s = t.signIn;
   const [code, setCode] = useState('');
@@ -62,10 +62,17 @@ export function SignIn({ error, onSignedIn }: { error?: string; onSignedIn: () =
         )}
         <h2>{s.whereTitle}</h2>
         <ul className="signin-where">
-          <li>{s.whereTerminal}</li>
-          <li>
-            {s.whereLogin} <code>npm run login</code>
-          </li>
+          {desktopApp ? (
+            // The desktop app has no terminal: its menu opens a new sign-in link.
+            <li>{s.whereDesktop}</li>
+          ) : (
+            <>
+              <li>{s.whereTerminal}</li>
+              <li>
+                {s.whereLogin} <code>npm run login</code>
+              </li>
+            </>
+          )}
           <li>{s.whereOther}</li>
         </ul>
       </section>

@@ -1,0 +1,208 @@
+name: Release
+
+# Run by hand: Actions → Release → Run workflow, from main, with today's version (see
+# docs/developer-guide.md, "Releasing"). It checks the version (scripts/release.ts) and the code,
+# builds the desktop app's installers on macOS, Windows and Linux, and publishes the three as one
+# GitHub release, tagged with the version. A release candidate is published as a pre-release.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Today's date in Taiwan: YYYY-MM-DD-rc for a release candidate, YYYY-MM-DD for a release, then .1, .2… for the same day's patches (npm run release:next prints them)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One release at a time, so that two runs cannot take the same version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # The day of a release, and so its version, is the day in this time zone (RELEASE_TIME_ZONE in
+  # scripts/release.ts).
+  RELEASE_TIME_ZONE: Asia/Taipei
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Check the version and the code
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      title: ${{ steps.version.outputs.title }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      today: ${{ steps.version.outputs.today }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      # First, so that a wrong version fails in seconds. The version reaches the script through the
+      # environment, never inside the command line itself (no script injection).
+      - name: Check the version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node scripts/release.ts check "$VERSION" --remote
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: check
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            # One app for Apple Silicon and Intel Macs (the download page cannot tell them apart).
+            target: --mac dmg --universal
+          - name: Windows
+            os: windows-latest
+            target: --win nsis --x64
+          - name: Linux
+            os: ubuntu-latest
+            target: --linux AppImage --x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      # The version the app is built as (desktop/scripts/build.ts) and its installers are named after.
+      RELAY_VERSION: ${{ needs.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # electron-builder downloads the Electron it packages by itself.
+      - name: Install the desktop app's tools
+        run: npm ci --prefix desktop
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      # The universal Mac app holds the keyring module's native part for both processors; npm
+      # installs only the one for the runner's (Apple Silicon), so the Intel one is added.
+      - name: Add the keyring module for Intel Macs
+        if: runner.os == 'macOS'
+        run: npm install --no-save --force @napi-rs/keyring-darwin-x64@"$(node -p "require('./node_modules/@napi-rs/keyring/package.json').version")"
+
+      - name: Build the web app
+        run: npm run build
+
+      - name: Build the desktop app
+        run: npm --prefix desktop run build
+
+      # Without the Intel half, the universal app would start on an Intel Mac without its keychain.
+      - name: Check that the Mac app has the keyring module for both processors
+        if: runner.os == 'macOS'
+        run: |
+          test -d desktop/build/server/node_modules/@napi-rs/keyring-darwin-arm64
+          test -d desktop/build/server/node_modules/@napi-rs/keyring-darwin-x64
+
+      # On each system: the bundled server listens, signs a browser in and stops as the app needs.
+      - name: Run the bundled server as the desktop app does
+        run: npx tsx desktop/scripts/smoke.ts
+
+      # Not signed for distribution: on macOS the app is signed ad hoc (desktop/electron-builder.yml;
+      # Apple Silicon runs nothing unsigned), and no identity is looked for in the keychain.
+      # The installers are named after the version: Harness-Relay-<version>-<os>-<arch>.<ext>.
+      - name: Make the installer
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder ${{ matrix.target }} --publish never -c.artifactName='Harness-Relay-${env.RELAY_VERSION}-${os}-${arch}.${ext}'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installer-${{ matrix.name }}
+          path: |
+            desktop/release/Harness-Relay-*.dmg
+            desktop/release/Harness-Relay-*.exe
+            desktop/release/Harness-Relay-*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish the release
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # Again, against the tags as they are now and the day the run started (a long build may end
+      # after midnight): another release may have taken the version meanwhile.
+      - name: Check the version again
+        env:
+          VERSION: ${{ needs.check.outputs.tag }}
+          TODAY: ${{ needs.check.outputs.today }}
+        run: node scripts/release.ts check "$VERSION" --remote --today "$TODAY"
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: installer-*
+          path: installers
+          merge-multiple: true
+
+      - name: Expect one installer per system
+        run: |
+          ls -l installers
+          for ext in dmg exe AppImage; do
+            count=$(find installers -maxdepth 1 -name "*.$ext" | wc -l)
+            if [ "$count" -ne 1 ]; then
+              echo "::error::Expected one .$ext installer, found $count."
+              exit 1
+            fi
+          done
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
+          TITLE: ${{ needs.check.outputs.title }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = true ]; then
+            channel=(--prerelease --latest=false)
+            kind='A release candidate: try it before the release.'
+          else
+            channel=(--latest)
+            kind='A release.'
+          fi
+          notes="$kind
+
+          **Download:** \`.dmg\` for macOS (Apple Silicon and Intel), \`.exe\` for Windows, \`.AppImage\` for Linux (x64). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
+          # The tag is made on the commit that was checked and built.
+          gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes "$notes" --generate-notes "${channel[@]}"

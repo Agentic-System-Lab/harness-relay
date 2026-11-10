@@ -5,15 +5,15 @@ How the Harness Relay landing page (`site/`) looks, reads and behaves, and what 
 ## Goal
 
 - **Reader:** a developer who already uses one or more of the Claude Code, Codex and Grok CLIs.
-- **Job of the page:** within a minute, show three real CLIs working in one chat, then get the reader to clone and run it (`git clone`, `npm install`, `npm run build`, `npm start`) or open the repository. `npm run dev` is only for people working on Harness Relay itself, so it appears once, under the quick start.
-- **Primary action:** the copyable clone-and-run command and the GitHub button in the hero. The page ends on the quick start, never on a dead end.
+- **Job of the page:** within a minute, show three real CLIs working in one chat, then get the reader to download the desktop app for their system, or open the repository. There are no commands to start it: running from source (`npm start`, and `npm run dev` for people working on Harness Relay itself) is one line at the end of the quick start, for servers without a desktop, linking to the README.
+- **Primary action:** the download button in the hero, named after the visitor's system ("Download for macOS"), with the link to the requirements and the other systems beside it; the GitHub button sits under them. The hero is as wide as the header: the headline fills the width (`text-wrap: pretty`, not balanced shorter), and the buttons end at the right edge, under the header's GitHub button (on one column, 920px and narrower, they start at the left). The page ends on the quick start, never on a dead end.
 
 ## Principles
 
 1. **Show the run, don't describe it.** The first viewport is the real demo recording with a chapter rail. Every section after it shows the mechanism (mode diagrams, the app's own UI) before it explains it.
 2. **The app's world, at poster scale.** The page is recognisably the same product as the app: same neutrals, same agent colours, same three-dot mark, same avatars and pills. It is bolder in scale, not in new decoration.
 3. **Colour means an agent.** Claude Code orange, Codex green and Grok violet appear only where that agent acts or is named. Never use them for generic accents, links or section themes. The one other colour is the GitHub star's yellow, only on that star.
-4. **Facts only.** Every claim must be true of the code in this repository. There are no testimonials, user counts or benchmarks; do not add any. The one number about the project is the GitHub star count on the two GitHub buttons, read live from GitHub's API; never write a count into the page.
+4. **Facts only.** Every claim must be true of the code in this repository. There are no testimonials, user counts, download counts or benchmarks; do not add any. The numbers about the project are the GitHub star count on the two GitHub buttons and the newest release's version and installer sizes in the quick start, read live from GitHub's API; never write them into the page.
 5. **Two languages, equal.** English and 繁體中文 pages have the same sections, order and facts.
 
 ## Visual system
@@ -53,7 +53,7 @@ Rules:
 | --- | --- | --- | --- |
 | Display (h1, h2, h3, brand) | Bricolage Grotesque, self-hosted (`assets/fonts/`, OFL) | h1 `clamp(2.6rem … 5.25rem)`, h2 `clamp(2rem … 3.4rem)` | Weight 700, slightly condensed (`font-stretch` 92–94%), tracking −0.03 to −0.035em, `text-wrap: balance` |
 | Body | System UI stack (same as the app) | 16px / 1.6 | Lead paragraphs 17–19.5px in `--muted` |
-| Chinese | PingFang TC, then Noto Sans TC, then Microsoft JhengHei | | Headings get looser tracking (−0.01em) and line height (1.12–1.16) under `:lang(zh)` |
+| Chinese | PingFang TC, then Noto Sans TC, then Microsoft JhengHei | | Headings get looser tracking (−0.01em) and line height (1.12–1.16) under `:lang(zh)`. A phrase the headline must not break inside (Chinese breaks between any two characters) goes in `<span class="phrase">` |
 | Code | System monospace stack | 13.5px in blocks | Only for real commands, file names and protocol names, never as decoration |
 
 The font file only covers Latin; Chinese always comes from the system stack.
@@ -70,19 +70,21 @@ The font file only covers Latin; Chinese always comes from the system stack.
 - **Mark:** the three circles from the favicon (`#i-mark` symbol), same geometry as `src/web/components/Logo.tsx`. At page scale it becomes the three agent discs in "Your CLIs, not imitations".
 - **Avatar** (`.av`): the member's initial on a `-deep` fill, like the app. Initials match the template or demo member names.
 - **Pill** (`.pill`): the app's CLI badge, tinted agent colour with `-ink` text. **Chip** (`.chip`): neutral outline for mode, permission and round labels.
-- **Buttons:** primary is ink on light (`.btn-primary`), secondary is outlined (`.btn-ghost`). One primary per view.
+- **Buttons:** primary is ink on light (`.btn-primary`), secondary is outlined (`.btn-ghost`). One primary per view: in the hero, the download button.
+- **Downloads** (`assets/downloads.js`, a module whose functions `test/site-downloads.test.ts` tests): every download link points at the releases page in the HTML, so the page works without JavaScript. The module reads GitHub's list of releases (release candidates included, which GitHub's "latest release" link skips; kept in `localStorage` under `harness-relay.release` for ten minutes, like the stars), points each `[data-download]` link at its installer in the newest release (`-mac-universal.dmg`, `-win-x64.exe`, `-linux-x86_64.AppImage`, as the Release workflow names them), fills in each size and the version line, names the visitor's system on the hero's button (`data-mac`, `data-win`, `data-linux` on `[data-downloads]` hold the words) and marks their card *Your system*. There is one Mac app for Apple Silicon and Intel, since a browser cannot tell them apart. On a phone the hero's button goes to the quick start, with a line saying Harness Relay runs on a computer. With no release found, nothing changes: the links keep the releases page.
+- **Download cards** (`.dl`): one row per system in the quick start, with the system's icon, name, processor and file type (and size), and the download icon; the visitor's has a firmer outline and the *Your system* label on its edge.
 - **Star count** (`.stars`): the GitHub buttons in the header and the hero end in the repository's star count after a hairline, with the `#i-star` icon filled yellow (`--star`, with a darker `--star-edge` on a light button; the primary button uses the `--star-inverse` pair), and screen readers hear "12 stars" / "12 顆星". `site.js` reads it from `api.github.com` as the page loads, shortens it like GitHub does in the page's language (English `999`, `1.2K`, `12.3K`, `123K`, `1.2M`; 中文 `999`, `1,234`, `1.2萬`, `12.3萬`, `123萬`) and keeps it in `localStorage` under `harness-relay.stars` for ten minutes (the API allows a visitor 60 requests an hour). When GitHub can't be reached the last count shows; with none, or without JavaScript, the buttons show no count. On phones the header button drops the word "GitHub" and keeps the count.
-- **Quick start step:** a step with more than one block (text, command, text) wraps them in `.step-body`, so they stay together in the right-hand column.
-- **Command block** (`.cmd`): `$` prompts are not copied; the copy button copies the commands only and confirms with a check. One command per line, never joined with `&&`: Windows PowerShell 5.1, still the default shell on Windows, rejects `&&`, while separate lines run in every shell.
+- **Quick start step:** a step with more than one block (the download cards, text) wraps them in `.step-body`, so they stay together in the right-hand column.
+- **Command block** (`.cmd`, not on the page now): `$` prompts are not copied; the copy button copies the commands only and confirms with a check. One command per line, never joined with `&&`: Windows PowerShell 5.1, still the default shell on Windows, rejects `&&`, while separate lines run in every shell.
 - **UI excerpts** (`.ui`): approval card, question, changed files, waiting message tray. They recreate the app's components with sample content, and the page says so under them. Keep them faithful to the app when the app changes.
-- **Icons:** drawn inline SVG symbols in one 1.8px stroke. No emoji or Unicode glyphs as icons.
+- **Icons:** drawn inline SVG symbols in one 1.8px stroke. No emoji or Unicode glyphs as icons, and no company logos: the systems are a command key (macOS), a four-pane window (Windows) and a penguin (Linux).
 
 ## Page structure
 
 | # | Section | Purpose |
 | --- | --- | --- |
 | 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count |
-| 2 | Hero | Headline with the three agent names in their colours, one sentence, clone-and-run command, GitHub button with the star count |
+| 2 | Hero | Headline with the three agent names in their colours, one sentence, the download button for the visitor's system with the link to the requirements beside it, GitHub button with the star count |
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
 | 4 | Your CLIs (`#agents`) | How each CLI is driven; the mark at page scale |
 | 5 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
@@ -90,7 +92,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 7 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray |
 | 8 | Also in every chat (`#more`) | The remaining features as a two-column list |
 | 9 | Safety (`#safety`) | Local-only facts (sign-in, the agents' sandboxes) and the permission table, with a link to the sandboxing doc |
-| 10 | Quick start (`#start`) | One row per step (title left, content right): requirements, commands, first steps, then (optional) opening it on a phone through `tailscale serve`; then links to the docs |
+| 10 | Quick start (`#start`) | One row per step (title left, content right): requirements (the CLIs), the three installers with the newest version and how to open them the first time, first steps, then (optional) opening it on a phone with the app's *Share with your phone*; then running from source in one line, and links to the docs |
 
 Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numbers, gradient text, stat counters.
 

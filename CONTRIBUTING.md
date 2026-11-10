@@ -37,6 +37,8 @@ npm install
 npm run dev        # API on :8787 (restarts on changes) + UI on http://localhost:5173
 ```
 
+Working on the desktop app (`desktop/`)? Run `npm install --prefix desktop` once, then `npm run desktop` to build it and run it; the [developer guide](docs/developer-guide.md#the-desktop-app) explains how it works.
+
 `npm run dev` restarts the server whenever a server file changes, and a restart aborts any agent turn that is running. Runtime data goes to `data/` (git-ignored); set `RELAY_DATA_DIR` to keep a test setup apart from your own conversations. The [developer guide](docs/developer-guide.md#running) lists the other environment variables. Harness Relay refuses edit mode in a working directory that holds itself, so to work on this repository with Harness Relay, run the copy you use from another checkout.
 
 ## Making a change
@@ -97,6 +99,10 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+If you changed the desktop app, also run `npm run desktop:typecheck`, and try it with `npm run desktop`.
+
+Releases are made by maintainers with the Release workflow only (**Actions → Release**, from `main`, today's date as the version): never tag a version by hand. See [Releasing](docs/developer-guide.md#releasing) in the developer guide.
 
 [CI](.github/workflows/ci.yml) runs them on Node 22 and 24 for every pull request and every push to `main`.
 

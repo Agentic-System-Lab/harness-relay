@@ -20,6 +20,65 @@ The dots at the bottom of the sidebar show each agent's status: green = ready, o
 
 To use Harness Relay from your phone, a tablet or another computer, share it with your tailnet through `tailscale serve` and add it to the phone's home screen: see [Use it from your phone (Tailscale)](remote-access.md). On the computer, Chrome and Edge can also install it as an app (the install button in the address bar), and Safari on macOS can add it to the Dock (**File → Add to Dock**).
 
+### Desktop app
+
+Instead of `npm start` in a terminal, you can install Harness Relay as a desktop app on macOS (13 Ventura or later, Apple Silicon or Intel), Windows 10 or later, or Linux with a desktop. It runs the same server in the background and shows the chat in a window of its own, signed in, with no address bar. Closing the window leaves the server running, with an icon in the menu bar or the system tray, so the chat works on your phone as before. Like `npm start`, it needs the agent CLIs; it does not need Node.js.
+
+**Install it.** Download the installer for your system from [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases). For now they are all release candidates (versions ending in `-rc`, see [Versions](#versions)).
+
+- **macOS**: `Harness-Relay-<version>-mac-universal.dmg` (one app for Apple Silicon and Intel). Open it and drag Harness Relay to Applications.
+- **Windows**: `Harness-Relay-<version>-win-x64.exe`. It installs for your user only, without administrator rights.
+- **Linux**: `Harness-Relay-<version>-linux-x86_64.AppImage`. Make it executable (`chmod +x`) and run it.
+
+Or build it yourself in a clone, after `npm install`. The installer for the system you build on goes to `desktop/release/`, and `npm run desktop` runs the app without installing it:
+
+```bash
+npm install --prefix desktop
+npm run desktop:dist
+```
+
+The installers are not signed for distribution yet (on macOS they are signed ad hoc), so the system warns the first time the app opens:
+
+- **macOS**: *Apple could not verify "Harness Relay"*. Open **System Settings → Privacy & Security** and click **Open Anyway** next to Harness Relay.
+- **Windows**: SmartScreen says *Windows protected your PC*. Click **More info**, then **Run anyway**.
+- **Linux**: on Ubuntu 24.04 and other systems that restrict unprivileged user namespaces, the AppImage may stop at once with a message about the *SUID sandbox helper*. Start it with `--no-sandbox` (`./Harness-Relay-….AppImage --no-sandbox`); **Open at login** then starts it the same way.
+
+**Signing in.** The app opens the chat with a one-time sign-in link it gets from its server, so the window is signed in without a code to type; **Open in browser** does the same in your default browser. That link is never printed or written to a log, and it works for one minute. The window is a browser of its own: it is listed under **Settings → Signed-in browsers**, and its guided tour and language are its own. To sign in a phone, open **Settings → Signed-in browsers → Sign in another device**, as with `npm start`. If a page ever shows the sign-in page, choose **Open Harness Relay** in the app's menu.
+
+**The window.** Closing it leaves Harness Relay running in the menu bar or the system tray (on macOS its Dock icon goes away until the window opens again); **Quit** (⌘Q on macOS) stops it. Links to other sites open in your default browser, and files you download from the chat are saved through the usual save dialog. Voice input asks for the microphone the first time. On Windows and Linux, Alt shows the window's menu bar, which has **Quit** too.
+
+**The menu.** The app's icon, Harness Relay's three dots, is in the menu bar on macOS and in the system tray on Windows and Linux. On Windows, a click opens the chat and the menu is on the right button. The menu has:
+
+| Item | What it does |
+| --- | --- |
+| *Running at http://127.0.0.1:8787* | The server's state: starting, running, stopping or stopped. |
+| **Open Harness Relay** | Shows the chat's window. Opening the app again (from the Dock, Launchpad or Start menu) does the same. |
+| **Open in browser** | Opens the chat in your default browser instead, signed in. |
+| **Share with your phone (Tailscale)…** | Shares the server with your tailnet, which is steps 1 and 2 of [Use it from your phone](remote-access.md#with-the-desktop-app), and shows the address to open on the phone. Once it is shared, **Copy phone address** copies it. |
+| **Open at login** | Starts the app when you log in, without opening its window. |
+| **Keep this computer awake while running** | Keeps the computer from going to sleep by itself while the app runs, so your phone can reach it. A MacBook still sleeps when you close the lid. |
+| **Open data folder**, **Show log** | The app's data folder (see below) and the server's log. |
+| **Restart server…**, **Start server** | Restarts the server (replies in progress stop), or starts it again after it stopped. |
+| *Version* | The app's version. |
+| **Quit Harness Relay** | Stops the server, which stops every agent first, and quits. |
+
+Some Linux desktops hide tray icons (GNOME without the AppIndicator extension, for example). There, open the app again to show its window, and quit it from the window's menu bar (Alt).
+
+**What is different from `npm start`:**
+
+- **Its own folder.** The app keeps its files in `~/Library/Application Support/Harness Relay` on macOS, `%APPDATA%\Harness Relay` on Windows and `~/.config/Harness Relay` on Linux: conversations and settings in its `data` folder, its own settings in `desktop.json`. A clone's `data/` is not used. To bring your conversations along, quit both, then copy what is in the clone's `data/` folder into the app's `data` folder, and enter your API keys and MCP servers' secret values again in Settings (they are in the credential store, under another name: see the next point). Or set `RELAY_DATA_DIR` in your shell profile, which the app reads too. Never run both on the same data at once.
+- **Its own API keys.** With its own data folder, the app files API keys in the credential store under `harness-relay-desktop`, apart from `npm start`'s (`harness-relay`), so a key saved or removed in one does not change the other. With `RELAY_DATA_DIR` set, both use `harness-relay`, as the data is shared.
+- **Your shell's environment.** On macOS and Linux the app reads the environment your login shell sets up (PATH, API keys and other variables from `~/.zshrc`, `~/.bashrc` and so on), so it finds the CLIs as your terminal does. It reads it again on **Restart server…** and **Start server**: choose one after you install a CLI or change your profile. On Windows, the app gets PATH from the system when it opens: quit it and open it again instead.
+- **Always 127.0.0.1, port 8787.** A `PORT` or `HOST` in your shell profile is meant for other programs, so the app ignores it. To use another port, quit the app and set `"port"` in its `desktop.json` (create the file if it is not there: `{ "port": 8790 }`). If the port is taken, by a Harness Relay you started with `npm start` for example, the app says so and offers to try again.
+- **The default working directory** is your home folder until you change it in Settings.
+- **The server's log** is `~/Library/Logs/Harness Relay/server.log` on macOS, and `logs/server.log` in the app's folder on Windows and Linux.
+- **macOS may ask** whether Harness Relay may access a folder such as Documents or Desktop, the first time an agent works there, whether it may use the microphone, the first time you use voice input, and whether it may use its keys in your keychain after an update. The questions name the app, because the agents run inside it. Choose **Allow** (or **Always Allow**).
+- **Quitting** stops every agent first. Force-quitting the app (or a crash) can leave an agent that was replying running, as stopping `npm start` with `kill -9` would.
+
+### Versions
+
+A version is the date it was released, in Taiwan's time zone: `2026-11-10` is a release, and `2026-11-10-rc` a release candidate, made to be tried before a release. A fix released the same day adds a number: `2026-11-10.1`, `2026-11-10-rc.2`. The menu shows the app's version, and [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) marks release candidates as pre-releases.
+
 ### Language and the guided tour
 
 The UI is available in **English** and **繁體中文**. On your first visit it follows your browser's language (any Chinese → 繁體中文, otherwise English) and remembers the choice in this browser; switch any time under **Settings & sign-in → Language**. Error messages and system notes from the server follow the same language.
@@ -55,7 +114,7 @@ Under **API key** on each card:
 - **Grok** — passed as `XAI_API_KEY`.
 - **Codex** — handed to `codex login --with-api-key`; Codex stores it and it replaces the ChatGPT login.
 
-Harness Relay keeps the Claude Code and Grok keys in your system's credential store, filed under `harness-relay`: the macOS Keychain, Windows Credential Manager, or the Secret Service on Linux (GNOME Keyring, KWallet). The card says where. On a system without one — such as a Linux server with no desktop session — keys are kept in the database instead, readable only by your user; if you'd rather not, leave the field empty and set `ANTHROPIC_API_KEY` / `XAI_API_KEY` in the environment before starting Harness Relay. Keys saved by an earlier version are moved out of the database the next time the server starts. macOS may ask whether `node` may use the key (for example after Node.js is updated); choose **Always Allow**.
+Harness Relay keeps the Claude Code and Grok keys in your system's credential store, filed under `harness-relay` (the [desktop app](#desktop-app)'s under `harness-relay-desktop`): the macOS Keychain, Windows Credential Manager, or the Secret Service on Linux (GNOME Keyring, KWallet). The card says where. On a system without one — such as a Linux server with no desktop session — keys are kept in the database instead, readable only by your user; if you'd rather not, leave the field empty and set `ANTHROPIC_API_KEY` / `XAI_API_KEY` in the environment before starting Harness Relay. Keys saved by an earlier version are moved out of the database the next time the server starts. macOS may ask whether `node` may use the key (for example after Node.js is updated); choose **Always Allow**.
 
 ### Default model and reasoning effort
 
@@ -393,7 +452,7 @@ Click **Search** under **New chat** and type. Conversations whose title or messa
 
 ## 6. Where data is stored
 
-All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. The links you shared are listed there too; the pages themselves, with the files that went along, are secret gists on GitHub. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`), or in [the CLIs' own folder](#agent-sessions-the-clis-own-folder-and-agentsview) when you set one. Voice input's models (and, on Linux and Windows, its engine) are in `data/voice/`; **Settings → Voice input → Remove voice input** deletes them. The [tool library](#tool-library-mcp-servers-skills-and-memory) is in `data/relay.db` too, except the values of MCP servers' variables and headers, which go to the credential store like API keys. Your language choice and which version of the tour you finished are kept in the browser. Back up by copying `data/` while the app is stopped.
+All conversations, templates and settings are stored in `data/relay.db` (SQLite) in the project folder, readable only by your user. The links you shared are listed there too; the pages themselves, with the files that went along, are secret gists on GitHub. API keys are the exception: they go to your system's credential store (see [API keys](#api-keys-optional)). Files you attach are kept in `data/attachments/<conversation>/`, readable only by your user, and are deleted with the conversation (or when editing an earlier message drops the messages they belonged to). Parallel-mode worktrees live in `data/worktrees/` (on `relay/…` branches of your repository) and are removed when you delete the conversation. Each CLI also keeps its own session history in its usual location (`~/.claude…`, `~/.codex`, `~/.grok`), or in [the CLIs' own folder](#agent-sessions-the-clis-own-folder-and-agentsview) when you set one. Voice input's models (and, on Linux and Windows, its engine) are in `data/voice/`; **Settings → Voice input → Remove voice input** deletes them. The [tool library](#tool-library-mcp-servers-skills-and-memory) is in `data/relay.db` too, except the values of MCP servers' variables and headers, which go to the credential store like API keys. Your language choice and which version of the tour you finished are kept in the browser. Back up by copying `data/` while the app is stopped. The [desktop app](#desktop-app) keeps the same files in its own data folder instead of `data/`.
 
 ## 7. Troubleshooting
 
@@ -421,4 +480,8 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | Every agent is *Not signed in* after setting the CLIs' own folder | Expected: the CLIs' new homes start empty. Sign in to each CLI again in Settings, or set API keys. |
 | Settings says *The last update of AgentsView failed* | Start AgentsView, or check the address and port in **Settings → Agent sessions**. `ECONNREFUSED` means nothing listens there. A conversation is sent again after its next turn. |
 | A conversation is missing in AgentsView | AgentsView hides sessions with only one message from the user: turn on **Include single-turn** in its session filter. |
+| The desktop app says the port is already in use | Quit the Harness Relay you started with `npm start` or `npm run dev` (or the other program), then click **Try again**. Or quit the app and set another `"port"` in its `desktop.json` (see [Desktop app](#desktop-app)). |
+| The desktop app shows *Command not found* for a CLI that works in your terminal | The app reads your login shell's environment when it starts the server: after installing a CLI, choose **Restart server…** in its menu (on Windows, quit the app and open it again). If it still is not found, set **Executable** to the CLI's full path (`which claude` in a terminal) in Settings. |
+| The desktop app's AppImage stops at once on Linux | Start it with `--no-sandbox` (see [Desktop app](#desktop-app)). |
+| The desktop app's window or your browser shows the sign-in page | The sign-in link was not used in time, or the window was signed out: choose **Open Harness Relay** (or **Open in browser**) in the app's menu again. |
 | Port already in use | Start with another port: `PORT=8790 npm start` on macOS and Linux, `$env:PORT=8790; npm start` in Windows PowerShell. The same works for `npm run dev`, whose UI proxy follows `PORT`. |

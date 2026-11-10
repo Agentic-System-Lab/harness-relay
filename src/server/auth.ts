@@ -19,7 +19,15 @@ import type { Database } from './db';
 export const SESSION_COOKIE = 'relay_session';
 
 /** How long a sign-in code works: the one printed at start, and the others (for another device, `npm run login`). */
-export const CODE_TTL_MS = { startup: 60 * 60_000, device: 10 * 60_000 };
+export const CODE_TTL_MS = {
+  startup: 60 * 60_000,
+  device: 10 * 60_000,
+  /**
+   * The links the desktop app opens: the browser uses one at once, and on Windows and Linux the link
+   * is on the browser's command line for a moment, where other programs could read it.
+   */
+  desktop: 60_000,
+};
 
 /** How long a browser stays signed in (the longest a browser keeps a cookie); the server holds to it too. */
 export const SESSION_MAX_AGE_S = 400 * 24 * 60 * 60;

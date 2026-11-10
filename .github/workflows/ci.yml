@@ -45,3 +45,20 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # The desktop app (desktop/) is a package of its own. Its tests run with the others above;
+      # here it is typechecked and built, and its bundled server is run the way the app runs it (no
+      # installer, and no Electron binary is downloaded).
+      - name: Install the desktop app's tools
+        run: npm ci --prefix desktop
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - name: Typecheck the desktop app
+        run: npm run desktop:typecheck
+
+      - name: Build the desktop app
+        run: npm --prefix desktop run build
+
+      - name: Run the bundled server as the desktop app does
+        run: npx tsx desktop/scripts/smoke.ts

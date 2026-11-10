@@ -29,7 +29,8 @@ src/
   shared/schedule.ts       排程下一次何時送出：時區中的牆上時間、時鐘調整（伺服器與介面共用）
   server/
     index.ts               組裝元件、靜態檔案、啟動與關閉
-    web.ts                 提供建置好的介面：帶雜湊的檔案永久快取，index.html 每次都檢查
+    web.ts                 提供建置好的介面：帶雜湊的檔案永久快取，index.html 每次都檢查；介面放在哪裡（RELAY_WEB_DIR）
+    parent.ts              啟動伺服器的桌面 app（如果有）：告訴它伺服器已開始接收連線（或無法接收），並接收它的關閉要求
     app.ts                 createApp()：路由、安全性中介層（Host/Origin、JSON 寫入、登入）、SSE（可用 app.request() 測試）
     auth.ts                已登入的瀏覽器：一次性代碼、session（cookie 與金鑰，只存雜湊）、錯誤代碼的次數限制
     signin.ts              伺服器與 `npm run login` 印出的登入連結
@@ -114,10 +115,31 @@ test/                      Vitest 測試
 .github/workflows/pages.yml  把 site/ 發佈到 GitHub Pages
 scripts/preview-site.ts    npm run site:preview：在本機以 Pages 的方式提供 site/
 scripts/app-icons.ts       npm run icons：畫出主畫面圖示，並寫出 web app manifest
+scripts/release.ts         發佈版本的規則：npm run release:next、npm run release:check、發佈 workflow
+.github/workflows/release.yml  發佈 workflow（手動執行）：檢查、三個安裝檔、一個 GitHub release
 scripts/demo/              npm run demo：重錄示範影片，並更新影片、截圖與章節列
 site/                      網站首頁（靜態 HTML，English + 繁體中文）；DESIGN-GUIDELINES.md 不會被發佈
 docs/                      文件（English + 繁體中文）
 data/                      執行時資料（relay.db），已列入 git ignore
+desktop/                   桌面 app（Electron），是獨立的套件：npm install --prefix desktop
+  src/main.ts              app 本身：系統匣選單、啟動與停止伺服器、登入時自動啟動、分享到 tailnet
+  src/supervisor.ts        啟動、監看與停止伺服器的程序（用假的程序測試）
+  src/env.ts               登入 shell 的環境，以及伺服器的環境（資料夾、port、接受的主機名稱）
+  src/tailscale.ts         找到 tailscale、讀取它的狀態與 serve 設定、tailscale serve --bg
+  src/autostart.ts         Linux 上的登入時自動啟動（XDG autostart 項目）
+  src/prefs.ts             app 自己的設定（desktop.json）
+  src/i18n.ts              app 選單與對話框的兩種語言文字
+  src/icons.ts             app 與系統匣圖示，建置時從標誌畫出
+  src/manifest.ts          Electron 執行的 app 資料夾的 package.json
+  src/lifecycle.ts         app 不需要 Electron 的判斷：再次打開、當機通知、對話的網址、登入項目、
+                           視窗的連結去哪裡、頁面能使用什麼、tailnet 名稱
+  scripts/build.ts         把伺服器與 app 打包到 desktop/build/（發佈時以 RELAY_VERSION 為版本）
+  scripts/smoke.ts         像 app 一樣執行打包好的伺服器並檢查（CI、發佈 workflow）
+  scripts/dist.ts          npm run desktop:dist：以 ad hoc 簽章的安裝檔，並說出要雙擊什麼
+  entitlements.mac.plist   Mac app 的 entitlements（麥克風，用於語音輸入）
+  macos/                   各語言的麥克風使用說明（InfoPlist.strings）
+  scripts/parent-port.mjs  透過 Node 的 IPC 模擬 Electron 的 process.parentPort，給 smoke.ts 與測試使用
+  electron-builder.yml     安裝檔（npm run desktop:dist），放在 desktop/release/
 ```
 
 ## 執行
@@ -130,6 +152,11 @@ npm test
 npm run build      # 介面 → dist/web
 npm start          # 單一程序：API + 建置好的介面，port 8787；會印出登入連結
 npm run login      # 另一個一次性登入連結（10 分鐘內有效）
+
+npm install --prefix desktop   # 只有桌面 app 需要，執行一次：Electron 與 electron-builder
+npm run desktop                # 建置介面與桌面 app，並直接執行（不安裝）
+npm run desktop:dist           # …再為目前的系統建置安裝檔，放在 desktop/release/
+npm run desktop:typecheck
 ```
 
 `npm run build` 會把頁面啟動時載入的函式庫放在各自的 chunk（`react`、`highlight`、`vendor`），讓瀏覽器在 app 更新後仍可沿用快取；Mermaid 仍是需要時才載入。啟動時載入的 chunk 超過 500 kB 時會發出警告（`vite.config.ts`）；Mermaid 延遲載入的 chunk 比這大，只在需要畫圖時才載入。
@@ -148,8 +175,46 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `RELAY_DEFAULT_CWD` | 程序的 cwd | 初始預設工作目錄（在設定頁修改前） |
 | `RELAY_ALLOWED_HOSTS` | — | Host/Origin 檢查額外允許的主機名稱，以逗號分隔，例如這台電腦在 Tailscale 上的名稱（見[用手機連線](remote-access.zh-TW.md)） |
 | `RELAY_KEYRING` | — | 設為 `off` 時 API key 存在資料庫而不是作業系統的金鑰儲存區（例如用完即丟的資料目錄） |
+| `RELAY_WEB_DIR` | `./dist/web` | 建置好的介面放在哪裡（桌面 app 會指向它自己的那一份） |
+| `RELAY_KEYRING_SERVICE` | `harness-relay` | API key 存在金鑰儲存區時使用的名稱（桌面 app 自己的是 `harness-relay-desktop`） |
 
 伺服器會把自己的環境變數傳給各 CLI，但移除 Claude Code 的巢狀執行變數，並加上已保存的 API key（`SettingsStore.env()`）。
+
+### 桌面 app
+
+`desktop/` 是桌面 app（[使用說明](user-guide.zh-TW.md#桌面-app)）。它是獨立的套件，有自己的 `package.json` 與 lockfile，所以在根目錄執行 `npm install` 時，不會替使用 `npm start` 的人下載 Electron（約 100 MB）。用 `npm install --prefix desktop` 安裝一次即可；它使用根目錄的 `tsx` 與 `typescript`，所以請先安裝根目錄。它的程式碼是一般的 TypeScript，由 `npm run desktop:typecheck` 檢查。不依賴 Electron 的部分（`env.ts`、`supervisor.ts`、`tailscale.ts`、`autostart.ts`、`prefs.ts`、`i18n.ts`、`icons.ts`、`lifecycle.ts`）跟其他程式碼一樣，由根目錄的 `test/` 測試；只有 `main.ts` 會 import `electron`。
+
+運作方式：
+
+- **伺服器**就是 `src/server/index.ts`，由 esbuild 打包成單一 ES module（`desktop/build/server/server.mjs`）。它在 Electron 的 utility process 裡執行，用的是 Electron 自帶的 Node（Electron 45：Node 24，有 `node:sqlite`），所以 app 不需要安裝 Node.js。建置好的介面（`server/web`，以 `RELAY_WEB_DIR` 傳入）與 keyring 模組（`server/node_modules/@napi-rs/`；它是原生程式碼，所以是複製過去而不是打包進去）放在旁邊。安裝好的 app 裡，它們在 app 的 resources 中（macOS 是 `Resources/server`），不在 app 的封存檔裡，所以 `protect.ts` 的 `RELAY_ROOT` 就是 app 本身（macOS 是 `Harness Relay.app/Contents`，Windows 是安裝資料夾）。
+- **訊息**（`src/shared/types.ts` 的 `DesktopToServer` 與 `ServerToDesktop`，透過 `process.parentPort`；見 `src/server/parent.ts`）。伺服器會告訴 app 它已開始接收連線，或為什麼無法接收。App 每次打開對話時都會要一個登入連結（新的一次性代碼，一分鐘內有效：`CODE_TTL_MS.desktop`），也會要求它關閉，這會執行跟 SIGTERM 一樣的關閉流程：先停止 agent，並結束它們的 process group。Windows 沒有 signal 可送，所以在 Windows 上就是這樣停止的。由 app 啟動的伺服器不會印出登入代碼：它的輸出會寫進 app 的記錄檔，而 agent 可能讀得到。它也會讓登入頁知道這件事（`createApp({ desktopApp })`：`GET /api/auth` 會加上 `desktop: true`，401 的訊息也會不同），登入頁就會指向 app 的選單，而不是終端機。用 `npm start` 或 `npm run dev` 啟動時，伺服器沒有 parent，這些都不會發生。
+- **環境變數。** 在 macOS 與 Linux 上，app 在啟動伺服器前會執行使用者的登入 shell（`$SHELL -i -l -c`，在兩個標記之間印出 `/usr/bin/env -0`），把這個環境交給伺服器，就像在終端機裡一樣。如果失敗，則改為把常見的安裝資料夾加到 PATH（`withCommonPaths`）。接著 `serverEnv()` 會設定 `RELAY_DATA_DIR`（app 的資料夾，除非使用者自己設定了）、`RELAY_KEYRING_SERVICE`（使用 app 自己的資料夾時為 `harness-relay-desktop`）、`RELAY_DEFAULT_CWD`（家目錄，除非已設定）、`RELAY_WEB_DIR`、`PORT`（取自 `desktop.json`）、`HOST=127.0.0.1`，並把這台電腦的 tailnet 名稱加進 `RELAY_ALLOWED_HOSTS`：用 Tailscale 回報的名稱（它還沒連線但已知道名稱時也一樣），否則用上次看到的（`desktop.json` 的 `tailnetName`），所以在 Tailscale 連線前就於登入時啟動，手機也照樣能連。`ELECTRON_*` 變數會被移除。
+- **Supervisor**（`supervisor.ts`）會先確認 port 沒被佔用，再啟動伺服器，等它開始接收連線（最多三分鐘：更新後 macOS 可能會先詢問鑰匙圈），並保留它最後的輸出，供錯誤對話框顯示。它向伺服器要登入連結（依序；5 秒內沒回應就放棄）。停止時，它會要求伺服器關閉，如果 20 秒內還沒結束就強制結束。伺服器執行之後、沒人要求的結束會被當成當機回報。
+- **結束 app**（從選單、收到 SIGINT 或 SIGTERM，或 macOS 與 Linux 關機時）會等伺服器停止後才結束。
+- **視窗**顯示對話：一個 `BrowserWindow`（sandbox、context isolation、沒有 Node），載入向伺服器拿的登入連結，所以一打開就已登入（它本身就是一個獨立的瀏覽器）。`guard()` 讓它的頁面只停在伺服器上：`linkAction()`（`lifecycle.ts`）把其他網頁與郵件交給預設瀏覽器，伺服器自己的頁面（需要視窗登入狀態的檔案與附件）在 app 的視窗裡打開，其他的（`file:`、`javascript:`）一律不開。`permissionAllowed()` 只讓伺服器的頁面使用麥克風（只有聲音，用於語音輸入）與寫入剪貼簿，其他都不允許。下載使用 Electron 的儲存對話框。視窗大小記在 `desktop.json`。關掉視窗後 app 會留在系統匣（有處理 `window-all-closed`）；在 macOS 上，視窗開著時才顯示 Dock 圖示（app 是 `LSUIElement`）。App 選單（編輯、顯示方式、視窗，使用者的語言）提供一般的快捷鍵，包括拷貝與貼上（macOS 只會透過選單傳遞它們）；在 Windows 與 Linux 上按 Alt 顯示。系統匣選單的 **在瀏覽器打開** 則在預設瀏覽器打開同樣的對話。
+- **系統匣選單**在每次狀態改變時重建。再次打開 app（Windows 與 Linux 是 `second-instance`，macOS 是 `activate`，或按 Dock 圖示）會顯示視窗（`reopenAction()`）。登入時自動啟動在 macOS 與 Windows 上用 Electron 的 login item，在 Linux 上用 XDG autostart 項目（`autostart.ts`），並帶上 `--hidden`（macOS 則改看 `wasOpenedAtLogin`），所以不會打開視窗。
+- **分享到 tailnet** 會執行 `tailscale serve --bg`，用 HTTPS 443，除非那個 port 已被其他服務或 Funnel 使用（那就用 8443 或 10000：`freeHttpsPort()`；把 Funnel 的 port 只分享給 tailnet 會關掉 Funnel）。
+
+建置：`npm run desktop` 與 `npm run desktop:dist` 會先建置介面（`npm run build`），再執行 `desktop/scripts/build.ts`，寫出 `desktop/build/`：
+
+- `app/` 是 Electron 執行的內容：`main.cjs`、它的 `package.json`（來自 `src/manifest.ts`；`productName` 讓使用者資料夾叫做 `Harness Relay`）與系統匣圖示。
+- `server/` 是伺服器、介面與 keyring 模組。
+- `resources/icon.png` 是 app 圖示，給 electron-builder 使用。
+
+`RELAY_VERSION`（由[發佈 workflow](#發佈) 設定）會把 app 建置成某個發佈的版本：`package.json` 裡是它的 semver（見 `scripts/release.ts` 的 `semverOf()`），選單與記錄檔裡則是版本本身。沒有設定時，app 的版本是根目錄套件的版本。
+
+`npm run desktop` 接著用 `build/app` 啟動 Electron。`npm run desktop:dist` 則執行 `desktop/scripts/dist.ts`：它執行 electron-builder（`desktop/electron-builder.yml`），最後說出要雙擊的安裝檔與 app：所在系統的安裝檔（`.dmg`、NSIS `.exe`、`.AppImage`）在 `desktop/release/`，app 本身就在旁邊（例如 `desktop/release/mac-arm64/Harness Relay.app`）。`--output <資料夾>` 則放到別處，可以在不取代正在使用的 app 的情況下試建置。還沒有設定為其他系統或處理器建置：請在各個系統上分別建置。
+
+`npx tsx desktop/scripts/smoke.ts` 會像 app 一樣執行打包好的伺服器，用一般的 Node 代替 Electron（`desktop/scripts/parent-port.mjs` 透過 Node 的 IPC 提供 `process.parentPort`）：它必須只聽 127.0.0.1、提供介面、瀏覽器登入前拒絕 API、給出代碼能用的登入連結、不印出代碼，並在被要求關閉時以代碼 0 結束。CI 在建置桌面 app 後執行它，發佈 workflow 在每個系統上執行它，`test/parent.test.ts` 則對 `src/server/index.ts` 做同樣的檢查。
+
+幾件要知道的事：
+
+- **electron-builder 會略過複製的資料夾最上層的 `node_modules`**，不管 filter 怎麼寫。所以 keyring 模組在 `extraResources` 裡是單獨的一項。
+- **Fuses。** 打包好的 app 會關閉 Electron 的 run-as-Node 模式，以及 `NODE_OPTIONS` 與 `--inspect`（`electronFuses`）。否則任何程式都能以這個 app 的身分執行程式碼，使用 macOS 給它的隱私權限。這也是讀取 shell 環境時用 `env -0`、而不是把 app 當成 Node 執行的原因。
+- **簽章。** 在 macOS 上，app 一律以 ad hoc 方式簽章（`mac.identity: '-'`，`dist.ts` 也會關掉 electron-builder 對鑰匙圈的搜尋），在每台電腦上都一樣：絕不使用 electron-builder 原本會在鑰匙圈裡找到的憑證。它的 entitlements（`desktop/entitlements.mac.plist`）是 electron-builder 的預設值加上麥克風，否則 hardened runtime 會拒絕；Info.plist 說明為什麼要詢問（`NSMicrophoneUsageDescription`，翻譯在 `desktop/macos/*.lproj/InfoPlist.strings`）。Apple Silicon 不執行沒有簽章的程式碼，而 fuses 會在 Electron 執行檔連結之後修改它：沒有簽章的建置一啟動就會被結束（結束代碼 137）。Gatekeeper 不信任 ad hoc 簽章，所以下載的 app 需要按 **強制打開**，而且每次更新後 macOS 都會再詢問鑰匙圈。以 Developer ID 簽章與公證、Windows 的簽章，以及自動更新，都還沒設定。
+- **發佈的 Mac app 是通用版**（`--mac dmg --universal`）：Apple Silicon 與 Intel 共用一個 app，因為下載頁分辨不出兩者（Safari 在兩種 Mac 上都說是「Intel」）。它包含 keyring 模組在兩種處理器的原生部分：workflow 會加裝 `@napi-rs/keyring-darwin-x64`（npm 只會裝 runner 自己的那一個），`mac.x64ArchFiles` 則允許兩半有這些相同的檔案。`npm run desktop:dist` 則是為執行它的那台 Mac 建置。
+- **Linux 的 AppImage** 在限制非特權 user namespace 的系統（Ubuntu 24.04）上可能需要 `--no-sandbox`。electron-builder 的 `executableArgs` 只會寫進 `.desktop` 檔，直接啟動的 AppImage 拿不到；app 若是帶著這個參數啟動，會把它也寫進 autostart 項目。
+- **要跟自己的資料分開試用**，就用獨立的使用者資料夾執行建置好的 app，並且不打開瀏覽器；如果 8787 已經有 Harness Relay 在執行，在那個資料夾放一個設定其他 port 的 `desktop.json`：`desktop/node_modules/.bin/electron desktop/build/app --user-data-dir=/tmp/relay-desktop --hidden`。伺服器的記錄檔在 macOS 是 `~/Library/Logs/Harness Relay/server.log`，在 Windows 與 Linux 是使用者資料夾裡的 `logs/server.log`。
 
 ## 請求流程
 
@@ -167,7 +232,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 
 | 方法與路徑 | Body → 回應 |
 | --- | --- |
-| `GET /api/auth` | → `{ signedIn }`：請求是否來自已登入的瀏覽器（不需要登入時一律為 true） |
+| `GET /api/auth` | → `{ signedIn, desktop? }`：請求是否來自已登入的瀏覽器（不需要登入時一律為 true）；由桌面 app 啟動的伺服器會加上 `desktop: true`（登入頁就會指向它的選單） |
 | `POST /api/auth/login` | `{ code }` → `{ key }`，並設定 `relay_session` cookie（取代已登入瀏覽器原本的 session）；代碼錯誤或過期時 400，一分鐘內錯了十次後 429 |
 | `POST /api/auth/codes` | → `{ code, expiresAt }`：給另一個裝置的一次性代碼，10 分鐘內有效 |
 | `GET /api/auth/sessions` | → `AuthSessionView[]`：已登入的瀏覽器，最近使用的在前，發出請求的那個標 `current` |
@@ -317,11 +382,19 @@ npx vitest test/store.test.ts
 - `test/workspace.test.ts`：用真實的暫存 repository 測試 git 操作（自動 init、不影響 repo 且排除其中各 CLI 自己家目錄的快照（透過連結指定也一樣）、worktree、套用、衝突、CRLF 與非 UTF-8 內容逐位元組套用、很長或特殊的檔案清單、保留的快照 ref、範圍太大的 repository）。也測試 repository 自己的設定（它的 fsmonitor、filter、textconv，以及透過 include 加入的）在 Harness Relay 的 git 指令中什麼都不執行，submodule 所在 repository 的 driver 也不執行（真正的 submodule 仍會收進快照），不抓取 partial clone 缺少的物件，`core.worktree` 指向其他資料夾時拒絕，而使用者自己的 driver（git-lfs 的）不受影響。
 - `test/process.test.ts`：程序輔助函式：輸出逐位元組保存、停止不理會 SIGTERM 的子程序（包括 CLI 已結束後，以及關閉時）、工作目錄不存在、相對路徑的執行檔。
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
-- `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）與 web app manifest（以 `application/manifest+json` 提供）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。
+- `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）與 web app manifest（以 `application/manifest+json` 提供）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。也測試介面放在哪裡：伺服器啟動所在資料夾的 `dist/web`，或 `RELAY_WEB_DIR`（絕對或相對路徑；空白視同未設定）。
+- `test/parent.test.ts`：伺服器眼中的桌面 app：沒有 Electron 的 `parentPort` 就不存在；伺服器開始接收連線時通知它；收到關閉要求，忽略其他訊息；每次要登入連結都給一個新的。也像 app 一樣從原始碼執行伺服器（`desktop/scripts/smoke.ts`，用一個代替建置好介面的資料夾）：只聽 127.0.0.1、提供介面、瀏覽器登入前拒絕 API、給出自己網址的登入連結且代碼能讓瀏覽器登入、不印出代碼，並在被要求關閉時以代碼 0 結束。也實際在已被佔用的 port 上啟動伺服器（設定了 `HOST`，因為 shell 可能會匯出它）：它會說明原因（並建議換一個 `PORT`），以代碼 1 結束，不印出 stack trace。
+- `test/desktop-supervisor.test.ts`：桌面 app 的伺服器 supervisor，用假的伺服器程序：以它的環境啟動，開始接收連線後就是執行中；一次只有一個伺服器，停止期間也一樣；port 被佔用時不啟動，在檢查與開始接收之間被佔用也一樣回報；其他接收錯誤（`EACCES`）與開始接收前就結束，都附上最後的輸出回報；沒有及時開始接收的伺服器會被停止；停止時要求關閉並等待，沒有及時停止就強制結束，期間自己結束的伺服器不算當機；回報當機，之後能再啟動新的伺服器；啟動期間要求停止，會等啟動完成。登入連結：每次都要一個新的；伺服器沒有及時回應時不給（晚到的回應仍屬於那個要求）、沒有執行或在回應前停止時也不給；連結不會被誤認為啟動完成。也用真的 socket 測試 port 檢查。也測試既沒有及時開始接收、被強制結束時也不結束的伺服器：會放棄它，結束 app 時也不會等它。
+- `test/desktop-env.test.ts`：桌面 app 給伺服器的環境：在標記之間讀取登入 shell 的變數（含換行的值、值裡的 `=`、前後的其他輸出），沒有標記或 PATH 時不採用；透過假的設定檔實際執行 shell（也從含空白與引號的路徑；shell 不存在；卡住的 shell 會及時放棄），不包含 shell 本身的變數與 app 為 shell 設定的變數；無法詢問 shell 時把常見的安裝資料夾加到 PATH；不管設定檔匯出什麼，都用 127.0.0.1 與 app 的 port，保留使用者的變數但不含 Electron 的，保留使用者選的資料夾與工作目錄；使用 app 自己的資料時 API key 存在 `harness-relay-desktop`，共用資料時用平常的名稱；tailnet 名稱只加進 `RELAY_ALLOWED_HOSTS` 一次。
+- `test/desktop-tailscale.test.ts`：從桌面 app 分享到 tailnet：找到 `tailscale`（在 PATH 上、Mac App 自己的執行檔、Windows 的 `tailscale.exe`、找不到），它的狀態（執行中、去掉結尾句點的電腦名稱；已登出；不是 JSON），某個 port 分享在哪個網址（HTTPS 443 或其他 port、以 `localhost` 為目標、其他 port、沒有分享），在哪裡分享才不會搶走其他服務（443，否則 8443，再否則 10000；TCP 轉送或提供檔案的 `/` 算已佔用，其他路徑不算；全部被佔用），以及 `tailscale serve --bg` 的結果（網址、開啟 Serve 的頁面且必須是 Tailscale 的、Linux 上的 *Access denied*、其他失敗與逾時）。也透過假的 `tailscale` 執行指令：status 與 serve status、在 443 不加參數分享與在 8443 加 `--https` 分享、印出連結後等待的分享會及時停止，以及失敗或不存在的指令。公開到網際網路（Funnel）的 port 算已佔用。
+- `test/desktop-app.test.ts`：桌面 app 的其他部分：Linux 的 autostart 項目（`Exec` 參數加引號，依 Desktop Entry Specification 處理 `%` 與反斜線，放在哪裡，開與關），它的設定（`desktop.json`：缺少或無效的值用預設值，透過暫存檔儲存），它的語言（任何中文 → 繁體中文，其他為英文）且兩種語言的訊息相同，它的圖示（解碼檢查：app 圖示的白色圓角方塊與標誌、選單列圖示是透明背景上的黑色、`@2x` 是兩倍大小），app 資料夾的 `package.json`，以及它的判斷（`lifecycle.ts`）：只用自己伺服器的登入連結打開對話、只為執行後自己停止的伺服器通知、各系統上再次打開 app 時做什麼、登入時的啟動、登入時啟動它的指令（AppImage 用它自己的檔案、未打包的 app 帶上它的資料夾），以及伺服器還不接受某個 tailnet 名稱時要重新啟動。也測試視窗的連結去哪裡（伺服器的頁面在 app 裡、其他網頁與郵件交給瀏覽器、這台電腦的其他 port 算其他網站、`file:`、`javascript:`、`data:` 一律不開），頁面能使用什麼（只有伺服器的頁面能用麥克風但不能用相機，以及寫入剪貼簿），再次打開 app（顯示視窗或啟動），`desktop.json` 記住的視窗大小與 tailnet 名稱（只接受主機名稱），以及 Tailscale 連線前使用的 tailnet 名稱。
+- `test/secrets.test.ts`：金鑰儲存區使用的名稱：`harness-relay`，或 `RELAY_KEYRING_SERVICE` 指定的名稱（桌面 app 的 `harness-relay-desktop`）；`RELAY_KEYRING=off` 時不使用。
+- `test/release.test.ts`：發佈版本的規則（`scripts/release.ts`）：接受正式版本、候選版本與它們的修正；前後的空白可以，中間的不行；每種常見錯誤都有確切原因（`v`、`-RC`、`.1-rc`、`-rc1`、`-rc-1`、`.0`、`.01`、一位數的月或日），看起來像的字元也是（en 與 em dash、全形數字、不換行連字號）；日曆上沒有的日期（含閏年）；台灣的今天，也包括 UTC 已是另一天時；不是今天的日期會被拒絕，並說出今天該用的版本；已發佈過、修正早於它修正的版本、跳號；正式版本與候選版本分開計算；忽略其他日期的版本與其他 tag；只能從 main 發佈；一次回報所有問題。App 的 semver：合法、每個數字小於 Windows 的 65535、依發佈順序排列。從 `git ls-remote` 讀取 tag。在有 origin 的真 repository 裡執行指令碼：預設用今天、用本機的 tag 或加 `--remote` 用 origin 的、下一個版本、GitHub Actions 中的輸出與 `::error`、拒絕 main 以外的分支、格式錯誤的 `--today` 或缺少版本、`RELEASE_TIME_ZONE`。Workflow 檔：只能手動執行且要填版本、輸入的內容絕不放進指令列（只透過環境變數）、與規則相同的時區、先檢查版本並在發佈前再檢查一次、會跑測試、建置三個系統並在建置安裝檔前先試打包好的伺服器、三個都建置好才發佈且只有那個 job 能寫入、一次只發佈一個，以及候選版本以 pre-release 發佈在它建置的 commit 上。也測試給 GitHub Actions 的訊息會跳脫（輸入裡的換行不會開始新的指令），以及 `--today` 只接受日曆上的日期（沒有給值、`2026-13-45`）。
+- `test/site-downloads.test.ts`：網站的下載按鈕（`site/assets/downloads.js`）：訪客的系統（macOS、Windows、Linux；手機或平板、自稱是 Mac 的 iPad、Android；ChromeOS、ARM 上的 Linux 與無法辨識的都算其他系統），有安裝檔的最新版本（包含候選版本，依發佈時間，不含草稿與沒有安裝檔的版本；沒有版本），依檔名結尾找到各系統的安裝檔，只接受這個 repository 的 GitHub release 下載網址，以 MB 顯示大小，發佈 workflow 給安裝檔的名稱，以及兩個頁面的預設連結與文字。也用假的 document 測試頁面本身：按鈕指向最新的安裝檔、標出並寫出訪客的系統、保留十分鐘（期間不再詢問）之後再問、手機導向快速開始並顯示說明、GitHub 連不上、沒有版本或給出其他網址時（包括保留下來的版本）維持 Releases 頁面，以及沒有下載按鈕的頁面。
 - `test/app-icons.test.ts`：主畫面圖示與 web app manifest：每個圖示的像素都跟 `npm run icons` 畫出的相同（不透明的 RGB、尺寸正確），manifest 就是它寫出的那份且可以安裝（192 與 512 px 圖示、maskable 圖示、`standalone`），maskable 圖示的標誌落在所有啟動器都會保留的圓內，`index.html` 也有連到 manifest 與 Apple touch icon。
 - `test/demo.test.ts`：錄製示範影片的腳本：剪輯（沒有加速片段時照實際時間、agent 的工作加速到目標長度、加速片段不短於下限、略過的片段剪掉、沒錄完的錄影會被拒絕、給 FFmpeg 的畫面清單），章節列（每個章節依標記計時；團隊、首席 agent、請求核准的 agent、群組與搜尋詞依錄影填入；標記沒出現的章節會省略；兩種語言的用詞；頁面使用的標記且有跳脫），問題點名三個 CLI、設計準則裡的畫面時間，以及截圖（PNG 文字區塊只寫一次且 CRC 正確；社群預覽卡只替換原本顯示舊海報的螢幕像素）。
 - `test/protect.test.ts`：agent 碰不到的地方：macOS 與 Linux 上瀏覽器的資料夾（Linux 上也看 `XDG_CONFIG_HOME`；Windows 上沒有）、只取實際存在的並連同真實路徑、資料庫檔案與 Harness Relay 自己的暫存資料夾；工作目錄包含 Harness Relay 的資料夾或資料資料夾，或位於它的程式碼內時，只在可編輯模式下拒絕，資料資料夾內的 worktree 與其他資料夾不受影響，指向它的連結也會被發現，包括還要建立的資料夾路上的連結；家目錄與包含它的資料夾、CLI 自己的資料夾（也包括由環境變數移走的）、Harness Relay 給各 CLI 的資料夾與程式所在的資料夾會被拒絕，家目錄內的專案不受影響；從 PATH 找到的指令，連同它的位置與真實路徑（Windows 上也依它的副檔名）；沙箱會當成樣式的路徑。另外在 `test/claude.test.ts`、`test/codex.test.ts` 與 `test/grok.test.ts` 中：各 CLI 的沙箱碰不到這些路徑（Claude Code 的 `denyRead`／`denyWrite` 與 `Read` 規則；Codex 的 `harness-relay-…` 權限設定檔，每次執行換一個名稱，Codex 沒有套用時拒絕執行，Windows 上用舊的沙箱；Grok 的 `harness-relay` 設定檔寫進 `sandbox.toml`，與使用者自己的並存，禁止它自己的程式（macOS；在 Linux 上 Grok 靠再次執行自己的程式來啟動沙箱，所以不禁止，而是在某一輪改了程式檔或它的連結時，用保留的副本放回去：有輪次在跑時，在另一輪啟動它之前放回，沒有輪次在跑時則照現狀接受），它的設定在被某一輪改動後改回原樣（連結當作連結、不跟著走，其中之一被改成資料夾時其他的仍會改回，`sandbox.toml` 只看 Harness Relay 區塊以外的部分，同時執行的各輪共用，Harness Relay 自己寫入的信任會保留，且以那些輪次開始時的設定為準）；Claude Code 的使用者設定與受管理設定開放受保護路徑時（相對路徑的項目從該設定檔所在的資料夾算起），以及會被當成樣式的路徑，都會拒絕）；在 `test/app.test.ts` 與 `test/orchestrator.test.ts` 中，Harness Relay 的資料夾拒絕可編輯模式。
-- `test/auth.test.ts`：登入：代碼（Crockford base 32、寬鬆讀取、取自連結片段）、伺服器位址或 Vite 的登入連結、瀏覽器的名稱；會過期的一次性代碼，以各自有 salt 的 scrypt 存放（不是代碼的 SHA-256），最多最新的五個、需要 cookie 與金鑰（瀏覽器載入的檔案只需 cookie）且最多 400 天的 session、資料庫只存雜湊、列出與登出、錯誤代碼的次數限制；不是正確跳脫序列的片段；並透過 `app.request()` 測試：登入前每個請求都被拒絕（仍先檢查 Host／Origin）、cookie 的屬性、只有 cookie 或只有金鑰都被拒絕、只憑 cookie 載入檔案、即時更新以查詢字串帶金鑰、給另一個裝置的代碼、登出、同時送出且晚送內容的請求，錯誤代碼都會被計算，以及再次登入的瀏覽器取代自己的 session。
+- `test/auth.test.ts`：登入：代碼（Crockford base 32、寬鬆讀取、取自連結片段）、伺服器位址或 Vite 的登入連結、瀏覽器的名稱；會過期的一次性代碼，以各自有 salt 的 scrypt 存放（不是代碼的 SHA-256），最多最新的五個、需要 cookie 與金鑰（瀏覽器載入的檔案只需 cookie）且最多 400 天的 session、資料庫只存雜湊、列出與登出、錯誤代碼的次數限制；不是正確跳脫序列的片段；並透過 `app.request()` 測試：登入前每個請求都被拒絕（仍先檢查 Host／Origin）、cookie 的屬性、只有 cookie 或只有金鑰都被拒絕、只憑 cookie 載入檔案、即時更新以查詢字串帶金鑰、給另一個裝置的代碼、登出、同時送出且晚送內容的請求，錯誤代碼都會被計算，以及再次登入的瀏覽器取代自己的 session。也測試由桌面 app 啟動的伺服器：`GET /api/auth` 會說明（`desktop: true`），尚未登入的瀏覽器會被指向 app 的選單，而不是 `npm run login`。
 - `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、團隊設計由按鈕或手動設定團隊確認（接著由那個團隊回答）或不採用（由目前的團隊回答）、團隊與設定變更時自動組隊維持開啟（並保存 `autoConfirm`）、首席 agent 依使用者的要求修改團隊（回傳團隊、不儲存任何東西；拒絕空的要求；請求關閉時停止；這段期間拒絕更換各 CLI 自己的資料夾；修改等待中的設計、儲存後由修改過的團隊回答）、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話（同一串分支的對話一起移動）、不存在的群組；列表中每個對話的分支來源）與搜尋。也測試工具庫的路由（遮蔽的值、不合法的名稱、網址、CLI 與變數名稱、重複名稱、skill 與記憶、列出資料夾底下的 skill）、成員的工具例外設定、成員執行時拿到的項目，以及瀏覽檔案（列表、預覽、raw 只給圖片、下載任何檔案、資料夾外或 `.git` 的路徑、未知的資料夾）。也測試回覆中嵌入的圖片與影片和連結的檔案：`/media` 只給媒體類型，`/download` 把任何檔案（包含 HTML；分段、只對下載而不對影片的 `If-Range`、304、416，以及不開啟檔案的 HEAD：用 1 MiB 的檔案和開啟的檔案數確認）以沙箱化的 `octet-stream` 下載提供，隔離回合先找成員的 worktree，也能下載附件，都不會給工作目錄外或 `.git` 裡的檔案；透過 `RELAY_ALLOWED_HOSTS` 允許的主機名稱（例如 Tailscale 名稱）可以下載，其他名稱則不行。也用假的服務測試查詢 CLI 自己載入的內容（只用預設工作目錄、重新查詢、依請求語言的問題說明、未知的 CLI、不接受 GET 或表單 POST），只能讀回報過的檔案（不會再問一次 CLI），以及透過真正的查詢與一個依 grok 1.0.77 方式決定信任的替身 `grok` 測試 Grok 的資料夾信任（不在儲存庫裡的資料夾、儲存庫子資料夾改為信任儲存庫根目錄、經由連結進入的資料夾信任實際路徑、和確認時不同的資料夾、Grok 不接受紀錄時還原或移除檔案、不存在的資料夾、不接受表單 POST）。也測試更新 CLI 設定時不載入的項目（只接受已知項目的清單），以及逐項不載入的項目（依已知種類列出 id，有數量與長度上限；CLI 不能單獨略過的種類會丟掉）。另外也測試各 CLI 自己的資料夾（不存在時建立，不可以是家目錄、根目錄、檔案、相對路徑，或在 Harness Relay 自己的資料夾、預設工作目錄裡面；有對話執行時拒絕且不建立任何東西；更換時清掉登入狀態快取與進行中的登入，同一個資料夾換個寫法則不會）、AgentsView 網址（只接受這台電腦、存成 origin、重新命名的對話會送出、顯示上次的失敗且不套用到其他網址）與開啟用的網址（任何 http(s) 網址，不影響對話送到哪裡），以及 Windows 寫法的 `~\`，還有不論怎麼寫（結尾斜線、`..`、`~`、符號連結）都能認出同一個資料夾。也測試排程：儲存（下一次的時間、請求的語言、顯示在對話與列表中）、關閉與刪除、拒絕永遠不會送出或團隊還要設計或確認的排程（自動組隊的對話有了團隊之後則允許）、儲存時保留上次結果，以及時間不變時保留間隔的節奏，還有立即執行一次（送出、團隊回覆中放進佇列、接著先不送，排程的紀錄不變；關閉時也可以，對話正忙時說明原因）。也測試每次開新對話的排程：儲存，以及「立即執行一次」回傳它開的對話（每次都是另一個），上次開的對話在儲存後仍保留。也測試 `POST /api/schedules`：自動組隊的對話、排程（以訊息命名，或用給定的標題）與為它組隊的首席 agent，不會貼出訊息；第一次組隊停止後才能再請它組隊；永遠不會送出的排程什麼都不建立（連資料夾也不建立），缺少的資料夾只在要求時建立。也測試把資料夾或整個工作目錄下載成 ZIP 檔（標頭、`HEAD`、讀回的項目、404），以及太大而無法整個打包的資料夾（被忽略的 node_modules 裡超過 10,000 個檔案）：提供只包沒被 git 忽略的檔案，整個打包則為 413。也測試 `GET /api/cwds`：預設工作目錄在前，接著是使用中的工作目錄（包括名稱含空格的資料夾），最近用過的在前，不列出已經不存在的資料夾，預設工作目錄也一樣；預設工作目錄裡的 `~` 會展開，檔案系統不分大小寫時，大小寫不同的同一個資料夾只列一次。也測試分享：以對話標題放上網並留下紀錄（含結束的那則回覆，`upTo` 不是 agent 回覆時則沒有）；拒絕空的頁面、超過 1 MB 的頁面與不存在的對話；`gh` 出問題時說明原因（沒登入時附上 code）且不留紀錄；先刪 gist 再移除分享，gist 刪不掉時保留紀錄，不是 gist id 的一律不處理。也測試分享附上的檔案：`…/share/files` 每個檔案只列一次（兩種路徑寫法、兩則回覆、經由符號連結指向同一個檔案），附上大小（二進位檔、只有空白與空的檔案也一樣）與不能附上的原因（超過 50 MB、在 `.git` 裡、以相對或絕對路徑指到資料夾外、不存在、資料夾、分享範圍之後的回覆、不存在的回覆或另一個對話的回覆，以及分享結束的那則回覆不存在時全部），絕不傳出檔案內容，也拒絕不是清單的輸入；分享時把連結到的檔案各傳一次、內容原樣保留（PNG 的 NUL 位元組、空檔案）、檔名不重複（`report.md`、`report-2.md`）、頁面的佔位連結改成對應的編號並記錄檔案數與它們的 gist，沒被連結的檔案不傳（太大的連讀都不讀）；下載連結不會提供的、或不能附上的檔案在上傳任何東西之前就被拒絕（409 並附代碼），超過 20 個、超過 100 MB（量完大小就拒絕，一點都不讀：讀不了的檔案也是以合計太大被拒絕，而不是讀不了），以及會超過 1 MB 的頁面也一樣；分享進行中放附檔的 gist 記錄成沒有完成，但完成前既不列出也不能移除（409），重新啟動後會列出，頁面上傳後換成分享本身，gist 又被刪除時移除紀錄，留在 GitHub 上或分享意外中止時保留在列表上；有附檔的分享失敗而沒留下任何東西時不留紀錄；只留下放附檔的 gist、沒有頁面時列為沒有完成，移除時只刪它；移除分享時刪除兩個 gist（先刪附檔的），有一個刪不掉時保留在列表上，兩個都刪掉才移除；從回覆分支（新的對話；使用者的訊息、還在串流的回覆與伺服器關閉時會被拒絕）。
 - `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、隨回覆轉交的動作紀錄（包括 Codex 的檔案變更）、平行模式的簡報，以及簡報如何告訴 agent 顯示媒體、連結檔案讓使用者下載。也測試簡報中的記憶與 skill 區塊：只有在使用者沒有關掉 CLI 自己的 skill 時，才會說它們照常可用；沒有任何能讀檔工具的 Claude Code 成員不會列出 skill。也測試排程送出的訊息（`via="schedule"`），以及有排程的對話的簡報（只有沒有合理答案時才發問；除非排程設為詢問，否則自動拒絕核准），還有排程開的、自己沒有排程的對話的簡報（只在可能沒人看著的那一輪自動拒絕核准）；提問的 agent 會被告知新訊息中的排程訊息不是使用者的回答；分支裡的 agent 會被告知複製的訊息之後檔案可能改過。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。
@@ -382,7 +455,7 @@ npx vitest test/store.test.ts
 
 ## 持續整合（CI）
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時執行：`npm ci`、`npm run typecheck`、`npm test` 與 `npm run build`，在 Ubuntu 上以 Node 22（支援的最低版本）與 Node 24 各跑一次。對同一個 pull request 再次推送時會取消前一次的執行。推送前請先在本機跑過同樣的指令。
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時執行：`npm ci`、`npm run typecheck`、`npm test` 與 `npm run build`，在 Ubuntu 上以 Node 22（支援的最低版本）與 Node 24 各跑一次。它也會安裝桌面 app 的工具（不下載 Electron 執行檔）、型別檢查並建置桌面 app（`desktop/scripts/build.ts`），並像 app 一樣執行打包好的伺服器（`desktop/scripts/smoke.ts`），但不建置安裝檔。發佈有自己的 workflow：見[發佈](#發佈)。對同一個 pull request 再次推送時會取消前一次的執行。推送前請先在本機跑過同樣的指令。
 
 若要在檢查通過前禁止合併，請在 repository 設定中替 `main` 加上 branch protection rule（或 ruleset），並把 `Typecheck, test, build` 檢查設為必要。
 
@@ -406,6 +479,43 @@ npm run demo -- cut publish           # 重新剪輯並發布上次的錄影
 3. **publish**：把影片與動畫複製到 `docs/media/`，從第一個團隊卡片出現的畫面（`poster` 標記）重新擷取海報、截圖與社群預覽卡，重新計時 `site/index.html` 與 `site/zh-TW/index.html` 的章節列，以及 `site/DESIGN-GUIDELINES.md` 裡的畫面時間，並寫出 `data/demo/<lang>/review.md`：寫入的章節、團隊、核准請求、搜尋詞與每則回覆。
 
 之後讀 `review.md` 並看過影片。章節的句子在 `scripts/demo/chapters.ts`；團隊、名字、輪數、群組與搜尋詞會依錄影填入，但如果 agent 做了句子沒描述到的事，請在那裡修改，再執行 `npm run demo -- publish`。也請檢查 README 的影片說明與章節列的註記，再把影音檔、`site/` 與腳本一起 commit。
+
+## 發佈
+
+一次發佈就是桌面 app 在 macOS（Apple Silicon 與 Intel 通用的 `.dmg`）、Windows（x64 `.exe`）與 Linux（x64 `.AppImage`）的安裝檔，由發佈 workflow（[`.github/workflows/release.yml`](../.github/workflows/release.yml)）一起發佈成一個 GitHub release。它要手動執行；沒有其他方式會建立 release 或 tag。
+
+**版本**是發佈當天在台灣的日期（`RELEASE_TIME_ZONE`，Asia/Taipei），git tag 就是版本本身：
+
+| 版本 | 代表 |
+| --- | --- |
+| `YYYY-MM-DD-rc` | 候選版本，發佈成 pre-release |
+| `YYYY-MM-DD-rc.1`、`.2`… | 它當天的修正 |
+| `YYYY-MM-DD` | 正式版本 |
+| `YYYY-MM-DD.1`、`.2`… | 它當天的修正 |
+
+目前每次發佈都是候選版本。之後某天的修正就是那天的版本，不是修正編號。
+
+**發佈步驟：**
+
+1. 在 `main` 上查看今天的下一個版本：`npm run release:next`（它會讀 GitHub 上的 tag）。
+2. 在 GitHub 打開 **Actions → Release → Run workflow**，**Use workflow from** 保持 main，填入版本後執行。
+
+`npm run release:check <版本>` 會在本機用同樣的方式檢查版本（對照本機的 tag；加上 `--remote` 則對照 GitHub 上的）。
+
+**Workflow 在建置之前會檢查**（`scripts/release.ts`，由 `test/release.test.ts` 測試）：
+
+- 版本符合規則；不符合時會說出確切原因：前面多了 `v`、`-RC` 用了大寫、`.1-rc` 順序錯誤、`-rc1` 少了點、`.0`、`.01`、月或日只有一位數、日曆上沒有的日期（`2026-02-30`）、空白，或只是看起來像的字元（全形數字、en dash、不換行連字號）；
+- 日期是台灣的今天，不是昨天或明天（也包括 UTC 與台灣日期不同的午夜前後）；
+- 它是下一個版本：還沒發佈過、修正不會早於它修正的版本、編號不會跳號。錯誤訊息會說出今天該用哪個版本；
+- 在 `main` 上執行。
+
+接著它會執行型別檢查與測試，平行建置三個安裝檔（每個都先對打包好的伺服器執行 `desktop/scripts/smoke.ts`），再對照當下的 tag 檢查一次版本（午夜前開始的執行維持它開始那天），然後在它建置的 commit 上發佈 release：安裝檔命名為 `Harness-Relay-<版本>-<系統>-<架構>.<副檔名>`，說明由合併的 pull request 產生，並附上安裝說明。一次只會有一個發佈在執行，也只有發佈的 job 能寫入 repository。版本只透過環境變數交給指令碼，絕不放進指令列。
+
+**下載次數。** GitHub 會記錄每個安裝檔的下載次數（不是安裝次數，重複下載也會再算）：
+
+```bash
+gh api repos/Agentic-System-Lab/harness-relay/releases --paginate --jq '.[] | .tag_name as $t | .assets[] | "\($t)\t\(.name)\t\(.download_count)"'
+```
 
 ## 除錯技巧
 
