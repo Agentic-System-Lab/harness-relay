@@ -546,6 +546,7 @@ To use it from a phone, the server stays on `127.0.0.1` and `tailscale serve` on
 - The directory lock lives in the server process; other tools (or a second Harness Relay server) can still edit the same files.
 - Nested repositories and submodules: worktrees contain them as empty folders, and changes inside them are not recorded (the snapshot only records which commit they point to).
 - Project code that Grok runs can still reach the network, and on native Windows Claude Code and Grok have no sandbox at all (see [Permission mapping](#permission-mapping) and [OS sandboxes by platform](sandboxing.md)); detecting pushing and publishing commands is best effort.
+- Grok's sandbox lets commands reach localhost, and with it Harness Relay's own API, which has no authentication: a command Grok runs could start a turn with full access (see [OS sandboxes by platform](sandboxing.md#what-the-sandboxes-do-not-cover)).
 - Claude Code's sandbox covers its Bash commands, not its own file tools, hooks or MCP servers (the tool library's included); Grok's covers everything Grok runs. A command Claude Code's sandbox would block is asked about, and runs outside the sandbox once allowed; one Grok's sandbox blocks cannot be allowed at all.
 - Claude Code's own `permissions.allow` rules (in your user settings, or a trusted project's) still let commands run without asking.
 - With read-only and **Ask me**, Claude Code cannot ask to edit a file (its editing tools are removed); Codex and Grok can.

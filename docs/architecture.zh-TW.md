@@ -546,6 +546,7 @@ sequenceDiagram
 - 目錄鎖存在伺服器程序中；其他工具（或第二個 Harness Relay 伺服器）仍然可以修改同樣的檔案。
 - 巢狀 repository 與 submodule：在 worktree 中是空資料夾，裡面的修改也不會被記錄（快照只記錄它們指向哪個 commit）。
 - Grok 執行的專案程式碼仍能連網，而在原生 Windows 上 Claude Code 與 Grok 完全沒有沙箱（見[權限對應](#權限對應)與[各平台的作業系統沙箱](sandboxing.zh-TW.md)）；判斷推送與發佈指令只能盡力而為。
+- Grok 的沙箱讓指令連得到 localhost，也就連得到沒有驗證的 Harness Relay 自己的 API：Grok 執行的指令可能開始一輪完全存取的執行（見[各平台的作業系統沙箱](sandboxing.zh-TW.md#沙箱管不到的事)）。
 - Claude Code 的沙箱涵蓋它的 Bash 指令，不包括它自己的檔案工具、hooks 與 MCP 伺服器（包括工具庫的）；Grok 的沙箱涵蓋 Grok 執行的一切。Claude Code 的沙箱會擋下的指令會先詢問，允許後在沙箱外執行；Grok 的沙箱擋下的指令則完全無法允許。
 - Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍可讓指令不經詢問就執行。
 - 唯讀並選「詢問我」時，Claude Code 無法請求修改檔案（修改檔案的工具已移除）；Codex 與 Grok 可以。
