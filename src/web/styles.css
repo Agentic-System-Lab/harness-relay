@@ -380,8 +380,8 @@ p {
 
 .conv-title {
   font-size: 14px;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   display: flex;
   align-items: center;
@@ -404,20 +404,22 @@ p {
   display: block;
 }
 
+/* A conversation's folder and × buttons take room only while they show: on hover, or while the
+   keyboard is on the conversation. Otherwise its title has the whole width, and ends in "…" only when
+   it does not fit. Touch screens have no hover: the buttons always show there. */
 .conv-delete {
-  opacity: 0;
+  display: none;
   margin-right: 4px;
 }
 
 .conv-item:hover .conv-delete,
-.conv-item.active .conv-delete,
 .conv-item:focus-within .conv-delete {
-  opacity: 1;
+  display: inline-grid;
 }
 
 @media (hover: none) {
   .conv-delete {
-    opacity: 1;
+    display: inline-grid;
   }
 }
 
@@ -600,10 +602,10 @@ p {
   opacity: 0.45;
 }
 
-/* The folder button: a native menu laid over the icon. */
+/* The folder button: a native menu laid over the icon. Shown like the × button (see .conv-delete). */
 .conv-move {
   position: relative;
-  opacity: 0;
+  display: none;
 }
 
 .conv-move select {
@@ -623,9 +625,8 @@ p {
 }
 
 .conv-item:hover .conv-move,
-.conv-item.active .conv-move,
 .conv-item:focus-within .conv-move {
-  opacity: 1;
+  display: inline-grid;
 }
 
 .conv-sorting {
@@ -633,7 +634,10 @@ p {
 }
 
 @media (hover: none) {
-  .conv-move,
+  .conv-move {
+    display: inline-grid;
+  }
+
   .group-action {
     opacity: 1;
   }
@@ -647,6 +651,7 @@ p {
   color: var(--muted);
 }
 
+/* A conversation's title in the sidebar and in search results: one line, "…" when it does not fit. */
 .conv-title-text {
   min-width: 0;
   overflow: hidden;

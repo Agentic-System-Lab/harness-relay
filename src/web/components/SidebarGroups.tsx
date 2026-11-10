@@ -319,7 +319,8 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
                         <a href={`#/c/${c.id}`} className="conv-link" draggable={false}>
                           <span className="conv-title">
                             {s && <span className={`status-dot ${s}`} aria-hidden />}
-                            {c.title}
+                            {/* Its own element: the text of a flex row cannot end in an ellipsis. */}
+                            <span className="conv-title-text">{c.title}</span>
                           </span>
                           <span className="conv-meta">
                             <MemberDots agents={c.agents} className="conv-dots" />
