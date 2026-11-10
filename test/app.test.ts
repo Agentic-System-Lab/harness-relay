@@ -11,6 +11,7 @@ import {
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
   type Conversation,
+  type ConversationSummary,
   type SettingsView,
   type ShareFileInfo,
   type TeamRevision,
@@ -920,6 +921,22 @@ describe('sidebar groups', () => {
     await move(group.id);
     await app.request(`/api/groups/${group.id}`, json('DELETE', {}));
     expect(await listed()).toBeUndefined();
+  });
+
+  it('moves a branched conversation with its family, and lists where each was branched from', async () => {
+    const original = await createConversation();
+    const branch = await createConversation();
+    const live = store.get(branch.id)!;
+    live.branch = { fromId: original.id, fromTitle: 'Before', afterId: 'm1' };
+    store.saveMeta(live);
+    const group = (await (await create('Docs')).json()) as { id: string };
+
+    expect((await app.request(`/api/conversations/${branch.id}/group`, json('PUT', { groupId: group.id }))).status).toBe(200);
+    const list = (await (await get('/api/conversations')).json()) as ConversationSummary[];
+    const byId = Object.fromEntries(list.map((c) => [c.id, c]));
+    expect(byId[original.id]!.groupId).toBe(group.id);
+    expect(byId[branch.id]).toMatchObject({ groupId: group.id, branchFrom: { id: original.id, title: 'Before' } });
+    expect(typeof byId[branch.id]!.createdAt).toBe('number');
   });
 });
 

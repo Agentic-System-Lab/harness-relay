@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import type { ConversationGroup, ConversationSummary } from '../../shared/types';
 import { GROUP_LIMITS } from '../../shared/types';
 import { api } from '../api';
@@ -7,17 +7,27 @@ import { useI18n, useT } from '../i18n';
 import { scheduleTrouble, sidebarScheduleTitle } from '../schedule';
 import {
   DRAG_TYPE,
-  groupOf,
+  MAX_INDENT,
+  descendants,
+  familyIds,
+  familySizes,
+  foldedNow,
   groupSections,
   groupStatus,
+  moveFamily,
+  readCollapsedBranches,
   readCollapsedGroups,
+  revealIn,
   sectionKey,
   settleMoves,
+  undoMoves,
+  writeCollapsedBranches,
   writeCollapsedGroups,
+  type ConvNode,
   type GroupSection,
 } from '../sidebar';
 import { convStatus, relativeTime } from '../util';
-import { ChevronIcon, ClockIcon, FolderIcon, FolderPlusIcon, PencilIcon } from './icons';
+import { BranchIcon, ChevronIcon, ClockIcon, FolderIcon, FolderPlusIcon, PencilIcon } from './icons';
 import { MemberDots } from './MemberDots';
 
 interface Props {
@@ -167,10 +177,14 @@ function GroupNameField({
   );
 }
 
-/** The conversations in their groups: the user's groups, then "Other". Conversations are dragged between groups. */
+/**
+ * The conversations in their groups: the user's groups, then "Other". In a group, each conversation
+ * branched from another is under it, and a family of them is dragged between groups as one.
+ */
 export function SidebarGroups({ route, conversations, groups, seen, onChanged, onDelete }: Props) {
   const { t, lang } = useI18n();
   const [collapsed, setCollapsed] = useState(readCollapsedGroups);
+  const [folded, setFolded] = useState(readCollapsedBranches);
   /** Moves not yet reported back by the server, so the conversation does not jump back meanwhile. */
   const [moves, setMoves] = useState<Record<string, string | null>>({});
   const [dragging, setDragging] = useState<string | null>(null);
@@ -180,6 +194,20 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
 
   useEffect(() => setMoves((m) => settleMoves(m, conversations)), [conversations]);
 
+  // The conversation opened is in view: hidden branches that hold it open, once, when it is listed
+  // (a new branch is listed a moment after it opens).
+  const openId = route.page === 'chat' ? route.id : null;
+  const revealed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openId || revealed.current === openId || !conversations.some((c) => c.id === openId)) return;
+    revealed.current = openId;
+    const next = revealIn(folded, conversations, openId);
+    if (next === folded) return;
+    setFolded(next);
+    writeCollapsedBranches(next);
+    // Not on `folded`: hiding them again while it is open is up to the user.
+  }, [openId, conversations]);
+
   const toggle = (key: string) => {
     const next = new Set(collapsed);
     if (next.has(key)) next.delete(key);
@@ -188,14 +216,29 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
     writeCollapsedGroups(next);
   };
 
+  const fold = (id: string) => {
+    // Nodes gone from the sidebar are forgotten meanwhile.
+    const next = foldedNow(folded, conversations);
+    if (folded.has(id)) next.delete(id);
+    else next.add(id);
+    setFolded(next);
+    writeCollapsedBranches(next);
+  };
+
+  const sections = groupSections(conversations, groups, moves);
+  /** The group each conversation shows in (its family's). */
+  const shownIn = new Map(sections.flatMap((s) => s.conversations.map((c) => [c.id, s.group?.id ?? null] as const)));
+
+  /** The server moves the conversation's whole family; so does the sidebar until it hears back. */
   const move = async (convId: string, groupId: string | null) => {
-    const c = conversations.find((x) => x.id === convId);
-    if (!c || (convId in moves ? moves[convId] : groupOf(c, groups)) === groupId) return;
-    setMoves((m) => ({ ...m, [convId]: groupId }));
+    if (!shownIn.has(convId) || shownIn.get(convId) === groupId) return;
+    const before = moves;
+    const { ids } = moveFamily(before, conversations, convId, groupId);
+    setMoves((m) => moveFamily(m, conversations, convId, groupId).moves);
     try {
       await api.moveToGroup(convId, groupId);
     } catch (e) {
-      setMoves(({ [convId]: _dropped, ...rest }) => rest);
+      setMoves((m) => undoMoves(m, ids, before));
       alert(t.sidebar.moveFailed((e as Error).message));
     }
     onChanged();
@@ -244,8 +287,128 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
     };
   };
 
-  const sections = groupSections(conversations, groups, moves);
   const empty = !conversations.length && !groups.length;
+  /** The family being dragged: it moves as one. */
+  const draggingFamily = new Set(dragging ? familyIds(conversations, dragging) : []);
+  const sizes = familySizes(conversations);
+
+  /** The button that shows or hides what was branched from a conversation, with how many there are. */
+  const foldButton = (node: ConvNode) => {
+    if (!node.children.length) return null;
+    const below = descendants(node);
+    const hidden = folded.has(node.id);
+    const status = hidden ? groupStatus(below, seen) : undefined;
+    const action = hidden ? t.sidebar.showBranches(below.length) : t.sidebar.hideBranches(below.length);
+    // The dot is a picture: its meaning is said in words too.
+    const label = status ? `${action} · ${t.sidebar.status[status]}` : action;
+    return (
+      <button
+        type="button"
+        className={`conv-fold ${hidden ? '' : 'open'}`}
+        aria-expanded={!hidden}
+        aria-label={label}
+        title={label}
+        onClick={() => fold(node.id)}
+      >
+        <BranchIcon size={12} />
+        <span className="conv-fold-count">{below.length}</span>
+        {status && <span className={`status-dot ${status}`} aria-hidden />}
+      </button>
+    );
+  };
+
+  const conversationRow = (c: ConversationSummary, node: ConvNode, section: GroupSection, depth: number) => {
+    const active = route.page === 'chat' && route.id === c.id;
+    const s = convStatus(c, seen[c.id]);
+    const current = section.group?.id ?? null;
+    const moveLabel = (sizes.get(c.id) ?? 1) > 1 ? t.sidebar.moveFamilyTo(c.title) : t.sidebar.moveTo(c.title);
+    return (
+      <div
+        className={`conv-item ${active ? 'active' : ''} ${draggingFamily.has(c.id) ? 'dragging' : ''}`}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(DRAG_TYPE, c.id);
+          e.dataTransfer.effectAllowed = 'move';
+          setDragging(c.id);
+        }}
+        onDragEnd={() => {
+          setDragging(null);
+          setOver(null);
+        }}
+      >
+        <a href={`#/c/${c.id}`} className="conv-link" draggable={false}>
+          <span className="conv-title">
+            {/* Indented no further: it says it is a branch of the one above it. */}
+            {depth > MAX_INDENT && (
+              <span className="conv-deep" aria-hidden>
+                ↳
+              </span>
+            )}
+            {s && <span className={`status-dot ${s}`} aria-hidden />}
+            {/* Its own element: the text of a flex row cannot end in an ellipsis. */}
+            <span className="conv-title-text">{c.title}</span>
+          </span>
+          <span className="conv-meta">
+            <MemberDots agents={c.agents} className="conv-dots" />
+            {s && <span className={`conv-status ${s}`}>{t.sidebar.status[s]}</span>}
+            {c.sorting && <span className="conv-sorting">{t.sidebar.sorting}</span>}
+            {c.schedule && (c.schedule.enabled || scheduleTrouble(c.schedule)) && (
+              <span
+                className={`conv-schedule ${scheduleTrouble(c.schedule) ? 'warn' : ''}`}
+                title={sidebarScheduleTitle(c.schedule, t, lang)}
+                role="img"
+                aria-label={sidebarScheduleTitle(c.schedule, t, lang)}
+              >
+                <ClockIcon size={12} />
+              </span>
+            )}
+            {relativeTime(c.updatedAt, t)}
+          </span>
+        </a>
+        {foldButton(node)}
+        {groups.length > 0 && (
+          // A native menu: works with the keyboard and on touch screens, where dragging does not.
+          <span className="icon-button conv-move" title={moveLabel}>
+            <FolderIcon size={15} />
+            <select value={current ?? ''} aria-label={moveLabel} onChange={(e) => void move(c.id, e.target.value || null)}>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+              <option value="">{t.sidebar.otherGroup}</option>
+            </select>
+          </span>
+        )}
+        <button className="icon-button conv-delete" aria-label={t.sidebar.deleteConversation} onClick={() => onDelete(c)}>
+          ×
+        </button>
+      </div>
+    );
+  };
+
+  /** A deleted conversation the ones under it were branched from: only its title, which links nowhere. */
+  const deletedRow = (node: ConvNode) => (
+    <div className="conv-item conv-gone" title={t.message.branchGoneTitle}>
+      <span className="conv-link">
+        <span className="conv-title">
+          <span className="conv-title-text">{node.title ? `${node.title}${t.message.branchGone}` : t.sidebar.deletedChat}</span>
+        </span>
+      </span>
+      {foldButton(node)}
+    </div>
+  );
+
+  const renderNode = (node: ConvNode, section: GroupSection, depth = 0): ReactNode => (
+    <div key={node.id} className="conv-node">
+      {node.conv ? conversationRow(node.conv, node, section, depth) : deletedRow(node)}
+      {node.children.length > 0 && !folded.has(node.id) && (
+        <div className={`conv-children ${depth >= MAX_INDENT ? 'flat' : ''}`}>
+          {node.children.map((child) => renderNode(child, section, depth + 1))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -296,77 +459,8 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
                 </div>
               )}
               {!isCollapsed &&
-                (section.conversations.length ? (
-                  section.conversations.map((c) => {
-                    const active = route.page === 'chat' && route.id === c.id;
-                    const s = convStatus(c, seen[c.id]);
-                    const current = c.id in moves ? moves[c.id] : groupOf(c, groups);
-                    return (
-                      <div
-                        key={c.id}
-                        className={`conv-item ${active ? 'active' : ''} ${dragging === c.id ? 'dragging' : ''}`}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData(DRAG_TYPE, c.id);
-                          e.dataTransfer.effectAllowed = 'move';
-                          setDragging(c.id);
-                        }}
-                        onDragEnd={() => {
-                          setDragging(null);
-                          setOver(null);
-                        }}
-                      >
-                        <a href={`#/c/${c.id}`} className="conv-link" draggable={false}>
-                          <span className="conv-title">
-                            {s && <span className={`status-dot ${s}`} aria-hidden />}
-                            {/* Its own element: the text of a flex row cannot end in an ellipsis. */}
-                            <span className="conv-title-text">{c.title}</span>
-                          </span>
-                          <span className="conv-meta">
-                            <MemberDots agents={c.agents} className="conv-dots" />
-                            {s && <span className={`conv-status ${s}`}>{t.sidebar.status[s]}</span>}
-                            {c.sorting && <span className="conv-sorting">{t.sidebar.sorting}</span>}
-                            {c.schedule && (c.schedule.enabled || scheduleTrouble(c.schedule)) && (
-                              <span
-                                className={`conv-schedule ${scheduleTrouble(c.schedule) ? 'warn' : ''}`}
-                                title={sidebarScheduleTitle(c.schedule, t, lang)}
-                                role="img"
-                                aria-label={sidebarScheduleTitle(c.schedule, t, lang)}
-                              >
-                                <ClockIcon size={12} />
-                              </span>
-                            )}
-                            {relativeTime(c.updatedAt, t)}
-                          </span>
-                        </a>
-                        {groups.length > 0 && (
-                          // A native menu: works with the keyboard and on touch screens, where dragging does not.
-                          <span className="icon-button conv-move" title={t.sidebar.moveTo(c.title)}>
-                            <FolderIcon size={15} />
-                            <select
-                              value={current ?? ''}
-                              aria-label={t.sidebar.moveTo(c.title)}
-                              onChange={(e) => void move(c.id, e.target.value || null)}
-                            >
-                              {groups.map((g) => (
-                                <option key={g.id} value={g.id}>
-                                  {g.name}
-                                </option>
-                              ))}
-                              <option value="">{t.sidebar.otherGroup}</option>
-                            </select>
-                          </span>
-                        )}
-                        <button
-                          className="icon-button conv-delete"
-                          aria-label={t.sidebar.deleteConversation}
-                          onClick={() => onDelete(c)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    );
-                  })
+                (section.trees.length ? (
+                  section.trees.map((tree) => renderNode(tree, section))
                 ) : (
                   <p className="group-empty">{t.sidebar.dropHere}</p>
                 ))}

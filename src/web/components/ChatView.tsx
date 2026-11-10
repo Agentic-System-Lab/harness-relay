@@ -454,18 +454,18 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           actions are a menu under ⋯ (see .chat-head and .more-button in styles.css). */}
       <header className="chat-head">
         <div className="chat-head-top">
-          {/* The title gives way first: a branch's "Continued from" stays in view (styles.css). */}
+          {/* The title and a branch's "Continued from" share the row by what they need (styles.css). */}
           <div className="chat-title-row">
             <button className="chat-title" onClick={rename} title={t.chat.rename}>
               {conv.title}
             </button>
             {conv.branch && <BranchFrom branch={conv.branch} conversations={conversations} className="head-branch" />}
+            {conv.settings.permission === 'full' && (
+              <span className="badge danger head-warning" title={t.permissions.full.hint}>
+                {t.permissions.full.label}
+              </span>
+            )}
           </div>
-          {conv.settings.permission === 'full' && (
-            <span className="badge danger head-warning" title={t.permissions.full.hint}>
-              {t.permissions.full.label}
-            </span>
-          )}
           {/* Phones only; a dot while a schedule is on, as the clock is blue then. */}
           <button
             ref={moreRef}

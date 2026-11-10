@@ -954,11 +954,19 @@ export interface ConversationBranch {
   fromTitle: string;
   /** The last message copied from it, by its id here: the messages after it were written here. */
   afterId: string;
+  /**
+   * Once the conversation it was branched from is deleted: where that one had been branched from, and
+   * so on while those are deleted too, nearest first, each with its title when it was deleted (or
+   * when it was branched from). The last one may still exist. It keeps a family together in the
+   * sidebar when a conversation in the middle of it is deleted.
+   */
+  via?: { id: string; title: string }[];
 }
 
 export interface ConversationSummary {
   id: string;
   title: string;
+  createdAt: number;
   updatedAt: number;
   agents: Pick<AgentConfig, 'name' | 'provider'>[];
   running: boolean;
@@ -970,10 +978,19 @@ export interface ConversationSummary {
   asking?: boolean;
   /** How the latest agent reply ended (absent before the first one). */
   lastStatus?: MessageStatus;
-  /** The sidebar group it is in; absent = the default group, "Other". */
+  /**
+   * The sidebar group it is in; absent = the default group, "Other". A family of branched
+   * conversations is in one group: its oldest conversation's (see `src/shared/family.ts`).
+   */
   groupId?: string;
   /** The lead agent is sorting it into one of the user's groups (by its first message). */
   sorting?: boolean;
+  /**
+   * It was branched from another conversation: that one's id, its title when it was branched (shown
+   * once it has been deleted), and where that one came from once deleted (`ConversationBranch.via`).
+   * The sidebar shows it under that conversation.
+   */
+  branchFrom?: { id: string; title: string; via?: ConversationBranch['via'] };
   /**
    * It has a schedule: whether it is on, when it sends next, how the last time went, and the time zone
    * its times are shown in (a daily or weekly schedule's own; absent: the browser's).
@@ -1003,6 +1020,8 @@ export interface SearchResult {
   snippet?: string;
   /** How many of its messages match. */
   matches: number;
+  /** It was branched from another conversation: that one's title (as it was then, once deleted). */
+  branchFrom?: string;
 }
 
 /** Events pushed to the browser over SSE for one conversation. */

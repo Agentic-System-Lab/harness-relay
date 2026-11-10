@@ -309,13 +309,15 @@ The header shows the schedule (point at it for the next time), and the sidebar s
 
 To try another direction without losing where a conversation went, branch it: **Branch conversation** (a forking line) under an agent's reply makes a new conversation, **Branch · <title>**, and opens it:
 
-- It holds a copy of every message up to and including that reply (attached files and the changed files' diffs too), and the team, settings, "always allow" answers and sidebar group the original has now (not as they were at that reply). **Continued from <title>** after the chat's title, and on a line after the copied messages, links back to the original (once that is deleted, its title is shown without the link). A long chat title is shortened first, so this stays in view.
+- It holds a copy of every message up to and including that reply (attached files and the changed files' diffs too), and the team, settings, "always allow" answers and sidebar group the original has now (not as they were at that reply). **Continued from <title>** after the chat's title, and on a line after the copied messages, links back to the original (once that is deleted, its title is shown without the link). When the chat's title and the original's do not both fit, each gets half the room (a short one leaves the rest to the other) and ends in …, so both stay in view.
 - If that reply asked you something, the question waits for your answer in the branch too, even if you answered it in the original: branch from a question to answer it another way.
 - The original stays exactly as it was, and can go on replying meanwhile; only the replies up to the one you branch from must be finished.
 - In parallel mode, the images and files a copied reply shows come from that agent's worktree in the original, so they are gone once the original is deleted (its diff stays). A result can only be applied in the conversation that made it.
 - The agents in the branch start fresh sessions: on their first turn they are given the copied messages, and from there each conversation goes its own way.
 - Both conversations share the working directory, and files are **not** rewound: they are as the original left them, not as they were at that reply. The agents in a branch are told so.
 - Branching is not offered on your own messages: to ask something else after your question, branch from the reply before it, or edit the question (which replaces what came after it).
+- The first message you send in the branch names it, as a new chat's first question does, so its name says where it went (one you renamed yourself keeps your name). Editing the first copied message makes it a chat of its own (nothing copied is left), named after the edited message.
+- In the sidebar the branch is listed under the original, and they stay together in one group: see [Branches in the sidebar](#branches-in-the-sidebar). You can branch a branch too, as deep as you like.
 
 ### Sharing a conversation
 
@@ -366,9 +368,19 @@ Click **New group** under **New chat**, type a name and press Enter. Groups appe
 - **Rename or delete a group**: hover its name and click the pencil or ×. Deleting a group moves its conversations to **Other**; they are not deleted. Names must be different from each other and from **Other**.
 - **Collapse a group**: click its name. A collapsed group shows the dot of its most urgent conversation (needs you, replying, error, new reply). Collapsed groups are remembered in this browser.
 
+#### Branches in the sidebar
+
+A conversation you [branched](#branching-a-conversation) from another is listed under it, a little to the right, with a line down the side; its own branches are under it in turn, the oldest first. Branches are indented three levels at most: deeper ones are not indented further, and start with ↳.
+
+- **One family, one group**: a conversation, its branches, theirs and so on stay together in one group (that of the oldest of them). Moving any of them, by dragging or with the folder button, moves all of them; while you drag one, all of them are dimmed. The lead agent sorts only the conversation they all came from.
+- **Order**: a family is placed among the group's conversations by its most recent activity, whichever of its conversations that was in; the branches under a conversation stay in the order they were made.
+- **Show or hide branches**: a conversation with branches has a button with the branch icon and how many there are under it; click it to hide them, and again to show them. While they are hidden, the button outlines and shows the dot of the most urgent of them. Hidden branches are remembered in this browser. Opening a conversation they hide (a new branch, or one found by search) shows them again.
+- **Deleting**: deleting a conversation keeps the conversations branched from it (the confirmation says how many). They stay where they were, under its old title, marked **(deleted)**, which links nowhere and goes once none of them is left; deleting one in the middle keeps the rest of the family together too.
+- **Search** results say which conversation a branch was branched from, after the branch icon.
+
 ### Search
 
-Click **Search** under **New chat** and type. Conversations whose title or messages — what you and the agents wrote — contain every word you typed are listed in place of the groups, ignoring case: those whose title matches first, then the most recent. Each result shows where it matched, with the words highlighted, its group and how many messages match. Click one to open it; press Escape or × to go back to the groups. Chinese works without spaces: any part of a word matches.
+Click **Search** under **New chat** and type. Conversations whose title or messages — what you and the agents wrote — contain every word you typed are listed in place of the groups, ignoring case: those whose title matches first, then the most recent. Each result shows where it matched, with the words highlighted, its group, the conversation it was branched from (if it was) and how many messages match. Click one to open it; press Escape or × to go back to the groups. Chinese works without spaces: any part of a word matches.
 
 ## 5. Tips for writing roles
 

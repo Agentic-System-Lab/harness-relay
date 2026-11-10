@@ -4,6 +4,7 @@ import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
+import { branchCount } from '../sidebar';
 import { CalendarPlusIcon, FolderPlusIcon, PanelIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
@@ -48,7 +49,9 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
   };
 
   const remove = async (c: ConversationSummary) => {
-    if (!confirm(t.sidebar.confirmDelete(c.title))) return;
+    // The conversations branched from it stay, under its place in the sidebar.
+    const branches = branchCount(conversations, c.id);
+    if (!confirm(branches ? t.sidebar.confirmDeleteBranched(c.title, branches) : t.sidebar.confirmDelete(c.title))) return;
     try {
       await api.deleteConversation(c.id);
     } catch (e) {

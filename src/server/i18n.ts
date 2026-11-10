@@ -557,3 +557,8 @@ export function isOtherGroupName(name: string): boolean {
 export function isDefaultTitle(title: string): boolean {
   return LANGS.some((l) => MESSAGES[l].defaultTitle === title);
 }
+
+/** The title a branch of the conversation called `fromTitle` gets when it is made, in any language. */
+export function isBranchTitle(title: string, fromTitle: string): boolean {
+  return LANGS.some((l) => MESSAGES[l].branchTitle(fromTitle).slice(0, 200) === title);
+}

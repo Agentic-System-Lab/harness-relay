@@ -602,6 +602,68 @@ p {
   opacity: 0.45;
 }
 
+/* Branched conversations: each under the one it came from, with a line down their side. Deeper than
+   MAX_INDENT (src/web/sidebar.ts) they are not indented further, and start with ↳ instead. */
+.conv-children {
+  margin-left: 12px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.conv-children.flat {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
+}
+
+.conv-deep {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+/* How many were branched from it; shows or hides them. Outlined while they are hidden. */
+.conv-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.conv-fold.open {
+  border-color: transparent;
+}
+
+.conv-fold:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+/* A deleted conversation that branches came from: it keeps them together, and links nowhere. */
+.conv-item.conv-gone:hover {
+  background: transparent;
+}
+
+.conv-gone .conv-link {
+  padding-top: 5px;
+  padding-bottom: 5px;
+  cursor: default;
+}
+
+.conv-gone .conv-title {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--muted);
+}
+
 /* The folder button: a native menu laid over the icon. Shown like the × button (see .conv-delete). */
 .conv-move {
   position: relative;
@@ -682,6 +744,18 @@ p {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.search-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 40%;
+}
+
+.search-branch svg {
+  flex-shrink: 0;
 }
 
 .sidebar-bottom {
@@ -1496,11 +1570,13 @@ details.sub .model-picker {
 
 .chat-head .chat-title-row {
   grid-area: title;
-  justify-self: start;
 }
 
-/* The title, then a branch's "Continued from": the title gives way first (it ends in …), the label
-   keeps up to half the row and shortens only the original's title. */
+/* The title, then a branch's "Continued from" (which shortens only the original's title). Each takes
+   the room it needs; when both need more than the row has, each gets half, and the one that needs
+   less than half leaves the rest to the other (flex-basis 0, grown up to its own width). The row
+   takes the whole width it has, its items at the start: sized to its content instead, a short title
+   would leave the label too little room. */
 .chat-title-row {
   display: flex;
   align-items: center;
@@ -1510,17 +1586,18 @@ details.sub .model-picker {
 }
 
 .chat-title-row .chat-title {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-width: 0;
+  max-width: max-content;
 }
 
 .head-branch {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  flex: 0 0 auto;
+  flex: 1 1 0;
   min-width: 0;
-  max-width: 50%;
+  max-width: max-content;
   font-size: 13px;
   color: var(--muted);
   white-space: nowrap;
@@ -3740,8 +3817,9 @@ details.sub summary {
     padding-left: 44px;
   }
 
+  /* The whole width up to the actions (see .chat-title-row); the warning is in it, beside the title. */
   .chat-head .chat-title-row {
-    flex: 0 1 auto;
+    flex: 1 1 auto;
   }
 
   /* Little room: the icon says it, the original's title stays. */
@@ -4476,11 +4554,12 @@ details.sub summary {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
-/* A new reply you have not opened yet: its title stands out too. */
-.conv-item:has(.status-dot.unread) .conv-title,
-.conv-item:has(.status-dot.waiting) .conv-title,
-.conv-item:has(.status-dot.confirm) .conv-title,
-.conv-item:has(.status-dot.answer) .conv-title {
+/* A new reply you have not opened yet: its title stands out too. Only its own dot counts, not the
+   one its hidden branches show (.conv-fold). */
+.conv-item:has(> .conv-link .status-dot.unread) .conv-title,
+.conv-item:has(> .conv-link .status-dot.waiting) .conv-title,
+.conv-item:has(> .conv-link .status-dot.confirm) .conv-title,
+.conv-item:has(> .conv-link .status-dot.answer) .conv-title {
   font-weight: 650;
 }
 

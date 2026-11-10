@@ -327,6 +327,113 @@ describe('Store groups', () => {
     expect(list).toEqual({ auto: 'g1', user: undefined, none: undefined, gone: undefined });
     expect(store.groupTitles('g1', 5)).toEqual(['測試對話']);
   });
+
+  /** A conversation made at `createdAt`, branched from `fromId`. */
+  const member = (id: string, createdAt: number, fromId?: string): Conversation => ({
+    ...sampleConversation(),
+    id,
+    title: id,
+    createdAt,
+    updatedAt: createdAt,
+    ...(fromId ? { branch: { fromId, fromTitle: `${fromId} then`, afterId: 'm1' } } : {}),
+  });
+  const groupsOf = (s: Store) => Object.fromEntries(s.list(() => false).map((c) => [c.id, c.groupId]));
+
+  it('lists where each conversation was branched from, and when it was made', () => {
+    const store = new Store(db);
+    store.create(member('root', 1));
+    store.create(member('b1', 2, 'root'));
+    // No longer a branch (a retry took back every copied message): what is in memory counts.
+    store.get('b1')!.branch = undefined;
+    expect(store.list(() => false).find((c) => c.id === 'b1')!.branchFrom).toBeUndefined();
+    const list = Object.fromEntries(new Store(reopen()).list(() => false).map((c) => [c.id, c]));
+    expect(list.b1).toMatchObject({ createdAt: 2, branchFrom: { id: 'root', title: 'root then' } });
+    expect(list.root!.createdAt).toBe(1);
+    expect(list.root!.branchFrom).toBeUndefined();
+  });
+
+  it('moves a family of branched conversations between groups as one, also once the one at its top is deleted', () => {
+    const store = new Store(db);
+    store.createGroup({ id: 'g1', name: 'Research' });
+    store.createGroup({ id: 'g2', name: 'Writing' });
+    store.create(member('root', 1));
+    store.create(member('b1', 2, 'root'));
+    store.create(member('b2', 3, 'b1'));
+    store.create(member('alone', 4));
+    expect(store.family('b1')).toEqual(['root', 'b1', 'b2']);
+    expect(store.family('alone')).toEqual(['alone']);
+
+    // Any of them moves all of them.
+    store.moveToGroup('b2', 'g1');
+    expect(groupsOf(store)).toEqual({ root: 'g1', b1: 'g1', b2: 'g1', alone: undefined });
+    expect(store.isSorted('root')).toBe(true);
+
+    // A new branch goes into its family's group: the oldest conversation's.
+    db.prepare("UPDATE conversations SET group_id = 'g2' WHERE id = 'b1'").run(); // made apart before families moved as one
+    store.create(member('b3', 5, 'b1'));
+    store.placeBranch('b3');
+    expect(store.groupOf('b3')).toBe('g1');
+    expect(store.familyGroupOf('b1')).toBe('g1');
+    expect(store.isSorted('b3')).toBe(true);
+
+    // The top is deleted: what was branched from it stays one family.
+    store.create(member('b4', 6, 'root'));
+    store.delete('root');
+    expect(store.family('b4')).toEqual(['b1', 'b2', 'b3', 'b4']);
+    store.moveToGroup('b4', 'g2');
+    expect(groupsOf(store)).toEqual({ b1: 'g2', b2: 'g2', b3: 'g2', b4: 'g2', alone: undefined });
+    store.moveToGroup('b2', null);
+    expect(groupsOf(new Store(reopen()))).toEqual({ b1: undefined, b2: undefined, b3: undefined, b4: undefined, alone: undefined });
+  });
+
+  it('keeps a family together when a conversation in the middle of it is deleted', () => {
+    const store = new Store(db);
+    store.createGroup({ id: 'g1', name: 'Research' });
+    store.create(member('A', 1));
+    store.create(member('B', 2, 'A'));
+    store.create(member('C', 3, 'B'));
+    store.create(member('D', 4, 'B'));
+    store.create(member('E', 5, 'C'));
+    store.get('C'); // one in memory, one only in the database
+    store.delete('B');
+    // Where B came from is kept below it (with the title B was branched from A with).
+    expect(store.get('C')!.branch).toEqual({ fromId: 'B', fromTitle: 'B then', afterId: 'm1', via: [{ id: 'A', title: 'A then' }] });
+    expect(new Store(reopen()).get('D')!.branch?.via).toEqual([{ id: 'A', title: 'A then' }]);
+    const again = new Store(db);
+    expect(again.get('E')!.branch?.via).toBeUndefined(); // C, which it came from, is still there
+    expect(again.family('E')).toEqual(['A', 'C', 'D', 'E']);
+    again.moveToGroup('A', 'g1');
+    expect(groupsOf(again)).toEqual({ A: 'g1', C: 'g1', D: 'g1', E: 'g1' });
+    expect(again.list(() => false).find((c) => c.id === 'C')!.branchFrom).toEqual({
+      id: 'B',
+      title: 'B then',
+      via: [{ id: 'A', title: 'A then' }],
+    });
+
+    // The top goes too: its title then is kept, and the rest stays one family.
+    again.delete('A');
+    expect(again.get('C')!.branch?.via).toEqual([{ id: 'A', title: 'A' }]);
+    expect(again.family('D')).toEqual(['C', 'D', 'E']);
+    // A leaf goes: nothing else changes.
+    again.delete('E');
+    expect(again.get('C')!.branch?.via).toEqual([{ id: 'A', title: 'A' }]);
+    // An unreadable chain is left out.
+    db.prepare('UPDATE conversations SET branch = ? WHERE id = ?').run('{"fromId":"B","afterId":"m1","via":[7,{"id":"A"}]}', 'D');
+    expect(new Store(reopen()).get('D')!.branch).toEqual({ fromId: 'B', fromTitle: '', afterId: 'm1' });
+  });
+
+  it('takes a branch made while its conversation was being sorted along into the group it is sorted into', () => {
+    const store = new Store(db);
+    store.createGroup({ id: 'g1', name: 'Backend' });
+    store.create(member('root', 1));
+    store.create(member('b1', 2, 'root'));
+    store.placeBranch('b1');
+    expect(store.sortIntoGroup('root', 'g1')).toBe(true);
+    expect(groupsOf(store)).toEqual({ root: 'g1', b1: 'g1' });
+    // The lead agent sorted the one it was asked about; the branch stays the user's choice.
+    expect(store.isSorted('b1')).toBe(true);
+    expect(store.sortIntoGroup('b1', null)).toBe(false);
+  });
 });
 
 describe('Store shares', () => {
@@ -432,6 +539,17 @@ describe('Store search', () => {
     expect(store.search('100%').map((r) => r.id)).toEqual(['like']);
     expect(store.search('e_n').map((r) => r.id)).toEqual(['like']);
     expect(store.search('0_d')).toEqual([]);
+  });
+
+  it('says what a branched conversation was branched from: its title now, or as it was once deleted', () => {
+    const store = new Store(db);
+    seed(store);
+    const branch = (id: string, fromId: string) =>
+      store.create({ ...sampleConversation(), id, title: `Sidebar ${id}`, branch: { fromId, fromTitle: 'Old name', afterId: 'r2' } });
+    branch('kept', 'react');
+    branch('orphan', 'gone');
+    const hits = Object.fromEntries(store.search('sidebar').map((r) => [r.id, r.branchFrom]));
+    expect(hits).toEqual({ react: undefined, kept: 'Sidebar layout', orphan: 'Old name' });
   });
 
   it('says where it matched and in how many messages', () => {

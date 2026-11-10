@@ -26,6 +26,7 @@ import type {
   SharedPage,
 } from '../shared/types';
 import { pendingPlan } from '../shared/types';
+import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
 import { currentLang } from './i18n';
@@ -348,7 +349,35 @@ function pauseOf(json: string | null): Pick<Conversation, 'pause'> {
 function branchOf(json: string | null): Pick<Conversation, 'branch'> {
   const b = parseJson<Partial<ConversationBranch> | null>(json, null);
   if (typeof b?.fromId !== 'string' || typeof b.afterId !== 'string') return {};
-  return { branch: { fromId: b.fromId, fromTitle: typeof b.fromTitle === 'string' ? b.fromTitle : '', afterId: b.afterId } };
+  const via = Array.isArray(b.via)
+    ? b.via.filter((v): v is { id: string; title: string } => typeof v?.id === 'string' && typeof v.title === 'string')
+    : [];
+  return {
+    branch: {
+      fromId: b.fromId,
+      fromTitle: typeof b.fromTitle === 'string' ? b.fromTitle : '',
+      afterId: b.afterId,
+      ...(via.length ? { via: via.map((v) => ({ id: v.id, title: v.title })) } : {}),
+    },
+  };
+}
+
+/**
+ * The branch of a conversation whose line up ends in `deleted`, once that one is deleted: where the
+ * deleted one came from goes after it (see `ConversationBranch.via`), so the family stays together.
+ * Undefined when nothing changes.
+ */
+function branchPast(
+  branch: ConversationBranch,
+  deleted: { id: string; title: string; branch?: ConversationBranch },
+): ConversationBranch | undefined {
+  const via = branch.via ?? [];
+  if ((via.at(-1)?.id ?? branch.fromId) !== deleted.id) return undefined;
+  const above = deleted.branch ? [{ id: deleted.branch.fromId, title: deleted.branch.fromTitle }, ...(deleted.branch.via ?? [])] : [];
+  // A deleted one further up keeps the title it had then.
+  const kept = via.length ? [...via.slice(0, -1), { id: deleted.id, title: deleted.title }] : [];
+  const next = [...kept, ...above];
+  return next.length ? { ...branch, via: next } : undefined;
 }
 
 function parsePlan(json: string | null): TeamPlan | undefined {
@@ -404,8 +433,13 @@ export class Store {
     sorting: (id: string) => boolean = () => false,
   ): ConversationSummary[] {
     const rows = this.db
-      .prepare('SELECT id, title, updated_at, group_id, pause IS NOT NULL AS asking FROM conversations ORDER BY updated_at DESC')
-      .all() as (Pick<ConversationRow, 'id' | 'title' | 'updated_at'> & { group_id: string | null; asking: number })[];
+      .prepare(
+        'SELECT id, title, created_at, updated_at, group_id, branch, pause IS NOT NULL AS asking FROM conversations ORDER BY updated_at DESC',
+      )
+      .all() as (Pick<ConversationRow, 'id' | 'title' | 'created_at' | 'updated_at' | 'branch'> & {
+      group_id: string | null;
+      asking: number;
+    })[];
     const agents = this.db
       .prepare('SELECT conversation_id, name, provider FROM conversation_agents ORDER BY conversation_id, position')
       .all() as { conversation_id: string; name: string; provider: Provider }[];
@@ -455,9 +489,11 @@ export class Store {
     return rows
       .map((r) => {
         const live = this.cache.get(r.id);
+        const branch = live ? live.branch : branchOf(r.branch).branch;
         return {
           id: r.id,
           title: live?.title ?? r.title,
+          createdAt: r.created_at,
           updatedAt: live?.updatedAt ?? r.updated_at,
           agents: byConv.get(r.id) ?? [],
           running: running(r.id),
@@ -468,6 +504,9 @@ export class Store {
           ...(r.group_id ? { groupId: r.group_id } : {}),
           ...(sorting(r.id) ? { sorting: true } : {}),
           ...scheduleOf(live, schedules.get(r.id)),
+          ...(branch
+            ? { branchFrom: { id: branch.fromId, title: branch.fromTitle, ...(branch.via ? { via: branch.via } : {}) } }
+            : {}),
         };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -663,6 +702,7 @@ export class Store {
    * conversations whose schedule did, so their open chats can be told.
    */
   delete(id: string): string[] {
+    const gone = this.cache.get(id);
     this.deleted.add(id);
     for (const key of this.savedSeen.keys()) if (key.startsWith(seenKey(id, ''))) this.savedSeen.delete(key);
     clearTimeout(this.timers.get(id));
@@ -672,10 +712,17 @@ export class Store {
     const linked = (
       this.db.prepare('SELECT conversation_id FROM schedules WHERE last_chat_id = ?').all(id) as { conversation_id: string }[]
     ).map((r) => r.conversation_id);
+    const below = this.branchesPast(id, gone);
     transaction(this.db, () => {
       this.db.prepare('UPDATE schedules SET last_chat_id = NULL WHERE last_chat_id = ?').run(id);
+      const save = this.db.prepare('UPDATE conversations SET branch = ? WHERE id = ?');
+      for (const [convId, branch] of below) save.run(JSON.stringify(branch), convId);
       this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
     });
+    for (const [convId, branch] of below) {
+      const live = this.cache.get(convId);
+      if (live) live.branch = branch;
+    }
     for (const convId of linked) {
       const s = this.cache.get(convId)?.schedule;
       if (s?.lastChatId === id) delete s.lastChatId;
@@ -975,9 +1022,77 @@ export class Store {
     return row?.group_id ?? null;
   }
 
-  /** The user puts a conversation in a group (`null`: the default group). */
+  /**
+   * The conversations below `id` (branched from it, or from deleted ones under it) with their branch
+   * as it is once `id` is deleted: knowing where it came from, they stay in its family.
+   */
+  private branchesPast(id: string, live: Conversation | undefined): [string, ConversationBranch][] {
+    const row = this.db.prepare('SELECT title, branch FROM conversations WHERE id = ?').get(id) as
+      | Pick<ConversationRow, 'title' | 'branch'>
+      | undefined;
+    if (!row) return [];
+    const deleted = { id, title: live?.title ?? row.title, branch: live ? live.branch : branchOf(row.branch).branch };
+    const rows = this.db.prepare('SELECT id, branch FROM conversations WHERE branch IS NOT NULL AND id != ?').all(id) as Pick<
+      ConversationRow,
+      'id' | 'branch'
+    >[];
+    const out: [string, ConversationBranch][] = [];
+    for (const r of rows) {
+      const cached = this.cache.get(r.id);
+      const branch = cached ? cached.branch : branchOf(r.branch).branch;
+      const next = branch && branchPast(branch, deleted);
+      if (next) out.push([r.id, next]);
+    }
+    return out;
+  }
+
+  /** Every conversation's place in a family of branched conversations (see `src/shared/family.ts`). */
+  private familyMembers(): (FamilyMember & { groupId: string | null })[] {
+    const rows = this.db.prepare('SELECT id, created_at, group_id, branch FROM conversations').all() as (Pick<
+      ConversationRow,
+      'id' | 'created_at' | 'branch'
+    > & { group_id: string | null })[];
+    return rows.map((r) => {
+      const live = this.cache.get(r.id);
+      const branch = live ? live.branch : branchOf(r.branch).branch;
+      return {
+        id: r.id,
+        createdAt: r.created_at,
+        groupId: r.group_id,
+        ...(branch ? { fromId: branch.fromId, ...(branch.via ? { via: branch.via.map((v) => v.id) } : {}) } : {}),
+      };
+    });
+  }
+
+  /** The ids of the conversations in the same family as `convId` (itself included), oldest first. */
+  family(convId: string): string[] {
+    return familyOf(this.familyMembers(), convId);
+  }
+
+  /** The group a family of branched conversations is in: its oldest conversation's (`null`: "Other"). */
+  familyGroupOf(convId: string): string | null {
+    const members = this.familyMembers();
+    const ids = new Set(familyOf(members, convId));
+    return byAge(members.filter((m) => ids.has(m.id)))[0]?.groupId ?? null;
+  }
+
+  /**
+   * The user puts a conversation in a group (`null`: the default group), and with it the rest of its
+   * family: the conversations it was branched from, and those branched from them or from it.
+   */
   moveToGroup(convId: string, groupId: string | null): void {
-    this.db.prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?").run(groupId, convId);
+    const ids = this.family(convId);
+    const update = this.db.prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?");
+    transaction(this.db, () => {
+      for (const id of ids.length ? ids : [convId]) update.run(groupId, id);
+    });
+  }
+
+  /** A new branch goes into its family's group, as the user's choice (so the lead agent does not sort it). */
+  placeBranch(convId: string): void {
+    this.db
+      .prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?")
+      .run(this.familyGroupOf(convId), convId);
   }
 
   /**
@@ -987,13 +1102,18 @@ export class Store {
    */
   sortIntoGroup(convId: string, groupId: string | null): boolean {
     if (this.deleted.has(convId)) return false;
-    const res = this.db
-      .prepare(
-        `UPDATE conversations SET group_id = ?, group_source = 'auto'
-         WHERE id = ? AND group_source IS NULL AND (? IS NULL OR EXISTS (SELECT 1 FROM conversation_groups WHERE id = ?))`,
-      )
-      .run(groupId, convId, groupId, groupId);
-    return res.changes > 0;
+    const sort = this.db.prepare(
+      `UPDATE conversations SET group_id = ?, group_source = 'auto'
+       WHERE id = ? AND group_source IS NULL AND (? IS NULL OR EXISTS (SELECT 1 FROM conversation_groups WHERE id = ?))`,
+    );
+    const along = this.db.prepare('UPDATE conversations SET group_id = ? WHERE id = ?');
+    const others = this.family(convId).filter((id) => id !== convId);
+    return transaction(this.db, () => {
+      if (!sort.run(groupId, convId, groupId, groupId).changes) return false;
+      // A branch made while it was being sorted goes along (it keeps being the user's choice).
+      for (const id of others) along.run(groupId, id);
+      return true;
+    });
   }
 
   /** The conversation was put in a group already (or left in "Other" on purpose), by the user or the lead agent. */
@@ -1048,16 +1168,19 @@ export class Store {
       list.push(h);
       byConv.set(h.conversation_id, list);
     }
-    const rows = this.db.prepare('SELECT id, title, updated_at, group_id FROM conversations').all() as {
+    const rows = this.db.prepare('SELECT id, title, updated_at, group_id, branch FROM conversations').all() as {
       id: string;
       title: string;
       updated_at: number;
       group_id: string | null;
+      branch: string | null;
     }[];
+    const titles = new Map(rows.map((r) => [r.id, this.cache.get(r.id)?.title ?? r.title]));
     const results: (SearchResult & { titleMatch: boolean })[] = [];
     for (const r of rows) {
       const live = this.cache.get(r.id);
       const title = live?.title ?? r.title;
+      const branch = live ? live.branch : branchOf(r.branch).branch;
       const found = new Set(termsIn(title, terms).map((t) => t.toLowerCase()));
       const titleMatch = found.size === terms.length;
       // LIKE ignores case for ASCII letters only; the check here is the one that counts.
@@ -1076,6 +1199,7 @@ export class Store {
         ...(r.group_id ? { groupId: r.group_id } : {}),
         ...(best ? { snippet: snippetAround(best.text, terms) } : {}),
         matches: new Set(parts.map((h) => h.message_id)).size,
+        ...(branch ? { branchFrom: titles.get(branch.fromId) ?? branch.fromTitle } : {}),
         titleMatch,
       });
     }

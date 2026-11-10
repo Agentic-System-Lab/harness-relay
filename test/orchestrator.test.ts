@@ -1052,6 +1052,42 @@ describe('branching a conversation', () => {
     expect(calls[0]!.systemPrompt).toContain('branched from an earlier one');
     expect(kinds(branch)).toEqual(['user', 'agent', 'agent', 'user', 'agent', 'agent']);
     expect(conv.messages).toHaveLength(6);
+    // Named after what the user went on with there, as a new chat is after its first question.
+    expect(branch.title).toBe('another question');
+    expect(new Store(db).get(branch.id)!.title).toBe('another question');
+  });
+
+  it('names a branch after the first message written there only while it has the name it was made with', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'first question');
+    await finish(conv.id);
+    const reply = agentMessages(conv).at(-1)!.id;
+
+    // Named once: the next message keeps the name.
+    const one = await orchestrator.branch(conv.id, reply);
+    await orchestrator.send(one.id, 'try it with tables\nand more lines');
+    await finish(one.id);
+    expect(one.title).toBe('try it with tables');
+    await orchestrator.send(one.id, 'and then?');
+    await finish(one.id);
+    expect(one.title).toBe('try it with tables');
+
+    // A name the user gave it stays.
+    const two = await orchestrator.branch(conv.id, reply);
+    two.title = 'My own name';
+    store.saveMeta(two);
+    await orchestrator.send(two.id, 'something else');
+    await finish(two.id);
+    expect(two.title).toBe('My own name');
+
+    // A branch of a branch, and one made while the chat was called by another language's name for it.
+    const three = await orchestrator.branch(one.id, agentMessages(one).at(-1)!.id);
+    expect(three.title).toBe('分支 · try it with tables');
+    three.title = 'Branch · try it with tables';
+    store.saveMeta(three);
+    await orchestrator.send(three.id, 'only the totals');
+    await finish(three.id);
+    expect(three.title).toBe('only the totals');
   });
 
   it('works while the team replies, but not from a reply with one before it still being written', async () => {
@@ -1136,7 +1172,46 @@ describe('branching a conversation', () => {
     await finish(branch.id);
     expect(branch.branch).toBeUndefined();
     expect(new Store(db).get(branch.id)!.branch).toBeUndefined();
+    // No longer a branch: named after the edited question, as a new chat is after its first one.
+    expect(branch.title).toBe('question, edited');
+    expect(new Store(db).get(branch.id)!.title).toBe('question, edited');
+  });
+
+  it('keeps a name the user gave a branch once it is no longer one', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    const branch = await orchestrator.branch(conv.id, agentMessages(conv)[1]!.id);
+    branch.title = 'Mine';
+    store.saveMeta(branch);
+    await orchestrator.resend(branch.id, branch.messages[0]!.id, 'question, edited');
+    await finish(branch.id);
+    expect(branch.branch).toBeUndefined();
+    expect(branch.title).toBe('Mine');
+  });
+
+  it('names a branch after a message that waited in its queue, and moves along with its family', async () => {
+    store.createGroup({ id: 'g1', name: 'Docs' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    const branch = await orchestrator.branch(conv.id, agentMessages(conv)[1]!.id);
+    // Bob answers again; written meanwhile, the message waits in the queue, unposted.
+    let release!: () => void;
+    gates = { Bob: new Promise((r) => (release = r)) };
+    await orchestrator.retry(branch.id, agentMessages(branch)[1]!.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(branch.id)).toBe(true));
+    await orchestrator.send(branch.id, 'try it differently');
+    expect(branch.queue?.map(textOf)).toEqual(['try it differently']);
     expect(branch.title).toBe('分支 · test');
+    release();
+    await finish(branch.id);
+    expect(branch.messages.some((m) => textOf(m) === 'try it differently')).toBe(true);
+    expect(branch.title).toBe('try it differently');
+
+    // A family moves as one: from the branch, the original goes too.
+    store.moveToGroup(branch.id, 'g1');
+    expect(store.groupOf(conv.id)).toBe('g1');
   });
 
   it("keeps a question the reply asked open in the branch, also once it was answered here", async () => {
@@ -2272,6 +2347,23 @@ describe('sorting new conversations into sidebar groups', () => {
     release();
     await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(false));
     expect(groupOf(conv.id)).toBe('g1');
+  });
+
+  it('takes a branch made while its conversation was being sorted into the group it is sorted into', async () => {
+    store.createGroup({ id: 'g1', name: 'Frontend' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    let release!: () => void;
+    sorterGate = new Promise((r) => (release = r));
+    sorterReply = '{"group": 1}';
+    await orchestrator.send(conv.id, 'Fix the sidebar');
+    await finish(conv.id);
+    expect(orchestrator.isSorting(conv.id)).toBe(true);
+    const branch = await orchestrator.branch(conv.id, agentMessages(conv).at(-1)!.id);
+    expect(groupOf(branch.id)).toBeUndefined();
+    release();
+    await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(false));
+    expect(groupOf(conv.id)).toBe('g1');
+    expect(groupOf(branch.id)).toBe('g1');
   });
 
   it('stops sorting a conversation that is deleted', async () => {

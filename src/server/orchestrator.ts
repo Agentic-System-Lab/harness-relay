@@ -80,7 +80,7 @@ import {
   worktreeCwd,
   worktreeHead,
 } from './workspace';
-import { isDefaultTitle, t } from './i18n';
+import { isBranchTitle, isDefaultTitle, t } from './i18n';
 import { sameFolder, validateAgents } from './validate';
 import { scheduleTime } from './scheduler';
 
@@ -588,8 +588,10 @@ export class Orchestrator {
     const locked = this.folderLockedBy({ ...conv, id });
     if (locked) return { result: 'busy', reason: locked };
     const now = Date.now();
-    // Named after the schedule's conversation, or after its message while that one has no name yet.
-    const name = isDefaultTitle(conv.title) ? titleFrom(s.text) : conv.title.slice(0, 160);
+    // Named after the schedule's conversation, or after its message while that one has no name of
+    // its own yet (a branch still called "Branch · …").
+    const unnamed = isDefaultTitle(conv.title) || (conv.branch && isBranchTitle(conv.title, conv.branch.fromTitle));
+    const name = unnamed ? titleFrom(s.text) : conv.title.slice(0, 160);
     const chat: Conversation = {
       id,
       title: `${name} · ${scheduleTime(at, s)}`,
@@ -604,7 +606,8 @@ export class Orchestrator {
     };
     try {
       this.store.create(chat);
-      this.store.moveToGroup(id, this.store.groupOf(conv.id));
+      // Where the schedule's conversation shows: its family's group.
+      this.store.moveToGroup(id, this.store.familyGroupOf(conv.id));
       this.systemNote(chat, t().scheduleChatNote(name));
       await this.start(chat, s.text, { keepTeam: true, scheduled: true, refuseApprovals: s.approvals !== 'ask' });
       return { result: 'sent', chatId: id };
@@ -857,7 +860,7 @@ export class Orchestrator {
       removeAttachments(id);
       throw err;
     }
-    this.store.moveToGroup(id, this.store.groupOf(conv.id));
+    this.store.placeBranch(id);
     // The diffs of the copied replies stay viewable here, also once the original is deleted.
     const byRoot = new Map<string, string[]>();
     for (const m of messages) {
@@ -911,6 +914,9 @@ export class Orchestrator {
     // A branch whose copied messages were dropped: they now end with the last one left, if any.
     if (conv.branch && !conv.messages.some((m) => m.id === conv.branch!.afterId)) {
       const last = conv.messages.at(-1);
+      // None left: no longer a branch. Still called "Branch · …", it is a new chat, named after the
+      // message that comes next.
+      if (!last && isBranchTitle(conv.title, conv.branch.fromTitle)) conv.title = t().defaultTitle;
       conv.branch = last ? { ...conv.branch, afterId: last.id } : undefined;
       this.store.saveMeta(conv);
     }
@@ -1075,9 +1081,13 @@ export class Orchestrator {
     return msg;
   }
 
-  /** A conversation still called "New chat" is named after the first line of the user's message. */
+  /**
+   * A conversation still called "New chat" is named after the first line of the user's message, and
+   * so is a branch still called "Branch · <title>": by what the user goes on with there, which tells
+   * it from the conversation it came from and from the other branches of it.
+   */
   private nameAfter(conv: Conversation, msg: ChatMessage): void {
-    if (!isDefaultTitle(conv.title)) return;
+    if (!isDefaultTitle(conv.title) && !(conv.branch && isBranchTitle(conv.title, conv.branch.fromTitle))) return;
     const line = titleFrom(textOf(msg)) || (attachmentsOf(msg)[0]?.name ?? '');
     if (!line) return;
     conv.title = titleFrom(line);

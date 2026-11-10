@@ -5,7 +5,7 @@ import { api } from '../api';
 import type { Route } from '../App';
 import { useT } from '../i18n';
 import { relativeTime } from '../util';
-import { SearchIcon } from './icons';
+import { BranchIcon, SearchIcon } from './icons';
 
 /** The search field that takes the place of the New group / Search buttons while searching. */
 export function SearchBox({
@@ -119,6 +119,12 @@ export function SearchResults({ query, route, groups }: { query: string; route: 
               )}
               <span className="conv-meta">
                 <span className="search-group">{groupName(r.groupId)}</span>
+                {r.branchFrom !== undefined && (
+                  <span className="search-branch" title={`${t.message.continuedFrom} ${r.branchFrom}`}>
+                    <BranchIcon size={11} />
+                    <span className="conv-title-text">{r.branchFrom || t.sidebar.deletedChat}</span>
+                  </span>
+                )}
                 {r.matches > 0 && <span>{t.sidebar.matches(r.matches)}</span>}
                 <span>{relativeTime(r.updatedAt, t)}</span>
               </span>
