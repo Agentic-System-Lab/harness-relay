@@ -14,9 +14,10 @@ function inside(path: string, root: string): boolean {
 
 /**
  * The worktree a reply's agent worked in. For an isolated turn, the one holding the turn's branch: the
- * conversation's own, or for a reply copied into a branch, the one of the conversation it was copied
- * from (`lookup` finds a conversation; further up for a branch of a branch), while that is there. Not
- * the branch's own worktree for that agent, which holds other work. Otherwise the agent's worktree.
+ * conversation's own, or for a reply copied into a branch, the one of the conversation it was written
+ * in (`lookup` finds a conversation; any its copied messages came from, and further up for a branch of
+ * a branch), while that is there. Not the branch's own worktree for that agent, which holds other work.
+ * Otherwise the agent's worktree.
  */
 export function replyWorktree(
   conv: Conversation,
@@ -29,11 +30,16 @@ export function replyWorktree(
   if (!changes?.isolated || !changes.branch) return own;
   const holds = (w: AgentWorktree) => w.root === changes.root && w.branch === changes.branch;
   if (own && holds(own)) return own;
+  const sources = (c: Conversation) => (c.branch ? [c.branch, ...(c.branch.earlier ?? [])].map((p) => p.fromId) : []);
   const seen = new Set([conv.id]);
-  for (let from = conv.branch && lookup(conv.branch.fromId); from && !seen.has(from.id); from = from.branch && lookup(from.branch.fromId)) {
-    seen.add(from.id);
+  const queue = sources(conv);
+  for (let i = 0; i < queue.length; i++) {
+    const from = !seen.has(queue[i]!) ? lookup(queue[i]!) : undefined;
+    seen.add(queue[i]!);
+    if (!from) continue;
     const wt = Object.values(from.worktrees).find(holds);
     if (wt) return wt;
+    queue.push(...sources(from));
   }
   return undefined;
 }

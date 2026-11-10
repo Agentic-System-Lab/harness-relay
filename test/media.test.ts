@@ -243,6 +243,10 @@ describe('files a reply links to', () => {
     expect(replyWorktree(all.get('c2')!, reply, lookup)?.branch).toBe('relay/c0/Alice');
     // The original is gone: nowhere.
     expect(replyWorktree(all.get('c2')!, reply, (id) => (id === 'c0' ? undefined : lookup(id)))).toBeUndefined();
+    // A branch whose earlier copied messages were written in c0, while the one it was branched from is
+    // gone (or no longer a branch): found in c0 through that part.
+    const c3 = { ...conv('c3', 'gone'), branch: { fromId: 'gone', fromTitle: '', afterId: 'm', earlier: [{ fromId: 'c0', fromTitle: '', afterId: 'm' }] } };
+    expect(replyWorktree(c3, reply, lookup)?.branch).toBe('relay/c0/Alice');
     // A loop of branches ends.
     const loop = new Map([conv('x', 'y'), conv('y', 'x')].map((c) => [c.id, c]));
     expect(replyWorktree(loop.get('x')!, reply, (id) => loop.get(id))).toBeUndefined();

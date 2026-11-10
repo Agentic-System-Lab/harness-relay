@@ -6,6 +6,7 @@ import type {
   MessageChanges,
   ChatMessage,
   Conversation,
+  BranchPart,
   ConversationBranch,
   ConversationGroup,
   ConversationSchedule,
@@ -345,39 +346,62 @@ function pauseOf(json: string | null): Pick<Conversation, 'pause'> {
   return pause ? { pause } : {};
 }
 
-/** Where a branched conversation comes from; one that cannot be read is left out. */
-function branchOf(json: string | null): Pick<Conversation, 'branch'> {
-  const b = parseJson<Partial<ConversationBranch> | null>(json, null);
-  if (typeof b?.fromId !== 'string' || typeof b.afterId !== 'string') return {};
+/** Copied messages of a branch and where they were written (`BranchPart`); undefined when unreadable. */
+function partOf(b: Partial<BranchPart> | null | undefined): BranchPart | undefined {
+  if (typeof b?.fromId !== 'string' || typeof b.afterId !== 'string') return undefined;
   const via = Array.isArray(b.via)
     ? b.via.filter((v): v is { id: string; title: string } => typeof v?.id === 'string' && typeof v.title === 'string')
     : [];
   return {
-    branch: {
-      fromId: b.fromId,
-      fromTitle: typeof b.fromTitle === 'string' ? b.fromTitle : '',
-      afterId: b.afterId,
-      ...(via.length ? { via: via.map((v) => ({ id: v.id, title: v.title })) } : {}),
-    },
+    fromId: b.fromId,
+    fromTitle: typeof b.fromTitle === 'string' ? b.fromTitle : '',
+    afterId: b.afterId,
+    ...(via.length ? { via: via.map((v) => ({ id: v.id, title: v.title })) } : {}),
   };
 }
 
+/** Where a branched conversation comes from; one that cannot be read is left out, as are unreadable earlier parts. */
+function branchOf(json: string | null): Pick<Conversation, 'branch'> {
+  const b = parseJson<Partial<ConversationBranch> | null>(json, null);
+  const main = partOf(b);
+  if (!main) return {};
+  const earlier = Array.isArray(b?.earlier) ? b.earlier.map(partOf).filter((p) => p !== undefined) : [];
+  return { branch: { ...main, ...(earlier.length ? { earlier } : {}) } };
+}
+
 /**
- * The branch of a conversation whose line up ends in `deleted`, once that one is deleted: where the
- * deleted one came from goes after it (see `ConversationBranch.via`), so the family stays together.
+ * A part of a branch's copied messages whose line up ends in `deleted`, once that one is deleted:
+ * where the deleted one came from goes after it (see `BranchPart.via`), so the family stays together.
  * Undefined when nothing changes.
+ */
+function partPast<P extends BranchPart>(
+  part: P,
+  deleted: { id: string; title: string; branch?: ConversationBranch },
+): P | undefined {
+  const via = part.via ?? [];
+  if ((via.at(-1)?.id ?? part.fromId) !== deleted.id) return undefined;
+  const above = deleted.branch ? [{ id: deleted.branch.fromId, title: deleted.branch.fromTitle }, ...(deleted.branch.via ?? [])] : [];
+  // A deleted one further up keeps the title it had then.
+  const kept = via.length ? [...via.slice(0, -1), { id: deleted.id, title: deleted.title }] : [];
+  const next = [...kept, ...above];
+  return next.length ? { ...part, via: next } : undefined;
+}
+
+/**
+ * The branch of a conversation once `deleted` is deleted: each of its parts whose line up ends there
+ * learns where the deleted one came from (`partPast`). Undefined when nothing changes.
  */
 function branchPast(
   branch: ConversationBranch,
   deleted: { id: string; title: string; branch?: ConversationBranch },
 ): ConversationBranch | undefined {
-  const via = branch.via ?? [];
-  if ((via.at(-1)?.id ?? branch.fromId) !== deleted.id) return undefined;
-  const above = deleted.branch ? [{ id: deleted.branch.fromId, title: deleted.branch.fromTitle }, ...(deleted.branch.via ?? [])] : [];
-  // A deleted one further up keeps the title it had then.
-  const kept = via.length ? [...via.slice(0, -1), { id: deleted.id, title: deleted.title }] : [];
-  const next = [...kept, ...above];
-  return next.length ? { ...branch, via: next } : undefined;
+  const main = partPast(branch, deleted);
+  const earlier = branch.earlier?.map((p) => partPast(p, deleted));
+  if (!main && !earlier?.some(Boolean)) return undefined;
+  return {
+    ...(main ?? branch),
+    ...(earlier ? { earlier: earlier.map((p, i) => p ?? branch.earlier![i]!) } : {}),
+  };
 }
 
 function parsePlan(json: string | null): TeamPlan | undefined {
@@ -1014,6 +1038,34 @@ export class Store {
   /** Its conversations go to the default group (the foreign key sets their group to NULL). */
   deleteGroup(id: string): void {
     this.db.prepare('DELETE FROM conversation_groups WHERE id = ?').run(id);
+  }
+
+  /**
+   * A conversation's title now (what is in memory counts), without loading it. Once it is deleted, the
+   * title the sidebar shows for it (`deletedTitles()` in `src/web/sidebar.ts`): the one it had when
+   * deleted, where a conversation further down remembers it (`via`), else its title when the newest of
+   * the conversations branched from it was made. Undefined when nothing knows it.
+   */
+  titleOf(convId: string): string | undefined {
+    const live = this.cache.get(convId);
+    if (live) return live.title;
+    if (!this.deleted.has(convId)) {
+      const row = this.db.prepare('SELECT title FROM conversations WHERE id = ?').get(convId) as { title: string } | undefined;
+      if (row) return row.title;
+    }
+    const rows = this.db.prepare('SELECT id, created_at, branch FROM conversations WHERE branch IS NOT NULL').all() as Pick<
+      ConversationRow,
+      'id' | 'created_at' | 'branch'
+    >[];
+    const branches = rows.flatMap((r) => {
+      const cached = this.cache.get(r.id);
+      const branch = cached ? cached.branch : branchOf(r.branch).branch;
+      return branch ? [{ id: r.id, createdAt: r.created_at, branch }] : [];
+    });
+    let title: string | undefined;
+    for (const b of byAge(branches)) if (b.branch.fromId === convId) title = b.branch.fromTitle;
+    for (const b of branches) for (const v of b.branch.via ?? []) if (v.id === convId) title = v.title;
+    return title;
   }
 
   /** The sidebar group a conversation is in (`null`: the default group, "Other"). */

@@ -422,6 +422,48 @@ describe('Store groups', () => {
     expect(new Store(reopen()).get('D')!.branch).toEqual({ fromId: 'B', fromTitle: '', afterId: 'm1' });
   });
 
+  it("keeps where a branch's earlier copied messages were written, also once that conversation is deleted", () => {
+    const store = new Store(db);
+    store.create(member('Z', 1));
+    store.create(member('A', 2, 'Z'));
+    store.create(member('B', 3, 'A'));
+    const earlier = [{ fromId: 'A', fromTitle: 'A then', afterId: 'm1' }, { fromId: 'Z', fromTitle: 'Z then', afterId: 'm0' }];
+    store.create({ ...member('C', 4, 'B'), branch: { fromId: 'B', fromTitle: 'B then', afterId: 'm2', earlier } });
+    store.get('B'); // one in memory, one only in the database
+    store.get('B')!.title = 'B now';
+    expect([store.titleOf('B'), store.titleOf('A'), store.titleOf('nope')]).toEqual(['B now', 'A', undefined]);
+    // Only where the last copied messages were written places it in the sidebar.
+    expect(store.list(() => false).find((c) => c.id === 'C')!.branchFrom).toEqual({ id: 'B', title: 'B then' });
+
+    // A is deleted: the part it wrote learns where A came from; the others stay.
+    store.delete('A');
+    const after = { fromId: 'B', fromTitle: 'B then', afterId: 'm2', earlier: [{ ...earlier[0], via: [{ id: 'Z', title: 'Z then' }] }, earlier[1]] };
+    expect(store.get('C')!.branch).toEqual(after);
+    expect(store.get('B')!.branch?.via).toEqual([{ id: 'Z', title: 'Z then' }]);
+    // A deleted conversation's title is the one the sidebar shows for it: its title when the newest
+    // conversation branched from it was made, or once one further up is deleted too, its title then.
+    expect(store.titleOf('A')).toBe('A then');
+    store.get('Z')!.title = 'Z at the end';
+    store.delete('Z');
+    expect(store.titleOf('Z')).toBe('Z at the end');
+    expect(new Store(reopen()).get('C')!.branch).toEqual({
+      ...after,
+      earlier: [{ ...earlier[0], via: [{ id: 'Z', title: 'Z at the end' }] }, earlier[1]],
+    });
+
+    // Unreadable parts are left out.
+    db.prepare('UPDATE conversations SET branch = ? WHERE id = ?').run(
+      '{"fromId":"B","afterId":"m2","earlier":[{"fromId":"Z"},7,{"fromId":"Z","fromTitle":"Z","afterId":"m0"}]}',
+      'C',
+    );
+    expect(new Store(reopen()).get('C')!.branch).toEqual({
+      fromId: 'B',
+      fromTitle: '',
+      afterId: 'm2',
+      earlier: [{ fromId: 'Z', fromTitle: 'Z', afterId: 'm0' }],
+    });
+  });
+
   it('takes a branch made while its conversation was being sorted along into the group it is sorted into', () => {
     const store = new Store(db);
     store.createGroup({ id: 'g1', name: 'Backend' });

@@ -5,13 +5,26 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig, Conversation, ConversationSchedule, ConversationSettings } from '../src/shared/types';
 
+/** When `gate` is set, copying a branch's attached files waits for it. */
+const copying = vi.hoisted(() => ({ gate: undefined as Promise<void> | undefined }));
+vi.mock('../src/server/attachments', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../src/server/attachments')>();
+  return {
+    ...real,
+    copyAttachments: async (...args: Parameters<typeof real.copyAttachments>) => {
+      if (copying.gate) await copying.gate;
+      return real.copyAttachments(...args);
+    },
+  };
+});
+
 // Worktrees live under RELAY_DATA_DIR, which is read when the server modules load.
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-orch-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
-const { Orchestrator, branchPause } = await import('../src/server/orchestrator');
+const { Orchestrator, branchAfterCut, branchOrigin, branchPause } = await import('../src/server/orchestrator');
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { AgentRunError, runners } = await import('../src/server/agents');
@@ -1090,6 +1103,160 @@ describe('branching a conversation', () => {
     expect(three.title).toBe('only the totals');
   });
 
+  it('makes a branch from a reply a branch had copied a branch of the conversation that reply was written in', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'first question');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'second question');
+    await finish(conv.id);
+    // One: all six of conv's messages copied, then three of its own.
+    const one = await orchestrator.branch(conv.id, agentMessages(conv)[3]!.id);
+    await orchestrator.send(one.id, 'third question');
+    await finish(one.id);
+    expect(one.title).toBe('third question');
+
+    // Two, from one's own reply: one's branch, which knows the six before were written in conv.
+    const two = await orchestrator.branch(one.id, agentMessages(one).at(-1)!.id);
+    expect(two.title).toBe('分支 · third question');
+    expect(two.branch).toEqual({
+      fromId: one.id,
+      fromTitle: 'third question',
+      afterId: two.messages[8]!.id,
+      earlier: [{ fromId: conv.id, fromTitle: 'test', afterId: two.messages[5]!.id }],
+    });
+    expect(new Store(db).get(two.id)!.branch).toEqual(two.branch);
+
+    // conv is renamed: the branches made from now on name it by its title now.
+    conv.title = 'Renamed';
+    store.saveMeta(conv);
+
+    // From a reply two copied that one wrote: a branch of one.
+    const three = await orchestrator.branch(two.id, agentMessages(two)[4]!.id);
+    expect(three.branch).toEqual({
+      fromId: one.id,
+      fromTitle: 'third question',
+      afterId: three.messages[7]!.id,
+      earlier: [{ fromId: conv.id, fromTitle: 'Renamed', afterId: three.messages[5]!.id }],
+    });
+
+    // From a reply conv wrote, copied into one and from there into two: a branch of conv, as if
+    // branched there, named after it.
+    const four = await orchestrator.branch(two.id, agentMessages(two)[1]!.id);
+    expect(four.branch).toEqual({ fromId: conv.id, fromTitle: 'Renamed', afterId: four.messages[2]!.id });
+    expect(four.title).toBe('分支 · Renamed');
+    expect(four.messages.map(textOf)).toEqual(conv.messages.slice(0, 3).map(textOf));
+
+    // From a branch point, one's and the last of conv's part in two: that reply was written in the
+    // conversation it was copied from too.
+    const five = await orchestrator.branch(one.id, agentMessages(one)[3]!.id);
+    expect(five.branch).toEqual({ fromId: conv.id, fromTitle: 'Renamed', afterId: five.messages[5]!.id });
+    const edge = await orchestrator.branch(two.id, agentMessages(two)[3]!.id);
+    expect(edge.branch).toEqual({ fromId: conv.id, fromTitle: 'Renamed', afterId: edge.messages[5]!.id });
+
+    // The sidebar lists each under the conversation its reply was written in.
+    const from = Object.fromEntries(store.list(() => false).map((c) => [c.id, c.branchFrom?.id]));
+    expect(from).toMatchObject({ [one.id]: conv.id, [two.id]: one.id, [three.id]: one.id, [four.id]: conv.id, [five.id]: conv.id, [edge.id]: conv.id });
+
+    // The conversation the reply was written in is deleted: the branch still names it, by the title
+    // the sidebar shows for it (its title when the newest branch of it was made).
+    conv.title = 'Renamed again';
+    store.saveMeta(conv);
+    await orchestrator.deleteConversation(conv.id);
+    const six = await orchestrator.branch(two.id, agentMessages(two)[1]!.id);
+    expect(six.branch).toEqual({ fromId: conv.id, fromTitle: 'Renamed', afterId: six.messages[2]!.id });
+    expect(six.title).toBe('分支 · Renamed');
+    expect(store.family(six.id).sort()).toEqual([one.id, two.id, three.id, four.id, five.id, edge.id, six.id].sort());
+  });
+
+  it("keeps a branch from the part a deleted conversation wrote in its family, also when it is deleted while the branch's files are copied", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'first question');
+    await finish(conv.id);
+    const one = await orchestrator.branch(conv.id, agentMessages(conv)[1]!.id);
+    await orchestrator.send(one.id, 'second question');
+    await finish(one.id);
+    const two = await orchestrator.branch(one.id, agentMessages(one).at(-1)!.id);
+    const three = await orchestrator.branch(one.id, agentMessages(one).at(-1)!.id);
+
+    // One goes while a branch from what it wrote is copying its files, which only two waits for:
+    // the branch still learns where one came from.
+    let release!: () => void;
+    copying.gate = new Promise((r) => (release = r));
+    let four: Conversation;
+    try {
+      const making = orchestrator.branch(two.id, agentMessages(two)[2]!.id);
+      await orchestrator.deleteConversation(one.id);
+      release();
+      four = await making;
+    } finally {
+      copying.gate = undefined;
+    }
+    expect(four.branch).toMatchObject({ fromId: one.id, fromTitle: 'second question', via: [{ id: conv.id, title: 'test' }] });
+    expect(four.branch?.earlier).toEqual([{ fromId: conv.id, fromTitle: 'test', afterId: four.messages[2]!.id }]);
+
+    // Once it is deleted: a branch from what it wrote is under its place too, which is under conv.
+    const five = await orchestrator.branch(three.id, agentMessages(three)[2]!.id);
+    expect(five.branch).toMatchObject({ fromId: one.id, fromTitle: 'second question', via: [{ id: conv.id, title: 'test' }] });
+
+    // Every other conversation that remembered where one came from is deleted: still one family.
+    await orchestrator.deleteConversation(two.id);
+    await orchestrator.deleteConversation(three.id);
+    expect(store.family(four.id).sort()).toEqual([conv.id, four.id, five.id].sort());
+  });
+
+  it('makes a branch one of the conversation further up once an edit leaves nothing of the one it was branched from', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'first question');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'second question');
+    await finish(conv.id);
+    const one = await orchestrator.branch(conv.id, agentMessages(conv)[1]!.id);
+    one.title = 'One';
+    store.saveMeta(one);
+    await orchestrator.send(one.id, 'third question');
+    await finish(one.id);
+    // conv's first three, then one's three.
+    const two = await orchestrator.branch(one.id, agentMessages(one).at(-1)!.id);
+    const mine = await orchestrator.branch(one.id, agentMessages(one).at(-1)!.id);
+    const blank = await orchestrator.branch(one.id, agentMessages(one).at(-1)!.id);
+    expect(two.title).toBe('分支 · One');
+
+    // Retrying a reply one wrote: one's part ends earlier.
+    await orchestrator.retry(two.id, agentMessages(two).at(-1)!.id);
+    await finish(two.id);
+    expect(two.branch).toEqual({
+      fromId: one.id,
+      fromTitle: 'One',
+      afterId: two.messages[4]!.id,
+      earlier: [{ fromId: conv.id, fromTitle: 'test', afterId: two.messages[2]!.id }],
+    });
+
+    // Retrying a reply conv wrote: nothing of one is left, so it is conv's branch, named after conv
+    // by its title now.
+    conv.title = 'Renamed';
+    store.saveMeta(conv);
+    await orchestrator.retry(two.id, agentMessages(two)[1]!.id);
+    expect(two.branch).toEqual({ fromId: conv.id, fromTitle: 'Renamed', afterId: two.messages[1]!.id });
+    expect(new Store(db).get(two.id)!.branch).toEqual(two.branch);
+    await finish(two.id);
+    expect(two.title).toBe('分支 · Renamed');
+    expect(store.list(() => false).find((c) => c.id === two.id)!.branchFrom?.id).toBe(conv.id);
+
+    // Editing the message one wrote first in a branch the user named: conv's branch, the name stays.
+    mine.title = 'Mine';
+    store.saveMeta(mine);
+    await orchestrator.resend(mine.id, mine.messages[3]!.id, 'third question, edited');
+    expect(mine.branch).toEqual({ fromId: conv.id, fromTitle: 'Renamed', afterId: mine.messages[2]!.id });
+    await finish(mine.id);
+    expect(mine.title).toBe('Mine');
+
+    // Editing the first message: nothing copied is left, of either part.
+    await orchestrator.resend(blank.id, blank.messages[0]!.id, 'from scratch');
+    expect(blank.branch).toBeUndefined();
+    await finish(blank.id);
+    expect(blank.title).toBe('from scratch');
+  });
+
   it('works while the team replies, but not from a reply with one before it still being written', async () => {
     const conv = conversation({ mode: 'parallel', permission: 'read-only' });
     let release!: () => void;
@@ -1264,6 +1431,40 @@ describe('branching a conversation', () => {
       mode: 'relay', askers: ['a'], rest: [], participants: [], round: 1, rounds: 1, hopsLeft: 4,
     });
     expect(branchPause(conv('relay', [question('go'), reply('a', false)]), 1)).toBeUndefined();
+  });
+
+  it("works out where a branch's copied messages come from, and where they end after a cut, from its parts", () => {
+    const msgs = (...ids: string[]) => ids.map((id) => ({ id })) as unknown as Conversation['messages'];
+    const branch = { fromId: 'A', fromTitle: 'A', afterId: 'm4', earlier: [{ fromId: 'Z', fromTitle: 'Z', afterId: 'm1' }] };
+    const b = { id: 'B', title: 'B', branch, messages: msgs('m0', 'm1', 'm2', 'm3', 'm4', 'm5') } as unknown as Conversation;
+    const copies = msgs('c0', 'c1', 'c2', 'c3', 'c4', 'c5');
+    const titleOf = (id: string) => ({ Z: 'Zed' })[id];
+    // From the last message of the earlier part, and from inside the latest: by the titles now.
+    expect(branchOrigin(b, 1, copies, titleOf)).toEqual({ fromId: 'Z', fromTitle: 'Zed', afterId: 'c1' });
+    expect(branchOrigin(b, 3, copies, titleOf)).toEqual({ ...branch, afterId: 'c3', earlier: [{ fromId: 'Z', fromTitle: 'Zed', afterId: 'c1' }] });
+    // From its own reply: its branch, with both parts before it.
+    expect(branchOrigin(b, 5, copies)).toEqual({
+      fromId: 'B',
+      fromTitle: 'B',
+      afterId: 'c5',
+      earlier: [
+        { fromId: 'A', fromTitle: 'A', afterId: 'c4' },
+        { fromId: 'Z', fromTitle: 'Z', afterId: 'c1' },
+      ],
+    });
+
+    // Cut: a part that lost its last message ends with the last one left; one left with nothing goes.
+    expect(branchAfterCut({ branch, messages: msgs('m0', 'm1', 'm2') }, new Set(['m3', 'm4', 'm5']))).toEqual({ ...branch, afterId: 'm2' });
+    expect(branchAfterCut({ branch, messages: msgs('m0', 'm1') }, new Set(['m2', 'm3', 'm4', 'm5']))).toEqual({ fromId: 'Z', fromTitle: 'Z', afterId: 'm1' });
+    expect(branchAfterCut({ branch, messages: msgs('m0') }, new Set(['m1', 'm2', 'm3', 'm4', 'm5']))).toEqual({ fromId: 'Z', fromTitle: 'Z', afterId: 'm0' });
+    expect(branchAfterCut({ branch, messages: [] }, new Set(['m0', 'm1', 'm2', 'm3', 'm4', 'm5']))).toBeUndefined();
+    // Nothing of it dropped: as it was.
+    expect(branchAfterCut({ branch, messages: msgs('m0', 'm1', 'm2', 'm3', 'm4') }, new Set(['m5']))).toEqual(branch);
+
+    // A part whose last message is not here, and was not just dropped, cannot be placed: left out.
+    const odd = { ...branch, earlier: [{ fromId: 'Z', fromTitle: 'Z', afterId: 'gone' }] };
+    expect(branchAfterCut({ branch: odd, messages: b.messages }, new Set(['m6']))).toEqual({ fromId: 'A', fromTitle: 'A', afterId: 'm4' });
+    expect(branchOrigin({ ...b, branch: odd }, 1, copies)).toEqual({ fromId: 'A', fromTitle: 'A', afterId: 'c1' });
   });
 
   it('waits for a parallel peer whose turn still records the files it changed', async () => {

@@ -318,6 +318,7 @@ To try another direction without losing where a conversation went, branch it: **
 - Branching is not offered on your own messages: to ask something else after your question, branch from the reply before it, or edit the question (which replaces what came after it).
 - The first message you send in the branch names it, as a new chat's first question does, so its name says where it went (one you renamed yourself keeps your name). Editing the first copied message makes it a chat of its own (nothing copied is left), named after the edited message.
 - In the sidebar the branch is listed under the original, and they stay together in one group: see [Branches in the sidebar](#branches-in-the-sidebar). You can branch a branch too, as deep as you like.
+- A branch is always one of the conversation the reply was written in. In a branch, the messages up to where it was branched were copied from the original: branching from one of those replies (the last copied one included) makes a branch of the original, as if you had branched there, listed under it and named after it, not under the branch you clicked in. For a branch of a branch, that may be a conversation further up. Retrying or editing in a branch can likewise move it: once nothing written in the conversation it came from is left in it, it is listed under the one further up (and, while it still has the name it was made with, named after that one).
 
 ### Sharing a conversation
 
@@ -370,7 +371,7 @@ Click **New group** under **New chat**, type a name and press Enter. Groups appe
 
 #### Branches in the sidebar
 
-A conversation you [branched](#branching-a-conversation) from another is listed under it, a little to the right, with a line down the side; its own branches are under it in turn, the oldest first. Branches are indented three levels at most: deeper ones are not indented further, and start with ↳.
+A conversation you [branched](#branching-a-conversation) is listed under the conversation the reply you branched from was written in, a little to the right, with a line down the side; its own branches are under it in turn, the oldest first. Branches are indented three levels at most: deeper ones are not indented further, and start with ↳.
 
 - **One family, one group**: a conversation, its branches, theirs and so on stay together in one group (that of the oldest of them). Moving any of them, by dragging or with the folder button, moves all of them; while you drag one, all of them are dimmed. The lead agent sorts only the conversation they all came from.
 - **Order**: a family is placed among the group's conversations by its most recent activity, whichever of its conversations that was in; the branches under a conversation stay in the order they were made.

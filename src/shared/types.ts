@@ -946,16 +946,29 @@ export interface Conversation {
 /**
  * Where a branched conversation comes from: "Branch conversation" under an agent's reply copies the
  * conversation up to and including that reply into a new one, which goes on from there on its own.
+ * It is a branch of the conversation that reply was written in: from a reply that a branch had copied
+ * (up to its branch point), it is a branch of the conversation the reply was copied from, or of one
+ * further up (`earlier`), as if it had been branched there.
  */
-export interface ConversationBranch {
-  /** The conversation it was branched from (it may have been deleted since). */
+export interface ConversationBranch extends BranchPart {
+  /**
+   * The copied messages before the part `fromId` wrote, when they were written further up: each part
+   * with the conversation it was written in and its last message here (`afterId`), nearest first.
+   * Branching from one of them makes a branch of the conversation that wrote it.
+   */
+  earlier?: BranchPart[];
+}
+
+/** Copied messages of a branch, up to `afterId`, and the conversation they were written in. */
+export interface BranchPart {
+  /** The conversation they were written in (it may have been deleted since). */
   fromId: string;
-  /** That conversation's title when it was branched (shown once it has been deleted). */
+  /** That conversation's title when they were copied (shown once it has been deleted). */
   fromTitle: string;
-  /** The last message copied from it, by its id here: the messages after it were written here. */
+  /** The last of them, by its id here: the messages after it come from further down, or were written here. */
   afterId: string;
   /**
-   * Once the conversation it was branched from is deleted: where that one had been branched from, and
+   * Once the conversation they were written in is deleted: where that one had been branched from, and
    * so on while those are deleted too, nearest first, each with its title when it was deleted (or
    * when it was branched from). The last one may still exist. It keeps a family together in the
    * sidebar when a conversation in the middle of it is deleted.

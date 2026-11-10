@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { join, sep } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import type {
   AgentConfig,
   AgentSessionState,
   ApprovalAnswer,
   AgentWorktree,
+  BranchPart,
   ChatMessage,
   Conversation,
+  ConversationBranch,
   ConversationSchedule,
   FileChange,
   MessageChanges,
@@ -239,6 +242,71 @@ function isFor(m: ChatMessage, recipients: AgentConfig[], agents: AgentConfig[])
 }
 
 const attachmentsOf = (m: ChatMessage) => m.parts.filter((p): p is AttachmentPart => p.type === 'attachment');
+
+/**
+ * A branch's copied messages in parts, oldest first (`ConversationBranch.earlier`, then the part of the
+ * conversation it was branched from), each with the index of its last message here. One whose last
+ * message was just `dropped` from the end ends with the last message left; one whose last message is
+ * not here otherwise cannot be placed, and is left out. So is a part left with nothing (ending where
+ * the one before it ends, or before the first message).
+ */
+function branchParts(
+  conv: Pick<Conversation, 'branch' | 'messages'>,
+  dropped: ReadonlySet<string> = new Set(),
+): { part: BranchPart; end: number }[] {
+  if (!conv.branch) return [];
+  const { earlier = [], ...main } = conv.branch;
+  const out: { part: BranchPart; end: number }[] = [];
+  for (const part of [...earlier].reverse().concat(main)) {
+    const at = conv.messages.findIndex((m) => m.id === part.afterId);
+    const end = at >= 0 ? at : dropped.has(part.afterId) ? conv.messages.length - 1 : -1;
+    if (end > (out.at(-1)?.end ?? -1)) out.push({ part: { ...part, afterId: conv.messages[end]!.id }, end });
+  }
+  return out;
+}
+
+/** A branch made of `parts`, oldest first: the last is the one it was branched from (undefined: none). */
+function branchOfParts(parts: readonly BranchPart[]): ConversationBranch | undefined {
+  const main = parts.at(-1);
+  if (!main) return undefined;
+  const earlier = parts.slice(0, -1).reverse();
+  return { ...main, ...(earlier.length ? { earlier } : {}) };
+}
+
+/**
+ * Where a branch from the reply at `index` comes from (`copies`: the copied messages, with their new
+ * ids): the conversation that reply was written in. Up to its branch point, a branch's messages were
+ * copied: a reply there was written in the conversation it was copied from, or further up for a branch
+ * of a branch, so the new branch is a branch of that one, as if it had been branched there, and only
+ * the parts before the reply come along as `earlier`. `titleOf`: a conversation's title now (for a
+ * deleted one, the title the sidebar shows for it; undefined: the one it had when copied is kept).
+ */
+export function branchOrigin(
+  conv: Conversation,
+  index: number,
+  copies: readonly Pick<ChatMessage, 'id'>[],
+  titleOf: (id: string) => string | undefined = () => undefined,
+): ConversationBranch {
+  const titled = (p: BranchPart): BranchPart => ({ ...p, fromTitle: titleOf(p.fromId) ?? p.fromTitle });
+  const parts = branchParts(conv);
+  const at = parts.findIndex((p) => p.end >= index);
+  const from: BranchPart = at < 0 ? { fromId: conv.id, fromTitle: conv.title, afterId: '' } : titled(parts[at]!.part);
+  const before = (at < 0 ? parts : parts.slice(0, at)).map(({ part, end }) => ({ ...titled(part), afterId: copies[end]!.id }));
+  return branchOfParts([...before, { ...from, afterId: copies[index]!.id }])!;
+}
+
+/**
+ * Where a branch's copied messages end once the messages `dropped` were cut from its end (a retry or an
+ * edit): each part that lost its last message ends with the last one left, and one left with nothing
+ * goes, so with none of the conversation it was branched from left, it is a branch of the one further
+ * up. Undefined once nothing copied is left: it is no longer a branch.
+ */
+export function branchAfterCut(
+  conv: Pick<Conversation, 'branch' | 'messages'>,
+  dropped: ReadonlySet<string>,
+): ConversationBranch | undefined {
+  return branchOfParts(branchParts(conv, dropped).map((p) => p.part));
+}
 
 /**
  * Where a branch from the reply at `index` waits for the user: a reply that asked the user something
@@ -837,24 +905,32 @@ export class Orchestrator {
     const copied = conv.messages.slice(0, index + 1);
     const messages = copied.map((m) => ({ ...structuredClone(m), id: randomUUID() }));
     const pause = branchPause(conv, index);
+    // A branch of the conversation the reply was written in (this one, or one it was copied from).
+    const titleOf = (from: string) => this.store.titleOf(from);
+    let branch = branchOrigin(conv, index, messages, titleOf);
     const id = randomUUID();
-    const now = Date.now();
-    const chat: Conversation = {
-      id,
-      title: t().branchTitle(conv.title).slice(0, 200),
-      createdAt: now,
-      updatedAt: now,
-      agents: structuredClone(conv.agents),
-      settings: structuredClone(conv.settings),
-      messages,
-      agentState: {},
-      worktrees: {},
-      ...(conv.allowRules?.length ? { allowRules: structuredClone(conv.allowRules) } : {}),
-      ...(pause ? { pause } : {}),
-      branch: { fromId: conv.id, fromTitle: conv.title, afterId: messages.at(-1)!.id },
-    };
+    let chat: Conversation;
     try {
       await copyAttachments(conv.id, id, copied.flatMap(attachmentsOf));
+      // Worked out again in the same step as it is saved, while the copied messages are still here as
+      // they were: a conversation it comes from that was deleted meanwhile, which only this
+      // conversation waits for, is then known as deleted, with where it came from (`via`).
+      if (copied.every((m, i) => conv.messages[i]?.id === m.id)) branch = branchOrigin(conv, index, messages, titleOf);
+      const now = Date.now();
+      chat = {
+        id,
+        title: t().branchTitle(branch.fromTitle).slice(0, 200),
+        createdAt: now,
+        updatedAt: now,
+        agents: structuredClone(conv.agents),
+        settings: structuredClone(conv.settings),
+        messages,
+        agentState: {},
+        worktrees: {},
+        ...(conv.allowRules?.length ? { allowRules: structuredClone(conv.allowRules) } : {}),
+        ...(pause ? { pause } : {}),
+        branch,
+      };
       this.store.create(chat);
     } catch (err) {
       removeAttachments(id);
@@ -911,14 +987,22 @@ export class Orchestrator {
     }
     // Whatever question the team waited on is answered by starting over from here.
     conv.pause = undefined;
-    // A branch whose copied messages were dropped: they now end with the last one left, if any.
-    if (conv.branch && !conv.messages.some((m) => m.id === conv.branch!.afterId)) {
-      const last = conv.messages.at(-1);
-      // None left: no longer a branch. Still called "Branch · …", it is a new chat, named after the
-      // message that comes next.
-      if (!last && isBranchTitle(conv.title, conv.branch.fromTitle)) conv.title = t().defaultTitle;
-      conv.branch = last ? { ...conv.branch, afterId: last.id } : undefined;
-      this.store.saveMeta(conv);
+    // A branch whose copied messages were dropped: they now end with the last one left, if any, and
+    // with nothing left of the conversation it was branched from, it is a branch of the one further up.
+    if (conv.branch) {
+      const cut = branchAfterCut(conv, new Set(dropped.map((m) => m.id)));
+      const moved = cut && cut.fromId !== conv.branch.fromId;
+      // Under another conversation now: by its title now, as a branch made there would be.
+      const next = moved ? { ...cut, fromTitle: this.store.titleOf(cut.fromId) ?? cut.fromTitle } : cut;
+      if (!isDeepStrictEqual(next, conv.branch)) {
+        // Still called "Branch · …", it is named after where it comes from now, or with nothing copied
+        // left it is a new chat; either way the message that comes next names it.
+        if (isBranchTitle(conv.title, conv.branch.fromTitle) && (moved || !next)) {
+          conv.title = next ? t().branchTitle(next.fromTitle).slice(0, 200) : t().defaultTitle;
+        }
+        conv.branch = next;
+        this.store.saveMeta(conv);
+      }
     }
     this.hub.emit(conv.id, { type: 'snapshot', conversation: forClient(conv), running: false, activeAgentIds: [] });
   }
