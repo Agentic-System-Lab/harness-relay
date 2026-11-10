@@ -2,6 +2,8 @@
  * The desktop app's own words (its menu and dialogs), in the two languages of the web app. The
  * language follows the system's, the way the web app follows the browser's: any Chinese is zh-TW.
  */
+import type { ManualReason, UpdateFailure } from './update';
+
 export type DesktopLang = 'zh-TW' | 'en';
 
 export function pickLang(preferred: readonly string[]): DesktopLang {
@@ -86,6 +88,8 @@ const zhTW = {
     `在終端機執行一次：\n\nsudo tailscale set --operator=$USER\n\n再選一次「分享到手機」。\n\nTailscale 的訊息：\n${output}`,
   tailscaleFailed: '無法分享到 tailnet',
   tailscaleFailedDetail: (output: string) => `Tailscale 的訊息：\n${output}`,
+  tailscaleStatusUnknown:
+    '讀不到這台電腦目前在 tailnet 分享了什麼（tailscale serve status 沒有回應），為了不蓋掉其他服務或 Funnel，這次沒有分享。請確認 Tailscale 正常執行，再選一次「分享到手機」。',
   tailscalePortsTaken:
     '這台電腦的 tailnet 網址上，HTTPS 的 443、8443 與 10000 都已經分享了其他服務。請照「用手機連線」的說明手動分享，或先用 tailscale serve --https=<port> off 停止其中一個。',
   shared: '已經分享到你的 tailnet',
@@ -95,6 +99,35 @@ const zhTW = {
   needsRestartDetail: (url: string) => `重新啟動後，在手機打開：\n\n${url}\n\n正在回覆的對話會被中斷。`,
   loginItemApproval: '請在系統設定允許 Harness Relay 登入時啟動',
   loginItemApprovalDetail: '打開「系統設定 → 一般 → 登入項目與延伸功能」，允許 Harness Relay。',
+
+  // Updates (update.ts)
+  updateTo: (version: string) => `更新到 ${version}…`,
+  updateDownloading: (percent: number) => `正在下載更新…（${percent}%）`,
+  updateInstalling: '正在安裝更新…',
+  updateConfirm: (version: string) => `要把 Harness Relay 更新到 ${version} 嗎？`,
+  updateConfirmDetail: 'Harness Relay 會下載新版並檢查它，然後結束、換成新版再打開。正在回覆的對話會被中斷。',
+  updateNow: '立即更新',
+  releaseNotes: '查看版本說明',
+  updateManual: '這個 Harness Relay 無法自己更新',
+  updateManualDetail: (why: ManualReason) =>
+    ({
+      'not-packaged': '它是從原始碼執行的（npm run desktop）。請到發布頁下載新版。',
+      'no-installer': '新版沒有這個系統的安裝檔。請到發布頁看看。',
+      'no-checksum': 'GitHub 沒有提供這個安裝檔的檢查碼，無法確認下載的內容。請到發布頁手動下載。',
+      'read-only': 'Harness Relay 不在可以替換的位置（例如直接從 .dmg 執行，或所在的資料夾不能寫入）。請到發布頁下載新版；在 Mac 上，請把它拖到「應用程式」資料夾。',
+      'not-appimage': '在 Linux 上只有 AppImage 能自己更新。請到發布頁下載新版。',
+    })[why],
+  updateFailed: '無法更新 Harness Relay',
+  updateFailedDetail: (failure: UpdateFailure) =>
+    ({
+      download: '下載失敗。請確認網路連線，再試一次。',
+      checksum: '下載的檔案和 GitHub 公布的檢查碼不符，已經刪除，沒有安裝。',
+      unpack: '無法打開下載的安裝檔。',
+      verify: '下載的 app 簽章、識別碼或版本不符，沒有安裝。',
+      replace: '無法把目前的 app 換成新版，目前的版本維持不變。',
+      start: '無法啟動新版。Harness Relay 繼續執行目前的版本。',
+    })[failure],
+  updateOpenedInstaller: '已經打開新版的安裝檔：把 Harness Relay 拖到「應用程式」資料夾、取代舊版即可（macOS 可能要求允許「App 管理」）。',
 };
 
 export type DesktopMessages = typeof zhTW;
@@ -171,6 +204,8 @@ const en: DesktopMessages = {
     `Run this once in a terminal:\n\nsudo tailscale set --operator=$USER\n\nThen choose Share with your phone again.\n\nTailscale said:\n${output}`,
   tailscaleFailed: 'Could not share with your tailnet',
   tailscaleFailedDetail: (output) => `Tailscale said:\n${output}`,
+  tailscaleStatusUnknown:
+    "Could not read what this computer already shares with the tailnet (tailscale serve status did not answer), so nothing was shared: it could take over another service or Funnel. Check that Tailscale runs, then choose Share with your phone again.",
   tailscalePortsTaken:
     "HTTPS ports 443, 8443 and 10000 of this computer's tailnet address already share something else. Share Harness Relay by hand, as in Use it from your phone, or first stop one of them with tailscale serve --https=<port> off.",
   shared: 'Shared with your tailnet',
@@ -180,6 +215,36 @@ const en: DesktopMessages = {
   needsRestartDetail: (url) => `After the restart, open this on your phone:\n\n${url}\n\nConversations that are replying will be stopped.`,
   loginItemApproval: 'Allow Harness Relay to open at login in System Settings',
   loginItemApprovalDetail: 'Open System Settings → General → Login Items & Extensions and allow Harness Relay.',
+
+  updateTo: (version) => `Update to ${version}…`,
+  updateDownloading: (percent) => `Downloading the update… (${percent}%)`,
+  updateInstalling: 'Installing the update…',
+  updateConfirm: (version) => `Update Harness Relay to ${version}?`,
+  updateConfirmDetail:
+    'Harness Relay downloads the new version and checks it, then quits and opens again as the new version. Conversations that are replying will be stopped.',
+  updateNow: 'Update now',
+  releaseNotes: 'Release notes',
+  updateManual: 'This Harness Relay cannot update itself',
+  updateManualDetail: (why) =>
+    ({
+      'not-packaged': 'It runs from the source code (npm run desktop). Download the new version from the releases page.',
+      'no-installer': 'The new version has no installer for this system. See the releases page.',
+      'no-checksum': 'GitHub gives no checksum for its installer, so the download could not be checked. Download it from the releases page.',
+      'read-only':
+        'Harness Relay cannot be replaced where it is (it runs from the .dmg, say, or from a folder it may not write in). Download the new version from the releases page; on a Mac, drag it into Applications.',
+      'not-appimage': 'On Linux, only the AppImage updates itself. Download the new version from the releases page.',
+    })[why],
+  updateFailed: 'Could not update Harness Relay',
+  updateFailedDetail: (failure) =>
+    ({
+      download: 'The download failed. Check the connection and try again.',
+      checksum: 'The download does not match the checksum GitHub published for it: it was deleted, not installed.',
+      unpack: 'The downloaded installer could not be opened.',
+      verify: "The downloaded app's signature, identifier or version is not the expected one: it was not installed.",
+      replace: 'The app could not be replaced by the new version: this version stays as it is.',
+      start: 'The new version could not be started. Harness Relay runs on as this version.',
+    })[failure],
+  updateOpenedInstaller: "The new version's installer is open: drag Harness Relay into Applications, replacing this one (macOS may ask you to allow App Management).",
 };
 
 export const DESKTOP_MESSAGES: Record<DesktopLang, DesktopMessages> = { 'zh-TW': zhTW, en };

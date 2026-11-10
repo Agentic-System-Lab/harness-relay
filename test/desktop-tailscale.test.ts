@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { findTailscale, freeHttpsPort, parseStatus, servedUrl, shareOutcome, Tailscale, tailscaleLink } from '../desktop/src/tailscale';
+import { findTailscale, freeHttpsPort, parseStatus, servedUrl, shareOutcome, sharePlan, Tailscale, tailscaleLink } from '../desktop/src/tailscale';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-tailscale-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -93,6 +93,24 @@ describe('sharing with the tailnet', () => {
 describe('where to share without taking over what is shared', () => {
   const web = (entries: Record<string, string>) =>
     JSON.stringify({ Web: Object.fromEntries(Object.entries(entries).map(([hostPort, proxy]) => [hostPort, { Handlers: { '/': { Proxy: proxy } } }])) });
+
+  it('shares nothing when what is shared cannot be read, since it could take over a port or Funnel', () => {
+    // The command failed or timed out…
+    expect(sharePlan(undefined, 8787)).toEqual({ kind: 'unknown' });
+    // …or printed something that is not its JSON.
+    expect(sharePlan('Error: connection refused', 8787)).toEqual({ kind: 'unknown' });
+    expect(sharePlan('{"Web": ', 8787)).toEqual({ kind: 'unknown' });
+  });
+
+  it('shares on the first free HTTPS port, or says where it is shared already', () => {
+    expect(sharePlan('', 8787)).toEqual({ kind: 'share', https: 443 });
+    expect(sharePlan('{}', 8787)).toEqual({ kind: 'share', https: 443 });
+    expect(sharePlan('null', 8787)).toEqual({ kind: 'share', https: 443 });
+    expect(sharePlan(web({ 'my-mac.ts.net:443': 'http://127.0.0.1:3000' }), 8787)).toEqual({ kind: 'share', https: 8443 });
+    expect(sharePlan(web({ 'my-mac.ts.net:8443': 'http://127.0.0.1:8787' }), 8787)).toEqual({ kind: 'shared', url: 'https://my-mac.ts.net:8443' });
+    const full = web({ 'a.ts.net:443': 'http://127.0.0.1:1', 'a.ts.net:8443': 'http://127.0.0.1:2', 'a.ts.net:10000': 'http://127.0.0.1:3' });
+    expect(sharePlan(full, 8787)).toEqual({ kind: 'ports-taken' });
+  });
 
   it('is 443 when nothing is shared, or when it already shares this port', () => {
     expect(freeHttpsPort('{}', 8787)).toBe(443);

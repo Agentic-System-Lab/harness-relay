@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { CommandNotFoundError, capture, killAll, runProcess } from '../src/server/process';
+import { CommandNotFoundError, capture, killAll, runProcess, spawnDetached } from '../src/server/process';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-proc-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -115,5 +115,26 @@ describe('killAll', () => {
     expect(alive(pid)).toBe(true);
     await killAll(100); // shutdown comes before the stopped run's own SIGKILL
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 1000, interval: 50 });
+  });
+});
+
+describe('spawnDetached', () => {
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+
+  posixIt('starts a program that outlives the call and is left out of killAll', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'relay-detached-'));
+    try {
+      const marker = join(dir, 'done');
+      await spawnDetached('/bin/sh', ['-c', 'sleep 0.3; echo ok > "$1"', 'sh', marker], process.env);
+      await killAll(50);
+      await new Promise((r) => setTimeout(r, 900));
+      expect(readFileSync(marker, 'utf8').trim()).toBe('ok');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects for a program that does not exist', async () => {
+    await expect(spawnDetached(join(tmpdir(), 'no-such-program-here'), [], process.env)).rejects.toThrow();
   });
 });

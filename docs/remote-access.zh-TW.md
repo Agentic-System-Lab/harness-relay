@@ -28,8 +28,8 @@ flowchart LR
 
 - **第一次**分享時，如果你的 tailnet 還沒開啟 Serve 或 HTTPS，app 會在瀏覽器打開 Tailscale 的對應頁面。在那裡允許之後，再選一次 **分享到手機**。
 - **在 Linux 上**，如果 Tailscale 不允許你的帳號修改設定，app 會顯示要執行一次的指令：`sudo tailscale set --operator=$USER`。
-- **Tailnet 名稱**會在 app 每次啟動、而 Tailscale 已連線時自動加入，所以你不用自己設定 `RELAY_ALLOWED_HOSTS`。如果 app 啟動時 Tailscale 還沒連線，分享時會問你要不要重新啟動伺服器。
-- **電腦原本分享的服務不受影響。** App 用 HTTPS 的 443 port 分享，除非那裡已經分享了其他服務：那就改用 8443 或 10000，顯示的網址也會帶上那個 port（`https://my-computer.tail1234.ts.net:8443`）。如果三個都被佔用，請照第 1 步手動分享，並用其他 `--https` port。
+- **Tailnet 名稱**會在 app 啟動時自動加入，所以你不用自己設定 `RELAY_ALLOWED_HOSTS`。app 會記住這個名稱，所以在 Tailscale 連線前啟動（例如登入時），手機一樣連得進來。只有伺服器還不知道這個名稱時（app 執行期間 Tailscale 從沒連線過），分享時才會問你要不要重新啟動伺服器。
+- **電腦原本分享的服務不受影響。** App 用 HTTPS 的 443 port 分享，除非那裡已經分享了其他服務：那就改用 8443 或 10000，顯示的網址也會帶上那個 port（`https://my-computer.tail1234.ts.net:8443`）。如果三個都被佔用，請照第 1 步手動分享，並用其他 `--https` port。如果 app 讀不到電腦目前分享了什麼（`tailscale serve status` 失敗或沒有回應），它就不會分享任何東西，並告訴你，以免蓋掉某個 port 或 Funnel。
 - **手機登入**跟用 `npm start` 時一樣：見[第 3 步](#3-用手機打開)。
 - **在 Mac 上**，裝好 Tailscale App 就夠了：沒有 `tailscale` 指令時，桌面 app 會直接使用 Tailscale App。
 - 要讓手機一直連得到，見[讓它一直執行](#讓它一直執行)。
@@ -227,7 +227,8 @@ systemctl --user restart harness-relay
 | 頁面打得開但什麼都載不出來，錯誤顯示 *Forbidden host* 或 *Forbidden origin* | `RELAY_ALLOWED_HOSTS` 跟你打開的網址不一樣。照 `tailscale serve status` 顯示的名稱填寫，不含 `https://`，然後重新啟動 Harness Relay。 |
 | 網址完全打不開 | 確認手機的 Tailscale 已開啟，並登入跟電腦同一個 tailnet（Tailscale App 可以切換帳號）；確認電腦醒著；確認電腦上的 `tailscale serve status` 還顯示這個網址。 |
 | Linux 上的 `tailscale serve` 出現 *Access denied* | 加上 `sudo` 執行，或先執行一次 `sudo tailscale set --operator=$USER`。 |
-| 桌面 app 說「找不到 Tailscale」 | 在電腦上安裝 Tailscale 並登入。在 Linux 上，app 會在 shell 的 `PATH` 與 `/usr/bin` 裡找 `tailscale`；在 Windows 上，則在 `Program Files\Tailscale` 裡找。 |
+| 桌面 app 說「找不到 Tailscale」 | 在電腦上安裝 Tailscale 並登入。在 Linux 上，app 會在 shell 的 `PATH`，以及 `/usr/bin`、`/usr/sbin` 與 `/usr/local/bin` 裡找 `tailscale`；在 Windows 上，則在 `Program Files\Tailscale` 裡找。 |
+| 桌面 app 說讀不到這台電腦分享了什麼 | `tailscale serve status --json` 失敗或沒有及時回應，所以 app 沒有分享任何東西。確認 Tailscale 正在執行並已登入（`tailscale status`），再選一次 **分享到手機**，或照[第 1 步](#1-把伺服器分享到-tailnet)手動分享。 |
 | 出現其他程式的頁面或憑證 | 電腦上有其他程式在監聽 443 port，沒有分享時就由它回應。先看 `tailscale serve status`：網址不見了就重做第 1 步。如果網址還在、卻仍由那個程式回應，就改用其他 port 分享：`tailscale serve --bg --https=8443 8787`，然後打開 `https://my-computer.tail1234.ts.net:8443`（`RELAY_ALLOWED_HOSTS` 不用改）。 |
 | 手機上 AgentsView 的頁面打得開，但一直是空的 | `public_url` 跟你打開的網址不一樣，所以它的請求被拒絕。檢查 `~/.relay-agents/agentsview/config.toml` 最上方那一行（完整網址，含 `https://` 與 `:9999`），然後重新啟動 AgentsView。 |
 | 只有以 service 執行時，agent 顯示「找不到指令」 | service 的 `PATH` 裡沒有那個 CLI。用 `command -v claude`（或 `codex`、`grok`）找到它的位置，把所在資料夾加進 `Environment=PATH=`，再重新啟動。 |

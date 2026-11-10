@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   agentFolderOverlap,
+  appBrowserDirs,
   browserDataDirs,
   commandPaths,
   overlaps,
@@ -63,6 +64,20 @@ describe('what agents may not read', () => {
     expect(paths).not.toContain(join(data, 'relay.db-wal'));
     expect(relayDatabaseFiles('/d')).toEqual(['/d/relay.db', '/d/relay.db-wal', '/d/relay.db-shm']);
     expect(protectedReads({ platform: 'win32', home, dataDir: data })).toEqual([]);
+  });
+
+  it("takes the desktop app's own browser folder, where its window keeps its cookie and key", () => {
+    const home = join(root, 'home-app');
+    const browser = join(root, 'Harness Relay', 'browser');
+    mkdirSync(browser, { recursive: true });
+    mkdirSync(home, { recursive: true });
+    const env = { RELAY_APP_BROWSER_DIR: browser };
+    expect(appBrowserDirs(env)).toEqual([browser]);
+    expect(protectedReads({ platform: 'darwin', home, dataDir: join(root, 'no-data'), env })).toContain(browser);
+    // Started any other way, or with a relative or missing folder, there is none.
+    expect(appBrowserDirs({})).toEqual([]);
+    expect(appBrowserDirs({ RELAY_APP_BROWSER_DIR: 'browser' })).toEqual([]);
+    expect(protectedReads({ platform: 'linux', home, dataDir: join(root, 'no-data'), env: { RELAY_APP_BROWSER_DIR: join(root, 'missing') } })).toEqual([]);
   });
 });
 

@@ -9,15 +9,18 @@
  *
  * RELAY_VERSION (set by the Release workflow) is the release's version, such as 2026-11-10-rc.1: it
  * must follow the rules in scripts/release.ts. The app is then built as that version (its semver in
- * package.json, the version itself in its menu and log). Without it, it is the root package's.
+ * package.json, the version itself in its menu and log). Without it, the app is a build of the day,
+ * in Taiwan as releases are, with the commit it was built from: 2026-11-10-dev (30f3d4f), semver
+ * 2026.1110.0-dev, which any release of that day or later is newer than (the app offers it as an update).
  */
+import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { DESKTOP_ICONS, encodePngRgba, rasterizeIcon } from '../src/icons';
 import { appManifest } from '../src/manifest';
-import { parseVersion, semverOf } from '../../scripts/release';
+import { devVersion, parseVersion, RELEASE_TIME_ZONE, semverOf, todayIn } from '../../scripts/release';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = resolve(DESKTOP, '..');
@@ -32,7 +35,16 @@ if (!existsSync(join(web, 'index.html'))) {
 }
 
 const rootPackage = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string; description?: string; license?: string };
-let version = { app: rootPackage.version, shown: rootPackage.version };
+/** The commit being built, when this is a git checkout. */
+function commit(): string | undefined {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+const dev = devVersion(todayIn(process.env.RELEASE_TIME_ZONE?.trim() || RELEASE_TIME_ZONE), commit());
+let version = { app: dev.semver, shown: dev.shown };
 const release = process.env.RELAY_VERSION?.trim();
 if (release) {
   const parsed = parseVersion(release);
@@ -78,7 +90,8 @@ await build({
   format: 'cjs',
   target: TARGET,
   external: ['electron'],
-  define: { __RELAY_VERSION__: JSON.stringify(version.shown) },
+  // import.meta.url: scripts/release.ts (version rules) checks it to run as a script, never true in the app.
+  define: { __RELAY_VERSION__: JSON.stringify(version.shown), 'import.meta.url': 'undefined' },
   legalComments: 'none',
   logLevel: 'warning',
 });

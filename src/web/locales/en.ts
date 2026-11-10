@@ -652,7 +652,8 @@ export const en: Messages = {
     whereTitle: 'Where the code comes from',
     whereTerminal: 'The sign-in link Harness Relay printed in its terminal when it started: opening it signs you in (once, within an hour).',
     whereLogin: 'Or run this in the Harness Relay folder:',
-    whereDesktop: "Choose Open Harness Relay in the desktop app's menu (its icon in the menu bar or system tray): it opens a new sign-in link.",
+    whereDesktop: "Choose Open in browser in the desktop app's menu (its icon in the menu bar or system tray): it opens the chat in your browser with a new sign-in link.",
+    whereDesktopWindow: "Choose Open Harness Relay in the app's menu (its icon in the menu bar or system tray): this window signs in again with a new link.",
     whereOther: 'Or from a browser that is signed in: Settings → Signed-in browsers → Sign in another device (a phone, say).',
   },
 

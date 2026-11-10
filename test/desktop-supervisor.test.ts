@@ -38,7 +38,7 @@ class FakeServer extends EventEmitter implements ServerChild {
   }
 }
 
-function setup(o: { free?: boolean; startTimeoutMs?: number; stopTimeoutMs?: number } = {}) {
+function setup(o: { free?: boolean | (() => Promise<boolean>); startTimeoutMs?: number; stopTimeoutMs?: number; killTimeoutMs?: number } = {}) {
   const servers: FakeServer[] = [];
   const states: ServerState['kind'][] = [];
   const supervisor = new Supervisor({
@@ -48,9 +48,10 @@ function setup(o: { free?: boolean; startTimeoutMs?: number; stopTimeoutMs?: num
       servers.push(s);
       return s;
     },
-    portFree: async () => o.free ?? true,
+    portFree: async () => (typeof o.free === 'function' ? o.free() : (o.free ?? true)),
     startTimeoutMs: o.startTimeoutMs,
     stopTimeoutMs: o.stopTimeoutMs,
+    killTimeoutMs: o.killTimeoutMs,
   });
   supervisor.on('state', (s) => states.push(s.kind));
   return { supervisor, servers, states };
@@ -165,15 +166,52 @@ describe('the server supervisor', () => {
     expect((await again).kind).toBe('running');
   });
 
-  it('waits for a start in progress before stopping', async () => {
+  it('ends a start in progress at once when asked to stop, killing the server that does not listen yet', async () => {
+    // Quitting while the server waits for the keychain must not wait for the three-minute start limit.
+    const { supervisor, servers } = setup({ startTimeoutMs: 60_000 });
+    const started = supervisor.start({}, 8787);
+    await tick();
+    const before = Date.now();
+    await supervisor.stop();
+    expect(Date.now() - before).toBeLessThan(1000);
+    expect(servers[0]!.killed).toBe(true);
+    expect(await started).toEqual({ kind: 'stopped' });
+    expect(supervisor.state).toEqual({ kind: 'stopped' });
+  });
+
+  it('starts no server when asked to stop during the port check', async () => {
+    let free!: (yes: boolean) => void;
+    const { supervisor, servers } = setup({ free: () => new Promise((r) => (free = r)) });
+    const started = supervisor.start({}, 8787);
+    await tick();
+    const stopped = supervisor.stop();
+    free(true);
+    await stopped;
+    expect(servers).toHaveLength(0);
+    expect(await started).toEqual({ kind: 'stopped' });
+  });
+
+  it('stops a server that listened just before the stop the usual way', async () => {
     const { supervisor, servers } = setup();
     void supervisor.start({}, 8787);
     await tick();
-    const stopped = supervisor.stop();
     servers[0]!.listening();
-    await stopped;
+    await supervisor.stop();
     expect(servers[0]!.received).toEqual([{ type: 'shutdown' }]);
+    expect(servers[0]!.killed).toBe(false);
     expect(supervisor.state).toEqual({ kind: 'stopped' });
+  });
+
+  it('stops once when asked twice at the same time (a restart, then quit)', async () => {
+    const { supervisor, servers, states } = setup();
+    void supervisor.start({}, 8787);
+    await tick();
+    servers[0]!.listening();
+    await tick();
+    await Promise.all([supervisor.stop(), supervisor.stop()]);
+    expect(servers[0]!.received.filter((m) => m.type === 'shutdown').length).toBeGreaterThanOrEqual(1);
+    expect(supervisor.state).toEqual({ kind: 'stopped' });
+    expect(states.at(-1)).toBe('stopped');
   });
 
   it('reports any other listen error as an exit, with the output', async () => {
@@ -269,6 +307,28 @@ describe('sign-in links', () => {
     const pending = supervisor.signInLink(5000);
     server.exit(1);
     expect(await pending).toBeUndefined();
+  });
+
+  it("does not let a server that exits late cancel the next server's requests", async () => {
+    // The first server ignores both the shutdown and the kill, so the stop gives up on it.
+    const { supervisor, servers } = setup({ stopTimeoutMs: 10, killTimeoutMs: 10 });
+    void supervisor.start({}, 8787);
+    await tick();
+    const old = servers[0]!;
+    old.obeys = false;
+    old.dies = false;
+    old.listening();
+    await tick();
+    await supervisor.stop();
+    const started = supervisor.start({}, 8787);
+    await tick();
+    const next = servers[1]!;
+    next.listening();
+    await started;
+    const link = supervisor.signInLink(1000);
+    old.exit(137); // the old server goes at last
+    next.emit('message', { type: 'sign-in-link', link: 'http://127.0.0.1:8787/#code=NEXT' });
+    expect(await link).toBe('http://127.0.0.1:8787/#code=NEXT');
   });
 
   it('does not mistake a link for the end of the start', async () => {

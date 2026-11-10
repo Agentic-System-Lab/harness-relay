@@ -108,6 +108,30 @@ export function freeHttpsPort(json: string, port: number): number | undefined {
   });
 }
 
+export type SharePlan =
+  /** `port` is shared already, at this address. */
+  | { kind: 'shared'; url: string }
+  /** Share it on this HTTPS port. */
+  | { kind: 'share'; https: number }
+  /** Every HTTPS port tried shares something else. */
+  | { kind: 'ports-taken' }
+  /**
+   * What the computer shares could not be read (the command failed, timed out or printed something
+   * that is not its JSON): nothing is shared then, since it could take over a port in use or Funnel.
+   */
+  | { kind: 'unknown' };
+
+/** What "Share with your phone" does, from `tailscale serve status --json` (undefined: it could not be read). */
+export function sharePlan(status: string | undefined, port: number): SharePlan {
+  if (status === undefined) return { kind: 'unknown' };
+  // Nothing shared yet prints nothing, `{}` or `null`; anything else must be the configuration.
+  if (status.trim() !== '' && status.trim() !== 'null' && serveConfig(status) === undefined) return { kind: 'unknown' };
+  const url = servedUrl(status, port);
+  if (url) return { kind: 'shared', url };
+  const https = freeHttpsPort(status, port);
+  return https === undefined ? { kind: 'ports-taken' } : { kind: 'share', https };
+}
+
 /** A page of Tailscale's that the user must open (to turn Serve or HTTPS on), from a command's output. */
 export function tailscaleLink(output: string): string | undefined {
   for (const m of output.matchAll(/https:\/\/[^\s"'<>]+/g)) {

@@ -9,6 +9,7 @@
  *
  * Patches count up from .1 without gaps, separately for releases and release candidates. The git tag
  * is the version itself. A version must be today's date: a fix on a later day is that day's release.
+ * Release candidates come before the day's release: once it is out, a fix that day is its patch.
  *
  * Usage:
  *   tsx scripts/release.ts next                       today's next release and release candidate
@@ -102,6 +103,17 @@ export function nextVersion(tags: readonly string[], date: string, rc: boolean):
   return `${base}.${Math.max(...made.map((v) => v.patch)) + 1}`;
 }
 
+/** Whether the day's release (not a release candidate) is out already. */
+export function releasedOn(tags: readonly string[], date: string): boolean {
+  return releasedVersions(tags).some((v) => v.date === date && !v.rc);
+}
+
+/** The year, then the month and day as one number (1110 for November 10). */
+function semverCore(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return `${y}.${m! * 100 + d!}`;
+}
+
 /**
  * The version as semver, which electron-builder and the operating systems need: the year, then the
  * month and day as one number (1110 for November 10), then the patch; a release candidate is a
@@ -109,10 +121,52 @@ export function nextVersion(tags: readonly string[], date: string, rc: boolean):
  * dates and patches sort later.
  */
 export function semverOf(v: ReleaseVersion): string {
-  const [y, m, d] = v.date.split('-').map(Number);
-  const core = `${y}.${m! * 100 + d!}`;
+  const core = semverCore(v.date);
   if (!v.rc) return `${core}.${v.patch}`;
   return `${core}.0-rc${v.patch ? `.${v.patch}` : ''}`;
+}
+
+/**
+ * A build that is not a release (`npm run desktop`, `npm run desktop:dist`): shown as the day it was
+ * built with `-dev`, and the commit when known (2026-11-10-dev (30f3d4f)); as semver, a pre-release
+ * of that day that sorts before its release candidates (`dev` < `rc`), so that any release of that
+ * day or later counts as newer.
+ */
+export function devVersion(date: string, commit?: string): { shown: string; semver: string } {
+  return { shown: `${date}-dev${commit ? ` (${commit})` : ''}`, semver: `${semverCore(date)}.0-dev` };
+}
+
+/**
+ * Semver precedence (semver.org, section 11), for the versions above: below zero when `a` comes
+ * before `b`, above zero after, zero when they are the same. Build metadata (`+…`) is ignored.
+ */
+export function compareSemver(a: string, b: string): number {
+  const split = (v: string) => {
+    const [core = '', ...pre] = v.split('+')[0]!.split('-');
+    return { nums: core.split('.').map(Number), pre: pre.length ? pre.join('-').split('.') : [] };
+  };
+  const x = split(a);
+  const y = split(b);
+  for (let i = 0; i < 3; i++) {
+    const d = (x.nums[i] ?? 0) - (y.nums[i] ?? 0);
+    if (d) return Math.sign(d);
+  }
+  // A pre-release comes before the version itself.
+  if (!x.pre.length || !y.pre.length) return Math.sign(y.pre.length - x.pre.length);
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+    const p = x.pre[i];
+    const q = y.pre[i];
+    if (p === undefined) return -1;
+    if (q === undefined) return 1;
+    const pn = /^\d+$/.test(p);
+    const qn = /^\d+$/.test(q);
+    if (pn && qn) {
+      const d = Number(p) - Number(q);
+      if (d) return Math.sign(d);
+    } else if (pn !== qn) return pn ? -1 : 1;
+    else if (p !== q) return p < q ? -1 : 1;
+  }
+  return 0;
 }
 
 export interface ReleaseCheck {
@@ -136,7 +190,9 @@ export function checkRelease(c: ReleaseCheck): CheckResult {
   const errors: string[] = [];
   const zone = c.timeZone ?? RELEASE_TIME_ZONE;
   const hint = () =>
-    `Today's next release candidate is ${nextVersion(c.tags, c.today, true)}, and its next release ${nextVersion(c.tags, c.today, false)}.`;
+    releasedOn(c.tags, c.today)
+      ? `Today's release is out: its next patch is ${nextVersion(c.tags, c.today, false)}.`
+      : `Today's next release candidate is ${nextVersion(c.tags, c.today, true)}, and its next release ${nextVersion(c.tags, c.today, false)}.`;
   if (c.ref !== undefined && c.ref !== 'refs/heads/main') {
     errors.push(`Releases are made from main, and this run is on ${c.ref.replace(/^refs\/heads\//, '')}. Choose main under "Use workflow from".`);
   }
@@ -149,6 +205,11 @@ export function checkRelease(c: ReleaseCheck): CheckResult {
     const expected = nextVersion(c.tags, v.date, v.rc);
     if (releasedVersions(c.tags).some((t) => t.version === v.version)) {
       errors.push(`${v.version} has already been released. The next one is ${expected}.`);
+    } else if (v.rc && releasedOn(c.tags, v.date)) {
+      // It would sort before the release and its patches, and the download page would offer it as the newest.
+      errors.push(
+        `${v.version} is a release candidate, but today's release ${v.date} is out already: a fix today is its patch, ${nextVersion(c.tags, v.date, false)}.`,
+      );
     } else if (v.version !== expected) {
       const kind = v.rc ? 'release candidate' : 'release';
       errors.push(
@@ -208,7 +269,8 @@ function main(argv: string[]): number {
 
   if (command === 'next') {
     console.log(`Today (${today}, ${zone}):`);
-    console.log(`  release candidate  ${nextVersion(tags, today, true)}`);
+    if (releasedOn(tags, today)) console.log(`  release candidate  none: today's release is out`);
+    else console.log(`  release candidate  ${nextVersion(tags, today, true)}`);
     console.log(`  release            ${nextVersion(tags, today, false)}`);
     return 0;
   }

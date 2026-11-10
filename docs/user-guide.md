@@ -6,7 +6,7 @@ This guide walks through installing Harness Relay, signing in to the agents, sta
 
 ## 1. Install and start
 
-You need Node.js 22.13 or newer and at least one of the agent CLIs (`claude`, `codex`, `grok`) installed.
+You need Node.js 22.13 or newer and at least one of the agent CLIs (`claude`, `codex`, `grok`) installed. Edit and parallel modes also need [Git](https://git-scm.com/downloads), which Harness Relay uses for snapshots and worktrees.
 
 ```bash
 npm install
@@ -22,7 +22,7 @@ To use Harness Relay from your phone, a tablet or another computer, share it wit
 
 ### Desktop app
 
-Instead of `npm start` in a terminal, you can install Harness Relay as a desktop app on macOS (13 Ventura or later, Apple Silicon or Intel), Windows 10 or later, or Linux with a desktop. It runs the same server in the background and shows the chat in a window of its own, signed in, with no address bar. Closing the window leaves the server running, with an icon in the menu bar or the system tray, so the chat works on your phone as before. Like `npm start`, it needs the agent CLIs; it does not need Node.js.
+Instead of `npm start` in a terminal, you can install Harness Relay as a desktop app on macOS (13 Ventura or later, Apple Silicon or Intel), Windows 10 or later, or Linux with a desktop. It runs the same server in the background and shows the chat in a window of its own, signed in, with no address bar. Closing the window leaves the server running, with an icon in the menu bar or the system tray, so the chat works on your phone as before. Like `npm start`, it needs the agent CLIs, and Git for edit and parallel modes; it does not need Node.js.
 
 **Install it.** Download the installer for your system from [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases). For now they are all release candidates (versions ending in `-rc`, see [Versions](#versions)).
 
@@ -37,15 +37,17 @@ npm install --prefix desktop
 npm run desktop:dist
 ```
 
+`npm run desktop:dist` refuses to start while a Harness Relay runs from `desktop/release/`, whose files it would replace: quit that one first, or build elsewhere with `npm run desktop:dist -- --output <folder>`. Quit any running Harness Relay before you open the new build too, or macOS brings the running one forward instead (one Harness Relay runs at a time). `npx tsx desktop/scripts/check-package.ts` then checks the app it made, as a release is checked.
+
 The installers are not signed for distribution yet (on macOS they are signed ad hoc), so the system warns the first time the app opens:
 
 - **macOS**: *Apple could not verify "Harness Relay"*. Open **System Settings → Privacy & Security** and click **Open Anyway** next to Harness Relay.
 - **Windows**: SmartScreen says *Windows protected your PC*. Click **More info**, then **Run anyway**.
 - **Linux**: on Ubuntu 24.04 and other systems that restrict unprivileged user namespaces, the AppImage may stop at once with a message about the *SUID sandbox helper*. Start it with `--no-sandbox` (`./Harness-Relay-….AppImage --no-sandbox`); **Open at login** then starts it the same way.
 
-**Signing in.** The app opens the chat with a one-time sign-in link it gets from its server, so the window is signed in without a code to type; **Open in browser** does the same in your default browser. That link is never printed or written to a log, and it works for one minute. The window is a browser of its own: it is listed under **Settings → Signed-in browsers**, and its guided tour and language are its own. To sign in a phone, open **Settings → Signed-in browsers → Sign in another device**, as with `npm start`. If a page ever shows the sign-in page, choose **Open Harness Relay** in the app's menu.
+**Signing in.** The app opens the chat with a one-time sign-in link it gets from its server, so the window is signed in without a code to type; **Open in browser** does the same in your default browser. That link is never printed or written to a log, and it works for one minute. The window is a browser of its own: it is listed under **Settings → Signed-in browsers**, and its guided tour and language are its own. To sign in a phone, open **Settings → Signed-in browsers → Sign in another device**, as with `npm start`. If the window shows the sign-in page (its sign-in was revoked, or its link was not used in time), choose **Open Harness Relay** in the app's menu: the window signs in again with a new link. If a browser shows it, choose **Open in browser**. The window keeps its sign-in in the `browser` folder of the app's folder, which agents below full access may not read (on macOS and Linux, where their sandboxes enforce it).
 
-**The window.** Closing it leaves Harness Relay running in the menu bar or the system tray (on macOS its Dock icon goes away until the window opens again); **Quit** (⌘Q on macOS) stops it. Links to other sites open in your default browser, and files you download from the chat are saved through the usual save dialog. Voice input asks for the microphone the first time. On Windows and Linux, Alt shows the window's menu bar, which has **Quit** too.
+**The window.** Closing it leaves Harness Relay running in the menu bar or the system tray (on macOS its Dock icon goes away until the window opens again); **Quit** (⌘Q on macOS) stops it. Links to other sites open in your default browser, and files you download from the chat are saved through the usual save dialog. Voice input asks for the microphone the first time, and a video's own button shows it full screen. On Windows and Linux, Alt shows the window's menu bar, which has **Quit** too.
 
 **The menu.** The app's icon, Harness Relay's three dots, is in the menu bar on macOS and in the system tray on Windows and Linux. On Windows, a click opens the chat and the menu is on the right button. The menu has:
 
@@ -59,25 +61,40 @@ The installers are not signed for distribution yet (on macOS they are signed ad 
 | **Keep this computer awake while running** | Keeps the computer from going to sleep by itself while the app runs, so your phone can reach it. A MacBook still sleeps when you close the lid. |
 | **Open data folder**, **Show log** | The app's data folder (see below) and the server's log. |
 | **Restart server…**, **Start server** | Restarts the server (replies in progress stop), or starts it again after it stopped. |
-| *Version* | The app's version. |
+| *Version* | The app's version (see [Versions](#versions)). |
+| **Update to 2026-11-12…** | Shown when a newer release is out: updates the app (see **Updates** below). While it works, the item shows how far the download got. |
 | **Quit Harness Relay** | Stops the server, which stops every agent first, and quits. |
 
-Some Linux desktops hide tray icons (GNOME without the AppIndicator extension, for example). There, open the app again to show its window, and quit it from the window's menu bar (Alt).
+Some Linux desktops hide tray icons (GNOME without the AppIndicator extension, for example). There, opening the app again shows its window (or starts a stopped server), and the window's menu bar (Alt) has **Open in browser** and **Quit** besides editing, zoom and the window. The rest of the menu (**Share with your phone**, **Open at login**, **Keep this computer awake**, **Restart server…**, the log, the data folder and updates) cannot be reached there: install the AppIndicator extension, or use the terminal instead (`tailscale serve`, see [Use it from your phone](remote-access.md)).
 
 **What is different from `npm start`:**
 
 - **Its own folder.** The app keeps its files in `~/Library/Application Support/Harness Relay` on macOS, `%APPDATA%\Harness Relay` on Windows and `~/.config/Harness Relay` on Linux: conversations and settings in its `data` folder, its own settings in `desktop.json`. A clone's `data/` is not used. To bring your conversations along, quit both, then copy what is in the clone's `data/` folder into the app's `data` folder, and enter your API keys and MCP servers' secret values again in Settings (they are in the credential store, under another name: see the next point). Or set `RELAY_DATA_DIR` in your shell profile, which the app reads too. Never run both on the same data at once.
 - **Its own API keys.** With its own data folder, the app files API keys in the credential store under `harness-relay-desktop`, apart from `npm start`'s (`harness-relay`), so a key saved or removed in one does not change the other. With `RELAY_DATA_DIR` set, both use `harness-relay`, as the data is shared.
-- **Your shell's environment.** On macOS and Linux the app reads the environment your login shell sets up (PATH, API keys and other variables from `~/.zshrc`, `~/.bashrc` and so on), so it finds the CLIs as your terminal does. It reads it again on **Restart server…** and **Start server**: choose one after you install a CLI or change your profile. On Windows, the app gets PATH from the system when it opens: quit it and open it again instead.
-- **Always 127.0.0.1, port 8787.** A `PORT` or `HOST` in your shell profile is meant for other programs, so the app ignores it. To use another port, quit the app and set `"port"` in its `desktop.json` (create the file if it is not there: `{ "port": 8790 }`). If the port is taken, by a Harness Relay you started with `npm start` for example, the app says so and offers to try again.
-- **The default working directory** is your home folder until you change it in Settings.
+- **Your shell's environment.** On macOS and Linux the app reads the environment your login shell sets up (PATH, API keys and other variables from `~/.zshrc`, `~/.bashrc` and so on), so it finds the CLIs as your terminal does. It reads it again on **Restart server…** and **Start server**: choose one after you install a CLI or change your profile. On Windows, the app gets PATH from the system when it opens, and reads PATH and your user variables again from Windows on **Restart server…** and **Start server**.
+- **Always 127.0.0.1, port 8787.** A `PORT` or `HOST` in your shell profile is meant for other programs, so the app ignores it. To use another port, quit the app and set `"port"` in its `desktop.json` (create the file if it is not there: `{ "port": 8790 }`). `npm start` uses port 8787 too, so the two cannot run at once unless one of them uses another port. If the port is taken, by a Harness Relay you started with `npm start` for example, the app says so and offers to try again.
+- **The default working directory** is your home folder until you change it in Settings. Edit mode refuses the home folder itself (agents would change your shell and tool settings without asking): choose a project folder for a conversation in edit mode.
 - **The server's log** is `~/Library/Logs/Harness Relay/server.log` on macOS, and `logs/server.log` in the app's folder on Windows and Linux.
 - **macOS may ask** whether Harness Relay may access a folder such as Documents or Desktop, the first time an agent works there, whether it may use the microphone, the first time you use voice input, and whether it may use its keys in your keychain after an update. The questions name the app, because the agents run inside it. Choose **Allow** (or **Always Allow**).
-- **Quitting** stops every agent first. Force-quitting the app (or a crash) can leave an agent that was replying running, as stopping `npm start` with `kill -9` would.
+- **Quitting** stops every agent first. Force-quitting the app (or a crash) can leave an agent that was replying running, as stopping `npm start` with `kill -9` would. Quitting while the server is still starting (waiting for the keychain, say) stops it at once: it runs no agent yet.
+
+**Updates.** About 30 seconds after it starts, and every 6 hours after that, the app asks GitHub (`api.github.com`) for the latest release. Release candidates are never offered. When the release is newer than the app and has an installer for your system, the menu shows **Update to** and its version (**Update to 2026-11-12…**, say). Choosing it asks first, since conversations that are replying stop; **Release notes** opens the release's page. The app then downloads the installer, checks it against the SHA-256 checksum GitHub publishes for it, quits, and opens again as the new version:
+
+- **macOS**: the new app replaces the one in Applications (or wherever you put it), in place. That takes a folder the app may write in (Applications, for an administrator), and an app that does not run from the `.dmg` itself. If macOS keeps the app from replacing itself (it may ask you to allow **App Management**), the new version's `.dmg` opens: drag Harness Relay into Applications, replacing the old one.
+- **Windows**: the installer runs silently once the app has quit, and starts the new version.
+- **Linux**: the new AppImage takes the place of the one you run. When that one was named after its version, as downloaded, the new one is named after its own and the old one is removed; **Open at login** follows it. Only the AppImage updates itself.
+
+A Harness Relay that cannot update itself (one run from the source with `npm run desktop`, one in a folder it may not write in, an installer without a checksum) says why and offers the release's page instead: install the new version as you did the first time. To turn the checks off, set `RELAY_UPDATES=off` in your shell profile (or the app's environment).
+
+**Where it keeps things, and uninstalling.** The app's folder is `~/Library/Application Support/Harness Relay` on macOS, `%APPDATA%\Harness Relay` on Windows and `~/.config/Harness Relay` on Linux (`$XDG_CONFIG_HOME/Harness Relay` when that is set). In it: `data` (conversations and settings), `browser` (the window's own browser data, its sign-in included), `desktop.json` (the app's settings), and on Windows and Linux `logs`. To uninstall:
+
+1. Turn **Open at login** off, and stop sharing with your phone if you did (`tailscale serve --https=443 off`, or the HTTPS port the app said it used: see [Use it from your phone](remote-access.md#security)), then quit the app.
+2. Remove the app: drag Harness Relay from Applications to the Trash (macOS); **Settings → Apps** (**Installed apps**, or **Apps & features** on Windows 10) → Harness Relay → **Uninstall** (Windows); delete the AppImage (Linux).
+3. To remove your data too: delete the app's folder, and on macOS `~/Library/Logs/Harness Relay`. The API keys and MCP servers' secret values are in the credential store under `harness-relay-desktop` (macOS Keychain Access, Windows Credential Manager, or your Linux keyring): delete those entries. On Linux, `~/.config/autostart/harness-relay.desktop` is gone once **Open at login** is off.
 
 ### Versions
 
-A version is the date it was released, in Taiwan's time zone: `2026-11-10` is a release, and `2026-11-10-rc` a release candidate, made to be tried before a release. A fix released the same day adds a number: `2026-11-10.1`, `2026-11-10-rc.2`. The menu shows the app's version, and [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) marks release candidates as pre-releases.
+A version is the date it was released, in Taiwan's time zone: `2026-11-10` is a release, and `2026-11-10-rc` a release candidate, made to be tried before a release. A fix released the same day adds a number: `2026-11-10.1`, `2026-11-10-rc.2`. Once a day's release is out, a fix that day is its patch, never another release candidate. The menu shows the app's version, and [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) marks release candidates as pre-releases. An app you build yourself shows the day it was built with `-dev` and the commit, such as `2026-11-10-dev (30f3d4f)`: any release of that day or later counts as newer, and is offered as an update.
 
 ### Language and the guided tour
 
@@ -481,7 +498,11 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | Settings says *The last update of AgentsView failed* | Start AgentsView, or check the address and port in **Settings → Agent sessions**. `ECONNREFUSED` means nothing listens there. A conversation is sent again after its next turn. |
 | A conversation is missing in AgentsView | AgentsView hides sessions with only one message from the user: turn on **Include single-turn** in its session filter. |
 | The desktop app says the port is already in use | Quit the Harness Relay you started with `npm start` or `npm run dev` (or the other program), then click **Try again**. Or quit the app and set another `"port"` in its `desktop.json` (see [Desktop app](#desktop-app)). |
-| The desktop app shows *Command not found* for a CLI that works in your terminal | The app reads your login shell's environment when it starts the server: after installing a CLI, choose **Restart server…** in its menu (on Windows, quit the app and open it again). If it still is not found, set **Executable** to the CLI's full path (`which claude` in a terminal) in Settings. |
+| The desktop app shows *Command not found* for a CLI that works in your terminal | The app reads your login shell's environment (on Windows, PATH from the system) when it starts the server: after installing a CLI, choose **Restart server…** in its menu. If it still is not found, set **Executable** to the CLI's full path (`which claude` in a terminal) in Settings. |
 | The desktop app's AppImage stops at once on Linux | Start it with `--no-sandbox` (see [Desktop app](#desktop-app)). |
-| The desktop app's window or your browser shows the sign-in page | The sign-in link was not used in time, or the window was signed out: choose **Open Harness Relay** (or **Open in browser**) in the app's menu again. |
+| The desktop app's window or your browser shows the sign-in page | The sign-in link was not used in time, or the window was signed out: choose **Open Harness Relay** in the app's menu for its window, **Open in browser** for a browser. |
+| The desktop app says its server took too long to start | After an update, macOS may ask whether Harness Relay may use its keys in your keychain, and the server waits for the answer, for three minutes at most. Answer it, then choose **Start server** in the menu. |
+| **Open at login** does not start the app on macOS | macOS asks you to approve it: allow Harness Relay in **System Settings → General → Login Items & Extensions**. |
+| **Update to …** says Harness Relay cannot update itself, or the update failed | The dialog says why, and offers the release's page: install the new version as the first time. On a Mac, move the app into Applications first (one run from the `.dmg`, or from a folder it may not write in, cannot replace itself). A failed download or check changes nothing: the app runs on as before. |
+| **Share with your phone** says it could not read what this computer shares | `tailscale serve status` did not answer, so the app shared nothing (it could have taken over another service or Funnel). Check that Tailscale runs and is signed in, then try again, or share by hand (see [Use it from your phone](remote-access.md)). |
 | Port already in use | Start with another port: `PORT=8790 npm start` on macOS and Linux, `$env:PORT=8790; npm start` in Windows PowerShell. The same works for `npm run dev`, whose UI proxy follows `PORT`. |

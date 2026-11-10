@@ -21,9 +21,33 @@ export const INSTALLERS = {
 /** Where the installers are: links to anything else are not used (a forged or broken API answer). */
 export const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`;
 
-/** Whether `url` is an installer's address on GitHub (not a page of another site, nor `javascript:`). */
+/** A release download's path: /<owner>/<repo>/releases/download/<tag>/<file>, in plain characters. */
+const DOWNLOAD_PATH = /^\/[^/]+\/[^/]+\/releases\/download\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
+/**
+ * Whether `url` is an installer's address on GitHub (not a page of another site, nor `javascript:`).
+ * It must lead where it says, as written: an address with `..` (or `%2e%2e`), an escape, a user name,
+ * a port, a query or a fragment could reach another repository's file while starting the same way.
+ */
 export function isInstallerUrl(url) {
-  return typeof url === 'string' && url.startsWith(DOWNLOAD_PREFIX) && !/[\s"'<>]/.test(url);
+  if (typeof url !== 'string' || !url.startsWith(DOWNLOAD_PREFIX)) return false;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  const segments = parsed.pathname.split('/');
+  return (
+    parsed.href === url &&
+    parsed.origin === 'https://github.com' &&
+    !parsed.username &&
+    !parsed.password &&
+    !parsed.search &&
+    !parsed.hash &&
+    DOWNLOAD_PATH.test(parsed.pathname) &&
+    !segments.some((part) => part === '.' || part === '..')
+  );
 }
 
 /**
@@ -87,10 +111,19 @@ const FRESH_MS = 10 * 60 * 1000;
  * for each system), data-rc and data-release (the version line), data-mobile (on a phone). The
  * browser's objects are passed in, so the tests can give fakes.
  */
+/** The browser's localStorage, or null where reading it throws (site data blocked: Chrome and Firefox). */
+function localStore() {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function wire({
   doc = globalThis.document,
   nav = globalThis.navigator,
-  storage = globalThis.localStorage,
+  storage = localStore(),
   fetchJson = (url) =>
     fetch(url, { headers: { Accept: 'application/vnd.github+json' } }).then((res) =>
       res.ok ? res.json() : Promise.reject(new Error(String(res.status))),
@@ -133,18 +166,22 @@ export function wire({
     }
   }
 
-  /** `release`: the newest one. With none (null), the buttons keep the releases page and no version shows. */
+  /**
+   * `release`: the newest one. With none (null), the buttons keep the releases page and no version
+   * shows. A system it has no installer for goes back to the releases page (one shown before, from
+   * the release kept from an earlier visit, would be of an older release than the version line says).
+   */
   const show = (release) => {
     if (!release || typeof release.tag !== 'string') return;
     for (const link of doc.querySelectorAll('[data-download]')) {
       const found = release.installers?.[link.dataset.download];
-      if (!isInstallerUrl(found?.url)) continue;
-      link.setAttribute('href', found.url);
+      const ok = isInstallerUrl(found?.url);
+      link.setAttribute('href', ok ? found.url : RELEASES_PAGE);
       const size = link.querySelector('[data-size]');
-      if (size) size.textContent = sizeLabel(found.size);
+      if (size) size.textContent = ok ? sizeLabel(found.size) : '';
     }
     const mine = release.installers?.[system];
-    if (primary && isInstallerUrl(mine?.url)) primary.setAttribute('href', mine.url);
+    if (primary && system in INSTALLERS) primary.setAttribute('href', isInstallerUrl(mine?.url) ? mine.url : RELEASES_PAGE);
     const text = `${release.prerelease ? words.rc : words.release} ${release.tag}`;
     for (const slot of meta) if (!slot.hasAttribute('data-hero')) slot.textContent = text;
   };
@@ -155,7 +192,8 @@ export function wire({
   } catch {}
   const valid = saved && typeof saved.at === 'number' && 'release' in saved;
   if (valid) show(saved.release);
-  if (valid && now() - saved.at < FRESH_MS) return Promise.resolve();
+  // A time in the future is not fresh: it would keep that release for good.
+  if (valid && saved.at <= now() && now() - saved.at < FRESH_MS) return Promise.resolve();
   // The API allows a visitor 60 unauthenticated requests an hour: kept for ten minutes, like the stars.
   return Promise.resolve()
     .then(() => fetchJson(`https://api.github.com/repos/${REPO}/releases?per_page=20`))

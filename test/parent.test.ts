@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { fork, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -71,6 +71,7 @@ describe('the server, run as the desktop app runs it', () => {
       timeoutMs: 30_000,
     });
     expect(passed).toEqual([
+      'loads the keyring module',
       expect.stringMatching(/^listens on http:\/\/127\.0\.0\.1:\d+$/),
       'serves the web app',
       'refuses the API to a browser that is not signed in',
@@ -102,6 +103,32 @@ describe('a server whose port is taken', () => {
         expect(stderr).toContain(`could not listen on http://127.0.0.1:${port}`);
         expect(stderr).toContain('start with another PORT');
         expect(stderr).not.toContain('Unhandled');
+      } finally {
+        if (child.exitCode === null) child.kill('SIGKILL');
+        await exited;
+      }
+    } finally {
+      await new Promise((r) => taken.close(r));
+    }
+  }, 30_000);
+
+  it('tells the desktop app why (EADDRINUSE), which then explains it, and exits with code 1', async () => {
+    const taken = createServer();
+    await new Promise<void>((r) => taken.listen(0, '127.0.0.1', r));
+    const port = (taken.address() as { port: number }).port;
+    try {
+      const child = fork(resolve('src/server/index.ts'), [], {
+        execArgv: ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href, '--import', pathToFileURL(resolve('desktop/scripts/parent-port.mjs')).href],
+        env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), RELAY_DATA_DIR: join(dir, 'data-busy'), RELAY_KEYRING: 'off', RELAY_WEB_DIR: join(dir, 'no-web') },
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      });
+      const messages: unknown[] = [];
+      child.on('message', (m) => messages.push(m));
+      const exited = new Promise<number | null>((r) => child.on('exit', r));
+      try {
+        expect(await exited).toBe(1);
+        expect(messages).toContainEqual(expect.objectContaining({ type: 'error', code: 'EADDRINUSE' }));
+        expect(messages.some((m) => (m as { type?: string }).type === 'listening')).toBe(false);
       } finally {
         if (child.exitCode === null) child.kill('SIGKILL');
         await exited;

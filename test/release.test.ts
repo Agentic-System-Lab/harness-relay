@@ -6,6 +6,8 @@ import { pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   checkRelease,
+  compareSemver,
+  devVersion,
   nextVersion,
   parseVersion,
   RELEASE_TIME_ZONE,
@@ -154,7 +156,16 @@ describe('checking a release', () => {
     expect(check('2026-11-10', tags).ok).toBe(true);
     expect(errors('2026-11-10.1', tags)).toMatch(/release 2026-11-10 first/);
     expect(check('2026-11-10.1', [...tags, '2026-11-10']).ok).toBe(true);
-    expect(check('2026-11-10-rc.2', [...tags, '2026-11-10', '2026-11-10.1']).ok).toBe(true);
+  });
+
+  it("takes no release candidate once the day's release is out: a fix that day is its patch", () => {
+    // It would sort before the release's patches (2026.1110.0-rc.2 < 2026.1110.1), and the download
+    // page, which takes the newest release, would offer it instead of them.
+    const tags = ['2026-11-10-rc', '2026-11-10-rc.1', '2026-11-10', '2026-11-10.1'];
+    expect(errors('2026-11-10-rc.2', tags)).toMatch(/today's release 2026-11-10 is out already: a fix today is its patch, 2026-11-10\.2/);
+    expect(errors('2026-11-10-rc', ['2026-11-10'])).toMatch(/is out already/);
+    expect(errors('2026-11-09', tags)).toMatch(/Today's release is out: its next patch is 2026-11-10\.2\./);
+    expect(check('2026-11-10.2', tags).ok).toBe(true);
   });
 
   it("ignores other days' versions and tags that are not versions", () => {
@@ -176,20 +187,6 @@ describe('checking a release', () => {
 });
 
 describe('the app version (semver)', () => {
-  /** Precedence for the semver our versions map to: X.Y.Z with an optional -rc or -rc.N. */
-  const compare = (a: string, b: string) => {
-    const split = (s: string) => {
-      const [core, pre] = s.split('-');
-      return { nums: core!.split('.').map(Number), pre };
-    };
-    const x = split(a);
-    const y = split(b);
-    for (let i = 0; i < 3; i++) if (x.nums[i] !== y.nums[i]) return x.nums[i]! - y.nums[i]!;
-    if (x.pre === y.pre) return 0;
-    if (x.pre === undefined) return 1; // a release comes after its pre-releases
-    if (y.pre === undefined) return -1;
-    return Number(x.pre.split('.')[1] ?? 0) - Number(y.pre.split('.')[1] ?? 0);
-  };
   const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$/;
 
   it('is valid semver, below Windows’ limit of 65535 per number', () => {
@@ -206,7 +203,29 @@ describe('the app version (semver)', () => {
   it('sorts as the releases were made', () => {
     const inOrder = ['2026-01-31', '2026-02-01-rc', '2026-02-01-rc.1', '2026-02-01-rc.10', '2026-02-01', '2026-02-01.1', '2026-02-01.2', '2026-10-09', '2026-11-10-rc', '2027-01-01-rc'];
     const semvers = inOrder.map((v) => semverOf(ok(v) as ReleaseVersion));
-    expect([...semvers].sort(compare)).toEqual(semvers);
+    expect([...semvers].reverse().sort(compareSemver)).toEqual(semvers);
+    expect([...semvers].sort(() => 0.5 - Math.random()).sort(compareSemver)).toEqual(semvers);
+  });
+
+  it('compares by semver precedence', () => {
+    expect(compareSemver('2026.1110.0', '2026.1110.0')).toBe(0);
+    expect(compareSemver('2026.1110.0-rc', '2026.1110.0')).toBe(-1);
+    expect(compareSemver('2026.1110.0', '2026.1110.0-rc.3')).toBe(1);
+    expect(compareSemver('2026.1110.0-rc.2', '2026.1110.0-rc.10')).toBe(-1); // numbers as numbers
+    expect(compareSemver('2026.1110.0-rc', '2026.1110.0-rc.1')).toBe(-1); // fewer identifiers first
+    expect(compareSemver('2026.1110.0-dev', '2026.1110.0-rc')).toBe(-1);
+    expect(compareSemver('2026.1109.3', '2026.1110.0-dev')).toBe(-1);
+    expect(compareSemver('0.1.0', '2026.1110.0')).toBe(-1);
+    expect(compareSemver('2026.1110.1+build.5', '2026.1110.1')).toBe(0);
+  });
+
+  it('marks a build that is not a release as one of the day it was built, before any release of that day', () => {
+    expect(devVersion('2026-11-10', '30f3d4f')).toEqual({ shown: '2026-11-10-dev (30f3d4f)', semver: '2026.1110.0-dev' });
+    expect(devVersion('2026-11-10')).toEqual({ shown: '2026-11-10-dev', semver: '2026.1110.0-dev' });
+    const dev = devVersion('2026-11-10').semver;
+    expect(dev).toMatch(SEMVER);
+    expect(compareSemver(dev, semverOf(ok('2026-11-10-rc')))).toBe(-1);
+    expect(compareSemver(dev, semverOf(ok('2026-11-09.4')))).toBe(1);
   });
 });
 
@@ -255,11 +274,27 @@ describe('the release script', () => {
 
   it("checks a version against today in Taiwan when no day is given", () => {
     const today = todayIn('Asia/Taipei');
-    expect(run(['check', `${today}-rc`]).code).toBe(0);
+    const r = run(['check', `${today}-rc`]);
+    // The script finds today by itself: right at midnight in Taiwan, it may be the next day already.
+    if (todayIn('Asia/Taipei') !== today) return;
+    expect(r.code).toBe(0);
     const yesterday = todayIn('Asia/Taipei', new Date(Date.now() - 36 * 3600_000));
-    const r = run(['check', `${yesterday}-rc`]);
-    expect(r.code).toBe(1);
-    expect(r.err).toContain(`${yesterday} is not today`);
+    const late = run(['check', `${yesterday}-rc`]);
+    expect(late.code).toBe(1);
+    expect(late.err).toContain(`${yesterday} is not today`);
+  });
+
+  // The Release workflow runs it with plain `node` (type stripping), not tsx: only erasable TypeScript works there.
+  const stripsTypes = Boolean((process.features as { typescript?: unknown }).typescript);
+  (stripsTypes ? it : it.skip)('runs with plain node, as the Release workflow runs it', () => {
+    const r = spawnSync(process.execPath, [script, 'check', '2026-11-10-rc', '--today', '2026-11-10'], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_ACTIONS: '', GITHUB_OUTPUT: '', GITHUB_REF: '', RELEASE_TIME_ZONE: '', NODE_NO_WARNINGS: '1' },
+    });
+    expect(r.stderr).not.toMatch(/SyntaxError|ERR_/);
+    expect(r.stdout).toContain('2026-11-10-rc may be released');
+    expect(r.status).toBe(0);
   });
 
   it('reads the tags of the local repository, or of origin with --remote', () => {
@@ -277,6 +312,12 @@ describe('the release script', () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain('release candidate  2026-11-10-rc.1');
     expect(r.out).toContain('release            2026-11-10\n');
+    // Once the day's release is out, only its patches.
+    git(repo, 'tag', '2026-11-10');
+    const after = run(['next', '--today', '2026-11-10']);
+    expect(after.out).toContain("release candidate  none: today's release is out");
+    expect(after.out).toContain('release            2026-11-10.1\n');
+    git(repo, 'tag', '-d', '2026-11-10');
   });
 
   it('in GitHub Actions, writes the outputs, and refuses a branch other than main', () => {
@@ -306,8 +347,10 @@ describe('the release script', () => {
   });
 
   it('follows RELEASE_TIME_ZONE', () => {
+    const before = todayIn('Pacific/Kiritimati');
     const r = run(['next'], { RELEASE_TIME_ZONE: 'Pacific/Kiritimati' });
-    expect(r.out).toContain(`Today (${todayIn('Pacific/Kiritimati')}, Pacific/Kiritimati)`);
+    const after = todayIn('Pacific/Kiritimati'); // midnight there may pass while it runs
+    expect([`Today (${before}, Pacific/Kiritimati)`, `Today (${after}, Pacific/Kiritimati)`].some((line) => r.out.includes(line))).toBe(true);
   });
 });
 
@@ -401,6 +444,11 @@ describe('the release workflow', () => {
     // The bundled server is tried on each system before its installer is made.
     expect(build.indexOf('run: npx tsx desktop/scripts/smoke.ts')).toBeGreaterThan(build.indexOf('run: npm --prefix desktop run build'));
     expect(build.indexOf('run: npx tsx desktop/scripts/smoke.ts')).toBeLessThan(build.indexOf('- name: Make the installer'));
+    // The packaged app is checked on each system (fuses, keyring module, its own --smoke-test) before it is uploaded.
+    const packaged = build.indexOf('run: npx tsx desktop/scripts/check-package.ts');
+    expect(packaged).toBeGreaterThan(build.indexOf('- name: Make the installer'));
+    expect(packaged).toBeLessThan(build.indexOf('uses: actions/upload-artifact'));
+    expect(build).toContain('xvfb-run -a npx tsx desktop/scripts/check-package.ts');
     expect(build).toMatch(/needs: check/);
     expect(job('release')).toMatch(/needs: \[check, build\]/);
     // One installer of each kind goes up, named after the version.

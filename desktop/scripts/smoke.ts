@@ -3,20 +3,25 @@
  * workflow run it on the bundled server, `desktop/build/server/server.mjs`, on each system; the tests
  * on `src/server/index.ts`). Plain Node stands in for Electron's utility process (parent-port.mjs):
  *
+ * - the keyring module (native code, next to the server, not in the bundle) loads;
  * - the server says it listens, on the port it got (PORT=0: any free one), on 127.0.0.1 only;
  * - it serves the built web app;
  * - asked for a sign-in link, it gives one for its own address, and the code in it signs a browser in;
  * - it prints no sign-in code (its output is the app's log, which agents may read);
  * - asked to shut down, it exits with code 0.
  *
+ * The packaged app checks the same in Electron itself: desktop/scripts/check-package.ts.
+ *
  * Usage: tsx desktop/scripts/smoke.ts (after npm --prefix desktop run build)
  */
 import { fork, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DesktopToServer, ServerToDesktop } from '../../src/shared/types';
+import { checkServer, printsNoCode } from '../src/selftest';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -64,32 +69,24 @@ export async function smoke(o: SmokeOptions): Promise<string[]> {
   };
 
   try {
+    // The server's own require (createRequire), from where it is: the module must be next to it.
+    const keyring = createRequire(o.entry)('@napi-rs/keyring') as { Entry?: unknown };
+    check(typeof keyring.Entry === 'function', 'loads the keyring module');
+
     const listening = await next('listening');
     const base = `http://127.0.0.1:${listening.port}`;
     check(listening.host === '127.0.0.1' && listening.port > 0, `listens on ${base}`);
 
-    const page = await fetch(`${base}/`);
-    check(page.ok && (await page.text()).includes('<title>Harness Relay'), 'serves the web app');
+    await checkServer(
+      base,
+      async () => {
+        send({ type: 'sign-in-link' });
+        return (await next('sign-in-link')).link;
+      },
+      check,
+    );
 
-    const signedOut = await fetch(`${base}/api/settings`);
-    check(signedOut.status === 401, 'refuses the API to a browser that is not signed in');
-
-    send({ type: 'sign-in-link' });
-    const { link } = await next('sign-in-link');
-    check(link.startsWith(`${base}/#code=`), 'gives a sign-in link for its own address');
-
-    const login = await fetch(`${base}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: base },
-      body: JSON.stringify({ code: decodeURIComponent(link.slice(`${base}/#code=`.length)) }),
-    });
-    const cookie = login.headers.get('set-cookie')?.split(';')[0];
-    const { key } = (await login.json()) as { key?: string };
-    check(login.ok && cookie && key, "signs a browser in with the link's code");
-    const settings = await fetch(`${base}/api/settings`, { headers: { Cookie: cookie!, 'x-relay-key': key!, Origin: base } });
-    check(settings.ok, 'answers the signed-in browser');
-
-    check(!/Sign this browser in|#code=/.test(output), 'prints no sign-in code');
+    check(printsNoCode(output), 'prints no sign-in code');
 
     send({ type: 'shutdown' });
     const code = await Promise.race([exited, new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 20_000))]);

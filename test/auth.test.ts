@@ -90,6 +90,17 @@ describe('signed-in browsers', () => {
     expect(auth.redeem(code, 'late')).toBeUndefined();
   });
 
+  it("let the desktop app's links work for one minute, once", () => {
+    expect(CODE_TTL_MS.desktop).toBe(60_000);
+    const used = auth.createCode(CODE_TTL_MS.desktop).code;
+    clock += CODE_TTL_MS.desktop - 1;
+    expect(auth.redeem(used, 'window')).toBeDefined();
+    expect(auth.redeem(used, 'again')).toBeUndefined();
+    const late = auth.createCode(CODE_TTL_MS.desktop).code;
+    clock += CODE_TTL_MS.desktop;
+    expect(auth.redeem(late, 'late')).toBeUndefined();
+  });
+
   it('need the cookie and the key, or the cookie alone where the browser loads a file', () => {
     const { code } = auth.createCode(CODE_TTL_MS.startup);
     const s = auth.redeem(code, 'x')!;

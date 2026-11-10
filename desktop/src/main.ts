@@ -4,9 +4,10 @@
  * system tray (Windows, Linux). Closing the window leaves the server running, so a phone reaches it
  * through `tailscale serve` (docs/remote-access.md); the menu also opens the chat in the browser.
  */
-import { createWriteStream, existsSync, mkdirSync, renameSync, statSync, type WriteStream } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import {
   app,
   BrowserWindow,
@@ -15,6 +16,7 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
+  net,
   Notification,
   powerMonitor,
   powerSaveBlocker,
@@ -27,45 +29,183 @@ import {
   type WebContents,
 } from 'electron';
 import { autostartFile, desktopEntry, isAutostartOn, setAutostart } from './autostart';
-import { allowedHostsOf, loginShell, loginShellEnv, mergeShellEnv, serverEnv, withCommonPaths } from './env';
+import { allowedHostsOf, loginShell, loginShellEnv, mergeShellEnv, mergeWindowsEnv, serverEnv, windowsEnv, withCommonPaths } from './env';
+import { spawnDetached } from '../../src/server/process';
 import { messages, pickLang } from './i18n';
 import {
   chatAddress,
   crashNotice,
   HIDDEN_ARG,
+  guardContents,
   launchCommand,
-  linkAction,
   needsRestartFor,
   permissionAllowed,
+  permissionChecked,
   reopenAction,
   startedAtLogin,
   tailnetName,
 } from './lifecycle';
+import { ServerLog } from './log';
 import { loadPrefs, savePrefs, type DesktopPrefs } from './prefs';
+import { prepareBrowserDir } from './profile';
+import { checkServer, printsNoCode } from './selftest';
 import { portFree, Supervisor, type ServerChild, type ServerState, type StartError } from './supervisor';
-import { findTailscale, freeHttpsPort, Tailscale } from './tailscale';
+import {
+  appImageTarget,
+  CHECK_EVERY_MS,
+  checkLatest,
+  download,
+  FIRST_CHECK_MS,
+  installPlan,
+  isNewer,
+  macAppOf,
+  placeAppImage,
+  relaunchCommand,
+  relaunchEnv,
+  removeMacLeftovers,
+  stageMacApp,
+  swapMacApp,
+  UpdateError,
+  updateSystem,
+  WINDOWS_INSTALLER_ARGS,
+  type UpdateRelease,
+} from './update';
+import { findTailscale, sharePlan, Tailscale } from './tailscale';
 
 /** The version the app was built as (desktop/scripts/build.ts): a release's date version, or the package's. */
 declare const __RELAY_VERSION__: string;
 
-/** The server's log is started over when it grows past this. */
-const LOG_LIMIT = 5 * 1024 * 1024;
 /** Matches appId in electron-builder.yml (Windows needs it for notifications). */
 const APP_ID = 'io.github.agentic-system-lab.harness-relay';
 
-if (!app.requestSingleInstanceLock()) {
+/**
+ * `--smoke-test[=<report file>]`: the packaged app checks itself and exits (desktop/scripts/check-package.ts,
+ * the Release workflow), with its own temporary data, apart from a Harness Relay that may be running.
+ */
+const SMOKE_ARG = '--smoke-test';
+const smokeArg = process.argv.find((a) => a === SMOKE_ARG || a.startsWith(`${SMOKE_ARG}=`));
+
+if (smokeArg !== undefined) {
+  smokeTest(smokeArg.includes('=') ? smokeArg.slice(SMOKE_ARG.length + 1) : undefined);
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   run();
 }
 
+/** The server, the built web app and the keyring module, next to the app (see scripts/build.ts). */
+function serverDir(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'server') : join(app.getAppPath(), '..', 'server');
+}
+
+/** The server in an Electron utility process, as the supervisor sees it. */
+function forkServer(childEnv: NodeJS.ProcessEnv): ServerChild {
+  const child = utilityProcess.fork(join(serverDir(), 'server.mjs'), [], {
+    env: childEnv,
+    cwd: homedir(),
+    stdio: 'pipe',
+    serviceName: 'Harness Relay server',
+  });
+  return {
+    postMessage: (m) => child.postMessage(m),
+    kill: () => void child.kill(),
+    onMessage: (fn) => void child.on('message', fn),
+    onExit: (fn) => void child.on('exit', fn),
+    onOutput(fn) {
+      child.stdout?.on('data', (b: Buffer) => fn(b.toString('utf8')));
+      child.stderr?.on('data', (b: Buffer) => fn(b.toString('utf8')));
+      // A fatal error of the process (out of memory, say): logged; its exit follows. Without a
+      // listener, Electron would also show an error dialog of its own.
+      child.on('error', (type: string, location: string) => fn(`[app] the server process failed: ${type} (${location})\n`));
+    },
+  };
+}
+
+/**
+ * The packaged app's check of itself, in Electron as it ships (its fuses, its archive, the server in
+ * a utility process): the keyring module loads, the server starts, serves the web app and signs a
+ * browser in with the links it gives the app, a sandboxed window signs in with one, and the server
+ * stops when asked. Prints what passed (and writes it to `report`), then exits with 0 or 1.
+ */
+function smokeTest(report: string | undefined): void {
+  const home = mkdtempSync(join(tmpdir(), 'harness-relay-smoke-'));
+  app.setPath('userData', home);
+  app.setPath('sessionData', join(home, 'browser'));
+  const lines: string[] = [];
+  let failed = false;
+  const check = (ok: unknown, what: string) => {
+    lines.push(`${ok ? '✓' : '✗'} ${what}`);
+    if (!ok) {
+      failed = true;
+      throw new Error(what);
+    }
+  };
+  void app.whenReady().then(async () => {
+    const supervisor = new Supervisor({ fork: forkServer, portFree, startTimeoutMs: 120_000 });
+    let output = '';
+    supervisor.on('output', (chunk) => (output += chunk));
+    try {
+      const keyring = createRequire(join(serverDir(), 'server.mjs'))('@napi-rs/keyring') as { Entry?: unknown };
+      check(typeof keyring.Entry === 'function', "loads the keyring module from the server's folder");
+      const childEnv = serverEnv({
+        base: process.env,
+        dataDir: join(home, 'data'),
+        webDir: join(serverDir(), 'web'),
+        port: 0,
+        home,
+        allowedHosts: [],
+        browserDir: join(home, 'browser'),
+      });
+      childEnv.RELAY_KEYRING = 'off'; // never the user's credential store
+      const state = await supervisor.start(childEnv, 0);
+      check(state.kind === 'running', `starts the server in a utility process (${state.kind})`);
+      const url = (state as Extract<ServerState, { kind: 'running' }>).url;
+      await checkServer(url, () => supervisor.signInLink(), check);
+      check(printsNoCode(output), 'prints no sign-in code');
+
+      const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+      await win.loadURL(chatAddress(url, await supervisor.signInLink()));
+      let signedIn = false;
+      for (let i = 0; i < 150 && !signedIn; i++) {
+        signedIn = (await win.webContents.executeJavaScript('!document.querySelector("[data-signin]") && (document.getElementById("root")?.childElementCount ?? 0) > 0')) === true;
+        if (!signedIn) await new Promise((r) => setTimeout(r, 100));
+      }
+      check(signedIn, 'signs a sandboxed window in with a link and shows the chat');
+      win.destroy();
+
+      await supervisor.stop();
+      check(supervisor.state.kind === 'stopped', 'stops the server when asked');
+    } catch (err) {
+      if (!failed) lines.push(`✗ ${(err as Error).message}`);
+      failed = true;
+    }
+    if (failed) lines.push('--- server output ---', output.slice(-4000));
+    const text = `${lines.join('\n')}\n`;
+    process.stdout.write(text);
+    if (report) {
+      try {
+        writeFileSync(report, text);
+      } catch {
+        /* printed above */
+      }
+    }
+    try {
+      rmSync(home, { recursive: true, force: true });
+    } catch {
+      /* in the temporary folder */
+    }
+    app.exit(failed ? 1 : 0);
+  });
+}
+
 function run(): void {
   const t = messages(pickLang(app.getPreferredSystemLanguages()));
   const userData = app.getPath('userData');
+  // The window's cookies and localStorage go in a folder of their own, kept from agents (profile.ts).
+  const browser = prepareBrowserDir(userData);
+  app.setPath('sessionData', browser);
   const prefsFile = join(userData, 'desktop.json');
   const logFile = join(app.getPath('logs'), 'server.log');
-  // The server, the built web app and the keyring module, next to the app (see scripts/build.ts).
-  const serverDir = app.isPackaged ? join(process.resourcesPath, 'server') : join(app.getAppPath(), '..', 'server');
   const iconsDir = join(app.getAppPath(), 'icons');
 
   let prefs: DesktopPrefs = loadPrefs(prefsFile);
@@ -82,13 +222,19 @@ function run(): void {
   /** The chat's window, while it is open. */
   let win: BrowserWindow | undefined;
   let awake: number | undefined;
-  let log: WriteStream | undefined;
   let quitting = false;
+  /** A newer release than this app, when GitHub has one with an installer for this system. */
+  let update: UpdateRelease | undefined;
+  /** While an update downloads (the share done, 0 to 1) or installs. */
+  let updating: { done: number } | undefined;
+  /** Where downloaded installers wait (macOS, Windows): emptied at each start. */
+  const updatesDir = join(userData, 'updates');
 
   // Three minutes to start: after an update, macOS may ask for the keychain before the server listens.
   const supervisor = new Supervisor({ fork: forkServer, portFree, startTimeoutMs: 180_000 });
   let previous: ServerState = supervisor.state;
-  supervisor.on('output', (chunk) => log?.write(chunk));
+  const log = new ServerLog(logFile);
+  supervisor.on('output', (chunk) => log.write(chunk));
   supervisor.on('state', (state) => {
     updateTray();
     if (crashNotice(previous, state, quitting) && Notification.isSupported()) {
@@ -97,37 +243,20 @@ function run(): void {
     previous = state;
   });
 
-  function forkServer(childEnv: NodeJS.ProcessEnv): ServerChild {
-    const child = utilityProcess.fork(join(serverDir, 'server.mjs'), [], {
-      env: childEnv,
-      cwd: homedir(),
-      stdio: 'pipe',
-      serviceName: 'Harness Relay server',
-    });
-    return {
-      postMessage: (m) => child.postMessage(m),
-      kill: () => void child.kill(),
-      onMessage: (fn) => void child.on('message', fn),
-      onExit: (fn) => void child.on('exit', fn),
-      onOutput(fn) {
-        child.stdout?.on('data', (b: Buffer) => fn(b.toString('utf8')));
-        child.stderr?.on('data', (b: Buffer) => fn(b.toString('utf8')));
-        // A fatal error of the process (out of memory, say): logged; its exit follows. Without a
-        // listener, Electron would also show an error dialog of its own.
-        child.on('error', (type: string, location: string) => fn(`[app] the server process failed: ${type} (${location})\n`));
-      },
-    };
-  }
-
   /**
    * The login shell's environment (macOS, Linux), so the CLIs are found as in a terminal. Read at
    * launch, and again before a restart or a start from the menu (`fresh`), to pick up a CLI installed
-   * since. Windows apps get the user's PATH from the system at launch.
+   * since. Windows apps get the user's PATH from the system at launch; a fresh start reads Windows'
+   * current one.
    */
   function loadEnv(fresh = false): Promise<void> {
     if (fresh) envReady = undefined;
     envReady ??= (async () => {
-      if (process.platform === 'win32') return;
+      if (process.platform === 'win32') {
+        const current = fresh ? await windowsEnv(process.env) : undefined;
+        env = current ? mergeWindowsEnv(process.env, current) : process.env;
+        return;
+      }
       const shellEnv = await loginShellEnv(process.env);
       env = shellEnv ? mergeShellEnv(process.env, shellEnv) : withCommonPaths(process.env, homedir());
       // The CLIs run their commands in $SHELL, which an app is not always given.
@@ -137,15 +266,7 @@ function run(): void {
   }
 
   function openLog(): void {
-    mkdirSync(join(logFile, '..'), { recursive: true });
-    try {
-      if (statSync(logFile).size > LOG_LIMIT) renameSync(logFile, `${logFile}.old`);
-    } catch {
-      /* no log yet */
-    }
-    log?.end();
-    log = createWriteStream(logFile, { flags: 'a' });
-    log.write(`\n--- ${new Date().toISOString()} Harness Relay ${__RELAY_VERSION__} ---\n`);
+    log.open(`\n--- ${new Date().toISOString()} Harness Relay ${__RELAY_VERSION__} ---\n`);
   }
 
   /** This computer's tailnet name (also before Tailscale has connected, when it knows it), and whether it runs. */
@@ -168,10 +289,11 @@ function run(): void {
       const childEnv = serverEnv({
         base: env,
         dataDir: join(userData, 'data'),
-        webDir: join(serverDir, 'web'),
+        webDir: join(serverDir(), 'web'),
         port: prefs.port,
         home: homedir(),
         allowedHosts: name ? [name] : [],
+        browserDir: browser,
       });
       openLog();
       const state = await supervisor.start(childEnv, prefs.port);
@@ -269,30 +391,9 @@ function run(): void {
     return state.kind === 'running' ? state.url : undefined;
   }
 
-  /**
-   * Keeps a window's pages on the server: a link to another web page opens in the default browser,
-   * one of the server's own (a file, an attachment) in a window of the app, anything else nowhere.
-   */
+  /** Keeps a window's pages on the server (lifecycle.ts, `guardContents`). */
   function guard(contents: WebContents): void {
-    const target = (url: string) => {
-      const server = serverUrl();
-      return server ? linkAction(url, server) : 'deny';
-    };
-    contents.setWindowOpenHandler(({ url }) => {
-      const action = target(url);
-      if (action === 'in-app') return { action: 'allow', overrideBrowserWindowOptions: windowOptions() };
-      if (action === 'external') void shell.openExternal(url);
-      return { action: 'deny' };
-    });
-    contents.on('did-create-window', (child) => guard(child.webContents));
-    const stay = (event: { preventDefault: () => void }, url: string) => {
-      const action = target(url);
-      if (action === 'in-app') return;
-      event.preventDefault();
-      if (action === 'external') void shell.openExternal(url);
-    };
-    contents.on('will-navigate', stay);
-    contents.on('will-redirect', stay);
+    guardContents(contents, { serverUrl, openExternal: (url) => void shell.openExternal(url), windowOptions });
   }
 
   function windowOptions(): Electron.BrowserWindowConstructorOptions {
@@ -307,14 +408,22 @@ function run(): void {
     };
   }
 
-  /** Shows the chat's window (made anew after it was closed), signed in with a new one-time code. */
+  /**
+   * Shows the chat's window (made anew after it was closed), signed in with a new one-time code. A
+   * window left open on the sign-in page (its sign-in was revoked, or its link no longer worked) is
+   * signed in again the same way.
+   */
   async function openWindow(): Promise<void> {
     const state = supervisor.state;
     if (state.kind !== 'running') return;
     if (win && !win.isDestroyed()) {
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
+      const shown = win;
+      if (shown.isMinimized()) shown.restore();
+      shown.show();
+      shown.focus();
+      // The sign-in page marks itself (src/web/components/SignIn.tsx).
+      const signedOut = await shown.webContents.executeJavaScript('document.querySelector("[data-signin]") !== null').catch(() => false);
+      if (signedOut === true && !shown.isDestroyed()) await shown.loadURL(chatAddress(state.url, await supervisor.signInLink()));
       return;
     }
     const size = prefs.window ?? { width: 1280, height: 860 };
@@ -369,14 +478,20 @@ function run(): void {
       return;
     }
     rememberTailnet(net.dnsName);
-    let url = await net.tailscale.servedUrl(prefs.port);
-    if (!url) {
-      // Never take over what the computer already shares on an HTTPS port.
-      const https = freeHttpsPort((await net.tailscale.serveStatus()) ?? '{}', prefs.port);
-      if (https === undefined) {
-        await dialog.showMessageBox({ type: 'warning', message: t.tailscaleFailed, detail: t.tailscalePortsTaken, buttons: [t.ok] });
-        return;
-      }
+    // Never take over what the computer already shares on an HTTPS port (nor when that is unknown).
+    const plan = sharePlan(await net.tailscale.serveStatus(), prefs.port);
+    if (plan.kind === 'unknown') {
+      await dialog.showMessageBox({ type: 'warning', message: t.tailscaleFailed, detail: t.tailscaleStatusUnknown, buttons: [t.ok] });
+      return;
+    }
+    if (plan.kind === 'ports-taken') {
+      await dialog.showMessageBox({ type: 'warning', message: t.tailscaleFailed, detail: t.tailscalePortsTaken, buttons: [t.ok] });
+      return;
+    }
+    let url: string;
+    if (plan.kind === 'shared') url = plan.url;
+    else {
+      const https = plan.https;
       const result = await net.tailscale.share(prefs.port, https);
       if (result.kind === 'needs-approval') {
         void shell.openExternal(result.link);
@@ -424,6 +539,155 @@ function run(): void {
     if (response === 0) clipboard.writeText(url);
   }
 
+  // --- Updates ------------------------------------------------------------------------------
+
+  /** Whether the app asks GitHub for new releases: a packaged app, unless RELAY_UPDATES=off. */
+  function checksUpdates(): boolean {
+    return app.isPackaged && (env.RELAY_UPDATES ?? process.env.RELAY_UPDATES)?.trim().toLowerCase() !== 'off';
+  }
+
+  /** Asks GitHub for the latest release; the menu offers it when it is newer. A failure waits for the next time. */
+  async function checkForUpdate(): Promise<void> {
+    if (updating || !checksUpdates()) return;
+    try {
+      const latest = await checkLatest((url, init) => net.fetch(url, init));
+      const system = updateSystem(process.platform, process.arch);
+      update = isNewer(latest, app.getVersion()) && system && latest.assets[system] ? latest : undefined;
+    } catch {
+      /* offline, or GitHub's limit: the menu stays as it is */
+    }
+    updateTray();
+  }
+
+  function scheduleUpdateChecks(): void {
+    setTimeout(() => void checkForUpdate(), FIRST_CHECK_MS).unref?.();
+    setInterval(() => void checkForUpdate(), CHECK_EVERY_MS).unref?.();
+  }
+
+  /** What an update left behind: downloaded installers, and on macOS the old app (`.Harness Relay.app.old`). */
+  function removeUpdateLeftovers(): void {
+    try {
+      rmSync(updatesDir, { recursive: true, force: true });
+    } catch {
+      /* the installer may still be running (Windows): next time */
+    }
+    const bundle = process.platform === 'darwin' && app.isPackaged ? macAppOf(process.execPath) : undefined;
+    if (bundle) {
+      try {
+        removeMacLeftovers(bundle);
+      } catch {
+        /* next time */
+      }
+    }
+  }
+
+  function setUpdating(done: number | undefined): void {
+    updating = done === undefined ? undefined : { done };
+    updateTray();
+  }
+
+  /** Offers the release's page instead, when this copy cannot update itself (`why`), or the update failed. */
+  async function offerReleasePage(release: UpdateRelease, message: string, detail: string): Promise<void> {
+    const { response } = await dialog.showMessageBox({ type: 'info', message, detail, buttons: [t.openDownloadPage, t.cancel], defaultId: 0, cancelId: 1 });
+    if (response === 0) void shell.openExternal(release.page);
+  }
+
+  /**
+   * Updates to `update` (update.ts): asks first (replying conversations stop), downloads and checks
+   * the installer, puts the new version in place, then quits and the new one starts.
+   */
+  async function installUpdate(): Promise<void> {
+    const release = update;
+    if (!release || updating) return;
+    const system = updateSystem(process.platform, process.arch);
+    const asset = system ? release.assets[system] : undefined;
+    const plan = installPlan({ platform: process.platform, packaged: app.isPackaged, execPath: process.execPath, appImage: process.env.APPIMAGE, asset });
+    if (plan.kind === 'manual' || !asset) {
+      await offerReleasePage(release, t.updateManual, t.updateManualDetail(plan.kind === 'manual' ? plan.why : 'no-installer'));
+      return;
+    }
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      message: t.updateConfirm(release.version),
+      detail: t.updateConfirmDetail,
+      buttons: [t.updateNow, t.releaseNotes, t.cancel],
+      defaultId: 0,
+      cancelId: 2,
+    });
+    if (response === 1) void shell.openExternal(release.page);
+    if (response !== 0) return;
+
+    setUpdating(0);
+    let shown = -1;
+    const onProgress = (done: number) => {
+      const percent = Math.floor(done * 100);
+      if (percent === shown) return;
+      shown = percent;
+      setUpdating(done);
+    };
+    const fetch = (url: string, init?: { signal?: AbortSignal }) => net.fetch(url, init);
+    let installer: string | undefined;
+    try {
+      if (plan.kind === 'linux') {
+        // Downloaded next to the AppImage, so that putting it in place is a rename.
+        const target = appImageTarget(plan.appImage, asset.name, __RELAY_VERSION__);
+        const downloaded = join(dirname(plan.appImage), `.${asset.name}.download`);
+        await download({ fetch, asset, to: downloaded, onProgress });
+        setUpdating(1);
+        placeAppImage(downloaded, target, plan.appImage);
+        if (process.platform === 'linux' && isAutostartOn(autostartFile(process.env, homedir()))) writeAutostart([target, ...relaunchArgs()]);
+        await finishUpdate(relaunchCommand('linux', process.pid, target, relaunchArgs()), relaunchEnv(process.env));
+        return;
+      }
+      mkdirSync(updatesDir, { recursive: true });
+      installer = join(updatesDir, asset.name);
+      await download({ fetch, asset, to: installer, onProgress });
+      setUpdating(1);
+      if (plan.kind === 'mac') {
+        await stageMacApp({ dmg: installer, app: plan.app, bundleId: APP_ID, semver: release.semver, env });
+        // Swapped while the server still runs: a swap that fails leaves everything as it was.
+        swapMacApp(plan.app);
+        await finishUpdate(relaunchCommand('darwin', process.pid, plan.app), process.env);
+      } else {
+        await finishUpdate([installer, WINDOWS_INSTALLER_ARGS], process.env);
+      }
+    } catch (err) {
+      setUpdating(undefined);
+      const failure = err instanceof UpdateError ? err.failure : 'download';
+      // On a Mac, the downloaded .dmg still installs by hand (App Management may keep an app from replacing itself).
+      const byHand = plan.kind === 'mac' && failure === 'replace' && installer && existsSync(installer);
+      if (byHand) void shell.openPath(installer!);
+      await offerReleasePage(
+        release,
+        t.updateFailed,
+        `${t.updateFailedDetail(failure)}${byHand ? `\n\n${t.updateOpenedInstaller}` : ''}\n\n${(err as Error).message}`.trim(),
+      );
+    }
+  }
+
+  /** Stops the server, starts what brings up the new version once this app has exited, and exits. */
+  async function finishUpdate([bin, args]: [string, string[]], childEnv: NodeJS.ProcessEnv): Promise<void> {
+    quitting = true;
+    await stopServer();
+    try {
+      await spawnDetached(bin, args, childEnv);
+    } catch (err) {
+      // Nothing started the new version: run on as before (on macOS and Linux it is in place already).
+      quitting = false;
+      setUpdating(undefined);
+      await startServer({ openWindow: false });
+      throw new UpdateError('start', (err as Error).message);
+    }
+    setKeepAwake(false);
+    log.close();
+    app.exit(0);
+  }
+
+  /** The arguments the new version starts with: this one's, but not the one that starts it hidden at login. */
+  function relaunchArgs(): string[] {
+    return process.argv.slice(1).filter((a) => a === '--no-sandbox');
+  }
+
   // --- Open at login ------------------------------------------------------------------------
 
   function appCommand(): string[] {
@@ -440,10 +704,29 @@ function run(): void {
     return settings.openAtLogin;
   }
 
+  /** Linux: the autostart entry that starts `command` hidden at login. */
+  function writeAutostart(command: string[]): void {
+    const entry = desktopEntry({ name: 'Harness Relay', comment: t.open, exec: [...command, HIDDEN_ARG] });
+    setAutostart(autostartFile(process.env, homedir()), true, entry);
+  }
+
+  /**
+   * Linux: an autostart entry that is on is written again at each start, so that it starts the
+   * AppImage this app runs from (a new one downloaded by hand has another name).
+   */
+  function refreshAutostart(): void {
+    if (process.platform !== 'linux' || !process.env.APPIMAGE || !isAutostartOn(autostartFile(process.env, homedir()))) return;
+    try {
+      writeAutostart(appCommand());
+    } catch {
+      /* left as it is */
+    }
+  }
+
   async function setOpenAtLogin(on: boolean): Promise<void> {
     if (process.platform === 'linux') {
-      const entry = desktopEntry({ name: 'Harness Relay', comment: t.open, exec: [...appCommand(), HIDDEN_ARG] });
-      setAutostart(autostartFile(process.env, homedir()), on, entry);
+      if (on) writeAutostart(appCommand());
+      else setAutostart(autostartFile(process.env, homedir()), false, '');
     } else if (process.platform === 'win32') {
       const [path, ...args] = appCommand();
       app.setLoginItemSettings({ openAtLogin: on, path, args: [...args, HIDDEN_ARG] });
@@ -512,6 +795,11 @@ function run(): void {
         : { label: t.restart, enabled: running, click: () => void restartServer(true) },
       { type: 'separator' },
       { label: `${t.version} ${__RELAY_VERSION__}`, enabled: false },
+      ...(updating
+        ? [{ label: updating.done >= 1 ? t.updateInstalling : t.updateDownloading(Math.floor(updating.done * 100)), enabled: false }]
+        : update
+          ? [{ label: t.updateTo(update.version), click: () => void installUpdate() }]
+          : []),
       { label: t.quit, click: () => app.quit() },
     ];
     tray.setContextMenu(Menu.buildFromTemplate(items));
@@ -609,11 +897,9 @@ function run(): void {
       }
       callback(true);
     });
-    ses.setPermissionCheckHandler((_contents, permission, origin, details) => {
-      const server = serverUrl();
-      const mediaType = (details as { mediaType?: string }).mediaType;
-      return !!server && permissionAllowed(permission, origin, server, mediaType ? [mediaType] : ['audio']);
-    });
+    ses.setPermissionCheckHandler((_contents, permission, origin, details) =>
+      permissionChecked(permission, origin, serverUrl(), (details as { mediaType?: string }).mediaType),
+    );
   }
 
   // --- Life cycle ---------------------------------------------------------------------------
@@ -636,7 +922,7 @@ function run(): void {
     quitting = true;
     void stopServer().finally(() => {
       setKeepAwake(false);
-      log?.end();
+      log.close();
       app.exit(0);
     });
   });
@@ -652,9 +938,13 @@ function run(): void {
       (args[0] as { preventDefault?: () => void } | undefined)?.preventDefault?.();
       app.quit();
     });
+    removeUpdateLeftovers();
+    refreshAutostart();
     createTray();
     setKeepAwake(prefs.keepAwake);
     const atLogin = startedAtLogin(process.argv, process.platform, process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin);
+    // Before the start, whose dialogs (a port in use, say) wait for the user.
+    scheduleUpdateChecks();
     await startServer({ openWindow: !atLogin });
     launched = true;
   });

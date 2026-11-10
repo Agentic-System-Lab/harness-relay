@@ -5,7 +5,7 @@
  * variables the user's shell profile sets, so `claude`, `codex` and `grok` (in ~/.local/bin,
  * /opt/homebrew/bin, an nvm folder…) would not be found. The app asks the user's login shell for its
  * environment instead, the way a terminal would have it. Windows apps get the user's PATH from the
- * system, so this is for macOS and Linux only.
+ * system when they start; a restart of the server reads it again (`windowsEnv`).
  */
 import { existsSync } from 'node:fs';
 import { userInfo } from 'node:os';
@@ -107,6 +107,78 @@ export function withCommonPaths(
   return { ...env, PATH: path.join(sep) };
 }
 
+// --- Windows -------------------------------------------------------------------------------
+
+/**
+ * Windows gives an app the user's PATH when it starts, but not a change made since (a CLI installed
+ * meanwhile). Restart and Start read it again from where Windows keeps it, with PowerShell (as UTF-8:
+ * a user name may not be ASCII): the system's and the user's variables, values expanded.
+ */
+export const WINDOWS_ENV_SCRIPT =
+  "[Console]::OutputEncoding = [Text.Encoding]::UTF8; @{ machine = [Environment]::GetEnvironmentVariables('Machine'); user = [Environment]::GetEnvironmentVariables('User') } | ConvertTo-Json -Compress -Depth 3";
+
+export interface WindowsEnv {
+  machine: Record<string, string>;
+  user: Record<string, string>;
+}
+
+/** PowerShell's answer, or undefined when it is not one. */
+export function parseWindowsEnv(stdout: string): WindowsEnv | undefined {
+  try {
+    const v = JSON.parse(stdout.replace(/^\uFEFF/, '').trim()) as { machine?: unknown; user?: unknown };
+    const vars = (x: unknown) =>
+      x && typeof x === 'object' && !Array.isArray(x)
+        ? Object.fromEntries(Object.entries(x as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'))
+        : undefined;
+    const machine = vars(v?.machine);
+    const user = vars(v?.user);
+    return machine && user ? { machine, user } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The app's environment with Windows' current one on top: PATH as Windows makes it for a new program
+ * (the system's, then the user's), followed by what the app's own had besides; the user's other
+ * variables (an API key set since, say). The system's other variables are left alone: some (USERNAME
+ * is SYSTEM there) are only defaults that the user's session replaces.
+ */
+export function mergeWindowsEnv(base: NodeJS.ProcessEnv, current: WindowsEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base };
+  // Windows' names ignore case: keep the one the app's environment uses (Path, usually).
+  const keyOf = (name: string) => Object.keys(env).find((k) => k.toLowerCase() === name.toLowerCase()) ?? name;
+  const pathOf = (vars: Record<string, string | undefined>) => Object.entries(vars).find(([k]) => k.toLowerCase() === 'path')?.[1] ?? '';
+  for (const [k, v] of Object.entries(current.user)) if (k.toLowerCase() !== 'path') env[keyOf(k)] = v;
+  const seen = new Set<string>();
+  const path = [pathOf(current.machine), pathOf(current.user), pathOf(base)]
+    .flatMap((p) => p.split(';'))
+    .map((p) => p.trim())
+    .filter((p) => {
+      const key = p.toLowerCase().replace(/[\\/]+$/, '');
+      if (!p || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  env[keyOf('Path')] = path.join(';');
+  return env;
+}
+
+/** Windows' current variables (`WINDOWS_ENV_SCRIPT`), or undefined when PowerShell could not tell. */
+export async function windowsEnv(env: NodeJS.ProcessEnv, timeoutMs = 15_000): Promise<WindowsEnv | undefined> {
+  const root = env.SystemRoot ?? env.SYSTEMROOT ?? 'C:\\Windows';
+  try {
+    const r = await capture(`${root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`, ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_ENV_SCRIPT], env, {
+      timeoutMs,
+      maxCapture: 4 * 1024 * 1024,
+      keepStart: true,
+    });
+    return r.code === 0 ? parseWindowsEnv(r.stdout) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Electron's own variables: an Electron app the agents start (VS Code's `code`) would misbehave. */
 function isElectronVar(k: string): boolean {
   return k.startsWith('ELECTRON_');
@@ -124,6 +196,8 @@ export interface ServerEnvOptions {
   home: string;
   /** Names the server must answer to besides localhost (this computer's tailnet name). */
   allowedHosts: string[];
+  /** The chat window's browser folder (its cookie and key): agents below full access may not read it. */
+  browserDir: string;
 }
 
 /** Where the app files API keys in the credential store when it keeps its own data folder. */
@@ -147,6 +221,7 @@ export function serverEnv(o: ServerEnvOptions): NodeJS.ProcessEnv {
   if (ownData && !o.base.RELAY_KEYRING_SERVICE?.trim()) env.RELAY_KEYRING_SERVICE = DESKTOP_KEYRING_SERVICE;
   env.RELAY_DEFAULT_CWD = o.base.RELAY_DEFAULT_CWD?.trim() || o.home;
   env.RELAY_WEB_DIR = o.webDir;
+  env.RELAY_APP_BROWSER_DIR = o.browserDir;
   env.PORT = String(o.port);
   env.HOST = '127.0.0.1';
   if (hosts.length) env.RELAY_ALLOWED_HOSTS = [...new Set(hosts)].join(',');

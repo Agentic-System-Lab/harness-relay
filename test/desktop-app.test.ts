@@ -1,25 +1,32 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
 import { autostartFile, desktopEntry, execArg, execLine, isAutostartOn, setAutostart } from '../desktop/src/autostart';
 import { DESKTOP_MESSAGES, pickLang } from '../desktop/src/i18n';
+import type { ManualReason, UpdateFailure } from '../desktop/src/update';
 import { DESKTOP_ICONS, encodePngRgba, rasterizeIcon } from '../desktop/src/icons';
 import {
   chatAddress,
   crashNotice,
+  guardContents,
   HIDDEN_ARG,
   launchCommand,
   linkAction,
   needsRestartFor,
   permissionAllowed,
+  permissionChecked,
   reopenAction,
   startedAtLogin,
   tailnetName,
 } from '../desktop/src/lifecycle';
+import { packagedApps } from '../desktop/scripts/packaged';
 import { appManifest } from '../desktop/src/manifest';
+import { ServerLog } from '../desktop/src/log';
 import { DEFAULT_PREFS, loadPrefs, parsePrefs, savePrefs } from '../desktop/src/prefs';
+import { browserDir, LEGACY_SIGN_IN, prepareBrowserDir } from '../desktop/src/profile';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-desktop-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -111,10 +118,16 @@ describe("the desktop app's language", () => {
   it('has the same messages in both languages', () => {
     const shape = (m: object) => Object.entries(m).map(([k, v]) => `${k}:${typeof v}:${typeof v === 'function' ? v.length : ''}`).sort();
     expect(shape(DESKTOP_MESSAGES.en)).toEqual(shape(DESKTOP_MESSAGES['zh-TW']));
+    // Messages that take one of a few reasons say each of them.
+    const reasons: Record<string, readonly string[]> = {
+      updateManualDetail: ['not-packaged', 'no-installer', 'no-checksum', 'read-only', 'not-appimage'] satisfies ManualReason[],
+      updateFailedDetail: ['download', 'checksum', 'unpack', 'verify', 'replace', 'start'] satisfies UpdateFailure[],
+    };
     for (const m of Object.values(DESKTOP_MESSAGES)) {
       for (const [k, v] of Object.entries(m)) {
-        const text = typeof v === 'function' ? (v as (...a: unknown[]) => string)('x', 'y') : v;
-        expect(text, k).toBeTruthy();
+        const call = v as (...a: unknown[]) => string;
+        const texts = typeof v !== 'function' ? [v] : reasons[k] ? reasons[k].map((r) => call(r)) : [call('x', 'y')];
+        for (const text of texts) expect(text, k).toBeTruthy();
       }
     }
   });
@@ -173,6 +186,89 @@ describe("the desktop app's icons", () => {
   });
 });
 
+describe("the server's log", () => {
+  const settle = () => new Promise((r) => setTimeout(r, 50));
+
+  it('starts over, keeping the previous one as .old, when it grows too big while the server runs', async () => {
+    const file = join(dir, 'logs', 'server.log');
+    const log = new ServerLog(file, 100);
+    log.open('--- start ---\n');
+    log.write('a'.repeat(60));
+    log.write('b'.repeat(60)); // past the limit: a new file
+    log.close();
+    await settle();
+    expect(readFileSync(`${file}.old`, 'utf8')).toBe(`--- start ---\n${'a'.repeat(60)}`);
+    expect(readFileSync(file, 'utf8')).toBe('b'.repeat(60));
+  });
+
+  it('starts over at a start when the file is too big already, and appends otherwise', async () => {
+    const file = join(dir, 'logs2', 'server.log');
+    mkdirSync(join(dir, 'logs2'));
+    writeFileSync(file, 'x'.repeat(150));
+    const log = new ServerLog(file, 100);
+    log.open('--- one ---\n');
+    log.close();
+    log.open('--- two ---\n');
+    log.close();
+    await settle();
+    expect(readFileSync(`${file}.old`, 'utf8')).toBe('x'.repeat(150));
+    expect(readFileSync(file, 'utf8')).toBe('--- one ---\n--- two ---\n');
+  });
+
+  it('gives up quietly when it cannot be written, instead of failing the app', async () => {
+    const blocked = join(dir, 'not-a-folder');
+    writeFileSync(blocked, '');
+    const log = new ServerLog(join(blocked, 'server.log'));
+    expect(() => log.open('header\n')).not.toThrow();
+    expect(() => log.write('output\n')).not.toThrow();
+    await settle(); // a stream error would surface here as an uncaught exception
+    log.close();
+  });
+});
+
+describe("the chat window's browser folder", () => {
+  it('is a folder of its own, made before the server starts, and an old sign-in beside it is removed', () => {
+    const userData = join(dir, 'user-data');
+    mkdirSync(join(userData, 'Local Storage', 'leveldb'), { recursive: true });
+    writeFileSync(join(userData, 'Cookies'), 'old cookie');
+    writeFileSync(join(userData, 'desktop.json'), '{}');
+    mkdirSync(join(userData, 'data'));
+    const browser = prepareBrowserDir(userData);
+    expect(browser).toBe(browserDir(userData));
+    expect(browser).toBe(join(userData, 'browser'));
+    expect(existsSync(browser)).toBe(true);
+    for (const name of LEGACY_SIGN_IN) expect(existsSync(join(userData, name)), name).toBe(false);
+    // The app's settings and the server's data stay.
+    expect(existsSync(join(userData, 'desktop.json'))).toBe(true);
+    expect(existsSync(join(userData, 'data'))).toBe(true);
+    prepareBrowserDir(userData); // again: nothing to remove
+  });
+});
+
+describe("the packaged apps electron-builder leaves (desktop/scripts/check-package.ts)", () => {
+  it('finds the Mac, Windows and Linux apps, and of a universal Mac app only the result', () => {
+    const out = join(dir, 'release');
+    const make = (path: string) => mkdirSync(join(out, path), { recursive: true });
+    make('mac-universal/Harness Relay.app/Contents');
+    make('mac-universal-x64-temp/Harness Relay.app/Contents');
+    make('mac-arm64/Harness Relay.app/Contents');
+    make('win-unpacked');
+    writeFileSync(join(out, 'win-unpacked', 'Harness Relay.exe'), '');
+    make('linux-unpacked');
+    writeFileSync(join(out, 'linux-unpacked', 'harness-relay'), '');
+    make('.icon-icns');
+    writeFileSync(join(out, 'Harness-Relay-2026-11-10-mac-universal.dmg'), '');
+    const apps = packagedApps(out);
+    expect(apps.map((a) => a.fuses).sort()).toEqual(
+      [join(out, 'linux-unpacked', 'harness-relay'), join(out, 'mac-universal', 'Harness Relay.app'), join(out, 'win-unpacked', 'Harness Relay.exe')].sort(),
+    );
+    const mac = apps.find((a) => a.universal)!;
+    expect(mac.exe).toBe(join(out, 'mac-universal', 'Harness Relay.app', 'Contents', 'MacOS', 'Harness Relay'));
+    expect(mac.resources).toBe(join(out, 'mac-universal', 'Harness Relay.app', 'Contents', 'Resources'));
+    expect(apps.find((a) => a.exe.endsWith('.exe'))!.resources).toBe(join(out, 'win-unpacked', 'resources'));
+  });
+});
+
 describe("the app folder's package.json", () => {
   it('names the app, so its folders are called Harness Relay, and runs main.cjs', () => {
     const m = appManifest({ version: '1.2.3', description: 'd', license: 'Apache-2.0' });
@@ -218,17 +314,92 @@ describe("the desktop app's decisions", () => {
     }
   });
 
-  it('lets only the server’s pages use the microphone (no camera) and write to the clipboard', () => {
+  it('lets only the server’s pages use the microphone (no camera), write to the clipboard and go full screen', () => {
     const server = 'http://127.0.0.1:8787';
     expect(permissionAllowed('media', 'http://127.0.0.1:8787/#/', server, ['audio'])).toBe(true);
     expect(permissionAllowed('media', 'http://127.0.0.1:8787/#/', server, ['audio', 'video'])).toBe(false);
     expect(permissionAllowed('media', 'http://127.0.0.1:8787/#/', server, [])).toBe(false);
     expect(permissionAllowed('clipboard-sanitized-write', 'http://127.0.0.1:8787/', server)).toBe(true);
-    for (const p of ['notifications', 'geolocation', 'clipboard-read', 'openExternal', 'fullscreen']) {
+    // A video's own full-screen button (Electron asks the permission handler for it).
+    expect(permissionAllowed('fullscreen', 'http://127.0.0.1:8787/#/c/1', server)).toBe(true);
+    expect(permissionAllowed('fullscreen', 'https://evil.example/', server)).toBe(false);
+    for (const p of ['notifications', 'geolocation', 'clipboard-read', 'openExternal', 'pointerLock']) {
       expect(permissionAllowed(p, 'http://127.0.0.1:8787/', server), p).toBe(false);
     }
     expect(permissionAllowed('media', 'https://evil.example/', server, ['audio'])).toBe(false);
     expect(permissionAllowed('media', undefined, server, ['audio'])).toBe(false);
+  });
+
+  it('answers a permission check for media without a kind as one for the microphone, and none without a server', () => {
+    const server = 'http://127.0.0.1:8787';
+    expect(permissionChecked('media', 'http://127.0.0.1:8787', server)).toBe(true);
+    expect(permissionChecked('media', 'http://127.0.0.1:8787', server, 'audio')).toBe(true);
+    expect(permissionChecked('media', 'http://127.0.0.1:8787', server, 'video')).toBe(false);
+    expect(permissionChecked('media', 'http://127.0.0.1:8787', undefined)).toBe(false); // the server stopped
+    expect(permissionChecked('geolocation', 'http://127.0.0.1:8787', server)).toBe(false);
+  });
+
+  describe("guarding a window's pages", () => {
+    /** A window's contents: records its handlers, so the test can play Electron's part. */
+    function fakeContents() {
+      const contents = Object.assign(new EventEmitter(), {
+        openHandler: undefined as undefined | ((d: { url: string }) => { action: string; overrideBrowserWindowOptions?: object }),
+        setWindowOpenHandler(fn: (d: { url: string }) => { action: 'allow'; overrideBrowserWindowOptions?: object } | { action: 'deny' }) {
+          contents.openHandler = fn;
+        },
+      });
+      return contents;
+    }
+    const navigate = (contents: EventEmitter, event: 'will-navigate' | 'will-redirect', url: string) => {
+      let prevented = false;
+      contents.emit(event, { preventDefault: () => (prevented = true) }, url);
+      return prevented;
+    };
+
+    function setup(running = true) {
+      const server = running ? 'http://127.0.0.1:8787' : undefined;
+      const opened: string[] = [];
+      const contents = fakeContents();
+      const o = { serverUrl: () => server, openExternal: (url: string) => void opened.push(url), windowOptions: () => ({ title: 'Harness Relay' }) };
+      guardContents(contents, o);
+      return { contents, opened };
+    }
+
+    it("opens the server's own pages in a window of the app, others in the browser, the rest nowhere", () => {
+      const { contents, opened } = setup();
+      expect(contents.openHandler!({ url: 'http://127.0.0.1:8787/api/conversations/1/download?path=a.pdf' })).toEqual({
+        action: 'allow',
+        overrideBrowserWindowOptions: { title: 'Harness Relay' },
+      });
+      expect(contents.openHandler!({ url: 'https://example.com/' })).toEqual({ action: 'deny' });
+      expect(contents.openHandler!({ url: 'file:///etc/passwd' })).toEqual({ action: 'deny' });
+      expect(opened).toEqual(['https://example.com/']);
+    });
+
+    it('stops navigations and redirects away from the server, sending web pages to the browser', () => {
+      const { contents, opened } = setup();
+      expect(navigate(contents, 'will-navigate', 'http://127.0.0.1:8787/#/c/2')).toBe(false);
+      expect(navigate(contents, 'will-navigate', 'https://example.com/')).toBe(true);
+      expect(navigate(contents, 'will-redirect', 'https://evil.example/')).toBe(true);
+      expect(navigate(contents, 'will-navigate', 'javascript:alert(1)')).toBe(true);
+      expect(opened).toEqual(['https://example.com/', 'https://evil.example/']);
+    });
+
+    it('guards the windows a page opens too', () => {
+      const { contents, opened } = setup();
+      const child = fakeContents();
+      contents.emit('did-create-window', { webContents: child });
+      expect(navigate(child, 'will-navigate', 'https://example.com/')).toBe(true);
+      expect(child.openHandler!({ url: 'file:///etc/hosts' })).toEqual({ action: 'deny' });
+      expect(opened).toEqual(['https://example.com/']);
+    });
+
+    it('lets nothing through while the server does not run', () => {
+      const { contents, opened } = setup(false);
+      expect(navigate(contents, 'will-navigate', 'http://127.0.0.1:8787/')).toBe(true);
+      expect(contents.openHandler!({ url: 'https://example.com/' })).toEqual({ action: 'deny' });
+      expect(opened).toEqual([]);
+    });
   });
 
   it('knows a start at login', () => {

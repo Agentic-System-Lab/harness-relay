@@ -1,0 +1,115 @@
+/**
+ * Checks the packaged app electron-builder left in desktop/release/ (the folder next to the installer:
+ * mac-universal/, mac-arm64/, win-unpacked/, linux-unpacked/), as the Release workflow does on each
+ * system before it publishes the installers, and as anyone can after `npm run desktop:dist`:
+ *
+ * - its fuses are set as desktop/electron-builder.yml sets them (no running as Node, its code only
+ *   from its archive, checked);
+ * - the server and the keyring module are in its resources (a universal Mac app holds the module's
+ *   native part for both processors);
+ * - the app passes its own check (`--smoke-test`, desktop/src/main.ts): in Electron as it ships, the
+ *   server starts in a utility process, signs a sandboxed window in, and stops.
+ *
+ * On Linux, the app needs a display: run this under xvfb-run (the Release workflow does), and the
+ * app runs with --no-sandbox (a CI machine's chrome-sandbox is not set up as an installed one is).
+ *
+ * Usage: tsx desktop/scripts/check-package.ts [--dir <folder electron-builder wrote to>]
+ */
+import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
+import { packagedApps } from './packaged';
+
+const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** A fuse's state in the binary, as @electron/fuses reads it (its FuseState: the characters '0' and '1'). */
+const OFF = 48;
+const ON = 49;
+
+/** The fuses electron-builder.yml sets, as the binary must have them. */
+export const EXPECTED_FUSES: Partial<Record<FuseV1Options, number>> = {
+  [FuseV1Options.RunAsNode]: OFF,
+  [FuseV1Options.EnableCookieEncryption]: OFF,
+  [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: OFF,
+  [FuseV1Options.EnableNodeCliInspectArguments]: OFF,
+  [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: ON,
+  [FuseV1Options.OnlyLoadAppFromAsar]: ON,
+  [FuseV1Options.GrantFileProtocolExtraPrivileges]: OFF,
+};
+
+/** Runs the app's own check; resolves with its report and exit code. */
+function selfCheck(exe: string, timeoutMs = 180_000): Promise<{ code: number | null; report: string }> {
+  const work = mkdtempSync(join(tmpdir(), 'relay-check-package-'));
+  const report = join(work, 'report.txt');
+  const args = [`--smoke-test=${report}`, ...(process.platform === 'linux' ? ['--no-sandbox'] : [])];
+  return new Promise((done) => {
+    const child = spawn(exe, args, { stdio: ['ignore', 'ignore', 'inherit'] });
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    const finish = (code: number | null) => {
+      clearTimeout(timer);
+      let text = '';
+      try {
+        text = readFileSync(report, 'utf8');
+      } catch {
+        text = '(no report written)';
+      }
+      rmSync(work, { recursive: true, force: true });
+      done({ code, report: text });
+    };
+    child.on('exit', finish);
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      rmSync(work, { recursive: true, force: true });
+      done({ code: null, report: `could not start it: ${err.message}` });
+    });
+  });
+}
+
+async function main(): Promise<number> {
+  const at = process.argv.indexOf('--dir');
+  const dir = at >= 0 ? resolve(process.argv[at + 1] ?? '') : join(DESKTOP, 'release');
+  const apps = existsSync(dir) ? packagedApps(dir) : [];
+  if (!apps.length) {
+    console.error(`✗ No packaged app in ${dir}: run electron-builder (npm run desktop:dist) first.`);
+    return 1;
+  }
+  let failed = false;
+  const check = (ok: unknown, what: string) => {
+    console.log(`${ok ? '✓' : '✗'} ${what}`);
+    if (!ok) failed = true;
+  };
+  for (const app of apps) {
+    console.log(`\n${app.fuses}`);
+    const wire = (await getCurrentFuseWire(app.fuses)) as unknown as Record<number, number>;
+    for (const [option, state] of Object.entries(EXPECTED_FUSES)) {
+      const name = FuseV1Options[Number(option)];
+      check(wire[Number(option)] === state, `fuse ${name}: ${state === ON ? 'on' : 'off'}`);
+    }
+    const server = join(app.resources, 'server');
+    check(existsSync(join(server, 'server.mjs')) && existsSync(join(server, 'web', 'index.html')), 'the server and the web app are in its resources');
+    const napi = join(server, 'node_modules', '@napi-rs');
+    const keyring = existsSync(napi) ? readdirSync(napi) : [];
+    check(keyring.includes('keyring') && keyring.some((n) => n.startsWith('keyring-')), `the keyring module is in its resources (${keyring.join(', ') || 'none'})`);
+    if (app.universal) {
+      check(keyring.includes('keyring-darwin-arm64') && keyring.includes('keyring-darwin-x64'), 'the keyring module has its native part for Apple Silicon and Intel');
+    }
+    const { code, report } = await selfCheck(app.exe);
+    process.stdout.write(report.replace(/^/gm, '  '));
+    check(code === 0, `the app checks itself (--smoke-test): exit code ${code}`);
+  }
+  console.log(failed ? '\nThe packaged app is not as it must be.' : '\nThe packaged app is as it must be.');
+  return failed ? 1 : 0;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().then(
+    (code) => process.exit(code),
+    (err: Error) => {
+      console.error(`✗ ${err.message}`);
+      process.exit(1);
+    },
+  );
+}

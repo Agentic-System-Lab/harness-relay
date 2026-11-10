@@ -9,7 +9,9 @@ import {
   loginShell,
   loginShellEnv,
   mergeShellEnv,
+  mergeWindowsEnv,
   parseShellEnv,
+  parseWindowsEnv,
   serverEnv,
   shellEnvArgs,
   shellQuote,
@@ -102,7 +104,7 @@ describe("the server's environment", () => {
     ANTHROPIC_API_KEY: 'sk-x',
     NODE_OPTIONS: '--max-old-space-size=4096',
   };
-  const o = { dataDir: '/data', webDir: '/app/web', port: 8787, home: '/home/me', allowedHosts: [] as string[] };
+  const o = { dataDir: '/data', webDir: '/app/web', port: 8787, home: '/home/me', allowedHosts: [] as string[], browserDir: '/support/browser' };
 
   it("binds 127.0.0.1 on the app's port, whatever a profile exports for other programs", () => {
     const env = serverEnv({ ...o, base });
@@ -112,6 +114,8 @@ describe("the server's environment", () => {
     expect(env.RELAY_DATA_DIR).toBe('/data');
     expect(env.RELAY_DEFAULT_CWD).toBe('/home/me');
     expect(env.RELAY_ALLOWED_HOSTS).toBeUndefined();
+    // The window's browser folder, which the agents' sandboxes keep them from reading.
+    expect(env.RELAY_APP_BROWSER_DIR).toBe('/support/browser');
   });
 
   it("keeps the user's variables but not Electron's", () => {
@@ -138,5 +142,32 @@ describe("the server's environment", () => {
     const env = serverEnv({ ...o, base: { ...base, RELAY_ALLOWED_HOSTS: ' Other.example , my-mac.tail1.ts.net' }, allowedHosts: ['my-mac.tail1.ts.net'] });
     expect(env.RELAY_ALLOWED_HOSTS).toBe('other.example,my-mac.tail1.ts.net');
     expect(allowedHostsOf(env)).toEqual(['other.example', 'my-mac.tail1.ts.net']);
+  });
+});
+
+describe("Windows' current environment, read again at a restart", () => {
+  const answer = JSON.stringify({
+    machine: { Path: 'C:\\Windows\\system32;C:\\Windows', USERNAME: 'SYSTEM', ComSpec: 'C:\\Windows\\system32\\cmd.exe' },
+    user: { Path: 'C:\\Users\\王\\AppData\\Roaming\\npm;C:\\Users\\王\\.local\\bin', ANTHROPIC_API_KEY: 'sk-new' },
+  });
+
+  it("reads PowerShell's answer, with or without a byte order mark", () => {
+    expect(parseWindowsEnv(answer)?.user.ANTHROPIC_API_KEY).toBe('sk-new');
+    expect(parseWindowsEnv(`\uFEFF${answer}\r\n`)?.machine.Path).toBe('C:\\Windows\\system32;C:\\Windows');
+    expect(parseWindowsEnv('')).toBeUndefined();
+    expect(parseWindowsEnv('Access is denied.')).toBeUndefined();
+    expect(parseWindowsEnv('{"machine":{}}')).toBeUndefined();
+  });
+
+  it("makes PATH as Windows does (the system's, then the user's), keeping the app's own extras once", () => {
+    const base = { Path: 'C:\\Windows\\system32;C:\\Program Files\\Electron Extra\\;C:\\Windows\\System32\\', USERNAME: 'me', HOMEPATH: '\\Users\\me' };
+    const env = mergeWindowsEnv(base, parseWindowsEnv(answer)!);
+    expect(env.Path).toBe('C:\\Windows\\system32;C:\\Windows;C:\\Users\\王\\AppData\\Roaming\\npm;C:\\Users\\王\\.local\\bin;C:\\Program Files\\Electron Extra\\');
+    // One PATH, under the name the app's environment uses.
+    expect(Object.keys(env).filter((k) => k.toLowerCase() === 'path')).toEqual(['Path']);
+    // The user's new variables come in; the system's defaults do not replace the session's own.
+    expect(env.ANTHROPIC_API_KEY).toBe('sk-new');
+    expect(env.USERNAME).toBe('me');
+    expect(env.ComSpec).toBeUndefined();
   });
 });

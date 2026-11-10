@@ -1,14 +1,16 @@
 import { useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { useT } from '../i18n';
+import type { SignInWhere } from '../signin';
 import { Logo } from './Logo';
 
 /**
  * Shown while this browser is not signed in: a one-time code signs it in, from the link the server
- * printed in its terminal (which fills it in by itself), `npm run login`, or a browser already
- * signed in (for a phone).
+ * printed in its terminal (which fills it in by itself), `npm run login`, the desktop app's menu
+ * (`where`), or a browser already signed in (for a phone). The desktop app looks for `data-signin`
+ * to tell that its window shows this page (it then opens it with a new link).
  */
-export function SignIn({ error, desktopApp, onSignedIn }: { error?: string; desktopApp?: boolean; onSignedIn: () => void }) {
+export function SignIn({ error, where = 'terminal', onSignedIn }: { error?: string; where?: SignInWhere; onSignedIn: () => void }) {
   const t = useT();
   const s = t.signIn;
   const [code, setCode] = useState('');
@@ -31,7 +33,7 @@ export function SignIn({ error, desktopApp, onSignedIn }: { error?: string; desk
   };
 
   return (
-    <main className="signin">
+    <main className="signin" data-signin="">
       <section className="card signin-card">
         <header className="signin-head">
           <Logo size={32} />
@@ -62,8 +64,11 @@ export function SignIn({ error, desktopApp, onSignedIn }: { error?: string; desk
         )}
         <h2>{s.whereTitle}</h2>
         <ul className="signin-where">
-          {desktopApp ? (
-            // The desktop app has no terminal: its menu opens a new sign-in link.
+          {where === 'desktop-window' ? (
+            // The desktop app has no terminal: its menu opens the window again with a new sign-in link…
+            <li>{s.whereDesktopWindow}</li>
+          ) : where === 'desktop-browser' ? (
+            // …or the chat in the browser.
             <li>{s.whereDesktop}</li>
           ) : (
             <>

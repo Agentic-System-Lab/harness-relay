@@ -138,6 +138,19 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.target }} --publish never -c.artifactName='Harness-Relay-${env.RELAY_VERSION}-${os}-${arch}.${ext}'
 
+      # The packaged app itself, as it ships (desktop/scripts/check-package.ts): its fuses, the keyring
+      # module in its resources, and its own check in Electron (--smoke-test: the server in a utility
+      # process, a sandboxed window signed in). On Linux it needs a display.
+      - name: Check the packaged app
+        if: runner.os != 'Linux'
+        run: npx tsx desktop/scripts/check-package.ts
+
+      - name: Check the packaged app (Linux, on a virtual display)
+        if: runner.os == 'Linux'
+        run: |
+          command -v xvfb-run >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q xvfb; }
+          xvfb-run -a npx tsx desktop/scripts/check-package.ts
+
       - uses: actions/upload-artifact@v7
         with:
           name: installer-${{ matrix.name }}
@@ -203,6 +216,6 @@ jobs:
           fi
           notes="$kind
 
-          **Download:** \`.dmg\` for macOS (Apple Silicon and Intel), \`.exe\` for Windows, \`.AppImage\` for Linux (x64). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
+          **Download:** \`.dmg\` for macOS 13 or later (Apple Silicon and Intel), \`.exe\` for Windows 10 or later (x64), \`.AppImage\` for Linux (x64). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. A Harness Relay already installed offers this release in its menu (**Update to …**) and updates itself. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
           # The tag is made on the commit that was checked and built.
           gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes "$notes" --generate-notes "${channel[@]}"

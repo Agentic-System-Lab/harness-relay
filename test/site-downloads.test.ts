@@ -29,6 +29,14 @@ describe("the visitor's system", () => {
     expect(systemOf({ userAgent: 'Mozilla/5.0 (X11; Linux aarch64; rv:140.0) Gecko/20100101 Firefox/140.0', platform: 'Linux aarch64' })).toBe('other');
   });
 
+  it('is Windows on Arm too: browsers report it as x64, and Windows 11 runs the x64 app (the card says so)', () => {
+    const arm = 'Mozilla/5.0 (Windows NT 10.0; ARM64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+    expect(systemOf({ userAgent: arm, platform: 'Win32', uaPlatform: 'Windows' })).toBe('win');
+    for (const page of ['site/index.html', 'site/zh-TW/index.html']) {
+      expect(readFileSync(page, 'utf8'), page).toMatch(/Windows 10[^<]*x64[^<]*Arm[^<]*Windows 11/);
+    }
+  });
+
   it('is another system for ChromeOS or nothing known', () => {
     expect(systemOf({ userAgent: UA.chromeos, platform: 'Linux x86_64', uaPlatform: 'Chrome OS' })).toBe('other');
     expect(systemOf({ userAgent: UA.chromeos })).toBe('other');
@@ -123,6 +131,23 @@ describe('the installers’ addresses', () => {
     const forged = release('2026-11-10-rc');
     forged.assets[0]!.browser_download_url = 'javascript:alert(1)';
     expect(Object.keys(installersOf(forged)).sort()).toEqual(['linux', 'win']);
+  });
+
+  it('lead where they say: no dot segments, escapes, query or fragment that could reach another repository', () => {
+    const base = 'https://github.com/Agentic-System-Lab/harness-relay/releases/download/';
+    for (const url of [
+      `${base}../../../../evil/x/releases/download/v/a.dmg`,
+      `${base}%2e%2e/%2e%2e/%2e%2e/%2e%2e/evil/x/releases/download/v/a.dmg`,
+      `${base}v/..`,
+      `${base}v/a.dmg?redirect=https://evil.example`,
+      `${base}v/a.dmg#x`,
+      `${base}v/a%20b.dmg`,
+      `${base}v`,
+      `${base}v/sub/a.dmg`,
+    ]) {
+      expect(isInstallerUrl(url), url).toBe(false);
+    }
+    expect(isInstallerUrl(`${base}2026-11-10.1/Harness-Relay-2026-11-10.1-win-x64.exe`)).toBe(true);
   });
 });
 
@@ -242,6 +267,62 @@ describe('the download buttons on the page', () => {
       expect(el.primary.attrs.href).toBe(RELEASES_PAGE);
       for (const card of Object.values(el.cards)) expect(card.attrs.href).toBe(RELEASES_PAGE);
       expect(el.line.textContent).toBe('');
+    }
+  });
+
+  it('ask GitHub again when the kept release is dated in the future (else it would be kept for good)', async () => {
+    const storage = memoryStorage();
+    storage.setItem(STORAGE_KEY, JSON.stringify({ release: newestRelease([release('2026-11-09')]), at: 1e15 }));
+    let calls = 0;
+    const { el, doc } = page();
+    await wire({ doc, nav: MAC, storage, fetchJson: async () => (calls++, [release('2026-11-10')]), now: () => 60_000 });
+    expect(calls).toBe(1);
+    expect(el.line.textContent).toBe('Release 2026-11-10');
+  });
+
+  it("send a system the newer release has no installer for back to the releases page, not to an older release's", async () => {
+    const storage = memoryStorage();
+    storage.setItem(STORAGE_KEY, JSON.stringify({ release: newestRelease([release('2026-11-09')]), at: 0 }));
+    const newer = release('2026-11-10');
+    newer.assets = newer.assets.filter((a) => !a.name.endsWith('.AppImage'));
+    const linux = { userAgent: 'Mozilla/5.0 (X11; Linux x86_64)', platform: 'Linux x86_64' };
+    const { el, doc } = page();
+    await wire({ doc, nav: linux, storage, fetchJson: async () => [newer], now: () => 60 * 60_000 });
+    expect(el.line.textContent).toBe('Release 2026-11-10');
+    expect(el.cards.linux!.attrs.href).toBe(RELEASES_PAGE);
+    expect(el.cards.linux!.children[0]!.textContent).toBe('');
+    expect(el.primary.attrs.href).toBe(RELEASES_PAGE);
+    expect(el.cards.mac!.attrs.href).toMatch(/2026-11-10-mac-universal\.dmg$/);
+  });
+
+  it('still name the system and mark its card when the browser refuses site data', async () => {
+    const { el, doc } = page();
+    const blocked = {
+      getItem: () => {
+        throw new Error('SecurityError');
+      },
+      setItem: () => {
+        throw new Error('SecurityError');
+      },
+    };
+    await wire({ doc, nav: MAC, storage: blocked, fetchJson: async () => [release('2026-11-10')], now: () => 0 });
+    expect(el.label.textContent).toBe('Download for macOS');
+    expect(el.primary.attrs.href).toMatch(/mac-universal\.dmg$/);
+    // Reading localStorage itself throws there (Chrome, Firefox): the page's own default.
+    const before = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('SecurityError');
+      },
+    });
+    try {
+      const again = page();
+      await wire({ doc: again.doc, nav: MAC, fetchJson: async () => [release('2026-11-10')], now: () => 0 });
+      expect(again.el.primary.attrs.href).toMatch(/mac-universal\.dmg$/);
+    } finally {
+      if (before) Object.defineProperty(globalThis, 'localStorage', before);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
     }
   });
 

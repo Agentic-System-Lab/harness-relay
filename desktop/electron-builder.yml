@@ -21,7 +21,15 @@ electronFuses:
   runAsNode: false
   enableNodeOptionsEnvironmentVariable: false
   enableNodeCliInspectArguments: false
+  # The app's code only from its archive, and the archive only as built (macOS and Windows check it).
   onlyLoadAppFromAsar: true
+  enableEmbeddedAsarIntegrityValidation: true
+  # The window shows the server's pages only, never file:, so file: pages get no extra privileges.
+  grantFileProtocolExtraPrivileges: false
+  # Cookie encryption stays off: the window's cookie and key are in a folder of their own that agents
+  # below full access may not read (desktop/src/profile.ts), localStorage (the key) would not be
+  # encrypted anyway, and on an app signed ad hoc macOS would ask for the keychain after every update.
+  # desktop/scripts/check-package.ts reads these back from the packaged app.
 mac:
   target: dmg
   category: public.app-category.developer-tools
