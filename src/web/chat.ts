@@ -98,13 +98,22 @@ export function reviseRequest(request: string, team: Team): ReviseTeamRequest {
 }
 
 /**
- * How soon after the lead agent answers the drawer takes a new request: a click meant for Stop that
- * lands just after the answer (the button is Ask again by then) does not send the request again.
+ * The drawer's one button is Ask, then Stop while the lead agent works, then Ask again. Right after it
+ * changes it is held (shown dimmed, clicks do nothing) for a moment, so a double-click does not ask and
+ * then stop, and a click meant for Stop that lands just after the answer does not ask again.
  */
-export const ASK_AGAIN_MS = 600;
+export const BUTTON_HOLD_MS = 600;
 
-export function askAllowed(answeredAt: number | undefined, now: number): boolean {
-  return answeredAt === undefined || now - answeredAt >= ASK_AGAIN_MS;
+export function buttonHeld(changedAt: number | undefined, now: number): boolean {
+  return changedAt !== undefined && now - changedAt < BUTTON_HOLD_MS;
+}
+
+/**
+ * Where the focus goes once the lead agent answers: to the request box when it would otherwise be lost
+ * (on the page, or on the button now disabled because the box was emptied); otherwise it stays.
+ */
+export function focusBoxAfterAnswer(focus: { onPage: boolean; onButton: boolean; buttonDisabled: boolean }): boolean {
+  return focus.onPage || (focus.onButton && focus.buttonDisabled);
 }
 
 /** A member as it works: an empty model or effort is the default, and space around a role means nothing. */

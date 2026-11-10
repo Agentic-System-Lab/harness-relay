@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { REVISE_REQUEST_MAX, type MessageMeta } from '../../shared/types';
 import { api } from '../api';
-import { askAllowed, reviseRequest, revisionOutcome, sameTeam, type TeamChange } from '../chat';
+import { BUTTON_HOLD_MS, buttonHeld, focusBoxAfterAnswer, reviseRequest, revisionOutcome, sameTeam, type TeamChange } from '../chat';
 import { teamChangeText } from '../copy';
 import { useT } from '../i18n';
 import { Logo } from './Logo';
@@ -49,8 +49,14 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
   const [error, setError] = useState('');
   const [done, setDone] = useState<Done | null>(null);
   const abort = useRef<AbortController | null>(null);
-  /** When the lead agent last answered (or was stopped): a click right after it does not ask again. */
-  const answeredAt = useRef<number | undefined>(undefined);
+  /** When the button last changed (Ask ⇄ Stop): it is held for a moment after (`buttonHeld`). */
+  const changedAt = useRef<number | undefined>(undefined);
+  const [held, setHeld] = useState(false);
+  const hold = () => {
+    changedAt.current = Date.now();
+    setHeld(true);
+    setTimeout(() => setHeld(buttonHeld(changedAt.current, Date.now())), BUTTON_HOLD_MS);
+  };
   const box = useRef<HTMLTextAreaElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   /** The drawer now: its team and whether it can save it may change while the lead agent works. */
@@ -65,10 +71,11 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
 
   const ask = async () => {
     const request = text.trim();
-    if (!request || busy || blocked || !askAllowed(answeredAt.current, Date.now())) return;
+    if (!request || busy || blocked || buttonHeld(changedAt.current, Date.now())) return;
     const sent = team;
     const ctrl = new AbortController();
     abort.current = ctrl;
+    hold();
     setBusy(true);
     onBusy(true);
     setError('');
@@ -94,22 +101,28 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
       if (!ctrl.signal.aborted) setError((e as Error).message);
     } finally {
       if (abort.current === ctrl) abort.current = null;
-      answeredAt.current = Date.now();
+      hold();
       setBusy(false);
       onBusy(false);
     }
   };
 
-  // Once the lead agent is done, the button may be disabled (the box was emptied): focus that was on
-  // it, or fell to the page, goes back to the box, so the keyboard stays here.
+  // Once the lead agent is done, focus that would be lost (on the page, or on the button now disabled
+  // because the box was emptied) goes back to the box, so the keyboard stays here.
   const wasBusy = useRef(false);
   useEffect(() => {
     if (wasBusy.current && !busy) {
       const active = document.activeElement;
-      if (active === button.current || active === document.body || active === null) box.current?.focus();
+      const onPage = active === document.body || active === null;
+      if (focusBoxAfterAnswer({ onPage, onButton: active === button.current, buttonDisabled: Boolean(button.current?.disabled) })) {
+        box.current?.focus({ preventScroll: true });
+      }
     }
     wasBusy.current = busy;
   }, [busy]);
+  const stop = () => {
+    if (!buttonHeld(changedAt.current, Date.now())) abort.current?.abort();
+  };
 
   // Undo only while the team is still as the lead agent left it: later edits are not thrown away.
   const undoable = done?.after && sameTeam(team, done.after);
@@ -151,13 +164,15 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
             {t.revise.working(leadText)}
           </span>
         )}
-        {/* One button for asking and stopping, so the focus stays on it. */}
+        {/* One button for asking and stopping, so the focus stays on it while the lead agent works.
+            Held for a moment after it changes: dimmed (aria-disabled keeps the focus), clicks do nothing. */}
         <button
           ref={button}
           type="button"
-          className={`${busy ? 'ghost' : 'primary'} small-button`}
+          className={`${busy ? 'ghost' : 'primary'} small-button ${held ? 'held' : ''}`}
           disabled={!busy && (!text.trim() || blocked)}
-          onClick={() => (busy ? abort.current?.abort() : void ask())}
+          aria-disabled={held || undefined}
+          onClick={() => (busy ? stop() : void ask())}
         >
           {busy ? t.revise.stop : t.revise.submit}
         </button>

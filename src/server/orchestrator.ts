@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync, rmSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import type {
   AgentConfig,
   AgentSessionState,
@@ -80,7 +80,7 @@ import {
   worktreeHead,
 } from './workspace';
 import { isDefaultTitle, t } from './i18n';
-import { validateAgents } from './validate';
+import { expandPath, validateAgents } from './validate';
 import { scheduleTime } from './scheduler';
 
 export { HttpError };
@@ -206,6 +206,11 @@ function textOf(m: ChatMessage): string {
     .map((p) => p.text)
     .join('\n\n')
     .trim();
+}
+
+/** Two folders are the same one, written differently (`~`, a trailing slash, `..`). */
+function samePath(a: string, b: string): boolean {
+  return resolve(expandPath(a)) === resolve(expandPath(b));
 }
 
 /** Most messages that may wait in a conversation's queue. */
@@ -1377,7 +1382,8 @@ export class Orchestrator {
             conv.schedule && (conv.schedule.enabled || waiting?.forSchedule)
               ? { text: conv.schedule.text, on: conv.schedule.enabled }
               : undefined,
-          savedCwd: conv.settings.cwd,
+          // Told only when the drawer names another folder (not the same one spelled another way).
+          savedCwd: samePath(place.cwd, conv.settings.cwd) ? undefined : conv.settings.cwd,
         }),
         systemPrompt: REVISER_BRIEFING,
         cwd: conv.settings.cwd,

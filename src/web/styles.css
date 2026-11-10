@@ -5693,6 +5693,12 @@ a.share-action {
   gap: 10px;
 }
 
+/* Held for a moment after switching between Ask and Stop (see buttonHeld in chat.ts). */
+.team-reviser-actions button.held {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .team-reviser-actions [role='status'] {
   margin-right: auto;
   --accent: var(--info);

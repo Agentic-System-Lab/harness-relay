@@ -497,7 +497,9 @@ export function buildRevisePrompt(
   const history = conv.history?.trim();
   const scheduled = conv.schedule?.text.trim();
   const opening =
-    conv.pending === 'schedule'
+    conv.pending === 'schedule' && !conv.schedule
+      ? "The user is reviewing the team you designed for the conversation's schedule, which has been deleted since, and asks you to change it. Once the user saves the team, it is the conversation's team."
+      : conv.pending === 'schedule'
       ? "The user is reviewing the team you designed for the conversation's schedule, and asks you to change it. Once the user saves the team, it answers the schedule's message each time the schedule sends it."
       : conv.pending === 'question'
         ? "The user is reviewing the team you designed for their latest question, which it has not answered yet, and asks you to change it. Once the user saves the team, it answers that question."
@@ -554,13 +556,13 @@ ${JSON.stringify(ctx.presets.map(templateForLead), null, 2)}
 
 How to change the team:
 - Change only what the user asks for, and what that change needs (for example, roles that hand off to a member who was renamed or removed). List every member, in speaking order, but give "role" only for a new member or a role you rewrite: leave it out for every other member, whose role then stays exactly as it is.
-- A member who stays keeps its name and coding agent: then it keeps what it learned in this conversation. Rename a member or move it to another coding agent only when the user asks for it, and then give its current name as "was", so it stays the same member with its settings (moved to another coding agent, it reads this conversation afresh).
+- A member who stays keeps its name and coding agent: then it keeps what it learned in this conversation. Rename a member or move it to another coding agent only when the user asks for it, and then give its current name as "was", so it stays the same member with its settings (moved to another coding agent, it reads this conversation afresh). "was" is only for that: never for a new member, even one based on another.
 - Write a new or rewritten role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. At most ${MAX_TEAM} members.
 - "model" and "effort": for a member who stays, leave them out to keep what it has, or give "" for its coding agent's default. For a new member, leave them out unless the work clearly needs a stronger or faster model than the default.
 - When the request cannot be done this way (for example, it asks to change the file permission), return the team as it is and say why in the reason.
 
-Write the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools unless the change depends on the files in the working directory.
+Write the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools unless the change depends on the files in the folder you are running in.
 
 Reply with only this JSON object, in a \`\`\`json code block, with the whole team (every member, in speaking order):
 {"mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions: only for a new member or a role you rewrite>", "model": "<optional>", "effort": "<optional>", "was": "<its current name: only for a member you renamed or moved to another coding agent>"}], "reason": "<what you changed and why: one or two sentences for the user>"}`;
@@ -568,17 +570,22 @@ Reply with only this JSON object, in a \`\`\`json code block, with the whole tea
 
 /**
  * Turn the lead's revised team into one that can run. Each member the lead lists is matched to a member
- * of the drawer's team, in this order: the one it names as "was" (renamed, or moved to another CLI);
- * then one with the same name (ignoring case) and CLI; then one with the same name on another CLI (moved,
- * though the lead did not say so). Each drawer member matches at most once, and every "was" is settled
- * before any name, so a new member named like one renamed away does not take its place. A matched member
- * keeps what the lead does not see — its id (and with it its CLI session, which starts afresh on another
- * CLI) and its tools — and the role, model and effort the lead left out (a model or effort of its old CLI
- * does not carry over to another one). A role the lead copied, trimmed, stays as the user wrote it. A
- * changed model or effort, and every new or moved member, is fitted to the CLIs here (`fitAgents`); a
- * member who stays on its CLI keeps it even when that one is signed out, since the user chose it. A reply
- * without members (the lead declined, saying why) keeps the members as they are. Throws (with a
- * user-readable message) when the team is unusable.
+ * of the drawer's team, each drawer member at most once, in this order:
+ * 1. the one it names as "was" (renamed, or moved to another CLI); every "was" is settled before any
+ *    name, so a new member named like one renamed away does not take its place. A "was" naming a member
+ *    the lead also lists, unchanged (no role), under that name is ignored: that member stays, and the
+ *    "was" was misused for a new member based on it;
+ * 2. one with the same name (ignoring case) and CLI;
+ * 3. one with the same name on another CLI (moved, though the lead did not say so);
+ * 4. when exactly one listed member without a role and exactly one drawer member are left over: that
+ *    one (renamed, though the lead did not say so).
+ * A matched member keeps what the lead does not see — its id (and with it its CLI session, which starts
+ * afresh on another CLI) and its tools — and the role, model and effort the lead left out (null, or a
+ * blank role, is left out; a model or effort of its old CLI does not carry over to another one). A role
+ * the lead copied, trimmed, stays as the user wrote it. A changed model or effort, and every new or moved
+ * member, is fitted to the CLIs here (`fitAgents`); a member who stays on its CLI keeps it even when that
+ * one is signed out, since the user chose it. A reply without members (the lead declined, saying why)
+ * keeps the members as they are. Throws (with a user-readable message) when the team is unusable.
  */
 export function decideRevision(
   raw: Record<string, any>,
@@ -592,13 +599,15 @@ export function decideRevision(
   const handle = (v: unknown) => String(v ?? '').trim().replace(/^@/, '').replace(/\s+/g, '_');
   const listed = raw.agents.slice(0, MAX_TEAM).map((a: unknown) => {
     const m = a && typeof a === 'object' ? (a as Record<string, unknown>) : {};
-    return { m, name: handle(m.name), provider: String(m.provider ?? '').toLowerCase(), was: handle(m.was).toLowerCase() };
+    const role = typeof m.role === 'string' && m.role.trim() ? m.role : undefined;
+    return { m, name: handle(m.name), provider: String(m.provider ?? '').toLowerCase(), was: handle(m.was).toLowerCase(), role };
   });
+  type Listed = (typeof listed)[number];
   // The drawer member each listed member is, found in passes (see above).
   const match: (AgentConfig | undefined)[] = listed.map(() => undefined);
   const taken = new Map<string, AgentConfig>(); // id → the draft member it is
-  const pass = (find: (l: (typeof listed)[number], d: AgentConfig) => boolean) =>
-    listed.forEach((l: (typeof listed)[number], i: number) => {
+  const pass = (find: (l: Listed, d: AgentConfig) => boolean) =>
+    listed.forEach((l: Listed, i: number) => {
       if (match[i]) return;
       const d = draft.agents.find((d) => !taken.has(d.id) && find(l, d));
       if (d) {
@@ -606,16 +615,25 @@ export function decideRevision(
         taken.set(d.id, d);
       }
     });
-  pass((l, d) => Boolean(l.was) && d.name.toLowerCase() === l.was);
+  const listedUnchanged = (name: string, self: Listed) => listed.some((o: Listed) => o !== self && !o.role && o.name.toLowerCase() === name);
+  pass((l, d) => Boolean(l.was) && d.name.toLowerCase() === l.was && !listedUnchanged(l.was, l));
   pass((l, d) => d.provider === l.provider && d.name.toLowerCase() === l.name.toLowerCase());
   pass((l, d) => d.name.toLowerCase() === l.name.toLowerCase());
+  const leftListed = listed.map((_: Listed, i: number) => i).filter((i: number) => !match[i]);
+  const leftDraft = draft.agents.filter((d) => !taken.has(d.id));
+  if (leftListed.length === 1 && leftDraft.length === 1 && !listed[leftListed[0]!]!.role) {
+    match[leftListed[0]!] = leftDraft[0];
+    taken.set(leftDraft[0]!.id, leftDraft[0]!);
+  }
 
-  const members = listed.map(({ m, name, provider }: (typeof listed)[number], i: number) => {
+  const members = listed.map(({ m, name, provider, role: given }: Listed, i: number) => {
     const same = match[i];
     const sameCli = same?.provider === provider;
-    // Left out: as it was on the same CLI; otherwise (a new member, another CLI) the default. "" is the default.
-    const kept = (key: 'model' | 'effort') => (key in m ? String(m[key] ?? '') : sameCli ? (same?.[key] ?? '') : '');
-    const role = 'role' in m ? String(m.role ?? '') : (same?.role ?? '');
+    // Left out (or null): as it was on the same CLI; otherwise (a new member, another CLI) the default.
+    // "" is the default.
+    const kept = (key: 'model' | 'effort') =>
+      m[key] !== undefined && m[key] !== null ? String(m[key]) : sameCli ? (same?.[key] ?? '') : '';
+    const role = given ?? same?.role ?? '';
     return {
       ...(same ? { id: same.id, ...(same.tools ? { tools: same.tools } : {}) } : {}),
       name,

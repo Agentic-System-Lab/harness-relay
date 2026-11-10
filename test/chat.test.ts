@@ -5,10 +5,11 @@ import {
   activityCounts,
   afterStreamError,
   applyStates,
-  ASK_AGAIN_MS,
-  askAllowed,
+  BUTTON_HOLD_MS,
+  buttonHeld,
   draftStatus,
   enterSends,
+  focusBoxAfterAnswer,
   reviseRequest,
   revisedTeam,
   revisionOutcome,
@@ -226,10 +227,18 @@ describe("the lead agent's change in the team drawer", () => {
     expect(teamChanges(draft, revisedTeam(draft, { agents: draft.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 20 } }))).toEqual([]);
   });
 
-  it('takes a new request only a moment after the lead answered, so a late click on Stop sends nothing', () => {
-    expect(askAllowed(undefined, 1_000)).toBe(true);
-    expect(askAllowed(1_000, 1_100)).toBe(false);
-    expect(askAllowed(1_000, 1_000 + ASK_AGAIN_MS)).toBe(true);
+  it('holds the button a moment after it switches, so a double-click or a late click on Stop does nothing', () => {
+    expect(buttonHeld(undefined, 1_000)).toBe(false);
+    expect(buttonHeld(1_000, 1_100)).toBe(true);
+    expect(buttonHeld(1_000, 1_000 + BUTTON_HOLD_MS)).toBe(false);
+  });
+
+  it('moves the focus to the request box after an answer only when it would be lost', () => {
+    expect(focusBoxAfterAnswer({ onPage: true, onButton: false, buttonDisabled: false })).toBe(true);
+    expect(focusBoxAfterAnswer({ onPage: false, onButton: true, buttonDisabled: true })).toBe(true);
+    // Still on the button, which can be used again; or elsewhere in the drawer.
+    expect(focusBoxAfterAnswer({ onPage: false, onButton: true, buttonDisabled: false })).toBe(false);
+    expect(focusBoxAfterAnswer({ onPage: false, onButton: false, buttonDisabled: true })).toBe(false);
   });
 
   it("shows the lead's team only when the drawer still has the team it changed, and can save it", () => {

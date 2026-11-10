@@ -1306,6 +1306,9 @@ describe('asking the lead agent to change the team', () => {
     expect(calls.at(-1)!.prompt).toContain('The file permission "full" and the working directory /not/saved/yet');
     expect(calls.at(-1)!.prompt).toContain(`you are running in the one saved now, ${project}.`);
     expect(calls.at(-1)!.cwd).toBe(project);
+    // The saved folder spelled another way (a trailing slash) is not another folder.
+    await orchestrator.reviseTeam(conv.id, { request: 'more', agents, settings: { ...draft.settings, cwd: `${project}/` } });
+    expect(calls.at(-1)!.prompt).not.toContain('not saved that working directory');
     expect(calls.at(-1)!.prompt).not.toContain('<scheduled_message>');
 
     const schedule: ConversationSchedule = {

@@ -482,4 +482,52 @@ describe('changing a team at the user\'s request', () => {
     expect(unsaved).toContain('The user has not saved that working directory yet: you are running in the one saved now, /saved.');
     expect(buildRevisePrompt('x', draft, saved, ctx, { savedCwd: '/saved' })).not.toContain('not saved that working directory');
   });
+
+  it('keeps a member the lead renamed without saying so, when it is the only one left over and has no role', () => {
+    // "Rename Alice to Researcher": the lead forgot "was" and, as told, left the role out.
+    const r = decideRevision({ agents: [{ name: 'Researcher', provider: 'claude' }, { name: 'Gus', provider: 'grok' }] }, draft, ctx, lead);
+    expect(r.agents[0]).toMatchObject({ id: 'a1', name: 'Researcher', role: 'Research it.', model: 'opus', tools: { memory: false } });
+    // A new member (it has a role), or more than one left over: not taken for a rename.
+    const added = decideRevision({ agents: [{ name: 'Tester', provider: 'claude', role: 'Test it.' }, { name: 'Gus', provider: 'grok' }] }, draft, ctx, lead);
+    expect(added.agents[0]!.id).not.toBe('a1');
+    const two = decideRevision({ agents: [{ name: 'P', provider: 'claude' }, { name: 'Q', provider: 'claude' }] }, draft, ctx, lead);
+    expect(two.agents.map((a) => a.id)).not.toContain('a1');
+  });
+
+  it('takes a null or blank role, and a null model or effort, as left out; "" still clears a model', () => {
+    const r = decideRevision(
+      {
+        agents: [
+          { name: 'Alice', provider: 'claude', role: null, model: null },
+          { name: 'Gus', provider: 'grok', role: '  ', effort: null },
+        ],
+      },
+      draft,
+      ctx,
+      lead,
+    );
+    expect(r.agents[0]).toMatchObject({ role: 'Research it.', model: 'opus' });
+    expect(r.agents[1]).toMatchObject({ role: 'Doubt it.', effort: 'high' });
+    expect(decideRevision({ agents: [{ name: 'Alice', provider: 'claude', model: '' }] }, draft, ctx, lead).agents[0]!.model).toBeUndefined();
+  });
+
+  it('ignores a "was" misused for a new member based on one the lead keeps unchanged', () => {
+    // "Add Alice2 based on Alice": Alice is listed unchanged (no role), so the "was" does not take her place.
+    const r = decideRevision(
+      { agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Alice2', provider: 'claude', role: 'Like Alice.', was: 'Alice' }, { name: 'Gus', provider: 'grok' }] },
+      draft,
+      ctx,
+      lead,
+    );
+    expect(r.agents[0]).toMatchObject({ id: 'a1', name: 'Alice', role: 'Research it.' });
+    expect(r.agents[1]!.id).not.toMatch(/^(a1|g1)$/);
+  });
+
+  it('describes a design for a schedule deleted since, and points the lead at the folder it runs in', () => {
+    const prompt = buildRevisePrompt('x', draft, where, ctx, { pending: 'schedule' });
+    expect(prompt).toContain("designed for the conversation's schedule, which has been deleted since");
+    expect(prompt).not.toContain("answers the schedule's message");
+    expect(prompt).toContain('"was" is only for that: never for a new member, even one based on another.');
+    expect(prompt).toContain('Do not use tools unless the change depends on the files in the folder you are running in.');
+  });
 });
