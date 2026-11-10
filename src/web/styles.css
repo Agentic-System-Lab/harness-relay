@@ -28,8 +28,11 @@
   color-scheme: light;
 }
 
+/* The dark colours: the system's dark mode, unless the user chose light in Settings → Appearance
+   (src/web/theme.ts: <html data-theme="light">), and dark chosen there. Keep the two lists the same
+   (test/theme.test.ts checks). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #212121;
     --surface: #2b2b2d;
     --surface-2: #343437;
@@ -47,6 +50,25 @@
     --mark: rgb(250 204 21 / 0.28);
     color-scheme: dark;
   }
+}
+
+:root[data-theme='dark'] {
+  --bg: #212121;
+  --surface: #2b2b2d;
+  --surface-2: #343437;
+  --sidebar: #171717;
+  --border: #3a3a3d;
+  --text: #ececec;
+  --muted: #a1a1aa;
+  --primary: #ececec;
+  --primary-contrast: #18181b;
+  --danger: #f87171;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --info: #60a5fa;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 28px rgb(0 0 0 / 0.35);
+  --mark: rgb(250 204 21 / 0.28);
+  color-scheme: dark;
 }
 
 * {
@@ -4192,7 +4214,8 @@ details.sub summary {
   color: var(--ok);
 }
 
-.lang-switch {
+.lang-switch,
+.theme-switch {
   align-self: flex-start;
 }
 

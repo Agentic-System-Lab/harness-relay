@@ -92,6 +92,7 @@ src/
     recorder.ts            在瀏覽器錄音，解碼成 16 kHz 單聲道
     useVoice.ts            語音輸入狀態的 hook（安裝時輪詢）
     i18n.tsx               語言偵測、provider、useT()
+    theme.ts               淺色或深色主題：跟隨系統，或在「設定 → 外觀」選的（data-theme，記在 localStorage）
     locales/               zh-TW.ts（訊息結構的來源）、en.ts
     components/            Sidebar、SidebarGroups（群組、拖放）、SidebarSearch、
                            NewChat、TemplateEditor（範本對話框）、TeamEditor、TeamReviser（團隊設定的
@@ -452,6 +453,7 @@ npx vitest test/store.test.ts
 - `test/native-web.test.ts`：CLI 自己載入的內容那一區：查詢前各 CLI 的分頁與查詢後的數量（指示與記憶分開）、各 CLI 能整類或逐項不載入哪些、勾選與清除個別項目、執行時不載入幾項（MCP 伺服器連同它的工具只算一次）、查詢後不載入的設定是否已變更、查詢結果裡已經沒有的勾選項目與清除它們，以及保存的個別項目（`nativeItemsFor`）。
 - `test/native.test.ts`：各 CLI 自己載入的內容：讀取 Claude Code、Codex、Grok 的回答（實測格式；MCP 設定與其中的 token 會被丟掉）、Claude Code 與 Codex 會讀的指示和記憶檔（真的暫存資料夾），無法啟動的 CLI、依執行檔與不載入設定分開的快取、不論多久以前的最近一次回答（開啟回報過的檔案時用）、依請求語言的問題說明，以及哪些檔案可以讀（只有回報過的）。也測試 hook（不含指令）、subagent 與 plugin；標示 Harness Relay 執行時不載入的項目（不含 CLI 自己就關掉的）；Claude Code 與 Codex 依環境變數與設定略過的檔案；以及透過替身 `claude`、`codex`、`grok` 執行檔，依 Harness Relay 啟動各 CLI 的方式再問一次（和執行時相同的旗標、覆寫設定與環境變數；失敗時不標示任何項目；第二次回答缺少的清單會在錯誤中列出；只有指示檔或記憶時不再啟動 Claude Code；取代內建 subagent 的同名 subagent 不算內建；無法列出 plugin 的情況）。也測試工具：從 Claude Code 的 `/usage` 回合讀出內建與 MCP 工具（MCP 工具依伺服器分組，只有那個回合列出的伺服器也算），只在 `/usage` 是它自己的指令時才送（有同名 skill 就不送）且不留下 session，它不接受 `--no-session-persistence` 時改成不送這個回合再問，skill 整類不載入（它不列任何指令）時再問也會送；從 `mcpServerStatus/list` 讀出 Codex 每個伺服器的 MCP 工具（照 Codex 列出的，不依它回報的設定過濾；啟動失敗的伺服器不列工具；關掉的伺服器第二次不再啟動；忽略 `disabled_tools` 的 Codex 會顯示工具仍會載入）。也測試勾選了但第二次回答仍載入的項目（`stillLoaded`，只限有給的清單），以及第二次回答逾時時保留已回答的部分。以及個別項目：Claude Code 的 skill、內建工具、MCP 工具、工具都被拿掉的整個 MCP 伺服器、subagent（內建的也可以）、plugin 與指示檔；Codex 的 skill、MCP 伺服器與工具、hook 與 plugin；都透過替身標示出來。另外也測試 CLI 的家目錄改變時會重新詢問（透過真的 `SettingsStore`）。
 - `test/agentsview.test.ts`：用假的 `fetch` 測試把對話送到 AgentsView：thread 寫成 Claude Code 的 session 紀錄（使用者的訊息、以成員名稱和 CLI 開頭的回覆、註明失敗、附件以檔名表示、不含系統訊息與串流中的回覆、最後是標題）、AgentsView 的 session id、上傳（檔名、取自已知 agent session 或資料夾名稱的 project 與 machine、`allow_shorter`、`Origin` 標頭）與 parent 連結（包含首席 agent 與分群用的 session）、沒有網址或沒有訊息時不送、每個對話一次只跑一個更新且之後只再送一次最新狀態、沒事可做的更新結束後能立刻再開始、丟掉已刪除對話還在等待的更新、絕不跟隨重新導向、project 取自 AgentsView 第一個有回應的 agent session，以及依網址保留上次的失敗直到更新成功。
+- `test/theme.test.ts`：淺色或深色主題（`src/web/theme.ts`）：讀取存下的選擇（其他值都算跟隨系統）、每種選擇與系統模式下顯示的主題、淺色或深色時設定 `<html data-theme>`，跟隨系統時移除，瀏覽器的頂列顏色（`theme-color`）也跟著改；記在瀏覽器裡，儲存區丟出錯誤時跟隨系統；在頁面裡（替換掉全域物件）：從存下的選擇開始，接著跟隨系統模式、其他分頁的選擇（只看它的 key）與使用者的選擇。也檢查 `styles.css` 裡兩份深色顏色（系統的深色模式與選了深色）相同、沒有其他地方只跟隨 `prefers-color-scheme`、頂列顏色等於頁面背景、`index.html` 在 app 的 module 之前、從同一個 key 設定主題且只設成淺色或深色（包在 `try` 裡），以及每個選擇在兩種語言都有名稱。
 - `test/route.test.ts`：前端的 hash 路由（含「新排程」頁面），包括設定頁的區塊，以及正在看哪張設定卡片（在連結列標亮）；標亮的連結看得到時連結列不動，看不到時只捲動剛好需要的距離，也不會捲過兩端。
 - `test/grok-trust.test.ts`：記錄 Grok 對資料夾的信任：和 `grok --trust` 相同的紀錄、取代標為不信任的紀錄並保留其他內容、Windows 路徑的 TOML 跳脫、寫在暫存 `GROK_HOME` 的檔案（只有擁有者能讀）、還原成原本的內容，從 `grok inspect` 讀出信任狀態與決定信任的資料夾（去掉結尾斜線的專案根目錄，是否在資料夾上層，否則就是資料夾本身），以及等待確認的團隊設計什麼情況會顯示它（有 Grok 成員與資料夾）。
 - `test/util.test.ts`：把成員或首席 agent 切到另一個 CLI 再切回來，會還原每個 CLI 選過的模型與推理強度。

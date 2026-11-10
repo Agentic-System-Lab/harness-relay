@@ -16,6 +16,7 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
+import { setThemeChoice, THEMES, useThemeChoice } from '../theme';
 import {
   SETTINGS_SECTIONS,
   currentSection,
@@ -49,6 +50,7 @@ interface Props {
 
 export function SettingsPage({ section, providers, catalog, refreshProviders, onShowTour }: Props) {
   const { t, lang, setLang } = useI18n();
+  const theme = useThemeChoice();
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [cwd, setCwd] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -121,6 +123,24 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
             {LANGS.map((l) => (
               <button key={l} role="radio" aria-checked={lang === l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)}>
                 {LANG_NAMES[l]}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="card" id={sectionId('appearance')}>
+          <SectionTitle section="appearance">{t.settings.appearance}</SectionTitle>
+          <p className="muted small">{t.settings.appearanceHint}</p>
+          <div className="segmented theme-switch" role="radiogroup" aria-label={t.settings.appearance}>
+            {THEMES.map((choice) => (
+              <button
+                key={choice}
+                role="radio"
+                aria-checked={theme === choice}
+                className={theme === choice ? 'on' : ''}
+                onClick={() => setThemeChoice(choice)}
+              >
+                {t.settings.themes[choice]}
               </button>
             ))}
           </div>
@@ -744,6 +764,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
   const short = t.settings.nav;
   const label: Record<SettingsSection, string> = {
     language: short.language,
+    appearance: short.appearance,
     claude: PROVIDER_LABEL.claude,
     codex: PROVIDER_LABEL.codex,
     grok: PROVIDER_LABEL.grok,

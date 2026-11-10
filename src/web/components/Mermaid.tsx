@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
+import { useDarkTheme } from '../theme';
 import { CopyButton } from './CopyButton';
 
 type MermaidApi = (typeof import('mermaid'))['default'];
@@ -39,24 +40,13 @@ async function draw(code: string, dark: boolean): Promise<{ src: string; width: 
   return { src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`, width: Math.ceil(box.width) };
 }
 
-function useDarkScheme(): boolean {
-  const query = () => window.matchMedia('(prefers-color-scheme: dark)');
-  const [dark, setDark] = useState(() => typeof window !== 'undefined' && query().matches);
-  useEffect(() => {
-    const q = query();
-    const onChange = () => setDark(q.matches);
-    q.addEventListener('change', onChange);
-    return () => q.removeEventListener('change', onChange);
-  }, []);
-  return dark;
-}
-
 type Drawn = { code: string; src: string; width: number } | { code: string; failed: true };
 
 /** A ```mermaid code block, drawn as a diagram (its source a click away). */
 export function MermaidBlock({ code }: { code: string }) {
   const t = useT();
-  const dark = useDarkScheme();
+  // The page's theme: the system's, or the one chosen in Settings (theme.ts).
+  const dark = useDarkTheme();
   const [drawn, setDrawn] = useState<Drawn>();
   const [source, setSource] = useState(false);
   const [actualSize, setActualSize] = useState(false);

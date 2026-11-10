@@ -17,6 +17,13 @@
     <meta name="apple-mobile-web-app-title" content="Harness Relay" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#212121" media="(prefers-color-scheme: dark)" />
+    <!-- The theme chosen in Settings → Appearance (src/web/theme.ts), set before the page is drawn so that it does not flash. -->
+    <script>
+      try {
+        var theme = localStorage.getItem('relay:theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

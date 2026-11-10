@@ -14,6 +14,7 @@ import type {
   VoiceLanguage,
   VoiceModelId,
 } from '../../shared/types';
+import type { ThemeChoice } from '../theme';
 
 /** A conversation's state as the sidebar shows it. */
 export type ConvStatus = 'waiting' | 'confirm' | 'answer' | 'running' | 'error' | 'unread';
@@ -965,6 +966,9 @@ export const zhTW = {
     recheck: '重新檢查狀態',
     language: '介面語言',
     languageHint: '第一次開啟時依瀏覽器語言決定，之後記在這個瀏覽器。',
+    appearance: '外觀',
+    appearanceHint: '介面要用淺色還是深色背景。記在這個瀏覽器；「跟隨系統」會隨電腦或手機的淺色／深色模式切換。',
+    themes: { system: '跟隨系統', light: '淺色', dark: '深色' } as Record<ThemeChoice, string>,
     lead: '首席 agent',
     leadHint: '每個新問題，由這個 agent 讀問題與先前的對話，沿用目前的團隊、挑選範本、依範本調整，或設計新的團隊。',
     leadSaved: '已儲存首席 agent',
@@ -972,7 +976,7 @@ export const zhTW = {
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
-    nav: { language: '介面語言', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
+    nav: { language: '介面語言', appearance: '外觀', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
     tour: '使用導覽',
     tourHint: '一步一步介紹主要功能。',
     replayTour: '重新觀看導覽',
