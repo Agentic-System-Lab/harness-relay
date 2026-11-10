@@ -55,8 +55,20 @@ describe('what a shared page holds', () => {
     }
   });
 
-  it('leaves out tool calls and thinking, and the app-only controls', () => {
-    for (const s of ['.tool-group', '.approval-card', '.approval-done', '.todo', '.changes-card', '.chat-head-actions', '.file-missing', '.plan-ask-save']) {
+  it('leaves out tool calls and thinking, the app-only controls, and the header badges', () => {
+    for (const s of [
+      '.tool-group',
+      '.approval-card',
+      '.approval-done',
+      '.todo',
+      '.changes-card',
+      '.chat-head-actions',
+      '.file-missing',
+      '.plan-ask-save',
+      // Mode and rounds, the file permission and the schedule; the full-access warning beside the title.
+      '.chat-head-badges',
+      '.head-warning',
+    ]) {
       expect(SHARE_DROP).toContain(s);
     }
   });

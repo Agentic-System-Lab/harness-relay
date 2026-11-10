@@ -9,7 +9,9 @@ export const HARNESS_RELAY_URL = 'https://agentic-system-lab.github.io/harness-r
 
 /**
  * What a shared page leaves out: the agents' tool calls and thinking (and the to-do lists, permission
- * requests and changed files that come of them), and what only means something in the app.
+ * requests and changed files that come of them), and what only means something in the app: its
+ * controls, and the header's badges (mode and rounds, file permission, schedule) and the full-access
+ * warning beside the title.
  */
 export const SHARE_DROP = [
   '.tool-group',
@@ -25,8 +27,9 @@ export const SHARE_DROP = [
   '.grok-trust',
   '.mermaid-bar',
   '.chat-head-actions',
+  '.chat-head-badges',
+  '.head-warning',
   '.more-button',
-  '.schedule-badge',
   '.plan-ask-save',
   '.file-missing',
 ];
