@@ -1248,7 +1248,8 @@ describe('browsing files', () => {
     const res = await get(`${base}/zip?path=&unignored=1`);
     expect(res.status).toBe(200);
     expect(readZip(Buffer.from(await res.arrayBuffer())).map((e) => e.name.split('/').slice(1).join('/')).sort()).toEqual(['', '.gitignore', 'index.js']);
-  });
+    // Over ten thousand files written and walked: about 2 s alone, more than the default 5 s on a busy machine.
+  }, 30_000);
 });
 
 describe("what each CLI loads by itself", () => {
