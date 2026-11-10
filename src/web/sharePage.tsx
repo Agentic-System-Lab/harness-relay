@@ -12,7 +12,9 @@ import type { Messages } from './i18n';
 import {
   IMAGE_STEPS,
   SHARE_DROP,
+  SHARE_FOLD,
   SHARE_KEEP_BUTTONS,
+  SHARE_WIDEST,
   anchorPlan,
   byteLength,
   fileLinkRoom,
@@ -23,6 +25,7 @@ import {
   messagesUpTo,
   shareDocument,
   shareFooter,
+  shareRoleFolds,
 } from './share';
 
 export interface SharePage {
@@ -90,12 +93,81 @@ const anchorOf = (a: Element, dropped: boolean): ShareAnchor => ({
 });
 
 /**
+ * Whether each role (`.role-text`) of `copies` (the messages a page holds, copied) is too long for its
+ * lines however wide a screen shows it, keyed by role. Measured in this browser: the messages with
+ * roles are laid out with the app's styles (`css`), in the page's language (`lang`), in a window
+ * SHARE_WIDEST wide that no one sees, as
+ * the shared page lays them out on a wide screen (the chat's column at its widest, no narrow layout's
+ * rules), each role folded as RoleText folds it. A role that could not be measured is left out.
+ */
+function rolesTooLong(copies: Element[], css: string, lang: string): Map<Element, boolean> {
+  const long = new Map<Element, boolean>();
+  const roleBoxes = (el: Element) => Array.from(el.querySelectorAll(`.${SHARE_FOLD.box}`));
+  const withRoles = copies.filter((el) => roleBoxes(el).length > 0);
+  if (withRoles.length === 0) return long;
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.tabIndex = -1;
+  frame.style.cssText = `position: fixed; top: 0; left: -100000px; width: ${SHARE_WIDEST}px; height: 400px; border: 0; visibility: hidden; pointer-events: none;`;
+  document.body.append(frame);
+  try {
+    const doc = frame.contentDocument;
+    if (!doc?.head || !doc.body) return long;
+    // In the page's language, as the page has it: some browsers break lines of Chinese by it.
+    doc.documentElement.lang = lang;
+    const style = doc.createElement('style');
+    style.textContent = css;
+    doc.head.append(style);
+    // As the shared page nests them; no images or media, which cannot change how wide a role is.
+    const inner = doc.createElement('div');
+    inner.className = 'messages-inner';
+    for (const el of withRoles) {
+      const copy = doc.importNode(el, true);
+      copy.querySelectorAll('img, video, audio, iframe').forEach((m) => m.remove());
+      inner.append(copy);
+    }
+    const scroller = doc.createElement('div');
+    scroller.className = 'messages';
+    const chat = doc.createElement('div');
+    chat.className = 'chat';
+    const root = doc.createElement('div');
+    root.id = 'root';
+    root.className = 'share-page';
+    scroller.append(inner);
+    chat.append(scroller);
+    root.append(chat);
+    doc.body.append(root);
+    // The same roles, in the same order.
+    const laidOut = roleBoxes(inner);
+    withRoles.flatMap(roleBoxes).forEach((box, i) => {
+      const text = laidOut[i]?.querySelector('p');
+      if (!text) return;
+      text.classList.add(SHARE_FOLD.folded); // also a role open on screen
+      if (text.clientWidth > 0) long.set(box, text.scrollHeight > text.clientHeight + 1);
+    });
+    return long;
+  } finally {
+    frame.remove();
+  }
+}
+
+/**
  * Leaves out what a shared page does not show (see SHARE_DROP), and what does nothing outside the app.
  * A link to one of `files` (of conversation `convId`) points at its placeholder (see anchorPlan).
+ * `long`: whether each role is too long for its lines on any screen (see shareRoleFolds).
  * Returns the room those links need for their addresses on GitHub.
  */
-function strip(root: HTMLElement, t: Messages, convId = '', files: ShareFileRef[] = []): number {
+function strip(
+  root: HTMLElement,
+  t: Messages,
+  convId = '',
+  files: ShareFileRef[] = [],
+  long = new Map<Element, boolean>(),
+): number {
   root.querySelectorAll(SHARE_DROP.join(',')).forEach((el) => el.remove());
+  // Roles are whole, and one too long for any screen keeps its "Show more" as a toggle that needs no script.
+  const roles = Array.from(root.querySelectorAll(`.${SHARE_FOLD.box}`)).map((box) => ({ box, long: long.get(box) }));
+  shareRoleFolds(roles, { more: t.message.showMore, less: t.message.showLess });
   root.querySelectorAll('button').forEach((b) => {
     if (SHARE_KEEP_BUTTONS.some((c) => b.classList.contains(c))) toSpan(b);
     else b.remove();
@@ -216,11 +288,13 @@ export async function sharePage(o: {
   scroller.className = 'messages';
   const list = document.createElement('div');
   list.className = 'messages-inner';
-  list.append(...items.slice(0, end).map((el) => el.cloneNode(true)));
+  const copies = items.slice(0, end).map((el) => el.cloneNode(true) as Element);
+  list.append(...copies);
   scroller.append(list);
   page.append(head.cloneNode(true), scroller);
+  const css = appCss();
   // Each link to a file grows to its address on GitHub once the server fills it in.
-  const room = strip(page, t, o.convId, o.files);
+  const room = strip(page, t, o.convId, o.files, rolesTooLong(copies, css, o.lang));
   const limit = SHARE_MAX_BYTES - room;
 
   const date = new Intl.DateTimeFormat(o.lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date());
@@ -243,7 +317,6 @@ export async function sharePage(o: {
     img.removeAttribute('srcset');
     img.setAttribute('src', '');
   }
-  const css = appCss();
   const icon = document.querySelector('link[rel="icon"]')?.getAttribute('href') ?? undefined;
   const doc = () => shareDocument({ lang: o.lang, title: o.title, css, body: page.outerHTML, icon });
   const base = byteLength(doc());

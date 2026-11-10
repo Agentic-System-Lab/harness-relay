@@ -29,7 +29,13 @@ import {
   messageElements,
   SHARE_CSP,
   SHARE_DROP,
+  SHARE_CSS,
+  SHARE_FOLD,
   SHARE_KEEP_BUTTONS,
+  SHARE_WIDEST,
+  shareFold,
+  shareRoleFolds,
+  type FoldElement,
   stillStreaming,
   byteLength,
   escapeHtml,
@@ -186,6 +192,187 @@ describe('the shared page', () => {
         'aria-label="Harness Relay\'s &quot;website&quot;" title="Harness Relay\'s &quot;website&quot;"><svg class="share"></svg></a></span>',
     );
     expect(HARNESS_RELAY_URL).toBe('https://agentic-system-lab.github.io/harness-relay/');
+  });
+});
+
+/** A stylesheet's rules (comments aside): each rule's selectors, its declarations and the at-rules it is in. */
+function cssRules(css: string): { at: string[]; selectors: string[]; decls: Record<string, string> }[] {
+  const rules: { at: string[]; selectors: string[]; decls: Record<string, string> }[] = [];
+  const open: string[] = [];
+  let text = '';
+  for (const ch of css.replace(/\/\*[\s\S]*?\*\//g, '')) {
+    if (ch === '{') {
+      open.push(text.trim().replace(/\s+/g, ' '));
+      text = '';
+    } else if (ch === '}') {
+      const prelude = open.pop() ?? '';
+      if (!prelude.startsWith('@')) {
+        const decls = text
+          .split(';')
+          .map((d) => d.split(':'))
+          .filter((d) => d.length > 1)
+          .map(([k, ...v]) => [k!.trim(), v.join(':').trim().replace(/\s+/g, ' ')]);
+        rules.push({ at: open.filter((o) => o.startsWith('@')), selectors: prelude.split(',').map((x) => x.trim()), decls: Object.fromEntries(decls) });
+      }
+      text = '';
+    } else {
+      text += ch;
+    }
+  }
+  return rules;
+}
+
+/** An element as shareRoleFolds() sees it, recording what it does to it. */
+class FakeElement implements FoldElement {
+  classes: Set<string>;
+  inserted: string[] = [];
+  removed = false;
+  constructor(
+    public tagName: string,
+    cls = '',
+    private attrs: Record<string, string> = {},
+    public children: FakeElement[] = [],
+  ) {
+    this.classes = new Set(cls.split(' ').filter(Boolean));
+  }
+  classList = { contains: (name: string) => this.classes.has(name), remove: (name: string) => void this.classes.delete(name) };
+  getAttribute(name: string): string | null {
+    return this.attrs[name] ?? null;
+  }
+  insertAdjacentHTML(where: 'afterend', html: string): void {
+    this.inserted.push(`${where} ${html}`);
+  }
+  remove(): void {
+    this.removed = true;
+  }
+}
+
+describe("a folded role's Show more on a shared page", () => {
+  const words = { more: 'Show more', less: 'Show less' };
+  /** A RoleText as it renders: its text, and its button when the role is long. */
+  const role = (o: { folded: boolean; button?: 'shut' | 'open'; wrap?: boolean }) => {
+    const text = new FakeElement('P', o.folded ? 'folded' : '');
+    const button = o.button ? new FakeElement('BUTTON', 'show-more', { type: 'button', 'aria-expanded': String(o.button === 'open') }) : undefined;
+    const kids = button ? [o.wrap ? new FakeElement('DIV', '', {}, [button]) : button] : [];
+    return { box: new FakeElement('DIV', 'role-text plan-member-role', {}, [text, ...kids]), text, button };
+  };
+
+  it('is a <details> that opens without a script, folded or open as it was on screen', () => {
+    expect(shareFold({ open: false, ...words })).toBe(
+      '<details class="share-fold"><summary class="show-more">' +
+        '<span class="share-fold-more">Show more</span><span class="share-fold-less">Show less</span></summary></details>',
+    );
+    expect(shareFold({ open: true, more: 'm', less: 'l' })).toMatch(/^<details class="share-fold" open><summary /);
+    expect(shareFold({ open: false, more: '<b>', less: '"x"' })).toContain('&lt;b&gt;</span><span class="share-fold-less">&quot;x&quot;');
+    // The page runs no script: nothing here may need one.
+    expect(shareFold({ open: false, more: 'a', less: 'b' })).not.toMatch(/<script|<button|<input|\son\w+=/i);
+  });
+
+  it("takes the place of the button of a role too long for any screen, folded or open as the role was on screen", () => {
+    const shut = role({ folded: true, button: 'shut' });
+    const open = role({ folded: false, button: 'open' });
+    shareRoleFolds([{ box: shut.box, long: true }, { box: open.box, long: true }], words);
+    expect(shut.button!.inserted).toEqual([`afterend ${shareFold({ open: false, ...words })}`]);
+    expect(open.button!.inserted).toEqual([`afterend ${shareFold({ open: true, ...words })}`]);
+    expect([shut.button!.removed, open.button!.removed]).toEqual([true, true]);
+    // The fold is SHARE_CSS's now, while the toggle is shut: the app's own would not open.
+    expect([shut.text.classes.has('folded'), open.text.classes.has('folded')]).toEqual([false, false]);
+  });
+
+  it('shows a role whole when it fits in its lines on a wide enough screen: nothing to open there, and nothing cut on a narrower one', () => {
+    // Folded on the sharer's narrow screen, but not at the chat's widest.
+    const narrow = role({ folded: true, button: 'shut' });
+    const short = role({ folded: true });
+    shareRoleFolds([{ box: narrow.box, long: false }, { box: short.box, long: false }], words);
+    expect([narrow.text.classes.has('folded'), short.text.classes.has('folded')]).toEqual([false, false]);
+    expect([narrow.button!.inserted, narrow.box.inserted, short.text.inserted]).toEqual([[], [], []]);
+  });
+
+  it("goes by the sharer's screen when a role could not be measured", () => {
+    const folded = role({ folded: true, button: 'shut' });
+    const short = role({ folded: true });
+    shareRoleFolds([{ box: folded.box }, { box: short.box }], words);
+    expect(folded.button!.inserted).toEqual([`afterend ${shareFold({ open: false, ...words })}`]);
+    expect([short.text.classes.has('folded'), short.text.inserted]).toEqual([false, []]);
+  });
+
+  it('gives a role too long for any screen its toggle, folded, even without a button on screen', () => {
+    const bare = role({ folded: true });
+    shareRoleFolds([{ box: bare.box, long: true }], words);
+    expect(bare.text.inserted).toEqual([`afterend ${shareFold({ open: false, ...words })}`]);
+  });
+
+  it("finds the role's button wherever it is in the role, and only that one", () => {
+    const wrapped = role({ folded: true, button: 'shut', wrap: true });
+    const other = new FakeElement('BUTTON', 'copy');
+    wrapped.box.children.push(other);
+    shareRoleFolds([{ box: wrapped.box, long: true }], words);
+    expect(wrapped.button!.removed).toBe(true);
+    expect(wrapped.button!.inserted).toHaveLength(1);
+    expect([other.removed, other.inserted]).toEqual([false, []]);
+  });
+
+  it('folds the role by CSS alone while the toggle is shut, as the app folds it, and says what a click does', () => {
+    const rules = cssRules(SHARE_CSS);
+    const app = cssRules(readFileSync(join(__dirname, '../src/web/styles.css'), 'utf8'));
+    const ruleFor = (list: typeof rules, selector: string) => list.filter((r) => r.selectors.includes(selector));
+    const [fold] = ruleFor(rules, `.${SHARE_FOLD.box}:has(.share-fold:not([open])) p`);
+    const [appFold] = ruleFor(app, `.${SHARE_FOLD.box} p.${SHARE_FOLD.folded}`);
+    expect(fold?.decls).toEqual(appFold?.decls);
+    expect(fold?.decls['-webkit-line-clamp']).toBe('var(--lines, 3)');
+    // One of "Show more" and "Show less", never both.
+    for (const s of ['.share-fold[open] .share-fold-more', '.share-fold:not([open]) .share-fold-less']) {
+      expect(ruleFor(rules, s).map((r) => r.decls.display)).toEqual(['none']);
+    }
+    // The summary looks like the app's button: no disclosure triangle.
+    expect(ruleFor(rules, '.share-fold > summary')[0]?.decls['list-style']).toBe('none');
+    expect(ruleFor(rules, '.share-fold > summary::-webkit-details-marker')[0]?.decls.display).toBe('none');
+  });
+
+  it('shows the role whole, without the toggle, where :has() does not work', () => {
+    const rules = cssRules(SHARE_CSS);
+    const supports = '@supports selector(:has(*))';
+    // Every rule that needs :has() is only where it works; there the toggle shows, elsewhere it does not.
+    for (const r of rules.filter((r) => r.selectors.some((s) => s.includes(':has(')))) expect(r.at, r.selectors.join()).toEqual([supports]);
+    const toggle = rules.filter((r) => r.selectors.includes('.share-fold'));
+    expect(toggle.map((r) => [r.at, r.decls.display])).toEqual([
+      [[], 'none'],
+      [[supports], 'block'],
+    ]);
+  });
+
+  it("is in every shared page, after the app's styles, whatever browser made it", () => {
+    const page = shareDocument({ lang: 'en', title: 't', css: '.app{}', body: '' });
+    const style = page.slice(page.indexOf('<style>'), page.indexOf('</style>'));
+    expect(style.indexOf('.app{}')).toBeGreaterThan(0);
+    expect(style.indexOf(SHARE_CSS)).toBeGreaterThan(style.indexOf('.app{}'));
+  });
+
+  it("measures the roles in a window wide enough for the page's widest layout", () => {
+    const css = cssRules(readFileSync(join(__dirname, '../src/web/styles.css'), 'utf8'));
+    const media = [...new Set(css.flatMap((r) => r.at))].filter((a) => a.startsWith('@media'));
+    // Every width the layouts change at is in px, so each is counted below.
+    for (const m of media.filter((m) => /width/.test(m))) expect(m).not.toMatch(/\d(\.\d+)?(em|rem|vw|vh|ch)\b/);
+    // The window is short: no layout may go by its height or shape.
+    for (const m of media) expect(m).not.toMatch(/height|aspect-ratio|orientation/);
+    // No narrow layout is in force there, and no wider one is left out (`max-width: 820px`, `width <= 820px`…).
+    const widths = media.filter((m) => /width/.test(m)).flatMap((m) => [...m.matchAll(/(\d+(?:\.\d+)?)px/g)].map((x) => Number(x[1])));
+    expect(widths.length).toBeGreaterThan(0);
+    for (const w of widths) expect(w, String(w)).toBeLessThan(SHARE_WIDEST);
+    // The chat's column is at its widest.
+    const column = css.find((r) => r.selectors.includes('.messages-inner') && r.at.length === 0)?.decls['max-width'];
+    expect(parseFloat(column ?? '')).toBeLessThan(SHARE_WIDEST);
+  });
+
+  it("finds RoleText's role by the class names it really uses, and whether it is open", () => {
+    const source = readFileSync(join(__dirname, '../src/web/components/RoleText.tsx'), 'utf8');
+    const cls = (name: string) => new RegExp(`className=\\{?["'\`][^"'\`]*(?<![\\w-])${name}(?![\\w-])`);
+    expect(source).toMatch(cls(SHARE_FOLD.box));
+    expect(source).toContain(`'${SHARE_FOLD.folded}'`);
+    const button = (source.match(/<button\b[\s\S]*?<\/button>/g) ?? []).filter((b) => cls(SHARE_FOLD.button).test(b));
+    expect(button).toHaveLength(1);
+    expect(button[0]).toMatch(/aria-expanded=\{/);
+    expect(SHARE_KEEP_BUTTONS).not.toContain(SHARE_FOLD.button);
   });
 });
 
