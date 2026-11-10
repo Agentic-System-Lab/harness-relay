@@ -1,8 +1,7 @@
 // Harness Relay landing page: the download buttons. The page links every button to the releases page;
-// this module points each one at its installer in the newest stable release (never a release
-// candidate: those are for trying, from the releases page, as the app never offers one as an update
-// either), names the visitor's system on the main button, and marks it in the quick start. Its
-// functions are tested in test/site-downloads.test.ts.
+// this module points each one at its installer in the newest release (release candidates included:
+// GitHub's "latest release" link skips pre-releases), names the visitor's system on the main button,
+// and marks it in the quick start. Its functions are tested in test/site-downloads.test.ts.
 
 export const REPO = 'Agentic-System-Lab/harness-relay';
 export const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
@@ -86,18 +85,19 @@ export function isCandidate(tag, prerelease = false) {
 }
 
 /**
- * The newest stable release with at least one installer, from GitHub's list of releases (newest
- * first): drafts and release candidates left out. { tag, installers }, or null when there is none yet
- * (the buttons then keep the releases page).
+ * The newest published release with at least one installer, release candidates included, from
+ * GitHub's list of releases (newest first, drafts left out): { tag, prerelease, installers }, or null
+ * when there is none yet (the buttons then keep the releases page). `prerelease` says whether it is a
+ * release candidate, for the version line.
  */
 export function newestRelease(releases) {
   if (!Array.isArray(releases)) return null;
   const published = releases
-    .filter((r) => r && !r.draft && typeof r.tag_name === 'string' && !isCandidate(r.tag_name, r.prerelease))
+    .filter((r) => r && !r.draft && typeof r.tag_name === 'string')
     .sort((a, b) => String(b.published_at ?? '').localeCompare(String(a.published_at ?? '')));
   for (const r of published) {
     const installers = installersOf(r);
-    if (Object.keys(installers).length) return { tag: r.tag_name, installers };
+    if (Object.keys(installers).length) return { tag: r.tag_name, prerelease: isCandidate(r.tag_name, r.prerelease), installers };
   }
   return null;
 }
@@ -115,7 +115,7 @@ const FRESH_MS = 10 * 60 * 1000;
 /**
  * Points the page's download links at the newest release. The page's own words come from data
  * attributes on [data-downloads] (both languages): data-mac / data-win / data-linux (the main button
- * for each system), data-release (the version line), data-mobile (on a phone). The
+ * for each system), data-rc and data-release (the version line), data-mobile (on a phone). The
  * browser's objects are passed in, so the tests can give fakes.
  */
 /** The browser's localStorage, or null where reading it throws (site data blocked: Chrome and Firefox). */
@@ -179,8 +179,7 @@ export function wire({
    * the release kept from an earlier visit, would be of an older release than the version line says).
    */
   const show = (release) => {
-    // A release candidate kept from a visit before the page left them out is not shown either.
-    if (!release || isCandidate(release.tag, release.prerelease)) return;
+    if (!release || typeof release.tag !== 'string') return;
     for (const link of doc.querySelectorAll('[data-download]')) {
       const found = release.installers?.[link.dataset.download];
       const ok = isInstallerUrl(found?.url);
@@ -190,7 +189,7 @@ export function wire({
     }
     const mine = release.installers?.[system];
     if (primary && system in INSTALLERS) primary.setAttribute('href', isInstallerUrl(mine?.url) ? mine.url : RELEASES_PAGE);
-    const text = `${words.release} ${release.tag}`;
+    const text = `${isCandidate(release.tag, release.prerelease) ? words.rc : words.release} ${release.tag}`;
     for (const slot of meta) if (!slot.hasAttribute('data-hero')) slot.textContent = text;
   };
 
@@ -198,7 +197,7 @@ export function wire({
   try {
     saved = JSON.parse(store() || 'null');
   } catch {}
-  const valid = saved && typeof saved.at === 'number' && 'release' in saved && (saved.release === null || !isCandidate(saved.release?.tag, saved.release?.prerelease));
+  const valid = saved && typeof saved.at === 'number' && 'release' in saved;
   if (valid) show(saved.release);
   // A time in the future is not fresh: it would keep that release for good.
   if (valid && saved.at <= now() && now() - saved.at < FRESH_MS) return Promise.resolve();

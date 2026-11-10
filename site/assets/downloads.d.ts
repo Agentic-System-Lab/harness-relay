@@ -7,6 +7,8 @@ export interface Installer {
 }
 export interface NewestRelease {
   tag: string;
+  /** Whether it is a release candidate. */
+  prerelease: boolean;
   installers: Partial<Record<'mac' | 'win' | 'linux', Installer>>;
 }
 export const REPO: string;

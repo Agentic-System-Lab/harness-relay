@@ -24,7 +24,7 @@ npm start
 
 除了在終端機執行 `npm start`，也可以把 Harness Relay 安裝成桌面 app，支援 macOS（13 Ventura 以上，Apple Silicon 或 Intel）、Windows 10 以上，以及有桌面環境的 Linux。它在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列或系統匣留著一個圖示，所以手機照常能用。跟 `npm start` 一樣，它需要 agent 的 CLI，編輯與平行模式也需要 Git；但不需要 Node.js。
 
-**安裝。** 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)（提供最新的正式版本）或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases)（也有候選版本，版本結尾是 `-rc`，見[版本](#版本)）下載你系統的安裝檔。目前只有候選版本，所以網站的按鈕會帶你到 Releases。
+**安裝。** 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)（提供最新的版本）或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) 下載你系統的安裝檔。最新的版本可能是候選版本（版本結尾是 `-rc`，見[版本](#版本)）；目前只有候選版本。App 只會自己更新到正式版本，不會更新到另一個候選版本（見下方 **更新**）。
 
 - **macOS**：`Harness-Relay-<版本>-mac-universal.dmg`（Apple Silicon 與 Intel 通用）。打開後把 Harness Relay 拖到「應用程式」。
 - **Windows**：`Harness-Relay-<版本>-win-x64.exe`。只安裝給你的帳號，不需要系統管理員權限。
