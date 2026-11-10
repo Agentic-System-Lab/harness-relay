@@ -95,11 +95,11 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 
 ## Motion
 
-- **The signature:** the chapter rail follows the video. The active chapter is highlighted and a 2px bar fills in the colour of whoever acts; clicking a chapter seeks there.
+- **The signature:** the chapter rail follows the video. The active chapter is highlighted and a 2px bar fills in the colour of whoever acts; clicking a chapter seeks there. Beside the video the rail is exactly as tall as the video and its chapters scroll inside it, fading out at an edge with more past it; the active chapter is scrolled to the middle of the list as the video plays (not for 4 seconds after the visitor scrolls the list, and a clicked chapter is only brought fully into view). Under the video (920px and narrower) the rail shows every chapter and nothing scrolls by itself.
 - **Mode diagrams** act out their mode step by step (0.85s per step, then a pause) only while the section is on screen.
 - The video plays muted when it scrolls into view and pauses when it leaves; a visitor's pause is respected.
 - Easing `cubic-bezier(0.16, 1, 0.3, 1)`. No entrance animation on sections.
-- `prefers-reduced-motion`: no autoplay, diagrams show their final state, transitions are instant.
+- `prefers-reduced-motion`: no autoplay, diagrams show their final state, transitions are instant, and the chapter list jumps to the active chapter instead of gliding.
 - Without JavaScript everything is still readable: all three mode panels show, diagrams show every step.
 
 ## Copy and languages

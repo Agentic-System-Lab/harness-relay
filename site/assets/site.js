@@ -60,12 +60,54 @@ for (const button of document.querySelectorAll('[data-copy]')) {
 
 const video = document.getElementById('demo-video');
 const chapters = [...document.querySelectorAll('.chapter')];
+const list = document.querySelector('.chapters');
 
-if (video && chapters.length) {
+if (video && chapters.length && list) {
   const starts = chapters.map((c) => Number(c.dataset.t));
   let current = -1;
   let pausedByUser = false;
   let pausingForView = false;
+
+  // Beside the video the rail is as tall as the video and its chapters scroll (site.css): the one
+  // playing is kept in the middle of the list. Not for a few seconds after the visitor scrolled the list
+  // themselves, and a chapter they clicked is only brought fully into view. Under the video (narrow
+  // screens) the list does not scroll, so nothing moves; the page itself is never scrolled.
+  const HAND_SCROLL_MS = 4000;
+  let handScrolledAt = -Infinity;
+  let clicked = -1;
+  const byHand = () => (handScrolledAt = performance.now());
+  for (const type of ['wheel', 'touchmove', 'keydown']) list.addEventListener(type, byHand, { passive: true });
+  // Dragging the scrollbar: the press lands on the list itself, not on a chapter.
+  list.addEventListener('pointerdown', (e) => e.target === list && byHand());
+
+  const scrollList = (top) =>
+    list.scrollTo({ top: Math.max(0, top), behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+
+  const follow = (i) => {
+    if (list.scrollHeight <= list.clientHeight + 1) return;
+    const c = chapters[i];
+    const top = c.offsetTop;
+    const bottom = top + c.offsetHeight;
+    if (i === clicked) {
+      clicked = -1;
+      const edge = 32; // the faded edge
+      if (top < list.scrollTop + edge) scrollList(top - edge);
+      else if (bottom > list.scrollTop + list.clientHeight - edge) scrollList(bottom - list.clientHeight + edge);
+      return;
+    }
+    if (performance.now() - handScrolledAt < HAND_SCROLL_MS) return;
+    scrollList(top - (list.clientHeight - c.offsetHeight) / 2);
+  };
+
+  // Fade the list at an edge with more chapters past it.
+  const edges = () => {
+    const scrolls = list.scrollHeight > list.clientHeight + 1;
+    list.classList.toggle('more-above', scrolls && list.scrollTop > 1);
+    list.classList.toggle('more-below', scrolls && list.scrollTop + list.clientHeight < list.scrollHeight - 1);
+  };
+  list.addEventListener('scroll', edges, { passive: true });
+  if ('ResizeObserver' in window) new ResizeObserver(edges).observe(list);
+  edges();
 
   const endOf = (i) => (i + 1 < starts.length ? starts[i + 1] : video.duration || starts[i] + 15);
 
@@ -77,6 +119,7 @@ if (video && chapters.length) {
       chapters[current]?.removeAttribute('aria-current');
       chapters[i].setAttribute('aria-current', 'true');
       current = i;
+      follow(i);
     }
     const span = endOf(i) - starts[i];
     const p = span > 0 ? Math.min(1, Math.max(0, (t - starts[i]) / span)) : 0;
@@ -122,6 +165,7 @@ if (video && chapters.length) {
   chapters.forEach((chapter, i) => {
     chapter.addEventListener('click', () => {
       pausedByUser = false;
+      clicked = i;
       seek(starts[i]);
     });
   });

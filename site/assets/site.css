@@ -627,6 +627,37 @@ p {
   min-height: 0;
 }
 
+/* Beside the video, the rail is as tall as the video: its own content does not size the row (contain),
+   it stretches to the row, and the chapters scroll inside it (site.js keeps the one playing in view). */
+@media (min-width: 921px) {
+  .rail {
+    align-self: stretch;
+    contain: size;
+  }
+
+  .chapters {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--band-line) transparent;
+  }
+
+  /* More chapters above or below: the list fades out at that edge. */
+  .chapters.more-above {
+    mask-image: linear-gradient(to bottom, transparent, #000 32px);
+  }
+
+  .chapters.more-below {
+    mask-image: linear-gradient(to top, transparent, #000 32px);
+  }
+
+  .chapters.more-above.more-below {
+    mask-image: linear-gradient(to bottom, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  }
+}
+
 .rail h2 {
   font-size: 1.45rem;
   letter-spacing: -0.015em;
@@ -641,10 +672,13 @@ p {
 }
 
 .chapters {
+  /* The chapters' offsets are measured from the list (site.js scrolls it). */
+  position: relative;
   list-style: none;
   margin: 16px 0 0;
   padding: 0;
   display: grid;
+  align-content: start;
   gap: 2px;
 }
 
