@@ -661,6 +661,8 @@ export const zhTW = {
     whereTitle: '代碼從哪裡來',
     whereTerminal: 'Harness Relay 啟動時在終端機印出的登入連結：直接打開就會登入（一小時內有效，只能用一次）。',
     whereLogin: '或在 Harness Relay 的資料夾執行',
+    whereDesktop: '從桌面 app 的選單（選單列或系統匣裡的 Harness Relay 圖示）選「在瀏覽器打開」：它會用新的登入連結在瀏覽器打開對話。',
+    whereDesktopWindow: '從 app 的選單（選單列或系統匣裡的 Harness Relay 圖示）選「打開 Harness Relay」：這個視窗會用新的登入連結重新登入。',
     whereOther: '或從另一個已登入的瀏覽器：設定 → 已登入的瀏覽器 → 讓另一個裝置登入（例如手機）。',
   },
 
@@ -1013,6 +1015,7 @@ export const zhTW = {
     },
     cliMissing: (bin: string) => `找不到 ${bin}`,
     setBinBelow: '（可在下方「預設模型與推理強度」指定執行檔路徑）',
+    installCli: (p: string) => `到官網安裝 ${p}`,
     login: '登入',
     relogin: '重新登入',
     logout: '登出',

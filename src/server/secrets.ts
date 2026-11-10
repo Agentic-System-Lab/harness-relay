@@ -14,11 +14,19 @@ export interface SecretStore {
 export const KEYRING_SERVICE = 'harness-relay';
 
 /**
+ * The service name to use: RELAY_KEYRING_SERVICE, else `harness-relay`. The desktop app sets
+ * `harness-relay-desktop`, since it keeps a database of its own: keys follow their database.
+ */
+export function keyringService(env: NodeJS.ProcessEnv = process.env): string {
+  return env.RELAY_KEYRING_SERVICE?.trim() || KEYRING_SERVICE;
+}
+
+/**
  * The operating system's credential store: macOS Keychain, Windows Credential Manager, or the
  * Secret Service on Linux (GNOME Keyring, KWallet…). Undefined when there is none, e.g. a Linux
  * server without a desktop session, or when RELAY_KEYRING=off.
  */
-export function openSystemKeyring(service = KEYRING_SERVICE): SecretStore | undefined {
+export function openSystemKeyring(service = keyringService()): SecretStore | undefined {
   if (process.env.RELAY_KEYRING === 'off') return undefined;
   let keyring: typeof import('@napi-rs/keyring');
   try {

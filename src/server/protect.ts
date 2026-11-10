@@ -117,6 +117,15 @@ export function browserDataDirs(
   return [];
 }
 
+/**
+ * The desktop app's own browser folder (desktop/): its chat window keeps its sign-in there, a cookie
+ * and a key like any browser's. The app names it in RELAY_APP_BROWSER_DIR when it starts the server.
+ */
+export function appBrowserDirs(env: NodeJS.ProcessEnv = process.env): string[] {
+  const dir = env.RELAY_APP_BROWSER_DIR?.trim();
+  return dir && isAbsolute(dir) ? [dir] : [];
+}
+
 /** Harness Relay's database and the files SQLite keeps beside it. */
 export function relayDatabaseFiles(dataDir = DATA_DIR): string[] {
   return ['relay.db', 'relay.db-wal', 'relay.db-shm'].map((f) => join(dataDir, f));
@@ -154,17 +163,18 @@ function real(path: string): string {
 
 /**
  * The paths agents below full access may not read, as their sandboxes take them: the browsers'
- * folders, Harness Relay's database files and its own temporary folder that exist now (a sandbox may
- * refuse to start for a path that does not), each also by its real path when that differs. None on
- * Windows, where Claude Code and Grok have no sandbox to enforce them.
+ * folders (the desktop app's window's too), Harness Relay's database files and its own temporary
+ * folder that exist now (a sandbox may refuse to start for a path that does not), each also by its
+ * real path when that differs. None on Windows, where Claude Code and Grok have no sandbox to enforce
+ * them.
  */
 export function protectedReads(
-  o: { platform?: NodeJS.Platform; home?: string; dataDir?: string } = {},
+  o: { platform?: NodeJS.Platform; home?: string; dataDir?: string; env?: NodeJS.ProcessEnv } = {},
 ): string[] {
   const platform = o.platform ?? process.platform;
   if (platform === 'win32') return [];
   const relay = [...relayDatabaseFiles(o.dataDir), relayTmpDir(o.dataDir)];
-  const paths = [...browserDataDirs(platform, o.home), ...relay].filter((p) => existsSync(p));
+  const paths = [...browserDataDirs(platform, o.home), ...appBrowserDirs(o.env), ...relay].filter((p) => existsSync(p));
   return [...new Set(paths.flatMap((p) => [p, real(p)]))];
 }
 

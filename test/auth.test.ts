@@ -90,6 +90,17 @@ describe('signed-in browsers', () => {
     expect(auth.redeem(code, 'late')).toBeUndefined();
   });
 
+  it("let the desktop app's links work for one minute, once", () => {
+    expect(CODE_TTL_MS.desktop).toBe(60_000);
+    const used = auth.createCode(CODE_TTL_MS.desktop).code;
+    clock += CODE_TTL_MS.desktop - 1;
+    expect(auth.redeem(used, 'window')).toBeDefined();
+    expect(auth.redeem(used, 'again')).toBeUndefined();
+    const late = auth.createCode(CODE_TTL_MS.desktop).code;
+    clock += CODE_TTL_MS.desktop;
+    expect(auth.redeem(late, 'late')).toBeUndefined();
+  });
+
   it('need the cookie and the key, or the cookie alone where the browser loads a file', () => {
     const { code } = auth.createCode(CODE_TTL_MS.startup);
     const s = auth.redeem(code, 'x')!;
@@ -167,6 +178,19 @@ describe('the API with sign-in', () => {
     expect(await (await app.request('/api/auth', { headers: HOST })).json()).toEqual({ signedIn: false });
     // Host and Origin are still checked first.
     expect((await app.request('/api/conversations', { headers: { host: 'evil.test' } })).status).toBe(403);
+  });
+
+  it("points a browser that is not signed in at the desktop app's menu when the app started the server", async () => {
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    const store = new Store(db);
+    const hub = new Hub();
+    const desktop = createApp({ auth: new AuthStore(db), store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers: new ProviderService(settings), desktopApp: true });
+    expect(await (await desktop.request('/api/auth', { headers: HOST })).json()).toEqual({ signedIn: false, desktop: true });
+    const res = await desktop.request('/api/conversations', { headers: HOST });
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { error: string }).error).toMatch(/desktop app|桌面 app/);
+    expect(((await (await app.request('/api/conversations', { headers: HOST })).json()) as { error: string }).error).toMatch(/npm run login/);
   });
 
   it('signs a browser in with a code: an HttpOnly, strict cookie for the API, and a key for its requests', async () => {

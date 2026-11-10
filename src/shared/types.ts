@@ -22,6 +22,13 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   grok: 'Grok',
 };
 
+/** Where each CLI is installed from: Settings links to it when the CLI is not found. */
+export const PROVIDER_INSTALL_URL: Record<Provider, string> = {
+  claude: 'https://claude.com/product/claude-code',
+  codex: 'https://openai.com/codex/',
+  grok: 'https://x.ai/build',
+};
+
 /** UI languages. The server localizes its messages from the `X-Relay-Lang` request header. */
 export type Lang = 'zh-TW' | 'en';
 export const LANGS: Lang[] = ['zh-TW', 'en'];
@@ -1311,3 +1318,18 @@ export interface VoiceSettingsUpdate {
   language?: VoiceLanguage;
   bin?: string;
 }
+
+// --- The desktop app (desktop/) and the server it runs in an Electron utility process ---------
+
+/** What the desktop app tells the server it started. */
+export type DesktopToServer =
+  | { type: 'shutdown' }
+  /** A link that signs a browser in (a new one-time code), to open the chat with. */
+  | { type: 'sign-in-link' };
+
+/** What the server tells the desktop app that started it. */
+export type ServerToDesktop =
+  | { type: 'listening'; host: string; port: number }
+  | { type: 'sign-in-link'; link: string }
+  /** The server could not start listening (`code` is the error code, such as EADDRINUSE); it exits next. */
+  | { type: 'error'; code: string; message: string };

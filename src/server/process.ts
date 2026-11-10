@@ -305,6 +305,23 @@ export function spawnInteractive(bin: string, args: string[], env: NodeJS.Proces
 }
 
 /**
+ * Starts a program that must outlive this process, and is not waited for (the desktop app's update
+ * starts the installer, or waits for the app to exit before opening the new one). It is left out of
+ * `killAll`, and its own process group keeps it from the signals sent to this one. Resolves once it
+ * started, or rejects when it could not.
+ */
+export function spawnDetached(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
+  return new Promise((done, fail) => {
+    const child = spawn(resolveBin(bin), args, { env, detached: true, windowsHide: true, stdio: 'ignore' });
+    child.once('error', fail);
+    child.once('spawn', () => {
+      child.unref();
+      done();
+    });
+  });
+}
+
+/**
  * Stop every process this server started (on shutdown): SIGTERM to each process group, then SIGKILL
  * to the groups after a grace period, including subprocesses whose CLI already exited.
  */

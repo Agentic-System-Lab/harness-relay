@@ -521,13 +521,19 @@ p {
   align-items: start;
 }
 
+/* A phrase the headline never breaks inside (Chinese breaks between any two characters). */
+.phrase {
+  white-space: nowrap;
+}
+
 .hero-grid h1 {
   grid-column: 1 / -1;
-  max-width: 15em;
+  /* As wide as the header: the first line fills the width instead of being balanced shorter. */
+  text-wrap: pretty;
   margin-bottom: clamp(6px, 1vw, 14px);
 }
 
-/* The lead sits left of the command and buttons. */
+/* The lead sits left of the download button and the links. */
 .hero-side {
   display: contents;
 }
@@ -537,7 +543,7 @@ p {
   grid-row: 2 / span 2;
 }
 
-.hero-grid .cmd {
+.hero-grid .download {
   grid-column: 2;
   grid-row: 2;
   min-width: 0;
@@ -546,6 +552,16 @@ p {
 .hero-grid .cta-row {
   grid-column: 2;
   grid-row: 3;
+}
+
+/* The download button and the GitHub button end at the right edge, under the header's GitHub button. */
+.hero-grid .download,
+.hero-grid .cta-row {
+  justify-self: end;
+}
+
+.hero-grid .download {
+  justify-items: end;
 }
 
 .cmd {
@@ -627,6 +643,136 @@ p {
 .text-link {
   font-weight: 600;
   font-size: 15px;
+}
+
+/* ---------- Downloads ----------
+   Every button links to the releases page; downloads.js points each one at its installer in the
+   newest release, names the visitor's system on the hero's button and marks it in the quick start. */
+
+.download {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+/* The download button, with the link to the requirements and the other systems beside it. */
+.download-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 22px;
+}
+
+.btn-download {
+  height: 52px;
+  padding: 0 26px;
+  font-size: 16.5px;
+}
+
+.btn-download svg {
+  width: 20px;
+  height: 20px;
+}
+
+.download-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14.5px;
+}
+
+/* The newest release's version, once downloads.js knows it. */
+.release-line [data-release-meta]:not(:empty)::after {
+  content: ' · ';
+}
+
+/* One row per system, so each one's details stay on one line. */
+.downloads {
+  display: grid;
+  gap: 12px;
+  max-width: 560px;
+  padding-top: 8px;
+}
+
+.dl {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    border-color 0.2s,
+    transform 0.2s var(--ease);
+}
+
+.dl:hover {
+  border-color: color-mix(in srgb, var(--text) 35%, var(--border));
+}
+
+.dl:active {
+  transform: translateY(1px);
+}
+
+.dl svg {
+  flex: none;
+}
+
+.dl-os {
+  width: 26px;
+  height: 26px;
+}
+
+.dl-get {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
+
+.dl-text {
+  display: grid;
+  gap: 1px;
+}
+
+.dl-name {
+  font-weight: 700;
+}
+
+.steps .dl-detail {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.dl-detail [data-size]:not(:empty)::before {
+  content: ' · ';
+}
+
+/* The visitor's system: a firmer outline and a label on the edge. */
+.dl.is-yours {
+  border-color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.dl-yours {
+  display: none;
+  position: absolute;
+  top: -10px;
+  left: 14px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-contrast);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.dl.is-yours .dl-yours {
+  display: inline-block;
 }
 
 /* ---------- The screening: demo video + chapter rail ---------- */
@@ -1799,8 +1945,14 @@ p {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .hero-grid .download,
+  .hero-grid .cta-row {
+    justify-self: start;
+    justify-items: start;
+  }
+
   .hero-grid .lead,
-  .hero-grid .cmd,
+  .hero-grid .download,
   .hero-grid .cta-row,
   .safety-copy h2,
   .safety-copy > p,

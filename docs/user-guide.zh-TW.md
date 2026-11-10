@@ -6,7 +6,7 @@
 
 ## 1. 安裝與啟動
 
-需要 Node.js 22.13 以上，以及至少一個 agent CLI（`claude`、`codex`、`grok`）。
+需要 Node.js 22.13 以上，以及至少一個 agent CLI（`claude`、`codex`、`grok`）。編輯與平行模式還需要 [Git](https://git-scm.com/downloads)，Harness Relay 用它做快照與 worktree。
 
 ```bash
 npm install
@@ -19,6 +19,82 @@ npm start
 側邊欄底部的圓點代表各 agent 的狀態：綠色＝可以使用、橘色＝尚未登入、紅色＝找不到 CLI。
 
 要用手機、平板或另一台電腦使用 Harness Relay，用 `tailscale serve` 把它分享到你的 tailnet，也可以加到手機主畫面：詳見[用手機連線（Tailscale）](remote-access.zh-TW.md)。在電腦上，Chrome 與 Edge 也能把它安裝成 App（網址列的安裝按鈕），macOS 的 Safari 則能把它加到 Dock（**檔案 → 加入 Dock**）。
+
+### 桌面 app
+
+除了在終端機執行 `npm start`，也可以把 Harness Relay 安裝成桌面 app，支援 macOS（13 Ventura 以上，Apple Silicon 或 Intel）、Windows 10 以上，以及有桌面環境的 Linux。它在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列或系統匣留著一個圖示，所以手機照常能用。跟 `npm start` 一樣，它需要 agent 的 CLI，編輯與平行模式也需要 Git；但不需要 Node.js。
+
+**安裝。** 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)（提供最新的正式版本）或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases)（也有候選版本，版本結尾是 `-rc`，見[版本](#版本)）下載你系統的安裝檔。目前只有候選版本，所以網站的按鈕會帶你到 Releases。
+
+- **macOS**：`Harness-Relay-<版本>-mac-universal.dmg`（Apple Silicon 與 Intel 通用）。打開後把 Harness Relay 拖到「應用程式」。
+- **Windows**：`Harness-Relay-<版本>-win-x64.exe`。只安裝給你的帳號，不需要系統管理員權限。
+- **Linux**：`Harness-Relay-<版本>-linux-x86_64.AppImage`。加上執行權限（`chmod +x`）後執行。
+
+也可以在 clone 下來的資料夾執行 `npm install` 之後自己建置。建置所在系統的安裝檔會放在 `desktop/release/`；`npm run desktop` 則是不安裝、直接執行：
+
+```bash
+npm install --prefix desktop
+npm run desktop:dist
+```
+
+有 Harness Relay 正從 `desktop/release/` 執行時，`npm run desktop:dist` 會拒絕開始，因為它會替換那些檔案：請先結束那一個，或用 `npm run desktop:dist -- --output <資料夾>` 建置到其他地方。打開新建置的 app 之前，也要先結束正在執行的 Harness Relay，否則 macOS 只會把正在執行的那一個帶到前面（同時只會有一個 Harness Relay 在執行）。之後可以用 `npx tsx desktop/scripts/check-package.ts` 像檢查正式版本一樣檢查剛建置的 app。
+
+安裝檔還沒有為發佈簽章（macOS 上是 ad hoc 簽章），所以第一次開啟時系統會警告：
+
+- **macOS**：「Apple 無法驗證 "Harness Relay"」。打開 **系統設定 → 隱私權與安全性**，在 Harness Relay 旁按 **強制打開**。
+- **Windows**：SmartScreen 顯示「Windows 已保護您的電腦」。按 **其他資訊**，再按 **仍要執行**。
+- **Linux**：在 Ubuntu 24.04 這類限制非特權 user namespace 的系統上，AppImage 可能一啟動就結束，並提到 *SUID sandbox helper*。請加上 `--no-sandbox` 啟動（`./Harness-Relay-….AppImage --no-sandbox`）；之後 **登入時自動啟動** 也會這樣啟動它。
+
+**登入。** App 會向它的伺服器拿一個一次性的登入連結來打開對話，所以視窗不用輸入代碼就已登入；**在瀏覽器打開** 則在預設瀏覽器做同樣的事。這個連結不會印出，也不會寫進記錄檔，而且只在一分鐘內有效。視窗本身就是一個獨立的瀏覽器：它會列在 **設定 → 已登入的瀏覽器** 裡，使用導覽與介面語言也是它自己的。要讓手機登入，就跟 `npm start` 一樣，打開 **設定 → 已登入的瀏覽器 → 讓另一個裝置登入**。如果視窗出現登入頁（它的登入被撤銷，或登入連結沒有及時使用），從 app 的選單選 **打開 Harness Relay**：視窗會用新的連結重新登入。如果是瀏覽器出現登入頁，就選 **在瀏覽器打開**。視窗的登入資訊放在 app 資料夾裡的 `browser` 資料夾，權限低於完全存取的 agent 讀不到它（在 macOS 與 Linux 上，由它們的沙箱強制執行）。
+
+**視窗。** 關掉視窗後，Harness Relay 會繼續在選單列或系統匣執行（macOS 上它的 Dock 圖示會消失，直到視窗再次打開）；選 **結束**（macOS 上是 ⌘Q）才會停止。連到其他網站的連結會在預設瀏覽器打開，從對話下載的檔案則透過一般的儲存對話框儲存。第一次使用語音輸入時會詢問麥克風權限；影片本身的全螢幕按鈕也能用。在 Windows 與 Linux 上，按 Alt 會顯示視窗的選單列，裡面也有 **結束**。
+
+**選單。** App 的圖示是 Harness Relay 的三個圓點，在 macOS 的選單列，或 Windows 與 Linux 的系統匣。在 Windows 上，點一下圖示會打開對話，選單在右鍵。選單有：
+
+| 項目 | 作用 |
+| --- | --- |
+| 「執行中：<http://127.0.0.1:8787>」 | 伺服器的狀態：啟動中、執行中、停止中或已停止。 |
+| **打開 Harness Relay** | 顯示對話視窗。再次打開 app（從 Dock、啟動台或「開始」選單）也一樣。 |
+| **在瀏覽器打開** | 改用預設瀏覽器打開已登入的對話。 |
+| **分享到手機（Tailscale）…** | 把伺服器分享到你的 tailnet，也就是[用手機連線](remote-access.zh-TW.md#用桌面-app)的第 1、2 步，並顯示手機要打開的網址。分享之後，**複製手機網址** 會複製它。 |
+| **登入時自動啟動** | 登入電腦時啟動 app，但不打開視窗。 |
+| **執行時不讓電腦睡著** | App 執行時，電腦不會自己進入睡眠，手機才連得到。MacBook 闔上蓋子還是會睡眠。 |
+| **打開資料夾**、**查看記錄檔** | App 的資料夾（見下方）與伺服器的記錄檔。 |
+| **重新啟動伺服器…**、**啟動伺服器** | 重新啟動伺服器（正在回覆的對話會中斷），或在它停止後再啟動。 |
+| 「版本」 | App 的版本（見[版本](#版本)）。 |
+| **更新到 2026-11-12…** | 有更新的正式版本時出現：更新 app（見下方 **更新**）。更新進行中，這一項會顯示下載進度。 |
+| **結束 Harness Relay** | 停止伺服器（它會先停止所有 agent），然後結束。 |
+
+有些 Linux 桌面會隱藏系統匣圖示（例如沒有 AppIndicator 擴充套件的 GNOME）。在那裡，再次打開 app 會顯示視窗（或啟動已停止的伺服器），視窗的選單列（Alt）除了編輯、縮放與視窗之外，還有 **在瀏覽器打開** 與 **結束**。選單的其他項目（**分享到手機**、**登入時自動啟動**、**執行時不讓電腦睡著**、**重新啟動伺服器…**、記錄檔、資料夾與更新）在那裡都用不到：請安裝 AppIndicator 擴充套件，或改用終端機（`tailscale serve`，見[用手機連線](remote-access.zh-TW.md)）。
+
+**跟 `npm start` 不同的地方：**
+
+- **它有自己的資料夾。** App 把檔案放在 macOS 的 `~/Library/Application Support/Harness Relay`、Windows 的 `%APPDATA%\Harness Relay`、Linux 的 `~/.config/Harness Relay`：對話與設定在其中的 `data` 資料夾，app 自己的設定在 `desktop.json`。它不使用 clone 資料夾裡的 `data/`。要沿用原本的對話，先把兩者都結束，再把 clone 資料夾裡 `data/` 的內容複製到 app 的 `data` 資料夾，並在設定中重新輸入 API key 與 MCP 伺服器的祕密值（它們在金鑰儲存區裡另一個名稱下：見下一點）。或者在 shell 設定檔裡設定 `RELAY_DATA_DIR`，app 也會讀取。絕對不要讓兩者同時使用同一份資料。
+- **它有自己的 API key。** 使用自己的資料夾時，app 把 API key 存在金鑰儲存區的 `harness-relay-desktop` 名下，跟 `npm start` 的（`harness-relay`）分開，所以在其中一邊儲存或移除 key，不會影響另一邊。設定了 `RELAY_DATA_DIR` 時，兩者共用資料，也都使用 `harness-relay`。
+- **你的 shell 環境。** 在 macOS 與 Linux 上，app 會讀取登入 shell 設定好的環境（`~/.zshrc`、`~/.bashrc` 等檔案裡的 PATH、API key 與其他變數），所以會像終端機一樣找到 CLI。**重新啟動伺服器…** 與 **啟動伺服器** 時會再讀一次：安裝新的 CLI 或修改設定檔之後，選其中一個。在 Windows 上，app 在打開時從系統取得 PATH，並在 **重新啟動伺服器…** 與 **啟動伺服器** 時，從 Windows 重新讀取 PATH 與你的使用者變數。
+- **一律使用 127.0.0.1、port 8787。** Shell 設定檔裡的 `PORT` 或 `HOST` 是給其他程式用的，app 不會採用。要改用其他 port，先結束 app，再修改它的 `desktop.json` 裡的 `"port"`（檔案不存在時就建立它：`{ "port": 8790 }`）。`npm start` 也使用 port 8787，所以除非其中一個改用其他 port，兩者不能同時執行。如果 port 已被佔用（例如被用 `npm start` 啟動的 Harness Relay），app 會告訴你，並讓你再試一次。
+- **預設工作目錄**是你的家目錄，直到你在設定中修改。編輯模式不接受家目錄本身（agent 會在不詢問的情況下修改你的 shell 與工具設定）：編輯模式的對話請選一個專案資料夾。
+- **伺服器的記錄檔**在 macOS 是 `~/Library/Logs/Harness Relay/server.log`，在 Windows 與 Linux 是 app 資料夾裡的 `logs/server.log`。
+- **macOS 可能會詢問** Harness Relay 能否存取「文件」或「桌面」等資料夾（agent 第一次在那裡工作時）、能否使用麥克風（第一次使用語音輸入時），以及更新後能否使用鑰匙圈裡它的金鑰。詢問的對象是這個 app，因為 agent 在它裡面執行。請選 **允許**（或 **永遠允許**）。
+- **結束 app** 時會先停止所有 agent。強制結束 app（或 app 當機）時，正在回覆的 agent 可能會繼續執行，就像用 `kill -9` 停止 `npm start` 一樣。伺服器還在啟動時（例如在等鑰匙圈）結束 app，會立刻停止它：那時它還沒有執行任何 agent。
+
+**更新。** App 啟動約 30 秒後，以及之後每 6 小時，會向 GitHub（`api.github.com`）查詢最新的正式版本。候選版本不會被提供。當那個版本比 app 新、並且有你系統的安裝檔時，選單會出現 **更新到** 加上它的版本（例如 **更新到 2026-11-12…**）。選了之後會先詢問，因為正在回覆的對話會被中斷；**查看版本說明** 會打開該版本的頁面。接著 app 會下載安裝檔、用 GitHub 公布的 SHA-256 檢查碼檢查它，然後結束，再以新版重新打開：
+
+- **macOS**：新的 app 會就地取代「應用程式」（或你放它的地方）裡的 app。這需要一個 app 能寫入的資料夾（系統管理員的「應用程式」資料夾即可），而且 app 不能直接從 `.dmg` 執行。如果 macOS 不讓 app 取代自己（可能會要求你允許 **App 管理**），會打開新版的 `.dmg`：把 Harness Relay 拖到「應用程式」、取代舊版即可。
+- **Windows**：app 結束後，安裝檔會在背景安裝，並打開新版。
+- **Linux**：新的 AppImage 會取代你執行的那一個。如果那一個是以版本命名的（下載時的名稱），新的會用它自己的版本命名，並刪除舊的；**登入時自動啟動** 也會跟著改。只有 AppImage 能自己更新。
+
+無法自己更新的 Harness Relay（用 `npm run desktop` 從原始碼執行的、放在不能寫入的資料夾裡的、安裝檔沒有檢查碼的）會說明原因，並改為提供該版本的頁面：照第一次的方式安裝新版即可。要關掉這些查詢，在 shell 設定檔（或 app 的環境）設定 `RELAY_UPDATES=off`。
+
+**它把東西放在哪裡，以及解除安裝。** App 的資料夾在 macOS 是 `~/Library/Application Support/Harness Relay`，Windows 是 `%APPDATA%\Harness Relay`，Linux 是 `~/.config/Harness Relay`（有設定 `$XDG_CONFIG_HOME` 時是 `$XDG_CONFIG_HOME/Harness Relay`）。裡面有：`data`（對話與設定）、`browser`（視窗自己的瀏覽器資料，包括它的登入資訊）、`desktop.json`（app 的設定），在 Windows 與 Linux 上還有 `logs`。解除安裝的步驟：
+
+1. 關掉 **登入時自動啟動**；如果分享過到手機，停止分享（`tailscale serve --https=443 off`，或 app 說它用的那個 HTTPS port：見[用手機連線](remote-access.zh-TW.md#安全性)），再結束 app。
+2. 移除 app：把 Harness Relay 從「應用程式」拖到垃圾桶（macOS）；**設定 → 應用程式**（**已安裝的應用程式**，Windows 10 是 **應用程式與功能**）→ Harness Relay → **解除安裝**（Windows）；刪除 AppImage（Linux）。
+3. 要連資料一起移除：刪除 app 的資料夾，在 macOS 上還有 `~/Library/Logs/Harness Relay`。API key 與 MCP 伺服器的祕密值在金鑰儲存區的 `harness-relay-desktop` 名下（macOS 的「鑰匙圈存取」、Windows 的認證管理員，或 Linux 的 keyring）：刪除這些項目。在 Linux 上，關掉 **登入時自動啟動** 後，`~/.config/autostart/harness-relay.desktop` 就會被刪除。
+
+### 版本
+
+版本就是發佈當天的日期（台灣時區）：`2026-11-10` 是正式版本，`2026-11-10-rc` 是候選版本，在正式版本之前先給大家試用。同一天再發佈的修正會加上編號：`2026-11-10.1`、`2026-11-10-rc.2`。當天的正式版本發佈之後，當天的修正就是它的修正版，不會再有候選版本。選單會顯示 app 的版本，[Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) 則把候選版本標成 pre-release。你自己建置的 app 會顯示建置的日期加上 `-dev` 與 commit，例如 `2026-11-10-dev (30f3d4f)`：當天或之後的任何正式版本都算比較新，會被提供為更新。
 
 ### 介面語言與使用導覽
 
@@ -55,11 +131,11 @@ CLI 完成後，面板會變成綠色的 **登入成功 ✓**。若出了問題�
 - **Grok**：以 `XAI_API_KEY` 傳入。
 - **Codex**：交給 `codex login --with-api-key`，由 Codex 自己保存，會取代 ChatGPT 登入。
 
-Claude Code 與 Grok 的金鑰由 Harness Relay 存放在系統的金鑰儲存區，名稱為 `harness-relay`：macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service（GNOME Keyring、KWallet）。卡片上會寫出存放位置。在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，金鑰會改存在只有你的帳號能讀取的資料庫；若不想這樣，可以不填這個欄位，改在啟動 Harness Relay 前設定環境變數 `ANTHROPIC_API_KEY` / `XAI_API_KEY`。舊版存在資料庫裡的金鑰，會在伺服器下次啟動時移出資料庫。macOS 可能會詢問是否允許 `node` 使用這把金鑰（例如更新 Node.js 之後），請選 **永遠允許**。
+Claude Code 與 Grok 的金鑰由 Harness Relay 存放在系統的金鑰儲存區，名稱為 `harness-relay`（[桌面 app](#桌面-app) 則是 `harness-relay-desktop`）：macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service（GNOME Keyring、KWallet）。卡片上會寫出存放位置。在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，金鑰會改存在只有你的帳號能讀取的資料庫；若不想這樣，可以不填這個欄位，改在啟動 Harness Relay 前設定環境變數 `ANTHROPIC_API_KEY` / `XAI_API_KEY`。舊版存在資料庫裡的金鑰，會在伺服器下次啟動時移出資料庫。macOS 可能會詢問是否允許 `node` 使用這把金鑰（例如更新 Node.js 之後），請選 **永遠允許**。
 
 ### 預設模型與推理強度
 
-在 **預設模型與推理強度** 區塊，設定成員的模型 / 推理強度選「預設」時要用什麼。若這裡也維持 **CLI 預設**，就交給 CLI 自己的設定（例如 `~/.codex/config.toml`）。同一區塊也能指定 **執行檔** 路徑，用於 CLI 不在 `PATH` 中的情況。
+在 **預設模型與推理強度** 區塊，設定成員的模型 / 推理強度選「預設」時要用什麼。若這裡也維持 **CLI 預設**，就交給 CLI 自己的設定（例如 `~/.codex/config.toml`）。同一區塊也能指定 **執行檔** 路徑，用於 CLI 不在 `PATH` 中的情況。找不到 CLI 時，該卡片會說明，並附上到官網安裝的連結（[Claude Code](https://claude.com/product/claude-code)、[Codex](https://openai.com/codex/)、[Grok](https://x.ai/build)）。
 
 ### 首席 agent
 
@@ -393,14 +469,14 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 
 ## 6. 資料存在哪裡
 
-所有對話、範本與設定都存在專案資料夾的 `data/relay.db`（SQLite），只有你的帳號能讀取。你分享的連結也記在那裡；頁面本身（連同附上的檔案）是 GitHub 上的 secret gist。API key 例外：它們放在系統的金鑰儲存區（見上方「API key（選用）」）。附加的檔案存在 `data/attachments/<對話>/`，只有你的帳號能讀取，刪除對話時（或編輯較早的訊息而刪掉它們所屬的訊息時）會一併刪除。平行模式的 worktree 放在 `data/worktrees/`（對應你 repository 中的 `relay/…` 分支），刪除對話時會一併移除。各 CLI 也會在它們平常的位置（`~/.claude…`、`~/.codex`、`~/.grok`）保存自己的 session 紀錄；設定了[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)時則放在那個資料夾。語音輸入的模型（以及 Linux 與 Windows 上的引擎）放在 `data/voice/`；**設定 → 語音輸入 → 移除語音輸入** 會把它們刪除。[工具庫](#工具庫mcp-伺服器skill-與記憶)也存在 `data/relay.db`，但 MCP 伺服器變數和標頭的值例外，它們跟 API key 一樣放在金鑰儲存區。介面語言與看完的導覽版本則記在瀏覽器中。要備份時，先停止程式再複製 `data/`。
+所有對話、範本與設定都存在專案資料夾的 `data/relay.db`（SQLite），只有你的帳號能讀取。你分享的連結也記在那裡；頁面本身（連同附上的檔案）是 GitHub 上的 secret gist。API key 例外：它們放在系統的金鑰儲存區（見上方「API key（選用）」）。附加的檔案存在 `data/attachments/<對話>/`，只有你的帳號能讀取，刪除對話時（或編輯較早的訊息而刪掉它們所屬的訊息時）會一併刪除。平行模式的 worktree 放在 `data/worktrees/`（對應你 repository 中的 `relay/…` 分支），刪除對話時會一併移除。各 CLI 也會在它們平常的位置（`~/.claude…`、`~/.codex`、`~/.grok`）保存自己的 session 紀錄；設定了[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)時則放在那個資料夾。語音輸入的模型（以及 Linux 與 Windows 上的引擎）放在 `data/voice/`；**設定 → 語音輸入 → 移除語音輸入** 會把它們刪除。[工具庫](#工具庫mcp-伺服器skill-與記憶)也存在 `data/relay.db`，但 MCP 伺服器變數和標頭的值例外，它們跟 API key 一樣放在金鑰儲存區。介面語言與看完的導覽版本則記在瀏覽器中。要備份時，先停止程式再複製 `data/`。[桌面 app](#桌面-app) 則把同樣的檔案存在它自己的資料夾，而不是 `data/`。
 
 ## 7. 疑難排解
 
 | 狀況 | 處理方式 |
 | --- | --- |
 | agent 顯示「未登入」 | 到設定與登入頁登入，或設定 API key，然後按 **重新檢查狀態**。 |
-| 「找不到指令」 | 安裝該 CLI，或在設定頁該 provider 的「預設模型與推理強度」區塊中指定 **執行檔** 路徑。 |
+| 「找不到指令」 | 安裝該 CLI（設定頁的卡片附有官網連結），或在設定頁該 provider 的「預設模型與推理強度」區塊中指定 **執行檔** 路徑。 |
 | 回覆最後出現錯誤框 | 閱讀訊息內容：那是 CLI 自己的錯誤（用量限制、登入、無效模型……）。修正後按 **繼續** 或重新送出。 |
 | 自動組隊總是沿用目前的團隊，或改用「一般問題智囊團」 | 卡片上會說明原因。確認首席 agent 的 CLI 已登入（設定與登入 → 首席 agent），或改選其他首席 agent。 |
 | agent 好像忘了之前的對話 | 若 CLI session 無法接續，Harness Relay 會自動開新 session 並提供完整紀錄；更換工作目錄或 agent 的 CLI 後屬於正常現象。 |
@@ -421,4 +497,12 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 | 設定各 CLI 自己的資料夾後，每個 agent 都顯示「未登入」 | 正常現象：新的家目錄一開始是空的。到設定頁重新登入各 CLI，或設定 API key。 |
 | 設定頁顯示「上次更新 AgentsView 失敗」 | 啟動 AgentsView，或檢查 **設定 → Agent 的 session** 中的網址與 port。`ECONNREFUSED` 表示那裡沒有程式在接收。對話會在下一回合結束後再送一次。 |
 | AgentsView 裡找不到某個對話 | AgentsView 會隱藏使用者只說了一則訊息的 session：在它的 session 篩選中開啟 **Include single-turn**。 |
+| 桌面 app 說 port 已被佔用 | 結束用 `npm start` 或 `npm run dev` 啟動的 Harness Relay（或其他程式），再按 **再試一次**。也可以先結束 app，在它的 `desktop.json` 設定其他 `"port"`（見[桌面 app](#桌面-app)）。 |
+| 桌面 app 顯示某個 CLI「找不到指令」，但它在終端機裡能用 | App 在啟動伺服器時讀取登入 shell 的環境（在 Windows 上是系統的 PATH）：安裝 CLI 之後，在選單選 **重新啟動伺服器…**。如果還是找不到，在設定中把 **執行檔** 設為 CLI 的完整路徑（在終端機執行 `which claude` 查看）。 |
+| 桌面 app 的 AppImage 在 Linux 上一啟動就結束 | 加上 `--no-sandbox` 啟動（見[桌面 app](#桌面-app)）。 |
+| 桌面 app 的視窗或瀏覽器顯示登入頁 | 登入連結沒有及時使用，或視窗已被登出：視窗請從 app 的選單選 **打開 Harness Relay**，瀏覽器請選 **在瀏覽器打開**。 |
+| 桌面 app 說它的伺服器太久沒有啟動完成 | 更新之後，macOS 可能會詢問 Harness Relay 能否使用鑰匙圈裡它的金鑰，伺服器會等你回答，最多三分鐘。回答之後，從選單選 **啟動伺服器**。 |
+| macOS 上 **登入時自動啟動** 沒有啟動 app | macOS 要你核准：在 **系統設定 → 一般 → 登入項目與延伸功能** 允許 Harness Relay。 |
+| **更新到 …** 說 Harness Relay 無法自己更新，或更新失敗 | 對話框會說明原因，並提供該版本的頁面：照第一次的方式安裝新版。在 Mac 上，請先把 app 移到「應用程式」（從 `.dmg` 或不能寫入的資料夾執行的 app 無法取代自己）。下載或檢查失敗時不會改變任何東西：app 照常以目前的版本執行。 |
+| **分享到手機** 說讀不到這台電腦分享了什麼 | `tailscale serve status` 沒有回應，所以 app 沒有分享任何東西（否則可能蓋掉其他服務或 Funnel）。確認 Tailscale 正在執行並已登入，再試一次，或手動分享（見[用手機連線](remote-access.zh-TW.md)）。 |
 | port 被佔用 | 換一個 port 啟動：macOS 與 Linux 用 `PORT=8790 npm start`，Windows PowerShell 用 `$env:PORT=8790; npm start`。`npm run dev` 也一樣，介面的代理會跟著 `PORT`。 |

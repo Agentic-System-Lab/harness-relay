@@ -22,24 +22,19 @@ describe('commands people copy', () => {
     }
   });
 
-  it('the landing page installs the built app; npm run dev is only mentioned for development', () => {
-    const commands = [
-      'git clone https://github.com/Agentic-System-Lab/harness-relay',
-      'cd harness-relay',
-      'npm install',
-      'npm run build',
-      'npm start',
-    ];
+  it('the landing page installs the desktop app, with no commands to start it', () => {
     for (const page of ['site/index.html', 'site/zh-TW/index.html']) {
       const html = read(page);
-      for (const id of ['cmd-hero', 'cmd-start']) {
-        const block = html.match(new RegExp(`<pre id="${id}">([\\s\\S]*?)</pre>`))?.[1] ?? '';
-        const lines = block.replace(/<span class="prompt">\$ <\/span>/g, '').split('\n');
-        expect(lines, `${page} #${id}`).toEqual(commands);
-      }
-      // The first visit opens the sign-in link the server prints, on the built app's address.
-      expect(html, page).toContain('<b>http://127.0.0.1:8787/#code=…</b>');
+      // Download buttons for each system (test/site-downloads.test.ts checks where they point).
+      for (const system of ['mac', 'win', 'linux']) expect(html, `${page} ${system}`).toContain(`data-download="${system}"`);
+      expect(html, page).toContain('data-download-primary');
+      // No command blocks: running from source is one line for servers and development, linking to the README.
+      // (A <pre> in an approval card is an agent's command, shown, not one for the reader.)
+      expect(html, page).not.toContain('class="cmd"');
+      expect(html, page).not.toContain('git clone');
       expect(html.match(/npm run dev/g), page).toHaveLength(1);
+      expect(html.match(/npm start/g), page).toHaveLength(1);
+      expect(html, page).toMatch(/href="https:\/\/github\.com\/Agentic-System-Lab\/harness-relay(#quick-start|\/blob\/main\/README\.zh-TW\.md#快速開始)"/);
     }
   });
 

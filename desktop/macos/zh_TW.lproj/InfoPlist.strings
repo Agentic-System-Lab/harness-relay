@@ -1,0 +1,2 @@
+/* Harness Relay 為什麼要使用麥克風：對話裡的語音輸入。 */
+"NSMicrophoneUsageDescription" = "Harness Relay 使用麥克風做語音輸入：你說的話會在這台電腦上轉成文字。";

@@ -1,7 +1,7 @@
 name: CI
 
 # Every pull request and every push to main (including merges) must typecheck, pass the tests
-# and build.
+# and build; the desktop app is also packaged for Linux and checked as a release is.
 on:
   pull_request:
   push:
@@ -45,3 +45,60 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # The desktop app (desktop/) is a package of its own. Its tests run with the others above;
+      # here it is typechecked and built, and its bundled server is run the way the app runs it (no
+      # installer, and no Electron binary is downloaded).
+      - name: Install the desktop app's tools
+        run: npm ci --prefix desktop
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - name: Typecheck the desktop app
+        run: npm run desktop:typecheck
+
+      - name: Build the desktop app
+        run: npm --prefix desktop run build
+
+      - name: Run the bundled server as the desktop app does
+        run: npx tsx desktop/scripts/smoke.ts
+
+  desktop-package:
+    name: Package the desktop app and check it (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # electron-builder downloads the Electron it packages by itself.
+      - name: Install the desktop app's tools
+        run: npm ci --prefix desktop
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - name: Build the web app and the desktop app
+        run: npm run build && npm --prefix desktop run build
+
+      # The app as electron-builder packages it (unpacked: no installer), with the fuses, the archive
+      # and the resources of a release, then checked as the Release workflow checks it.
+      - name: Package the app
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --linux dir --x64 --publish never
+
+      - name: Check the packaged app (on a virtual display)
+        run: |
+          command -v xvfb-run >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q xvfb; }
+          xvfb-run -a npx tsx desktop/scripts/check-package.ts

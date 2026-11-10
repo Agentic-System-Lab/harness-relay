@@ -1,0 +1,2 @@
+/* Why Harness Relay asks for the microphone: voice input in the chat. */
+"NSMicrophoneUsageDescription" = "Harness Relay uses the microphone for voice input: your speech is turned into text on this computer.";

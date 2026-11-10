@@ -124,7 +124,9 @@ export class ProviderService {
         provider: p,
         installed: false,
         bin,
-        auth: { loggedIn: null, detail: err instanceof CommandNotFoundError ? err.message : (err as Error).message },
+        // Not found: Settings says so in its own words, with where to install it. Anything else (the
+        // file is there but cannot run, say) is told as it happened.
+        auth: { loggedIn: null, detail: err instanceof CommandNotFoundError ? undefined : (err as Error).message },
         usingStoredApiKey: this.settings.hasStoredApiKey(p),
       };
     }

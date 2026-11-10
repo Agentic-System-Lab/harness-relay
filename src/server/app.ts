@@ -103,6 +103,11 @@ export interface AppDeps {
   /** Extra Host names allowed besides localhost (RELAY_ALLOWED_HOSTS). */
   extraHosts?: string[];
   /**
+   * Started by the desktop app (desktop/): it has no terminal, so a browser that is not signed in is
+   * pointed at the app's menu (which opens a new sign-in link) instead of the link printed at start.
+   */
+  desktopApp?: boolean;
+  /**
    * Puts a shared conversation's page on the web, with the files it takes along (its placeholder links
    * name them by their place in `files`), and takes it down (secret gists through `gh`; fakes in tests).
    */
@@ -155,6 +160,7 @@ export function createApp({
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
+  desktopApp = false,
   gists = {
     create: (html, description, files, onFilesGist) => shareToGist(html, description, undefined, files, { onFilesGist }),
     remove: unshareGist,
@@ -201,7 +207,7 @@ export function createApp({
     return withLang(parseLang(c.req.header('x-relay-lang'), c.req.header('accept-language')), async () => {
       if (auth && !OPEN.has(`${c.req.method} ${c.req.path}`)) {
         const session = auth.check(getCookie(c, SESSION_COOKIE), requestKey(c));
-        if (!session) return c.json({ error: t().signedOut, code: SIGNED_OUT }, 401);
+        if (!session) return c.json({ error: desktopApp ? t().signedOutDesktop : t().signedOut, code: SIGNED_OUT }, 401);
         sessions.set(c.req.raw, session);
       }
       await next();
@@ -229,7 +235,11 @@ export function createApp({
   // --- Signing in ---------------------------------------------------------------------
 
   app.get('/api/auth', (c) =>
-    c.json({ signedIn: !auth || Boolean(auth.check(getCookie(c, SESSION_COOKIE), c.req.header(AUTH_KEY_HEADER))) }),
+    c.json({
+      signedIn: !auth || Boolean(auth.check(getCookie(c, SESSION_COOKIE), c.req.header(AUTH_KEY_HEADER))),
+      // The sign-in page then says where a desktop app's user gets a link.
+      ...(desktopApp ? { desktop: true } : {}),
+    }),
   );
 
   app.post('/api/auth/login', async (c) => {

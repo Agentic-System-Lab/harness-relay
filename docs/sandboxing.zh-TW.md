@@ -27,6 +27,8 @@ Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` �
 
 另外試過：Grok 的指令寫得到 `.git/config`（`git config core.fsmonitor …`，兩台都是），而 Harness Relay 自己的 git 不會執行它；在 Mac 上，Claude Code 與 Codex 的沙箱擋下 `127.0.0.1`，Grok 的則連得到，而 Harness Relay 的 API 對沒有登入的程式回應 401。沒有試過：原生 Windows、WSL、容器、其他 Linux 發行版、其他版本的 CLI。
 
+這些執行是從原始碼啟動的，跟 `npm start` 執行伺服器的方式一樣。[桌面 app](user-guide.zh-TW.md#桌面-app) 執行的是同一個伺服器，用同樣的轉接器與同樣的沙箱設定，只是使用它自己的資料夾；上面的執行沒有在它底下重做。在 macOS 上，你給桌面 app 的隱私權限（例如「文件」等資料夾、麥克風）也會給到它執行的 agent，因為 agent 在它裡面執行；用 `npm start` 時則是終端機的權限。
+
 ## 什麼是作業系統沙箱
 
 作業系統沙箱是作業系統核心套在一個行程及它啟動的所有行程上的限制：可以寫入（有時也包括讀取）哪些檔案、能不能使用網路。macOS 用的是 Seatbelt（`/usr/bin/sandbox-exec`）；Linux 有 Landlock、seccomp 與 bubblewrap（使用 user namespace）。
@@ -55,8 +57,9 @@ Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` �
 在完全存取以外的權限，Harness Relay 會讓每個 agent 的沙箱碰不到這些地方（`src/server/protect.ts`），在 macOS 與 Linux 上：
 
 - **瀏覽器自己的資料夾**：已登入的瀏覽器把送給 Harness Relay 的金鑰（有些瀏覽器還有 cookie）存放在磁碟上的位置：Chrome、Chromium、Edge、Brave、Arc、Vivaldi、Opera、Firefox、LibreWolf、Zen、Orion、Floorp、Waterfox、Helium、DuckDuckGo 與 GNOME Web，以及 Safari 與 WebKit 的資料夾（macOS 上的 `~/Library/…`；Linux 上的 `~/.config/…` 與 `$XDG_CONFIG_HOME/…`、`~/.mozilla`、snap 與 Flatpak 資料夾）。只列出實際存在的，每個也連同它的真實路徑。
-- **Harness Relay 的資料庫**（`relay.db` 與 SQLite 放在它旁邊的檔案），即使工作目錄包含它也一樣。
-- **Harness Relay 自己的暫存資料夾**（`data/tmp`），Claude Code 一輪的 `--settings` 與 MCP 設定放在這裡等它讀取。若放在每個沙箱都讓指令寫入的系統暫存資料夾，另一個 agent 的指令就能在 Claude Code 讀取前改掉它們（關掉它的沙箱，或把自己的指令當成 MCP 伺服器，在任何沙箱之外啟動），或讀到 MCP 伺服器的秘密值。
+- **桌面 app 視窗自己的資料夾**（app 資料夾裡的 `browser/`：macOS 是 `~/Library/Application Support/Harness Relay/browser`，Linux 是 `~/.config/Harness Relay/browser`），它的視窗把 cookie 與金鑰放在這裡；app 以 `RELAY_APP_BROWSER_DIR` 告訴伺服器。
+- **Harness Relay 的資料庫**（`relay.db` 與 SQLite 放在它旁邊的檔案，在 `data/` 裡；桌面 app 則在它自己資料夾的 `data` 裡），即使工作目錄包含它也一樣。
+- **Harness Relay 自己的暫存資料夾**（`data/tmp`，桌面 app 則是它資料夾裡的 `data/tmp`），Claude Code 一輪的 `--settings` 與 MCP 設定放在這裡等它讀取。若放在每個沙箱都讓指令寫入的系統暫存資料夾，另一個 agent 的指令就能在 Claude Code 讀取前改掉它們（關掉它的沙箱，或把自己的指令當成 MCP 伺服器，在任何沙箱之外啟動），或讀到 MCP 伺服器的秘密值。
 
 各 CLI 的做法：
 
@@ -328,7 +331,7 @@ Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原
 
 ## 沙箱管不到的事
 
-- **讀取。** 三者預設都讓指令讀取幾乎整台電腦，包括 `~/.ssh` 和 `~/.aws`；只有 Grok 的 `strict` 設定檔會限制讀取（工作目錄、系統路徑與 `~/.grok`）。Harness Relay 不讓它們讀取瀏覽器的資料夾與它自己的資料庫（見 [agent 不能讀寫的地方](#agent-不能讀寫的地方)），其他的不在此限。要讓機密不離開這台電腦，靠的是擋網路，而 Grok 在 macOS 上做不到。
+- **讀取。** 三者預設都讓指令讀取幾乎整台電腦，包括 `~/.ssh` 和 `~/.aws`；只有 Grok 的 `strict` 設定檔會限制讀取（工作目錄、系統路徑與 `~/.grok`）。Harness Relay 不讓它們讀取瀏覽器的資料夾（包括桌面 app 視窗的）與它自己的資料庫（見 [agent 不能讀寫的地方](#agent-不能讀寫的地方)），其他的不在此限。要讓機密不離開這台電腦，靠的是擋網路，而 Grok 在 macOS 上做不到。
 - **Harness Relay 自己的 API。** Grok 的沙箱讓指令連得到 localhost（在 Mac 上試過：可編輯模式下，Grok 執行的 `curl http://127.0.0.1:…` 得到了回應），但 Harness Relay 在 `127.0.0.1:8787` 的 API 只接受已登入的瀏覽器：沒有瀏覽器 cookie 與金鑰的程式會收到 401（用 `curl` 試過），所以這類指令無法開始一輪執行（它擋不住的見[架構 → 登入](architecture.zh-TW.md#登入)）。同樣的測試中，Claude Code 與 Codex 的沙箱都擋下了 localhost。
 - **Claude Code 自己的工具。** 它的沙箱只涵蓋 Bash 指令及它們啟動的行程，不包括它的 Read、Edit、Write、WebFetch、WebSearch 工具（這些由它的權限規則管）、hooks、本機的 MCP 伺服器（包括工具庫的）和 LSP 伺服器。
 - **寫到工作目錄與暫存資料夾以外會失敗**，包括套件快取（`~/.npm`、pip、cargo、Go 的 build cache）。如果網路也關閉，安裝相依套件就會失敗。

@@ -22,6 +22,18 @@ The server stays bound to `127.0.0.1`. `tailscale serve`, on the same computer, 
 - **Tailscale on that computer and on the phone**, signed in to the same tailnet (on iOS and Android, the Tailscale app). On a Mac, if the `tailscale` command is missing, install it from the Tailscale app's settings (CLI integration).
 - **MagicDNS and HTTPS certificates** turned on in the Tailscale admin console (**DNS** page). If HTTPS is off, the first `tailscale serve` prints a link that turns it on.
 
+## With the desktop app
+
+With the [desktop app](user-guide.md#desktop-app), its menu does steps 1 and 2 for you. Choose **Share with your phone (Tailscale)…**: it runs `tailscale serve --bg 8787`, lets the server answer to your computer's tailnet name, and shows the address to open on the phone. Later, **Copy phone address** in the menu copies it. Then go on with [step 3](#3-open-it-on-your-phone).
+
+- **The first time**, if Serve or HTTPS is not enabled for your tailnet yet, the app opens Tailscale's page for it in your browser. Allow it there, then choose **Share with your phone** again.
+- **On Linux**, if Tailscale does not let your user change its settings, the app shows the command to run once: `sudo tailscale set --operator=$USER`.
+- **The tailnet name** is added by the app when it starts, so you never set `RELAY_ALLOWED_HOSTS` yourself. The app remembers the name, so a start before Tailscale connects (at login, say) still lets the phone in. Only when the server does not know the name yet (Tailscale was never connected while the app ran) does sharing offer to restart it.
+- **What the computer already shares stays.** The app shares on HTTPS port 443, unless another service is shared there: then on 8443, or 10000, and the address it shows has that port (`https://my-computer.tail1234.ts.net:8443`). If all three are taken, share it by hand as in step 1, with another `--https` port. If the app cannot read what the computer shares (`tailscale serve status` fails or does not answer), it shares nothing and says so, rather than risk taking over a port or Funnel.
+- **Signing in the phone** works as with `npm start`: see [step 3](#3-open-it-on-your-phone).
+- **On a Mac**, the Tailscale app is enough: the desktop app uses it when the `tailscale` command is not installed.
+- To keep it reachable, see [Keep it running](#keep-it-running).
+
 ## 1. Share the server with your tailnet
 
 On the computer that runs Harness Relay:
@@ -126,6 +138,8 @@ In **Settings → Agent sessions → AgentsView**, keep `http://127.0.0.1:9999` 
 
 Your phone can reach Harness Relay only while the computer is awake and the server is running.
 
+With the desktop app, turn on **Open at login** and **Keep this computer awake while running** in its menu: it starts again after a restart, and the computer stays awake while it runs. The rest of this section is for `npm start`.
+
 ### macOS
 
 Start it with `caffeinate -i`, which keeps the Mac from going to sleep while the server runs:
@@ -213,6 +227,8 @@ On a server:
 | The page opens but nothing loads, and errors say *Forbidden host* or *Forbidden origin* | `RELAY_ALLOWED_HOSTS` doesn't match the address you opened. Use the exact name from `tailscale serve status`, without `https://`, and restart Harness Relay. |
 | The address doesn't open at all | Check that Tailscale is on in the phone and signed in to the same tailnet as the computer (the Tailscale app can switch between accounts), that the computer is awake, and that `tailscale serve status` on the computer still shows the address. |
 | *Access denied* from `tailscale serve` on Linux | Run it with `sudo`, or run `sudo tailscale set --operator=$USER` once. |
+| The desktop app says *Tailscale was not found* | Install Tailscale on the computer and sign in. On Linux, the app looks for `tailscale` on your shell's `PATH` and in `/usr/bin`, `/usr/sbin` and `/usr/local/bin`; on Windows, in `Program Files\Tailscale`. |
+| The desktop app says it could not read what this computer shares | `tailscale serve status --json` failed or did not answer in time, so the app shared nothing. Check that Tailscale runs and is signed in (`tailscale status`), then choose **Share with your phone** again, or share by hand as in [step 1](#1-share-the-server-with-your-tailnet). |
 | Another program's page or certificate shows up | Another program on the computer listens on port 443 and answers when nothing is shared. Check `tailscale serve status`: if the address is gone, run step 1 again. If it is listed and the other program still answers, share on another port: `tailscale serve --bg --https=8443 8787`, then open `https://my-computer.tail1234.ts.net:8443` (`RELAY_ALLOWED_HOSTS` stays the same). |
 | AgentsView's page opens on the phone but stays empty | Its requests are refused because `public_url` doesn't match the address you opened. Check the line at the top of `~/.relay-agents/agentsview/config.toml` (the exact address, with `https://` and `:9999`), then restart AgentsView. |
 | An agent shows *Command not found* only when it runs as a service | The service's `PATH` doesn't include that CLI. Find it with `command -v claude` (or `codex`, `grok`), add its folder to `Environment=PATH=` and restart. |

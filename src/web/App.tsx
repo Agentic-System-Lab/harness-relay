@@ -9,6 +9,7 @@ import { Onboarding, onboardingDone } from './components/Onboarding';
 import { SettingsPage } from './components/SettingsPage';
 import { SignIn } from './components/SignIn';
 import { hashFor, routeFromHash, type Route } from './route';
+import { signInWhere } from './signin';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
@@ -58,6 +59,8 @@ export function navigate(r: Route): void {
 export function App() {
   const [auth, setAuth] = useState<'checking' | 'in' | 'out'>('checking');
   const [error, setError] = useState<string>();
+  /** Started by the desktop app: the sign-in page points at its menu, not at a terminal. */
+  const [desktopApp, setDesktopApp] = useState(false);
   const state = useRef(auth);
   state.current = auth;
 
@@ -88,8 +91,12 @@ export function App() {
       return true;
     };
     void (async () => {
+      // First, also when the page opens with a link (the desktop app always opens it with one): a link
+      // that no longer works, or a sign-out later, shows the sign-in page, which then points at the
+      // app's menu rather than a terminal.
+      const status = await api.authStatus().catch(() => ({ signedIn: false, desktop: false }));
+      if (live) setDesktopApp(status.desktop === true);
       if (await fromLink()) return;
-      const status = await api.authStatus().catch(() => ({ signedIn: false }));
       if (live) setAuth(status.signedIn ? 'in' : 'out');
     })();
     const onHash = () => void fromLink();
@@ -105,7 +112,10 @@ export function App() {
 
   if (auth === 'checking') return null;
   // Keyed by the error, so a link with a wrong code shows its message on a page already open.
-  if (auth === 'out') return <SignIn key={error} error={error} onSignedIn={() => setAuth('in')} />;
+  if (auth === 'out') {
+    const where = signInWhere({ desktopServer: desktopApp, userAgent: navigator.userAgent });
+    return <SignIn key={error} error={error} where={where} onSignedIn={() => setAuth('in')} />;
+  }
   return <RelayApp />;
 }
 

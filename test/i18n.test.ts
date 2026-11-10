@@ -57,3 +57,17 @@ describe('web language', () => {
     expect(zhTW.effortLabel('high')).toBe('高（high）');
   });
 });
+
+describe("where Settings sends someone whose CLI is not found", () => {
+  it("links each CLI to its own website, over HTTPS, with the link's words in both languages", async () => {
+    const { PROVIDER_INSTALL_URL, PROVIDERS } = await import('../src/shared/types');
+    expect(PROVIDER_INSTALL_URL).toEqual({
+      claude: 'https://claude.com/product/claude-code',
+      codex: 'https://openai.com/codex/',
+      grok: 'https://x.ai/build',
+    });
+    for (const p of PROVIDERS) expect(new URL(PROVIDER_INSTALL_URL[p]).protocol, p).toBe('https:');
+    expect(zhTW.settings.installCli('Grok')).toBe('到官網安裝 Grok');
+    expect(en.settings.installCli('Grok')).toBe('Install Grok from its website');
+  });
+});

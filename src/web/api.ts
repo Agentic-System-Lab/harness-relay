@@ -138,7 +138,8 @@ const fileQuery = (root: string, path: string) => new URLSearchParams({ root, pa
 export const api = {
   // signing in
   /** Whether the server knows this browser (always, when it takes no sign-in). */
-  authStatus: () => request<{ signedIn: boolean }>('GET', '/api/auth'),
+  /** Whether this browser is signed in, and whether the desktop app started the server (no terminal then). */
+  authStatus: () => request<{ signedIn: boolean; desktop?: boolean }>('GET', '/api/auth'),
   /** Signs this browser in with a one-time code; the server sets its cookie, the key is kept here. */
   signIn: async (code: string) => {
     const { key } = await request<{ key: string }>('POST', '/api/auth/login', { code });

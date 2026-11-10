@@ -28,9 +28,16 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | `npm run login` | Print another one-time sign-in link (`scripts/login.ts`) |
 | `npm run site:preview` | Serve the landing page (`site/`) on 127.0.0.1:4180, as GitHub Pages will |
 | `npm run icons` | Redraw the home-screen icons and the web app manifest in `src/web/public/` (`scripts/app-icons.ts`) |
+| `npm install --prefix desktop` | Once, for the desktop app only: Electron and electron-builder (`desktop/` is a package of its own) |
+| `npm run desktop` | Build the UI and the desktop app (`desktop/build/`) and run it without installing it |
+| `npm run desktop:dist` | The same, then make the installer for this system in `desktop/release/` (`.dmg`, `.exe`, `.AppImage`; not signed); `npm run desktop:dist -- --output <folder>` puts it elsewhere |
+| `npx tsx desktop/scripts/check-package.ts` | Check the packaged app in `desktop/release/` as a release is checked: its fuses, its resources and its own `--smoke-test` (on Linux, under `xvfb-run`) |
+| `npm run desktop:typecheck` | Typecheck the desktop app (`desktop/tsconfig.json`) |
+| `npm run release:next` | Today's next release and release candidate versions (from GitHub's tags) |
+| `npm run release:check -- <version>` | Check a release version against the rules (`scripts/release.ts`), as the Release workflow does (add `--remote` after the version for GitHub's tags) |
 | `npm run demo` | Record the README and landing-page demo again with the real CLIs, then update the videos, stills and chapter rails (`scripts/demo/`; see the developer guide, "Recording the demo") |
 
-Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same three on Node 22 and 24 for every pull request and every push to `main`.
+Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and `npm run desktop:typecheck` when you changed `desktop/`). CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same three on Node 22 and 24 for every pull request and every push to `main`, and also typechecks the desktop app, builds it and runs its bundled server as the app does (`desktop/scripts/smoke.ts`). Releases are made only by the Release workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)), run by hand: see the developer guide, "Releasing". Never make a release or a version tag any other way.
 
 ## Where things are
 
@@ -45,6 +52,9 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 - `src/server/agentsview.ts`: sends each conversation to AgentsView as one thread and links the agents' own sessions under it.
 - `src/server/workspace.ts`: git: auto init, snapshots, worktrees, diffs, apply.
 - `src/server/process.ts`: spawning, streaming and killing child processes.
+- `src/server/parent.ts`: the desktop app that started the server, if any (Electron's `parentPort`): the server says when it listens, the app asks it to shut down.
+- `desktop/`: the desktop app (Electron), a package of its own. `src/main.ts` (the chat's window, the tray menu, updates, its own check `--smoke-test`, and the app's life; the only file that imports `electron`), `supervisor.ts` (starting, watching and stopping the server), `env.ts` (the login shell's environment, Windows' at a restart, the server's), `tailscale.ts`, `autostart.ts` (open at login on Linux), `prefs.ts`, `profile.ts` (the window's browser folder, kept from agents), `log.ts` (the server's log), `update.ts` (updates from GitHub's latest release), `selftest.ts` (what the app needs of the server over HTTP), `manifest.ts` (the app folder's `package.json`), `i18n.ts`, `icons.ts`, `lifecycle.ts` (its decisions without Electron, the window's guards); `scripts/build.ts` bundles the server and the app into `desktop/build/` (as `RELAY_VERSION` for a release, else a `-dev` build of the day); `scripts/smoke.ts` runs the bundled server as the app does, with `scripts/parent-port.mjs` standing in for Electron's `parentPort`; `scripts/dist.ts` is `npm run desktop:dist`; `scripts/check-package.ts` (with `scripts/packaged.ts`) checks the packaged app; `electron-builder.yml` makes the installers, with `entitlements.mac.plist` and `macos/` (the microphone's reason in each language).
+- `scripts/release.ts`: the release version rules (dates: `YYYY-MM-DD`, `-rc`, `.N` patches; today in Taiwan; the next one only), used by `npm run release:next`, `npm run release:check` and the Release workflow.
 - `src/server/tools.ts`: the tool library: MCP servers (their secret values in the OS keyring, by server id), skills and memory, and what each agent gets from it.
 - `src/server/native.ts`, `grokTrust.ts`: what each CLI loads by itself (asked without a prompt); recording Grok's trust in a project root.
 - `src/server/files.ts`: browsing a chat's working directory and agents' worktrees (inside the folder only, never `.git`), and what a folder's ZIP download holds; `zip.ts` writes that ZIP file as it is sent.
@@ -55,7 +65,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 - `src/web/`: the React client. `components/`, `locales/` (`zh-TW.ts`, `en.ts`), `chat.ts` (ChatView's pure logic), `copy.ts`, `api.ts`, `public/` (the web app manifest and home-screen icons, written by `npm run icons`; don't edit them by hand).
 - `test/`: Vitest tests, roughly one file per module.
 - `data/`: runtime data (`relay.db`, worktrees). Git-ignored; never commit it.
-- `site/`: the landing page on GitHub Pages (static HTML, `index.html` and `zh-TW/index.html`), published by `.github/workflows/pages.yml`. Follow `site/DESIGN-GUIDELINES.md` when you change it, and change both languages together.
+- `site/`: the landing page on GitHub Pages (static HTML, `index.html` and `zh-TW/index.html`), published by `.github/workflows/pages.yml`. Follow `site/DESIGN-GUIDELINES.md` when you change it, and change both languages together. `site/assets/downloads.js` points the download buttons at the newest stable release's installers (never a release candidate) (tested in `test/site-downloads.test.ts`); keep its file name endings in step with the Release workflow's installer names.
 
 ## Rules
 
@@ -116,6 +126,10 @@ The server can start agents with write access, so keep its defences intact (see 
 
 - `npm run dev` restarts the server on every server file change, and a restart aborts any running agent turn.
 - Harness Relay refuses edit mode in a working directory that holds itself (`src/server/protect.ts`). To work on this repository with Harness Relay, run the copy you use from another checkout.
+- `desktop/` has its own `package.json` and lockfile, so a root `npm install` never downloads Electron. Its pure modules are tested from the root `test/` (`desktop-*.test.ts`); keep `electron` imports in `desktop/src/main.ts` only.
+- `npm run desktop:dist` refuses to start while a Harness Relay runs from `desktop/release/` (it would replace the files under it): quit it first, or build with `-- --output <folder>`. Opening a new build while another Harness Relay runs only brings the running one forward.
+- electron-builder leaves out a `node_modules` folder at the top of an `extraResources` folder, so the keyring module the server needs is listed as an entry of its own in `desktop/electron-builder.yml`.
+- The desktop app passes the server its own environment (`desktop/src/env.ts`): `PORT` and `HOST` from the user's shell are ignored, and `RELAY_WEB_DIR` points at the app's copy of the UI.
 - You can run Harness Relay from inside a Claude Code session: the server strips Claude Code's nesting variables (`CLAUDECODE`, `CLAUDE_CODE_*`) before it spawns `claude` (`src/server/settings.ts`).
 - The Vite proxy key is `/api/` with a trailing slash on purpose: a bare `/api` would also capture the client module `/api.ts`.
 - Worktrees in parallel mode contain only what is in the snapshot, so ignored files such as `node_modules/` are missing there.

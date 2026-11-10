@@ -39,6 +39,7 @@
       } catch (e) {}
     </script>
     <script src="../assets/site.js" defer></script>
+    <script type="module" src="../assets/downloads.js"></script>
   </head>
   <body>
     <svg width="0" height="0" style="position: absolute" aria-hidden="true">
@@ -84,6 +85,21 @@
           <ellipse cx="12" cy="6" rx="7" ry="2.75" />
           <path d="M5 6v12c0 1.5 3.1 2.75 7 2.75s7-1.25 7-2.75V6M5 12c0 1.5 3.1 2.75 7 2.75s7-1.25 7-2.75" />
         </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
         <symbol id="i-mark" viewBox="0 0 32 32">
           <circle cx="9" cy="16" r="6" fill="#d97757" />
           <circle cx="23" cy="10" r="5" fill="#10a37f" />
@@ -126,30 +142,28 @@
         <div class="wrap hero-grid">
           <h1 id="hero-title">
             <span class="name-claude">Claude&nbsp;Code</span>、<span class="name-codex">Codex</span> 和
-            <span class="name-grok">Grok</span>，同一個群組聊天
+            <span class="name-grok">Grok</span>，<span class="phrase">同一個群組聊天</span>
           </h1>
           <div class="hero-side">
             <p class="lead">
               替每個 agent 安排角色、決定輪流發言的方式，讓你電腦上真正的 CLI 一起處理你的程式碼或任何問題，並且互相回應。
             </p>
-            <div class="cmd">
-              <pre id="cmd-hero"><span class="prompt">$ </span>git clone https://github.com/Agentic-System-Lab/harness-relay
-<span class="prompt">$ </span>cd harness-relay
-<span class="prompt">$ </span>npm install
-<span class="prompt">$ </span>npm run build
-<span class="prompt">$ </span>npm start</pre>
-              <button class="copy" type="button" data-copy="cmd-hero" aria-label="複製指令" data-done="已複製">
-                <svg class="i-copy" aria-hidden="true"><use href="#i-copy" /></svg>
-                <svg class="i-check" aria-hidden="true"><use href="#i-check" /></svg>
-              </button>
+            <div class="download" data-downloads data-mac="下載 macOS 版" data-win="下載 Windows 版" data-linux="下載 Linux 版" data-release="正式版本" data-mobile="Harness Relay 在電腦上執行：請在電腦上打開這個頁面。">
+              <div class="download-row">
+                <a class="btn btn-primary btn-download" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download-primary>
+                  <svg aria-hidden="true"><use href="#i-download" /></svg>
+                  <span data-download-label>下載 Harness Relay</span>
+                </a>
+                <a class="text-link" href="#start">需求與其他系統</a>
+              </div>
+              <p class="download-meta" data-release-meta data-hero hidden></p>
             </div>
             <div class="cta-row">
-              <a class="btn btn-primary" href="https://github.com/Agentic-System-Lab/harness-relay">
+              <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
                 <svg aria-hidden="true"><use href="#i-github" /></svg>
                 在 GitHub 查看
                 <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
               </a>
-              <a class="text-link" href="#start">需求與快速開始</a>
             </div>
           </div>
         </div>
@@ -706,56 +720,65 @@
             <li>
               <h3>安裝需要的工具</h3>
               <ul>
-                <li>Node.js 22.13 以上</li>
                 <li>
                   任一 CLI：<a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>（<code>claude</code>）、
                   <a href="https://github.com/openai/codex">Codex CLI</a>（<code>codex</code>）、<a href="https://github.com/xai-org/grok-build">Grok CLI</a>（<code>grok</code>）
                 </li>
+                <li><a href="https://git-scm.com/downloads">Git</a>，編輯與平行模式需要。其他都不用裝：app 自己帶著執行所需的一切</li>
               </ul>
             </li>
             <li>
-              <h3>下載並啟動</h3>
-              <div class="cmd">
-                <pre id="cmd-start"><span class="prompt">$ </span>git clone https://github.com/Agentic-System-Lab/harness-relay
-<span class="prompt">$ </span>cd harness-relay
-<span class="prompt">$ </span>npm install
-<span class="prompt">$ </span>npm run build
-<span class="prompt">$ </span>npm start</pre>
-                <button class="copy" type="button" data-copy="cmd-start" aria-label="複製指令" data-done="已複製">
-                  <svg class="i-copy" aria-hidden="true"><use href="#i-copy" /></svg>
-                  <svg class="i-check" aria-hidden="true"><use href="#i-check" /></svg>
-                </button>
+              <h3>下載並打開</h3>
+              <div class="step-body">
+                <div class="downloads">
+                  <a class="dl" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download="mac">
+                    <svg class="dl-os" aria-hidden="true"><use href="#i-os-mac" /></svg>
+                    <span class="dl-text"><span class="dl-name">macOS</span><span class="dl-detail">macOS 13 以上 · Apple Silicon &amp; Intel · .dmg<span data-size></span></span></span>
+                    <span class="dl-yours">你的系統</span>
+                    <svg class="dl-get" aria-hidden="true"><use href="#i-download" /></svg>
+                  </a>
+                  <a class="dl" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download="win">
+                    <svg class="dl-os" aria-hidden="true"><use href="#i-os-win" /></svg>
+                    <span class="dl-text"><span class="dl-name">Windows</span><span class="dl-detail">Windows 10 以上，x64（Arm 需 Windows 11）· .exe<span data-size></span></span></span>
+                    <span class="dl-yours">你的系統</span>
+                    <svg class="dl-get" aria-hidden="true"><use href="#i-download" /></svg>
+                  </a>
+                  <a class="dl" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download="linux">
+                    <svg class="dl-os" aria-hidden="true"><use href="#i-os-linux" /></svg>
+                    <span class="dl-text"><span class="dl-name">Linux</span><span class="dl-detail">x64 · .AppImage<span data-size></span></span></span>
+                    <span class="dl-yours">你的系統</span>
+                    <svg class="dl-get" aria-hidden="true"><use href="#i-download" /></svg>
+                  </a>
+                </div>
+                <p class="release-line"><span data-release-meta></span>所有安裝檔都在 <a href="https://github.com/Agentic-System-Lab/harness-relay/releases">Releases 頁面</a>。</p>
+                <p>
+                  macOS 上把 Harness Relay 拖到「應用程式」；Windows 上安裝程式會替你的帳號裝好；Linux 上把 AppImage 加上執行權限後執行。安裝檔還沒有簽章，所以第一次開啟時：macOS 請到<b>系統設定 → 隱私權與安全性 → 強制打開</b>；Windows 請按<b>其他資訊 → 仍要執行</b>。
+                </p>
               </div>
             </li>
             <li>
               <h3>登入，然後開始聊天</h3>
               <p>
-                打開 <code>npm start</code> 印出的登入連結（<b>http://127.0.0.1:8787/#code=…</b>）：Harness Relay 只接受你登入過的瀏覽器。在「設定與登入」確認每個 agent 都已登入，再按「新對話」：選好工作目錄與權限，直接提出第一個問題。
+                Harness Relay 會在它自己的視窗裡打開已登入的對話；關掉視窗後，它會繼續待在選單列（或系統匣），手機照樣連得到。在「設定與登入」確認每個 agent 都已登入，再按「新對話」：選好工作目錄與權限，直接提出第一個問題。
               </p>
             </li>
             <li>
               <h3>用手機打開</h3>
               <div class="step-body">
                 <p>
-                  選用。在電腦和手機都裝好 <a href="https://tailscale.com">Tailscale</a>。先停止伺服器，把它分享到你的 tailnet，再用 <code>tailscale serve</code> 印出的名稱重新啟動：
+                  選用。在電腦和手機都裝好 <a href="https://tailscale.com">Tailscale</a>，再從 Harness Relay 的選單選<b>分享到手機（Tailscale）…</b>。它會把伺服器分享到你的 tailnet，並顯示手機要打開的 <b>https://</b> 網址。
                 </p>
-                <div class="cmd">
-                  <pre id="cmd-phone"><span class="prompt">$ </span>tailscale serve --bg 8787
-<span class="prompt">$ </span>RELAY_ALLOWED_HOSTS=my-computer.tail1234.ts.net npm start</pre>
-                  <button class="copy" type="button" data-copy="cmd-phone" aria-label="複製指令" data-done="已複製">
-                    <svg class="i-copy" aria-hidden="true"><use href="#i-copy" /></svg>
-                    <svg class="i-check" aria-hidden="true"><use href="#i-check" /></svg>
-                  </button>
-                </div>
                 <p>
-                  用手機打開那個 <b>https://</b> 網址，並用電腦上「<b>設定 → 已登入的瀏覽器</b>」產生的代碼登入。只有 tailnet 裡的裝置連得到，伺服器仍然只綁定 <code>127.0.0.1</code>。加到主畫面：iPhone 用 Safari 點<b>分享 → 加入主畫面</b>，Android 用 Chrome 點 <b>⋮ → 安裝應用程式</b>。
+                  用電腦上「<b>設定 → 已登入的瀏覽器 → 讓另一個裝置登入</b>」產生的代碼讓手機登入。只有 tailnet 裡的裝置連得到，伺服器仍然只綁定 <code>127.0.0.1</code>。加到主畫面：iPhone 用 Safari 點<b>分享 → 加入主畫面</b>，Android 用 Chrome 點 <b>⋮ → 安裝應用程式</b>。
                 </p>
                 <p><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.zh-TW.md">完整步驟，以及讓它一直執行與疑難排解</a></p>
               </div>
             </li>
           </ol>
           <div class="start-foot">
-            <p>要開發 Harness Relay 本身？改用 <code>npm run dev</code>：改程式時伺服器會自動重啟、介面會自動重新載入，網址是 http://localhost:5173。</p>
+            <p>
+              要在沒有桌面環境的伺服器上執行，或要開發 Harness Relay 本身？請用 Node.js 22.13 以上<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#快速開始">從原始碼執行</a>：<code>npm start</code>，修改程式時則用 <code>npm run dev</code>。
+            </p>
             <nav class="docs" aria-label="文件">
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md">使用者說明</a>
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/architecture.zh-TW.md">架構</a>

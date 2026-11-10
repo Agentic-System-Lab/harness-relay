@@ -45,6 +45,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 - **English and 繁體中文** — the UI follows your browser language (switchable in Settings); a guided tour introduces the main features on the first visit.
 - **Local-first** — everything is stored in a single SQLite file; the server only listens on `127.0.0.1`.
 - **On your phone too** — share it with your [Tailscale](https://tailscale.com) tailnet through `tailscale serve` (HTTPS, your devices only), open it on your phone and add it to the home screen, on iOS and Android. See [Use it from your phone](docs/remote-access.md).
+- **Desktop app (optional)** — run it without a terminal on macOS, Windows or Linux: the chat in a window of its own, an icon in the menu bar or system tray that keeps the server running when the window is closed (so your phone works as before), open at login, keep the computer awake, and share with your phone in one click. See [Desktop app](#desktop-app).
 
 ## Requirements
 
@@ -77,6 +78,19 @@ After a `git pull`, run `npm install` and `npm run build` again, then `npm start
 To use it from your phone or another device, share it with your tailnet: see [Use it from your phone (Tailscale)](docs/remote-access.md).
 
 Working on Harness Relay itself? Run `npm run dev` instead: the server restarts and the UI reloads as you edit, at http://localhost:5173. See the [developer guide](docs/developer-guide.md).
+
+## Desktop app
+
+Rather not keep a terminal open? The desktop app runs the same server in the background and shows the chat in a window of its own, signed in, with no address bar. Closing the window leaves the server running, with an icon in the menu bar (macOS) or the system tray (Windows, Linux), so your phone keeps working as before; its menu also opens the chat in your browser. It finds the agent CLIs the way your terminal does, can open at login and keep the computer awake, and its menu shares it with your phone through Tailscale in one step. When a new release is out, its menu offers it and the app updates itself. It needs the agent CLIs (and Git for edit and parallel modes) but not Node.js.
+
+Download the installer for your system from the [website](https://agentic-system-lab.github.io/harness-relay/), which offers the newest stable release, or from [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases), which also has the release candidates (all there is for now): a `.dmg` for macOS (Apple Silicon and Intel), an `.exe` for Windows, an `.AppImage` for Linux. The installers are not signed for distribution yet, so the system warns the first time; see [Desktop app](docs/user-guide.md#desktop-app) in the user guide. To build one yourself, run these in the clone after the quick start's `npm install` (the installer goes to `desktop/release/`):
+
+```bash
+npm install --prefix desktop
+npm run desktop:dist
+```
+
+`npm start` and `npm run dev` work as before.
 
 ## Documentation
 
@@ -111,6 +125,8 @@ API keys you save in Settings, and the values of MCP servers' environment variab
 | `npm run site:preview` | Preview the website (`site/`) on http://127.0.0.1:4180 |
 | `npm run icons` | Redraw the home-screen icons and the web app manifest in `src/web/public/` |
 | `npm run demo` | Record the demo again with the real CLIs, in both languages, and update the videos, stills and the website's chapters |
+| `npm run desktop` | Build the desktop app and run it without installing it (after `npm install --prefix desktop`) |
+| `npm run desktop:dist` | Build the desktop app's installer for this system into `desktop/release/` |
 
 Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The [website](https://agentic-system-lab.github.io/harness-relay/) is the static page in [`site/`](site/), published to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 

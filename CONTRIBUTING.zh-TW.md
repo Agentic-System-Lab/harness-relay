@@ -37,6 +37,8 @@ npm install
 npm run dev        # API 在 :8787（檔案變更時重啟）+ 介面在 http://localhost:5173
 ```
 
+要修改桌面 app（`desktop/`）？先執行一次 `npm install --prefix desktop`，再用 `npm run desktop` 建置並執行它；它的運作方式見[開發者說明](docs/developer-guide.zh-TW.md#桌面-app)。
+
 `npm run dev` 會在伺服器檔案變更時重啟伺服器，重啟會中止正在執行的 agent 回合。執行時的資料放在 `data/`（已被 git 忽略）；想讓測試用的設定和自己的對話分開，可以設定 `RELAY_DATA_DIR`。其他環境變數列在[開發者說明](docs/developer-guide.zh-TW.md#執行)。工作目錄包含 Harness Relay 本身時，它會拒絕可編輯模式；所以要用 Harness Relay 開發這個 repository，請從另一份 checkout 執行你使用的那份。
 
 ## 進行修改
@@ -49,6 +51,7 @@ npm run dev        # API 在 :8787（檔案變更時重啟）+ 介面在 http://
 - 子程序一律透過 `src/server/process.ts` 啟動，這樣才會被追蹤並在關閉時結束。
 - CLI 輸出的 parser 保持純函式（輸入一行行文字，輸出 `AgentEvent`），方便用錄下來的輸出測試。
 - 測試在沒有 DOM 的 Node 環境執行。想測試的前端邏輯請放在一般模組（例如 `src/web/chat.ts`），不要寫在元件裡。
+- 桌面 app 裡只有 `desktop/src/main.ts` 會 import `electron`。其他部分請放在不依賴它的模組（例如 `desktop/src/lifecycle.ts`），由根目錄的 `test/` 跟其他程式碼一樣測試。
 - `node:sqlite` 無法綁定 `undefined`：選填值請經過 `nul()`，多個寫入敘述請包在 `transaction(db, fn)` 裡。
 
 ### 安全性
@@ -76,7 +79,7 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 
 文件成對存在：`README.md` / `README.zh-TW.md`、`CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`，以及 `docs/<name>.md` / `docs/<name>.zh-TW.md`。當修改影響到行為、HTTP API、schema、設定、環境變數或測試清單時，請在同一個 pull request 中更新兩種語言。開發者說明列出了每一條 HTTP 路由與每個測試檔涵蓋的內容，請保持這些清單是最新的。
 
-`site/` 裡的網站有英文與中文兩個頁面。修改前請先讀 [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md)，兩個頁面一起改，並用 `npm run site:preview` 預覽。
+`site/` 裡的網站有英文與中文兩個頁面。修改前請先讀 [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md)，兩個頁面一起改，並用 `npm run site:preview` 預覽。`site/assets/downloads.js` 裡安裝檔的檔名結尾，必須跟發佈 workflow 給安裝檔的名稱一致：下載按鈕與桌面 app 的更新都靠它們找到安裝檔。
 
 ### 測試
 
@@ -98,7 +101,11 @@ npm test
 npm run build
 ```
 
-[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行這些檢查。
+如果修改了桌面 app，也要執行 `npm run desktop:typecheck`，並用 `npm run desktop` 試用；修改它的打包方式時，建置安裝檔（`npm run desktop:dist`），再用 `npx tsx desktop/scripts/check-package.ts` 檢查。
+
+發佈只由維護者透過發佈 workflow 進行（**Actions → Release**，從 `main`，以今天的日期為版本）：絕不要手動建立版本 tag。詳見開發者說明的[發佈](docs/developer-guide.zh-TW.md#發佈)。
+
+[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行型別檢查、測試與建置。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。
 
 如果你的修改會影響 agent 看到或做的事，也請在 app 中用至少一個真正的 CLI 試過，並說明用了哪些。
 

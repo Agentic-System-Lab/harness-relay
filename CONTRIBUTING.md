@@ -37,6 +37,8 @@ npm install
 npm run dev        # API on :8787 (restarts on changes) + UI on http://localhost:5173
 ```
 
+Working on the desktop app (`desktop/`)? Run `npm install --prefix desktop` once, then `npm run desktop` to build it and run it; the [developer guide](docs/developer-guide.md#the-desktop-app) explains how it works.
+
 `npm run dev` restarts the server whenever a server file changes, and a restart aborts any agent turn that is running. Runtime data goes to `data/` (git-ignored); set `RELAY_DATA_DIR` to keep a test setup apart from your own conversations. The [developer guide](docs/developer-guide.md#running) lists the other environment variables. Harness Relay refuses edit mode in a working directory that holds itself, so to work on this repository with Harness Relay, run the copy you use from another checkout.
 
 ## Making a change
@@ -49,6 +51,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 - Start child processes only through `src/server/process.ts`, so they are tracked and stopped on shutdown.
 - Keep CLI output parsers pure (lines in, `AgentEvent`s out) so they can be tested with recorded output.
 - Tests run in Node without a DOM. Put client logic you want to test in plain modules (like `src/web/chat.ts`), not inside components.
+- In the desktop app, only `desktop/src/main.ts` imports `electron`. Put the rest in modules without it (like `desktop/src/lifecycle.ts`), which the root `test/` tests like the other code.
 - `node:sqlite` cannot bind `undefined`: pass optional values through `nul()`, and wrap writes of several statements in `transaction(db, fn)`.
 
 ### Security
@@ -76,7 +79,7 @@ If you can only write one of the two languages, send the pull request anyway and
 
 Docs come in pairs: `README.md` / `README.zh-TW.md`, `CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md` and `docs/<name>.md` / `docs/<name>.zh-TW.md`. When a change affects behaviour, the HTTP API, the schema, settings, environment variables or the list of tests, update both languages in the same pull request. The developer guide lists every HTTP route and what each test file covers; keep those lists current.
 
-The website in `site/` has an English and a Chinese page. Read [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md) before you change it, change both pages together, and preview them with `npm run site:preview`.
+The website in `site/` has an English and a Chinese page. Read [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md) before you change it, change both pages together, and preview them with `npm run site:preview`. The installers' file name endings in `site/assets/downloads.js` must stay in step with the names the Release workflow gives them: the download buttons and the desktop app's updates both find the installers by them.
 
 ### Tests
 
@@ -98,7 +101,11 @@ npm test
 npm run build
 ```
 
-[CI](.github/workflows/ci.yml) runs them on Node 22 and 24 for every pull request and every push to `main`.
+If you changed the desktop app, also run `npm run desktop:typecheck`, and try it with `npm run desktop`; for changes to its packaging, build the installer (`npm run desktop:dist`) and check it with `npx tsx desktop/scripts/check-package.ts`.
+
+Releases are made by maintainers with the Release workflow only (**Actions → Release**, from `main`, today's date as the version): never tag a version by hand. See [Releasing](docs/developer-guide.md#releasing) in the developer guide.
+
+[CI](.github/workflows/ci.yml) runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked.
 
 If your change affects what agents see or do, also try it in the app with at least one real CLI, and say which ones you used.
 

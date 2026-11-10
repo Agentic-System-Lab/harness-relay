@@ -27,6 +27,8 @@ What each CLI was asked to do, in read-only and in edit mode, on both: write in 
 
 Also tried: Grok's `.git/config` written by its commands (`git config core.fsmonitor …`, on both), which Harness Relay's own git then does not run; on the Mac, `127.0.0.1` refused by Claude Code's and Codex's sandboxes and reached from Grok's, and Harness Relay's API answering 401 to a program not signed in. Not tried: native Windows, WSL, containers, other Linux distributions, other versions of the CLIs.
 
+These runs were started from the sources, as `npm start` runs the server. The [desktop app](user-guide.md#desktop-app) runs the same server, with the same adapters and the same sandbox settings, from its own data folder; the runs above were not repeated under it. On macOS, the privacy permissions you give the desktop app (a folder such as Documents, the microphone) are given to the agents it runs too, since they run inside it; under `npm start` they are the terminal's.
+
 ## What an OS sandbox is
 
 An OS sandbox is a set of limits that the operating system's kernel enforces on a process and on every process it starts: which files it may write (and sometimes read), and whether it may use the network. macOS has Seatbelt (`/usr/bin/sandbox-exec`); Linux has Landlock, seccomp and bubblewrap (which uses user namespaces).
@@ -55,8 +57,9 @@ That is why the sandbox matters in edit mode too, where tests and builds run cod
 Below full access, Harness Relay keeps every agent's sandbox out of these places (`src/server/protect.ts`), on macOS and Linux:
 
 - **The browsers' own folders**, where a signed-in browser keeps the key it sends to Harness Relay (and, in some browsers, its cookie) on disk: Chrome, Chromium, Edge, Brave, Arc, Vivaldi, Opera, Firefox, LibreWolf, Zen, Orion, Floorp, Waterfox, Helium, DuckDuckGo and GNOME Web, and Safari's and WebKit's folders (`~/Library/…` on macOS; `~/.config/…` and `$XDG_CONFIG_HOME/…`, `~/.mozilla`, snap and Flatpak folders on Linux). Only those that exist are listed, each also by its real path.
-- **Harness Relay's database** (`relay.db` and the files SQLite keeps beside it), also when the working directory holds it.
-- **Harness Relay's own temporary folder** (`data/tmp`), where a Claude Code turn's `--settings` and MCP config wait for it. In the system's temporary folder, which every sandbox lets commands write in, another agent's command could change them before Claude Code reads them (turning its sandbox off, or starting a command of its own as an MCP server, outside any sandbox), or read the MCP servers' secret values.
+- **The desktop app's window's own folder** (`browser/` in the app's folder: `~/Library/Application Support/Harness Relay/browser` on macOS, `~/.config/Harness Relay/browser` on Linux), where its window keeps its cookie and key; the app names it to the server as `RELAY_APP_BROWSER_DIR`.
+- **Harness Relay's database** (`relay.db` and the files SQLite keeps beside it, in `data/`, or with the desktop app in the `data` folder of its own folder), also when the working directory holds it.
+- **Harness Relay's own temporary folder** (`data/tmp`, or `data/tmp` in the desktop app's folder), where a Claude Code turn's `--settings` and MCP config wait for it. In the system's temporary folder, which every sandbox lets commands write in, another agent's command could change them before Claude Code reads them (turning its sandbox off, or starting a command of its own as an MCP server, outside any sandbox), or read the MCP servers' secret values.
 
 How each CLI takes them:
 
@@ -328,7 +331,7 @@ When Grok refuses to start because of its sandbox, the turn fails with Grok's re
 
 ## What the sandboxes do not cover
 
-- **Reading.** By default all three let commands read almost the whole computer, `~/.ssh` and `~/.aws` included; only Grok's `strict` profile limits reading (to the working directory, system paths and `~/.grok`). Harness Relay keeps them out of the browsers' folders and its own database (see [What agents may not read or write](#what-agents-may-not-read-or-write)), not out of anything else. Keeping secrets from leaving the computer depends on blocking the network, which Grok cannot do on macOS.
+- **Reading.** By default all three let commands read almost the whole computer, `~/.ssh` and `~/.aws` included; only Grok's `strict` profile limits reading (to the working directory, system paths and `~/.grok`). Harness Relay keeps them out of the browsers' folders (the desktop app's window's included) and its own database (see [What agents may not read or write](#what-agents-may-not-read-or-write)), not out of anything else. Keeping secrets from leaving the computer depends on blocking the network, which Grok cannot do on macOS.
 - **Harness Relay's own API.** Grok's sandbox lets commands reach localhost (tried on a Mac: `curl http://127.0.0.1:…` from a Grok command in edit mode got its answer), but Harness Relay's API at `127.0.0.1:8787` takes only signed-in browsers: a program without the browser's cookie and key gets 401 (tried with `curl`), so such a command cannot start a turn (see [Architecture → Signing in](architecture.md#signing-in) for what it does not stop). Claude Code's and Codex's sandboxes refused localhost in the same test.
 - **Claude Code's own tools.** Its sandbox covers Bash commands and what they start, not its Read, Edit, Write, WebFetch and WebSearch tools (its permission rules govern those), its hooks, local MCP servers (the tool library's included) or LSP servers.
 - **Writing outside the working directory and the temp folders fails**, package caches included (`~/.npm`, pip, cargo, Go's build cache). With the network off as well, installing dependencies fails.

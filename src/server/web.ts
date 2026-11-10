@@ -1,7 +1,16 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { Hono } from 'hono';
+
+/**
+ * Where the built web app is: RELAY_WEB_DIR when it is set (the desktop app keeps the build next
+ * to its copy of the server), else `dist/web` in the folder the server was started from.
+ */
+export function webAppDir(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
+  const dir = env.RELAY_WEB_DIR?.trim();
+  return dir ? resolve(cwd, dir) : resolve(cwd, 'dist/web');
+}
 
 /**
  * Serve the built web app in `dir` (other paths get index.html, for the client's routes). Call it
