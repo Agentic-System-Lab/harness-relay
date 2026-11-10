@@ -2146,6 +2146,51 @@ a.branch-source:hover {
   min-width: 0;
 }
 
+/*
+ * The step in progress: the name keeps its width, and its detail (with the dot before it) only gets
+ * the room left over. A name too long for the line is cut and leaves no room for the detail.
+ */
+.tool-summary.running-step {
+  display: flex;
+  align-items: baseline;
+}
+
+.running-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.running-more {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  overflow: hidden;
+  container-type: inline-size;
+}
+
+/* Too little room left for the dot and a few letters of the detail: show neither. */
+@container (width < 4em) {
+  .running-sep,
+  .running-detail {
+    visibility: hidden;
+  }
+}
+
+.running-sep {
+  flex-shrink: 0;
+  margin: 0 0.4em;
+}
+
+.running-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tool-icon.spin {
   display: inline-block;
   animation: spin 1s linear infinite;
@@ -2249,6 +2294,13 @@ a.branch-source:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+/* A path too long for its line: the ellipsis goes at its start, so the file name stays in view. */
+.tool-detail.path,
+.running-detail.path {
+  direction: rtl;
+  text-align: left;
 }
 
 /* File changes */

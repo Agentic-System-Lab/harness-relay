@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentConfig, ChatMessage, Conversation } from '../src/shared/types';
-import { buildBriefing, buildTurnPrompt, canReadFiles, isForwardable, isPass, parseMentions, renderMessage } from '../src/server/prompt';
+import { buildBriefing, buildTurnPrompt, canReadFiles, forwardText, isForwardable, isPass, parseMentions, renderMessage } from '../src/server/prompt';
 import { ASK_TOKEN, splitAsk } from '../src/shared/ask';
 
 const team: AgentConfig[] = [
@@ -96,6 +96,23 @@ describe('renderMessage', () => {
     expect(renderMessage(conv, agentMessage({ status: 'aborted', parts: [{ type: 'text', text: 'half' }] }))).toContain(
       'status="stopped"',
     );
+  });
+});
+
+describe('forwardText', () => {
+  it("tells teammates every file change, as Codex's rows name them", () => {
+    const tool = (name: string, detail: string, status: 'done' | 'error' = 'done') => ({ type: 'tool' as const, id: name, name, detail, status });
+    const m = agentMessage({
+      provider: 'codex',
+      parts: [
+        tool('Create', '/repo/src/new.ts'),
+        tool('Delete', '/repo/src/old.ts', 'error'),
+        tool('Edit', '/repo/src/app.ts'),
+        tool('Shell', 'npm test'),
+        tool('WebSearch', 'vitest'),
+      ],
+    });
+    expect(forwardText(m)).toBe('\n\n<actions>\nCreate /repo/src/new.ts\nDelete /repo/src/old.ts (failed)\nEdit /repo/src/app.ts\nShell npm test\n</actions>');
   });
 });
 

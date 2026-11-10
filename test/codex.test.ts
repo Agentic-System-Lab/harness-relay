@@ -2,6 +2,7 @@ import { appendFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeF
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { isPathDetail } from '../src/web/chat';
 import {
   codexApprovalRequest,
   codexApprovalResponse,
@@ -20,6 +21,8 @@ import {
   codexMcpToolId,
   createCodexUpdateHandler,
   describeCodexItem,
+  folderTail,
+  sharedFolder,
 } from '../src/server/agents/codex';
 import { RpcError } from '../src/server/agents/acp';
 import { AgentRunError, type AgentEvent } from '../src/server/agents/types';
@@ -74,7 +77,56 @@ describe('codex app-server events', () => {
   });
 
   it('describes tool items', () => {
-    expect(describeCodexItem({ type: 'fileChange', changes: [{ path: 'a.ts', kind: { type: 'update' } }] })).toEqual({ name: 'Edit', detail: 'update a.ts' });
+    // One file: the kind as the name, the path as the detail (a long one keeps its file name).
+    const change = (type: string, path = 'a.ts') => ({ type: 'fileChange', changes: [{ path, kind: { type } }] });
+    expect(describeCodexItem(change('update'))).toEqual({ name: 'Edit', detail: 'a.ts' });
+    expect(describeCodexItem(change('add'))).toEqual({ name: 'Create', detail: 'a.ts' });
+    expect(describeCodexItem(change('delete'))).toEqual({ name: 'Delete', detail: 'a.ts' });
+    const long = '/repo/' + 'folder-with-a-long-name/'.repeat(8) + 'handler.ts';
+    expect(describeCodexItem(change('update', long))!.detail).toMatch(/^…\/.*\/handler\.ts$/);
+    // No path: the kind alone.
+    expect(describeCodexItem({ type: 'fileChange', changes: [{ kind: { type: 'add' } }] })).toEqual({ name: 'Create', detail: undefined });
+    // Several files: each with its kind, relative to the folder they share (named by its last two names).
+    const several = (...paths: [string, string][]) =>
+      describeCodexItem({ type: 'fileChange', changes: paths.map(([type, path]) => ({ path, kind: { type } })) });
+    expect(several(['update', 'a.ts'], ['add', 'b.ts'])).toEqual({ name: 'Edit', detail: 'update a.ts, add b.ts' });
+    const root = '/Users/me/Desktop/projects/refstitch/crates/refstitch-core/';
+    expect(several(['update', `${root}src/data.py`], ['add', `${root}src/cli.py`], ['delete', `${root}tests/old.py`])).toEqual({
+      name: 'Edit',
+      detail: 'crates/refstitch-core/: update src/data.py, add src/cli.py, delete tests/old.py',
+    });
+    expect(several(['update', '/a.ts'], ['update', '/b.ts'])).toEqual({ name: 'Edit', detail: 'update /a.ts, update /b.ts' });
+    // A list of files is never laid out as one path (its start would be cut), with a shared folder or
+    // without, and when it is cut at its end; one file always is, however long.
+    const lists = [
+      several(['update', `${root}src/data.py`], ['add', `${root}src/cli.py`]),
+      several(['update', '/a.ts'], ['update', '/b.ts']),
+      several(...Array.from({ length: 12 }, (_, i): [string, string] => ['update', `${root}src/module-${i}/handler.py`])),
+    ];
+    for (const list of lists) expect(isPathDetail(list!.detail!), list!.detail).toBe(false);
+    expect(lists[2]!.detail!.endsWith('…')).toBe(true);
+    expect(isPathDetail(describeCodexItem(change('update', long))!.detail!)).toBe(true);
+  });
+
+  it('finds the folder several paths share', () => {
+    expect(sharedFolder(['/repo/src/a.ts', '/repo/src/b.ts'])).toBe('/repo/src/');
+    expect(sharedFolder(['/repo/src/a.ts', '/repo/test/a.ts'])).toBe('/repo/');
+    // A shared start of a file name is not a folder.
+    expect(sharedFolder(['/repo/app.ts', '/repo/app.test.ts'])).toBe('/repo/');
+    expect(sharedFolder(['/repo/a.ts', '/repo/a.ts.bak'])).toBe('/repo/');
+    expect(sharedFolder(['C:\\repo\\a.ts', 'C:\\repo\\b.ts'])).toBe('C:\\repo\\');
+    // Nothing shared but the root, one path, or relative paths in no common folder.
+    expect(sharedFolder(['/a.ts', '/b.ts'])).toBe('');
+    expect(sharedFolder(['/repo/a.ts'])).toBe('');
+    expect(sharedFolder(['a.ts', 'b.ts'])).toBe('');
+    // The same file twice, a folder and a file in it, and mixed separators.
+    expect(sharedFolder(['/repo/a.ts', '/repo/a.ts'])).toBe('/repo/');
+    expect(sharedFolder(['/repo/src', '/repo/src/a.ts'])).toBe('/repo/');
+    expect(sharedFolder(['C:\\repo\\a.ts', 'C:/repo/b.ts'])).toBe('');
+    // A folder named by its last two names.
+    expect(folderTail('/Users/me/refstitch/crates/refstitch-core/')).toBe('crates/refstitch-core/');
+    expect(folderTail('/repo/')).toBe('repo/');
+    expect(folderTail('C:\\repo\\src\\')).toBe('repo\\src\\');
     expect(describeCodexItem({ type: 'webSearch', query: 'vitest' })).toEqual({ name: 'WebSearch', detail: 'vitest' });
     expect(describeCodexItem({ type: 'webSearch', query: ' ', action: { type: 'openPage', url: 'https://vitest.dev' } })).toEqual({
       name: 'WebSearch',
@@ -82,6 +134,18 @@ describe('codex app-server events', () => {
     });
     expect(describeCodexItem({ type: 'webSearch', query: '', action: { type: 'other' } })).toEqual({ name: 'WebSearch', detail: undefined });
     expect(describeCodexItem({ type: 'agentMessage' })).toBeNull();
+  });
+
+  it('shows a new file by its path from the start, and keeps it when the item completes', () => {
+    const events: AgentEvent[] = [];
+    const h = createCodexUpdateHandler((e) => events.push(e));
+    const item = (status: string) => ({ type: 'fileChange', id: 'p1', status, changes: [{ path: '/repo/src/new.ts', kind: { type: 'add' }, diff: '+x' }] });
+    h.handle('item/started', { item: item('inProgress') });
+    h.handle('item/completed', { item: item('completed') });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'p1', name: 'Create', detail: '/repo/src/new.ts' },
+      { type: 'tool_end', id: 'p1', ok: true },
+    ]);
   });
 
   it('shows what a web search searched for, which only comes when it is done', () => {

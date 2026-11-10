@@ -109,7 +109,7 @@ export function grokApprovalRequest(call: GrokToolCall): ApprovalRequest {
     return { kind: 'edit', detail: input.file_path ?? input.path ?? input.target_file, reason: call.title };
   }
   if (call.kind === 'fetch') return { kind: 'fetch', detail: input.url, reason: call.title };
-  return { kind: 'other', tool: tool || call.title, detail: summarizeInput(input), reason: call.title };
+  return { kind: 'other', tool: tool || call.title, detail: summarizeInput(input, { wholePaths: true }), reason: call.title };
 }
 
 /** The decision after the user declined (their note, if any, goes to the model). */

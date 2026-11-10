@@ -22,7 +22,7 @@ import {
   parseClaudePluginList,
   type ClaudeControlRequest,
 } from '../src/server/agents/claude';
-import { AgentRunError, type AgentEvent } from '../src/server/agents/types';
+import { AgentRunError, clip, clipPath, summarizeInput, type AgentEvent } from '../src/server/agents/types';
 import type { NativeItemsOff, NativePart } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
 
@@ -155,6 +155,53 @@ describe('claude parser', () => {
     expect(claudeApprovalRequest('Write', { file_path: '/a.txt' })).toMatchObject({ kind: 'edit', detail: '/a.txt' });
     expect(claudeApprovalRequest('WebFetch', { url: 'https://x.dev' })).toMatchObject({ kind: 'fetch', detail: 'https://x.dev' });
     expect(claudeApprovalRequest('mcp__linear__create', { title: 'Bug' })).toMatchObject({ kind: 'other', tool: 'mcp__linear__create' });
+    // An approval card shows a path whole: where it starts tells whether it is inside the project.
+    const long = '/private/tmp/' + 'folder-with-a-long-name/'.repeat(8) + 'secrets.env';
+    expect(claudeApprovalRequest('Read', { file_path: long })).toMatchObject({ kind: 'other', tool: 'Read', detail: long });
+    expect(claudeApprovalRequest('Grep', { pattern: 'TODO', path: long })).toMatchObject({ kind: 'other', detail: long });
+    // Only paths are left whole: anything else is still cut at its end.
+    const query = 'q '.repeat(120);
+    expect(claudeApprovalRequest('WebSearch', { query })).toMatchObject({ kind: 'other', detail: clip(query) });
+    expect(summarizeInput({ command: `cat ${long} ${long}` }, { wholePaths: true })).toHaveLength(160);
+  });
+
+  it('keeps the file name of a long path in a tool row, and the start of anything else', () => {
+    const dir = '/private/tmp/claude-501/' + Array.from({ length: 8 }, (_, i) => `folder-${i}-with-a-long-name`).join('/') + '/scratchpad/review';
+    const file = `${dir}/grok-survey.mts`;
+    expect(file.length).toBeGreaterThan(160);
+    const events: AgentEvent[] = [];
+    const parser = createClaudeParser((e) => events.push(e));
+    parser.handle(JSON.stringify({ type: 'assistant', message: { id: 'm', content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: file } }] } }));
+    const detail = (events[0] as Extract<AgentEvent, { type: 'tool_start' }>).detail!;
+    expect(detail).toBe('…' + file.slice(file.indexOf('/', file.length - 159)));
+    expect(detail.length).toBeLessThanOrEqual(160);
+    expect(detail).toMatch(/^…\/folder-\d-with-a-long-name\/.*\/scratchpad\/review\/grok-survey\.mts$/);
+
+    // Grok's read_file and list_dir, and a folder to search in, the same way.
+    expect(summarizeInput({ target_file: file })).toBe(detail);
+    expect(summarizeInput({ target_directory: dir + '/' + 'b'.repeat(40) })).toMatch(/\/b{40}$/);
+    expect(summarizeInput({ path: file })).toBe(detail);
+    // A command, a query or a URL keeps its start.
+    const command = `cat ${file}`;
+    expect(summarizeInput({ command })).toBe(clip(command));
+    expect(summarizeInput({ command })!.startsWith('cat /private/tmp/')).toBe(true);
+    // Short paths are left whole; a file name longer than the limit keeps its end.
+    expect(clipPath('/repo/a.ts')).toBe('/repo/a.ts');
+    // A folder name cut in the middle is left out.
+    expect(clipPath(`/${'f'.repeat(200)}/src/a.ts`)).toBe('…/src/a.ts');
+    // At the limit a path stays whole; one over it comes back at the limit or less.
+    const at = '/' + 'a/'.repeat(79) + 'b';
+    expect(at.length).toBe(160);
+    expect(clipPath(at)).toBe(at);
+    expect(clipPath(at + 'c')).toBe('…/' + 'a/'.repeat(78) + 'bc');
+    expect(clipPath(at + 'c').length).toBeLessThanOrEqual(160);
+    // A cut inside a folder name moves on to the next separator; one that lands on a separator keeps it.
+    expect(clipPath('/abc/defgh/ij', 9)).toBe('…/ij');
+    expect(clipPath('/abcdefgh/ijk', 5)).toBe('…/ijk');
+    // A folder with a long name and a trailing separator keeps the end of that name.
+    expect(clipPath('/' + 'x'.repeat(200) + '/')).toBe('…' + 'x'.repeat(158) + '/');
+    expect(clipPath(`/repo/${'n'.repeat(200)}.ts`)).toBe(`…${'n'.repeat(156)}.ts`);
+    expect(clipPath('C:\\repo\\' + 'd'.repeat(170) + '\\a.ts', 20)).toBe('…\\a.ts');
   });
 });
 

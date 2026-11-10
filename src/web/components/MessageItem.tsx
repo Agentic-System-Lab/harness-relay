@@ -14,6 +14,7 @@ import { api } from '../api';
 import {
   activityCounts,
   enterSends,
+  isPathDetail,
   isTouchScreen,
   segments,
   thoughtTail,
@@ -33,6 +34,22 @@ import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
 
+/**
+ * A tool call's detail on one line. A path too long for it loses its start, not its file name: it is
+ * laid out right to left around a left-to-right run, so the ellipsis goes at its start.
+ */
+function ToolDetail({ detail, className }: { detail: string; className: string }) {
+  return isPathDetail(detail) ? (
+    <span className={`${className} path`} title={detail}>
+      <bdi dir="ltr">{detail}</bdi>
+    </span>
+  ) : (
+    <span className={className} title={detail}>
+      {detail}
+    </span>
+  );
+}
+
 function ToolLine({ x }: { x: ToolPart }) {
   const t = useT();
   return (
@@ -41,7 +58,7 @@ function ToolLine({ x }: { x: ToolPart }) {
         {x.status === 'running' ? '…' : x.status === 'done' ? '✓' : '✗'}
       </span>
       <code className="tool-name">{x.name}</code>
-      {x.detail && <span className="tool-detail">{x.detail}</span>}
+      {x.detail && <ToolDetail detail={x.detail} className="tool-detail" />}
     </span>
   );
 }
@@ -112,9 +129,18 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
             <span className="thinking-label">{t.activity.thinking}</span> <span className="thinking-tail">{thoughtTail(thinking)}</span>
           </span>
         ) : running ? (
-          <span className="tool-summary">
-            {running.name}
-            {running.detail ? ` · ${running.detail}` : ''}
+          <span className="tool-summary running-step">
+            <span className="running-name" title={running.name}>
+              {running.name}
+            </span>
+            {running.detail && (
+              <span className="running-more">
+                <span className="running-sep" aria-hidden>
+                  ·
+                </span>
+                <ToolDetail detail={running.detail} className="running-detail" />
+              </span>
+            )}
           </span>
         ) : (
           <span className="tool-summary">{actions === 0 && thoughts === 1 ? t.activity.thought : counts}</span>

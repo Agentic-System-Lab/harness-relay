@@ -259,6 +259,9 @@ describe('grok activity and approvals', () => {
     expect(grokApprovalRequest(read)).toMatchObject({ kind: 'other', tool: 'read_file', detail: '/repo/a.ts' });
     const list = { title: 'list_dir', kind: 'other', rawInput: { target_directory: '/repo/test' }, _meta: { 'x.ai/tool': { name: 'list_dir' } } };
     expect(grokApprovalRequest(list)).toMatchObject({ kind: 'other', tool: 'list_dir', detail: '/repo/test' });
+    // Whole, however long: where it starts tells whether it is inside the project.
+    const long = '/private/tmp/' + 'folder-with-a-long-name/'.repeat(8) + 'secrets.env';
+    expect(grokApprovalRequest({ ...read, rawInput: { target_file: long } })).toMatchObject({ detail: long });
   });
 });
 

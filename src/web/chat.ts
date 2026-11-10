@@ -299,6 +299,21 @@ export function activityCounts(items: ActivityItem[]): { actions: number; though
   return { actions, thoughts: items.length - actions, failed };
 }
 
+/**
+ * Whether a tool row's detail is a file or folder path, which loses its start rather than its file
+ * name when it does not fit. The server cuts a long path at its start ("…/dir/file.ts"), and any
+ * other detail at its end ("npm run …"), so either says which it is. Otherwise a path is one word with a slash in it (a
+ * backslash only where a Windows path has one, so a regex's `\(` is not a path), with none of the
+ * characters commands, globs and patterns use, and not a URL (those keep their site). A path with
+ * a space in it, unless the server cut it, is cut at the end like any other detail.
+ */
+export function isPathDetail(detail: string): boolean {
+  // Only clipPath() puts an ellipsis first ("…/dir/file.ts", or "…name.ts" for a huge file name).
+  if (detail.startsWith('…')) return !detail.endsWith('…');
+  if (detail.endsWith('…') || /\s/.test(detail) || detail.includes('://') || /[|*;$"'<>=]/.test(detail)) return false;
+  return detail.includes('/') || /^(?:[A-Za-z]:\\|\\\\|\.{1,2}\\|~\\)/.test(detail);
+}
+
 /** A line of thinking as a one-line preview: bold and heading marks taken out. */
 function plainLine(line: string): string {
   return line

@@ -8,6 +8,7 @@ import {
   AgentRunError,
   TURN_TIMEOUT_MS,
   clip,
+  clipPath,
   summarizeInput,
   tailText,
   webSearchDetail,
@@ -302,6 +303,21 @@ const PLAN_STATUS: Record<string, PlanEntry['status']> = {
   completed: 'completed',
 };
 
+/** The folder all these paths are in, ending in its separator; '' when they share none but the root. */
+export function sharedFolder(paths: string[]): string {
+  if (paths.length < 2) return '';
+  let prefix = paths[0]!;
+  for (const p of paths.slice(1)) while (prefix && !p.startsWith(prefix)) prefix = prefix.slice(0, -1);
+  const end = Math.max(prefix.lastIndexOf('/'), prefix.lastIndexOf('\\'));
+  return end > 0 ? prefix.slice(0, end + 1) : '';
+}
+
+/** A folder's last two names, with its separator: "/Users/me/repo/crates/core/" → "crates/core/". */
+export function folderTail(folder: string): string {
+  const sep = folder.endsWith('\\') ? '\\' : '/';
+  return folder.split(/[\\/]/).filter(Boolean).slice(-2).join(sep) + sep;
+}
+
 /** A tool row for a Codex thread item, or null for items that are not tool calls. */
 export function describeCodexItem(item: Record<string, any>): { name: string; detail?: string } | null {
   switch (item.type) {
@@ -309,7 +325,18 @@ export function describeCodexItem(item: Record<string, any>): { name: string; de
       return { name: 'Shell', detail: clip(unwrapShell(String(item.command ?? ''))) };
     case 'fileChange': {
       const changes: any[] = Array.isArray(item.changes) ? item.changes : [];
-      return { name: 'Edit', detail: clip(changes.map((c) => `${c.kind?.type ?? 'update'} ${c.path}`).join(', ')) || undefined };
+      if (changes.length === 1) {
+        // One file: its path alone, which keeps its file name when it is long, and the kind as the name
+        // (one the log of actions forwarded to teammates recognises, see forwardText()).
+        const kind = changes[0]?.kind?.type;
+        const path = changes[0]?.path ? clipPath(String(changes[0].path)) : undefined;
+        return { name: kind === 'add' ? 'Create' : kind === 'delete' ? 'Delete' : 'Edit', detail: path };
+      }
+      // Several files: each relative to the folder they share, so their names fit, after that folder's
+      // last two names, so you can tell which part of the project they are in.
+      const root = sharedFolder(changes.map((c) => String(c.path ?? '')));
+      const list = changes.map((c) => `${c.kind?.type ?? 'update'} ${String(c.path ?? '').slice(root.length)}`).join(', ');
+      return { name: 'Edit', detail: clip((root ? `${folderTail(root)}: ` : '') + list) || undefined };
     }
     case 'mcpToolCall':
       return { name: `${item.server ?? 'mcp'}:${item.tool ?? 'tool'}`, detail: summarizeInput(item.arguments) };
