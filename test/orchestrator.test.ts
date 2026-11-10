@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,13 +11,15 @@ process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
-const { Orchestrator } = await import('../src/server/orchestrator');
+const { Orchestrator, branchPause } = await import('../src/server/orchestrator');
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { AgentRunError, runners } = await import('../src/server/agents');
 const { PLANNER_BRIEFING, REVISER_BRIEFING } = await import('../src/server/planner');
 const { GROUPER_BRIEFING } = await import('../src/server/grouping');
 const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
+const { mediaRoots, resolveMedia } = await import('../src/server/media');
+const { worktreeDir } = await import('../src/server/workspace');
 const { BUSY_RETRY_MS, MISSED_AFTER_MS, Scheduler, scheduleTime } = await import('../src/server/scheduler');
 
 let n = 0;
@@ -991,6 +993,273 @@ describe('retrying a reply', () => {
     const reply = agentMessages(conv)[0]!;
     conv.agents = [agents[1]!];
     await expect(orchestrator.retry(conv.id, reply.id)).rejects.toThrow(/不在團隊中/);
+  });
+});
+
+describe('branching a conversation', () => {
+  const kinds = (conv: Conversation) => conv.messages.map((m) => m.author.kind);
+  const refs = () =>
+    execFileSync('git', ['for-each-ref', '--format=%(refname)', 'refs/harness-relay/'], { cwd: project, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean);
+
+  it('copies the messages up to the reply into a new conversation, which goes on from there with fresh sessions', async () => {
+    store.createGroup({ id: 'g1', name: 'Docs' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.allowRules = [{ kind: 'command', key: 'npm test' }];
+    store.saveMeta(conv);
+    store.moveToGroup(conv.id, 'g1');
+    await orchestrator.send(conv.id, 'first question');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'second question');
+    await finish(conv.id);
+    expect(kinds(conv)).toEqual(['user', 'agent', 'agent', 'user', 'agent', 'agent']);
+
+    const source = conv.messages.slice(0, 3);
+    const branch = await orchestrator.branch(conv.id, source[2]!.id);
+    expect(branch.title).toBe('分支 · test');
+    expect(kinds(branch)).toEqual(['user', 'agent', 'agent']);
+    expect(branch.messages.map(textOf)).toEqual(source.map(textOf));
+    expect(branch.messages.map((m) => m.createdAt)).toEqual(source.map((m) => m.createdAt));
+    // New ids: messages are rows of their own.
+    expect(branch.messages.some((m) => conv.messages.some((x) => x.id === m.id))).toBe(false);
+    expect(branch.branch).toEqual({ fromId: conv.id, fromTitle: 'test', afterId: branch.messages[2]!.id });
+    expect(branch.agents).toEqual(conv.agents);
+    expect(branch.settings).toEqual(conv.settings);
+    expect(branch.allowRules).toEqual([{ kind: 'command', key: 'npm test' }]);
+    expect(branch.agentState).toEqual({});
+    // In the same sidebar group, as the user's choice: the lead agent does not sort it.
+    expect(store.groupOf(branch.id)).toBe('g1');
+    expect(store.isSorted(branch.id)).toBe(true);
+    // The original is untouched, and the database agrees with memory.
+    expect(conv.messages).toHaveLength(6);
+    const reloaded = new Store(db).get(branch.id)!;
+    expect(reloaded.messages.map((m) => [m.id, m.author, textOf(m)])).toEqual(branch.messages.map((m) => [m.id, m.author, textOf(m)]));
+    expect(reloaded.branch).toEqual(branch.branch);
+
+    // The branch's agents start fresh, with the copied history and nothing after it.
+    calls = [];
+    await orchestrator.send(branch.id, 'another question');
+    await finish(branch.id);
+    expect(calls.map((c) => [c.name, c.sessionId])).toEqual([
+      ['Alice', undefined],
+      ['Bob', undefined],
+    ]);
+    expect(calls[0]!.prompt).toContain('first question');
+    expect(calls[0]!.prompt).toContain('Alice done');
+    expect(calls[0]!.prompt).toContain('another question');
+    expect(calls[0]!.prompt).not.toContain('second question');
+    expect(calls[0]!.systemPrompt).toContain('branched from an earlier one');
+    expect(kinds(branch)).toEqual(['user', 'agent', 'agent', 'user', 'agent', 'agent']);
+    expect(conv.messages).toHaveLength(6);
+  });
+
+  it('works while the team replies, but not from a reply with one before it still being written', async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only' });
+    let release!: () => void;
+    gates = { Alice: new Promise((r) => (release = r)) };
+    await orchestrator.send(conv.id, 'question');
+    await vi.waitFor(() => expect(agentMessages(conv).map((m) => m.status)).toEqual(['streaming', 'done']));
+    const bob = agentMessages(conv)[1]!;
+    await expect(orchestrator.branch(conv.id, bob.id)).rejects.toMatchObject({ status: 409 });
+    release();
+    await finish(conv.id);
+    expect(textOf(agentMessages(conv)[0]!)).toBe('Alice done');
+
+    gates = { Bob: new Promise(() => {}) }; // Bob only finishes when stopped
+    await orchestrator.send(conv.id, 'again');
+    await vi.waitFor(() => expect(agentMessages(conv).at(-2)?.status).toBe('done'));
+    const branch = await orchestrator.branch(conv.id, agentMessages(conv).at(-2)!.id);
+    expect(kinds(branch)).toEqual(['user', 'agent', 'agent', 'user', 'agent']);
+    expect(orchestrator.isRunning(conv.id)).toBe(true);
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+  });
+
+  it("refuses the user's messages, unknown messages and unknown conversations", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    await expect(orchestrator.branch(conv.id, conv.messages[0]!.id)).rejects.toMatchObject({ status: 400 });
+    await expect(orchestrator.branch(conv.id, 'nope')).rejects.toMatchObject({ status: 404 });
+    await expect(orchestrator.branch('nope', agentMessages(conv)[0]!.id)).rejects.toMatchObject({ status: 404 });
+    expect(store.list(() => false)).toHaveLength(1);
+  });
+
+  it('copies the attached files and keeps the diffs of the copied replies, also once the original is deleted', async () => {
+    const conv = conversation({ mode: 'roundtable' });
+    conv.agents = [agents[0]!];
+    during = (_name, cwd) => writeFileSync(join(cwd, 'turn.txt'), 'changed\n');
+    await orchestrator.send(conv.id, 'look', [
+      { name: 'notes.txt', mimeType: 'text/plain', data: Buffer.from('marmalade\n').toString('base64') },
+      { name: 'gone.txt', mimeType: 'text/plain', data: 'aGk=' },
+    ]);
+    await finish(conv.id);
+    const reply = agentMessages(conv)[0]!;
+    expect(reply.changes?.files.length).toBeGreaterThan(0);
+
+    // A file already gone is skipped; the others are copied, readable by the owner only.
+    const gone = conv.messages.find((m) => m.author.kind === 'user')!.parts.find((p) => p.type === 'attachment' && p.name === 'gone.txt')!;
+    rmSync(gone.type === 'attachment' ? attachmentPath(conv.id, gone) : '');
+    const branch = await orchestrator.branch(conv.id, reply.id);
+    const file = branch.messages.find((m) => m.author.kind === 'user')!.parts.find((p) => p.type === 'attachment')!;
+    expect(file.type === 'attachment' && readFileSync(attachmentPath(branch.id, file), 'utf8')).toBe('marmalade\n');
+    expect(file.type === 'attachment' && statSync(attachmentPath(branch.id, file)).mode & 0o777).toBe(0o600);
+    expect(gone.type === 'attachment' && existsSync(attachmentPath(branch.id, gone))).toBe(false);
+    expect(refs().filter((r) => r.includes(`/${branch.id}/`))).toHaveLength(2);
+
+    const copied = agentMessages(branch)[0]!;
+    const diff = await orchestrator.messageDiff(branch.id, copied.id);
+    await orchestrator.deleteConversation(conv.id);
+    expect(file.type === 'attachment' && readFileSync(attachmentPath(branch.id, file), 'utf8')).toBe('marmalade\n');
+    expect(await orchestrator.messageDiff(branch.id, copied.id)).toBe(diff);
+    expect(refs().every((r) => r.includes(`/${branch.id}/`))).toBe(true);
+
+    await orchestrator.deleteConversation(branch.id);
+    expect(refs()).toEqual([]);
+  });
+
+  it('moves the line after the copied messages back when one of them is retried, and drops it once none is left', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    const branch = await orchestrator.branch(conv.id, agentMessages(conv)[1]!.id);
+    const [question, alice] = branch.messages;
+
+    await orchestrator.retry(branch.id, agentMessages(branch)[1]!.id);
+    await finish(branch.id);
+    expect(kinds(branch)).toEqual(['user', 'agent', 'agent']);
+    expect(branch.branch?.afterId).toBe(alice!.id);
+    expect(new Store(db).get(branch.id)!.branch?.afterId).toBe(alice!.id);
+
+    await orchestrator.resend(branch.id, question!.id, 'question, edited');
+    await finish(branch.id);
+    expect(branch.branch).toBeUndefined();
+    expect(new Store(db).get(branch.id)!.branch).toBeUndefined();
+    expect(branch.title).toBe('分支 · test');
+  });
+
+  it("keeps a question the reply asked open in the branch, also once it was answered here", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    const asked = agentMessages(conv)[0]!;
+    expect(conv.pause).toMatchObject({ askers: ['a'], rest: [{ agentId: 'b' }] });
+
+    // Branched where this conversation waits: the branch waits the same way.
+    const now = await orchestrator.branch(conv.id, asked.id);
+    expect(now.pause).toEqual(conv.pause);
+    expect(new Store(db).get(now.id)!.pause).toEqual(conv.pause);
+
+    // Answered here; a branch from the question still waits for its answer.
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await finish(conv.id);
+    expect(conv.pause).toBeUndefined();
+    const later = await orchestrator.branch(conv.id, asked.id);
+    expect(later.pause).toEqual({ mode: 'roundtable', askers: ['a'], rest: [{ agentId: 'b' }], participants: ['a', 'b'], round: 1, rounds: 1 });
+
+    // Its answer goes to the agent that asked, then the round goes on, with no new team designed.
+    later.settings.autoTeam = true;
+    calls = [];
+    await orchestrator.send(later.id, 'ANSWER: B');
+    await finish(later.id);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+    expect(calls[0]!.prompt).toContain('You asked the user a question and their reply is among the messages above');
+    expect(kinds(later)).toEqual(['user', 'agent', 'user', 'agent', 'agent']);
+    expect(later.pause).toBeUndefined();
+  });
+
+  it('works out what a branch waits for in each mode, and waits for nothing after a reply that did not ask', () => {
+    const reply = (agentId: string, asked: boolean, round = 1) =>
+      ({ id: `${agentId}-${round}`, author: { kind: 'agent', agentId }, parts: [], status: 'done', createdAt: 0, meta: { round }, ...(asked ? { asked } : {}) }) as Conversation['messages'][number];
+    const question = (text: string) => ({ id: 'q', author: { kind: 'user' }, parts: [{ type: 'text', text }], status: 'done', createdAt: 0 }) as Conversation['messages'][number];
+    const conv = (mode: ConversationSettings['mode'], messages: Conversation['messages']) =>
+      ({ id: 'c', agents, settings: { mode, rounds: 2, maxHops: 4, permission: 'read-only', cwd: project }, messages }) as unknown as Conversation;
+
+    // Parallel: the round's questions before the reply wait together; the others answered already.
+    expect(branchPause(conv('parallel', [question('go'), reply('a', true), reply('b', true)]), 2)).toEqual({
+      mode: 'parallel', askers: ['a', 'b'], rest: [], participants: ['a', 'b'], round: 1, rounds: 2,
+    });
+    // Roundtable: a question for one member only leaves nobody after it in the round.
+    expect(branchPause(conv('roundtable', [question('@Bob go'), reply('b', true, 2)]), 1)).toEqual({
+      mode: 'roundtable', askers: ['b'], rest: [], participants: ['b'], round: 2, rounds: 2,
+    });
+    expect(branchPause(conv('relay', [question('go'), reply('a', true)]), 1)).toEqual({
+      mode: 'relay', askers: ['a'], rest: [], participants: [], round: 1, rounds: 1, hopsLeft: 4,
+    });
+    expect(branchPause(conv('relay', [question('go'), reply('a', false)]), 1)).toBeUndefined();
+  });
+
+  it('waits for a parallel peer whose turn still records the files it changed', async () => {
+    const conv = conversation({ mode: 'parallel' });
+    let release!: () => void;
+    gates = { Alice: new Promise((r) => (release = r)) };
+    await orchestrator.send(conv.id, 'question');
+    await vi.waitFor(() => expect(agentMessages(conv)[1]?.changes).toBeTruthy(), { timeout: 10_000, interval: 5 });
+    release();
+    // Alice's reply is done, but her turn has not recorded her changes yet.
+    while (agentMessages(conv)[0]!.status !== 'done') await new Promise((r) => setImmediate(r));
+    expect(agentMessages(conv)[0]!.changes).toBeUndefined();
+    await expect(orchestrator.branch(conv.id, agentMessages(conv)[1]!.id)).rejects.toMatchObject({ status: 409 });
+    await finish(conv.id);
+    const branch = await orchestrator.branch(conv.id, agentMessages(conv)[1]!.id);
+    expect(agentMessages(branch).map((m) => Boolean(m.changes?.files.length))).toEqual([true, true]);
+  });
+
+  it('finishes copying the attached files before the original is deleted, and before shutdown', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.agents = [agents[0]!];
+    const big = Array.from({ length: 10 }, (_, i) => ({ name: `f${i}.txt`, mimeType: 'text/plain', data: Buffer.alloc(1_000_000, 65).toString('base64') }));
+    await orchestrator.send(conv.id, 'look', big);
+    await finish(conv.id);
+    const [branch] = await Promise.all([orchestrator.branch(conv.id, agentMessages(conv)[0]!.id), orchestrator.deleteConversation(conv.id)]);
+    const files = branch.messages[0]!.parts.filter((p) => p.type === 'attachment');
+    expect(files).toHaveLength(10);
+    expect(files.filter((p) => p.type === 'attachment' && existsSync(attachmentPath(branch.id, p)))).toHaveLength(10);
+    expect(store.get(conv.id)).toBeUndefined();
+
+    let done = false;
+    const again = orchestrator.branch(branch.id, agentMessages(branch)[0]!.id).then(() => (done = true));
+    orchestrator.stopAll();
+    await orchestrator.settled(10_000);
+    expect(done).toBe(true);
+    await again;
+    await expect(orchestrator.branch(branch.id, agentMessages(branch)[0]!.id)).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("shows a parallel reply's images from the worktree it was made in, not the branch's own", async () => {
+    const conv = conversation({ mode: 'parallel' });
+    conv.agents = [agents[0]!];
+    await orchestrator.send(conv.id, 'draw');
+    await finish(conv.id);
+    const reply = agentMessages(conv)[0]!;
+    expect(reply.changes?.isolated).toBe(true);
+    const wt = conv.worktrees.a!;
+    writeFileSync(join(worktreeDir(wt.root, conv.settings.cwd, wt.path), 'chart.png'), 'the original chart');
+    const lookup = (id: string) => store.get(id);
+    const chart = (c: Conversation, m: Conversation['messages'][number]) => {
+      const file = resolveMedia('chart.png', mediaRoots(c, m, lookup));
+      return file && readFileSync(file, 'utf8');
+    };
+
+    const branch = await orchestrator.branch(conv.id, reply.id);
+    const copied = agentMessages(branch)[0]!;
+    expect(chart(branch, copied)).toBe('the original chart');
+    // The branch works in its own worktree; the copied reply still shows the original's chart.
+    await orchestrator.send(branch.id, 'draw again');
+    await finish(branch.id);
+    const own = branch.worktrees.a!;
+    writeFileSync(join(worktreeDir(own.root, branch.settings.cwd, own.path), 'chart.png'), "the branch's chart");
+    expect(chart(branch, copied)).toBe('the original chart');
+    expect(chart(branch, agentMessages(branch)[1]!)).toBe("the branch's chart");
+
+    // Once the original is gone, so is its worktree; the diff stays.
+    const diff = await orchestrator.messageDiff(branch.id, copied.id);
+    expect(diff).toContain('Alice.txt');
+    await orchestrator.deleteConversation(conv.id);
+    expect(chart(branch, copied)).toBeUndefined();
+    expect(await orchestrator.messageDiff(branch.id, copied.id)).toBe(diff);
   });
 });
 

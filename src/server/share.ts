@@ -664,14 +664,20 @@ export interface FoundShareFile {
  * serve (inside the chat's working directory, the agent's worktree or the attachments, never `.git`;
  * see resolveDownload), each measured but not read (readShareFile reads one). A link to a message
  * outside that range, or to none, finds nothing; so does every link when `upTo` names no message.
+ * `lookup` finds another conversation: a reply copied into a branch reads from the worktree it was made in.
  */
-export async function findShareFiles(conv: Conversation, refs: ShareFileRef[], upTo?: string): Promise<FoundShareFile[]> {
+export async function findShareFiles(
+  conv: Conversation,
+  refs: ShareFileRef[],
+  upTo?: string,
+  lookup?: (id: string) => Conversation | undefined,
+): Promise<FoundShareFile[]> {
   const end = upTo === undefined ? conv.messages.length - 1 : conv.messages.findIndex((m) => m.id === upTo);
   const range = conv.messages.slice(0, end + 1);
   const found = new Map<string, FoundShareFile>();
   for (const [i, ref] of refs.entries()) {
     const msg = range.find((m) => m.id === ref.messageId);
-    const roots = msg ? mediaRoots(conv, msg) : [];
+    const roots = msg ? mediaRoots(conv, msg, lookup) : [];
     const real = msg ? resolveDownload(ref.path, roots) : undefined;
     const problem = real ? undefined : msg ? downloadProblem(ref.path, roots) : 'missing';
     // The same file, also by another path or from another reply, goes in once.

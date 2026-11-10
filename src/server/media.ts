@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import type { ChatMessage, Conversation } from '../shared/types';
+import type { AgentWorktree, ChatMessage, Conversation } from '../shared/types';
 import { mediaType } from '../shared/media';
 import { attachmentsDir } from './attachments';
 import { worktreeDir } from './workspace';
@@ -13,12 +13,38 @@ function inside(path: string, root: string): boolean {
 }
 
 /**
- * The directories a message's images and videos may come from, in the order a relative path is
- * tried: where its agent worked (its own worktree for an isolated turn, else the working
- * directory), then the other one, then the conversation's attachments.
+ * The worktree a reply's agent worked in. For an isolated turn, the one holding the turn's branch: the
+ * conversation's own, or for a reply copied into a branch, the one of the conversation it was copied
+ * from (`lookup` finds a conversation; further up for a branch of a branch), while that is there. Not
+ * the branch's own worktree for that agent, which holds other work. Otherwise the agent's worktree.
  */
-export function mediaRoots(conv: Conversation, msg: ChatMessage): string[] {
-  const wt = msg.author.kind === 'agent' ? conv.worktrees[msg.author.agentId] : undefined;
+export function replyWorktree(
+  conv: Conversation,
+  msg: ChatMessage,
+  lookup: (id: string) => Conversation | undefined = () => undefined,
+): AgentWorktree | undefined {
+  if (msg.author.kind !== 'agent') return undefined;
+  const own = conv.worktrees[msg.author.agentId];
+  const changes = msg.changes;
+  if (!changes?.isolated || !changes.branch) return own;
+  const holds = (w: AgentWorktree) => w.root === changes.root && w.branch === changes.branch;
+  if (own && holds(own)) return own;
+  const seen = new Set([conv.id]);
+  for (let from = conv.branch && lookup(conv.branch.fromId); from && !seen.has(from.id); from = from.branch && lookup(from.branch.fromId)) {
+    seen.add(from.id);
+    const wt = Object.values(from.worktrees).find(holds);
+    if (wt) return wt;
+  }
+  return undefined;
+}
+
+/**
+ * The directories a message's images and videos may come from, in the order a relative path is
+ * tried: where its agent worked (its own worktree for an isolated turn, see `replyWorktree`, else the
+ * working directory), then the other one, then the conversation's attachments.
+ */
+export function mediaRoots(conv: Conversation, msg: ChatMessage, lookup?: (id: string) => Conversation | undefined): string[] {
+  const wt = replyWorktree(conv, msg, lookup);
   let own: string | undefined;
   try {
     own = wt ? worktreeDir(wt.root, conv.settings.cwd, wt.path) : undefined;

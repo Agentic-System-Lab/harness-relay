@@ -46,6 +46,7 @@ import {
 } from './planner';
 import {
   attachmentsDir,
+  copyAttachments,
   imageInputs,
   removeAttachments,
   saveAttachments,
@@ -101,6 +102,8 @@ interface RunWorkspace {
 interface Run {
   abort: AbortController;
   active: Set<string>;
+  /** Turns not over yet, by message id: a reply is marked done before its turn records the files it changed. */
+  turns: Set<string>;
   ws: RunWorkspace;
   /** Repository root this run holds the directory lock on. */
   lockRoot?: string;
@@ -237,6 +240,41 @@ function isFor(m: ChatMessage, recipients: AgentConfig[], agents: AgentConfig[])
 
 const attachmentsOf = (m: ChatMessage) => m.parts.filter((p): p is AttachmentPart => p.type === 'attachment');
 
+/**
+ * Where a branch from the reply at `index` waits for the user: a reply that asked the user something
+ * keeps its question open there, whatever the user answered here since, so they can answer it another
+ * way. Branched where this conversation waits now, the branch waits the same way. Otherwise the agent
+ * that asked (in parallel mode, with the others whose questions in its round came before) answers
+ * first once the user replies, followed in roundtable mode by the members after it in that round, and
+ * in later rounds by the members the question was for, as the run would have gone on.
+ */
+export function branchPause(conv: Conversation, index: number): RunPause | undefined {
+  const reply = conv.messages[index];
+  if (reply?.author.kind !== 'agent' || !reply.asked) return undefined;
+  if (conv.pause && conv.messages.slice(index + 1).every((m) => m.author.kind === 'system')) return structuredClone(conv.pause);
+  const { mode, rounds, maxHops } = conv.settings;
+  const askerId = reply.author.agentId;
+  if (mode === 'relay') return { mode, askers: [askerId], rest: [], participants: [], round: 1, rounds: 1, hopsLeft: maxHops };
+  const asked = conv.messages.slice(0, index).findLastIndex((m) => m.author.kind === 'user');
+  const question = conv.messages[asked];
+  const mentioned = question ? mentionsOf([question], conv.agents) : [];
+  const participants = mentioned.length ? mentioned : conv.agents;
+  const round = reply.meta?.round ?? 1;
+  const askers =
+    mode === 'parallel'
+      ? [
+          ...new Set(
+            conv.messages
+              .slice(asked + 1, index + 1)
+              .flatMap((m) => (m.author.kind === 'agent' && m.asked && (m.meta?.round ?? 1) === round ? [m.author.agentId] : [])),
+          ),
+        ]
+      : [askerId];
+  const at = participants.findIndex((a) => a.id === askerId);
+  const rest = mode === 'roundtable' && at >= 0 ? participants.slice(at + 1).map((a) => ({ agentId: a.id })) : [];
+  return { mode, askers, rest, participants: participants.map((a) => a.id), round, rounds };
+}
+
 /** What a user message asks: its text, and the names of the files attached to it. */
 function questionOf(m: ChatMessage): string {
   const files = attachmentsOf(m).map((p) => p.name);
@@ -303,6 +341,8 @@ export class Orchestrator {
    * request, and any it replaced whose lead process has not ended yet. Only the latest one answers.
    */
   private revisions = new Map<string, Set<{ abort: AbortController; done: Promise<unknown> }>>();
+  /** Branches being made, by the conversation they come from: deleting it, and shutdown, wait for them. */
+  private branching = new Map<string, Set<Promise<Conversation>>>();
 
   constructor(
     private store: Store,
@@ -379,6 +419,8 @@ export class Orchestrator {
   async deleteConversation(convId: string): Promise<void> {
     this.deleting.add(convId);
     try {
+      // A branch being made from it is still copying its attached files.
+      await Promise.allSettled([...(this.branching.get(convId) ?? [])]);
       // A run being set up gives up when it sees the delete; a settings change or an apply finishes.
       for (let pending = this.reserved.get(convId); pending; pending = this.reserved.get(convId)) await pending;
       const run = this.runs.get(convId);
@@ -409,6 +451,7 @@ export class Orchestrator {
     const all = Promise.allSettled([
       ...[...this.runs.values()].map((r) => r.done),
       ...[...this.revisions.values()].flatMap((set) => [...set].map((r) => r.done)),
+      ...[...this.branching.values()].flatMap((set) => [...set]),
       this.grouper.settled(),
     ]);
     await Promise.race([all, new Promise((r) => setTimeout(r, ms).unref())]);
@@ -752,6 +795,82 @@ export class Orchestrator {
     await this.start(conv, '', { beforePost: () => this.truncateFrom(conv, messageId), only: again });
   }
 
+  /**
+   * Branch the conversation from one of its agents' replies: a new conversation with a copy of the
+   * messages up to and including that reply (new ids, the files attached to them copied, the commits
+   * behind their file changes kept for it), the team, the settings and the "always allow" answers as
+   * they are now, and the sidebar group (as the user's choice, so the lead agent does not sort it). It
+   * goes on from there on its own: its agents start fresh sessions and are given the copied history on
+   * their first turn, and a question the reply asked waits for the user's answer there (`branchPause`).
+   * This conversation stays as it is and may go on replying meanwhile; only the turns up to the reply
+   * branched from must be over. Files in the working directory are not rewound.
+   */
+  async branch(convId: string, messageId: string): Promise<Conversation> {
+    const conv = this.store.get(convId);
+    if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
+    if (this.closing) throw new HttpError(503, t().shuttingDown);
+    const index = conv.messages.findIndex((m) => m.id === messageId);
+    if (index < 0) throw new HttpError(404, t().messageNotFound);
+    if (conv.messages[index]!.author.kind !== 'agent') throw new HttpError(400, t().branchOnlyReply);
+    // A reply still being written (a parallel peer's), or one whose turn still records the files it
+    // changed, would be copied unfinished.
+    const open = this.runs.get(convId)?.turns;
+    if (conv.messages.slice(0, index + 1).some((m) => m.status === 'streaming' || open?.has(m.id))) {
+      throw new HttpError(409, t().branchStreaming);
+    }
+    // Deleting this conversation, and shutdown, wait for it: its attached files are being copied.
+    const work = this.makeBranch(conv, index);
+    const pending = this.branching.get(convId) ?? new Set<Promise<Conversation>>();
+    this.branching.set(convId, pending.add(work));
+    try {
+      return await work;
+    } finally {
+      pending.delete(work);
+      if (!pending.size) this.branching.delete(convId);
+    }
+  }
+
+  private async makeBranch(conv: Conversation, index: number): Promise<Conversation> {
+    const copied = conv.messages.slice(0, index + 1);
+    const messages = copied.map((m) => ({ ...structuredClone(m), id: randomUUID() }));
+    const pause = branchPause(conv, index);
+    const id = randomUUID();
+    const now = Date.now();
+    const chat: Conversation = {
+      id,
+      title: t().branchTitle(conv.title).slice(0, 200),
+      createdAt: now,
+      updatedAt: now,
+      agents: structuredClone(conv.agents),
+      settings: structuredClone(conv.settings),
+      messages,
+      agentState: {},
+      worktrees: {},
+      ...(conv.allowRules?.length ? { allowRules: structuredClone(conv.allowRules) } : {}),
+      ...(pause ? { pause } : {}),
+      branch: { fromId: conv.id, fromTitle: conv.title, afterId: messages.at(-1)!.id },
+    };
+    try {
+      await copyAttachments(conv.id, id, copied.flatMap(attachmentsOf));
+      this.store.create(chat);
+    } catch (err) {
+      removeAttachments(id);
+      throw err;
+    }
+    this.store.moveToGroup(id, this.store.groupOf(conv.id));
+    // The diffs of the copied replies stay viewable here, also once the original is deleted.
+    const byRoot = new Map<string, string[]>();
+    for (const m of messages) {
+      if (m.changes) byRoot.set(m.changes.root, [...(byRoot.get(m.changes.root) ?? []), m.changes.base, m.changes.head]);
+    }
+    for (const [root, commits] of byRoot) {
+      await keepCommits(root, id, commits).catch((err) =>
+        console.warn("[orchestrator] could not keep a branch's snapshot refs:", (err as Error).message),
+      );
+    }
+    return chat;
+  }
+
   private getIdle(convId: string): Conversation {
     const conv = this.store.get(convId);
     if (!conv) throw new HttpError(404, t().conversationNotFound);
@@ -789,6 +908,12 @@ export class Orchestrator {
     }
     // Whatever question the team waited on is answered by starting over from here.
     conv.pause = undefined;
+    // A branch whose copied messages were dropped: they now end with the last one left, if any.
+    if (conv.branch && !conv.messages.some((m) => m.id === conv.branch!.afterId)) {
+      const last = conv.messages.at(-1);
+      conv.branch = last ? { ...conv.branch, afterId: last.id } : undefined;
+      this.store.saveMeta(conv);
+    }
     this.hub.emit(conv.id, { type: 'snapshot', conversation: forClient(conv), running: false, activeAgentIds: [] });
   }
 
@@ -848,6 +973,7 @@ export class Orchestrator {
       run = {
         abort: new AbortController(),
         active: new Set(),
+        turns: new Set(),
         ws,
         lockRoot,
         // Only while nothing the user wrote starts it: when they write, they are here.
@@ -1632,6 +1758,7 @@ export class Orchestrator {
     conv.messages.push(msg);
     this.store.saveMessage(conv.id, msg, true);
     run.active.add(agent.id);
+    run.turns.add(msg.id);
     this.hub.emit(conv.id, { type: 'message', message: msg });
     this.emitStatus(conv.id);
 
@@ -1912,6 +2039,7 @@ export class Orchestrator {
         }
       }
       run.active.delete(agent.id);
+      run.turns.delete(msg.id);
       conv.updatedAt = Date.now();
       this.hub.emit(conv.id, { type: 'message', message: msg });
       this.emitStatus(conv.id);

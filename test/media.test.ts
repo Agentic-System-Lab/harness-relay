@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { fileName, isVideo, localFilePath, localMediaPath, mediaType } from '../src/shared/media';
 import type { ChatMessage, Conversation } from '../src/shared/types';
 import { attachmentsDir } from '../src/server/attachments';
-import { byteRange, contentDisposition, downloadProblem, mediaRoots, resolveDownload, resolveMedia } from '../src/server/media';
+import { byteRange, contentDisposition, downloadProblem, mediaRoots, replyWorktree, resolveDownload, resolveMedia } from '../src/server/media';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-media-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -223,6 +223,29 @@ describe('files a reply links to', () => {
     expect(mediaRoots(conv, reply(false))).toEqual([cwd, wt, attachmentsDir('c1')]);
     const user = { id: 'u', author: { kind: 'user' }, parts: [] } as unknown as ChatMessage;
     expect(mediaRoots(conv, user)).toEqual([cwd, attachmentsDir('c1')]);
+  });
+
+  it("finds a copied parallel reply's worktree in the conversation it was branched from, further up for a branch of a branch", () => {
+    const wt = (branch: string) => ({ root: '/repo', path: `/wt/${branch}`, branch, base: 'x', needsReset: false });
+    const reply = {
+      id: 'm',
+      author: { kind: 'agent', agentId: 'a' },
+      parts: [],
+      changes: { root: '/repo', base: 'x', head: 'y', files: [], isolated: true, branch: 'relay/c0/Alice' },
+    } as unknown as ChatMessage;
+    const conv = (id: string, from?: string, branch?: string) =>
+      ({ id, worktrees: branch ? { a: wt(branch) } : {}, ...(from ? { branch: { fromId: from, fromTitle: '', afterId: 'm' } } : {}) }) as unknown as Conversation;
+    const all = new Map([conv('c0', undefined, 'relay/c0/Alice'), conv('c1', 'c0', 'relay/c1/Alice'), conv('c2', 'c1')].map((c) => [c.id, c]));
+    const lookup = (id: string) => all.get(id);
+    expect(replyWorktree(all.get('c0')!, reply, lookup)?.branch).toBe('relay/c0/Alice');
+    // Not the branch's own worktree for that agent, which holds other work.
+    expect(replyWorktree(all.get('c1')!, reply, lookup)?.branch).toBe('relay/c0/Alice');
+    expect(replyWorktree(all.get('c2')!, reply, lookup)?.branch).toBe('relay/c0/Alice');
+    // The original is gone: nowhere.
+    expect(replyWorktree(all.get('c2')!, reply, (id) => (id === 'c0' ? undefined : lookup(id)))).toBeUndefined();
+    // A loop of branches ends.
+    const loop = new Map([conv('x', 'y'), conv('y', 'x')].map((c) => [c.id, c]));
+    expect(replyWorktree(loop.get('x')!, reply, (id) => loop.get(id))).toBeUndefined();
   });
 
   it('names the file for saving, safely for any name', () => {

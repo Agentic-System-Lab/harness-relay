@@ -1494,9 +1494,41 @@ details.sub .model-picker {
   display: contents;
 }
 
-.chat-head .chat-title {
+.chat-head .chat-title-row {
   grid-area: title;
   justify-self: start;
+}
+
+/* The title, then a branch's "Continued from": the title gives way first (it ends in …), the label
+   keeps up to half the row and shortens only the original's title. */
+.chat-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chat-title-row .chat-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.head-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 50%;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.head-branch svg,
+.head-branch .branch-from {
+  flex-shrink: 0;
 }
 
 .chat-head .team-chips {
@@ -1711,6 +1743,51 @@ details.sub .model-picker {
   .msg-action {
     opacity: 1;
   }
+}
+
+/* A branch: after the messages copied from it, a line naming the conversation it comes from. */
+.branch-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.branch-divider::before,
+.branch-divider::after {
+  content: '';
+  flex: 1 1 24px;
+  height: 1px;
+  background: var(--border);
+}
+
+.branch-divider-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 80%;
+  white-space: nowrap;
+}
+
+.branch-divider-label svg {
+  flex-shrink: 0;
+}
+
+.branch-source {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+a.branch-source {
+  color: var(--info);
+  text-decoration: none;
+}
+
+a.branch-source:hover {
+  text-decoration: underline;
 }
 
 .copy-done {
@@ -3663,8 +3740,18 @@ details.sub summary {
     padding-left: 44px;
   }
 
-  .chat-head .chat-title {
-    min-width: 0;
+  .chat-head .chat-title-row {
+    flex: 0 1 auto;
+  }
+
+  /* Little room: the icon says it, the original's title stays. */
+  .head-branch .branch-from {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .head-warning {

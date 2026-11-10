@@ -939,6 +939,21 @@ export interface Conversation {
   pause?: RunPause;
   /** A message the team is sent at set times. */
   schedule?: ConversationSchedule;
+  /** It was branched from another conversation (see `ConversationBranch`). */
+  branch?: ConversationBranch;
+}
+
+/**
+ * Where a branched conversation comes from: "Branch conversation" under an agent's reply copies the
+ * conversation up to and including that reply into a new one, which goes on from there on its own.
+ */
+export interface ConversationBranch {
+  /** The conversation it was branched from (it may have been deleted since). */
+  fromId: string;
+  /** That conversation's title when it was branched (shown once it has been deleted). */
+  fromTitle: string;
+  /** The last message copied from it, by its id here: the messages after it were written here. */
+  afterId: string;
 }
 
 export interface ConversationSummary {

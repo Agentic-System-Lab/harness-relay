@@ -202,6 +202,7 @@ export function App() {
             id={route.id}
             providers={providers}
             catalog={catalog}
+            conversations={loaded ? conversations : undefined}
             onChanged={refreshConversations}
           />
         )}

@@ -19,6 +19,7 @@ import {
   keepImages,
   linkedFileRefs,
   type ShareAnchor,
+  messageElements,
   messagesUpTo,
   shareDocument,
   shareFooter,
@@ -137,7 +138,7 @@ function strip(root: HTMLElement, t: Messages, convId = '', files: ShareFileRef[
 function shownItems(chat: HTMLElement, messages: ChatMessage[], upTo?: string): Element[] | undefined {
   const range = messagesUpTo(messages, upTo);
   const inner = chat.querySelector('.messages-inner');
-  const items = inner ? Array.from(inner.children) : [];
+  const items = inner ? messageElements(Array.from(inner.children)) : [];
   return range && items.length === messages.length ? items.slice(0, range.length) : undefined;
 }
 
@@ -202,7 +203,7 @@ export async function sharePage(o: {
   if (!range) throw new SharePageError(t.share.gone);
   const head = o.chat.querySelector('.chat-head');
   const inner = o.chat.querySelector('.messages-inner');
-  const items = inner ? Array.from(inner.children) : [];
+  const items = inner ? messageElements(Array.from(inner.children)) : [];
   // Each MessageItem is one element, in the order of the messages.
   if (!head || items.length !== o.messages.length) throw new SharePageError(t.share.notOnScreen);
   const end = range.length;

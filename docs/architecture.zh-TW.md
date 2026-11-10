@@ -84,6 +84,17 @@ flowchart LR
 - `sessionId`：CLI 自己的 session / thread id，用來在下一回合接續 agent 的上下文；
 - `seen`：已經交給這個 agent 看過的訊息 id。
 
+### 分支對話
+
+**分支對話**（agent 回覆下方的分支圖示，`POST /api/conversations/:id/messages/:messageId/branch`，`Orchestrator.branch()`）會建立一個新對話，從那則回覆之後各自往下走：
+
+- 新對話裡有到這則回覆為止每則訊息的副本，每則都換上新的 id（訊息 id 是獨立的資料列），和對話一起在同一個 transaction 中寫入（`Store.create()`）。團隊、設定、「本對話都允許」的回答（`allowRules`）與側邊欄群組（`group_source = 'user'`，首席 agent 不會再分類）會照**現在**的樣子複製，而不是那則回覆當時的樣子：之後離開團隊的成員在分支裡無法重試，之後給的「本對話都允許」也會帶過去。標題是「**分支 · <標題>**」（`t().branchTitle`）。排程與等待佇列不會複製。
+- 那則回覆向使用者提的問題，在分支裡仍然等你回答（`branchPause()`），不管原本的對話之後怎麼回答，所以可以換個方式回答。在原本的對話正在等待的地方分支時，直接複製它的 `pause`；否則由提問的 agent（平行模式下，連同同一輪到它為止也提問的成員）先回答，圓桌模式接著是同一輪排在它後面的成員，之後的輪次則是這個問題指定的成員。和原本的對話一樣，你的回答不算新問題：首席 agent 不會為它設計團隊。
+- 附加檔案會複製到它自己的 `data/attachments/<conversation>/`（檔案系統支援時用 copy-on-write 複製；已經不在的檔案略過），複製過來的回覆所改動檔案背後的 commit 也會保存在它自己的 `refs/harness-relay/<conversation>/` 下，因此原本的對話刪除後，這些檔案與 diff 仍然在。隔離（平行模式）的結果不能在分支裡套用；這些回覆連結的圖片與檔案，會從做出它們的 worktree 讀取（`replyWorktree()`：持有那一回合 branch 的 worktree，在原本的對話裡，分支的分支則再往上找），絕不會從分支自己給那位成員的 worktree 讀取；原本的對話刪除後（連同它的 worktree），就找不到了。
+- `conversation.branch`（`ConversationBranch`：原本對話的 id、當時的標題，以及 `afterId`，也就是這裡最後一則複製的訊息）以 JSON 存在 `conversations.branch`。ChatView 會在標題後方（標題太長時先以 … 縮短）以及 `afterId` 之後的一條線上顯示「**延續自 <標題>**」：對話清單裡還有原本的對話時，是連到它的連結（用它現在的標題），刪除後則顯示當時的標題。這條線是訊息之間的元素，分享頁面會略過它（`messageElements()`，因為分享頁面以一則訊息一個元素對應）；分享頁面兩處都不顯示。重試或編輯複製過來的訊息時，`afterId` 會移回剩下的最後一則複製訊息；一則都不剩時，`branch` 會被移除。
+- agent 一開始沒有 session，`seen` 也是空的，所以第一次發言時會收到複製過來的紀錄（包括自己的回覆），和開新 session 時一樣。它們的 briefing 會說明這是分支出來的對話，原本的對話之後可能改過檔案；工作目錄是共用的，裡面的東西不會倒回去。
+- 原本的對話不受影響，分支時也可以繼續回覆；只有到這則回覆為止的回合必須已經結束（還有回覆在串流時回 409，平行模式中同時發言的成員可能如此；或它的回合還在記錄改動的檔案：`Run.turns`）。刪除原本的對話與關閉伺服器（`settled()`）會等正在建立、還在複製檔案的分支完成。只能從 agent 的回覆分支（其他訊息回 400）。
+
 ## agent 之間如何共享上下文
 
 每個 agent 都有自己長期存在的 CLI session，所以伺服器**不會**每回合重送整段對話，而是：
@@ -401,7 +412,7 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 
 | 資料表 | 內容 |
 | --- | --- |
-| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）與 `group_source`（`user` 或 `auto`；NULL 代表尚未分類） |
+| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）、`group_source`（`user` 或 `auto`；NULL 代表尚未分類）與 `branch`（JSON：從哪個對話分支出來，以及最後一則複製的訊息；schema 版本 17） |
 | `conversation_groups` | 使用者的側邊欄群組（名稱、順序） |
 | `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度、`tools`：成員對工具庫的例外設定，JSON） |
 | `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`，以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`），依 `seq` 排序 |
@@ -539,7 +550,7 @@ sequenceDiagram
 - 首席 agent 選得好不好，完全取決於它的回覆品質；回覆無法使用時會保留目前的團隊，沒有團隊時改用「一般問題智囊團」範本。它讀的是精簡過的對話（說過的話中最新的 12,000 個字元），不是團隊改過的檔案。每次設計都是首席 agent 的 CLI 的一次執行，所以每個新問題都要多一次執行（預設還要多按一次確認）。被首席 agent 換掉的成員會從頭開始：重試已經不在團隊裡的成員的回覆會被拒絕。
 - Codex 只有在它的模型決定要求超出沙箱的權限時才會詢問；被擋下但沒有詢問的呼叫就只會失敗。
 - Claude Code 的思考內容需要未列入文件的 `--thinking-display summarized` 旗標；Claude Code 的待辦清單只有在它的 `TodoWrite` 工具可用時才會出現。
-- 重試或編輯訊息會讓每個 agent 以剩下的對話紀錄開新的 CLI session。
+- 重試或編輯訊息會讓每個 agent 以剩下的對話紀錄開新的 CLI session；分支出來的對話裡的 agent 也一樣，用的是複製過來的紀錄。分支共用工作目錄，不會倒回分支那則回覆當時的樣子。
 - Grok 只有在使用者信任過的資料夾才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks，而 `grok agent stdio` 無法指定信任。Harness Relay 會標示資料夾尚未信任（在 Grok 卡片、有 Grok 成員的團隊的工作目錄下方，以及等待確認、或最近一次直接採用、有 Grok 成員的團隊設計上），並在使用者確認後，用和 `grok --trust` 相同的方式記錄信任（`src/server/grokTrust.ts`：在 `$GROK_HOME/trusted_folders.toml` 加入 `[folders."<路徑>"]`，權限 `0600`，再用 `grok inspect` 確認）。Grok 是以專案根目錄決定信任，而不是輸入的工作目錄：也就是它以 `projectRoot` 回報的儲存庫根目錄（解析連結後），不在儲存庫裡時則是工作目錄的實際路徑。記錄與確認時顯示的都是這個資料夾；它是工作目錄上層的儲存庫根目錄時，確認畫面會說明整個儲存庫都會被信任。使用者確認時若 Grok 已改為另一個資料夾，請求會被拒絕；記錄後 Grok 仍回報未信任時，檔案會還原成原本的內容。工具庫的項目不受影響。平行模式下 Grok 在 `data/worktrees/` 下的 worktree 工作，那是另一個資料夾，工作目錄的信任不一定涵蓋。Codex 每次呼叫 MCP 工具前也會詢問：完整存取以外的權限下會在聊天室顯示核准請求，在設成自動拒絕的對話裡呼叫會失敗；完整存取下只有工具庫的伺服器不經詢問就執行（使用者 `config.toml` 裡自己的伺服器依它們自己的設定）。Codex 其他的 MCP elicitation 一律拒絕。Grok 只有在宣告支援 `mcpCapabilities.http` 時才會拿到工具庫的 HTTP MCP 伺服器，否則會略過並在伺服器 log 留下警告。完整存取以外的權限下，Claude Code 每次呼叫 MCP 工具都會詢問（沒有預先允許任何 MCP 工具），所以在設成自動拒絕的對話裡用不到它們。
 - Agent 的家目錄：各 CLI 不再讀使用者自己的設定、MCP 伺服器、skill、記憶與 plugin，而且要在新的家目錄重新登入。AgentsView：它的上傳只接受 Claude Code 的 session 紀錄，所以 thread 會被列為 Claude Code 的 session，所有回覆都是 assistant turn；它預設隱藏使用者只說了一則訊息的 session（直到對話有第二則，或開啟 **Include single-turn**）；不支援需要 token 的 AgentsView（`require_auth`）；成員開新 session 後，舊的 session 仍連在 thread 下，之後只會重新連結目前的 session；首席 agent 與分群用的 session 只在執行它們的伺服器還開著時才會連結；刪除對話後，它的 thread 仍留在 AgentsView。
 - 語音輸入：Linux 與 Windows 的預先編譯引擎用 CPU 執行（沒有 CUDA 或 Vulkan），大模型會比較慢；Linux 版需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新，不支援 musl）；macOS 需要 Homebrew，它也會一併安裝 whisper.cpp 的相依套件。文字要等說完才出現，不會邊說邊顯示。Whisper 仍可能寫出簡體字，或從雜音編出一句話。

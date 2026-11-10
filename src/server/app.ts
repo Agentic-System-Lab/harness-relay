@@ -695,7 +695,7 @@ export function createApp({
     const upTo = typeof b.upTo === 'string' ? b.upTo : undefined;
     // Measured first, and read only when they can all go along; checked again as read (one may have
     // changed since), never more than the limits in all.
-    const found = await findShareFiles(conv, linked.map((n) => refs[n]!), upTo);
+    const found = await findShareFiles(conv, linked.map((n) => refs[n]!), upTo, (id) => store.get(id));
     refuseShareFiles(found);
     await readShareFiles(found);
     refuseShareFiles(found);
@@ -756,7 +756,7 @@ export function createApp({
     const b = await body<{ files?: unknown; upTo?: unknown }>(c);
     const refs = parseShareFileRefs(b.files);
     if (!refs) throw new HttpError(400, t().shareBadFiles);
-    const found = await findShareFiles(conv, refs, typeof b.upTo === 'string' ? b.upTo : undefined);
+    const found = await findShareFiles(conv, refs, typeof b.upTo === 'string' ? b.upTo : undefined, (id) => store.get(id));
     return c.json({ files: found.map((f) => f.info) });
   });
 
@@ -842,7 +842,7 @@ export function createApp({
   app.get('/api/conversations/:id/messages/:messageId/media', async (c) => {
     const conv = getConv(c.req.param('id'));
     const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
-    const file = msg && resolveMedia(c.req.query('path') ?? '', mediaRoots(conv, msg));
+    const file = msg && resolveMedia(c.req.query('path') ?? '', mediaRoots(conv, msg, (id) => store.get(id)));
     if (!file) throw new HttpError(404, t().mediaNotFound);
     return sendFile(c, file);
   });
@@ -852,7 +852,7 @@ export function createApp({
   app.get('/api/conversations/:id/messages/:messageId/download', async (c) => {
     const conv = getConv(c.req.param('id'));
     const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
-    const file = msg && resolveDownload(c.req.query('path') ?? '', mediaRoots(conv, msg));
+    const file = msg && resolveDownload(c.req.query('path') ?? '', mediaRoots(conv, msg, (id) => store.get(id)));
     if (!file) throw new HttpError(404, t().downloadNotFound);
     return sendFile(c, file, true);
   });
@@ -981,6 +981,12 @@ export function createApp({
     await orchestrator.retry(c.req.param('id'), c.req.param('messageId'));
     return c.json({ ok: true }, 202);
   });
+
+  // Branch the conversation from an agent's reply: a new conversation with the messages up to and
+  // including it, which goes on from there on its own (this one stays as it is). Answers with it.
+  app.post('/api/conversations/:id/messages/:messageId/branch', async (c) =>
+    c.json(forClient(await orchestrator.branch(c.req.param('id'), c.req.param('messageId')))),
+  );
 
   // Accept the team the lead agent designed for a question (auto team); that team then answers it.
   app.post('/api/conversations/:id/messages/:messageId/confirm-plan', async (c) => {

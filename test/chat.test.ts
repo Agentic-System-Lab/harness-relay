@@ -5,6 +5,7 @@ import {
   activityCounts,
   afterStreamError,
   applyStates,
+  branchSource,
   BUTTON_HOLD_MS,
   buttonHeld,
   draftStatus,
@@ -98,6 +99,16 @@ const worktree = (agentId: string, base: string, needsReset = false): AgentWorkt
   branch: `relay/c/${agentId}`,
   base,
   needsReset,
+});
+
+describe('the conversation a branch comes from', () => {
+  const branch = { fromId: 'c1', fromTitle: 'Old title', afterId: 'm1' };
+
+  it('is named by its title now, by the one it had once it is deleted, and taken to be there until the list loads', () => {
+    expect(branchSource(branch, [{ id: 'c1', title: 'Renamed' }])).toEqual({ title: 'Renamed', gone: false });
+    expect(branchSource(branch, [{ id: 'c2', title: 'Other' }])).toEqual({ title: 'Old title', gone: true });
+    expect(branchSource(branch, undefined)).toEqual({ title: 'Old title', gone: false });
+  });
 });
 
 describe('which worktree result can be applied', () => {

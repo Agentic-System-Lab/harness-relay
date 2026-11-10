@@ -160,6 +160,9 @@ export const api = {
     request<{ ok: true }>('PUT', `/api/conversations/${id}/messages/${messageId}`, { text }),
   retry: (id: string, messageId: string) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/retry`),
+  /** A new conversation with the messages up to and including this agent reply; returns it. */
+  branch: (id: string, messageId: string) =>
+    request<Conversation>('POST', `/api/conversations/${id}/messages/${messageId}/branch`),
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
   confirmPlan: (id: string, messageId: string) =>

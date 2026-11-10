@@ -843,6 +843,36 @@ describe('messages sent while the team replies', () => {
   });
 });
 
+describe('POST /api/conversations/:id/messages/:messageId/branch', () => {
+  it('answers with a new conversation holding the messages up to the reply, and refuses the user\'s messages', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    await app.request(`/api/conversations/${conv.id}/messages`, json('POST', { text: 'go' }));
+    await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(1));
+    const [question, reply] = store.get(conv.id)!.messages;
+    const branch = (messageId: string, headers: Record<string, string> = {}) =>
+      app.request(`/api/conversations/${conv.id}/messages/${messageId}/branch`, json('POST', {}, headers));
+    // Not from a reply still being written.
+    expect((await branch(reply!.id)).status).toBe(409);
+    orchestrator.stop(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+
+    const res = await branch(reply!.id, { 'X-Relay-Lang': 'en' });
+    expect(res.status).toBe(200);
+    const made = (await res.json()) as Conversation;
+    expect(made.title).toBe('Branch · go');
+    expect(made.messages.map((m) => m.author.kind)).toEqual(['user', 'agent']);
+    expect(made.branch).toEqual({ fromId: conv.id, fromTitle: 'go', afterId: made.messages[1]!.id });
+    expect(store.get(made.id)!.agentState).toEqual({});
+    const list = (await (await get('/api/conversations')).json()) as { id: string }[];
+    expect(list.map((c) => c.id)).toContain(made.id);
+
+    expect((await branch(question!.id)).status).toBe(400);
+    expect((await branch('nope')).status).toBe(404);
+    orchestrator.stopAll();
+    expect((await branch(reply!.id)).status).toBe(503);
+  });
+});
+
 describe('sidebar groups', () => {
   const create = (name: unknown, lang = 'en') => app.request('/api/groups', json('POST', { name }, { 'x-relay-lang': lang }));
 

@@ -158,6 +158,12 @@ describe('buildBriefing', () => {
     expect(canReadFiles('codex', ['tools'])).toBe(true);
   });
 
+  it("tells a branch's agents that files may have changed since the messages copied into it", () => {
+    expect(buildBriefing(conv, team[0]!)).not.toContain('branched');
+    const branch: Conversation = { ...conv, branch: { fromId: 'c0', fromTitle: 'Earlier', afterId: 'm1' } };
+    expect(buildBriefing(branch, team[0]!)).toContain('This chat was branched from an earlier one');
+  });
+
   it('tells agents how to show images and videos in the chat', () => {
     const briefing = buildBriefing(conv, team[0]!);
     expect(briefing).toContain('![Sales by month](charts/sales.png)');

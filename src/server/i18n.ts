@@ -93,6 +93,9 @@ const zhTW = {
   shareFilesUnknown: (detail: string, token: string) =>
     `無法建立分享頁（${detail}），也無法確認附上的檔案是否已經上傳。如果 GitHub 上有說明含「${token}」的 gist，請用 gh gist list 找到並刪除它。`,
   messageNotFound: '找不到這則訊息',
+  branchTitle: (title: string) => `分支 · ${title}`,
+  branchOnlyReply: '只能從 agent 的回覆分支',
+  branchStreaming: '這則之前還有回覆在進行中，請等它們完成再分支',
   emptyMessage: '訊息不能是空的',
   typeFirst: '請先輸入訊息',
   badAttachment: '附加檔案的格式不正確',
@@ -352,6 +355,9 @@ const en: ServerMessages = {
   shareFilesUnknown: (detail, token) =>
     `Could not make the shared page (${detail}), nor tell whether the files went up. If GitHub has a gist whose description holds "${token}", find it with gh gist list and delete it.`,
   messageNotFound: 'Message not found',
+  branchTitle: (title) => `Branch · ${title}`,
+  branchOnlyReply: "Only an agent's reply can be branched from",
+  branchStreaming: 'A reply before this one is still being written; branch once it has finished',
   emptyMessage: 'The message cannot be empty',
   typeFirst: 'Type a message first',
   badAttachment: 'An attached file is malformed',

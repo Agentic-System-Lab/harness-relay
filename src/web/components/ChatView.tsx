@@ -1,24 +1,27 @@
-import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
   pendingPlan,
   type ApprovalAnswer,
   type ChatMessage,
   type Conversation,
+  type ConversationBranch,
+  type ConversationSummary,
   type LeadAgentSettings,
   type ProviderModels,
   type ProviderStatus,
   type ServerEvent,
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
-import { afterStreamError, applyStates as findApplyStates, draftStatus, teamToEdit } from '../chat';
+import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, teamToEdit } from '../chat';
 import { useI18n, useT } from '../i18n';
+import { hashFor } from '../route';
 import { describeRepeat, scheduleState, scheduleTrouble } from '../schedule';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { FileBrowser } from './FileBrowser';
-import { ClockIcon, FolderIcon, MoreIcon, ShareIcon, UsersIcon } from './icons';
+import { BranchIcon, ClockIcon, FolderIcon, MoreIcon, ShareIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
@@ -84,10 +87,12 @@ interface Props {
   id: string;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
+  /** The sidebar's conversations (undefined until loaded): a branch names the one it comes from by its title now. */
+  conversations?: ConversationSummary[];
   onChanged: () => void;
 }
 
-export function ChatView({ id, providers, catalog, onChanged }: Props) {
+export function ChatView({ id, providers, catalog, conversations, onChanged }: Props) {
   const { t, lang } = useI18n();
   const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [] });
   const [error, setError] = useState('');
@@ -340,6 +345,24 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
 
   const onShare = useCallback((messageId: string) => setShare({ upTo: messageId }), []);
 
+  // A new conversation with the messages up to and including this reply, opened at once.
+  const branching = useRef(false);
+  const onBranch = useCallback(async (messageId: string) => {
+    const c = convRef.current;
+    if (!c || branching.current) return;
+    branching.current = true;
+    try {
+      setError('');
+      const branch = await api.branch(c.id, messageId);
+      onChangedRef.current();
+      window.location.hash = hashFor({ page: 'chat', id: branch.id });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      branching.current = false;
+    }
+  }, []);
+
   // Continue: the team goes on without the answer an agent asked for.
 
   const onSkipQuestion = useCallback(() => {
@@ -431,9 +454,13 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
           actions are a menu under ⋯ (see .chat-head and .more-button in styles.css). */}
       <header className="chat-head">
         <div className="chat-head-top">
-          <button className="chat-title" onClick={rename} title={t.chat.rename}>
-            {conv.title}
-          </button>
+          {/* The title gives way first: a branch's "Continued from" stays in view (styles.css). */}
+          <div className="chat-title-row">
+            <button className="chat-title" onClick={rename} title={t.chat.rename}>
+              {conv.title}
+            </button>
+            {conv.branch && <BranchFrom branch={conv.branch} conversations={conversations} className="head-branch" />}
+          </div>
           {conv.settings.permission === 'full' && (
             <span className="badge danger head-warning" title={t.permissions.full.hint}>
               {t.permissions.full.label}
@@ -552,33 +579,48 @@ export function ChatView({ id, providers, catalog, onChanged }: Props) {
       >
         <div className="messages-inner">
           {conv.messages.length === 0 && <TeamIntro conv={conv} leadText={leadText} />}
-          {conv.messages.map((m) => (
-            <MessageItem
-              key={m.id}
-              msg={m}
-              convId={conv.id}
-              cwd={conv.settings.cwd}
-              agents={conv.agents}
-              mentionNames={mentionNames}
-              showRound={conv.settings.mode !== 'relay' && conv.settings.rounds > 1}
-              applyState={running ? undefined : applyStates.get(m.id)}
-              running={running}
-              onDiff={onDiff}
-              onApply={onApply}
-              onResend={onResend}
-              onConfirmPlan={onConfirmPlan}
-              onDeclinePlan={onDeclinePlan}
-              latestPlan={m.id === latestPlanId}
-              scheduleText={m.plan ? conv.schedule?.text : undefined}
-              onSavePlan={onSavePlan}
-              onAdjustTeam={onAdjustTeam}
-              onApproval={onApproval}
-              onRetry={onRetry}
-              waitingAnswer={askIds.has(m.id)}
-              onSkipQuestion={onSkipQuestion}
-              onShare={onShare}
-            />
-          ))}
+          {conv.messages.map((m) => {
+            const item = (
+              <MessageItem
+                key={m.id}
+                msg={m}
+                convId={conv.id}
+                cwd={conv.settings.cwd}
+                agents={conv.agents}
+                mentionNames={mentionNames}
+                showRound={conv.settings.mode !== 'relay' && conv.settings.rounds > 1}
+                applyState={running ? undefined : applyStates.get(m.id)}
+                running={running}
+                onDiff={onDiff}
+                onApply={onApply}
+                onResend={onResend}
+                onConfirmPlan={onConfirmPlan}
+                onDeclinePlan={onDeclinePlan}
+                latestPlan={m.id === latestPlanId}
+                scheduleText={m.plan ? conv.schedule?.text : undefined}
+                onSavePlan={onSavePlan}
+                onAdjustTeam={onAdjustTeam}
+                onApproval={onApproval}
+                onRetry={onRetry}
+                waitingAnswer={askIds.has(m.id)}
+                onSkipQuestion={onSkipQuestion}
+                onShare={onShare}
+                onBranch={onBranch}
+              />
+            );
+            // A branch: a line after the messages copied from the conversation it comes from (a shared
+            // page skips it: see messageElements).
+            return conv.branch?.afterId === m.id ? (
+              <Fragment key={m.id}>
+                {item}
+                <div className="branch-divider">
+                  <BranchFrom branch={conv.branch} conversations={conversations} className="branch-divider-label" />
+                </div>
+              </Fragment>
+            ) : (
+              item
+            );
+          })}
         </div>
       </div>
 
@@ -717,6 +759,39 @@ function DiffModal({ title, load, onClose }: { title: string; load: () => Promis
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * "Continued from <the conversation it was branched from>", a link while that conversation is there:
+ * after the chat's title, and after the messages copied from it.
+ */
+function BranchFrom({
+  branch,
+  conversations,
+  className,
+}: {
+  branch: ConversationBranch;
+  conversations?: ConversationSummary[];
+  className: string;
+}) {
+  const t = useT();
+  const source = branchSource(branch, conversations);
+  return (
+    <span className={className}>
+      <BranchIcon size={14} />
+      <span className="branch-from">{t.message.continuedFrom}</span>
+      {source.gone ? (
+        <span className="branch-source" title={`${source.title}${t.message.branchGone} · ${t.message.branchGoneTitle}`}>
+          {source.title}
+          {t.message.branchGone}
+        </span>
+      ) : (
+        <a className="branch-source" href={hashFor({ page: 'chat', id: branch.fromId })} title={source.title}>
+          {source.title}
+        </a>
+      )}
+    </span>
   );
 }
 

@@ -92,6 +92,42 @@ describe('Store (SQLite)', () => {
     expect(loaded).toEqual({ ...conv, agentState: { a1: { provider: 'claude', sessionId: 'sess-1', seen: ['m1', 'm2'] } } });
   });
 
+  it('saves a branch with the messages it starts with, and where its copied messages end', () => {
+    const store = new Store(db);
+    const conv: Conversation = {
+      ...sampleConversation(),
+      messages: [userMsg, agentMsg],
+      branch: { fromId: 'conv-0', fromTitle: '原本的對話', afterId: 'm2' },
+    };
+    store.create(conv);
+    const reloaded = new Store(reopen());
+    const loaded = reloaded.get(conv.id)!;
+    expect(loaded.messages.map((m) => m.id)).toEqual(['m1', 'm2']);
+    expect(loaded.messages[1]!.parts).toEqual(agentMsg.parts);
+    expect(loaded.branch).toEqual(conv.branch);
+
+    loaded.branch = { ...loaded.branch!, afterId: 'm1' };
+    reloaded.saveMeta(loaded);
+    expect(new Store(reopen()).get(conv.id)!.branch?.afterId).toBe('m1');
+    const again = new Store(db);
+    const last = again.get(conv.id)!;
+    last.branch = undefined;
+    again.saveMeta(last);
+    expect(new Store(reopen()).get(conv.id)!.branch).toBeUndefined();
+
+    // One that cannot be read is left out.
+    db.prepare('UPDATE conversations SET branch = ? WHERE id = ?').run('{"fromId": 7}', conv.id);
+    expect(new Store(reopen()).get(conv.id)!.branch).toBeUndefined();
+  });
+
+  it('saves a new conversation with its messages in one step: nothing when a message cannot be written', () => {
+    const store = new Store(db);
+    const broken = { ...agentMsg, id: 'm9', status: undefined } as unknown as ChatMessage;
+    expect(() => store.create({ ...sampleConversation(), messages: [userMsg, broken] })).toThrow();
+    expect(new Store(reopen()).get('conv-1')).toBeUndefined();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM messages').get()).toEqual({ n: 0 });
+  });
+
   it('keeps auto team and whether to ask, and turns auto team on for conversations from before it was per question', () => {
     const store = new Store(db);
     const conv = sampleConversation();
@@ -105,7 +141,7 @@ describe('Store (SQLite)', () => {
     // A database from before schema version 13: every conversation gets auto team, none skips asking.
     db.exec(`ALTER TABLE conversations DROP COLUMN auto_confirm;
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
-             DROP TABLE shares;
+             DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
              PRAGMA user_version = 12;`);
     const migrated = new Store(reopen());
     expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
@@ -324,6 +360,7 @@ describe('Store shares', () => {
 
     // Shares from before schema version 16 took no files along.
     db.exec(`ALTER TABLE shares DROP COLUMN files; ALTER TABLE shares DROP COLUMN files_gist; ALTER TABLE shares DROP COLUMN unfinished;
+             ALTER TABLE conversations DROP COLUMN branch;
              PRAGMA user_version = 15;`);
     const migrated = new Store(reopen());
     expect(migrated.getShare('aaaa')).toEqual(share('aaaa', 1));
@@ -703,7 +740,7 @@ describe('Store schedules', () => {
 
     // Schedules from before schema version 14 send in their own conversation.
     db.exec(`ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
-             DROP TABLE shares;
+             DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
              PRAGMA user_version = 13;`);
     const migrated = new Store(reopen()).get(conv.id)!.schedule!;
     expect(migrated.newChat).toBe(false);

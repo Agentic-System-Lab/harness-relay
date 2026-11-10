@@ -300,10 +300,22 @@ The header shows the schedule (point at it for the next time), and the sidebar s
 
 ### Copying, editing and retrying
 
-- The buttons under a message are icons (point at one for its name). Under an agent's reply they are always shown; under your own message they appear when you point at it (on a phone or tablet they are always shown). Under an agent's reply, copy, retry and share are on the left and the reply's time, cost and tokens at the right edge; under your own message, copy and edit sit below the bubble.
+- The buttons under a message are icons (point at one for its name). Under an agent's reply they are always shown; under your own message they appear when you point at it (on a phone or tablet they are always shown). Under an agent's reply, copy, retry, share and branch are on the left and the reply's time, cost and tokens at the right edge; under your own message, copy and edit sit below the bubble.
 - **Copy** (two sheets) copies that message's text as Markdown, exactly as it was written: links keep their full URLs, and formatting, tables, code and line breaks stay as they are (also when you open the app over plain http, for example from a phone). Selecting text yourself copies what is shown instead (a link's text without its URL). **Copy as Markdown** under **Share** in the header copies the whole conversation (see [Sharing a conversation](#sharing-a-conversation)), with each message labelled by who said it (the name and CLI the agent had then); a code block a stopped reply left open is closed. Tool activity is left out.
 - **Edit** (a pencil) under one of your own messages lets you change it and send it again (Enter sends, Shift+Enter adds a line, Esc cancels; on a phone or tablet Enter adds a line and **Send** sends). Everything after that message is deleted and the team answers again from there; every agent starts a fresh session and re-reads the history up to your edited message. Files the deleted replies changed are **not** restored — if any of them changed files you are asked to confirm first. Editing is not available while the team is replying.
 - **Retry** (two circling arrows) under an agent's reply lets that agent answer again. Its reply and everything after it are deleted (you are asked to confirm when there is anything after it); outside relay mode, the later speakers of the same round answer again too.
+
+### Branching a conversation
+
+To try another direction without losing where a conversation went, branch it: **Branch conversation** (a forking line) under an agent's reply makes a new conversation, **Branch · <title>**, and opens it:
+
+- It holds a copy of every message up to and including that reply (attached files and the changed files' diffs too), and the team, settings, "always allow" answers and sidebar group the original has now (not as they were at that reply). **Continued from <title>** after the chat's title, and on a line after the copied messages, links back to the original (once that is deleted, its title is shown without the link). A long chat title is shortened first, so this stays in view.
+- If that reply asked you something, the question waits for your answer in the branch too, even if you answered it in the original: branch from a question to answer it another way.
+- The original stays exactly as it was, and can go on replying meanwhile; only the replies up to the one you branch from must be finished.
+- In parallel mode, the images and files a copied reply shows come from that agent's worktree in the original, so they are gone once the original is deleted (its diff stays). A result can only be applied in the conversation that made it.
+- The agents in the branch start fresh sessions: on their first turn they are given the copied messages, and from there each conversation goes its own way.
+- Both conversations share the working directory, and files are **not** rewound: they are as the original left them, not as they were at that reply. The agents in a branch are told so.
+- Branching is not offered on your own messages: to ask something else after your question, branch from the reply before it, or edit the question (which replaces what came after it).
 
 ### Sharing a conversation
 

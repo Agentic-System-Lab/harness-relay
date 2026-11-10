@@ -28,7 +28,7 @@ import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, le
 import { ChangesCard, type ApplyState } from './ChangesCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
-import { ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
+import { BranchIcon, ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
@@ -310,6 +310,8 @@ interface Props {
   onSkipQuestion?: () => void;
   /** Copy or share the conversation up to and including this reply. */
   onShare?: (messageId: string) => void;
+  /** Branch the conversation from this reply: a new one with the messages up to and including it. */
+  onBranch?: (messageId: string) => void;
 }
 
 /** Names the conversation's scheduled message @mentions that a team design does not have. */
@@ -660,6 +662,7 @@ export const MessageItem = memo(function MessageItem({
   waitingAnswer,
   onSkipQuestion,
   onShare,
+  onBranch,
 }: Props) {
   const t = useT();
 
@@ -794,6 +797,17 @@ export const MessageItem = memo(function MessageItem({
                 onClick={() => onShare(msg.id)}
               >
                 <ShareIcon size={16} />
+              </button>
+            )}
+            {onBranch && (
+              <button
+                type="button"
+                className="msg-action icon-action"
+                title={t.message.branchTitle}
+                aria-label={t.message.branch}
+                onClick={() => onBranch(msg.id)}
+              >
+                <BranchIcon size={16} />
               </button>
             )}
             {/* The buttons sit on the left, like a chat app's; the time, cost and tokens at the right edge. */}

@@ -6,6 +6,7 @@ import type {
   MessageChanges,
   ChatMessage,
   Conversation,
+  ConversationBranch,
   ConversationGroup,
   ConversationSchedule,
   ConversationSummary,
@@ -81,6 +82,7 @@ interface ConversationRow {
   allow_rules: string | null;
   queue: string | null;
   pause: string | null;
+  branch: string | null;
 }
 
 interface AgentRow {
@@ -342,6 +344,13 @@ function pauseOf(json: string | null): Pick<Conversation, 'pause'> {
   return pause ? { pause } : {};
 }
 
+/** Where a branched conversation comes from; one that cannot be read is left out. */
+function branchOf(json: string | null): Pick<Conversation, 'branch'> {
+  const b = parseJson<Partial<ConversationBranch> | null>(json, null);
+  if (typeof b?.fromId !== 'string' || typeof b.afterId !== 'string') return {};
+  return { branch: { fromId: b.fromId, fromTitle: typeof b.fromTitle === 'string' ? b.fromTitle : '', afterId: b.afterId } };
+}
+
 function parsePlan(json: string | null): TeamPlan | undefined {
   if (!json) return undefined;
   try {
@@ -570,17 +579,19 @@ export class Store {
       ...queueOf(c.queue, messages),
       ...pauseOf(c.pause),
       ...(schedule ? { schedule } : {}),
+      ...branchOf(c.branch),
     };
   }
 
+  /** Save a new conversation: its settings, its team, and the messages it starts with (a branch's copies). */
   create(conv: Conversation): void {
     transaction(this.db, () => {
       const s = conv.settings;
       this.db
         .prepare(
           `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd, auto_team,
-                                     auto_confirm, approvals, allow_rules, pause)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                     auto_confirm, approvals, allow_rules, pause, branch)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           conv.id,
@@ -597,13 +608,15 @@ export class Store {
           nul(s.approvals),
           conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
           conv.pause ? JSON.stringify(conv.pause) : null,
+          conv.branch ? JSON.stringify(conv.branch) : null,
         );
       this.writeAgents(conv);
+      if (conv.messages.length) this.insertMessages(conv.id, conv, new Set(conv.messages.map((m) => m.id)));
     });
     this.cache.set(conv.id, conv);
   }
 
-  /** Persist title, timestamps, settings, the team, and where the team waits for the user's answer. */
+  /** Persist title, timestamps, settings, the team, where the team waits for the user's answer, and where a branch's copied messages end. */
   saveMeta(conv: Conversation): void {
     if (this.deleted.has(conv.id)) return;
     transaction(this.db, () => {
@@ -611,7 +624,7 @@ export class Store {
       this.db
         .prepare(
           `UPDATE conversations SET title = ?, updated_at = ?, mode = ?, rounds = ?, max_hops = ?, permission = ?, cwd = ?,
-             auto_team = ?, auto_confirm = ?, approvals = ?, allow_rules = ?, pause = ?
+             auto_team = ?, auto_confirm = ?, approvals = ?, allow_rules = ?, pause = ?, branch = ?
            WHERE id = ?`,
         )
         .run(
@@ -627,6 +640,7 @@ export class Store {
           nul(s.approvals),
           conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
           conv.pause ? JSON.stringify(conv.pause) : null,
+          conv.branch ? JSON.stringify(conv.branch) : null,
           conv.id,
         );
       this.writeAgents(conv);
@@ -777,6 +791,11 @@ export class Store {
   }
 
   private writeMessages(convId: string, conv: Conversation, ids: Set<string>): void {
+    transaction(this.db, () => this.insertMessages(convId, conv, ids));
+  }
+
+  /** Write these of the conversation's messages, with their parts and file changes (inside the caller's transaction). */
+  private insertMessages(convId: string, conv: Conversation, ids: Set<string>): void {
     const upsert = this.db.prepare(UPSERT_MESSAGE);
     const clearChanges = this.db.prepare('DELETE FROM message_changes WHERE message_id = ?');
     const insertChange = this.db.prepare(
@@ -784,43 +803,41 @@ export class Store {
     );
     const clearParts = this.db.prepare('DELETE FROM message_parts WHERE message_id = ?');
     const insertPart = this.db.prepare(INSERT_PART);
-    transaction(this.db, () => {
-      conv.messages.forEach((m, seq) => {
-        if (!ids.has(m.id)) return;
-        const agentId = m.author.kind === 'agent' ? m.author.agentId : null;
-        const meta = m.meta ?? {};
-        upsert.run(
-          m.id,
-          convId,
-          seq,
-          m.author.kind,
-          agentId,
-          nul(m.agentName),
-          nul(m.provider),
-          m.createdAt,
-          m.status,
-          m.passed ? 1 : 0,
-          nul(m.error),
-          nul(meta.round),
-          nul(meta.durationMs),
-          nul(meta.costUsd),
-          nul(meta.inputTokens),
-          nul(meta.outputTokens),
-          nul(m.changes?.root),
-          nul(m.changes?.base),
-          nul(m.changes?.head),
-          m.changes ? (m.changes.isolated ? 1 : 0) : null,
-          nul(m.changes?.branch),
-          m.plan ? JSON.stringify(m.plan) : null,
-          m.queued ? 1 : null,
-          m.asked ? 1 : null,
-          m.scheduled ? 1 : null,
-        );
-        clearChanges.run(m.id);
-        m.changes?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));
-        clearParts.run(m.id);
-        m.parts.forEach((p, idx) => insertPart.run(m.id, idx, p.type, ...partColumns(p)));
-      });
+    conv.messages.forEach((m, seq) => {
+      if (!ids.has(m.id)) return;
+      const agentId = m.author.kind === 'agent' ? m.author.agentId : null;
+      const meta = m.meta ?? {};
+      upsert.run(
+        m.id,
+        convId,
+        seq,
+        m.author.kind,
+        agentId,
+        nul(m.agentName),
+        nul(m.provider),
+        m.createdAt,
+        m.status,
+        m.passed ? 1 : 0,
+        nul(m.error),
+        nul(meta.round),
+        nul(meta.durationMs),
+        nul(meta.costUsd),
+        nul(meta.inputTokens),
+        nul(meta.outputTokens),
+        nul(m.changes?.root),
+        nul(m.changes?.base),
+        nul(m.changes?.head),
+        m.changes ? (m.changes.isolated ? 1 : 0) : null,
+        nul(m.changes?.branch),
+        m.plan ? JSON.stringify(m.plan) : null,
+        m.queued ? 1 : null,
+        m.asked ? 1 : null,
+        m.scheduled ? 1 : null,
+      );
+      clearChanges.run(m.id);
+      m.changes?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));
+      clearParts.run(m.id);
+      m.parts.forEach((p, idx) => insertPart.run(m.id, idx, p.type, ...partColumns(p)));
     });
   }
 

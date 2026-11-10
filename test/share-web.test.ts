@@ -25,6 +25,8 @@ import {
   linkedFileRefs,
   looksSecret,
   nextFileSelection,
+  BETWEEN_MESSAGES,
+  messageElements,
   SHARE_CSP,
   SHARE_DROP,
   SHARE_KEEP_BUTTONS,
@@ -55,6 +57,13 @@ describe('what a shared page holds', () => {
 
   it('is nothing, never the whole conversation, once the reply it is up to is gone', () => {
     expect(messagesUpTo([msg('a'), msg('b')], 'retried')).toBeUndefined();
+  });
+
+  it("takes one element per message, without a branch's line between them", () => {
+    const el = (cls: string) => ({ cls, classList: { contains: (name: string) => cls.split(' ').includes(name) } });
+    const items = [el('msg-user'), el('msg-agent'), el(BETWEEN_MESSAGES), el('msg-user')];
+    expect(messageElements(items).map((x) => x.cls)).toEqual(['msg-user', 'msg-agent', 'msg-user']);
+    expect(SHARE_DROP).toContain(`.${BETWEEN_MESSAGES}`);
   });
 
   it('waits for a reply still being written', () => {
@@ -89,6 +98,8 @@ describe('what a shared page holds', () => {
       // Mode and rounds, the file permission and the schedule; the full-access warning beside the title.
       '.chat-head-badges',
       '.head-warning',
+      // A branch's line naming the conversation it comes from (a link into the app).
+      '.branch-divider',
     ]) {
       expect(SHARE_DROP).toContain(s);
     }

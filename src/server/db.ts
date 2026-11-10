@@ -273,6 +273,9 @@ const MIGRATIONS: string[] = [
   ALTER TABLE shares ADD COLUMN files_gist TEXT;
   ALTER TABLE shares ADD COLUMN unfinished INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  ALTER TABLE conversations ADD COLUMN branch TEXT;
+  `,
 ];
 
 function migrate(db: Database): void {

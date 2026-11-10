@@ -23,8 +23,8 @@ export const HARNESS_RELAY_URL = 'https://agentic-system-lab.github.io/harness-r
 /**
  * What a shared page leaves out: the agents' tool calls and thinking (and the to-do lists, permission
  * requests and changed files that come of them), and what only means something in the app: its
- * controls, and the header's badges (mode and rounds, file permission, schedule) and the full-access
- * warning beside the title.
+ * controls, the header's badges (mode and rounds, file permission, schedule) and the full-access
+ * warning beside the title, and a branch's "Continued from" after its title and its messages (a link into the app).
  */
 export const SHARE_DROP = [
   '.tool-group',
@@ -45,7 +45,20 @@ export const SHARE_DROP = [
   '.more-button',
   '.plan-ask-save',
   '.file-missing',
+  '.branch-divider',
+  '.head-branch',
 ];
+
+/** What the chat shows between its messages that is no message: a branch's "Continued from" line. */
+export const BETWEEN_MESSAGES = 'branch-divider';
+
+/**
+ * The chat's message elements, in order (each MessageItem is one element), without what sits between
+ * them (`BETWEEN_MESSAGES`): what a shared page takes, one element per message.
+ */
+export function messageElements<T extends { classList: { contains(name: string): boolean } }>(children: T[]): T[] {
+  return children.filter((el) => !el.classList.contains(BETWEEN_MESSAGES));
+}
 
 /** Buttons that show content (the title, a diagram) stay, as plain elements. Every other button goes. */
 export const SHARE_KEEP_BUTTONS = ['chat-title', 'mermaid-zoom'];

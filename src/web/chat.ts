@@ -3,6 +3,8 @@ import type {
   AgentWorktree,
   ChatMessage,
   Conversation,
+  ConversationBranch,
+  ConversationSummary,
   MessagePart,
   Mode,
   PlanEntry,
@@ -48,6 +50,20 @@ export function applyStates(messages: ChatMessage[], worktrees: Record<string, A
     if (current.has(agentId)) out.set(messageId, worktrees[agentId]!.needsReset ? 'stale' : 'available');
   }
   return out;
+}
+
+/**
+ * The conversation a branch comes from, as the line after its copied messages names it: by its title
+ * now, or once it has been deleted (`gone`) by the title it had when it was branched. Until the
+ * conversation list has loaded (`list` undefined) it is taken to be there.
+ */
+export function branchSource(
+  branch: ConversationBranch,
+  list?: Pick<ConversationSummary, 'id' | 'title'>[],
+): { title: string; gone: boolean } {
+  const found = list?.find((c) => c.id === branch.fromId);
+  if (found) return { title: found.title, gone: false };
+  return { title: branch.fromTitle, gone: list !== undefined };
 }
 
 /** JSON with sorted keys: equal content gives equal text whatever the key order. */

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { constants, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmod, copyFile, mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { MessagePart } from '../shared/types';
 import { ATTACHMENT_LIMITS, isInlineImage } from '../shared/types';
@@ -56,6 +57,24 @@ export function saveAttachments(convId: string, uploads: AttachmentUpload[] | un
     writeFileSync(file, f.bytes, { mode: 0o600 });
     return part;
   });
+}
+
+/**
+ * Copy attached files of one conversation to another (a branch of it): a copy-on-write clone where the
+ * filesystem can make one. A file that is gone is skipped: its link answers "not found", as it did there.
+ */
+export async function copyAttachments(fromConvId: string, toConvId: string, parts: AttachmentPart[]): Promise<void> {
+  for (const p of parts) {
+    await mkdir(join(attachmentsDir(toConvId), p.id), { recursive: true });
+    const to = attachmentPath(toConvId, p);
+    try {
+      await copyFile(attachmentPath(fromConvId, p), to, constants.COPYFILE_FICLONE);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw err;
+    }
+    await chmod(to, 0o600);
+  }
 }
 
 export function removeAttachments(convId: string, parts?: AttachmentPart[]): void {
