@@ -1,7 +1,7 @@
 /**
  * Updating the desktop app to GitHub's newest release, from its menu. The app asks GitHub now and then
- * for the latest release (`checkLatest`: never a release candidate or a draft); when it is newer than
- * the running app and has an installer for this system, the menu offers it. Choosing it downloads the
+ * for its releases and takes the newest version (`checkLatest`: a release candidate too, never a
+ * draft); when it is newer than the running app and has an installer for this system, the menu offers it. Choosing it downloads the
  * installer, checks it against the SHA-256 GitHub publishes for it (`download`), and puts it in place
  * of the running app, which then quits and the new one starts:
  *
@@ -27,8 +27,11 @@ import { compareSemver, parseVersion, semverOf } from '../../scripts/release';
 import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO } from '../../site/assets/downloads.js';
 import { capture } from '../../src/server/process';
 
-/** GitHub's latest release: the newest that is neither a pre-release (release candidate) nor a draft. */
-export const LATEST_RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+/**
+ * GitHub's releases, newest first: release candidates included, which `releases/latest` leaves out
+ * (as the website's download buttons do, site/assets/downloads.js).
+ */
+export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=20`;
 
 /** How often the app asks (GitHub allows 60 requests an hour without signing in, per address). */
 export const CHECK_EVERY_MS = 6 * 60 * 60_000;
@@ -60,18 +63,17 @@ export interface UpdateRelease {
 /** A file name that stays in the folder it is put in. */
 const PLAIN_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-/** GitHub's answer for the latest release, when it is a release of ours (not a release candidate). */
-export function parseLatestRelease(json: unknown): UpdateRelease | undefined {
+/** One release in GitHub's answer, when it is a release of ours (a release candidate too, never a draft). */
+export function parseRelease(json: unknown): UpdateRelease | undefined {
   const r = json as {
     tag_name?: unknown;
     draft?: unknown;
-    prerelease?: unknown;
     html_url?: unknown;
     assets?: { name?: unknown; browser_download_url?: unknown; size?: unknown; digest?: unknown }[];
   } | null;
-  if (!r || typeof r !== 'object' || r.draft || r.prerelease || typeof r.tag_name !== 'string') return undefined;
+  if (!r || typeof r !== 'object' || r.draft || typeof r.tag_name !== 'string') return undefined;
   const parsed = parseVersion(r.tag_name);
-  if (!parsed.ok || parsed.value.rc) return undefined;
+  if (!parsed.ok) return undefined;
   const assets: UpdateRelease['assets'] = {};
   for (const a of Array.isArray(r.assets) ? r.assets : []) {
     if (typeof a?.name !== 'string' || !PLAIN_NAME.test(a.name) || !isInstallerUrl(a.browser_download_url)) continue;
@@ -83,6 +85,21 @@ export function parseLatestRelease(json: unknown): UpdateRelease | undefined {
   }
   const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${RELEASES_PAGE}/tag/`) ? r.html_url : RELEASES_PAGE;
   return { version: parsed.value.version, semver: semverOf(parsed.value), page, assets };
+}
+
+/**
+ * The newest release of ours in GitHub's list, by version, not by when it was published: a release
+ * candidate when it is the newest (2026-11-12-rc after 2026-11-11.1), never one that sorts before the
+ * day's release (2026-11-12-rc.1 before 2026-11-12).
+ */
+export function newestRelease(json: unknown): UpdateRelease | undefined {
+  if (!Array.isArray(json)) return undefined;
+  let newest: UpdateRelease | undefined;
+  for (const r of json) {
+    const release = parseRelease(r);
+    if (release && (!newest || compareSemver(release.semver, newest.semver) > 0)) newest = release;
+  }
+  return newest;
 }
 
 /** Whether `latest` is newer than the running app, whose version is `current` (semver, app.getVersion()). */
@@ -101,15 +118,15 @@ export function updateSystem(platform: NodeJS.Platform, arch: string): UpdateSys
 
 export type Fetch = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
 
-/** Asks GitHub for the latest release; undefined when there is none yet (or it is not one of ours). */
+/** Asks GitHub for the newest release, release candidates included; undefined when there is none yet. */
 export async function checkLatest(fetch: Fetch, signal?: AbortSignal): Promise<UpdateRelease | undefined> {
-  const res = await fetch(LATEST_RELEASE_API, {
+  const res = await fetch(RELEASES_API, {
     headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
     signal,
   });
   if (res.status === 404) return undefined;
   if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
-  return parseLatestRelease(await res.json());
+  return newestRelease(await res.json());
 }
 
 export type ManualReason =

@@ -546,7 +546,7 @@ function run(): void {
     return app.isPackaged && (env.RELAY_UPDATES ?? process.env.RELAY_UPDATES)?.trim().toLowerCase() !== 'off';
   }
 
-  /** Asks GitHub for the latest release; the menu offers it when it is newer. A failure waits for the next time. */
+  /** Asks GitHub for the newest release (a release candidate too); the menu offers it when it is newer. A failure waits for the next time. */
   async function checkForUpdate(): Promise<void> {
     if (updating || !checksUpdates()) return;
     try {

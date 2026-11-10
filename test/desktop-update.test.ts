@@ -10,13 +10,14 @@ import {
   download,
   installPlan,
   isNewer,
-  LATEST_RELEASE_API,
   macAppOf,
   macStaging,
-  parseLatestRelease,
+  newestRelease,
+  parseRelease,
   placeAppImage,
   relaunchCommand,
   relaunchEnv,
+  RELEASES_API,
   removeMacLeftovers,
   stageMacApp,
   swapMacApp,
@@ -36,7 +37,7 @@ const macIt = process.platform === 'darwin' ? it : it.skip;
 const DOWNLOAD = 'https://github.com/Agentic-System-Lab/harness-relay/releases/download';
 const sha = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 
-/** GitHub's answer for a release (GET /repos/…/releases/latest). */
+/** A release as GitHub lists it (GET /repos/…/releases). */
 function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; digest?: boolean } = {}) {
   const asset = (end: string) => {
     const name = `Harness-Relay-${tag}${end}`;
@@ -45,15 +46,15 @@ function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; 
   return {
     tag_name: tag,
     draft: o.draft ?? false,
-    prerelease: o.prerelease ?? false,
+    prerelease: o.prerelease ?? tag.includes('-rc'),
     html_url: `https://github.com/Agentic-System-Lab/harness-relay/releases/tag/${tag}`,
     assets: [asset('-mac-universal.dmg'), asset('-win-x64.exe'), asset('-linux-x86_64.AppImage'), { name: 'notes.txt', browser_download_url: `${DOWNLOAD}/${tag}/notes.txt` }],
   };
 }
 
-describe("GitHub's latest release", () => {
+describe("GitHub's newest release", () => {
   it('is read with each system’s installer and its checksum', () => {
-    const r = parseLatestRelease(githubRelease('2026-11-12.1'))!;
+    const r = parseRelease(githubRelease('2026-11-12.1'))!;
     expect(r.version).toBe('2026-11-12.1');
     expect(r.semver).toBe('2026.1112.1');
     expect(r.page).toBe('https://github.com/Agentic-System-Lab/harness-relay/releases/tag/2026-11-12.1');
@@ -66,13 +67,31 @@ describe("GitHub's latest release", () => {
     expect(Object.keys(r.assets).sort()).toEqual(['linux', 'mac', 'win']);
   });
 
-  it('is never a release candidate, a draft, or a tag that is not a version of ours', () => {
-    expect(parseLatestRelease(githubRelease('2026-11-12-rc'))).toBeUndefined();
-    expect(parseLatestRelease(githubRelease('2026-11-12', { prerelease: true }))).toBeUndefined();
-    expect(parseLatestRelease(githubRelease('2026-11-12', { draft: true }))).toBeUndefined();
-    expect(parseLatestRelease(githubRelease('v0.1.0'))).toBeUndefined();
-    expect(parseLatestRelease(null)).toBeUndefined();
-    expect(parseLatestRelease({ message: 'Not Found' })).toBeUndefined();
+  it('can be a release candidate, as the app was built for one; never a draft or a tag that is not a version of ours', () => {
+    const rc = parseRelease(githubRelease('2026-11-12-rc.1'))!;
+    expect(rc).toMatchObject({ version: '2026-11-12-rc.1', semver: '2026.1112.0-rc.1' });
+    expect(rc.assets.mac?.name).toBe('Harness-Relay-2026-11-12-rc.1-mac-universal.dmg');
+    expect(parseRelease(githubRelease('2026-11-12', { prerelease: true }))?.version).toBe('2026-11-12');
+    expect(parseRelease(githubRelease('2026-11-12-rc', { draft: true }))).toBeUndefined();
+    expect(parseRelease(githubRelease('2026-11-12', { draft: true }))).toBeUndefined();
+    expect(parseRelease(githubRelease('v0.1.0'))).toBeUndefined();
+    expect(parseRelease(null)).toBeUndefined();
+    expect(parseRelease({ message: 'Not Found' })).toBeUndefined();
+  });
+
+  it('is the newest version in the list, a release candidate included, whatever order GitHub lists them in', () => {
+    const tags = (...list: string[]) => list.map((tag) => githubRelease(tag));
+    expect(newestRelease(tags('2026-11-12-rc', '2026-11-11.1', '2026-11-11', '2026-11-11-rc'))?.version).toBe('2026-11-12-rc');
+    expect(newestRelease(tags('2026-11-11', '2026-11-12-rc.1', '2026-11-12-rc'))?.version).toBe('2026-11-12-rc.1');
+    // The day's release comes after its release candidates, and its patches after it.
+    expect(newestRelease(tags('2026-11-12-rc.2', '2026-11-12', '2026-11-12-rc.1'))?.version).toBe('2026-11-12');
+    expect(newestRelease(tags('2026-11-12', '2026-11-12.1', '2026-11-12-rc.3'))?.version).toBe('2026-11-12.1');
+    // Drafts and tags that are not versions of ours are left out.
+    expect(newestRelease([githubRelease('2026-11-13-rc', { draft: true }), githubRelease('v9.0.0'), githubRelease('2026-11-12')])?.version).toBe('2026-11-12');
+    expect(newestRelease([])).toBeUndefined();
+    expect(newestRelease([githubRelease('2026-11-13', { draft: true })])).toBeUndefined();
+    expect(newestRelease({ message: 'Not Found' })).toBeUndefined();
+    expect(newestRelease(null)).toBeUndefined();
   });
 
   it('leaves out installers elsewhere, with a name that leaves its folder, or a checksum that is not SHA-256', () => {
@@ -80,16 +99,16 @@ describe("GitHub's latest release", () => {
     r.assets[0]!.browser_download_url = 'https://evil.example/Harness-Relay-2026-11-12-mac-universal.dmg';
     r.assets[1]!.name = '../../Harness-Relay-2026-11-12-win-x64.exe';
     (r.assets[2] as { digest?: string }).digest = 'md5:abc';
-    const parsed = parseLatestRelease(r)!;
+    const parsed = parseRelease(r)!;
     expect(parsed.assets.mac).toBeUndefined();
     expect(parsed.assets.win).toBeUndefined();
     expect(parsed.assets.linux?.sha256).toBeUndefined();
     // A page elsewhere is replaced by the releases page.
-    expect(parseLatestRelease({ ...githubRelease('2026-11-12'), html_url: 'https://evil.example/' })!.page).toBe('https://github.com/Agentic-System-Lab/harness-relay/releases');
+    expect(parseRelease({ ...githubRelease('2026-11-12'), html_url: 'https://evil.example/' })!.page).toBe('https://github.com/Agentic-System-Lab/harness-relay/releases');
   });
 
   it('is newer than a build of an earlier day, an earlier patch, a release candidate of its day, or a dev build', () => {
-    const latest = parseLatestRelease(githubRelease('2026-11-12'));
+    const latest = parseRelease(githubRelease('2026-11-12'));
     expect(isNewer(latest, '2026.1111.3')).toBe(true);
     expect(isNewer(latest, '2026.1112.0-rc.2')).toBe(true);
     expect(isNewer(latest, '2026.1112.0-dev')).toBe(true);
@@ -100,6 +119,16 @@ describe("GitHub's latest release", () => {
     expect(isNewer(undefined, '0.1.0')).toBe(false);
   });
 
+  it('as a release candidate, is newer than an earlier day or candidate, but not than its day’s release', () => {
+    const rc = parseRelease(githubRelease('2026-11-12-rc.1'));
+    expect(isNewer(rc, '2026.1111.1')).toBe(true);
+    expect(isNewer(rc, '2026.1112.0-rc')).toBe(true);
+    expect(isNewer(rc, '2026.1112.0-dev')).toBe(true);
+    expect(isNewer(rc, '2026.1112.0-rc.1')).toBe(false);
+    expect(isNewer(rc, '2026.1112.0-rc.2')).toBe(false);
+    expect(isNewer(rc, '2026.1112.0')).toBe(false);
+  });
+
   it('is asked for at GitHub; none yet is no update, any other failure an error', async () => {
     const asked: string[] = [];
     const answer = (status: number, body: unknown): Fetch =>
@@ -107,8 +136,10 @@ describe("GitHub's latest release", () => {
         asked.push(url);
         return new Response(JSON.stringify(body), { status });
       };
-    expect((await checkLatest(answer(200, githubRelease('2026-11-12'))))?.version).toBe('2026-11-12');
-    expect(asked).toEqual([LATEST_RELEASE_API]);
+    expect((await checkLatest(answer(200, [githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')])))?.version).toBe('2026-11-13-rc');
+    expect(asked).toEqual([RELEASES_API]);
+    expect(RELEASES_API).toBe('https://api.github.com/repos/Agentic-System-Lab/harness-relay/releases?per_page=20');
+    expect(await checkLatest(answer(200, []))).toBeUndefined();
     expect(await checkLatest(answer(404, { message: 'Not Found' }))).toBeUndefined();
     await expect(checkLatest(answer(403, { message: 'rate limited' }))).rejects.toThrow('403');
   });
