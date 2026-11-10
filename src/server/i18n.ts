@@ -63,6 +63,10 @@ const zhTW = {
   // Conversations and runs
   defaultTitle: '新對話',
   conversationNotFound: '找不到對話',
+  signedOut: '這個瀏覽器尚未登入 Harness Relay。請打開它啟動時在終端機印出的登入連結，或執行 npm run login。',
+  signInWrongCode: '代碼錯誤或已過期。',
+  signInTooMany: '錯誤的代碼太多次了，請等一分鐘再試。',
+  signInNoSession: '找不到這個已登入的瀏覽器。',
   // Sharing a conversation (a gist through the GitHub CLI)
   shareEmpty: '沒有可以分享的內容',
   shareTooLarge: (mb: string) => `這個分享頁有 ${mb} MB，超過 gistpreview 能顯示的 1 MB。請改成分享到比較前面的某則回覆。`,
@@ -329,6 +333,10 @@ const en: ServerMessages = {
 
   defaultTitle: 'New chat',
   conversationNotFound: 'Conversation not found',
+  signedOut: 'This browser is not signed in to Harness Relay. Open the sign-in link it printed in its terminal when it started, or run npm run login.',
+  signInWrongCode: 'That code is wrong or has expired.',
+  signInTooMany: 'Too many wrong codes. Wait a minute and try again.',
+  signInNoSession: 'No such signed-in browser.',
   shareEmpty: 'Nothing to share',
   shareTooLarge: (mb) => `This page is ${mb} MB, over the 1 MB that gistpreview can show. Share up to an earlier reply instead.`,
   shareNoGh: (min) => `GitHub CLI (gh) not found. Install ${min} or later from https://cli.github.com, run gh auth login in a terminal, then try again.`,

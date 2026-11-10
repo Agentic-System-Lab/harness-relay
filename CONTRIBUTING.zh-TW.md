@@ -53,7 +53,7 @@ npm run dev        # API 在 :8787（檔案變更時重啟）+ 介面在 http://
 
 ### 安全性
 
-- 新的路由放在 `/api/` 底下，才會經過 Host/Origin 檢查、寫入請求的 JSON content-type 檢查，並取得請求的語言。請不要放寬這些檢查。
+- 新的路由放在 `/api/` 底下，才會經過 Host/Origin 檢查、寫入請求的 JSON content-type 檢查、登入檢查，並取得請求的語言。請不要放寬這些檢查。只有瀏覽器自己載入的唯讀路由（圖片、下載連結）可以只憑 cookie、不帶金鑰（`src/server/app.ts` 的 `BROWSER_LOADS`）。
 - 絕不把機密傳給前端。API key 放在作業系統的金鑰儲存區（`src/server/secrets.ts`），不放在資料庫。
 - 伺服器只綁定 `127.0.0.1`，而且 agent 的回覆不能讓瀏覽器載入遠端內容（圖片以連結顯示；本機媒體要經過媒體端點的路徑檢查）。
 

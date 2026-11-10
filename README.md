@@ -70,7 +70,7 @@ npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:8787**, go to **Settings & Login** to check that each agent is signed in, then click **New chat**, choose the working directory and permission, and ask your first question: the lead agent proposes a team for it.
+Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787/#code=…`; Harness Relay takes only browsers that signed in, see [Safety](#safety)), go to **Settings & Login** to check that each agent is signed in, then click **New chat**, choose the working directory and permission, and ask your first question: the lead agent proposes a team for it.
 
 After a `git pull`, run `npm install` and `npm run build` again, then `npm start`.
 
@@ -94,7 +94,7 @@ Working on Harness Relay itself? Run `npm run dev` instead: the server restarts 
 
 ## Safety
 
-Agents run with the file-system permission you choose for the conversation (**read-only**, **edit**, or **full access**). Full access lets agents run any command without asking — use it only in directories you trust. Below full access, every agent's commands run in its CLI's OS sandbox, which lets them write only in the working directory and the temp folders; Codex's also keeps them off the network, and Claude Code's asks you about every host they reach. Grok's can block the network only on Linux, so in edit mode project code that Grok runs can still reach it: tests, builds and project scripts run code the agents can change, so use read-only for code or instructions you don't trust. On native Windows only Codex has a sandbox (see [OS sandboxes by platform](docs/sandboxing.md)). The server binds to `127.0.0.1` and rejects cross-site requests, but anyone with access to your machine's localhost can drive the agents. When you share it with your tailnet through `tailscale serve`, so can every device in that tailnet; don't expose it any other way (see [Use it from your phone](docs/remote-access.md#security)). See [Architecture → Security](docs/architecture.md#security).
+Agents run with the file-system permission you choose for the conversation (**read-only**, **edit**, or **full access**). Full access lets agents run any command without asking — use it only in directories you trust. Below full access, every agent's commands run in its CLI's OS sandbox, which lets them write only in the working directory and the temp folders; Codex's also keeps them off the network, and Claude Code's asks you about every host they reach. Grok's can block the network only on Linux, so in edit mode project code that Grok runs can still reach it: tests, builds and project scripts run code the agents can change, so use read-only for code or instructions you don't trust. On native Windows only Codex has a sandbox (see [OS sandboxes by platform](docs/sandboxing.md)). The server binds to `127.0.0.1`, rejects cross-site requests and takes only browsers you signed in: with the link it prints when it starts, with `npm run login`, or with a code from a signed-in browser (for your phone). So other programs on your computer, code the agents run included, cannot drive the agents through it, unless they can read your browser's data or write Harness Relay's `data/` folder (see [Signing in](docs/architecture.md#signing-in)). Share it only with your tailnet, through `tailscale serve`; don't expose it any other way (see [Use it from your phone](docs/remote-access.md#security)). See [Architecture → Security](docs/architecture.md#security).
 
 API keys you save in Settings, and the values of MCP servers' environment variables and headers in the tool library, are kept in your operating system's credential store — the macOS Keychain, Windows Credential Manager, or the Secret Service (GNOME Keyring, KWallet) on Linux — not in the database. Only on a system without one, such as a headless Linux server, do they stay in `data/relay.db`, which only your user can read; to avoid that, set `ANTHROPIC_API_KEY` / `XAI_API_KEY` before starting Harness Relay instead of saving a key.
 
@@ -105,6 +105,7 @@ API keys you save in Settings, and the values of MCP servers' environment variab
 | `npm run dev` | For development: API server (port 8787, auto-restart) + Vite dev server (port 5173) |
 | `npm run build` | Build the web UI into `dist/web` |
 | `npm start` | Serve the built UI and the API from one process on http://127.0.0.1:8787 |
+| `npm run login` | Print a one-time link (and code) that signs a browser in, for when the one `npm start` printed is used or old |
 | `npm run typecheck` | Type-check server, client and tests |
 | `npm test` | Run the test suite (Vitest) |
 | `npm run site:preview` | Preview the website (`site/`) on http://127.0.0.1:4180 |

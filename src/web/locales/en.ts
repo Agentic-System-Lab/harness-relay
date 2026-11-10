@@ -643,6 +643,31 @@ export const en: Messages = {
 
   transcript: { user: 'User', aborted: '(stopped)' },
 
+  signIn: {
+    title: 'Sign in to Harness Relay',
+    intro: 'This browser is not signed in yet. Harness Relay takes only browsers that signed in, so other programs on this computer, code an agent runs in its sandbox included, cannot drive it.',
+    codeLabel: 'Sign-in code',
+    submit: 'Sign in',
+    signingIn: 'Signing in…',
+    whereTitle: 'Where the code comes from',
+    whereTerminal: 'The sign-in link Harness Relay printed in its terminal when it started: opening it signs you in (once, within an hour).',
+    whereLogin: 'Or run this in the Harness Relay folder:',
+    whereOther: 'Or from a browser that is signed in: Settings → Signed-in browsers → Sign in another device (a phone, say).',
+  },
+
+  browsers: {
+    title: 'Signed-in browsers',
+    hint: 'The browsers that can drive Harness Relay, the latest used first. Sign out the ones you no longer use.',
+    current: 'this browser',
+    used: (signedIn, lastUsed) => `Signed in ${signedIn} · last used ${lastUsed}`,
+    signOut: 'Sign out',
+    confirmCurrent: 'Sign this browser out? It will need a new code to sign in again.',
+    confirm: (label) => `Sign out "${label}"?`,
+    add: 'Sign in another device',
+    codeHint: (until) => `Type this code on the sign-in page of the other device (a phone through Tailscale, say), or open the link below. It works once, until ${until}.`,
+    link: 'Link:',
+  },
+
   share: {
     button: 'Share',
     buttonTitle: 'Copy the conversation as Markdown, or share it as a public link',
@@ -937,7 +962,7 @@ export const en: Messages = {
     leadNotReady: (p) => `${p} is not available right now; sign in first or pick another agent.`,
     goSignIn: (p) => `Sign in to ${p} →`,
     sections: 'Sections of this page',
-    nav: { language: 'Language', lead: 'Lead agent', tools: 'Tools', voice: 'Voice', cwd: 'Default folder', sessions: 'Sessions', shares: 'Shares', tour: 'Tour' },
+    nav: { language: 'Language', lead: 'Lead agent', tools: 'Tools', voice: 'Voice', cwd: 'Default folder', sessions: 'Sessions', shares: 'Shares', browsers: 'Browsers', tour: 'Tour' },
     tour: 'Guided tour',
     tourHint: 'A step-by-step introduction to the main features.',
     replayTour: 'Replay the tour',

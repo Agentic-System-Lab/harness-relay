@@ -53,7 +53,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 
 ### Security
 
-- New routes go under `/api/`, so they get the Host/Origin checks, the JSON content-type check on writes and the request language. Don't weaken these checks.
+- New routes go under `/api/`, so they get the Host/Origin checks, the JSON content-type check on writes, sign-in and the request language. Don't weaken these checks. Only a read-only route the browser loads by itself (an image, a download link) may take the cookie without the key (`BROWSER_LOADS` in `src/server/app.ts`).
 - Never send secrets to the client. API keys belong in the OS credential store (`src/server/secrets.ts`), not in the database.
 - The server binds to `127.0.0.1`, and agent replies must not make the browser load remote content (images are shown as links; local media goes through the media endpoint's path checks).
 

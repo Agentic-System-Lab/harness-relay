@@ -383,7 +383,7 @@ describe('voice HTTP API', () => {
     const store = new Store(db);
     const hub = new Hub();
     const voice = service(fakeHost(dir).host);
-    return createApp({ store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers: new ProviderService(settings), voice });
+    return createApp({ auth: null, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers: new ProviderService(settings), voice });
   }
 
   it('reports the status and validates settings', async () => {

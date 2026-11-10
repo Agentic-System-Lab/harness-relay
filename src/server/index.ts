@@ -2,6 +2,8 @@ import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { AgentsViewSync } from './agentsview';
 import { createApp } from './app';
+import { AuthStore, CODE_TTL_MS } from './auth';
+import { signInLink } from './signin';
 import { openDatabase } from './db';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
@@ -20,6 +22,7 @@ import { serveWebApp } from './web';
 process.on('unhandledRejection', (reason) => console.error('[server] unhandled rejection:', reason));
 
 const db = openDatabase(DB_FILE);
+const auth = new AuthStore(db);
 const settings = new SettingsStore(db, openSystemKeyring());
 const store = new Store(db);
 const hub = new Hub();
@@ -48,11 +51,12 @@ const orchestrator = new Orchestrator(
 const scheduler = new Scheduler(store, orchestrator);
 
 const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
-const app = createApp({ store, settings, hub, orchestrator, providers, voice, agentsView, extraHosts });
+const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, agentsView, extraHosts });
 
 // --- Static web app (production build) ------------------------------------------
 
-if (!serveWebApp(app, resolve(process.cwd(), 'dist/web'))) {
+const built = serveWebApp(app, resolve(process.cwd(), 'dist/web'));
+if (!built) {
   app.get('/', (c) => c.text('Web UI is not built. Run `npm run dev` (http://localhost:5173) or `npm run build` first.'));
 }
 
@@ -65,6 +69,11 @@ const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? '127.0.0.1';
 const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   console.log(`Harness Relay API listening on http://${host}:${info.port}`);
+  // Only this terminal gets the code (nothing keeps it but its hash): a browser opens the link once.
+  // With `npm run dev`, the link is Vite's, also when an older build is there.
+  const { code } = auth.createCode(CODE_TTL_MS.startup);
+  const dev = !built || process.env.npm_lifecycle_event === 'dev';
+  console.log(`Sign this browser in (once, within an hour): ${signInLink(code, { host, port: info.port, dev })}`);
   // Times missed while the server was not running are handled now, by each schedule's choice.
   scheduler.start();
 });

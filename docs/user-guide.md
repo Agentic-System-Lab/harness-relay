@@ -14,7 +14,7 @@ npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:8787**. After a `git pull`, run `npm install` and `npm run build` again, then `npm start`. (To work on Harness Relay itself, run `npm run dev` instead and open http://localhost:5173; see the [developer guide](developer-guide.md).)
+Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787/#code=…`): Harness Relay takes only browsers that signed in, so other programs on your computer, code an agent runs included, cannot drive it. The link works once, within an hour; to sign in another browser later, run `npm run login`, or use **Settings → Signed-in browsers → Sign in another device**, which also lists the signed-in browsers so you can sign them out. After a `git pull`, run `npm install` and `npm run build` again, then `npm start`. (To work on Harness Relay itself, run `npm run dev` instead and open http://localhost:5173; see the [developer guide](developer-guide.md).)
 
 The dots at the bottom of the sidebar show each agent's status: green = ready, orange = not signed in, red = CLI not found.
 

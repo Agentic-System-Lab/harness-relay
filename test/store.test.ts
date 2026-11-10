@@ -142,6 +142,7 @@ describe('Store (SQLite)', () => {
     db.exec(`ALTER TABLE conversations DROP COLUMN auto_confirm;
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
+             DROP TABLE auth_sessions; DROP TABLE auth_codes;
              PRAGMA user_version = 12;`);
     const migrated = new Store(reopen());
     expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
@@ -510,6 +511,7 @@ describe('Store shares', () => {
     // Shares from before schema version 16 took no files along.
     db.exec(`ALTER TABLE shares DROP COLUMN files; ALTER TABLE shares DROP COLUMN files_gist; ALTER TABLE shares DROP COLUMN unfinished;
              ALTER TABLE conversations DROP COLUMN branch;
+             DROP TABLE auth_sessions; DROP TABLE auth_codes;
              PRAGMA user_version = 15;`);
     const migrated = new Store(reopen());
     expect(migrated.getShare('aaaa')).toEqual(share('aaaa', 1));
@@ -901,6 +903,7 @@ describe('Store schedules', () => {
     // Schedules from before schema version 14 send in their own conversation.
     db.exec(`ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
+             DROP TABLE auth_sessions; DROP TABLE auth_codes;
              PRAGMA user_version = 13;`);
     const migrated = new Store(reopen()).get(conv.id)!.schedule!;
     expect(migrated.newChat).toBe(false);

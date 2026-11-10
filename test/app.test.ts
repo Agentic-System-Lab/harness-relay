@@ -65,7 +65,7 @@ beforeEach(() => {
   store = new Store(db);
   const hub = new Hub();
   orchestrator = new Orchestrator(store, hub, settings);
-  app = createApp({ store, settings, hub, orchestrator, providers: new ProviderService(settings) });
+  app = createApp({ auth: null, store, settings, hub, orchestrator, providers: new ProviderService(settings) });
   project = join(root, `project-${++n}`);
   mkdirSync(project, { recursive: true });
 });
@@ -241,7 +241,7 @@ describe('settings', () => {
     }) as typeof fetch;
     const agentsView = new AgentsViewSync(() => settings.agentsViewUrl, fetchImpl);
     const orchestrator = new Orchestrator(store, hub, settings, undefined, agentsView);
-    const app = createApp({ store, settings, hub, orchestrator, providers: new ProviderService(settings), agentsView });
+    const app = createApp({ auth: null, store, settings, hub, orchestrator, providers: new ProviderService(settings), agentsView });
     const put = async (body: unknown) => app.request('/api/settings', json('PUT', body));
 
     for (const url of ['http://example.com:8080', 'ftp://127.0.0.1:21', 'http://me:secret@127.0.0.1:8080', 'not a url', 42]) {
@@ -319,7 +319,7 @@ describe('settings', () => {
     const providers = new ProviderService(settings);
     const invalidate = vi.spyOn(providers, 'invalidate');
     const cancelLogin = vi.spyOn(providers, 'cancelLogin');
-    const app = createApp({ store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers });
+    const app = createApp({ auth: null, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers });
     const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
     const home = join(project, 'homes');
     expect((await put({ agentHome: home })).status).toBe(200);
@@ -590,7 +590,7 @@ describe('files replies link to', () => {
     const { base } = await replyIn();
     // As started with RELAY_ALLOWED_HOSTS=my-computer.tail1234.ts.net, behind `tailscale serve`.
     const settings = new SettingsStore(openDatabase(':memory:'));
-    app = createApp({ store, settings, hub: new Hub(), orchestrator, providers: new ProviderService(settings), extraHosts: ['my-computer.tail1234.ts.net'] });
+    app = createApp({ auth: null, store, settings, hub: new Hub(), orchestrator, providers: new ProviderService(settings), extraHosts: ['my-computer.tail1234.ts.net'] });
     const viaTailnet = (host: string) => app.request(base + 'out/slides.html', { headers: { host } });
     expect((await viaTailnet('my-computer.tail1234.ts.net')).status).toBe(200);
     expect((await viaTailnet('my-computer.tail1234.ts.net:443')).status).toBe(200);
@@ -985,7 +985,7 @@ describe('GET /api/cwds', () => {
       const s = new SettingsStore(db);
       const st = new Store(db);
       const hub = new Hub();
-      const own = createApp({ store: st, settings: s, hub, orchestrator: new Orchestrator(st, hub, s), providers: new ProviderService(s) });
+      const own = createApp({ auth: null, store: st, settings: s, hub, orchestrator: new Orchestrator(st, hub, s), providers: new ProviderService(s) });
       const res = await own.request('/api/cwds', { headers: HOST });
       expect(((await res.json()) as WorkingDirectories).dirs).toEqual([{ path: homedir(), default: true }]);
     } finally {
@@ -1248,7 +1248,7 @@ describe("what each CLI loads by itself", () => {
     settings.setDefaultCwd(project);
     const s = new Store(db);
     const hub = new Hub();
-    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
     const call = (path: string, body: unknown = {}) => local.request(path, json('POST', body, { 'x-relay-lang': 'en' }));
 
     const res = await call('/api/providers/codex/native');
@@ -1331,7 +1331,7 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
     const hub = new Hub();
     // The real probe, running the stand-in.
     const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
-    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
     const call = (body: unknown) => local.request('/api/providers/grok/folder-trust', json('POST', body, { 'x-relay-lang': 'en' }));
     try {
       // A folder outside a repository: trust is decided for that folder.
@@ -1387,7 +1387,7 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
     const s = new Store(db);
     const hub = new Hub();
     const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
-    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
     try {
       const res = await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }));
       expect(res.status).toBe(409);
@@ -1638,6 +1638,7 @@ describe('sharing conversations', () => {
       throw new Error('should not be called');
     };
     return createApp({
+      auth: null,
       store,
       settings: s,
       hub: new Hub(),

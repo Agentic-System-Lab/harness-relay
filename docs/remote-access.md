@@ -65,7 +65,7 @@ Put several names in one list, separated by commas. On the computer itself, http
 
 ## 3. Open it on your phone
 
-Turn Tailscale on in the phone and open the address from step 1, for example `https://my-computer.tail1234.ts.net`. The chat, **Settings & sign-in** and voice input work as they do on the computer, in a layout made for small screens.
+Turn Tailscale on in the phone and open the address from step 1, for example `https://my-computer.tail1234.ts.net`. The first time, it shows the sign-in page: on the computer, open **Settings → Signed-in browsers → Sign in another device**, and type the code it shows on the phone (or open its link there). The chat, **Settings & sign-in** and voice input then work as they do on the computer, in a layout made for small screens.
 
 - **Working directories** are folders on the computer, not on the phone.
 - **Files the agents make** (a PDF, slides, a spreadsheet…): tap the link in the reply, or **Download** in **Files**, and the file is saved on the phone: on an iPhone or iPad in the Files app under **Downloads** (Safari may ask first), on Android in **Downloads**.
@@ -199,7 +199,7 @@ On a server:
 
 ## Security
 
-- **Every device in your tailnet can use it**, with the permissions the agents have on that computer: Harness Relay has no login of its own. If other people share your tailnet, use Tailscale's [access controls](https://tailscale.com/kb/1018/acls) so that only your own devices can reach that computer.
+- **Only browsers you signed in can use it**, with the permissions the agents have on that computer; every device in your tailnet can still reach its sign-in page. If other people share your tailnet, also use Tailscale's [access controls](https://tailscale.com/kb/1018/acls) so that only your own devices can reach that computer. Sign out a phone you no longer use in **Settings → Signed-in browsers**.
 - **Don't use `tailscale funnel`.** It publishes the page to the whole internet.
 - **Don't start the server with `HOST=0.0.0.0`** to reach it over your Wi-Fi. Anyone on the same network could then drive agents with write access, over plain HTTP, and the phone's browser would not allow the microphone.
 - **Your machine's name becomes public.** With HTTPS certificates on, Tailscale records the full name of each machine that gets a certificate (`my-computer.tail1234.ts.net`) in public Certificate Transparency logs. Don't use a machine name you want to keep private.

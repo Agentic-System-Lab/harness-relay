@@ -9,6 +9,7 @@
     "dev": "concurrently -k -n server,web -c blue,magenta \"tsx watch --clear-screen=false src/server/index.ts\" \"vite\"",
     "build": "vite build",
     "start": "tsx src/server/index.ts",
+    "login": "tsx scripts/login.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "site:preview": "tsx scripts/preview-site.ts",

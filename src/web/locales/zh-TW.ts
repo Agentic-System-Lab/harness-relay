@@ -652,6 +652,31 @@ export const zhTW = {
 
   transcript: { user: '使用者', aborted: '（已中斷）' },
 
+  signIn: {
+    title: '登入 Harness Relay',
+    intro: '這個瀏覽器還沒登入。Harness Relay 只接受登入過的瀏覽器，所以這台電腦上的其他程式，包括 agent 在沙箱中執行的程式碼，都無法操作它。',
+    codeLabel: '登入代碼',
+    submit: '登入',
+    signingIn: '登入中…',
+    whereTitle: '代碼從哪裡來',
+    whereTerminal: 'Harness Relay 啟動時在終端機印出的登入連結：直接打開就會登入（一小時內有效，只能用一次）。',
+    whereLogin: '或在 Harness Relay 的資料夾執行',
+    whereOther: '或從另一個已登入的瀏覽器：設定 → 已登入的瀏覽器 → 讓另一個裝置登入（例如手機）。',
+  },
+
+  browsers: {
+    title: '已登入的瀏覽器',
+    hint: '能操作 Harness Relay 的瀏覽器，最近使用的在前。不再使用的請登出。',
+    current: '這個瀏覽器',
+    used: (signedIn: string, lastUsed: string) => `登入於 ${signedIn} · 上次使用 ${lastUsed}`,
+    signOut: '登出',
+    confirmCurrent: '要登出這個瀏覽器嗎？之後需要新的代碼才能再登入。',
+    confirm: (label: string) => `要登出「${label}」嗎？`,
+    add: '讓另一個裝置登入',
+    codeHint: (until: string) => `在另一個裝置（例如透過 Tailscale 打開的手機）的登入頁輸入這個代碼，或打開下面的連結。只能用一次，${until} 前有效。`,
+    link: '連結：',
+  },
+
   share: {
     button: '分享',
     buttonTitle: '把對話複製成 Markdown，或分享成公開連結',
@@ -945,7 +970,7 @@ export const zhTW = {
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
-    nav: { language: '介面語言', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', tour: '使用導覽' },
+    nav: { language: '介面語言', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
     tour: '使用導覽',
     tourHint: '一步一步介紹主要功能。',
     replayTour: '重新觀看導覽',

@@ -1,7 +1,9 @@
+import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING } from '../shared/types';
 import type {
   AgentConfig,
   ApprovalAnswer,
+  AuthSessionView,
   ChatMessage,
   Conversation,
   ConversationGroup,
@@ -39,6 +41,7 @@ import type {
   WorkingDirectories,
   ZipCheck,
 } from '../shared/types';
+import { clearKey, readKey, writeKey } from './auth';
 import { currentLang } from './i18n';
 
 /** A request the server answered with an error; `status` is the HTTP status, `code` tells some errors apart. */
@@ -68,7 +71,21 @@ export async function orCreateCwd<T>(call: (createCwd: boolean) => Promise<T>, a
 
 /** Every request names the UI language, so server messages come back in it. */
 function headers(json: boolean): Record<string, string> {
-  return json ? { 'X-Relay-Lang': currentLang(), 'Content-Type': 'application/json' } : { 'X-Relay-Lang': currentLang() };
+  const key = readKey();
+  return {
+    'X-Relay-Lang': currentLang(),
+    ...(key ? { [AUTH_KEY_HEADER]: key } : {}),
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+  };
+}
+
+/** The event the app listens for to show the sign-in page: the server no longer knows this browser. */
+export const SIGNED_OUT_EVENT = 'relay:signed-out';
+
+function signedOut(code: string | undefined): void {
+  if (code !== SIGNED_OUT) return;
+  clearKey();
+  window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
 }
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
@@ -82,6 +99,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = data as { error?: string; code?: string };
+    if (res.status === 401) signedOut(err.code);
     throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code);
   }
   return data as T;
@@ -92,12 +110,16 @@ async function requestText(path: string): Promise<string> {
   const text = await res.text();
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
+    let code: string | undefined;
     try {
-      msg = (JSON.parse(text) as { error?: string }).error ?? msg;
+      const err = JSON.parse(text) as { error?: string; code?: string };
+      msg = err.error ?? msg;
+      code = err.code;
     } catch {
       /* not JSON */
     }
-    throw new ApiError(msg, res.status);
+    if (res.status === 401) signedOut(code);
+    throw new ApiError(msg, res.status, code);
   }
   return text;
 }
@@ -114,6 +136,28 @@ export interface AttachmentUpload {
 const fileQuery = (root: string, path: string) => new URLSearchParams({ root, path }).toString();
 
 export const api = {
+  // signing in
+  /** Whether the server knows this browser (always, when it takes no sign-in). */
+  authStatus: () => request<{ signedIn: boolean }>('GET', '/api/auth'),
+  /** Signs this browser in with a one-time code; the server sets its cookie, the key is kept here. */
+  signIn: async (code: string) => {
+    const { key } = await request<{ key: string }>('POST', '/api/auth/login', { code });
+    writeKey(key);
+  },
+  /** A one-time code for another device (a phone), from this signed-in browser. */
+  newSignInCode: () => request<{ code: string; expiresAt: number }>('POST', '/api/auth/codes'),
+  signedInBrowsers: () => request<AuthSessionView[]>('GET', '/api/auth/sessions'),
+  /** Signs a browser out; this one's key goes too when it is this one. */
+  signOut: async (id: string, current: boolean) => {
+    await request<{ ok: true }>('DELETE', `/api/auth/sessions/${encodeURIComponent(id)}`);
+    if (current) clearKey();
+  },
+  /** The conversation's live updates. EventSource sends no headers, so the key goes in the query. */
+  eventsUrl: (id: string) => {
+    const key = readKey();
+    return `/api/conversations/${id}/events${key ? `?key=${encodeURIComponent(key)}` : ''}`;
+  },
+
   // conversations
   listConversations: () => request<ConversationSummary[]>('GET', '/api/conversations'),
   getConversation: (id: string) => request<Conversation>('GET', `/api/conversations/${id}`),

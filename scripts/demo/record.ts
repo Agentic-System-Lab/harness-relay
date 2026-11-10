@@ -15,6 +15,9 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { appendFileSync, createWriteStream, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium, type Locator } from 'playwright-core';
+import { AuthStore, CODE_TTL_MS } from '../../src/server/auth';
+import { openDatabase } from '../../src/server/db';
+import { AUTH_KEY_HEADER } from '../../src/shared/auth';
 import type { Conversation, ConversationSummary, ChatMessage, Provider, ProviderStatus, TeamPlan } from '../../src/shared/types';
 import { ROOT, type DemoLang, type FrameEntry, type Mark } from './common';
 
@@ -93,7 +96,7 @@ export interface DemoServer {
 export async function startServer(port: number, dataDir: string, logFile: string): Promise<DemoServer> {
   mkdirSync(dataDir, { recursive: true });
   const base = `http://127.0.0.1:${port}`;
-  const busy = await fetch(`${base}/api/settings`).then(
+  const busy = await fetch(`${base}/api/auth`).then(
     () => true,
     () => false,
   );
@@ -110,7 +113,7 @@ export async function startServer(port: number, dataDir: string, logFile: string
   const until = Date.now() + 30_000;
   for (;;) {
     if (child.exitCode !== null) throw new Error(`The server exited (${child.exitCode}); see ${logFile}`);
-    const ok = await fetch(`${base}/api/settings`).then(
+    const ok = await fetch(`${base}/api/auth`).then(
       (r) => r.ok,
       () => false,
     );
@@ -118,6 +121,16 @@ export async function startServer(port: number, dataDir: string, logFile: string
     if (Date.now() > until) throw new Error(`The server did not start in 30 s; see ${logFile}`);
     await sleep(300);
   }
+  dataDirs.set(base, dataDir);
+  // The demo's own requests come from a signed-in browser too: its cookie and key.
+  const login = await fetch(`${base}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: base },
+    body: JSON.stringify({ code: signInCode(base) }),
+  });
+  if (!login.ok) throw new Error(`Could not sign the demo in: ${login.status} ${await login.text()}`);
+  const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]!;
+  signedIn.set(base, { cookie, key: ((await login.json()) as { key: string }).key });
   return {
     base,
     async stop() {
@@ -128,10 +141,26 @@ export async function startServer(port: number, dataDir: string, logFile: string
   };
 }
 
+/** Each demo server's data folder, and the cookie and key its requests sign in with. */
+const dataDirs = new Map<string, string>();
+const signedIn = new Map<string, { cookie: string; key: string }>();
+
+/** A one-time code that signs a browser in to the demo's server (made in its database, as `npm run login` does). */
+function signInCode(base: string): string {
+  const db = openDatabase(join(dataDirs.get(base)!, 'relay.db'));
+  try {
+    return new AuthStore(db).createCode(CODE_TTL_MS.device).code;
+  } finally {
+    db.close();
+  }
+}
+
 async function api<T>(base: string, path: string, body?: unknown): Promise<T> {
+  const auth = signedIn.get(base);
+  const signed: Record<string, string> = auth ? { cookie: auth.cookie, [AUTH_KEY_HEADER]: auth.key } : {};
   const r = await fetch(base + path, {
     method: body === undefined ? 'GET' : 'POST',
-    headers: body === undefined ? {} : { 'content-type': 'application/json', origin: base },
+    headers: body === undefined ? signed : { ...signed, 'content-type': 'application/json', origin: base },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text()}`);
@@ -368,7 +397,8 @@ export async function record(opts: RecordOptions, base: string, log: (...a: unkn
     };
 
     // --- The demo ---------------------------------------------------------------------------------
-    await page.goto(`${base}/#/`);
+    // Signed in by a sign-in link, as a person would be; the app then opens on a new chat.
+    await page.goto(`${base}/#code=${signInCode(base)}`);
     await page.waitForSelector('.new-chat-page .preset-card');
     await sleep(500);
     startCapture();

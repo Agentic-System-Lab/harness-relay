@@ -65,7 +65,7 @@ npm start
 
 ## 3. 用手機打開
 
-在手機上開啟 Tailscale，打開第 1 步的網址，例如 `https://my-computer.tail1234.ts.net`。聊天、**設定與登入**和語音輸入都跟在電腦上一樣，版面會配合小螢幕調整。
+在手機上開啟 Tailscale，打開第 1 步的網址，例如 `https://my-computer.tail1234.ts.net`。第一次會顯示登入頁：在電腦上打開「**設定 → 已登入的瀏覽器 → 讓另一個裝置登入**」，把它顯示的代碼輸入手機（或在手機上打開它的連結）。之後聊天、**設定與登入**和語音輸入都跟在電腦上一樣，版面會配合小螢幕調整。
 
 - **工作目錄**是那台電腦上的資料夾，不是手機上的。
 - **agent 做的檔案**（PDF、簡報、試算表…）：點回覆裡的連結，或在 **檔案** 裡按 **下載**，檔案就會存到手機上：iPhone 與 iPad 存在「檔案」App 的 **下載項目**（Safari 可能會先詢問），Android 則在 **下載**。
@@ -199,7 +199,7 @@ systemctl --user restart harness-relay
 
 ## 安全性
 
-- **tailnet 裡的每台裝置都能使用它**，權限就是 agent 在那台電腦上的權限：Harness Relay 本身沒有登入機制。如果你的 tailnet 有其他人，請用 Tailscale 的[存取控制](https://tailscale.com/kb/1018/acls)，只讓你自己的裝置連到那台電腦。
+- **只有你登入過的瀏覽器能使用它**，權限就是 agent 在那台電腦上的權限；tailnet 裡的每台裝置仍然打得開它的登入頁。如果你的 tailnet 有其他人，也請用 Tailscale 的[存取控制](https://tailscale.com/kb/1018/acls)，只讓你自己的裝置連到那台電腦。不再使用的手機，請在「**設定 → 已登入的瀏覽器**」登出。
 - **不要用 `tailscale funnel`。** 它會把頁面公開到整個網際網路。
 - **不要為了用 Wi-Fi 連線而用 `HOST=0.0.0.0` 啟動伺服器。** 這樣同一個網路上的任何人都能透過未加密的 HTTP 操作有寫入權限的 agent，手機瀏覽器也不會允許使用麥克風。
 - **電腦的名稱會被公開。** 開啟 HTTPS 憑證後，Tailscale 會把每台取得憑證的電腦的完整名稱（`my-computer.tail1234.ts.net`）記錄在公開的 Certificate Transparency 紀錄中。不要用帶有私人資訊的電腦名稱。

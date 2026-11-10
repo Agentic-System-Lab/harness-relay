@@ -470,6 +470,17 @@ export interface ShareLink {
   filesGist?: string;
 }
 
+/** A browser signed in to Harness Relay (Settings → Signed-in browsers). */
+export interface AuthSessionView {
+  id: string;
+  /** Its browser and system, from its User-Agent when it signed in ("Chrome · macOS"). */
+  label: string;
+  createdAt: number;
+  lastUsedAt: number;
+  /** The browser asking. */
+  current: boolean;
+}
+
 /** A conversation put on the web, as Harness Relay keeps track of it (Settings lists them to remove). */
 export interface SharedPage extends ShareLink {
   conversationId: string;

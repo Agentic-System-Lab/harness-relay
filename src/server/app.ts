@@ -5,7 +5,10 @@ import { homedir } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
+import { AUTH_KEY_HEADER, SIGNED_OUT, browserLabel } from '../shared/auth';
+import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import {
   FILE_LIMITS,
   GROUP_LIMITS,
@@ -80,6 +83,11 @@ import { nextRun } from '../shared/schedule';
 import { currentLang, parseLang, t, withLang } from './i18n';
 
 export interface AppDeps {
+  /**
+   * Signed-in browsers: every request but signing in must come from one (`src/server/auth.ts`).
+   * Null takes no sign-in, for tests only: then any program on this computer could drive the agents.
+   */
+  auth: AuthStore | null;
   store: Store;
   settings: SettingsStore;
   hub: Hub;
@@ -136,6 +144,7 @@ function realDir(dir: string): string {
 
 /** The HTTP API (`/api/*`). Static files and the listening server are set up in `index.ts`. */
 export function createApp({
+  auth,
   store,
   settings,
   hub,
@@ -188,7 +197,71 @@ export function createApp({
       }
     }
     // User-facing server text follows the UI language — also in runs this request starts.
-    await withLang(parseLang(c.req.header('x-relay-lang'), c.req.header('accept-language')), () => next());
+    return withLang(parseLang(c.req.header('x-relay-lang'), c.req.header('accept-language')), async () => {
+      if (auth && !OPEN.has(`${c.req.method} ${c.req.path}`)) {
+        const session = auth.check(getCookie(c, SESSION_COOKIE), requestKey(c));
+        if (!session) return c.json({ error: t().signedOut, code: SIGNED_OUT }, 401);
+        sessions.set(c.req.raw, session);
+      }
+      await next();
+    });
+  });
+
+  /** What a request takes without a signed-in browser: asking whether it is one, and signing in. */
+  const OPEN = new Set(['GET /api/auth', 'POST /api/auth/login']);
+  /** The session each request came from. */
+  const sessions = new WeakMap<Request, string>();
+
+  /**
+   * The key a request shows. The browser loads files by itself (images, videos, downloads, a folder's
+   * ZIP), without the header: those GETs take the cookie alone (null), and read only files in the
+   * conversation's folders, which an agent there can read anyway. The live updates (EventSource, which
+   * sends no headers either) carry the key in the query.
+   */
+  function requestKey(c: Context): string | null | undefined {
+    if (['GET', 'HEAD'].includes(c.req.method) && BROWSER_LOADS.test(c.req.path)) return null;
+    if (c.req.method === 'GET' && /^\/api\/conversations\/[^/]+\/events$/.test(c.req.path)) return c.req.query('key');
+    return c.req.header(AUTH_KEY_HEADER);
+  }
+  const BROWSER_LOADS = /^\/api\/conversations\/[^/]+\/(attachments\/[^/]+|messages\/[^/]+\/(media|download)|files\/(raw|download|zip))$/;
+
+  // --- Signing in ---------------------------------------------------------------------
+
+  app.get('/api/auth', (c) =>
+    c.json({ signedIn: !auth || Boolean(auth.check(getCookie(c, SESSION_COOKIE), c.req.header(AUTH_KEY_HEADER))) }),
+  );
+
+  app.post('/api/auth/login', async (c) => {
+    if (!auth) throw new HttpError(404, 'Signing in is off');
+    const { code } = await body<{ code?: unknown }>(c);
+    // Counted after the body is read, right before the code is tried (both synchronous): requests
+    // that hold their bodies back cannot all get past the limit together.
+    if (auth.tooManyFailures()) throw new HttpError(429, t().signInTooMany);
+    // A browser signed in already (a sign-in link opened in it again): its new session replaces that one.
+    const previous = auth.check(getCookie(c, SESSION_COOKIE), null);
+    const signedIn = typeof code === 'string' ? auth.redeem(code, browserLabel(c.req.header('user-agent'))) : undefined;
+    if (!signedIn) throw new HttpError(400, t().signInWrongCode);
+    if (previous) auth.revoke(previous);
+    // HttpOnly: no page script reads it. Strict: no other site's request carries it.
+    setCookie(c, SESSION_COOKIE, signedIn.cookie, { path: '/api', httpOnly: true, sameSite: 'Strict', maxAge: SESSION_MAX_AGE_S });
+    return c.json({ key: signedIn.key });
+  });
+
+  /** A code for another device (a phone), from a browser that is signed in. */
+  app.post('/api/auth/codes', (c) => {
+    if (!auth) throw new HttpError(404, 'Signing in is off');
+    return c.json(auth.createCode(CODE_TTL_MS.device));
+  });
+
+  app.get('/api/auth/sessions', (c) => c.json(auth ? auth.sessions(sessions.get(c.req.raw)) : []));
+
+  /** Signs a browser out (this one too: its cookie goes as well). */
+  app.delete('/api/auth/sessions/:id', (c) => {
+    if (!auth) throw new HttpError(404, 'Signing in is off');
+    const id = c.req.param('id');
+    if (!auth.revoke(id)) throw new HttpError(404, t().signInNoSession);
+    if (id === sessions.get(c.req.raw)) deleteCookie(c, SESSION_COOKIE, { path: '/api' });
+    return c.json({ ok: true });
   });
 
   /** The request's JSON body, which must be an object. */

@@ -24,12 +24,15 @@ src/
   shared/links.ts          沒包起來的網址在哪裡結束，後面直接接中文時也是（伺服器與介面共用）
   shared/search.ts         搜尋的詞、不分大小寫的比對、摘錄、標示關鍵字（伺服器與介面共用）
   shared/family.ts         一串分支對話：每個對話的上一層與頂端，頂端刪除後也一樣（伺服器與介面共用）
+  shared/auth.ts           讓瀏覽器登入（伺服器與介面共用）：一次性代碼（Crockford base 32）、連結的 #code= 片段、瀏覽器的名稱、金鑰標頭
   shared/share.ts          分享頁上指向附檔的佔位連結（介面寫入，伺服器填上網址），以及依分享上限的算法顯示大小
   shared/schedule.ts       排程下一次何時送出：時區中的牆上時間、時鐘調整（伺服器與介面共用）
   server/
     index.ts               組裝元件、靜態檔案、啟動與關閉
     web.ts                 提供建置好的介面：帶雜湊的檔案永久快取，index.html 每次都檢查
-    app.ts                 createApp()：路由、安全性中介層、SSE（可用 app.request() 測試）
+    app.ts                 createApp()：路由、安全性中介層（Host/Origin、JSON 寫入、登入）、SSE（可用 app.request() 測試）
+    auth.ts                已登入的瀏覽器：一次性代碼、session（cookie 與金鑰，只存雜湊）、錯誤代碼的次數限制
+    signin.ts              伺服器與 `npm run login` 印出的登入連結
     orchestrator.ts        團隊回合：決定誰發言、交付 prompt、把串流寫進訊息；自動組隊、重新傳送
     planner.ts             自動組隊：首席 agent 的 prompt（問題、歷史、目前的團隊）、解析回覆、可執行的團隊、備援方案；
                            依使用者的要求修改團隊（修改用的 prompt、`decideRevision`）
@@ -69,6 +72,7 @@ src/
     hub.ts                 SSE 廣播
   web/
     main.tsx App.tsx api.ts util.ts copy.ts styles.css index.html
+    auth.ts                已登入瀏覽器送出的金鑰（localStorage，只有這個來源讀得到）
     public/                原封不動複製到建置結果：manifest.webmanifest 與主畫面圖示（npm run icons）
     chat.ts                ChatView 的純邏輯：串流是否重新連線、能否套用、團隊設定草稿與它編輯的團隊
     sidebar.ts             側邊欄的純邏輯：各群組的對話、每串分支排成樹狀、還沒確認的移動、收合群組或分支的狀態
@@ -96,6 +100,7 @@ src/
                            VoiceSettings（設定 → 語音輸入）、ToolsSettings（設定 → 工具庫）、
                            SessionsSettings（設定 → Agent 的 session）、
                            SharesSettings（設定 → 分享的對話）、ShareDialog（複製或分享對話）、
+                           SignIn（登入頁）、BrowsersSettings（設定 → 已登入的瀏覽器）、
                            GhHelp（GitHub CLI 沒安裝或沒登入時該怎麼做）、
                            FileBrowser（「檔案」對話框）、NativeSetupPanel（CLI 自己載入的內容）、
                            GrokTrust（Grok 對資料夾的信任）、SectionTitle、
@@ -118,11 +123,12 @@ data/                      執行時資料（relay.db），已列入 git ignore
 
 ```bash
 npm install
-npm run dev        # tsx watch（API :8787）+ vite（介面 :5173，把 /api/ 代理到 API）
+npm run dev        # tsx watch（API :8787）+ vite（介面 :5173，把 /api/ 代理到 API）；印出 :5173 的登入連結
 npm run typecheck
 npm test
 npm run build      # 介面 → dist/web
-npm start          # 單一程序：API + 建置好的介面，port 8787
+npm start          # 單一程序：API + 建置好的介面，port 8787；會印出登入連結
+npm run login      # 另一個一次性登入連結（10 分鐘內有效）
 ```
 
 `npm run build` 會把頁面啟動時載入的函式庫放在各自的 chunk（`react`、`highlight`、`vendor`），讓瀏覽器在 app 更新後仍可沿用快取；Mermaid 仍是需要時才載入。啟動時載入的 chunk 超過 500 kB 時會發出警告（`vite.config.ts`）；Mermaid 延遲載入的 chunk 比這大，只在需要畫圖時才載入。
@@ -156,8 +162,15 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 
 所有寫入請求都必須帶 `Content-Type: application/json`（CSRF 防護）。錯誤格式為 `{ "error": string }`，狀態碼 400/404/409/415/500。帶上 `X-Relay-Lang: zh-TW | en`，錯誤、系統訊息與內建範本就會使用該語言（網頁介面一律會帶）。
 
+除了 `GET /api/auth` 與 `POST /api/auth/login`，每個請求都必須來自已登入的瀏覽器（[架構 → 登入](architecture.zh-TW.md#登入)）：`relay_session` cookie 與 `X-Relay-Key` 標頭。瀏覽器自己載入的路由（`app.ts` 的 `BROWSER_LOADS`：回覆的媒體與下載、附件、`files/raw`、`files/download`、`files/zip`）只需要 cookie，`…/events` 則以 `?key=` 帶金鑰。否則回應 401，`code: "signed-out"`。與登入無關的測試會傳 `auth: null` 給 `createApp()`。
+
 | 方法與路徑 | Body → 回應 |
 | --- | --- |
+| `GET /api/auth` | → `{ signedIn }`：請求是否來自已登入的瀏覽器（不需要登入時一律為 true） |
+| `POST /api/auth/login` | `{ code }` → `{ key }`，並設定 `relay_session` cookie（取代已登入瀏覽器原本的 session）；代碼錯誤或過期時 400，一分鐘內錯了十次後 429 |
+| `POST /api/auth/codes` | → `{ code, expiresAt }`：給另一個裝置的一次性代碼，10 分鐘內有效 |
+| `GET /api/auth/sessions` | → `AuthSessionView[]`：已登入的瀏覽器，最近使用的在前，發出請求的那個標 `current` |
+| `DELETE /api/auth/sessions/:id` | 登出那個瀏覽器（若是發出請求的這個，也清掉它的 cookie）；不存在時 404 |
 | `GET /api/conversations` | → `ConversationSummary[]`（附側邊欄用的 `running`、`waiting`、`lastStatus`、`groupId`、`sorting`、`createdAt` 與 `branchFrom`） |
 | `GET /api/search?q=` | → `SearchResult[]`：標題或使用者／agent 訊息包含 `q` 每個詞（不分大小寫）的對話，標題符合的在前，其餘依最近時間；最多 50 筆。分支的結果帶有 `branchFrom`，也就是它分支來源對話的標題 |
 | `GET /api/cwds` | → `WorkingDirectories`：`{ home, dirs: [{ path, default? }] }`，工作目錄輸入框列出的工作目錄：預設工作目錄（`default: true`，`~` 依新對話的方式展開）在前，接著是各對話的工作目錄，最近用過的在前；每個資料夾只列一次（在 macOS 與 Windows 上不分大小寫），而且只列出仍然存在的資料夾。`home` 讓輸入的 `~` 也能比對 |
@@ -306,6 +319,7 @@ npx vitest test/store.test.ts
 - `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）與 web app manifest（以 `application/manifest+json` 提供）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。
 - `test/app-icons.test.ts`：主畫面圖示與 web app manifest：每個圖示的像素都跟 `npm run icons` 畫出的相同（不透明的 RGB、尺寸正確），manifest 就是它寫出的那份且可以安裝（192 與 512 px 圖示、maskable 圖示、`standalone`），maskable 圖示的標誌落在所有啟動器都會保留的圓內，`index.html` 也有連到 manifest 與 Apple touch icon。
 - `test/demo.test.ts`：錄製示範影片的腳本：剪輯（沒有加速片段時照實際時間、agent 的工作加速到目標長度、加速片段不短於下限、略過的片段剪掉、沒錄完的錄影會被拒絕、給 FFmpeg 的畫面清單），章節列（每個章節依標記計時；團隊、首席 agent、請求核准的 agent、群組與搜尋詞依錄影填入；標記沒出現的章節會省略；兩種語言的用詞；頁面使用的標記且有跳脫），問題點名三個 CLI、設計準則裡的畫面時間，以及截圖（PNG 文字區塊只寫一次且 CRC 正確；社群預覽卡只替換原本顯示舊海報的螢幕像素）。
+- `test/auth.test.ts`：登入：代碼（Crockford base 32、寬鬆讀取、取自連結片段）、伺服器位址或 Vite 的登入連結、瀏覽器的名稱；會過期的一次性代碼，以各自有 salt 的 scrypt 存放（不是代碼的 SHA-256），最多最新的五個、需要 cookie 與金鑰（瀏覽器載入的檔案只需 cookie）且最多 400 天的 session、資料庫只存雜湊、列出與登出、錯誤代碼的次數限制；不是正確跳脫序列的片段；並透過 `app.request()` 測試：登入前每個請求都被拒絕（仍先檢查 Host／Origin）、cookie 的屬性、只有 cookie 或只有金鑰都被拒絕、只憑 cookie 載入檔案、即時更新以查詢字串帶金鑰、給另一個裝置的代碼、登出、同時送出且晚送內容的請求，錯誤代碼都會被計算，以及再次登入的瀏覽器取代自己的 session。
 - `test/app.test.ts`：透過 `createApp()` 與 `app.request()` 測試 HTTP API：Host／Origin／Content-Type 檢查、回覆中刪除對話、團隊回覆中拒絕修改、設定驗證、團隊設計由按鈕或手動設定團隊確認（接著由那個團隊回答）或不採用（由目前的團隊回答）、團隊與設定變更時自動組隊維持開啟（並保存 `autoConfirm`）、首席 agent 依使用者的要求修改團隊（回傳團隊、不儲存任何東西；拒絕空的要求；請求關閉時停止；這段期間拒絕更換各 CLI 自己的資料夾；修改等待中的設計、儲存後由修改過的團隊回答）、只在要求時建立不存在的工作目錄（預設、新對話或編輯中的對話）、範本 id、側邊欄群組（名稱不能重複、在兩種語言中都不能叫「其他」、重新命名、刪除、移動對話（同一串分支的對話一起移動）、不存在的群組；列表中每個對話的分支來源）與搜尋。也測試工具庫的路由（遮蔽的值、不合法的名稱、網址、CLI 與變數名稱、重複名稱、skill 與記憶、列出資料夾底下的 skill）、成員的工具例外設定、成員執行時拿到的項目，以及瀏覽檔案（列表、預覽、raw 只給圖片、下載任何檔案、資料夾外或 `.git` 的路徑、未知的資料夾）。也測試回覆中嵌入的圖片與影片和連結的檔案：`/media` 只給媒體類型，`/download` 把任何檔案（包含 HTML；分段、只對下載而不對影片的 `If-Range`、304、416，以及不開啟檔案的 HEAD：用 1 MiB 的檔案和開啟的檔案數確認）以沙箱化的 `octet-stream` 下載提供，隔離回合先找成員的 worktree，也能下載附件，都不會給工作目錄外或 `.git` 裡的檔案；透過 `RELAY_ALLOWED_HOSTS` 允許的主機名稱（例如 Tailscale 名稱）可以下載，其他名稱則不行。也用假的服務測試查詢 CLI 自己載入的內容（只用預設工作目錄、重新查詢、依請求語言的問題說明、未知的 CLI、不接受 GET 或表單 POST），只能讀回報過的檔案（不會再問一次 CLI），以及透過真正的查詢與一個依 grok 1.0.77 方式決定信任的替身 `grok` 測試 Grok 的資料夾信任（不在儲存庫裡的資料夾、儲存庫子資料夾改為信任儲存庫根目錄、經由連結進入的資料夾信任實際路徑、和確認時不同的資料夾、Grok 不接受紀錄時還原或移除檔案、不存在的資料夾、不接受表單 POST）。也測試更新 CLI 設定時不載入的項目（只接受已知項目的清單），以及逐項不載入的項目（依已知種類列出 id，有數量與長度上限；CLI 不能單獨略過的種類會丟掉）。另外也測試各 CLI 自己的資料夾（不存在時建立，不可以是家目錄、根目錄、檔案、相對路徑，或在 Harness Relay 自己的資料夾、預設工作目錄裡面；有對話執行時拒絕且不建立任何東西；更換時清掉登入狀態快取與進行中的登入，同一個資料夾換個寫法則不會）、AgentsView 網址（只接受這台電腦、存成 origin、重新命名的對話會送出、顯示上次的失敗且不套用到其他網址）與開啟用的網址（任何 http(s) 網址，不影響對話送到哪裡），以及 Windows 寫法的 `~\`，還有不論怎麼寫（結尾斜線、`..`、`~`、符號連結）都能認出同一個資料夾。也測試排程：儲存（下一次的時間、請求的語言、顯示在對話與列表中）、關閉與刪除、拒絕永遠不會送出或團隊還要設計或確認的排程（自動組隊的對話有了團隊之後則允許）、儲存時保留上次結果，以及時間不變時保留間隔的節奏，還有立即執行一次（送出、團隊回覆中放進佇列、接著先不送，排程的紀錄不變；關閉時也可以，對話正忙時說明原因）。也測試每次開新對話的排程：儲存，以及「立即執行一次」回傳它開的對話（每次都是另一個），上次開的對話在儲存後仍保留。也測試 `POST /api/schedules`：自動組隊的對話、排程（以訊息命名，或用給定的標題）與為它組隊的首席 agent，不會貼出訊息；第一次組隊停止後才能再請它組隊；永遠不會送出的排程什麼都不建立（連資料夾也不建立），缺少的資料夾只在要求時建立。也測試把資料夾或整個工作目錄下載成 ZIP 檔（標頭、`HEAD`、讀回的項目、404），以及太大而無法整個打包的資料夾（被忽略的 node_modules 裡超過 10,000 個檔案）：提供只包沒被 git 忽略的檔案，整個打包則為 413。也測試 `GET /api/cwds`：預設工作目錄在前，接著是使用中的工作目錄（包括名稱含空格的資料夾），最近用過的在前，不列出已經不存在的資料夾，預設工作目錄也一樣；預設工作目錄裡的 `~` 會展開，檔案系統不分大小寫時，大小寫不同的同一個資料夾只列一次。也測試分享：以對話標題放上網並留下紀錄（含結束的那則回覆，`upTo` 不是 agent 回覆時則沒有）；拒絕空的頁面、超過 1 MB 的頁面與不存在的對話；`gh` 出問題時說明原因（沒登入時附上 code）且不留紀錄；先刪 gist 再移除分享，gist 刪不掉時保留紀錄，不是 gist id 的一律不處理。也測試分享附上的檔案：`…/share/files` 每個檔案只列一次（兩種路徑寫法、兩則回覆、經由符號連結指向同一個檔案），附上大小（二進位檔、只有空白與空的檔案也一樣）與不能附上的原因（超過 50 MB、在 `.git` 裡、以相對或絕對路徑指到資料夾外、不存在、資料夾、分享範圍之後的回覆、不存在的回覆或另一個對話的回覆，以及分享結束的那則回覆不存在時全部），絕不傳出檔案內容，也拒絕不是清單的輸入；分享時把連結到的檔案各傳一次、內容原樣保留（PNG 的 NUL 位元組、空檔案）、檔名不重複（`report.md`、`report-2.md`）、頁面的佔位連結改成對應的編號並記錄檔案數與它們的 gist，沒被連結的檔案不傳（太大的連讀都不讀）；下載連結不會提供的、或不能附上的檔案在上傳任何東西之前就被拒絕（409 並附代碼），超過 20 個、超過 100 MB（量完大小就拒絕，一點都不讀：讀不了的檔案也是以合計太大被拒絕，而不是讀不了），以及會超過 1 MB 的頁面也一樣；分享進行中放附檔的 gist 記錄成沒有完成，但完成前既不列出也不能移除（409），重新啟動後會列出，頁面上傳後換成分享本身，gist 又被刪除時移除紀錄，留在 GitHub 上或分享意外中止時保留在列表上；有附檔的分享失敗而沒留下任何東西時不留紀錄；只留下放附檔的 gist、沒有頁面時列為沒有完成，移除時只刪它；移除分享時刪除兩個 gist（先刪附檔的），有一個刪不掉時保留在列表上，兩個都刪掉才移除；從回覆分支（新的對話；使用者的訊息、還在串流的回覆與伺服器關閉時會被拒絕）。
 - `test/prompt.test.ts`：`@` 解析（名字後直接接文字、程式碼區塊）、`[PASS]`、失敗／停止／PASS 回覆的轉交、平行模式的簡報，以及簡報如何告訴 agent 顯示媒體、連結檔案讓使用者下載。也測試簡報中的記憶與 skill 區塊：只有在使用者沒有關掉 CLI 自己的 skill 時，才會說它們照常可用；沒有任何能讀檔工具的 Claude Code 成員不會列出 skill。也測試排程送出的訊息（`via="schedule"`），以及有排程的對話的簡報（只有沒有合理答案時才發問；除非排程設為詢問，否則自動拒絕核准），還有排程開的、自己沒有排程的對話的簡報（只在可能沒人看著的那一輪自動拒絕核准）；提問的 agent 會被告知新訊息中的排程訊息不是使用者的回答；分支裡的 agent 會被告知複製的訊息之後檔案可能改過。
 - `test/commands.test.ts`：解析 shell 指令：各種寫法的推送與發佈指令，以及不會讓夾帶指令通過的「本對話都允許」規則 key。

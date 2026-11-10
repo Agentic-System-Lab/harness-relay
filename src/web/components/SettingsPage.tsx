@@ -30,6 +30,7 @@ import { CwdInput } from './CwdInput';
 import { ModelPicker } from './ModelPicker';
 import { NativeSetupPanel } from './NativeSetupPanel';
 import { SectionTitle } from './SectionTitle';
+import { BrowsersCard } from './BrowsersSettings';
 import { SessionsCard } from './SessionsSettings';
 import { SharesCard } from './SharesSettings';
 import { providerState } from './Sidebar';
@@ -159,6 +160,8 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
         {settings && <SessionsCard settings={settings} onSettings={setSettings} onHomeChanged={() => void refreshProviders(true)} />}
 
         <SharesCard />
+
+        <BrowsersCard />
 
         <section className="card" id={sectionId('tour')}>
           <SectionTitle section="tour">{t.settings.tour}</SectionTitle>
@@ -740,6 +743,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     cwd: short.cwd,
     sessions: short.sessions,
     shares: short.shares,
+    browsers: short.browsers,
     tour: short.tour,
   };
   return (
