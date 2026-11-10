@@ -12,6 +12,7 @@ import {
   codexConfirmLeftOut,
   codexNativeConfig,
   codexRunner,
+  resetCodexProfiles,
   isUnknownMethod,
   codexOverrideArgs,
   codexCheckProfile,
@@ -496,7 +497,8 @@ describe('a Codex run that leaves out hooks and plugins (stand-in codex app-serv
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   // Answers like codex-cli 0.167.0's app-server. FAKE_CODEX_IGNORE plays a Codex that ignores the
   // two keys; FAKE_CODEX_SLOW answers hooks/list after two seconds; FAKE_CODEX_NO_PROFILE a Codex
-  // that ignores the thread's permission profile. Each request goes to the log.
+  // that ignores the thread's permission profile; FAKE_CODEX_PROFILE_FAILS one that cannot load it
+  // (a turn in it fails, as Codex 0.167 on Linux does). Each request goes to the log.
   const FAKE_CODEX = `#!/usr/bin/env node
 const fs = require('node:fs');
 const log = (o) => fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify(o) + '\\n');
@@ -506,6 +508,7 @@ const set = []; for (let i = 0; i < args.length; i++) if (args[i] === '-c') set.
 const off = (key) => !process.env.FAKE_CODEX_IGNORE && set.includes(key + '=false');
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 let init = {};
+let profiled = false;
 require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
   if (m.id === undefined) return;
@@ -516,6 +519,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     case 'initialize': init = m.params; return reply({});
     case 'thread/start': {
       const profile = m.params.permissions && !process.env.FAKE_CODEX_NO_PROFILE ? { activePermissionProfile: { id: m.params.permissions } } : {};
+      profiled = Boolean(m.params.permissions);
       log({ capabilities: init.capabilities ?? null, permissions: m.params.permissions ?? null, sandbox: m.params.sandbox ?? null });
       return reply({ thread: { id: 'thr-1' }, ...profile });
     }
@@ -527,6 +531,10 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       return reply({ marketplaces: [{ name: 'm', plugins: off('features.plugins') ? [] : [{ id: 'deck@m', installed: true, enabled: true }] }] });
     case 'turn/start':
       reply({ turn: { id: 'turn-1' } });
+      if (process.env.FAKE_CODEX_PROFILE_FAILS && profiled) {
+        const error = { message: 'failed to load workspace requirements: invalid input parameter' };
+        return setTimeout(() => out({ method: 'turn/completed', params: { threadId: 'thr-1', turn: { id: 'turn-1', status: 'failed', error } } }), 50);
+      }
       // Asked of clients that take the experimental API.
       if (init.capabilities?.experimentalApi) out({ id: 'time-1', method: 'currentTime/read', params: { threadId: 'thr-1' } });
       return setTimeout(() => out({ method: 'turn/completed', params: { threadId: 'thr-1', turn: { id: 'turn-1', status: 'completed' } } }), 100);
@@ -594,6 +602,22 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     const legacy = run();
     await legacy.result;
     expect(legacy.lines().find((l) => 'permissions' in l)).toMatchObject({ capabilities: null, permissions: null, sandbox: 'read-only' });
+  });
+
+  it('falls back to its legacy sandbox, for the rest of the run, when Codex cannot load the profile', async () => {
+    try {
+      const r = run({ FAKE_CODEX_PROFILE_FAILS: '1' }, undefined, ['/home/me/.mozilla']);
+      await expect(r.result).resolves.toMatchObject({ sessionId: 'thr-1' });
+      const starts = r.lines().filter((l) => 'permissions' in l);
+      expect(starts[0]).toMatchObject({ permissions: expect.stringMatching(/^harness-relay-/), sandbox: null });
+      expect(starts[1]).toMatchObject({ permissions: null, sandbox: 'read-only' });
+      // The next run goes to the legacy sandbox at once.
+      const next = run({ FAKE_CODEX_PROFILE_FAILS: '1' }, undefined, ['/home/me/.mozilla']);
+      await next.result;
+      expect(next.lines().filter((l) => 'permissions' in l)).toEqual([expect.objectContaining({ permissions: null, sandbox: 'read-only' })]);
+    } finally {
+      resetCodexProfiles();
+    }
   });
 
   it('fails before the turn when Codex did not apply the permission profile', async () => {

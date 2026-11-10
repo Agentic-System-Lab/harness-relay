@@ -587,7 +587,7 @@ export function codexApprovalResponse(method: string, p: Record<string, any>, al
   }
 }
 
-export const codexRunner: AgentRunner = {
+const codexTurnRunner: AgentRunner = {
   provider: 'codex',
   async run(given): Promise<RunResult> {
     if (given.signal.aborted) throw new AgentRunError(t().stopped, true);
@@ -713,3 +713,38 @@ export const codexRunner: AgentRunner = {
     }
   },
 };
+
+/**
+ * Whether this Codex cannot load a permission profile of Harness Relay's: seen with Codex 0.167 on
+ * Linux (DGX Spark, Ubuntu 24.04), where a turn in any profile but Codex's own fails sending its
+ * request ("failed to load workspace requirements: invalid input parameter"). Then, for the rest of
+ * the server's run, Codex gets its legacy sandbox mode for the permission instead: its writes and
+ * network as before, without the deny list (`docs/sandboxing.md`).
+ */
+let profilesUnavailable = false;
+
+/** The message of a turn whose permission profile Codex could not load. */
+export const CODEX_PROFILE_LOAD_FAILED = /failed to load workspace requirements/i;
+
+export const codexRunner: AgentRunner = {
+  provider: 'codex',
+  async run(o): Promise<RunResult> {
+    const legacy = { ...o, protectedPaths: [] };
+    if (profilesUnavailable) return codexTurnRunner.run(legacy);
+    try {
+      return await codexTurnRunner.run(o);
+    } catch (err) {
+      const profiled = codexProfile(o.permission, o.protectedPaths ?? protectedReads());
+      if (!profiled || !(err instanceof AgentRunError) || err.aborted || !CODEX_PROFILE_LOAD_FAILED.test(err.message)) throw err;
+      profilesUnavailable = true;
+      console.warn(`[codex] it cannot load a permission profile here (${err.message}): using its legacy sandbox, without the deny list`);
+      return codexTurnRunner.run(legacy);
+    }
+  },
+};
+
+/** For tests: forget that profiles were found not to load. */
+export function resetCodexProfiles(): void {
+  profilesUnavailable = false;
+}
+

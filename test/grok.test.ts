@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -12,6 +12,9 @@ import {
   grokHome,
   grokProfileBlock,
   grokPrograms,
+  guardGrokProgram,
+  readGrokProgram,
+  restoreGrokProgram,
   grokSettingWritten,
   guardGrokSettings,
   restoreGrokSettings,
@@ -594,6 +597,67 @@ describe("Harness Relay's own changes to Grok's settings", () => {
       expect(readFileSync(join(home, 'trusted_folders.toml'), 'utf8')).toBe('[old]\n[new]\n');
     } finally {
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Grok's program on Linux", () => {
+  function home() {
+    const h = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-prog-')));
+    mkdirSync(join(h, 'bin'));
+    mkdirSync(join(h, 'downloads'));
+    writeFileSync(join(h, 'downloads/grok-1.0'), 'the real grok', { mode: 0o755 });
+    symlinkSync('../downloads/grok-1.0', join(h, 'bin/grok'));
+    return h;
+  }
+
+  it('is not denied there (Grok starts its sandbox by running it again)', () => {
+    const h = home();
+    try {
+      expect(grokPrograms(h, [join(h, 'bin/grok')], 'linux')).toEqual([]);
+      expect(grokPrograms(h, [join(h, 'bin/grok')], 'darwin')).toContain(join(h, 'downloads'));
+    } finally {
+      rmSync(h, { recursive: true, force: true });
+    }
+  });
+
+  it('is put back from the kept copy when a turn changed the file or the link', () => {
+    const h = home();
+    const keep = join(h, 'keep');
+    try {
+      const trusted = readGrokProgram(h, [join(h, 'bin/grok')], keep);
+      expect(restoreGrokProgram(trusted)).toEqual([]);
+      writeFileSync(join(h, 'downloads/grok-1.0'), 'evil');
+      rmSync(join(h, 'bin/grok'));
+      symlinkSync('/tmp/evil', join(h, 'bin/grok'));
+      expect(restoreGrokProgram(trusted, 7).sort()).toEqual(['bin/grok', 'grok-1.0']);
+      expect(readFileSync(join(h, 'downloads/grok-1.0'), 'utf8')).toBe('the real grok');
+      expect(readFileSync(join(h, 'downloads/grok-1.0.changed-7'), 'utf8')).toBe('evil');
+      expect(readFileSync(join(h, 'bin/grok'), 'utf8')).toBe('the real grok');
+      expect(lstatSync(join(h, 'downloads/grok-1.0')).mode & 0o777).toBe(0o755);
+      // As put back, it is what is trusted now.
+      expect(restoreGrokProgram(trusted)).toEqual([]);
+    } finally {
+      rmSync(h, { recursive: true, force: true });
+    }
+  });
+
+  it('is put back before another turn starts it while turns run, and taken as it is between turns', () => {
+    const h = home();
+    try {
+      const endA = guardGrokProgram(h, [join(h, 'bin/grok')], join(h, 'keep'));
+      writeFileSync(join(h, 'downloads/grok-1.0'), 'evil');
+      const endB = guardGrokProgram(h, [join(h, 'bin/grok')], join(h, 'keep'));
+      expect(readFileSync(join(h, 'downloads/grok-1.0'), 'utf8')).toBe('the real grok');
+      expect(endB()).toEqual(['grok-1.0']);
+      expect(endA()).toEqual([]);
+      // No turn running: an update between turns is the user's.
+      writeFileSync(join(h, 'downloads/grok-1.0'), 'grok 1.1');
+      const endC = guardGrokProgram(h, [join(h, 'bin/grok')], join(h, 'keep'));
+      expect(endC()).toEqual([]);
+      expect(readFileSync(join(h, 'downloads/grok-1.0'), 'utf8')).toBe('grok 1.1');
+    } finally {
+      rmSync(h, { recursive: true, force: true });
     }
   });
 });

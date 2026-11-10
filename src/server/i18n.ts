@@ -74,7 +74,7 @@ const zhTW = {
   protectedPattern: (path: string) =>
     `Harness Relay 無法保護「${path}」：它的名稱含有 *、? 或 [，agent 的沙箱會把它當成樣式。請改名或搬到別處，或改用完全存取。`,
   grokSettingsChanged: (names: string) =>
-    `這一輪中，Grok 自己資料夾裡的設定被改動了（${names}）。agent 執行的指令可能改了它們；Harness Relay 已把設定檔改回原樣（改動後的版本另存在旁邊，名稱結尾為 .changed-…），skills 資料夾則請你自己檢查。用完全存取執行 Grok 之前，請先看過這些改動。`,
+    `這一輪中，Grok 自己資料夾裡的設定或程式被改動了（${names}）。agent 執行的指令可能改了它們；Harness Relay 已把它們改回原樣（改動後的版本另存在旁邊，名稱結尾為 .changed-…），skills 資料夾則請你自己檢查。用完全存取執行 Grok 之前，請先看過這些改動。`,
   claudeReopens: (file: string, entry: string) =>
     `你的 Claude Code 設定（${file}）中的 sandbox.filesystem 讓沙箱可以存取「${entry}」，這會開放 Harness Relay 保護的路徑（瀏覽器的資料夾或它的資料庫）。請移除這一項後再試，或改用完全存取。`,
   cwdIsRelay: (dir: string) =>
@@ -356,7 +356,7 @@ const en: ServerMessages = {
   protectedPattern: (path) =>
     `Harness Relay cannot protect ${path}: its name has *, ? or [, which the agents' sandboxes read as a pattern. Rename or move it, or use full access.`,
   grokSettingsChanged: (names) =>
-    `Grok's own settings changed during this turn (${names}). A command the agent ran may have changed them: Harness Relay put the settings files back (the changed ones are kept beside them, ending in .changed-…); look at the skills folder yourself. Look at these changes before you run Grok with full access.`,
+    `Grok's own settings or program changed during this turn (${names}). A command the agent ran may have changed them: Harness Relay put them back (the changed ones are kept beside them, ending in .changed-…); look at the skills folder yourself. Look at these changes before you run Grok with full access.`,
   claudeReopens: (file, entry) =>
     `sandbox.filesystem in your Claude Code settings (${file}) lets its sandbox reach ${entry}, which opens paths Harness Relay protects (the browsers' folders or its database). Remove it and try again, or use full access.`,
   cwdIsRelay: (dir) =>

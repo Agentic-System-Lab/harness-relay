@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   chmodSync,
   constants,
@@ -19,11 +19,11 @@ import {
   type Stats,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { NativePart, Permission } from '../../shared/types';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
-import { commandPaths, patternPath, protectedReads, realPath } from '../protect';
+import { commandPaths, patternPath, protectedReads, realPath, relayTmpDir } from '../protect';
 import { JsonRpcConnection, RpcError } from './acp';
 import {
   AgentRunError,
@@ -97,14 +97,144 @@ const PROFILE_END = '# <<< harness-relay';
 
 /**
  * Grok's programs in its own folder (`bin`, `downloads`), which its `workspace` sandbox would let its
- * commands write: a changed one would run outside any sandbox the next time Grok starts. Denied to
- * its sandbox (Grok runs from memory once started), with the folder of the program Harness Relay
- * starts (`bins`, from `commandPaths`); those that exist (a sandbox may refuse to start for a path
- * that does not), each also by its real path.
+ * commands write: a changed one would run outside any sandbox the next time Grok starts. On macOS
+ * they are denied to its sandbox (Grok runs from memory once started), with the folder of the program
+ * Harness Relay starts (`bins`, from `commandPaths`); those that exist (a sandbox may refuse to start
+ * for a path that does not), each also by its real path. Not on Linux, where Grok starts its sandbox
+ * by running its program again through bubblewrap, so that a denied program cannot start at all
+ * (seen with grok 1.0.77): there `guardGrokProgram` checks it around each turn instead.
  */
-export function grokPrograms(home: string, bins: readonly string[] = []): string[] {
+export function grokPrograms(home: string, bins: readonly string[] = [], platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === 'linux') return [];
   const paths = [join(home, 'bin'), join(home, 'downloads'), ...bins.map((bin) => dirname(bin))].filter((p) => existsSync(p));
   return [...new Set(paths.flatMap((p) => [p, realPath(p)]))];
+}
+
+/** Grok's program as Harness Relay trusts it: the links in `bin`, and the program file with a copy kept. */
+interface GrokProgram {
+  links: Map<string, string>;
+  file?: { path: string; print: string; mode: number; copy: string };
+}
+
+/** What tells a changed file: its size, times and inode (no need to read 100 MB each turn). */
+function filePrint(st: Stats): string {
+  return `${st.size}:${st.mtimeMs}:${st.ctimeMs}:${st.ino}`;
+}
+
+/**
+ * Reads Grok's program: each link in `<home>/bin`, and the program Harness Relay starts (`bins`)
+ * when it is in Grok's home (the sandbox cannot write elsewhere), copied once into Harness Relay's
+ * own temporary folder (`relayTmpDir`, which no sandbox may reach) to be put back from.
+ */
+export function readGrokProgram(home: string, bins: readonly string[], keep = join(relayTmpDir(), 'grok-programs')): GrokProgram {
+  const links = new Map<string, string>();
+  const binDir = join(home, 'bin');
+  for (const name of existsSync(binDir) ? readdirSync(binDir) : []) {
+    const path = join(binDir, name);
+    if (lstatSync(path).isSymbolicLink()) links.set(path, readlinkSync(path));
+  }
+  const inHome = (p: string) => p === realPath(home) || p.startsWith(`${realPath(home)}/`);
+  const real = bins.map((b) => realPath(b)).find((p) => inHome(p) && existsSync(p) && statSync(p).isFile());
+  if (!real) return { links };
+  const st = statSync(real);
+  const print = filePrint(st);
+  mkdirSync(keep, { recursive: true, mode: 0o700 });
+  const copy = join(keep, createHash('sha256').update(`${real}\0${print}`).digest('hex').slice(0, 24));
+  if (!existsSync(copy)) {
+    const temp = `${copy}.${randomBytes(4).toString('hex')}.tmp`;
+    copyFileSync(real, temp, constants.COPYFILE_EXCL);
+    renameSync(temp, copy);
+  }
+  return { links, file: { path: real, print, mode: st.mode & 0o7777, copy } };
+}
+
+/**
+ * Puts Grok's program back as `trusted` found it: a changed link made again, a changed program file
+ * moved aside (`<name>.changed-<time>`) and copied back from the kept copy. Names what changed.
+ */
+export function restoreGrokProgram(trusted: GrokProgram, now = Date.now()): string[] {
+  const changed: string[] = [];
+  for (const [path, target] of trusted.links) {
+    let same = false;
+    try {
+      same = lstatSync(path).isSymbolicLink() && readlinkSync(path) === target;
+    } catch {
+      same = false;
+    }
+    if (same) continue;
+    changed.push(`bin/${basename(path)}`);
+    try {
+      if (existsSync(path) || isLink(path)) renameSync(path, asideName(path, now));
+      const temp = `${path}.relay-${randomBytes(6).toString('hex')}.tmp`;
+      symlinkSync(target, temp);
+      renameSync(temp, path);
+    } catch (err) {
+      console.error(`[grok] could not put back ${path}:`, (err as Error).message);
+    }
+  }
+  const f = trusted.file;
+  if (f) {
+    let print = '';
+    try {
+      const st = lstatSync(f.path);
+      print = st.isFile() ? filePrint(st) : 'not a file';
+    } catch {
+      print = 'gone';
+    }
+    if (print !== f.print) {
+      changed.push(basename(f.path));
+      try {
+        if (print !== 'gone') renameSync(f.path, asideName(f.path, now));
+        const temp = `${f.path}.relay-${randomBytes(6).toString('hex')}.tmp`;
+        copyFileSync(f.copy, temp, constants.COPYFILE_EXCL);
+        chmodSync(temp, f.mode);
+        renameSync(temp, f.path);
+        // Its times are new now: what is trusted is the file as put back.
+        f.print = filePrint(statSync(f.path));
+      } catch (err) {
+        console.error(`[grok] could not put back ${f.path}:`, (err as Error).message);
+      }
+    }
+  }
+  return changed;
+}
+
+function isLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/** Each Grok home's program as trusted while sandboxed turns of it run (Linux). */
+const programGuards = new Map<string, { trusted: GrokProgram; turns: number }>();
+
+/**
+ * Guards Grok's program around one sandboxed turn on Linux (`grokPrograms` says why it is not
+ * denied there). With no turn of that Grok home running, the program as it is now is trusted (a
+ * change between turns, such as `grok update`, is the user's); while turns run, a changed program is
+ * put back before another turn starts it, and after each turn. Returns what to call once the turn
+ * is over: what was put back.
+ */
+export function guardGrokProgram(home: string, bins: readonly string[], keep?: string): () => string[] {
+  const key = realPath(home);
+  let guard = programGuards.get(key);
+  const found: string[] = guard ? restoreGrokProgram(guard.trusted) : [];
+  if (!guard) {
+    guard = { trusted: readGrokProgram(home, bins, keep), turns: 0 };
+    programGuards.set(key, guard);
+  }
+  const g = guard;
+  g.turns++;
+  let over = false;
+  return () => {
+    if (over) return [];
+    over = true;
+    found.push(...restoreGrokProgram(g.trusted));
+    if (--g.turns === 0) programGuards.delete(key);
+    return [...new Set(found)];
+  };
 }
 
 /**
@@ -710,17 +840,25 @@ export const grokRunner: AgentRunner = {
       const home = grokHome(env);
       // Grok reads its settings after its sandbox is on, so they cannot be denied: they are checked
       // around the turn instead, and put back when a command changed them.
+      const bins = commandPaths(o.bin, env);
       let settle: () => string[];
+      let settleProgram: () => string[] = () => [];
       try {
-        settle = guardGrokSettings(home, () => writeGrokProfile(home, [...deny, ...grokPrograms(home, commandPaths(o.bin, env))]));
+        settle = guardGrokSettings(home, () => writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)]));
       } catch (err) {
+        throw new AgentRunError(t().grokSandbox((err as Error).message));
+      }
+      try {
+        if (process.platform === 'linux') settleProgram = guardGrokProgram(home, bins);
+      } catch (err) {
+        settle(); // the turn does not run: its settings guard ends here
         throw new AgentRunError(t().grokSandbox((err as Error).message));
       }
       let result: RunResult;
       try {
         result = await grokTurn(o, args, sandbox, env);
       } finally {
-        const changed = settle();
+        const changed = [...settle(), ...settleProgram()];
         // Thrown from here, it takes the place of the turn's own result or error.
         // eslint-disable-next-line no-unsafe-finally
         if (changed.length) throw new AgentRunError(t().grokSettingsChanged(changed.join(', ')));
