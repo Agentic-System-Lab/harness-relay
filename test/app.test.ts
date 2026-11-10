@@ -1324,8 +1324,8 @@ describe("Grok's folder trust", () => {
    * A stand-in for `grok inspect --json` that keys trust the way grok 1.0.77 does: on the repository
    * root (reported with a trailing `/`), else on the folder it runs in, links resolved either way.
    * With FAKE_GROK_REFUSE set it reports every folder untrusted, as an organisation policy would.
-   * It looks no higher than the test's folder: a stray \`.git\` above it (Codex's sandbox on Linux
-   * leaves an empty one in /tmp) is no repository of this test's.
+   * It looks no higher than the test's folder: a \`.git\` above it, such as the empty one Codex's
+   * sandbox on Linux leaves in /tmp (which grok itself passes over), is none of this test's.
    */
   const FAKE_GROK = `#!/usr/bin/env node
 const fs = require('node:fs');

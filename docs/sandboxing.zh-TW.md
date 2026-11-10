@@ -22,10 +22,10 @@ Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` �
 | | Mac | DGX Spark |
 | --- | --- | --- |
 | Claude Code | 寫入工作目錄（唯讀模式下允許之後）；家目錄以沙箱外執行的形式詢問，沒有寫入；example.com 會詢問，之後被擋；Firefox 的資料夾與資料庫被拒絕（`Operation not permitted`），它的 Read 工具也被拒絕，含空格的路徑也一樣 | 相同；Chrome 的資料夾顯示為空（bubblewrap 蓋住了它），資料庫被拒絕（`Permission denied`） |
-| Codex | 只在可編輯模式寫入工作目錄；家目錄與 example.com 被拒絕；Firefox 的資料夾與資料庫被拒絕 | 它的設定檔無法載入（見上文）：使用舊的沙箱；只在可編輯模式寫入工作目錄，家目錄與 example.com 被拒絕，但讀得到 Chrome 的資料夾與資料庫 |
-| Grok | 寫入工作目錄；家目錄被拒絕；連得到 example.com（macOS）；Firefox 的資料夾與資料庫被拒絕，它的檔案工具也被拒絕；`~/.grok/downloads` 與 `~/.grok/bin` 被拒絕；在 `~/.grok/config.toml` 後面附加內容被 Grok 拒絕 | 寫入工作目錄；家目錄被拒絕；連得到 example.com；Chrome 的資料夾與資料庫被拒絕（`Permission denied`） |
+| Codex | 只在可編輯模式寫入工作目錄；家目錄與 example.com 被拒絕；Firefox 的資料夾與資料庫被拒絕 | 它的設定檔無法載入（見上文）：使用舊的沙箱；只在可編輯模式寫入工作目錄，家目錄與 example.com 被拒絕，但讀得到 Chrome 的資料夾與資料庫；它在工作目錄與 `/tmp` 留下空的 `.agents`、`.aws`、`.codex` 資料夾，原本沒有 `.git` 的地方也留下空的 `.git`（空的 `.git` 對 git 與 Grok 來說都不是儲存庫） |
+| Grok | 寫入工作目錄；家目錄被拒絕；連得到 example.com（macOS）；Firefox 的資料夾與資料庫被拒絕，它的檔案工具也被拒絕；`~/.grok/downloads` 與 `~/.grok/bin` 被拒絕；在 `~/.grok/config.toml` 後面附加內容被 Grok 拒絕 | 寫入工作目錄；家目錄被拒絕；連得到 example.com；Chrome 的資料夾與資料庫被拒絕（`Permission denied`）；寫得到 `~/.grok/downloads`（在 Linux 上改為每一輪前後檢查它的程式） |
 
-另外在 Mac 上試過：Grok 的指令寫得到 `.git/config`（`git config core.fsmonitor …`），而 Harness Relay 自己的 git 不會執行它；Claude Code 與 Codex 的沙箱擋下 `127.0.0.1`，Grok 的則連得到，而 Harness Relay 的 API 對沒有登入的程式回應 401。沒有試過：原生 Windows、WSL、容器、其他 Linux 發行版、其他版本的 CLI。
+另外試過：Grok 的指令寫得到 `.git/config`（`git config core.fsmonitor …`，兩台都是），而 Harness Relay 自己的 git 不會執行它；在 Mac 上，Claude Code 與 Codex 的沙箱擋下 `127.0.0.1`，Grok 的則連得到，而 Harness Relay 的 API 對沒有登入的程式回應 401。沒有試過：原生 Windows、WSL、容器、其他 Linux 發行版、其他版本的 CLI。
 
 ## 什麼是作業系統沙箱
 
