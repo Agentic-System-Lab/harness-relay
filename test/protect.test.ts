@@ -2,7 +2,19 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { browserDataDirs, protectedReads, relayDatabaseFiles, relayFolderOverlap, relayFolderRefusal, relayTmpDir, RELAY_ROOT } from '../src/server/protect';
+import {
+  agentFolderOverlap,
+  browserDataDirs,
+  commandPaths,
+  overlaps,
+  patternPath,
+  protectedReads,
+  relayDatabaseFiles,
+  relayFolderOverlap,
+  relayFolderRefusal,
+  relayTmpDir,
+  RELAY_ROOT,
+} from '../src/server/protect';
 import { withLang } from '../src/server/i18n';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-protect-')));
@@ -84,5 +96,73 @@ describe("Harness Relay's own folder as a working directory", () => {
     expect(why).toMatch(/holds Harness Relay itself/);
     expect(relayFolderRefusal({ permission: 'read-only', cwd: RELAY_ROOT })).toBeUndefined();
     expect(relayFolderRefusal({ permission: 'full', cwd: RELAY_ROOT })).toBeUndefined();
+  });
+});
+
+describe('what decides how the agents run, as a working directory', () => {
+  const home = join(root, 'me');
+  mkdirSync(join(home, 'projects/app'), { recursive: true });
+  mkdirSync(join(home, '.codex/packages/bin'), { recursive: true });
+  mkdirSync(join(home, '.local/bin'), { recursive: true });
+  const o = { home, env: {}, agentHome: join(home, 'relay-agents'), bins: [join(home, '.local/bin/claude')] };
+
+  it('refuses the home folder and what holds it, but not a project inside it', () => {
+    expect(agentFolderOverlap(home, o)).toBe(home);
+    expect(agentFolderOverlap(root, o)).toBe(home);
+    expect(agentFolderOverlap(join(home, 'projects/app'), o)).toBeUndefined();
+  });
+
+  it("refuses a CLI's own folder, the CLIs' folder Harness Relay gives them and a program's folder, holding them or inside them", () => {
+    expect(agentFolderOverlap(join(home, '.codex'), o)).toBe(join(home, '.codex'));
+    expect(agentFolderOverlap(join(home, '.codex/packages/bin'), o)).toBe(join(home, '.codex'));
+    expect(agentFolderOverlap(join(home, '.local'), o)).toBe(join(home, '.local/bin'));
+    expect(agentFolderOverlap(join(home, 'relay-agents/grok'), o)).toBe(join(home, 'relay-agents'));
+    // A CLI home moved by its variable.
+    expect(agentFolderOverlap(join(root, 'elsewhere'), { ...o, env: { CODEX_HOME: join(root, 'elsewhere/codex') } })).toBe(join(root, 'elsewhere/codex'));
+  });
+
+  it('sees a folder still to be made through the links and letter case on its way', () => {
+    // A link to a CLI's folder, and the folder to be made in it: refused before it exists.
+    symlinkSync(join(home, '.codex'), join(home, 'projects/codex-link'));
+    expect(agentFolderOverlap(join(home, 'projects/codex-link/new/app'), o)).toBe(join(home, '.codex'));
+    expect(relayFolderOverlap(join(root, 'relay-link/new'), { install: join(root, 'relay'), data: join(root, 'relay/data') })).toBeUndefined();
+    mkdirSync(join(root, 'relay/data'), { recursive: true });
+    symlinkSync(join(root, 'relay'), join(root, 'relay-link'));
+    expect(relayFolderOverlap(join(root, 'relay-link/new'), { install: join(root, 'relay'), data: join(root, 'relay/data') })).toBe('install');
+    expect(overlaps(join(root, 'relay-link/data/new'), join(root, 'relay/data'))).toBe(true);
+  });
+
+  it('is refused in edit mode with its own reason', () => {
+    expect(withLang('en', () => relayFolderRefusal({ permission: 'edit', cwd: root }, o))).toMatch(/where files decide how the agents run/);
+    expect(relayFolderRefusal({ permission: 'read-only', cwd: root }, o)).toBeUndefined();
+  });
+});
+
+describe('finding a CLI and naming protected paths', () => {
+  it('finds a command on the PATH, by where it was found and its real path', () => {
+    const bin = join(root, 'bin');
+    const real = join(root, 'versions');
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(real, { recursive: true });
+    writeFileSync(join(real, 'tool-1.0'), '');
+    symlinkSync(join(real, 'tool-1.0'), join(bin, 'tool'));
+    expect(commandPaths('tool', { PATH: `/nowhere:${bin}` })).toEqual([join(bin, 'tool'), join(real, 'tool-1.0')]);
+    expect(commandPaths(join(bin, 'tool'))).toEqual([join(bin, 'tool'), join(real, 'tool-1.0')]);
+    expect(commandPaths('missing-tool', { PATH: bin })).toEqual([]);
+    // On Windows, by its extensions; a folder of that name is not the command.
+    writeFileSync(join(bin, 'win-tool.EXE'), '');
+    mkdirSync(join(bin, 'dir-tool'));
+    expect(commandPaths('win-tool', { PATH: bin, PATHEXT: '.COM;.EXE' }, 'win32')).toEqual([join(bin, 'win-tool.EXE')]);
+    expect(commandPaths('win-tool', { PATH: bin }, 'linux')).toEqual([]);
+    expect(commandPaths('dir-tool', { PATH: bin }, 'linux')).toEqual([]);
+  });
+
+  it('flags a path the sandboxes would read as a pattern, and tells overlapping paths', () => {
+    expect(patternPath(['/a/b', '/home/me [1]/data/relay.db'])).toBe('/home/me [1]/data/relay.db');
+    expect(patternPath(['/a/b*'])).toBe('/a/b*');
+    expect(patternPath(['/a/b', '/c'])).toBeUndefined();
+    expect(overlaps('/a/b', '/a/b/c')).toBe(true);
+    expect(overlaps('/a/b/c', '/a')).toBe(true);
+    expect(overlaps('/a/bc', '/a/b')).toBe(false);
   });
 });

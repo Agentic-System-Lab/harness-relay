@@ -1,8 +1,8 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative } from 'node:path';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { NativeItemsOff, NativePart, Permission, PlanEntry } from '../../shared/types';
 import { converse, runProcess, tail } from '../process';
 import {
@@ -21,7 +21,7 @@ import {
   type RunResult,
 } from './types';
 import { t } from '../i18n';
-import { protectedReads, relayTmpDir } from '../protect';
+import { overlaps, patternPath, protectedReads, relayTmpDir } from '../protect';
 
 /*
  * Claude Code runs as `claude -p` with stream-json in both directions. The prompt goes in as a
@@ -117,7 +117,8 @@ export function claudeSandboxSettings(
       enabled: true,
       failIfUnavailable: true,
       autoAllowBashIfSandboxed: false,
-      ...(denyRead.length ? { filesystem: { denyRead: [...denyRead], denyWrite: [...denyRead] } } : {}),
+      // `disabled: false` here wins over a user's setting that turns file isolation off.
+      filesystem: { disabled: false, ...(denyRead.length ? { denyRead: [...denyRead], denyWrite: [...denyRead] } : {}) },
     },
     permissions: {
       ask: [CLAUDE_UNSANDBOXED_RULE],
@@ -130,6 +131,68 @@ export function claudeSandboxSettings(
 export function claudeDenyReadRules(path: string): string[] {
   const folder = claudeReadRule(path); // Read(//path/**)
   return [folder.replace(/\/\*\*\)$/, ')'), folder];
+}
+
+/** The user's own Claude Code settings file, in its home (`CLAUDE_CONFIG_DIR`, else `~/.claude`). */
+export function claudeUserSettings(env: NodeJS.ProcessEnv): string {
+  return join(env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'settings.json');
+}
+
+/**
+ * The managed settings files an administrator may have put on this computer (`managed-settings.json`
+ * and the files in `managed-settings.d`), whose `allowRead` lists add up with the others too.
+ */
+export function claudeManagedSettings(platform: NodeJS.Platform = process.platform): string[] {
+  const dir = platform === 'darwin' ? '/Library/Application Support/ClaudeCode' : platform === 'win32' ? undefined : '/etc/claude-code';
+  if (!dir) return [];
+  let dropIns: string[] = [];
+  try {
+    dropIns = readdirSync(join(dir, 'managed-settings.d'))
+      .filter((name) => name.endsWith('.json'))
+      .sort()
+      .map((name) => join(dir, 'managed-settings.d', name));
+  } catch {
+    // none
+  }
+  return [join(dir, 'managed-settings.json'), ...dropIns];
+}
+
+/**
+ * An entry of `sandbox.filesystem.allowRead` / `allowWrite` in these settings files that reaches a
+ * protected path (is one, holds one or is inside one), as `[file, entry]`: those lists add up across
+ * settings files, so the turn's `--settings` cannot take an entry out. Patterns are taken by the
+ * folder before their first `*`, `?` or `[`. A relative entry is taken both from the file's folder
+ * (where Claude Code takes it from: `~/.claude` for the user's settings) and from the working
+ * directory. (Claude Code itself drops a project's `allowRead` entries that would open a path the
+ * turn's `--settings` deny.)
+ */
+export function claudeReopening(
+  files: readonly string[],
+  protectedPaths: readonly string[],
+  o: { home?: string; cwd?: string } = {},
+): [string, string] | undefined {
+  const home = o.home ?? homedir();
+  for (const file of files) {
+    let settings: any;
+    try {
+      settings = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    } catch {
+      continue; // none, or not JSON (Claude Code then skips the file too)
+    }
+    const fs = settings?.sandbox?.filesystem ?? {};
+    const entries = [fs.allowRead, fs.allowWrite].flatMap((list) => (Array.isArray(list) ? list : []));
+    for (const entry of entries) {
+      if (typeof entry !== 'string' || !entry.trim()) continue;
+      const bases = entry === '~' || entry.startsWith('~/') ? [home] : [dirname(file), o.cwd ?? home];
+      for (const base of bases) {
+        let path = entry === '~' ? home : entry.startsWith('~/') ? join(home, entry.slice(2)) : resolve(base, entry);
+        const glob = path.search(/[*?[]/);
+        if (glob >= 0) path = dirname(`${path.slice(0, glob)}x`);
+        if (protectedPaths.some((p) => overlaps(p, path))) return [file, entry];
+      }
+    }
+  }
+  return undefined;
 }
 
 /** The `--settings` of one turn: what it leaves out (`claudeNativeSettings`) and the sandbox. */
@@ -834,6 +897,14 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: strin
   const pluginIds = await pluginIdsForRun(o);
   const nativeItems = claudeItemsBesideLibrary(o.nativeItems ?? {}, o.mcpServers ?? []);
   const protectedPaths = o.protectedPaths ?? protectedReads();
+  if (claudeSandboxSettings(o.permission)) {
+    // Paths a sandbox would read as patterns, and the user's own settings opening them again, would
+    // leave them unprotected: the run does not start.
+    const pattern = patternPath(protectedPaths);
+    if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
+    const reopened = claudeReopening([claudeUserSettings(o.env), ...claudeManagedSettings()], protectedPaths, { cwd: o.cwd });
+    if (reopened) throw new AgentRunError(t().claudeReopens(...reopened));
+  }
   const settings = claudeSettingsFile(claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths));
   try {
     return await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file, protectedPaths });

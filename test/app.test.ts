@@ -104,6 +104,19 @@ describe("Harness Relay's own folder as a working directory", () => {
     const change = await app.request(`/api/conversations/${reader.id}`, json('PATCH', { settings: { ...reader.settings, permission: 'edit' } }));
     expect(change.status).toBe(400);
     expect((await createConversation({ permission: 'full', cwd: RELAY_ROOT })).settings.permission).toBe('full');
+    // A folder it would have to create there is refused before it is made.
+    const missing = join(RELAY_ROOT, `relay-refused-${Date.now()}`);
+    const made = await app.request('/api/conversations', json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: missing }, createCwd: true }));
+    expect(made.status).toBe(400);
+    expect(existsSync(missing)).toBe(false);
+  });
+
+  it('is refused for the home folder in edit mode, where its settings decide how the agents run', async () => {
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const res = await app.request('/api/conversations', json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: homedir() } }, { 'x-relay-lang': 'en' }));
+    expect(res.status).toBe(400);
+    // (Harness Relay may be inside it too, which is then the reason given.)
+    expect(await res.json()).toMatchObject({ code: 'relay-folder', error: expect.stringContaining(homedir()) });
   });
 });
 

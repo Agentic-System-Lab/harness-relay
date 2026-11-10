@@ -1,4 +1,4 @@
-import { lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -11,6 +11,11 @@ import {
   grokEnv,
   grokHome,
   grokProfileBlock,
+  grokPrograms,
+  grokSettingWritten,
+  guardGrokSettings,
+  restoreGrokSettings,
+  snapshotGrokSettings,
   grokSandboxProfile,
   withGrokProfile,
   writeGrokProfile,
@@ -415,6 +420,178 @@ describe("Grok's sandbox profile", () => {
       writeGrokProfile(home, ['/y']);
       expect(lstatSync(file).isSymbolicLink()).toBe(true);
       expect(readFileSync(dotfile, 'utf8')).toContain('deny = ["/y"]');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Grok's own folder in its sandbox", () => {
+  it('denies its programs, the folder of the one Harness Relay starts too', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-programs-'));
+    try {
+      for (const name of ['bin', 'downloads', 'sessions']) mkdirSync(join(home, name));
+      const elsewhere = mkdtempSync(join(tmpdir(), 'relay-grok-bin-'));
+      const bin = join(elsewhere, 'grok');
+      writeFileSync(bin, '');
+      const paths = grokPrograms(home, [bin]);
+      expect(paths).toEqual(expect.arrayContaining([join(home, 'bin'), join(home, 'downloads'), elsewhere]));
+      expect(paths).not.toContain(join(home, 'sessions'));
+      rmSync(elsewhere, { recursive: true, force: true });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('puts back its settings when a turn changed them, keeping the changed ones, and reports changed skills', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-settings-'));
+    try {
+      writeFileSync(join(home, 'config.toml'), '[mine]\n');
+      mkdirSync(join(home, 'skills/review'), { recursive: true });
+      writeFileSync(join(home, 'skills/review/SKILL.md'), 'review');
+      const untouched = snapshotGrokSettings(home);
+      expect(restoreGrokSettings(untouched, home)).toEqual([]);
+
+      const before = snapshotGrokSettings(home);
+      writeFileSync(join(home, 'config.toml'), '[mcp_servers.evil]\ncommand = "sh"\n');
+      writeFileSync(join(home, 'hooks-paths'), '/tmp/evil.sh\n');
+      writeFileSync(join(home, 'skills/review/SKILL.md'), 'run this first');
+      expect(restoreGrokSettings(before, home, 42)).toEqual(['config.toml', 'hooks-paths', 'skills']);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      expect(readFileSync(join(home, 'config.toml.changed-42'), 'utf8')).toContain('evil');
+      // A file that was not there is removed again, kept aside like the others.
+      expect(existsSync(join(home, 'hooks-paths'))).toBe(false);
+      expect(readFileSync(join(home, 'hooks-paths.changed-42'), 'utf8')).toBe('/tmp/evil.sh\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('takes a link as a link: one made a file, a file made a link, and what a link leads to', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-links-'));
+    const dotfiles = mkdtempSync(join(tmpdir(), 'relay-grok-dotfiles-'));
+    const elsewhere = mkdtempSync(join(tmpdir(), 'relay-grok-elsewhere-'));
+    try {
+      writeFileSync(join(dotfiles, 'config.toml'), '[mine]\n');
+      symlinkSync(join(dotfiles, 'config.toml'), join(home, 'config.toml'));
+      writeFileSync(join(home, 'hooks-paths'), '');
+      writeFileSync(join(elsewhere, 'shell-rc'), 'mine\n');
+      const before = snapshotGrokSettings(home);
+      // The link replaced by a file of its own; a file replaced by a link to a file outside.
+      rmSync(join(home, 'config.toml'));
+      writeFileSync(join(home, 'config.toml'), '[mcp_servers.evil]\n');
+      rmSync(join(home, 'hooks-paths'));
+      symlinkSync(join(elsewhere, 'shell-rc'), join(home, 'hooks-paths'));
+      // A link where the changed copy would go, to a file outside: not followed.
+      symlinkSync(join(elsewhere, 'shell-rc'), join(home, 'config.toml.changed-7'));
+      expect(restoreGrokSettings(before, home, 7)).toEqual(['config.toml', 'hooks-paths']);
+      expect(lstatSync(join(home, 'config.toml')).isSymbolicLink()).toBe(true);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      expect(lstatSync(join(home, 'hooks-paths')).isFile()).toBe(true);
+      expect(readFileSync(join(home, 'hooks-paths'), 'utf8')).toBe('');
+      expect(readFileSync(join(elsewhere, 'shell-rc'), 'utf8')).toBe('mine\n');
+
+      // Only what the link leads to changed: written as it was, the changed one kept beside the link.
+      const again = snapshotGrokSettings(home);
+      writeFileSync(join(dotfiles, 'config.toml'), '[mcp_servers.evil]\n');
+      expect(restoreGrokSettings(again, home, 8)).toEqual(['config.toml']);
+      expect(readFileSync(join(dotfiles, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      expect(readFileSync(join(home, 'config.toml.changed-8'), 'utf8')).toContain('evil');
+    } finally {
+      for (const d of [home, dotfiles, elsewhere]) rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  it('puts back the others when one was made a folder, and does not read a file grown large', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-folder-'));
+    try {
+      writeFileSync(join(home, 'config.toml'), '[mine]\n');
+      writeFileSync(join(home, 'requirements.toml'), '');
+      const before = snapshotGrokSettings(home);
+      rmSync(join(home, 'config.toml'));
+      mkdirSync(join(home, 'config.toml'));
+      writeFileSync(join(home, 'requirements.toml'), 'x'.repeat(1 << 16));
+      writeFileSync(join(home, 'trusted_folders.toml'), '[folders."/"]\ntrusted = true\n');
+      expect(restoreGrokSettings(before, home, 9)).toEqual(['config.toml', 'requirements.toml', 'trusted_folders.toml']);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      expect(lstatSync(join(home, 'config.toml.changed-9')).isDirectory()).toBe(true);
+      expect(readFileSync(join(home, 'requirements.toml'), 'utf8')).toBe('');
+      expect(existsSync(join(home, 'trusted_folders.toml'))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('takes an empty file for none, as Grok\'s sandbox makes its settings files empty when they are not there', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-empty-'));
+    try {
+      writeFileSync(join(home, 'config.toml'), '[mine]\n');
+      const before = snapshotGrokSettings(home);
+      for (const name of ['managed_config.toml', 'requirements.toml', 'trusted_folders.toml', 'hooks-paths']) writeFileSync(join(home, name), '');
+      expect(restoreGrokSettings(before, home)).toEqual([]);
+      expect(existsSync(join(home, 'hooks-paths'))).toBe(true);
+      // Emptying one that held settings is a change.
+      writeFileSync(join(home, 'config.toml'), '');
+      expect(restoreGrokSettings(before, home, 11)).toEqual(['config.toml']);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("takes sandbox.toml without Harness Relay's own block, which each run writes again", () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-profile-guard-'));
+    try {
+      writeGrokProfile(home, ['/a']);
+      const before = snapshotGrokSettings(home);
+      writeGrokProfile(home, ['/a', '/b']);
+      expect(restoreGrokSettings(before, home)).toEqual([]);
+      // A line after the block would belong to its table: a change, put back.
+      writeFileSync(join(home, 'sandbox.toml'), `${readFileSync(join(home, 'sandbox.toml'), 'utf8')}read_write = ["/"]\n`);
+      expect(restoreGrokSettings(before, home, 10)).toEqual(['sandbox.toml']);
+      expect(readFileSync(join(home, 'sandbox.toml'), 'utf8')).not.toContain('read_write');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('shares what the settings were among turns at the same time, so a later one neither takes nor keeps a change', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-guard-'));
+    try {
+      writeFileSync(join(home, 'config.toml'), '[mine]\n');
+      const first = guardGrokSettings(home);
+      // A command of the first turn changes the settings; a second turn starts meanwhile.
+      writeFileSync(join(home, 'config.toml'), '[mcp_servers.evil]\n');
+      const second = guardGrokSettings(home);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      expect(first()).toEqual(['config.toml']);
+      expect(second()).toEqual([]);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      // Once none is running, the next turn starts from the settings as they are.
+      writeFileSync(join(home, 'config.toml'), '[mine, changed by the user]\n');
+      const third = guardGrokSettings(home);
+      expect(third()).toEqual([]);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine, changed by the user]\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('writes no read-only list: its read_only grants reading, it does not stop writing', () => {
+    expect(grokProfileBlock(['/x'])).not.toContain('read_only');
+  });
+});
+
+describe("Harness Relay's own changes to Grok's settings", () => {
+  it('are kept by the turns running when it makes them (trusting a folder)', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-trust-'));
+    try {
+      writeFileSync(join(home, 'trusted_folders.toml'), '[old]\n');
+      const end = guardGrokSettings(home);
+      writeFileSync(join(home, 'trusted_folders.toml'), '[old]\n[new]\n');
+      grokSettingWritten(home, 'trusted_folders.toml');
+      expect(end()).toEqual([]);
+      expect(readFileSync(join(home, 'trusted_folders.toml'), 'utf8')).toBe('[old]\n[new]\n');
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

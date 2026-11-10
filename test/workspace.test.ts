@@ -14,7 +14,9 @@ import {
   excludePathspecs,
   keepCommits,
   removeWorktree,
+  repoDriverGuards,
   snapshot,
+  unignoredFiles,
   worktreeCwd,
 } from '../src/server/workspace';
 
@@ -221,5 +223,43 @@ describe('keepCommits', () => {
     git(repo, 'reflog', 'expire', '--expire=now', '--all');
     git(repo, 'gc', '-q', '--prune=now');
     expect(() => git(repo, 'cat-file', '-t', snap)).toThrow();
+  });
+});
+
+describe("a repository's own config that would run commands", () => {
+  it("runs none of them in Harness Relay's git commands: fsmonitor, filters, textconv, also through an include", async () => {
+    await ensureRepo(repo);
+    const ran = join(dir, 'ran.txt');
+    const sh = (what: string) => `sh -c 'echo ${what} >> "${ran}"; cat'`;
+    git(repo, 'config', 'core.fsmonitor', `sh -c 'echo fsmonitor >> "${ran}"'`);
+    git(repo, 'config', 'filter.evil.clean', sh('clean'));
+    git(repo, 'config', 'filter.evil.smudge', sh('smudge'));
+    git(repo, 'config', 'diff.evil.textconv', `sh -c 'echo textconv >> "${ran}"; cat "$0"'`);
+    git(repo, 'config', 'include.path', 'extra.cfg');
+    writeFileSync(join(repo, '.git', 'extra.cfg'), `[filter "inc"]\n\tclean = ${sh('included')}\n`);
+    writeFileSync(join(repo, '.gitattributes'), '*.md filter=evil diff=evil\n*.ts filter=inc\n');
+    // A name with a space or a dot is still one driver.
+    git(repo, 'config', 'filter.a b.c.clean', sh('spaced'));
+
+    const guards = await repoDriverGuards(repo, process.env);
+    expect(guards).toEqual(expect.arrayContaining(['-c', 'filter.evil.clean=', '-c', 'diff.evil.textconv=', '-c', 'filter.inc.clean=', '-c', 'filter.a b.c.clean=']));
+
+    const first = await snapshot(repo);
+    writeFileSync(join(repo, 'README.md'), 'changed\n');
+    const second = await snapshot(repo);
+    await diffFiles(repo, first.commit, second.commit);
+    await diffText(repo, first.commit, second.commit);
+    await unignoredFiles(repo);
+    await createWorktree(repo, join(dir, 'wt'), 'relay/test', second.commit);
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  it("leaves the user's own drivers (git-lfs, say) alone", async () => {
+    await ensureRepo(repo);
+    const home = join(dir, 'home');
+    mkdirSync(home);
+    writeFileSync(join(home, '.gitconfig'), '[filter "lfs"]\n\tclean = git-lfs clean -- %f\n');
+    const guards = await repoDriverGuards(repo, { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config') });
+    expect(guards.join(' ')).not.toContain('lfs');
   });
 });

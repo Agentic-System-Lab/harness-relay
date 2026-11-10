@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +21,8 @@ import {
   claudeAllowedInput,
   claudeAllowedTools,
   claudeOutsideSandbox,
+  claudeManagedSettings,
+  claudeReopening,
   claudeApprovalRequest,
   claudeArgs,
   claudeMcpConfig,
@@ -582,7 +584,8 @@ describe('claude and the tool library', () => {
 
 describe("Claude Code's sandbox below full access", () => {
   const sandbox = {
-    sandbox: { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: false },
+    // `disabled: false` wins over a user's setting that turns file isolation off.
+    sandbox: { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: false, filesystem: { disabled: false } },
     permissions: { ask: ['Bash(dangerouslyDisableSandbox:true)'] },
   };
 
@@ -689,7 +692,10 @@ describe("Claude Code's sandbox below full access", () => {
       const r = run('edit', {}, ['/home/me/.mozilla', '/srv/relay/data/relay.db']);
       await r.result;
       expect(r.start()!.settings).toEqual({
-        sandbox: { ...sandbox.sandbox, filesystem: { denyRead: ['/home/me/.mozilla', '/srv/relay/data/relay.db'], denyWrite: ['/home/me/.mozilla', '/srv/relay/data/relay.db'] } },
+        sandbox: {
+          ...sandbox.sandbox,
+          filesystem: { disabled: false, denyRead: ['/home/me/.mozilla', '/srv/relay/data/relay.db'], denyWrite: ['/home/me/.mozilla', '/srv/relay/data/relay.db'] },
+        },
         permissions: {
           deny: ['Read(//home/me/.mozilla)', 'Read(//home/me/.mozilla/**)', 'Read(//srv/relay/data/relay.db)', 'Read(//srv/relay/data/relay.db/**)'],
           ask: sandbox.permissions.ask,
@@ -697,9 +703,63 @@ describe("Claude Code's sandbox below full access", () => {
       });
     });
 
+    it('does not start when a protected path would be read as a pattern, or the user\'s settings open one again', async () => {
+      const pattern = withLang('en', () => run('edit', {}, ['/home/me [1]/data/relay.db']));
+      await expect(pattern.result).rejects.toThrow(/cannot protect \/home\/me \[1\]\/data\/relay\.db/);
+      const home = join(dir, 'claude-home');
+      mkdirSync(home, { recursive: true });
+      writeFileSync(join(home, 'settings.json'), JSON.stringify({ sandbox: { filesystem: { allowRead: ['/srv/relay/data'] } } }));
+      const reopened = withLang('en', () => run('edit', { CLAUDE_CONFIG_DIR: home }, ['/srv/relay/data/relay.db']));
+      await expect(reopened.result).rejects.toThrow(/settings\.json.*\/srv\/relay\/data.*Remove it/s);
+      // Full access has no sandbox to keep them from.
+      await expect(run('full', { CLAUDE_CONFIG_DIR: home }, ['/srv/relay/data/relay.db']).result).resolves.toBeTruthy();
+    });
+
     it('says how to fix it when the sandbox cannot run, instead of running without it', async () => {
       const r = withLang('en', () => run('edit', { FAKE_CLAUDE_NO_SANDBOX: '1' }));
       await expect(r.result).rejects.toThrow(/could not start its sandbox.*bubblewrap \(bwrap\) is not installed.*install bubblewrap and socat/s);
     });
+  });
+});
+
+describe("the user's own Claude Code settings", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-reopen-')));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const settings = (filesystem: unknown) => {
+    const file = join(dir, `settings-${Math.random().toString(36).slice(2)}.json`);
+    writeFileSync(file, JSON.stringify({ sandbox: { filesystem } }));
+    return file;
+  };
+  const guarded = ['/home/me/.mozilla', '/srv/relay/data/relay.db'];
+
+  it('are caught when an allowed path reaches a protected one: it, a folder holding it, inside it, or a pattern', () => {
+    const holding = settings({ allowRead: ['/srv/relay'] });
+    expect(claudeReopening([holding], guarded)).toEqual([holding, '/srv/relay']);
+    const inside = settings({ allowWrite: ['~/.mozilla/profiles'] });
+    expect(claudeReopening([inside], guarded, { home: '/home/me' })).toEqual([inside, '~/.mozilla/profiles']);
+    const pattern = settings({ allowRead: ['/home/me/**'] });
+    expect(claudeReopening([pattern], guarded)).toEqual([pattern, '/home/me/**']);
+    const relative = settings({ allowRead: ['../data'] });
+    expect(claudeReopening([relative], guarded, { cwd: '/srv/relay/app' })).toEqual([relative, '../data']);
+    // Claude Code takes a relative entry from the settings file's folder (~/.claude for the user's).
+    const config = join(dir, 'me/.claude');
+    mkdirSync(config, { recursive: true });
+    const fromConfig = join(config, 'settings.json');
+    writeFileSync(fromConfig, '\uFEFF' + JSON.stringify({ sandbox: { filesystem: { allowRead: ['../.mozilla'] } } }));
+    expect(claudeReopening([fromConfig], [join(dir, 'me/.mozilla')], { cwd: '/srv/elsewhere' })).toEqual([fromConfig, '../.mozilla']);
+  });
+
+  it("include an administrator's managed settings", () => {
+    expect(claudeManagedSettings('darwin')[0]).toBe('/Library/Application Support/ClaudeCode/managed-settings.json');
+    expect(claudeManagedSettings('linux')[0]).toBe('/etc/claude-code/managed-settings.json');
+    expect(claudeManagedSettings('win32')).toEqual([]);
+  });
+
+  it('pass when they reach nothing protected, or are missing or unreadable', () => {
+    expect(claudeReopening([settings({ allowRead: ['/opt/cache'], allowWrite: ['/tmp/build'] })], guarded)).toBeUndefined();
+    expect(claudeReopening([join(dir, 'missing.json')], guarded)).toBeUndefined();
+    const broken = join(dir, 'broken.json');
+    writeFileSync(broken, '{ not json');
+    expect(claudeReopening([broken], guarded)).toBeUndefined();
   });
 });

@@ -9,7 +9,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
-import { relayFolderRefusal } from './protect';
+import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
   FILE_LIMITS,
   GROUP_LIMITS,
@@ -265,11 +265,21 @@ export function createApp({
     return c.json({ ok: true });
   });
 
-  /** Edit mode in a working directory that holds Harness Relay itself is refused (`relayFolderRefusal`). */
+  /**
+   * Edit mode in a working directory that holds Harness Relay itself, or what decides how the agents
+   * run (the home folder, a CLI's own folder or program), is refused (`relayFolderRefusal`).
+   */
   function refuseRelayFolder(s: { permission: string; cwd: string }): void {
-    const why = relayFolderRefusal(s);
+    const why = relayFolderRefusal(s, agentFolderOptions(settings));
     if (why) throw new HttpError(400, why, RELAY_FOLDER);
   }
+
+  /** The same for settings as sent, before `validateSettings` may create their working directory. */
+  function refuseRelayFolderFirst(raw: unknown, defaultCwd: string): void {
+    const s = (raw ?? {}) as { permission?: unknown; cwd?: unknown };
+    refuseRelayFolder({ permission: String(s.permission ?? ''), cwd: expandPath(String(s.cwd || defaultCwd)) });
+  }
+
 
   /** The request's JSON body, which must be an object. */
   async function body<T>(c: Context): Promise<T> {
@@ -592,8 +602,8 @@ export function createApp({
     // Auto team: the lead agent designs the team for each question, starting with the first.
     // The agents first: creating a missing working directory is a side effect.
     const agents = b.settings?.autoTeam === true ? [] : validateAgents(b.agents);
+    refuseRelayFolderFirst(b.settings, settings.defaultCwd);
     const s = validateSettings(b.settings, settings.defaultCwd, b.createCwd === true);
-    refuseRelayFolder(s);
     const conv: Conversation = {
       id: randomUUID(),
       title: String(b.title ?? '').trim() || t().defaultTitle,
@@ -617,8 +627,8 @@ export function createApp({
     const now = Date.now();
     // The schedule first: creating a missing working directory is a side effect.
     const update = validateSchedule(b.schedule, now);
+    refuseRelayFolderFirst(b.settings, settings.defaultCwd);
     const s = validateSettings({ ...(b.settings ?? {}), autoTeam: true }, settings.defaultCwd, b.createCwd === true);
-    refuseRelayFolder(s);
     const conv: Conversation = {
       id: randomUUID(),
       title: String(b.title ?? '').trim().slice(0, 200) || titleFrom(update.text) || t().defaultTitle,
@@ -668,6 +678,7 @@ export function createApp({
     const res = await orchestrator.exclusive(conv.id, t().busySettings, async () => {
       const agents = b.agents ? validateAgents(b.agents) : conv.agents;
       // After the agents: creating a missing working directory is a side effect.
+      if (b.settings) refuseRelayFolderFirst(b.settings, conv.settings.cwd);
       const next = b.settings ? validateSettings(b.settings, conv.settings.cwd, b.createCwd === true) : { ...conv.settings };
       refuseRelayFolder(next);
       // Edits never switch auto team on or off; a team set by hand replaces the lead agent's pending

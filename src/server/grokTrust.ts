@@ -1,6 +1,8 @@
+import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { grokSettingWritten } from './agents/grok';
 import { t } from './i18n';
 
 /*
@@ -44,11 +46,15 @@ export function withTrustedFolder(existing: string, folder: string, decidedAt: n
 
 const storeFile = (env: NodeJS.ProcessEnv) => join(grokHome(env), 'trusted_folders.toml');
 
-/** Writes the trust store whole, owner-only, like Grok keeps it. */
+/**
+ * Writes the trust store whole, owner-only, like Grok keeps it. The file beside it has a name no one
+ * can guess and must be new (`wx`): a sandboxed command can write in Grok's home, and a link left
+ * there under a known name would have the store written wherever it leads.
+ */
 function writeStore(file: string, text: string): void {
   mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.relay-${process.pid}`;
-  writeFileSync(tmp, text, { mode: 0o600 });
+  const tmp = `${file}.relay-${process.pid}-${randomBytes(6).toString('hex')}`;
+  writeFileSync(tmp, text, { mode: 0o600, flag: 'wx' });
   chmodSync(tmp, 0o600);
   renameSync(tmp, file);
 }
@@ -62,6 +68,8 @@ export function trustGrokFolder(folder: string, env: NodeJS.ProcessEnv, now = Da
   try {
     const existing = existsSync(file) ? readFileSync(file, 'utf8') : null;
     writeStore(file, withTrustedFolder(existing ?? '', folder, Math.floor(now / 1000)));
+    // Grok turns running now check its settings when they end: this change is Harness Relay's own.
+    grokSettingWritten(grokHome(env), 'trusted_folders.toml');
     return existing;
   } catch (err) {
     throw new Error(t().grokTrustFailed((err as Error).message));
@@ -73,4 +81,5 @@ export function restoreGrokTrust(previous: string | null, env: NodeJS.ProcessEnv
   const file = storeFile(env);
   if (previous === null) rmSync(file, { force: true });
   else writeStore(file, previous);
+  grokSettingWritten(grokHome(env), 'trusted_folders.toml');
 }

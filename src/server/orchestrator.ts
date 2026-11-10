@@ -85,7 +85,7 @@ import {
 } from './workspace';
 import { isBranchTitle, isDefaultTitle, t } from './i18n';
 import { sameFolder, validateAgents } from './validate';
-import { relayFolderRefusal } from './protect';
+import { agentFolderOptions, relayFolderRefusal } from './protect';
 import { scheduleTime } from './scheduler';
 
 export { HttpError };
@@ -1865,7 +1865,7 @@ export class Orchestrator {
     let setupError: unknown;
     try {
       // Settings from before the check (or changed since): edit mode in Harness Relay's own folder.
-      const refusal = relayFolderRefusal(conv.settings);
+      const refusal = relayFolderRefusal(conv.settings, agentFolderOptions(this.settings));
       if (refusal) throw new AgentRunError(refusal);
       if (wt) {
         cwd = worktreeCwd(wt.root, conv.settings.cwd, wt.path);

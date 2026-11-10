@@ -14,7 +14,53 @@ import { t } from './i18n';
  * - per-agent worktrees for parallel mode, and applying an agent's result back.
  */
 
-const CONFIG = ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.quotepath=false'];
+const CONFIG = ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false'];
+
+/** The keys of a repository's config that name a driver which runs a command (git then runs none when it is empty). */
+const DRIVER_KEYS: Record<string, string[]> = {
+  filter: ['clean', 'smudge', 'process'],
+  diff: ['textconv', 'command'],
+  merge: ['driver'],
+};
+
+/**
+ * `-c` settings that keep a repository's own config from making Harness Relay's git commands, which
+ * run outside any sandbox, run a command. An agent's sandbox may let it write the repository's
+ * `.git/config` (Grok's does): there, or in what it includes or its `config.worktree`, it could set
+ * a filter, diff or merge driver that `git add`, a checkout or a diff would run. Each driver the
+ * repository's own settings name is emptied (its `fsmonitor` is off in `CONFIG`, its hooks too); the
+ * user's own and the system's (git-lfs, say) are left as they are. A driver name git's `-c` cannot
+ * carry (with `=`) refuses the command.
+ */
+export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv): Promise<string[]> {
+  const r = await capture('git', ['config', '-z', '--includes', '--show-scope', '--get-regexp', '^(filter|diff|merge)\\.'], env, {
+    cwd,
+    timeoutMs: 30_000,
+  });
+  // 1: none found. Anything else (a git too old for --show-scope, a config it cannot read): refuse,
+  // rather than run the command without knowing what the repository would have it run.
+  if (r.code !== 0 && r.code !== 1) throw new GitError(t().gitFailed('config', tail(r.stderr || r.stdout, 500)));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  // `-z` with `--show-scope`: `<scope>\0<key>\n<value>\0` for each.
+  const fields = r.stdout.split('\0');
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const scope = fields[i]!;
+    const entry = fields[i + 1]!;
+    if (scope !== 'local' && scope !== 'worktree') continue;
+    const nl = entry.indexOf('\n');
+    const key = nl < 0 ? entry : entry.slice(0, nl);
+    const section = key.slice(0, key.indexOf('.')).toLowerCase();
+    const name = key.slice(key.indexOf('.') + 1, key.lastIndexOf('.'));
+    const vars = DRIVER_KEYS[section];
+    if (!vars || key.indexOf('.') === key.lastIndexOf('.') || seen.has(`${section}.${name}`)) continue;
+    if (name.includes('=') || name.includes('\n')) throw new GitError(t().gitFailed('config', `unsafe ${section} name "${name}"`));
+    seen.add(`${section}.${name}`);
+    for (const v of vars) out.push('-c', `${section}.${name}.${v}=`);
+    if (section === 'filter') out.push('-c', `filter.${name}.required=false`);
+  }
+  return out;
+}
 const IDENTITY: NodeJS.ProcessEnv = {
   GIT_AUTHOR_NAME: 'Harness Relay',
   GIT_AUTHOR_EMAIL: 'harness-relay@localhost',
@@ -49,7 +95,11 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
   delete env.GIT_DIR; // never inherit a repository from the server's own environment
   delete env.GIT_WORK_TREE;
   if (!o.env?.GIT_INDEX_FILE) delete env.GIT_INDEX_FILE;
-  const r = await capture('git', [...CONFIG, ...args], env, {
+  // What the repository's own config would have git run is off (`repoDriverGuards`); a diff runs
+  // no external diff or textconv either.
+  const guards = existsSync(cwd) ? await repoDriverGuards(cwd, env) : [];
+  const safe = args[0] === 'diff' ? ['diff', '--no-ext-diff', '--no-textconv', ...args.slice(1)] : args;
+  const r = await capture('git', [...CONFIG, ...guards, ...safe], env, {
     cwd,
     stdin: o.stdin,
     timeoutMs: 120_000,

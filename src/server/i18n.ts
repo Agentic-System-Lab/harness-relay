@@ -69,6 +69,14 @@ const zhTW = {
   signInWrongCode: '代碼錯誤或已過期。',
   signInTooMany: '錯誤的代碼太多次了，請等一分鐘再試。',
   signInNoSession: '找不到這個已登入的瀏覽器。',
+  cwdHoldsAgents: (dir: string, folder: string) =>
+    `工作目錄「${dir}」包含或位於「${folder}」，那裡的檔案決定 agent 怎麼執行（家目錄裡的設定、CLI 自己的資料夾或它的程式）。可編輯模式下，agent 不經詢問就能修改這些檔案，也就能繞過它們的沙箱。請改用專案的資料夾，或唯讀模式。`,
+  protectedPattern: (path: string) =>
+    `Harness Relay 無法保護「${path}」：它的名稱含有 *、? 或 [，agent 的沙箱會把它當成樣式。請改名或搬到別處，或改用完全存取。`,
+  grokSettingsChanged: (names: string) =>
+    `這一輪中，Grok 自己資料夾裡的設定被改動了（${names}）。agent 執行的指令可能改了它們；Harness Relay 已把設定檔改回原樣（改動後的版本另存在旁邊，名稱結尾為 .changed-…），skills 資料夾則請你自己檢查。用完全存取執行 Grok 之前，請先看過這些改動。`,
+  claudeReopens: (file: string, entry: string) =>
+    `你的 Claude Code 設定（${file}）中的 sandbox.filesystem 讓沙箱可以存取「${entry}」，這會開放 Harness Relay 保護的路徑（瀏覽器的資料夾或它的資料庫）。請移除這一項後再試，或改用完全存取。`,
   cwdIsRelay: (dir: string) =>
     `工作目錄「${dir}」包含 Harness Relay 本身（它的程式或資料）。可編輯模式下，agent 不經詢問就能修改這裡的檔案，也就能改動 Harness Relay 的程式碼或資料庫，繞過它的沙箱與登入。請改用其他資料夾或唯讀模式；要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。`,
   // Sharing a conversation (a gist through the GitHub CLI)
@@ -343,6 +351,14 @@ const en: ServerMessages = {
   signInWrongCode: 'That code is wrong or has expired.',
   signInTooMany: 'Too many wrong codes. Wait a minute and try again.',
   signInNoSession: 'No such signed-in browser.',
+  cwdHoldsAgents: (dir, folder) =>
+    `The working directory ${dir} holds or is inside ${folder}, where files decide how the agents run (the settings in your home folder, a CLI's own folder or its program). In edit mode agents change files there without asking, so they could get around their sandbox. Choose your project's folder instead, or read-only.`,
+  protectedPattern: (path) =>
+    `Harness Relay cannot protect ${path}: its name has *, ? or [, which the agents' sandboxes read as a pattern. Rename or move it, or use full access.`,
+  grokSettingsChanged: (names) =>
+    `Grok's own settings changed during this turn (${names}). A command the agent ran may have changed them: Harness Relay put the settings files back (the changed ones are kept beside them, ending in .changed-…); look at the skills folder yourself. Look at these changes before you run Grok with full access.`,
+  claudeReopens: (file, entry) =>
+    `sandbox.filesystem in your Claude Code settings (${file}) lets its sandbox reach ${entry}, which opens paths Harness Relay protects (the browsers' folders or its database). Remove it and try again, or use full access.`,
   cwdIsRelay: (dir) =>
     `The working directory ${dir} holds Harness Relay itself (its code or its data). In edit mode agents change files there without asking, so they could change Harness Relay's code or database and get around its sandbox and sign-in. Choose another folder, or read-only; to work on Harness Relay itself, run the copy you use from another folder.`,
   shareEmpty: 'Nothing to share',

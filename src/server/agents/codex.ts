@@ -4,7 +4,7 @@ import type { NativeItemsOff, NativePart, Permission, PlanEntry } from '../../sh
 import { unwrapShell } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
-import { protectedReads } from '../protect';
+import { patternPath, protectedReads } from '../protect';
 import { JsonRpcConnection, RpcError } from './acp';
 import {
   AgentRunError,
@@ -594,6 +594,9 @@ export const codexRunner: AgentRunner = {
     const o = { ...given, protectedPaths: given.protectedPaths ?? protectedReads() };
     // A permission profile is an experimental thread field, which the client opts into.
     const profile = codexProfile(o.permission, o.protectedPaths);
+    // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
+    const pattern = profile ? patternPath(o.protectedPaths) : undefined;
+    if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
     // Also for the whole app-server, as asking Codex what a run loads does (the thread gets them too):
     // none of these carries a secret, unlike the MCP servers, which only go in the thread's config.
     const args = ['app-server', '-c', 'model_reasoning_summary="auto"', ...codexOverrideArgs(codexNativeConfig(o.nativeOff ?? [], o.nativeItems))];

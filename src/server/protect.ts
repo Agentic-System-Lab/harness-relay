@@ -1,7 +1,8 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROVIDERS, type Provider } from '../shared/types';
 import { t } from './i18n';
 import { DATA_DIR } from './settings';
 
@@ -10,8 +11,10 @@ import { DATA_DIR } from './settings';
  * (see docs/architecture.md, "Signing in"):
  * - reading the browsers' own folders, where a signed-in browser keeps its key (and, in some, its
  *   cookie) on disk, nor Harness Relay's database or its own temporary folder;
- * - working in Harness Relay's own folder or its data folder, where they could change its code or its
- *   database, and so get around their sandbox and the sign-in.
+ * - working, in edit mode, in a folder that holds what decides how the agents run: Harness Relay's
+ *   own folder or its data folder (its code, its database), the home folder (shell and tool
+ *   settings), a CLI's own folder (its settings, hooks, MCP servers, program) or a CLI's program,
+ *   where they could get around their sandbox and the sign-in.
  */
 
 /** The folder Harness Relay runs from (its code, node_modules and, by default, its data). */
@@ -131,12 +134,21 @@ export function relayTmpDir(dataDir = DATA_DIR): string {
   return join(dataDir, 'tmp');
 }
 
-/** A path's real path, or itself when it cannot be resolved. */
+/**
+ * A path's real path. One that does not exist (yet), such as a working directory still to be
+ * created, takes the real path of the nearest folder above it that does, with the rest as given: so
+ * a link or another letter case on the way is resolved before the folder is made.
+ */
+export function realPath(path: string): string {
+  return real(path);
+}
+
 function real(path: string): string {
   try {
     return realpathSync.native(path);
   } catch {
-    return path;
+    const parent = dirname(path);
+    return parent === path ? path : join(real(parent), basename(path));
   }
 }
 
@@ -154,6 +166,13 @@ export function protectedReads(
   const relay = [...relayDatabaseFiles(o.dataDir), relayTmpDir(o.dataDir)];
   const paths = [...browserDataDirs(platform, o.home), ...relay].filter((p) => existsSync(p));
   return [...new Set(paths.flatMap((p) => [p, real(p)]))];
+}
+
+/** Whether two paths are the same, or one is inside the other (real paths). */
+export function overlaps(a: string, b: string): boolean {
+  const x = real(resolve(a));
+  const y = real(resolve(b));
+  return within(x, y) || within(y, x);
 }
 
 /** Whether `path` is `dir` or inside it (real paths, letter case as the file system gives it). */
@@ -182,12 +201,97 @@ export function relayFolderOverlap(
 }
 
 /**
- * Refuses edit mode in a working directory that holds Harness Relay itself (`relayFolderOverlap`):
- * agents change files there without asking. Read-only asks before writing (Codex cannot write at all),
- * and every sandbox keeps the database from being read or written.
+ * A command as the CLI is started: where it was found (as given, or the first match on the PATH) and
+ * its real path, when it exists.
  */
-export function relayFolderRefusal(settings: { permission: string; cwd: string }): string | undefined {
-  return settings.permission === 'edit' && relayFolderOverlap(settings.cwd) ? t().cwdIsRelay(settings.cwd) : undefined;
+export function commandPaths(
+  bin: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  // On Windows a command is found by its extensions too (`claude.exe`, `codex.cmd`).
+  const exts = platform === 'win32' ? ['', ...(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)] : [''];
+  const found = (/[\\/]/.test(bin) ? [bin] : (env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, bin))).flatMap(
+    (p) => exts.map((ext) => p + ext),
+  );
+  const at = found.find((p) => existsSync(p) && statSync(p).isFile());
+  return at ? [...new Set([resolve(at), real(at)])] : [];
+}
+
+/**
+ * The folders that decide how the agents run, outside any project: each CLI's own folder (its
+ * settings, hooks, MCP servers and, for Codex and Grok, its program), Claude Code's `~/.claude.json`,
+ * the CLIs' own folder Harness Relay gives them (`agentHome`), and the folders their programs are in
+ * (`bins`, from `commandPaths`).
+ */
+export function agentFolders(o: { home?: string; env?: NodeJS.ProcessEnv; agentHome?: string; bins?: string[] } = {}): string[] {
+  const home = o.home ?? homedir();
+  const env = o.env ?? process.env;
+  return [
+    env.CLAUDE_CONFIG_DIR || join(home, '.claude'),
+    join(home, '.claude.json'),
+    env.CODEX_HOME || join(home, '.codex'),
+    env.GROK_HOME || join(home, '.grok'),
+    ...(o.agentHome ? [o.agentHome] : []),
+    ...(o.bins ?? []).map((bin) => dirname(bin)),
+  ];
+}
+
+/**
+ * The folder `cwd` holds, or is inside, that decides how the agents run, or undefined: the home
+ * folder when `cwd` is it or holds it (a project inside it is fine), and any of `agentFolders` when
+ * `cwd` holds it or is inside it.
+ */
+export function agentFolderOverlap(
+  cwd: string,
+  o: { home?: string; env?: NodeJS.ProcessEnv; agentHome?: string; bins?: string[] } = {},
+): string | undefined {
+  const dir = real(resolve(cwd));
+  const home = o.home ?? homedir();
+  if (within(real(home), dir)) return home;
+  return agentFolders(o).find((folder) => {
+    const f = real(folder);
+    return within(f, dir) || within(dir, f);
+  });
+}
+
+/**
+ * `agentFolderOverlap`'s options from Harness Relay's settings: the CLIs' own folder it gives them,
+ * and where each CLI's program is, as it starts them.
+ */
+export function agentFolderOptions(settings: {
+  agentHome: string;
+  bin(p: Provider): string;
+  env(p: Provider): NodeJS.ProcessEnv;
+}): { agentHome?: string; bins: string[] } {
+  return {
+    ...(settings.agentHome ? { agentHome: settings.agentHome } : {}),
+    bins: PROVIDERS.flatMap((p) => commandPaths(settings.bin(p), settings.env(p))),
+  };
+}
+
+/**
+ * Refuses edit mode in a working directory that holds Harness Relay itself (`relayFolderOverlap`) or
+ * what decides how the agents run (`agentFolderOverlap`): agents change files there without asking.
+ * Read-only asks before writing (Codex cannot write at all), and every sandbox keeps the database
+ * from being read or written.
+ */
+export function relayFolderRefusal(
+  settings: { permission: string; cwd: string },
+  o: { agentHome?: string; bins?: string[] } = {},
+): string | undefined {
+  if (settings.permission !== 'edit') return undefined;
+  if (relayFolderOverlap(settings.cwd)) return t().cwdIsRelay(settings.cwd);
+  const folder = agentFolderOverlap(settings.cwd, o);
+  return folder ? t().cwdHoldsAgents(settings.cwd, folder) : undefined;
+}
+
+/**
+ * A protected path whose name has `*`, `?` or `[`, which the sandboxes read as a pattern, so that it
+ * may not be protected: none, or the first such.
+ */
+export function patternPath(paths: readonly string[]): string | undefined {
+  return paths.find((p) => /[*?[]/.test(p));
 }
 
 /** The temp folders every sandbox lets its commands write in. */
