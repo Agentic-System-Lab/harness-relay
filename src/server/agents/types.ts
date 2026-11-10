@@ -124,7 +124,8 @@ export class AgentRunError extends Error {
 /** Per-turn safety net; long coding tasks are fine, a hung CLI is not. */
 export const TURN_TIMEOUT_MS = 45 * 60 * 1000;
 
-const DETAIL_KEYS = ['command', 'cmd', 'file_path', 'filePath', 'path', 'pattern', 'url', 'query', 'description', 'prompt'];
+// `target_file` / `target_directory`: Grok's read_file and list_dir.
+const DETAIL_KEYS = ['command', 'cmd', 'file_path', 'filePath', 'target_file', 'path', 'target_directory', 'pattern', 'url', 'query', 'description', 'prompt'];
 
 /** One-line summary of a tool's input for display. */
 export function summarizeInput(input: unknown): string | undefined {

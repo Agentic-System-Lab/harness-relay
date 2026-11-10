@@ -187,6 +187,25 @@ describe('grok session updates', () => {
     expect(h.lastFailure).toEqual({ tool: 'Web search', reason: 'Web search failed' });
   });
 
+  it('shows the file read_file reads and the folder list_dir lists', () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    // As grok 1.0.77 sends them: the path only under these names in the first tool_call.
+    const tool = (name: string, kind: string) => ({ 'x.ai/tool': { version: 1, name, kind, namespace: 'grok_build', read_only: true } });
+    h.handle({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'r',
+      title: 'read_file',
+      rawInput: { target_file: '/repo/src/server/orchestrator.ts', offset: 180, limit: 120 },
+      _meta: tool('read_file', 'read'),
+    });
+    h.handle({ sessionUpdate: 'tool_call', toolCallId: 'l', title: 'list_dir', rawInput: { target_directory: '/repo/test' }, _meta: tool('list_dir', 'list') });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'r', name: 'read_file', detail: '/repo/src/server/orchestrator.ts' },
+      { type: 'tool_start', id: 'l', name: 'list_dir', detail: '/repo/test' },
+    ]);
+  });
+
   it("does not take a detail from another tool's output, nor change its name", () => {
     const events: AgentEvent[] = [];
     const h = createGrokUpdateHandler((e) => events.push(e));
@@ -235,6 +254,11 @@ describe('grok activity and approvals', () => {
       kind: 'other',
       tool: 'linear__create',
     });
+    // Reading a file or listing a folder: the card says which one.
+    const read = { title: 'read_file', kind: 'read', rawInput: { target_file: '/repo/a.ts', limit: 80 }, _meta: { 'x.ai/tool': { name: 'read_file' } } };
+    expect(grokApprovalRequest(read)).toMatchObject({ kind: 'other', tool: 'read_file', detail: '/repo/a.ts' });
+    const list = { title: 'list_dir', kind: 'other', rawInput: { target_directory: '/repo/test' }, _meta: { 'x.ai/tool': { name: 'list_dir' } } };
+    expect(grokApprovalRequest(list)).toMatchObject({ kind: 'other', tool: 'list_dir', detail: '/repo/test' });
   });
 });
 
