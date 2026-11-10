@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { fileName, isVideo, localFilePath, localMediaPath, mediaType } from '../src/shared/media';
 import type { ChatMessage, Conversation } from '../src/shared/types';
 import { attachmentsDir } from '../src/server/attachments';
-import { byteRange, contentDisposition, mediaRoots, resolveDownload, resolveMedia } from '../src/server/media';
+import { byteRange, contentDisposition, downloadProblem, mediaRoots, resolveDownload, resolveMedia } from '../src/server/media';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-media-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -146,6 +146,31 @@ describe('files a reply links to', () => {
     // Later roots are tried in turn.
     expect(resolveDownload('other.pdf', [cwd, outside])).toBe(join(outside, 'other.pdf'));
     expect(resolveDownload('//host/share/a.pdf', [cwd])).toBeUndefined();
+  });
+
+  it('says why a file cannot be downloaded: not there, or outside the directories (or in .git)', () => {
+    const cwd = join(root, 'problems');
+    const outside = join(root, 'problems-outside');
+    mkdirSync(join(cwd, 'out'), { recursive: true });
+    mkdirSync(join(cwd, '.git'), { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(cwd, '.git', 'config'), 'secret');
+    writeFileSync(join(outside, 'other.pdf'), 'pdf');
+    symlinkSync(join(outside, 'other.pdf'), join(cwd, 'escape.pdf'));
+    symlinkSync(join(cwd, '.git', 'config'), join(cwd, 'config.txt'));
+
+    expect(downloadProblem('missing.pdf', [cwd])).toBe('missing');
+    expect(downloadProblem('out', [cwd])).toBe('missing'); // a folder
+    expect(downloadProblem('', [cwd])).toBe('missing');
+    expect(downloadProblem('.git/config', [cwd])).toBe('outside');
+    expect(downloadProblem('.GIT/config', [cwd])).toBe('outside');
+    expect(downloadProblem('config.txt', [cwd])).toBe('outside'); // a link into .git
+    expect(downloadProblem('escape.pdf', [cwd])).toBe('outside'); // a link out of the directory
+    expect(downloadProblem('../problems-outside/other.pdf', [cwd])).toBe('outside');
+    expect(downloadProblem(join(outside, 'other.pdf'), [cwd])).toBe('outside');
+    expect(downloadProblem('/etc/hosts', [cwd])).toBe('outside');
+    // Missing in one root, and not allowed in none: missing.
+    expect(downloadProblem('gone.md', [cwd, join(root, 'no-such-root')])).toBe('missing');
   });
 
   /** A folder of its own with out/deck.pptx and .git/config, so each test runs alone too. */

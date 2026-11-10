@@ -24,6 +24,8 @@ import type {
   SearchResult,
   SettingsUpdate,
   SettingsView,
+  ShareFileInfo,
+  ShareFileRef,
   SharedPage,
   SkillCandidate,
   ReviseTeamRequest,
@@ -170,8 +172,16 @@ export const api = {
   reviseTeam: (id: string, b: ReviseTeamRequest, signal?: AbortSignal) =>
     request<TeamRevision>('POST', `/api/conversations/${id}/revise-team`, b, signal),
   stop: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/stop`),
-  /** Put the conversation's shared page (made by sharePage.tsx) on the web as a secret gist; `upTo`: the reply it ends with. */
-  share: (id: string, html: string, upTo?: string) => request<SharedPage>('POST', `/api/conversations/${id}/share`, { html, upTo }),
+  /**
+   * Put the conversation's shared page (made by sharePage.tsx) on the web as a secret gist; `upTo`: the
+   * reply it ends with; `files`: the links to the files that go along, into a gist of their own (the page's
+   * placeholder links name them by their place here).
+   */
+  share: (id: string, html: string, upTo?: string, files: ShareFileRef[] = []) =>
+    request<SharedPage>('POST', `/api/conversations/${id}/share`, { html, upTo, files }),
+  /** The files these links of the shared messages point to: each once, with its size, or why it cannot go along. */
+  shareFiles: (id: string, files: ShareFileRef[], upTo?: string) =>
+    request<{ files: ShareFileInfo[] }>('POST', `/api/conversations/${id}/share/files`, { files, upTo }),
   /** The conversations shared so far, the newest first. */
   listShares: () => request<SharedPage[]>('GET', '/api/shares'),
   /** Delete a share's gist (its link stops working) and forget it. */

@@ -668,6 +668,28 @@ export const zhTW = {
     gone: '這則回覆已經不在對話裡了（重試或編輯過）。請從現在的回覆重新分享。',
     editing: '有一則訊息正在編輯：送出或取消編輯後再建立連結。',
     notOnScreen: '無法從畫面上的對話製作頁面，請重新整理後再試一次。',
+    /** The files the shared replies link to, which can go along with the page, into a gist of their own. */
+    files: {
+      heading: '回覆連結的檔案',
+      warning: '勾選的檔案會和頁面一起上傳到另一個 secret gist，頁面上的連結會指向它們：有連結的人都能下載。',
+      hint: (file: string, total: string, max: number) =>
+        `只能附上文字檔，每個最多 ${file}，合計最多 ${total}、${max} 個。沒勾選的檔案，頁面上的連結會變成純文字，不能下載。`,
+      checking: '正在檢查回覆連結的檔案…',
+      checkFailed: (error: string) => `無法檢查回覆連結的檔案（${error}），所以不會附上任何檔案。`,
+      problem: {
+        missing: '找不到這個檔案',
+        outside: '不在對話的資料夾裡',
+        binary: '不是文字檔',
+        empty: '檔案是空的',
+      },
+      tooLarge: (max: string) => `超過 ${max}`,
+      secret: '看起來可能含有機密，預設不勾選',
+      chosen: (n: number, size: string) => `已勾選 ${n} 個檔案，共 ${size}。`,
+      none: '沒有勾選檔案：頁面上的檔案連結會變成純文字。',
+      overCount: (max: number) => `一次最多只能附上 ${max} 個檔案，請少勾幾個。`,
+      overBytes: (total: string) => `勾選的檔案合計超過 ${total}，請少勾幾個。`,
+      included: (n: number) => `附上了 ${n} 個檔案，有連結的人都能下載。`,
+    },
     /** Text on the shared page itself. */
     page: {
       tagline: '讓真正的 Claude Code、Codex 和 Grok CLI 一起工作的本機群組聊天室',
@@ -698,15 +720,18 @@ export const zhTW = {
     /** The list of shares in Settings. */
     list: {
       title: '分享的對話',
-      hint: '你用「分享」建立的公開連結（GitHub 上的 secret gist），最新的在最上面。移除會刪除 GitHub 上的 gist，連結就打不開了。',
+      hint: '你用「分享」建立的公開連結（GitHub 上的 secret gist），最新的在最上面。移除會刪除 GitHub 上的 gist，包括放附檔的那一個，連結就打不開了。',
       empty: '還沒有分享過對話。',
       selectAll: '全選',
       removeSelected: (n: number) => `移除所選（${n}）`,
       remove: '移除',
-      confirm: (n: number) => `要移除 ${n} 個分享嗎？GitHub 上的 gist 會被刪除，連結會失效。`,
+      confirm: (n: number) => `要移除 ${n} 個分享嗎？GitHub 上的 gist 會被刪除（包括放附檔的 gist），連結會失效。`,
       removing: '移除中…',
       whole: '整段對話',
       upTo: (name: string) => `到 @${name} 的回覆`,
+      files: (n: number) => `附上 ${n} 個檔案`,
+      unfinished: '沒有完成：GitHub 上只留下放附檔的 gist,沒有頁面。請移除它。',
+      openFiles: '開啟 GitHub 上的附檔',
       openChat: '開啟對話',
       chatGone: '對話已刪除',
       openGist: '開啟 GitHub 上的 gist',

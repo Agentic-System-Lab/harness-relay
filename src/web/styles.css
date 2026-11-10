@@ -5475,6 +5475,67 @@ a.share-action {
   font-size: 13px;
 }
 
+/* The files the shared replies link to, to take along into a gist of their own. */
+.share-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.share-files-warning {
+  color: var(--warn);
+}
+
+.share-file-list {
+  list-style: none;
+  margin: 2px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.share-file .check-row {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.share-file .check-row input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.share-file.blocked .check-row {
+  cursor: default;
+}
+
+.share-file-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.share-file-name,
+.share-file-path {
+  overflow-wrap: anywhere;
+}
+
+.share-file.blocked .share-file-name {
+  color: var(--muted);
+}
+
+.share-file-size {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 @media (max-width: 560px) {
   .share-option {
     flex-direction: column;

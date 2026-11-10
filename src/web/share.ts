@@ -1,7 +1,20 @@
 // A shared conversation is one HTML page that looks like the chat: the header and the messages, as the
 // app shows them, without tool calls and thinking. These are the parts of making it that need no DOM.
 
-import { GH_MISSING, GH_SIGNED_OUT, SHARE_MAX_BYTES, type ChatMessage, type SharedPage } from '../shared/types';
+import {
+  GH_MISSING,
+  GH_SIGNED_OUT,
+  SHARE_FILES_MAX,
+  SHARE_FILES_MAX_BYTES,
+  SHARE_FILE_LINKS_MAX,
+  SHARE_FILE_URL_MAX,
+  SHARE_MAX_BYTES,
+  type ChatMessage,
+  type ShareFileInfo,
+  type ShareFileRef,
+  type SharedPage,
+} from '../shared/types';
+import { shareFileHref } from '../shared/share';
 import type { Messages } from './i18n';
 
 /** Harness Relay's website: every shared page links to it. */
@@ -147,6 +160,11 @@ export function shareDocument(o: { lang: string; title: string; css: string; bod
     .join('\n');
 }
 
+/** A share's files gist on GitHub (only github.com gists are kept: gistpreview reads no other). */
+export function filesGistUrl(id: string): string {
+  return `https://gist.github.com/${id}`;
+}
+
 /** What a share holds, for the list in Settings: the whole conversation, or up to one reply. */
 export function shareScope(s: Pick<SharedPage, 'upTo'>, t: Messages): string {
   return s.upTo ? t.share.list.upTo(s.upTo.agentName) : t.share.list.whole;
@@ -167,4 +185,160 @@ export const GH_INSTALL = { macos: 'brew install gh', windows: 'winget install -
 export function ghProblem(e: unknown): typeof GH_MISSING | typeof GH_SIGNED_OUT | undefined {
   const code = typeof e === 'object' && e !== null && 'code' in e ? (e as { code?: unknown }).code : undefined;
   return code === GH_MISSING || code === GH_SIGNED_OUT ? code : undefined;
+}
+
+// --- The files a shared page links to --------------------------------------------------
+
+/**
+ * The file a link of the chat downloads (a FileLink: `/api/conversations/<id>/messages/<reply>/download?path=…`),
+ * when it is one of this conversation's. Undefined for any other link.
+ */
+export function fileRefOf(href: string | null, convId: string): ShareFileRef | undefined {
+  if (!href?.startsWith('/api/')) return undefined;
+  let url: URL;
+  try {
+    url = new URL(href, 'http://relay.invalid');
+  } catch {
+    return undefined;
+  }
+  const m = /^\/api\/conversations\/([^/]+)\/messages\/([^/]+)\/download$/.exec(url.pathname);
+  const path = url.searchParams.get('path');
+  if (!m || !path) return undefined;
+  try {
+    return decodeURIComponent(m[1]!) === convId ? { messageId: decodeURIComponent(m[2]!), path } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The same link: from the same reply, by the same path. */
+export const fileRefKey = (r: ShareFileRef): string => `${r.messageId}\n${r.path}`;
+
+/** The files the links (hrefs, in order) download, each link once, at most `max` of them. */
+export function fileRefsOf(hrefs: (string | null)[], convId: string, max = SHARE_FILE_LINKS_MAX): ShareFileRef[] {
+  const seen = new Set<string>();
+  const refs: ShareFileRef[] = [];
+  for (const href of hrefs) {
+    const ref = fileRefOf(href, convId);
+    if (!ref || seen.has(fileRefKey(ref))) continue;
+    seen.add(fileRefKey(ref));
+    refs.push(ref);
+    if (refs.length >= max) break;
+  }
+  return refs;
+}
+
+/** What the files chosen come to, and the limit they are over (if any). */
+export function fileSelection(files: ShareFileInfo[], chosen: boolean[]): { count: number; bytes: number; over?: 'count' | 'bytes' } {
+  let count = 0;
+  let bytes = 0;
+  files.forEach((f, i) => {
+    if (!chosen[i] || f.problem) return;
+    count++;
+    bytes += f.size ?? 0;
+  });
+  const over = count > SHARE_FILES_MAX ? 'count' : bytes > SHARE_FILES_MAX_BYTES ? 'bytes' : undefined;
+  return over ? { count, bytes, over } : { count, bytes };
+}
+
+/** Names of files that tend to hold secrets: keys and certificates, and names that say so. */
+const SECRET_NAMES = [
+  /\.(pem|key|p12|pfx|jks|keystore|gpg|asc|ovpn|kdbx)$/i,
+  /^id_(rsa|dsa|ecdsa|ed25519)/i,
+  /secret|credential|passw(or)?d|token|api[-_]?key|private[-_]?key/i,
+];
+
+/**
+ * A file whose name says it may hold secrets: a dotfile (.env, .npmrc, .netrc…), a key or certificate
+ * (*.pem, *.key, id_rsa…), or a name with secret, credential, password, token or API key in it. It is
+ * left unchecked at first; the user may still choose it.
+ */
+export function looksSecret(name: string): boolean {
+  return name.startsWith('.') || SECRET_NAMES.some((re) => re.test(name));
+}
+
+/**
+ * The files chosen, once the server has checked them (`next`): a file seen before (by its path) keeps
+ * the user's choice from `before`, while it can go along. A new one is chosen when it can go along,
+ * does not look secret, and still fits in SHARE_FILES_MAX and SHARE_FILES_MAX_BYTES with those chosen.
+ */
+export function nextFileSelection(next: ShareFileInfo[], before?: { list: ShareFileInfo[]; chosen: boolean[] }): boolean[] {
+  // Only a file that could be chosen was chosen or left out by the user.
+  const was = new Map<string, boolean>();
+  before?.list.forEach((f, i) => !f.problem && was.set(f.path, Boolean(before.chosen[i])));
+  const kept = next.map((f) => (f.problem ? false : was.get(f.path)));
+  let count = 0;
+  let bytes = 0;
+  kept.forEach((k, i) => {
+    if (!k) return;
+    count++;
+    bytes += next[i]!.size ?? 0;
+  });
+  return next.map((f, i) => {
+    const k = kept[i];
+    if (k !== undefined) return k;
+    if (looksSecret(f.name) || count >= SHARE_FILES_MAX || bytes + (f.size ?? 0) > SHARE_FILES_MAX_BYTES) return false;
+    count++;
+    bytes += f.size ?? 0;
+    return true;
+  });
+}
+
+/** The files chosen when the dialog opens (see nextFileSelection). */
+export function defaultFileSelection(files: ShareFileInfo[]): boolean[] {
+  return nextFileSelection(files);
+}
+
+/** The links to the files chosen (`files[i].refs` name places in `refs`), in the order of `refs`. */
+export function chosenFileRefs(refs: ShareFileRef[], files: ShareFileInfo[], chosen: boolean[]): ShareFileRef[] {
+  const picked = new Set<number>();
+  files.forEach((f, i) => {
+    if (chosen[i] && !f.problem) f.refs.forEach((r) => picked.add(r));
+  });
+  return refs.filter((_, i) => picked.has(i));
+}
+
+/** A link of the chat, as a shared page sees it: where it goes, whether it is a FileLink, and whether a part the page leaves out holds it. */
+export interface ShareAnchor {
+  href: string | null;
+  fileLink: boolean;
+  dropped: boolean;
+}
+
+/**
+ * What a shared page makes of a link: `gone` with a part it leaves out; `file`, a link to a file that
+ * goes along, pointing at its placeholder, without `download` (the file is on another site then, where
+ * a browser would not heed it); `link`, a web or mail address that stays; else `text` (a file left
+ * behind, or a link into the app). A file left behind loses its download icon too (`icon: false`): it
+ * cannot be downloaded from the page.
+ */
+export type AnchorPlan =
+  | { as: 'gone' }
+  | { as: 'text'; icon?: false }
+  | { as: 'link'; href: string; remove: string[]; file: boolean };
+
+/** What the page makes of `a`, `files` being the links to the files that go along, their places their placeholders' numbers. */
+export function anchorPlan(a: ShareAnchor, convId: string, files: ShareFileRef[]): AnchorPlan {
+  if (a.dropped) return { as: 'gone' };
+  if (a.fileLink) {
+    const ref = fileRefOf(a.href, convId);
+    const n = ref ? files.findIndex((f) => fileRefKey(f) === fileRefKey(ref)) : -1;
+    if (n >= 0) return { as: 'link', href: shareFileHref(n), remove: ['download'], file: true };
+    // A file left behind (or one this page cannot point at): plain text, without the download icon.
+    if (ref) return { as: 'text', icon: false };
+  }
+  return linkKept(a.href) ? { as: 'link', href: a.href!, remove: [], file: false } : { as: 'text' };
+}
+
+/** How many links on the page point at files that go along: each leaves room for its address on GitHub. */
+export function fileLinkRoom(plans: AnchorPlan[]): number {
+  return plans.filter((p) => p.as === 'link' && p.file).length * SHARE_FILE_URL_MAX;
+}
+
+/** The files the page's links download (FileLinks outside the parts it leaves out), each link once, in order. */
+export function linkedFileRefs(anchors: ShareAnchor[], convId: string): ShareFileRef[] {
+  return fileRefsOf(
+    anchors.filter((a) => a.fileLink && !a.dropped).map((a) => a.href),
+    convId,
+  );
 }

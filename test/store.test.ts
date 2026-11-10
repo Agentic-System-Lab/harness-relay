@@ -313,6 +313,23 @@ describe('Store shares', () => {
     expect(again.getShare('aaaa')).toEqual(share('aaaa', 1));
   });
 
+  it('keeps how many files went along and their gist, and a files gist left without its page', () => {
+    const store = new Store(db);
+    store.create({ ...sampleConversation(), id: 'c1' });
+    store.addShare({ ...share('aaaa', 1), files: 3, filesGist: 'ffff' });
+    store.addShare({ ...share('bbbb', 2), url: '', files: 1, unfinished: true });
+    const again = new Store(reopen());
+    expect(again.getShare('aaaa')).toEqual({ ...share('aaaa', 1), files: 3, filesGist: 'ffff' });
+    expect(again.getShare('bbbb')).toEqual({ ...share('bbbb', 2), url: '', files: 1, unfinished: true });
+
+    // Shares from before schema version 16 took no files along.
+    db.exec(`ALTER TABLE shares DROP COLUMN files; ALTER TABLE shares DROP COLUMN files_gist; ALTER TABLE shares DROP COLUMN unfinished;
+             PRAGMA user_version = 15;`);
+    const migrated = new Store(reopen());
+    expect(migrated.getShare('aaaa')).toEqual(share('aaaa', 1));
+    expect(migrated.getShare('bbbb')).toEqual({ ...share('bbbb', 2), url: '' });
+  });
+
   it('says when its conversation was deleted, and forgets a share', () => {
     const store = new Store(db);
     store.addShare(share('aaaa', 1));

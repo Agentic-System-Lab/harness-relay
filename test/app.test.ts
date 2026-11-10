@@ -2,7 +2,20 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FILE_LIMITS, SHARE_MAX_BYTES, type Conversation, type SettingsView, type TeamRevision, type WorkingDirectories } from '../src/shared/types';
+import {
+  FILE_LIMITS,
+  SHARE_FILES_MAX,
+  SHARE_FILE_MAX_BYTES,
+  SHARE_FILE_REFUSED,
+  SHARE_FILE_URL_MAX,
+  SHARE_MAX_BYTES,
+  type Conversation,
+  type SettingsView,
+  type ShareFileInfo,
+  type TeamRevision,
+  type WorkingDirectories,
+} from '../src/shared/types';
+import { shareFileHref } from '../src/shared/share';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -1565,7 +1578,13 @@ describe('sharing conversations', () => {
   const ID = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
   const link = (id = ID) => ({ id, url: `https://gistpreview.github.io/?${id}`, gistUrl: `https://gist.github.com/me/${id}` });
 
-  function shareApp(gists: { create?: (html: string, description: string) => Promise<ReturnType<typeof link>>; remove?: (id: string) => Promise<void> }) {
+  type Upload = { name: string; content: string };
+  type Link = ReturnType<typeof link> & { filesGist?: string };
+  const FILES = 'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff';
+  function shareApp(gists: {
+    create?: (html: string, description: string, files?: Upload[]) => Promise<Link>;
+    remove?: (id: string) => Promise<void>;
+  }) {
     const s = new SettingsStore(openDatabase(':memory:'));
     const never = async () => {
       throw new Error('should not be called');
@@ -1676,5 +1695,234 @@ describe('sharing conversations', () => {
     expect(store.listShares().map((s) => s.id)).toEqual([ID]);
     expect((await del('ffffffffffffffffffffffff')).status).toBe(404);
     expect((await del('--help')).status).toBe(404);
+  });
+
+  /** A conversation whose replies r1–r3 link to files in its folder: text, binary, empty, too large… */
+  async function withFiles(): Promise<Conversation> {
+    const conv = await createConversation({ permission: 'read-only' });
+    const live = store.get(conv.id)!;
+    const agentId = live.agents[0]!.id;
+    for (const id of ['r1', 'r2', 'r3']) {
+      live.messages.push({ id, author: { kind: 'agent', agentId }, agentName: 'Alice', createdAt: 1, parts: [{ type: 'text', text: id }], status: 'done' });
+    }
+    mkdirSync(join(project, 'out'), { recursive: true });
+    mkdirSync(join(project, 'docs'), { recursive: true });
+    mkdirSync(join(project, '.git'), { recursive: true });
+    writeFileSync(join(project, 'out', 'report.md'), '# Report\n');
+    writeFileSync(join(project, 'docs', 'report.md'), '# Other report\n');
+    writeFileSync(join(project, 'out', 'data.csv'), 'a,b\n');
+    writeFileSync(join(project, 'out', 'chart.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]));
+    writeFileSync(join(project, 'out', 'empty.txt'), '  \n');
+    writeFileSync(join(project, 'out', 'big.log'), 'x'.repeat(SHARE_FILE_MAX_BYTES + 1));
+    writeFileSync(join(project, '.git', 'config'), 'secret');
+    writeFileSync(join(root, `outside-${n}.md`), 'outside');
+    return conv;
+  }
+  const ref = (messageId: string, path: string) => ({ messageId, path });
+  const fileLink = (i: number, text = 'file') => `<a class="file-link" href="${shareFileHref(i)}">${text}</a>`;
+
+  it('lists the files the shared replies link to, each once, with why one cannot go along', async () => {
+    const conv = await withFiles();
+    const refs = [
+      ref('r1', 'out/report.md'),
+      ref('r2', './out/report.md'), // the same file, from another reply
+      ref('r1', 'out/data.csv'),
+      ref('r1', 'out/chart.png'),
+      ref('r1', 'out/empty.txt'),
+      ref('r1', 'out/big.log'),
+      ref('r1', '.git/config'),
+      ref('r1', `../outside-${n}.md`),
+      ref('r1', join(root, `outside-${n}.md`)),
+      ref('r1', 'out/missing.md'),
+      ref('r1', 'out'),
+      ref('r3', 'out/data.csv'), // after the reply the share ends with
+      ref('nope', 'out/data.csv'),
+      ref('r1', 'out/alias.md'), // a link to out/report.md
+    ];
+    symlinkSync(join(project, 'out', 'report.md'), join(project, 'out', 'alias.md'));
+    const res = await app.request(`/api/conversations/${conv.id}/share/files`, json('POST', { files: refs, upTo: 'r2' }));
+    expect(res.status).toBe(200);
+    const { files } = (await res.json()) as { files: ShareFileInfo[] };
+    expect(files).toEqual([
+      { name: 'report.md', path: 'out/report.md', size: 9, refs: [0, 1, 13] },
+      { name: 'data.csv', path: 'out/data.csv', size: 4, refs: [2] },
+      { name: 'chart.png', path: 'out/chart.png', size: 10, problem: 'binary', refs: [3] },
+      { name: 'empty.txt', path: 'out/empty.txt', size: 3, problem: 'empty', refs: [4] },
+      { name: 'big.log', path: 'out/big.log', size: SHARE_FILE_MAX_BYTES + 1, problem: 'too-large', refs: [5] },
+      { name: 'config', path: '.git/config', problem: 'outside', refs: [6] },
+      { name: `outside-${n}.md`, path: `../outside-${n}.md`, problem: 'outside', refs: [7] },
+      { name: `outside-${n}.md`, path: join(root, `outside-${n}.md`), problem: 'outside', refs: [8] },
+      { name: 'missing.md', path: 'out/missing.md', problem: 'missing', refs: [9] },
+      { name: 'out', path: 'out', problem: 'missing', refs: [10] },
+      { name: 'data.csv', path: 'out/data.csv', problem: 'missing', refs: [11, 12] },
+    ]);
+    // Never what the files hold.
+    const said = JSON.stringify(files);
+    for (const held of ['# Report', 'secret', 'a,b', 'content']) expect(said).not.toContain(held);
+  });
+
+  it("finds nothing for another conversation's reply, or when the share ends at a reply that is not there", async () => {
+    const conv = await withFiles();
+    const other = await createConversation({ permission: 'read-only' });
+    const live = store.get(other.id)!;
+    live.messages.push({ id: 'theirs', author: { kind: 'agent', agentId: live.agents[0]!.id }, createdAt: 1, parts: [], status: 'done' });
+    const check = async (body: unknown) => {
+      const res = await app.request(`/api/conversations/${conv.id}/share/files`, json('POST', body));
+      return ((await res.json()) as { files: ShareFileInfo[] }).files.map((f) => f.problem);
+    };
+    expect(await check({ files: [ref('theirs', 'out/report.md')] })).toEqual(['missing']);
+    expect(await check({ files: [ref('r1', 'out/report.md')], upTo: 'gone' })).toEqual(['missing']);
+    expect(await check({ files: [ref('r1', 'out/report.md')], upTo: 'r1' })).toEqual([undefined]);
+    // Nor does a share take it along.
+    const own = shareApp({});
+    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: fileLink(0), files: [ref('theirs', 'out/report.md')] }));
+    expect(res.status).toBe(409);
+  });
+
+  it('refuses a list of files that is not one', async () => {
+    const conv = await withFiles();
+    const check = (body: unknown, id = conv.id) => app.request(`/api/conversations/${id}/share/files`, json('POST', body));
+    expect((await check({ files: 'out/report.md' })).status).toBe(400);
+    expect((await check({ files: [{ path: 'out/report.md' }] })).status).toBe(400);
+    expect((await check({ files: [] }, 'missing')).status).toBe(404);
+    expect((await check({ files: [] }, conv.id)).status).toBe(200);
+    expect((await check({ files: [ref('r1', 'out/report.md')] }, conv.id)).headers.get('content-type')).toContain('application/json');
+    expect((await app.request(`/api/conversations/${conv.id}/share/files`, { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
+  });
+
+  it('takes the files the page links to along, each once and named apart, and records them and their gist', async () => {
+    const conv = await withFiles();
+    const calls: { html: string; files?: Upload[] }[] = [];
+    const own = shareApp({
+      create: async (html, _d, files) => {
+        calls.push({ html, files });
+        return { ...link(), filesGist: FILES };
+      },
+    });
+    const files = [ref('r1', 'out/report.md'), ref('r1', 'out/data.csv'), ref('r2', './out/report.md'), ref('r2', 'docs/report.md'), ref('r1', 'out/chart.png')];
+    // Linked: data.csv, report.md (twice, by two paths), docs/report.md; chart.png (not linked) stays behind.
+    const html = `<!doctype html>${fileLink(1, 'data')}${fileLink(0, 'report')}${fileLink(2, 'again')}${fileLink(3, 'other')}`;
+    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html, files, upTo: 'r2' }));
+    expect(res.status).toBe(200);
+    const shared = await res.json();
+    expect(shared).toMatchObject({ ...link(), files: 3, filesGist: FILES, upTo: { messageId: 'r2', agentName: 'Alice' } });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.files).toEqual([
+      { name: 'data.csv', content: 'a,b\n' },
+      { name: 'report.md', content: '# Report\n' },
+      { name: 'report-2.md', content: '# Other report\n' },
+    ]);
+    // The page's links now name the gist's files, by their place in that list.
+    expect(calls[0]!.html).toBe(`<!doctype html>${fileLink(0, 'data')}${fileLink(1, 'report')}${fileLink(1, 'again')}${fileLink(2, 'other')}`);
+    expect(store.listShares()).toEqual([shared]);
+  });
+
+  it('shares a page without files as before', async () => {
+    const conv = await withFiles();
+    const calls: (Upload[] | undefined)[] = [];
+    const own = shareApp({ create: async (_h, _d, files) => (calls.push(files), link()) });
+    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<p>hi</p>', files: [ref('r1', 'out/report.md')] }));
+    expect((await res.json()).files).toBeUndefined();
+    expect(calls).toEqual([[]]);
+  });
+
+  it('refuses a file the download link would not serve, or that cannot go along, before anything goes up', async () => {
+    const conv = await withFiles();
+    const own = shareApp({});
+    const send = (files: unknown, html = `<p>${fileLink(0)}</p>`, upTo?: string) =>
+      own.request(`/api/conversations/${conv.id}/share`, json('POST', { html, files, upTo }, { 'x-relay-lang': 'en' }));
+    for (const path of ['.git/config', `../outside-${n}.md`, join(root, `outside-${n}.md`), 'out/chart.png', 'out/empty.txt', 'out/big.log', 'out/missing.md']) {
+      const res = await send([ref('r1', path)]);
+      expect(res.status, path).toBe(409);
+      const body = (await res.json()) as { error: string; code: string };
+      expect(body.code).toBe(SHARE_FILE_REFUSED);
+      expect(body.error).toContain('Cannot include');
+    }
+    expect((await send([ref('r3', 'out/report.md')], undefined, 'r2')).status).toBe(409); // a reply the page does not hold
+    // A link to a file the request does not name, or a list that is not one.
+    expect((await send([])).status).toBe(400);
+    expect((await send('out/report.md')).status).toBe(400);
+    expect(store.listShares()).toEqual([]);
+  });
+
+  it('refuses more files, or more bytes, than a share takes along, and a page that would grow too large', async () => {
+    const conv = await withFiles();
+    const own = shareApp({});
+    const send = (files: unknown, html: string) => own.request(`/api/conversations/${conv.id}/share`, json('POST', { html, files }));
+    const many = Array.from({ length: SHARE_FILES_MAX + 1 }, (_, i) => {
+      writeFileSync(join(project, 'out', `${i}.md`), `${i}\n`);
+      return ref('r1', `out/${i}.md`);
+    });
+    expect((await send(many, many.map((_, i) => fileLink(i)).join(''))).status).toBe(413);
+    const heavy = Array.from({ length: 6 }, (_, i) => {
+      writeFileSync(join(project, 'out', `heavy-${i}.csv`), 'y'.repeat(SHARE_FILE_MAX_BYTES - 1));
+      return ref('r1', `out/heavy-${i}.csv`);
+    });
+    expect((await send(heavy, heavy.map((_, i) => fileLink(i)).join(''))).status).toBe(413);
+    // Each link leaves room for the address it gets on GitHub.
+    const near = 'x'.repeat(SHARE_MAX_BYTES - SHARE_FILE_URL_MAX);
+    expect((await send([ref('r1', 'out/report.md')], near + fileLink(0))).status).toBe(413);
+    expect(store.listShares()).toEqual([]);
+  });
+
+  it('lists a files gist left without its page, to be removed, and removes only that gist', async () => {
+    const conv = await withFiles();
+    const removed: string[] = [];
+    const leftover = { id: FILES, url: '', gistUrl: `https://gist.github.com/${FILES}` };
+    const own = shareApp({
+      create: async () => {
+        throw new ShareError('Could not make the shared page, nor delete the files', undefined, leftover);
+      },
+      remove: async (id) => void removed.push(id),
+    });
+    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'Could not make the shared page, nor delete the files' });
+    const [listed] = store.listShares();
+    expect(listed).toEqual(expect.objectContaining({ ...leftover, conversationId: conv.id, files: 1, unfinished: true }));
+    expect(listed!.filesGist).toBeUndefined();
+    const del = await own.request(`/api/shares/${FILES}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
+    expect(del.status).toBe(200);
+    expect(removed).toEqual([FILES]);
+    expect(store.listShares()).toEqual([]);
+  });
+
+  it('records nothing when a share with files fails and leaves nothing behind', async () => {
+    const conv = await withFiles();
+    const own = shareApp({
+      create: async () => {
+        throw new ShareError('GitHub CLI (gh) is not signed in.', 'gh-signed-out');
+      },
+    });
+    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'GitHub CLI (gh) is not signed in.', code: 'gh-signed-out' });
+    expect(store.listShares()).toEqual([]);
+  });
+
+  it('deletes both gists of a share, the files first, and forgets it only once both are gone', async () => {
+    const conv = await withFiles();
+    const removed: string[] = [];
+    let failFiles = true;
+    const own = shareApp({
+      create: async () => ({ ...link(), filesGist: FILES }),
+      remove: async (id) => {
+        removed.push(id);
+        if (id === FILES && failFiles) throw new ShareError('Could not delete the gist: HTTP 500');
+      },
+    });
+    await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }));
+    const del = () => own.request(`/api/shares/${ID}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
+    // The files gist could not be deleted: the page's is tried all the same, and the share stays listed.
+    const first = await del();
+    expect(first.status).toBe(502);
+    expect(await first.json()).toEqual({ error: 'Could not delete the gist: HTTP 500' });
+    expect(removed).toEqual([FILES, ID]);
+    expect(store.listShares().map((s) => [s.id, s.filesGist])).toEqual([[ID, FILES]]);
+    // Removed again (a gist already gone counts as deleted): both are gone, and so is the share.
+    failFiles = false;
+    expect((await del()).status).toBe(200);
+    expect(removed).toEqual([FILES, ID, FILES, ID]);
+    expect(store.listShares()).toEqual([]);
   });
 });

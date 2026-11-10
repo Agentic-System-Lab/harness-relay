@@ -10,6 +10,11 @@ import {
   FILE_LIMITS,
   GROUP_LIMITS,
   PROVIDERS,
+  SHARE_FILES_MAX,
+  SHARE_FILES_MAX_BYTES,
+  SHARE_FILE_MAX_BYTES,
+  SHARE_FILE_REFUSED,
+  SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
   VOICE_MAX_SECONDS,
   pendingPlan,
@@ -35,7 +40,18 @@ import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, 
 import { HttpError, forClient, titleFrom, type Orchestrator } from './orchestrator';
 import type { ProviderService } from './providers';
 import type { SettingsStore } from './settings';
-import { ShareError, gistDescription, shareToGist, unshareGist, validGistId } from './share';
+import { fileLinkCount, fileLinksIn, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';
+import {
+  ShareError,
+  findShareFiles,
+  gistDescription,
+  gistFileNames,
+  parseShareFileRefs,
+  shareToGist,
+  unshareGist,
+  validGistId,
+  type GistUpload,
+} from './share';
 import type { Store } from './store';
 import {
   ensureFolder,
@@ -75,8 +91,11 @@ export interface AppDeps {
   agentsView?: AgentsViewSync;
   /** Extra Host names allowed besides localhost (RELAY_ALLOWED_HOSTS). */
   extraHosts?: string[];
-  /** Puts a shared conversation's page on the web and takes it down (secret gists through `gh`; fakes in tests). */
-  gists?: { create(html: string, description: string): Promise<ShareLink>; remove(id: string): Promise<void> };
+  /**
+   * Puts a shared conversation's page on the web, with the files it takes along (its placeholder links
+   * name them by their place in `files`), and takes it down (secret gists through `gh`; fakes in tests).
+   */
+  gists?: { create(html: string, description: string, files?: GistUpload[]): Promise<ShareLink>; remove(id: string): Promise<void> };
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
@@ -102,7 +121,7 @@ export function createApp({
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
-  gists = { create: shareToGist, remove: unshareGist },
+  gists = { create: (html, description, files) => shareToGist(html, description, undefined, files), remove: unshareGist },
 }: AppDeps): Hono {
   const app = new Hono();
 
@@ -628,46 +647,103 @@ export function createApp({
 
   // Share the conversation: the web app makes the page (what it shows, without tool calls and
   // thinking); it goes up to GitHub as a secret gist with the user's GitHub CLI, read on gistpreview.
-  // `upTo`: the agent reply it ends with (recorded, for the list in Settings).
+  // `upTo`: the agent reply it ends with (recorded, for the list in Settings). `files`: the links of
+  // the files to take along (each placeholder link on the page names one by its place here): the
+  // files go into a second secret gist, read only as the replies' download links would serve them.
   app.post('/api/conversations/:id/share', async (c) => {
     const conv = getConv(c.req.param('id'));
-    const b = await body<{ html?: unknown; upTo?: unknown }>(c);
+    const b = await body<{ html?: unknown; upTo?: unknown; files?: unknown }>(c);
     if (typeof b.html !== 'string' || !b.html.trim()) throw new HttpError(400, t().shareEmpty);
-    const bytes = Buffer.byteLength(b.html);
+    const refs = parseShareFileRefs(b.files);
+    const linked = fileLinksIn(b.html);
+    if (!refs || linked.some((n) => n >= refs.length)) throw new HttpError(400, t().shareBadFiles);
+    // Each link to a file grows to its address on GitHub.
+    const bytes = Buffer.byteLength(b.html) + fileLinkCount(b.html) * SHARE_FILE_URL_MAX;
     if (bytes > SHARE_MAX_BYTES) throw new HttpError(413, t().shareTooLarge((bytes / 1_000_000).toFixed(1)));
-    const reply = typeof b.upTo === 'string' ? conv.messages.find((m) => m.id === b.upTo) : undefined;
+    const upTo = typeof b.upTo === 'string' ? b.upTo : undefined;
+    const found = await findShareFiles(conv, linked.map((n) => refs[n]!), upTo);
+    const refused = found.find((f) => f.info.problem);
+    if (refused) {
+      const problem = refused.info.problem!;
+      const reason = problem === 'too-large' ? t().shareFileTooLarge(shareSize(SHARE_FILE_MAX_BYTES)) : t().shareFileProblem[problem];
+      throw new HttpError(409, t().shareFileRefused(refused.info.name, reason), SHARE_FILE_REFUSED);
+    }
+    if (found.length > SHARE_FILES_MAX) throw new HttpError(413, t().shareFilesTooMany(SHARE_FILES_MAX));
+    const total = found.reduce((sum, f) => sum + (f.info.size ?? 0), 0);
+    if (total > SHARE_FILES_MAX_BYTES) {
+      throw new HttpError(413, t().shareFilesTooLarge((total / 1_000_000).toFixed(1), shareSize(SHARE_FILES_MAX_BYTES)));
+    }
+    const names = gistFileNames(found.map((f) => f.info.name));
+    const files: GistUpload[] = found.map((f, i) => ({ name: names[i]!, content: f.text! }));
+    // The page's links name the request's files; the gist gets each file once.
+    const fileOf = new Map<number, number>();
+    found.forEach((f, i) => f.info.refs.forEach((r) => fileOf.set(linked[r]!, i)));
+    const html = replaceFileLinks(b.html, (n) => shareFileHref(fileOf.get(n)!));
+
+    const reply = upTo !== undefined ? conv.messages.find((m) => m.id === upTo) : undefined;
     const author = reply?.author;
     const agentName =
       author?.kind === 'agent' ? (reply!.agentName ?? conv.agents.find((a) => a.id === author.agentId)?.name ?? '') : undefined;
-    const link = await gistCall(() => gists.create(b.html as string, gistDescription(conv.title)));
-    const shared: SharedPage = {
+    const record = (link: ShareLink): SharedPage => ({
       ...link,
       conversationId: conv.id,
       title: conv.title,
       ...(reply && agentName !== undefined ? { upTo: { messageId: reply.id, agentName } } : {}),
       createdAt: Date.now(),
-    };
+      ...(files.length ? { files: files.length } : {}),
+    });
+    const link = await gistCall(
+      () => gists.create(html, gistDescription(conv.title), files),
+      // The files gist is on GitHub without a page: listed, so it can be removed in Settings.
+      (leftover) => store.addShare({ ...record(leftover), unfinished: true }),
+    );
+    const shared = record(link);
     store.addShare(shared);
     return c.json(shared);
   });
 
-  /** A gist call, its trouble reported to the user (gh missing, not signed in…). */
-  async function gistCall<T>(fn: () => Promise<T>): Promise<T> {
+  // The files the messages of a share (up to and including `upTo`, or all) link to, by the links
+  // given: each once, with its size, and why it cannot go along when it cannot.
+  app.post('/api/conversations/:id/share/files', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ files?: unknown; upTo?: unknown }>(c);
+    const refs = parseShareFileRefs(b.files);
+    if (!refs) throw new HttpError(400, t().shareBadFiles);
+    const found = await findShareFiles(conv, refs, typeof b.upTo === 'string' ? b.upTo : undefined);
+    return c.json({ files: found.map((f) => f.info) });
+  });
+
+  /** A gist call, its trouble reported to the user (gh missing, not signed in…), a gist it left behind to `leftover`. */
+  async function gistCall<T>(fn: () => Promise<T>, leftover?: (link: ShareLink) => void): Promise<T> {
     try {
       return await fn();
     } catch (err) {
+      if (err instanceof ShareError && err.leftover) leftover?.(err.leftover);
       if (err instanceof ShareError) throw new HttpError(502, err.message, err.code);
       throw err;
     }
   }
 
-  // The conversations shared so far, the newest first; removing one deletes its gist.
+  // The conversations shared so far, the newest first; removing one deletes its gists.
   app.get('/api/shares', (c) => c.json(store.listShares()));
 
+  // Both of a share's gists go: the files gist first, then the page's. The share is forgotten only once
+  // both are gone, so one that could not be deleted stays listed, to be removed again (a gist already
+  // gone counts as deleted then).
   app.delete('/api/shares/:id', async (c) => {
     const id = c.req.param('id');
-    if (!validGistId(id) || !store.getShare(id)) throw new HttpError(404, t().shareNotFound);
-    await gistCall(() => gists.remove(id));
+    const share = validGistId(id) ? store.getShare(id) : undefined;
+    if (!share) throw new HttpError(404, t().shareNotFound);
+    const files = share.filesGist && share.filesGist !== id && validGistId(share.filesGist) ? [share.filesGist] : [];
+    let failed: unknown;
+    for (const gist of [...files, id]) {
+      try {
+        await gists.remove(gist);
+      } catch (err) {
+        failed ??= err;
+      }
+    }
+    if (failed !== undefined) await gistCall(() => Promise.reject(failed));
     store.deleteShare(id);
     return c.json({ ok: true });
   });

@@ -3,7 +3,7 @@ import type { GH_MISSING, GH_SIGNED_OUT, SharedPage } from '../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { hashFor, sectionId } from '../route';
-import { ghProblem, shareScope } from '../share';
+import { filesGistUrl, ghProblem, shareScope } from '../share';
 import { GhHelp } from './GhHelp';
 import { SectionTitle } from './SectionTitle';
 
@@ -11,7 +11,8 @@ type Note = { text: string; error?: boolean };
 
 /**
  * The conversations shared as public links (secret gists), the newest first: open one to see what it
- * shows (or its gist on GitHub), and remove those that should go (their gists are deleted), one at a time or several at once.
+ * shows (or its gists on GitHub), and remove those that should go (their gists are deleted, the one
+ * with the files that went along too), one at a time or several at once.
  */
 export function SharesCard() {
   const { t, lang } = useI18n();
@@ -102,15 +103,41 @@ export function SharesCard() {
               <li key={s.id} className={`share-row ${selected.has(s.id) ? 'selected' : ''}`}>
                 <input type="checkbox" checked={selected.has(s.id)} disabled={busy} onChange={() => toggle(s.id)} aria-label={s.title} />
                 <div className="share-row-text">
-                  <a className="share-row-title" href={s.url} target="_blank" rel="noreferrer" title={s.url}>
-                    {s.title}
-                  </a>
-                  <span className="muted small">
-                    {shareScope(s, t)} · {when(s.createdAt)} ·{' '}
-                    {s.conversationGone ? l.chatGone : <a href={hashFor({ page: 'chat', id: s.conversationId })}>{l.openChat}</a>} ·{' '}
-                    <a href={s.gistUrl} target="_blank" rel="noreferrer" title={s.gistUrl}>
-                      {l.openGist}
+                  {/* An unfinished share has no page: only its files gist, on GitHub (if GitHub gave its address). */}
+                  {s.unfinished ? (
+                    s.gistUrl ? (
+                      <a className="share-row-title" href={s.gistUrl} target="_blank" rel="noreferrer" title={s.gistUrl}>
+                        {s.title}
+                      </a>
+                    ) : (
+                      <span className="share-row-title">{s.title}</span>
+                    )
+                  ) : (
+                    <a className="share-row-title" href={s.url} target="_blank" rel="noreferrer" title={s.url}>
+                      {s.title}
                     </a>
+                  )}
+                  {s.unfinished && <span className="small warn-text">{l.unfinished}</span>}
+                  <span className="muted small">
+                    {shareScope(s, t)} · {s.files ? `${l.files(s.files)} · ` : ''}
+                    {when(s.createdAt)} ·{' '}
+                    {s.conversationGone ? l.chatGone : <a href={hashFor({ page: 'chat', id: s.conversationId })}>{l.openChat}</a>}
+                    {s.gistUrl && (
+                      <>
+                        {' · '}
+                        <a href={s.gistUrl} target="_blank" rel="noreferrer" title={s.gistUrl}>
+                          {s.unfinished ? l.openFiles : l.openGist}
+                        </a>
+                      </>
+                    )}
+                    {s.filesGist && !s.unfinished && (
+                      <>
+                        {' · '}
+                        <a href={filesGistUrl(s.filesGist)} target="_blank" rel="noreferrer">
+                          {l.openFiles}
+                        </a>
+                      </>
+                    )}
                   </span>
                 </div>
                 <button type="button" className="ghost small-button danger" disabled={busy} onClick={() => void remove([s.id])}>

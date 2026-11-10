@@ -265,6 +265,14 @@ const MIGRATIONS: string[] = [
     created_at       INTEGER NOT NULL
   );
   `,
+  // 16: a share may take along files its replies link to (files: how many), in a second secret gist
+  // (files_gist: its id); a files gist left without its page, when neither the page nor deleting the
+  // files went through (unfinished), is listed to be removed.
+  `
+  ALTER TABLE shares ADD COLUMN files INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE shares ADD COLUMN files_gist TEXT;
+  ALTER TABLE shares ADD COLUMN unfinished INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 function migrate(db: Database): void {

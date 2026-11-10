@@ -74,6 +74,24 @@ const zhTW = {
   unshareNotOwner:
     '這個 gist 還在 GitHub 上，但不屬於 gh 目前登入的帳號，所以無法刪除。請用 gh auth switch 切回建立它的帳號，再移除一次。',
   shareNotFound: '找不到這個分享',
+  shareNoFileUrl: 'GitHub 沒有回傳上傳檔案的網址',
+  shareNotGithub: 'gist 不在 github.com 上，gistpreview 只能顯示 github.com 的 gist',
+  shareBadFiles: '要附上的檔案清單格式不對',
+  shareFileProblem: {
+    missing: '找不到這個檔案（或它是資料夾）',
+    outside: '它不在這個對話的資料夾裡（或在 .git 裡）',
+    binary: '它不是文字檔（gist 只能放文字）',
+    empty: '它是空的（GitHub 不收空的 gist 檔案）',
+  },
+  shareFileTooLarge: (mb: string) => `它超過 ${mb}`,
+  shareFileRefused: (name: string, reason: string) => `無法附上「${name}」：${reason}。請重新勾選要附上的檔案後再試一次。`,
+  shareFilesTooMany: (max: number) => `一次最多只能附上 ${max} 個檔案。`,
+  shareFilesTooLarge: (mb: string, max: string) => `要附上的檔案共 ${mb} MB，超過合計 ${max} 的上限。`,
+  shareFilesUndone: (detail: string) => `無法建立分享頁（${detail}），已經上傳的檔案也一併刪除了。請再試一次。`,
+  shareFilesLeftover: (detail: string) =>
+    `無法建立分享頁（${detail}），已經上傳的檔案也沒能刪除，還在 GitHub 上（一個只有檔案、沒有頁面的 secret gist）。請到「設定 → 分享的對話」移除它。`,
+  shareFilesUnknown: (detail: string, token: string) =>
+    `無法建立分享頁（${detail}），也無法確認附上的檔案是否已經上傳。如果 GitHub 上有說明含「${token}」的 gist，請用 gh gist list 找到並刪除它。`,
   messageNotFound: '找不到這則訊息',
   emptyMessage: '訊息不能是空的',
   typeFirst: '請先輸入訊息',
@@ -315,6 +333,24 @@ const en: ServerMessages = {
   unshareNotOwner:
     'The gist is still on GitHub, but it belongs to another account than the one gh is signed in to, so it could not be deleted. Switch back with gh auth switch, then remove it again.',
   shareNotFound: 'Share not found',
+  shareNoFileUrl: 'GitHub returned no address for the uploaded files',
+  shareNotGithub: 'the gist is not on github.com, the only place gistpreview can show gists from',
+  shareBadFiles: 'The list of files to include is not valid',
+  shareFileProblem: {
+    missing: 'it is not there (or it is a folder)',
+    outside: "it is outside this chat's folders (or in .git)",
+    binary: 'it is not a text file (a gist holds text only)',
+    empty: 'it is empty (GitHub takes no empty gist file)',
+  },
+  shareFileTooLarge: (mb) => `it is larger than ${mb}`,
+  shareFileRefused: (name, reason) => `Cannot include "${name}": ${reason}. Choose the files to include again, then try once more.`,
+  shareFilesTooMany: (max) => `At most ${max} files can be included.`,
+  shareFilesTooLarge: (mb, max) => `The files to include come to ${mb} MB, over the ${max} they may take in all.`,
+  shareFilesUndone: (detail) => `Could not make the shared page (${detail}), so the files uploaded for it were deleted again. Try once more.`,
+  shareFilesLeftover: (detail) =>
+    `Could not make the shared page (${detail}), and could not delete the files uploaded for it either: they are still on GitHub, in a secret gist without the page. Remove it under Settings → Shared conversations.`,
+  shareFilesUnknown: (detail, token) =>
+    `Could not make the shared page (${detail}), nor tell whether the files went up. If GitHub has a gist whose description holds "${token}", find it with gh gist list and delete it.`,
   messageNotFound: 'Message not found',
   emptyMessage: 'The message cannot be empty',
   typeFirst: 'Type a message first',

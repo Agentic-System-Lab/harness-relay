@@ -66,7 +66,8 @@ flowchart LR
 | `src/server/secrets.ts` | 存放 API key 的作業系統金鑰儲存區（`@napi-rs/keyring`）；系統沒有可用的儲存區時則為無 |
 | `src/server/db.ts` | 開啟 SQLite、套用 schema 遷移、交易輔助函式 |
 | `src/server/hub.ts` | 把每個對話的事件廣播給連線中的 SSE 用戶端 |
-| `src/server/share.ts` | 分享對話：介面做好的頁面透過使用者自己的 `gh` 上傳成 GitHub 上的 secret gist（`gh gist create`，在 gistpreview.github.io 閱讀），移除時用 `gh gist delete` 刪掉 |
+| `src/server/share.ts` | 分享對話：介面做好的頁面透過使用者自己的 `gh` 上傳成 GitHub 上的 secret gist（`gh gist create`，在 gistpreview.github.io 閱讀），回覆連結的文字檔放進另一個 secret gist（`gh api`），移除時兩個都用 `gh gist delete` 刪掉 |
+| `src/shared/share.ts` | 分享頁面上指向附檔的連結：介面寫入的佔位連結（`relay-share-file:<n>`，只認真正 `<a>` 標籤的 href），由伺服器換成檔案在 GitHub 上的網址；依分享上限的算法顯示大小 |
 | `src/shared/search.ts` | 搜尋對話：拆出搜尋的詞、找出符合的位置（不分大小寫）、第一個符合處附近的摘錄、標示關鍵字 |
 | `src/shared/mentions.ts` | 伺服器（判斷點名了誰）與介面（標示 @）共用的 `@` 規則：以 Markdown（GFM）解析訊息，只看一般文字，不含程式碼與連結文字 |
 | `src/shared/links.ts` | 沒有用 `<…>` 或 `[文字](…)` 包起來的網址在哪裡結束：GFM 只在空白處結束網址，所以直接接在後面的中文會被當成連結的一部分。`endBareUrls()` 也讓網址在中日韓或全形標點結束，以及在前面既不是另一個中日韓字、也不是 `/ ? # & = . - _ + (` 的中日韓字結束（所以 `/wiki/臺灣` 與 `?q=中文` 仍是連結），再像 GFM 一樣去掉結尾的標點；後面的文字中若還有網址，也會變成連結。介面的 Markdown 顯示與 `@` 規則都使用它，讓兩者對訊息的解讀一致 |
@@ -413,7 +414,7 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 | `presets`、`preset_agents` | 使用者儲存的團隊範本（內建範本寫在程式碼裡）；`preset_agents.tools` 同上 |
 | `provider_settings` | 每個 CLI 的執行檔路徑、預設模型、預設推理強度；只有在系統沒有金鑰儲存區時才存 API key |
 | `app_settings` | key/value 形式的應用程式設定（預設工作目錄、首席 agent、語音輸入、工具庫、各 CLI 自己的資料夾、AgentsView 網址） |
-| `shares` | 分享成 secret gist 的對話（gist id、對話、當時的標題、結束的那則回覆、頁面與 gist 的連結）；沒有外鍵，因為對話刪除後 gist 仍在（schema 第 15 版） |
+| `shares` | 分享成 secret gist 的對話（頁面 gist 的 id、對話、當時的標題、結束的那則回覆、頁面與 gist 的連結、附上了幾個檔案與放附檔的 gist 的 id、是否只上傳了放附檔的 gist）；沒有外鍵，因為對話刪除後 gist 仍在（schema 第 15 版；附檔為第 16 版） |
 
 使用中的對話會保留在記憶體中，因為協調器在串流時會直接修改它們。寫入是明確觸發的：使用者訊息、新的 agent 訊息、結束的回合與 session id 會立即寫入；串流中的變動則批次處理，每秒最多寫一次，而且只寫有變動的訊息。伺服器當機時留下的 `streaming` 訊息，會在下次啟動時標為 `aborted`。
 
@@ -492,7 +493,9 @@ sequenceDiagram
 
 **分享**（在上方，或在 agent 回覆下方分享到那則回覆為止的內容）會在瀏覽器裡做出一個 HTML 頁面（`src/web/sharePage.tsx`，不需要 DOM 的部分在 `src/web/share.ts`）：複製畫面上的聊天室（標題列，以及每則訊息，`MessageItem` 依序每則一個元素），但不含工具呼叫與思考過程（`SHARE_DROP`：動作列、待辦清單、權限請求、變更的檔案），也不含 app 的按鈕、輸入框與連回 app 的連結，以及標題列的標籤（模式與輪數、檔案權限、排程）和完全存取的警示。app 的樣式表整份放進一個 `<style>`。這台電腦上的圖片會畫成 data URL（WebP，或 JPEG），一步步縮小，還是放不下就從最大的開始不放，直到頁面小於 `SHARE_MAX_BYTES`（1 MB：gistpreview.github.io 透過 GitHub 的 API 讀取 gist，檔案內容超過 1 MB 會被截斷）；Mermaid 圖表本來就是 data URL。頁尾有一列 Harness Relay 的名稱與 logo、簡介，以及分享時間和它右邊的連結圖示；logo 與連結圖示都連到 Harness Relay 的網站（不顯示網址本身）。頁面自帶的 `Content-Security-Policy`（`default-src 'none'`，只允許內嵌樣式與 `data:` 圖片）讓它不執行任何腳本、不載入任何東西，被 gistpreview 寫進它自己的頁面時也一樣。
 
-`POST /api/conversations/:id/share` 會再檢查一次大小，然後執行 `gh gist create --filename index.html --desc … -`，頁面從 stdin 傳入（`src/server/share.ts`）：在使用者自己的 GitHub 帳號建立 secret gist。伺服器只保留一筆紀錄（`shares`：gist id、對話、當時的標題、結束的那則回覆、連結），**設定 → 分享的對話** 會列出它們；`DELETE /api/shares/:id` 執行 `gh gist delete <id> --yes`，然後刪掉紀錄。gh 對屬於另一個帳號的 gist（之後 gh 登入了別的帳號）也說「找不到或不是你的」，但它仍在網路上，所以只有 `gh api gists/<id>` 也找不到這個 gist 時才刪掉紀錄；否則請使用者切回原本的帳號。`gh` 會在 `PATH` 與 Homebrew 的資料夾中尋找。範圍內還有回覆在串流、有訊息正在編輯，或開啟對話框的那則回覆已經不在時，都不會建立連結（也絕不會改成分享整段對話）。沒有 `gh` 或沒有登入時，會用使用者的語言說明，並附上錯誤 `code`（`gh-missing`、`gh-signed-out`），介面依它列出處理步驟與連結（`GhHelp`），並且不留紀錄。
+**回覆連結的檔案。** 回覆裡指向這台電腦上檔案的連結是從伺服器下載（`FileLink`），放到分享頁面上就連不到任何地方；預設會變成純文字（保留連結本身的文字）。分享對話框會從畫面上的聊天室收集要分享的訊息裡每一個這樣的連結（`linkedFiles()`，交給純函式 `linkedFileRefs()`：頁面不會略去的 `a.file-link`，由 `fileRefOf()` 讀回是哪則回覆、哪個路徑），再用 `POST /api/conversations/:id/share/files` 詢問伺服器。伺服器（`src/server/share.ts` 的 `findShareFiles()`）完全照那則回覆的下載連結的方式找檔案（`resolveDownload` 加上 `mediaRoots`：工作目錄、該 agent 的 worktree 或附件，跟隨符號連結之後也一樣，絕不讀 `.git`，也不查詢這些資料夾以外的任何路徑），只看分享範圍內的回覆（`upTo` 指的訊息不存在時什麼都不看），每個檔案回答一次（指向同一個實際檔案的連結，不管是不同路徑、不同回覆或經由符號連結，都算一個），附上大小，或說明為什麼不能附上：`missing`（不存在，或是資料夾）、`outside`（不在對話的資料夾裡，或在 `.git` 裡，`downloadProblem()`）、`too-large`、`binary`（不是 UTF-8，或含有二進位檔的控制字元：GitHub 的 API 以 JSON 字串接收 gist 檔案的內容，`gh gist create` 也因此拒收二進位檔）或 `empty`（GitHub 不收空的 gist 檔案）。每個檔案最多讀 `SHARE_FILE_MAX_BYTES` + 1 個位元組，量過大小之後才變大的也一樣，檔案內容完全不會傳給客戶端。對話框用核取方塊列出這些檔案，並說明附上的檔案有連結的人都能下載。一開始會勾選上限內能附上的檔案，但檔名看起來可能含有機密的除外（像 `.env`、`.npmrc` 這類點開頭的檔案、`*.pem`、`*.key`、`id_rsa…`，或檔名含 secret、credential、password、token、API key：`looksSecret()`），這些會在那一列註明，留給使用者決定。要分享的回覆改變，或分享因某個檔案被拒絕時，會重新檢查檔案，之前看過的檔案保留使用者的選擇（`nextFileSelection()`，依路徑對應）。上限是 `SHARE_FILE_MAX_BYTES`（每個 1 MB：GitHub 的 API 給出 gist 檔案內容的上限）、`SHARE_FILES_MAX_BYTES`（合計 5 MB）與 `SHARE_FILES_MAX`（20 個）。頁面上（每個連結怎麼處理由 `anchorPlan()` 決定），要附上的檔案的連結會換成佔位連結（`href="relay-share-file:<n>"`，`src/shared/share.ts`，只認真正 `<a>` 標籤的 href，不會認聊天內容裡的文字），拿掉 `download`，並為它在 GitHub 上的網址預留 `SHARE_FILE_URL_MAX`（512 bytes）的空間，讓頁面仍在 1 MB 內；其他檔案的連結變成純文字。
+
+`POST /api/conversations/:id/share` 會再檢查一次大小，然後執行 `gh gist create --filename index.html --desc … -`，頁面從 stdin 傳入（`src/server/share.ts`）：在使用者自己的 GitHub 帳號建立 secret gist。附上檔案時（`files`：佔位連結指向的那些連結），伺服器會照上面的方式重新讀取它們，有檔案已經不能附上時拒絕這次分享（409，`share-file-refused`，對話框會重新檢查檔案），超過上限時也拒絕（413）；從客戶端來的路徑絕不會比下載連結能讀的範圍更多。接著檔案放進它們自己的 secret gist，頁面放進另一個。分開放是因為 gistpreview 讀取的 GitHub API 給出一個 gist 所有檔案的內容合計只有一定的量（實際測試約 900 KB），依檔名順序分配：那次測試裡，同一個 gist 中排在 `index.html` 前面的一個 950 KB 檔案用完了額度，頁面內容變成空的，gistpreview 就顯示一片空白。先用 `gh api gists --method POST` 從 stdin 讀入 JSON 建立放附檔的 gist（`--jq` 只印出 id、gist 的網址和每個檔案的 `raw_url`；GitHub 留下空格時會整理成合法網址），它的說明含有這次分享的代號（`relay-<16 個十六進位字元>`）。再用和沒有附檔時完全相同的方式建立頁面的 gist，佔位連結換成各檔案在 `gist.githubusercontent.com` 上的 `raw_url`（GitHub 在那裡把檔案原樣以文字提供）。每個檔案在它的 gist 裡只放一次，用它自己的檔名，不分大小寫重複時改成 `report.md`、`report-2.md`（檔名很長時截短主檔名讓出後綴的位置），也絕不會像 GitHub 自己取的 `gistfile1.txt`（`gistFileNames()`）。gistpreview.github.io 顯示的是頁面 gist 唯一的檔案 `index.html`（它的 `main.js` 有 `index.html` 就取它，否則取第一個檔案，並從 API 讀取 `files[name].content`）。頁面上傳失敗時，放附檔的 gist 會再被刪除並告知使用者；連刪除也失敗時，錯誤訊息會說檔案還在 GitHub 上（照原樣顯示，不會被 `gh` 沒登入的說明取代），並依 GitHub 給的網址把放附檔的 gist 記錄成沒有完成的分享，讓「設定」列出它以便移除。建立放附檔的 gist 時 `gh` 逾時，或沒印出可用的內容，伺服器會用代號在使用者最近的 gist 裡找它（`gh api 'gists?per_page=100'`）並刪除（刪不掉時同上列出）；連找都沒辦法時，錯誤訊息會說出代號。伺服器只保留每個分享的一筆紀錄（`shares`：頁面 gist 的 id、對話、當時的標題、結束的那則回覆、連結、附上了幾個檔案與它們的 gist id、是否沒有完成），**設定 → 分享的對話** 會列出它們，也附上放附檔的 gist 的連結；`DELETE /api/shares/:id` 先對放附檔的 gist、再對頁面的 gist 執行 `gh gist delete <id> --yes`，兩個都刪掉之後才刪掉紀錄：有一個刪不掉時，分享會留在列表上並顯示錯誤，可以再移除一次（這時已經不在的 gist 算是已刪除）。gh 對屬於另一個帳號的 gist（之後 gh 登入了別的帳號）也說「找不到或不是你的」，但它仍在網路上，所以只有 `gh api gists/<id>` 也找不到這個 gist 時才刪掉紀錄；否則請使用者切回原本的帳號。`gh` 會在 `PATH` 與 Homebrew 的資料夾中尋找。範圍內還有回覆在串流、有訊息正在編輯，或開啟對話框的那則回覆已經不在時，都不會建立連結（也絕不會改成分享整段對話）。沒有 `gh` 或沒有登入時，會用使用者的語言說明，並附上錯誤 `code`（`gh-missing`、`gh-signed-out`），介面依它列出處理步驟與連結（`GhHelp`），並且不留紀錄。
 
 ## 安全性
 
@@ -513,7 +516,7 @@ sequenceDiagram
 - 對話只會送到這台電腦上的 AgentsView：`validAgentsViewUrl` 只接受 `localhost`、`127.0.0.1` 或 `[::1]` 的 `http(s)` 網址，不能帶帳號密碼，並只儲存 origin；也不跟隨重新導向。介面連結打開的網址（`agentsViewLink`）可以是任何 http(s) 網址，因為不會有資料送過去；
 - 瀏覽檔案（以及把資料夾下載成 ZIP 檔）只會讀取工作目錄或成員 worktree 裡的內容（跟隨符號連結之後），絕不讀 `.git`（不分大小寫，因為在不分大小寫的檔案系統上 `.GIT` 會開到 `.git`；結尾多一個點或空白，或 Windows 的短檔名如 `GIT~1` 也一樣，在 Windows 上會再用系統自己的真實路徑檢查），圖片與影片的提供方式和媒體端點相同，其他檔案只以下載提供（見[瀏覽檔案](#瀏覽檔案)）；
 - 語音輸入的錄音不會離開這台電腦：語音引擎只聽 `127.0.0.1`，並藏在隨機路徑前綴之後；它下載的引擎與模型固定在某個版本或 commit，並檢查 SHA-256（見[語音輸入](#語音輸入)）。
-- 只有使用者在分享對話框中建立連結時，Harness Relay 才會把對話發布出去（各 CLI 仍照常把每一輪送到它們的模型服務），對話框會先說明它會去哪裡（使用者 GitHub 帳號上的 secret gist）；頁面不含工具呼叫與思考過程、圖片都包在頁面裡，並以自己的 `Content-Security-Policy` 禁止執行腳本；移除分享時只會把十六進位的 gist id 交給 `gh`。
+- 只有使用者在分享對話框中建立連結時，Harness Relay 才會把對話發布出去（各 CLI 仍照常把每一輪送到它們的模型服務），對話框會先說明它會去哪裡（使用者 GitHub 帳號上的 secret gist）；頁面不含工具呼叫與思考過程、圖片都包在頁面裡，並以自己的 `Content-Security-Policy` 禁止執行腳本。回覆連結的檔案只有在使用者於對話框中保持勾選時才會附上（對話框會說明有連結的人都能下載，看起來像機密的檔案一開始不勾選），而且只限該回覆的下載連結能提供的檔案，建立連結時由伺服器重新讀取；它們放在自己的 secret gist 裡，由 `gist.githubusercontent.com` 以文字提供，絕不會成為會執行的網頁。移除分享時只會把十六進位的 gist id 交給 `gh`，兩個 gist 都會刪除。
 
 這是單人使用的工具：沒有帳號驗證，任何能連到你 localhost 的程序都能使用它。
 

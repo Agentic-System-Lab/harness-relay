@@ -33,7 +33,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 
 ## Where things are
 
-- `src/shared/`: code shared by server and client. `types.ts` (all shared types, `PROVIDERS`), `mentions.ts` (the `@mention` rule, and `unknownMentions`), `links.ts` (where a bare URL ends, also before Chinese text written right after it), `ask.ts` (`[ASK_USER]`), `media.ts`, `schedule.ts` (a schedule's next times), `search.ts`.
+- `src/shared/`: code shared by server and client. `types.ts` (all shared types, `PROVIDERS`), `mentions.ts` (the `@mention` rule, and `unknownMentions`), `links.ts` (where a bare URL ends, also before Chinese text written right after it), `ask.ts` (`[ASK_USER]`), `media.ts`, `schedule.ts` (a schedule's next times), `search.ts`, `share.ts` (a shared page's placeholder links to the files that go along, in their own gist).
 - `src/server/app.ts`: routes, security middleware, SSE (`createApp()`, testable with `app.request()`).
 - `src/server/orchestrator.ts`: team runs: speakers by mode, prompt delivery, streaming into messages, auto team, the message queue, pausing for the user's answer, retry and resend.
 - `src/server/prompt.ts` and `planner.ts`: agent briefings and turn prompts; the auto-team lead agent's prompt and reply parsing.

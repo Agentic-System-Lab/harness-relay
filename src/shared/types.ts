@@ -457,11 +457,17 @@ export interface ZipCheck {
  */
 export const SHARE_MAX_BYTES = 1_000_000;
 
-/** Where a shared conversation can be read: the page (`url`, on gistpreview) and the gist (`id`) itself. */
+/**
+ * Where a shared conversation can be read: the page (`url`, on gistpreview) and its gist (`id`, and
+ * `gistUrl` on GitHub). `filesGist`: the id of the second secret gist that holds the files the page
+ * links to, when files went along (GitHub's API cuts a gist's content off in all, in name order, so a
+ * large file next to the page would leave gistpreview a blank page: the files are kept apart).
+ */
 export interface ShareLink {
   id: string;
   url: string;
   gistUrl: string;
+  filesGist?: string;
 }
 
 /** A conversation put on the web, as Harness Relay keeps track of it (Settings lists them to remove). */
@@ -474,7 +480,65 @@ export interface SharedPage extends ShareLink {
   createdAt: number;
   /** The conversation was deleted since (its page is still on the web). */
   conversationGone?: boolean;
+  /** How many files its replies link to went along, in the files gist (none: left out). */
+  files?: number;
+  /**
+   * The files went up but the page could not, and their gist could not be deleted either: `id` and
+   * `gistUrl` are then the files gist's (`url` is empty, `gistUrl` too when GitHub gave no address).
+   */
+  unfinished?: boolean;
 }
+
+/**
+ * A file a shared page links to: the reply whose link it is, and the path as that link has it (what
+ * the reply's `…/download?path=` would serve).
+ */
+export interface ShareFileRef {
+  messageId: string;
+  path: string;
+}
+
+/**
+ * Why a linked file cannot go along with a shared page: not there (or a folder), outside the chat's
+ * folders (or in `.git`), larger than SHARE_FILE_MAX_BYTES, not UTF-8 text (a gist holds text only),
+ * or empty (GitHub takes no empty gist file).
+ */
+export type ShareFileProblem = 'missing' | 'outside' | 'too-large' | 'binary' | 'empty';
+
+/** The error code of a share refused for a file that can no longer go along (it changed since it was checked). */
+export const SHARE_FILE_REFUSED = 'share-file-refused';
+
+/**
+ * A file the shared messages link to, as `POST …/share/files` found it: `refs` are the links (their
+ * places in the request) that point to it, `name` and `path` as the first of them has it. `size` when
+ * it is there; `problem` when it cannot go along.
+ */
+export interface ShareFileInfo {
+  name: string;
+  path: string;
+  size?: number;
+  problem?: ShareFileProblem;
+  refs: number[];
+}
+
+/**
+ * The largest file a shared page can take along, in bytes: what GitHub's API gives of a gist file
+ * (the rest of a larger one would be missing from the gist's own pages).
+ */
+export const SHARE_FILE_MAX_BYTES = 1_000_000;
+
+/** The most a shared page can take along in all, in bytes, and in files. */
+export const SHARE_FILES_MAX_BYTES = 5_000_000;
+export const SHARE_FILES_MAX = 20;
+
+/** The most file links one check (`POST …/share/files`) or share looks at. */
+export const SHARE_FILE_LINKS_MAX = 100;
+
+/**
+ * The room a link to a file in the gist may take on the page, in bytes: the page leaves this much for
+ * each one, so it still fits in SHARE_MAX_BYTES once the links point at GitHub.
+ */
+export const SHARE_FILE_URL_MAX = 512;
 
 export interface ConversationSettings {
   mode: Mode;

@@ -75,6 +75,36 @@ export function resolveDownload(ref: string, roots: string[]): string | undefine
 }
 
 /**
+ * Why `resolveDownload` gives no file for `ref`: 'outside' when it names a place outside every root
+ * (also by a symlink out of one) or in `.git`; 'missing' when nothing is there or it is a folder. Like
+ * resolveDownload, it looks nothing up outside the roots.
+ */
+export function downloadProblem(ref: string, roots: string[]): 'missing' | 'outside' {
+  if (!ref || ref.includes('\0')) return 'missing';
+  let within = false;
+  for (const root of roots) {
+    try {
+      const realRoot = realpathSync(root);
+      const target = resolve(realRoot, ref);
+      const base = inside(target, realRoot) ? realRoot : inside(target, resolve(root)) ? resolve(root) : undefined;
+      if (!base) continue;
+      if (inGit(target, base)) return 'outside';
+      within = true;
+      let real: string;
+      try {
+        real = realpathSync(target);
+      } catch {
+        continue; // not in this root
+      }
+      if (!inside(real, realRoot) || inGit(real, realRoot)) return 'outside';
+    } catch {
+      /* the root is gone */
+    }
+  }
+  return within ? 'missing' : 'outside';
+}
+
+/**
  * A Content-Disposition header for a file `name`: `inline` to show it, `attachment` to save it. The
  * name is percent-encoded as RFC 5987 asks (also ' ( ) *), with a plain-ASCII fallback for old clients.
  */

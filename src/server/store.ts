@@ -39,6 +39,9 @@ interface ShareRow {
   url: string;
   gist_url: string;
   created_at: number;
+  files: number;
+  files_gist: string | null;
+  unfinished: number;
   /** How many conversations have its conversation's id: 0 once it was deleted. */
   live: number;
 }
@@ -56,6 +59,9 @@ function shareFromRow(r: ShareRow): SharedPage {
     gistUrl: r.gist_url,
     createdAt: r.created_at,
     ...(r.live ? {} : { conversationGone: true }),
+    ...(r.files ? { files: r.files } : {}),
+    ...(r.files_gist ? { filesGist: r.files_gist } : {}),
+    ...(r.unfinished ? { unfinished: true } : {}),
   };
 }
 
@@ -876,10 +882,22 @@ export class Store {
   addShare(s: SharedPage): void {
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO shares (id, conversation_id, title, up_to_message_id, up_to_agent, url, gist_url, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO shares (id, conversation_id, title, up_to_message_id, up_to_agent, url, gist_url, created_at, files, files_gist, unfinished)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(s.id, s.conversationId, s.title, nul(s.upTo?.messageId), nul(s.upTo?.agentName), s.url, s.gistUrl, s.createdAt);
+      .run(
+        s.id,
+        s.conversationId,
+        s.title,
+        nul(s.upTo?.messageId),
+        nul(s.upTo?.agentName),
+        s.url,
+        s.gistUrl,
+        s.createdAt,
+        s.files ?? 0,
+        nul(s.filesGist),
+        s.unfinished ? 1 : 0,
+      );
   }
 
   /** Every share, the newest first. */
