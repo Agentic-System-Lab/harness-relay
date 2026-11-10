@@ -15,13 +15,13 @@ import {
   guardGrokProgram,
   readGrokProgram,
   restoreGrokProgram,
-  grokSettingWritten,
   guardGrokSettings,
   restoreGrokSettings,
   snapshotGrokSettings,
   grokSandboxProfile,
   withGrokProfile,
   writeGrokProfile,
+  writeGrokSetting,
   grokNativeEnv,
   grokPermissionDecision,
   type GrokToolCall,
@@ -591,10 +591,36 @@ describe("Harness Relay's own changes to Grok's settings", () => {
     try {
       writeFileSync(join(home, 'trusted_folders.toml'), '[old]\n');
       const end = guardGrokSettings(home);
-      writeFileSync(join(home, 'trusted_folders.toml'), '[old]\n[new]\n');
-      grokSettingWritten(home, 'trusted_folders.toml');
+      writeGrokSetting(home, 'trusted_folders.toml', () => {
+        writeFileSync(join(home, 'trusted_folders.toml'), '[old]\n[new]\n');
+        return '[old]\n[new]\n';
+      });
       expect(end()).toEqual([]);
       expect(readFileSync(join(home, 'trusted_folders.toml'), 'utf8')).toBe('[old]\n[new]\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("start from the settings as the running turns found them, and keep only what Harness Relay wrote", () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-trust-race-'));
+    const file = join(home, 'trusted_folders.toml');
+    try {
+      writeFileSync(file, '[old]\n');
+      const end = guardGrokSettings(home);
+      // A command of the turn trusts a folder of its own before the user trusts one.
+      writeFileSync(file, '[old]\n[agent]\n');
+      let found = '';
+      writeGrokSetting(home, 'trusted_folders.toml', () => {
+        found = readFileSync(file, 'utf8');
+        writeFileSync(file, `${found}[user]\n`);
+        return `${found}[user]\n`;
+      });
+      expect(found).toBe('[old]\n');
+      // And changes it again right after: put back to what Harness Relay wrote, and named.
+      writeFileSync(file, '[old]\n[user]\n[agent]\n');
+      expect(end()).toEqual(['trusted_folders.toml']);
+      expect(readFileSync(file, 'utf8')).toBe('[old]\n[user]\n');
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

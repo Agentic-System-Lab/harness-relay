@@ -1,4 +1,4 @@
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import type { FileChange } from '../shared/types';
@@ -14,7 +14,10 @@ import { t } from './i18n';
  * - per-agent worktrees for parallel mode, and applying an agent's result back.
  */
 
-const CONFIG = ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false'];
+// `protocol.allow=never`: these commands never need a remote, so none (ssh, ext::, a lazy fetch of a
+// partial clone's objects) can run a command that a repository's config names, also on a git older
+// than 2.44, which does not know `GIT_NO_LAZY_FETCH`.
+const CONFIG = ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'protocol.allow=never'];
 
 /** The keys of a repository's config that name a driver which runs a command (git then runs none when it is empty). */
 const DRIVER_KEYS: Record<string, string[]> = {
@@ -23,6 +26,9 @@ const DRIVER_KEYS: Record<string, string[]> = {
   merge: ['driver'],
 };
 
+/** How deep `repoDriverGuards` follows repositories inside repositories before it refuses. */
+const MAX_NESTED = 8;
+
 /**
  * `-c` settings that keep a repository's own config from making Harness Relay's git commands, which
  * run outside any sandbox, run a command. An agent's sandbox may let it write the repository's
@@ -30,10 +36,14 @@ const DRIVER_KEYS: Record<string, string[]> = {
  * a filter, diff or merge driver that `git add`, a checkout or a diff would run. Each driver the
  * repository's own settings name is emptied (its `fsmonitor` is off in `CONFIG`, its hooks too); the
  * user's own and the system's (git-lfs, say) are left as they are. A driver name git's `-c` cannot
- * carry (with `=`) refuses the command.
+ * carry (with `=`) refuses the command, and so does a `core.worktree` naming a folder other than the
+ * one that holds the repository (a snapshot would take that folder's files in, and applying write there).
+ * `nested` (for `git add`): also the drivers of the repositories at the index's submodules, which
+ * `git add` runs `git status` in, each with its own config (the `-c` settings reach it); an agent
+ * can write theirs, and in a worktree make one where a submodule's folder is empty.
  */
-export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv): Promise<string[]> {
-  const r = await capture('git', ['config', '-z', '--includes', '--show-scope', '--get-regexp', '^(filter|diff|merge)\\.'], env, {
+export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv, nested = false, depth = 0): Promise<string[]> {
+  const r = await capture('git', ['config', '-z', '--includes', '--show-scope', '--get-regexp', '^(filter|diff|merge)\\.|^core\\.worktree$'], env, {
     cwd,
     timeoutMs: 30_000,
   });
@@ -42,6 +52,7 @@ export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv): Pro
   if (r.code !== 0 && r.code !== 1) throw new GitError(t().gitFailed('config', tail(r.stderr || r.stdout, 500)));
   const out: string[] = [];
   const seen = new Set<string>();
+  let workTree = false;
   // `-z` with `--show-scope`: `<scope>\0<key>\n<value>\0` for each.
   const fields = r.stdout.split('\0');
   for (let i = 0; i + 1 < fields.length; i += 2) {
@@ -50,6 +61,10 @@ export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv): Pro
     if (scope !== 'local' && scope !== 'worktree') continue;
     const nl = entry.indexOf('\n');
     const key = nl < 0 ? entry : entry.slice(0, nl);
+    if (key === 'core.worktree') {
+      workTree = true;
+      continue;
+    }
     const section = key.slice(0, key.indexOf('.')).toLowerCase();
     const name = key.slice(key.indexOf('.') + 1, key.lastIndexOf('.'));
     const vars = DRIVER_KEYS[section];
@@ -58,6 +73,47 @@ export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv): Pro
     seen.add(`${section}.${name}`);
     for (const v of vars) out.push('-c', `${section}.${name}.${v}=`);
     if (section === 'filter') out.push('-c', `filter.${name}.required=false`);
+  }
+  if (workTree) await ownWorkTree(cwd, env);
+  if (!nested) return out;
+  for (const sub of await submoduleRepos(cwd, env)) {
+    if (depth >= MAX_NESTED) throw new GitError(t().gitFailed('add', `repositories nested deeper than ${MAX_NESTED}`));
+    // As git runs `git status` there: `cd <sub>; unset GIT_INDEX_FILE; GIT_DIR=.git`.
+    const subEnv: NodeJS.ProcessEnv = { ...env, GIT_DIR: '.git' };
+    delete subEnv.GIT_INDEX_FILE;
+    out.push(...(await repoDriverGuards(sub, subEnv, true, depth + 1)));
+  }
+  return out;
+}
+
+/** Refuses a repository whose `core.worktree` is not the folder holding its `.git` (a submodule's points back through its `.git` file). */
+async function ownWorkTree(cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
+  const r = await capture('git', [...CONFIG, 'rev-parse', '--absolute-git-dir', '--show-toplevel'], env, { cwd, timeoutMs: 30_000 });
+  const [gitDir, top] = r.stdout.split('\n');
+  let ok = false;
+  try {
+    const dotGit = join(top!, '.git');
+    const held = statSync(dotGit).isDirectory() ? dotGit : resolve(top!, /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1] ?? '\0');
+    ok = r.code === 0 && realpathSync(held) === realpathSync(gitDir!);
+  } catch {
+    // no `.git` there, or none that leads back: refused below
+  }
+  if (!ok) throw new GitError(t().gitFailed('config', `core.worktree "${top ?? ''}" is not the repository's own folder`));
+}
+
+/** The folders of the submodules (gitlinks) in `cwd`'s index that hold a repository (a `.git`). */
+async function submoduleRepos(cwd: string, env: NodeJS.ProcessEnv): Promise<string[]> {
+  // `:/` lists the whole index, as `git add -A` takes it, with paths relative to `cwd`. Reading the
+  // index would start its fsmonitor: `CONFIG` turns it off.
+  const r = await capture('git', [...CONFIG, 'ls-files', '-z', '--stage', '--', ':/'], env, { cwd, timeoutMs: 120_000, maxCapture: MAX_OUTPUT_BYTES });
+  if (r.code !== 0) return []; // not a repository: `git add` fails by itself
+  if (r.stdoutTruncated) throw new GitError(t().outputTooLarge('ls-files'));
+  const out: string[] = [];
+  // `<mode> <object> <stage>\t<path>\0`; a submodule's mode is 160000.
+  for (const entry of r.stdout.split('\0')) {
+    if (!entry.startsWith('160000 ')) continue;
+    const sub = resolve(cwd, entry.slice(entry.indexOf('\t') + 1));
+    if (existsSync(join(sub, '.git'))) out.push(sub);
   }
   return out;
 }
@@ -95,9 +151,12 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
   delete env.GIT_DIR; // never inherit a repository from the server's own environment
   delete env.GIT_WORK_TREE;
   if (!o.env?.GIT_INDEX_FILE) delete env.GIT_INDEX_FILE;
+  // Never fetch an object that is missing: a partial clone's remote, which the repository's config
+  // names, would be reached through a command it names too (`core.sshCommand`, say).
+  env.GIT_NO_LAZY_FETCH = '1';
   // What the repository's own config would have git run is off (`repoDriverGuards`); a diff runs
   // no external diff or textconv either.
-  const guards = existsSync(cwd) ? await repoDriverGuards(cwd, env) : [];
+  const guards = existsSync(cwd) ? await repoDriverGuards(cwd, env, args[0] === 'add') : [];
   const safe = args[0] === 'diff' ? ['diff', '--no-ext-diff', '--no-textconv', ...args.slice(1)] : args;
   const r = await capture('git', [...CONFIG, ...guards, ...safe], env, {
     cwd,

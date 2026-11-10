@@ -454,19 +454,17 @@ export function restoreGrokSettings(before: GrokSettingsSnapshot, home = before.
 }
 
 /**
- * Harness Relay itself wrote one of Grok's settings (its trust store, when the user trusts a folder):
- * the sandboxed turns now running take it as it is now, rather than putting it back.
+ * Harness Relay itself writes one of Grok's settings (its trust store, when the user trusts a folder).
+ * With sandboxed turns running, what their commands changed is put back first (and named when they
+ * end), so `write` starts from the settings as those turns found them; they then take what `write`
+ * returns it wrote (null: none, else a file only its owner reads), not what is there afterwards,
+ * which a command may have changed again.
  */
-export function grokSettingWritten(home: string, name: string): void {
+export function writeGrokSetting(home: string, name: string, write: () => string | null): void {
   const guard = grokGuards.get(realPath(home));
-  if (!guard) return;
-  let entry: GrokEntry | undefined;
-  try {
-    entry = grokEntry(join(home, name));
-  } catch {
-    entry = undefined;
-  }
-  guard.snapshot.entries.set(name, entry ?? { kind: 'other', type: UNREADABLE });
+  if (guard) guard.found.push(...restoreGrokSettings(guard.snapshot, home));
+  const content = write();
+  guard?.snapshot.entries.set(name, content === null ? { kind: 'none' } : { kind: 'file', content: Buffer.from(content), mode: 0o600 });
 }
 
 /** The settings each Grok home had before the first of its sandboxed turns now running started. */

@@ -4,7 +4,28 @@
 
 Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` 和 `grok` CLI，沙箱由各 CLI 自己提供，或者沒有。這一頁說明 Harness Relay 目前哪些執行用了沙箱、各沙箱能在哪些平台上運作、在那裡需要什麼前提、無法啟動時會怎樣，以及它管不到哪些事。
 
-以 Claude Code 2.1.322、Codex 0.167.0 與 Grok 1.0.77 於 2026 年 11 月 10 日確認。這一頁說「試過」的地方都是在 Mac 上試的；其他內容（包括所有 Linux 與 Windows 的部分）都來自各 CLI 自己的文件（見[資料來源](#資料來源)）。這些 CLI 變動很快，要依賴某個細節之前請再確認一次。
+於 2026 年 11 月 10 日確認。實際試過什麼、在哪些系統上、用哪些版本，見[已測試的範圍](#已測試的範圍)：一台 Mac（macOS 26.6）與一台 NVIDIA DGX Spark（Ubuntu 24.04，aarch64）。其他內容，包括所有 Windows 與 WSL 的部分，都來自各 CLI 自己的文件（見[資料來源](#資料來源)）。這些 CLI 變動很快，要依賴某個細節之前請再確認一次。
+
+## 已測試的範圍
+
+在兩台機器上、於 2026 年 11 月 10 日，透過 Harness Relay 自己的 adapter 執行真正的 CLI（各在一個暫存的 git 資料夾中；檢查它們的回覆、工具列與檔案），另外還有單元測試（`npm test`，兩台都通過）：
+
+| | Mac | NVIDIA DGX Spark |
+| --- | --- | --- |
+| 系統 | macOS 26.6.2，arm64 | Ubuntu 24.04.5 LTS，aarch64，kernel 7.0.0-1019-nvidia（AppArmor 限制 unprivileged user namespace） |
+| 沙箱 | Seatbelt | bubblewrap 0.9.0 與 socat 1.8.0，加上[在 Linux 上](#在-linux-上)中給 `/usr/bin/bwrap` 的 AppArmor 設定檔（沒有它時，三者都拒絕在沙箱中執行） |
+| CLI | Claude Code 2.1.322、Codex 0.167.0、Grok 1.0.77 | Claude Code 2.1.321、Codex 0.167.0、Grok 1.0.77 |
+| git | 2.50.1 | 2.43.0 |
+
+每個 CLI 在唯讀與可編輯模式下、在兩台機器上被要求做的事：寫入工作目錄、寫入家目錄、連到 example.com、列出某個瀏覽器的資料夾、用 shell 讀取 `data/relay.db`（Claude Code 與 Grok 也用它們自己的檔案工具讀）。除了離開沙箱與連到主機以外，核准請求都允許。
+
+| | Mac | DGX Spark |
+| --- | --- | --- |
+| Claude Code | 寫入工作目錄（唯讀模式下允許之後）；家目錄以沙箱外執行的形式詢問，沒有寫入；example.com 會詢問，之後被擋；Firefox 的資料夾與資料庫被拒絕（`Operation not permitted`），它的 Read 工具也被拒絕，含空格的路徑也一樣 | 相同；Chrome 的資料夾顯示為空（bubblewrap 蓋住了它），資料庫被拒絕（`Permission denied`） |
+| Codex | 只在可編輯模式寫入工作目錄；家目錄與 example.com 被拒絕；Firefox 的資料夾與資料庫被拒絕 | 它的設定檔無法載入（見上文）：使用舊的沙箱；只在可編輯模式寫入工作目錄，家目錄與 example.com 被拒絕，但讀得到 Chrome 的資料夾與資料庫 |
+| Grok | 寫入工作目錄；家目錄被拒絕；連得到 example.com（macOS）；Firefox 的資料夾與資料庫被拒絕，它的檔案工具也被拒絕；`~/.grok/downloads` 與 `~/.grok/bin` 被拒絕；在 `~/.grok/config.toml` 後面附加內容被 Grok 拒絕 | 寫入工作目錄；家目錄被拒絕；連得到 example.com；Chrome 的資料夾與資料庫被拒絕（`Permission denied`） |
+
+另外在 Mac 上試過：Grok 的指令寫得到 `.git/config`（`git config core.fsmonitor …`），而 Harness Relay 自己的 git 不會執行它；Claude Code 與 Codex 的沙箱擋下 `127.0.0.1`，Grok 的則連得到，而 Harness Relay 的 API 對沒有登入的程式回應 401。沒有試過：原生 Windows、WSL、容器、其他 Linux 發行版、其他版本的 CLI。
 
 ## 什麼是作業系統沙箱
 
@@ -40,12 +61,12 @@ Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` �
 各 CLI 的做法：
 
 - **Claude Code**：`sandbox.filesystem.denyRead` 與 `denyWrite`，以及給它自己的檔案工具（在它的沙箱之外）的 `Read` 拒絕規則。這一輪的 `--settings` 也設定 `filesystem.disabled: false`，勝過關閉檔案隔離的使用者設定。`allowRead`／`allowWrite` 清單會跨設定檔相加，所以當你自己的 Claude Code 設定（它資料夾中的 `settings.json`）或電腦上的受管理設定（`managed-settings.json` 與 `managed-settings.d`）允許的路徑碰到受保護的路徑時，執行不會開始，相對路徑的項目從該設定檔所在的資料夾算起；訊息會指出要移除的項目。（Claude Code 本身（2.1.322）會忽略專案設定中、會打開這一輪 `--settings` 所禁止路徑的 `allowRead` 項目。）
-- **Codex**：thread 的 `harness-relay-…` 權限設定檔中，每個路徑一個 `deny` 項目（Windows 除外，它舊的沙箱無法在任何地方禁止讀取）。它的名稱每次執行都不同：Codex 會把它其他設定檔（例如已信任專案的 `.codex/config.toml`）中同名的設定檔合併進來，而那裡更具體的項目（對被禁止的資料夾內的某個資料夾設 `read`）會讓這個路徑重新可讀（用 `codex sandbox` 試過）。
-- **Grok**：它的自訂設定檔 `harness-relay` 的 `deny` 清單。Harness Relay 在每次執行前把它寫進 Grok 自己資料夾（`~/.grok`，或各 CLI 自己的資料夾中的 `grok`）的 `sandbox.toml`，放在 `# >>> harness-relay` 與 `# <<< harness-relay` 之間，檔案的其餘部分保持原樣。Grok 無法套用自訂設定檔時會拒絕啟動；在 Linux 上，它的 `deny` 清單需要 bubblewrap。Grok 的 `workspace` 讓它的指令能寫入整個 Grok 資料夾，而它自己的程式就在那裡（`downloads`、`bin`）：清單也禁止這些，以及 Harness Relay 啟動的程式所在的資料夾。Grok 在沙箱套用後才讀取那裡的設定（Harness Relay 區塊以外的 `sandbox.toml`、`config.toml`、`managed_config.toml`、`requirements.toml`、`trusted_folders.toml`、`permission.toml`、`hooks-paths`），所以無法禁止：Harness Relay 會在每一輪前讀取它們（連結就當作連結；空檔案視同沒有，因為它們不存在時 Grok 的沙箱會建立空的檔案），這一輪改動了其中之一時，就把改動後的版本移到旁邊（`….changed-<時間>`，以改名的方式，不跟著連結走）、把它改回原樣，並讓這一輪失敗並說明；`skills` 資料夾被改動時同樣會回報，但不會改回。同時執行的 Grok 各輪共用第一輪開始前的設定，後開始的一輪會先把另一輪的指令改動的地方改回。在這樣的一輪中，Grok 自己或你對這些檔案做的改動，也會同樣被改回。（Grok 設定檔的 `read_only` 是授予讀取，並不會禁止寫入。）
+- **Codex**：thread 的 `harness-relay-…` 權限設定檔中，每個路徑一個 `deny` 項目（Windows 除外，它舊的沙箱無法在任何地方禁止讀取）。它的名稱每次執行都不同：Codex 會把它其他設定檔（例如已信任專案的 `.codex/config.toml`）中同名的設定檔合併進來，而那裡更具體的項目（對被禁止的資料夾內的某個資料夾設 `read`）會讓這個路徑重新可讀（用 `codex sandbox` 試過）。DGX Spark 上的 Codex 0.167 無法使用自訂的設定檔：thread 可以開始，但每一輪送出請求時都會失敗（`failed to load workspace requirements: invalid input parameter`；Codex 內建的 `:workspace` 則可以）。遇到這種情況的執行會改用 Codex 舊的沙箱模式重跑，並在伺服器這次執行期間都這樣做：寫入與網路的限制和以前一樣，但沒有禁止清單，所以在那裡 Codex 的指令讀得到瀏覽器的資料夾與資料庫（它們仍然連不到網路，包括 Harness Relay 的 API）。
+- **Grok**：它的自訂設定檔 `harness-relay` 的 `deny` 清單。Harness Relay 在每次執行前把它寫進 Grok 自己資料夾（`~/.grok`，或各 CLI 自己的資料夾中的 `grok`）的 `sandbox.toml`，放在 `# >>> harness-relay` 與 `# <<< harness-relay` 之間，檔案的其餘部分保持原樣。Grok 無法套用自訂設定檔時會拒絕啟動；在 Linux 上，它的 `deny` 清單需要 bubblewrap。Grok 的 `workspace` 讓它的指令能寫入整個 Grok 資料夾，而它自己的程式就在那裡（`downloads`、`bin`）：清單也禁止這些，以及 Harness Relay 啟動的程式所在的資料夾。Grok 在沙箱套用後才讀取那裡的設定（Harness Relay 區塊以外的 `sandbox.toml`、`config.toml`、`managed_config.toml`、`requirements.toml`、`trusted_folders.toml`、`permission.toml`、`hooks-paths`），所以無法禁止：Harness Relay 會在每一輪前讀取它們（連結就當作連結；空檔案視同沒有，因為它們不存在時 Grok 的沙箱會建立空的檔案），這一輪改動了其中之一時，就把改動後的版本移到旁邊（`….changed-<時間>`，以改名的方式，不跟著連結走）、把它改回原樣，並讓這一輪失敗並說明；`skills` 資料夾被改動時同樣會回報，但不會改回。同時執行的 Grok 各輪共用第一輪開始前的設定，後開始的一輪會先把另一輪的指令改動的地方改回。在這樣的一輪中，Grok 自己或你對這些檔案做的改動，也會同樣被改回。在這樣的一輪中於 Harness Relay 信任資料夾時，會先把這一輪的指令改動的地方改回，再把信任記錄到這一輪開始時的信任紀錄中，這一輪會保留它。（Grok 設定檔的 `read_only` 是授予讀取，並不會禁止寫入。）在 Linux 上，Grok 會透過 bubblewrap 再執行一次自己的程式來啟動沙箱，所以被禁止的程式根本無法啟動（試過）：在那裡它的程式不禁止，改為檢查：`~/.grok/bin` 中的連結與程式檔案，並在 `data/tmp` 保留一份副本；被改動時，會在另一個沙箱中的一輪啟動它之前、以及每一輪之後，從副本改回原樣，並讓那一輪失敗。
 
 在 Mac 上以可編輯模式對每個 CLI 都試過：用 shell 列出 `~/Library/Application Support/Firefox`、讀取 `data/relay.db` 都以 `Operation not permitted` 失敗，用 Claude Code 的 Read 工具或 Grok 的檔案工具讀取資料庫會被拒絕，而在工作目錄中寫入可以。Claude Code 的 Read 工具讀取 Firefox 資料夾中的檔案（含空格的路徑）也會被拒絕。Grok 的指令無法寫入 `~/.grok/downloads`，也無法改名 `~/.grok/bin`（在這之前可以），在 `~/.grok/config.toml` 後面附加內容則被 Grok 自己拒絕；它的 sessions 仍可寫入。
 
-它涵蓋不到的：資料夾不在清單上的瀏覽器（新的、可攜版，或用 `--user-data-dir` 放在別處的 Chrome）；使用者允許在沙箱外執行的指令；CLI 在沙箱外執行的東西，例如 Claude Code 的 hooks 與本機 MCP 伺服器（見[沙箱管不到的事](#沙箱管不到的事)）；專案自己的 Claude Code 設定（`.claude/settings.json`、`.claude/settings.local.json`），可編輯模式下其他 agent 能寫入它們，而下一輪 Claude Code 會採用其中的 hooks、`sandbox.excludedCommands` 與 `network.allowUnixSockets`；Grok 在它資料夾中自己維護的 plugin 資料夾（`marketplace-cache`、`installed-plugins`、`bundles`、`bundled`），它的指令能為之後完全存取的執行改動它們；某個指令在它那一輪結束後還留著執行的行程對 Grok 設定所做的改動，下一輪會照它看到的樣子接受；完全存取；原生 Windows。名稱含 `*`、`?` 或 `[` 的受保護路徑，沙箱會把它當成樣式，因此完全存取以外的執行會拒絕開始，並指出是哪一個。
+它涵蓋不到的：無法使用自訂設定檔的 Codex（見上文）；資料夾不在清單上的瀏覽器（新的、可攜版，或用 `--user-data-dir` 放在別處的 Chrome）；使用者允許在沙箱外執行的指令；CLI 在沙箱外執行的東西，例如 Claude Code 的 hooks 與本機 MCP 伺服器（見[沙箱管不到的事](#沙箱管不到的事)）；專案自己的 Claude Code 設定（`.claude/settings.json`、`.claude/settings.local.json`），可編輯模式下其他 agent 能寫入它們，而下一輪 Claude Code 會採用其中的 hooks、`sandbox.excludedCommands` 與 `network.allowUnixSockets`；Grok 在它資料夾中自己維護的 plugin 資料夾（`marketplace-cache`、`installed-plugins`、`bundles`、`bundled`），它的指令能為之後完全存取的執行改動它們；某個指令在它那一輪結束後還留著執行的行程對 Grok 設定所做的改動，下一輪會照它看到的樣子接受；完全存取；原生 Windows。名稱含 `*`、`?` 或 `[` 的受保護路徑，沙箱會把它當成樣式，因此完全存取以外的執行會拒絕開始，並指出是哪一個。
 
 工作目錄包含 Harness Relay 本身（它的資料夾或資料資料夾；平行模式的 worktree 位於資料資料夾內，不受影響），或決定 agent 怎麼執行的地方時，也會拒絕可編輯模式：你的家目錄（裡面的專案不受影響）、CLI 自己的資料夾（`~/.claude`、`~/.claude.json`、`~/.codex`、`~/.grok`，或它們的環境變數指定的位置）、Harness Relay 給各 CLI 的資料夾，或 CLI 程式所在的資料夾；包含它或位於它之內都算。agent 在那裡不經詢問就能修改檔案，也就能改動 Harness Relay 的程式碼、CLI 的設定或程式，或你的 shell 設定。對話在建立、排程或改成這樣時會被拒絕（在建立不存在的資料夾之前），每一輪開始時也會。唯讀模式在那裡仍可使用，因為它寫入前會詢問（Codex 則完全不能寫）。要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。
 
@@ -311,7 +332,7 @@ Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原
 - **Harness Relay 自己的 API。** Grok 的沙箱讓指令連得到 localhost（在 Mac 上試過：可編輯模式下，Grok 執行的 `curl http://127.0.0.1:…` 得到了回應），但 Harness Relay 在 `127.0.0.1:8787` 的 API 只接受已登入的瀏覽器：沒有瀏覽器 cookie 與金鑰的程式會收到 401（用 `curl` 試過），所以這類指令無法開始一輪執行（它擋不住的見[架構 → 登入](architecture.zh-TW.md#登入)）。同樣的測試中，Claude Code 與 Codex 的沙箱都擋下了 localhost。
 - **Claude Code 自己的工具。** 它的沙箱只涵蓋 Bash 指令及它們啟動的行程，不包括它的 Read、Edit、Write、WebFetch、WebSearch 工具（這些由它的權限規則管）、hooks、本機的 MCP 伺服器（包括工具庫的）和 LSP 伺服器。
 - **寫到工作目錄與暫存資料夾以外會失敗**，包括套件快取（`~/.npm`、pip、cargo、Go 的 build cache）。如果網路也關閉，安裝相依套件就會失敗。
-- **Git。** Codex 的 `workspace-write` 把 `.git` 設為唯讀：`git add` 與 `git commit` 會以 `.git/index.lock: Operation not permitted` 失敗（在 Mac 上試過）。Claude Code 不讓指令寫入 `.git/config` 與 `.git/hooks`。平行模式下，worktree 的 git 資料放在主 repository 的 `.git/worktrees/<name>`，在工作目錄之外。Harness Relay 的快照和 worktree 結果的 commit 都由伺服器在沙箱外執行，所以不受影響。Grok 的沙箱讓指令能寫入 `.git/config`、`.git/info` 與 `.git/hooks`（在 Mac 上試過：`git config core.fsmonitor …` 可以執行），所以 Harness Relay 自己在沙箱外執行的 git 指令，絕不執行 repository 自己的設定所指定的東西：它的 hooks 與 fsmonitor 都關閉，它的設定（或其包含的檔案）定義的每個 filter、diff 與 merge driver 都被清空，diff 也不執行外部 diff 或 textconv（`repoDriverGuards()`）。使用者自己的 driver，例如 `~/.gitconfig` 中 git-lfs 的，仍會執行。
+- **Git。** Codex 的 `workspace-write` 把 `.git` 設為唯讀：`git add` 與 `git commit` 會以 `.git/index.lock: Operation not permitted` 失敗（在 Mac 上試過）。Claude Code 不讓指令寫入 `.git/config` 與 `.git/hooks`。平行模式下，worktree 的 git 資料放在主 repository 的 `.git/worktrees/<name>`，在工作目錄之外。Harness Relay 的快照和 worktree 結果的 commit 都由伺服器在沙箱外執行，所以不受影響。Grok 的沙箱讓指令能寫入 `.git/config`、`.git/info` 與 `.git/hooks`（在 Mac 上試過：`git config core.fsmonitor …` 可以執行），所以 Harness Relay 自己在沙箱外執行的 git 指令，絕不執行 repository 自己的設定所指定的東西：它的 hooks 與 fsmonitor 都關閉，它的設定（或其包含的檔案）定義的每個 filter、diff 與 merge driver 都被清空，diff 也不執行外部 diff 或 textconv（`repoDriverGuards()`）。它的 submodule 所在的 repository 也一樣，因為 `git add` 會在其中執行 `git status`：agent 能寫入它們的設定，在 worktree 中也能在 submodule 的空資料夾裡建立一個。git 不會抓取缺少的物件（`GIT_NO_LAZY_FETCH`，git 2.44 以上），因為 partial clone 的遠端要透過設定所指定的指令連線；`core.worktree` 指向 repository 自己以外的資料夾時會拒絕，因為快照會把那個資料夾的檔案收進來，套用時也會寫到那裡。使用者自己的 driver，例如 `~/.gitconfig` 中 git-lfs 的，仍會執行。
 - **在沙箱中常會壞掉的工具**（來自 Claude Code 的文件）：Docker 與 ssh-agent（Unix socket）、走 SSH 的 git 與 `open`、`osascript`（在 macOS 上）、watchman（請用 `jest --no-watchman`）、Linux 上的 Chromium（會啟動它的 Playwright 沒有試過）。
 - **核准能做的事。** 在沙箱中，詢問使用者的意思變成詢問某個指令能不能離開沙箱：
   - Claude Code：模型可能會帶著 `dangerouslyDisableSandbox` 在沙箱外再執行一次指令（`sandbox.allowUnsandboxedCommands: false` 會拿掉這個出口）。這種重試，以及連到不在網路允許清單上的主機，在 `manual` 與 `acceptEdits` 中會詢問，在 `dontAsk` 中會被拒絕。在非互動的 `-p` 執行中，它們以 `can_use_tool` 請求送來（在 Mac 上試過）：主機以 `SandboxNetworkAccess` 送來，Harness Relay 把它顯示成讀取那個主機的網頁；Claude Code 因為某個沙箱無法寫入的路徑（`blocked_path`）而詢問的指令，就算允許了在沙箱中也會失敗，所以使用者允許時 Harness Relay 會讓它在沙箱外執行，卡片也會註明。設定為拒絕時，`acceptEdits` 仍會送來主機的請求，由 Harness Relay 拒絕。

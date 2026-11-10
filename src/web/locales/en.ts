@@ -1055,7 +1055,7 @@ export const en: Messages = {
       },
       {
         title: 'Check that each agent is signed in',
-        body: 'Harness Relay runs the CLIs on your computer. The lights at the bottom left show each agent\'s status; "Settings & sign-in" is where you sign in and set API keys and default models.',
+        body: 'Harness Relay runs the CLIs on your computer. The lights at the bottom left show each agent\'s status; "Settings & sign-in" is where you sign in and set API keys and default models. It takes only browsers you signed in: to use it from your phone, get a code in Settings → Signed-in browsers.',
       },
       {
         title: 'Start a new chat',
@@ -1115,6 +1115,8 @@ export const en: Messages = {
           'Read-only: read files, analyse, look things up on the web',
           'Edit: change files in the working directory, run tests and builds',
           'Full access: run any command without asking',
+          "Below full access, each agent's commands run in its CLI's sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data (on native Windows only Codex has one)",
+          "Edit mode is refused in your home folder and in Harness Relay's own folder: choose a project's folder",
           'Each turn lists the files it changed, with a diff; in parallel mode you choose whose result to apply',
         ],
       },

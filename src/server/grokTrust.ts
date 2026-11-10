@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { grokSettingWritten } from './agents/grok';
+import { writeGrokSetting } from './agents/grok';
 import { t } from './i18n';
 
 /*
@@ -66,10 +66,15 @@ function writeStore(file: string, text: string): void {
 export function trustGrokFolder(folder: string, env: NodeJS.ProcessEnv, now = Date.now()): string | null {
   const file = storeFile(env);
   try {
-    const existing = existsSync(file) ? readFileSync(file, 'utf8') : null;
-    writeStore(file, withTrustedFolder(existing ?? '', folder, Math.floor(now / 1000)));
-    // Grok turns running now check its settings when they end: this change is Harness Relay's own.
-    grokSettingWritten(grokHome(env), 'trusted_folders.toml');
+    let existing: string | null = null;
+    // Grok turns running now check its settings when they end: this change is Harness Relay's own,
+    // made to the store as they found it, not as their commands may have changed it.
+    writeGrokSetting(grokHome(env), 'trusted_folders.toml', () => {
+      existing = existsSync(file) ? readFileSync(file, 'utf8') : null;
+      const text = withTrustedFolder(existing ?? '', folder, Math.floor(now / 1000));
+      writeStore(file, text);
+      return text;
+    });
     return existing;
   } catch (err) {
     throw new Error(t().grokTrustFailed((err as Error).message));
@@ -79,7 +84,9 @@ export function trustGrokFolder(folder: string, env: NodeJS.ProcessEnv, now = Da
 /** Puts back the trust store as `trustGrokFolder` found it (null: there was none). */
 export function restoreGrokTrust(previous: string | null, env: NodeJS.ProcessEnv): void {
   const file = storeFile(env);
-  if (previous === null) rmSync(file, { force: true });
-  else writeStore(file, previous);
-  grokSettingWritten(grokHome(env), 'trusted_folders.toml');
+  writeGrokSetting(grokHome(env), 'trusted_folders.toml', () => {
+    if (previous === null) rmSync(file, { force: true });
+    else writeStore(file, previous);
+    return previous;
+  });
 }

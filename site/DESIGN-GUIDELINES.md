@@ -89,7 +89,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 6 | Teams (`#teams`) | A team for every question: the lead agent picks it, you design the templates; the five built-in templates |
 | 7 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray |
 | 8 | Also in every chat (`#more`) | The remaining features as a two-column list |
-| 9 | Safety (`#safety`) | Local-only facts and the permission table |
+| 9 | Safety (`#safety`) | Local-only facts (sign-in, the agents' sandboxes) and the permission table, with a link to the sandboxing doc |
 | 10 | Quick start (`#start`) | One row per step (title left, content right): requirements, commands, first steps, then (optional) opening it on a phone through `tailscale serve`; then links to the docs |
 
 Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numbers, gradient text, stat counters.

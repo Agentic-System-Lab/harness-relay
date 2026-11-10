@@ -252,8 +252,8 @@ flowchart LR
 
 | Relay 權限 | Claude Code | Codex | Grok（ACP） |
 | --- | --- | --- | --- |
-| 唯讀 | `--permission-mode manual`（拒絕時：`dontAsk`）、`--allowedTools WebFetch WebSearch`、`--disallowedTools Edit MultiEdit Write NotebookEdit`：讀檔與上網直接執行，沒有修改檔案的工具，其他都要詢問；另有它的沙箱（見下文） | 由 `:read-only` 延伸的權限設定檔 `harness-relay-…`（每次執行換一個名稱；Windows 上：沙箱 `read-only`）、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式（`_meta.yoloMode: false`）：讀網頁直接執行，其他都要詢問 |
-| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問；另有它的沙箱（見下文） | 由 `:workspace` 延伸、不能連網的權限設定檔 `harness-relay-…`（Windows 上：沙箱 `workspace-write` 加上 `sandbox_workspace_write.network_access = false`）；兩者都不受 `~/.codex/config.toml` 影響；核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`、`gh release`……，由 `commands.ts` 判斷）要詢問，其他都直接執行 |
+| 唯讀 | `--permission-mode manual`（拒絕時：`dontAsk`）、`--allowedTools WebFetch WebSearch`、`--disallowedTools Edit MultiEdit Write NotebookEdit`：讀檔與上網直接執行，沒有修改檔案的工具，其他都要詢問；另有它的沙箱（見下文） | 由 `:read-only` 延伸的權限設定檔 `harness-relay-…`（每次執行換一個名稱；Windows 上，或 Codex 無法載入自訂設定檔時，例如 Linux 上的 Codex 0.167：沙箱 `read-only`）、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式（`_meta.yoloMode: false`）：讀網頁直接執行，其他都要詢問 |
+| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問；另有它的沙箱（見下文） | 由 `:workspace` 延伸、不能連網的權限設定檔 `harness-relay-…`（Windows 上，或 Codex 無法載入自訂設定檔時：沙箱 `workspace-write` 加上 `sandbox_workspace_write.network_access = false`）；兩者都不受 `~/.codex/config.toml` 影響；核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`、`gh release`……，由 `commands.ts` 判斷）要詢問，其他都直接執行 |
 | 完全存取 | `--permission-mode bypassPermissions` | 沙箱 `danger-full-access`、核准政策 `never` | 全部自動核准（`_meta.yoloMode: true`） |
 
 - **Claude Code** 把每個請求以 `can_use_tool` 控制請求送出，並等待我們的控制回應（允許，或拒絕並附上模型看得到的訊息）。對話設定為拒絕時，不會指定 permission prompt tool，由 Claude Code 自己拒絕這類呼叫。Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍然有效；唯讀模式會移除修改檔案的工具，所以這類規則無法讓它們執行。
@@ -263,7 +263,7 @@ flowchart LR
 - **Grok** 透過 ACP 執行，因為非互動的 `grok -p` 無法詢問：需要詢問的呼叫會被回報為「User cancelled」並**結束整輪**。改用 ACP 後，請求會送到 adapter。拒絕（使用者拒絕或自動拒絕）時回覆 `reject_once` 並附上 `_meta.followup_message`，Grok 會把它當成給模型的回饋，而不是取消這一輪。
   - session 的模式一律明確指定，所以使用者在 `~/.grok/config.toml` 設的 `[ui] permission_mode = "always-approve"` 不會放寬唯讀或可編輯。
   - Grok 內建的唯讀工具與指令（包含單純的 `mkdir`／`touch`）仍會直接執行、不經詢問。
-  - 兩者都使用 Grok 的自訂設定檔 `harness-relay`（`workspace` 加上受保護的路徑，見[各平台的作業系統沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)），Harness Relay 會在每次執行前把它寫進 Grok 自己資料夾的 `sandbox.toml`；它也禁止 Grok 自己的程式，而 Grok 的設定在被某一輪改動後會改回原樣。唯讀模式不使用 Grok 的 `read-only`：後者在某些機器上無法啟動（例如 `/var/run/docker.sock` 是 symlink 時），而且設定檔一旦套用就無法撤除，使用者允許的寫入在它之下會失敗。兩者使用同一個設定檔，權限在兩者之間切換後 session 也能續用（Grok 會拒絕以不同的設定檔續用 session；續用失敗的那一輪會開始新的 session）。所以唯讀模式下，專案的檔案仍靠詢問保護，和以前一樣；沙箱則保護工作目錄、`~/.grok` 與暫存資料夾以外的一切；在 macOS 上它擋不了網路。
+  - 兩者都使用 Grok 的自訂設定檔 `harness-relay`（`workspace` 加上受保護的路徑，見[各平台的作業系統沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)），Harness Relay 會在每次執行前把它寫進 Grok 自己資料夾的 `sandbox.toml`；它也禁止 Grok 自己的程式（在 Linux 上，Grok 會透過 bubblewrap 再執行一次它，所以改為檢查並改回原樣），而 Grok 的設定在被某一輪改動後會改回原樣。唯讀模式不使用 Grok 的 `read-only`：後者在某些機器上無法啟動（例如 `/var/run/docker.sock` 是 symlink 時），而且設定檔一旦套用就無法撤除，使用者允許的寫入在它之下會失敗。兩者使用同一個設定檔，權限在兩者之間切換後 session 也能續用（Grok 會拒絕以不同的設定檔續用 session；續用失敗的那一輪會開始新的 session）。所以唯讀模式下，專案的檔案仍靠詢問保護，和以前一樣；沙箱則保護工作目錄、`~/.grok` 與暫存資料夾以外的一切；在 macOS 上它擋不了網路。
   - Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原因；但 Grok 的文件說，無法套用的內建設定檔也可能只顯示警告，然後在沒有沙箱的情況下執行（見[各平台的作業系統沙箱](sandboxing.zh-TW.md#沙箱無法啟動時)）。
 
 被拒絕或失敗的呼叫會保留原因（`tool_end.error`，存在 `message_parts.tool_error`），這一輪會繼續進行。
@@ -374,7 +374,7 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 **唯讀**權限時，agent 直接在工作目錄（`cwd`）執行，不做其他處理。**可編輯**或**完全存取**時，Harness Relay 用 git 避免 agent 互相覆蓋，並記錄每個人改了什麼（`src/server/workspace.ts`）：
 
 - **自動建立 repository**：若 `cwd` 不在任何 git repository 中，Harness Relay 會在該處執行 `git init`，並把常見的產生物資料夾（`node_modules/`、`.venv/`、`target/`……）加進 `.git/info/exclude`。在家目錄、檔案系統或磁碟區的根目錄（`/Volumes/<名稱>`），或家目錄的上層資料夾則會拒絕這麼做；若既有的 repository 以家目錄或檔案系統根目錄為根目錄（例如 dotfiles repository）也會拒絕，因為每一輪都得替整個資料夾做快照。絕不會 commit 到使用者的分支。
-- **快照**：快照是把目前工作目錄（已追蹤與未追蹤的檔案，遵守 `.gitignore`）做成的一個 commit，透過暫時的 index 建立（`git add -A`、`write-tree`、`commit-tree`）。Harness Relay 執行的每個 git 指令（`workspace.ts` 的 `git()`）都不執行 repository 自己的設定所指定、可能是 agent 寫入的東西：hooks 與 fsmonitor 關閉，repository 自己的 filter、diff 與 merge driver 被清空，也不用外部 diff 或 textconv（`repoDriverGuards()`；見[各平台的作業系統沙箱](sandboxing.zh-TW.md#沙箱管不到的事)）。不會移動 `HEAD`、不會動到 index，也不會修改任何檔案。聊天訊息連結的 commit（它的 `base` 與 `head`）會保留在 `refs/harness-relay/<對話>/` 底下，`git gc` 不會清掉；刪除對話時會一併移除這些 ref。
+- **快照**：快照是把目前工作目錄（已追蹤與未追蹤的檔案，遵守 `.gitignore`）做成的一個 commit，透過暫時的 index 建立（`git add -A`、`write-tree`、`commit-tree`）。Harness Relay 執行的每個 git 指令（`workspace.ts` 的 `git()`）都不執行 repository 自己的設定所指定、可能是 agent 寫入的東西：hooks 與 fsmonitor 關閉，repository 自己與其 submodule 所在 repository 的 filter、diff 與 merge driver 被清空，不用外部 diff 或 textconv，不抓取缺少的物件，`core.worktree` 指向其他資料夾時拒絕（`repoDriverGuards()`；見[各平台的作業系統沙箱](sandboxing.zh-TW.md#沙箱管不到的事)）。不會移動 `HEAD`、不會動到 index，也不會修改任何檔案。聊天訊息連結的 commit（它的 `base` 與 `head`）會保留在 `refs/harness-relay/<對話>/` 底下，`git gc` 不會清掉；刪除對話時會一併移除這些 ref。
 
 | 模式 | agent 寫在哪裡 | 如何記錄修改 |
 | --- | --- | --- |

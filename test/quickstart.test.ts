@@ -37,7 +37,8 @@ describe('commands people copy', () => {
         const lines = block.replace(/<span class="prompt">\$ <\/span>/g, '').split('\n');
         expect(lines, `${page} #${id}`).toEqual(commands);
       }
-      expect(html, page).toContain('<b>http://127.0.0.1:8787</b>');
+      // The first visit opens the sign-in link the server prints, on the built app's address.
+      expect(html, page).toContain('<b>http://127.0.0.1:8787/#code=…</b>');
       expect(html.match(/npm run dev/g), page).toHaveLength(1);
     }
   });
