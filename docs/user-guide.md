@@ -24,7 +24,7 @@ To use Harness Relay from your phone, a tablet or another computer, share it wit
 
 Instead of `npm start` in a terminal, you can install Harness Relay as a desktop app on macOS (13 Ventura or later, Apple Silicon or Intel), Windows 10 or later, or Linux with a desktop. It runs the same server in the background and shows the chat in a window of its own, signed in, with no address bar. Closing the window leaves the server running, with an icon in the menu bar or the system tray, so the chat works on your phone as before. Like `npm start`, it needs the agent CLIs, and Git for edit and parallel modes; it does not need Node.js.
 
-**Install it.** Download the installer for your system from [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases). For now they are all release candidates (versions ending in `-rc`, see [Versions](#versions)).
+**Install it.** Download the installer for your system from the [website](https://agentic-system-lab.github.io/harness-relay/), which offers the newest stable release, or from [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases), which also has the release candidates (versions ending in `-rc`, see [Versions](#versions)). For now there are only release candidates, so the website's buttons lead to Releases.
 
 - **macOS**: `Harness-Relay-<version>-mac-universal.dmg` (one app for Apple Silicon and Intel). Open it and drag Harness Relay to Applications.
 - **Windows**: `Harness-Relay-<version>-win-x64.exe`. It installs for your user only, without administrator rights.
@@ -135,7 +135,7 @@ Harness Relay keeps the Claude Code and Grok keys in your system's credential st
 
 ### Default model and reasoning effort
 
-Under **Default model and reasoning effort** choose what an agent uses when its own model/effort is left on *Default*. Leaving these on **CLI default** uses the CLI's own configuration (for example `~/.codex/config.toml`). The same section lets you set a custom **Executable** path if the CLI is not on your `PATH`.
+Under **Default model and reasoning effort** choose what an agent uses when its own model/effort is left on *Default*. Leaving these on **CLI default** uses the CLI's own configuration (for example `~/.codex/config.toml`). The same section lets you set a custom **Executable** path if the CLI is not on your `PATH`. A card whose CLI is not found says so, with a link to install it from its website ([Claude Code](https://claude.com/product/claude-code), [Codex](https://openai.com/codex/), [Grok](https://x.ai/build)).
 
 ### Lead agent
 
@@ -476,7 +476,7 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | Symptom | What to try |
 | --- | --- |
 | Agent shows *Not signed in* | Sign in from Settings & sign-in, or set an API key. Then click **Check again**. |
-| *Command not found* | Install the CLI, or set **Executable** under the provider's **Default model and reasoning effort** section in Settings. |
+| *Command not found* | Install the CLI (its card in Settings links to its website), or set **Executable** under the provider's **Default model and reasoning effort** section in Settings. |
 | A reply ends with an error box | Read the message: it is the CLI's own error (rate limits, auth, invalid model…). Fix it and press **Continue** or resend. |
 | Auto team always keeps the current team, or falls back to the General-question panel | The card says why. Check that the lead agent's CLI is signed in (Settings → Lead agent), or pick another lead agent. |
 | Agent seems to have forgotten the conversation | If its CLI session could not be resumed, Harness Relay automatically starts a fresh session with the full history; this is expected after changing the working directory or the agent's CLI. |

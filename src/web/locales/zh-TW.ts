@@ -1015,6 +1015,7 @@ export const zhTW = {
     },
     cliMissing: (bin: string) => `找不到 ${bin}`,
     setBinBelow: '（可在下方「預設模型與推理強度」指定執行檔路徑）',
+    installCli: (p: string) => `到官網安裝 ${p}`,
     login: '登入',
     relogin: '重新登入',
     logout: '登出',

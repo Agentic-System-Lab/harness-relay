@@ -7,7 +7,6 @@ export interface Installer {
 }
 export interface NewestRelease {
   tag: string;
-  prerelease: boolean;
   installers: Partial<Record<'mac' | 'win' | 'linux', Installer>>;
 }
 export const REPO: string;
@@ -15,6 +14,7 @@ export const RELEASES_PAGE: string;
 export const INSTALLERS: Record<'mac' | 'win' | 'linux', string>;
 export function systemOf(o?: { userAgent?: string; platform?: string; uaPlatform?: string; maxTouchPoints?: number }): System;
 export function installersOf(release: unknown): NewestRelease['installers'];
+export function isCandidate(tag: unknown, prerelease?: unknown): boolean;
 export function newestRelease(releases: unknown): NewestRelease | null;
 export function sizeLabel(bytes: number | undefined): string;
 export const DOWNLOAD_PREFIX: string;

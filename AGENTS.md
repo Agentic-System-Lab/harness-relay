@@ -65,7 +65,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and 
 - `src/web/`: the React client. `components/`, `locales/` (`zh-TW.ts`, `en.ts`), `chat.ts` (ChatView's pure logic), `copy.ts`, `api.ts`, `public/` (the web app manifest and home-screen icons, written by `npm run icons`; don't edit them by hand).
 - `test/`: Vitest tests, roughly one file per module.
 - `data/`: runtime data (`relay.db`, worktrees). Git-ignored; never commit it.
-- `site/`: the landing page on GitHub Pages (static HTML, `index.html` and `zh-TW/index.html`), published by `.github/workflows/pages.yml`. Follow `site/DESIGN-GUIDELINES.md` when you change it, and change both languages together. `site/assets/downloads.js` points the download buttons at the newest release's installers (tested in `test/site-downloads.test.ts`); keep its file name endings in step with the Release workflow's installer names.
+- `site/`: the landing page on GitHub Pages (static HTML, `index.html` and `zh-TW/index.html`), published by `.github/workflows/pages.yml`. Follow `site/DESIGN-GUIDELINES.md` when you change it, and change both languages together. `site/assets/downloads.js` points the download buttons at the newest stable release's installers (never a release candidate) (tested in `test/site-downloads.test.ts`); keep its file name endings in step with the Release workflow's installer names.
 
 ## Rules
 

@@ -1008,6 +1008,7 @@ export const en: Messages = {
     },
     cliMissing: (bin) => `${bin} not found`,
     setBinBelow: ' (set the executable path under "Default model and reasoning effort" below)',
+    installCli: (p) => `Install ${p} from its website`,
     login: 'Sign in',
     relogin: 'Sign in again',
     logout: 'Sign out',

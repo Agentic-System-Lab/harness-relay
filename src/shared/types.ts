@@ -22,6 +22,13 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   grok: 'Grok',
 };
 
+/** Where each CLI is installed from: Settings links to it when the CLI is not found. */
+export const PROVIDER_INSTALL_URL: Record<Provider, string> = {
+  claude: 'https://claude.com/product/claude-code',
+  codex: 'https://openai.com/codex/',
+  grok: 'https://x.ai/build',
+};
+
 /** UI languages. The server localizes its messages from the `X-Relay-Lang` request header. */
 export type Lang = 'zh-TW' | 'en';
 export const LANGS: Lang[] = ['zh-TW', 'en'];

@@ -24,7 +24,7 @@ npm start
 
 除了在終端機執行 `npm start`，也可以把 Harness Relay 安裝成桌面 app，支援 macOS（13 Ventura 以上，Apple Silicon 或 Intel）、Windows 10 以上，以及有桌面環境的 Linux。它在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列或系統匣留著一個圖示，所以手機照常能用。跟 `npm start` 一樣，它需要 agent 的 CLI，編輯與平行模式也需要 Git；但不需要 Node.js。
 
-**安裝。** 到 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) 下載你系統的安裝檔。目前都是候選版本（版本結尾是 `-rc`，見[版本](#版本)）。
+**安裝。** 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)（提供最新的正式版本）或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases)（也有候選版本，版本結尾是 `-rc`，見[版本](#版本)）下載你系統的安裝檔。目前只有候選版本，所以網站的按鈕會帶你到 Releases。
 
 - **macOS**：`Harness-Relay-<版本>-mac-universal.dmg`（Apple Silicon 與 Intel 通用）。打開後把 Harness Relay 拖到「應用程式」。
 - **Windows**：`Harness-Relay-<版本>-win-x64.exe`。只安裝給你的帳號，不需要系統管理員權限。
@@ -135,7 +135,7 @@ Claude Code 與 Grok 的金鑰由 Harness Relay 存放在系統的金鑰儲存�
 
 ### 預設模型與推理強度
 
-在 **預設模型與推理強度** 區塊，設定成員的模型 / 推理強度選「預設」時要用什麼。若這裡也維持 **CLI 預設**，就交給 CLI 自己的設定（例如 `~/.codex/config.toml`）。同一區塊也能指定 **執行檔** 路徑，用於 CLI 不在 `PATH` 中的情況。
+在 **預設模型與推理強度** 區塊，設定成員的模型 / 推理強度選「預設」時要用什麼。若這裡也維持 **CLI 預設**，就交給 CLI 自己的設定（例如 `~/.codex/config.toml`）。同一區塊也能指定 **執行檔** 路徑，用於 CLI 不在 `PATH` 中的情況。找不到 CLI 時，該卡片會說明，並附上到官網安裝的連結（[Claude Code](https://claude.com/product/claude-code)、[Codex](https://openai.com/codex/)、[Grok](https://x.ai/build)）。
 
 ### 首席 agent
 
@@ -476,7 +476,7 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 | 狀況 | 處理方式 |
 | --- | --- |
 | agent 顯示「未登入」 | 到設定與登入頁登入，或設定 API key，然後按 **重新檢查狀態**。 |
-| 「找不到指令」 | 安裝該 CLI，或在設定頁該 provider 的「預設模型與推理強度」區塊中指定 **執行檔** 路徑。 |
+| 「找不到指令」 | 安裝該 CLI（設定頁的卡片附有官網連結），或在設定頁該 provider 的「預設模型與推理強度」區塊中指定 **執行檔** 路徑。 |
 | 回覆最後出現錯誤框 | 閱讀訊息內容：那是 CLI 自己的錯誤（用量限制、登入、無效模型……）。修正後按 **繼續** 或重新送出。 |
 | 自動組隊總是沿用目前的團隊，或改用「一般問題智囊團」 | 卡片上會說明原因。確認首席 agent 的 CLI 已登入（設定與登入 → 首席 agent），或改選其他首席 agent。 |
 | agent 好像忘了之前的對話 | 若 CLI session 無法接續，Harness Relay 會自動開新 session 並提供完整紀錄；更換工作目錄或 agent 的 CLI 後屬於正常現象。 |

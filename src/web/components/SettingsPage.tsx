@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   LANGS,
   PROVIDERS,
+  PROVIDER_INSTALL_URL,
   PROVIDER_LABEL,
   inheritedEffort,
   type LeadAgentSettings,
@@ -394,18 +395,27 @@ function ProviderCard({
         <span className="provider-swatch" />
         <SectionTitle section={provider}>{PROVIDER_LABEL[provider]}</SectionTitle>
         <span className={`pill ${pill.cls}`}>{pill.text}</span>
-        <span className="muted small">
-          {status?.version && `v${status.version}`}
-          {status?.auth.account && ` · ${status.auth.account}`}
-          {status?.auth.method && ` · ${status.auth.method}`}
-          {status?.auth.detail && ` · ${status.auth.detail}`}
-        </span>
+        {/* Login details; a CLI that is not installed is explained once, in the line below. */}
+        {status?.installed && (
+          <span className="muted small">
+            {status.version && `v${status.version}`}
+            {status.auth.account && ` · ${status.auth.account}`}
+            {status.auth.method && ` · ${status.auth.method}`}
+            {status.auth.detail && ` · ${status.auth.detail}`}
+          </span>
+        )}
       </header>
 
       {status && !status.installed && (
         <p className="warn-line">
-          {status.auth.detail ?? t.settings.cliMissing(status.bin)}
-          {t.settings.setBinBelow}
+          <span>
+            {status.auth.detail ?? t.settings.cliMissing(status.bin)}
+            {t.settings.setBinBelow}
+          </span>
+          {/* The CLI's own page (the desktop app's window opens it in the default browser). */}
+          <a href={PROVIDER_INSTALL_URL[provider]} target="_blank" rel="noopener noreferrer">
+            {t.settings.installCli(PROVIDER_LABEL[provider])} ↗
+          </a>
         </p>
       )}
 
