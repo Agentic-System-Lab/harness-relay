@@ -2,8 +2,9 @@ name: Release
 
 # Run by hand: Actions → Release → Run workflow, from main, with today's version (see
 # docs/developer-guide.md, "Releasing"). It checks the version (scripts/release.ts) and the code,
-# builds the desktop app's installers on macOS, Windows and Linux, and publishes the three as one
-# GitHub release, tagged with the version. A release candidate is published as a pre-release.
+# builds the desktop app's installers on macOS, Windows and Linux (x64, and Arm64 on GitHub's Arm
+# runners), and publishes the five as one GitHub release, tagged with the version. A release
+# candidate is published as a pre-release.
 on:
   workflow_dispatch:
     inputs:
@@ -78,9 +79,18 @@ jobs:
           - name: Windows
             os: windows-latest
             target: --win nsis --x64
+          # Built on an Arm runner, so that npm installs the keyring module's native part for Arm
+          # (@napi-rs/keyring-win32-arm64-msvc) and the packaged app's own check runs natively.
+          - name: Windows Arm64
+            os: windows-11-arm
+            target: --win nsis --arm64
           - name: Linux
             os: ubuntu-latest
             target: --linux AppImage --x64
+          # The same for Linux on Arm (@napi-rs/keyring-linux-arm64-gnu).
+          - name: Linux Arm64
+            os: ubuntu-24.04-arm
+            target: --linux AppImage --arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
@@ -148,7 +158,9 @@ jobs:
       - name: Check the packaged app (Linux, on a virtual display)
         if: runner.os == 'Linux'
         run: |
-          command -v xvfb-run >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q xvfb; }
+          # A virtual display and Electron's own libraries: GitHub's x64 image has them, its Arm image not all.
+          missing=$(for p in xvfb libnss3 libgtk-3-0t64 libgbm1 libasound2t64; do dpkg -s "$p" >/dev/null 2>&1 || echo "$p"; done)
+          if [ -n "$missing" ]; then sudo apt-get update -q && sudo apt-get install -y -q $missing; fi
           xvfb-run -a npx tsx desktop/scripts/check-package.ts
 
       - uses: actions/upload-artifact@v7
@@ -189,16 +201,25 @@ jobs:
           path: installers
           merge-multiple: true
 
-      - name: Expect one installer per system
+      # The ends of the installers' names are the ones the website and the app's updates look for
+      # (INSTALLERS in site/assets/downloads.js).
+      - name: Expect one installer per system and processor
         run: |
           ls -l installers
-          for ext in dmg exe AppImage; do
-            count=$(find installers -maxdepth 1 -name "*.$ext" | wc -l)
+          ends=$(node --input-type=module -e "import { INSTALLERS } from './site/assets/downloads.js'; console.log(Object.values(INSTALLERS).join('\n'))")
+          total=0
+          for end in $ends; do
+            count=$(find installers -maxdepth 1 -name "*$end" | wc -l)
             if [ "$count" -ne 1 ]; then
-              echo "::error::Expected one .$ext installer, found $count."
+              echo "::error::Expected one installer ending in $end, found $count."
               exit 1
             fi
+            total=$((total + 1))
           done
+          if [ "$(find installers -maxdepth 1 -type f | wc -l)" -ne "$total" ]; then
+            echo "::error::Expected $total installers, found others too."
+            exit 1
+          fi
 
       - name: Publish
         env:
@@ -216,6 +237,6 @@ jobs:
           fi
           notes="$kind
 
-          **Download:** \`.dmg\` for macOS 13 or later (Apple Silicon and Intel), \`.exe\` for Windows 10 or later (x64), \`.AppImage\` for Linux (x64). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. A Harness Relay already installed offers this release in its menu (**Update to …**) and updates itself. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
+          **Download:** \`.dmg\` for macOS 13 or later (Apple Silicon and Intel), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. A Harness Relay already installed offers this release in its menu (**Update to …**) and updates itself. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
           # The tag is made on the commit that was checked and built.
           gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes "$notes" --generate-notes "${channel[@]}"

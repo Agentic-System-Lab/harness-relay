@@ -1690,6 +1690,78 @@ describe('concurrent requests', () => {
   });
 });
 
+describe('conversations with agents at work (what an update of the desktop app waits for)', () => {
+  it('counts each conversation replying, but not one waiting for the answer to its question', async () => {
+    expect(orchestrator.busy()).toBe(0);
+    const asks = conversation({ mode: 'roundtable', permission: 'read-only' });
+    asking = new Set(['Alice']);
+    await orchestrator.send(asks.id, 'question');
+    await finish(asks.id);
+    expect(asks.pause).toBeDefined();
+    expect(orchestrator.busy()).toBe(0);
+    asking = new Set();
+
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    const one = conversation({ mode: 'roundtable', permission: 'read-only' });
+    const two = conversation({ mode: 'parallel', permission: 'read-only' });
+    // Counted from the moment its run is being set up.
+    const sending = orchestrator.send(one.id, 'go');
+    expect(orchestrator.busy()).toBe(1);
+    await sending;
+    await orchestrator.send(two.id, 'go');
+    expect(orchestrator.busy()).toBe(2);
+    release();
+    await finish(one.id);
+    await finish(two.id);
+    expect(orchestrator.busy()).toBe(0);
+  });
+
+  it('counts the lead agent changing a team or sorting a conversation, a change being made to it, and a branch being made', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+
+    reviseGate = new Promise(() => {});
+    const left = new AbortController();
+    const revising = orchestrator.reviseTeam(conv.id, { request: 'add a tester', agents: conv.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 5 } }, left.signal);
+    await vi.waitFor(() => expect(orchestrator.busy()).toBe(1));
+    left.abort();
+    await expect(revising).rejects.toMatchObject({ status: 409 });
+    expect(orchestrator.busy()).toBe(0);
+
+    store.createGroup({ id: 'g1', name: 'Docs' });
+    let sorted!: () => void;
+    sorterGate = new Promise((r) => (sorted = r));
+    const fresh = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(fresh.id, 'go');
+    await finish(fresh.id);
+    expect(orchestrator.busy()).toBe(1); // still being sorted
+    sorted();
+    await vi.waitFor(() => expect(orchestrator.busy()).toBe(0));
+
+    // A change being made to the conversation (applying a parallel reply, a settings change).
+    let applied!: () => void;
+    const applying = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (applied = r)));
+    await vi.waitFor(() => expect(orchestrator.busy()).toBe(1));
+    applied();
+    await applying;
+    expect(orchestrator.busy()).toBe(0);
+
+    let copied!: () => void;
+    copying.gate = new Promise((r) => (copied = r));
+    try {
+      const branching = orchestrator.branch(conv.id, agentMessages(conv)[0]!.id);
+      await vi.waitFor(() => expect(orchestrator.busy()).toBe(1));
+      copied();
+      await branching;
+    } finally {
+      copying.gate = undefined;
+    }
+    expect(orchestrator.busy()).toBe(0);
+  });
+});
+
 describe('shutting down', () => {
   it('refuses new runs, applies and settings changes once everything was stopped', async () => {
     const conv = conversation({ mode: 'roundtable' });

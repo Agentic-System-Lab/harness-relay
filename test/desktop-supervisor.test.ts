@@ -341,6 +341,54 @@ describe('sign-in links', () => {
   });
 });
 
+describe('conversations with agents at work', () => {
+  async function running() {
+    const ctx = setup();
+    const started = ctx.supervisor.start({}, 8787);
+    await tick();
+    const server = ctx.servers[0]!;
+    server.listening();
+    await started;
+    return { ...ctx, server };
+  }
+
+  it('asks the server how many there are, each time', async () => {
+    const { supervisor, server } = await running();
+    let busy = 3;
+    const post = server.postMessage.bind(server);
+    server.postMessage = (m) => {
+      post(m);
+      if (m.type === 'busy') setTimeout(() => server.emit('message', { type: 'busy', conversations: busy-- }), 1);
+    };
+    expect(await supervisor.busy()).toBe(3);
+    expect(await supervisor.busy()).toBe(2);
+    expect(server.received).toEqual([{ type: 'busy' }, { type: 'busy' }]);
+  });
+
+  it('does not take a sign-in link for the answer, nor the answer for a link', async () => {
+    const { supervisor, server } = await running();
+    const busy = supervisor.busy(1000);
+    const link = supervisor.signInLink(1000);
+    server.emit('message', { type: 'sign-in-link', link: 'http://127.0.0.1:8787/#code=C1' });
+    server.emit('message', { type: 'busy', conversations: 0 });
+    expect(await busy).toBe(0);
+    expect(await link).toBe('http://127.0.0.1:8787/#code=C1');
+  });
+
+  it('gives no number when the server does not run, does not answer in time, or stops first', async () => {
+    const { supervisor: idle } = setup();
+    expect(await idle.busy()).toBeUndefined();
+    const { supervisor, server } = await running();
+    expect(await supervisor.busy(10)).toBeUndefined();
+    const pending = supervisor.busy(5000);
+    server.emit('message', { type: 'busy', conversations: 4 }); // late, for the first question
+    const last = supervisor.busy(5000);
+    server.exit(1);
+    expect(await pending).toBeUndefined();
+    expect(await last).toBeUndefined();
+  });
+});
+
 describe('checking the port', () => {
   it('is free until something listens on it', async () => {
     const taken = createServer();

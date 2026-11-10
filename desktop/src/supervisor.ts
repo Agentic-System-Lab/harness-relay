@@ -44,9 +44,14 @@ export interface SupervisorOptions {
 /** The last bytes of the server's output, shown when it fails. */
 const LOG_TAIL = 4000;
 
-interface LinkRequest {
+/** What the app asks the server and waits for an answer to (the answer has the same type). */
+type Question = Extract<DesktopToServer['type'], 'sign-in-link' | 'busy'>;
+type Answer<T extends Question> = Extract<ServerToDesktop, { type: T }>;
+const QUESTIONS: Question[] = ['sign-in-link', 'busy'];
+
+interface Request {
   settled: boolean;
-  done: (link: string | undefined) => void;
+  done: (answer: ServerToDesktop | undefined) => void;
 }
 
 export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [string] }> {
@@ -60,10 +65,11 @@ export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [st
   /** Ends the start under way at once (the server has run no agent yet), killing its process. */
   private cancelStart?: () => void;
   /**
-   * Each server's requests for a sign-in link, in the order they were sent (it answers in order). Kept
-   * per process, so that a server that exits late cannot cancel the requests of the one after it.
+   * Each server's questions waiting for an answer, by kind, in the order they were sent (it answers
+   * in order). Kept per process, so that a server that exits late cannot cancel the questions of the
+   * one after it.
    */
-  private links = new WeakMap<ServerChild, LinkRequest[]>();
+  private questions = new WeakMap<ServerChild, Map<Question, Request[]>>();
 
   constructor(private o: SupervisorOptions) {
     super();
@@ -101,15 +107,15 @@ export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [st
       this.emit('output', chunk);
     });
     this.exited = new Promise((done) => child.onExit(done));
-    const links: LinkRequest[] = [];
-    this.links.set(child, links);
+    const questions = new Map<Question, Request[]>(QUESTIONS.map((q) => [q, []]));
+    this.questions.set(child, questions);
     child.onMessage((m) => {
-      if ((m as ServerToDesktop)?.type !== 'sign-in-link') return;
-      const request = links.shift();
-      if (request && !request.settled) request.done((m as Extract<ServerToDesktop, { type: 'sign-in-link' }>).link);
+      const answer = m as ServerToDesktop | undefined;
+      const request = questions.get(answer?.type as Question)?.shift();
+      if (request && !request.settled) request.done(answer);
     });
     void this.exited.then(() => {
-      for (const request of links.splice(0)) if (!request.settled) request.done(undefined);
+      for (const waiting of questions.values()) for (const request of waiting.splice(0)) if (!request.settled) request.done(undefined);
     });
 
     const outcome = await new Promise<ServerState>((done) => {
@@ -165,22 +171,35 @@ export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [st
    * A link that signs a browser in, with a new one-time code from the server; undefined when the
    * server does not run or does not answer in time.
    */
-  signInLink(timeoutMs = 5000): Promise<string | undefined> {
+  async signInLink(timeoutMs = 5000): Promise<string | undefined> {
+    return (await this.ask('sign-in-link', timeoutMs))?.link;
+  }
+
+  /**
+   * How many conversations have agents at work in the server (an update waits until none has);
+   * undefined when the server does not run or does not answer in time.
+   */
+  async busy(timeoutMs = 5000): Promise<number | undefined> {
+    return (await this.ask('busy', timeoutMs))?.conversations;
+  }
+
+  /** Asks the running server `type`; its answer, or undefined when it does not run or answer in time. */
+  private ask<T extends Question>(type: T, timeoutMs: number): Promise<Answer<T> | undefined> {
     const child = this.child;
     if (!child || this.state.kind !== 'running') return Promise.resolve(undefined);
     return new Promise((done) => {
-      const request: LinkRequest = {
+      const request: Request = {
         settled: false,
-        done: (link: string | undefined) => {
+        done: (answer) => {
           request.settled = true;
           clearTimeout(timer);
-          done(link);
+          done(answer as Answer<T> | undefined);
         },
       };
       // A late answer still goes to this request (it stays in line), not to the next one.
       const timer = setTimeout(() => request.done(undefined), timeoutMs);
-      this.links.get(child)?.push(request);
-      child.postMessage({ type: 'sign-in-link' });
+      this.questions.get(child)?.get(type)?.push(request);
+      child.postMessage({ type } as DesktopToServer);
     });
   }
 

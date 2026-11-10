@@ -1325,11 +1325,14 @@ export interface VoiceSettingsUpdate {
 export type DesktopToServer =
   | { type: 'shutdown' }
   /** A link that signs a browser in (a new one-time code), to open the chat with. */
-  | { type: 'sign-in-link' };
+  | { type: 'sign-in-link' }
+  /** How many conversations have agents at work (an update waits until none has). */
+  | { type: 'busy' };
 
 /** What the server tells the desktop app that started it. */
 export type ServerToDesktop =
   | { type: 'listening'; host: string; port: number }
   | { type: 'sign-in-link'; link: string }
+  | { type: 'busy'; conversations: number }
   /** The server could not start listening (`code` is the error code, such as EADDRINUSE); it exits next. */
   | { type: 'error'; code: string; message: string };

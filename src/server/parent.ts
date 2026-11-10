@@ -19,6 +19,8 @@ export interface DesktopParent {
    * the port is private to the two processes, and the link never goes through the log.
    */
   onSignInLink(fn: () => string): void;
+  /** Answers the app's requests for how many conversations have agents at work (`fn`). */
+  onBusy(fn: () => number): void;
 }
 
 /** The desktop app that started this server, or undefined when nothing did. */
@@ -35,6 +37,11 @@ export function desktopParent(proc: { parentPort?: unknown } = process as { pare
     onSignInLink(fn) {
       port.on('message', (event) => {
         if ((event?.data as DesktopToServer | undefined)?.type === 'sign-in-link') port.postMessage({ type: 'sign-in-link', link: fn() } satisfies ServerToDesktop);
+      });
+    },
+    onBusy(fn) {
+      port.on('message', (event) => {
+        if ((event?.data as DesktopToServer | undefined)?.type === 'busy') port.postMessage({ type: 'busy', conversations: fn() } satisfies ServerToDesktop);
       });
     },
   };

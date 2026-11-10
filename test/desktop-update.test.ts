@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  appImageDownload,
   appImageTarget,
+  busyWithoutAsking,
   checkLatest,
   download,
   installPlan,
@@ -20,11 +22,13 @@ import {
   relaunchCommand,
   relaunchEnv,
   RELEASES_API,
+  removeAppImageLeftovers,
   removeMacLeftovers,
   stageMacApp,
   swapMacApp,
   UpdateError,
   updateSystem,
+  whenIdle,
   WINDOWS_INSTALLER_ARGS,
   type Fetch,
   type UpdateAsset,
@@ -50,7 +54,14 @@ function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; 
     draft: o.draft ?? false,
     prerelease: o.prerelease ?? tag.includes('-rc'),
     html_url: `https://github.com/Agentic-System-Lab/harness-relay/releases/tag/${tag}`,
-    assets: [asset('-mac-universal.dmg'), asset('-win-x64.exe'), asset('-linux-x86_64.AppImage'), { name: 'notes.txt', browser_download_url: `${DOWNLOAD}/${tag}/notes.txt` }],
+    assets: [
+      asset('-mac-universal.dmg'),
+      asset('-win-x64.exe'),
+      asset('-win-arm64.exe'),
+      asset('-linux-x86_64.AppImage'),
+      asset('-linux-arm64.AppImage'),
+      { name: 'notes.txt', browser_download_url: `${DOWNLOAD}/${tag}/notes.txt` },
+    ],
   };
 }
 
@@ -66,7 +77,7 @@ describe("GitHub's newest release", () => {
       size: 1000,
       sha256: sha('Harness-Relay-2026-11-12.1-mac-universal.dmg'),
     });
-    expect(Object.keys(r.assets).sort()).toEqual(['linux', 'mac', 'win']);
+    expect(Object.keys(r.assets).sort()).toEqual(['linux', 'linux-arm64', 'mac', 'win', 'win-arm64']);
   });
 
   it('can be a release candidate, as the app was built for one; never a draft or a tag that is not a version of ours', () => {
@@ -100,7 +111,7 @@ describe("GitHub's newest release", () => {
     const r = githubRelease('2026-11-12');
     r.assets[0]!.browser_download_url = 'https://evil.example/Harness-Relay-2026-11-12-mac-universal.dmg';
     r.assets[1]!.name = '../../Harness-Relay-2026-11-12-win-x64.exe';
-    (r.assets[2] as { digest?: string }).digest = 'md5:abc';
+    (r.assets.find((a) => a.name.endsWith('-linux-x86_64.AppImage')) as { digest?: string }).digest = 'md5:abc';
     const parsed = parseRelease(r)!;
     expect(parsed.assets.mac).toBeUndefined();
     expect(parsed.assets.win).toBeUndefined();
@@ -146,13 +157,24 @@ describe("GitHub's newest release", () => {
     await expect(checkLatest(answer(403, { message: 'rate limited' }))).rejects.toThrow('403');
   });
 
-  it('has one installer for each system: the universal Mac app, x64 for Windows and Linux', () => {
+  it("has one installer for each system: the universal Mac app, the running app's processor's for Windows and Linux", () => {
     expect(updateSystem('darwin', 'arm64')).toBe('mac');
     expect(updateSystem('darwin', 'x64')).toBe('mac');
     expect(updateSystem('win32', 'x64')).toBe('win');
+    expect(updateSystem('win32', 'arm64')).toBe('win-arm64');
     expect(updateSystem('linux', 'x64')).toBe('linux');
-    expect(updateSystem('linux', 'arm64')).toBeUndefined();
+    expect(updateSystem('linux', 'arm64')).toBe('linux-arm64');
+    expect(updateSystem('linux', 'arm')).toBeUndefined();
+    expect(updateSystem('win32', 'ia32')).toBeUndefined();
     expect(updateSystem('freebsd', 'x64')).toBeUndefined();
+  });
+
+  it("reads each processor's installer from a release, and the Arm ones' checksums", () => {
+    const release = parseRelease(githubRelease('2026-11-12'))!;
+    expect(Object.keys(release.assets).sort()).toEqual(['linux', 'linux-arm64', 'mac', 'win', 'win-arm64']);
+    expect(release.assets['win-arm64']).toMatchObject({ name: 'Harness-Relay-2026-11-12-win-arm64.exe', sha256: sha('Harness-Relay-2026-11-12-win-arm64.exe') });
+    expect(release.assets['linux-arm64']?.name).toBe('Harness-Relay-2026-11-12-linux-arm64.AppImage');
+    expect(release.assets.win?.name).toBe('Harness-Relay-2026-11-12-win-x64.exe');
   });
 });
 
@@ -316,6 +338,109 @@ describe('putting the new version in place', () => {
     },
     120_000,
   );
+});
+
+describe('waiting for the conversations', () => {
+  /** A server that answers with the next number of `answers` (the last one again once they run out). */
+  function server(answers: (number | undefined)[]) {
+    let asked = 0;
+    return {
+      get asked() {
+        return asked;
+      },
+      busy: async () => answers[Math.min(asked++, answers.length - 1)],
+    };
+  }
+  const never = new Promise<void>(() => {});
+
+  it('switches at once when no conversation has agents at work', async () => {
+    const s = server([0]);
+    const waiting: (number | undefined)[] = [];
+    expect(await whenIdle({ busy: s.busy, now: never, everyMs: 1, onWaiting: (n) => waiting.push(n) })).toBe('idle');
+    expect(s.asked).toBe(1);
+    expect(waiting).toEqual([]);
+  });
+
+  it('asks again until none has, saying how many have meanwhile, and asks again when the server does not answer', async () => {
+    const s = server([2, 1, undefined, 1, 0]);
+    const waiting: (number | undefined)[] = [];
+    expect(await whenIdle({ busy: s.busy, now: never, everyMs: 1, onWaiting: (n) => waiting.push(n) })).toBe('idle');
+    expect(waiting).toEqual([2, 1, undefined, 1]);
+    expect(s.asked).toBe(5);
+  });
+
+  it('waits between questions', async () => {
+    const s = server([1, 0]);
+    const started = Date.now();
+    expect(await whenIdle({ busy: s.busy, now: never, everyMs: 60 })).toBe('idle');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+  });
+
+  it('asks the server while it runs; switches once it stopped by itself; never while it starts or stops, nor once the app quits', () => {
+    const at = (server: 'stopped' | 'starting' | 'running' | 'stopping', o: { starting?: boolean; quitting?: boolean } = {}) =>
+      busyWithoutAsking(server, { starting: o.starting ?? false, quitting: o.quitting ?? false });
+    expect(at('running')).toBe('ask');
+    expect(at('stopped')).toBe(0); // a crash: nothing runs
+    // A restart from the menu, or a server on its way down: wait on.
+    expect(at('stopping')).toBeUndefined();
+    expect(at('starting')).toBeUndefined();
+    expect(at('stopped', { starting: true })).toBeUndefined(); // the app reads the shell's environment before it starts the server
+    // Quitting (also as the system shuts down) never switches, whatever the server does.
+    for (const server of ['running', 'stopped', 'starting', 'stopping'] as const) expect(at(server, { quitting: true }), server).toBeUndefined();
+  });
+
+  it('does not switch while the number is unknown, however long that lasts', async () => {
+    let settled = false;
+    let asked = 0;
+    let switchNow!: () => void;
+    const waiting = whenIdle({
+      busy: async () => (asked++, undefined),
+      now: new Promise<void>((r) => (switchNow = r)),
+      everyMs: 1,
+    }).then((how) => ((settled = true), how));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(settled).toBe(false);
+    expect(asked).toBeGreaterThan(5);
+    switchNow();
+    expect(await waiting).toBe('now');
+  });
+
+  it('switches at once when the user chooses to, while waiting or while the server is being asked', async () => {
+    let switchNow!: () => void;
+    const now = new Promise<void>((r) => (switchNow = r));
+    const s = server([3]);
+    const waiting = whenIdle({ busy: s.busy, now, everyMs: 60_000, onWaiting: () => switchNow() });
+    expect(await waiting).toBe('now');
+
+    let go!: () => void;
+    const asked = new Promise<void>((r) => (go = r));
+    const slow = whenIdle({ busy: () => new Promise<number>(() => {}), now: asked, everyMs: 1 });
+    go();
+    expect(await slow).toBe('now');
+  });
+});
+
+describe('what an update leaves next to the AppImage', () => {
+  it('downloads the new AppImage hidden next to the running one', () => {
+    expect(appImageDownload('/home/me/Apps/Harness-Relay-2026-11-10-linux-arm64.AppImage', 'Harness-Relay-2026-11-12-linux-arm64.AppImage')).toBe(
+      '/home/me/Apps/.Harness-Relay-2026-11-12-linux-arm64.AppImage.download',
+    );
+  });
+
+  it('removes a download never put in place, and its part, but nothing else', () => {
+    const apps = join(dir, 'leftovers');
+    mkdirSync(apps);
+    const running = join(apps, 'Harness-Relay-2026-11-10-linux-x86_64.AppImage');
+    const kept = [running, join(apps, 'notes.download'), join(apps, '.other.AppImage.download'), join(apps, 'Harness-Relay-2026-11-12-linux-x86_64.AppImage')];
+    const left = [
+      appImageDownload(running, 'Harness-Relay-2026-11-12-linux-x86_64.AppImage'),
+      `${appImageDownload(running, 'Harness-Relay-2026-11-13-rc-linux-x86_64.AppImage')}.part`,
+    ];
+    for (const f of [...kept, ...left]) writeFileSync(f, 'x');
+    removeAppImageLeftovers(running);
+    for (const f of kept) expect(existsSync(f), f).toBe(true);
+    for (const f of left) expect(existsSync(f), f).toBe(false);
+  });
 });
 
 describe('starting the new version', () => {

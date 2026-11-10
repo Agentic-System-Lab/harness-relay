@@ -84,6 +84,11 @@ export class AutoGrouper {
     return this.runs.size > 0;
   }
 
+  /** The conversations the lead agent is sorting right now. */
+  sorting(): string[] {
+    return [...this.runs.keys()];
+  }
+
   /** Sort `conv` by its first message, unless it is sorted already or there are no groups to choose from. */
   start(conv: Conversation, question: string): void {
     if (this.closing || this.runs.has(conv.id) || !question.trim() || this.store.isSorted(conv.id)) return;

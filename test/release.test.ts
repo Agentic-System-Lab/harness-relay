@@ -422,12 +422,14 @@ describe('the release workflow', () => {
     expect(check).toContain('run: npm run typecheck');
   });
 
-  it('builds for macOS, Windows and Linux, and publishes only when all three are built', () => {
+  it('builds for macOS, Windows and Linux (x64, and Arm64 on Arm runners), and publishes only when all five are built', () => {
     const build = job('build');
     for (const [os, target] of [
       ['macos-latest', '--mac dmg'],
-      ['windows-latest', '--win nsis'],
-      ['ubuntu-latest', '--linux AppImage'],
+      ['windows-latest', '--win nsis --x64'],
+      ['windows-11-arm', '--win nsis --arm64'],
+      ['ubuntu-latest', '--linux AppImage --x64'],
+      ['ubuntu-24\\.04-arm', '--linux AppImage --arm64'],
     ]) {
       expect(build).toMatch(new RegExp(`os: ${os}\\n(?:\\s+#.*\\n)*\\s+target: ${target}`));
     }
@@ -454,10 +456,12 @@ describe('the release workflow', () => {
     // One installer of each kind goes up, named after the version.
     expect(build).toContain("-c.artifactName='Harness-Relay-${env.RELAY_VERSION}-${os}-${arch}.${ext}'");
     expect(build).toContain('RELAY_VERSION: ${{ needs.check.outputs.tag }}');
-    for (const ext of ['dmg', 'exe', 'AppImage']) {
-      expect(build).toContain(`desktop/release/Harness-Relay-*.${ext}`);
-      expect(job('release')).toContain(`for ext in dmg exe AppImage`);
-    }
+    for (const ext of ['dmg', 'exe', 'AppImage']) expect(build).toContain(`desktop/release/Harness-Relay-*.${ext}`);
+    // Exactly one installer for each end of name the website and the app's updates look for, and nothing else.
+    const release = job('release');
+    expect(release).toContain("import { INSTALLERS } from './site/assets/downloads.js'");
+    expect(release).toContain('Expected one installer ending in $end');
+    expect(release).toContain('found others too');
   });
 
   it('may write to the repository only in the job that publishes', () => {

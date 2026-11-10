@@ -8,6 +8,7 @@
  * - it serves the built web app;
  * - asked for a sign-in link, it gives one for its own address, and the code in it signs a browser in;
  * - it prints no sign-in code (its output is the app's log, which agents may read);
+ * - asked how many conversations have agents at work (an update waits for none), it says none;
  * - asked to shut down, it exits with code 0.
  *
  * The packaged app checks the same in Electron itself: desktop/scripts/check-package.ts.
@@ -87,6 +88,9 @@ export async function smoke(o: SmokeOptions): Promise<string[]> {
     );
 
     check(printsNoCode(output), 'prints no sign-in code');
+
+    send({ type: 'busy' });
+    check((await next('busy')).conversations === 0, 'says no conversation has agents at work');
 
     send({ type: 'shutdown' });
     const code = await Promise.race([exited, new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 20_000))]);

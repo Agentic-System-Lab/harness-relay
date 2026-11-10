@@ -126,3 +126,5 @@ process.on('SIGINT', () => void shutdown());
 process.on('SIGTERM', () => void shutdown());
 // The desktop app asks over its port: on Windows it has no signal to send.
 parent?.onShutdown(() => void shutdown());
+// Before it updates, the app waits until no conversation has agents at work.
+parent?.onBusy(() => orchestrator.busy());

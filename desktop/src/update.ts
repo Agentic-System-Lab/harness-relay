@@ -1,16 +1,23 @@
 /**
  * Updating the desktop app to GitHub's newest release, from its menu. The app asks GitHub now and then
  * for its releases and takes the newest version (`checkLatest`: a release candidate too, never a
- * draft); when it is newer than the running app and has an installer for this system, the menu offers it. Choosing it downloads the
- * installer, checks it against the SHA-256 GitHub publishes for it (`download`), and puts it in place
- * of the running app, which then quits and the new one starts:
+ * draft); when it is newer than the running app and has an installer for this system (`updateSystem`:
+ * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer,
+ * checks it against the SHA-256 GitHub publishes for it (`download`), waits until no conversation has
+ * agents at work (`whenIdle`), and puts it in place of the running app, which then quits and the new
+ * one starts:
  *
  * - macOS: the app in the .dmg is copied next to the running one and checked (signature, bundle id,
- *   version), then the two are swapped (`stageMacApp`, `swapMacApp`). The folder must be one the app
- *   may write in (/Applications for an administrator), and the app not run from the .dmg itself.
+ *   version) before the wait, then the two are swapped (`stageMacApp`, `swapMacApp`). The folder must
+ *   be one the app may write in (/Applications for an administrator), and the app not run from the
+ *   .dmg itself.
  * - Windows: the installer runs silently once the app has quit (`WINDOWS_INSTALLER_ARGS`) and starts
  *   the new version; it installs for the user, like the first time, so it needs no administrator.
- * - Linux: the new AppImage takes the place of the running one (`appImageTarget`).
+ * - Linux: the new AppImage, downloaded next to the running one (`appImageDownload`), takes its place
+ *   (`appImageTarget`).
+ *
+ * The running app is left as it is until the wait is over, so quitting meanwhile keeps this version;
+ * what the update left behind is removed at the next start.
  *
  * Any other copy (one not packaged, run from somewhere it cannot be replaced, an installer GitHub
  * gives no checksum for) gets the release's page instead (`installPlan`). Nothing here imports
@@ -107,12 +114,15 @@ export function isNewer(latest: UpdateRelease | undefined, current: string): lat
   return !!latest && compareSemver(latest.semver, current) > 0;
 }
 
-/** Which installer updates this system: one Mac app for both processors; x64 for Windows and Linux. */
+/**
+ * Which installer updates this system: one Mac app for both processors; on Windows and Linux, the one
+ * for the processor the running app was built for (`process.arch`). An x64 app on Windows on Arm runs
+ * emulated and reports x64 itself, so it stays the x64 app.
+ */
 export function updateSystem(platform: NodeJS.Platform, arch: string): UpdateSystem | undefined {
   if (platform === 'darwin') return 'mac';
-  // Windows on Arm runs the x64 app (emulated), so it reports x64 itself.
-  if (platform === 'win32') return arch === 'x64' ? 'win' : undefined;
-  if (platform === 'linux') return arch === 'x64' ? 'linux' : undefined;
+  if (platform === 'win32') return arch === 'x64' ? 'win' : arch === 'arm64' ? 'win-arm64' : undefined;
+  if (platform === 'linux') return arch === 'x64' ? 'linux' : arch === 'arm64' ? 'linux-arm64' : undefined;
   return undefined;
 }
 
@@ -243,6 +253,50 @@ export async function download(o: { fetch: Fetch; asset: UpdateAsset; to: string
   renameSync(part, o.to);
 }
 
+// --- Waiting for the conversations ----------------------------------------------------------
+
+/** How often the app asks the server again while an update waits for its conversations. */
+export const IDLE_CHECK_MS = 2000;
+
+/**
+ * What the app knows, without asking the server, of how many conversations have agents at work while
+ * an update waits: 'ask' the server while it runs; none once it stopped by itself (a crash: nothing
+ * runs); unknown (undefined: wait on) while it starts or stops, as in a restart from the menu or on
+ * the way to a crash; and unknown for good once the app is quitting (or the system shutting down),
+ * so that quitting never switches to the new version.
+ */
+export function busyWithoutAsking(server: 'stopped' | 'starting' | 'running' | 'stopping', o: { starting: boolean; quitting: boolean }): 0 | 'ask' | undefined {
+  if (o.quitting || o.starting) return undefined;
+  if (server === 'running') return 'ask';
+  return server === 'stopped' ? 0 : undefined;
+}
+
+/**
+ * Waits until no conversation has agents at work, before the app switches to the new version (which
+ * stops the server, and any reply with it). `busy` asks how many have (undefined when the server did
+ * not answer: asked again), every `everyMs`, and `onWaiting` hears the number while there are any.
+ * Resolves 'idle' once there are none, or 'now' as soon as `now` resolves (the user chose to switch
+ * at once).
+ */
+export async function whenIdle(o: {
+  busy: () => Promise<number | undefined>;
+  now: Promise<unknown>;
+  everyMs?: number;
+  onWaiting?: (conversations: number | undefined) => void;
+}): Promise<'idle' | 'now'> {
+  const now = o.now.then(() => 'now' as const);
+  for (;;) {
+    const busy = await Promise.race([o.busy(), now]);
+    if (busy === 'now') return 'now';
+    if (busy === 0) return 'idle';
+    o.onWaiting?.(busy);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const waited = await Promise.race([new Promise<'again'>((r) => (timer = setTimeout(() => r('again'), o.everyMs ?? IDLE_CHECK_MS))), now]);
+    clearTimeout(timer);
+    if (waited === 'now') return 'now';
+  }
+}
+
 // --- macOS ----------------------------------------------------------------------------------
 
 /** The new app, copied next to the running one (`.<name>.update`), and the old one after the swap (`.<name>.old`). */
@@ -341,6 +395,22 @@ export const WINDOWS_INSTALLER_ARGS = ['--updated', '/S', '--force-run'];
  */
 export function appImageTarget(current: string, assetName: string, currentVersion: string): string {
   return basename(current).includes(currentVersion) ? join(dirname(current), assetName) : current;
+}
+
+/** Where the new AppImage downloads to: hidden next to the running one, so that putting it in place is a rename. */
+export function appImageDownload(current: string, assetName: string): string {
+  return join(dirname(current), `.${assetName}.download`);
+}
+
+/**
+ * What an update left next to the running AppImage (`appImageDownload`, and its `.part`): a download
+ * the app quit before it was put in place, while it waited for the conversations. Removed at start.
+ */
+export function removeAppImageLeftovers(current: string): void {
+  const dir = dirname(current);
+  for (const name of readdirSync(dir)) {
+    if (/^\.Harness-Relay-[A-Za-z0-9._-]+\.AppImage\.download(\.part)?$/.test(name)) rmSync(join(dir, name), { force: true });
+  }
 }
 
 /** Puts a downloaded AppImage at `target`, runnable, and removes the running one when it was renamed. */

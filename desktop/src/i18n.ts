@@ -104,8 +104,13 @@ const zhTW = {
   updateTo: (version: string) => `更新到 ${version}…`,
   updateDownloading: (percent: number) => `正在下載更新…（${percent}%）`,
   updateInstalling: '正在安裝更新…',
+  updateWaiting: '更新已就緒，等回答結束後切換',
+  updateSwitchNow: '立即切換到新版…',
+  updateSwitchConfirm: '要立即切換到新版嗎？',
+  updateSwitchDetail: (replying: number | undefined) => (replying ? `有 ${replying} 個對話正在回覆，切換時會被中斷。` : '正在回覆的對話會被中斷。'),
+  updateSwitch: '立即切換',
   updateConfirm: (version: string) => `要把 Harness Relay 更新到 ${version} 嗎？`,
-  updateConfirmDetail: 'Harness Relay 會下載新版並檢查它，然後結束、換成新版再打開。正在回覆的對話會被中斷。',
+  updateConfirmDetail: 'Harness Relay 會下載新版並檢查它，然後結束、換成新版再打開。有對話正在回覆時，會等它們都回答完再切換；也可以從選單立即切換。',
   updateNow: '立即更新',
   releaseNotes: '查看版本說明',
   updateManual: '這個 Harness Relay 無法自己更新',
@@ -219,9 +224,19 @@ const en: DesktopMessages = {
   updateTo: (version) => `Update to ${version}…`,
   updateDownloading: (percent) => `Downloading the update… (${percent}%)`,
   updateInstalling: 'Installing the update…',
+  updateWaiting: 'Update ready: switches once replies finish',
+  updateSwitchNow: 'Switch to the new version now…',
+  updateSwitchConfirm: 'Switch to the new version now?',
+  updateSwitchDetail: (replying) =>
+    replying === 1
+      ? 'A conversation is replying: it will be stopped.'
+      : replying
+        ? `${replying} conversations are replying: they will be stopped.`
+        : 'Conversations that are replying will be stopped.',
+  updateSwitch: 'Switch now',
   updateConfirm: (version) => `Update Harness Relay to ${version}?`,
   updateConfirmDetail:
-    'Harness Relay downloads the new version and checks it, then quits and opens again as the new version. Conversations that are replying will be stopped.',
+    'Harness Relay downloads the new version and checks it, then quits and opens again as the new version. If conversations are replying, it waits until they have finished; the menu can also switch at once.',
   updateNow: 'Update now',
   releaseNotes: 'Release notes',
   updateManual: 'This Harness Relay cannot update itself',

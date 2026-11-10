@@ -428,6 +428,25 @@ export class Orchestrator {
     return this.runs.has(id);
   }
 
+  /**
+   * How many conversations have agents at work: a run (replying, designing a team, waiting for an
+   * approval) or one being set up, the lead agent changing a team or sorting the conversation into a
+   * group, a branch being made, or a change being made to the conversation (`reserved`: a parallel
+   * reply applied to the working directory, a settings change). A team waiting for the user's answer
+   * or for its team to be confirmed has none. The desktop app waits until there are none before it
+   * switches to a new version.
+   */
+  busy(): number {
+    return new Set([
+      ...this.runs.keys(),
+      ...this.starting,
+      ...this.reserved.keys(),
+      ...this.revisions.keys(),
+      ...this.branching.keys(),
+      ...this.grouper.sorting(),
+    ]).size;
+  }
+
   /** The lead agent is sorting this new conversation into one of the user's groups. */
   isSorting(id: string): boolean {
     return this.grouper.isSorting(id);

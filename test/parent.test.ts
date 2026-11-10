@@ -56,6 +56,22 @@ describe('the desktop app, seen from the server', () => {
       { type: 'sign-in-link', link: 'http://127.0.0.1:8787/#code=CODE2' },
     ]);
   });
+
+  it('answers each question of how many conversations have agents at work, as it is then', () => {
+    const fake = fakePort();
+    const parent = desktopParent({ parentPort: fake.port })!;
+    let busy = 2;
+    parent.onBusy(() => busy);
+    fake.deliver({ type: 'sign-in-link' });
+    expect(fake.sent).toEqual([]);
+    fake.deliver({ type: 'busy' });
+    busy = 0;
+    fake.deliver({ type: 'busy' });
+    expect(fake.sent).toEqual([
+      { type: 'busy', conversations: 2 },
+      { type: 'busy', conversations: 0 },
+    ]);
+  });
 });
 
 describe('the server, run as the desktop app runs it', () => {
@@ -79,6 +95,7 @@ describe('the server, run as the desktop app runs it', () => {
       "signs a browser in with the link's code",
       'answers the signed-in browser',
       'prints no sign-in code',
+      'says no conversation has agents at work',
       'exits with code 0 when asked to shut down (got 0)',
     ]);
   }, 60_000);

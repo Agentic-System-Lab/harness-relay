@@ -15,7 +15,9 @@ export const INSTALLERS = {
   // on both), so there is nothing to choose.
   mac: '-mac-universal.dmg',
   win: '-win-x64.exe',
+  'win-arm64': '-win-arm64.exe',
   linux: '-linux-x86_64.AppImage',
+  'linux-arm64': '-linux-arm64.AppImage',
 };
 
 /** Where the installers are: links to anything else are not used (a forged or broken API answer). */
@@ -51,19 +53,48 @@ export function isInstallerUrl(url) {
 }
 
 /**
- * The visitor's system: 'mac', 'win' or 'linux' for the computers with an installer, 'mobile' for a
- * phone or tablet (iPadOS says it is a Mac, but has touch), else 'other': ChromeOS, BSD, or Linux on
- * ARM, which the x64 AppImage does not run on (when the browser says so).
+ * The visitor's system: an installer's key ('mac', 'win', 'win-arm64', 'linux', 'linux-arm64') for
+ * the computers with one, 'mobile' for a phone or tablet (iPadOS says it is a Mac, but has touch),
+ * else 'other': ChromeOS, BSD, or Linux on 32-bit ARM. The processor comes from the user agent and
+ * `navigator.platform` where they tell it (Firefox, Linux), or from Chromium's high-entropy hints
+ * (`architecture` 'arm' or 'x86', `bitness`): Chromium says "x64" in its user agent on any Windows
+ * and on any Linux. Without a hint, a Windows or Linux computer counts as x64 (Windows 11 on Arm
+ * runs the x64 app too; the quick start lists the Arm installers beside it).
  */
-export function systemOf({ userAgent = '', platform = '', uaPlatform = '', maxTouchPoints = 0 } = {}) {
+export function systemOf({ userAgent = '', platform = '', uaPlatform = '', maxTouchPoints = 0, architecture = '', bitness = '' } = {}) {
   const ua = userAgent.toLowerCase();
   const p = `${uaPlatform} ${platform}`.toLowerCase();
+  const said = `${ua} ${p}`;
+  // The hint when there is one, else what the user agent or the platform says.
+  const hinted = architecture === 'arm' ? (bitness === '32' ? 'arm32' : 'arm64') : architecture === 'x86' ? 'x86' : '';
+  const cpu = hinted || (/aarch64|\barm64\b/.test(said) ? 'arm64' : /\barmv?\d|\barm\b/.test(said) ? 'arm32' : 'x86');
   if (/android|iphone|ipad|ipod/.test(ua) || /android|ios|iphone|ipad/.test(p)) return 'mobile';
   if (/mac/.test(p) || /macintosh|mac os x/.test(ua)) return maxTouchPoints > 1 ? 'mobile' : 'mac';
-  if (/win/.test(p) || /windows/.test(ua)) return 'win';
+  if (/win/.test(p) || /windows/.test(ua)) return cpu === 'arm64' ? 'win-arm64' : 'win';
   if (/cros|chrome os|chromeos/.test(p) || /\bcros\b/.test(ua)) return 'other';
-  if (/linux/.test(p) || /linux|x11/.test(ua)) return /aarch64|arm/.test(`${ua} ${p}`) ? 'other' : 'linux';
+  if (/linux/.test(p) || /linux|x11/.test(ua)) return cpu === 'arm64' ? 'linux-arm64' : cpu === 'arm32' ? 'other' : 'linux';
   return 'other';
+}
+
+/**
+ * The words for `system` in the page's data attributes (`data-mac`, `data-win-arm64`…): dataset
+ * names them in camel case (winArm64).
+ */
+export function wordKey(system) {
+  return system.replace(/-(\w)/g, (_, c) => c.toUpperCase());
+}
+
+/**
+ * Chromium's high-entropy hints about the processor ({ architecture, bitness }), or none where the
+ * browser does not give them (Firefox, Safari) or refuses.
+ */
+export function processorHints(nav) {
+  const ask = nav?.userAgentData?.getHighEntropyValues;
+  if (typeof ask !== 'function') return Promise.resolve({});
+  return Promise.resolve()
+    .then(() => ask.call(nav.userAgentData, ['architecture', 'bitness']))
+    .then((h) => ({ architecture: typeof h?.architecture === 'string' ? h.architecture : '', bitness: typeof h?.bitness === 'string' ? h.bitness : '' }))
+    .catch(() => ({}));
 }
 
 /** A release's installers, by system: { url, name, size } each, for the ones it has. */
@@ -114,9 +145,9 @@ const FRESH_MS = 10 * 60 * 1000;
 
 /**
  * Points the page's download links at the newest release. The page's own words come from data
- * attributes on [data-downloads] (both languages): data-mac / data-win / data-linux (the main button
- * for each system), data-rc and data-release (the version line), data-mobile (on a phone). The
- * browser's objects are passed in, so the tests can give fakes.
+ * attributes on [data-downloads] (both languages): data-mac / data-win / data-win-arm64 / data-linux
+ * / data-linux-arm64 (the main button for each system), data-rc and data-release (the version line),
+ * data-mobile (on a phone). The browser's objects are passed in, so the tests can give fakes.
  */
 /** The browser's localStorage, or null where reading it throws (site data blocked: Chrome and Firefox). */
 function localStore() {
@@ -139,12 +170,20 @@ export function wire({
 } = {}) {
   const root = doc?.querySelector('[data-downloads]');
   if (!root) return Promise.resolve();
+  // Chromium tells the processor only when asked (a Windows or Linux computer on Arm).
+  return processorHints(nav).then((hints) => wireButtons({ doc, root, nav, hints, storage, fetchJson, now }));
+}
+
+/** wire(), once the processor hints are known. */
+function wireButtons({ doc, root, nav, hints, storage, fetchJson, now }) {
   const words = root.dataset;
   const system = systemOf({
     userAgent: nav?.userAgent,
     platform: nav?.platform,
     uaPlatform: nav?.userAgentData?.platform,
     maxTouchPoints: nav?.maxTouchPoints,
+    architecture: hints.architecture,
+    bitness: hints.bitness,
   });
   const store = (value) => {
     try {
@@ -161,7 +200,7 @@ export function wire({
   for (const card of doc.querySelectorAll('[data-download]')) {
     if (card.dataset.download === system) card.classList.add('is-yours');
   }
-  if (primary && primaryLabel && system in INSTALLERS && words[system]) primaryLabel.textContent = words[system];
+  if (primary && primaryLabel && system in INSTALLERS && words[wordKey(system)]) primaryLabel.textContent = words[wordKey(system)];
   if (primary && !(system in INSTALLERS)) primary.setAttribute('href', '#start');
 
   // The line under the main button shows only on a phone: Harness Relay runs on a computer.

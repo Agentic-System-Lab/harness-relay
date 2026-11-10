@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   app,
   BrowserWindow,
@@ -20,6 +20,7 @@ import {
   Notification,
   powerMonitor,
   powerSaveBlocker,
+  screen,
   session,
   shell,
   systemPreferences,
@@ -50,8 +51,11 @@ import { loadPrefs, savePrefs, type DesktopPrefs } from './prefs';
 import { prepareBrowserDir } from './profile';
 import { checkServer, printsNoCode } from './selftest';
 import { portFree, Supervisor, type ServerChild, type ServerState, type StartError } from './supervisor';
+import { LiveMenu, menuText, patchMenu, REOPEN_DELAY_MS } from './traymenu';
 import {
+  appImageDownload,
   appImageTarget,
+  busyWithoutAsking,
   CHECK_EVERY_MS,
   checkLatest,
   download,
@@ -62,12 +66,14 @@ import {
   placeAppImage,
   relaunchCommand,
   relaunchEnv,
+  removeAppImageLeftovers,
   removeMacLeftovers,
   stageMacApp,
   type StartCommand,
   swapMacApp,
   UpdateError,
   updateSystem,
+  whenIdle,
   WINDOWS_INSTALLER_ARGS,
   type UpdateRelease,
 } from './update';
@@ -78,6 +84,12 @@ declare const __RELAY_VERSION__: string;
 
 /** Matches appId in electron-builder.yml (Windows needs it for notifications). */
 const APP_ID = 'io.github.agentic-system-lab.harness-relay';
+
+/**
+ * An update under way: downloading (the share done, 0 to 1), being checked and put in place, or
+ * ready and waiting until no conversation has agents at work.
+ */
+type Updating = { kind: 'downloading'; done: number } | { kind: 'installing' } | { kind: 'waiting' };
 
 /**
  * `--smoke-test[=<report file>]`: the packaged app checks itself and exits (desktop/scripts/check-package.ts,
@@ -163,6 +175,7 @@ function smokeTest(report: string | undefined): void {
       const url = (state as Extract<ServerState, { kind: 'running' }>).url;
       await checkServer(url, () => supervisor.signInLink(), check);
       check(printsNoCode(output), 'prints no sign-in code');
+      check((await supervisor.busy()) === 0, 'says no conversation has agents at work');
 
       const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
       await win.loadURL(chatAddress(url, await supervisor.signInLink()));
@@ -220,14 +233,26 @@ function run(): void {
   let launched = false;
   let phoneUrl: string | undefined;
   let tray: Tray | undefined;
+  /** The tray's menu, and what it shows (traymenu.ts, `menuText`). */
+  let trayMenu: Menu | undefined;
+  let trayShows = '';
+  /** Windows: where the user opened the tray menu, to open it there again. */
+  let menuAnchor: Electron.Point | undefined;
+  /**
+   * An open tray menu shows what changed (an update's progress) by being opened again (macOS,
+   * Windows). Linux's menus are set anew as they change, open or not.
+   */
+  const liveMenu = process.platform === 'linux' ? undefined : new LiveMenu({ reopen: () => reopenTray() });
   /** The chat's window, while it is open. */
   let win: BrowserWindow | undefined;
   let awake: number | undefined;
   let quitting = false;
   /** A newer release than this app, when GitHub has one with an installer for this system. */
   let update: UpdateRelease | undefined;
-  /** While an update downloads (the share done, 0 to 1) or installs. */
-  let updating: { done: number } | undefined;
+  /** An update under way: downloading, being checked and put in place, or waiting for the conversations. */
+  let updating: Updating | undefined;
+  /** While an update waits for the conversations: switches at once (the menu's "Switch to the new version now"). */
+  let switchNow: (() => void) | undefined;
   /** Where downloaded installers wait (macOS, Windows): emptied at each start. */
   const updatesDir = join(userData, 'updates');
 
@@ -565,7 +590,11 @@ function run(): void {
     setInterval(() => void checkForUpdate(), CHECK_EVERY_MS).unref?.();
   }
 
-  /** What an update left behind: downloaded installers, and on macOS the old app (`.Harness Relay.app.old`). */
+  /**
+   * What an update left behind: downloaded installers, on macOS the old app (`.Harness Relay.app.old`)
+   * or a staged one never used, and on Linux a new AppImage never put in place (the app quit while the
+   * update waited for the conversations).
+   */
   function removeUpdateLeftovers(): void {
     try {
       rmSync(updatesDir, { recursive: true, force: true });
@@ -580,11 +609,72 @@ function run(): void {
         /* next time */
       }
     }
+    const appImage = process.platform === 'linux' && app.isPackaged ? process.env.APPIMAGE : undefined;
+    if (appImage) {
+      try {
+        removeAppImageLeftovers(appImage);
+      } catch {
+        /* next time */
+      }
+    }
   }
 
-  function setUpdating(done: number | undefined): void {
-    updating = done === undefined ? undefined : { done };
+  function setUpdating(state: Updating | undefined): void {
+    updating = state;
     updateTray();
+  }
+
+  /** What the menu says of the update under way. */
+  function updatingLabel(u: Updating): string {
+    if (u.kind === 'downloading') return t.updateDownloading(Math.floor(u.done * 100));
+    return u.kind === 'waiting' ? t.updateWaiting : t.updateInstalling;
+  }
+
+  /**
+   * How many conversations have agents at work: the server's answer while it runs, none once it
+   * stopped by itself, and unknown while it starts or stops, or the app quits (update.ts,
+   * `busyWithoutAsking`), or when it does not answer.
+   */
+  async function busyConversations(): Promise<number | undefined> {
+    const known = busyWithoutAsking(supervisor.state.kind, { starting: !!starting, quitting });
+    return known === 'ask' ? supervisor.busy() : known;
+  }
+
+  /**
+   * The new version is ready: waits until no conversation has agents at work (update.ts, `whenIdle`),
+   * the menu saying so meanwhile, or until the user chooses to switch at once from the menu. False
+   * when the app is quitting meanwhile: then nothing is put in place, and this version stays.
+   */
+  async function waitForConversations(): Promise<boolean> {
+    const now = new Promise<void>((resolve) => (switchNow = resolve));
+    try {
+      await whenIdle({
+        busy: busyConversations,
+        now,
+        // Once: the menu says the same thing until the wait is over.
+        onWaiting: () => updating?.kind !== 'waiting' && setUpdating({ kind: 'waiting' }),
+      });
+    } finally {
+      switchNow = undefined;
+    }
+    if (quitting) return false;
+    setUpdating({ kind: 'installing' });
+    return true;
+  }
+
+  /** The menu's "Switch to the new version now": asked first, since the conversations replying stop. */
+  async function confirmSwitchNow(): Promise<void> {
+    if (!switchNow) return;
+    const replying = await busyConversations();
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      message: t.updateSwitchConfirm,
+      detail: t.updateSwitchDetail(replying),
+      buttons: [t.updateSwitch, t.cancel],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0) switchNow?.();
   }
 
   /** Offers the release's page instead, when this copy cannot update itself (`why`), or the update failed. */
@@ -594,8 +684,10 @@ function run(): void {
   }
 
   /**
-   * Updates to `update` (update.ts): asks first (replying conversations stop), downloads and checks
-   * the installer, puts the new version in place, then quits and the new one starts.
+   * Updates to `update` (update.ts): asks first, downloads and checks the installer, waits until no
+   * conversation has agents at work (or the user switches at once), puts the new version in place,
+   * then quits and the new one starts. Until the wait is over this version stays as it is, so quitting
+   * meanwhile keeps it.
    */
   async function installUpdate(): Promise<void> {
     const release = update;
@@ -618,13 +710,13 @@ function run(): void {
     if (response === 1) void shell.openExternal(release.page);
     if (response !== 0) return;
 
-    setUpdating(0);
+    setUpdating({ kind: 'downloading', done: 0 });
     let shown = -1;
     const onProgress = (done: number) => {
       const percent = Math.floor(done * 100);
       if (percent === shown) return;
       shown = percent;
-      setUpdating(done);
+      setUpdating({ kind: 'downloading', done });
     };
     const fetch = (url: string, init?: { signal?: AbortSignal }) => net.fetch(url, init);
     let installer: string | undefined;
@@ -632,9 +724,10 @@ function run(): void {
       if (plan.kind === 'linux') {
         // Downloaded next to the AppImage, so that putting it in place is a rename.
         const target = appImageTarget(plan.appImage, asset.name, __RELAY_VERSION__);
-        const downloaded = join(dirname(plan.appImage), `.${asset.name}.download`);
+        const downloaded = appImageDownload(plan.appImage, asset.name);
         await download({ fetch, asset, to: downloaded, onProgress });
-        setUpdating(1);
+        setUpdating({ kind: 'installing' });
+        if (!(await waitForConversations())) return;
         placeAppImage(downloaded, target, plan.appImage);
         if (process.platform === 'linux' && isAutostartOn(autostartFile(process.env, homedir()))) writeAutostart([target, ...relaunchArgs()]);
         await finishUpdate(relaunchCommand('linux', process.pid, target, relaunchEnv(process.env), relaunchArgs()));
@@ -643,13 +736,17 @@ function run(): void {
       mkdirSync(updatesDir, { recursive: true });
       installer = join(updatesDir, asset.name);
       await download({ fetch, asset, to: installer, onProgress });
-      setUpdating(1);
+      setUpdating({ kind: 'installing' });
       if (plan.kind === 'mac') {
         await stageMacApp({ dmg: installer, app: plan.app, bundleId: APP_ID, semver: release.semver, env });
-        // Swapped while the server still runs: a swap that fails leaves everything as it was.
+        // Staged and checked: swapped only once the conversations are done (the running app's files
+        // stay where they are until then), while the server still runs: a swap that fails leaves
+        // everything as it was.
+        if (!(await waitForConversations())) return;
         swapMacApp(plan.app);
         await finishUpdate(relaunchCommand('darwin', process.pid, plan.app, process.env));
       } else {
+        if (!(await waitForConversations())) return;
         await finishUpdate({ bin: installer, args: WINDOWS_INSTALLER_ARGS, env: process.env });
       }
     } catch (err) {
@@ -757,22 +854,26 @@ function run(): void {
     return t.stopped;
   }
 
-  function updateTray(): void {
-    if (!tray) return;
+  /**
+   * The tray menu as it should be now. Always the same items, by id, shown or hidden, so that an open
+   * menu can be changed in place (traymenu.ts).
+   */
+  function trayTemplate(): MenuItemConstructorOptions[] {
     const state = supervisor.state;
     const running = state.kind === 'running' && !starting;
     const stopped = state.kind === 'stopped' && !starting;
-    tray.setToolTip(`Harness Relay ${__RELAY_VERSION__}`);
-    const items: MenuItemConstructorOptions[] = [
-      { label: statusLabel(state), enabled: false },
-      { label: t.open, enabled: running, click: () => void openWindow() },
-      { label: t.openInBrowser, enabled: running, click: () => void openBrowser() },
+    const phone = running ? phoneUrl : undefined;
+    return [
+      { id: 'status', label: statusLabel(state), enabled: false },
+      { id: 'open', label: t.open, enabled: running, click: () => void openWindow() },
+      { id: 'browser', label: t.openInBrowser, enabled: running, click: () => void openBrowser() },
       { type: 'separator' },
-      { label: t.shareWithPhone, enabled: running, click: () => void shareWithPhone() },
-      ...(phoneUrl && running ? [{ label: t.copyPhoneAddress(phoneUrl), click: () => clipboard.writeText(phoneUrl!) }] : []),
+      { id: 'share', label: t.shareWithPhone, enabled: running, click: () => void shareWithPhone() },
+      { id: 'phone', label: t.copyPhoneAddress(phone ?? ''), visible: !!phone, click: () => phoneUrl && clipboard.writeText(phoneUrl) },
       { type: 'separator' },
-      { label: t.openAtLogin, type: 'checkbox', checked: openAtLogin(), click: (item) => void setOpenAtLogin(item.checked) },
+      { id: 'login', label: t.openAtLogin, type: 'checkbox', checked: openAtLogin(), click: (item) => void setOpenAtLogin(item.checked) },
       {
+        id: 'awake',
         label: t.keepAwake,
         type: 'checkbox',
         checked: prefs.keepAwake,
@@ -780,30 +881,70 @@ function run(): void {
           prefs = { ...prefs, keepAwake: item.checked };
           savePrefs(prefsFile, prefs);
           setKeepAwake(item.checked);
+          updateTray();
         },
       },
       { type: 'separator' },
       {
+        id: 'data',
         label: t.openDataFolder,
         click: () => {
           const dir = started?.RELAY_DATA_DIR ?? join(userData, 'data');
           void shell.openPath(existsSync(dir) ? dir : userData);
         },
       },
-      { label: t.showLog, click: () => void shell.openPath(logFile) },
-      stopped
-        ? { label: t.start, click: () => void startServer({ openWindow: true, freshEnv: true }) }
-        : { label: t.restart, enabled: running, click: () => void restartServer(true) },
+      { id: 'log', label: t.showLog, click: () => void shell.openPath(logFile) },
+      { id: 'start', label: t.start, visible: stopped, click: () => void startServer({ openWindow: true, freshEnv: true }) },
+      { id: 'restart', label: t.restart, visible: !stopped, enabled: running, click: () => void restartServer(true) },
       { type: 'separator' },
-      { label: `${t.version} ${__RELAY_VERSION__}`, enabled: false },
-      ...(updating
-        ? [{ label: updating.done >= 1 ? t.updateInstalling : t.updateDownloading(Math.floor(updating.done * 100)), enabled: false }]
-        : update
-          ? [{ label: t.updateTo(update.version), click: () => void installUpdate() }]
-          : []),
-      { label: t.quit, click: () => app.quit() },
+      { id: 'version', label: `${t.version} ${__RELAY_VERSION__}`, enabled: false },
+      { id: 'update-status', label: updating ? updatingLabel(updating) : '', enabled: false, visible: !!updating },
+      { id: 'update-offer', label: update ? t.updateTo(update.version) : '', visible: !updating && !!update, click: () => void installUpdate() },
+      { id: 'update-switch', label: t.updateSwitchNow, visible: updating?.kind === 'waiting', click: () => void confirmSwitchNow() },
+      { id: 'quit', label: t.quit, click: () => app.quit() },
     ];
-    tray.setContextMenu(Menu.buildFromTemplate(items));
+  }
+
+  function updateTray(): void {
+    if (!tray) return;
+    tray.setToolTip(`Harness Relay ${__RELAY_VERSION__}${updating ? `\n${updatingLabel(updating)}` : ''}`);
+    const template = trayTemplate();
+    const text = menuText(template);
+    // An open menu keeps showing what it showed (macOS, Windows): changed in place, and opened again to show it.
+    if (trayMenu && liveMenu?.isOpen && patchMenu((id) => trayMenu!.getMenuItemById(id), template)) {
+      trayShows = text;
+      liveMenu.changed(text);
+      return;
+    }
+    const menu = Menu.buildFromTemplate(template);
+    if (liveMenu) {
+      const live = liveMenu;
+      menu.on('menu-will-show', () => {
+        if (menu !== trayMenu) return;
+        // Opened again by LiveMenu on Windows: where the user opened it, not where the pointer is now.
+        if (live.opened(trayShows) && process.platform === 'win32') menuAnchor = screen.getCursorScreenPoint();
+      });
+      menu.on('menu-will-close', () => {
+        if (menu === trayMenu) live.closed();
+      });
+    }
+    trayMenu = menu;
+    trayShows = text;
+    tray.setContextMenu(menu);
+  }
+
+  /**
+   * Closes the open tray menu and opens it again, as it is now (LiveMenu): a moment later, once the
+   * closing menu's loop has ended (traymenu.ts, `REOPEN_DELAY_MS`).
+   */
+  function reopenTray(): void {
+    if (!tray || !trayMenu) return;
+    tray.closeContextMenu();
+    setTimeout(() => {
+      if (!tray || !trayMenu || quitting) return;
+      if (process.platform === 'win32' && menuAnchor) tray.popUpContextMenu(trayMenu, menuAnchor);
+      else tray.popUpContextMenu();
+    }, REOPEN_DELAY_MS);
   }
 
   function createTray(): void {
