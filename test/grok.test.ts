@@ -437,9 +437,11 @@ describe("Grok's own folder in its sandbox", () => {
       const elsewhere = mkdtempSync(join(tmpdir(), 'relay-grok-bin-'));
       const bin = join(elsewhere, 'grok');
       writeFileSync(bin, '');
-      const paths = grokPrograms(home, [bin]);
+      const paths = grokPrograms(home, [bin], 'darwin');
       expect(paths).toEqual(expect.arrayContaining([join(home, 'bin'), join(home, 'downloads'), elsewhere]));
       expect(paths).not.toContain(join(home, 'sessions'));
+      // Not on Linux, where Grok runs its program again inside its sandbox: it is checked around each turn there.
+      expect(grokPrograms(home, [bin], 'linux')).toEqual([]);
       rmSync(elsewhere, { recursive: true, force: true });
     } finally {
       rmSync(home, { recursive: true, force: true });
