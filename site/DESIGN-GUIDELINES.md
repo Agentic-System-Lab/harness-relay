@@ -12,8 +12,8 @@ How the Harness Relay landing page (`site/`) looks, reads and behaves, and what 
 
 1. **Show the run, don't describe it.** The first viewport is the real demo recording with a chapter rail. Every section after it shows the mechanism (mode diagrams, the app's own UI) before it explains it.
 2. **The app's world, at poster scale.** The page is recognisably the same product as the app: same neutrals, same agent colours, same three-dot mark, same avatars and pills. It is bolder in scale, not in new decoration.
-3. **Colour means an agent.** Claude Code orange, Codex green and Grok violet appear only where that agent acts or is named. Never use them for generic accents, links or section themes.
-4. **Facts only.** Every claim must be true of the code in this repository. There are no testimonials, user counts, star counts or benchmarks; do not add any.
+3. **Colour means an agent.** Claude Code orange, Codex green and Grok violet appear only where that agent acts or is named. Never use them for generic accents, links or section themes. The one other colour is the GitHub star's yellow, only on that star.
+4. **Facts only.** Every claim must be true of the code in this repository. There are no testimonials, user counts or benchmarks; do not add any. The one number about the project is the GitHub star count on the two GitHub buttons, read live from GitHub's API; never write a count into the page.
 5. **Two languages, equal.** English and 繁體中文 pages have the same sections, order and facts.
 
 ## Visual system
@@ -71,6 +71,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 - **Avatar** (`.av`): the member's initial on a `-deep` fill, like the app. Initials match the template or demo member names.
 - **Pill** (`.pill`): the app's CLI badge, tinted agent colour with `-ink` text. **Chip** (`.chip`): neutral outline for mode, permission and round labels.
 - **Buttons:** primary is ink on light (`.btn-primary`), secondary is outlined (`.btn-ghost`). One primary per view.
+- **Star count** (`.stars`): the GitHub buttons in the header and the hero end in the repository's star count after a hairline, with the `#i-star` icon filled yellow (`--star`, with a darker `--star-edge` on a light button; the primary button uses the `--star-inverse` pair), and screen readers hear "12 stars" / "12 顆星". `site.js` reads it from `api.github.com` as the page loads, shortens it like GitHub does in the page's language (English `999`, `1.2K`, `12.3K`, `123K`, `1.2M`; 中文 `999`, `1,234`, `1.2萬`, `12.3萬`, `123萬`) and keeps it in `localStorage` under `harness-relay.stars` for ten minutes (the API allows a visitor 60 requests an hour). When GitHub can't be reached the last count shows; with none, or without JavaScript, the buttons show no count. On phones the header button drops the word "GitHub" and keeps the count.
 - **Quick start step:** a step with more than one block (text, command, text) wraps them in `.step-body`, so they stay together in the right-hand column.
 - **Command block** (`.cmd`): `$` prompts are not copied; the copy button copies the commands only and confirms with a check. One command per line, never joined with `&&`: Windows PowerShell 5.1, still the default shell on Windows, rejects `&&`, while separate lines run in every shell.
 - **UI excerpts** (`.ui`): approval card, question, changed files, waiting message tray. They recreate the app's components with sample content, and the page says so under them. Keep them faithful to the app when the app changes.
@@ -80,8 +81,8 @@ The font file only covers Latin; Chinese always comes from the system stack.
 
 | # | Section | Purpose |
 | --- | --- | --- |
-| 1 | Header | Mark, section links, EN / 中文 switch, GitHub |
-| 2 | Hero | Headline with the three agent names in their colours, one sentence, clone-and-run command, GitHub button |
+| 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count |
+| 2 | Hero | Headline with the three agent names in their colours, one sentence, clone-and-run command, GitHub button with the star count |
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
 | 4 | Your CLIs (`#agents`) | How each CLI is driven; the mark at page scale |
 | 5 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |

@@ -1,5 +1,6 @@
-// Harness Relay landing page: copy buttons, the demo's chapter rail, the mode diagrams and the
-// language preference. Everything on the page works without this file; it only adds behaviour.
+// Harness Relay landing page: copy buttons, the GitHub star count, the demo's chapter rail, the mode
+// diagrams and the language preference. Everything on the page works without this file; it only adds
+// behaviour.
 
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -54,6 +55,58 @@ for (const button of document.querySelectorAll('[data-copy]')) {
       button.setAttribute('aria-label', label);
     }, 1800);
   });
+}
+
+// ---------- The repository's star count on the GitHub buttons ----------
+
+// Read from GitHub's API when the page loads. The API allows a visitor 60 unauthenticated requests
+// an hour, so the count is kept for ten minutes (also across the two languages). When GitHub can't
+// be reached the last count is shown, and without one the buttons just show no count.
+const starSlots = [...document.querySelectorAll('[data-stars]')];
+
+if (starSlots.length && 'fetch' in window) {
+  const KEY = 'harness-relay.stars';
+  const FRESH_MS = 10 * 60 * 1000;
+  // Short like GitHub's own counts, in the page's language: 999, 1.2K, 12.3K, 123K, 1.2M on the
+  // English page; 999, 1,234, 1.2萬, 12.3萬, 123萬 on the Chinese one. The decimal goes once three
+  // digits come before it.
+  const lang = document.documentElement.lang || 'en';
+  const compact = (digits) =>
+    new Intl.NumberFormat(lang, { notation: 'compact', useGrouping: true, maximumFractionDigits: digits });
+  const oneDecimal = compact(1);
+  const noDecimal = compact(0);
+  const format = (count) => {
+    const text = oneDecimal.format(count);
+    return /\d{3}\.\d/.test(text) ? noDecimal.format(count) : text;
+  };
+
+  const show = (count) => {
+    for (const slot of starSlots) {
+      slot.querySelector('.stars-n').textContent = format(count);
+      slot.hidden = false;
+    }
+  };
+
+  let saved = null;
+  try {
+    saved = JSON.parse(store(KEY) || 'null');
+  } catch {}
+  const valid = saved && Number.isInteger(saved.count) && saved.count >= 0;
+
+  if (valid) show(saved.count);
+  if (!valid || !(Date.now() - saved.at < FRESH_MS)) {
+    fetch('https://api.github.com/repos/Agentic-System-Lab/harness-relay', {
+      headers: { Accept: 'application/vnd.github+json' },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((repo) => {
+        const count = repo?.stargazers_count;
+        if (!Number.isInteger(count) || count < 0) return;
+        show(count);
+        store(KEY, JSON.stringify({ count, at: Date.now() }));
+      })
+      .catch(() => {});
+  }
 }
 
 // ---------- Demo video and its chapter rail ----------

@@ -45,6 +45,13 @@
   --codex-lit: #34c79d;
   --grok-lit: #a593ff;
 
+  /* The GitHub star on the GitHub buttons, the page's only yellow. On a light button it gets a
+     darker edge to stand out; --star-inverse is for the primary button, which is the other way round. */
+  --star: #eac54f;
+  --star-edge: #bf8700;
+  --star-inverse: #e3b341;
+  --star-inverse-edge: #e3b341;
+
   --radius: 14px;
   --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC',
     'Microsoft JhengHei', sans-serif;
@@ -71,6 +78,10 @@
     --grok-ink: #a593ff;
     --band: #0a0a0b;
     --band-2: #18181a;
+    --star: #e3b341;
+    --star-edge: #e3b341;
+    --star-inverse: #eac54f;
+    --star-inverse-edge: #bf8700;
     color-scheme: dark;
   }
 }
@@ -375,6 +386,35 @@ p {
 
 .btn:active {
   transform: translateY(1px);
+}
+
+/* The repository's star count on the GitHub buttons, read from GitHub's API when the page loads
+   (site.js). Until then, and without JavaScript, the buttons show no count. */
+.stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 2px;
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stars[hidden] {
+  display: none;
+}
+
+.btn .stars svg {
+  width: 15px;
+  height: 15px;
+  fill: var(--star);
+  color: var(--star-edge);
+}
+
+.btn-primary .stars svg {
+  fill: var(--star-inverse);
+  color: var(--star-inverse-edge);
 }
 
 /* ---------- Header ---------- */
@@ -1772,14 +1812,24 @@ p {
 }
 
 @media (max-width: 680px) {
-  .header-tools .btn span {
-    display: none;
+  /* Hidden from sight only: screen readers still hear "GitHub". */
+  .header-tools .btn .gh-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .header-tools .btn {
-    width: 36px;
-    padding: 0;
+    min-width: 36px;
+    padding: 0 9px;
     justify-content: center;
+  }
+
+  .header-tools .btn:has(.stars:not([hidden])) {
+    padding-right: 12px;
   }
 
   .chapters {
