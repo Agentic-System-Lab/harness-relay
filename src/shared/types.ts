@@ -500,10 +500,10 @@ export interface ShareFileRef {
 
 /**
  * Why a linked file cannot go along with a shared page: not there (or a folder), outside the chat's
- * folders (or in `.git`), larger than SHARE_FILE_MAX_BYTES, not UTF-8 text (a gist holds text only),
- * or empty (GitHub takes no empty gist file).
+ * folders (or in `.git`), or larger than SHARE_FILE_MAX_BYTES. Any kind of file can go: text, PDF,
+ * slides, images, archives (they are pushed into the files gist with git).
  */
-export type ShareFileProblem = 'missing' | 'outside' | 'too-large' | 'binary' | 'empty';
+export type ShareFileProblem = 'missing' | 'outside' | 'too-large';
 
 /** The error code of a share refused for a file that can no longer go along (it changed since it was checked). */
 export const SHARE_FILE_REFUSED = 'share-file-refused';
@@ -522,13 +522,13 @@ export interface ShareFileInfo {
 }
 
 /**
- * The largest file a shared page can take along, in bytes: what GitHub's API gives of a gist file
- * (the rest of a larger one would be missing from the gist's own pages).
+ * The largest file a shared page can take along, in bytes: the largest file GitHub recommends for a
+ * repository (a gist is one), well under the 100 MB it refuses.
  */
-export const SHARE_FILE_MAX_BYTES = 1_000_000;
+export const SHARE_FILE_MAX_BYTES = 50_000_000;
 
-/** The most a shared page can take along in all, in bytes, and in files. */
-export const SHARE_FILES_MAX_BYTES = 5_000_000;
+/** The most a shared page can take along in all, in bytes (read into memory to go up), and in files. */
+export const SHARE_FILES_MAX_BYTES = 100_000_000;
 export const SHARE_FILES_MAX = 20;
 
 /** The most file links one check (`POST …/share/files`) or share looks at. */

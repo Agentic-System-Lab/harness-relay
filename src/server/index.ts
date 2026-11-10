@@ -8,6 +8,7 @@ import { Orchestrator } from './orchestrator';
 import { killAll } from './process';
 import { ProviderService } from './providers';
 import { Scheduler } from './scheduler';
+import { clearShareTmp } from './share';
 import { openSystemKeyring } from './secrets';
 import { DB_FILE, SettingsStore } from './settings';
 import { Store } from './store';
@@ -56,6 +57,9 @@ if (!serveWebApp(app, resolve(process.cwd(), 'dist/web'))) {
 }
 
 // --- Start -------------------------------------------------------------------------
+
+// What shares left behind when the server stopped during them (none is being made yet).
+await clearShareTmp().catch((err: unknown) => console.error('[server] could not clear the temporary share folders:', err));
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? '127.0.0.1';

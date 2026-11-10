@@ -47,7 +47,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 - `src/server/tools.ts`: the tool library: MCP servers (their secret values in the OS keyring, by server id), skills and memory, and what each agent gets from it.
 - `src/server/native.ts`, `grokTrust.ts`: what each CLI loads by itself (asked without a prompt); recording Grok's trust in a project root.
 - `src/server/files.ts`: browsing a chat's working directory and agents' worktrees (inside the folder only, never `.git`), and what a folder's ZIP download holds; `zip.ts` writes that ZIP file as it is sent.
-- `src/server/share.ts`: a shared conversation as a secret gist through the user's own `gh` (create, delete; read on gistpreview.github.io). The page itself is made in the browser from the chat on screen (`src/web/sharePage.tsx`; its DOM-free parts in `src/web/share.ts`).
+- `src/server/share.ts`: a shared conversation as a secret gist through the user's own `gh` (create, delete; read on gistpreview.github.io), and the files its replies link to, of any kind, pushed with git into a second one. The page itself is made in the browser from the chat on screen (`src/web/sharePage.tsx`; its DOM-free parts in `src/web/share.ts`).
 - `src/server/i18n.ts`, `presets.ts`: server-side messages and built-in team templates, both in two languages.
 - `src/web/`: the React client. `components/`, `locales/` (`zh-TW.ts`, `en.ts`), `chat.ts` (ChatView's pure logic), `copy.ts`, `api.ts`, `public/` (the web app manifest and home-screen icons, written by `npm run icons`; don't edit them by hand).
 - `test/`: Vitest tests, roughly one file per module.

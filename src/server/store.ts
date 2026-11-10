@@ -914,6 +914,14 @@ export class Store {
     this.db.prepare('DELETE FROM shares WHERE id = ?').run(id);
   }
 
+  /** Puts `s` in the place of the share recorded as `id` (its files gist, recorded while it was made), in one step. */
+  replaceShare(id: string, s: SharedPage): void {
+    transaction(this.db, () => {
+      this.deleteShare(id);
+      this.addShare(s);
+    });
+  }
+
   // Groups -------------------------------------------------------------------------
 
   /** The user's groups, in the order they were made. (The default group, "Other", is not stored.) */

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SHARE_FILES_MAX,
   SHARE_FILES_MAX_BYTES,
+  SHARE_FILE_MAX_BYTES,
   SHARE_FILE_LINKS_MAX,
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
@@ -243,16 +244,18 @@ describe('the files a shared page links to', () => {
   });
 
   it('includes at first each file that can go along, while they fit in the limits', () => {
-    const files = [file('a.md', 10, [0]), file('b.png', 10, [1], 'binary'), file('c.md', 20, [2, 3]), file('big.csv', 2_000_000, [4], 'too-large')];
+    const files = [file('a.md', 10, [0]), file('b.png', 10, [1], 'outside'), file('c.md', 20, [2, 3]), file('big.csv', 2_000_000, [4], 'too-large')];
     expect(defaultFileSelection(files)).toEqual([true, false, true, false]);
     expect(fileSelection(files, [true, false, true, false])).toEqual({ count: 2, bytes: 30 });
     // A file that cannot go along never counts, even when checked.
     expect(fileSelection(files, [true, true, true, true])).toEqual({ count: 2, bytes: 30 });
 
-    const heavy = Array.from({ length: 6 }, (_, i) => file(`${i}.csv`, 999_999, [i]));
+    // Five fit in all, the sixth does not.
+    const each = Math.floor(SHARE_FILES_MAX_BYTES / 5);
+    const heavy = Array.from({ length: 6 }, (_, i) => file(`${i}.csv`, each, [i]));
     expect(defaultFileSelection(heavy)).toEqual([true, true, true, true, true, false]);
     expect(fileSelection(heavy, heavy.map(() => true))).toMatchObject({ count: 6, over: 'bytes' });
-    expect(5 * 999_999).toBeLessThanOrEqual(SHARE_FILES_MAX_BYTES);
+    expect(fileSelection(heavy, [true, true, true, true, true, false]).over).toBeUndefined();
 
     const lots = Array.from({ length: SHARE_FILES_MAX + 1 }, (_, i) => file(`${i}.md`, 1, [i]));
     expect(defaultFileSelection(lots).filter(Boolean)).toHaveLength(SHARE_FILES_MAX);
@@ -271,7 +274,9 @@ describe('the files a shared page links to', () => {
     expect(shareSize(1_500)).toBe('2 KB');
     expect(shareSize(999_999)).toBe('999 KB');
     expect(shareSize(1_000_000)).toBe('1 MB');
-    expect(shareSize(SHARE_FILES_MAX_BYTES)).toBe('5 MB');
+    expect(shareSize(SHARE_FILES_MAX_BYTES)).toBe('100 MB');
+    expect(shareSize(SHARE_FILE_MAX_BYTES)).toBe('50 MB');
+    expect(shareSize(0)).toBe('0 B'); // an empty file goes along too
     expect(shareSize(1_250_000)).toBe('1.3 MB');
   });
 

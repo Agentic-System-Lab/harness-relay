@@ -34,7 +34,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 - **Approvals in the chat** — the permission (read-only / edit / full access) decides what agents may do without asking; anything beyond it is asked in the chat — allow once, always allow in this chat, or decline with a note.
 - **See what agents think and do** — reasoning, plans / to-do lists and each tool's output stream into the chat.
 - **Copy, edit and retry** — copy any message or the whole chat as Markdown; edit one of your messages, or retry an agent's reply, and the team answers again from there.
-- **Share** — share the whole conversation, or everything up to one agent's reply, without tool calls and thinking: copy it as Markdown, or make a public link to a page that looks like the chat, with Harness Relay's name and logo, linking to its website (a secret gist made with your GitHub CLI, shown through gistpreview.github.io). The text files the replies link to can go along in a second secret gist, the ones you choose, for anyone with the link to download. **Settings → Shared conversations** lists every link, to remove the ones that should go (both gists).
+- **Share** — share the whole conversation, or everything up to one agent's reply, without tool calls and thinking: copy it as Markdown, or make a public link to a page that looks like the chat, with Harness Relay's name and logo, linking to its website (a secret gist made with your GitHub CLI, shown through gistpreview.github.io). The files the replies link to, of any kind (text, PDFs, slides, images…, up to 50 MB each), can go along in a second secret gist, the ones you choose, for anyone with the link to download. **Settings → Shared conversations** lists every link, to remove the ones that should go (both gists).
 - **Clear status at a glance** — the sidebar marks conversations that need you, are replying, or have a new reply; conversations keep running when you switch away.
 - **Groups and search** — make groups in the sidebar and drag conversations into them; the lead agent puts each new conversation in the group its first message fits (or leaves it in **Other**). Search finds conversations by anything written in them.
 - **Tool library: MCP servers, skills and memory** — set them up once in Settings and agents get them whichever CLI they run on, in addition to each CLI's own setup. Give each to every member or only to the members of some CLIs, keep memory for everyone plus a part per CLI, and change it per member. Tokens go to your system's credential store.
@@ -56,6 +56,8 @@ For each question, a lead agent picks the team from your templates (or adapts on
 You don't need all three — the app works with any subset, and you can sign in from the Settings page.
 
 Voice input is optional and installs itself when you turn it on: on macOS it needs [Homebrew](https://brew.sh); on Linux the prebuilt engine needs glibc 2.34 or later (Ubuntu 22.04, Debian 12 and newer).
+
+Sharing a conversation as a link is optional too: it needs the [GitHub CLI](https://cli.github.com) (`gh`) 2.66.0 or later, signed in with `gh auth login`, and `git` for the files that go along with the page.
 
 ## Quick start
 

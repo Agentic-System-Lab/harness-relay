@@ -673,14 +673,12 @@ export const zhTW = {
       heading: '回覆連結的檔案',
       warning: '勾選的檔案會和頁面一起上傳到另一個 secret gist，頁面上的連結會指向它們：有連結的人都能下載。',
       hint: (file: string, total: string, max: number) =>
-        `只能附上文字檔，每個最多 ${file}，合計最多 ${total}、${max} 個。沒勾選的檔案，頁面上的連結會變成純文字，不能下載。`,
+        `任何檔案都能附上（文字檔、PDF、簡報、圖片…），每個最多 ${file}，合計最多 ${total}、${max} 個。沒勾選的檔案，頁面上的連結會變成純文字，不能下載。`,
       checking: '正在檢查回覆連結的檔案…',
       checkFailed: (error: string) => `無法檢查回覆連結的檔案（${error}），所以不會附上任何檔案。`,
       problem: {
         missing: '找不到這個檔案',
         outside: '不在對話的資料夾裡',
-        binary: '不是文字檔',
-        empty: '檔案是空的',
       },
       tooLarge: (max: string) => `超過 ${max}`,
       secret: '看起來可能含有機密，預設不勾選',

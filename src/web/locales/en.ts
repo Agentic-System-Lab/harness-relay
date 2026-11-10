@@ -662,14 +662,12 @@ export const en: Messages = {
       heading: 'Files the replies link to',
       warning: 'The files you check go up with the page, into a second secret gist, and its links point at them: anyone with the link can download them.',
       hint: (file, total, max) =>
-        `Text files only, up to ${file} each, and ${total} or ${max} files in all. Links to files left unchecked become plain text on the page, with nothing to download.`,
+        `Any kind of file (text, PDF, slides, images…), up to ${file} each, and ${total} or ${max} files in all. Links to files left unchecked become plain text on the page, with nothing to download.`,
       checking: 'Checking the files the replies link to…',
       checkFailed: (error) => `Could not check the files the replies link to (${error}), so none will be included.`,
       problem: {
         missing: 'Not found',
         outside: "Outside this chat's folders",
-        binary: 'Not a text file',
-        empty: 'Empty',
       },
       tooLarge: (max) => `Over ${max}`,
       secret: 'May hold secrets: left unchecked at first',

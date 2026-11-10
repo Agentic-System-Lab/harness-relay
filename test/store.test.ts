@@ -330,6 +330,16 @@ describe('Store shares', () => {
     expect(migrated.getShare('bbbb')).toEqual({ ...share('bbbb', 2), url: '' });
   });
 
+  it('puts a share in the place of its files gist, recorded while it was made, in one step', () => {
+    const store = new Store(db);
+    store.create({ ...sampleConversation(), id: 'c1' });
+    store.addShare({ ...share('ffff', 1), url: '', files: 2, unfinished: true });
+    store.addShare(share('aaaa', 2));
+    store.replaceShare('ffff', { ...share('bbbb', 3), files: 2, filesGist: 'ffff' });
+    expect(store.listShares()).toEqual([{ ...share('bbbb', 3), files: 2, filesGist: 'ffff' }, share('aaaa', 2)]);
+    expect(store.getShare('ffff')).toBeUndefined();
+  });
+
   it('says when its conversation was deleted, and forgets a share', () => {
     const store = new Store(db);
     store.addShare(share('aaaa', 1));

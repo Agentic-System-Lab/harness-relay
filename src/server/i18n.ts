@@ -80,12 +80,12 @@ const zhTW = {
   shareFileProblem: {
     missing: '找不到這個檔案（或它是資料夾）',
     outside: '它不在這個對話的資料夾裡（或在 .git 裡）',
-    binary: '它不是文字檔（gist 只能放文字）',
-    empty: '它是空的（GitHub 不收空的 gist 檔案）',
   },
   shareFileTooLarge: (mb: string) => `它超過 ${mb}`,
   shareFileRefused: (name: string, reason: string) => `無法附上「${name}」：${reason}。請重新勾選要附上的檔案後再試一次。`,
   shareFilesTooMany: (max: number) => `一次最多只能附上 ${max} 個檔案。`,
+  shareFilesFailed: (detail: string) => `無法上傳附上的檔案：${detail}`,
+  shareBeingMade: '這個分享還在建立中，完成後才能移除。',
   shareFilesTooLarge: (mb: string, max: string) => `要附上的檔案共 ${mb} MB，超過合計 ${max} 的上限。`,
   shareFilesUndone: (detail: string) => `無法建立分享頁（${detail}），已經上傳的檔案也一併刪除了。請再試一次。`,
   shareFilesLeftover: (detail: string) =>
@@ -339,12 +339,12 @@ const en: ServerMessages = {
   shareFileProblem: {
     missing: 'it is not there (or it is a folder)',
     outside: "it is outside this chat's folders (or in .git)",
-    binary: 'it is not a text file (a gist holds text only)',
-    empty: 'it is empty (GitHub takes no empty gist file)',
   },
   shareFileTooLarge: (mb) => `it is larger than ${mb}`,
   shareFileRefused: (name, reason) => `Cannot include "${name}": ${reason}. Choose the files to include again, then try once more.`,
   shareFilesTooMany: (max) => `At most ${max} files can be included.`,
+  shareFilesFailed: (detail) => `Could not upload the files to include: ${detail}`,
+  shareBeingMade: 'This share is still being made: it can be removed once it is done.',
   shareFilesTooLarge: (mb, max) => `The files to include come to ${mb} MB, over the ${max} they may take in all.`,
   shareFilesUndone: (detail) => `Could not make the shared page (${detail}), so the files uploaded for it were deleted again. Try once more.`,
   shareFilesLeftover: (detail) =>

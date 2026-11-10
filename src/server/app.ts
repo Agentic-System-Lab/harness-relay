@@ -47,9 +47,11 @@ import {
   gistDescription,
   gistFileNames,
   parseShareFileRefs,
+  readShareFiles,
   shareToGist,
   unshareGist,
   validGistId,
+  type FoundShareFile,
   type GistUpload,
 } from './share';
 import type { Store } from './store';
@@ -95,11 +97,33 @@ export interface AppDeps {
    * Puts a shared conversation's page on the web, with the files it takes along (its placeholder links
    * name them by their place in `files`), and takes it down (secret gists through `gh`; fakes in tests).
    */
-  gists?: { create(html: string, description: string, files?: GistUpload[]): Promise<ShareLink>; remove(id: string): Promise<void> };
+  gists?: {
+    /** `onFilesGist`: told of the files gist as soon as it is made, as it would be left without a page. */
+    create(html: string, description: string, files?: GistUpload[], onFilesGist?: (gist: ShareLink) => void): Promise<ShareLink>;
+    remove(id: string): Promise<void>;
+  };
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
 const VOICE_MAX_BASE64 = Math.ceil(((VOICE_MAX_SECONDS + 10) * 32_000 * 4) / 3) + 1024;
+
+/**
+ * Refuses the files a share would take along when one cannot go (409, for the dialog to check them
+ * again), or when there are too many of them, or too many bytes (413).
+ */
+function refuseShareFiles(found: FoundShareFile[]): void {
+  const refused = found.find((f) => f.info.problem);
+  if (refused) {
+    const problem = refused.info.problem!;
+    const reason = problem === 'too-large' ? t().shareFileTooLarge(shareSize(SHARE_FILE_MAX_BYTES)) : t().shareFileProblem[problem];
+    throw new HttpError(409, t().shareFileRefused(refused.info.name, reason), SHARE_FILE_REFUSED);
+  }
+  if (found.length > SHARE_FILES_MAX) throw new HttpError(413, t().shareFilesTooMany(SHARE_FILES_MAX));
+  const total = found.reduce((sum, f) => sum + (f.info.size ?? 0), 0);
+  if (total > SHARE_FILES_MAX_BYTES) {
+    throw new HttpError(413, t().shareFilesTooLarge((total / 1_000_000).toFixed(1), shareSize(SHARE_FILES_MAX_BYTES)));
+  }
+}
 
 /** A folder's real path (links resolved), as Grok sees it; the path itself when it cannot be resolved. */
 function realDir(dir: string): string {
@@ -121,9 +145,17 @@ export function createApp({
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
-  gists = { create: (html, description, files) => shareToGist(html, description, undefined, files), remove: unshareGist },
+  gists = {
+    create: (html, description, files, onFilesGist) => shareToGist(html, description, undefined, files, { onFilesGist }),
+    remove: unshareGist,
+  },
 }: AppDeps): Hono {
   const app = new Hono();
+  /**
+   * The files gists of the shares being made: recorded as unfinished as soon as they exist, but not
+   * listed, nor removed, until their share is done (after a restart, one left so is listed).
+   */
+  const making = new Set<string>();
 
   app.onError((err, c) => {
     if (err instanceof HttpError) return c.json(err.code ? { error: err.message, code: err.code } : { error: err.message }, err.status);
@@ -661,20 +693,14 @@ export function createApp({
     const bytes = Buffer.byteLength(b.html) + fileLinkCount(b.html) * SHARE_FILE_URL_MAX;
     if (bytes > SHARE_MAX_BYTES) throw new HttpError(413, t().shareTooLarge((bytes / 1_000_000).toFixed(1)));
     const upTo = typeof b.upTo === 'string' ? b.upTo : undefined;
+    // Measured first, and read only when they can all go along; checked again as read (one may have
+    // changed since), never more than the limits in all.
     const found = await findShareFiles(conv, linked.map((n) => refs[n]!), upTo);
-    const refused = found.find((f) => f.info.problem);
-    if (refused) {
-      const problem = refused.info.problem!;
-      const reason = problem === 'too-large' ? t().shareFileTooLarge(shareSize(SHARE_FILE_MAX_BYTES)) : t().shareFileProblem[problem];
-      throw new HttpError(409, t().shareFileRefused(refused.info.name, reason), SHARE_FILE_REFUSED);
-    }
-    if (found.length > SHARE_FILES_MAX) throw new HttpError(413, t().shareFilesTooMany(SHARE_FILES_MAX));
-    const total = found.reduce((sum, f) => sum + (f.info.size ?? 0), 0);
-    if (total > SHARE_FILES_MAX_BYTES) {
-      throw new HttpError(413, t().shareFilesTooLarge((total / 1_000_000).toFixed(1), shareSize(SHARE_FILES_MAX_BYTES)));
-    }
+    refuseShareFiles(found);
+    await readShareFiles(found);
+    refuseShareFiles(found);
     const names = gistFileNames(found.map((f) => f.info.name));
-    const files: GistUpload[] = found.map((f, i) => ({ name: names[i]!, content: f.text! }));
+    const files: GistUpload[] = found.map((f, i) => ({ name: names[i]!, data: f.data! }));
     // The page's links name the request's files; the gist gets each file once.
     const fileOf = new Map<number, number>();
     found.forEach((f, i) => f.info.refs.forEach((r) => fileOf.set(linked[r]!, i)));
@@ -692,13 +718,34 @@ export function createApp({
       createdAt: Date.now(),
       ...(files.length ? { files: files.length } : {}),
     });
-    const link = await gistCall(
-      () => gists.create(html, gistDescription(conv.title), files),
-      // The files gist is on GitHub without a page: listed, so it can be removed in Settings.
-      (leftover) => store.addShare({ ...record(leftover), unfinished: true }),
-    );
+    // The files gist is listed as unfinished as soon as it is made, so it can be removed in Settings
+    // also when the server stops before the share is done; forgotten again once the page is up, or
+    // once the gist was deleted again (one left on GitHub stays listed).
+    let pending: string | undefined;
+    const onFilesGist = (gist: ShareLink) => {
+      pending = gist.id;
+      making.add(gist.id);
+      store.addShare({ ...record(gist), unfinished: true });
+    };
+    let link: ShareLink;
+    try {
+      link = await gistCall(
+        async () => {
+          try {
+            return await gists.create(html, gistDescription(conv.title), files, onFilesGist);
+          } catch (err) {
+            if (pending && err instanceof ShareError && !err.leftover) store.deleteShare(pending);
+            throw err;
+          }
+        },
+        (leftover) => store.addShare({ ...record(leftover), unfinished: true }),
+      );
+    } finally {
+      if (pending) making.delete(pending);
+    }
     const shared = record(link);
-    store.addShare(shared);
+    if (pending && pending !== link.id) store.replaceShare(pending, shared);
+    else store.addShare(shared);
     return c.json(shared);
   });
 
@@ -724,8 +771,9 @@ export function createApp({
     }
   }
 
-  // The conversations shared so far, the newest first; removing one deletes its gists.
-  app.get('/api/shares', (c) => c.json(store.listShares()));
+  // The conversations shared so far, the newest first (not those still being made); removing one
+  // deletes its gists.
+  app.get('/api/shares', (c) => c.json(store.listShares().filter((s) => !making.has(s.id))));
 
   // Both of a share's gists go: the files gist first, then the page's. The share is forgotten only once
   // both are gone, so one that could not be deleted stays listed, to be removed again (a gist already
@@ -734,6 +782,8 @@ export function createApp({
     const id = c.req.param('id');
     const share = validGistId(id) ? store.getShare(id) : undefined;
     if (!share) throw new HttpError(404, t().shareNotFound);
+    // Its files are going up: deleting their gist now would leave the share without them.
+    if (making.has(id)) throw new HttpError(409, t().shareBeingMade);
     const files = share.filesGist && share.filesGist !== id && validGistId(share.filesGist) ? [share.filesGist] : [];
     let failed: unknown;
     for (const gist of [...files, id]) {
