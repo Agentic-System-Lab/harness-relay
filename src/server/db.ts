@@ -276,6 +276,22 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE conversations ADD COLUMN branch TEXT;
   `,
+  // 18: signed-in browsers and one-time sign-in codes (src/server/auth.ts). Only hashes: of each
+  // session's cookie secret and header key, and of each code.
+  `
+  CREATE TABLE auth_sessions (
+    id           TEXT PRIMARY KEY,
+    cookie_hash  TEXT NOT NULL,
+    key_hash     TEXT NOT NULL,
+    label        TEXT,
+    created_at   INTEGER NOT NULL,
+    last_used_at INTEGER NOT NULL
+  );
+  CREATE TABLE auth_codes (
+    hash       TEXT PRIMARY KEY,
+    expires_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 function migrate(db: Database): void {

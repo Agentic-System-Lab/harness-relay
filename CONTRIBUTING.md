@@ -37,7 +37,7 @@ npm install
 npm run dev        # API on :8787 (restarts on changes) + UI on http://localhost:5173
 ```
 
-`npm run dev` restarts the server whenever a server file changes, and a restart aborts any agent turn that is running. Runtime data goes to `data/` (git-ignored); set `RELAY_DATA_DIR` to keep a test setup apart from your own conversations. The [developer guide](docs/developer-guide.md#running) lists the other environment variables.
+`npm run dev` restarts the server whenever a server file changes, and a restart aborts any agent turn that is running. Runtime data goes to `data/` (git-ignored); set `RELAY_DATA_DIR` to keep a test setup apart from your own conversations. The [developer guide](docs/developer-guide.md#running) lists the other environment variables. Harness Relay refuses edit mode in a working directory that holds itself, so to work on this repository with Harness Relay, run the copy you use from another checkout.
 
 ## Making a change
 
@@ -53,7 +53,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 
 ### Security
 
-- New routes go under `/api/`, so they get the Host/Origin checks, the JSON content-type check on writes and the request language. Don't weaken these checks.
+- New routes go under `/api/`, so they get the Host/Origin checks, the JSON content-type check on writes, sign-in and the request language. Don't weaken these checks. Only a read-only route the browser loads by itself (an image, a download link) may take the cookie without the key (`BROWSER_LOADS` in `src/server/app.ts`).
 - Never send secrets to the client. API keys belong in the OS credential store (`src/server/secrets.ts`), not in the database.
 - The server binds to `127.0.0.1`, and agent replies must not make the browser load remote content (images are shown as links; local media goes through the media endpoint's path checks).
 

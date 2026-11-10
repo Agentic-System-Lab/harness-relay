@@ -85,6 +85,7 @@ import {
 } from './workspace';
 import { isBranchTitle, isDefaultTitle, t } from './i18n';
 import { sameFolder, validateAgents } from './validate';
+import { agentFolderOptions, relayFolderRefusal } from './protect';
 import { scheduleTime } from './scheduler';
 
 export { HttpError };
@@ -1863,6 +1864,9 @@ export class Orchestrator {
     let before: { commit: string; tree?: string } | undefined;
     let setupError: unknown;
     try {
+      // Settings from before the check (or changed since): edit mode in Harness Relay's own folder.
+      const refusal = relayFolderRefusal(conv.settings, agentFolderOptions(this.settings));
+      if (refusal) throw new AgentRunError(refusal);
       if (wt) {
         cwd = worktreeCwd(wt.root, conv.settings.cwd, wt.path);
         workspace = {
@@ -1971,6 +1975,7 @@ export class Orchestrator {
               detail: req.detail,
               reason: req.reason,
               ruleLabel: keys.join(', ') || undefined,
+              ...(req.outsideSandbox ? { outsideSandbox: true } : {}),
               status: 'pending',
             };
             textOpen = false;

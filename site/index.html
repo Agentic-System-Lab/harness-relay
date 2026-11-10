@@ -69,6 +69,10 @@
           <rect x="5" y="10.5" width="14" height="10" rx="2.5" />
           <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
         </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
         <symbol id="i-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="6.5" cy="5.5" r="2.25" />
           <circle cx="6.5" cy="18.5" r="2.25" />
@@ -688,7 +692,8 @@
               remote content.
             </p>
             <ul class="facts">
-              <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>Bound to <code>127.0.0.1</code>; cross-site requests are rejected.</span></li>
+              <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>Bound to <code>127.0.0.1</code> and takes only browsers you signed in; cross-site requests are rejected.</span></li>
+              <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>Below full access, each agent’s commands run in its CLI’s own OS sandbox: they write only in the working directory, and can’t read your browsers’ folders or Harness Relay’s data.</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>Git snapshots for every turn that edits; parallel agents in their own worktrees.</span></li>
               <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API keys and MCP server tokens in your OS credential store: macOS Keychain, Windows Credential Manager or Secret Service.</span></li>
               <li><svg aria-hidden="true"><use href="#i-db" /></svg><span>Your conversations live in one SQLite file; Harness Relay publishes one only when you share it as a link.</span></li>
@@ -713,8 +718,10 @@
               </tbody>
             </table>
             <p class="excerpt-note">
-              Edit doesn’t sandbox project code: tests and scripts run code the agents can change. For code or
-              instructions you don’t trust, use read-only.
+              In edit mode, tests and scripts run code the agents can change. Codex’s sandbox keeps it off the network and
+              Claude Code’s asks you about each host; Grok’s commands can still reach the network, and on native Windows
+              only Codex has a sandbox. For code or instructions you don’t trust, use read-only.
+              <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/sandboxing.md">What each sandbox covers, by platform</a>
             </p>
           </div>
         </div>
@@ -753,7 +760,8 @@
             <li>
               <h3>Sign in, then chat</h3>
               <p>
-                Open <b>http://127.0.0.1:8787</b>. Under Settings &amp; sign-in, check that each agent is signed in. Then
+                Open the sign-in link <code>npm start</code> prints (<b>http://127.0.0.1:8787/#code=…</b>): Harness Relay
+                takes only browsers you signed in. Under Settings &amp; sign-in, check that each agent is signed in. Then
                 New chat: choose the working directory and permission, and ask your first question.
               </p>
             </li>
@@ -773,7 +781,8 @@
                   </button>
                 </div>
                 <p>
-                  Open that <b>https://</b> address on the phone. Only devices in your tailnet can reach it, and the server
+                  Open that <b>https://</b> address on the phone, and sign it in with a code from <b>Settings → Signed-in
+                  browsers</b> on the computer. Only devices in your tailnet can reach it, and the server
                   stays on <code>127.0.0.1</code>. To add it to the home screen: <b>Share → Add to Home Screen</b> in Safari on
                   iPhone, <b>⋮ → Install app</b> in Chrome on Android.
                 </p>

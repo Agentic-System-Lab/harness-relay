@@ -14,7 +14,9 @@ import {
   excludePathspecs,
   keepCommits,
   removeWorktree,
+  repoDriverGuards,
   snapshot,
+  unignoredFiles,
   worktreeCwd,
 } from '../src/server/workspace';
 
@@ -221,5 +223,102 @@ describe('keepCommits', () => {
     git(repo, 'reflog', 'expire', '--expire=now', '--all');
     git(repo, 'gc', '-q', '--prune=now');
     expect(() => git(repo, 'cat-file', '-t', snap)).toThrow();
+  });
+});
+
+describe("a repository's own config that would run commands", () => {
+  it("runs none of them in Harness Relay's git commands: fsmonitor, filters, textconv, also through an include", async () => {
+    await ensureRepo(repo);
+    const ran = join(dir, 'ran.txt');
+    const sh = (what: string) => `sh -c 'echo ${what} >> "${ran}"; cat'`;
+    git(repo, 'config', 'core.fsmonitor', `sh -c 'echo fsmonitor >> "${ran}"'`);
+    git(repo, 'config', 'filter.evil.clean', sh('clean'));
+    git(repo, 'config', 'filter.evil.smudge', sh('smudge'));
+    git(repo, 'config', 'diff.evil.textconv', `sh -c 'echo textconv >> "${ran}"; cat "$0"'`);
+    git(repo, 'config', 'include.path', 'extra.cfg');
+    writeFileSync(join(repo, '.git', 'extra.cfg'), `[filter "inc"]\n\tclean = ${sh('included')}\n`);
+    writeFileSync(join(repo, '.gitattributes'), '*.md filter=evil diff=evil\n*.ts filter=inc\n');
+    // A name with a space or a dot is still one driver.
+    git(repo, 'config', 'filter.a b.c.clean', sh('spaced'));
+
+    const guards = await repoDriverGuards(repo, process.env);
+    expect(guards).toEqual(expect.arrayContaining(['-c', 'filter.evil.clean=', '-c', 'diff.evil.textconv=', '-c', 'filter.inc.clean=', '-c', 'filter.a b.c.clean=']));
+
+    const first = await snapshot(repo);
+    writeFileSync(join(repo, 'README.md'), 'changed\n');
+    const second = await snapshot(repo);
+    await diffFiles(repo, first.commit, second.commit);
+    await diffText(repo, first.commit, second.commit);
+    await unignoredFiles(repo);
+    await createWorktree(repo, join(dir, 'wt'), 'relay/test', second.commit);
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  it('fetches no missing object, as the remote of a partial clone would be reached through a command the config names', async () => {
+    await ensureRepo(repo);
+    const first = await snapshot(repo);
+    writeFileSync(join(repo, 'README.md'), 'changed\n');
+    const second = await snapshot(repo);
+    const ran = join(dir, 'ran.txt');
+    git(repo, 'config', 'core.repositoryformatversion', '1');
+    git(repo, 'config', 'extensions.partialClone', 'origin');
+    git(repo, 'config', 'remote.origin.url', 'ssh://example.invalid/x.git');
+    git(repo, 'config', 'remote.origin.promisor', 'true');
+    git(repo, 'config', 'core.sshCommand', `sh -c 'echo ssh >> "${ran}"; exit 1' --`);
+    const blob = git(repo, 'rev-parse', `${first.commit}:README.md`);
+    rmSync(join(repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
+    await expect(diffText(repo, first.commit, second.commit)).rejects.toThrow();
+    await expect(createWorktree(repo, join(dir, 'wt'), 'relay/test', first.commit)).rejects.toThrow();
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  it('refuses a core.worktree that names another folder, which a snapshot would take in', async () => {
+    await ensureRepo(repo);
+    const outside = join(dir, 'outside');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'secret.txt'), 'secret\n');
+    for (const other of [outside, '../..']) {
+      git(repo, 'config', 'core.worktree', other);
+      await expect(snapshot(repo)).rejects.toThrow(/core\.worktree/);
+    }
+    // Its own folder (relative to .git) is fine.
+    git(repo, 'config', 'core.worktree', '..');
+    const snap = await snapshot(repo);
+    expect(git(repo, 'ls-tree', '-r', '--name-only', snap.commit).split('\n')).not.toContain('secret.txt');
+  });
+
+  it('runs no driver of a repository at a submodule, which git add runs git status in, and still takes a real submodule', async () => {
+    await ensureRepo(repo);
+    const ran = join(dir, 'ran.txt');
+    const sub = join(repo, 'sub');
+    const quiet = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
+    mkdirSync(sub);
+    // Its .git is an ordinary folder of the working tree, which any agent can write.
+    quiet(sub, 'init', '-q');
+    writeFileSync(join(sub, '.gitattributes'), '* filter=evil\n');
+    writeFileSync(join(sub, 'x.md'), 'x\n');
+    quiet(sub, 'add', '-A');
+    quiet(sub, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x');
+    quiet(repo, 'add', 'sub');
+    git(sub, 'config', 'filter.evil.clean', `sh -c 'echo clean >> "${ran}"; cat'`);
+    expect(await repoDriverGuards(repo, process.env, true)).toEqual(expect.arrayContaining(['-c', 'filter.evil.clean=']));
+    await snapshot(repo);
+    writeFileSync(join(sub, 'x.md'), 'changed\n');
+    await snapshot(repo);
+    expect(existsSync(ran)).toBe(false);
+    // As a submodule (its git data in .git/modules, its core.worktree pointing back): still taken.
+    writeFileSync(join(repo, '.gitmodules'), '[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n');
+    quiet(repo, 'submodule', 'absorbgitdirs');
+    await snapshot(repo);
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  it("leaves the user's own drivers (git-lfs, say) alone", async () => {
+    await ensureRepo(repo);
+    const home = join(dir, 'home');
+    mkdirSync(home);
+    writeFileSync(join(home, '.gitconfig'), '[filter "lfs"]\n\tclean = git-lfs clean -- %f\n');
+    const guards = await repoDriverGuards(repo, { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config') });
+    expect(guards.join(' ')).not.toContain('lfs');
   });
 });

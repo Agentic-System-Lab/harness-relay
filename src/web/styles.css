@@ -6018,3 +6018,95 @@ a.share-action {
 .team-fieldset:disabled :is(input, textarea, select) {
   opacity: 0.45;
 }
+
+/* Sign-in page ------------------------------------------------------------- */
+
+.signin {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: var(--bg);
+}
+
+.signin-card {
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.signin-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.signin-head h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.signin-card h2 {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.signin-card p {
+  margin: 0;
+}
+
+.signin-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.signin-form .field {
+  flex: 1 1 200px;
+}
+
+.signin-form input {
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.signin-where {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+/* Settings → Signed-in browsers: a code for another device. */
+.browsers-code {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.browsers-code p {
+  margin: 0;
+}
+
+.browsers-code-value code {
+  font-size: 20px;
+  letter-spacing: 0.12em;
+}
+
+.browsers-code-link {
+  word-break: break-all;
+}
+
+.signin-where code {
+  white-space: nowrap;
+}

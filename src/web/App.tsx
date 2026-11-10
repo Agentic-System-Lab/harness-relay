@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus } from '../shared/types';
-import { api } from './api';
+import { codeFromHash } from '../shared/auth';
+import { SIGNED_OUT_EVENT, api } from './api';
 import { ChatView } from './components/ChatView';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
 import { Onboarding, onboardingDone } from './components/Onboarding';
 import { SettingsPage } from './components/SettingsPage';
+import { SignIn } from './components/SignIn';
 import { hashFor, routeFromHash, type Route } from './route';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
@@ -49,7 +51,65 @@ export function navigate(r: Route): void {
   window.location.hash = hashFor(r);
 }
 
+/**
+ * The app once this browser is signed in; before that, the sign-in page. A sign-in link's code
+ * (`#code=…`) is taken out of the address first, so it stays in neither the history nor a shared link.
+ */
 export function App() {
+  const [auth, setAuth] = useState<'checking' | 'in' | 'out'>('checking');
+  const [error, setError] = useState<string>();
+  const state = useRef(auth);
+  state.current = auth;
+
+  useEffect(() => {
+    let live = true;
+    /**
+     * Signs in with the code a sign-in link carries, also one opened in a tab that shows the app
+     * already (only its fragment changes then), and takes the code out of the address. The code is
+     * used up also in a browser signed in already (its new session replaces the old one), so it does
+     * not keep working in the browser's history. True when there was one to sign in with.
+     */
+    const fromLink = async (): Promise<boolean> => {
+      const code = codeFromHash(window.location.hash);
+      if (!code) return false;
+      history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/`);
+      try {
+        await api.signIn(code);
+        if (live) setAuth('in');
+      } catch (e) {
+        // A link that no longer works changes nothing for a browser that is signed in.
+        const signedIn = state.current === 'in' || (await api.authStatus().catch(() => ({ signedIn: false }))).signedIn;
+        if (live && signedIn) setAuth('in');
+        else if (live) {
+          setError((e as Error).message);
+          setAuth('out');
+        }
+      }
+      return true;
+    };
+    void (async () => {
+      if (await fromLink()) return;
+      const status = await api.authStatus().catch(() => ({ signedIn: false }));
+      if (live) setAuth(status.signedIn ? 'in' : 'out');
+    })();
+    const onHash = () => void fromLink();
+    const out = () => setAuth('out');
+    window.addEventListener('hashchange', onHash);
+    window.addEventListener(SIGNED_OUT_EVENT, out);
+    return () => {
+      live = false;
+      window.removeEventListener('hashchange', onHash);
+      window.removeEventListener(SIGNED_OUT_EVENT, out);
+    };
+  }, []);
+
+  if (auth === 'checking') return null;
+  // Keyed by the error, so a link with a wrong code shows its message on a page already open.
+  if (auth === 'out') return <SignIn key={error} error={error} onSignedIn={() => setAuth('in')} />;
+  return <RelayApp />;
+}
+
+function RelayApp() {
   const t = useT();
   const [tourOpen, setTourOpen] = useState(() => !onboardingDone());
   const [route, setRoute] = useState<Route>(parseHash);

@@ -1,3 +1,6 @@
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { JsonRpcConnection, RpcError } from '../src/server/agents/acp';
 import {
@@ -6,6 +9,19 @@ import {
   grokApprovalRequest,
   grokMcpServers,
   grokEnv,
+  grokHome,
+  grokProfileBlock,
+  grokPrograms,
+  guardGrokProgram,
+  readGrokProgram,
+  restoreGrokProgram,
+  guardGrokSettings,
+  restoreGrokSettings,
+  snapshotGrokSettings,
+  grokSandboxProfile,
+  withGrokProfile,
+  writeGrokProfile,
+  writeGrokSetting,
   grokNativeEnv,
   grokPermissionDecision,
   type GrokToolCall,
@@ -322,14 +338,19 @@ describe('leaving out what Grok loads by itself', () => {
   });
 
   it("keeps the user's variables and the sandbox next to them", () => {
-    expect(grokEnv({ env: { PATH: '/bin', GROK_MEMORY: '1' }, nativeOff: ['memory', 'mcp'], permission: 'edit' })).toEqual({
+    expect(grokEnv({ env: { PATH: '/bin', GROK_MEMORY: '1' }, nativeOff: ['memory', 'mcp'], permission: 'edit' }, 'linux')).toEqual({
       PATH: '/bin',
       GROK_MEMORY: '0',
       GROK_CLAUDE_MCPS_ENABLED: 'false',
       GROK_CURSOR_MCPS_ENABLED: 'false',
-      GROK_SANDBOX: 'workspace',
+      GROK_SANDBOX: 'harness-relay',
     });
-    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' })).toEqual({ PATH: '/bin' });
+    // Read-only runs in the same profile: Grok's `read-only` one refuses to start on some machines,
+    // and a session resumes only under the profile it started with.
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' }, 'darwin')).toEqual({ PATH: '/bin', GROK_SANDBOX: 'harness-relay' });
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'full' }, 'linux')).toEqual({ PATH: '/bin' });
+    // Windows: no sandbox to give a deny list to; the built-in profile as before.
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'edit' }, 'win32')).toEqual({ PATH: '/bin', GROK_SANDBOX: 'workspace' });
   });
 });
 
@@ -355,5 +376,316 @@ describe('grok and the tool library', () => {
         false,
       ).map((s) => s.name),
     ).toEqual(['gh']);
+  });
+});
+
+describe("Grok's sandbox profile", () => {
+  it('is its own profile below full access, and the built-in one on Windows', () => {
+    expect(grokSandboxProfile('read-only', 'darwin')).toBe('harness-relay');
+    expect(grokSandboxProfile('edit', 'linux')).toBe('harness-relay');
+    expect(grokSandboxProfile('full', 'linux')).toBeUndefined();
+    expect(grokSandboxProfile('edit', 'win32')).toBe('workspace');
+    expect(grokHome({ GROK_HOME: '/agents/grok' })).toBe('/agents/grok');
+    expect(grokHome({})).toMatch(/\.grok$/);
+  });
+
+  it('is written into sandbox.toml beside the user\'s own profiles, and replaced in place', () => {
+    const block = grokProfileBlock(['/home/me/.mozilla', '/srv/a "b"/relay.db']);
+    expect(block).toContain('[profiles.harness-relay]\nextends = "workspace"\ndeny = ["/home/me/.mozilla", "/srv/a \\"b\\"/relay.db"]');
+    // Control characters are escaped as TOML takes them, DEL included (JSON leaves it as it is).
+    expect(grokProfileBlock(['/a\tb\n\u0001\u007f'])).toContain('deny = ["/a\\tb\\n\\u0001\\u007F"]');
+    const user = '[profiles.mine]\nextends = "strict"\n';
+    const once = withGrokProfile(user, block);
+    expect(once.startsWith(user)).toBe(true);
+    expect(once).toContain(block);
+    // Written again with another list: the block is replaced, the user's profile kept, nothing added twice.
+    const again = withGrokProfile(once, grokProfileBlock(['/x']));
+    expect(again.startsWith(user)).toBe(true);
+    expect(again.match(/\[profiles\.harness-relay\]/g)).toHaveLength(1);
+    expect(again).toContain('deny = ["/x"]');
+    expect(withGrokProfile('', block)).toBe(`${block}\n`);
+  });
+
+  it("writes the file in Grok's home only when it changes", () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-home-'));
+    try {
+      writeGrokProfile(home, ['/x']);
+      const file = join(home, 'sandbox.toml');
+      expect(readFileSync(file, 'utf8')).toContain('deny = ["/x"]');
+      writeFileSync(file, `# mine\n${readFileSync(file, 'utf8')}`);
+      writeGrokProfile(home, ['/x']);
+      expect(readFileSync(file, 'utf8').startsWith('# mine\n')).toBe(true);
+      // A link to the user's own file stays a link; the file it leads to gets the profile.
+      const dotfile = join(home, 'dotfiles-sandbox.toml');
+      writeFileSync(dotfile, '[profiles.mine]\nextends = "strict"\n');
+      rmSync(file);
+      symlinkSync(dotfile, file);
+      writeGrokProfile(home, ['/y']);
+      expect(lstatSync(file).isSymbolicLink()).toBe(true);
+      expect(readFileSync(dotfile, 'utf8')).toContain('deny = ["/y"]');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Grok's own folder in its sandbox", () => {
+  it('denies its programs, the folder of the one Harness Relay starts too', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-programs-'));
+    try {
+      for (const name of ['bin', 'downloads', 'sessions']) mkdirSync(join(home, name));
+      const elsewhere = mkdtempSync(join(tmpdir(), 'relay-grok-bin-'));
+      const bin = join(elsewhere, 'grok');
+      writeFileSync(bin, '');
+      const paths = grokPrograms(home, [bin], 'darwin');
+      expect(paths).toEqual(expect.arrayContaining([join(home, 'bin'), join(home, 'downloads'), elsewhere]));
+      expect(paths).not.toContain(join(home, 'sessions'));
+      // Not on Linux, where Grok runs its program again inside its sandbox: it is checked around each turn there.
+      expect(grokPrograms(home, [bin], 'linux')).toEqual([]);
+      rmSync(elsewhere, { recursive: true, force: true });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('puts back its settings when a turn changed them, keeping the changed ones, and reports changed skills', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-settings-'));
+    try {
+      writeFileSync(join(home, 'config.toml'), '[mine]\n');
+      mkdirSync(join(home, 'skills/review'), { recursive: true });
+      writeFileSync(join(home, 'skills/review/SKILL.md'), 'review');
+      const untouched = snapshotGrokSettings(home);
+      expect(restoreGrokSettings(untouched, home)).toEqual([]);
+
+      const before = snapshotGrokSettings(home);
+      writeFileSync(join(home, 'config.toml'), '[mcp_servers.evil]\ncommand = "sh"\n');
+      writeFileSync(join(home, 'hooks-paths'), '/tmp/evil.sh\n');
+      writeFileSync(join(home, 'skills/review/SKILL.md'), 'run this first');
+      expect(restoreGrokSettings(before, home, 42)).toEqual(['config.toml', 'hooks-paths', 'skills']);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      expect(readFileSync(join(home, 'config.toml.changed-42'), 'utf8')).toContain('evil');
+      // A file that was not there is removed again, kept aside like the others.
+      expect(existsSync(join(home, 'hooks-paths'))).toBe(false);
+      expect(readFileSync(join(home, 'hooks-paths.changed-42'), 'utf8')).toBe('/tmp/evil.sh\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('takes a link as a link: one made a file, a file made a link, and what a link leads to', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-links-'));
+    const dotfiles = mkdtempSync(join(tmpdir(), 'relay-grok-dotfiles-'));
+    const elsewhere = mkdtempSync(join(tmpdir(), 'relay-grok-elsewhere-'));
+    try {
+      writeFileSync(join(dotfiles, 'config.toml'), '[mine]\n');
+      symlinkSync(join(dotfiles, 'config.toml'), join(home, 'config.toml'));
+      writeFileSync(join(home, 'hooks-paths'), '');
+      writeFileSync(join(elsewhere, 'shell-rc'), 'mine\n');
+      const before = snapshotGrokSettings(home);
+      // The link replaced by a file of its own; a file replaced by a link to a file outside.
+      rmSync(join(home, 'config.toml'));
+      writeFileSync(join(home, 'config.toml'), '[mcp_servers.evil]\n');
+      rmSync(join(home, 'hooks-paths'));
+      symlinkSync(join(elsewhere, 'shell-rc'), join(home, 'hooks-paths'));
+      // A link where the changed copy would go, to a file outside: not followed.
+      symlinkSync(join(elsewhere, 'shell-rc'), join(home, 'config.toml.changed-7'));
+      expect(restoreGrokSettings(before, home, 7)).toEqual(['config.toml', 'hooks-paths']);
+      expect(lstatSync(join(home, 'config.toml')).isSymbolicLink()).toBe(true);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      expect(lstatSync(join(home, 'hooks-paths')).isFile()).toBe(true);
+      expect(readFileSync(join(home, 'hooks-paths'), 'utf8')).toBe('');
+      expect(readFileSync(join(elsewhere, 'shell-rc'), 'utf8')).toBe('mine\n');
+
+      // Only what the link leads to changed: written as it was, the changed one kept beside the link.
+      const again = snapshotGrokSettings(home);
+      writeFileSync(join(dotfiles, 'config.toml'), '[mcp_servers.evil]\n');
+      expect(restoreGrokSettings(again, home, 8)).toEqual(['config.toml']);
+      expect(readFileSync(join(dotfiles, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      expect(readFileSync(join(home, 'config.toml.changed-8'), 'utf8')).toContain('evil');
+    } finally {
+      for (const d of [home, dotfiles, elsewhere]) rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  it('puts back the others when one was made a folder, and does not read a file grown large', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-folder-'));
+    try {
+      writeFileSync(join(home, 'config.toml'), '[mine]\n');
+      writeFileSync(join(home, 'requirements.toml'), '');
+      const before = snapshotGrokSettings(home);
+      rmSync(join(home, 'config.toml'));
+      mkdirSync(join(home, 'config.toml'));
+      writeFileSync(join(home, 'requirements.toml'), 'x'.repeat(1 << 16));
+      writeFileSync(join(home, 'trusted_folders.toml'), '[folders."/"]\ntrusted = true\n');
+      expect(restoreGrokSettings(before, home, 9)).toEqual(['config.toml', 'requirements.toml', 'trusted_folders.toml']);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      expect(lstatSync(join(home, 'config.toml.changed-9')).isDirectory()).toBe(true);
+      expect(readFileSync(join(home, 'requirements.toml'), 'utf8')).toBe('');
+      expect(existsSync(join(home, 'trusted_folders.toml'))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('takes an empty file for none, as Grok\'s sandbox makes its settings files empty when they are not there', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-empty-'));
+    try {
+      writeFileSync(join(home, 'config.toml'), '[mine]\n');
+      const before = snapshotGrokSettings(home);
+      for (const name of ['managed_config.toml', 'requirements.toml', 'trusted_folders.toml', 'hooks-paths']) writeFileSync(join(home, name), '');
+      expect(restoreGrokSettings(before, home)).toEqual([]);
+      expect(existsSync(join(home, 'hooks-paths'))).toBe(true);
+      // Emptying one that held settings is a change.
+      writeFileSync(join(home, 'config.toml'), '');
+      expect(restoreGrokSettings(before, home, 11)).toEqual(['config.toml']);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("takes sandbox.toml without Harness Relay's own block, which each run writes again", () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-profile-guard-'));
+    try {
+      writeGrokProfile(home, ['/a']);
+      const before = snapshotGrokSettings(home);
+      writeGrokProfile(home, ['/a', '/b']);
+      expect(restoreGrokSettings(before, home)).toEqual([]);
+      // A line after the block would belong to its table: a change, put back.
+      writeFileSync(join(home, 'sandbox.toml'), `${readFileSync(join(home, 'sandbox.toml'), 'utf8')}read_write = ["/"]\n`);
+      expect(restoreGrokSettings(before, home, 10)).toEqual(['sandbox.toml']);
+      expect(readFileSync(join(home, 'sandbox.toml'), 'utf8')).not.toContain('read_write');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('shares what the settings were among turns at the same time, so a later one neither takes nor keeps a change', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-guard-'));
+    try {
+      writeFileSync(join(home, 'config.toml'), '[mine]\n');
+      const first = guardGrokSettings(home);
+      // A command of the first turn changes the settings; a second turn starts meanwhile.
+      writeFileSync(join(home, 'config.toml'), '[mcp_servers.evil]\n');
+      const second = guardGrokSettings(home);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      expect(first()).toEqual(['config.toml']);
+      expect(second()).toEqual([]);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine]\n');
+      // Once none is running, the next turn starts from the settings as they are.
+      writeFileSync(join(home, 'config.toml'), '[mine, changed by the user]\n');
+      const third = guardGrokSettings(home);
+      expect(third()).toEqual([]);
+      expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine, changed by the user]\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('writes no read-only list: its read_only grants reading, it does not stop writing', () => {
+    expect(grokProfileBlock(['/x'])).not.toContain('read_only');
+  });
+});
+
+describe("Harness Relay's own changes to Grok's settings", () => {
+  it('are kept by the turns running when it makes them (trusting a folder)', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-trust-'));
+    try {
+      writeFileSync(join(home, 'trusted_folders.toml'), '[old]\n');
+      const end = guardGrokSettings(home);
+      writeGrokSetting(home, 'trusted_folders.toml', () => {
+        writeFileSync(join(home, 'trusted_folders.toml'), '[old]\n[new]\n');
+        return '[old]\n[new]\n';
+      });
+      expect(end()).toEqual([]);
+      expect(readFileSync(join(home, 'trusted_folders.toml'), 'utf8')).toBe('[old]\n[new]\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("start from the settings as the running turns found them, and keep only what Harness Relay wrote", () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-trust-race-'));
+    const file = join(home, 'trusted_folders.toml');
+    try {
+      writeFileSync(file, '[old]\n');
+      const end = guardGrokSettings(home);
+      // A command of the turn trusts a folder of its own before the user trusts one.
+      writeFileSync(file, '[old]\n[agent]\n');
+      let found = '';
+      writeGrokSetting(home, 'trusted_folders.toml', () => {
+        found = readFileSync(file, 'utf8');
+        writeFileSync(file, `${found}[user]\n`);
+        return `${found}[user]\n`;
+      });
+      expect(found).toBe('[old]\n');
+      // And changes it again right after: put back to what Harness Relay wrote, and named.
+      writeFileSync(file, '[old]\n[user]\n[agent]\n');
+      expect(end()).toEqual(['trusted_folders.toml']);
+      expect(readFileSync(file, 'utf8')).toBe('[old]\n[user]\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Grok's program on Linux", () => {
+  function home() {
+    const h = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-prog-')));
+    mkdirSync(join(h, 'bin'));
+    mkdirSync(join(h, 'downloads'));
+    writeFileSync(join(h, 'downloads/grok-1.0'), 'the real grok', { mode: 0o755 });
+    symlinkSync('../downloads/grok-1.0', join(h, 'bin/grok'));
+    return h;
+  }
+
+  it('is not denied there (Grok starts its sandbox by running it again)', () => {
+    const h = home();
+    try {
+      expect(grokPrograms(h, [join(h, 'bin/grok')], 'linux')).toEqual([]);
+      expect(grokPrograms(h, [join(h, 'bin/grok')], 'darwin')).toContain(join(h, 'downloads'));
+    } finally {
+      rmSync(h, { recursive: true, force: true });
+    }
+  });
+
+  it('is put back from the kept copy when a turn changed the file or the link', () => {
+    const h = home();
+    const keep = join(h, 'keep');
+    try {
+      const trusted = readGrokProgram(h, [join(h, 'bin/grok')], keep);
+      expect(restoreGrokProgram(trusted)).toEqual([]);
+      writeFileSync(join(h, 'downloads/grok-1.0'), 'evil');
+      rmSync(join(h, 'bin/grok'));
+      symlinkSync('/tmp/evil', join(h, 'bin/grok'));
+      expect(restoreGrokProgram(trusted, 7).sort()).toEqual(['bin/grok', 'grok-1.0']);
+      expect(readFileSync(join(h, 'downloads/grok-1.0'), 'utf8')).toBe('the real grok');
+      expect(readFileSync(join(h, 'downloads/grok-1.0.changed-7'), 'utf8')).toBe('evil');
+      expect(readFileSync(join(h, 'bin/grok'), 'utf8')).toBe('the real grok');
+      expect(lstatSync(join(h, 'downloads/grok-1.0')).mode & 0o777).toBe(0o755);
+      // As put back, it is what is trusted now.
+      expect(restoreGrokProgram(trusted)).toEqual([]);
+    } finally {
+      rmSync(h, { recursive: true, force: true });
+    }
+  });
+
+  it('is put back before another turn starts it while turns run, and taken as it is between turns', () => {
+    const h = home();
+    try {
+      const endA = guardGrokProgram(h, [join(h, 'bin/grok')], join(h, 'keep'));
+      writeFileSync(join(h, 'downloads/grok-1.0'), 'evil');
+      const endB = guardGrokProgram(h, [join(h, 'bin/grok')], join(h, 'keep'));
+      expect(readFileSync(join(h, 'downloads/grok-1.0'), 'utf8')).toBe('the real grok');
+      expect(endB()).toEqual(['grok-1.0']);
+      expect(endA()).toEqual([]);
+      // No turn running: an update between turns is the user's.
+      writeFileSync(join(h, 'downloads/grok-1.0'), 'grok 1.1');
+      const endC = guardGrokProgram(h, [join(h, 'bin/grok')], join(h, 'keep'));
+      expect(endC()).toEqual([]);
+      expect(readFileSync(join(h, 'downloads/grok-1.0'), 'utf8')).toBe('grok 1.1');
+    } finally {
+      rmSync(h, { recursive: true, force: true });
+    }
   });
 });

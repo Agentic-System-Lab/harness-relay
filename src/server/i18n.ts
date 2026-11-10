@@ -38,6 +38,8 @@ const zhTW = {
     `Codex 無法列出它的 MCP 伺服器，因此無法在這次執行中不載入它們或它們的工具（${detail}）。請更新 Codex，或在「設定」裡 Codex 的「這個 CLI 自己載入的…」中，取消「MCP 工具」分頁的不載入勾選。`,
   codexLeftOutUnchecked: (detail: string) =>
     `無法確認 Codex 在這次執行中沒有載入設為不載入的 skill、hook 或 plugin（${detail}），所以沒有執行。請再試一次，或在「設定」裡 Codex 的「這個 CLI 自己載入的…」中取消這些不載入勾選。`,
+  codexNoProfile: (active: string | undefined) =>
+    `Codex 沒有在 Harness Relay 給它的權限設定檔中執行這個 thread（它回報的是${active ? `「${active}」` : '沒有設定檔'}，可能是不認得這個欄位的舊版 Codex），它的沙箱就擋不住你瀏覽器的資料夾與 Harness Relay 的資料庫，所以沒有執行。請更新 Codex（0.167 可以）再試一次。`,
   codexStillLoaded: (parts: ('skills' | 'hooks' | 'plugins')[]) =>
     `Codex 仍載入了設為不載入的${parts.map((p) => ` ${p === 'skills' ? 'skill' : p === 'hooks' ? 'hook' : 'plugin'}`).join(' 與')}（可能是不認得這項設定的舊版 Codex）。請更新 Codex，或在「設定」裡 Codex 的「這個 CLI 自己載入的…」中，取消${parts.map((p) => `「${p === 'skills' ? 'Skills' : p === 'hooks' ? 'Hooks' : 'Plugins'}」`).join('與')}分頁的不載入勾選。`,
   claudePluginsFailed: (detail: string) =>
@@ -45,6 +47,9 @@ const zhTW = {
   claudeAgentsFailed: (detail: string) =>
     `無法讓 Claude Code 在這次執行中不載入它自己的 subagent（${detail}）。請更新 Claude Code，或在「設定」裡 Claude Code 的「這個 CLI 自己載入的…」中，取消「Subagents」分頁的「全部不載入」。`,
   claudeError: 'Claude Code 回報錯誤',
+  claudeSandbox: (why: string) =>
+    `Claude Code 無法啟動它的沙箱（完全存取以外的權限都需要）：${why}。在 Linux 與 WSL2 上請安裝 bubblewrap 與 socat（例如 sudo apt-get install bubblewrap socat），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」），再試一次；或把權限改成「完全存取」，在沙箱外執行。`,
+  sandboxHost: '沙箱中的指令想連到這個主機。',
   commandNotFound: (bin: string) => `找不到指令「${bin}」。請確認已安裝，或在「設定」頁指定執行檔路徑。`,
   permission: { 'read-only': '唯讀', edit: '可編輯', full: '完全存取' } as Record<Permission, string>,
   grokRefusedReadOnly: '唯讀模式不允許，已告知 Grok 改用唯讀工具',
@@ -52,7 +57,7 @@ const zhTW = {
   grokCancelledNoReason: 'Grok 自行中止了這一輪（stopReason: cancelled），沒有給出原因。',
   grokCancelled: (tool: string, reason: string | undefined) => `Grok 在執行工具「${tool}」時中止了這一輪${reason ? `（${reason}）` : ''}。`,
   grokCancelHint: (permission: string) => `目前的權限是「${permission}」；若這個操作是必要的，可以把權限改成「完全存取」再試。`,
-  grokSandbox: (why: string) => `Grok 無法啟動沙箱（可編輯模式需要）：${why}`,
+  grokSandbox: (why: string) => `Grok 無法啟動沙箱（完全存取以外的權限都需要）：${why}。在 Linux 上，它禁止讀取的路徑需要 bubblewrap（例如 sudo apt-get install bubblewrap），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」）。`,
   grokNoSession: 'grok 沒有回傳 session id',
   grokRejectedModel: (value: string, err: string) => `Grok 不接受模型「${value}」：${err}`,
   grokRejectedEffort: (value: string, err: string) => `Grok 不接受推理強度「${value}」：${err}`,
@@ -60,6 +65,20 @@ const zhTW = {
   // Conversations and runs
   defaultTitle: '新對話',
   conversationNotFound: '找不到對話',
+  signedOut: '這個瀏覽器尚未登入 Harness Relay。請打開它啟動時在終端機印出的登入連結，或執行 npm run login。',
+  signInWrongCode: '代碼錯誤或已過期。',
+  signInTooMany: '錯誤的代碼太多次了，請等一分鐘再試。',
+  signInNoSession: '找不到這個已登入的瀏覽器。',
+  cwdHoldsAgents: (dir: string, folder: string) =>
+    `工作目錄「${dir}」包含或位於「${folder}」，那裡的檔案決定 agent 怎麼執行（家目錄裡的設定、CLI 自己的資料夾或它的程式）。可編輯模式下，agent 不經詢問就能修改這些檔案，也就能繞過它們的沙箱。請改用專案的資料夾，或唯讀模式。`,
+  protectedPattern: (path: string) =>
+    `Harness Relay 無法保護「${path}」：它的名稱含有 *、? 或 [，agent 的沙箱會把它當成樣式。請改名或搬到別處，或改用完全存取。`,
+  grokSettingsChanged: (names: string) =>
+    `這一輪中，Grok 自己資料夾裡的設定或程式被改動了（${names}）。agent 執行的指令可能改了它們；Harness Relay 已把它們改回原樣（改動後的版本另存在旁邊，名稱結尾為 .changed-…），skills 資料夾則請你自己檢查。用完全存取執行 Grok 之前，請先看過這些改動。`,
+  claudeReopens: (file: string, entry: string) =>
+    `你的 Claude Code 設定（${file}）中的 sandbox.filesystem 讓沙箱可以存取「${entry}」，這會開放 Harness Relay 保護的路徑（瀏覽器的資料夾或它的資料庫）。請移除這一項後再試，或改用完全存取。`,
+  cwdIsRelay: (dir: string) =>
+    `工作目錄「${dir}」包含 Harness Relay 本身（它的程式或資料）。可編輯模式下，agent 不經詢問就能修改這裡的檔案，也就能改動 Harness Relay 的程式碼或資料庫，繞過它的沙箱與登入。請改用其他資料夾或唯讀模式；要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。`,
   // Sharing a conversation (a gist through the GitHub CLI)
   shareEmpty: '沒有可以分享的內容',
   shareTooLarge: (mb: string) => `這個分享頁有 ${mb} MB，超過 gistpreview 能顯示的 1 MB。請改成分享到比較前面的某則回覆。`,
@@ -301,6 +320,8 @@ const en: ServerMessages = {
     `Codex could not list its MCP servers, so they or their tools could not be left out of this run (${detail}). Update Codex, or clear what is left out on the MCP tools tab of "…this CLI loads by itself" in Codex's settings.`,
   codexLeftOutUnchecked: (detail) =>
     `Could not check that Codex left out the skills, hooks or plugins this run leaves out (${detail}), so it did not run. Try again, or clear them in "…this CLI loads by itself" in Codex's settings.`,
+  codexNoProfile: (active) =>
+    `Codex did not run this thread in the permission profile Harness Relay gave it (it answered ${active ? `"${active}"` : 'no profile'}; an older Codex that does not know the field, say), so its sandbox would not keep it out of your browsers' folders and Harness Relay's database, and it did not run. Update Codex (0.167 works) and try again.`,
   codexStillLoaded: (parts) =>
     `Codex still loaded ${parts.join(' and ')} that are left out of this run (an older Codex that does not know the setting, say). Update Codex, or clear what is left out on the ${parts.map((p) => (p === 'skills' ? 'Skills' : p === 'hooks' ? 'Hooks' : 'Plugins')).join(' and ')} ${parts.length > 1 ? 'tabs' : 'tab'} of "…this CLI loads by itself" in Codex's settings.`,
   claudePluginsFailed: (detail) =>
@@ -308,6 +329,9 @@ const en: ServerMessages = {
   claudeAgentsFailed: (detail) =>
     `Claude Code's own subagents could not be left out of this run (${detail}). Update Claude Code, or clear "Leave all out" on the Subagents tab of "…this CLI loads by itself" in Claude Code's settings.`,
   claudeError: 'Claude Code reported an error',
+  claudeSandbox: (why) =>
+    `Claude Code could not start its sandbox (needed below full access): ${why}. On Linux and WSL2, install bubblewrap and socat (for example sudo apt-get install bubblewrap socat), on Ubuntu 23.10 or later also an AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md), and try again; or switch the permission to "Full access" to run without one.`,
+  sandboxHost: 'A command in the sandbox wants to connect to this host.',
   commandNotFound: (bin) => `Command "${bin}" not found. Make sure it is installed, or set its path on the Settings page.`,
   permission: { 'read-only': 'Read-only', edit: 'Edit', full: 'Full access' },
   grokRefusedReadOnly: 'Not allowed in read-only mode; Grok was told to use read-only tools',
@@ -316,13 +340,27 @@ const en: ServerMessages = {
   grokCancelled: (tool, reason) => `Grok ended the turn while running "${tool}"${reason ? ` (${reason})` : ''}.`,
   grokCancelHint: (permission) =>
     ` The permission is "${permission}"; if this action is needed, switch the permission to "Full access" and try again.`,
-  grokSandbox: (why) => `Grok could not start its sandbox (needed for edit mode): ${why}`,
+  grokSandbox: (why) => `Grok could not start its sandbox (needed below full access): ${why}. On Linux, the paths it may not read need bubblewrap (for example sudo apt-get install bubblewrap), and on Ubuntu 23.10 or later an AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md).`,
   grokNoSession: 'grok returned no session id',
   grokRejectedModel: (value, err) => `Grok does not accept the model "${value}": ${err}`,
   grokRejectedEffort: (value, err) => `Grok does not accept the reasoning effort "${value}": ${err}`,
 
   defaultTitle: 'New chat',
   conversationNotFound: 'Conversation not found',
+  signedOut: 'This browser is not signed in to Harness Relay. Open the sign-in link it printed in its terminal when it started, or run npm run login.',
+  signInWrongCode: 'That code is wrong or has expired.',
+  signInTooMany: 'Too many wrong codes. Wait a minute and try again.',
+  signInNoSession: 'No such signed-in browser.',
+  cwdHoldsAgents: (dir, folder) =>
+    `The working directory ${dir} holds or is inside ${folder}, where files decide how the agents run (the settings in your home folder, a CLI's own folder or its program). In edit mode agents change files there without asking, so they could get around their sandbox. Choose your project's folder instead, or read-only.`,
+  protectedPattern: (path) =>
+    `Harness Relay cannot protect ${path}: its name has *, ? or [, which the agents' sandboxes read as a pattern. Rename or move it, or use full access.`,
+  grokSettingsChanged: (names) =>
+    `Grok's own settings or program changed during this turn (${names}). A command the agent ran may have changed them: Harness Relay put them back (the changed ones are kept beside them, ending in .changed-…); look at the skills folder yourself. Look at these changes before you run Grok with full access.`,
+  claudeReopens: (file, entry) =>
+    `sandbox.filesystem in your Claude Code settings (${file}) lets its sandbox reach ${entry}, which opens paths Harness Relay protects (the browsers' folders or its database). Remove it and try again, or use full access.`,
+  cwdIsRelay: (dir) =>
+    `The working directory ${dir} holds Harness Relay itself (its code or its data). In edit mode agents change files there without asking, so they could change Harness Relay's code or database and get around its sandbox and sign-in. Choose another folder, or read-only; to work on Harness Relay itself, run the copy you use from another folder.`,
   shareEmpty: 'Nothing to share',
   shareTooLarge: (mb) => `This page is ${mb} MB, over the 1 MB that gistpreview can show. Share up to an earlier reply instead.`,
   shareNoGh: (min) => `GitHub CLI (gh) not found. Install ${min} or later from https://cli.github.com, run gh auth login in a terminal, then try again.`,

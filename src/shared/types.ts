@@ -470,6 +470,17 @@ export interface ShareLink {
   filesGist?: string;
 }
 
+/** A browser signed in to Harness Relay (Settings → Signed-in browsers). */
+export interface AuthSessionView {
+  id: string;
+  /** Its browser and system, from its User-Agent when it signed in ("Chrome · macOS"). */
+  label: string;
+  createdAt: number;
+  lastUsedAt: number;
+  /** The browser asking. */
+  current: boolean;
+}
+
 /** A conversation put on the web, as Harness Relay keeps track of it (Settings lists them to remove). */
 export interface SharedPage extends ShareLink {
   conversationId: string;
@@ -710,6 +721,8 @@ export type MessagePart =
       reason?: string;
       /** What "always allow in this conversation" would cover, e.g. "npm install". */
       ruleLabel?: string;
+      /** Allowing it runs the command outside the CLI's sandbox. */
+      outsideSandbox?: boolean;
       status: ApprovalStatus;
       /** Allowed for the rest of the conversation (or by such an earlier answer). */
       always?: boolean;

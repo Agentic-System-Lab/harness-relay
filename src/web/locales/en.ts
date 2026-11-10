@@ -475,6 +475,7 @@ export const en: Messages = {
     alwaysEdits: 'Always allow file changes in this chat',
     deny: 'Decline',
     notePlaceholder: 'Tell it what to do instead (optional, when declining)',
+    outsideSandbox: 'If you allow it, this command runs outside the sandbox.',
     allowed: 'Allowed',
     allowedAlways: 'Allowed for the rest of this chat',
     allowedAuto: 'Allowed automatically (earlier answer in this chat)',
@@ -641,6 +642,31 @@ export const en: Messages = {
   },
 
   transcript: { user: 'User', aborted: '(stopped)' },
+
+  signIn: {
+    title: 'Sign in to Harness Relay',
+    intro: 'This browser is not signed in yet. Harness Relay takes only browsers that signed in, so other programs on this computer, code an agent runs in its sandbox included, cannot drive it.',
+    codeLabel: 'Sign-in code',
+    submit: 'Sign in',
+    signingIn: 'Signing in…',
+    whereTitle: 'Where the code comes from',
+    whereTerminal: 'The sign-in link Harness Relay printed in its terminal when it started: opening it signs you in (once, within an hour).',
+    whereLogin: 'Or run this in the Harness Relay folder:',
+    whereOther: 'Or from a browser that is signed in: Settings → Signed-in browsers → Sign in another device (a phone, say).',
+  },
+
+  browsers: {
+    title: 'Signed-in browsers',
+    hint: 'The browsers that can drive Harness Relay, the latest used first. Sign out the ones you no longer use.',
+    current: 'this browser',
+    used: (signedIn, lastUsed) => `Signed in ${signedIn} · last used ${lastUsed}`,
+    signOut: 'Sign out',
+    confirmCurrent: 'Sign this browser out? It will need a new code to sign in again.',
+    confirm: (label) => `Sign out "${label}"?`,
+    add: 'Sign in another device',
+    codeHint: (until) => `Type this code on the sign-in page of the other device (a phone through Tailscale, say), or open the link below. It works once, until ${until}.`,
+    link: 'Link:',
+  },
 
   share: {
     button: 'Share',
@@ -936,7 +962,7 @@ export const en: Messages = {
     leadNotReady: (p) => `${p} is not available right now; sign in first or pick another agent.`,
     goSignIn: (p) => `Sign in to ${p} →`,
     sections: 'Sections of this page',
-    nav: { language: 'Language', lead: 'Lead agent', tools: 'Tools', voice: 'Voice', cwd: 'Default folder', sessions: 'Sessions', shares: 'Shares', tour: 'Tour' },
+    nav: { language: 'Language', lead: 'Lead agent', tools: 'Tools', voice: 'Voice', cwd: 'Default folder', sessions: 'Sessions', shares: 'Shares', browsers: 'Browsers', tour: 'Tour' },
     tour: 'Guided tour',
     tourHint: 'A step-by-step introduction to the main features.',
     replayTour: 'Replay the tour',
@@ -1029,7 +1055,7 @@ export const en: Messages = {
       },
       {
         title: 'Check that each agent is signed in',
-        body: 'Harness Relay runs the CLIs on your computer. The lights at the bottom left show each agent\'s status; "Settings & sign-in" is where you sign in and set API keys and default models.',
+        body: 'Harness Relay runs the CLIs on your computer. The lights at the bottom left show each agent\'s status; "Settings & sign-in" is where you sign in and set API keys and default models. It takes only browsers you signed in: to use it from your phone, get a code in Settings → Signed-in browsers.',
       },
       {
         title: 'Start a new chat',
@@ -1089,6 +1115,8 @@ export const en: Messages = {
           'Read-only: read files, analyse, look things up on the web',
           'Edit: change files in the working directory, run tests and builds',
           'Full access: run any command without asking',
+          "Below full access, each agent's commands run in its CLI's sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data (on native Windows only Codex has one)",
+          "Edit mode is refused in your home folder and in Harness Relay's own folder: choose a project's folder",
           'Each turn lists the files it changed, with a diff; in parallel mode you choose whose result to apply',
         ],
       },

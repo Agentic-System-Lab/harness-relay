@@ -483,6 +483,7 @@ export const zhTW = {
     alwaysEdits: '本對話都允許修改檔案',
     deny: '拒絕',
     notePlaceholder: '拒絕時告訴它該怎麼做（選填）',
+    outsideSandbox: '允許的話，這個指令會在沙箱外執行。',
     allowed: '已允許',
     allowedAlways: '已允許，本對話都允許',
     allowedAuto: '已依本對話的設定自動允許',
@@ -650,6 +651,31 @@ export const zhTW = {
   },
 
   transcript: { user: '使用者', aborted: '（已中斷）' },
+
+  signIn: {
+    title: '登入 Harness Relay',
+    intro: '這個瀏覽器還沒登入。Harness Relay 只接受登入過的瀏覽器，所以這台電腦上的其他程式，包括 agent 在沙箱中執行的程式碼，都無法操作它。',
+    codeLabel: '登入代碼',
+    submit: '登入',
+    signingIn: '登入中…',
+    whereTitle: '代碼從哪裡來',
+    whereTerminal: 'Harness Relay 啟動時在終端機印出的登入連結：直接打開就會登入（一小時內有效，只能用一次）。',
+    whereLogin: '或在 Harness Relay 的資料夾執行',
+    whereOther: '或從另一個已登入的瀏覽器：設定 → 已登入的瀏覽器 → 讓另一個裝置登入（例如手機）。',
+  },
+
+  browsers: {
+    title: '已登入的瀏覽器',
+    hint: '能操作 Harness Relay 的瀏覽器，最近使用的在前。不再使用的請登出。',
+    current: '這個瀏覽器',
+    used: (signedIn: string, lastUsed: string) => `登入於 ${signedIn} · 上次使用 ${lastUsed}`,
+    signOut: '登出',
+    confirmCurrent: '要登出這個瀏覽器嗎？之後需要新的代碼才能再登入。',
+    confirm: (label: string) => `要登出「${label}」嗎？`,
+    add: '讓另一個裝置登入',
+    codeHint: (until: string) => `在另一個裝置（例如透過 Tailscale 打開的手機）的登入頁輸入這個代碼，或打開下面的連結。只能用一次，${until} 前有效。`,
+    link: '連結：',
+  },
 
   share: {
     button: '分享',
@@ -944,7 +970,7 @@ export const zhTW = {
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
-    nav: { language: '介面語言', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', tour: '使用導覽' },
+    nav: { language: '介面語言', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
     tour: '使用導覽',
     tourHint: '一步一步介紹主要功能。',
     replayTour: '重新觀看導覽',
@@ -1036,7 +1062,7 @@ export const zhTW = {
       },
       {
         title: '先確認各 agent 已登入',
-        body: 'Harness Relay 直接呼叫你電腦上的 CLI。左下角的燈號是各 agent 的狀態；到「設定與登入」可以登入、設定 API key 與預設模型。',
+        body: 'Harness Relay 直接呼叫你電腦上的 CLI。左下角的燈號是各 agent 的狀態；到「設定與登入」可以登入、設定 API key 與預設模型。它只接受你登入過的瀏覽器：要用手機使用，請到「設定 → 已登入的瀏覽器」取得代碼。',
       },
       {
         title: '建立新對話',
@@ -1096,6 +1122,8 @@ export const zhTW = {
           '唯讀：只讀檔、分析與上網查資料',
           '可編輯：在工作目錄內修改檔案、執行測試與建置',
           '完全存取：執行任何指令，不再詢問',
+          '完全存取以外，每個 agent 的指令都在它那個 CLI 的沙箱中執行：只能寫入工作目錄與暫存資料夾，讀不到你瀏覽器的資料夾與 Harness Relay 的資料（原生 Windows 上只有 Codex 有沙箱）',
+          '在你的家目錄與 Harness Relay 自己的資料夾中，不能使用可編輯模式：請選專案的資料夾',
           '每回合改了哪些檔案都會列出來，可以看 diff；平行模式再選擇要套用誰的結果',
         ],
       },

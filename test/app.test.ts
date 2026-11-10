@@ -65,7 +65,7 @@ beforeEach(() => {
   store = new Store(db);
   const hub = new Hub();
   orchestrator = new Orchestrator(store, hub, settings);
-  app = createApp({ store, settings, hub, orchestrator, providers: new ProviderService(settings) });
+  app = createApp({ auth: null, store, settings, hub, orchestrator, providers: new ProviderService(settings) });
   project = join(root, `project-${++n}`);
   mkdirSync(project, { recursive: true });
 });
@@ -89,6 +89,36 @@ async function createConversation(settings: Record<string, unknown> = {}): Promi
   expect(res.status).toBe(200);
   return (await res.json()) as Conversation;
 }
+
+describe("Harness Relay's own folder as a working directory", () => {
+  it('is refused in edit mode, on creating, scheduling and changing a conversation', async () => {
+    const { RELAY_ROOT } = await import('../src/server/protect');
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const refused = await app.request('/api/conversations', json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: RELAY_ROOT } }, { 'x-relay-lang': 'en' }));
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ code: 'relay-folder', error: expect.stringMatching(/holds Harness Relay itself/) });
+    const schedule = { text: 'Daily check', repeat: { kind: 'daily', time: '09:00' }, timeZone: 'UTC', enabled: true };
+    expect((await app.request('/api/schedules', json('POST', { settings: { permission: 'edit', cwd: RELAY_ROOT }, schedule }))).status).toBe(400);
+    // Read-only asks before writing: allowed, but not switched to edit later.
+    const reader = await createConversation({ permission: 'read-only', cwd: RELAY_ROOT });
+    const change = await app.request(`/api/conversations/${reader.id}`, json('PATCH', { settings: { ...reader.settings, permission: 'edit' } }));
+    expect(change.status).toBe(400);
+    expect((await createConversation({ permission: 'full', cwd: RELAY_ROOT })).settings.permission).toBe('full');
+    // A folder it would have to create there is refused before it is made.
+    const missing = join(RELAY_ROOT, `relay-refused-${Date.now()}`);
+    const made = await app.request('/api/conversations', json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: missing }, createCwd: true }));
+    expect(made.status).toBe(400);
+    expect(existsSync(missing)).toBe(false);
+  });
+
+  it('is refused for the home folder in edit mode, where its settings decide how the agents run', async () => {
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const res = await app.request('/api/conversations', json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: homedir() } }, { 'x-relay-lang': 'en' }));
+    expect(res.status).toBe(400);
+    // (Harness Relay may be inside it too, which is then the reason given.)
+    expect(await res.json()).toMatchObject({ code: 'relay-folder', error: expect.stringContaining(homedir()) });
+  });
+});
 
 describe('request checks', () => {
   it('only lets the local UI in', async () => {
@@ -241,7 +271,7 @@ describe('settings', () => {
     }) as typeof fetch;
     const agentsView = new AgentsViewSync(() => settings.agentsViewUrl, fetchImpl);
     const orchestrator = new Orchestrator(store, hub, settings, undefined, agentsView);
-    const app = createApp({ store, settings, hub, orchestrator, providers: new ProviderService(settings), agentsView });
+    const app = createApp({ auth: null, store, settings, hub, orchestrator, providers: new ProviderService(settings), agentsView });
     const put = async (body: unknown) => app.request('/api/settings', json('PUT', body));
 
     for (const url of ['http://example.com:8080', 'ftp://127.0.0.1:21', 'http://me:secret@127.0.0.1:8080', 'not a url', 42]) {
@@ -319,7 +349,7 @@ describe('settings', () => {
     const providers = new ProviderService(settings);
     const invalidate = vi.spyOn(providers, 'invalidate');
     const cancelLogin = vi.spyOn(providers, 'cancelLogin');
-    const app = createApp({ store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers });
+    const app = createApp({ auth: null, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers });
     const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
     const home = join(project, 'homes');
     expect((await put({ agentHome: home })).status).toBe(200);
@@ -590,7 +620,7 @@ describe('files replies link to', () => {
     const { base } = await replyIn();
     // As started with RELAY_ALLOWED_HOSTS=my-computer.tail1234.ts.net, behind `tailscale serve`.
     const settings = new SettingsStore(openDatabase(':memory:'));
-    app = createApp({ store, settings, hub: new Hub(), orchestrator, providers: new ProviderService(settings), extraHosts: ['my-computer.tail1234.ts.net'] });
+    app = createApp({ auth: null, store, settings, hub: new Hub(), orchestrator, providers: new ProviderService(settings), extraHosts: ['my-computer.tail1234.ts.net'] });
     const viaTailnet = (host: string) => app.request(base + 'out/slides.html', { headers: { host } });
     expect((await viaTailnet('my-computer.tail1234.ts.net')).status).toBe(200);
     expect((await viaTailnet('my-computer.tail1234.ts.net:443')).status).toBe(200);
@@ -985,7 +1015,7 @@ describe('GET /api/cwds', () => {
       const s = new SettingsStore(db);
       const st = new Store(db);
       const hub = new Hub();
-      const own = createApp({ store: st, settings: s, hub, orchestrator: new Orchestrator(st, hub, s), providers: new ProviderService(s) });
+      const own = createApp({ auth: null, store: st, settings: s, hub, orchestrator: new Orchestrator(st, hub, s), providers: new ProviderService(s) });
       const res = await own.request('/api/cwds', { headers: HOST });
       expect(((await res.json()) as WorkingDirectories).dirs).toEqual([{ path: homedir(), default: true }]);
     } finally {
@@ -1248,7 +1278,7 @@ describe("what each CLI loads by itself", () => {
     settings.setDefaultCwd(project);
     const s = new Store(db);
     const hub = new Hub();
-    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
     const call = (path: string, body: unknown = {}) => local.request(path, json('POST', body, { 'x-relay-lang': 'en' }));
 
     const res = await call('/api/providers/codex/native');
@@ -1294,15 +1324,18 @@ describe("Grok's folder trust", () => {
    * A stand-in for `grok inspect --json` that keys trust the way grok 1.0.77 does: on the repository
    * root (reported with a trailing `/`), else on the folder it runs in, links resolved either way.
    * With FAKE_GROK_REFUSE set it reports every folder untrusted, as an organisation policy would.
+   * It looks no higher than the test's folder: a \`.git\` above it, such as the empty one Codex's
+   * sandbox on Linux leaves in /tmp (which grok itself passes over), is none of this test's.
    */
   const FAKE_GROK = `#!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
 const cwd = process.cwd();
+const top = ${JSON.stringify(root)};
 let root;
 for (let d = cwd; ; d = path.dirname(d)) {
   if (fs.existsSync(path.join(d, '.git'))) { root = d; break; }
-  if (path.dirname(d) === d) break;
+  if (d === top || path.dirname(d) === d) break;
 }
 let store = '';
 try { store = fs.readFileSync(path.join(process.env.GROK_HOME, 'trusted_folders.toml'), 'utf8'); } catch {}
@@ -1331,7 +1364,7 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
     const hub = new Hub();
     // The real probe, running the stand-in.
     const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
-    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
     const call = (body: unknown) => local.request('/api/providers/grok/folder-trust', json('POST', body, { 'x-relay-lang': 'en' }));
     try {
       // A folder outside a repository: trust is decided for that folder.
@@ -1387,7 +1420,7 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
     const s = new Store(db);
     const hub = new Hub();
     const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
-    const local = createApp({ store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
     try {
       const res = await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }));
       expect(res.status).toBe(409);
@@ -1638,6 +1671,7 @@ describe('sharing conversations', () => {
       throw new Error('should not be called');
     };
     return createApp({
+      auth: null,
       store,
       settings: s,
       hub: new Hub(),

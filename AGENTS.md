@@ -24,7 +24,8 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | `npm test` | All Vitest tests (offline) |
 | `npx vitest test/store.test.ts` | One test file |
 | `npm run build` | Build the UI into `dist/web` |
-| `npm start` | One process: API + built UI on :8787 |
+| `npm start` | One process: API + built UI on :8787; prints a one-time sign-in link |
+| `npm run login` | Print another one-time sign-in link (`scripts/login.ts`) |
 | `npm run site:preview` | Serve the landing page (`site/`) on 127.0.0.1:4180, as GitHub Pages will |
 | `npm run icons` | Redraw the home-screen icons and the web app manifest in `src/web/public/` (`scripts/app-icons.ts`) |
 | `npm run demo` | Record the README and landing-page demo again with the real CLIs, then update the videos, stills and chapter rails (`scripts/demo/`; see the developer guide, "Recording the demo") |
@@ -47,6 +48,8 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 - `src/server/tools.ts`: the tool library: MCP servers (their secret values in the OS keyring, by server id), skills and memory, and what each agent gets from it.
 - `src/server/native.ts`, `grokTrust.ts`: what each CLI loads by itself (asked without a prompt); recording Grok's trust in a project root.
 - `src/server/files.ts`: browsing a chat's working directory and agents' worktrees (inside the folder only, never `.git`), and what a folder's ZIP download holds; `zip.ts` writes that ZIP file as it is sent.
+- `src/server/protect.ts`: what agents below full access may not reach (the browsers' folders, the database; Harness Relay's own folder in edit mode), handed to each CLI's sandbox by its adapter.
+- `src/server/auth.ts`: signed-in browsers (one-time codes, sessions of a cookie and a key, hashes only); `src/shared/auth.ts` and `src/web/auth.ts` hold the parts the UI shares.
 - `src/server/share.ts`: a shared conversation as a secret gist through the user's own `gh` (create, delete; read on gistpreview.github.io), and the files its replies link to, of any kind, pushed with git into a second one. The page itself is made in the browser from the chat on screen (`src/web/sharePage.tsx`; its DOM-free parts in `src/web/share.ts`).
 - `src/server/i18n.ts`, `presets.ts`: server-side messages and built-in team templates, both in two languages.
 - `src/web/`: the React client. `components/`, `locales/` (`zh-TW.ts`, `en.ts`), `chat.ts` (ChatView's pure logic), `copy.ts`, `api.ts`, `public/` (the web app manifest and home-screen icons, written by `npm run icons`; don't edit them by hand).
@@ -68,7 +71,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build`. CI (
 
 The server can start agents with write access, so keep its defences intact (see [Architecture → Security](docs/architecture.md#security)):
 
-- New routes go under `/api/` so they get the middleware's Host/Origin checks, the JSON content-type check on writes and the request language. Don't weaken these checks.
+- New routes go under `/api/` so they get the middleware's Host/Origin checks, the JSON content-type check on writes, sign-in and the request language. Don't weaken these checks. Only a read-only route the browser loads by itself (an `<img>`, a download link) may join `BROWSER_LOADS` in `app.ts`, which takes the cookie without the key.
 - Never send secrets to the client (`SettingsView` returns masked keys only). API keys belong in the OS credential store (`secrets.ts`), not in the database.
 - The server binds to `127.0.0.1`. Agent replies cannot make the browser load remote content (images are links; local media goes through the media endpoint's path checks). Keep it that way.
 
@@ -112,6 +115,7 @@ The server can start agents with write access, so keep its defences intact (see 
 ## Gotchas
 
 - `npm run dev` restarts the server on every server file change, and a restart aborts any running agent turn.
+- Harness Relay refuses edit mode in a working directory that holds itself (`src/server/protect.ts`). To work on this repository with Harness Relay, run the copy you use from another checkout.
 - You can run Harness Relay from inside a Claude Code session: the server strips Claude Code's nesting variables (`CLAUDECODE`, `CLAUDE_CODE_*`) before it spawns `claude` (`src/server/settings.ts`).
 - The Vite proxy key is `/api/` with a trailing slash on purpose: a bare `/api` would also capture the client module `/api.ts`.
 - Worktrees in parallel mode contain only what is in the snapshot, so ignored files such as `node_modules/` are missing there.

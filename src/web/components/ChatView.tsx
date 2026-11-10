@@ -196,7 +196,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     let timer: number | undefined;
     let closed = false;
     const connect = () => {
-      const source = new EventSource(`/api/conversations/${id}/events`);
+      const source = new EventSource(api.eventsUrl(id));
       es = source;
       source.onmessage = (ev) => {
         const e = JSON.parse(ev.data) as ServerEvent;
