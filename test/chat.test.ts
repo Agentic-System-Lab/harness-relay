@@ -11,6 +11,7 @@ import {
   draftStatus,
   enterSends,
   focusBoxAfterAnswer,
+  isPathDetail,
   reviseRequest,
   revisedTeam,
   revisionOutcome,
@@ -22,6 +23,7 @@ import {
   thoughtTitle,
 } from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
+import { clip, clipPath } from '../src/server/agents/types';
 
 describe('Enter in a message box', () => {
   const key = (k: string, mods: Partial<{ shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }> = {}) => ({
@@ -354,5 +356,58 @@ describe("an agent's work between its words", () => {
     expect(thoughtTitle(t)).toBe('Examining the hash check');
     expect(thoughtTail(t)).toBe('the secrets load');
     expect(thoughtTitle('   ')).toBe('');
+  });
+
+  it('tells a path apart from the other details a tool row shows', () => {
+    const paths = [
+      '/Users/me/repo/src/server/orchestrator.ts',
+      'src/web/chat.ts',
+      '~/notes',
+      './build.sh',
+      'app/(marketing)/[id]/page.tsx',
+      'C:\\repo\\a.ts',
+      '\\\\server\\share\\a.ts',
+      // The server cut a long path's start: a path even with a space in it.
+      '…/scratchpad/SKILL.md',
+      '…/My Docs/a.ts',
+      '…\\repo\\a.ts',
+    ];
+    for (const path of paths) expect(isPathDetail(path), path).toBe(true);
+    const others = [
+      'npm test',
+      'git -C /repo status',
+      'relay|handoff',
+      'https://example.org/docs',
+      'vitest mock timers',
+      // A regex's escapes are not Windows paths.
+      'capture\\(|track\\(',
+      'foo\\.ts',
+      // A command the server cut at its end: what is left of it is not a path.
+      'F=/private/tmp/a/b/c/05-middle.md;…',
+      '/private/tmp/' + 'a/'.repeat(70) + '…',
+      'F=/private/tmp/a.md',
+      'src/**/*.ts',
+      // A path with a space in it that the server did not cut.
+      '/Users/me/My Docs/a.ts',
+    ];
+    for (const other of others) expect(isPathDetail(other), other).toBe(false);
+  });
+
+  it('takes every long path the server cut for a path, and every other detail it cut for none', () => {
+    const long = [
+      '/private/tmp/' + 'folder-with-a-long-name/'.repeat(8) + 'grok-survey.mts',
+      '/Users/me/Library/Application Support/' + 'some folder/'.repeat(14) + 'Control.log',
+      `/repo/${'n'.repeat(200)}.ts`,
+      `/${'f'.repeat(200)}/src/a.ts`,
+      '/' + 'x'.repeat(200) + '/',
+      'C:\\repo\\' + 'folder\\'.repeat(30) + 'a.ts',
+    ];
+    for (const path of long) {
+      expect(path.length).toBeGreaterThan(160);
+      expect(isPathDetail(clipPath(path)), path).toBe(true);
+      // A command, a query or a pattern over the limit is cut at its end, and is no path.
+      expect(isPathDetail(clip(path + ' --verbose')), path).toBe(false);
+      expect(isPathDetail(clip(path.replace(/[\\/ ]/g, '_'))), path).toBe(false);
+    }
   });
 });

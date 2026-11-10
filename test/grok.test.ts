@@ -114,6 +114,121 @@ describe('grok session updates', () => {
     expect(describeGrokCancel(h.lastFailure, 'read-only')).toContain('web_fetch');
     expect(describeGrokCancel(undefined, 'edit')).toContain('cancelled');
   });
+
+  it('shows what a backend web search searched for, which only comes with its result', () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    // As grok 1.0.77 sends them: the title is a label for a query it does not know yet.
+    const search = (id: string, action: Record<string, unknown>) => {
+      h.handle({
+        sessionUpdate: 'tool_call',
+        toolCallId: id,
+        title: 'Web search:',
+        kind: 'search',
+        status: 'in_progress',
+        rawInput: { variant: 'WebSearch', backend: true },
+        _meta: { backend: true },
+      });
+      h.handle({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed', title: 'Web search:', rawOutput: { id, status: 'completed', action } });
+    };
+    search('ws-1', { type: 'search', query: 'PTSD treatment guidelines 2024', sources: [{ type: 'url', url: 'https://example.org/a' }] });
+    search('ws-2', { type: 'open_page', url: 'https://example.org/docs' });
+    search('ws-3', { type: 'find_in_page', url: 'https://example.org/schema.ts', pattern: 'FunnelsFilter' });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'ws-1', name: 'Web search' },
+      { type: 'tool_end', id: 'ws-1', ok: true, detail: 'PTSD treatment guidelines 2024' },
+      { type: 'tool_start', id: 'ws-2', name: 'Web search' },
+      { type: 'tool_end', id: 'ws-2', ok: true, detail: 'https://example.org/docs' },
+      { type: 'tool_start', id: 'ws-3', name: 'Web search' },
+      { type: 'tool_end', id: 'ws-3', ok: true, detail: '"FunnelsFilter" · https://example.org/schema.ts' },
+    ]);
+  });
+
+  it('shows what a backend X search searched for, from the input its result carries', () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    // As grok 1.0.77 sends them: `input` is the X tool's arguments as a JSON string.
+    h.handle({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'xs-1',
+      title: 'X search:',
+      kind: 'search',
+      status: 'in_progress',
+      rawInput: { variant: 'XSearch', backend: true },
+      _meta: { backend: true },
+    });
+    h.handle({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'xs-1',
+      status: 'completed',
+      title: 'X search:',
+      rawOutput: { call_id: 'xs_call-1', input: '{"query":"xAI Grok","limit":"3","mode":"Latest"}', name: 'x_keyword_search', id: 'xs-1' },
+    });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'xs-1', name: 'X search' },
+      { type: 'tool_end', id: 'xs-1', ok: true, detail: 'xAI Grok' },
+    ]);
+  });
+
+  it('keeps the query and the reason of a failed backend search, and shows nothing it cannot read', () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    const start = (id: string) =>
+      h.handle({ sessionUpdate: 'tool_call', toolCallId: id, title: 'Web search:', rawInput: { variant: 'WebSearch', backend: true }, _meta: { backend: true } });
+    start('f');
+    h.handle({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'f',
+      status: 'failed',
+      content: [{ type: 'content', content: { type: 'text', text: 'Web search failed' } }],
+      rawOutput: { id: 'f', status: 'failed', action: { type: 'search', query: 'vitest' } },
+    });
+    start('o');
+    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'o', status: 'completed', rawOutput: { id: 'o', status: 'completed', action: { type: 'other' } } });
+    start('x');
+    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'x', status: 'completed', rawOutput: { input: 'not json', name: 'x_keyword_search' } });
+    expect(events.filter((e) => e.type === 'tool_end')).toEqual([
+      { type: 'tool_end', id: 'f', ok: false, error: 'Web search failed', detail: 'vitest' },
+      { type: 'tool_end', id: 'o', ok: true },
+      { type: 'tool_end', id: 'x', ok: true },
+    ]);
+    expect(h.lastFailure).toEqual({ tool: 'Web search', reason: 'Web search failed' });
+  });
+
+  it('shows the file read_file reads and the folder list_dir lists', () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    // As grok 1.0.77 sends them: the path only under these names in the first tool_call.
+    const tool = (name: string, kind: string) => ({ 'x.ai/tool': { version: 1, name, kind, namespace: 'grok_build', read_only: true } });
+    h.handle({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'r',
+      title: 'read_file',
+      rawInput: { target_file: '/repo/src/server/orchestrator.ts', offset: 180, limit: 120 },
+      _meta: tool('read_file', 'read'),
+    });
+    h.handle({ sessionUpdate: 'tool_call', toolCallId: 'l', title: 'list_dir', rawInput: { target_directory: '/repo/test' }, _meta: tool('list_dir', 'list') });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'r', name: 'read_file', detail: '/repo/src/server/orchestrator.ts' },
+      { type: 'tool_start', id: 'l', name: 'list_dir', detail: '/repo/test' },
+    ]);
+  });
+
+  it("does not take a detail from another tool's output, nor change its name", () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    h.handle({ sessionUpdate: 'tool_call', toolCallId: 'g', title: 'grep:', rawInput: { pattern: 'TODO' } });
+    h.handle({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'g',
+      status: 'completed',
+      rawOutput: { pattern: 'other', action: { query: 'x' }, input: '{"query":"y"}' },
+    });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'g', name: 'grep:', detail: 'TODO' },
+      { type: 'tool_end', id: 'g', ok: true },
+    ]);
+  });
 });
 
 describe('grok activity and approvals', () => {
@@ -147,6 +262,14 @@ describe('grok activity and approvals', () => {
       kind: 'other',
       tool: 'linear__create',
     });
+    // Reading a file or listing a folder: the card says which one.
+    const read = { title: 'read_file', kind: 'read', rawInput: { target_file: '/repo/a.ts', limit: 80 }, _meta: { 'x.ai/tool': { name: 'read_file' } } };
+    expect(grokApprovalRequest(read)).toMatchObject({ kind: 'other', tool: 'read_file', detail: '/repo/a.ts' });
+    const list = { title: 'list_dir', kind: 'other', rawInput: { target_directory: '/repo/test' }, _meta: { 'x.ai/tool': { name: 'list_dir' } } };
+    expect(grokApprovalRequest(list)).toMatchObject({ kind: 'other', tool: 'list_dir', detail: '/repo/test' });
+    // Whole, however long: where it starts tells whether it is inside the project.
+    const long = '/private/tmp/' + 'folder-with-a-long-name/'.repeat(8) + 'secrets.env';
+    expect(grokApprovalRequest({ ...read, rawInput: { target_file: long } })).toMatchObject({ detail: long });
   });
 });
 

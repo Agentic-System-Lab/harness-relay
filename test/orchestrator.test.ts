@@ -155,6 +155,14 @@ beforeAll(() => {
         o.onEvent({ type: 'text_end' });
         return { sessionId: `session-${name}` };
       }
+      if (o.prompt.includes('search the web')) {
+        // Like a server-side web search: what it searched for only comes with the result.
+        o.onEvent({ type: 'tool_start', id: `ws-${name}`, name: 'Web search' });
+        o.onEvent({ type: 'tool_end', id: `ws-${name}`, ok: true, detail: `${name}'s query` });
+        // Most calls say what they are about from the start.
+        o.onEvent({ type: 'tool_start', id: `sh-${name}`, name: 'Shell', detail: 'npm test' });
+        o.onEvent({ type: 'tool_end', id: `sh-${name}`, ok: true, output: 'ok' });
+      }
       if (asking.has(name) && !o.prompt.includes('ANSWER:')) {
         o.onEvent({ type: 'text', text: `${name} asks: A or B?\n\n[ASK_USER]` });
         o.onEvent({ type: 'text_end' });
@@ -410,6 +418,21 @@ describe('what a CLI loads by itself', () => {
     expect(helpers.map((c) => c.name).sort()).toEqual(['lead', 'sorter']);
     expect(helpers.every((c) => c.nativeOff?.join() === 'skills,instructions')).toBe(true);
     expect(helpers.every((c) => c.nativeItems?.tools?.join() === 'WebSearch')).toBe(true);
+  });
+});
+
+describe('tool calls', () => {
+  it('shows what a call was about when the CLI only says so once it is done', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'search the web');
+    await finish(conv.id);
+
+    const [alice] = agentMessages(conv);
+    expect(alice!.parts.filter((p) => p.type === 'tool')).toMatchObject([
+      { name: 'Web search', detail: "Alice's query", status: 'done' },
+      // A tool_end without a detail keeps the one from tool_start.
+      { name: 'Shell', detail: 'npm test', status: 'done', output: 'ok' },
+    ]);
   });
 });
 

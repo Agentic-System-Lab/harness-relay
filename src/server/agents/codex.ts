@@ -10,8 +10,10 @@ import {
   AgentRunError,
   TURN_TIMEOUT_MS,
   clip,
+  clipPath,
   summarizeInput,
   tailText,
+  webSearchDetail,
   type AgentEvent,
   type AgentRunner,
   type ApprovalRequest,
@@ -364,6 +366,21 @@ const PLAN_STATUS: Record<string, PlanEntry['status']> = {
   completed: 'completed',
 };
 
+/** The folder all these paths are in, ending in its separator; '' when they share none but the root. */
+export function sharedFolder(paths: string[]): string {
+  if (paths.length < 2) return '';
+  let prefix = paths[0]!;
+  for (const p of paths.slice(1)) while (prefix && !p.startsWith(prefix)) prefix = prefix.slice(0, -1);
+  const end = Math.max(prefix.lastIndexOf('/'), prefix.lastIndexOf('\\'));
+  return end > 0 ? prefix.slice(0, end + 1) : '';
+}
+
+/** A folder's last two names, with its separator: "/Users/me/repo/crates/core/" → "crates/core/". */
+export function folderTail(folder: string): string {
+  const sep = folder.endsWith('\\') ? '\\' : '/';
+  return folder.split(/[\\/]/).filter(Boolean).slice(-2).join(sep) + sep;
+}
+
 /** A tool row for a Codex thread item, or null for items that are not tool calls. */
 export function describeCodexItem(item: Record<string, any>): { name: string; detail?: string } | null {
   switch (item.type) {
@@ -371,14 +388,26 @@ export function describeCodexItem(item: Record<string, any>): { name: string; de
       return { name: 'Shell', detail: clip(unwrapShell(String(item.command ?? ''))) };
     case 'fileChange': {
       const changes: any[] = Array.isArray(item.changes) ? item.changes : [];
-      return { name: 'Edit', detail: clip(changes.map((c) => `${c.kind?.type ?? 'update'} ${c.path}`).join(', ')) || undefined };
+      if (changes.length === 1) {
+        // One file: its path alone, which keeps its file name when it is long, and the kind as the name
+        // (one the log of actions forwarded to teammates recognises, see forwardText()).
+        const kind = changes[0]?.kind?.type;
+        const path = changes[0]?.path ? clipPath(String(changes[0].path)) : undefined;
+        return { name: kind === 'add' ? 'Create' : kind === 'delete' ? 'Delete' : 'Edit', detail: path };
+      }
+      // Several files: each relative to the folder they share, so their names fit, after that folder's
+      // last two names, so you can tell which part of the project they are in.
+      const root = sharedFolder(changes.map((c) => String(c.path ?? '')));
+      const list = changes.map((c) => `${c.kind?.type ?? 'update'} ${String(c.path ?? '').slice(root.length)}`).join(', ');
+      return { name: 'Edit', detail: clip((root ? `${folderTail(root)}: ` : '') + list) || undefined };
     }
     case 'mcpToolCall':
       return { name: `${item.server ?? 'mcp'}:${item.tool ?? 'tool'}`, detail: summarizeInput(item.arguments) };
     case 'dynamicToolCall':
       return { name: String(item.tool ?? 'tool'), detail: summarizeInput(item.arguments) };
     case 'webSearch':
-      return { name: 'WebSearch', detail: item.query ? clip(String(item.query)) : undefined };
+      // The query and action only come with item/completed; item/started has an empty query.
+      return { name: 'WebSearch', detail: clip(String(item.query ?? '')) || webSearchDetail(item.action) };
     default:
       return null;
   }
@@ -410,7 +439,8 @@ function itemOutcome(item: Record<string, any>): { ok: boolean; output?: string;
 
 /** Turns app-server notifications for one thread into AgentEvents. */
 export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
-  const started = new Set<string>();
+  /** Tool items already shown, with the detail they were shown with. */
+  const started = new Map<string, string | undefined>();
   const streamedText = new Set<string>();
   const streamedThinking = new Set<string>();
   /** File paths of file-change items, to show what an approval request is about. */
@@ -420,7 +450,7 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
   const startTool = (item: Record<string, any>) => {
     const d = describeCodexItem(item);
     if (!d || !item.id || started.has(item.id)) return;
-    started.add(item.id);
+    started.set(item.id, d.detail);
     if (item.type === 'fileChange') filePaths.set(item.id, (item.changes ?? []).map((c: any) => c.path).join(', '));
     emit({ type: 'tool_start', id: item.id, ...d });
   };
@@ -457,10 +487,13 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
           if (!streamedThinking.has(item.id) && summary) emit({ type: 'thinking', text: summary });
           break;
         }
-        if (!describeCodexItem(item)) break;
+        const d = describeCodexItem(item);
+        if (!d) break;
         startTool(item);
+        // A web search only says what it searched for now.
+        const detail = d.detail && d.detail !== started.get(item.id) ? d.detail : undefined;
         const { ok, output, error } = itemOutcome(item);
-        emit({ type: 'tool_end', id: item.id, ok, ...(output ? { output } : {}), ...(error ? { error } : {}) });
+        emit({ type: 'tool_end', id: item.id, ok, ...(output ? { output } : {}), ...(error ? { error } : {}), ...(detail ? { detail } : {}) });
         break;
       }
       case 'turn/plan/updated': {

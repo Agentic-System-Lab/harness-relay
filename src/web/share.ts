@@ -64,6 +64,99 @@ export function messageElements<T extends { classList: { contains(name: string):
 export const SHARE_KEEP_BUTTONS = ['chat-title', 'mermaid-zoom'];
 
 /**
+ * A role folded to its first lines (RoleText, as in the team design): its box, the class that folds its
+ * text (a <p>), and its "Show more" button, which a shared page turns into shareFold().
+ */
+export const SHARE_FOLD = { box: 'role-text', folded: 'folded', button: 'show-more' };
+
+/**
+ * How wide a window a shared page's roles are measured in (sharePage.tsx): wide enough for its widest
+ * layout, with the chat's column at its widest and none of styles.css's narrow layouts (max-width media
+ * queries) in force.
+ */
+export const SHARE_WIDEST = 1600;
+
+/**
+ * "Show more" on a shared page, which runs no script: a <details> whose <summary> opens and folds the
+ * role it is in with CSS alone (SHARE_CSS), naming what a click does. `open`: the role was shown whole
+ * in the chat.
+ */
+export function shareFold(o: { open: boolean; more: string; less: string }): string {
+  return (
+    `<details class="share-fold"${o.open ? ' open' : ''}><summary class="${SHARE_FOLD.button}">` +
+    `<span class="share-fold-more">${escapeHtml(o.more)}</span>` +
+    `<span class="share-fold-less">${escapeHtml(o.less)}</span>` +
+    '</summary></details>'
+  );
+}
+
+/** What shareRoleFolds() reads and changes of an element: a DOM Element is one. */
+export interface FoldElement {
+  tagName: string;
+  children: ArrayLike<FoldElement>;
+  classList: { contains(name: string): boolean; remove(name: string): void };
+  getAttribute(name: string): string | null;
+  insertAdjacentHTML(where: 'afterend', html: string): void;
+  remove(): void;
+}
+
+/** The first element inside `el` (at any depth, in order) that `test` takes. */
+function findInside<E extends FoldElement>(el: E, test: (e: E) => boolean): E | undefined {
+  for (const child of Array.from(el.children) as E[]) {
+    if (test(child)) return child;
+    const inner = findInside(child, test);
+    if (inner) return inner;
+  }
+  return undefined;
+}
+
+/**
+ * The roles (each a `.role-text`) as a shared page shows them. No script runs there to measure a role
+ * at the viewer's width, and CSS cannot tell whether text overflows, so each one's text is whole,
+ * never cut with nothing to open it, unless it is `long`: too long for its lines however wide a screen
+ * shows it, as the sharing browser lays it out at the page's widest (SHARE_WIDEST; undefined when it
+ * could not be measured, and then a role with "Show more" on screen counts). A long role gets
+ * shareFold() in place of its button, folded or open as it was on screen, and SHARE_CSS folds its text
+ * while that is shut. Another browser, or other fonts, may wrap a role right at its limit otherwise:
+ * there it shows whole a line longer than the app would fold it, or with a "Show more" that opens
+ * nothing more.
+ */
+export function shareRoleFolds<E extends FoldElement>(roles: { box: E; long?: boolean }[], words: { more: string; less: string }): void {
+  for (const { box, long } of roles) {
+    const text = findInside(box, (e) => e.tagName.toLowerCase() === 'p');
+    text?.classList.remove(SHARE_FOLD.folded);
+    const button = findInside(box, (e) => e.tagName.toLowerCase() === 'button' && e.classList.contains(SHARE_FOLD.button));
+    if (!(long ?? Boolean(button))) continue;
+    const toggle = shareFold({ open: button?.getAttribute('aria-expanded') === 'true', ...words });
+    (button ?? text)?.insertAdjacentHTML('afterend', toggle);
+    button?.remove();
+  }
+}
+
+/**
+ * Styles every shared page brings itself, as they are, whatever browser made it (the app's own come
+ * from that browser's copy of them, which leaves out what it cannot read): a folded role's "Show more"
+ * (shareFold). A role's text is folded only while its toggle is shut, and only where :has() works;
+ * elsewhere the toggle is hidden and the role shown whole.
+ */
+export const SHARE_CSS = `
+.share-fold { display: none; }
+@supports selector(:has(*)) {
+  .share-fold { display: block; }
+  .${SHARE_FOLD.box}:has(.share-fold:not([open])) p {
+    display: -webkit-box;
+    -webkit-line-clamp: var(--lines, 3);
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+.share-fold > summary { width: fit-content; list-style: none; cursor: pointer; }
+.share-fold > summary::-webkit-details-marker { display: none; }
+.share-fold[open] .share-fold-more,
+.share-fold:not([open]) .share-fold-less { display: none; }
+`;
+
+/**
  * How images are made smaller, one step at a time, until the page fits in SHARE_MAX_BYTES: the
  * longest side in pixels, and the WebP (or JPEG) quality.
  */
@@ -147,7 +240,7 @@ export function shareFooter(o: { logo: string; icon: string; tagline: string; no
   );
 }
 
-/** The whole page: the app's styles in it, the chat as `body` (HTML), and the title of the conversation. */
+/** The whole page: the app's styles in it (and SHARE_CSS), the chat as `body` (HTML), and the title of the conversation. */
 export function shareDocument(o: { lang: string; title: string; css: string; body: string; icon?: string }): string {
   // A stylesheet cannot end the <style> element early.
   const css = o.css.replace(/<\/style/gi, '<\\/style');
@@ -163,7 +256,7 @@ export function shareDocument(o: { lang: string; title: string; css: string; bod
     '<meta name="generator" content="Harness Relay">',
     `<title>${escapeHtml(o.title)} · Harness Relay</title>`,
     icon,
-    `<style>${css}</style>`,
+    `<style>${css}\n${SHARE_CSS}</style>`,
     '</head>',
     `<body><div id="root" class="share-page">${o.body}</div></body>`,
     '</html>',

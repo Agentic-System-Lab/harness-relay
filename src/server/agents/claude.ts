@@ -616,7 +616,7 @@ export function claudeApprovalRequest(
     return { kind: 'edit', detail: String(input.file_path ?? input.notebook_path ?? ''), reason };
   }
   if (tool === 'WebFetch') return { kind: 'fetch', detail: String(input.url ?? ''), reason };
-  return { kind: 'other', tool, detail: summarizeInput(input), reason };
+  return { kind: 'other', tool, detail: summarizeInput(input, { wholePaths: true }), reason };
 }
 
 /**
