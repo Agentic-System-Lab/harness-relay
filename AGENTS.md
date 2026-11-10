@@ -72,7 +72,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and 
 ### Code
 
 - Strict TypeScript, ES modules. Shared types live only in `src/shared/types.ts`.
-- Spawn child processes only through `src/server/process.ts`, so they are tracked and killed on shutdown.
+- Spawn child processes only through `src/server/process.ts`, so they are tracked and killed on shutdown. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments.
 - Keep CLI output parsers pure (lines in, `AgentEvent`s out) so they can be tested with recorded output.
 - Tests run in a Node environment without a DOM. Put client logic you want to test in plain modules (like `src/web/chat.ts` and `src/web/copy.ts`), not inside components.
 - `node:sqlite` cannot bind `undefined`: pass optional values through `nul()`, and wrap multi-statement writes in `transaction(db, fn)` (it doesn't nest).

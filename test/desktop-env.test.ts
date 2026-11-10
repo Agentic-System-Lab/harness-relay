@@ -13,7 +13,8 @@ import {
   parseShellEnv,
   parseWindowsEnv,
   serverEnv,
-  shellEnvArgs,
+  SHELL_ENV_FLAGS,
+  shellEnvScript,
   shellQuote,
   withCommonPaths,
 } from '../desktop/src/env';
@@ -37,7 +38,8 @@ describe('the login shell environment', () => {
 
   it('quotes for the shell, single quotes included', () => {
     expect(shellQuote("it's")).toBe(`'it'\\''s'`);
-    expect(shellEnvArgs().slice(0, 3)).toEqual(['-i', '-l', '-c']);
+    expect(SHELL_ENV_FLAGS).toEqual(['-i', '-l']);
+    expect(shellEnvScript()).toBe(`printf '%s' '${ENV_MARK}'; /usr/bin/env -0; printf '%s' '${ENV_MARK}'`);
   });
 
   it("puts the shell's variables over the app's, without the shell's own", () => {

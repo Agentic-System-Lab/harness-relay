@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { CommandNotFoundError, capture, killAll, runProcess, spawnDetached } from '../src/server/process';
+import { CommandNotFoundError, capture, killAll, runProcess, runShellScript, spawnDetached } from '../src/server/process';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-proc-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -96,6 +96,24 @@ describe('runProcess', () => {
     const script = cli('fake-cli.sh', 'echo ok');
     const res = await capture(`./${relative(process.cwd(), script)}`, [], process.env, { cwd: tmpdir() });
     expect(res.stdout).toBe('ok\n');
+  });
+});
+
+describe('runShellScript', () => {
+  it('runs fixed text in the shell, with its flags, and the values it needs from its environment', async () => {
+    const value = `a "b" 'c' $(touch nothing) \`x\` ; d`;
+    const res = await runShellScript('/bin/sh', ['-e'], 'case $- in *e*) printf "%s|" "$VALUE";; esac', { env: { ...process.env, VALUE: value } });
+    expect(res.code).toBe(0);
+    expect(res.stdout).toBe(`${value}|`);
+  });
+
+  it('stops a shell that runs too long, and reports a missing shell as a missing command', async () => {
+    const started = Date.now();
+    const slow = await runShellScript('/bin/sh', [], 'sleep 30', { env: process.env, timeoutMs: 200 });
+    expect(slow.timedOut).toBe(true);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const missing = await runShellScript(join(dir, 'no-such-shell'), [], 'true', { env: process.env }).catch((e) => e);
+    expect(missing).toBeInstanceOf(CommandNotFoundError);
   });
 });
 

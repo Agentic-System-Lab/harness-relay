@@ -15,6 +15,8 @@ import {
   newestRelease,
   parseRelease,
   placeAppImage,
+  RELAUNCH_PID,
+  RELAUNCH_TARGET,
   relaunchCommand,
   relaunchEnv,
   RELEASES_API,
@@ -317,14 +319,16 @@ describe('putting the new version in place', () => {
 });
 
 describe('starting the new version', () => {
-  it('opens the Mac app, or runs the AppImage with its arguments, once this app has exited', () => {
-    const [bin, args] = relaunchCommand('darwin', 42, '/Applications/Harness Relay.app');
-    expect(bin).toBe('/bin/sh');
-    expect(args.slice(-3)).toEqual(['sh', '42', '/Applications/Harness Relay.app']);
-    expect(args[1]).toContain('exec /usr/bin/open "$1"');
-    const [, linux] = relaunchCommand('linux', 42, '/home/me/H.AppImage', ['--no-sandbox']);
-    expect(linux.slice(-4)).toEqual(['sh', '42', '/home/me/H.AppImage', '--no-sandbox']);
-    expect(linux[1]).toContain('exec "$@"');
+  it('opens the Mac app, or runs the AppImage with its arguments, with the pid and the path in the environment only', () => {
+    const mac = relaunchCommand('darwin', 42, '/Applications/Harness Relay.app', { PATH: '/bin' });
+    expect(mac.bin).toBe('/bin/sh');
+    expect(mac.args).toEqual(['-c', expect.stringContaining('exec /usr/bin/open "$target"'), 'sh']);
+    expect(mac.env).toEqual({ PATH: '/bin', [RELAUNCH_PID]: '42', [RELAUNCH_TARGET]: '/Applications/Harness Relay.app' });
+    const linux = relaunchCommand('linux', 42, '/home/me/H.AppImage', { PATH: '/bin' }, ['--no-sandbox']);
+    expect(linux.args).toEqual(['-c', expect.stringContaining('exec "$target" "$@"'), 'sh', '--no-sandbox']);
+    expect(linux.env).toEqual({ PATH: '/bin', [RELAUNCH_PID]: '42', [RELAUNCH_TARGET]: '/home/me/H.AppImage' });
+    // The script is fixed text, whatever the path.
+    expect(relaunchCommand('linux', 7, `/home/me/'$(id)'.AppImage`, {}).args).toEqual(['-c', linux.args[1], 'sh']);
   });
 
   it("starts the new AppImage without the old one's runtime variables", () => {
@@ -337,13 +341,37 @@ describe('starting the new version', () => {
       const marker = join(dir, 'started');
       const app = spawn('/bin/sh', ['-c', 'sleep 0.5'], { stdio: 'ignore' });
       const exited = new Promise((r) => app.on('exit', r));
-      const [bin, args] = relaunchCommand('linux', app.pid!, '/bin/sh', ['-c', `date +%s%N > "${marker}"`]);
-      await spawnDetached(bin, args, process.env);
+      const start = relaunchCommand('linux', app.pid!, '/bin/sh', { ...process.env, MARKER: marker }, ['-c', 'date +%s%N > "$MARKER"']);
+      await spawnDetached(start.bin, start.args, start.env);
       await new Promise((r) => setTimeout(r, 200));
       expect(existsSync(marker)).toBe(false); // the app still runs
       await exited;
       for (let i = 0; i < 50 && !existsSync(marker); i++) await new Promise((r) => setTimeout(r, 100));
       expect(existsSync(marker)).toBe(true);
+    },
+    20_000,
+  );
+
+  posixIt(
+    'starts a new version whose path has spaces, quotes and $(…) in it as it is, without the variables that pointed to it',
+    async () => {
+      const out = join(dir, 'relaunched');
+      // Were the path read as shell code, it would make this file and fail to start the new version.
+      const folder = join(dir, `new "version" 'here' $(touch $OUT.code)`);
+      mkdirSync(folder);
+      const target = join(folder, 'H.AppImage');
+      writeFileSync(target, '#!/bin/sh\n{ env; printf \'arg=%s\\n\' "$@"; } > "$OUT.part" && mv "$OUT.part" "$OUT"\n');
+      chmodSync(target, 0o755);
+      const gone = spawn('/bin/sh', ['-c', 'exit 0'], { stdio: 'ignore' });
+      await new Promise((r) => gone.on('exit', r));
+      const start = relaunchCommand('linux', gone.pid!, target, { ...process.env, OUT: out }, ['--no-sandbox', 'two words']);
+      await spawnDetached(start.bin, start.args, start.env);
+      for (let i = 0; i < 50 && !existsSync(out); i++) await new Promise((r) => setTimeout(r, 100));
+      const seen = readFileSync(out, 'utf8');
+      expect(seen).toContain('arg=--no-sandbox\narg=two words\n');
+      expect(seen).not.toContain(RELAUNCH_PID);
+      expect(seen).not.toContain(RELAUNCH_TARGET);
+      expect(existsSync(`${out}.code`)).toBe(false);
     },
     20_000,
   );

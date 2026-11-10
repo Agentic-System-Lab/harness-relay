@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions as ChildOptions } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -121,8 +121,27 @@ export function resolveBin(bin: string): string {
   return bin.includes('/') && !isAbsolute(bin) ? resolve(bin) : bin;
 }
 
-/** Spawn a CLI, stream its stdout line by line, and resolve when it exits. */
+/** How runProcess and runShellScript run what they start: everything but the program and its arguments. */
+export type RunOptions = Omit<SpawnOptions, 'bin' | 'args'>;
+
+/** Spawn a CLI, stream its stdout line by line, and resolve when it exits. It never runs through a shell. */
 export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
+  const bin = resolveBin(o.bin);
+  return supervise(o.bin, o, (options) => spawn(bin, o.args, options));
+}
+
+/**
+ * Runs `script` in `shell` (`<shell> <flags> -c <script>`), streamed, stopped and killed as runProcess
+ * does. The script is fixed text: never build it from a path, a name or a setting. Whatever it needs
+ * goes in `o.env`, read as a quoted `"$NAME"`. This is the only way here to run a shell script, so no
+ * other program is ever started through one.
+ */
+export function runShellScript(shell: string, flags: readonly string[], script: string, o: RunOptions): Promise<SpawnResult> {
+  return supervise(shell, o, (options) => spawn(shell, [...flags, '-c', script], options));
+}
+
+/** Starts the child with `start`, follows it to its end, and stops it when asked; `name` is what a missing command is reported as. */
+function supervise(name: string, o: RunOptions, start: (options: ChildOptions) => ChildProcess): Promise<SpawnResult> {
   return new Promise((done, reject) => {
     if (o.signal?.aborted) {
       done({
@@ -143,8 +162,7 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
       reject(new Error(t().dirNotFound(o.cwd)));
       return;
     }
-    const bin = resolveBin(o.bin);
-    const child = spawn(bin, o.args, {
+    const child = start({
       cwd: o.cwd,
       env: o.env,
       detached: true,
@@ -219,7 +237,7 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
 
     child.on('error', (err: NodeJS.ErrnoException) => {
       cleanup();
-      reject(err.code === 'ENOENT' ? new CommandNotFoundError(o.bin) : err);
+      reject(err.code === 'ENOENT' ? new CommandNotFoundError(name) : err);
     });
     child.on('close', (code, signal) => {
       cleanup();
@@ -307,12 +325,12 @@ export function spawnInteractive(bin: string, args: string[], env: NodeJS.Proces
 /**
  * Starts a program that must outlive this process, and is not waited for (the desktop app's update
  * starts the installer, or waits for the app to exit before opening the new one). It is left out of
- * `killAll`, and its own process group keeps it from the signals sent to this one. Resolves once it
- * started, or rejects when it could not.
+ * `killAll`, and its own process group keeps it from the signals sent to this one. `bin` is a full
+ * path. Resolves once it started, or rejects when it could not.
  */
-export function spawnDetached(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
+export function spawnDetached(bin: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<void> {
   return new Promise((done, fail) => {
-    const child = spawn(resolveBin(bin), args, { env, detached: true, windowsHide: true, stdio: 'ignore' });
+    const child = spawn(bin, args, { env, detached: true, windowsHide: true, stdio: 'ignore' });
     child.once('error', fail);
     child.once('spawn', () => {
       child.unref();

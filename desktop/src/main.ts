@@ -64,6 +64,7 @@ import {
   relaunchEnv,
   removeMacLeftovers,
   stageMacApp,
+  type StartCommand,
   swapMacApp,
   UpdateError,
   updateSystem,
@@ -636,7 +637,7 @@ function run(): void {
         setUpdating(1);
         placeAppImage(downloaded, target, plan.appImage);
         if (process.platform === 'linux' && isAutostartOn(autostartFile(process.env, homedir()))) writeAutostart([target, ...relaunchArgs()]);
-        await finishUpdate(relaunchCommand('linux', process.pid, target, relaunchArgs()), relaunchEnv(process.env));
+        await finishUpdate(relaunchCommand('linux', process.pid, target, relaunchEnv(process.env), relaunchArgs()));
         return;
       }
       mkdirSync(updatesDir, { recursive: true });
@@ -647,9 +648,9 @@ function run(): void {
         await stageMacApp({ dmg: installer, app: plan.app, bundleId: APP_ID, semver: release.semver, env });
         // Swapped while the server still runs: a swap that fails leaves everything as it was.
         swapMacApp(plan.app);
-        await finishUpdate(relaunchCommand('darwin', process.pid, plan.app), process.env);
+        await finishUpdate(relaunchCommand('darwin', process.pid, plan.app, process.env));
       } else {
-        await finishUpdate([installer, WINDOWS_INSTALLER_ARGS], process.env);
+        await finishUpdate({ bin: installer, args: WINDOWS_INSTALLER_ARGS, env: process.env });
       }
     } catch (err) {
       setUpdating(undefined);
@@ -666,7 +667,7 @@ function run(): void {
   }
 
   /** Stops the server, starts what brings up the new version once this app has exited, and exits. */
-  async function finishUpdate([bin, args]: [string, string[]], childEnv: NodeJS.ProcessEnv): Promise<void> {
+  async function finishUpdate({ bin, args, env: childEnv }: StartCommand): Promise<void> {
     quitting = true;
     await stopServer();
     try {

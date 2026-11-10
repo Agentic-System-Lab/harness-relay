@@ -48,7 +48,7 @@ npm run dev        # API 在 :8787（檔案變更時重啟）+ 介面在 http://
 ### 程式碼
 
 - 使用 strict TypeScript 與 ES modules。共用型別只放在 `src/shared/types.ts`。
-- 子程序一律透過 `src/server/process.ts` 啟動，這樣才會被追蹤並在關閉時結束。
+- 子程序一律透過 `src/server/process.ts` 啟動，這樣才會被追蹤並在關閉時結束。程式要直接啟動，不經過 shell；shell 腳本（`runShellScript()`，或交給 `spawnDetached()` 的 `sh -c`）是固定的文字，它需要的值（路徑、名稱、設定）放在它的環境變數裡，絕不放進腳本文字或參數。
 - CLI 輸出的 parser 保持純函式（輸入一行行文字，輸出 `AgentEvent`），方便用錄下來的輸出測試。
 - 測試在沒有 DOM 的 Node 環境執行。想測試的前端邏輯請放在一般模組（例如 `src/web/chat.ts`），不要寫在元件裡。
 - 桌面 app 裡只有 `desktop/src/main.ts` 會 import `electron`。其他部分請放在不依賴它的模組（例如 `desktop/src/lifecycle.ts`），由根目錄的 `test/` 跟其他程式碼一樣測試。

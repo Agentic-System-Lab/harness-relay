@@ -10,7 +10,7 @@
 import { existsSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
-import { capture } from '../../src/server/process';
+import { capture, runShellScript } from '../../src/server/process';
 
 /** Marks the start and end of the environment in the shell's output (a profile may print more). */
 export const ENV_MARK = '__HARNESS_RELAY_ENV_MARK__';
@@ -26,13 +26,13 @@ export function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-/**
- * Arguments for the login shell: interactive too (`-i`), since many profiles set PATH in .zshrc or
- * .bashrc only. `env -0` separates the variables with NUL bytes, so values may span lines.
- */
-export function shellEnvArgs(): string[] {
+/** Flags for the login shell (`-l`): interactive too (`-i`), since many profiles set PATH in .zshrc or .bashrc only. */
+export const SHELL_ENV_FLAGS: readonly string[] = ['-i', '-l'];
+
+/** What the login shell runs (`-c`), fixed text: `env -0` separates the variables with NUL bytes, so values may span lines. */
+export function shellEnvScript(): string {
   const mark = shellQuote(ENV_MARK);
-  return ['-i', '-l', '-c', `printf '%s' ${mark}; /usr/bin/env -0; printf '%s' ${mark}`];
+  return `printf '%s' ${mark}; /usr/bin/env -0; printf '%s' ${mark}`;
 }
 
 /** The variables between the marks, or undefined when the output has none. */
@@ -66,7 +66,8 @@ export async function loginShellEnv(
   opts: { shell?: string; timeoutMs?: number } = {},
 ): Promise<Record<string, string> | undefined> {
   try {
-    const r = await capture(opts.shell ?? loginShell(env), shellEnvArgs(), { ...env, ...FOR_THE_SHELL }, {
+    const r = await runShellScript(opts.shell ?? loginShell(env), SHELL_ENV_FLAGS, shellEnvScript(), {
+      env: { ...env, ...FOR_THE_SHELL },
       timeoutMs: opts.timeoutMs ?? 10_000,
       maxCapture: 4 * 1024 * 1024,
       keepStart: true,

@@ -358,15 +358,34 @@ export function placeAppImage(downloaded: string, target: string, current: strin
 
 // --- Starting the new version ---------------------------------------------------------------
 
+/** A program the app starts as it quits for an update (`spawnDetached`), with its environment. */
+export interface StartCommand {
+  bin: string;
+  args: readonly string[];
+  env: NodeJS.ProcessEnv;
+}
+
+/** Where the relaunch script finds this app's pid and the new version (removed before the new version starts). */
+export const RELAUNCH_PID = 'HARNESS_RELAY_RELAUNCH_PID';
+export const RELAUNCH_TARGET = 'HARNESS_RELAY_RELAUNCH_TARGET';
+
 /**
- * The command that waits for this app (`pid`) to exit, then starts the new one: on macOS `open` the
- * app (so it starts as if opened from the Finder), on Linux the AppImage with `args` (`--no-sandbox`,
- * say). It cannot start before: the running app holds the single-instance lock until it exits.
+ * The command that waits for this app (`pid`) to exit, then starts the new one (`target`) in `env`: on
+ * macOS `open` the app (so it starts as if opened from the Finder), on Linux the AppImage with `args`
+ * (`--no-sandbox`, say). It cannot start before: the running app holds the single-instance lock until
+ * it exits. The script is fixed text, and the pid and the path reach it in its environment, never in
+ * its arguments.
  */
-export function relaunchCommand(platform: NodeJS.Platform, pid: number, target: string, args: readonly string[] = []): [string, string[]] {
-  const wait = 'i=0; while kill -0 "$1" 2>/dev/null && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i+1)); done; shift;';
-  if (platform === 'darwin') return ['/bin/sh', ['-c', `${wait} exec /usr/bin/open "$1"`, 'sh', String(pid), target]];
-  return ['/bin/sh', ['-c', `${wait} exec "$@"`, 'sh', String(pid), target, ...args]];
+export function relaunchCommand(platform: NodeJS.Platform, pid: number, target: string, env: NodeJS.ProcessEnv, args: readonly string[] = []): StartCommand {
+  const wait =
+    `pid=$${RELAUNCH_PID}; target=$${RELAUNCH_TARGET}; unset ${RELAUNCH_PID} ${RELAUNCH_TARGET}; ` +
+    'i=0; while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i+1)); done;';
+  const start = platform === 'darwin' ? 'exec /usr/bin/open "$target"' : 'exec "$target" "$@"';
+  return {
+    bin: '/bin/sh',
+    args: ['-c', `${wait} ${start}`, 'sh', ...(platform === 'darwin' ? [] : args)],
+    env: { ...env, [RELAUNCH_PID]: String(pid), [RELAUNCH_TARGET]: target },
+  };
 }
 
 /** The environment for the new AppImage: without the variables the running one's runtime set for itself. */
