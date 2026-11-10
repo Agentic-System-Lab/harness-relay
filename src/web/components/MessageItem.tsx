@@ -221,6 +221,7 @@ function ApprovalCard({
       </header>
       {part.detail && <pre className="approval-detail">{part.detail}</pre>}
       {part.reason && part.reason !== part.detail && <p className="approval-reason">{part.reason}</p>}
+      {part.outsideSandbox && <p className="approval-reason approval-sandbox">{t.approval.outsideSandbox}</p>}
       <input
         className="approval-note"
         value={note}

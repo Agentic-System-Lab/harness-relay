@@ -45,6 +45,9 @@ const zhTW = {
   claudeAgentsFailed: (detail: string) =>
     `無法讓 Claude Code 在這次執行中不載入它自己的 subagent（${detail}）。請更新 Claude Code，或在「設定」裡 Claude Code 的「這個 CLI 自己載入的…」中，取消「Subagents」分頁的「全部不載入」。`,
   claudeError: 'Claude Code 回報錯誤',
+  claudeSandbox: (why: string) =>
+    `Claude Code 無法啟動它的沙箱（完全存取以外的權限都需要）：${why}。在 Linux 與 WSL2 上請安裝 bubblewrap 與 socat（例如 sudo apt-get install bubblewrap socat）後再試；或把權限改成「完全存取」，在沙箱外執行。`,
+  sandboxHost: '沙箱中的指令想連到這個主機。',
   commandNotFound: (bin: string) => `找不到指令「${bin}」。請確認已安裝，或在「設定」頁指定執行檔路徑。`,
   permission: { 'read-only': '唯讀', edit: '可編輯', full: '完全存取' } as Record<Permission, string>,
   grokRefusedReadOnly: '唯讀模式不允許，已告知 Grok 改用唯讀工具',
@@ -52,7 +55,7 @@ const zhTW = {
   grokCancelledNoReason: 'Grok 自行中止了這一輪（stopReason: cancelled），沒有給出原因。',
   grokCancelled: (tool: string, reason: string | undefined) => `Grok 在執行工具「${tool}」時中止了這一輪${reason ? `（${reason}）` : ''}。`,
   grokCancelHint: (permission: string) => `目前的權限是「${permission}」；若這個操作是必要的，可以把權限改成「完全存取」再試。`,
-  grokSandbox: (why: string) => `Grok 無法啟動沙箱（可編輯模式需要）：${why}`,
+  grokSandbox: (why: string) => `Grok 無法啟動沙箱（完全存取以外的權限都需要）：${why}`,
   grokNoSession: 'grok 沒有回傳 session id',
   grokRejectedModel: (value: string, err: string) => `Grok 不接受模型「${value}」：${err}`,
   grokRejectedEffort: (value: string, err: string) => `Grok 不接受推理強度「${value}」：${err}`,
@@ -308,6 +311,9 @@ const en: ServerMessages = {
   claudeAgentsFailed: (detail) =>
     `Claude Code's own subagents could not be left out of this run (${detail}). Update Claude Code, or clear "Leave all out" on the Subagents tab of "…this CLI loads by itself" in Claude Code's settings.`,
   claudeError: 'Claude Code reported an error',
+  claudeSandbox: (why) =>
+    `Claude Code could not start its sandbox (needed below full access): ${why}. On Linux and WSL2, install bubblewrap and socat (for example sudo apt-get install bubblewrap socat) and try again; or switch the permission to "Full access" to run without one.`,
+  sandboxHost: 'A command in the sandbox wants to connect to this host.',
   commandNotFound: (bin) => `Command "${bin}" not found. Make sure it is installed, or set its path on the Settings page.`,
   permission: { 'read-only': 'Read-only', edit: 'Edit', full: 'Full access' },
   grokRefusedReadOnly: 'Not allowed in read-only mode; Grok was told to use read-only tools',
@@ -316,7 +322,7 @@ const en: ServerMessages = {
   grokCancelled: (tool, reason) => `Grok ended the turn while running "${tool}"${reason ? ` (${reason})` : ''}.`,
   grokCancelHint: (permission) =>
     ` The permission is "${permission}"; if this action is needed, switch the permission to "Full access" and try again.`,
-  grokSandbox: (why) => `Grok could not start its sandbox (needed for edit mode): ${why}`,
+  grokSandbox: (why) => `Grok could not start its sandbox (needed below full access): ${why}`,
   grokNoSession: 'grok returned no session id',
   grokRejectedModel: (value, err) => `Grok does not accept the model "${value}": ${err}`,
   grokRejectedEffort: (value, err) => `Grok does not accept the reasoning effort "${value}": ${err}`,

@@ -1970,6 +1970,7 @@ export class Orchestrator {
               detail: req.detail,
               reason: req.reason,
               ruleLabel: keys.join(', ') || undefined,
+              ...(req.outsideSandbox ? { outsideSandbox: true } : {}),
               status: 'pending',
             };
             textOpen = false;

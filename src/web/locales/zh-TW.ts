@@ -483,6 +483,7 @@ export const zhTW = {
     alwaysEdits: '本對話都允許修改檔案',
     deny: '拒絕',
     notePlaceholder: '拒絕時告訴它該怎麼做（選填）',
+    outsideSandbox: '允許的話，這個指令會在沙箱外執行。',
     allowed: '已允許',
     allowedAlways: '已允許，本對話都允許',
     allowedAuto: '已依本對話的設定自動允許',

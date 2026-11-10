@@ -39,18 +39,25 @@ export function grokPrompt(prompt: string, images: RunOptions['images']): unknow
  * - read-only: grok asks; web fetch runs, anything else goes to the user (or is refused when the
  *   conversation does not ask). Grok still runs its built-in read-only tools and commands without
  *   asking (and bare `mkdir` / `touch`).
- * - edit: grok asks, inside the `workspace` sandbox (the kernel confines writes to the working
- *   directory and temp dirs); everything runs except publishing (git push, npm publish…), which
- *   goes to the user.
- * - full: always-approve.
+ * - edit: grok asks; everything runs except publishing (git push, npm publish…), which goes to
+ *   the user.
+ * - Both run inside the `workspace` sandbox: the kernel confines writes, Grok's own tools included,
+ *   to the working directory, `~/.grok` and the temp dirs (on macOS it cannot block the network).
+ * - full: always-approve; no profile is set (one the user set for Grok, if any, still applies).
  *
  * The session's mode is set explicitly (`_meta.yoloMode`) so a user-level
  * `[ui] permission_mode = "always-approve"` in ~/.grok/config.toml cannot widen read-only or edit.
  */
 
-/** Sandbox profile per permission (`GROK_SANDBOX`). Read-only relies on refusing requests instead:
- *  the `read-only` profile refuses to start on some machines (e.g. a symlinked /var/run/docker.sock). */
-const SANDBOX: Partial<Record<Permission, string>> = { edit: 'workspace' };
+/**
+ * Sandbox profile per permission (`GROK_SANDBOX`). Read-only uses `workspace` too, and keeps the
+ * project's files to what the user allows: Grok's `read-only` and `strict` profiles refuse to start
+ * on some machines (e.g. a symlinked /var/run/docker.sock), and a profile cannot be lifted once
+ * applied, so a write the user allowed in read-only would fail under them. One profile for both
+ * also lets a session resume after the permission changes between them (Grok refuses to resume a
+ * session under a different profile).
+ */
+const SANDBOX: Partial<Record<Permission, string>> = { 'read-only': 'workspace', edit: 'workspace' };
 
 
 /** The `toolCall` of an ACP `session/request_permission`. */

@@ -30,6 +30,8 @@ export interface ApprovalRequest {
   tool?: string;
   /** The command exactly as the CLI will run it, when `detail` is a tidied-up form for display. */
   command?: string;
+  /** Allowing it runs the command outside the CLI's sandbox. */
+  outsideSandbox?: boolean;
 }
 
 export interface RunOptions {

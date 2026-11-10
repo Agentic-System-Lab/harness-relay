@@ -710,6 +710,8 @@ export type MessagePart =
       reason?: string;
       /** What "always allow in this conversation" would cover, e.g. "npm install". */
       ruleLabel?: string;
+      /** Allowing it runs the command outside the CLI's sandbox. */
+      outsideSandbox?: boolean;
       status: ApprovalStatus;
       /** Allowed for the rest of the conversation (or by such an earlier answer). */
       always?: boolean;

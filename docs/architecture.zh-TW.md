@@ -252,20 +252,23 @@ flowchart LR
 
 | Relay 權限 | Claude Code | Codex | Grok（ACP） |
 | --- | --- | --- | --- |
-| 唯讀 | `--permission-mode manual`（拒絕時：`dontAsk`）、`--allowedTools WebFetch WebSearch`、`--disallowedTools Edit MultiEdit Write NotebookEdit`：讀檔與上網直接執行，沒有修改檔案的工具，其他都要詢問 | 沙箱 `read-only`、核准政策 `on-request`（拒絕時：`never`） | 詢問模式（`_meta.yoloMode: false`）：讀網頁直接執行，其他都要詢問 |
-| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問 | 沙箱 `workspace-write`，並固定關閉網路（`sandbox_workspace_write.network_access = false`，不受 `~/.codex/config.toml` 影響）、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=workspace` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`、`gh release`……，由 `commands.ts` 判斷）要詢問，其他都直接執行 |
+| 唯讀 | `--permission-mode manual`（拒絕時：`dontAsk`）、`--allowedTools WebFetch WebSearch`、`--disallowedTools Edit MultiEdit Write NotebookEdit`：讀檔與上網直接執行，沒有修改檔案的工具，其他都要詢問；另有它的沙箱（見下文） | 沙箱 `read-only`、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=workspace` 中使用詢問模式（`_meta.yoloMode: false`）：讀網頁直接執行，其他都要詢問 |
+| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問；另有它的沙箱（見下文） | 沙箱 `workspace-write`，並固定關閉網路（`sandbox_workspace_write.network_access = false`，不受 `~/.codex/config.toml` 影響）、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=workspace` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`、`gh release`……，由 `commands.ts` 判斷）要詢問，其他都直接執行 |
 | 完全存取 | `--permission-mode bypassPermissions` | 沙箱 `danger-full-access`、核准政策 `never` | 全部自動核准（`_meta.yoloMode: true`） |
 
 - **Claude Code** 把每個請求以 `can_use_tool` 控制請求送出，並等待我們的控制回應（允許，或拒絕並附上模型看得到的訊息）。對話設定為拒絕時，不會指定 permission prompt tool，由 Claude Code 自己拒絕這類呼叫。Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍然有效；唯讀模式會移除修改檔案的工具，所以這類規則無法讓它們執行。
+  - 在完全存取以外的權限，`--settings` 會開啟它的沙箱（`claudeSandboxSettings()`）：它的 Bash 指令及它們啟動的行程，只能寫入工作目錄、附件資料夾與暫存資料夾，要連到的每個主機都會詢問。`failIfUnavailable` 讓這一輪在沙箱無法使用時失敗並說明如何修正，而不是在沙箱外執行指令；`autoAllowBashIfSandboxed: false` 讓哪些操作不必詢問仍由權限決定；詢問規則 `Bash(dangerouslyDisableSandbox:true)` 則讓模型要在沙箱外執行的每個指令都交給使用者決定，包括可編輯模式允許規則涵蓋的指令。Claude Code 在原生 Windows 上沒有沙箱，所以在那裡不使用沙箱執行。
+  - 沙箱中的指令要連到某個主機時，會送來 `SandboxNetworkAccess` 請求：以讀取網頁的核准詢問那個主機，「本對話都允許」也涵蓋之後對它的 WebFetch。Claude Code 因為某個沙箱無法寫入的路徑（`blocked_path`）而詢問的指令，就算允許了在沙箱中也會失敗，所以允許後會在沙箱外執行（允許的輸入中帶 `dangerouslyDisableSandbox`，`claudeOutsideSandbox()`），卡片也會註明；沙箱可寫入的資料夾中的路徑（例如唯讀模式下詢問的工作目錄檔案）則在沙箱中執行。對話設定為拒絕時，這些請求也會被拒絕。
 - **Codex** 的指令一律在作業系統沙箱中執行。使用 `on-request` 時，模型在需要超出沙箱（寫到工作目錄以外、存取網路……）時會提出請求；要不要詢問由模型決定，沒有詢問的話，沙箱就直接擋下呼叫，模型會看到錯誤。
 - **Grok** 透過 ACP 執行，因為非互動的 `grok -p` 無法詢問：需要詢問的呼叫會被回報為「User cancelled」並**結束整輪**。改用 ACP 後，請求會送到 adapter。拒絕（使用者拒絕或自動拒絕）時回覆 `reject_once` 並附上 `_meta.followup_message`，Grok 會把它當成給模型的回饋，而不是取消這一輪。
   - session 的模式一律明確指定，所以使用者在 `~/.grok/config.toml` 設的 `[ui] permission_mode = "always-approve"` 不會放寬唯讀或可編輯。
   - Grok 內建的唯讀工具與指令（包含單純的 `mkdir`／`touch`）仍會直接執行、不經詢問。
-  - 唯讀模式不使用 Grok 的 `read-only` 沙箱設定檔：它在某些機器上無法啟動（例如 `/var/run/docker.sock` 是 symlink 時）。可編輯模式下，Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原因；但 Grok 的文件說，無法套用的內建設定檔也可能只顯示警告，然後在沒有沙箱的情況下執行（見[各平台的作業系統沙箱](sandboxing.zh-TW.md#沙箱無法啟動時)）。
+  - 唯讀模式同樣使用 `workspace` 設定檔，而不是 Grok 的 `read-only`：後者在某些機器上無法啟動（例如 `/var/run/docker.sock` 是 symlink 時），而且設定檔一旦套用就無法撤除，使用者允許的寫入在它之下會失敗。兩者使用同一個設定檔，權限在兩者之間切換後 session 也能續用（Grok 會拒絕以不同的設定檔續用 session）。所以唯讀模式下，專案的檔案仍靠詢問保護，和以前一樣；沙箱則保護工作目錄、`~/.grok` 與暫存資料夾以外的一切；在 macOS 上它擋不了網路。
+  - Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原因；但 Grok 的文件說，無法套用的內建設定檔也可能只顯示警告，然後在沒有沙箱的情況下執行（見[各平台的作業系統沙箱](sandboxing.zh-TW.md#沙箱無法啟動時)）。
 
 被拒絕或失敗的呼叫會保留原因（`tool_end.error`，存在 `message_parts.tool_error`），這一輪會繼續進行。
 
-**可編輯模式不會把專案程式碼關進沙箱。**「推送與發佈要詢問」能擋住 agent 直接執行這些指令；但可編輯模式不經詢問就能執行的指令（測試、建置、`npm run` 腳本、`make`）跑的是 agent 剛剛可能改過的程式碼，所以使用 Claude Code 與 Grok 時，執意要連網的 agent 仍能透過這些指令做到。Codex 的沙箱會讓所有指令都無法連網。不信任的程式碼或指示，請使用唯讀，或把「超出權限的動作」設為自動拒絕。各 CLI 的沙箱能在哪些平台上運作、在那裡需要什麼前提，見[各平台的作業系統沙箱](sandboxing.zh-TW.md)。
+**可編輯模式擋不住 Grok 的專案程式碼連網。**「推送與發佈要詢問」能擋住 agent 直接執行這些指令；但可編輯模式不經詢問就能執行的指令（測試、建置、`npm run` 腳本、`make`）跑的是 agent 剛剛可能改過的程式碼，所以使用 Grok 時，執意要連網的 agent 仍能透過這些指令做到；在 Linux 上它的沙箱擋得住，但 Harness Relay 沒有要求它擋。Codex 的沙箱會讓所有指令都無法連網，Claude Code 的沙箱則會詢問每個主機（在 Claude Code 沒有沙箱的原生 Windows 上，只有 Codex 的沙箱會這樣做）。不信任的程式碼或指示，請使用唯讀，或把「超出權限的動作」設為自動拒絕。各 CLI 的沙箱能在哪些平台上運作、在那裡需要什麼前提，見[各平台的作業系統沙箱](sandboxing.zh-TW.md)。
 
 ## 核准
 
@@ -542,7 +545,8 @@ sequenceDiagram
 - 圓桌 / 接力模式中，回合前後的快照會把該回合期間目錄裡的所有變更都算在該 agent 頭上，包括你同時在編輯器做的修改。
 - 目錄鎖存在伺服器程序中；其他工具（或第二個 Harness Relay 伺服器）仍然可以修改同樣的檔案。
 - 巢狀 repository 與 submodule：在 worktree 中是空資料夾，裡面的修改也不會被記錄（快照只記錄它們指向哪個 commit）。
-- 可編輯模式下，Claude Code 執行的專案程式碼完全不在沙箱中，Grok 執行的專案程式碼仍能連網（見[權限對應](#權限對應)與[各平台的作業系統沙箱](sandboxing.zh-TW.md)）；判斷推送與發佈指令只能盡力而為。
+- Grok 執行的專案程式碼仍能連網，而在原生 Windows 上 Claude Code 與 Grok 完全沒有沙箱（見[權限對應](#權限對應)與[各平台的作業系統沙箱](sandboxing.zh-TW.md)）；判斷推送與發佈指令只能盡力而為。
+- Claude Code 的沙箱涵蓋它的 Bash 指令，不包括它自己的檔案工具、hooks 與 MCP 伺服器（包括工具庫的）；Grok 的沙箱涵蓋 Grok 執行的一切。Claude Code 的沙箱會擋下的指令會先詢問，允許後在沙箱外執行；Grok 的沙箱擋下的指令則完全無法允許。
 - Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍可讓指令不經詢問就執行。
 - 唯讀並選「詢問我」時，Claude Code 無法請求修改檔案（修改檔案的工具已移除）；Codex 與 Grok 可以。
 - 保留的快照 ref（`refs/harness-relay/…`）會出現在列出所有 ref 的工具中（`git log --all`、部分 git GUI），`git push --mirror` 也會一併推送。編輯訊息時會移除被刪掉回合的 ref，刪除對話時移除其餘的。

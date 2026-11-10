@@ -227,7 +227,7 @@ Add members with **＋ Claude Code / ＋ Codex / ＋ Grok** (up to 8).
 | Edit | Also editing files in the working directory and running project commands such as tests and builds (Claude Code: a list of common ones; Codex: anything inside its sandbox, which has no network). Pushing and publishing are not included. |
 | Full access | Everything, without asking. Use only in directories you trust. |
 
-Edit is meant for code you trust: tests, builds and project scripts run code the agents can edit, so an agent could still reach the network through them (Codex's sandbox prevents that). For code or instructions you don't trust, use read-only, or refuse actions beyond the permission. In read-only mode Claude Code's file-editing tools are switched off completely.
+Below full access, every agent's commands run in its CLI's OS sandbox, which lets them write only in the working directory and the temp folders. Codex's sandbox also keeps them off the network, and Claude Code's asks you about each host they want to reach; Grok's can block the network only on Linux. On native Windows only Codex has a sandbox (see [OS sandboxes by platform](sandboxing.md)). Edit is meant for code you trust: tests, builds and project scripts run code the agents can edit, so with Grok an agent could still reach the network through them. For code or instructions you don't trust, use read-only, or refuse actions beyond the permission. In read-only mode Claude Code's file-editing tools are switched off completely.
 
 **Actions beyond the permission** — **Ask me** (default): when an agent wants to do something the permission doesn't cover, the chat asks you (see [Approvals](#approvals)). **Refuse automatically**: such actions are refused right away; the agent is told and tries another way. (Not shown for full access.)
 
@@ -254,7 +254,7 @@ Edit is meant for code you trust: tests, builds and project scripts run code the
 
 ### Approvals
 
-When an agent wants to do something its permission doesn't cover — install a package, run a command in read-only mode, push code, write outside the working directory — its reply shows a card: what it wants to do (the exact command, file or URL) and why. The agent waits until you answer:
+When an agent wants to do something its permission doesn't cover — install a package, run a command in read-only mode, push code, write outside the working directory, reach a host from its sandbox — its reply shows a card: what it wants to do (the exact command, file, URL or host) and why. When allowing it runs a command outside the sandbox, the card says so. The agent waits until you answer:
 
 - **Allow** — just this once.
 - **Always allow "…" in this chat** — this and later requests like it (for commands: the same program and subcommand, e.g. `npm install`; a chained command is only allowed when every part is) are allowed without asking for the rest of the conversation.

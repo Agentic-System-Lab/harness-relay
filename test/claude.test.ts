@@ -7,7 +7,9 @@ import {
   claudeAgentDenyRules,
   claudeAgents,
   claudeAgentsGate,
+  claudeAllowedInput,
   claudeAllowedTools,
+  claudeOutsideSandbox,
   claudeApprovalRequest,
   claudeArgs,
   claudeMcpConfig,
@@ -17,7 +19,9 @@ import {
   claudeNativeEnv,
   claudeNativeSettings,
   claudeReadRule,
+  claudeRunSettings,
   claudeRunner,
+  claudeSandboxSettings,
   createClaudeParser,
   parseClaudePluginList,
   type ClaudeControlRequest,
@@ -159,7 +163,8 @@ describe('claude parser', () => {
 });
 
 describe('leaving out what Claude Code loads by itself', () => {
-  const base = { systemPrompt: 'briefing', ask: true, newSessionId: 'new-id', permission: 'edit' as const };
+  // Full access has no sandbox settings, so `--settings` holds only what is left out.
+  const base = { systemPrompt: 'briefing', ask: true, newSessionId: 'new-id', permission: 'full' as const };
 
   it("turns off its own skills and MCP servers with flags, keeping the tool library's servers", () => {
     const args = claudeArgs({ ...base, mcpConfig: '/tmp/x/mcp.json', nativeOff: ['skills', 'mcp'] });
@@ -360,7 +365,7 @@ describe('a Claude Code run that leaves out its own setup (stand-in claude)', ()
       prompt: 'hello',
       systemPrompt: 'briefing',
       cwd: dir,
-      permission: 'read-only',
+      permission: 'full',
       signal: new AbortController().signal,
       onEvent: () => undefined,
       nativeOff,
@@ -510,6 +515,112 @@ describe('claude and the tool library', () => {
         gh: { type: 'stdio', command: 'npx', args: ['-y', 'gh'], env: { TOKEN: 't' } },
         docs: { type: 'http', url: 'https://x.test/mcp' },
       },
+    });
+  });
+});
+
+describe("Claude Code's sandbox below full access", () => {
+  const sandbox = {
+    sandbox: { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: false },
+    permissions: { ask: ['Bash(dangerouslyDisableSandbox:true)'] },
+  };
+
+  it('turns it on in read-only and edit mode, but not with full access or on native Windows', () => {
+    for (const platform of ['darwin', 'linux'] as const) {
+      expect(claudeSandboxSettings('read-only', platform)).toEqual(sandbox);
+      expect(claudeSandboxSettings('edit', platform)).toEqual(sandbox);
+      expect(claudeSandboxSettings('full', platform)).toBeUndefined();
+    }
+    expect(claudeSandboxSettings('edit', 'win32')).toBeUndefined();
+  });
+
+  it('adds it to what a turn leaves out, keeping both sets of permission rules', () => {
+    expect(claudeRunSettings('edit', ['hooks'], [], {}, 'linux')).toEqual({ disableAllHooks: true, ...sandbox });
+    expect(claudeRunSettings('read-only', [], [], { tools: ['WebSearch'] }, 'darwin')).toEqual({
+      sandbox: sandbox.sandbox,
+      permissions: { deny: ['WebSearch'], ask: ['Bash(dangerouslyDisableSandbox:true)'] },
+    });
+    expect(claudeRunSettings('full', ['hooks'], [], {}, 'linux')).toEqual({ disableAllHooks: true });
+    expect(claudeRunSettings('edit', [], [], {}, 'win32')).toBeUndefined();
+    const base = { systemPrompt: 'briefing', ask: true, newSessionId: 'new-id' };
+    const args = claudeArgs({ ...base, permission: 'edit', platform: 'linux' });
+    expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual(sandbox);
+    expect(claudeArgs({ ...base, permission: 'full', platform: 'linux' })).not.toContain('--settings');
+    expect(claudeArgs({ ...base, permission: 'read-only', platform: 'win32' })).not.toContain('--settings');
+  });
+
+  it('asks about the hosts its commands reach, and says when allowing runs a command outside it', () => {
+    const host = withLang('en', () => claudeApprovalRequest('SandboxNetworkAccess', { host: 'registry.npmjs.org' }, 'Allow network connection to registry.npmjs.org?'));
+    expect(host).toEqual({
+      kind: 'fetch',
+      detail: 'registry.npmjs.org',
+      reason: 'A command in the sandbox wants to connect to this host.',
+    });
+    const blocked = claudeApprovalRequest('Bash', { command: 'touch ~/x', description: 'Touch' }, undefined, true);
+    expect(blocked).toEqual({ kind: 'command', detail: 'touch ~/x', reason: 'Touch', outsideSandbox: true });
+    expect(claudeApprovalRequest('Bash', { command: 'make' }, undefined, false)).not.toHaveProperty('outsideSandbox');
+  });
+
+  it('runs a command the user allowed outside the sandbox only when the sandbox would block it', () => {
+    const writes = ['/work/repo', '/tmp'];
+    const home = { tool_name: 'Bash', input: { command: 'touch ~/x' }, blocked_path: '/home/me/x' };
+    expect(claudeOutsideSandbox(home, writes)).toBe(true);
+    expect(claudeAllowedInput(home, true)).toEqual({ command: 'touch ~/x', dangerouslyDisableSandbox: true });
+    // In read-only mode Claude Code also asks about a write in the working directory, which the
+    // sandbox allows: that one runs in it.
+    const inside = { tool_name: 'Bash', input: { command: 'touch ./x' }, blocked_path: '/work/repo/x' };
+    expect(claudeOutsideSandbox(inside, writes)).toBe(false);
+    expect(claudeOutsideSandbox({ ...inside, blocked_path: '/work/repo' }, writes)).toBe(false);
+    expect(claudeOutsideSandbox({ ...inside, blocked_path: '/work/repo-other/x' }, writes)).toBe(true);
+    expect(claudeAllowedInput(inside, false)).toEqual({ command: 'touch ./x' });
+    // The model asked to leave it; a plain command or another tool stays in it.
+    expect(claudeOutsideSandbox({ tool_name: 'Bash', input: { command: 'make', dangerouslyDisableSandbox: true } }, writes)).toBe(true);
+    expect(claudeOutsideSandbox({ tool_name: 'Bash', input: { command: 'ls' } }, writes)).toBe(false);
+    expect(claudeOutsideSandbox({ tool_name: 'SandboxNetworkAccess', input: { host: 'x.dev' } }, writes)).toBe(false);
+    // Without a sandbox nothing runs outside one.
+    expect(claudeOutsideSandbox(home, undefined)).toBe(false);
+  });
+
+  describe.skipIf(process.platform === 'win32')('in a run (stand-in claude)', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-sandbox-')));
+    afterAll(() => rmSync(dir, { recursive: true, force: true }));
+    const bin = writeFakeClaude(join(dir, 'claude'));
+    let n = 0;
+    function run(permission: 'read-only' | 'edit' | 'full', extra: Record<string, string> = {}) {
+      const log = join(dir, `log-${++n}.jsonl`);
+      const result = claudeRunner.run({
+        bin,
+        env: { ...process.env, FAKE_CLAUDE_LOG: log, ...extra },
+        prompt: 'hello',
+        systemPrompt: 'briefing',
+        cwd: dir,
+        permission,
+        signal: new AbortController().signal,
+        onEvent: () => undefined,
+      });
+      const start = () =>
+        readFileSync(log, 'utf8')
+          .trim()
+          .split('\n')
+          .map((l) => JSON.parse(l) as Record<string, any>)
+          .find((l) => Array.isArray(l.args) && l.args.includes('--append-system-prompt'));
+      return { result, start };
+    }
+
+    it('starts Claude Code with its sandbox on below full access', async () => {
+      for (const permission of ['read-only', 'edit'] as const) {
+        const r = run(permission);
+        await expect(r.result).resolves.toMatchObject({ sessionId: 'fake-session' });
+        expect(r.start()!.settings).toEqual(sandbox);
+      }
+      const full = run('full');
+      await full.result;
+      expect(full.start()!.args).not.toContain('--settings');
+    });
+
+    it('says how to fix it when the sandbox cannot run, instead of running without it', async () => {
+      const r = withLang('en', () => run('edit', { FAKE_CLAUDE_NO_SANDBOX: '1' }));
+      await expect(r.result).rejects.toThrow(/could not start its sandbox.*bubblewrap \(bwrap\) is not installed.*install bubblewrap and socat/s);
     });
   });
 });

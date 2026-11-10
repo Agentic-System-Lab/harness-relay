@@ -15,19 +15,19 @@ Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` �
 - **核准**在指令執行*之前*，依指令的文字決定。指令一旦放行，就不再檢查它做了什麼。
 - **沙箱**在指令執行*當中*生效。超出限制的寫入或連線會失敗（寫入通常是 `Operation not permitted`），即使是 agent 寫的程式碼、再由測試執行也一樣。
 
-這就是為什麼在可編輯模式下，Claude Code 執行的專案程式碼完全不在沙箱中，而 Grok 執行的專案程式碼仍能連網（見[架構 → 權限對應](architecture.zh-TW.md#權限對應)）。
+這就是為什麼在可編輯模式下沙箱同樣重要：測試與建置執行的是 agent 剛剛可能改過的程式碼；使用 Grok 時，這些程式碼仍能連網（見[架構 → 權限對應](architecture.zh-TW.md#權限對應)）。
 
 ## Harness Relay 目前的執行用了什麼
 
 | Relay 權限 | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |
-| 唯讀 | 沒有沙箱 | 沙箱 `read-only` | 沒有沙箱 |
-| 可編輯 | 沒有沙箱 | 沙箱 `workspace-write`，關閉網路 | 設定檔 `workspace`，可以連網 |
+| 唯讀 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 沙箱 `read-only` | 設定檔 `workspace`，可以連網 |
+| 可編輯 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 沙箱 `workspace-write`，關閉網路 | 設定檔 `workspace`，可以連網 |
 | 完全存取 | 沒有沙箱 | 沒有（`danger-full-access`） | 沒有 |
 
-- **Claude Code** 的 Bash 工具有沙箱（`sandbox` 設定），但 Harness Relay 沒有開啟它，也沒有關閉它：它執行時所用的 Claude Code 設定（使用者設定，來自你的家目錄或[各 CLI 自己的資料夾](user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)；專案的；或受管設定）中若有 `sandbox` 設定，會照原樣生效。Harness Relay 的執行沒有搭配它試過。
+- **Claude Code** 的沙箱涵蓋它的 Bash 工具（`sandbox` 設定）。在完全存取以外的權限，Harness Relay 會在這一輪的 `--settings` 中開啟它，並設定 `failIfUnavailable`（沒有沙箱就不執行）、`autoAllowBashIfSandboxed: false`（哪些操作不必詢問仍由權限決定），以及詢問規則 `Bash(dangerouslyDisableSandbox:true)`（模型要在沙箱外執行的每個指令都會詢問）；在 Claude Code 沒有沙箱的原生 Windows 上，則不使用沙箱執行。在 Mac 上兩種模式都試過：在工作目錄中寫入可以（唯讀模式下要先允許）；寫入家目錄會先詢問並註明會在沙箱外執行，拒絕後就失敗；連到 example.com 會先詢問，拒絕後就被擋下。
 - **Codex** 在完全存取以外的權限，每個指令都在沙箱中執行。在 Mac 上以 `workspace-write` 試過：在工作目錄中寫入可以；寫入家目錄或 `~/.npm`、連到 github.com 都被拒絕；讀取家目錄可以。
-- **Grok** 的唯讀執行不使用它的 `read-only` 設定檔，因為它在某些機器上無法啟動。在裝了 OrbStack 的 Mac 上，`/var/run/docker.sock` 是 symlink，Grok 會以 `could not apply the 'read-only' sandbox profile … Refusing to start with its protections missing` 停止。它的 `workspace` 設定檔允許連網（`~/.grok/sessions/sandbox-events.jsonl` 中為 `"restrict_network": false`）。Harness Relay 只在可編輯模式指定設定檔（`GROK_SANDBOX`），所以在唯讀與完全存取下，Grok 自己的 `config.toml` 中的 `[sandbox] profile`，或伺服器啟動時就有的 `GROK_SANDBOX`，仍會生效。
+- **Grok** 在唯讀模式下同樣使用 `workspace` 設定檔，而不是它的 `read-only` 設定檔，因為後者在某些機器上無法啟動：在裝了 OrbStack 的 Mac 上，`/var/run/docker.sock` 是 symlink，Grok 會以 `could not apply the 'read-only' sandbox profile … Refusing to start with its protections missing` 停止。在 Mac 上兩種模式都試過：在工作目錄中寫入可以，寫入家目錄會以 `Operation not permitted` 失敗，也連得到 example.com，因為 `workspace` 允許連網（`~/.grok/sessions/sandbox-events.jsonl` 中為 `"restrict_network": false`，並有 `"enforced": true`）。Harness Relay 只在完全存取以外的權限設定設定檔（`GROK_SANDBOX`），所以完全存取時，Grok 自己 `config.toml` 中的 `[sandbox] profile`，或啟動伺服器時的 `GROK_SANDBOX`，仍會生效。
 
 ## 各平台
 
@@ -90,11 +90,11 @@ Harness Relay 本身在這三種平台上都能執行，所以在原生 Windows 
 
 | | Harness Relay 的執行會讀的設定 | Harness Relay 自己設定的部分 |
 | --- | --- | --- |
-| Claude Code | `~/.claude/settings.json`，或[各 CLI 自己的資料夾](user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)中的 `claude/settings.json`；專案的 `.claude/settings.json` 與 `.claude/settings.local.json`；managed settings | 沒有任何沙箱相關設定：你設定的會生效 |
+| Claude Code | `~/.claude/settings.json`，或[各 CLI 自己的資料夾](user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)中的 `claude/settings.json`；專案的 `.claude/settings.json` 與 `.claude/settings.local.json`；managed settings | 完全存取以外的權限（原生 Windows 除外）設定 `sandbox.enabled`、`failIfUnavailable`、`autoAllowBashIfSandboxed: false` 與上述的詢問規則；你其他的 `sandbox` 鍵，例如 `network.allowedDomains`，會照原樣保留（沒有試過） |
 | Codex | `~/.codex/config.toml`，或各 CLI 自己的資料夾中的 `codex/config.toml` | 依權限設定沙箱模式（所以你的 `sandbox_mode` 不會被採用），可編輯模式再加上 `network_access = false`；其他鍵不會設定，例如 `writable_roots` 或 `[windows] sandbox` |
-| Grok | 啟動 Harness Relay 時環境中的 `GROK_SANDBOX`；沒有的話，是 `~/.grok/config.toml`，或各 CLI 自己的資料夾中 `grok/config.toml` 的 `[sandbox] profile` | 可編輯模式設定 `GROK_SANDBOX=workspace`；唯讀與完全存取時，你設定的會生效 |
+| Grok | 啟動 Harness Relay 時環境中的 `GROK_SANDBOX`；沒有的話，是 `~/.grok/config.toml`，或各 CLI 自己的資料夾中 `grok/config.toml` 的 `[sandbox] profile` | 唯讀與可編輯模式設定 `GROK_SANDBOX=workspace`；完全存取時，你設定的會生效 |
 
-Grok 會讓一個 session 在整個生命週期都使用它開始時的設定檔，並拒絕以不同的設定檔續用它（它的文件）。Harness Relay 每一輪都會續用各 agent 的 session，所以把對話的權限在可編輯與其他權限之間切換，或改變你設定的設定檔，都可能讓下一次續用失敗（沒有試過）。
+Grok 會讓一個 session 在整個生命週期都使用它開始時的設定檔，並拒絕以不同的設定檔續用它（它的文件）。Harness Relay 每一輪都會續用各 agent 的 session。唯讀與可編輯使用同一個設定檔，所以只有切換到完全存取或從完全存取切回來，或改變你設定的設定檔，才可能讓下一次續用失敗（沒有試過）。
 
 ### 在 macOS 上
 
@@ -165,7 +165,7 @@ deny = ["~/.ssh", "**/.env", "**/*.pem"]
 ```
 
 - `devbox` 是給用完即丟的機器用的：它幾乎到處都能寫入，包括家目錄。`restrict_network = true` 在 macOS 上沒有作用（見 [macOS](#macos)）。
-- 以 `GROK_SANDBOX=workspace npm start` 啟動 Harness Relay，它唯讀與完全存取的 Grok 執行也會使用 `workspace`。
+- Harness Relay 在完全存取以外的權限已經讓 Grok 使用 `workspace`；啟動它時的 `GROK_SANDBOX` 只會套用到完全存取的 Grok 執行。
 
 ### 在 Linux 上
 
@@ -279,11 +279,11 @@ wsl --set-version Ubuntu 2    # 把 WSL1 的發行版轉成 WSL2
 
 | | 會發生什麼事 |
 | --- | --- |
-| Claude Code | 指令在沙箱外執行；除非 `sandbox.failIfUnavailable` 為 `true`，這時它在啟動時就結束。 |
+| Claude Code | 指令在沙箱外執行；除非 `sandbox.failIfUnavailable` 為 `true`，這時它在啟動時就結束。Harness Relay 在完全存取以外的權限會設定它，所以這一輪會失敗，並顯示 Claude Code 給的原因與修正方式。 |
 | Codex | 在 WSL1 上，沙箱指令會被拒絕。其他平台會在啟動時顯示警告（例如 bubblewrap 無法建立 user namespace）；它的 Linux README 把另一種情況稱為「a runtime sandbox failure」，所以之後的沙箱指令很可能是失敗，而不是在沙箱外執行（未驗證）。 |
 | Grok | 內建設定檔：它的文件說會顯示警告，並在沒有限制的情況下繼續執行；但有些失敗（例如上文的 symlink socket，或 Linux 上沒有唯讀掛載）會讓它直接拒絕啟動。自訂設定檔（`sandbox.toml`）一律拒絕啟動。Grok 的 `sessions` 資料夾（`~/.grok/sessions`，或各 CLI 自己的資料夾中的 `grok/sessions`）裡 `sandbox-events.jsonl` 的 `"enforced": true` 表示設定檔確實套用了。 |
 
-可編輯模式下，Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原因。Harness Relay 不會檢查沙箱是否真的套用了。
+Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原因。Harness Relay 不會檢查沙箱是否真的套用了。
 
 ## 沙箱管不到的事
 
@@ -293,16 +293,16 @@ wsl --set-version Ubuntu 2    # 把 WSL1 的發行版轉成 WSL2
 - **Git。** Codex 的 `workspace-write` 把 `.git` 設為唯讀：`git add` 與 `git commit` 會以 `.git/index.lock: Operation not permitted` 失敗（在 Mac 上試過）。Claude Code 不讓指令寫入 `.git/config` 與 `.git/hooks`。平行模式下，worktree 的 git 資料放在主 repository 的 `.git/worktrees/<name>`，在工作目錄之外。Harness Relay 的快照和 worktree 結果的 commit 都由伺服器在沙箱外執行，所以不受影響。
 - **在沙箱中常會壞掉的工具**（來自 Claude Code 的文件）：Docker 與 ssh-agent（Unix socket）、走 SSH 的 git 與 `open`、`osascript`（在 macOS 上）、watchman（請用 `jest --no-watchman`）、Linux 上的 Chromium（會啟動它的 Playwright 沒有試過）。
 - **核准能做的事。** 在沙箱中，詢問使用者的意思變成詢問某個指令能不能離開沙箱：
-  - Claude Code：模型可能帶著 `dangerouslyDisableSandbox` 在沙箱外再執行一次指令（`sandbox.allowUnsandboxedCommands: false` 會拿掉這個出口）。這次重試，以及連到不在網路允許清單上的主機，在 `manual` 與 `acceptEdits` 中會詢問，在 `dontAsk` 中會被拒絕；這類詢問在非互動的 `-p` 加上 `--permission-prompt-tool stdio` 時如何送達，文件沒有說明。
+  - Claude Code：模型可能會帶著 `dangerouslyDisableSandbox` 在沙箱外再執行一次指令（`sandbox.allowUnsandboxedCommands: false` 會拿掉這個出口）。這種重試，以及連到不在網路允許清單上的主機，在 `manual` 與 `acceptEdits` 中會詢問，在 `dontAsk` 中會被拒絕。在非互動的 `-p` 執行中，它們以 `can_use_tool` 請求送來（在 Mac 上試過）：主機以 `SandboxNetworkAccess` 送來，Harness Relay 把它顯示成讀取那個主機的網頁；Claude Code 因為某個沙箱無法寫入的路徑（`blocked_path`）而詢問的指令，就算允許了在沙箱中也會失敗，所以使用者允許時 Harness Relay 會讓它在沙箱外執行，卡片也會註明。設定為拒絕時，`acceptEdits` 仍會送來主機的請求，由 Harness Relay 拒絕。
   - Codex：和現在一樣，只有在模型要求超出沙箱允許的範圍時才會詢問。
   - Grok：設定檔一旦套用就無法撤除，所以就算核准了某個呼叫，它也不能寫到設定檔允許的路徑以外。
 
-## 讓更多執行進入沙箱之前
+## 尚未處理的部分
 
-完全存取本來就是要在沙箱外執行：Docker、推送、安裝和寫到資料夾以外，正是它的用途。若要讓每個 CLI 的唯讀與可編輯都進入沙箱，需要先做到三件事：
+唯讀與可編輯現在在三個 CLI 上都會使用沙箱（平台有沙箱時）。完全存取本來就是要在沙箱外執行：Docker、推送、安裝和寫到資料夾以外，正是它的用途。尚未處理的有：
 
 1. **不能把設定當成沙箱。** 原生 Windows 上的 Claude Code 與 Grok，以及 macOS 上 Grok 的網路，都是設定了也不會生效。UI 應該說明每個 agent 在這台電腦上是否真的在沙箱中，或在這些情況下拒絕使用沙箱模式。
-2. **在 Linux 上執行前先檢查前提：** `bwrap`、`socat`、kernel 版本、在容器中能否使用 user namespace；並用使用者的語言說明要安裝什麼。
+2. **在 Linux 上執行前先檢查前提。** Claude Code 的沙箱無法執行時，這一輪會失敗並說明要安裝 `bubblewrap` 與 `socat`；Codex 與 Grok 的前提（`bwrap`、kernel 版本、在容器中能否使用 user namespace）則沒有檢查，也沒有用使用者的語言說明要為它們安裝什麼。
 3. **Codex 在 Windows 上的 `elevated` 沙箱**需要做一次設定，其中有 UAC 提示；在背景啟動的 `codex app-server` 能不能顯示它，沒有驗證過。可以由管理員先執行 `codex sandbox setup --elevated`，或在 Windows 支援時改用 `mxc`。
 
 ## 資料來源

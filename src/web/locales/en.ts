@@ -475,6 +475,7 @@ export const en: Messages = {
     alwaysEdits: 'Always allow file changes in this chat',
     deny: 'Decline',
     notePlaceholder: 'Tell it what to do instead (optional, when declining)',
+    outsideSandbox: 'If you allow it, this command runs outside the sandbox.',
     allowed: 'Allowed',
     allowedAlways: 'Allowed for the rest of this chat',
     allowedAuto: 'Allowed automatically (earlier answer in this chat)',

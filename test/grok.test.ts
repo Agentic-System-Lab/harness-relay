@@ -206,7 +206,10 @@ describe('leaving out what Grok loads by itself', () => {
       GROK_CURSOR_MCPS_ENABLED: 'false',
       GROK_SANDBOX: 'workspace',
     });
-    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' })).toEqual({ PATH: '/bin' });
+    // Read-only runs in the same profile: Grok's `read-only` one refuses to start on some machines,
+    // and a session resumes only under the profile it started with.
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' })).toEqual({ PATH: '/bin', GROK_SANDBOX: 'workspace' });
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'full' })).toEqual({ PATH: '/bin' });
   });
 });
 

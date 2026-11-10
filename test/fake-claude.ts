@@ -28,7 +28,9 @@ import { writeFileSync } from 'node:fs';
  * `get_hooks_listing` when started with `--settings`; FAKE_CLAUDE_OWN_USAGE gives it a skill named
  * `usage` (so `/usage` would reach the model); FAKE_CLAUDE_NO_SESSION_FLAG rejects
  * `--no-session-persistence` as an older Claude Code would; FAKE_CLAUDE_HANG_AS_RUN never answers a
- * user message when started with `--settings` (a server slow to connect, say).
+ * user message when started with `--settings` (a server slow to connect, say);
+ * FAKE_CLAUDE_NO_SANDBOX exits at start when `--settings` turns on its sandbox with
+ * `failIfUnavailable`, as Claude Code does where the sandbox cannot run (no bubblewrap, say).
  */
 export const FAKE_CLAUDE = `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -52,6 +54,10 @@ if (process.env.FAKE_CLAUDE_NO_SESSION_FLAG && has('--no-session-persistence')) 
 }
 const settingsArg = flag('--settings');
 const settings = settingsArg ? JSON.parse(settingsArg.startsWith('{') ? settingsArg : fs.readFileSync(settingsArg, 'utf8')) : {};
+if (process.env.FAKE_CLAUDE_NO_SANDBOX && settings.sandbox && settings.sandbox.enabled && settings.sandbox.failIfUnavailable) {
+  process.stderr.write('Error: sandbox required but unavailable: bubblewrap (bwrap) is not installed\\n');
+  process.exit(1);
+}
 const builtinOnly = flag('--setting-sources') === '';
 const pluginOff = (name) => name.startsWith('deck:') && (builtinOnly || (settings.enabledPlugins || {})['deck@market'] === false);
 const skillOff = (name) => (settings.skillOverrides || {})[name] === 'off';
