@@ -530,4 +530,54 @@ describe('changing a team at the user\'s request', () => {
     expect(prompt).toContain('"was" is only for that: never for a new member, even one based on another.');
     expect(prompt).toContain('Do not use tools unless the change depends on the files in the folder you are running in.');
   });
+
+  it('keeps swaps and chains of renames, which list old names again', () => {
+    // Swap across CLIs: each keeps its own id, role and settings under the other's name.
+    const swap = decideRevision(
+      { agents: [{ name: 'Gus', provider: 'claude', was: 'Alice' }, { name: 'Alice', provider: 'grok', was: 'Gus' }] },
+      draft,
+      ctx,
+      lead,
+    );
+    expect(swap.agents[0]).toMatchObject({ id: 'a1', name: 'Gus', provider: 'claude', role: 'Research it.', model: 'opus', tools: { memory: false } });
+    expect(swap.agents[1]).toMatchObject({ id: 'g1', name: 'Alice', provider: 'grok', role: 'Doubt it.', effort: 'high' });
+    // A chain on one CLI (Alice → Bob, Bob → Dan, with Dan's role rewritten), Carol removed.
+    const three: TeamDraft = {
+      settings: draft.settings,
+      agents: [
+        { id: 'a', name: 'Alice', provider: 'claude', role: 'A.' },
+        { id: 'b', name: 'Bob', provider: 'claude', role: 'B.', tools: { memory: true } },
+        { id: 'c', name: 'Carol', provider: 'claude', role: 'C.' },
+      ],
+    };
+    const chain = decideRevision(
+      { agents: [{ name: 'Bob', provider: 'claude', was: 'Alice' }, { name: 'Dan', provider: 'claude', was: 'Bob', role: 'D.' }] },
+      three,
+      ctx,
+      lead,
+    );
+    expect(chain.agents.map((a) => [a.id, a.name, a.role])).toEqual([
+      ['a', 'Bob', 'A.'],
+      ['b', 'Dan', 'D.'],
+    ]);
+    expect(chain.agents[1]!.tools).toEqual({ memory: true });
+  });
+
+  it('starts a new member based on another (a misused "was") from that one\'s role, never from a removed member', () => {
+    // "Add Alice2 based on Alice, remove Gus": Alice2 is new, with Alice's role; it is not taken for Gus renamed.
+    const r = decideRevision({ agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Alice2', provider: 'claude', was: 'Alice' }] }, draft, ctx, lead);
+    expect(r.agents[0]).toMatchObject({ id: 'a1', name: 'Alice' });
+    expect(r.agents[1]).toMatchObject({ name: 'Alice2', role: 'Research it.' });
+    expect(r.agents[1]!.id).not.toMatch(/^(a1|g1)$/);
+    expect(r.agents[1]!.tools).toBeUndefined();
+  });
+
+  it('keeps a member renamed without "was" when the lead copied its role', () => {
+    const r = decideRevision({ agents: [{ name: 'Researcher', provider: 'claude', role: ' Research it. ' }, { name: 'Gus', provider: 'grok' }] }, draft, ctx, lead);
+    expect(r.agents[0]).toMatchObject({ id: 'a1', name: 'Researcher', role: 'Research it.', tools: { memory: false } });
+  });
+
+  it('tells the lead it cannot clear a role', () => {
+    expect(buildRevisePrompt('x', draft, where, ctx)).toContain("or to clear a member's role, which the user does in the editor");
+  });
 });

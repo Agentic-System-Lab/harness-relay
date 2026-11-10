@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -53,6 +53,22 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
 }
 
 /** A path from user input: `~` is the home folder (`~/` or, on Windows, `~\`); relative paths start at the server's folder. */
+/**
+ * Two folders are the same one, written differently: `~`, a trailing slash, `..`, a symlink (such as
+ * macOS's /tmp), or letter case where the filesystem ignores it.
+ */
+export function sameFolder(a: string, b: string): boolean {
+  const real = (p: string) => {
+    const full = expandPath(p);
+    try {
+      return realpathSync(full);
+    } catch {
+      return full; // not there (yet)
+    }
+  };
+  return foldCase(real(a)) === foldCase(real(b));
+}
+
 export function expandPath(p: string): string {
   const t = p.trim();
   if (t === '~' || t.startsWith('~/') || t.startsWith('~\\')) return resolve(homedir(), t.slice(2));

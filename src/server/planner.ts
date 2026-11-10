@@ -560,7 +560,7 @@ How to change the team:
 - Write a new or rewritten role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. At most ${MAX_TEAM} members.
 - "model" and "effort": for a member who stays, leave them out to keep what it has, or give "" for its coding agent's default. For a new member, leave them out unless the work clearly needs a stronger or faster model than the default.
-- When the request cannot be done this way (for example, it asks to change the file permission), return the team as it is and say why in the reason.
+- When the request cannot be done this way (for example, it asks to change the file permission, or to clear a member's role, which the user does in the editor), return the team as it is and say why in the reason.
 
 Write the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools unless the change depends on the files in the folder you are running in.
 
@@ -573,12 +573,14 @@ Reply with only this JSON object, in a \`\`\`json code block, with the whole tea
  * of the drawer's team, each drawer member at most once, in this order:
  * 1. the one it names as "was" (renamed, or moved to another CLI); every "was" is settled before any
  *    name, so a new member named like one renamed away does not take its place. A "was" naming a member
- *    the lead also lists, unchanged (no role), under that name is ignored: that member stays, and the
- *    "was" was misused for a new member based on it;
+ *    the lead also lists unchanged under that name (no role, not itself renamed: a swap or a chain of
+ *    renames lists old names again) is ignored: that member stays, and the "was" was misused for a new
+ *    member based on it, which starts from that member's role when it has none of its own;
  * 2. one with the same name (ignoring case) and CLI;
  * 3. one with the same name on another CLI (moved, though the lead did not say so);
- * 4. when exactly one listed member without a role and exactly one drawer member are left over: that
- *    one (renamed, though the lead did not say so).
+ * 4. when exactly one listed member (not one based on another) and exactly one drawer member are left
+ *    over, and the listed one has no role or the same one: that one (renamed, though the lead did not
+ *    say so).
  * A matched member keeps what the lead does not see — its id (and with it its CLI session, which starts
  * afresh on another CLI) and its tools — and the role, model and effort the lead left out (null, or a
  * blank role, is left out; a model or effort of its old CLI does not carry over to another one). A role
@@ -615,13 +617,21 @@ export function decideRevision(
         taken.set(d.id, d);
       }
     });
-  const listedUnchanged = (name: string, self: Listed) => listed.some((o: Listed) => o !== self && !o.role && o.name.toLowerCase() === name);
-  pass((l, d) => Boolean(l.was) && d.name.toLowerCase() === l.was && !listedUnchanged(l.was, l));
+  // Listed under that name and unchanged: no role, and not itself renamed from another (a swap or a
+  // chain of renames lists the old name again, for another member).
+  const keptUnder = (name: string, self: Listed) =>
+    listed.some((o: Listed) => o !== self && !o.role && (!o.was || o.was === o.name.toLowerCase()) && o.name.toLowerCase() === name);
+  // A "was" misused for a new member based on another: that member stays, listed unchanged.
+  const basedOn = listed.map((l: Listed) => (l.was && keptUnder(l.was, l) ? draft.agents.find((d) => d.name.toLowerCase() === l.was) : undefined));
+  pass((l, d) => Boolean(l.was) && d.name.toLowerCase() === l.was && !keptUnder(l.was, l));
   pass((l, d) => d.provider === l.provider && d.name.toLowerCase() === l.name.toLowerCase());
   pass((l, d) => d.name.toLowerCase() === l.name.toLowerCase());
-  const leftListed = listed.map((_: Listed, i: number) => i).filter((i: number) => !match[i]);
+  // One member renamed without saying so: the only one left on each side, the listed one with no role
+  // or the same role (and not a new member based on another).
+  const leftListed = listed.map((_: Listed, i: number) => i).filter((i: number) => !match[i] && !basedOn[i]);
   const leftDraft = draft.agents.filter((d) => !taken.has(d.id));
-  if (leftListed.length === 1 && leftDraft.length === 1 && !listed[leftListed[0]!]!.role) {
+  const lone = leftListed.length === 1 && leftDraft.length === 1 ? listed[leftListed[0]!]! : undefined;
+  if (lone && (!lone.role || lone.role.trim() === leftDraft[0]!.role.trim())) {
     match[leftListed[0]!] = leftDraft[0];
     taken.set(leftDraft[0]!.id, leftDraft[0]!);
   }
@@ -633,7 +643,8 @@ export function decideRevision(
     // "" is the default.
     const kept = (key: 'model' | 'effort') =>
       m[key] !== undefined && m[key] !== null ? String(m[key]) : sameCli ? (same?.[key] ?? '') : '';
-    const role = given ?? same?.role ?? '';
+    // A new member based on another (a misused "was") starts from that one's role.
+    const role = given ?? same?.role ?? basedOn[i]?.role ?? '';
     return {
       ...(same ? { id: same.id, ...(same.tools ? { tools: same.tools } : {}) } : {}),
       name,

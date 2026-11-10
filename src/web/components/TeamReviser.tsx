@@ -53,9 +53,11 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
   const changedAt = useRef<number | undefined>(undefined);
   const [held, setHeld] = useState(false);
   const hold = () => {
-    changedAt.current = Date.now();
+    const at = Date.now();
+    changedAt.current = at;
     setHeld(true);
-    setTimeout(() => setHeld(buttonHeld(changedAt.current, Date.now())), BUTTON_HOLD_MS);
+    // Cleared by the timer of the latest change (a clock read a moment early must not keep it held).
+    setTimeout(() => changedAt.current === at && setHeld(false), BUTTON_HOLD_MS);
   };
   const box = useRef<HTMLTextAreaElement>(null);
   const button = useRef<HTMLButtonElement>(null);

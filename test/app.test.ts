@@ -17,7 +17,7 @@ const { Store } = await import('../src/server/store');
 const { AgentRunError, runners } = await import('../src/server/agents');
 const { NativeSetupService } = await import('../src/server/native');
 const { AgentsViewSync } = await import('../src/server/agentsview');
-const { expandPath } = await import('../src/server/validate');
+const { expandPath, sameFolder } = await import('../src/server/validate');
 const { attachmentsDir } = await import('../src/server/attachments');
 const { readZip } = await import('./zipReader');
 const { REVISER_BRIEFING } = await import('../src/server/planner');
@@ -325,6 +325,16 @@ describe('settings', () => {
     await app.request(`/api/conversations/${conv.id}/stop`, json('POST', {}));
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
     expect((await app.request('/api/settings', json('PUT', { agentHome: join(project, 'homes') }))).status).toBe(200);
+  });
+
+  it('tells the same folder written another way: a trailing slash, .., ~, a symlink', () => {
+    expect(sameFolder(`${project}/`, project)).toBe(true);
+    expect(sameFolder(join(project, 'x', '..'), project)).toBe(true);
+    expect(sameFolder('~', homedir())).toBe(true);
+    const link = join(root, `link-${n}`);
+    symlinkSync(project, link);
+    expect(sameFolder(link, project)).toBe(true);
+    expect(sameFolder(join(project, 'other'), project)).toBe(false);
   });
 
   it('reads ~ as the home folder, the Windows way too', () => {
