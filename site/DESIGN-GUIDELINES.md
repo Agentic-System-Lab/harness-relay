@@ -62,7 +62,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 
 - Radius: 14px for UI excerpts (the app's `--radius`), 12px for command blocks and the video, 20–22px for large panels, full pills for buttons, tabs and chips.
 - Container: max 1200px, side gutter `clamp(16px, 4vw, 32px)`.
-- Section rhythm: `clamp(72px, 9vw, 132px)` top and bottom, a hairline between sections, more space above a heading than below it.
+- Section rhythm: `clamp(72px, 9vw, 132px)` top and bottom, the screening band around the demo included, a hairline between sections, more space above a heading than below it.
 - Shadows always have a vertical offset and a soft blur (`--shadow`). No glow, no hard offset shadows, no glass.
 
 ### Components

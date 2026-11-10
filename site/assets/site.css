@@ -594,7 +594,7 @@ p {
 .screening {
   background: var(--band);
   color: var(--band-text);
-  padding-block: clamp(20px, 3vw, 36px);
+  padding-block: clamp(72px, 9vw, 132px);
 }
 
 .screening-grid {
