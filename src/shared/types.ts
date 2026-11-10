@@ -572,6 +572,17 @@ export function planSavable(plan: Pick<TeamPlan, 'source'>): boolean {
 export const REVISE_REQUEST_MAX = 4000;
 
 /**
+ * What the team drawer sends to change its team (`POST /api/conversations/:id/revise-team`): the
+ * request, the members, how they take turns, and the drawer's permission and working directory (saved
+ * or not), which the lead agent only reads.
+ */
+export interface ReviseTeamRequest {
+  request: string;
+  agents: AgentConfig[];
+  settings: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops' | 'permission' | 'cwd'>;
+}
+
+/**
  * The team being edited in the team drawer, as the lead agent changed it at the user's request. It
  * is not used until the user saves it.
  */

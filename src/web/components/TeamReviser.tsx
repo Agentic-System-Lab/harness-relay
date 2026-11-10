@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { REVISE_REQUEST_MAX, type MessageMeta } from '../../shared/types';
 import { api } from '../api';
-import { reviseRequest, revisionOutcome, sameTeam, type TeamChange } from '../chat';
+import { askAllowed, reviseRequest, revisionOutcome, sameTeam, type TeamChange } from '../chat';
 import { teamChangeText } from '../copy';
 import { useT } from '../i18n';
 import { Logo } from './Logo';
@@ -49,6 +49,10 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
   const [error, setError] = useState('');
   const [done, setDone] = useState<Done | null>(null);
   const abort = useRef<AbortController | null>(null);
+  /** When the lead agent last answered (or was stopped): a click right after it does not ask again. */
+  const answeredAt = useRef<number | undefined>(undefined);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
   /** The drawer now: its team and whether it can save it may change while the lead agent works. */
   const latest = useRef({ team, blocked });
   latest.current = { team, blocked };
@@ -61,7 +65,7 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
 
   const ask = async () => {
     const request = text.trim();
-    if (!request || busy || blocked) return;
+    if (!request || busy || blocked || !askAllowed(answeredAt.current, Date.now())) return;
     const sent = team;
     const ctrl = new AbortController();
     abort.current = ctrl;
@@ -90,10 +94,22 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
       if (!ctrl.signal.aborted) setError((e as Error).message);
     } finally {
       if (abort.current === ctrl) abort.current = null;
+      answeredAt.current = Date.now();
       setBusy(false);
       onBusy(false);
     }
   };
+
+  // Once the lead agent is done, the button may be disabled (the box was emptied): focus that was on
+  // it, or fell to the page, goes back to the box, so the keyboard stays here.
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (wasBusy.current && !busy) {
+      const active = document.activeElement;
+      if (active === button.current || active === document.body || active === null) box.current?.focus();
+    }
+    wasBusy.current = busy;
+  }, [busy]);
 
   // Undo only while the team is still as the lead agent left it: later edits are not thrown away.
   const undoable = done?.after && sameTeam(team, done.after);
@@ -109,6 +125,7 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
       </p>
       {/* Read-only, not disabled, while the lead agent works: the box keeps the focus. */}
       <textarea
+        ref={box}
         aria-labelledby={titleId}
         aria-describedby={hintId}
         rows={2}
@@ -136,6 +153,7 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
         )}
         {/* One button for asking and stopping, so the focus stays on it. */}
         <button
+          ref={button}
           type="button"
           className={`${busy ? 'ghost' : 'primary'} small-button`}
           disabled={!busy && (!text.trim() || blocked)}

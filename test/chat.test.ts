@@ -5,6 +5,8 @@ import {
   activityCounts,
   afterStreamError,
   applyStates,
+  ASK_AGAIN_MS,
+  askAllowed,
   draftStatus,
   enterSends,
   reviseRequest,
@@ -222,6 +224,12 @@ describe("the lead agent's change in the team drawer", () => {
     expect(teamChanges(draft, swapped)).toEqual([{ kind: 'order' }, { kind: 'rounds', rounds: 3 }]);
     // Only what is counted in the mode: hand-offs do not matter in roundtable.
     expect(teamChanges(draft, revisedTeam(draft, { agents: draft.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 20 } }))).toEqual([]);
+  });
+
+  it('takes a new request only a moment after the lead answered, so a late click on Stop sends nothing', () => {
+    expect(askAllowed(undefined, 1_000)).toBe(true);
+    expect(askAllowed(1_000, 1_100)).toBe(false);
+    expect(askAllowed(1_000, 1_000 + ASK_AGAIN_MS)).toBe(true);
   });
 
   it("shows the lead's team only when the drawer still has the team it changed, and can save it", () => {

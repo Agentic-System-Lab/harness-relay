@@ -308,7 +308,9 @@ describe('changing a team at the user\'s request', () => {
     expect(prompt).not.toContain('- grok (Grok)');
     expect(prompt).toContain('The file permission "edit" and the working directory /work are the user\'s to set');
     expect(prompt).toContain('"id": "builtin-general"');
-    expect(prompt).toContain('Copy every other member exactly as it is.');
+    // Roles it does not change are left out, so it cannot reword them by accident.
+    expect(prompt).toContain('give "role" only for a new member or a role you rewrite: leave it out for every other member');
+    expect(prompt).toContain('"role": "<instructions: only for a new member or a role you rewrite>"');
     expect(prompt).toContain('"reason": "<what you changed and why');
     // No conversation yet, no schedule: neither is mentioned.
     const bare = buildRevisePrompt('Fewer members', draft, where, ctx);
@@ -317,10 +319,15 @@ describe('changing a team at the user\'s request', () => {
   });
 
   it("tells the lead when the team is its design waiting for confirmation, and about the schedule's message", () => {
-    const prompt = buildRevisePrompt('Use relay', draft, where, ctx, { pending: 'question', scheduleText: '@Alice check the build' });
+    const prompt = buildRevisePrompt('Use relay', draft, where, ctx, { pending: 'question', schedule: { text: '@Alice check the build', on: true } });
     expect(prompt).toContain('reviewing the team you designed for their latest question');
     expect(prompt).toContain('<scheduled_message>\n@Alice check the build\n</scheduled_message>');
     expect(prompt).toContain('keep the members it @mentions under those names');
+    expect(prompt).toContain('with nobody watching:');
+    // A schedule that is off (shown because the waiting design is for it): said so.
+    expect(buildRevisePrompt('x', draft, where, ctx, { pending: 'schedule', schedule: { text: 'check', on: false } })).toContain(
+      'with nobody watching (the schedule is off now: it sends nothing until the user turns it on):',
+    );
   });
 
   it('keeps what the lead does not see for members who stay, and fits new members to the CLIs here', () => {
@@ -358,7 +365,7 @@ describe('changing a team at the user\'s request', () => {
     expect(r.agents[2]!.id).not.toMatch(/^(a1|g1)$/);
   });
 
-  it('clears a model given as "", drops one the CLI does not offer, and moves a member to another CLI afresh', () => {
+  it('clears a model given as "", drops one the CLI does not offer, and keeps a member moved to another CLI under its name', () => {
     const r = decideRevision(
       {
         agents: [
@@ -372,9 +379,9 @@ describe('changing a team at the user\'s request', () => {
     );
     // Left out: the role stays; the effort is one claude does not offer.
     expect(r.agents[0]).toMatchObject({ id: 'a1', role: 'Research it.', model: undefined, effort: undefined });
-    // Another CLI: a new member, who starts afresh (new id, no effort carried over).
-    expect(r.agents[1]).toMatchObject({ name: 'Gus', provider: 'codex', role: 'Doubt it.', effort: undefined });
-    expect(r.agents[1]!.id).not.toBe('g1');
+    // Moved to another CLI under its name, without "was": still Gus (its id; its session starts afresh
+    // there), without the effort of its old CLI.
+    expect(r.agents[1]).toMatchObject({ id: 'g1', name: 'Gus', provider: 'codex', role: 'Doubt it.', effort: undefined });
     // How they take turns: what the lead left out stays.
     expect(r.settings).toEqual(draft.settings);
     expect(r.reason).toBe('');
@@ -392,7 +399,7 @@ describe('changing a team at the user\'s request', () => {
   });
 
   it("tells the lead a design for the schedule answers the schedule's message, not a question", () => {
-    const prompt = buildRevisePrompt('Add a tester', draft, where, ctx, { pending: 'schedule', scheduleText: 'check the build' });
+    const prompt = buildRevisePrompt('Add a tester', draft, where, ctx, { pending: 'schedule', schedule: { text: 'check the build', on: true } });
     expect(prompt).toContain("reviewing the team you designed for the conversation's schedule");
     expect(prompt).toContain("answers the schedule's message each time the schedule sends it");
     expect(prompt).not.toContain('latest question');
@@ -420,16 +427,24 @@ describe('changing a team at the user\'s request', () => {
     );
     expect(r.agents[0]).toEqual({ id: 'a1', name: 'Researcher', provider: 'claude', role: 'Research it.', model: 'opus', effort: undefined, tools: { memory: false } });
     expect(r.agents[1]).toMatchObject({ id: 'g1', name: 'Gus', provider: 'codex', effort: undefined });
-    // "was" naming nobody, or a member already taken: a new member.
-    const odd = decideRevision(
-      { agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Twin', provider: 'claude', was: 'Alice' }, { name: 'X', provider: 'claude', was: 'Nobody' }] },
+    // "Rename Alice to Bob and add a new Alice": the "was" is settled first, whatever the order, so the
+    // new Alice does not take the renamed member's place; a "was" naming nobody is a new member.
+    const swap = decideRevision(
+      {
+        agents: [
+          { name: 'Alice', provider: 'claude', role: 'New.' },
+          { name: 'Bob', provider: 'claude', was: 'Alice' },
+          { name: 'X', provider: 'claude', was: 'Nobody' },
+        ],
+      },
       draft,
       ctx,
       lead,
     );
-    expect(odd.agents.map((a) => a.id).slice(0, 1)).toEqual(['a1']);
-    expect(odd.agents.slice(1).map((a) => a.id)).not.toContain('a1');
-    expect(odd.agents.slice(1).map((a) => a.id)).not.toContain('g1');
+    expect(swap.agents[1]).toMatchObject({ id: 'a1', name: 'Bob', role: 'Research it.', tools: { memory: false } });
+    expect(swap.agents[0]!.id).not.toMatch(/^(a1|g1)$/);
+    expect(swap.agents[0]!.tools).toBeUndefined();
+    expect(swap.agents[2]!.id).not.toMatch(/^(a1|g1)$/);
   });
 
   it('keeps a role the lead copied without its surrounding space as the user wrote it', () => {
@@ -462,5 +477,9 @@ describe('changing a team at the user\'s request', () => {
     expect(buildRevisePrompt('x', draft, draftPlace({ permission: 'full', cwd: '/draft' }, saved), ctx)).toContain(
       'The file permission "full" and the working directory /draft',
     );
+    // A folder not saved yet: the lead is told it works in the saved one.
+    const unsaved = buildRevisePrompt('x', draft, draftPlace({ cwd: '/draft' }, saved), ctx, { savedCwd: '/saved' });
+    expect(unsaved).toContain('The user has not saved that working directory yet: you are running in the one saved now, /saved.');
+    expect(buildRevisePrompt('x', draft, saved, ctx, { savedCwd: '/saved' })).not.toContain('not saved that working directory');
   });
 });

@@ -7,6 +7,7 @@ import type {
   Mode,
   PlanEntry,
   Provider,
+  ReviseTeamRequest,
   TeamPlan,
   TeamRevision,
 } from '../shared/types';
@@ -91,12 +92,20 @@ export function teamTurns(team: Team): Pick<TeamRevision, 'agents' | 'settings'>
 }
 
 /** What the drawer sends the lead agent: the request, the members, how they take turns, and (for the lead to read) the permission and folder the drawer has, saved or not. */
-export function reviseRequest(request: string, team: Team): ReviseRequest {
+export function reviseRequest(request: string, team: Team): ReviseTeamRequest {
   const { agents, settings } = teamTurns(team);
   return { request, agents, settings: { ...settings, permission: team.settings.permission, cwd: team.settings.cwd } };
 }
 
-export type ReviseRequest = { request: string; agents: AgentConfig[]; settings: TeamRevision['settings'] & Pick<Team['settings'], 'permission' | 'cwd'> };
+/**
+ * How soon after the lead agent answers the drawer takes a new request: a click meant for Stop that
+ * lands just after the answer (the button is Ask again by then) does not send the request again.
+ */
+export const ASK_AGAIN_MS = 600;
+
+export function askAllowed(answeredAt: number | undefined, now: number): boolean {
+  return answeredAt === undefined || now - answeredAt >= ASK_AGAIN_MS;
+}
 
 /** A member as it works: an empty model or effort is the default, and space around a role means nothing. */
 function working(a: AgentConfig) {

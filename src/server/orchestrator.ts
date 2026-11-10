@@ -1372,7 +1372,12 @@ export class Orchestrator {
         prompt: buildRevisePrompt(request, draft, place, ctx, {
           history: historyForLead(conv.messages),
           pending: waiting ? (waiting.forSchedule ? 'schedule' : 'question') : undefined,
-          scheduleText: conv.schedule?.enabled ? conv.schedule.text : undefined,
+          // Shown while it is on, or when the waiting design is for it.
+          schedule:
+            conv.schedule && (conv.schedule.enabled || waiting?.forSchedule)
+              ? { text: conv.schedule.text, on: conv.schedule.enabled }
+              : undefined,
+          savedCwd: conv.settings.cwd,
         }),
         systemPrompt: REVISER_BRIEFING,
         cwd: conv.settings.cwd,

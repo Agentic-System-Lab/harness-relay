@@ -1304,6 +1304,7 @@ describe('asking the lead agent to change the team', () => {
     reviseReply = withTester;
     await orchestrator.reviseTeam(conv.id, { request: 'more', agents, settings: { ...draft.settings, permission: 'full', cwd: '/not/saved/yet' } });
     expect(calls.at(-1)!.prompt).toContain('The file permission "full" and the working directory /not/saved/yet');
+    expect(calls.at(-1)!.prompt).toContain(`you are running in the one saved now, ${project}.`);
     expect(calls.at(-1)!.cwd).toBe(project);
     expect(calls.at(-1)!.prompt).not.toContain('<scheduled_message>');
 
@@ -1337,9 +1338,24 @@ describe('asking the lead agent to change the team', () => {
       status: 'done',
       plan: { status: 'ready', lead: { provider: 'claude' }, source: 'custom', agents, awaitingConfirmation: true, forSchedule: true },
     });
+    conv.schedule = {
+      text: '@Alice check the build',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: false,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+      nextRunAt: 0,
+    } as ConversationSchedule;
     reviseReply = JSON.stringify({ agents: [{ name: 'Lead', provider: 'claude', was: 'Alice' }, { name: 'Bob', provider: 'claude' }], reason: 'Renamed.' });
     const r = await orchestrator.reviseTeam(conv.id, { request: 'rename Alice to Lead', ...draft });
     expect(calls.at(-1)!.prompt).toContain("designed for the conversation's schedule");
+    // The design is for the schedule's message: shown although the schedule is off, which is said.
+    expect(calls.at(-1)!.prompt).toContain('(the schedule is off now: it sends nothing until the user turns it on)');
+    expect(calls.at(-1)!.prompt).toContain('<scheduled_message>\n@Alice check the build\n</scheduled_message>');
     expect(r.agents.map((a) => [a.id, a.name])).toEqual([
       ['a', 'Lead'],
       ['b', 'Bob'],
@@ -1407,11 +1423,19 @@ describe('asking the lead agent to change the team', () => {
   it('stops on shutdown, which waits for it, and refuses new requests then', async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     reviseGate = new Promise(() => {});
+    let exit!: () => void;
+    reviseLinger = new Promise((r) => (exit = r));
     const running = orchestrator.reviseTeam(conv.id, { request: 'one', ...draft });
     const stopped = expect(running).rejects.toMatchObject({ status: 409 });
     await vi.waitFor(() => expect(calls).toHaveLength(1));
     orchestrator.stopAll();
-    await orchestrator.settled(5_000);
+    // The lead's process is still ending: shutdown waits for it (within its time limit).
+    let settled = false;
+    const settling = orchestrator.settled(5_000).then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(settled).toBe(false);
+    exit();
+    await settling;
     await stopped;
     expect(orchestrator.anyRunning()).toBe(false);
     await expect(orchestrator.reviseTeam(conv.id, { request: 'two', ...draft })).rejects.toMatchObject({ status: 503 });
