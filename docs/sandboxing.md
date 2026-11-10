@@ -1,0 +1,312 @@
+**English** | [繁體中文](sandboxing.zh-TW.md)
+
+# OS sandboxes by platform
+
+Harness Relay does not sandbox anything itself: it starts the real `claude`, `codex` and `grok` CLIs, and each of them brings its own OS sandbox, or none. This page says which of Harness Relay's runs use one today, on which platforms each sandbox works, what it needs there, what happens when it cannot start, and what it does not cover.
+
+Checked on 10 November 2026 with Claude Code 2.1.322, Codex 0.167.0 and Grok 1.0.77. Where this page says something was tried, it was tried on a Mac; everything else, including all of Linux and Windows, comes from each CLI's own documentation (see [Sources](#sources)). The CLIs change quickly, so check again before you rely on a detail.
+
+## What an OS sandbox is
+
+An OS sandbox is a set of limits that the operating system's kernel enforces on a process and on every process it starts: which files it may write (and sometimes read), and whether it may use the network. macOS has Seatbelt (`/usr/bin/sandbox-exec`); Linux has Landlock, seccomp and bubblewrap (which uses user namespaces).
+
+It works at a different point from approvals:
+
+- An **approval** is decided *before* a command runs, from the command's text. Once a command is allowed, nothing checks what it does.
+- A **sandbox** applies *while* the command runs. A write or a connection outside its limits fails (a write usually with `Operation not permitted`), also when it comes from code the agent wrote and a test then ran.
+
+That is why, in edit mode, project code that Claude Code runs is not sandboxed at all, and project code that Grok runs can still reach the network (see [Architecture → Permission mapping](architecture.md#permission-mapping)).
+
+## What Harness Relay's runs use today
+
+| Relay permission | Claude Code | Codex | Grok |
+| --- | --- | --- | --- |
+| Read-only | no sandbox | sandbox `read-only` | no sandbox |
+| Edit | no sandbox | sandbox `workspace-write`, network off | profile `workspace`, network allowed |
+| Full access | no sandbox | none (`danger-full-access`) | none |
+
+- **Claude Code** has a sandbox for its Bash tool (the `sandbox` setting), but Harness Relay does not turn it on. It does not turn it off either: a `sandbox` setting in the Claude Code settings it runs with (user settings, from your home or [the CLIs' own folder](user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview); the project's; or managed settings) is left as it is. Harness Relay's runs have not been tried with it.
+- **Codex** runs every command in its sandbox below full access. Tried on a Mac in `workspace-write`: writing in the working directory works; writing to the home folder or `~/.npm` and connecting to github.com are refused; reading the home folder works.
+- **Grok**'s read-only runs do not use its `read-only` profile, because it refuses to start on some machines. On a Mac with OrbStack, `/var/run/docker.sock` is a symlink and Grok stops with `could not apply the 'read-only' sandbox profile … Refusing to start with its protections missing`. Its `workspace` profile allows the network (`"restrict_network": false` in `~/.grok/sessions/sandbox-events.jsonl`). Harness Relay sets a profile (`GROK_SANDBOX`) only in edit mode, so in read-only and full access a `[sandbox] profile` in Grok's own `config.toml`, or a `GROK_SANDBOX` the server was started with, still applies.
+
+## Platforms
+
+| | macOS | Linux | Windows | WSL2 |
+| --- | --- | --- | --- | --- |
+| **Codex** | ✅ Seatbelt | ✅ bubblewrap + seccomp | ✅ its own sandbox (see below) | ✅ the Linux sandbox |
+| **Claude Code** | ✅ Seatbelt | ✅ bubblewrap + socat | ❌ commands run without a sandbox | ✅ the Linux sandbox |
+| **Grok** | ⚠️ Seatbelt, which cannot block the network | ✅ Landlock + seccomp | ❌ not listed in its docs | not verified |
+
+Harness Relay itself runs on all three, so on native Windows only Codex has a sandbox.
+
+### macOS
+
+- All three use Seatbelt, which is part of macOS: there is nothing to install.
+- **Grok cannot block the network on macOS.** Its docs say that blocking the network of the commands it runs is enforced on Linux only (through seccomp) and does nothing on macOS, for every profile, `read-only` and `strict` included. On every platform, what Grok does itself (web search, web fetch, the model's API) is never blocked.
+- A runtime socket that is a symlink can stop Grok's `read-only` and `strict` profiles from starting (see above; both tried).
+- Claude Code's docs list what fails under its Seatbelt sandbox: `gh`, `gcloud` and `terraform` may fail TLS verification; `open`, `osascript` and sign-ins in the browser are blocked (Apple Events); git over SSH fails (its tunnel through the sandbox's proxy cannot authenticate on macOS); and a command can listen on or connect to a localhost port only with `network.allowLocalBinding`.
+
+### Linux
+
+- **Claude Code** needs `bubblewrap` and `socat` (`sudo apt-get install bubblewrap socat`, or `sudo dnf install bubblewrap socat`). To block Unix sockets as well, it needs the seccomp filter from `npm install -g @anthropic-ai/sandbox-runtime`. Each command gets a localhost of its own, so it cannot reach a server on the computer's localhost.
+- **Codex** uses bubblewrap and seccomp. It takes the first `bwrap` on the `PATH` (outside the working directory), or else one it ships with, and warns at start. Its older Landlock code (`features.use_legacy_landlock`) is rejected for policies that restrict files.
+- **Grok** uses Landlock and needs kernel 5.13 or later. Before kernel 6.2 (Landlock ABI 3; the default kernels of Ubuntu 22.04 and Debian 12 are older), a command can still shorten a file outside the paths it may write with `truncate`. A custom profile with a `deny` list also needs bubblewrap. Its docs also say that `workspace`, `read-only` and `strict` refuse to start on Linux "without verified read-only mounts" (the mounts that keep Grok's own settings and hooks from being written). Network blocking (`restrict_network`) uses seccomp and works on Linux.
+- bubblewrap needs unprivileged user namespaces. Since 23.10, Ubuntu restricts them with AppArmor, which can stop bubblewrap; Claude Code's docs then say to add an AppArmor profile for `/usr/bin/bwrap`, or to lift the restriction with `sysctl` for a `bwrap` anywhere else.
+
+### Docker and dev containers
+
+Containers often keep bubblewrap from working: they may block the user namespaces it needs, or mounting a fresh `/proc`.
+
+- **Claude Code**: `sandbox.enableWeakerNestedSandbox: true` makes it work in an unprivileged container (it reuses the container's `/proc`), with weaker isolation.
+- **Codex** warns at start when bubblewrap cannot create user namespaces. Its docs suggest giving the container what bubblewrap needs, or running `codex` with `--sandbox danger-full-access` inside it and letting the container be the sandbox.
+- **Grok**: Landlock itself needs no user namespace, but a `deny` list needs bubblewrap, and the read-only mounts of its built-in profiles (see Linux above) may need a mount namespace too (not verified). Not tried in a container.
+
+### Windows
+
+- **Codex** has a sandbox of its own, in three implementations (`[windows] sandbox = "…"` in `config.toml`):
+  - `mxc`, the one its docs recommend: no administrator setup, no extra accounts or firewall rules. It needs Windows 11 24H2 (build 26100.9278) or 25H2 (build 26200.9278) or later. Commands can reach services on loopback, and when a command ends, the processes it left running stop too (so a dev server started in the background stops with it).
+  - `elevated`, the legacy fallback its docs prefer when `mxc` is not available: an administrator sets it up once (a UAC prompt, local users and groups, firewall rules, logon rights for those users); commands then run as those lower-privilege users, without administrator rights. IT can run `codex sandbox setup --elevated` from an elevated process ahead of time.
+  - `unelevated`, a second legacy fallback: a restricted token derived from your account, with file permissions as the boundary, for when the elevated setup is not possible. Its network isolation is weaker, and it cannot deny reading a path.
+  - Windows 11 is recommended; Windows 10 is best effort and needs version 1809 or later. Its log is `CODEX_HOME/.sandbox/sandbox.log`.
+- **Claude Code** has no sandbox on native Windows: commands run without one. Use WSL2.
+- **Grok**: its docs list only macOS and Linux. Whether Grok then runs without a sandbox on Windows (its docs say a built-in profile that cannot be applied only warns, see below) or refuses to start was not verified.
+
+### WSL
+
+- **WSL2**: Codex and Claude Code use their Linux sandbox, with the same requirements (bubblewrap; and `socat` for Claude Code). Whether Grok's Landlock works depends on the WSL2 kernel (not verified).
+- **WSL1** cannot create user namespaces. Claude Code's sandbox needs WSL2, and Codex (since 0.115) refuses the sandboxed commands that need bubblewrap.
+
+## Turning each sandbox on
+
+The commands and settings below turn each CLI's sandbox on, platform by platform, and check that it is on. They are for your own use of each CLI; [the next table](#where-harness-relays-runs-read-these-settings) says which of them Harness Relay's runs pick up. Linux commands use `apt-get` (Debian, Ubuntu), with `dnf` (Fedora) beside them.
+
+| | macOS | Linux | Windows | WSL2 | Container |
+| --- | --- | --- | --- | --- | --- |
+| **Claude Code** | settings only | `bubblewrap` and `socat`, then settings | no sandbox: use WSL2 | as on Linux | as on Linux, plus `enableWeakerNestedSandbox` |
+| **Codex** | settings only | settings (`bubblewrap` recommended) | `[windows] sandbox` | as on Linux | give the container what bubblewrap needs, or let the container be the sandbox |
+| **Grok** | settings only | kernel 5.13+ with Landlock, then settings | not in its docs: use WSL2 | as on Linux, if its kernel has Landlock (not verified) | not tried |
+
+### Where Harness Relay's runs read these settings
+
+| | Settings that Harness Relay's runs read | What Harness Relay sets itself |
+| --- | --- | --- |
+| Claude Code | `~/.claude/settings.json`, or `claude/settings.json` in [the CLIs' own folder](user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview); a project's `.claude/settings.json` and `.claude/settings.local.json`; managed settings | nothing about the sandbox: what you set applies |
+| Codex | `~/.codex/config.toml`, or `codex/config.toml` in the CLIs' own folder | the sandbox mode for the permission (so your `sandbox_mode` is not used) and, in edit mode, `network_access = false`; not other keys, such as `writable_roots` or `[windows] sandbox` |
+| Grok | `GROK_SANDBOX` in the environment Harness Relay was started with; otherwise `[sandbox] profile` in `~/.grok/config.toml`, or `grok/config.toml` in the CLIs' own folder | `GROK_SANDBOX=workspace` in edit mode; in read-only and full access, what you set applies |
+
+Grok keeps the profile a session started with for the life of that session, and refuses to resume it with a different one (its docs). Harness Relay resumes each agent's session from turn to turn, so changing a conversation's permission between edit and the others, or changing the profile you set, may make the next resume fail (not tried).
+
+### On macOS
+
+There is nothing to install for any of the three.
+
+**Claude Code.** In `~/.claude/settings.json`:
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "network": {
+      "allowedDomains": ["github.com", "*.npmjs.org"],
+      "allowLocalBinding": true
+    }
+  }
+}
+```
+
+- `failIfUnavailable` makes Claude Code stop at start instead of running commands without a sandbox; `allowUnsandboxedCommands: false` takes away the retry outside the sandbox.
+- `network.allowedDomains` lists the hosts commands may reach; any other host is asked about or refused (see [What an approval can do](#what-the-sandboxes-do-not-cover)). `network.allowLocalBinding` lets commands listen on and connect to localhost ports, for dev servers and tests.
+- For one session only: `claude --settings '{"sandbox": {"enabled": true, "allowUnsandboxedCommands": false}}'`. In a session, `/sandbox` shows and changes it, and saves the change in the project's `.claude/settings.local.json`.
+- To check, ask Claude (not the `!` prompt) to run `touch ~/sandbox-probe`, which should fail with `Operation not permitted`, and `curl --noproxy '*' https://example.com`, which should fail with `Could not resolve host`; turn down any retry outside the sandbox.
+
+**Codex.**
+
+```sh
+codex --sandbox workspace-write    # this session: read-only, workspace-write or danger-full-access
+codex sandbox --permission-profile :workspace -- touch ~/sandbox-probe    # check: Operation not permitted
+```
+
+In `~/.codex/config.toml`:
+
+```toml
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = false
+writable_roots = ["/absolute/path/to/another/folder"]
+```
+
+- `codex sandbox` runs one command in the sandbox of a built-in profile: `:read-only`, `:workspace` or `:danger-full-access`. In 0.167 it takes no platform name; Codex's docs still write `codex sandbox macos …` (tried: 0.167 takes `macos` as the command to run).
+
+**Grok.**
+
+```sh
+grok --sandbox workspace    # this session: workspace, read-only, strict, devbox or a custom profile
+GROK_SANDBOX=workspace grok    # the same, from the environment
+tail -n 1 ~/.grok/sessions/sandbox-events.jsonl    # check: "enforced": true
+```
+
+In `~/.grok/config.toml`:
+
+```toml
+[sandbox]
+profile = "workspace"
+```
+
+A custom profile goes in `~/.grok/sandbox.toml`, or a project's `.grok/sandbox.toml`, and is used with `grok --sandbox project`:
+
+```toml
+[profiles.project]
+extends = "workspace"
+read_only = ["/data"]
+deny = ["~/.ssh", "**/.env", "**/*.pem"]
+```
+
+- `devbox` is for disposable machines: it writes almost everywhere, the home folder included. `restrict_network = true` does nothing on macOS (see [macOS](#macos)).
+- Starting Harness Relay as `GROK_SANDBOX=workspace npm start` makes its read-only and full-access Grok runs use `workspace` too.
+
+### On Linux
+
+First check what the sandboxes need (these checks are not from the CLIs' docs and were not tried):
+
+```sh
+bwrap --ro-bind / / true && echo "bubblewrap works"    # Claude Code, Codex, Grok's deny lists
+uname -r    # Grok: 5.13 or later (6.2 or later to stop truncate)
+cat /sys/kernel/security/lsm    # Grok: the list includes landlock
+sysctl kernel.apparmor_restrict_unprivileged_userns    # Ubuntu 23.10 and later: 1 = restricted
+```
+
+When bubblewrap fails on Ubuntu 23.10 or later, Claude Code's docs give an AppArmor profile for `/usr/bin/bwrap`:
+
+```sh
+sudo tee /etc/apparmor.d/bwrap > /dev/null <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}
+EOF
+sudo systemctl reload apparmor
+```
+
+It covers only `/usr/bin/bwrap` (see `which bwrap`), not the copy Codex ships with. For a `bwrap` anywhere else, `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` lifts the restriction for every program until the next restart.
+
+**Claude Code.**
+
+```sh
+sudo apt-get install bubblewrap socat    # Fedora: sudo dnf install bubblewrap socat
+npm install -g @anthropic-ai/sandbox-runtime    # optional: blocks Unix sockets as well
+```
+
+Then the same `settings.json` as on macOS; `allowLocalBinding` has no effect on Linux. Restart Claude Code after installing, since it checks at start. To check, the same two commands as on macOS: `touch ~/sandbox-probe` fails with `Read-only file system` here, and `/sandbox` shows whether anything is missing.
+
+**Codex.**
+
+```sh
+sudo apt-get install bubblewrap    # Fedora: sudo dnf install bubblewrap
+```
+
+Without it, Codex uses the `bwrap` it ships with and warns at start. Then the same `config.toml` and commands as on macOS (`codex sandbox` was tried on a Mac only).
+
+**Grok.** After the checks above, the same `config.toml`, `--sandbox` and `GROK_SANDBOX` as on macOS. On Linux a custom profile can also block the network of the commands Grok runs:
+
+```toml
+[profiles.offline]
+extends = "workspace"
+restrict_network = true
+```
+
+A `deny` list needs bubblewrap: `sudo apt-get install bubblewrap`.
+
+### In Docker and dev containers
+
+- **Claude Code**: in an unprivileged container, add `"enableWeakerNestedSandbox": true` under `sandbox`; the isolation is weaker.
+- **Codex**: give the container what bubblewrap needs (user namespaces, its own `/proc`, seccomp), or run `codex --sandbox danger-full-access` in it and let the container be the sandbox. Its docs do not give the container's flags.
+- **Grok**: not tried; the Linux checks above apply inside the container.
+
+### On Windows
+
+`winver` shows the Windows build (for example `OS Build 26100.9278`).
+
+**Codex**, in `%USERPROFILE%\.codex\config.toml`, one of:
+
+```toml
+[windows]
+sandbox = "mxc"    # fails where mxc is not available
+```
+
+```toml
+[features]
+prefer_mxc = true    # mxc where Windows has it
+```
+
+```toml
+[windows]
+sandbox = "elevated"    # or "unelevated"
+```
+
+- `elevated` needs a one-time setup that an administrator approves (a UAC prompt). IT can do it ahead of time, from an elevated process: `codex sandbox setup --elevated --user 'DOMAIN\alice' --codex-home 'C:\Users\alice\.codex'`.
+- To check `mxc`, in PowerShell (expect `MXC_OK`, then `0`):
+
+  ```powershell
+  codex -c windows.sandbox=mxc sandbox --include-managed-config --permission-profile :workspace -- cmd.exe /d /c echo MXC_OK
+  $LASTEXITCODE
+  ```
+
+- `codex sandbox uninstall` removes the legacy sandbox's accounts and network rules. The log is `%USERPROFILE%\.codex\.sandbox\sandbox.log`.
+
+**Claude Code and Grok** have no sandbox on native Windows: run them, and Harness Relay, in WSL2.
+
+### On WSL2
+
+In PowerShell or Windows Terminal, as an administrator:
+
+```powershell
+wsl --install    # WSL2 with Ubuntu
+wsl -l -v    # VERSION must be 2
+wsl --set-version Ubuntu 2    # turns a WSL1 distribution into WSL2
+```
+
+Then, inside WSL, install Node.js, the CLIs and Harness Relay, and follow [On Linux](#on-linux) for each CLI. Harness Relay starts the CLIs of the system it runs on: run on Windows, it starts their Windows builds, where Claude Code and Grok have no sandbox. For Grok, `cat /sys/kernel/security/lsm` inside WSL shows whether its kernel has Landlock. WSL2 passes `localhost` through to Windows by default, so the browser on Windows opens Harness Relay as usual (not tried).
+
+## When the sandbox cannot start
+
+Some of these failures are silent: the CLI runs on without a sandbox, and Harness Relay does not show any warning the CLI prints.
+
+| | What happens |
+| --- | --- |
+| Claude Code | Commands run without a sandbox, unless `sandbox.failIfUnavailable` is `true`; then it exits at start. |
+| Codex | On WSL1, sandboxed commands are refused. Elsewhere it warns at start (for example bubblewrap without user namespaces); its Linux README calls the alternative "a runtime sandbox failure", so sandboxed commands most likely fail then rather than run without a sandbox (not verified). |
+| Grok | A built-in profile: its docs say it warns and carries on without enforcement, but some failures (such as the symlinked socket above, or Linux without the read-only mounts) make it refuse to start instead. A custom profile (`sandbox.toml`) always refuses to start. `"enforced": true` in `sandbox-events.jsonl` in Grok's `sessions` folder (`~/.grok/sessions`, or `grok/sessions` in the CLIs' own folder) shows that a profile was applied. |
+
+When Grok refuses to start in edit mode because of its sandbox, the turn fails with Grok's reason. Harness Relay does not check whether a sandbox was actually applied.
+
+## What the sandboxes do not cover
+
+- **Reading.** By default all three let commands read almost the whole computer, `~/.ssh` and `~/.aws` included; only Grok's `strict` profile limits reading (to the working directory, system paths and `~/.grok`). Keeping secrets from leaving the computer depends on blocking the network, which Grok cannot do on macOS.
+- **Claude Code's own tools.** Its sandbox covers Bash commands and what they start, not its Read, Edit, Write, WebFetch and WebSearch tools (its permission rules govern those), its hooks, local MCP servers (the tool library's included) or LSP servers.
+- **Writing outside the working directory and the temp folders fails**, package caches included (`~/.npm`, pip, cargo, Go's build cache). With the network off as well, installing dependencies fails.
+- **Git.** Codex's `workspace-write` keeps `.git` read-only: `git add` and `git commit` fail with `.git/index.lock: Operation not permitted` (tried on a Mac). Claude Code keeps `.git/config` and `.git/hooks` from being written. In parallel mode, a worktree's git data lives in the main repository's `.git/worktrees/<name>`, outside the working directory. Harness Relay's snapshots and the commits of worktree results run in the server, outside any sandbox, so they still work.
+- **Tools that often break in a sandbox** (from Claude Code's docs): Docker and ssh-agent (Unix sockets), git over SSH and `open` and `osascript` (on macOS), watchman (use `jest --no-watchman`), Chromium on Linux (Playwright, which starts it, was not tried).
+- **What an approval can do.** In a sandbox, asking the user means asking whether a command may leave it:
+  - Claude Code: the model may run the command again outside the sandbox with `dangerouslyDisableSandbox` (`sandbox.allowUnsandboxedCommands: false` takes that way out away). That retry, and a connection to a host that is not on its network allowlist, are asked about in `manual` and `acceptEdits` and refused in `dontAsk`; how such a question reaches a headless `-p` run with `--permission-prompt-tool stdio` is not documented.
+  - Codex: it asks only when the model requests more than the sandbox allows, as today.
+  - Grok: a profile cannot be lifted once applied, so approving a call does not let it write outside the profile's paths.
+
+## Before sandboxing more of Harness Relay's runs
+
+Full access is meant to run without a sandbox: Docker, pushing, installing and writing outside the folder are what it is for. Sandboxing read-only and edit for every CLI would need three things first:
+
+1. **Not taking a setting for a sandbox.** Claude Code and Grok on native Windows, and Grok's network on macOS, can be set but are not enforced. The UI should say whether each agent is really sandboxed on this computer, or refuse a sandboxed mode there.
+2. **Checking the requirements on Linux before a run:** `bwrap`, `socat`, the kernel version, user namespaces inside a container; and saying in the user's language what to install.
+3. **Codex's `elevated` sandbox on Windows** needs its one-time setup, with a UAC prompt; whether a `codex app-server` started in the background can show it was not verified. An administrator can run `codex sandbox setup --elevated` first, or the user can use `mxc` where Windows supports it.
+
+## Sources
+
+- Claude Code: [Sandboxing](https://code.claude.com/docs/en/sandboxing) and [All settings](https://code.claude.com/docs/en/settings-reference).
+- Codex: [Agent approvals and security](https://learn.chatgpt.com/docs/agent-approvals-security), [Windows sandbox](https://learn.chatgpt.com/docs/windows/windows-sandbox) and the [Linux sandbox README](https://github.com/openai/codex/blob/main/codex-rs/linux-sandbox/README.md).
+- Grok: the sandbox documentation that comes with `grok` 1.0.77 (profiles, platform support, network restrictions).

@@ -1,0 +1,312 @@
+[English](sandboxing.md) | **繁體中文**
+
+# 各平台的作業系統沙箱
+
+Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` 和 `grok` CLI，沙箱由各 CLI 自己提供，或者沒有。這一頁說明 Harness Relay 目前哪些執行用了沙箱、各沙箱能在哪些平台上運作、在那裡需要什麼前提、無法啟動時會怎樣，以及它管不到哪些事。
+
+以 Claude Code 2.1.322、Codex 0.167.0 與 Grok 1.0.77 於 2026 年 11 月 10 日確認。這一頁說「試過」的地方都是在 Mac 上試的；其他內容（包括所有 Linux 與 Windows 的部分）都來自各 CLI 自己的文件（見[資料來源](#資料來源)）。這些 CLI 變動很快，要依賴某個細節之前請再確認一次。
+
+## 什麼是作業系統沙箱
+
+作業系統沙箱是作業系統核心套在一個行程及它啟動的所有行程上的限制：可以寫入（有時也包括讀取）哪些檔案、能不能使用網路。macOS 用的是 Seatbelt（`/usr/bin/sandbox-exec`）；Linux 有 Landlock、seccomp 與 bubblewrap（使用 user namespace）。
+
+它和核准作用在不同的時間點：
+
+- **核准**在指令執行*之前*，依指令的文字決定。指令一旦放行，就不再檢查它做了什麼。
+- **沙箱**在指令執行*當中*生效。超出限制的寫入或連線會失敗（寫入通常是 `Operation not permitted`），即使是 agent 寫的程式碼、再由測試執行也一樣。
+
+這就是為什麼在可編輯模式下，Claude Code 執行的專案程式碼完全不在沙箱中，而 Grok 執行的專案程式碼仍能連網（見[架構 → 權限對應](architecture.zh-TW.md#權限對應)）。
+
+## Harness Relay 目前的執行用了什麼
+
+| Relay 權限 | Claude Code | Codex | Grok |
+| --- | --- | --- | --- |
+| 唯讀 | 沒有沙箱 | 沙箱 `read-only` | 沒有沙箱 |
+| 可編輯 | 沒有沙箱 | 沙箱 `workspace-write`，關閉網路 | 設定檔 `workspace`，可以連網 |
+| 完全存取 | 沒有沙箱 | 沒有（`danger-full-access`） | 沒有 |
+
+- **Claude Code** 的 Bash 工具有沙箱（`sandbox` 設定），但 Harness Relay 沒有開啟它，也沒有關閉它：它執行時所用的 Claude Code 設定（使用者設定，來自你的家目錄或[各 CLI 自己的資料夾](user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)；專案的；或受管設定）中若有 `sandbox` 設定，會照原樣生效。Harness Relay 的執行沒有搭配它試過。
+- **Codex** 在完全存取以外的權限，每個指令都在沙箱中執行。在 Mac 上以 `workspace-write` 試過：在工作目錄中寫入可以；寫入家目錄或 `~/.npm`、連到 github.com 都被拒絕；讀取家目錄可以。
+- **Grok** 的唯讀執行不使用它的 `read-only` 設定檔，因為它在某些機器上無法啟動。在裝了 OrbStack 的 Mac 上，`/var/run/docker.sock` 是 symlink，Grok 會以 `could not apply the 'read-only' sandbox profile … Refusing to start with its protections missing` 停止。它的 `workspace` 設定檔允許連網（`~/.grok/sessions/sandbox-events.jsonl` 中為 `"restrict_network": false`）。Harness Relay 只在可編輯模式指定設定檔（`GROK_SANDBOX`），所以在唯讀與完全存取下，Grok 自己的 `config.toml` 中的 `[sandbox] profile`，或伺服器啟動時就有的 `GROK_SANDBOX`，仍會生效。
+
+## 各平台
+
+| | macOS | Linux | Windows | WSL2 |
+| --- | --- | --- | --- | --- |
+| **Codex** | ✅ Seatbelt | ✅ bubblewrap + seccomp | ✅ 自己的沙箱（見下文） | ✅ Linux 的沙箱 |
+| **Claude Code** | ✅ Seatbelt | ✅ bubblewrap + socat | ❌ 指令在沙箱外執行 | ✅ Linux 的沙箱 |
+| **Grok** | ⚠️ Seatbelt，但擋不了網路 | ✅ Landlock + seccomp | ❌ 文件中沒有列出 | 未驗證 |
+
+Harness Relay 本身在這三種平台上都能執行，所以在原生 Windows 上只有 Codex 有沙箱。
+
+### macOS
+
+- 三者都使用 macOS 內建的 Seatbelt，不需要另外安裝。
+- **Grok 在 macOS 上擋不了網路。** 它的文件說，封鎖它所執行指令的網路只在 Linux 上（透過 seccomp）生效，在 macOS 上沒有作用，所有設定檔都一樣，`read-only` 和 `strict` 也不例外。在任何平台上，Grok 自己做的事（網路搜尋、讀網頁、模型的 API）都不會被擋。
+- runtime socket 是 symlink 時，Grok 的 `read-only` 與 `strict` 設定檔可能無法啟動（見上文；兩者都試過）。
+- Claude Code 的文件列出在它的 Seatbelt 沙箱中會失敗的事：`gh`、`gcloud` 和 `terraform` 的 TLS 驗證可能會失敗；`open`、`osascript` 和在瀏覽器中登入會被擋（Apple Events）；走 SSH 的 git 會失敗（它經由沙箱 proxy 的通道在 macOS 上無法驗證身分）；指令要監聽或連到 localhost 的 port，必須設定 `network.allowLocalBinding`。
+
+### Linux
+
+- **Claude Code** 需要 `bubblewrap` 與 `socat`（`sudo apt-get install bubblewrap socat`，或 `sudo dnf install bubblewrap socat`）。要連 Unix socket 也一起擋，需要 `npm install -g @anthropic-ai/sandbox-runtime` 提供的 seccomp 過濾器。每個指令都有自己的 localhost，所以連不到這台電腦 localhost 上的伺服器。
+- **Codex** 使用 bubblewrap 與 seccomp。它採用 `PATH` 上第一個（工作目錄以外的）`bwrap`，找不到就改用它自己附帶的，並在啟動時顯示警告。它舊的 Landlock 程式碼（`features.use_legacy_landlock`）在限制檔案的政策下會被拒絕。
+- **Grok** 使用 Landlock，需要 kernel 5.13 以上。kernel 6.2（Landlock ABI 3）以前（Ubuntu 22.04 與 Debian 12 預設的 kernel 都更舊），指令仍能用 `truncate` 截短可寫入路徑以外的檔案。有 `deny` 清單的自訂設定檔也需要 bubblewrap。它的文件也說，`workspace`、`read-only` 與 `strict` 在 Linux 上「without verified read-only mounts」時會拒絕啟動（這些掛載讓 Grok 自己的設定與 hook 無法被寫入）。網路封鎖（`restrict_network`）使用 seccomp，在 Linux 上有效。
+- bubblewrap 需要 unprivileged user namespace。Ubuntu 從 23.10 起用 AppArmor 限制它，這可能讓 bubblewrap 無法運作；Claude Code 的文件說，這時要為 `/usr/bin/bwrap` 加上 AppArmor 設定檔，其他位置的 `bwrap` 則用 `sysctl` 解除限制。
+
+### Docker 與 dev container
+
+容器常讓 bubblewrap 無法運作：它們可能封鎖 bubblewrap 需要的 user namespace，或不允許掛載新的 `/proc`。
+
+- **Claude Code**：`sandbox.enableWeakerNestedSandbox: true` 讓它能在 unprivileged 容器中運作（沿用容器既有的 `/proc`），但隔離較弱。
+- **Codex** 在 bubblewrap 無法建立 user namespace 時，會在啟動時顯示警告。它的文件建議讓容器提供 bubblewrap 需要的條件，或在容器中以 `--sandbox danger-full-access` 執行 `codex`，讓容器本身當作沙箱。
+- **Grok**：Landlock 本身不需要 user namespace，但 `deny` 清單需要 bubblewrap，內建設定檔的唯讀掛載（見上方 Linux）可能也需要 mount namespace（未驗證）。沒有在容器中試過。
+
+### Windows
+
+- **Codex** 有自己的沙箱，分成三種實作（`config.toml` 中的 `[windows] sandbox = "…"`）：
+  - `mxc`，它的文件推薦的一種：不需要管理員設定，也不必建立額外的帳號或防火牆規則。需要 Windows 11 24H2（build 26100.9278）或 25H2（build 26200.9278）以上。指令可以連到 loopback 上的服務；指令結束時，它留下的行程也會跟著結束（所以在背景啟動的 dev server 會一起停掉）。
+  - `elevated`，`mxc` 無法使用時它的文件優先建議的舊式備案：由管理員設定一次（UAC 提示、建立本機使用者與群組、防火牆規則、這些使用者的登入權限）；之後指令以這些權限較低的使用者執行，不需管理員權限。IT 可以事先從有管理員權限的行程執行 `codex sandbox setup --elevated`。
+  - `unelevated`，第二個舊式備案：從你的帳號衍生出受限的 token，以檔案權限作為邊界，用在無法做 elevated 設定的時候。網路隔離較弱，也無法禁止讀取某個路徑。
+  - 建議使用 Windows 11；Windows 10 只是盡量支援，且需要 1809 以上。記錄檔在 `CODEX_HOME/.sandbox/sandbox.log`。
+- **Claude Code** 在原生 Windows 上沒有沙箱：指令在沙箱外執行。請改用 WSL2。
+- **Grok**：它的文件只列出 macOS 與 Linux。Grok 在 Windows 上是會在沒有沙箱的情況下執行（它的文件說無法套用的內建設定檔只會顯示警告，見下文），還是拒絕啟動，沒有驗證過。
+
+### WSL
+
+- **WSL2**：Codex 與 Claude Code 使用它們的 Linux 沙箱，前提相同（bubblewrap；Claude Code 還需要 `socat`）。Grok 的 Landlock 能不能用，要看 WSL2 的 kernel（未驗證）。
+- **WSL1** 無法建立 user namespace。Claude Code 的沙箱需要 WSL2；Codex（從 0.115 起）會拒絕執行需要 bubblewrap 的沙箱指令。
+
+## 開啟各個沙箱
+
+以下依平台列出開啟各 CLI 沙箱的指令與設定，以及確認它已開啟的方法。這些是給你自己使用各 CLI 時用的；[下一個表格](#harness-relay-的執行從哪裡讀這些設定)說明 Harness Relay 的執行會採用其中哪些。Linux 的指令使用 `apt-get`（Debian、Ubuntu），旁邊附上 `dnf`（Fedora）。
+
+| | macOS | Linux | Windows | WSL2 | 容器 |
+| --- | --- | --- | --- | --- | --- |
+| **Claude Code** | 只需設定 | 先裝 `bubblewrap` 與 `socat`，再設定 | 沒有沙箱：改用 WSL2 | 同 Linux | 同 Linux，再加 `enableWeakerNestedSandbox` |
+| **Codex** | 只需設定 | 設定（建議安裝 `bubblewrap`） | `[windows] sandbox` | 同 Linux | 讓容器提供 bubblewrap 需要的條件，或讓容器本身當作沙箱 |
+| **Grok** | 只需設定 | kernel 5.13 以上且有 Landlock，再設定 | 文件中沒有：改用 WSL2 | 同 Linux，前提是它的 kernel 有 Landlock（未驗證） | 沒有試過 |
+
+### Harness Relay 的執行從哪裡讀這些設定
+
+| | Harness Relay 的執行會讀的設定 | Harness Relay 自己設定的部分 |
+| --- | --- | --- |
+| Claude Code | `~/.claude/settings.json`，或[各 CLI 自己的資料夾](user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)中的 `claude/settings.json`；專案的 `.claude/settings.json` 與 `.claude/settings.local.json`；managed settings | 沒有任何沙箱相關設定：你設定的會生效 |
+| Codex | `~/.codex/config.toml`，或各 CLI 自己的資料夾中的 `codex/config.toml` | 依權限設定沙箱模式（所以你的 `sandbox_mode` 不會被採用），可編輯模式再加上 `network_access = false`；其他鍵不會設定，例如 `writable_roots` 或 `[windows] sandbox` |
+| Grok | 啟動 Harness Relay 時環境中的 `GROK_SANDBOX`；沒有的話，是 `~/.grok/config.toml`，或各 CLI 自己的資料夾中 `grok/config.toml` 的 `[sandbox] profile` | 可編輯模式設定 `GROK_SANDBOX=workspace`；唯讀與完全存取時，你設定的會生效 |
+
+Grok 會讓一個 session 在整個生命週期都使用它開始時的設定檔，並拒絕以不同的設定檔續用它（它的文件）。Harness Relay 每一輪都會續用各 agent 的 session，所以把對話的權限在可編輯與其他權限之間切換，或改變你設定的設定檔，都可能讓下一次續用失敗（沒有試過）。
+
+### 在 macOS 上
+
+三者都不需要另外安裝。
+
+**Claude Code。** 在 `~/.claude/settings.json` 中：
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "network": {
+      "allowedDomains": ["github.com", "*.npmjs.org"],
+      "allowLocalBinding": true
+    }
+  }
+}
+```
+
+- `failIfUnavailable` 讓 Claude Code 在沙箱無法使用時於啟動時停止，而不是在沙箱外執行指令；`allowUnsandboxedCommands: false` 拿掉在沙箱外重試的出口。
+- `network.allowedDomains` 列出指令可以連到的主機；其他主機會被詢問或拒絕（見[核准能做的事](#沙箱管不到的事)）。`network.allowLocalBinding` 讓指令能監聽及連到 localhost 的 port，給 dev server 與測試使用。
+- 只用於一個 session：`claude --settings '{"sandbox": {"enabled": true, "allowUnsandboxedCommands": false}}'`。在 session 中，`/sandbox` 會顯示並修改它，並把修改存到專案的 `.claude/settings.local.json`。
+- 要確認時，請 Claude（不是用 `!` 提示）執行 `touch ~/sandbox-probe`，應該以 `Operation not permitted` 失敗；以及 `curl --noproxy '*' https://example.com`，應該以 `Could not resolve host` 失敗；若它要求在沙箱外重試，請拒絕。
+
+**Codex。**
+
+```sh
+codex --sandbox workspace-write    # 這個 session：read-only、workspace-write 或 danger-full-access
+codex sandbox --permission-profile :workspace -- touch ~/sandbox-probe    # 確認：Operation not permitted
+```
+
+在 `~/.codex/config.toml` 中：
+
+```toml
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = false
+writable_roots = ["/absolute/path/to/another/folder"]
+```
+
+- `codex sandbox` 以某個內建設定檔的沙箱執行一個指令：`:read-only`、`:workspace` 或 `:danger-full-access`。0.167 不接受平台名稱；Codex 的文件仍寫成 `codex sandbox macos …`（試過：0.167 會把 `macos` 當成要執行的指令）。
+
+**Grok。**
+
+```sh
+grok --sandbox workspace    # 這個 session：workspace、read-only、strict、devbox 或自訂設定檔
+GROK_SANDBOX=workspace grok    # 同上，從環境變數指定
+tail -n 1 ~/.grok/sessions/sandbox-events.jsonl    # 確認："enforced": true
+```
+
+在 `~/.grok/config.toml` 中：
+
+```toml
+[sandbox]
+profile = "workspace"
+```
+
+自訂設定檔放在 `~/.grok/sandbox.toml` 或專案的 `.grok/sandbox.toml`，以 `grok --sandbox project` 使用：
+
+```toml
+[profiles.project]
+extends = "workspace"
+read_only = ["/data"]
+deny = ["~/.ssh", "**/.env", "**/*.pem"]
+```
+
+- `devbox` 是給用完即丟的機器用的：它幾乎到處都能寫入，包括家目錄。`restrict_network = true` 在 macOS 上沒有作用（見 [macOS](#macos)）。
+- 以 `GROK_SANDBOX=workspace npm start` 啟動 Harness Relay，它唯讀與完全存取的 Grok 執行也會使用 `workspace`。
+
+### 在 Linux 上
+
+先確認沙箱需要的條件（這些檢查不是出自各 CLI 的文件，也沒有試過）：
+
+```sh
+bwrap --ro-bind / / true && echo "bubblewrap works"    # Claude Code、Codex、Grok 的 deny 清單
+uname -r    # Grok：5.13 以上（6.2 以上才擋得住 truncate）
+cat /sys/kernel/security/lsm    # Grok：清單中要有 landlock
+sysctl kernel.apparmor_restrict_unprivileged_userns    # Ubuntu 23.10 以後：1 = 受限
+```
+
+在 Ubuntu 23.10 以後 bubblewrap 無法運作時，Claude Code 的文件提供一個給 `/usr/bin/bwrap` 的 AppArmor 設定檔：
+
+```sh
+sudo tee /etc/apparmor.d/bwrap > /dev/null <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}
+EOF
+sudo systemctl reload apparmor
+```
+
+它只涵蓋 `/usr/bin/bwrap`（見 `which bwrap`），不包括 Codex 自己附帶的那份。其他位置的 `bwrap`，可用 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` 對所有程式解除限制，直到下次重新開機。
+
+**Claude Code。**
+
+```sh
+sudo apt-get install bubblewrap socat    # Fedora：sudo dnf install bubblewrap socat
+npm install -g @anthropic-ai/sandbox-runtime    # 選用：連 Unix socket 也一起擋
+```
+
+接著使用和 macOS 相同的 `settings.json`；`allowLocalBinding` 在 Linux 上沒有作用。安裝後請重新啟動 Claude Code，因為它在啟動時檢查。確認方式和 macOS 相同的兩個指令：這裡 `touch ~/sandbox-probe` 會以 `Read-only file system` 失敗；`/sandbox` 會顯示是否缺了什麼。
+
+**Codex。**
+
+```sh
+sudo apt-get install bubblewrap    # Fedora：sudo dnf install bubblewrap
+```
+
+沒有安裝的話，Codex 會使用它自己附帶的 `bwrap`，並在啟動時顯示警告。接著使用和 macOS 相同的 `config.toml` 與指令（`codex sandbox` 只在 Mac 上試過）。
+
+**Grok。** 通過上面的檢查後，使用和 macOS 相同的 `config.toml`、`--sandbox` 與 `GROK_SANDBOX`。在 Linux 上，自訂設定檔還能擋住 Grok 所執行指令的網路：
+
+```toml
+[profiles.offline]
+extends = "workspace"
+restrict_network = true
+```
+
+`deny` 清單需要 bubblewrap：`sudo apt-get install bubblewrap`。
+
+### 在 Docker 與 dev container 中
+
+- **Claude Code**：在 unprivileged 容器中，於 `sandbox` 底下加上 `"enableWeakerNestedSandbox": true`；隔離會較弱。
+- **Codex**：讓容器提供 bubblewrap 需要的條件（user namespace、它自己的 `/proc`、seccomp），或在容器中以 `codex --sandbox danger-full-access` 執行，讓容器本身當作沙箱。它的文件沒有列出容器要用的旗標。
+- **Grok**：沒有試過；上面 Linux 的檢查在容器中同樣適用。
+
+### 在 Windows 上
+
+`winver` 會顯示 Windows 的 build（例如 `OS Build 26100.9278`）。
+
+**Codex**，在 `%USERPROFILE%\.codex\config.toml` 中擇一：
+
+```toml
+[windows]
+sandbox = "mxc"    # 沒有 mxc 的環境會失敗
+```
+
+```toml
+[features]
+prefer_mxc = true    # Windows 有 mxc 時使用它
+```
+
+```toml
+[windows]
+sandbox = "elevated"    # 或 "unelevated"
+```
+
+- `elevated` 需要一次由管理員核准的設定（UAC 提示）。IT 可以事先在提升權限的行程中執行：`codex sandbox setup --elevated --user 'DOMAIN\alice' --codex-home 'C:\Users\alice\.codex'`。
+- 要確認 `mxc`，在 PowerShell 中執行（應該先輸出 `MXC_OK`，再輸出 `0`）：
+
+  ```powershell
+  codex -c windows.sandbox=mxc sandbox --include-managed-config --permission-profile :workspace -- cmd.exe /d /c echo MXC_OK
+  $LASTEXITCODE
+  ```
+
+- `codex sandbox uninstall` 會移除舊版沙箱建立的帳號與網路規則。記錄檔在 `%USERPROFILE%\.codex\.sandbox\sandbox.log`。
+
+**Claude Code 與 Grok** 在原生 Windows 上沒有沙箱：請在 WSL2 中執行它們與 Harness Relay。
+
+### 在 WSL2 上
+
+以系統管理員身分在 PowerShell 或 Windows Terminal 中執行：
+
+```powershell
+wsl --install    # 安裝 WSL2 與 Ubuntu
+wsl -l -v    # VERSION 必須是 2
+wsl --set-version Ubuntu 2    # 把 WSL1 的發行版轉成 WSL2
+```
+
+接著在 WSL 中安裝 Node.js、各 CLI 與 Harness Relay，並依[在 Linux 上](#在-linux-上)設定各 CLI。Harness Relay 會啟動它所在系統上的 CLI：在 Windows 上執行時，它啟動的是 Windows 版，而 Claude Code 與 Grok 在那裡沒有沙箱。對 Grok，在 WSL 中執行 `cat /sys/kernel/security/lsm` 可以看出它的 kernel 有沒有 Landlock。WSL2 預設會把 `localhost` 轉給 Windows，所以 Windows 上的瀏覽器能照常打開 Harness Relay（沒有試過）。
+
+## 沙箱無法啟動時
+
+其中有些失敗不會出聲：CLI 會在沒有沙箱的情況下繼續執行，而 CLI 印出的警告 Harness Relay 都不會顯示。
+
+| | 會發生什麼事 |
+| --- | --- |
+| Claude Code | 指令在沙箱外執行；除非 `sandbox.failIfUnavailable` 為 `true`，這時它在啟動時就結束。 |
+| Codex | 在 WSL1 上，沙箱指令會被拒絕。其他平台會在啟動時顯示警告（例如 bubblewrap 無法建立 user namespace）；它的 Linux README 把另一種情況稱為「a runtime sandbox failure」，所以之後的沙箱指令很可能是失敗，而不是在沙箱外執行（未驗證）。 |
+| Grok | 內建設定檔：它的文件說會顯示警告，並在沒有限制的情況下繼續執行；但有些失敗（例如上文的 symlink socket，或 Linux 上沒有唯讀掛載）會讓它直接拒絕啟動。自訂設定檔（`sandbox.toml`）一律拒絕啟動。Grok 的 `sessions` 資料夾（`~/.grok/sessions`，或各 CLI 自己的資料夾中的 `grok/sessions`）裡 `sandbox-events.jsonl` 的 `"enforced": true` 表示設定檔確實套用了。 |
+
+可編輯模式下，Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原因。Harness Relay 不會檢查沙箱是否真的套用了。
+
+## 沙箱管不到的事
+
+- **讀取。** 三者預設都讓指令讀取幾乎整台電腦，包括 `~/.ssh` 和 `~/.aws`；只有 Grok 的 `strict` 設定檔會限制讀取（工作目錄、系統路徑與 `~/.grok`）。要讓機密不離開這台電腦，靠的是擋網路，而 Grok 在 macOS 上做不到。
+- **Claude Code 自己的工具。** 它的沙箱只涵蓋 Bash 指令及它們啟動的行程，不包括它的 Read、Edit、Write、WebFetch、WebSearch 工具（這些由它的權限規則管）、hooks、本機的 MCP 伺服器（包括工具庫的）和 LSP 伺服器。
+- **寫到工作目錄與暫存資料夾以外會失敗**，包括套件快取（`~/.npm`、pip、cargo、Go 的 build cache）。如果網路也關閉，安裝相依套件就會失敗。
+- **Git。** Codex 的 `workspace-write` 把 `.git` 設為唯讀：`git add` 與 `git commit` 會以 `.git/index.lock: Operation not permitted` 失敗（在 Mac 上試過）。Claude Code 不讓指令寫入 `.git/config` 與 `.git/hooks`。平行模式下，worktree 的 git 資料放在主 repository 的 `.git/worktrees/<name>`，在工作目錄之外。Harness Relay 的快照和 worktree 結果的 commit 都由伺服器在沙箱外執行，所以不受影響。
+- **在沙箱中常會壞掉的工具**（來自 Claude Code 的文件）：Docker 與 ssh-agent（Unix socket）、走 SSH 的 git 與 `open`、`osascript`（在 macOS 上）、watchman（請用 `jest --no-watchman`）、Linux 上的 Chromium（會啟動它的 Playwright 沒有試過）。
+- **核准能做的事。** 在沙箱中，詢問使用者的意思變成詢問某個指令能不能離開沙箱：
+  - Claude Code：模型可能帶著 `dangerouslyDisableSandbox` 在沙箱外再執行一次指令（`sandbox.allowUnsandboxedCommands: false` 會拿掉這個出口）。這次重試，以及連到不在網路允許清單上的主機，在 `manual` 與 `acceptEdits` 中會詢問，在 `dontAsk` 中會被拒絕；這類詢問在非互動的 `-p` 加上 `--permission-prompt-tool stdio` 時如何送達，文件沒有說明。
+  - Codex：和現在一樣，只有在模型要求超出沙箱允許的範圍時才會詢問。
+  - Grok：設定檔一旦套用就無法撤除，所以就算核准了某個呼叫，它也不能寫到設定檔允許的路徑以外。
+
+## 讓更多執行進入沙箱之前
+
+完全存取本來就是要在沙箱外執行：Docker、推送、安裝和寫到資料夾以外，正是它的用途。若要讓每個 CLI 的唯讀與可編輯都進入沙箱，需要先做到三件事：
+
+1. **不能把設定當成沙箱。** 原生 Windows 上的 Claude Code 與 Grok，以及 macOS 上 Grok 的網路，都是設定了也不會生效。UI 應該說明每個 agent 在這台電腦上是否真的在沙箱中，或在這些情況下拒絕使用沙箱模式。
+2. **在 Linux 上執行前先檢查前提：** `bwrap`、`socat`、kernel 版本、在容器中能否使用 user namespace；並用使用者的語言說明要安裝什麼。
+3. **Codex 在 Windows 上的 `elevated` 沙箱**需要做一次設定，其中有 UAC 提示；在背景啟動的 `codex app-server` 能不能顯示它，沒有驗證過。可以由管理員先執行 `codex sandbox setup --elevated`，或在 Windows 支援時改用 `mxc`。
+
+## 資料來源
+
+- Claude Code：[Sandboxing](https://code.claude.com/docs/en/sandboxing) 與 [All settings](https://code.claude.com/docs/en/settings-reference)。
+- Codex：[Agent approvals and security](https://learn.chatgpt.com/docs/agent-approvals-security)、[Windows sandbox](https://learn.chatgpt.com/docs/windows/windows-sandbox) 與 [Linux sandbox README](https://github.com/openai/codex/blob/main/codex-rs/linux-sandbox/README.md)。
+- Grok：`grok` 1.0.77 附帶的沙箱文件（設定檔、平台支援、網路限制）。

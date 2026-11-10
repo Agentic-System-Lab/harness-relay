@@ -261,11 +261,11 @@ The permission decides what runs **without asking**; anything else goes to the u
 - **Grok** runs over ACP because headless `grok -p` cannot ask: a call that would prompt is reported as "User cancelled" and the **whole turn ends**. Over ACP the request comes to the adapter. A refusal (the user's, or automatic) is sent as `reject_once` with `_meta.followup_message`, which Grok passes to the model as feedback instead of cancelling the turn.
   - The session mode is always set explicitly, so a user-level `[ui] permission_mode = "always-approve"` in `~/.grok/config.toml` cannot widen read-only or edit.
   - Grok still runs its built-in read-only tools and commands without asking, including bare `mkdir` / `touch`.
-  - Read-only does not use Grok's `read-only` sandbox profile: it refuses to start on some machines (for example when `/var/run/docker.sock` is a symlink). In edit mode a sandbox that cannot start fails the turn with Grok's reason.
+  - Read-only does not use Grok's `read-only` sandbox profile: it refuses to start on some machines (for example when `/var/run/docker.sock` is a symlink). In edit mode, when Grok refuses to start because of its sandbox, the turn fails with Grok's reason; Grok's docs say that a built-in profile it cannot apply may instead only warn and run without one (see [OS sandboxes by platform](sandboxing.md#when-the-sandbox-cannot-start)).
 
 A refused or failed call keeps its reason (`tool_end.error`, stored in `message_parts.tool_error`) and the turn carries on.
 
-**Edit does not sandbox project code.** "Pushing and publishing ask" stops an agent from running those commands directly. But the commands edit mode runs without asking (tests, builds, `npm run` scripts, `make`) execute code the agent may have just edited, so with Claude Code and Grok a determined agent can still reach the network that way. Codex's sandbox keeps everything off the network. For code or instructions you do not trust, use read-only, or set **Actions beyond the permission** to refuse.
+**Edit does not sandbox project code.** "Pushing and publishing ask" stops an agent from running those commands directly. But the commands edit mode runs without asking (tests, builds, `npm run` scripts, `make`) execute code the agent may have just edited, so with Claude Code and Grok a determined agent can still reach the network that way. Codex's sandbox keeps everything off the network. For code or instructions you do not trust, use read-only, or set **Actions beyond the permission** to refuse. [OS sandboxes by platform](sandboxing.md) lists the platforms each CLI's sandbox works on and what it needs there.
 
 ## Approvals
 
@@ -542,7 +542,7 @@ To use it from a phone, the server stays on `127.0.0.1` and `tailscale serve` on
 - In roundtable / relay mode, the before/after snapshot attributes every change made in the directory during a turn to that agent, including edits you make in your editor at the same time.
 - The directory lock lives in the server process; other tools (or a second Harness Relay server) can still edit the same files.
 - Nested repositories and submodules: worktrees contain them as empty folders, and changes inside them are not recorded (the snapshot only records which commit they point to).
-- Edit mode does not sandbox project code for Claude Code and Grok (see [Permission mapping](#permission-mapping)); detecting pushing and publishing commands is best effort.
+- In edit mode, project code that Claude Code runs is not sandboxed at all, and project code that Grok runs can still reach the network (see [Permission mapping](#permission-mapping) and [OS sandboxes by platform](sandboxing.md)); detecting pushing and publishing commands is best effort.
 - Claude Code's own `permissions.allow` rules (in your user settings, or a trusted project's) still let commands run without asking.
 - With read-only and **Ask me**, Claude Code cannot ask to edit a file (its editing tools are removed); Codex and Grok can.
 - Kept snapshot refs (`refs/harness-relay/…`) show up in tools that list every ref (`git log --all`, some git GUIs) and are copied by `git push --mirror`. Editing a message drops the refs of the turns it removes; deleting the conversation drops the rest.
