@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -7,7 +7,23 @@ import { CommandNotFoundError, capture, killAll, runProcess } from '../src/serve
 const dir = mkdtempSync(join(tmpdir(), 'relay-proc-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
+const HAS_PROC = existsSync('/proc/self/stat');
+
+/**
+ * Still running. A zombie counts as dead: a killed subprocess whose CLI already exited is reaped by
+ * PID 1, and in some containers PID 1 does that only every second or so, while `kill(pid, 0)` still
+ * succeeds on the zombie.
+ */
 const alive = (pid: number) => {
+  if (HAS_PROC) {
+    try {
+      // The state follows the command name, which is in parentheses and may contain spaces.
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      return stat.slice(stat.lastIndexOf(')') + 2)[0] !== 'Z';
+    } catch {
+      return false;
+    }
+  }
   try {
     process.kill(pid, 0);
     return true;
@@ -54,7 +70,7 @@ describe('runProcess', () => {
     expect(res.aborted).toBe(true);
     expect(alive(pid)).toBe(true); // the CLI is gone, its subprocess still runs…
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 6000, interval: 100 }); // …until SIGKILL
-  });
+  }, 8000);
 
   it('ends a stopped run whose subprocess ignores SIGTERM and holds stdout open', async () => {
     // Before, the run waited for stdout to close, which never happened.
