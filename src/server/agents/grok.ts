@@ -9,6 +9,7 @@ import {
   imageData,
   summarizeInput,
   tailText,
+  webSearchDetail,
   type AgentEvent,
   type AgentRunner,
   type ApprovalRequest,
@@ -150,12 +151,33 @@ function contentText(content: unknown): string | undefined {
 
 const DONE = new Set(['completed', 'failed', 'cancelled', 'rejected']);
 
+/**
+ * What a search xAI runs on its side looked up, from the completed call's `rawOutput` (grok 1.0.77):
+ * - web search: `{ id, status, action: { type: 'search', query, sources } | { type: 'open_page', url } | … }`
+ * - X search: `{ call_id, id, name: 'x_keyword_search', input: '{"query":"…","limit":"3","mode":"Latest"}' }`
+ */
+export function grokBackendDetail(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  let input: unknown = r.input;
+  if (typeof input === 'string') {
+    try {
+      input = JSON.parse(input);
+    } catch {
+      input = undefined;
+    }
+  }
+  return webSearchDetail(r.action) ?? (input && typeof input === 'object' ? summarizeInput(input) : undefined);
+}
+
 /** Turns ACP `session/update` payloads into AgentEvents. */
 export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
   const open = new Set<string>();
   /** To-do updates arrive as `plan` updates too, so their tool calls are not shown as rows. */
   const hidden = new Set<string>();
   const names = new Map<string, string>();
+  /** Searches xAI runs on its side (web, X): what they searched for only comes with the result. */
+  const backend = new Set<string>();
   const refused = new Map<string, string>();
   let inText = false;
   let lastFailure: { tool: string; reason?: string } | undefined;
@@ -177,7 +199,8 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
       error = refused.get(id) ?? text;
     }
     const output = ok && text ? tailText(text) : undefined;
-    emit({ type: 'tool_end', id, ok, ...(error ? { error } : {}), ...(output ? { output } : {}) });
+    const detail = backend.delete(id) ? grokBackendDetail(u.rawOutput) : undefined;
+    emit({ type: 'tool_end', id, ok, ...(error ? { error } : {}), ...(output ? { output } : {}), ...(detail ? { detail } : {}) });
   };
 
   function handle(u: Record<string, any> | undefined): void {
@@ -220,7 +243,12 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
         }
         if (!open.has(id)) {
           open.add(id);
-          const name = String(u.title || u._meta?.['x.ai/tool']?.name || u.kind || 'tool');
+          let name = String(u.title || u._meta?.['x.ai/tool']?.name || u.kind || 'tool');
+          if (u._meta?.backend || u.rawInput?.backend) {
+            // Titled "Web search:" / "X search:", a label for a query that only comes with the result.
+            backend.add(id);
+            name = name.replace(/:\s*$/, '') || 'tool';
+          }
           names.set(id, String(u._meta?.['x.ai/tool']?.name || name));
           emit({ type: 'tool_start', id, name, detail: summarizeInput(u.rawInput) });
         }

@@ -229,7 +229,7 @@ flowchart LR
 
 ## CLI 轉接器
 
-每個轉接器把一次 CLI 回合轉成共通事件串流：`session`、`text`、`text_end`、`thinking`、`plan`、`tool_start`、`tool_end`（附上呼叫的輸出或失敗原因）；CLI 要求做權限沒涵蓋的事時，則呼叫 `requestApproval`（見[核准](#核准)）。
+每個轉接器把一次 CLI 回合轉成共通事件串流：`session`、`text`、`text_end`、`thinking`、`plan`、`tool_start`、`tool_end`（附上呼叫的輸出或失敗原因；CLI 到結束才說明這次呼叫做了什麼時，例如網路搜尋的查詢，也一併附上）；CLI 要求做權限沒涵蓋的事時，則呼叫 `requestApproval`（見[核准](#核准)）。
 
 | | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |

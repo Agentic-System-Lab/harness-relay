@@ -76,7 +76,29 @@ describe('codex app-server events', () => {
   it('describes tool items', () => {
     expect(describeCodexItem({ type: 'fileChange', changes: [{ path: 'a.ts', kind: { type: 'update' } }] })).toEqual({ name: 'Edit', detail: 'update a.ts' });
     expect(describeCodexItem({ type: 'webSearch', query: 'vitest' })).toEqual({ name: 'WebSearch', detail: 'vitest' });
+    expect(describeCodexItem({ type: 'webSearch', query: ' ', action: { type: 'openPage', url: 'https://vitest.dev' } })).toEqual({
+      name: 'WebSearch',
+      detail: 'https://vitest.dev',
+    });
+    expect(describeCodexItem({ type: 'webSearch', query: '', action: { type: 'other' } })).toEqual({ name: 'WebSearch', detail: undefined });
     expect(describeCodexItem({ type: 'agentMessage' })).toBeNull();
+  });
+
+  it('shows what a web search searched for, which only comes when it is done', () => {
+    const events: AgentEvent[] = [];
+    const h = createCodexUpdateHandler((e) => events.push(e));
+    h.handle('item/started', { item: { type: 'webSearch', id: 'ws-1', query: '', action: null } });
+    h.handle('item/completed', { item: { type: 'webSearch', id: 'ws-1', query: 'vitest mock timers', action: { type: 'search', query: 'vitest mock timers' } } });
+    h.handle('item/started', { item: { type: 'webSearch', id: 'ws-2', query: '', action: null } });
+    h.handle('item/completed', {
+      item: { type: 'webSearch', id: 'ws-2', query: '', action: { type: 'findInPage', url: 'https://vitest.dev/api', pattern: 'useFakeTimers' } },
+    });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'ws-1', name: 'WebSearch' },
+      { type: 'tool_end', id: 'ws-1', ok: true, detail: 'vitest mock timers' },
+      { type: 'tool_start', id: 'ws-2', name: 'WebSearch' },
+      { type: 'tool_end', id: 'ws-2', ok: true, detail: '"useFakeTimers" · https://vitest.dev/api' },
+    ]);
   });
 });
 

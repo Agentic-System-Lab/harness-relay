@@ -16,8 +16,10 @@ export type AgentEvent =
   /**
    * `error`: the CLI's stated reason when a call failed or was refused (shown under the tool).
    * `output`: the end of what the call returned.
+   * `detail`: what the call was about, when the CLI only says so once it is done (a web search's
+   * query); it replaces the one from `tool_start`.
    */
-  | { type: 'tool_end'; id: string; ok: boolean; error?: string; output?: string };
+  | { type: 'tool_end'; id: string; ok: boolean; error?: string; output?: string; detail?: string };
 
 /** Something an agent wants to do that its permission does not cover. */
 export interface ApprovalRequest {
@@ -136,6 +138,23 @@ export function summarizeInput(input: unknown): string | undefined {
     if (Array.isArray(v) && v.length && v.every((x) => typeof x === 'string')) return clip(v.join(' '));
   }
   return undefined;
+}
+
+/**
+ * What a server-side web search did, from its `action` (the Responses API shape Codex and Grok
+ * both report, with snake_case or camelCase types): the query, the page it opened, or the text it
+ * looked for on a page.
+ */
+export function webSearchDetail(action: unknown): string | undefined {
+  if (!action || typeof action !== 'object') return undefined;
+  const a = action as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
+  const queries = Array.isArray(a.queries) ? a.queries.filter((q): q is string => typeof q === 'string' && !!q.trim()) : [];
+  const query = text(a.query) ?? (queries.length ? queries.join(' | ') : undefined);
+  const url = text(a.url);
+  const pattern = text(a.pattern);
+  const detail = query ?? (pattern && url ? `"${pattern}" · ${url}` : (pattern ?? url));
+  return detail ? clip(detail) : undefined;
 }
 
 export function clip(s: string, n = 160): string {

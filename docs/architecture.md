@@ -229,7 +229,7 @@ The UI comes in Traditional Chinese and English (`src/web/locales/zh-TW.ts`, `en
 
 ## CLI adapters
 
-Every adapter turns one CLI turn into a stream of common events — `session`, `text`, `text_end`, `thinking`, `plan`, `tool_start`, `tool_end` (with the call's output or failure reason) — and, when the CLI asks to do something the permission does not cover, calls `requestApproval` (see [Approvals](#approvals)).
+Every adapter turns one CLI turn into a stream of common events — `session`, `text`, `text_end`, `thinking`, `plan`, `tool_start`, `tool_end` (with the call's output or failure reason, and what the call was about when the CLI only says so at the end, like a web search's query) — and, when the CLI asks to do something the permission does not cover, calls `requestApproval` (see [Approvals](#approvals)).
 
 | | Claude Code | Codex | Grok |
 | --- | --- | --- | --- |

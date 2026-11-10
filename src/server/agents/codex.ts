@@ -10,6 +10,7 @@ import {
   clip,
   summarizeInput,
   tailText,
+  webSearchDetail,
   type AgentEvent,
   type AgentRunner,
   type ApprovalRequest,
@@ -315,7 +316,8 @@ export function describeCodexItem(item: Record<string, any>): { name: string; de
     case 'dynamicToolCall':
       return { name: String(item.tool ?? 'tool'), detail: summarizeInput(item.arguments) };
     case 'webSearch':
-      return { name: 'WebSearch', detail: item.query ? clip(String(item.query)) : undefined };
+      // The query and action only come with item/completed; item/started has an empty query.
+      return { name: 'WebSearch', detail: clip(String(item.query ?? '')) || webSearchDetail(item.action) };
     default:
       return null;
   }
@@ -347,7 +349,8 @@ function itemOutcome(item: Record<string, any>): { ok: boolean; output?: string;
 
 /** Turns app-server notifications for one thread into AgentEvents. */
 export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
-  const started = new Set<string>();
+  /** Tool items already shown, with the detail they were shown with. */
+  const started = new Map<string, string | undefined>();
   const streamedText = new Set<string>();
   const streamedThinking = new Set<string>();
   /** File paths of file-change items, to show what an approval request is about. */
@@ -357,7 +360,7 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
   const startTool = (item: Record<string, any>) => {
     const d = describeCodexItem(item);
     if (!d || !item.id || started.has(item.id)) return;
-    started.add(item.id);
+    started.set(item.id, d.detail);
     if (item.type === 'fileChange') filePaths.set(item.id, (item.changes ?? []).map((c: any) => c.path).join(', '));
     emit({ type: 'tool_start', id: item.id, ...d });
   };
@@ -394,10 +397,13 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
           if (!streamedThinking.has(item.id) && summary) emit({ type: 'thinking', text: summary });
           break;
         }
-        if (!describeCodexItem(item)) break;
+        const d = describeCodexItem(item);
+        if (!d) break;
         startTool(item);
+        // A web search only says what it searched for now.
+        const detail = d.detail && d.detail !== started.get(item.id) ? d.detail : undefined;
         const { ok, output, error } = itemOutcome(item);
-        emit({ type: 'tool_end', id: item.id, ok, ...(output ? { output } : {}), ...(error ? { error } : {}) });
+        emit({ type: 'tool_end', id: item.id, ok, ...(output ? { output } : {}), ...(error ? { error } : {}), ...(detail ? { detail } : {}) });
         break;
       }
       case 'turn/plan/updated': {

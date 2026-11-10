@@ -106,6 +106,102 @@ describe('grok session updates', () => {
     expect(describeGrokCancel(h.lastFailure, 'read-only')).toContain('web_fetch');
     expect(describeGrokCancel(undefined, 'edit')).toContain('cancelled');
   });
+
+  it('shows what a backend web search searched for, which only comes with its result', () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    // As grok 1.0.77 sends them: the title is a label for a query it does not know yet.
+    const search = (id: string, action: Record<string, unknown>) => {
+      h.handle({
+        sessionUpdate: 'tool_call',
+        toolCallId: id,
+        title: 'Web search:',
+        kind: 'search',
+        status: 'in_progress',
+        rawInput: { variant: 'WebSearch', backend: true },
+        _meta: { backend: true },
+      });
+      h.handle({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed', title: 'Web search:', rawOutput: { id, status: 'completed', action } });
+    };
+    search('ws-1', { type: 'search', query: 'PTSD treatment guidelines 2024', sources: [{ type: 'url', url: 'https://example.org/a' }] });
+    search('ws-2', { type: 'open_page', url: 'https://example.org/docs' });
+    search('ws-3', { type: 'find_in_page', url: 'https://example.org/schema.ts', pattern: 'FunnelsFilter' });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'ws-1', name: 'Web search' },
+      { type: 'tool_end', id: 'ws-1', ok: true, detail: 'PTSD treatment guidelines 2024' },
+      { type: 'tool_start', id: 'ws-2', name: 'Web search' },
+      { type: 'tool_end', id: 'ws-2', ok: true, detail: 'https://example.org/docs' },
+      { type: 'tool_start', id: 'ws-3', name: 'Web search' },
+      { type: 'tool_end', id: 'ws-3', ok: true, detail: '"FunnelsFilter" · https://example.org/schema.ts' },
+    ]);
+  });
+
+  it('shows what a backend X search searched for, from the input its result carries', () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    // As grok 1.0.77 sends them: `input` is the X tool's arguments as a JSON string.
+    h.handle({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'xs-1',
+      title: 'X search:',
+      kind: 'search',
+      status: 'in_progress',
+      rawInput: { variant: 'XSearch', backend: true },
+      _meta: { backend: true },
+    });
+    h.handle({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'xs-1',
+      status: 'completed',
+      title: 'X search:',
+      rawOutput: { call_id: 'xs_call-1', input: '{"query":"xAI Grok","limit":"3","mode":"Latest"}', name: 'x_keyword_search', id: 'xs-1' },
+    });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'xs-1', name: 'X search' },
+      { type: 'tool_end', id: 'xs-1', ok: true, detail: 'xAI Grok' },
+    ]);
+  });
+
+  it('keeps the query and the reason of a failed backend search, and shows nothing it cannot read', () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    const start = (id: string) =>
+      h.handle({ sessionUpdate: 'tool_call', toolCallId: id, title: 'Web search:', rawInput: { variant: 'WebSearch', backend: true }, _meta: { backend: true } });
+    start('f');
+    h.handle({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'f',
+      status: 'failed',
+      content: [{ type: 'content', content: { type: 'text', text: 'Web search failed' } }],
+      rawOutput: { id: 'f', status: 'failed', action: { type: 'search', query: 'vitest' } },
+    });
+    start('o');
+    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'o', status: 'completed', rawOutput: { id: 'o', status: 'completed', action: { type: 'other' } } });
+    start('x');
+    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'x', status: 'completed', rawOutput: { input: 'not json', name: 'x_keyword_search' } });
+    expect(events.filter((e) => e.type === 'tool_end')).toEqual([
+      { type: 'tool_end', id: 'f', ok: false, error: 'Web search failed', detail: 'vitest' },
+      { type: 'tool_end', id: 'o', ok: true },
+      { type: 'tool_end', id: 'x', ok: true },
+    ]);
+    expect(h.lastFailure).toEqual({ tool: 'Web search', reason: 'Web search failed' });
+  });
+
+  it("does not take a detail from another tool's output, nor change its name", () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    h.handle({ sessionUpdate: 'tool_call', toolCallId: 'g', title: 'grep:', rawInput: { pattern: 'TODO' } });
+    h.handle({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'g',
+      status: 'completed',
+      rawOutput: { pattern: 'other', action: { query: 'x' }, input: '{"query":"y"}' },
+    });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'g', name: 'grep:', detail: 'TODO' },
+      { type: 'tool_end', id: 'g', ok: true },
+    ]);
+  });
 });
 
 describe('grok activity and approvals', () => {
