@@ -5,6 +5,7 @@ import {
   ACCOUNT_ID_RE,
   MAX_ACCOUNT_LABEL,
   type AccountRunSettings,
+  isEndpointCli,
   isOpenProvider,
   nativeItemsFor,
   nativeOffFor,
@@ -73,20 +74,23 @@ function applyRun(p: Provider, run: AccountRunSettings, u: ProviderAccountUpdate
 export const API_KEY_ENV: Partial<Record<Provider, string>> = {
   claude: 'ANTHROPIC_API_KEY',
   grok: 'XAI_API_KEY',
+  cursor: 'CURSOR_API_KEY',
 };
 
 /**
  * The variables each CLI takes a sign-in from ahead of the one kept in its home: Claude Code reads
  * `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`)
  * before its own sign-in, Codex an API key from `CODEX_API_KEY` or `OPENAI_API_KEY`, Grok from
- * `XAI_API_KEY`. An account besides the default one gets none of them from the server's environment
- * (only its own key), or every such account would run as whoever they sign in. The open agents have
- * no sign-in, nor accounts: their keys are the model backends' (`INHERITED_BACKEND_VARS`).
+ * `XAI_API_KEY`, Cursor from `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN`. An account besides the default
+ * one gets none of them from the server's environment (only its own key), or every such account would
+ * run as whoever they sign in. The open agents have no sign-in, nor accounts: their keys are the model
+ * backends' (`INHERITED_BACKEND_VARS`).
  */
 export const CREDENTIAL_ENV: Record<Provider, readonly string[]> = {
   claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'],
   codex: ['CODEX_API_KEY', 'OPENAI_API_KEY'],
   grok: ['XAI_API_KEY'],
+  cursor: ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'],
   opencode: [],
   goose: [],
   cline: [],
@@ -98,6 +102,7 @@ const DEFAULT_BIN: Record<Provider, string> = {
   claude: 'claude',
   codex: 'codex',
   grok: 'grok',
+  cursor: 'cursor-agent',
   opencode: 'opencode',
   goose: 'goose',
   cline: 'cline',
@@ -119,11 +124,16 @@ export const OPEN_AGENT_HOME_ENV = 'HARNESS_RELAY_AGENT_HOME';
  */
 export const OPEN_AGENT_ROOTS_ENV = 'HARNESS_RELAY_AGENT_HOMES_BEFORE';
 
-/** The variable that moves each CLI's home: its sign-in, settings and session transcripts. */
+/**
+ * The variable that moves each CLI's home: its sign-in, settings and session transcripts. Cursor's
+ * moves its settings and sessions only: its sign-in stays where Cursor keeps it for the computer user
+ * (on macOS, the keychain), see `CURSOR_SHARED_SIGN_IN`.
+ */
 export const AGENT_HOME_ENV: Record<Provider, string> = {
   claude: 'CLAUDE_CONFIG_DIR',
   codex: 'CODEX_HOME',
   grok: 'GROK_HOME',
+  cursor: 'CURSOR_CONFIG_DIR',
   opencode: OPEN_AGENT_HOME_ENV,
   goose: OPEN_AGENT_HOME_ENV,
   cline: OPEN_AGENT_HOME_ENV,
@@ -133,6 +143,16 @@ export const AGENT_HOME_ENV: Record<Provider, string> = {
 
 /** Where the open agents' homes are when no agent-home folder is set: in Harness Relay's data folder. */
 export const OPEN_HOMES_DIR = join(DATA_DIR, 'agent-homes');
+
+/**
+ * Cursor keeps its sign-in once per computer user, under fixed names (macOS: the login keychain;
+ * Linux and Windows: an `auth.json` its config folder does not move), and saves an API key it is given
+ * there too, over that sign-in. So Cursor gets `AGENT_CLI_CREDENTIAL_STORE=memory`, which keeps what it
+ * signs in with to the one run, whenever it runs with a key, and always as an account besides the
+ * default one: such an account signs in with its API key only, and never reads or replaces the
+ * shared sign-in (`ProviderService.startLogin` refuses it a browser sign-in).
+ */
+export const CURSOR_SHARED_SIGN_IN = 'AGENT_CLI_CREDENTIAL_STORE';
 
 /**
  * Variables Claude Code sets for its own child processes. If Harness Relay is started from inside
@@ -431,11 +451,12 @@ export class SettingsStore {
   /**
    * The model backends with their keys, for one run: all of them for an open agent; for Claude Code,
    * Codex and Grok the user's own endpoints only (a member's model `<endpoint id>/<model>`), never the
-   * API backends' keys, which are the open agents'.
+   * API backends' keys, which are the open agents'; for Cursor none, since it runs on Cursor's models only.
    */
   backendsFor(p: Provider): RunBackends {
     const all = this.backends.forRun();
-    return isOpenProvider(p) ? all : { apis: {}, endpoints: all.endpoints };
+    if (isOpenProvider(p)) return all;
+    return { apis: {}, endpoints: isEndpointCli(p) ? all.endpoints : [] };
   }
 
   // --- Accounts: each CLI's default account, and any others, each with a home of its own ----------
@@ -799,6 +820,7 @@ export class SettingsStore {
     const key = this.apiKey(p, id);
     if (id) for (const k of CREDENTIAL_ENV[p]) delete env[k];
     if (keyVar && key) env[keyVar] = key;
+    if (p === 'cursor' && (id || CREDENTIAL_ENV.cursor.some((k) => env[k]))) env[CURSOR_SHARED_SIGN_IN] = 'memory';
     const home = this.accountHome(p, id);
     if (home) {
       // Codex refuses a CODEX_HOME that does not exist.

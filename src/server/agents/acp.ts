@@ -1,4 +1,4 @@
-import { parseJsonLine } from './types';
+import { imageData, parseJsonLine, type McpServerSpec, type RunOptions } from './types';
 
 /** A JSON-RPC error, either received from the peer or thrown by one of our request handlers. */
 export class RpcError extends Error {
@@ -92,4 +92,60 @@ export class JsonRpcConnection {
     if (this.opts.versionField === false) delete msg.jsonrpc;
     this.write(JSON.stringify(msg));
   }
+}
+
+/** ACP prompt blocks: the text, plus attached images (for an agent that advertises `promptCapabilities.image`). */
+export function acpPrompt(prompt: string, images: RunOptions['images']): unknown[] {
+  const blocks: unknown[] = [{ type: 'text', text: prompt }];
+  for (const img of images ?? []) {
+    const data = imageData(img.path);
+    if (data) blocks.push({ type: 'image', data, mimeType: img.mimeType });
+  }
+  return blocks;
+}
+
+/**
+ * The tool library's MCP servers in ACP's form (`env` and `headers` as name/value lists). HTTP servers
+ * only go to an agent that says it takes them (`mcpCapabilities.http`); ACP forbids them otherwise.
+ */
+export function acpMcpServers(servers: McpServerSpec[], http = true, cli = 'acp'): Record<string, unknown>[] {
+  const list = (vars: Record<string, string>) => Object.entries(vars).map(([name, value]) => ({ name, value }));
+  const skipped = http ? [] : servers.filter((s) => s.transport === 'http');
+  if (skipped.length) console.warn(`[${cli}] this ${cli} does not take HTTP MCP servers; left out: ${skipped.map((s) => s.name).join(', ')}`);
+  return servers.filter((s) => http || s.transport !== 'http').map((s) =>
+    s.transport === 'http'
+      ? { type: 'http', name: s.name, url: s.url, headers: list(s.headers) }
+      : { name: s.name, command: s.command, args: s.args, env: list(s.env) },
+  );
+}
+
+/** A decision on a `session/request_permission`: `reason` goes back to the model when it is refused. */
+export type AcpDecision = { allow: true } | { allow: false; reason: string };
+
+/**
+ * Builds the reply to `session/request_permission`: the agent's allow-once (or allow-always) option, or
+ * its reject-once (or reject-always) one with the reason as `_meta.followup_message` (which Grok passes
+ * to the model as feedback instead of ending the turn); cancelled when it offers no such option.
+ */
+export function answerPermission(decision: AcpDecision, options: { optionId: string; kind: string }[]) {
+  const pick = (kind: string) => options.find((o) => o.kind === kind)?.optionId;
+  if (decision.allow) {
+    const optionId = pick('allow_once') ?? pick('allow_always');
+    if (optionId) return { outcome: { outcome: 'selected', optionId } };
+  } else {
+    const optionId = pick('reject_once') ?? pick('reject_always');
+    if (optionId) return { outcome: { outcome: 'selected', optionId }, _meta: { followup_message: decision.reason } };
+  }
+  return { outcome: { outcome: 'cancelled' } };
+}
+
+/** Text of an ACP tool-call `content` array (e.g. the reason a call failed). */
+export function acpContentText(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const text = content
+    .map((c) => (typeof c?.content?.text === 'string' ? c.content.text : typeof c?.text === 'string' ? c.text : ''))
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  return text || undefined;
 }

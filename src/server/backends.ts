@@ -100,6 +100,9 @@ export const INHERITED_BACKEND_VARS = [
   'OLLAMA_API_KEY',
   // Amazon Bedrock's API key (other `AWS_*` variables stay, as for the other CLIs).
   'AWS_BEARER_TOKEN_BEDROCK',
+  // Cursor's sign-in by key.
+  'CURSOR_API_KEY',
+  'CURSOR_AUTH_TOKEN',
 ];
 
 /** The keyring account of a backend's key. */

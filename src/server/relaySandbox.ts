@@ -586,7 +586,8 @@ export function isWithin(path: string, dir: string): boolean {
 /**
  * What decides how other agent CLIs run, in a project: Claude Code's, Codex's and Grok's project
  * settings (hooks, MCP servers, sandbox settings, which they run outside any sandbox or with full
- * access), and the open agents' own project config and plugins. In edit mode the working directory is
+ * access), Cursor's (its rules, subagents, skills and MCP servers; Cursor has no sandbox at all), and
+ * the open agents' own project config and plugins. In edit mode the working directory is
  * writable, so these are kept read-only in it: a run cannot plant what a later run, or another agent,
  * would start outside the sandbox. (sandbox-runtime itself keeps `.git/hooks`, `.git/config`,
  * `.gitmodules`, `.mcp.json`, `.vscode`, `.idea` and the shell's dotfiles read-only.)
@@ -595,6 +596,7 @@ export const PROJECT_AGENT_CONFIG = [
   '.claude',
   '.codex',
   '.grok',
+  '.cursor',
   '.mcp.json',
   '.opencode',
   'opencode.json',

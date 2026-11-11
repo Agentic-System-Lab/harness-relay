@@ -48,7 +48,7 @@ import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
 import { HttpError, forClient, titleFrom, type Orchestrator } from './orchestrator';
-import type { ProviderService } from './providers';
+import { KeyOnlyAccountError, type ProviderService } from './providers';
 import type { SettingsStore } from './settings';
 import { fileLinkCount, fileLinksIn, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';
 import {
@@ -626,7 +626,12 @@ export function createApp({
     const p = provider(c);
     const id = account(c, p);
     const b = await body<{ method?: string }>(c);
-    return c.json(providers.startLogin(p, b.method, id));
+    try {
+      return c.json(providers.startLogin(p, b.method, id));
+    } catch (err) {
+      if (err instanceof KeyOnlyAccountError) throw new HttpError(400, err.message);
+      throw err;
+    }
   });
 
   app.get('/api/providers/:provider/login', (c) => {

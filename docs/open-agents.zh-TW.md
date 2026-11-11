@@ -2,7 +2,7 @@
 
 # 開源 agent
 
-除了 `claude`、`codex` 與 `grok`，Harness Relay 也能執行五個開源的 coding agent CLI。程式裡稱它們為「open agents」（`src/shared/types.ts` 的 `OPEN_PROVIDERS`）：
+除了 `claude`、`codex`、`grok` 與 `cursor-agent`，Harness Relay 也能執行五個開源的 coding agent CLI。程式裡稱它們為「open agents」（`src/shared/types.ts` 的 `OPEN_PROVIDERS`）：
 
 | Provider id | CLI | 協定 | 轉接器 |
 | --- | --- | --- | --- |
@@ -12,7 +12,7 @@
 | `openhands` | OpenHands（`openhands`，`uv tool install openhands`） | ACP：`openhands acp` | `src/server/agents/openhands.ts` |
 | `pi` | Pi（`pi`，npm `@earendil-works/pi-coding-agent`） | JSONL RPC：`pi --mode rpc` | `src/server/agents/pi.ts` |
 
-它們和另外三個 CLI 不同的地方在於模型從哪裡來：它們在 Harness Relay 裡沒有自己的登入，而是使用「設定」裡的**模型來源**（OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容端點）。這份文件說明它們共用的部分，最後每個 agent 各有一節。
+它們和另外四個 CLI 不同的地方在於模型從哪裡來：它們在 Harness Relay 裡沒有自己的登入，而是使用「設定」裡的**模型來源**（OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容端點）。這份文件說明它們共用的部分，最後每個 agent 各有一節。
 
 一個 agent 的轉接器完成之前（它的檔案裡 `implemented: true`），它的每次執行都會在任何東西啟動前就失敗，說明「not implemented yet」，「設定」中也顯示它尚未就緒。
 
@@ -29,7 +29,7 @@
 
 **每次執行拿到什麼。** `backendRun(o.backends, o.model, …)` 給每次執行它的模型來源與模型；沒有模型、id 不是 `<模型來源>/<模型>`，或模型來源還沒設定時，執行會失敗並說明該怎麼做：
 
-- 只有這次執行自己的 API 來源的金鑰，放在各 CLI 讀取的變數（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 或 `XAI_API_KEY`），沒有其他的：agent 執行的指令會繼承這個環境，所以用 Anthropic 的執行絕不會拿到 OpenAI 的金鑰。伺服器保存的每一把金鑰，以及從你的 shell 繼承來的每個模型供應商的金鑰、登入憑證或位址，都會先移除（`backends.ts` 的 `INHERITED_BACKEND_VARS`）：OpenAI、Anthropic 與 xAI 的金鑰、base URL、組織與專案，`CLAUDE_CODE_OAUTH_TOKEN`，Google 的（`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_GENERATIVE_AI_API_KEY`、`GOOGLE_APPLICATION_CREDENTIALS`、`VERTEX_API_KEY`），OpenRouter、Mistral、Groq、DeepSeek、Together、Fireworks、Azure OpenAI、Cohere、Hugging Face、Perplexity、Cerebras、NVIDIA、Replicate、Voyage、Moonshot、DashScope、Z.ai、LiteLLM 的，Ollama 的（`OLLAMA_HOST`、`OLLAMA_API_KEY`），以及 Bedrock 的 bearer token（`AWS_BEARER_TOKEN_BEDROCK`）。不屬於模型來源的仍會傳給 agent，和其他 CLI 一樣：`PATH`、`HOME`、SSH agent、`GITHUB_TOKEN`、AWS 的其他變數。CLI 需要所有已設定金鑰的轉接器，必須說明並寫出原因（`allBackendKeys`）；目前沒有一個需要；
+- 只有這次執行自己的 API 來源的金鑰，放在各 CLI 讀取的變數（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 或 `XAI_API_KEY`），沒有其他的：agent 執行的指令會繼承這個環境，所以用 Anthropic 的執行絕不會拿到 OpenAI 的金鑰。伺服器保存的每一把金鑰，以及從你的 shell 繼承來的每個模型供應商的金鑰、登入憑證或位址，都會先移除（`backends.ts` 的 `INHERITED_BACKEND_VARS`）：OpenAI、Anthropic 與 xAI 的金鑰、base URL、組織與專案，`CLAUDE_CODE_OAUTH_TOKEN`，Google 的（`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_GENERATIVE_AI_API_KEY`、`GOOGLE_APPLICATION_CREDENTIALS`、`VERTEX_API_KEY`），OpenRouter、Mistral、Groq、DeepSeek、Together、Fireworks、Azure OpenAI、Cohere、Hugging Face、Perplexity、Cerebras、NVIDIA、Replicate、Voyage、Moonshot、DashScope、Z.ai、LiteLLM 的，Ollama 的（`OLLAMA_HOST`、`OLLAMA_API_KEY`），Bedrock 的 bearer token（`AWS_BEARER_TOKEN_BEDROCK`），以及 Cursor 用來登入的金鑰（`CURSOR_API_KEY`、`CURSOR_AUTH_TOKEN`）。不屬於模型來源的仍會傳給 agent，和其他 CLI 一樣：`PATH`、`HOME`、SSH agent、`GITHUB_TOKEN`、AWS 的其他變數。CLI 需要所有已設定金鑰的轉接器，必須說明並寫出原因（`allBackendKeys`）；目前沒有一個需要；
 - 模型在自訂端點上時，該端點的 base URL 與金鑰：轉接器把金鑰放在它的 CLI 設定所指定的變數，絕不寫進設定檔；
 - 這次執行需要連到的主機（`api.openai.com`、`api.anthropic.com`、`api.x.ai`、端點的 `host:port`），交給 Harness Relay 的沙箱。
 
@@ -66,7 +66,7 @@ orchestrator 把模型來源傳給每次 開源 agent 的執行（`RunOptions.ba
 
 ### 每位成員自己的狀態
 
-一次執行能寫入的一切都屬於它自己：對話中一位成員的 session、記錄與快取，放在它自己的資料夾 `<家目錄>/private/<key>`，其他對話或其他成員的開源 agent 在沙箱中（完全存取以外）的執行都不能讀寫，其他在沙箱中的 agent 也都不能寫入。完全存取以外的 Claude Code、Codex 與 Grok 讀得到它，就像它們讀得到彼此的 session：它們的沙箱只擋住受保護路徑的讀取（[沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）。完全存取時沒有沙箱，和其他 CLI 一樣（曾有一個對話的執行在另一個對話的 session 檔加上一則假的使用者訊息，那個對話的下一個回答就照著做了）。
+一次執行能寫入的一切都屬於它自己：對話中一位成員的 session、記錄與快取，放在它自己的資料夾 `<家目錄>/private/<key>`，其他對話或其他成員的開源 agent 在沙箱中（完全存取以外）的執行都不能讀寫，其他在沙箱中的 agent 也都不能寫入。完全存取以外的 Claude Code、Codex、Grok 與 Cursor 讀得到它，就像它們讀得到彼此的 session：它們的沙箱（Cursor 沒有沙箱，則是它的拒絕規則）只擋住受保護路徑的讀取（[沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）。完全存取時沒有沙箱，和其他 CLI 一樣（曾有一個對話的執行在另一個對話的 session 檔加上一則假的使用者訊息，那個對話的下一個回答就照著做了）。
 
 - **key** 由 orchestrator 給出（`RunOptions.stateKey`，`src/server/agents/types.ts` 的 `stateKeys`）：成員是 `conv.<對話>.<成員>`，每一輪都相同，所以它的 session 可以接續；首席 agent 設計團隊、依你的要求修改團隊、把對話分進群組，分別是 `lead.<對話>`、`revise.<對話>` 與 `sort.<對話>`。分支出來的對話是另一個對話，所以它的成員從自己的狀態開始，session 也和以前一樣重新開始。沒有 key 的執行有一個自己的資料夾，執行後刪除。
 - **寫入。** 轉接器的 `home(root, state)` 把每個可寫入的路徑（`statePaths`）放在 `state` 裡；完全存取以外，有一個在它之外時就不會執行。伺服器為一個 key 留給之後執行的東西（Goose 的擴充清單）放在它旁邊的封存資料夾（`<家目錄>/private/.sealed-<key>`，`sealedFolder`），任何執行都不能讀寫，並和狀態資料夾一起清空。家目錄中共用的部分（每次執行前寫入的設定、模型清單）留在 `root`，沙箱中的執行絕不能寫入。
@@ -285,7 +285,7 @@ Goose 每次存取都會重讀 `config.yaml`，而且任何設定鍵都先看同
 - 內建工具：可依名稱**個別不載入**（`disabledTools`）。
 - workflow（斜線指令）不列出：Harness Relay 的提示不會以 `/` 開頭。
 
-**沙箱的需要。** 可寫入：`data/` 與這次執行的暫存資料夾；唯讀：`config/`、`data/cache/feature-flags.json` 與這次執行專屬的 `CLINE_DIR`。唯一的額外選項是 `quietlyDeniedHosts`：otel.cline.bot、data.cline.bot 與 api.cline.bot，都是它自己的服務，每次執行都已關閉，所以即使它仍試著連線，也會直接拒絕、不跳出核准卡片。不需要 loopback 埠（沒有 hub）、虛擬終端、Unix socket 或 macOS 的 trustd：Cline 在 Bun 上執行，它的 TLS 經過沙箱的代理，使用自己的憑證清單（啟動程式查看系統信任存放區時在沙箱中會失敗，印出「failed to copy trust settings」，沒有影響）。已在 macOS 上搭配每一種模型來源、以唯讀與可編輯模式檢查過：agent 正常工作；寫到允許的資料夾以外會失敗；連到其他主機會詢問；Cline 自己的主機會直接拒絕；受保護的路徑與 Harness Relay 的埠都連不到；一輪結束後 Cline 本身與這次執行的暫存資料夾都已不在。只要設了代理，Cline 就會自己把 loopback 加進 `NO_PROXY`，所以這台電腦上的端點（Ollama、LM Studio）要繞過代理才連得到：在 macOS 上允許直接連，在 Linux 上則轉接到沙箱自己的 loopback（[沙箱](sandboxing.zh-TW.md#harness-relay-自己的沙箱)）。少了這個，它在兩個系統上、完全存取以外都連不到這樣的端點。和 Claude Code、Codex、Grok 一樣，Harness Relay 在一輪結束時停止它的程序樹；指令或專案的 hook 讓程序脫離這棵樹（`nohup … &`、`setsid`）時，那個程序就不在其中，完全存取時沒有沙箱，它會繼續執行。也在 Linux（DGX Spark，arm64）上搭配 loopback 上的端點檢查過。
+**沙箱的需要。** 可寫入：`data/` 與這次執行的暫存資料夾；唯讀：`config/`、`data/cache/feature-flags.json` 與這次執行專屬的 `CLINE_DIR`。唯一的額外選項是 `quietlyDeniedHosts`：otel.cline.bot、data.cline.bot 與 api.cline.bot，都是它自己的服務，每次執行都已關閉，所以即使它仍試著連線，也會直接拒絕、不跳出核准卡片。不需要 loopback 埠（沒有 hub）、虛擬終端、Unix socket 或 macOS 的 trustd：Cline 在 Bun 上執行，它的 TLS 經過沙箱的代理，使用自己的憑證清單（啟動程式查看系統信任存放區時在沙箱中會失敗，印出「failed to copy trust settings」，沒有影響）。已在 macOS 上搭配每一種模型來源、以唯讀與可編輯模式檢查過：agent 正常工作；寫到允許的資料夾以外會失敗；連到其他主機會詢問；Cline 自己的主機會直接拒絕；受保護的路徑與 Harness Relay 的埠都連不到；一輪結束後 Cline 本身與這次執行的暫存資料夾都已不在。只要設了代理，Cline 就會自己把 loopback 加進 `NO_PROXY`，所以這台電腦上的端點（Ollama、LM Studio）要繞過代理才連得到：在 macOS 上允許直接連，在 Linux 上則轉接到沙箱自己的 loopback（[沙箱](sandboxing.zh-TW.md#harness-relay-自己的沙箱)）。少了這個，它在兩個系統上、完全存取以外都連不到這樣的端點。和 Claude Code、Codex、Grok、Cursor 一樣，Harness Relay 在一輪結束時停止它的程序樹；指令或專案的 hook 讓程序脫離這棵樹（`nohup … &`、`setsid`）時，那個程序就不在其中，完全存取時沒有沙箱，它會繼續執行。也在 Linux（DGX Spark，arm64）上搭配 loopback 上的端點檢查過。
 
 **限制。** 拒絕時的說明傳不到它的模型；不使用 plan 模式；推理強度是每個程序設定（`--thinking`），不是每個 session；圖片以路徑提供；它的 session 紀錄保留 session 開始時的模型（`model`），但每一輪都使用設定的模型；專案的 hook、規則與 workflow 沒有開關，plugin 只能個別略過。
 

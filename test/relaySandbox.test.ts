@@ -96,7 +96,7 @@ const runDirs = { tmp: join(data, 'relay-sandbox', 'run1'), hostTmp: join(data, 
 
 describe('relaySandboxPaths', () => {
   it("keeps every agent's project config and hook folders read-only in edit mode, Cline's .clinerules too", () => {
-    for (const name of ['.clinerules', '.cline', 'opencode.json', 'opencode.jsonc', '.opencode', '.openhands', '.pi', '.agents', '.goose', '.claude', '.codex', '.grok', '.mcp.json']) {
+    for (const name of ['.clinerules', '.cline', 'opencode.json', 'opencode.jsonc', '.opencode', '.openhands', '.pi', '.agents', '.goose', '.claude', '.codex', '.grok', '.cursor', '.mcp.json']) {
       expect(PROJECT_AGENT_CONFIG).toContain(name);
     }
     const p = relaySandboxPaths(spec({ permission: 'edit' }), ctx, runDirs);
@@ -149,7 +149,7 @@ describe('relaySandboxPaths', () => {
     const p = relaySandboxPaths(spec({ permission: 'edit' }), ctx, runDirs);
     expect(p.allowWrite).toEqual(expect.arrayContaining([runDirs.tmp, state, cwd, attachments]));
     for (const name of PROJECT_AGENT_CONFIG) expect(p.denyWrite).toContain(join(cwd, name));
-    expect(PROJECT_AGENT_CONFIG).toEqual(expect.arrayContaining(['.claude', '.codex', '.grok', '.opencode', 'opencode.json', '.pi', '.openhands']));
+    expect(PROJECT_AGENT_CONFIG).toEqual(expect.arrayContaining(['.claude', '.codex', '.grok', '.cursor', '.opencode', 'opencode.json', '.pi', '.openhands']));
   });
 
   it('denies reading and writing the protected paths, with the database and temporary folder in any case', () => {

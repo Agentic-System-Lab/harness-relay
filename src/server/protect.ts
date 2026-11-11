@@ -241,7 +241,8 @@ export interface AgentFolderOptions {
 
 /**
  * The folders that decide how the agents run, outside any project: each CLI's own folder (its
- * settings, hooks, MCP servers and, for Codex and Grok, its program), Claude Code's `~/.claude.json`,
+ * settings, hooks, MCP servers and, for Codex and Grok, its program; for Cursor its config folder and
+ * `~/.cursor`, where its hooks and MCP servers stay), Claude Code's `~/.claude.json`,
  * the CLIs' own folder Harness Relay gives them (`agentHome`), the folder of the other accounts' homes
  * (`accountsDir`), and the folders their programs are in (`bins`, from `commandPaths`).
  */
@@ -253,6 +254,16 @@ export function agentFolders(o: AgentFolderOptions = {}): string[] {
     join(home, '.claude.json'),
     env.CODEX_HOME || join(home, '.codex'),
     env.GROK_HOME || join(home, '.grok'),
+    // Cursor's config folder as it finds it (`cursorConfigDir`); ~/.cursor, where its hooks and MCP
+    // servers stay; and where it keeps its sign-in on Linux (`$XDG_CONFIG_HOME/cursor`, else
+    // ~/.config/cursor) and Windows (`%APPDATA%\Cursor`).
+    ...new Set([
+      env.CURSOR_CONFIG_DIR || (env.XDG_CONFIG_HOME ? join(env.XDG_CONFIG_HOME, 'cursor') : join(home, '.cursor')),
+      join(home, '.cursor'),
+      env.XDG_CONFIG_HOME ? join(env.XDG_CONFIG_HOME, 'cursor') : join(home, '.config', 'cursor'),
+      // On Windows, its sign-in is in %APPDATA%\Cursor.
+      ...(env.APPDATA ? [join(env.APPDATA, 'Cursor')] : []),
+    ]),
     ...(o.agentHome ? [o.agentHome] : []),
     ...(o.accountsDir && o.accountsDir !== o.agentHome ? [o.accountsDir] : []),
     ...(o.bins ?? []).map((bin) => dirname(bin)),

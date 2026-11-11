@@ -787,6 +787,7 @@ describe('SettingsStore (SQLite)', () => {
       expect(again.env('claude').CLAUDE_CONFIG_DIR).toBe(join(home, 'claude'));
       expect(again.env('codex').CODEX_HOME).toBe(join(home, 'codex'));
       expect(again.env('grok').GROK_HOME).toBe(join(home, 'grok'));
+      expect(again.env('cursor').CURSOR_CONFIG_DIR).toBe(join(home, 'cursor'));
       // Only its own variable: Claude Code does not get Codex's home.
       expect(again.env('claude').CODEX_HOME).toBe('');
       // Created, since Codex refuses a CODEX_HOME that does not exist.
@@ -905,7 +906,7 @@ describe('SettingsStore (SQLite)', () => {
     expect(storedKeys()).toEqual(['', '']);
     expect(s.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
     const view = (v: SettingsStore) => Object.fromEntries(v.view().providers.map((p) => [p.provider, p.apiKeyStorage]));
-    expect(view(s)).toEqual({ claude: 'keychain', codex: undefined, grok: 'keychain' });
+    expect(view(s)).toEqual({ claude: 'keychain', codex: undefined, grok: 'keychain', cursor: 'keychain' });
 
     const again = new SettingsStore(reopen(), keyring);
     expect(again.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
@@ -1029,6 +1030,36 @@ describe('SettingsStore accounts', () => {
         codex: { ANTHROPIC_API_KEY: 'sk-ant-shell', ANTHROPIC_AUTH_TOKEN: 'shell-bearer', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell', XAI_API_KEY: 'xai-shell' },
         grok: { ANTHROPIC_API_KEY: 'sk-ant-shell', ANTHROPIC_AUTH_TOKEN: 'shell-bearer', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell', CODEX_API_KEY: 'codex-shell', OPENAI_API_KEY: 'sk-openai-shell', XAI_API_KEY: 'xai-own-key' },
       });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("keeps Cursor's one sign-in to its default account: a key or another account signs in for the run only", () => {
+    vi.stubEnv('CURSOR_API_KEY', '');
+    vi.stubEnv('CURSOR_AUTH_TOKEN', '');
+    vi.stubEnv('AGENT_CLI_CREDENTIAL_STORE', '');
+    try {
+      const s = new SettingsStore(db);
+      const team = s.addAccount('cursor', 'Team');
+      const store = (account?: string) => s.env('cursor', account).AGENT_CLI_CREDENTIAL_STORE;
+      // The default account uses the sign-in Cursor keeps for this computer user.
+      expect(store()).toBe('');
+      // Another account never reads or replaces it, key or no key.
+      expect(store(team)).toBe('memory');
+      s.updateAccount('cursor', team, { apiKey: 'key_team' });
+      expect(s.env('cursor', team)).toMatchObject({ CURSOR_API_KEY: 'key_team', AGENT_CLI_CREDENTIAL_STORE: 'memory' });
+      // A key of the default account's (or the server's own) is not saved over the sign-in either.
+      s.updateAccount('cursor', '', { apiKey: 'key_default' });
+      expect(s.env('cursor')).toMatchObject({ CURSOR_API_KEY: 'key_default', AGENT_CLI_CREDENTIAL_STORE: 'memory' });
+      s.updateAccount('cursor', '', { apiKey: null });
+      vi.stubEnv('CURSOR_AUTH_TOKEN', 'shell-token');
+      expect(store()).toBe('memory');
+      // The server's own credentials are the default account's only.
+      const other = s.addAccount('cursor', 'Other');
+      expect([s.env('cursor', other).CURSOR_AUTH_TOKEN, s.env('cursor').CURSOR_AUTH_TOKEN]).toEqual([undefined, 'shell-token']);
+      // Other CLIs are left alone.
+      expect(s.env('claude', s.addAccount('claude', 'Work')).AGENT_CLI_CREDENTIAL_STORE).toBe('');
     } finally {
       vi.unstubAllEnvs();
     }

@@ -32,6 +32,7 @@ describe('client routes', () => {
       'claude',
       'codex',
       'grok',
+      'cursor',
       'opencode',
       'goose',
       'cline',

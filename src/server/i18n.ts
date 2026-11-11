@@ -95,6 +95,20 @@ const zhTW = {
   relaySandboxHost: '沙箱中的程式想連到這個主機。允許後，這次執行就能連到它（之後的執行也會，若你選了一律允許）。',
   grokRejectedModel: (value: string, err: string) => `Grok 不接受模型「${value}」：${err}`,
   grokRejectedEffort: (value: string, err: string) => `Grok 不接受推理強度「${value}」：${err}`,
+  cursorRefused: '超出這個對話的權限，已拒絕',
+  cursorReadOnlyWrite: '唯讀模式不允許寫入，Cursor 沒有寫入這個檔案',
+  cursorProtectedWrite: 'Cursor 對這類檔案會先詢問：改動這裡可能讓程式碼之後在沙箱外執行（例如 git hook、編輯器的工作設定），或改變 agent 的設定。',
+  cursorCancelled: 'Cursor 自行中止了這一輪（stopReason: cancelled），沒有給出原因。',
+  cursorNoSession: 'cursor-agent 沒有回傳 session id',
+  cursorRejectedModel: (value: string, err: string) => `Cursor 不接受模型「${value}」：${err}`,
+  cursorRejectedEffort: (value: string, err: string) => `Cursor 不接受推理強度「${value}」：${err}`,
+  cursorRejectedMode: (err: string) => `Cursor 無法切換到 Agent 模式：${err}`,
+  cursorExitCode: (code: number) => `結束代碼 ${code}`,
+  cursorService: (error: string) => `Cursor 的服務回報錯誤：${error}`,
+  cursorSignIn: (err: string) => `Cursor 尚未登入（${err}）。請到「設定」的 Cursor 登入，或設定 API key。`,
+  cursorConfigFailed: (err: string) => `無法替這一輪準備 Cursor 的設定資料夾：${err}`,
+  cursorAccountLogin:
+    'Cursor 在每個電腦使用者只保留一個登入（macOS 上存在鑰匙圈裡），所以額外的 Cursor 帳號不能用瀏覽器登入：請替它設定 API key。預設帳號才用 Cursor 自己的登入。',
 
   // Conversations and runs
   defaultTitle: '新對話',
@@ -445,6 +459,7 @@ const zhTW = {
   codexLoginFailed: (code: number | null) => `codex login 失敗（exit ${code}）`,
   codexModelsFailed: 'codex debug models 失敗',
   grokModelsEmpty: 'grok models 沒有回傳模型',
+  cursorModelsFailed: 'cursor-agent 沒有回傳模型清單',
   // Voice input
   voiceNotReady: '語音輸入還沒安裝完成，請到「設定 → 語音輸入」查看。',
   voiceBusy: '語音輸入正在安裝中，請等它完成或先取消。',
@@ -473,6 +488,7 @@ const zhTW = {
     codexBrowser: ['ChatGPT 瀏覽器登入', '在這台電腦開啟瀏覽器完成登入（需要本機 localhost 回呼）。'],
     grokDevice: ['xAI 裝置碼', '開啟連結並確認下方代碼。'],
     grokBrowser: ['xAI 瀏覽器登入', '在這台電腦開啟瀏覽器完成 OAuth 登入。'],
+    cursorBrowser: ['Cursor 帳號', '開啟下方連結，在任何一台裝置的瀏覽器登入 Cursor 並允許 CLI。'],
   } as Record<string, [string, string]>,
 };
 
@@ -544,6 +560,20 @@ const en: ServerMessages = {
   relaySandboxHost: 'A program in the sandbox wants to connect to this host. Allowing it lets this run reach it (and later runs too, if you allow it always).',
   grokRejectedModel: (value, err) => `Grok does not accept the model "${value}": ${err}`,
   grokRejectedEffort: (value, err) => `Grok does not accept the reasoning effort "${value}": ${err}`,
+  cursorRefused: "Refused: not covered by this conversation's permission",
+  cursorReadOnlyWrite: 'Not written: Cursor may not write in read-only mode',
+  cursorProtectedWrite: "Cursor asks before changing files like this one: a change here could make code run later, outside any sandbox (a git hook, an editor task), or change an agent's settings.",
+  cursorCancelled: 'Cursor ended the turn by itself (stopReason: cancelled) without giving a reason.',
+  cursorNoSession: 'cursor-agent returned no session id',
+  cursorRejectedModel: (value, err) => `Cursor does not accept the model "${value}": ${err}`,
+  cursorRejectedEffort: (value, err) => `Cursor does not accept the reasoning effort "${value}": ${err}`,
+  cursorRejectedMode: (err) => `Cursor could not switch to Agent mode: ${err}`,
+  cursorExitCode: (code) => `exit code ${code}`,
+  cursorService: (error) => `Cursor's service reported an error: ${error}`,
+  cursorSignIn: (err) => `Cursor is not signed in (${err}). Sign in under Cursor in Settings, or set an API key.`,
+  cursorConfigFailed: (err) => `Could not prepare Cursor's config folder for this turn: ${err}`,
+  cursorAccountLogin:
+    "Cursor keeps one sign-in per computer user (on macOS, in the keychain), so an extra Cursor account cannot sign in with a browser: give it an API key. Only the default account uses Cursor's own sign-in.",
 
   defaultTitle: 'New chat',
   conversationNotFound: 'Conversation not found',
@@ -880,6 +910,7 @@ const en: ServerMessages = {
   codexLoginFailed: (code) => `codex login failed (exit ${code})`,
   codexModelsFailed: 'codex debug models failed',
   grokModelsEmpty: 'grok models returned no models',
+  cursorModelsFailed: 'cursor-agent returned no model list',
   voiceNotReady: 'Voice input is not set up yet. See Settings → Voice input.',
   voiceBusy: 'Voice input is being installed. Wait for it to finish, or cancel it first.',
   voiceNoJob: 'No install is running',
@@ -907,6 +938,7 @@ const en: ServerMessages = {
     codexBrowser: ['ChatGPT browser sign-in', 'Opens a browser on this computer to sign in (needs a localhost callback).'],
     grokDevice: ['xAI device code', 'Open the link and confirm the code below.'],
     grokBrowser: ['xAI browser sign-in', 'Opens a browser on this computer to finish the OAuth sign-in.'],
+    cursorBrowser: ['Cursor account', 'Open the link below in a browser on any device, sign in to Cursor and allow the CLI.'],
   },
 };
 

@@ -12,7 +12,7 @@
 
 - 你做了什麼、預期會發生什麼，以及實際發生了什麼；
 - 作業系統、Node.js 版本（`node --version`）與 Harness Relay 的 commit（`git rev-parse --short HEAD`）；
-- 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`、`opencode --version`…），開源 agent 再加上模型來源的種類（API 或你自己的端點，以及哪一種伺服器）；
+- 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`、`cursor-agent --version`、`opencode --version`…），開源 agent 再加上模型來源的種類（API 或你自己的端點，以及哪一種伺服器）；
 - 對話的模式（圓桌、平行或接力）、權限（唯讀、可編輯或完全存取），以及是否直接採用首席 agent 組的團隊；
 - 訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間 `npm run dev` 輸出中的 `[server]` 行。
 
@@ -28,7 +28,7 @@
 
 ## 建立開發環境
 
-需要 Node.js **22.13 以上**。agent CLI（`claude`、`codex`、`grok`，以及開源的 `opencode`、`goose`、`cline`、`openhands`、`pi`）只有在手動試用 app 時才需要；測試從不執行它們，也從不啟動真正的沙箱（那是手動執行的 `scripts/sandbox-check.ts` 做的事）。
+需要 Node.js **22.13 以上**。agent CLI（`claude`、`codex`、`grok`、`cursor-agent`，以及開源的 `opencode`、`goose`、`cline`、`openhands`、`pi`）只有在手動試用 app 時才需要；測試從不執行它們，也從不啟動真正的沙箱（那是手動執行的 `scripts/sandbox-check.ts` 做的事）。
 
 ```bash
 git clone https://github.com/Agentic-System-Lab/harness-relay.git

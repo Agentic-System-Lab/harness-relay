@@ -134,6 +134,17 @@ describe('what decides how the agents run, as a working directory', () => {
     expect(agentFolderOverlap(join(home, 'relay-agents/grok'), o)).toBe(join(home, 'relay-agents'));
     // A CLI home moved by its variable.
     expect(agentFolderOverlap(join(root, 'elsewhere'), { ...o, env: { CODEX_HOME: join(root, 'elsewhere/codex') } })).toBe(join(root, 'elsewhere/codex'));
+    // Cursor's: its config folder, and ~/.cursor, where its hooks and MCP servers stay when that moves.
+    expect(agentFolderOverlap(join(home, '.cursor/rules'), o)).toBe(join(home, '.cursor'));
+    const moved = { ...o, env: { CURSOR_CONFIG_DIR: join(root, 'elsewhere/cursor') } };
+    expect(agentFolderOverlap(join(root, 'elsewhere/cursor/x'), moved)).toBe(join(root, 'elsewhere/cursor'));
+    expect(agentFolderOverlap(join(home, '.cursor'), moved)).toBe(join(home, '.cursor'));
+    const xdg = { ...o, env: { XDG_CONFIG_HOME: join(root, 'xdg') } };
+    expect(agentFolderOverlap(join(root, 'xdg/cursor/rules'), xdg)).toBe(join(root, 'xdg/cursor'));
+    // Where it keeps its sign-in on Linux, also with its config folder moved.
+    expect(agentFolderOverlap(join(home, '.config/cursor'), moved)).toBe(join(home, '.config/cursor'));
+    // And on Windows, in %APPDATA%.
+    expect(agentFolderOverlap(join(root, 'appdata/Cursor/x'), { ...o, env: { APPDATA: join(root, 'appdata') } })).toBe(join(root, 'appdata/Cursor'));
   });
 
   it("refuses the folder of the other accounts' homes, and a project in one of them", () => {

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   ENDPOINT_CLI,
   backendModelId,
+  isEndpointCli,
   isOpenProvider,
   parseBackendModel,
   type EndpointCli,
@@ -15,7 +16,7 @@ import {
 } from '../shared/types';
 import { openAgents } from './agents/index';
 import { openHomeEnv, type OpenCatalog } from './agents/open';
-import { capture, stripAnsi, tail } from './process';
+import { capture, converse, stripAnsi, tail } from './process';
 import { t } from './i18n';
 
 /** Discovered once per CLI and cached; defaults from Relay settings are layered on at request time. */
@@ -24,6 +25,7 @@ export type DiscoveredModels = Omit<ProviderModels, 'defaultModel' | 'defaultEff
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const GROK_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+const CURSOR_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 /** Claude Code accepts aliases that always point at the latest model of each family. */
 const CLAUDE_MODELS: ModelOption[] = [
@@ -93,6 +95,104 @@ async function discoverGrok(bin: string, env: NodeJS.ProcessEnv): Promise<Discov
     cliDefaultModel,
     source: models.length ? 'cli' : 'builtin',
     error: models.length ? undefined : tail(out, 200) || t().grokModelsEmpty,
+  };
+}
+
+/** A name as Cursor shows it, without the zero-width spaces and doubled spaces some have. */
+const cleanName = (name: unknown) => (typeof name === 'string' ? name.replace(/\u200b/g, '').replace(/\s+/g, ' ').trim() : '');
+
+/** An option's values. */
+export const cursorOptionValues = (option: any): string[] =>
+  Array.isArray(option?.options) ? option.options.map((o: any) => (typeof o?.value === 'string' ? o.value : '')).filter(Boolean) : [];
+
+/**
+ * A Cursor model's reasoning effort: its option of category `thought_level`, unless that is only a
+ * thinking switch (`true` / `false`), which is no level to pick (such a model runs at its own).
+ */
+export function cursorEffortOption(options: unknown): any {
+  const option = Array.isArray(options) ? options.find((c: any) => c?.category === 'thought_level') : undefined;
+  const values = cursorOptionValues(option);
+  return values.length && !values.every((v) => v === 'true' || v === 'false') ? option : undefined;
+}
+
+/**
+ * Cursor's models from its `cursor/list_available_models` answer (with the parameterized model picker):
+ * each model by its base name, with the reasoning efforts of its option of category `thought_level`
+ * (named `effort`, `reasoning_effort`, `reasoning`… per model, `cursorEffortOption`) and that option's
+ * default. `default` is
+ * Auto, which picks a model by itself.
+ */
+export function parseCursorModels(result: unknown): ModelOption[] {
+  const list = (result as { models?: unknown } | undefined)?.models;
+  if (!Array.isArray(list)) return [];
+  const models: ModelOption[] = [];
+  for (const m of list) {
+    const id = typeof m?.value === 'string' ? m.value : '';
+    if (!id || models.some((x) => x.id === id)) continue;
+    const effort = cursorEffortOption(m.configOptions);
+    const efforts = effort ? cursorOptionValues(effort) : undefined;
+    const label = cleanName(m.name);
+    models.push({
+      id,
+      ...(label && label !== id ? { label } : {}),
+      ...(efforts?.length ? { efforts } : { efforts: [] }),
+      ...(efforts?.length && typeof effort.currentValue === 'string' ? { defaultEffort: effort.currentValue } : {}),
+    });
+  }
+  return models;
+}
+
+/**
+ * Asks Cursor for its models over ACP, the way Harness Relay runs it, without a session or a prompt:
+ * `initialize`, `authenticate` (not with an API key, which signs it in already), then
+ * `cursor/list_available_models`.
+ */
+async function discoverCursor(bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
+  const keyed = Boolean(env.CURSOR_API_KEY || env.CURSOR_AUTH_TOKEN);
+  let answer: unknown;
+  let error: string | undefined;
+  const failed = (msg: Record<string, any>) => String(msg.error?.data?.message ?? msg.error?.message ?? 'error');
+  const res = await converse({
+    bin,
+    args: ['--disable-project-configs', 'acp'],
+    cwd: homedir(),
+    env: { ...env, NO_OPEN_BROWSER: '1' },
+    timeoutMs: 30_000,
+    open: (write) =>
+      write({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: 1,
+          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, _meta: { parameterizedModelPicker: true } },
+        },
+      }),
+    onMessage: (msg, write, finish) => {
+      const list = () => write({ jsonrpc: '2.0', id: 3, method: 'cursor/list_available_models', params: {} });
+      if (msg.method !== undefined) return;
+      if (msg.error) {
+        error = failed(msg);
+        finish();
+      } else if (msg.id === 1) {
+        const login = Array.isArray(msg.result?.authMethods) && msg.result.authMethods.some((m: any) => m?.id === 'cursor_login');
+        if (keyed || !login) list();
+        else write({ jsonrpc: '2.0', id: 2, method: 'authenticate', params: { methodId: 'cursor_login' } });
+      } else if (msg.id === 2) list();
+      else if (msg.id === 3) {
+        answer = msg.result;
+        finish();
+      }
+    },
+  });
+  const models = parseCursorModels(answer);
+  const efforts = [...new Set(models.flatMap((m) => m.efforts ?? []))];
+  return {
+    provider: 'cursor',
+    models,
+    efforts: efforts.length ? efforts : CURSOR_EFFORTS,
+    source: models.length ? 'cli' : 'builtin',
+    error: models.length ? undefined : error || (res.timedOut ? t().timedOut : tail(res.stderr, 200)) || t().cursorModelsFailed,
   };
 }
 
@@ -189,11 +289,15 @@ export async function discoverModels(
   }
   let own: DiscoveredModels;
   try {
-    own = p === 'claude' ? discoverClaude(env) : p === 'codex' ? await discoverCodex(bin, env) : await discoverGrok(bin, env);
+    if (p === 'claude') own = discoverClaude(env);
+    else if (p === 'codex') own = await discoverCodex(bin, env);
+    else if (p === 'cursor') own = await discoverCursor(bin, env);
+    else own = await discoverGrok(bin, env);
   } catch (err) {
-    const efforts = p === 'claude' ? CLAUDE_EFFORTS : p === 'codex' ? CODEX_EFFORTS : GROK_EFFORTS;
+    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS }[p];
     own = { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
   }
-  return withEndpointModels(p, own, backends.endpoints);
+  // Cursor's models run only through Cursor's own service, so the endpoints' models are not its.
+  return isEndpointCli(p) ? withEndpointModels(p, own, backends.endpoints) : own;
 }
 

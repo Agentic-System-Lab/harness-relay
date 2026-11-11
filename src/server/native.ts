@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
@@ -45,6 +45,7 @@ import {
 import { grokNativeEnv } from './agents/grok';
 import { openAgents } from './agents/index';
 import { openHomeEnv } from './agents/open';
+import { parseFrontMatter } from './tools';
 import { t } from './i18n';
 import { converse, runProcess } from './process';
 import { AGENT_HOME_ENV } from './settings';
@@ -63,6 +64,8 @@ import { AGENT_HOME_ENV } from './settings';
  *   `hooks/list`, `plugin/installed` and `mcpServerStatus/list` for each of the user's MCP servers
  *   that is on (their tools; this starts them).
  * - Grok: `grok inspect --json`.
+ * - Cursor: it has no such question over ACP, so its lists come from the files it is known to read
+ *   (`probeCursor`); it has no switch that leaves any of them out of one run.
  * Claude Code and Codex have no list of the instruction and memory files they read, so those come
  * from the files at the places they are documented to read. Only names, descriptions, paths and
  * states are kept: MCP server configs and hook commands (which can hold tokens) never leave this
@@ -1066,6 +1069,205 @@ function probeOpen(provider: OpenProvider) {
   };
 }
 
+// --- Cursor ----------------------------------------------------------------------------------
+
+/** The folders directly in `dir` that hold a `SKILL.md` (links are left out: Cursor does not follow them). */
+function skillFolders(dir: string): string[] {
+  try {
+    return readdirSync(dir)
+      .sort()
+      .map((n) => join(dir, n))
+      .filter((p) => {
+        try {
+          return lstatSync(p).isDirectory() && isFile(join(p, 'SKILL.md'));
+        } catch {
+          return false;
+        }
+      });
+  } catch {
+    return [];
+  }
+}
+
+/** A Markdown file's front matter, or none when it cannot be read. */
+function frontMatter(path: string): Record<string, string> {
+  try {
+    return parseFrontMatter(readFileSync(path, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The skills Cursor finds for `cwd`: the `skills` folders of `.cursor`, `.claude`, `.codex`, `.grok`
+ * and `.agents` in the working directory (project) and in the home folder (user), and its built-in
+ * ones in `~/.cursor/skills-cursor`. A name found earlier wins.
+ */
+export function cursorSkills(cwd: string, home = homedir()): NativeSkill[] {
+  const kinds = ['.cursor', '.claude', '.codex', '.grok', '.agents'];
+  const places: [string, string][] = [
+    ...kinds.map((k): [string, string] => [join(resolve(cwd), k, 'skills'), 'project']),
+    ...kinds.map((k): [string, string] => [join(home, k, 'skills'), 'user']),
+    [join(home, '.cursor', 'skills-cursor'), 'built-in'],
+  ];
+  const skills: NativeSkill[] = [];
+  for (const [dir, source] of places) {
+    for (const folder of skillFolders(dir)) {
+      const path = join(folder, 'SKILL.md');
+      const fm = frontMatter(path);
+      const name = fm.name || folder.slice(dir.length + 1);
+      if (skills.some((x) => x.name === name)) continue;
+      skills.push({ name, description: fm.description ?? '', source, path });
+    }
+  }
+  return skills;
+}
+
+/** A JSON file, or undefined when it is missing or not JSON. */
+function jsonFile(path: string): Json | undefined {
+  try {
+    const v = JSON.parse(readFileSync(path, 'utf8'));
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Cursor's MCP servers, by name only (their configs can hold tokens): those in `~/.cursor/mcp.json`
+ * (user), which it loads, and those in the project's `.cursor/mcp.json` (the repository root's, and
+ * the working directory's), which it loads only once approved, which it never asks over ACP.
+ */
+export function cursorMcpServers(cwd: string, home = homedir()): NativeMcpServer[] {
+  const servers: NativeMcpServer[] = [];
+  const add = (file: string, source: string, status?: string) => {
+    const list = jsonFile(file)?.mcpServers;
+    if (!list || typeof list !== 'object') return;
+    for (const [name, config] of Object.entries(list as Json)) {
+      if (servers.some((x) => x.name === name)) continue;
+      const transport = typeof config?.url === 'string' ? 'http' : 'stdio';
+      servers.push({ name, transport, source, ...(status ? { status } : {}) });
+    }
+  };
+  add(join(home, '.cursor', 'mcp.json'), 'user');
+  for (const dir of [...new Set([gitRoot(cwd), resolve(cwd)].filter((d): d is string => Boolean(d)))]) {
+    add(join(dir, '.cursor', 'mcp.json'), 'project', 'needs approval');
+  }
+  return servers;
+}
+
+/** The hooks of a Cursor `hooks.json` (`{ version, hooks: { <event>: [{ command, matcher? }] } }`), never their commands. */
+function cursorHooksIn(file: string, source: string): NativeHook[] {
+  const hooks = jsonFile(file)?.hooks;
+  if (!hooks || typeof hooks !== 'object') return [];
+  return Object.entries(hooks as Json).flatMap(([event, list]) =>
+    (Array.isArray(list) ? list : []).map((h: Json) => ({
+      event,
+      ...(typeof h?.matcher === 'string' && h.matcher ? { matcher: h.matcher } : {}),
+      source,
+      file,
+    })),
+  );
+}
+
+/**
+ * The hooks of Claude Code's `~/.claude/settings.json`, which Cursor loads too
+ * (`{ hooks: { <Event>: [{ matcher?, hooks: [{ type, command }] }] } }`), one per matcher entry.
+ */
+function claudeHooksIn(file: string): NativeHook[] {
+  const hooks = jsonFile(file)?.hooks;
+  if (!hooks || typeof hooks !== 'object') return [];
+  return Object.entries(hooks as Json).flatMap(([event, list]) =>
+    (Array.isArray(list) ? list : []).map((h: Json) => ({
+      event,
+      ...(typeof h?.matcher === 'string' && h.matcher ? { matcher: h.matcher } : {}),
+      source: 'Claude Code',
+      file,
+    })),
+  );
+}
+
+/**
+ * Cursor's hooks: the organisation's (managed), the user's `~/.cursor/hooks.json`, and Claude Code's in
+ * `~/.claude/settings.json` (always that file: Cursor does not follow `CLAUDE_CONFIG_DIR`).
+ */
+export function cursorHooks(home = homedir(), platform: NodeJS.Platform = process.platform): NativeHook[] {
+  const managed =
+    platform === 'darwin'
+      ? '/Library/Application Support/Cursor/hooks.json'
+      : platform === 'linux'
+        ? '/etc/cursor/hooks.json'
+        : join(process.env.ProgramData ?? 'C:\\ProgramData', 'Cursor', 'hooks.json');
+  return [
+    ...cursorHooksIn(managed, 'managed'),
+    ...cursorHooksIn(join(home, '.cursor', 'hooks.json'), 'user'),
+    ...claudeHooksIn(join(home, '.claude', 'settings.json')),
+  ];
+}
+
+/** Cursor's subagents: the Markdown files in the working directory's `.cursor/agents` and `.claude/agents`. */
+export function cursorAgents(cwd: string): NativeAgent[] {
+  const agents: NativeAgent[] = [];
+  for (const dir of ['.cursor', '.claude'].map((k) => join(resolve(cwd), k, 'agents'))) {
+    for (const path of markdownIn(dir)) {
+      const fm = frontMatter(path);
+      const name = fm.name || path.slice(dir.length + 1).replace(/\.md$/i, '');
+      if (!agents.some((a) => a.name === name)) agents.push({ name, description: fm.description ?? '', source: 'project' });
+    }
+  }
+  return agents;
+}
+
+/**
+ * The instruction files Cursor reads: AGENTS.md, CLAUDE.md, CLAUDE.local.md and the rules in
+ * `.cursor/rules` (`.mdc` and `.md`), in the folder it starts in and in each folder above it. Its
+ * account's rules on Cursor's side are not files, so they are not listed.
+ */
+export function cursorMemoryFiles(cwd: string): NativeMemoryFile[] {
+  const files: string[] = [];
+  for (const dir of upFrom(cwd).reverse()) {
+    files.push(join(dir, 'AGENTS.md'), join(dir, 'CLAUDE.md'), join(dir, 'CLAUDE.local.md'));
+    try {
+      const rules = join(dir, '.cursor', 'rules');
+      files.push(
+        ...readdirSync(rules)
+          .filter((n) => /\.mdc?$/i.test(n))
+          .sort()
+          .slice(0, 50)
+          .map((n) => join(rules, n)),
+      );
+    } catch {
+      // no rules here
+    }
+  }
+  return [...new Set(files)].filter(isFile).map((path) => ({ path, kind: 'instructions' as const }));
+}
+
+/** What Cursor loads by itself for `cwd`, from its files; nothing can be left out of its runs (`NATIVE_OFF_SUPPORT`). */
+async function probeCursor(
+  _bin: string,
+  _env: NodeJS.ProcessEnv,
+  cwd: string,
+  off: readonly NativePart[],
+  items: NativeItemsOff,
+): Promise<NativeProbe> {
+  return {
+    provider: 'cursor',
+    cwd,
+    skills: cursorSkills(cwd),
+    mcpServers: cursorMcpServers(cwd),
+    memory: cursorMemoryFiles(cwd),
+    hooks: cursorHooks(),
+    agents: cursorAgents(cwd),
+    memoryFromFiles: true,
+    nativeOff: [...off],
+    nativeItems: items,
+    asRun: false,
+    problems: [],
+    checkedAt: Date.now(),
+  };
+}
+
 const PROBES: Record<
   Provider,
   (bin: string, env: NodeJS.ProcessEnv, cwd: string, off: readonly NativePart[], items: NativeItemsOff, timeoutMs?: number) => Promise<NativeProbe>
@@ -1073,6 +1275,7 @@ const PROBES: Record<
   claude: probeClaude,
   codex: probeCodex,
   grok: probeGrok,
+  cursor: probeCursor,
   opencode: probeOpen('opencode'),
   goose: probeOpen('goose'),
   cline: probeOpen('cline'),

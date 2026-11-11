@@ -8,7 +8,7 @@ Harness Relay runs on one computer: the agents, your projects and the CLIs' logi
 flowchart LR
   P["Phone or tablet<br/>(Tailscale app)"] -- "HTTPS, inside your tailnet" --> S["tailscale serve<br/>(on the computer)"]
   S -- "http://127.0.0.1:8787" --> R["Harness Relay"]
-  R --> A["claude · codex · grok"]
+  R --> A["claude · codex · grok · cursor-agent"]
 ```
 
 The server stays bound to `127.0.0.1`. `tailscale serve`, on the same computer, takes the requests that come in from your tailnet and passes them on. So:
@@ -81,7 +81,7 @@ Turn Tailscale on in the phone and open the address from step 1, for example `ht
 
 - **Working directories** are folders on the computer, not on the phone.
 - **Files the agents make** (a PDF, slides, a spreadsheet…): tap the link in the reply, or **Download** in **Files**, and the file is saved on the phone: on an iPhone or iPad in the Files app under **Downloads** (Safari may ask first), on Android in **Downloads**.
-- **Signing in an agent** from the phone: pick a method that shows a link or a code. Codex's *ChatGPT browser sign-in* opens a browser on the computer, not on the phone; use *ChatGPT device code* instead.
+- **Signing in an agent** from the phone: pick a method that shows a link or a code. Codex's *ChatGPT browser sign-in* opens a browser on the computer, not on the phone; use *ChatGPT device code* instead. Cursor's *Cursor account* shows its link instead of opening a browser, so it works from the phone too.
 - **Conversations keep running** on the computer when the phone locks or you close the page. When you come back, the page reconnects and catches up.
 - **Voice input**: allow the microphone when the browser asks. The recording goes to the computer, which turns it into text; it is never sent anywhere else.
 
@@ -164,7 +164,7 @@ WorkingDirectory=%h/harness-relay
 Environment=PORT=8787
 Environment=RELAY_ALLOWED_HOSTS=my-computer.tail1234.ts.net
 # systemd does not read your shell profile. Paste the output of `echo $PATH` here,
-# so the server finds node and the claude, codex and grok commands.
+# so the server finds node and the claude, codex, grok and cursor-agent commands.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/harness-relay/node_modules/.bin/tsx src/server/index.ts
 # Stop only the server: it stops the agents' processes itself.
@@ -231,6 +231,6 @@ On a server:
 | The desktop app says it could not read what this computer shares | `tailscale serve status --json` failed or did not answer in time, so the app shared nothing. Check that Tailscale runs and is signed in (`tailscale status`), then choose **Share with your phone** again, or share by hand as in [step 1](#1-share-the-server-with-your-tailnet). |
 | Another program's page or certificate shows up | Another program on the computer listens on port 443 and answers when nothing is shared. Check `tailscale serve status`: if the address is gone, run step 1 again. If it is listed and the other program still answers, share on another port: `tailscale serve --bg --https=8443 8787`, then open `https://my-computer.tail1234.ts.net:8443` (`RELAY_ALLOWED_HOSTS` stays the same). |
 | AgentsView's page opens on the phone but stays empty | Its requests are refused because `public_url` doesn't match the address you opened. Check the line at the top of `~/.relay-agents/agentsview/config.toml` (the exact address, with `https://` and `:9999`), then restart AgentsView. |
-| An agent shows *Command not found* only when it runs as a service | The service's `PATH` doesn't include that CLI. Find it with `command -v claude` (or `codex`, `grok`), add its folder to `Environment=PATH=` and restart. |
+| An agent shows *Command not found* only when it runs as a service | The service's `PATH` doesn't include that CLI. Find it with `command -v claude` (or `codex`, `grok`, `cursor-agent`), add its folder to `Environment=PATH=` and restart. |
 | 🎙 says the microphone is not available on the phone | Open the `https://` address, not an `http://` one. Allow the microphone for this site in the browser, and in the phone's settings for that browser. |
 | The home-screen icon opens a blank or error page | Turn Tailscale on in the phone, then open the icon again. |

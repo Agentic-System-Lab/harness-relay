@@ -352,6 +352,6 @@ describe('ToolLibrary', () => {
     const view = new ToolLibrary(db).view();
     expect(view.mcpServers[0]!.providers).toEqual([]);
     expect(view.skills[0]!.providers).toEqual(PROVIDERS);
-    expect(view.memory).toEqual({ all: 'old notes', claude: '', codex: '', grok: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
+    expect(view.memory).toEqual({ all: 'old notes', claude: '', codex: '', grok: '', cursor: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
   });
 });

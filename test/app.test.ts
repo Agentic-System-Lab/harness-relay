@@ -579,6 +579,7 @@ describe('accounts', () => {
     settings.update('codex', { bin: join(root, 'no-such-codex') });
     settings.update('grok', { bin: join(root, 'no-such-grok') });
     for (const p of OPEN_PROVIDERS) settings.update(p, { bin: join(root, `no-such-${p}`) });
+    settings.update('cursor', { bin: join(root, 'no-such-cursor') });
     const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
     await call('PUT', `/api/settings/providers/claude/accounts/${id}`, { defaultModel: 'sonnet' });
     await call('PUT', '/api/settings/providers/claude/accounts/default', { defaultModel: 'opus' });
@@ -588,6 +589,7 @@ describe('accounts', () => {
       ['claude', id, 'sonnet'],
       ['codex', '', undefined],
       ['grok', '', undefined],
+      ['cursor', '', undefined],
       // The open agents have their default account only.
       ...OPEN_PROVIDERS.map((p) => [p, '', undefined]),
     ]);
@@ -620,6 +622,15 @@ describe('accounts', () => {
     expect(settings.hasStoredApiKey('codex', codex)).toBe(false);
     const removed = (await (await call('PUT', `/api/settings/providers/claude/accounts/${claude}`, { apiKey: null })).json()) as SettingsView;
     expect(removed.providers[0]!.accounts[1]!.apiKeyMasked).toBe('');
+  });
+
+  it("refuses a browser sign-in for a Cursor account besides the default one, which signs in with its key", async () => {
+    const { call, read } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/cursor/accounts', { label: 'Team' })).json()) as { id: string }).id;
+    const res = await call('POST', `/api/providers/cursor/login?account=${id}`, { method: 'browser' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/one sign-in per computer user/);
+    expect((await (await read('/api/providers/cursor/login-methods')).json()).map((m: { id: string }) => m.id)).toEqual(['browser']);
   });
 
   it('signs each account in and out on its own, and refuses accounts the CLI does not have', async () => {
@@ -1454,7 +1465,7 @@ describe('tool library', () => {
     expect(res.status).toBe(200);
     const view = await res.json();
     expect(view.skills).toEqual([{ path: skills, name: 'commit', description: 'Commit well.', providers: ['codex'] }]);
-    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
+    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '', cursor: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
     expect((await app.request('/api/tools', json('PUT', { memory: { gemini: 'x' } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);

@@ -6,7 +6,7 @@
     <title>Harness Relay：Claude Code、Codex 和 Grok 同一個群組聊天</title>
     <meta
       name="description"
-      content="在你電腦上執行的網頁 app：真正的 claude、codex、grok CLI，以及用你自己的模型來源執行的五個開源 coding agent，和你一起工作，也彼此溝通。設計團隊、決定發言方式，並核准它們的動作。"
+      content="在你電腦上執行的網頁 app：真正的 claude、codex、grok、cursor-agent CLI，以及用你自己的模型來源執行的五個開源 coding agent，和你一起工作，也彼此溝通。設計團隊、決定發言方式，並核准它們的動作。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Harness Relay：Claude Code、Codex 和 Grok 同一個群組聊天" />
     <meta
       property="og:description"
-      content="真正的 claude、codex、grok CLI，以及用你的 API key 或自己的模型執行的五個開源 coding agent，和你一起工作，也彼此溝通。設計團隊、決定發言方式，並核准它們的動作。"
+      content="真正的 claude、codex、grok、cursor-agent CLI，以及用你的 API key 或自己的模型執行的五個開源 coding agent，和你一起工作，也彼此溝通。設計團隊、決定發言方式，並核准它們的動作。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -314,8 +314,8 @@
             <div class="section-head">
               <h2 id="agents-title">是你自己的 CLI，不是仿製品</h2>
               <p class="lead">
-                Harness Relay 不會自己呼叫任何模型 API。它啟動你已經安裝的 <code>claude</code>、<code>codex</code> 和
-                <code>grok</code>，保有它們各自的工具、session 與登入狀態，把每個 agent 還沒看過的訊息交給它，再把所有內容串流到同一個聊天室。OpenCode、Goose、Cline、OpenHands 與 Pi
+                Harness Relay 不會自己呼叫任何模型 API。它啟動你已經安裝的 <code>claude</code>、<code>codex</code>、
+                <code>grok</code> 和 <code>cursor-agent</code>，保有它們各自的工具、session 與登入狀態，把每個 agent 還沒看過的訊息交給它，再把所有內容串流到同一個聊天室。OpenCode、Goose、Cline、OpenHands 與 Pi
                 也以同樣的方式啟動，用你設定的模型來源。
               </p>
             </div>
@@ -333,7 +333,7 @@
                 <dd>透過 <code>grok agent stdio</code> 使用 Agent Client Protocol（ACP）。</dd>
               </div>
             </dl>
-            <p class="agents-foot">不必全部都有：八個中任何組合都能用。Claude Code、Codex 和 Grok 在設定頁登入，其他的則給它們一個<a href="#open">模型來源</a>。</p>
+            <p class="agents-foot">不必全部都有：九個中任何組合都能用。Claude Code、Codex、Grok 和 Cursor 在設定頁登入，其他的則給它們一個<a href="#open">模型來源</a>。</p>
           </div>
           <div class="mark" aria-hidden="true">
             <div class="disc t-claude"><strong>Claude Code</strong><code>claude</code></div>
@@ -349,7 +349,7 @@
             <div class="section-head">
               <h2 id="open-title">開源 agent，<span class="keep">用你自己的模型</span></h2>
               <p class="lead">
-                OpenCode、Goose、Cline、OpenHands 與 Pi 和另外三個一樣加入團隊。它們用你在設定頁設定的模型來源執行：OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容端點，例如 vLLM、Ollama、LM Studio 或 llama.cpp。
+                OpenCode、Goose、Cline、OpenHands 與 Pi 和另外四個一樣加入團隊。它們用你在設定頁設定的模型來源執行：OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容端點，例如 vLLM、Ollama、LM Studio 或 llama.cpp。
               </p>
             </div>
             <dl class="driven open-agents">
@@ -740,11 +740,11 @@
             <li><b>把對話分享成連結</b>把整段對話，或到某則回覆為止的內容，分享成和聊天室一樣的頁面，不含工具呼叫和思考過程。它會用你的 GitHub CLI 上傳成 secret gist，在 gistpreview.github.io 打開；設定頁列出所有連結，可以移除不要的。</li>
             <li><b>排程傳訊息</b>在設定的時間把訊息傳給團隊，在同一個對話裡或每次開新對話：一次、每天、每週選定的星期幾，或每隔幾小時。也可以從「新排程」開始，由首席 agent 挑選團隊。排程執行時可能沒人看著，所以預設會自動拒絕權限範圍以外的動作（設為本對話都允許的除外）。Harness Relay 關閉期間錯過的時間會略過，也可以選擇在開啟後補送一次。</li>
             <li><b>狀態一目了然</b>側邊欄標示需要你處理、正在回覆或有新回覆的對話；切換到別的對話時，原本的對話會繼續執行。</li>
-            <li><b>在 app 裡登入</b>Claude Code、Codex 和 Grok 都能用裝置碼、瀏覽器或貼上授權碼登入，開源 agent 則設定模型來源；也能設定 API key、執行檔路徑與預設模型，並查看各 CLI 自己載入的 skill、MCP 工具、內建工具、hook、subagent、plugin、指示與記憶，也能讓 Harness Relay 執行時整類或逐項不載入。</li>
+            <li><b>在 app 裡登入</b>Claude Code、Codex、Grok 和 Cursor 都能用裝置碼、瀏覽器或貼上授權碼登入，開源 agent 則設定模型來源；也能設定 API key、執行檔路徑與預設模型，並查看各 CLI 自己載入的 skill、MCP 工具、內建工具、hook、subagent、plugin、指示與記憶，也能讓 Harness Relay 執行時整類或逐項不載入（Cursor 沒辦法）。</li>
             <li><b>聊天室裡的圖片與影片</b>agent 存在工作目錄裡的圖片與影片，會直接顯示在對話中。</li>
             <li><b>瀏覽工作目錄</b>上方的「檔案」列出工作目錄或某位成員的 worktree，並預覽附行號的程式碼、Markdown、圖片與影片。任何檔案都能下載，資料夾也能下載成 ZIP 檔。</li>
-            <li><b>所有成員共用的工具庫</b>MCP 伺服器、skill 與記憶設定一次，不論成員用八種 CLI 中的哪一種都能用，而且加在各 CLI 自己的設定之外；每一項可以只給某幾種 CLI 或特定成員。</li>
-            <li><b>在 AgentsView 中看每個 session</b>可以讓各 CLI 使用自己的資料夾，並在 <a href="https://www.agentsview.io">AgentsView</a> 中把每個對話看成一個 thread，底下是每位成員自己的 session（工具呼叫、token 與成本）。</li>
+            <li><b>所有成員共用的工具庫</b>MCP 伺服器、skill 與記憶設定一次，不論成員用九種 CLI 中的哪一種都能用，而且加在各 CLI 自己的設定之外；每一項可以只給某幾種 CLI 或特定成員。</li>
+            <li><b>在 AgentsView 中看每個 session</b>可以讓各 CLI 使用自己的資料夾，並在 <a href="https://www.agentsview.io">AgentsView</a> 中把每個對話看成一個 thread，底下是每位成員自己的 session（工具呼叫、token 與成本）；Cursor 的除外，AgentsView 讀不到。</li>
             <li><b>English 與繁體中文</b>介面跟著瀏覽器的語言，第一次開啟時有使用導覽。</li>
           </ul>
         </div>
@@ -757,7 +757,7 @@
             <p>沒有任何雲端服務。伺服器只在你的電腦上監聽，agent 的回覆也無法讓瀏覽器載入遠端內容。</p>
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>只綁定 <code>127.0.0.1</code>，只接受你登入過的瀏覽器，並拒絕跨站請求。</span></li>
-              <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>完全存取以外，Claude Code、Codex 和 Grok 的指令都在各自 CLI 的作業系統沙箱中執行：只能寫入工作目錄，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。</span></li>
+              <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>完全存取以外，Claude Code、Codex 和 Grok 的指令都在各自 CLI 的作業系統沙箱中執行：只能寫入工作目錄，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Cursor 沒有沙箱，所以每個指令都會先問你，你的 Cursor 團隊允許清單上的除外。</span></li>
               <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>五個開源 agent 和它們啟動的一切，都在 Harness Relay 自己的沙箱中執行（sandbox-runtime：macOS 上用 Seatbelt、Linux 上用 bubblewrap，網路經過會過濾的 proxy）：同樣碰不到那些資料夾，每位成員的 session 都是它自己的，不必詢問就能連到的只有這次執行的模型來源。沙箱無法啟動就不執行；在原生 Windows 上只能以完全存取執行。</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>每個改檔的回合都有 git 快照；平行模式的 agent 在各自的 worktree 工作。</span></li>
               <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 與 MCP 伺服器的 token 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service。</span></li>
@@ -783,7 +783,7 @@
               </tbody>
             </table>
             <p class="excerpt-note">
-              可編輯模式下，測試與腳本執行的程式碼，agent 也能修改。Codex 的沙箱讓它無法連網；Claude Code 的沙箱，以及 Harness Relay 包住開源 agent 的沙箱，會在它連到每個主機時詢問你（開源 agent 連到它的模型來源不必詢問）；Grok 執行的指令仍能連網。原生 Windows 上只有 Codex 有沙箱。面對不信任的程式碼或指示，請使用唯讀。
+              可編輯模式下，測試與腳本執行的程式碼，agent 也能修改。Codex 的沙箱讓它無法連網；Claude Code 的沙箱，以及 Harness Relay 包住開源 agent 的沙箱，會在它連到每個主機時詢問你（開源 agent 連到它的模型來源不必詢問）；Grok 執行的指令仍能連網，Cursor 則沒有沙箱（你允許的指令以你的權限執行）。原生 Windows 上只有 Codex 有沙箱。面對不信任的程式碼或指示，請使用唯讀。
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/sandboxing.zh-TW.md">各平台的作業系統沙箱涵蓋什麼</a>
             </p>
           </div>
@@ -801,7 +801,8 @@
               <ul>
                 <li>
                   任一 CLI：<a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>（<code>claude</code>）、
-                  <a href="https://github.com/openai/codex">Codex CLI</a>（<code>codex</code>）、<a href="https://github.com/xai-org/grok-build">Grok CLI</a>（<code>grok</code>）
+                  <a href="https://github.com/openai/codex">Codex CLI</a>（<code>codex</code>）、<a href="https://github.com/xai-org/grok-build">Grok CLI</a>（<code>grok</code>）、
+                  <a href="https://cursor.com/cli">Cursor CLI</a>（<code>cursor-agent</code>）
                 </li>
                 <li>
                   或開源的那幾個（測試過的版本）：<a href="https://www.npmjs.com/package/opencode-ai">OpenCode</a>（<code>opencode-ai</code> 1.19.5）、<a href="https://formulae.brew.sh/formula/block-goose-cli">Goose</a>（<code>block-goose-cli</code> 1.58.1）、<a href="https://www.npmjs.com/package/cline">Cline</a>（<code>cline</code> 3.0.74）、<a href="https://pypi.org/project/openhands/">OpenHands</a>（<code>openhands</code> 1.16.0）、<a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent">Pi</a>（<code>@earendil-works/pi-coding-agent</code> 1.5.1，需要 Node.js 22.19 以上），加上 OpenAI、Anthropic 或 xAI 的 API key，或你自己的端點。完全存取以外，它們在需要 Node.js 22.12 以上的沙箱中執行；在 Linux 上，這個沙箱還需要 <code>bubblewrap</code>、<code>socat</code> 與 <code>ripgrep</code>。

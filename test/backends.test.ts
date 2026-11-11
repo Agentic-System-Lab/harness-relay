@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { endpointEffort, inheritedEffort, parseBackendModel, type ModelBackendsView, type ProviderModels } from '../src/shared/types';
+import { endpointEffort, inheritedEffort, isEndpointCli, parseBackendModel, type ModelBackendsView, type ProviderModels } from '../src/shared/types';
 import type { SecretStore } from '../src/server/secrets';
 import { endpointDraft, endpointProblems, endpointSlug, endpointUpdate, parseModelList, validBaseUrl } from '../src/web/backends';
 
@@ -11,7 +11,7 @@ process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { openDatabase } = await import('../src/server/db');
 const { ModelBackendStore, ENDPOINT_KEY_ENV, backendEnv, backendRun, endpointKeyEnv, endpointModel, urlHost } = await import('../src/server/backends');
-const { withEndpointModels } = await import('../src/server/models');
+const { discoverModels, withEndpointModels } = await import('../src/server/models');
 const { SettingsStore, OPEN_AGENT_HOME_ENV, OPEN_HOMES_DIR } = await import('../src/server/settings');
 const { createApp } = await import('../src/server/app');
 const { Hub } = await import('../src/server/hub');
@@ -284,6 +284,15 @@ describe('Claude Code, Codex and Grok on the user’s own endpoints', () => {
     // The CLI's own models as before.
     expect(inheritedEffort(pm('xhigh'), 'gpt-6.1-sol')).toBe('xhigh');
   });
+
+  it('leaves Cursor out: its models run only through Cursor’s own service', async () => {
+    expect(['claude', 'codex', 'grok', 'cursor', 'goose'].filter((p) => isEndpointCli(p as never))).toEqual(['claude', 'codex', 'grok']);
+    const view = backends.endpoints.map(({ apiKey: _, ...e }) => ({ ...e, keyMasked: '', keyStorage: 'keychain' as const }));
+    // Not installed: no CLI runs, and its menu has none of the endpoints' models.
+    const cursor = await discoverModels('cursor', join(root, 'no-such-cursor'), { PATH: '' }, { configured: [], endpoints: view });
+    expect(cursor.provider).toBe('cursor');
+    expect(cursor.models.filter((m) => m.endpoint || m.id.startsWith('homelab/') || m.id.startsWith('studio/'))).toEqual([]);
+  });
 });
 
 describe('an open agent’s environment', () => {
@@ -291,6 +300,7 @@ describe('an open agent’s environment', () => {
     vi.stubEnv('OPENAI_API_KEY', 'sk-from-the-shell');
     vi.stubEnv('OPENAI_BASE_URL', 'https://elsewhere.example');
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-from-the-shell');
+    vi.stubEnv('CURSOR_API_KEY', 'key_from-the-shell');
     try {
       const s = new SettingsStore(db);
       s.backends.setApiKey('anthropic', 'sk-ant-settings');
@@ -299,6 +309,9 @@ describe('an open agent’s environment', () => {
       expect(env.OPENAI_BASE_URL).toBeUndefined();
       expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-settings');
       expect(env[OPEN_AGENT_HOME_ENV]).toBe(join(OPEN_HOMES_DIR, 'goose'));
+      // Nor Cursor's sign-in by key, which is Cursor's own.
+      expect(env.CURSOR_API_KEY).toBeUndefined();
+      expect(s.env('cursor').CURSOR_API_KEY).toBe('key_from-the-shell');
       expect(s.backendsFor('goose')).toEqual({ apis: { anthropic: 'sk-ant-settings' }, endpoints: [] });
       // The other CLIs keep theirs, and get the user's own endpoints only, never the API backends' keys.
       expect(s.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-from-the-shell');
@@ -309,6 +322,8 @@ describe('an open agent’s environment', () => {
         apis: {},
         endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'], apiKey: 'lab-key' }],
       });
+      // Cursor runs only on Cursor's own models: no endpoint, and no key, reaches its runs.
+      expect(s.backendsFor('cursor')).toEqual({ apis: {}, endpoints: [] });
       // With an agent-home folder, the open agents' homes are in it too.
       s.setAgentHome(join(root, 'homes'));
       expect(s.env('pi')[OPEN_AGENT_HOME_ENV]).toBe(join(root, 'homes', 'pi'));
