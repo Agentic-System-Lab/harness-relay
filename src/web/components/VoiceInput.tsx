@@ -326,7 +326,7 @@ export function JobProgress({ job, onCancel }: { job: VoiceJobView; onCancel?: (
       {job.state === 'running' && pct !== undefined && (
         <div className="voice-progress">
           <div className="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-            <span style={{ width: `${pct}%` }} />
+            <span style={{ transform: `scaleX(${pct / 100})` }} />
           </div>
           <span className="muted small">
             {pct}% · {t.voice.progress(formatBytes(job.received ?? 0), formatBytes(job.total ?? 0))}

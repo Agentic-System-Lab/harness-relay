@@ -3963,7 +3963,9 @@ details.sub summary {
   display: block;
   height: 100%;
   background: var(--text);
-  transition: width 0.3s ease;
+  /* Scaled rather than resized, so the bar's progress moves without a layout on every step. */
+  transform-origin: left center;
+  transition: transform 0.3s ease;
 }
 
 .voice-row {
