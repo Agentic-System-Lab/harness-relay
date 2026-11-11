@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus } from '../shared/types';
+import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
 import { codeFromHash } from '../shared/auth';
 import { SIGNED_OUT_EVENT, api } from './api';
 import { ChatView } from './components/ChatView';
@@ -8,11 +8,13 @@ import { NewSchedule } from './components/NewSchedule';
 import { Onboarding, onboardingDone } from './components/Onboarding';
 import { SettingsPage } from './components/SettingsPage';
 import { SignIn } from './components/SignIn';
+import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route } from './route';
 import { signInWhere } from './signin';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
+import { isAppWindow, pollDelay, readDismissed, shouldOffer, writeDismissed } from './update';
 
 type SeenMap = Record<string, number>;
 const SEEN_KEY = 'relay:seen';
@@ -219,6 +221,51 @@ function RelayApp() {
     };
   }, [refreshConversations]);
 
+  // This version and the desktop app's updates: asked now and then (often while one is under way).
+  const [update, setUpdate] = useState<UpdateStatus>();
+  const pollUpdate = useRef<() => void>(() => {});
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      clearTimeout(timer);
+      let next: UpdateStatus | undefined;
+      try {
+        next = await api.update();
+        if (!stopped) setUpdate(next);
+      } catch {
+        /* asked again later */
+      }
+      if (!stopped) timer = setTimeout(() => void tick(), pollDelay(next));
+    };
+    pollUpdate.current = () => void tick();
+    void tick();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, []);
+  const checkUpdate = useCallback(async () => {
+    try {
+      setUpdate(await api.checkUpdate());
+    } catch {
+      /* shown as it was */
+    }
+  }, []);
+  // The newer version, offered once with a dialog in the app's own window (src/web/update.ts).
+  const [dismissed, setDismissed] = useState(readDismissed);
+  const dismiss = (version: string) => {
+    writeDismissed(version);
+    setDismissed(version);
+  };
+  const installUpdate = useCallback(async () => {
+    const version = update?.available?.version;
+    await api.installUpdate();
+    if (version) dismiss(version);
+    pollUpdate.current();
+  }, [update]);
+  const offer = !tourOpen && shouldOffer(update, dismissed, isAppWindow(navigator.userAgent));
+
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar
@@ -283,10 +330,22 @@ function RelayApp() {
             catalog={catalog}
             refreshProviders={refreshProviderInfo}
             onShowTour={() => setTourOpen(true)}
+            update={update}
+            onCheckUpdate={checkUpdate}
+            onInstallUpdate={installUpdate}
           />
         )}
       </main>
       {tourOpen && <Onboarding onClose={() => setTourOpen(false)} />}
+      {offer && update?.available && (
+        <UpdateDialog
+          version={update.available.version}
+          current={update.current}
+          page={update.available.page}
+          onUpdate={installUpdate}
+          onLater={() => dismiss(update.available!.version)}
+        />
+      )}
     </div>
   );
 }

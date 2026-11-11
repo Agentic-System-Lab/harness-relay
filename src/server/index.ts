@@ -8,6 +8,8 @@ import { lockDataDir, openDatabase } from './db';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
 import { desktopParent } from './parent';
+import { Updates } from './updates';
+import { relayVersion } from './about';
 import { apiPort, isDevRun } from './ports';
 import { killAll } from './process';
 import { ProviderService } from './providers';
@@ -66,7 +68,9 @@ const scheduler = new Scheduler(store, orchestrator);
 const parent = desktopParent();
 
 const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
-const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, agentsView, extraHosts, desktopApp: Boolean(parent) });
+// What the desktop app says of its updates, for the chat to show (only the version otherwise).
+const updates = new Updates(parent, relayVersion);
+const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, agentsView, extraHosts, desktopApp: Boolean(parent), updates });
 
 // --- Static web app (production build) ------------------------------------------
 

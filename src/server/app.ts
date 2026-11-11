@@ -61,6 +61,7 @@ import {
   type GistUpload,
 } from './share';
 import { parseScreenshots, uploadScreenshots } from './screenshots';
+import { Updates } from './updates';
 import type { Store } from './store';
 import {
   ensureFolder,
@@ -121,6 +122,8 @@ export interface AppDeps {
     create(html: string, description: string, files?: GistUpload[], onFilesGist?: (gist: ShareLink) => void): Promise<ShareLink>;
     remove(id: string): Promise<void>;
   };
+  /** The desktop app's updates (`updates.ts`); none when it is not given. */
+  updates?: Updates;
   /** Puts a problem report's screenshots on GitHub as a secret gist, and deletes it again (`gh`; fakes in tests). */
   screenshotGists?: {
     upload(files: GistUpload[]): Promise<ReportScreenshots>;
@@ -177,6 +180,7 @@ export function createApp({
     remove: unshareGist,
   },
   screenshotGists = { upload: (files) => uploadScreenshots(files), remove: unshareGist },
+  updates = new Updates(undefined, version),
 }: AppDeps): Hono {
   const app = new Hono();
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
@@ -411,6 +415,16 @@ export function createApp({
 
   // Which Harness Relay this is, and on what, for a problem report the user sends by email.
   app.get('/api/about', async (c) => c.json(await aboutInfo(desktopApp, version)));
+
+  // The desktop app's updates: this version, a newer one, an update under way (only the version for
+  // `npm start`). Settings' "Check again" has the app ask GitHub now; Update has it ask the user, in its
+  // own dialog on the computer it runs on, then update as from its menu.
+  app.get('/api/update', async (c) => c.json(await updates.status()));
+  app.post('/api/update/check', async (c) => c.json(await updates.check()));
+  app.post('/api/update/install', (c) => {
+    if (!updates.install()) throw new HttpError(409, t().updateNone);
+    return c.json({ ok: true });
+  });
 
   // A problem report's screenshots, which a mail link cannot carry: one secret gist of them, uploaded
   // with the user's GitHub CLI when they press Upload, its page the link the mail carries. Deleting it

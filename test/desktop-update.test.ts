@@ -8,12 +8,16 @@ import {
   appImageDownload,
   appImageTarget,
   busyWithoutAsking,
+  CHECK_EVERY_MS,
   checkLatest,
   download,
   installPlan,
   isNewer,
   macAppOf,
   macStaging,
+  mayAskGitHub,
+  takesCandidates,
+  MIN_CHECK_GAP_MS,
   newestRelease,
   parseRelease,
   placeAppImage,
@@ -112,6 +116,29 @@ describe("GitHub's newest release", () => {
     expect(newestRelease(null)).toBeUndefined();
   });
 
+  it('is a release, never a release candidate, for an app that is a release', () => {
+    const tags = (...list: string[]) => list.map((tag) => githubRelease(tag));
+    expect(newestRelease(tags('2026-11-13-rc', '2026-11-12.1', '2026-11-12'), false)?.version).toBe('2026-11-12.1');
+    expect(newestRelease(tags('2026-11-12.1-rc', '2026-11-12', '2026-11-12-rc.1'), false)?.version).toBe('2026-11-12');
+    expect(newestRelease(tags('2026-11-13-rc', '2026-11-13-rc.1'), false)).toBeUndefined();
+    expect(parseRelease(githubRelease('2026-11-12-rc'))?.candidate).toBe(true);
+    expect(parseRelease(githubRelease('2026-11-12.1'))?.candidate).toBe(false);
+  });
+
+  it('may be a release candidate for an app that is one, or a build of your own; a release takes releases only', () => {
+    expect(takesCandidates('2026.1112.0-rc')).toBe(true);
+    expect(takesCandidates('2026.1112.1-rc.2')).toBe(true);
+    expect(takesCandidates('2026.1110.0-dev')).toBe(true);
+    expect(takesCandidates('2026.1112.0')).toBe(false);
+    expect(takesCandidates('2026.1112.3')).toBe(false);
+    // A release candidate is offered the release it is a candidate of, and the next one.
+    expect(isNewer(newestRelease([githubRelease('2026-11-12'), githubRelease('2026-11-12-rc.1')], true), '2026.1112.0-rc.1')).toBe(true);
+    expect(isNewer(newestRelease([githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')], true), '2026.1112.0-rc.1')).toBe(true);
+    // A release is not offered the next day's candidate, only the next release.
+    expect(isNewer(newestRelease([githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')], false), '2026.1112.0')).toBe(false);
+    expect(isNewer(newestRelease([githubRelease('2026-11-13'), githubRelease('2026-11-13-rc')], false), '2026.1112.0')).toBe(true);
+  });
+
   it('leaves out installers elsewhere, with a name that leaves its folder, or a checksum that is not SHA-256', () => {
     const r = githubRelease('2026-11-12');
     r.assets[0]!.browser_download_url = 'https://evil.example/Harness-Relay-2026-11-12-mac-arm64.dmg';
@@ -159,8 +186,9 @@ describe("GitHub's newest release", () => {
         return new Response(JSON.stringify(body), { status });
       };
     expect((await checkLatest(answer(200, [githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')])))?.version).toBe('2026-11-13-rc');
-    expect(asked).toEqual([RELEASES_API]);
+    expect(asked[0]).toBe(RELEASES_API);
     expect(RELEASES_API).toBe('https://api.github.com/repos/Agentic-System-Lab/harness-relay/releases?per_page=20');
+    expect((await checkLatest(answer(200, [githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')]), { candidates: false }))?.version).toBe('2026-11-12');
     expect(await checkLatest(answer(200, []))).toBeUndefined();
     expect(await checkLatest(answer(404, { message: 'Not Found' }))).toBeUndefined();
     await expect(checkLatest(answer(403, { message: 'rate limited' }))).rejects.toThrow('403');
@@ -184,6 +212,22 @@ describe("GitHub's newest release", () => {
     expect(release.assets['win-arm64']).toMatchObject({ name: 'Harness-Relay-2026-11-12-win-arm64.exe', sha256: sha('Harness-Relay-2026-11-12-win-arm64.exe') });
     expect(release.assets['linux-arm64']?.name).toBe('Harness-Relay-2026-11-12-linux-arm64.AppImage');
     expect(release.assets.win?.name).toBe('Harness-Relay-2026-11-12-win-x64.exe');
+  });
+});
+
+describe('how often GitHub is asked', () => {
+  it('once an hour, of the 60 an hour GitHub allows an address without signing in', () => {
+    expect(CHECK_EVERY_MS).toBe(60 * 60_000);
+  });
+
+  it('at most once a minute, also when the chat asks again sooner', () => {
+    const at = 1_000_000;
+    expect(mayAskGitHub(undefined, at)).toBe(true);
+    expect(mayAskGitHub(at, at + MIN_CHECK_GAP_MS - 1)).toBe(false);
+    expect(mayAskGitHub(at, at + MIN_CHECK_GAP_MS)).toBe(true);
+    expect(MIN_CHECK_GAP_MS).toBe(60_000);
+    // A clock set back does not stop it for good.
+    expect(mayAskGitHub(at, at - 5000)).toBe(true);
   });
 });
 

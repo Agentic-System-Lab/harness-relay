@@ -37,6 +37,7 @@ import type {
   TeamRevision,
   ToolLibraryUpdate,
   ToolLibraryView,
+  UpdateStatus,
   VoiceModelId,
   VoiceSettingsUpdate,
   VoiceStatus,
@@ -277,6 +278,12 @@ export const api = {
   providers: (refresh = false) => request<ProviderStatus[]>('GET', `/api/providers${refresh ? '?refresh=1' : ''}`),
   /** Which Harness Relay this is, and on what, for a problem report. */
   about: () => request<AboutInfo>('GET', '/api/about'),
+  /** This version, and the desktop app's updates (only the version otherwise). */
+  update: () => request<UpdateStatus>('GET', '/api/update'),
+  /** Has the desktop app ask GitHub for a new version now (at most once a minute); what it knows once it has. */
+  checkUpdate: () => request<UpdateStatus>('POST', '/api/update/check'),
+  /** Has the desktop app update to the newer version: it asks the user first, in its own dialog. */
+  installUpdate: () => request<{ ok: true }>('POST', '/api/update/install'),
   /** A problem report's screenshots (each base64) up to GitHub, as a secret gist through the user's gh. */
   uploadScreenshots: (images: string[]) =>
     request<ReportScreenshots>('POST', '/api/report/screenshots', { files: images.map((data) => ({ data })) }),

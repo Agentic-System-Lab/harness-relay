@@ -37,6 +37,7 @@ const { attachmentsDir } = await import('../src/server/attachments');
 const { readZip } = await import('./zipReader');
 const { REVISER_BRIEFING } = await import('../src/server/planner');
 const { ShareError } = await import('../src/server/share');
+const { Updates } = await import('../src/server/updates');
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -986,6 +987,33 @@ describe('GET /api/about', () => {
     const res = await own.request('/api/about', { headers: HOST });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ version: '2026-11-10', desktop: true, os: expect.any(String), node: process.version });
+  });
+});
+
+describe('/api/update', () => {
+  it("gives this version and what the desktop app says of its updates, and passes the chat's asks on to it", async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const sent: unknown[] = [];
+    let say: (u: { updates: boolean; available?: { version: string; page: string }; checkedAt?: number }) => void = () => {};
+    const updates = new Updates({ send: (m) => sent.push(m), onUpdate: (fn) => (say = fn) }, async () => '2026-11-11');
+    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), updates });
+    const get = async () => (await own.request('/api/update', { headers: HOST })).json();
+
+    expect(await get()).toEqual({ updates: false, current: '2026-11-11' });
+    // Nothing to update to yet.
+    expect((await own.request('/api/update/install', json('POST', {}))).status).toBe(409);
+
+    say({ updates: true });
+    const checked = own.request('/api/update/check', json('POST', {}));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toEqual([{ type: 'update-check' }]);
+    const available = { version: '2026-11-12', page: 'https://github.com/x/y/releases/tag/2026-11-12' };
+    say({ updates: true, available, checkedAt: 7 });
+    expect(await (await checked).json()).toEqual({ updates: true, available, checkedAt: 7, current: '2026-11-11' });
+
+    const res = await own.request('/api/update/install', json('POST', {}));
+    expect(res.status).toBe(200);
+    expect(sent).toEqual([{ type: 'update-check' }, { type: 'update-install' }]);
   });
 });
 

@@ -6250,3 +6250,60 @@ a.share-action {
   user-select: all;
   font-weight: 600;
 }
+
+/* A new version of the desktop app, offered once (the tray menu offers it too) */
+.modal.update-dialog {
+  width: min(460px, 100%);
+}
+
+.update-dialog p {
+  margin: 0;
+}
+
+.update-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.update-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Settings' Version card */
+.version-current {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.version-update {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+}
+
+.version-ok {
+  color: var(--ok);
+}
+
+.version-news {
+  color: var(--info);
+  font-weight: 600;
+}
+
+.version-warn {
+  color: var(--warn);
+}
+
+.version-muted {
+  color: var(--muted);
+}

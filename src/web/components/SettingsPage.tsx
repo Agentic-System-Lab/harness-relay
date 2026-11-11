@@ -13,6 +13,7 @@ import {
   type ProviderSettingsView,
   type ProviderStatus,
   type SettingsView,
+  type UpdateStatus,
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
@@ -37,6 +38,7 @@ import { SessionsCard } from './SessionsSettings';
 import { SharesCard } from './SharesSettings';
 import { providerState } from './Sidebar';
 import { ToolsCard } from './ToolsSettings';
+import { VersionCard } from './VersionSettings';
 import { VoiceCard } from './VoiceSettings';
 
 interface Props {
@@ -46,9 +48,15 @@ interface Props {
   catalog: ProviderModels[];
   refreshProviders: (force?: boolean) => Promise<void>;
   onShowTour: () => void;
+  /** This version and the desktop app's updates (undefined until the server answered). */
+  update?: UpdateStatus;
+  /** Has the desktop app check GitHub for a new version now. */
+  onCheckUpdate: () => Promise<void>;
+  /** Has the desktop app update (it asks the user first). */
+  onInstallUpdate: () => Promise<void>;
 }
 
-export function SettingsPage({ section, providers, catalog, refreshProviders, onShowTour }: Props) {
+export function SettingsPage({ section, providers, catalog, refreshProviders, onShowTour, update, onCheckUpdate, onInstallUpdate }: Props) {
   const { t, lang, setLang } = useI18n();
   const theme = useThemeChoice();
   const [settings, setSettings] = useState<SettingsView | null>(null);
@@ -76,10 +84,11 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
     void refreshProviders(true);
   }, [refreshProviders]);
 
+  // The CLIs' status, and whether there is a new version (the desktop app asks GitHub now).
   const refresh = async () => {
     setRefreshing(true);
     try {
-      await refreshProviders(true);
+      await Promise.all([refreshProviders(true), onCheckUpdate()]);
     } finally {
       setRefreshing(false);
     }
@@ -115,6 +124,8 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
         </header>
 
         <SettingsNav section={section} />
+
+        <VersionCard status={update} onUpdate={onInstallUpdate} />
 
         <section className="card" id={sectionId('language')}>
           <SectionTitle section="language">{t.settings.language}</SectionTitle>
@@ -763,6 +774,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
   // Short labels, so the links fit on one line in every language (the cards keep their full titles).
   const short = t.settings.nav;
   const label: Record<SettingsSection, string> = {
+    version: short.version,
     language: short.language,
     appearance: short.appearance,
     claude: PROVIDER_LABEL.claude,

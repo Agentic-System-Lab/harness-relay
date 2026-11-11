@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { createServer } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import type { DesktopToServer } from '../src/shared/types';
-import { portFree, Supervisor, type ServerChild, type ServerState } from '../desktop/src/supervisor';
+import { portFree, Supervisor, type ServerChild, type ServerRequest, type ServerState } from '../desktop/src/supervisor';
 
 /** A fake server process: the test says what it sends and when it exits. */
 class FakeServer extends EventEmitter implements ServerChild {
@@ -386,6 +386,39 @@ describe('conversations with agents at work', () => {
     server.exit(1);
     expect(await pending).toBeUndefined();
     expect(await last).toBeUndefined();
+  });
+});
+
+describe("the chat's asks about updates", () => {
+  const update = { type: 'update' as const, update: { updates: true, available: { version: '2026-11-12', page: 'https://github.com/x/y/releases/tag/2026-11-12' } } };
+
+  it('passes on what the running server asks for, and nothing else, and only from it', async () => {
+    const { supervisor, servers } = setup();
+    const asked: ServerRequest[] = [];
+    supervisor.on('request', (r) => asked.push(r));
+    const started = supervisor.start({}, 8787);
+    await tick();
+    // Still starting: not asked yet.
+    servers[0]!.emit('message', { type: 'update-check' });
+    servers[0]!.listening();
+    await started;
+    servers[0]!.emit('message', { type: 'update-check' });
+    servers[0]!.emit('message', { type: 'update-install' });
+    servers[0]!.emit('message', { type: 'something-else' });
+    expect(asked).toEqual(['update-check', 'update-install']);
+  });
+
+  it("tells the running server the app's updates, and no server that does not run", async () => {
+    const { supervisor, servers } = setup();
+    supervisor.tell(update);
+    const started = supervisor.start({}, 8787);
+    await tick();
+    supervisor.tell(update);
+    expect(servers[0]!.received).toEqual([]);
+    servers[0]!.listening();
+    await started;
+    supervisor.tell(update);
+    expect(servers[0]!.received).toEqual([update]);
   });
 });
 

@@ -1,7 +1,8 @@
 /**
  * Updating the desktop app to GitHub's newest release, from its menu. The app asks GitHub now and then
- * for its releases and takes the newest version (`checkLatest`: a release candidate too, never a
- * draft); when it is newer than the running app and has an installer for this system (`updateSystem`:
+ * for its releases and takes the newest version (`checkLatest`, never a draft): a release candidate
+ * too when the app is one (or a build of your own), only a release when it is a release
+ * (`takesCandidates`); when it is newer than the running app and has an installer for this system (`updateSystem`:
  * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer,
  * checks it against the SHA-256 GitHub publishes for it (`download`), waits until no conversation has
  * agents at work (`whenIdle`), and puts it in place of the running app, which then quits and the new
@@ -40,11 +41,23 @@ import { capture } from '../../src/server/process';
  */
 export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=20`;
 
-/** How often the app asks (GitHub allows 60 requests an hour without signing in, per address). */
-export const CHECK_EVERY_MS = 6 * 60 * 60_000;
+/**
+ * How often the app asks: one request an hour, of the 60 an hour GitHub allows each address without
+ * signing in (shared by everything on that address: many apps behind one office network could use them
+ * up, and a check that fails only waits for the next one).
+ */
+export const CHECK_EVERY_MS = 60 * 60_000;
 
 /** The first check, a while after the app started (not in the way of the server's start). */
 export const FIRST_CHECK_MS = 30_000;
+
+/** The least time between two questions to GitHub: a check asked for sooner (Settings' "Check again") gives what is known. */
+export const MIN_CHECK_GAP_MS = 60_000;
+
+/** Whether a check may ask GitHub now, the last question having been asked at `askedAt` (none yet: undefined). */
+export function mayAskGitHub(askedAt: number | undefined, now: number): boolean {
+  return askedAt === undefined || now - askedAt >= MIN_CHECK_GAP_MS || now < askedAt;
+}
 
 export type UpdateSystem = keyof typeof INSTALLERS;
 
@@ -64,6 +77,8 @@ export interface UpdateRelease {
   semver: string;
   /** Its page on GitHub (the release notes and every installer). */
   page: string;
+  /** A release candidate (`-rc`): offered only to an app that is one, or a build of your own (`takesCandidates`). */
+  candidate: boolean;
   assets: Partial<Record<UpdateSystem, UpdateAsset>>;
 }
 
@@ -91,23 +106,33 @@ export function parseRelease(json: unknown): UpdateRelease | undefined {
     }
   }
   const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${RELEASES_PAGE}/tag/`) ? r.html_url : RELEASES_PAGE;
-  return { version: parsed.value.version, semver: semverOf(parsed.value), page, assets };
+  return { version: parsed.value.version, semver: semverOf(parsed.value), page, candidate: parsed.value.rc, assets };
 }
 
 /**
- * The newest release of ours in GitHub's list, by version, not by when it was published: a release
- * candidate when it is the newest (2026-11-12-rc after 2026-11-11.1, 2026-11-12.1-rc after
- * 2026-11-12), never one that sorts before the release it is a candidate of (2026-11-12-rc.1 before
- * 2026-11-12).
+ * The newest release of ours in GitHub's list, by version, not by when it was published. With
+ * `candidates`, a release candidate when it is the newest (2026-11-12-rc after 2026-11-11.1,
+ * 2026-11-12.1-rc after 2026-11-12), never one that sorts before the release it is a candidate of
+ * (2026-11-12-rc.1 before 2026-11-12); without, releases and their patches only.
  */
-export function newestRelease(json: unknown): UpdateRelease | undefined {
+export function newestRelease(json: unknown, candidates = true): UpdateRelease | undefined {
   if (!Array.isArray(json)) return undefined;
   let newest: UpdateRelease | undefined;
   for (const r of json) {
     const release = parseRelease(r);
-    if (release && (!newest || compareSemver(release.semver, newest.semver) > 0)) newest = release;
+    if (!release || (release.candidate && !candidates)) continue;
+    if (!newest || compareSemver(release.semver, newest.semver) > 0) newest = release;
   }
   return newest;
+}
+
+/**
+ * Whether an app of version `current` (semver, app.getVersion()) is offered release candidates: one
+ * that is a release candidate (`-rc`), or a build of your own (`-dev`), is offered the newer release
+ * candidates and releases; a release, only the releases after it (and their patches).
+ */
+export function takesCandidates(current: string): boolean {
+  return current.split('+')[0]!.includes('-');
 }
 
 /** Whether `latest` is newer than the running app, whose version is `current` (semver, app.getVersion()). */
@@ -130,14 +155,15 @@ export function updateSystem(platform: NodeJS.Platform, arch: string): UpdateSys
 export type Fetch = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
 
 /** Asks GitHub for the newest release, release candidates included; undefined when there is none yet. */
-export async function checkLatest(fetch: Fetch, signal?: AbortSignal): Promise<UpdateRelease | undefined> {
+export async function checkLatest(fetch: Fetch, o: { candidates?: boolean; signal?: AbortSignal } = {}): Promise<UpdateRelease | undefined> {
+  const { candidates = true, signal } = o;
   const res = await fetch(RELEASES_API, {
     headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
     signal,
   });
   if (res.status === 404) return undefined;
   if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
-  return newestRelease(await res.json());
+  return newestRelease(await res.json(), candidates);
 }
 
 export type ManualReason =

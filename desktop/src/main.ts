@@ -32,6 +32,7 @@ import {
 import { autostartFile, desktopEntry, isAutostartOn, setAutostart } from './autostart';
 import { allowedHostsOf, loginShell, loginShellEnv, mergeShellEnv, mergeWindowsEnv, serverEnv, windowsEnv, withCommonPaths } from './env';
 import { spawnDetached } from '../../src/server/process';
+import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
 import { messages, pickLang } from './i18n';
 import {
   chatAddress,
@@ -63,6 +64,7 @@ import {
   installPlan,
   isNewer,
   macAppOf,
+  mayAskGitHub,
   placeAppImage,
   relaunchCommand,
   relaunchEnv,
@@ -70,6 +72,7 @@ import {
   removeMacLeftovers,
   stageMacApp,
   type StartCommand,
+  takesCandidates,
   swapMacApp,
   UpdateError,
   updateSystem,
@@ -251,6 +254,13 @@ function run(): void {
   let update: UpdateRelease | undefined;
   /** An update under way: downloading, being checked and put in place, or waiting for the conversations. */
   let updating: Updating | undefined;
+  /** GitHub is being asked for its newest release now. */
+  let checking = false;
+  /** When GitHub was last asked (a check asked for sooner gives what is known), and last answered. */
+  let askedAt: number | undefined;
+  let checkedAt: number | undefined;
+  /** The last question could not reach GitHub (offline, or its hourly limit). */
+  let checkFailed = false;
   /** While an update waits for the conversations: switches at once (the menu's "Switch to the new version now"). */
   let switchNow: (() => void) | undefined;
   /** Where downloaded installers wait (macOS, Windows): emptied at each start. */
@@ -261,8 +271,15 @@ function run(): void {
   let previous: ServerState = supervisor.state;
   const log = new ServerLog(logFile);
   supervisor.on('output', (chunk) => log.write(chunk));
+  // Asked from the chat (Settings' Version card, the dialog offering a new version).
+  supervisor.on('request', (request) => {
+    if (request === 'update-check') void checkForUpdate();
+    else void installFromChat();
+  });
   supervisor.on('state', (state) => {
     updateTray();
+    // A server that just started (or started again) learns what the chat shows of updates.
+    if (state.kind === 'running') tellServer();
     if (crashNotice(previous, state, quitting) && Notification.isSupported()) {
       new Notification({ title: t.crashed, body: t.crashedDetail }).show();
     }
@@ -572,17 +589,64 @@ function run(): void {
     return app.isPackaged && (env.RELAY_UPDATES ?? process.env.RELAY_UPDATES)?.trim().toLowerCase() !== 'off';
   }
 
-  /** Asks GitHub for the newest release (a release candidate too); the menu offers it when it is newer. A failure waits for the next time. */
+  /**
+   * Asks GitHub for the newest release (a release candidate too); the menu, and the chat, offer it when
+   * it is newer. A failure waits for the next time. GitHub is asked at most once a minute (`mayAskGitHub`):
+   * a check asked for sooner from the chat gives what is known.
+   */
   async function checkForUpdate(): Promise<void> {
-    if (updating || !checksUpdates()) return;
+    if (updating || checking || !checksUpdates() || !mayAskGitHub(askedAt, Date.now())) {
+      tellServer();
+      return;
+    }
+    checking = true;
+    askedAt = Date.now();
+    tellServer();
     try {
-      const latest = await checkLatest((url, init) => net.fetch(url, init));
+      // A release candidate is offered only to an app that is one (or a build of your own): a release, only releases.
+      const latest = await checkLatest((url, init) => net.fetch(url, init), { candidates: takesCandidates(app.getVersion()) });
       const system = updateSystem(process.platform, process.arch);
       update = isNewer(latest, app.getVersion()) && system && latest.assets[system] ? latest : undefined;
+      checkedAt = Date.now();
+      checkFailed = false;
     } catch {
       /* offline, or GitHub's limit: the menu stays as it is */
+      checkFailed = true;
+    } finally {
+      checking = false;
     }
     updateTray();
+    tellServer();
+  }
+
+  /** What the chat shows of updates (Settings' Version card, the dialog offering a new version). */
+  function desktopUpdate(): DesktopUpdate {
+    if (!checksUpdates()) return { updates: false };
+    const progress: UpdateProgress | undefined =
+      updating?.kind === 'downloading' ? { kind: 'downloading', percent: Math.floor(updating.done * 100) } : updating;
+    return {
+      updates: true,
+      ...(update ? { available: { version: update.version, page: update.page } } : {}),
+      ...(progress ? { progress } : {}),
+      ...(checking ? { checking } : {}),
+      ...(checkedAt !== undefined ? { checkedAt } : {}),
+      ...(checkFailed ? { checkFailed } : {}),
+    };
+  }
+
+  /** Tells the server what the chat shows of updates, each time that changes. */
+  function tellServer(): void {
+    supervisor.tell({ type: 'update', update: desktopUpdate() });
+  }
+
+  /** Update, chosen in the chat: asked first, as from the menu, with the chat's window in front for it. */
+  async function installFromChat(): Promise<void> {
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+    await installUpdate();
   }
 
   function scheduleUpdateChecks(): void {
@@ -622,6 +686,7 @@ function run(): void {
   function setUpdating(state: Updating | undefined): void {
     updating = state;
     updateTray();
+    tellServer();
   }
 
   /** What the menu says of the update under way. */

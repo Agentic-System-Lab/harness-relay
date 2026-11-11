@@ -54,7 +54,11 @@ interface Request {
   done: (answer: ServerToDesktop | undefined) => void;
 }
 
-export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [string] }> {
+/** What the server asks the app for, on the user's behalf (from the chat), with no answer awaited. */
+export type ServerRequest = Extract<ServerToDesktop['type'], 'update-check' | 'update-install'>;
+const REQUESTS: ServerRequest[] = ['update-check', 'update-install'];
+
+export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [string]; request: [ServerRequest] }> {
   state: ServerState = { kind: 'stopped' };
   private child?: ServerChild;
   private exited?: Promise<number>;
@@ -111,6 +115,11 @@ export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [st
     this.questions.set(child, questions);
     child.onMessage((m) => {
       const answer = m as ServerToDesktop | undefined;
+      if (REQUESTS.includes(answer?.type as ServerRequest)) {
+        // Only from the server that runs (not one still starting, or stopping).
+        if (this.child === child && this.state.kind === 'running') this.emit('request', answer!.type as ServerRequest);
+        return;
+      }
       const request = questions.get(answer?.type as Question)?.shift();
       if (request && !request.settled) request.done(answer);
     });
@@ -201,6 +210,11 @@ export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [st
       this.questions.get(child)?.get(type)?.push(request);
       child.postMessage({ type } as DesktopToServer);
     });
+  }
+
+  /** Tells the running server `message` (nothing when none runs: a server tells the app once it listens). */
+  tell(message: Extract<DesktopToServer, { type: 'update' }>): void {
+    if (this.child && this.state.kind === 'running') this.child.postMessage(message);
   }
 
   /**

@@ -1037,6 +1037,24 @@ export const zhTW = {
     intro: 'Harness Relay 用你電腦上的 claude、codex、grok CLI 執行各個 agent。在這裡登入各個 CLI，設定 API key、執行檔路徑與預設模型，查看各 CLI 自己載入的 skill、MCP 與記憶，管理所有 CLI 共用的工具庫，並決定各 CLI 的 session 紀錄放在哪裡、要不要在 AgentsView 中檢視每個對話。',
     checking: '檢查中…',
     recheck: '重新檢查狀態',
+    version: {
+      title: '版本',
+      current: '目前版本',
+      checking: '正在檢查有沒有新版本…',
+      available: (version: string) => `有新版本：${version}`,
+      upToDate: (at: string) => `已是最新版本（${at} 檢查）`,
+      notChecked: '還沒檢查過有沒有新版本。',
+      checkFailed: '無法連到 GitHub 檢查新版本，稍後會再試。',
+      noUpdates: '這個 Harness Relay 不會自己更新：桌面版才會自動檢查新版本。',
+      downloading: (percent: number) => `正在下載更新…（${percent}%）`,
+      installing: '正在安裝更新…',
+      waiting: '更新已就緒，等回答結束後切換到新版。',
+      update: '更新',
+      releaseNotes: '版本說明',
+      confirmHere: '請在 Harness Relay 跳出的對話框確認更新。',
+      confirmThere: '請在執行 Harness Relay 的電腦上，於它跳出的對話框確認更新。',
+      hint: '桌面版每小時檢查一次 GitHub 上有沒有新版本；按「重新檢查狀態」會立刻再檢查一次。更新時會等正在回覆的對話結束才切換。',
+    },
     language: '介面語言',
     languageHint: '第一次開啟時依瀏覽器語言決定，之後記在這個瀏覽器。',
     appearance: '外觀',
@@ -1049,7 +1067,7 @@ export const zhTW = {
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
-    nav: { language: '介面語言', appearance: '外觀', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
+    nav: { version: '版本', language: '介面語言', appearance: '外觀', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
     tour: '使用導覽',
     tourHint: '一步一步介紹主要功能。',
     replayTour: '重新觀看導覽',
@@ -1126,6 +1144,16 @@ export const zhTW = {
     submit: '送出',
     cliOutput: 'CLI 輸出',
     noOutput: '(尚無輸出)',
+  },
+
+  update: {
+    title: '有新版本可以更新',
+    body: (version: string, current: string) => `Harness Relay ${version} 已經推出（你目前用的是 ${current}）。`,
+    hint: '按「更新」後，Harness Relay 會先請你確認，再下載並檢查新版；有對話正在回覆時，會等它們回答完才切換。',
+    update: '更新',
+    releaseNotes: '版本說明',
+    later: '稍後再說',
+    laterHint: '之後可以在「設定與登入 → 版本」更新。',
   },
 
   tour: {
@@ -1266,6 +1294,10 @@ export const zhTW = {
       {
         title: '隨時調整',
         body: '在設定頁可以切換介面語言（繁體中文 / English）、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
+        points: [
+          '最前面的「版本」：目前的版本；桌面版每小時檢查一次有沒有新版本，有的話會跳出一次對話框，可以從那裡、這張卡片或選單更新',
+          '「設定與登入」右邊的按鈕可以用電子郵件回報問題或建議，附上版本與系統資訊，也可以附上截圖',
+        ],
       },
     ] as { title: string; body: string; points?: string[] }[],
   },
