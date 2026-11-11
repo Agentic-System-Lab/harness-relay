@@ -4,7 +4,7 @@ import { AgentsViewSync } from './agentsview';
 import { createApp } from './app';
 import { AuthStore, CODE_TTL_MS } from './auth';
 import { signInLink } from './signin';
-import { openDatabase } from './db';
+import { lockDataDir, openDatabase } from './db';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
 import { desktopParent } from './parent';
@@ -23,6 +23,15 @@ import { serveWebApp, webAppDir } from './web';
 // A failure in a background task (a run winding down, a stream write) must not take the server — and
 // every other conversation — down with it.
 process.on('unhandledRejection', (reason) => console.error('[server] unhandled rejection:', reason));
+
+// One server per data folder: before the database is opened, since opening it already marks
+// replies left streaming aborted (the Store).
+if (!lockDataDir(DATA_DIR)) {
+  console.error(
+    `[server] Another Harness Relay server is using the data folder ${DATA_DIR}. Stop it first, or give this one a folder of its own with RELAY_DATA_DIR.`,
+  );
+  process.exit(1);
+}
 
 const db = openDatabase(DB_FILE);
 const auth = new AuthStore(db);

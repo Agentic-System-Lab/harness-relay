@@ -2,7 +2,8 @@
  * Harness Relay's ports. `npm start` and the desktop app serve the API (and the built UI) on 8787;
  * `npm run dev` serves its API on another port, so a dev server runs beside the Harness Relay you use
  * instead of failing on a port in use, and Vite serves its UI on 5173. `PORT` overrides the API's port
- * in either case.
+ * in either case. A port is not all two servers must not share: each holds its data folder too
+ * (`lockDataDir`), so a dev server beside an `npm start` of the same checkout refuses to start.
  */
 export const DEFAULT_PORT = 8787;
 /** The API's port under `npm run dev`. */

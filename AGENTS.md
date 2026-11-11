@@ -19,7 +19,7 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | Command | What it does |
 | --- | --- |
 | `npm install` | Install dependencies |
-| `npm run dev` | API server on :8789 (`tsx watch`) + Vite on :5173 (proxies `/api/`), off `npm start`'s and the desktop app's 8787 (`src/server/ports.ts`) |
+| `npm run dev` | API server on :8789 (`tsx watch`) + Vite on :5173 (proxies `/api/`), off `npm start`'s and the desktop app's 8787 (`src/server/ports.ts`); not beside an `npm start` of the same checkout, which holds its `data/` |
 | `npm run typecheck` | `tsc --noEmit` over `src`, `test`, `scripts` and the config files |
 | `npm test` | All Vitest tests (offline) |
 | `npx vitest test/store.test.ts` | One test file |
@@ -48,7 +48,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and 
 - `src/server/scheduler.ts`: sends each schedule's message when it comes due (missed times, busy retries), through `Orchestrator.sendScheduled()` (`sendInNewChat()` for a new chat each time; `designForSchedule()` has the lead agent design a schedule's team).
 - `src/server/grouping.ts`: the lead agent sorts a new conversation into the user's sidebar groups.
 - `src/server/agents/`: one adapter per CLI. `claude.ts` (stream-json), `codex.ts` (`codex app-server`), `grok.ts` (ACP), `acp.ts` (the JSON-RPC peer), `index.ts` (registry).
-- `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations, persistence, provider settings and child-process env (including the CLIs' own homes), API keys in the OS keyring.
+- `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations (and the lock one server holds its data folder with, `lockDataDir`), persistence, provider settings and child-process env (including the CLIs' own homes), API keys in the OS keyring.
 - `src/server/agentsview.ts`: sends each conversation to AgentsView as one thread and links the agents' own sessions under it.
 - `src/server/workspace.ts`: git: auto init, snapshots, worktrees, diffs, apply.
 - `src/server/process.ts`: spawning, streaming and killing child processes.
@@ -125,6 +125,7 @@ The server can start agents with write access, so keep its defences intact (see 
 ## Gotchas
 
 - `npm run dev` restarts the server on every server file change, and a restart aborts any running agent turn.
+- One server per data folder (`data/server.lock`, `lockDataDir()` in `src/server/db.ts`): a second one on the same folder (`npm run dev` beside an `npm start` of the same checkout, say) refuses to start. Give it another with `RELAY_DATA_DIR`.
 - Harness Relay refuses edit mode in a working directory that holds itself (`src/server/protect.ts`). To work on this repository with Harness Relay, run the copy you use from another checkout.
 - `desktop/` has its own `package.json` and lockfile, so a root `npm install` never downloads Electron. Its pure modules are tested from the root `test/` (`desktop-*.test.ts`); keep `electron` imports in `desktop/src/main.ts` only.
 - `npm run desktop:dist` refuses to start while a Harness Relay runs from `desktop/release/` (it would replace the files under it): quit it first, or build with `-- --output <folder>`. Opening a new build while another Harness Relay runs only brings the running one forward.

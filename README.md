@@ -116,7 +116,7 @@ API keys you save in Settings, and the values of MCP servers' environment variab
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | For development: API server (port 8789, auto-restart) + Vite dev server (port 5173), so it runs beside `npm start` or the desktop app on 8787 |
+| `npm run dev` | For development: API server (port 8789, auto-restart) + Vite dev server (port 5173), so it runs beside the desktop app, or an `npm start` of another checkout, on 8787 (one server per data folder: beside an `npm start` of the same checkout it refuses to start) |
 | `npm run build` | Build the web UI into `dist/web` |
 | `npm start` | Serve the built UI and the API from one process on http://127.0.0.1:8787 |
 | `npm run login` | Print a one-time link (and code) that signs a browser in, for when the one `npm start` printed is used or old |
