@@ -189,6 +189,10 @@ export const OPENCODE_SHELL_REFUSAL =
  *   `[[ … -eq … ]]`, `${name[…]}`, `${!…}`, `${(e)…}`, `declare -i`) and holds a `$`/backquote that is
  *   quoted or escaped (so not a plain substitution OpenCode would see) — the single-quoted-subscript trap
  *   (`x='a[$(cmd)]'; a[x]=1`) and its escaped and assembled variants.
+ * The evaluating forms are looked for outside single quotes, when the line's single-quoted text can be
+ * told apart for sure (no double quote, backslash, `#`, here-document or `${`, an even number of single
+ * quotes, and no declaration command, whose quoted argument is itself evaluated: `declare 'a[$(…)]=1'`);
+ * otherwise in the whole line. So `awk -F= '/^[A-Z_]+=/ {print $2}' f` runs.
  * It matches its keywords as command words, ignores `$(( … ))` arithmetic, and calls grep by absolute path
  * (so a missing grep fails closed: the command is refused, never let through). The refusal is a clear
  * message the model sees (`OPENCODE_SHELL_REFUSAL`). A determined evasion that assembles `$(` entirely out
@@ -218,6 +222,8 @@ export function opencodeShellScript(): string {
   );
   // A declaration command word whose quoted argument puts a `$` in the name part (before `=`): `declare "a$y=1"`.
   const declInject = shSingleQuote('(^|[;&|(){}]|&&|\\|\\||[[:space:]])(declare|typeset|export|local|readonly)[[:space:]]+"[^"=]*[$][^"=]*=');
+  // A declaration command word at all: its quoted argument is evaluated as an assignment, subscript included.
+  const declWord = shSingleQuote('(^|[;&|(){}]|&&|\\|\\||[[:space:]])(declare|typeset|export|local|readonly)([[:space:]]|$)');
   return `#!/bin/sh
 # Written by Harness Relay: OpenCode's shell for the commands it runs. Fixed text; values come from the environment.
 __shell=\${${OPENCODE_SHELL_ENV}:-/bin/sh}
@@ -227,7 +233,28 @@ if [ "$1" = "-c" ] && [ -n "\${${OPENCODE_SHELL_SCREEN_ENV}:-}" ]; then
   if [ ! -x "$__grep" ]; then __refuse=1; fi
   if [ -z "$__refuse" ] && printf '%s' "$__cmd" | "$__grep" -Eq ${evalWord}; then __refuse=1; fi
   if [ -z "$__refuse" ] && printf '%s' "$__cmd" | "$__grep" -Eq ${quotedDollar}; then
-    if printf '%s' "$__cmd" | "$__grep" -Eq ${evalCtx}; then __refuse=1; fi
+    # Where to look for the evaluating forms: outside single quotes when that text can be told apart for sure.
+    __live=$__cmd
+    case $__cmd in
+      *\\"*|*\\\\*|*\\#*|*'<<'*|*'\${'*) ;;
+      *)
+        if ! printf '%s' "$__cmd" | "$__grep" -Eq ${declWord}; then
+          __live= __rest=$__cmd
+          while :; do
+            case $__rest in
+              *\\'*)
+                __live=$__live\${__rest%%\\'*}
+                __rest=\${__rest#*\\'}
+                case $__rest in
+                  *\\'*) __rest=\${__rest#*\\'} ;;
+                  *) __live=$__cmd; break ;;
+                esac ;;
+              *) __live=$__live$__rest; break ;;
+            esac
+          done
+        fi ;;
+    esac
+    if printf '%s' "$__live" | "$__grep" -Eq ${evalCtx}; then __refuse=1; fi
     if printf '%s' "$__cmd" | "$__grep" -Eq ${declInject}; then __refuse=1; fi
   fi
   if [ -n "$__refuse" ]; then
@@ -339,12 +366,22 @@ function nodeSqlite(): typeof import('node:sqlite') {
 /** OpenCode's tables of console accounts: an active one makes it fetch config from the account's server at start. */
 export const OPENCODE_ACCOUNT_TABLES = ['account_state', 'control_account', 'account'];
 
+/** OpenCode's table of saved permissions (the "always" answers, per project), which it applies without asking. */
+export const OPENCODE_SAVED_PERMISSIONS_TABLE = 'permission';
+
 /**
- * Removes the console accounts from OpenCode's database in its home. The database is its state, which
- * a run's commands may write: an account planted there would have the next run (a full-access one, say)
- * fetch and merge config from the account's server. Never throws: what cannot be checked is logged.
+ * Takes out of OpenCode's database in its home what would widen a later run. The database is its
+ * state, which a run's commands may write (the relay sandbox lets OpenCode write it, so they can too):
+ * - the console accounts: one planted there would have the next run (a full-access one, say) fetch and
+ *   merge config from the account's server;
+ * - each session's permission rules (`session.permission`), which OpenCode puts over the agent's own for
+ *   every tool call of that session: rules a command wrote there (`[{"permission":"*","pattern":"*",
+ *   "action":"allow"}]`) would have the next turn of the resumed session edit, run commands and push
+ *   without asking. Harness Relay never sets any; one set while a run goes on is seen by its watch;
+ * - the saved permissions, for the same reason (Harness Relay never answers "always").
+ * Never throws: what cannot be checked is logged.
  */
-export function scrubOpencodeAccounts(dbPath: string): void {
+export function scrubOpencodeDatabase(dbPath: string): void {
   if (!existsSync(dbPath)) return;
   try {
     const db = new (nodeSqlite().DatabaseSync)(dbPath);
@@ -353,12 +390,14 @@ export function scrubOpencodeAccounts(dbPath: string): void {
       const tables = new Set(
         (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name),
       );
-      for (const table of OPENCODE_ACCOUNT_TABLES) if (tables.has(table)) db.exec(`DELETE FROM "${table}"`);
+      for (const table of [...OPENCODE_ACCOUNT_TABLES, OPENCODE_SAVED_PERMISSIONS_TABLE]) if (tables.has(table)) db.exec(`DELETE FROM "${table}"`);
+      const sessionColumns = tables.has('session') ? (db.prepare('PRAGMA table_info("session")').all() as { name: string }[]).map((c) => c.name) : [];
+      if (sessionColumns.includes('permission')) db.exec('UPDATE "session" SET "permission" = NULL WHERE "permission" IS NOT NULL');
     } finally {
       db.close();
     }
   } catch (err) {
-    console.warn('[opencode] could not check the accounts in its database:', (err as Error).message);
+    console.warn('[opencode] could not check its database for accounts and permission rules:', (err as Error).message);
   }
 }
 
@@ -577,7 +616,7 @@ export async function prepareOpencode(ctx: OpenRunContext, port: () => Promise<n
   const root = ctx.home.root;
   const p = opencodePaths(root, ctx.home.state);
   ensureOpencodeHome(root);
-  scrubOpencodeAccounts(p.db);
+  scrubOpencodeDatabase(p.db);
   mkdirSync(p.relay, { recursive: true, mode: 0o700 });
 
   const instructions = o.nativeOff?.includes('instructions') ? [] : opencodeProjectInstructions(o.cwd);
@@ -1011,9 +1050,12 @@ const OPENCODE_CWD_COMMANDS = new Set(['cd', 'chdir', 'popd', 'pushd', 'push-loc
  */
 const OPENCODE_DECLARATION = new Set(['declare', 'typeset', 'export', 'local', 'readonly', 'unset']);
 /** Keywords skipped to reach the real command of a simple command (`time curl …`, `do cat …`, `while cat …`). */
-const OPENCODE_SKIP_KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'do', 'done', 'fi', 'while', 'until', 'case', 'esac', 'in', 'function', 'time', '!']);
-/** Keywords whose words are only a header, not a command (`for NAME in …`, `select NAME in …`). */
-const OPENCODE_HEADER_KEYWORDS = new Set(['for', 'select']);
+const OPENCODE_SKIP_KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'do', 'done', 'fi', 'while', 'until', 'case', 'esac', 'in', 'time', '!']);
+/**
+ * Keywords whose words are only a header, not a command (`for NAME in …`, `select NAME in …`, and
+ * `function NAME`, whose body's commands come after the `{` that splits it off).
+ */
+const OPENCODE_HEADER_KEYWORDS = new Set(['for', 'select', 'function']);
 
 /**
  * Whether OpenCode's `ShellTool.collect` would ask the user about this command. OpenCode parses it with
@@ -1199,7 +1241,8 @@ export function shellSegments(command: string): string[][] {
  * metacharacters remain to split on: a single- or double-quoted span becomes `_` (a filler, so an
  * assignment keeps its name and a quoted separator cannot split — `cd "a; rm"` is one command), an
  * unquoted command substitution or arithmetic expansion (`$(…)`, a backquote, `$(( … ))`) becomes a
- * space, `\` escapes keep the next character, and a `#` comment to the end of the line is dropped. A
+ * space, `\` escapes keep the next character (a `\` before a newline joins the lines, as the shell does),
+ * and a `#` comment to the end of the line is dropped. A
  * command substitution hidden in a quoted span is still found by `commandSubstitutions`, separately.
  */
 export function skeletonLine(command: string): string {
@@ -1207,7 +1250,8 @@ export function skeletonLine(command: string): string {
   for (let i = 0; i < command.length; i++) {
     const c = command[i]!;
     if (c === '\\') {
-      out += command[++i] ?? '';
+      const next = command[++i] ?? '';
+      if (next !== '\n') out += next; // a line continuation is no separator
     } else if (c === "'") {
       const e = command.indexOf("'", i + 1);
       out += '_';

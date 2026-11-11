@@ -4,7 +4,7 @@ import { AgentsViewSync } from './agentsview';
 import { createApp } from './app';
 import { AuthStore, CODE_TTL_MS } from './auth';
 import { signInLink } from './signin';
-import { openDatabase } from './db';
+import { lockDataDir, openDatabase } from './db';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
 import { desktopParent } from './parent';
@@ -18,7 +18,7 @@ import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import { dataDirInTemp, relayTmpDir } from './protect';
 import { OPEN_PROVIDERS } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
-import { clearRelaySandboxLeftovers, relaySandboxRoot } from './relaySandbox';
+import { clearRelaySandboxLeftovers, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { serveWebApp, webAppDir } from './web';
@@ -26,6 +26,16 @@ import { serveWebApp, webAppDir } from './web';
 // A failure in a background task (a run winding down, a stream write) must not take the server — and
 // every other conversation — down with it.
 process.on('unhandledRejection', (reason) => console.error('[server] unhandled rejection:', reason));
+
+// One server per data folder: before the database is opened, since opening it already marks
+// replies left streaming aborted (the Store), and the start sweeps below kill what runs left.
+const dataLock = lockDataDir(DATA_DIR);
+if (!dataLock) {
+  console.error(
+    `[server] Another Harness Relay server is using the data folder ${DATA_DIR}. Stop it first, or give this one a folder of its own with RELAY_DATA_DIR.`,
+  );
+  process.exit(1);
+}
 
 const db = openDatabase(DB_FILE);
 const auth = new AuthStore(db);
@@ -80,8 +90,10 @@ await clearShareTmp().catch((err: unknown) => console.error('[server] could not 
 // There before any agent runs, so that every sandbox is kept out of it from the first turn (protectedReads).
 mkdirSync(relayTmpDir(), { recursive: true, mode: 0o700 });
 // The temporary folders of relay-sandbox runs the server was stopped during (none is running yet).
+// Whether nothing of them still runs: only then may permissions be given back to remove what is locked.
+let swept = false;
 try {
-  clearRelaySandboxLeftovers();
+  swept = clearRelaySandboxLeftovers();
 } catch (err) {
   console.error('[server] could not clear the relay sandbox folders:', err);
 }
@@ -89,8 +101,8 @@ try {
 // is kept from reading other runs' folders in them from the first turn (`privateRoots`).
 // What open agents' runs a stopped server was running left: their temp folders, and the state folders of
 // runs without a key.
-clearOpenRunLeftovers(OPEN_PROVIDERS.map((p) => settings.openAgentHome(p)));
-for (const dir of [relaySandboxRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
+clearOpenRunLeftovers(OPEN_PROVIDERS.flatMap((p) => settings.openAgentHomes(p)), undefined, { restore: swept });
+for (const dir of [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
 const port = apiPort();
 const host = process.env.HOST ?? '127.0.0.1';

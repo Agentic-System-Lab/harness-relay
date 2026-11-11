@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { CommandNotFoundError, capture, killAll, runProcess, runShellScript, spawnDetached } from '../src/server/process';
+import { CommandNotFoundError, capture, killAll, runProcess, runShellScript, runSync, sleepSync, spawnDetached } from '../src/server/process';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-proc-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -96,6 +96,22 @@ describe('runProcess', () => {
     const script = cli('fake-cli.sh', 'echo ok');
     const res = await capture(`./${relative(process.cwd(), script)}`, [], process.env, { cwd: tmpdir() });
     expect(res.stdout).toBe('ok\n');
+  });
+});
+
+describe('runSync', () => {
+  it('runs a quick probe directly, with its input, and kills one that outlives its timeout even if it ignores SIGTERM', () => {
+    const r = runSync(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], { timeoutMs: 10_000, input: 'a; $(echo b)' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('a; $(echo b)'); // never through a shell
+    const started = Date.now();
+    const stuck = runSync(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { timeoutMs: 500 });
+    expect(stuck.signal).toBe('SIGKILL');
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(runSync(join(dir, 'missing'), [], { timeoutMs: 1000 }).error).toBeDefined();
+    const waited = Date.now();
+    sleepSync(50);
+    expect(Date.now() - waited).toBeGreaterThanOrEqual(45);
   });
 });
 

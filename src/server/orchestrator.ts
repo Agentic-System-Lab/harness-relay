@@ -554,7 +554,7 @@ export class Orchestrator {
         await this.cleanupWorktrees(conv);
         // What each open agent kept for its members, its lead agent and its group sorter.
         const members = new Set([...conv.agents.map((a) => a.id), ...Object.keys(conv.agentState)]);
-        removeConversationState(OPEN_PROVIDERS.map((p) => this.settings.openAgentHome(p)), convId, [...members]);
+        removeConversationState(OPEN_PROVIDERS.flatMap((p) => this.settings.openAgentHomes(p)), convId, [...members]);
       }
       // A schedule that opened it no longer links to it.
       for (const id of this.store.delete(convId)) {
@@ -1910,30 +1910,36 @@ export class Orchestrator {
     // from Harness Relay's own record, and an open agent's state folder (one per CLI and member) is
     // emptied, so nothing a run with less permission wrote (into its session, or a cache that loads
     // code) is read with more. Kept per CLI: the folder of a CLI the member left keeps what it wrote.
-    // All of it is recorded in the database before the run, never in a file the agent can write, and
-    // the flag that the folder must be emptied stays there until it has been.
+    // The same when an open agent's home moved since that run (Settings → Agent sessions): its session
+    // is in the other home, and the folder in this one may hold what an older run, at any permission,
+    // left there. All of it is recorded in the database before the run, never in a file the agent can
+    // write, and the flag that the folder must be emptied stays there until it has been.
     const permission = conv.settings.permission;
+    const home = isOpenProvider(agent.provider) ? this.settings.openAgentHome(agent.provider) : undefined;
     // Saved before the record per CLI: the latest run's permission, when it was on this CLI.
     const lastRun = state.byCli
       ? state.byCli[agent.provider]
       : lastProvider === agent.provider && state.permission
         ? { permission: state.permission }
         : undefined;
-    const raised = permissionAbove(permission, lastRun?.permission ?? 'read-only');
+    // A latest run recorded without its home (before homes were recorded) counts as in another one.
+    const moved = home !== undefined && lastRun !== undefined && lastRun.home !== home;
+    const raised = permissionAbove(permission, lastRun?.permission ?? 'read-only') || moved;
     if (raised && state.sessionId) {
       state.sessionId = undefined;
       state.seen = [];
     }
     const mustEmpty = isOpenProvider(agent.provider) && (raised || lastRun?.mustEmpty === true);
+    const ran = { permission, ...(home ? { home } : {}) };
     state.permission = permission;
-    state.byCli = { ...state.byCli, [agent.provider]: { permission, ...(mustEmpty ? { mustEmpty: true } : {}) } };
+    state.byCli = { ...state.byCli, [agent.provider]: { ...ran, ...(mustEmpty ? { mustEmpty: true } : {}) } };
     this.store.saveAgentState(conv.id, agent.id, state);
     /** Why the turn cannot run: the member's state folder could not be emptied. */
     let notEmptied: AgentRunError | undefined;
     if (mustEmpty) {
       try {
-        emptyStateFolder(this.settings.openAgentHome(agent.provider), stateKeys.member(conv.id, agent.id));
-        state.byCli[agent.provider] = { permission };
+        emptyStateFolder(home!, stateKeys.member(conv.id, agent.id));
+        state.byCli[agent.provider] = ran;
         this.store.saveAgentState(conv.id, agent.id, state);
       } catch (err) {
         notEmptied = new AgentRunError(t().openStateNotEmptied(PROVIDER_LABEL[agent.provider], (err as Error).message));

@@ -38,6 +38,7 @@ import {
   openhandsError,
   openhandsErrorDetail,
   openhandsFilterUpdate,
+  openhandsHeldUpdates,
   openhandsHome,
   openhandsInput,
   openhandsMcpConfig,
@@ -686,6 +687,31 @@ describe('its updates', () => {
     expect(isOpenhandsErrorNotice('Error: the build broke, here is why')).toBe(false);
   });
 
+  it('holds back a message that looks like its notice of a failure, and shows it when it was the model’s after all', () => {
+    const say = (text: string) => ({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } });
+    const reply = 'Error: AssertionError in test_parse: expected 2, got 3';
+    // Held back: OpenHands' own notice comes right before the prompt's error, which then says it.
+    const failed = { state: {} };
+    expect(openhandsFilterUpdate(say('Error: Conversation run failed for id=1: litellm.AuthenticationError: no'), failed)).toBeUndefined();
+    // The prompt failed: nothing was handed over, and the notice goes with the run.
+    // A turn without tools whose reply only reads like one: shown once the prompt answers.
+    const answered = { state: {} };
+    expect(openhandsFilterUpdate(say(reply), answered)).toBeUndefined();
+    expect(openhandsHeldUpdates(answered)).toEqual([say(reply).update]);
+    expect(openhandsHeldUpdates(answered)).toEqual([]);
+    // Something came after it: it goes first, in its place.
+    const more = { state: {} };
+    expect(openhandsFilterUpdate(say(reply), more)).toBeUndefined();
+    const tool = { sessionUpdate: 'tool_call', toolCallId: 't1', kind: 'read', rawInput: { kind: 'FileEditorAction', command: 'view', path: 'a.py' } };
+    expect(openhandsFilterUpdate({ update: tool }, more)).toEqual([say(reply).update, { ...tool, rawInput: { kind: 'FileEditorAction', editor_command: 'view', path: 'a.py' } }]);
+    expect(openhandsHeldUpdates(more)).toEqual([]);
+    // Two in a row: the first was the model's; the second waits.
+    const two = { state: {} };
+    openhandsFilterUpdate(say(reply), two);
+    expect(openhandsFilterUpdate(say('Error: ValueError again'), two)).toEqual([say(reply).update]);
+    expect(openhandsHeldUpdates(two)).toEqual([say('Error: ValueError again').update]);
+  });
+
   it('reads a tool result from its observation: its own output, failed on an error, an exit code or a timeout', () => {
     const done = (observation: Record<string, unknown>) => ({ sessionUpdate: 'tool_call_update', toolCallId: 't', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'Tool: terminal\nResult:\n…' } }], rawOutput: { kind: 'ObservationEvent', observation } });
     expect(openhandsToolResult(done({ content: [{ type: 'text', text: 'done-42' }], exit_code: 0, is_error: false }))).toEqual({ sessionUpdate: 'tool_call_update', toolCallId: 't', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'done-42' } }] });
@@ -739,7 +765,7 @@ describe('its updates', () => {
     expect(withLang('en', () => openhandsFilterUpdate({ update: { ...err, toolCallId: 'w' } }, guarded))).toMatchObject({ content: [{ content: { text: expect.stringMatching(/outside the folders/) } }] });
   });
 
-  it('drops its system prompt, its pause note and its error notice, and keeps its metrics', () => {
+  it('drops its system prompt and its pause note, holds back its error notice, and keeps its metrics', () => {
     const ctx = { state: {} as Record<string, unknown> };
     const thought = (text: string) => ({ update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text } } });
     expect(openhandsFilterUpdate(thought('System Prompt:\nYou are OpenHands agent…'), ctx)).toBeUndefined();
@@ -748,7 +774,8 @@ describe('its updates', () => {
     expect(openhandsFilterUpdate({ update: { sessionUpdate: 'agent_thought_chunk', content: {} } }, ctx)).toEqual({ sessionUpdate: 'agent_thought_chunk', content: {} });
     const notice = { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Error: Conversation run failed for id=x: boom' } }, _meta: { field_meta: { 'openhands.dev/metrics': { input_tokens: 5, output_tokens: 1, cost: 0.1 } } } };
     expect(openhandsFilterUpdate(notice, ctx)).toBeUndefined();
-    expect(ctx.state).toEqual({ errorNotice: 'Error: Conversation run failed for id=x: boom', metrics: { input: 5, output: 1, cost: 0.1 } });
+    expect(ctx.state).toEqual({ heldNotice: notice.update, metrics: { input: 5, output: 1, cost: 0.1 } });
+    delete ctx.state.heldNotice; // the prompt failed right after it (see the test above for the rest)
     expect(openhandsFilterUpdate({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '[no text content]' } } }, ctx)).toBeUndefined();
     expect(openhandsFilterUpdate({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'image' } } }, ctx)).toEqual({ sessionUpdate: 'agent_message_chunk', content: { type: 'image' } });
     expect(openhandsFilterUpdate({ update: { sessionUpdate: 'tool_call', toolCallId: 't' } }, ctx)).toEqual({ sessionUpdate: 'tool_call', toolCallId: 't' });

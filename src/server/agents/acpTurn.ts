@@ -210,12 +210,22 @@ export interface AcpAgentSpec extends OpenAgentProcess {
    */
   mcpServers?(servers: McpServerSpec[], caps: AcpAgentCapabilities, method: AcpSessionMethod): unknown[];
   /**
-   * Each of this session's updates before the turn reads it: the update to read (changed or not), or
-   * undefined to drop it. For an agent that sends its whole system prompt as a thought, reports a failed
-   * tool as `completed`, or keeps what it says about the run in `_meta` (`ctx.state` keeps it for later
-   * hooks). Updates `session/load` replays never reach it.
+   * Each of this session's updates before the turn reads it: the update to read (changed or not),
+   * several (one it held back, then this one), or undefined to drop it. For an agent that sends its
+   * whole system prompt as a thought, reports a failed tool as `completed`, or keeps what it says about
+   * the run in `_meta` (`ctx.state` keeps it for later hooks). Updates `session/load` replays never
+   * reach it.
    */
-  filterUpdate?(params: { sessionId: string; update: Record<string, any>; _meta?: unknown }, ctx: OpenRunContext): Record<string, any> | undefined;
+  filterUpdate?(
+    params: { sessionId: string; update: Record<string, any>; _meta?: unknown },
+    ctx: OpenRunContext,
+  ): Record<string, any> | Record<string, any>[] | undefined;
+  /**
+   * The updates `filterUpdate` held back until it could tell what they were, read once the prompt has
+   * answered (it did not fail): OpenHands' notice of a failure always comes right before the prompt's
+   * error, so a message that only looked like one is the model's after all.
+   */
+  heldUpdates?(ctx: OpenRunContext): Record<string, any>[];
   /**
    * Tokens and cost of the turn (default: ACP's `usage` on the answer and the last `usage_update`,
    * `acpUsage`). An agent that counts for the whole conversation reports the turn's part (`ctx.state`).
@@ -713,7 +723,7 @@ async function acpSession(
       return;
     }
     const update = spec.filterUpdate ? spec.filterUpdate({ sessionId, update: params.update, _meta: params._meta }, ctx) : params.update;
-    if (update) updates.handle(update);
+    for (const u of Array.isArray(update) ? update : update ? [update] : []) updates.handle(u);
   };
   conn.onRequest = async (method, params) => {
     if (method !== 'session/request_permission') {
@@ -846,6 +856,7 @@ async function acpSession(
       sessionId,
       prompt: acpPrompt(o, spec.briefing === 'prompt' ? acpBriefing(o, spec) : undefined, Boolean(caps.promptCapabilities?.image), spec.promptText && ((text) => spec.promptText!(text, ctx))),
     })) as Record<string, any> | undefined;
+    for (const u of spec.heldUpdates?.(ctx) ?? []) updates.handle(u);
     updates.finish();
     const ending = result?.stopReason !== 'cancelled' && !userAborted;
     if (userAborted) throw new AgentRunError(t().stopped, true);
@@ -853,10 +864,8 @@ async function acpSession(
       const f = updates.lastFailure;
       throw new AgentRunError(f ? t().openCancelled(cli, f.tool, f.reason) : t().openCancelledNoReason(cli));
     }
-    if (result?.stopReason === 'refusal') {
-      ended = ending;
-      throw new AgentRunError(t().openRefusal(cli));
-    }
+    // The model refused: the turn failed, so the rows it left open did not finish either.
+    if (result?.stopReason === 'refusal') throw new AgentRunError(t().openRefusal(cli));
     // A turn the agent ended without finishing it (`endTurn` throws): its open rows did not finish either.
     spec.endTurn?.(result, ctx, sessionId);
     ended = ending;

@@ -1,11 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation, TeamPreset } from '../src/shared/types';
-import { openDatabase, type Database } from '../src/server/db';
+import { dataLockFile, lockDataDir, openDatabase, type Database } from '../src/server/db';
 import type { SecretStore } from '../src/server/secrets';
-import { SettingsStore } from '../src/server/settings';
+import { OPEN_AGENT_ROOTS_ENV, OPEN_HOMES_DIR, SettingsStore } from '../src/server/settings';
 import { Store } from '../src/server/store';
 
 let dir: string;
@@ -318,6 +319,43 @@ describe('Store (SQLite)', () => {
     expect(loaded.slice(0, -1).every((p) => p.builtin)).toBe(true);
     new Store(db).deletePreset('user-1');
     expect(new Store(db).listPresets().some((p) => p.id === 'user-1')).toBe(false);
+  });
+});
+
+describe('the data folder lock', () => {
+  it('lets one server at a time hold a data folder, and frees it when that server ends, also when it is killed', async () => {
+    const data = join(dir, 'data');
+    const first = lockDataDir(data);
+    expect(first).toBeDefined();
+    // Another server (the same process stands in) is refused while the first holds it.
+    expect(lockDataDir(data)).toBeUndefined();
+    first!.close();
+    const again = lockDataDir(data);
+    expect(again).toBeDefined();
+    again!.close();
+    // No journal or other file beside it.
+    expect(existsSync(`${dataLockFile(data)}-journal`)).toBe(false);
+
+    // Another process holds it, then is killed: nothing stale is left.
+    const script = `
+      const { DatabaseSync } = require('node:sqlite');
+      const db = new DatabaseSync(process.argv[1]);
+      db.exec('PRAGMA busy_timeout = 0; PRAGMA journal_mode = MEMORY; BEGIN EXCLUSIVE;');
+      process.stdout.write('held\\n');
+      setInterval(() => {}, 1000);
+    `;
+    const child = spawn(process.execPath, ['--no-warnings', '-e', script, dataLockFile(data)], { stdio: ['ignore', 'pipe', 'inherit'] });
+    await new Promise<void>((resolve, reject) => {
+      child.stdout!.on('data', (d: Buffer) => d.toString().includes('held') && resolve());
+      child.on('exit', () => reject(new Error('the holder exited')));
+    });
+    expect(lockDataDir(data)).toBeUndefined();
+    const exited = new Promise((r) => child.once('exit', r));
+    child.kill('SIGKILL');
+    await exited;
+    const after = lockDataDir(data);
+    expect(after).toBeDefined();
+    after!.close();
   });
 });
 
@@ -733,6 +771,13 @@ describe('SettingsStore (SQLite)', () => {
       const off = new SettingsStore(reopen());
       expect(off.env('claude').CLAUDE_CONFIG_DIR).toBe('/users/me/.claude-personal');
       expect(off.view()).toMatchObject({ agentHome: '', agentsViewUrl: '' });
+      // The open agents' homes are back in the data folder, and the folder they were in is remembered:
+      // a run is kept from what runs kept there, and a deleted conversation's state goes from there too.
+      expect(off.openAgentHome('opencode')).toBe(join(OPEN_HOMES_DIR, 'opencode'));
+      expect(off.openAgentHomes('opencode')).toEqual([join(OPEN_HOMES_DIR, 'opencode'), join(home, 'opencode')]);
+      expect(JSON.parse(off.env('opencode')[OPEN_AGENT_ROOTS_ENV]!)).toEqual([home]);
+      off.setAgentHome(home);
+      expect(new SettingsStore(reopen()).openAgentRoots()).toEqual([home, OPEN_HOMES_DIR]);
     } finally {
       vi.unstubAllEnvs();
     }

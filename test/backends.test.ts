@@ -335,6 +335,22 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     expect((await app.request('/api/backends/endpoints/homelab', json('DELETE'))).status).toBe(404);
   });
 
+  it('refreshes the model menus and the agents\' status also after a change that failed part way', async () => {
+    const { app, keyring, providers } = setup();
+    const changed = vi.spyOn(providers, 'backendsChanged');
+    keyring.set = () => {
+      throw new Error('the keychain is locked');
+    };
+    // The endpoint is saved, only its key is refused: what the menus show must follow.
+    const r = await app.request('/api/backends/endpoints/lab', json('PUT', { ...endpoint, apiKey: 'lab-key-1234' }));
+    expect(r.status).toBe(500);
+    expect(changed).toHaveBeenCalledTimes(1);
+    const view = (await (await app.request('/api/backends', { headers: HOST })).json()) as ModelBackendsView;
+    expect(view.endpoints.map((e) => e.id)).toEqual(['lab']);
+    expect((await app.request('/api/backends/openai', json('PUT', { apiKey: 'sk-test-openai-9999' }))).status).toBe(500);
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+
   it('shows an open agent ready once it is installed, its adapter is done and a backend is set up; it has no sign-in', async () => {
     const { app, settings, providers } = setup();
     const fake = join(root, 'fake-opencode');

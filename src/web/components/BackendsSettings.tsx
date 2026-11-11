@@ -30,6 +30,10 @@ export function BackendsCard({ onChanged }: { onChanged: () => void }) {
       return true;
     } catch (e) {
       setNote({ text: (e as Error).message, error: true });
+      // A change can fail part way (an endpoint saved while the credential store refused its key):
+      // show what is saved now, and let the model menus and the agents' status catch up.
+      api.backends().then(setView, () => undefined);
+      onChanged();
       return false;
     }
   };

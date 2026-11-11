@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Duplex } from 'node:stream';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { approvalKeys } from '../src/server/approvals';
 import type { ApprovalRequest } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
@@ -11,6 +11,7 @@ import { CONTROL_CHANNEL, runProcess } from '../src/server/process';
 import { RELAY_ROOT, agentFolders } from '../src/server/protect';
 import {
   DENY_REASONS,
+  canonicalHost,
   PROJECT_AGENT_CONFIG,
   RELAY_SANDBOX_HOST,
   RelaySandboxRun,
@@ -39,6 +40,8 @@ import {
   relaySandboxPaths,
   relaySandboxRefusal,
   relaySandboxRoot,
+  relaySandboxHostRoot,
+  HOST_TMP_MAX,
   sandboxAvailable,
   sandboxCommand,
   shellQuote,
@@ -47,7 +50,8 @@ import {
 } from '../src/server/relaySandbox';
 import type { ApprovalAnswer } from '../src/shared/types';
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-sbx-')));
+// In /tmp: the data folder's path must leave room for the sandbox's sockets (macOS's own temp folder is too deep).
+const dir = realpathSync(mkdtempSync('/tmp/relay-sbx-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 const data = join(dir, 'data');
@@ -283,7 +287,8 @@ describe('host names that lead to this computer', () => {
     const byId = Object.fromEntries(answers(host.lines).map((m) => [m.id, m]));
     // A literal local address is refused without asking; names go to the user, never to a resolver.
     expect(byId[3]).toEqual({ t: 'answer', id: 3, allow: false, reason: DENY_REASONS.local('127.0.0.1:8787') });
-    expect([...asked].sort()).toEqual(['c2VjcmV0.exfil.example', 'localtest.me:8787']);
+    // (Named as the proxy dials them: in lower case.)
+    expect([...asked].sort()).toEqual(['c2vjcmv0.exfil.example', 'localtest.me:8787']);
     await run.dispose();
   });
 
@@ -320,9 +325,33 @@ describe('hosts', () => {
     // This computer's own addresses, also as an IPv4-carrying IPv6 address.
     expect(isLocalHost('192.168.1.20', ctx.localAddresses)).toBe(true);
     expect(isLocalHost('::ffff:192.168.1.20', ctx.localAddresses)).toBe(true);
+    // A name with its trailing dot is the same name.
+    expect(isLoopbackHost('localhost.')).toBe(true);
     expect(ipv6Groups('2001:db8::1')).toEqual([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1]);
     expect(ipv6Groups('1::2::3')).toBeUndefined();
     expect(ipv6Groups('example.com')).toBeUndefined();
+  });
+
+  it('reads a host as the proxy dials it: the other spellings of an address are that address', () => {
+    const spelled: [string, string][] = [
+      ['127.1', '127.0.0.1'],
+      ['2130706433', '127.0.0.1'],
+      ['0x7f.0.0.1', '127.0.0.1'],
+      ['0177.0.0.1', '127.0.0.1'],
+      ['127.0.0.1.', '127.0.0.1'],
+      ['0', '0.0.0.0'],
+      ['2852039166', '169.254.169.254'],
+      ['0xa9.0xfe.0xa9.0xfe', '169.254.169.254'],
+      ['localhost.', 'localhost'],
+      ['LocalHost', 'localhost'],
+      ['[::ffff:127.0.0.1]', '::ffff:7f00:1'],
+      ['API.OpenAI.com.', 'api.openai.com'],
+    ];
+    for (const [given, canonical] of spelled) {
+      expect(canonicalHost(given)).toBe(canonical);
+      expect(isLocalHost(canonicalHost(given)!)).toBe(!canonical.startsWith('api.'));
+    }
+    for (const bad of ['', 'a b', 'fe80::1%en0x', 'a/b', 'user@host', 'a?b', '[::1']) expect(canonicalHost(bad)).toBeUndefined();
   });
 
   it('allows the backends, by each loopback name for one on loopback', () => {
@@ -653,6 +682,25 @@ describe('RelaySandboxRun', () => {
     await b.run.dispose();
   });
 
+  it('refuses without asking every spelling of a local address, and asks about a name by the name it dials', async () => {
+    const seen: string[] = [];
+    const { run, host } = newRun(async (req) => (seen.push(req.detail!), { allow: true }));
+    const local = ['127.1', '2130706433', '0x7f.0.0.1', '0177.0.0.1', '127.0.0.1.', 'localhost.', '0', '2852039166', '[::ffff:169.254.169.254]'];
+    local.forEach((h, i) => host.write({ t: 'ask', id: i + 1, host: h, port: 8000 }));
+    await until(() => answers(host.lines).length === local.length);
+    for (const a of answers(host.lines)) {
+      expect(a.allow).toBe(false);
+      expect(a.reason).toMatch(/this computer's own addresses or link-local addresses/);
+    }
+    expect(seen).toEqual([]);
+    // A name is asked about once, whatever its letter case or trailing dot.
+    host.write({ t: 'ask', id: 50, host: 'Example.ORG.', port: 443 });
+    host.write({ t: 'ask', id: 51, host: 'example.org', port: 443 });
+    await until(() => answers(host.lines).length === local.length + 2);
+    expect(seen).toEqual(['example.org']);
+    await run.dispose();
+  });
+
   it('asks one host at a time, and stops asking after too many', async () => {
     let open = 0;
     let most = 0;
@@ -703,35 +751,67 @@ describe('RelaySandboxRun', () => {
   });
 });
 
-describe('run folders, their markers and records', () => {
-  it('records a host temp folder made in the system temp, and the startup sweep removes it', () => {
-    const long = join(dir, 'a-data-folder-with-a-very-long-name-that-goes-on-and-on-and-on-again');
-    const d = makeRunDirs(long);
-    expect(d.hostTmp.startsWith(tmpdir())).toBe(true);
-    expect(d.hostRecord && existsSync(d.hostRecord)).toBe(true);
+describe('run folders and their markers', () => {
+  it("keeps the host's temp folder in the data folder, and refuses a data folder too long for its sockets", async () => {
+    const d = makeRunDirs(data);
+    expect(dirname(d.hostTmp)).toBe(relaySandboxHostRoot(data));
+    expect(statSync(d.hostTmp).mode & 0o777).toBe(0o700);
+    for (const platform of ['darwin', 'linux'] as const) expect(d.hostTmp.length).toBeLessThanOrEqual(HOST_TMP_MAX[platform]!);
+    // The startup sweep removes a host's folder a stopped run left, with the run's own.
     writeFileSync(join(d.hostTmp, 'srt.sock'), '');
-    clearRelaySandboxLeftovers(long, 'linux');
-    expect(existsSync(d.hostTmp)).toBe(false);
-    expect(existsSync(d.hostRecord!)).toBe(false);
-    expect(existsSync(d.marker!)).toBe(false);
+    clearRelaySandboxLeftovers(data, 'linux');
+    for (const p of [d.tmp, d.hostTmp, d.marker!]) expect(existsSync(p)).toBe(false);
+    // Never in the system's temp folder, where another CLI's sandboxed command could change it: refused.
+    const long = join(dir, 'a-data-folder-with-a-name-long-enough-for-its-sockets-to-be-too-long');
+    for (const platform of ['darwin', 'linux'] as const) {
+      expect(() => withLang('en', () => makeRunDirs(long, platform))).toThrow(/too long for the sockets its sandbox makes there.*RELAY_DATA_DIR/);
+    }
+    expect(withLang('zh-TW', () => {
+      try {
+        makeRunDirs(long, 'linux');
+      } catch (err) {
+        return (err as Error).message;
+      }
+    })).toMatch(/太長.*RELAY_DATA_DIR/);
+    expect(existsSync(long)).toBe(false);
+    // Other systems are refused elsewhere (`sandboxAvailable`), so no limit applies here.
+    removeRunDirs(makeRunDirs(join(dir, 'other-system'), 'freebsd'));
+    // Told before any sandbox is tried, as the other reasons the sandbox cannot work here are.
+    const tools = { sh: '/bin/sh', bash: '/bin/bash', bwrap: '/usr/bin/bwrap', socat: '/usr/bin/socat', rg: '/usr/bin/rg' };
+    await expect(withLang('en', () => sandboxAvailable({ ...ctx, platform: 'linux', arch: 'x64', tools, dataDir: long }))).resolves.toEqual({
+      ok: false,
+      reason: expect.stringMatching(/too long for the sockets.*at most 61 characters/),
+    });
+    expect(existsSync(long)).toBe(false);
   });
 
-  it('removes the folders, the marker and the record together', () => {
-    const long = join(dir, 'another-data-folder-with-a-very-long-name-that-goes-on-and-on-and-on');
-    const d = makeRunDirs(long);
-    removeRunDirs(d);
-    for (const p of [d.tmp, d.hostTmp, d.marker!, d.hostRecord!]) expect(existsSync(p)).toBe(false);
-    // A short data folder: the host's temp folder is beside the run's, with no record.
-    const shortData = mkdtempSync('/tmp/hrt-');
-    try {
-      const short = makeRunDirs(shortData);
-      expect(short.hostTmp.startsWith(relaySandboxRoot(shortData))).toBe(true);
-      expect(short.hostRecord).toBeUndefined();
-      removeRunDirs(short);
-      for (const p of [short.tmp, short.hostTmp, short.marker!]) expect(existsSync(p)).toBe(false);
-    } finally {
-      rmSync(shortData, { recursive: true, force: true });
+  it('keeps everything a stopped run left while something of it may still run, and gives no permission back', () => {
+    const d = makeRunDirs(data);
+    const locked = join(d.tmp, 'locked');
+    mkdirSync(locked);
+    chmodSync(locked, 0o000);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    for (const sweeps of [
+      { byMarker: () => false, bySandbox: () => true }, // a holder of the marker survived
+      { byMarker: () => true, bySandbox: () => false }, // the sweep by sandbox could not tell
+    ]) {
+      expect(clearRelaySandboxLeftovers(data, 'darwin', sweeps)).toBe(false);
+      for (const p of [d.tmp, d.hostTmp, d.marker!]) expect(existsSync(p)).toBe(true);
+      expect(statSync(locked).mode & 0o777).toBe(0o000);
     }
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    // Once the sweeps find nothing left: all of it goes, the locked folder too.
+    const seen: string[][] = [];
+    expect(clearRelaySandboxLeftovers(data, 'darwin', { byMarker: (m) => (seen.push(m), true), bySandbox: (t) => (seen.push(t), true) })).toBe(true);
+    expect(seen).toEqual([[d.marker], [d.tmp]]);
+    for (const p of [d.tmp, d.hostTmp, d.marker!]) expect(existsSync(p)).toBe(false);
+  });
+
+  it('removes the folders and the marker together', () => {
+    const d = makeRunDirs(data);
+    removeRunDirs(d);
+    for (const p of [d.tmp, d.hostTmp, d.marker!]) expect(existsSync(p)).toBe(false);
   });
 
   it('leaves no marker behind when the command cannot be made', async () => {
@@ -746,19 +826,15 @@ describe('run folders, their markers and records', () => {
 });
 
 describe('run folders', () => {
-  it('makes fresh folders and a fresh marker in the data folder, the host one elsewhere when too long for a socket', () => {
+  it('makes fresh folders and a fresh marker in the data folder', () => {
     const d = makeRunDirs(data);
     expect(d.tmp.startsWith(relaySandboxRoot(data))).toBe(true);
+    expect(d.hostTmp.startsWith(relaySandboxHostRoot(data))).toBe(true);
     // The marker sits beside the run's folder, not inside a sandbox-writable one, and is fresh.
     expect(d.marker!.startsWith(relaySandboxRoot(data))).toBe(true);
     expect(d.marker!.endsWith('.marker')).toBe(true);
     expect(existsSync(d.marker!)).toBe(true);
-    const long = join(dir, 'a-data-folder-with-a-very-long-name-that-goes-on-and-on-and-on');
-    const l = makeRunDirs(long);
-    expect(l.tmp.startsWith(relaySandboxRoot(long))).toBe(true);
-    expect(l.hostTmp.startsWith(tmpdir())).toBe(true);
-    expect(l.marker!.startsWith(relaySandboxRoot(long))).toBe(true);
-    for (const x of [d, l]) for (const p of [x.tmp, x.hostTmp, x.marker!]) rmSync(p, { recursive: true, force: true });
+    removeRunDirs(d);
   });
 
   it('removes the marker when the run is disposed', async () => {

@@ -888,7 +888,12 @@ export function openhandsThought(text: string): string {
   return text;
 }
 
-/** Whether a message chunk is OpenHands telling the failure the prompt's error then gives (dropped: the error says it). */
+/**
+ * Whether a message chunk looks like OpenHands telling the failure the prompt's error then gives
+ * (`Error: <the exception>`, sent right before it fails the prompt). Only looks like it: the model may
+ * begin a reply the same way ("Error: AssertionError in test_parse…"), so such a chunk is held back
+ * (`openhandsFilterUpdate`) and shown once anything comes after it or the prompt answers.
+ */
 export function isOpenhandsErrorNotice(text: string): boolean {
   return /^Error: (Conversation run failed for id=|new-session: |[\w.]*(Error|Exception)\b)/.test(text);
 }
@@ -985,15 +990,42 @@ function sandboxed(text: string, sandbox: 'read-only' | 'edit' | undefined, isPr
   return `${why}\n${text.replace(/^\u274c \[An error occurred during execution\.\]\n/, '')}`;
 }
 
-/** Each update before the turn reads it (OpenHands' `_meta` metrics are kept for the turn's usage). */
+type FilterContext = Pick<OpenRunContext, 'state'> & Partial<Pick<OpenRunContext, 'sandboxed' | 'o'>>;
+
+/** The message held back as what may be OpenHands' notice of a failure, taken out of the run's state. */
+function takeHeldNotice(ctx: Pick<OpenRunContext, 'state'>): Record<string, any> | undefined {
+  const held = ctx.state.heldNotice as Record<string, any> | undefined;
+  delete ctx.state.heldNotice;
+  return held;
+}
+
+/**
+ * The messages still held back once the prompt has answered: it did not fail, so what looked like
+ * OpenHands' notice of a failure was the model's own reply (`heldUpdates`).
+ */
+export function openhandsHeldUpdates(ctx: Pick<OpenRunContext, 'state'>): Record<string, any>[] {
+  const held = takeHeldNotice(ctx);
+  return held ? [held] : [];
+}
+
+/**
+ * Each update before the turn reads it (OpenHands' `_meta` metrics are kept for the turn's usage). A
+ * message that looks like its notice of a failure is held back: if anything comes after it, it was the
+ * model's, and goes before that; if the prompt fails right after it, it is dropped (the error says it).
+ */
 export function openhandsFilterUpdate(
   params: { update: Record<string, any>; _meta?: unknown },
-  ctx: Pick<OpenRunContext, 'state'> & Partial<Pick<OpenRunContext, 'sandboxed' | 'o'>>,
-): Record<string, any> | undefined {
+  ctx: FilterContext,
+): Record<string, any> | Record<string, any>[] | undefined {
   const metrics = openhandsUpdateMetrics(params._meta);
   if (metrics) ctx.state.metrics = metrics;
-  const u = params.update;
-  if (!u) return undefined;
+  if (!params.update) return undefined;
+  const earlier = takeHeldNotice(ctx);
+  const update = filterOne(params.update, ctx);
+  return earlier ? [earlier, ...(update ? [update] : [])] : update;
+}
+
+function filterOne(u: Record<string, any>, ctx: FilterContext): Record<string, any> | undefined {
   const text: unknown = u.content?.text;
   switch (u.sessionUpdate) {
     case 'agent_thought_chunk': {
@@ -1005,11 +1037,11 @@ export function openhandsFilterUpdate(
     }
     case 'agent_message_chunk': {
       if (typeof text !== 'string') return u;
+      const message = openhandsMessageText(text);
       if (isOpenhandsErrorNotice(text)) {
-        ctx.state.errorNotice = text;
+        if (message) ctx.state.heldNotice = { ...u, content: { ...u.content, text: message } };
         return undefined;
       }
-      const message = openhandsMessageText(text);
       return message ? { ...u, content: { ...u.content, text: message } } : undefined;
     }
     case 'tool_call': {
@@ -1363,6 +1395,7 @@ export const openhandsAcp: AcpAgentSpec = {
   toolName: openhandsToolName,
   mcpServers: () => [],
   filterUpdate: openhandsFilterUpdate,
+  heldUpdates: openhandsHeldUpdates,
   promptText: openhandsPromptText,
   endTurn: (_result, ctx, sessionId) => openhandsEndTurn(ctx, sessionId),
   usage: (_result, _last, ctx) => openhandsUsage(ctx.state.metrics as OpenhandsMetrics | undefined, ctx.state.before as OpenhandsMetrics | undefined, ctx.run),

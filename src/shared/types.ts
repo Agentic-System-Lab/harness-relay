@@ -997,11 +997,12 @@ export interface AgentSessionState {
   permission?: Permission;
   /**
    * Per CLI the member ran on (each open agent keeps a state folder of its own for it): the permission
-   * of that CLI's latest run, and `mustEmpty` while its state folder still has to be emptied before it
-   * runs again (set when the permission went up, cleared once the folder is empty). A turn with a
-   * higher permission than its CLI's latest starts a fresh session.
+   * of that CLI's latest run, the open agent's home that run was in (`home`), and `mustEmpty` while its
+   * state folder still has to be emptied before it runs again (set when the permission went up or the
+   * home moved, cleared once the folder is empty). A turn with a higher permission than its CLI's
+   * latest, or in another home, starts a fresh session.
    */
-  byCli?: Partial<Record<Provider, { permission: Permission; mustEmpty?: boolean }>>;
+  byCli?: Partial<Record<Provider, { permission: Permission; home?: string; mustEmpty?: boolean }>>;
   /** Ids of chat messages this agent has already been shown. */
   seen: string[];
 }

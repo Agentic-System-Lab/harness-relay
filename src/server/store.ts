@@ -165,12 +165,17 @@ interface PartRow {
 
 /** A member's record per CLI (`agent_sessions.by_cli`): only known CLIs and permissions are kept. */
 function byCliOf(json: string | null): AgentSessionState['byCli'] {
-  const raw = parseJson<Record<string, { permission?: unknown; mustEmpty?: unknown }>>(json, {});
+  const raw = parseJson<Record<string, { permission?: unknown; home?: unknown; mustEmpty?: unknown }>>(json, {});
   const out: NonNullable<AgentSessionState['byCli']> = {};
   for (const p of PROVIDERS) {
     const e = raw[p];
     const permission = PERMISSION_ORDER.find((x) => x === e?.permission);
-    if (permission) out[p] = { permission, ...(e?.mustEmpty === true ? { mustEmpty: true } : {}) };
+    if (!permission) continue;
+    out[p] = {
+      permission,
+      ...(typeof e?.home === 'string' && e.home ? { home: e.home } : {}),
+      ...(e?.mustEmpty === true ? { mustEmpty: true } : {}),
+    };
   }
   return Object.keys(out).length ? out : undefined;
 }

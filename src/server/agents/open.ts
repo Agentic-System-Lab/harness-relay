@@ -8,8 +8,8 @@ import { t } from '../i18n';
 import type { NativeProbe } from '../native';
 import { patternPath, protectedReads, realPath } from '../protect';
 import { CommandNotFoundError } from '../process';
-import { makeRunDirs, relaySandboxRoot, removeRunDirs, sandboxAvailable, sandboxCommand, type RelaySandboxRunDirs, type RelaySandboxSpec } from '../relaySandbox';
-import { DATA_DIR, OPEN_AGENT_HOME_ENV } from '../settings';
+import { makeRunDirs, relaySandboxHostRoot, relaySandboxRoot, removeRunDirs, sandboxAvailable, sandboxCommand, type RelaySandboxRunDirs, type RelaySandboxSpec } from '../relaySandbox';
+import { DATA_DIR, OPEN_AGENT_HOME_ENV, OPEN_AGENT_ROOTS_ENV } from '../settings';
 import { AgentRunError, stateKeys, type AgentRunner, type RunOptions, type RunResult } from './types';
 
 /*
@@ -286,9 +286,11 @@ export function removeConversationState(homes: readonly string[], conversationId
 /**
  * What runs of a server that stopped during them left behind (call at start, before any run): every
  * folder in `RUN_TMP_DIR`, and the state folders of runs without a key (`private/run-*`) and those set
- * aside to be removed (`private/.gone-*`) in each open agent's home.
+ * aside to be removed (`private/.gone-*`) in each open agent's home. `restore`: only once the sweeps
+ * of leftover processes found nothing left (`clearRelaySandboxLeftovers`), owner permissions are given
+ * back so that what a run locked goes too; else what is locked stays until a later start.
  */
-export function clearOpenRunLeftovers(homes: readonly string[], runTmp = RUN_TMP_DIR): void {
+export function clearOpenRunLeftovers(homes: readonly string[], runTmp = RUN_TMP_DIR, { restore = true }: { restore?: boolean } = {}): void {
   const clear = (dir: string, keep: (name: string) => boolean) => {
     let names: string[];
     try {
@@ -296,8 +298,7 @@ export function clearOpenRunLeftovers(homes: readonly string[], runTmp = RUN_TMP
     } catch {
       return;
     }
-    // After the sweeps of leftover processes (index.ts): owner permissions may be given back here.
-    for (const name of names) if (!keep(name)) removeTree(join(dir, name), { restore: true });
+    for (const name of names) if (!keep(name)) removeTree(join(dir, name), { restore });
   };
   clear(runTmp, () => false);
   for (const home of homes) clear(join(home, PRIVATE_DIR), (name) => !name.startsWith('run-') && !name.startsWith(SET_ASIDE));
@@ -313,13 +314,31 @@ function inside(path: string, dir: string): boolean {
  * The folders whose content belongs to other runs, which a sandboxed run may not read (only its own
  * parts of them, which it may write): every open agent's `private/` folder (the folder of each
  * conversation member's state) beside this home, made when missing (the sandbox may refuse a path that
- * does not exist), and the folders of each run's temp folder in Harness Relay's data folder, which the
- * server makes when it starts (`dataDirs`; left out while they do not exist).
+ * does not exist), those in the folders the homes were in before (`before`, from `OPEN_AGENT_ROOTS_ENV`:
+ * what runs kept there is no other run's to read either; left out while they do not exist), and the
+ * folders of each run's temp folders in Harness Relay's data folder (the run's own, its sandbox host's,
+ * and a full-access run's), which the server makes when it starts (`dataDirs`; left out while they do
+ * not exist).
  */
-export function privateRoots(root: string, dataDirs: string[] = [relaySandboxRoot(), RUN_TMP_DIR]): string[] {
+export function privateRoots(
+  root: string,
+  dataDirs: string[] = [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR],
+  before: readonly string[] = [],
+): string[] {
   const homes = [...new Set([join(root, PRIVATE_DIR), ...OPEN_PROVIDERS.map((p) => join(dirname(root), p, PRIVATE_DIR))])];
   for (const dir of homes) mkdirSync(dir, { recursive: true, mode: 0o700 });
-  return [...homes, ...dataDirs.filter((dir) => existsSync(dir))];
+  const earlier = before.flatMap((r) => OPEN_PROVIDERS.map((p) => join(r, p, PRIVATE_DIR))).filter((dir) => !homes.includes(dir) && existsSync(dir));
+  return [...new Set([...homes, ...earlier, ...dataDirs.filter((dir) => existsSync(dir))])];
+}
+
+/** The folders an open agent's homes were in before, from its run's environment (`OPEN_AGENT_ROOTS_ENV`). */
+export function openAgentRootsBefore(env: NodeJS.ProcessEnv): string[] {
+  try {
+    const roots: unknown = JSON.parse(env[OPEN_AGENT_ROOTS_ENV] ?? '[]');
+    return Array.isArray(roots) ? roots.filter((r): r is string => typeof r === 'string' && isAbsolute(r)) : [];
+  } catch {
+    return [];
+  }
 }
 
 /** What `startOpenProcess` needs from the relay sandbox (swapped in tests). */
@@ -331,8 +350,8 @@ export interface OpenProcessDeps {
   platform: NodeJS.Platform;
   /** Where each run's temp folder is made (default `RUN_TMP_DIR`). */
   runTmpDir?: string;
-  /** The folders other runs' data is in (default `privateRoots()` of the home). */
-  privateRoots?: (root: string) => string[];
+  /** The folders other runs' data is in (default `privateRoots()` of the home and the folders it was in before). */
+  privateRoots?: (root: string, before: string[]) => string[];
 }
 
 export const defaultOpenDeps: OpenProcessDeps = { sandboxAvailable, sandboxCommand, makeRunDirs: () => makeRunDirs(), platform: process.platform };
@@ -449,7 +468,7 @@ export async function startOpenProcess(
       permission: o.permission as RelaySandboxSpec['permission'],
       cwd: o.cwd,
       writable: [...home.statePaths, tmpDir],
-      privateRoots: (deps.privateRoots ?? privateRoots)(root),
+      privateRoots: deps.privateRoots ? deps.privateRoots(root, openAgentRootsBefore(o.env)) : privateRoots(root, undefined, openAgentRootsBefore(o.env)),
       readOnly: [...home.configPaths],
       protectedPaths,
       allowedHosts: [...run.hosts],

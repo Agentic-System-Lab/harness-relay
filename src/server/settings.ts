@@ -68,6 +68,12 @@ const DEFAULT_BIN: Record<Provider, string> = {
  * variables (XDG folders, its home variable): `OpenAgentProcess.home` in `agents/open.ts`.
  */
 export const OPEN_AGENT_HOME_ENV = 'HARNESS_RELAY_AGENT_HOME';
+/**
+ * Where an open agent's run learns the folders its CLI's homes were in before (a JSON list): an
+ * agent-home folder used earlier in **Settings → Agent sessions**, or the data folder's own. What runs
+ * kept in their `private/` folders there is kept from this run too (`privateRoots`).
+ */
+export const OPEN_AGENT_ROOTS_ENV = 'HARNESS_RELAY_AGENT_HOMES_BEFORE';
 
 /** The variable that moves each CLI's home: its sign-in, settings and session transcripts. */
 export const AGENT_HOME_ENV: Record<Provider, string> = {
@@ -175,6 +181,7 @@ export class SettingsStore {
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'default_cwd'").get() as { value: string } | undefined;
     this.cwd = row?.value ?? process.env.RELAY_DEFAULT_CWD ?? process.cwd();
     this.agentHomeDir = this.appSetting('agent_home') ?? '';
+    this.rememberOpenAgentRoot();
     this.agentsView = this.appSetting('agentsview_url') ?? '';
     this.agentsViewLinkValue = this.appSetting('agentsview_link') ?? '';
     const lead = db.prepare("SELECT value FROM app_settings WHERE key = 'lead_agent'").get() as { value: string } | undefined;
@@ -257,6 +264,43 @@ export class SettingsStore {
   setAgentHome(dir: string): void {
     this.agentHomeDir = dir;
     this.saveAppSetting('agent_home', dir);
+    this.rememberOpenAgentRoot();
+  }
+
+  /** The folder the open agents' homes are in now: the agent-home folder, else the data folder's. */
+  private openAgentRoot(): string {
+    return this.agentHomeDir || OPEN_HOMES_DIR;
+  }
+
+  /** The agent-home folders the open agents' homes have been in (kept in `app_settings`). */
+  private agentRootsUsed(): string[] {
+    let used: unknown;
+    try {
+      used = JSON.parse(this.appSetting('open_agent_roots') ?? '[]');
+    } catch {
+      used = [];
+    }
+    return Array.isArray(used) ? used.filter((r): r is string => typeof r === 'string' && r !== '') : [];
+  }
+
+  /** Keeps an agent-home folder the open agents' homes are in now among those they have been in. */
+  private rememberOpenAgentRoot(): void {
+    const used = this.agentRootsUsed();
+    if (this.agentHomeDir && !used.includes(this.agentHomeDir)) this.saveAppSetting('open_agent_roots', JSON.stringify([...used, this.agentHomeDir]));
+  }
+
+  /**
+   * Every folder the open agents' homes have been in, the one now first: what their runs kept in each
+   * stays theirs (no other run reads it) and goes with its conversation, also after **Settings → Agent
+   * sessions** moved the homes elsewhere.
+   */
+  openAgentRoots(): string[] {
+    return [...new Set([this.openAgentRoot(), OPEN_HOMES_DIR, ...this.agentRootsUsed()])];
+  }
+
+  /** An open agent's home in each folder it has been in (`openAgentRoots`), the one now first. */
+  openAgentHomes(p: Provider): string[] {
+    return this.openAgentRoots().map((root) => join(root, p));
   }
 
   /** The home a CLI uses under Harness Relay, or undefined when it uses its usual one. */
@@ -446,7 +490,10 @@ export class SettingsStore {
     if (isOpenProvider(p)) {
       // Only the backends set up in Settings: not a key or an address the server inherited.
       for (const k of INHERITED_BACKEND_VARS) delete env[k];
-      Object.assign(env, backendEnv(this.backends.forRun()), { [OPEN_AGENT_HOME_ENV]: this.openAgentHome(p) });
+      Object.assign(env, backendEnv(this.backends.forRun()), {
+        [OPEN_AGENT_HOME_ENV]: this.openAgentHome(p),
+        [OPEN_AGENT_ROOTS_ENV]: JSON.stringify(this.openAgentRoots().slice(1)),
+      });
       return env;
     }
     const keyVar = API_KEY_ENV[p];

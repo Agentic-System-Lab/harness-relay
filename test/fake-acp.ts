@@ -22,7 +22,8 @@ import { writeFileSync } from 'node:fs';
  *     `cancelled` (the tool call gets no closing update, as with some agents);
  *   - `silent`: never answers (for the timeout);
  *   - `crash`: writes to stderr and exits 3 in the middle of the prompt;
- *   - `self-cancel`: a tool call fails, and the prompt ends `cancelled` without being asked to.
+ *   - `self-cancel`: a tool call fails, and the prompt ends `cancelled` without being asked to;
+ *   - `refusal`: starts a tool call it never closes, and the prompt ends `refusal`.
  * `FAKE_ACP_EXIT_AT_START` makes it exit at once (as when a sandbox stops it before it starts).
  * Every message it receives is appended as a JSON line to `FAKE_ACP_LOG`, with `FAKE_ACP_ENV` (a
  * variable's name) recording that variable's value at start, and `argv` the arguments.
@@ -107,6 +108,10 @@ async function prompt(id, p) {
     update(s, { sessionUpdate: 'tool_call', toolCallId: 'x1', title: 'Run tests', kind: 'execute', status: 'pending', rawInput: { command: 'npm test' } });
     update(s, { sessionUpdate: 'tool_call_update', toolCallId: 'x1', status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'no terminal' } }] });
     return send({ id, result: { stopReason: 'cancelled' } });
+  }
+  if (scenario === 'refusal') {
+    update(s, { sessionUpdate: 'tool_call', toolCallId: 'r1', title: 'Read a.txt', kind: 'read', status: 'in_progress', rawInput: { path: 'a.txt' } });
+    return send({ id, result: { stopReason: 'refusal' } });
   }
 }
 

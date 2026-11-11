@@ -1,6 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import { chmodSync, lstatSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { runSync } from './process';
 
 /**
  * Clears the user-immutable flag (`chflags uchg`, which a sandboxed run may set on what it can write)
@@ -9,7 +9,7 @@ import { join } from 'node:path';
  */
 export function clearUserFlags(path: string, { tree = false }: { tree?: boolean } = {}): void {
   if (process.platform !== 'darwin') return;
-  spawnSync('/usr/bin/chflags', tree ? ['-R', '-P', 'nouchg', path] : ['-h', 'nouchg', path], { stdio: 'ignore', timeout: 30_000 });
+  runSync('/usr/bin/chflags', tree ? ['-R', '-P', 'nouchg', path] : ['-h', 'nouchg', path], { timeoutMs: 30_000, quiet: true });
 }
 
 /**

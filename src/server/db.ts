@@ -1,6 +1,6 @@
 import { chmodSync, closeSync, mkdirSync, openSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 
 export type Database = DatabaseSyncType;
@@ -347,6 +347,37 @@ export function openDatabase(file: string): Database {
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA secure_delete = ON;');
   migrate(db);
   return db;
+}
+
+/** The file a running server holds its data folder with (a SQLite database that stays empty). */
+export function dataLockFile(dataDir: string): string {
+  return join(dataDir, 'server.lock');
+}
+
+/**
+ * Takes the data folder for this server while it runs, or returns undefined when another server
+ * holds it. Two servers on one data folder would undo each other: at its start each one kills the
+ * processes of the other's sandboxed runs and removes their folders, marks the other's streaming
+ * replies aborted and expires their approvals, and both would send every schedule. So a second
+ * server on the same data folder (`npm run dev` beside an `npm start` of the same checkout, say)
+ * refuses to start.
+ *
+ * The lock is SQLite's own on that file (an exclusive transaction kept open, with the journal in
+ * memory so no other file is made): the system releases it when the process ends, however it ends,
+ * so a server that was killed leaves no stale lock, and a process that later gets its pid holds
+ * nothing. Keep the returned handle for as long as the server runs; closing it releases the folder.
+ */
+export function lockDataDir(dataDir: string): Database | undefined {
+  mkdirSync(dataDir, { recursive: true });
+  const db = new DatabaseSync(dataLockFile(dataDir));
+  try {
+    db.exec('PRAGMA busy_timeout = 0; PRAGMA journal_mode = MEMORY; BEGIN EXCLUSIVE;');
+    return db;
+  } catch (err) {
+    db.close();
+    if ((err as { errcode?: number }).errcode === 5) return undefined; // SQLITE_BUSY: another server holds it
+    throw err;
+  }
 }
 
 export function transaction<T>(db: Database, fn: () => T): T {

@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -13,7 +12,8 @@ import { afterAll, describe, expect, it } from 'vitest';
  *   that left the host's group. Real processes, no sandbox; macOS only (the sweep uses lsof there).
  * - T1: a run that fails in sandboxCommand after its folders were made leaves no marker behind.
  */
-const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-leftovers-')));
+// In /tmp: the data folder's path must leave room for the sandbox's sockets (macOS's own temp folder is too deep).
+const root = realpathSync(mkdtempSync('/tmp/relay-leftovers-'));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 const { RelaySandboxRun, clearRelaySandboxLeftovers, makeRunDirs, relaySandboxRoot } = await import('../src/server/relaySandbox');
 const { startOpenProcess } = await import('../src/server/agents/open');

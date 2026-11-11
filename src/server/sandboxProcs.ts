@@ -1,5 +1,5 @@
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { runProcess } from './process';
+import type { SpawnSyncReturns } from 'node:child_process';
+import { runProcess, runSync, sleepSync } from './process';
 import { existsSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -58,13 +58,13 @@ export interface SandboxProcsDeps {
   pythonReady: () => boolean;
 }
 
-const run: Runner = (cmd, args, input) => spawnSync(cmd, args, { input, encoding: 'utf8', timeout: 15_000, maxBuffer: 1 << 22 });
+const run: Runner = (cmd, args, input) => runSync(cmd, args, { timeoutMs: 15_000, input });
 
 let pythonChecked: boolean | undefined;
 /** `/usr/bin/python3` is a stub that offers to install the command line tools unless they are there. */
 function systemPythonReady(): boolean {
   if (pythonChecked !== undefined) return pythonChecked;
-  const tools = spawnSync('/usr/bin/xcode-select', ['-p'], { encoding: 'utf8', timeout: 5000 });
+  const tools = runSync('/usr/bin/xcode-select', ['-p'], { timeoutMs: 5000 });
   const dir = tools.status === 0 ? tools.stdout.trim() : '';
   pythonChecked = Boolean(dir) && existsSync('/usr/bin/python3') && (existsSync(join(dir, 'usr/bin/python3')) || existsSync(join(dir, 'Library/Frameworks/Python3.framework')));
   return pythonChecked;
@@ -234,7 +234,7 @@ export function sweepRunSandboxes(runTmps: readonly string[], deps: SandboxProcs
     if (!found.length) return true;
     if (round === 5) return false;
     for (const pid of new Set(found)) kill(pid);
-    spawnSync('/bin/sleep', ['0.1']);
+    sleepSync(100);
   }
   return false;
 }

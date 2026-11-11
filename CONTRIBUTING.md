@@ -48,7 +48,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 ### Code
 
 - Strict TypeScript with ES modules. Shared types live only in `src/shared/types.ts`.
-- Start child processes only through `src/server/process.ts`, so they are tracked and stopped on shutdown. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments.
+- Start child processes only through `src/server/process.ts`, so they are tracked and stopped on shutdown; a quick probe the server waits for (`lsof`, `ps`, `chflags`) goes through its `runSync()`, which kills it after its timeout. The relay sandbox's host (`relaySandboxHost.ts`) is a program of its own and starts the agent itself. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments.
 - Keep CLI output parsers pure (lines in, `AgentEvent`s out) so they can be tested with recorded output.
 - Tests run in Node without a DOM. Put client logic you want to test in plain modules (like `src/web/chat.ts`), not inside components.
 - In the desktop app, only `desktop/src/main.ts` imports `electron`. Put the rest in modules without it (like `desktop/src/lifecycle.ts`), which the root `test/` tests like the other code.

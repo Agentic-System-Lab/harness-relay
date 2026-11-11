@@ -21,7 +21,7 @@ const { startOpenProcess, stateFolder, stateFolderName, emptyStateFolder, PRIVAT
 const { stateKeys } = await import('../src/server/agents/types');
 const { acpApprovalRequest, acpCallInfo, inputDetail } = await import('../src/server/agents/acpTurn');
 const { relaySandboxPaths } = await import('../src/server/relaySandbox');
-const { OPEN_AGENT_HOME_ENV } = await import('../src/server/settings');
+const { OPEN_AGENT_HOME_ENV, OPEN_AGENT_ROOTS_ENV } = await import('../src/server/settings');
 const { withLang } = await import('../src/server/i18n');
 const { validateAgents } = await import('../src/server/validate');
 const { opencodeAcp } = await import('../src/server/agents/opencode');
@@ -167,6 +167,20 @@ describe("a conversation member's own state", () => {
     for (const r of roots) expect(existsSync(r)).toBe(true);
     mkdirSync(join(data, 'run-tmp'), { recursive: true });
     expect(privateRoots(home, [join(data, 'relay-sandbox'), join(data, 'run-tmp')])).toContain(join(data, 'run-tmp'));
+  });
+
+  it("keeps a run from reading what runs kept in the folders the homes were in before, and makes none there", async () => {
+    const before = join(root, 'homes-before');
+    mkdirSync(join(before, 'goose', PRIVATE_DIR), { recursive: true });
+    const roots = privateRoots(join(root, 'homes3', 'opencode'), [], [before, join(root, 'homes-gone')]);
+    expect(roots).toContain(join(before, 'goose', PRIVATE_DIR));
+    // Only what is there: nothing is made in an earlier folder.
+    expect(roots).not.toContain(join(before, 'opencode', PRIVATE_DIR));
+    expect(existsSync(join(root, 'homes-gone'))).toBe(false);
+    // A run learns them from its environment (SettingsStore.env).
+    const specs: Spec[] = [];
+    await startOpenProcess(agent(), options({ stateKey: 'conv.c9.a1', env: { PATH: process.env.PATH, [OPEN_AGENT_HOME_ENV]: join(base, 'opencode'), [OPEN_AGENT_ROOTS_ENV]: JSON.stringify([before]) } }), () => [], sandbox(specs));
+    expect(specs[0]!.privateRoots).toContain(join(before, 'goose', PRIVATE_DIR));
   });
 });
 
@@ -319,7 +333,15 @@ describe('what a deleted conversation and a stopped server leave', () => {
     // A folder set aside to be removed that could not be (its run had locked a folder in it).
     const aside = join(homes[1]!, PRIVATE_DIR, '.gone-0123abcd');
     mkdirSync(join(aside, 'locked'), { recursive: true });
+    writeFileSync(join(aside, 'locked', 'f'), 'x');
     chmodSync(join(aside, 'locked'), 0o000);
+    // While something a stopped run left may still be running, no permission is given back: what it
+    // locked stays for a later start, and the rest goes.
+    clearOpenRunLeftovers([...homes, join(root, 'no-such-home')], runTmp, { restore: false });
+    expect(readdirSync(runTmp)).toEqual([]);
+    expect(existsSync(keyless)).toBe(false);
+    expect(statSync(join(aside, 'locked')).mode & 0o777).toBe(0o000);
+    mkdirSync(join(runTmp, 'opencode-1a2b'), { recursive: true });
     clearOpenRunLeftovers([...homes, join(root, 'no-such-home')], runTmp);
     expect(readdirSync(runTmp)).toEqual([]);
     expect(existsSync(keyless)).toBe(false);

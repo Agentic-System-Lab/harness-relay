@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { accessSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { homedir, networkInterfaces, tmpdir } from 'node:os';
+import { homedir, networkInterfaces } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createServer } from 'node:net';
 import { createInterface } from 'node:readline';
@@ -12,8 +12,7 @@ import type { ApprovalAnswer } from '../shared/types';
 import { AgentRunError, type ApprovalRequest } from './agents/types';
 import { currentLang, t, withLang } from './i18n';
 import { DEFAULT_PORT, DEV_API_PORT, DEV_WEB_PORT, apiPort } from './ports';
-import { CONTROL_CHANNEL, CommandNotFoundError, type ControlChannel, runProcess } from './process';
-import { spawnSync } from 'node:child_process';
+import { CONTROL_CHANNEL, CommandNotFoundError, type ControlChannel, runProcess, runSync, sleepSync } from './process';
 import {
   RELAY_ROOT,
   agentFolders,
@@ -198,17 +197,11 @@ export interface RelaySandboxRunDirs {
    * it; it is optional only so a caller that builds its own folders (a test) need not.
    */
   marker?: string;
-  /**
-   * When the host's temp folder had to go in the system's temp folder (the data folder's path is too
-   * long for a socket), a record of it next to the run's folders, so the startup sweep removes that
-   * folder too (`clearRelaySandboxLeftovers`).
-   */
-  hostRecord?: string;
 }
 
-/** Removes a run's folders, its marker and its record (each that exists). Never throws. */
+/** Removes a run's folders and its marker (each that exists). Never throws. */
 export function removeRunDirs(dirs: RelaySandboxRunDirs): void {
-  for (const path of [dirs.tmp, dirs.hostTmp, dirs.marker, dirs.hostRecord]) {
+  for (const path of [dirs.tmp, dirs.hostTmp, dirs.marker]) {
     if (!path) continue;
     try {
       rmSync(path, { recursive: true, force: true });
@@ -221,6 +214,35 @@ export function removeRunDirs(dirs: RelaySandboxRunDirs): void {
 /** Where each run's temporary folders go: in Harness Relay's data folder, which no sandbox may write. */
 export function relaySandboxRoot(dataDir = DATA_DIR): string {
   return join(dataDir, 'relay-sandbox');
+}
+
+/**
+ * Where each run's host keeps its temporary folder (sandbox-runtime's sockets, its CA bundle and the
+ * like): in the data folder too, under a name as short as can be, since a Unix socket's path must fit
+ * in 104 bytes on macOS and 108 on Linux.
+ */
+export function relaySandboxHostRoot(dataDir = DATA_DIR): string {
+  return join(dataDir, 'srt');
+}
+
+/**
+ * The longest a host's temporary folder may be: what is left of a socket's path (103 characters on
+ * macOS, 107 on Linux) after the longest name sandbox-runtime gives a socket in it (`/srt-mux-<pid>-
+ * <n>.sock` on macOS; `/claude-socks-<16 hex>.sock` on Linux).
+ */
+export const HOST_TMP_MAX: Partial<Record<NodeJS.Platform, number>> = { darwin: 81, linux: 72 };
+
+/** How many hex digits name a host's temporary folder. */
+const HOST_ID_LENGTH = 6;
+
+/**
+ * Why runs cannot have their host's temporary folder in this data folder (its path leaves no room for
+ * the sockets), in the user's language; undefined when they can.
+ */
+export function hostTmpRefusal(dataDir: string, platform: NodeJS.Platform): string | undefined {
+  const max = HOST_TMP_MAX[platform];
+  if (max === undefined || join(relaySandboxHostRoot(dataDir), 'x'.repeat(HOST_ID_LENGTH)).length <= max) return undefined;
+  return t().relaySandboxPathTooLong(dataDir, max - HOST_ID_LENGTH - '/srt/'.length);
 }
 
 /**
@@ -299,7 +321,7 @@ function hostNodeOnPath(find: (name: string) => string | undefined): string | nu
   if (!node) return null;
   let ok = nodeVersions.get(node);
   if (ok === undefined) {
-    const v = spawnSync(node, ['--version'], { encoding: 'utf8', timeout: 5000 }).stdout?.trim().match(/^v(\d+)\.(\d+)/);
+    const v = runSync(node, ['--version'], { timeoutMs: 5000 }).stdout?.trim().match(/^v(\d+)\.(\d+)/);
     ok = Boolean(v) && (Number(v![1]) > HOST_NODE_MIN[0]! || (Number(v![1]) === HOST_NODE_MIN[0] && Number(v![2]) >= HOST_NODE_MIN[1]!));
     nodeVersions.set(node, ok);
   }
@@ -385,9 +407,27 @@ function normalHost(host: string): string {
   return g ? g.map((x) => x.toString(16)).join(':') : h;
 }
 
+/**
+ * A host as the proxy dials it, whatever spelling the client used: what URL parsing makes of it (so
+ * `127.1`, `2130706433`, `0x7f.0.0.1`, `0177.0.0.1` and `0` are the IPv4 addresses they stand for, and
+ * a name is in lower case and ASCII), without brackets or a trailing dot. Undefined for one it cannot
+ * read. sandbox-runtime does the same before it applies its own rules, but its ask callback gets the
+ * host as the client wrote it.
+ */
+export function canonicalHost(host: string): string | undefined {
+  const bare = /^\[(.*)\]$/.exec(host)?.[1] ?? host;
+  if (!bare || /[\s/?#@\\[\]]/.test(bare)) return undefined; // not a host alone: URL parsing would read part of it as something else
+  try {
+    const h = new URL(`http://${bare.includes(':') ? `[${bare}]` : bare}/`).hostname;
+    return h.replace(/^\[|\]$/g, '').replace(/\.$/, '') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Loopback: `localhost` (and names under it), 127.0.0.0/8 and ::1 (also as an IPv4-carrying IPv6 address). */
 export function isLoopbackHost(host: string): boolean {
-  const h = host.toLowerCase().replace(/^\[|\]$/g, '');
+  const h = host.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (h === 'localhost' || h.endsWith('.localhost')) return true;
   const g = ipv6Groups(h);
   const v4 = g ? embeddedIpv4(g) : ipv4(h);
@@ -607,7 +647,7 @@ export function relaySandboxPaths(
   // Other runs' folders: not readable; the run's own parts of them still are, except anything
   // protected: what it may write, its own config (read-only: Goose keeps its config in its private
   // state folder), and the host's temp folder, where sandbox-runtime's network bridge sockets are
-  // (under the data folder when its path is short).
+  // (in the data folder's `srt/`, also a private root).
   const privateRoots = withReal(spec.privateRoots ?? []);
   const own = [...allowWrite.filter((w) => !denyWrite.some((d) => isWithin(w, d))), ...withReal(spec.readOnly), ...withReal([run.hostTmp])];
   const allowRead = [...new Set(own)].filter((p) => privateRoots.some((r) => isWithin(p, r)) && !denyRead.some((d) => isWithin(p, d)));
@@ -915,12 +955,18 @@ export class RelaySandboxRun {
     }
   }
 
-  /** The answer for a host no rule decided: kept for the run, asked once, one at a time. */
+  /**
+   * The answer for a host no rule decided: kept for the run, asked once, one at a time. The host is
+   * taken as the proxy dials it (`canonicalHost`), so another spelling of a local address is refused
+   * as that address is, and the card names what would be reached.
+   */
   decide(host: string, port: number | undefined): Promise<HostAnswer> {
-    const key = `${host.toLowerCase()}:${port ?? ''}`;
+    const canonical = canonicalHost(host);
+    if (!canonical) return Promise.resolve({ allow: false, reason: DENY_REASONS.refused(hostLabel(host, port)) });
+    const key = `${canonical}:${port ?? ''}`;
     let answer = this.answers.get(key);
     if (!answer) {
-      answer = this.ask(host, port);
+      answer = this.ask(canonical, port);
       this.answers.set(key, answer);
     }
     return answer;
@@ -994,33 +1040,37 @@ function freshDir(path: string): string {
 
 /**
  * The run's temporary folders, in Harness Relay's data folder (which no sandbox may write, unlike the
- * system's temporary folder, where another CLI's sandboxed command could put a link in their place).
- * The host's must be short enough for the Unix sockets sandbox-runtime makes in it (104 bytes on
- * macOS); when the data folder's path is too long, it goes in a fresh folder of the system's.
+ * system's temporary folder, where another CLI's sandboxed command could replace or remove what is in
+ * it: sandbox-runtime's sockets, its CA bundle). The host's goes under `relaySandboxHostRoot`, short
+ * enough for the sockets sandbox-runtime makes in it; a data folder whose path is too long for that is
+ * refused (the run does not start, and says to set `RELAY_DATA_DIR`), never moved to the system's.
  */
-export function makeRunDirs(dataDir = DATA_DIR): RelaySandboxRunDirs {
+export function makeRunDirs(dataDir = DATA_DIR, platform: NodeJS.Platform = process.platform): RelaySandboxRunDirs {
+  const tooLong = hostTmpRefusal(dataDir, platform);
+  if (tooLong) throw new AgentRunError(tooLong);
+  const hostRoot = relaySandboxHostRoot(dataDir);
   const root = relaySandboxRoot(dataDir);
   mkdirSync(root, { recursive: true, mode: 0o700 });
+  mkdirSync(hostRoot, { recursive: true, mode: 0o700 });
   const id = randomBytes(8).toString('hex');
   const tmp = freshDir(join(root, id));
   const marker = join(root, `${id}.marker`);
-  const inData = join(root, `${id}.host`);
-  const outside = inData.length > 60;
-  const hostRecord = outside ? join(root, `${id}.hostpath`) : undefined;
+  let hostTmp: string | undefined;
   try {
     closeSync(openSync(marker, 'wx', 0o600)); // fresh, owner-only; wx refuses a planted file
-    if (hostRecord) closeSync(openSync(hostRecord, 'wx', 0o600));
-    const hostTmp = freshDir(outside ? fallbackHostTmp(id) : inData);
-    return { tmp, hostTmp, marker, ...(hostRecord ? { hostRecord } : {}) };
+    // A short name of its own, apart from the run's id: tried again in the unlikely case it is taken.
+    for (let attempt = 0; !hostTmp; attempt++) {
+      try {
+        hostTmp = freshDir(join(hostRoot, randomBytes(HOST_ID_LENGTH / 2).toString('hex')));
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST' || attempt >= 4) throw err;
+      }
+    }
+    return { tmp, hostTmp, marker };
   } catch (err) {
-    for (const path of [tmp, marker, ...(hostRecord ? [hostRecord] : [])]) rmSync(path, { recursive: true, force: true });
+    for (const path of [tmp, marker]) rmSync(path, { recursive: true, force: true });
     throw err;
   }
-}
-
-/** The host's temp folder in the system's temp folder, for run `id` (always this name: the sweep computes it). */
-function fallbackHostTmp(id: string): string {
-  return join(tmpdir(), `hr-${id}`);
 }
 
 /**
@@ -1056,39 +1106,63 @@ export function leftoverSweepPids(lsofOut: string, psOut: string, self: number):
  * tmux server and its shells all keep the descriptor they inherited) — and its descendants, whatever
  * its parent or process group is now. Only the marker files are looked at, so a shell of the user's
  * that merely has its working directory in the folder is left alone. On Linux the sandbox's PID
- * namespace already ended the tree with bubblewrap, so there is nothing to kill. A host temp folder a
- * run had to make in the system's temp folder is removed too, found by its record.
+ * namespace already ended the tree with bubblewrap, so there is nothing to kill. The hosts' temporary
+ * folders (`relaySandboxHostRoot`) are removed too.
+ *
+ * Returns whether nothing a run left can still be running. When a process survived the sweeps, or
+ * they could not tell, everything is kept as it is (the markers and folders by which the next start
+ * finds it), and no permission is given back anywhere: a process still running could swap a folder
+ * for a link meanwhile (`removeTree`). The caller then removes the open agents' leftovers without
+ * restoring permissions either.
  */
-export function clearRelaySandboxLeftovers(dataDir = DATA_DIR, platform: NodeJS.Platform = process.platform): void {
+export function clearRelaySandboxLeftovers(
+  dataDir = DATA_DIR,
+  platform: NodeJS.Platform = process.platform,
+  /** The macOS sweeps, each true once nothing it looks for is left (swapped in tests). */
+  sweeps: { byMarker: (markers: string[]) => boolean; bySandbox: (runTmps: string[]) => boolean } = {
+    byMarker: sweepLeftoverProcesses,
+    bySandbox: (runTmps) => sweepRunSandboxes(runTmps),
+  },
+): boolean {
   const root = relaySandboxRoot(dataDir);
-  if (!existsSync(root)) return;
-  let names: string[];
+  let names: string[] = [];
   try {
-    names = readdirSync(root);
+    if (existsSync(root)) names = readdirSync(root);
   } catch {
-    return;
+    return false;
   }
   if (platform === 'darwin') {
-    sweepLeftoverProcesses(names.filter((n) => n.endsWith('.marker')).map((n) => join(root, n)));
+    const byMarker = sweeps.byMarker(names.filter((n) => n.endsWith('.marker')).map((n) => join(root, n)));
     // And whatever is inside the sandbox of a run that left its folder, holding the marker or not.
-    sweepRunSandboxes(names.filter((n) => /^[0-9a-f]{16}$/.test(n)).map((n) => join(root, n)));
-  }
-  for (const name of names) {
-    // One entry a run made hard to remove (chflags uchg, chmod 000) never stops the others.
-    try {
-      const record = /^([0-9a-f]{16})\.hostpath$/.exec(name);
-      if (record) rmSync(fallbackHostTmp(record[1]!), { recursive: true, force: true });
-      clearUserFlags(join(root, name), { tree: true });
-      removeTree(join(root, name), { restore: true });
-    } catch (err) {
-      console.error(`[relay-sandbox] could not remove ${join(root, name)}:`, (err as Error).message);
+    const bySandbox = sweeps.bySandbox(names.filter((n) => /^[0-9a-f]{16}$/.test(n)).map((n) => join(root, n)));
+    if (!byMarker || !bySandbox) {
+      console.warn(`[relay-sandbox] something a stopped run left may still be running: ${root} is kept as it is until the next start`);
+      return false;
     }
   }
+  // The hosts' temporary folders too (no sandboxed process can write them: only the hosts did).
+  const hostRoot = relaySandboxHostRoot(dataDir);
+  let hostNames: string[] = [];
+  try {
+    hostNames = readdirSync(hostRoot);
+  } catch {
+    /* none */
+  }
+  for (const path of [...names.map((n) => join(root, n)), ...hostNames.map((n) => join(hostRoot, n))]) {
+    // One entry a run made hard to remove (chflags uchg, chmod 000) never stops the others.
+    try {
+      clearUserFlags(path, { tree: true });
+      removeTree(path, { restore: true });
+    } catch (err) {
+      console.error(`[relay-sandbox] could not remove ${path}:`, (err as Error).message);
+    }
+  }
+  return true;
 }
 
-/** Kills the holders of these marker files, and their descendants (macOS; `leftoverSweepPids`). */
-function sweepLeftoverProcesses(markers: string[]): void {
-  sweepMarkers(markers);
+/** Kills the holders of these marker files, and their descendants (macOS; `leftoverSweepPids`); true once none is left. */
+function sweepLeftoverProcesses(markers: string[]): boolean {
+  return sweepMarkers(markers);
 }
 
 /**
@@ -1098,9 +1172,9 @@ function sweepLeftoverProcesses(markers: string[]): void {
 function sweepMarkers(markers: string[]): boolean {
   if (!markers.length) return true;
   for (let attempt = 0; attempt < 6; attempt++) {
-    const lsof = spawnSync('/usr/sbin/lsof', ['-n', '-P', '-t', '--', ...markers], { encoding: 'utf8', timeout: 8000, maxBuffer: 1 << 22 });
+    const lsof = runSync('/usr/sbin/lsof', ['-n', '-P', '-t', '--', ...markers], { timeoutMs: 8000 });
     if (lsof.error) return false; // could not tell: keep the marker for the next start
-    const ps = spawnSync('/bin/ps', ['-A', '-o', 'pid=', '-o', 'ppid='], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 });
+    const ps = runSync('/bin/ps', ['-A', '-o', 'pid=', '-o', 'ppid='], { timeoutMs: 4000 });
     const pids = leftoverSweepPids(lsof.stdout ?? '', ps.stdout ?? '', process.pid);
     if (!pids.length) return true;
     if (attempt === 5) return false;
@@ -1111,7 +1185,7 @@ function sweepMarkers(markers: string[]): boolean {
         /* gone */
       }
     }
-    spawnSync('/bin/sleep', ['0.1']);
+    sleepSync(100);
   }
   return false;
 }
@@ -1253,6 +1327,8 @@ async function probe(ctx: RelaySandboxContext): Promise<HostFailure | undefined>
 export async function sandboxAvailable(ctx: RelaySandboxContext = relaySandboxContext()): Promise<SandboxAvailability> {
   const before = platformRefusal(ctx);
   if (before) return { ok: false, reason: refusalText(before, ctx) };
+  const tooLong = hostTmpRefusal(ctx.dataDir, ctx.platform);
+  if (tooLong) return { ok: false, reason: tooLong };
   const key = JSON.stringify([ctx.platform, ctx.arch, ctx.tools, ctx.dataDir]);
   const cached = probeCache.get(key);
   let result: HostFailure | undefined;

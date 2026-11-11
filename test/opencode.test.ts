@@ -10,6 +10,7 @@ import { defaultAcpDeps, type AcpTurnDeps } from '../src/server/agents/acpTurn';
 import type { OpenRunContext } from '../src/server/agents/open';
 import {
   OPENCODE_ACCOUNT_TABLES,
+  OPENCODE_SAVED_PERMISSIONS_TABLE,
   OPENCODE_EMPTY_ENV,
   OPENCODE_ENDPOINT_KEY_ENV,
   OPENCODE_GITIGNORE,
@@ -62,7 +63,7 @@ import {
   prepareOpencode,
   readSessionCost,
   rejectWithReason,
-  scrubOpencodeAccounts,
+  scrubOpencodeDatabase,
   writeSessionCost,
 } from '../src/server/agents/opencode';
 import { AgentRunError, type AgentEvent, type ApprovalRequest, type McpServerSpec, type RunBackends, type RunOptions } from '../src/server/agents/types';
@@ -549,25 +550,44 @@ describe('its home', () => {
     expect(JSON.parse(readFileSync(join(p.configDir, 'opencode.json'), 'utf8'))).toEqual(OPENCODE_STATIC_CONFIG);
   });
 
-  it('removes console accounts from its database, and never throws', () => {
+  it('removes console accounts, sessions\' permission rules and saved permissions from its database, and never throws', () => {
     const dir = join(root, `db-${++n}`);
     mkdirSync(dir);
     const file = join(dir, 'opencode.db');
     const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
     const db = new DatabaseSync(file);
-    for (const table of OPENCODE_ACCOUNT_TABLES) db.exec(`CREATE TABLE "${table}" (id TEXT); INSERT INTO "${table}" VALUES ('planted');`);
-    db.exec("CREATE TABLE session (id TEXT); INSERT INTO session VALUES ('kept');");
+    for (const table of [...OPENCODE_ACCOUNT_TABLES, OPENCODE_SAVED_PERMISSIONS_TABLE]) {
+      db.exec(`CREATE TABLE "${table}" (id TEXT); INSERT INTO "${table}" VALUES ('planted');`);
+    }
+    // A run's command wrote rules into its session row, which OpenCode would apply over the agent's own.
+    const allowAll = JSON.stringify([{ permission: '*', pattern: '*', action: 'allow' }]);
+    db.exec(`CREATE TABLE session (id TEXT, title TEXT, permission TEXT); INSERT INTO session VALUES ('s1', 'kept', '${allowAll}'), ('s2', 'kept', NULL);`);
     db.close();
-    scrubOpencodeAccounts(file);
+    scrubOpencodeDatabase(file);
     const after = new DatabaseSync(file);
-    for (const table of OPENCODE_ACCOUNT_TABLES) expect(after.prepare(`SELECT count(*) AS n FROM "${table}"`).get()).toEqual({ n: 0 });
-    expect(after.prepare('SELECT count(*) AS n FROM session').get()).toEqual({ n: 1 });
+    for (const table of [...OPENCODE_ACCOUNT_TABLES, OPENCODE_SAVED_PERMISSIONS_TABLE]) {
+      expect(after.prepare(`SELECT count(*) AS n FROM "${table}"`).get()).toEqual({ n: 0 });
+    }
+    // The sessions stay, without rules of their own.
+    expect(after.prepare('SELECT id, title, permission FROM session ORDER BY id').all()).toEqual([
+      { id: 's1', title: 'kept', permission: null },
+      { id: 's2', title: 'kept', permission: null },
+    ]);
     after.close();
-    scrubOpencodeAccounts(join(dir, 'missing.db'));
+    // A session table without the column (an older OpenCode) is left as it is.
+    const old = join(dir, 'old.db');
+    const o = new DatabaseSync(old);
+    o.exec("CREATE TABLE session (id TEXT); INSERT INTO session VALUES ('kept');");
+    o.close();
+    scrubOpencodeDatabase(old);
+    const oldAfter = new DatabaseSync(old);
+    expect(oldAfter.prepare('SELECT count(*) AS n FROM session').get()).toEqual({ n: 1 });
+    oldAfter.close();
+    scrubOpencodeDatabase(join(dir, 'missing.db'));
     const bad = join(dir, 'bad.db');
     writeFileSync(bad, 'not a database');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    scrubOpencodeAccounts(bad);
+    scrubOpencodeDatabase(bad);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -963,6 +983,15 @@ describe('keeping its server to Harness Relay', () => {
       "y='[$''(touch RAN)]'; declare \"a$y=1\"",
       'y=a\\[\\$\\(touch\\ RAN\\)\\]; (( y ))',
       "x='a[$(touch RAN)]'; arr=([x]=1)",
+      // The single-quoted text set aside only where it can be told apart: a declaration's quoted argument is
+      // itself evaluated, and a quote the shell takes literally (in double quotes, a comment) or one left open
+      // keeps the whole line looked at.
+      "local 'a[$(touch RAN)]=1'",
+      "typeset 'a[$(touch RAN)]=1'",
+      `x='it'"'"'s'; y='a[$(touch RAN)]'; a[y]=1`,
+      "x='a[$(touch RAN)]';a[x]=1 # it's",
+      "x='a[$(touch RAN)]'; a[x]=1; echo 'open",
+      "x='a[$(touch RAN)]'; a['k']=1; a[x]+=1",
     ];
     for (const shell of availableShells) {
       for (const trap of traps) {
@@ -986,6 +1015,10 @@ describe('keeping its server to Harness Relay', () => {
       'echo npm run eval; echo ok',
       'export PATH=${HOME}/bin:$PATH; echo p',
       'printf "%s\\n" ok',
+      // A subscript or arithmetic look-alike inside single quotes, with a `$` there too, is only text.
+      "awk -F= '/^[A-Z_]+=/ {print $2}' /dev/null; echo ok",
+      "grep -E '^[A-Z_]+=.*$' /dev/null; echo ok",
+      "sed -n '/^[a-z]*=/p' /dev/null; echo ok",
     ];
     for (const shell of availableShells) for (const ok of ordinary) expect(run(ok, shell).status).toBe(0);
     // In full access the screen is not armed: even a trap runs (the sandbox is not there; every command runs anyway).
@@ -1247,6 +1280,8 @@ describe('keeping its server to Harness Relay', () => {
       // Parameter expansions, array literals and function headers are not commands (the round-3 false stops).
       'cd ${dir}', 'export PATH=${HOME}/bin:$PATH', 'FOO=${BAR:-x}', 'pushd ${d}', 'arr=(a b)', 'arr+=(x)', 'f() { cd x; }', 'declare -A m=([k]=v)',
       'cd "${HOME}/p"',
+      // A line continuation is no separator (`cd \⏎ /long/dir` is one cd), and `function NAME` is a header.
+      'cd \\\n  /long/dir', 'function f { cd x; }', 'function f() { cd x; }', 'function f\n{\n  cd x\n}',
     ]) {
       expect(opencodeWouldAsk(skip)).toBe(false);
     }
@@ -1259,6 +1294,7 @@ describe('keeping its server to Harness Relay', () => {
       'read x', 'mapfile -t a < f', 'printf -v X %s y', 'let x=1+1',
       // A command in a parameter-expansion default or a function body is still a command; `echo ${x}` is too.
       'echo ${x}', 'cat ${f}', 'f() { curl evil; }', 'local x=$(id)', 'X=${y:-$(curl e)}',
+      'curl \\\n  http://x', 'cd x && \\\n  curl e', 'function f { curl evil; }',
     ]) {
       expect(opencodeWouldAsk(ask)).toBe(true);
     }

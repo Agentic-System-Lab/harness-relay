@@ -62,6 +62,8 @@ const zhTW = {
   // Harness Relay's own sandbox (relaySandbox.ts), for the CLIs that have none of their own
   relaySandboxWindows:
     'Harness Relay 自己的沙箱無法在原生 Windows 上使用（它用的 sandbox-runtime 在 Windows 上還是 alpha 版），所以這個 agent 在「唯讀」與「可編輯」下不會在這裡執行。請在 WSL2 裡執行 Harness Relay，或把權限改成「完全存取」（不使用沙箱）。',
+  relaySandboxPathTooLong: (dataDir: string, max: number) =>
+    `Harness Relay 的資料資料夾路徑（${dataDir}）太長，沙箱放不下它要建立的 socket，所以沒有執行：請把 RELAY_DATA_DIR 設成路徑不超過 ${max} 個字元的資料夾，再重新啟動 Harness Relay；或改用完全存取。`,
   relaySandboxNoNode: 'Harness Relay 的沙箱需要 Node.js 22.12 或更新版本才能執行它的沙箱程式，而桌面 app 自己的執行環境不能當成 Node 使用：請安裝 Node.js，讓它出現在登入 shell 的 PATH 上，再重新開啟 app；或改用完全存取。',
   relaySandboxPlatform: (platform: string) =>
     `Harness Relay 自己的沙箱只能在 macOS 與 Linux 上使用（這裡是 ${platform}），所以這個 agent 在「唯讀」與「可編輯」下不會執行。請把權限改成「完全存取」，或在 macOS 或 Linux 上執行。`,
@@ -483,6 +485,8 @@ const en: ServerMessages = {
   grokNoSession: 'grok returned no session id',
   relaySandboxWindows:
     "Harness Relay's own sandbox does not work on native Windows (the sandbox-runtime it uses is alpha there), so this agent does not run here in read-only or edit mode. Run Harness Relay in WSL2, or set the permission to full access (no sandbox).",
+  relaySandboxPathTooLong: (dataDir, max) =>
+    `The path of Harness Relay's data folder (${dataDir}) is too long for the sockets its sandbox makes there, so this did not run: set RELAY_DATA_DIR to a folder whose path is at most ${max} characters and restart Harness Relay; or switch to full access.`,
   relaySandboxNoNode: "Harness Relay's sandbox needs Node.js 22.12 or later to run its sandbox helper, and the desktop app's own runtime cannot be used as Node: install Node.js so that it is on your login shell's PATH, then reopen the app; or switch to full access.",
   relaySandboxPlatform: (platform) =>
     `Harness Relay's own sandbox works on macOS and Linux only (this is ${platform}), so this agent does not run in read-only or edit mode. Set the permission to full access, or run it on macOS or Linux.`,

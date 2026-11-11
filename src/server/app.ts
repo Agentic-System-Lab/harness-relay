@@ -368,25 +368,35 @@ export function createApp({
 
   app.get('/api/backends', (c) => c.json(settings.backends.view()));
 
+  // Each change to the backends refreshes the model menus and the agents' status, also one that failed
+  // part way (an endpoint saved while the credential store refused its key).
+  const changingBackends = <T>(change: () => T): T => {
+    try {
+      return change();
+    } finally {
+      providers.backendsChanged();
+    }
+  };
+
   // An API backend's key (openai, anthropic, xai): `{ apiKey }`, null or "" removes it.
   app.put('/api/backends/:id', async (c) => {
     const id = validApiBackend(c.req.param('id'));
-    settings.backends.setApiKey(id, validateBackendKey(await body<unknown>(c)));
-    providers.backendsChanged();
+    const key = validateBackendKey(await body<unknown>(c));
+    changingBackends(() => settings.backends.setApiKey(id, key));
     return c.json(settings.backends.view());
   });
 
   // Adds a custom endpoint, or replaces the one with this id (its key stays unless `apiKey` is sent).
   app.put('/api/backends/endpoints/:id', async (c) => {
     const id = validEndpointId(c.req.param('id'));
-    settings.backends.putEndpoint(id, validateEndpoint(await body<unknown>(c)));
-    providers.backendsChanged();
+    const endpoint = validateEndpoint(await body<unknown>(c));
+    changingBackends(() => settings.backends.putEndpoint(id, endpoint));
     return c.json(settings.backends.view());
   });
 
   app.delete('/api/backends/endpoints/:id', (c) => {
-    settings.backends.deleteEndpoint(validEndpointId(c.req.param('id')));
-    providers.backendsChanged();
+    const id = validEndpointId(c.req.param('id'));
+    changingBackends(() => settings.backends.deleteEndpoint(id));
     return c.json(settings.backends.view());
   });
 

@@ -1,5 +1,4 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Duplex } from 'node:stream';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -12,7 +11,8 @@ import type { Conversation } from '../src/shared/types';
  * the runner plays the sandbox host's side of the channel (two asks, as two connections send them) and
  * ends the turn the way acpTurn does (dispose, then return).
  */
-const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-queued-ask-')));
+// In /tmp: the data folder's path must leave room for the sandbox's sockets (macOS's own temp folder is too deep).
+const root = realpathSync(mkdtempSync('/tmp/relay-queued-ask-'));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { openDatabase } = await import('../src/server/db');

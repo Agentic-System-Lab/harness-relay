@@ -21,13 +21,14 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | Command | What it does |
 | --- | --- |
 | `npm install` | Install dependencies |
-| `npm run dev` | API server on :8789 (`tsx watch`) + Vite on :5173 (proxies `/api/`), off `npm start`'s and the desktop app's 8787 (`src/server/ports.ts`) |
+| `npm run dev` | API server on :8789 (`tsx watch`) + Vite on :5173 (proxies `/api/`), off `npm start`'s and the desktop app's 8787 (`src/server/ports.ts`); not beside an `npm start` of the same checkout, which holds its `data/` |
 | `npm run typecheck` | `tsc --noEmit` over `src`, `test`, `scripts` and the config files |
 | `npm test` | All Vitest tests (offline) |
 | `npx vitest test/store.test.ts` | One test file |
 | `npm run build` | Build the UI into `dist/web` |
 | `npm start` | One process: API + built UI on :8787; prints a one-time sign-in link |
 | `npm run login` | Print another one-time sign-in link (`scripts/login.ts`) |
+| `npx tsx scripts/sandbox-check.ts` | Run Harness Relay's own sandbox for real on this computer (macOS, or Linux with bubblewrap, socat and ripgrep) and check what it allows; `--only <name>` runs the checks whose name starts with it, `--keep` keeps its scratch folder. Run it after changing `relaySandbox.ts`, `relaySandboxHost.ts`, `sandboxProcs.ts` or an adapter's sandbox needs |
 | `npm run site:preview` | Serve the landing page (`site/`) on 127.0.0.1:4180, as GitHub Pages will |
 | `npm run icons` | Redraw the home-screen icons and the web app manifest in `src/web/public/` (`scripts/app-icons.ts`) |
 | `npm install --prefix desktop` | Once, for the desktop app only: Electron and electron-builder (`desktop/` is a package of its own) |
@@ -50,8 +51,9 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and 
 - `src/server/scheduler.ts`: sends each schedule's message when it comes due (missed times, busy retries), through `Orchestrator.sendScheduled()` (`sendInNewChat()` for a new chat each time; `designForSchedule()` has the lead agent design a schedule's team).
 - `src/server/grouping.ts`: the lead agent sorts a new conversation into the user's sidebar groups.
 - `src/server/agents/`: one adapter per CLI. `claude.ts` (stream-json), `codex.ts` (`codex app-server`), `grok.ts` (ACP), `acp.ts` (the JSON-RPC peer), `index.ts` (registry). The open agents ([docs/open-agents.md](docs/open-agents.md)): `opencode.ts`, `goose.ts`, `cline.ts`, `openhands.ts` (ACP, through the generic turn in `acpTurn.ts`), `pi.ts` (JSONL RPC, with its gate extension `piGate.js`), and what they share around their process in `open.ts`.
-- `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations, persistence, provider settings and child-process env (including the CLIs' own homes), API keys in the OS keyring.
-- `src/server/backends.ts`, `relaySandbox.ts`, `relaySandboxHost.ts`: the open agents' model backends (API keys and custom endpoints, keys in the OS keyring) and Harness Relay's own sandbox around them below full access (srt; one host process per run, which runs the sandbox for that run alone); `sandboxProcs.ts` finds a run's leftover processes on macOS by their sandbox. `scripts/sandbox-check.ts` checks the real sandbox on this computer; `npm test` never starts one.
+- `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations (and the lock one server holds its data folder with, `lockDataDir`), persistence, provider settings and child-process env (including the CLIs' own homes), API keys in the OS keyring.
+- `src/server/ports.ts`: Harness Relay's ports (8787 for `npm start` and the desktop app, 8789 and Vite's 5173 for `npm run dev`, `PORT` over either).
+- `src/server/backends.ts`, `relaySandbox.ts`, `relaySandboxHost.ts`: the open agents' model backends (API keys and custom endpoints, keys in the OS keyring) and Harness Relay's own sandbox around them below full access (srt; one host process per run, which runs the sandbox for that run alone); `sandboxProcs.ts` finds a run's leftover processes on macOS by their sandbox; `fsRemove.ts` removes what a run left without following links (giving the owner's permissions back only at a start whose sweeps found nothing left). `scripts/sandbox-check.ts` checks the real sandbox on this computer; `npm test` never starts one.
 - `src/server/agentsview.ts`: sends each conversation to AgentsView as one thread and links the agents' own sessions under it.
 - `src/server/workspace.ts`: git: auto init, snapshots, worktrees, diffs, apply.
 - `src/server/process.ts`: spawning, streaming and killing child processes.
@@ -75,7 +77,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and 
 ### Code
 
 - Strict TypeScript, ES modules. Shared types live only in `src/shared/types.ts`.
-- Spawn child processes only through `src/server/process.ts`, so they are tracked and killed on shutdown. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments.
+- Spawn child processes only through `src/server/process.ts`, so they are tracked and killed on shutdown; a quick probe the server waits for (`lsof`, `ps`, `chflags`) goes through its `runSync()`, which kills it after its timeout. The relay sandbox's host (`relaySandboxHost.ts`) is a program of its own and starts the agent itself. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments.
 - Keep CLI output parsers pure (lines in, `AgentEvent`s out) so they can be tested with recorded output.
 - Tests run in a Node environment without a DOM. Put client logic you want to test in plain modules (like `src/web/chat.ts` and `src/web/copy.ts`), not inside components.
 - `node:sqlite` cannot bind `undefined`: pass optional values through `nul()`, and wrap multi-statement writes in `transaction(db, fn)` (it doesn't nest).
@@ -87,7 +89,7 @@ The server can start agents with write access, so keep its defences intact (see 
 - New routes go under `/api/` so they get the middleware's Host/Origin checks, the JSON content-type check on writes, sign-in and the request language. Don't weaken these checks. Only a read-only route the browser loads by itself (an `<img>`, a download link) may join `BROWSER_LOADS` in `app.ts`, which takes the cookie without the key.
 - Never send secrets to the client (`SettingsView` returns masked keys only). API keys belong in the OS credential store (`secrets.ts`), not in the database.
 - The server binds to `127.0.0.1`. Agent replies cannot make the browser load remote content (images are links; local media goes through the media endpoint's path checks). Keep it that way.
-- An open agent's process starts only through `startOpenProcess()` (`src/server/agents/open.ts`): below full access it runs in the relay sandbox, which fails closed. Never run one around it. Model keys go to the CLI in environment variables (only the run's own backend's), never into the config files its adapter writes; everything a run writes goes in the conversation member's own state folder (`home(root, state)`, `<home>/private/<key>`); the files that decide what the CLI does when it starts are its `configPaths`, read-only in the sandbox. A sandbox opening (`localPorts`, `allowPty`, `allowUnixSocketsInTmp`, `allowTlsTrustd`, `quietlyDeniedHosts`) is asked for by one adapter for its own CLI only, and documented in `docs/open-agents.md` and `docs/sandboxing.md`.
+- An open agent's process starts only through `startOpenProcess()` (`src/server/agents/open.ts`): below full access it runs in the relay sandbox, which fails closed. Never run one around it. Model keys go to the CLI in environment variables (only the run's own backend's), never into the config files its adapter writes; everything a run writes goes in the conversation member's own state folder (`home(root, state)`, `<home>/private/<key>`); the files that decide what the CLI does when it starts are its `configPaths`, read-only in the sandbox. A sandbox opening (`localPorts`, `connectPorts`, `allowPty`, `allowUnixSocketsInTmp`, `allowTlsTrustd`, `quietlyDeniedHosts`) is asked for by one adapter for its own CLI only, and documented in `docs/open-agents.md` and `docs/sandboxing.md`.
 
 ### Database
 
@@ -129,6 +131,8 @@ The server can start agents with write access, so keep its defences intact (see 
 ## Gotchas
 
 - `npm run dev` restarts the server on every server file change, and a restart aborts any running agent turn.
+- One server per data folder (`data/server.lock`, `lockDataDir()` in `src/server/db.ts`): a second one on the same folder (`npm run dev` beside an `npm start` of the same checkout, say) refuses to start. Give it another with `RELAY_DATA_DIR`.
+- The relay sandbox puts its sockets in the data folder (`data/srt/`), so the data folder's path must be short: at most 70 characters on macOS, 61 on Linux, or the open agents refuse to run below full access. A worktree's `data/` (under `.claude/worktrees/<name>/`) is usually too deep: set `RELAY_DATA_DIR` to a shorter folder there.
 - Harness Relay refuses edit mode in a working directory that holds itself (`src/server/protect.ts`). To work on this repository with Harness Relay, run the copy you use from another checkout.
 - `desktop/` has its own `package.json` and lockfile, so a root `npm install` never downloads Electron. Its pure modules are tested from the root `test/` (`desktop-*.test.ts`); keep `electron` imports in `desktop/src/main.ts` only.
 - `npm run desktop:dist` refuses to start while a Harness Relay runs from `desktop/release/` (it would replace the files under it): quit it first, or build with `-- --output <folder>`. Opening a new build while another Harness Relay runs only brings the running one forward.

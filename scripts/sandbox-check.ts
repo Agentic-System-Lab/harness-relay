@@ -17,7 +17,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { homedir, networkInterfaces, tmpdir } from 'node:os';
+import { homedir, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import type { ApprovalRequest } from '../src/server/agents/types';
 import type { ApprovalAnswer } from '../src/shared/types';
@@ -27,7 +27,9 @@ const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : undefi
 const keep = argv.includes('--keep');
 
 // Always a fresh folder of its own: $SANDBOX_CHECK_DIR is only where it goes, never the folder removed.
-const scratch = realpathSync(mkdtempSync(join(process.env.SANDBOX_CHECK_DIR || tmpdir(), 'relay-sbx-check-')));
+// In /tmp by default: the data folder's path must leave room for sandbox-runtime's sockets in it
+// (`HOST_TMP_MAX`), and macOS's own temp folder is too deep for that.
+const scratch = realpathSync(mkdtempSync(join(process.env.SANDBOX_CHECK_DIR || '/tmp', 'relay-sbx-check-')));
 const dataDir = join(scratch, 'data');
 mkdirSync(join(dataDir, 'tmp'), { recursive: true, mode: 0o700 });
 writeFileSync(join(dataDir, 'relay.db'), 'RELAY-DB-STAND-IN');
@@ -83,7 +85,7 @@ function baseSpec(permission: Spec['permission'], over: Partial<Spec> = {}): Spe
     protectedPaths: [browser, secret],
     allowedHosts: ['example.com'],
     // As real runs have it: other runs' temp folders hidden (open.ts passes this and its agent homes).
-    privateRoots: [rs.relaySandboxRoot(dataDir)],
+    privateRoots: [rs.relaySandboxRoot(dataDir), rs.relaySandboxHostRoot(dataDir)],
     ...over,
   };
 }
@@ -164,7 +166,7 @@ async function main() {
     writeFileSync(join(mine, 'session.jsonl'), 'MINE\n');
     writeFileSync(join(theirs, 'session.jsonl'), 'THEIRS\n');
     for (const permission of ['read-only', 'edit'] as const) {
-      const spec = baseSpec(permission, { writable: [mine], privateRoots: [priv, rs.relaySandboxRoot(dataDir)] });
+      const spec = baseSpec(permission, { writable: [mine], privateRoots: [priv, rs.relaySandboxRoot(dataDir), rs.relaySandboxHostRoot(dataDir)] });
       const r = await run(
         [
           `cat ${mine}/session.jsonl`,
@@ -194,7 +196,7 @@ async function main() {
     const r = await run(`cat ${cfgDir}/config.yaml; (echo x >> ${cfgDir}/config.yaml) 2>/dev/null || echo NO-WRITE`, baseSpec('read-only', {
       writable: [join(mine, 'data')],
       readOnly: [cfgDir],
-      privateRoots: [priv, rs.relaySandboxRoot(dataDir)],
+      privateRoots: [priv, rs.relaySandboxRoot(dataDir), rs.relaySandboxHostRoot(dataDir)],
     }));
     check('private: a run reads its own config inside the private roots, and cannot write it', r.out.includes('GOOSE_PROVIDER') && r.out.includes('NO-WRITE'), r.out.trim().slice(0, 60));
   }
@@ -202,7 +204,7 @@ async function main() {
   for (const target of want('edit-write') ? editTargets : []) {
     const [label, path, allowed] = target;
     const r = await run(`sh -c 'echo x >> "${path}"' 2>&1 || true`, baseSpec('edit'));
-    const wrote = label === 'the agent config' ? spawnSync('cat', [path], { encoding: 'utf8' }).stdout.includes('x') : existsSync(path);
+    const wrote = label === 'the agent config' ? readText(path).includes('x') : existsSync(path);
     check(`edit: ${allowed ? 'can' : 'cannot'} write ${label}`, wrote === allowed, r.out.trim().slice(-50));
     // Remove what was written: the allowed file, or a probe outside the scratch folder that a failing
     // sandbox let through (a fresh, uniquely named file this run created; never the config file).
@@ -246,14 +248,14 @@ async function main() {
     const r = await run(`curl -sS -m 10 -o /dev/null -w '%{http_code}' http://${ownIp}:${relayPort} 2>&1 || true`, baseSpec('read-only'), () => ({ allow: true }));
     check("net: cannot reach this computer's own address", !r.out.includes('200') && r.asked.length === 0, r.out.trim());
   }
-  // A short data folder puts the host's temp folder (sandbox-runtime's bridge sockets on Linux) under
-  // the hidden relay-sandbox folder: the network must still work.
+  // A short data folder: the host's temp folder (sandbox-runtime's bridge sockets on Linux) in its
+  // hidden `srt/` folder, where the network must still work.
   if (want('net-short-data')) {
     const shortData = mkdtempSync('/tmp/hrd-');
     try {
       const dirs = rs.makeRunDirs(shortData);
-      const r = await run(`curl -sS -m 20 -o /dev/null -w '%{http_code}' https://example.com`, baseSpec('read-only', { dirs, privateRoots: [rs.relaySandboxRoot(shortData)] }));
-      check('net: works when the host temp folder is under the hidden relay-sandbox folder (short data path)', r.out.trim() === '200', `${dirs.hostTmp.length}-char host temp: ${r.out.trim()}`);
+      const r = await run(`curl -sS -m 20 -o /dev/null -w '%{http_code}' https://example.com`, baseSpec('read-only', { dirs, privateRoots: [rs.relaySandboxRoot(shortData), rs.relaySandboxHostRoot(shortData)] }));
+      check('net: works when the host temp folder is in the hidden srt folder (short data path)', r.out.trim() === '200', `${dirs.hostTmp.length}-char host temp: ${r.out.trim()}`);
     } finally {
       rmSync(shortData, { recursive: true, force: true });
     }
@@ -427,7 +429,7 @@ async function escapeChecks(want: (n: string) => boolean) {
   }
   if (want('escape-own-config')) {
     const r = await run(`sh -c 'echo rewrite >> "${configFile}"' 2>&1 || true`, baseSpec('edit'));
-    const changed = spawnSync('cat', [configFile], { encoding: 'utf8' }).stdout.includes('rewrite');
+    const changed = readText(configFile).includes('rewrite');
     check('escape: the agent cannot rewrite its own config path', !changed, r.out.trim().slice(-40));
   }
 }
@@ -649,6 +651,15 @@ function spawnDetachedHolding(path: string): number {
 function shq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
+/** A file's text as this script (outside the sandbox) reads it; empty when it cannot be read. */
+function readText(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
 function ls(dir: string): string[] {
   try {
     return readdirSync(dir);

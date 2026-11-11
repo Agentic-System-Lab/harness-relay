@@ -28,6 +28,7 @@ const { Orchestrator, branchAfterCut, branchOrigin, branchPause } = await import
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { AgentRunError, runners, stateKeys } = await import('../src/server/agents');
+const { removeTree } = await import('../src/server/fsRemove');
 const { stateFolder } = await import('../src/server/agents/open');
 const { PLANNER_BRIEFING, REVISER_BRIEFING } = await import('../src/server/planner');
 const { GROUPER_BRIEFING } = await import('../src/server/grouping');
@@ -189,7 +190,12 @@ beforeAll(() => {
   };
 });
 
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+// As the server does at its next start: a folder a run locked (`chmod 000`) stays set aside until then, and
+// rmSync cannot remove it as it is (Node 24's, not even an empty one).
+afterAll(() => {
+  removeTree(root, { restore: true });
+  expect(existsSync(root)).toBe(false);
+});
 
 beforeEach(() => {
   calls = [];
@@ -576,13 +582,13 @@ describe("each member's own state, and a session that ran with less permission",
       expect(alice()).toHaveLength(1);
       expect(agentMessages(conv).at(-1)).toMatchObject({ status: 'error' });
       expect(agentMessages(conv).at(-1)!.error).toMatch(/must be emptied before it runs, but it could not be/);
-      expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({ permission: 'edit', mustEmpty: true });
+      expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({ permission: 'edit', home: settings.openAgentHome('opencode'), mustEmpty: true });
       // The permission did not go up from the last run's (edit), but the folder still has to be emptied.
       await orchestrator.send(conv.id, 'three');
       await finish(conv.id);
       expect(alice().at(-1)).toMatchObject({ permission: 'edit', freshState: true, sessionId: undefined });
       expect(existsSync(left)).toBe(false);
-      expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({ permission: 'edit' });
+      expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({ permission: 'edit', home: settings.openAgentHome('opencode') });
     });
   }, 30_000);
 
@@ -606,7 +612,47 @@ describe("each member's own state, and a session that ran with less permission",
       // Back on OpenCode at edit: its own latest run was read-only.
       expect(await turn('opencode', 'edit', 'three')).toMatchObject({ freshState: true, sessionId: undefined });
       expect(existsSync(left)).toBe(false);
-      expect(new Store(db).get(conv.id)!.agentState.a!.byCli).toEqual({ opencode: { permission: 'edit' }, goose: { permission: 'edit' } });
+      expect(new Store(db).get(conv.id)!.agentState.a!.byCli).toEqual({
+        opencode: { permission: 'edit', home: settings.openAgentHome('opencode') },
+        goose: { permission: 'edit', home: settings.openAgentHome('goose') },
+      });
+    });
+  }, 30_000);
+
+  it("starts afresh, its folder emptied, in an open agent's home other than its latest run's, also back in an earlier one", async () => {
+    await withOpenAgents(async () => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      conv.agents = [{ ...agents[0]!, provider: 'opencode' }];
+      const turn = async (permission: 'read-only' | 'edit', text: string) => {
+        conv.settings.permission = permission;
+        store.saveMeta(conv);
+        await orchestrator.send(conv.id, text);
+        await finish(conv.id);
+        return alice().at(-1)!;
+      };
+      const homeA = join(root, `homes-a-${n}`);
+      const homeB = join(root, `homes-b-${n}`);
+      settings.setAgentHome(homeA);
+      // Read-only in A: what it leaves there was written with less permission than edit.
+      await turn('read-only', 'one');
+      const leftInA = leaveInState('opencode', conv.id);
+      // Edit in B: a home of its own (the session is in A), fresh.
+      settings.setAgentHome(homeB);
+      expect(await turn('edit', 'two')).toMatchObject({ freshState: true, sessionId: undefined });
+      expect(await turn('edit', 'three')).toMatchObject({ freshState: false, sessionId: 'session-Alice' });
+      // Back in A at edit, the same permission as the latest run's: A's folder, written by the read-only
+      // run, is emptied before the run, and the session in B is not resumed there.
+      settings.setAgentHome(homeA);
+      expect(await turn('edit', 'four')).toMatchObject({ freshState: true, sessionId: undefined });
+      expect(existsSync(leftInA)).toBe(false);
+      expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({ permission: 'edit', home: join(homeA, 'opencode') });
+      // Both homes are remembered: deleting the conversation removes its state in each.
+      expect(settings.openAgentHomes('opencode')).toEqual(expect.arrayContaining([join(homeA, 'opencode'), join(homeB, 'opencode')]));
+      const inB = stateFolder(join(homeB, 'opencode'), stateKeys.member(conv.id, 'a'));
+      mkdirSync(inB, { recursive: true });
+      await orchestrator.deleteConversation(conv.id);
+      expect(existsSync(inB)).toBe(false);
+      settings.setAgentHome('');
     });
   }, 30_000);
 

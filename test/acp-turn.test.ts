@@ -536,6 +536,13 @@ describe('the generic ACP turn', () => {
     await expect(withLang('en', () => acpTurn(self.o, spec(), deps()))).rejects.toThrow('OpenCode ended the turn while running "Run tests" (no terminal).');
   });
 
+  it('fails a turn its model refused, and closes the rows it left open as not finished', async () => {
+    const r = run({ FAKE_ACP_SCENARIO: 'refusal' });
+    await expect(withLang('en', () => acpTurn(r.o, spec(), deps()))).rejects.toThrow("OpenCode's model refused to answer this turn (stopReason: refusal).");
+    const end = r.events.find((e) => e.type === 'tool_end' && e.id === 'r1');
+    expect(end).toMatchObject({ type: 'tool_end', id: 'r1', ok: false });
+  });
+
   it('times out a turn that never ends', async () => {
     const r = run({ FAKE_ACP_SCENARIO: 'silent' });
     await expect(withLang('en', () => acpTurn(r.o, spec(), deps({ timeoutMs: 1500 })))).rejects.toThrow('Timed out');

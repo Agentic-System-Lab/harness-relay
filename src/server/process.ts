@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess, type SpawnOptions as ChildOptions } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions as ChildOptions, type SpawnSyncReturns } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -392,6 +392,33 @@ export async function killAll(graceMs = KILL_GRACE_MS): Promise<void> {
 }
 
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*(\u0007|\u001b\\)/g;
+/**
+ * A short program the server waits for, such as a probe (`lsof`, `ps`, `chflags`, `node --version`):
+ * started directly, never through a shell, and killed (SIGKILL, so one that ignores SIGTERM cannot hold
+ * the server) after `timeoutMs`. It cannot outlive the call, so it needs no tracking for shutdown; it
+ * blocks every conversation while it runs, so keep it to quick ones and use `runProcess` for the rest.
+ */
+export function runSync(
+  bin: string,
+  args: readonly string[],
+  o: { timeoutMs: number; input?: string; maxBuffer?: number; quiet?: boolean },
+): SpawnSyncReturns<string> {
+  return spawnSync(bin, args, {
+    encoding: 'utf8',
+    timeout: o.timeoutMs,
+    killSignal: 'SIGKILL',
+    maxBuffer: o.maxBuffer ?? 1 << 22,
+    ...(o.input !== undefined ? { input: o.input } : {}),
+    ...(o.quiet ? { stdio: 'ignore' as const } : {}),
+    windowsHide: true,
+  });
+}
+
+/** Waits `ms` without starting a process (between the rounds of a sweep). */
+export function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 export function stripAnsi(s: string): string {
   return s.replace(ANSI, '');
 }
