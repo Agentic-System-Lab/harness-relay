@@ -232,13 +232,17 @@ export async function zipPlan(
   const dir = resolveInRoot(root, rel);
   const self = await stat(dir.real);
   if (!self.isDirectory()) throw new HttpError(404, t().fileNotFound);
-  const realRoot = realpathSync(root);
+  // Real paths as the entries' below are (`realpath`, the system's own): `realpathSync` keeps the
+  // letter case a path was asked with (macOS, Windows) and Windows' short names (`RUNNER~1`), and a
+  // folder asked for so would seem to hold nothing of its own.
+  const realRoot = await realpath(root);
+  const start = await realpath(dir.real);
   const top = askedPath(rel).split('/').pop() || opts.name || basename(realRoot) || 'files';
   const plan: ZipPlan = { name: top, entries: [{ name: `${top}/`, mtime: self.mtimeMs, mode: self.mode }], files: 0, bytes: 0 };
   /** Files and folders so far: what keeps a tree of empty folders from going on and on. */
   let items = 1;
   /** Every folder once: a link to a folder already in the archive (or around it) is left out. */
-  const seen = new Set([dir.real]);
+  const seen = new Set([start]);
 
   /** The real path of `full` when it may go in (inside the root, not in `.git`), else undefined. */
   const allowed = async (full: string): Promise<string | undefined> => {
@@ -316,7 +320,7 @@ export async function zipPlan(
     return true;
   };
 
-  const git = opts.unignored ? await fromGit(dir.real, `${top}/`, 0) : null;
+  const git = opts.unignored ? await fromGit(start, `${top}/`, 0) : null;
   if (git !== null) return git ? plan : null;
-  return (await walk(dir.real, `${top}/`)) ? plan : null;
+  return (await walk(start, `${top}/`)) ? plan : null;
 }

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -204,6 +204,14 @@ describe('zipPlan', () => {
     // A folder inside it, by its own name; through a link inside the root too.
     expect(names(await zipPlan(project, 'src'))).toEqual(['src/', 'src/app.ts', 'src/deep/']);
     expect(names(await zipPlan(project, 'src-link'))).toEqual(['src-link/', 'src-link/app.ts', 'src-link/deep/']);
+  });
+
+  // Where the filesystem ignores case (macOS, Windows), a folder asked for in another case.
+  it.skipIf(!existsSync(project.toUpperCase()))('takes the same, by its own name, when the folder is asked for in another letter case', async () => {
+    const plan = await zipPlan(project.toUpperCase(), '');
+    expect(plan!.name).toBe('project');
+    expect(names(plan)).toEqual(names(await zipPlan(project, '')));
+    expect(plan!.files).toBe(6);
   });
 
   it('refuses a file, anything outside the folder and .git', async () => {

@@ -111,8 +111,7 @@ export async function openTeamChat(
   page: Page,
   relay: RelayServer,
   members: Member[],
-  // `extraCwds`: the other working directories, where the server has them.
-  settings: Partial<ConversationSettings> & { mode?: Mode; extraCwds?: string[] } = {},
+  settings: Partial<ConversationSettings> & { mode?: Mode } = {},
   title = 'Team chat',
 ): Promise<string> {
   const conv = await relay.api<Conversation>('/api/conversations', {

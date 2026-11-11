@@ -1,6 +1,16 @@
 // Runs before each test file (`setupFiles` in vitest.config.ts).
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { vi } from 'vitest';
 import { slow } from './timeouts';
+
+/*
+ * Windows' temporary folder may be named by its short 8.3 name (`C:\Users\RUNNER~1\…` for a user
+ * name longer than eight letters, as on GitHub's runners), which `realpathSync` keeps and git and the
+ * system's own real path spell out. The tests' folders are named as the folder dialog, or a typed
+ * path, would name them: spelled out (`os.tmpdir()` reads TEMP).
+ */
+if (process.platform === 'win32') process.env.TEMP = process.env.TMP = realpathSync.native(tmpdir());
 
 /**
  * How long `vi.waitFor` waits when a test does not say: Vitest's own 1 s is too short for what runs

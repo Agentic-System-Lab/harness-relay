@@ -108,7 +108,8 @@ describe('shareToGist', () => {
       seen = o;
       return result({ stdout: `https://gist.github.com/me/${ID}\n` });
     });
-    expect(seen?.bin).toMatch(/(^|[\\/])gh$/);
+    // `gh.exe` where Windows has it installed.
+    expect(seen?.bin).toMatch(/(^|[\\/])gh(\.exe)?$/i);
     expect(seen?.args).toEqual(gistArgs('Chat · Harness Relay'));
     expect(seen?.stdin).toBe('<!doctype html>…');
     expect(link).toEqual({ id: ID, url: `https://gistpreview.github.io/?${ID}`, gistUrl: `https://gist.github.com/me/${ID}` });
