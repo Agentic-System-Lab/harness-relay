@@ -125,13 +125,14 @@ agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**
 | `npm run login` | 印出一次性的登入連結（與代碼），用在 `npm start` 印出的那個已經用過或過期時 |
 | `npm run typecheck` | 型別檢查伺服器、前端與測試 |
 | `npm test` | 執行測試（Vitest） |
+| `npm run test:e2e` | 執行端對端測試：在瀏覽器中操作介面，面對真正的伺服器，agent 是假的 CLI（先執行一次 `npm run test:e2e:install`） |
 | `npm run site:preview` | 在 http://127.0.0.1:4180 預覽網站（`site/`） |
 | `npm run icons` | 重新畫出 `src/web/public/` 的主畫面圖示與 web app manifest |
 | `npm run demo` | 用真正的 CLI 重錄兩種語言的示範影片，並更新影片、截圖與網站的章節 |
 | `npm run desktop` | 建置桌面 app 並直接執行，不安裝（先執行 `npm install --prefix desktop`） |
 | `npm run desktop:dist` | 為目前的系統建置桌面 app 的安裝檔，放在 `desktop/release/` |
 
-每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)是 [`site/`](site/) 裡的靜態頁面，由 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) 發佈到 GitHub Pages。
+每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)），並在 Linux、macOS 與 Windows 上執行端對端測試（[`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)）。[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)是 [`site/`](site/) 裡的靜態頁面，由 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) 發佈到 GitHub Pages。
 
 ## 參與開發
 
