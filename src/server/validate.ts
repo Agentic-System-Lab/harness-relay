@@ -221,7 +221,10 @@ export function validAccountLabel(input: unknown): string {
   return input.trim();
 }
 
-/** An account update: a name, and a key (null = remove it). */
+/**
+ * An account update: a name, its key (null to remove), and how it runs: strings, a valid effort,
+ * `nativeOff` a list of known parts, `nativeItems` lists of ids by known kind.
+ */
 export function validateAccountUpdate(input: unknown): ProviderAccountUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
   const out: ProviderAccountUpdate = {};
@@ -230,6 +233,30 @@ export function validateAccountUpdate(input: unknown): ProviderAccountUpdate {
   else {
     const key = optionalString(u.apiKey, 'apiKey', 4096);
     if (key !== undefined) out.apiKey = key;
+  }
+  const model = optionalString(u.defaultModel, 'defaultModel');
+  if (model !== undefined) out.defaultModel = model;
+  if (u.defaultEffort !== undefined) out.defaultEffort = validEffort(optionalString(u.defaultEffort, 'defaultEffort'), 'default') ?? '';
+  if (u.nativeOff !== undefined) {
+    const parts = u.nativeOff;
+    if (!Array.isArray(parts) || parts.some((x) => !(NATIVE_PARTS as readonly unknown[]).includes(x))) bad(t().invalidField('nativeOff'));
+    out.nativeOff = parts as ProviderAccountUpdate['nativeOff'];
+  }
+  if (u.nativeItems !== undefined) {
+    const items = u.nativeItems as Record<string, unknown> | null;
+    const valid =
+      items !== null &&
+      typeof items === 'object' &&
+      !Array.isArray(items) &&
+      Object.entries(items).every(
+        ([kind, ids]) =>
+          (NATIVE_ITEM_KINDS as readonly string[]).includes(kind) &&
+          Array.isArray(ids) &&
+          ids.length <= MAX_NATIVE_ITEMS &&
+          ids.every((id) => typeof id === 'string' && id.length > 0 && id.length <= MAX_NATIVE_ITEM_ID),
+      );
+    if (!valid) bad(t().invalidField('nativeItems'));
+    out.nativeItems = items as ProviderAccountUpdate['nativeItems'];
   }
   return out;
 }
@@ -254,42 +281,22 @@ export function validateVoiceUpdate(input: unknown): VoiceSettingsUpdate {
 }
 
 /**
- * A provider settings update: strings, a valid effort, `apiKey` null to remove, `nativeOff` a list of
- * known parts, `nativeItems` lists of ids by known kind.
+ * A provider settings update: what a CLI has once for all its accounts (its executable), and the
+ * default account's key (null to remove). Defaults and what runs leave out are each account's
+ * (`validateAccountUpdate`); a request that still names them here is refused, not half applied.
  */
 export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
+  for (const field of ['defaultModel', 'defaultEffort', 'nativeOff', 'nativeItems']) {
+    if (u[field] !== undefined) bad(t().invalidField(field));
+  }
   const out: ProviderSettingsUpdate = {};
   const bin = optionalString(u.bin, 'bin', 4096);
   if (bin !== undefined) out.bin = bin;
-  const model = optionalString(u.defaultModel, 'defaultModel');
-  if (model !== undefined) out.defaultModel = model;
-  if (u.defaultEffort !== undefined) out.defaultEffort = validEffort(optionalString(u.defaultEffort, 'defaultEffort'), 'default') ?? '';
   if (u.apiKey === null) out.apiKey = null;
   else {
     const key = optionalString(u.apiKey, 'apiKey', 4096);
     if (key !== undefined) out.apiKey = key;
-  }
-  if (u.nativeOff !== undefined) {
-    const parts = u.nativeOff;
-    if (!Array.isArray(parts) || parts.some((x) => !(NATIVE_PARTS as readonly unknown[]).includes(x))) bad(t().invalidField('nativeOff'));
-    out.nativeOff = parts as ProviderSettingsUpdate['nativeOff'];
-  }
-  if (u.nativeItems !== undefined) {
-    const items = u.nativeItems as Record<string, unknown> | null;
-    const valid =
-      items !== null &&
-      typeof items === 'object' &&
-      !Array.isArray(items) &&
-      Object.entries(items).every(
-        ([kind, ids]) =>
-          (NATIVE_ITEM_KINDS as readonly string[]).includes(kind) &&
-          Array.isArray(ids) &&
-          ids.length <= MAX_NATIVE_ITEMS &&
-          ids.every((id) => typeof id === 'string' && id.length > 0 && id.length <= MAX_NATIVE_ITEM_ID),
-      );
-    if (!valid) bad(t().invalidField('nativeItems'));
-    out.nativeItems = items as ProviderSettingsUpdate['nativeItems'];
   }
   return out;
 }

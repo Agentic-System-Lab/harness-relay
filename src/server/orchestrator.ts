@@ -1402,8 +1402,8 @@ export class Orchestrator {
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
-        nativeOff: this.settings.nativeOff(lead.provider),
-        nativeItems: this.settings.nativeItems(lead.provider),
+        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
+        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
         prompt: buildPlannerPrompt(question, conv.settings, ctx, {
           history,
           current,
@@ -1412,8 +1412,8 @@ export class Orchestrator {
         systemPrompt: PLANNER_BRIEFING,
         cwd: conv.settings.cwd,
         permission: 'read-only',
-        model: lead.model || this.settings.defaultModel(lead.provider) || undefined,
-        effort: lead.effort || this.settings.defaultEffort(lead.provider) || undefined,
+        model: lead.model || this.settings.defaultModel(lead.provider, lead.account) || undefined,
+        effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
         signal: run.abort.signal,
         onEvent: (e) => {
           if (e.type === 'text') reply += e.text;
@@ -1609,8 +1609,8 @@ export class Orchestrator {
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
-        nativeOff: this.settings.nativeOff(lead.provider),
-        nativeItems: this.settings.nativeItems(lead.provider),
+        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
+        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
         prompt: buildRevisePrompt(request, draft, place, ctx, {
           history: historyForLead(conv.messages),
           pending: waiting ? (waiting.forSchedule ? 'schedule' : 'question') : undefined,
@@ -1625,8 +1625,8 @@ export class Orchestrator {
         systemPrompt: REVISER_BRIEFING,
         cwd: conv.settings.cwd,
         permission: 'read-only',
-        model: lead.model || this.settings.defaultModel(lead.provider) || undefined,
-        effort: lead.effort || this.settings.defaultEffort(lead.provider) || undefined,
+        model: lead.model || this.settings.defaultModel(lead.provider, lead.account) || undefined,
+        effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
         signal,
         onEvent: (e) => {
           if (e.type === 'text') reply += e.text;
@@ -2076,8 +2076,9 @@ export class Orchestrator {
       state.seen = [...state.seen, ...delta.map((m) => m.id)];
       // Read on every turn, so library changes reach agents at their next turn.
       const tools = this.settings.tools.forAgent(agent);
-      const nativeOff = this.settings.nativeOff(agent.provider);
-      const nativeItems = this.settings.nativeItems(agent.provider);
+      // The account's own: its home has its own skills, MCP servers and hooks.
+      const nativeOff = this.settings.nativeOff(agent.provider, account);
+      const nativeItems = this.settings.nativeItems(agent.provider, account);
       try {
         const result = await runners[agent.provider].run({
           bin: this.settings.bin(agent.provider),
@@ -2089,8 +2090,8 @@ export class Orchestrator {
           sessionId: state.sessionId,
           cwd,
           permission: conv.settings.permission,
-          model: agent.model?.trim() || this.settings.defaultModel(agent.provider) || undefined,
-          effort: agent.effort?.trim() || this.settings.defaultEffort(agent.provider) || undefined,
+          model: agent.model?.trim() || this.settings.defaultModel(agent.provider, account) || undefined,
+          effort: agent.effort?.trim() || this.settings.defaultEffort(agent.provider, account) || undefined,
           signal: run.abort.signal,
           onEvent,
           requestApproval,

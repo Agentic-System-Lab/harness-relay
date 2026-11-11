@@ -446,7 +446,7 @@ printf '{"cwd": "%s", "skills": [{"name": "run-%s", "description": ""}]}' "$PWD"
 `;
   const posixIt = process.platform === 'win32' ? it.skip : it;
 
-  posixIt("gives the lead the last answer at once and asks again in the background once it is old; each account in its own home", async () => {
+  posixIt("gives the lead the last answer at once and asks again in the background once it is old; each account in its own home, with what it leaves out", async () => {
     const bin = join(root, 'counting-grok');
     writeFileSync(bin, COUNTING_GROK, { mode: 0o755 });
     const settings = new SettingsStore(openDatabase(':memory:'));
@@ -471,9 +471,21 @@ printf '{"cwd": "%s", "skills": [{"name": "run-%s", "description": ""}]}' "$PWD"
       expect(readFileSync(join(settings.accountHome('grok', work)!, 'runs'), 'utf8').trim()).toBe('1');
       expect(readFileSync(join(settings.accountHome('grok')!, 'runs'), 'utf8').trim()).toBe('2');
       // What is left out changed: the old answer no longer fits, so it waits for a new one.
-      settings.update('grok', { nativeOff: ['skills'] });
+      settings.updateAccount('grok', '', { nativeOff: ['skills'] });
       const changed = await service.recent('grok', root);
       expect(changed.nativeOff).toEqual(['skills']);
+      // Each account leaves out its own: the other account's answer is still its own, as it was.
+      expect((await service.recent('grok', root, work)).nativeOff).toEqual([]);
+      settings.updateAccount('grok', work, { nativeOff: ['hooks'] });
+      const own = await service.recent('grok', root, work);
+      expect([own.nativeOff, own.skills.map((x) => x.name)]).toEqual([['hooks'], ['run-2']]);
+      const runs = () => readFileSync(join(settings.accountHome('grok', work)!, 'runs'), 'utf8').trim();
+      const before = runs();
+      expect((await service.get('grok', root, false, work)).nativeOff).toEqual(['hooks']);
+      expect(runs()).toBe(before); // kept: not asked again
+      // The latest answer of each account, for opening a file it reported.
+      expect((await service.latest('grok', root, work)).nativeOff).toEqual(['hooks']);
+      expect((await service.latest('grok', root)).nativeOff).toEqual(['skills']);
     } finally {
       now.mockRestore();
     }

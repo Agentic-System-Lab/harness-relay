@@ -12,6 +12,7 @@ import {
   SHARE_MAX_BYTES,
   type Conversation,
   type ConversationSummary,
+  type ProviderModels,
   type SettingsView,
   type ShareFileInfo,
   type TeamRevision,
@@ -212,31 +213,46 @@ describe('settings', () => {
 
     const provider = (body: unknown) => app.request('/api/settings/providers/claude', json('PUT', body));
     expect((await provider({ bin: 123 })).status).toBe(400);
-    expect((await provider({ defaultEffort: 'way too much effort' })).status).toBe(400);
-    expect((await provider({ defaultModel: 'sonnet', defaultEffort: 'low' })).status).toBe(200);
-    expect((await provider({ nativeOff: 'skills' })).status).toBe(400);
-    expect((await provider({ nativeOff: ['skills', 'rules'] })).status).toBe(400);
-    const off = await provider({ nativeOff: ['mcp', 'skills'] });
+    // Defaults and what runs leave out are each account's: named here, the whole request is refused.
+    for (const field of [{ defaultModel: 'sonnet' }, { defaultEffort: 'low' }, { nativeOff: [] }, { nativeItems: {} }]) {
+      expect((await provider({ bin: '/opt/claude-x', ...field })).status, JSON.stringify(field)).toBe(400);
+    }
+    const unchanged = (await (await app.request('/api/settings', { headers: HOST })).json()) as SettingsView;
+    expect(unchanged.providers.find((p) => p.provider === 'claude')!.bin).toBe('');
+
+    const account = (body: unknown) => app.request('/api/settings/providers/claude/accounts/default', json('PUT', body));
+    expect((await account({ defaultEffort: 'way too much effort' })).status).toBe(400);
+    expect((await account({ defaultModel: 7 })).status).toBe(400);
+    expect((await account({ defaultModel: 'sonnet', defaultEffort: 'low' })).status).toBe(200);
+    expect((await account({ nativeOff: 'skills' })).status).toBe(400);
+    expect((await account({ nativeOff: ['skills', 'rules'] })).status).toBe(400);
+    const off = await account({ nativeOff: ['mcp', 'skills'] });
     expect(off.status).toBe(200);
     const view = (await off.json()) as SettingsView;
-    expect(view.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['skills', 'mcp']);
-    const more = (await (await provider({ nativeOff: ['plugins', 'hooks', 'agents'] })).json()) as SettingsView;
-    expect(more.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
+    expect(view.providers.find((p) => p.provider === 'claude')!.accounts[0]).toMatchObject({
+      defaultModel: 'sonnet',
+      defaultEffort: 'low',
+      nativeOff: ['skills', 'mcp'],
+    });
+    const more = (await (await account({ nativeOff: ['plugins', 'hooks', 'agents'] })).json()) as SettingsView;
+    expect(more.providers.find((p) => p.provider === 'claude')!.accounts[0]!.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
 
     // Single items: lists of ids by known kind.
-    expect((await provider({ nativeItems: ['skills'] })).status).toBe(400);
-    expect((await provider({ nativeItems: null })).status).toBe(400);
-    expect((await provider({ nativeItems: { rules: ['x'] } })).status).toBe(400);
-    expect((await provider({ nativeItems: { skills: 'commit' } })).status).toBe(400);
-    expect((await provider({ nativeItems: { skills: [''] } })).status).toBe(400);
-    expect((await provider({ nativeItems: { skills: [7] } })).status).toBe(400);
-    expect((await provider({ nativeItems: { skills: ['x'.repeat(4097)] } })).status).toBe(400);
-    expect((await provider({ nativeItems: { skills: Array.from({ length: 2001 }, (_, i) => `s${i}`) } })).status).toBe(400);
-    const items = await provider({ nativeItems: { skills: ['commit'], mcpTools: ['mcp__local__fetch'], hooks: ['h1'] } });
+    expect((await account({ nativeItems: ['skills'] })).status).toBe(400);
+    expect((await account({ nativeItems: null })).status).toBe(400);
+    expect((await account({ nativeItems: { rules: ['x'] } })).status).toBe(400);
+    expect((await account({ nativeItems: { skills: 'commit' } })).status).toBe(400);
+    expect((await account({ nativeItems: { skills: [''] } })).status).toBe(400);
+    expect((await account({ nativeItems: { skills: [7] } })).status).toBe(400);
+    expect((await account({ nativeItems: { skills: ['x'.repeat(4097)] } })).status).toBe(400);
+    expect((await account({ nativeItems: { skills: Array.from({ length: 2001 }, (_, i) => `s${i}`) } })).status).toBe(400);
+    const items = await account({ nativeItems: { skills: ['commit'], mcpTools: ['mcp__local__fetch'], hooks: ['h1'] } });
     expect(items.status).toBe(200);
-    const withItems = ((await items.json()) as SettingsView).providers.find((p) => p.provider === 'claude')!;
+    const withItems = ((await items.json()) as SettingsView).providers.find((p) => p.provider === 'claude')!.accounts[0]!;
     expect(withItems.nativeItems).toEqual({ skills: ['commit'], mcpTools: ['mcp__local__fetch'] });
     expect(withItems.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
+    // Back as they were, for the tests after this one.
+    expect((await account({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} })).status).toBe(200);
   });
 
   it("sets the CLIs' own folder: created when missing, never the home folder itself", async () => {
@@ -502,6 +518,62 @@ describe('accounts', () => {
     expect((await call('POST', '/api/settings/providers/codex/accounts', { label: 7 })).status).toBe(400);
     expect((await call('PUT', '/api/settings/providers/claude/accounts/' + id, { label: 'x' })).status).toBe(404);
     expect((await call('PUT', '/api/settings/providers/nope/accounts/default', { label: 'x' })).status).toBe(404);
+  });
+
+  it("keeps each account's defaults and what its runs leave out apart, without asking the CLIs again", async () => {
+    const { call, settings, providers } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    const invalidate = vi.spyOn(providers, 'invalidate');
+    const res = await call('PUT', `/api/settings/providers/claude/accounts/${id}`, {
+      defaultModel: 'sonnet',
+      defaultEffort: 'high',
+      nativeOff: ['hooks'],
+      nativeItems: { skills: ['commit'] },
+    });
+    expect(res.status).toBe(200);
+    const accounts = ((await res.json()) as SettingsView).providers.find((p) => p.provider === 'claude')!.accounts;
+    expect(accounts.map((a) => [a.id, a.defaultModel, a.defaultEffort, a.nativeOff, a.nativeItems])).toEqual([
+      ['', '', '', [], {}],
+      [id, 'sonnet', 'high', ['hooks'], { skills: ['commit'] }],
+    ]);
+    expect([settings.defaultModel('claude'), settings.defaultModel('claude', id)]).toEqual(['', 'sonnet']);
+    // The models are layered with each account's defaults at every request: nothing to ask again.
+    expect(invalidate).not.toHaveBeenCalled();
+    expect((await call('PUT', `/api/settings/providers/claude/accounts/${id}`, { defaultEffort: 'not an effort!' })).status).toBe(400);
+    expect((await call('PUT', '/api/settings/providers/claude/accounts/nope', { defaultModel: 'opus' })).status).toBe(404);
+    // Its name is in the status: that is checked again.
+    await call('PUT', `/api/settings/providers/claude/accounts/${id}`, { label: 'Office' });
+    expect(invalidate).toHaveBeenCalledWith('claude');
+  });
+
+  it('signs a Codex account in with its key and saves its defaults in the same request', async () => {
+    const { call, settings, codexKey } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/codex/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    const res = await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { apiKey: 'sk-codex-work', defaultModel: 'gpt-b', nativeOff: ['hooks'] });
+    expect(res.status).toBe(200);
+    expect(codexKey).toHaveBeenCalledWith('sk-codex-work', id);
+    expect([settings.defaultModel('codex', id), settings.nativeOff('codex', id), settings.hasStoredApiKey('codex', id)]).toEqual(['gpt-b', ['hooks'], false]);
+    // A sign-in that fails saves nothing.
+    codexKey.mockRejectedValueOnce(new Error('bad key'));
+    expect((await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { apiKey: 'sk-bad', defaultModel: 'gpt-c' })).status).toBe(500);
+    expect(settings.defaultModel('codex', id)).toBe('gpt-b');
+  });
+
+  it("lists every account's models over HTTP, each with its own defaults", async () => {
+    const { call, read, settings } = accountsApp();
+    // Not installed: no CLI runs (Claude Code's models are read from its settings file).
+    settings.update('codex', { bin: join(root, 'no-such-codex') });
+    settings.update('grok', { bin: join(root, 'no-such-grok') });
+    const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    await call('PUT', `/api/settings/providers/claude/accounts/${id}`, { defaultModel: 'sonnet' });
+    await call('PUT', '/api/settings/providers/claude/accounts/default', { defaultModel: 'opus' });
+    const models = (await (await read('/api/models')).json()) as ProviderModels[];
+    expect(models.map((m) => [m.provider, m.account ?? '', m.defaultModel])).toEqual([
+      ['claude', '', 'opus'],
+      ['claude', id, 'sonnet'],
+      ['codex', '', undefined],
+      ['grok', '', undefined],
+    ]);
   });
 
   it('allows up to ten accounts per CLI, the default one included', async () => {
@@ -1406,7 +1478,7 @@ describe('browsing files', () => {
 
 describe("what each CLI loads by itself", () => {
   it('asks the CLI for the default working directory, only from the app itself', async () => {
-    const asked: [string, string, boolean][] = [];
+    const asked: ([string, string, boolean] | [string, string, boolean, string])[] = [];
     const reported: { path: string; kind: 'instructions' }[] = [];
     const answer = (provider: string, cwd: string) => ({
       provider,
@@ -1418,13 +1490,17 @@ describe("what each CLI loads by itself", () => {
       problems: [{ kind: 'timeout' }],
       checkedAt: 1,
     });
+    const looked: (string | undefined)[] = [];
     const native = {
-      get: async (provider: string, cwd: string, refresh = false) => {
-        asked.push([provider, cwd, refresh]);
+      get: async (provider: string, cwd: string, refresh = false, account?: string) => {
+        asked.push(account === undefined ? [provider, cwd, refresh] : [provider, cwd, refresh, account]);
         return answer(provider, cwd);
       },
       // Opening a reported file checks the latest answer and does not start the CLI.
-      latest: async (provider: string, cwd: string) => answer(provider, cwd),
+      latest: async (provider: string, cwd: string, account?: string) => {
+        looked.push(account);
+        return answer(provider, cwd);
+      },
     } as unknown as InstanceType<typeof NativeSetupService>;
     const db = openDatabase(':memory:');
     const settings = new SettingsStore(db);
@@ -1452,6 +1528,17 @@ describe("what each CLI loads by itself", () => {
       ['grok', project, true],
     ]);
     expect((await call('/api/providers/gemini/native')).status).toBe(404);
+    // Another account: asked in its home, with what its runs leave out; one the CLI does not have is refused.
+    const work = settings.addAccount('claude', 'Work');
+    await call(`/api/providers/claude/native?account=${work}`, { refresh: true });
+    await call('/api/providers/claude/native?account=default');
+    expect(asked.slice(2)).toEqual([
+      ['claude', project, true, work],
+      ['claude', project, false],
+    ]);
+    expect((await call('/api/providers/claude/native?account=nope')).status).toBe(404);
+    expect((await call(`/api/providers/codex/native?account=${work}`)).status).toBe(404);
+    asked.length = 2;
 
     // Reading a reported file, and nothing else.
     const notes = join(project, 'CLAUDE.md');
@@ -1462,6 +1549,11 @@ describe("what each CLI loads by itself", () => {
     for (const path of [join(project, 'other.md'), '/etc/passwd', `${project}/../${project.split('/').pop()}/CLAUDE.md`, '']) {
       expect((await call('/api/providers/claude/native/file', { path })).status, path).toBe(404);
     }
+    // Of the account whose answer listed it.
+    expect((await call(`/api/providers/claude/native/file?account=${work}`, { path: notes })).status).toBe(200);
+    expect((await call('/api/providers/claude/native/file?account=nope', { path: notes })).status).toBe(404);
+    expect(looked.at(-1)).toBe(work);
+    expect(looked.slice(0, -1).every((a) => a === undefined)).toBe(true);
     rmSync(notes);
     expect((await call('/api/providers/claude/native/file', { path: notes })).status).toBe(404);
     expect(asked).toHaveLength(2);

@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
+  catalogFor,
   inheritedEffort,
   type AgentConfig,
   type ConversationSchedule,
@@ -190,9 +191,9 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                   <AccountPicker status={status} value={a.account} onChange={(account) => updateAgent(a.id, { account })} />
 
                   <AgentModelPicker
-                    key={a.provider}
+                    key={`${a.provider}|${a.account ?? ''}`}
                     agent={a}
-                    catalog={catalog.find((c) => c.provider === a.provider)}
+                    catalog={catalogFor(catalog, a.provider, a.account)}
                     onChange={(v) => updateAgent(a.id, v)}
                   />
 
