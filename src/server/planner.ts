@@ -31,6 +31,11 @@ import { validateAgents } from './validate';
 export interface PlannerContext {
   /** CLIs that are installed and signed in; empty = unknown (nothing is remapped). */
   available: Provider[];
+  /**
+   * The accounts of each available CLI that agents can run as, in order ('' = the default account).
+   * A member whose account is not among them gets the first. Absent = unknown (accounts stay as they are).
+   */
+  accounts?: Partial<Record<Provider, string[]>>;
   catalog: ProviderModels[];
   presets: TeamPreset[];
 }
@@ -285,7 +290,10 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
 }
 
-/** Make members runnable here: signed-in CLIs only, and only models / efforts those CLIs offer. */
+/**
+ * Make members runnable here: signed-in CLIs only, signed-in accounts of them only, and only models /
+ * efforts those CLIs offer.
+ */
 export function fitAgents(agents: AgentConfig[], ctx: PlannerContext, lead: LeadAgentSettings): AgentConfig[] {
   const fallbackProvider = ctx.available.includes(lead.provider) ? lead.provider : (ctx.available[0] ?? lead.provider);
   return agents.map((a) => {
@@ -294,6 +302,12 @@ export function fitAgents(agents: AgentConfig[], ctx: PlannerContext, lead: Lead
       out.provider = fallbackProvider;
       out.model = undefined;
       out.effort = undefined;
+      delete out.account; // the other CLI's
+    }
+    const usable = ctx.accounts?.[out.provider];
+    if (usable?.length && !usable.includes(out.account ?? '')) {
+      if (usable[0]) out.account = usable[0];
+      else delete out.account;
     }
     const c = ctx.catalog.find((x) => x.provider === out.provider);
     if (out.model && c?.models.length && !c.models.some((m) => m.id === out.model)) out.model = undefined;
@@ -408,7 +422,7 @@ export function fallbackPlan(ctx: PlannerContext, lead: LeadAgentSettings, why: 
 
 /**
  * Members who stay on from the current team (same name, ignoring case, and same CLI) keep their ids,
- * so their CLI sessions — what they learned in this conversation — carry on.
+ * so their CLI sessions — what they learned in this conversation — carry on, and their accounts.
  */
 export function keepMemberIds(next: AgentConfig[], current: AgentConfig[]): AgentConfig[] {
   const taken = new Set<string>();
@@ -416,7 +430,8 @@ export function keepMemberIds(next: AgentConfig[], current: AgentConfig[]): Agen
     const same = current.find((c) => !taken.has(c.id) && c.provider === a.provider && c.name.toLowerCase() === a.name.toLowerCase());
     if (!same) return a;
     taken.add(same.id);
-    return { ...a, id: same.id };
+    const { account: _drop, ...rest } = a;
+    return { ...rest, id: same.id, ...(same.account ? { account: same.account } : {}) };
   });
 }
 
@@ -647,6 +662,8 @@ export function decideRevision(
     const role = given ?? same?.role ?? basedOn[i]?.role ?? '';
     return {
       ...(same ? { id: same.id, ...(same.tools ? { tools: same.tools } : {}) } : {}),
+      // Its account stays while it stays on the same CLI.
+      ...(sameCli && same?.account ? { account: same.account } : {}),
       name,
       provider,
       role: same && role.trim() === same.role.trim() ? same.role : role,

@@ -292,6 +292,25 @@ const MIGRATIONS: string[] = [
     expires_at INTEGER NOT NULL
   );
   `,
+  // 19: more than one account per CLI. provider_accounts: the accounts besides each CLI's default one
+  // (each with a folder of its own for the CLI, and maybe an API key of its own; the key moves to the
+  // system keyring like the default account's); account_label: the default account's name. Agents,
+  // templates and agent sessions name their account (NULL = the default account); the lead agent's is
+  // in its JSON setting.
+  `
+  CREATE TABLE provider_accounts (
+    id         TEXT PRIMARY KEY,
+    provider   TEXT NOT NULL,
+    label      TEXT NOT NULL,
+    api_key    TEXT NOT NULL DEFAULT '',
+    position   INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  ALTER TABLE provider_settings ADD COLUMN account_label TEXT NOT NULL DEFAULT '';
+  ALTER TABLE conversation_agents ADD COLUMN account TEXT;
+  ALTER TABLE preset_agents ADD COLUMN account TEXT;
+  ALTER TABLE agent_sessions ADD COLUMN account TEXT;
+  `,
 ];
 
 function migrate(db: Database): void {

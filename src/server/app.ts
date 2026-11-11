@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createReadStream, realpathSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { Readable } from 'node:stream';
@@ -11,8 +11,11 @@ import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel } from '../shar
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
+  DEFAULT_ACCOUNT,
   FILE_LIMITS,
   GROUP_LIMITS,
+  MAX_ACCOUNTS,
+  PROVIDER_LABEL,
   PROVIDERS,
   SHARE_FILES_MAX,
   SHARE_FILES_MAX_BYTES,
@@ -63,12 +66,14 @@ import {
   ensureFolder,
   expandPath,
   foldCase,
+  validAccountLabel,
   validAgentHome,
   validAgentsViewLink,
   validAgentsViewUrl,
   validDirectory,
   validGroupName,
   validVoiceModel,
+  validateAccountUpdate,
   validateAgents,
   validateLead,
   validateMcpServer,
@@ -315,6 +320,17 @@ export function createApp({
     return p;
   }
 
+  /**
+   * The account a request is for: the `:account` path parameter, else the `account` query parameter;
+   * empty or `default` = the CLI's default account (returned as empty), anything else one it has.
+   */
+  function account(c: Context, p: Provider): string {
+    const raw = c.req.param('account') ?? c.req.query('account') ?? '';
+    const id = raw === DEFAULT_ACCOUNT ? '' : raw;
+    if (!settings.hasAccount(p, id)) throw new HttpError(404, t().unknownAccount(PROVIDER_LABEL[p], raw));
+    return id;
+  }
+
   // --- Settings & providers ----------------------------------------------------
 
   /** The settings, with how the last update of AgentsView (at the current address) went. */
@@ -352,10 +368,10 @@ export function createApp({
     if (viewLink !== undefined) settings.setAgentsViewLink(viewLink);
     if (home !== undefined && home !== settings.agentHome) {
       settings.setAgentHome(home);
-      // Another home: another sign-in, other models and other parts of its own. A sign-in still
-      // running would finish in the old home.
+      // Another home (for every account): another sign-in, other models and other parts of its own.
+      // A sign-in still running would finish in the old home.
       providers.invalidate();
-      for (const p of PROVIDERS) providers.cancelLogin(p);
+      providers.cancelLogins();
     }
     return c.json(settingsView());
   });
@@ -393,6 +409,50 @@ export function createApp({
     return c.json(settingsView());
   });
 
+  // A CLI's accounts besides its default one: each has a folder of its own for the CLI (its sign-in,
+  // settings and sessions) and may have an API key of its own. Agents and the lead agent name theirs.
+  app.post('/api/settings/providers/:provider/accounts', async (c) => {
+    const p = provider(c);
+    const b = await body<{ label?: unknown }>(c);
+    const label = validAccountLabel(b.label ?? '');
+    if (settings.accountIds(p).length + 1 >= MAX_ACCOUNTS) throw new HttpError(409, t().tooManyAccounts(PROVIDER_LABEL[p], MAX_ACCOUNTS));
+    const id = settings.addAccount(p, label);
+    providers.invalidate(p);
+    return c.json({ id, settings: settingsView() });
+  });
+
+  // Renames an account (`default`: the default one), or sets or removes its key. A Codex key signs
+  // the account in with it, in its own folder; Codex keeps it.
+  app.put('/api/settings/providers/:provider/accounts/:account', async (c) => {
+    const p = provider(c);
+    const id = account(c, p);
+    const b = validateAccountUpdate(await body<unknown>(c));
+    if (b.apiKey !== undefined && b.apiKey !== null && p === 'codex') {
+      await providers.codexApiKeyLogin(b.apiKey, id);
+      delete b.apiKey;
+    }
+    settings.updateAccount(p, id, b);
+    providers.invalidate(p);
+    return c.json(settingsView());
+  });
+
+  // Removes an account besides the default one: signs it out (as far as the CLI can; a key it kept in
+  // the system's credential store goes with it), forgets its key, and deletes its folder, with its
+  // sign-in and the CLI's sessions. Agents that named it use the default account from then on.
+  app.delete('/api/settings/providers/:provider/accounts/:account', async (c) => {
+    const p = provider(c);
+    const id = account(c, p);
+    if (!id) throw new HttpError(400, t().defaultAccountStays);
+    // A turn of this account would go on in a folder being deleted.
+    if (orchestrator.anyRunning()) throw new HttpError(409, t().accountBusy);
+    providers.forgetLogin(p, id);
+    await providers.logout(p, id, 15_000).catch(() => {});
+    const home = settings.removeAccount(p, id);
+    if (home) await rm(home, { recursive: true, force: true }).catch((err: Error) => console.warn(`[settings] could not delete ${home}: ${err.message}`));
+    providers.invalidate(p);
+    return c.json(settingsView());
+  });
+
   app.get('/api/providers', async (c) => c.json(await providers.statusAll(c.req.query('refresh') === '1')));
 
   app.get('/api/models', async (c) => c.json(await providers.modelsAll(c.req.query('refresh') === '1')));
@@ -421,12 +481,13 @@ export function createApp({
     if (!trust || before.folderTrusted === true) return c.json({ cwd, folder, above, trusted: before.folderTrusted });
     // The user confirmed trust in the folder they were shown; if Grok now names another, ask again.
     if (typeof b.folder === 'string' && b.folder !== folder) throw new HttpError(409, t().grokTrustFolderChanged(folder));
-    const env = settings.env('grok');
-    const previous = trustGrokFolder(folder, env);
+    // Every Grok account keeps its own trust, in its own folder: the folder is trusted for all of them.
+    const envs = ['', ...settings.accountIds('grok')].map((id) => settings.env('grok', id));
+    const previous = envs.map((env) => ({ env, before: trustGrokFolder(folder, env) }));
     const after = await native.get('grok', cwd, true);
     if (after.folderTrusted === false) {
       // Grok did not take it: leave no entry behind that does nothing.
-      restoreGrokTrust(previous, env);
+      for (const { env, before } of previous) restoreGrokTrust(before, env);
       throw new HttpError(409, t().grokTrustNotTaken(folder));
     }
     return c.json({ cwd, folder, above, trusted: after.folderTrusted });
@@ -446,27 +507,37 @@ export function createApp({
 
   app.get('/api/providers/:provider/login-methods', (c) => c.json(providers.loginMethods(provider(c))));
 
+  // Signing in and out: of the default account, or of the one `?account=<id>` names.
   app.post('/api/providers/:provider/login', async (c) => {
+    const p = provider(c);
+    const id = account(c, p);
     const b = await body<{ method?: string }>(c);
-    return c.json(providers.startLogin(provider(c), b.method));
+    return c.json(providers.startLogin(p, b.method, id));
   });
 
-  app.get('/api/providers/:provider/login', (c) => c.json(providers.login(provider(c))));
+  app.get('/api/providers/:provider/login', (c) => {
+    const p = provider(c);
+    return c.json(providers.login(p, account(c, p)));
+  });
 
   app.post('/api/providers/:provider/login/input', async (c) => {
+    const p = provider(c);
+    const id = account(c, p);
     const b = await body<{ text?: string }>(c);
-    const view = providers.sendLoginInput(provider(c), String(b.text ?? ''));
+    const view = providers.sendLoginInput(p, String(b.text ?? ''), id);
     if (!view) throw new HttpError(404, t().noLogin);
     return c.json(view);
   });
 
   app.delete('/api/providers/:provider/login', (c) => {
-    providers.cancelLogin(provider(c));
+    const p = provider(c);
+    providers.cancelLogin(p, account(c, p));
     return c.json({ ok: true });
   });
 
   app.post('/api/providers/:provider/logout', async (c) => {
-    const output = await providers.logout(provider(c));
+    const p = provider(c);
+    const output = await providers.logout(p, account(c, p));
     return c.json({ ok: true, output });
   });
 

@@ -136,6 +136,16 @@ describe('what decides how the agents run, as a working directory', () => {
     expect(agentFolderOverlap(join(root, 'elsewhere'), { ...o, env: { CODEX_HOME: join(root, 'elsewhere/codex') } })).toBe(join(root, 'elsewhere/codex'));
   });
 
+  it("refuses the folder of the other accounts' homes, and a project in one of them", () => {
+    const accountsDir = join(root, 'data/accounts');
+    const withAccounts = { ...o, accountsDir };
+    expect(agentFolderOverlap(join(accountsDir, 'claude-ab12cd34'), withAccounts)).toBe(accountsDir);
+    expect(agentFolderOverlap(join(accountsDir, 'codex-ab12cd34/project'), withAccounts)).toBe(accountsDir);
+    expect(agentFolderOverlap(join(home, 'projects/app'), withAccounts)).toBeUndefined();
+    // With the CLIs' own folder set, the other accounts are in it.
+    expect(agentFolderOverlap(join(home, 'relay-agents/claude-ab12cd34'), { ...o, accountsDir: o.agentHome })).toBe(join(home, 'relay-agents'));
+  });
+
   it('sees a folder still to be made through the links and letter case on its way', () => {
     // A link to a CLI's folder, and the folder to be made in it: refused before it exists.
     symlinkSync(join(home, '.codex'), join(home, 'projects/codex-link'));

@@ -144,6 +144,9 @@ describe('Store (SQLite)', () => {
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
              DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
+             ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
+             ALTER TABLE agent_sessions DROP COLUMN account;
              PRAGMA user_version = 12;`);
     const migrated = new Store(reopen());
     expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
@@ -572,6 +575,9 @@ describe('Store shares', () => {
     db.exec(`ALTER TABLE shares DROP COLUMN files; ALTER TABLE shares DROP COLUMN files_gist; ALTER TABLE shares DROP COLUMN unfinished;
              ALTER TABLE conversations DROP COLUMN branch;
              DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
+             ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
+             ALTER TABLE agent_sessions DROP COLUMN account;
              PRAGMA user_version = 15;`);
     const migrated = new Store(reopen());
     expect(migrated.getShare('aaaa')).toEqual(share('aaaa', 1));
@@ -877,6 +883,131 @@ describe('SettingsStore (SQLite)', () => {
   });
 });
 
+describe('SettingsStore accounts', () => {
+  it("gives each account besides a CLI's default one its own home and its own key, and keeps them", () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-from-the-shell');
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '/users/me/.claude');
+    try {
+      const s = new SettingsStore(db);
+      const home = join(dir, 'agents');
+      s.setAgentHome(home);
+      const work = s.addAccount('claude', '  Work  ');
+      const alt = s.addAccount('claude', 'Alt');
+      const second = s.addAccount('codex', 'Second');
+      expect(work).toMatch(/^[0-9a-f]{8}$/);
+      expect(new Set([work, alt, second]).size).toBe(3);
+      s.updateAccount('claude', work, { apiKey: 'sk-ant-work-123456' });
+      s.updateAccount('claude', '', { label: 'Personal' });
+
+      const again = new SettingsStore(reopen());
+      expect(again.accountIds('claude')).toEqual([work, alt]);
+      expect(again.accountIds('codex')).toEqual([second]);
+      expect(again.accountLabel('claude', work)).toBe('Work');
+      expect(again.accountLabel('claude')).toBe('Personal');
+      // Each account in a folder of its own; the default account as before.
+      expect(again.env('claude').CLAUDE_CONFIG_DIR).toBe(join(home, 'claude'));
+      expect(again.env('claude', work).CLAUDE_CONFIG_DIR).toBe(join(home, `claude-${work}`));
+      expect(again.env('codex', second).CODEX_HOME).toBe(join(home, `codex-${second}`));
+      expect(statSync(join(home, `codex-${second}`)).isDirectory()).toBe(true);
+      // Its own key only: the key the server was started with is the default account's.
+      expect(again.env('claude', work).ANTHROPIC_API_KEY).toBe('sk-ant-work-123456');
+      expect(again.env('claude', alt).ANTHROPIC_API_KEY).toBeUndefined();
+      expect(again.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-from-the-shell');
+      expect(again.hasStoredApiKey('claude', work)).toBe(true);
+      expect(again.hasStoredApiKey('claude', alt)).toBe(false);
+      // An account another CLI has, or none it knows, is the default account.
+      expect(again.resolveAccount('codex', work)).toBe('');
+      expect(again.env('codex', work).CODEX_HOME).toBe(join(home, 'codex'));
+      expect(again.accountHomes()).toEqual([join(home, `claude-${work}`), join(home, `claude-${alt}`), join(home, `codex-${second}`)]);
+
+      const claude = again.view().providers.find((p) => p.provider === 'claude')!;
+      expect(claude.accounts).toEqual([
+        { id: '', label: 'Personal', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, 'claude') },
+        { id: work, label: 'Work', apiKeyMasked: 'sk-a…3456', apiKeyStorage: 'database', home: join(home, `claude-${work}`) },
+        { id: alt, label: 'Alt', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, `claude-${alt}`) },
+      ]);
+      expect(again.view().providers.find((p) => p.provider === 'codex')!.accounts.map((a) => a.apiKeyStorage)).toEqual([undefined, undefined]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("keeps the other accounts' homes in the data folder when the CLIs have no folder of their own", async () => {
+    const { ACCOUNTS_DIR } = await import('../src/server/settings');
+    const s = new SettingsStore(db);
+    const id = s.addAccount('grok', 'Team');
+    expect(s.accountsDir).toBe(ACCOUNTS_DIR);
+    expect(s.accountHome('grok', id)).toBe(join(ACCOUNTS_DIR, `grok-${id}`));
+    expect(s.accountHome('grok')).toBeUndefined(); // the CLI's usual home
+  });
+
+  it('forgets a removed account with its key, and the lead agent goes back to the default account', () => {
+    const keyring = fakeKeyring();
+    const s = new SettingsStore(db, keyring);
+    s.setAgentHome(join(dir, 'agents'));
+    const work = s.addAccount('grok', 'Work');
+    const other = s.addAccount('grok', 'Other');
+    s.updateAccount('grok', work, { apiKey: 'xai-work-key-1234' });
+    expect(keyring.data.get(`grok-api-key-${work}`)).toBe('xai-work-key-1234');
+    expect(readFileSync(file).includes('xai-work-key')).toBe(false);
+    s.setLead({ provider: 'grok', account: work });
+    expect(new SettingsStore(reopen(), keyring).lead).toEqual({ provider: 'grok', account: work });
+
+    const again = new SettingsStore(db, keyring);
+    expect(again.env('grok', work).XAI_API_KEY).toBe('xai-work-key-1234');
+    expect(again.removeAccount('grok', work)).toBe(join(dir, 'agents', `grok-${work}`));
+    expect(keyring.data.has(`grok-api-key-${work}`)).toBe(false);
+    expect(again.lead).toEqual({ provider: 'grok' });
+    expect(again.removeAccount('grok', work)).toBeUndefined();
+    const later = new SettingsStore(reopen(), keyring);
+    expect(later.accountIds('grok')).toEqual([other]);
+    expect(later.lead.account).toBeUndefined();
+    // A lead naming an account the CLI does not have runs as the default one.
+    later.setLead({ provider: 'claude', account: other });
+    expect(later.lead).toEqual({ provider: 'claude' });
+  });
+
+  it('moves an account key saved in the database into the keyring', () => {
+    const s = new SettingsStore(db);
+    const id = s.addAccount('claude', 'Work');
+    s.updateAccount('claude', id, { apiKey: 'sk-ant-old-plaintext' });
+    expect((db.prepare('SELECT api_key FROM provider_accounts').get() as { api_key: string }).api_key).toBe('sk-ant-old-plaintext');
+    const keyring = fakeKeyring();
+    const again = new SettingsStore(reopen(), keyring);
+    expect(keyring.data.get(`claude-api-key-${id}`)).toBe('sk-ant-old-plaintext');
+    expect((db.prepare('SELECT api_key FROM provider_accounts').get() as { api_key: string }).api_key).toBe('');
+    expect(again.view().providers[0]!.accounts[1]).toMatchObject({ apiKeyMasked: 'sk-a…text', apiKeyStorage: 'keychain' });
+  });
+});
+
+describe('Store accounts', () => {
+  it('keeps the account of each member, of each template member and of each agent session', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    conv.agents[1]!.account = 'ab12cd34';
+    store.create(conv);
+    store.saveAgentState(conv.id, 'a2', { provider: 'codex', account: 'ab12cd34', sessionId: 's-2', seen: [] });
+    store.saveAgentState(conv.id, 'a1', { provider: 'claude', sessionId: 's-1', seen: [] });
+    const preset: TeamPreset = {
+      id: 'p-acc',
+      name: 'Two accounts',
+      agents: [{ id: 'x', name: 'Rev', provider: 'grok', role: '', account: '0011aabb' }, { id: 'y', name: 'Dev', provider: 'grok', role: '' }],
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 3, permission: 'read-only' },
+    };
+    store.savePreset(preset);
+
+    const again = new Store(reopen());
+    const loaded = again.get(conv.id)!;
+    expect(loaded.agents.map((a) => a.account)).toEqual([undefined, 'ab12cd34']);
+    expect('account' in loaded.agents[0]!).toBe(false);
+    expect(loaded.agentState).toEqual({
+      a1: { provider: 'claude', sessionId: 's-1', seen: [] },
+      a2: { provider: 'codex', account: 'ab12cd34', sessionId: 's-2', seen: [] },
+    });
+    expect(again.listPresets().find((p) => p.id === 'p-acc')!.agents.map((a) => a.account)).toEqual(['0011aabb', undefined]);
+  });
+});
+
 function fakeKeyring(): SecretStore & { data: Map<string, string> } {
   const data = new Map<string, string>();
   return {
@@ -964,6 +1095,9 @@ describe('Store schedules', () => {
     db.exec(`ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
              DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
+             ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
+             ALTER TABLE agent_sessions DROP COLUMN account;
              PRAGMA user_version = 13;`);
     const migrated = new Store(reopen()).get(conv.id)!.schedule!;
     expect(migrated.newChat).toBe(false);

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
 import {
   PROVIDERS,
+  type AccountStatus,
   type LoginMethod,
   type LoginSessionView,
   type Provider,
@@ -66,9 +67,13 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
   }
 }
 
+/** One account of one CLI, as a key of a map. */
+const slot = (p: Provider, account = '') => `${p}\0${account}`;
+
 export class ProviderService {
   private cache = new Map<Provider, { at: number; status: ProviderStatus }>();
-  private logins = new Map<Provider, LoginSession>();
+  /** Sign-ins running or finished, by account (`slot`). */
+  private logins = new Map<string, LoginSession>();
   private modelCache = new Map<Provider, { at: number; models: Promise<DiscoveredModels> }>();
 
   constructor(private settings: SettingsStore) {}
@@ -108,27 +113,35 @@ export class ProviderService {
     if (!refresh && cached && Date.now() - cached.at < 20_000) return cached.status;
     const bin = this.settings.bin(p);
     const env = this.settings.env(p);
+    const ids = ['', ...this.settings.accountIds(p)];
+    const account = (id: string, auth: ProviderAuth): AccountStatus => ({
+      id,
+      label: this.settings.accountLabel(p, id),
+      auth,
+      usingStoredApiKey: this.settings.hasStoredApiKey(p, id),
+    });
     let status: ProviderStatus;
     try {
       const v = await capture(bin, ['--version'], env, { timeoutMs: 10_000 });
       const version = parseVersion(v.stdout || v.stderr);
-      let auth: ProviderAuth;
-      try {
-        auth = await checkAuth(p, bin, env);
-      } catch (err) {
-        auth = { loggedIn: null, detail: (err as Error).message };
-      }
-      status = { provider: p, installed: true, bin, version, auth, usingStoredApiKey: this.settings.hasStoredApiKey(p) };
+      // Each account signs in on its own, in its own home.
+      const accounts = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            return account(id, await checkAuth(p, bin, id ? this.settings.env(p, id) : env));
+          } catch (err) {
+            return account(id, { loggedIn: null, detail: (err as Error).message });
+          }
+        }),
+      );
+      const first = accounts[0]!;
+      status = { provider: p, installed: true, bin, version, auth: first.auth, usingStoredApiKey: first.usingStoredApiKey, accounts };
     } catch (err) {
-      status = {
-        provider: p,
-        installed: false,
-        bin,
-        // Not found: Settings says so in its own words, with where to install it. Anything else (the
-        // file is there but cannot run, say) is told as it happened.
-        auth: { loggedIn: null, detail: err instanceof CommandNotFoundError ? undefined : (err as Error).message },
-        usingStoredApiKey: this.settings.hasStoredApiKey(p),
-      };
+      // Not found: Settings says so in its own words, with where to install it. Anything else (the
+      // file is there but cannot run, say) is told as it happened.
+      const auth: ProviderAuth = { loggedIn: null, detail: err instanceof CommandNotFoundError ? undefined : (err as Error).message };
+      const accounts = ids.map((id) => account(id, { loggedIn: null }));
+      status = { provider: p, installed: false, bin, auth, usingStoredApiKey: accounts[0]!.usingStoredApiKey, accounts };
     }
     this.cache.set(p, { at: Date.now(), status });
     return status;
@@ -148,41 +161,54 @@ export class ProviderService {
     });
   }
 
-  startLogin(p: Provider, methodId?: string): LoginSessionView {
+  /** Signs an account in (empty `account`: the default one), with the CLI's own flow, in its home. */
+  startLogin(p: Provider, methodId?: string, account = ''): LoginSessionView {
     const method = LOGIN_METHODS[p].find((m) => m.id === methodId) ?? LOGIN_METHODS[p][0];
-    this.logins.get(p)?.cancel();
-    const session = new LoginSession(p, method, this.settings.bin(p), this.settings.env(p), () => this.invalidate(p));
-    this.logins.set(p, session);
+    this.logins.get(slot(p, account))?.cancel();
+    const session = new LoginSession(p, account, method, this.settings.bin(p), this.settings.env(p, account), () => this.invalidate(p));
+    this.logins.set(slot(p, account), session);
     return session.view();
   }
 
-  login(p: Provider): LoginSessionView | null {
-    return this.logins.get(p)?.view() ?? null;
+  login(p: Provider, account = ''): LoginSessionView | null {
+    return this.logins.get(slot(p, account))?.view() ?? null;
   }
 
-  sendLoginInput(p: Provider, text: string): LoginSessionView | null {
-    const s = this.logins.get(p);
+  sendLoginInput(p: Provider, text: string, account = ''): LoginSessionView | null {
+    const s = this.logins.get(slot(p, account));
     if (!s) return null;
     s.write(text);
     return s.view();
   }
 
-  cancelLogin(p: Provider): void {
-    this.logins.get(p)?.cancel();
+  cancelLogin(p: Provider, account = ''): void {
+    this.logins.get(slot(p, account))?.cancel();
   }
 
-  async logout(p: Provider): Promise<string> {
+  /** Stops every sign-in still running (their homes changed); they are forgotten. */
+  cancelLogins(): void {
+    for (const s of this.logins.values()) s.cancel();
+    this.logins.clear();
+  }
+
+  /** Forgets an account's sign-in, stopping it if it still runs (the account was removed). */
+  forgetLogin(p: Provider, account: string): void {
+    this.cancelLogin(p, account);
+    this.logins.delete(slot(p, account));
+  }
+
+  async logout(p: Provider, account = '', timeoutMs = 30_000): Promise<string> {
     const bin = this.settings.bin(p);
     const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
-    const r = await capture(bin, args, this.settings.env(p), { timeoutMs: 30_000 });
+    const r = await capture(bin, args, this.settings.env(p, account), { timeoutMs });
     this.invalidate(p);
     if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || t().logoutFailed(r.code));
     return tail(r.stdout || r.stderr, 300);
   }
 
-  /** Codex stores API keys itself; the key is piped to `codex login --with-api-key` and not kept here. */
-  async codexApiKeyLogin(key: string): Promise<string> {
-    const r = await capture(this.settings.bin('codex'), ['login', '--with-api-key'], this.settings.env('codex'), {
+  /** Codex stores API keys itself; the key is piped to `codex login --with-api-key` (in the account's home) and not kept here. */
+  async codexApiKeyLogin(key: string, account = ''): Promise<string> {
+    const r = await capture(this.settings.bin('codex'), ['login', '--with-api-key'], this.settings.env('codex', account), {
       stdin: key.trim() + '\n',
       timeoutMs: 30_000,
     });
@@ -254,6 +280,7 @@ class LoginSession {
 
   constructor(
     readonly provider: Provider,
+    readonly account: string,
     readonly method: { id: string; args: string[] },
     bin: string,
     env: NodeJS.ProcessEnv,
@@ -304,6 +331,7 @@ class LoginSession {
     return {
       id: this.id,
       provider: this.provider,
+      account: this.account,
       method: this.method.id,
       state: this.state,
       startedAt: this.startedAt,

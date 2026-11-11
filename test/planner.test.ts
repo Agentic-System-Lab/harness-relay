@@ -244,6 +244,40 @@ describe('a question in a conversation', () => {
     expect(keepMemberIds(next, team)[0]!.role).toBe('New role.');
   });
 
+  it('lets members who stay on keep their accounts; new ones get a signed-in account of their CLI', () => {
+    const current: AgentConfig[] = [{ id: 'a1', name: 'Alice', provider: 'claude', role: '', account: 'work0001' }];
+    const next: AgentConfig[] = [
+      { id: 'n1', name: 'Alice', provider: 'claude', role: '' },
+      { id: 'n2', name: 'Bob', provider: 'claude', role: '', account: 'other001' },
+    ];
+    expect(keepMemberIds(next, current).map((a) => [a.id, a.account])).toEqual([
+      ['a1', 'work0001'],
+      ['n2', 'other001'],
+    ]);
+    // The default account is not signed in, the Work one is.
+    const signedIn: PlannerContext = { ...ctx, accounts: { claude: ['work0001'], codex: [''] } };
+    const fitted = fitAgents(
+      [
+        { id: 'x', name: 'A', provider: 'claude', role: '' },
+        { id: 'y', name: 'B', provider: 'claude', role: '', account: 'work0001' },
+        { id: 'z', name: 'C', provider: 'codex', role: '', account: 'gone0001' },
+        // On a CLI that is not available: moved to the lead's, whose accounts it then gets.
+        { id: 'w', name: 'D', provider: 'grok', role: '', account: 'grok0001' },
+      ],
+      signedIn,
+      lead,
+    );
+    expect(fitted.map((a) => [a.provider, a.account])).toEqual([
+      ['claude', 'work0001'],
+      ['claude', 'work0001'],
+      ['codex', undefined],
+      ['claude', 'work0001'],
+    ]);
+    expect('account' in fitted[2]!).toBe(false);
+    // Accounts unknown: left as they are.
+    expect(fitAgents([{ id: 'y', name: 'B', provider: 'claude', role: '', account: 'any00001' }], ctx, lead)[0]!.account).toBe('any00001');
+  });
+
   it('gives the lead the conversation in short: what was said, not tool calls, notes or plans', () => {
     const msg = (m: Partial<ChatMessage> & Pick<ChatMessage, 'author'>): ChatMessage => ({
       id: Math.random().toString(36),
@@ -288,6 +322,19 @@ describe('changing a team at the user\'s request', () => {
     ],
   };
   const where = { permission: 'edit' as const, cwd: '/work' };
+
+  it("keeps a member's account while it stays on the same CLI, and never shows the lead the account ids", () => {
+    const withAccount: TeamDraft = { ...draft, agents: [{ ...draft.agents[0]!, account: 'work0001' }, draft.agents[1]!] };
+    expect(buildRevisePrompt('x', withAccount, where, ctx)).not.toContain('work0001');
+    const stays = decideRevision({ agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Gus', provider: 'grok' }] }, withAccount, ctx, lead);
+    expect(stays.agents.map((a) => [a.id, a.account])).toEqual([
+      ['a1', 'work0001'],
+      ['g1', undefined],
+    ]);
+    const moves = decideRevision({ agents: [{ name: 'Alice', provider: 'codex' }] }, withAccount, ctx, lead);
+    expect(moves.agents[0]).toMatchObject({ id: 'a1', provider: 'codex' });
+    expect(moves.agents[0]!.account).toBeUndefined();
+  });
 
   it('shows the lead the team, the request and the conversation, and asks for the whole team back', () => {
     const prompt = buildRevisePrompt('加一位用 Codex 的測試人員', draft, where, ctx, { history: '[User]: Fix the login bug' });

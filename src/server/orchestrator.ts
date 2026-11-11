@@ -1148,7 +1148,7 @@ export class Orchestrator {
 
   /** Folders snapshots never take in: the CLIs' own homes, with their sign-ins and transcripts. */
   private snapshotExcludes(): string[] {
-    return this.settings.agentHome ? [this.settings.agentHome] : [];
+    return [...new Set([...(this.settings.agentHome ? [this.settings.agentHome] : []), ...this.settings.accountHomes()])];
   }
 
   /** Send the conversation to AgentsView, unless it is being deleted (a run winding down after the delete). */
@@ -1400,7 +1400,7 @@ export class Orchestrator {
       let reply = '';
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
-        env: this.settings.env(lead.provider),
+        env: this.settings.env(lead.provider, lead.account),
         nativeOff: this.settings.nativeOff(lead.provider),
         nativeItems: this.settings.nativeItems(lead.provider),
         prompt: buildPlannerPrompt(question, conv.settings, ctx, {
@@ -1606,7 +1606,7 @@ export class Orchestrator {
       if (signal.aborted) throw stopped();
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
-        env: this.settings.env(lead.provider),
+        env: this.settings.env(lead.provider, lead.account),
         nativeOff: this.settings.nativeOff(lead.provider),
         nativeItems: this.settings.nativeItems(lead.provider),
         prompt: buildRevisePrompt(request, draft, place, ctx, {
@@ -1853,11 +1853,16 @@ export class Orchestrator {
   /** One agent turn: build its prompt, run the CLI, stream into a new chat message. */
   private async turn(conv: Conversation, agent: AgentConfig, run: Run, info: TurnInfo): Promise<ChatMessage> {
     const state: AgentSessionState = (conv.agentState[agent.id] ??= { seen: [] });
-    if (state.provider && state.provider !== agent.provider) {
+    // The account it runs as: one that was removed is the default account. A session is kept in its
+    // CLI's home, which is the account's, so another CLI or another account starts a new one.
+    const account = this.settings.resolveAccount(agent.provider, agent.account);
+    if (state.provider && (state.provider !== agent.provider || (state.account ?? '') !== account)) {
       state.sessionId = undefined;
       state.seen = [];
     }
     state.provider = agent.provider;
+    if (account) state.account = account;
+    else delete state.account;
 
     const msg: ChatMessage = {
       id: randomUUID(),
@@ -2074,7 +2079,7 @@ export class Orchestrator {
       try {
         const result = await runners[agent.provider].run({
           bin: this.settings.bin(agent.provider),
-          env: this.settings.env(agent.provider),
+          env: this.settings.env(agent.provider, account),
           nativeOff,
           nativeItems,
           prompt,

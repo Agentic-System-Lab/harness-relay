@@ -19,6 +19,7 @@ import { dataDirInTemp, relayTmpDir } from './protect';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { serveWebApp, webAppDir } from './web';
+import { accountUsable } from '../shared/types';
 
 // A failure in a background task (a run winding down, a stream write) must not take the server — and
 // every other conversation — down with it.
@@ -50,10 +51,11 @@ const orchestrator = new Orchestrator(
     // What the lead agent may choose from when it designs a team.
     async context() {
       const [statuses, catalog] = await Promise.all([providers.statusAll(), providers.modelsAll()]);
-      const available = statuses
-        .filter((s) => s.installed && (s.auth.loggedIn !== false || s.usingStoredApiKey))
-        .map((s) => s.provider);
-      return { available, catalog, presets: store.listPresets() };
+      // A CLI is available with any account agents can run as; its members get one of those.
+      const usable = statuses.map((s) => ({ provider: s.provider, ids: s.installed ? s.accounts.filter(accountUsable).map((a) => a.id) : [] }));
+      const available = usable.filter((u) => u.ids.length).map((u) => u.provider);
+      const accounts = Object.fromEntries(usable.filter((u) => u.ids.length).map((u) => [u.provider, u.ids]));
+      return { available, accounts, catalog, presets: store.listPresets() };
     },
   },
   agentsView,

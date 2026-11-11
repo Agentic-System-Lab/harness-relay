@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   LANGS,
+  MAX_ACCOUNTS,
+  MAX_ACCOUNT_LABEL,
   PROVIDERS,
   PROVIDER_INSTALL_URL,
   PROVIDER_LABEL,
   inheritedEffort,
+  type AccountStatus,
   type LeadAgentSettings,
   type LoginMethod,
   type LoginSessionView,
   type Provider,
+  type ProviderAccountView,
   type ProviderModels,
   type ProviderSettingsView,
   type ProviderStatus,
@@ -27,7 +31,8 @@ import {
   settingsHref,
   type SettingsSection,
 } from '../route';
-import { PROVIDER_COLOR, switchProvider, type ModelChoice } from '../util';
+import { PROVIDER_COLOR, accountName, accountOf, accountState, switchProvider, type ModelChoice } from '../util';
+import { AccountPicker } from './AccountPicker';
 import { CwdInput } from './CwdInput';
 import { ModelPicker } from './ModelPicker';
 import { NativeSetupPanel } from './NativeSetupPanel';
@@ -35,7 +40,6 @@ import { SectionTitle } from './SectionTitle';
 import { BrowsersCard } from './BrowsersSettings';
 import { SessionsCard } from './SessionsSettings';
 import { SharesCard } from './SharesSettings';
-import { providerState } from './Sidebar';
 import { ToolsCard } from './ToolsSettings';
 import { VoiceCard } from './VoiceSettings';
 
@@ -218,12 +222,16 @@ function LeadCard({
   /** The model and effort picked for each CLI while switching between them, so switching back restores them. */
   const kept = useRef<Partial<Record<Provider, ModelChoice>>>({});
   // Saving any other setting returns a new (equal) lead object: keep the user's unsaved edits then.
-  useEffect(() => setLead(saved), [saved.provider, saved.model, saved.effort]);
+  useEffect(() => setLead(saved), [saved.provider, saved.model, saved.effort, saved.account]);
 
   const status = providers.find((p) => p.provider === lead.provider);
   const pm = catalog.find((c) => c.provider === lead.provider);
+  const account = accountOf(status, lead.account);
   const unchanged =
-    lead.provider === saved.provider && (lead.model ?? '') === (saved.model ?? '') && (lead.effort ?? '') === (saved.effort ?? '');
+    lead.provider === saved.provider &&
+    (lead.model ?? '') === (saved.model ?? '') &&
+    (lead.effort ?? '') === (saved.effort ?? '') &&
+    (lead.account ?? '') === (saved.account ?? '');
 
   const save = async () => {
     setBusy(true);
@@ -261,6 +269,7 @@ function LeadCard({
           </button>
         ))}
       </div>
+      <AccountPicker status={status} value={lead.account} onChange={(a) => setLead({ ...lead, account: a })} />
       <ModelPicker
         key={lead.provider}
         catalog={pm}
@@ -273,9 +282,11 @@ function LeadCard({
           return t.team.defaultModel(e ? t.effortLabel(e) : t.team.cliDecides);
         }}
       />
-      {status && providerState(status) !== 'ok' && (
+      {status && accountState(status, lead.account) !== 'ok' && (
         <p className="warn-line">
-          {t.settings.leadNotReady(PROVIDER_LABEL[lead.provider])}{' '}
+          {status.installed && account && status.accounts.length > 1
+            ? t.accounts.notLoggedIn(PROVIDER_LABEL[lead.provider], accountName(account, t))
+            : t.settings.leadNotReady(PROVIDER_LABEL[lead.provider])}{' '}
           <a href={settingsHref(lead.provider)} onClick={() => scrollToSection(lead.provider)}>
             {t.settings.goSignIn(PROVIDER_LABEL[lead.provider])}
           </a>
@@ -291,7 +302,10 @@ function LeadCard({
   );
 }
 
-function statusPill(s: ProviderStatus | undefined, t: Messages): { text: string; cls: string } {
+function statusPill(
+  s: Pick<ProviderStatus, 'installed' | 'auth' | 'usingStoredApiKey'> | undefined,
+  t: Messages,
+): { text: string; cls: string } {
   const p = t.settings.pill;
   if (!s) return { text: p.checking, cls: '' };
   if (!s.installed) return { text: p.notInstalled, cls: 'off' };
@@ -318,55 +332,27 @@ function ProviderCard({
 }) {
   const { t, lang } = useI18n();
   const [methods, setMethods] = useState<LoginMethod[]>([]);
-  const [method, setMethod] = useState('');
-  const [login, setLogin] = useState<LoginSessionView | null>(null);
-  const [apiKey, setApiKey] = useState('');
   const [bin, setBin] = useState('');
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
+  const [newName, setNewName] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const accounts = settings?.accounts ?? [];
+  /** More than one account: each one shows its name and its own sign-in state. */
+  const multi = accounts.length > 1;
   const pill = statusPill(status, t);
 
   // Method labels come from the server in the UI language.
   useEffect(() => {
-    api.loginMethods(provider).then(
-      (m) => {
-        setMethods(m);
-        setMethod((cur) => (m.some((x) => x.id === cur) ? cur : (m[0]?.id ?? '')));
-      },
-      (e: Error) => setNote(e.message),
-    );
+    api.loginMethods(provider).then(setMethods, (e: Error) => setNote(e.message));
   }, [provider, lang]);
-
-  // Pick up a login still running from before (the page was left or reloaded). A finished one's
-  // result was shown where it finished; coming back to the page starts clean.
-  useEffect(() => {
-    api.getLogin(provider).then(
-      (v) => setLogin(v?.state === 'running' ? v : null),
-      (e: Error) => setNote(e.message),
-    );
-  }, [provider]);
 
   useEffect(() => {
     setBin(settings?.bin ?? '');
     setModel(settings?.defaultModel ?? '');
     setEffort(settings?.defaultEffort ?? '');
   }, [settings?.bin, settings?.defaultModel, settings?.defaultEffort]);
-
-  // Poll the login session while it runs.
-  const running = login?.state === 'running';
-  const onRefreshRef = useRef(onRefresh);
-  onRefreshRef.current = onRefresh;
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(async () => {
-      const v = await api.getLogin(provider).catch(() => null);
-      setLogin(v);
-      if (v && v.state !== 'running') void onRefreshRef.current();
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [running, provider]);
 
   const act = async (fn: () => Promise<unknown>, ok?: string) => {
     setBusy(true);
@@ -381,47 +367,44 @@ function ProviderCard({
     }
   };
 
-  const startLogin = () => {
-    if (provider === 'codex' && status?.auth.loggedIn && !confirm(t.settings.confirmCodexRelogin)) return;
-    void act(async () => setLogin(await api.startLogin(provider, method)));
-  };
-
-  const logout = () => {
-    if (!confirm(t.settings.confirmLogout(PROVIDER_LABEL[provider]))) return;
-    void act(async () => {
-      await api.logout(provider);
-      await onRefresh();
-    }, t.settings.loggedOut);
-  };
-
-  const saveKey = (remove = false) =>
-    act(async () => {
-      onSettings(await api.updateProvider(provider, { apiKey: remove ? null : apiKey }));
-      setApiKey('');
-      await onRefresh();
-    }, remove ? t.settings.keyRemoved : t.settings.keySaved);
-
   const saveAdvanced = () =>
     act(async () => {
       onSettings(await api.updateProvider(provider, { bin, defaultModel: model, defaultEffort: effort }));
       await onRefresh();
     }, t.settings.saved);
 
-  const selected = methods.find((m) => m.id === method);
+  // A name for the next account that no account has yet ("Account 2", "Account 3"…).
+  const suggested = (() => {
+    const taken = new Set(accounts.map((a) => accountName(a, t).toLowerCase()));
+    let n = accounts.length + 1;
+    while (taken.has(t.accounts.nextName(n).toLowerCase())) n++;
+    return t.accounts.nextName(n);
+  })();
+
+  const addAccount = () => {
+    const name = newName.trim() || suggested;
+    void act(async () => {
+      const r = await api.addAccount(provider, name);
+      onSettings(r.settings);
+      setNewName('');
+      await onRefresh();
+    }, t.accounts.added(name));
+  };
 
   return (
     <section className="card provider-card" id={sectionId(provider)} style={{ ['--accent' as string]: PROVIDER_COLOR[provider] }}>
       <header className="provider-head">
         <span className="provider-swatch" />
         <SectionTitle section={provider}>{PROVIDER_LABEL[provider]}</SectionTitle>
-        <span className={`pill ${pill.cls}`}>{pill.text}</span>
+        {/* With several accounts, each one says how it is signed in. */}
+        {(!multi || !status?.installed) && <span className={`pill ${pill.cls}`}>{pill.text}</span>}
         {/* Login details; a CLI that is not installed is explained once, in the line below. */}
         {status?.installed && (
           <span className="muted small">
             {status.version && `v${status.version}`}
-            {status.auth.account && ` · ${status.auth.account}`}
-            {status.auth.method && ` · ${status.auth.method}`}
-            {status.auth.detail && ` · ${status.auth.detail}`}
+            {!multi && status.auth.account && ` · ${status.auth.account}`}
+            {!multi && status.auth.method && ` · ${status.auth.method}`}
+            {!multi && status.auth.detail && ` · ${status.auth.detail}`}
           </span>
         )}
       </header>
@@ -439,57 +422,38 @@ function ProviderCard({
         </p>
       )}
 
-      <div className="login-block">
-        <div className="method-list" role="radiogroup">
-          {methods.map((m) => (
-            <label key={m.id} className={`method ${method === m.id ? 'on' : ''}`}>
-              <input type="radio" name={`m-${provider}`} checked={method === m.id} onChange={() => setMethod(m.id)} />
-              <span>{m.label}</span>
-            </label>
-          ))}
-        </div>
-        {selected && <p className="muted small">{selected.description}</p>}
-        <div className="button-row">
-          <button className="primary" onClick={startLogin} disabled={busy || running || !status?.installed}>
-            {status?.auth.loggedIn ? t.settings.relogin : t.settings.login}
-          </button>
-          {status?.auth.loggedIn && (
-            <button className="ghost" onClick={logout} disabled={busy || running}>
-              {t.settings.logout}
-            </button>
-          )}
-        </div>
-        {login && <LoginPanel login={login} provider={provider} onUpdate={setLogin} onError={setNote} />}
-      </div>
+      {(accounts.length ? accounts : [undefined]).map((a) => (
+        <AccountBlock
+          key={a?.id ?? ''}
+          provider={provider}
+          account={a}
+          status={status?.accounts.find((x) => x.id === (a?.id ?? '')) ?? (a?.id ? undefined : status?.accounts[0])}
+          installed={Boolean(status?.installed)}
+          methods={methods}
+          multi={multi}
+          onSettings={onSettings}
+          onRefresh={onRefresh}
+        />
+      ))}
 
       <details className="sub">
-        <summary>
-          {t.settings.apiKey}
-          {settings?.apiKeyMasked ? t.settings.apiKeySet(settings.apiKeyMasked) : ''}
-        </summary>
+        <summary>{t.accounts.add}</summary>
         <div className="sub-body">
-          <p className="muted small">
-            {t.settings.apiKeyHelp[provider]}
-            {settings?.apiKeyStorage && t.settings.keyStorage(t.settings.keyStorageName[settings.apiKeyStorage])}
-            {settings?.apiKeyStorage === 'database' && t.settings.keyEnvHint(provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY')}
-          </p>
+          <p className="muted small">{t.accounts.addHint(PROVIDER_LABEL[provider])}</p>
           <div className="input-row">
             <input
-              type="password"
-              value={apiKey}
-              placeholder={provider === 'claude' ? 'sk-ant-…' : provider === 'codex' ? 'sk-…' : 'xai-…'}
-              onChange={(e) => setApiKey(e.target.value)}
-              autoComplete="off"
+              value={newName}
+              placeholder={suggested}
+              aria-label={t.accounts.nameLabel}
+              maxLength={MAX_ACCOUNT_LABEL}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !busy && accounts.length < MAX_ACCOUNTS && addAccount()}
             />
-            <button className="primary" onClick={() => saveKey()} disabled={busy || !apiKey.trim()}>
-              {t.common.save}
+            <button className="primary" onClick={addAccount} disabled={busy || !settings || accounts.length >= MAX_ACCOUNTS}>
+              {t.accounts.add}
             </button>
-            {settings?.apiKeyMasked && (
-              <button className="ghost" onClick={() => saveKey(true)} disabled={busy}>
-                {t.common.remove}
-              </button>
-            )}
           </div>
+          {accounts.length >= MAX_ACCOUNTS && <p className="muted small">{t.accounts.limit(MAX_ACCOUNTS)}</p>}
         </div>
       </details>
 
@@ -536,14 +500,236 @@ function ProviderCard({
   );
 }
 
+/**
+ * One account of a CLI: signing it in and out with the CLI's own flow, and its API key. With more
+ * than one account (`multi`), it has a head: its name, its sign-in state, and renaming and removing it
+ * (the default account cannot be removed).
+ */
+function AccountBlock({
+  provider,
+  account,
+  status,
+  installed,
+  methods,
+  multi,
+  onSettings,
+  onRefresh,
+}: {
+  provider: Provider;
+  /** Undefined until the settings have loaded (the default account then). */
+  account?: ProviderAccountView;
+  status?: AccountStatus;
+  installed: boolean;
+  methods: LoginMethod[];
+  multi: boolean;
+  onSettings: (s: SettingsView) => void;
+  onRefresh: () => Promise<void>;
+}) {
+  const t = useT();
+  const id = account?.id ?? '';
+  const name = accountName({ id, label: account?.label ?? '' }, t);
+  const [method, setMethod] = useState('');
+  const [login, setLogin] = useState<LoginSessionView | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const pill = statusPill(status && { installed, auth: status.auth, usingStoredApiKey: status.usingStoredApiKey }, t);
+  const loggedIn = Boolean(status?.auth.loggedIn);
+
+  useEffect(() => setMethod((cur) => (methods.some((x) => x.id === cur) ? cur : (methods[0]?.id ?? ''))), [methods]);
+
+  // Pick up a login still running from before (the page was left or reloaded). A finished one's
+  // result was shown where it finished; coming back to the page starts clean.
+  useEffect(() => {
+    api.getLogin(provider, id).then(
+      (v) => setLogin(v?.state === 'running' ? v : null),
+      (e: Error) => setNote(e.message),
+    );
+  }, [provider, id]);
+
+  // Poll the login session while it runs.
+  const running = login?.state === 'running';
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(async () => {
+      const v = await api.getLogin(provider, id).catch(() => null);
+      setLogin(v);
+      if (v && v.state !== 'running') void onRefreshRef.current();
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [running, provider, id]);
+
+  const act = async (fn: () => Promise<unknown>, ok?: string) => {
+    setBusy(true);
+    setNote('');
+    try {
+      await fn();
+      if (ok) setNote(ok);
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startLogin = () => {
+    if (provider === 'codex' && loggedIn && !confirm(t.settings.confirmCodexRelogin)) return;
+    void act(async () => setLogin(await api.startLogin(provider, method, id)));
+  };
+
+  const logout = () => {
+    if (!confirm(id ? t.accounts.confirmLogout(name, PROVIDER_LABEL[provider]) : t.settings.confirmLogout(PROVIDER_LABEL[provider]))) return;
+    void act(async () => {
+      await api.logout(provider, id);
+      await onRefresh();
+    }, t.settings.loggedOut);
+  };
+
+  const saveKey = (remove = false) =>
+    act(async () => {
+      onSettings(await api.updateAccount(provider, id, { apiKey: remove ? null : apiKey }));
+      setApiKey('');
+      await onRefresh();
+    }, remove ? t.settings.keyRemoved : t.settings.keySaved);
+
+  const rename = () =>
+    act(async () => {
+      onSettings(await api.updateAccount(provider, id, { label: renaming ?? '' }));
+      setRenaming(null);
+      await onRefresh();
+    }, t.accounts.renamed);
+
+  const remove = () => {
+    if (!confirm(t.accounts.confirmRemove(name, PROVIDER_LABEL[provider], account?.home ?? ''))) return;
+    void act(async () => {
+      onSettings(await api.removeAccount(provider, id));
+      await onRefresh();
+    });
+  };
+
+  const selected = methods.find((m) => m.id === method);
+
+  return (
+    <div className={`login-block${multi ? ' account-block' : ''}`}>
+      {multi && (
+        <div className="account-head">
+          {renaming === null ? (
+            <>
+              <strong>{name}</strong>
+              <span className={`pill ${pill.cls}`}>{pill.text}</span>
+              {installed && status && (
+                <span className="muted small">
+                  {[status.auth.account, status.auth.method, status.auth.detail].filter(Boolean).join(' · ')}
+                </span>
+              )}
+              <span className="account-actions">
+                <button className="ghost small-button" onClick={() => setRenaming(account?.label || name)} disabled={busy || !account}>
+                  {t.accounts.rename}
+                </button>
+                {id && (
+                  <button className="ghost small-button danger" onClick={remove} disabled={busy || running}>
+                    {t.accounts.remove}
+                  </button>
+                )}
+              </span>
+            </>
+          ) : (
+            <div className="input-row">
+              <input
+                value={renaming}
+                aria-label={t.accounts.nameLabel}
+                maxLength={MAX_ACCOUNT_LABEL}
+                autoFocus
+                onChange={(e) => setRenaming(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void rename();
+                  if (e.key === 'Escape') setRenaming(null);
+                }}
+              />
+              <button className="primary" onClick={() => void rename()} disabled={busy}>
+                {t.common.save}
+              </button>
+              <button className="ghost" onClick={() => setRenaming(null)} disabled={busy}>
+                {t.common.cancel}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {multi && id && account?.home && <p className="muted small mono-path">{t.accounts.folder(account.home)}</p>}
+
+      <div className="method-list" role="radiogroup">
+        {methods.map((m) => (
+          <label key={m.id} className={`method ${method === m.id ? 'on' : ''}`}>
+            <input type="radio" name={`m-${provider}-${id}`} checked={method === m.id} onChange={() => setMethod(m.id)} />
+            <span>{m.label}</span>
+          </label>
+        ))}
+      </div>
+      {selected && <p className="muted small">{selected.description}</p>}
+      <div className="button-row">
+        <button className="primary" onClick={startLogin} disabled={busy || running || !installed}>
+          {loggedIn ? t.settings.relogin : t.settings.login}
+        </button>
+        {loggedIn && (
+          <button className="ghost" onClick={logout} disabled={busy || running}>
+            {t.settings.logout}
+          </button>
+        )}
+      </div>
+      {login && <LoginPanel login={login} provider={provider} account={id} onUpdate={setLogin} onError={setNote} />}
+
+      <details className="sub">
+        <summary>
+          {t.settings.apiKey}
+          {account?.apiKeyMasked ? t.settings.apiKeySet(account.apiKeyMasked) : ''}
+        </summary>
+        <div className="sub-body">
+          <p className="muted small">
+            {t.settings.apiKeyHelp[provider]}
+            {account?.apiKeyStorage && t.settings.keyStorage(t.settings.keyStorageName[account.apiKeyStorage])}
+            {/* The server's own environment is the default account's only. */}
+            {!id && account?.apiKeyStorage === 'database' && t.settings.keyEnvHint(provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY')}
+          </p>
+          <div className="input-row">
+            <input
+              type="password"
+              value={apiKey}
+              placeholder={provider === 'claude' ? 'sk-ant-…' : provider === 'codex' ? 'sk-…' : 'xai-…'}
+              onChange={(e) => setApiKey(e.target.value)}
+              autoComplete="off"
+            />
+            <button className="primary" onClick={() => saveKey()} disabled={busy || !apiKey.trim()}>
+              {t.common.save}
+            </button>
+            {account?.apiKeyMasked && (
+              <button className="ghost" onClick={() => saveKey(true)} disabled={busy}>
+                {t.common.remove}
+              </button>
+            )}
+          </div>
+        </div>
+      </details>
+
+      {note && <p className="muted small">{note}</p>}
+    </div>
+  );
+}
+
 function LoginPanel({
   login,
   provider,
+  account,
   onUpdate,
   onError,
 }: {
   login: LoginSessionView;
   provider: Provider;
+  /** Empty for the default account. */
+  account: string;
   onUpdate: (v: LoginSessionView | null) => void;
   onError: (message: string) => void;
 }) {
@@ -563,7 +749,7 @@ function LoginPanel({
   const submitCode = async () => {
     if (!code.trim()) return;
     try {
-      onUpdate(await api.loginInput(provider, code));
+      onUpdate(await api.loginInput(provider, code, account));
       setCode('');
     } catch (e) {
       onError((e as Error).message);
@@ -572,8 +758,8 @@ function LoginPanel({
 
   const cancel = () =>
     api
-      .cancelLogin(provider)
-      .then(() => api.getLogin(provider))
+      .cancelLogin(provider, account)
+      .then(() => api.getLogin(provider, account))
       .then(onUpdate, (e: Error) => onError(e.message));
 
   return (

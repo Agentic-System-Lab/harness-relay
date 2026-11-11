@@ -56,6 +56,11 @@ export interface AgentConfig {
   /** Optional reasoning-effort override (e.g. low / medium / high / xhigh); empty means default. */
   effort?: string;
   /**
+   * The account of its CLI the agent runs as (`ProviderAccountView.id`); absent = the CLI's default
+   * account. An account that was removed counts as the default account.
+   */
+  account?: string;
+  /**
    * This agent's exceptions to the tool library's defaults, by tool key (see `toolKey`): true = it
    * gets the tool although the tool is off by default, false = it does not get a tool that is on.
    */
@@ -597,6 +602,8 @@ export interface LeadAgentSettings {
   provider: Provider;
   model?: string;
   effort?: string;
+  /** The account of its CLI it runs as; absent = the default account (see `AgentConfig.account`). */
+  account?: string;
 }
 
 /** What the lead agent decided for a question in an auto-team conversation (shown as a card in the chat). */
@@ -933,6 +940,8 @@ export interface AgentSessionState {
   /** CLI-native session / thread id used to resume the agent's own context. */
   sessionId?: string;
   provider?: Provider;
+  /** The account the session was made with (empty = the default account): another account starts a new one. */
+  account?: string;
   /** Ids of chat messages this agent has already been shown. */
   seen: string[];
 }
@@ -1090,10 +1099,39 @@ export interface ProviderStatus {
   installed: boolean;
   bin: string;
   version?: string;
+  /** The default account's sign-in (also `accounts[0]`). */
   auth: ProviderAuth;
-  /** An API key is stored in Harness Relay and injected into this CLI's environment. */
+  /** An API key is stored in Harness Relay for the default account and injected into this CLI's environment. */
+  usingStoredApiKey: boolean;
+  /** Every account of this CLI, the default account first: each one signs in on its own. */
+  accounts: AccountStatus[];
+}
+
+/** One account of a CLI and its sign-in. */
+export interface AccountStatus {
+  /** Empty for the default account. */
+  id: string;
+  /** The name the user gave it; empty = none (the UI then calls the default account "Default"). */
+  label: string;
+  auth: ProviderAuth;
   usingStoredApiKey: boolean;
 }
+
+/** Whether agents can run as this account: signed in (or it could not be told), or with an API key. */
+export function accountUsable(a: Pick<AccountStatus, 'auth' | 'usingStoredApiKey'>): boolean {
+  return a.auth.loggedIn !== false || a.usingStoredApiKey;
+}
+
+/**
+ * Accounts per CLI, the default one included. Each account other than the default has a folder of its
+ * own for the CLI (its sign-in, settings and sessions) and may have an API key of its own.
+ */
+export const MAX_ACCOUNTS = 10;
+/** Longest name of an account. */
+export const MAX_ACCOUNT_LABEL = 40;
+/** Account ids: made by the server (8 hex digits); `default` names the default account in URLs. */
+export const ACCOUNT_ID_RE = /^[a-z0-9]{1,32}$/;
+export const DEFAULT_ACCOUNT = 'default';
 
 /**
  * Where Harness Relay keeps API keys: the operating system's credential store (macOS Keychain,
@@ -1117,6 +1155,29 @@ export interface ProviderSettingsView {
   nativeOff: NativePart[];
   /** Single items Harness Relay's runs leave out (see NATIVE_ITEM_SUPPORT). */
   nativeItems: NativeItemsOff;
+  /** Every account of this CLI, the default account first (its key is `apiKeyMasked` above too). */
+  accounts: ProviderAccountView[];
+}
+
+/** One account of a CLI as Settings shows it. */
+export interface ProviderAccountView {
+  /** Empty for the default account. */
+  id: string;
+  /** The name the user gave it; empty = none. */
+  label: string;
+  /** Masked API key of this account, or empty when none is stored. */
+  apiKeyMasked: string;
+  /** Where its key is (or would be) stored; absent for Codex, which keeps its own. */
+  apiKeyStorage?: KeyStorage;
+  /** The folder the CLI keeps this account's sign-in, settings and sessions in; absent = the CLI's usual home. */
+  home?: string;
+}
+
+/** `PUT /api/settings/providers/:provider/accounts/:account`: only the fields given change. */
+export interface ProviderAccountUpdate {
+  label?: string;
+  /** string = set / replace, null = remove (Codex: signs the account in with it, and keeps nothing). */
+  apiKey?: string | null;
 }
 
 export interface ModelOption {
@@ -1211,6 +1272,8 @@ export type LoginState = 'running' | 'success' | 'failed' | 'cancelled';
 export interface LoginSessionView {
   id: string;
   provider: Provider;
+  /** The account signing in; empty = the default account. */
+  account: string;
   method: string;
   state: LoginState;
   startedAt: number;
