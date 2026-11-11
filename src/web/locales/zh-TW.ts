@@ -223,7 +223,7 @@ export const zhTW = {
     unnamed: (id: string) => `帳號 ${id}`,
     add: '新增帳號',
     addHint: (p: string) =>
-      `同一個 ${p} 可以登入多個帳號，例如公司和個人的訂閱。每個帳號各自登入、各自設定 API key，也有自己的 ${p} 資料夾（設定與 session 紀錄）。在團隊設定裡為每位成員選擇帳號，沒有選的成員使用預設帳號。`,
+      `同一個 ${p} 可以登入多個帳號，例如公司和個人的訂閱。每個帳號各自登入，各自設定 API key、預設模型與推理強度、不載入的項目，也有自己的 ${p} 資料夾（設定與 session 紀錄）。在團隊設定裡為每位成員選擇帳號，沒有選的成員使用預設帳號。`,
     nameLabel: '帳號名稱',
     namePlaceholder: '例如：公司',
     nextName: (n: number) => `帳號 ${n}`,
@@ -1043,7 +1043,7 @@ export const zhTW = {
       grok: '儲存後，Harness Relay 啟動 Grok 時會帶入 XAI_API_KEY。',
     },
     cliMissing: (bin: string) => `找不到 ${bin}`,
-    setBinBelow: '（可在下方「預設模型與推理強度」指定執行檔路徑）',
+    setBinBelow: '（可在下方「執行檔」指定路徑）',
     installCli: (p: string) => `到官網安裝 ${p}`,
     login: '登入',
     relogin: '重新登入',

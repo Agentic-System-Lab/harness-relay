@@ -12,6 +12,7 @@ import {
   SHARE_MAX_BYTES,
   type Conversation,
   type ConversationSummary,
+  type ProviderModels,
   type SettingsView,
   type ShareFileInfo,
   type TeamRevision,
@@ -543,6 +544,36 @@ describe('accounts', () => {
     // Its name is in the status: that is checked again.
     await call('PUT', `/api/settings/providers/claude/accounts/${id}`, { label: 'Office' });
     expect(invalidate).toHaveBeenCalledWith('claude');
+  });
+
+  it('signs a Codex account in with its key and saves its defaults in the same request', async () => {
+    const { call, settings, codexKey } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/codex/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    const res = await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { apiKey: 'sk-codex-work', defaultModel: 'gpt-b', nativeOff: ['hooks'] });
+    expect(res.status).toBe(200);
+    expect(codexKey).toHaveBeenCalledWith('sk-codex-work', id);
+    expect([settings.defaultModel('codex', id), settings.nativeOff('codex', id), settings.hasStoredApiKey('codex', id)]).toEqual(['gpt-b', ['hooks'], false]);
+    // A sign-in that fails saves nothing.
+    codexKey.mockRejectedValueOnce(new Error('bad key'));
+    expect((await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { apiKey: 'sk-bad', defaultModel: 'gpt-c' })).status).toBe(500);
+    expect(settings.defaultModel('codex', id)).toBe('gpt-b');
+  });
+
+  it("lists every account's models over HTTP, each with its own defaults", async () => {
+    const { call, read, settings } = accountsApp();
+    // Not installed: no CLI runs (Claude Code's models are read from its settings file).
+    settings.update('codex', { bin: join(root, 'no-such-codex') });
+    settings.update('grok', { bin: join(root, 'no-such-grok') });
+    const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    await call('PUT', `/api/settings/providers/claude/accounts/${id}`, { defaultModel: 'sonnet' });
+    await call('PUT', '/api/settings/providers/claude/accounts/default', { defaultModel: 'opus' });
+    const models = (await (await read('/api/models')).json()) as ProviderModels[];
+    expect(models.map((m) => [m.provider, m.account ?? '', m.defaultModel])).toEqual([
+      ['claude', '', 'opus'],
+      ['claude', id, 'sonnet'],
+      ['codex', '', undefined],
+      ['grok', '', undefined],
+    ]);
   });
 
   it('allows up to ten accounts per CLI, the default one included', async () => {

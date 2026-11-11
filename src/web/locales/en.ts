@@ -216,7 +216,7 @@ export const en: Messages = {
     unnamed: (id) => `Account ${id}`,
     add: 'Add an account',
     addHint: (p) =>
-      `Sign in to more than one ${p} account, such as a work and a personal subscription. Each account signs in on its own, has an API key of its own and a ${p} folder of its own (settings and session transcripts). Pick each member's account in the team settings; members with none use the default account.`,
+      `Sign in to more than one ${p} account, such as a work and a personal subscription. Each account signs in on its own, has its own API key, default model and effort, and choice of what to leave out, and a ${p} folder of its own (settings and session transcripts). Pick each member's account in the team settings; members with none use the default account.`,
     nameLabel: 'Account name',
     namePlaceholder: 'For example: Work',
     nextName: (n) => `Account ${n}`,
@@ -1035,7 +1035,7 @@ export const en: Messages = {
       grok: 'Once saved, Harness Relay passes XAI_API_KEY when it starts Grok.',
     },
     cliMissing: (bin) => `${bin} not found`,
-    setBinBelow: ' (set the executable path under "Default model and reasoning effort" below)',
+    setBinBelow: ' (set its path under "Executable" below)',
     installCli: (p) => `Install ${p} from its website`,
     login: 'Sign in',
     relogin: 'Sign in again',

@@ -540,10 +540,15 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
 
 /**
  * Make members runnable here: signed-in CLIs only, signed-in accounts of them only, and only models /
- * efforts those CLIs offer.
+ * efforts those CLIs offer as the member's account runs them.
+ *
+ * `staying`: the conversation's current team. A member who stays on (same name, ignoring case, and
+ * same CLI, matched as `keepMemberIds` matches them) keeps the account the user set, which
+ * `keepMemberIds` gives back: its model and effort are checked against that account's models.
  */
-export function fitAgents(agents: AgentConfig[], ctx: PlannerContext, lead: LeadAgentSettings): AgentConfig[] {
+export function fitAgents(agents: AgentConfig[], ctx: PlannerContext, lead: LeadAgentSettings, staying?: AgentConfig[]): AgentConfig[] {
   const fallbackProvider = ctx.available.includes(lead.provider) ? lead.provider : (ctx.available[0] ?? lead.provider);
+  const taken = new Set<string>();
   return agents.map((a) => {
     const out: AgentConfig = { ...a, id: randomUUID() };
     if (ctx.available.length && !ctx.available.includes(out.provider)) {
@@ -552,8 +557,14 @@ export function fitAgents(agents: AgentConfig[], ctx: PlannerContext, lead: Lead
       out.effort = undefined;
       delete out.account; // the other CLI's
     }
+    const same = staying?.find((c) => !taken.has(c.id) && c.provider === out.provider && c.name.toLowerCase() === out.name.toLowerCase());
+    if (same) {
+      taken.add(same.id);
+      if (same.account) out.account = same.account;
+      else delete out.account;
+    }
     const usable = ctx.accounts?.[out.provider];
-    if (usable?.length && !usable.includes(out.account ?? '')) {
+    if (!same && usable?.length && !usable.includes(out.account ?? '')) {
       if (usable[0]) out.account = usable[0];
       else delete out.account;
     }
@@ -568,7 +579,14 @@ export function fitAgents(agents: AgentConfig[], ctx: PlannerContext, lead: Lead
 }
 
 /** A template's team, as it is. */
-function templateDecision(preset: TeamPreset, source: 'template' | 'fallback', reason: string, ctx: PlannerContext, lead: LeadAgentSettings): PlanDecision {
+function templateDecision(
+  preset: TeamPreset,
+  source: 'template' | 'fallback',
+  reason: string,
+  ctx: PlannerContext,
+  lead: LeadAgentSettings,
+  staying?: AgentConfig[],
+): PlanDecision {
   return {
     source,
     presetId: preset.id,
@@ -576,7 +594,7 @@ function templateDecision(preset: TeamPreset, source: 'template' | 'fallback', r
     description: preset.description,
     reason,
     settings: { mode: preset.settings.mode, rounds: preset.settings.rounds, maxHops: preset.settings.maxHops },
-    agents: fitAgents(preset.agents, ctx, lead),
+    agents: fitAgents(preset.agents, ctx, lead, staying),
   };
 }
 
@@ -631,7 +649,7 @@ export function decidePlan(
     const id = String(raw.templateId ?? '');
     const preset = ctx.presets.find((p) => p.id === id);
     if (!preset) throw new Error(t().planUnknownTemplate(id));
-    return templateDecision(preset, 'template', reason || t().planTemplateFits(preset.name), ctx, lead);
+    return templateDecision(preset, 'template', reason || t().planTemplateFits(preset.name), ctx, lead, current?.agents);
   }
   const members = Array.isArray(raw.agents) ? raw.agents.slice(0, MAX_MEMBERS) : [];
   const agents = validateAgents(
@@ -648,7 +666,7 @@ export function decidePlan(
   // A "new" team that is exactly a template is that template: nothing new to save. The lead's
   // reason would describe changes that were not made, so the card says plainly what happened.
   const same = ctx.presets.find((p) => sameTeam(p, settings, agents));
-  if (same) return templateDecision(same, 'template', t().planTemplateFits(same.name), ctx, lead);
+  if (same) return templateDecision(same, 'template', t().planTemplateFits(same.name), ctx, lead, current?.agents);
   const base = raw.choice === 'adapted' ? ctx.presets.find((p) => p.id === String(raw.baseTemplateId ?? '')) : undefined;
   return {
     source: base ? 'adapted' : 'custom',
@@ -657,7 +675,7 @@ export function decidePlan(
     description: String(raw.description ?? '').trim().slice(0, 200) || undefined,
     reason,
     settings,
-    agents: fitAgents(base ? fromTemplate(agents, base) : agents, ctx, lead),
+    agents: fitAgents(base ? fromTemplate(agents, base) : agents, ctx, lead, current?.agents),
   };
 }
 

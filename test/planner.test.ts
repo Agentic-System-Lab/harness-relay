@@ -336,6 +336,49 @@ describe('a question in a conversation', () => {
     expect(fitAgents([{ id: 'y', name: 'B', provider: 'claude', role: '', account: 'any00001' }], ctx, lead)[0]!.account).toBe('any00001');
   });
 
+  it("checks a member who stays on against the models of the account it keeps", () => {
+    // Only the Work account's Codex offers gpt-b; only the default account's offers gpt-a.
+    const perAccount: PlannerContext = {
+      ...ctx,
+      accounts: { claude: [''], codex: [''] }, // the Work account is signed out: a member who stays keeps it anyway
+      catalog: [
+        ...catalog,
+        { provider: 'codex', models: [{ id: 'gpt-a', efforts: ['low'] }], efforts: ['low'], source: 'cli' },
+        { provider: 'codex', account: 'work0001', models: [{ id: 'gpt-b', efforts: ['high'] }], efforts: ['high'], source: 'cli' },
+      ],
+    };
+    const current = {
+      agents: [
+        { id: 'a1', name: 'Alice', provider: 'codex' as const, role: 'R', account: 'work0001', model: 'gpt-b', effort: 'high' },
+        { id: 'b1', name: 'Bob', provider: 'codex' as const, role: 'S', account: 'work0001' },
+      ],
+      settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8 },
+    };
+    const reply = {
+      choice: 'custom',
+      name: 'Team',
+      mode: 'roundtable',
+      agents: [
+        { name: 'alice', provider: 'codex', role: 'R', model: 'gpt-b', effort: 'high' },
+        // Bob stays, but asks for a model only the default account offers: dropped.
+        { name: 'Bob', provider: 'codex', role: 'S', model: 'gpt-a', effort: 'low' },
+        // A new member: the first usable account, and its models.
+        { name: 'Cy', provider: 'codex', role: 'T', model: 'gpt-b' },
+      ],
+    };
+    const decided = decidePlan(reply, perAccount, lead, current);
+    const kept = keepMemberIds(decided.agents, current.agents);
+    expect(kept.map((a) => [a.name, a.id === 'a1' || a.id === 'b1', a.account, a.model, a.effort])).toEqual([
+      ['alice', true, 'work0001', 'gpt-b', 'high'],
+      ['Bob', true, 'work0001', undefined, undefined],
+      ['Cy', false, undefined, undefined, undefined],
+    ]);
+    // A template used as it is: its members who stay on are checked the same way.
+    const template = { ...ctx.presets[0]!, id: 'user-t', agents: [{ id: 't1', name: 'Alice', provider: 'codex' as const, role: 'R', model: 'gpt-b' }] };
+    const used = decidePlan({ choice: 'template', templateId: 'user-t' }, { ...perAccount, presets: [template] }, lead, current);
+    expect(used.agents.map((a) => [a.account, a.model])).toEqual([['work0001', 'gpt-b']]);
+  });
+
   it("checks each member's model and effort against what its own account's CLI offers", () => {
     // The Work account's Codex offers another model, with other efforts, and has another default.
     const perAccount: PlannerContext = {

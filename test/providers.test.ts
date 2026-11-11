@@ -142,11 +142,41 @@ esac
       expect((await service.models('claude', false, work)).cliDefaultModel).toBe('sonnet');
       expect((await service.models('claude', true, work)).cliDefaultModel).toBe('fable');
       writeFileSync(join(settings.env('claude').CLAUDE_CONFIG_DIR!, 'settings.json'), JSON.stringify({ model: 'sonnet' }));
+      writeFileSync(join(settings.env('claude', work).CLAUDE_CONFIG_DIR!, 'settings.json'), JSON.stringify({ model: 'opus' }));
       service.invalidate('claude');
+      // Every account of that CLI is asked again.
       expect((await service.models('claude')).cliDefaultModel).toBe('sonnet');
+      expect((await service.models('claude', false, work)).cliDefaultModel).toBe('opus');
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  // A stand-in for `grok models` that counts its runs in its home and names its model after the count.
+  const COUNTING_GROK = `#!/bin/sh
+n=$(cat "$GROK_HOME/runs" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$GROK_HOME/runs"
+echo "  - grok-run-$n"
+`;
+
+  posixIt("asks every account of a CLI again when that CLI's models are invalidated, and no other CLI's", async () => {
+    const dir = join(root, 'invalidate');
+    mkdirSync(dir, { recursive: true });
+    const bin = join(dir, 'grok');
+    writeFileSync(bin, COUNTING_GROK, { mode: 0o755 });
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    settings.setAgentHome(join(dir, 'homes'));
+    settings.update('grok', { bin });
+    const team = settings.addAccount('grok', 'Team');
+    const service = new ProviderService(settings);
+    const ids = async (account = '') => (await service.models('grok', false, account)).models.map((m) => m.id);
+    expect([await ids(), await ids(team)]).toEqual([['grok-run-1'], ['grok-run-1']]);
+    expect([await ids(), await ids(team)]).toEqual([['grok-run-1'], ['grok-run-1']]); // kept
+    service.invalidate('claude');
+    expect([await ids(), await ids(team)]).toEqual([['grok-run-1'], ['grok-run-1']]);
+    service.invalidate('grok');
+    expect([await ids(), await ids(team)]).toEqual([['grok-run-2'], ['grok-run-2']]);
+    service.invalidate();
+    expect(await ids(team)).toEqual(['grok-run-3']);
   });
 
   it('lists every account as unknown when the CLI is not installed', async () => {

@@ -703,7 +703,7 @@ function AccountBlock({
 
       <AccountDefaults provider={provider} account={account} catalog={catalog} onSettings={onSettings} onSaved={onDefaults} />
 
-      <NativeSetupPanel key={id} provider={provider} account={account} multi={multi} onSettings={onSettings} />
+      <NativeSetupPanel provider={provider} account={account} multi={multi} onSettings={onSettings} />
 
       {note && <p className="muted small">{note}</p>}
     </div>

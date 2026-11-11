@@ -497,7 +497,7 @@ All conversations, templates and settings are stored in `data/relay.db` (SQLite)
 | Symptom | What to try |
 | --- | --- |
 | Agent shows *Not signed in* | Sign in from Settings & sign-in, or set an API key. Then click **Check again**. |
-| *Command not found* | Install the CLI (its card in Settings links to its website), or set **Executable** under the provider's **Default model and reasoning effort** section in Settings. |
+| *Command not found* | Install the CLI (its card in Settings links to its website), or set its path under **Executable** in the provider's card in Settings (below its accounts). |
 | A reply ends with an error box | Read the message: it is the CLI's own error (rate limits, auth, invalid model…). Fix it and press **Continue** or resend. |
 | Auto team always keeps the current team, or falls back to the General-question panel | The card says why. Check that the lead agent's CLI is signed in (Settings → Lead agent), or pick another lead agent. |
 | Agent seems to have forgotten the conversation | If its CLI session could not be resumed, Harness Relay automatically starts a fresh session with the full history; this is expected after changing the working directory or the agent's CLI. |
