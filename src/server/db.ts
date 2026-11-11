@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, mkdirSync, openSync } from 'node:fs';
+import { chmodSync, closeSync, mkdirSync, openSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
@@ -335,17 +335,71 @@ function migrate(db: Database): void {
   }
 }
 
-/** Open (or create) the database. The file holds API keys, so it is readable by the owner only. */
 /** A plain connection to another program's SQLite database (no migrations, no pragmas of ours). */
 export function openSqliteFile(file: string): Database {
   return new DatabaseSync(file);
 }
 
+/**
+ * A connection to an open agent's own SQLite database in its state folder, which the run's commands
+ * may have written, for the server to take out of it what would widen a later run. Every trigger and
+ * view in it is dropped first: a command could otherwise plant a trigger that writes back what the
+ * server takes out, on the server's own write or on the CLI's next one (`AFTER UPDATE ON session BEGIN
+ * UPDATE session SET permission = … END`), or put a view with `INSTEAD OF` triggers where a table was.
+ * Neither OpenCode nor Goose makes any (checked with OpenCode 1.19.5 and Goose 1.58.1). A column a
+ * command redefined (generated, or with a check) can still refuse or ignore a write, so the caller
+ * reads back what it changed.
+ */
+export function openRunDatabase(file: string): Database {
+  const db = new DatabaseSync(file);
+  try {
+    db.exec('PRAGMA busy_timeout = 3000; PRAGMA trusted_schema = OFF;');
+    const planted = db.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view')").all() as { type: string; name: string }[];
+    for (const { type, name } of planted) db.exec(`DROP ${type === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS "${name.replaceAll('"', '""')}"`);
+    return db;
+  } catch (err) {
+    db.close();
+    throw err;
+  }
+}
+
+/**
+ * The files this process holds SQLite locks on while it runs: its database with its journal files
+ * (`openDatabase`), and its data folder's lock (`lockDataDir`).
+ */
+const lockedFiles = new Set<string>();
+
+/**
+ * The files this process holds SQLite locks on, as `dev:ino` (`fileKey`), for the server never to
+ * open them itself: the system drops every lock a process holds on a file as soon as that process
+ * closes any other handle to it (POSIX advisory locks). Reading `server.lock` in the Files panel
+ * would free the data folder for a second server, and reading `relay.db` would drop SQLite's own
+ * locks while the database is in use. By file, not path: a link or another letter case names it too.
+ */
+export function lockedFileKeys(): Set<string> {
+  const keys = new Set<string>();
+  for (const file of lockedFiles) {
+    try {
+      keys.add(fileKey(statSync(file)));
+    } catch {
+      /* not there (yet): a journal file */
+    }
+  }
+  return keys;
+}
+
+/** A file's identity on this computer, whatever path names it. */
+export function fileKey(st: { dev: number; ino: number }): string {
+  return `${st.dev}:${st.ino}`;
+}
+
+/** Open (or create) the database. The file holds API keys, so it is readable by the owner only. */
 export function openDatabase(file: string): Database {
   if (file !== ':memory:') {
     mkdirSync(dirname(file), { recursive: true });
     closeSync(openSync(file, 'a', 0o600));
     chmodSync(file, 0o600); // SQLite gives the -wal / -shm files the same mode
+    for (const suffix of ['', '-wal', '-shm', '-journal']) lockedFiles.add(`${file}${suffix}`);
   }
   const db = new DatabaseSync(file);
   // secure_delete: overwrite deleted content (removed API keys, deleted chats) instead of leaving it in free pages.
@@ -385,6 +439,7 @@ export function lockDataDir(dataDir: string): Database | undefined {
   try {
     db.exec('PRAGMA busy_timeout = 0; PRAGMA journal_mode = MEMORY; BEGIN EXCLUSIVE;');
     heldDataDirs.push(db);
+    lockedFiles.add(dataLockFile(dataDir));
     return db;
   } catch (err) {
     db.close();

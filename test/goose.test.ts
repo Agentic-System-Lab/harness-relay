@@ -284,7 +284,9 @@ describe("Goose's settings per run", () => {
     symlinkSync(elsewhere, join(s, '.goose'));
     // Its sessions stay.
     mkdirSync(join(s, 'data', 'sessions'), { recursive: true });
-    writeFileSync(join(s, 'data', 'sessions', 'sessions.db'), 'db');
+    const sessions = openSqliteFile(join(s, 'data', 'sessions', 'sessions.db'));
+    sessions.exec("CREATE TABLE sessions (id TEXT); INSERT INTO sessions VALUES ('kept');");
+    sessions.close();
     prepareGoose(ctx, { realHome: '/h', bash: '/bin/bash' });
     for (const f of planted) expect([f, existsSync(f)]).toEqual([f, false]);
     for (const d of ['.agents', '.claude', '.config']) expect(readdirSync(join(s, d))).toEqual([]);
@@ -293,7 +295,9 @@ describe("Goose's settings per run", () => {
     expect(readFileSync(join(elsewhere, 'keep.txt'), 'utf8')).toBe("not Goose's");
     expect(readdirSync(join(s, 'config')).sort()).toEqual(['config.yaml', 'custom_providers', 'permission.yaml']);
     expect(readdirSync(join(ctx.home.root, 'bin'))).toEqual(['bash']);
-    expect(readFileSync(join(s, 'data', 'sessions', 'sessions.db'), 'utf8')).toBe('db');
+    const kept = openSqliteFile(join(s, 'data', 'sessions', 'sessions.db'));
+    expect(kept.prepare('SELECT id FROM sessions').all()).toEqual([{ id: 'kept' }]);
+    kept.close();
     // A file where a config folder goes is replaced by the folder.
     writeFileSync(join(root, `f-${n}`), '');
     resetGooseDir(join(root, `f-${n}`));
@@ -1435,6 +1439,55 @@ describe("a resumed Goose session's own row", () => {
     sessionsDb(keyless.home.state, started);
     sealGooseExtensions(keyless.home.state, sealedFolder(keyless.home.root, 'x'), 'missing');
     expect(existsSync(sealedFolder(keyless.home.root, 'x'))).toBe(false);
+  });
+
+  it('drops the triggers a command planted to put the row back, and starts the state over when the row cannot be checked', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const planted = JSON.stringify({ 'enabled_extensions.v0': { extensions: [stdio('planted', '/bin/sh')] } });
+    const planted_ = (file: string) => {
+      const db = openSqliteFile(file);
+      try {
+        return db.prepare("SELECT name FROM sqlite_master WHERE type IN ('trigger', 'view')").all();
+      } finally {
+        db.close();
+      }
+    };
+    // A trigger that writes the planted list back once the row is put right.
+    const ctx = context({ stateKey: 'conv.c5.a1', sessionId: 's1' });
+    const file = sessionsDb(ctx.home.state, [...started, stdio('planted', '/bin/sh')]);
+    const db = openSqliteFile(file);
+    db.exec(`CREATE TRIGGER keep AFTER UPDATE ON sessions BEGIN UPDATE sessions SET extension_data = '${planted}', recipe_json = '{}' WHERE id = NEW.id; END;
+      CREATE VIEW v AS SELECT * FROM sessions;`);
+    db.close();
+    prepareGoose(ctx, { realHome: '/h', bash: '/bin/bash' });
+    expect(names(row(file))).toEqual(['developer', 'analyze', 'summon', 'todo']);
+    expect(row(file).recipe_json).toBeNull();
+    expect(planted_(file)).toEqual([]);
+    // Before a new session too: a trigger could change its row before it is sealed.
+    const fresh = context({ stateKey: 'conv.c6.a1' });
+    const other = sessionsDb(fresh.home.state, started);
+    const d = openSqliteFile(other);
+    d.exec(`CREATE TRIGGER seed AFTER INSERT ON sessions BEGIN UPDATE sessions SET extension_data = '${planted}' WHERE id = NEW.id; END`);
+    d.close();
+    prepareGoose(fresh, { realHome: '/h', bash: '/bin/bash' });
+    expect(planted_(other)).toEqual([]);
+    // A generated column keeps the planted list whatever is written: the state starts over, empty, and
+    // the session is not resumed (the orchestrator then starts a fresh one).
+    const generated = context({ stateKey: 'conv.c7.a1', sessionId: 's1' });
+    const g = gooseSessionsDb(generated.home.state);
+    mkdirSync(dirname(g), { recursive: true });
+    const gd = openSqliteFile(g);
+    gd.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, working_dir TEXT NOT NULL, extension_data TEXT GENERATED ALWAYS AS ('${planted}') VIRTUAL);
+      INSERT INTO sessions (id, working_dir) VALUES ('s1', '/p');`);
+    gd.close();
+    const sealed = sealedFolder(generated.home.root, 'conv.c7.a1');
+    mkdirSync(sealed, { recursive: true });
+    writeFileSync(join(sealed, 'goose-extensions.json'), JSON.stringify({ sessionId: 's1', extensions: started }));
+    expect(() => withLang('en', () => prepareGoose(generated, { realHome: '/h', bash: '/bin/bash' }))).toThrow(/could not check the extension list Goose keeps for this session/);
+    expect(existsSync(g)).toBe(false);
+    expect(readdirSync(generated.home.state)).toEqual([]);
+    expect(existsSync(sealed)).toBe(false);
+    warn.mockRestore();
   });
 });
 

@@ -63,7 +63,7 @@ const zhTW = {
   relaySandboxWindows:
     'Harness Relay 自己的沙箱無法在原生 Windows 上使用（它用的 sandbox-runtime 在 Windows 上還是 alpha 版），所以這個 agent 在「唯讀」與「可編輯」下不會在這裡執行。請在 WSL2 裡執行 Harness Relay，或把權限改成「完全存取」（不使用沙箱）。',
   relaySandboxPathTooLong: (dataDir: string, max: number) =>
-    `Harness Relay 的資料資料夾路徑（${dataDir}）太長，沙箱放不下它要建立的 socket，所以沒有執行：請把 RELAY_DATA_DIR 設成路徑不超過 ${max} 個字元的資料夾，再重新啟動 Harness Relay；或改用完全存取。`,
+    `Harness Relay 的資料資料夾路徑（${dataDir}）太長，沙箱放不下它要建立的 socket，所以沒有執行：請把 RELAY_DATA_DIR 設成路徑不超過 ${max} 個位元組的資料夾（UTF-8：中文字每個佔 3 個），再重新啟動 Harness Relay；或改用完全存取。`,
   relaySandboxNoNode: 'Harness Relay 的沙箱需要 Node.js 22.12 或更新版本才能執行它的沙箱程式，而桌面 app 自己的執行環境不能當成 Node 使用：請安裝 Node.js，讓它出現在登入 shell 的 PATH 上，再重新開啟 app；或改用完全存取。',
   relaySandboxPlatform: (platform: string) =>
     `Harness Relay 自己的沙箱只能在 macOS 與 Linux 上使用（這裡是 ${platform}），所以這個 agent 在「唯讀」與「可編輯」下不會執行。請把權限改成「完全存取」，或在 macOS 或 Linux 上執行。`,
@@ -221,6 +221,8 @@ const zhTW = {
     `安全問題，這次執行已停止：OpenCode 自己的伺服器被 Harness Relay 以外的程式操作了（${detail}）。agent 執行的指令可能讀到了它伺服器的密碼。沙箱的檔案與網路限制仍然有效；請檢查這一輪做了什麼。`,
   opencodeNoLinuxSandbox:
     '在 Linux 上，OpenCode 只能以「完全存取」執行：Harness Relay 的沙箱給它一個自己的網路，它的伺服器在那裡，Harness Relay 無法監看（完全存取以外需要監看），所以沒有執行它。請改用完全存取（只在你信任的資料夾），或改用另一個 agent。',
+  opencodeDatabaseNotChecked: (detail: string) =>
+    `Harness Relay 無法清掉 OpenCode 資料庫裡先前執行的指令可能加進去的權限規則（${detail}），所以清空了這位成員的 OpenCode 狀態，沒有接續這個 session。這一輪改用新的 session。`,
   opencodeWatchFailed: (e: string) => `Harness Relay 無法監看 OpenCode 自己的伺服器，所以沒有執行它（完全存取以外需要）：${e}`,
   opencodeWriteRefused: (path: string) => `沙箱不允許寫入 ${path}（唯讀模式，或不在這次執行能寫入的資料夾裡）`,
 
@@ -490,7 +492,7 @@ const en: ServerMessages = {
   relaySandboxWindows:
     "Harness Relay's own sandbox does not work on native Windows (the sandbox-runtime it uses is alpha there), so this agent does not run here in read-only or edit mode. Run Harness Relay in WSL2, or set the permission to full access (no sandbox).",
   relaySandboxPathTooLong: (dataDir, max) =>
-    `The path of Harness Relay's data folder (${dataDir}) is too long for the sockets its sandbox makes there, so this did not run: set RELAY_DATA_DIR to a folder whose path is at most ${max} characters and restart Harness Relay; or switch to full access.`,
+    `The path of Harness Relay's data folder (${dataDir}) is too long for the sockets its sandbox makes there, so this did not run: set RELAY_DATA_DIR to a folder whose path is at most ${max} bytes (UTF-8: a character outside ASCII takes 2 to 4) and restart Harness Relay; or switch to full access.`,
   relaySandboxNoNode: "Harness Relay's sandbox needs Node.js 22.12 or later to run its sandbox helper, and the desktop app's own runtime cannot be used as Node: install Node.js so that it is on your login shell's PATH, then reopen the app; or switch to full access.",
   relaySandboxPlatform: (platform) =>
     `Harness Relay's own sandbox works on macOS and Linux only (this is ${platform}), so this agent does not run in read-only or edit mode. Set the permission to full access, or run it on macOS or Linux.`,
@@ -645,6 +647,8 @@ const en: ServerMessages = {
     `Security problem, so this run was stopped: OpenCode's own server was driven by something other than Harness Relay (${detail}). A command the agent ran may have read its server's password. The sandbox's file and network rules still held; check what this turn did.`,
   opencodeNoLinuxSandbox:
     "On Linux, OpenCode runs only with full access: Harness Relay's sandbox gives it a network of its own, where Harness Relay cannot watch its server (needed below full access), so it did not run it. Use full access (only in a folder you trust), or another agent.",
+  opencodeDatabaseNotChecked: (detail) =>
+    `Harness Relay could not take out of OpenCode's database the permission rules an earlier run's command could have put there (${detail}), so it emptied this member's OpenCode state and did not resume the session. The turn starts a fresh session instead.`,
   opencodeWatchFailed: (e) => `Harness Relay cannot watch OpenCode's own server, so it did not run it (needed below full access): ${e}`,
   opencodeWriteRefused: (path) => `The sandbox does not allow writing ${path} (read-only, or outside the folders this run may write)`,
 

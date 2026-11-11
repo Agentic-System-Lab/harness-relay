@@ -226,9 +226,10 @@ export function relaySandboxHostRoot(dataDir = DATA_DIR): string {
 }
 
 /**
- * The longest a host's temporary folder may be: what is left of a socket's path (103 characters on
- * macOS, 107 on Linux) after the longest name sandbox-runtime gives a socket in it (`/srt-mux-<pid>-
- * <n>.sock` on macOS; `/claude-socks-<16 hex>.sock` on Linux).
+ * The longest a host's temporary folder may be, in bytes (UTF-8): what is left of a socket's path (103
+ * bytes on macOS, 107 on Linux) after the longest name sandbox-runtime gives a socket in it (`/srt-mux-
+ * <pid>-<n>.sock` on macOS; `/claude-socks-<16 hex>.sock` on Linux). Node on macOS cuts a socket path
+ * that is too long instead of failing, so a socket would land elsewhere, outside the private root.
  */
 export const HOST_TMP_MAX: Partial<Record<NodeJS.Platform, number>> = { darwin: 81, linux: 72 };
 
@@ -241,7 +242,8 @@ const HOST_ID_LENGTH = 6;
  */
 export function hostTmpRefusal(dataDir: string, platform: NodeJS.Platform): string | undefined {
   const max = HOST_TMP_MAX[platform];
-  if (max === undefined || join(relaySandboxHostRoot(dataDir), 'x'.repeat(HOST_ID_LENGTH)).length <= max) return undefined;
+  // Bytes, not characters: a path in Chinese takes three for each of its characters.
+  if (max === undefined || Buffer.byteLength(join(relaySandboxHostRoot(dataDir), 'x'.repeat(HOST_ID_LENGTH))) <= max) return undefined;
   return t().relaySandboxPathTooLong(dataDir, max - HOST_ID_LENGTH - '/srt/'.length);
 }
 
@@ -1157,7 +1159,8 @@ export function clearRelaySandboxLeftovers(
   /** The macOS sweeps, each true once nothing it looks for is left (swapped in tests). */
   sweeps: { byMarker: (markers: string[]) => boolean; bySandbox: (runTmps: string[]) => boolean } = {
     byMarker: sweepLeftoverProcesses,
-    bySandbox: (runTmps) => sweepRunSandboxes(runTmps),
+    // Without the system's Python, run folders a killed server left cannot be told free: kept.
+    bySandbox: (runTmps) => sweepRunSandboxes(runTmps, undefined, undefined, false),
   },
 ): boolean {
   const root = relaySandboxRoot(dataDir);

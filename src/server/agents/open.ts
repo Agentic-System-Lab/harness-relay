@@ -282,6 +282,22 @@ export function emptyStateFolder(home: string, key: string): void {
 }
 
 /**
+ * Starts a run's state over while `prepare` runs, before the CLI starts, when what an earlier run's
+ * commands could have left in it could not be taken out (`err`: OpenCode's or Goose's database could
+ * not be checked or cleared). The state folder is emptied and made again, and its key's sealed folder
+ * goes with it. A run that would resume a session then fails with `err`, so that the orchestrator
+ * starts a fresh session with the whole history (as after any failed resume); any other run goes on in
+ * the empty folder. Throws as well when the folder cannot be emptied.
+ */
+export function startStateOver(ctx: Pick<OpenRunContext, 'o' | 'home'>, err: Error): void {
+  console.warn(`[open] ${ctx.home.state} starts over, empty:`, err.message);
+  emptyPrivateFolder(ctx.home.state);
+  if (ctx.o.stateKey) rmSync(sealedFolder(ctx.home.root, ctx.o.stateKey), { recursive: true, force: true });
+  mkdirSync(ctx.home.state, { recursive: true, mode: 0o700 });
+  if (ctx.o.sessionId) throw err instanceof AgentRunError ? err : new AgentRunError(err.message);
+}
+
+/**
  * Removes what every open agent kept for a deleted conversation: each member's state folder (`agentIds`)
  * and the lead agent's and the group sorter's (`homes`: each open agent's home). A failure is logged.
  */

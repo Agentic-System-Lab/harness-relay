@@ -219,11 +219,20 @@ export async function sweepRunSandboxesAsync(
 
 /**
  * Kills, in a few rounds (a process may fork while it is being killed), every process inside the
- * relay sandbox of these runs. True once none is left, or when this sweep is not available here (the
- * marker sweep is then all there is); false when one still was after the last round, or the sweep failed.
+ * relay sandbox of these runs. True once none is left; false when one still was after the last round,
+ * or the sweep failed. Where this sweep is not available (no system Python), `unavailable`: true by
+ * default (the marker sweep is then all there is); false at the server's start, which then cannot
+ * tell the folders killed runs left free of what may still run in them, so it keeps them and gives
+ * no permission back (`clearRelaySandboxLeftovers`).
  */
-export function sweepRunSandboxes(runTmps: readonly string[], deps: SandboxProcsDeps = defaultSandboxProcsDeps(), kill: (pid: number) => void = killPid): boolean {
-  if (!runTmps.length || !sweepAvailable(deps)) return true; // not here: the marker sweep is all there is
+export function sweepRunSandboxes(
+  runTmps: readonly string[],
+  deps: SandboxProcsDeps = defaultSandboxProcsDeps(),
+  kill: (pid: number) => void = killPid,
+  unavailable = true,
+): boolean {
+  if (!runTmps.length) return true;
+  if (!sweepAvailable(deps)) return unavailable; // not here: the marker sweep is all there is
   for (let round = 0; round < 6; round++) {
     let found: number[] = [];
     for (const tmp of runTmps) {

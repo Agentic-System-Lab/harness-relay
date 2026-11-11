@@ -3,6 +3,7 @@ import { readdir, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { FILE_LIMITS, type Conversation, type FileEntry, type FilePreview, type FileRoot, type ZipSize } from '../shared/types';
 import { mediaType } from '../shared/media';
+import { fileKey, lockedFileKeys } from './db';
 import { HttpError } from './errors';
 import { t } from './i18n';
 import { unignoredFiles, worktreeDir } from './workspace';
@@ -11,7 +12,8 @@ import type { ZipEntry } from './zip';
 /*
  * Browsing a conversation's files from the UI: the working directory, and in parallel mode each
  * agent's worktree. Only what lies inside the chosen folder (after following symlinks) is listed or
- * read, and `.git` folders are left out.
+ * read, and `.git` folders are left out, as are the files the server holds SQLite locks on (its
+ * database and its data folder's lock, `lockedFileKeys`): opening one would drop those locks.
  */
 
 /** The folders of a conversation that can be browsed: its working directory, then agents' worktrees. */
@@ -61,6 +63,15 @@ function hiddenNatively(realRoot: string, real: string): boolean {
   }
 }
 
+/** Whether `real` is one of the files this server holds SQLite locks on, which it must never open itself. */
+function lockedHere(real: string, locked = lockedFileKeys()): boolean {
+  try {
+    return locked.has(fileKey(statSync(real)));
+  } catch {
+    return false;
+  }
+}
+
 /** A path as the client asked for it, tidied up ('' = the root); a link in it is not followed here. */
 function askedPath(rel: string): string {
   const p = posix.normalize(rel.replace(/\\/g, '/').replace(/^\/+/, '') || '.').replace(/\/+$/, '');
@@ -86,7 +97,7 @@ export function resolveInRoot(root: string, rel: string): { real: string; rel: s
     throw notFound();
   }
   const inside = within(realRoot, real);
-  if (inside === undefined || hidden(inside) || hiddenNatively(realRoot, real)) throw notFound();
+  if (inside === undefined || hidden(inside) || hiddenNatively(realRoot, real) || lockedHere(real)) throw notFound();
   return { real, rel: inside };
 }
 
@@ -100,6 +111,7 @@ export function listFolder(root: string, rel: string): { path: string; entries: 
   const dir = resolveInRoot(root, rel);
   if (!statSync(dir.real).isDirectory()) throw new HttpError(404, t().fileNotFound);
   const realRoot = realpathSync(root);
+  const locked = lockedFileKeys();
   // Sort the names first (a link to a folder counts as a file here), so a cut keeps the first ones.
   const all = readdirSync(dir.real, { withFileTypes: true })
     .filter((d) => !isGit(d.name))
@@ -116,7 +128,7 @@ export function listFolder(root: string, rel: string): { path: string; entries: 
         if (inside === undefined || hidden(inside)) continue;
       }
       const st = statSync(target);
-      if (!st.isDirectory() && !st.isFile()) continue;
+      if ((!st.isDirectory() && !st.isFile()) || locked.has(fileKey(st))) continue;
       entries.push({
         name: d.name,
         kind: st.isDirectory() ? 'dir' : 'file',
@@ -148,7 +160,7 @@ export function readPreview(real: string, path: string, notFound = t().fileNotFo
   } catch {
     throw new HttpError(404, notFound);
   }
-  if (!st.isFile()) throw new HttpError(404, notFound);
+  if (!st.isFile() || lockedFileKeys().has(fileKey(st))) throw new HttpError(404, notFound);
   const file = { real };
   const base = { path, size: st.size, mtime: Math.floor(st.mtimeMs) };
   const media = mediaType(file.real);
@@ -220,6 +232,7 @@ export async function zipPlan(
   let items = 1;
   /** Every folder once: a link to a folder already in the archive (or around it) is left out. */
   const seen = new Set([dir.real]);
+  const locked = lockedFileKeys();
 
   /** The real path of `full` when it may go in (inside the root, not in `.git`), else undefined. */
   const allowed = async (full: string): Promise<string | undefined> => {
@@ -263,7 +276,7 @@ export async function zipPlan(
       if (!clean || clean.split('/').some(isGit)) continue;
       const target = await allowed(join(real, ...clean.split('/')));
       const st = target && (await statOf(target));
-      if (!target || !st) continue;
+      if (!target || !st || locked.has(fileKey(st))) continue;
       if (st.isFile()) {
         if (!add(`${prefix}${clean}`, st, target)) return false;
       } else if (st.isDirectory() && depth < MAX_NESTED_REPOS && !seen.has(target) && existsSync(join(target, '.git'))) {
@@ -284,7 +297,7 @@ export async function zipPlan(
     for (const n of names) {
       const target = await allowed(join(real, n));
       const st = target && (await statOf(target));
-      if (!target || !st) continue;
+      if (!target || !st || locked.has(fileKey(st))) continue;
       const name = `${prefix}${n}`;
       if (st.isDirectory()) {
         if (seen.has(target)) continue;

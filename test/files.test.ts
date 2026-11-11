@@ -1,8 +1,9 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { dataLockFile, lockDataDir, openDatabase } from '../src/server/db';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, resolveInRoot, zipPlan } from '../src/server/files';
 import { FILE_LIMITS, type Conversation } from '../src/shared/types';
 
@@ -267,5 +268,38 @@ describe('zipPlan', () => {
     symlinkSync(join(repo, '.git', 'config'), join(repo, 'config-link'));
     git(repo, 'add', 'top.txt', 'leak.txt', 'config-link');
     expect(names(await zipPlan(repo, '', { unignored: true }))).toEqual(['repo2/', 'repo2/nested/.gitignore', 'repo2/nested/n.txt', 'repo2/top.txt']);
+  });
+});
+
+describe('the files the server holds SQLite locks on', () => {
+  it('are not listed, read, downloaded or zipped, so that the server never drops its own locks', async () => {
+    // A working directory with this server's data folder in it (npm start's default, from a checkout).
+    const cwd = join(root, 'with-data');
+    const data = join(cwd, 'data');
+    mkdirSync(data, { recursive: true });
+    const lock = lockDataDir(data)!;
+    const db = openDatabase(join(data, 'relay.db'));
+    writeFileSync(join(data, 'notes.txt'), 'x');
+    symlinkSync(join(data, 'server.lock'), join(cwd, 'lock-link'));
+    try {
+      expect(listFolder(cwd, 'data').entries.map((e) => e.name)).toEqual(['notes.txt']);
+      expect(listFolder(cwd, '').entries.map((e) => e.name)).toEqual(['data']);
+      for (const path of ['data/server.lock', 'data/relay.db', 'data/relay.db-wal', 'data/relay.db-shm', 'lock-link']) {
+        expect(() => previewFile(cwd, path), path).toThrow(notFound);
+        expect(() => fileInRoot(cwd, path), path).toThrow(notFound);
+      }
+      expect((await zipPlan(cwd, ''))!.entries.map((e) => e.name).sort()).toEqual(['with-data/', 'with-data/data/', 'with-data/data/notes.txt']);
+      // Still held after all that: another server is refused.
+      const other = spawnSync(
+        process.execPath,
+        ['--no-warnings', '-e', "const db = new (require('node:sqlite').DatabaseSync)(process.argv[1]); db.exec('PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE;');", dataLockFile(data)],
+        { encoding: 'utf8' },
+      );
+      expect(other.stderr).toMatch(/locked|busy/i);
+      expect(other.status).not.toBe(0);
+    } finally {
+      db.close();
+      lock.close();
+    }
   });
 });

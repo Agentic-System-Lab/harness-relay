@@ -822,9 +822,16 @@ describe('run folders and their markers', () => {
     const tools = { sh: '/bin/sh', bash: '/bin/bash', bwrap: '/usr/bin/bwrap', socat: '/usr/bin/socat', rg: '/usr/bin/rg' };
     await expect(withLang('en', () => sandboxAvailable({ ...ctx, platform: 'linux', arch: 'x64', tools, dataDir: long }))).resolves.toEqual({
       ok: false,
-      reason: expect.stringMatching(/too long for the sockets.*at most 61 characters/),
+      reason: expect.stringMatching(/too long for the sockets.*at most 61 bytes/),
     });
     expect(existsSync(long)).toBe(false);
+    // Counted in bytes, as a socket's path is: a path in Chinese fits in characters, not in bytes.
+    const fits = HOST_TMP_MAX.darwin! - '/srt/'.length - 6; // 70, in characters as in bytes for ASCII
+    const chinese = join(dir, '資料'.repeat(Math.floor((fits - dir.length - 1) / 2)));
+    expect(chinese.length).toBeLessThanOrEqual(fits);
+    expect(Buffer.byteLength(chinese)).toBeGreaterThan(fits);
+    expect(() => withLang('en', () => makeRunDirs(chinese, 'darwin'))).toThrow(/too long for the sockets/);
+    expect(existsSync(chinese)).toBe(false);
   });
 
   it('keeps everything a stopped run left while something of it may still run, and gives no permission back', () => {

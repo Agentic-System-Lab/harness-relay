@@ -98,6 +98,11 @@ describe('finding a run’s processes by their sandbox (macOS)', () => {
     expect(sweepRunSandboxes([runTmp], deps({ run }), (pid) => void killed.push(pid))).toBe(false);
     expect(killed.length).toBe(5); // five rounds of kills, then the sixth look gives up
     expect(sweepRunSandboxes([runTmp], deps({ platform: 'linux' }), () => expect.unreachable())).toBe(true);
+    // Without the system's Python: nothing to sweep with. A run's teardown has the marker sweep left;
+    // the server's start cannot tell its leftover folders free, so they count as held.
+    expect(sweepRunSandboxes([runTmp], deps({ pythonReady: () => false }), () => expect.unreachable())).toBe(true);
+    expect(sweepRunSandboxes([runTmp], deps({ pythonReady: () => false }), () => expect.unreachable(), false)).toBe(false);
+    expect(sweepRunSandboxes([], deps({ pythonReady: () => false }), () => expect.unreachable(), false)).toBe(true);
     // Available here, but ps (or Python) failed: it could not tell, so it counts as held.
     const psFails: Runner = (cmd) => (cmd === '/bin/ps' ? { status: 1, stdout: '', error: undefined } : { status: 0, stdout: '', error: undefined });
     expect(sweepRunSandboxes([runTmp], deps({ run: psFails }), () => expect.unreachable())).toBe(false);

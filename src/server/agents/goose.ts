@@ -19,7 +19,7 @@ import { API_BACKEND_HOST, backendLabel, urlHost, type BackendRun } from '../bac
 import { commandLine, parseCommandLine, parseShellSyntax } from '../commands';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
-import { openSqliteFile } from '../db';
+import { openRunDatabase, openSqliteFile } from '../db';
 import { converse } from '../process';
 import type { JsonRpcConnection } from './acp';
 import {
@@ -36,7 +36,7 @@ import {
   type AcpTurnDeps,
   type AcpUsageUpdate,
 } from './acpTurn';
-import { openAgentHome, sealedFolder, type OpenAgentDefinition, type OpenCatalog, type OpenHomeLayout, type OpenRunContext, type OpenSandboxNeeds } from './open';
+import { openAgentHome, sealedFolder, startStateOver, type OpenAgentDefinition, type OpenCatalog, type OpenHomeLayout, type OpenRunContext, type OpenSandboxNeeds } from './open';
 import { AgentRunError, type AgentRunner, type McpServerSpec, type RunOptions, type RunResult } from './types';
 
 /*
@@ -416,6 +416,7 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
   const root = home.root;
   // GOOSE_PATH_ROOT and HOME: the conversation member's own folder.
   const own = home.state;
+  checkGooseSessions(ctx);
   for (const dir of home.statePaths) mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Its config folders hold only what Harness Relay writes in them, every run (a run with full access
   // may have left anything there; a sandboxed one cannot write them).
@@ -448,8 +449,23 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
     CONTEXT_FILE_NAMES: JSON.stringify(o.nativeOff?.includes('instructions') ? [] : GOOSE_HINT_FILES),
   });
   if (run.endpoint?.apiKey) env[gooseEndpointKeyVar(run.endpoint.id)] = run.endpoint.apiKey;
-  // A resumed session: only what Harness Relay gave it (a keyless run never resumes).
-  if (o.sessionId && o.stateKey) restoreGooseSession(own, sealedFolder(root, o.stateKey), o.sessionId);
+}
+
+/**
+ * Before anything of a run is written in the state folder: what earlier runs' commands could have
+ * left in Goose's sessions database. A resumed session gets back only what Harness Relay gave it
+ * (`restoreGooseSession`; a keyless run never resumes); before a new session, the triggers and views
+ * are dropped (`openRunDatabase`), since one could change the new session's row before it is sealed
+ * (`sealGooseExtensions`). When that fails the state starts over, empty (`startStateOver`).
+ */
+function checkGooseSessions(ctx: OpenRunContext): void {
+  const { o, home } = ctx;
+  try {
+    if (o.sessionId && o.stateKey) restoreGooseSession(home.state, sealedFolder(home.root, o.stateKey), o.sessionId);
+    else if (existsSync(gooseSessionsDb(home.state))) openRunDatabase(gooseSessionsDb(home.state)).close();
+  } catch (err) {
+    startStateOver(ctx, err as Error);
+  }
 }
 
 // --- The session ------------------------------------------------------------------------------
@@ -531,17 +547,19 @@ function sealedExtensions(sealed: string, sessionId: string): GooseExtension[] |
  * without one, to its own platform extensions that a run may have; and the columns Harness Relay
  * never sets are cleared (`GOOSE_SESSION_CLEARED`). Goose starts every extension in a loaded
  * session's list, a stdio one's command included, without asking, and ignores a list sent with
- * `session/load`. The tool library's servers are added back by the load (`mcpServers`). Fails closed:
- * a session whose row cannot be checked is not resumed (the orchestrator then starts a fresh one).
+ * `session/load`. The tool library's servers are added back by the load (`mcpServers`). A trigger or
+ * view a command planted to put the row back is dropped first (`openRunDatabase`), and the row is read
+ * back once written. Fails closed: a session whose row cannot be checked is not resumed (`prepareGoose`
+ * starts the state over, and the orchestrator then starts a fresh session).
  */
 export function restoreGooseSession(state: string, sealed: string, sessionId: string): void {
   const file = gooseSessionsDb(state);
   if (!existsSync(file)) return; // nothing to resume: the load says so
   try {
-    const db = openSqliteFile(file);
+    const db = openRunDatabase(file);
     try {
-      db.exec('PRAGMA busy_timeout = 3000');
-      const columns = new Set((db.prepare('PRAGMA table_info("sessions")').all() as { name: string }[]).map((c) => c.name));
+      // `table_xinfo`, not `table_info`: a generated column (one a command defined) is listed too.
+      const columns = new Set((db.prepare('PRAGMA table_xinfo("sessions")').all() as { name: string }[]).map((c) => c.name));
       const row = db.prepare('SELECT extension_data FROM sessions WHERE id = ?').get(sessionId) as { extension_data?: unknown } | undefined;
       if (!row) return;
       let data: Record<string, unknown> = {};
@@ -555,8 +573,12 @@ export function restoreGooseSession(state: string, sealed: string, sessionId: st
         sealedExtensions(sealed, sessionId) ??
         (storedExtensions(row.extension_data) ?? []).filter((e) => e.type === 'platform' && typeof e.name === 'string' && GOOSE_SESSION_PLATFORMS.has(e.name));
       data[GOOSE_EXTENSIONS_KEY] = { extensions };
-      const cleared = GOOSE_SESSION_CLEARED.filter((c) => columns.has(c)).map((c) => `"${c}" = NULL`);
-      db.prepare(`UPDATE sessions SET extension_data = ?${cleared.map((c) => `, ${c}`).join('')} WHERE id = ?`).run(JSON.stringify(data), sessionId);
+      const written = JSON.stringify(data);
+      const cleared = GOOSE_SESSION_CLEARED.filter((c) => columns.has(c));
+      db.prepare(`UPDATE sessions SET extension_data = ?${cleared.map((c) => `, "${c}" = NULL`).join('')} WHERE id = ?`).run(written, sessionId);
+      // A column a command redefined (generated, say) can keep its value without an error.
+      const after = db.prepare(`SELECT extension_data${cleared.map((c) => `, "${c}"`).join('')} FROM sessions WHERE id = ?`).get(sessionId) as Record<string, unknown> | undefined;
+      if (!after || after.extension_data !== written || cleared.some((c) => after[c] !== null)) throw new Error('the row is not as it was written');
     } finally {
       db.close();
     }

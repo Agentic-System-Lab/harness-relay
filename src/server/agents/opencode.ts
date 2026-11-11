@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import {
@@ -16,13 +15,14 @@ import {
 } from '../../shared/types';
 import { API_BACKEND_ENV, backendLabel, type BackendRun } from '../backends';
 import { commandLine } from '../commands';
+import { openRunDatabase } from '../db';
 import { t } from '../i18n';
 import type { NativeProbe, NativeProblem } from '../native';
 import { runProcess } from '../process';
 import { freeLoopbackPort } from '../relaySandbox';
 import { RpcError, type JsonRpcConnection } from './acp';
 import { acpRunner, acpUsage, type AcpAgentSpec, type AcpCallInfo, type AcpSessionState, type AcpToolCall, type AcpTurnDeps } from './acpTurn';
-import { openAgentHome, type OpenAgentDefinition, type OpenCatalog, type OpenHomeLayout, type OpenRunContext, type OpenSandboxNeeds } from './open';
+import { openAgentHome, startStateOver, type OpenAgentDefinition, type OpenCatalog, type OpenHomeLayout, type OpenRunContext, type OpenSandboxNeeds } from './open';
 import { AgentRunError, type AgentRunner, type RunOptions, type RunResult } from './types';
 
 /*
@@ -186,14 +186,17 @@ export const OPENCODE_SHELL_REFUSAL =
  * parse sees as no command — so it never asks about them — yet the shell still runs a command in:
  * - an `eval` as a command word (not `npm run eval`, `python eval.py`, `grep "eval("`);
  * - a line that both evaluates through a subscript or arithmetic (`a[x]=…`, `(( … ))`, `$[ … ]`, a numeric
- *   `[[ … -eq … ]]`, `${name[…]}`, `${!…}`, `${(e)…}`, `declare -i`) and holds a `$`/backquote that is
- *   quoted or escaped (so not a plain substitution OpenCode would see) — the single-quoted-subscript trap
- *   (`x='a[$(cmd)]'; a[x]=1`) and its escaped and assembled variants.
+ *   `[[ … -eq … ]]`, `${name[…]}`, `${!…}`, `${(e)…}`, `declare -i`, `let`) and holds a `$`/backquote that
+ *   is quoted or escaped (so not a plain substitution OpenCode would see) — the single-quoted-subscript trap
+ *   (`x='a[$(cmd)]'; a[x]=1`) and its escaped and assembled variants;
+ * - such a line with `$(( … ))` arithmetic, when it also holds a bracket with a `$`/backquote in it (bash
+ *   evaluates a name there again: `x='a[$(cmd)]'; y=$((x+1))`), so plain arithmetic beside a quoted `$`
+ *   (`awk '{print $1}'`) still runs.
  * The evaluating forms are looked for outside single quotes, when the line's single-quoted text can be
  * told apart for sure (no double quote, backslash, `#`, here-document or `${`, an even number of single
- * quotes, and no declaration command, whose quoted argument is itself evaluated: `declare 'a[$(…)]=1'`);
+ * quotes, and no declaration command or `let`, whose quoted argument is itself evaluated: `declare 'a[$(…)]=1'`);
  * otherwise in the whole line. So `awk -F= '/^[A-Z_]+=/ {print $2}' f` runs.
- * It matches its keywords as command words, ignores `$(( … ))` arithmetic, and calls grep by absolute path
+ * It matches its keywords as command words, and calls grep by absolute path
  * (so a missing grep fails closed: the command is refused, never let through). The refusal is a clear
  * message the model sees (`OPENCODE_SHELL_REFUSAL`). A determined evasion that assembles `$(` entirely out
  * of pieces a declaration's name then re-parses can still slip one substitution past the screen; it is
@@ -218,12 +221,17 @@ export function opencodeShellScript(): string {
       '[$][{][!(]|' + // ${! … }  indirect, or ${( … )}  zsh flags
       '[$][{][A-Za-z_][A-Za-z0-9_]*\\[|' + // ${name[ … ]}  subscript expansion
       '\\[\\[[^]]*-(eq|ne|lt|gt|le|ge)|' + // [[ … -eq … ]]  numeric test
-      '(declare|typeset)[[:space:]]+-[A-Za-z]*i', // declare -i  integer (arithmetic) declaration
+      '(declare|typeset)[[:space:]]+-[A-Za-z]*i|' + // declare -i  integer (arithmetic) declaration
+      '(^|[;&|(){}]|&&|\\|\\||[[:space:]])let([[:space:]]|$)', // let  arithmetic on each argument
   );
+  // `$(( … ))` arithmetic, which evaluates a name in it again (bash), and a bracket with a `$`/backquote in
+  // it anywhere on the line (a subscript holding a substitution, the payload of the trap).
+  const arithExp = shSingleQuote('[$][(][(]');
+  const bracketDollar = shSingleQuote('\\[[^]]*[$`]');
   // A declaration command word whose quoted argument puts a `$` in the name part (before `=`): `declare "a$y=1"`.
   const declInject = shSingleQuote('(^|[;&|(){}]|&&|\\|\\||[[:space:]])(declare|typeset|export|local|readonly)[[:space:]]+"[^"=]*[$][^"=]*=');
-  // A declaration command word at all: its quoted argument is evaluated as an assignment, subscript included.
-  const declWord = shSingleQuote('(^|[;&|(){}]|&&|\\|\\||[[:space:]])(declare|typeset|export|local|readonly)([[:space:]]|$)');
+  // A declaration command word, or `let`, at all: its quoted argument is evaluated, subscript included.
+  const declWord = shSingleQuote('(^|[;&|(){}]|&&|\\|\\||[[:space:]])(declare|typeset|export|local|readonly|let)([[:space:]]|$)');
   return `#!/bin/sh
 # Written by Harness Relay: OpenCode's shell for the commands it runs. Fixed text; values come from the environment.
 __shell=\${${OPENCODE_SHELL_ENV}:-/bin/sh}
@@ -255,6 +263,7 @@ if [ "$1" = "-c" ] && [ -n "\${${OPENCODE_SHELL_SCREEN_ENV}:-}" ]; then
         fi ;;
     esac
     if printf '%s' "$__live" | "$__grep" -Eq ${evalCtx}; then __refuse=1; fi
+    if printf '%s' "$__live" | "$__grep" -Eq ${arithExp} && printf '%s' "$__cmd" | "$__grep" -Eq ${bracketDollar}; then __refuse=1; fi
     if printf '%s' "$__cmd" | "$__grep" -Eq ${declInject}; then __refuse=1; fi
   fi
   if [ -n "$__refuse" ]; then
@@ -346,23 +355,6 @@ export function ensureOpencodeHome(root: string): void {
   chmodSync(p.home, 0o555);
 }
 
-let sqlite: typeof import('node:sqlite') | undefined;
-/** node:sqlite, loaded without its experimental warning (as db.ts does). */
-function nodeSqlite(): typeof import('node:sqlite') {
-  if (sqlite) return sqlite;
-  const emit = process.emitWarning;
-  process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
-    if (String(warning).includes('SQLite is an experimental feature')) return;
-    return (emit as (...a: unknown[]) => void).call(process, warning, ...rest);
-  }) as typeof process.emitWarning;
-  try {
-    sqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
-    return sqlite;
-  } finally {
-    process.emitWarning = emit;
-  }
-}
-
 /** OpenCode's tables of console accounts: an active one makes it fetch config from the account's server at start. */
 export const OPENCODE_ACCOUNT_TABLES = ['account_state', 'control_account', 'account'];
 
@@ -379,25 +371,27 @@ export const OPENCODE_SAVED_PERMISSIONS_TABLE = 'permission';
  *   "action":"allow"}]`) would have the next turn of the resumed session edit, run commands and push
  *   without asking. Harness Relay never sets any; one set while a run goes on is seen by its watch;
  * - the saved permissions, for the same reason (Harness Relay never answers "always").
- * Never throws: what cannot be checked is logged.
+ * A trigger or view a command planted to put them back is dropped first (`openRunDatabase`), and what
+ * was taken out is read back. Throws when that fails (`prepareOpencode` then starts the state over).
  */
 export function scrubOpencodeDatabase(dbPath: string): void {
   if (!existsSync(dbPath)) return;
+  const db = openRunDatabase(dbPath);
   try {
-    const db = new (nodeSqlite().DatabaseSync)(dbPath);
-    try {
-      db.exec('PRAGMA busy_timeout = 3000');
-      const tables = new Set(
-        (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name),
-      );
-      for (const table of [...OPENCODE_ACCOUNT_TABLES, OPENCODE_SAVED_PERMISSIONS_TABLE]) if (tables.has(table)) db.exec(`DELETE FROM "${table}"`);
-      const sessionColumns = tables.has('session') ? (db.prepare('PRAGMA table_info("session")').all() as { name: string }[]).map((c) => c.name) : [];
-      if (sessionColumns.includes('permission')) db.exec('UPDATE "session" SET "permission" = NULL WHERE "permission" IS NOT NULL');
-    } finally {
-      db.close();
-    }
-  } catch (err) {
-    console.warn('[opencode] could not check its database for accounts and permission rules:', (err as Error).message);
+    const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name));
+    const emptied = [...OPENCODE_ACCOUNT_TABLES, OPENCODE_SAVED_PERMISSIONS_TABLE].filter((table) => tables.has(table));
+    for (const table of emptied) db.exec(`DELETE FROM "${table}"`);
+    // `table_xinfo`, not `table_info`: a generated column (one a command defined) is listed too.
+    const sessionColumns = tables.has('session') ? (db.prepare('PRAGMA table_xinfo("session")').all() as { name: string }[]).map((c) => c.name) : [];
+    const rules = sessionColumns.includes('permission');
+    if (rules) db.exec('UPDATE "session" SET "permission" = NULL WHERE "permission" IS NOT NULL');
+    const left = [
+      ...emptied.map((table) => `SELECT count(*) AS n FROM "${table}"`),
+      ...(rules ? ['SELECT count(*) AS n FROM "session" WHERE "permission" IS NOT NULL'] : []),
+    ].some((query) => (db.prepare(query).get() as { n: number }).n > 0);
+    if (left) throw new Error('rows it removed are still there');
+  } finally {
+    db.close();
   }
 }
 
@@ -628,7 +622,11 @@ export async function prepareOpencode(ctx: OpenRunContext, port: () => Promise<n
   const root = ctx.home.root;
   const p = opencodePaths(root, ctx.home.state);
   ensureOpencodeHome(root);
-  scrubOpencodeDatabase(p.db);
+  try {
+    scrubOpencodeDatabase(p.db);
+  } catch (err) {
+    startStateOver(ctx, new AgentRunError(t().opencodeDatabaseNotChecked((err as Error).message)));
+  }
   mkdirSync(p.relay, { recursive: true, mode: 0o700 });
 
   const instructions = o.nativeOff?.includes('instructions') ? [] : opencodeProjectInstructions(o.cwd);

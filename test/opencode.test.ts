@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ApprovalAnswer, Permission } from '../src/shared/types';
 import { RpcError } from '../src/server/agents/acp';
@@ -564,7 +564,7 @@ describe('its home', () => {
     expect(JSON.parse(readFileSync(join(p.configDir, 'opencode.json'), 'utf8'))).toEqual(OPENCODE_STATIC_CONFIG);
   });
 
-  it('removes console accounts, sessions\' permission rules and saved permissions from its database, and never throws', () => {
+  it('removes console accounts, sessions\' permission rules and saved permissions from its database, and throws when it cannot', () => {
     const dir = join(root, `db-${++n}`);
     mkdirSync(dir);
     const file = join(dir, 'opencode.db');
@@ -600,9 +600,65 @@ describe('its home', () => {
     scrubOpencodeDatabase(join(dir, 'missing.db'));
     const bad = join(dir, 'bad.db');
     writeFileSync(bad, 'not a database');
+    expect(() => scrubOpencodeDatabase(bad)).toThrow();
+  });
+
+  it('drops the triggers and views a command planted to put the rules back, and throws when the rules stay', () => {
+    const dir = join(root, `db-${++n}`);
+    mkdirSync(dir);
+    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+    const allowAll = JSON.stringify([{ permission: '*', pattern: '*', action: 'allow' }]);
+    // Triggers that write the rules back after any change (the scrub's, or OpenCode's own), and a view.
+    const file = join(dir, 'opencode.db');
+    const db = new DatabaseSync(file);
+    db.exec(`CREATE TABLE session (id TEXT, permission TEXT); INSERT INTO session VALUES ('s1', '${allowAll}');
+      CREATE TABLE "${OPENCODE_SAVED_PERMISSIONS_TABLE}" (id TEXT);
+      CREATE TRIGGER keep AFTER UPDATE ON session BEGIN UPDATE session SET permission = '${allowAll}' WHERE id = NEW.id; END;
+      CREATE TRIGGER "re""fill" AFTER DELETE ON "${OPENCODE_SAVED_PERMISSIONS_TABLE}" BEGIN INSERT INTO "${OPENCODE_SAVED_PERMISSIONS_TABLE}" VALUES ('planted'); END;
+      CREATE VIEW sessions_view AS SELECT * FROM session;`);
+    db.close();
+    scrubOpencodeDatabase(file);
+    const after = new DatabaseSync(file);
+    expect(after.prepare('SELECT id, permission FROM session').all()).toEqual([{ id: 's1', permission: null }]);
+    expect(after.prepare(`SELECT count(*) AS n FROM "${OPENCODE_SAVED_PERMISSIONS_TABLE}"`).get()).toEqual({ n: 0 });
+    expect(after.prepare("SELECT name FROM sqlite_master WHERE type IN ('trigger', 'view')").all()).toEqual([]);
+    after.close();
+    // A generated column (which PRAGMA table_info does not list) keeps the rules: it throws.
+    const generated = join(dir, 'generated.db');
+    const g = new DatabaseSync(generated);
+    g.exec(`CREATE TABLE session (id TEXT, permission TEXT GENERATED ALWAYS AS ('${allowAll}') VIRTUAL); INSERT INTO session (id) VALUES ('s1');`);
+    g.close();
+    expect(() => scrubOpencodeDatabase(generated)).toThrow();
+  });
+
+  it('starts the member\'s state over when its database cannot be cleared, and does not resume the session', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    scrubOpencodeDatabase(bad);
-    expect(warn).toHaveBeenCalled();
+    /** A context whose state folder is a member's own, in `private/` (as startOpenProcess gives it). */
+    const member = (over: Partial<RunOptions>): OpenRunContext => {
+      const ctx = context(over);
+      const state = join(ctx.home.root, 'private', 'm1');
+      mkdirSync(state, { recursive: true, mode: 0o700 });
+      return { ...ctx, home: { root: ctx.home.root, state, ...opencodeHome(ctx.home.root, state) } };
+    };
+    const unreadable = (ctx: OpenRunContext) => {
+      const file = opencodePaths(ctx.home.root, ctx.home.state).db;
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, 'not a database');
+      writeFileSync(join(ctx.home.state, 'left-behind'), 'x');
+      return file;
+    };
+    // Resuming: the folder is emptied, and the run fails so that the orchestrator starts a fresh session.
+    const resumed = member({ sessionId: 'ses_1', stateKey: 'conv.c1.a1' });
+    const file = unreadable(resumed);
+    await expect(withLang('en', () => prepareOpencode(resumed, async () => 1))).rejects.toThrow(/could not take out of OpenCode's database/);
+    expect(existsSync(file)).toBe(false);
+    expect(readdirSync(resumed.home.state)).toEqual([]);
+    // A new session goes on, in the emptied folder.
+    const fresh = member({ stateKey: 'conv.c2.a1' });
+    const other = unreadable(fresh);
+    await prepareOpencode(fresh, async () => 1);
+    expect(existsSync(other)).toBe(false);
+    expect(existsSync(join(fresh.home.state, 'left-behind'))).toBe(false);
     warn.mockRestore();
   });
 });
@@ -1006,6 +1062,11 @@ describe('keeping its server to Harness Relay', () => {
       "x='a[$(touch RAN)]';a[x]=1 # it's",
       "x='a[$(touch RAN)]'; a[x]=1; echo 'open",
       "x='a[$(touch RAN)]'; a['k']=1; a[x]+=1",
+      // `let` evaluates each argument, a quoted one too; bash evaluates a name in `$(( … ))` again.
+      "let 'a[$(touch RAN)]=1'",
+      "x='a[$(touch RAN)]'; let x+1",
+      "x='a[$(touch RAN)]'; y=$((x+1))",
+      'x=a\\[\\$\\(touch\\ RAN\\)\\]; echo $((x))',
     ];
     for (const shell of availableShells) {
       for (const trap of traps) {
@@ -1033,6 +1094,10 @@ describe('keeping its server to Harness Relay', () => {
       "awk -F= '/^[A-Z_]+=/ {print $2}' /dev/null; echo ok",
       "grep -E '^[A-Z_]+=.*$' /dev/null; echo ok",
       "sed -n '/^[a-z]*=/p' /dev/null; echo ok",
+      // Arithmetic beside a quoted `$`, and the word `let` as a substring or an argument.
+      "echo $((1 + 2)) | awk '{print $1}'",
+      "n=2; echo $((n * 2)); echo '$HOME'",
+      "echo letter; grep -c 'let $x' /dev/null; echo ok",
     ];
     for (const shell of availableShells) for (const ok of ordinary) expect(run(ok, shell).status).toBe(0);
     // In full access the screen is not armed: even a trap runs (the sandbox is not there; every command runs anyway).

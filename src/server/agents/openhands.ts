@@ -915,9 +915,8 @@ export function openhandsMessageText(text: string): string {
   return out;
 }
 
-/** The text of an observation (its content blocks). */
 /**
- * An observation's text, without the terminal's control sequences: bash 5.1 and later turns bracketed
+ * An observation's text (its content blocks), without the terminal's control sequences: bash 5.1 and later turns bracketed
  * paste on and off around each command (`ESC[?2004h` / `ESC[?2004l`, seen on Linux), and a command's
  * colours come through too.
  */
