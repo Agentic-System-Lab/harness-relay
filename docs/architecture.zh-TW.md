@@ -580,7 +580,7 @@ sequenceDiagram
 - 啟動 `claude` 前會移除 Claude Code 替自己子程序設定的環境變數，所以即使從 Claude Code session 裡啟動本程式也能正常運作；
 - MCP 伺服器變數與標頭的值和 API key 一樣是機密：存在金鑰儲存區、送到介面時會遮蔽，交給 Claude Code 時寫在私有暫存檔而不是指令列；
 - Grok 對資料夾的信任只會在使用者於介面確認後記錄，而且要用 JSON POST（其他網站送不出來）；
-- 工作目錄輸入框的選擇資料夾視窗（`src/server/folderPicker.ts`、`POST /api/cwds/pick`，和所有寫入一樣是 JSON POST）只為以本機名稱連線的請求開啟，所以經由 `tailscale serve` 的手機永遠不會開啟它（那裡沒人看得到）；一次只開一個，請求關閉時或十分鐘後關閉。它的腳本是固定的文字：AppleScript 從 run handler 的參數取得標題與資料夾，Windows PowerShell 從環境變數，zenity 與 kdialog 從參數，都不經過 shell。它只回答使用者選的路徑，輸入框再像手動輸入的一樣使用它們；
+- 工作目錄輸入框的選擇資料夾視窗（`src/server/folderPicker.ts`、`POST /api/cwds/pick`，和所有寫入一樣是 JSON POST）只為以本機名稱連線的請求開啟，所以經由 `tailscale serve` 的手機永遠不會開啟它（那裡沒人看得到）；一次只開一個，請求關閉時或十分鐘後關閉。它的腳本是固定的文字：AppleScript 從 run handler 的參數取得標題與資料夾，Windows PowerShell 從環境變數，zenity 與 kdialog 從參數，都不經過 shell。伺服器沒有 UTF-8 字元集時（由服務啟動的伺服器可能沒有），zenity 與 kdialog 會得到一個（`LC_CTYPE=C.UTF-8`，`LC_ALL` 指定別的時改它）：沒有的話，zenity 3.44 與 4.0 會拒絕它無法當成文字讀的標題（中文的那個）。它只回答使用者選的路徑，輸入框再像手動輸入的一樣使用它們；
 - 對話只會送到這台電腦上的 AgentsView：`validAgentsViewUrl` 只接受 `localhost`、`127.0.0.1` 或 `[::1]` 的 `http(s)` 網址，不能帶帳號密碼，並只儲存 origin；也不跟隨重新導向。介面連結打開的網址（`agentsViewLink`）可以是任何 http(s) 網址，因為不會有資料送過去；
 - 瀏覽檔案（以及把資料夾下載成 ZIP 檔）只會讀取工作目錄或成員 worktree 裡的內容（跟隨符號連結之後），絕不讀 `.git`（不分大小寫，因為在不分大小寫的檔案系統上 `.GIT` 會開到 `.git`；結尾多一個點或空白，或 Windows 的短檔名如 `GIT~1` 也一樣，在 Windows 上會再用系統自己的真實路徑檢查），圖片與影片的提供方式和媒體端點相同，其他檔案只以下載提供（見[瀏覽檔案](#瀏覽檔案)）；
 - 語音輸入的錄音不會離開這台電腦：語音引擎只聽 `127.0.0.1`，並藏在隨機路徑前綴之後；它下載的引擎與模型固定在某個版本或 commit，並檢查 SHA-256（見[語音輸入](#語音輸入)）。

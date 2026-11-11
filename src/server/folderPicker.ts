@@ -92,6 +92,19 @@ export type PickerCommand =
   | { bin: string; args: string[]; env: NodeJS.ProcessEnv }
   | { shell: string; flags: readonly string[]; script: string; env: NodeJS.ProcessEnv };
 
+/**
+ * The environment with a UTF-8 character set, for zenity and kdialog. Without one (no `LANG`, as a
+ * server a service started may have), zenity refuses a title it cannot read as text, a Chinese one say
+ * ("This option is not available", exit 255; seen with zenity 3.44 on Debian 12): `LC_CTYPE=C.UTF-8`
+ * gives it one, or `LC_ALL`, which wins over it, when that names another. What language the dialog
+ * speaks stays as it was, but for that `LC_ALL`.
+ */
+export function withUtf8(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const utf8 = (value?: string) => /utf-?8/i.test(value ?? '');
+  if (env.LC_ALL) return utf8(env.LC_ALL) ? env : { ...env, LC_ALL: 'C.UTF-8' };
+  return utf8(env.LC_CTYPE || env.LANG) ? env : { ...env, LC_CTYPE: 'C.UTF-8' };
+}
+
 /** The command that opens the dialog titled `title` at the folder `start` (which exists). */
 export function pickerCommand(kind: PickerKind, bin: string, title: string, start: string, env: NodeJS.ProcessEnv): PickerCommand {
   switch (kind) {
@@ -103,10 +116,10 @@ export function pickerCommand(kind: PickerKind, bin: string, title: string, star
       return {
         bin,
         args: ['--file-selection', '--directory', '--multiple', '--separator=\n', `--title=${title}`, `--filename=${start.replace(/\/*$/, '/')}`],
-        env,
+        env: withUtf8(env),
       };
     case 'kdialog':
-      return { bin, args: ['--title', title, '--getexistingdirectory', start], env };
+      return { bin, args: ['--title', title, '--getexistingdirectory', start], env: withUtf8(env) };
     case 'powershell':
       return { shell: bin, flags: POWERSHELL_FLAGS, script: POWERSHELL, env: { ...env, RELAY_PICK_TITLE: title, RELAY_PICK_START: start } };
   }

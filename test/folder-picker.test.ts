@@ -57,6 +57,18 @@ describe('pickerCommand', () => {
     expect(cmd.env).toEqual({ HOME: '/Users/me' });
   });
 
+  it('gives zenity and kdialog a UTF-8 character set when the environment has none, for a title in Chinese', () => {
+    // No locale (a server a service started): zenity refuses a Chinese title without one.
+    expect(pickerCommand('zenity', '/usr/bin/zenity', '選擇工作目錄', '/home/me', { PATH: '/usr/bin' }).env).toEqual({ PATH: '/usr/bin', LC_CTYPE: 'C.UTF-8' });
+    expect(pickerCommand('kdialog', '/usr/bin/kdialog', '選擇工作目錄', '/home/me', { LANG: 'C' }).env).toEqual({ LANG: 'C', LC_CTYPE: 'C.UTF-8' });
+    // One there already is kept, whichever variable names it.
+    for (const env of [{ LANG: 'zh_TW.UTF-8' }, { LANG: 'C', LC_CTYPE: 'en_US.utf8' }, { LC_ALL: 'C.UTF-8' }]) {
+      expect(pickerCommand('zenity', '/usr/bin/zenity', 'T', '/', env).env).toEqual(env);
+    }
+    // LC_ALL wins over LC_CTYPE: it is the one changed.
+    expect(pickerCommand('zenity', '/usr/bin/zenity', 'T', '/', { LC_ALL: 'C', LANG: 'zh_TW.UTF-8' }).env).toEqual({ LC_ALL: 'C.UTF-8', LANG: 'zh_TW.UTF-8' });
+  });
+
   it('opens zenity inside the folder, for several folders one to a line, and kdialog at it', () => {
     expect(pickerCommand('zenity', '/usr/bin/zenity', 'Choose', '/home/me/work', {})).toMatchObject({
       bin: '/usr/bin/zenity',
