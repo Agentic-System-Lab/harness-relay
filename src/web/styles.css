@@ -1980,9 +1980,17 @@ a.branch-source:hover {
   gap: 6px;
 }
 
+/* The link caps the width, not the image: a browser leaves a percentage on the image out when it works
+   out the link's width, so a wide image made the link as wide as the image would be at its full height
+   and sat at its left, short of the bubble's right edge. */
+.msg-images > a {
+  display: block;
+  max-width: 320px;
+}
+
 .msg-images img {
   display: block;
-  max-width: min(320px, 100%);
+  max-width: 100%;
   max-height: 240px;
   border-radius: 14px;
   border: 1px solid var(--border);
