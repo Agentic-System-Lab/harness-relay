@@ -41,8 +41,10 @@ export function parseScreenshots(v: unknown): GistUpload[] {
   if (v.length > maxFiles) throw new HttpError(413, t().reportShotsTooMany(maxFiles));
   return v.map((item, i) => {
     const data = (item as { data?: unknown } | null)?.data;
-    if (typeof data !== 'string' || !BASE64.test(data)) throw new HttpError(400, t().reportShotNotImage(i + 1));
+    if (typeof data !== 'string') throw new HttpError(400, t().reportShotNotImage(i + 1));
+    // Measured before it is read any further.
     if (data.length > BASE64_MAX) throw new HttpError(413, t().reportShotTooLarge(i + 1, maxBytes / 1024 / 1024));
+    if (!BASE64.test(data)) throw new HttpError(400, t().reportShotNotImage(i + 1));
     const bytes = Buffer.from(data, 'base64');
     if (bytes.length > maxBytes) throw new HttpError(413, t().reportShotTooLarge(i + 1, maxBytes / 1024 / 1024));
     const kind = imageKind(bytes);

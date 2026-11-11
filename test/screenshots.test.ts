@@ -96,6 +96,8 @@ describe('the screenshots a request sends', () => {
     const mb = REPORT_SCREENSHOT_LIMITS.maxBytes / 1024 / 1024;
     const big = Buffer.concat([PNG, Buffer.alloc(REPORT_SCREENSHOT_LIMITS.maxBytes)]);
     expect(refused([{ data: b64(big) }])).toEqual({ status: 413, message: t().reportShotTooLarge(1, mb) });
+    // Measured before it is matched as base64.
+    expect(refused([{ data: '!'.repeat(REPORT_SCREENSHOT_LIMITS.maxBytes * 2) }])).toEqual({ status: 413, message: t().reportShotTooLarge(1, mb) });
     const fits = Buffer.concat([PNG, Buffer.alloc(REPORT_SCREENSHOT_LIMITS.maxBytes - PNG.length)]);
     expect(parseScreenshots([{ data: b64(fits) }])).toHaveLength(1);
   });

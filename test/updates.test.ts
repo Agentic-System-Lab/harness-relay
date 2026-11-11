@@ -23,7 +23,7 @@ describe("the desktop app's updates, as the server passes them on", () => {
     const updates = new Updates(undefined, version);
     expect(await updates.status()).toEqual({ updates: false, current: '2026-11-11' });
     expect(await updates.check()).toEqual({ updates: false, current: '2026-11-11' });
-    expect(updates.install()).toBe(false);
+    expect(updates.install()).toBe('none');
   });
 
   it('are what the app last said, with this version', async () => {
@@ -53,16 +53,25 @@ describe("the desktop app's updates, as the server passes them on", () => {
     expect(await updates.check(10)).toEqual({ updates: true, checkedAt: 1, current: '2026-11-11' });
   });
 
-  it('asks the app to update only when there is a newer version and none under way', () => {
+  it('asks the app to update only when there is a newer version and none under way, saying which it is', () => {
     const app = fakeApp();
     const updates = new Updates(app.parent, version);
     app.say({ updates: true });
-    expect(updates.install()).toBe(false);
+    expect(updates.install()).toBe('none');
     app.say({ updates: true, available, progress: { kind: 'downloading', percent: 10 } });
-    expect(updates.install()).toBe(false);
+    expect(updates.install()).toBe('under-way');
     app.say({ updates: true, available });
-    expect(updates.install()).toBe(true);
+    expect(updates.install()).toBe('asked');
     expect(app.sent).toEqual([{ type: 'update-install' }]);
+  });
+
+  it('answers every check asked for at once when the app has checked', async () => {
+    const app = fakeApp();
+    const updates = new Updates(app.parent, version);
+    app.say({ updates: true });
+    const both = Promise.all([updates.check(), updates.check()]);
+    app.say({ updates: true, checkedAt: 3 });
+    expect((await both).map((s) => s.checkedAt)).toEqual([3, 3]);
   });
 });
 

@@ -34,6 +34,7 @@ import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { compareSemver, parseVersion, semverOf } from '../../scripts/release';
 import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO } from '../../site/assets/downloads.js';
 import { capture } from '../../src/server/process';
+import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
 
 /**
  * GitHub's releases, newest first: release candidates included, which `releases/latest` leaves out
@@ -54,12 +55,60 @@ export const FIRST_CHECK_MS = 30_000;
 /** The least time between two questions to GitHub: a check asked for sooner (Settings' "Check again") gives what is known. */
 export const MIN_CHECK_GAP_MS = 60_000;
 
+/** How long one question to GitHub may take: a stalled one (the computer slept, a captive portal) would hold back every check after it. */
+export const CHECK_TIMEOUT_MS = 30_000;
+
 /** Whether a check may ask GitHub now, the last question having been asked at `askedAt` (none yet: undefined). */
 export function mayAskGitHub(askedAt: number | undefined, now: number): boolean {
   return askedAt === undefined || now - askedAt >= MIN_CHECK_GAP_MS || now < askedAt;
 }
 
 export type UpdateSystem = keyof typeof INSTALLERS;
+
+/** An update under way, as the app keeps it: downloading (`done`, 0 to 1), being checked and put in place, or waiting for the conversations. */
+export type Updating = { kind: 'downloading'; done: number } | { kind: 'installing' } | { kind: 'waiting' };
+
+/**
+ * What the chat shows of updates (the server passes it on, src/server/updates.ts), from what the app
+ * knows: nothing but `updates: false` for a copy that does not update itself.
+ */
+export function chatUpdate(o: {
+  updates: boolean;
+  update?: UpdateRelease;
+  updating?: Updating;
+  checking: boolean;
+  checkedAt?: number;
+  checkFailed: boolean;
+}): DesktopUpdate {
+  if (!o.updates) return { updates: false };
+  const u = o.updating;
+  const progress: UpdateProgress | undefined = u?.kind === 'downloading' ? { kind: 'downloading', percent: Math.floor(u.done * 100) } : u;
+  return {
+    updates: true,
+    ...(o.update ? { available: { version: o.update.version, page: o.update.page } } : {}),
+    ...(progress ? { progress } : {}),
+    ...(o.checking ? { checking: true } : {}),
+    ...(o.checkedAt !== undefined ? { checkedAt: o.checkedAt } : {}),
+    ...(o.checkFailed ? { checkFailed: true } : {}),
+  };
+}
+
+/**
+ * `fn`, the calls made while an earlier one still runs ignored: an update asked for twice (two clicks,
+ * the menu and the chat) asks once, and never runs two downloads or swaps at once.
+ */
+export function oneAtATime(fn: () => Promise<void>): () => Promise<void> {
+  let running = false;
+  return async () => {
+    if (running) return;
+    running = true;
+    try {
+      await fn();
+    } finally {
+      running = false;
+    }
+  };
+}
 
 export interface UpdateAsset {
   /** The file's name, such as Harness-Relay-2026-11-12-mac-arm64.dmg. */

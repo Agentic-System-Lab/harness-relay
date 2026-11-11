@@ -1045,7 +1045,7 @@ export const zhTW = {
       upToDate: (at: string) => `已是最新版本（${at} 檢查）`,
       notChecked: '還沒檢查過有沒有新版本。',
       checkFailed: '無法連到 GitHub 檢查新版本，稍後會再試。',
-      noUpdates: '這個 Harness Relay 不會自己更新：桌面版才會自動檢查新版本。',
+      noUpdates: '這個 Harness Relay 不會自己更新：只有安裝好的桌面版會檢查新版本（設定了 RELAY_UPDATES=off 時也不會）。',
       downloading: (percent: number) => `正在下載更新…（${percent}%）`,
       installing: '正在安裝更新…',
       waiting: '更新已就緒，等回答結束後切換到新版。',

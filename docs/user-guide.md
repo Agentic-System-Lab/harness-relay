@@ -64,7 +64,7 @@ The installers are not signed for distribution yet (on macOS they are signed ad 
 | **Open data folder**, **Show log** | The app's data folder (see below) and the server's log. |
 | **Restart server…**, **Start server** | Restarts the server (replies in progress stop), or starts it again after it stopped. |
 | *Version* | The app's version (see [Versions](#versions)). |
-| **Update to 2026-11-12…** | Shown when a newer release or release candidate is out: updates the app (see **Updates** below). While it works, the item shows how far the download got, also while the menu stays open, then *Update ready: switches once replies finish* while conversations are still replying. |
+| **Update to 2026-11-12…** | Shown when a newer version is out (a release for a release; for a release candidate, a release or release candidate): updates the app (see **Updates** below). While it works, the item shows how far the download got, also while the menu stays open, then *Update ready: switches once replies finish* while conversations are still replying. |
 | **Switch to the new version now…** | Shown while an update waits for replies to finish: switches at once, after asking, and stops the replies. |
 | **Quit Harness Relay** | Stops the server, which stops every agent first, and quits. |
 

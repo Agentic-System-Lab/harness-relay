@@ -82,7 +82,7 @@ npm start
 
 ## 桌面 app
 
-不想一直開著終端機？桌面 app 會在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列（macOS）或系統匣（Windows、Linux）留著一個圖示，所以手機照常能用；它的選單也能在瀏覽器打開對話。它會像終端機一樣找到 agent 的 CLI，可以登入時自動啟動、不讓電腦睡著，選單裡一個步驟就能透過 Tailscale 分享到手機。有新的版本（包括候選版本）時，它的選單會提供它，app 會自己更新。它需要 agent 的 CLI（編輯與平行模式還需要 Git），但不需要 Node.js。
+不想一直開著終端機？桌面 app 會在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列（macOS）或系統匣（Windows、Linux）留著一個圖示，所以手機照常能用；它的選單也能在瀏覽器打開對話。它會像終端機一樣找到 agent 的 CLI，可以登入時自動啟動、不讓電腦睡著，選單裡一個步驟就能透過 Tailscale 分享到手機。有更新的版本時（正式版本只看正式版本，候選版本也看之後的候選版本），它的選單和聊天介面都會提供，app 會自己更新。它需要 agent 的 CLI（編輯與平行模式還需要 Git），但不需要 Node.js。
 
 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)（提供最新的正式版本，不提供候選版本）或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) 下載你系統的安裝檔：macOS 是 `.dmg`（Apple Silicon；Intel Mac 請改從原始碼執行），Windows 是 `.exe`，Linux 是 `.AppImage`（Windows 與 Linux 都有 x64 與 Arm64）。安裝檔還沒有為發佈簽章，所以第一次開啟時系統會警告；詳見使用說明的[桌面 app](docs/user-guide.zh-TW.md#桌面-app)。要自己建置，在快速開始的 `npm install` 之後，於 clone 下來的資料夾執行（安裝檔會放在 `desktop/release/`）：
 

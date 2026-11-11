@@ -46,11 +46,13 @@ export class Updates {
 
   /**
    * Asks the app to update to the newer version: it asks the user first, in a dialog of its own on the
-   * computer it runs on, as from its menu. False when there is none to update to, or one is under way.
+   * computer it runs on, as from its menu (and asks once, however often it is asked meanwhile). Says
+   * why not when there is none to update to, or one is under way.
    */
-  install(): boolean {
-    if (!this.parent || !this.last.available || this.last.progress) return false;
+  install(): 'asked' | 'none' | 'under-way' {
+    if (this.last.progress) return 'under-way';
+    if (!this.parent || !this.last.available) return 'none';
     this.parent.send({ type: 'update-install' });
-    return true;
+    return 'asked';
   }
 }

@@ -422,7 +422,8 @@ export function createApp({
   app.get('/api/update', async (c) => c.json(await updates.status()));
   app.post('/api/update/check', async (c) => c.json(await updates.check()));
   app.post('/api/update/install', (c) => {
-    if (!updates.install()) throw new HttpError(409, t().updateNone);
+    const asked = updates.install();
+    if (asked !== 'asked') throw new HttpError(409, asked === 'under-way' ? t().updateUnderWay : t().updateNone);
     return c.json({ ok: true });
   });
 

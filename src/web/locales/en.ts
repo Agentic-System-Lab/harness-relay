@@ -1033,7 +1033,7 @@ export const en: Messages = {
       upToDate: (at) => `Up to date (checked ${at})`,
       notChecked: 'Not checked for a new version yet.',
       checkFailed: 'Could not reach GitHub to check for a new version: it tries again later.',
-      noUpdates: 'This Harness Relay does not update itself: the desktop app checks for new versions.',
+      noUpdates: 'This Harness Relay does not update itself: only an installed desktop app checks for new versions (and not with RELAY_UPDATES=off).',
       downloading: (percent) => `Downloading the update… (${percent}%)`,
       installing: 'Installing the update…',
       waiting: 'Update ready: it switches once replies finish.',

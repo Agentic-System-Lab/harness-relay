@@ -32,7 +32,6 @@ import {
 import { autostartFile, desktopEntry, isAutostartOn, setAutostart } from './autostart';
 import { allowedHostsOf, loginShell, loginShellEnv, mergeShellEnv, mergeWindowsEnv, serverEnv, windowsEnv, withCommonPaths } from './env';
 import { spawnDetached } from '../../src/server/process';
-import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
 import { messages, pickLang } from './i18n';
 import {
   chatAddress,
@@ -57,7 +56,9 @@ import {
   appImageDownload,
   appImageTarget,
   busyWithoutAsking,
+  chatUpdate,
   CHECK_EVERY_MS,
+  CHECK_TIMEOUT_MS,
   checkLatest,
   download,
   FIRST_CHECK_MS,
@@ -65,6 +66,7 @@ import {
   isNewer,
   macAppOf,
   mayAskGitHub,
+  oneAtATime,
   placeAppImage,
   relaunchCommand,
   relaunchEnv,
@@ -79,6 +81,7 @@ import {
   whenIdle,
   WINDOWS_INSTALLER_ARGS,
   type UpdateRelease,
+  type Updating,
 } from './update';
 import { findTailscale, sharePlan, Tailscale } from './tailscale';
 
@@ -92,7 +95,6 @@ const APP_ID = 'io.github.agentic-system-lab.harness-relay';
  * An update under way: downloading (the share done, 0 to 1), being checked and put in place, or
  * ready and waiting until no conversation has agents at work.
  */
-type Updating = { kind: 'downloading'; done: number } | { kind: 'installing' } | { kind: 'waiting' };
 
 /**
  * `--smoke-test[=<report file>]`: the packaged app checks itself and exits (desktop/scripts/check-package.ts,
@@ -261,6 +263,8 @@ function run(): void {
   let checkedAt: number | undefined;
   /** The last question could not reach GitHub (offline, or its hourly limit). */
   let checkFailed = false;
+  /** Updating, from asking the user to the switch: asked for again meanwhile (the menu, the chat), it does nothing. */
+  const updateOnce = oneAtATime(() => runUpdate());
   /** While an update waits for the conversations: switches at once (the menu's "Switch to the new version now"). */
   let switchNow: (() => void) | undefined;
   /** Where downloaded installers wait (macOS, Windows): emptied at each start. */
@@ -604,7 +608,10 @@ function run(): void {
     tellServer();
     try {
       // A release candidate is offered only to an app that is one (or a build of your own): a release, only releases.
-      const latest = await checkLatest((url, init) => net.fetch(url, init), { candidates: takesCandidates(app.getVersion()) });
+      const latest = await checkLatest((url, init) => net.fetch(url, init), {
+        candidates: takesCandidates(app.getVersion()),
+        signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+      });
       const system = updateSystem(process.platform, process.arch);
       update = isNewer(latest, app.getVersion()) && system && latest.assets[system] ? latest : undefined;
       checkedAt = Date.now();
@@ -620,18 +627,8 @@ function run(): void {
   }
 
   /** What the chat shows of updates (Settings' Version card, the dialog offering a new version). */
-  function desktopUpdate(): DesktopUpdate {
-    if (!checksUpdates()) return { updates: false };
-    const progress: UpdateProgress | undefined =
-      updating?.kind === 'downloading' ? { kind: 'downloading', percent: Math.floor(updating.done * 100) } : updating;
-    return {
-      updates: true,
-      ...(update ? { available: { version: update.version, page: update.page } } : {}),
-      ...(progress ? { progress } : {}),
-      ...(checking ? { checking } : {}),
-      ...(checkedAt !== undefined ? { checkedAt } : {}),
-      ...(checkFailed ? { checkFailed } : {}),
-    };
+  function desktopUpdate() {
+    return chatUpdate({ updates: checksUpdates(), update, updating, checking, checkedAt, checkFailed });
   }
 
   /** Tells the server what the chat shows of updates, each time that changes. */
@@ -752,9 +749,14 @@ function run(): void {
    * Updates to `update` (update.ts): asks first, downloads and checks the installer, waits until no
    * conversation has agents at work (or the user switches at once), puts the new version in place,
    * then quits and the new one starts. Until the wait is over this version stays as it is, so quitting
-   * meanwhile keeps it.
+   * meanwhile keeps it. Asked for again while it runs (a second click, the menu and the chat), it does
+   * nothing (`updateOnce`).
    */
-  async function installUpdate(): Promise<void> {
+  function installUpdate(): Promise<void> {
+    return updateOnce();
+  }
+
+  async function runUpdate(): Promise<void> {
     const release = update;
     if (!release || updating) return;
     const system = updateSystem(process.platform, process.arch);

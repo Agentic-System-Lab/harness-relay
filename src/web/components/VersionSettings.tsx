@@ -20,17 +20,22 @@ export function VersionCard({ status, onUpdate }: Props) {
   const { t, lang } = useI18n();
   const v = t.settings.version;
   const [asked, setAsked] = useState<string>();
+  /** Update was pressed and the server has not answered yet. */
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const line = status ? updateLine(status, t, lang) : undefined;
   const offer = status?.available && !status.progress ? status.available : undefined;
 
   const update = async () => {
     setError('');
+    setBusy(true);
     try {
       await onUpdate();
       setAsked(offer?.version);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -48,7 +53,7 @@ export function VersionCard({ status, onUpdate }: Props) {
           </span>
           {offer && (
             <>
-              <button type="button" className="primary small-button" onClick={() => void update()}>
+              <button type="button" className="primary small-button" disabled={busy} onClick={() => void update()}>
                 {v.update}
               </button>
               <a className="small" href={offer.page} target="_blank" rel="noopener noreferrer">

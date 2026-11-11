@@ -1014,6 +1014,12 @@ describe('/api/update', () => {
     const res = await own.request('/api/update/install', json('POST', {}));
     expect(res.status).toBe(200);
     expect(sent).toEqual([{ type: 'update-check' }, { type: 'update-install' }]);
+
+    // Under way: said so, not that there is nothing to update to.
+    say({ updates: true, available, progress: { kind: 'installing' } } as Parameters<typeof say>[0]);
+    const busy = await own.request('/api/update/install', json('POST', {}));
+    expect(busy.status).toBe(409);
+    expect(((await busy.json()) as { error: string }).error).toMatch(/under way|進行中/);
   });
 });
 

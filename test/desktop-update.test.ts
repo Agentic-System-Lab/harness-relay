@@ -8,7 +8,9 @@ import {
   appImageDownload,
   appImageTarget,
   busyWithoutAsking,
+  chatUpdate,
   CHECK_EVERY_MS,
+  CHECK_TIMEOUT_MS,
   checkLatest,
   download,
   installPlan,
@@ -19,6 +21,7 @@ import {
   takesCandidates,
   MIN_CHECK_GAP_MS,
   newestRelease,
+  oneAtATime,
   parseRelease,
   placeAppImage,
   RELAUNCH_PID,
@@ -190,6 +193,11 @@ describe("GitHub's newest release", () => {
     expect(RELEASES_API).toBe('https://api.github.com/repos/Agentic-System-Lab/harness-relay/releases?per_page=20');
     expect((await checkLatest(answer(200, [githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')]), { candidates: false }))?.version).toBe('2026-11-12');
     expect(await checkLatest(answer(200, []))).toBeUndefined();
+    // A question that stalls is given up on (the app passes AbortSignal.timeout(CHECK_TIMEOUT_MS)), so the next check is not held back.
+    const stalled: Fetch = (_url, init) =>
+      new Promise((_, fail) => init?.signal?.addEventListener('abort', () => fail(init.signal!.reason), { once: true }));
+    await expect(checkLatest(stalled, { signal: AbortSignal.timeout(20) })).rejects.toThrow();
+    expect(CHECK_TIMEOUT_MS).toBe(30_000);
     expect(await checkLatest(answer(404, { message: 'Not Found' }))).toBeUndefined();
     await expect(checkLatest(answer(403, { message: 'rate limited' }))).rejects.toThrow('403');
   });
@@ -228,6 +236,58 @@ describe('how often GitHub is asked', () => {
     expect(MIN_CHECK_GAP_MS).toBe(60_000);
     // A clock set back does not stop it for good.
     expect(mayAskGitHub(at, at - 5000)).toBe(true);
+  });
+});
+
+describe('what the chat is told of updates', () => {
+  const release = { version: '2026-11-12', semver: '2026.1112.0', page: 'https://github.com/x/y/releases/tag/2026-11-12', candidate: false, assets: {} };
+
+  it('is nothing more for a copy that does not update itself', () => {
+    expect(chatUpdate({ updates: false, update: release, updating: { kind: 'installing' }, checking: true, checkedAt: 1, checkFailed: true })).toEqual({ updates: false });
+  });
+
+  it('is the newer version, the update under way in whole percent, a check, when it last answered and whether the last one failed', () => {
+    expect(chatUpdate({ updates: true, checking: false, checkFailed: false })).toEqual({ updates: true });
+    expect(chatUpdate({ updates: true, update: release, updating: { kind: 'downloading', done: 0.429 }, checking: true, checkedAt: 5, checkFailed: true })).toEqual({
+      updates: true,
+      available: { version: '2026-11-12', page: release.page },
+      progress: { kind: 'downloading', percent: 42 },
+      checking: true,
+      checkedAt: 5,
+      checkFailed: true,
+    });
+    expect(chatUpdate({ updates: true, updating: { kind: 'waiting' }, checking: false, checkFailed: false }).progress).toEqual({ kind: 'waiting' });
+  });
+});
+
+describe('an update asked for more than once', () => {
+  it('runs once at a time: asked again meanwhile, it does nothing; asked after, it runs again', async () => {
+    let runs = 0;
+    let finish: () => void = () => {};
+    const update = oneAtATime(async () => {
+      runs++;
+      await new Promise<void>((done) => (finish = done));
+    });
+    const first = update();
+    await update(); // a second click while the first asks: nothing
+    expect(runs).toBe(1);
+    finish();
+    await first;
+    const again = update();
+    expect(runs).toBe(2);
+    finish();
+    await again;
+  });
+
+  it('can run again after one that failed', async () => {
+    let runs = 0;
+    const update = oneAtATime(async () => {
+      runs++;
+      throw new Error('download');
+    });
+    await expect(update()).rejects.toThrow('download');
+    await expect(update()).rejects.toThrow('download');
+    expect(runs).toBe(2);
   });
 });
 

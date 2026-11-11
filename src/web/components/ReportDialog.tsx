@@ -24,6 +24,7 @@ import {
   type MailLink,
   type ReportDraft,
 } from '../report';
+import { isAppWindow } from '../update';
 import { formatBytes, toBase64 } from '../util';
 import { CopyButton } from './CopyButton';
 import { CopyIcon, MailIcon } from './icons';
@@ -44,6 +45,11 @@ interface Shot {
 let kept: ReportDraft = EMPTY_REPORT;
 let keptShots: Shot[] = [];
 let keptUpload: ReportScreenshots | undefined;
+/**
+ * The screenshots going up: kept apart from the dialog, so one closed meanwhile and opened again
+ * follows the same upload (and its gist is remembered), instead of offering to upload them again.
+ */
+let uploading: Promise<ReportScreenshots> | undefined;
 
 function forget() {
   keptShots.forEach((s) => URL.revokeObjectURL(s.url));
@@ -88,6 +94,14 @@ export function ReportDialog({ providers, onClose }: Props) {
     if (sent) forget();
     onClose();
   };
+  /** Whether the dialog is still open, for what an upload says once it is done. */
+  const live = useRef(true);
+  useEffect(
+    () => () => {
+      live.current = false;
+    },
+    [],
+  );
   useDialog(dialog, close);
   useEffect(() => {
     kept = draft;
@@ -146,17 +160,38 @@ export function ReportDialog({ providers, onClose }: Props) {
     setFailure('');
   };
 
-  const uploadShots = async () => {
+  /** Waits for the upload under way, saying how it went while the dialog is open. */
+  const follow = async (going: Promise<ReportScreenshots>) => {
     setBusy('upload');
+    try {
+      const done = await going;
+      if (live.current) setUpload(done);
+    } catch (err) {
+      if (live.current) setFailure((err as Error).message);
+    } finally {
+      if (live.current) setBusy(undefined);
+    }
+  };
+  // Opened again while the screenshots go up: follows that upload.
+  useEffect(() => {
+    if (uploading) void follow(uploading);
+  }, []);
+
+  const uploadShots = () => {
     setNotice('');
     setFailure('');
-    try {
-      setUpload(await api.uploadScreenshots(await Promise.all(shots.map((s) => toBase64(s.file)))));
-    } catch (err) {
-      setFailure((err as Error).message);
-    } finally {
-      setBusy(undefined);
-    }
+    uploading = (async () => {
+      const done = await api.uploadScreenshots(await Promise.all(shots.map((s) => toBase64(s.file))));
+      keptUpload = done; // also when the dialog was closed meanwhile
+      return done;
+    })();
+    const going = uploading;
+    void going
+      .catch(() => undefined)
+      .finally(() => {
+        if (uploading === going) uploading = undefined;
+      });
+    void follow(going);
   };
 
   const removeUpload = async () => {
@@ -192,14 +227,15 @@ export function ReportDialog({ providers, onClose }: Props) {
   };
 
   /**
-   * Opens `link`; a report too long for it goes on the clipboard first, for the user to paste. In the
-   * desktop app, a mail link goes through its window handler (to the mail app); a page cannot move to it.
+   * Opens `link`; a report too long for it goes on the clipboard, for the user to paste (started first,
+   * and the link opened at once after, both while the click still counts as the user's). In the desktop
+   * app's window, a mail link goes through its window handler (to the mail app); a page cannot move to it.
    */
   const open = async (link: MailLink, how: 'mail' | 'gmail') => {
-    if (link.cut) setSent((await copyText(whole())) ? 'cut' : 'cutCopyFailed');
-    else setSent(how);
-    if (how === 'gmail' || about?.desktop) window.open(link.url, '_blank', 'noopener,noreferrer');
+    const copied = link.cut ? copyText(whole()) : undefined;
+    if (how === 'gmail' || isAppWindow(navigator.userAgent)) window.open(link.url, '_blank', 'noopener,noreferrer');
     else window.location.href = link.url;
+    setSent(copied ? ((await copied) ? 'cut' : 'cutCopyFailed') : how);
   };
   const sendMail = () => open(fitLink((s, b) => mailtoUrl(REPORT_EMAIL, s, b), subject, body, r.mail.pasteHere, MAILTO_MAX), 'mail');
   const sendGmail = () => open(fitLink((s, b) => gmailUrl(REPORT_EMAIL, s, b), subject, body, r.mail.pasteHere, GMAIL_MAX), 'gmail');
@@ -280,7 +316,7 @@ export function ReportDialog({ providers, onClose }: Props) {
               </button>
             )}
             {waiting && (
-              <button type="button" className="ghost small-button" disabled={!!busy} onClick={() => void uploadShots()}>
+              <button type="button" className="ghost small-button" disabled={!!busy} onClick={uploadShots}>
                 {busy === 'upload' ? r.shots.uploading : r.shots.upload}
               </button>
             )}
