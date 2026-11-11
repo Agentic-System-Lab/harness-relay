@@ -6,10 +6,9 @@ export interface Installer {
   url: string;
   name: string;
 }
+/** The newest release, never a release candidate. */
 export interface NewestRelease {
   tag: string;
-  /** Whether it is a release candidate. */
-  prerelease: boolean;
   installers: Partial<Record<InstallerSystem, Installer>>;
 }
 export const REPO: string;

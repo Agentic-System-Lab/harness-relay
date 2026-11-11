@@ -102,20 +102,19 @@ const release = (tag: string, o: { prerelease?: boolean; draft?: boolean; at?: s
 });
 
 describe('the newest release', () => {
-  it('includes release candidates, which GitHub’s "latest" link would skip, and says which it is', () => {
-    const newest = newestRelease([release('2026-11-12-rc'), release('2026-11-10')]);
-    expect(newest?.tag).toBe('2026-11-12-rc');
-    expect(newest?.prerelease).toBe(true);
+  it('leaves out release candidates, however new', () => {
+    const newest = newestRelease([release('2026-11-12-rc'), release('2026-11-11.1-rc.2'), release('2026-11-10')]);
+    expect(newest).toEqual({ tag: '2026-11-10', installers: expect.any(Object) });
     expect(newest?.installers.mac?.url).toBe(
-      'https://github.com/Agentic-System-Lab/harness-relay/releases/download/2026-11-12-rc/Harness-Relay-2026-11-12-rc-mac-arm64.dmg',
+      'https://github.com/Agentic-System-Lab/harness-relay/releases/download/2026-11-10/Harness-Relay-2026-11-10-mac-arm64.dmg',
     );
-    // Only release candidates so far: the newest of them.
-    expect(newestRelease([release('2026-11-12-rc.1', { at: '2026-11-12T11:00:00Z' }), release('2026-11-12-rc')])).toMatchObject({ tag: '2026-11-12-rc.1', prerelease: true });
-    // A stable release newer than the candidates is not one.
-    expect(newestRelease([release('2026-11-12'), release('2026-11-12-rc', { at: '2026-11-12T09:00:00Z' })])).toMatchObject({ tag: '2026-11-12', prerelease: false });
+    // A release newer than the candidates is the one.
+    expect(newestRelease([release('2026-11-12'), release('2026-11-12-rc', { at: '2026-11-12T09:00:00Z' })])?.tag).toBe('2026-11-12');
+    // Only release candidates so far: none, and the buttons keep the releases page.
+    expect(newestRelease([release('2026-11-12-rc.1', { at: '2026-11-12T11:00:00Z' }), release('2026-11-12-rc')])).toBeNull();
     // A candidate is a pre-release, or a version ending in -rc even when not marked as one.
-    expect(newestRelease([release('2026-11-12', { prerelease: true })])?.prerelease).toBe(true);
-    expect(newestRelease([release('2026-11-11-rc.2', { prerelease: false })])?.prerelease).toBe(true);
+    expect(newestRelease([release('2026-11-12', { prerelease: true }), release('2026-11-11')])?.tag).toBe('2026-11-11');
+    expect(newestRelease([release('2026-11-11-rc.2', { prerelease: false }), release('2026-11-10.1')])?.tag).toBe('2026-11-10.1');
     expect(isCandidate('2026-11-10')).toBe(false);
     expect(isCandidate('2026-11-10.2')).toBe(false);
     expect(isCandidate('2026-11-10-rc')).toBe(true);
@@ -132,7 +131,9 @@ describe('the newest release', () => {
       release('2026-11-11-rc', { draft: true }),
       release('2026-11-11-rc', { at: '2026-11-11T08:00:00Z', files: ['notes.txt'] }),
     ];
-    expect(newestRelease(list)).toMatchObject({ tag: '2026-11-10', prerelease: false });
+    expect(newestRelease(list)?.tag).toBe('2026-11-10');
+    // A draft or a release without installers newer than it is left out.
+    expect(newestRelease([release('2026-11-12', { draft: true }), release('2026-11-11', { files: ['notes.txt'] }), release('2026-11-10.1')])?.tag).toBe('2026-11-10.1');
   });
 
   it('is none when there is no release yet, or the answer is not a list', () => {
@@ -187,9 +188,11 @@ describe('the download buttons and the Release workflow', () => {
       }
       expect(html, page).toMatch(new RegExp(`<a [^>]*href="${RELEASES_PAGE}"[^>]*data-download-primary`));
       expect(html, page).toContain('<script type="module" src="');
-      for (const word of ['data-mac=', 'data-win=', 'data-win-arm64=', 'data-linux=', 'data-linux-arm64=', 'data-rc=', 'data-release=', 'data-mobile=']) {
+      for (const word of ['data-mac=', 'data-win=', 'data-win-arm64=', 'data-linux=', 'data-linux-arm64=', 'data-release=', 'data-mobile=']) {
         expect(html, `${page} ${word}`).toContain(word);
       }
+      // No release candidate is offered, so there are no words for one.
+      expect(html, page).not.toContain('data-rc=');
     }
   });
 });
@@ -259,7 +262,6 @@ function page() {
     'data-win-arm64': 'Download for Windows on Arm',
     'data-linux': 'Download for Linux',
     'data-linux-arm64': 'Download for Linux on Arm',
-    'data-rc': 'Release candidate',
     'data-release': 'Release',
     'data-mobile': 'Runs on a computer.',
   };
@@ -302,7 +304,7 @@ describe('the download buttons on the page', () => {
     // The line under the main button stays hidden on a computer.
     expect(el.hero.hidden).toBe(true);
     expect(el.hero.textContent).toBe('');
-    expect(JSON.parse(storage.data.get(STORAGE_KEY)!)).toMatchObject({ at: 1000, release: { tag: '2026-11-11', prerelease: false } });
+    expect(JSON.parse(storage.data.get(STORAGE_KEY)!)).toMatchObject({ at: 1000, release: { tag: '2026-11-11' } });
   });
 
   it("give a Windows or Linux computer on Arm its own installer once Chromium's hints say so", async () => {
@@ -453,32 +455,44 @@ describe('the download buttons on the page', () => {
     }
   });
 
-  it('point at a release candidate when it is the newest, and say it is one on the version line', async () => {
+  it('point at the newest release, never at a release candidate however new', async () => {
     const { el, doc } = page();
     const storage = memoryStorage();
-    await wire({ doc, nav: MAC, storage, fetchJson: async () => [release('2026-11-12-rc'), release('2026-11-10')], now: () => 0 });
-    expect(el.primary.attrs.href).toMatch(/Harness-Relay-2026-11-12-rc-mac-arm64\.dmg$/);
-    expect(el.cards.linux!.attrs.href).toMatch(/Harness-Relay-2026-11-12-rc-linux-x86_64\.AppImage$/);
-    expect(el.line.textContent).toBe('Release candidate 2026-11-12-rc');
-    expect(JSON.parse(storage.data.get(STORAGE_KEY)!)).toMatchObject({ release: { tag: '2026-11-12-rc', prerelease: true } });
-    // Only release candidates so far: the newest of them.
+    await wire({ doc, nav: MAC, storage, fetchJson: async () => [release('2026-11-12-rc'), release('2026-11-11.1-rc'), release('2026-11-10')], now: () => 0 });
+    expect(el.primary.attrs.href).toMatch(/Harness-Relay-2026-11-10-mac-arm64\.dmg$/);
+    expect(el.cards.linux!.attrs.href).toMatch(/Harness-Relay-2026-11-10-linux-x86_64\.AppImage$/);
+    expect(el.line.textContent).toBe('Release 2026-11-10');
+    expect(JSON.parse(storage.data.get(STORAGE_KEY)!)).toMatchObject({ release: { tag: '2026-11-10' } });
+    // Only release candidates so far: the releases page, and no version line.
     const only = page();
     await wire({ doc: only.doc, nav: MAC, storage: memoryStorage(), fetchJson: async () => [release('2026-11-12-rc'), release('2026-11-11-rc.1')], now: () => 0 });
-    expect(only.el.primary.attrs.href).toMatch(/Harness-Relay-2026-11-12-rc-mac-arm64\.dmg$/);
-    expect(only.el.line.textContent).toBe('Release candidate 2026-11-12-rc');
+    expect(only.el.primary.attrs.href).toBe(RELEASES_PAGE);
+    for (const card of Object.values(only.el.cards)) expect(card.attrs.href).toBe(RELEASES_PAGE);
+    expect(only.el.line.textContent).toBe('');
   });
 
-  it('show a release candidate kept from an earlier visit as one, also when kept by a page that left out whether it was', async () => {
-    for (const kept of [newestRelease([release('2026-11-12-rc')]), { tag: '2026-11-12-rc', installers: newestRelease([release('2026-11-12-rc')])!.installers }]) {
+  it('ask GitHub again, without showing it, when the release kept from an earlier visit is a release candidate (the page offered them before)', async () => {
+    const candidate = release('2026-11-12-rc');
+    const installers = installersOf(candidate);
+    // As the page kept them before: with whether it was one, without it, or marked as not one but ending in -rc.
+    for (const kept of [{ tag: '2026-11-12-rc', prerelease: true, installers }, { tag: '2026-11-12-rc', installers }, { tag: '2026-11-12-rc', prerelease: false, installers }, { tag: '2026-11-12', prerelease: true, installers }]) {
       const storage = memoryStorage();
       storage.setItem(STORAGE_KEY, JSON.stringify({ release: kept, at: 0 }));
       let calls = 0;
       const { el, doc } = page();
-      await wire({ doc, nav: MAC, storage, fetchJson: async () => (calls++, []), now: () => 60_000 });
-      expect(calls).toBe(0);
-      expect(el.primary.attrs.href).toMatch(/2026-11-12-rc-mac-arm64\.dmg$/);
-      expect(el.line.textContent).toBe('Release candidate 2026-11-12-rc');
+      await wire({ doc, nav: MAC, storage, fetchJson: async () => (calls++, [candidate, release('2026-11-11')]), now: () => 60_000 });
+      expect(calls, JSON.stringify(kept)).toBe(1);
+      expect(el.primary.attrs.href).toMatch(/Harness-Relay-2026-11-11-mac-arm64\.dmg$/);
+      expect(el.line.textContent).toBe('Release 2026-11-11');
+      expect(JSON.parse(storage.data.get(STORAGE_KEY)!)).toMatchObject({ release: { tag: '2026-11-11' }, at: 60_000 });
     }
+    // GitHub cannot be reached: the kept candidate is still not shown.
+    const storage = memoryStorage();
+    storage.setItem(STORAGE_KEY, JSON.stringify({ release: { tag: '2026-11-12-rc', prerelease: true, installers }, at: 0 }));
+    const { el, doc } = page();
+    await wire({ doc, nav: MAC, storage, fetchJson: async () => Promise.reject(new Error('offline')), now: () => 60_000 });
+    expect(el.primary.attrs.href).toBe(RELEASES_PAGE);
+    expect(el.line.textContent).toBe('');
   });
 
   it('ignore a kept release whose links go elsewhere', async () => {
