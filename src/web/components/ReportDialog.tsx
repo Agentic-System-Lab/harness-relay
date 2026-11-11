@@ -202,6 +202,7 @@ export function ReportDialog({ providers, onClose }: Props) {
    * app's window, a mail link goes through its window handler (to the mail app); a page cannot move to it.
    */
   const open = async (link: MailLink, how: 'mail' | 'gmail') => {
+    uploads.sent(); // the mail links to the upload done now, if any: it stays on GitHub
     const copied = link.cut ? copyText(whole()) : undefined;
     if (how === 'gmail' || isAppWindow(navigator.userAgent)) window.open(link.url, '_blank', 'noopener,noreferrer');
     else window.location.href = link.url;

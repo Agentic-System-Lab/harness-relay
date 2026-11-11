@@ -276,8 +276,10 @@ export const api = {
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),
   providers: (refresh = false) => request<ProviderStatus[]>('GET', `/api/providers${refresh ? '?refresh=1' : ''}`),
-  /** Which Harness Relay this is, and on what, for a problem report. */
-  /** Given up on after 10 s: the report then says the server did not answer, instead of waiting for good. */
+  /**
+   * Which Harness Relay this is, and on what, for a problem report. Given up on after 10 s: the report
+   * then says the server did not answer, instead of waiting for good.
+   */
   about: () => request<AboutInfo>('GET', '/api/about', undefined, AbortSignal.timeout(10_000)),
   /** This version, and the desktop app's updates (only the version otherwise). */
   update: () => request<UpdateStatus>('GET', '/api/update'),

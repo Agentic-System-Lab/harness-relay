@@ -180,8 +180,12 @@ export class ShotUploads {
   done?: ReportScreenshots;
   private going?: Promise<ReportScreenshots>;
   private removing?: Promise<void>;
+  /** The gist being deleted, so that forgetting the report meanwhile does not delete it twice. */
+  private removingId?: string;
   /** Counts the reports forgotten: what goes on for one forgotten no longer counts. */
   private report = 0;
+  /** The upload the sent mail links to (`sent`): it stays on GitHub once the report is forgotten. */
+  private linked?: string;
   private listeners = new Set<() => void>();
 
   constructor(private api: ShotsApi) {}
@@ -241,6 +245,7 @@ export class ShotUploads {
     if (!done) return Promise.resolve();
     if (!this.removing) {
       const report = this.report;
+      this.removingId = done.id;
       let removing: Promise<void> | undefined = undefined;
       removing = (async () => {
         try {
@@ -251,6 +256,7 @@ export class ShotUploads {
           throw err;
         } finally {
           if (this.removing === removing) this.removing = undefined;
+          if (this.removingId === done.id) this.removingId = undefined;
           this.changed();
         }
       })();
@@ -260,8 +266,19 @@ export class ShotUploads {
     return this.removing;
   }
 
-  /** Forgets the upload, and what goes on: the report was sent, and its mail links to it. */
+  /** The mail was sent: it links to the upload done now, if any, which then stays on GitHub. */
+  sent(): void {
+    this.linked = this.done?.id;
+  }
+
+  /**
+   * Forgets the report's upload, and what goes on: the report was sent. An upload no sent mail links to
+   * (made after the mail went) belongs to nothing: its gist is deleted again, as one ending later is.
+   */
   forget(): void {
+    const done = this.done;
+    if (done && done.id !== this.linked && done.id !== this.removingId) void Promise.resolve(this.api.remove(done.id)).catch(() => undefined);
+    this.linked = undefined;
     this.report++;
     this.done = undefined;
     this.going = undefined;

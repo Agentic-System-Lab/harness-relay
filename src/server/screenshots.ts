@@ -3,6 +3,7 @@
 // GitHub CLI (`gh`), as a shared conversation's files do (share.ts), and the mail links to it. Nothing
 // goes up until the user presses Upload in the dialog.
 
+import { crc32 } from 'node:zlib';
 import { REPORT_SCREENSHOT_LIMITS, type ReportScreenshots } from '../shared/types';
 import { HttpError } from './errors';
 import { t } from './i18n';
@@ -26,11 +27,12 @@ export function imageKind(data: Buffer): 'png' | 'jpg' | 'gif' | 'webp' | undefi
 
 /**
  * The image without what it says besides its pixels, or an error when its structure cannot be read
- * through (it is then refused, never uploaded as it is). Only what showing it needs is kept, whatever
+ * through (it is then refused, never uploaded as it is): one cut short after its image began is ended
+ * there, as browsers show what there is of it. Only what showing it needs is kept, whatever
  * else a file holds (an allow-list): a photo's location, its camera and time, comments, text, XMP,
- * IPTC, content credentials, a phone's motion-photo video or second image after the image, and bytes
- * after its end, all go. A JPEG keeps its orientation (a minimal EXIF of that tag alone), so a photo
- * shows the right way up.
+ * IPTC, content credentials, thumbnails, a phone's motion-photo video or second image after the image,
+ * and bytes after its end, all go. A JPEG or PNG keeps its orientation (a minimal EXIF of that tag
+ * alone), so a photo shows the right way up.
  */
 export function withoutMetadata(data: Buffer, kind: 'png' | 'jpg' | 'gif' | 'webp'): Buffer {
   if (kind === 'jpg') return jpegWithout(data);
@@ -55,29 +57,49 @@ function jpegAppKept(marker: number, payload: Buffer): boolean {
   return (marker === 0xe0 && starts('JFIF\0')) || (marker === 0xe2 && starts('ICC_PROFILE\0')) || (marker === 0xee && starts('Adobe'));
 }
 
-/** A JPEG's EXIF orientation (1 to 8), from its APP1 payload; undefined when it has none. */
-export function exifOrientation(payload: Buffer): number | undefined {
-  if (payload.subarray(0, 6).toString('latin1') !== 'Exif\0\0') return undefined;
-  const tiff = payload.subarray(6);
-  const order = tiff.subarray(0, 2).toString('latin1');
-  if (order !== 'II' && order !== 'MM') return undefined;
-  const u16 = (at: number) => (order === 'II' ? tiff.readUInt16LE(at) : tiff.readUInt16BE(at));
-  const u32 = (at: number) => (order === 'II' ? tiff.readUInt32LE(at) : tiff.readUInt32BE(at));
-  const ifd = u32(4);
-  const count = u16(ifd);
-  for (let i = 0; i < count; i++) {
-    const entry = ifd + 2 + i * 12;
-    // Orientation: SHORT, one value.
-    if (u16(entry) === 0x0112 && u16(entry + 2) === 3 && u32(entry + 4) === 1) {
-      const value = u16(entry + 8);
-      return value >= 1 && value <= 8 ? value : undefined;
+/**
+ * A JFIF segment of its 14-byte header alone, its thumbnail's size set to 0: a thumbnail can show the
+ * image as it was before it was cropped.
+ */
+function jfifWithoutThumbnail(payload: Buffer): Buffer {
+  if (payload.length < 14) throw new Error('short JFIF');
+  const header = Buffer.from(payload.subarray(0, 14));
+  header[12] = 0; // Xthumbnail
+  header[13] = 0; // Ythumbnail
+  return Buffer.concat([Buffer.from([0xff, 0xe0, 0, 16]), header]);
+}
+
+/** The orientation (1 to 8) in an EXIF TIFF structure's first IFD; undefined when it has none or cannot be read. */
+export function tiffOrientation(tiff: Buffer): number | undefined {
+  try {
+    const order = tiff.subarray(0, 2).toString('latin1');
+    if (order !== 'II' && order !== 'MM') return undefined;
+    const u16 = (at: number) => (order === 'II' ? tiff.readUInt16LE(at) : tiff.readUInt16BE(at));
+    const u32 = (at: number) => (order === 'II' ? tiff.readUInt32LE(at) : tiff.readUInt32BE(at));
+    const ifd = u32(4);
+    const count = u16(ifd);
+    for (let i = 0; i < count; i++) {
+      const entry = ifd + 2 + i * 12;
+      // Orientation: SHORT, one value.
+      if (u16(entry) === 0x0112 && u16(entry + 2) === 3 && u32(entry + 4) === 1) {
+        const value = u16(entry + 8);
+        return value >= 1 && value <= 8 ? value : undefined;
+      }
     }
+  } catch {
+    /* not what it says: no orientation */
   }
   return undefined;
 }
 
-/** An APP1 segment of a minimal EXIF holding the orientation alone. */
-function orientationSegment(orientation: number): Buffer {
+/** A JPEG's EXIF orientation (1 to 8), from its APP1 payload; undefined when it has none. */
+export function exifOrientation(payload: Buffer): number | undefined {
+  if (payload.subarray(0, 6).toString('latin1') !== 'Exif\0\0') return undefined;
+  return tiffOrientation(payload.subarray(6));
+}
+
+/** A minimal EXIF TIFF structure holding the orientation alone. */
+function orientationTiff(orientation: number): Buffer {
   const tiff = Buffer.alloc(26);
   tiff.write('MM', 0, 'latin1');
   tiff.writeUInt16BE(42, 2);
@@ -88,39 +110,54 @@ function orientationSegment(orientation: number): Buffer {
   tiff.writeUInt32BE(1, 14);
   tiff.writeUInt16BE(orientation, 18);
   tiff.writeUInt32BE(0, 22); // no next IFD
-  const payload = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
+  return tiff;
+}
+
+/** An APP1 segment of a minimal EXIF holding the orientation alone. */
+function orientationSegment(orientation: number): Buffer {
+  const payload = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), orientationTiff(orientation)]);
   const head = Buffer.from([0xff, 0xe1, 0, 0]);
   head.writeUInt16BE(payload.length + 2, 2);
   return Buffer.concat([head, payload]);
 }
 
+const JPEG_EOI = Buffer.from([0xff, 0xd9]);
+
 /**
  * A JPEG from its start to its end marker (EOI), with only the segments showing it needs, its scans
- * as they are. Bytes between segments that are no marker are left out (as decoders skip them).
+ * as they are. Bytes between segments that are no marker are left out (as decoders skip them). One cut
+ * short after its first scan began ends there, with an end marker, as browsers show what there is of it.
  */
 function jpegWithout(data: Buffer): Buffer {
   if (data[0] !== 0xff || data[1] !== 0xd8) throw new Error('no SOI');
   const out: Buffer[] = [data.subarray(0, 2)];
+  let scanned = false;
+  /** Cut short: what there is, ended, once a scan began; nothing to show before. */
+  const cutShort = () => {
+    if (!scanned) throw new Error('truncated');
+    out.push(JPEG_EOI);
+    return Buffer.concat(out);
+  };
   let at = 2;
   for (;;) {
     // To the next marker: stray bytes are skipped, fill bytes (FF FF…) too.
     while (at < data.length && data[at] !== 0xff) at++;
     while (at + 1 < data.length && data[at + 1] === 0xff) at++;
-    need(data, at + 2);
+    if (at + 2 > data.length) return cutShort();
     const marker = data[at + 1]!;
     if (marker === 0xd9) {
-      out.push(Buffer.from([0xff, 0xd9]));
+      out.push(JPEG_EOI);
       return Buffer.concat(out); // what follows the image (a motion photo's video, a second image) goes
     }
     if ((marker >= 0xd0 && marker <= 0xd7) || marker === 0x01 || marker === 0x00) {
       at += 2; // no segment to keep
       continue;
     }
-    need(data, at + 4);
+    if (at + 4 > data.length) return cutShort();
     const length = data.readUInt16BE(at + 2);
     if (length < 2) throw new Error('bad segment');
     const end = at + 2 + length;
-    need(data, end);
+    if (end > data.length) return cutShort();
     const payload = data.subarray(at + 4, end);
     if (marker === 0xda) {
       // The scan's header, then its entropy-coded data up to the next marker (FF 00 and restarts are data).
@@ -136,19 +173,17 @@ function jpegWithout(data: Buffer): Buffer {
         }
         next++;
       }
-      out.push(data.subarray(at, next));
+      out.push(data.subarray(at, Math.min(next, data.length)));
+      scanned = true;
       at = next;
       continue;
     }
-    if (JPEG_KEPT.has(marker) || (marker >= 0xe0 && marker <= 0xef && jpegAppKept(marker, payload))) {
+    if (marker === 0xe0 && jpegAppKept(marker, payload)) {
+      out.push(jfifWithoutThumbnail(payload));
+    } else if (JPEG_KEPT.has(marker) || (marker >= 0xe0 && marker <= 0xef && jpegAppKept(marker, payload))) {
       out.push(data.subarray(at, end));
     } else if (marker === 0xe1) {
-      let orientation: number | undefined;
-      try {
-        orientation = exifOrientation(payload);
-      } catch {
-        orientation = undefined;
-      }
+      const orientation = exifOrientation(payload);
       if (orientation && orientation !== 1) out.push(orientationSegment(orientation));
     }
     at = end;
@@ -160,17 +195,41 @@ function jpegWithout(data: Buffer): Buffer {
 /** Chunks a PNG needs to be shown (critical, colour, transparency, animation, HDR): nothing else. */
 const PNG_KEPT = new Set(['IHDR', 'PLTE', 'IDAT', 'IEND', 'tRNS', 'gAMA', 'cHRM', 'sRGB', 'iCCP', 'sBIT', 'bKGD', 'pHYs', 'acTL', 'fcTL', 'fdAT', 'cICP', 'mDCV', 'cLLI']);
 
-/** A PNG up to its IEND, with only the chunks showing it needs. */
+/** A PNG chunk of `type` and `data`, with its CRC. */
+function pngChunk(type: string, data: Buffer): Buffer {
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(data.length, 0);
+  head.write(type, 4, 'latin1');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])) >>> 0, 0);
+  return Buffer.concat([head, data, crc]);
+}
+
+/**
+ * A PNG up to its IEND, with only the chunks showing it needs; its EXIF (eXIf) becomes a minimal one of
+ * its orientation alone, when it is turned. One cut short after its image data began ends there, with
+ * an IEND, as browsers show what there is of it.
+ */
 function pngWithout(data: Buffer): Buffer {
   const out: Buffer[] = [data.subarray(0, 8)];
+  let pixels = false;
   let at = 8;
   for (;;) {
-    need(data, at + 8);
+    if (at + 12 > data.length || at + 12 + data.readUInt32BE(at) > data.length) {
+      // Cut short: what there is, ended, once its image data began; nothing to show before.
+      if (!pixels) throw new Error('truncated');
+      out.push(pngChunk('IEND', Buffer.alloc(0)));
+      return Buffer.concat(out);
+    }
     const length = data.readUInt32BE(at);
     const type = data.subarray(at + 4, at + 8).toString('latin1');
     const end = at + 12 + length;
-    need(data, end);
     if (PNG_KEPT.has(type)) out.push(data.subarray(at, end));
+    else if (type === 'eXIf') {
+      const orientation = tiffOrientation(data.subarray(at + 8, end - 4));
+      if (orientation && orientation !== 1) out.push(pngChunk('eXIf', orientationTiff(orientation)));
+    }
+    if (type === 'IDAT' || type === 'fdAT') pixels = true;
     if (type === 'IEND') return Buffer.concat(out); // what follows it goes
     at = end;
   }
@@ -181,27 +240,48 @@ function pngWithout(data: Buffer): Buffer {
 /** Chunks a WebP needs to be shown: its image (lossy, lossless, alpha), animation, ICC profile. */
 const WEBP_KEPT = new Set(['VP8 ', 'VP8L', 'VP8X', 'ALPH', 'ANIM', 'ANMF', 'ICCP']);
 
+/** What an animation frame (ANMF) holds that showing it needs: its image. */
+const WEBP_FRAME_KEPT = new Set(['VP8 ', 'VP8L', 'ALPH']);
+
+/** The chunks from `at` to `end` that `kept` names, padded as they were; `end` must fall on a chunk's end. */
+function webpChunks(data: Buffer, at: number, end: number, kept: Set<string>, each?: (type: string, chunk: Buffer) => Buffer): Buffer[] {
+  const out: Buffer[] = [];
+  while (at < end) {
+    need(data, at + 8);
+    const type = data.subarray(at, at + 4).toString('latin1');
+    const size = data.readUInt32LE(at + 4);
+    const next = at + 8 + size + (size % 2);
+    if (next > end) throw new Error('bad chunk');
+    if (kept.has(type)) {
+      const chunk = Buffer.from(data.subarray(at, next));
+      out.push(each ? each(type, chunk) : chunk);
+    }
+    at = next;
+  }
+  return out;
+}
+
+/** An animation frame without what its image does not need, its size set again. */
+function webpFrame(chunk: Buffer): Buffer {
+  const size = chunk.readUInt32LE(4);
+  // 16 bytes of frame header (position, size, duration, flags), then its own chunks.
+  if (size < 16) throw new Error('short frame');
+  const inner = Buffer.concat(webpChunks(chunk, 24, 8 + size, WEBP_FRAME_KEPT));
+  const head = Buffer.from(chunk.subarray(0, 24));
+  head.writeUInt32LE(16 + inner.length, 4);
+  return Buffer.concat([head, inner]);
+}
+
 /** A WebP within its RIFF size, with only the chunks showing it needs; its VP8X flags and size set again. */
 function webpWithout(data: Buffer): Buffer {
   need(data, 12);
   const riffEnd = 8 + data.readUInt32LE(4);
   need(data, riffEnd);
-  const out: Buffer[] = [];
-  let at = 12;
-  while (at < riffEnd) {
-    need(data, at + 8);
-    const type = data.subarray(at, at + 4).toString('latin1');
-    const size = data.readUInt32LE(at + 4);
-    const end = at + 8 + size + (size % 2);
-    if (end > riffEnd) throw new Error('bad chunk');
-    if (WEBP_KEPT.has(type)) {
-      const chunk = Buffer.from(data.subarray(at, end));
-      // VP8X flags: EXIF 0x08, XMP 0x04 (their chunks are gone).
-      if (type === 'VP8X') chunk[8] = chunk[8]! & ~0x0c;
-      out.push(chunk);
-    }
-    at = end;
-  }
+  const out = webpChunks(data, 12, riffEnd, WEBP_KEPT, (type, chunk) => {
+    // VP8X flags: EXIF 0x08, XMP 0x04 (their chunks are gone).
+    if (type === 'VP8X') chunk[8] = chunk[8]! & ~0x0c;
+    return type === 'ANMF' ? webpFrame(chunk) : chunk;
+  });
   const body = Buffer.concat(out);
   const head = Buffer.from(data.subarray(0, 12));
   head.writeUInt32LE(4 + body.length, 4);
@@ -210,10 +290,14 @@ function webpWithout(data: Buffer): Buffer {
 
 // --- GIF ----------------------------------------------------------------------------------
 
-/** Application extensions a GIF needs: how its animation loops. */
-const GIF_APPS_KEPT = new Set(['NETSCAPE2.0', 'ANIMEXTS1.0']);
+/** Application extensions a GIF needs: how its animation loops, and its colours (an ICC profile). */
+const GIF_APPS_KEPT = new Set(['NETSCAPE2.0', 'ANIMEXTS1.0', 'ICCRGBG1012']);
 
-/** A GIF up to its trailer, without its comments and its other application extensions (XMP, say). */
+/**
+ * A GIF up to its trailer, without its comments, plain text and other application extensions (XMP,
+ * say). One cut short ends after its last whole block, with a trailer, once it has a whole image, as
+ * browsers show what there is of it.
+ */
 function gifWithout(data: Buffer): Buffer {
   need(data, 13);
   const out: Buffer[] = [];
@@ -221,43 +305,53 @@ function gifWithout(data: Buffer): Buffer {
   let at = 13 + (flags & 0x80 ? 3 * 2 ** ((flags & 0x07) + 1) : 0);
   need(data, at);
   out.push(data.subarray(0, at));
-  /** Past the data sub-blocks at `from`, to after their terminator. */
-  const subBlocks = (from: number) => {
+  let images = 0;
+  /** Cut short: its whole blocks, ended, once it has a whole image; nothing to show before. */
+  const cutShort = () => {
+    if (!images) throw new Error('truncated');
+    out.push(Buffer.from([0x3b]));
+    return Buffer.concat(out);
+  };
+  /** Past the data sub-blocks at `from`, to after their terminator; undefined when they run past the end. */
+  const subBlocks = (from: number): number | undefined => {
     let i = from;
     for (;;) {
-      need(data, i + 1);
+      if (i + 1 > data.length) return undefined;
       const size = data[i]!;
       i += 1 + size;
+      if (i > data.length) return undefined;
       if (size === 0) return i;
     }
   };
   for (;;) {
-    need(data, at + 1);
+    if (at + 1 > data.length) return cutShort();
     const block = data[at]!;
     if (block === 0x3b) {
       out.push(data.subarray(at, at + 1));
       return Buffer.concat(out); // what follows the trailer goes
     }
     if (block === 0x21) {
-      need(data, at + 2);
+      if (at + 2 > data.length) return cutShort();
       const label = data[at + 1]!;
       const end = subBlocks(at + 2);
-      let keep = label === 0xf9 || label === 0x01; // graphic control, plain text (both drawn)
-      if (label === 0xff) {
-        need(data, at + 14);
-        keep = data[at + 2] === 11 && GIF_APPS_KEPT.has(data.subarray(at + 3, at + 14).toString('latin1'));
-      }
+      if (end === undefined) return cutShort();
+      // Only the graphic control extension (a frame's timing and transparency): plain text, which hardly
+      // a viewer draws, could carry any words.
+      let keep = label === 0xf9;
+      if (label === 0xff) keep = data[at + 2] === 11 && at + 14 <= end && GIF_APPS_KEPT.has(data.subarray(at + 3, at + 14).toString('latin1'));
       if (keep) out.push(data.subarray(at, end));
       at = end;
       continue;
     }
     if (block === 0x2c) {
-      need(data, at + 10);
+      if (at + 10 > data.length) return cutShort();
       const local = data[at + 9]!;
       const tableEnd = at + 10 + (local & 0x80 ? 3 * 2 ** ((local & 0x07) + 1) : 0);
       // The LZW minimum code size, then the image's data sub-blocks.
-      const end = subBlocks(tableEnd + 1);
+      const end = tableEnd + 1 <= data.length ? subBlocks(tableEnd + 1) : undefined;
+      if (end === undefined) return cutShort();
       out.push(data.subarray(at, end));
+      images++;
       at = end;
       continue;
     }

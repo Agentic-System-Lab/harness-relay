@@ -264,16 +264,48 @@ describe("a report's screenshots on GitHub", () => {
     expect(uploads.done).toBeUndefined();
   });
 
-  it('are forgotten once the report is sent (its mail links to them)', async () => {
+  it('are forgotten once the report is sent, and stay on GitHub when its mail links to them', async () => {
     const server = fakeServer();
     const uploads = new ShotUploads(server.api);
     const up = uploads.upload(async () => ['a']);
     await flush();
     server.ok(gist);
     await up;
+    uploads.sent(); // the mail links to them
     uploads.forget();
     expect(uploads.done).toBeUndefined();
     expect(await uploads.remove()).toBeUndefined();
+    expect(server.calls).toEqual(['upload a']);
+  });
+
+  it('are deleted when forgotten if no sent mail links to them (uploaded after the mail went)', async () => {
+    const server = fakeServer();
+    const uploads = new ShotUploads(server.api);
+    uploads.sent(); // sent without screenshots
+    const up = uploads.upload(async () => ['a']);
+    await flush();
+    server.ok(gist);
+    await up;
+    uploads.forget(); // the dialog closed
+    expect(uploads.done).toBeUndefined();
+    expect(server.calls).toEqual(['upload a', `remove ${gist.id}`]);
+  });
+
+  it('keep only the upload the last sent mail links to', async () => {
+    const other = { ...gist, id: 'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf' };
+    const removed: string[] = [];
+    const uploads = new ShotUploads({
+      upload: async (images) => (images[0] === 'a' ? gist : other),
+      remove: async (id) => removed.push(id),
+      gone: () => false,
+    });
+    await uploads.upload(async () => ['a']);
+    uploads.sent(); // linked
+    await uploads.remove(); // removed anyway, by hand
+    await uploads.upload(async () => ['b']);
+    uploads.sent(); // sent again: this one is linked now
+    uploads.forget();
+    expect(removed).toEqual([gist.id]);
   });
 
   it('belong to no report when their upload ends after the report was sent: their gist is deleted again', async () => {

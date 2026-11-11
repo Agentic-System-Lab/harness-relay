@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { crc32 } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -6,7 +7,7 @@ import { GH_MISSING, REPORT_SCREENSHOT_LIMITS } from '../src/shared/types';
 import { HttpError } from '../src/server/errors';
 import { t } from '../src/server/i18n';
 import { CommandNotFoundError, type SpawnOptions, type SpawnResult } from '../src/server/process';
-import { SCREENSHOTS_DESCRIPTION, exifOrientation, imageKind, parseScreenshots, uploadScreenshots, withoutMetadata } from '../src/server/screenshots';
+import { SCREENSHOTS_DESCRIPTION, exifOrientation, imageKind, parseScreenshots, tiffOrientation, uploadScreenshots, withoutMetadata } from '../src/server/screenshots';
 import {
   CREATED_JQ,
   FILES_PLACEHOLDER,
@@ -47,7 +48,8 @@ const PNG = Buffer.concat([PNG_SIG, IHDR, IDAT, IEND]);
 const segment = (marker: number, payload: Buffer) => Buffer.concat([Buffer.from([0xff, marker]), Buffer.from([(payload.length + 2) >> 8, (payload.length + 2) & 0xff]), payload]);
 const SOI = Buffer.from([0xff, 0xd8]);
 const EOI = Buffer.from([0xff, 0xd9]);
-const JFIF = segment(0xe0, Buffer.from('JFIF\0\x01\x02'));
+/** A JFIF header: version 1.2, no units, density 1×1, no thumbnail (14 bytes). */
+const JFIF = segment(0xe0, Buffer.from([0x4a, 0x46, 0x49, 0x46, 0, 1, 2, 0, 0, 1, 0, 1, 0, 0]));
 const DQT = segment(0xdb, Buffer.from([0, 1, 2, 3]));
 const SOF = segment(0xc0, Buffer.from([8, 0, 1, 0, 1, 1, 1, 0x11, 0]));
 const DHT = segment(0xc4, Buffer.from([0, 1, 2]));
@@ -143,6 +145,16 @@ describe("a screenshot's metadata", () => {
     expect(clean.toString('latin1')).not.toMatch(/GPS|IPTC|comment|xmpmeta|c2pa|MPF|JFXX|ftyp/);
   });
 
+  it("keeps a JPEG's JFIF header alone, without the thumbnail it may hold (it may show the image before it was cropped)", () => {
+    const thumb = Buffer.concat([Buffer.from('SECRETTHUMB!'), Buffer.alloc(0)]); // 2×2 RGB
+    const withThumb = segment(0xe0, Buffer.concat([Buffer.from([0x4a, 0x46, 0x49, 0x46, 0, 1, 2, 0, 0, 1, 0, 1, 2, 2]), thumb, Buffer.from('and more')]));
+    const clean = withoutMetadata(Buffer.concat([SOI, withThumb, DQT, SOF, DHT, SCAN, EOI]), 'jpg');
+    expect(clean).toEqual(Buffer.concat([SOI, JFIF, DQT, SOF, DHT, SCAN, EOI]));
+    expect(clean.toString('latin1')).not.toContain('SECRET');
+    // A JFIF segment too short for its header is not read through.
+    expect(() => withoutMetadata(Buffer.concat([SOI, segment(0xe0, Buffer.from('JFIF\0\x01')), DQT, SOF, DHT, SCAN, EOI]), 'jpg')).toThrow();
+  });
+
   it("keeps a progressive JPEG's scans and the tables between them", () => {
     const second = Buffer.concat([DHT, SCAN]);
     const jpeg = Buffer.concat([SOI, DQT, SOF, DHT, SCAN, segment(0xfe, Buffer.from('between scans')), second, EOI]);
@@ -197,21 +209,75 @@ describe("a screenshot's metadata", () => {
     expect(withoutMetadata(webp, 'webp')).toEqual(riff(Buffer.concat([vp8x(0x20), icc, VP8])));
   });
 
-  it("keeps of a GIF its images, frame timing and loop, without comments, other extensions or bytes after its end", () => {
+  it("keeps of a WebP animation's frames only their images, each frame's size set again", () => {
+    const header = Buffer.from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0]); // position, size, duration, flags
+    const frame = (...inner: Buffer[]) => webpChunk('ANMF', Buffer.concat([header, ...inner]));
+    const anim = webpChunk('ANIM', Buffer.from([0, 0, 0, 0, 0, 0]));
+    const vp8x = webpChunk('VP8X', Buffer.from([0x02, 0, 0, 0, 1, 0, 0, 1, 0, 0]));
+    const webp = riff(Buffer.concat([vp8x, anim, frame(VP8, webpChunk('UNKN', Buffer.from('GPS 25.03'))), frame(webpChunk('ALPH', Buffer.from('a')), VP8)]));
+    const clean = withoutMetadata(webp, 'webp');
+    expect(clean).toEqual(riff(Buffer.concat([vp8x, anim, frame(VP8), frame(webpChunk('ALPH', Buffer.from('a')), VP8)])));
+    expect(clean.toString('latin1')).not.toContain('GPS');
+  });
+
+  it("keeps of a GIF its images, frame timing and loop, without comments, plain text, other extensions or bytes after its end", () => {
     const control = Buffer.from([0x21, 0xf9, 4, 0, 10, 0, 0, 0]);
     const loop = Buffer.concat([Buffer.from([0x21, 0xff, 11]), Buffer.from('NETSCAPE2.0'), Buffer.from([3, 1, 0, 0, 0])]);
     const comment = Buffer.concat([Buffer.from([0x21, 0xfe, 9]), Buffer.from('GPS 25.03'), Buffer.from([0])]);
     const xmp = Buffer.concat([Buffer.from([0x21, 0xff, 11]), Buffer.from('XMP DataXMP'), Buffer.from([5]), Buffer.from('<xmp>'), Buffer.from([0])]);
-    const gif = Buffer.concat([GIF_HEAD, loop, comment, control, GIF_IMAGE, xmp, control, GIF_IMAGE, Buffer.from([0x3b]), Buffer.from('junk')]);
+    // Plain text: a grid header (12 bytes), then its words.
+    const text = Buffer.concat([Buffer.from([0x21, 0x01, 12]), Buffer.alloc(12), Buffer.from([9]), Buffer.from('GPS 25.03'), Buffer.from([0])]);
+    const gif = Buffer.concat([GIF_HEAD, loop, comment, control, GIF_IMAGE, xmp, text, control, GIF_IMAGE, Buffer.from([0x3b]), Buffer.from('junk')]);
     expect(withoutMetadata(gif, 'gif')).toEqual(Buffer.concat([GIF_HEAD, loop, control, GIF_IMAGE, control, GIF_IMAGE, Buffer.from([0x3b])]));
   });
 
-  it("refuses what it cannot read through, rather than letting its metadata go along", () => {
+  it("refuses what it cannot read through before its image begins, rather than letting its metadata go along", () => {
     expect(() => withoutMetadata(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff]), 'jpg')).toThrow();
-    expect(() => withoutMetadata(Buffer.concat([SOI, JFIF, SCAN]), 'jpg')).toThrow(); // no end
-    expect(() => withoutMetadata(Buffer.concat([PNG_SIG, IHDR, IDAT]), 'png')).toThrow(); // no IEND
+    expect(() => withoutMetadata(Buffer.concat([SOI, JFIF, DQT]), 'jpg')).toThrow(); // no scan
+    expect(() => withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', gps)]), 'png')).toThrow(); // no image data
     expect(() => withoutMetadata(Buffer.concat([riff(VP8).subarray(0, 14)]), 'webp')).toThrow();
-    expect(() => withoutMetadata(GIF_HEAD, 'gif')).toThrow(); // no trailer
+    expect(() => withoutMetadata(GIF_HEAD, 'gif')).toThrow(); // no whole image
+  });
+
+  it('ends an image cut short after its image began, as browsers show what there is of it, without its metadata', () => {
+    // A JPEG cut in its scan: what there is, and an end marker.
+    const cutJpeg = Buffer.concat([SOI, segment(0xe1, gps), DQT, SOF, DHT, SCAN]);
+    expect(withoutMetadata(cutJpeg, 'jpg')).toEqual(Buffer.concat([SOI, DQT, SOF, DHT, SCAN, EOI]));
+    // Cut in a segment after the scan: that segment goes too.
+    expect(withoutMetadata(Buffer.concat([SOI, DQT, SOF, DHT, SCAN, DHT.subarray(0, 4)]), 'jpg')).toEqual(Buffer.concat([SOI, DQT, SOF, DHT, SCAN, EOI]));
+    // A PNG cut in its image data: its whole chunks, then a real IEND (its CRC as PNG has it).
+    const realIend = Buffer.from([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
+    const cutPng = Buffer.concat([PNG_SIG, IHDR, IDAT, pngChunk('tEXt', Buffer.from('GPS')), IDAT.subarray(0, 9)]);
+    expect(withoutMetadata(cutPng, 'png')).toEqual(Buffer.concat([PNG_SIG, IHDR, IDAT, realIend]));
+    // A GIF cut after its first image: its whole blocks, then a trailer.
+    const comment = Buffer.concat([Buffer.from([0x21, 0xfe, 3]), Buffer.from('GPS'), Buffer.from([0])]);
+    const cutGif = Buffer.concat([GIF_HEAD, GIF_IMAGE, comment, GIF_IMAGE.subarray(0, 12)]);
+    expect(withoutMetadata(cutGif, 'gif')).toEqual(Buffer.concat([GIF_HEAD, GIF_IMAGE, Buffer.from([0x3b])]));
+  });
+
+  it("keeps a PNG's orientation alone, in a minimal EXIF chunk with its CRC", () => {
+    const exif = exifWith(8, 'MM').subarray(6); // a PNG's eXIf holds the TIFF structure alone
+    const clean = withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', exif), IDAT, IEND]), 'png');
+    expect(clean.toString('latin1')).not.toContain('GPS');
+    const at = clean.indexOf('eXIf', 0, 'latin1') - 4;
+    const length = clean.readUInt32BE(at);
+    expect(tiffOrientation(clean.subarray(at + 8, at + 8 + length))).toBe(8);
+    expect(clean.readUInt32BE(at + 8 + length)).toBe(crc32(clean.subarray(at + 4, at + 8 + length)) >>> 0);
+    // Upright already, or no orientation: no EXIF at all.
+    expect(withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', exifWith(1).subarray(6)), IDAT, IEND]), 'png')).toEqual(PNG);
+    expect(withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', gps), IDAT, IEND]), 'png')).toEqual(PNG);
+  });
+
+  it('reads no orientation from an EXIF structure that is not what it says', () => {
+    expect(tiffOrientation(Buffer.from('MM\0\x2a\xff\xff\xff\xff', 'latin1'))).toBeUndefined();
+    expect(tiffOrientation(Buffer.from('XX'))).toBeUndefined();
+    expect(tiffOrientation(Buffer.alloc(0))).toBeUndefined();
+  });
+
+  it("keeps a GIF's colour profile", () => {
+    const icc = Buffer.concat([Buffer.from([0x21, 0xff, 11]), Buffer.from('ICCRGBG1012'), Buffer.from([6]), Buffer.from('colors'), Buffer.from([0])]);
+    const gif = Buffer.concat([GIF_HEAD, icc, GIF_IMAGE, Buffer.from([0x3b])]);
+    expect(withoutMetadata(gif, 'gif')).toEqual(gif);
   });
 });
 
