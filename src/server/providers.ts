@@ -34,14 +34,19 @@ function firstJsonObject(s: string): Record<string, any> | null {
   }
 }
 
+/**
+ * Whether an account is signed in, and how. Signed out, it says nothing more: the CLIs' own words for
+ * that (Claude Code's `"authMethod": "none"`, Codex's "Not logged in") would only repeat the pill.
+ */
 async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Promise<ProviderAuth> {
   switch (p) {
     case 'claude': {
       const r = await capture(bin, ['auth', 'status'], env);
       const j = firstJsonObject(r.stdout);
       if (!j) return { loggedIn: null, detail: tail(r.stderr || r.stdout, 200) };
+      if (!j.loggedIn) return { loggedIn: false };
       return {
-        loggedIn: Boolean(j.loggedIn),
+        loggedIn: true,
         method: j.authMethod,
         account: j.email ?? j.orgName,
         detail: j.subscriptionType ? t().planDetail(j.subscriptionType) : undefined,
@@ -50,10 +55,10 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
     case 'codex': {
       const r = await capture(bin, ['login', 'status'], env);
       const out = stripAnsi(`${r.stdout}\n${r.stderr}`).trim();
-      const notLogged = /not logged in/i.test(out);
-      const logged = !notLogged && /logged in/i.test(out);
+      if (/not logged in/i.test(out)) return { loggedIn: false };
+      const logged = /logged in/i.test(out);
       const method = out.match(/logged in using ([^\n]+)/i)?.[1]?.trim();
-      return { loggedIn: logged ? true : notLogged ? false : null, method, detail: out.split('\n')[0] };
+      return { loggedIn: logged ? true : null, method, detail: out.split('\n')[0] };
     }
     case 'grok': {
       const r = await capture(bin, ['models'], env);

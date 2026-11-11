@@ -39,6 +39,40 @@ describe("a CLI's status when it cannot run", () => {
   });
 });
 
+describe('a signed-out account', () => {
+  // What each CLI prints when its home has no sign-in (tried with the real ones).
+  const SIGNED_OUT: Record<'claude' | 'codex' | 'grok', string> = {
+    claude: `case "$1 $2" in
+  "--version ") echo "2.1.0 (Claude Code)" ;;
+  "auth status") echo '{\n  "loggedIn": false,\n  "authMethod": "none",\n  "apiProvider": "firstParty",\n  "loginExpiresAt": null\n}'; exit 1 ;;
+esac`,
+    codex: `case "$1 $2" in
+  "--version ") echo "codex-cli 0.80.0" ;;
+  "login status") echo "Not logged in" >&2; exit 1 ;;
+esac`,
+    grok: `case "$1" in
+  --version) echo "grok 1.2.0" ;;
+  models) printf 'You are not authenticated.\\n\\nDefault model: grok-4.6\\n' ;;
+esac`,
+  };
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+
+  for (const provider of ['claude', 'codex', 'grok'] as const) {
+    posixIt(`says only that it is signed out (${provider}), with nothing of the CLI's own words after the pill`, async () => {
+      const dir = join(root, `signed-out-${provider}`);
+      mkdirSync(dir, { recursive: true });
+      const bin = join(dir, provider);
+      writeFileSync(bin, `#!/bin/sh\n${SIGNED_OUT[provider]}\n`, { mode: 0o755 });
+      const settings = new SettingsStore(openDatabase(':memory:'));
+      settings.update(provider, { bin });
+      settings.setAgentHome(join(dir, 'homes'));
+      const status = await new ProviderService(settings).status(provider, true);
+      expect(status.installed).toBe(true);
+      expect(status.accounts).toEqual([{ id: '', label: '', auth: { loggedIn: false }, usingStoredApiKey: false }]);
+    });
+  }
+});
+
 describe('accounts of a CLI', () => {
   // A stand-in for `claude` that keeps its sign-in in its home, as the real one does.
   const FAKE_CLAUDE = `#!/bin/sh
@@ -47,7 +81,7 @@ case "$1 $2" in
   "--version ") echo "2.1.0 (Claude Code)" ;;
   "auth status")
     if [ -f "$home/signed-in" ]; then printf '{"loggedIn": true, "email": "%s", "authMethod": "claude.ai"}\\n' "$(cat "$home/signed-in")"
-    else echo '{"loggedIn": false}'; fi ;;
+    else echo '{"loggedIn": false, "authMethod": "none", "apiProvider": "firstParty"}'; fi ;;
   "auth login") echo "work@example.com" > "$home/signed-in"; echo "Logged in" ;;
   "auth logout") rm -f "$home/signed-in"; echo "Logged out" ;;
 esac
