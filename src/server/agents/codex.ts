@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import type { NativeItemsOff, NativePart, Permission, PlanEntry } from '../../shared/types';
+import { endpointEffort, ENDPOINT_CLI, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
+import { endpointKeyEnv, endpointModel, ENDPOINT_KEY_ENV, type EndpointModel } from '../backends';
 import { unwrapShell } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
@@ -310,6 +311,54 @@ export async function codexConfirmLeftOut(
   if (still.length) throw new AgentRunError(t().codexStillLoaded(still));
 }
 
+/** The model provider Harness Relay names one of the user's own endpoints in a thread's config. */
+export const codexEndpointProvider = (endpointId: string): string => `harness-relay-${endpointId}`;
+
+/**
+ * The model provider of one of the user's own endpoints, which the thread's config adds to the user's
+ * own (`model_providers`): its base URL, the Responses API (`/v1/responses`: vLLM, Ollama, LM Studio and
+ * llama.cpp serve it), and its key in `ENDPOINT_KEY_ENV` when it has one (none sent otherwise, nor the
+ * user's ChatGPT sign-in or OpenAI key).
+ */
+export function codexEndpointConfig(run: EndpointModel): Record<string, unknown> {
+  return {
+    name: `Harness Relay: ${run.endpoint.name || run.endpoint.id}`,
+    base_url: run.endpoint.baseUrl,
+    wire_api: 'responses',
+    ...(run.endpoint.apiKey ? { env_key: ENDPOINT_KEY_ENV } : {}),
+  };
+}
+
+/** The config that makes one of the user's own endpoints the model provider: for the app-server and the thread. */
+export function codexEndpointProviderConfig(run: EndpointModel): Record<string, unknown> {
+  const provider = codexEndpointProvider(run.endpoint.id);
+  return { model_provider: provider, model_providers: { [provider]: codexEndpointConfig(run) } };
+}
+
+/**
+ * The effort a Codex run on the user's own endpoint sends: one its endpoint models offer
+ * (`endpointEffort`). With none given, the one the user's Codex config sets is asked (`config/read`):
+ * Codex cannot be told to send none, and one such as `xhigh`, meant for OpenAI's models, would make
+ * the endpoint refuse the turn, so it becomes `medium`; with none set, none is sent. Also `medium` when
+ * Codex cannot say.
+ */
+export async function codexEndpointEffort(
+  effort: string | undefined,
+  conn: { request(method: string, params?: unknown): Promise<unknown> },
+  cwd: string,
+): Promise<string | undefined> {
+  const given = endpointEffort('codex', effort);
+  if (given) return given;
+  let configured: unknown;
+  try {
+    configured = ((await conn.request('config/read', { cwd })) as { config?: { model_reasoning_effort?: unknown } } | undefined)?.config
+      ?.model_reasoning_effort;
+  } catch {
+    return ENDPOINT_CLI.codex.fallbackEffort;
+  }
+  return typeof configured === 'string' ? endpointEffort('codex', configured) : undefined;
+}
+
 /** The request that starts the run's thread, or resumes the agent's session. */
 export function codexThreadRequest(
   o: Pick<
@@ -330,18 +379,26 @@ export function codexThreadRequest(
   platform: NodeJS.Platform = process.platform,
   /** The profile's name (`codexProfileId()`, a new one for each run). */
   profileId: string = CODEX_PROFILE,
+  /** The user's own endpoint the model is on: the thread runs its model there (`codexEndpointConfig`). */
+  endpoint?: EndpointModel,
 ): { method: 'thread/start' | 'thread/resume'; params: Record<string, unknown> } {
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
   const profile = codexProfile(o.permission, o.protectedPaths, platform);
   const config = codexConfig(o.permission, o.effort, o.mcpServers, { off: o.nativeOff ?? [], items: o.nativeItems, user });
   // A profile keeps the network off by itself; the legacy setting is for the legacy sandbox only.
   if (profile) delete config.sandbox_workspace_write;
+  const provider = endpoint ? codexEndpointProvider(endpoint.endpoint.id) : undefined;
+  // The app-server is started with it too (`codexEndpointProviderConfig`): Codex refuses a thread whose
+  // `modelProvider` is not the app-server's own (codex 0.167).
+  if (endpoint) Object.assign(config, codexEndpointProviderConfig(endpoint));
+  const model = endpoint ? endpoint.model : o.model;
   const params = {
     cwd: o.cwd,
     approvalPolicy: ask ? 'on-request' : 'never',
     ...(profile ? { permissions: profileId } : { sandbox: SANDBOX[o.permission] }),
     developerInstructions: o.systemPrompt,
-    ...(o.model ? { model: o.model } : {}),
+    ...(model ? { model } : {}),
+    ...(provider ? { modelProvider: provider } : {}),
     config: profile ? { ...config, permissions: { [profileId]: profile } } : config,
   };
   return o.sessionId
@@ -591,7 +648,13 @@ const codexTurnRunner: AgentRunner = {
   provider: 'codex',
   async run(given): Promise<RunResult> {
     if (given.signal.aborted) throw new AgentRunError(t().stopped, true);
-    const o = { ...given, protectedPaths: given.protectedPaths ?? protectedReads() };
+    // On the user's own endpoint: its key in the variable its model provider names, and no other.
+    const endpoint = endpointModel(given.backends, given.model);
+    const o = {
+      ...given,
+      protectedPaths: given.protectedPaths ?? protectedReads(),
+      ...(endpoint ? { env: endpointKeyEnv(given.env, endpoint) } : {}),
+    };
     // A permission profile is an experimental thread field, which the client opts into.
     const profile = codexProfile(o.permission, o.protectedPaths);
     // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
@@ -599,7 +662,15 @@ const codexTurnRunner: AgentRunner = {
     if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
     // Also for the whole app-server, as asking Codex what a run loads does (the thread gets them too):
     // none of these carries a secret, unlike the MCP servers, which only go in the thread's config.
-    const args = ['app-server', '-c', 'model_reasoning_summary="auto"', ...codexOverrideArgs(codexNativeConfig(o.nativeOff ?? [], o.nativeItems))];
+    // The endpoint's model provider neither (its key is in a variable): Codex takes a thread's
+    // `modelProvider` only when it is the app-server's own (codex 0.167).
+    const args = [
+      'app-server',
+      '-c',
+      'model_reasoning_summary="auto"',
+      ...codexOverrideArgs(codexNativeConfig(o.nativeOff ?? [], o.nativeItems)),
+      ...(endpoint ? codexOverrideArgs(codexEndpointProviderConfig(endpoint)) : []),
+    ];
 
     let child: ChildProcess | undefined;
     let threadId: string | undefined;
@@ -673,7 +744,8 @@ const codexTurnRunner: AgentRunner = {
         capabilities: profile ? { experimentalApi: true } : null,
       });
       conn.notify('initialized');
-      const { method, params } = codexThreadRequest(o, await codexUserMcp(conn, o), process.platform, codexProfileId());
+      const effort = endpoint ? await codexEndpointEffort(o.effort, conn, o.cwd) : o.effort;
+      const { method, params } = codexThreadRequest({ ...o, effort }, await codexUserMcp(conn, o), process.platform, codexProfileId(), endpoint);
       const thread = await conn.request(method, params);
       codexCheckProfile(params, thread);
       threadId = String(thread?.thread?.id ?? o.sessionId ?? '');

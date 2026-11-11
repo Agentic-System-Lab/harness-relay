@@ -59,6 +59,7 @@ const zhTW = {
   grokCancelHint: (permission: string) => `目前的權限是「${permission}」；若這個操作是必要的，可以把權限改成「完全存取」再試。`,
   grokSandbox: (why: string) => `Grok 無法啟動沙箱（完全存取以外的權限都需要）：${why}。在 Linux 上，它禁止讀取的路徑需要 bubblewrap（例如 sudo apt-get install bubblewrap），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」）。`,
   grokNoSession: 'grok 沒有回傳 session id',
+  grokModelsFailed: (path: string, why: string) => `無法把你自己的端點的模型寫進 Grok 的設定（${path}）：${why}`,
   // Harness Relay's own sandbox (relaySandbox.ts), for the CLIs that have none of their own
   relaySandboxWindows:
     'Harness Relay 自己的沙箱無法在原生 Windows 上使用（它用的 sandbox-runtime 在 Windows 上還是 alpha 版），所以這個 agent 在「唯讀」與「可編輯」下不會在這裡執行。請在 WSL2 裡執行 Harness Relay，或把權限改成「完全存取」（不使用沙箱）。',
@@ -489,6 +490,7 @@ const en: ServerMessages = {
     ` The permission is "${permission}"; if this action is needed, switch the permission to "Full access" and try again.`,
   grokSandbox: (why) => `Grok could not start its sandbox (needed below full access): ${why}. On Linux, the paths it may not read need bubblewrap (for example sudo apt-get install bubblewrap), and on Ubuntu 23.10 or later an AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md).`,
   grokNoSession: 'grok returned no session id',
+  grokModelsFailed: (path, why) => `Could not write your own endpoints' models into Grok's settings (${path}): ${why}`,
   relaySandboxWindows:
     "Harness Relay's own sandbox does not work on native Windows (the sandbox-runtime it uses is alpha there), so this agent does not run here in read-only or edit mode. Run Harness Relay in WSL2, or set the permission to full access (no sandbox).",
   relaySandboxPathTooLong: (dataDir, max) =>

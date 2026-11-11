@@ -7,6 +7,7 @@ import {
   PROVIDER_LABEL,
   SANDBOX_TERMINAL_SUPPORT,
   inheritedEffort,
+  isEndpointCli,
   isOpenProvider,
   type LeadAgentSettings,
   type LoginMethod,
@@ -152,6 +153,9 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
           </div>
         </section>
 
+        {/* The model backends first: the open agents run on them, and the other CLIs on their endpoints too. */}
+        <BackendsCard onChanged={() => void refreshProviders(true)} />
+
         <div className="provider-list">
           {PROVIDERS.filter((p) => !isOpenProvider(p)).map((p) => (
             <ProviderCard
@@ -165,9 +169,6 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
             />
           ))}
         </div>
-
-        {/* The open agents' model backends, then the open agents, which use them. */}
-        <BackendsCard onChanged={() => void refreshProviders(true)} />
 
         <div className="provider-list">
           {OPEN_PROVIDERS.map((p) => (
@@ -505,6 +506,15 @@ function ProviderCard({
         </div>
         {login && <LoginPanel login={login} provider={provider} onUpdate={setLogin} onError={setNote} />}
       </div>
+
+      {isEndpointCli(provider) && (
+        <p className="muted small">
+          {t.settings.ownEndpoint[provider]}{' '}
+          <a href={settingsHref('backends')} onClick={() => scrollToSection('backends')}>
+            {t.settings.open.goBackends}
+          </a>
+        </p>
+      )}
 
       <details className="sub">
         <summary>

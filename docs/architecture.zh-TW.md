@@ -58,7 +58,7 @@ flowchart LR
 | `src/server/approvals.ts` | 「本對話都允許」的規則 key 與比對 |
 | `src/server/commands.ts` | 解析一行 shell 指令實際會執行哪些程式（串接、命令替換、`sh -c`／`eval`、`env`／`sudo`、保留字與 `if`／`while`／`for` 等複合指令、git 的全域選項）：用於核准規則 key，以及 Grok 與開源 agent 的推送／發佈判斷 |
 | `src/server/agents/*` | 每個 CLI 一個轉接器：組參數、把 CLI 的 JSON 事件串流轉成共通事件（`acp.ts`：ACP 與 Codex 用的 JSON-RPC 對端；`acpTurn.ts`：開源 agent 共用的 ACP 回合；`open.ts`：開源 agent 在程序周圍共用的部分；見[開源 agent](open-agents.zh-TW.md)） |
-| `src/server/backends.ts` | 開源 agent 的模型來源：OpenAI、Anthropic、xAI 的 API key，以及使用者的 OpenAI 相容端點（金鑰存在作業系統的金鑰儲存區），還有一次執行拿到什麼（`backendRun()`） |
+| `src/server/backends.ts` | 開源 agent 的模型來源：OpenAI、Anthropic、xAI 的 API key，以及使用者的 OpenAI 相容端點（金鑰存在作業系統的金鑰儲存區），還有一次執行拿到什麼（`backendRun()`）；Claude Code、Codex 或 Grok 的一次執行是否在某個端點上（`endpointModel()`） |
 | `src/server/relaySandbox.ts`、`relaySandboxHost.ts` | 完全存取以外，包住開源 agent 的 Harness Relay 自己的沙箱（`@anthropic-ai/sandbox-runtime`，每次執行一個 host 程序；見[各平台的作業系統沙箱](sandboxing.zh-TW.md#harness-relay-自己的沙箱)）；`sandboxProcs.ts` 在 macOS 上依沙箱找出某次執行殘留的行程 |
 | `src/server/i18n.ts` | 兩種語言的伺服器訊息；每個請求與執行所用的語言（AsyncLocalStorage） |
 | `src/server/process.ts` | 以獨立 process group 啟動程序、逐行讀 stdout、以原始位元組保存輸出、處理中止與逾時（先 SIGTERM，再對整個 process group 送 SIGKILL） |
@@ -468,7 +468,7 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
   | Codex | `codex login --device-auth` / `codex login`（瀏覽器，localhost 回呼） |
   | Grok | `grok login --device-auth` / `grok login --oauth` |
 
-- **API key**：Claude Code 與 Grok 的金鑰只會以 `ANTHROPIC_API_KEY` / `XAI_API_KEY` 注入到對應 CLI 的環境變數。Codex 的金鑰則透過 `codex login --with-api-key` 交給 Codex 自己保存。開源 agent 的金鑰是模型來源的金鑰（`backend-<id>-api-key`、`endpoint-<id>-api-key`，規則相同：[開源 agent → 模型來源](open-agents.zh-TW.md#模型來源)）；它們的執行只拿到這些，絕不拿到伺服器繼承來的金鑰。
+- **API key**：Claude Code 與 Grok 的金鑰只會以 `ANTHROPIC_API_KEY` / `XAI_API_KEY` 注入到對應 CLI 的環境變數。Codex 的金鑰則透過 `codex login --with-api-key` 交給 Codex 自己保存。開源 agent 的金鑰是模型來源的金鑰（`backend-<id>-api-key`、`endpoint-<id>-api-key`，規則相同：[開源 agent → 模型來源](open-agents.zh-TW.md#模型來源)）；它們的執行只拿到這些，絕不拿到伺服器繼承來的金鑰。Claude Code、Codex 或 Grok 在使用者自己的端點上執行時，只拿到那個端點的金鑰，放在環境變數裡（Claude Code 是 `ANTHROPIC_AUTH_TOKEN`，其他兩個是 `HARNESS_RELAY_ENDPOINT_API_KEY`），它的 CLI 的登入與 API key 都不會送到端點（[開源 agent → Claude Code、Codex 與 Grok 在端點上執行](open-agents.zh-TW.md#claude-codecodex-與-grok-在端點上執行)）。
   - *存放位置*：透過 [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node)（預先編譯好的原生模組）存進作業系統的金鑰儲存區，service 為 `harness-relay`、account 為 `<provider>-api-key`：macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service。Linux 固定使用 Secret Service，因為這個函式庫的另一個儲存區（kernel keyring）重開機後就會清空。`SettingsStore` 在啟動時把金鑰讀進記憶體。
   - *備援*：`openSystemKeyring()` 會在啟動時用一次讀取確認儲存區可用。沒有可用的儲存區時（該平台沒有原生模組、沒有 D-Bus session，或設定了 `RELAY_KEYRING=off`），金鑰會留在 `provider_settings.api_key` 欄位，設定頁也會註明。若儲存區存在但拒絕寫入，該請求會回傳錯誤，絕不會默默改存到資料庫。
   - *搬移*：在儲存區可用時，若資料庫裡還有金鑰（舊版存的，或當時沒有儲存區），會先複製到儲存區、讀回確認、清空欄位，再對 WAL 做 checkpoint，讓明文不會殘留在 `relay.db-wal`。搬移失敗時金鑰會留在資料庫，設定頁也會顯示。

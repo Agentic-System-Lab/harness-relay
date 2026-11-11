@@ -2,9 +2,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  ENDPOINT_CLI,
   backendModelId,
   isOpenProvider,
   parseBackendModel,
+  type EndpointCli,
   type ModelEndpointView,
   type ModelOption,
   type OpenProvider,
@@ -109,7 +111,7 @@ function discoverClaude(env: NodeJS.ProcessEnv): DiscoveredModels {
   return { provider: 'claude', models: CLAUDE_MODELS, efforts: CLAUDE_EFFORTS, cliDefaultModel, cliDefaultEffort, source: 'builtin' };
 }
 
-/** The model backends an open agent's models may be on: those set up in Settings. */
+/** The model backends set up in Settings: an open agent's models may be on any; Claude Code's, Codex's and Grok's on the endpoints. */
 export interface ConfiguredBackends {
   /** API backends with a key, and every endpoint (`ModelBackendStore.configured()`). */
   configured: string[];
@@ -148,20 +150,50 @@ export async function discoverOpenModels(p: OpenProvider, bin: string, env: Node
   };
 }
 
+/**
+ * Claude Code's, Codex's or Grok's models with each endpoint's typed models after them
+ * (`<endpoint id>/<model>`, marked with the endpoint and the efforts the CLI may send there:
+ * `ENDPOINT_CLI`). An id the CLI already lists stays its own.
+ */
+export function withEndpointModels(p: EndpointCli, d: DiscoveredModels, endpoints: readonly ModelEndpointView[]): DiscoveredModels {
+  const ids = new Set(d.models.map((m) => m.id));
+  const { efforts, fallbackEffort } = ENDPOINT_CLI[p];
+  const fromEndpoints = endpoints.flatMap((e) =>
+    e.models
+      .map(
+        (model): ModelOption => ({
+          id: backendModelId(e.id, model),
+          label: `${model} · ${e.name || e.id}`,
+          endpoint: e.id,
+          efforts: [...efforts],
+          ...(fallbackEffort ? { defaultEffort: fallbackEffort } : {}),
+        }),
+      )
+      .filter((m) => !ids.has(m.id)),
+  );
+  return fromEndpoints.length ? { ...d, models: [...d.models, ...fromEndpoints] } : d;
+}
+
 export async function discoverModels(
   p: Provider,
   bin: string,
   env: NodeJS.ProcessEnv,
   backends: ConfiguredBackends = { configured: [], endpoints: [] },
 ): Promise<DiscoveredModels> {
-  try {
-    if (isOpenProvider(p)) return await discoverOpenModels(p, bin, env, backends);
-    if (p === 'claude') return discoverClaude(env);
-    if (p === 'codex') return await discoverCodex(bin, env);
-    return await discoverGrok(bin, env);
-  } catch (err) {
-    const efforts = isOpenProvider(p) ? openAgents[p].efforts : p === 'claude' ? CLAUDE_EFFORTS : p === 'codex' ? CODEX_EFFORTS : GROK_EFFORTS;
-    return { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
+  if (isOpenProvider(p)) {
+    try {
+      return await discoverOpenModels(p, bin, env, backends);
+    } catch (err) {
+      return { provider: p, models: [], efforts: openAgents[p].efforts, source: 'builtin', error: (err as Error).message };
+    }
   }
+  let own: DiscoveredModels;
+  try {
+    own = p === 'claude' ? discoverClaude(env) : p === 'codex' ? await discoverCodex(bin, env) : await discoverGrok(bin, env);
+  } catch (err) {
+    const efforts = p === 'claude' ? CLAUDE_EFFORTS : p === 'codex' ? CODEX_EFFORTS : GROK_EFFORTS;
+    own = { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
+  }
+  return withEndpointModels(p, own, backends.endpoints);
 }
 

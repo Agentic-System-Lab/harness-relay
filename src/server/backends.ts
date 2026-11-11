@@ -18,7 +18,8 @@ import { maskSecret, type SecretStore } from './secrets';
 
 /*
  * Model backends: what the open agents (OpenCode, Goose, Cline, OpenHands, Pi) run their models on.
- * An API key for OpenAI, Anthropic and xAI each, and the user's own OpenAI-compatible endpoints.
+ * An API key for OpenAI, Anthropic and xAI each, and the user's own OpenAI-compatible endpoints, which
+ * Claude Code, Codex and Grok can run on too (`endpointModel`).
  * Keys live in the OS credential store (`backend-<id>-api-key`, `endpoint-<id>-api-key`, service
  * `harness-relay`), with the same fallback and migration as the CLIs' API keys (settings.ts): without
  * a credential store they stay in the database; one found there while a store exists is moved into
@@ -364,6 +365,44 @@ export function urlHost(url: string): string | undefined {
 export function backendLabel(b: RunBackends | ModelBackendsView, id: string): string {
   if (isApiBackend(id)) return API_BACKEND_LABEL[id];
   return b.endpoints.find((e) => e.id === id)?.name || id;
+}
+
+/**
+ * The variable a run of Claude Code, Codex or Grok on an endpoint gets the endpoint's key in, when it
+ * has one (Codex's `env_key`, Grok's): never a config file. Claude Code takes it as
+ * `ANTHROPIC_AUTH_TOKEN` instead.
+ */
+export const ENDPOINT_KEY_ENV = 'HARNESS_RELAY_ENDPOINT_API_KEY';
+
+/** A run of Claude Code, Codex or Grok on one of the user's own endpoints. */
+export interface EndpointModel {
+  /** The member's model id: `<endpoint id>/<model>`. */
+  id: string;
+  /** The model's own name, as the endpoint serves it. */
+  model: string;
+  /** The endpoint, with its key when it has one. */
+  endpoint: RunEndpoint;
+}
+
+/**
+ * Whether a model of Claude Code, Codex or Grok is on one of the user's own endpoints: an id
+ * `<endpoint id>/<model>` whose endpoint is set up in Settings (`RunOptions.backends`). Undefined for
+ * any other model: the CLI's own, or an id of its own that holds a `/` (a provider of the user's Codex
+ * config, say), which goes to the CLI as it is.
+ */
+export function endpointModel(backends: RunBackends | undefined, model: string | undefined): EndpointModel | undefined {
+  const parsed = model ? parseBackendModel(model) : undefined;
+  const endpoint = parsed && backends?.endpoints.find((e) => e.id === parsed.backend);
+  if (!parsed || !endpoint) return undefined;
+  return { id: model!.trim(), model: parsed.model, endpoint: { ...endpoint, models: [...endpoint.models] } };
+}
+
+/** A run's environment with its endpoint's key in `ENDPOINT_KEY_ENV`, or without that variable when the endpoint has none. */
+export function endpointKeyEnv(env: NodeJS.ProcessEnv, run: EndpointModel): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env };
+  if (run.endpoint.apiKey) out[ENDPOINT_KEY_ENV] = run.endpoint.apiKey;
+  else delete out[ENDPOINT_KEY_ENV];
+  return out;
 }
 
 /** What one open-agent run uses: its model's backend, with what the adapter needs to point the CLI at it. */

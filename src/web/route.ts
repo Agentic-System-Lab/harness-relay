@@ -8,13 +8,14 @@ export type Route = { page: 'new' } | { page: 'schedule' } | { page: 'chat'; id:
 
 /**
  * The cards of the settings page, in page order; each is the element `settings-<section>`. The model
- * backends come right before the open agents, which use them.
+ * backends come before every CLI: the open agents run on them, and Claude Code, Codex and Grok can run
+ * on their endpoints too.
  */
 export const SETTINGS_SECTIONS = [
   'language',
   'appearance',
-  ...PROVIDERS.filter((p) => !isOpenProvider(p)),
   'backends',
+  ...PROVIDERS.filter((p) => !isOpenProvider(p)),
   ...OPEN_PROVIDERS,
   'lead',
   'tools',

@@ -1097,10 +1097,10 @@ export const en: Messages = {
     },
     backends: {
       title: 'Model backends',
-      hint: 'OpenCode, Goose, Cline, OpenHands and Pi run on the model backends here: API keys for OpenAI, Anthropic and xAI, or your own OpenAI-compatible endpoints (vLLM, Ollama, LM Studio, llama.cpp). Each run gets only the keys set up here; Harness Relay never calls these APIs itself.',
+      hint: 'OpenCode, Goose, Cline, OpenHands and Pi run on the model backends here: API keys for OpenAI, Anthropic and xAI, or your own OpenAI-compatible endpoints (vLLM, Ollama, LM Studio, llama.cpp). Claude Code, Codex and Grok can run on the custom endpoints too (each card says which API the server must serve). Each run gets only the key it uses; Harness Relay never calls these APIs itself.',
       noSubscription:
-        "The Claude subscription and Grok's sign-in cannot be used by these CLIs (Anthropic does not allow its subscription in third-party agents). Claude Code and Grok themselves keep using their sign-ins.",
-      modelIds: "Give members a model as \"backend/model\": openai/…, anthropic/…, xai/…, or an endpoint's id and a model name, such as homelab/muse-glimmer-30b-nvfp4.",
+        "The Claude subscription and Grok's sign-in cannot be used by the open-source agents (Anthropic does not allow its subscription in third-party agents). Claude Code and Grok themselves keep using their sign-ins for their own models.",
+      modelIds: "Give members a model as \"backend/model\": openai/…, anthropic/…, xai/…, or an endpoint's id and a model name, such as homelab/muse-glimmer-30b-nvfp4. Claude Code's, Codex's and Grok's model menus list the endpoints' models too.",
       apiKeys: 'API keys',
       notSet: 'Not set',
       keySet: (masked) => `Set: ${masked}`,
@@ -1133,6 +1133,13 @@ export const en: Messages = {
         url: 'The address must start with http:// or https://, without a user name, password, query or #.',
         models: (n, chars) => `At most ${n} model names, each at most ${chars} characters.`,
       },
+    },
+    ownEndpoint: {
+      claude:
+        'Claude Code can also run on your own endpoint (Model backends): give a member one of its models, such as homelab/gemma4:e4b. The server must also serve the Anthropic Messages API (/v1/messages); Claude Code then needs no sign-in, and yours is not sent there.',
+      codex:
+        'Codex can also run on your own endpoint (Model backends): give a member one of its models, such as homelab/gemma4:e4b. The server must also serve the Responses API (/v1/responses); Codex then needs no sign-in, and yours is not sent there. It sends only an effort every endpoint takes (none, low, medium, high), medium in place of another.',
+      grok: "Grok can also run on your own endpoint (Model backends): give a member one of its models, such as homelab/gemma4:e4b. The server must serve Chat Completions (/v1/chat/completions). Grok still needs its sign-in (or an API key) to start, but does not send it there; Harness Relay adds the endpoints' models to Grok's config.toml, hidden from Grok's own model picker. These models run without an effort.",
     },
     apiKeyHelp: {
       claude: 'Once saved, Harness Relay passes ANTHROPIC_API_KEY when it starts Claude Code (API billing, which takes precedence over a subscription sign-in).',

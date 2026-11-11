@@ -16,6 +16,41 @@ export function isOpenProvider(p: Provider): p is OpenProvider {
   return (OPEN_PROVIDERS as Provider[]).includes(p);
 }
 
+/**
+ * The CLIs with a sign-in of their own (Claude Code, Codex, Grok), which can also run on one of the
+ * user's own endpoints of Settings → Model backends: a member's model `<endpoint id>/<model>`.
+ */
+export type EndpointCli = Exclude<Provider, OpenProvider>;
+
+export function isEndpointCli(p: Provider): p is EndpointCli {
+  return !isOpenProvider(p);
+}
+
+/**
+ * How each of them talks to the user's own endpoint, and the efforts it may send there:
+ * - `path`: the API it calls under the endpoint's base URL, which the server must also serve (vLLM,
+ *   Ollama, LM Studio and llama.cpp serve all three);
+ * - `efforts`: the reasoning efforts its models on an endpoint offer, the levels every such server
+ *   takes; Grok takes none for a model it does not know;
+ * - `fallbackEffort`: what runs instead of another effort, one the member, Settings or the CLI's own
+ *   config would give (Codex, whose config cannot be told to send none); without it, none is sent.
+ */
+export const ENDPOINT_CLI: Record<EndpointCli, { path: string; efforts: string[]; fallbackEffort?: string }> = {
+  claude: { path: '/v1/messages', efforts: ['low', 'medium', 'high'] },
+  codex: { path: '/v1/responses', efforts: ['none', 'low', 'medium', 'high'], fallbackEffort: 'medium' },
+  grok: { path: '/v1/chat/completions', efforts: [] },
+};
+
+/**
+ * The effort a run of Claude Code, Codex or Grok on an endpoint sends: the one given when its
+ * endpoint models offer it, else the CLI's `fallbackEffort` when one was given, else none.
+ */
+export function endpointEffort(p: EndpointCli, effort: string | undefined): string | undefined {
+  const e = effort?.trim();
+  if (!e) return undefined;
+  return ENDPOINT_CLI[p].efforts.includes(e) ? e : ENDPOINT_CLI[p].fallbackEffort;
+}
+
 /** The error `code` (with a 404) for a working directory that does not exist; resend with `createCwd: true` to create it. */
 export const CWD_MISSING = 'cwd-missing';
 
@@ -1211,6 +1246,12 @@ export interface ModelOption {
   /** Effort levels this model supports; undefined = use the provider-wide list. */
   efforts?: string[];
   defaultEffort?: string;
+  /**
+   * The id of the user's own endpoint this model is on, for Claude Code, Codex and Grok (a model of
+   * Settings → Model backends): it runs only an effort of `efforts`, and another one it would inherit
+   * becomes `defaultEffort`, or none (`endpointEffort`).
+   */
+  endpoint?: string;
 }
 
 /** Models and reasoning-effort levels a provider offers, as discovered from its CLI. */
@@ -1235,7 +1276,10 @@ export function effortsFor(pm: Pick<ProviderModels, 'models' | 'efforts'>, model
 
 /** The effort that runs when an agent leaves effort on default, for the model it will use. */
 export function inheritedEffort(pm: ProviderModels, model?: string): string | undefined {
-  return pm.defaultEffort ?? pm.models.find((m) => m.id === (model || pm.defaultModel))?.defaultEffort;
+  const m = pm.models.find((x) => x.id === (model || pm.defaultModel));
+  // On an endpoint, an effort its models do not offer is not sent as it is (`endpointEffort`).
+  if (m?.endpoint) return pm.defaultEffort && !m.efforts?.includes(pm.defaultEffort) ? m.defaultEffort : pm.defaultEffort;
+  return pm.defaultEffort ?? m?.defaultEffort;
 }
 
 export interface SettingsView {

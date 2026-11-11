@@ -111,7 +111,7 @@ npm run desktop:dist
 
 ## 2. 分別登入各個 agent：設定與登入
 
-點側邊欄的 **⚙ 設定與登入**。每個 CLI 有一張卡片，顯示版本、帳號與狀態。五個開源 agent 沒有登入流程：它們的卡片排在它們使用的 **模型來源** 之後（見[開源 agent 與模型來源](#開源-agent-與模型來源)）。
+點側邊欄的 **⚙ 設定與登入**。**模型來源** 排在最前面，在所有 CLI 之前：五個開源 agent 用它執行，Claude Code、Codex 與 Grok 也能用它的自訂端點執行（見[開源 agent 與模型來源](#開源-agent-與模型來源)）。接著每個 CLI 有一張卡片，顯示版本、帳號與狀態。五個開源 agent 沒有登入流程。
 
 ### 登入
 
@@ -142,7 +142,9 @@ Claude Code 與 Grok 的金鑰由 Harness Relay 存放在系統的金鑰儲存�
 
 ### 開源 agent 與模型來源
 
-OpenCode、Goose、Cline、OpenHands 與 Pi 使用你在 **設定 → 模型來源** 設定的模型來源執行，從不使用它們自己的登入。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）：請給它們 API key 或你自己的端點。Claude Code 與 Grok 本身照常使用它們的登入。
+OpenCode、Goose、Cline、OpenHands 與 Pi 使用你在 **設定 → 模型來源** 設定的模型來源執行，從不使用它們自己的登入。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）：請給它們 API key 或你自己的端點。Claude Code 與 Grok 本身的模型照常使用它們的登入。
+
+**Claude Code、Codex 與 Grok 在你自己的端點上執行。** 它們的模型選單會在自己的模型後面列出每個自訂端點的模型，例如 `homelab/gemma4:e4b`：給成員選其中一個，那個 CLI 就在你的伺服器上執行，帶著端點的金鑰（有的話），絕不帶你的 Claude、ChatGPT 或 Grok 登入或它們的 API key。伺服器也要提供那個 CLI 用的 API：Claude Code 用 Anthropic Messages API（`/v1/messages`），Codex 用 Responses API（`/v1/responses`），Grok 用 Chat Completions（`/v1/chat/completions`）；vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供。這時 Claude Code 與 Codex 不需要登入；Grok 啟動時仍需要它自己的登入。這些模型只提供這類伺服器都接受的推理強度：Claude Code 是 low 到 high，Codex 是 none 到 high（原本會用的其他值，例如你的 Codex 設定裡的 `xhigh`，改成 medium），Grok 不送。Grok 的部分，Harness Relay 會在 Grok 成員第一次用到端點的模型時，把端點的模型加進 Grok 自己的 `config.toml`，放在一段有標記的區塊裡，不出現在 Grok 自己的模型選單。
 
 - **API key**：**OpenAI**、**Anthropic**、**xAI** 各一把：貼上後按 **儲存**，**移除** 則刪掉它。金鑰和各 CLI 的 API key 一樣存在系統的金鑰儲存區（卡片上會註明存在哪裡），畫面上只會顯示遮蔽過的內容。Harness Relay 環境變數裡的金鑰（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`XAI_API_KEY`，以及其他模型供應商的，例如 `GEMINI_API_KEY` 或 `OPENROUTER_API_KEY`）不會被使用，也不會傳給這些 agent：每次執行只拿到它的模型所屬來源的那一把金鑰（也就是這裡儲存的），絕不會拿到其他來源的。那個環境裡的其他憑證，例如 `GITHUB_TOKEN` 或 AWS 的變數，仍會傳給這些 agent 與它們執行的指令，和其他 CLI 一樣。金鑰顯示成 `••••` 加最後四個字元，短的金鑰只顯示 `••••`。
 - **自訂端點**：你自己的 OpenAI 相容伺服器，例如 vLLM、Ollama、LM Studio 或 llama.cpp。**＋ 新增端點** 要填：
@@ -317,7 +319,7 @@ AgentsView 預設會隱藏使用者只說了一則訊息的 session。你只傳�
 - **@名稱**：用於 `@` 的名稱。可用字母、數字、`_`、`-`（中文也可以），團隊內不能重複。
 - **Claude Code / Codex / Grok / OpenCode / Goose / Cline / OpenHands / Pi**：由哪個 CLI 執行這個 agent。同一個 CLI 可以有多個 agent（例如兩個不同角色的 Claude）。CLI 尚未就緒的卡片會說明原因（未登入、沒有模型來源、找不到 CLI），並附上前往它設定卡片的連結。
 - **定位 / 角色**：自由描述這個 agent 的定位與職責。這是最重要的欄位：告訴它負責什麼、*不*該做什麼、要交棒給誰。
-- **模型**：CLI 回報的可用模型，或選 **自訂…** 自行輸入模型 ID。「預設」會使用設定頁的預設值，沒有的話用 CLI 自己的預設。開源 agent 的模型寫成「模型來源/模型」（見[開源 agent 與模型來源](#開源-agent-與模型來源)）：從你設定好的模型來源中挑一個，或在設定頁指定它的預設模型。
+- **模型**：CLI 回報的可用模型，或選 **自訂…** 自行輸入模型 ID。「預設」會使用設定頁的預設值，沒有的話用 CLI 自己的預設。開源 agent 的模型寫成「模型來源/模型」（見[開源 agent 與模型來源](#開源-agent-與模型來源)）：從你設定好的模型來源中挑一個，或在設定頁指定它的預設模型。Claude Code、Codex 與 Grok 也會列出你的自訂端點的模型，讓它們在你自己的伺服器上執行。
 - **推理強度**：只列出所選模型支援的等級（例如 low / medium / high / xhigh）。換成不支援目前等級的模型時，會自動改回預設。
 - **↑ ↓**：調整順序。在圓桌模式中就是發言順序；在接力模式中第一位是**隊長**。
 - **工具**：這位成員從[工具庫](#工具庫mcp-伺服器skill-與記憶)拿到的項目會以標籤列出，按 **調整** 打開清單勾選。預設勾選狀態依成員的 CLI 而定（預設不給這個 CLI 的項目會註明），其他 CLI 的記憶分頁不會列出。伺服器或 skill 改名後選擇仍保留。工具庫是空的時候，有連結帶你過去。這些是加在 CLI 自己的 skill 和 MCP 之外，原本的照常可用。

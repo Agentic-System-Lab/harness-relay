@@ -37,7 +37,23 @@ orchestrator 把模型來源傳給每次 開源 agent 的執行（`RunOptions.ba
 
 **模型選單**列出 CLI 自己模型清單中、模型來源已設定的模型（轉接器的 `models` hook，CLI 有清單時），再加上每個端點輸入的模型；也隨時可以自己輸入 id。成員留在「預設」時，就用選單顯示為預設的模型執行，和其他 CLI 一樣：先用「設定」裡這個 CLI 的預設，否則用它的清單預設（該模型的來源已設定時；`Orchestrator.modelFor`，取自 `ProviderService.models`）。兩者都沒有時，選單會說需要選一個模型，執行時也會請你選一個。
 
-**狀態。** CLI 已安裝（`--version`）、轉接器已完成，且至少設定了一個模型來源時，開源 agent 就可使用。它沒有登入流程：登入相關的路由對它回應 400。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）；「設定」會說明這點，Claude Code 與 Grok 本身照常使用它們自己的登入。
+**狀態。** CLI 已安裝（`--version`）、轉接器已完成，且至少設定了一個模型來源時，開源 agent 就可使用。它沒有登入流程：登入相關的路由對它回應 400。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）；「設定」會說明這點，Claude Code 與 Grok 本身的模型照常使用它們自己的登入。
+
+### Claude Code、Codex 與 Grok 在端點上執行
+
+自訂端點不只給開源 agent 用：Claude Code、Codex 與 Grok（`src/shared/types.ts` 的 `EndpointCli`、`ENDPOINT_CLI`）也能在上面執行，但絕不用 API 模型來源，那些金鑰只給開源 agent。`SettingsStore.backendsFor()` 只把端點交給它們的執行（`{ apis: {}, endpoints }`），`backends.ts` 的 `endpointModel()` 判斷一次執行是不是在端點上：模型是 `<端點 id>/<模型>`，而且那個端點已設定。其他模型照原樣交給 CLI，包括它自己帶 `/` 的 id（例如使用者 Codex 設定裡某個 provider 的模型，像 OpenRouter 的）；端點被刪掉的成員，就會帶著那個 id 交給它的 CLI。它們的模型選單會在 CLI 自己的模型後面列出每個端點輸入的模型（`models.ts` 的 `withEndpointModels()`，標上 `ModelOption.endpoint`），並隨端點變動（`ProviderService.backendsChanged()` 會丟掉它們快取的選單，但不動登入狀態）。它們的狀態仍然是自己的登入。
+
+每個 CLI 用自己的 API，端點也要提供（vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供）；端點的金鑰放在環境變數裡，不寫進會留下來的檔案：
+
+| CLI | API | 執行時怎麼指到端點（`src/server/agents/`） | 登入 |
+| --- | --- | --- | --- |
+| Claude Code | Anthropic Messages（`/v1/messages`） | `claude.ts` 的 `claudeEndpointEnv()`：`ANTHROPIC_BASE_URL`（去掉結尾 `/v1` 的網址）、金鑰放在 `ANTHROPIC_AUTH_TOKEN`（沒有金鑰時是 `no-key`：Claude Code 會先用它，再輪到 `ANTHROPIC_API_KEY`、`apiKeyHelper` 或使用者的登入，所以這些都不會送到端點）、`ANTHROPIC_API_KEY` 與 `CLAUDE_CODE_OAUTH_TOKEN` 設為空、關掉 Bedrock、Vertex 與 Foundry，並讓這一輪、它的背景請求與子代理都用這個模型（`ANTHROPIC_MODEL`、`ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`、`ANTHROPIC_SMALL_FAST_MODEL`、`CLAUDE_CODE_SUBAGENT_MODEL`）；這些放在這一輪的 `--settings`（`env`，屬於旗標層，蓋過使用者設定檔裡的值），也就是這次執行的私人檔案，也放在它的環境變數裡。`--model` 是模型本身的名稱。不顯示費用：Claude Code 會把不認得的模型當成自家模型計價 | 不需要 |
+| Codex | Responses（`/v1/responses`） | `codex.ts` 的 `codexThreadRequest()`：在 thread 的設定裡加一個自己的 model provider（`model_providers.harness-relay-<端點 id>`：`base_url`、`wire_api = "responses"`，端點有金鑰時加 `env_key = "HARNESS_RELAY_ENDPOINT_API_KEY"`），用那裡的 `model_provider` 與 `modelProvider` 指定，app-server 啟動時也帶同樣兩項設定（`-c`，裡面沒有秘密）：thread 的 provider 必須是 app-server 自己的，Codex 才接受。模型用它本身的名稱。自訂 provider 拿不到 ChatGPT 登入或 OpenAI 金鑰。在別的 provider 上開始的 session 無法在這個 provider 上接續，會重新開始 | 不需要 |
+| Grok | Chat Completions（`/v1/chat/completions`） | `grok.ts` 的 `writeGrokModels()`：Grok 只從它的 `config.toml` 讀自訂模型（它的 `GROK_CONFIG` 覆蓋層會丟掉 `[model.*]` 表格），所以在 `# >>> harness-relay models` 與 `# <<< harness-relay models` 之間的一段區塊，把每個端點模型定義成 `[model."harness-relay/<端點 id>/<模型>"]`（`base_url`、`env_key = "HARNESS_RELAY_ENDPOINT_API_KEY"`、`hidden = true`：不出現在 Grok 自己的模型選單，但仍可選用）。Grok 第一次在端點上執行時寫在檔案最後，之後每次 Grok 執行都會更新（最後一個端點刪掉時一起拿掉）；連結會跟著寫到它指向的檔案，檔案權限不變。寫入會經過執行中那些回合的設定守護（`guardGrokSettings`），它們會照寫入後的樣子接受。session 的模型就是那個 id。設定了 `env_key` 但變數沒有值時，Grok 不送金鑰，絕不送使用者的 Grok 登入（以 grok 1.0.77 確認） | 啟動時仍需要 |
+
+**推理強度。** 在端點上執行時，只送這類伺服器都接受的推理強度（`ENDPOINT_CLI[...].efforts`、`endpointEffort()`）：Claude Code 是 `low`、`medium`、`high`（其他的不送，由 Claude Code 自己決定）；Codex 是 `none`、`low`、`medium`、`high`，其他的改送 `medium`，因為 Codex 無法設定成不送：給定的（成員的，或設定頁的預設）不在清單裡，或沒有給定但使用者的 Codex 設定有設（用 `config/read` 問；沒有設定時它回答沒有，這時就不送；Codex 答不出來時也送 `medium`）；Grok 不送，因為它會拒絕不認得的模型的推理強度。選單也照這樣顯示：這些模型只提供這些推理強度，「預設」顯示實際會用的（`inheritedEffort()`）。
+
+這些執行做不到的事：CLI 需要自家服務的工具（Claude Code 的網路搜尋、Codex 與 Grok 的伺服器端工具），只能做到端點伺服器支援的程度。完全存取以外的權限下，CLI 自己的沙箱和用它們自己的模型時一樣：模型是 CLI 本身呼叫的，不在它的指令沙箱裡。
 
 ## Agent 的家目錄
 

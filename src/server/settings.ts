@@ -317,9 +317,14 @@ export class SettingsStore {
     return this.agentHomeFor(p) ?? join(OPEN_HOMES_DIR, p);
   }
 
-  /** The model backends with their keys, for a run of an open agent (undefined for the other CLIs). */
-  backendsFor(p: Provider): RunBackends | undefined {
-    return isOpenProvider(p) ? this.backends.forRun() : undefined;
+  /**
+   * The model backends with their keys, for one run: all of them for an open agent; for Claude Code,
+   * Codex and Grok the user's own endpoints only (a member's model `<endpoint id>/<model>`), never the
+   * API backends' keys, which are the open agents'.
+   */
+  backendsFor(p: Provider): RunBackends {
+    const all = this.backends.forRun();
+    return isOpenProvider(p) ? all : { apis: {}, endpoints: all.endpoints };
   }
 
   /** AgentsView's origin, e.g. http://127.0.0.1:8080; empty = off. */

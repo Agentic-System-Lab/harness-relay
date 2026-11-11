@@ -23,14 +23,14 @@ describe('client routes', () => {
   });
 
   it('has a settings section for every CLI', () => {
-    // The model backends come right before the open agents, which use them.
+    // The model backends come before every CLI: the open agents run on them, and the others on their endpoints too.
     expect(SETTINGS_SECTIONS).toEqual([
       'language',
       'appearance',
+      'backends',
       'claude',
       'codex',
       'grok',
-      'backends',
       'opencode',
       'goose',
       'cline',

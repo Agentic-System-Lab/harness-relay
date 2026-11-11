@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import type { NativeItemsOff, NativePart, Permission, PlanEntry } from '../../shared/types';
+import { endpointEffort, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
+import { endpointModel, type EndpointModel } from '../backends';
 import { converse, runProcess, tail } from '../process';
 import {
   AgentRunError,
@@ -195,7 +196,11 @@ export function claudeReopening(
   return undefined;
 }
 
-/** The `--settings` of one turn: what it leaves out (`claudeNativeSettings`) and the sandbox. */
+/**
+ * The `--settings` of one turn: what it leaves out (`claudeNativeSettings`), the sandbox, and on the
+ * user's own endpoint its variables (`env`: `claudeEndpointEnv`), which the flag layer sets over any
+ * the user's settings files set.
+ */
 export function claudeRunSettings(
   permission: Permission,
   off: readonly NativePart[] = [],
@@ -203,15 +208,69 @@ export function claudeRunSettings(
   items: NativeItemsOff = {},
   platform: NodeJS.Platform = process.platform,
   denyRead: readonly string[] = [],
+  env?: Record<string, string>,
 ): Record<string, unknown> | undefined {
   const native = claudeNativeSettings(off, pluginIds, items);
   const sandbox = claudeSandboxSettings(permission, platform, denyRead);
-  if (!native || !sandbox) return native ?? sandbox;
+  const withEnv = (settings: Record<string, unknown> | undefined) => (env ? { ...settings, env: { ...env } } : settings);
+  if (!native || !sandbox) return withEnv(native ?? sandbox);
   type Rules = { deny?: string[]; ask?: string[] };
   const a = (native.permissions ?? {}) as Rules;
   const b = sandbox.permissions as Rules;
   const deny = [...(a.deny ?? []), ...(b.deny ?? [])];
-  return { ...native, ...sandbox, permissions: { ...(deny.length ? { deny } : {}), ask: [...(a.ask ?? []), ...(b.ask ?? [])] } };
+  return withEnv({ ...native, ...sandbox, permissions: { ...(deny.length ? { deny } : {}), ask: [...(a.ask ?? []), ...(b.ask ?? [])] } });
+}
+
+/**
+ * What Claude Code is given as the credential of an endpoint that has no key: it needs one, and one of
+ * its own keeps the user's Claude sign-in (and any Anthropic key) from going to the endpoint.
+ */
+export const CLAUDE_ENDPOINT_NO_KEY = 'no-key';
+
+/**
+ * The endpoint's address as Claude Code takes it (`ANTHROPIC_BASE_URL`, to which it adds
+ * `/v1/messages`): the base URL without a trailing `/v1`.
+ */
+export function claudeEndpointUrl(baseUrl: string): string {
+  return baseUrl.trim().replace(/\/+$/, '').replace(/\/v1$/i, '');
+}
+
+/**
+ * The variables that run Claude Code on one of the user's own endpoints, an Anthropic Messages API
+ * server (vLLM, Ollama, LM Studio and llama.cpp serve one):
+ * - its address and its key as a bearer token (`ANTHROPIC_AUTH_TOKEN`, which Claude Code takes before
+ *   an `ANTHROPIC_API_KEY`, an `apiKeyHelper` or the user's sign-in), or `CLAUDE_ENDPOINT_NO_KEY`;
+ * - no Anthropic key or sign-in token, and none of the cloud providers (Bedrock, Vertex, Foundry),
+ *   which Claude Code would take first;
+ * - the model for everything it runs: the turn, its background requests and its subagents.
+ */
+export function claudeEndpointEnv(run: EndpointModel): Record<string, string> {
+  const m = run.model;
+  return {
+    ANTHROPIC_BASE_URL: claudeEndpointUrl(run.endpoint.baseUrl),
+    ANTHROPIC_AUTH_TOKEN: run.endpoint.apiKey || CLAUDE_ENDPOINT_NO_KEY,
+    ANTHROPIC_API_KEY: '',
+    CLAUDE_CODE_OAUTH_TOKEN: '',
+    CLAUDE_CODE_USE_BEDROCK: '0',
+    CLAUDE_CODE_USE_VERTEX: '0',
+    CLAUDE_CODE_USE_FOUNDRY: '0',
+    ANTHROPIC_MODEL: m,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: m,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: m,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: m,
+    ANTHROPIC_SMALL_FAST_MODEL: m,
+    CLAUDE_CODE_SUBAGENT_MODEL: m,
+  };
+}
+
+/** The process environment of a turn on an endpoint: the user's, with `claudeEndpointEnv` over it (an empty value unset). */
+export function claudeEndpointProcessEnv(env: NodeJS.ProcessEnv, endpointEnv: Record<string, string>): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env };
+  for (const [k, v] of Object.entries(endpointEnv)) {
+    if (v) out[k] = v;
+    else delete out[k];
+  }
+  return out;
 }
 
 /** Tools approved up front. Web access is not about the file system, so every level gets it. */
@@ -599,6 +658,8 @@ export function claudeArgs(o: {
   platform?: NodeJS.Platform;
   /** Paths its sandbox may not let it read (`protectedReads()`). */
   protectedPaths?: readonly string[];
+  /** On the user's own endpoint: its variables (`claudeEndpointEnv`), in the turn's `--settings`. */
+  endpointEnv?: Record<string, string>;
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
@@ -629,7 +690,7 @@ export function claudeArgs(o: {
       o.pluginIds,
       o.nativeItems,
       o.settingsFile,
-      claudeRunSettings(o.permission, o.nativeOff, o.pluginIds, o.nativeItems, o.platform, o.protectedPaths),
+      claudeRunSettings(o.permission, o.nativeOff, o.pluginIds, o.nativeItems, o.platform, o.protectedPaths, o.endpointEnv),
     ),
     '--permission-mode',
     PERMISSION_MODE[o.permission][o.ask ? 'ask' : 'deny'],
@@ -893,7 +954,13 @@ async function pluginIdsForRun(o: Parameters<AgentRunner['run']>[0]): Promise<st
   }
 }
 
-async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: string): Promise<RunResult> {
+async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: string): Promise<RunResult> {
+  // On the user's own endpoint: its model by its own name, an effort it takes, and its variables.
+  const endpoint = endpointModel(given.backends, given.model);
+  const endpointEnv = endpoint ? claudeEndpointEnv(endpoint) : undefined;
+  const o = endpoint
+    ? { ...given, model: endpoint.model, effort: endpointEffort('claude', given.effort), env: claudeEndpointProcessEnv(given.env, endpointEnv!) }
+    : given;
   const pluginIds = await pluginIdsForRun(o);
   const nativeItems = claudeItemsBesideLibrary(o.nativeItems ?? {}, o.mcpServers ?? []);
   const protectedPaths = o.protectedPaths ?? protectedReads();
@@ -905,9 +972,12 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: strin
     const reopened = claudeReopening([claudeUserSettings(o.env), ...claudeManagedSettings()], protectedPaths, { cwd: o.cwd });
     if (reopened) throw new AgentRunError(t().claudeReopens(...reopened));
   }
-  const settings = claudeSettingsFile(claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths));
+  // The endpoint's key goes in this private file, never on the command line.
+  const settings = claudeSettingsFile(claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths, endpointEnv));
   try {
-    return await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file, protectedPaths });
+    const result = await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file, protectedPaths, endpointEnv });
+    // Claude Code prices a model it does not know as one of its own: no cost for the user's own endpoint.
+    return endpoint ? { ...result, costUsd: undefined } : result;
   } finally {
     settings?.remove();
   }
@@ -915,7 +985,14 @@ async function runClaude(o: Parameters<AgentRunner['run']>[0], mcpConfig?: strin
 
 async function runClaudeTurn(
   o: Parameters<AgentRunner['run']>[0],
-  run: { mcpConfig?: string; pluginIds: string[]; nativeItems: NativeItemsOff; settingsFile?: string; protectedPaths: readonly string[] },
+  run: {
+    mcpConfig?: string;
+    pluginIds: string[];
+    nativeItems: NativeItemsOff;
+    settingsFile?: string;
+    protectedPaths: readonly string[];
+    endpointEnv?: Record<string, string>;
+  },
 ): Promise<RunResult> {
   const newSessionId = o.sessionId ? undefined : randomUUID();
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
@@ -937,6 +1014,7 @@ async function runClaudeTurn(
     pluginIds: run.pluginIds,
     settingsFile: run.settingsFile,
     protectedPaths: run.protectedPaths,
+    endpointEnv: run.endpointEnv,
     skip: unsupported,
   });
 

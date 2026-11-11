@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseBackendModel, type ModelBackendsView } from '../src/shared/types';
+import { endpointEffort, inheritedEffort, parseBackendModel, type ModelBackendsView, type ProviderModels } from '../src/shared/types';
 import type { SecretStore } from '../src/server/secrets';
 import { endpointDraft, endpointProblems, endpointSlug, endpointUpdate, parseModelList, validBaseUrl } from '../src/web/backends';
 
@@ -10,7 +10,8 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-backends-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { openDatabase } = await import('../src/server/db');
-const { ModelBackendStore, backendEnv, backendRun, urlHost } = await import('../src/server/backends');
+const { ModelBackendStore, ENDPOINT_KEY_ENV, backendEnv, backendRun, endpointKeyEnv, endpointModel, urlHost } = await import('../src/server/backends');
+const { withEndpointModels } = await import('../src/server/models');
 const { SettingsStore, OPEN_AGENT_HOME_ENV, OPEN_HOMES_DIR } = await import('../src/server/settings');
 const { createApp } = await import('../src/server/app');
 const { Hub } = await import('../src/server/hub');
@@ -220,6 +221,71 @@ describe('a run’s backend', () => {
   });
 });
 
+describe('Claude Code, Codex and Grok on the user’s own endpoints', () => {
+  const backends = {
+    apis: {},
+    endpoints: [
+      { id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'], apiKey: 'lab-key' },
+      { id: 'studio', name: 'LM Studio', baseUrl: 'http://10.0.0.6:1234/v1', models: ['qwen/qwen3-coder'] },
+    ],
+  };
+
+  it('runs a model <endpoint id>/<model> on that endpoint, and any other model as the CLI has it', () => {
+    expect(endpointModel(backends, 'homelab/gemma4:e4b')).toEqual({ id: 'homelab/gemma4:e4b', model: 'gemma4:e4b', endpoint: backends.endpoints[0] });
+    // A model name may hold a slash; a model the endpoint does not list still runs there.
+    expect(endpointModel(backends, ' studio/qwen/qwen3-coder ')).toMatchObject({ id: 'studio/qwen/qwen3-coder', model: 'qwen/qwen3-coder' });
+    expect(endpointModel(backends, 'homelab/other')).toMatchObject({ model: 'other', endpoint: { id: 'homelab' } });
+    // The CLI's own models, an id of its own with a slash (a provider of the user's Codex config), an
+    // API backend's id (the open agents'), or an endpoint that is not set up: not an endpoint run.
+    for (const model of ['opus', 'gpt-6.1-sol', 'qwen/qwen3-coder', 'anthropic/claude-haiku-5-5', 'lab2/x', '', undefined]) {
+      expect(endpointModel(backends, model), String(model)).toBeUndefined();
+    }
+    expect(endpointModel(undefined, 'homelab/gemma4:e4b')).toBeUndefined();
+  });
+
+  it('puts the endpoint’s key in a variable of its own, and takes out one inherited without a key', () => {
+    const lab = endpointModel(backends, 'homelab/gemma4:e4b')!;
+    const studio = endpointModel(backends, 'studio/qwen/qwen3-coder')!;
+    expect(endpointKeyEnv({ PATH: '/bin' }, lab)).toEqual({ PATH: '/bin', [ENDPOINT_KEY_ENV]: 'lab-key' });
+    expect(endpointKeyEnv({ PATH: '/bin', [ENDPOINT_KEY_ENV]: 'from-the-shell' }, studio)).toEqual({ PATH: '/bin' });
+  });
+
+  it('sends only an effort the endpoint takes: Codex the closest one, Claude Code and Grok none', () => {
+    expect(endpointEffort('codex', 'high')).toBe('high');
+    expect(endpointEffort('codex', 'none')).toBe('none');
+    expect(endpointEffort('codex', 'xhigh')).toBe('medium');
+    expect(endpointEffort('codex', '')).toBeUndefined();
+    expect(endpointEffort('claude', 'low')).toBe('low');
+    expect(endpointEffort('claude', 'max')).toBeUndefined();
+    expect(endpointEffort('grok', 'high')).toBeUndefined();
+  });
+
+  it('lists each endpoint’s models after the CLI’s own, with the efforts it may send there', () => {
+    const own = { provider: 'codex' as const, models: [{ id: 'gpt-6.1-sol' }, { id: 'homelab/gemma4:e4b', label: 'Mine' }], efforts: ['low', 'xhigh'], source: 'cli' as const };
+    const view = backends.endpoints.map(({ apiKey: _, ...e }) => ({ ...e, keyMasked: '', keyStorage: 'keychain' as const }));
+    const codex = withEndpointModels('codex', own, view);
+    expect(codex.models).toEqual([
+      { id: 'gpt-6.1-sol' },
+      // An id the CLI lists stays its own.
+      { id: 'homelab/gemma4:e4b', label: 'Mine' },
+      { id: 'studio/qwen/qwen3-coder', label: 'qwen/qwen3-coder · LM Studio', endpoint: 'studio', efforts: ['none', 'low', 'medium', 'high'], defaultEffort: 'medium' },
+    ]);
+    const grok = withEndpointModels('grok', { ...own, provider: 'grok', models: [] }, view);
+    expect(grok.models[0]).toEqual({ id: 'homelab/gemma4:e4b', label: 'gemma4:e4b · Homelab', endpoint: 'homelab', efforts: [] });
+    expect(withEndpointModels('claude', { ...own, provider: 'claude' }, [])).toEqual({ ...own, provider: 'claude' });
+
+    // The effort a member left on "default" runs as the menu says: one the endpoint does not take is
+    // replaced (Codex) or not sent (Claude Code, Grok).
+    const pm = (defaultEffort?: string): ProviderModels => ({ ...codex, ...(defaultEffort ? { defaultEffort } : {}) });
+    expect(inheritedEffort(pm('xhigh'), 'studio/qwen/qwen3-coder')).toBe('medium');
+    expect(inheritedEffort(pm('high'), 'studio/qwen/qwen3-coder')).toBe('high');
+    expect(inheritedEffort(pm(), 'studio/qwen/qwen3-coder')).toBeUndefined();
+    expect(inheritedEffort({ ...grok, defaultEffort: 'xhigh' }, 'homelab/gemma4:e4b')).toBeUndefined();
+    // The CLI's own models as before.
+    expect(inheritedEffort(pm('xhigh'), 'gpt-6.1-sol')).toBe('xhigh');
+  });
+});
+
 describe('an open agent’s environment', () => {
   it('gets the configured keys instead of any the server inherited, and a home of Harness Relay’s own', () => {
     vi.stubEnv('OPENAI_API_KEY', 'sk-from-the-shell');
@@ -234,10 +300,15 @@ describe('an open agent’s environment', () => {
       expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-settings');
       expect(env[OPEN_AGENT_HOME_ENV]).toBe(join(OPEN_HOMES_DIR, 'goose'));
       expect(s.backendsFor('goose')).toEqual({ apis: { anthropic: 'sk-ant-settings' }, endpoints: [] });
-      // The other CLIs keep theirs, and get no backends.
+      // The other CLIs keep theirs, and get the user's own endpoints only, never the API backends' keys.
       expect(s.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-from-the-shell');
       expect(s.env('claude')[OPEN_AGENT_HOME_ENV]).toBeUndefined();
-      expect(s.backendsFor('claude')).toBeUndefined();
+      expect(s.backendsFor('claude')).toEqual({ apis: {}, endpoints: [] });
+      s.backends.putEndpoint('homelab', { name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'], apiKey: 'lab-key' });
+      expect(s.backendsFor('codex')).toEqual({
+        apis: {},
+        endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'], apiKey: 'lab-key' }],
+      });
       // With an agent-home folder, the open agents' homes are in it too.
       s.setAgentHome(join(root, 'homes'));
       expect(s.env('pi')[OPEN_AGENT_HOME_ENV]).toBe(join(root, 'homes', 'pi'));
@@ -376,6 +447,18 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     expect((await app.request('/api/providers/opencode/login', json('POST', {}))).status).toBe(400);
     expect((await app.request('/api/providers/opencode/logout', json('POST', {}))).status).toBe(400);
     providers.shutdown();
+  });
+
+  it("adds each endpoint's models to Claude Code's menu, and asks again after the endpoints change", async () => {
+    const { app, settings, providers } = setup();
+    // Claude Code's models are its aliases, and its defaults come from its settings file: in a home of the test's own.
+    settings.setAgentHome(join(root, `homes-${n}`));
+    const ids = async () => (await providers.models('claude')).models.map((m) => m.id);
+    expect(await ids()).toEqual(['fable', 'opus', 'sonnet', 'haiku']);
+    await app.request('/api/backends/endpoints/homelab', json('PUT', endpoint));
+    expect(await ids()).toEqual(['fable', 'opus', 'sonnet', 'haiku', 'homelab/muse-glimmer-30b-nvfp4']);
+    await app.request('/api/backends/endpoints/homelab', json('DELETE'));
+    expect(await ids()).toEqual(['fable', 'opus', 'sonnet', 'haiku']);
   });
 
   it("offers an open agent's models of the configured backends: its CLI's catalog and each endpoint's", async () => {

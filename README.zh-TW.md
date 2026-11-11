@@ -17,7 +17,7 @@
 ## 功能
 
 - **八個 coding agent 同一個聊天室**：直接使用你已安裝的 `claude`、`codex`、`grok` CLI，保有它們各自的工具、session 與登入狀態，也能使用開源的 `opencode`、`goose`、`cline`、`openhands` 與 `pi` CLI。同一個團隊裡可以混搭。
-- **開源 agent 用你自己的模型**：它們使用你在設定頁設定的模型來源：OpenAI、Anthropic、xAI 的 API key，或你自己的 OpenAI 相容端點（vLLM、Ollama、LM Studio、llama.cpp）。成員的模型寫成「模型來源/模型」，例如 `openai/gpt-5.4-nano` 或 `homelab/muse-glimmer-30b-nvfp4`。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（只能用 API key）；Claude Code 與 Grok 本身照常使用它們自己的登入。見[開源 agent 與模型來源](#開源-agent-與模型來源)。
+- **用你自己的模型**：開源 agent 使用你在設定頁設定的模型來源：OpenAI、Anthropic、xAI 的 API key，或你自己的 OpenAI 相容端點（vLLM、Ollama、LM Studio、llama.cpp）。成員的模型寫成「模型來源/模型」，例如 `openai/gpt-5.4-nano` 或 `homelab/muse-glimmer-30b-nvfp4`。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（只能用 API key）。Claude Code、Codex 與 Grok 也能在你自己的端點上執行：給成員選一個端點的模型即可。見[開源 agent 與模型來源](#開源-agent-與模型來源)。
 - **用範本設計團隊**：角色、模型、推理強度、發言順序；五個內建範本（寫程式與一般問題）可以複製修改，也能在新對話頁新增、修改自己的範本。對話中也能隨時調整目前的團隊：自己動手改，或告訴首席 agent 想怎麼改。
 - **附加檔案**：直接貼上截圖、拖曳檔案或按 📎；每個 agent 都拿得到檔案，圖片也會直接交給能接收圖片的 CLI 看。
 - **語音輸入（選用）**：在輸入框按 🎙 說話，由你電腦上的 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) 轉成文字，錄音不會離開這台電腦。不需要就不會安裝：第一次按下時會先說明要下載什麼，再於背景安裝引擎與模型（進度、換模型與移除都在設定頁）。支援 macOS（Homebrew、Metal GPU）、Linux 與 Windows（x64 / arm64）。
@@ -102,6 +102,8 @@ OpenCode、Goose、Cline、OpenHands 與 Pi 在 Harness Relay 裡沒有登入流
 3. 在團隊設定裡替每位開源 agent 成員選模型，寫成「模型來源/模型」：`openai/…`、`anthropic/…`、`xai/…`，或端點的 id 加上模型名稱，例如 `homelab/muse-glimmer-30b-nvfp4`。模型選單會先列出 CLI 自己的模型中、模型來源已設定的那些，再列出每個端點的模型；也隨時可以自己輸入 id。維持「預設」的成員，會用它選單上顯示的預設模型：設定頁該 agent 卡片上的預設模型，沒有的話，用 CLI 自己的預設模型（它的模型來源已設定時）；兩者都沒有時，選單會說明需要指定模型。
 
 CLI 已安裝、且至少設定了一個模型來源時，開源 agent 就可以使用。每次執行只拿到它的模型所屬來源的那一把金鑰（也就是這裡儲存的）：絕不會拿到其他來源的金鑰，也不會拿到伺服器環境變數裡任何模型供應商的金鑰（`OPENAI_API_KEY`、`GEMINI_API_KEY` 之類）。那裡的其他憑證，例如 `GITHUB_TOKEN` 或 AWS 的變數，仍會傳給這些 agent，和其他 CLI 一樣。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱），請改用 API key 或你自己的端點。
+
+**Claude Code、Codex 與 Grok 在你自己的端點上執行。** 它們的模型選單會在自己的模型後面列出每個自訂端點的模型（例如 `homelab/gemma4:e4b`）：給成員選其中一個，那個 CLI 就在你的伺服器上執行，帶著端點的金鑰（有的話），絕不帶你的 Claude、ChatGPT 或 Grok 登入（或它們的 API key）。每個 CLI 用自己的 API，伺服器也要提供：Claude Code 用 Anthropic Messages API（`/v1/messages`），Codex 用 Responses API（`/v1/responses`），Grok 用 Chat Completions（`/v1/chat/completions`）；vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供。這時 Claude Code 與 Codex 不需要登入；Grok 啟動時仍需要它自己的登入。這些執行只送這類伺服器都接受的推理強度：Claude Code 是 low 到 high，Codex 是 none 到 high（其他的改送 medium，例如你的 Codex 設定裡的 `xhigh`），Grok 不送。Grok 的部分，Harness Relay 會在 Grok 成員第一次用到端點的模型時，把端點的模型寫進 Grok 的 `config.toml`（一段有標記的區塊，不出現在 Grok 自己的模型選單）。
 
 | | 協定 | 核准 | 你拒絕時的留言會傳給模型 | 沙箱需要的（完全存取以外） | 主要限制 |
 | --- | --- | --- | --- | --- | --- |

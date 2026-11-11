@@ -20,7 +20,8 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import type { NativePart, Permission } from '../../shared/types';
+import { endpointEffort, type NativePart, type Permission } from '../../shared/types';
+import { endpointKeyEnv, endpointModel, ENDPOINT_KEY_ENV } from '../backends';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
 import { commandPaths, patternPath, protectedReads, realPath, relayTmpDir } from '../protect';
@@ -36,6 +37,7 @@ import {
   type AgentRunner,
   type ApprovalRequest,
   type McpServerSpec,
+  type RunEndpoint,
   type RunOptions,
   type RunResult,
 } from './types';
@@ -386,18 +388,21 @@ function asideName(path: string, now: number): string {
   return `${name}-${randomBytes(4).toString('hex')}`;
 }
 
+/** One of Grok's settings as it is now, by its name in Grok's home (a link as a link). */
+function settingNow(home: string, name: string): GrokEntry {
+  let entry: GrokEntry | undefined;
+  try {
+    entry = grokEntry(join(home, name));
+  } catch {
+    entry = undefined;
+  }
+  return entry ?? { kind: 'other', type: UNREADABLE };
+}
+
 /** Reads Grok's settings, each by its name in Grok's home (a link as a link). */
 export function snapshotGrokSettings(home: string): GrokSettingsSnapshot {
   const entries = new Map<string, GrokEntry>();
-  for (const name of GROK_SETTINGS) {
-    let entry: GrokEntry | undefined;
-    try {
-      entry = grokEntry(join(home, name));
-    } catch {
-      entry = undefined;
-    }
-    entries.set(name, entry ?? { kind: 'other', type: UNREADABLE });
-  }
+  for (const name of GROK_SETTINGS) entries.set(name, settingNow(home, name));
   return { home, entries, skills: folderFingerprint(join(home, GROK_SKILLS)) };
 }
 
@@ -470,6 +475,24 @@ export function writeGrokSetting(home: string, name: string, write: () => string
 /** The settings each Grok home had before the first of its sandboxed turns now running started. */
 const grokGuards = new Map<string, { snapshot: GrokSettingsSnapshot; turns: number; found: string[] }>();
 
+/** The settings Harness Relay writes before a turn: its profile, and the models of the user's own endpoints. */
+const GROK_OWN = ['sandbox.toml', 'config.toml'];
+
+/**
+ * Writes what Harness Relay keeps in Grok's settings before a turn (`write`). With sandboxed turns of
+ * this home running, what their commands changed is put back first (and named when they end), and
+ * those turns then take Harness Relay's settings as `write` left them: one it changed (the endpoints'
+ * models, after the user changed their endpoints) is not taken for a command's change. A setting that
+ * had to be put back stays as it was, so a failure to put it back is not taken either.
+ */
+function writeGrokOwn(home: string, write: () => void): void {
+  const guard = grokGuards.get(realPath(home));
+  const putBack = guard ? restoreGrokSettings(guard.snapshot, home) : [];
+  guard?.found.push(...putBack);
+  write();
+  if (guard) for (const name of GROK_OWN) if (!putBack.includes(name)) guard.snapshot.entries.set(name, settingNow(home, name));
+}
+
 /**
  * Guards Grok's settings around one sandboxed turn; `write` writes what Harness Relay itself keeps
  * there for the turn (its profile). Turns of the same Grok home at the same time share what the
@@ -480,9 +503,8 @@ const grokGuards = new Map<string, { snapshot: GrokSettingsSnapshot; turns: numb
  */
 export function guardGrokSettings(home: string, write: () => void = () => undefined): () => string[] {
   const key = realPath(home);
+  writeGrokOwn(home, write);
   let guard = grokGuards.get(key);
-  if (guard) guard.found.push(...restoreGrokSettings(guard.snapshot, home));
-  write();
   if (!guard) {
     guard = { snapshot: snapshotGrokSettings(home), turns: 0, found: [] };
     grokGuards.set(key, guard);
@@ -548,6 +570,84 @@ export function writeGrokProfile(home: string, deny: readonly string[]): void {
   renameSync(temp, file);
 }
 
+
+/**
+ * The id Harness Relay gives a model of the user's own endpoint in Grok's config:
+ * `harness-relay/<endpoint id>/<model>`, which no model of Grok's or of the user's own config has.
+ */
+export const grokEndpointModelId = (endpointId: string, model: string): string => `harness-relay/${endpointId}/${model}`;
+
+const MODELS_BEGIN =
+  "# >>> harness-relay models: your own endpoints of Harness Relay's Settings → Model backends, written before its Grok runs; changes here are replaced";
+const MODELS_END = '# <<< harness-relay models';
+
+/**
+ * The block of Grok's `config.toml` that defines the models of the user's own endpoints, one table each
+ * (`[model."<grokEndpointModelId>"]`): its base URL and model name, Chat Completions (Grok's default
+ * API, `/v1/chat/completions`), hidden from Grok's own model picker (a run still selects it), and its
+ * key from `ENDPOINT_KEY_ENV`: with that variable unset Grok sends no key, never the user's Grok sign-in
+ * (checked with grok 1.0.77). Empty without endpoint models.
+ */
+export function grokModelsBlock(endpoints: readonly RunEndpoint[]): string {
+  const toml = (v: string) => JSON.stringify(v).replace(/\u007f/g, '\\u007F');
+  const tables = endpoints.flatMap((e) =>
+    e.models.map((model) =>
+      [
+        `[model.${toml(grokEndpointModelId(e.id, model))}]`,
+        `model = ${toml(model)}`,
+        `base_url = ${toml(e.baseUrl)}`,
+        `name = ${toml(`${model} · ${e.name || e.id}`)}`,
+        `env_key = ${toml(ENDPOINT_KEY_ENV)}`,
+        'hidden = true',
+      ].join('\n'),
+    ),
+  );
+  return tables.length ? [MODELS_BEGIN, tables.join('\n\n'), MODELS_END].join('\n') : '';
+}
+
+/**
+ * `config.toml` with the models' block in place of the one there was, or after the user's own
+ * settings (TOML tables go last); `block` empty takes it out.
+ */
+export function withGrokModels(existing: string, block: string): string {
+  const start = existing.indexOf(MODELS_BEGIN);
+  const end = start < 0 ? -1 : existing.indexOf(MODELS_END, start);
+  if (end >= 0) {
+    if (block) return existing.slice(0, start) + block + existing.slice(end + MODELS_END.length);
+    const before = existing.slice(0, start).trimEnd();
+    const after = existing.slice(end + MODELS_END.length).replace(/^\n+/, '');
+    return before && after ? `${before}\n\n${after}` : before ? `${before}\n` : after;
+  }
+  if (!block) return existing;
+  const before = existing.trimEnd();
+  return `${before ? `${before}\n\n` : ''}${block}\n`;
+}
+
+/**
+ * Writes the models of the user's own endpoints into `<home>/config.toml` (`grokModelsBlock`), when
+ * they are not there as they should be: `add` for a turn on one of them; without it, a block written
+ * before is only kept up to date (or taken out), so Grok's config gets one only once it is used.
+ * Written beside it and renamed into place with its mode, a link followed (as `writeGrokProfile`).
+ */
+export function writeGrokModels(home: string, endpoints: readonly RunEndpoint[], add: boolean): void {
+  const path = join(home, 'config.toml');
+  const file = existsSync(path) ? realpathSync(path) : path;
+  const existing = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  if (!add && !existing.includes(MODELS_BEGIN)) return;
+  const next = withGrokModels(existing, grokModelsBlock(endpoints));
+  if (next === existing) return;
+  mkdirSync(home, { recursive: true });
+  const mode = existsSync(file) ? statSync(file).mode & 0o777 : 0o600;
+  const temp = `${file}.${process.pid}-${randomBytes(6).toString('hex')}.tmp`;
+  writeFileSync(temp, next, { flag: 'wx', mode });
+  try {
+    chmodSync(temp, mode);
+    renameSync(temp, file);
+  } catch (err) {
+    rmSync(temp, { force: true });
+    throw err;
+  }
+}
 
 /** The `toolCall` of an ACP `session/request_permission`. */
 export interface GrokToolCall {
@@ -824,12 +924,24 @@ export function grokEnv(o: Pick<RunOptions, 'env' | 'nativeOff' | 'permission'>,
 
 export const grokRunner: AgentRunner = {
   provider: 'grok',
-  async run(o): Promise<RunResult> {
-    if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
+  async run(given): Promise<RunResult> {
+    if (given.signal.aborted) throw new AgentRunError(t().stopped, true);
+    // On the user's own endpoint: its model as Grok's config names it (`writeGrokModels`), no effort
+    // (Grok takes none for a model it does not know), and its key in the variable that model names.
+    const endpoint = endpointModel(given.backends, given.model);
+    const o = endpoint ? { ...given, model: grokEndpointModelId(endpoint.endpoint.id, endpoint.model), effort: endpointEffort('grok', given.effort) } : given;
     // Model and effort are set per session below: `grok agent --reasoning-effort` does not reach ACP sessions.
     const args = ['agent', '--no-leader', 'stdio'];
     const sandbox = grokSandboxProfile(o.permission);
-    const env = grokEnv(o);
+    const env = endpoint ? endpointKeyEnv(grokEnv(o), endpoint) : grokEnv(o);
+    const writeModels = () => {
+      const home = grokHome(env);
+      try {
+        writeGrokModels(home, o.backends?.endpoints ?? [], Boolean(endpoint));
+      } catch (err) {
+        throw new AgentRunError(t().grokModelsFailed(join(home, 'config.toml'), (err as Error).message));
+      }
+    };
     if (sandbox === GROK_PROFILE) {
       const deny = o.protectedPaths ?? protectedReads();
       // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
@@ -842,9 +954,16 @@ export const grokRunner: AgentRunner = {
       let settle: () => string[];
       let settleProgram: () => string[] = () => [];
       try {
-        settle = guardGrokSettings(home, () => writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)]));
+        settle = guardGrokSettings(home, () => {
+          try {
+            writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)]);
+          } catch (err) {
+            throw new AgentRunError(t().grokSandbox((err as Error).message));
+          }
+          writeModels();
+        });
       } catch (err) {
-        throw new AgentRunError(t().grokSandbox((err as Error).message));
+        throw err instanceof AgentRunError ? err : new AgentRunError(t().grokSandbox((err as Error).message));
       }
       try {
         if (process.platform === 'linux') settleProgram = guardGrokProgram(home, bins);
@@ -863,6 +982,7 @@ export const grokRunner: AgentRunner = {
       }
       return result;
     }
+    writeGrokOwn(grokHome(env), writeModels);
     return grokTurn(o, args, sandbox, env);
   },
 };

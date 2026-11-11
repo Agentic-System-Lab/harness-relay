@@ -155,9 +155,15 @@ export class ProviderService {
     return { loggedIn: true, detail: t().openBackendsReady(configured.map((id) => backendLabel(view, id)).join(', ')) };
   }
 
-  /** The open agents' status and models follow the model backends: asked again after a change. */
+  /**
+   * The open agents' status and models follow the model backends, and the other CLIs' model menus list
+   * the endpoints' models too: asked again after a change (the other CLIs' sign-ins stay cached).
+   */
   backendsChanged(): void {
-    for (const p of PROVIDERS) if (isOpenProvider(p)) this.invalidate(p);
+    for (const p of PROVIDERS) {
+      if (isOpenProvider(p)) this.invalidate(p);
+      else this.modelCache.delete(p);
+    }
   }
 
   statusAll(refresh = false): Promise<ProviderStatus[]> {

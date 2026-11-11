@@ -82,8 +82,9 @@ export interface RunOptions {
    */
   protectedPaths?: string[];
   /**
-   * The model backends set up in Settings, with their keys: given to the open agents' runs only
-   * (`SettingsStore.backendsFor()`); `backendRun()` in `src/server/backends.ts` reads it.
+   * The model backends set up in Settings, with their keys (`SettingsStore.backendsFor()`): an open
+   * agent's run reads it with `backendRun()`, and a run of Claude Code, Codex or Grok, which gets the
+   * user's own endpoints only, with `endpointModel()` (both in `src/server/backends.ts`).
    */
   backends?: RunBackends;
   /**

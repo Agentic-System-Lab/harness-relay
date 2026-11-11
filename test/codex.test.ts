@@ -7,6 +7,7 @@ import {
   codexApprovalRequest,
   codexApprovalResponse,
   codexConfig,
+  codexEndpointEffort,
   codexElicitationResponse,
   codexMcpToolApproval,
   codexConfirmLeftOut,
@@ -330,6 +331,20 @@ describe('codex thread config', () => {
     expect(codexOverrideArgs({})).toEqual([]);
   });
 
+  it("sends an effort the user's own endpoint takes, asking Codex's config only when none was given", async () => {
+    const asked: string[] = [];
+    const conn = (effort: unknown) => ({ request: async (method: string) => (asked.push(method), { config: { model_reasoning_effort: effort } }) });
+    expect(await codexEndpointEffort('low', conn('xhigh'), '/repo')).toBe('low');
+    expect(await codexEndpointEffort('xhigh', conn('high'), '/repo')).toBe('medium');
+    expect(asked).toEqual([]);
+    expect(await codexEndpointEffort(undefined, conn('xhigh'), '/repo')).toBe('medium');
+    expect(await codexEndpointEffort(undefined, conn('high'), '/repo')).toBe('high');
+    expect(await codexEndpointEffort(undefined, conn(null), '/repo')).toBeUndefined();
+    // Codex cannot say: one the endpoint takes, rather than whatever its config holds.
+    const old = { request: async () => Promise.reject(new RpcError(-32601, 'config/read is not supported')) };
+    expect(await codexEndpointEffort(undefined, old, '/repo')).toBe('medium');
+  });
+
   it('asks Codex for its MCP servers only when they are left out, and fails the run plainly when it cannot say', async () => {
     const asked: [string, unknown][] = [];
     const conn = (answer: () => Promise<unknown>) => ({
@@ -414,6 +429,18 @@ describe('codex thread config', () => {
       method: 'thread/resume',
       params: { threadId: 'thr-1', ...start.params },
     });
+    // On the user's own endpoint: its model by its own name, through a provider of its own.
+    const lab = { id: 'lab/qwen3', model: 'qwen3', endpoint: { id: 'lab', name: 'Lab', baseUrl: 'http://10.0.0.6:8000/v1', models: ['qwen3'] } };
+    const onLab = codexThreadRequest({ ...run, model: 'lab/qwen3', sessionId: 'thr-1' }, user, 'linux', 'harness-relay-1a2b', lab);
+    expect(onLab.params).toMatchObject({
+      threadId: 'thr-1',
+      model: 'qwen3',
+      modelProvider: 'harness-relay-lab',
+      config: {
+        model_provider: 'harness-relay-lab',
+        model_providers: { 'harness-relay-lab': { name: 'Harness Relay: Lab', base_url: 'http://10.0.0.6:8000/v1', wire_api: 'responses' } },
+      },
+    });
     // Full access, or a conversation that refuses automatically, never asks.
     expect(codexThreadRequest({ ...run, permission: 'full' }).params.approvalPolicy).toBe('never');
     expect(codexThreadRequest({ ...run, requestApproval: undefined }).params.approvalPolicy).toBe('never');
@@ -495,7 +522,8 @@ describe('codex thread config', () => {
 describe('a Codex run that leaves out hooks and plugins (stand-in codex app-server)', () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-codex-')));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
-  // Answers like codex-cli 0.167.0's app-server. FAKE_CODEX_IGNORE plays a Codex that ignores the
+  // Answers like codex-cli 0.167.0's app-server (config/read: the effort FAKE_CODEX_EFFORT sets, as
+  // the user's config would). FAKE_CODEX_IGNORE plays a Codex that ignores the
   // two keys; FAKE_CODEX_SLOW answers hooks/list after two seconds; FAKE_CODEX_NO_PROFILE a Codex
   // that ignores the thread's permission profile; FAKE_CODEX_PROFILE_FAILS one that cannot load it
   // (a turn in it fails, as Codex 0.167 on Linux does). Each request goes to the log.
@@ -521,12 +549,22 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       const profile = m.params.permissions && !process.env.FAKE_CODEX_NO_PROFILE ? { activePermissionProfile: { id: m.params.permissions } } : {};
       profiled = Boolean(m.params.permissions);
       log({ capabilities: init.capabilities ?? null, permissions: m.params.permissions ?? null, sandbox: m.params.sandbox ?? null });
+      log({
+        model: m.params.model ?? null,
+        modelProvider: m.params.modelProvider ?? null,
+        configProvider: (m.params.config || {}).model_provider ?? null,
+        providers: (m.params.config || {}).model_providers ?? null,
+        effort: (m.params.config || {}).model_reasoning_effort ?? null,
+        key: process.env.HARNESS_RELAY_ENDPOINT_API_KEY ?? null,
+      });
       return reply({ thread: { id: 'thr-1' }, ...profile });
     }
     case 'hooks/list': {
       const r = { data: [{ hooks: off('features.hooks') ? [] : [{ key: 'h', eventName: 'stop', enabled: true }] }] };
       return process.env.FAKE_CODEX_SLOW ? setTimeout(() => reply(r), 2000) : reply(r);
     }
+    case 'config/read':
+      return reply({ config: { model_reasoning_effort: process.env.FAKE_CODEX_EFFORT ?? null }, origins: {} });
     case 'plugin/installed':
       return reply({ marketplaces: [{ name: 'm', plugins: off('features.plugins') ? [] : [{ id: 'deck@m', installed: true, enabled: true }] }] });
     case 'turn/start':
@@ -624,6 +662,72 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     const r = run({ FAKE_CODEX_NO_PROFILE: '1' }, undefined, ['/home/me/.mozilla']);
     await expect(r.result).rejects.toThrow(/^Codex did not run this thread in the permission profile Harness Relay gave it/);
     expect(r.methods()).not.toContain('turn/start');
+  });
+
+  it("runs the model of the user's own endpoint there, with its key in a variable and an effort it takes", async () => {
+    const endpoint = (apiKey?: string) => ({ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'], ...(apiKey ? { apiKey } : {}) });
+    const go = async (o: { effort?: string; configEffort?: string; apiKey?: string; model?: string }) => {
+      const log = join(dir, `log-${++n}.jsonl`);
+      appendFileSync(log, '');
+      await codexRunner.run({
+        bin,
+        env: {
+          ...process.env,
+          FAKE_CODEX_LOG: log,
+          HARNESS_RELAY_ENDPOINT_API_KEY: 'from-the-shell',
+          ...(o.configEffort ? { FAKE_CODEX_EFFORT: o.configEffort } : {}),
+        },
+        prompt: 'hello',
+        systemPrompt: 'briefing',
+        cwd: dir,
+        permission: 'read-only',
+        model: o.model ?? 'homelab/gemma4:e4b',
+        ...(o.effort ? { effort: o.effort } : {}),
+        backends: { apis: {}, endpoints: [endpoint(o.apiKey)] },
+        signal: new AbortController().signal,
+        onEvent: () => undefined,
+      });
+      const lines = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+      return {
+        started: lines.find((l) => 'modelProvider' in l)!,
+        args: lines[0]!.args as string[],
+        methods: lines.flatMap((l) => (l.method ? [l.method] : [])),
+      };
+    };
+    const keyed = await go({ apiKey: 'lab-key', effort: 'high' });
+    expect(keyed.started).toEqual({
+      model: 'gemma4:e4b',
+      modelProvider: 'harness-relay-homelab',
+      configProvider: 'harness-relay-homelab',
+      providers: { 'harness-relay-homelab': { name: 'Harness Relay: Homelab', base_url: 'http://10.0.0.5:11434/v1', wire_api: 'responses', env_key: 'HARNESS_RELAY_ENDPOINT_API_KEY' } },
+      effort: 'high',
+      key: 'lab-key',
+    });
+    // The app-server is started with that provider too: Codex takes a thread's provider only when it is its own.
+    expect(keyed.args).toEqual(
+      expect.arrayContaining([
+        '-c',
+        'model_provider="harness-relay-homelab"',
+        '-c',
+        'model_providers={ "harness-relay-homelab" = { "name" = "Harness Relay: Homelab", "base_url" = "http://10.0.0.5:11434/v1", "wire_api" = "responses", "env_key" = "HARNESS_RELAY_ENDPOINT_API_KEY" } }',
+      ]),
+    );
+    expect(keyed.args.join(' ')).not.toContain('lab-key');
+    // An effort the member gave was enough: Codex's config is not asked.
+    expect(keyed.methods).not.toContain('config/read');
+    // No key: none named, and none inherited from the shell.
+    const keyless = await go({ configEffort: 'xhigh' });
+    expect(keyless.started).toMatchObject({ providers: { 'harness-relay-homelab': { wire_api: 'responses' } }, key: null });
+    expect((keyless.started.providers as Record<string, object>)['harness-relay-homelab']).not.toHaveProperty('env_key');
+    // The user's config sets an effort meant for OpenAI's models: one the endpoint takes instead.
+    expect(keyless.started.effort).toBe('medium');
+    expect(keyless.methods).toContain('config/read');
+    // It sets none: none is sent.
+    expect((await go({})).started.effort).toBeNull();
+    // Codex's own models stay as they are.
+    const own = await go({ model: 'gpt-6.1-sol', effort: 'xhigh' });
+    expect(own.started).toEqual({ model: 'gpt-6.1-sol', modelProvider: null, configProvider: null, providers: null, effort: 'xhigh', key: 'from-the-shell' });
+    expect(own.args.join(' ')).not.toContain('model_provider');
   });
 
   it('does not start the turn when stopped during the check', async () => {
