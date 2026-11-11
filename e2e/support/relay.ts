@@ -2,12 +2,15 @@
  * One Harness Relay server for one test: `src/server/index.ts` with the built UI, on a free port,
  * with everything it keeps in a temporary folder of its own (data, the CLIs' homes, a home folder,
  * the default working directory), the fake CLIs first on its PATH and the OS credential store off.
+ * The CLIs no fake stands in for (Cursor and the open agents) are not installed there, as on CI.
  * Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
+import { PROVIDERS } from '../../src/shared/types';
+import { CLIS as FAKE_CLIS } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
 
 /** What a fake CLI wrote to its log (E2E_FAKE_LOG): a start, or a prompt it got. */
@@ -72,6 +75,8 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   // Claude Code's nesting variables (when the tests run inside a Claude Code session) and the
   // runner's own: none of them is the server's business.
   for (const k of Object.keys(env)) if (/^(CLAUDECODE|CLAUDE_CODE_|PLAYWRIGHT_|PW_|TEST_|E2E_|FORCE_COLOR$)/.test(k)) delete env[k];
+  // Nor the user's own Cursor sign-in by key, or its folder.
+  for (const k of ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN', 'CURSOR_CONFIG_DIR']) delete env[k];
   Object.assign(env, {
     PORT: '0',
     HOST: '127.0.0.1',
@@ -118,11 +123,17 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
       await Promise.race([exited, new Promise((r) => setTimeout(r, 5_000))]);
     }
     // Windows may hold a file a moment after its process ended; a folder left in the temporary
-    // folder is no reason to fail a test.
+    // folder is no reason to fail a test. Harness Relay makes some of an open agent's folders in
+    // its home read-only (OpenCode's config): those are given back to their owner first.
     try {
       rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
-    } catch (err) {
-      console.warn(`[e2e] could not remove ${root}: ${(err as Error).message}`);
+    } catch {
+      try {
+        makeWritable(root);
+        rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+      } catch (err) {
+        console.warn(`[e2e] could not remove ${root}: ${(err as Error).message}`);
+      }
     }
   };
   try {
@@ -183,6 +194,14 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
       return (text ? JSON.parse(text) : undefined) as T;
     };
 
+    // The CLIs no fake stands in for (Cursor and the open agents) are not installed here, as on CI:
+    // a real one on the user's PATH would otherwise be started (Cursor with the sign-in it keeps in
+    // the macOS keychain), and what each test sees would depend on what that computer has. Their
+    // executable is set to a path that does not exist, before the page asks for any CLI's status.
+    for (const p of PROVIDERS.filter((x) => !(FAKE_CLIS as readonly string[]).includes(x))) {
+      await api(`/api/settings/providers/${p}`, { method: 'PUT', body: { bin: join(root, 'not-installed', p) } });
+    }
+
     return {
       base,
       root,
@@ -210,6 +229,23 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
       stop,
     };
   }
+}
+
+/** Gives the owner write permission on `dir` and every folder under it, never following a link. */
+function makeWritable(dir: string): void {
+  let st;
+  try {
+    st = lstatSync(dir);
+  } catch {
+    return;
+  }
+  if (!st.isDirectory()) return;
+  try {
+    chmodSync(dir, (st.mode & 0o777) | 0o700);
+  } catch {
+    /* not ours to change: rmSync says so */
+  }
+  for (const name of readdirSync(dir)) makeWritable(join(dir, name));
 }
 
 /** A small project to work in: a README, some code and a nested folder (not a git repository: edit mode makes one). */

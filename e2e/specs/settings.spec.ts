@@ -37,9 +37,12 @@ test.describe('settings', () => {
       await expect(card).toContainText('Signed in');
     }
     await expect(page.locator('#settings-claude')).toContainText('e2e@example.com');
-    // The sidebar's health dots say the same.
-    await expect(page.locator('.provider-health .health')).toHaveCount(3);
-    await expect(page.locator('.provider-health .health.ok')).toHaveCount(3);
+    // The sidebar's health dots say the same. Cursor, which no fake stands in for, is not installed
+    // here; the open agents get a dot only once installed.
+    for (const cli of CLIS) await expect(page.locator(`.provider-health .health.ok[href="#/settings/${cli.provider}"]`)).toBeVisible();
+    await expect(page.locator('.provider-health .health.off[href="#/settings/cursor"]')).toHaveAttribute('title', 'Not installed');
+    await expect(page.locator('#settings-cursor .provider-head .pill')).toHaveText('Not installed');
+    await expect(page.locator('.provider-health .health')).toHaveCount(4);
   });
 
   test("a CLI's executable path can be set, and a wrong one shows it as missing", async ({ page }) => {
