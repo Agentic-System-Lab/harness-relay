@@ -158,6 +158,8 @@ export interface PlannerSources {
     p: Provider,
     cwd: string,
     account: string,
+    /** The other working directories (Claude Code loads their skills too). */
+    addDirs?: readonly string[],
   ): Promise<Pick<NativeSetup, 'skills' | 'mcpServers' | 'builtinTools' | 'agents' | 'plugins'> & { problems?: NativeProblem[] }>;
 }
 
@@ -168,7 +170,12 @@ export interface PlannerSources {
  * keeps what it answered (`incomplete`); one that does not answer within `waitMs`, or answers nothing,
  * is `unknown`.
  */
-export async function plannerContext(src: PlannerSources, cwd?: string, waitMs = NATIVE_WAIT_MS): Promise<PlannerContext> {
+export async function plannerContext(
+  src: PlannerSources,
+  cwd?: string,
+  waitMs = NATIVE_WAIT_MS,
+  addDirs: readonly string[] = [],
+): Promise<PlannerContext> {
   const [statuses, catalog] = await Promise.all([src.statuses(), src.catalog()]);
   // A CLI is available with any account agents can run as; its members get one of those.
   const usable = statuses.map((s) => ({ provider: s.provider, ids: s.installed ? s.accounts.filter(accountUsable).map((a) => a.id) : [] }));
@@ -187,7 +194,7 @@ export async function plannerContext(src: PlannerSources, cwd?: string, waitMs =
         let timer: NodeJS.Timeout | undefined;
         const late = new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), waitMs)));
         try {
-          const probe = await Promise.race([src.native(p, cwd, accounts[p]![0]!), late]);
+          const probe = await Promise.race([src.native(p, cwd, accounts[p]![0]!, addDirs), late]);
           if (!probe) {
             native[p] = { skills: [], mcpServers: [], unknown: 'late' };
             return;

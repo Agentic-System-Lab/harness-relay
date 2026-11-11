@@ -191,6 +191,7 @@ export const zhTW = {
     cwdRemove: (dir: string) => `移除 ${dir}`,
     cwdAddMore: '再加一個資料夾…',
     cwdEnter: '按 Enter 加入這個資料夾',
+    cwdFull: (max: number) => `最多 ${max} 個工作目錄`,
     permission: '檔案權限（所有成員共用）',
     parallelNote: '平行模式：每位成員在自己的 git worktree 工作，不會互相覆蓋；完成後在聊天中檢視 diff，再選擇要套用誰的結果。',
     sharedNote: '成員直接在工作目錄修改檔案，每回合改了什麼都會記錄下來；同一個目錄一次只允許一個對話修改。',

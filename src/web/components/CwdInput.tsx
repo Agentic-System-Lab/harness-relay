@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import type { WorkingDirectories } from '../../shared/types';
+import { MAX_CWDS, type WorkingDirectories } from '../../shared/types';
 import { api } from '../api';
 import {
   CWD_MENU_ALL,
@@ -83,6 +83,8 @@ export function CwdInput({ value, onChange, placeholder, id, ariaLabel }: Props)
     };
   }, [menu.open]);
 
+  /** As many folders as a conversation may have: nothing more is typed or picked. */
+  const full = value.length >= MAX_CWDS;
   const items = list ? matchCwds(list, menu.query) : [];
   const shown = cwdMenuShown(menu, items);
   const at = cwdPickIndex(menu, items);
@@ -192,13 +194,15 @@ export function CwdInput({ value, onChange, placeholder, id, ariaLabel }: Props)
       {/* The text box is as wide as what is typed (the hidden copy of it in `data-value` sets the
           width), so the Enter key right after it follows the last character. */}
       <span className="cwd-entry" onMouseDown={focusBox}>
-        <span className="cwd-typing" data-value={text || (value.length ? t.team.cwdAddMore : placeholder) || ''}>
+        <span className="cwd-typing" data-value={text || (full ? t.team.cwdFull(MAX_CWDS) : value.length ? t.team.cwdAddMore : placeholder) || ''}>
           <input
             ref={input}
             id={id}
             aria-label={ariaLabel}
             value={text}
-            placeholder={value.length ? t.team.cwdAddMore : placeholder}
+            placeholder={full ? t.team.cwdFull(MAX_CWDS) : value.length ? t.team.cwdAddMore : placeholder}
+            // Still focusable when full: Backspace takes out the last folder.
+            readOnly={full}
             // The smallest box by itself: its width comes from what is typed.
             size={1}
             spellCheck={false}
@@ -239,7 +243,7 @@ export function CwdInput({ value, onChange, placeholder, id, ariaLabel }: Props)
           </button>
         )}
       </span>
-      {list?.pick && (
+      {list?.pick && !full && (
         <button
           type="button"
           className={`cwd-pick ${picking ? 'busy' : ''}`}

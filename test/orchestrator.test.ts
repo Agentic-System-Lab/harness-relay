@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -557,6 +557,86 @@ describe('several working directories', { timeout: 20_000 }, () => {
       }
       await orchestrator.cleanupWorktrees(conv);
     }
+  });
+
+  it('takes the lock on all of them for an action allowed in a read-only run, and declines it while another conversation writes in one', async () => {
+    const docs = docsFolder();
+    const pendingIn = (conv: Conversation) =>
+      conv.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as { id: string } | undefined;
+    const writer = conversation({ mode: 'roundtable', cwd: docs });
+    writer.agents = [agents[0]!];
+    await orchestrator.send(writer.id, 'please install'); // waits for its approval, holding the lock on docs
+    await vi.waitFor(() => expect(pendingIn(writer)).toBeDefined());
+    const reader = conversation({ mode: 'roundtable', permission: 'read-only', extraCwds: [docs] });
+    reader.agents = [agents[0]!];
+    await orchestrator.send(reader.id, 'please install');
+    await vi.waitFor(() => expect(pendingIn(reader)).toBeDefined());
+    orchestrator.answerApproval(reader.id, pendingIn(reader)!.id, { allow: true });
+    await finish(reader.id);
+    expect(agentMessages(reader)[0]!.parts.find((p) => p.type === 'approval')).toMatchObject({ status: 'denied' });
+    orchestrator.answerApproval(writer.id, pendingIn(writer)!.id, { allow: true });
+    await finish(writer.id);
+  });
+
+  it("tells a schedule that another conversation writes in one of them, before setting up its run", async () => {
+    const docs = docsFolder();
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    const writer = conversation({ mode: 'roundtable', cwd: docs });
+    await orchestrator.send(writer.id, 'go');
+    const conv = conversation({ mode: 'roundtable', extraCwds: [docs] });
+    conv.schedule = {
+      text: 'scheduled check',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+      nextRunAt: 1,
+    };
+    store.saveSchedule(conv);
+    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'busy', reason: expect.stringContaining(docs) });
+    expect(conv.messages).toEqual([]);
+    release();
+    await finish(writer.id);
+  });
+
+  it("records the others' changes when one repository cannot be snapshotted", async () => {
+    const docs = docsFolder();
+    execFileSync('git', ['init', '-q'], { cwd: docs });
+    // A repository inside it without a commit: git cannot snapshot docs around it.
+    mkdirSync(join(docs, 'sub'));
+    execFileSync('git', ['init', '-q'], { cwd: join(docs, 'sub') });
+    const conv = conversation({ mode: 'roundtable', extraCwds: [docs] });
+    conv.agents = [agents[0]!];
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const [alice] = agentMessages(conv);
+    expect(alice!.status).toBe('done');
+    expect(alice!.changes!.map((c) => c.root)).toEqual([project]);
+    expect(alice!.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
+    await orchestrator.cleanupWorktrees(conv);
+  });
+
+  it('marks the worktrees for a reset when a patch fails after another was applied', async () => {
+    const docs = docsFolder();
+    const conv = conversation({ mode: 'parallel', extraCwds: [docs] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    // The check passes (nothing in the way), but nothing can be written in docs: its patch fails.
+    chmodSync(docs, 0o555);
+    try {
+      await expect(orchestrator.applyAgentWork(conv.id, 'b')).rejects.toThrow();
+    } finally {
+      chmodSync(docs, 0o755);
+    }
+    // The first folder's patch was applied: the worktrees start again from the folders as they are.
+    expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
+    expect(Object.values(conv.worktrees).flat().every((w) => w.needsReset)).toBe(true);
+    await orchestrator.cleanupWorktrees(conv);
   });
 
   it("neither applies nor shows a worktree of a folder taken off the list, even once that folder is gone", async () => {

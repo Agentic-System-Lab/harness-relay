@@ -181,6 +181,7 @@ export const en: Messages = {
     cwdRemove: (dir) => `Remove ${dir}`,
     cwdAddMore: 'Add another folder…',
     cwdEnter: 'Press Enter to add this folder',
+    cwdFull: (max) => `At most ${max} working directories`,
     permission: 'File permission (shared by all members)',
     parallelNote:
       "Parallel mode: each member works in its own git worktree, so nobody overwrites anyone; review the diffs in the chat, then choose whose result to apply.",

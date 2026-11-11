@@ -395,7 +395,7 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 
 一個對話最多可以有八個工作目錄（`MAX_CWDS`）：每個 CLI 從 `cwd` 開始，其他的在 `extraCwds`（`cwdsOf()`；由 `validDirectories()` 檢查：每一個都必須是資料夾，不能重複，換個寫法、經由連結，或在不分大小寫的檔案系統上改了大小寫，也算重複；有不存在的資料夾時回 404 `cwd-missing`，`paths` 列出所有不存在的，加上 `createCwd` 時全部建立）。設定頁的預設工作目錄也一樣（`defaultCwd`、`defaultExtraCwds`），沒有指定 `cwd` 的新對話會得到全部。每個資料夾都和 `cwd` 一樣是 agent 的：
 
-- **以同樣的權限交給每個 CLI**（執行選項中的 `addDirs`）：Claude Code 以 `--add-dir` 取得每一個，所以它的權限模式與沙箱的寫入範圍都涵蓋它們；Codex 在可編輯模式下，權限設定檔中每一個都有一個 `write` 項目（其中受保護的路徑仍然拒絕），舊版沙箱則用 `sandbox_workspace_write.writable_roots`；Grok 會得到這次執行專用的設定檔 `harness-relay-<12 個十六進位字元>`，依這些資料夾命名（排序後，每一個也加上實際路徑），也就是 `harness-relay` 再加上這些資料夾的 `read_write`。這個設定檔在 `sandbox.toml` 中有自己的區塊，在主要區塊旁邊，和它一樣在執行前寫入；執行專用資料夾的區塊只保留最新的 32 個。其他對話的執行會在一輪進行中寫入它們自己的區塊：Harness Relay 自己寫的內容會加進進行中各輪共用的快照（`guardGrokSettings()`），所以不會被當成指令做的修改，而任何區塊中其他的寫入仍然算是修改，也會被改回來。Grok 不會在另一個設定檔下接續 session，所以改變對話的工作目錄後，它的 Grok 成員會重新開始 session。角色說明會列出每個資料夾（以及 agent 從第一個開始）。
+- **以同樣的權限交給每個 CLI**（執行選項中的 `addDirs`）：Claude Code 以 `--add-dir` 取得每一個，所以它的權限模式與沙箱的寫入範圍都涵蓋它們；Codex 在可編輯模式下，權限設定檔中每一個都有一個 `write` 項目（其中受保護的路徑仍然拒絕），舊版沙箱則用 `sandbox_workspace_write.writable_roots`；Grok 會得到這次執行專用的設定檔 `harness-relay-<12 個十六進位字元>`，依這些資料夾命名（排序後，每一個也加上實際路徑），也就是 `harness-relay` 再加上這些資料夾的 `read_write`。這個設定檔在 `sandbox.toml` 中有自己的區塊，在主要區塊旁邊，和它一樣在執行前寫入；執行專用資料夾的區塊只保留最新的 32 個，但絕不刪掉進行中的一輪正在用的（`holdGrokProfile()`）。其他對話的執行會在一輪進行中寫入它們自己的區塊：Harness Relay 自己寫的內容會加進進行中各輪共用的快照（`guardGrokSettings()`），所以不會被當成指令做的修改，而任何區塊中其他的寫入仍然算是修改，也會被改回來。Grok 不會在另一個設定檔下接續 session，所以改變對話的工作目錄後，它的 Grok 成員會重新開始 session。角色說明會列出每個資料夾（以及 agent 從第一個開始）。
 - **各自的 git repository**（可編輯／完全存取），建立方式同上，從最外層的資料夾開始，所以在另一個資料夾裡面的資料夾會加入它的 repository，而不會在裡面變成一個空的 repository（git 無法在它外面拍快照）；同一個 repository 裡的兩個資料夾共用它。`RunWorkspace.folders` 記錄每個資料夾和它所在 repository 的根目錄。
 - **每一輪前後各拍一次快照**，每個 repository 各自處理（無法拍快照的那個不會讓其他 repository 的修改無法記錄）：一輪的修改是它改到的每個 repository 各一個 `MessageChanges`，依資料夾的順序（`ChatMessage.changes` 是清單；第一個照舊儲存，其他的以 JSON 存在 `messages.more_changes`）。隊友會收到每一個的 `<changed_files>` 區塊，這一輪改了一個以上的 repository 時，區塊會標出是哪一個（`repository="…"`）。一輪或一位 agent 所有 worktree 的 diff 是一份文字：有多個 repository 時，每一個的路徑以它的資料夾名稱開頭（`a/docs/guide.md`，`git diff --src-prefix/--dst-prefix`；名稱相同時加上 ` (2)`）。
 - **agent 寫入時上鎖**：一次執行同時鎖住每個 repository，否則全都不鎖（另一個對話鎖住其中一個，或它裡面、外面的資料夾時回 409）；唯讀執行中允許的動作，以及套用結果，也是如此。
@@ -403,13 +403,15 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 - **可瀏覽、可連結**：檔案瀏覽器列出每個資料夾（`cwd`、`cwd:1`…）與每位 agent 在每一個的 worktree（`<agent>`、`<agent>:1`…；資料夾在另一個 repository 裡面時，取最內層的那個），回覆中的圖片與檔案連結會在每個資料夾中尋找，平行模式的回合也會在這位 agent 每個含有它的 worktree 中尋找。
 - **和 `cwd` 一樣檢查**：任何一個資料夾含有 Harness Relay 本身，或決定 agent 如何執行的東西時，都會拒絕可編輯模式（`relayFolderRefusal()`）。
 
-首席 agent 會知道每個資料夾，並讀取每個 CLI 在第一個資料夾（CLI 開始的地方）自己會載入的東西；Grok 的信任也以第一個為準。
+首席 agent 會知道每個資料夾，並讀取每個 CLI 在第一個資料夾（CLI 開始的地方）自己會載入的東西，Claude Code 也和執行時一樣以 `--add-dir` 取得其他資料夾（它也會載入其中的 skill；**設定** 中預設工作目錄的清單也一樣）；Grok 的信任也以第一個為準。
 
 ## 瀏覽檔案
 
 對話上方的 **檔案** 會開啟對話工作目錄（每一個）的瀏覽器，平行模式下也能看每位成員的 worktree（`src/server/files.ts`；`GET /api/conversations/:id/files`、`…/files/preview`、`…/files/raw`、`…/files/download`）。路徑會以所選資料夾的實際路徑解析並跟隨符號連結；最後落在資料夾外或 `.git` 資料夾內的（比對時不分大小寫：在 macOS 與 Windows 上 `.GIT/config` 會開到 `.git/config`）都是 404，指向外面的連結不會出現在列表中。一個資料夾最多列出 2,000 項（依顯示順序的前面幾項）。經由資料夾內的連結進入的資料夾，會保留當初要求的路徑。預覽以 JSON 回傳文字（長檔案只回傳前 512 KB）；圖片與影片只標示類型，由瀏覽器從 `…/files/raw` 載入，這個端點只提供這些媒體類型，並帶有和媒體端點相同的 `nosniff` 與沙箱化 `Content-Security-Policy` 標頭。**下載** 會從 `…/files/download` 存下任何檔案，提供方式和回覆中連結的檔案相同（見[安全性](#安全性)）。資料夾（包括最上層）會從 `…/files/zip` 下載成 ZIP 檔：`zipPlan()` 取瀏覽時列出的同樣項目——不含 `.git`、只跟隨指向最上層裡面的連結、每個資料夾只放一次（所以繞回去的連結會略過）——放在以資料夾命名的資料夾裡；`zipStream()`（`src/server/zip.ts`，不需要額外套件）邊讀邊以 deflate 壓縮每個檔案、邊送出壓縮檔，使用 UTF-8 檔名、data descriptor 與每個檔案的權限，不論下載怎麼結束都會關閉開著的檔案。檔名會處理成任何解壓縮工具都安全的形式（`safeName()`：只有 `/` 是分隔符號，所以檔名裡的 `\`、`..`、磁碟代號的 `:` 或控制字元都會變成 `_`）。一個資料夾的檔案與資料夾合計最多 10,000 個、壓縮前 1 GB（`FILE_LIMITS`；走訪不會卡住伺服器，一超過就停止），因此不需要 ZIP64 就能低於 ZIP 的 4 GB 與 65,535 個項目。成員 worktree 的最上層以工作目錄和成員命名。介面會先問 `…/files/zip/check`：整個太大的資料夾，若在 git repository 裡，會提議只包沒被 git 忽略的檔案（`git ls-files --cached --others --exclude-standard`，`unignored=1`；裡面的其他 repository 與 submodule 也用同樣方式列出），所以含 `node_modules` 的專案仍然可以下載；否則就說明資料夾太大（下載本身會回 413）。介面用 highlight.js 為程式碼上色（輸出是包在 `<span>` 裡的跳脫文字），Markdown 則用聊天室的渲染器，所以預覽的檔案也無法執行腳本或載入遠端內容。
 
 ## 即時更新（SSE）
+
+聊天頁面在重新載入之前都用同一份程式，所以更新之後，它會用舊版的程式讀新版送來的資料。它每分鐘、以及視窗回到前景時，會在 React 之外詢問 `GET /api/update`（`src/web/update.ts` 的 `watchVersion()`，由 `main.tsx` 啟動），伺服器的版本（`current`）和載入時不同時就重新載入。
 
 前端開啟 `GET /api/conversations/:id/events`，接收 JSON 事件：
 

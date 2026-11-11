@@ -169,6 +169,10 @@ describe('several working directories, one chip each', () => {
     // A root keeps its separator: `C:\` is not `C:`.
     expect(hasCwd(['C:\\'], 'C:')).toBe(false);
     expect(removeCwd(['/a', '/b', '/c'], 1)).toEqual(['/a', '/c']);
+    // No more than a conversation may have: the dialog's or the list's past that are left out.
+    const eight = Array.from({ length: 7 }, (_, i) => `/d${i}`);
+    expect(addCwds(eight, ['/x', '/y'])).toEqual([...eight, '/x']);
+    expect(addCwds(['/a'], ['/b', '/c'], 2)).toEqual(['/a', '/b']);
   });
 
   it('adds what is typed on Enter and takes out the last folder on Backspace in an empty box', () => {

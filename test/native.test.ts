@@ -683,6 +683,32 @@ describe('asking again the way Harness Relay starts each CLI (stand-in CLIs)', (
     expect(JSON.stringify(probe)).not.toContain('secret');
   });
 
+  it("Claude Code: is asked with the other working directories, as runs give them, and its answer kept apart", async () => {
+    const bin = writeFakeClaude(join(root, 'fake-claude-dirs'));
+    const log = join(root, 'claude-dirs.jsonl');
+    const cwd = join(root, 'claude-dirs-cwd');
+    mkdirSync(cwd, { recursive: true });
+    const service = new NativeSetupService({ bin: () => bin, env: () => env({ FAKE_CLAUDE_LOG: log }), nativeOff: () => ['skills'] });
+    await service.get('claude', cwd, false, undefined, ['/docs', '/infra']);
+    // Not the ask for its built-in parts alone (no settings, no project), nor `plugin list`.
+    const starts = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { args?: string[] })
+      .filter((l) => l.args && l.args[0] !== 'plugin' && !l.args.includes('--setting-sources'));
+    // Both asks, the second the way a run starts it.
+    expect(starts).toHaveLength(2);
+    expect(starts[1]!.args).toContain('--disable-slash-commands');
+    for (const { args } of starts) {
+      const at = args!.indexOf('--add-dir');
+      expect(args!.slice(at, at + 3)).toEqual(['--add-dir', '/docs', '/infra']);
+    }
+    // Other folders, another answer.
+    const before = starts.length;
+    await service.get('claude', cwd, false, undefined, ['/docs']);
+    expect(readFileSync(log, 'utf8').trim().split('\n').length).toBeGreaterThan(before);
+  });
+
   it('Claude Code: marks the single skills, tools, MCP servers and tools, subagents, plugins and files a run leaves out', async () => {
     const bin = writeFakeClaude(join(root, 'fake-claude-items'));
     const log = join(root, 'claude-items.jsonl');

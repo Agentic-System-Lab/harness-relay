@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createReadStream, realpathSync } from 'node:fs';
+import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, resolve } from 'node:path';
@@ -333,6 +333,15 @@ export function createApp({
 
   /** The default working directories, as a new conversation gets them. */
   const defaultCwds = () => ({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds });
+  /** The default working directories after the first that exist (`~` expanded), as runs give them to the CLIs. */
+  const defaultExtraDirs = () =>
+    settings.defaultExtraCwds.map(expandPath).filter((dir) => {
+      try {
+        return statSync(dir).isDirectory();
+      } catch {
+        return false;
+      }
+    });
 
 
   /** The request's JSON body, which must be an object. */
@@ -557,7 +566,7 @@ export function createApp({
     const id = account(c, p);
     const b = await body<{ refresh?: unknown }>(c);
     const cwd = validDirectory(settings.defaultCwd);
-    return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true, id || undefined)));
+    return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true, id || undefined, defaultExtraDirs())));
   });
 
   // Whether Grok trusts a folder (the default working directory unless `cwd` names one), and with
@@ -596,7 +605,7 @@ export function createApp({
     const b = await body<{ path?: unknown }>(c);
     const path = typeof b.path === 'string' ? b.path : '';
     // Checked against the answer the UI showed, however old: opening a file must not start the CLI.
-    const probe = await native.latest(p, validDirectory(settings.defaultCwd), id || undefined);
+    const probe = await native.latest(p, validDirectory(settings.defaultCwd), id || undefined, defaultExtraDirs());
     if (!path || !listedFile(probe, path)) throw new HttpError(404, t().nativeFileNotListed);
     return c.json(readPreview(path, path, t().nativeFileNotListed));
   });

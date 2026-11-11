@@ -21,6 +21,9 @@ import {
   grokSandboxProfile,
   grokReadWrite,
   isRelayProfile,
+  grokRunner,
+  holdGrokProfile,
+  grokProfilesInUse,
   MAX_FOLDER_PROFILES,
   withGrokProfile,
   writeGrokProfile,
@@ -624,6 +627,24 @@ describe("Grok's own folder in its sandbox", () => {
     expect(file.startsWith('[profiles.mine]')).toBe(true);
     // Written again, one stays where it is.
     expect(withGrokProfile(file, grokProfileBlock(['/x'], ['/f5'], names[5]!), names[5]!)).toBe(file);
+    // One that a running turn uses is never dropped: the next earliest goes in its place.
+    const extra = grokSandboxProfile('edit', 'linux', ['/one-more'])!;
+    const held = withGrokProfile(file, grokProfileBlock(['/x'], ['/one-more'], extra), extra, new Set([names[3]!]));
+    expect(held).toContain(`[profiles.${names[3]}]`);
+    expect(held).not.toContain(`[profiles.${names[4]}]`);
+    expect(held).toContain(`[profiles.${extra}]`);
+  });
+
+  it('knows which profiles turns now running use, each until its last turn ends', () => {
+    const name = grokSandboxProfile('edit', 'linux', ['/held'])!;
+    const first = holdGrokProfile(name);
+    const second = holdGrokProfile(name);
+    expect(grokProfilesInUse().has(name)).toBe(true);
+    first();
+    first(); // once only
+    expect(grokProfilesInUse().has(name)).toBe(true);
+    second();
+    expect(grokProfilesInUse().has(name)).toBe(false);
   });
 
   it("takes another conversation's profile written during a turn as Harness Relay's, not as a command's change", () => {
@@ -645,6 +666,47 @@ describe("Grok's own folder in its sandbox", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'starts Grok in the profile of the run\'s own folders, written into its home first, and lets it go after the turn',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'relay-grok-run-'));
+      try {
+        const home = join(dir, 'home');
+        const extra = join(dir, 'extra');
+        mkdirSync(home);
+        mkdirSync(extra);
+        // A stand-in Grok: notes the profile it was started in, then ends without a turn.
+        const bin = join(dir, 'grok');
+        writeFileSync(
+          bin,
+          `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'started.json'))}, JSON.stringify({ sandbox: process.env.GROK_SANDBOX }));\nprocess.exit(1);\n`,
+          { mode: 0o755 },
+        );
+        const run = grokRunner.run({
+          bin,
+          env: { ...process.env, GROK_HOME: home },
+          prompt: 'go',
+          systemPrompt: 'You are @Gus',
+          cwd: dir,
+          addDirs: [extra],
+          permission: 'edit',
+          protectedPaths: ['/nowhere/protected'],
+          signal: new AbortController().signal,
+          onEvent: () => {},
+        });
+        await expect(run).rejects.toThrow();
+        const name = grokSandboxProfile('edit', process.platform, grokReadWrite([extra]))!;
+        expect(JSON.parse(readFileSync(join(dir, 'started.json'), 'utf8'))).toEqual({ sandbox: name });
+        const written = readFileSync(join(home, 'sandbox.toml'), 'utf8');
+        expect(written).toContain(`[profiles.${name}]`);
+        expect(written).toContain(`read_write = [${grokReadWrite([extra]).map((d) => JSON.stringify(d)).join(', ')}]`);
+        expect(grokProfilesInUse().has(name)).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('writes no read-only list: its read_only grants reading, it does not stop writing', () => {
     expect(grokProfileBlock(['/x'])).not.toContain('read_only');

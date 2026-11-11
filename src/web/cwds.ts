@@ -2,7 +2,7 @@
 // and how the list under the box answers the keyboard and its arrow button.
 
 import { highlightParts, searchTerms, termsIn } from '../shared/search';
-import type { WorkingDirectories } from '../shared/types';
+import { MAX_CWDS, type WorkingDirectories } from '../shared/types';
 
 type Dir = WorkingDirectories['dirs'][number];
 
@@ -114,12 +114,15 @@ export function hasCwd(dirs: readonly string[], dir: string): boolean {
   return dirs.some((d) => cwdKey(d) === key);
 }
 
-/** The working directories with each of `more` added at the end (trimmed), but those empty or there already. */
-export function addCwds(dirs: readonly string[], more: readonly string[]): string[] {
+/**
+ * The working directories with each of `more` added at the end (trimmed), but those empty or there
+ * already, and none past `max` (a conversation's most).
+ */
+export function addCwds(dirs: readonly string[], more: readonly string[], max = MAX_CWDS): string[] {
   const out = [...dirs];
   for (const dir of more) {
     const t = dir.trim();
-    if (t && !hasCwd(out, t)) out.push(t);
+    if (t && !hasCwd(out, t) && out.length < max) out.push(t);
   }
   return out;
 }

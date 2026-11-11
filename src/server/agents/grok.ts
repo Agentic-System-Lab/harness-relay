@@ -116,8 +116,32 @@ export function grokReadWrite(addDirs: readonly string[] = []): string[] {
   return [...new Set(addDirs.flatMap((d) => [d, realPath(d)]))];
 }
 
-/** How many profiles of a run's own folders `sandbox.toml` keeps: the earliest written go first. */
+/**
+ * How many profiles of runs' own folders `sandbox.toml` keeps: the earliest written go first, but
+ * never one a turn now running uses (so there may be more while that many run at once).
+ */
 export const MAX_FOLDER_PROFILES = 32;
+
+/** The profiles turns now running use, and how many use each. */
+const profilesInUse = new Map<string, number>();
+
+/** Marks a profile as used by a turn until the function it returns is called. */
+export function holdGrokProfile(name: string): () => void {
+  profilesInUse.set(name, (profilesInUse.get(name) ?? 0) + 1);
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    const n = (profilesInUse.get(name) ?? 1) - 1;
+    if (n > 0) profilesInUse.set(name, n);
+    else profilesInUse.delete(name);
+  };
+}
+
+/** The profiles turns now running use (`holdGrokProfile`). */
+export function grokProfilesInUse(): ReadonlySet<string> {
+  return new Set(profilesInUse.keys());
+}
 
 const PROFILE_BEGIN = '# >>> harness-relay: written by Harness Relay before each run; changes here are replaced';
 const PROFILE_END = '# <<< harness-relay';
@@ -575,9 +599,9 @@ export function grokProfileBlock(deny: readonly string[], readWrite: readonly st
 /**
  * `sandbox.toml` with the profile's block (`name`) in place of the one there was, or after the user's
  * own profiles and Harness Relay's others. Beyond `MAX_FOLDER_PROFILES` profiles of runs' own folders,
- * the earliest written go.
+ * the earliest written go, but not those in `keep` (in use).
  */
-export function withGrokProfile(existing: string, block: string, name = GROK_PROFILE): string {
+export function withGrokProfile(existing: string, block: string, name = GROK_PROFILE, keep: ReadonlySet<string> = new Set()): string {
   const { begin, end: endMarker } = profileMarkers(name);
   const start = existing.indexOf(begin);
   const end = start < 0 ? -1 : existing.indexOf(endMarker, start);
@@ -586,7 +610,8 @@ export function withGrokProfile(existing: string, block: string, name = GROK_PRO
   const next = `${before ? `${before}\n\n` : ''}${block}\n`;
   if (name === GROK_PROFILE) return next;
   const blocks = [...next.matchAll(FOLDER_BLOCKS)].filter((m) => m[1] !== name);
-  const drop = new Set(blocks.slice(0, Math.max(0, blocks.length + 1 - MAX_FOLDER_PROFILES)).map((m) => m.index));
+  const spare = blocks.filter((m) => !keep.has(m[1]!));
+  const drop = new Set(spare.slice(0, Math.max(0, blocks.length + 1 - MAX_FOLDER_PROFILES)).map((m) => m.index));
   if (!drop.size) return next;
   return next.replace(FOLDER_BLOCKS, (whole, _name, index: number) => (drop.has(index) ? '' : whole));
 }
@@ -598,7 +623,7 @@ export function grokHome(env: NodeJS.ProcessEnv): string {
 
 /**
  * Writes the profile (`name`, with the folders it may also write) into `<home>/sandbox.toml` when it
- * is not there as it should be, and returns the file as written (nothing when it was as it should
+ * is not there as it should be (`keep`: profiles in use, which no pruning drops), and returns the file as written (nothing when it was as it should
  * be). Written beside it and renamed into place, so a Grok starting meanwhile (another agent of a
  * parallel team) reads the old file or the new one, never half of one. A `sandbox.toml` that is a
  * link (to the user's dotfiles, say) stays one: the file it leads to is written.
@@ -608,11 +633,12 @@ export function writeGrokProfile(
   deny: readonly string[],
   readWrite: readonly string[] = [],
   name = GROK_PROFILE,
+  keep: ReadonlySet<string> = new Set(),
 ): string | undefined {
   const path = join(home, GROK_SANDBOX_FILE);
   const file = existsSync(path) ? realpathSync(path) : path;
   const existing = existsSync(file) ? readFileSync(file, 'utf8') : '';
-  const next = withGrokProfile(existing, grokProfileBlock(deny, readWrite, name), name);
+  const next = withGrokProfile(existing, grokProfileBlock(deny, readWrite, name), name, keep);
   if (next === existing) return;
   mkdirSync(home, { recursive: true });
   const temp = `${file}.${process.pid}-${randomBytes(6).toString('hex')}.tmp`;
@@ -918,21 +944,28 @@ export const grokRunner: AgentRunner = {
       const bins = commandPaths(o.bin, env);
       let settle: () => string[];
       let settleProgram: () => string[] = () => [];
+      // In use until the turn ends: no other run's write drops its block meanwhile.
+      const release = holdGrokProfile(sandbox);
       try {
-        settle = guardGrokSettings(home, () => writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)], readWrite, sandbox));
+        settle = guardGrokSettings(home, () =>
+          writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)], readWrite, sandbox, grokProfilesInUse()),
+        );
       } catch (err) {
+        release();
         throw new AgentRunError(t().grokSandbox((err as Error).message));
       }
       try {
         if (process.platform === 'linux') settleProgram = guardGrokProgram(home, bins);
       } catch (err) {
         settle(); // the turn does not run: its settings guard ends here
+        release();
         throw new AgentRunError(t().grokSandbox((err as Error).message));
       }
       let result: RunResult;
       try {
         result = await grokTurn(o, args, sandbox, env);
       } finally {
+        release();
         const changed = [...settle(), ...settleProgram()];
         // Thrown from here, it takes the place of the turn's own result or error.
         // eslint-disable-next-line no-unsafe-finally

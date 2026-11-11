@@ -304,6 +304,15 @@ export const api = {
   },
   /** This version, and the desktop app's updates (only the version otherwise). */
   update: () => request<UpdateStatus>('GET', '/api/update'),
+  /**
+   * The same, quietly, for the page's watch on the server's version: a browser that is not signed in
+   * (any failure) is no answer, rather than the sign-in page shown again.
+   */
+  serverVersion: async (): Promise<UpdateStatus> => {
+    const res = await fetch('/api/update', { headers: headers(false) });
+    if (!res.ok) throw new Error(`${res.status}`);
+    return (await res.json()) as UpdateStatus;
+  },
   /** Has the desktop app ask GitHub for a new version now (at most every five minutes); what it knows once it has. */
   checkUpdate: () => request<UpdateStatus>('POST', '/api/update/check'),
   /** Has the desktop app update to the newer version: it asks the user first, in its own dialog. */
