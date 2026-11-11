@@ -228,13 +228,24 @@ export function commandPaths(
   return at ? [...new Set([resolve(at), real(at)])] : [];
 }
 
+/** Where the folders that decide how the agents run are (`agentFolders`). */
+export interface AgentFolderOptions {
+  home?: string;
+  env?: NodeJS.ProcessEnv;
+  /** The CLIs' own folder Harness Relay gives them. */
+  agentHome?: string;
+  /** The folder of the CLIs' homes of the accounts besides each one's default (`SettingsStore.accountsDir`). */
+  accountsDir?: string;
+  bins?: string[];
+}
+
 /**
  * The folders that decide how the agents run, outside any project: each CLI's own folder (its
  * settings, hooks, MCP servers and, for Codex and Grok, its program), Claude Code's `~/.claude.json`,
- * the CLIs' own folder Harness Relay gives them (`agentHome`), and the folders their programs are in
- * (`bins`, from `commandPaths`).
+ * the CLIs' own folder Harness Relay gives them (`agentHome`), the folder of the other accounts' homes
+ * (`accountsDir`), and the folders their programs are in (`bins`, from `commandPaths`).
  */
-export function agentFolders(o: { home?: string; env?: NodeJS.ProcessEnv; agentHome?: string; bins?: string[] } = {}): string[] {
+export function agentFolders(o: AgentFolderOptions = {}): string[] {
   const home = o.home ?? homedir();
   const env = o.env ?? process.env;
   return [
@@ -243,6 +254,7 @@ export function agentFolders(o: { home?: string; env?: NodeJS.ProcessEnv; agentH
     env.CODEX_HOME || join(home, '.codex'),
     env.GROK_HOME || join(home, '.grok'),
     ...(o.agentHome ? [o.agentHome] : []),
+    ...(o.accountsDir && o.accountsDir !== o.agentHome ? [o.accountsDir] : []),
     ...(o.bins ?? []).map((bin) => dirname(bin)),
   ];
 }
@@ -252,10 +264,7 @@ export function agentFolders(o: { home?: string; env?: NodeJS.ProcessEnv; agentH
  * folder when `cwd` is it or holds it (a project inside it is fine), and any of `agentFolders` when
  * `cwd` holds it or is inside it.
  */
-export function agentFolderOverlap(
-  cwd: string,
-  o: { home?: string; env?: NodeJS.ProcessEnv; agentHome?: string; bins?: string[] } = {},
-): string | undefined {
+export function agentFolderOverlap(cwd: string, o: AgentFolderOptions = {}): string | undefined {
   const dir = real(resolve(cwd));
   const home = o.home ?? homedir();
   if (within(real(home), dir)) return home;
@@ -267,15 +276,17 @@ export function agentFolderOverlap(
 
 /**
  * `agentFolderOverlap`'s options from Harness Relay's settings: the CLIs' own folder it gives them,
- * and where each CLI's program is, as it starts them.
+ * the folder of the other accounts' homes, and where each CLI's program is, as it starts them.
  */
 export function agentFolderOptions(settings: {
   agentHome: string;
+  accountsDir: string;
   bin(p: Provider): string;
   env(p: Provider): NodeJS.ProcessEnv;
-}): { agentHome?: string; bins: string[] } {
+}): { agentHome?: string; accountsDir: string; bins: string[] } {
   return {
     ...(settings.agentHome ? { agentHome: settings.agentHome } : {}),
+    accountsDir: settings.accountsDir,
     bins: PROVIDERS.flatMap((p) => commandPaths(settings.bin(p), settings.env(p))),
   };
 }
@@ -286,10 +297,7 @@ export function agentFolderOptions(settings: {
  * Read-only asks before writing (Codex cannot write at all), and every sandbox keeps the database
  * from being read or written.
  */
-export function relayFolderRefusal(
-  settings: { permission: string; cwd: string },
-  o: { agentHome?: string; bins?: string[] } = {},
-): string | undefined {
+export function relayFolderRefusal(settings: { permission: string; cwd: string }, o: AgentFolderOptions = {}): string | undefined {
   if (settings.permission !== 'edit') return undefined;
   if (relayFolderOverlap(settings.cwd)) return t().cwdIsRelay(settings.cwd);
   const folder = agentFolderOverlap(settings.cwd, o);

@@ -1,5 +1,5 @@
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
-import { CWD_MISSING } from '../shared/types';
+import { CWD_MISSING, DEFAULT_ACCOUNT } from '../shared/types';
 import type {
   AgentConfig,
   ApprovalAnswer,
@@ -19,6 +19,7 @@ import type {
   McpServerUpdate,
   NativeSetup,
   Provider,
+  ProviderAccountUpdate,
   ProviderModels,
   ProviderSettingsUpdate,
   ProviderStatus,
@@ -43,6 +44,11 @@ import type {
 } from '../shared/types';
 import { clearKey, readKey, writeKey } from './auth';
 import { currentLang } from './i18n';
+
+/** An account in a URL path: its id, or `default` for the default account. */
+const accountPath = (account: string) => encodeURIComponent(account || DEFAULT_ACCOUNT);
+/** An account as a query: none for the default account. */
+const accountQuery = (account: string) => (account ? `?account=${encodeURIComponent(account)}` : '');
 
 /** A request the server answered with an error; `status` is the HTTP status, `code` tells some errors apart. */
 export class ApiError extends Error {
@@ -284,13 +290,22 @@ export const api = {
       cwd,
       ...(trustFolder !== undefined ? { trust: true, folder: trustFolder } : {}),
     }),
+  /** A CLI's accounts besides its default one (`account`: its id; empty = the default account). */
+  addAccount: (p: Provider, label: string) =>
+    request<{ id: string; settings: SettingsView }>('POST', `/api/settings/providers/${p}/accounts`, { label }),
+  updateAccount: (p: Provider, account: string, b: ProviderAccountUpdate) =>
+    request<SettingsView>('PUT', `/api/settings/providers/${p}/accounts/${accountPath(account)}`, b),
+  removeAccount: (p: Provider, account: string) =>
+    request<SettingsView>('DELETE', `/api/settings/providers/${p}/accounts/${accountPath(account)}`),
   loginMethods: (p: Provider) => request<LoginMethod[]>('GET', `/api/providers/${p}/login-methods`),
-  startLogin: (p: Provider, method: string) => request<LoginSessionView>('POST', `/api/providers/${p}/login`, { method }),
-  getLogin: (p: Provider) => request<LoginSessionView | null>('GET', `/api/providers/${p}/login`),
-  loginInput: (p: Provider, text: string) =>
-    request<LoginSessionView>('POST', `/api/providers/${p}/login/input`, { text }),
-  cancelLogin: (p: Provider) => request<{ ok: true }>('DELETE', `/api/providers/${p}/login`),
-  logout: (p: Provider) => request<{ ok: true; output: string }>('POST', `/api/providers/${p}/logout`),
+  startLogin: (p: Provider, method: string, account = '') =>
+    request<LoginSessionView>('POST', `/api/providers/${p}/login${accountQuery(account)}`, { method }),
+  getLogin: (p: Provider, account = '') => request<LoginSessionView | null>('GET', `/api/providers/${p}/login${accountQuery(account)}`),
+  loginInput: (p: Provider, text: string, account = '') =>
+    request<LoginSessionView>('POST', `/api/providers/${p}/login/input${accountQuery(account)}`, { text }),
+  cancelLogin: (p: Provider, account = '') => request<{ ok: true }>('DELETE', `/api/providers/${p}/login${accountQuery(account)}`),
+  logout: (p: Provider, account = '') =>
+    request<{ ok: true; output: string }>('POST', `/api/providers/${p}/logout${accountQuery(account)}`),
 
   // voice input
   voice: () => request<VoiceStatus>('GET', '/api/voice'),

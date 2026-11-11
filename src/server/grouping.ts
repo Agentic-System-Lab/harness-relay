@@ -112,7 +112,7 @@ export class AutoGrouper {
     let reply = '';
     const result = await runners[lead.provider].run({
       bin: this.settings.bin(lead.provider),
-      env: this.settings.env(lead.provider),
+      env: this.settings.env(lead.provider, lead.account),
       nativeOff: this.settings.nativeOff(lead.provider),
       nativeItems: this.settings.nativeItems(lead.provider),
       prompt,

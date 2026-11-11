@@ -19,6 +19,8 @@ import { dataDirInTemp, relayTmpDir } from './protect';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { serveWebApp, webAppDir } from './web';
+import { NativeSetupService } from './native';
+import { plannerContext } from './planner';
 
 // A failure in a background task (a run winding down, a stream write) must not take the server — and
 // every other conversation — down with it.
@@ -39,6 +41,8 @@ const settings = new SettingsStore(db, openSystemKeyring());
 const store = new Store(db);
 const hub = new Hub();
 const providers = new ProviderService(settings);
+// What each CLI loads by itself: Settings shows it, and the lead agent reads it when it designs a team.
+const native = new NativeSetupService(settings);
 const voice = new VoiceService(settings);
 // Sends each conversation to AgentsView, when its address is set.
 const agentsView = new AgentsViewSync(() => settings.agentsViewUrl);
@@ -48,12 +52,17 @@ const orchestrator = new Orchestrator(
   settings,
   {
     // What the lead agent may choose from when it designs a team.
-    async context() {
-      const [statuses, catalog] = await Promise.all([providers.statusAll(), providers.modelsAll()]);
-      const available = statuses
-        .filter((s) => s.installed && (s.auth.loggedIn !== false || s.usingStoredApiKey))
-        .map((s) => s.provider);
-      return { available, catalog, presets: store.listPresets() };
+    context(cwd) {
+      return plannerContext(
+        {
+          statuses: () => providers.statusAll(),
+          catalog: () => providers.modelsAll(),
+          presets: () => store.listPresets(),
+          library: () => settings.tools.view(),
+          native: (p, dir, account) => native.recent(p, dir, account || undefined),
+        },
+        cwd,
+      );
     },
   },
   agentsView,
@@ -66,7 +75,7 @@ const scheduler = new Scheduler(store, orchestrator);
 const parent = desktopParent();
 
 const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
-const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, agentsView, extraHosts, desktopApp: Boolean(parent) });
+const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, agentsView, native, extraHosts, desktopApp: Boolean(parent) });
 
 // --- Static web app (production build) ------------------------------------------
 

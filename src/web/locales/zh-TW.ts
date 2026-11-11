@@ -109,6 +109,7 @@ export const zhTW = {
       notLoggedIn: '未登入',
       loggedIn: (account?: string) => `已登入${account ? `：${account}` : ''}`,
       unknown: '狀態未知',
+      accounts: (usable: number, total: number) => `（預設帳號；${total} 個帳號中 ${usable} 個可用）`,
     },
   },
 
@@ -214,6 +215,29 @@ export const zhTW = {
       duplicate: (name: string) => `名稱 @${name} 重複`,
       needCwd: '請填寫工作目錄',
     },
+  },
+
+  accounts: {
+    account: '帳號',
+    default: '預設帳號',
+    unnamed: (id: string) => `帳號 ${id}`,
+    add: '新增帳號',
+    addHint: (p: string) =>
+      `同一個 ${p} 可以登入多個帳號，例如公司和個人的訂閱。每個帳號各自登入、各自設定 API key，也有自己的 ${p} 資料夾（設定與 session 紀錄）。在團隊設定裡為每位成員選擇帳號，沒有選的成員使用預設帳號。`,
+    nameLabel: '帳號名稱',
+    namePlaceholder: '例如：公司',
+    nextName: (n: number) => `帳號 ${n}`,
+    added: (name: string) => `已新增帳號「${name}」，請在上方登入`,
+    limit: (max: number) => `最多 ${max} 個帳號（含預設帳號）`,
+    rename: '重新命名',
+    renamed: '已重新命名',
+    remove: '移除',
+    confirmRemove: (name: string, p: string, home: string) =>
+      `移除 ${p} 的帳號「${name}」？\nHarness Relay 會登出它、刪除它的 API key 和資料夾 ${home}（包括 ${p} 在裡面的 session 紀錄）。使用這個帳號的成員會改用預設帳號。`,
+    removed: (name: string) => `已移除帳號「${name}」`,
+    folder: (dir: string) => `資料夾：${dir}`,
+    confirmLogout: (name: string, p: string) => `登出 ${p} 的帳號「${name}」？`,
+    notLoggedIn: (p: string, name: string) => `${p} 的帳號「${name}」尚未登入。`,
   },
 
   models: {

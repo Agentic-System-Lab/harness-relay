@@ -1340,6 +1340,18 @@ details.sub .model-picker {
   max-width: 560px;
 }
 
+/* The account an agent runs as: in an agent card, a row like the model's and effort's. */
+.agent-card .account-picker {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.card > .account-picker {
+  max-width: 560px;
+}
+
 .warn-line {
   font-size: 12.5px;
   color: var(--warn);
@@ -3458,6 +3470,42 @@ video.chat-media {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* A CLI with several accounts: each one in a box of its own, its name and sign-in state on top. */
+.account-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.account-head {
+  display: flex;
+  align-items: center;
+  gap: 8px 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.account-head > .muted {
+  overflow-wrap: anywhere;
+}
+
+.account-head .input-row {
+  flex: 1;
+}
+
+.account-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.account-block .mono-path {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .method-list {

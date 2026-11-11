@@ -1,17 +1,24 @@
 import { useRef, useState } from 'react';
-import { PROVIDERS, type AgentConfig, type ProviderModels, type ProviderStatus, type TeamPreset } from '../../shared/types';
+import { PROVIDERS, accountUsable, type AgentConfig, type ProviderModels, type ProviderStatus, type TeamPreset } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { templateKey } from '../templates';
-import { newAgent } from '../util';
+import { newAgent, readyAccount } from '../util';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 import { useDialog } from './useDialog';
 
-/** One member per CLI that is ready to use (all of them when none is known yet), roles left to the user. */
+/**
+ * One member per CLI that is ready to use (all of them when none is known yet), roles left to the
+ * user; each one runs as the CLI's first account that is ready (the default one, when it is).
+ */
 function blankAgents(providers: ProviderStatus[]): AgentConfig[] {
-  const ready = providers.filter((s) => s.installed && (s.auth.loggedIn !== false || s.usingStoredApiKey)).map((s) => s.provider);
+  const ready = providers.filter((s) => s.installed && s.accounts.some(accountUsable));
   const agents: AgentConfig[] = [];
-  for (const p of ready.length ? ready : PROVIDERS) agents.push(newAgent(p, agents.map((a) => a.name)));
+  for (const p of ready.length ? ready.map((s) => s.provider) : PROVIDERS) {
+    const agent = newAgent(p, agents.map((a) => a.name));
+    const account = readyAccount(ready.find((s) => s.provider === p));
+    agents.push(account ? { ...agent, account } : agent);
+  }
   return agents;
 }
 

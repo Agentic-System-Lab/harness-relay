@@ -95,6 +95,7 @@ interface AgentRow {
   model: string | null;
   effort: string | null;
   tools: string | null;
+  account: string | null;
 }
 
 interface MessageRow {
@@ -178,6 +179,7 @@ function toAgent(r: AgentRow): AgentConfig {
   const agent: AgentConfig = { id: r.agent_id, name: r.name, provider: r.provider, role: r.role, model: opt(r.model), effort: opt(r.effort) };
   const tools = parseTools(r.tools);
   if (tools) agent.tools = tools;
+  if (r.account) agent.account = r.account;
   return agent;
 }
 
@@ -551,17 +553,18 @@ export class Store {
     const agents = (
       this.db
         .prepare(
-          'SELECT agent_id, name, provider, role, model, effort, tools FROM conversation_agents WHERE conversation_id = ? ORDER BY position',
+          'SELECT agent_id, name, provider, role, model, effort, tools, account FROM conversation_agents WHERE conversation_id = ? ORDER BY position',
         )
         .all(id) as unknown as AgentRow[]
     ).map(toAgent);
 
     const agentState: Record<string, AgentSessionState> = {};
     const sessions = this.db
-      .prepare('SELECT agent_id, provider, session_id FROM agent_sessions WHERE conversation_id = ?')
-      .all(id) as { agent_id: string; provider: Provider | null; session_id: string | null }[];
+      .prepare('SELECT agent_id, provider, account, session_id FROM agent_sessions WHERE conversation_id = ?')
+      .all(id) as { agent_id: string; provider: Provider | null; account: string | null; session_id: string | null }[];
     for (const s of sessions) {
       agentState[s.agent_id] = { provider: opt(s.provider), sessionId: opt(s.session_id), seen: [] };
+      if (s.account) agentState[s.agent_id]!.account = s.account;
     }
     const seen = this.db
       .prepare('SELECT agent_id, message_id FROM agent_seen WHERE conversation_id = ?')
@@ -713,11 +716,11 @@ export class Store {
   private writeAgents(conv: Conversation): void {
     this.db.prepare('DELETE FROM conversation_agents WHERE conversation_id = ?').run(conv.id);
     const insert = this.db.prepare(
-      `INSERT INTO conversation_agents (conversation_id, agent_id, position, name, provider, role, model, effort, tools)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO conversation_agents (conversation_id, agent_id, position, name, provider, role, model, effort, tools, account)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     conv.agents.forEach((a, i) =>
-      insert.run(conv.id, a.id, i, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a)),
+      insert.run(conv.id, a.id, i, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a), a.account || null),
     );
   }
 
@@ -934,10 +937,11 @@ export class Store {
     transaction(this.db, () => {
       this.db
         .prepare(
-          `INSERT INTO agent_sessions (conversation_id, agent_id, provider, session_id) VALUES (?, ?, ?, ?)
-           ON CONFLICT(conversation_id, agent_id) DO UPDATE SET provider = excluded.provider, session_id = excluded.session_id`,
+          `INSERT INTO agent_sessions (conversation_id, agent_id, provider, account, session_id) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(conversation_id, agent_id) DO UPDATE SET
+             provider = excluded.provider, account = excluded.account, session_id = excluded.session_id`,
         )
-        .run(convId, agentId, nul(state.provider), nul(state.sessionId));
+        .run(convId, agentId, nul(state.provider), state.account || null, nul(state.sessionId));
       // Write only what changed since the last save: the list grows with the conversation.
       const key = seenKey(convId, agentId);
       const saved = this.savedSeen.get(key);
@@ -1274,7 +1278,7 @@ export class Store {
       permission: Permission;
     }[];
     const agentStmt = this.db.prepare(
-      'SELECT agent_id, name, provider, role, model, effort, tools FROM preset_agents WHERE preset_id = ? ORDER BY position',
+      'SELECT agent_id, name, provider, role, model, effort, tools, account FROM preset_agents WHERE preset_id = ? ORDER BY position',
     );
     const user = rows.map<TeamPreset>((r) => ({
       id: r.id,
@@ -1299,11 +1303,11 @@ export class Store {
         .run(p.id, p.name, nul(p.description), s.mode, s.rounds, s.maxHops, s.permission, Date.now());
       this.db.prepare('DELETE FROM preset_agents WHERE preset_id = ?').run(p.id);
       const insert = this.db.prepare(
-        `INSERT INTO preset_agents (preset_id, position, agent_id, name, provider, role, model, effort, tools)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO preset_agents (preset_id, position, agent_id, name, provider, role, model, effort, tools, account)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       p.agents.forEach((a, i) =>
-        insert.run(p.id, i, a.id, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a)),
+        insert.run(p.id, i, a.id, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a), a.account || null),
       );
     });
   }
