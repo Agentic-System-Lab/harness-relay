@@ -313,7 +313,7 @@ export function JobProgress({ job, onCancel }: { job: VoiceJobView; onCancel?: (
           const state = job.state === 'success' || i < at ? 'done' : i > at ? 'todo' : job.state === 'running' ? 'now' : 'stopped';
           const text = s === 'engine' ? t.voice.steps.engine : s === 'model' ? t.voice.steps.model(modelName) : t.voice.steps.check;
           return (
-            <li key={s} className={state}>
+            <li key={s} data-state={state}>
               <span className="step-mark" aria-hidden="true">
                 {state === 'done' ? '✓' : state === 'stopped' ? '✕' : i + 1}
               </span>
