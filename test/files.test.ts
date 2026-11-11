@@ -236,7 +236,8 @@ describe('zipPlan', () => {
     expect(plan.name).toBe('project-Alice');
     expect(names(plan)).toEqual(['project-Alice/', 'project-Alice/notes.txt', 'project-Alice/run.sh']);
     const mode = (n: string) => plan.entries.find((e) => e.name.endsWith(n))!.mode! & 0o777;
-    expect([mode('run.sh'), mode('notes.txt')]).toEqual([0o755, 0o640]);
+    // Windows has no permission bits to keep (a file there is 0o666, or 0o444 read-only).
+    if (process.platform !== 'win32') expect([mode('run.sh'), mode('notes.txt')]).toEqual([0o755, 0o640]);
     // A folder inside keeps its own name.
     expect((await zipPlan(project, 'src', { name: 'ignored' }))!.name).toBe('src');
     await expect(zipPlan(tools, '.git.')).rejects.toThrow(notFound);

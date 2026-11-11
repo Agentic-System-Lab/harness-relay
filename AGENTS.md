@@ -37,7 +37,7 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | `npm run release:check -- <version>` | Check a release version against the rules (`scripts/release.ts`), as the Release workflow does (add `--remote` after the version for GitHub's tags) |
 | `npm run demo` | Record the README and landing-page demo again with the real CLIs, then update the videos, stills and chapter rails (`scripts/demo/`; see the developer guide, "Recording the demo") |
 
-Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and `npm run desktop:typecheck` when you changed `desktop/`). CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same three on Node 22 and 24 for every pull request and every push to `main`, and also typechecks the desktop app, builds it and runs its bundled server as the app does (`desktop/scripts/smoke.ts`). Releases are made only by the Release workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)), run by hand: see the developer guide, "Releasing". Never make a release or a version tag any other way.
+Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and `npm run desktop:typecheck` when you changed `desktop/`). CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same three on Node 22 and 24 (and on Windows with Node 24) for every pull request and every push to `main`, and also typechecks the desktop app, builds it and runs its bundled server as the app does (`desktop/scripts/smoke.ts`). Releases are made only by the Release workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)), run by hand: see the developer guide, "Releasing". Never make a release or a version tag any other way.
 
 ## Where things are
 
@@ -110,6 +110,7 @@ The server can start agents with write access, so keep its defences intact (see 
 
 - Add or update tests with every behaviour change.
 - Keep tests offline: no real CLI runs, no network, no real credential store. Follow the existing patterns: a fake runner swapped into `runners` (`test/orchestrator.test.ts`), recorded CLI messages for adapters, real temporary git repositories for `workspace.ts`, `app.request()` for the HTTP API, and a fake keyring passed to `SettingsStore`.
+- Keep tests passing on Windows too (CI runs them there): paths built with `join()` / `resolve()`, not POSIX literals; what only macOS or Linux have (permission bits, signals, `/bin/sh`, stand-in CLIs started by their `#!` line) skipped with `skipIf(process.platform === 'win32')`; time limits from `test/timeouts.ts`. See the developer guide, "Testing".
 
 ### Worktrees
 

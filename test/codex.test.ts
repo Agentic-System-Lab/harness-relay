@@ -513,7 +513,8 @@ describe('codex thread config', () => {
 
 });
 
-describe('a Codex run that leaves out hooks and plugins (stand-in codex app-server)', () => {
+// The stand-ins are scripts run by their `#!` line, which Windows cannot start.
+describe.skipIf(process.platform === 'win32')('a Codex run that leaves out hooks and plugins (stand-in codex app-server)', () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-codex-')));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   // Answers like codex-cli 0.167.0's app-server. FAKE_CODEX_IGNORE plays a Codex that ignores the

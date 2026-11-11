@@ -435,8 +435,18 @@ describe('the files a shared page takes along', () => {
       { name: 'slides "v2" — final.pptx', data: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0xff, 0x0d, 0x0a]) },
       { name: 'empty.txt', data: Buffer.alloc(0) },
       { name: '-rf', data: Buffer.from('not an option\n') },
+      { name: 'notes (Windows).txt', data: Buffer.from('line one\r\nline two\r\n') },
     ];
-    await pushToGist(FILES_ID, upload, standIn(remote), tmpRoot);
+    // Also when the user's git converts line endings, as Git for Windows does by default (this sets
+    // core.autocrlf=true above any config file): the blobs are written with --no-filters.
+    const saved = { ...process.env };
+    Object.assign(process.env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_VALUE_0: 'true' });
+    try {
+      await pushToGist(FILES_ID, upload, standIn(remote), tmpRoot);
+    } finally {
+      for (const k of ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']) delete process.env[k];
+      Object.assign(process.env, saved);
+    }
 
     expect(g(remote, 'rev-parse', 'main^')).toBe(before); // on top of the placeholder's commit
     const names = g(remote, 'ls-tree', '-z', '--name-only', 'main').split('\0').filter(Boolean);
@@ -452,12 +462,13 @@ describe('the files a shared page takes along', () => {
     const remote = gistStandIn('gist-tampered');
     const before = g(remote, 'rev-parse', 'main');
     const ran = join(dir, 'tampered-ran');
-    const touch = `touch '${ran}'`;
+    // Paths in a config file with `/` (also on Windows): it reads `\` as an escape.
+    const touch = `touch '${ran.replaceAll('\\', '/')}'`;
     // What an agent that could write to the clone (it cannot: it is in Harness Relay's own folder)
     // might add to its configuration right after it is made: a remote by the gist's own address, or
     // by `origin`, that runs a command; or the gist's address rewritten to ssh with a command of its own.
     const tampered = [
-      [`[remote "${gistGitUrl(FILES_ID)}"]\n\turl = ${remote}\n\treceivepack = ${touch}\n[remote "origin"]\n\treceivepack = ${touch}\n`, /'?file'? not allowed/i],
+      [`[remote "${gistGitUrl(FILES_ID)}"]\n\turl = ${remote.replaceAll('\\', '/')}\n\treceivepack = ${touch}\n[remote "origin"]\n\treceivepack = ${touch}\n`, /'?file'? not allowed/i],
       [`[url "ssh://evil.invalid/"]\n\tinsteadOf = ${gistGitUrl(FILES_ID)}\n[core]\n\tsshCommand = ${touch}\n`, /'?ssh'? not allowed/i],
     ] as const;
     for (const [added, refused] of tampered) {
@@ -722,6 +733,9 @@ describe('the files a shared page takes along', () => {
     const swapped = join(dir, 'swapped.md');
     symlinkSync(target, swapped);
     await expect(readAtMost(swapped, 100)).rejects.toThrow();
+    // As on Windows, which has no O_NOFOLLOW: the path's own entry is checked instead.
+    await expect(readAtMost(swapped, 100, false)).rejects.toThrow(/not a file/);
+    expect(await readAtMost(target, 100, false)).toEqual(Buffer.from('secret\n'));
     const linked: FoundShareFile = { info: { name: 'swapped.md', path: 'swapped.md', refs: [0] }, real: swapped };
     await readShareFile(linked);
     expect(linked).toMatchObject({ info: { problem: 'missing' } });

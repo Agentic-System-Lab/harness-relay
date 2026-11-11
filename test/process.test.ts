@@ -48,6 +48,9 @@ const STUBBORN = cli('stubborn', `sh -c 'trap "" TERM; echo $$; while :; do slee
 /** The same, but the subprocess lets go of stdout, so the run ends as soon as the CLI exits. */
 const STUBBORN_DETACHED = cli('stubborn-detached', `sh -c 'trap "" TERM; echo $$; exec >/dev/null 2>&1; while :; do sleep 1; done' & wait`);
 
+/** The fake CLIs are shell scripts, and what these tests stop them with (SIGTERM, process groups) is POSIX's. */
+const posixIt = process.platform === 'win32' ? it.skip : it;
+
 async function stopAfterFirstLine(bin: string) {
   const abort = new AbortController();
   let pid = 0;
@@ -65,14 +68,14 @@ async function stopAfterFirstLine(bin: string) {
 }
 
 describe('runProcess', () => {
-  it('kills subprocesses that ignore SIGTERM after the CLI itself exited', async () => {
+  posixIt('kills subprocesses that ignore SIGTERM after the CLI itself exited', async () => {
     const { res, pid } = await stopAfterFirstLine(STUBBORN_DETACHED);
     expect(res.aborted).toBe(true);
     expect(alive(pid)).toBe(true); // the CLI is gone, its subprocess still runs…
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 6000, interval: 100 }); // …until SIGKILL
   }, 8000);
 
-  it('ends a stopped run whose subprocess ignores SIGTERM and holds stdout open', async () => {
+  posixIt('ends a stopped run whose subprocess ignores SIGTERM and holds stdout open', async () => {
     // Before, the run waited for stdout to close, which never happened.
     const { res, pid } = await stopAfterFirstLine(STUBBORN);
     expect(res.aborted).toBe(true);
@@ -80,8 +83,9 @@ describe('runProcess', () => {
   }, 8000);
 
   it('keeps stdout byte for byte', async () => {
-    const res = await capture('printf', ['a\\r\\nb\\rc\\244\\244\\n'], process.env);
-    expect([...res.stdoutBytes]).toEqual([...Buffer.from('a\r\nb\rc'), 0xa4, 0xa4, 0x0a]);
+    const bytes = [...Buffer.from('a\r\nb\rc'), 0xa4, 0xa4, 0x0a];
+    const res = await capture(process.execPath, ['-e', `process.stdout.write(Buffer.from(${JSON.stringify(bytes)}))`], process.env);
+    expect([...res.stdoutBytes]).toEqual(bytes);
   });
 
   it('reports a missing working directory as such, not as a missing command', async () => {
@@ -92,7 +96,7 @@ describe('runProcess', () => {
     expect(missing).toBeInstanceOf(CommandNotFoundError);
   });
 
-  it('resolves a relative executable path against the server directory, wherever the CLI runs', async () => {
+  posixIt('resolves a relative executable path against the server directory, wherever the CLI runs', async () => {
     const script = cli('fake-cli.sh', 'echo ok');
     const res = await capture(`./${relative(process.cwd(), script)}`, [], process.env, { cwd: tmpdir() });
     expect(res.stdout).toBe('ok\n');
@@ -100,14 +104,14 @@ describe('runProcess', () => {
 });
 
 describe('runShellScript', () => {
-  it('runs fixed text in the shell, with its flags, and the values it needs from its environment', async () => {
+  posixIt('runs fixed text in the shell, with its flags, and the values it needs from its environment', async () => {
     const value = `a "b" 'c' $(touch nothing) \`x\` ; d`;
     const res = await runShellScript('/bin/sh', ['-e'], 'case $- in *e*) printf "%s|" "$VALUE";; esac', { env: { ...process.env, VALUE: value } });
     expect(res.code).toBe(0);
     expect(res.stdout).toBe(`${value}|`);
   });
 
-  it('stops a shell that runs too long, and reports a missing shell as a missing command', async () => {
+  posixIt('stops a shell that runs too long, and reports a missing shell as a missing command', async () => {
     const started = Date.now();
     const slow = await runShellScript('/bin/sh', [], 'sleep 30', { env: process.env, timeoutMs: 200 });
     expect(slow.timedOut).toBe(true);
@@ -118,7 +122,7 @@ describe('runShellScript', () => {
 });
 
 describe('killAll', () => {
-  it('kills every process group on shutdown, including subprocesses that ignore SIGTERM', async () => {
+  posixIt('kills every process group on shutdown, including subprocesses that ignore SIGTERM', async () => {
     let pid = 0;
     const run = runProcess({ bin: STUBBORN, args: [], env: process.env, onLine: (l) => (pid = Number(l)) });
     await vi.waitFor(() => expect(pid).toBeGreaterThan(0));
@@ -127,7 +131,7 @@ describe('killAll', () => {
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 2000, interval: 50 });
   });
 
-  it('also kills subprocesses of runs stopped just before shutdown, whose CLI already exited', async () => {
+  posixIt('also kills subprocesses of runs stopped just before shutdown, whose CLI already exited', async () => {
     const { res, pid } = await stopAfterFirstLine(STUBBORN_DETACHED);
     expect(res.aborted).toBe(true);
     expect(alive(pid)).toBe(true);
@@ -137,8 +141,6 @@ describe('killAll', () => {
 });
 
 describe('spawnDetached', () => {
-  const posixIt = process.platform === 'win32' ? it.skip : it;
-
   posixIt('starts a program that outlives the call and is left out of killAll', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'relay-detached-'));
     try {

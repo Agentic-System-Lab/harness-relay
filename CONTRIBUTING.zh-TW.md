@@ -91,6 +91,8 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 - HTTP API 用 `app.request()`；
 - 把假的 keyring 傳給 `SettingsStore`。
 
+測試在 Windows 上也要通過，CI 也會在那裡跑：用 `join()` 與 `resolve()` 組路徑，不要直接寫成以 `/` 分隔的文字；只有 macOS 或 Linux 才有的東西用 `skipIf(process.platform === 'win32')` 跳過；時間限制取自 `test/timeouts.ts`。詳見[開發者指南](docs/developer-guide.zh-TW.md#測試)。
+
 ## 開 pull request 之前
 
 請執行和 CI 一樣的檢查：
@@ -105,7 +107,7 @@ npm run build
 
 發佈只由維護者透過發佈 workflow 進行（**Actions → Release**，從 `main`，以今天的日期為版本）：絕不要手動建立版本 tag。詳見開發者說明的[發佈](docs/developer-guide.zh-TW.md#發佈)。
 
-[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行型別檢查、測試與建置。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。
+[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行型別檢查、測試與建置，也在 Windows 上以 Node 24 執行。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。
 
 如果你的修改會影響 agent 看到或做的事，也請在 app 中用至少一個真正的 CLI 試過，並說明用了哪些。
 

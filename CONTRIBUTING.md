@@ -91,6 +91,8 @@ Add or update tests with every change in behaviour. Tests stay offline: no real 
 - `app.request()` for the HTTP API;
 - a fake keyring passed to `SettingsStore`.
 
+Tests also have to pass on Windows, where CI runs them too: build paths with `join()` and `resolve()` rather than writing them with `/`, skip what only macOS or Linux have with `skipIf(process.platform === 'win32')`, and take time limits from `test/timeouts.ts`. The [developer guide](docs/developer-guide.md#testing) says more.
+
 ## Before you open a pull request
 
 Run the same checks as CI:
@@ -105,7 +107,7 @@ If you changed the desktop app, also run `npm run desktop:typecheck`, and try it
 
 Releases are made by maintainers with the Release workflow only (**Actions → Release**, from `main`, today's date as the version): never tag a version by hand. See [Releasing](docs/developer-guide.md#releasing) in the developer guide.
 
-[CI](.github/workflows/ci.yml) runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked.
+[CI](.github/workflows/ci.yml) runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`, and on Windows with Node 24. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked.
 
 If your change affects what agents see or do, also try it in the app with at least one real CLI, and say which ones you used.
 

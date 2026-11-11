@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 // A data folder of its own: asking Claude Code what it loads puts a --settings file in its tmp folder.
@@ -341,7 +341,9 @@ describe('memory files', () => {
     // Instruction files are left out one by one by their path; auto memory only all at once.
     expect(found.every((f) => (f.kind === 'instructions' ? f.id === f.path : f.id === undefined))).toBe(true);
     expect(found.filter((f) => f.kind === 'memory').map((f) => f.path)).toEqual([memory]);
-    expect(claudeProjectSlug('/Users/me/my.app')).toBe('-Users-me-my-app');
+    // On Windows the path is on the current drive (C:\Users\me\my.app), as Claude Code names it there.
+    const drive = process.platform === 'win32' ? `${resolve('/')[0]}-` : '';
+    expect(claudeProjectSlug('/Users/me/my.app')).toBe(`${drive}-Users-me-my-app`);
   });
 
   it("finds Codex's AGENTS.md files from its home and the repository root down, an override first", () => {
@@ -630,7 +632,8 @@ describe('marking what Harness Relay leaves out', () => {
   });
 });
 
-describe('asking again the way Harness Relay starts each CLI (stand-in CLIs)', () => {
+// The stand-ins are scripts run by their `#!` line, which Windows cannot start.
+describe.skipIf(process.platform === 'win32')('asking again the way Harness Relay starts each CLI (stand-in CLIs)', () => {
   const env = (extra: Record<string, string> = {}) => ({ ...process.env, ...extra });
 
   it('Claude Code: marks the skills, MCP servers, hooks, subagents, plugins and files a run leaves out', async () => {

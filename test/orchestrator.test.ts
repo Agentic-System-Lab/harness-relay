@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig, Conversation, ConversationSchedule, ConversationSettings } from '../src/shared/types';
+import { slow } from './timeouts';
 
 /** When `gate` is set, copying a branch's attached files waits for it. */
 const copying = vi.hoisted(() => ({ gate: undefined as Promise<void> | undefined }));
@@ -493,7 +494,7 @@ describe('roundtable mode with edit permission', () => {
 });
 
 // Two repositories' git work in each test: more time than one's.
-describe('several working directories', { timeout: 20_000 }, () => {
+describe('several working directories', { timeout: slow(20_000) }, () => {
   /** A second working directory with a file of its own; the first is `project`. */
   function docsFolder(): string {
     const docs = join(root, `docs-${n}`);
@@ -621,7 +622,8 @@ describe('several working directories', { timeout: 20_000 }, () => {
     await orchestrator.cleanupWorktrees(conv);
   });
 
-  it('marks the worktrees for a reset when a patch fails after another was applied', async () => {
+  // chmod cannot keep a program from writing in a folder on Windows.
+  it.skipIf(process.platform === 'win32')('marks the worktrees for a reset when a patch fails after another was applied', async () => {
     const docs = docsFolder();
     const conv = conversation({ mode: 'parallel', extraCwds: [docs] });
     await orchestrator.send(conv.id, 'go');
@@ -1781,7 +1783,8 @@ describe('branching a conversation', () => {
     const branch = await orchestrator.branch(conv.id, reply.id);
     const file = branch.messages.find((m) => m.author.kind === 'user')!.parts.find((p) => p.type === 'attachment')!;
     expect(file.type === 'attachment' && readFileSync(attachmentPath(branch.id, file), 'utf8')).toBe('marmalade\n');
-    expect(file.type === 'attachment' && statSync(attachmentPath(branch.id, file)).mode & 0o777).toBe(0o600);
+    // (Windows has no permission bits.)
+    if (process.platform !== 'win32') expect(file.type === 'attachment' && statSync(attachmentPath(branch.id, file)).mode & 0o777).toBe(0o600);
     expect(gone.type === 'attachment' && existsSync(attachmentPath(branch.id, gone))).toBe(false);
     expect(refs().filter((r) => r.includes(`/${branch.id}/`))).toHaveLength(2);
 

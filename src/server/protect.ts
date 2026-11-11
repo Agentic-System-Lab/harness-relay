@@ -1,6 +1,6 @@
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROVIDERS, type Provider } from '../shared/types';
 import { t } from './i18n';
@@ -29,9 +29,10 @@ export function browserDataDirs(
   home = homedir(),
   xdgConfig = process.env.XDG_CONFIG_HOME,
 ): string[] {
-  const at = (...dirs: string[]) => dirs.map((d) => join(home, d));
+  // POSIX paths: there are folders to list on macOS and Linux only, whichever system this runs on.
+  const at = (...dirs: string[]) => dirs.map((d) => posix.join(home, d));
   if (platform === 'darwin') {
-    const support = (...apps: string[]) => apps.map((a) => join('Library/Application Support', a));
+    const support = (...apps: string[]) => apps.map((a) => posix.join('Library/Application Support', a));
     return at(
       ...support(
         'Google/Chrome',
@@ -87,7 +88,7 @@ export function browserDataDirs(
       // Firefox's own folders since it follows the XDG base directories (Firefox 147).
       'mozilla',
     ];
-    const configDirs = [join(home, '.config'), ...(xdgConfig && isAbsolute(xdgConfig) ? [xdgConfig] : [])];
+    const configDirs = [posix.join(home, '.config'), ...(xdgConfig && posix.isAbsolute(xdgConfig) ? [xdgConfig] : [])];
     const elsewhere = at(
       '.mozilla',
       '.librewolf',
@@ -112,7 +113,7 @@ export function browserDataDirs(
       '.local/share/epiphany',
       '.var/app/org.gnome.Epiphany',
     );
-    return [...new Set([...configDirs.flatMap((dir) => config.map((d) => join(dir, d))), ...elsewhere])];
+    return [...new Set([...configDirs.flatMap((dir) => config.map((d) => posix.join(dir, d))), ...elsewhere])];
   }
   return [];
 }

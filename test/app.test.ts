@@ -19,6 +19,7 @@ import {
   type WorkingDirectories,
 } from '../src/shared/types';
 import { shareFileHref } from '../src/shared/share';
+import { slow } from './timeouts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -1826,7 +1827,7 @@ describe('browsing files', () => {
     expect(res.status).toBe(200);
     expect(readZip(Buffer.from(await res.arrayBuffer())).map((e) => e.name.split('/').slice(1).join('/')).sort()).toEqual(['', '.gitignore', 'index.js']);
     // Over ten thousand files written and walked: about 2 s alone, more than the default 5 s on a busy machine.
-  }, 30_000);
+  }, slow(30_000));
 });
 
 describe("what each CLI loads by itself", () => {
@@ -1917,7 +1918,8 @@ describe("what each CLI loads by itself", () => {
   });
 });
 
-describe("Grok's folder trust", () => {
+// The stand-in grok is a script run by its `#!` line, which Windows cannot start.
+describe.skipIf(process.platform === 'win32')("Grok's folder trust", () => {
   /*
    * A stand-in for `grok inspect --json` that keys trust the way grok 1.0.77 does: on the repository
    * root (reported with a trailing `/`), else on the folder it runs in, links resolved either way.
@@ -2637,8 +2639,8 @@ describe('sharing conversations', () => {
       return ref('r1', `out/heavy-${i}.csv`);
     });
     expect((await send(heavy, heavy.map((_, i) => fileLink(i)).join(''))).status).toBe(413);
-    // (Unreadable indeed, unless the tests run as root.)
-    if (process.getuid?.() !== 0) expect((await send(heavy.slice(0, 1), fileLink(0))).status).toBe(409);
+    // (Unreadable indeed, unless the tests run as root, or on Windows, where chmod only makes it read-only.)
+    if (process.platform !== 'win32' && process.getuid?.() !== 0) expect((await send(heavy.slice(0, 1), fileLink(0))).status).toBe(409);
     // Each link leaves room for the address it gets on GitHub.
     const near = 'x'.repeat(SHARE_MAX_BYTES - SHARE_FILE_URL_MAX);
     expect((await send([ref('r1', 'out/report.md')], near + fileLink(0))).status).toBe(413);

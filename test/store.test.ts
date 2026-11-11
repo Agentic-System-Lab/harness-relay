@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation, TeamPreset } from '../src/shared/types';
 import { dataLockFile, lockDataDir, openDatabase, type Database } from '../src/server/db';
@@ -408,7 +409,7 @@ describe('the data folder lock', () => {
     const data = join(dir, 'data-gc');
     // As index.ts does: the handle is not kept. Then everything collectable is collected.
     const script = `
-      const { lockDataDir } = await import(${JSON.stringify(join(process.cwd(), 'src/server/db.ts'))});
+      const { lockDataDir } = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), 'src/server/db.ts')).href)});
       if (!lockDataDir(process.argv[1])) process.exit(3);
       for (let i = 0; i < 5; i++) { globalThis.gc(); await new Promise((r) => setTimeout(r, 20)); }
       process.stdout.write('collected\\n');
@@ -809,7 +810,8 @@ describe('SettingsStore (SQLite)', () => {
     expect(again.env('grok').XAI_API_KEY).toBe('xai-1234567890');
     expect(again.view().providers.find((p) => p.provider === 'grok')!.apiKeyMasked).toBe('xai-…7890');
     expect(again.defaultCwd).toBe('/work');
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // (Windows has no permission bits: the user's own folder keeps it private there.)
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
   it('gives each CLI its own home in the agent home folder, in place of the one the server was started with', () => {

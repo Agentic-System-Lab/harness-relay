@@ -600,7 +600,9 @@ describe("Grok's own folder in its sandbox", () => {
     expect(isRelayProfile('harness-relay')).toBe(true);
     expect(isRelayProfile('workspace')).toBe(false);
     expect(isRelayProfile('harness-relay-mine')).toBe(false);
-    expect(grokEnv({ env: {}, permission: 'edit', addDirs: ['/docs', '/infra'] }, 'linux').GROK_SANDBOX).toBe(one);
+    // Named after the folders, also by their real paths (on Windows `/docs` is on a drive: C:\docs).
+    const named = process.platform === 'win32' ? grokSandboxProfile('edit', 'linux', grokReadWrite(['/docs', '/infra'])) : one;
+    expect(grokEnv({ env: {}, permission: 'edit', addDirs: ['/docs', '/infra'] }, 'linux').GROK_SANDBOX).toBe(named);
     // Each folder also by its real path.
     const real = realpathSync(tmpdir());
     expect(grokReadWrite([tmpdir()])).toEqual(real === tmpdir() ? [tmpdir()] : [tmpdir(), real]);
@@ -755,7 +757,8 @@ describe("Harness Relay's own changes to Grok's settings", () => {
   });
 });
 
-describe("Grok's program on Linux", () => {
+// The guard runs on Linux alone (grokEnv); its links are POSIX links, made and read as Linux does.
+describe.skipIf(process.platform === 'win32')("Grok's program on Linux", () => {
   function home() {
     const h = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-prog-')));
     mkdirSync(join(h, 'bin'));

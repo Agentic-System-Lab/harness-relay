@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import type { NativeItemsOff, NativePart, Permission, PlanEntry } from '../../shared/types';
 import { converse, runProcess, tail } from '../process';
 import {
@@ -145,16 +145,17 @@ export function claudeUserSettings(env: NodeJS.ProcessEnv): string {
 export function claudeManagedSettings(platform: NodeJS.Platform = process.platform): string[] {
   const dir = platform === 'darwin' ? '/Library/Application Support/ClaudeCode' : platform === 'win32' ? undefined : '/etc/claude-code';
   if (!dir) return [];
+  // POSIX paths: `platform` is macOS or Linux here, whichever system this runs on.
   let dropIns: string[] = [];
   try {
-    dropIns = readdirSync(join(dir, 'managed-settings.d'))
+    dropIns = readdirSync(posix.join(dir, 'managed-settings.d'))
       .filter((name) => name.endsWith('.json'))
       .sort()
-      .map((name) => join(dir, 'managed-settings.d', name));
+      .map((name) => posix.join(dir, 'managed-settings.d', name));
   } catch {
     // none
   }
-  return [join(dir, 'managed-settings.json'), ...dropIns];
+  return [posix.join(dir, 'managed-settings.json'), ...dropIns];
 }
 
 /**

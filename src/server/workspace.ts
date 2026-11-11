@@ -17,7 +17,10 @@ import { t } from './i18n';
 // `protocol.allow=never`: these commands never need a remote, so none (ssh, ext::, a lazy fetch of a
 // partial clone's objects) can run a command that a repository's config names, also on a git older
 // than 2.44, which does not know `GIT_NO_LAZY_FETCH`.
-const CONFIG = ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'protocol.allow=never'];
+// `core.autocrlf=false`: snapshots, worktrees, diffs and applying keep a file's bytes as they are.
+// Git for Windows turns it on by default (in its system config): a file an agent wrote with LF would
+// come back to the user's folder with CRLF, and the diff viewer would not show a CRLF file's CRs.
+const CONFIG = ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'core.autocrlf=false', '-c', 'protocol.allow=never'];
 
 /** The keys of a repository's config that name a driver which runs a command (git then runs none when it is empty). */
 const DRIVER_KEYS: Record<string, string[]> = {

@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, createWriteStream, mkdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync } from 'node:fs';
 import { createServer, type AddressInfo } from 'node:net';
 import { availableParallelism } from 'node:os';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { Readable, Transform, type TransformCallback } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
@@ -162,12 +162,13 @@ export function findOnPath(
   extra: string[] = [],
   isFile: (p: string) => boolean = fileExists,
 ): string | undefined {
-  const sep = platform === 'win32' ? ';' : ':';
-  const dirs = [...(env.PATH ?? env.Path ?? '').split(sep), ...extra].filter(Boolean);
+  // `platform`'s own separators, whichever system this runs on.
+  const { delimiter, join: joinPath } = platform === 'win32' ? win32 : posix;
+  const dirs = [...(env.PATH ?? env.Path ?? '').split(delimiter), ...extra].filter(Boolean);
   const exts = platform === 'win32' ? (env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';').filter(Boolean) : [''];
   for (const dir of dirs) {
     for (const ext of exts) {
-      const file = join(dir, name + ext);
+      const file = joinPath(dir, name + ext);
       if (isFile(file)) return file;
     }
   }

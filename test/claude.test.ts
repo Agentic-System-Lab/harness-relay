@@ -79,8 +79,9 @@ describe('claude arguments', () => {
     // Variadic: the next item is another flag.
     expect(args[at + 4]!.startsWith('--')).toBe(true);
     expect(claudeArgs({ ...base, permission: 'edit' })).not.toContain('--add-dir');
-    // Its sandbox lets commands write in them as in the working directory (no sandbox with full access).
-    expect(claudeSandboxWrites('edit', ['/work', '/docs'])).toEqual(expect.arrayContaining(['/work', '/docs']));
+    // Its sandbox lets commands write in them as in the working directory (no sandbox with full access,
+    // nor on Windows, where Claude Code has none).
+    expect(claudeSandboxWrites('edit', ['/work', '/docs'])).toEqual(process.platform === 'win32' ? undefined : expect.arrayContaining(['/work', '/docs']));
     expect(claudeSandboxWrites('full', ['/work', '/docs'])).toBeUndefined();
   });
 
@@ -425,7 +426,8 @@ describe('leaving out Claude Code\'s own subagents before the prompt', () => {
   });
 });
 
-describe('a Claude Code run that leaves out its own setup (stand-in claude)', () => {
+// The stand-ins are scripts run by their `#!` line, which Windows cannot start.
+describe.skipIf(process.platform === 'win32')('a Claude Code run that leaves out its own setup (stand-in claude)', () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-')));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   const bin = writeFakeClaude(join(dir, 'claude'));
