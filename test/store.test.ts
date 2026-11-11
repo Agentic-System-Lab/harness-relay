@@ -357,6 +357,28 @@ describe('the data folder lock', () => {
     expect(after).toBeDefined();
     after!.close();
   });
+
+  it('keeps the data folder held when nothing refers to the handle any more, after garbage collection', async () => {
+    const data = join(dir, 'data-gc');
+    // As index.ts does: the handle is not kept. Then everything collectable is collected.
+    const script = `
+      const { lockDataDir } = await import(${JSON.stringify(join(process.cwd(), 'src/server/db.ts'))});
+      if (!lockDataDir(process.argv[1])) process.exit(3);
+      for (let i = 0; i < 5; i++) { globalThis.gc(); await new Promise((r) => setTimeout(r, 20)); }
+      process.stdout.write('collected\\n');
+      setInterval(() => {}, 1000);
+    `;
+    const child = spawn(process.execPath, ['--expose-gc', '--no-warnings', '--import', 'tsx', '--input-type=module', '-e', script, data], { stdio: ['ignore', 'pipe', 'inherit'] });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.stdout!.on('data', (d: Buffer) => d.toString().includes('collected') && resolve());
+        child.on('exit', (code) => reject(new Error(`the holder exited (${code})`)));
+      });
+      expect(lockDataDir(data)).toBeUndefined();
+    } finally {
+      child.kill('SIGKILL');
+    }
+  });
 });
 
 describe('Store groups', () => {

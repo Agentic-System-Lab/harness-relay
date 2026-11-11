@@ -715,6 +715,9 @@ describe('its updates', () => {
   it('reads a tool result from its observation: its own output, failed on an error, an exit code or a timeout', () => {
     const done = (observation: Record<string, unknown>) => ({ sessionUpdate: 'tool_call_update', toolCallId: 't', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'Tool: terminal\nResult:\n…' } }], rawOutput: { kind: 'ObservationEvent', observation } });
     expect(openhandsToolResult(done({ content: [{ type: 'text', text: 'done-42' }], exit_code: 0, is_error: false }))).toEqual({ sessionUpdate: 'tool_call_update', toolCallId: 't', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'done-42' } }] });
+    // Its terminal's control sequences are not shown: bash 5.1+ turns bracketed paste on and off around
+    // each command (seen on Linux), and colours come through.
+    expect(openhandsToolResult(done({ content: [{ type: 'text', text: '\u001b[?2004lW-no\n\u001b[31mred\u001b[0m\n\u001b[?2004h' }], exit_code: 0 }))).toMatchObject({ content: [{ content: { text: 'W-no\nred' } }] });
     expect(openhandsToolResult(done({ content: [{ type: 'text', text: 'denied' }], exit_code: 1 }))).toMatchObject({ status: 'failed', content: [{ content: { text: 'denied\n(exit code 1)' } }] });
     expect(openhandsToolResult(done({ content: [], exit_code: 2 }))).toMatchObject({ status: 'failed', content: [{ content: { text: '(exit code 2)' } }] });
     expect(openhandsToolResult(done({ content: [{ type: 'text', text: 'Invalid path' }], is_error: true }))).toMatchObject({ status: 'failed' });

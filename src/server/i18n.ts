@@ -219,6 +219,8 @@ const zhTW = {
   opencodeAuthRequired: (backend: string) => `OpenCode 無法使用模型來源 ${backend}：缺少 API key 或它被拒絕。請到「設定 → 模型來源」檢查。`,
   opencodeForeignControl: (detail: string) =>
     `安全問題，這次執行已停止：OpenCode 自己的伺服器被 Harness Relay 以外的程式操作了（${detail}）。agent 執行的指令可能讀到了它伺服器的密碼。沙箱的檔案與網路限制仍然有效；請檢查這一輪做了什麼。`,
+  opencodeNoLinuxSandbox:
+    '在 Linux 上，OpenCode 只能以「完全存取」執行：Harness Relay 的沙箱給它一個自己的網路，它的伺服器在那裡，Harness Relay 無法監看（完全存取以外需要監看），所以沒有執行它。請改用完全存取（只在你信任的資料夾），或改用另一個 agent。',
   opencodeWatchFailed: (e: string) => `Harness Relay 無法監看 OpenCode 自己的伺服器，所以沒有執行它（完全存取以外需要）：${e}`,
   opencodeWriteRefused: (path: string) => `沙箱不允許寫入 ${path}（唯讀模式，或不在這次執行能寫入的資料夾裡）`,
 
@@ -641,6 +643,8 @@ const en: ServerMessages = {
   opencodeAuthRequired: (backend) => `OpenCode cannot use the model backend ${backend}: its API key is missing or was refused. Check it under Settings → Model backends.`,
   opencodeForeignControl: (detail) =>
     `Security problem, so this run was stopped: OpenCode's own server was driven by something other than Harness Relay (${detail}). A command the agent ran may have read its server's password. The sandbox's file and network rules still held; check what this turn did.`,
+  opencodeNoLinuxSandbox:
+    "On Linux, OpenCode runs only with full access: Harness Relay's sandbox gives it a network of its own, where Harness Relay cannot watch its server (needed below full access), so it did not run it. Use full access (only in a folder you trust), or another agent.",
   opencodeWatchFailed: (e) => `Harness Relay cannot watch OpenCode's own server, so it did not run it (needed below full access): ${e}`,
   opencodeWriteRefused: (path) => `The sandbox does not allow writing ${path} (read-only, or outside the folders this run may write)`,
 

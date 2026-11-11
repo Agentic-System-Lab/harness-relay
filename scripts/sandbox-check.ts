@@ -365,6 +365,10 @@ async function localPortChecks(want: (n: string) => boolean) {
     curlLine('curl-relay', `http://127.0.0.1:${relayPort}/`),
     curlLine('curl-relay-direct', `http://127.0.0.1:${relayPort}/`, "--noproxy '*'"),
     curlLine('curl-other', `http://127.0.0.1:${other.port}/`),
+    // A client that never sends loopback to a proxy (Cline adds loopback to NO_PROXY by itself).
+    curlLine('curl-backend-direct', `http://127.0.0.1:${backend.port}/`, "--noproxy '*'"),
+    curlLine('curl-backend-direct-localhost', `http://localhost:${backend.port}/`, "--noproxy '*'"),
+    curlLine('curl-other-direct', `http://127.0.0.1:${other.port}/`, "--noproxy '*'"),
     'kill $srv 2>/dev/null',
   ].join('\n');
   try {
@@ -384,6 +388,12 @@ async function localPortChecks(want: (n: string) => boolean) {
       check('local-ports: curl through the proxy reaches nothing on this computer\'s own port (Linux)', got['curl-own'] !== 'OWN', show(['curl-own']));
     }
     check('local-ports: loopback backend reachable through the proxy (Node, curl)', got['node-backend'] === 'BACKEND' && got['curl-backend'] === 'BACKEND', show(['node-backend', 'curl-backend']));
+    check(
+      `local-ports: loopback backend reachable by a client that skips the proxy for loopback (${process.platform === 'darwin' ? 'allowed directly' : 'relayed'})`,
+      got['curl-backend-direct'] === 'BACKEND' && got['curl-backend-direct-localhost'] === 'BACKEND',
+      show(['curl-backend-direct', 'curl-backend-direct-localhost']),
+    );
+    check('local-ports: another local port unreachable directly either', got['curl-other-direct'] !== 'OTHER', show(['curl-other-direct']));
     check(
       "local-ports: Harness Relay's port unreachable (Node, curl via proxy, curl direct)",
       ![got['node-relay'], got['curl-relay'], got['curl-relay-direct']].includes('RELAY-API'),

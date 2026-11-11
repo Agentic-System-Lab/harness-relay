@@ -8,7 +8,7 @@ import { commandLine, isPublishCommand } from '../commands';
 import { commandPaths, overlaps, protectedReads } from '../protect';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
-import { runProcess } from '../process';
+import { runProcess, stripAnsi } from '../process';
 import { leftoverSweepPids } from '../relaySandbox';
 import { acpBriefing, acpPermissionDecision, acpPromptText, acpRunner, type AcpAgentSpec, type AcpCallInfo, type AcpDecision, type AcpToolCall, type AcpTurnDeps } from './acpTurn';
 import type { OpenAgentDefinition, OpenCatalog, OpenHomeLayout, OpenRunContext, OpenSandboxNeeds } from './open';
@@ -916,13 +916,19 @@ export function openhandsMessageText(text: string): string {
 }
 
 /** The text of an observation (its content blocks). */
+/**
+ * An observation's text, without the terminal's control sequences: bash 5.1 and later turns bracketed
+ * paste on and off around each command (`ESC[?2004h` / `ESC[?2004l`, seen on Linux), and a command's
+ * colours come through too.
+ */
 function observationText(obs: Record<string, any>): string {
   const blocks = Array.isArray(obs.content) ? obs.content : [];
-  return blocks
-    .map((b: any) => (typeof b?.text === 'string' ? b.text : ''))
-    .filter(Boolean)
-    .join('\n')
-    .trim();
+  return stripAnsi(
+    blocks
+      .map((b: any) => (typeof b?.text === 'string' ? b.text : ''))
+      .filter(Boolean)
+      .join('\n'),
+  ).trim();
 }
 
 /**

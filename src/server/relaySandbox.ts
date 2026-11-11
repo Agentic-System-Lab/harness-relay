@@ -476,8 +476,9 @@ export function relaySandboxHosts(
   allowedHosts: readonly string[],
   ctx: Pick<RelaySandboxContext, 'relayPorts' | 'localAddresses'>,
   quietlyDenied: readonly string[] = [],
-): { allowed: string[]; denied: string[]; quietReasons: Record<string, string>; loopback: boolean } {
+): { allowed: string[]; denied: string[]; quietReasons: Record<string, string>; loopback: boolean; loopbackPorts: number[] } {
   const allowed: string[] = [];
+  const loopbackPorts: number[] = [];
   let loopback = false;
   for (const entry of allowedHosts) {
     const parsed = parseHostEntry(entry);
@@ -490,6 +491,7 @@ export function relaySandboxHosts(
       if (ctx.relayPorts.includes(port)) throw new AgentRunError(t().relaySandboxRelayPort(entry));
       if (isLoopbackHost(host)) {
         loopback = true;
+        loopbackPorts.push(port);
         allowed.push(`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`);
         continue;
       }
@@ -505,7 +507,7 @@ export function relaySandboxHosts(
     const where = parsed.port === undefined ? bracket(parsed.host) : `${bracket(parsed.host)}:${parsed.port}`;
     quietReasons[where] = DENY_REASONS.quiet(hostLabel(parsed.host, parsed.port));
   }
-  return { allowed: [...new Set(allowed)], denied: [...new Set([...relay, ...Object.keys(quietReasons)])], quietReasons, loopback };
+  return { allowed: [...new Set(allowed)], denied: [...new Set([...relay, ...Object.keys(quietReasons)])], quietReasons, loopback, loopbackPorts: [...new Set(loopbackPorts)] };
 }
 
 /** The reasons the model sees for a host it may not reach (English, like every prompt to the agents). */
@@ -730,12 +732,18 @@ const SANDBOX_OWNS = /^(HTTPS?_PROXY|ALL_PROXY|NO_PROXY|FTP_PROXY|GRPC_PROXY|htt
  *   ranges sandbox-runtime lists: the sandbox cannot reach them directly, so a backend on the local
  *   network must go through the proxy too.
  * - `TMPDIR`, `TMP`, `TEMP`: the run's own temporary folder.
+ * - `loopbackRelay` (Linux): the loopback ports of this computer the run may reach (a model backend,
+ *   a server the agent only connects to) are relayed onto the sandbox's own loopback by `socat`,
+ *   through the proxy with the run's own credentials, before the agent starts (`SANDBOX_EXEC_SCRIPT`).
+ *   A client that never sends loopback to a proxy (Cline adds `localhost`, `127.0.0.1` and `::1` to
+ *   `NO_PROXY` by itself) would otherwise reach the sandbox's own loopback, where nothing listens. The
+ *   proxy's allowlist still decides; the relay only carries what the run could send the proxy anyway.
  */
 export function relaySandboxEnv(
   bin: string,
   args: readonly string[],
   env: NodeJS.ProcessEnv,
-  o: { tmp: string; loopback: boolean; localPorts?: readonly number[] },
+  o: { tmp: string; loopback: boolean; localPorts?: readonly number[]; loopbackRelay?: { socat: string; ports: readonly number[] } },
 ): { outerEnv: Record<string, string>; command: string } {
   const outerEnv: Record<string, string> = {};
   const inner: [string, string][] = [];
@@ -761,6 +769,11 @@ export function relaySandboxEnv(
   );
   // Every value travels in the environment, under names of our own; the command is fixed text.
   for (const [k, v] of inner) outerEnv[`${SANDBOX_EXEC_PREFIX}IN_${k}`] = v;
+  const relayed = (o.loopbackRelay?.ports ?? []).filter((p) => Number.isInteger(p) && p > 0 && p < 65536);
+  if (o.loopbackRelay && relayed.length) {
+    outerEnv[`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`] = relayed.join(' ');
+    outerEnv[`${SANDBOX_EXEC_PREFIX}SOCAT`] = o.loopbackRelay.socat;
+  }
   outerEnv[`${SANDBOX_EXEC_PREFIX}INNER`] = inner.map(([k]) => k).join(' ');
   [bin, ...args].forEach((a, i) => {
     if (typeof a !== 'string') throw new TypeError(`argument ${i} of the sandboxed command is not a string`);
@@ -792,7 +805,30 @@ for n in $HARNESS_RELAY_SBX_INNER; do
   eval "$n=\"\$HARNESS_RELAY_SBX_IN_$n\"; export $n"
   unset "HARNESS_RELAY_SBX_IN_$n"
 done
-unset HARNESS_RELAY_SBX_ARGC HARNESS_RELAY_SBX_INNER i n
+if [ -n "$HARNESS_RELAY_SBX_RELAY_PORTS" ] && [ -n "$HTTP_PROXY" ]; then
+  p=${'$'}{HTTP_PROXY#*://}
+  a=$(printf '%s' "${'$'}{p%@*}" | sed 's/%3[Dd]/=/g; s/%2[Bb]/+/g; s/%2[Ff]/\//g; s/%3[Aa]/:/g; s/%40/@/g; s/%25/%/g')
+  h=${'$'}{p##*@}
+  h=${'$'}{h%%/*}
+  for port in $HARNESS_RELAY_SBX_RELAY_PORTS; do
+    "$HARNESS_RELAY_SBX_SOCAT" "TCP4-LISTEN:$port,bind=127.0.0.1,fork,reuseaddr" "PROXY:${'$'}{h%:*}:127.0.0.1:$port,proxyport=${'$'}{h##*:},proxyauth=$a" </dev/null >/dev/null 2>&1 &
+    "$HARNESS_RELAY_SBX_SOCAT" "TCP6-LISTEN:$port,bind=[::1],ipv6only=1,fork,reuseaddr" "PROXY:${'$'}{h%:*}:127.0.0.1:$port,proxyport=${'$'}{h##*:},proxyauth=$a" </dev/null >/dev/null 2>&1 &
+  done
+  for port in $HARNESS_RELAY_SBX_RELAY_PORTS; do
+    x=$(printf '%04X' "$port")
+    k=0
+    while [ "$k" -lt 100 ] && [ -r /proc/net/tcp ]; do
+      up=
+      while read -r s l r st rest; do
+        if [ "$l" = "0100007F:$x" ] && [ "$st" = 0A ]; then up=1; fi
+      done < /proc/net/tcp
+      [ -n "$up" ] && break
+      k=$((k + 1))
+      sleep 0.02
+    done
+  done
+fi
+unset HARNESS_RELAY_SBX_ARGC HARNESS_RELAY_SBX_INNER HARNESS_RELAY_SBX_RELAY_PORTS HARNESS_RELAY_SBX_SOCAT i n p a h port x k up s l r st rest
 exec "$@"`;
 
 /** A path as a literal name: sandbox-runtime never reads it as a pattern. */
@@ -1287,7 +1323,7 @@ export function resetSandboxAvailability(): void {
 async function probe(ctx: RelaySandboxContext): Promise<HostFailure | undefined> {
   const dirs = makeRunDirs(ctx.dataDir);
   const paths = { allowWrite: withReal([dirs.tmp]), denyWrite: withReal(srtDefaultWrites(ctx.home)), denyRead: [], allowRead: [] };
-  const hosts = { allowed: ['relay-sandbox-probe.invalid'], denied: [], quietReasons: {}, loopback: false };
+  const hosts = { allowed: ['relay-sandbox-probe.invalid'], denied: [], quietReasons: {}, loopback: false, loopbackPorts: [] };
   const run = new RelaySandboxRun(
     dirs,
     {
@@ -1377,7 +1413,8 @@ export async function sandboxCommand(
   let run: RelaySandboxRun;
   try {
     const paths = relaySandboxPaths(spec, ctx, { ...dirs, programs: found });
-    const { outerEnv, command } = relaySandboxEnv(found[0]!, args, env, { tmp: dirs.tmp, loopback: hosts.loopback, localPorts });
+    const loopbackRelay = ctx.platform === 'linux' && ctx.tools.socat && hosts.loopbackPorts.length ? { socat: ctx.tools.socat, ports: hosts.loopbackPorts } : undefined;
+    const { outerEnv, command } = relaySandboxEnv(found[0]!, args, env, { tmp: dirs.tmp, loopback: hosts.loopback, localPorts, loopbackRelay });
     run = new RelaySandboxRun(
       dirs,
       {
@@ -1392,6 +1429,8 @@ export async function sandboxCommand(
         outerEnv,
         tmpdir: dirs.tmp,
         localPorts,
+        // macOS: connected to directly as well (Linux relays them instead, `loopbackRelay`).
+        ...(ctx.platform === 'darwin' && hosts.loopbackPorts.length ? { loopbackPorts: hosts.loopbackPorts } : {}),
         ...(dirs.marker ? { marker: dirs.marker } : {}),
       },
       { requestApproval: spec.requestApproval, localAddresses: ctx.localAddresses, platform: ctx.platform, arch: ctx.arch },

@@ -129,6 +129,11 @@ export interface OpenAgentProcess {
   /** Writes the CLI's config in its home before the process starts: provider, model, permissions, briefing… */
   prepare?(ctx: OpenRunContext): void | Promise<void>;
   /**
+   * Why the CLI cannot run in the relay sandbox on this platform, in the user's language, or undefined
+   * when it can: such a run is refused before anything starts (OpenCode on Linux).
+   */
+  sandboxUnsupported?(platform: NodeJS.Platform): string | undefined;
+  /**
    * What the CLI needs from the relay sandbox beyond the defaults, each a narrow opt-in that
    * docs/sandboxing.md describes ("Harness Relay's own sandbox"): its own loopback ports, a
    * pseudo-terminal, Unix sockets in the run's temp folder, macOS's certificate-trust daemon, hosts
@@ -410,6 +415,8 @@ export async function startOpenProcess(
   let protectedPaths: string[] = [];
   if (sandboxed) {
     if (deps.platform === 'win32') throw new AgentRunError(t().openNoWindowsSandbox(cli));
+    const refused = agent.sandboxUnsupported?.(deps.platform);
+    if (refused) throw new AgentRunError(refused);
     const available = await deps.sandboxAvailable();
     // The reason already says what failed and how to fix it, in the user's language: passed on as it is.
     if (!available.ok) throw new AgentRunError(available.reason);

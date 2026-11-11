@@ -354,6 +354,12 @@ export function openDatabase(file: string): Database {
   return db;
 }
 
+/**
+ * The data folders this process holds (`lockDataDir`), kept here for as long as it runs: a handle
+ * nothing refers to any more would be collected, and its connection, with the lock, closed with it.
+ */
+const heldDataDirs: Database[] = [];
+
 /** The file a running server holds its data folder with (a SQLite database that stays empty). */
 export function dataLockFile(dataDir: string): string {
   return join(dataDir, 'server.lock');
@@ -370,13 +376,15 @@ export function dataLockFile(dataDir: string): string {
  * The lock is SQLite's own on that file (an exclusive transaction kept open, with the journal in
  * memory so no other file is made): the system releases it when the process ends, however it ends,
  * so a server that was killed leaves no stale lock, and a process that later gets its pid holds
- * nothing. Keep the returned handle for as long as the server runs; closing it releases the folder.
+ * nothing. The folder stays held until the process ends (the handle is kept here, `heldDataDirs`,
+ * whether the caller keeps it or not); closing the returned handle releases it sooner.
  */
 export function lockDataDir(dataDir: string): Database | undefined {
   mkdirSync(dataDir, { recursive: true });
   const db = new DatabaseSync(dataLockFile(dataDir));
   try {
     db.exec('PRAGMA busy_timeout = 0; PRAGMA journal_mode = MEMORY; BEGIN EXCLUSIVE;');
+    heldDataDirs.push(db);
     return db;
   } catch (err) {
     db.close();

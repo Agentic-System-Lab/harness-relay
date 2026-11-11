@@ -610,6 +610,18 @@ interface OpencodeState {
 
 const stateOf = (ctx: OpenRunContext) => ctx.state as OpencodeState;
 
+/**
+ * Why OpenCode cannot run in the relay sandbox here: on Linux the sandbox has a network of its own
+ * (bubblewrap's), where OpenCode's server listens on a loopback Harness Relay cannot reach, so its
+ * server cannot be watched (`watchOpencode`), and a run that cannot be watched does not run. Anything
+ * inside the sandbox that could carry the server's events out (a relay, a helper) is the agent's
+ * commands' to reach too, so it could not be trusted either. Checked on Linux arm64 (DGX Spark) with
+ * OpenCode 1.19.5 and sandbox-runtime 0.0.82.
+ */
+export function opencodeSandboxUnsupported(platform: NodeJS.Platform): string | undefined {
+  return platform === 'linux' ? t().opencodeNoLinuxSandbox : undefined;
+}
+
 /** Writes what the run needs before OpenCode starts: its home, the briefing, its config and variables. */
 export async function prepareOpencode(ctx: OpenRunContext, port: () => Promise<number> = freeLoopbackPort): Promise<void> {
   const { o, run, env, tmpDir } = ctx;
@@ -1612,6 +1624,7 @@ export const opencodeAcp: AcpAgentSpec = {
   proxyEnv: {},
   emptyEnv: OPENCODE_EMPTY_ENV,
   prepare: (ctx) => prepareOpencode(ctx),
+  sandboxUnsupported: opencodeSandboxUnsupported,
   sandbox: opencodeSandbox,
   // Both are set in `afterSession`, in OpenCode's order (the model resets the effort).
   model: { via: 'config' },

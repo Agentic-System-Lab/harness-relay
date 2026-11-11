@@ -51,6 +51,7 @@ import {
   opencodeUsage,
   opencodeUserShell,
   opencodeShellScript,
+  opencodeSandboxUnsupported,
   opencodeWouldAsk,
   shellSegments,
   segmentCommand,
@@ -228,6 +229,19 @@ describe('OpenCode turns replayed from the real CLI', () => {
     // The run's cache is its own (in the run's temp folder, gone after the run).
     expect(start.env.XDG_CACHE_HOME).toContain(join(r.dir, 'run-tmp'));
     expect(existsSync(start.env.XDG_CACHE_HOME)).toBe(false);
+  });
+
+  it('runs below full access on macOS only: on Linux its server could not be watched, so nothing starts', async () => {
+    expect(opencodeSandboxUnsupported('darwin')).toBeUndefined();
+    expect(withLang('en', () => opencodeSandboxUnsupported('linux'))).toMatch(/On Linux, OpenCode runs only with full access/);
+    for (const permission of ['read-only', 'edit'] as const) {
+      const r = turn('text-only', { permission, model: 'homelab/muse-glimmer-30b-nvfp4' });
+      await expect(withLang('en', () => opencodeRunner({ ...fakeSandbox(r.dir), platform: 'linux', runTmpDir: join(r.dir, 'run-tmp') }).run(r.o))).rejects.toThrow(
+        /On Linux, OpenCode runs only with full access/,
+      );
+      expect(r.log()).toEqual([]); // the CLI never started
+      expect(specs.has(r.dir)).toBe(false);
+    }
   });
 
   it('read-only: asks about the write and the command, never does fs/write_text_file, shows each call', async () => {

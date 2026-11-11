@@ -170,7 +170,7 @@ Harness Relay 讓這些 agent 在它自己的家目錄中執行，絕不使用�
 | **OpenHands** | 每個動作都詢問；它一起發出的呼叫會合成一張列出全部的卡片（好幾個修改時列出每個檔案），一次回答就涵蓋全部；唯讀時，叫用 skill 也會詢問，因為 skill 可能執行指令；完全存取以外，不提供它會不經詢問執行指令的 subagent | 不會：只有 OpenHands 自己固定的話 | 在 macOS 上，要等你在「設定」打開它的開關（**讓 OpenHands 在沙箱裡使用終端機**，預設關閉），它才會在完全存取以外執行：它的終端機這時會讓它的指令能在你其他的終端機視窗印出文字、讀取內容。啟動較慢（約 2.5 秒）。**停止** 會暫停它，但不會中止正在執行的指令：它的程序在兩秒後結束。被停止或當掉的回合留下、還在等待的動作，會在下一輪接續前被拒絕，所以絕不會沒經過你同意就執行。沒有 tmux 時，它的終端機偶爾會顯示一個沒有發生的失敗。很長的 session 會用同一個模型額外呼叫幾次來做摘要。專案的 `AGENTS.md`、`.agents/skills` 與 `.openhands/hooks.json` 一定會載入，它也可能把 `AGENTS.md` 當作記憶來修改。 |
 | **Pi** | Pi 自己不會詢問：完全存取以外，Harness Relay 的 gate 擴充功能在每個工具呼叫前詢問，MCP 工具也是；唯讀時它只有讀取的工具 | 會 | 沒有計畫或待辦清單。只有 session 檔寫明屬於這個工作目錄時才會接續。它會載入從工作目錄往上直到 `/` 的每個 `AGENTS.md` / `CLAUDE.md`，只能全部一起排除。它的 `find` 需要 fd，`grep` 需要 ripgrep。 |
 
-五個都一樣：每位對話成員的 session、記錄與快取都是它自己的，其他對話或其他成員的執行都無法讀取或修改；token 與成本來自各 CLI 的回報（端點的模型沒有成本）；在原生 Windows 上只能以完全存取執行；在 Linux 上，完全存取以外需要 bubblewrap、socat 與 ripgrep（見[檔案權限](#對話規則)）。細節見[開源 agent](open-agents.zh-TW.md)。
+五個都一樣：每位對話成員的 session、記錄與快取都是它自己的，其他對話或其他成員的開源 agent 執行都無法讀取或修改（完全存取以外的 Claude Code、Codex 與 Grok 讀得到，就像它們讀得到彼此的）；token 與成本來自各 CLI 的回報（端點的模型沒有成本）；在原生 Windows 上只能以完全存取執行，Linux 上的 OpenCode 也一樣；在 Linux 上，完全存取以外需要 bubblewrap、socat 與 ripgrep（見[檔案權限](#對話規則)）。細節見[開源 agent](open-agents.zh-TW.md)。
 
 ### 預設模型與推理強度
 

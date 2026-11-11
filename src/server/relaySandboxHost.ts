@@ -44,6 +44,12 @@ interface HostConfig {
   probe?: { expect: string };
   /** Loopback ports the agent listens on and connects to itself (macOS: added to the Seatbelt profile). */
   localPorts?: number[];
+  /**
+   * Loopback ports of this computer the run may reach (a model backend, a server it only connects
+   * to), which the proxy allows: macOS lets the run connect to them directly too, never listen on
+   * them, for a client that never sends loopback to a proxy (Cline).
+   */
+  loopbackPorts?: number[];
   /** A marker file every sandboxed process holds a read-only descriptor to, so leftovers are swept (macOS). */
   marker?: string;
 }
@@ -307,20 +313,24 @@ try {
  * port, in the profile sandbox-runtime wrote, which must hold that rule exactly once. On Linux the
  * sandbox has a loopback of its own, so nothing is added.
  */
-function withLocalPorts(command: string, ports: readonly number[], proxyPort: number | undefined): string {
-  if (!ports.length || process.platform !== 'darwin') return command;
+function withLocalPorts(command: string, ports: readonly number[], proxyPort: number | undefined, connectOnly: readonly number[] = []): string {
+  const outbound = connectOnly.filter((p) => !ports.includes(p));
+  if ((!ports.length && !outbound.length) || process.platform !== 'darwin') return command;
   if (proxyPort === undefined) throw new Error('no proxy port to add the local ports beside');
   const anchor = `(allow network-outbound (remote ip "localhost:${proxyPort}"))`;
   const at = command.indexOf(anchor);
   if (at < 0 || command.indexOf(anchor, at + 1) >= 0) throw new Error('the sandbox profile is not as expected');
-  const rules = ports
-    .map((p) => `(allow network-bind (local ip "localhost:${p}"))(allow network-inbound (local ip "localhost:${p}"))(allow network-outbound (remote ip "localhost:${p}"))`)
-    .join('');
+  const rules = [
+    ...ports.map((p) => `(allow network-bind (local ip "localhost:${p}"))(allow network-inbound (local ip "localhost:${p}"))(allow network-outbound (remote ip "localhost:${p}"))`),
+    ...outbound.map((p) => `(allow network-outbound (remote ip "localhost:${p}"))`),
+  ].join('');
   return command.slice(0, at + anchor.length) + rules + command.slice(at + anchor.length);
 }
 
+const port = (p: unknown): p is number => Number.isInteger(p) && (p as number) > 0 && (p as number) < 65536;
+
 try {
-  wrapped = withLocalPorts(wrapped!, (c.localPorts ?? []).filter((p) => Number.isInteger(p) && p > 0 && p < 65536), SandboxManager.getProxyPort());
+  wrapped = withLocalPorts(wrapped!, (c.localPorts ?? []).filter(port), SandboxManager.getProxyPort(), (c.loopbackPorts ?? []).filter(port));
 } catch (err) {
   await fail('wrap', (err as Error).message);
 }

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Duplex } from 'node:stream';
@@ -525,6 +525,38 @@ describe('relaySandboxEnv', () => {
     expect(run(true).TMPDIR).toBe('/r/tmp');
     expect(run(true).TEMP).toBe('/r/tmp');
     expect(run(true).NODE_USE_ENV_PROXY).toBe('1');
+  });
+
+  it("relays the loopback ports the run may reach onto the sandbox's own loopback, through the proxy (Linux)", () => {
+    // A stand-in socat that says what it was asked to do.
+    const log = join(dir, 'socat.log');
+    rmSync(log, { force: true });
+    const socat = join(dir, 'fake-socat');
+    // One write per line: the relays start side by side.
+    writeFileSync(socat, `#!/bin/sh\nline=$(printf '%s|' "$@")\nprintf '%s\\n' "$line" >> '${log}'\n`, { mode: 0o755 });
+    const { outerEnv, command } = relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true, loopbackRelay: { socat, ports: [11434, 18081] } });
+    expect(command).toBe(SANDBOX_EXEC_SCRIPT); // still fixed text: the ports and socat's path are in the environment
+    expect(outerEnv).toMatchObject({ [`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`]: '11434 18081', [`${SANDBOX_EXEC_PREFIX}SOCAT`]: socat });
+    // sandbox-runtime's proxy, with the run's own credentials, percent-encoded as it gives them.
+    const proxy = 'http://srt.aGk%3D:t0k%2Ben@localhost:3128';
+    const r = spawnSync('/bin/sh', ['-c', command], { env: { ...outerEnv, HTTP_PROXY: proxy }, encoding: 'utf8' });
+    const inside = r.stdout.split('\n');
+    expect(inside.filter((l) => l.startsWith(SANDBOX_EXEC_PREFIX))).toEqual([]);
+    const until = Date.now() + 5000;
+    while (Date.now() < until && (!existsSync(log) || readFileSync(log, 'utf8').trim().split('\n').length < 4)) spawnSync('/bin/sleep', ['0.05']);
+    const calls = readFileSync(log, 'utf8').trim().split('\n').sort();
+    expect(calls).toEqual([
+      'TCP4-LISTEN:11434,bind=127.0.0.1,fork,reuseaddr|PROXY:localhost:127.0.0.1:11434,proxyport=3128,proxyauth=srt.aGk=:t0k+en|',
+      'TCP4-LISTEN:18081,bind=127.0.0.1,fork,reuseaddr|PROXY:localhost:127.0.0.1:18081,proxyport=3128,proxyauth=srt.aGk=:t0k+en|',
+      'TCP6-LISTEN:11434,bind=[::1],ipv6only=1,fork,reuseaddr|PROXY:localhost:127.0.0.1:11434,proxyport=3128,proxyauth=srt.aGk=:t0k+en|',
+      'TCP6-LISTEN:18081,bind=[::1],ipv6only=1,fork,reuseaddr|PROXY:localhost:127.0.0.1:18081,proxyport=3128,proxyauth=srt.aGk=:t0k+en|',
+    ]);
+    // Nothing is relayed without ports, or without a proxy to go through.
+    expect(relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true, loopbackRelay: { socat, ports: [] } }).outerEnv[`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`]).toBeUndefined();
+    expect(relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true }).outerEnv[`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`]).toBeUndefined();
+    // The loopback ports come from the run's hosts: a backend on loopback and the ports it only connects to.
+    expect(relaySandboxHosts(['api.openai.com', 'localhost:11434', '[::1]:8000', 'localhost:11434'], ctx).loopbackPorts).toEqual([11434, 8000]);
+    expect(relaySandboxHosts(['api.openai.com', '192.168.1.20:1234'], ctx).loopbackPorts).toEqual([]);
   });
 
   it('quotes the command so a shell runs exactly it', () => {

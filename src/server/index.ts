@@ -29,8 +29,7 @@ process.on('unhandledRejection', (reason) => console.error('[server] unhandled r
 
 // One server per data folder: before the database is opened, since opening it already marks
 // replies left streaming aborted (the Store), and the start sweeps below kill what runs left.
-const dataLock = lockDataDir(DATA_DIR);
-if (!dataLock) {
+if (!lockDataDir(DATA_DIR)) {
   console.error(
     `[server] Another Harness Relay server is using the data folder ${DATA_DIR}. Stop it first, or give this one a folder of its own with RELAY_DATA_DIR.`,
   );
