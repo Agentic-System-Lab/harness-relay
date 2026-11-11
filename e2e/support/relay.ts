@@ -29,6 +29,8 @@ export interface RelayServer {
   /** The default working directory of new chats: a small project (see `seedProject`). */
   workDir: string;
   home: string;
+  /** Another small project next to `workDir`, `<root>/<name>`, with a `<name>.md` of its own. */
+  addProject(name: string): string;
   /** A one-time code that signs a browser in (`/#code=…`). */
   newSignInCode(): Promise<string>;
   /** A request to the API, signed in (as a browser of its own). */
@@ -157,6 +159,12 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     workDir,
     home,
     api,
+    addProject(name) {
+      const dir = join(root, name);
+      seedProject(dir);
+      writeFileSync(join(dir, `${name}.md`), `# ${name}\n`);
+      return dir;
+    },
     async newSignInCode() {
       return (await api<{ code: string }>('/api/auth/codes', { body: {} })).code;
     },

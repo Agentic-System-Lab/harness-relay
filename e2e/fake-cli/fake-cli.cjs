@@ -21,6 +21,11 @@
  *   pieces, changed by the directives in that message (see DIRECTIVES below). A directive written as
  *   `e2e:<name>@<cli>` is for that CLI only, `e2e:write=notes.md@codex` say.
  *
+ * A file is written only where the real CLI could write it: in a folder its permission and sandbox
+ * give it (the working directory, and the others Harness Relay passes: Claude Code's `--add-dir`,
+ * Codex's `write` entries or `writable_roots`, Grok's `read_write` in its sandbox profile), so a test
+ * that writes elsewhere tells whether those reached the CLI.
+ *
  * E2E_FAKE_LOG names a file that gets a JSON line for each start (the CLI, its arguments) and each
  * prompt, for the tests to read.
  */
@@ -77,7 +82,8 @@ const DIRECTIVES = {
   tool: 'list the working directory with a tool first',
   todo: 'show a to-do list',
   approve: 'ask before running a command (`echo e2e-approval`), then say whether it ran',
-  write: 'write the file named (relative to the working directory), when the permission allows it',
+  write: 'write the file named (relative to the working directory), where the permission and sandbox allow it',
+  writeother: 'write the file named in the first other working directory the CLI was given (none: it says so)',
   ask: 'end the reply with a question for the user ([ASK_USER])',
   handoff: 'mention the member named, to hand the floor to it (not when that member is speaking)',
   slow: 'stream the reply slowly (about ten seconds), to be stopped',
@@ -102,7 +108,8 @@ const withoutDirectives = (text) => text.replace(/\be2e:\S+/gi, '').replace(/\s+
 function permissionOf(briefing) {
   if (/^READ-ONLY\./m.test(briefing) || /READ-ONLY\. You may read files/.test(briefing)) return 'read-only';
   if (/Full access: you may edit files and run commands without approval/.test(briefing)) return 'full';
-  if (/You may read and edit files inside the working directory/.test(briefing)) return 'edit';
+  // "…inside the working directories" when the chat has several.
+  if (/You may read and edit files inside the working director(y|ies)/.test(briefing)) return 'edit';
   return 'read-only';
 }
 
@@ -211,9 +218,12 @@ function plan(prompt, briefing, cwd) {
   }
   if (d.tool) steps.push({ type: 'tool', kind: 'list', output: safeList(cwd) });
   if (d.approve) steps.push({ type: 'approve', command: 'echo e2e-approval' });
+  const permission = permissionOf(briefing);
   if (typeof d.write === 'string') {
-    const permission = permissionOf(briefing);
     steps.push({ type: 'write', path: d.write, content: `Written by ${me} (${LABEL}).\n`, allowed: permission !== 'read-only' });
+  }
+  if (typeof d.writeother === 'string') {
+    steps.push({ type: 'write', path: d.writeother, other: true, content: `Written by ${me} (${LABEL}).\n`, allowed: permission !== 'read-only' });
   }
   const answered = /You asked the user a question and their reply is among the messages above/.test(prompt);
   let text = answered ? `Thanks, ${me} got your answer: “${said}”.` : `Hello from ${me} (${LABEL}). You said: “${said}”.`;
@@ -261,12 +271,71 @@ function pieces(text, slow) {
 }
 const pieceDelay = (slow) => (slow ? 250 : 15);
 
-function writeFile(cwd, rel, content) {
-  const file = path.resolve(cwd, rel);
+function writeFile(file, content) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content);
   return file;
 }
+
+/** A path by its real location, also when it does not exist yet (its nearest existing folder's). */
+function realLocation(p) {
+  let at = path.resolve(p);
+  const rest = [];
+  while (!fs.existsSync(at)) {
+    const up = path.dirname(at);
+    if (up === at) break;
+    rest.unshift(path.basename(at));
+    at = up;
+  }
+  let real = at;
+  try {
+    real = fs.realpathSync.native(at);
+  } catch {
+    /* as it is */
+  }
+  const full = path.join(real, ...rest);
+  return process.platform === 'win32' ? full.toLowerCase() : full;
+}
+
+/** Whether `file` is inside one of `dirs` (null: anywhere, as with full access). */
+function writable(file, dirs) {
+  if (dirs === null) return true;
+  const f = realLocation(file);
+  return dirs.some((d) => {
+    const r = realLocation(d);
+    return f === r || f.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+  });
+}
+
+/**
+ * Where a write step goes and whether it may: `{ file, ok }`, or `{ none: true }` for a write in
+ * another working directory when the CLI was given none. `dirs`: the folders it may write (null:
+ * anywhere); `others`: the working directories it was given besides its own.
+ */
+function target(step, cwd, dirs, others) {
+  if (step.other && !others.length) return { none: true, ok: false };
+  const file = path.resolve(step.other ? others[0] : cwd, step.path);
+  return { file, ok: step.allowed && writable(file, dirs) };
+}
+
+/** What a write step says about itself. */
+function wrote(step, t) {
+  if (t.none) return `I was given no other working directory for ${step.path}. `;
+  return t.ok ? `I wrote ${step.path}. ` : `I may not write ${step.path} here. `;
+}
+
+/** Variadic values of a flag (`--add-dir a b`), up to the next flag. */
+function values(name) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== name) continue;
+    for (let j = i + 1; j < args.length && !args[j].startsWith('--'); j++) out.push(args[j]);
+  }
+  return out;
+}
+
+/** Folders a turn may also use that are not working directories: the chat's attachments. */
+const notAWorkingDirectory = (dir) => /[\\/]attachments[\\/]/.test(dir + path.sep);
 
 // --- Line-delimited JSON on stdio -------------------------------------------------------------------
 
@@ -362,6 +431,11 @@ function claudeStream() {
   const briefing = flag('--append-system-prompt') || '';
   const mode = flag('--permission-mode') || 'default';
   const asks = flag('--permission-prompt-tool') === 'stdio';
+  // Claude Code's file tools write in the working directory and the --add-dir folders, in edit mode
+  // (acceptEdits), and anywhere with full access.
+  const addDirs = values('--add-dir');
+  const others = addDirs.filter((d) => !notAWorkingDirectory(d));
+  const dirs = mode === 'bypassPermissions' ? null : mode === 'acceptEdits' ? [process.cwd(), ...addDirs] : [];
   const pending = new Map();
   let busy = false;
 
@@ -428,7 +502,7 @@ function claudeStream() {
       model: flag('--model') || 'claude-fake',
       permissionMode: mode,
     });
-    await claudeTurn(plan(prompt, briefing, process.cwd()), { sessionId, mode, asks, ask });
+    await claudeTurn(plan(prompt, briefing, process.cwd()), { sessionId, mode, asks, ask, dirs, others });
   });
 }
 
@@ -481,14 +555,15 @@ async function claudeTurn(steps, o) {
       full += ran ? 'The command ran: e2e-approval. ' : 'The command was declined. ';
     }
     if (step.type === 'write') {
-      const file = path.resolve(process.cwd(), step.path);
-      const allowed = step.allowed && o.mode !== 'manual' && o.mode !== 'dontAsk';
-      await tool('Write', { file_path: file, content: step.content }, async () => {
-        if (!allowed) return { content: 'Permission to use Write has been denied.', isError: true };
-        writeFile(process.cwd(), step.path, step.content);
-        return { content: `File created successfully at: ${file}`, isError: false };
-      });
-      full += allowed ? `I wrote ${step.path}. ` : `I may not write ${step.path} here. `;
+      const t = target(step, process.cwd(), o.dirs, o.others);
+      if (!t.none) {
+        await tool('Write', { file_path: t.file, content: step.content }, async () => {
+          if (!t.ok) return { content: 'Permission to use Write has been denied.', isError: true };
+          writeFile(t.file, step.content);
+          return { content: `File created successfully at: ${t.file}`, isError: false };
+        });
+      }
+      full += wrote(step, t);
     }
     if (step.type === 'text') {
       const text = full + step.text;
@@ -541,7 +616,7 @@ function codexAppServer() {
         case 'thread/start':
         case 'thread/resume': {
           const id = method === 'thread/resume' ? p.threadId : newId('thread');
-          threads.set(id, { cwd: p.cwd || process.cwd(), briefing: p.developerInstructions || '', approval: p.approvalPolicy || 'never', sandbox: p.sandbox, profile: p.permissions });
+          threads.set(id, { cwd: p.cwd || process.cwd(), briefing: p.developerInstructions || '', approval: p.approvalPolicy || 'never', sandbox: p.sandbox, profile: p.permissions, ...codexWrites(p) });
           return {
             thread: { id, preview: '', modelProvider: 'openai', createdAt: Math.floor(Date.now() / 1000), cwd: p.cwd },
             model: p.model || 'gpt-fake-codex',
@@ -579,6 +654,29 @@ function codexAppServer() {
 }
 
 const interrupted = new Set();
+
+/**
+ * Where a thread's sandbox lets Codex write: its permission profile (`:workspace` and its `write`
+ * entries; `:read-only` nothing), else the legacy mode (`workspace-write` and its `writable_roots`),
+ * anywhere with `danger-full-access`.
+ */
+function codexWrites(p) {
+  const cwd = p.cwd || process.cwd();
+  const config = p.config || {};
+  if (typeof p.permissions === 'string') {
+    const profile = (config.permissions || {})[p.permissions] || {};
+    const writes = Object.entries(profile.filesystem || {})
+      .filter(([, access]) => access === 'write')
+      .map(([dir]) => dir);
+    return { dirs: profile.extends === ':read-only' ? [] : [cwd, ...writes], others: writes };
+  }
+  if (p.sandbox === 'danger-full-access') return { dirs: null, others: [] };
+  if (p.sandbox === 'workspace-write') {
+    const roots = (config.sandbox_workspace_write || {}).writable_roots || [];
+    return { dirs: [cwd, ...roots], others: roots };
+  }
+  return { dirs: [], others: [] };
+}
 
 async function codexTurn(peer, threadId, turnId, t, steps) {
   const note = (method, params) => peer.notify(method, { threadId, turnId, ...params });
@@ -629,14 +727,15 @@ async function codexTurn(peer, threadId, turnId, t, steps) {
     }
     if (step.type === 'write') {
       const id = `patch_${++n}`;
-      const file = path.resolve(t.cwd, step.path);
-      const changes = [{ path: file, kind: { type: 'add' }, diff: step.content }];
-      const allowed = step.allowed;
-      await item({ type: 'fileChange', id, changes, status: 'inProgress' }, async () => {
-        if (allowed) writeFile(t.cwd, step.path, step.content);
-        return { type: 'fileChange', id, changes, status: allowed ? 'completed' : 'declined' };
-      });
-      prefix += allowed ? `I wrote ${step.path}. ` : `I may not write ${step.path} here. `;
+      const w = target(step, t.cwd, t.dirs, t.others);
+      if (!w.none) {
+        const changes = [{ path: w.file, kind: { type: 'add' }, diff: step.content }];
+        await item({ type: 'fileChange', id, changes, status: 'inProgress' }, async () => {
+          if (w.ok) writeFile(w.file, step.content);
+          return { type: 'fileChange', id, changes, status: w.ok ? 'completed' : 'declined' };
+        });
+      }
+      prefix += wrote(step, w);
     }
     if (step.type === 'text') {
       const id = `msg_${++n}`;
@@ -680,6 +779,30 @@ function projectRoot(dir) {
   }
 }
 
+/**
+ * Where Grok's sandbox lets it write: the working directory and the `read_write` folders of the
+ * profile GROK_SANDBOX names in its sandbox.toml; anywhere in yolo mode or without a sandbox
+ * (`workspace`, on Windows, where Grok has none).
+ */
+function grokWrites(cwd, yolo) {
+  const profile = process.env.GROK_SANDBOX;
+  if (yolo || !profile || profile === 'workspace') return { dirs: null, others: [] };
+  let readWrite = [];
+  try {
+    const lines = fs.readFileSync(path.join(grokHome(), 'sandbox.toml'), 'utf8').split('\n');
+    const start = lines.findIndex((l) => l.trim() === `[profiles.${profile}]`);
+    for (let i = start + 1; start >= 0 && i < lines.length && !lines[i].trim().startsWith('['); i++) {
+      const m = /^\s*read_write\s*=\s*(\[.*\])\s*$/.exec(lines[i]);
+      if (m) readWrite = JSON.parse(m[1]);
+    }
+  } catch {
+    /* no profile: the working directory only */
+  }
+  // The profile names each folder also by its real path: one of each.
+  const others = [...new Map(readWrite.map((d) => [realLocation(d), d])).values()];
+  return { dirs: [cwd, ...readWrite], others };
+}
+
 function grokStatic() {
   if (has('--version')) return void process.stdout.write('grok 1.0.999\n');
   if (args[0] === 'models') return void process.stdout.write('Default model: grok-fake\n\nModels:\n* grok-fake\n- grok-fake-mini\n');
@@ -707,7 +830,7 @@ function grokAgent() {
         case 'session/resume': {
           const id = method === 'session/resume' ? p.sessionId : newId('grok-session');
           const meta = p._meta || {};
-          sessions.set(id, { cwd: p.cwd || process.cwd(), briefing: meta.rules || '', yolo: Boolean(meta.yoloMode), cancelled: false });
+          sessions.set(id, { cwd: p.cwd || process.cwd(), briefing: meta.rules || '', yolo: Boolean(meta.yoloMode), cancelled: false, ...grokWrites(p.cwd || process.cwd(), Boolean(meta.yoloMode)) });
           return {
             ...(method === 'session/new' ? { sessionId: id } : {}),
             configOptions: [
@@ -786,18 +909,21 @@ async function grokTurn(peer, sessionId, s, steps) {
     }
     if (step.type === 'write') {
       const id = `tc_${++n}`;
-      const file = path.resolve(s.cwd, step.path);
-      const call = { toolCallId: id, title: 'write_file', kind: 'edit', status: 'pending', rawInput: { path: file, content: step.content }, _meta: { 'x.ai/tool': { name: 'write_file' } } };
-      update({ sessionUpdate: 'tool_call', ...call });
-      const allowed = step.allowed && (s.yolo || (await permit(call)));
-      if (allowed) writeFile(s.cwd, step.path, step.content);
-      update({
-        sessionUpdate: 'tool_call_update',
-        toolCallId: id,
-        status: allowed ? 'completed' : 'failed',
-        content: [{ type: 'content', content: { type: 'text', text: allowed ? `Wrote ${file}` : 'Not executed.' } }],
-      });
-      prefix += allowed ? `I wrote ${step.path}. ` : `I may not write ${step.path} here. `;
+      const w = target(step, s.cwd, s.dirs, s.others);
+      if (!w.none) {
+        const call = { toolCallId: id, title: 'write_file', kind: 'edit', status: 'pending', rawInput: { path: w.file, content: step.content }, _meta: { 'x.ai/tool': { name: 'write_file' } } };
+        update({ sessionUpdate: 'tool_call', ...call });
+        // Asked first, as Grok asks; its sandbox then refuses a folder outside the profile.
+        w.ok = w.ok && (s.yolo || (await permit(call)));
+        if (w.ok) writeFile(w.file, step.content);
+        update({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: id,
+          status: w.ok ? 'completed' : 'failed',
+          content: [{ type: 'content', content: { type: 'text', text: w.ok ? `Wrote ${w.file}` : 'Not executed: Operation not permitted.' } }],
+        });
+      }
+      prefix += wrote(step, w);
     }
     if (step.type === 'text') {
       for (const piece of pieces(prefix + step.text, step.slow)) {
