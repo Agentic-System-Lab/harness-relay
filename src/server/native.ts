@@ -1153,7 +1153,7 @@ function claudeHooksIn(file: string): NativeHook[] {
     (Array.isArray(list) ? list : []).map((h: Json) => ({
       event,
       ...(typeof h?.matcher === 'string' && h.matcher ? { matcher: h.matcher } : {}),
-      source: 'Claude Code (user)',
+      source: 'Claude Code',
       file,
     })),
   );

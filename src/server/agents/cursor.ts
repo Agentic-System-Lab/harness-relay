@@ -213,7 +213,7 @@ export function cursorPath(call: CursorToolCall): string | undefined {
 const isWeb = (call: CursorToolCall) =>
   call.kind === 'fetch' ||
   (call.kind === 'search' && /^web[ _]search/i.test(call.title ?? call.toolCallId ?? '')) ||
-  /^Allow web (search|fetch)\?/i.test(call.title ?? '');
+  (call.kind === 'other' && /^Allow web (search|fetch)\?$/.test(call.title ?? ''));
 
 /** A delete (Cursor reports one as kind `edit`, titled "Delete `<path>`"). */
 const isDelete = (call: CursorToolCall) => call.kind === 'delete' || /^delete\b/i.test(call.title ?? '');
@@ -248,7 +248,10 @@ export function cursorPermissionDecision(permission: Permission, call: CursorToo
  */
 export function cursorApprovalRequest(call: CursorToolCall): ApprovalRequest {
   if (call.kind === 'execute') return { kind: 'command', detail: cursorCommand(call), reason: call.rawInput?.description, outsideSandbox: true };
-  if (call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move') return { kind: 'edit', detail: cursorPath(call), reason: call.title };
+  // Cursor asks about a write inside the workspace only for its protected files: say why.
+  if (call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move') {
+    return { kind: 'edit', detail: cursorPath(call), reason: isDelete(call) ? call.title : t().cursorProtectedWrite };
+  }
   if (call.kind === 'fetch') return { kind: 'fetch', detail: call.rawInput?.url ?? titleSubject(call.title), reason: call.title };
   const tool = call.title?.replace(/\s*\(.*$/, '') || call.kind || 'tool';
   return { kind: 'other', tool, detail: summarizeInput(call.rawInput, { wholePaths: true }) ?? acpContentText(call.content), reason: call.title };

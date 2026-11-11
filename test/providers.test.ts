@@ -129,6 +129,11 @@ esac
       // Its key signs it in for each run only, which \`status\` cannot see: it is taken as signed in by it.
       expect((await service.status('cursor', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: true });
 
+      // A key only in the server's environment: the default account runs on it, and shows so.
+      vi.stubEnv('CURSOR_API_KEY', 'key_from_shell');
+      expect((await service.status('cursor', true)).accounts[0]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: false });
+      vi.stubEnv('CURSOR_API_KEY', '');
+
       // Signing the other account out signs nothing out: it kept nothing.
       await service.logout('cursor', team);
       expect(log()).toEqual(['login browser=1']);

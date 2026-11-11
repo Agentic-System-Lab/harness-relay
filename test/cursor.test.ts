@@ -70,6 +70,9 @@ describe('cursor permission policy (no sandbox)', () => {
     // A subagent's web search and fetch, asked with kind "other".
     expect(cursorPermissionDecision('edit', { kind: 'other', title: 'Allow web search?' }, CWD).allow).toBe(true);
     expect(cursorPermissionDecision('read-only', { kind: 'other', title: 'Allow web fetch?' }, CWD).allow).toBe(true);
+    // Not an MCP tool that only looks like one.
+    expect(cursorPermissionDecision('edit', { kind: 'other', title: 'Allow web fetch? (my-server)' }, CWD).allow).toBe(false);
+    expect(cursorPermissionDecision('edit', { kind: 'execute', title: 'Allow web search?' }, CWD).allow).toBe(false);
   });
 
   it('edit: takes a link out of the working directory for what it leads to (for a delete)', () => {
@@ -94,7 +97,13 @@ describe('cursor permission policy (no sandbox)', () => {
     // Its permission requests leave the input out; the runner adds the tool call's.
     expect(cursorApprovalRequest({ kind: 'execute', title: '`npm test`', rawInput: { command: 'npm test' } })).toEqual({ kind: 'command', detail: 'npm test', outsideSandbox: true });
     expect(cursorCommand({ kind: 'execute', title: "`printf 'hi\\n' > a && cat a`" })).toBe("printf 'hi\\n' > a && cat a");
+    expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Edit `/w/.git/config`' }))).toEqual({
+      kind: 'edit',
+      detail: '/w/.git/config',
+      reason: "Cursor asks before changing files like this one: a change here could make code run later, outside any sandbox (a git hook, an editor task), or change an agent's settings.",
+    });
     expect(cursorApprovalRequest({ kind: 'edit', title: 'Write /tmp/x.txt' })).toMatchObject({ kind: 'edit', detail: '/tmp/x.txt' });
+    expect(cursorApprovalRequest({ kind: 'edit', title: 'Delete `/w/old.ts`' })).toEqual({ kind: 'edit', detail: '/w/old.ts', reason: 'Delete `/w/old.ts`' });
     expect(cursorPath({ kind: 'edit', title: 'Edit File', content: [{ type: 'diff', path: '/w/a.ts', oldText: 'a', newText: 'b' }] })).toBe('/w/a.ts');
     expect(cursorPath({ kind: 'edit', title: 'Delete `/w/old.ts`' })).toBe('/w/old.ts');
     expect(cursorApprovalRequest({ kind: 'fetch', title: 'Fetch https://example.com/a' })).toMatchObject({ kind: 'fetch', detail: 'https://example.com/a' });

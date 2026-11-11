@@ -255,11 +255,14 @@ export function agentFolders(o: AgentFolderOptions = {}): string[] {
     env.CODEX_HOME || join(home, '.codex'),
     env.GROK_HOME || join(home, '.grok'),
     // Cursor's config folder as it finds it (`cursorConfigDir`); ~/.cursor, where its hooks and MCP
-    // servers stay; and where it keeps its sign-in on Linux (`$XDG_CONFIG_HOME/cursor`, else ~/.config/cursor).
+    // servers stay; and where it keeps its sign-in on Linux (`$XDG_CONFIG_HOME/cursor`, else
+    // ~/.config/cursor) and Windows (`%APPDATA%\Cursor`).
     ...new Set([
       env.CURSOR_CONFIG_DIR || (env.XDG_CONFIG_HOME ? join(env.XDG_CONFIG_HOME, 'cursor') : join(home, '.cursor')),
       join(home, '.cursor'),
       env.XDG_CONFIG_HOME ? join(env.XDG_CONFIG_HOME, 'cursor') : join(home, '.config', 'cursor'),
+      // On Windows, its sign-in is in %APPDATA%\Cursor.
+      ...(env.APPDATA ? [join(env.APPDATA, 'Cursor')] : []),
     ]),
     ...(o.agentHome ? [o.agentHome] : []),
     ...(o.accountsDir && o.accountsDir !== o.agentHome ? [o.accountsDir] : []),

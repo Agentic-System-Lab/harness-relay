@@ -432,7 +432,7 @@ describe('what Cursor loads by itself, from its files', () => {
       { event: 'beforeShellExecution', source: 'user', file: join(home, '.cursor', 'hooks.json') },
       { event: 'preToolUse', matcher: 'Shell', source: 'user', file: join(home, '.cursor', 'hooks.json') },
       // Claude Code's, which Cursor loads too.
-      { event: 'PreToolUse', matcher: 'Bash', source: 'Claude Code (user)', file: join(home, '.claude', 'settings.json') },
+      { event: 'PreToolUse', matcher: 'Bash', source: 'Claude Code', file: join(home, '.claude', 'settings.json') },
     ]);
     expect(JSON.stringify(hooks)).not.toContain('secret-hook');
     expect(JSON.stringify(hooks)).not.toContain('claude-secret');
