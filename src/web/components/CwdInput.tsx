@@ -57,6 +57,13 @@ export function CwdInput({ value, onChange, placeholder, id, ariaLabel }: Props)
   const [menu, setMenu] = useState<CwdMenu>(CWD_MENU_CLOSED);
   /** The highlight was moved with the keyboard: bring it into view (not when the pointer moved it). */
   const keyed = useRef(false);
+  /**
+   * The folders and `onChange` as the box has them now: the folder dialog answers seconds after its
+   * click, by when the box has changed (what was typed is added as the dialog opens) and so may what
+   * `onChange` merges into (other settings in the team editor).
+   */
+  const latest = useRef({ value, onChange });
+  latest.current = { value, onChange };
   /** The folder dialog is open. */
   const [picking, setPicking] = useState(false);
   /** Its request: stopped (the server then closes the dialog) when the box goes away. */
@@ -98,8 +105,13 @@ export function CwdInput({ value, onChange, placeholder, id, ariaLabel }: Props)
 
   /** Adds folders (what was typed, a path from the list, the dialog's), each once; what was typed is cleared. */
   const add = (dirs: string[]) => {
-    const next = addCwds(value, dirs);
-    if (next.length !== value.length) onChange(next);
+    const now = latest.current;
+    const next = addCwds(now.value, dirs);
+    if (next.length !== now.value.length) {
+      // Seen at once by an `add` that follows before the next render (the dialog's, after the blur's).
+      latest.current = { ...now, value: next };
+      now.onChange(next);
+    }
     setText('');
   };
 

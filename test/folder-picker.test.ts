@@ -20,7 +20,11 @@ const result = (r: Partial<SpawnResult>) => ({ code: 0, stdout: '', stderr: '', 
 describe('pickerKind', () => {
   it('uses AppleScript on macOS and PowerShell on Windows', () => {
     expect(pickerKind('darwin', {})).toEqual({ kind: 'osascript', bin: '/usr/bin/osascript' });
-    expect(pickerKind('win32', {})).toEqual({ kind: 'powershell', bin: 'powershell.exe' });
+    expect(pickerKind('win32', { SystemRoot: 'D:\\Windows' })).toEqual({
+      kind: 'powershell',
+      bin: 'D:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    });
+    expect(pickerKind('win32', {})?.bin).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
   });
 
   it('uses zenity, else kdialog, on the PATH of a graphical session elsewhere', () => {
@@ -158,7 +162,10 @@ describe('systemFolderPicker', () => {
   it('runs Windows’ dialog as a script', async () => {
     const { calls, run } = fakeRun({ stdout: '' });
     expect(await systemFolderPicker('win32', {}, run).pick({ title: 'Choose', start: 'C:\\' })).toEqual([]);
-    expect(calls[0]!.script).toMatchObject({ shell: 'powershell.exe', o: { env: { RELAY_PICK_START: 'C:\\' }, timeoutMs: PICK_TIMEOUT_MS } });
+    expect(calls[0]!.script).toMatchObject({
+      shell: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      o: { env: { RELAY_PICK_START: 'C:\\' }, timeoutMs: PICK_TIMEOUT_MS },
+    });
   });
 
   it('is not available, and opens nothing, without a dialog', async () => {

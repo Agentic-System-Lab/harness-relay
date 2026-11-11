@@ -528,6 +528,50 @@ describe('several working directories', { timeout: 20_000 }, () => {
     const diff = await orchestrator.messageDiff(conv.id, alice!.id);
     expect(diff).toContain(`+++ b/${basename(project)}/Alice.txt`);
     expect(diff).toContain(`+++ b/${basename(docs)}/Alice.txt`);
+    // The second repository keeps the turns' snapshots too, until the conversation goes.
+    const refs = () => execFileSync('git', ['-C', docs, 'for-each-ref', `refs/harness-relay/${conv.id}/`], { encoding: 'utf8' });
+    expect(refs()).not.toBe('');
+    await orchestrator.cleanupWorktrees(conv);
+    expect(refs()).toBe('');
+  });
+
+  it('makes one repository for a folder and one inside it, whichever comes first', async () => {
+    for (const mode of ['roundtable', 'parallel'] as const) {
+      const outer = join(root, `outer-${mode}-${n}`);
+      const inner = join(outer, 'docs');
+      mkdirSync(inner, { recursive: true });
+      const conv = conversation({ mode, cwd: inner, extraCwds: [outer] });
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      // Only the outer one was made a repository: git could not snapshot it around an empty inner one.
+      expect(existsSync(join(inner, '.git'))).toBe(false);
+      const alice = agentMessages(conv).find((m) => m.agentName === 'Alice')!;
+      expect(alice.status).toBe('done');
+      expect(alice.changes!.map((c) => c.root)).toEqual([outer]);
+      expect(alice.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'docs/Alice.txt', 'docs/shared.txt']);
+      if (mode === 'parallel') {
+        // One worktree, in which the agent starts in the inner folder and also has the outer one.
+        const [wt] = conv.worktrees.a!;
+        expect(conv.worktrees.a).toHaveLength(1);
+        expect(calls.filter((c) => c.name === 'Alice').at(-1)).toMatchObject({ cwd: join(wt!.path, 'docs'), addDirs: [wt!.path] });
+      }
+      await orchestrator.cleanupWorktrees(conv);
+    }
+  });
+
+  it("neither applies nor shows a worktree of a folder taken off the list, even once that folder is gone", async () => {
+    const docs = docsFolder();
+    const conv = conversation({ mode: 'parallel', extraCwds: [docs] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    conv.settings = { ...conv.settings, extraCwds: undefined };
+    rmSync(docs, { recursive: true, force: true });
+    const diff = await orchestrator.agentDiff(conv.id, 'b');
+    expect(diff).toContain('+++ b/Bob.txt');
+    expect(diff).not.toContain(basename(docs));
+    const files = await orchestrator.applyAgentWork(conv.id, 'b');
+    expect(files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'shared.txt']);
+    expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
     await orchestrator.cleanupWorktrees(conv);
   });
 

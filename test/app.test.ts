@@ -487,6 +487,34 @@ describe('settings', () => {
     expect((await post({ agents, settings: { cwd: project, extraCwds: 'nope' } })).status).toBe(400);
   });
 
+  it("keeps a conversation's other working directories when settings come without a cwd, and takes a cwd alone as the only one", async () => {
+    const docs = join(project, 'docs');
+    mkdirSync(docs);
+    const conv = await createConversation({ extraCwds: [docs] });
+    const patch = (body: Record<string, unknown>) => app.request(`/api/conversations/${conv.id}`, json('PATCH', body, { 'x-relay-lang': 'en' }));
+    const settings = async () => store.get(conv.id)!.settings;
+    expect(await settings()).toMatchObject({ cwd: project, extraCwds: [docs] });
+    // Without a cwd: the folders it has.
+    expect((await patch({ settings: { mode: 'relay' } })).status).toBe(200);
+    expect(await settings()).toMatchObject({ mode: 'relay', cwd: project, extraCwds: [docs] });
+    // A missing one is named, and created when asked; each one became a repository (edit mode).
+    const more = join(project, 'more');
+    const missing = await patch({ settings: { cwd: project, extraCwds: [docs, more] } });
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({ code: 'cwd-missing', paths: [more] });
+    expect((await patch({ settings: { cwd: project, extraCwds: [docs, more] }, createCwd: true })).status).toBe(200);
+    expect(await settings()).toMatchObject({ extraCwds: [docs, more] });
+    expect(existsSync(join(project, '.git'))).toBe(true);
+    // A cwd alone: the only one.
+    expect((await patch({ settings: { cwd: project } })).status).toBe(200);
+    expect(await settings()).not.toHaveProperty('extraCwds');
+    // Edit mode in Harness Relay's own folder is refused after the first too.
+    const { RELAY_ROOT } = await import('../src/server/protect');
+    const refused = await patch({ settings: { cwd: project, extraCwds: [RELAY_ROOT], permission: 'edit' } });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ code: 'relay-folder' });
+  });
+
   it("refuses edit mode in any working directory that holds Harness Relay, also one after the first", async () => {
     const { RELAY_ROOT } = await import('../src/server/protect');
     const agents = [{ name: 'Alice', provider: 'claude', role: '' }];

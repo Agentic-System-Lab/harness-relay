@@ -63,8 +63,10 @@ export type BriefingWorkspace =
     };
 
 function workspaceRules(conv: Conversation, ws: BriefingWorkspace): string {
-  const access = `- File access: ${PERMISSION_TEXT[conv.settings.permission]}`;
   const cwds = cwdsOf(conv.settings);
+  // Edit mode covers every working directory, not only the one the agent starts in.
+  const text = PERMISSION_TEXT[conv.settings.permission];
+  const access = `- File access: ${cwds.length > 1 && conv.settings.permission === 'edit' ? text.replace('the working directory', 'the working directories') : text}`;
   if (ws.kind === 'shared') {
     const where =
       cwds.length === 1

@@ -368,7 +368,7 @@ When an agent changes files, its reply ends with a card listing the files (A add
 - **View this turn's diff** — what the agent changed in this turn.
 - In parallel mode the card says **in worktree** with the agent's branch, and the agent's latest card also has:
   - **View @name's full result** — everything this agent changed since the round started;
-  - **Apply to working directory** — copies that result into your working directory (with several, into each one it changed: all of them or, when one conflicts, none). Nothing is committed: review the changes with your usual tools and commit them yourself.
+  - **Apply to working directory** — copies that result into your working directory (with several, into each one it changed: all of them or, when one conflicts, none; a folder you took off the list since is left out). Nothing is committed: review the changes with your usual tools and commit them yourself.
 
 After you apply one result, the other agents' results are marked as out of date, and the next parallel round starts every agent from the updated directory. If your working directory changed in a way that conflicts with the result, nothing is applied and you get an explanation; ask an agent to redo the work on top of the current state.
 

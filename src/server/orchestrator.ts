@@ -107,6 +107,17 @@ interface RunWorkspace {
   isolated: boolean;
 }
 
+/** How deep a folder is, links resolved (as written when it cannot be): for making outer repositories first. */
+function realDepth(dir: string): number {
+  let real = dir;
+  try {
+    real = realpathSync(dir);
+  } catch {
+    /* not there: as written */
+  }
+  return real.split(/[\\/]+/).filter(Boolean).length;
+}
+
 /** The repositories of a run's working directories, each once, in the order of the directories. */
 function rootsOf(ws: RunWorkspace): string[] {
   return [...new Set((ws.folders ?? []).map((f) => f.root))];
@@ -1259,13 +1270,16 @@ export class Orchestrator {
    */
   async prepareWorkspace(conv: Conversation): Promise<RunWorkspace> {
     if (conv.settings.permission === 'read-only') return { isolated: false };
-    const folders: { cwd: string; root: string }[] = [];
-    for (const cwd of cwdsOf(conv.settings)) {
+    const cwds = cwdsOf(conv.settings);
+    // Outermost first: a folder inside another joins the repository made for that one, rather than
+    // becoming one of its own, without a commit, inside it (git could not snapshot the outer one).
+    const roots = new Map<string, string>();
+    for (const cwd of [...cwds].sort((a, b) => realDepth(a) - realDepth(b))) {
       const { root, created } = await ensureRepo(cwd);
       if (created) this.systemNote(conv, t().gitInitNote(root));
-      folders.push({ cwd, root });
+      roots.set(cwd, root);
     }
-    return { folders, isolated: conv.settings.mode === 'parallel' };
+    return { folders: cwds.map((cwd) => ({ cwd, root: roots.get(cwd)! })), isolated: conv.settings.mode === 'parallel' };
   }
 
   /**
@@ -1386,12 +1400,14 @@ export class Orchestrator {
   async applyAgentWork(convId: string, agentId: string): Promise<FileChange[]> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
-    const wts = conv.worktrees[agentId] ?? [];
-    if (!wts.length) throw new HttpError(404, t().noWorktree);
-    if (wts.some((w) => w.needsReset)) throw new HttpError(409, t().resultStale);
-    const roots = wts.map((w) => w.root);
-    // Reserved, so the team cannot start writing (and take over these locks) while the patches are applied.
+    if (!conv.worktrees[agentId]?.length) throw new HttpError(404, t().noWorktree);
+    if (conv.worktrees[agentId]!.some((w) => w.needsReset)) throw new HttpError(409, t().resultStale);
+    // Reserved at once (before anything is awaited), so the team cannot start writing (and take over
+    // these locks) while the patches are applied.
     return this.exclusive(convId, t().busyApply, async () => {
+      const wts = await this.currentWorktrees(conv, agentId);
+      if (!wts.length) throw new HttpError(400, t().nothingToApply);
+      const roots = wts.map((w) => w.root);
       this.lockDirs(roots, conv);
       try {
         const checked = [];
@@ -1400,14 +1416,31 @@ export class Orchestrator {
           if (patch) checked.push(patch);
         }
         if (!checked.length) throw new HttpError(400, t().nothingToApply);
-        for (const patch of checked) await applyPatch(patch);
-        const files = checked.flatMap((p) => p.files);
-        for (const [id, list] of Object.entries(conv.worktrees)) {
-          for (const w of list) {
-            w.needsReset = true;
-            this.store.saveWorktree(conv.id, id, w);
+        const resetAll = () => {
+          for (const [id, list] of Object.entries(conv.worktrees)) {
+            for (const w of list) {
+              w.needsReset = true;
+              this.store.saveWorktree(conv.id, id, w);
+            }
           }
+        };
+        let applied = 0;
+        try {
+          for (const patch of checked) {
+            await applyPatch(patch);
+            applied++;
+          }
+        } catch (err) {
+          // A file changed between the check and the apply: what was applied stays, and the
+          // directories have changed, so the worktrees start again from them.
+          if (applied) {
+            resetAll();
+            this.emitConversation(conv);
+          }
+          throw err;
         }
+        const files = checked.flatMap((p) => p.files);
+        resetAll();
         const name = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
         this.systemNote(conv, t().appliedNote(name, files.length));
         this.emitConversation(conv);
@@ -1416,6 +1449,16 @@ export class Orchestrator {
         this.unlockDirs(roots, conv.id);
       }
     });
+  }
+
+  /**
+   * An agent's worktrees of the repositories the conversation's working directories are in now. One
+   * of a folder taken off the list stays until the next parallel run removes it, but is neither
+   * applied nor shown.
+   */
+  private async currentWorktrees(conv: Conversation, agentId: string): Promise<AgentWorktree[]> {
+    const roots = new Set(await Promise.all(cwdsOf(conv.settings).map((cwd) => repoRoot(cwd).catch(() => null))));
+    return (conv.worktrees[agentId] ?? []).filter((w) => roots.has(w.root));
   }
 
   /** The diffs of several repositories, one after another; with more than one, their paths start with their folders' names. */
@@ -1433,7 +1476,8 @@ export class Orchestrator {
   }
 
   async agentDiff(convId: string, agentId: string): Promise<string> {
-    const wts = this.store.get(convId)?.worktrees[agentId] ?? [];
+    const conv = this.store.get(convId);
+    const wts = conv ? await this.currentWorktrees(conv, agentId) : [];
     if (!wts.length) throw new HttpError(404, t().noWorktree);
     return this.diffs(await Promise.all(wts.map(async (w) => ({ root: w.root, base: w.base, head: await worktreeHead(w.path) }))));
   }
@@ -2015,7 +2059,14 @@ export class Orchestrator {
         for (const wt of wts) before.set(wt.root, { commit: await worktreeHead(wt.path) });
       } else if (!run.ws.isolated && roots.length) {
         before = new Map();
-        for (const root of roots) before.set(root, await snapshot(root, this.snapshotExcludes()));
+        // Each repository on its own: one that cannot be snapshotted keeps the others' changes recorded.
+        for (const root of roots) {
+          try {
+            before.set(root, await snapshot(root, this.snapshotExcludes()));
+          } catch (err) {
+            console.warn(`[orchestrator] could not snapshot ${root} before turn:`, (err as Error).message);
+          }
+        }
       }
     } catch (err) {
       before = undefined;

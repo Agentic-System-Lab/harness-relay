@@ -4,7 +4,7 @@
 
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname } from 'node:path';
+import { dirname, win32 } from 'node:path';
 import { runProcess, runShellScript, tail, type RunOptions, type SpawnResult } from './process';
 import { findOnPath } from './voice';
 
@@ -74,7 +74,11 @@ export function pickerKind(
   isFile?: (path: string) => boolean,
 ): { kind: PickerKind; bin: string } | undefined {
   if (platform === 'darwin') return { kind: 'osascript', bin: '/usr/bin/osascript' };
-  if (platform === 'win32') return { kind: 'powershell', bin: 'powershell.exe' };
+  // Windows PowerShell by its full path: a bare name is looked for in the current folder first there.
+  if (platform === 'win32') {
+    const system = env.SystemRoot || env.SYSTEMROOT || env.windir || 'C:\\Windows';
+    return { kind: 'powershell', bin: win32.join(system, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe') };
+  }
   if (!env.DISPLAY && !env.WAYLAND_DISPLAY) return undefined;
   for (const kind of ['zenity', 'kdialog'] as const) {
     const bin = findOnPath(kind, env, platform, [], isFile);

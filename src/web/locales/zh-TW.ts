@@ -187,7 +187,7 @@ export const zhTW = {
     cwdShowList: '列出使用中的工作目錄',
     cwdHideList: '收起工作目錄清單',
     cwdDefault: '預設',
-    cwdPick: '選擇資料夾…（可多選）',
+    cwdPick: '選擇資料夾…',
     cwdRemove: (dir: string) => `移除 ${dir}`,
     cwdAddMore: '再加一個資料夾…',
     cwdEnter: '按 Enter 加入這個資料夾',

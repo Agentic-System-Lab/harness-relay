@@ -180,6 +180,12 @@ describe('buildBriefing', () => {
     expect(isolated).toContain('You start in /wt/b-1; use full paths for the others.');
     expect(isolated).toContain('@Reviewer → relay/c/Reviewer (started from 222222222222 in /work, 444444444444 in /docs)');
     expect(isolated).toContain('committed to your branches automatically');
+    // Edit mode covers them all.
+    const editing = { ...several, settings: { ...several.settings, permission: 'edit' as const } };
+    expect(buildBriefing(editing, team[0]!)).toContain('You may read and edit files inside the working directories.');
+    expect(buildBriefing({ ...conv, settings: { ...conv.settings, permission: 'edit' } }, team[0]!)).toContain(
+      'You may read and edit files inside the working directory.',
+    );
   });
 
   it("adds the agent's memory and skills from the tool library, and nothing without them", () => {
