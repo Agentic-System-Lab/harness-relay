@@ -70,6 +70,8 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and 
 - `test/`: Vitest tests, roughly one file per module.
 - `e2e/`: end-to-end tests (Playwright, `playwright.config.ts`). `fake-cli/fake-cli.cjs` is a fake `claude`, `codex` and `grok` in one file, speaking each CLI's protocol and steered by `e2e:` directives in the user's message (scripts on macOS and Linux, Node single executables on Windows: `support/fake-cli.ts`); `support/relay.ts` starts a server of its own for each test (temporary data, homes and working directory, the fakes first on PATH, keyring off); `support/app.ts` holds the UI steps; `specs/` the tests.
 - `data/`: runtime data (`relay.db`, worktrees). Git-ignored; never commit it.
+- `.github/`: the workflows, the issue forms (`ISSUE_TEMPLATE/`) and the pull request template, each form and the template in both languages. The bug form's CLI, mode and permission options follow `PROVIDER_LABEL` and the locales' labels (`test/community.test.ts`).
+- `CODE_OF_CONDUCT.md`, `SECURITY.md`: the code of conduct (reports by email, to `REPORT_EMAIL` in `src/web/report.ts`), and where to report a vulnerability and what counts as one; each with its `.zh-TW.md`.
 - `site/`: the landing page on GitHub Pages (static HTML, `index.html` and `zh-TW/index.html`), published by `.github/workflows/pages.yml`. Follow `site/DESIGN-GUIDELINES.md` when you change it, and change both languages together. `site/assets/downloads.js` points the download buttons at the newest release's installers, never a release candidate's (tested in `test/site-downloads.test.ts`); keep its file name endings (`INSTALLERS`, which the app's updates and the Release workflow's installer check also read) in step with the Release workflow's installer names. `UPDATE_INSTALLERS` names the copies the workflow publishes beside them (`updateCopyName()`), which the app downloads to update itself, so that GitHub's download counts tell updates from new installs.
 
 ## Rules
@@ -105,7 +107,7 @@ The server can start agents with write access, so keep its defences intact (see 
 
 ### Documentation
 
-- Docs come in pairs: `README.md` / `README.zh-TW.md`, `CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md` and `docs/<name>.md` / `docs/<name>.zh-TW.md`. When a change affects behaviour, the HTTP API, the schema, settings, environment variables or the test list, update both languages in the same commit.
+- Docs come in pairs: `README.md` / `README.zh-TW.md`, `CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`, `CODE_OF_CONDUCT.md` / `CODE_OF_CONDUCT.zh-TW.md`, `SECURITY.md` / `SECURITY.zh-TW.md` and `docs/<name>.md` / `docs/<name>.zh-TW.md`. When a change affects behaviour, the HTTP API, the schema, settings, environment variables or the test list, update both languages in the same commit.
 - The developer guide lists the HTTP API and what each test file covers; keep those lists current.
 - `CONTRIBUTING.md` restates the rules in this file for people. When you change a rule here that applies to everyone, change it there too, in both languages.
 
