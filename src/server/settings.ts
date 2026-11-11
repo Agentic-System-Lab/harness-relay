@@ -21,7 +21,7 @@ import {
   type VoiceLanguage,
   type VoiceModelId,
 } from '../shared/types';
-import type { Database } from './db';
+import { transaction, type Database } from './db';
 import { t } from './i18n';
 import type { SecretStore } from './secrets';
 import { ToolLibrary } from './tools';
@@ -145,6 +145,8 @@ export const ACCOUNTS_DIR = join(DATA_DIR, 'accounts');
 export class SettingsStore {
   private providers: Record<Provider, ProviderSettings>;
   private cwd: string;
+  /** The default's other working directories, after `cwd`. */
+  private extraCwds: string[];
   private leadAgent: LeadAgentSettings = { provider: 'claude' };
   private voiceSettings: VoiceSettings = { language: 'follow', bin: '' };
   /** Folder of the CLIs' own homes (absolute); empty = their usual homes. */
@@ -233,6 +235,8 @@ export class SettingsStore {
     }
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'default_cwd'").get() as { value: string } | undefined;
     this.cwd = row?.value ?? process.env.RELAY_DEFAULT_CWD ?? process.cwd();
+    const extra = parseJson(this.appSetting('default_extra_cwds') ?? '[]');
+    this.extraCwds = Array.isArray(extra) ? extra.filter((d): d is string => typeof d === 'string' && d.length > 0) : [];
     this.agentHomeDir = this.appSetting('agent_home') ?? '';
     this.agentsView = this.appSetting('agentsview_url') ?? '';
     this.agentsViewLinkValue = this.appSetting('agentsview_link') ?? '';
@@ -602,13 +606,23 @@ export class SettingsStore {
     return this.cwd;
   }
 
-  setDefaultCwd(cwd: string): void {
+  /** The default's other working directories, after `defaultCwd`. */
+  get defaultExtraCwds(): string[] {
+    return [...this.extraCwds];
+  }
+
+  /** The default working directories, `cwd` first (`extraCwds` absent: none besides it). */
+  setDefaultCwd(cwd: string, extraCwds: string[] = []): void {
     this.cwd = cwd;
-    this.db
-      .prepare(
-        "INSERT INTO app_settings (key, value) VALUES ('default_cwd', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      )
-      .run(cwd);
+    this.extraCwds = [...extraCwds];
+    transaction(this.db, () => {
+      this.db
+        .prepare(
+          "INSERT INTO app_settings (key, value) VALUES ('default_cwd', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .run(cwd);
+      this.saveAppSetting('default_extra_cwds', JSON.stringify(this.extraCwds));
+    });
   }
 
   /** What a CLI has once for all its accounts (and the default account's key); the rest is `updateAccount`. */
@@ -622,6 +636,7 @@ export class SettingsStore {
   view(): SettingsView {
     return {
       defaultCwd: this.cwd,
+      defaultExtraCwds: [...this.extraCwds],
       lead: this.lead,
       agentHome: this.agentHomeDir,
       agentsViewUrl: this.agentsView,

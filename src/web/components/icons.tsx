@@ -99,6 +99,16 @@ export function FolderPlusIcon({ size }: { size?: number }) {
   );
 }
 
+/** An arrow down and to the left, as on the Enter key: add what is typed. */
+export function EnterIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+      <path d="m9 10-5 5 5 5" />
+    </Svg>
+  );
+}
+
 /** Points right; rotate it to point down (an expanded group). */
 export function ChevronIcon({ size }: { size?: number }) {
   return (

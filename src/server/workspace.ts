@@ -343,9 +343,13 @@ export async function diffFiles(root: string, base: string, head: string): Promi
   return files;
 }
 
-/** Unified diff between two commits, truncated for display. */
-export async function diffText(root: string, base: string, head: string): Promise<string> {
-  const r = await git(root, ['diff', '--no-color', '--no-renames', base, head], { maxCapture: MAX_DIFF_BYTES, keepStart: true });
+/**
+ * Unified diff between two commits, truncated for display. With `folder`, its paths start with it
+ * (`a/<folder>/src/x.ts`), so the diffs of several repositories can be read one after another.
+ */
+export async function diffText(root: string, base: string, head: string, folder?: string): Promise<string> {
+  const prefix = folder ? ['--src-prefix', `a/${folder}/`, '--dst-prefix', `b/${folder}/`] : [];
+  const r = await git(root, ['diff', '--no-color', '--no-renames', ...prefix, base, head], { maxCapture: MAX_DIFF_BYTES, keepStart: true });
   if (!r.stdoutTruncated) return r.stdout;
   return `${r.stdout}\n\n… diff truncated (${Math.round(r.stdoutSize / 1024)} KB total)\n`;
 }
@@ -379,26 +383,43 @@ export async function commitWorktree(path: string, message: string): Promise<str
   return worktreeHead(path);
 }
 
+/** Changes base..head checked against the repository's working tree, ready to apply (`applyPatch`). */
+export interface CheckedPatch {
+  root: string;
+  files: FileChange[];
+  patch: Buffer;
+}
+
 /**
- * Apply the changes base..head onto the repository's working tree (not the index; nothing is
- * committed). Checks first, so a conflicting patch changes nothing.
+ * The changes base..head as a patch, checked against the repository's working tree: a conflicting
+ * one is a 409, with git's reason. Nothing is changed. `null` when base..head changes nothing.
  */
-export async function applyToWorkingTree(root: string, base: string, head: string): Promise<FileChange[]> {
+export async function checkPatch(root: string, base: string, head: string): Promise<CheckedPatch | null> {
   const files = await diffFiles(root, base, head);
-  if (!files.length) throw new HttpError(400, t().nothingToApply);
+  if (!files.length) return null;
   // The patch as bytes: CRLF line endings and non-UTF-8 content must reach `git apply` unchanged.
   const patch = (
     await git(root, ['diff', '--binary', '--no-renames', base, head], { maxCapture: MAX_OUTPUT_BYTES, complete: true })
   ).stdoutBytes;
   const check = await git(root, ['apply', '--check', '--whitespace=nowarn', '-'], { stdin: patch, allowFail: true });
-  if (check.code !== 0) {
-    throw new HttpError(
-      409,
-      t().applyConflict(tail(check.stderr, 800)),
-    );
-  }
-  await git(root, ['apply', '--whitespace=nowarn', '-'], { stdin: patch });
-  return files;
+  if (check.code !== 0) throw new HttpError(409, t().applyConflict(tail(check.stderr, 800)));
+  return { root, files, patch };
+}
+
+/** Applies a checked patch onto its repository's working tree (not the index; nothing is committed). */
+export async function applyPatch(p: CheckedPatch): Promise<void> {
+  await git(p.root, ['apply', '--whitespace=nowarn', '-'], { stdin: p.patch });
+}
+
+/**
+ * Apply the changes base..head onto the repository's working tree (not the index; nothing is
+ * committed). Checks first, so a conflicting patch changes nothing.
+ */
+export async function applyToWorkingTree(root: string, base: string, head: string): Promise<FileChange[]> {
+  const checked = await checkPatch(root, base, head);
+  if (!checked) throw new HttpError(400, t().nothingToApply);
+  await applyPatch(checked);
+  return checked.files;
 }
 
 /** The same sub-directory of the worktree as the conversation's cwd is of the repository. */

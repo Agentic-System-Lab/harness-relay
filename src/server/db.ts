@@ -326,6 +326,29 @@ const MIGRATIONS: string[] = [
     native_off = COALESCE((SELECT s.native_off FROM provider_settings s WHERE s.provider = provider_accounts.provider), ''),
     native_items = COALESCE((SELECT s.native_items FROM provider_settings s WHERE s.provider = provider_accounts.provider), '{}');
   `,
+  // 21: more than one working directory per conversation, each tracked as the first is. extra_cwds:
+  // the ones after cwd (a JSON array; NULL: none). more_changes: a turn's changes in the repositories
+  // after the first one it changed (a JSON array of MessageChanges, files included; the first stays in
+  // the change_* columns and message_changes). agent_worktrees: a worktree per agent for each
+  // repository, so repo_root joins the key.
+  `
+  ALTER TABLE conversations ADD COLUMN extra_cwds TEXT;
+  ALTER TABLE messages ADD COLUMN more_changes TEXT;
+  CREATE TABLE agent_worktrees_by_root (
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    agent_id        TEXT NOT NULL,
+    repo_root       TEXT NOT NULL,
+    path            TEXT NOT NULL,
+    branch          TEXT NOT NULL,
+    base_commit     TEXT NOT NULL,
+    needs_reset     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (conversation_id, agent_id, repo_root)
+  );
+  INSERT INTO agent_worktrees_by_root (conversation_id, agent_id, repo_root, path, branch, base_commit, needs_reset)
+    SELECT conversation_id, agent_id, repo_root, path, branch, base_commit, needs_reset FROM agent_worktrees;
+  DROP TABLE agent_worktrees;
+  ALTER TABLE agent_worktrees_by_root RENAME TO agent_worktrees;
+  `,
 ];
 
 function migrate(db: Database): void {

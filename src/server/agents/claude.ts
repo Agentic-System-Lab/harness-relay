@@ -583,6 +583,8 @@ export function claudeArgs(o: {
   newSessionId?: string;
   /** A directory of attached files outside the working directory that Claude may read. */
   attachmentsDir?: string;
+  /** The conversation's other working directories, which Claude uses as it uses the working directory. */
+  addDirs?: string[];
   /** Other folders outside the working directory Claude may read (not write), e.g. skills. */
   readDirs?: string[];
   /** The `--mcp-config` file with the tool library's MCP servers. */
@@ -604,6 +606,7 @@ export function claudeArgs(o: {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
   const disallowed = claudeDisallowedTools(o.permission);
   const reads = o.permission === 'full' ? [] : (o.readDirs ?? []).map(claudeReadRule);
+  const addDirs = [...(o.addDirs ?? []), ...(o.attachmentsDir ? [o.attachmentsDir] : [])];
   return [
     '-p',
     '--input-format',
@@ -617,8 +620,9 @@ export function claudeArgs(o: {
     // Variadic; the next `--flag` ends the list.
     ...withAllowedTools([...claudeAllowedTools(o.permission), ...reads]),
     ...(disallowed.length ? ['--disallowedTools', ...disallowed] : []),
-    // Lets Claude read the attached files outside the working directory (variadic too).
-    ...(o.attachmentsDir ? ['--add-dir', o.attachmentsDir] : []),
+    // Lets Claude use the other working directories as it uses this one (its permission mode and its
+    // sandbox's writes cover them too), and read the attached files outside them (variadic too).
+    ...(addDirs.length ? ['--add-dir', ...addDirs] : []),
     // Added to the user's own MCP servers (variadic too).
     ...(o.mcpConfig ? ['--mcp-config', o.mcpConfig] : []),
     // Leave out what Claude Code loads by itself: its skills, its own MCP servers (the tool
@@ -684,8 +688,9 @@ export function claudeApprovalRequest(
 
 /**
  * The folders Claude Code's sandbox lets a turn's commands write in: the working directory, the
- * folder it may also use (`--add-dir`, the attachments) and the temp folder, each also by its real
- * path (macOS's /tmp is /private/tmp). Undefined when the turn has no sandbox.
+ * folders it may also use (`--add-dir`: the other working directories, the attachments) and the temp
+ * folder, each also by its real path (macOS's /tmp is /private/tmp). Undefined when the turn has no
+ * sandbox.
  */
 export function claudeSandboxWrites(permission: Permission, dirs: (string | undefined)[]): string[] | undefined {
   if (!claudeSandboxSettings(permission)) return undefined;
@@ -920,7 +925,7 @@ async function runClaudeTurn(
   const newSessionId = o.sessionId ? undefined : randomUUID();
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
   const sandboxed = Boolean(claudeSandboxSettings(o.permission));
-  const writes = claudeSandboxWrites(o.permission, [o.cwd, o.attachmentsDir]);
+  const writes = claudeSandboxWrites(o.permission, [o.cwd, ...(o.addDirs ?? []), o.attachmentsDir]);
   const args = claudeArgs({
     systemPrompt: o.systemPrompt,
     permission: o.permission,
@@ -930,6 +935,7 @@ async function runClaudeTurn(
     sessionId: o.sessionId,
     newSessionId,
     attachmentsDir: o.attachmentsDir,
+    addDirs: o.addDirs,
     readDirs: o.readDirs,
     mcpConfig: run.mcpConfig,
     nativeOff: o.nativeOff,

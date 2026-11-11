@@ -76,19 +76,32 @@ const agentMessage = (over: Partial<ChatMessage>): ChatMessage => ({
   ...over,
 });
 
-const changes = {
-  root: '/work',
-  base: 'a',
-  head: 'b',
-  isolated: false,
-  files: [{ path: 'src/app.ts', status: 'M' as const, added: 2, deleted: 1 }],
-};
+const changes = [
+  {
+    root: '/work',
+    base: 'a',
+    head: 'b',
+    isolated: false,
+    files: [{ path: 'src/app.ts', status: 'M' as const, added: 2, deleted: 1 }],
+  },
+];
 
 describe('renderMessage', () => {
   it('still reports changed files when an agent passed', () => {
     const text = renderMessage(conv, agentMessage({ passed: true, parts: [{ type: 'text', text: '[PASS]' }], changes }));
     expect(text).toContain('[PASS]');
     expect(text).toContain('<changed_files>\nM src/app.ts (+2 -1)\n</changed_files>');
+  });
+
+  it("lists a turn's changes in each repository it changed, named when there are several", () => {
+    const docs = { root: '/docs', base: 'c', head: 'd', isolated: false, files: [{ path: 'guide.md', status: 'A' as const, added: 5, deleted: 0 }] };
+    const text = renderMessage(conv, agentMessage({ changes: [...changes, docs] }));
+    expect(text).toContain('<changed_files repository="/work">\nM src/app.ts (+2 -1)\n</changed_files>');
+    expect(text).toContain('<changed_files repository="/docs">\nA guide.md (+5 -0)\n</changed_files>');
+    // A repository the turn left as it was is not listed.
+    const one = renderMessage(conv, agentMessage({ changes: [...changes, { ...docs, files: [] }] }));
+    expect(one).toContain('<changed_files>\nM src/app.ts (+2 -1)\n</changed_files>');
+    expect(one).not.toContain('repository=');
   });
 
   it('marks failed and stopped replies', () => {
@@ -131,13 +144,42 @@ describe('buildBriefing', () => {
   it("names the snapshot each teammate's worktree started from", () => {
     const briefing = buildBriefing(conv, team[0]!, {
       kind: 'isolated',
-      cwd: '/wt/builder',
-      branch: 'relay/c/Builder',
-      base: '1111111111111111',
-      teammates: [{ name: 'Reviewer', branch: 'relay/c/Reviewer', base: '2222222222222222' }],
+      folders: [{ cwd: '/wt/builder', userCwd: '/work', branch: 'relay/c/Builder', base: '1111111111111111' }],
+      teammates: [{ name: 'Reviewer', branch: 'relay/c/Reviewer', bases: [{ folder: '/work', base: '2222222222222222' }] }],
     });
-    expect(briefing).toContain('snapshot (111111111111)');
+    expect(briefing).toContain('isolated git worktree: /wt/builder (branch relay/c/Builder)');
+    expect(briefing).toContain('snapshot (111111111111) of the user\'s working directory /work');
     expect(briefing).toContain('@Reviewer → relay/c/Reviewer (started from 222222222222)');
+  });
+
+  it('names every working directory, shared or in worktrees of its own', () => {
+    const several = { ...conv, settings: { ...conv.settings, extraCwds: ['/docs', '/infra'] } };
+    expect(buildBriefing(several, team[0]!)).toContain(
+      'share these working directories, each with the same access: /work, /docs, /infra. You start in /work; use full paths for the others.',
+    );
+    expect(buildBriefing(conv, team[0]!)).toContain('- All agents share the working directory: /work\n');
+    const isolated = buildBriefing(several, team[0]!, {
+      kind: 'isolated',
+      folders: [
+        { cwd: '/wt/b-1', userCwd: '/work', branch: 'relay/c/Builder', base: '1111111111111111' },
+        { cwd: '/wt/b-2', userCwd: '/docs', branch: 'relay/c/Builder', base: '3333333333333333' },
+      ],
+      teammates: [
+        {
+          name: 'Reviewer',
+          branch: 'relay/c/Reviewer',
+          bases: [
+            { folder: '/work', base: '2222222222222222' },
+            { folder: '/docs', base: '4444444444444444' },
+          ],
+        },
+      ],
+    });
+    expect(isolated).toContain('  - /wt/b-1 (branch relay/c/Builder), from a snapshot (111111111111) of /work');
+    expect(isolated).toContain('  - /wt/b-2 (branch relay/c/Builder), from a snapshot (333333333333) of /docs');
+    expect(isolated).toContain('You start in /wt/b-1; use full paths for the others.');
+    expect(isolated).toContain('@Reviewer → relay/c/Reviewer (started from 222222222222 in /work, 444444444444 in /docs)');
+    expect(isolated).toContain('committed to your branches automatically');
   });
 
   it("adds the agent's memory and skills from the tool library, and nothing without them", () => {

@@ -40,6 +40,7 @@
 - **群組與搜尋**：在側邊欄建立群組，把對話拖進去；首席 agent 會依新對話的第一則訊息把它放進最適合的群組（都不適合就留在 **其他**）。群組裡的分支會列在它分支出來的對話底下，換群組時整串一起移動。搜尋可以用對話裡寫過的任何內容找到對話。
 - **工具庫：MCP 伺服器、skill 與記憶**：在設定裡設定一次，不管成員跑在哪個 CLI 都能用，而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；記憶分成所有成員共用和各 CLI 專屬；也能針對單一成員調整。token 存在系統的金鑰儲存區。
 - **在 AgentsView 中檢視 agent 的 session（選用）**：讓各 CLI 在 Harness Relay 中使用自己的資料夾（例如 `~/.relay-agents`），和你平常直接使用時分開；並在 [AgentsView](https://www.agentsview.io) 中把每個對話看成一個 thread，底下是各 agent 自己的 session（工具呼叫、token 與成本）。兩者都是設定，所以在 macOS、Linux、Windows 上都照常用 `npm start`。見[使用者說明](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)。
+- **多個工作目錄**：一個對話最多可以有八個資料夾：輸入路徑後按 Enter、從使用中的工作目錄挑選，或在系統的選擇資料夾視窗中選取。agent 從第一個開始，其他的也以同樣的權限交給它們；每一個都會變成有自己快照的 git repository，平行模式下也有自己的 worktree，所以一個團隊可以同時在多個 repository 中工作（例如一個應用程式和它的文件）。
 - **瀏覽工作目錄**：對話上方的 **檔案** 會列出工作目錄（平行模式下也可以看某位成員的 worktree），並預覽程式碼（附行號和語法上色）、Markdown、圖片與影片；任何檔案都可以下載，任何資料夾（包括目前所在的資料夾）也可以下載成 ZIP 檔。
 - **每個 CLI 多個帳號**：每個 CLI 都能登入多個帳號，例如兩個 Claude 訂閱、Codex 的三個 ChatGPT 帳號、Grok 的三個 xAI 帳號，各自有自己的登入、API key、資料夾、預設模型與推理強度，以及不載入哪些項目，並為每位團隊成員（以及首席 agent）選擇要用哪個帳號。見[使用說明](docs/user-guide.zh-TW.md#多個帳號)。
 - **設定與登入頁**：分別登入各個 CLI（裝置碼、瀏覽器、貼上授權碼），設定執行檔路徑與首席 agent，並為每個帳號設定 API key、預設模型與推理強度；也能查看各 CLI 在每個帳號裡自己載入的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶，並讓 Harness Relay 執行時整類或逐項不載入。

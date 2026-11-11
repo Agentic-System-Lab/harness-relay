@@ -69,24 +69,27 @@ export function followsAfterScroll(following: boolean, previous: ScrollSpot, scr
 
 /**
  * Which results can be applied: each agent's latest worktree result, but only while it belongs to the
- * agent's current worktree. After a result is applied or the chat is rewound, the worktree is recreated
- * from a new snapshot (`base`) under the same branch name; the first result made in it starts from that
- * base, so an agent with no result starting there has nothing in its current worktree yet.
+ * agent's current worktrees. After a result is applied or the chat is rewound, the worktrees are
+ * recreated from new snapshots (`base`) under the same branch name; the first result made in one starts
+ * from its base, so an agent with no result starting there has nothing in its current worktrees yet.
+ * A result changes one or more repositories (one worktree of the agent's each): each must be current.
+ * Applying applies all of the agent's worktrees; it is stale once any of them needs a reset.
  */
-export function applyStates(messages: ChatMessage[], worktrees: Record<string, AgentWorktree>): Map<string, ApplyState> {
+export function applyStates(messages: ChatMessage[], worktrees: Record<string, AgentWorktree[]>): Map<string, ApplyState> {
   const latest = new Map<string, string>(); // agent id → message id
-  const current = new Set<string>(); // agents with a result made in their current worktree
+  const current = new Set<string>(); // agents with a result made in their current worktrees
   for (const m of messages) {
-    if (m.author.kind !== 'agent' || !m.changes?.isolated || m.status === 'streaming') continue;
+    const sets = (m.changes ?? []).filter((c) => c.isolated);
+    if (m.author.kind !== 'agent' || !sets.length || m.status === 'streaming') continue;
     const agentId = m.author.agentId;
-    const wt = worktrees[agentId];
-    if (!wt) continue;
+    const wts = worktrees[agentId] ?? [];
+    if (!wts.length) continue;
     latest.set(agentId, m.id);
-    if (m.changes.base === wt.base) current.add(agentId);
+    if (sets.every((c) => wts.some((w) => w.root === c.root && w.base === c.base))) current.add(agentId);
   }
   const out = new Map<string, ApplyState>();
   for (const [agentId, messageId] of latest) {
-    if (current.has(agentId)) out.set(messageId, worktrees[agentId]!.needsReset ? 'stale' : 'available');
+    if (current.has(agentId)) out.set(messageId, worktrees[agentId]!.some((w) => w.needsReset) ? 'stale' : 'available');
   }
   return out;
 }
@@ -146,10 +149,11 @@ export function teamTurns(team: Team): Pick<TeamRevision, 'agents' | 'settings'>
   return { agents: team.agents, settings: { mode, rounds, maxHops } };
 }
 
-/** What the drawer sends the lead agent: the request, the members, how they take turns, and (for the lead to read) the permission and folder the drawer has, saved or not. */
+/** What the drawer sends the lead agent: the request, the members, how they take turns, and (for the lead to read) the permission and folders the drawer has, saved or not. */
 export function reviseRequest(request: string, team: Team): ReviseTeamRequest {
   const { agents, settings } = teamTurns(team);
-  return { request, agents, settings: { ...settings, permission: team.settings.permission, cwd: team.settings.cwd } };
+  const { permission, cwd, extraCwds } = team.settings;
+  return { request, agents, settings: { ...settings, permission, cwd, ...(extraCwds?.length ? { extraCwds } : {}) } };
 }
 
 /**

@@ -19,6 +19,9 @@ import {
   restoreGrokSettings,
   snapshotGrokSettings,
   grokSandboxProfile,
+  grokReadWrite,
+  isRelayProfile,
+  MAX_FOLDER_PROFILES,
   withGrokProfile,
   writeGrokProfile,
   writeGrokSetting,
@@ -577,6 +580,67 @@ describe("Grok's own folder in its sandbox", () => {
       const third = guardGrokSettings(home);
       expect(third()).toEqual([]);
       expect(readFileSync(join(home, 'config.toml'), 'utf8')).toBe('[mine, changed by the user]\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("is one of the run's own for the other working directories it may write, named after them", () => {
+    const one = grokSandboxProfile('edit', 'darwin', ['/docs', '/infra']);
+    expect(one).toMatch(/^harness-relay-[0-9a-f]{12}$/);
+    // The same folders in another order: the same profile; other folders, another.
+    expect(grokSandboxProfile('read-only', 'linux', ['/infra', '/docs'])).toBe(one);
+    expect(grokSandboxProfile('edit', 'darwin', ['/docs'])).not.toBe(one);
+    expect(grokSandboxProfile('full', 'darwin', ['/docs'])).toBeUndefined();
+    expect(grokSandboxProfile('edit', 'win32', ['/docs'])).toBe('workspace');
+    expect(isRelayProfile(one)).toBe(true);
+    expect(isRelayProfile('harness-relay')).toBe(true);
+    expect(isRelayProfile('workspace')).toBe(false);
+    expect(isRelayProfile('harness-relay-mine')).toBe(false);
+    expect(grokEnv({ env: {}, permission: 'edit', addDirs: ['/docs', '/infra'] }, 'linux').GROK_SANDBOX).toBe(one);
+    // Each folder also by its real path.
+    const real = realpathSync(tmpdir());
+    expect(grokReadWrite([tmpdir()])).toEqual(real === tmpdir() ? [tmpdir()] : [tmpdir(), real]);
+
+    const block = grokProfileBlock(['/x'], ['/docs'], one);
+    expect(block).toContain(`[profiles.${one}]\nextends = "workspace"\nread_write = ["/docs"]\ndeny = ["/x"]\n# <<< ${one}`);
+    // Beside the main profile and the user's own, each replaced in place.
+    const user = '[profiles.mine]\nextends = "strict"\n';
+    const both = withGrokProfile(withGrokProfile(user, grokProfileBlock(['/x'])), block, one);
+    expect(both.startsWith(user)).toBe(true);
+    expect(both).toContain('[profiles.harness-relay]\n');
+    expect(both).toContain(`[profiles.${one}]\n`);
+    const again = withGrokProfile(withGrokProfile(both, grokProfileBlock(['/y'])), grokProfileBlock(['/y'], ['/docs'], one), one);
+    expect(again.match(/\[profiles\.harness-relay/g)).toHaveLength(2);
+    expect(again).not.toContain('"/x"');
+  });
+
+  it('keeps only the latest profiles of runs\' own folders', () => {
+    const names = Array.from({ length: MAX_FOLDER_PROFILES + 3 }, (_, i) => grokSandboxProfile('edit', 'linux', [`/f${i}`])!);
+    let file = '[profiles.mine]\nextends = "strict"\n';
+    for (const [i, name] of names.entries()) file = withGrokProfile(file, grokProfileBlock(['/x'], [`/f${i}`], name), name);
+    const kept = names.filter((name) => file.includes(`[profiles.${name}]`));
+    expect(kept).toEqual(names.slice(3));
+    expect(file.startsWith('[profiles.mine]')).toBe(true);
+    // Written again, one stays where it is.
+    expect(withGrokProfile(file, grokProfileBlock(['/x'], ['/f5'], names[5]!), names[5]!)).toBe(file);
+  });
+
+  it("takes another conversation's profile written during a turn as Harness Relay's, not as a command's change", () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-folders-'));
+    try {
+      const a = grokSandboxProfile('edit', 'linux', ['/a'])!;
+      const b = grokSandboxProfile('edit', 'linux', ['/b'])!;
+      const first = guardGrokSettings(home, () => writeGrokProfile(home, ['/x'], ['/a'], a));
+      const second = guardGrokSettings(home, () => writeGrokProfile(home, ['/x'], ['/b'], b));
+      expect(readFileSync(join(home, 'sandbox.toml'), 'utf8')).toContain(`[profiles.${b}]`);
+      expect(first()).toEqual([]);
+      expect(readFileSync(join(home, 'sandbox.toml'), 'utf8')).toContain(`[profiles.${b}]`);
+      // A command that writes into a profile's block is still caught, and put back.
+      const file = join(home, 'sandbox.toml');
+      writeFileSync(file, readFileSync(file, 'utf8').replace('read_write = ["/b"]', 'read_write = ["/"]'));
+      expect(second()).toEqual(['sandbox.toml']);
+      expect(readFileSync(file, 'utf8')).toContain('read_write = ["/b"]');
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

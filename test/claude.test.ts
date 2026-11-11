@@ -35,6 +35,7 @@ import {
   claudeRunSettings,
   claudeRunner,
   claudeSandboxSettings,
+  claudeSandboxWrites,
   createClaudeParser,
   parseClaudePluginList,
   type ClaudeControlRequest,
@@ -70,6 +71,18 @@ describe('claude allowed tools', () => {
 describe('claude arguments', () => {
   const base = { systemPrompt: 'briefing', ask: true, newSessionId: 'new-id' };
   const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+
+  it("gives Claude the conversation's other working directories, and the attachments, with --add-dir", () => {
+    const args = claudeArgs({ ...base, permission: 'edit', addDirs: ['/docs', '/infra'], attachmentsDir: '/data/att' });
+    const at = args.indexOf('--add-dir');
+    expect(args.slice(at, at + 4)).toEqual(['--add-dir', '/docs', '/infra', '/data/att']);
+    // Variadic: the next item is another flag.
+    expect(args[at + 4]!.startsWith('--')).toBe(true);
+    expect(claudeArgs({ ...base, permission: 'edit' })).not.toContain('--add-dir');
+    // Its sandbox lets commands write in them as in the working directory (no sandbox with full access).
+    expect(claudeSandboxWrites('edit', ['/work', '/docs'])).toEqual(expect.arrayContaining(['/work', '/docs']));
+    expect(claudeSandboxWrites('full', ['/work', '/docs'])).toBeUndefined();
+  });
 
   it('rebuilds the system prompt on every resume', () => {
     const args = claudeArgs({ ...base, permission: 'edit', sessionId: 'old-id' });

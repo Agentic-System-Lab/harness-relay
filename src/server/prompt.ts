@@ -9,6 +9,7 @@ import {
   type NativePart,
   type Permission,
   type Provider,
+  cwdsOf,
 } from '../shared/types';
 import { ASK_TOKEN } from '../shared/ask';
 import { mentionsInMarkdown } from '../shared/mentions';
@@ -48,30 +49,51 @@ export type BriefingWorkspace =
   | { kind: 'shared' }
   | {
       kind: 'isolated';
-      /** Directory the agent runs in (inside its worktree). */
-      cwd: string;
-      branch: string;
-      /** Snapshot commit this agent's worktree started from. */
-      base: string;
-      /** Teammates' branches and the snapshot each one started from (they can differ). */
-      teammates: { name: string; branch: string; base: string }[];
+      /**
+       * Each working directory as the agent has it: inside its worktree of the directory's repository
+       * (`cwd`; the first is where it runs), with the user's own folder (`userCwd`), the branch and the
+       * snapshot commit the worktree started from. In the order of the working directories.
+       */
+      folders: { cwd: string; userCwd: string; branch: string; base: string }[];
+      /**
+       * Teammates' branches and the snapshot each one started from (they can differ), in each
+       * repository (named by its first working directory).
+       */
+      teammates: { name: string; branch: string; bases: { folder: string; base: string }[] }[];
     };
 
 function workspaceRules(conv: Conversation, ws: BriefingWorkspace): string {
   const access = `- File access: ${PERMISSION_TEXT[conv.settings.permission]}`;
+  const cwds = cwdsOf(conv.settings);
   if (ws.kind === 'shared') {
-    return `- All agents share the working directory: ${conv.settings.cwd}
+    const where =
+      cwds.length === 1
+        ? `- All agents share the working directory: ${cwds[0]}`
+        : `- All agents share these working directories, each with the same access: ${cwds.join(', ')}. You start in ${cwds[0]}; use full paths for the others.`;
+    return `${where}
 ${access}
 - Teammates may be changing the same files. Name the files you changed in your reply so others can review them.`;
   }
   const short = (c: string) => c.slice(0, 12);
+  const one = ws.folders.length === 1;
   const mates = ws.teammates.length
-    ? ws.teammates.map((t) => `@${t.name} → ${t.branch} (started from ${short(t.base)})`).join(', ')
+    ? ws.teammates
+        .map((t) =>
+          one
+            ? `@${t.name} → ${t.branch} (started from ${short(t.bases[0]!.base)})`
+            : `@${t.name} → ${t.branch} (started from ${t.bases.map((b) => `${short(b.base)} in ${b.folder}`).join(', ')})`,
+        )
+        .join(', ')
     : '(none yet)';
-  return `- You work in your OWN isolated git worktree: ${ws.cwd} (branch ${ws.branch}). It started from a snapshot (${short(ws.base)}) of the user's working directory ${conv.settings.cwd}, which you must not modify.
-- Teammates work in parallel in their own worktrees. Their branches: ${mates}. To read a teammate's work: \`git diff <the snapshot it started from> <branch>\` or \`git show <branch>:<path>\`.
+  const own = one
+    ? `- You work in your OWN isolated git worktree: ${ws.folders[0]!.cwd} (branch ${ws.folders[0]!.branch}). It started from a snapshot (${short(ws.folders[0]!.base)}) of the user's working directory ${ws.folders[0]!.userCwd}, which you must not modify.`
+    : `- You work in your OWN isolated git worktrees, one for each of the user's working directories, which you must not modify:
+${ws.folders.map((f) => `  - ${f.cwd} (branch ${f.branch}), from a snapshot (${short(f.base)}) of ${f.userCwd}`).join('\n')}
+  You start in ${ws.folders[0]!.cwd}; use full paths for the others.`;
+  return `${own}
+- Teammates work in parallel in their own worktrees. Their branches: ${mates}. To read a teammate's work: \`git diff <the snapshot it started from> <branch>\` or \`git show <branch>:<path>\`${one ? '' : ', in that repository'}.
 ${access}
-- Your changes are committed to your branch automatically after each turn; the user reviews the diffs and decides whose result to apply. Do not commit, merge, rebase or switch branches yourself.`;
+- Your changes are committed to your branch${one ? '' : 'es'} automatically after each turn; the user reviews the diffs and decides whose result to apply. Do not commit, merge, rebase or switch branches yourself.`;
 }
 
 /**
@@ -182,15 +204,21 @@ ${team}
 ${workspaceRules(conv, ws)}${toolSections(tools, !nativeOff.includes('skills'), canReadFiles(agent.provider, nativeOff, nativeItems))}`;
 }
 
-/** The files a message's turn changed, as a block for teammates (empty when none). */
+/**
+ * The files a message's turn changed, as a block for teammates (empty when none): one for each
+ * repository, which names it (`repository`) when the turn changed more than one.
+ */
 function changeLog(m: ChatMessage): string {
-  const files = m.changes?.files ?? [];
-  return files.length
-    ? `\n\n<changed_files${m.changes!.branch ? ` branch="${m.changes!.branch}"` : ''}>\n${files
+  const sets = (m.changes ?? []).filter((c) => c.files.length);
+  return sets
+    .map((c) => {
+      const attrs = `${c.branch ? ` branch="${c.branch}"` : ''}${sets.length > 1 ? ` repository="${c.root}"` : ''}`;
+      return `\n\n<changed_files${attrs}>\n${c.files
         .slice(0, 30)
         .map((f) => `${f.status} ${f.path}${f.added !== null ? ` (+${f.added} -${f.deleted})` : ''}`)
-        .join('\n')}${files.length > 30 ? `\n… and ${files.length - 30} more` : ''}\n</changed_files>`
-    : '';
+        .join('\n')}${c.files.length > 30 ? `\n… and ${c.files.length - 30} more` : ''}\n</changed_files>`;
+    })
+    .join('');
 }
 
 /**
@@ -201,7 +229,7 @@ export function isForwardable(m: ChatMessage): boolean {
   if (m.author.kind === 'system') return false;
   if (m.status === 'done') return true;
   if (m.status !== 'error' && m.status !== 'aborted') return false;
-  return Boolean(m.changes?.files.length) || m.parts.some((p) => p.type === 'text' && p.text.trim());
+  return Boolean(m.changes?.some((c) => c.files.length)) || m.parts.some((p) => p.type === 'text' && p.text.trim());
 }
 
 /** Text of a message as shown to other agents: reply text plus a compact log of actions taken. */

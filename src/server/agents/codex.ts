@@ -56,37 +56,44 @@ export function codexProfileId(): string {
  * The thread's permission profile below full access, which lets Codex's sandbox deny reading the
  * protected paths (`protectedReads()`: the browsers' folders, Harness Relay's database): the sandbox
  * of the permission (`:read-only` / `:workspace`, both without network) plus a `deny` entry for each.
- * A thread names it (`permissions`, an experimental field), which wins over a `sandbox_mode` in the
- * user's config. Undefined, for the legacy `sandbox` mode instead: full access, native Windows (whose
- * legacy sandbox cannot deny reading everywhere) and nothing to protect.
+ * In edit mode, the conversation's other working directories (`addDirs`) get a `write` entry each,
+ * as the working directory has (a protected path is denied all the same). A thread names it
+ * (`permissions`, an experimental field), which wins over a `sandbox_mode` in the user's config.
+ * Undefined, for the legacy `sandbox` mode instead: full access, native Windows (whose legacy sandbox
+ * cannot deny reading everywhere) and nothing to protect.
  */
 export function codexProfile(
   permission: Permission,
   protectedPaths: readonly string[] = [],
   platform: NodeJS.Platform = process.platform,
+  addDirs: readonly string[] = [],
 ): Record<string, unknown> | undefined {
   if (permission === 'full' || platform === 'win32' || !protectedPaths.length) return undefined;
+  const writes = permission === 'edit' ? addDirs : [];
   return {
     extends: permission === 'read-only' ? ':read-only' : ':workspace',
-    filesystem: Object.fromEntries(protectedPaths.map((path) => [path, 'deny'])),
+    filesystem: Object.fromEntries([...writes.map((path) => [path, 'write']), ...protectedPaths.map((path) => [path, 'deny'])]),
   };
 }
 
 /**
  * Config overrides for a thread. Edit mode keeps the sandbox off the network even when the user's
  * ~/.codex/config.toml turns `sandbox_workspace_write.network_access` on: pushing and publishing
- * (anything that leaves the machine) must go through an approval.
+ * (anything that leaves the machine) must go through an approval. Its legacy sandbox may also write
+ * the conversation's other working directories (`addDirs`).
  */
 export function codexConfig(
   permission: Permission,
   effort?: string,
   mcpServers: McpServerSpec[] = [],
   native: { off: readonly NativePart[]; items?: NativeItemsOff; user?: CodexUserMcp } = { off: [] },
+  addDirs: readonly string[] = [],
 ): Record<string, unknown> {
   const mcpOff = codexMcpOff(native.off, native.items ?? {}, native.user ?? NO_USER_MCP);
+  const write = { network_access: false, ...(addDirs.length ? { writable_roots: [...addDirs] } : {}) };
   return {
     ...(effort ? { model_reasoning_effort: effort } : {}),
-    ...(permission === 'edit' ? { sandbox_workspace_write: { network_access: false } } : {}),
+    ...(permission === 'edit' ? { sandbox_workspace_write: write } : {}),
     ...codexNativeConfig(native.off, native.items),
     ...codexMcpConfig(mcpServers, permission === 'full', mcpOff.turnOff, mcpOff.toolsOff),
   };
@@ -315,6 +322,7 @@ export function codexThreadRequest(
   o: Pick<
     RunOptions,
     | 'cwd'
+    | 'addDirs'
     | 'permission'
     | 'systemPrompt'
     | 'model'
@@ -332,8 +340,8 @@ export function codexThreadRequest(
   profileId: string = CODEX_PROFILE,
 ): { method: 'thread/start' | 'thread/resume'; params: Record<string, unknown> } {
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
-  const profile = codexProfile(o.permission, o.protectedPaths, platform);
-  const config = codexConfig(o.permission, o.effort, o.mcpServers, { off: o.nativeOff ?? [], items: o.nativeItems, user });
+  const profile = codexProfile(o.permission, o.protectedPaths, platform, o.addDirs);
+  const config = codexConfig(o.permission, o.effort, o.mcpServers, { off: o.nativeOff ?? [], items: o.nativeItems, user }, o.addDirs);
   // A profile keeps the network off by itself; the legacy setting is for the legacy sandbox only.
   if (profile) delete config.sandbox_workspace_write;
   const params = {

@@ -39,6 +39,10 @@ const { readZip } = await import('./zipReader');
 const { REVISER_BRIEFING } = await import('../src/server/planner');
 const { ShareError } = await import('../src/server/share');
 const { Updates } = await import('../src/server/updates');
+type FolderPicker = import('../src/server/folderPicker').FolderPicker;
+
+/** A folder dialog that is never there, so tests answer the same on any computer. */
+const noPicker: FolderPicker = { available: () => false, pick: async () => [] };
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -67,7 +71,7 @@ beforeEach(() => {
   store = new Store(db);
   const hub = new Hub();
   orchestrator = new Orchestrator(store, hub, settings);
-  app = createApp({ auth: null, store, settings, hub, orchestrator, providers: new ProviderService(settings) });
+  app = createApp({ auth: null, store, settings, hub, orchestrator, providers: new ProviderService(settings), folderPicker: noPicker });
   project = join(root, `project-${++n}`);
   mkdirSync(project, { recursive: true });
 });
@@ -453,6 +457,67 @@ describe('settings', () => {
     expect(statSync(auto).isDirectory()).toBe(true);
   });
 
+  it('takes several working directories, each once and at most eight, and names all those missing', async () => {
+    const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body, { 'x-relay-lang': 'en' }));
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const docs = join(project, 'docs');
+    mkdirSync(docs);
+    const [newA, newB] = ['new-a', 'new-b'].map((name) => join(project, name));
+
+    const missing = await post({ agents, settings: { cwd: project, extraCwds: [newA, docs, newB] } });
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({ code: 'cwd-missing', paths: [newA, newB] });
+    expect(existsSync(newA)).toBe(false);
+
+    const made = await post({ agents, settings: { cwd: project, extraCwds: [newA, ' ', docs, newB] }, createCwd: true });
+    expect(made.status).toBe(200);
+    expect(((await made.json()) as Conversation).settings).toMatchObject({ cwd: project, extraCwds: [newA, docs, newB] });
+    expect(statSync(newB).isDirectory()).toBe(true);
+    // One folder: no extraCwds.
+    expect(((await (await post({ agents, settings: { cwd: project, extraCwds: [] } })).json()) as Conversation).settings).not.toHaveProperty('extraCwds');
+
+    // The same folder twice, spelled another way, is refused; so are more than eight, and a list that is not one.
+    const twice = await post({ agents, settings: { cwd: project, extraCwds: [docs, `${project}/./docs/`] } });
+    expect(twice.status).toBe(400);
+    expect((await twice.json()).error).toMatch(/listed twice/);
+    const many = Array.from({ length: 8 }, (_, i) => join(project, `many-${i}`));
+    for (const dir of many) mkdirSync(dir);
+    expect((await post({ agents, settings: { cwd: project, extraCwds: many } })).status).toBe(400);
+    expect((await post({ agents, settings: { cwd: project, extraCwds: many.slice(1) } })).status).toBe(200);
+    expect((await post({ agents, settings: { cwd: project, extraCwds: 'nope' } })).status).toBe(400);
+  });
+
+  it("refuses edit mode in any working directory that holds Harness Relay, also one after the first", async () => {
+    const { RELAY_ROOT } = await import('../src/server/protect');
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const refused = await app.request(
+      '/api/conversations',
+      json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: project, extraCwds: [RELAY_ROOT] } }, { 'x-relay-lang': 'en' }),
+    );
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ code: 'relay-folder' });
+  });
+
+  it('keeps several default working directories, which new conversations and the list get', async () => {
+    const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
+    const docs = join(project, 'docs');
+    mkdirSync(docs);
+    const saved = await put({ defaultCwd: project, defaultExtraCwds: [docs] });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ defaultCwd: project, defaultExtraCwds: [docs] });
+    expect(((await (await get('/api/cwds')).json()) as WorkingDirectories).dirs).toEqual([
+      { path: project, default: true },
+      { path: docs, default: true },
+    ]);
+    // A conversation that names no folder gets them all.
+    const auto = await app.request('/api/conversations', json('POST', { settings: { autoTeam: true } }));
+    expect(((await auto.json()) as Conversation).settings).toMatchObject({ cwd: project, extraCwds: [docs] });
+    // The CLIs' own folder may not be inside any of them.
+    expect((await put({ agentHome: join(docs, 'agents') })).status).toBe(400);
+    // The default given alone has none after it.
+    expect(await (await put({ defaultCwd: project })).json()).toMatchObject({ defaultExtraCwds: [] });
+  });
+
   it('creates a missing directory when the team settings change, only when asked to', async () => {
     const conv = await createConversation();
     const patch = (id: string, body: Record<string, unknown>) => app.request(`/api/conversations/${id}`, json('PATCH', body));
@@ -825,14 +890,14 @@ describe('files replies link to', () => {
     const wt = join(root, `worktree-${n}`);
     mkdirSync(join(wt, 'out'), { recursive: true });
     writeFileSync(join(wt, 'out', 'slides.html'), 'from the worktree');
-    live.worktrees[agentId] = { root: project, path: wt, branch: 'relay/x', base: 'b', needsReset: false };
+    live.worktrees[agentId] = [{ root: project, path: wt, branch: 'relay/x', base: 'b', needsReset: false }];
     const reply = live.messages.find((m) => m.id === 'reply-1')!;
-    reply.changes = { root: project, base: 'b', head: 'h', files: [], isolated: true };
+    reply.changes = [{ root: project, base: 'b', head: 'h', files: [], isolated: true }];
     expect(await (await get(base + 'out/slides.html')).text()).toBe('from the worktree');
     // Not yet applied, so only the worktree has it; a shared turn looks in the working directory first.
     writeFileSync(join(wt, 'out', 'only-here.csv'), 'a,b');
     expect((await get(base + 'out/only-here.csv')).status).toBe(200);
-    reply.changes = { ...reply.changes, isolated: false };
+    reply.changes = [{ ...reply.changes[0]!, isolated: false }];
     expect(await (await get(base + 'out/slides.html')).text()).toBe('<script>alert(1)</script>');
 
     const attached = join(attachmentsDir(conv.id), 'att-1', 'brief.docx');
@@ -1397,6 +1462,105 @@ describe('GET /api/cwds', () => {
   });
 });
 
+describe('the folder dialog', () => {
+  /** An app whose folder dialog answers `answer` and records where it was opened. */
+  function withPicker(answer: (o: { title: string; start: string; signal?: AbortSignal }) => Promise<string[]>, opts: { available?: boolean; extraHosts?: string[] } = {}) {
+    const opened: { title: string; start: string; signal?: AbortSignal }[] = [];
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    const own = createApp({
+      auth: null,
+      store,
+      settings,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(settings),
+      extraHosts: opts.extraHosts,
+      folderPicker: {
+        available: () => opts.available ?? true,
+        pick: (o) => {
+          opened.push(o);
+          return answer(o);
+        },
+      },
+    });
+    return { own, opened, settings };
+  }
+  const pick = (own: ReturnType<typeof createApp>, start: unknown, headers: Record<string, string> = {}) =>
+    own.request('/api/cwds/pick', json('POST', start === undefined ? {} : { start }, headers));
+
+  it('is offered to a browser on this computer that has one, not through the tailnet nor without one', async () => {
+    const { own } = withPicker(async () => [], { extraHosts: ['my-computer.tail1234.ts.net'] });
+    const cwds = async (a: typeof own, host: string) => ((await (await a.request('/api/cwds', { headers: { host } })).json()) as WorkingDirectories).pick;
+    expect(await cwds(own, '127.0.0.1:8787')).toBe(true);
+    expect(await cwds(own, 'localhost:5173')).toBe(true);
+    expect(await cwds(own, 'my-computer.tail1234.ts.net')).toBeUndefined();
+    expect(await cwds(withPicker(async () => [], { available: false }).own, '127.0.0.1:8787')).toBeUndefined();
+  });
+
+  it('opens at the folder in the box, or the nearest one above it that exists, and answers the folders chosen', async () => {
+    const chosen = [join(project, 'chosen'), join(project, 'and this')];
+    const { own, opened } = withPicker(async () => chosen);
+    const res = await pick(own, join(project, 'not', 'yet'), { 'x-relay-lang': 'en' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ paths: chosen });
+    expect(opened).toEqual([{ title: 'Choose a working directory', start: project, signal: expect.any(AbortSignal) }]);
+
+    await pick(own, project, { 'x-relay-lang': 'zh-TW' });
+    expect(opened[1]).toMatchObject({ title: '選擇工作目錄', start: project });
+  });
+
+  it('opens at the default working directory when the box is empty, and reads ~ as the server does', async () => {
+    const { own, opened, settings } = withPicker(async () => []);
+    settings.setDefaultCwd(project);
+    for (const start of ['', '  ', undefined, 42]) {
+      const res = await pick(own, start);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ paths: [] });
+    }
+    expect(opened.map((o) => o.start)).toEqual([project, project, project, project]);
+    await pick(own, '~');
+    expect(opened.at(-1)!.start).toBe(expandPath('~'));
+  });
+
+  it('opens one dialog at a time, and closes it when the request is gone', async () => {
+    let close!: (paths: string[]) => void;
+    const { own, opened } = withPicker((o) => new Promise((done) => {
+      close = done;
+      o.signal?.addEventListener('abort', () => done([]), { once: true });
+    }));
+    const first = pick(own, project);
+    await vi.waitFor(() => expect(opened).toHaveLength(1));
+    const second = await pick(own, project, { 'x-relay-lang': 'en' });
+    expect(second.status).toBe(409);
+    expect((await second.json()).error).toMatch(/open already/);
+    close([project]);
+    expect(await (await first).json()).toEqual({ paths: [project] });
+    // Free again.
+    const stop = new AbortController();
+    const third = own.request('/api/cwds/pick', { ...json('POST', { start: project }), signal: stop.signal });
+    await vi.waitFor(() => expect(opened).toHaveLength(2));
+    stop.abort();
+    await Promise.resolve(third).catch(() => {});
+    expect(opened[1]!.signal?.aborted).toBe(true);
+  });
+
+  it('is refused through the tailnet and without a dialog, and says why it failed', async () => {
+    const tailnet = withPicker(async () => [project], { extraHosts: ['my-computer.tail1234.ts.net'] });
+    const far = await pick(tailnet.own, project, { host: 'my-computer.tail1234.ts.net', 'x-relay-lang': 'en' });
+    expect(far.status).toBe(403);
+    expect((await far.json()).error).toMatch(/only on the computer that runs Harness Relay/);
+    expect(tailnet.opened).toEqual([]);
+
+    const none = await pick(withPicker(async () => [project], { available: false }).own, project, { 'x-relay-lang': 'en' });
+    expect(none.status).toBe(503);
+    expect((await none.json()).error).toMatch(/zenity or kdialog/);
+
+    const broken = await pick(withPicker(async () => { throw new Error('No user interaction allowed. (-1713)'); }).own, project, { 'x-relay-lang': 'en' });
+    expect(broken.status).toBe(502);
+    expect((await broken.json()).error).toBe('Could not open the folder dialog (No user interaction allowed. (-1713))');
+  });
+});
+
 describe('tool library', () => {
   it('saves MCP servers with masked values and refuses bad input', async () => {
     const save = (name: string, body: unknown) => app.request(`/api/tools/mcp/${name}`, json('PUT', body, { 'x-relay-lang': 'en' }));
@@ -1545,6 +1709,42 @@ describe('browsing files', () => {
     expect((await get(`${base}?root=someone`)).status).toBe(404);
     expect((await get(`/api/conversations/nope/files`)).status).toBe(404);
     expect((await app.request(`${base}?path=`, { headers: { host: 'evil.example' } })).status).toBe(403);
+  });
+
+  it('lists each working directory, and each agent\'s worktree of each, to browse', async () => {
+    const docs = join(project, 'docs');
+    mkdirSync(docs);
+    writeFileSync(join(docs, 'guide.md'), '# Guide\n');
+    const conv = await createConversation({ permission: 'read-only', extraCwds: [docs] });
+    const base = `/api/conversations/${conv.id}/files`;
+    const list = await (await get(`${base}?root=${encodeURIComponent('cwd:1')}`)).json();
+    expect(list.roots).toEqual([
+      { id: 'cwd', path: project },
+      { id: 'cwd:1', path: docs, cwd: 1 },
+    ]);
+    expect(list.entries.map((e: { name: string }) => e.name)).toEqual(['guide.md']);
+    expect((await (await get(`${base}/preview?root=${encodeURIComponent('cwd:1')}&path=guide.md`)).json()).text).toBe('# Guide\n');
+
+    // In parallel mode, an agent's worktree of each: of the second folder's repository as `<agent>:1`.
+    const live = store.get(conv.id)!;
+    const agentId = live.agents[0]!.id;
+    const [wtA, wtB] = ['wt-a', 'wt-b'].map((name) => join(root, `${name}-${n}`));
+    mkdirSync(wtA);
+    mkdirSync(wtB);
+    live.worktrees[agentId] = [
+      { root: project, path: wtA, branch: 'relay/x', base: 'b', needsReset: false },
+      { root: docs, path: wtB, branch: 'relay/x', base: 'c', needsReset: false },
+    ];
+    // docs is inside project, but a repository of its own: its worktree is the agent's of docs.
+    expect((await (await get(base)).json()).roots).toEqual([
+      { id: 'cwd', path: project },
+      { id: 'cwd:1', path: docs, cwd: 1 },
+      { id: agentId, path: wtA, agentId },
+      { id: `${agentId}:1`, path: wtB, agentId, cwd: 1 },
+    ]);
+    // Its ZIP file is named after the folder and the agent.
+    const check = await get(`${base}/zip/check?root=${encodeURIComponent(`${agentId}:1`)}&path=`);
+    expect(check.status).toBe(200);
   });
 
   it('downloads a folder, or the whole working directory, as a ZIP file', async () => {

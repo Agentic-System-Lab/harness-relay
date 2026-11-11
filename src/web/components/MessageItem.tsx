@@ -776,7 +776,7 @@ export const MessageItem = memo(function MessageItem({
             <i />
           </div>
         )}
-        {msg.changes && msg.changes.files.length > 0 && (
+        {msg.changes?.some((c) => c.files.length > 0) && (
           <ChangesCard
             changes={msg.changes}
             agentName={name}

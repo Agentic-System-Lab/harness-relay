@@ -136,13 +136,39 @@ describe('fileRoots', () => {
         { id: 'b', name: 'B' },
       ],
       worktrees: {
-        a: { root: project, path: join(project, 'src'), branch: 'relay/a', base: 'x', needsReset: false },
-        b: { root: project, path: join(root, 'gone'), branch: 'relay/b', base: 'x', needsReset: false },
+        a: [{ root: project, path: join(project, 'src'), branch: 'relay/a', base: 'x', needsReset: false }],
+        b: [{ root: project, path: join(root, 'gone'), branch: 'relay/b', base: 'x', needsReset: false }],
       },
     } as unknown as Conversation;
     expect(fileRoots(conv)).toEqual([
       { id: 'cwd', path: project },
       { id: 'a', path: join(project, 'src'), agentId: 'a' },
+    ]);
+  });
+
+  it('offers each working directory, then each worktree of each, the innermost repository\'s for a folder inside another', () => {
+    // Folders of their own, outside the project the other tests share.
+    const outer = join(root, 'outer-project');
+    const docs = join(outer, 'docs');
+    const other = join(root, 'other-folder');
+    for (const d of [docs, other, join(root, 'wt-a'), join(root, 'wt-a-docs')]) mkdirSync(d, { recursive: true });
+    const conv = {
+      settings: { cwd: outer, extraCwds: [docs, other] },
+      agents: [{ id: 'a', name: 'A' }],
+      worktrees: {
+        a: [
+          { root: outer, path: join(root, 'wt-a'), branch: 'relay/a', base: 'x', needsReset: false },
+          { root: docs, path: join(root, 'wt-a-docs'), branch: 'relay/a', base: 'y', needsReset: false },
+        ],
+      },
+    } as unknown as Conversation;
+    expect(fileRoots(conv)).toEqual([
+      { id: 'cwd', path: outer },
+      { id: 'cwd:1', path: docs, cwd: 1 },
+      { id: 'cwd:2', path: other, cwd: 2 },
+      { id: 'a', path: join(root, 'wt-a'), agentId: 'a' },
+      // other-folder is in no repository the agent has a worktree of.
+      { id: 'a:1', path: join(root, 'wt-a-docs'), agentId: 'a', cwd: 1 },
     ]);
   });
 });

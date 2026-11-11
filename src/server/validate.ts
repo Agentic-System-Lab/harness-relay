@@ -6,6 +6,7 @@ import {
   ACCOUNT_ID_RE,
   CWD_MISSING,
   GROUP_LIMITS,
+  MAX_CWDS,
   MAX_ACCOUNT_LABEL,
   MCP_NAME_RE,
   MAX_NATIVE_ITEM_ID,
@@ -18,6 +19,7 @@ import {
   SCHEDULE_LIMITS,
   TOOL_LIMITS,
   VOICE_LANGUAGES,
+  cwdSettings,
   VOICE_MODELS,
   type AgentConfig,
   type ConversationGroup,
@@ -83,23 +85,53 @@ export function expandPath(p: string): string {
  * the client can offer to create it; with `create` it is created (parents too).
  */
 function directory(dir: string, create: boolean): string {
-  if (existsSync(dir)) {
-    if (!statSync(dir).isDirectory()) bad(t().cwdNotDirectory(dir));
-    return dir;
+  return directories([dir], create)[0]!;
+}
+
+/**
+ * Working directories, as `directory()` takes one. Each must be a folder; when any is missing, the
+ * 404 names all that are (`paths`), and with `create` all of them are created. Nothing is created
+ * while another is not a folder.
+ */
+function directories(dirs: string[], create: boolean): string[] {
+  const missing: string[] = [];
+  for (const dir of dirs) {
+    if (!existsSync(dir)) missing.push(dir);
+    else if (!statSync(dir).isDirectory()) bad(t().cwdNotDirectory(dir));
   }
-  if (!create) throw new HttpError(404, t().cwdMissing(dir), CWD_MISSING);
-  try {
-    mkdirSync(dir, { recursive: true });
-  } catch (e) {
-    bad(t().cwdCreateFailed(dir, (e as NodeJS.ErrnoException).code ?? (e as Error).message));
+  if (missing.length && !create) throw new HttpError(404, t().cwdMissing(missing.join(', ')), CWD_MISSING, missing);
+  for (const dir of missing) {
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch (e) {
+      bad(t().cwdCreateFailed(dir, (e as NodeJS.ErrnoException).code ?? (e as Error).message));
+    }
   }
-  return dir;
+  return dirs;
 }
 
 /** A directory from user input (`~` expanded); see `directory()` for a missing one. */
 export function validDirectory(input: unknown, create = false): string {
   if (typeof input !== 'string' || !input.trim()) bad(t().invalidField('defaultCwd'));
   return directory(expandPath(input), create);
+}
+
+/**
+ * Working directories from user input: `cwd` and the others after it (`extra`; `~` expanded, the
+ * empty ones left out), at most `MAX_CWDS` and each once (the same folder by another spelling,
+ * through a link, or in another case where the filesystem ignores it, counts too). See
+ * `directories()` for missing ones.
+ */
+export function validDirectories(cwd: unknown, extra: unknown, create = false, field = 'cwd'): { cwd: string; extraCwds?: string[] } {
+  if (typeof cwd !== 'string' || !cwd.trim()) bad(t().invalidField(field));
+  if (extra !== undefined && (!Array.isArray(extra) || extra.some((d) => typeof d !== 'string'))) bad(t().invalidField('extraCwds'));
+  const dirs = [cwd, ...((extra as string[] | undefined) ?? [])].filter((d) => d.trim()).map(expandPath);
+  if (dirs.length > MAX_CWDS) bad(t().tooManyCwds(MAX_CWDS));
+  dirs.forEach((dir, i) => {
+    const same = dirs.slice(0, i).find((d) => sameFolder(d, dir));
+    if (same) bad(t().cwdTwice(dir));
+  });
+  return cwdSettings(directories(dirs, create));
 }
 
 /** Folder names compare ignoring case where the filesystem usually does (macOS, Windows). */
@@ -444,16 +476,24 @@ export function validateToolLibraryUpdate(input: unknown): ToolLibraryUpdate {
   return out;
 }
 
-/** Conversation settings; with `create`, a missing working directory is created. */
-export function validateSettings(input: unknown, defaultCwd: string, create = false): ConversationSettings {
+/**
+ * Conversation settings; with `create`, missing working directories are created. Without a `cwd`,
+ * the working directories are `defaults` (the default ones, or a conversation's own).
+ */
+export function validateSettings(
+  input: unknown,
+  defaults: { cwd: string; extraCwds?: readonly string[] },
+  create = false,
+): ConversationSettings {
   const s = (input ?? {}) as Partial<ConversationSettings>;
-  const cwd = directory(expandPath(String(s.cwd || defaultCwd)), create);
+  const given = typeof s.cwd === 'string' && s.cwd.trim() !== '';
+  const dirs = validDirectories(given ? s.cwd : defaults.cwd, given ? s.extraCwds : defaults.extraCwds?.slice(), create);
   return {
     mode: MODES.includes(s.mode as Mode) ? (s.mode as Mode) : 'roundtable',
     rounds: clampInt(s.rounds, 1, 5, 1),
     maxHops: clampInt(s.maxHops, 1, 30, 8),
     permission: PERMISSIONS.includes(s.permission as Permission) ? (s.permission as Permission) : 'read-only',
-    cwd,
+    ...dirs,
     ...(s.autoTeam === true ? { autoTeam: true } : {}),
     ...(s.autoConfirm === true ? { autoConfirm: true } : {}),
     ...(s.approvals === 'deny' ? { approvals: 'deny' as const } : {}),

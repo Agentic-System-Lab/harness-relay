@@ -1,6 +1,6 @@
 import hljs from 'highlight.js/lib/common';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FILE_LIMITS, type Conversation, type FileEntry, type FileListing, type FilePreview } from '../../shared/types';
+import { FILE_LIMITS, cwdsOf, type Conversation, type FileEntry, type FileListing, type FilePreview } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { codeLanguage, crumbs, filterEntries, isMarkdown, joinPath, lineCount, parentPath, zipChoice } from '../files';
@@ -65,10 +65,15 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
     } else setFile(path);
   };
 
+  /** A folder's name in the list: with several working directories, each also by its folder's name. */
   const rootName = (id: string) => {
-    if (id === 'cwd') return t.files.workingDir;
-    const agent = conv.agents.find((a) => a.id === id);
-    return t.files.worktree(agent?.name ?? id);
+    const r = roots.find((x) => x.id === id);
+    const cwds = cwdsOf(conv.settings);
+    const dir = cwds.length > 1 ? cwds[r?.cwd ?? 0] : undefined;
+    const folder = dir ? ` · ${dir.split(/[\\/]/).filter(Boolean).pop() ?? dir}` : '';
+    if (!r?.agentId) return `${t.files.workingDir}${folder}`;
+    const agent = conv.agents.find((a) => a.id === r.agentId);
+    return `${t.files.worktree(agent?.name ?? r.agentId)}${folder}`;
   };
 
   /**

@@ -4,7 +4,9 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  applyPatch,
   applyToWorkingTree,
+  checkPatch,
   commitWorktree,
   createWorktree,
   diffFiles,
@@ -129,6 +131,26 @@ describe('worktrees', () => {
     await removeWorktree(repo, wt, 'relay/test/Builder');
     expect(existsSync(wt)).toBe(false);
     expect(git(repo, 'branch', '--list', 'relay/*')).toBe('');
+  });
+
+  it('checks a patch without changing anything, then applies it; and names a diff\'s paths after a folder', async () => {
+    await ensureRepo(repo);
+    const base = (await snapshot(repo)).commit;
+    const wt = join(dir, 'wt', 'c');
+    await createWorktree(repo, wt, 'relay/test/C', base);
+    writeFileSync(join(wt, 'NEW.md'), 'new\n');
+    const head = (await commitWorktree(wt, 'turn'))!;
+    const checked = (await checkPatch(repo, base, head))!;
+    expect(checked.files.map((f) => f.path)).toEqual(['NEW.md']);
+    expect(existsSync(join(repo, 'NEW.md'))).toBe(false);
+    await applyPatch(checked);
+    expect(readFileSync(join(repo, 'NEW.md'), 'utf8')).toBe('new\n');
+    // Nothing between two commits: nothing to check.
+    expect(await checkPatch(repo, head, head)).toBeNull();
+    const diff = await diffText(repo, base, head, 'docs');
+    expect(diff).toContain('diff --git a/docs/NEW.md b/docs/NEW.md');
+    expect(diff).toContain('+++ b/docs/NEW.md');
+    expect(await diffText(repo, base, head)).toContain('+++ b/NEW.md');
   });
 
   it('refuses to apply over conflicting edits and changes nothing', async () => {

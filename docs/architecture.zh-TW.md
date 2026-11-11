@@ -79,7 +79,7 @@ flowchart LR
 
 ## 對話模型
 
-一個**對話**包含團隊（`agents`）、設定（`mode`、`rounds`、`maxHops`、`permission`、`cwd`；[自動組隊](#自動組隊)時另有 `autoTeam`，直接採用首席 agent 的團隊、不必確認時再加上 `autoConfirm`）以及有順序的**訊息**。訊息的作者可能是使用者、agent 或系統，由多個 **part** 組成：依發生順序排列的文字區塊與工具呼叫（`Read`、`Edit`、`Shell`……）；失敗或被拒絕的工具呼叫會保留原因。系統訊息可能帶有一份 **plan**，也就是首席 agent 的團隊設計。
+一個**對話**包含團隊（`agents`）、設定（`mode`、`rounds`、`maxHops`、`permission`、`cwd`，有一個以上的工作目錄時另有 `extraCwds`（見[多個工作目錄](#多個工作目錄)）；[自動組隊](#自動組隊)時另有 `autoTeam`，直接採用首席 agent 的團隊、不必確認時再加上 `autoConfirm`）以及有順序的**訊息**。訊息的作者可能是使用者、agent 或系統，由多個 **part** 組成：依發生順序排列的文字區塊與工具呼叫（`Read`、`Edit`、`Shell`……）；失敗或被拒絕的工具呼叫會保留原因。系統訊息可能帶有一份 **plan**，也就是首席 agent 的團隊設計。
 
 對話也會為每個 agent 保存 **agent 狀態**：
 
@@ -259,7 +259,7 @@ flowchart LR
 | 完全存取 | `--permission-mode bypassPermissions` | 沙箱 `danger-full-access`、核准政策 `never` | 全部自動核准（`_meta.yoloMode: true`） |
 
 - **Claude Code** 把每個請求以 `can_use_tool` 控制請求送出，並等待我們的控制回應（允許，或拒絕並附上模型看得到的訊息）。對話設定為拒絕時，不會指定 permission prompt tool，由 Claude Code 自己拒絕這類呼叫。Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍然有效；唯讀模式會移除修改檔案的工具，所以這類規則無法讓它們執行。
-  - 在完全存取以外的權限，`--settings` 會開啟它的沙箱（`claudeSandboxSettings()`）：它的 Bash 指令及它們啟動的行程，只能寫入工作目錄、附件資料夾與暫存資料夾，要連到的每個主機都會詢問。`failIfUnavailable` 讓這一輪在沙箱無法使用時失敗並說明如何修正，而不是在沙箱外執行指令；`autoAllowBashIfSandboxed: false` 讓哪些操作不必詢問仍由權限決定；詢問規則 `Bash(dangerouslyDisableSandbox:true)` 則讓模型要在沙箱外執行的每個指令都交給使用者決定，包括可編輯模式允許規則涵蓋的指令。它的沙箱既不能讀也不能寫受保護的路徑（`denyRead`、`denyWrite`），`Read` 拒絕規則也讓它在沙箱外的檔案工具碰不到它們（[各平台的作業系統沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）；`filesystem.disabled: false` 勝過使用者的設定，而使用者自己的或受管理設定中的 `allowRead`／`allowWrite` 碰到受保護的路徑時，執行不會開始（`claudeReopening()`）。Claude Code 在原生 Windows 上沒有沙箱，所以在那裡不使用沙箱執行。
+  - 在完全存取以外的權限，`--settings` 會開啟它的沙箱（`claudeSandboxSettings()`）：它的 Bash 指令及它們啟動的行程，只能寫入工作目錄（每一個）、附件資料夾與暫存資料夾，要連到的每個主機都會詢問。`failIfUnavailable` 讓這一輪在沙箱無法使用時失敗並說明如何修正，而不是在沙箱外執行指令；`autoAllowBashIfSandboxed: false` 讓哪些操作不必詢問仍由權限決定；詢問規則 `Bash(dangerouslyDisableSandbox:true)` 則讓模型要在沙箱外執行的每個指令都交給使用者決定，包括可編輯模式允許規則涵蓋的指令。它的沙箱既不能讀也不能寫受保護的路徑（`denyRead`、`denyWrite`），`Read` 拒絕規則也讓它在沙箱外的檔案工具碰不到它們（[各平台的作業系統沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）；`filesystem.disabled: false` 勝過使用者的設定，而使用者自己的或受管理設定中的 `allowRead`／`allowWrite` 碰到受保護的路徑時，執行不會開始（`claudeReopening()`）。Claude Code 在原生 Windows 上沒有沙箱，所以在那裡不使用沙箱執行。
   - 沙箱中的指令要連到某個主機時，會送來 `SandboxNetworkAccess` 請求：以讀取網頁的核准詢問那個主機，「本對話都允許」也涵蓋之後對它的 WebFetch。Claude Code 因為某個沙箱無法寫入的路徑（`blocked_path`）而詢問的指令，就算允許了在沙箱中也會失敗，所以允許後會在沙箱外執行（允許的輸入中帶 `dangerouslyDisableSandbox`，`claudeOutsideSandbox()`），卡片也會註明；沙箱可寫入的資料夾中的路徑（例如唯讀模式下詢問的工作目錄檔案）則在沙箱中執行。對話設定為拒絕時，這些請求也會被拒絕。
 - **Codex** 的指令一律在作業系統沙箱中執行。使用 `on-request` 時，模型在需要超出沙箱（寫到工作目錄以外、存取網路……）時會提出請求；要不要詢問由模型決定，沒有詢問的話，沙箱就直接擋下呼叫，模型會看到錯誤。
 - **Grok** 透過 ACP 執行，因為非互動的 `grok -p` 無法詢問：需要詢問的呼叫會被回報為「User cancelled」並**結束整輪**。改用 ACP 後，請求會送到 adapter。拒絕（使用者拒絕或自動拒絕）時回覆 `reject_once` 並附上 `_meta.followup_message`，Grok 會把它當成給模型的回饋，而不是取消這一輪。
@@ -391,9 +391,23 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 
 **修改紀錄。**有修改的 agent 訊息會保存 `root`、`base`、`head`（兩個 commit）以及修改的檔案（A/M/D、增刪行數）。介面會以卡片顯示，附 diff 檢視（`git diff base head`），並在每個 agent 最新的 worktree 結果上提供 **套用** 按鈕。隊友會在轉交訊息的 `<changed_files>` 區塊看到檔案清單。清單來自 `git diff -z`，再長都完整，檔名中的引號、tab 與非 ASCII 字元也都保持原樣。
 
+### 多個工作目錄
+
+一個對話最多可以有八個工作目錄（`MAX_CWDS`）：每個 CLI 從 `cwd` 開始，其他的在 `extraCwds`（`cwdsOf()`；由 `validDirectories()` 檢查：每一個都必須是資料夾，不能重複，換個寫法、經由連結，或在不分大小寫的檔案系統上改了大小寫，也算重複；有不存在的資料夾時回 404 `cwd-missing`，`paths` 列出所有不存在的，加上 `createCwd` 時全部建立）。設定頁的預設工作目錄也一樣（`defaultCwd`、`defaultExtraCwds`），沒有指定 `cwd` 的新對話會得到全部。每個資料夾都和 `cwd` 一樣是 agent 的：
+
+- **以同樣的權限交給每個 CLI**（執行選項中的 `addDirs`）：Claude Code 以 `--add-dir` 取得每一個，所以它的權限模式與沙箱的寫入範圍都涵蓋它們；Codex 在可編輯模式下，權限設定檔中每一個都有一個 `write` 項目（其中受保護的路徑仍然拒絕），舊版沙箱則用 `sandbox_workspace_write.writable_roots`；Grok 會得到這次執行專用的設定檔 `harness-relay-<12 個十六進位字元>`，依這些資料夾命名（排序後，每一個也加上實際路徑），也就是 `harness-relay` 再加上這些資料夾的 `read_write`。這個設定檔在 `sandbox.toml` 中有自己的區塊，在主要區塊旁邊，和它一樣在執行前寫入；執行專用資料夾的區塊只保留最新的 32 個。其他對話的執行會在一輪進行中寫入它們自己的區塊：Harness Relay 自己寫的內容會加進進行中各輪共用的快照（`guardGrokSettings()`），所以不會被當成指令做的修改，而任何區塊中其他的寫入仍然算是修改，也會被改回來。Grok 不會在另一個設定檔下接續 session，所以改變對話的工作目錄後，它的 Grok 成員會重新開始 session。角色說明會列出每個資料夾（以及 agent 從第一個開始）。
+- **各自的 git repository**（可編輯／完全存取），建立方式同上；同一個 repository 裡的兩個資料夾共用它。`RunWorkspace.folders` 記錄每個資料夾和它所在 repository 的根目錄。
+- **每一輪前後各拍一次快照**：一輪的修改是它改到的每個 repository 各一個 `MessageChanges`，依資料夾的順序（`ChatMessage.changes` 是清單；第一個照舊儲存，其他的以 JSON 存在 `messages.more_changes`）。隊友會收到每一個的 `<changed_files>` 區塊，這一輪改了一個以上的 repository 時，區塊會標出是哪一個（`repository="…"`）。一輪或一位 agent 所有 worktree 的 diff 是一份文字：有多個 repository 時，每一個的路徑以它的資料夾名稱開頭（`a/docs/guide.md`，`git diff --src-prefix/--dst-prefix`；名稱相同時加上 ` (2)`）。
+- **agent 寫入時上鎖**：一次執行同時鎖住每個 repository，否則全都不鎖（另一個對話鎖住其中一個，或它裡面、外面的資料夾時回 409）；唯讀執行中允許的動作，以及套用結果，也是如此。
+- **平行模式下各自的 worktree**：每位 agent 在每個 repository 各有一個（`Conversation.worktrees[agent]` 是清單；`agent_worktrees` 也以 repository 為鍵），位置是 `data/worktrees/<conversation>/<agent>-<根目錄的 8 個十六進位字元>`（之前建立的維持原路徑），每一個的分支名稱都相同。agent 在第一個資料夾的 worktree 中執行，其他資料夾的 worktree 以 `addDirs` 交給它；角色說明列出每個 worktree、它是哪個資料夾的副本與它的快照，以及每位隊友在每個資料夾的快照。已經沒有任何資料夾在其中的 repository，它的 worktree 會在下一次平行執行時移除。**套用** 會套用這位 agent 所有的 worktree：先檢查每一份 patch（`checkPatch()`），所以其中一份有衝突時哪裡都不會套用，再逐一套用（`applyPatch()`）；只要結果改到的每個 repository 都還是做出它的那個 worktree，就能套用，套用後這位 agent 所有的 worktree 都會標記為需要重設。
+- **可瀏覽、可連結**：檔案瀏覽器列出每個資料夾（`cwd`、`cwd:1`…）與每位 agent 在每一個的 worktree（`<agent>`、`<agent>:1`…；資料夾在另一個 repository 裡面時，取最內層的那個），回覆中的圖片與檔案連結會在每個資料夾中尋找，平行模式的回合也會在這位 agent 每個含有它的 worktree 中尋找。
+- **和 `cwd` 一樣檢查**：任何一個資料夾含有 Harness Relay 本身，或決定 agent 如何執行的東西時，都會拒絕可編輯模式（`relayFolderRefusal()`）。
+
+首席 agent 會知道每個資料夾，並讀取每個 CLI 在第一個資料夾（CLI 開始的地方）自己會載入的東西；Grok 的信任也以第一個為準。
+
 ## 瀏覽檔案
 
-對話上方的 **檔案** 會開啟對話工作目錄的瀏覽器，平行模式下也能看每位成員的 worktree（`src/server/files.ts`；`GET /api/conversations/:id/files`、`…/files/preview`、`…/files/raw`、`…/files/download`）。路徑會以所選資料夾的實際路徑解析並跟隨符號連結；最後落在資料夾外或 `.git` 資料夾內的（比對時不分大小寫：在 macOS 與 Windows 上 `.GIT/config` 會開到 `.git/config`）都是 404，指向外面的連結不會出現在列表中。一個資料夾最多列出 2,000 項（依顯示順序的前面幾項）。經由資料夾內的連結進入的資料夾，會保留當初要求的路徑。預覽以 JSON 回傳文字（長檔案只回傳前 512 KB）；圖片與影片只標示類型，由瀏覽器從 `…/files/raw` 載入，這個端點只提供這些媒體類型，並帶有和媒體端點相同的 `nosniff` 與沙箱化 `Content-Security-Policy` 標頭。**下載** 會從 `…/files/download` 存下任何檔案，提供方式和回覆中連結的檔案相同（見[安全性](#安全性)）。資料夾（包括最上層）會從 `…/files/zip` 下載成 ZIP 檔：`zipPlan()` 取瀏覽時列出的同樣項目——不含 `.git`、只跟隨指向最上層裡面的連結、每個資料夾只放一次（所以繞回去的連結會略過）——放在以資料夾命名的資料夾裡；`zipStream()`（`src/server/zip.ts`，不需要額外套件）邊讀邊以 deflate 壓縮每個檔案、邊送出壓縮檔，使用 UTF-8 檔名、data descriptor 與每個檔案的權限，不論下載怎麼結束都會關閉開著的檔案。檔名會處理成任何解壓縮工具都安全的形式（`safeName()`：只有 `/` 是分隔符號，所以檔名裡的 `\`、`..`、磁碟代號的 `:` 或控制字元都會變成 `_`）。一個資料夾的檔案與資料夾合計最多 10,000 個、壓縮前 1 GB（`FILE_LIMITS`；走訪不會卡住伺服器，一超過就停止），因此不需要 ZIP64 就能低於 ZIP 的 4 GB 與 65,535 個項目。成員 worktree 的最上層以工作目錄和成員命名。介面會先問 `…/files/zip/check`：整個太大的資料夾，若在 git repository 裡，會提議只包沒被 git 忽略的檔案（`git ls-files --cached --others --exclude-standard`，`unignored=1`；裡面的其他 repository 與 submodule 也用同樣方式列出），所以含 `node_modules` 的專案仍然可以下載；否則就說明資料夾太大（下載本身會回 413）。介面用 highlight.js 為程式碼上色（輸出是包在 `<span>` 裡的跳脫文字），Markdown 則用聊天室的渲染器，所以預覽的檔案也無法執行腳本或載入遠端內容。
+對話上方的 **檔案** 會開啟對話工作目錄（每一個）的瀏覽器，平行模式下也能看每位成員的 worktree（`src/server/files.ts`；`GET /api/conversations/:id/files`、`…/files/preview`、`…/files/raw`、`…/files/download`）。路徑會以所選資料夾的實際路徑解析並跟隨符號連結；最後落在資料夾外或 `.git` 資料夾內的（比對時不分大小寫：在 macOS 與 Windows 上 `.GIT/config` 會開到 `.git/config`）都是 404，指向外面的連結不會出現在列表中。一個資料夾最多列出 2,000 項（依顯示順序的前面幾項）。經由資料夾內的連結進入的資料夾，會保留當初要求的路徑。預覽以 JSON 回傳文字（長檔案只回傳前 512 KB）；圖片與影片只標示類型，由瀏覽器從 `…/files/raw` 載入，這個端點只提供這些媒體類型，並帶有和媒體端點相同的 `nosniff` 與沙箱化 `Content-Security-Policy` 標頭。**下載** 會從 `…/files/download` 存下任何檔案，提供方式和回覆中連結的檔案相同（見[安全性](#安全性)）。資料夾（包括最上層）會從 `…/files/zip` 下載成 ZIP 檔：`zipPlan()` 取瀏覽時列出的同樣項目——不含 `.git`、只跟隨指向最上層裡面的連結、每個資料夾只放一次（所以繞回去的連結會略過）——放在以資料夾命名的資料夾裡；`zipStream()`（`src/server/zip.ts`，不需要額外套件）邊讀邊以 deflate 壓縮每個檔案、邊送出壓縮檔，使用 UTF-8 檔名、data descriptor 與每個檔案的權限，不論下載怎麼結束都會關閉開著的檔案。檔名會處理成任何解壓縮工具都安全的形式（`safeName()`：只有 `/` 是分隔符號，所以檔名裡的 `\`、`..`、磁碟代號的 `:` 或控制字元都會變成 `_`）。一個資料夾的檔案與資料夾合計最多 10,000 個、壓縮前 1 GB（`FILE_LIMITS`；走訪不會卡住伺服器，一超過就停止），因此不需要 ZIP64 就能低於 ZIP 的 4 GB 與 65,535 個項目。成員 worktree 的最上層以工作目錄和成員命名。介面會先問 `…/files/zip/check`：整個太大的資料夾，若在 git repository 裡，會提議只包沒被 git 忽略的檔案（`git ls-files --cached --others --exclude-standard`，`unignored=1`；裡面的其他 repository 與 submodule 也用同樣方式列出），所以含 `node_modules` 的專案仍然可以下載；否則就說明資料夾太大（下載本身會回 413）。介面用 highlight.js 為程式碼上色（輸出是包在 `<span>` 裡的跳脫文字），Markdown 則用聊天室的渲染器，所以預覽的檔案也無法執行腳本或載入遠端內容。
 
 ## 即時更新（SSE）
 
@@ -420,20 +434,20 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 
 | 資料表 | 內容 |
 | --- | --- |
-| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）、`group_source`（`user` 或 `auto`；NULL 代表尚未分類）與 `branch`（JSON：從哪個對話分支出來，以及最後一則複製的訊息；schema 版本 17） |
+| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`extra_cwds`（之後的工作目錄，JSON；NULL 代表沒有）、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）、`group_source`（`user` 或 `auto`；NULL 代表尚未分類）與 `branch`（JSON：從哪個對話分支出來，以及最後一則複製的訊息；schema 版本 17） |
 | `conversation_groups` | 使用者的側邊欄群組（名稱、順序） |
 | `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度、`tools`：成員對工具庫的例外設定，JSON；`account`：成員使用的 CLI 帳號，NULL 表示預設帳號，schema 版本 19） |
 | `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`，以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`），依 `seq` 排序 |
 | `schedules` | 每個對話一個，隨對話刪除：訊息、`repeat`（JSON）、時區、語言、是否啟用、核准與錯過時間的選擇、是否每次開新對話（`new_chat`）、下一次，以及上次結果（含它開的對話 `last_chat_id`） |
-| `message_changes` | 每則訊息修改的檔案（路徑、A/M/D、增刪行數） |
-| `agent_worktrees` | 平行模式中每個 agent 的 worktree（repository 根目錄、路徑、分支、起始快照、是否需要重設） |
+| `message_changes` | 每則訊息在它改的第一個 repository 中修改的檔案（路徑、A/M/D、增刪行數）；這一輪在其他 repository 的修改（含檔案）以 JSON 存在 `messages.more_changes` |
+| `agent_worktrees` | 平行模式中每個 agent 的 worktree，工作目錄的每個 repository 各一個（repository 根目錄、路徑、分支、起始快照、是否需要重設） |
 | `message_parts` | 每則訊息依序（`idx`）排列的 part：文字、思考、計畫與核准 part（資料以 JSON 存在 `data`），以及工具呼叫，含 `tool_error`（呼叫失敗或被拒絕的原因）與 `tool_output` |
 | `agent_sessions` | 每個對話中每個 agent 的 CLI session id、provider 與帳號（NULL 表示預設帳號） |
 | `agent_seen` | 每個 agent 已看過哪些訊息 |
 | `presets`、`preset_agents` | 使用者儲存的團隊範本（內建範本寫在程式碼裡）；`preset_agents.tools` 與 `account` 同上 |
 | `provider_settings` | 每個 CLI 的執行檔路徑；它預設帳號的名稱（`account_label`）、預設模型與推理強度，以及執行時不載入的項目（`native_off`、`native_items`）；只有在系統沒有金鑰儲存區時才存預設帳號的 API key |
 | `provider_accounts` | 每個 CLI 預設帳號以外的帳號與順序（id、provider、名稱）；每個帳號自己的預設模型與推理強度，以及執行時不載入的項目（schema 版本 20：原有的帳號沿用它所屬 CLI 的值）；只有在系統沒有金鑰儲存區時才存帳號的 API key（schema 版本 19） |
-| `app_settings` | key/value 形式的應用程式設定（預設工作目錄、首席 agent、語音輸入、工具庫、各 CLI 自己的資料夾、AgentsView 網址） |
+| `app_settings` | key/value 形式的應用程式設定（預設工作目錄與其後的工作目錄、首席 agent、語音輸入、工具庫、各 CLI 自己的資料夾、AgentsView 網址） |
 | `shares` | 分享成 secret gist 的對話（頁面 gist 的 id、對話、當時的標題、結束的那則回覆、頁面與 gist 的連結、附上了幾個檔案與放附檔的 gist 的 id、是否只上傳了放附檔的 gist）；沒有外鍵，因為對話刪除後 gist 仍在（schema 第 15 版；附檔為第 16 版） |
 
 使用中的對話會保留在記憶體中，因為協調器在串流時會直接修改它們。寫入是明確觸發的：使用者訊息、新的 agent 訊息、結束的回合與 session id 會立即寫入；串流中的變動則批次處理，每秒最多寫一次，而且只寫有變動的訊息。伺服器當機時留下的 `streaming` 訊息，會在下次啟動時標為 `aborted`。
@@ -564,6 +578,7 @@ sequenceDiagram
 - 啟動 `claude` 前會移除 Claude Code 替自己子程序設定的環境變數，所以即使從 Claude Code session 裡啟動本程式也能正常運作；
 - MCP 伺服器變數與標頭的值和 API key 一樣是機密：存在金鑰儲存區、送到介面時會遮蔽，交給 Claude Code 時寫在私有暫存檔而不是指令列；
 - Grok 對資料夾的信任只會在使用者於介面確認後記錄，而且要用 JSON POST（其他網站送不出來）；
+- 工作目錄輸入框的選擇資料夾視窗（`src/server/folderPicker.ts`、`POST /api/cwds/pick`，和所有寫入一樣是 JSON POST）只為以本機名稱連線的請求開啟，所以經由 `tailscale serve` 的手機永遠不會開啟它（那裡沒人看得到）；一次只開一個，請求關閉時或十分鐘後關閉。它的腳本是固定的文字：AppleScript 從 run handler 的參數取得標題與資料夾，Windows PowerShell 從環境變數，zenity 與 kdialog 從參數，都不經過 shell。它只回答使用者選的路徑，輸入框再像手動輸入的一樣使用它們；
 - 對話只會送到這台電腦上的 AgentsView：`validAgentsViewUrl` 只接受 `localhost`、`127.0.0.1` 或 `[::1]` 的 `http(s)` 網址，不能帶帳號密碼，並只儲存 origin；也不跟隨重新導向。介面連結打開的網址（`agentsViewLink`）可以是任何 http(s) 網址，因為不會有資料送過去；
 - 瀏覽檔案（以及把資料夾下載成 ZIP 檔）只會讀取工作目錄或成員 worktree 裡的內容（跟隨符號連結之後），絕不讀 `.git`（不分大小寫，因為在不分大小寫的檔案系統上 `.GIT` 會開到 `.git`；結尾多一個點或空白，或 Windows 的短檔名如 `GIT~1` 也一樣，在 Windows 上會再用系統自己的真實路徑檢查），圖片與影片的提供方式和媒體端點相同，其他檔案只以下載提供（見[瀏覽檔案](#瀏覽檔案)）；
 - 語音輸入的錄音不會離開這台電腦：語音引擎只聽 `127.0.0.1`，並藏在隨機路徑前綴之後；它下載的引擎與模型固定在某個版本或 commit，並檢查 SHA-256（見[語音輸入](#語音輸入)）。

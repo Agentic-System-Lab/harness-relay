@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import {
+  MAX_CWDS,
   PROVIDERS,
   PROVIDER_LABEL,
   accountUsable,
   catalogFor,
+  cwdSettings,
+  cwdsOf,
   effortsFor,
   toolKey,
   type AgentConfig,
@@ -488,7 +491,7 @@ ${libraryForPrompt(ctx)}
 Conversation modes:
 ${MODES.map((m) => `- ${m}: ${MODE_HELP[m]}`).join('\n')}
 
-The user already chose the file permission "${settings.permission}" and the working directory ${settings.cwd}; you cannot change them.
+The user already chose the file permission "${settings.permission}" and ${workingDirectories(settings)}; you cannot change them.
 
 Templates (built-in and saved by the user), in full:
 <templates>
@@ -755,19 +758,28 @@ const MAX_TEAM = 8;
 
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
 
+/** "the working directory X", or "the working directories X, Y" for a conversation with several. */
+function workingDirectories(s: Pick<ConversationSettings, 'cwd' | 'extraCwds'>): string {
+  const dirs = cwdsOf(s);
+  return dirs.length === 1 ? `the working directory ${dirs[0]}` : `the working directories ${dirs.join(', ')}`;
+}
+
 /**
- * The file permission and working directory as the team drawer has them (maybe changed, not saved
+ * The file permission and working directories as the team drawer has them (maybe changed, not saved
  * yet), for the lead to read; anything missing or invalid is the conversation's own.
  */
 export function draftPlace(
   raw: unknown,
-  saved: Pick<ConversationSettings, 'permission' | 'cwd'>,
-): Pick<ConversationSettings, 'permission' | 'cwd'> {
+  saved: Pick<ConversationSettings, 'permission' | 'cwd' | 'extraCwds'>,
+): Pick<ConversationSettings, 'permission' | 'cwd' | 'extraCwds'> {
   const s = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const cwd = typeof s.cwd === 'string' ? s.cwd.trim().slice(0, 4096) : '';
+  const extra = Array.isArray(s.extraCwds)
+    ? s.extraCwds.filter((d): d is string => typeof d === 'string' && d.trim() !== '').slice(0, MAX_CWDS - 1).map((d) => d.trim().slice(0, 4096))
+    : [];
   return {
     permission: PERMISSIONS.includes(s.permission as Permission) ? (s.permission as Permission) : saved.permission,
-    cwd: cwd || saved.cwd,
+    ...(cwd ? cwdSettings([cwd, ...extra]) : cwdSettings(cwdsOf(saved))),
   };
 }
 
@@ -784,7 +796,7 @@ export function teamSettings(raw: unknown, fallback: TeamDraft['settings']): Tea
 export function buildRevisePrompt(
   request: string,
   team: TeamDraft,
-  settings: Pick<ConversationSettings, 'permission' | 'cwd'>,
+  settings: Pick<ConversationSettings, 'permission' | 'cwd' | 'extraCwds'>,
   ctx: PlannerContext,
   conv: ReviseConversation = {},
 ): string {
@@ -837,7 +849,7 @@ ${libraryForPrompt(ctx)}
 Conversation modes:
 ${MODES.map((m) => `- ${m}: ${MODE_HELP[m]}`).join('\n')}
 
-The file permission "${settings.permission}" and the working directory ${settings.cwd} are the user's to set; you cannot change them.${
+The file permission "${settings.permission}" and ${workingDirectories(settings)} are the user's to set; you cannot change them.${
     conv.savedCwd && conv.savedCwd !== settings.cwd
       ? ` The user has not saved that working directory yet: you are running in the one saved now, ${conv.savedCwd}.`
       : ''
