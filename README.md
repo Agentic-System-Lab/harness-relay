@@ -165,13 +165,14 @@ API keys you save in Settings, and the values of MCP servers' environment variab
 | `npm run login` | Print a one-time link (and code) that signs a browser in, for when the one `npm start` printed is used or old |
 | `npm run typecheck` | Type-check server, client and tests |
 | `npm test` | Run the test suite (Vitest) |
+| `npm run test:e2e` | Run the end-to-end tests: the UI in a browser against the real server, with fake CLIs (`npm run test:e2e:install` once) |
 | `npm run site:preview` | Preview the website (`site/`) on http://127.0.0.1:4180 |
 | `npm run icons` | Redraw the home-screen icons and the web app manifest in `src/web/public/` |
 | `npm run demo` | Record the demo again with the real CLIs, in both languages, and update the videos, stills and the website's chapters |
 | `npm run desktop` | Build the desktop app and run it without installing it (after `npm install --prefix desktop`) |
 | `npm run desktop:dist` | Build the desktop app's installer for this system into `desktop/release/` |
 
-Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The [website](https://agentic-system-lab.github.io/harness-relay/) is the static page in [`site/`](site/), published to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
+Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), and the end-to-end tests on Linux, macOS and Windows ([`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)). The [website](https://agentic-system-lab.github.io/harness-relay/) is the static page in [`site/`](site/), published to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
 ## Contributing
 

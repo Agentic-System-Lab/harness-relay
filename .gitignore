@@ -1,6 +1,9 @@
 node_modules
 dist/
 data/
+# The end-to-end tests' results and report (npm run test:e2e)
+test-results/
+playwright-report/
 *.log
 .DS_Store
 .impeccable/

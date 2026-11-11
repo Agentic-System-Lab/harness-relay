@@ -37,7 +37,7 @@ if (!existsSync(join(web, 'index.html'))) {
   process.exit(1);
 }
 
-const rootPackage = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string; description?: string; license?: string };
+const rootPackage = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { description?: string; license?: string };
 /** The commit being built, when this is a git checkout. */
 function commit(): string | undefined {
   try {

@@ -22,9 +22,12 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | --- | --- |
 | `npm install` | Install dependencies |
 | `npm run dev` | API server on :8789 (`tsx watch`) + Vite on :5173 (proxies `/api/`), off `npm start`'s and the desktop app's 8787 (`src/server/ports.ts`); not beside an `npm start` of the same checkout, which holds its `data/` |
-| `npm run typecheck` | `tsc --noEmit` over `src`, `test`, `scripts` and the config files |
+| `npm run typecheck` | `tsc --noEmit` over `src`, `test`, `scripts`, `e2e` and the config files |
 | `npm test` | All Vitest tests (offline) |
 | `npx vitest test/store.test.ts` | One test file |
+| `npm run test:e2e` | End-to-end tests (Playwright): the built UI in Chromium against the real server, with fake CLIs (`e2e/`); builds the UI first when it is out of date |
+| `npm run test:e2e:install` | Once: the Chromium they drive (on Linux `npx playwright install --with-deps chromium`) |
+| `npx playwright test e2e/specs/chat.spec.ts` | One end-to-end spec (`--ui` to watch them, `npx playwright show-report` for the last run) |
 | `npm run build` | Build the UI into `dist/web` |
 | `npm start` | One process: API + built UI on :8787; prints a one-time sign-in link |
 | `npm run login` | Print another one-time sign-in link (`scripts/login.ts`) |
@@ -40,7 +43,7 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | `npm run release:check -- <version>` | Check a release version against the rules (`scripts/release.ts`), as the Release workflow does (add `--remote` after the version for GitHub's tags) |
 | `npm run demo` | Record the README and landing-page demo again with the real CLIs, then update the videos, stills and chapter rails (`scripts/demo/`; see the developer guide, "Recording the demo") |
 
-Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and `npm run desktop:typecheck` when you changed `desktop/`). CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same three on Node 22 and 24 for every pull request and every push to `main`, and also typechecks the desktop app, builds it and runs its bundled server as the app does (`desktop/scripts/smoke.ts`). Releases are made only by the Release workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)), run by hand: see the developer guide, "Releasing". Never make a release or a version tag any other way.
+Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and `npm run desktop:typecheck` when you changed `desktop/`, and `npm run test:e2e` when you changed the UI, the HTTP API, the orchestrator or an adapter). CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same three on Node 22 and 24 for every pull request and every push to `main`, and also typechecks the desktop app, builds it and runs its bundled server as the app does (`desktop/scripts/smoke.ts`). [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml) runs the end-to-end tests on Linux, macOS and Windows for the same events. Releases are made only by the Release workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)), run by hand: see the developer guide, "Releasing". Never make a release or a version tag any other way.
 
 ## Where things are
 
@@ -70,6 +73,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and 
 - `src/server/i18n.ts`, `presets.ts`: server-side messages and built-in team templates, both in two languages.
 - `src/web/`: the React client. `components/`, `locales/` (`zh-TW.ts`, `en.ts`), `chat.ts` (ChatView's pure logic), `backends.ts` (the endpoint form's pure logic, for `components/BackendsSettings.tsx`, Settings → Model backends), `copy.ts`, `report.ts` (a problem report by email: the mail, its mailto and Gmail links, the screenshots it may link to), `update.ts` (the desktop app's updates in the chat: Settings' Version card, the dialog offering a new version once), `dialogs.ts` (the dialogs open on the page: only the top one takes keys), `api.ts`, `public/` (the web app manifest and home-screen icons, written by `npm run icons`; don't edit them by hand).
 - `test/`: Vitest tests, roughly one file per module. The open agents' adapters replay messages recorded from the real CLIs (`test/fixtures/<agent>/`) through stand-ins (`test/fake-*.ts`).
+- `e2e/`: end-to-end tests (Playwright, `playwright.config.ts`). `fake-cli/fake-cli.cjs` is a fake `claude`, `codex` and `grok` in one file, speaking each CLI's protocol and steered by `e2e:` directives in the user's message (scripts on macOS and Linux, Node single executables on Windows: `support/fake-cli.ts`); `support/relay.ts` starts a server of its own for each test (temporary data, homes and working directory, the fakes first on PATH, keyring off); `support/app.ts` holds the UI steps; `specs/` the tests.
 - `data/`: runtime data (`relay.db`, worktrees). Git-ignored; never commit it.
 - `site/`: the landing page on GitHub Pages (static HTML, `index.html` and `zh-TW/index.html`), published by `.github/workflows/pages.yml`. Follow `site/DESIGN-GUIDELINES.md` when you change it, and change both languages together. `site/assets/downloads.js` points the download buttons at the newest release's installers, never a release candidate's (tested in `test/site-downloads.test.ts`); keep its file name endings (`INSTALLERS`, which the app's updates and the Release workflow's installer check also read) in step with the Release workflow's installer names. `UPDATE_INSTALLERS` names the copies the workflow publishes beside them (`updateCopyName()`), which the app downloads to update itself, so that GitHub's download counts tell updates from new installs.
 
@@ -114,7 +118,7 @@ The server can start agents with write access, so keep its defences intact (see 
 ### Tests
 
 - Add or update tests with every behaviour change.
-- Keep tests offline: no real CLI runs, no network, no real credential store. Follow the existing patterns: a fake runner swapped into `runners` (`test/orchestrator.test.ts`), recorded CLI messages for adapters, real temporary git repositories for `workspace.ts`, `app.request()` for the HTTP API, and a fake keyring passed to `SettingsStore`.
+- Keep tests offline: no real CLI runs, no network, no real credential store. Follow the existing patterns: a fake runner swapped into `runners` (`test/orchestrator.test.ts`), recorded CLI messages for adapters, real temporary git repositories for `workspace.ts`, `app.request()` for the HTTP API, and a fake keyring passed to `SettingsStore`. End-to-end tests use the fake CLIs (`e2e/fake-cli/`): something new an agent should do there is a new `e2e:` directive in the fake, not a real CLI.
 
 ### Worktrees
 
