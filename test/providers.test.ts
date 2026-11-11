@@ -10,6 +10,7 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 const { openDatabase } = await import('../src/server/db');
 const { ProviderService } = await import('../src/server/providers');
 const { SettingsStore } = await import('../src/server/settings');
+const { catalogFor } = await import('../src/shared/types');
 
 describe("a CLI's status when it cannot run", () => {
   const providers = () => {
@@ -87,6 +88,65 @@ esac
     expect((await service.status('claude')).accounts.map((a) => a.auth.loggedIn)).toEqual([true, false]);
     service.forgetLogin('claude', work);
     expect(service.login('claude', work)).toBeNull();
+  });
+
+  it("asks each account's home for the CLI's own defaults, and layers that account's defaults over them", async () => {
+    vi.stubEnv('ANTHROPIC_MODEL', '');
+    vi.stubEnv('CLAUDE_CODE_EFFORT_LEVEL', '');
+    try {
+      const settings = new SettingsStore(openDatabase(':memory:'));
+      settings.setAgentHome(join(root, 'model-homes'));
+      // Not installed: their models are the built-in lists, and no CLI runs.
+      settings.update('codex', { bin: join(root, 'no-such-codex') });
+      settings.update('grok', { bin: join(root, 'no-such-grok-models') });
+      const work = settings.addAccount('claude', 'Work');
+      const team = settings.addAccount('grok', 'Team');
+      writeFileSync(join(settings.env('claude').CLAUDE_CONFIG_DIR!, 'settings.json'), JSON.stringify({ model: 'opus', effortLevel: 'high' }));
+      writeFileSync(join(settings.env('claude', work).CLAUDE_CONFIG_DIR!, 'settings.json'), JSON.stringify({ model: 'sonnet' }));
+      settings.updateAccount('claude', work, { defaultEffort: 'low' });
+      const service = new ProviderService(settings);
+
+      const own = await service.models('claude');
+      expect(own).toMatchObject({ cliDefaultModel: 'opus', cliDefaultEffort: 'high', defaultModel: 'opus', defaultEffort: 'high' });
+      expect(own.account).toBeUndefined();
+      expect(await service.models('claude', false, work)).toMatchObject({
+        account: work,
+        cliDefaultModel: 'sonnet',
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      });
+      // A change to an account's defaults shows at once, without asking the CLI again.
+      settings.updateAccount('claude', work, { defaultModel: 'haiku' });
+      expect((await service.models('claude', false, work)).defaultModel).toBe('haiku');
+      expect((await service.models('claude')).defaultModel).toBe('opus');
+      // An account the CLI does not have is the default account.
+      const gone = await service.models('claude', false, 'gone');
+      expect([gone.account, gone.cliDefaultModel]).toEqual([undefined, 'opus']);
+
+      const all = await service.modelsAll();
+      expect(all.map((m) => [m.provider, m.account ?? ''])).toEqual([
+        ['claude', ''],
+        ['claude', work],
+        ['codex', ''],
+        ['grok', ''],
+        ['grok', team],
+      ]);
+      expect(catalogFor(all, 'claude', work)?.defaultModel).toBe('haiku');
+      expect(catalogFor(all, 'claude')?.defaultModel).toBe('opus');
+      expect(catalogFor(all, 'claude', 'gone')?.defaultModel).toBe('opus');
+      expect(catalogFor(all, 'codex', work)).toMatchObject({ provider: 'codex' });
+      expect(catalogFor([], 'claude')).toBeUndefined();
+
+      // Kept for ten minutes, per account, until the CLI's settings change.
+      writeFileSync(join(settings.env('claude', work).CLAUDE_CONFIG_DIR!, 'settings.json'), JSON.stringify({ model: 'fable' }));
+      expect((await service.models('claude', false, work)).cliDefaultModel).toBe('sonnet');
+      expect((await service.models('claude', true, work)).cliDefaultModel).toBe('fable');
+      writeFileSync(join(settings.env('claude').CLAUDE_CONFIG_DIR!, 'settings.json'), JSON.stringify({ model: 'sonnet' }));
+      service.invalidate('claude');
+      expect((await service.models('claude')).cliDefaultModel).toBe('sonnet');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('lists every account as unknown when the CLI is not installed', async () => {

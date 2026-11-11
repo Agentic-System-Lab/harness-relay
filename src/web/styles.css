@@ -3472,7 +3472,7 @@ video.chat-media {
   gap: 10px;
 }
 
-/* A CLI with several accounts: each one in a box of its own, its name and sign-in state on top. */
+/* Each account of a CLI (also the only one) in a box of its own, its name and sign-in state on top. */
 .account-block {
   border: 1px solid var(--border);
   border-radius: 10px;

@@ -311,6 +311,21 @@ const MIGRATIONS: string[] = [
   ALTER TABLE preset_agents ADD COLUMN account TEXT;
   ALTER TABLE agent_sessions ADD COLUMN account TEXT;
   `,
+  // 20: each account has its own default model and effort, and its own choice of what Harness Relay's
+  // runs leave out of what the CLI loads by itself (its home has its own skills, MCP servers, hooks and
+  // memory). The default account's stay in provider_settings; the accounts there were get the CLI's
+  // values, so they run as before.
+  `
+  ALTER TABLE provider_accounts ADD COLUMN default_model TEXT NOT NULL DEFAULT '';
+  ALTER TABLE provider_accounts ADD COLUMN default_effort TEXT NOT NULL DEFAULT '';
+  ALTER TABLE provider_accounts ADD COLUMN native_off TEXT NOT NULL DEFAULT '';
+  ALTER TABLE provider_accounts ADD COLUMN native_items TEXT NOT NULL DEFAULT '{}';
+  UPDATE provider_accounts SET
+    default_model = COALESCE((SELECT s.default_model FROM provider_settings s WHERE s.provider = provider_accounts.provider), ''),
+    default_effort = COALESCE((SELECT s.default_effort FROM provider_settings s WHERE s.provider = provider_accounts.provider), ''),
+    native_off = COALESCE((SELECT s.native_off FROM provider_settings s WHERE s.provider = provider_accounts.provider), ''),
+    native_items = COALESCE((SELECT s.native_items FROM provider_settings s WHERE s.provider = provider_accounts.provider), '{}');
+  `,
 ];
 
 function migrate(db: Database): void {

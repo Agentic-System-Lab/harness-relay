@@ -279,8 +279,11 @@ export const api = {
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),
   providers: (refresh = false) => request<ProviderStatus[]>('GET', `/api/providers${refresh ? '?refresh=1' : ''}`),
-  nativeSetup: (p: Provider, refresh = false) => request<NativeSetup>('POST', `/api/providers/${p}/native`, { refresh }),
-  nativeFile: (p: Provider, path: string) => request<FilePreview>('POST', `/api/providers/${p}/native/file`, { path }),
+  /** What a CLI loads by itself in an account's home (empty: the default account's), with what its runs leave out. */
+  nativeSetup: (p: Provider, refresh = false, account = '') =>
+    request<NativeSetup>('POST', `/api/providers/${p}/native${accountQuery(account)}`, { refresh }),
+  nativeFile: (p: Provider, path: string, account = '') =>
+    request<FilePreview>('POST', `/api/providers/${p}/native/file${accountQuery(account)}`, { path }),
   /**
    * Whether Grok trusts `cwd`. With `trustFolder`, trust it first: only after the user confirmed that
    * folder (the `folder` of an earlier answer); the server refuses if Grok now names another.

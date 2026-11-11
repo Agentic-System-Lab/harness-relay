@@ -841,6 +841,7 @@ export const en: Messages = {
     title: 'Skills, MCP servers, hooks, memory and more this CLI loads by itself',
     summary: (s, m, f) => `${s} skills · ${m} MCP · ${f} files`,
     hint: "This is the CLI's own setup, separate from the tool library, for the default working directory. Asking starts the CLI briefly, without calling a model; Claude Code and Codex start their MCP servers, and Claude Code runs your hooks. When something is left out, the CLI is asked again the way Harness Relay starts it, and what it then leaves out is marked. Answers are kept for a minute.",
+    perAccount: "Each account has a CLI folder of its own: this lists what this account loads, and what is left out here applies to this account only.",
     offHint:
       "\"Leave out\" applies only when Harness Relay starts this CLI: the CLI's own settings files are not changed, and using it in a terminal is not affected. The tool library's items are still provided. Each tab can leave out all of its kind, or, once the CLI has been asked, single items.",
     load: 'Ask',
@@ -1056,11 +1057,13 @@ export const en: Messages = {
     },
     keyEnvHint: (v) => ` To keep it out of the database, set ${v} before starting Harness Relay instead.`,
     defaults: 'Default model and reasoning effort',
-    defaultsHint: (p) => `Used when a member's model / effort is left on "Default"; choose "CLI default" here too to leave it to ${p}'s own settings.`,
+    defaultsHint: (p) =>
+      `Used when a member of this account (or the lead agent, when it runs as this account) leaves its model / effort on "Default"; choose "CLI default" here too to leave it to ${p}'s own settings in this account's folder. Each account has its own.`,
     modelsError: (e) => `Could not get the model list from the CLI: ${e}`,
     cliDefault: (v) => `CLI default: ${v}`,
     unknown: 'unknown',
     bin: 'Executable',
+    binHint: (p, bin) => `Every account of this CLI runs the same ${p} executable. Leave empty to use ${bin} on PATH.`,
     loginState: { running: 'Waiting for authorisation…', success: 'Signed in ✓', failed: 'Sign-in failed', cancelled: 'Cancelled' },
     openAuthPage: 'Open the authorisation page:',
     enterCode: 'Enter or confirm this code on the page:',

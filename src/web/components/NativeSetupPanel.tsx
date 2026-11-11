@@ -7,8 +7,8 @@ import {
   type NativeMcpServer,
   type NativeSetup,
   type Provider,
-  type ProviderSettingsUpdate,
-  type ProviderSettingsView,
+  type ProviderAccountUpdate,
+  type ProviderAccountView,
   type SettingsView,
 } from '../../shared/types';
 import { api } from '../api';
@@ -62,10 +62,11 @@ function StateBadges({ item, still }: { item: ItemState; still?: boolean }) {
 }
 
 /**
- * What a CLI loads by itself (its own skills, MCP servers and their tools, built-in tools, hooks,
- * subagents, plugins, instruction and memory files), in a tab each, and what of it Harness Relay's
- * runs leave out: each tab has a switch that leaves all of its kind out, and a box on each item the
- * CLI can leave out alone. Saved as soon as one is changed; the CLI's own settings stay. The CLI is
+ * What a CLI loads by itself in one account's home (its own skills, MCP servers and their tools,
+ * built-in tools, hooks, subagents, plugins, instruction and memory files), in a tab each, and what of
+ * it Harness Relay's runs as that account leave out: each tab has a switch that leaves all of its kind
+ * out, and a box on each item the CLI can leave out alone. Saved as soon as one is changed, for this
+ * account only; the CLI's own settings stay. The CLI is
  * asked only when the user clicks Ask: asking starts it briefly (Claude Code runs SessionStart
  * hooks; it and Codex start MCP servers), and someone may open this section to turn off an MCP
  * server precisely because starting it does harm. With something left out, the server asks the CLI
@@ -73,11 +74,15 @@ function StateBadges({ item, still }: { item: ItemState; still?: boolean }) {
  */
 export function NativeSetupPanel({
   provider,
-  settings,
+  account,
+  multi = false,
   onSettings,
 }: {
   provider: Provider;
-  settings?: ProviderSettingsView;
+  /** The account asked and changed; undefined until the settings have loaded. */
+  account?: ProviderAccountView;
+  /** The CLI has more than one account: the panel says it is this one's. */
+  multi?: boolean;
   onSettings: (s: SettingsView) => void;
 }) {
   const t = useT();
@@ -97,7 +102,7 @@ export function NativeSetupPanel({
     setLoading(true);
     setError('');
     try {
-      setSetup(await api.nativeSetup(provider, refresh));
+      setSetup(await api.nativeSetup(provider, refresh, account?.id ?? ''));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -106,15 +111,16 @@ export function NativeSetupPanel({
   };
 
   // What is being saved shows at once; it goes back if saving fails.
-  const [saving, setSaving] = useState<Pick<ProviderSettingsUpdate, 'nativeOff' | 'nativeItems'> | null>(null);
-  const off = saving?.nativeOff ?? settings?.nativeOff ?? [];
-  const items = saving?.nativeItems ?? settings?.nativeItems ?? {};
-  const save = async (update: Pick<ProviderSettingsUpdate, 'nativeOff' | 'nativeItems'>) => {
+  const [saving, setSaving] = useState<Pick<ProviderAccountUpdate, 'nativeOff' | 'nativeItems'> | null>(null);
+  const off = saving?.nativeOff ?? account?.nativeOff ?? [];
+  const items = saving?.nativeItems ?? account?.nativeItems ?? {};
+  const save = async (update: Pick<ProviderAccountUpdate, 'nativeOff' | 'nativeItems'>) => {
+    if (!account) return;
     setBusy(true);
     setSaveError('');
     setSaving(update);
     try {
-      onSettings(await api.updateProvider(provider, update));
+      onSettings(await api.updateAccount(provider, account.id, update));
     } catch (e) {
       setSaveError((e as Error).message);
     } finally {
@@ -131,8 +137,8 @@ export function NativeSetupPanel({
   const partOff = off.includes(part);
   const picked = tabPicked(items, shown);
   // Whether this answer was given with what is left out now; if not, its marks may no longer hold.
-  const current = Boolean(setup && settings && sameNativeParts(setup.nativeOff, off) && sameNativeItems(setup.nativeItems ?? {}, items));
-  const stale = Boolean(setup && settings && !current);
+  const current = Boolean(setup && account && sameNativeParts(setup.nativeOff, off) && sameNativeItems(setup.nativeItems ?? {}, items));
+  const stale = Boolean(setup && account && !current);
   const counts = setup ? { skills: setup.skills.length, mcp: setup.mcpServers.length, memory: setup.memory.length } : null;
   const total = nativeOffTotal(off, items);
 
@@ -143,7 +149,7 @@ export function NativeSetupPanel({
         type="checkbox"
         className="native-pick"
         checked={isPicked(items, kind, id)}
-        disabled={busy || !settings || locked}
+        disabled={busy || !account || locked}
         onChange={(e) => void save({ nativeItems: withItem(items, kind, id, e.target.checked) })}
         aria-label={t.native.pick(name)}
         title={t.native.pick(name)}
@@ -167,6 +173,7 @@ export function NativeSetupPanel({
         {total ? <span className="badge">{t.native.offCount(total)}</span> : null}
       </summary>
       <div className="sub-body">
+        {multi && <p className="muted small">{t.native.perAccount}</p>}
         <p className="muted small">{t.native.offHint}</p>
         {provider === 'codex' && <p className="muted small">{t.native.offCodexThreads}</p>}
         <p className="muted small">{t.native.hint}</p>
@@ -216,7 +223,7 @@ export function NativeSetupPanel({
               <input
                 type="checkbox"
                 checked={partOff}
-                disabled={busy || !settings}
+                disabled={busy || !account}
                 onChange={(e) => void save({ nativeOff: e.target.checked ? [...off, part] : off.filter((p) => p !== part) })}
               />
               <span>{t.native.offAll}</span>
@@ -233,7 +240,7 @@ export function NativeSetupPanel({
           ) : (
             <p className="muted small">
               {t.native.picked(picked)}{' '}
-              <button type="button" className="link-button" onClick={() => void save({ nativeItems: withoutTab(items, shown) })} disabled={busy || !settings}>
+              <button type="button" className="link-button" onClick={() => void save({ nativeItems: withoutTab(items, shown) })} disabled={busy || !account}>
                 {t.native.clearPicked}
               </button>
             </p>
@@ -241,7 +248,7 @@ export function NativeSetupPanel({
         {unlisted.length > 0 && (
           <p className="muted small">
             {t.native.unlisted(unlisted.length)}{' '}
-            <button type="button" className="link-button" onClick={() => void save({ nativeItems: withoutPicks(items, unlisted) })} disabled={busy || !settings}>
+            <button type="button" className="link-button" onClick={() => void save({ nativeItems: withoutPicks(items, unlisted) })} disabled={busy || !account}>
               {t.native.clearUnlisted}
             </button>
           </p>
@@ -410,7 +417,7 @@ export function NativeSetupPanel({
           </>
         )}
       </div>
-      {viewing && <ReportedFile provider={provider} path={viewing} onClose={() => setViewing(null)} />}
+      {viewing && <ReportedFile provider={provider} account={account?.id ?? ''} path={viewing} onClose={() => setViewing(null)} />}
     </details>
   );
 
@@ -468,7 +475,7 @@ function List({ empty, children }: { empty: boolean; children: ReactNode }) {
 }
 
 /** One of the files the CLI reported, read in a dialog. */
-function ReportedFile({ provider, path, onClose }: { provider: Provider; path: string; onClose: () => void }) {
+function ReportedFile({ provider, account, path, onClose }: { provider: Provider; account: string; path: string; onClose: () => void }) {
   const t = useT();
   const dialog = useRef<HTMLDivElement>(null);
   useDialog(dialog, onClose);
@@ -478,8 +485,8 @@ function ReportedFile({ provider, path, onClose }: { provider: Provider; path: s
   const name = path.split(/[\\/]/).pop() || path;
 
   useEffect(() => {
-    api.nativeFile(provider, path).then(setPreview, (e: Error) => setError(e.message));
-  }, [provider, path]);
+    api.nativeFile(provider, path, account).then(setPreview, (e: Error) => setError(e.message));
+  }, [provider, account, path]);
 
   return (
     <div className="modal-scrim" onClick={onClose}>

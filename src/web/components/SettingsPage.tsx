@@ -6,6 +6,7 @@ import {
   PROVIDERS,
   PROVIDER_INSTALL_URL,
   PROVIDER_LABEL,
+  catalogFor,
   inheritedEffort,
   type AccountStatus,
   type LeadAgentSettings,
@@ -156,10 +157,11 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
               key={p}
               provider={p}
               status={providers.find((x) => x.provider === p)}
-              catalog={catalog.find((x) => x.provider === p)}
+              catalog={catalog.filter((x) => x.provider === p)}
               settings={settings?.providers.find((x) => x.provider === p)}
               onSettings={setSettings}
               onRefresh={() => refreshProviders(true)}
+              onDefaults={() => refreshProviders()}
             />
           ))}
         </div>
@@ -225,7 +227,8 @@ function LeadCard({
   useEffect(() => setLead(saved), [saved.provider, saved.model, saved.effort, saved.account]);
 
   const status = providers.find((p) => p.provider === lead.provider);
-  const pm = catalog.find((c) => c.provider === lead.provider);
+  // As its account runs it: that account's models and defaults.
+  const pm = catalogFor(catalog, lead.provider, lead.account);
   const account = accountOf(status, lead.account);
   const unchanged =
     lead.provider === saved.provider &&
@@ -271,7 +274,7 @@ function LeadCard({
       </div>
       <AccountPicker status={status} value={lead.account} onChange={(a) => setLead({ ...lead, account: a })} />
       <ModelPicker
-        key={lead.provider}
+        key={`${lead.provider}|${lead.account ?? ''}`}
         catalog={pm}
         model={lead.model ?? ''}
         effort={lead.effort ?? ''}
@@ -322,24 +325,26 @@ function ProviderCard({
   settings,
   onSettings,
   onRefresh,
+  onDefaults,
 }: {
   provider: Provider;
   status?: ProviderStatus;
-  catalog?: ProviderModels;
+  /** This CLI's models, one entry per account (`catalogFor`). */
+  catalog: ProviderModels[];
   settings?: ProviderSettingsView;
   onSettings: (s: SettingsView) => void;
   onRefresh: () => Promise<void>;
+  /** An account's defaults changed: the models again, without asking the CLIs again. */
+  onDefaults: () => Promise<void>;
 }) {
   const { t, lang } = useI18n();
   const [methods, setMethods] = useState<LoginMethod[]>([]);
   const [bin, setBin] = useState('');
-  const [model, setModel] = useState('');
-  const [effort, setEffort] = useState('');
   const [newName, setNewName] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const accounts = settings?.accounts ?? [];
-  /** More than one account: each one shows its name and its own sign-in state. */
+  /** More than one account: each says that what it loads and leaves out is its own. */
   const multi = accounts.length > 1;
   const pill = statusPill(status, t);
 
@@ -348,11 +353,7 @@ function ProviderCard({
     api.loginMethods(provider).then(setMethods, (e: Error) => setNote(e.message));
   }, [provider, lang]);
 
-  useEffect(() => {
-    setBin(settings?.bin ?? '');
-    setModel(settings?.defaultModel ?? '');
-    setEffort(settings?.defaultEffort ?? '');
-  }, [settings?.bin, settings?.defaultModel, settings?.defaultEffort]);
+  useEffect(() => setBin(settings?.bin ?? ''), [settings?.bin]);
 
   const act = async (fn: () => Promise<unknown>, ok?: string) => {
     setBusy(true);
@@ -367,9 +368,10 @@ function ProviderCard({
     }
   };
 
-  const saveAdvanced = () =>
+  // The executable every account of this CLI runs.
+  const saveBin = () =>
     act(async () => {
-      onSettings(await api.updateProvider(provider, { bin, defaultModel: model, defaultEffort: effort }));
+      onSettings(await api.updateProvider(provider, { bin }));
       await onRefresh();
     }, t.settings.saved);
 
@@ -396,17 +398,10 @@ function ProviderCard({
       <header className="provider-head">
         <span className="provider-swatch" />
         <SectionTitle section={provider}>{PROVIDER_LABEL[provider]}</SectionTitle>
-        {/* With several accounts, each one says how it is signed in. */}
-        {(!multi || !status?.installed) && <span className={`pill ${pill.cls}`}>{pill.text}</span>}
-        {/* Login details; a CLI that is not installed is explained once, in the line below. */}
-        {status?.installed && (
-          <span className="muted small">
-            {status.version && `v${status.version}`}
-            {!multi && status.auth.account && ` · ${status.auth.account}`}
-            {!multi && status.auth.method && ` · ${status.auth.method}`}
-            {!multi && status.auth.detail && ` · ${status.auth.detail}`}
-          </span>
-        )}
+        {/* Each account says how it is signed in, in its own block; here only whether the CLI is there. */}
+        {!status?.installed && <span className={`pill ${pill.cls}`}>{pill.text}</span>}
+        {/* A CLI that is not installed is explained once, in the line below. */}
+        {status?.installed && status.version && <span className="muted small">v{status.version}</span>}
       </header>
 
       {status && !status.installed && (
@@ -431,8 +426,10 @@ function ProviderCard({
           installed={Boolean(status?.installed)}
           methods={methods}
           multi={multi}
+          catalog={catalogFor(catalog, provider, a?.id)}
           onSettings={onSettings}
           onRefresh={onRefresh}
+          onDefaults={onDefaults}
         />
       ))}
 
@@ -459,41 +456,26 @@ function ProviderCard({
 
       <details className="sub">
         <summary>
-          {t.settings.defaults}
-          {(settings?.defaultModel || settings?.defaultEffort) &&
-            ` (${[settings.defaultModel, settings.defaultEffort && t.effortLabel(settings.defaultEffort)].filter(Boolean).join(' · ')})`}
+          {t.settings.bin}
+          {settings?.bin && ` (${settings.bin})`}
         </summary>
         <div className="sub-body">
-          <p className="muted small">{t.settings.defaultsHint(PROVIDER_LABEL[provider])}</p>
-          {catalog?.error && <p className="warn-line">{t.settings.modelsError(catalog.error)}</p>}
-          <ModelPicker
-            key={`${settings?.defaultModel}|${catalog?.models.length ?? 0}`}
-            catalog={catalog}
-            model={model}
-            effort={effort}
-            onChange={(v) => {
-              setModel(v.model);
-              setEffort(v.effort);
-            }}
-            inheritModelLabel={t.settings.cliDefault(catalog?.cliDefaultModel ?? t.settings.unknown)}
-            inheritEffortLabel={(m) => {
-              const e = catalog?.cliDefaultEffort ?? catalog?.models.find((x) => x.id === (m || catalog.cliDefaultModel))?.defaultEffort;
-              return t.settings.cliDefault(e ? t.effortLabel(e) : t.settings.unknown);
-            }}
-          />
-          <label className="field inline">
-            <span>{t.settings.bin}</span>
-            <input value={bin} placeholder={provider} onChange={(e) => setBin(e.target.value)} spellCheck={false} />
-          </label>
-          <div className="button-row">
-            <button className="ghost" onClick={saveAdvanced} disabled={busy}>
+          <p className="muted small">{t.settings.binHint(PROVIDER_LABEL[provider], provider)}</p>
+          <div className="input-row">
+            <input
+              value={bin}
+              placeholder={provider}
+              aria-label={t.settings.bin}
+              onChange={(e) => setBin(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !busy && settings && bin !== settings.bin && void saveBin()}
+              spellCheck={false}
+            />
+            <button className="ghost" onClick={() => void saveBin()} disabled={busy || !settings || bin === settings.bin}>
               {t.common.save}
             </button>
           </div>
         </div>
       </details>
-
-      <NativeSetupPanel provider={provider} settings={settings} onSettings={onSettings} />
 
       {note && <p className="muted small">{note}</p>}
     </section>
@@ -501,9 +483,11 @@ function ProviderCard({
 }
 
 /**
- * One account of a CLI: signing it in and out with the CLI's own flow, and its API key. With more
- * than one account (`multi`), it has a head: its name, its sign-in state, and renaming and removing it
- * (the default account cannot be removed).
+ * One account of a CLI, in a box of its own also while it is the only one: a head with its name, its
+ * sign-in state, and renaming and removing it (the default account cannot be removed); signing it in
+ * and out with the CLI's own flow, its API key, and how Harness Relay runs it: its default model and
+ * effort, and what its runs leave out of what the CLI loads by itself in its home. `multi`: the CLI has
+ * other accounts too.
  */
 function AccountBlock({
   provider,
@@ -512,8 +496,10 @@ function AccountBlock({
   installed,
   methods,
   multi,
+  catalog,
   onSettings,
   onRefresh,
+  onDefaults,
 }: {
   provider: Provider;
   /** Undefined until the settings have loaded (the default account then). */
@@ -522,8 +508,11 @@ function AccountBlock({
   installed: boolean;
   methods: LoginMethod[];
   multi: boolean;
+  /** The models of the CLI in this account's home, with its defaults. */
+  catalog?: ProviderModels;
   onSettings: (s: SettingsView) => void;
   onRefresh: () => Promise<void>;
+  onDefaults: () => Promise<void>;
 }) {
   const t = useT();
   const id = account?.id ?? '';
@@ -613,53 +602,51 @@ function AccountBlock({
   const selected = methods.find((m) => m.id === method);
 
   return (
-    <div className={`login-block${multi ? ' account-block' : ''}`}>
-      {multi && (
-        <div className="account-head">
-          {renaming === null ? (
-            <>
-              <strong>{name}</strong>
-              <span className={`pill ${pill.cls}`}>{pill.text}</span>
-              {installed && status && (
-                <span className="muted small">
-                  {[status.auth.account, status.auth.method, status.auth.detail].filter(Boolean).join(' · ')}
-                </span>
-              )}
-              <span className="account-actions">
-                <button className="ghost small-button" onClick={() => setRenaming(account?.label || name)} disabled={busy || !account}>
-                  {t.accounts.rename}
-                </button>
-                {id && (
-                  <button className="ghost small-button danger" onClick={remove} disabled={busy || running}>
-                    {t.accounts.remove}
-                  </button>
-                )}
+    <div className="login-block account-block">
+      <div className="account-head">
+        {renaming === null ? (
+          <>
+            <strong>{name}</strong>
+            <span className={`pill ${pill.cls}`}>{pill.text}</span>
+            {installed && status && (
+              <span className="muted small">
+                {[status.auth.account, status.auth.method, status.auth.detail].filter(Boolean).join(' · ')}
               </span>
-            </>
-          ) : (
-            <div className="input-row">
-              <input
-                value={renaming}
-                aria-label={t.accounts.nameLabel}
-                maxLength={MAX_ACCOUNT_LABEL}
-                autoFocus
-                onChange={(e) => setRenaming(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void rename();
-                  if (e.key === 'Escape') setRenaming(null);
-                }}
-              />
-              <button className="primary" onClick={() => void rename()} disabled={busy}>
-                {t.common.save}
+            )}
+            <span className="account-actions">
+              <button className="ghost small-button" onClick={() => setRenaming(account?.label || name)} disabled={busy || !account}>
+                {t.accounts.rename}
               </button>
-              <button className="ghost" onClick={() => setRenaming(null)} disabled={busy}>
-                {t.common.cancel}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-      {multi && id && account?.home && <p className="muted small mono-path">{t.accounts.folder(account.home)}</p>}
+              {id && (
+                <button className="ghost small-button danger" onClick={remove} disabled={busy || running}>
+                  {t.accounts.remove}
+                </button>
+              )}
+            </span>
+          </>
+        ) : (
+          <div className="input-row">
+            <input
+              value={renaming}
+              aria-label={t.accounts.nameLabel}
+              maxLength={MAX_ACCOUNT_LABEL}
+              autoFocus
+              onChange={(e) => setRenaming(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void rename();
+                if (e.key === 'Escape') setRenaming(null);
+              }}
+            />
+            <button className="primary" onClick={() => void rename()} disabled={busy}>
+              {t.common.save}
+            </button>
+            <button className="ghost" onClick={() => setRenaming(null)} disabled={busy}>
+              {t.common.cancel}
+            </button>
+          </div>
+        )}
+      </div>
+      {id && account?.home && <p className="muted small mono-path">{t.accounts.folder(account.home)}</p>}
 
       <div className="method-list" role="radiogroup">
         {methods.map((m) => (
@@ -714,8 +701,92 @@ function AccountBlock({
         </div>
       </details>
 
+      <AccountDefaults provider={provider} account={account} catalog={catalog} onSettings={onSettings} onSaved={onDefaults} />
+
+      <NativeSetupPanel key={id} provider={provider} account={account} multi={multi} onSettings={onSettings} />
+
       {note && <p className="muted small">{note}</p>}
     </div>
+  );
+}
+
+/**
+ * An account's default model and effort: what its members (and the lead agent, when it runs as this
+ * account) run when they leave them on "default". Empty: the CLI's own, from the config in its home.
+ */
+function AccountDefaults({
+  provider,
+  account,
+  catalog,
+  onSettings,
+  onSaved,
+}: {
+  provider: Provider;
+  account?: ProviderAccountView;
+  catalog?: ProviderModels;
+  onSettings: (s: SettingsView) => void;
+  onSaved: () => Promise<void>;
+}) {
+  const t = useT();
+  const [model, setModel] = useState('');
+  const [effort, setEffort] = useState('');
+  const [note, setNote] = useState<{ text: string; error?: boolean }>({ text: '' });
+  const [busy, setBusy] = useState(false);
+  const savedModel = account?.defaultModel ?? '';
+  const savedEffort = account?.defaultEffort ?? '';
+
+  useEffect(() => {
+    setModel(savedModel);
+    setEffort(savedEffort);
+  }, [savedModel, savedEffort]);
+
+  const save = async () => {
+    if (!account) return;
+    setBusy(true);
+    setNote({ text: '' });
+    try {
+      onSettings(await api.updateAccount(provider, account.id, { defaultModel: model, defaultEffort: effort }));
+      await onSaved();
+      setNote({ text: t.settings.saved });
+    } catch (e) {
+      setNote({ text: (e as Error).message, error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <details className="sub">
+      <summary>
+        {t.settings.defaults}
+        {(savedModel || savedEffort) && ` (${[savedModel, savedEffort && t.effortLabel(savedEffort)].filter(Boolean).join(' · ')})`}
+      </summary>
+      <div className="sub-body">
+        <p className="muted small">{t.settings.defaultsHint(PROVIDER_LABEL[provider])}</p>
+        {catalog?.error && <p className="warn-line">{t.settings.modelsError(catalog.error)}</p>}
+        <ModelPicker
+          key={`${savedModel}|${catalog?.models.length ?? 0}`}
+          catalog={catalog}
+          model={model}
+          effort={effort}
+          onChange={(v) => {
+            setModel(v.model);
+            setEffort(v.effort);
+          }}
+          inheritModelLabel={t.settings.cliDefault(catalog?.cliDefaultModel ?? t.settings.unknown)}
+          inheritEffortLabel={(m) => {
+            const e = catalog?.cliDefaultEffort ?? catalog?.models.find((x) => x.id === (m || catalog.cliDefaultModel))?.defaultEffort;
+            return t.settings.cliDefault(e ? t.effortLabel(e) : t.settings.unknown);
+          }}
+        />
+        <div className="button-row">
+          <button className="ghost" onClick={() => void save()} disabled={busy || !account || (model === savedModel && effort === savedEffort)}>
+            {t.common.save}
+          </button>
+        </div>
+        {note.text && <p className={note.error ? 'error-line' : 'muted small'}>{note.text}</p>}
+      </div>
+    </details>
   );
 }
 

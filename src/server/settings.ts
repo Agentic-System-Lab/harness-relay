@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import {
   ACCOUNT_ID_RE,
   MAX_ACCOUNT_LABEL,
+  type AccountRunSettings,
   nativeItemsFor,
   nativeOffFor,
   PROVIDERS,
@@ -35,23 +36,31 @@ export interface VoiceSettings {
   bin: string;
 }
 
-interface ProviderSettings {
+/** A CLI's settings, with its default account's key, name and run settings. */
+interface ProviderSettings extends AccountRunSettings {
   bin: string;
   /** The default account's key. */
   apiKey: string;
   /** The default account's name. */
   accountLabel: string;
-  defaultModel: string;
-  defaultEffort: string;
-  nativeOff: NativePart[];
-  nativeItems: NativeItemsOff;
 }
 
-/** An account of a CLI besides its default one. */
-interface AccountSettings {
+/** An account of a CLI besides its default one, with run settings of its own. */
+interface AccountSettings extends AccountRunSettings {
   id: string;
   label: string;
   apiKey: string;
+}
+
+/** A new account's run settings: the CLI's own defaults, nothing left out. */
+const freshRun = (): AccountRunSettings => ({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} });
+
+/** Applies an update's run settings to an account's: what the CLI cannot leave out is dropped. */
+function applyRun(p: Provider, run: AccountRunSettings, u: ProviderAccountUpdate): void {
+  if (u.defaultModel !== undefined) run.defaultModel = u.defaultModel.trim();
+  if (u.defaultEffort !== undefined) run.defaultEffort = u.defaultEffort.trim();
+  if (u.nativeOff !== undefined) run.nativeOff = nativeOffFor(p, u.nativeOff);
+  if (u.nativeItems !== undefined) run.nativeItems = nativeItemsFor(p, u.nativeItems);
 }
 
 /** Env var each CLI reads an API key from. Codex keys go through `codex login --with-api-key` instead. */
@@ -195,11 +204,31 @@ export class SettingsStore {
     }
     this.accountList = { claude: [], codex: [], grok: [] };
     const accounts = db
-      .prepare('SELECT id, provider, label, api_key FROM provider_accounts ORDER BY position, created_at')
-      .all() as { id: string; provider: Provider; label: string; api_key: string }[];
+      .prepare(
+        `SELECT id, provider, label, api_key, default_model, default_effort, native_off, native_items
+         FROM provider_accounts ORDER BY position, created_at`,
+      )
+      .all() as {
+      id: string;
+      provider: Provider;
+      label: string;
+      api_key: string;
+      default_model: string;
+      default_effort: string;
+      native_off: string;
+      native_items: string;
+    }[];
     for (const a of accounts) {
       if (PROVIDERS.includes(a.provider) && ACCOUNT_ID_RE.test(a.id)) {
-        this.accountList[a.provider].push({ id: a.id, label: a.label, apiKey: a.api_key });
+        this.accountList[a.provider].push({
+          id: a.id,
+          label: a.label,
+          apiKey: a.api_key,
+          defaultModel: a.default_model,
+          defaultEffort: a.default_effort,
+          nativeOff: nativeOffFor(a.provider, a.native_off.split(',')),
+          nativeItems: nativeItemsFor(a.provider, parseJson(a.native_items)),
+        });
       }
     }
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'default_cwd'").get() as { value: string } | undefined;
@@ -352,34 +381,58 @@ export class SettingsStore {
     const position = this.accountList[p].indexOf(a);
     this.db
       .prepare(
-        `INSERT INTO provider_accounts (id, provider, label, api_key, position, created_at) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET label = excluded.label, api_key = excluded.api_key, position = excluded.position`,
+        `INSERT INTO provider_accounts (id, provider, label, api_key, position, created_at, default_model, default_effort, native_off, native_items)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET label = excluded.label, api_key = excluded.api_key, position = excluded.position,
+           default_model = excluded.default_model, default_effort = excluded.default_effort,
+           native_off = excluded.native_off, native_items = excluded.native_items`,
       )
-      .run(a.id, p, a.label, this.keyInDb(p, a.id) ? a.apiKey : '', position < 0 ? 0 : position, Date.now());
+      .run(
+        a.id,
+        p,
+        a.label,
+        this.keyInDb(p, a.id) ? a.apiKey : '',
+        position < 0 ? 0 : position,
+        Date.now(),
+        a.defaultModel,
+        a.defaultEffort,
+        a.nativeOff.join(','),
+        JSON.stringify(a.nativeItems),
+      );
   }
 
-  /** Adds an account to a CLI, signed out and with no key; returns its id. The caller checks `MAX_ACCOUNTS`. */
+  /**
+   * Adds an account to a CLI, signed out and with no key; returns its id. The caller checks
+   * `MAX_ACCOUNTS`. Its home starts empty, so it runs with the CLI's own defaults and leaves nothing out.
+   */
   addAccount(p: Provider, label: string): string {
     let id: string;
     do id = randomBytes(4).toString('hex');
     while (PROVIDERS.some((q) => this.accountList[q].some((a) => a.id === id)));
-    const account: AccountSettings = { id, label: label.trim().slice(0, MAX_ACCOUNT_LABEL), apiKey: '' };
+    const account: AccountSettings = { id, label: label.trim().slice(0, MAX_ACCOUNT_LABEL), apiKey: '', ...freshRun() };
     this.accountList[p].push(account);
     this.saveAccount(p, account);
     return id;
   }
 
-  /** Renames an account, or sets or removes its key (empty `account`: the default one). */
+  /**
+   * Renames an account, sets or removes its key, or changes its defaults or what its runs leave out
+   * (empty `account`: the default one).
+   */
   updateAccount(p: Provider, account: string, u: ProviderAccountUpdate): void {
     if (!account) {
-      if (u.label !== undefined) this.providers[p].accountLabel = u.label.trim().slice(0, MAX_ACCOUNT_LABEL);
-      this.update(p, u.apiKey !== undefined ? { apiKey: u.apiKey } : {});
+      const s = this.providers[p];
+      if (u.label !== undefined) s.accountLabel = u.label.trim().slice(0, MAX_ACCOUNT_LABEL);
+      if (u.apiKey !== undefined && API_KEY_ENV[p]) s.apiKey = this.storeKey(p, '', u.apiKey);
+      applyRun(p, s, u);
+      this.saveProvider(p);
       return;
     }
     const a = this.accountList[p].find((x) => x.id === account);
     if (!a) return;
     if (u.apiKey !== undefined && API_KEY_ENV[p]) a.apiKey = this.storeKey(p, account, u.apiKey);
     if (u.label !== undefined) a.label = u.label.trim().slice(0, MAX_ACCOUNT_LABEL);
+    applyRun(p, a, u);
     this.saveAccount(p, a);
   }
 
@@ -506,22 +559,33 @@ export class SettingsStore {
     return this.providers[p].bin.trim() || DEFAULT_BIN[p];
   }
 
-  defaultModel(p: Provider): string {
-    return this.providers[p].defaultModel.trim();
+  /**
+   * How a run as `account` goes (empty or one the CLI does not have, such as one removed since: the
+   * default account, as `env()` does).
+   */
+  private run(p: Provider, account?: string): AccountRunSettings {
+    const id = this.resolveAccount(p, account);
+    return (id && this.accountList[p].find((a) => a.id === id)) || this.providers[p];
   }
 
-  defaultEffort(p: Provider): string {
-    return this.providers[p].defaultEffort.trim();
+  /** The model an agent of this account runs when it names none; empty = the CLI's own default. */
+  defaultModel(p: Provider, account?: string): string {
+    return this.run(p, account).defaultModel.trim();
   }
 
-  /** What this CLI loads by itself that Harness Relay's runs leave out. */
-  nativeOff(p: Provider): NativePart[] {
-    return [...this.providers[p].nativeOff];
+  /** The effort an agent of this account runs with when it names none; empty = the CLI's own default. */
+  defaultEffort(p: Provider, account?: string): string {
+    return this.run(p, account).defaultEffort.trim();
   }
 
-  /** Single items of what this CLI loads by itself that Harness Relay's runs leave out. */
-  nativeItems(p: Provider): NativeItemsOff {
-    return Object.fromEntries(Object.entries(this.providers[p].nativeItems).map(([kind, ids]) => [kind, [...(ids ?? [])]]));
+  /** What this CLI loads by itself in the account's home that Harness Relay's runs leave out. */
+  nativeOff(p: Provider, account?: string): NativePart[] {
+    return [...this.run(p, account).nativeOff];
+  }
+
+  /** Single items of what this CLI loads by itself in the account's home that Harness Relay's runs leave out. */
+  nativeItems(p: Provider, account?: string): NativeItemsOff {
+    return Object.fromEntries(Object.entries(this.run(p, account).nativeItems).map(([kind, ids]) => [kind, [...(ids ?? [])]]));
   }
 
   /** Whether Harness Relay keeps an API key for the account (empty: the default one) and gives it to the CLI. */
@@ -547,14 +611,11 @@ export class SettingsStore {
       .run(cwd);
   }
 
+  /** What a CLI has once for all its accounts (and the default account's key); the rest is `updateAccount`. */
   update(p: Provider, u: ProviderSettingsUpdate): void {
     const s = this.providers[p];
     if (u.apiKey !== undefined && API_KEY_ENV[p]) s.apiKey = this.storeKey(p, '', u.apiKey);
     if (u.bin !== undefined) s.bin = u.bin.trim();
-    if (u.defaultModel !== undefined) s.defaultModel = u.defaultModel.trim();
-    if (u.defaultEffort !== undefined) s.defaultEffort = u.defaultEffort.trim();
-    if (u.nativeOff !== undefined) s.nativeOff = nativeOffFor(p, u.nativeOff);
-    if (u.nativeItems !== undefined) s.nativeItems = nativeItemsFor(p, u.nativeItems);
     this.saveProvider(p);
   }
 
@@ -572,10 +633,6 @@ export class SettingsStore {
           bin: this.providers[p].bin,
           apiKeyMasked: accounts[0]!.apiKeyMasked,
           apiKeyStorage: accounts[0]!.apiKeyStorage,
-          defaultModel: this.providers[p].defaultModel,
-          defaultEffort: this.providers[p].defaultEffort,
-          nativeOff: this.nativeOff(p),
-          nativeItems: this.nativeItems(p),
           accounts,
         };
       }),
@@ -586,12 +643,17 @@ export class SettingsStore {
   private accountViews(p: Provider): ProviderAccountView[] {
     return ['', ...this.accountIds(p)].map((id) => {
       const home = this.accountHome(p, id);
+      const run = this.run(p, id);
       return {
         id,
         label: this.accountLabel(p, id),
         apiKeyMasked: mask(this.apiKey(p, id)),
         apiKeyStorage: API_KEY_ENV[p] ? (this.keyInDb(p, id) ? 'database' : this.keyring!.storage) : undefined,
         ...(home ? { home } : {}),
+        defaultModel: run.defaultModel,
+        defaultEffort: run.defaultEffort,
+        nativeOff: this.nativeOff(p, id),
+        nativeItems: this.nativeItems(p, id),
       };
     });
   }

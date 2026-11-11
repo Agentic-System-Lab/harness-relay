@@ -3,6 +3,7 @@ import {
   PROVIDERS,
   PROVIDER_LABEL,
   accountUsable,
+  catalogFor,
   effortsFor,
   toolKey,
   type AgentConfig,
@@ -350,7 +351,8 @@ function agentsForLead(ctx: PlannerContext): string {
   return available
     .map((p) => {
       const lines = [`- ${p} (${PROVIDER_LABEL[p]})`];
-      const c = ctx.catalog.find((x) => x.provider === p);
+      // As its new members run it: in the home of the account they get, with that account's defaults.
+      const c = catalogFor(ctx.catalog, p, ctx.accounts?.[p]?.[0]);
       if (c?.models.length) lines.push(`  Models: ${modelsForLead(c)}`);
       const defaults = [c?.defaultModel ? `model ${c.defaultModel}` : '', c?.defaultEffort ? `effort ${c.defaultEffort}` : ''].filter(Boolean);
       if (defaults.length) lines.push(`  Default ${defaults.join(', ')}`);
@@ -555,7 +557,7 @@ export function fitAgents(agents: AgentConfig[], ctx: PlannerContext, lead: Lead
       if (usable[0]) out.account = usable[0];
       else delete out.account;
     }
-    const c = ctx.catalog.find((x) => x.provider === out.provider);
+    const c = catalogFor(ctx.catalog, out.provider, out.account);
     if (out.model && c?.models.length && !c.models.some((m) => m.id === out.model)) out.model = undefined;
     if (out.effort && c) {
       const efforts = effortsFor(c, out.model || c.defaultModel);

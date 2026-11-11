@@ -336,6 +336,43 @@ describe('a question in a conversation', () => {
     expect(fitAgents([{ id: 'y', name: 'B', provider: 'claude', role: '', account: 'any00001' }], ctx, lead)[0]!.account).toBe('any00001');
   });
 
+  it("checks each member's model and effort against what its own account's CLI offers", () => {
+    // The Work account's Codex offers another model, with other efforts, and has another default.
+    const perAccount: PlannerContext = {
+      ...ctx,
+      accounts: { codex: ['', 'work0001'] },
+      catalog: [
+        ...catalog,
+        { provider: 'codex', models: [{ id: 'gpt-a', efforts: ['low'] }], efforts: ['low'], defaultModel: 'gpt-a', source: 'cli' },
+        {
+          provider: 'codex',
+          account: 'work0001',
+          models: [{ id: 'gpt-a', efforts: ['low'] }, { id: 'gpt-b', efforts: ['high'] }],
+          efforts: ['low', 'high'],
+          defaultModel: 'gpt-b',
+          source: 'cli',
+        },
+      ],
+    };
+    const fitted = fitAgents(
+      [
+        { id: 'x', name: 'A', provider: 'codex', role: '', model: 'gpt-b', effort: 'high' },
+        { id: 'y', name: 'B', provider: 'codex', role: '', account: 'work0001', model: 'gpt-b', effort: 'high' },
+        // On default, the Work account runs gpt-b, which takes high.
+        { id: 'z', name: 'C', provider: 'codex', role: '', account: 'work0001', effort: 'high' },
+        { id: 'w', name: 'D', provider: 'codex', role: '', effort: 'high' },
+      ],
+      perAccount,
+      lead,
+    );
+    expect(fitted.map((a) => [a.name, a.model, a.effort])).toEqual([
+      ['A', undefined, undefined],
+      ['B', 'gpt-b', 'high'],
+      ['C', undefined, 'high'],
+      ['D', undefined, undefined],
+    ]);
+  });
+
   it('gives the lead the conversation in short: what was said, not tool calls, notes or plans', () => {
     const msg = (m: Partial<ChatMessage> & Pick<ChatMessage, 'author'>): ChatMessage => ({
       id: Math.random().toString(36),
@@ -768,6 +805,20 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     const prompt = buildPlannerPrompt('Fix the login bug', { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: '/w' }, rich, { current });
     expect(prompt).toContain('  Models: fable (Fable; always its family\'s newest; efforts low/high/max; default effort high), haiku (efforts low/medium)');
     expect(prompt).toContain('  Default model fable, effort medium');
+    // As its new members run it: the models and defaults of the account they get.
+    const work = buildPlannerPrompt(
+      'Fix the login bug',
+      { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: '/w' },
+      {
+        ...rich,
+        accounts: { claude: ['work0001'], codex: [''] },
+        catalog: [...rich.catalog, { provider: 'claude', account: 'work0001', models: [{ id: 'sonnet' }], efforts: ['low'], defaultModel: 'sonnet', defaultEffort: 'low', source: 'cli' }],
+      },
+      { current },
+    );
+    expect(work).toContain('  Models: sonnet (efforts low)');
+    expect(work).toContain('  Default model sonnet, effort low');
+    expect(work).not.toContain('Default model fable');
     expect(prompt).toContain('  Built-in tools: Bash, WebSearch');
     expect(prompt).toContain('  Its own skills: commit (Make commits)');
     expect(prompt).toContain('  Its own MCP servers: github (tools: create_issue)');

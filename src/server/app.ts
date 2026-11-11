@@ -429,18 +429,21 @@ export function createApp({
     return c.json({ id, settings: settingsView() });
   });
 
-  // Renames an account (`default`: the default one), or sets or removes its key. A Codex key signs
-  // the account in with it, in its own folder; Codex keeps it.
+  // Renames an account (`default`: the default one), sets or removes its key, or changes how Harness
+  // Relay runs it: its default model and effort, and what its runs leave out of what the CLI loads by
+  // itself in its home. A Codex key signs the account in with it, in its own folder; Codex keeps it.
   app.put('/api/settings/providers/:provider/accounts/:account', async (c) => {
     const p = provider(c);
     const id = account(c, p);
     const b = validateAccountUpdate(await body<unknown>(c));
+    const signIn = b.apiKey !== undefined;
     if (b.apiKey !== undefined && b.apiKey !== null && p === 'codex') {
       await providers.codexApiKeyLogin(b.apiKey, id);
       delete b.apiKey;
     }
     settings.updateAccount(p, id, b);
-    providers.invalidate(p);
+    // Its name and sign-in are in the status; its defaults are layered over the models at each request.
+    if (signIn || b.label !== undefined) providers.invalidate(p);
     return c.json(settingsView());
   });
 
@@ -470,13 +473,15 @@ export function createApp({
   app.get('/api/models', async (c) => c.json(await providers.modelsAll(c.req.query('refresh') === '1')));
 
   // What the CLI loads by itself (its own skills, MCP servers, memory) for the default working
-  // directory. A POST, because it starts the CLI (Claude Code runs the project's hooks): the JSON
-  // content-type check keeps other sites from setting it off. Answers are kept for a minute.
+  // directory, in the home of the default account or the one `?account=<id>` names, with what that
+  // account's runs leave out. A POST, because it starts the CLI (Claude Code runs the project's hooks):
+  // the JSON content-type check keeps other sites from setting it off. Answers are kept for a minute.
   app.post('/api/providers/:provider/native', async (c) => {
     const p = provider(c);
+    const id = account(c, p);
     const b = await body<{ refresh?: unknown }>(c);
     const cwd = validDirectory(settings.defaultCwd);
-    return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true)));
+    return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true, id || undefined)));
   });
 
   // Whether Grok trusts a folder (the default working directory unless `cwd` names one), and with
@@ -506,14 +511,16 @@ export function createApp({
     return c.json({ cwd, folder, above, trusted: after.folderTrusted });
   });
 
-  // One of the files the CLI reported (an instruction or memory file, a skill's SKILL.md), to read
-  // it in the UI. Any other path is refused, so this cannot read other files on the computer.
+  // One of the files the CLI reported (an instruction or memory file, a skill's SKILL.md) for the
+  // default account or `?account=<id>`, to read it in the UI. Any other path is refused, so this
+  // cannot read other files on the computer.
   app.post('/api/providers/:provider/native/file', async (c) => {
     const p = provider(c);
+    const id = account(c, p);
     const b = await body<{ path?: unknown }>(c);
     const path = typeof b.path === 'string' ? b.path : '';
     // Checked against the answer the UI showed, however old: opening a file must not start the CLI.
-    const probe = await native.latest(p, validDirectory(settings.defaultCwd));
+    const probe = await native.latest(p, validDirectory(settings.defaultCwd), id || undefined);
     if (!path || !listedFile(probe, path)) throw new HttpError(404, t().nativeFileNotListed);
     return c.json(readPreview(path, path, t().nativeFileNotListed));
   });

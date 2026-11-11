@@ -1053,7 +1053,8 @@ const sameParts = (a: readonly NativePart[], b: readonly NativePart[]) => a.leng
 
 /**
  * Asks each CLI what it loads by itself, and what Harness Relay's runs leave out of it; answers are
- * kept for a minute per CLI, executable and folder, while what is left out stays the same.
+ * kept for a minute per CLI, executable, folder and account home, while what that account's runs leave
+ * out stays the same.
  */
 export class NativeSetupService {
   private cache = new Map<string, { at: number; off: readonly NativePart[]; items: NativeItemsOff; result: Promise<NativeProbe> }>();
@@ -1065,8 +1066,9 @@ export class NativeSetupService {
       bin(p: Provider): string;
       /** A CLI's environment; `account`: one of its accounts besides the default one (`SettingsStore.env`). */
       env(p: Provider, account?: string): NodeJS.ProcessEnv;
-      nativeOff?(p: Provider): readonly NativePart[];
-      nativeItems?(p: Provider): NativeItemsOff;
+      /** What runs as the account leave out (`SettingsStore.nativeOff`): each account chooses its own. */
+      nativeOff?(p: Provider, account?: string): readonly NativePart[];
+      nativeItems?(p: Provider, account?: string): NativeItemsOff;
     },
     /** How long each question to a CLI may take (tests shorten it). */
     private timeoutMs = PROBE_TIMEOUT_MS,
@@ -1085,8 +1087,8 @@ export class NativeSetupService {
    * none yet (or the last one said nothing at all).
    */
   recent(provider: Provider, cwd: string, account?: string): Promise<NativeProbe> {
-    const off = this.settings.nativeOff?.(provider) ?? [];
-    const items = this.settings.nativeItems?.(provider) ?? {};
+    const off = this.settings.nativeOff?.(provider, account) ?? [];
+    const items = this.settings.nativeItems?.(provider, account) ?? {};
     const last = this.answered.get(this.key(provider, cwd, account));
     if (!last || !sameParts(last.off, off) || !sameNativeItems(last.items, items) || saidNothing(last.probe)) return this.get(provider, cwd, false, account);
     void this.get(provider, cwd, false, account); // the cached question when it is fresh, else a new one
@@ -1094,19 +1096,22 @@ export class NativeSetupService {
   }
 
   /**
-   * The latest answer for this CLI, executable and folder, however old; the CLI is asked only when
-   * there is none yet. For checks against what the UI was shown (opening a reported file), which
+   * The latest answer for this CLI, executable, folder and account, however old; the CLI is asked only
+   * when there is none yet. For checks against what the UI was shown (opening a reported file), which
    * should not start the CLI again.
    */
-  latest(provider: Provider, cwd: string): Promise<NativeProbe> {
-    return this.cache.get(this.key(provider, cwd))?.result ?? this.get(provider, cwd);
+  latest(provider: Provider, cwd: string, account?: string): Promise<NativeProbe> {
+    return this.cache.get(this.key(provider, cwd, account))?.result ?? this.get(provider, cwd, false, account);
   }
 
-  /** `account`: ask the CLI in that account's home (default: the default account's). */
+  /**
+   * `account`: ask the CLI in that account's home (default: the default account's), leaving out what
+   * that account's runs leave out.
+   */
   get(provider: Provider, cwd: string, refresh = false, account?: string): Promise<NativeProbe> {
     const bin = this.settings.bin(provider);
-    const off = [...(this.settings.nativeOff?.(provider) ?? [])];
-    const items = this.settings.nativeItems?.(provider) ?? {};
+    const off = [...(this.settings.nativeOff?.(provider, account) ?? [])];
+    const items = this.settings.nativeItems?.(provider, account) ?? {};
     const key = this.key(provider, cwd, account);
     const hit = this.cache.get(key);
     if (hit && !refresh && Date.now() - hit.at < CACHE_MS && sameParts(hit.off, off) && sameNativeItems(hit.items, items)) return hit.result;
