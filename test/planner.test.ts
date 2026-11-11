@@ -251,6 +251,57 @@ describe('a question in a conversation', () => {
     expect(keepMemberIds(next, team)[0]!.role).toBe('New role.');
   });
 
+  it('lets members who stay on keep the tools the user set (whatever the new team says); new ones have none', () => {
+    const current: AgentConfig[] = [{ id: 'r1', name: 'Researcher', provider: 'codex', role: 'Search the web', tools: { 'mcp:browser': true } }];
+    const next: AgentConfig[] = [
+      { id: 'n1', name: 'researcher', provider: 'codex', role: 'Search the web' },
+      { id: 'n2', name: 'Writer', provider: 'claude', role: 'Write it up' },
+      // A template's member that stays: its own tools, not the template's.
+      { id: 'n3', name: 'Reviewer', provider: 'grok', role: '', tools: { memory: false } },
+    ];
+    const kept = keepMemberIds(next, [...current, { id: 'v1', name: 'Reviewer', provider: 'grok', role: '' }]);
+    expect(kept.map((a) => [a.id, a.tools])).toEqual([
+      ['r1', { 'mcp:browser': true }],
+      ['n2', undefined],
+      ['v1', undefined],
+    ]);
+    expect('tools' in kept[2]!).toBe(false);
+  });
+
+  it("gives an adapted template's members who are one of its members that member's tools and account", () => {
+    const template: TeamPreset = {
+      id: 'user-research',
+      name: 'Research',
+      agents: [
+        { id: 't1', name: 'Researcher', provider: 'codex', role: 'Search', tools: { 'mcp:browser': true }, account: 'w1' },
+        { id: 't2', name: 'Writer', provider: 'claude', role: 'Write', tools: { memory: false } },
+      ],
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only' },
+    };
+    const withTemplate: PlannerContext = { ...ctx, presets: [...ctx.presets, template] };
+    const d = decidePlan(
+      {
+        choice: 'adapted',
+        baseTemplateId: 'user-research',
+        name: 'Research+',
+        agents: [
+          { name: 'researcher', provider: 'codex', role: 'Search, then check sources' },
+          { name: 'Writer', provider: 'grok', role: 'Write' }, // moved to another CLI: not that member any more
+          { name: 'Editor', provider: 'claude', role: 'Edit' },
+        ],
+        reason: 'r',
+      },
+      withTemplate,
+      lead,
+    );
+    expect(d.source).toBe('adapted');
+    expect(d.agents.map((a) => [a.name, a.tools, a.account])).toEqual([
+      ['researcher', { 'mcp:browser': true }, 'w1'],
+      ['Writer', undefined, undefined],
+      ['Editor', undefined, undefined],
+    ]);
+  });
+
   it('lets members who stay on keep their accounts; new ones get a signed-in account of their CLI', () => {
     const current: AgentConfig[] = [{ id: 'a1', name: 'Alice', provider: 'claude', role: '', account: 'work0001' }];
     const next: AgentConfig[] = [
@@ -833,6 +884,10 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect((await plannerContext(with_(async () => Promise.reject(new Error('gone'))), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], unknown: 'failed' });
     warn.mockRestore();
+    // Lists answered empty (nothing of its own, as a new account's home has), one part unanswered or one
+    // question refused: incomplete, not unknown.
+    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'no-answer', part: 'mcp' }] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], incomplete: true });
+    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'failed', detail: 'no hooks/list', refused: true }] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], incomplete: true });
     // Nothing of its own, and no trouble: known to have none.
     expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [] });
   });

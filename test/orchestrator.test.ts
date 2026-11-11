@@ -590,6 +590,34 @@ describe('accounts', () => {
   });
 });
 
+describe('a team the lead agent designs', () => {
+  it("keeps the tools and account the user set for a member who stays on, and gives new members their CLI's defaults", async () => {
+    const work = settings.addAccount('claude', 'Work');
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    conv.agents = [{ id: 'r1', name: 'Researcher', provider: 'claude', role: 'Search the web', tools: { memory: false }, account: work }];
+    store.saveMeta(conv);
+    leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Research and write',
+      mode: 'roundtable',
+      rounds: 1,
+      agents: [
+        // The lead names tools: never taken.
+        { name: 'Researcher', provider: 'claude', role: 'Search the web', tools: { memory: true } },
+        { name: 'Writer', provider: 'claude', role: 'Write it up', tools: { memory: false } },
+      ],
+      reason: 'x',
+    });
+    await orchestrator.send(conv.id, 'research and write');
+    await finish(conv.id);
+    const plan = conv.messages.find((m) => m.plan)!.plan!;
+    expect(plan.agents!.map((a) => [a.name, a.id === 'r1', a.tools, a.account])).toEqual([
+      ['Researcher', true, { memory: false }, work],
+      ['Writer', false, undefined, undefined],
+    ]);
+  });
+});
+
 describe("the lead agent's context", () => {
   it('is gathered for the folder the team works in, and the lead reads each CLI\'s tools from it', async () => {
     const folders: (string | undefined)[] = [];

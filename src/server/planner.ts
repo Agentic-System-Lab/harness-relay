@@ -21,6 +21,7 @@ import {
 } from '../shared/types';
 import { unknownMentions } from '../shared/mentions';
 import { t } from './i18n';
+import { probeCompleteness, type NativeProblem } from './native';
 import { validateAgents } from './validate';
 
 /*
@@ -153,7 +154,7 @@ export interface PlannerSources {
     p: Provider,
     cwd: string,
     account: string,
-  ): Promise<Pick<NativeSetup, 'skills' | 'mcpServers' | 'builtinTools' | 'agents' | 'plugins'> & { problems?: { kind: string; part?: string }[] }>;
+  ): Promise<Pick<NativeSetup, 'skills' | 'mcpServers' | 'builtinTools' | 'agents' | 'plugins'> & { problems?: NativeProblem[] }>;
 }
 
 /**
@@ -187,13 +188,11 @@ export async function plannerContext(src: PlannerSources, cwd?: string, waitMs =
             native[p] = { skills: [], mcpServers: [], unknown: 'late' };
             return;
           }
-          const tools = cliToolsForLead(probe);
-          // A question it refused, or ran out of time on, leaves the others' answers standing; only a CLI
-          // that answered none of them is unknown, not one without tools.
-          const trouble = (probe.problems ?? []).filter((x) => x.kind === 'timeout' || x.kind === 'failed' || x.kind === 'no-answer');
-          const nothing = !tools.builtinTools?.length && !tools.skills.length && !tools.mcpServers.length && !tools.agents?.length && !tools.plugins?.length;
-          if (trouble.length && nothing) native[p] = { skills: [], mcpServers: [], unknown: trouble.some((x) => x.kind === 'timeout') ? 'late' : 'failed' };
-          else native[p] = trouble.length ? { ...tools, incomplete: true } : tools;
+          // A question it refused, or a part it did not answer, leaves its other answers standing (also
+          // empty ones: it has nothing of its own); only a CLI that could not be asked at all is unknown.
+          const got = probeCompleteness(probe);
+          if (got === 'late' || got === 'failed') native[p] = { skills: [], mcpServers: [], unknown: got };
+          else native[p] = got === 'incomplete' ? { ...cliToolsForLead(probe), incomplete: true } : cliToolsForLead(probe);
         } catch (err) {
           console.warn(`[planner] could not ask ${p} what it loads:`, (err as Error).message);
           native[p] = { skills: [], mcpServers: [], unknown: 'failed' };
@@ -656,7 +655,7 @@ export function decidePlan(
     description: String(raw.description ?? '').trim().slice(0, 200) || undefined,
     reason,
     settings,
-    agents: fitAgents(agents, ctx, lead),
+    agents: fitAgents(base ? fromTemplate(agents, base) : agents, ctx, lead),
   };
 }
 
@@ -669,7 +668,8 @@ export function fallbackPlan(ctx: PlannerContext, lead: LeadAgentSettings, why: 
 
 /**
  * Members who stay on from the current team (same name, ignoring case, and same CLI) keep their ids,
- * so their CLI sessions — what they learned in this conversation — carry on, and their accounts.
+ * so their CLI sessions — what they learned in this conversation — carry on, and their accounts and
+ * tools as the user set them (the lead reads tools, it does not change them).
  */
 export function keepMemberIds(next: AgentConfig[], current: AgentConfig[]): AgentConfig[] {
   const taken = new Set<string>();
@@ -677,8 +677,20 @@ export function keepMemberIds(next: AgentConfig[], current: AgentConfig[]): Agen
     const same = current.find((c) => !taken.has(c.id) && c.provider === a.provider && c.name.toLowerCase() === a.name.toLowerCase());
     if (!same) return a;
     taken.add(same.id);
-    const { account: _drop, ...rest } = a;
-    return { ...rest, id: same.id, ...(same.account ? { account: same.account } : {}) };
+    const { account: _account, tools: _tools, ...rest } = a;
+    return { ...rest, id: same.id, ...(same.tools ? { tools: same.tools } : {}), ...(same.account ? { account: same.account } : {}) };
+  });
+}
+
+/**
+ * Members of a team adapted from a template who are one of its members (same name, ignoring case, and
+ * same CLI) keep that member's tools and account, as when the template is used as it is: the lead's
+ * reply has neither.
+ */
+export function fromTemplate(agents: AgentConfig[], template: TeamPreset): AgentConfig[] {
+  return agents.map((a) => {
+    const was = template.agents.find((t) => t.provider === a.provider && t.name.toLowerCase() === a.name.toLowerCase());
+    return was ? { ...a, ...(was.tools ? { tools: was.tools } : {}), ...(was.account ? { account: was.account } : {}) } : a;
   });
 }
 

@@ -84,7 +84,8 @@ const short = (s: string) => s.trim().split('\n').slice(-3).join(' ').slice(0, 3
 export type NativeProblem =
   | { kind: 'timeout' }
   | { kind: 'no-answer'; part: 'all' | 'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins' }
-  | { kind: 'failed'; detail: string }
+  /** `refused`: the CLI refused one of the questions (or one list could not be read); its other answers stand. */
+  | { kind: 'failed'; detail: string; refused?: true }
   /** Asking the CLI again the way Harness Relay starts it went wrong, so nothing is marked left out. */
   | { kind: 'as-run'; cause: NativeProblem }
   /** Asking it again ran out of time after some answers: those are marked, the rest is not. */
@@ -499,7 +500,7 @@ async function askClaude(
 
 /** The CLI's words for the questions it refused, as problems. */
 const refused = (errors: Partial<Record<PropertyKey, string>>): NativeProblem[] =>
-  Object.values(errors).map((detail) => ({ kind: 'failed', detail: String(detail) }));
+  Object.values(errors).map((detail) => ({ kind: 'failed', detail: String(detail), refused: true }));
 
 const CLAUDE_ASKS = {
   init: { subtype: 'initialize' },
@@ -555,7 +556,7 @@ async function probeClaude(
       return undefined;
     });
     // Without them no subagent is marked built-in; with subagents left out, the second ask says so instead.
-    if (builtinsError !== undefined && !off.includes('agents')) problems.push({ kind: 'failed', detail: builtinsError });
+    if (builtinsError !== undefined && !off.includes('agents')) problems.push({ kind: 'failed', detail: builtinsError, refused: true });
   }
   const configDir = env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
   const files = claudeMemoryFiles(cwd, configDir);
@@ -1130,11 +1131,33 @@ export class NativeSetupService {
   }
 }
 
-/** A probe that got none of its lists: it timed out, or failed or went unanswered as a whole. */
-export function saidNothing(probe: Pick<NativeProbe, 'problems' | 'skills' | 'mcpServers' | 'builtinTools' | 'agents' | 'plugins'>): boolean {
-  const trouble = probe.problems.some((x) => x.kind === 'timeout' || x.kind === 'failed' || x.kind === 'no-answer');
+/**
+ * How much of what a CLI loads by itself a probe got: `complete`; `incomplete`, some of it (it refused
+ * a question, one part went unanswered, or it ran out of time after some answers); or none, because it
+ * ran out of time (`late`) or could not be asked (`failed`). A CLI that answered its lists empty, with
+ * only a question refused or a part unanswered, has nothing of its own: that is not none.
+ */
+export function probeCompleteness(probe: {
+  problems?: readonly NativeProblem[];
+  skills: readonly unknown[];
+  mcpServers: readonly unknown[];
+  builtinTools?: readonly unknown[];
+  agents?: readonly unknown[];
+  plugins?: readonly unknown[];
+}): 'complete' | 'incomplete' | 'late' | 'failed' {
+  const problems = probe.problems ?? [];
   const lists = [probe.skills, probe.mcpServers, probe.builtinTools, probe.agents, probe.plugins];
-  return trouble && lists.every((l) => !l?.length);
+  if (lists.every((l) => !l?.length)) {
+    if (problems.some((x) => x.kind === 'timeout')) return 'late';
+    if (problems.some((x) => (x.kind === 'failed' && !x.refused) || (x.kind === 'no-answer' && x.part === 'all'))) return 'failed';
+  }
+  return problems.some((x) => x.kind === 'timeout' || x.kind === 'failed' || x.kind === 'no-answer') ? 'incomplete' : 'complete';
+}
+
+/** A probe that got none of the CLI's lists (`probeCompleteness`): not worth giving the lead again. */
+export function saidNothing(probe: Parameters<typeof probeCompleteness>[0]): boolean {
+  const c = probeCompleteness(probe);
+  return c === 'late' || c === 'failed';
 }
 
 /**

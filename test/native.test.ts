@@ -18,6 +18,8 @@ import { withLang } from '../src/server/i18n';
 import { SettingsStore } from '../src/server/settings';
 import {
   NativeSetupService,
+  probeCompleteness,
+  saidNothing,
   claudeMemoryFiles,
   claudeMemoryState,
   listedFile,
@@ -417,6 +419,24 @@ describe('NativeSetupService', () => {
     } finally {
       now.mockRestore();
     }
+  });
+
+  it('tells a probe that got nothing from one that got some of it, or answered its lists empty', () => {
+    const empty = { skills: [], mcpServers: [] };
+    const some = { skills: [{ name: 'commit' }], mcpServers: [] };
+    expect(probeCompleteness({ ...some, problems: [] })).toBe('complete');
+    expect(probeCompleteness({ ...empty, problems: [] })).toBe('complete'); // nothing of its own
+    expect(probeCompleteness({ ...some, problems: [{ kind: 'failed', detail: 'x', refused: true }] })).toBe('incomplete');
+    expect(probeCompleteness({ ...some, problems: [{ kind: 'timeout' }] })).toBe('incomplete');
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'no-answer', part: 'mcp' }] })).toBe('incomplete');
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'failed', detail: 'no hooks/list', refused: true }] })).toBe('incomplete');
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'timeout' }] })).toBe('late');
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'failed', detail: 'not found' }] })).toBe('failed');
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'no-answer', part: 'all' }] })).toBe('failed');
+    // Asking it again the way Harness Relay runs it is another matter: what it answered stands.
+    expect(probeCompleteness({ ...some, problems: [{ kind: 'as-run', cause: { kind: 'timeout' } }] })).toBe('complete');
+    expect(saidNothing({ ...empty, problems: [{ kind: 'no-answer', part: 'mcp' }] })).toBe(false);
+    expect(saidNothing({ ...empty, problems: [{ kind: 'timeout' }] })).toBe(true);
   });
 
   // A stand-in for `grok inspect --json` that counts its runs in its home and names its skill after the count.
