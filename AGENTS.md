@@ -52,6 +52,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and 
 - `src/server/grouping.ts`: the lead agent sorts a new conversation into the user's sidebar groups.
 - `src/server/agents/`: one adapter per CLI. `claude.ts` (stream-json), `codex.ts` (`codex app-server`), `grok.ts` (ACP), `acp.ts` (the JSON-RPC peer), `index.ts` (registry).
 - `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations (and the lock one server holds its data folder with, `lockDataDir`), persistence, provider settings, each CLI's accounts (a home and an API key of their own; agents and the lead agent name theirs) and child-process env (including the CLIs' own homes), API keys in the OS keyring.
+- `src/server/config.ts`: what the environment sets at startup besides the port, host and data folder (accounts per CLI, team size, the turn timeout, voice input's download folders and folder), checked once; the server refuses to start on a value that is not valid. The UI gets the limits from `GET /api/limits` (`src/web/limits.ts`, `useLimits()`), never from constants of its own.
 - `src/server/agentsview.ts`: sends each conversation to AgentsView as one thread and links the agents' own sessions under it.
 - `src/server/workspace.ts`: git: auto init, snapshots, worktrees, diffs, apply.
 - `src/server/process.ts`: spawning, streaming and killing child processes.

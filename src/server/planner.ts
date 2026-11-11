@@ -24,6 +24,7 @@ import {
   type ToolLibraryView,
 } from '../shared/types';
 import { unknownMentions } from '../shared/mentions';
+import { CONFIG } from './config';
 import { t } from './i18n';
 import { probeCompleteness, type NativeProblem } from './native';
 import { validateAgents } from './validate';
@@ -235,7 +236,12 @@ export type PlanDecision = Required<Pick<TeamPlan, 'source' | 'name' | 'reason' 
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const FALLBACK_PRESET = 'builtin-general';
-const MAX_MEMBERS = 5;
+/**
+ * Most members of a team the lead agent designs by itself: kept small, as the prompt asks it to keep a
+ * team proportionate, and never more than a team may have. Asked to change a team, it may go up to that
+ * (`MAX_TEAM`).
+ */
+const MAX_MEMBERS = Math.min(5, CONFIG.maxTeamAgents);
 /** How much of the conversation the lead reads: each message, and all of them (the latest are kept). */
 const HISTORY_MESSAGE_CHARS = 1500;
 const HISTORY_CHARS = 12000;
@@ -760,8 +766,8 @@ export interface ReviseConversation {
   savedCwd?: string;
 }
 
-/** Most members a team may have (as in the team editor). */
-const MAX_TEAM = 8;
+/** Most members a team may have (as in the team editor): `RELAY_MAX_TEAM_AGENTS`, else 8. */
+const MAX_TEAM = CONFIG.maxTeamAgents;
 
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
 

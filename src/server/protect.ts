@@ -3,6 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROVIDERS, type Provider } from '../shared/types';
+import { CONFIG } from './config';
 import { t } from './i18n';
 import { DATA_DIR } from './settings';
 
@@ -196,16 +197,20 @@ function within(path: string, dir: string): boolean {
  * Why agents below full access may not work in `cwd`, or undefined when they may: it holds Harness
  * Relay's folder or its data folder (an agent could then change its code or its database), or it is
  * inside Harness Relay's folder, outside its data folder (its code). A folder inside the data folder,
- * as the worktrees of parallel mode are, is fine: the database is not in it.
+ * as the worktrees of parallel mode are, is fine: the database is not in it. Voice input's folder, when
+ * `RELAY_VOICE_DIR` puts it elsewhere, is data too, and neither it nor a folder in it may be worked
+ * in: the engine there runs outside any sandbox.
  */
 export function relayFolderOverlap(
   cwd: string,
-  roots: { install?: string; data?: string } = {},
+  roots: { install?: string; data?: string; voice?: string } = {},
 ): 'install' | 'data' | undefined {
   const dir = real(resolve(cwd));
   const install = real(roots.install ?? RELAY_ROOT);
   const data = real(roots.data ?? DATA_DIR);
+  const voice = 'voice' in roots ? roots.voice : CONFIG.voiceDir;
   if (within(data, dir)) return 'data';
+  if (voice && overlaps(voice, dir)) return 'data';
   if (within(install, dir)) return 'install';
   if (within(dir, install) && !within(dir, data)) return 'install';
   return undefined;
@@ -324,8 +329,13 @@ export function tempFolders(): string[] {
   return [...new Set([tmpdir(), '/tmp', '/var/tmp', '/private/tmp', '/private/var/tmp', '/private/var/folders'].map(real))];
 }
 
+/** Whether `path` is in a temp folder, where a sandboxed agent could write (never on Windows, which has no such sandbox). */
+export function dirInTemp(path: string): boolean {
+  const dir = real(path);
+  return process.platform !== 'win32' && tempFolders().some((t) => within(dir, t));
+}
+
 /** Whether Harness Relay's data folder is in a temp folder, where a sandboxed agent could write its database. */
 export function dataDirInTemp(dataDir = DATA_DIR): boolean {
-  const dir = real(dataDir);
-  return process.platform !== 'win32' && tempFolders().some((t) => within(dir, t));
+  return dirInTemp(dataDir);
 }

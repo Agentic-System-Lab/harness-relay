@@ -379,8 +379,8 @@ export const zhTW = {
     approvalsAsk: '詢問我',
     approvalsHint: {
       deny: '排程執行的那一輪，agent 想做權限範圍以外的事時會直接被拒絕，agent 會被告知並改用其他方式。',
-      ask: '和平常一樣在對話中詢問你；你不在時，agent 會一直等（每一回合最多 45 分鐘）。',
-    } as Record<'deny' | 'ask', string>,
+      ask: (minutes: number) => `和平常一樣在對話中詢問你；你不在時，agent 會一直等（每一回合最多 ${minutes} 分鐘）。`,
+    },
     approvalsTeamDeny: '團隊設定已是自動拒絕，排程執行時也一樣。',
     approvalsFull: '團隊有完全存取權限，不會詢問，這個設定沒有作用。',
     missed: '錯過的時間',

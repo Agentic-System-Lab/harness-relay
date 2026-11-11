@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, createWriteStream, mkdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync } from 'node:fs';
+import { chmodSync, createWriteStream, mkdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, statfsSync } from 'node:fs';
 import { createServer, type AddressInfo } from 'node:net';
 import { availableParallelism } from 'node:os';
 import { join, posix, win32 } from 'node:path';
@@ -19,6 +19,7 @@ import {
   type VoiceSettingsUpdate,
   type VoiceStatus,
 } from '../shared/types';
+import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { currentLang, t } from './i18n';
 import { runProcess, tail, type SpawnOptions, type SpawnResult } from './process';
@@ -59,8 +60,12 @@ export const MODEL_FILES: Record<VoiceModelId, { file: string; size: number; sha
   },
 };
 
-export function modelUrl(id: VoiceModelId): string {
-  return `https://huggingface.co/ggerganov/whisper.cpp/resolve/${MODEL_COMMIT}/${MODEL_FILES[id].file}`;
+/** Where the models come from unless `RELAY_VOICE_MODEL_BASE_URL` names another folder holding them. */
+export const MODEL_BASE_URL = `https://huggingface.co/ggerganov/whisper.cpp/resolve/${MODEL_COMMIT}`;
+
+/** A model's address: in `base`, a folder holding the model files (each checked by its size and SHA-256 all the same). */
+export function modelUrl(id: VoiceModelId, base = MODEL_BASE_URL): string {
+  return `${base}/${MODEL_FILES[id].file}`;
 }
 
 /** The official prebuilt engines of one whisper.cpp release (v1.9.5), per `<platform>-<arch>`. */
@@ -99,8 +104,12 @@ export const ENGINE_BUILDS: Record<string, EngineBuild> = {
   },
 };
 
-export function engineUrl(b: EngineBuild): string {
-  return `https://github.com/ggml-org/whisper.cpp/releases/download/${ENGINE_TAG}/${b.asset}`;
+/** Where the engines come from unless `RELAY_VOICE_ENGINE_BASE_URL` names another folder holding them. */
+export const ENGINE_BASE_URL = `https://github.com/ggml-org/whisper.cpp/releases/download/${ENGINE_TAG}`;
+
+/** An engine's address: in `base`, a folder holding the release's archives (each checked by its size and SHA-256 all the same). */
+export function engineUrl(b: EngineBuild, base = ENGINE_BASE_URL): string {
+  return `${base}/${b.asset}`;
 }
 
 /** Where the engine Harness Relay downloads ends up (`dir` is the voice data folder). */
@@ -210,6 +219,15 @@ export interface VoiceHost {
   env: NodeJS.ProcessEnv;
   /** Models, the downloaded engine and the engine's empty public folder live here. */
   dir: string;
+  /**
+   * Whether `dir` is Harness Relay's own (`voice` in its data folder), which removing voice input
+   * deletes whole; a folder `RELAY_VOICE_DIR` names keeps everything Harness Relay did not put there.
+   */
+  ownDir: boolean;
+  /** The folder the models are downloaded from (`RELAY_VOICE_MODEL_BASE_URL`, else Hugging Face). */
+  modelBaseUrl: string;
+  /** The folder the engines are downloaded from (`RELAY_VOICE_ENGINE_BASE_URL`, else GitHub). */
+  engineBaseUrl: string;
   fetch: typeof fetch;
   run: (o: SpawnOptions) => Promise<SpawnResult>;
   freePort: () => Promise<number>;
@@ -337,7 +355,10 @@ export class VoiceService {
       platform: process.platform,
       arch: process.arch,
       env: process.env,
-      dir: join(DATA_DIR, 'voice'),
+      dir: CONFIG.voiceDir ?? join(DATA_DIR, 'voice'),
+      ownDir: !CONFIG.voiceDir,
+      modelBaseUrl: CONFIG.voiceModelBaseUrl ?? MODEL_BASE_URL,
+      engineBaseUrl: CONFIG.voiceEngineBaseUrl ?? ENGINE_BASE_URL,
       fetch: (...args) => fetch(...args),
       run: runProcess,
       freePort,
@@ -485,9 +506,32 @@ export class VoiceService {
   uninstall(): VoiceStatus {
     if (this.job?.state === 'running') throw new HttpError(409, t().voiceBusy);
     this.stopServer();
-    rmSync(this.host.dir, { recursive: true, force: true });
+    if (this.host.ownDir) rmSync(this.host.dir, { recursive: true, force: true });
+    else this.removeOwnFiles();
     this.job = undefined;
     return this.status();
+  }
+
+  /**
+   * What Harness Relay put in a folder `RELAY_VOICE_DIR` names: the models, this version's engine and
+   * what its download left, then the folders it made once they are empty. Anything else stays.
+   */
+  private removeOwnFiles(): void {
+    const engine = join(this.host.dir, 'engine');
+    for (const m of Object.values(MODEL_FILES)) {
+      for (const f of [m.file, `${m.file}.part`]) rmSync(join(this.modelsDir, f), { force: true });
+    }
+    for (const d of [ENGINE_TAG, `${ENGINE_TAG}.tmp`]) rmSync(join(engine, d), { recursive: true, force: true });
+    for (const b of Object.values(ENGINE_BUILDS)) {
+      for (const f of [b.asset, `${b.asset}.part`]) rmSync(join(engine, f), { force: true });
+    }
+    for (const d of [this.modelsDir, engine, join(this.host.dir, 'public'), this.host.dir]) {
+      try {
+        rmdirSync(d);
+      } catch {
+        /* missing, or holds something else */
+      }
+    }
   }
 
   /** Starts the engine ahead of a transcription (while the user speaks). */
@@ -584,8 +628,9 @@ export class VoiceService {
     const dir = join(this.host.dir, 'engine');
     mkdirSync(dir, { recursive: true });
     const archive = join(dir, build.asset);
-    job.append(`${engineUrl(build)}\n`);
-    await this.download(job, engineUrl(build), archive, build.size, build.sha256, build.asset);
+    const url = engineUrl(build, this.host.engineBaseUrl);
+    job.append(`${url}\n`);
+    await this.download(job, url, archive, build.size, build.sha256, build.asset);
     const unpacked = join(dir, `${ENGINE_TAG}.tmp`);
     rmSync(unpacked, { recursive: true, force: true });
     mkdirSync(unpacked, { recursive: true });
@@ -608,8 +653,9 @@ export class VoiceService {
   private async downloadModel(job: InstallJob): Promise<void> {
     const m = MODEL_FILES[job.model];
     mkdirSync(this.modelsDir, { recursive: true });
-    job.append(`${modelUrl(job.model)}\n`);
-    await this.download(job, modelUrl(job.model), this.modelPath(job.model), m.size, m.sha256, m.file);
+    const url = modelUrl(job.model, this.host.modelBaseUrl);
+    job.append(`${url}\n`);
+    await this.download(job, url, this.modelPath(job.model), m.size, m.sha256, m.file);
   }
 
   /** Streams `url` to `dest`, checking its size and SHA-256; nothing is left behind when that fails. */

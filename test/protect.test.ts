@@ -108,6 +108,20 @@ describe("Harness Relay's own folder as a working directory", () => {
     expect(relayFolderOverlap(join(root, 'project'), roots)).toBeUndefined();
   });
 
+  it('is refused when it holds voice input\'s folder that RELAY_VOICE_DIR puts elsewhere, or is inside it', () => {
+    const voice = join(root, 'models/voice');
+    mkdirSync(join(voice, 'engine'), { recursive: true });
+    mkdirSync(join(root, 'models/other'), { recursive: true });
+    const withVoice = { ...roots, voice };
+    expect(relayFolderOverlap(root, withVoice)).toBe('data');
+    expect(relayFolderOverlap(join(root, 'models'), withVoice)).toBe('data');
+    expect(relayFolderOverlap(voice, withVoice)).toBe('data');
+    expect(relayFolderOverlap(join(voice, 'engine'), withVoice)).toBe('data');
+    // Beside it is fine, and so is the same folder when voice input keeps to the data folder.
+    expect(relayFolderOverlap(join(root, 'models/other'), withVoice)).toBeUndefined();
+    expect(relayFolderOverlap(join(root, 'models'), { ...roots, voice: undefined })).toBeUndefined();
+  });
+
   it('is refused in edit mode only, where agents change files without asking', () => {
     const why = withLang('en', () => relayFolderRefusal({ permission: 'edit', cwd: RELAY_ROOT }));
     expect(why).toMatch(/holds Harness Relay itself/);

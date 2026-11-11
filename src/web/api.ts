@@ -28,6 +28,7 @@ import type {
   ReportScreenshots,
   ScheduleUpdate,
   SearchResult,
+  ServerLimits,
   SettingsUpdate,
   SettingsView,
   ShareFileInfo,
@@ -303,6 +304,8 @@ export const api = {
     }
   },
   /** This version, and the desktop app's updates (only the version otherwise). */
+  /** What the server's environment sets that the UI keeps to or shows (`useLimits()`). */
+  limits: () => request<ServerLimits>('GET', '/api/limits'),
   update: () => request<UpdateStatus>('GET', '/api/update'),
   /**
    * The same, quietly, for the page's watch on the server's version: a browser that is not signed in

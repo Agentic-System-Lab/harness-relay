@@ -10,9 +10,11 @@ import {
   SHARE_FILE_REFUSED,
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
+  DEFAULT_LIMITS,
   type Conversation,
   type ConversationSummary,
   type ProviderModels,
+  type ServerLimits,
   type SettingsView,
   type ShareFileInfo,
   type TeamRevision,
@@ -576,7 +578,7 @@ describe('settings', () => {
 
 describe('accounts', () => {
   /** An app of its own, with the CLIs' own folder in the test's folder and the CLIs kept out of it. */
-  function accountsApp() {
+  function accountsApp(limits?: ServerLimits) {
     const db = openDatabase(':memory:');
     const settings = new SettingsStore(db);
     settings.setAgentHome(join(root, `agents-${++n}`));
@@ -587,7 +589,7 @@ describe('accounts', () => {
     const logoutIn = vi.spyOn(providers, 'logoutIn').mockResolvedValue('');
     const codexKey = vi.spyOn(providers, 'codexApiKeyLogin').mockResolvedValue('');
     const orch = new Orchestrator(s, hub, settings);
-    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: orch, providers });
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: orch, providers, ...(limits ? { limits } : {}) });
     const call = (method: string, path: string, body: unknown = {}) => local.request(path, json(method, body, { 'x-relay-lang': 'en' }));
     const read = (path: string) => local.request(path, { headers: HOST });
     return { settings, providers, logout, logoutIn, codexKey, orch, call, read, store: s };
@@ -669,6 +671,24 @@ describe('accounts', () => {
       ['codex', '', undefined],
       ['grok', '', undefined],
     ]);
+  });
+
+  it('gives the UI the limits the environment sets, and keeps to them for accounts and teams', async () => {
+    expect(await (await app.request('/api/limits', { headers: HOST })).json()).toEqual(DEFAULT_LIMITS);
+    const limits = { maxAccounts: 2, maxTeamAgents: 3, turnTimeoutMinutes: 90 };
+    const { call, read } = accountsApp(limits);
+    expect(await (await read('/api/limits')).json()).toEqual(limits);
+    expect((await call('POST', '/api/settings/providers/codex/accounts', { label: 'Work' })).status).toBe(200);
+    const more = await call('POST', '/api/settings/providers/codex/accounts', { label: 'One more' });
+    expect(more.status).toBe(409);
+    expect((await more.json()).error).toMatch(/up to 2 accounts/);
+
+    const team = (size: number) => Array.from({ length: size }, (_, i) => ({ name: `A${i}`, provider: 'claude', role: '' }));
+    expect((await call('POST', '/api/conversations', { agents: team(3), settings: { cwd: project } })).status).toBe(200);
+    const big = await call('POST', '/api/conversations', { agents: team(4), settings: { cwd: project } });
+    expect(big.status).toBe(400);
+    expect((await big.json()).error).toBe('At most 3 agents');
+    expect((await call('POST', '/api/presets', { name: 'Big', agents: team(4) })).status).toBe(400);
   });
 
   it('allows up to ten accounts per CLI, the default one included', async () => {

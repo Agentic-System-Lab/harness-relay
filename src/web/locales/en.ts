@@ -369,7 +369,7 @@ export const en: Messages = {
     approvalsAsk: 'Ask me',
     approvalsHint: {
       deny: 'In a run the schedule starts, anything an agent wants to do outside its permission is refused; the agent is told and works around it.',
-      ask: 'Asked in the chat as usual; while you are away the agent waits (up to 45 minutes per turn).',
+      ask: (minutes) => `Asked in the chat as usual; while you are away the agent waits (up to ${minutes} minutes per turn).`,
     },
     approvalsTeamDeny: 'The team already refuses them automatically; so do the runs the schedule starts.',
     approvalsFull: 'The team has full access and is never asked, so this has no effect.',
