@@ -36,9 +36,35 @@ test.describe('signing in', () => {
     try {
       await other.goto(`${relay.base}/#code=${code}`);
       await expect(other.getByRole('heading', { name: 'Sign in to Harness Relay' })).toBeVisible();
+      await expect(other.getByRole('alert')).toHaveText('That code is wrong or has expired.');
     } finally {
       await other.close();
     }
+  });
+
+  test('a link opened in a tab that shows the sign-in page already signs it in', async ({ page, relay }) => {
+    await page.goto(relay.base);
+    await expect(page.getByRole('heading', { name: 'Sign in to Harness Relay' })).toBeVisible();
+    // Only the fragment changes: the page does not load again.
+    const code = await relay.newSignInCode();
+    await page.evaluate((c) => (window.location.hash = `#code=${c}`), code);
+    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    expect(page.url()).not.toContain(code);
+  });
+
+  test("a link's error does not come back after signing in with a code and being signed out", async ({ page, relay }) => {
+    await page.goto(`${relay.base}/#code=AAAA-BBBB`);
+    await expect(page.getByRole('alert')).toHaveText('That code is wrong or has expired.');
+    await page.getByLabel('Sign-in code').fill(await relay.newSignInCode());
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+
+    // The server no longer knows this browser (its session gone): the page finds out on its next
+    // request, without loading again, and shows the sign-in page without the old link's error.
+    await page.context().clearCookies();
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    await expect(page.getByRole('heading', { name: 'Sign in to Harness Relay' })).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
   test('a browser can sign itself out in Settings', async ({ page, relay }) => {
