@@ -211,6 +211,35 @@ describe('ModelBackendStore', () => {
     expect(() => new ModelBackendStore(db).forgetDeletedEndpoint('qwen')).toThrow(/qwen/);
   });
 
+  it('keeps nothing of an add or an edit that could not be saved, its key in the credential store included', () => {
+    const keyring = fakeKeyring();
+    const s = new ModelBackendStore(db, keyring);
+    const fail = () => db.exec("CREATE TRIGGER no_endpoints BEFORE INSERT ON model_backends BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+    const ok = () => db.exec('DROP TRIGGER no_endpoints');
+    // An add with a key: the key does not stay behind, to come back for a later endpoint of this id.
+    fail();
+    expect(() => s.putEndpoint('homelab', { ...endpoint, apiKey: 'secret-a' })).toThrow(/disk full/);
+    expect(keyring.data.has('endpoint-homelab-api-key')).toBe(false);
+    ok();
+    s.putEndpoint('homelab', { ...endpoint, baseUrl: 'http://10.0.0.9:8000/v1' });
+    expect(new ModelBackendStore(reopen(), keyring).forRun().endpoints[0]).not.toHaveProperty('apiKey');
+    // An edit (with a new key): the endpoint, and the key it had, as they were.
+    const t2 = new ModelBackendStore(db, keyring);
+    t2.putEndpoint('homelab', { ...endpoint, apiKey: 'secret-b' });
+    fail();
+    expect(() => t2.putEndpoint('homelab', { name: 'Moved', baseUrl: 'http://10.0.0.7:8000/v1', models: ['m2'], apiKey: 'secret-c' })).toThrow(/disk full/);
+    expect(t2.forRun().endpoints[0]).toEqual({ id: 'homelab', ...endpoint, apiKey: 'secret-b' });
+    expect(keyring.data.get('endpoint-homelab-api-key')).toBe('secret-b');
+    // A key given to an endpoint that had none: taken out again.
+    ok();
+    t2.putEndpoint('homelab', { ...endpoint, apiKey: null });
+    fail();
+    expect(() => t2.putEndpoint('homelab', { ...endpoint, apiKey: 'secret-d' })).toThrow(/disk full/);
+    expect(keyring.data.has('endpoint-homelab-api-key')).toBe(false);
+    expect(t2.forRun().endpoints[0]).not.toHaveProperty('apiKey');
+    ok();
+  });
+
   it('keeps a deleted endpoint remembered when adding it again could not be saved', () => {
     const s = new ModelBackendStore(db);
     s.putEndpoint('homelab', endpoint);

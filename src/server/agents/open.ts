@@ -506,6 +506,7 @@ export async function startOpenProcess(
     const spec: RelaySandboxSpec = {
       permission: o.permission as RelaySandboxSpec['permission'],
       cwd: o.cwd,
+      ...(o.addDirs?.length ? { extraCwds: [...o.addDirs] } : {}),
       writable: [...home.statePaths, tmpDir],
       privateRoots: deps.privateRoots ? deps.privateRoots(root, openAgentRootsBefore(o.env)) : privateRoots(root, undefined, openAgentRootsBefore(o.env)),
       readOnly: [...home.configPaths],

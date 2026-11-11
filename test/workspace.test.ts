@@ -4,7 +4,9 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  applyPatch,
   applyToWorkingTree,
+  checkPatch,
   commitWorktree,
   createWorktree,
   diffFiles,
@@ -19,6 +21,7 @@ import {
   unignoredFiles,
   worktreeCwd,
 } from '../src/server/workspace';
+import { slow } from './timeouts';
 
 let dir: string;
 let repo: string;
@@ -51,12 +54,16 @@ describe('ensureRepo', () => {
     const home = join(dir, 'home');
     mkdirSync(join(home, 'code'), { recursive: true });
     git(home, 'init', '-q');
-    const saved = process.env.HOME;
-    process.env.HOME = home;
+    // The home directory as os.homedir() finds it: HOME, or USERPROFILE on Windows.
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    Object.assign(process.env, { HOME: home, USERPROFILE: home });
     try {
       await expect(ensureRepo(join(home, 'code'))).rejects.toThrow(/範圍太大/);
     } finally {
-      process.env.HOME = saved;
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
     }
   });
 });
@@ -131,6 +138,26 @@ describe('worktrees', () => {
     expect(git(repo, 'branch', '--list', 'relay/*')).toBe('');
   });
 
+  it('checks a patch without changing anything, then applies it; and names a diff\'s paths after a folder', async () => {
+    await ensureRepo(repo);
+    const base = (await snapshot(repo)).commit;
+    const wt = join(dir, 'wt', 'c');
+    await createWorktree(repo, wt, 'relay/test/C', base);
+    writeFileSync(join(wt, 'NEW.md'), 'new\n');
+    const head = (await commitWorktree(wt, 'turn'))!;
+    const checked = (await checkPatch(repo, base, head))!;
+    expect(checked.files.map((f) => f.path)).toEqual(['NEW.md']);
+    expect(existsSync(join(repo, 'NEW.md'))).toBe(false);
+    await applyPatch(checked);
+    expect(readFileSync(join(repo, 'NEW.md'), 'utf8')).toBe('new\n');
+    // Nothing between two commits: nothing to check.
+    expect(await checkPatch(repo, head, head)).toBeNull();
+    const diff = await diffText(repo, base, head, 'docs');
+    expect(diff).toContain('diff --git a/docs/NEW.md b/docs/NEW.md');
+    expect(diff).toContain('+++ b/docs/NEW.md');
+    expect(await diffText(repo, base, head)).toContain('+++ b/NEW.md');
+  });
+
   it('refuses to apply over conflicting edits and changes nothing', async () => {
     await ensureRepo(repo);
     const base = (await snapshot(repo)).commit;
@@ -182,6 +209,26 @@ describe('changes that are not plain UTF-8 text with LF line endings', () => {
     const { base, head } = await applyTurn({ 'crlf.txt': Buffer.from('a\r\nb\r\n') });
     expect(await diffText(repo, base, head)).toContain('+a\r\n+b\r\n');
   });
+
+  it("keeps the bytes as they are when the user's git converts line endings (Git for Windows' default)", async () => {
+    // Git for Windows sets core.autocrlf=true in its system config; this sets it above any config file.
+    const saved = { ...process.env };
+    Object.assign(process.env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_VALUE_0: 'true' });
+    try {
+      writeFileSync(join(repo, 'win.txt'), 'one\r\ntwo\r\n');
+      await ensureRepo(repo);
+      const lf = Buffer.from('new\n');
+      const crlf = Buffer.from('a\r\nb\r\n');
+      const { base, head } = await applyTurn({ 'lf.txt': lf, 'crlf.txt': crlf, 'win.txt': Buffer.from('one\r\nTWO\r\n') });
+      expect(readFileSync(join(repo, 'lf.txt'))).toEqual(lf);
+      expect(readFileSync(join(repo, 'crlf.txt'))).toEqual(crlf);
+      expect(readFileSync(join(repo, 'win.txt'), 'utf8')).toBe('one\r\nTWO\r\n');
+      expect(await diffText(repo, base, head)).toContain('+a\r\n+b\r\n');
+    } finally {
+      for (const k of ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']) delete process.env[k];
+      Object.assign(process.env, saved);
+    }
+  });
 });
 
 describe('diffFiles', () => {
@@ -196,12 +243,13 @@ describe('diffFiles', () => {
     const files = await diffFiles(repo, base, head);
     expect(files).toHaveLength(3000);
     expect(files.every((f) => f.status === 'A' && f.added === 1 && f.deleted === 0)).toBe(true);
-  }, 30_000);
+  }, slow(30_000));
 
   it('keeps file names with quotes, tabs, backslashes and non-ASCII characters as they are', async () => {
     await ensureRepo(repo);
     const base = (await snapshot(repo)).commit;
-    const names = ['say "hi".txt', 'tab\there.txt', 'back\\slash.txt', '中文 檔名.md'];
+    // Windows takes no double quote, tab or backslash in a file name.
+    const names = process.platform === 'win32' ? ["it's (1) & co.txt", '中文 檔名.md'] : ['say "hi".txt', 'tab\there.txt', 'back\\slash.txt', '中文 檔名.md'];
     for (const name of names) writeFileSync(join(repo, name), 'x\n');
     const head = (await snapshot(repo)).commit;
     const files = await diffFiles(repo, base, head);
@@ -230,11 +278,13 @@ describe("a repository's own config that would run commands", () => {
   it("runs none of them in Harness Relay's git commands: fsmonitor, filters, textconv, also through an include", async () => {
     await ensureRepo(repo);
     const ran = join(dir, 'ran.txt');
-    const sh = (what: string) => `sh -c 'echo ${what} >> "${ran}"; cat'`;
-    git(repo, 'config', 'core.fsmonitor', `sh -c 'echo fsmonitor >> "${ran}"'`);
+    // With `/` (also on Windows, where sh takes it): a config file reads `\` as an escape.
+    const at = ran.replaceAll('\\', '/');
+    const sh = (what: string) => `sh -c 'echo ${what} >> "${at}"; cat'`;
+    git(repo, 'config', 'core.fsmonitor', `sh -c 'echo fsmonitor >> "${at}"'`);
     git(repo, 'config', 'filter.evil.clean', sh('clean'));
     git(repo, 'config', 'filter.evil.smudge', sh('smudge'));
-    git(repo, 'config', 'diff.evil.textconv', `sh -c 'echo textconv >> "${ran}"; cat "$0"'`);
+    git(repo, 'config', 'diff.evil.textconv', `sh -c 'echo textconv >> "${at}"; cat "$0"'`);
     git(repo, 'config', 'include.path', 'extra.cfg');
     writeFileSync(join(repo, '.git', 'extra.cfg'), `[filter "inc"]\n\tclean = ${sh('included')}\n`);
     writeFileSync(join(repo, '.gitattributes'), '*.md filter=evil diff=evil\n*.ts filter=inc\n');

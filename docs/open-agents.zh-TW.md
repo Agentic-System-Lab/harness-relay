@@ -23,7 +23,7 @@
 - **API 來源**：`openai`、`anthropic` 與 `xai`，各一把 API key。
 - **自訂端點**：你自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio、llama.cpp），每個是 `{ id, name, baseUrl, models }`，加上選用的金鑰。id 是小寫的 slug（`ENDPOINT_ID_RE`，不能是 API 來源的名稱），是它的模型 id 的開頭，改名時不變；`models` 是你輸入的模型名稱，因為 Harness Relay 從不向任何模型 API 查詢。base URL 必須是 http(s)，不含帳號密碼、查詢字串或 #，也不能是 Harness Relay 在這台電腦上自己的位址（它的 API 的連接埠或開發伺服器的），不論怎麼寫：`localhost` 與它底下的名稱、結尾多一個點、127/8、`::1`、寫成 IPv6 的 IPv4 位址、未指定位址（`0`、`[::]`），或這台電腦自己的位址之一（`validEndpointUrl`）。
 
-**金鑰**存在作業系統的金鑰儲存區，服務名稱 `harness-relay`，帳號為 `backend-<id>-api-key` 與 `endpoint-<id>-api-key`，規則和各 CLI 的 API key 相同（[架構 → Provider](architecture.zh-TW.md#provider狀態登入與模型)）：沒有金鑰儲存區時留在資料庫，「設定」會註明；有儲存區時，在資料庫中找到的金鑰會搬進去、讀回確認並從資料庫清除（並做 WAL checkpoint）；儲存區拒絕儲存時請求直接失敗，絕不默默改存資料庫；啟動時讀不到的金鑰會標示出來，讓你重新輸入。介面只會拿到遮蔽過的金鑰：20 個字元以上的金鑰顯示 `••••` 加最後四個字元，較短的只顯示 `••••`（`maskSecret`），所以短的金鑰不會露出大半。端點本身存在 `model_backends` 資料表（schema version 21），API 來源的金鑰只有在必須留在資料庫時才放在這裡。
+**金鑰**存在作業系統的金鑰儲存區，服務名稱 `harness-relay`，帳號為 `backend-<id>-api-key` 與 `endpoint-<id>-api-key`，規則和各 CLI 的 API key 相同（[架構 → Provider](architecture.zh-TW.md#provider狀態登入與模型)）：沒有金鑰儲存區時留在資料庫，「設定」會註明；有儲存區時，在資料庫中找到的金鑰會搬進去、讀回確認並從資料庫清除（並做 WAL checkpoint）；儲存區拒絕儲存時請求直接失敗，絕不默默改存資料庫；啟動時讀不到的金鑰會標示出來，讓你重新輸入。介面只會拿到遮蔽過的金鑰：20 個字元以上的金鑰顯示 `••••` 加最後四個字元，較短的只顯示 `••••`（`maskSecret`），所以短的金鑰不會露出大半。端點本身存在 `model_backends` 資料表（schema version 22），API 來源的金鑰只有在必須留在資料庫時才放在這裡。
 
 **模型 id。** 開源 agent 的模型寫成 `<模型來源>/<模型>`，例如 `openai/gpt-5.4-nano`、`anthropic/claude-haiku-5-5`、`xai/grok-4.3` 或 `homelab/muse-glimmer-30b-nvfp4`（只是例子：實際的 id 請以各 API 或 CLI 的模型清單為準）。第一個 `/` 之前是模型來源，所以模型名稱本身也可以含 `/`（`parseBackendModel()`，伺服器與介面共用）。
 
@@ -41,7 +41,7 @@ orchestrator 把模型來源傳給每次 開源 agent 的執行（`RunOptions.ba
 
 ### Claude Code、Codex 與 Grok 在端點上執行
 
-自訂端點不只給開源 agent 用：Claude Code、Codex 與 Grok（`src/shared/types.ts` 的 `EndpointCli`、`ENDPOINT_CLI`）也能在上面執行，但絕不用 API 模型來源，那些金鑰只給開源 agent。`SettingsStore.backendsFor()` 只把端點交給它們的執行（`{ apis: {}, endpoints, deletedEndpoints }`），`backends.ts` 的 `endpointModel()` 判斷一次執行是不是在端點上：模型是 `<端點 id>/<模型>`，而且那個端點已設定。其他模型照原樣交給 CLI，包括它自己帶 `/` 的 id（例如使用者 Codex 設定裡某個 provider 的模型，像 OpenRouter 的），但在「設定」裡刪掉的端點的模型例外：刪掉的端點會被記住（`deleted_endpoints`，schema version 25，直到再新增同 id 的端點，或忘掉這個 id 為止，見下文），`endpointRunModel()` 會在 CLI 啟動前讓這樣的一輪失敗（`endpointDeleted`），而不是把那個 id 和 prompt 送到 CLI 自己的服務。session 屬於建立它的模型來源（`agent_sessions.backend`，schema version 25）：成員的模型在 CLI 自己的服務與端點之間移動，或換到另一個端點時，會帶著完整歷史開始新的 session（Claude Code 的 thinking 由寫下它的模型來源簽章；成員的模型改回 CLI 預設時，若接續 Grok 的 session，它會停留在端點的模型上）。對 Grok 來說，為端點輸入的模型（「自訂…」）若不在端點的清單裡，用到它的那次執行會為它另寫一個 table，因為 Grok 不接受設定裡沒有的模型；在同一個 Grok 家目錄裡每次重寫這個區塊（另一位成員的執行、首席 agent 的）都會保留這個 table，直到用到它的執行都結束（`holdGrokTypedModel()`）。已刪除端點的 id 會列在「設定」裡（`ModelBackendsView.deletedEndpoints`），可以忘掉（`DELETE /api/backends/deleted-endpoints/:id`），給剛好以同樣名稱開頭的 CLI 自己的模型用。它們的模型選單會在 CLI 自己的模型後面列出每個端點輸入的模型（`models.ts` 的 `withEndpointModels()`，標上 `ModelOption.endpoint`），並隨端點變動（`ProviderService.backendsChanged()` 會丟掉它們快取的選單，但不動登入狀態，也不動 Cursor 的選單，它沒有端點的模型）。它們的狀態仍然是自己的登入。
+自訂端點不只給開源 agent 用：Claude Code、Codex 與 Grok（`src/shared/types.ts` 的 `EndpointCli`、`ENDPOINT_CLI`）也能在上面執行，但絕不用 API 模型來源，那些金鑰只給開源 agent。`SettingsStore.backendsFor()` 只把端點交給它們的執行（`{ apis: {}, endpoints, deletedEndpoints }`），`backends.ts` 的 `endpointModel()` 判斷一次執行是不是在端點上：模型是 `<端點 id>/<模型>`，而且那個端點已設定。其他模型照原樣交給 CLI，包括它自己帶 `/` 的 id（例如使用者 Codex 設定裡某個 provider 的模型，像 OpenRouter 的），但在「設定」裡刪掉的端點的模型例外：刪掉的端點會被記住（`deleted_endpoints`，schema version 26，直到再新增同 id 的端點，或忘掉這個 id 為止，見下文），`endpointRunModel()` 會在 CLI 啟動前讓這樣的一輪失敗（`endpointDeleted`），而不是把那個 id 和 prompt 送到 CLI 自己的服務。session 屬於建立它的模型來源（`agent_sessions.backend`，schema version 26）：成員的模型在 CLI 自己的服務與端點之間移動，或換到另一個端點時，會帶著完整歷史開始新的 session（Claude Code 的 thinking 由寫下它的模型來源簽章；成員的模型改回 CLI 預設時，若接續 Grok 的 session，它會停留在端點的模型上）。對 Grok 來說，為端點輸入的模型（「自訂…」）若不在端點的清單裡，用到它的那次執行會為它另寫一個 table，因為 Grok 不接受設定裡沒有的模型；在同一個 Grok 家目錄裡每次重寫這個區塊（另一位成員的執行、首席 agent 的）都會保留這個 table，直到用到它的執行都結束（`holdGrokTypedModel()`）。已刪除端點的 id 會列在「設定」裡（`ModelBackendsView.deletedEndpoints`），可以忘掉（`DELETE /api/backends/deleted-endpoints/:id`），給剛好以同樣名稱開頭的 CLI 自己的模型用。它們的模型選單會在 CLI 自己的模型後面列出每個端點輸入的模型（`models.ts` 的 `withEndpointModels()`，標上 `ModelOption.endpoint`），並隨端點變動（`ProviderService.backendsChanged()` 會丟掉它們快取的選單，但不動登入狀態，也不動 Cursor 的選單，它沒有端點的模型）。它們的狀態仍然是自己的登入。
 
 每個 CLI 用自己的 API，端點也要提供（vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供）；端點的金鑰放在環境變數裡，不寫進會留下來的檔案：
 
@@ -110,7 +110,7 @@ OpenCode、Goose、Cline 與 OpenHands 透過 stdio 使用 [Agent Client Protoco
 | Relay 權限 | agent 自己的設定 | Harness Relay 的沙箱 |
 | --- | --- | --- |
 | 唯讀 | 每個修改與每個指令都先詢問；讀取、搜尋與網路照常執行 | 不能寫入工作目錄；只能寫入這次執行的暫存資料夾與 agent 的 `statePaths` |
-| 可編輯 | 修改與指令照常執行，推送與發佈（`commands.ts` 的 `isPublishCommand()`），以及 shell 或直譯器執行從標準輸入讀到的內容（`… \| sh`）會先詢問 | 可寫入工作目錄、附件資料夾、這次執行的暫存資料夾與 `statePaths` |
+| 可編輯 | 修改與指令照常執行，推送與發佈（`commands.ts` 的 `isPublishCommand()`），以及 shell 或直譯器執行從標準輸入讀到的內容（`… \| sh`）會先詢問 | 可寫入各工作目錄（對話的每一個，第一個之後的在 `RelaySandboxSpec.extraCwds`）、附件資料夾、這次執行的暫存資料夾與 `statePaths`；每個工作目錄裡專案的 agent 設定維持唯讀 |
 | 完全存取 | agent 的全部允許模式 | 不使用（和其他 CLI 一樣） |
 
 每個轉接器都會把它的 CLI 設定成會詢問（多數預設幾乎什麼都不問），並用測試證明設定後的行為。每個 `session/request_permission` 都經過和 Grok 相同的步驟：

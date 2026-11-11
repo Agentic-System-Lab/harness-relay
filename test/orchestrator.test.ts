@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig, Conversation, ConversationSchedule, ConversationSettings } from '../src/shared/types';
+import { slow } from './timeouts';
 
 /** When `gate` is set, copying a branch's attached files waits for it. */
 const copying = vi.hoisted(() => ({ gate: undefined as Promise<void> | undefined }));
@@ -51,6 +52,8 @@ let calls: {
   sessionId?: string;
   prompt: string;
   cwd?: string;
+  /** The other working directories it was given. */
+  addDirs?: string[];
   systemPrompt?: string;
   images?: { path: string; mimeType: string }[];
   attachmentsDir?: string;
@@ -147,6 +150,8 @@ beforeAll(() => {
         name,
         sessionId: o.sessionId,
         prompt: o.prompt,
+        cwd: o.cwd,
+        ...(o.addDirs ? { addDirs: o.addDirs } : {}),
         systemPrompt: o.systemPrompt,
         images: o.images,
         attachmentsDir: o.attachmentsDir,
@@ -162,6 +167,8 @@ beforeAll(() => {
       });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
+      // In each other working directory too.
+      for (const dir of o.addDirs ?? []) writeFileSync(join(dir, `${name}.txt`), `${name} was here\n`);
       during?.(name, o.cwd);
       // Like a real CLI, a run ends when it is stopped.
       if (!o.signal?.aborted) {
@@ -420,13 +427,13 @@ describe('parallel mode with edit permission', () => {
     // The real directory is untouched; each agent's write landed in its own worktree.
     expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('original\n');
     for (const a of agents) {
-      const wt = conv.worktrees[a.id]!;
+      const wt = conv.worktrees[a.id]![0]!;
       expect(readFileSync(join(wt.path, 'shared.txt'), 'utf8')).toBe(`written by ${a.name}\n`);
     }
     for (const m of agentMessages(conv)) {
       expect(m.status).toBe('done');
-      expect(m.changes?.isolated).toBe(true);
-      expect(m.changes?.files.map((f) => `${f.status} ${f.path}`).sort()).toEqual([
+      expect(m.changes?.[0]?.isolated).toBe(true);
+      expect(m.changes?.[0]?.files.map((f) => `${f.status} ${f.path}`).sort()).toEqual([
         `A ${m.agentName}.txt`,
         'M shared.txt',
       ]);
@@ -436,14 +443,14 @@ describe('parallel mode with edit permission', () => {
     await orchestrator.applyAgentWork(conv.id, 'b');
     expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
     expect(readFileSync(join(project, 'Bob.txt'), 'utf8')).toBe('Bob\n');
-    expect(Object.values(conv.worktrees).every((w) => w.needsReset)).toBe(true);
+    expect(Object.values(conv.worktrees).flat().every((w) => w.needsReset)).toBe(true);
     await expect(orchestrator.applyAgentWork(conv.id, 'a')).rejects.toThrow(/過期/);
 
     // The next parallel run starts both agents from the new state of the directory.
     await orchestrator.send(conv.id, 'again');
     await finish(conv.id);
-    expect(Object.values(conv.worktrees).some((w) => w.needsReset)).toBe(false);
-    const aliceWt = conv.worktrees.a!.path;
+    expect(Object.values(conv.worktrees).flat().some((w) => w.needsReset)).toBe(false);
+    const aliceWt = conv.worktrees.a![0]!.path;
     expect(readFileSync(join(aliceWt, 'Bob.txt'), 'utf8')).toBe('Bob\n');
 
     await orchestrator.cleanupWorktrees(conv);
@@ -800,9 +807,9 @@ describe('roundtable mode with edit permission', () => {
 
     expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
     const [alice, bob] = agentMessages(conv);
-    expect(alice!.changes).toMatchObject({ isolated: false });
-    expect(alice!.changes!.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
-    expect(bob!.changes!.files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'shared.txt']);
+    expect(alice!.changes).toMatchObject([{ isolated: false }]);
+    expect(alice!.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
+    expect(bob!.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'shared.txt']);
     expect(conv.worktrees).toEqual({});
   });
 
@@ -823,6 +830,240 @@ describe('roundtable mode with edit permission', () => {
     await finish(reader.id);
     await orchestrator.send(second.id, 'go');
     await finish(second.id);
+  });
+});
+
+// Two repositories' git work in each test: more time than one's.
+describe('several working directories', { timeout: slow(20_000) }, () => {
+  /** A second working directory with a file of its own; the first is `project`. */
+  function docsFolder(): string {
+    const docs = join(root, `docs-${n}`);
+    mkdirSync(docs, { recursive: true });
+    writeFileSync(join(docs, 'guide.md'), 'guide\n');
+    return docs;
+  }
+
+  it('gives every agent all of them, makes each a repository and records the changes in each', async () => {
+    const docs = docsFolder();
+    const conv = conversation({ mode: 'roundtable', extraCwds: [docs] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+
+    // Both became git repositories.
+    const notes = conv.messages.filter((m) => m.author.kind === 'system').map(textOf);
+    expect(notes.filter((t) => t.includes('git init'))).toHaveLength(2);
+    expect(existsSync(join(docs, '.git'))).toBe(true);
+    const turns = calls.filter((c) => c.name === 'Alice' || c.name === 'Bob');
+    expect(turns.map((c) => [c.cwd, c.addDirs])).toEqual([
+      [project, [docs]],
+      [project, [docs]],
+    ]);
+    expect(turns[0]!.systemPrompt).toContain(`share these working directories, each with the same access: ${project}, ${docs}.`);
+
+    const [alice] = agentMessages(conv);
+    expect(alice!.changes!.map((c) => [c.root, c.isolated, c.files.map((f) => f.path).sort()])).toEqual([
+      [project, false, ['Alice.txt', 'shared.txt']],
+      [docs, false, ['Alice.txt']],
+    ]);
+    // One diff, each repository's paths under its folder's name.
+    const diff = await orchestrator.messageDiff(conv.id, alice!.id);
+    expect(diff).toContain(`+++ b/${basename(project)}/Alice.txt`);
+    expect(diff).toContain(`+++ b/${basename(docs)}/Alice.txt`);
+    // The second repository keeps the turns' snapshots too, until the conversation goes.
+    const refs = () => execFileSync('git', ['-C', docs, 'for-each-ref', `refs/harness-relay/${conv.id}/`], { encoding: 'utf8' });
+    expect(refs()).not.toBe('');
+    await orchestrator.cleanupWorktrees(conv);
+    expect(refs()).toBe('');
+  });
+
+  it('makes one repository for a folder and one inside it, whichever comes first', async () => {
+    for (const mode of ['roundtable', 'parallel'] as const) {
+      const outer = join(root, `outer-${mode}-${n}`);
+      const inner = join(outer, 'docs');
+      mkdirSync(inner, { recursive: true });
+      const conv = conversation({ mode, cwd: inner, extraCwds: [outer] });
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      // Only the outer one was made a repository: git could not snapshot it around an empty inner one.
+      expect(existsSync(join(inner, '.git'))).toBe(false);
+      const alice = agentMessages(conv).find((m) => m.agentName === 'Alice')!;
+      expect(alice.status).toBe('done');
+      expect(alice.changes!.map((c) => c.root)).toEqual([outer]);
+      expect(alice.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'docs/Alice.txt', 'docs/shared.txt']);
+      if (mode === 'parallel') {
+        // One worktree, in which the agent starts in the inner folder and also has the outer one.
+        const [wt] = conv.worktrees.a!;
+        expect(conv.worktrees.a).toHaveLength(1);
+        expect(calls.filter((c) => c.name === 'Alice').at(-1)).toMatchObject({ cwd: join(wt!.path, 'docs'), addDirs: [wt!.path] });
+      }
+      await orchestrator.cleanupWorktrees(conv);
+    }
+  });
+
+  it('takes the lock on all of them for an action allowed in a read-only run, and declines it while another conversation writes in one', async () => {
+    const docs = docsFolder();
+    const pendingIn = (conv: Conversation) =>
+      conv.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as { id: string } | undefined;
+    const writer = conversation({ mode: 'roundtable', cwd: docs });
+    writer.agents = [agents[0]!];
+    await orchestrator.send(writer.id, 'please install'); // waits for its approval, holding the lock on docs
+    await vi.waitFor(() => expect(pendingIn(writer)).toBeDefined());
+    const reader = conversation({ mode: 'roundtable', permission: 'read-only', extraCwds: [docs] });
+    reader.agents = [agents[0]!];
+    await orchestrator.send(reader.id, 'please install');
+    await vi.waitFor(() => expect(pendingIn(reader)).toBeDefined());
+    orchestrator.answerApproval(reader.id, pendingIn(reader)!.id, { allow: true });
+    await finish(reader.id);
+    expect(agentMessages(reader)[0]!.parts.find((p) => p.type === 'approval')).toMatchObject({ status: 'denied' });
+    orchestrator.answerApproval(writer.id, pendingIn(writer)!.id, { allow: true });
+    await finish(writer.id);
+  });
+
+  it("tells a schedule that another conversation writes in one of them, before setting up its run", async () => {
+    const docs = docsFolder();
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    const writer = conversation({ mode: 'roundtable', cwd: docs });
+    await orchestrator.send(writer.id, 'go');
+    const conv = conversation({ mode: 'roundtable', extraCwds: [docs] });
+    conv.schedule = {
+      text: 'scheduled check',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+      nextRunAt: 1,
+    };
+    store.saveSchedule(conv);
+    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'busy', reason: expect.stringContaining(docs) });
+    expect(conv.messages).toEqual([]);
+    release();
+    await finish(writer.id);
+  });
+
+  it("records the others' changes when one repository cannot be snapshotted", async () => {
+    const docs = docsFolder();
+    execFileSync('git', ['init', '-q'], { cwd: docs });
+    // A repository inside it without a commit: git cannot snapshot docs around it.
+    mkdirSync(join(docs, 'sub'));
+    execFileSync('git', ['init', '-q'], { cwd: join(docs, 'sub') });
+    const conv = conversation({ mode: 'roundtable', extraCwds: [docs] });
+    conv.agents = [agents[0]!];
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const [alice] = agentMessages(conv);
+    expect(alice!.status).toBe('done');
+    expect(alice!.changes!.map((c) => c.root)).toEqual([project]);
+    expect(alice!.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
+    await orchestrator.cleanupWorktrees(conv);
+  });
+
+  // chmod cannot keep a program from writing in a folder on Windows.
+  it.skipIf(process.platform === 'win32')('marks the worktrees for a reset when a patch fails after another was applied', async () => {
+    const docs = docsFolder();
+    const conv = conversation({ mode: 'parallel', extraCwds: [docs] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    // The check passes (nothing in the way), but nothing can be written in docs: its patch fails.
+    chmodSync(docs, 0o555);
+    try {
+      await expect(orchestrator.applyAgentWork(conv.id, 'b')).rejects.toThrow();
+    } finally {
+      chmodSync(docs, 0o755);
+    }
+    // The first folder's patch was applied: the worktrees start again from the folders as they are.
+    expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
+    expect(Object.values(conv.worktrees).flat().every((w) => w.needsReset)).toBe(true);
+    await orchestrator.cleanupWorktrees(conv);
+  });
+
+  it("neither applies nor shows a worktree of a folder taken off the list, even once that folder is gone", async () => {
+    const docs = docsFolder();
+    const conv = conversation({ mode: 'parallel', extraCwds: [docs] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    conv.settings = { ...conv.settings, extraCwds: undefined };
+    rmSync(docs, { recursive: true, force: true });
+    const diff = await orchestrator.agentDiff(conv.id, 'b');
+    expect(diff).toContain('+++ b/Bob.txt');
+    expect(diff).not.toContain(basename(docs));
+    const files = await orchestrator.applyAgentWork(conv.id, 'b');
+    expect(files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'shared.txt']);
+    expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
+    await orchestrator.cleanupWorktrees(conv);
+  });
+
+  it('keeps another conversation from writing in any of them meanwhile', async () => {
+    const docs = docsFolder();
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    const first = conversation({ mode: 'roundtable', extraCwds: [docs] });
+    const second = conversation({ mode: 'relay', cwd: docs });
+    await orchestrator.send(first.id, 'go');
+    await expect(orchestrator.send(second.id, 'go')).rejects.toThrow(/正在修改/);
+    release();
+    await finish(first.id);
+    await orchestrator.send(second.id, 'go');
+    await finish(second.id);
+  });
+
+  it('in parallel mode, gives each agent a worktree of each, and applies all of a result or none of it', async () => {
+    const docs = docsFolder();
+    const conv = conversation({ mode: 'parallel', extraCwds: [docs] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+
+    for (const a of agents) {
+      const wts = conv.worktrees[a.id]!;
+      expect(wts.map((w) => w.root)).toEqual([project, docs]);
+      const call = calls.find((c) => c.name === a.name)!;
+      expect([call.cwd, call.addDirs]).toEqual([wts[0]!.path, [wts[1]!.path]]);
+      expect(readFileSync(join(wts[1]!.path, `${a.name}.txt`), 'utf8')).toBe(`${a.name} was here\n`);
+    }
+    // The real folders are untouched.
+    expect(existsSync(join(docs, 'Bob.txt'))).toBe(false);
+    const bob = agentMessages(conv).find((m) => m.agentName === 'Bob')!;
+    expect(bob.changes!.map((c) => [c.root, c.isolated])).toEqual([
+      [project, true],
+      [docs, true],
+    ]);
+    expect(await orchestrator.agentDiff(conv.id, 'b')).toContain(`+++ b/${basename(docs)}/Bob.txt`);
+
+    // A file in the way in one of them: nothing is applied anywhere.
+    writeFileSync(join(docs, 'Bob.txt'), 'in the way\n');
+    await expect(orchestrator.applyAgentWork(conv.id, 'b')).rejects.toThrow();
+    expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('original\n');
+    rmSync(join(docs, 'Bob.txt'));
+
+    const files = await orchestrator.applyAgentWork(conv.id, 'b');
+    expect(files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'Bob.txt', 'shared.txt']);
+    expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
+    expect(readFileSync(join(docs, 'Bob.txt'), 'utf8')).toBe('Bob was here\n');
+    expect(Object.values(conv.worktrees).flat().every((w) => w.needsReset)).toBe(true);
+    await orchestrator.cleanupWorktrees(conv);
+    expect(Object.values(conv.worktrees).flat().some((w) => existsSync(w.path))).toBe(false);
+  });
+
+  it('removes the worktrees of a folder the conversation no longer works in', async () => {
+    const docs = docsFolder();
+    const conv = conversation({ mode: 'parallel', extraCwds: [docs] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const gone = conv.worktrees.a!.find((w) => w.root === docs)!;
+    expect(existsSync(gone.path)).toBe(true);
+
+    conv.settings = { ...conv.settings, extraCwds: undefined };
+    store.saveMeta(conv);
+    await orchestrator.send(conv.id, 'again');
+    await finish(conv.id);
+    expect(conv.worktrees.a!.map((w) => w.root)).toEqual([project]);
+    expect(existsSync(gone.path)).toBe(false);
+    expect(new Store(db).get(conv.id)!.worktrees.a!.map((w) => w.root)).toEqual([project]);
+    await orchestrator.cleanupWorktrees(conv);
   });
 });
 
@@ -1905,7 +2146,7 @@ describe('branching a conversation', () => {
     ]);
     await finish(conv.id);
     const reply = agentMessages(conv)[0]!;
-    expect(reply.changes?.files.length).toBeGreaterThan(0);
+    expect(reply.changes?.[0]?.files.length).toBeGreaterThan(0);
 
     // A file already gone is skipped; the others are copied, readable by the owner only.
     const gone = conv.messages.find((m) => m.author.kind === 'user')!.parts.find((p) => p.type === 'attachment' && p.name === 'gone.txt')!;
@@ -1913,7 +2154,8 @@ describe('branching a conversation', () => {
     const branch = await orchestrator.branch(conv.id, reply.id);
     const file = branch.messages.find((m) => m.author.kind === 'user')!.parts.find((p) => p.type === 'attachment')!;
     expect(file.type === 'attachment' && readFileSync(attachmentPath(branch.id, file), 'utf8')).toBe('marmalade\n');
-    expect(file.type === 'attachment' && statSync(attachmentPath(branch.id, file)).mode & 0o777).toBe(0o600);
+    // (Windows has no permission bits.)
+    if (process.platform !== 'win32') expect(file.type === 'attachment' && statSync(attachmentPath(branch.id, file)).mode & 0o777).toBe(0o600);
     expect(gone.type === 'attachment' && existsSync(attachmentPath(branch.id, gone))).toBe(false);
     expect(refs().filter((r) => r.includes(`/${branch.id}/`))).toHaveLength(2);
 
@@ -2086,7 +2328,7 @@ describe('branching a conversation', () => {
     await expect(orchestrator.branch(conv.id, agentMessages(conv)[1]!.id)).rejects.toMatchObject({ status: 409 });
     await finish(conv.id);
     const branch = await orchestrator.branch(conv.id, agentMessages(conv)[1]!.id);
-    expect(agentMessages(branch).map((m) => Boolean(m.changes?.files.length))).toEqual([true, true]);
+    expect(agentMessages(branch).map((m) => Boolean(m.changes?.[0]?.files.length))).toEqual([true, true]);
   });
 
   it('finishes copying the attached files before the original is deleted, and before shutdown', async () => {
@@ -2116,8 +2358,8 @@ describe('branching a conversation', () => {
     await orchestrator.send(conv.id, 'draw');
     await finish(conv.id);
     const reply = agentMessages(conv)[0]!;
-    expect(reply.changes?.isolated).toBe(true);
-    const wt = conv.worktrees.a!;
+    expect(reply.changes?.[0]?.isolated).toBe(true);
+    const wt = conv.worktrees.a![0]!;
     writeFileSync(join(worktreeDir(wt.root, conv.settings.cwd, wt.path), 'chart.png'), 'the original chart');
     const lookup = (id: string) => store.get(id);
     const chart = (c: Conversation, m: Conversation['messages'][number]) => {
@@ -2131,7 +2373,7 @@ describe('branching a conversation', () => {
     // The branch works in its own worktree; the copied reply still shows the original's chart.
     await orchestrator.send(branch.id, 'draw again');
     await finish(branch.id);
-    const own = branch.worktrees.a!;
+    const own = branch.worktrees.a![0]!;
     writeFileSync(join(worktreeDir(own.root, branch.settings.cwd, own.path), 'chart.png'), "the branch's chart");
     expect(chart(branch, copied)).toBe('the original chart');
     expect(chart(branch, agentMessages(branch)[1]!)).toBe("the branch's chart");
@@ -2398,7 +2640,7 @@ describe('deleting a conversation', () => {
     const conv = conversation({ mode: 'parallel' });
     await orchestrator.send(conv.id, 'go');
     await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(2));
-    const worktrees = Object.values(conv.worktrees).map((w) => w.path);
+    const worktrees = Object.values(conv.worktrees).flat().map((w) => w.path);
 
     await orchestrator.deleteConversation(conv.id);
     expect(orchestrator.isRunning(conv.id)).toBe(false);
@@ -2950,7 +3192,7 @@ describe('parallel worktrees', () => {
     await orchestrator.send(conv.id, 'go');
     await finish(conv.id);
     const alice = agentMessages(conv).find((m) => m.agentName === 'Alice')!;
-    expect(alice.changes?.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
+    expect(alice.changes?.[0]?.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
     await orchestrator.cleanupWorktrees(conv);
   });
 });
@@ -4184,7 +4426,7 @@ describe('schedules', () => {
       expect(store.isSorted(chat.id)).toBe(true);
       expect(calls.map((c) => c.name).sort()).toEqual(['Alice', 'Bob']); // no sorter
       expect(Object.keys(chat.worktrees).sort()).toEqual(['a', 'b']);
-      expect(Object.values(chat.worktrees).every((w) => w.branch.startsWith(`relay/${chat.id.slice(0, 8)}/`))).toBe(true);
+      expect(Object.values(chat.worktrees).flat().every((w) => w.branch.startsWith(`relay/${chat.id.slice(0, 8)}/`))).toBe(true);
       expect(conv.worktrees).toEqual({});
     });
 

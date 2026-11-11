@@ -522,12 +522,15 @@ async function probeClaude(
   off: readonly NativePart[],
   items: NativeItemsOff,
   timeoutMs = PROBE_TIMEOUT_MS,
+  addDirs: readonly string[] = [],
 ): Promise<NativeProbe> {
+  // The other working directories, as runs give them: Claude Code loads their skills too.
+  const dirArgs = addDirs.length ? ['--add-dir', ...addDirs] : [];
   const { answers, errors, res, session } = await askClaude(
     bin,
     env,
     cwd,
-    [],
+    dirArgs,
     [CLAUDE_ASKS.init, CLAUDE_ASKS.mcp, CLAUDE_ASKS.hooks, CLAUDE_ASKS.settings],
     (got) => claudeAnswersUsage(got[0]),
     timeoutMs,
@@ -595,7 +598,7 @@ async function probeClaude(
       };
       const pluginIds = (plugins ?? []).map((p) => p.id);
       const settingsFile = claudeSettingsFile(claudeNativeSettings(off, pluginIds, items));
-      const args = claudeNativeArgs(off, pluginIds, items, settingsFile?.file);
+      const args = [...dirArgs, ...claudeNativeArgs(off, pluginIds, items, settingsFile?.file)];
       const again = await askClaude(
         bin,
         runEnv,
@@ -1270,7 +1273,16 @@ async function probeCursor(
 
 const PROBES: Record<
   Provider,
-  (bin: string, env: NodeJS.ProcessEnv, cwd: string, off: readonly NativePart[], items: NativeItemsOff, timeoutMs?: number) => Promise<NativeProbe>
+  (
+    bin: string,
+    env: NodeJS.ProcessEnv,
+    cwd: string,
+    off: readonly NativePart[],
+    items: NativeItemsOff,
+    timeoutMs?: number,
+    /** The other working directories (Claude Code loads their skills; the others load nothing there). */
+    addDirs?: readonly string[],
+  ) => Promise<NativeProbe>
 > = {
   claude: probeClaude,
   codex: probeCodex,
@@ -1310,10 +1322,13 @@ export class NativeSetupService {
     private timeoutMs = PROBE_TIMEOUT_MS,
   ) {}
 
-  /** Per CLI, executable, folder and CLI home (the agent home setting and the account move it). */
-  private key(provider: Provider, cwd: string, account?: string): string {
+  /**
+   * Per CLI, executable, folders (the one it starts in and the others) and CLI home (the agent home
+   * setting and the account move it).
+   */
+  private key(provider: Provider, cwd: string, account?: string, addDirs: readonly string[] = []): string {
     const home = this.settings.env(provider, account)[AGENT_HOME_ENV[provider]] ?? '';
-    return `${provider}\0${this.settings.bin(provider)}\0${cwd}\0${home}`;
+    return `${provider}\0${this.settings.bin(provider)}\0${cwd}\0${home}\0${addDirs.join('\0')}`;
   }
 
   /**
@@ -1322,12 +1337,14 @@ export class NativeSetupService {
    * the background once it is older than the cache keeps it; the CLI is waited for only when there is
    * none yet (or the last one said nothing at all).
    */
-  recent(provider: Provider, cwd: string, account?: string): Promise<NativeProbe> {
+  recent(provider: Provider, cwd: string, account?: string, addDirs: readonly string[] = []): Promise<NativeProbe> {
     const off = this.settings.nativeOff?.(provider, account) ?? [];
     const items = this.settings.nativeItems?.(provider, account) ?? {};
-    const last = this.answered.get(this.key(provider, cwd, account));
-    if (!last || !sameParts(last.off, off) || !sameNativeItems(last.items, items) || saidNothing(last.probe)) return this.get(provider, cwd, false, account);
-    void this.get(provider, cwd, false, account); // the cached question when it is fresh, else a new one
+    const last = this.answered.get(this.key(provider, cwd, account, addDirs));
+    if (!last || !sameParts(last.off, off) || !sameNativeItems(last.items, items) || saidNothing(last.probe)) {
+      return this.get(provider, cwd, false, account, addDirs);
+    }
+    void this.get(provider, cwd, false, account, addDirs); // the cached question when it is fresh, else a new one
     return Promise.resolve(last.probe);
   }
 
@@ -1336,22 +1353,22 @@ export class NativeSetupService {
    * when there is none yet. For checks against what the UI was shown (opening a reported file), which
    * should not start the CLI again.
    */
-  latest(provider: Provider, cwd: string, account?: string): Promise<NativeProbe> {
-    return this.cache.get(this.key(provider, cwd, account))?.result ?? this.get(provider, cwd, false, account);
+  latest(provider: Provider, cwd: string, account?: string, addDirs: readonly string[] = []): Promise<NativeProbe> {
+    return this.cache.get(this.key(provider, cwd, account, addDirs))?.result ?? this.get(provider, cwd, false, account, addDirs);
   }
 
   /**
    * `account`: ask the CLI in that account's home (default: the default account's), leaving out what
-   * that account's runs leave out.
+   * that account's runs leave out. `addDirs`: the other working directories, given as runs give them.
    */
-  get(provider: Provider, cwd: string, refresh = false, account?: string): Promise<NativeProbe> {
+  get(provider: Provider, cwd: string, refresh = false, account?: string, addDirs: readonly string[] = []): Promise<NativeProbe> {
     const bin = this.settings.bin(provider);
     const off = [...(this.settings.nativeOff?.(provider, account) ?? [])];
     const items = this.settings.nativeItems?.(provider, account) ?? {};
-    const key = this.key(provider, cwd, account);
+    const key = this.key(provider, cwd, account, addDirs);
     const hit = this.cache.get(key);
     if (hit && !refresh && Date.now() - hit.at < CACHE_MS && sameParts(hit.off, off) && sameNativeItems(hit.items, items)) return hit.result;
-    const result = PROBES[provider](bin, this.settings.env(provider, account), cwd, off, items, this.timeoutMs).catch((err: Error) =>
+    const result = PROBES[provider](bin, this.settings.env(provider, account), cwd, off, items, this.timeoutMs, addDirs).catch((err: Error) =>
       failedProbe(provider, cwd, off, items, err),
     );
     this.cache.set(key, { at: Date.now(), off, items, result });

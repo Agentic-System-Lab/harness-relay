@@ -103,6 +103,17 @@ describe('relaySandboxPaths', () => {
     expect(p.denyWrite).toContain(join(cwd, '.clinerules'));
   });
 
+  it("writes the conversation's other working directories as the first, in edit mode only, each one's agent config read-only", () => {
+    const docs = join(home, 'docs');
+    mkdirSync(docs, { recursive: true });
+    const edit = relaySandboxPaths(spec({ permission: 'edit', extraCwds: [docs] }), ctx, runDirs);
+    expect(edit.allowWrite).toEqual(expect.arrayContaining([cwd, docs]));
+    expect(edit.denyWrite).toEqual(expect.arrayContaining([join(cwd, '.cursor'), join(docs, '.cursor'), join(docs, '.clinerules'), join(docs, '.mcp.json')]));
+    const ro = relaySandboxPaths(spec({ extraCwds: [docs] }), ctx, runDirs);
+    expect(ro.allowWrite).not.toContain(docs);
+    expect(ro.allowWrite).not.toContain(cwd);
+  });
+
   it("lets a run read its own config and host temp inside the private roots, never another run's", () => {
     // Goose's layout: the member's config lives in its private state folder, beside other members'.
     const priv = join(dir, 'agent-home', 'goose', 'private');
@@ -434,6 +445,11 @@ describe('relaySandboxRefusal', () => {
     expect(relaySandboxRefusal(spec({ permission: 'edit', cwd: RELAY_ROOT }), ctx)).toBeDefined();
     expect(relaySandboxRefusal(spec({ permission: 'edit', cwd: homedir() }), ctx)).toBeDefined();
     expect(relaySandboxRefusal(spec({ permission: 'read-only', cwd: homedir() }), ctx)).toBeUndefined();
+    // Any of the conversation's working directories, not only the first.
+    expect(relaySandboxRefusal(spec({ permission: 'edit', extraCwds: [RELAY_ROOT] }), ctx)).toBeDefined();
+    expect(relaySandboxRefusal(spec({ permission: 'edit', extraCwds: [homedir()] }), ctx)).toBeDefined();
+    expect(relaySandboxRefusal(spec({ permission: 'edit', extraCwds: ['docs'] }), ctx)).toMatch(/docs/);
+    expect(relaySandboxRefusal(spec({ permission: 'read-only', extraCwds: [homedir()] }), ctx)).toBeUndefined();
   });
 
   it('refuses a writable folder that holds the home folder, Harness Relay, or another CLI\'s folder', () => {

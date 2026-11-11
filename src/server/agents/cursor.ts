@@ -224,9 +224,12 @@ export function cursorHomePath(path: string, home = homedir()): string {
   return /^~[\\/]/.test(path) ? join(home, path.slice(2)) : path;
 }
 
-/** Whether `path` is in `dir`, `~` and links on the way resolved (a link in the project may lead out of it). */
-const inside = (dir: string, path: string) => {
-  const rel = relative(realPath(resolve(dir)), realPath(resolve(dir, cursorHomePath(path))));
+/**
+ * Whether `path`, as Cursor gave it in `cwd`, is in `dir` (default: `cwd` itself), `~` and links on
+ * the way resolved (a link in the project may lead out of it).
+ */
+const inside = (cwd: string, path: string, dir = cwd) => {
+  const rel = relative(realPath(resolve(dir)), realPath(resolve(cwd, cursorHomePath(path))));
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 };
 
@@ -238,12 +241,13 @@ const inside = (dir: string, path: string) => {
  * its protected files (`.git/hooks/**`, `.git/config`, `.vscode/**`, `.cursor/*.json`…), where a write
  * could make code run later, outside any sandbox.
  */
-export function cursorPermissionDecision(permission: Permission, call: CursorToolCall, cwd: string): AcpDecision {
+export function cursorPermissionDecision(permission: Permission, call: CursorToolCall, cwd: string, addDirs: readonly string[] = []): AcpDecision {
   if (permission === 'full') return { allow: true };
   if (isWeb(call) || call.kind === 'read') return { allow: true };
+  // A delete in any of the conversation's working directories (each has the same access as `cwd`).
   if (permission === 'edit' && isDelete(call)) {
     const path = cursorPath(call);
-    if (path && inside(cwd, path)) return { allow: true };
+    if (path && [cwd, ...addDirs].some((dir) => inside(cwd, path, dir))) return { allow: true };
   }
   return { allow: false, reason: 'Not covered by the permission' };
 }
@@ -252,12 +256,19 @@ export function cursorPermissionDecision(permission: Permission, call: CursorToo
  * What to show the user when Cursor asks about a call the permission does not cover. A command it
  * runs once allowed runs outside any sandbox (Cursor has none over ACP), and the card says so.
  */
-export function cursorApprovalRequest(call: CursorToolCall, cwd: string): ApprovalRequest {
+export function cursorApprovalRequest(call: CursorToolCall, cwd: string, addDirs: readonly string[] = []): ApprovalRequest {
   if (call.kind === 'execute') return { kind: 'command', detail: cursorCommand(call), reason: call.rawInput?.description, outsideSandbox: true };
-  // Cursor asks about a write outside the workspace, and inside it only for its protected files: say which.
+  // Cursor asks about a write outside its workspace (`cwd`), and inside it only for its protected
+  // files: say which, and when the file is in another of the conversation's working directories.
   if (call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move') {
     const path = cursorPath(call);
-    const reason = isDelete(call) ? call.title : path && !inside(cwd, path) ? t().cursorOutsideWrite : t().cursorProtectedWrite;
+    const reason = isDelete(call)
+      ? call.title
+      : !path || inside(cwd, path)
+        ? t().cursorProtectedWrite
+        : addDirs.some((dir) => inside(cwd, path, dir))
+          ? t().cursorOtherCwdWrite
+          : t().cursorOutsideWrite;
     return { kind: 'edit', detail: path, reason };
   }
   if (call.kind === 'fetch') return { kind: 'fetch', detail: call.rawInput?.url ?? titleSubject(call.title), reason: call.title };
@@ -492,10 +503,10 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
     const asked = (params?.toolCall ?? {}) as CursorToolCall;
     const known = asked.toolCallId ? updates.call(asked.toolCallId) : undefined;
     const call: CursorToolCall = { ...known, ...asked, rawInput: asked.rawInput ?? known?.rawInput, kind: asked.kind ?? known?.kind };
-    let decision = cursorPermissionDecision(o.permission, call, o.cwd);
+    let decision = cursorPermissionDecision(o.permission, call, o.cwd, o.addDirs);
     let label = t().cursorRefused;
     if (!decision.allow && o.requestApproval) {
-      const answer = await o.requestApproval(cursorApprovalRequest(call, o.cwd));
+      const answer = await o.requestApproval(cursorApprovalRequest(call, o.cwd, o.addDirs));
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = declinedLabel(answer.note);
     }

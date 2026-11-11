@@ -78,10 +78,61 @@ import { t } from '../i18n';
  */
 export const GROK_PROFILE = 'harness-relay';
 
-/** The profile per permission (`GROK_SANDBOX`): none with full access; on Windows, where Grok has no sandbox, `workspace` as before. */
-export function grokSandboxProfile(permission: Permission, platform: NodeJS.Platform = process.platform): string | undefined {
+/**
+ * The profile per permission (`GROK_SANDBOX`): none with full access; on Windows, where Grok has no
+ * sandbox, `workspace` as before. A run that may also write other folders (`readWrite`: the
+ * conversation's other working directories) has a profile of its own for them, named after them
+ * (`harness-relay-` and a hash), so that runs of other conversations at the same time, which write
+ * their own into the same `sandbox.toml`, never change it under it.
+ */
+export function grokSandboxProfile(
+  permission: Permission,
+  platform: NodeJS.Platform = process.platform,
+  readWrite: readonly string[] = [],
+): string | undefined {
   if (permission === 'full') return undefined;
-  return platform === 'win32' ? 'workspace' : GROK_PROFILE;
+  if (platform === 'win32') return 'workspace';
+  if (!readWrite.length) return GROK_PROFILE;
+  return `${GROK_PROFILE}-${createHash('sha256').update(JSON.stringify([...readWrite].sort())).digest('hex').slice(0, 12)}`;
+}
+
+/** A profile Harness Relay writes into `sandbox.toml` (`GROK_PROFILE`, or one of a run's own folders). */
+export function isRelayProfile(name: string | undefined): name is string {
+  return name === GROK_PROFILE || (name !== undefined && RELAY_PROFILE_NAME.test(name));
+}
+
+const RELAY_PROFILE_NAME = /^harness-relay-[0-9a-f]{12}$/;
+
+/** The other folders a run may write (`addDirs`), each also by its real path (macOS's /tmp is /private/tmp). */
+export function grokReadWrite(addDirs: readonly string[] = []): string[] {
+  return [...new Set(addDirs.flatMap((d) => [d, realPath(d)]))];
+}
+
+/**
+ * How many profiles of runs' own folders `sandbox.toml` keeps: the earliest written go first, but
+ * never one a turn now running uses (so there may be more while that many run at once).
+ */
+export const MAX_FOLDER_PROFILES = 32;
+
+/** The profiles turns now running use, and how many use each. */
+const profilesInUse = new Map<string, number>();
+
+/** Marks a profile as used by a turn until the function it returns is called. */
+export function holdGrokProfile(name: string): () => void {
+  profilesInUse.set(name, (profilesInUse.get(name) ?? 0) + 1);
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    const n = (profilesInUse.get(name) ?? 1) - 1;
+    if (n > 0) profilesInUse.set(name, n);
+    else profilesInUse.delete(name);
+  };
+}
+
+/** The profiles turns now running use (`holdGrokProfile`). */
+export function grokProfilesInUse(): ReadonlySet<string> {
+  return new Set(profilesInUse.keys());
 }
 
 const PROFILE_BEGIN = '# >>> harness-relay: written by Harness Relay before each run; changes here are replaced';
@@ -322,7 +373,12 @@ function grokEntry(path: string, expect: { size?: number; max?: number } = {}): 
   return { kind: 'file', content: readFileSync(path), mode: st.mode & 0o7777 };
 }
 
-/** `sandbox.toml` without Harness Relay's own block, which each run writes again (`withGrokProfile`). */
+/**
+ * `sandbox.toml` without the content of Harness Relay's own block, which each run writes again
+ * (`withGrokProfile`). The blocks of runs' own folders count like the user's profiles: Harness Relay's
+ * own writes of them reach the snapshot of the turns running (`guardGrokSettings`), anything else in
+ * them is a change.
+ */
 function outsideProfile(name: string, content: Buffer | null): string | null {
   if (content === null) return null;
   const text = content.toString('latin1');
@@ -485,13 +541,14 @@ function writeGrokOwn(home: string, write: () => void): void {
 
 /**
  * Guards Grok's settings around one sandboxed turn; `write` writes what Harness Relay itself keeps
- * there for the turn (its profile). Turns of the same Grok home at the same time share what the
- * settings were before the first of them: so a turn starting while another runs neither takes a
- * change that one's commands made for the settings as they were (it is put back first), nor puts it
- * back afterwards. Returns what to call once the turn is over: the settings changed during it, which
- * it has put back (`restoreGrokSettings`).
+ * there for the turn (its profile), and returns `sandbox.toml` as it wrote it (nothing: unchanged).
+ * Turns of the same Grok home at the same time share what the settings were before the first of
+ * them: so a turn starting while another runs neither takes a change that one's commands made for
+ * the settings as they were (it is put back first), nor puts it back afterwards; what `write` wrote
+ * then (another conversation's profile) becomes part of what they were. Returns what to call once the
+ * turn is over: the settings changed during it, which it has put back (`restoreGrokSettings`).
  */
-export function guardGrokSettings(home: string, write: () => void = () => undefined): () => string[] {
+export function guardGrokSettings(home: string, write: () => string | void = () => undefined): () => string[] {
   const key = realPath(home);
   writeGrokOwn(home, write);
   let guard = grokGuards.get(key);
@@ -513,28 +570,54 @@ export function guardGrokSettings(home: string, write: () => void = () => undefi
   };
 }
 
+/** The marker lines around the block that defines one of Harness Relay's profiles in `sandbox.toml`. */
+function profileMarkers(name: string): { begin: string; end: string } {
+  if (name === GROK_PROFILE) return { begin: PROFILE_BEGIN, end: PROFILE_END };
+  return { begin: `# >>> ${name}: written by Harness Relay before each run; changes here are replaced`, end: `# <<< ${name}` };
+}
+
+/** Grok's settings file that holds the sandbox profiles. */
+const GROK_SANDBOX_FILE = 'sandbox.toml';
+
+/** The blocks of the profiles of runs' own folders, each whole, with the line break after it. */
+const FOLDER_BLOCKS = /^# >>> (harness-relay-[0-9a-f]{12}): written by Harness Relay[^\n]*\n[\s\S]*?^# <<< \1$\n?/gm;
+
 /**
- * The block of `sandbox.toml` that defines the profile. A JSON string is a TOML basic string, once
- * DEL, which JSON leaves as it is and TOML does not allow there, is escaped too.
+ * The block of `sandbox.toml` that defines the profile (`name`; `readWrite`: the folders a run's own
+ * profile may also write). A JSON string is a TOML basic string, once DEL, which JSON leaves as it is
+ * and TOML does not allow there, is escaped too.
  */
-export function grokProfileBlock(deny: readonly string[]): string {
+export function grokProfileBlock(deny: readonly string[], readWrite: readonly string[] = [], name = GROK_PROFILE): string {
   const toml = (path: string) => JSON.stringify(path).replace(/\u007f/g, '\\u007F');
+  const { begin, end } = profileMarkers(name);
   return [
-    PROFILE_BEGIN,
-    `[profiles.${GROK_PROFILE}]`,
+    begin,
+    `[profiles.${name}]`,
     'extends = "workspace"',
+    ...(readWrite.length ? [`read_write = [${readWrite.map(toml).join(', ')}]`] : []),
     `deny = [${deny.map(toml).join(', ')}]`,
-    PROFILE_END,
+    end,
   ].join('\n');
 }
 
-/** `sandbox.toml` with the profile's block in place of the one there was, or after the user's own profiles. */
-export function withGrokProfile(existing: string, block: string): string {
-  const start = existing.indexOf(PROFILE_BEGIN);
-  const end = start < 0 ? -1 : existing.indexOf(PROFILE_END, start);
-  if (end >= 0) return existing.slice(0, start) + block + existing.slice(end + PROFILE_END.length);
+/**
+ * `sandbox.toml` with the profile's block (`name`) in place of the one there was, or after the user's
+ * own profiles and Harness Relay's others. Beyond `MAX_FOLDER_PROFILES` profiles of runs' own folders,
+ * the earliest written go, but not those in `keep` (in use).
+ */
+export function withGrokProfile(existing: string, block: string, name = GROK_PROFILE, keep: ReadonlySet<string> = new Set()): string {
+  const { begin, end: endMarker } = profileMarkers(name);
+  const start = existing.indexOf(begin);
+  const end = start < 0 ? -1 : existing.indexOf(endMarker, start);
+  if (end >= 0) return existing.slice(0, start) + block + existing.slice(end + endMarker.length);
   const before = existing.trimEnd();
-  return `${before ? `${before}\n\n` : ''}${block}\n`;
+  const next = `${before ? `${before}\n\n` : ''}${block}\n`;
+  if (name === GROK_PROFILE) return next;
+  const blocks = [...next.matchAll(FOLDER_BLOCKS)].filter((m) => m[1] !== name);
+  const spare = blocks.filter((m) => !keep.has(m[1]!));
+  const drop = new Set(spare.slice(0, Math.max(0, blocks.length + 1 - MAX_FOLDER_PROFILES)).map((m) => m.index));
+  if (!drop.size) return next;
+  return next.replace(FOLDER_BLOCKS, (whole, _name, index: number) => (drop.has(index) ? '' : whole));
 }
 
 /** Grok's home: the CLIs' own folder for it when Harness Relay gives it one, else ~/.grok. */
@@ -543,21 +626,29 @@ export function grokHome(env: NodeJS.ProcessEnv): string {
 }
 
 /**
- * Writes the profile into `<home>/sandbox.toml` when it is not there as it should be. Written beside
- * it and renamed into place, so a Grok starting meanwhile (another agent of a parallel team) reads
- * the old file or the new one, never half of one. A `sandbox.toml` that is a link (to the user's
- * dotfiles, say) stays one: the file it leads to is written.
+ * Writes the profile (`name`, with the folders it may also write) into `<home>/sandbox.toml` when it
+ * is not there as it should be (`keep`: profiles in use, which no pruning drops), and returns the file as written (nothing when it was as it should
+ * be). Written beside it and renamed into place, so a Grok starting meanwhile (another agent of a
+ * parallel team) reads the old file or the new one, never half of one. A `sandbox.toml` that is a
+ * link (to the user's dotfiles, say) stays one: the file it leads to is written.
  */
-export function writeGrokProfile(home: string, deny: readonly string[]): void {
-  const path = join(home, 'sandbox.toml');
+export function writeGrokProfile(
+  home: string,
+  deny: readonly string[],
+  readWrite: readonly string[] = [],
+  name = GROK_PROFILE,
+  keep: ReadonlySet<string> = new Set(),
+): string | undefined {
+  const path = join(home, GROK_SANDBOX_FILE);
   const file = existsSync(path) ? realpathSync(path) : path;
   const existing = existsSync(file) ? readFileSync(file, 'utf8') : '';
-  const next = withGrokProfile(existing, grokProfileBlock(deny));
+  const next = withGrokProfile(existing, grokProfileBlock(deny, readWrite, name), name, keep);
   if (next === existing) return;
   mkdirSync(home, { recursive: true });
   const temp = `${file}.${process.pid}-${randomBytes(6).toString('hex')}.tmp`;
   writeFileSync(temp, next, { flag: 'wx' });
   renameSync(temp, file);
+  return next;
 }
 
 
@@ -873,8 +964,11 @@ export function grokNativeEnv(off: readonly NativePart[] = []): Record<string, s
 }
 
 /** The environment of one run: the user's, what leaves out Grok's own setup, and the sandbox for the permission. */
-export function grokEnv(o: Pick<RunOptions, 'env' | 'nativeOff' | 'permission'>, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
-  const sandbox = grokSandboxProfile(o.permission, platform);
+export function grokEnv(
+  o: Pick<RunOptions, 'env' | 'nativeOff' | 'permission' | 'addDirs'>,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const sandbox = grokSandboxProfile(o.permission, platform, grokReadWrite(o.addDirs));
   return { ...o.env, ...grokNativeEnv(o.nativeOff), ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
 }
 
@@ -924,7 +1018,8 @@ export const grokRunner: AgentRunner = {
     const o = endpoint ? { ...given, model: grokEndpointModelId(endpoint.endpoint.id, endpoint.model), effort: endpointEffort('grok', given.effort) } : given;
     // Model and effort are set per session below: `grok agent --reasoning-effort` does not reach ACP sessions.
     const args = ['agent', '--no-leader', 'stdio'];
-    const sandbox = grokSandboxProfile(o.permission);
+    const readWrite = grokReadWrite(o.addDirs);
+    const sandbox = grokSandboxProfile(o.permission, process.platform, readWrite);
     const env = endpoint ? endpointKeyEnv(grokEnv(o), endpoint) : grokEnv(o);
     // A model typed for an endpoint (Custom…) that its list leaves out gets a table too, or Grok would
     // refuse it (Claude Code and Codex run any model named on an endpoint). It is held for the whole
@@ -943,7 +1038,7 @@ export const grokRunner: AgentRunner = {
       }
     };
     try {
-      if (sandbox === GROK_PROFILE) {
+      if (isRelayProfile(sandbox)) {
         const deny = o.protectedPaths ?? protectedReads();
         // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
         const pattern = patternPath(deny);
@@ -954,28 +1049,33 @@ export const grokRunner: AgentRunner = {
         const bins = commandPaths(o.bin, env);
         let settle: () => string[];
         let settleProgram: () => string[] = () => [];
+        // In use until the turn ends: no other run's write drops its block meanwhile.
+        const releaseProfile = holdGrokProfile(sandbox);
         try {
           settle = guardGrokSettings(home, () => {
             try {
-              writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)]);
+              writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)], readWrite, sandbox, grokProfilesInUse());
             } catch (err) {
               throw new AgentRunError(t().grokSandbox((err as Error).message));
             }
             writeModels();
           });
         } catch (err) {
+          releaseProfile();
           throw err instanceof AgentRunError ? err : new AgentRunError(t().grokSandbox((err as Error).message));
         }
         try {
           if (process.platform === 'linux') settleProgram = guardGrokProgram(home, bins);
         } catch (err) {
           settle(); // the turn does not run: its settings guard ends here
+          releaseProfile();
           throw new AgentRunError(t().grokSandbox((err as Error).message));
         }
         let result: RunResult;
         try {
           result = await grokTurn(o, args, sandbox, env);
         } finally {
+          releaseProfile();
           const changed = [...settle(), ...settleProgram()];
           // Thrown from here, it takes the place of the turn's own result or error.
           // eslint-disable-next-line no-unsafe-finally

@@ -26,6 +26,11 @@ import {
   restoreGrokSettings,
   snapshotGrokSettings,
   grokSandboxProfile,
+  grokReadWrite,
+  isRelayProfile,
+  holdGrokProfile,
+  grokProfilesInUse,
+  MAX_FOLDER_PROFILES,
   withGrokProfile,
   writeGrokProfile,
   writeGrokSetting,
@@ -819,6 +824,128 @@ describe("Grok's own folder in its sandbox", () => {
     }
   });
 
+  it("is one of the run's own for the other working directories it may write, named after them", () => {
+    const one = grokSandboxProfile('edit', 'darwin', ['/docs', '/infra']);
+    expect(one).toMatch(/^harness-relay-[0-9a-f]{12}$/);
+    // The same folders in another order: the same profile; other folders, another.
+    expect(grokSandboxProfile('read-only', 'linux', ['/infra', '/docs'])).toBe(one);
+    expect(grokSandboxProfile('edit', 'darwin', ['/docs'])).not.toBe(one);
+    expect(grokSandboxProfile('full', 'darwin', ['/docs'])).toBeUndefined();
+    expect(grokSandboxProfile('edit', 'win32', ['/docs'])).toBe('workspace');
+    expect(isRelayProfile(one)).toBe(true);
+    expect(isRelayProfile('harness-relay')).toBe(true);
+    expect(isRelayProfile('workspace')).toBe(false);
+    expect(isRelayProfile('harness-relay-mine')).toBe(false);
+    // Named after the folders, also by their real paths (on Windows `/docs` is on a drive: C:\docs).
+    const named = process.platform === 'win32' ? grokSandboxProfile('edit', 'linux', grokReadWrite(['/docs', '/infra'])) : one;
+    expect(grokEnv({ env: {}, permission: 'edit', addDirs: ['/docs', '/infra'] }, 'linux').GROK_SANDBOX).toBe(named);
+    // Each folder also by its real path.
+    const real = realpathSync(tmpdir());
+    expect(grokReadWrite([tmpdir()])).toEqual(real === tmpdir() ? [tmpdir()] : [tmpdir(), real]);
+
+    const block = grokProfileBlock(['/x'], ['/docs'], one);
+    expect(block).toContain(`[profiles.${one}]\nextends = "workspace"\nread_write = ["/docs"]\ndeny = ["/x"]\n# <<< ${one}`);
+    // Beside the main profile and the user's own, each replaced in place.
+    const user = '[profiles.mine]\nextends = "strict"\n';
+    const both = withGrokProfile(withGrokProfile(user, grokProfileBlock(['/x'])), block, one);
+    expect(both.startsWith(user)).toBe(true);
+    expect(both).toContain('[profiles.harness-relay]\n');
+    expect(both).toContain(`[profiles.${one}]\n`);
+    const again = withGrokProfile(withGrokProfile(both, grokProfileBlock(['/y'])), grokProfileBlock(['/y'], ['/docs'], one), one);
+    expect(again.match(/\[profiles\.harness-relay/g)).toHaveLength(2);
+    expect(again).not.toContain('"/x"');
+  });
+
+  it('keeps only the latest profiles of runs\' own folders', () => {
+    const names = Array.from({ length: MAX_FOLDER_PROFILES + 3 }, (_, i) => grokSandboxProfile('edit', 'linux', [`/f${i}`])!);
+    let file = '[profiles.mine]\nextends = "strict"\n';
+    for (const [i, name] of names.entries()) file = withGrokProfile(file, grokProfileBlock(['/x'], [`/f${i}`], name), name);
+    const kept = names.filter((name) => file.includes(`[profiles.${name}]`));
+    expect(kept).toEqual(names.slice(3));
+    expect(file.startsWith('[profiles.mine]')).toBe(true);
+    // Written again, one stays where it is.
+    expect(withGrokProfile(file, grokProfileBlock(['/x'], ['/f5'], names[5]!), names[5]!)).toBe(file);
+    // One that a running turn uses is never dropped: the next earliest goes in its place.
+    const extra = grokSandboxProfile('edit', 'linux', ['/one-more'])!;
+    const held = withGrokProfile(file, grokProfileBlock(['/x'], ['/one-more'], extra), extra, new Set([names[3]!]));
+    expect(held).toContain(`[profiles.${names[3]}]`);
+    expect(held).not.toContain(`[profiles.${names[4]}]`);
+    expect(held).toContain(`[profiles.${extra}]`);
+  });
+
+  it('knows which profiles turns now running use, each until its last turn ends', () => {
+    const name = grokSandboxProfile('edit', 'linux', ['/held'])!;
+    const first = holdGrokProfile(name);
+    const second = holdGrokProfile(name);
+    expect(grokProfilesInUse().has(name)).toBe(true);
+    first();
+    first(); // once only
+    expect(grokProfilesInUse().has(name)).toBe(true);
+    second();
+    expect(grokProfilesInUse().has(name)).toBe(false);
+  });
+
+  it("takes another conversation's profile written during a turn as Harness Relay's, not as a command's change", () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-folders-'));
+    try {
+      const a = grokSandboxProfile('edit', 'linux', ['/a'])!;
+      const b = grokSandboxProfile('edit', 'linux', ['/b'])!;
+      const first = guardGrokSettings(home, () => writeGrokProfile(home, ['/x'], ['/a'], a));
+      const second = guardGrokSettings(home, () => writeGrokProfile(home, ['/x'], ['/b'], b));
+      expect(readFileSync(join(home, 'sandbox.toml'), 'utf8')).toContain(`[profiles.${b}]`);
+      expect(first()).toEqual([]);
+      expect(readFileSync(join(home, 'sandbox.toml'), 'utf8')).toContain(`[profiles.${b}]`);
+      // A command that writes into a profile's block is still caught, and put back.
+      const file = join(home, 'sandbox.toml');
+      writeFileSync(file, readFileSync(file, 'utf8').replace('read_write = ["/b"]', 'read_write = ["/"]'));
+      expect(second()).toEqual(['sandbox.toml']);
+      expect(readFileSync(file, 'utf8')).toContain('read_write = ["/b"]');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'starts Grok in the profile of the run\'s own folders, written into its home first, and lets it go after the turn',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'relay-grok-run-'));
+      try {
+        const home = join(dir, 'home');
+        const extra = join(dir, 'extra');
+        mkdirSync(home);
+        mkdirSync(extra);
+        // A stand-in Grok: notes the profile it was started in, then ends without a turn.
+        const bin = join(dir, 'grok');
+        writeFileSync(
+          bin,
+          `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'started.json'))}, JSON.stringify({ sandbox: process.env.GROK_SANDBOX }));\nprocess.exit(1);\n`,
+          { mode: 0o755 },
+        );
+        const run = grokRunner.run({
+          bin,
+          env: { ...process.env, GROK_HOME: home },
+          prompt: 'go',
+          systemPrompt: 'You are @Gus',
+          cwd: dir,
+          addDirs: [extra],
+          permission: 'edit',
+          protectedPaths: ['/nowhere/protected'],
+          signal: new AbortController().signal,
+          onEvent: () => {},
+        });
+        await expect(run).rejects.toThrow();
+        const name = grokSandboxProfile('edit', process.platform, grokReadWrite([extra]))!;
+        expect(JSON.parse(readFileSync(join(dir, 'started.json'), 'utf8'))).toEqual({ sandbox: name });
+        const written = readFileSync(join(home, 'sandbox.toml'), 'utf8');
+        expect(written).toContain(`[profiles.${name}]`);
+        expect(written).toContain(`read_write = [${grokReadWrite([extra]).map((d) => JSON.stringify(d)).join(', ')}]`);
+        expect(grokProfilesInUse().has(name)).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('writes no read-only list: its read_only grants reading, it does not stop writing', () => {
     expect(grokProfileBlock(['/x'])).not.toContain('read_only');
   });
@@ -866,7 +993,8 @@ describe("Harness Relay's own changes to Grok's settings", () => {
   });
 });
 
-describe("Grok's program on Linux", () => {
+// The guard runs on Linux alone (grokEnv); its links are POSIX links, made and read as Linux does.
+describe.skipIf(process.platform === 'win32')("Grok's program on Linux", () => {
   function home() {
     const h = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-prog-')));
     mkdirSync(join(h, 'bin'));

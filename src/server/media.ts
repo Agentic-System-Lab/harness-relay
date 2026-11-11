@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import type { AgentWorktree, ChatMessage, Conversation } from '../shared/types';
+import { cwdsOf, type AgentWorktree, type ChatMessage, type Conversation } from '../shared/types';
 import { mediaType } from '../shared/media';
 import { attachmentsDir } from './attachments';
 import { worktreeDir } from './workspace';
@@ -13,52 +13,68 @@ function inside(path: string, root: string): boolean {
 }
 
 /**
- * The worktree a reply's agent worked in. For an isolated turn, the one holding the turn's branch: the
- * conversation's own, or for a reply copied into a branch, the one of the conversation it was written
- * in (`lookup` finds a conversation; any its copied messages came from, and further up for a branch of
- * a branch), while that is there. Not the branch's own worktree for that agent, which holds other work.
- * Otherwise the agent's worktree.
+ * The worktrees a reply's agent worked in. For an isolated turn, those holding the turn's branches
+ * (one for each repository it changed): the conversation's own, or for a reply copied into a branch,
+ * those of the conversation it was written in (`lookup` finds a conversation; any its copied messages
+ * came from, and further up for a branch of a branch), while they are there. Not the branch's own
+ * worktrees for that agent, which hold other work. Otherwise the agent's worktrees.
  */
-export function replyWorktree(
+export function replyWorktrees(
   conv: Conversation,
   msg: ChatMessage,
   lookup: (id: string) => Conversation | undefined = () => undefined,
-): AgentWorktree | undefined {
-  if (msg.author.kind !== 'agent') return undefined;
-  const own = conv.worktrees[msg.author.agentId];
-  const changes = msg.changes;
-  if (!changes?.isolated || !changes.branch) return own;
-  const holds = (w: AgentWorktree) => w.root === changes.root && w.branch === changes.branch;
-  if (own && holds(own)) return own;
+): AgentWorktree[] {
+  if (msg.author.kind !== 'agent') return [];
+  const own = conv.worktrees[msg.author.agentId] ?? [];
+  const sets = (msg.changes ?? []).filter((c) => c.isolated && c.branch);
+  if (!sets.length) return own;
   const sources = (c: Conversation) => (c.branch ? [c.branch, ...(c.branch.earlier ?? [])].map((p) => p.fromId) : []);
-  const seen = new Set([conv.id]);
-  const queue = sources(conv);
-  for (let i = 0; i < queue.length; i++) {
-    const from = !seen.has(queue[i]!) ? lookup(queue[i]!) : undefined;
-    seen.add(queue[i]!);
-    if (!from) continue;
-    const wt = Object.values(from.worktrees).find(holds);
-    if (wt) return wt;
-    queue.push(...sources(from));
+  const found: AgentWorktree[] = [];
+  for (const changes of sets) {
+    const holds = (w: AgentWorktree) => w.root === changes.root && w.branch === changes.branch;
+    let wt = own.find(holds);
+    const seen = new Set([conv.id]);
+    const queue = wt ? [] : sources(conv);
+    for (let i = 0; i < queue.length && !wt; i++) {
+      const from = !seen.has(queue[i]!) ? lookup(queue[i]!) : undefined;
+      seen.add(queue[i]!);
+      if (!from) continue;
+      wt = Object.values(from.worktrees).flat().find(holds);
+      if (!wt) queue.push(...sources(from));
+    }
+    if (wt) found.push(wt);
   }
-  return undefined;
+  return found;
 }
 
 /**
  * The directories a message's images and videos may come from, in the order a relative path is
- * tried: where its agent worked (its own worktree for an isolated turn, see `replyWorktree`, else the
- * working directory), then the other one, then the conversation's attachments.
+ * tried: where its agent worked (its own worktrees for an isolated turn, see `replyWorktrees`, else
+ * the working directories), then the others, then the conversation's attachments. Each working
+ * directory is taken inside every worktree of its repository.
  */
 export function mediaRoots(conv: Conversation, msg: ChatMessage, lookup?: (id: string) => Conversation | undefined): string[] {
-  const wt = replyWorktree(conv, msg, lookup);
-  let own: string | undefined;
-  try {
-    own = wt ? worktreeDir(wt.root, conv.settings.cwd, wt.path) : undefined;
-  } catch {
-    own = undefined;
+  const cwds = cwdsOf(conv.settings);
+  const own: string[] = [];
+  for (const wt of replyWorktrees(conv, msg, lookup)) {
+    for (const cwd of cwds) {
+      try {
+        // A working directory in another repository is not inside this worktree.
+        if (sameRepo(wt.root, cwd)) own.push(worktreeDir(wt.root, cwd, wt.path));
+      } catch {
+        /* not there */
+      }
+    }
   }
-  const roots = own && msg.changes?.isolated ? [own, conv.settings.cwd] : [conv.settings.cwd, ...(own ? [own] : [])];
-  return [...roots, attachmentsDir(conv.id)];
+  const isolated = Boolean(msg.changes?.some((c) => c.isolated));
+  const roots = own.length && isolated ? [...own, ...cwds] : [...cwds, ...own];
+  return [...new Set(roots), attachmentsDir(conv.id)];
+}
+
+/** `cwd` is in the repository at `root` (it is the root or inside it, links resolved on both). */
+function sameRepo(root: string, cwd: string): boolean {
+  const rel = relative(realpathSync(root), realpathSync(cwd));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 /** Whether `real`, inside `root`, is in a `.git` folder (in any letter case: `.GIT` opens `.git` on macOS and Windows). */

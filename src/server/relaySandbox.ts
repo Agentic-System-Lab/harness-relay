@@ -58,6 +58,12 @@ export interface RelaySandboxSpec {
   permission: 'read-only' | 'edit';
   /** The working directory: read in both modes, written in edit mode only. */
   cwd: string;
+  /**
+   * The conversation's other working directories (in parallel mode, the agent's worktrees of them),
+   * as `cwd`: read in both modes, written in edit mode only, each one's project agent config kept
+   * read-only (`PROJECT_AGENT_CONFIG`).
+   */
+  extraCwds?: string[];
   /** Always writable: the agent's `statePaths` (sessions, logs, caches). */
   writable: string[];
   /** Never writable, also inside the folders above: the agent's `configPaths` (`denyWrite`). */
@@ -631,22 +637,23 @@ function withReal(paths: Iterable<string>): string[] {
  *   would let it write by default (`/tmp/claude`, `~/.npm/_logs`, `~/.claude/debug`).
  */
 export function relaySandboxPaths(
-  spec: Pick<RelaySandboxSpec, 'permission' | 'cwd' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir' | 'privateRoots'>,
+  spec: Pick<RelaySandboxSpec, 'permission' | 'cwd' | 'extraCwds' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir' | 'privateRoots'>,
   ctx: Pick<RelaySandboxContext, 'home' | 'dataDir'>,
   run: RelaySandboxRunDirs & { programs?: readonly string[] },
 ): { allowWrite: string[]; denyWrite: string[]; denyRead: string[]; allowRead: string[] } {
   const edit = spec.permission === 'edit';
+  const cwds = [spec.cwd, ...(spec.extraCwds ?? [])];
   const relay = [...relayDatabaseFiles(ctx.dataDir), relayTmpDir(ctx.dataDir)].filter((p) => existsSync(p));
   const denyRead = withReal([...spec.protectedPaths, ...relay]);
   const allowWrite = withReal([
     run.tmp,
     ...spec.writable,
-    ...(edit ? [spec.cwd, ...(spec.attachmentsDir ? [spec.attachmentsDir] : [])] : []),
+    ...(edit ? [...cwds, ...(spec.attachmentsDir ? [spec.attachmentsDir] : [])] : []),
   ]);
   const denyWrite = withReal([
     ...denyRead,
     ...spec.readOnly,
-    ...(edit ? PROJECT_AGENT_CONFIG.map((name) => join(spec.cwd, name)) : []),
+    ...(edit ? cwds.flatMap((cwd) => PROJECT_AGENT_CONFIG.map((name) => join(cwd, name))) : []),
     ...(run.programs ?? []).map((p) => dirname(p)),
     ...srtDefaultWrites(ctx.home),
   ]);
@@ -675,20 +682,23 @@ export function relaySandboxPaths(
  *   may write.
  */
 export function relaySandboxRefusal(
-  spec: Pick<RelaySandboxSpec, 'permission' | 'cwd' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir'>,
+  spec: Pick<RelaySandboxSpec, 'permission' | 'cwd' | 'extraCwds' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir'>,
   ctx: Pick<RelaySandboxContext, 'home' | 'dataDir' | 'relayRoot'>,
   o: { bins?: string[]; programs?: string[] } = {},
 ): string | undefined {
-  const all = [spec.cwd, ...spec.writable, ...spec.readOnly, ...spec.protectedPaths, ...(spec.attachmentsDir ? [spec.attachmentsDir] : [])];
+  const cwds = [spec.cwd, ...(spec.extraCwds ?? [])];
+  const all = [...cwds, ...spec.writable, ...spec.readOnly, ...spec.protectedPaths, ...(spec.attachmentsDir ? [spec.attachmentsDir] : [])];
   const relativePath = all.find((p) => !isAbsolute(p));
   if (relativePath !== undefined) return t().relaySandboxRelative(relativePath);
   const pattern = patternPath([...spec.protectedPaths, ...spec.readOnly]);
   if (pattern) return t().protectedPattern(pattern);
   if (spec.permission === 'edit') {
-    const why = relayFolderRefusal({ permission: 'edit', cwd: spec.cwd }, { bins: o.bins ?? [] });
-    if (why) return why;
+    for (const cwd of cwds) {
+      const why = relayFolderRefusal({ permission: 'edit', cwd }, { bins: o.bins ?? [] });
+      if (why) return why;
+    }
   }
-  const writes = [...spec.writable, ...(spec.permission === 'edit' ? [spec.cwd, ...(spec.attachmentsDir ? [spec.attachmentsDir] : [])] : [])];
+  const writes = [...spec.writable, ...(spec.permission === 'edit' ? [...cwds, ...(spec.attachmentsDir ? [spec.attachmentsDir] : [])] : [])];
   const roots = { install: ctx.relayRoot, data: ctx.dataDir };
   const others = agentFolders({ home: ctx.home });
   for (const w of writes) {

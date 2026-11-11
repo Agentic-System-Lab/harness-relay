@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DesktopUpdate, ServerToDesktop, UpdateStatus } from '../src/shared/types';
 import { CHECK_ANSWER_MS, Updates } from '../src/server/updates';
 import { CHECK_TIMEOUT_MS, CheckAnswers } from '../desktop/src/update';
 import { en } from '../src/web/locales/en';
 import { dialogsHeld, dialogsOpen, holdDialogs, onDialogsChange, openDialog } from '../src/web/dialogs';
-import { isAppWindow, offerShows, pollDelay, shouldOffer, typesText, updateLine } from '../src/web/update';
+import { isAppWindow, offerShows, pollDelay, shouldOffer, typesText, updateLine, versionChanged, watchVersion } from '../src/web/update';
 
 /** The desktop app, as the server's parent port: what the server sends it, and what it says. */
 function fakeApp() {
@@ -238,5 +238,53 @@ describe("the app's answers to the chat's checks", () => {
 describe("the server's wait for a check", () => {
   it("outlasts the app's own wait for GitHub, so a question that stalls is answered as failed, not left under way", () => {
     expect(CHECK_ANSWER_MS).toBeGreaterThan(CHECK_TIMEOUT_MS);
+  });
+});
+
+describe("the page's watch on the server's version", () => {
+  const answer = (current: string) => ({ current }) as UpdateStatus;
+
+  it('tells another version from the one the page was loaded from', () => {
+    expect(versionChanged('2026-11-11', '2026-11-12')).toBe(true);
+    expect(versionChanged('2026-11-11', '2026-11-11')).toBe(false);
+    // No version known yet, or none answered: nothing to compare.
+    expect(versionChanged(undefined, '2026-11-12')).toBe(false);
+    expect(versionChanged('2026-11-11', undefined)).toBe(false);
+  });
+
+  it('reloads the page once the server answers another version, now and then and when the window comes back', async () => {
+    vi.useFakeTimers();
+    try {
+      const versions = ['source (abc)', 'source (abc)', 'down', 'source (def)'];
+      const ask = vi.fn(async () => {
+        const v = versions.shift() ?? 'source (def)';
+        if (v === 'down') throw new Error('restarting');
+        return answer(v);
+      });
+      const reload = vi.fn();
+      let focus = () => {};
+      const stop = watchVersion(ask, reload, { every: 1000, on: (_event, listener) => ((focus = listener), () => (focus = () => {})) });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reload).not.toHaveBeenCalled();
+      // The window comes back: asked at once; the same version.
+      focus();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ask).toHaveBeenCalledTimes(2);
+      // The server is restarting: no answer is no change.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(reload).not.toHaveBeenCalled();
+      // Back with another version: the page reloads, once.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(reload).toHaveBeenCalledTimes(1);
+      // And asks no more.
+      const asked = ask.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(3000);
+      focus();
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(ask).toHaveBeenCalledTimes(asked);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

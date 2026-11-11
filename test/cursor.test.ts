@@ -90,6 +90,21 @@ describe('cursor permission policy (no sandbox)', () => {
     }
   });
 
+  it("edit: deletes in the conversation's other working directories too, and asks about a write there, saying where it is", () => {
+    const docs = ['/work/docs'];
+    expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Delete `/work/docs/old.md`' }, CWD, docs).allow).toBe(true);
+    expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Delete `../docs/old.md`' }, CWD, docs).allow).toBe(true);
+    expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Delete `/work/other/x.md`' }, CWD, docs).allow).toBe(false);
+    expect(cursorPermissionDecision('read-only', { kind: 'edit', title: 'Delete `/work/docs/old.md`' }, CWD, docs).allow).toBe(false);
+    // A write Cursor asks about there still goes to the user (its protected files cannot be told from the rest).
+    expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Write /work/docs/a.md' }, CWD, docs).allow).toBe(false);
+    expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Write /work/docs/a.md' }, CWD, docs)).reason).toBe(
+      "This file is in another of the chat's working directories: Cursor works in the first one, and asks before writing anywhere else.",
+    );
+    expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Write /work/other/a.md' }, CWD, docs)).reason).toMatch(/^This file is outside the working directory/);
+    expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Edit `/work/app/.vscode/tasks.json`' }, CWD, docs)).reason).toMatch(/^Cursor asks before changing files like this one/);
+  });
+
   it('edit: takes a path in the home folder (`~/…`) for one there, not in the working directory', () => {
     // A shell, and Cursor, take `~` for the home folder: a delete there is not the working directory's.
     expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Delete `~/notes.txt`' }, CWD).allow).toBe(false);

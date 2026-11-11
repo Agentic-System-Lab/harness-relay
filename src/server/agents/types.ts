@@ -52,6 +52,11 @@ export interface RunOptions {
   /** Resume this CLI session; when absent a new session is started. */
   sessionId?: string;
   cwd: string;
+  /**
+   * The conversation's other working directories (in parallel mode, the agent's worktrees of them):
+   * the agent may use them as it uses `cwd`, with the same access.
+   */
+  addDirs?: string[];
   permission: Permission;
   model?: string;
   /** Reasoning effort (e.g. low / medium / high / xhigh); undefined = the CLI's default. */

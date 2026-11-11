@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   agentFolderOverlap,
@@ -49,21 +49,23 @@ describe('what agents may not read', () => {
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, 'relay.db'), '');
     mkdirSync(join(data, 'tmp'));
-    symlinkSync(join(root, 'elsewhere'), join(home, '.zen'));
+    // A link to a folder (Windows makes a link to a file of one whose target is not there yet).
+    symlinkSync(join(root, 'elsewhere'), join(home, '.zen'), 'dir');
     mkdirSync(join(root, 'elsewhere'));
-    const paths = protectedReads({ platform: 'linux', home, dataDir: data });
+    // Compared as this system writes paths: on Windows, where only a test asks for Linux's, `/` becomes `\`.
+    const paths = protectedReads({ platform: 'linux', home, dataDir: data }).map((p) => resolve(p));
     expect(paths).toContain(join(home, '.mozilla'));
     expect(paths).toContain(join(data, 'relay.db'));
     // Its own temporary folder too, where a Claude Code turn's settings and MCP config wait.
     expect(paths).toContain(relayTmpDir(data));
-    expect(relayTmpDir('/d')).toBe('/d/tmp');
+    expect(relayTmpDir('/d')).toBe(join('/d', 'tmp'));
     // A folder that is a link: both the link and where it leads.
     expect(paths).toContain(join(home, '.zen'));
     expect(paths).toContain(join(root, 'elsewhere'));
     // Not there: left out, so a sandbox does not refuse to start over it.
     expect(paths).not.toContain(join(home, '.config/google-chrome'));
     expect(paths).not.toContain(join(data, 'relay.db-wal'));
-    expect(relayDatabaseFiles('/d')).toEqual(['/d/relay.db', '/d/relay.db-wal', '/d/relay.db-shm']);
+    expect(relayDatabaseFiles('/d')).toEqual(['relay.db', 'relay.db-wal', 'relay.db-shm'].map((f) => join('/d', f)));
     expect(protectedReads({ platform: 'win32', home, dataDir: data })).toEqual([]);
   });
 
@@ -183,7 +185,7 @@ describe('finding a CLI and naming protected paths', () => {
     mkdirSync(real, { recursive: true });
     writeFileSync(join(real, 'tool-1.0'), '');
     symlinkSync(join(real, 'tool-1.0'), join(bin, 'tool'));
-    expect(commandPaths('tool', { PATH: `/nowhere:${bin}` })).toEqual([join(bin, 'tool'), join(real, 'tool-1.0')]);
+    expect(commandPaths('tool', { PATH: ['/nowhere', bin].join(delimiter) })).toEqual([join(bin, 'tool'), join(real, 'tool-1.0')]);
     expect(commandPaths(join(bin, 'tool'))).toEqual([join(bin, 'tool'), join(real, 'tool-1.0')]);
     expect(commandPaths('missing-tool', { PATH: bin })).toEqual([]);
     // On Windows, by its extensions; a folder of that name is not the command.

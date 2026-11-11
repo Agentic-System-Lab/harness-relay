@@ -5,7 +5,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, mkdtemp, open, readdir, rm, stat } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, open, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileName } from '../shared/media';
 import { replaceFileLinks } from '../shared/share';
@@ -763,11 +763,20 @@ const CHUNK = 1 << 20;
  */
 const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
 
-/** The first `max` bytes of the file (all of it when it is shorter), however much it holds; only a regular file. */
-export async function readAtMost(path: string, max: number): Promise<Buffer> {
-  const fh = await open(path, READ_FLAGS);
+/**
+ * The first `max` bytes of the file (all of it when it is shorter), however much it holds; only a
+ * regular file. `noFollow` false (Windows has no `O_NOFOLLOW`): the path's own entry is checked to
+ * be the file opened, not a link to it.
+ */
+export async function readAtMost(path: string, max: number, noFollow = constants.O_NOFOLLOW !== undefined): Promise<Buffer> {
+  const fh = await open(path, noFollow ? READ_FLAGS : READ_FLAGS & ~(constants.O_NOFOLLOW ?? 0));
   try {
-    if (!(await fh.stat()).isFile()) throw new Error(`not a file: ${path}`);
+    const opened = await fh.stat();
+    if (!opened.isFile()) throw new Error(`not a file: ${path}`);
+    if (!noFollow) {
+      const entry = await lstat(path);
+      if (entry.isSymbolicLink() || entry.ino !== opened.ino || entry.dev !== opened.dev) throw new Error(`not a file: ${path}`);
+    }
     const chunks: Buffer[] = [];
     let got = 0;
     while (got < max) {

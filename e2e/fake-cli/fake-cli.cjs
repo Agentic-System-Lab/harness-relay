@@ -28,7 +28,8 @@
  * - Codex: the thread's sandbox (`sandbox`, or the permission profile it names, with its `write`
  *   entries; `writable_roots`), its `approvalPolicy`, and the answers to its approval requests;
  * - Grok: yolo mode, the answers to `session/request_permission`, and the folders of the sandbox
- *   profile GROK_SANDBOX names in its sandbox.toml (`read_write`).
+ *   profile GROK_SANDBOX names in its sandbox.toml (`read_write`); without a sandbox (yolo mode, and
+ *   on Windows, where Grok has none) the other working directories its briefing names.
  * So a test that writes in another folder, or in a read-only chat, tells whether the adapter set
  * the CLI up right.
  *
@@ -886,6 +887,16 @@ function grokWrites(cwd, yolo) {
   return { dirs: [cwd, ...readWrite], others };
 }
 
+/**
+ * The working directories besides `cwd` that a briefing names (Harness Relay's `use full paths for
+ * the others`; in parallel mode, a worktree of each): how Grok learns them without a sandbox.
+ */
+function briefedOthers(briefing, cwd) {
+  const shared = /share these working directories, each with the same access: (.+?)\. You start in /.exec(briefing);
+  const dirs = shared ? shared[1].split(', ') : [...briefing.matchAll(/^ {2}- (.+?) \(branch /gm)].map((m) => m[1]);
+  return dirs.filter((d) => path.resolve(d) !== path.resolve(cwd));
+}
+
 function grokStatic() {
   if (has('--version')) return void process.stdout.write('grok 1.0.999\n');
   if (args[0] === 'models') {
@@ -924,7 +935,10 @@ function grokAgent() {
           if (method === 'session/new') sessions.start(id);
           const meta = p._meta || {};
           const cwd = p.cwd || process.cwd();
-          open.set(id, { cwd, briefing: meta.rules || '', yolo: Boolean(meta.yoloMode), cancelled: false, mcp: (p.mcpServers || []).map((s) => s.name), ...grokWrites(cwd, Boolean(meta.yoloMode)) });
+          const writes = grokWrites(cwd, Boolean(meta.yoloMode));
+          // No sandbox: nothing but the briefing names the other folders.
+          if (!writes.dirs) writes.others = briefedOthers(meta.rules || '', cwd);
+          open.set(id, { cwd, briefing: meta.rules || '', yolo: Boolean(meta.yoloMode), cancelled: false, mcp: (p.mcpServers || []).map((s) => s.name), ...writes });
           return {
             ...(method === 'session/new' ? { sessionId: id } : {}),
             configOptions: [

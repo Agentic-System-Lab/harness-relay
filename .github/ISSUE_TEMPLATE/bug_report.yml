@@ -1,0 +1,123 @@
+name: Bug report · 回報問題
+description: Something doesn't work as it should. · 有東西沒有照預期運作。
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Write in English or 繁體中文. **A security problem?** Don't post it here: see [SECURITY.md](https://github.com/Agentic-System-Lab/harness-relay/blob/main/SECURITY.md).
+
+        謝謝你回報！用中文或英文寫都可以。**是安全性問題嗎？** 請不要貼在這裡，請見 [SECURITY.zh-TW.md](https://github.com/Agentic-System-Lab/harness-relay/blob/main/SECURITY.zh-TW.md)。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened? · 發生了什麼事？
+      description: What you did, what you expected, and what happened instead. · 你做了什麼、預期會發生什麼，以及實際發生了什麼。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce · 重現步驟
+      description: How can it be made to happen again? · 要怎麼讓它再發生一次？
+      placeholder: |
+        1.
+        2.
+        3.
+
+  - type: dropdown
+    id: how-run
+    attributes:
+      label: How do you run Harness Relay? · 你怎麼執行 Harness Relay？
+      options:
+        - Desktop app · 桌面 app
+        - npm start
+        - npm run dev
+        - Other · 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions and system · 版本與系統
+      description: |
+        In the app, **Report a problem** (beside Settings & sign-in) lists them under *Version and system details are included*. From a clone: `git rev-parse --short HEAD`, `node --version`, `claude --version`, `codex --version`, `grok --version`, `cursor-agent --version`, and for an open-source agent its `--version` and the kind of model backend (an API, or your own endpoint and which server).
+
+        在 app 裡，**回報問題**（在「設定與登入」旁）的「會一併附上版本與系統資訊」底下列有這些資訊。從 clone 下來的專案執行時：`git rev-parse --short HEAD`、`node --version`、`claude --version`、`codex --version`、`grok --version`、`cursor-agent --version`，開源 agent 則是它的 `--version` 與模型來源的種類（API，或你自己的端點與哪一種伺服器）。
+      placeholder: |
+        Harness Relay: 2026-11-11.1 · desktop app
+        OS: darwin 25.6.0 (arm64)
+        Node.js: v22.13.0
+        Claude Code: …
+        Codex: …
+        Grok: …
+        Cursor: …
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: agents
+    attributes:
+      label: Agent CLIs involved · 用到的 agent CLI
+      multiple: true
+      options:
+        - Claude Code
+        - Codex
+        - Grok
+        - Cursor
+        - OpenCode
+        - Goose
+        - Cline
+        - OpenHands
+        - Pi
+        - None / not sure · 沒有／不確定
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Conversation mode · 對話模式
+      options:
+        - Roundtable · 圓桌
+        - Parallel · 平行
+        - Relay · 接力
+        - Not sure / not about a conversation · 不確定／與對話無關
+
+  - type: dropdown
+    id: permission
+    attributes:
+      label: Permission · 權限
+      options:
+        - Read-only · 唯讀
+        - Edit · 可編輯
+        - Full access · 完全存取
+        - Not sure / not about a conversation · 不確定／與對話無關
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error and logs · 錯誤訊息與記錄檔
+      description: |
+        The error shown on the message (it includes the end of the CLI's stderr), and the server's log around that time: the terminal's output (with `npm run dev`, its `[server]` lines), or **Show log** in the desktop app's menu.
+
+        訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間伺服器的記錄檔：終端機的輸出（用 `npm run dev` 時是其中的 `[server]` 行），或桌面 app 選單裡的 **查看記錄檔**。
+      render: text
+
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else? · 其他補充
+      description: Screenshots, a recording, or whether the lead agent's team was used without asking. · 截圖、短片，或是否直接採用首席 agent 組的團隊。
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit · 送出之前
+      options:
+        - label: I removed API keys, tokens and anything private from what I pasted (and did not attach data/relay.db). · 我已從貼上的內容移除 API key、token 與任何私人內容（也沒有附上 data/relay.db）。
+          required: true
+        - label: I searched the existing issues for this problem. · 我已搜尋過現有的 issue，沒有人回報過這個問題。
+          required: true

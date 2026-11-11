@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability · 回報安全性漏洞
+    url: https://github.com/Agentic-System-Lab/harness-relay/security/advisories/new
+    about: Privately, not in a public issue. See SECURITY.md. · 請私下回報，不要開公開的 issue，詳見 SECURITY.zh-TW.md。
+  - name: User guide · 使用說明
+    url: https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md
+    about: How to install and use Harness Relay, in English and 繁體中文. · 如何安裝與使用 Harness Relay，有中文與英文版。

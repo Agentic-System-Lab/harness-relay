@@ -6,25 +6,30 @@
 
 想了解程式怎麼運作，請讀[架構](docs/architecture.zh-TW.md)與[開發者說明](docs/developer-guide.zh-TW.md)。coding agent 依照 [AGENTS.md](AGENTS.md) 工作，裡面是同一套規則的精簡版。
 
+參與的每個人都要遵守[行為準則](CODE_OF_CONDUCT.zh-TW.md)。
+
 ## 回報問題
 
-請開一個 issue，並附上：
+請用 **Bug report · 回報問題** 表單開一個 issue，它會請你附上：
 
 - 你做了什麼、預期會發生什麼，以及實際發生了什麼；
-- 作業系統、Node.js 版本（`node --version`）與 Harness Relay 的 commit（`git rev-parse --short HEAD`）；
+- 你怎麼執行 Harness Relay（桌面 app、`npm start` 或 `npm run dev`）；
+- 作業系統、Node.js 版本（`node --version`）與 Harness Relay 的版本（桌面 app 在**設定與登入 → 版本**，或是 commit：`git rev-parse --short HEAD`）；
 - 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`、`cursor-agent --version`、`opencode --version`…），開源 agent 再加上模型來源的種類（API 或你自己的端點，以及哪一種伺服器）；
 - 對話的模式（圓桌、平行或接力）、權限（唯讀、可編輯或完全存取），以及是否直接採用首席 agent 組的團隊；
-- 訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間 `npm run dev` 輸出中的 `[server]` 行。
+- 訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間伺服器的輸出（用 `npm run dev` 時是其中的 `[server]` 行；桌面 app 則是選單裡的**查看記錄檔**）。
+
+在 app 裡，也可以用**回報問題**（在「設定與登入」旁）改用 email 寄出回報，版本與系統資訊會自動附上。
 
 貼上 log 或截圖之前，請先移除 API key、token，以及專案中任何你不想公開的內容。請不要附上 `data/relay.db`：裡面有你的對話紀錄；在沒有作業系統金鑰儲存區的系統上，也存著你的 API key。
 
 ## 回報安全性問題
 
-伺服器可以讓 agent 以寫入權限操作你的檔案，所以安全性問題很重要。請不要在公開的 issue 裡寫出細節。請開一個只說明「有安全性問題要回報」的 issue，維護者會安排私下傳送的方式。現有的防護措施請見[架構 → 安全性](docs/architecture.zh-TW.md#安全性)。
+伺服器可以讓 agent 以寫入權限操作你的檔案，所以安全性問題很重要。請不要在公開的 issue 裡寫出細節，請用 GitHub 的 **[Report a vulnerability](https://github.com/Agentic-System-Lab/harness-relay/security/advisories/new)** 私下回報。要附上什麼、什麼算是漏洞、之後會怎麼處理，請見 [SECURITY.zh-TW.md](SECURITY.zh-TW.md)；現有的防護措施請見[架構 → 安全性](docs/architecture.zh-TW.md#安全性)。
 
 ## 提出功能建議
 
-請開一個 issue，先描述你想解決的問題，再談解法。比小修正更大的改動（新的對話模式、新的 agent CLI、schema 變更、新的設定）請先在 issue 中討論再動手寫程式，讓這份工作能符合整體設計。
+請用 **Feature request · 功能建議** 表單開一個 issue，先描述你想解決的問題，再談解法。比小修正更大的改動（新的對話模式、新的 agent CLI、schema 變更、新的設定）請先在 issue 中討論再動手寫程式，讓這份工作能符合整體設計。
 
 ## 建立開發環境
 
@@ -78,7 +83,7 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 
 ### 文件
 
-文件成對存在：`README.md` / `README.zh-TW.md`、`CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`，以及 `docs/<name>.md` / `docs/<name>.zh-TW.md`。當修改影響到行為、HTTP API、schema、設定、環境變數或測試清單時，請在同一個 pull request 中更新兩種語言。開發者說明列出了每一條 HTTP 路由與每個測試檔涵蓋的內容，請保持這些清單是最新的。
+文件成對存在：`README.md` / `README.zh-TW.md`、`CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`、`CODE_OF_CONDUCT.md` / `CODE_OF_CONDUCT.zh-TW.md`、`SECURITY.md` / `SECURITY.zh-TW.md`，以及 `docs/<name>.md` / `docs/<name>.zh-TW.md`。當修改影響到行為、HTTP API、schema、設定、環境變數或測試清單時，請在同一個 pull request 中更新兩種語言。開發者說明列出了每一條 HTTP 路由與每個測試檔涵蓋的內容，請保持這些清單是最新的。
 
 `site/` 裡的網站有英文與中文兩個頁面。修改前請先讀 [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md)，兩個頁面一起改，並用 `npm run site:preview` 預覽。`site/assets/downloads.js` 裡安裝檔的檔名結尾，必須跟發佈 workflow 給安裝檔的名稱一致：下載按鈕與桌面 app 的更新都靠它們找到安裝檔。`UPDATE_INSTALLERS`（workflow 在安裝檔旁另外發佈、給 app 更新用的副本的名稱）也一樣。
 
@@ -92,6 +97,8 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 - HTTP API 用 `app.request()`；
 - 把假的 keyring 傳給 `SettingsStore`；
 - 端對端測試（`e2e/`）用 `e2e/fake-cli/` 裡的假 CLI，由訊息中的 `e2e:` 指令操控（見[端對端測試](docs/developer-guide.zh-TW.md#端對端測試)）。
+
+測試在 Windows 上也要通過，CI 也會在那裡跑：用 `join()` 與 `resolve()` 組路徑，不要直接寫成以 `/` 分隔的文字；只有 macOS 或 Linux 才有的東西用 `skipIf(process.platform === 'win32')` 跳過；時間限制取自 `test/timeouts.ts`。詳見[開發者指南](docs/developer-guide.zh-TW.md#測試)。
 
 ## 開 pull request 之前
 
@@ -109,7 +116,7 @@ npm run build
 
 發佈只由維護者透過發佈 workflow 進行（**Actions → Release**，從 `main`，以今天的日期為版本）：絕不要手動建立版本 tag。詳見開發者說明的[發佈](docs/developer-guide.zh-TW.md#發佈)。
 
-[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行型別檢查、測試與建置。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。[另一個 workflow](.github/workflows/e2e.yml) 會在 Linux、macOS 與 Windows 上執行端對端測試。
+[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行型別檢查、測試與建置，也在 Windows 上以 Node 24 執行。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。[另一個 workflow](.github/workflows/e2e.yml) 會在 Linux、macOS 與 Windows 上執行端對端測試。
 
 如果你的修改會影響 agent 看到或做的事，也請在 app 中用至少一個真正的 CLI 試過，並說明用了哪些。
 
@@ -122,7 +129,7 @@ commit 訊息請用英文撰寫。
 
 ## Pull request
 
-請在說明中寫出：
+pull request 範本會請你填寫這些。請在說明中寫出：
 
 - 這個修改做了什麼、為什麼，並附上相關 issue 的連結；
 - 你怎麼測試（新增了哪些測試，以及用哪些 CLI 實際跑過）；

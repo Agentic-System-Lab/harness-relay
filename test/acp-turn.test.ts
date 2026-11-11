@@ -625,6 +625,12 @@ describe('the open agent process', () => {
     expect(specs[0]!.writable).not.toContain(join(root, 'attachments'));
     expect(specs[0]!.attachmentsDir).toBe(join(root, 'attachments'));
     expect(specs[0]!.permission).toBe('read-only');
+    expect(specs[0]).not.toHaveProperty('extraCwds');
+    // The conversation's other working directories go to the sandbox with the first.
+    const many: RelaySandboxSpec[] = [];
+    const c = await startOpenProcess(spec(), { ...o, permission: 'edit', addDirs: [join(root, 'docs')] }, () => [], { ...fakeSandbox(many), runTmpDir: join(root, 'run-tmp') });
+    expect(many[0]).toMatchObject({ cwd: o.cwd, extraCwds: [join(root, 'docs')] });
+    await c.dispose();
     await Promise.all([a.dispose(), b.dispose()]);
     expect(readdirSync(join(root, 'run-tmp')).filter((f) => f.startsWith('opencode-'))).toEqual([]);
     expect(existsSync(sandboxTmp)).toBe(false);

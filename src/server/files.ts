@@ -1,7 +1,7 @@
 import { closeSync, existsSync, openSync, readSync, readdirSync, realpathSync, statSync, type Stats } from 'node:fs';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
-import { FILE_LIMITS, type Conversation, type FileEntry, type FilePreview, type FileRoot, type ZipSize } from '../shared/types';
+import { FILE_LIMITS, cwdsOf, type Conversation, type FileEntry, type FilePreview, type FileRoot, type ZipSize } from '../shared/types';
 import { mediaType } from '../shared/media';
 import { fileKey, lockedFileKeys } from './db';
 import { HttpError } from './errors';
@@ -16,20 +16,39 @@ import type { ZipEntry } from './zip';
  * database and its data folder's lock, `lockedFileKeys`): opening one would drop those locks.
  */
 
-/** The folders of a conversation that can be browsed: its working directory, then agents' worktrees. */
+/**
+ * The folders of a conversation that can be browsed: its working directories, then each agent's
+ * worktrees of them (see `FileRoot.id`).
+ */
 export function fileRoots(conv: Conversation): FileRoot[] {
-  const roots: FileRoot[] = [{ id: 'cwd', path: conv.settings.cwd }];
+  const cwds = cwdsOf(conv.settings);
+  const key = (base: string, i: number) => (i ? `${base}:${i}` : base);
+  const roots: FileRoot[] = cwds.map((path, i) => ({ id: key('cwd', i), path, ...(i ? { cwd: i } : {}) }));
   for (const a of conv.agents) {
-    const wt = conv.worktrees[a.id];
-    if (!wt) continue;
-    try {
-      const dir = worktreeDir(wt.root, conv.settings.cwd, wt.path);
-      if (existsSync(dir)) roots.push({ id: a.id, path: dir, agentId: a.id });
-    } catch {
-      /* not a usable worktree */
-    }
+    cwds.forEach((cwd, i) => {
+      // The worktree of the repository the folder is in: the innermost, when one is inside another.
+      const wt = (conv.worktrees[a.id] ?? [])
+        .filter((w) => inRepo(w.root, cwd))
+        .sort((x, y) => y.root.length - x.root.length)[0];
+      if (!wt) return;
+      try {
+        const dir = worktreeDir(wt.root, cwd, wt.path);
+        if (existsSync(dir)) roots.push({ id: key(a.id, i), path: dir, agentId: a.id, ...(i ? { cwd: i } : {}) });
+      } catch {
+        /* not a usable worktree */
+      }
+    });
   }
   return roots;
+}
+
+/** `cwd` is in the repository at `root` (the root or inside it, links resolved on both). */
+function inRepo(root: string, cwd: string): boolean {
+  try {
+    return within(realpathSync(root), realpathSync(cwd)) !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 /** `path` relative to `root` with `/`, or undefined when it is not inside it ('' = the root itself). */
@@ -225,13 +244,17 @@ export async function zipPlan(
   const dir = resolveInRoot(root, rel);
   const self = await stat(dir.real);
   if (!self.isDirectory()) throw new HttpError(404, t().fileNotFound);
-  const realRoot = realpathSync(root);
+  // Real paths as the entries' below are (`realpath`, the system's own): `realpathSync` keeps the
+  // letter case a path was asked with (macOS, Windows) and Windows' short names (`RUNNER~1`), and a
+  // folder asked for so would seem to hold nothing of its own.
+  const realRoot = await realpath(root);
+  const start = await realpath(dir.real);
   const top = askedPath(rel).split('/').pop() || opts.name || basename(realRoot) || 'files';
   const plan: ZipPlan = { name: top, entries: [{ name: `${top}/`, mtime: self.mtimeMs, mode: self.mode }], files: 0, bytes: 0 };
   /** Files and folders so far: what keeps a tree of empty folders from going on and on. */
   let items = 1;
   /** Every folder once: a link to a folder already in the archive (or around it) is left out. */
-  const seen = new Set([dir.real]);
+  const seen = new Set([start]);
   const locked = lockedFileKeys();
 
   /** The real path of `full` when it may go in (inside the root, not in `.git`), else undefined. */
@@ -310,7 +333,7 @@ export async function zipPlan(
     return true;
   };
 
-  const git = opts.unignored ? await fromGit(dir.real, `${top}/`, 0) : null;
+  const git = opts.unignored ? await fromGit(start, `${top}/`, 0) : null;
   if (git !== null) return git ? plan : null;
-  return (await walk(dir.real, `${top}/`)) ? plan : null;
+  return (await walk(start, `${top}/`)) ? plan : null;
 }

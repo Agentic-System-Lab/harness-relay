@@ -133,7 +133,7 @@ interface Endpoint extends RunEndpoint {
 }
 
 /**
- * The model backends, stored in SQLite (`model_backends`, schema version 21) and cached in memory,
+ * The model backends, stored in SQLite (`model_backends`, schema version 22) and cached in memory,
  * their keys in `keyring` when there is one. A row holds an endpoint (always), or an API backend's key
  * only while that key is kept in the database.
  */
@@ -287,14 +287,41 @@ export class ModelBackendStore {
     // save leaves it deleted, not neither).
     const readded = this.deleted.has(id);
     const added = !e;
+    if (!e && this.endpoints.length >= BACKEND_LIMITS.maxEndpoints) throw new HttpError(400, t().tooManyEndpoints(BACKEND_LIMITS.maxEndpoints));
+    // What to put back when the save fails: nothing of the change is kept, in memory or in the
+    // keyring (a key left there would come back for this id at the next start, `loadKeys`).
+    const before = e ? { name: e.name, baseUrl: e.baseUrl, models: [...e.models], apiKey: e.apiKey } : undefined;
+    const flags = { leftInDb: this.keysLeftInDb.has(id), unreadable: this.unreadable.has(id) };
     if (!e) {
-      if (this.endpoints.length >= BACKEND_LIMITS.maxEndpoints) throw new HttpError(400, t().tooManyEndpoints(BACKEND_LIMITS.maxEndpoints));
       e = { id, name: u.name, baseUrl: u.baseUrl, models: [...u.models], createdAt: Date.now() };
       this.endpoints.push(e);
     } else {
       Object.assign(e, { name: u.name, baseUrl: u.baseUrl, models: [...u.models] });
     }
     const endpoint = e;
+    let keyStored = false;
+    const undo = () => {
+      if (added) this.endpoints.splice(this.endpoints.indexOf(endpoint), 1);
+      else {
+        Object.assign(endpoint, { name: before!.name, baseUrl: before!.baseUrl, models: before!.models });
+        if (before!.apiKey) endpoint.apiKey = before!.apiKey;
+        else delete endpoint.apiKey;
+      }
+      if (keyStored && this.keyring) {
+        const name = backendKeyName(id);
+        try {
+          // The key there was comes back to the keyring (one kept in the database is still there); else none.
+          if (before?.apiKey && !flags.leftInDb) this.keyring.set(name, before.apiKey);
+          else this.keyring.delete(name);
+        } catch (err) {
+          console.warn(`[backends] could not put back the ${id} API key in the system keyring: ${(err as Error).message}`);
+        }
+      }
+      if (flags.leftInDb) this.keysLeftInDb.add(id);
+      else this.keysLeftInDb.delete(id);
+      if (flags.unreadable) this.unreadable.add(id);
+      else this.unreadable.delete(id);
+    };
     const persist = () => {
       try {
         transaction(this.db, () => {
@@ -302,8 +329,8 @@ export class ModelBackendStore {
           if (readded) this.db.prepare('DELETE FROM deleted_endpoints WHERE id = ?').run(id);
         });
       } catch (err) {
-        // Not saved: an endpoint added now is not kept in memory either, so runs do not use it.
-        if (added) this.endpoints.splice(this.endpoints.indexOf(endpoint), 1);
+        // Not saved: the change is not kept in memory either, so runs do not use it.
+        undo();
         throw err;
       }
       if (readded) this.deleted.delete(id);
@@ -311,6 +338,7 @@ export class ModelBackendStore {
     if (u.apiKey !== undefined) {
       try {
         this.storeKey(id, (u.apiKey ?? '').trim());
+        keyStored = true;
       } catch (err) {
         persist(); // the endpoint itself is saved; only its key was refused
         throw err;

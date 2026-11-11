@@ -13,9 +13,9 @@ import { PROVIDERS } from '../../src/shared/types';
 import { CLIS as FAKE_CLIS } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
 
-/** What a fake CLI wrote to its log (E2E_FAKE_LOG): a start, or a prompt it got. */
+/** What a fake CLI wrote to its log (E2E_FAKE_LOG): a start, or a prompt it got; or a start of the fake folder dialog. */
 export interface FakeLogEntry {
-  cli: 'claude' | 'codex' | 'grok';
+  cli: 'claude' | 'codex' | 'grok' | 'zenity';
   pid: number;
   at: number;
   args?: string[];
@@ -27,6 +27,8 @@ export interface FakeLogEntry {
   /** The images and the tool library's MCP servers a turn got. */
   images?: number;
   mcp?: string[];
+  /** The fake folder dialog's character set. */
+  env?: { LANG: string | null; LC_CTYPE: string | null };
 }
 
 export interface RelayServer {

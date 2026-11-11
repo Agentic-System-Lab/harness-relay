@@ -407,7 +407,7 @@ export async function preparePi(ctx: OpenRunContext): Promise<void> {
   mkdirSync(sessions, { recursive: true, mode: 0o700 });
 
   // The gate must stay out of reach of the run: never inside a folder it may write.
-  const writable = [...ctx.home.statePaths, ctx.tmpDir, ...(o.permission === 'edit' ? [o.cwd, ...(o.attachmentsDir ? [o.attachmentsDir] : [])] : [])];
+  const writable = [...ctx.home.statePaths, ctx.tmpDir, ...(o.permission === 'edit' ? [o.cwd, ...(o.addDirs ?? []), ...(o.attachmentsDir ? [o.attachmentsDir] : [])] : [])];
   if (o.permission !== 'full' && writable.some((dir) => overlaps(PI_GATE_PATH, dir))) throw new AgentRunError(t().piGateWritable(PI_GATE_PATH));
 
   const state: PiRunState = { agentDir, mcp: false };

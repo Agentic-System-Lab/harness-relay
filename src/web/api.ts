@@ -22,6 +22,7 @@ import type {
   LoginSessionView,
   McpServerUpdate,
   NativeSetup,
+  PickedFolders,
   Provider,
   ProviderAccountUpdate,
   ProviderModels,
@@ -61,23 +62,26 @@ const accountQuery = (account: string) => (account ? `?account=${encodeURICompon
 export class ApiError extends Error {
   readonly status: number;
   readonly code?: string;
-  constructor(message: string, status: number, code?: string) {
+  /** The paths the error is about (the working directories that do not exist). */
+  readonly paths?: string[];
+  constructor(message: string, status: number, code?: string, paths?: string[]) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.paths = paths;
   }
 }
 
 /**
- * Runs `call`; if the server says the working directory does not exist and `ask()` agrees,
- * runs it again with `createCwd: true`. Any other error, or a refusal, is thrown.
+ * Runs `call`; if the server says working directories do not exist and `ask()` agrees (it is told
+ * which: one to a line), runs it again with `createCwd: true`. Any other error, or a refusal, is thrown.
  */
-export async function orCreateCwd<T>(call: (createCwd: boolean) => Promise<T>, ask: () => boolean): Promise<T> {
+export async function orCreateCwd<T>(call: (createCwd: boolean) => Promise<T>, ask: (missing: string) => boolean): Promise<T> {
   try {
     return await call(false);
   } catch (e) {
-    if (!(e instanceof ApiError && e.code === CWD_MISSING) || !ask()) throw e;
+    if (!(e instanceof ApiError && e.code === CWD_MISSING) || !ask((e.paths ?? []).join('\n'))) throw e;
     return call(true);
   }
 }
@@ -111,9 +115,10 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = data as { error?: string; code?: string };
+    const err = data as { error?: string; code?: string; paths?: unknown };
     if (res.status === 401) signedOut(err.code);
-    throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code);
+    const paths = Array.isArray(err.paths) ? err.paths.filter((p): p is string => typeof p === 'string') : undefined;
+    throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code, paths);
   }
   return data as T;
 }
@@ -197,6 +202,8 @@ export const api = {
   search: (q: string) => request<SearchResult[]>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   /** The working directories to offer: the default one, then the conversations', the most recently used first. */
   cwds: () => request<WorkingDirectories>('GET', '/api/cwds'),
+  /** Opens this computer's folder dialog at `start`; resolves when it closes (no `paths`: cancelled). */
+  pickCwd: (start: string, signal?: AbortSignal) => request<PickedFolders>('POST', '/api/cwds/pick', { start }, signal),
 
   // sidebar groups
   listGroups: () => request<ConversationGroup[]>('GET', '/api/groups'),
@@ -306,6 +313,15 @@ export const api = {
   },
   /** This version, and the desktop app's updates (only the version otherwise). */
   update: () => request<UpdateStatus>('GET', '/api/update'),
+  /**
+   * The same, quietly, for the page's watch on the server's version: a browser that is not signed in
+   * (any failure) is no answer, rather than the sign-in page shown again.
+   */
+  serverVersion: async (): Promise<UpdateStatus> => {
+    const res = await fetch('/api/update', { headers: headers(false) });
+    if (!res.ok) throw new Error(`${res.status}`);
+    return (await res.json()) as UpdateStatus;
+  },
   /** Has the desktop app ask GitHub for a new version now (at most every five minutes); what it knows once it has. */
   checkUpdate: () => request<UpdateStatus>('POST', '/api/update/check'),
   /** Has the desktop app update to the newer version: it asks the user first, in its own dialog. */

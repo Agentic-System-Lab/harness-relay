@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Hono } from 'hono';
 import { afterAll, describe, expect, it } from 'vitest';
 import { serveWebApp, webAppDir } from '../src/server/web';
@@ -74,9 +74,10 @@ describe('the built web app', () => {
 
 describe('where the built web app is', () => {
   it('is dist/web in the folder the server started from, unless RELAY_WEB_DIR says otherwise', () => {
-    expect(webAppDir({}, '/repo')).toBe(join('/repo', 'dist', 'web'));
-    expect(webAppDir({ RELAY_WEB_DIR: ' ' }, '/repo')).toBe(join('/repo', 'dist', 'web'));
-    expect(webAppDir({ RELAY_WEB_DIR: '/app/server/web' }, '/repo')).toBe(join('/app', 'server', 'web'));
-    expect(webAppDir({ RELAY_WEB_DIR: 'build/web' }, '/repo')).toBe(join('/repo', 'build', 'web'));
+    // `resolve`: on Windows `/repo` is on the current drive (C:\repo).
+    expect(webAppDir({}, '/repo')).toBe(resolve('/repo', 'dist', 'web'));
+    expect(webAppDir({ RELAY_WEB_DIR: ' ' }, '/repo')).toBe(resolve('/repo', 'dist', 'web'));
+    expect(webAppDir({ RELAY_WEB_DIR: '/app/server/web' }, '/repo')).toBe(resolve('/app', 'server', 'web'));
+    expect(webAppDir({ RELAY_WEB_DIR: 'build/web' }, '/repo')).toBe(resolve('/repo', 'build', 'web'));
   });
 });

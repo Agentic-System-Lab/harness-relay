@@ -685,6 +685,14 @@ describe('changing a team at the user\'s request', () => {
     expect(buildRevisePrompt('x', draft, saved, ctx, { savedCwd: '/saved' })).not.toContain('not saved that working directory');
   });
 
+  it('reads and names every working directory the drawer has, or the conversation has', () => {
+    const saved = { permission: 'edit' as const, cwd: '/saved', extraCwds: ['/docs'] };
+    expect(draftPlace({ cwd: '/draft', extraCwds: ['/a', ' ', 3, ' /b '] }, saved)).toEqual({ permission: 'edit', cwd: '/draft', extraCwds: ['/a', '/b'] });
+    expect(draftPlace({ cwd: '/draft' }, saved)).toEqual({ permission: 'edit', cwd: '/draft' });
+    expect(draftPlace({}, saved)).toEqual(saved);
+    expect(buildRevisePrompt('x', draft, saved, ctx)).toContain('The file permission "edit" and the working directories /saved, /docs are');
+  });
+
   it('keeps a member the lead renamed without saying so, when it is the only one left over and has no role', () => {
     // "Rename Alice to Researcher": the lead forgot "was" and, as told, left the role out.
     const r = decideRevision({ agents: [{ name: 'Researcher', provider: 'claude' }, { name: 'Gus', provider: 'grok' }] }, draft, ctx, lead);
