@@ -15,6 +15,7 @@ import type {
   VoiceLanguage,
   VoiceModelId,
 } from '../../shared/types';
+import type { ReportKind } from '../report';
 import type { ThemeChoice } from '../theme';
 
 /** A conversation's state as the sidebar shows it. */
@@ -103,6 +104,7 @@ export const zhTW = {
     searchFailed: (message: string) => `搜尋失敗：${message}`,
     matches: (n: number) => `${n} 則訊息符合`,
     settings: '設定與登入',
+    report: '回報問題',
     health: {
       checking: '檢查中…',
       notInstalled: '未安裝',
@@ -112,6 +114,7 @@ export const zhTW = {
       unknown: '狀態未知',
       openReady: '已設定模型來源',
       openNotReady: '尚未設定模型來源',
+      accounts: (usable: number, total: number) => `（預設帳號；${total} 個帳號中 ${usable} 個可用）`,
     },
   },
 
@@ -220,6 +223,29 @@ export const zhTW = {
       duplicate: (name: string) => `名稱 @${name} 重複`,
       needCwd: '請填寫工作目錄',
     },
+  },
+
+  accounts: {
+    account: '帳號',
+    default: '預設帳號',
+    unnamed: (id: string) => `帳號 ${id}`,
+    add: '新增帳號',
+    addHint: (p: string) =>
+      `同一個 ${p} 可以登入多個帳號，例如公司和個人的訂閱。每個帳號各自登入，各自設定 API key、預設模型與推理強度、不載入的項目，也有自己的 ${p} 資料夾（設定與 session 紀錄）。在團隊設定裡為每位成員選擇帳號，沒有選的成員使用預設帳號。`,
+    nameLabel: '帳號名稱',
+    namePlaceholder: '例如：公司',
+    nextName: (n: number) => `帳號 ${n}`,
+    added: (name: string) => `已新增帳號「${name}」，請在上方登入`,
+    limit: (max: number) => `最多 ${max} 個帳號（含預設帳號）`,
+    rename: '重新命名',
+    renamed: '已重新命名',
+    remove: '移除',
+    confirmRemove: (name: string, p: string, home: string) =>
+      `移除 ${p} 的帳號「${name}」？\nHarness Relay 會登出它、刪除它的 API key 和資料夾 ${home}（包括 ${p} 在裡面的 session 紀錄）。使用這個帳號的成員會改用預設帳號。`,
+    removed: (name: string) => `已移除帳號「${name}」`,
+    folder: (dir: string) => `資料夾：${dir}`,
+    confirmLogout: (name: string, p: string) => `登出 ${p} 的帳號「${name}」？`,
+    notLoggedIn: (p: string, name: string) => `${p} 的帳號「${name}」尚未登入。`,
   },
 
   models: {
@@ -687,6 +713,85 @@ export const zhTW = {
     link: '連結：',
   },
 
+  /** Reporting a problem or an idea by email (the sidebar's button beside Settings). */
+  report: {
+    title: '回報問題',
+    intro: '遇到問題或有想法？寫下來，會寄到開發者的信箱。',
+    kind: '類型',
+    kinds: { bug: '問題', idea: '建議', other: '其他' } as Record<ReportKind, string>,
+    subject: '主旨',
+    subjectPlaceholder: '一句話說明（可不填）',
+    description: '內容',
+    placeholder: {
+      bug: '發生了什麼事？你原本預期會怎樣？怎麼做會再發生一次？',
+      idea: '你想要什麼功能？會用在什麼情況？',
+      other: '想說什麼都可以',
+    } as Record<ReportKind, string>,
+    infoSummary: '會一併附上版本與系統資訊',
+    infoLoading: '讀取中…',
+    infoHint: '只有版本與系統，不含你的檔案、路徑或帳號。',
+    shots: {
+      label: '截圖（選填）',
+      add: '加入截圖',
+      hint: (max: number) =>
+        `可以貼上、拖進來或選擇圖片，最多 ${max} 張。按「上傳截圖」會用你的 GitHub CLI（gh）把截圖上傳成 secret gist（上傳前會拿掉拍攝位置等中繼資料），信裡附上連結。有連結的人都看得到，連結裡也看得到你的 GitHub 帳號名稱。信寄出後就收不回來：之後在 GitHub 上刪除 gist，信裡的連結會失效，但開發者已經看過或存下的截圖收不回來。`,
+      upload: '上傳截圖',
+      uploading: '上傳中…',
+      uploaded: '截圖已上傳，信裡會附上連結。',
+      view: '在 GitHub 上查看',
+      removeUpload: '刪除上傳',
+      removing: '刪除中…',
+      uploadFirst: '先上傳截圖，或把它們移除，才能寄出。',
+      notLinked: '這些截圖是寄出之後才上傳的，已寄出的信裡沒有它們的連結：再寄出一次才會附上；直接關掉對話框會刪除它們。',
+      fallback: '也可以移除截圖，寄出後再把它們拖進信裡。',
+      alt: (n: number) => `截圖 ${n}`,
+      remove: (n: number) => `移除截圖 ${n}`,
+      tooMany: (max: number) => `最多只能加入 ${max} 張截圖。`,
+      notImage: (name: string) => `「${name}」不是 PNG、JPEG 或 WebP 圖片（不接受 GIF 與 .jfif）。`,
+      tooLarge: (name: string, max: string) => `「${name}」超過 ${max} 的上限。`,
+    },
+    hint: '按「寄出」會打開你的郵件程式，收件人與內容都已填好。截圖可以直接拖進信裡，再按寄出。',
+    send: '寄出',
+    sent: {
+      mail: '已打開你的郵件程式：截圖可以直接拖進信裡，再按寄出。沒有看到的話，改用 Gmail 或複製內容。',
+      gmail: '已在新分頁打開 Gmail：截圖可以直接拖進信裡，再按寄出。',
+      cut: '內容太長，放不進信裡，已複製到剪貼簿：請在信裡貼上。',
+      cutCopyFailed: '內容太長，放不進信裡：請按「複製內容」，再貼進信裡。',
+      copied: '已複製內容：貼進一封信，寄到內容第一行的收件人，再寄出。',
+    },
+    /** Sent with the screenshots uploaded: the mail links to them. */
+    sentLinked: {
+      mail: '已打開你的郵件程式，信裡附上了截圖的連結，按寄出即可。沒有看到的話，改用 Gmail 或複製內容。',
+      gmail: '已在新分頁打開 Gmail，信裡附上了截圖的連結，按寄出即可。',
+      copied: '已複製內容，裡面附上了截圖的連結：貼進一封信，寄到內容第一行的收件人，再寄出。',
+    },
+    noMailApp: '沒有郵件程式？',
+    gmail: '用 Gmail 寄',
+    copy: '複製內容',
+    /** One line of the report's details: a label and its value. */
+    line: (label: string, value: string) => `${label}：${value}`,
+    subjectLine: (kind: string, subject: string) => `[Harness Relay] ${kind}：${subject}`,
+    info: {
+      desktop: '桌面版',
+      web: '網頁版',
+      os: '作業系統',
+      browser: '瀏覽器',
+      language: '介面語言',
+      installed: '已安裝',
+      notInstalled: '未安裝',
+      unknown: '（伺服器沒有回應，讀不到版本與系統）',
+    },
+    /** In the mail itself. */
+    mail: {
+      to: '收件人',
+      subject: '主旨',
+      kind: '類型',
+      screenshots: '（截圖可以直接拖進這封信）',
+      screenshotsLink: '截圖',
+      pasteHere: '（內容太長，已複製到剪貼簿：請貼在這裡。）',
+    },
+  },
+
   share: {
     button: '分享',
     buttonTitle: '把對話複製成 Markdown，或分享成公開連結',
@@ -838,6 +943,7 @@ export const zhTW = {
     title: '這個 CLI 自己載入的 skill、MCP、hook 與記憶等',
     summary: (s: number, m: number, f: number) => `${s} 個 skill · ${m} 個 MCP · ${f} 個檔案`,
     hint: '這些是 CLI 自己的設定，和工具庫無關，以預設工作目錄為準。查詢時會短暫啟動這個 CLI，不會呼叫模型；Claude Code 與 Codex 會啟動它們的 MCP 伺服器，Claude Code 也會執行你設定的 hook。有設為不載入的項目時，會再依 Harness Relay 啟動它的方式問一次，標出實際不載入的項目。結果保留一分鐘。',
+    perAccount: '每個帳號有自己的 CLI 資料夾：這裡列出的是這個帳號載入的項目，「不載入」的設定也只套用在這個帳號。',
     offHint: '「不載入」只在 Harness Relay 啟動這個 CLI 時生效：不會修改 CLI 自己的設定檔，你在終端機使用它也不受影響。工具庫的項目照常提供。每個分頁可以全部不載入，或在查詢後個別勾選。',
     load: '查詢',
     reload: '重新查詢',
@@ -1023,6 +1129,24 @@ export const zhTW = {
     intro: 'Harness Relay 用你電腦上的 claude、codex、grok CLI 執行各個 agent。在這裡登入各個 CLI，設定 API key、執行檔路徑與預設模型，查看各 CLI 自己載入的 skill、MCP 與記憶，管理所有 CLI 共用的工具庫，並決定各 CLI 的 session 紀錄放在哪裡、要不要在 AgentsView 中檢視每個對話。',
     checking: '檢查中…',
     recheck: '重新檢查狀態',
+    version: {
+      title: '版本',
+      current: '目前版本',
+      checking: '正在檢查有沒有新版本…',
+      available: (version: string) => `有新版本：${version}`,
+      upToDate: (at: string) => `已是最新版本（${at} 檢查）`,
+      notChecked: '還沒檢查過有沒有新版本。',
+      checkFailed: '無法連到 GitHub 檢查新版本，稍後會再試。',
+      noUpdates: '這個 Harness Relay 不會自己更新：只有安裝好的桌面版會檢查新版本（設定了 RELAY_UPDATES=off 時也不會）。',
+      downloading: (percent: number) => `正在下載更新…（${percent}%）`,
+      installing: '正在安裝更新…',
+      waiting: '更新已就緒，等回答結束後切換到新版。',
+      update: '更新',
+      releaseNotes: '版本說明',
+      confirmHere: '請在 Harness Relay 跳出的對話框確認更新。',
+      confirmThere: '請在執行 Harness Relay 的電腦上，於它跳出的對話框確認更新。',
+      hint: '桌面版每小時檢查一次 GitHub 上有沒有新版本；按「重新檢查狀態」會立刻再檢查一次（最多每 5 分鐘一次）。更新時會等正在回覆的對話結束才切換。',
+    },
     language: '介面語言',
     languageHint: '第一次開啟時依瀏覽器語言決定，之後記在這個瀏覽器。',
     appearance: '外觀',
@@ -1038,7 +1162,7 @@ export const zhTW = {
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
-    nav: { language: '介面語言', appearance: '外觀', backends: '模型來源', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
+    nav: { version: '版本', language: '介面語言', appearance: '外觀', backends: '模型來源', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
     tour: '使用導覽',
     tourHint: '一步一步介紹主要功能。',
     replayTour: '重新觀看導覽',
@@ -1158,7 +1282,7 @@ export const zhTW = {
       grok: '儲存後，Harness Relay 啟動 Grok 時會帶入 XAI_API_KEY。',
     },
     cliMissing: (bin: string) => `找不到 ${bin}`,
-    setBinBelow: '（可在下方「預設模型與推理強度」指定執行檔路徑）',
+    setBinBelow: '（可在下方「執行檔」指定路徑）',
     installCli: (p: string) => `到官網安裝 ${p}`,
     login: '登入',
     relogin: '重新登入',
@@ -1180,11 +1304,13 @@ export const zhTW = {
     } as Record<KeyStorage, string>,
     keyEnvHint: (v: string) => `不想存進資料庫的話，可以改在啟動 Harness Relay 前設定環境變數 ${v}。`,
     defaults: '預設模型與推理強度',
-    defaultsHint: (p: string) => `成員的模型 / 推理強度選「預設」時使用這裡的值；這裡也選「CLI 預設」就交給 ${p} 自己的設定。`,
+    defaultsHint: (p: string) =>
+      `使用這個帳號的成員（以及用這個帳號的首席 agent）模型 / 推理強度選「預設」時，使用這裡的值；這裡也選「CLI 預設」就交給 ${p} 在這個帳號資料夾裡的設定。每個帳號各自設定。`,
     modelsError: (e: string) => `無法從 CLI 取得模型清單：${e}`,
     cliDefault: (v: string) => `CLI 預設：${v}`,
     unknown: '未知',
     bin: '執行檔',
+    binHint: (p: string, bin: string) => `這個 CLI 的所有帳號共用同一個 ${p} 執行檔。留空就用 PATH 上的 ${bin}。`,
     loginState: { running: '等待授權中…', success: '登入成功 ✓', failed: '登入失敗', cancelled: '已取消' },
     openAuthPage: '開啟授權頁面：',
     enterCode: '在頁面中輸入或確認這個代碼：',
@@ -1193,6 +1319,16 @@ export const zhTW = {
     submit: '送出',
     cliOutput: 'CLI 輸出',
     noOutput: '(尚無輸出)',
+  },
+
+  update: {
+    title: '有新版本可以更新',
+    body: (version: string, current: string) => `Harness Relay ${version} 已經推出（你目前用的是 ${current}）。`,
+    hint: '按「更新」後，Harness Relay 會先請你確認，再下載並檢查新版；有對話正在回覆時，會等它們回答完才切換。',
+    update: '更新',
+    releaseNotes: '版本說明',
+    later: '稍後再說',
+    laterHint: '之後可以在「設定與登入 → 版本」更新。',
   },
 
   tour: {
@@ -1343,7 +1479,11 @@ export const zhTW = {
       },
       {
         title: '隨時調整',
-        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定開源 agent 的模型來源、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
+        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定模型來源（開源 agent 用它，Claude Code、Codex 與 Grok 也能用它的自訂端點）、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
+        points: [
+          '最前面的「版本」：目前的版本；桌面版每小時檢查一次有沒有新版本，有的話會跳出一次對話框，可以從那裡、這張卡片或選單更新',
+          '「設定與登入」右邊的按鈕可以用電子郵件回報問題或建議，附上版本與系統資訊，也可以附上截圖',
+        ],
       },
     ] as { title: string; body: string; points?: string[] }[],
   },

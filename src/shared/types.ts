@@ -122,6 +122,11 @@ export interface AgentConfig {
   /** Optional reasoning-effort override (e.g. low / medium / high / xhigh); empty means default. */
   effort?: string;
   /**
+   * The account of its CLI the agent runs as (`ProviderAccountView.id`); absent = the CLI's default
+   * account. An account that was removed counts as the default account.
+   */
+  account?: string;
+  /**
    * This agent's exceptions to the tool library's defaults, by tool key (see `toolKey`): true = it
    * gets the tool although the tool is off by default, false = it does not get a tool that is on.
    */
@@ -688,6 +693,8 @@ export interface LeadAgentSettings {
   provider: Provider;
   model?: string;
   effort?: string;
+  /** The account of its CLI it runs as; absent = the default account (see `AgentConfig.account`). */
+  account?: string;
 }
 
 /** What the lead agent decided for a question in an auto-team conversation (shown as a card in the chat). */
@@ -1026,6 +1033,8 @@ export interface AgentSessionState {
   /** CLI-native session / thread id used to resume the agent's own context. */
   sessionId?: string;
   provider?: Provider;
+  /** The account the session was made with (empty = the default account): another account starts a new one. */
+  account?: string;
   /**
    * The permission of this member's latest run in the conversation (Harness Relay's own record).
    */
@@ -1195,9 +1204,70 @@ export interface ProviderStatus {
   installed: boolean;
   bin: string;
   version?: string;
+  /** The default account's sign-in (also `accounts[0]`). */
   auth: ProviderAuth;
-  /** An API key is stored in Harness Relay and injected into this CLI's environment. */
+  /** An API key is stored in Harness Relay for the default account and injected into this CLI's environment. */
   usingStoredApiKey: boolean;
+  /** Every account of this CLI, the default account first: each one signs in on its own. */
+  accounts: AccountStatus[];
+}
+
+/** One account of a CLI and its sign-in. */
+export interface AccountStatus {
+  /** Empty for the default account. */
+  id: string;
+  /** The name the user gave it; empty = none (the UI then calls the default account "Default"). */
+  label: string;
+  auth: ProviderAuth;
+  usingStoredApiKey: boolean;
+}
+
+/** Whether agents can run as this account: signed in (or it could not be told), or with an API key. */
+export function accountUsable(a: Pick<AccountStatus, 'auth' | 'usingStoredApiKey'>): boolean {
+  return a.auth.loggedIn !== false || a.usingStoredApiKey;
+}
+
+/**
+ * Accounts per CLI, the default one included. Each account other than the default has a folder of its
+ * own for the CLI (its sign-in, settings and sessions) and may have an API key of its own.
+ */
+export const MAX_ACCOUNTS = 10;
+/** Longest name of an account. */
+export const MAX_ACCOUNT_LABEL = 40;
+/** Account ids: made by the server (8 hex digits); `default` names the default account in URLs. */
+export const ACCOUNT_ID_RE = /^[a-z0-9]{1,32}$/;
+export const DEFAULT_ACCOUNT = 'default';
+
+/**
+ * What the server says about itself (`GET /api/about`), for a problem report: no paths, no names.
+ * `version`: the release (or dev build) the desktop app was built as, else `source (<commit>)`.
+ */
+export interface AboutInfo {
+  version: string;
+  /** Started by the desktop app, not `npm start`. */
+  desktop: boolean;
+  /** "darwin 25.6.0 (arm64)". */
+  os: string;
+  /** "v24.1.0". */
+  node: string;
+}
+
+/** A problem report's screenshots: at most this many, each this large (`POST /api/report/screenshots`). */
+export const REPORT_SCREENSHOT_LIMITS = { maxFiles: 5, maxBytes: 10 * 1024 * 1024 };
+
+/**
+ * The kinds of image a report's screenshot may be: the usual ones for screenshots and photos (the server
+ * goes by its bytes, not by what it says it is). Not GIF, nor a JPEG saved as .jfif.
+ */
+export const REPORT_SCREENSHOT_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+
+/** The file name endings a report's screenshot may have, for the file picker (a pasted image has none). */
+export const REPORT_SCREENSHOT_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
+
+/** A problem report's screenshots, uploaded: their secret gist, and its page on GitHub (which shows them). */
+export interface ReportScreenshots {
+  id: string;
+  url: string;
 }
 
 /**
@@ -1214,14 +1284,11 @@ export interface ProviderSettingsView {
   apiKeyMasked: string;
   /** Where this provider's key is (or would be) stored; absent for Codex, which keeps its own. */
   apiKeyStorage?: KeyStorage;
-  /** Model used when an agent does not specify one. */
-  defaultModel: string;
-  /** Reasoning effort used when an agent does not specify one. */
-  defaultEffort: string;
-  /** What this CLI loads by itself that Harness Relay's runs leave out, all of a kind (see NATIVE_OFF_SUPPORT). */
-  nativeOff: NativePart[];
-  /** Single items Harness Relay's runs leave out (see NATIVE_ITEM_SUPPORT). */
-  nativeItems: NativeItemsOff;
+  /**
+   * Every account of this CLI, the default account first (its key is `apiKeyMasked` above too). Each
+   * has its own defaults and its own choice of what Harness Relay's runs leave out.
+   */
+  accounts: ProviderAccountView[];
   /**
    * The user lets this CLI's commands use a terminal (a pseudo-terminal) inside the relay sandbox, where
    * on macOS they can then print into and read from the user's other terminal windows (typing into them
@@ -1229,6 +1296,48 @@ export interface ProviderSettingsView {
    * `SANDBOX_TERMINAL_SUPPORT`; false for the others.
    */
   sandboxTerminal: boolean;
+}
+
+/**
+ * How Harness Relay runs a CLI as one of its accounts. Each account has a home of its own, with its
+ * own settings, skills, MCP servers, hooks and memory, so each one has its own of these too.
+ */
+export interface AccountRunSettings {
+  /** Model used when an agent of this account does not specify one; empty = the CLI's own default. */
+  defaultModel: string;
+  /** Reasoning effort used when an agent of this account does not specify one; empty = the CLI's own. */
+  defaultEffort: string;
+  /** What the CLI loads by itself in this account's home that Harness Relay's runs leave out, all of a kind (see NATIVE_OFF_SUPPORT). */
+  nativeOff: NativePart[];
+  /** Single items Harness Relay's runs leave out (see NATIVE_ITEM_SUPPORT). */
+  nativeItems: NativeItemsOff;
+}
+
+/** One account of a CLI as Settings shows it. */
+export interface ProviderAccountView extends AccountRunSettings {
+  /** Empty for the default account. */
+  id: string;
+  /** The name the user gave it; empty = none. */
+  label: string;
+  /** Masked API key of this account, or empty when none is stored. */
+  apiKeyMasked: string;
+  /** Where its key is (or would be) stored; absent for Codex, which keeps its own. */
+  apiKeyStorage?: KeyStorage;
+  /** The folder the CLI keeps this account's sign-in, settings and sessions in; absent = the CLI's usual home. */
+  home?: string;
+}
+
+/** `PUT /api/settings/providers/:provider/accounts/:account`: only the fields given change. */
+export interface ProviderAccountUpdate {
+  label?: string;
+  /** string = set / replace, null = remove (Codex: signs the account in with it, and keeps nothing). */
+  apiKey?: string | null;
+  defaultModel?: string;
+  defaultEffort?: string;
+  /** The whole list, replacing the current one; parts the CLI cannot leave out are dropped. */
+  nativeOff?: NativePart[];
+  /** All the single items, replacing the current ones; kinds the CLI cannot leave out are dropped. */
+  nativeItems?: NativeItemsOff;
 }
 
 /**
@@ -1254,19 +1363,33 @@ export interface ModelOption {
   endpoint?: string;
 }
 
-/** Models and reasoning-effort levels a provider offers, as discovered from its CLI. */
+/**
+ * Models and reasoning-effort levels a provider offers, as discovered from its CLI in one account's
+ * home (`GET /api/models` lists every account of every CLI, each CLI's default account first).
+ */
 export interface ProviderModels {
   provider: Provider;
+  /** The account asked (its home holds the CLI's own config); absent or empty = the default account. */
+  account?: string;
   models: ModelOption[];
   efforts: string[];
-  /** The CLI's own defaults (from its config or catalog). */
+  /** The CLI's own defaults (from its config or catalog in the account's home). */
   cliDefaultModel?: string;
   cliDefaultEffort?: string;
-  /** What actually runs when an agent leaves the field on "default": Relay setting first, then the CLI default. */
+  /** What actually runs when an agent leaves the field on "default": the account's Relay setting first, then the CLI default. */
   defaultModel?: string;
   defaultEffort?: string;
   source: 'cli' | 'builtin';
   error?: string;
+}
+
+/**
+ * The models of a CLI as one of its accounts runs it: that account's entry, else (an account removed
+ * since, or not listed yet) the default account's, else the CLI's first.
+ */
+export function catalogFor(catalog: readonly ProviderModels[], provider: Provider, account?: string): ProviderModels | undefined {
+  const mine = catalog.filter((c) => c.provider === provider);
+  return mine.find((c) => (c.account ?? '') === (account ?? '')) ?? mine.find((c) => !c.account) ?? mine[0];
 }
 
 /** Effort levels valid for a model (falls back to the provider-wide list). */
@@ -1322,16 +1445,14 @@ export const SUGGESTED_AGENT_HOME = '~/.relay-agents';
 /** AgentsView's default address (`agentsview serve`). */
 export const AGENTSVIEW_DEFAULT_URL = 'http://127.0.0.1:8080';
 
+/**
+ * `PUT /api/settings/providers/:provider`: what a CLI has once for all its accounts. Each account's
+ * defaults and what its runs leave out go to its own route (`ProviderAccountUpdate`).
+ */
 export interface ProviderSettingsUpdate {
   bin?: string;
-  defaultModel?: string;
-  defaultEffort?: string;
-  /** string = set / replace, null = remove. */
+  /** The default account's key: string = set / replace, null = remove. */
   apiKey?: string | null;
-  /** The whole list, replacing the current one; parts the CLI cannot leave out are dropped. */
-  nativeOff?: NativePart[];
-  /** All the single items, replacing the current ones; kinds the CLI cannot leave out are dropped. */
-  nativeItems?: NativeItemsOff;
   /** Ignored for a CLI not in `SANDBOX_TERMINAL_SUPPORT`. */
   sandboxTerminal?: boolean;
 }
@@ -1428,6 +1549,8 @@ export type LoginState = 'running' | 'success' | 'failed' | 'cancelled';
 export interface LoginSessionView {
   id: string;
   provider: Provider;
+  /** The account signing in; empty = the default account. */
+  account: string;
   method: string;
   state: LoginState;
   startedAt: number;
@@ -1538,13 +1661,44 @@ export interface VoiceSettingsUpdate {
 
 // --- The desktop app (desktop/) and the server it runs in an Electron utility process ---------
 
+/** An update of the desktop app under way: downloading, being checked and put in place, or waiting for the conversations. */
+export type UpdateProgress = { kind: 'downloading'; percent: number } | { kind: 'installing' } | { kind: 'waiting' };
+
+/** What the desktop app says of its updates (desktop/src/update.ts), each time that changes. */
+export interface DesktopUpdate {
+  /** Whether this copy updates itself (a packaged app, RELAY_UPDATES not off): nothing else is set when not. */
+  updates: boolean;
+  /** A newer release with an installer for this system: its version, and its page on GitHub. */
+  available?: { version: string; page: string };
+  progress?: UpdateProgress;
+  /** GitHub is being asked now. */
+  checking?: boolean;
+  /** When GitHub last answered (ms since the epoch). */
+  checkedAt?: number;
+  /** The last check could not reach GitHub (offline, or its hourly limit): the next one tries again. */
+  checkFailed?: boolean;
+  /**
+   * The chat's checks (`update-check`, by id) this state answers: told once they were checked (or
+   * refused, asked too soon). A state already on its way when one was asked for never answers it.
+   */
+  answered?: number[];
+}
+
+/** This Harness Relay's version, and its updates when the desktop app runs it (`GET /api/update`). */
+export interface UpdateStatus extends DesktopUpdate {
+  /** As a problem report names it: the release, a `-dev` build of the day, or `source (<commit>)`. */
+  current: string;
+}
+
 /** What the desktop app tells the server it started. */
 export type DesktopToServer =
   | { type: 'shutdown' }
   /** A link that signs a browser in (a new one-time code), to open the chat with. */
   | { type: 'sign-in-link' }
   /** How many conversations have agents at work (an update waits until none has). */
-  | { type: 'busy' };
+  | { type: 'busy' }
+  /** Its updates, each time that changes, and once the server listens. */
+  | { type: 'update'; update: DesktopUpdate };
 
 /** What the server tells the desktop app that started it. */
 export type ServerToDesktop =
@@ -1552,4 +1706,8 @@ export type ServerToDesktop =
   | { type: 'sign-in-link'; link: string }
   | { type: 'busy'; conversations: number }
   /** The server could not start listening (`code` is the error code, such as EADDRINUSE); it exits next. */
-  | { type: 'error'; code: string; message: string };
+  | { type: 'error'; code: string; message: string }
+  /** The user asks from the chat: check GitHub for a new release now (Settings' "Check again"); answered by its id. */
+  | { type: 'update-check'; id: number }
+  /** The user asks from the chat: update to the newer release (the app asks first, as from its menu). */
+  | { type: 'update-install' };

@@ -14,8 +14,8 @@ interface Props {
   icon?: ReactNode;
   /** Show only the icon: the label becomes the tooltip and is kept for screen readers. */
   iconOnly?: boolean;
-  /** Called once it has copied (or failed to) and says so. */
-  onDone?: () => void;
+  /** Called once it has copied (`copied`), or failed to, and says so. */
+  onDone?: (copied: boolean) => void;
 }
 
 /** A button that copies, then says so for a moment. */
@@ -30,7 +30,7 @@ export function CopyButton({ text, label, className = 'msg-action', disabled, ti
     setState(ok ? 'done' : 'failed');
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setState('idle'), 1600);
-    onDone?.();
+    onDone?.(ok);
   };
 
   const caption = state === 'done' ? t.common.copied : state === 'failed' ? t.common.copyFailed : (label ?? t.common.copy);

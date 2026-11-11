@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createReadStream, realpathSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { Readable } from 'node:stream';
@@ -9,10 +9,15 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
+import { aboutInfo, relayVersion } from './about';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
+  DEFAULT_ACCOUNT,
   FILE_LIMITS,
   GROUP_LIMITS,
+  MAX_ACCOUNTS,
+  PROVIDER_LABEL,
+  isOpenProvider,
   PROVIDERS,
   SHARE_FILES_MAX,
   SHARE_FILES_MAX_BYTES,
@@ -27,6 +32,7 @@ import {
   type ConversationSchedule,
   type Provider,
   type ServerEvent,
+  type ReportScreenshots,
   type ShareLink,
   type SharedPage,
   type TeamPreset,
@@ -37,7 +43,7 @@ import type { AgentsViewSync } from './agentsview';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
 import { zipStream } from './zip';
-import { restoreGrokTrust, trustGrokFolder } from './grokTrust';
+import { copyGrokTrust, restoreGrokTrustAll, trustGrokFolderAll } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
@@ -58,11 +64,14 @@ import {
   type FoundShareFile,
   type GistUpload,
 } from './share';
+import { parseScreenshots, uploadScreenshots } from './screenshots';
+import { Updates } from './updates';
 import type { Store } from './store';
 import {
   ensureFolder,
   expandPath,
   foldCase,
+  validAccountLabel,
   validAgentHome,
   validApiBackend,
   validEndpointId,
@@ -73,6 +82,7 @@ import {
   validDirectory,
   validGroupName,
   validVoiceModel,
+  validateAccountUpdate,
   validateAgents,
   validateLead,
   validateMcpServer,
@@ -111,6 +121,8 @@ export interface AppDeps {
    * pointed at the app's menu (which opens a new sign-in link) instead of the link printed at start.
    */
   desktopApp?: boolean;
+  /** This Harness Relay's version, for a problem report (`about.ts`; a fake in tests). */
+  version?: () => Promise<string>;
   /**
    * Puts a shared conversation's page on the web, with the files it takes along (its placeholder links
    * name them by their place in `files`), and takes it down (secret gists through `gh`; fakes in tests).
@@ -118,6 +130,13 @@ export interface AppDeps {
   gists?: {
     /** `onFilesGist`: told of the files gist as soon as it is made, as it would be left without a page. */
     create(html: string, description: string, files?: GistUpload[], onFilesGist?: (gist: ShareLink) => void): Promise<ShareLink>;
+    remove(id: string): Promise<void>;
+  };
+  /** The desktop app's updates (`updates.ts`); none when it is not given. */
+  updates?: Updates;
+  /** Puts a problem report's screenshots on GitHub as a secret gist, and deletes it again (`gh`; fakes in tests). */
+  screenshotGists?: {
+    upload(files: GistUpload[]): Promise<ReportScreenshots>;
     remove(id: string): Promise<void>;
   };
 }
@@ -165,12 +184,17 @@ export function createApp({
   agentsView,
   extraHosts = [],
   desktopApp = false,
+  version = relayVersion,
   gists = {
     create: (html, description, files, onFilesGist) => shareToGist(html, description, undefined, files, { onFilesGist }),
     remove: unshareGist,
   },
+  screenshotGists = { upload: (files) => uploadScreenshots(files), remove: unshareGist },
+  updates = new Updates(undefined, version),
 }: AppDeps): Hono {
   const app = new Hono();
+  /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
+  const screenshots = new Set<string>();
   /**
    * The files gists of the shares being made: recorded as unfinished as soon as they exist, but not
    * listed, nor removed, until their share is done (after a restart, one left so is listed).
@@ -319,6 +343,17 @@ export function createApp({
     return p;
   }
 
+  /**
+   * The account a request is for: the `:account` path parameter, else the `account` query parameter;
+   * empty or `default` = the CLI's default account (returned as empty), anything else one it has.
+   */
+  function account(c: Context, p: Provider): string {
+    const raw = c.req.param('account') ?? c.req.query('account') ?? '';
+    const id = raw === DEFAULT_ACCOUNT ? '' : raw;
+    if (!settings.hasAccount(p, id)) throw new HttpError(404, t().unknownAccount(PROVIDER_LABEL[p], raw));
+    return id;
+  }
+
   // --- Settings & providers ----------------------------------------------------
 
   /** The settings, with how the last update of AgentsView (at the current address) went. */
@@ -356,10 +391,10 @@ export function createApp({
     if (viewLink !== undefined) settings.setAgentsViewLink(viewLink);
     if (home !== undefined && home !== settings.agentHome) {
       settings.setAgentHome(home);
-      // Another home: another sign-in, other models and other parts of its own. A sign-in still
-      // running would finish in the old home.
+      // Another home (for every account): another sign-in, other models and other parts of its own.
+      // A sign-in still running would finish in the old home.
       providers.invalidate();
-      for (const p of PROVIDERS) providers.cancelLogin(p);
+      providers.cancelLogins();
     }
     return c.json(settingsView());
   });
@@ -433,18 +468,114 @@ export function createApp({
     return c.json(settingsView());
   });
 
+  // A CLI's accounts besides its default one: each has a folder of its own for the CLI (its sign-in,
+  // settings and sessions) and may have an API key of its own. Agents and the lead agent name theirs.
+  app.post('/api/settings/providers/:provider/accounts', async (c) => {
+    const p = provider(c);
+    // An open agent has no sign-in, so no other account: it runs on the model backends.
+    if (isOpenProvider(p)) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
+    const b = await body<{ label?: unknown }>(c);
+    const label = validAccountLabel(b.label ?? '');
+    if (settings.accountIds(p).length + 1 >= MAX_ACCOUNTS) throw new HttpError(409, t().tooManyAccounts(PROVIDER_LABEL[p], MAX_ACCOUNTS));
+    const id = settings.addAccount(p, label);
+    if (p === 'grok') {
+      // The folders the default account trusts (which Settings shows) are trusted for this one too.
+      try {
+        copyGrokTrust(settings.env('grok'), settings.env('grok', id));
+      } catch (err) {
+        console.warn(`[settings] could not copy Grok's folder trust to account ${id}: ${(err as Error).message}`);
+      }
+    }
+    providers.invalidate(p);
+    return c.json({ id, settings: settingsView() });
+  });
+
+  // Renames an account (`default`: the default one), sets or removes its key, or changes how Harness
+  // Relay runs it: its default model and effort, and what its runs leave out of what the CLI loads by
+  // itself in its home. A Codex key signs the account in with it, in its own folder; Codex keeps it.
+  app.put('/api/settings/providers/:provider/accounts/:account', async (c) => {
+    const p = provider(c);
+    const id = account(c, p);
+    const b = validateAccountUpdate(await body<unknown>(c));
+    const signIn = b.apiKey !== undefined;
+    if (b.apiKey !== undefined && b.apiKey !== null && p === 'codex') {
+      await providers.codexApiKeyLogin(b.apiKey, id);
+      delete b.apiKey;
+    }
+    settings.updateAccount(p, id, b);
+    // Its name and sign-in are in the status; its defaults are layered over the models at each request.
+    if (signIn || b.label !== undefined) providers.invalidate(p);
+    return c.json(settingsView());
+  });
+
+  // Removes an account besides the default one: signs it out (as far as the CLI can; a key it kept in
+  // the system's credential store goes with it), forgets its key, and deletes its folder, with its
+  // sign-in and the CLI's sessions. Agents that named it use the default account from then on.
+  app.delete('/api/settings/providers/:provider/accounts/:account', async (c) => {
+    const p = provider(c);
+    const id = account(c, p);
+    if (!id) throw new HttpError(400, t().defaultAccountStays);
+    // A turn of this account would go on in a folder being deleted.
+    if (orchestrator.anyRunning()) throw new HttpError(409, t().accountBusy);
+    providers.forgetLogin(p, id);
+    // Forgotten at once, with nothing awaited since the check: a turn that starts while the CLI signs
+    // out runs as the default account, never in the folder about to go. The sign-out uses the
+    // account's environment taken before (its id now names the default account).
+    const env = settings.env(p, id);
+    const home = settings.removeAccount(p, id);
+    await providers.logoutIn(p, env, 15_000).catch(() => {});
+    if (home) await rm(home, { recursive: true, force: true }).catch((err: Error) => console.warn(`[settings] could not delete ${home}: ${err.message}`));
+    providers.invalidate(p);
+    return c.json(settingsView());
+  });
+
   app.get('/api/providers', async (c) => c.json(await providers.statusAll(c.req.query('refresh') === '1')));
+
+  // Which Harness Relay this is, and on what, for a problem report the user sends by email.
+  app.get('/api/about', async (c) => c.json(await aboutInfo(desktopApp, version)));
+
+  // The desktop app's updates: this version, a newer one, an update under way (only the version for
+  // `npm start`). Settings' "Check again" has the app ask GitHub now; Update has it ask the user, in its
+  // own dialog on the computer it runs on, then update as from its menu.
+  app.get('/api/update', async (c) => c.json(await updates.status()));
+  app.post('/api/update/check', async (c) => c.json(await updates.check()));
+  app.post('/api/update/install', (c) => {
+    const asked = updates.install();
+    if (asked !== 'asked') throw new HttpError(409, asked === 'under-way' ? t().updateUnderWay : t().updateNone);
+    return c.json({ ok: true });
+  });
+
+  // A problem report's screenshots, which a mail link cannot carry: one secret gist of them, uploaded
+  // with the user's GitHub CLI when they press Upload, its page the link the mail carries. Deleting it
+  // again (Remove upload) takes only one uploaded here since the server started.
+  app.post('/api/report/screenshots', async (c) => {
+    const b = await body<{ files?: unknown }>(c);
+    const files = parseScreenshots(b.files);
+    const shots = await gistCall(() => screenshotGists.upload(files));
+    screenshots.add(shots.id);
+    return c.json(shots);
+  });
+
+  app.delete('/api/report/screenshots/:id', async (c) => {
+    const id = c.req.param('id');
+    if (!validGistId(id) || !screenshots.has(id)) throw new HttpError(404, t().reportShotsNotFound);
+    await gistCall(() => screenshotGists.remove(id));
+    screenshots.delete(id);
+    return c.json({ ok: true });
+  });
 
   app.get('/api/models', async (c) => c.json(await providers.modelsAll(c.req.query('refresh') === '1')));
 
   // What the CLI loads by itself (its own skills, MCP servers, memory) for the default working
-  // directory. A POST, because it starts the CLI (Claude Code runs the project's hooks): the JSON
-  // content-type check keeps other sites from setting it off. Answers are kept for a minute.
+  // directory, in the home of the default account or the one `?account=<id>` names, with what that
+  // account's runs leave out. A POST, because it starts the CLI (Claude Code runs the project's hooks):
+  // the JSON content-type check keeps other sites from setting it off. Answers are kept for a minute.
   app.post('/api/providers/:provider/native', async (c) => {
     const p = provider(c);
+    const id = account(c, p);
     const b = await body<{ refresh?: unknown }>(c);
     const cwd = validDirectory(settings.defaultCwd);
-    return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true)));
+    return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true, id || undefined)));
   });
 
   // Whether Grok trusts a folder (the default working directory unless `cwd` names one), and with
@@ -461,52 +592,66 @@ export function createApp({
     if (!trust || before.folderTrusted === true) return c.json({ cwd, folder, above, trusted: before.folderTrusted });
     // The user confirmed trust in the folder they were shown; if Grok now names another, ask again.
     if (typeof b.folder === 'string' && b.folder !== folder) throw new HttpError(409, t().grokTrustFolderChanged(folder));
-    const env = settings.env('grok');
-    const previous = trustGrokFolder(folder, env);
+    // Every Grok account keeps its own trust, in its own folder: the folder is trusted for all of them
+    // (or none, when one of them cannot be written).
+    const envs = ['', ...settings.accountIds('grok')].map((id) => settings.env('grok', id));
+    const written = trustGrokFolderAll(folder, envs);
     const after = await native.get('grok', cwd, true);
     if (after.folderTrusted === false) {
       // Grok did not take it: leave no entry behind that does nothing.
-      restoreGrokTrust(previous, env);
+      restoreGrokTrustAll(written);
       throw new HttpError(409, t().grokTrustNotTaken(folder));
     }
     return c.json({ cwd, folder, above, trusted: after.folderTrusted });
   });
 
-  // One of the files the CLI reported (an instruction or memory file, a skill's SKILL.md), to read
-  // it in the UI. Any other path is refused, so this cannot read other files on the computer.
+  // One of the files the CLI reported (an instruction or memory file, a skill's SKILL.md) for the
+  // default account or `?account=<id>`, to read it in the UI. Any other path is refused, so this
+  // cannot read other files on the computer.
   app.post('/api/providers/:provider/native/file', async (c) => {
     const p = provider(c);
+    const id = account(c, p);
     const b = await body<{ path?: unknown }>(c);
     const path = typeof b.path === 'string' ? b.path : '';
     // Checked against the answer the UI showed, however old: opening a file must not start the CLI.
-    const probe = await native.latest(p, validDirectory(settings.defaultCwd));
+    const probe = await native.latest(p, validDirectory(settings.defaultCwd), id || undefined);
     if (!path || !listedFile(probe, path)) throw new HttpError(404, t().nativeFileNotListed);
     return c.json(readPreview(path, path, t().nativeFileNotListed));
   });
 
   app.get('/api/providers/:provider/login-methods', (c) => c.json(providers.loginMethods(provider(c))));
 
+  // Signing in and out: of the default account, or of the one `?account=<id>` names.
   app.post('/api/providers/:provider/login', async (c) => {
+    const p = provider(c);
+    const id = account(c, p);
     const b = await body<{ method?: string }>(c);
-    return c.json(providers.startLogin(provider(c), b.method));
+    return c.json(providers.startLogin(p, b.method, id));
   });
 
-  app.get('/api/providers/:provider/login', (c) => c.json(providers.login(provider(c))));
+  app.get('/api/providers/:provider/login', (c) => {
+    const p = provider(c);
+    return c.json(providers.login(p, account(c, p)));
+  });
 
   app.post('/api/providers/:provider/login/input', async (c) => {
+    const p = provider(c);
+    const id = account(c, p);
     const b = await body<{ text?: string }>(c);
-    const view = providers.sendLoginInput(provider(c), String(b.text ?? ''));
+    const view = providers.sendLoginInput(p, String(b.text ?? ''), id);
     if (!view) throw new HttpError(404, t().noLogin);
     return c.json(view);
   });
 
   app.delete('/api/providers/:provider/login', (c) => {
-    providers.cancelLogin(provider(c));
+    const p = provider(c);
+    providers.cancelLogin(p, account(c, p));
     return c.json({ ok: true });
   });
 
   app.post('/api/providers/:provider/logout', async (c) => {
-    const output = await providers.logout(provider(c));
+    const p = provider(c);
+    const output = await providers.logout(p, account(c, p));
     return c.json({ ok: true, output });
   });
 

@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin, type Rolldown } from 'vite';
 import react from '@vitejs/plugin-react';
-import { DEV_WEB_PORT, apiPort } from './src/server/ports';
+import { DEV_WEB_PORT, apiPort } from './src/server/ports.ts';
 
 /** The most a chunk loaded at startup may weigh (minified, in kB): the page waits for all of them. */
 const STARTUP_CHUNK_LIMIT_KB = 500;

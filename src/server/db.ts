@@ -292,7 +292,41 @@ const MIGRATIONS: string[] = [
     expires_at INTEGER NOT NULL
   );
   `,
-  // 19: model backends for the open agents (src/server/backends.ts): the user's OpenAI-compatible
+  // 19: more than one account per CLI. provider_accounts: the accounts besides each CLI's default one
+  // (each with a folder of its own for the CLI, and maybe an API key of its own; the key moves to the
+  // system keyring like the default account's); account_label: the default account's name. Agents,
+  // templates and agent sessions name their account (NULL = the default account); the lead agent's is
+  // in its JSON setting.
+  `
+  CREATE TABLE provider_accounts (
+    id         TEXT PRIMARY KEY,
+    provider   TEXT NOT NULL,
+    label      TEXT NOT NULL,
+    api_key    TEXT NOT NULL DEFAULT '',
+    position   INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  ALTER TABLE provider_settings ADD COLUMN account_label TEXT NOT NULL DEFAULT '';
+  ALTER TABLE conversation_agents ADD COLUMN account TEXT;
+  ALTER TABLE preset_agents ADD COLUMN account TEXT;
+  ALTER TABLE agent_sessions ADD COLUMN account TEXT;
+  `,
+  // 20: each account has its own default model and effort, and its own choice of what Harness Relay's
+  // runs leave out of what the CLI loads by itself (its home has its own skills, MCP servers, hooks and
+  // memory). The default account's stay in provider_settings; the accounts there were get the CLI's
+  // values, so they run as before.
+  `
+  ALTER TABLE provider_accounts ADD COLUMN default_model TEXT NOT NULL DEFAULT '';
+  ALTER TABLE provider_accounts ADD COLUMN default_effort TEXT NOT NULL DEFAULT '';
+  ALTER TABLE provider_accounts ADD COLUMN native_off TEXT NOT NULL DEFAULT '';
+  ALTER TABLE provider_accounts ADD COLUMN native_items TEXT NOT NULL DEFAULT '{}';
+  UPDATE provider_accounts SET
+    default_model = COALESCE((SELECT s.default_model FROM provider_settings s WHERE s.provider = provider_accounts.provider), ''),
+    default_effort = COALESCE((SELECT s.default_effort FROM provider_settings s WHERE s.provider = provider_accounts.provider), ''),
+    native_off = COALESCE((SELECT s.native_off FROM provider_settings s WHERE s.provider = provider_accounts.provider), ''),
+    native_items = COALESCE((SELECT s.native_items FROM provider_settings s WHERE s.provider = provider_accounts.provider), '{}');
+  `,
+  // 21: model backends for the open agents (src/server/backends.ts): the user's OpenAI-compatible
   // endpoints (id: the slug their models' ids start with), and an API backend's key (id: openai,
   // anthropic or xai) only while there is no credential store to keep it in. Endpoints' keys likewise.
   `
@@ -305,20 +339,20 @@ const MIGRATIONS: string[] = [
     created_at INTEGER NOT NULL
   );
   `,
-  // 20: the permission of each member's latest run (agent_sessions.permission): a turn with a higher
+  // 22: the permission of each member's latest run (agent_sessions.permission): a turn with a higher
   // one does not resume the session. Kept here, never in a file an agent can write. NULL: not recorded
   // (sessions from before), taken as read-only.
   `
   ALTER TABLE agent_sessions ADD COLUMN permission TEXT;
   `,
-  // 21: the same per CLI the member ran on (agent_sessions.by_cli, JSON: provider → { permission,
+  // 23: the same per CLI the member ran on (agent_sessions.by_cli, JSON: provider → { permission,
   // mustEmpty }), since each open agent keeps a state folder of its own for the member: one written at
   // a lower permission is emptied before that CLI runs with a higher one, and the flag that says it
   // must be stays until it has been.
   `
   ALTER TABLE agent_sessions ADD COLUMN by_cli TEXT;
   `,
-  // 22: whether the user lets a CLI's commands use a terminal in the relay sandbox
+  // 24: whether the user lets a CLI's commands use a terminal in the relay sandbox
   // (provider_settings.sandbox_terminal, 0/1; OpenHands only, see SANDBOX_TERMINAL_SUPPORT).
   `
   ALTER TABLE provider_settings ADD COLUMN sandbox_terminal INTEGER NOT NULL DEFAULT 0;
@@ -423,9 +457,9 @@ export function dataLockFile(dataDir: string): string {
  * Takes the data folder for this server while it runs, or returns undefined when another server
  * holds it. Two servers on one data folder would undo each other: at its start each one kills the
  * processes of the other's sandboxed runs and removes their folders, marks the other's streaming
- * replies aborted and expires their approvals, and both would send every schedule. So a second
- * server on the same data folder (`npm run dev` beside an `npm start` of the same checkout, say)
- * refuses to start.
+ * replies aborted and expires their approvals, and removes the temporary folders of the other's
+ * shares in progress, and both would send every schedule. So a second server on the same data folder
+ * (`npm run dev` beside an `npm start` of the same checkout, say) refuses to start.
  *
  * The lock is SQLite's own on that file (an exclusive transaction kept open, with the journal in
  * memory so no other file is made): the system releases it when the process ends, however it ends,

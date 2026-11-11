@@ -60,7 +60,10 @@ let calls: {
   stateKey?: string;
   freshState?: boolean;
   permission?: string;
+  /** The CLI's home it was started with (its account's). */
+  home?: string;
   model?: string;
+  effort?: string;
 }[] = [];
 let settings: InstanceType<typeof SettingsStore>;
 /** What the fake lead agent replies when asked to design a team (auto team). */
@@ -96,7 +99,7 @@ beforeAll(() => {
     provider: 'claude',
     async run(o) {
       if (o.systemPrompt === GROUPER_BRIEFING) {
-        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, sandboxTerminal: o.sandboxTerminal, stateKey: o.stateKey });
+        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, sandboxTerminal: o.sandboxTerminal, stateKey: o.stateKey, model: o.model, effort: o.effort });
         if (sorterGate && !o.signal?.aborted) {
           await Promise.race([sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
@@ -106,7 +109,7 @@ beforeAll(() => {
         return { sessionId: 'sorter-session' };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
-        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd, stateKey: o.stateKey });
+        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd, stateKey: o.stateKey, model: o.model, effort: o.effort, nativeOff: o.nativeOff, home: o.env?.CLAUDE_CONFIG_DIR });
         // Only the run that starts while it is set lingers.
         const linger = reviseLinger;
         reviseLinger = undefined;
@@ -122,7 +125,18 @@ beforeAll(() => {
         return { costUsd: 0.02, sessionId: 'reviser-session' };
       }
       if (o.systemPrompt === PLANNER_BRIEFING) {
-        calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, sandboxTerminal: o.sandboxTerminal, stateKey: o.stateKey });
+        calls.push({
+          name: 'lead',
+          sessionId: o.sessionId,
+          prompt: o.prompt,
+          nativeOff: o.nativeOff,
+          nativeItems: o.nativeItems,
+          sandboxTerminal: o.sandboxTerminal,
+          stateKey: o.stateKey,
+          home: o.env?.CLAUDE_CONFIG_DIR,
+          model: o.model,
+          effort: o.effort,
+        });
         if (leadGate) await leadGate;
         o.onEvent({ type: 'text', text: leadReply });
         o.onEvent({ type: 'text_end' });
@@ -142,7 +156,9 @@ beforeAll(() => {
         stateKey: o.stateKey,
         freshState: o.freshState,
         permission: o.permission,
+        home: o.env?.CLAUDE_CONFIG_DIR,
         model: o.model,
+        effort: o.effort,
       });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
@@ -415,7 +431,7 @@ describe('parallel mode with edit permission', () => {
 
 describe('what a CLI loads by itself', () => {
   it("leaves out of every agent's run what the user turned off for that CLI", async () => {
-    settings.update('claude', { nativeOff: ['mcp', 'memory'], nativeItems: { skills: ['commit'] } });
+    settings.updateAccount('claude', '', { nativeOff: ['mcp', 'memory'], nativeItems: { skills: ['commit'] } });
     const conv = conversation({ mode: 'roundtable' });
     await orchestrator.send(conv.id, 'go');
     await finish(conv.id);
@@ -426,7 +442,7 @@ describe('what a CLI loads by itself', () => {
   });
 
   it("leaves it out of the lead agent's and the group sorter's runs too", async () => {
-    settings.update('claude', { nativeOff: ['skills', 'instructions'], nativeItems: { tools: ['WebSearch'] } });
+    settings.updateAccount('claude', '', { nativeOff: ['skills', 'instructions'], nativeItems: { tools: ['WebSearch'] } });
     store.createGroup({ id: 'g1', name: 'Docs' });
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
     conv.agents = [];
@@ -730,7 +746,7 @@ describe("each member's own state, and a session that ran with less permission",
       expect(await turn()).toEqual({ otto: 'openai/gpt-5.4-nano', cleo: undefined });
       expect(asked).toEqual(['opencode']);
       // Settings' default comes first, and a member's own model before that.
-      settings.update('opencode', { defaultModel: 'xai/grok-4.3' });
+      settings.updateAccount('opencode', '', { defaultModel: 'xai/grok-4.3' });
       expect((await turn()).otto).toBe('xai/grok-4.3');
       conv.agents[0]!.model = 'anthropic/claude-haiku-5-5';
       expect((await turn()).otto).toBe('anthropic/claude-haiku-5-5');
@@ -839,6 +855,185 @@ describe('editing a user message', () => {
     await expect(orchestrator.resend(conv.id, agentMsg.id, 'x')).rejects.toThrow(/找不到這則訊息/);
     await expect(orchestrator.resend(conv.id, userMsg.id, '   ')).rejects.toThrow(/不能是空的/);
     expect(conv.messages[0]!.id).toBe(userMsg.id); // nothing was dropped
+  });
+});
+
+describe('accounts', () => {
+  it("runs each member as its account, in that account's home, and starts a new session when its account changes", async () => {
+    const home = join(root, `agents-${n}`);
+    settings.setAgentHome(home);
+    const work = settings.addAccount('claude', 'Work');
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.agents = [
+      { id: 'a', name: 'Alice', provider: 'claude', role: '', account: work },
+      { id: 'b', name: 'Bob', provider: 'claude', role: '' },
+    ];
+    store.saveMeta(conv);
+    await orchestrator.send(conv.id, 'first');
+    await finish(conv.id);
+    expect(calls.map((c) => [c.name, c.home, c.sessionId])).toEqual([
+      ['Alice', join(home, `claude-${work}`), undefined],
+      ['Bob', join(home, 'claude'), undefined],
+    ]);
+    expect(new Store(db).get(conv.id)!.agentState.a).toMatchObject({ account: work, sessionId: 'session-Alice' });
+
+    // Alice moves to the default account: her session is in the other home, so she starts a new one.
+    calls = [];
+    conv.agents = [{ ...conv.agents[0]!, account: undefined }, conv.agents[1]!];
+    store.saveMeta(conv);
+    await orchestrator.send(conv.id, 'second');
+    await finish(conv.id);
+    expect(calls.map((c) => [c.name, c.home, c.sessionId])).toEqual([
+      ['Alice', join(home, 'claude'), undefined],
+      ['Bob', join(home, 'claude'), 'session-Bob'],
+    ]);
+    expect(calls[0]!.prompt).toContain('first'); // started fresh, so given the conversation again
+
+    // Bob names an account that was removed since: it is the default account, so his session goes on.
+    calls = [];
+    const gone = settings.addAccount('claude', 'Gone');
+    settings.removeAccount('claude', gone);
+    conv.agents = [conv.agents[0]!, { ...conv.agents[1]!, account: gone }];
+    store.saveMeta(conv);
+    await orchestrator.send(conv.id, 'third');
+    await finish(conv.id);
+    expect(calls.map((c) => [c.name, c.home, c.sessionId])).toEqual([
+      ['Alice', join(home, 'claude'), 'session-Alice'],
+      ['Bob', join(home, 'claude'), 'session-Bob'],
+    ]);
+  });
+
+  it("runs the lead agent as its account, and new members of its team as an account that is signed in", async () => {
+    const home = join(root, `agents-${n}`);
+    settings.setAgentHome(home);
+    const work = settings.addAccount('claude', 'Work');
+    settings.setLead({ provider: 'claude', account: work });
+    // Only the Work account is signed in.
+    orchestrator = new Orchestrator(store, new Hub(), settings, {
+      context: async () => ({ available: ['claude'], accounts: { claude: [work] }, catalog: [], presets: store.listPresets() }),
+    });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    conv.agents = [];
+    leadReply = JSON.stringify({ choice: 'custom', name: 'Pair', mode: 'roundtable', rounds: 1, agents: [{ name: 'Ann', provider: 'claude', role: 'r' }], reason: 'x' });
+    await orchestrator.send(conv.id, 'design one');
+    await finish(conv.id);
+    expect(calls.map((c) => [c.name, c.home])).toEqual([['lead', join(home, `claude-${work}`)]]);
+    expect(conv.messages.find((m) => m.plan)!.plan!.agents!.map((a) => [a.name, a.account])).toEqual([['Ann', work]]);
+  });
+});
+
+describe("each account's own defaults and what its runs leave out", () => {
+  it("runs each member with its account's default model and effort, and leaves out what that account leaves out", async () => {
+    settings.setAgentHome(join(root, `agents-${n}`));
+    settings.updateAccount('claude', '', { defaultModel: 'opus', defaultEffort: 'high', nativeOff: ['mcp'] });
+    const work = settings.addAccount('claude', 'Work');
+    settings.updateAccount('claude', work, { defaultModel: 'sonnet', defaultEffort: 'low', nativeOff: ['hooks'], nativeItems: { skills: ['commit'] } });
+    const gone = settings.addAccount('claude', 'Gone');
+    settings.updateAccount('claude', gone, { defaultModel: 'haiku', nativeOff: ['plugins'] });
+    settings.removeAccount('claude', gone);
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.agents = [
+      { id: 'a', name: 'Alice', provider: 'claude', role: '', account: work },
+      // Her own model and effort come before her account's defaults.
+      { id: 'b', name: 'Bob', provider: 'claude', role: '', account: work, model: 'fable', effort: 'max' },
+      { id: 'c', name: 'Cid', provider: 'claude', role: '' },
+      // An account removed since is the default account, with its defaults.
+      { id: 'd', name: 'Dee', provider: 'claude', role: '', account: gone },
+    ];
+    store.saveMeta(conv);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(calls.map((c) => [c.name, c.model, c.effort, c.nativeOff?.join(), c.nativeItems?.skills?.join()])).toEqual([
+      ['Alice', 'sonnet', 'low', 'hooks', 'commit'],
+      ['Bob', 'fable', 'max', 'hooks', 'commit'],
+      ['Cid', 'opus', 'high', 'mcp', undefined],
+      ['Dee', 'opus', 'high', 'mcp', undefined],
+    ]);
+    // Briefed with what its own runs leave out.
+    expect(calls[0]!.systemPrompt).not.toEqual(calls[2]!.systemPrompt);
+  });
+
+  it("runs the lead agent and the group sorter with the lead's account's defaults and what it leaves out", async () => {
+    settings.setAgentHome(join(root, `agents-${n}`));
+    settings.updateAccount('claude', '', { defaultModel: 'opus', nativeOff: ['mcp'] });
+    const work = settings.addAccount('claude', 'Work');
+    settings.updateAccount('claude', work, { defaultModel: 'sonnet', defaultEffort: 'medium', nativeOff: ['skills'], nativeItems: { tools: ['WebFetch'] } });
+    settings.setLead({ provider: 'claude', account: work });
+    store.createGroup({ id: 'g1', name: 'Docs' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    conv.agents = [];
+    leadReply = JSON.stringify({ choice: 'template', templateId: 'builtin-parallel', reason: 'Compare.' });
+    await orchestrator.send(conv.id, 'Write the README');
+    await finish(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(false));
+    const helpers = calls.filter((c) => c.name === 'lead' || c.name === 'sorter').sort((x, y) => x.name.localeCompare(y.name));
+    expect(helpers.map((c) => [c.name, c.model, c.effort, c.nativeOff?.join(), c.nativeItems?.tools?.join()])).toEqual([
+      ['lead', 'sonnet', 'medium', 'skills', 'WebFetch'],
+      ['sorter', 'sonnet', 'medium', 'skills', 'WebFetch'],
+    ]);
+  });
+});
+
+describe('a team the lead agent designs', () => {
+  it("keeps the tools and account the user set for a member who stays on, and gives new members their CLI's defaults", async () => {
+    const work = settings.addAccount('claude', 'Work');
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    conv.agents = [{ id: 'r1', name: 'Researcher', provider: 'claude', role: 'Search the web', tools: { memory: false }, account: work }];
+    store.saveMeta(conv);
+    leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Research and write',
+      mode: 'roundtable',
+      rounds: 1,
+      agents: [
+        // The lead names tools: never taken.
+        { name: 'Researcher', provider: 'claude', role: 'Search the web', tools: { memory: true } },
+        { name: 'Writer', provider: 'claude', role: 'Write it up', tools: { memory: false } },
+      ],
+      reason: 'x',
+    });
+    await orchestrator.send(conv.id, 'research and write');
+    await finish(conv.id);
+    const plan = conv.messages.find((m) => m.plan)!.plan!;
+    expect(plan.agents!.map((a) => [a.name, a.id === 'r1', a.tools, a.account])).toEqual([
+      ['Researcher', true, { memory: false }, work],
+      ['Writer', false, undefined, undefined],
+    ]);
+  });
+});
+
+describe("the lead agent's context", () => {
+  it('is gathered for the folder the team works in, and the lead reads each CLI\'s tools from it', async () => {
+    const folders: (string | undefined)[] = [];
+    orchestrator = new Orchestrator(store, new Hub(), settings, {
+      context: async (cwd) => {
+        folders.push(cwd);
+        return {
+          available: ['claude'],
+          catalog: [],
+          presets: store.listPresets(),
+          native: { claude: { builtinTools: ['WebSearch'], skills: [], mcpServers: [{ name: 'github', tools: ['create_issue'] }] } },
+        };
+      },
+    });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    conv.agents = [];
+    leadReply = JSON.stringify({ choice: 'template', templateId: 'builtin-general', reason: 'x' });
+    await orchestrator.send(conv.id, 'design one');
+    await finish(conv.id);
+    expect(folders).toEqual([project]);
+    expect(calls[0]!.prompt).toContain('  Built-in tools: WebSearch\n  Its own MCP servers: github (tools: create_issue)');
+
+    // Changing the team: the folder in the drawer, saved or not.
+    const other = join(root, `other-${n}`);
+    mkdirSync(other, { recursive: true });
+    reviseReply = JSON.stringify({ agents: [{ name: 'Ann', provider: 'claude', role: 'r' }], reason: 'r' });
+    await orchestrator.reviseTeam(conv.id, {
+      request: 'one member',
+      agents: [{ id: 'x', name: 'Ann', provider: 'claude', role: 'r' }],
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 5, permission: 'read-only', cwd: other },
+    });
+    expect(folders).toEqual([project, other]);
   });
 });
 
@@ -2184,6 +2379,21 @@ describe('asking the lead agent to change the team', () => {
       { name: 'Tester', provider: 'codex', role: 'Test it.' },
     ],
     reason: 'Added a tester.',
+  });
+
+  it("runs as the lead's account, with that account's defaults and what it leaves out", async () => {
+    const home = join(root, `agents-${n}`);
+    settings.setAgentHome(home);
+    settings.updateAccount('claude', '', { defaultModel: 'opus', nativeOff: ['mcp'] });
+    const work = settings.addAccount('claude', 'Work');
+    settings.updateAccount('claude', work, { defaultModel: 'sonnet', defaultEffort: 'low', nativeOff: ['hooks'] });
+    settings.setLead({ provider: 'claude', account: work });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    reviseReply = 'Done:\n```json\n' + withTester + '\n```';
+    await orchestrator.reviseTeam(conv.id, { request: 'add a tester', ...draft });
+    expect(calls.map((c) => [c.name, c.home, c.model, c.effort, c.nativeOff?.join()])).toEqual([
+      ['reviser', join(home, `claude-${work}`), 'sonnet', 'low', 'hooks'],
+    ]);
   });
 
   it('returns the changed team and changes nothing in the conversation', async () => {

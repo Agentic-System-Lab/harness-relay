@@ -14,6 +14,8 @@ export interface NewestRelease {
 export const REPO: string;
 export const RELEASES_PAGE: string;
 export const INSTALLERS: Record<InstallerSystem, string>;
+export const UPDATE_INSTALLERS: Record<InstallerSystem, string>;
+export function updateCopyName(name: unknown): string | undefined;
 export function systemOf(o?: {
   userAgent?: string;
   platform?: string;

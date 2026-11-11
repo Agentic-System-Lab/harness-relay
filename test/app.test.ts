@@ -2,8 +2,10 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { removeTree } from '../src/server/fsRemove';
 import {
   FILE_LIMITS,
+  OPEN_PROVIDERS,
   SHARE_FILES_MAX,
   SHARE_FILES_MAX_BYTES,
   SHARE_FILE_MAX_BYTES,
@@ -12,6 +14,7 @@ import {
   SHARE_MAX_BYTES,
   type Conversation,
   type ConversationSummary,
+  type ProviderModels,
   type SettingsView,
   type ShareFileInfo,
   type TeamRevision,
@@ -37,6 +40,7 @@ const { attachmentsDir } = await import('../src/server/attachments');
 const { readZip } = await import('./zipReader');
 const { REVISER_BRIEFING } = await import('../src/server/planner');
 const { ShareError } = await import('../src/server/share');
+const { Updates } = await import('../src/server/updates');
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -57,7 +61,8 @@ beforeAll(() => {
   };
 });
 
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+// An open agent's home keeps its config read-only (the model lookups write one): taken apart as runs leave it.
+afterAll(() => removeTree(root, { restore: true }));
 
 beforeEach(() => {
   const db = openDatabase(':memory:');
@@ -212,29 +217,42 @@ describe('settings', () => {
 
     const provider = (body: unknown) => app.request('/api/settings/providers/claude', json('PUT', body));
     expect((await provider({ bin: 123 })).status).toBe(400);
-    expect((await provider({ defaultEffort: 'way too much effort' })).status).toBe(400);
-    expect((await provider({ defaultModel: 'sonnet', defaultEffort: 'low' })).status).toBe(200);
-    expect((await provider({ nativeOff: 'skills' })).status).toBe(400);
-    expect((await provider({ nativeOff: ['skills', 'rules'] })).status).toBe(400);
-    const off = await provider({ nativeOff: ['mcp', 'skills'] });
+    // Defaults and what runs leave out are each account's: named here, the whole request is refused.
+    for (const field of [{ defaultModel: 'sonnet' }, { defaultEffort: 'low' }, { nativeOff: [] }, { nativeItems: {} }]) {
+      expect((await provider({ bin: '/opt/claude-x', ...field })).status, JSON.stringify(field)).toBe(400);
+    }
+    const unchanged = (await (await app.request('/api/settings', { headers: HOST })).json()) as SettingsView;
+    expect(unchanged.providers.find((p) => p.provider === 'claude')!.bin).toBe('');
+
+    const account = (body: unknown) => app.request('/api/settings/providers/claude/accounts/default', json('PUT', body));
+    expect((await account({ defaultEffort: 'way too much effort' })).status).toBe(400);
+    expect((await account({ defaultModel: 7 })).status).toBe(400);
+    expect((await account({ defaultModel: 'sonnet', defaultEffort: 'low' })).status).toBe(200);
+    expect((await account({ nativeOff: 'skills' })).status).toBe(400);
+    expect((await account({ nativeOff: ['skills', 'rules'] })).status).toBe(400);
+    const off = await account({ nativeOff: ['mcp', 'skills'] });
     expect(off.status).toBe(200);
     const view = (await off.json()) as SettingsView;
-    expect(view.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['skills', 'mcp']);
-    const more = (await (await provider({ nativeOff: ['plugins', 'hooks', 'agents'] })).json()) as SettingsView;
-    expect(more.providers.find((p) => p.provider === 'claude')!.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
+    expect(view.providers.find((p) => p.provider === 'claude')!.accounts[0]).toMatchObject({
+      defaultModel: 'sonnet',
+      defaultEffort: 'low',
+      nativeOff: ['skills', 'mcp'],
+    });
+    const more = (await (await account({ nativeOff: ['plugins', 'hooks', 'agents'] })).json()) as SettingsView;
+    expect(more.providers.find((p) => p.provider === 'claude')!.accounts[0]!.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
 
     // Single items: lists of ids by known kind.
-    expect((await provider({ nativeItems: ['skills'] })).status).toBe(400);
-    expect((await provider({ nativeItems: null })).status).toBe(400);
-    expect((await provider({ nativeItems: { rules: ['x'] } })).status).toBe(400);
-    expect((await provider({ nativeItems: { skills: 'commit' } })).status).toBe(400);
-    expect((await provider({ nativeItems: { skills: [''] } })).status).toBe(400);
-    expect((await provider({ nativeItems: { skills: [7] } })).status).toBe(400);
-    expect((await provider({ nativeItems: { skills: ['x'.repeat(4097)] } })).status).toBe(400);
-    expect((await provider({ nativeItems: { skills: Array.from({ length: 2001 }, (_, i) => `s${i}`) } })).status).toBe(400);
-    const items = await provider({ nativeItems: { skills: ['commit'], mcpTools: ['mcp__local__fetch'], hooks: ['h1'] } });
+    expect((await account({ nativeItems: ['skills'] })).status).toBe(400);
+    expect((await account({ nativeItems: null })).status).toBe(400);
+    expect((await account({ nativeItems: { rules: ['x'] } })).status).toBe(400);
+    expect((await account({ nativeItems: { skills: 'commit' } })).status).toBe(400);
+    expect((await account({ nativeItems: { skills: [''] } })).status).toBe(400);
+    expect((await account({ nativeItems: { skills: [7] } })).status).toBe(400);
+    expect((await account({ nativeItems: { skills: ['x'.repeat(4097)] } })).status).toBe(400);
+    expect((await account({ nativeItems: { skills: Array.from({ length: 2001 }, (_, i) => `s${i}`) } })).status).toBe(400);
+    const items = await account({ nativeItems: { skills: ['commit'], mcpTools: ['mcp__local__fetch'], hooks: ['h1'] } });
     expect(items.status).toBe(200);
-    const withItems = ((await items.json()) as SettingsView).providers.find((p) => p.provider === 'claude')!;
+    const withItems = ((await items.json()) as SettingsView).providers.find((p) => p.provider === 'claude')!.accounts[0]!;
     expect(withItems.nativeItems).toEqual({ skills: ['commit'], mcpTools: ['mcp__local__fetch'] });
     expect(withItems.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
 
@@ -247,6 +265,8 @@ describe('settings', () => {
     expect(((await on.json()) as SettingsView).providers.find((p) => p.provider === 'openhands')).toMatchObject({ sandboxTerminal: true, apiKeyMasked: '' });
     const offAgain = (await (await openhands({ sandboxTerminal: false })).json()) as SettingsView;
     expect(offAgain.providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(false);
+    // Back as they were, for the tests after this one.
+    expect((await account({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} })).status).toBe(200);
   });
 
   it("sets the CLIs' own folder: created when missing, never the home folder itself", async () => {
@@ -358,13 +378,13 @@ describe('settings', () => {
     const hub = new Hub();
     const providers = new ProviderService(settings);
     const invalidate = vi.spyOn(providers, 'invalidate');
-    const cancelLogin = vi.spyOn(providers, 'cancelLogin');
+    const cancelLogins = vi.spyOn(providers, 'cancelLogins');
     const app = createApp({ auth: null, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers });
     const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
     const home = join(project, 'homes');
     expect((await put({ agentHome: home })).status).toBe(200);
     expect(invalidate).toHaveBeenCalledTimes(1);
-    expect(cancelLogin.mock.calls.map((c) => c[0])).toEqual(['claude', 'codex', 'grok', 'opencode', 'goose', 'cline', 'openhands', 'pi']);
+    expect(cancelLogins).toHaveBeenCalledTimes(1);
     // The same folder spelled another way changes nothing.
     expect((await put({ agentHome: `${home}/` })).status).toBe(200);
     expect(invalidate).toHaveBeenCalledTimes(1);
@@ -470,6 +490,220 @@ describe('settings', () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as Conversation).settings.cwd).toBe(dir);
     expect(statSync(dir).isDirectory()).toBe(true);
+  });
+});
+
+describe('accounts', () => {
+  /** An app of its own, with the CLIs' own folder in the test's folder and the CLIs kept out of it. */
+  function accountsApp() {
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    settings.setAgentHome(join(root, `agents-${++n}`));
+    const s = new Store(db);
+    const hub = new Hub();
+    const providers = new ProviderService(settings);
+    const logout = vi.spyOn(providers, 'logout').mockResolvedValue('');
+    const logoutIn = vi.spyOn(providers, 'logoutIn').mockResolvedValue('');
+    const codexKey = vi.spyOn(providers, 'codexApiKeyLogin').mockResolvedValue('');
+    const orch = new Orchestrator(s, hub, settings);
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: orch, providers });
+    const call = (method: string, path: string, body: unknown = {}) => local.request(path, json(method, body, { 'x-relay-lang': 'en' }));
+    const read = (path: string) => local.request(path, { headers: HOST });
+    return { settings, providers, logout, logoutIn, codexKey, orch, call, read, store: s };
+  }
+
+  it('adds, names and lists accounts of a CLI, the default one first', async () => {
+    const { call } = accountsApp();
+    const add = await call('POST', '/api/settings/providers/codex/accounts', { label: ' Work ' });
+    expect(add.status).toBe(200);
+    const { id, settings: view } = (await add.json()) as { id: string; settings: SettingsView };
+    const codex = view.providers.find((p) => p.provider === 'codex')!;
+    expect(codex.accounts.map((a) => [a.id, a.label])).toEqual([['', ''], [id, 'Work']]);
+    expect(codex.accounts[1]!.home).toMatch(new RegExp(`codex-${id}$`));
+
+    const renamed = (await (await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { label: 'Personal' })).json()) as SettingsView;
+    expect(renamed.providers.find((p) => p.provider === 'codex')!.accounts[1]!.label).toBe('Personal');
+    const def = (await (await call('PUT', '/api/settings/providers/codex/accounts/default', { label: 'Company' })).json()) as SettingsView;
+    expect(def.providers.find((p) => p.provider === 'codex')!.accounts[0]!.label).toBe('Company');
+
+    // Names on one line, of a sensible length; accounts the CLI has.
+    expect((await call('POST', '/api/settings/providers/codex/accounts', { label: 'a\nb' })).status).toBe(400);
+    expect((await call('POST', '/api/settings/providers/codex/accounts', { label: 'x'.repeat(41) })).status).toBe(400);
+    expect((await call('POST', '/api/settings/providers/codex/accounts', { label: 7 })).status).toBe(400);
+    expect((await call('PUT', '/api/settings/providers/claude/accounts/' + id, { label: 'x' })).status).toBe(404);
+    expect((await call('PUT', '/api/settings/providers/nope/accounts/default', { label: 'x' })).status).toBe(404);
+  });
+
+  it("keeps each account's defaults and what its runs leave out apart, without asking the CLIs again", async () => {
+    const { call, settings, providers } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    const invalidate = vi.spyOn(providers, 'invalidate');
+    const res = await call('PUT', `/api/settings/providers/claude/accounts/${id}`, {
+      defaultModel: 'sonnet',
+      defaultEffort: 'high',
+      nativeOff: ['hooks'],
+      nativeItems: { skills: ['commit'] },
+    });
+    expect(res.status).toBe(200);
+    const accounts = ((await res.json()) as SettingsView).providers.find((p) => p.provider === 'claude')!.accounts;
+    expect(accounts.map((a) => [a.id, a.defaultModel, a.defaultEffort, a.nativeOff, a.nativeItems])).toEqual([
+      ['', '', '', [], {}],
+      [id, 'sonnet', 'high', ['hooks'], { skills: ['commit'] }],
+    ]);
+    expect([settings.defaultModel('claude'), settings.defaultModel('claude', id)]).toEqual(['', 'sonnet']);
+    // The models are layered with each account's defaults at every request: nothing to ask again.
+    expect(invalidate).not.toHaveBeenCalled();
+    expect((await call('PUT', `/api/settings/providers/claude/accounts/${id}`, { defaultEffort: 'not an effort!' })).status).toBe(400);
+    expect((await call('PUT', '/api/settings/providers/claude/accounts/nope', { defaultModel: 'opus' })).status).toBe(404);
+    // Its name is in the status: that is checked again.
+    await call('PUT', `/api/settings/providers/claude/accounts/${id}`, { label: 'Office' });
+    expect(invalidate).toHaveBeenCalledWith('claude');
+  });
+
+  it('signs a Codex account in with its key and saves its defaults in the same request', async () => {
+    const { call, settings, codexKey } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/codex/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    const res = await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { apiKey: 'sk-codex-work', defaultModel: 'gpt-b', nativeOff: ['hooks'] });
+    expect(res.status).toBe(200);
+    expect(codexKey).toHaveBeenCalledWith('sk-codex-work', id);
+    expect([settings.defaultModel('codex', id), settings.nativeOff('codex', id), settings.hasStoredApiKey('codex', id)]).toEqual(['gpt-b', ['hooks'], false]);
+    // A sign-in that fails saves nothing.
+    codexKey.mockRejectedValueOnce(new Error('bad key'));
+    expect((await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { apiKey: 'sk-bad', defaultModel: 'gpt-c' })).status).toBe(500);
+    expect(settings.defaultModel('codex', id)).toBe('gpt-b');
+  });
+
+  it("lists every account's models over HTTP, each with its own defaults", async () => {
+    const { call, read, settings } = accountsApp();
+    // Not installed: no CLI runs (Claude Code's models are read from its settings file).
+    settings.update('codex', { bin: join(root, 'no-such-codex') });
+    settings.update('grok', { bin: join(root, 'no-such-grok') });
+    for (const p of OPEN_PROVIDERS) settings.update(p, { bin: join(root, `no-such-${p}`) });
+    const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    await call('PUT', `/api/settings/providers/claude/accounts/${id}`, { defaultModel: 'sonnet' });
+    await call('PUT', '/api/settings/providers/claude/accounts/default', { defaultModel: 'opus' });
+    const models = (await (await read('/api/models')).json()) as ProviderModels[];
+    expect(models.map((m) => [m.provider, m.account ?? '', m.defaultModel])).toEqual([
+      ['claude', '', 'opus'],
+      ['claude', id, 'sonnet'],
+      ['codex', '', undefined],
+      ['grok', '', undefined],
+      // The open agents have their default account only.
+      ...OPEN_PROVIDERS.map((p) => [p, '', undefined]),
+    ]);
+    // And no other: they have no sign-in.
+    expect((await call('POST', '/api/settings/providers/opencode/accounts', { label: 'Work' })).status).toBe(400);
+  });
+
+  it('allows up to ten accounts per CLI, the default one included', async () => {
+    const { call } = accountsApp();
+    for (let i = 0; i < 9; i++) expect((await call('POST', '/api/settings/providers/grok/accounts', { label: `A${i}` })).status).toBe(200);
+    const more = await call('POST', '/api/settings/providers/grok/accounts', { label: 'One more' });
+    expect(more.status).toBe(409);
+    expect((await more.json()).error).toMatch(/up to 10 accounts/);
+    expect((await call('POST', '/api/settings/providers/claude/accounts', { label: 'Other CLI' })).status).toBe(200);
+  });
+
+  it("keeps each account's key: Claude Code's and Grok's in Harness Relay, Codex's by signing it in", async () => {
+    const { call, codexKey, settings } = accountsApp();
+    const claude = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    const codex = ((await (await call('POST', '/api/settings/providers/codex/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    const view = (await (await call('PUT', `/api/settings/providers/claude/accounts/${claude}`, { apiKey: 'sk-ant-work-98765' })).json()) as SettingsView;
+    // Shorter than 20 characters: nothing of it shows (`maskSecret`).
+    expect(view.providers[0]!.accounts[1]!.apiKeyMasked).toBe('••••');
+    expect(view.providers[0]!.apiKeyMasked).toBe(''); // the default account's is its own
+    expect(settings.env('claude', claude).ANTHROPIC_API_KEY).toBe('sk-ant-work-98765');
+    await call('PUT', `/api/settings/providers/codex/accounts/${codex}`, { apiKey: 'sk-codex-key' });
+    expect(codexKey).toHaveBeenCalledWith('sk-codex-key', codex);
+    await call('PUT', '/api/settings/providers/codex/accounts/default', { apiKey: 'sk-codex-default' });
+    expect(codexKey).toHaveBeenLastCalledWith('sk-codex-default', '');
+    expect(settings.hasStoredApiKey('codex', codex)).toBe(false);
+    const removed = (await (await call('PUT', `/api/settings/providers/claude/accounts/${claude}`, { apiKey: null })).json()) as SettingsView;
+    expect(removed.providers[0]!.accounts[1]!.apiKeyMasked).toBe('');
+  });
+
+  it('signs each account in and out on its own, and refuses accounts the CLI does not have', async () => {
+    const { call, read, providers, logout } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    const start = vi.spyOn(providers, 'startLogin').mockImplementation((p, method, account = '') => ({
+      id: 'l1', provider: p, account, method: method ?? '', state: 'running', startedAt: 1, output: '', urls: [], codes: [], wantsInput: false,
+    }));
+    const started = await call('POST', `/api/providers/claude/login?account=${id}`, { method: 'claudeai' });
+    expect(await started.json()).toMatchObject({ account: id, method: 'claudeai' });
+    expect(start).toHaveBeenCalledWith('claude', 'claudeai', id);
+    await call('POST', '/api/providers/claude/login', { method: 'console' });
+    expect(start).toHaveBeenLastCalledWith('claude', 'console', '');
+    await call('POST', `/api/providers/claude/logout?account=${id}`);
+    expect(logout).toHaveBeenCalledWith('claude', id);
+    expect(await (await read(`/api/providers/claude/login?account=${id}`)).json()).toBeNull();
+
+    for (const res of [
+      await call('POST', '/api/providers/claude/login?account=missing1', { method: 'claudeai' }),
+      await call('POST', '/api/providers/codex/logout?account=' + id),
+      await call('POST', '/api/providers/claude/login/input?account=missing1', { text: 'x' }),
+      await call('DELETE', '/api/providers/claude/login?account=missing1'),
+    ]) {
+      expect(res.status).toBe(404);
+      expect((await res.json()).error).toMatch(/has no account/);
+    }
+  });
+
+  it('removes an account: signs it out, deletes its folder, and its agents use the default account', async () => {
+    const { call, settings, logoutIn } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/grok/accounts', { label: 'Team' })).json()) as { id: string }).id;
+    const home = settings.env('grok', id).GROK_HOME!;
+    writeFileSync(join(home, 'auth.json'), '{}');
+    settings.setLead({ provider: 'grok', account: id });
+    // While the CLI signs out (up to 15 s), a turn that starts runs as the default account, not in the
+    // folder about to be deleted; the sign-out itself is the account's, never the default one's.
+    const during: { known: boolean; turnHome?: string }[] = [];
+    logoutIn.mockImplementation(async () => {
+      during.push({ known: settings.hasAccount('grok', id), turnHome: settings.env('grok', id).GROK_HOME });
+      return '';
+    });
+
+    expect((await call('DELETE', '/api/settings/providers/grok/accounts/default')).status).toBe(400);
+    const res = await call('DELETE', `/api/settings/providers/grok/accounts/${id}`);
+    expect(res.status).toBe(200);
+    expect(logoutIn).toHaveBeenCalledWith('grok', expect.objectContaining({ GROK_HOME: home }), 15_000);
+    expect(during).toEqual([{ known: false, turnHome: settings.agentHomeFor('grok') }]);
+    expect(existsSync(home)).toBe(false);
+    const view = (await res.json()) as SettingsView;
+    expect(view.providers.find((p) => p.provider === 'grok')!.accounts.map((a) => a.id)).toEqual(['']);
+    expect(view.lead).toEqual({ provider: 'grok' });
+    expect(settings.env('grok', id).GROK_HOME).toBe(settings.agentHomeFor('grok'));
+    expect((await call('DELETE', `/api/settings/providers/grok/accounts/${id}`)).status).toBe(404);
+  });
+
+  it('refuses to remove an account while a conversation runs', async () => {
+    const { call, orch } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    vi.spyOn(orch, 'anyRunning').mockReturnValue(true);
+    const busy = await call('DELETE', `/api/settings/providers/claude/accounts/${id}`);
+    expect(busy.status).toBe(409);
+    expect((await busy.json()).error).toMatch(/before removing an account/);
+  });
+
+  it("keeps each member's account and the lead agent's, dropping anything that is not an account id", async () => {
+    const { call, store: s } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/codex/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    const res = await call('POST', '/api/conversations', {
+      agents: [
+        { name: 'Ann', provider: 'codex', role: '', account: id },
+        { name: 'Bob', provider: 'codex', role: '', account: '../evil' },
+        { name: 'Cy', provider: 'codex', role: '' },
+      ],
+      settings: { mode: 'roundtable', permission: 'read-only', cwd: project },
+    });
+    const conv = (await res.json()) as Conversation;
+    expect(conv.agents.map((a) => a.account)).toEqual([id, undefined, undefined]);
+    expect(s.get(conv.id)!.agents[0]!.account).toBe(id);
+
+    const lead = (await (await call('PUT', '/api/settings', { lead: { provider: 'codex', account: id } })).json()) as SettingsView;
+    expect(lead.lead).toEqual({ provider: 'codex', account: id });
+    // One the CLI does not have is the default account.
+    const other = (await (await call('PUT', '/api/settings', { lead: { provider: 'claude', account: id } })).json()) as SettingsView;
+    expect(other.lead).toEqual({ provider: 'claude' });
   });
 });
 
@@ -980,6 +1214,130 @@ describe('sidebar groups', () => {
   });
 });
 
+describe('GET /api/about', () => {
+  it('says which Harness Relay this is and on what, for a problem report', async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const own = createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      desktopApp: true,
+      version: async () => '2026-11-10',
+    });
+    const res = await own.request('/api/about', { headers: HOST });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ version: '2026-11-10', desktop: true, os: expect.any(String), node: process.version });
+  });
+});
+
+describe('/api/update', () => {
+  it("gives this version and what the desktop app says of its updates, and passes the chat's asks on to it", async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const sent: unknown[] = [];
+    let say: (u: { updates: boolean; available?: { version: string; page: string }; checkedAt?: number }) => void = () => {};
+    const updates = new Updates({ send: (m) => sent.push(m), onUpdate: (fn) => (say = fn) }, async () => '2026-11-11');
+    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), updates });
+    const get = async () => (await own.request('/api/update', { headers: HOST })).json();
+
+    expect(await get()).toEqual({ updates: false, current: '2026-11-11' });
+    // Nothing to update to yet: said so.
+    const none = await own.request('/api/update/install', json('POST', {}));
+    expect(none.status).toBe(409);
+    const noneText = ((await none.json()) as { error: string }).error;
+    expect(noneText).toMatch(/no newer version|沒有可以更新的新版本/);
+
+    say({ updates: true });
+    const checked = own.request('/api/update/check', json('POST', {}));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toEqual([{ type: 'update-check', id: 1 }]);
+    const available = { version: '2026-11-12', page: 'https://github.com/x/y/releases/tag/2026-11-12' };
+    say({ updates: true, available, checkedAt: 7, answered: [1] } as Parameters<typeof say>[0]);
+    expect(await (await checked).json()).toEqual({ updates: true, available, checkedAt: 7, current: '2026-11-11' });
+
+    const res = await own.request('/api/update/install', json('POST', {}));
+    expect(res.status).toBe(200);
+    expect(sent).toEqual([{ type: 'update-check', id: 1 }, { type: 'update-install' }]);
+
+    // Under way: said so, not that there is nothing to update to.
+    say({ updates: true, available, progress: { kind: 'installing' } } as Parameters<typeof say>[0]);
+    const busy = await own.request('/api/update/install', json('POST', {}));
+    expect(busy.status).toBe(409);
+    const busyText = ((await busy.json()) as { error: string }).error;
+    expect(busyText).toMatch(/under way|進行中/);
+    expect(busyText).not.toBe(noneText);
+  });
+});
+
+describe('/api/report/screenshots', () => {
+  const ID = 'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff';
+  // A PNG whole enough to be read through: signature, then IEND (length, type, CRC).
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]).toString('base64');
+  type Upload = { name: string; data: Buffer };
+  function shotsApp(gists: { upload?: (files: Upload[]) => Promise<{ id: string; url: string }>; remove?: (id: string) => Promise<void> }) {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const never = async () => {
+      throw new Error('should not be called');
+    };
+    return createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      screenshotGists: { upload: gists.upload ?? never, remove: gists.remove ?? never },
+    });
+  }
+
+  it('uploads the screenshots as named by their place, and deletes only an upload made here', async () => {
+    const uploads: Upload[][] = [];
+    const removed: string[] = [];
+    const own = shotsApp({
+      upload: async (files) => {
+        uploads.push(files);
+        return { id: ID, url: `https://gist.github.com/someone/${ID}` };
+      },
+      remove: async (id) => {
+        removed.push(id);
+      },
+    });
+    // None made here yet.
+    expect((await own.request(`/api/report/screenshots/${ID}`, json('DELETE', {}))).status).toBe(404);
+
+    const res = await own.request('/api/report/screenshots', json('POST', { files: [{ data: PNG }, { data: PNG }] }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: ID, url: `https://gist.github.com/someone/${ID}` });
+    expect(uploads.map((files) => files.map((f) => f.name))).toEqual([['screenshot-1.png', 'screenshot-2.png']]);
+
+    const del = await own.request(`/api/report/screenshots/${ID}`, json('DELETE', {}));
+    expect(del.status).toBe(200);
+    expect(removed).toEqual([ID]);
+    // Once only.
+    expect((await own.request(`/api/report/screenshots/${ID}`, json('DELETE', {}))).status).toBe(404);
+  });
+
+  it('refuses what is not a screenshot before anything goes up', async () => {
+    const own = shotsApp({});
+    const res = await own.request('/api/report/screenshots', json('POST', { files: [{ data: Buffer.from('<svg/>').toString('base64') }] }));
+    expect(res.status).toBe(400);
+    expect((await own.request('/api/report/screenshots', json('POST', {}))).status).toBe(400);
+  });
+
+  it("passes on gh's trouble with its code, for the dialog to say what to do", async () => {
+    const own = shotsApp({
+      upload: async () => {
+        throw new ShareError('gh is missing', 'gh-missing');
+      },
+    });
+    const res = await own.request('/api/report/screenshots', json('POST', { files: [{ data: PNG }] }));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'gh is missing', code: 'gh-missing' });
+  });
+});
+
 describe('GET /api/search', () => {
   it('finds conversations by title and by what was written in them', async () => {
     const conv = await createConversation();
@@ -1264,7 +1622,7 @@ describe('browsing files', () => {
 
 describe("what each CLI loads by itself", () => {
   it('asks the CLI for the default working directory, only from the app itself', async () => {
-    const asked: [string, string, boolean][] = [];
+    const asked: ([string, string, boolean] | [string, string, boolean, string])[] = [];
     const reported: { path: string; kind: 'instructions' }[] = [];
     const answer = (provider: string, cwd: string) => ({
       provider,
@@ -1276,13 +1634,17 @@ describe("what each CLI loads by itself", () => {
       problems: [{ kind: 'timeout' }],
       checkedAt: 1,
     });
+    const looked: (string | undefined)[] = [];
     const native = {
-      get: async (provider: string, cwd: string, refresh = false) => {
-        asked.push([provider, cwd, refresh]);
+      get: async (provider: string, cwd: string, refresh = false, account?: string) => {
+        asked.push(account === undefined ? [provider, cwd, refresh] : [provider, cwd, refresh, account]);
         return answer(provider, cwd);
       },
       // Opening a reported file checks the latest answer and does not start the CLI.
-      latest: async (provider: string, cwd: string) => answer(provider, cwd),
+      latest: async (provider: string, cwd: string, account?: string) => {
+        looked.push(account);
+        return answer(provider, cwd);
+      },
     } as unknown as InstanceType<typeof NativeSetupService>;
     const db = openDatabase(':memory:');
     const settings = new SettingsStore(db);
@@ -1310,6 +1672,17 @@ describe("what each CLI loads by itself", () => {
       ['grok', project, true],
     ]);
     expect((await call('/api/providers/gemini/native')).status).toBe(404);
+    // Another account: asked in its home, with what its runs leave out; one the CLI does not have is refused.
+    const work = settings.addAccount('claude', 'Work');
+    await call(`/api/providers/claude/native?account=${work}`, { refresh: true });
+    await call('/api/providers/claude/native?account=default');
+    expect(asked.slice(2)).toEqual([
+      ['claude', project, true, work],
+      ['claude', project, false],
+    ]);
+    expect((await call('/api/providers/claude/native?account=nope')).status).toBe(404);
+    expect((await call(`/api/providers/codex/native?account=${work}`)).status).toBe(404);
+    asked.length = 2;
 
     // Reading a reported file, and nothing else.
     const notes = join(project, 'CLAUDE.md');
@@ -1320,6 +1693,11 @@ describe("what each CLI loads by itself", () => {
     for (const path of [join(project, 'other.md'), '/etc/passwd', `${project}/../${project.split('/').pop()}/CLAUDE.md`, '']) {
       expect((await call('/api/providers/claude/native/file', { path })).status, path).toBe(404);
     }
+    // Of the account whose answer listed it.
+    expect((await call(`/api/providers/claude/native/file?account=${work}`, { path: notes })).status).toBe(200);
+    expect((await call('/api/providers/claude/native/file?account=nope', { path: notes })).status).toBe(404);
+    expect(looked.at(-1)).toBe(work);
+    expect(looked.slice(0, -1).every((a) => a === undefined)).toBe(true);
     rmSync(notes);
     expect((await call('/api/providers/claude/native/file', { path: notes })).status).toBe(404);
     expect(asked).toHaveLength(2);
@@ -1415,6 +1793,75 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
       else process.env.GROK_HOME = saved.home;
       if (saved.refuse === undefined) delete process.env.FAKE_GROK_REFUSE;
       else process.env.FAKE_GROK_REFUSE = saved.refuse;
+    }
+  });
+
+  it("trusts the folder for every Grok account, each in its own folder, and undoes it for all when Grok does not take it", async () => {
+    const fakeGrok = join(root, `fake-grok-${++n}`);
+    writeFileSync(fakeGrok, FAKE_GROK, { mode: 0o755 });
+    const saved = process.env.FAKE_GROK_REFUSE;
+    delete process.env.FAKE_GROK_REFUSE;
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    settings.setDefaultCwd(project);
+    settings.setAgentHome(join(root, `agents-${n}`));
+    const work = settings.addAccount('grok', 'Work');
+    const s = new Store(db);
+    const hub = new Hub();
+    const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const stores = [settings.env('grok').GROK_HOME!, settings.env('grok', work).GROK_HOME!].map((h) => join(h, 'trusted_folders.toml'));
+    try {
+      process.env.FAKE_GROK_REFUSE = '1';
+      expect((await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }))).status).toBe(409);
+      for (const f of stores) expect(existsSync(f)).toBe(false);
+      delete process.env.FAKE_GROK_REFUSE;
+      const res = await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }));
+      expect(await res.json()).toMatchObject({ folder: project, trusted: true });
+      for (const f of stores) expect(readFileSync(f, 'utf8')).toContain(`[folders."${project}"]`);
+    } finally {
+      if (saved === undefined) delete process.env.FAKE_GROK_REFUSE;
+      else process.env.FAKE_GROK_REFUSE = saved;
+    }
+  });
+
+  it("records trust for all Grok accounts or none, and gives an account added later the default account's trust", async () => {
+    const fakeGrok = join(root, `fake-grok-${++n}`);
+    writeFileSync(fakeGrok, FAKE_GROK, { mode: 0o755 });
+    const saved = process.env.FAKE_GROK_REFUSE;
+    delete process.env.FAKE_GROK_REFUSE;
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    settings.setDefaultCwd(project);
+    settings.setAgentHome(join(root, `agents-${n}`));
+    const broken = settings.addAccount('grok', 'Broken');
+    const s = new Store(db);
+    const hub = new Hub();
+    const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const store = (id = '') => join(settings.env('grok', id).GROK_HOME!, 'trusted_folders.toml');
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // The second account's store cannot be written: the default account's entry is put back too.
+      mkdirSync(store(broken));
+      const failed = await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }));
+      expect(failed.status).toBe(500);
+      expect(existsSync(store())).toBe(false);
+      rmSync(store(broken), { recursive: true });
+
+      expect(await (await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }))).json()).toMatchObject({ trusted: true });
+      // A Grok account added now trusts what the default account trusts.
+      const added = await local.request('/api/settings/providers/grok/accounts', json('POST', { label: 'Later' }));
+      const { id } = (await added.json()) as { id: string };
+      expect(readFileSync(store(id), 'utf8')).toBe(readFileSync(store(), 'utf8'));
+      expect(statSync(store(id)).mode & 0o777).toBe(0o600);
+      // Another CLI's account gets nothing of Grok's.
+      const claude = (await (await local.request('/api/settings/providers/claude/accounts', json('POST', { label: 'C' }))).json()) as { id: string };
+      expect(existsSync(join(settings.env('claude', claude.id).CLAUDE_CONFIG_DIR!, 'trusted_folders.toml'))).toBe(false);
+    } finally {
+      warn.mockRestore();
+      if (saved === undefined) delete process.env.FAKE_GROK_REFUSE;
+      else process.env.FAKE_GROK_REFUSE = saved;
     }
   });
 

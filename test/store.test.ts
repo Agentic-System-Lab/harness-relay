@@ -143,7 +143,11 @@ describe('Store (SQLite)', () => {
     db.exec(`ALTER TABLE conversations DROP COLUMN auto_confirm;
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE auth_sessions; DROP TABLE auth_codes; DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
+             ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
+             ALTER TABLE agent_sessions DROP COLUMN account;
+             DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
              PRAGMA user_version = 12;`);
     const migrated = new Store(reopen());
     expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
@@ -613,7 +617,11 @@ describe('Store shares', () => {
     // Shares from before schema version 16 took no files along.
     db.exec(`ALTER TABLE shares DROP COLUMN files; ALTER TABLE shares DROP COLUMN files_gist; ALTER TABLE shares DROP COLUMN unfinished;
              ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE auth_sessions; DROP TABLE auth_codes; DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
+             ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
+             ALTER TABLE agent_sessions DROP COLUMN account;
+             DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
              PRAGMA user_version = 15;`);
     const migrated = new Store(reopen());
     expect(migrated.getShare('aaaa')).toEqual(share('aaaa', 1));
@@ -748,7 +756,8 @@ describe('Store write errors', () => {
 describe('SettingsStore (SQLite)', () => {
   it('persists provider settings and keeps the database private', () => {
     const s = new SettingsStore(db);
-    s.update('grok', { apiKey: 'xai-1234567890', defaultModel: 'grok-4.7', defaultEffort: 'high', bin: '/opt/grok' });
+    s.update('grok', { apiKey: 'xai-1234567890', bin: '/opt/grok' });
+    s.updateAccount('grok', '', { defaultModel: 'grok-4.7', defaultEffort: 'high' });
     s.setDefaultCwd('/work');
 
     const again = new SettingsStore(reopen());
@@ -821,22 +830,22 @@ describe('SettingsStore (SQLite)', () => {
 
   it("keeps what each CLI's runs leave out, only what that CLI can leave out", () => {
     const s = new SettingsStore(db);
-    s.update('grok', { nativeOff: ['instructions', 'mcp', 'skills', 'mcp'] });
-    s.update('claude', { nativeOff: ['memory', 'instructions'] });
+    s.updateAccount('grok', '', { nativeOff: ['instructions', 'mcp', 'skills', 'mcp'] });
+    s.updateAccount('claude', '', { nativeOff: ['memory', 'instructions'] });
 
     const again = new SettingsStore(reopen());
     expect(again.nativeOff('grok')).toEqual(['skills', 'mcp']); // Grok cannot leave out instruction files
     expect(again.nativeOff('claude')).toEqual(['instructions', 'memory']);
     expect(again.nativeOff('codex')).toEqual([]);
-    expect(again.view().providers.find((p) => p.provider === 'grok')!.nativeOff).toEqual(['skills', 'mcp']);
-    again.update('claude', { nativeOff: [] });
+    expect(again.view().providers.find((p) => p.provider === 'grok')!.accounts[0]!.nativeOff).toEqual(['skills', 'mcp']);
+    again.updateAccount('claude', '', { nativeOff: [] });
     const cleared = new SettingsStore(reopen());
     expect(cleared.nativeOff('claude')).toEqual([]);
 
     // Hooks, subagents and plugins: Claude Code all three, Codex no subagents, Grok only hooks.
-    cleared.update('claude', { nativeOff: ['plugins', 'agents', 'hooks'] });
-    cleared.update('codex', { nativeOff: ['plugins', 'agents', 'hooks'] });
-    cleared.update('grok', { nativeOff: ['plugins', 'agents', 'hooks', 'skills'] });
+    cleared.updateAccount('claude', '', { nativeOff: ['plugins', 'agents', 'hooks'] });
+    cleared.updateAccount('codex', '', { nativeOff: ['plugins', 'agents', 'hooks'] });
+    cleared.updateAccount('grok', '', { nativeOff: ['plugins', 'agents', 'hooks', 'skills'] });
     const later = new SettingsStore(reopen());
     expect(later.nativeOff('claude')).toEqual(['hooks', 'agents', 'plugins']);
     expect(later.nativeOff('codex')).toEqual(['hooks', 'plugins']);
@@ -854,7 +863,7 @@ describe('SettingsStore (SQLite)', () => {
     expect(again.sandboxTerminal('opencode')).toBe(false);
     expect(again.view().providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(true);
     // Other changes keep it; turning it off is kept too.
-    again.update('openhands', { defaultModel: 'openai/gpt-5.4-nano' });
+    again.updateAccount('openhands', '', { defaultModel: 'openai/gpt-5.4-nano' });
     const later = new SettingsStore(reopen());
     expect(later.sandboxTerminal('openhands')).toBe(true);
     later.update('openhands', { sandboxTerminal: false });
@@ -864,24 +873,25 @@ describe('SettingsStore (SQLite)', () => {
   it("keeps the single items each CLI's runs leave out, only kinds that CLI can leave out alone", () => {
     const s = new SettingsStore(db);
     expect(s.nativeItems('claude')).toEqual({});
-    s.update('claude', { nativeItems: { skills: ['commit', 'commit'], tools: ['WebSearch'], hooks: ['h1'], instructions: [] } });
-    s.update('codex', { nativeItems: { hooks: ['h1'], tools: ['Bash'], mcpTools: ['["node","js"]'] } });
-    s.update('grok', { nativeItems: { skills: ['x'] } });
+    s.updateAccount('claude', '', { nativeItems: { skills: ['commit', 'commit'], tools: ['WebSearch'], hooks: ['h1'], instructions: [] } });
+    s.updateAccount('codex', '', { nativeItems: { hooks: ['h1'], tools: ['Bash'], mcpTools: ['["node","js"]'] } });
+    s.updateAccount('grok', '', { nativeItems: { skills: ['x'] } });
 
     const again = new SettingsStore(reopen());
     // Claude Code cannot leave out one hook, Codex lists no built-in tools, Grok can leave out no single item.
     expect(again.nativeItems('claude')).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
     expect(again.nativeItems('codex')).toEqual({ mcpTools: ['["node","js"]'], hooks: ['h1'] });
     expect(again.nativeItems('grok')).toEqual({});
-    expect(again.view().providers.find((p) => p.provider === 'claude')!.nativeItems).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
+    expect(again.view().providers.find((p) => p.provider === 'claude')!.accounts[0]!.nativeItems).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
     // A copy: changing it changes nothing stored.
     again.nativeItems('claude').skills!.push('other');
     expect(again.nativeItems('claude').skills).toEqual(['commit']);
     // Other updates keep them; an empty object clears them.
-    again.update('claude', { defaultModel: 'opus' });
+    again.updateAccount('claude', '', { defaultModel: 'opus' });
+    again.update('claude', { bin: '/opt/claude' });
     const kept = new SettingsStore(reopen());
     expect(kept.nativeItems('claude')).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
-    kept.update('claude', { nativeItems: {} });
+    kept.updateAccount('claude', '', { nativeItems: {} });
     expect(new SettingsStore(reopen()).nativeItems('claude')).toEqual({});
   });
 
@@ -941,6 +951,238 @@ describe('SettingsStore (SQLite)', () => {
     expect(s.env('claude').ANTHROPIC_API_KEY).toBe(process.env.ANTHROPIC_API_KEY);
     s.update('grok', { apiKey: null }); // removing still works, and clears the database copy
     expect(storedKeys()).toEqual(['']);
+  });
+});
+
+describe('SettingsStore accounts', () => {
+  it("gives each account besides a CLI's default one its own home and its own key, and keeps them", () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-from-the-shell');
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '/users/me/.claude');
+    try {
+      const s = new SettingsStore(db);
+      const home = join(dir, 'agents');
+      s.setAgentHome(home);
+      const work = s.addAccount('claude', '  Work  ');
+      const alt = s.addAccount('claude', 'Alt');
+      const second = s.addAccount('codex', 'Second');
+      expect(work).toMatch(/^[0-9a-f]{8}$/);
+      expect(new Set([work, alt, second]).size).toBe(3);
+      s.updateAccount('claude', work, { apiKey: 'sk-ant-work-123456' });
+      s.updateAccount('claude', '', { label: 'Personal' });
+
+      const again = new SettingsStore(reopen());
+      expect(again.accountIds('claude')).toEqual([work, alt]);
+      expect(again.accountIds('codex')).toEqual([second]);
+      expect(again.accountLabel('claude', work)).toBe('Work');
+      expect(again.accountLabel('claude')).toBe('Personal');
+      // Each account in a folder of its own; the default account as before.
+      expect(again.env('claude').CLAUDE_CONFIG_DIR).toBe(join(home, 'claude'));
+      expect(again.env('claude', work).CLAUDE_CONFIG_DIR).toBe(join(home, `claude-${work}`));
+      expect(again.env('codex', second).CODEX_HOME).toBe(join(home, `codex-${second}`));
+      expect(statSync(join(home, `codex-${second}`)).isDirectory()).toBe(true);
+      // Its own key only: the key the server was started with is the default account's.
+      expect(again.env('claude', work).ANTHROPIC_API_KEY).toBe('sk-ant-work-123456');
+      expect(again.env('claude', alt).ANTHROPIC_API_KEY).toBeUndefined();
+      expect(again.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-from-the-shell');
+      expect(again.hasStoredApiKey('claude', work)).toBe(true);
+      expect(again.hasStoredApiKey('claude', alt)).toBe(false);
+      // An account another CLI has, or none it knows, is the default account.
+      expect(again.resolveAccount('codex', work)).toBe('');
+      expect(again.env('codex', work).CODEX_HOME).toBe(join(home, 'codex'));
+      expect(again.accountHomes()).toEqual([join(home, `claude-${work}`), join(home, `claude-${alt}`), join(home, `codex-${second}`)]);
+
+      const claude = again.view().providers.find((p) => p.provider === 'claude')!;
+      const run = { defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} };
+      expect(claude.accounts).toEqual([
+        { id: '', label: 'Personal', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, 'claude'), ...run },
+        { id: work, label: 'Work', apiKeyMasked: '••••', apiKeyStorage: 'database', home: join(home, `claude-${work}`), ...run },
+        { id: alt, label: 'Alt', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, `claude-${alt}`), ...run },
+      ]);
+      expect(again.view().providers.find((p) => p.provider === 'codex')!.accounts.map((a) => a.apiKeyStorage)).toEqual([undefined, undefined]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("gives an account besides the default one none of the credentials in the server's environment", () => {
+    const inherited = {
+      ANTHROPIC_API_KEY: 'sk-ant-shell',
+      ANTHROPIC_AUTH_TOKEN: 'shell-bearer',
+      CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell',
+      CODEX_API_KEY: 'codex-shell',
+      OPENAI_API_KEY: 'sk-openai-shell',
+      XAI_API_KEY: 'xai-shell',
+    };
+    for (const [k, v] of Object.entries(inherited)) vi.stubEnv(k, v);
+    try {
+      const s = new SettingsStore(db);
+      s.setAgentHome(join(dir, 'agents'));
+      const ids = { claude: s.addAccount('claude', 'Work'), codex: s.addAccount('codex', 'Work'), grok: s.addAccount('grok', 'Work') };
+      s.updateAccount('grok', ids.grok, { apiKey: 'xai-own-key' });
+      const pick = (env: NodeJS.ProcessEnv) => Object.fromEntries(Object.keys(inherited).map((k) => [k, env[k]]).filter(([, v]) => v !== undefined));
+      // The default accounts keep what the server was started with.
+      expect(pick(s.env('claude'))).toEqual(inherited);
+      // The others: nothing that would sign them in as someone else, only their own key.
+      const others = (['claude', 'codex', 'grok'] as const).map((p) => [p, pick(s.env(p, ids[p]))]);
+      expect(Object.fromEntries(others)).toEqual({
+        claude: { CODEX_API_KEY: 'codex-shell', OPENAI_API_KEY: 'sk-openai-shell', XAI_API_KEY: 'xai-shell' },
+        codex: { ANTHROPIC_API_KEY: 'sk-ant-shell', ANTHROPIC_AUTH_TOKEN: 'shell-bearer', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell', XAI_API_KEY: 'xai-shell' },
+        grok: { ANTHROPIC_API_KEY: 'sk-ant-shell', ANTHROPIC_AUTH_TOKEN: 'shell-bearer', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell', CODEX_API_KEY: 'codex-shell', OPENAI_API_KEY: 'sk-openai-shell', XAI_API_KEY: 'xai-own-key' },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('gives each account its own default model, effort and what its runs leave out, and keeps them', () => {
+    const s = new SettingsStore(db);
+    s.updateAccount('claude', '', { defaultModel: 'opus', defaultEffort: 'high', nativeOff: ['hooks'], nativeItems: { skills: ['commit'] } });
+    const work = s.addAccount('claude', 'Work');
+    // A new account's home is empty: it starts with the CLI's own defaults and leaves nothing out.
+    expect(s.defaultModel('claude', work)).toBe('');
+    expect(s.defaultEffort('claude', work)).toBe('');
+    expect(s.nativeOff('claude', work)).toEqual([]);
+    expect(s.nativeItems('claude', work)).toEqual({});
+
+    s.updateAccount('claude', work, {
+      defaultModel: ' sonnet ',
+      defaultEffort: 'low',
+      nativeOff: ['mcp', 'skills', 'rules' as never],
+      nativeItems: { tools: ['WebSearch'], hooks: ['h1'] },
+    });
+    const again = new SettingsStore(reopen());
+    // Each its own; what the CLI cannot leave out is dropped.
+    expect([again.defaultModel('claude'), again.defaultEffort('claude'), again.nativeOff('claude'), again.nativeItems('claude')]).toEqual([
+      'opus',
+      'high',
+      ['hooks'],
+      { skills: ['commit'] },
+    ]);
+    expect([again.defaultModel('claude', work), again.defaultEffort('claude', work), again.nativeOff('claude', work), again.nativeItems('claude', work)]).toEqual([
+      'sonnet',
+      'low',
+      ['skills', 'mcp'],
+      { tools: ['WebSearch'] },
+    ]);
+    expect(again.view().providers.find((p) => p.provider === 'claude')!.accounts).toMatchObject([
+      { id: '', defaultModel: 'opus', defaultEffort: 'high', nativeOff: ['hooks'], nativeItems: { skills: ['commit'] } },
+      { id: work, defaultModel: 'sonnet', defaultEffort: 'low', nativeOff: ['skills', 'mcp'], nativeItems: { tools: ['WebSearch'] } },
+    ]);
+    // Copies: changing them changes nothing stored.
+    again.nativeOff('claude', work).push('memory');
+    again.nativeItems('claude', work).tools!.push('Bash');
+    expect(again.nativeOff('claude', work)).toEqual(['skills', 'mcp']);
+    expect(again.nativeItems('claude', work)).toEqual({ tools: ['WebSearch'] });
+    // Renaming it, or the CLI's executable, keeps them.
+    again.updateAccount('claude', work, { label: 'Office' });
+    again.update('claude', { bin: '/opt/claude' });
+    const later = new SettingsStore(reopen());
+    expect(later.defaultModel('claude', work)).toBe('sonnet');
+
+    // An account the CLI does not have (another CLI's, or one removed since) runs as the default account.
+    const codex = later.addAccount('codex', 'Second');
+    expect(later.defaultModel('codex', work)).toBe('');
+    expect(later.defaultModel('claude', codex)).toBe('opus');
+    expect(later.nativeOff('claude', 'gone')).toEqual(['hooks']);
+    later.removeAccount('claude', work);
+    expect(later.defaultModel('claude', work)).toBe('opus');
+    expect(later.nativeItems('claude', work)).toEqual({ skills: ['commit'] });
+    // Updating an account that is gone changes nothing.
+    later.updateAccount('claude', work, { defaultModel: 'haiku' });
+    expect(later.defaultModel('claude')).toBe('opus');
+  });
+
+  it("gives the accounts there were before schema version 20 their CLI's defaults and what it left out", () => {
+    const s = new SettingsStore(db);
+    s.updateAccount('claude', '', { defaultModel: 'opus', defaultEffort: 'max', nativeOff: ['plugins'], nativeItems: { tools: ['WebFetch'] } });
+    const work = s.addAccount('claude', 'Work');
+    const grok = s.addAccount('grok', 'Team');
+    db.exec(`ALTER TABLE provider_accounts DROP COLUMN default_model; ALTER TABLE provider_accounts DROP COLUMN default_effort;
+             ALTER TABLE provider_accounts DROP COLUMN native_off; ALTER TABLE provider_accounts DROP COLUMN native_items;
+             DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             PRAGMA user_version = 19;`);
+    const migrated = new SettingsStore(reopen());
+    // They run as before: as the CLI did, for every account.
+    expect([migrated.defaultModel('claude', work), migrated.defaultEffort('claude', work)]).toEqual(['opus', 'max']);
+    expect(migrated.nativeOff('claude', work)).toEqual(['plugins']);
+    expect(migrated.nativeItems('claude', work)).toEqual({ tools: ['WebFetch'] });
+    // A CLI with no settings saved: the defaults, nothing left out.
+    expect([migrated.defaultModel('grok', grok), migrated.nativeOff('grok', grok), migrated.nativeItems('grok', grok)]).toEqual(['', [], {}]);
+  });
+
+  it("keeps the other accounts' homes in the data folder when the CLIs have no folder of their own", async () => {
+    const { ACCOUNTS_DIR } = await import('../src/server/settings');
+    const s = new SettingsStore(db);
+    const id = s.addAccount('grok', 'Team');
+    expect(s.accountsDir).toBe(ACCOUNTS_DIR);
+    expect(s.accountHome('grok', id)).toBe(join(ACCOUNTS_DIR, `grok-${id}`));
+    expect(s.accountHome('grok')).toBeUndefined(); // the CLI's usual home
+  });
+
+  it('forgets a removed account with its key, and the lead agent goes back to the default account', () => {
+    const keyring = fakeKeyring();
+    const s = new SettingsStore(db, keyring);
+    s.setAgentHome(join(dir, 'agents'));
+    const work = s.addAccount('grok', 'Work');
+    const other = s.addAccount('grok', 'Other');
+    s.updateAccount('grok', work, { apiKey: 'xai-work-key-1234' });
+    expect(keyring.data.get(`grok-api-key-${work}`)).toBe('xai-work-key-1234');
+    expect(readFileSync(file).includes('xai-work-key')).toBe(false);
+    s.setLead({ provider: 'grok', account: work });
+    expect(new SettingsStore(reopen(), keyring).lead).toEqual({ provider: 'grok', account: work });
+
+    const again = new SettingsStore(db, keyring);
+    expect(again.env('grok', work).XAI_API_KEY).toBe('xai-work-key-1234');
+    expect(again.removeAccount('grok', work)).toBe(join(dir, 'agents', `grok-${work}`));
+    expect(keyring.data.has(`grok-api-key-${work}`)).toBe(false);
+    expect(again.lead).toEqual({ provider: 'grok' });
+    expect(again.removeAccount('grok', work)).toBeUndefined();
+    const later = new SettingsStore(reopen(), keyring);
+    expect(later.accountIds('grok')).toEqual([other]);
+    expect(later.lead.account).toBeUndefined();
+    // A lead naming an account the CLI does not have runs as the default one.
+    later.setLead({ provider: 'claude', account: other });
+    expect(later.lead).toEqual({ provider: 'claude' });
+  });
+
+  it('moves an account key saved in the database into the keyring', () => {
+    const s = new SettingsStore(db);
+    const id = s.addAccount('claude', 'Work');
+    s.updateAccount('claude', id, { apiKey: 'sk-ant-old-plaintext' });
+    expect((db.prepare('SELECT api_key FROM provider_accounts').get() as { api_key: string }).api_key).toBe('sk-ant-old-plaintext');
+    const keyring = fakeKeyring();
+    const again = new SettingsStore(reopen(), keyring);
+    expect(keyring.data.get(`claude-api-key-${id}`)).toBe('sk-ant-old-plaintext');
+    expect((db.prepare('SELECT api_key FROM provider_accounts').get() as { api_key: string }).api_key).toBe('');
+    expect(again.view().providers[0]!.accounts[1]).toMatchObject({ apiKeyMasked: '••••text', apiKeyStorage: 'keychain' });
+  });
+});
+
+describe('Store accounts', () => {
+  it('keeps the account of each member, of each template member and of each agent session', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    conv.agents[1]!.account = 'ab12cd34';
+    store.create(conv);
+    store.saveAgentState(conv.id, 'a2', { provider: 'codex', account: 'ab12cd34', sessionId: 's-2', seen: [] });
+    store.saveAgentState(conv.id, 'a1', { provider: 'claude', sessionId: 's-1', seen: [] });
+    const preset: TeamPreset = {
+      id: 'p-acc',
+      name: 'Two accounts',
+      agents: [{ id: 'x', name: 'Rev', provider: 'grok', role: '', account: '0011aabb' }, { id: 'y', name: 'Dev', provider: 'grok', role: '' }],
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 3, permission: 'read-only' },
+    };
+    store.savePreset(preset);
+
+    const again = new Store(reopen());
+    const loaded = again.get(conv.id)!;
+    expect(loaded.agents.map((a) => a.account)).toEqual([undefined, 'ab12cd34']);
+    expect('account' in loaded.agents[0]!).toBe(false);
+    expect(loaded.agentState).toEqual({
+      a1: { provider: 'claude', sessionId: 's-1', seen: [] },
+      a2: { provider: 'codex', account: 'ab12cd34', sessionId: 's-2', seen: [] },
+    });
+    expect(again.listPresets().find((p) => p.id === 'p-acc')!.agents.map((a) => a.account)).toEqual(['0011aabb', undefined]);
   });
 });
 
@@ -1030,7 +1272,11 @@ describe('Store schedules', () => {
     // Schedules from before schema version 14 send in their own conversation.
     db.exec(`ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE auth_sessions; DROP TABLE auth_codes; DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
+             ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
+             ALTER TABLE agent_sessions DROP COLUMN account;
+             DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
              PRAGMA user_version = 13;`);
     const migrated = new Store(reopen()).get(conv.id)!.schedule!;
     expect(migrated.newChat).toBe(false);

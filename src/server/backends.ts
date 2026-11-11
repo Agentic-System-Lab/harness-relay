@@ -130,7 +130,7 @@ interface Endpoint extends RunEndpoint {
 }
 
 /**
- * The model backends, stored in SQLite (`model_backends`, schema version 19) and cached in memory,
+ * The model backends, stored in SQLite (`model_backends`, schema version 21) and cached in memory,
  * their keys in `keyring` when there is one. A row holds an endpoint (always), or an API backend's key
  * only while that key is kept in the database.
  */

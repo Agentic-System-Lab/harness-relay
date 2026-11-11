@@ -1,0 +1,66 @@
+// The desktop app's updates, as the chat shows them (Settings' Version card, and the dialog that offers
+// a new version). The app asks GitHub and updates itself (desktop/src/update.ts); the server only
+// keeps what the app last said, and passes the user's asks (check now, update) on to it. Run any other
+// way (`npm start`, `npm run dev`), there are no updates: only the version is known.
+
+import type { DesktopUpdate, UpdateStatus } from '../shared/types';
+import type { DesktopParent } from './parent';
+
+/**
+ * How long a check asked for from the chat is waited for before what is known is given: longer than the
+ * app gives GitHub (CHECK_TIMEOUT_MS, 30 s), so a question that stalls is answered as failed, not left
+ * looking under way.
+ */
+export const CHECK_ANSWER_MS = 35_000;
+
+export class Updates {
+  private last: DesktopUpdate = { updates: false };
+  /** Checks asked for from the chat, by id, waiting for the app to say it has answered them. */
+  private waiting = new Map<number, () => void>();
+  private nextCheck = 1;
+
+  constructor(
+    private parent: Pick<DesktopParent, 'send' | 'onUpdate'> | undefined,
+    private version: () => Promise<string>,
+  ) {
+    parent?.onUpdate(({ answered, ...update }) => {
+      this.last = update;
+      for (const id of answered ?? []) this.waiting.get(id)?.();
+    });
+  }
+
+  /** This version, and what the app last said of its updates. */
+  async status(): Promise<UpdateStatus> {
+    return { ...this.last, current: await this.version() };
+  }
+
+  /**
+   * Asks the app to check GitHub now (it asks at most every five minutes: otherwise it says what it knows),
+   * and gives what it says once the check is done, or what is known after `timeoutMs`.
+   */
+  async check(timeoutMs = CHECK_ANSWER_MS): Promise<UpdateStatus> {
+    if (this.parent && this.last.updates) {
+      const id = this.nextCheck++;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const checked = new Promise<void>((done) => this.waiting.set(id, done));
+      this.parent.send({ type: 'update-check', id });
+      await Promise.race([checked, new Promise<void>((done) => (timer = setTimeout(done, timeoutMs)))]);
+      clearTimeout(timer);
+      // Answered, or not in time: no longer waited for.
+      this.waiting.delete(id);
+    }
+    return this.status();
+  }
+
+  /**
+   * Asks the app to update to the newer version: it asks the user first, in a dialog of its own on the
+   * computer it runs on, as from its menu (and asks once, however often it is asked meanwhile). Says
+   * why not when there is none to update to, or one is under way.
+   */
+  install(): 'asked' | 'none' | 'under-way' {
+    if (this.last.progress) return 'under-way';
+    if (!this.parent || !this.last.available) return 'none';
+    this.parent.send({ type: 'update-install' });
+    return 'asked';
+  }
+}

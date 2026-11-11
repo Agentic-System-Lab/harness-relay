@@ -1,6 +1,7 @@
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
-import { CWD_MISSING } from '../shared/types';
+import { CWD_MISSING, DEFAULT_ACCOUNT } from '../shared/types';
 import type {
+  AboutInfo,
   ApiBackend,
   ModelBackendsView,
   ModelEndpointUpdate,
@@ -22,9 +23,11 @@ import type {
   McpServerUpdate,
   NativeSetup,
   Provider,
+  ProviderAccountUpdate,
   ProviderModels,
   ProviderSettingsUpdate,
   ProviderStatus,
+  ReportScreenshots,
   ScheduleUpdate,
   SearchResult,
   SettingsUpdate,
@@ -38,6 +41,7 @@ import type {
   TeamRevision,
   ToolLibraryUpdate,
   ToolLibraryView,
+  UpdateStatus,
   VoiceModelId,
   VoiceSettingsUpdate,
   VoiceStatus,
@@ -46,6 +50,12 @@ import type {
 } from '../shared/types';
 import { clearKey, readKey, writeKey } from './auth';
 import { currentLang } from './i18n';
+import { timeoutSignal } from './util';
+
+/** An account in a URL path: its id, or `default` for the default account. */
+const accountPath = (account: string) => encodeURIComponent(account || DEFAULT_ACCOUNT);
+/** An account as a query: none for the default account. */
+const accountQuery = (account: string) => (account ? `?account=${encodeURIComponent(account)}` : '');
 
 /** A request the server answered with an error; `status` is the HTTP status, `code` tells some errors apart. */
 export class ApiError extends Error {
@@ -281,8 +291,34 @@ export const api = {
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),
   providers: (refresh = false) => request<ProviderStatus[]>('GET', `/api/providers${refresh ? '?refresh=1' : ''}`),
-  nativeSetup: (p: Provider, refresh = false) => request<NativeSetup>('POST', `/api/providers/${p}/native`, { refresh }),
-  nativeFile: (p: Provider, path: string) => request<FilePreview>('POST', `/api/providers/${p}/native/file`, { path }),
+  /**
+   * Which Harness Relay this is, and on what, for a problem report. Given up on after 10 s: the report
+   * then says the server did not answer, instead of waiting for good.
+   */
+  about: async () => {
+    const timeout = timeoutSignal(10_000);
+    try {
+      return await request<AboutInfo>('GET', '/api/about', undefined, timeout.signal);
+    } finally {
+      timeout.clear();
+    }
+  },
+  /** This version, and the desktop app's updates (only the version otherwise). */
+  update: () => request<UpdateStatus>('GET', '/api/update'),
+  /** Has the desktop app ask GitHub for a new version now (at most every five minutes); what it knows once it has. */
+  checkUpdate: () => request<UpdateStatus>('POST', '/api/update/check'),
+  /** Has the desktop app update to the newer version: it asks the user first, in its own dialog. */
+  installUpdate: () => request<{ ok: true }>('POST', '/api/update/install'),
+  /** A problem report's screenshots (each base64) up to GitHub, as a secret gist through the user's gh. */
+  uploadScreenshots: (images: string[]) =>
+    request<ReportScreenshots>('POST', '/api/report/screenshots', { files: images.map((data) => ({ data })) }),
+  /** Deletes the screenshots' gist again (one uploaded since the server started). */
+  removeScreenshots: (id: string) => request<{ ok: true }>('DELETE', `/api/report/screenshots/${encodeURIComponent(id)}`),
+  /** What a CLI loads by itself in an account's home (empty: the default account's), with what its runs leave out. */
+  nativeSetup: (p: Provider, refresh = false, account = '') =>
+    request<NativeSetup>('POST', `/api/providers/${p}/native${accountQuery(account)}`, { refresh }),
+  nativeFile: (p: Provider, path: string, account = '') =>
+    request<FilePreview>('POST', `/api/providers/${p}/native/file${accountQuery(account)}`, { path }),
   /**
    * Whether Grok trusts `cwd`. With `trustFolder`, trust it first: only after the user confirmed that
    * folder (the `folder` of an earlier answer); the server refuses if Grok now names another.
@@ -292,13 +328,22 @@ export const api = {
       cwd,
       ...(trustFolder !== undefined ? { trust: true, folder: trustFolder } : {}),
     }),
+  /** A CLI's accounts besides its default one (`account`: its id; empty = the default account). */
+  addAccount: (p: Provider, label: string) =>
+    request<{ id: string; settings: SettingsView }>('POST', `/api/settings/providers/${p}/accounts`, { label }),
+  updateAccount: (p: Provider, account: string, b: ProviderAccountUpdate) =>
+    request<SettingsView>('PUT', `/api/settings/providers/${p}/accounts/${accountPath(account)}`, b),
+  removeAccount: (p: Provider, account: string) =>
+    request<SettingsView>('DELETE', `/api/settings/providers/${p}/accounts/${accountPath(account)}`),
   loginMethods: (p: Provider) => request<LoginMethod[]>('GET', `/api/providers/${p}/login-methods`),
-  startLogin: (p: Provider, method: string) => request<LoginSessionView>('POST', `/api/providers/${p}/login`, { method }),
-  getLogin: (p: Provider) => request<LoginSessionView | null>('GET', `/api/providers/${p}/login`),
-  loginInput: (p: Provider, text: string) =>
-    request<LoginSessionView>('POST', `/api/providers/${p}/login/input`, { text }),
-  cancelLogin: (p: Provider) => request<{ ok: true }>('DELETE', `/api/providers/${p}/login`),
-  logout: (p: Provider) => request<{ ok: true; output: string }>('POST', `/api/providers/${p}/logout`),
+  startLogin: (p: Provider, method: string, account = '') =>
+    request<LoginSessionView>('POST', `/api/providers/${p}/login${accountQuery(account)}`, { method }),
+  getLogin: (p: Provider, account = '') => request<LoginSessionView | null>('GET', `/api/providers/${p}/login${accountQuery(account)}`),
+  loginInput: (p: Provider, text: string, account = '') =>
+    request<LoginSessionView>('POST', `/api/providers/${p}/login/input${accountQuery(account)}`, { text }),
+  cancelLogin: (p: Provider, account = '') => request<{ ok: true }>('DELETE', `/api/providers/${p}/login${accountQuery(account)}`),
+  logout: (p: Provider, account = '') =>
+    request<{ ok: true; output: string }>('POST', `/api/providers/${p}/logout${accountQuery(account)}`),
 
   // voice input
   voice: () => request<VoiceStatus>('GET', '/api/voice'),

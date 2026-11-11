@@ -3,11 +3,13 @@ import { homedir } from 'node:os';
 import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
+  ACCOUNT_ID_RE,
   API_BACKENDS,
   BACKEND_LIMITS,
   CWD_MISSING,
   ENDPOINT_ID_RE,
   GROUP_LIMITS,
+  MAX_ACCOUNT_LABEL,
   MCP_NAME_RE,
   MAX_NATIVE_ITEM_ID,
   MAX_NATIVE_ITEMS,
@@ -31,6 +33,7 @@ import {
   type Mode,
   type Permission,
   type Provider,
+  type ProviderAccountUpdate,
   type ProviderSettingsUpdate,
   type ScheduleRepeat,
   type ScheduleUpdate,
@@ -197,6 +200,14 @@ function optionalString(v: unknown, field: string, max = 500): string | undefine
   return v.trim();
 }
 
+/**
+ * The account an agent or the lead names: an account id, or undefined for the default account (also
+ * for anything that is not an id). Whether the CLI has it is checked when it runs.
+ */
+function validAccount(input: unknown): { account?: string } {
+  return typeof input === 'string' && ACCOUNT_ID_RE.test(input) ? { account: input } : {};
+}
+
 /** The lead agent (auto team) from a settings update. */
 export function validateLead(input: unknown): LeadAgentSettings {
   const l = (input ?? {}) as Partial<LeadAgentSettings>;
@@ -205,7 +216,56 @@ export function validateLead(input: unknown): LeadAgentSettings {
     provider: l.provider as Provider,
     model: optionalString(l.model, 'lead.model') ?? '',
     effort: validEffort(optionalString(l.effort, 'lead.effort'), 'lead') ?? '',
+    ...validAccount(l.account),
   };
+}
+
+/** An account's name: a string of up to `MAX_ACCOUNT_LABEL` characters, with no line breaks. */
+export function validAccountLabel(input: unknown): string {
+  if (typeof input !== 'string' || input.trim().length > MAX_ACCOUNT_LABEL || /[\u0000-\u001f\u007f]/.test(input)) {
+    bad(t().badAccountLabel(MAX_ACCOUNT_LABEL));
+  }
+  return input.trim();
+}
+
+/**
+ * An account update: a name, its key (null to remove), and how it runs: strings, a valid effort,
+ * `nativeOff` a list of known parts, `nativeItems` lists of ids by known kind.
+ */
+export function validateAccountUpdate(input: unknown): ProviderAccountUpdate {
+  const u = (input ?? {}) as Record<string, unknown>;
+  const out: ProviderAccountUpdate = {};
+  if (u.label !== undefined) out.label = validAccountLabel(u.label);
+  if (u.apiKey === null) out.apiKey = null;
+  else {
+    const key = optionalString(u.apiKey, 'apiKey', 4096);
+    if (key !== undefined) out.apiKey = key;
+  }
+  const model = optionalString(u.defaultModel, 'defaultModel');
+  if (model !== undefined) out.defaultModel = model;
+  if (u.defaultEffort !== undefined) out.defaultEffort = validEffort(optionalString(u.defaultEffort, 'defaultEffort'), 'default') ?? '';
+  if (u.nativeOff !== undefined) {
+    const parts = u.nativeOff;
+    if (!Array.isArray(parts) || parts.some((x) => !(NATIVE_PARTS as readonly unknown[]).includes(x))) bad(t().invalidField('nativeOff'));
+    out.nativeOff = parts as ProviderAccountUpdate['nativeOff'];
+  }
+  if (u.nativeItems !== undefined) {
+    const items = u.nativeItems as Record<string, unknown> | null;
+    const valid =
+      items !== null &&
+      typeof items === 'object' &&
+      !Array.isArray(items) &&
+      Object.entries(items).every(
+        ([kind, ids]) =>
+          (NATIVE_ITEM_KINDS as readonly string[]).includes(kind) &&
+          Array.isArray(ids) &&
+          ids.length <= MAX_NATIVE_ITEMS &&
+          ids.every((id) => typeof id === 'string' && id.length > 0 && id.length <= MAX_NATIVE_ITEM_ID),
+      );
+    if (!valid) bad(t().invalidField('nativeItems'));
+    out.nativeItems = items as ProviderAccountUpdate['nativeItems'];
+  }
+  return out;
 }
 
 export function validVoiceModel(input: unknown): VoiceModelId {
@@ -228,42 +288,23 @@ export function validateVoiceUpdate(input: unknown): VoiceSettingsUpdate {
 }
 
 /**
- * A provider settings update: strings, a valid effort, `apiKey` null to remove, `nativeOff` a list of
- * known parts, `nativeItems` lists of ids by known kind, `sandboxTerminal` a boolean.
+ * A provider settings update: what a CLI has once for all its accounts (its executable, and whether
+ * its commands may use a terminal in the relay sandbox: `sandboxTerminal`, a boolean), and the
+ * default account's key (null to remove). Defaults and what runs leave out are each account's
+ * (`validateAccountUpdate`); a request that still names them here is refused, not half applied.
  */
 export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
+  for (const field of ['defaultModel', 'defaultEffort', 'nativeOff', 'nativeItems']) {
+    if (u[field] !== undefined) bad(t().invalidField(field));
+  }
   const out: ProviderSettingsUpdate = {};
   const bin = optionalString(u.bin, 'bin', 4096);
   if (bin !== undefined) out.bin = bin;
-  const model = optionalString(u.defaultModel, 'defaultModel');
-  if (model !== undefined) out.defaultModel = model;
-  if (u.defaultEffort !== undefined) out.defaultEffort = validEffort(optionalString(u.defaultEffort, 'defaultEffort'), 'default') ?? '';
   if (u.apiKey === null) out.apiKey = null;
   else {
     const key = optionalString(u.apiKey, 'apiKey', 4096);
     if (key !== undefined) out.apiKey = key;
-  }
-  if (u.nativeOff !== undefined) {
-    const parts = u.nativeOff;
-    if (!Array.isArray(parts) || parts.some((x) => !(NATIVE_PARTS as readonly unknown[]).includes(x))) bad(t().invalidField('nativeOff'));
-    out.nativeOff = parts as ProviderSettingsUpdate['nativeOff'];
-  }
-  if (u.nativeItems !== undefined) {
-    const items = u.nativeItems as Record<string, unknown> | null;
-    const valid =
-      items !== null &&
-      typeof items === 'object' &&
-      !Array.isArray(items) &&
-      Object.entries(items).every(
-        ([kind, ids]) =>
-          (NATIVE_ITEM_KINDS as readonly string[]).includes(kind) &&
-          Array.isArray(ids) &&
-          ids.length <= MAX_NATIVE_ITEMS &&
-          ids.every((id) => typeof id === 'string' && id.length > 0 && id.length <= MAX_NATIVE_ITEM_ID),
-      );
-    if (!valid) bad(t().invalidField('nativeItems'));
-    out.nativeItems = items as ProviderSettingsUpdate['nativeItems'];
   }
   if (u.sandboxTerminal !== undefined) {
     if (typeof u.sandboxTerminal !== 'boolean') bad(t().invalidField('sandboxTerminal'));
@@ -302,6 +343,7 @@ export function validateAgents(input: unknown): AgentConfig[] {
       role: String(a.role ?? '').slice(0, 8000),
       model: String(a.model ?? '').trim() || undefined,
       effort: validEffort(a.effort, name),
+      ...validAccount(a.account),
       ...validAgentTools(a.tools),
     };
   });

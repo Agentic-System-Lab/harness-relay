@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { PROVIDERS, PROVIDER_LABEL, isOpenProvider, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
+import { PROVIDERS, PROVIDER_LABEL, accountUsable, isOpenProvider, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
 import { branchCount } from '../sidebar';
-import { CalendarPlusIcon, FolderPlusIcon, PanelIcon, SearchIcon } from './icons';
+import { CalendarPlusIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
+import { ReportDialog } from './ReportDialog';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
 import { SearchBox, SearchResults } from './SidebarSearch';
 
@@ -37,6 +38,7 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
   /** Focuses the search field again when search is asked for while it is open. */
   const [searchFocus, setSearchFocus] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [reporting, setReporting] = useState(false);
 
   const openSearch = () => {
     setCreating(false);
@@ -131,10 +133,23 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
             );
           })}
         </div>
-        <a href="#/settings" className={`settings-link ${route.page === 'settings' ? 'active' : ''}`}>
-          ⚙ {t.sidebar.settings}
-        </a>
+        {/* Report a problem: an icon only, at the row's end, so Settings keeps the row. */}
+        <div className="sidebar-bottom-row">
+          <a href="#/settings" className={`settings-link ${route.page === 'settings' ? 'active' : ''}`}>
+            ⚙ {t.sidebar.settings}
+          </a>
+          <button
+            type="button"
+            className="icon-button report-button"
+            onClick={() => setReporting(true)}
+            aria-label={t.sidebar.report}
+            title={t.sidebar.report}
+          >
+            <ReportIcon size={18} />
+          </button>
+        </div>
       </div>
+      {reporting && <ReportDialog providers={providers} onClose={() => setReporting(false)} />}
     </aside>
   );
 }
@@ -144,8 +159,10 @@ function healthTitle(p: ProviderStatus | undefined, t: Messages): string {
   if (!p) return h.checking;
   if (!p.installed) return h.notInstalled;
   if (isOpenProvider(p.provider)) return p.auth.loggedIn ? h.openReady : h.openNotReady;
-  if (p.usingStoredApiKey) return h.apiKey;
-  if (p.auth.loggedIn === false) return h.notLoggedIn;
-  if (p.auth.loggedIn) return h.loggedIn(p.auth.account);
-  return h.unknown;
+  // The dot is the default account's; with more accounts, how many of them agents can run as.
+  const more = p.accounts.length > 1 ? h.accounts(p.accounts.filter(accountUsable).length, p.accounts.length) : '';
+  if (p.usingStoredApiKey) return h.apiKey + more;
+  if (p.auth.loggedIn === false) return h.notLoggedIn + more;
+  if (p.auth.loggedIn) return h.loggedIn(p.auth.account) + more;
+  return h.unknown + more;
 }

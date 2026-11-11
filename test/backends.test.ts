@@ -486,7 +486,7 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
       // Without a catalog: the endpoints' typed models.
       expect((await providers.models('cline', true)).models).toEqual([{ id: 'homelab/muse-glimmer-30b-nvfp4', label: 'muse-glimmer-30b-nvfp4 · Homelab' }]);
       // Relay's own default comes first.
-      settings.update('goose', { defaultModel: 'homelab/muse-glimmer-30b-nvfp4' });
+      settings.updateAccount('goose', '', { defaultModel: 'homelab/muse-glimmer-30b-nvfp4' });
       providers.invalidate('goose');
       expect((await providers.models('goose')).defaultModel).toBe('homelab/muse-glimmer-30b-nvfp4');
     } finally {

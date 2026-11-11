@@ -4,6 +4,7 @@ import {
   PROVIDERS,
   PROVIDER_LABEL,
   isOpenProvider,
+  type AccountStatus,
   type LoginMethod,
   type LoginSessionView,
   type Provider,
@@ -39,14 +40,19 @@ function firstJsonObject(s: string): Record<string, any> | null {
   }
 }
 
+/**
+ * Whether an account is signed in, and how. Signed out, it says nothing more: the CLIs' own words for
+ * that (Claude Code's `"authMethod": "none"`, Codex's "Not logged in") would only repeat the pill.
+ */
 async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Promise<ProviderAuth> {
   switch (p) {
     case 'claude': {
       const r = await capture(bin, ['auth', 'status'], env);
       const j = firstJsonObject(r.stdout);
       if (!j) return { loggedIn: null, detail: tail(r.stderr || r.stdout, 200) };
+      if (!j.loggedIn) return { loggedIn: false };
       return {
-        loggedIn: Boolean(j.loggedIn),
+        loggedIn: true,
         method: j.authMethod,
         account: j.email ?? j.orgName,
         detail: j.subscriptionType ? t().planDetail(j.subscriptionType) : undefined,
@@ -55,10 +61,10 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
     case 'codex': {
       const r = await capture(bin, ['login', 'status'], env);
       const out = stripAnsi(`${r.stdout}\n${r.stderr}`).trim();
-      const notLogged = /not logged in/i.test(out);
-      const logged = !notLogged && /logged in/i.test(out);
+      if (/not logged in/i.test(out)) return { loggedIn: false };
+      const logged = /logged in/i.test(out);
       const method = out.match(/logged in using ([^\n]+)/i)?.[1]?.trim();
-      return { loggedIn: logged ? true : notLogged ? false : null, method, detail: out.split('\n')[0] };
+      return { loggedIn: logged ? true : null, method, detail: out.split('\n')[0] };
     }
     case 'grok': {
       const r = await capture(bin, ['models'], env);
@@ -74,42 +80,56 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
   }
 }
 
+/** One account of one CLI, as a key of a map. */
+const slot = (p: Provider, account = '') => `${p}\0${account}`;
+
 export class ProviderService {
   private cache = new Map<Provider, { at: number; status: ProviderStatus }>();
-  private logins = new Map<Provider, LoginSession>();
-  private modelCache = new Map<Provider, { at: number; models: Promise<DiscoveredModels> }>();
+  /** Sign-ins running or finished, by account (`slot`). */
+  private logins = new Map<string, LoginSession>();
+  /** Models each account's CLI offers (`slot`): asked in its home, whose config has the CLI's own defaults. */
+  private modelCache = new Map<string, { at: number; models: Promise<DiscoveredModels> }>();
 
   constructor(private settings: SettingsStore) {}
 
   invalidate(p?: Provider): void {
     if (p) {
       this.cache.delete(p);
-      this.modelCache.delete(p);
+      for (const key of this.modelCache.keys()) if (key.startsWith(slot(p))) this.modelCache.delete(key);
     } else {
       this.cache.clear();
       this.modelCache.clear();
     }
   }
 
-  /** Models / effort levels per provider, with Relay's own defaults layered over the CLI's. */
-  async models(p: Provider, refresh = false): Promise<ProviderModels> {
-    let entry = this.modelCache.get(p);
+  /**
+   * Models / effort levels of a CLI as one of its accounts runs it (empty: the default account), with
+   * that account's own defaults in Harness Relay layered over the CLI's in its home.
+   */
+  async models(p: Provider, refresh = false, account = ''): Promise<ProviderModels> {
+    const id = this.settings.resolveAccount(p, account);
+    let entry = this.modelCache.get(slot(p, id));
     if (refresh || !entry || Date.now() - entry.at > 10 * 60_000) {
       const backends = { configured: this.settings.backends.configured(), endpoints: this.settings.backends.view().endpoints };
-      entry = { at: Date.now(), models: discoverModels(p, this.settings.bin(p), this.settings.env(p), backends) };
-      this.modelCache.set(p, entry);
+      entry = { at: Date.now(), models: discoverModels(p, this.settings.bin(p), this.settings.env(p, id), backends) };
+      this.modelCache.set(slot(p, id), entry);
     }
     const d = await entry.models;
     return {
       ...d,
-      defaultModel: this.settings.defaultModel(p) || d.cliDefaultModel,
+      ...(id ? { account: id } : {}),
+      defaultModel: this.settings.defaultModel(p, id) || d.cliDefaultModel,
       // Model-specific defaults (e.g. codex catalog) are applied by the client per selected model.
-      defaultEffort: this.settings.defaultEffort(p) || d.cliDefaultEffort,
+      defaultEffort: this.settings.defaultEffort(p, id) || d.cliDefaultEffort,
     };
   }
 
-  modelsAll(refresh = false): Promise<ProviderModels[]> {
-    return Promise.all(PROVIDERS.map((p) => this.models(p, refresh)));
+  /** Every account of every CLI, each CLI's default account first (`catalogFor` picks one out). */
+  async modelsAll(refresh = false): Promise<ProviderModels[]> {
+    const all = await Promise.all(
+      PROVIDERS.map((p) => Promise.all(['', ...this.settings.accountIds(p)].map((id) => this.models(p, refresh, id)))),
+    );
+    return all.flat();
   }
 
   async status(p: Provider, refresh = false): Promise<ProviderStatus> {
@@ -117,27 +137,35 @@ export class ProviderService {
     if (!refresh && cached && Date.now() - cached.at < 20_000) return cached.status;
     const bin = this.settings.bin(p);
     const env = this.settings.env(p);
+    const ids = ['', ...this.settings.accountIds(p)];
+    const account = (id: string, auth: ProviderAuth): AccountStatus => ({
+      id,
+      label: this.settings.accountLabel(p, id),
+      auth,
+      usingStoredApiKey: this.settings.hasStoredApiKey(p, id),
+    });
     let status: ProviderStatus;
     try {
       const v = await capture(bin, ['--version'], isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env, { timeoutMs: 10_000 });
       const version = parseVersion(v.stdout || v.stderr);
-      let auth: ProviderAuth;
-      try {
-        auth = isOpenProvider(p) ? this.openAuth(p) : await checkAuth(p, bin, env);
-      } catch (err) {
-        auth = { loggedIn: null, detail: (err as Error).message };
-      }
-      status = { provider: p, installed: true, bin, version, auth, usingStoredApiKey: this.settings.hasStoredApiKey(p) };
+      // Each account signs in on its own, in its own home; an open agent has no sign-in (and no other account).
+      const accounts = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            return account(id, isOpenProvider(p) ? this.openAuth(p) : await checkAuth(p, bin, id ? this.settings.env(p, id) : env));
+          } catch (err) {
+            return account(id, { loggedIn: null, detail: (err as Error).message });
+          }
+        }),
+      );
+      const first = accounts[0]!;
+      status = { provider: p, installed: true, bin, version, auth: first.auth, usingStoredApiKey: first.usingStoredApiKey, accounts };
     } catch (err) {
-      status = {
-        provider: p,
-        installed: false,
-        bin,
-        // Not found: Settings says so in its own words, with where to install it. Anything else (the
-        // file is there but cannot run, say) is told as it happened.
-        auth: { loggedIn: null, detail: err instanceof CommandNotFoundError ? undefined : (err as Error).message },
-        usingStoredApiKey: this.settings.hasStoredApiKey(p),
-      };
+      // Not found: Settings says so in its own words, with where to install it. Anything else (the
+      // file is there but cannot run, say) is told as it happened.
+      const auth: ProviderAuth = { loggedIn: null, detail: err instanceof CommandNotFoundError ? undefined : (err as Error).message };
+      const accounts = ids.map((id) => account(id, { loggedIn: null }));
+      status = { provider: p, installed: false, bin, auth, usingStoredApiKey: accounts[0]!.usingStoredApiKey, accounts };
     }
     this.cache.set(p, { at: Date.now(), status });
     return status;
@@ -162,7 +190,7 @@ export class ProviderService {
   backendsChanged(): void {
     for (const p of PROVIDERS) {
       if (isOpenProvider(p)) this.invalidate(p);
-      else this.modelCache.delete(p);
+      else for (const key of this.modelCache.keys()) if (key.startsWith(slot(p))) this.modelCache.delete(key);
     }
   }
 
@@ -180,43 +208,64 @@ export class ProviderService {
     });
   }
 
-  startLogin(p: Provider, methodId?: string): LoginSessionView {
+  /** Signs an account in (empty `account`: the default one), with the CLI's own flow, in its home. */
+  startLogin(p: Provider, methodId?: string, account = ''): LoginSessionView {
     const method = LOGIN_METHODS[p].find((m) => m.id === methodId) ?? LOGIN_METHODS[p][0];
     if (!method) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
-    this.logins.get(p)?.cancel();
-    const session = new LoginSession(p, method, this.settings.bin(p), this.settings.env(p), () => this.invalidate(p));
-    this.logins.set(p, session);
+    this.logins.get(slot(p, account))?.cancel();
+    const session = new LoginSession(p, account, method, this.settings.bin(p), this.settings.env(p, account), () => this.invalidate(p));
+    this.logins.set(slot(p, account), session);
     return session.view();
   }
 
-  login(p: Provider): LoginSessionView | null {
-    return this.logins.get(p)?.view() ?? null;
+  login(p: Provider, account = ''): LoginSessionView | null {
+    return this.logins.get(slot(p, account))?.view() ?? null;
   }
 
-  sendLoginInput(p: Provider, text: string): LoginSessionView | null {
-    const s = this.logins.get(p);
+  sendLoginInput(p: Provider, text: string, account = ''): LoginSessionView | null {
+    const s = this.logins.get(slot(p, account));
     if (!s) return null;
     s.write(text);
     return s.view();
   }
 
-  cancelLogin(p: Provider): void {
-    this.logins.get(p)?.cancel();
+  cancelLogin(p: Provider, account = ''): void {
+    this.logins.get(slot(p, account))?.cancel();
   }
 
-  async logout(p: Provider): Promise<string> {
+  /** Stops every sign-in still running (their homes changed); they are forgotten. */
+  cancelLogins(): void {
+    for (const s of this.logins.values()) s.cancel();
+    this.logins.clear();
+  }
+
+  /** Forgets an account's sign-in, stopping it if it still runs (the account was removed). */
+  forgetLogin(p: Provider, account: string): void {
+    this.cancelLogin(p, account);
+    this.logins.delete(slot(p, account));
+  }
+
+  async logout(p: Provider, account = '', timeoutMs = 30_000): Promise<string> {
     if (!LOGIN_METHODS[p].length) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
+    return this.logoutIn(p, this.settings.env(p, account), timeoutMs);
+  }
+
+  /**
+   * Signs the CLI out in the environment given: an account's, taken while it was still one (a removed
+   * account's id names the default account).
+   */
+  async logoutIn(p: Provider, env: NodeJS.ProcessEnv, timeoutMs = 30_000): Promise<string> {
     const bin = this.settings.bin(p);
     const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
-    const r = await capture(bin, args, this.settings.env(p), { timeoutMs: 30_000 });
+    const r = await capture(bin, args, env, { timeoutMs });
     this.invalidate(p);
     if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || t().logoutFailed(r.code));
     return tail(r.stdout || r.stderr, 300);
   }
 
-  /** Codex stores API keys itself; the key is piped to `codex login --with-api-key` and not kept here. */
-  async codexApiKeyLogin(key: string): Promise<string> {
-    const r = await capture(this.settings.bin('codex'), ['login', '--with-api-key'], this.settings.env('codex'), {
+  /** Codex stores API keys itself; the key is piped to `codex login --with-api-key` (in the account's home) and not kept here. */
+  async codexApiKeyLogin(key: string, account = ''): Promise<string> {
+    const r = await capture(this.settings.bin('codex'), ['login', '--with-api-key'], this.settings.env('codex', account), {
       stdin: key.trim() + '\n',
       timeoutMs: 30_000,
     });
@@ -294,6 +343,7 @@ class LoginSession {
 
   constructor(
     readonly provider: Provider,
+    readonly account: string,
     readonly method: { id: string; args: string[] },
     bin: string,
     env: NodeJS.ProcessEnv,
@@ -344,6 +394,7 @@ class LoginSession {
     return {
       id: this.id,
       provider: this.provider,
+      account: this.account,
       method: this.method.id,
       state: this.state,
       startedAt: this.startedAt,

@@ -56,13 +56,18 @@ import {
   appImageDownload,
   appImageTarget,
   busyWithoutAsking,
+  chatUpdate,
+  CheckAnswers,
   CHECK_EVERY_MS,
+  CHECK_TIMEOUT_MS,
+  checkNow,
   checkLatest,
   download,
   FIRST_CHECK_MS,
   installPlan,
   isNewer,
   macAppOf,
+  oneAtATime,
   placeAppImage,
   relaunchCommand,
   relaunchEnv,
@@ -70,12 +75,14 @@ import {
   removeMacLeftovers,
   stageMacApp,
   type StartCommand,
+  takesCandidates,
   swapMacApp,
   UpdateError,
   updateSystem,
   whenIdle,
   WINDOWS_INSTALLER_ARGS,
   type UpdateRelease,
+  type Updating,
 } from './update';
 import { findTailscale, sharePlan, Tailscale } from './tailscale';
 
@@ -84,12 +91,6 @@ declare const __RELAY_VERSION__: string;
 
 /** Matches appId in electron-builder.yml (Windows needs it for notifications). */
 const APP_ID = 'io.github.agentic-system-lab.harness-relay';
-
-/**
- * An update under way: downloading (the share done, 0 to 1), being checked and put in place, or
- * ready and waiting until no conversation has agents at work.
- */
-type Updating = { kind: 'downloading'; done: number } | { kind: 'installing' } | { kind: 'waiting' };
 
 /**
  * `--smoke-test[=<report file>]`: the packaged app checks itself and exits (desktop/scripts/check-package.ts,
@@ -251,6 +252,17 @@ function run(): void {
   let update: UpdateRelease | undefined;
   /** An update under way: downloading, being checked and put in place, or waiting for the conversations. */
   let updating: Updating | undefined;
+  /** GitHub is being asked for its newest release now. */
+  let checking = false;
+  /** When GitHub was last asked (a check asked for sooner gives what is known), and last answered. */
+  let askedAt: number | undefined;
+  let checkedAt: number | undefined;
+  /** The last question could not reach GitHub (offline, or its hourly limit). */
+  let checkFailed = false;
+  /** Updating, from asking the user to the switch: asked for again meanwhile (the menu, the chat), it does nothing. */
+  const updateOnce = oneAtATime(() => runUpdate());
+  /** The chat's checks the app owes an answer to. */
+  const checkAnswers = new CheckAnswers();
   /** While an update waits for the conversations: switches at once (the menu's "Switch to the new version now"). */
   let switchNow: (() => void) | undefined;
   /** Where downloaded installers wait (macOS, Windows): emptied at each start. */
@@ -261,8 +273,17 @@ function run(): void {
   let previous: ServerState = supervisor.state;
   const log = new ServerLog(logFile);
   supervisor.on('output', (chunk) => log.write(chunk));
+  // Asked from the chat (Settings' Version card, the dialog offering a new version).
+  supervisor.on('request', (request) => {
+    if (request.type === 'update-check') {
+      checkAnswers.ask(request.id);
+      void checkForUpdate();
+    } else void installFromChat();
+  });
   supervisor.on('state', (state) => {
     updateTray();
+    // A server that just started (or started again) learns what the chat shows of updates.
+    if (state.kind === 'running') tellServer();
     if (crashNotice(previous, state, quitting) && Notification.isSupported()) {
       new Notification({ title: t.crashed, body: t.crashedDetail }).show();
     }
@@ -572,17 +593,58 @@ function run(): void {
     return app.isPackaged && (env.RELAY_UPDATES ?? process.env.RELAY_UPDATES)?.trim().toLowerCase() !== 'off';
   }
 
-  /** Asks GitHub for the newest release (a release candidate too); the menu offers it when it is newer. A failure waits for the next time. */
+  /**
+   * Asks GitHub for the newest release (a release candidate too); the menu, and the chat, offer it when
+   * it is newer. A failure waits for the next time. GitHub is asked at most every five minutes (`mayAskGitHub`):
+   * a check asked for sooner from the chat gives what is known.
+   */
   async function checkForUpdate(): Promise<void> {
-    if (updating || !checksUpdates()) return;
+    if (!checkNow({ updates: checksUpdates(), updating: !!updating, checking, askedAt, now: Date.now() })) {
+      tellServer();
+      return;
+    }
+    checking = true;
+    askedAt = Date.now();
+    tellServer();
     try {
-      const latest = await checkLatest((url, init) => net.fetch(url, init));
+      // A release candidate is offered only to an app that is one (or a build of your own): a release, only releases.
+      const latest = await checkLatest((url, init) => net.fetch(url, init), {
+        candidates: takesCandidates(app.getVersion()),
+        signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+      });
       const system = updateSystem(process.platform, process.arch);
       update = isNewer(latest, app.getVersion()) && system && latest.assets[system] ? latest : undefined;
+      checkedAt = Date.now();
+      checkFailed = false;
     } catch {
       /* offline, or GitHub's limit: the menu stays as it is */
+      checkFailed = true;
+    } finally {
+      checking = false;
     }
     updateTray();
+    tellServer();
+  }
+
+  /** What the chat shows of updates (Settings' Version card, the dialog offering a new version). */
+  function desktopUpdate() {
+    return chatUpdate({ updates: checksUpdates(), update, updating, checking, checkedAt, checkFailed });
+  }
+
+  /** Tells the server what the chat shows of updates, each time that changes, and which of its checks that answers. */
+  function tellServer(): void {
+    const answered = checkAnswers.take(checking);
+    supervisor.tell({ type: 'update', update: answered ? { ...desktopUpdate(), answered } : desktopUpdate() });
+  }
+
+  /** Update, chosen in the chat: asked first, as from the menu, with the chat's window in front for it. */
+  async function installFromChat(): Promise<void> {
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+    await installUpdate();
   }
 
   function scheduleUpdateChecks(): void {
@@ -622,6 +684,7 @@ function run(): void {
   function setUpdating(state: Updating | undefined): void {
     updating = state;
     updateTray();
+    tellServer();
   }
 
   /** What the menu says of the update under way. */
@@ -687,9 +750,14 @@ function run(): void {
    * Updates to `update` (update.ts): asks first, downloads and checks the installer, waits until no
    * conversation has agents at work (or the user switches at once), puts the new version in place,
    * then quits and the new one starts. Until the wait is over this version stays as it is, so quitting
-   * meanwhile keeps it.
+   * meanwhile keeps it. Asked for again while it runs (a second click, the menu and the chat), it does
+   * nothing (`updateOnce`).
    */
-  async function installUpdate(): Promise<void> {
+  function installUpdate(): Promise<void> {
+    return updateOnce();
+  }
+
+  async function runUpdate(): Promise<void> {
     const release = update;
     if (!release || updating) return;
     const system = updateSystem(process.platform, process.arch);

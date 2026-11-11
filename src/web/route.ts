@@ -12,6 +12,7 @@ export type Route = { page: 'new' } | { page: 'schedule' } | { page: 'chat'; id:
  * on their endpoints too.
  */
 export const SETTINGS_SECTIONS = [
+  'version',
   'language',
   'appearance',
   'backends',

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ProviderModels } from '../src/shared/types';
+import type { AccountStatus, ProviderModels, ProviderStatus } from '../src/shared/types';
 import { en } from '../src/web/locales/en';
-import { inheritModelLabel, switchProvider } from '../src/web/util';
+import { accountName, accountOf, accountState, inheritModelLabel, readyAccount, switchProvider, timeoutSignal } from '../src/web/util';
 
 describe('switching an agent to another CLI', () => {
   it('restores the model and effort picked for a CLI when switching back to it', () => {
@@ -39,5 +39,75 @@ describe("the model picker's default", () => {
     // The other CLIs choose their own default.
     expect(inheritModelLabel(pm({ provider: 'claude' }), 'claude', t)).toBe(t.team.defaultModel(t.team.cliDecides));
     expect(inheritModelLabel(undefined, 'goose', t)).toBe(t.team.defaultModel(t.common.loading));
+  });
+});
+
+describe("an agent's account", () => {
+  const account = (id: string, loggedIn: boolean | null, extra: Partial<AccountStatus> = {}): AccountStatus => ({
+    id,
+    label: '',
+    auth: { loggedIn },
+    usingStoredApiKey: false,
+    ...extra,
+  });
+  const status = (accounts: AccountStatus[], installed = true): ProviderStatus => ({
+    provider: 'codex',
+    installed,
+    bin: 'codex',
+    auth: accounts[0]!.auth,
+    usingStoredApiKey: accounts[0]!.usingStoredApiKey,
+    accounts,
+  });
+
+  it('belongs to its CLI: switching away drops it, switching back brings it back', () => {
+    const agent = { id: 'a', name: 'Ann', role: '', provider: 'codex' as const, account: 'work0001', model: 'gpt-5' };
+    const away = switchProvider(agent, 'claude', {});
+    expect(away.value).toEqual({ id: 'a', name: 'Ann', role: '', provider: 'claude', model: '', effort: '' });
+    expect('account' in away.value).toBe(false);
+    expect(switchProvider({ ...away.value, account: 'claude01' }, 'codex', away.kept).value).toEqual({ ...agent, effort: '' });
+  });
+
+  it('is the one it names while the CLI has it, else the default one, and says whether it can run', () => {
+    const s = status([account('', false), account('work0001', true, { label: 'Work' }), account('key00001', false, { usingStoredApiKey: true })]);
+    expect(accountOf(s, 'work0001')!.label).toBe('Work');
+    expect(accountOf(s, 'removed1')!.id).toBe('');
+    expect(accountOf(s, undefined)!.id).toBe('');
+    expect(accountState(s, undefined)).toBe('warn');
+    expect(accountState(s, 'work0001')).toBe('ok');
+    expect(accountState(s, 'key00001')).toBe('ok');
+    expect(accountState(s, 'removed1')).toBe('warn');
+    expect(accountState(status([account('', null)]), undefined)).toBe('ok'); // could not tell
+    expect(accountState(status([account('', true)], false), undefined)).toBe('off');
+    expect(accountState(undefined, undefined)).toBe('off');
+  });
+
+  it("gives a new member the default account when it is ready, else the first that is", () => {
+    expect(readyAccount(status([account('', true), account('work0001', true)]))).toBeUndefined();
+    expect(readyAccount(status([account('', false), account('work0001', false), account('alt00001', true)]))).toBe('alt00001');
+    expect(readyAccount(status([account('', false), account('work0001', false)]))).toBeUndefined();
+    expect(readyAccount(status([account('', false), account('work0001', true)], false))).toBeUndefined();
+  });
+
+  it('is called by its name, else "Default account", else by its id', () => {
+    expect(accountName({ id: '', label: '' }, en)).toBe('Default account');
+    expect(accountName({ id: '', label: 'Personal' }, en)).toBe('Personal');
+    expect(accountName({ id: 'ab12cd34', label: '' }, en)).toBe('Account ab12cd34');
+  });
+});
+
+describe('a timeout signal', () => {
+  it('aborts after its time, as AbortSignal.timeout() does', async () => {
+    const { signal } = timeoutSignal(20);
+    expect(signal.aborted).toBe(false);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(signal.aborted).toBe(true);
+    expect((signal.reason as DOMException).name).toBe('TimeoutError');
+  });
+
+  it('does not abort once cleared, the request being done', async () => {
+    const { signal, clear } = timeoutSignal(20);
+    clear();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(signal.aborted).toBe(false);
   });
 });

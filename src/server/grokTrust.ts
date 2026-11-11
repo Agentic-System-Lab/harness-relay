@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { writeGrokSetting } from './agents/grok';
@@ -88,5 +88,52 @@ export function restoreGrokTrust(previous: string | null, env: NodeJS.ProcessEnv
     if (previous === null) rmSync(file, { force: true });
     else writeStore(file, previous);
     return previous;
+  });
+}
+
+/** One Grok home's trust store as `trustGrokFolder` found it, to put back. */
+export interface GrokTrustWrite {
+  env: NodeJS.ProcessEnv;
+  previous: string | null;
+}
+
+/**
+ * Records `folder` as trusted in each Grok home given (every Grok account's), all or none: when one
+ * cannot be written, those written already are put back and the error is thrown.
+ */
+export function trustGrokFolderAll(folder: string, envs: NodeJS.ProcessEnv[], now = Date.now()): GrokTrustWrite[] {
+  const done: GrokTrustWrite[] = [];
+  try {
+    for (const env of envs) done.push({ env, previous: trustGrokFolder(folder, env, now) });
+  } catch (err) {
+    restoreGrokTrustAll(done);
+    throw err;
+  }
+  return done;
+}
+
+/** Puts back every trust store `trustGrokFolderAll` wrote; one that cannot be put back is logged. */
+export function restoreGrokTrustAll(writes: GrokTrustWrite[]): void {
+  for (const { env, previous } of writes) {
+    try {
+      restoreGrokTrust(previous, env);
+    } catch (err) {
+      console.warn(`[grok] could not put back the trust store in ${grokHome(env)}: ${(err as Error).message}`);
+    }
+  }
+}
+
+/**
+ * Gives a new Grok account the default account's trust: its trust store copied into the new home,
+ * so a folder Settings shows as trusted (asked of the default account) is trusted for it too. Only a
+ * plain file is copied, never what a link there leads to.
+ */
+export function copyGrokTrust(from: NodeJS.ProcessEnv, to: NodeJS.ProcessEnv): void {
+  const source = storeFile(from);
+  if (!existsSync(source) || !lstatSync(source).isFile()) return;
+  const text = readFileSync(source, 'utf8');
+  writeGrokSetting(grokHome(to), 'trusted_folders.toml', () => {
+    writeStore(storeFile(to), text);
+    return text;
   });
 }

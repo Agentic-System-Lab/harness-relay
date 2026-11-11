@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
+  catalogFor,
   isOpenProvider,
   inheritedEffort,
   type AgentConfig,
@@ -18,11 +19,11 @@ import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
 import { settingsHref } from '../route';
 import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
-import { PROVIDER_COLOR, inheritModelLabel, initials, newAgent, switchProvider, type ModelChoice } from '../util';
+import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, initials, newAgent, readyAccount, switchProvider, type ModelChoice } from '../util';
+import { AccountPicker } from './AccountPicker';
 import { CwdInput } from './CwdInput';
 import { GrokTrustNote } from './GrokTrust';
 import { ModelPicker } from './ModelPicker';
-import { providerState } from './Sidebar';
 
 export interface Team {
   agents: AgentConfig[];
@@ -73,7 +74,7 @@ export function teamProblems(team: Team, t: Messages, opts: { members?: boolean;
 export function TeamEditor({ value, onChange, providers, catalog, members, template = false, proposed = false, leadLabel, schedule }: Props) {
   const t = useT();
   const { agents, settings } = value;
-  /** Per member: the model and effort picked for each CLI, so switching a member's CLI and back restores them. */
+  /** Per member: the model, effort and account picked for each CLI, so switching a member's CLI and back restores them. */
   const kept = useRef(new Map<string, Partial<Record<Provider, ModelChoice>>>());
   const [tools, setTools] = useState<ToolItem[]>([]);
   const [toolsError, setToolsError] = useState('');
@@ -120,7 +121,9 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
           <div className="agent-grid">
             {agents.map((a, i) => {
               const status = providers.find((p) => p.provider === a.provider);
-              const state = providerState(status);
+              const state = accountState(status, a.account);
+              const account = accountOf(status, a.account);
+              const multi = (status?.accounts.length ?? 0) > 1;
               return (
                 <div key={a.id} className="agent-card" style={{ ['--accent' as string]: PROVIDER_COLOR[a.provider] }}>
                   <div className="agent-card-head">
@@ -168,7 +171,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                           if (a.provider === p) return;
                           const next = switchProvider(a, p, kept.current.get(a.id) ?? {});
                           kept.current.set(a.id, next.kept);
-                          updateAgent(a.id, { provider: p, model: next.value.model, effort: next.value.effort });
+                          updateAgent(a.id, { provider: p, model: next.value.model, effort: next.value.effort, account: next.value.account });
                         }}
                       >
                         {PROVIDER_LABEL[p]}
@@ -186,10 +189,12 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                     />
                   </label>
 
+                  <AccountPicker status={status} value={a.account} onChange={(account) => updateAgent(a.id, { account })} />
+
                   <AgentModelPicker
-                    key={a.provider}
+                    key={`${a.provider}|${a.account ?? ''}`}
                     agent={a}
-                    catalog={catalog.find((c) => c.provider === a.provider)}
+                    catalog={catalogFor(catalog, a.provider, a.account)}
                     onChange={(v) => updateAgent(a.id, v)}
                   />
 
@@ -201,6 +206,8 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                         ? t.team.cliMissing(PROVIDER_LABEL[a.provider])
                         : isOpenProvider(a.provider)
                           ? t.team.noBackend(PROVIDER_LABEL[a.provider])
+                          : multi && account
+                            ? t.accounts.notLoggedIn(PROVIDER_LABEL[a.provider], accountName(account, t))
                           : t.team.notLoggedIn(PROVIDER_LABEL[a.provider])}
                       <a href={settingsHref(a.provider)}>{t.team.goSettings}</a>
                     </p>
@@ -217,7 +224,11 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                   className="add-agent"
                   style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
                   disabled={agents.length >= 8}
-                  onClick={() => setAgents([...agents, newAgent(p, agents.map((a) => a.name))])}
+                  onClick={() => {
+                    const agent = newAgent(p, agents.map((a) => a.name));
+                    const account = readyAccount(providers.find((s) => s.provider === p));
+                    setAgents([...agents, account ? { ...agent, account } : agent]);
+                  }}
                 >
                   ＋ {PROVIDER_LABEL[p]}
                 </button>

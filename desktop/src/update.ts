@@ -1,8 +1,10 @@
 /**
  * Updating the desktop app to GitHub's newest release, from its menu. The app asks GitHub now and then
- * for its releases and takes the newest version (`checkLatest`: a release candidate too, never a
- * draft); when it is newer than the running app and has an installer for this system (`updateSystem`:
- * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer,
+ * for its releases and takes the newest version (`checkLatest`, never a draft): a release candidate
+ * too when the app is one (or a build of your own), only a release when it is a release
+ * (`takesCandidates`); when it is newer than the running app and has an installer for this system (`updateSystem`:
+ * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer (its
+ * copy for updates, `-update`, so that GitHub counts updates apart from new installs),
  * checks it against the SHA-256 GitHub publishes for it (`download`), waits until no conversation has
  * agents at work (`whenIdle`), and puts it in place of the running app, which then quits and the new
  * one starts:
@@ -31,8 +33,9 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { compareSemver, parseVersion, semverOf } from '../../scripts/release';
-import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO } from '../../site/assets/downloads.js';
+import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO, UPDATE_INSTALLERS } from '../../site/assets/downloads.js';
 import { capture } from '../../src/server/process';
+import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
 
 /**
  * GitHub's releases, newest first: release candidates included, which `releases/latest` leaves out
@@ -40,17 +43,118 @@ import { capture } from '../../src/server/process';
  */
 export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=20`;
 
-/** How often the app asks (GitHub allows 60 requests an hour without signing in, per address). */
-export const CHECK_EVERY_MS = 6 * 60 * 60_000;
+/**
+ * GitHub's newest release, never a release candidate (the Release workflow marks each release the
+ * latest, and no release candidate): what an app that is a release asks for, however many release
+ * candidates came out since.
+ */
+export const LATEST_RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+
+/**
+ * How often the app asks: one request an hour, of the 60 an hour GitHub allows each address without
+ * signing in (shared by everything on that address: many apps behind one office network could use them
+ * up, and a check that fails only waits for the next one).
+ */
+export const CHECK_EVERY_MS = 60 * 60_000;
 
 /** The first check, a while after the app started (not in the way of the server's start). */
 export const FIRST_CHECK_MS = 30_000;
 
+/**
+ * The least time between two questions to GitHub: a check asked for sooner (Settings' "Check again")
+ * gives what is known. Five minutes: however often it is pressed, at most 12 of GitHub's 60 an hour.
+ */
+export const MIN_CHECK_GAP_MS = 5 * 60_000;
+
+/** How long one question to GitHub may take: a stalled one (the computer slept, a captive portal) would hold back every check after it. */
+export const CHECK_TIMEOUT_MS = 30_000;
+
+/**
+ * Whether a check asks GitHub now: for a copy that updates itself, with no update nor check under way,
+ * and none asked too recently (`mayAskGitHub`). Otherwise the chat is told what is known.
+ */
+export function checkNow(o: { updates: boolean; updating: boolean; checking: boolean; askedAt?: number; now: number }): boolean {
+  return o.updates && !o.updating && !o.checking && mayAskGitHub(o.askedAt, o.now);
+}
+
+/** Whether a check may ask GitHub now, the last question having been asked at `askedAt` (none yet: undefined). */
+export function mayAskGitHub(askedAt: number | undefined, now: number): boolean {
+  return askedAt === undefined || now - askedAt >= MIN_CHECK_GAP_MS || now < askedAt;
+}
+
 export type UpdateSystem = keyof typeof INSTALLERS;
 
+/** An update under way, as the app keeps it: downloading (`done`, 0 to 1), being checked and put in place, or waiting for the conversations. */
+export type Updating = { kind: 'downloading'; done: number } | { kind: 'installing' } | { kind: 'waiting' };
+
+/**
+ * What the chat shows of updates (the server passes it on, src/server/updates.ts), from what the app
+ * knows: nothing but `updates: false` for a copy that does not update itself.
+ */
+export function chatUpdate(o: {
+  updates: boolean;
+  update?: UpdateRelease;
+  updating?: Updating;
+  checking: boolean;
+  checkedAt?: number;
+  checkFailed: boolean;
+}): DesktopUpdate {
+  if (!o.updates) return { updates: false };
+  const u = o.updating;
+  const progress: UpdateProgress | undefined = u?.kind === 'downloading' ? { kind: 'downloading', percent: Math.floor(u.done * 100) } : u;
+  return {
+    updates: true,
+    ...(o.update ? { available: { version: o.update.version, page: o.update.page } } : {}),
+    ...(progress ? { progress } : {}),
+    ...(o.checking ? { checking: true } : {}),
+    ...(o.checkedAt !== undefined ? { checkedAt: o.checkedAt } : {}),
+    ...(o.checkFailed ? { checkFailed: true } : {}),
+  };
+}
+
+/**
+ * The chat's checks the app owes an answer to, by id: answered by the first state it tells the server
+ * once no check is under way (`take`), so a state already on its way when one was asked for never
+ * answers it, and one asked during a check is answered when that check ends.
+ */
+export class CheckAnswers {
+  private owed: number[] = [];
+
+  ask(id: number): void {
+    this.owed.push(id);
+  }
+
+  /** The checks a state answers, no longer owed: none while a check is under way. */
+  take(checking: boolean): number[] | undefined {
+    if (checking || !this.owed.length) return undefined;
+    return this.owed.splice(0);
+  }
+}
+
+/**
+ * `fn`, the calls made while an earlier one still runs ignored: an update asked for twice (two clicks,
+ * the menu and the chat) asks once, and never runs two downloads or swaps at once.
+ */
+export function oneAtATime(fn: () => Promise<void>): () => Promise<void> {
+  let running = false;
+  return async () => {
+    if (running) return;
+    running = true;
+    try {
+      await fn();
+    } finally {
+      running = false;
+    }
+  };
+}
+
 export interface UpdateAsset {
-  /** The file's name, such as Harness-Relay-2026-11-12-mac-arm64.dmg. */
+  /**
+   * The installer's name, such as Harness-Relay-2026-11-12-mac-arm64.dmg (also when it is fetched from
+   * its copy for updates: the AppImage takes this name).
+   */
   name: string;
+  /** Where it is fetched from: its copy for the app's updates (`-update`), else the installer itself. */
   url: string;
   size?: number;
   /** Lowercase hex, from GitHub's `digest` of the asset. */
@@ -64,6 +168,8 @@ export interface UpdateRelease {
   semver: string;
   /** Its page on GitHub (the release notes and every installer). */
   page: string;
+  /** A release candidate (`-rc`): offered only to an app that is one, or a build of your own (`takesCandidates`). */
+  candidate: boolean;
   assets: Partial<Record<UpdateSystem, UpdateAsset>>;
 }
 
@@ -81,33 +187,54 @@ export function parseRelease(json: unknown): UpdateRelease | undefined {
   if (!r || typeof r !== 'object' || r.draft || typeof r.tag_name !== 'string') return undefined;
   const parsed = parseVersion(r.tag_name);
   if (!parsed.ok) return undefined;
-  const assets: UpdateRelease['assets'] = {};
+  // Each system's copy for updates (UPDATE_INSTALLERS), so that GitHub counts updates apart from new
+  // installs; the installer itself for a release made before there were copies.
+  const installers: UpdateRelease['assets'] = {};
+  const copies: UpdateRelease['assets'] = {};
   for (const a of Array.isArray(r.assets) ? r.assets : []) {
     if (typeof a?.name !== 'string' || !PLAIN_NAME.test(a.name) || !isInstallerUrl(a.browser_download_url)) continue;
     for (const [system, end] of Object.entries(INSTALLERS) as [UpdateSystem, string][]) {
-      if (!a.name.endsWith(end)) continue;
+      const copyEnd = UPDATE_INSTALLERS[system];
+      const copy = a.name.endsWith(copyEnd);
+      if (!copy && !a.name.endsWith(end)) continue;
       const sha256 = typeof a.digest === 'string' ? /^sha256:([0-9a-f]{64})$/i.exec(a.digest)?.[1]?.toLowerCase() : undefined;
-      assets[system] = { name: a.name, url: a.browser_download_url as string, size: typeof a.size === 'number' ? a.size : undefined, sha256 };
+      const name = copy ? a.name.slice(0, -copyEnd.length) + end : a.name;
+      (copy ? copies : installers)[system] = { name, url: a.browser_download_url as string, size: typeof a.size === 'number' ? a.size : undefined, sha256 };
     }
   }
+  // The copy only with its checksum (else the update would go by the release page instead), or when the installer has none either.
+  const assets: UpdateRelease['assets'] = { ...installers };
+  for (const [system, copy] of Object.entries(copies) as [UpdateSystem, UpdateAsset][]) {
+    if (copy.sha256 || !installers[system]?.sha256) assets[system] = copy;
+  }
   const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${RELEASES_PAGE}/tag/`) ? r.html_url : RELEASES_PAGE;
-  return { version: parsed.value.version, semver: semverOf(parsed.value), page, assets };
+  return { version: parsed.value.version, semver: semverOf(parsed.value), page, candidate: parsed.value.rc, assets };
 }
 
 /**
- * The newest release of ours in GitHub's list, by version, not by when it was published: a release
- * candidate when it is the newest (2026-11-12-rc after 2026-11-11.1, 2026-11-12.1-rc after
- * 2026-11-12), never one that sorts before the release it is a candidate of (2026-11-12-rc.1 before
- * 2026-11-12).
+ * The newest release of ours in GitHub's list, by version, not by when it was published. With
+ * `candidates`, a release candidate when it is the newest (2026-11-12-rc after 2026-11-11.1,
+ * 2026-11-12.1-rc after 2026-11-12), never one that sorts before the release it is a candidate of
+ * (2026-11-12-rc.1 before 2026-11-12); without, releases and their patches only.
  */
-export function newestRelease(json: unknown): UpdateRelease | undefined {
+export function newestRelease(json: unknown, candidates = true): UpdateRelease | undefined {
   if (!Array.isArray(json)) return undefined;
   let newest: UpdateRelease | undefined;
   for (const r of json) {
     const release = parseRelease(r);
-    if (release && (!newest || compareSemver(release.semver, newest.semver) > 0)) newest = release;
+    if (!release || (release.candidate && !candidates)) continue;
+    if (!newest || compareSemver(release.semver, newest.semver) > 0) newest = release;
   }
   return newest;
+}
+
+/**
+ * Whether an app of version `current` (semver, app.getVersion()) is offered release candidates: one
+ * that is a release candidate (`-rc`), or a build of your own (`-dev`), is offered the newer release
+ * candidates and releases; a release, only the releases after it (and their patches).
+ */
+export function takesCandidates(current: string): boolean {
+  return current.split('+')[0]!.includes('-');
 }
 
 /** Whether `latest` is newer than the running app, whose version is `current` (semver, app.getVersion()). */
@@ -130,14 +257,20 @@ export function updateSystem(platform: NodeJS.Platform, arch: string): UpdateSys
 export type Fetch = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
 
 /** Asks GitHub for the newest release, release candidates included; undefined when there is none yet. */
-export async function checkLatest(fetch: Fetch, signal?: AbortSignal): Promise<UpdateRelease | undefined> {
-  const res = await fetch(RELEASES_API, {
+export async function checkLatest(fetch: Fetch, o: { candidates?: boolean; signal?: AbortSignal } = {}): Promise<UpdateRelease | undefined> {
+  const { candidates = true, signal } = o;
+  // A release candidate (or a build of your own) looks through the newest releases, candidates too; a
+  // release asks for the newest release alone.
+  const res = await fetch(candidates ? RELEASES_API : LATEST_RELEASE_API, {
     headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
     signal,
   });
   if (res.status === 404) return undefined;
   if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
-  return newestRelease(await res.json());
+  const json: unknown = await res.json();
+  if (candidates) return newestRelease(json, true);
+  const latest = parseRelease(json);
+  return latest && !latest.candidate ? latest : undefined;
 }
 
 export type ManualReason =
@@ -215,36 +348,72 @@ export class UpdateError extends Error {
 }
 
 /**
- * Downloads `asset` to `to` (through `to`.part, so a broken download never looks like a whole one),
- * checking it against its SHA-256 on the way. `onProgress` gets the share done, from 0 to 1.
+ * How long a download may go without a byte before it is given up on: a connection that dropped would
+ * otherwise hold the update (and every check after it) until the app restarts.
  */
-export async function download(o: { fetch: Fetch; asset: UpdateAsset; to: string; onProgress?: (done: number) => void; signal?: AbortSignal }): Promise<void> {
+export const DOWNLOAD_STALL_MS = 60_000;
+
+/**
+ * Downloads `asset` to `to` (through `to`.part, so a broken download never looks like a whole one),
+ * checking it against its SHA-256 on the way. `onProgress` gets the share done, from 0 to 1. Given up
+ * on after `stallMs` without a byte (DOWNLOAD_STALL_MS).
+ */
+export async function download(o: {
+  fetch: Fetch;
+  asset: UpdateAsset;
+  to: string;
+  onProgress?: (done: number) => void;
+  stallMs?: number;
+}): Promise<void> {
   if (!o.asset.sha256) throw new UpdateError('checksum', 'no checksum');
   const part = `${o.to}.part`;
   rmSync(part, { force: true });
-  let res: Response;
-  try {
-    res = await o.fetch(o.asset.url, { signal: o.signal });
-  } catch (err) {
-    throw new UpdateError('download', (err as Error).message);
-  }
-  if (!res.ok || !res.body) throw new UpdateError('download', `HTTP ${res.status}`);
-  const total = Number(res.headers.get('content-length')) || o.asset.size || 0;
+  const stallMs = o.stallMs ?? DOWNLOAD_STALL_MS;
+  const stalled = new AbortController();
+  const signal = stalled.signal;
+  /** Why it failed: given up on for no data, else `err`. */
+  const reason = (err: unknown) => ((stalled.signal.reason as Error | undefined) ?? (err as Error)).message;
+  let body: Readable | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  /** Waits `stallMs` again for the next byte. */
+  const waitForData = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const why = new Error(`no data for ${Math.round(stallMs / 1000)} s`);
+      stalled.abort(why);
+      body?.destroy(why);
+    }, stallMs);
+  };
   const hash = createHash('sha256');
-  let received = 0;
-  const count = new Transform({
-    transform(chunk: Buffer, _encoding, next) {
-      hash.update(chunk);
-      received += chunk.length;
-      if (total) o.onProgress?.(Math.min(1, received / total));
-      next(null, chunk);
-    },
-  });
+  waitForData();
   try {
-    await pipeline(Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>), count, createWriteStream(part));
-  } catch (err) {
-    rmSync(part, { force: true });
-    throw new UpdateError('download', (err as Error).message);
+    let res: Response;
+    try {
+      res = await o.fetch(o.asset.url, { signal });
+    } catch (err) {
+      throw new UpdateError('download', reason(err));
+    }
+    if (!res.ok || !res.body) throw new UpdateError('download', `HTTP ${res.status}`);
+    const total = Number(res.headers.get('content-length')) || o.asset.size || 0;
+    let received = 0;
+    const count = new Transform({
+      transform(chunk: Buffer, _encoding, next) {
+        waitForData();
+        hash.update(chunk);
+        received += chunk.length;
+        if (total) o.onProgress?.(Math.min(1, received / total));
+        next(null, chunk);
+      },
+    });
+    body = Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>);
+    try {
+      await pipeline(body, count, createWriteStream(part));
+    } catch (err) {
+      rmSync(part, { force: true });
+      throw new UpdateError('download', reason(err));
+    }
+  } finally {
+    clearTimeout(timer);
   }
   const got = hash.digest('hex');
   if (got !== o.asset.sha256) {

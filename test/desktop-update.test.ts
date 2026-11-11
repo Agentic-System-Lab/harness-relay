@@ -8,13 +8,23 @@ import {
   appImageDownload,
   appImageTarget,
   busyWithoutAsking,
+  chatUpdate,
+  CHECK_EVERY_MS,
+  CHECK_TIMEOUT_MS,
   checkLatest,
+  checkNow,
+  DOWNLOAD_STALL_MS,
   download,
   installPlan,
   isNewer,
+  LATEST_RELEASE_API,
   macAppOf,
   macStaging,
+  mayAskGitHub,
+  takesCandidates,
+  MIN_CHECK_GAP_MS,
   newestRelease,
+  oneAtATime,
   parseRelease,
   placeAppImage,
   RELAUNCH_PID,
@@ -44,7 +54,7 @@ const DOWNLOAD = 'https://github.com/Agentic-System-Lab/harness-relay/releases/d
 const sha = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 
 /** A release as GitHub lists it (GET /repos/…/releases). */
-function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; digest?: boolean } = {}) {
+function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; digest?: boolean; copies?: boolean } = {}) {
   const asset = (end: string) => {
     const name = `Harness-Relay-${tag}${end}`;
     return { name, browser_download_url: `${DOWNLOAD}/${tag}/${name}`, size: 1000, ...(o.digest === false ? {} : { digest: `sha256:${sha(name)}` }) };
@@ -60,6 +70,8 @@ function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; 
       asset('-win-arm64.exe'),
       asset('-linux-x86_64.AppImage'),
       asset('-linux-arm64.AppImage'),
+      // The same installers again for the app's updates (the Release workflow's copies), in releases made since.
+      ...(o.copies ? ['-mac-arm64-update.dmg', '-win-x64-update.exe', '-win-arm64-update.exe', '-linux-x86_64-update.AppImage', '-linux-arm64-update.AppImage'].map(asset) : []),
       { name: 'notes.txt', browser_download_url: `${DOWNLOAD}/${tag}/notes.txt` },
     ],
   };
@@ -78,6 +90,34 @@ describe("GitHub's newest release", () => {
       sha256: sha('Harness-Relay-2026-11-12.1-mac-arm64.dmg'),
     });
     expect(Object.keys(r.assets).sort()).toEqual(['linux', 'linux-arm64', 'mac', 'win', 'win-arm64']);
+  });
+
+  it("is fetched from each installer's copy for updates, so that GitHub counts updates apart, named as the installer", () => {
+    const r = parseRelease(githubRelease('2026-11-12.1', { copies: true }))!;
+    expect(r.assets.mac).toEqual({
+      name: 'Harness-Relay-2026-11-12.1-mac-arm64.dmg',
+      url: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-arm64-update.dmg`,
+      size: 1000,
+      sha256: sha('Harness-Relay-2026-11-12.1-mac-arm64-update.dmg'),
+    });
+    expect(r.assets.linux?.name).toBe('Harness-Relay-2026-11-12.1-linux-x86_64.AppImage');
+    expect(r.assets.linux?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-linux-x86_64-update.AppImage`);
+    expect(Object.values(r.assets).every((a) => a.url.includes('-update.'))).toBe(true);
+    // Whatever order GitHub lists them in.
+    const reversed = githubRelease('2026-11-12.1', { copies: true });
+    reversed.assets.reverse();
+    expect(parseRelease(reversed)!.assets.win?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-win-x64-update.exe`);
+    // A release made before there were copies: the installers themselves.
+    expect(parseRelease(githubRelease('2026-11-12.1'))!.assets.win?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-win-x64.exe`);
+    // A copy GitHub gives no checksum for is not taken over an installer it gives one for (the update would go by the release page).
+    const unchecked = githubRelease('2026-11-12.1', { copies: true });
+    for (const a of unchecked.assets) if (a.name.includes('-update.')) delete (a as { digest?: string }).digest;
+    expect(parseRelease(unchecked)!.assets.mac).toEqual({
+      name: 'Harness-Relay-2026-11-12.1-mac-arm64.dmg',
+      url: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-arm64.dmg`,
+      size: 1000,
+      sha256: sha('Harness-Relay-2026-11-12.1-mac-arm64.dmg'),
+    });
   });
 
   it('can be a release candidate, as the app was built for one; never a draft or a tag that is not a version of ours', () => {
@@ -110,6 +150,29 @@ describe("GitHub's newest release", () => {
     expect(newestRelease([githubRelease('2026-11-13', { draft: true })])).toBeUndefined();
     expect(newestRelease({ message: 'Not Found' })).toBeUndefined();
     expect(newestRelease(null)).toBeUndefined();
+  });
+
+  it('is a release, never a release candidate, for an app that is a release', () => {
+    const tags = (...list: string[]) => list.map((tag) => githubRelease(tag));
+    expect(newestRelease(tags('2026-11-13-rc', '2026-11-12.1', '2026-11-12'), false)?.version).toBe('2026-11-12.1');
+    expect(newestRelease(tags('2026-11-12.1-rc', '2026-11-12', '2026-11-12-rc.1'), false)?.version).toBe('2026-11-12');
+    expect(newestRelease(tags('2026-11-13-rc', '2026-11-13-rc.1'), false)).toBeUndefined();
+    expect(parseRelease(githubRelease('2026-11-12-rc'))?.candidate).toBe(true);
+    expect(parseRelease(githubRelease('2026-11-12.1'))?.candidate).toBe(false);
+  });
+
+  it('may be a release candidate for an app that is one, or a build of your own; a release takes releases only', () => {
+    expect(takesCandidates('2026.1112.0-rc')).toBe(true);
+    expect(takesCandidates('2026.1112.1-rc.2')).toBe(true);
+    expect(takesCandidates('2026.1110.0-dev')).toBe(true);
+    expect(takesCandidates('2026.1112.0')).toBe(false);
+    expect(takesCandidates('2026.1112.3')).toBe(false);
+    // A release candidate is offered the release it is a candidate of, and the next one.
+    expect(isNewer(newestRelease([githubRelease('2026-11-12'), githubRelease('2026-11-12-rc.1')], true), '2026.1112.0-rc.1')).toBe(true);
+    expect(isNewer(newestRelease([githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')], true), '2026.1112.0-rc.1')).toBe(true);
+    // A release is not offered the next day's candidate, only the next release.
+    expect(isNewer(newestRelease([githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')], false), '2026.1112.0')).toBe(false);
+    expect(isNewer(newestRelease([githubRelease('2026-11-13'), githubRelease('2026-11-13-rc')], false), '2026.1112.0')).toBe(true);
   });
 
   it('leaves out installers elsewhere, with a name that leaves its folder, or a checksum that is not SHA-256', () => {
@@ -159,10 +222,23 @@ describe("GitHub's newest release", () => {
         return new Response(JSON.stringify(body), { status });
       };
     expect((await checkLatest(answer(200, [githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')])))?.version).toBe('2026-11-13-rc');
-    expect(asked).toEqual([RELEASES_API]);
+    expect(asked[0]).toBe(RELEASES_API);
     expect(RELEASES_API).toBe('https://api.github.com/repos/Agentic-System-Lab/harness-relay/releases?per_page=20');
     expect(await checkLatest(answer(200, []))).toBeUndefined();
+    // A question that stalls is given up on (the app passes AbortSignal.timeout(CHECK_TIMEOUT_MS)), so the next check is not held back.
+    const stalled: Fetch = (_url, init) =>
+      new Promise((_, fail) => init?.signal?.addEventListener('abort', () => fail(init.signal!.reason), { once: true }));
+    await expect(checkLatest(stalled, { signal: AbortSignal.timeout(20) })).rejects.toThrow();
+    expect(CHECK_TIMEOUT_MS).toBe(30_000);
     expect(await checkLatest(answer(404, { message: 'Not Found' }))).toBeUndefined();
+    // A release asks for GitHub's latest release alone: found however many release candidates came out since.
+    asked.length = 0;
+    expect((await checkLatest(answer(200, githubRelease('2026-11-12.1')), { candidates: false }))?.version).toBe('2026-11-12.1');
+    expect(asked).toEqual([LATEST_RELEASE_API]);
+    expect(LATEST_RELEASE_API).toBe('https://api.github.com/repos/Agentic-System-Lab/harness-relay/releases/latest');
+    // Never a release candidate, should GitHub ever answer with one; none yet is no update.
+    expect(await checkLatest(answer(200, githubRelease('2026-11-13-rc')), { candidates: false })).toBeUndefined();
+    expect(await checkLatest(answer(404, { message: 'Not Found' }), { candidates: false })).toBeUndefined();
     await expect(checkLatest(answer(403, { message: 'rate limited' }))).rejects.toThrow('403');
   });
 
@@ -184,6 +260,85 @@ describe("GitHub's newest release", () => {
     expect(release.assets['win-arm64']).toMatchObject({ name: 'Harness-Relay-2026-11-12-win-arm64.exe', sha256: sha('Harness-Relay-2026-11-12-win-arm64.exe') });
     expect(release.assets['linux-arm64']?.name).toBe('Harness-Relay-2026-11-12-linux-arm64.AppImage');
     expect(release.assets.win?.name).toBe('Harness-Relay-2026-11-12-win-x64.exe');
+  });
+});
+
+describe('how often GitHub is asked', () => {
+  it('once an hour, of the 60 an hour GitHub allows an address without signing in', () => {
+    expect(CHECK_EVERY_MS).toBe(60 * 60_000);
+  });
+
+  it('asks only for a copy that updates itself, with no update nor check under way, and none asked too recently', () => {
+    const now = 10_000_000;
+    const ok = { updates: true, updating: false, checking: false, askedAt: undefined, now };
+    expect(checkNow(ok)).toBe(true);
+    expect(checkNow({ ...ok, updates: false })).toBe(false);
+    expect(checkNow({ ...ok, updating: true })).toBe(false);
+    expect(checkNow({ ...ok, checking: true })).toBe(false);
+    expect(checkNow({ ...ok, askedAt: now - 1000 })).toBe(false);
+    expect(checkNow({ ...ok, askedAt: now - MIN_CHECK_GAP_MS })).toBe(true);
+  });
+
+  it('at most every five minutes, also when the chat asks again sooner: at most 12 of the 60 an hour', () => {
+    const at = 1_000_000;
+    expect(mayAskGitHub(undefined, at)).toBe(true);
+    expect(mayAskGitHub(at, at + MIN_CHECK_GAP_MS - 1)).toBe(false);
+    expect(mayAskGitHub(at, at + MIN_CHECK_GAP_MS)).toBe(true);
+    expect(MIN_CHECK_GAP_MS).toBe(5 * 60_000);
+    // A clock set back does not stop it for good.
+    expect(mayAskGitHub(at, at - 5000)).toBe(true);
+  });
+});
+
+describe('what the chat is told of updates', () => {
+  const release = { version: '2026-11-12', semver: '2026.1112.0', page: 'https://github.com/x/y/releases/tag/2026-11-12', candidate: false, assets: {} };
+
+  it('is nothing more for a copy that does not update itself', () => {
+    expect(chatUpdate({ updates: false, update: release, updating: { kind: 'installing' }, checking: true, checkedAt: 1, checkFailed: true })).toEqual({ updates: false });
+  });
+
+  it('is the newer version, the update under way in whole percent, a check, when it last answered and whether the last one failed', () => {
+    expect(chatUpdate({ updates: true, checking: false, checkFailed: false })).toEqual({ updates: true });
+    expect(chatUpdate({ updates: true, update: release, updating: { kind: 'downloading', done: 0.429 }, checking: true, checkedAt: 5, checkFailed: true })).toEqual({
+      updates: true,
+      available: { version: '2026-11-12', page: release.page },
+      progress: { kind: 'downloading', percent: 42 },
+      checking: true,
+      checkedAt: 5,
+      checkFailed: true,
+    });
+    expect(chatUpdate({ updates: true, updating: { kind: 'waiting' }, checking: false, checkFailed: false }).progress).toEqual({ kind: 'waiting' });
+  });
+});
+
+describe('an update asked for more than once', () => {
+  it('runs once at a time: asked again meanwhile, it does nothing; asked after, it runs again', async () => {
+    let runs = 0;
+    let finish: () => void = () => {};
+    const update = oneAtATime(async () => {
+      runs++;
+      await new Promise<void>((done) => (finish = done));
+    });
+    const first = update();
+    await update(); // a second click while the first asks: nothing
+    expect(runs).toBe(1);
+    finish();
+    await first;
+    const again = update();
+    expect(runs).toBe(2);
+    finish();
+    await again;
+  });
+
+  it('can run again after one that failed', async () => {
+    let runs = 0;
+    const update = oneAtATime(async () => {
+      runs++;
+      throw new Error('download');
+    });
+    await expect(update()).rejects.toThrow('download');
+    await expect(update()).rejects.toThrow('download');
+    expect(runs).toBe(2);
   });
 });
 
@@ -251,6 +406,50 @@ describe('downloading an update', () => {
     const offline = await download({ fetch: async () => Promise.reject(new Error('offline')), asset, to }).catch((e: unknown) => e);
     expect((offline as UpdateError).failure).toBe('download');
     expect(existsSync(to)).toBe(false);
+  });
+
+  it('gives up on a download that goes without a byte for a while, keeping nothing, so the next update can start', async () => {
+    const to = join(dir, 'stalled.dmg');
+    // A connection that dropped: a first part comes, then nothing more (as fetch does, it stops when aborted).
+    const stalls: Fetch = async (_url, init) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(body.subarray(0, 100)));
+            init?.signal?.addEventListener('abort', () => controller.error(init.signal!.reason), { once: true });
+          },
+        }),
+        { headers: { 'content-length': String(body.length) } },
+      );
+    const err = (await download({ fetch: stalls, asset, to, stallMs: 50 }).catch((e: unknown) => e)) as UpdateError;
+    expect(err).toBeInstanceOf(UpdateError);
+    expect(err.failure).toBe('download');
+    expect(err.message).toMatch(/no data/);
+    expect(existsSync(`${to}.part`)).toBe(false);
+    // Also when no answer comes at all.
+    const silent: Fetch = (_url, init) => new Promise((_, fail) => init?.signal?.addEventListener('abort', () => fail(init.signal!.reason), { once: true }));
+    const none = (await download({ fetch: silent, asset, to, stallMs: 50 }).catch((e: unknown) => e)) as UpdateError;
+    expect(none.message).toMatch(/no data/);
+    expect(DOWNLOAD_STALL_MS).toBe(60_000);
+  });
+
+  it('keeps going as long as bytes keep coming, however long it takes', async () => {
+    const to = join(dir, 'slow.dmg');
+    // 18 parts 25 ms apart: the whole takes over twice the limit, each wait an eighth of it.
+    const slow: Fetch = async () =>
+      new Response(
+        new ReadableStream({
+          async start(controller) {
+            for (let at = 0; at < body.length; at += 1000) {
+              await new Promise((r) => setTimeout(r, 25));
+              controller.enqueue(new Uint8Array(body.subarray(at, at + 1000)));
+            }
+            controller.close();
+          },
+        }),
+      );
+    await download({ fetch: slow, asset, to, stallMs: 200 });
+    expect(readFileSync(to)).toEqual(body);
   });
 });
 

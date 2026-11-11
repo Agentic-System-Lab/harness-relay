@@ -3,7 +3,7 @@ import { ATTACHMENT_LIMITS, PROVIDER_LABEL, isInlineImage, type AgentConfig } fr
 import type { AttachmentUpload } from '../api';
 import { enterSends, isTouchScreen } from '../chat';
 import { useT } from '../i18n';
-import { PROVIDER_COLOR, formatBytes, initials } from '../util';
+import { PROVIDER_COLOR, formatBytes, initials, toBase64 } from '../util';
 import { insertTranscript } from '../voice';
 import { PaperclipIcon } from './icons';
 import { VoiceButton } from './VoiceInput';
@@ -13,15 +13,6 @@ interface Pending {
   file: File;
   /** Preview URL for images. */
   url?: string;
-}
-
-function toBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 /** Pasted screenshots are all called "image.png"; give them a time-stamped name. */

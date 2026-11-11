@@ -1,4 +1,15 @@
-import { PROVIDER_LABEL, isOpenProvider, type AgentConfig, type ConversationSummary, type LeadAgentSettings, type Provider, type ProviderModels } from '../shared/types';
+import {
+  PROVIDER_LABEL,
+  accountUsable,
+  isOpenProvider,
+  type AccountStatus,
+  type AgentConfig,
+  type ConversationSummary,
+  type LeadAgentSettings,
+  type Provider,
+  type ProviderModels,
+  type ProviderStatus,
+} from '../shared/types';
 import type { Messages } from './i18n';
 import type { ConvStatus } from './locales/zh-TW';
 
@@ -40,25 +51,56 @@ const AGENT_NAME: Record<Provider, string> = {
   pi: 'Pi',
 };
 
-/** A model and reasoning effort picked for one CLI ('' or absent: that CLI's default). */
+/** A model, reasoning effort and account picked for one CLI ('' or absent: that CLI's default). */
 export interface ModelChoice {
   model?: string;
   effort?: string;
+  account?: string;
 }
 
 /**
- * Switching an agent (or the lead agent) to another CLI. Models and efforts belong to a CLI, so they
- * cannot carry over; instead the ones picked for the CLI being left are kept, and the ones picked
- * earlier for the CLI switched to come back — switching away and back loses nothing.
+ * Switching an agent (or the lead agent) to another CLI. Models, efforts and accounts belong to a CLI,
+ * so they cannot carry over; instead the ones picked for the CLI being left are kept, and the ones
+ * picked earlier for the CLI switched to come back — switching away and back loses nothing.
  */
 export function switchProvider<T extends { provider: Provider } & ModelChoice>(
   current: T,
   next: Provider,
   kept: Partial<Record<Provider, ModelChoice>>,
 ): { value: T; kept: Partial<Record<Provider, ModelChoice>> } {
-  const remembered = { ...kept, [current.provider]: { model: current.model ?? '', effort: current.effort ?? '' } };
+  const leaving: ModelChoice = { model: current.model ?? '', effort: current.effort ?? '', ...(current.account ? { account: current.account } : {}) };
+  const remembered = { ...kept, [current.provider]: leaving };
   const back = remembered[next];
-  return { value: { ...current, provider: next, model: back?.model ?? '', effort: back?.effort ?? '' }, kept: remembered };
+  // Accounts belong to a CLI too.
+  const { account: _left, ...rest } = current;
+  const value = { ...rest, provider: next, model: back?.model ?? '', effort: back?.effort ?? '', ...(back?.account ? { account: back.account } : {}) };
+  return { value: value as T, kept: remembered };
+}
+
+/** An account's name in the UI: the name the user gave it, else "Default" for the default account. */
+export function accountName(a: Pick<AccountStatus, 'id' | 'label'>, t: Messages): string {
+  return a.label || (a.id ? t.accounts.unnamed(a.id) : t.accounts.default);
+}
+
+/**
+ * The account an agent (or the lead agent) runs as, as its CLI's status lists it: the one it names
+ * while the CLI has it, else the default account (also when it names one that was removed).
+ */
+export function accountOf(status: ProviderStatus | undefined, account: string | undefined): AccountStatus | undefined {
+  return status?.accounts.find((a) => a.id === account) ?? status?.accounts[0];
+}
+
+/** Whether an agent can run as its account: the CLI is installed, and that account signed in (or has a key). */
+export function accountState(status: ProviderStatus | undefined, account: string | undefined): 'ok' | 'warn' | 'off' {
+  if (!status || !status.installed) return 'off';
+  const a = accountOf(status, account);
+  return !a || accountUsable(a) ? 'ok' : 'warn';
+}
+
+/** The account a new member of a CLI runs as: the default one, unless it is not ready and another one is. */
+export function readyAccount(status: ProviderStatus | undefined): string | undefined {
+  const ready = status?.installed ? status.accounts.find(accountUsable) : undefined;
+  return ready?.id || undefined;
 }
 
 export function newAgent(provider: Provider, taken: string[]): AgentConfig {
@@ -66,6 +108,27 @@ export function newAgent(provider: Provider, taken: string[]): AgentConfig {
   let name = base;
   for (let i = 2; taken.some((t) => t.toLowerCase() === name.toLowerCase()); i++) name = `${base}${i}`;
   return { id: crypto.randomUUID(), name, provider, role: '' };
+}
+
+/** A file's contents as base64, as the API takes files (a browser's FileReader: not for tests). */
+export function toBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * A signal that aborts after `ms`, as AbortSignal.timeout() does, and `clear` to stop its timer once the
+ * request is done. Made by hand rather than with AbortSignal.timeout() (Safari 16); the client as a whole
+ * needs Safari 16.4 anyway (RegExp lookbehind in src/shared/links.ts, and Vite's default build target).
+ */
+export function timeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException('The request timed out.', 'TimeoutError')), ms);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
 export function formatBytes(bytes: number): string {

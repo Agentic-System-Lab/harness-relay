@@ -57,6 +57,18 @@ describe('the desktop app, seen from the server', () => {
     ]);
   });
 
+  it("hears what the app says of its updates, and nothing that is not that", () => {
+    const fake = fakePort();
+    const parent = desktopParent({ parentPort: fake.port })!;
+    const heard: unknown[] = [];
+    parent.onUpdate((u) => heard.push(u));
+    fake.deliver({ type: 'update' });
+    fake.deliver({ type: 'busy' });
+    fake.deliver({ type: 'update', update: { updates: true, checking: true } });
+    expect(heard).toEqual([{ updates: true, checking: true }]);
+    expect(fake.sent).toEqual([]);
+  });
+
   it('answers each question of how many conversations have agents at work, as it is then', () => {
     const fake = fakePort();
     const parent = desktopParent({ parentPort: fake.port })!;

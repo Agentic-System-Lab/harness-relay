@@ -269,6 +269,31 @@ function leftoverLink(id: string, htmlUrl?: string): ShareLink {
   return { id, url: '', gistUrl: htmlUrl ?? '' };
 }
 
+/** A gist's page on GitHub, when GitHub gave no address for it (github.com takes the id alone). */
+export function gistPage(id: string, htmlUrl?: string): string {
+  return htmlUrl ?? `https://gist.github.com/${id}`;
+}
+
+/**
+ * What the user is told when a files gist fails: it was deleted again (`undone`), it is still on GitHub
+ * (`leftover`, at `url`), or whether it was made cannot be told (`unknown`); and that it is not on
+ * github.com (`notGithub`). A share says it of its page's files, a problem report of its screenshots.
+ */
+export interface FilesGistWords {
+  undone: (detail: string) => string;
+  leftover: (detail: string, url: string) => string;
+  unknown: (detail: string, token: string) => string;
+  notGithub: string;
+}
+
+/** A shared page's files (in the request's language, so made per call). */
+const shareWords = (): FilesGistWords => ({
+  undone: t().shareFilesUndone,
+  leftover: (detail) => t().shareFilesLeftover(detail),
+  unknown: t().shareFilesUnknown,
+  notGithub: t().shareNotGithub,
+});
+
 /** Creates the page's gist: one index.html, read from stdin. */
 async function createPageGist(html: string, description: string, run: (o: SpawnOptions) => Promise<SpawnResult>): Promise<ShareLink> {
   const r = await gh(run, gistArgs(description), html);
@@ -286,19 +311,25 @@ async function dropFilesGist(
   run: (o: SpawnOptions) => Promise<SpawnResult>,
   gist: { id: string; url?: string },
   reason: ShareError,
+  words: FilesGistWords,
 ): Promise<never> {
   const d = await gh(run, deleteGistArgs(gist.id)).catch(() => undefined);
-  if (d?.code === 0) throw new ShareError(t().shareFilesUndone(reason.message), reason.code);
-  throw new ShareError(t().shareFilesLeftover(reason.message), undefined, leftoverLink(gist.id, gist.url));
+  if (d?.code === 0) throw new ShareError(words.undone(reason.message), reason.code);
+  throw new ShareError(words.leftover(reason.message, gistPage(gist.id, gist.url)), undefined, leftoverLink(gist.id, gist.url));
 }
 
 /**
  * gh could not say whether it made the files gist (it timed out, or printed nothing to go on): looks
  * for it by the share's token among the user's latest gists, and deletes what it finds.
  */
-async function dropLostFilesGist(run: (o: SpawnOptions) => Promise<SpawnResult>, token: string, reason: ShareError): Promise<never> {
+async function dropLostFilesGist(
+  run: (o: SpawnOptions) => Promise<SpawnResult>,
+  token: string,
+  reason: ShareError,
+  words: FilesGistWords,
+): Promise<never> {
   const r = await gh(run, findGistArgs(token)).catch(() => undefined);
-  if (r?.code !== 0) throw new ShareError(t().shareFilesUnknown(reason.message, token));
+  if (r?.code !== 0) throw new ShareError(words.unknown(reason.message, token));
   const found = parseFoundGists(r.stdout);
   if (!found.length) throw reason; // none was made
   let left: { id: string; url: string } | undefined;
@@ -306,8 +337,10 @@ async function dropLostFilesGist(run: (o: SpawnOptions) => Promise<SpawnResult>,
     const d = await gh(run, deleteGistArgs(g.id)).catch(() => undefined);
     if (d?.code !== 0) left ??= g;
   }
-  if (left) throw new ShareError(t().shareFilesLeftover(reason.message), undefined, leftoverLink(left.id, left.url || undefined));
-  throw new ShareError(t().shareFilesUndone(reason.message), reason.code);
+  if (left) {
+    throw new ShareError(words.leftover(reason.message, gistPage(left.id, left.url || undefined)), undefined, leftoverLink(left.id, left.url || undefined));
+  }
+  throw new ShareError(words.undone(reason.message), reason.code);
 }
 
 // --- Pushing the files into their gist ---------------------------------------------------
@@ -498,7 +531,7 @@ async function pushedUrls(
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** How shareToGist goes about a share with files (all optional: tests set them). */
+/** How shareToGist goes about a share with files, and filesToGist about its gist (all optional: tests set them). */
 export interface ShareOptions {
   /** Marks the files gist (filesGistDescription); a new one when not given. */
   token?: string;
@@ -511,6 +544,50 @@ export interface ShareOptions {
   onFilesGist?: (gist: ShareLink) => void;
   /** Where the temporary clone goes (pushToGist). */
   tmpRoot?: string;
+  /**
+   * Whether filesToGist reads back each file's raw URL (the default: a share's page links to them). A
+   * report's screenshots need only the gist's page, so GitHub being slow to list them fails nothing.
+   */
+  readBack?: boolean;
+}
+
+/**
+ * A secret gist of `files` alone (`run` spawns `gh` and `git`, fakes in tests): `gh api` creates it
+ * with a placeholder, described with a token (filesGistDescription), git pushes the files into it (a
+ * gist made through GitHub's API holds text only), then `gh api` reads back each file's raw URL (none
+ * with `readBack: false`: `urls` is then empty). If
+ * the files cannot go up, the gist is deleted again; if that fails too, the error says so (`words`) and
+ * carries it (`leftover`). When gh cannot say whether it made the gist, it is looked for by its token.
+ */
+export async function filesToGist(
+  description: string,
+  files: GistUpload[],
+  run: (o: SpawnOptions) => Promise<SpawnResult> = runProcess,
+  o: ShareOptions = {},
+  words: FilesGistWords = shareWords(),
+): Promise<{ gist: { id: string; url?: string }; urls: string[] }> {
+  checkNames(files); // before anything is made
+  const token = o.token ?? shareToken();
+
+  const r = await gh(run, createGistArgs(), createGistBody(filesGistDescription(description, token)));
+  const created = r.code === 0 ? parseCreatedGist(r.stdout) : undefined;
+  if (!created?.id) {
+    // GitHub said no: nothing was made.
+    if (r.code !== 0 && !r.timedOut) throw await ghFailure(run, r);
+    return dropLostFilesGist(run, token, new ShareError(t().shareFailed(r.timedOut ? t().timedOut : t().shareNoUrl)), words);
+  }
+  const gist = { id: created.id, url: created.htmlUrl };
+  let urls: (string | undefined)[];
+  try {
+    o.onFilesGist?.(leftoverLink(gist.id, gist.url));
+    if (!created.link) throw new ShareError(words.notGithub);
+    await pushToGist(created.id, files, run, o.tmpRoot);
+    urls = o.readBack === false ? [] : await pushedUrls(run, created.id, files, o.wait ?? sleep);
+  } catch (err) {
+    return dropFilesGist(run, gist, err instanceof ShareError ? err : new ShareError((err as Error).message), words);
+  }
+  if (urls.some((u) => !u)) return dropFilesGist(run, gist, new ShareError(t().shareNoFileUrl), words);
+  return { gist, urls: urls as string[] };
 }
 
 /**
@@ -518,16 +595,14 @@ export interface ShareOptions {
  * the page (index.html). With `files`, whose places the page's placeholder links (src/shared/share.ts)
  * name, two secret gists:
  *
- * 1. the files: `gh api` creates the gist with a placeholder, described with `token`, and git pushes
- *    the files into it (a gist made through GitHub's API holds text only), then `gh api` reads back
- *    each file's raw URL;
+ * 1. the files (filesToGist), with each file's raw URL;
  * 2. the page, as without files, its links pointing at those raw URLs.
  *
  * They are kept apart because GitHub's API, which gistpreview reads, gives a gist's files only so much
  * content in all (about 900 KB in a real test), in name order: in one gist, a large file named before
  * index.html left the page's content empty, and gistpreview showed a blank page. If the files or the
  * page cannot go up, the files gist is deleted again; if that fails too, the error says so and carries
- * it (`leftover`). When gh cannot say whether it made the files gist, it is looked for by its token.
+ * it (`leftover`).
  */
 export async function shareToGist(
   html: string,
@@ -537,34 +612,15 @@ export async function shareToGist(
   o: ShareOptions = {},
 ): Promise<ShareLink> {
   if (!files.length) return createPageGist(html, description, run);
-  checkNames(files); // before anything is made
-  const token = o.token ?? shareToken();
-
-  const r = await gh(run, createGistArgs(), createGistBody(filesGistDescription(description, token)));
-  const created = r.code === 0 ? parseCreatedGist(r.stdout) : undefined;
-  if (!created?.id) {
-    // GitHub said no: nothing was made.
-    if (r.code !== 0 && !r.timedOut) throw await ghFailure(run, r);
-    return dropLostFilesGist(run, token, new ShareError(t().shareFailed(r.timedOut ? t().timedOut : t().shareNoUrl)));
-  }
-  const gist = { id: created.id, url: created.htmlUrl };
-  let urls: (string | undefined)[];
-  try {
-    o.onFilesGist?.(leftoverLink(gist.id, gist.url));
-    if (!created.link) throw new ShareError(t().shareNotGithub);
-    await pushToGist(created.id, files, run, o.tmpRoot);
-    urls = await pushedUrls(run, created.id, files, o.wait ?? sleep);
-  } catch (err) {
-    return dropFilesGist(run, gist, err instanceof ShareError ? err : new ShareError((err as Error).message));
-  }
-  if (urls.some((u) => !u)) return dropFilesGist(run, gist, new ShareError(t().shareNoFileUrl));
+  const words = shareWords();
+  const { gist, urls } = await filesToGist(description, files, run, o, words);
   const page = replaceFileLinks(html, (n) => urls[n]);
   const bytes = Buffer.byteLength(page);
-  if (bytes > SHARE_MAX_BYTES) return dropFilesGist(run, gist, new ShareError(t().shareTooLarge((bytes / 1_000_000).toFixed(1))));
+  if (bytes > SHARE_MAX_BYTES) return dropFilesGist(run, gist, new ShareError(t().shareTooLarge((bytes / 1_000_000).toFixed(1))), words);
   try {
     return { ...(await createPageGist(page, description, run)), filesGist: gist.id };
   } catch (err) {
-    return dropFilesGist(run, gist, err instanceof ShareError ? err : new ShareError((err as Error).message));
+    return dropFilesGist(run, gist, err instanceof ShareError ? err : new ShareError((err as Error).message), words);
   }
 }
 

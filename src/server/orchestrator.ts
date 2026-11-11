@@ -205,7 +205,8 @@ function questionStart(messages: ChatMessage[]): number {
 
 /** Where the lead agent's choices come from (signed-in CLIs, their models, the templates). */
 export interface PlannerSource {
-  context(): Promise<PlannerContext>;
+  /** What the lead may choose from; with `cwd`, also what each CLI loads by itself there. */
+  context(cwd?: string): Promise<PlannerContext>;
   /**
    * The model an open agent with none of its own runs on: the one its model picker shows as the
    * default (Settings' default, else its CLI catalog's default on a configured backend). The other
@@ -432,17 +433,17 @@ export class Orchestrator {
       store,
       settings,
       (conv, provider, sessionId) => this.linkSession(conv, provider, sessionId),
-      (p, chosen) => this.modelFor(p, chosen),
+      (p, chosen, account) => this.modelFor(p, chosen, account),
     );
   }
 
   /**
-   * The model a run of `p` gets: the one chosen, else Settings' default; for an open agent with
+   * The model a run of `p` (as `account`) gets: the one chosen, else that account's default in Settings; for an open agent with
    * neither, the default its model picker shows (`PlannerSource.defaultModel`), so that what runs is
    * what the picker said. Undefined: the CLI decides (an open agent then says to pick one).
    */
-  async modelFor(p: Provider, chosen?: string): Promise<string | undefined> {
-    const model = chosen?.trim() || this.settings.defaultModel(p);
+  async modelFor(p: Provider, chosen?: string, account?: string): Promise<string | undefined> {
+    const model = chosen?.trim() || this.settings.defaultModel(p, account);
     if (model || !isOpenProvider(p) || !this.planner.defaultModel) return model || undefined;
     try {
       return (await this.planner.defaultModel(p)) || undefined;
@@ -1182,11 +1183,11 @@ export class Orchestrator {
   }
 
   /**
-   * Folders snapshots never take in: the CLIs' own homes, with their sign-ins and transcripts (the open
-   * agents' are in Harness Relay's data folder when no agent-home folder is set).
+   * Folders snapshots never take in: the CLIs' own homes and every account's, with their sign-ins and
+   * transcripts (the open agents' are in Harness Relay's data folder when no agent-home folder is set).
    */
   private snapshotExcludes(): string[] {
-    return this.settings.agentHome ? [this.settings.agentHome] : [OPEN_HOMES_DIR];
+    return [...new Set([...(this.settings.agentHome ? [this.settings.agentHome] : [OPEN_HOMES_DIR]), ...this.settings.accountHomes()])];
   }
 
   /** Send the conversation to AgentsView, unless it is being deleted (a run winding down after the delete). */
@@ -1436,14 +1437,14 @@ export class Orchestrator {
     let decision: PlanDecision | undefined;
     let result: RunResult | undefined;
     try {
-      ctx = await this.planner.context();
+      ctx = await this.planner.context(conv.settings.cwd);
       let reply = '';
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
-        env: this.settings.env(lead.provider),
+        env: this.settings.env(lead.provider, lead.account),
         backends: this.settings.backendsFor(lead.provider),
-        nativeOff: this.settings.nativeOff(lead.provider),
-        nativeItems: this.settings.nativeItems(lead.provider),
+        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
+        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildPlannerPrompt(question, conv.settings, ctx, {
           history,
@@ -1454,8 +1455,8 @@ export class Orchestrator {
         cwd: conv.settings.cwd,
         permission: 'read-only',
         stateKey: stateKeys.lead(conv.id),
-        model: await this.modelFor(lead.provider, lead.model),
-        effort: lead.effort || this.settings.defaultEffort(lead.provider) || undefined,
+        model: await this.modelFor(lead.provider, lead.model, lead.account),
+        effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
         signal: run.abort.signal,
         onEvent: (e) => {
           if (e.type === 'text') reply += e.text;
@@ -1645,14 +1646,15 @@ export class Orchestrator {
     let result: RunResult;
     let ctx: PlannerContext;
     try {
-      ctx = await this.planner.context();
+      // The folder the team will work in: the drawer's, saved or not.
+      ctx = await this.planner.context(place.cwd);
       if (signal.aborted) throw stopped();
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
-        env: this.settings.env(lead.provider),
+        env: this.settings.env(lead.provider, lead.account),
         backends: this.settings.backendsFor(lead.provider),
-        nativeOff: this.settings.nativeOff(lead.provider),
-        nativeItems: this.settings.nativeItems(lead.provider),
+        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
+        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildRevisePrompt(request, draft, place, ctx, {
           history: historyForLead(conv.messages),
@@ -1669,8 +1671,8 @@ export class Orchestrator {
         cwd: conv.settings.cwd,
         stateKey: stateKeys.revise(conv.id),
         permission: 'read-only',
-        model: await this.modelFor(lead.provider, lead.model),
-        effort: lead.effort || this.settings.defaultEffort(lead.provider) || undefined,
+        model: await this.modelFor(lead.provider, lead.model, lead.account),
+        effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
         signal,
         onEvent: (e) => {
           if (e.type === 'text') reply += e.text;
@@ -1900,11 +1902,16 @@ export class Orchestrator {
   private async turn(conv: Conversation, agent: AgentConfig, run: Run, info: TurnInfo): Promise<ChatMessage> {
     const state: AgentSessionState = (conv.agentState[agent.id] ??= { seen: [] });
     const lastProvider = state.provider;
-    if (state.provider && state.provider !== agent.provider) {
+    // The account it runs as: one that was removed is the default account. A session is kept in its
+    // CLI's home, which is the account's, so another CLI or another account starts a new one.
+    const account = this.settings.resolveAccount(agent.provider, agent.account);
+    if (state.provider && (state.provider !== agent.provider || (state.account ?? '') !== account)) {
       state.sessionId = undefined;
       state.seen = [];
     }
     state.provider = agent.provider;
+    if (account) state.account = account;
+    else delete state.account;
     // A member whose CLI's latest run had a lower permission (read-only → edit → full; not recorded
     // counts as read-only) does not resume its session: it starts a fresh one with the whole history
     // from Harness Relay's own record, and an open agent's state folder (one per CLI and member) is
@@ -2165,15 +2172,16 @@ export class Orchestrator {
       state.seen = [...state.seen, ...delta.map((m) => m.id)];
       // Read on every turn, so library changes reach agents at their next turn.
       const tools = this.settings.tools.forAgent(agent);
-      const nativeOff = this.settings.nativeOff(agent.provider);
-      const nativeItems = this.settings.nativeItems(agent.provider);
+      // The account's own: its home has its own skills, MCP servers and hooks.
+      const nativeOff = this.settings.nativeOff(agent.provider, account);
+      const nativeItems = this.settings.nativeItems(agent.provider, account);
       const freshState = emptyState;
       emptyState = false;
-      const model = await this.modelFor(agent.provider, agent.model);
+      const model = await this.modelFor(agent.provider, agent.model, account);
       try {
         const result = await runners[agent.provider].run({
           bin: this.settings.bin(agent.provider),
-          env: this.settings.env(agent.provider),
+          env: this.settings.env(agent.provider, account),
           backends: this.settings.backendsFor(agent.provider),
           nativeOff,
           nativeItems,
@@ -2186,7 +2194,7 @@ export class Orchestrator {
           stateKey: stateKeys.member(conv.id, agent.id),
           freshState,
           model,
-          effort: agent.effort?.trim() || this.settings.defaultEffort(agent.provider) || undefined,
+          effort: agent.effort?.trim() || this.settings.defaultEffort(agent.provider, account) || undefined,
           signal: run.abort.signal,
           onEvent,
           requestApproval,
