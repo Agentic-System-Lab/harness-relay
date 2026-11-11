@@ -7,7 +7,7 @@ import { PROVIDERS, type Provider } from '../shared/types';
 export type Route = { page: 'new' } | { page: 'schedule' } | { page: 'chat'; id: string } | { page: 'settings'; section?: SettingsSection };
 
 /** The cards of the settings page, in page order; each is the element `settings-<section>`. */
-export const SETTINGS_SECTIONS = ['language', 'appearance', ...PROVIDERS, 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'browsers', 'tour'] as const;
+export const SETTINGS_SECTIONS = ['version', 'language', 'appearance', ...PROVIDERS, 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'browsers', 'tour'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export function routeFromHash(hash: string): Route {

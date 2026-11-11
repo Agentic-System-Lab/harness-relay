@@ -9,6 +9,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
+import { aboutInfo, relayVersion } from './about';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
   DEFAULT_ACCOUNT,
@@ -30,6 +31,7 @@ import {
   type ConversationSchedule,
   type Provider,
   type ServerEvent,
+  type ReportScreenshots,
   type ShareLink,
   type SharedPage,
   type TeamPreset,
@@ -61,6 +63,8 @@ import {
   type FoundShareFile,
   type GistUpload,
 } from './share';
+import { parseScreenshots, uploadScreenshots } from './screenshots';
+import { Updates } from './updates';
 import type { Store } from './store';
 import {
   ensureFolder,
@@ -112,6 +116,8 @@ export interface AppDeps {
    * pointed at the app's menu (which opens a new sign-in link) instead of the link printed at start.
    */
   desktopApp?: boolean;
+  /** This Harness Relay's version, for a problem report (`about.ts`; a fake in tests). */
+  version?: () => Promise<string>;
   /**
    * Puts a shared conversation's page on the web, with the files it takes along (its placeholder links
    * name them by their place in `files`), and takes it down (secret gists through `gh`; fakes in tests).
@@ -119,6 +125,13 @@ export interface AppDeps {
   gists?: {
     /** `onFilesGist`: told of the files gist as soon as it is made, as it would be left without a page. */
     create(html: string, description: string, files?: GistUpload[], onFilesGist?: (gist: ShareLink) => void): Promise<ShareLink>;
+    remove(id: string): Promise<void>;
+  };
+  /** The desktop app's updates (`updates.ts`); none when it is not given. */
+  updates?: Updates;
+  /** Puts a problem report's screenshots on GitHub as a secret gist, and deletes it again (`gh`; fakes in tests). */
+  screenshotGists?: {
+    upload(files: GistUpload[]): Promise<ReportScreenshots>;
     remove(id: string): Promise<void>;
   };
 }
@@ -166,12 +179,17 @@ export function createApp({
   agentsView,
   extraHosts = [],
   desktopApp = false,
+  version = relayVersion,
   gists = {
     create: (html, description, files, onFilesGist) => shareToGist(html, description, undefined, files, { onFilesGist }),
     remove: unshareGist,
   },
+  screenshotGists = { upload: (files) => uploadScreenshots(files), remove: unshareGist },
+  updates = new Updates(undefined, version),
 }: AppDeps): Hono {
   const app = new Hono();
+  /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
+  const screenshots = new Set<string>();
   /**
    * The files gists of the shares being made: recorded as unfinished as soon as they exist, but not
    * listed, nor removed, until their share is done (after a restart, one left so is listed).
@@ -469,6 +487,39 @@ export function createApp({
   });
 
   app.get('/api/providers', async (c) => c.json(await providers.statusAll(c.req.query('refresh') === '1')));
+
+  // Which Harness Relay this is, and on what, for a problem report the user sends by email.
+  app.get('/api/about', async (c) => c.json(await aboutInfo(desktopApp, version)));
+
+  // The desktop app's updates: this version, a newer one, an update under way (only the version for
+  // `npm start`). Settings' "Check again" has the app ask GitHub now; Update has it ask the user, in its
+  // own dialog on the computer it runs on, then update as from its menu.
+  app.get('/api/update', async (c) => c.json(await updates.status()));
+  app.post('/api/update/check', async (c) => c.json(await updates.check()));
+  app.post('/api/update/install', (c) => {
+    const asked = updates.install();
+    if (asked !== 'asked') throw new HttpError(409, asked === 'under-way' ? t().updateUnderWay : t().updateNone);
+    return c.json({ ok: true });
+  });
+
+  // A problem report's screenshots, which a mail link cannot carry: one secret gist of them, uploaded
+  // with the user's GitHub CLI when they press Upload, its page the link the mail carries. Deleting it
+  // again (Remove upload) takes only one uploaded here since the server started.
+  app.post('/api/report/screenshots', async (c) => {
+    const b = await body<{ files?: unknown }>(c);
+    const files = parseScreenshots(b.files);
+    const shots = await gistCall(() => screenshotGists.upload(files));
+    screenshots.add(shots.id);
+    return c.json(shots);
+  });
+
+  app.delete('/api/report/screenshots/:id', async (c) => {
+    const id = c.req.param('id');
+    if (!validGistId(id) || !screenshots.has(id)) throw new HttpError(404, t().reportShotsNotFound);
+    await gistCall(() => screenshotGists.remove(id));
+    screenshots.delete(id);
+    return c.json({ ok: true });
+  });
 
   app.get('/api/models', async (c) => c.json(await providers.modelsAll(c.req.query('refresh') === '1')));
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AccountStatus, ProviderStatus } from '../src/shared/types';
 import { en } from '../src/web/locales/en';
-import { accountName, accountOf, accountState, readyAccount, switchProvider } from '../src/web/util';
+import { accountName, accountOf, accountState, readyAccount, switchProvider, timeoutSignal } from '../src/web/util';
 
 describe('switching an agent to another CLI', () => {
   it('restores the model and effort picked for a CLI when switching back to it', () => {
@@ -79,5 +79,22 @@ describe("an agent's account", () => {
     expect(accountName({ id: '', label: '' }, en)).toBe('Default account');
     expect(accountName({ id: '', label: 'Personal' }, en)).toBe('Personal');
     expect(accountName({ id: 'ab12cd34', label: '' }, en)).toBe('Account ab12cd34');
+  });
+});
+
+describe('a timeout signal', () => {
+  it('aborts after its time, as AbortSignal.timeout() does', async () => {
+    const { signal } = timeoutSignal(20);
+    expect(signal.aborted).toBe(false);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(signal.aborted).toBe(true);
+    expect((signal.reason as DOMException).name).toBe('TimeoutError');
+  });
+
+  it('does not abort once cleared, the request being done', async () => {
+    const { signal, clear } = timeoutSignal(20);
+    clear();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(signal.aborted).toBe(false);
   });
 });

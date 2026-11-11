@@ -91,6 +91,27 @@ export function newAgent(provider: Provider, taken: string[]): AgentConfig {
   return { id: crypto.randomUUID(), name, provider, role: '' };
 }
 
+/** A file's contents as base64, as the API takes files (a browser's FileReader: not for tests). */
+export function toBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * A signal that aborts after `ms`, as AbortSignal.timeout() does, and `clear` to stop its timer once the
+ * request is done. Made by hand rather than with AbortSignal.timeout() (Safari 16); the client as a whole
+ * needs Safari 16.4 anyway (RegExp lookbehind in src/shared/links.ts, and Vite's default build target).
+ */
+export function timeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException('The request timed out.', 'TimeoutError')), ms);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;

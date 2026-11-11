@@ -1,6 +1,7 @@
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT } from '../shared/types';
 import type {
+  AboutInfo,
   AgentConfig,
   ApprovalAnswer,
   AuthSessionView,
@@ -23,6 +24,7 @@ import type {
   ProviderModels,
   ProviderSettingsUpdate,
   ProviderStatus,
+  ReportScreenshots,
   ScheduleUpdate,
   SearchResult,
   SettingsUpdate,
@@ -36,6 +38,7 @@ import type {
   TeamRevision,
   ToolLibraryUpdate,
   ToolLibraryView,
+  UpdateStatus,
   VoiceModelId,
   VoiceSettingsUpdate,
   VoiceStatus,
@@ -44,6 +47,7 @@ import type {
 } from '../shared/types';
 import { clearKey, readKey, writeKey } from './auth';
 import { currentLang } from './i18n';
+import { timeoutSignal } from './util';
 
 /** An account in a URL path: its id, or `default` for the default account. */
 const accountPath = (account: string) => encodeURIComponent(account || DEFAULT_ACCOUNT);
@@ -279,6 +283,29 @@ export const api = {
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),
   providers: (refresh = false) => request<ProviderStatus[]>('GET', `/api/providers${refresh ? '?refresh=1' : ''}`),
+  /**
+   * Which Harness Relay this is, and on what, for a problem report. Given up on after 10 s: the report
+   * then says the server did not answer, instead of waiting for good.
+   */
+  about: async () => {
+    const timeout = timeoutSignal(10_000);
+    try {
+      return await request<AboutInfo>('GET', '/api/about', undefined, timeout.signal);
+    } finally {
+      timeout.clear();
+    }
+  },
+  /** This version, and the desktop app's updates (only the version otherwise). */
+  update: () => request<UpdateStatus>('GET', '/api/update'),
+  /** Has the desktop app ask GitHub for a new version now (at most every five minutes); what it knows once it has. */
+  checkUpdate: () => request<UpdateStatus>('POST', '/api/update/check'),
+  /** Has the desktop app update to the newer version: it asks the user first, in its own dialog. */
+  installUpdate: () => request<{ ok: true }>('POST', '/api/update/install'),
+  /** A problem report's screenshots (each base64) up to GitHub, as a secret gist through the user's gh. */
+  uploadScreenshots: (images: string[]) =>
+    request<ReportScreenshots>('POST', '/api/report/screenshots', { files: images.map((data) => ({ data })) }),
+  /** Deletes the screenshots' gist again (one uploaded since the server started). */
+  removeScreenshots: (id: string) => request<{ ok: true }>('DELETE', `/api/report/screenshots/${encodeURIComponent(id)}`),
   /** What a CLI loads by itself in an account's home (empty: the default account's), with what its runs leave out. */
   nativeSetup: (p: Provider, refresh = false, account = '') =>
     request<NativeSetup>('POST', `/api/providers/${p}/native${accountQuery(account)}`, { refresh }),

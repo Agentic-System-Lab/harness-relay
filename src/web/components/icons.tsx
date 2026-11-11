@@ -214,3 +214,24 @@ export function MoreIcon({ size }: { size?: number }) {
     </Svg>
   );
 }
+
+/** A speech bubble with an exclamation mark: report a problem. */
+export function ReportIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <path d="M12 7v3" />
+      <path d="M12 13.5h.01" />
+    </Svg>
+  );
+}
+
+/** An envelope: send by email. */
+export function MailIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3.5 6.5 8.5 6 8.5-6" />
+    </Svg>
+  );
+}

@@ -1134,6 +1134,38 @@ export const ACCOUNT_ID_RE = /^[a-z0-9]{1,32}$/;
 export const DEFAULT_ACCOUNT = 'default';
 
 /**
+ * What the server says about itself (`GET /api/about`), for a problem report: no paths, no names.
+ * `version`: the release (or dev build) the desktop app was built as, else `source (<commit>)`.
+ */
+export interface AboutInfo {
+  version: string;
+  /** Started by the desktop app, not `npm start`. */
+  desktop: boolean;
+  /** "darwin 25.6.0 (arm64)". */
+  os: string;
+  /** "v24.1.0". */
+  node: string;
+}
+
+/** A problem report's screenshots: at most this many, each this large (`POST /api/report/screenshots`). */
+export const REPORT_SCREENSHOT_LIMITS = { maxFiles: 5, maxBytes: 10 * 1024 * 1024 };
+
+/**
+ * The kinds of image a report's screenshot may be: the usual ones for screenshots and photos (the server
+ * goes by its bytes, not by what it says it is). Not GIF, nor a JPEG saved as .jfif.
+ */
+export const REPORT_SCREENSHOT_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+
+/** The file name endings a report's screenshot may have, for the file picker (a pasted image has none). */
+export const REPORT_SCREENSHOT_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
+
+/** A problem report's screenshots, uploaded: their secret gist, and its page on GitHub (which shows them). */
+export interface ReportScreenshots {
+  id: string;
+  url: string;
+}
+
+/**
  * Where Harness Relay keeps API keys: the operating system's credential store (macOS Keychain,
  * Windows Credential Manager, Linux Secret Service) or, when there is none, its database.
  */
@@ -1412,13 +1444,44 @@ export interface VoiceSettingsUpdate {
 
 // --- The desktop app (desktop/) and the server it runs in an Electron utility process ---------
 
+/** An update of the desktop app under way: downloading, being checked and put in place, or waiting for the conversations. */
+export type UpdateProgress = { kind: 'downloading'; percent: number } | { kind: 'installing' } | { kind: 'waiting' };
+
+/** What the desktop app says of its updates (desktop/src/update.ts), each time that changes. */
+export interface DesktopUpdate {
+  /** Whether this copy updates itself (a packaged app, RELAY_UPDATES not off): nothing else is set when not. */
+  updates: boolean;
+  /** A newer release with an installer for this system: its version, and its page on GitHub. */
+  available?: { version: string; page: string };
+  progress?: UpdateProgress;
+  /** GitHub is being asked now. */
+  checking?: boolean;
+  /** When GitHub last answered (ms since the epoch). */
+  checkedAt?: number;
+  /** The last check could not reach GitHub (offline, or its hourly limit): the next one tries again. */
+  checkFailed?: boolean;
+  /**
+   * The chat's checks (`update-check`, by id) this state answers: told once they were checked (or
+   * refused, asked too soon). A state already on its way when one was asked for never answers it.
+   */
+  answered?: number[];
+}
+
+/** This Harness Relay's version, and its updates when the desktop app runs it (`GET /api/update`). */
+export interface UpdateStatus extends DesktopUpdate {
+  /** As a problem report names it: the release, a `-dev` build of the day, or `source (<commit>)`. */
+  current: string;
+}
+
 /** What the desktop app tells the server it started. */
 export type DesktopToServer =
   | { type: 'shutdown' }
   /** A link that signs a browser in (a new one-time code), to open the chat with. */
   | { type: 'sign-in-link' }
   /** How many conversations have agents at work (an update waits until none has). */
-  | { type: 'busy' };
+  | { type: 'busy' }
+  /** Its updates, each time that changes, and once the server listens. */
+  | { type: 'update'; update: DesktopUpdate };
 
 /** What the server tells the desktop app that started it. */
 export type ServerToDesktop =
@@ -1426,4 +1489,8 @@ export type ServerToDesktop =
   | { type: 'sign-in-link'; link: string }
   | { type: 'busy'; conversations: number }
   /** The server could not start listening (`code` is the error code, such as EADDRINUSE); it exits next. */
-  | { type: 'error'; code: string; message: string };
+  | { type: 'error'; code: string; message: string }
+  /** The user asks from the chat: check GitHub for a new release now (Settings' "Check again"); answered by its id. */
+  | { type: 'update-check'; id: number }
+  /** The user asks from the chat: update to the newer release (the app asks first, as from its menu). */
+  | { type: 'update-install' };

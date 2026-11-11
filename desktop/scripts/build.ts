@@ -66,6 +66,8 @@ await build({
   format: 'esm',
   target: TARGET,
   external: ['@napi-rs/keyring'],
+  // The version a problem report names (src/server/about.ts).
+  define: { __RELAY_VERSION__: JSON.stringify(version.shown) },
   banner: { js: "import { createRequire as __relayRequire } from 'node:module'; const require = __relayRequire(import.meta.url);" },
   legalComments: 'none',
   logLevel: 'warning',

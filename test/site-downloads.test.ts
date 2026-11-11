@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { INSTALLERS, installersOf, isCandidate, isInstallerUrl, newestRelease, processorHints, RELEASES_PAGE, STORAGE_KEY, systemOf, wire, wordKey } from '../site/assets/downloads.js';
+import { INSTALLERS, UPDATE_INSTALLERS, updateCopyName, installersOf, isCandidate, isInstallerUrl, newestRelease, processorHints, RELEASES_PAGE, STORAGE_KEY, systemOf, wire, wordKey } from '../site/assets/downloads.js';
 
 const UA = {
   mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
@@ -152,6 +152,14 @@ describe('the newest release', () => {
     expect(found['win-arm64']?.name).toBe('Harness-Relay-2026-11-10-rc-win-arm64.exe');
   });
 
+  it("never offers the installers' copies for the app's updates, which downloads count apart", () => {
+    const found = installersOf(release('2026-11-10', { files: ['mac-arm64-update.dmg', 'win-x64-update.exe', 'linux-x86_64-update.AppImage'] }));
+    expect(found).toEqual({});
+    const both = installersOf(release('2026-11-10', { files: ['mac-arm64-update.dmg', 'mac-arm64.dmg', 'win-x64.exe', 'win-x64-update.exe'] }));
+    expect(both.mac?.name).toBe('Harness-Relay-2026-11-10-mac-arm64.dmg');
+    expect(both.win?.name).toBe('Harness-Relay-2026-11-10-win-x64.exe');
+  });
+
   it('shows no sizes: the cards name the system, processor and file type only', () => {
     for (const page of ['site/index.html', 'site/zh-TW/index.html']) expect(readFileSync(page, 'utf8'), page).not.toMatch(/data-size|\d+ MB/);
     expect(readFileSync('site/assets/site.css', 'utf8')).not.toContain('data-size');
@@ -172,6 +180,15 @@ describe('the download buttons and the Release workflow', () => {
       linux: '-linux-x86_64.AppImage',
       'linux-arm64': '-linux-arm64.AppImage',
     });
+    // Each installer's copy for the app's updates: -update before the extension, so that no copy ends as an installer does.
+    expect(UPDATE_INSTALLERS).toEqual(Object.fromEntries(Object.entries(INSTALLERS).map(([system, end]) => [system, end.replace(/(\.[A-Za-z]+)$/, '-update$1')])));
+    for (const [system, end] of Object.entries(UPDATE_INSTALLERS)) {
+      expect(Object.values(INSTALLERS).some((e) => end.endsWith(e)), system).toBe(false);
+      expect(updateCopyName(`Harness-Relay-2026-11-12${INSTALLERS[system as keyof typeof INSTALLERS]}`)).toBe(`Harness-Relay-2026-11-12${end}`);
+    }
+    expect(updateCopyName('Harness-Relay-2026-11-12-mac-arm64-update.dmg')).toBeUndefined();
+    expect(updateCopyName('notes.txt')).toBeUndefined();
+    expect(updateCopyName(undefined)).toBeUndefined();
     expect(workflow).toMatch(/target: --mac dmg --arm64/);
     expect(workflow).toMatch(/target: --win nsis --x64/);
     expect(workflow).toMatch(/target: --linux AppImage --x64/);

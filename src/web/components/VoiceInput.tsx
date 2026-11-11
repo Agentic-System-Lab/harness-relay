@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { VOICE_MAX_SECONDS, type VoiceJobView, type VoiceModelId, type VoiceStatus } from '../../shared/types';
 import { api } from '../api';
+import { dialogsOpen, holdDialogs } from '../dialogs';
 import { useT } from '../i18n';
 import { Recorder, canRecord } from '../recorder';
 import { useVoiceStatus } from '../useVoice';
@@ -94,8 +95,11 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
         void finishRef.current();
       }
     }, 250);
+    // No dialog offers itself over a recording, and one opened over it anyway takes Escape for itself.
+    const release = holdDialogs();
+    const below = dialogsOpen();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.isComposing) return;
+      if (e.key !== 'Escape' || e.isComposing || dialogsOpen() > below) return;
       e.preventDefault();
       cancelRef.current();
     };
@@ -103,6 +107,7 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
     return () => {
       clearInterval(timer);
       document.removeEventListener('keydown', onKey);
+      release();
     };
   }, [rec, t]);
 

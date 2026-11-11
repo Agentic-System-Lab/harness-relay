@@ -38,6 +38,7 @@ const { attachmentsDir } = await import('../src/server/attachments');
 const { readZip } = await import('./zipReader');
 const { REVISER_BRIEFING } = await import('../src/server/planner');
 const { ShareError } = await import('../src/server/share');
+const { Updates } = await import('../src/server/updates');
 
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
@@ -1191,6 +1192,130 @@ describe('sidebar groups', () => {
     expect(byId[original.id]!.groupId).toBe(group.id);
     expect(byId[branch.id]).toMatchObject({ groupId: group.id, branchFrom: { id: original.id, title: 'Before' } });
     expect(typeof byId[branch.id]!.createdAt).toBe('number');
+  });
+});
+
+describe('GET /api/about', () => {
+  it('says which Harness Relay this is and on what, for a problem report', async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const own = createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      desktopApp: true,
+      version: async () => '2026-11-10',
+    });
+    const res = await own.request('/api/about', { headers: HOST });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ version: '2026-11-10', desktop: true, os: expect.any(String), node: process.version });
+  });
+});
+
+describe('/api/update', () => {
+  it("gives this version and what the desktop app says of its updates, and passes the chat's asks on to it", async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const sent: unknown[] = [];
+    let say: (u: { updates: boolean; available?: { version: string; page: string }; checkedAt?: number }) => void = () => {};
+    const updates = new Updates({ send: (m) => sent.push(m), onUpdate: (fn) => (say = fn) }, async () => '2026-11-11');
+    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), updates });
+    const get = async () => (await own.request('/api/update', { headers: HOST })).json();
+
+    expect(await get()).toEqual({ updates: false, current: '2026-11-11' });
+    // Nothing to update to yet: said so.
+    const none = await own.request('/api/update/install', json('POST', {}));
+    expect(none.status).toBe(409);
+    const noneText = ((await none.json()) as { error: string }).error;
+    expect(noneText).toMatch(/no newer version|沒有可以更新的新版本/);
+
+    say({ updates: true });
+    const checked = own.request('/api/update/check', json('POST', {}));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toEqual([{ type: 'update-check', id: 1 }]);
+    const available = { version: '2026-11-12', page: 'https://github.com/x/y/releases/tag/2026-11-12' };
+    say({ updates: true, available, checkedAt: 7, answered: [1] } as Parameters<typeof say>[0]);
+    expect(await (await checked).json()).toEqual({ updates: true, available, checkedAt: 7, current: '2026-11-11' });
+
+    const res = await own.request('/api/update/install', json('POST', {}));
+    expect(res.status).toBe(200);
+    expect(sent).toEqual([{ type: 'update-check', id: 1 }, { type: 'update-install' }]);
+
+    // Under way: said so, not that there is nothing to update to.
+    say({ updates: true, available, progress: { kind: 'installing' } } as Parameters<typeof say>[0]);
+    const busy = await own.request('/api/update/install', json('POST', {}));
+    expect(busy.status).toBe(409);
+    const busyText = ((await busy.json()) as { error: string }).error;
+    expect(busyText).toMatch(/under way|進行中/);
+    expect(busyText).not.toBe(noneText);
+  });
+});
+
+describe('/api/report/screenshots', () => {
+  const ID = 'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff';
+  // A PNG whole enough to be read through: signature, then IEND (length, type, CRC).
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]).toString('base64');
+  type Upload = { name: string; data: Buffer };
+  function shotsApp(gists: { upload?: (files: Upload[]) => Promise<{ id: string; url: string }>; remove?: (id: string) => Promise<void> }) {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const never = async () => {
+      throw new Error('should not be called');
+    };
+    return createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      screenshotGists: { upload: gists.upload ?? never, remove: gists.remove ?? never },
+    });
+  }
+
+  it('uploads the screenshots as named by their place, and deletes only an upload made here', async () => {
+    const uploads: Upload[][] = [];
+    const removed: string[] = [];
+    const own = shotsApp({
+      upload: async (files) => {
+        uploads.push(files);
+        return { id: ID, url: `https://gist.github.com/someone/${ID}` };
+      },
+      remove: async (id) => {
+        removed.push(id);
+      },
+    });
+    // None made here yet.
+    expect((await own.request(`/api/report/screenshots/${ID}`, json('DELETE', {}))).status).toBe(404);
+
+    const res = await own.request('/api/report/screenshots', json('POST', { files: [{ data: PNG }, { data: PNG }] }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: ID, url: `https://gist.github.com/someone/${ID}` });
+    expect(uploads.map((files) => files.map((f) => f.name))).toEqual([['screenshot-1.png', 'screenshot-2.png']]);
+
+    const del = await own.request(`/api/report/screenshots/${ID}`, json('DELETE', {}));
+    expect(del.status).toBe(200);
+    expect(removed).toEqual([ID]);
+    // Once only.
+    expect((await own.request(`/api/report/screenshots/${ID}`, json('DELETE', {}))).status).toBe(404);
+  });
+
+  it('refuses what is not a screenshot before anything goes up', async () => {
+    const own = shotsApp({});
+    const res = await own.request('/api/report/screenshots', json('POST', { files: [{ data: Buffer.from('<svg/>').toString('base64') }] }));
+    expect(res.status).toBe(400);
+    expect((await own.request('/api/report/screenshots', json('POST', {}))).status).toBe(400);
+  });
+
+  it("passes on gh's trouble with its code, for the dialog to say what to do", async () => {
+    const own = shotsApp({
+      upload: async () => {
+        throw new ShareError('gh is missing', 'gh-missing');
+      },
+    });
+    const res = await own.request('/api/report/screenshots', json('POST', { files: [{ data: PNG }] }));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'gh is missing', code: 'gh-missing' });
   });
 });
 

@@ -1,6 +1,6 @@
 // Harness Relay landing page: the download buttons. The page links every button to the releases page;
 // this module points each one at its installer in the newest release (never a release candidate: those
-// are for trying, and the app offers them by itself once installed), names the visitor's system on the
+// are for trying, and an app that is one offers the next by itself), names the visitor's system on the
 // main button, and marks it in the quick start. Its functions are tested in test/site-downloads.test.ts.
 
 export const REPO = 'Agentic-System-Lab/harness-relay';
@@ -18,6 +18,29 @@ export const INSTALLERS = {
   linux: '-linux-x86_64.AppImage',
   'linux-arm64': '-linux-arm64.AppImage',
 };
+
+/**
+ * The same installers again, under these ends, for the app's own updates, which download them in place
+ * of the ones above (desktop/src/update.ts): GitHub's download counts then tell new installs (INSTALLERS,
+ * from this website or the releases page) from updates of an installed app (UPDATE_INSTALLERS). The
+ * Release workflow makes the copies (`updateCopyName`); this website never offers them.
+ */
+export const UPDATE_INSTALLERS = {
+  mac: '-mac-arm64-update.dmg',
+  win: '-win-x64-update.exe',
+  'win-arm64': '-win-arm64-update.exe',
+  linux: '-linux-x86_64-update.AppImage',
+  'linux-arm64': '-linux-arm64-update.AppImage',
+};
+
+/** The name of an installer's copy for the app's updates, or undefined for a file that is not an installer. */
+export function updateCopyName(name) {
+  if (typeof name !== 'string') return undefined;
+  for (const [system, end] of Object.entries(INSTALLERS)) {
+    if (name.endsWith(end)) return name.slice(0, -end.length) + UPDATE_INSTALLERS[system];
+  }
+  return undefined;
+}
 
 /** Where the installers are: links to anything else are not used (a forged or broken API answer). */
 export const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`;

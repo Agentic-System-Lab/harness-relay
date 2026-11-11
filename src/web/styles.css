@@ -295,6 +295,8 @@ p {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Never sideways: whatever is too wide is cut at its edge, and cannot be scrolled to. */
+  overflow-x: clip;
 }
 
 .sidebar-top {
@@ -375,6 +377,8 @@ p {
 .conv-list {
   flex: 1;
   overflow-y: auto;
+  /* Scrolls up and down only (auto above would make it scroll sideways too, as .sidebar must not). */
+  overflow-x: hidden;
   padding: 4px 8px;
 }
 
@@ -832,6 +836,23 @@ p {
 .settings-link:hover,
 .settings-link.active {
   background: var(--surface-2);
+}
+
+.sidebar-bottom-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-bottom-row .settings-link {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-bottom-row .report-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
 }
 
 .main {
@@ -6188,4 +6209,149 @@ a.share-action {
 
 .signin-where code {
   white-space: nowrap;
+}
+
+/* Report a problem (the sidebar's button beside Settings): a mail, filled in */
+.modal.report-dialog {
+  width: min(560px, 100%);
+  overflow-y: auto;
+}
+
+.report-dialog p {
+  margin: 0;
+}
+
+.report-dialog textarea {
+  min-height: 132px;
+}
+
+.report-shots .attach-tray {
+  padding-top: 6px;
+}
+
+.report-shots p {
+  margin: 0;
+}
+
+.report-shots-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.report-shots-actions:empty {
+  display: none;
+}
+
+.report-info summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.report-info > p {
+  margin: 6px 0 0;
+}
+
+.report-info-lines {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--surface);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.report-sent {
+  color: var(--ok);
+}
+
+.report-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.report-alt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.report-alt .small-button,
+.report-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.report-send {
+  margin-left: auto;
+}
+
+.report-address {
+  user-select: all;
+  font-weight: 600;
+}
+
+/* A new version of the desktop app, offered once (the tray menu offers it too) */
+.modal.update-dialog {
+  width: min(460px, 100%);
+}
+
+.update-dialog p {
+  margin: 0;
+}
+
+.update-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.update-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Settings' Version card */
+.version-current {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.version-update {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+}
+
+.version-ok {
+  color: var(--ok);
+}
+
+.version-news {
+  color: var(--info);
+  font-weight: 600;
+}
+
+.version-warn {
+  color: var(--warn);
+}
+
+.version-muted {
+  color: var(--muted);
 }

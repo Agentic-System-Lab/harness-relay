@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus } from '../shared/types';
+import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
 import { codeFromHash } from '../shared/auth';
 import { SIGNED_OUT_EVENT, api } from './api';
 import { ChatView } from './components/ChatView';
@@ -8,11 +8,14 @@ import { NewSchedule } from './components/NewSchedule';
 import { Onboarding, onboardingDone } from './components/Onboarding';
 import { SettingsPage } from './components/SettingsPage';
 import { SignIn } from './components/SignIn';
+import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route } from './route';
 import { signInWhere } from './signin';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
+import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
+import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
 
 type SeenMap = Record<string, number>;
 const SEEN_KEY = 'relay:seen';
@@ -219,6 +222,79 @@ function RelayApp() {
     };
   }, [refreshConversations]);
 
+  // This version and the desktop app's updates: asked now and then (often while one is under way).
+  const [update, setUpdate] = useState<UpdateStatus>();
+  const pollUpdate = useRef<() => void>(() => {});
+  /** Asked often until then: Update was pressed, and the app's own dialog may start the update. */
+  const fastUntil = useRef(0);
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      clearTimeout(timer);
+      let next: UpdateStatus | undefined;
+      try {
+        next = await api.update();
+        if (!stopped) setUpdate(next);
+      } catch {
+        /* asked again later */
+      }
+      if (!stopped) timer = setTimeout(() => void tick(), pollDelay(next, Date.now(), fastUntil.current));
+    };
+    pollUpdate.current = () => void tick();
+    void tick();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, []);
+  const checkUpdate = useCallback(async () => {
+    try {
+      setUpdate(await api.checkUpdate());
+    } catch {
+      /* shown as it was */
+    }
+  }, []);
+  // The newer version, offered once with a dialog in the app's own window (src/web/update.ts).
+  const [dismissed, setDismissed] = useState(readDismissed);
+  const dismiss = (version: string) => {
+    writeDismissed(version);
+    setDismissed(version);
+  };
+  const installUpdate = useCallback(async () => {
+    const version = update?.available?.version;
+    await api.installUpdate();
+    if (version) dismiss(version);
+    fastUntil.current = Date.now() + AFTER_UPDATE_MS;
+    pollUpdate.current();
+  }, [update]);
+  // Shown only while no other dialog is open (it would take that one's keys), then kept while on offer.
+  const dialogs = useDialogsOpen();
+  const held = useDialogsHeld() > 0;
+  // Closed without Later (Escape, ×): not offered again while the page is open.
+  const [closedFor, setClosedFor] = useState<string>();
+  const offerable = shouldOffer(update, dismissed, isAppWindow(navigator.userAgent), closedFor);
+  // Typing into a text field holds the dialog back, so it takes no keys meant for it.
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (!typesText(e.target as HTMLElement | null)) return;
+      setTyping(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => setTyping(false), TYPING_PAUSE_MS);
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      clearTimeout(timer);
+    };
+  }, []);
+  const [offer, setOffer] = useState(false);
+  useEffect(() => {
+    setOffer((showing) => offerShows(showing, { offerable, tourOpen, dialogsOpen: dialogs, typing, held }));
+  }, [offerable, tourOpen, dialogs, typing, held]);
+
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar
@@ -283,10 +359,23 @@ function RelayApp() {
             catalog={catalog}
             refreshProviders={refreshProviderInfo}
             onShowTour={() => setTourOpen(true)}
+            update={update}
+            onCheckUpdate={checkUpdate}
+            onInstallUpdate={installUpdate}
           />
         )}
       </main>
       {tourOpen && <Onboarding onClose={() => setTourOpen(false)} />}
+      {offer && update?.available && (
+        <UpdateDialog
+          version={update.available.version}
+          current={update.current}
+          page={update.available.page}
+          onUpdate={installUpdate}
+          onLater={() => dismiss(update.available!.version)}
+          onClose={() => setClosedFor(update.available!.version)}
+        />
+      )}
     </div>
   );
 }

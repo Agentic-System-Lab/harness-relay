@@ -5,8 +5,9 @@ import { navigate, type Route } from '../App';
 import { settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
 import { branchCount } from '../sidebar';
-import { CalendarPlusIcon, FolderPlusIcon, PanelIcon, SearchIcon } from './icons';
+import { CalendarPlusIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
+import { ReportDialog } from './ReportDialog';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
 import { SearchBox, SearchResults } from './SidebarSearch';
 
@@ -37,6 +38,7 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
   /** Focuses the search field again when search is asked for while it is open. */
   const [searchFocus, setSearchFocus] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [reporting, setReporting] = useState(false);
 
   const openSearch = () => {
     setCreating(false);
@@ -130,10 +132,23 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
             );
           })}
         </div>
-        <a href="#/settings" className={`settings-link ${route.page === 'settings' ? 'active' : ''}`}>
-          ⚙ {t.sidebar.settings}
-        </a>
+        {/* Report a problem: an icon only, at the row's end, so Settings keeps the row. */}
+        <div className="sidebar-bottom-row">
+          <a href="#/settings" className={`settings-link ${route.page === 'settings' ? 'active' : ''}`}>
+            ⚙ {t.sidebar.settings}
+          </a>
+          <button
+            type="button"
+            className="icon-button report-button"
+            onClick={() => setReporting(true)}
+            aria-label={t.sidebar.report}
+            title={t.sidebar.report}
+          >
+            <ReportIcon size={18} />
+          </button>
+        </div>
       </div>
+      {reporting && <ReportDialog providers={providers} onClose={() => setReporting(false)} />}
     </aside>
   );
 }

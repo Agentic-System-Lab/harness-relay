@@ -1,4 +1,4 @@
-import type { DesktopToServer, ServerToDesktop } from '../shared/types';
+import type { DesktopToServer, DesktopUpdate, ServerToDesktop } from '../shared/types';
 
 /**
  * The desktop app (desktop/) runs the server in an Electron utility process, which has
@@ -21,6 +21,8 @@ export interface DesktopParent {
   onSignInLink(fn: () => string): void;
   /** Answers the app's requests for how many conversations have agents at work (`fn`). */
   onBusy(fn: () => number): void;
+  /** Told what the app says of its updates, each time that changes. */
+  onUpdate(fn: (update: DesktopUpdate) => void): void;
 }
 
 /** The desktop app that started this server, or undefined when nothing did. */
@@ -42,6 +44,12 @@ export function desktopParent(proc: { parentPort?: unknown } = process as { pare
     onBusy(fn) {
       port.on('message', (event) => {
         if ((event?.data as DesktopToServer | undefined)?.type === 'busy') port.postMessage({ type: 'busy', conversations: fn() } satisfies ServerToDesktop);
+      });
+    },
+    onUpdate(fn) {
+      port.on('message', (event) => {
+        const message = event?.data as DesktopToServer | undefined;
+        if (message?.type === 'update' && message.update && typeof message.update === 'object') fn(message.update);
       });
     },
   };
