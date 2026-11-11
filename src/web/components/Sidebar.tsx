@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PROVIDER_LABEL, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
+import { PROVIDERS, PROVIDER_LABEL, isOpenProvider, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { settingsHref } from '../route';
@@ -119,7 +119,8 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
 
       <div className="sidebar-bottom" data-tour="settings">
         <div className="provider-health">
-          {(['claude', 'codex', 'grok'] as const).map((id) => {
+          {/* The open agents only once installed: most people have only some of them. */}
+          {PROVIDERS.filter((id) => !isOpenProvider(id) || providers.some((x) => x.provider === id && x.installed)).map((id) => {
             const p = providers.find((x) => x.provider === id);
             const s = providerState(p);
             return (
@@ -142,6 +143,7 @@ function healthTitle(p: ProviderStatus | undefined, t: Messages): string {
   const h = t.sidebar.health;
   if (!p) return h.checking;
   if (!p.installed) return h.notInstalled;
+  if (isOpenProvider(p.provider)) return p.auth.loggedIn ? h.openReady : h.openNotReady;
   if (p.usingStoredApiKey) return h.apiKey;
   if (p.auth.loggedIn === false) return h.notLoggedIn;
   if (p.auth.loggedIn) return h.loggedIn(p.auth.account);

@@ -237,6 +237,16 @@ describe('settings', () => {
     const withItems = ((await items.json()) as SettingsView).providers.find((p) => p.provider === 'claude')!;
     expect(withItems.nativeItems).toEqual({ skills: ['commit'], mcpTools: ['mcp__local__fetch'] });
     expect(withItems.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
+
+    // OpenHands' terminal in the sandbox: a boolean, off by default, no secret in it.
+    const openhands = (body: unknown) => app.request('/api/settings/providers/openhands', json('PUT', body));
+    expect((await openhands({ sandboxTerminal: 'yes' })).status).toBe(400);
+    expect((await openhands({ sandboxTerminal: 1 })).status).toBe(400);
+    const on = await openhands({ sandboxTerminal: true });
+    expect(on.status).toBe(200);
+    expect(((await on.json()) as SettingsView).providers.find((p) => p.provider === 'openhands')).toMatchObject({ sandboxTerminal: true, apiKeyMasked: '' });
+    const offAgain = (await (await openhands({ sandboxTerminal: false })).json()) as SettingsView;
+    expect(offAgain.providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(false);
   });
 
   it("sets the CLIs' own folder: created when missing, never the home folder itself", async () => {
@@ -354,7 +364,7 @@ describe('settings', () => {
     const home = join(project, 'homes');
     expect((await put({ agentHome: home })).status).toBe(200);
     expect(invalidate).toHaveBeenCalledTimes(1);
-    expect(cancelLogin.mock.calls.map((c) => c[0])).toEqual(['claude', 'codex', 'grok']);
+    expect(cancelLogin.mock.calls.map((c) => c[0])).toEqual(['claude', 'codex', 'grok', 'opencode', 'goose', 'cline', 'openhands', 'pi']);
     // The same folder spelled another way changes nothing.
     expect((await put({ agentHome: `${home}/` })).status).toBe(200);
     expect(invalidate).toHaveBeenCalledTimes(1);
@@ -1086,7 +1096,7 @@ describe('tool library', () => {
     expect(res.status).toBe(200);
     const view = await res.json();
     expect(view.skills).toEqual([{ path: skills, name: 'commit', description: 'Commit well.', providers: ['codex'] }]);
-    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '' });
+    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
     expect((await app.request('/api/tools', json('PUT', { memory: { gemini: 'x' } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);

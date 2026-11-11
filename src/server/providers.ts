@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
 import {
   PROVIDERS,
+  PROVIDER_LABEL,
+  isOpenProvider,
   type LoginMethod,
   type LoginSessionView,
   type Provider,
@@ -9,6 +11,10 @@ import {
   type ProviderModels,
   type ProviderStatus,
 } from '../shared/types';
+import { openAgents } from './agents/index';
+import { openHomeEnv } from './agents/open';
+import { backendLabel } from './backends';
+import { HttpError } from './errors';
 import { discoverModels, type DiscoveredModels } from './models';
 import { CommandNotFoundError, capture, killTree, spawnInteractive, stripAnsi, tail } from './process';
 import type { SettingsStore } from './settings';
@@ -63,6 +69,8 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
         ? { loggedIn: true, detail: model ? t().defaultModelDetail(model) : undefined }
         : { loggedIn: null, detail: tail(out, 200) };
     }
+    default:
+      return { loggedIn: null };
   }
 }
 
@@ -87,7 +95,8 @@ export class ProviderService {
   async models(p: Provider, refresh = false): Promise<ProviderModels> {
     let entry = this.modelCache.get(p);
     if (refresh || !entry || Date.now() - entry.at > 10 * 60_000) {
-      entry = { at: Date.now(), models: discoverModels(p, this.settings.bin(p), this.settings.env(p)) };
+      const backends = { configured: this.settings.backends.configured(), endpoints: this.settings.backends.view().endpoints };
+      entry = { at: Date.now(), models: discoverModels(p, this.settings.bin(p), this.settings.env(p), backends) };
       this.modelCache.set(p, entry);
     }
     const d = await entry.models;
@@ -110,11 +119,11 @@ export class ProviderService {
     const env = this.settings.env(p);
     let status: ProviderStatus;
     try {
-      const v = await capture(bin, ['--version'], env, { timeoutMs: 10_000 });
+      const v = await capture(bin, ['--version'], isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env, { timeoutMs: 10_000 });
       const version = parseVersion(v.stdout || v.stderr);
       let auth: ProviderAuth;
       try {
-        auth = await checkAuth(p, bin, env);
+        auth = isOpenProvider(p) ? this.openAuth(p) : await checkAuth(p, bin, env);
       } catch (err) {
         auth = { loggedIn: null, detail: (err as Error).message };
       }
@@ -134,6 +143,23 @@ export class ProviderService {
     return status;
   }
 
+  /**
+   * An open agent has no sign-in: it is ready once at least one model backend is set up in Settings
+   * (and its adapter is done).
+   */
+  private openAuth(p: Provider): ProviderAuth {
+    if (isOpenProvider(p) && !openAgents[p].process.implemented) return { loggedIn: false, detail: t().openNotImplemented(PROVIDER_LABEL[p]) };
+    const view = this.settings.backends.view();
+    const configured = this.settings.backends.configured();
+    if (!configured.length) return { loggedIn: false, detail: t().openNoBackend };
+    return { loggedIn: true, detail: t().openBackendsReady(configured.map((id) => backendLabel(view, id)).join(', ')) };
+  }
+
+  /** The open agents' status and models follow the model backends: asked again after a change. */
+  backendsChanged(): void {
+    for (const p of PROVIDERS) if (isOpenProvider(p)) this.invalidate(p);
+  }
+
   statusAll(refresh = false): Promise<ProviderStatus[]> {
     return Promise.all(PROVIDERS.map((p) => this.status(p, refresh)));
   }
@@ -150,6 +176,7 @@ export class ProviderService {
 
   startLogin(p: Provider, methodId?: string): LoginSessionView {
     const method = LOGIN_METHODS[p].find((m) => m.id === methodId) ?? LOGIN_METHODS[p][0];
+    if (!method) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     this.logins.get(p)?.cancel();
     const session = new LoginSession(p, method, this.settings.bin(p), this.settings.env(p), () => this.invalidate(p));
     this.logins.set(p, session);
@@ -172,6 +199,7 @@ export class ProviderService {
   }
 
   async logout(p: Provider): Promise<string> {
+    if (!LOGIN_METHODS[p].length) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     const bin = this.settings.bin(p);
     const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
     const r = await capture(bin, args, this.settings.env(p), { timeoutMs: 30_000 });
@@ -237,6 +265,12 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[] 
       args: ['login', '--oauth'],
     },
   ],
+  // The open agents have no sign-in: they use the model backends in Settings.
+  opencode: [],
+  goose: [],
+  cline: [],
+  openhands: [],
+  pi: [],
 };
 
 const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;

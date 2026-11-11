@@ -64,6 +64,10 @@ import {
   expandPath,
   foldCase,
   validAgentHome,
+  validApiBackend,
+  validEndpointId,
+  validateBackendKey,
+  validateEndpoint,
   validAgentsViewLink,
   validAgentsViewUrl,
   validDirectory,
@@ -358,6 +362,32 @@ export function createApp({
       for (const p of PROVIDERS) providers.cancelLogin(p);
     }
     return c.json(settingsView());
+  });
+
+  // --- Model backends: what the open agents run their models on (keys masked) ---------
+
+  app.get('/api/backends', (c) => c.json(settings.backends.view()));
+
+  // An API backend's key (openai, anthropic, xai): `{ apiKey }`, null or "" removes it.
+  app.put('/api/backends/:id', async (c) => {
+    const id = validApiBackend(c.req.param('id'));
+    settings.backends.setApiKey(id, validateBackendKey(await body<unknown>(c)));
+    providers.backendsChanged();
+    return c.json(settings.backends.view());
+  });
+
+  // Adds a custom endpoint, or replaces the one with this id (its key stays unless `apiKey` is sent).
+  app.put('/api/backends/endpoints/:id', async (c) => {
+    const id = validEndpointId(c.req.param('id'));
+    settings.backends.putEndpoint(id, validateEndpoint(await body<unknown>(c)));
+    providers.backendsChanged();
+    return c.json(settings.backends.view());
+  });
+
+  app.delete('/api/backends/endpoints/:id', (c) => {
+    settings.backends.deleteEndpoint(validEndpointId(c.req.param('id')));
+    providers.backendsChanged();
+    return c.json(settings.backends.view());
   });
 
   // --- Tool library: MCP servers, skills and memory for the agents --------------

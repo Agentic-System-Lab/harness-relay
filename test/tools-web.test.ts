@@ -8,7 +8,7 @@ const lib: ToolLibraryView = {
     { path: '/s/commit', name: 'commit', description: '', providers: ['claude', 'codex', 'grok'] },
     { path: '/s/broken', name: 'broken', description: '', providers: [], problem: 'SKILL.md not found' },
   ],
-  memory: { all: 'Be brief.', claude: '', codex: 'Run tests.', grok: '' },
+  memory: { all: 'Be brief.', claude: '', codex: 'Run tests.', grok: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' },
   secretStorage: 'keychain',
 };
 

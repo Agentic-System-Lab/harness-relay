@@ -1,9 +1,11 @@
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
+  isOpenProvider,
   nativeItemsFor,
   nativeOffFor,
   PROVIDERS,
+  SANDBOX_TERMINAL_SUPPORT,
   VOICE_LANGUAGES,
   VOICE_MODELS,
   type LeadAgentSettings,
@@ -15,9 +17,11 @@ import {
   type VoiceLanguage,
   type VoiceModelId,
 } from '../shared/types';
+import type { RunBackends } from './agents/types';
+import { INHERITED_BACKEND_VARS, ModelBackendStore, backendEnv } from './backends';
 import type { Database } from './db';
 import { t } from './i18n';
-import type { SecretStore } from './secrets';
+import { maskSecret, type SecretStore } from './secrets';
 import { ToolLibrary } from './tools';
 
 export const DATA_DIR = resolve(process.env.RELAY_DATA_DIR ?? join(process.cwd(), 'data'));
@@ -37,6 +41,7 @@ interface ProviderSettings {
   defaultEffort: string;
   nativeOff: NativePart[];
   nativeItems: NativeItemsOff;
+  sandboxTerminal: boolean;
 }
 
 /** Env var each CLI reads an API key from. Codex keys go through `codex login --with-api-key` instead. */
@@ -45,14 +50,39 @@ export const API_KEY_ENV: Partial<Record<Provider, string>> = {
   grok: 'XAI_API_KEY',
 };
 
-const DEFAULT_BIN: Record<Provider, string> = { claude: 'claude', codex: 'codex', grok: 'grok' };
+const DEFAULT_BIN: Record<Provider, string> = {
+  claude: 'claude',
+  codex: 'codex',
+  grok: 'grok',
+  opencode: 'opencode',
+  goose: 'goose',
+  cline: 'cline',
+  openhands: 'openhands',
+  pi: 'pi',
+};
+
+/**
+ * The variable that tells an open agent's adapter where its CLI's home is. The open agents always run
+ * in a home of Harness Relay's own (`SettingsStore.openAgentHome`), never the user's, since Harness
+ * Relay writes their config before each run; each adapter moves its CLI there with the CLI's own
+ * variables (XDG folders, its home variable): `OpenAgentProcess.home` in `agents/open.ts`.
+ */
+export const OPEN_AGENT_HOME_ENV = 'HARNESS_RELAY_AGENT_HOME';
 
 /** The variable that moves each CLI's home: its sign-in, settings and session transcripts. */
 export const AGENT_HOME_ENV: Record<Provider, string> = {
   claude: 'CLAUDE_CONFIG_DIR',
   codex: 'CODEX_HOME',
   grok: 'GROK_HOME',
+  opencode: OPEN_AGENT_HOME_ENV,
+  goose: OPEN_AGENT_HOME_ENV,
+  cline: OPEN_AGENT_HOME_ENV,
+  openhands: OPEN_AGENT_HOME_ENV,
+  pi: OPEN_AGENT_HOME_ENV,
 };
+
+/** Where the open agents' homes are when no agent-home folder is set: in Harness Relay's data folder. */
+export const OPEN_HOMES_DIR = join(DATA_DIR, 'agent-homes');
 
 /**
  * Variables Claude Code sets for its own child processes. If Harness Relay is started from inside
@@ -72,11 +102,7 @@ const NESTED_AGENT_VARS = [
   'AI_AGENT',
 ];
 
-function mask(key: string): string {
-  if (!key) return '';
-  if (key.length <= 8) return '••••';
-  return `${key.slice(0, 4)}…${key.slice(-4)}`;
-}
+const mask = maskSecret;
 
 /** A stored JSON value, or undefined when it does not parse. */
 function parseJson(text: string): unknown {
@@ -113,15 +139,17 @@ export class SettingsStore {
   private keysLeftInDb = new Set<Provider>();
   /** MCP servers, skills and memory for the agents. */
   readonly tools: ToolLibrary;
+  /** The open agents' model backends (API keys and the user's own endpoints). */
+  readonly backends: ModelBackendStore;
 
   constructor(
     private db: Database,
     private keyring?: SecretStore,
   ) {
-    const empty = (): ProviderSettings => ({ bin: '', apiKey: '', defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} });
-    this.providers = { claude: empty(), codex: empty(), grok: empty() };
+    const empty = (): ProviderSettings => ({ bin: '', apiKey: '', defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {}, sandboxTerminal: false });
+    this.providers = Object.fromEntries(PROVIDERS.map((p) => [p, empty()])) as Record<Provider, ProviderSettings>;
     const rows = db
-      .prepare('SELECT provider, bin, api_key, default_model, default_effort, native_off, native_items FROM provider_settings')
+      .prepare('SELECT provider, bin, api_key, default_model, default_effort, native_off, native_items, sandbox_terminal FROM provider_settings')
       .all() as {
       provider: Provider;
       bin: string;
@@ -130,6 +158,7 @@ export class SettingsStore {
       default_effort: string;
       native_off: string;
       native_items: string;
+      sandbox_terminal: number;
     }[];
     for (const r of rows) {
       if (!PROVIDERS.includes(r.provider)) continue;
@@ -140,6 +169,7 @@ export class SettingsStore {
         defaultEffort: r.default_effort,
         nativeOff: nativeOffFor(r.provider, r.native_off.split(',')),
         nativeItems: nativeItemsFor(r.provider, parseJson(r.native_items)),
+        sandboxTerminal: SANDBOX_TERMINAL_SUPPORT.includes(r.provider) && r.sandbox_terminal === 1,
       };
     }
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'default_cwd'").get() as { value: string } | undefined;
@@ -171,6 +201,7 @@ export class SettingsStore {
     }
     if (keyring) this.loadKeys(keyring);
     this.tools = new ToolLibrary(db, keyring);
+    this.backends = new ModelBackendStore(db, keyring);
   }
 
   /** Reads the keys from the keyring, moving any still in the database (saved before) into it. */
@@ -233,6 +264,20 @@ export class SettingsStore {
     return this.agentHomeDir ? join(this.agentHomeDir, p) : undefined;
   }
 
+  /**
+   * An open agent's home: in the agent-home folder when one is set, else in Harness Relay's data
+   * folder (`OPEN_HOMES_DIR`). Never the user's own: Harness Relay writes its config before each run.
+   * Created (owner-only) by the adapter before the CLI starts (`openAgentHome()` in agents/open.ts).
+   */
+  openAgentHome(p: Provider): string {
+    return this.agentHomeFor(p) ?? join(OPEN_HOMES_DIR, p);
+  }
+
+  /** The model backends with their keys, for a run of an open agent (undefined for the other CLIs). */
+  backendsFor(p: Provider): RunBackends | undefined {
+    return isOpenProvider(p) ? this.backends.forRun() : undefined;
+  }
+
   /** AgentsView's origin, e.g. http://127.0.0.1:8080; empty = off. */
   get agentsViewUrl(): string {
     return this.agentsView;
@@ -287,14 +332,15 @@ export class SettingsStore {
     const s = this.providers[p];
     this.db
       .prepare(
-        `INSERT INTO provider_settings (provider, bin, api_key, default_model, default_effort, native_off, native_items)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO provider_settings (provider, bin, api_key, default_model, default_effort, native_off, native_items, sandbox_terminal)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(provider) DO UPDATE SET
            bin = excluded.bin, api_key = excluded.api_key,
            default_model = excluded.default_model, default_effort = excluded.default_effort,
-           native_off = excluded.native_off, native_items = excluded.native_items`,
+           native_off = excluded.native_off, native_items = excluded.native_items,
+           sandbox_terminal = excluded.sandbox_terminal`,
       )
-      .run(p, s.bin, this.keyInDb(p) ? s.apiKey : '', s.defaultModel, s.defaultEffort, s.nativeOff.join(','), JSON.stringify(s.nativeItems));
+      .run(p, s.bin, this.keyInDb(p) ? s.apiKey : '', s.defaultModel, s.defaultEffort, s.nativeOff.join(','), JSON.stringify(s.nativeItems), s.sandboxTerminal ? 1 : 0);
   }
 
   bin(p: Provider): string {
@@ -317,6 +363,11 @@ export class SettingsStore {
   /** Single items of what this CLI loads by itself that Harness Relay's runs leave out. */
   nativeItems(p: Provider): NativeItemsOff {
     return Object.fromEntries(Object.entries(this.providers[p].nativeItems).map(([kind, ids]) => [kind, [...(ids ?? [])]]));
+  }
+
+  /** Whether the user lets this CLI's commands use a terminal in the relay sandbox (`ProviderSettingsView.sandboxTerminal`). */
+  sandboxTerminal(p: Provider): boolean {
+    return this.providers[p].sandboxTerminal;
   }
 
   hasStoredApiKey(p: Provider): boolean {
@@ -357,6 +408,7 @@ export class SettingsStore {
     if (u.defaultEffort !== undefined) s.defaultEffort = u.defaultEffort.trim();
     if (u.nativeOff !== undefined) s.nativeOff = nativeOffFor(p, u.nativeOff);
     if (u.nativeItems !== undefined) s.nativeItems = nativeItemsFor(p, u.nativeItems);
+    if (u.sandboxTerminal !== undefined) s.sandboxTerminal = SANDBOX_TERMINAL_SUPPORT.includes(p) && u.sandboxTerminal;
     this.saveProvider(p);
   }
 
@@ -376,6 +428,7 @@ export class SettingsStore {
         defaultEffort: this.providers[p].defaultEffort,
         nativeOff: this.nativeOff(p),
         nativeItems: this.nativeItems(p),
+        sandboxTerminal: this.providers[p].sandboxTerminal,
       })),
     };
   }
@@ -384,10 +437,18 @@ export class SettingsStore {
    * Environment for a spawned CLI: the server's env, minus nesting markers, plus stored API keys.
    * With an agent home set, the CLI's home variable points into it, replacing any the server was
    * started with, so the CLI's sign-in, settings and sessions are Harness Relay's own.
+   * An open agent gets the configured model backends' keys instead of any the server inherited, and
+   * `OPEN_AGENT_HOME_ENV` names its home (always one of Harness Relay's own).
    */
   env(p: Provider): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
     for (const k of NESTED_AGENT_VARS) delete env[k];
+    if (isOpenProvider(p)) {
+      // Only the backends set up in Settings: not a key or an address the server inherited.
+      for (const k of INHERITED_BACKEND_VARS) delete env[k];
+      Object.assign(env, backendEnv(this.backends.forRun()), { [OPEN_AGENT_HOME_ENV]: this.openAgentHome(p) });
+      return env;
+    }
     const keyVar = API_KEY_ENV[p];
     const key = this.providers[p].apiKey;
     if (keyVar && key) env[keyVar] = key;

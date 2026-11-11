@@ -1,0 +1,9 @@
+{"dir":"meta","cli":"opencode 1.19.5","command":"opencode acp","backend":"anthropic","model":"anthropic/claude-haiku-5-5 effort low","scenario":"session/resume of an unknown id: same -32603 error"}
+{"dir":"send","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"relay-investigation","version":"0.0.1"}}}}
+{"dir":"recv","msg":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"mcpCapabilities":{"http":true,"sse":true},"promptCapabilities":{"embeddedContext":true,"image":true},"sessionCapabilities":{"close":{},"fork":{},"list":{},"resume":{}}},"authMethods":[{"description":"Run `opencode auth login` in the terminal","name":"Login with opencode","id":"opencode-login"}],"agentInfo":{"name":"OpenCode","version":"1.19.5"}}}}
+{"dir":"send","msg":{"jsonrpc":"2.0","id":2,"method":"session/resume","params":{"sessionId":"ses_doesnotexist000000000000","cwd":"/home/user/project","mcpServers":[]}}}
+{"dir":"note","note":"stderr (a Bun stack dump) left out"}
+{"dir":"recv","msg":{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"Internal error: OpenCode service failure","data":{"service":"session"}}}}
+{"dir":"note","note":{"resumeFailed":{"code":-32603,"message":"Internal error: OpenCode service failure","data":{"service":"session"}}}}
+{"dir":"note","note":{"fatal":{"code":-32603,"message":"Internal error: OpenCode service failure","data":{"service":"session"}}}}
+{"dir":"note","note":{"exit":0,"signal":null}}

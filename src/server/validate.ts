@@ -3,7 +3,10 @@ import { homedir } from 'node:os';
 import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
+  API_BACKENDS,
+  BACKEND_LIMITS,
   CWD_MISSING,
+  ENDPOINT_ID_RE,
   GROUP_LIMITS,
   MCP_NAME_RE,
   MAX_NATIVE_ITEM_ID,
@@ -18,11 +21,13 @@ import {
   VOICE_LANGUAGES,
   VOICE_MODELS,
   type AgentConfig,
+  type ApiBackend,
   type ConversationGroup,
   type ConversationSettings,
   type LeadAgentSettings,
   type McpServerUpdate,
   type MemoryScope,
+  type ModelEndpointUpdate,
   type Mode,
   type Permission,
   type Provider,
@@ -37,6 +42,7 @@ import {
 import { parseTime, validTimeZone } from '../shared/schedule';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
+import { isLocalHost, localAddresses, relayPorts } from './relaySandbox';
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
@@ -222,7 +228,7 @@ export function validateVoiceUpdate(input: unknown): VoiceSettingsUpdate {
 
 /**
  * A provider settings update: strings, a valid effort, `apiKey` null to remove, `nativeOff` a list of
- * known parts, `nativeItems` lists of ids by known kind.
+ * known parts, `nativeItems` lists of ids by known kind, `sandboxTerminal` a boolean.
  */
 export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
@@ -257,6 +263,10 @@ export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
       );
     if (!valid) bad(t().invalidField('nativeItems'));
     out.nativeItems = items as ProviderSettingsUpdate['nativeItems'];
+  }
+  if (u.sandboxTerminal !== undefined) {
+    if (typeof u.sandboxTerminal !== 'boolean') bad(t().invalidField('sandboxTerminal'));
+    out.sandboxTerminal = u.sandboxTerminal;
   }
   return out;
 }
@@ -296,7 +306,8 @@ export function validateAgents(input: unknown): AgentConfig[] {
   });
 }
 
-const TOOL_KEY_RE = /^(memory|memory:(claude|codex|grok)|mcp:[A-Za-z0-9_-]{1,40}|skill:[^\0]{1,4000})$/;
+/** A member's tool library exception: the memory for everyone or for its CLI (any of PROVIDERS), an MCP server, a skill. */
+const TOOL_KEY_RE = new RegExp(`^(memory|memory:(${PROVIDERS.join('|')})|mcp:[A-Za-z0-9_-]{1,40}|skill:[^\\0]{1,4000})$`);
 
 /** The CLIs a library item is on for by default; absent = all of them. */
 function validProviders(input: unknown, field: string): Provider[] {
@@ -489,4 +500,72 @@ export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
     missed: b.missed === 'run' ? 'run' : 'skip',
     newChat: b.newChat === true,
   };
+}
+
+// --- Model backends (the open agents) ------------------------------------------------------------
+
+/** One of the API backends (openai, anthropic, xai); any other is a 404. */
+export function validApiBackend(input: string): ApiBackend {
+  if (!(API_BACKENDS as readonly string[]).includes(input)) throw new HttpError(404, t().backendUnknown(input));
+  return input as ApiBackend;
+}
+
+/** `{ apiKey }`: the key to keep, or null / "" to remove it. */
+export function validateBackendKey(input: unknown): string | null {
+  const v = ((input ?? {}) as { apiKey?: unknown }).apiKey;
+  if (v === null) return null;
+  if (typeof v !== 'string' || v.length > 4096) bad(t().invalidField('apiKey'));
+  return v.trim() || null;
+}
+
+/** A custom endpoint's id: a slug (`ENDPOINT_ID_RE`), never one of the API backends' names. */
+export function validEndpointId(input: string): string {
+  if (!ENDPOINT_ID_RE.test(input)) bad(t().endpointIdInvalid(input));
+  if ((API_BACKENDS as readonly string[]).includes(input)) bad(t().endpointIdReserved(input));
+  return input;
+}
+
+/**
+ * An endpoint's base URL: http(s), without credentials, a query or a fragment (its path stays:
+ * `http://10.0.0.5:8000/v1`), with no trailing slash. Never Harness Relay's own API on this computer
+ * (`relayPort`, and its other ports: `relayPorts()`), which the relay sandbox never lets agents
+ * reach, however the address is spelled: loopback (`localhost` and names under it, a trailing dot,
+ * 127/8, `::1`, IPv4 in IPv6), the unspecified address, or one of this computer's own (`own`).
+ */
+export function validEndpointUrl(input: unknown, relayPort = Number(process.env.PORT ?? 8787), own: readonly string[] = localAddresses()): string {
+  if (typeof input !== 'string' || input.length > BACKEND_LIMITS.maxUrl) bad(t().invalidField('baseUrl'));
+  const raw = input.trim();
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    bad(t().endpointUrlInvalid(raw));
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash || raw.includes('#') || raw.includes('?')) {
+    bad(t().endpointUrlInvalid(raw));
+  }
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+  const host = url.hostname.replace(/\.$/, '');
+  if (new Set([relayPort, ...relayPorts()]).has(port) && isLocalHost(host, own)) bad(t().endpointUrlRelay(raw));
+  return url.href.replace(/\/+$/, '');
+}
+
+/** `PUT /api/backends/endpoints/:id`: a name, a base URL, the model names it serves, and maybe its key. */
+export function validateEndpoint(input: unknown, relayPort?: number): ModelEndpointUpdate {
+  const u = (input ?? {}) as Record<string, unknown>;
+  const name = optionalString(u.name, 'name', BACKEND_LIMITS.maxName);
+  if (!name) bad(t().endpointNameMissing);
+  const baseUrl = validEndpointUrl(u.baseUrl, relayPort);
+  const models = u.models ?? [];
+  const { maxModels, maxModelId } = BACKEND_LIMITS;
+  if (!Array.isArray(models) || models.length > maxModels) bad(t().endpointModelsInvalid(maxModels, maxModelId));
+  const names = models.map((m) => (typeof m === 'string' ? m.trim() : ''));
+  if (names.some((m) => !m || m.length > maxModelId || /\s/.test(m))) bad(t().endpointModelsInvalid(maxModels, maxModelId));
+  const out: ModelEndpointUpdate = { name, baseUrl, models: [...new Set(names)] };
+  if (u.apiKey === null) out.apiKey = null;
+  else if (u.apiKey !== undefined) {
+    const key = optionalString(u.apiKey, 'apiKey', 4096);
+    out.apiKey = key || null;
+  }
+  return out;
 }

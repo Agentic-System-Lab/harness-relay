@@ -4,6 +4,7 @@ import type {
   LoginState,
   Mode,
   NativePart,
+  OpenProvider,
   Permission,
   Provider,
   ScheduleRepeat,
@@ -109,6 +110,8 @@ export const zhTW = {
       notLoggedIn: '未登入',
       loggedIn: (account?: string) => `已登入${account ? `：${account}` : ''}`,
       unknown: '狀態未知',
+      openReady: '已設定模型來源',
+      openNotReady: '尚未設定模型來源',
     },
   },
 
@@ -171,6 +174,7 @@ export const zhTW = {
     role: '定位 / 角色',
     rolePlaceholder: '例如：你是資深後端工程師，負責 API 設計與實作。\n完成後 @Reviewer 請他審查。',
     notLoggedIn: (p: string) => `${p} 尚未登入。`,
+    noBackend: (p: string) => `${p} 還不能使用：需要先在設定裡設定模型來源。`,
     cliMissing: (p: string) => `找不到 ${p} CLI。`,
     goSettings: '前往設定 →',
     addMember: '新增成員',
@@ -197,6 +201,8 @@ export const zhTW = {
     },
     defaultModel: (m: string) => `預設：${m}`,
     cliDecides: 'CLI 決定',
+    /** An open agent with no default model (none in Settings, none its CLI's catalog gives on a configured backend). */
+    noDefaultModel: '沒有預設模型：請選一個',
     tools: '工具',
     toolsHint: '勾選這位成員可以用的工具庫項目（在「設定 → 工具庫」管理）。這些是加在 CLI 自己的設定之外，CLI 本來就有的 skill、MCP 照常可用。',
     toolMemory: '共享記憶',
@@ -485,6 +491,7 @@ export const zhTW = {
     deny: '拒絕',
     notePlaceholder: '拒絕時告訴它該怎麼做（選填）',
     outsideSandbox: '允許的話，這個指令會在沙箱外執行。',
+    readOnlySandbox: '這個對話是唯讀的：即使允許，Harness Relay 的沙箱仍不讓它寫入檔案（只有它自己的暫存與 session 資料夾可以寫），所以檔案的修改不會生效。不過它還是會執行：可以讀檔，也連得到這次執行連得到的主機（模型來源，以及你允許過的主機）。要讓它修改檔案，請把權限改成「可編輯」。',
     allowed: '已允許',
     allowedAlways: '已允許，本對話都允許',
     allowedAuto: '已依本對話的設定自動允許',
@@ -915,6 +922,58 @@ export const zhTW = {
         agents: 'Grok 沒有只略過自訂 subagent 的設定',
         plugins: 'Grok 的 plugin（包括它載入的 Claude Code plugin）只能在 ~/.grok/config.toml 的 plugins.disabled 關閉（這是 Grok 的全域設定，也會影響你在終端機使用 Grok；Harness Relay 不會修改它）',
       },
+      goose: {
+        skills: 'Goose 沒有關掉 skill 的設定：專案裡 .goose/skills、.claude/skills、.agents/skills 的 skill 一定會載入（它的家目錄是 Harness Relay 自己的，所以不會讀你 ~/.claude/skills 等處的 skill）',
+        mcp: '專案 plugin 的 MCP 伺服器都不啟動，只保留工具庫的；從新的對話開始生效（接續的 session 沿用開始時的清單）',
+        tools: 'Goose 不回報它的內建工具',
+        instructions: '工作目錄到儲存庫根目錄之間的 .goosehints 與 AGENTS.md（CONTEXT_FILE_NAMES）',
+        memory: 'Goose 沒有自己的記憶',
+        hooks: 'hook 只來自 plugin：關掉 plugin 就不會執行',
+        agents: 'Goose 沒有只略過自訂 subagent 的設定',
+        plugins: '專案 .agents/plugins 裡的每個 plugin，連同它的 hook、skill 與 MCP 伺服器（MCP 伺服器從新的對話開始）',
+      },
+      // The open agents: each adapter adds what its switches leave out, once its CLI has any.
+      cline: {
+        skills: '關掉 Cline 的 skills 工具：它的模型不再看到、也用不到任何 skill（工具庫的 skill 照常列在指示裡）',
+        mcp: 'Cline 只用工具庫的 MCP 伺服器（Harness Relay 每次執行都重寫它的 MCP 設定）；plugin 帶來的照常載入',
+        tools: 'Cline 沒有一次關掉所有內建工具的設定；請個別勾選',
+        instructions: 'Cline 沒有能單次略過指示檔（AGENTS.md、.clinerules、.cline/rules）的設定',
+        memory: 'Cline 沒有自動記憶',
+        hooks: 'Cline 沒有略過 hook 的設定：專案 .clinerules/hooks 與 .cline/hooks 裡的 hook 照常執行',
+        agents: 'Cline 沒有略過自訂 agent 的設定',
+        plugins: 'Cline 只能依路徑個別略過 plugin；請個別勾選',
+      },
+      opencode: {
+        skills: '它從 .claude/skills 與 .agents/skills 找到的 skill，以及內建的 customize-opencode（skill 工具整個關掉）',
+        mcp: 'Harness Relay 裡的 OpenCode 不載入它自己的 MCP 伺服器（從不讀取專案的設定），只有工具庫的',
+        tools: 'OpenCode 不回報它的內建工具',
+        instructions: '專案的 AGENTS.md 或 CLAUDE.md；子資料夾裡的 AGENTS.md 在它讀取那裡的檔案時仍會加入',
+        memory: 'OpenCode 沒有自己的記憶',
+        hooks: 'OpenCode 沒有 hook（Harness Relay 裡不載入它的 plugin）',
+        agents: '它的 subagent general 與 explore（完全存取以外一律關閉）',
+        plugins: 'Harness Relay 裡的 OpenCode 不載入任何 plugin',
+      },
+      openhands: {
+        skills:
+          'OpenHands 沒有排除 skill 的設定：工作目錄與儲存庫根目錄裡 .agents/skills、.openhands/skills 與 .openhands/microagents 的 skill 一定會載入（它從 GitHub 取得的公開 skill 一律關閉）',
+        mcp: 'OpenHands 只拿到工具庫的 MCP 伺服器（Harness Relay 每次執行都會寫入它的 mcp.json）',
+        tools: 'OpenHands 不回報它的內建工具',
+        instructions: 'OpenHands 沒有排除指示檔的設定：工作目錄與儲存庫根目錄裡的 AGENTS.md、agent.md、CLAUDE.md、GEMINI.md 與 .cursorrules 一定會載入',
+        memory: 'OpenHands 沒有自己的記憶；它的 system prompt 會要模型把 AGENTS.md 當成記憶',
+        hooks: 'OpenHands 沒有排除 hook 的設定：專案的 .openhands/hooks.json 照常執行',
+        agents: 'OpenHands 沒有排除 subagent（.agents/agents、.openhands/agents）的設定；完全存取以外不提供它的 subagent 工具，所以它們不會執行',
+        plugins: 'OpenHands 不回報 plugin',
+      },
+      pi: {
+        skills: 'Harness Relay 裡從不載入 Pi 自己的 skill；工具庫的 skill 會列在角色說明裡',
+        mcp: 'Pi 只透過它的 MCP 擴充功能拿到工具庫的 MCP 伺服器；從不讀取專案的 .pi 資料夾',
+        tools: 'Pi 不回報它的內建工具',
+        instructions: '從工作目錄往上直到 / 的每個 AGENTS.override.md、AGENTS.md 或 CLAUDE.md（只能全部一起排除：Pi 沒有單一檔案的開關）',
+        memory: 'Pi 不回報記憶',
+        hooks: 'Harness Relay 裡從不載入 Pi 的擴充功能，只有它的 gate 與 MCP 擴充功能',
+        agents: 'Pi 不回報 subagent',
+        plugins: 'Harness Relay 裡從不載入 Pi 的擴充功能、套件與專案的 .pi 資料夾',
+      },
     } as Record<Provider, Record<NativePart, string>>,
     offCodexThreads:
       'Codex 會沿用對話開始時載入的 skill 清單、指示檔與記憶：這些項目的變更（包括 plugin 帶來的 skill）從新對話開始生效。MCP 伺服器、它們的工具與 hook 的變更下一回合就生效。',
@@ -973,10 +1032,13 @@ export const zhTW = {
     leadHint: '每個新問題，由這個 agent 讀問題與先前的對話，沿用目前的團隊、挑選範本、依範本調整，或設計新的團隊。',
     leadSaved: '已儲存首席 agent',
     leadNotReady: (p: string) => `${p} 目前無法使用，請先登入或改選其他 agent。`,
+    leadNoBackend: (p: string) => `${p} 還沒有模型來源：請先設定一個，或改選其他 agent。`,
+    leadNotInstalled: (p: string) => `這台電腦上找不到 ${p}：請先安裝（或在它的卡片指定執行檔路徑），或改選其他 agent。`,
+    goCard: (p: string) => `前往 ${p} →`,
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
-    nav: { language: '介面語言', appearance: '外觀', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
+    nav: { language: '介面語言', appearance: '外觀', backends: '模型來源', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
     tour: '使用導覽',
     tourHint: '一步一步介紹主要功能。',
     replayTour: '重新觀看導覽',
@@ -1011,6 +1073,76 @@ export const zhTW = {
       loggedIn: '已登入',
       notLoggedIn: '未登入',
       unknown: '狀態未知',
+      openReady: '可使用',
+      openNotReady: '尚未就緒',
+    },
+    /** An open agent's card (OpenCode, Goose, Cline, OpenHands, Pi). */
+    open: {
+      intro: (p: string) =>
+        `${p} 不需要登入：它使用上方「模型來源」裡的 API key 與端點。成員的模型寫成「模型來源/模型」，例如 openai/gpt-5.4-nano 或 homelab/muse-glimmer-30b-nvfp4。`,
+      noSubscription:
+        'Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱），請改用 API key 或自己的端點。',
+      goBackends: '前往模型來源 →',
+      noCliDefault: 'CLI 預設：沒有（成員需要選一個模型）',
+      /** The switch that lets a CLI use a terminal in the sandbox (SANDBOX_TERMINAL_SUPPORT). */
+      sandboxTerminal: {
+        label: '讓 OpenHands 在沙箱裡使用終端機：它的指令因此可以讀寫你其他的終端機視窗',
+        detail:
+          'OpenHands 在終端機裡執行每個指令。在 macOS 上，沙箱只能一次開放所有終端機：打開後，它的指令可以在你其他的終端機視窗印出文字、讀取你在那裡輸入的內容、更改它們的設定（例如關掉回顯），但仍無法替你在那些視窗打字。關著的時候，OpenHands 只能在完全存取下執行。在 Linux 上沙箱有自己的終端機，不需要這個開關。',
+      },
+      sandbox:
+        '完全存取以外，它和它啟動的一切都在 Harness Relay 自己的沙箱中執行：它只能寫入這次執行的暫存資料夾與它自己的 session 資料夾，可編輯模式再加上工作目錄與附件資料夾。網路上，這次執行用的模型來源不必詢問就連得到；其他主機會先問你，但這台電腦自己的位址、它自己會連的少數主機，以及一次執行中第 30 個之後的主機，會直接拒絕。沙箱無法啟動時不會執行。',
+      /** One note per agent, written by its adapter (empty: none). */
+      notes: {
+        opencode:
+          'OpenCode 在 Harness Relay 裡有自己的家目錄，從不讀取專案的 opencode.json 與 .opencode/（它們可能放寬它的權限），但專案的 AGENTS.md（或 CLAUDE.md）仍會交給它。被拒絕的操作，Harness Relay 的理由與你的附註會傳給模型。完全存取以外，它的 subagent 會關閉。',
+        goose: '用 goose acp 執行。唯讀與可編輯模式下 Goose 每個工具呼叫都會先問 Harness Relay；Goose 用 shell 讀檔，唯讀模式下單純讀取的指令（cat、ls、rg…）不會詢問。完全存取用它的 auto 模式。',
+        cline:
+          'Cline 透過 ACP（cline --acp）執行，每個工具呼叫都會先問 Harness Relay：讀取與搜尋依權限直接執行，其他的照權限決定或問你。你拒絕時，Cline 的模型只看到它自己固定的「使用者拒絕」訊息，你的說明只顯示在對話裡。它會載入專案的 AGENTS.md、.clinerules、.cline/rules、skill、hook 與 plugin（hook 與 plugin 的程式會執行），以及你家目錄 ~/.agents 裡的 skill。用量由 Cline 的 session 紀錄讀出。',
+        openhands:
+          'OpenHands 每次執行都用 Harness Relay 寫的一份設定（模型、推理強度、角色說明），不讀你的 ~/.openhands；它從 GitHub 抓公開 skill 與 LiteLLM 價格表的動作都關掉。完全存取以外，它每個動作都會先問，也不提供會不經詢問執行指令的 subagent（task 工具）。專案裡的 AGENTS.md、.agents/skills 與 .openhands/hooks.json 一定會載入，無法關閉。',
+        pi: 'Pi 自己不會詢問權限：完全存取以外，Harness Relay 的 gate 擴充功能會在它的每個工具呼叫（包括 MCP 工具）執行前詢問，拒絕的原因與你的留言會交給模型。唯讀時它只有讀取的工具（再加上工具庫的 MCP 工具）。它會載入工作目錄往上每一層的 AGENTS.md / CLAUDE.md；它自己的 skill、擴充功能與專案的 .pi 資料夾都不會載入。',
+      } as Record<OpenProvider, string>,
+    },
+    /** Settings → Model backends. */
+    backends: {
+      title: '模型來源',
+      hint: 'OpenCode、Goose、Cline、OpenHands 與 Pi 用這裡的模型來源執行：OpenAI、Anthropic、xAI 的 API key，或你自己的 OpenAI 相容端點（vLLM、Ollama、LM Studio、llama.cpp）。每次執行只帶入已設定的金鑰，Harness Relay 自己不會呼叫這些 API。',
+      noSubscription:
+        'Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）。Claude Code 與 Grok 本身照常使用它們的登入。',
+      modelIds: '成員的模型寫成「模型來源/模型」：openai/…、anthropic/…、xai/…，或端點的 id 加上模型名稱，例如 homelab/muse-glimmer-30b-nvfp4。',
+      apiKeys: 'API key',
+      notSet: '未設定',
+      keySet: (masked: string) => `已設定 ${masked}`,
+      keyUnreadable: '無法從系統的金鑰儲存區讀取（可能已鎖定）；重新輸入即可取代。',
+      endpoints: '自訂端點',
+      endpointsHint: '你自己的 OpenAI 相容伺服器。Harness Relay 不會向它查詢模型清單，請自己輸入它提供的模型名稱。',
+      noEndpoints: '還沒有自訂端點。',
+      addEndpoint: '新增端點',
+      editEndpoint: '修改',
+      deleteEndpoint: '刪除',
+      confirmDelete: (name: string) => `刪除端點「${name}」？使用它的模型的成員將無法執行，直到你改選其他模型。`,
+      name: '名稱',
+      namePlaceholder: '例如：Homelab vLLM',
+      id: 'id（模型 id 的開頭，建立後不能修改）',
+      baseUrl: '網址（base URL）',
+      baseUrlPlaceholder: 'http://10.0.0.5:8000/v1',
+      models: '模型名稱（一行一個）',
+      modelsPlaceholder: 'muse-glimmer-30b-nvfp4',
+      endpointKey: 'API key（選填）',
+      endpointKeyKeep: '留空則保留目前的金鑰',
+      removeKey: '移除金鑰',
+      saved: '已儲存',
+      deleted: '已刪除',
+      problems: {
+        name: '請輸入名稱。',
+        nameLong: (n: number) => `名稱最多 ${n} 個字元。`,
+        id: 'id 只能用小寫英文字母、數字與 -（開頭與結尾不能是 -，最多 32 個字元）。',
+        idTaken: '已經有這個 id 的端點。',
+        idReserved: 'openai、anthropic、xai 是內建模型來源的名稱。',
+        url: '網址需要 http:// 或 https:// 開頭，不含帳號密碼、查詢字串或 #。',
+        models: (n: number, chars: number) => `模型名稱最多 ${n} 個，每個最多 ${chars} 個字元。`,
+      },
     },
     apiKeyHelp: {
       claude: '儲存後，Harness Relay 啟動 Claude Code 時會帶入 ANTHROPIC_API_KEY（改用 API 計費，優先於訂閱登入）。',
@@ -1065,11 +1197,21 @@ export const zhTW = {
     steps: [
       {
         title: '歡迎使用 Harness Relay',
-        body: '這是一個群組聊天室：Claude Code、Codex 和 Grok 會一起回答你的問題、一起改你的程式，全都在你的電腦上執行。接下來幾個步驟帶你認識主要功能。',
+        body: '這是一個群組聊天室：Claude Code、Codex 和 Grok，以及 OpenCode、Goose、Cline、OpenHands、Pi 五個開源 agent，會一起回答你的問題、一起改你的程式，全都在你的電腦上執行。接下來幾個步驟帶你認識主要功能。',
       },
       {
-        title: '先確認各 agent 已登入',
-        body: 'Harness Relay 直接呼叫你電腦上的 CLI。左下角的燈號是各 agent 的狀態；到「設定與登入」可以登入、設定 API key 與預設模型。它只接受你登入過的瀏覽器：要用手機使用，請到「設定 → 已登入的瀏覽器」取得代碼。',
+        title: '先確認各 agent 可以使用',
+        body: 'Harness Relay 直接呼叫你電腦上的 CLI。左下角的燈號是各 agent 的狀態；到「設定與登入」可以登入 Claude Code、Codex 與 Grok，設定 API key 與預設模型。它只接受你登入過的瀏覽器：要用手機使用，請到「設定 → 已登入的瀏覽器」取得代碼。',
+      },
+      {
+        title: '開源 agent 與模型來源',
+        body: 'OpenCode、Goose、Cline、OpenHands 與 Pi 不用登入，而是用你在「設定 → 模型來源」設定的模型：',
+        points: [
+          'OpenAI、Anthropic、xAI 的 API key，或你自己的 OpenAI 相容端點（vLLM、Ollama、LM Studio、llama.cpp）',
+          '成員的模型寫成「模型來源/模型」，例如 openai/gpt-5.4-nano 或 homelab/muse-glimmer-30b-nvfp4',
+          'Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI：請用 API key 或你自己的端點',
+          '完全存取以外，它們在 Harness Relay 自己的沙箱中執行：唯讀時寫不進工作目錄，模型來源以外的主機會先問你（少數會直接拒絕）',
+        ],
       },
       {
         title: '建立新對話',
@@ -1129,8 +1271,9 @@ export const zhTW = {
           '唯讀：只讀檔、分析與上網查資料',
           '可編輯：在工作目錄內修改檔案、執行測試與建置',
           '完全存取：執行任何指令，不再詢問',
-          '完全存取以外，每個 agent 的指令都在它那個 CLI 的沙箱中執行：只能寫入工作目錄與暫存資料夾，讀不到你瀏覽器的資料夾與 Harness Relay 的資料（原生 Windows 上只有 Codex 有沙箱）',
+          '完全存取以外，每個 agent 的指令都在沙箱中執行：只能寫入工作目錄與暫存資料夾，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Claude Code、Codex 與 Grok 用它們自己的沙箱，開源 agent 用 Harness Relay 自己的（原生 Windows 上只有 Codex 有沙箱，開源 agent 只能以完全存取執行）',
           '在你的家目錄與 Harness Relay 自己的資料夾中，不能使用可編輯模式：請選專案的資料夾',
+          '提高權限時，每個 agent 下一輪都會帶著完整的歷史開始新的 session',
           '每回合改了哪些檔案都會列出來，可以看 diff；平行模式再選擇要套用誰的結果',
         ],
       },
@@ -1173,7 +1316,7 @@ export const zhTW = {
       },
       {
         title: '工具庫：MCP、skill 與記憶',
-        body: '在「設定 → 工具庫」設定一次，Claude Code、Codex 和 Grok 的成員都能用，而且加在各 CLI 自己的設定之外：',
+        body: '在「設定 → 工具庫」設定一次，每位成員都能用，不管它跑在哪個 CLI，而且加在各 CLI 自己的設定之外：',
         points: [
           'MCP 伺服器：本機指令或網址，token 存在系統的金鑰儲存區',
           'Skills：從資料夾裡挑選要加入的 skill（例如 ~/.claude/skills）',
@@ -1192,7 +1335,7 @@ export const zhTW = {
       },
       {
         title: '隨時調整',
-        body: '在設定頁可以切換介面語言（繁體中文 / English）、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
+        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定開源 agent 的模型來源、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
       },
     ] as { title: string; body: string; points?: string[] }[],
   },

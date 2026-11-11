@@ -6,7 +6,8 @@
  * - its fuses are set as desktop/electron-builder.yml sets them (no running as Node, its code only
  *   from its archive, checked);
  * - the server and the keyring module are in its resources (a universal Mac app holds the module's
- *   native part for both processors);
+ *   native part for both processors), and so are Harness Relay's own sandbox host, Pi's gate extension
+ *   and the sandbox runtime (on Linux, with its seccomp helper executable);
  * - the app passes its own check (`--smoke-test`, desktop/src/main.ts): in Electron as it ships, the
  *   server starts in a utility process, signs a sandboxed window in, and stops.
  *
@@ -16,7 +17,7 @@
  * Usage: tsx desktop/scripts/check-package.ts [--dir <folder electron-builder wrote to>]
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -95,6 +96,15 @@ async function main(): Promise<number> {
     check(keyring.includes('keyring') && keyring.some((n) => n.startsWith('keyring-')), `the keyring module is in its resources (${keyring.join(', ') || 'none'})`);
     if (app.universal) {
       check(keyring.includes('keyring-darwin-arm64') && keyring.includes('keyring-darwin-x64'), 'the keyring module has its native part for Apple Silicon and Intel');
+    }
+    const runtime = join(server, 'node_modules', '@anthropic-ai', 'sandbox-runtime');
+    check(
+      existsSync(join(server, 'relaySandboxHost.mjs')) && existsSync(join(server, 'piGate.js')) && existsSync(join(runtime, 'package.json')),
+      "the relay sandbox's host, Pi's gate and the sandbox runtime are in its resources",
+    );
+    if (process.platform === 'linux') {
+      const seccomp = join(runtime, 'vendor', 'seccomp', process.arch === 'arm64' ? 'arm64' : 'x64', 'apply-seccomp');
+      check(existsSync(seccomp) && (statSync(seccomp).mode & 0o111) !== 0, "the sandbox runtime's seccomp helper is executable");
     }
     const { code, report } = await selfCheck(app.exe);
     process.stdout.write(report.replace(/^/gm, '  '));

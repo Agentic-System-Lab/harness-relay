@@ -16,6 +16,7 @@ import {
   type NativeSetup,
   type NativeSkill,
   type NativeTool,
+  type OpenProvider,
   type Provider,
 } from '../shared/types';
 import {
@@ -42,6 +43,8 @@ import {
   codexUserMcpConfig,
 } from './agents/codex';
 import { grokNativeEnv } from './agents/grok';
+import { openAgents } from './agents/index';
+import { openHomeEnv } from './agents/open';
 import { t } from './i18n';
 import { converse, runProcess } from './process';
 import { AGENT_HOME_ENV } from './settings';
@@ -1037,6 +1040,31 @@ async function probeGrok(
   return { provider: 'grok', cwd, ...own, ...lists, memoryFromFiles: false, nativeOff: [...off], nativeItems: items, asRun, problems, checkedAt: Date.now() };
 }
 
+/**
+ * An open agent: its adapter's probe (`OpenAgentDefinition.native`), else an answer that says Harness
+ * Relay cannot list what it loads yet. Nothing is left out of its runs until its adapter can
+ * (NATIVE_OFF_SUPPORT is empty for it), so it is asked once.
+ */
+function probeOpen(provider: OpenProvider) {
+  return async (bin: string, env: NodeJS.ProcessEnv, cwd: string, off: readonly NativePart[], items: NativeItemsOff, timeoutMs = PROBE_TIMEOUT_MS): Promise<NativeProbe> => {
+    const agent = openAgents[provider];
+    if (agent.native) return { ...(await agent.native(bin, openHomeEnv(agent.process, env), cwd, timeoutMs, off, items)), nativeOff: [...off], nativeItems: items };
+    return {
+      provider,
+      cwd,
+      skills: [],
+      mcpServers: [],
+      memory: [],
+      memoryFromFiles: false,
+      nativeOff: [...off],
+      nativeItems: items,
+      asRun: false,
+      problems: [{ kind: 'failed', detail: t().openNativeNotYet(PROVIDER_LABEL[provider]) }],
+      checkedAt: Date.now(),
+    };
+  };
+}
+
 const PROBES: Record<
   Provider,
   (bin: string, env: NodeJS.ProcessEnv, cwd: string, off: readonly NativePart[], items: NativeItemsOff, timeoutMs?: number) => Promise<NativeProbe>
@@ -1044,6 +1072,11 @@ const PROBES: Record<
   claude: probeClaude,
   codex: probeCodex,
   grok: probeGrok,
+  opencode: probeOpen('opencode'),
+  goose: probeOpen('goose'),
+  cline: probeOpen('cline'),
+  openhands: probeOpen('openhands'),
+  pi: probeOpen('pi'),
 };
 
 const CACHE_MS = 60_000;
@@ -1097,7 +1130,7 @@ export class NativeSetupService {
         skills: [],
         mcpServers: [],
         memory: [],
-        memoryFromFiles: provider !== 'grok',
+        memoryFromFiles: provider === 'claude' || provider === 'codex',
         nativeOff: off,
         nativeItems: items,
         asRun: false,

@@ -1,0 +1,10 @@
+{"t": 1, "dir": "meta", "bin": "cline", "args": ["--acp"], "cwd": "/home/user/project", "envKeys": ["CLINE_DIR", "CLINE_MODEL", "CLINE_NO_AUTO_UPDATE", "CLINE_PROVIDER", "CLINE_SESSION_BACKEND_MODE", "E2E_TEST", "HOME", "LANG", "PATH", "TMPDIR"]}
+{"t": 4, "dir": "meta", "pid": 17440}
+{"t": 4, "dir": "client->agent", "msg": {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {"fs": {"readTextFile": false, "writeTextFile": false}, "terminal": false}, "clientInfo": {"name": "relay-investigate", "version": "0.0.1"}}}}
+{"t": 653, "dir": "agent stderr", "text": "[acp] starting ACP mode over stdio…\n"}
+{"t": 659, "dir": "agent->client", "msg": {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1, "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "audio": false, "embeddedContext": false}}, "agentInfo": {"name": "cline", "version": "3.0.74"}, "authMethods": [{"id": "cline", "name": "Sign in with Cline"}, {"id": "cline-pass", "name": "Sign in with ClinePass"}, {"id": "openai-codex", "name": "Sign in with ChatGPT Subscription"}]}}}
+{"t": 660, "dir": "client->agent", "msg": {"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {"cwd": "/home/user/project", "mcpServers": []}}}
+{"t": 661, "dir": "agent stderr", "text": "Error handling request {\n  jsonrpc: \"2.0\",\n  id: 2,\n  method: \"session/new\",\n  params: {\n    cwd: \"/home/user/project\",\n    mcpServers: [],\n  },\n} {\n  code: -32000,\n  message: \"Authentication required: Call authenticate before starting a session\",\n  data: undefined,\n}\n"}
+{"t": 662, "dir": "agent->client", "msg": {"jsonrpc": "2.0", "id": 2, "error": {"code": -32000, "message": "Authentication required: Call authenticate before starting a session"}}}
+{"t": 662, "dir": "meta", "note": "error: Authentication required: Call authenticate before starting a session", "rpc": {"code": -32000, "message": "Authentication required: Call authenticate before starting a session"}}
+{"t": 672, "dir": "meta", "exit": 0, "signal": null}

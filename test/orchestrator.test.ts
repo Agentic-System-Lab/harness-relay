@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig, Conversation, ConversationSchedule, ConversationSettings } from '../src/shared/types';
 
@@ -27,7 +27,8 @@ const { Hub } = await import('../src/server/hub');
 const { Orchestrator, branchAfterCut, branchOrigin, branchPause } = await import('../src/server/orchestrator');
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
-const { AgentRunError, runners } = await import('../src/server/agents');
+const { AgentRunError, runners, stateKeys } = await import('../src/server/agents');
+const { stateFolder } = await import('../src/server/agents/open');
 const { PLANNER_BRIEFING, REVISER_BRIEFING } = await import('../src/server/planner');
 const { GROUPER_BRIEFING } = await import('../src/server/grouping');
 const { withLang } = await import('../src/server/i18n');
@@ -54,6 +55,11 @@ let calls: {
   attachmentsDir?: string;
   nativeOff?: readonly string[];
   nativeItems?: Record<string, string[]>;
+  sandboxTerminal?: boolean;
+  stateKey?: string;
+  freshState?: boolean;
+  permission?: string;
+  model?: string;
 }[] = [];
 let settings: InstanceType<typeof SettingsStore>;
 /** What the fake lead agent replies when asked to design a team (auto team). */
@@ -78,6 +84,8 @@ let during: ((name: string, cwd: string) => void) | undefined;
 let gates: Record<string, Promise<void>> = {};
 /** Agents that ask the user a question until their prompt carries an answer ("ANSWER:"). */
 let asking = new Set<string>();
+/** The way to ask the user that a fake CLI run whose prompt says "keep asking" had (kept past its turn). */
+let keptAsk: ((req: { kind: 'fetch'; detail: string }) => Promise<unknown>) | undefined;
 /** Makes an agent's fake CLI run fail (after it wrote its files), e.g. to simulate a rate limit. */
 let fail: ((name: string, sessionId?: string) => Error | undefined) | undefined;
 
@@ -87,7 +95,7 @@ beforeAll(() => {
     provider: 'claude',
     async run(o) {
       if (o.systemPrompt === GROUPER_BRIEFING) {
-        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems });
+        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, sandboxTerminal: o.sandboxTerminal, stateKey: o.stateKey });
         if (sorterGate && !o.signal?.aborted) {
           await Promise.race([sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
@@ -97,7 +105,7 @@ beforeAll(() => {
         return { sessionId: 'sorter-session' };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
-        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd });
+        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd, stateKey: o.stateKey });
         // Only the run that starts while it is set lingers.
         const linger = reviseLinger;
         reviseLinger = undefined;
@@ -113,7 +121,7 @@ beforeAll(() => {
         return { costUsd: 0.02, sessionId: 'reviser-session' };
       }
       if (o.systemPrompt === PLANNER_BRIEFING) {
-        calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems });
+        calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, sandboxTerminal: o.sandboxTerminal, stateKey: o.stateKey });
         if (leadGate) await leadGate;
         o.onEvent({ type: 'text', text: leadReply });
         o.onEvent({ type: 'text_end' });
@@ -129,6 +137,11 @@ beforeAll(() => {
         attachmentsDir: o.attachmentsDir,
         nativeOff: o.nativeOff,
         nativeItems: o.nativeItems,
+        sandboxTerminal: o.sandboxTerminal,
+        stateKey: o.stateKey,
+        freshState: o.freshState,
+        permission: o.permission,
+        model: o.model,
       });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
@@ -140,6 +153,7 @@ beforeAll(() => {
       if (o.signal?.aborted) throw new AgentRunError('stopped', true);
       const failure = fail?.(name, o.sessionId);
       if (failure) throw failure;
+      if (o.prompt.includes('keep asking')) keptAsk = o.requestApproval;
       if (o.prompt.includes('crash after asking')) {
         // The CLI asks, then dies before the user answers.
         void o.requestApproval?.({ kind: 'command', detail: 'npm install left-pad' });
@@ -418,6 +432,265 @@ describe('what a CLI loads by itself', () => {
     expect(helpers.map((c) => c.name).sort()).toEqual(['lead', 'sorter']);
     expect(helpers.every((c) => c.nativeOff?.join() === 'skills,instructions')).toBe(true);
     expect(helpers.every((c) => c.nativeItems?.tools?.join() === 'WebSearch')).toBe(true);
+  });
+
+  it("gives every run the user's switch for a terminal in the sandbox, as Settings has it for the run's CLI", async () => {
+    const asked: string[] = [];
+    const spy = vi.spyOn(settings, 'sandboxTerminal').mockImplementation((p) => (asked.push(p), true));
+    try {
+      const team = conversation({ mode: 'roundtable' });
+      await orchestrator.send(team.id, 'go');
+      await finish(team.id);
+      store.createGroup({ id: 'g2', name: 'Notes' });
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+      conv.agents = [];
+      leadReply = JSON.stringify({ choice: 'template', templateId: 'builtin-parallel', reason: 'Compare.' });
+      await orchestrator.send(conv.id, 'Write the notes');
+      await finish(conv.id);
+      await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(false));
+    } finally {
+      spy.mockRestore();
+    }
+    const runs = calls.filter((c) => c.name !== 'reviser');
+    expect(runs.map((c) => c.name)).toEqual(expect.arrayContaining(['Alice', 'Bob', 'lead', 'sorter']));
+    expect(runs.every((c) => c.sandboxTerminal === true)).toBe(true);
+    expect(new Set(asked)).toEqual(new Set(['claude']));
+    expect(settings.sandboxTerminal('claude')).toBe(false);
+  });
+});
+
+describe("each member's own state, and a session that ran with less permission", () => {
+  const alice = () => calls.filter((c) => c.name === 'Alice');
+
+  it('gives each member a state key of its own, the same at every turn, so its session resumes', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    for (const text of ['one', 'two']) {
+      await orchestrator.send(conv.id, text);
+      await finish(conv.id);
+    }
+    expect(alice().map((c) => c.stateKey)).toEqual([stateKeys.member(conv.id, 'a'), stateKeys.member(conv.id, 'a')]);
+    expect(calls.find((c) => c.name === 'Bob')!.stateKey).toBe(stateKeys.member(conv.id, 'b'));
+    expect(alice()[1]!.sessionId).toBe('session-Alice');
+    expect(alice().map((c) => c.freshState)).toEqual([false, false]);
+    // Another conversation's members have keys of their own.
+    const other = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(other.id, 'one');
+    await finish(other.id);
+    expect(alice()[2]!.stateKey).toBe(stateKeys.member(other.id, 'a'));
+    expect(alice()[2]!.stateKey).not.toBe(alice()[0]!.stateKey);
+  });
+
+  /** Runs `body` with the fake CLI standing in for OpenCode and Goose too (each with a home of its own). */
+  const withOpenAgents = async (body: () => Promise<void>) => {
+    const saved = { opencode: runners.opencode, goose: runners.goose };
+    runners.opencode = { ...runners.claude, provider: 'opencode' };
+    runners.goose = { ...runners.claude, provider: 'goose' };
+    orchestrator = new Orchestrator(store, new Hub(), settings, {
+      context: async () => ({ available: ['claude', 'opencode', 'goose'], catalog: [], presets: store.listPresets() }),
+      defaultModel: async () => 'openai/gpt-5.4-nano',
+    });
+    try {
+      await body();
+    } finally {
+      Object.assign(runners, saved);
+    }
+  };
+  /** A file in member `agentId`'s state folder in an open agent's home, as its CLI would leave there. */
+  const leaveInState = (provider: 'opencode' | 'goose', convId: string, agentId = 'a') => {
+    const dir = stateFolder(settings.openAgentHome(provider), stateKeys.member(convId, agentId));
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'session.db');
+    writeFileSync(file, 'written by the run before');
+    return file;
+  };
+
+  it('starts a fresh session with the whole history after the permission went up, and resumes after it went down', async () => {
+    await withOpenAgents(async () => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      conv.agents = [{ ...agents[0]!, provider: 'opencode' }];
+      const turn = async (permission: 'read-only' | 'edit' | 'full', text: string) => {
+        conv.settings.permission = permission;
+        store.saveMeta(conv);
+        await orchestrator.send(conv.id, text);
+        await finish(conv.id);
+        return alice().at(-1)!;
+      };
+      const first = await turn('read-only', 'one');
+      expect(first).toMatchObject({ permission: 'read-only', freshState: false, sessionId: undefined });
+      const left = leaveInState('opencode', conv.id);
+      // read-only → edit: not resumed, the state folder emptied, the whole chat in the prompt.
+      const raised = await turn('edit', 'two');
+      expect(raised).toMatchObject({ permission: 'edit', freshState: true, sessionId: undefined });
+      expect(existsSync(left)).toBe(false);
+      expect(raised.prompt).toContain('Here is the group chat so far:');
+      expect(raised.prompt).toContain('one');
+      // The permission is Harness Relay's own record, in its database, and the folder no longer needs emptying.
+      expect(new Store(db).get(conv.id)!.agentState.a).toMatchObject({ permission: 'edit', byCli: { opencode: { permission: 'edit' } } });
+      expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode!.mustEmpty).toBeUndefined();
+      // The same permission again: resumed, and what the edit run left is kept.
+      const kept = leaveInState('opencode', conv.id);
+      expect(await turn('edit', 'three')).toMatchObject({ freshState: false, sessionId: 'session-Alice' });
+      expect(existsSync(kept)).toBe(true);
+      // edit → read-only: resumed (what a run with more permission wrote may be read with less).
+      expect(await turn('read-only', 'four')).toMatchObject({ freshState: false, sessionId: 'session-Alice' });
+      // read-only → full: fresh again (its last run was read-only).
+      expect(await turn('full', 'five')).toMatchObject({ freshState: true, sessionId: undefined });
+      expect(existsSync(kept)).toBe(false);
+    });
+  }, 30_000);
+
+  it('starts a fresh Claude Code session when the permission went up (it keeps no state folder here)', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.agents = [agents[0]!];
+    await orchestrator.send(conv.id, 'one');
+    await finish(conv.id);
+    conv.settings.permission = 'edit';
+    store.saveMeta(conv);
+    await orchestrator.send(conv.id, 'two');
+    await finish(conv.id);
+    expect(alice().at(-1)).toMatchObject({ permission: 'edit', sessionId: undefined, freshState: false });
+    expect(alice().at(-1)!.prompt).toContain('Here is the group chat so far:');
+  });
+
+  it('does not run an open agent whose state folder could not be emptied, and empties it at the next turn', async () => {
+    await withOpenAgents(async () => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      conv.agents = [{ ...agents[0]!, provider: 'opencode' }];
+      await orchestrator.send(conv.id, 'one');
+      await finish(conv.id);
+      const left = leaveInState('opencode', conv.id);
+      conv.settings.permission = 'edit';
+      store.saveMeta(conv);
+      const folders = dirname(dirname(left));
+      chmodSync(folders, 0o500); // the folder cannot be set aside
+      try {
+        await withLang('en', () => orchestrator.send(conv.id, 'two'));
+        await finish(conv.id);
+      } finally {
+        chmodSync(folders, 0o700);
+      }
+      expect(existsSync(left)).toBe(true);
+      // What a run may do in its own folder (lock a folder in it) does not keep it from being emptied.
+      mkdirSync(join(dirname(left), 'locked'));
+      chmodSync(join(dirname(left), 'locked'), 0o000);
+      expect(alice()).toHaveLength(1);
+      expect(agentMessages(conv).at(-1)).toMatchObject({ status: 'error' });
+      expect(agentMessages(conv).at(-1)!.error).toMatch(/must be emptied before it runs, but it could not be/);
+      expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({ permission: 'edit', mustEmpty: true });
+      // The permission did not go up from the last run's (edit), but the folder still has to be emptied.
+      await orchestrator.send(conv.id, 'three');
+      await finish(conv.id);
+      expect(alice().at(-1)).toMatchObject({ permission: 'edit', freshState: true, sessionId: undefined });
+      expect(existsSync(left)).toBe(false);
+      expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({ permission: 'edit' });
+    });
+  }, 30_000);
+
+  it("keeps each CLI's own permission: back on a CLI whose last run was read-only, its folder is emptied", async () => {
+    await withOpenAgents(async () => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      conv.agents = [{ ...agents[0]!, provider: 'opencode' }];
+      const turn = async (provider: 'opencode' | 'goose', permission: 'read-only' | 'edit', text: string) => {
+        conv.agents = [{ ...agents[0]!, provider }];
+        conv.settings.permission = permission;
+        store.saveMeta(conv);
+        await orchestrator.send(conv.id, text);
+        await finish(conv.id);
+        return alice().at(-1)!;
+      };
+      await turn('opencode', 'read-only', 'one');
+      const left = leaveInState('opencode', conv.id);
+      // Goose has never run for her: its folder is new, nothing to empty.
+      expect(await turn('goose', 'edit', 'two')).toMatchObject({ freshState: true, sessionId: undefined });
+      expect(existsSync(left)).toBe(true);
+      // Back on OpenCode at edit: its own latest run was read-only.
+      expect(await turn('opencode', 'edit', 'three')).toMatchObject({ freshState: true, sessionId: undefined });
+      expect(existsSync(left)).toBe(false);
+      expect(new Store(db).get(conv.id)!.agentState.a!.byCli).toEqual({ opencode: { permission: 'edit' }, goose: { permission: 'edit' } });
+    });
+  }, 30_000);
+
+  it("removes an open agent member's state folder with its conversation", async () => {
+    await withOpenAgents(async () => {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      conv.agents = [{ ...agents[0]!, provider: 'opencode' }];
+      await orchestrator.send(conv.id, 'one');
+      await finish(conv.id);
+      const left = leaveInState('opencode', conv.id);
+      const other = conversation({ mode: 'roundtable', permission: 'read-only' });
+      const kept = leaveInState('opencode', other.id);
+      await orchestrator.deleteConversation(conv.id);
+      expect(existsSync(dirname(left))).toBe(false);
+      expect(existsSync(kept)).toBe(true);
+    });
+  }, 30_000);
+
+  it("takes a session whose permission was never recorded as read-only's", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    // A session saved before Harness Relay recorded permissions.
+    conv.agentState.a = { provider: 'claude', sessionId: 'old-session', seen: [] };
+    store.saveAgentState(conv.id, 'a', conv.agentState.a);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(alice()[0]).toMatchObject({ sessionId: undefined, freshState: false });
+  }, 30_000);
+
+  it('takes a session recorded with a permission but not yet per CLI as that permission, on the same CLI', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    conv.agents = [agents[0]!];
+    conv.agentState.a = { provider: 'claude', sessionId: 'old-session', permission: 'edit', seen: [] };
+    store.saveAgentState(conv.id, 'a', conv.agentState.a);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(alice()[0]).toMatchObject({ sessionId: 'old-session' });
+  }, 30_000);
+
+  it("gives the lead agent's and the group sorter's runs keys of their own", async () => {
+    store.createGroup({ id: 'g1', name: 'Docs' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    conv.agents = [];
+    leadReply = JSON.stringify({ choice: 'template', templateId: 'builtin-parallel', reason: 'Compare.' });
+    await orchestrator.send(conv.id, 'Write the README');
+    await finish(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(false));
+    expect(calls.find((c) => c.name === 'lead')!.stateKey).toBe(stateKeys.lead(conv.id));
+    expect(calls.find((c) => c.name === 'sorter')!.stateKey).toBe(stateKeys.sort(conv.id));
+    const keys = new Set([stateKeys.lead(conv.id), stateKeys.revise(conv.id), stateKeys.sort(conv.id), stateKeys.member(conv.id, 'a')]);
+    expect(keys.size).toBe(4);
+  });
+
+  it("runs an open agent with no model on the default its model picker shows; the other CLIs on their own", async () => {
+    const saved = runners.opencode;
+    runners.opencode = { ...runners.claude, provider: 'opencode' };
+    const asked: string[] = [];
+    orchestrator = new Orchestrator(store, new Hub(), settings, {
+      context: async () => ({ available: ['claude', 'opencode'], catalog: [], presets: store.listPresets() }),
+      defaultModel: async (p) => {
+        asked.push(p);
+        return 'openai/gpt-5.4-nano';
+      },
+    });
+    try {
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      conv.agents = [
+        { id: 'o', name: 'Otto', provider: 'opencode', role: '' },
+        { id: 'c', name: 'Cleo', provider: 'claude', role: '' },
+      ];
+      const turn = async () => {
+        await orchestrator.send(conv.id, 'go');
+        await finish(conv.id);
+        return { otto: calls.filter((c) => c.name === 'Otto').at(-1)!.model, cleo: calls.filter((c) => c.name === 'Cleo').at(-1)!.model };
+      };
+      expect(await turn()).toEqual({ otto: 'openai/gpt-5.4-nano', cleo: undefined });
+      expect(asked).toEqual(['opencode']);
+      // Settings' default comes first, and a member's own model before that.
+      settings.update('opencode', { defaultModel: 'xai/grok-4.3' });
+      expect((await turn()).otto).toBe('xai/grok-4.3');
+      conv.agents[0]!.model = 'anthropic/claude-haiku-5-5';
+      expect((await turn()).otto).toBe('anthropic/claude-haiku-5-5');
+    } finally {
+      runners.opencode = saved;
+    }
   });
 });
 
@@ -2308,6 +2581,24 @@ describe('approvals and the directory lock', () => {
     orchestrator.answerApproval(writer.id, pending(writer)!.id, { allow: true });
     await finish(writer.id);
   });
+
+  it('refuses a request that comes after the turn ended without asking, and keeps no lock for it', async () => {
+    // Like a network request the relay sandbox queued behind another one, put once the turn has ended.
+    const reader = conversation({ mode: 'roundtable', permission: 'read-only' });
+    reader.agents = [agents[0]!];
+    keptAsk = undefined;
+    await orchestrator.send(reader.id, 'keep asking');
+    await finish(reader.id);
+    expect(await keptAsk!({ kind: 'fetch', detail: 'github.com' })).toEqual({ allow: false });
+    expect(agentMessages(reader)[0]!.parts.some((p) => p.type === 'approval')).toBe(false);
+    expect(orchestrator.isWaiting(reader.id)).toBe(false);
+    // Another conversation may write in the folder.
+    const writer = conversation({ mode: 'roundtable' });
+    writer.agents = [agents[0]!];
+    await orchestrator.send(writer.id, 'go');
+    await finish(writer.id);
+    expect(agentMessages(writer)[0]).toMatchObject({ status: 'done' });
+  }, 30_000);
 
   it('expires a request whose CLI died before the user answered', async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });

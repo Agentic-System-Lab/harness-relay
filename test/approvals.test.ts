@@ -32,6 +32,14 @@ describe('approval rules', () => {
   it('keys edits, fetches and other tools', () => {
     expect(approvalKeys('edit', 'src/a.ts')).toEqual(['*']);
     expect(approvalKeys('fetch', 'https://docs.example.com/page')).toEqual(['docs.example.com']);
+    // Keyed by host and port: allowing a model server's port allows no other port of that host.
+    expect(approvalKeys('fetch', 'http://192.168.1.5:8000/v1/models')).toEqual(['192.168.1.5:8000']);
+    expect(approvalKeys('fetch', '192.168.1.5:22')).toEqual(['192.168.1.5:22']);
+    expect(approvalKeys('fetch', 'https://docs.example.com:443/page')).toEqual(['docs.example.com']);
+    expect(approvalKeys('fetch', 'docs.example.com:443')).toEqual(['docs.example.com']);
+    expect(approvalKeys('fetch', 'docs.example.com:80')).toEqual(['docs.example.com']);
+    expect(isAllowed([{ kind: 'fetch', key: '192.168.1.5:8000' }], 'fetch', approvalKeys('fetch', '192.168.1.5:22'))).toBe(false);
+    expect(isAllowed([{ kind: 'fetch', key: 'docs.example.com' }], 'fetch', approvalKeys('fetch', 'docs.example.com:443'))).toBe(true);
     expect(approvalKeys('other', undefined, 'linear__create_issue')).toEqual(['linear__create_issue']);
     expect(approvalKeys('other')).toEqual([]);
   });

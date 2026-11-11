@@ -15,6 +15,9 @@ import { clearShareTmp } from './share';
 import { openSystemKeyring } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import { dataDirInTemp, relayTmpDir } from './protect';
+import { OPEN_PROVIDERS } from '../shared/types';
+import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
+import { clearRelaySandboxLeftovers, relaySandboxRoot } from './relaySandbox';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { serveWebApp, webAppDir } from './web';
@@ -45,6 +48,10 @@ const orchestrator = new Orchestrator(
         .map((s) => s.provider);
       return { available, catalog, presets: store.listPresets() };
     },
+    // What an open agent with no model of its own runs on: what its model picker shows as the default.
+    async defaultModel(p) {
+      return (await providers.models(p)).defaultModel;
+    },
   },
   agentsView,
 );
@@ -71,6 +78,18 @@ if (!built) {
 await clearShareTmp().catch((err: unknown) => console.error('[server] could not clear the temporary share folders:', err));
 // There before any agent runs, so that every sandbox is kept out of it from the first turn (protectedReads).
 mkdirSync(relayTmpDir(), { recursive: true, mode: 0o700 });
+// The temporary folders of relay-sandbox runs the server was stopped during (none is running yet).
+try {
+  clearRelaySandboxLeftovers();
+} catch (err) {
+  console.error('[server] could not clear the relay sandbox folders:', err);
+}
+// Where open agents' runs keep their temp folders: there before any run, so that every sandboxed run
+// is kept from reading other runs' folders in them from the first turn (`privateRoots`).
+// What open agents' runs a stopped server was running left: their temp folders, and the state folders of
+// runs without a key.
+clearOpenRunLeftovers(OPEN_PROVIDERS.map((p) => settings.openAgentHome(p)));
+for (const dir of [relaySandboxRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? '127.0.0.1';

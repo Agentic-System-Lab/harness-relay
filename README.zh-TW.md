@@ -6,9 +6,9 @@
 
 **網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/
 
-一個在本機執行的群組聊天室，讓真正的 **Claude Code、Codex 和 Grok** CLI 組成團隊：替每個 agent 安排角色、決定輪流發言的方式，它們就會處理你的程式碼或任何問題，並且互相回應。
+一個在本機執行的群組聊天室，讓真正的 **Claude Code、Codex 和 Grok** CLI，以及五個用你選的模型來源執行的開源 coding agent（**OpenCode、Goose、Cline、OpenHands 與 Pi**）組成團隊：替每個 agent 安排角色、決定輪流發言的方式，它們就會處理你的程式碼或任何問題，並且互相回應。
 
-每個問題都由首席 agent 從你的範本挑選團隊（或依範本調整、重新設計），你確認後團隊才開始回答：每個 agent 的定位（架構師、實作者、審查者、魔鬼代言人……）、模型與推理強度，以及對話模式（圓桌、平行或接力）。團隊設計放在範本裡。Harness Relay 會用你自己的登入與工具執行 `claude`、`codex`、`grok`，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
+每個問題都由首席 agent 從你的範本挑選團隊（或依範本調整、重新設計），你確認後團隊才開始回答：每個 agent 的定位（架構師、實作者、審查者、魔鬼代言人……）、模型與推理強度，以及對話模式（圓桌、平行或接力）。團隊設計放在範本裡。Harness Relay 會用你自己的登入與工具執行 `claude`、`codex`、`grok`，用你的 API key 或你自己的模型伺服器執行開源 CLI，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
 
 ## 示範
 
@@ -16,9 +16,10 @@
 
 ## 功能
 
-- **三個 coding agent 同一個聊天室**：直接使用你已安裝的 `claude`、`codex`、`grok` CLI，保有它們各自的工具、session 與登入狀態。
+- **八個 coding agent 同一個聊天室**：直接使用你已安裝的 `claude`、`codex`、`grok` CLI，保有它們各自的工具、session 與登入狀態，也能使用開源的 `opencode`、`goose`、`cline`、`openhands` 與 `pi` CLI。同一個團隊裡可以混搭。
+- **開源 agent 用你自己的模型**：它們使用你在設定頁設定的模型來源：OpenAI、Anthropic、xAI 的 API key，或你自己的 OpenAI 相容端點（vLLM、Ollama、LM Studio、llama.cpp）。成員的模型寫成「模型來源/模型」，例如 `openai/gpt-5.4-nano` 或 `homelab/muse-glimmer-30b-nvfp4`。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（只能用 API key）；Claude Code 與 Grok 本身照常使用它們自己的登入。見[開源 agent 與模型來源](#開源-agent-與模型來源)。
 - **用範本設計團隊**：角色、模型、推理強度、發言順序；五個內建範本（寫程式與一般問題）可以複製修改，也能在新對話頁新增、修改自己的範本。對話中也能隨時調整目前的團隊：自己動手改，或告訴首席 agent 想怎麼改。
-- **附加檔案**：直接貼上截圖、拖曳檔案或按 📎；每個 agent 都拿得到檔案，圖片也會直接交給三種 CLI 看。
+- **附加檔案**：直接貼上截圖、拖曳檔案或按 📎；每個 agent 都拿得到檔案，圖片也會直接交給能接收圖片的 CLI 看。
 - **語音輸入（選用）**：在輸入框按 🎙 說話，由你電腦上的 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) 轉成文字，錄音不會離開這台電腦。不需要就不會安裝：第一次按下時會先說明要下載什麼，再於背景安裝引擎與模型（進度、換模型與移除都在設定頁）。支援 macOS（Homebrew、Metal GPU）、Linux 與 Windows（x64 / arm64）。
 - **每個問題自動組隊**：首席 agent 會讀你的問題、先前的對話、目前的團隊與所有範本的完整內容，再決定沿用團隊、直接套用範本、依範本調整，或從頭設計新團隊，並說明原因；你確認後（也可以設定為直接採用）團隊就開始回答；@ 成員的追問則直接交給他。它設計或調整的團隊可以存成範本。
 - **agent 之間互相溝通**，三種對話模式：
@@ -28,7 +29,7 @@
 - **`@` 指定成員**：只有被 @ 的 agent 會回覆。
 - **用 git 安全地改檔**：工作目錄會自動成為 git repository；每則回覆都會列出該 agent 改了哪些檔案並可查看 diff。平行模式中每個 agent 在自己的 git worktree 工作，再由你選擇要套用哪一份結果。
 - **即時串流**：回覆文字與工具動作（改檔、執行指令）即時顯示；隨時可以停止或讓團隊繼續。被拒絕或失敗的工具呼叫會顯示原因。Mermaid 程式碼區塊會畫成圖表，agent 存在工作目錄裡的圖片與影片會直接顯示在聊天室，它為你做的檔案（PDF、簡報、試算表）則是可以下載的連結，在電腦或手機上都能下載。
-- **在對話中核准**：權限（唯讀 / 可編輯 / 完全存取）決定 agent 不必詢問就能做哪些事；超出範圍的動作會在對話中詢問你：允許一次、本對話都允許，或拒絕並附上說明。
+- **在對話中核准**：權限（唯讀 / 可編輯 / 完全存取）決定 agent 不必詢問就能做哪些事；超出範圍的動作會在對話中詢問你：允許一次、本對話都允許，或拒絕並附上說明。開源 agent 也透過同樣的核准卡片詢問。
 - **回覆中也能插話**：團隊回覆時送出的訊息會先停在輸入框上方，在下一位 agent 發言前送到（@ 了成員的訊息會等該成員發言）；送到之前可以撤回或編輯，也可以按 ⌘/Ctrl+Enter 停止團隊、立刻改問這個。
 - **先問你，不亂猜**：好答案取決於只有你知道的事時，agent 會先問你，團隊停下來等；你回覆後，提問的 agent 先依你的回答給出完整答案，其他成員再接著往下。
 - **排程**：在設定的時間（一次、每天、選定的星期幾，或每隔幾小時）把訊息傳給團隊，在同一個對話裡或每次開新對話；例如每個平日 9:00 審查昨天的 commit。側邊欄的 **新排程** 可以直接從排程開始，由首席 agent 挑選團隊。排程執行時可能沒人看著，所以預設會自動拒絕權限範圍以外的動作；Harness Relay 關閉期間錯過的時間會略過，或在開啟後補送一次。
@@ -41,7 +42,7 @@
 - **工具庫：MCP 伺服器、skill 與記憶**：在設定裡設定一次，不管成員跑在哪個 CLI 都能用，而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；記憶分成所有成員共用和各 CLI 專屬；也能針對單一成員調整。token 存在系統的金鑰儲存區。
 - **在 AgentsView 中檢視 agent 的 session（選用）**：讓各 CLI 在 Harness Relay 中使用自己的資料夾（例如 `~/.relay-agents`），和你平常直接使用時分開；並在 [AgentsView](https://www.agentsview.io) 中把每個對話看成一個 thread，底下是各 agent 自己的 session（工具呼叫、token 與成本）。兩者都是設定，所以在 macOS、Linux、Windows 上都照常用 `npm start`。見[使用者說明](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)。
 - **瀏覽工作目錄**：對話上方的 **檔案** 會列出工作目錄（平行模式下也可以看某位成員的 worktree），並預覽程式碼（附行號和語法上色）、Markdown、圖片與影片；任何檔案都可以下載，任何資料夾（包括目前所在的資料夾）也可以下載成 ZIP 檔。
-- **設定與登入頁**：分別登入各個 CLI（裝置碼、瀏覽器、貼上授權碼），設定 API key、執行檔路徑、預設模型與推理強度，以及首席 agent，也能查看各 CLI 自己載入的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶，並讓 Harness Relay 執行時整類或逐項不載入。
+- **設定與登入頁**：分別登入各個 CLI（裝置碼、瀏覽器、貼上授權碼），設定 API key、開源 agent 的模型來源、執行檔路徑、預設模型與推理強度，以及首席 agent，也能查看各 CLI 自己載入的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶，並讓 Harness Relay 執行時整類或逐項不載入。
 - **English 與繁體中文**：介面跟著瀏覽器的語言（可在設定頁切換）；第一次開啟時會有使用導覽介紹主要功能。
 - **完全在本機**：所有資料存在單一 SQLite 檔案；伺服器只監聽 `127.0.0.1`。
 - **手機也能用**：用 `tailscale serve` 分享到你的 [Tailscale](https://tailscale.com) tailnet（HTTPS，只有你的裝置連得到），就能用手機打開，也能加到主畫面，iOS 與 Android 都可以。詳見[用手機連線](docs/remote-access.zh-TW.md)。
@@ -54,8 +55,21 @@
   - [Claude Code](https://docs.claude.com/en/docs/claude-code)（`claude`）
   - [Codex CLI](https://github.com/openai/codex)（`codex`）
   - [Grok CLI](https://github.com/xai-org/grok-build)（`grok`）
+  - 下列五個開源 agent 的任何一個，再加上給它們用的 API key 或你自己的端點
 
-不需要三個都裝；任何組合都能用，也可以在設定頁登入。
+不需要全部都裝；任何組合都能用：Claude Code、Codex 與 Grok 在設定頁登入，開源 agent 則在設定頁設定模型來源。
+
+開源 agent，以及 Harness Relay 驗證過的版本（其他版本在轉接器依賴的地方可能不同）：
+
+| Agent | 安裝 | 驗證過的版本 |
+| --- | --- | --- |
+| [OpenCode](https://www.npmjs.com/package/opencode-ai)（`opencode`） | `npm install -g opencode-ai@1.19.5` | 1.19.5 |
+| [Goose](https://formulae.brew.sh/formula/block-goose-cli)（`goose`） | `brew install block-goose-cli` | 1.58.1 |
+| [Cline](https://www.npmjs.com/package/cline)（`cline`） | `npm install -g cline@3.0.74` | 3.0.74 |
+| [OpenHands](https://pypi.org/project/openhands/)（`openhands`） | `uv tool install openhands==1.16.0`（需要 [uv](https://docs.astral.sh/uv/)） | 1.16.0 |
+| [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)（`pi`） | `npm install -g @earendil-works/pi-coding-agent@1.5.1`（需要 Node.js 22.19 以上） | 1.5.1 |
+
+完全存取以外，它們在 Harness Relay 自己的沙箱中執行（見[安全性](#安全性)）。macOS 上不需要另外安裝（在[桌面 app](#桌面-app) 裡則需要 `PATH` 上有 Node.js 22.12 以上）；Linux 上請安裝 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`），Ubuntu 23.10 以上還要加上[各平台的作業系統沙箱 → 在 Linux 上](docs/sandboxing.zh-TW.md#在-linux-上)裡 `/usr/bin/bwrap` 的 AppArmor 設定檔。在原生 Windows 上它們只能以完全存取執行（要有沙箱請用 WSL2）。
 
 語音輸入是選用的，開啟時會自動安裝：macOS 需要 [Homebrew](https://brew.sh)；Linux 的預先編譯引擎需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新）。
 
@@ -71,7 +85,7 @@ npm run build
 npm start
 ```
 
-打開 `npm start` 在終端機印出的登入連結（`http://127.0.0.1:8787/#code=…`；Harness Relay 只接受登入過的瀏覽器，見[安全性](#安全性)），先到「**設定與登入**」確認每個 agent 都已登入，再點「**新對話**」，選好工作目錄與權限，直接提出第一個問題：首席 agent 會先為它組隊。
+打開 `npm start` 在終端機印出的登入連結（`http://127.0.0.1:8787/#code=…`；Harness Relay 只接受登入過的瀏覽器，見[安全性](#安全性)），先到「**設定與登入**」確認每個 agent 都已登入（開源 agent 則設定模型來源，見下方），再點「**新對話**」，選好工作目錄與權限，直接提出第一個問題：首席 agent 會先為它組隊。
 
 `git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。
 
@@ -79,9 +93,30 @@ npm start
 
 要開發 Harness Relay 本身？改用 `npm run dev`：改程式時伺服器會自動重啟、介面會自動重新載入，網址是 <http://localhost:5173>。詳見[開發者說明](docs/developer-guide.zh-TW.md)。
 
+### 開源 agent 與模型來源
+
+OpenCode、Goose、Cline、OpenHands 與 Pi 在 Harness Relay 裡沒有登入流程，而是使用你在 **設定 → 模型來源** 設定的**模型來源**：
+
+1. **API key**：貼上 OpenAI、Anthropic 或 xAI 的金鑰。每把金鑰都和各 CLI 的 API key 一樣，存在系統的金鑰儲存區。
+2. **自訂端點**：按 **新增端點**，加入你自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio、llama.cpp）：名稱、id（它的模型 id 的開頭，例如 `homelab`）、網址（例如 `http://10.0.0.5:8000/v1`；在這台電腦上的 Ollama 是 `http://localhost:11434/v1`：在這台電腦上的伺服器，網址必須寫出埠號）、它提供的模型名稱（Harness Relay 不會向它查詢），需要時再加上 API key。
+3. 在團隊設定裡替每位開源 agent 成員選模型，寫成「模型來源/模型」：`openai/…`、`anthropic/…`、`xai/…`，或端點的 id 加上模型名稱，例如 `homelab/muse-glimmer-30b-nvfp4`。模型選單會先列出 CLI 自己的模型中、模型來源已設定的那些，再列出每個端點的模型；也隨時可以自己輸入 id。維持「預設」的成員，會用它選單上顯示的預設模型：設定頁該 agent 卡片上的預設模型，沒有的話，用 CLI 自己的預設模型（它的模型來源已設定時）；兩者都沒有時，選單會說明需要指定模型。
+
+CLI 已安裝、且至少設定了一個模型來源時，開源 agent 就可以使用。每次執行只拿到它的模型所屬來源的那一把金鑰（也就是這裡儲存的）：絕不會拿到其他來源的金鑰，也不會拿到伺服器環境變數裡任何模型供應商的金鑰（`OPENAI_API_KEY`、`GEMINI_API_KEY` 之類）。那裡的其他憑證，例如 `GITHUB_TOKEN` 或 AWS 的變數，仍會傳給這些 agent，和其他 CLI 一樣。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱），請改用 API key 或你自己的端點。
+
+| | 協定 | 核准 | 你拒絕時的留言會傳給模型 | 沙箱需要的（完全存取以外） | 主要限制 |
+| --- | --- | --- | --- | --- | --- |
+| **OpenCode** | ACP（`opencode acp`） | 它的規則設為詢問，由 Harness Relay 判斷並問你 | 會 | 它自己伺服器的 loopback 埠 | 完全存取以外，Harness Relay 會監看 OpenCode 自己的伺服器，有任何其他東西操作它時就結束這次執行（在 macOS 上，它的指令讀得到那個伺服器的密碼）；完全存取以外它的 subagent 會關閉；它的 LSP 與 formatter 關閉 |
+| **Goose** | ACP（`goose acp`） | 每個工具呼叫都詢問；唯讀時單純讀取的 shell 指令（`cat`、`ls`、`rg`…，只限單純的指令行，選項不會寫檔、也不會執行其他程式：沒有展開、萬用字元或 `xargs`，git 不算）不詢問 | 會，在 Goose 自己的「已拒絕」之後以一則訊息傳入 | macOS：用 HTTPS 模型來源時的憑證信任服務；這台電腦上 HTTP MCP 伺服器的埠 | 它的 skill 無法排除 |
+| **Cline** | ACP（`cline --acp`） | 每個工具呼叫都詢問，讀取也是 | 不會：它的模型只看到 Cline 固定的「已拒絕」訊息（留言顯示在對話中） | 不需要額外開放 | 沒有 plan 模式與待辦清單；圖片以路徑傳入；專案的 hook 與規則沒有開關 |
+| **OpenHands** | ACP（`openhands acp`） | 每個動作都詢問（它一起發出的呼叫會合成一張列出全部的卡片）；完全存取以外不提供它的 subagent | 不會：只有 OpenHands 自己固定的話 | 虛擬終端機（完全存取以外不用 tmux）；macOS 上要在「設定」打開它的開關才行，因為沙箱這時會開放所有終端機：它的指令可以在你其他的終端機視窗印出文字、讀取內容（但不能替你打字） | **停止**不會中止正在執行的指令（程序在兩秒後結束；它留下的動作在下一輪接續時會被拒絕，絕不執行）；專案的指示與 hook 一定會載入 |
+| **Pi** | JSONL RPC（`pi --mode rpc`） | 完全存取以外，Harness Relay 的 gate 擴充功能在每個工具呼叫前詢問（Pi 自己不會詢問） | 會 | 不需要額外開放 | 沒有計畫或待辦清單；指示檔只能全部一起排除 |
+
+每個 agent 的細節見[開源 agent](docs/open-agents.zh-TW.md)。
+
+
 ## 桌面 app
 
-不想一直開著終端機？桌面 app 會在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列（macOS）或系統匣（Windows、Linux）留著一個圖示，所以手機照常能用；它的選單也能在瀏覽器打開對話。它會像終端機一樣找到 agent 的 CLI，可以登入時自動啟動、不讓電腦睡著，選單裡一個步驟就能透過 Tailscale 分享到手機。有新的版本（包括候選版本）時，它的選單會提供它，app 會自己更新。它需要 agent 的 CLI（編輯與平行模式還需要 Git），但不需要 Node.js。
+不想一直開著終端機？桌面 app 會在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列（macOS）或系統匣（Windows、Linux）留著一個圖示，所以手機照常能用；它的選單也能在瀏覽器打開對話。它會像終端機一樣找到 agent 的 CLI，可以登入時自動啟動、不讓電腦睡著，選單裡一個步驟就能透過 Tailscale 分享到手機。有新的版本（包括候選版本）時，它的選單會提供它，app 會自己更新。它需要 agent 的 CLI（編輯與平行模式還需要 Git），但不需要 Node.js；只有開源 agent 在完全存取以外執行時例外：Harness Relay 自己的沙箱要用登入 shell 的 `PATH` 上的 Node.js 22.12 以上執行。
 
 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)（提供最新的正式版本，不提供候選版本）或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) 下載你系統的安裝檔：macOS 是 `.dmg`（Apple Silicon；Intel Mac 請改從原始碼執行），Windows 是 `.exe`，Linux 是 `.AppImage`（Windows 與 Linux 都有 x64 與 Arm64）。安裝檔還沒有為發佈簽章，所以第一次開啟時系統會警告；詳見使用說明的[桌面 app](docs/user-guide.zh-TW.md#桌面-app)。要自己建置，在快速開始的 `npm install` 之後，於 clone 下來的資料夾執行（安裝檔會放在 `desktop/release/`）：
 
@@ -100,6 +135,7 @@ npm run desktop:dist
 | 架構 | [docs/architecture.md](docs/architecture.md) | [docs/architecture.zh-TW.md](docs/architecture.zh-TW.md) |
 | 開發者說明 | [docs/developer-guide.md](docs/developer-guide.md) | [docs/developer-guide.zh-TW.md](docs/developer-guide.zh-TW.md) |
 | 用手機連線（Tailscale） | [docs/remote-access.md](docs/remote-access.md) | [docs/remote-access.zh-TW.md](docs/remote-access.zh-TW.md) |
+| 開源 agent（OpenCode、Goose、Cline、OpenHands、Pi） | [docs/open-agents.md](docs/open-agents.md) | [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) |
 | 各平台的作業系統沙箱 | [docs/sandboxing.md](docs/sandboxing.md) | [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md) |
 | 提案（尚未實作） | [docs/proposals/README.md](docs/proposals/README.md) | [docs/proposals/README.zh-TW.md](docs/proposals/README.zh-TW.md) |
 | ↳ 排程與事件觸發的執行 | [docs/proposals/triggers.md](docs/proposals/triggers.md) | [docs/proposals/triggers.zh-TW.md](docs/proposals/triggers.zh-TW.md) |
@@ -108,9 +144,11 @@ npm run desktop:dist
 
 ## 安全性
 
-agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**或**完全存取**）。完全存取會讓 agent 不經詢問就執行任何指令，請只在你信任的目錄使用。在完全存取以外的權限，每個 agent 的指令都在它那個 CLI 的作業系統沙箱中執行，只能寫入工作目錄與暫存資料夾；Codex 的沙箱也讓指令無法連網，Claude Code 的沙箱會在指令要連到每個主機時詢問你。Grok 的沙箱只在 Linux 上擋得了網路，所以在可編輯模式下，Grok 執行的專案程式碼仍能連網：測試、建置和專案腳本執行的都是 agent 能修改的程式碼，所以不信任的程式碼或指示請用唯讀。在原生 Windows 上只有 Codex 有沙箱（見[各平台的作業系統沙箱](docs/sandboxing.zh-TW.md)）。沙箱也讓 agent 碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫；工作目錄包含 Harness Relay 本身、你的家目錄或 CLI 自己的資料夾時，則會拒絕可編輯模式。伺服器只綁定 `127.0.0.1`、拒絕跨站請求，並且只接受你登入過的瀏覽器：用它啟動時印出的連結、`npm run login`，或已登入瀏覽器產生的代碼（給手機用）登入。所以你電腦上的其他程式，包括 agent 執行的程式碼，都無法透過它操作 agent，除非它們讀得到你瀏覽器的資料，或寫得到 Harness Relay 的 `data/` 資料夾（見[登入](docs/architecture.zh-TW.md#登入)）。只透過 `tailscale serve` 分享到你的 tailnet；請不要用其他方式開放它（見[用手機連線](docs/remote-access.zh-TW.md#安全性)）。詳見[架構 → 安全性](docs/architecture.zh-TW.md#安全性)。
+agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**或**完全存取**）。完全存取會讓 agent 不經詢問就執行任何指令，請只在你信任的目錄使用。在完全存取以外的權限，每個 agent 的指令都在作業系統沙箱中執行，只能寫入工作目錄與暫存資料夾。Claude Code、Codex 與 Grok 用它們自己的沙箱：Codex 的沙箱也讓指令無法連網，Claude Code 的沙箱會在指令要連到每個主機時詢問你。Grok 的沙箱只在 Linux 上擋得了網路，所以在可編輯模式下，Grok 執行的專案程式碼仍能連網：測試、建置和專案腳本執行的都是 agent 能修改的程式碼，所以不信任的程式碼或指示請用唯讀。在原生 Windows 上只有 Codex 有沙箱（見[各平台的作業系統沙箱](docs/sandboxing.zh-TW.md)）。提高對話的權限時，每個 agent 不論跑在哪個 CLI，下一輪都會帶著完整的歷史開始新的 session（依 CLI 分別記錄），所以以較低權限執行過的 session 絕不會以較高權限接續；開源 agent 的狀態會先清空，清不掉時這一輪不執行。沙箱也讓 agent 碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫；工作目錄包含 Harness Relay 本身、你的家目錄或 CLI 自己的資料夾時，則會拒絕可編輯模式。伺服器只綁定 `127.0.0.1`、拒絕跨站請求，並且只接受你登入過的瀏覽器：用它啟動時印出的連結、`npm run login`，或已登入瀏覽器產生的代碼（給手機用）登入。所以你電腦上的其他程式，包括 agent 執行的程式碼，都無法透過它操作 agent，除非它們讀得到你瀏覽器的資料，或寫得到 Harness Relay 的 `data/` 資料夾（見[登入](docs/architecture.zh-TW.md#登入)）。只透過 `tailscale serve` 分享到你的 tailnet；請不要用其他方式開放它（見[用手機連線](docs/remote-access.zh-TW.md#安全性)）。詳見[架構 → 安全性](docs/architecture.zh-TW.md#安全性)。
 
-在設定頁儲存的 API key，以及工具庫裡 MCP 伺服器環境變數與標頭的值，會放在作業系統的金鑰儲存區（macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service，例如 GNOME Keyring、KWallet），而不是資料庫。只有在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，才會留在只有你的帳號能讀取的 `data/relay.db`；若想避免，可以不在設定頁儲存，改在啟動 Harness Relay 前設定 `ANTHROPIC_API_KEY` / `XAI_API_KEY`。
+五個開源 agent 沒有自己的沙箱，所以在完全存取以外，Harness Relay 會把它們每一個，連同它們啟動的一切，放進[它自己的沙箱](docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)執行，每次執行一個。這個沙箱以 [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropics/sandbox-runtime) 建構（macOS 上是 Seatbelt，Linux 上是 bubblewrap，網路則經過一個會過濾的 proxy）。它只允許寫入這次執行自己的暫存資料夾與那個 agent 自己的 session、記錄資料夾，可編輯模式再加上工作目錄與對話的附件資料夾：唯讀時，即使你允許了修改，agent 也寫不進工作目錄。它不讓 agent 讀寫你瀏覽器的資料夾與 Harness Relay 的資料庫，也不讓它寫入自己的設定（Harness Relay 每次執行前都會寫入），所以一次執行無法替下一次放寬限制。網路方面，這次執行的模型來源不必詢問就連得到，其他主機會在對話中詢問你，但這台電腦自己的位址（或會解析到它的名稱）、agent 自己會連的少數主機，以及一次執行中第 30 個之後的主機，都不詢問就直接拒絕；Harness Relay 自己的埠則一律連不到。沙箱無法啟動時，這一輪會失敗，而不是在沙箱外執行；在原生 Windows 上這些 agent 只能以完全存取執行。少數 agent 各需要一個很窄、只給它自己的開口：OpenCode 是它自己伺服器的 loopback 埠；Goose 在 macOS 上走 HTTPS 時需要憑證信任服務（它可能繞過 proxy 帶出少量資料），以及連到這台電腦上 HTTP MCP 伺服器的埠（絕不在那些埠上監聽）；OpenHands 需要虛擬終端機（完全存取以外不用 tmux），在 macOS 上這會開放你所有的終端機，所以在那裡要你在「設定」打開它的開關，它才會在完全存取以外執行。每位對話成員的 agent 狀態（它的 session、記錄與快取）都在它自己的資料夾，其他對話或其他成員的執行都無法讀取或修改，刪除對話時也會一起移除。一次執行結束時，沙箱也會停掉它啟動、但已離開它行程群組的程序，Harness Relay 本身被強制結束時也一樣（在它下次啟動時）；在 macOS 上，完全 daemon 化、關掉所有檔案的程序是例外。它不限制讀取電腦上的其他地方（包括 `~/.ssh`），你允許的模型來源也完全連得到；在 macOS 上，指令也讀得到上層每個程序啟動時的環境變數（agent、Harness Relay 的伺服器，以及啟動它的 shell），所以請不要在環境變數裡放 API key 再啟動 Harness Relay，把金鑰存在設定頁。見[開源 agent → Harness Relay 的沙箱](docs/open-agents.zh-TW.md#harness-relay-的沙箱)。
+
+在設定頁儲存的 API key，以及工具庫裡 MCP 伺服器環境變數與標頭的值，會放在作業系統的金鑰儲存區（macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service，例如 GNOME Keyring、KWallet），而不是資料庫。只有在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，才會留在只有你的帳號能讀取的 `data/relay.db`；Claude Code 與 Grok 若想避免，可以不在設定頁儲存，改在啟動 Harness Relay 前設定 `ANTHROPIC_API_KEY` / `XAI_API_KEY`（在 macOS 上使用開源 agent 時不要這樣做：在那裡，它們沙箱中的指令讀得到伺服器啟動時的環境變數）。開源 agent 只使用 **設定 → 模型來源** 儲存的金鑰，存放方式相同。
 
 ## 指令
 

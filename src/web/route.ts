@@ -1,13 +1,30 @@
 // The client's routes, kept in the URL hash: #/ (new chat), #/schedule (new schedule), #/c/<id>, #/settings
 // and #/settings/<section>.
 
-import { PROVIDERS, type Provider } from '../shared/types';
+import { OPEN_PROVIDERS, PROVIDERS, isOpenProvider, type Provider } from '../shared/types';
 
 /** `section`: the card of the settings page to scroll to. */
 export type Route = { page: 'new' } | { page: 'schedule' } | { page: 'chat'; id: string } | { page: 'settings'; section?: SettingsSection };
 
-/** The cards of the settings page, in page order; each is the element `settings-<section>`. */
-export const SETTINGS_SECTIONS = ['language', 'appearance', ...PROVIDERS, 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'browsers', 'tour'] as const;
+/**
+ * The cards of the settings page, in page order; each is the element `settings-<section>`. The model
+ * backends come right before the open agents, which use them.
+ */
+export const SETTINGS_SECTIONS = [
+  'language',
+  'appearance',
+  ...PROVIDERS.filter((p) => !isOpenProvider(p)),
+  'backends',
+  ...OPEN_PROVIDERS,
+  'lead',
+  'tools',
+  'voice',
+  'cwd',
+  'sessions',
+  'shares',
+  'browsers',
+  'tour',
+] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export function routeFromHash(hash: string): Route {

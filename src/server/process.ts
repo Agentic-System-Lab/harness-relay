@@ -2,7 +2,29 @@ import { spawn, type ChildProcess, type SpawnOptions as ChildOptions } from 'nod
 import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import type { Duplex } from 'node:stream';
 import { t } from './i18n';
+
+/**
+ * A private two-way channel a process gets besides its stdio, as its fd 3 (a socket pair the server
+ * holds the other end of), and what the server does with its end once the process is spawned. The
+ * relay sandbox's host (`relaySandbox.ts`) takes its rules and asks about hosts over it.
+ */
+export type ControlChannel = (channel: Duplex, child: ChildProcess) => void;
+
+/**
+ * Where a `ControlChannel` can also ride along: on the `env` passed to `runProcess`, under this key,
+ * which spreading `env` (`{ ...env, X: '1' }`) keeps and `spawn` leaves out (it only takes string
+ * keys). So an adapter that passes the env a sandbox command came with passes its channel too.
+ */
+export const CONTROL_CHANNEL: unique symbol = Symbol.for('harness-relay.controlChannel');
+
+/** The channel a spawn asks for: `channel`, else the one riding on its env. */
+function controlChannelOf(o: Pick<SpawnOptions, 'channel' | 'env'>): ControlChannel | undefined {
+  if (o.channel) return o.channel;
+  const riding = (o.env as Record<PropertyKey, unknown>)[CONTROL_CHANNEL];
+  return typeof riding === 'function' ? (riding as ControlChannel) : undefined;
+}
 
 export interface SpawnOptions {
   bin: string;
@@ -23,6 +45,8 @@ export interface SpawnOptions {
   maxCapture?: number;
   /** Keep the first `maxCapture` bytes of stdout instead of the last. */
   keepStart?: boolean;
+  /** A control channel for the process, on its fd 3 (see `ControlChannel`; also taken from `env`). */
+  channel?: ControlChannel;
 }
 
 export interface SpawnResult {
@@ -162,15 +186,29 @@ function supervise(name: string, o: RunOptions, start: (options: ChildOptions) =
       reject(new Error(t().dirNotFound(o.cwd)));
       return;
     }
+    const channel = controlChannelOf(o);
     const child = start({
       cwd: o.cwd,
       env: o.env,
       detached: true,
       // On Windows a detached child would get a console window of its own.
       windowsHide: true,
-      stdio: [o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      stdio: [o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe', 'pipe', 'pipe', ...(channel ? ['pipe' as const] : [])],
     });
     live.add(child);
+    if (channel) {
+      const end = child.stdio[3] as Duplex | null | undefined;
+      if (end) {
+        end.on('error', () => {
+          /* the process may exit while the server still writes */
+        });
+        try {
+          channel(end, child);
+        } catch (err) {
+          console.error('[process] control channel failed:', err);
+        }
+      }
+    }
     if (o.keepStdinOpen) {
       child.stdin!.on('error', () => {
         /* the CLI may exit while we are still writing */

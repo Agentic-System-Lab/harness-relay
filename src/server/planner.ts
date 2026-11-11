@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  PROVIDERS,
   PROVIDER_LABEL,
   effortsFor,
   type AgentConfig,
@@ -136,9 +137,12 @@ export function historyForLead(messages: ChatMessage[]): string {
   return kept.join('\n\n');
 }
 
+/** The CLIs a member may run on, as the JSON the lead returns names them: "claude" | "codex" | … */
+const PROVIDER_CHOICES = PROVIDERS.map((p) => `"${p}"`).join(' | ');
+
 const TEAM_FIELDS =
   '"name": "<short team name>", "description": "<one line>", "mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, ' +
-  '"agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}]';
+  `"agents": [{"name": "<Name>", "provider": ${PROVIDER_CHOICES}, "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}]`;
 
 /** The coding agents the lead may staff, one line each: the signed-in CLIs, their models and efforts. */
 function agentsForLead(ctx: PlannerContext): string {
@@ -565,7 +569,7 @@ How to change the team:
 Write the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools unless the change depends on the files in the folder you are running in.
 
 Reply with only this JSON object, in a \`\`\`json code block, with the whole team (every member, in speaking order):
-{"mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions: only for a new member or a role you rewrite>", "model": "<optional>", "effort": "<optional>", "was": "<its current name: only for a member you renamed or moved to another coding agent>"}], "reason": "<what you changed and why: one or two sentences for the user>"}`;
+{"mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": ${PROVIDER_CHOICES}, "role": "<instructions: only for a new member or a role you rewrite>", "model": "<optional>", "effort": "<optional>", "was": "<its current name: only for a member you renamed or moved to another coding agent>"}], "reason": "<what you changed and why: one or two sentences for the user>"}`;
 }
 
 /**

@@ -23,7 +23,28 @@ describe('client routes', () => {
   });
 
   it('has a settings section for every CLI', () => {
-    expect(SETTINGS_SECTIONS).toEqual(['language', 'appearance', 'claude', 'codex', 'grok', 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'browsers', 'tour']);
+    // The model backends come right before the open agents, which use them.
+    expect(SETTINGS_SECTIONS).toEqual([
+      'language',
+      'appearance',
+      'claude',
+      'codex',
+      'grok',
+      'backends',
+      'opencode',
+      'goose',
+      'cline',
+      'openhands',
+      'pi',
+      'lead',
+      'tools',
+      'voice',
+      'cwd',
+      'sessions',
+      'shares',
+      'browsers',
+      'tour',
+    ]);
   });
 });
 

@@ -1,4 +1,4 @@
-import { PROVIDER_LABEL, type AgentConfig, type ConversationSummary, type LeadAgentSettings, type Provider } from '../shared/types';
+import { PROVIDER_LABEL, isOpenProvider, type AgentConfig, type ConversationSummary, type LeadAgentSettings, type Provider, type ProviderModels } from '../shared/types';
 import type { Messages } from './i18n';
 import type { ConvStatus } from './locales/zh-TW';
 
@@ -21,6 +21,23 @@ export const PROVIDER_COLOR: Record<Provider, string> = {
   claude: 'var(--claude)',
   codex: 'var(--codex)',
   grok: 'var(--grok)',
+  opencode: 'var(--opencode)',
+  goose: 'var(--goose)',
+  cline: 'var(--cline)',
+  openhands: 'var(--openhands)',
+  pi: 'var(--pi)',
+};
+
+/** A new member's name on each CLI, before a number makes it unique. */
+const AGENT_NAME: Record<Provider, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  grok: 'Grok',
+  opencode: 'OpenCode',
+  goose: 'Goose',
+  cline: 'Cline',
+  openhands: 'OpenHands',
+  pi: 'Pi',
 };
 
 /** A model and reasoning effort picked for one CLI ('' or absent: that CLI's default). */
@@ -45,7 +62,7 @@ export function switchProvider<T extends { provider: Provider } & ModelChoice>(
 }
 
 export function newAgent(provider: Provider, taken: string[]): AgentConfig {
-  const base = { claude: 'Claude', codex: 'Codex', grok: 'Grok' }[provider];
+  const base = AGENT_NAME[provider];
   let name = base;
   for (let i = 2; taken.some((t) => t.toLowerCase() === name.toLowerCase()); i++) name = `${base}${i}`;
   return { id: crypto.randomUUID(), name, provider, role: '' };
@@ -91,4 +108,15 @@ export function initials(name: string): string {
 /** "gpt-6.1-sol · 高（high）" — only the parts an agent overrides. */
 export function modelSummary(a: Pick<AgentConfig, 'model' | 'effort'>, t: Messages): string {
   return [a.model, a.effort && t.effortLabel(a.effort)].filter(Boolean).join(' · ');
+}
+
+/**
+ * The model picker's "default" choice for a member or the lead agent: the model it then runs on. The
+ * other CLIs pick their own default; an open agent runs on the one shown (Settings' default, else its
+ * CLI catalog's on a configured backend), and with none it needs a model.
+ */
+export function inheritModelLabel(pm: ProviderModels | undefined, provider: Provider, t: Messages): string {
+  if (pm?.defaultModel) return t.team.defaultModel(pm.defaultModel);
+  if (!pm) return t.team.defaultModel(t.common.loading);
+  return isOpenProvider(provider) ? t.team.noDefaultModel : t.team.defaultModel(t.team.cliDecides);
 }

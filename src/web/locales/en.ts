@@ -100,6 +100,8 @@ export const en: Messages = {
       notLoggedIn: 'Not signed in',
       loggedIn: (account) => `Signed in${account ? `: ${account}` : ''}`,
       unknown: 'Status unknown',
+      openReady: 'Model backends set up',
+      openNotReady: 'No model backend yet',
     },
   },
 
@@ -162,6 +164,7 @@ export const en: Messages = {
     role: 'Position / role',
     rolePlaceholder: 'e.g. You are a senior backend engineer responsible for API design and implementation.\nWhen done, ask @Reviewer for a review.',
     notLoggedIn: (p) => `${p} is not signed in.`,
+    noBackend: (p) => `${p} cannot run yet: it needs a model backend set up in Settings.`,
     cliMissing: (p) => `${p} CLI not found.`,
     goSettings: 'Go to Settings →',
     addMember: 'Add member',
@@ -190,6 +193,7 @@ export const en: Messages = {
     },
     defaultModel: (m) => `Default: ${m}`,
     cliDecides: 'decided by the CLI',
+    noDefaultModel: 'No default model: pick one',
     tools: 'Tools',
     toolsHint: "Choose what this member gets from the tool library (managed in Settings → Tool library). These come in addition to the CLI's own setup: its own skills and MCP servers keep working.",
     toolMemory: 'Shared memory',
@@ -476,6 +480,8 @@ export const en: Messages = {
     deny: 'Decline',
     notePlaceholder: 'Tell it what to do instead (optional, when declining)',
     outsideSandbox: 'If you allow it, this command runs outside the sandbox.',
+    readOnlySandbox:
+      "This conversation is read-only: even if you allow it, Harness Relay's sandbox keeps it from writing files (only its own temporary and session folders are writable), so a file change does not happen. It still runs, though: it can read files and reach the hosts this run may reach (the model backend, and hosts you allowed). To let it change files, set the permission to Edit.",
     allowed: 'Allowed',
     allowedAlways: 'Allowed for the rest of this chat',
     allowedAuto: 'Allowed automatically (earlier answer in this chat)',
@@ -907,6 +913,61 @@ export const en: Messages = {
         agents: 'Grok has no setting that leaves out only its custom subagents',
         plugins: "Grok's plugins (the Claude Code plugins it loads among them) can only be turned off in plugins.disabled in ~/.grok/config.toml (Grok's own global setting: it also applies when you use Grok in a terminal, and Harness Relay does not change it)",
       },
+      goose: {
+        skills: "Goose has no setting that turns skills off: those in the project's .goose/skills, .claude/skills and .agents/skills always load (its home is Harness Relay's own, so it does not read your ~/.claude/skills and the like)",
+        mcp: "the MCP servers of the project's plugins do not start; only the tool library's do. From a new conversation on (a resumed session keeps the list it started with)",
+        tools: 'Goose does not report its built-in tools',
+        instructions: '.goosehints and AGENTS.md from the working directory up to the repository root (CONTEXT_FILE_NAMES)',
+        memory: 'Goose has no memory of its own',
+        hooks: 'hooks come only from plugins: they do not run when plugins are left out',
+        agents: 'Goose has no setting that leaves out only its custom subagents',
+        plugins: "each plugin in the project's .agents/plugins, with its hooks, skills and MCP servers (the MCP servers from a new conversation on)",
+      },
+      // The open agents: each adapter adds what its switches leave out, once its CLI has any.
+      cline: {
+        skills: "Cline's skills tool is turned off: its model no longer sees or uses any skill (the tool library's skills are still listed in the briefing)",
+        mcp: "Cline only gets the tool library's MCP servers (Harness Relay writes its MCP settings for every run); those plugins bring still load",
+        tools: 'Cline has no setting that turns off all its built-in tools; pick them one by one',
+        instructions: 'Cline has no setting that leaves out instruction files (AGENTS.md, .clinerules, .cline/rules) for one run',
+        memory: 'Cline has no automatic memory',
+        hooks: "Cline has no setting that leaves out hooks: those in the project's .clinerules/hooks and .cline/hooks still run",
+        agents: 'Cline has no setting that leaves out custom agents',
+        plugins: 'Cline leaves out plugins only one by one, by path; pick them one by one',
+      },
+      opencode: {
+        skills: 'the skills it finds in .claude/skills and .agents/skills, and its built-in customize-opencode (its skill tool is turned off)',
+        mcp: "OpenCode loads no MCP servers of its own in Harness Relay (the project's config is never read); only the tool library's",
+        tools: 'OpenCode does not report its built-in tools',
+        instructions: "the project's AGENTS.md or CLAUDE.md; an AGENTS.md in a subfolder is still added when it reads a file there",
+        memory: 'OpenCode keeps no memory of its own',
+        hooks: 'OpenCode has no hooks (its plugins are not loaded in Harness Relay)',
+        agents: 'its subagents general and explore (always off below full access)',
+        plugins: 'OpenCode loads no plugins in Harness Relay',
+      },
+      openhands: {
+        skills:
+          'OpenHands has no setting that leaves out skills: those in .agents/skills, .openhands/skills and .openhands/microagents of the working directory and its repository root always load (its public skills from GitHub are always off)',
+        mcp: "OpenHands gets only the tool library's MCP servers (Harness Relay writes its mcp.json for every run)",
+        tools: 'OpenHands does not report its built-in tools',
+        instructions:
+          'OpenHands has no setting that leaves out instruction files: AGENTS.md, agent.md, CLAUDE.md, GEMINI.md and .cursorrules of the working directory and its repository root always load',
+        memory: 'OpenHands has no memory of its own; its system prompt tells the model to use AGENTS.md as its memory',
+        hooks: "OpenHands has no setting that leaves out hooks: the project's .openhands/hooks.json still runs",
+        agents:
+          'OpenHands has no setting that leaves out subagents (.agents/agents, .openhands/agents); below full access its subagent tools are not offered, so they do not run',
+        plugins: 'OpenHands does not report plugins',
+      },
+      pi: {
+        skills: "Pi's own skills are never loaded in Harness Relay; the tool library's are listed in the briefing",
+        mcp: "Pi gets only the tool library's MCP servers, through its MCP extension; a project's .pi folder is never read",
+        tools: 'Pi does not report its built-in tools',
+        instructions:
+          'every AGENTS.override.md, AGENTS.md or CLAUDE.md from the working directory up to / (all of them: Pi has no switch for one file)',
+        memory: 'Pi does not report a memory',
+        hooks: "Pi's extensions are never loaded in Harness Relay, only its gate and MCP extensions",
+        agents: 'Pi does not report subagents',
+        plugins: "Pi's extensions, packages and a project's .pi folder are never loaded in Harness Relay",
+      },
     },
     offCodexThreads:
       "Codex keeps the skills list, instruction files and memory a chat started with: changes to these (plugins' skills among them) take effect in new chats. Changes to MCP servers, their tools and hooks take effect at the next turn.",
@@ -965,9 +1026,12 @@ export const en: Messages = {
     leadHint: 'For each new question, this agent reads the question and the conversation so far, then keeps the current team, picks a template, adapts one, or designs a new team.',
     leadSaved: 'Lead agent saved',
     leadNotReady: (p) => `${p} is not available right now; sign in first or pick another agent.`,
+    leadNoBackend: (p) => `${p} has no model backend yet: set one up, or pick another agent.`,
+    leadNotInstalled: (p) => `${p} was not found on this computer: install it (or set its executable on its card), or pick another agent.`,
+    goCard: (p) => `Go to ${p} →`,
     goSignIn: (p) => `Sign in to ${p} →`,
     sections: 'Sections of this page',
-    nav: { language: 'Language', appearance: 'Appearance', lead: 'Lead agent', tools: 'Tools', voice: 'Voice', cwd: 'Default folder', sessions: 'Sessions', shares: 'Shares', browsers: 'Browsers', tour: 'Tour' },
+    nav: { language: 'Language', appearance: 'Appearance', backends: 'Backends', lead: 'Lead agent', tools: 'Tools', voice: 'Voice', cwd: 'Default folder', sessions: 'Sessions', shares: 'Shares', browsers: 'Browsers', tour: 'Tour' },
     tour: 'Guided tour',
     tourHint: 'A step-by-step introduction to the main features.',
     replayTour: 'Replay the tour',
@@ -1003,6 +1067,72 @@ export const en: Messages = {
       loggedIn: 'Signed in',
       notLoggedIn: 'Not signed in',
       unknown: 'Status unknown',
+      openReady: 'Ready',
+      openNotReady: 'Not ready',
+    },
+    open: {
+      intro: (p) =>
+        `${p} needs no sign-in: it uses the API keys and endpoints under Model backends above. Give members a model as "backend/model", such as openai/gpt-5.4-nano or homelab/muse-glimmer-30b-nvfp4.`,
+      noSubscription:
+        "The Claude subscription and Grok's sign-in cannot be used by these CLIs (Anthropic does not allow its subscription in third-party agents): use an API key or your own endpoint.",
+      goBackends: 'Go to Model backends →',
+      noCliDefault: 'CLI default: none (members need a model)',
+      sandboxTerminal: {
+        label: 'Let OpenHands use a terminal in the sandbox: its commands can then read and write your other terminal windows',
+        detail:
+          'OpenHands runs every command in a terminal. On macOS the sandbox can only open all terminals at once: with this on, its commands can print text into your other terminal windows, read what you type there and change their settings (such as turning echo off), but still cannot type into them. With it off, OpenHands runs only with full access. On Linux the sandbox has terminals of its own and needs no switch.',
+      },
+      sandbox:
+        "Below full access, it and everything it starts run in Harness Relay's own sandbox: it can write only its run's temp folder and its own session folders, plus, in edit mode, the working directory and the attachments folder. On the network the run's model backend is reachable without asking; other hosts are asked about first, except this computer's own addresses, a few hosts it contacts by itself and any past the 30th in a run, which are refused. When the sandbox cannot start, it does not run.",
+      notes: {
+        opencode:
+          "OpenCode runs in a home of its own here: it never reads the project's opencode.json or .opencode/ (they could widen its permissions), but the project's AGENTS.md (or CLAUDE.md) still reaches it. When a call is declined, Harness Relay's reason and your note reach the model. Below full access its subagents are off.",
+        goose: 'Runs as goose acp. In read-only and edit, Goose asks Harness Relay about every tool call; it reads files with its shell, and in read-only plain reading commands (cat, ls, rg…) run without asking. Full access uses its auto mode.',
+        cline:
+          'Cline runs over ACP (cline --acp) and asks Harness Relay about every tool call: reading and searching run as the permission allows, everything else follows the permission or asks you. When you decline a call, Cline\'s model only sees its own fixed "user rejected" text; your note is shown in the chat. It loads the project\'s AGENTS.md, .clinerules, .cline/rules, skills, hooks and plugins (hooks and plugins run code), and the skills in your home folder\'s ~/.agents. Usage is read from Cline\'s session record.',
+        openhands:
+          "Each OpenHands run gets settings of its own from Harness Relay (model, effort, role briefing) and never reads your ~/.openhands; its downloads of public skills from GitHub and of LiteLLM's price list are turned off. Below full access it asks about every action, and its subagents (the task tool), which run commands without asking, are not offered. The project's AGENTS.md, .agents/skills and .openhands/hooks.json always load and cannot be turned off.",
+        pi: "Pi does not ask about permissions by itself: below full access, Harness Relay's gate extension asks before each of its tool calls (MCP tools too), and a refusal's reason, with your note, goes to the model. In read-only it has only reading tools (and the tool library's MCP tools). It loads every AGENTS.md / CLAUDE.md from the working directory up; its own skills, extensions and a project's .pi folder are never loaded.",
+      },
+    },
+    backends: {
+      title: 'Model backends',
+      hint: 'OpenCode, Goose, Cline, OpenHands and Pi run on the model backends here: API keys for OpenAI, Anthropic and xAI, or your own OpenAI-compatible endpoints (vLLM, Ollama, LM Studio, llama.cpp). Each run gets only the keys set up here; Harness Relay never calls these APIs itself.',
+      noSubscription:
+        "The Claude subscription and Grok's sign-in cannot be used by these CLIs (Anthropic does not allow its subscription in third-party agents). Claude Code and Grok themselves keep using their sign-ins.",
+      modelIds: "Give members a model as \"backend/model\": openai/…, anthropic/…, xai/…, or an endpoint's id and a model name, such as homelab/muse-glimmer-30b-nvfp4.",
+      apiKeys: 'API keys',
+      notSet: 'Not set',
+      keySet: (masked) => `Set: ${masked}`,
+      keyUnreadable: 'Could not be read from the system credential store (it may be locked); enter it again to replace it.',
+      endpoints: 'Custom endpoints',
+      endpointsHint: 'Your own OpenAI-compatible servers. Harness Relay never asks them for their models: type the model names each one serves.',
+      noEndpoints: 'No custom endpoints yet.',
+      addEndpoint: 'Add endpoint',
+      editEndpoint: 'Edit',
+      deleteEndpoint: 'Delete',
+      confirmDelete: (name) => `Delete the endpoint "${name}"? Members using its models cannot run until you pick another model.`,
+      name: 'Name',
+      namePlaceholder: 'For example: Homelab vLLM',
+      id: "Id (the start of its models' ids; it cannot change later)",
+      baseUrl: 'Base URL',
+      baseUrlPlaceholder: 'http://10.0.0.5:8000/v1',
+      models: 'Model names (one per line)',
+      modelsPlaceholder: 'muse-glimmer-30b-nvfp4',
+      endpointKey: 'API key (optional)',
+      endpointKeyKeep: 'Leave empty to keep the current key',
+      removeKey: 'Remove key',
+      saved: 'Saved',
+      deleted: 'Deleted',
+      problems: {
+        name: 'Enter a name.',
+        nameLong: (n) => `The name may be at most ${n} characters.`,
+        id: 'The id may only hold lowercase letters, digits and - (not first or last; at most 32 characters).',
+        idTaken: 'An endpoint with this id exists already.',
+        idReserved: 'openai, anthropic and xai are the names of built-in model backends.',
+        url: 'The address must start with http:// or https://, without a user name, password, query or #.',
+        models: (n, chars) => `At most ${n} model names, each at most ${chars} characters.`,
+      },
     },
     apiKeyHelp: {
       claude: 'Once saved, Harness Relay passes ANTHROPIC_API_KEY when it starts Claude Code (API billing, which takes precedence over a subscription sign-in).',
@@ -1057,11 +1187,21 @@ export const en: Messages = {
     steps: [
       {
         title: 'Welcome to Harness Relay',
-        body: 'A group chat where Claude Code, Codex and Grok answer your questions and work on your code together, all on your own computer. The next few steps show you around.',
+        body: 'A group chat where Claude Code, Codex and Grok, and five open-source agents (OpenCode, Goose, Cline, OpenHands and Pi), answer your questions and work on your code together, all on your own computer. The next few steps show you around.',
       },
       {
-        title: 'Check that each agent is signed in',
-        body: 'Harness Relay runs the CLIs on your computer. The lights at the bottom left show each agent\'s status; "Settings & sign-in" is where you sign in and set API keys and default models. It takes only browsers you signed in: to use it from your phone, get a code in Settings → Signed-in browsers.',
+        title: 'Check that each agent is ready',
+        body: 'Harness Relay runs the CLIs on your computer. The lights at the bottom left show each agent\'s status; "Settings & sign-in" is where you sign in to Claude Code, Codex and Grok, and set API keys and default models. It takes only browsers you signed in: to use it from your phone, get a code in Settings → Signed-in browsers.',
+      },
+      {
+        title: 'Open-source agents and model backends',
+        body: 'OpenCode, Goose, Cline, OpenHands and Pi need no sign-in: they use the models you set up in Settings → Model backends:',
+        points: [
+          'API keys for OpenAI, Anthropic and xAI, or your own OpenAI-compatible endpoint (vLLM, Ollama, LM Studio, llama.cpp)',
+          'A member\'s model is "backend/model", such as openai/gpt-5.4-nano or homelab/muse-glimmer-30b-nvfp4',
+          "The Claude subscription and Grok's sign-in cannot be used by these CLIs: use an API key or your own endpoint",
+          "Below full access they run in Harness Relay's own sandbox: in read-only they cannot write in the working directory, and other hosts than the model backend are asked about first (a few are refused without asking)",
+        ],
       },
       {
         title: 'Start a new chat',
@@ -1121,8 +1261,9 @@ export const en: Messages = {
           'Read-only: read files, analyse, look things up on the web',
           'Edit: change files in the working directory, run tests and builds',
           'Full access: run any command without asking',
-          "Below full access, each agent's commands run in its CLI's sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data (on native Windows only Codex has one)",
+          "Below full access, each agent's commands run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex and Grok use their own; the open-source agents use Harness Relay's (on native Windows only Codex has one, and the open-source agents run only with full access)",
           "Edit mode is refused in your home folder and in Harness Relay's own folder: choose a project's folder",
+          'Raising the permission makes every agent start a fresh session, with the whole history, at its next turn',
           'Each turn lists the files it changed, with a diff; in parallel mode you choose whose result to apply',
         ],
       },
@@ -1165,7 +1306,7 @@ export const en: Messages = {
       },
       {
         title: 'Tool library: MCP, skills and memory',
-        body: "Set them up once in Settings → Tool library, and members on Claude Code, Codex and Grok can all use them, in addition to each CLI's own setup:",
+        body: "Set them up once in Settings → Tool library, and every member can use them, whichever CLI it runs on, in addition to each CLI's own setup:",
         points: [
           'MCP servers: a local command or a URL; tokens go to your system credential store',
           'Skills: pick the skills to add from a folder (such as ~/.claude/skills)',
@@ -1184,7 +1325,7 @@ export const en: Messages = {
       },
       {
         title: 'Adjust any time',
-        body: 'In Settings you can switch the language (繁體中文 / English), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
+        body: 'In Settings you can switch the language (繁體中文 / English), set up the open-source agents\' model backends, change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
       },
     ],
   },

@@ -1,0 +1,700 @@
+anthropic/claude-haiku-5-5
+{
+  "id": "claude-haiku-5-5",
+  "providerID": "anthropic",
+  "name": "Claude Haiku 5.5",
+  "family": "claude-haiku",
+  "api": {
+    "id": "claude-haiku-5-5",
+    "url": "",
+    "npm": "@ai-sdk/anthropic"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 0.1,
+    "output": 0.5,
+    "cache": {
+      "read": 0.01,
+      "write": 0.125
+    },
+    "tiers": [
+      {
+        "input": 0.5,
+        "output": 2.5,
+        "cache": {
+          "read": 0.05,
+          "write": 0.625
+        },
+        "tier": {
+          "type": "context",
+          "size": 100000
+        }
+      }
+    ]
+  },
+  "limit": {
+    "context": 1000000,
+    "output": 128000
+  },
+  "capabilities": {
+    "temperature": false,
+    "reasoning": true,
+    "attachment": true,
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": true
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": false
+  },
+  "release_date": "2026-10-07",
+  "variants": {
+    "low": {
+      "thinking": {
+        "type": "adaptive",
+        "display": "summarized"
+      },
+      "effort": "low"
+    },
+    "medium": {
+      "thinking": {
+        "type": "adaptive",
+        "display": "summarized"
+      },
+      "effort": "medium"
+    },
+    "high": {
+      "thinking": {
+        "type": "adaptive",
+        "display": "summarized"
+      },
+      "effort": "high"
+    },
+    "xhigh": {
+      "thinking": {
+        "type": "adaptive",
+        "display": "summarized"
+      },
+      "effort": "xhigh"
+    },
+    "max": {
+      "thinking": {
+        "type": "adaptive",
+        "display": "summarized"
+      },
+      "effort": "max"
+    }
+  }
+}
+anthropic/claude-sonnet-5-5
+{
+  "id": "claude-sonnet-5-5",
+  "providerID": "anthropic",
+  "name": "Claude Sonnet 5.5",
+  "family": "claude-sonnet",
+  "api": {
+    "id": "claude-sonnet-5-5",
+    "url": "",
+    "npm": "@ai-sdk/anthropic"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 2,
+    "output": 10,
+    "cache": {
+      "read": 0.1,
+      "write": 2.5
+    }
+  },
+  "limit": {
+    "context": 1000000,
+    "output": 128000
+  },
+  "capabilities": {
+    "temperature": false,
+    "reasoning": true,
+    "attachment": true,
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": true
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": false
+  },
+  "release_date": "2026-09-28",
+  "variants": {
+    "low": {
+      "thinking": {
+        "type": "adaptive",
+        "display": "summarized"
+      },
+      "effort": "low"
+    },
+    "medium": {
+      "thinking": {
+        "type": "adaptive",
+        "display": "summarized"
+      },
+      "effort": "medium"
+    },
+    "high": {
+      "thinking": {
+        "type": "adaptive",
+        "display": "summarized"
+      },
+      "effort": "high"
+    },
+    "xhigh": {
+      "thinking": {
+        "type": "adaptive",
+        "display": "summarized"
+      },
+      "effort": "xhigh"
+    },
+    "max": {
+      "thinking": {
+        "type": "adaptive",
+        "display": "summarized"
+      },
+      "effort": "max"
+    }
+  }
+}
+openai/gpt-5.4-nano
+{
+  "id": "gpt-5.4-nano",
+  "providerID": "openai",
+  "name": "GPT-5.4 nano",
+  "family": "gpt-nano",
+  "api": {
+    "id": "gpt-5.4-nano",
+    "url": "",
+    "npm": "@ai-sdk/openai"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 0.2,
+    "output": 1.25,
+    "cache": {
+      "read": 0.02,
+      "write": 0
+    }
+  },
+  "limit": {
+    "context": 400000,
+    "input": 272000,
+    "output": 128000
+  },
+  "capabilities": {
+    "temperature": true,
+    "reasoning": true,
+    "attachment": true,
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": false
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": false
+  },
+  "release_date": "2026-03-17",
+  "variants": {
+    "none": {
+      "reasoningEffort": "none",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    },
+    "low": {
+      "reasoningEffort": "low",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    },
+    "medium": {
+      "reasoningEffort": "medium",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    },
+    "high": {
+      "reasoningEffort": "high",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    },
+    "xhigh": {
+      "reasoningEffort": "xhigh",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    }
+  }
+}
+openai/gpt-6-luna
+{
+  "id": "gpt-6-luna",
+  "providerID": "openai",
+  "name": "GPT-6 Luna",
+  "family": "gpt-luna",
+  "api": {
+    "id": "gpt-6-luna",
+    "url": "",
+    "npm": "@ai-sdk/openai"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 0.1,
+    "output": 0.5,
+    "cache": {
+      "read": 0.01,
+      "write": 0.125
+    },
+    "tiers": [
+      {
+        "input": 0.2,
+        "output": 0.75,
+        "cache": {
+          "read": 0.02,
+          "write": 0.25
+        },
+        "tier": {
+          "type": "context",
+          "size": 272000
+        }
+      }
+    ],
+    "experimentalOver200K": {
+      "cache": {
+        "read": 0.02,
+        "write": 0.25
+      },
+      "input": 0.2,
+      "output": 0.75
+    }
+  },
+  "limit": {
+    "context": 1050000,
+    "input": 922000,
+    "output": 128000
+  },
+  "capabilities": {
+    "temperature": false,
+    "reasoning": true,
+    "attachment": true,
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": true
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": false
+  },
+  "release_date": "2026-09-22",
+  "variants": {
+    "none": {
+      "reasoningEffort": "none",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    },
+    "low": {
+      "reasoningEffort": "low",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    },
+    "medium": {
+      "reasoningEffort": "medium",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    },
+    "high": {
+      "reasoningEffort": "high",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    },
+    "xhigh": {
+      "reasoningEffort": "xhigh",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    },
+    "max": {
+      "reasoningEffort": "max",
+      "reasoningSummary": "auto",
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    }
+  }
+}
+openai/gpt-image-2
+{
+  "id": "gpt-image-2",
+  "providerID": "openai",
+  "name": "gpt-image-2",
+  "family": "gpt-image",
+  "api": {
+    "id": "gpt-image-2",
+    "url": "",
+    "npm": "@ai-sdk/openai"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 5,
+    "output": 30,
+    "cache": {
+      "read": 1.25,
+      "write": 0
+    }
+  },
+  "limit": {
+    "context": 0,
+    "input": 0,
+    "output": 0
+  },
+  "capabilities": {
+    "temperature": false,
+    "reasoning": false,
+    "attachment": true,
+    "toolcall": false,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": false
+    },
+    "output": {
+      "text": false,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": false
+  },
+  "release_date": "2026-04-21",
+  "variants": {}
+}
+openai/text-embedding-3-small
+{
+  "id": "text-embedding-3-small",
+  "providerID": "openai",
+  "name": "text-embedding-3-small",
+  "family": "text-embedding",
+  "api": {
+    "id": "text-embedding-3-small",
+    "url": "",
+    "npm": "@ai-sdk/openai"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 0.02,
+    "output": 0,
+    "cache": {
+      "read": 0,
+      "write": 0
+    }
+  },
+  "limit": {
+    "context": 8191,
+    "output": 1536
+  },
+  "capabilities": {
+    "temperature": false,
+    "reasoning": false,
+    "attachment": false,
+    "toolcall": false,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": false
+  },
+  "release_date": "2024-01-25",
+  "variants": {}
+}
+xai/grok-4.20-0309-non-reasoning
+{
+  "id": "grok-4.20-0309-non-reasoning",
+  "providerID": "xai",
+  "name": "Grok 4.20 (Non-Reasoning)",
+  "family": "grok",
+  "api": {
+    "id": "grok-4.20-0309-non-reasoning",
+    "url": "",
+    "npm": "@ai-sdk/xai"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 1.25,
+    "output": 2.5,
+    "cache": {
+      "read": 0.2,
+      "write": 0
+    },
+    "tiers": [
+      {
+        "input": 2.5,
+        "output": 5,
+        "cache": {
+          "read": 0.4,
+          "write": 0
+        },
+        "tier": {
+          "type": "context",
+          "size": 200000
+        }
+      }
+    ],
+    "experimentalOver200K": {
+      "cache": {
+        "read": 0.4,
+        "write": 0
+      },
+      "input": 2.5,
+      "output": 5
+    }
+  },
+  "limit": {
+    "context": 1000000,
+    "output": 30000
+  },
+  "capabilities": {
+    "temperature": true,
+    "reasoning": false,
+    "attachment": true,
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": true
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": false
+  },
+  "release_date": "2026-03-09",
+  "variants": {}
+}
+xai/grok-4.3
+{
+  "id": "grok-4.3",
+  "providerID": "xai",
+  "name": "Grok 4.3",
+  "family": "grok",
+  "api": {
+    "id": "grok-4.3",
+    "url": "",
+    "npm": "@ai-sdk/xai"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 1.25,
+    "output": 2.5,
+    "cache": {
+      "read": 0.2,
+      "write": 0
+    },
+    "tiers": [
+      {
+        "input": 2.5,
+        "output": 5,
+        "cache": {
+          "read": 0.4,
+          "write": 0
+        },
+        "tier": {
+          "type": "context",
+          "size": 200000
+        }
+      }
+    ],
+    "experimentalOver200K": {
+      "cache": {
+        "read": 0.4,
+        "write": 0
+      },
+      "input": 2.5,
+      "output": 5
+    }
+  },
+  "limit": {
+    "context": 1000000,
+    "output": 30000
+  },
+  "capabilities": {
+    "temperature": true,
+    "reasoning": true,
+    "attachment": true,
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": true
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": false
+  },
+  "release_date": "2026-04-17",
+  "variants": {
+    "none": {
+      "reasoningEffort": "none"
+    },
+    "low": {
+      "reasoningEffort": "low"
+    },
+    "medium": {
+      "reasoningEffort": "medium"
+    },
+    "high": {
+      "reasoningEffort": "high"
+    },
+    "xhigh": {
+      "reasoningEffort": "xhigh"
+    }
+  }
+}
+xai/grok-imagine-image
+{
+  "id": "grok-imagine-image",
+  "providerID": "xai",
+  "name": "Grok Imagine Image",
+  "family": "grok",
+  "api": {
+    "id": "grok-imagine-image",
+    "url": "",
+    "npm": "@ai-sdk/xai"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 0,
+    "output": 0,
+    "cache": {
+      "read": 0,
+      "write": 0
+    }
+  },
+  "limit": {
+    "context": 16000,
+    "output": 0
+  },
+  "capabilities": {
+    "temperature": false,
+    "reasoning": false,
+    "attachment": true,
+    "toolcall": false,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": false
+    },
+    "output": {
+      "text": false,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": false
+  },
+  "release_date": "2026-01-28",
+  "variants": {}
+}

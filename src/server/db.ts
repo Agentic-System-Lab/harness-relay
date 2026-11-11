@@ -292,6 +292,37 @@ const MIGRATIONS: string[] = [
     expires_at INTEGER NOT NULL
   );
   `,
+  // 19: model backends for the open agents (src/server/backends.ts): the user's OpenAI-compatible
+  // endpoints (id: the slug their models' ids start with), and an API backend's key (id: openai,
+  // anthropic or xai) only while there is no credential store to keep it in. Endpoints' keys likewise.
+  `
+  CREATE TABLE model_backends (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL DEFAULT '',
+    base_url   TEXT NOT NULL DEFAULT '',
+    models     TEXT NOT NULL DEFAULT '[]',
+    api_key    TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  );
+  `,
+  // 20: the permission of each member's latest run (agent_sessions.permission): a turn with a higher
+  // one does not resume the session. Kept here, never in a file an agent can write. NULL: not recorded
+  // (sessions from before), taken as read-only.
+  `
+  ALTER TABLE agent_sessions ADD COLUMN permission TEXT;
+  `,
+  // 21: the same per CLI the member ran on (agent_sessions.by_cli, JSON: provider → { permission,
+  // mustEmpty }), since each open agent keeps a state folder of its own for the member: one written at
+  // a lower permission is emptied before that CLI runs with a higher one, and the flag that says it
+  // must be stays until it has been.
+  `
+  ALTER TABLE agent_sessions ADD COLUMN by_cli TEXT;
+  `,
+  // 22: whether the user lets a CLI's commands use a terminal in the relay sandbox
+  // (provider_settings.sandbox_terminal, 0/1; OpenHands only, see SANDBOX_TERMINAL_SUPPORT).
+  `
+  ALTER TABLE provider_settings ADD COLUMN sandbox_terminal INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 function migrate(db: Database): void {

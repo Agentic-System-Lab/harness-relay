@@ -2,7 +2,7 @@
 
 # 各平台的作業系統沙箱
 
-Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` 和 `grok` CLI，沙箱由各 CLI 自己提供，或者沒有。這一頁說明 Harness Relay 目前哪些執行用了沙箱、各沙箱能在哪些平台上運作、在那裡需要什麼前提、無法啟動時會怎樣，以及它管不到哪些事。
+Harness Relay 啟動真正的 `claude`、`codex` 和 `grok` CLI，沙箱由各 CLI 自己提供，或者沒有。五個開源 agent（OpenCode、Goose、Cline、OpenHands、Pi）自己沒有沙箱，所以 Harness Relay 用[自己的沙箱](#harness-relay-自己的沙箱)把它們關起來（用的是同一套機制：macOS 的 Seatbelt、Linux 的 bubblewrap、網路用過濾代理）。這一頁說明 Harness Relay 目前哪些執行用了沙箱、各沙箱能在哪些平台上運作、在那裡需要什麼前提、無法啟動時會怎樣，以及它管不到哪些事。
 
 於 2026 年 11 月 10 日確認。實際試過什麼、在哪些系統上、用哪些版本，見[已測試的範圍](#已測試的範圍)：一台 Mac（macOS 26.6）與一台 NVIDIA DGX Spark（Ubuntu 24.04，aarch64）。其他內容，包括所有 Windows 與 WSL 的部分，都來自各 CLI 自己的文件（見[資料來源](#資料來源)）。這些 CLI 變動很快，要依賴某個細節之前請再確認一次。
 
@@ -42,15 +42,60 @@ Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` �
 
 ## Harness Relay 目前的執行用了什麼
 
-| Relay 權限 | Claude Code | Codex | Grok |
-| --- | --- | --- | --- |
-| 唯讀 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 由 `:read-only` 延伸的設定檔 `harness-relay-…` | 由 `workspace` 延伸的設定檔 `harness-relay`，可以連網 |
-| 可編輯 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 由 `:workspace` 延伸的設定檔 `harness-relay-…`，關閉網路 | 由 `workspace` 延伸的設定檔 `harness-relay`，可以連網 |
-| 完全存取 | 沒有沙箱 | 沒有（`danger-full-access`） | 沒有 |
+| Relay 權限 | Claude Code | Codex | Grok | 開源 agent（OpenCode、Goose、Cline、OpenHands、Pi） |
+| --- | --- | --- | --- | --- |
+| 唯讀 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 由 `:read-only` 延伸的設定檔 `harness-relay-…` | 由 `workspace` 延伸的設定檔 `harness-relay`，可以連網 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)：不能寫工作目錄；這次執行用的模型主機可連，其他主機都會詢問 |
+| 可編輯 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 由 `:workspace` 延伸的設定檔 `harness-relay-…`，關閉網路 | 由 `workspace` 延伸的設定檔 `harness-relay`，可以連網 | Harness Relay 自己的沙箱：也能寫工作目錄；網路同上 |
+| 完全存取 | 沒有沙箱 | 沒有（`danger-full-access`） | 沒有 | 沒有 |
 
 - **Claude Code** 的沙箱涵蓋它的 Bash 工具（`sandbox` 設定）。在完全存取以外的權限，Harness Relay 會在這一輪的 `--settings` 中開啟它，並設定 `failIfUnavailable`（沒有沙箱就不執行）、`autoAllowBashIfSandboxed: false`（哪些操作不必詢問仍由權限決定），以及詢問規則 `Bash(dangerouslyDisableSandbox:true)`（模型要在沙箱外執行的每個指令都會詢問）；在 Claude Code 沒有沙箱的原生 Windows 上，則不使用沙箱執行。在 Mac 上兩種模式都試過：在工作目錄中寫入可以（唯讀模式下要先允許）；寫入家目錄會先詢問並註明會在沙箱外執行，拒絕後就失敗；連到 example.com 會先詢問，拒絕後就被擋下。
 - **Codex** 在完全存取以外的權限，每個指令都在沙箱中執行，使用的是 Harness Relay 在 thread 的設定中定義的權限設定檔（`harness-relay-` 加上每次執行都不同的隨機部分，由 `:read-only` 或 `:workspace` 延伸），並在 thread 中指名它（`permissions`，它選擇使用的實驗性欄位）；這會勝過你設定中的 `sandbox_mode`。Codex 沒有回報它套用了這個設定檔時（舊版 Codex 會忽略這個欄位），這次執行會失敗。在原生 Windows 上則和以前一樣使用舊的沙箱模式。在 Mac 上以 `workspace-write` 試過：在工作目錄中寫入可以；寫入家目錄或 `~/.npm`、連到 github.com 都被拒絕；讀取家目錄可以。
 - **Grok** 在唯讀與可編輯模式下使用它的自訂設定檔 `harness-relay`：Grok 的 `workspace` 加上下文的路徑。唯讀模式不使用它的 `read-only` 設定檔，因為後者在某些機器上無法啟動：在裝了 OrbStack 的 Mac 上，`/var/run/docker.sock` 是 symlink，Grok 會以 `could not apply the 'read-only' sandbox profile … Refusing to start with its protections missing` 停止。在 Mac 上兩種模式都試過：在工作目錄中寫入可以，寫入家目錄會以 `Operation not permitted` 失敗，也連得到 example.com，因為 `workspace` 允許連網（`~/.grok/sessions/sandbox-events.jsonl` 中為 `"restrict_network": false`，並有 `"enforced": true`）。這些是在 `harness-relay` 之前以 `workspace` 試的；`harness-relay` 也確實套用了（`"enforced": true`，並有它的 `deny_paths`）。Harness Relay 只在完全存取以外的權限設定設定檔（`GROK_SANDBOX`），所以完全存取時，Grok 自己 `config.toml` 中的 `[sandbox] profile`，或啟動伺服器時的 `GROK_SANDBOX`，仍會生效。
+
+## Harness Relay 自己的沙箱
+
+五個開源 agent（OpenCode、Goose、Cline、OpenHands、Pi）自己沒有作業系統沙箱，所以在完全存取以外的權限，Harness Relay 用 [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropics/sandbox-runtime)（`srt`，Apache-2.0：macOS 的 Seatbelt、Linux 的 bubblewrap + seccomp、網路用過濾 HTTP/SOCKS 代理）自己做的沙箱，把每個 agent 及它啟動的一切都關起來。程式在 `src/server/relaySandbox.ts`；各轉接器透過 `sandboxCommand()` 要用它，完全存取以外沒有東西在它之外執行。
+
+**每次執行一個沙箱。** 每次執行有自己的主控行程（host，`relaySandboxHost.ts`），和其他 CLI 一樣透過 `src/server/process.ts` 啟動（會被追蹤，關機時連同整個行程樹一起結束），並有一條在它的檔案描述符 3 上的私有控制通道。主控行程只為那一次執行跑一個 sandbox-runtime，所以同時進行的不同對話的執行——不同的工作目錄、權限與主機——彼此看不到對方的規則：每個有自己的代理，只有它自己的沙箱連得到（macOS 上 Seatbelt 只允許連到那個代理的連接埠；Linux 上沙箱沒有自己的網路，只有那個代理的 socket），而且要帶只有它自己的沙箱才有的 token。沒有規則決定的主機會透過那次執行的通道來詢問，所以核准會送到正確那一次執行的「詢問我」，不會被別的執行回答；規則與指令都不經過命令列，也不放在沙箱中的行程能改的共用檔案裡。在沙箱裡，agent 透過一段固定的 `/bin/sh` script（`SANDBOX_EXEC_SCRIPT`）啟動，程式、它的參數與這次執行自己的變數都從環境變數取得（`HARNESS_RELAY_SBX_*`，在 agent 啟動前移除），所以任何值都不會成為 shell 文字的一部分。
+
+**主控行程用的 Node。** 主控行程是 Node.js 程式。用 `npm start` 時，它用伺服器自己的 Node 執行。桌面 app 的 Electron 不能當成 Node 執行（它的 fuses 關掉了這個功能），所以在那裡它用登入 shell 的 `PATH` 上找到的 Node.js 22.12 以上執行（`hostNode()`），打包成 `relaySandboxHost.mjs`，沙箱 runtime 的套件放在它旁邊；沒有這樣的 Node 時，開源 agent 在完全存取以外會被拒絕，並附上說明。
+
+**檔案系統。**
+
+| | 讀 | 寫 |
+| --- | --- | --- |
+| 唯讀 | 下列受保護路徑以外的一切 | 只有這次執行自己的暫存資料夾與 agent 的狀態資料夾（它的 session、記錄與快取）——**不含工作目錄** |
+| 可編輯 | 同上 | 上述加上工作目錄與這個對話的附件資料夾 |
+
+- 完全不能讀**也**不能寫（`denyRead` + `denyWrite`）：受保護路徑（`protectedReads()`：瀏覽器自己的資料夾、Harness Relay 的資料庫與暫存資料夾，與其他 CLI 相同，見[agent 不能讀寫的地方](#agent-不能讀寫的地方)）。
+- 永遠不能寫（`denyWrite`），即使上層資料夾可寫：agent 的設定路徑（所有啟動時會改變 CLI 行為的東西——它的設定、plugin、擴充功能、hook、MCP 設定、指示檔），這樣一次執行就不能放寬它下一次執行；可編輯模式下，工作目錄裡其他 CLI 與這些開源 agent 自己的設定（`.claude`、`.codex`、`.grok`、`.mcp.json`、`.opencode`、`opencode.json`、`opencode.jsonc`、`.goose`、`.cline`、`.clinerules`（Cline 會不經詢問執行 `.clinerules/hooks` 裡的 hook）、`.openhands`、`.pi`、`.agents`）、沙箱要執行的程式所在的資料夾，以及 sandbox-runtime 原本會讓任何指令寫入的地方（`/tmp/claude`、`~/.npm/_logs`、`~/.claude/debug`）。sandbox-runtime 自己也會把 `.git/hooks`、`.git/config`、`.gitmodules` 與 shell 的設定檔設為唯讀。
+- **每次執行寫自己全新的暫存資料夾**（在 Harness Relay 的資料夾裡，執行結束時刪除），不是共用的。sandbox-runtime 預設給每次執行同一個 `TMPDIR`（`/tmp/claude`）；Harness Relay 把它改掉，這樣一次執行就不能留下一個檔案（例如一份轉譯或編譯快取）讓下一次執行——也許是另一個對話的——載入並執行。
+- 下列情況不會開始執行：受保護路徑或設定路徑的名稱含有 `*`、`?` 或 `[`（沙箱會把它當成樣式，可能擋不住）；這次執行可以寫的資料夾包含了 Harness Relay、家目錄或其他 CLI 自己的資料夾（那它就能改到沙箱外會執行的東西）；或者在可編輯模式下，工作目錄本身就是上述之一（`relayFolderRefusal()`，和其他 CLI 一樣）。
+
+**網路。** 這次執行可以不經詢問連到它用的模型來源的主機（`api.openai.com`、`api.anthropic.com`、`api.x.ai`，以及自訂端點的 `host:port`），其他主機都不行。其他主機會透過「詢問我」來詢問（一張 `fetch` 類型、針對那個主機的核准卡；「本對話都允許」只涵蓋那個主機的那個埠號，卡片只寫主機時則是 443 與 80）；被拒絕、或在自動拒絕的對話裡，則以模型看得到的理由擋下。agent 每次啟動都會連、但不該每輪都擋住整輪的主機（Goose 的 `models.dev` 目錄），可以列為**安靜拒絕**——帶理由擋下，不詢問。Harness Relay 自己的連接埠永遠不允許（直接連或透過代理都不行），這台電腦自己的位址、link-local 與 metadata 位址也不行。在你允許之前，Harness Relay 絕不查詢主機名稱（它的解析器在沙箱外，若替指令要連的每個名稱都去查，名稱本身就能把資料帶出去）：會解析到這台電腦的名稱（`localtest.me`、`127.0.0.1.nip.io`）會像其他名稱一樣詢問你，你若允許，sandbox-runtime 在連線時會拒絕它。回合結束時還在排隊等著詢問的主機會被拒絕，不會在之後才拿去問你。這台電腦上的模型來源必須寫出連接埠（`localhost:11434`；區域網路上其他電腦的，例如 `192.168.1.20:8000`，則不一定要），兩者都走代理——Harness Relay 只把 loopback 排除在代理外，不排除私有網段，所以本機來源仍會走到代理、由允許清單決定（sandbox-runtime 自己的 `NO_PROXY` 會涵蓋私有網段，那會讓本機來源繞過代理而被擋；Harness Relay 把它收窄）。模型來源本身就在 loopback 上時（Ollama、本機的 vLLM），`NO_PROXY` 只列出 agent 自己的連接埠（下面的 `localPorts`），所以這個來源與其他所有 loopback 連接埠都走代理。
+
+**代理，各種用戶端。** sandbox-runtime 把網路導到它在 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 裡指名的本機代理。Harness Relay 設 `NODE_USE_ENV_PROXY=1`，讓 Node 22 的 `fetch` / `http` / `https` 照它走（Node 22.21+）；Bun、Python 的 `httpx` 與 `requests`、Rust 的 `reqwest`、Go 與 curl 自己會讀代理變數。在這台 Mac 與 Linux 上的 Docker 都確認過：Node 22 `fetch`、Bun、Python `httpx` 與 `requests`，以及 curl（當作 Rust `reqwest` 用戶端的替身）都能透過代理連到允許的主機，而不被允許的主機則被擋。
+
+**各轉接器的選擇性開啟**（預設都關，各為一個需要的 CLI，用到的地方都有說明）：
+
+- **偽終端機**（`allowPty`），給在偽終端機裡跑指令的 OpenHands（完全存取以外絕不用 tmux）。**`allowPty` 在 macOS 上打開了什麼：** sandbox-runtime 的規則讓這次執行能依路徑讀寫 `/dev/ptmx` 與**所有** `/dev/ttys*`，所以沙箱中的程式可以打開你當時開著的任何一個終端機：在上面印字、讀得到在裡面打的字，也能改它的設定，例如關掉回顯（核心仍不讓程式把輸入推進不是它自己的終端機，`TIOCSTI`）。Seatbelt 無法把它收窄到這次執行自己的終端機：它的規則在執行開始時就固定、按路徑指名裝置，而終端機的編號要到打開時才由核心挑（而且會重複使用）。所以在 macOS 上，要等使用者在「設定」打開它的開關（預設關閉，開關上會寫明這件事），OpenHands 才會在完全存取以外執行。**Linux 上** bubblewrap 給沙箱一個它自己的 `/dev/pts`（在 Docker 裡檢查過：裡面只有 `ptmx`，沒有外面的終端機），所以這個選項在那裡打不開你的任何終端機，也不需要開關。**這次執行自己的 Unix socket**（`allowUnixSocketsInTmp`）仍然可以給轉接器用（只在 macOS 上、只在這次執行自己的暫存資料夾裡、每次執行都是新的），但現在沒有轉接器需要它；Linux 上 sandbox-runtime 無法只允許一個 socket 路徑（它的 seccomp 過濾器會擋掉所有 Unix socket，除非全部允許，而這個沙箱絕不會這樣做）。
+- **agent 只連線、不自己提供的 loopback 連接埠**（`connectPorts`）：agent 不自己跑的、你自己的伺服器（Goose 在這台電腦上的 HTTP MCP 伺服器）。它們透過代理連到，代理的允許清單在這些連接埠上指名 `127.0.0.1`、`localhost` 與 `[::1]`；沙箱不能在這些連接埠上監聽（macOS），所以指令無法搶走一個停掉的伺服器的連接埠；Linux 上它只能在自己的 loopback 上監聽，那不是這台電腦的。絕不會是 Harness Relay 的連接埠。
+- **agent 自己的 loopback 連接埠**（`localPorts`），給會自己跑 HTTP 伺服器並跟自己講話的 CLI（OpenCode 的 `opencode acp`）。macOS 上沙箱只能在那幾個連接埠上監聽與連線，別的本機連接埠都不行，直接連或透過代理都可以（代理的允許清單這時只多了這幾個連接埠上的 `127.0.0.1`、`localhost` 與 `[::1]`）；Linux 上它有自己的 loopback，任何連接埠都行，而且連不到這台電腦的任何連接埠，所以在它之外的代理不允許這些連接埠。旁邊有 loopback 上的模型來源時，`NO_PROXY` 只放這些連接埠的 `127.0.0.1:<port>` 與 `localhost:<port>`：Node、Bun 與 httpx 會照這裡的連接埠直接連到 agent 自己的伺服器（兩個平台都確認過），curl，以及 Python 的 requests 對位址，則忽略連接埠而走代理，只有在 macOS 上代理才連得到 agent 的伺服器。絕不會是 Harness Relay 的連接埠，也不會是模型來源的。這比 sandbox-runtime 的 `allowLocalBinding` 窄，後者會打開每個 localhost 連接埠（Harness Relay 自己的 API、其他本機服務、其他執行的伺服器）。
+- **憑證信任服務**（`allowTlsTrustd`），給 Goose，它的 TLS 驗證（Rust，經 rustls-platform-verifier → macOS Security framework）需要 `com.apple.trustd.agent`，而 sandbox-runtime 的 Seatbelt 設定檔預設擋掉它。這只打開那一個 mach 服務（就是 sandbox-runtime 自己的 `enableWeakerNetworkIsolation` 會打開的那一個，單獨列出，不多開別的），只在 macOS 上。它是一條可能的出口，因為 trustd 會自己從網路抓憑證的 OCSP 或 CRL，走在代理之外，所以程式可以把一點資料藏在它請 trustd 檢查的東西裡；TLS 已經走代理的 CLI（Node、Bun、Python）則關閉它。
+
+**失敗就關起來。** 沙箱無法啟動時——原生 Windows（sandbox-runtime 的 Windows 支援還是 alpha；開源 agent 在完全存取以外拒絕在那裡執行，就像 sandbox-runtime 在低於完整隔離時會被拒絕一樣）、其他平台、sandbox-runtime 擋不住 Unix socket 的處理器（非 x64 或 arm64）、Linux 上缺 `bubblewrap` / `socat` / `ripgrep`、或 sandbox-runtime 套不上規則——這一輪會以使用者語言的理由、以及各平台怎麼修的說明失敗，除非權限是完全存取。Harness Relay 在每次執行前會確認沙箱真的能啟動（它在沙箱裡跑一個很小的指令），結果會短暫快取;host 自己在開始任何東西之前也會失敗就關起來，當 sandbox-runtime 套不上規則、或警告有破口時（沒有 seccomp helper、它自己那份可被寫）。
+
+**殘留的行程。** 一次執行結束時，host 會停掉沙箱的整個行程樹。離開 host 行程群組的行程——agent 放到背景的指令（有些 CLI 用 detached 執行，一次 double fork 就把它重新掛到 `launchd`）、呼叫過 `setsid` 的 daemon，或像 tmux 這種伺服器——用群組的方式殺不到，而 macOS 也沒有 PID namespace 可以把行程樹放進去。macOS 上有兩種清掃會找出這類行程：
+- **依它的沙箱**（`src/server/sandboxProcs.ts`）：每個子孫行程都保有啟動時的 Seatbelt 設定檔，而且丟不掉，不管它關掉了什麼、被重新掛到哪裡。對你的每個行程，核心會回答它的設定檔是否允許寫入這次執行自己的暫存資料夾（只有這次執行的設定檔允許），而且不允許寫入外面那一層資料夾（連那一層也能寫的行程，代表它有更寬的沙箱，例如另一個工具的沙箱、工作目錄剛好包含 Harness Relay 的資料，這種會被放過）。這不讀任何環境變數或終端機，只讀核心對規則的回答（libsandbox 的 `sandbox_check`，透過系統的 Python `/usr/bin/python3` 呼叫，它隨 Xcode 命令列工具一起安裝）。這次執行的設定檔允許它刪掉自己的暫存資料夾、或在原處放一個連結，所以伺服器詢問之前會先把它重新做成真的資料夾（核心是依路徑回答）。伺服器在處理掉這次執行時、移除它的資料夾之前執行這項清掃；伺服器被殺掉後，下一次啟動時會對它留下的每個執行資料夾做同樣的清掃。
+- **依標記檔**：每個沙箱中的行程也會繼承一個對 `data/relay-sandbox/` 下每次執行專屬標記檔的唯讀描述符，還握著它的行程會用 `lsof` 找出並殺掉：執行結束時由 host 做，處理掉這次執行時由伺服器做，伺服器被殺後由下一次啟動做。CLI 啟動指令時會關掉繼承來的描述符（Node、Bun 與 Python 都會；Goose 會保留），所以這種方式抓到的較少；少了命令列工具時，就只剩它。
+
+只看這次執行自己的設定檔與標記檔，所以你自己的 shell 若只是工作目錄在那個資料夾裡、或任何在這次執行沙箱以外的行程，都不會被動到。Linux 上不需要這些：bubblewrap 把行程樹放進它自己的 PID namespace，host（以及 bubblewrap）一死，namespace 就隨沙箱一起結束，連伺服器被殺也一樣。這**抓不到**的情況：沒有 Xcode 命令列工具時，一個關掉了繼承的描述符、又離開 host 群組的行程。這種殘留會保留 Seatbelt 設定檔中凍結的檔案規則——可編輯模式下它仍能寫工作目錄、附件與那次執行的狀態資料夾，讀受保護路徑以外的一切——但它的代理沒了，所以它連**任何**網路主機都到不了（Seatbelt 只允許代理那個現在已關閉的 localhost 連接埠），包括 Harness Relay 自己的 API。它的寫入會在電腦下次重開時停止。
+
+**需要安裝什麼。** macOS 上什麼都不用（Seatbelt 與 `sandbox-exec` 是系統內建）。Linux 上：`bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`，或 `sudo dnf install …`），以及在 Ubuntu 23.10 以後，[在 Linux 上](#在-linux-上)那段給 `/usr/bin/bwrap` 的 AppArmor 設定檔（bubblewrap 需要非特權 user namespace）。在容器裡，bubblewrap 需要容器允許 user namespace 與一個新的 `/proc`（用過即丟的容器可以：`docker run --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined`），或改用完全存取、讓容器當沙箱。
+
+**它管不到的事。** 沙箱裡的程式可以**讀**什麼（它幾乎讀得到整台電腦，包含 `~/.ssh` 與 `~/.aws`，受保護路徑除外）；要把祕密留在電腦上靠的是擋網路，這在兩個平台都成立。你允許的模型來源整個可達，所以有心的 agent 仍可能用它把資料帶出去（允許清單是按主機名、不是按流量內容）。macOS 上開了 `allowTlsTrustd` 時的 trustd 服務，如上。Linux 上 agent 需要的 Unix socket（那裡無法只允許一個）。**macOS 上，指令之上每個行程的啟動環境**：agent 行程（`opencode` 等）、relay 沙箱的 host、Harness Relay 伺服器，以及啟動伺服器的 shell（或 npm）——裡面有它們啟動時帶的 API 金鑰，以及 OpenCode 的本機伺服器密碼。指令可以透過 `kern.procargs2` sysctl 讀到祖先的環境（不相關行程的環境 macOS 不給，這是在沙箱外看到的）。所以在 macOS 上，把金鑰排除在 agent 的環境之外，並不能讓 agent 的指令拿不到它，只要伺服器自己的啟動環境裡還有：啟動伺服器時環境裡別放 API 金鑰（Harness Relay 把它們存在作業系統的憑證儲存區）。Linux 上沙箱的 PID namespace 只讓沙箱中的行程樹看得見。要擋掉它得加一條 Seatbelt 規則，而那同時會讓 `ps` 完全無法執行（procargs2 也是取得一個行程命令列的唯一管道），代價太大，所以 Harness Relay 不擋；改由轉接器把自己的祕密排除在 agent 執行的指令的環境之外（OpenCode 把它的伺服器密碼拿掉），而網路封鎖讓這樣讀到的祕密也送不出去。完全存取，它本就不用沙箱，和其他 CLI 一樣。
+
+**確認過**於 2026 年 11 月 10 日：在這台 Mac（macOS 26.6，arm64）上用 `scripts/sandbox-check.ts`，以及在 Linux 上一個用過即丟的 Docker 容器（`node:22-bookworm`，bubblewrap 0.8、socat、ripgrep）裡用同一個腳本。在唯讀與可編輯模式下，沙箱中的行程都無法寫入它被允許的資料夾以外（唯讀時的工作目錄、家目錄、一個類 ssh 資料夾、agent 的設定、任何外部資料夾），讀不到受保護路徑（瀏覽器資料夾、祕密檔與資料庫的替身），連不到不被允許的主機（而且核准流程可用、綁到正確那次執行），用上述每種用戶端都透過代理連到了允許的主機，連不到 Harness Relay 的連接埠或這台電腦自己的位址，也無法透過子行程、symlink、hard link、`git -c core.hooksPath` / 設定的花招、或改寫自己的設定路徑逃出去。兩個規則不同、同時進行的執行互不干擾。被停掉的執行沒留下行程或暫存資料夾，一個想在回合結束後才寫入、已離開 host 群組（重新掛到別處）的 detached 指令被標記掃掉了；由 Node、Python 與 Perl 啟動、關掉所有描述符又離開群組的背景寫入者，在回合結束時依它們的沙箱被掃掉（關掉這項清掃時它們都會在回合後寫入），而另一個更寬的沙箱裡的行程不受影響；而一個替身（代表被殺掉的伺服器留下的行程）在下一次啟動時被掃掉。每項檢查都帶著真實執行用的私有根目錄；一次執行讀得到在其中的自己的設定（Goose 的配置方式），host 暫存資料夾位在被藏起的資料夾下時網路照樣能用（資料路徑很短時），只連線的連接埠透過代理連得到、也不能被監聽（macOS），會解析到這台電腦的名稱會被詢問（伺服器從不查詢它），允許後在連線時被拒絕，而一個工作目錄在 `data/relay-sandbox/` 裡的 shell 在啟動清掃後仍活著。`npm test` 跑離線單元測試（`test/relaySandbox.test.ts`、`test/sandboxProcs.test.ts`），絕不啟動真的沙箱。真的沙箱檢查是另外的 `scripts/sandbox-check.ts`。
 
 ## agent 不能讀寫的地方
 
@@ -65,6 +110,7 @@ Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` �
 
 - **Claude Code**：`sandbox.filesystem.denyRead` 與 `denyWrite`，以及給它自己的檔案工具（在它的沙箱之外）的 `Read` 拒絕規則。這一輪的 `--settings` 也設定 `filesystem.disabled: false`，勝過關閉檔案隔離的使用者設定。`allowRead`／`allowWrite` 清單會跨設定檔相加，所以當你自己的 Claude Code 設定（它資料夾中的 `settings.json`）或電腦上的受管理設定（`managed-settings.json` 與 `managed-settings.d`）允許的路徑碰到受保護的路徑時，執行不會開始，相對路徑的項目從該設定檔所在的資料夾算起；訊息會指出要移除的項目。（Claude Code 本身（2.1.322）會忽略專案設定中、會打開這一輪 `--settings` 所禁止路徑的 `allowRead` 項目。）
 - **Codex**：thread 的 `harness-relay-…` 權限設定檔中，每個路徑一個 `deny` 項目（Windows 除外，它舊的沙箱無法在任何地方禁止讀取）。它的名稱每次執行都不同：Codex 會把它其他設定檔（例如已信任專案的 `.codex/config.toml`）中同名的設定檔合併進來，而那裡更具體的項目（對被禁止的資料夾內的某個資料夾設 `read`）會讓這個路徑重新可讀（用 `codex sandbox` 試過）。DGX Spark 上的 Codex 0.167 無法使用自訂的設定檔：thread 可以開始，但每一輪送出請求時都會失敗（`failed to load workspace requirements: invalid input parameter`；Codex 內建的 `:workspace` 則可以）。遇到這種情況的執行會改用 Codex 舊的沙箱模式重跑，並在伺服器這次執行期間都這樣做：寫入與網路的限制和以前一樣，但沒有禁止清單，所以在那裡 Codex 的指令讀得到瀏覽器的資料夾與資料庫（它們仍然連不到網路，包括 Harness Relay 的 API）。
+- **開源 agent**（OpenCode、Goose、Cline、OpenHands、Pi）：在 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)裡，對相同的路徑以字面名稱設 `denyRead` + `denyWrite`；agent 的 config 路徑也設 `denyWrite`，這樣一次執行就不能放寬它下一次執行。
 - **Grok**：它的自訂設定檔 `harness-relay` 的 `deny` 清單。Harness Relay 在每次執行前把它寫進 Grok 自己資料夾（`~/.grok`，或各 CLI 自己的資料夾中的 `grok`）的 `sandbox.toml`，放在 `# >>> harness-relay` 與 `# <<< harness-relay` 之間，檔案的其餘部分保持原樣。Grok 無法套用自訂設定檔時會拒絕啟動；在 Linux 上，它的 `deny` 清單需要 bubblewrap。Grok 的 `workspace` 讓它的指令能寫入整個 Grok 資料夾，而它自己的程式就在那裡（`downloads`、`bin`）：清單也禁止這些，以及 Harness Relay 啟動的程式所在的資料夾。Grok 在沙箱套用後才讀取那裡的設定（Harness Relay 區塊以外的 `sandbox.toml`、`config.toml`、`managed_config.toml`、`requirements.toml`、`trusted_folders.toml`、`permission.toml`、`hooks-paths`），所以無法禁止：Harness Relay 會在每一輪前讀取它們（連結就當作連結；空檔案視同沒有，因為它們不存在時 Grok 的沙箱會建立空的檔案），這一輪改動了其中之一時，就把改動後的版本移到旁邊（`….changed-<時間>`，以改名的方式，不跟著連結走）、把它改回原樣，並讓這一輪失敗並說明；`skills` 資料夾被改動時同樣會回報，但不會改回。同時執行的 Grok 各輪共用第一輪開始前的設定，後開始的一輪會先把另一輪的指令改動的地方改回。在這樣的一輪中，Grok 自己或你對這些檔案做的改動，也會同樣被改回。在這樣的一輪中於 Harness Relay 信任資料夾時，會先把這一輪的指令改動的地方改回，再把信任記錄到這一輪開始時的信任紀錄中，這一輪會保留它。（Grok 設定檔的 `read_only` 是授予讀取，並不會禁止寫入。）在 Linux 上，Grok 會透過 bubblewrap 再執行一次自己的程式來啟動沙箱，所以被禁止的程式根本無法啟動（試過）：在那裡它的程式不禁止，改為檢查：`~/.grok/bin` 中的連結與程式檔案，並在 `data/tmp` 保留一份副本；被改動時，會在另一個沙箱中的一輪啟動它之前、以及每一輪之後，從副本改回原樣，並讓那一輪失敗。
 
 在 Mac 上以可編輯模式對每個 CLI 都試過：用 shell 列出 `~/Library/Application Support/Firefox`、讀取 `data/relay.db` 都以 `Operation not permitted` 失敗，用 Claude Code 的 Read 工具或 Grok 的檔案工具讀取資料庫會被拒絕，而在工作目錄中寫入可以。Claude Code 的 Read 工具讀取 Firefox 資料夾中的檔案（含空格的路徑）也會被拒絕。Grok 的指令無法寫入 `~/.grok/downloads`，也無法改名 `~/.grok/bin`（在這之前可以），在 `~/.grok/config.toml` 後面附加內容則被 Grok 自己拒絕；它的 sessions 仍可寫入。
@@ -80,8 +126,9 @@ Harness Relay 本身不做任何沙箱：它啟動真正的 `claude`、`codex` �
 | **Codex** | ✅ Seatbelt | ✅ bubblewrap + seccomp | ✅ 自己的沙箱（見下文） | ✅ Linux 的沙箱 |
 | **Claude Code** | ✅ Seatbelt | ✅ bubblewrap + socat | ❌ 指令在沙箱外執行 | ✅ Linux 的沙箱 |
 | **Grok** | ⚠️ Seatbelt，但擋不了網路 | ✅ Landlock + seccomp，Harness Relay 的執行還要 bubblewrap | ❌ 文件中沒有列出 | 未驗證 |
+| **開源 agent**（Harness Relay 自己的沙箱） | ✅ Seatbelt | ✅ bubblewrap + socat + ripgrep，加上 seccomp（x64/arm64） | ❌ 完全存取以外拒絕執行（在 sandbox-runtime 還是 alpha） | ✅ Linux 的沙箱 |
 
-Harness Relay 本身在這三種平台上都能執行，所以在原生 Windows 上只有 Codex 有沙箱。
+Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只有 Codex 有沙箱；開源 agent 在完全存取以外拒絕在那裡執行（請在 WSL2 裡執行它們）。
 
 ### macOS
 
@@ -331,8 +378,9 @@ Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原
 
 ## 沙箱管不到的事
 
-- **讀取。** 三者預設都讓指令讀取幾乎整台電腦，包括 `~/.ssh` 和 `~/.aws`；只有 Grok 的 `strict` 設定檔會限制讀取（工作目錄、系統路徑與 `~/.grok`）。Harness Relay 不讓它們讀取瀏覽器的資料夾（包括桌面 app 視窗的）與它自己的資料庫（見 [agent 不能讀寫的地方](#agent-不能讀寫的地方)），其他的不在此限。要讓機密不離開這台電腦，靠的是擋網路，而 Grok 在 macOS 上做不到。
-- **Harness Relay 自己的 API。** Grok 的沙箱讓指令連得到 localhost（在 Mac 上試過：可編輯模式下，Grok 執行的 `curl http://127.0.0.1:…` 得到了回應），但 Harness Relay 在 `127.0.0.1:8787` 的 API 只接受已登入的瀏覽器：沒有瀏覽器 cookie 與金鑰的程式會收到 401（用 `curl` 試過），所以這類指令無法開始一輪執行（它擋不住的見[架構 → 登入](architecture.zh-TW.md#登入)）。同樣的測試中，Claude Code 與 Codex 的沙箱都擋下了 localhost。
+- **讀取。** 各沙箱預設都讓指令讀取幾乎整台電腦，包括 `~/.ssh` 和 `~/.aws`；只有 Grok 的 `strict` 設定檔會限制讀取（工作目錄、系統路徑與 `~/.grok`）。Harness Relay 不讓任何沙箱（包括[它自己的](#harness-relay-自己的沙箱)）讀取瀏覽器的資料夾（包括桌面 app 視窗的）與它自己的資料庫（見 [agent 不能讀寫的地方](#agent-不能讀寫的地方)），其他的不在此限。要讓機密不離開這台電腦，靠的是擋網路，而 Grok 在 macOS 上做不到；Harness Relay 自己的沙箱在兩個平台都擋網路，但你允許的模型來源整個可達，所以有心的 agent 仍可能透過它把資料帶出去（允許清單是按主機、不是按流量內容）。
+- **Harness Relay 自己的 API。** Grok 的沙箱讓指令連得到 localhost（在 Mac 上試過：可編輯模式下，Grok 執行的 `curl http://127.0.0.1:…` 得到了回應），但 Harness Relay 在 `127.0.0.1:8787` 的 API 只接受已登入的瀏覽器：沒有瀏覽器 cookie 與金鑰的程式會收到 401（用 `curl` 試過），所以這類指令無法開始一輪執行（它擋不住的見[架構 → 登入](architecture.zh-TW.md#登入)）。同樣的測試中，Claude Code、Codex 與 Harness Relay 自己的沙箱都擋下了 localhost——Harness Relay 自己的沙箱還按名字拒絕它的連接埠，所以即使是被授予自己 loopback 連接埠的 agent（OpenCode）也連不到它。
+- **開源 agent 在自己工具外執行的東西。** Harness Relay 自己的沙箱涵蓋 agent 與它的子行程所做的一切；agent 沒有任何部分在沙箱外執行（不像 Claude Code 的 hooks 與 MCP 伺服器）。Linux 上它無法允許單一一個 Unix socket（所以在那裡需要 socket 的 CLI 必須不用它），macOS 上透過系統驗證 TLS 的 CLI（Goose）會被授予 trustd 服務，那是一條可能的出口（見 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)）。
 - **Claude Code 自己的工具。** 它的沙箱只涵蓋 Bash 指令及它們啟動的行程，不包括它的 Read、Edit、Write、WebFetch、WebSearch 工具（這些由它的權限規則管）、hooks、本機的 MCP 伺服器（包括工具庫的）和 LSP 伺服器。
 - **寫到工作目錄與暫存資料夾以外會失敗**，包括套件快取（`~/.npm`、pip、cargo、Go 的 build cache）。如果網路也關閉，安裝相依套件就會失敗。
 - **Git。** Codex 的 `workspace-write` 把 `.git` 設為唯讀：`git add` 與 `git commit` 會以 `.git/index.lock: Operation not permitted` 失敗（在 Mac 上試過）。Claude Code 不讓指令寫入 `.git/config` 與 `.git/hooks`。平行模式下，worktree 的 git 資料放在主 repository 的 `.git/worktrees/<name>`，在工作目錄之外。Harness Relay 的快照和 worktree 結果的 commit 都由伺服器在沙箱外執行，所以不受影響。Grok 的沙箱讓指令能寫入 `.git/config`、`.git/info` 與 `.git/hooks`（在 Mac 上試過：`git config core.fsmonitor …` 可以執行），所以 Harness Relay 自己在沙箱外執行的 git 指令，絕不執行 repository 自己的設定所指定的東西：它的 hooks 與 fsmonitor 都關閉，它的設定（或其包含的檔案）定義的每個 filter、diff 與 merge driver 都被清空，diff 也不執行外部 diff 或 textconv（`repoDriverGuards()`）。它的 submodule 所在的 repository 也一樣，因為 `git add` 會在其中執行 `git status`：agent 能寫入它們的設定，在 worktree 中也能在 submodule 的空資料夾裡建立一個。git 不會抓取缺少的物件（`GIT_NO_LAZY_FETCH`，git 2.44 以上），因為 partial clone 的遠端要透過設定所指定的指令連線；`core.worktree` 指向 repository 自己以外的資料夾時會拒絕，因為快照會把那個資料夾的檔案收進來，套用時也會寫到那裡。使用者自己的 driver，例如 `~/.gitconfig` 中 git-lfs 的，仍會執行。
@@ -341,6 +389,7 @@ Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原
   - Claude Code：模型可能會帶著 `dangerouslyDisableSandbox` 在沙箱外再執行一次指令（`sandbox.allowUnsandboxedCommands: false` 會拿掉這個出口）。這種重試，以及連到不在網路允許清單上的主機，在 `manual` 與 `acceptEdits` 中會詢問，在 `dontAsk` 中會被拒絕。在非互動的 `-p` 執行中，它們以 `can_use_tool` 請求送來（在 Mac 上試過）：主機以 `SandboxNetworkAccess` 送來，Harness Relay 把它顯示成讀取那個主機的網頁；Claude Code 因為某個沙箱無法寫入的路徑（`blocked_path`）而詢問的指令，就算允許了在沙箱中也會失敗，所以使用者允許時 Harness Relay 會讓它在沙箱外執行，卡片也會註明。設定為拒絕時，`acceptEdits` 仍會送來主機的請求，由 Harness Relay 拒絕。
   - Codex：和現在一樣，只有在模型要求超出沙箱允許的範圍時才會詢問。
   - Grok：設定檔一旦套用就無法撤除，所以就算核准了某個呼叫，它也不能寫到設定檔允許的路徑以外。
+  - 開源 agent：只有沒有規則決定的主機會被詢問（一張 `fetch` 類型的核准卡），允許後這次執行就能透過代理連到那個主機;檔案規則無法撤除，所以核准什麼都不會讓 agent 寫到它權限允許的資料夾以外。這台電腦上的主機，或 Harness Relay 自己的連接埠，不詢問就直接拒絕。
 
 ## 尚未處理的部分
 

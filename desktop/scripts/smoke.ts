@@ -4,6 +4,8 @@
  * on `src/server/index.ts`). Plain Node stands in for Electron's utility process (parent-port.mjs):
  *
  * - the keyring module (native code, next to the server, not in the bundle) loads;
+ * - the bundle has Harness Relay's own sandbox host and Pi's gate extension next to it, and the host
+ *   finds the sandbox runtime there (both run apart from the server, so neither is in the bundle);
  * - the server says it listens, on the port it got (PORT=0: any free one), on 127.0.0.1 only;
  * - it serves the built web app;
  * - asked for a sign-in link, it gives one for its own address, and the code in it signs a browser in;
@@ -16,7 +18,7 @@
  * Usage: tsx desktop/scripts/smoke.ts (after npm --prefix desktop run build)
  */
 import { fork, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -73,6 +75,13 @@ export async function smoke(o: SmokeOptions): Promise<string[]> {
     // The server's own require (createRequire), from where it is: the module must be next to it.
     const keyring = createRequire(o.entry)('@napi-rs/keyring') as { Entry?: unknown };
     check(typeof keyring.Entry === 'function', 'loads the keyring module');
+    if (o.entry.endsWith('.mjs')) {
+      // The relay sandbox's host is a Node program of its own (relaySandbox.ts runs it), and Pi loads
+      // its gate by path: files beside the bundle, the host requiring the sandbox runtime from there.
+      const host = join(dirname(o.entry), 'relaySandboxHost.mjs');
+      check(existsSync(host) && existsSync(join(dirname(o.entry), 'piGate.js')), "has the relay sandbox's host and Pi's gate next to it");
+      check(resolves(host, '@anthropic-ai/sandbox-runtime'), "the relay sandbox's host finds the sandbox runtime");
+    }
 
     const listening = await next('listening');
     const base = `http://127.0.0.1:${listening.port}`;
@@ -100,6 +109,14 @@ export async function smoke(o: SmokeOptions): Promise<string[]> {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     await exited;
     rmSync(data, { recursive: true, force: true });
+  }
+}
+
+function resolves(from: string, id: string): boolean {
+  try {
+    return existsSync(createRequire(from).resolve(id));
+  } catch {
+    return false;
   }
 }
 

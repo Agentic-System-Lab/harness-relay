@@ -1,7 +1,20 @@
 // Types shared by the server and the web client.
 
-export type Provider = 'claude' | 'codex' | 'grok';
-export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok'];
+export type Provider = 'claude' | 'codex' | 'grok' | OpenProvider;
+
+/**
+ * The open-source coding agents ("open agents"): they use the model backends set up in Settings
+ * (OpenAI, Anthropic, xAI API keys, or the user's own OpenAI-compatible endpoints), never a sign-in
+ * of their own (see docs/open-agents.md).
+ */
+export type OpenProvider = 'opencode' | 'goose' | 'cline' | 'openhands' | 'pi';
+export const OPEN_PROVIDERS: OpenProvider[] = ['opencode', 'goose', 'cline', 'openhands', 'pi'];
+
+export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok', ...OPEN_PROVIDERS];
+
+export function isOpenProvider(p: Provider): p is OpenProvider {
+  return (OPEN_PROVIDERS as Provider[]).includes(p);
+}
 
 /** The error `code` (with a 404) for a working directory that does not exist; resend with `createCwd: true` to create it. */
 export const CWD_MISSING = 'cwd-missing';
@@ -20,6 +33,11 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   grok: 'Grok',
+  opencode: 'OpenCode',
+  goose: 'Goose',
+  cline: 'Cline',
+  openhands: 'OpenHands',
+  pi: 'Pi',
 };
 
 /** Where each CLI is installed from: Settings links to it when the CLI is not found. */
@@ -27,6 +45,11 @@ export const PROVIDER_INSTALL_URL: Record<Provider, string> = {
   claude: 'https://claude.com/product/claude-code',
   codex: 'https://openai.com/codex/',
   grok: 'https://x.ai/build',
+  opencode: 'https://www.npmjs.com/package/opencode-ai',
+  goose: 'https://formulae.brew.sh/formula/block-goose-cli',
+  cline: 'https://www.npmjs.com/package/cline',
+  openhands: 'https://pypi.org/project/openhands/',
+  pi: 'https://www.npmjs.com/package/@earendil-works/pi-coding-agent',
 };
 
 /** UI languages. The server localizes its messages from the `X-Relay-Lang` request header. */
@@ -43,6 +66,14 @@ export type Mode = 'roundtable' | 'parallel' | 'relay';
 
 /** File-system permission granted to every agent in a conversation. */
 export type Permission = 'read-only' | 'edit' | 'full';
+
+/** The permissions from least to most: a session that last ran below this turn's permission is not resumed. */
+export const PERMISSION_ORDER: readonly Permission[] = ['read-only', 'edit', 'full'];
+
+/** Whether `a` is a higher permission than `b`. */
+export function permissionAbove(a: Permission, b: Permission): boolean {
+  return PERMISSION_ORDER.indexOf(a) > PERMISSION_ORDER.indexOf(b);
+}
 
 export interface AgentConfig {
   id: string;
@@ -191,6 +222,19 @@ export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
   claude: ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins'],
   codex: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'plugins'],
   grok: ['skills', 'mcp', 'memory', 'hooks'],
+  // The open agents: each adapter lists what its CLI can really leave out (one line each, kept apart).
+  // OpenCode: skills (denied with `permission.skill`, which turns off its skill tool), the project's instruction files Harness Relay passes on, its subagents (`agent.<name>.disable`).
+  opencode: ['skills', 'instructions', 'agents'],
+
+  goose: ['mcp', 'instructions', 'plugins'],
+
+  // Cline: its `skills` tool off (`disabledTools` in its global settings, written per run).
+  cline: ['skills'],
+
+  openhands: [], // none: its home is Harness Relay's, and the project's files have no switch (docs/open-agents.md)
+
+  // Pi: `--no-context-files` leaves out every AGENTS.md / CLAUDE.md it would load (none alone).
+  pi: ['instructions'],
 };
 
 /** The parts in `parts` that `provider` can leave out, once each, in NATIVE_PARTS order. */
@@ -223,6 +267,18 @@ export const NATIVE_ITEM_SUPPORT: Record<Provider, readonly NativeItemKind[]> = 
   claude: ['skills', 'mcp', 'mcpTools', 'tools', 'instructions', 'agents', 'plugins'],
   codex: ['skills', 'mcp', 'mcpTools', 'hooks', 'plugins'],
   grok: [],
+  // The open agents: each adapter lists what its CLI can leave out alone (one line each, kept apart).
+  // OpenCode: a skill by name (its `skill` permission), a subagent by name.
+  opencode: ['skills', 'agents'],
+
+  goose: ['plugins'],
+
+  // Cline: built-in tools by name (`disabledTools`) and plugins by path (`disabledPlugins`), per run.
+  cline: ['tools', 'plugins'],
+
+  openhands: [], // none
+
+  pi: [],
 };
 
 /** The part (and tab) each kind of item belongs to. */
@@ -730,6 +786,8 @@ export type MessagePart =
       ruleLabel?: string;
       /** Allowing it runs the command outside the CLI's sandbox. */
       outsideSandbox?: boolean;
+      /** Read-only is a boundary here: Harness Relay's sandbox keeps the agent from writing even when allowed. */
+      readOnlySandbox?: boolean;
       status: ApprovalStatus;
       /** Allowed for the rest of the conversation (or by such an earlier answer). */
       always?: boolean;
@@ -933,6 +991,17 @@ export interface AgentSessionState {
   /** CLI-native session / thread id used to resume the agent's own context. */
   sessionId?: string;
   provider?: Provider;
+  /**
+   * The permission of this member's latest run in the conversation (Harness Relay's own record).
+   */
+  permission?: Permission;
+  /**
+   * Per CLI the member ran on (each open agent keeps a state folder of its own for it): the permission
+   * of that CLI's latest run, and `mustEmpty` while its state folder still has to be emptied before it
+   * runs again (set when the permission went up, cleared once the folder is empty). A turn with a
+   * higher permission than its CLI's latest starts a fresh session.
+   */
+  byCli?: Partial<Record<Provider, { permission: Permission; mustEmpty?: boolean }>>;
   /** Ids of chat messages this agent has already been shown. */
   seen: string[];
 }
@@ -1117,7 +1186,21 @@ export interface ProviderSettingsView {
   nativeOff: NativePart[];
   /** Single items Harness Relay's runs leave out (see NATIVE_ITEM_SUPPORT). */
   nativeItems: NativeItemsOff;
+  /**
+   * The user lets this CLI's commands use a terminal (a pseudo-terminal) inside the relay sandbox, where
+   * on macOS they can then print into and read from the user's other terminal windows (typing into them
+   * stays blocked). Without it, a CLI that needs one does not run below full access there. Only for
+   * `SANDBOX_TERMINAL_SUPPORT`; false for the others.
+   */
+  sandboxTerminal: boolean;
 }
+
+/**
+ * The CLIs whose runs need a terminal in the relay sandbox (OpenHands: it runs every command in one),
+ * which the user must allow (`ProviderSettingsView.sandboxTerminal`) for them to run below full access
+ * on macOS. On Linux the sandbox has terminals of its own (a private `/dev/pts`), so no switch is needed.
+ */
+export const SANDBOX_TERMINAL_SUPPORT: readonly Provider[] = ['openhands'];
 
 export interface ModelOption {
   id: string;
@@ -1204,7 +1287,96 @@ export interface ProviderSettingsUpdate {
   nativeOff?: NativePart[];
   /** All the single items, replacing the current ones; kinds the CLI cannot leave out are dropped. */
   nativeItems?: NativeItemsOff;
+  /** Ignored for a CLI not in `SANDBOX_TERMINAL_SUPPORT`. */
+  sandboxTerminal?: boolean;
 }
+
+// --- Model backends: what the open agents run their models on --------------------------------
+
+/**
+ * The model APIs the open agents reach with an API key kept in Settings (Settings → Model backends).
+ * The Claude subscription and Grok's sign-in cannot be used by these CLIs.
+ */
+export const API_BACKENDS = ['openai', 'anthropic', 'xai'] as const;
+export type ApiBackend = (typeof API_BACKENDS)[number];
+export const API_BACKEND_LABEL: Record<ApiBackend, string> = { openai: 'OpenAI', anthropic: 'Anthropic', xai: 'xAI' };
+
+export function isApiBackend(id: string): id is ApiBackend {
+  return (API_BACKENDS as readonly string[]).includes(id);
+}
+
+/**
+ * A custom endpoint's id: a lowercase slug that starts its models' ids (`homelab/<model>`), which
+ * stays when the endpoint is renamed. Never one of API_BACKENDS.
+ */
+export const ENDPOINT_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
+
+/** Most endpoints, models per endpoint, and characters of a model id, a name and a base URL. */
+export const BACKEND_LIMITS = { maxEndpoints: 20, maxModels: 100, maxModelId: 200, maxName: 60, maxUrl: 500 };
+
+/** One of API_BACKENDS as the UI sees it (its key masked). */
+export interface ApiBackendView {
+  id: ApiBackend;
+  /** Masked API key; empty = not set up. */
+  keyMasked: string;
+  /** Where its key is (or would be) kept. */
+  keyStorage: KeyStorage;
+  /** A key may be stored, but the credential store could not be read at startup (locked, say). */
+  keyUnreadable?: boolean;
+}
+
+/** The user's own OpenAI-compatible server (vLLM, Ollama, LM Studio, llama.cpp…). */
+export interface ModelEndpointView {
+  id: string;
+  name: string;
+  /** Its OpenAI-compatible base URL, such as `http://10.0.0.5:8000/v1`. */
+  baseUrl: string;
+  /** The model names it serves, as typed by the user (Harness Relay never asks the server). */
+  models: string[];
+  /** Masked API key; empty = none (many local servers take none). */
+  keyMasked: string;
+  keyStorage: KeyStorage;
+  keyUnreadable?: boolean;
+}
+
+export interface ModelBackendsView {
+  apis: ApiBackendView[];
+  endpoints: ModelEndpointView[];
+}
+
+/** `PUT /api/backends/endpoints/:id`: the endpoint as it should be. */
+export interface ModelEndpointUpdate {
+  name: string;
+  baseUrl: string;
+  models: string[];
+  /** string = set / replace, null = remove, absent = keep. */
+  apiKey?: string | null;
+}
+
+/** An open agent's model id, `<backend>/<model>`, taken apart. */
+export interface BackendModel {
+  /** One of API_BACKENDS, or an endpoint's id. */
+  backend: string;
+  /** The model's own name (it may hold `/` too: `homelab/Qwen/Qwen3-30B-A3B`). */
+  model: string;
+}
+
+/**
+ * Reads an open agent's model id: `openai/gpt-5.4-nano`, `anthropic/claude-haiku-5-5`, `xai/grok-4.3`,
+ * `homelab/muse-glimmer-30b-nvfp4`. The backend is everything before the first `/`. Undefined when it
+ * is not one (no `/`, nothing on either side, or a backend that is not a valid id).
+ */
+export function parseBackendModel(id: string): BackendModel | undefined {
+  const text = id.trim();
+  const at = text.indexOf('/');
+  if (at <= 0 || at === text.length - 1) return undefined;
+  const backend = text.slice(0, at);
+  if (!isApiBackend(backend) && !ENDPOINT_ID_RE.test(backend)) return undefined;
+  return { backend, model: text.slice(at + 1) };
+}
+
+/** `<backend>/<model>`. */
+export const backendModelId = (backend: string, model: string): string => `${backend}/${model}`;
 
 export type LoginState = 'running' | 'success' | 'failed' | 'cancelled';
 

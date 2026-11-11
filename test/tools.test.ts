@@ -6,7 +6,7 @@ import { openDatabase, type Database } from '../src/server/db';
 import { withLang } from '../src/server/i18n';
 import type { SecretStore } from '../src/server/secrets';
 import { ToolLibrary, findSkills, parseFrontMatter, scanSkills } from '../src/server/tools';
-import type { AgentConfig } from '../src/shared/types';
+import { PROVIDERS, type AgentConfig } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-tools-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -114,7 +114,7 @@ describe('ToolLibrary', () => {
     expect(view.mcpServers[0]).toMatchObject({
       name: 'github',
       env: [{ name: 'GITHUB_TOKEN', masked: 'ghp…def' }],
-      providers: ['claude', 'codex', 'grok'],
+      providers: PROVIDERS,
     });
     expect(view.secretStorage).toBe('keychain');
     expect(JSON.stringify(stored(db))).not.toContain('ghp_1234567890abcdef');
@@ -351,7 +351,7 @@ describe('ToolLibrary', () => {
     );
     const view = new ToolLibrary(db).view();
     expect(view.mcpServers[0]!.providers).toEqual([]);
-    expect(view.skills[0]!.providers).toEqual(['claude', 'codex', 'grok']);
-    expect(view.memory).toEqual({ all: 'old notes', claude: '', codex: '', grok: '' });
+    expect(view.skills[0]!.providers).toEqual(PROVIDERS);
+    expect(view.memory).toEqual({ all: 'old notes', claude: '', codex: '', grok: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
   });
 });

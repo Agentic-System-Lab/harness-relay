@@ -13,3 +13,6 @@ data/
 # The desktop app's build and installers (npm run desktop, npm run desktop:dist)
 desktop/build/
 desktop/release/
+
+# Coverage reports (npx vitest run --coverage)
+coverage/

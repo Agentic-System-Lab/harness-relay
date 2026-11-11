@@ -142,7 +142,7 @@ describe('Store (SQLite)', () => {
     db.exec(`ALTER TABLE conversations DROP COLUMN auto_confirm;
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE auth_sessions; DROP TABLE auth_codes; DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
              PRAGMA user_version = 12;`);
     const migrated = new Store(reopen());
     expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
@@ -196,6 +196,48 @@ describe('Store (SQLite)', () => {
     store.saveMessage(conv.id, live, true);
 
     expect(new Store(reopen()).get(conv.id)!.messages[0]!.status).toBe('aborted');
+  });
+
+  it('expires the approvals a crashed server left waiting, so no card offers to answer them', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const approval = (id: string, status: 'pending' | 'allowed') => ({ type: 'approval' as const, id, kind: 'command' as const, detail: 'npm test', status });
+    const live: ChatMessage = { ...agentMsg, id: 'm5', status: 'streaming', parts: [{ type: 'text', text: 'working' }, approval('p1', 'pending'), approval('p2', 'allowed')] };
+    const done: ChatMessage = { ...agentMsg, id: 'm6', status: 'done', parts: [approval('p3', 'pending')] };
+    conv.messages.push(live, done);
+    store.saveMessage(conv.id, live, true);
+    store.saveMessage(conv.id, done, true);
+
+    const after = new Store(reopen()).get(conv.id)!.messages;
+    const parts = after.find((m) => m.id === 'm5')!.parts;
+    expect(after.find((m) => m.id === 'm5')!.status).toBe('aborted');
+    expect(parts.map((p) => (p.type === 'approval' ? p.status : p.type))).toEqual(['text', 'expired', 'allowed']);
+    expect(parts[1]).toMatchObject({ detail: 'npm test', kind: 'command' });
+    // Only in replies the crash cut off.
+    expect(after.find((m) => m.id === 'm6')!.parts[0]).toMatchObject({ status: 'pending' });
+  });
+
+  it('ends the tool calls a crashed server left running, so no row shows them running forever', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const tool = (id: string, status: 'running' | 'done') => ({ type: 'tool' as const, id, name: 'Shell', detail: 'npm test', status });
+    const live: ChatMessage = { ...agentMsg, id: 'm7', status: 'streaming', parts: [tool('t1', 'running'), tool('t2', 'done')] };
+    // Left by an older server, which marked the reply aborted but not its rows.
+    const old: ChatMessage = { ...agentMsg, id: 'm8', status: 'aborted', parts: [tool('t3', 'running')] };
+    const done: ChatMessage = { ...agentMsg, id: 'm9', status: 'done', parts: [tool('t4', 'running')] };
+    conv.messages.push(live, old, done);
+    for (const m of [live, old, done]) store.saveMessage(conv.id, m, true);
+
+    const after = new Store(reopen()).get(conv.id)!.messages;
+    const statuses = (id: string) => after.find((m) => m.id === id)!.parts.map((p) => (p.type === 'tool' ? p.status : p.type));
+    expect(after.find((m) => m.id === 'm7')!.status).toBe('aborted');
+    expect(statuses('m7')).toEqual(['error', 'done']);
+    expect(after.find((m) => m.id === 'm7')!.parts[0]).toMatchObject({ name: 'Shell', detail: 'npm test' });
+    expect(statuses('m8')).toEqual(['error']);
+    // Only in replies the crash cut off.
+    expect(statuses('m9')).toEqual(['running']);
   });
 
   it('deletes a conversation with all its rows', () => {
@@ -511,7 +553,7 @@ describe('Store shares', () => {
     // Shares from before schema version 16 took no files along.
     db.exec(`ALTER TABLE shares DROP COLUMN files; ALTER TABLE shares DROP COLUMN files_gist; ALTER TABLE shares DROP COLUMN unfinished;
              ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE auth_sessions; DROP TABLE auth_codes; DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
              PRAGMA user_version = 15;`);
     const migrated = new Store(reopen());
     expect(migrated.getShare('aaaa')).toEqual(share('aaaa', 1));
@@ -654,7 +696,7 @@ describe('SettingsStore (SQLite)', () => {
     expect(again.defaultModel('grok')).toBe('grok-4.7');
     expect(again.defaultEffort('grok')).toBe('high');
     expect(again.env('grok').XAI_API_KEY).toBe('xai-1234567890');
-    expect(again.view().providers.find((p) => p.provider === 'grok')!.apiKeyMasked).toBe('xai-…7890');
+    expect(again.view().providers.find((p) => p.provider === 'grok')!.apiKeyMasked).toBe('••••');
     expect(again.defaultCwd).toBe('/work');
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
@@ -734,6 +776,24 @@ describe('SettingsStore (SQLite)', () => {
     expect(later.nativeOff('grok')).toEqual(['skills', 'hooks']);
   });
 
+  it("keeps whether OpenHands may use a terminal in the sandbox: off until turned on, only for OpenHands", () => {
+    const s = new SettingsStore(db);
+    expect(s.sandboxTerminal('openhands')).toBe(false);
+    expect(s.view().providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(false);
+    s.update('openhands', { sandboxTerminal: true });
+    s.update('opencode', { sandboxTerminal: true }); // needs none: stays off
+    const again = new SettingsStore(reopen());
+    expect(again.sandboxTerminal('openhands')).toBe(true);
+    expect(again.sandboxTerminal('opencode')).toBe(false);
+    expect(again.view().providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(true);
+    // Other changes keep it; turning it off is kept too.
+    again.update('openhands', { defaultModel: 'openai/gpt-5.4-nano' });
+    const later = new SettingsStore(reopen());
+    expect(later.sandboxTerminal('openhands')).toBe(true);
+    later.update('openhands', { sandboxTerminal: false });
+    expect(new SettingsStore(reopen()).sandboxTerminal('openhands')).toBe(false);
+  });
+
   it("keeps the single items each CLI's runs leave out, only kinds that CLI can leave out alone", () => {
     const s = new SettingsStore(db);
     expect(s.nativeItems('claude')).toEqual({});
@@ -772,7 +832,7 @@ describe('SettingsStore (SQLite)', () => {
 
     const again = new SettingsStore(reopen(), keyring);
     expect(again.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
-    expect(again.view().providers[0]!.apiKeyMasked).toBe('sk-a…1234');
+    expect(again.view().providers[0]!.apiKeyMasked).toBe('••••');
 
     again.update('claude', { apiKey: null });
     expect(keyring.data.has('claude-api-key')).toBe(false);
@@ -903,7 +963,7 @@ describe('Store schedules', () => {
     // Schedules from before schema version 14 send in their own conversation.
     db.exec(`ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE auth_sessions; DROP TABLE auth_codes; DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
              PRAGMA user_version = 13;`);
     const migrated = new Store(reopen()).get(conv.id)!.schedule!;
     expect(migrated.newChat).toBe(false);

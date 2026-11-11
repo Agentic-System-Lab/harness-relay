@@ -1,7 +1,18 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { ModelOption, Provider, ProviderModels } from '../shared/types';
+import {
+  backendModelId,
+  isOpenProvider,
+  parseBackendModel,
+  type ModelEndpointView,
+  type ModelOption,
+  type OpenProvider,
+  type Provider,
+  type ProviderModels,
+} from '../shared/types';
+import { openAgents } from './agents/index';
+import { openHomeEnv, type OpenCatalog } from './agents/open';
 import { capture, stripAnsi, tail } from './process';
 import { t } from './i18n';
 
@@ -98,13 +109,58 @@ function discoverClaude(env: NodeJS.ProcessEnv): DiscoveredModels {
   return { provider: 'claude', models: CLAUDE_MODELS, efforts: CLAUDE_EFFORTS, cliDefaultModel, cliDefaultEffort, source: 'builtin' };
 }
 
-export async function discoverModels(p: Provider, bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
+/** The model backends an open agent's models may be on: those set up in Settings. */
+export interface ConfiguredBackends {
+  /** API backends with a key, and every endpoint (`ModelBackendStore.configured()`). */
+  configured: string[];
+  endpoints: ModelEndpointView[];
+}
+
+/**
+ * An open agent's models: those of its CLI's own catalog (adapter's `models` hook) whose backend is set
+ * up, then each endpoint's typed models (`<endpoint id>/<model>`). Harness Relay never asks a model
+ * API for its list.
+ */
+export async function discoverOpenModels(p: OpenProvider, bin: string, env: NodeJS.ProcessEnv, backends: ConfiguredBackends): Promise<DiscoveredModels> {
+  const agent = openAgents[p];
+  let catalog: OpenCatalog = { models: [] };
+  if (agent.models) {
+    try {
+      catalog = await agent.models(bin, openHomeEnv(agent.process, env));
+    } catch (err) {
+      catalog = { models: [], error: (err as Error).message };
+    }
+  }
+  const configured = new Set(backends.configured);
+  const fromCli = catalog.models.filter((m) => configured.has(parseBackendModel(m.id)?.backend ?? ''));
+  const ids = new Set(fromCli.map((m) => m.id));
+  const fromEndpoints = backends.endpoints.flatMap((e) =>
+    e.models.map((model): ModelOption => ({ id: backendModelId(e.id, model), label: `${model} · ${e.name || e.id}` })).filter((m) => !ids.has(m.id)),
+  );
+  return {
+    provider: p,
+    models: [...fromCli, ...fromEndpoints],
+    efforts: catalog.efforts ?? agent.efforts,
+    ...(catalog.defaultModel && configured.has(parseBackendModel(catalog.defaultModel)?.backend ?? '') ? { cliDefaultModel: catalog.defaultModel } : {}),
+    ...(catalog.defaultEffort ? { cliDefaultEffort: catalog.defaultEffort } : {}),
+    source: agent.models ? 'cli' : 'builtin',
+    ...(catalog.error ? { error: catalog.error } : {}),
+  };
+}
+
+export async function discoverModels(
+  p: Provider,
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  backends: ConfiguredBackends = { configured: [], endpoints: [] },
+): Promise<DiscoveredModels> {
   try {
+    if (isOpenProvider(p)) return await discoverOpenModels(p, bin, env, backends);
     if (p === 'claude') return discoverClaude(env);
     if (p === 'codex') return await discoverCodex(bin, env);
     return await discoverGrok(bin, env);
   } catch (err) {
-    const efforts = p === 'claude' ? CLAUDE_EFFORTS : p === 'codex' ? CODEX_EFFORTS : GROK_EFFORTS;
+    const efforts = isOpenProvider(p) ? openAgents[p].efforts : p === 'claude' ? CLAUDE_EFFORTS : p === 'codex' ? CODEX_EFFORTS : GROK_EFFORTS;
     return { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
   }
 }

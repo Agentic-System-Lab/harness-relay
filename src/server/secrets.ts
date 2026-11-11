@@ -10,6 +10,18 @@ export interface SecretStore {
   delete(name: string): void;
 }
 
+/** The shortest secret whose last characters are shown: in a shorter one they would give away too much. */
+const SHOW_END_FROM = 20;
+
+/**
+ * A secret as the UI may see it: dots and its last four characters, enough to tell keys apart; only
+ * dots for a key shorter than 20 characters (an endpoint's short key, say), whose end is a large part of it.
+ */
+export function maskSecret(key: string): string {
+  if (!key) return '';
+  return key.length >= SHOW_END_FROM ? `••••${key.slice(-4)}` : '••••';
+}
+
 /** Service name the keys are filed under (what Keychain Access / Credential Manager show). */
 export const KEYRING_SERVICE = 'harness-relay';
 

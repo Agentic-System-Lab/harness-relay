@@ -7,7 +7,7 @@ Harness Relay 是一個在本機執行的網頁應用程式，分成兩半：
 - **Node.js 伺服器**（Hono、TypeScript）：管理對話、決定下一個發言的 agent、啟動各個 agent CLI，並把所有資料存進 SQLite；
 - **React 前端**（Vite）：顯示聊天畫面，並透過 Server-Sent Events（SSE）接收即時更新。
 
-伺服器從不直接呼叫模型 API。每一次 agent 發言都是一次真正的 CLI（`claude`、`codex`、`grok`）無頭模式執行，所以每個 agent 都保有自己的工具、權限、登入狀態與 session 歷史。
+伺服器從不直接呼叫模型 API。每一次 agent 發言都是一次真正的 CLI（`claude`、`codex`、`grok`，或五個開源 agent 之一：`opencode`、`goose`、`cline`、`openhands`、`pi`）無頭模式執行，所以每個 agent 都保有自己的工具、權限與 session 歷史，Claude Code、Codex 與 Grok 也保有自己的登入狀態。開源 agent 使用使用者設定的模型來源、在 Harness Relay 自己的家目錄中執行，完全存取以外則在 Harness Relay 自己的沙箱中執行（[開源 agent](open-agents.zh-TW.md)）。
 
 ```mermaid
 flowchart LR
@@ -26,6 +26,8 @@ flowchart LR
   CLAUDE[[claude -p]]
   CODEX[[codex app-server]]
   GROK[[grok agent stdio]]
+  SBX{{Harness Relay 的沙箱，完全存取以外}}
+  OPEN[["opencode · goose · cline · openhands（ACP）、pi --mode rpc"]]
 
   UI -- REST (JSON) --> API
   HUB -- SSE 事件 --> UI
@@ -36,7 +38,8 @@ flowchart LR
   ORCH --> STORE
   STORE --> DB
   RUN --> CLAUDE & CODEX & GROK
-  PROV --> CLAUDE & CODEX & GROK
+  RUN --> SBX --> OPEN
+  PROV --> CLAUDE & CODEX & GROK & OPEN
 ```
 
 ## 元件
@@ -53,8 +56,10 @@ flowchart LR
 | `src/server/grouping.ts` | 側邊欄群組：首席 agent 在背景依新對話的第一則訊息，把它分到使用者的某個群組（`AutoGrouper`） |
 | `src/server/prompt.ts` | 角色簡報（system prompt）、每回合的 prompt、`@` 解析、`[PASS]` 判斷 |
 | `src/server/approvals.ts` | 「本對話都允許」的規則 key 與比對 |
-| `src/server/commands.ts` | 解析一行 shell 指令實際會執行哪些程式（串接、命令替換、`sh -c`、`env`／`sudo`、git 的全域選項）：用於核准規則 key 與 Grok 的推送／發佈判斷 |
-| `src/server/agents/*` | 每個 CLI 一個轉接器：組參數、把 CLI 的 JSON 事件串流轉成共通事件（`acp.ts`：Grok ACP 的 JSON-RPC 對端） |
+| `src/server/commands.ts` | 解析一行 shell 指令實際會執行哪些程式（串接、命令替換、`sh -c`／`eval`、`env`／`sudo`、保留字與 `if`／`while`／`for` 等複合指令、git 的全域選項）：用於核准規則 key，以及 Grok 與開源 agent 的推送／發佈判斷 |
+| `src/server/agents/*` | 每個 CLI 一個轉接器：組參數、把 CLI 的 JSON 事件串流轉成共通事件（`acp.ts`：ACP 與 Codex 用的 JSON-RPC 對端；`acpTurn.ts`：開源 agent 共用的 ACP 回合；`open.ts`：開源 agent 在程序周圍共用的部分；見[開源 agent](open-agents.zh-TW.md)） |
+| `src/server/backends.ts` | 開源 agent 的模型來源：OpenAI、Anthropic、xAI 的 API key，以及使用者的 OpenAI 相容端點（金鑰存在作業系統的金鑰儲存區），還有一次執行拿到什麼（`backendRun()`） |
+| `src/server/relaySandbox.ts`、`relaySandboxHost.ts` | 完全存取以外，包住開源 agent 的 Harness Relay 自己的沙箱（`@anthropic-ai/sandbox-runtime`，每次執行一個 host 程序；見[各平台的作業系統沙箱](sandboxing.zh-TW.md#harness-relay-自己的沙箱)）；`sandboxProcs.ts` 在 macOS 上依沙箱找出某次執行殘留的行程 |
 | `src/server/i18n.ts` | 兩種語言的伺服器訊息；每個請求與執行所用的語言（AsyncLocalStorage） |
 | `src/server/process.ts` | 以獨立 process group 啟動程序、逐行讀 stdout、以原始位元組保存輸出、處理中止與逾時（先 SIGTERM，再對整個 process group 送 SIGKILL） |
 | `src/server/providers.ts` | CLI 狀態（是否安裝、版本、是否登入）、登入流程、登出、模型清單快取 |
@@ -248,6 +253,8 @@ flowchart LR
 
 每個回合執行一個程序。Claude Code 的 `--thinking-display` 旗標沒有列在它的 `--help` 中，`--system-prompt-snapshot` 則是較新的旗標；若某個版本不接受其中之一，轉接器會記住，之後改為不帶它執行。
 
+**開源 agent。** 除了這三個，還有五個開源 CLI：OpenCode（`opencode acp`）、Goose（`goose acp`）、Cline（`cline --acp`）與 OpenHands（`openhands acp`）透過 ACP，使用同一套共用的 ACP 回合（`src/server/agents/acpTurn.ts`，取自 Grok 轉接器的邏輯，每個 CLI 有自己的 hook），Pi 則透過它的 JSONL RPC（`pi --mode rpc`）。和另外三個一樣，每一輪執行一個程序，事件也是同樣的共通事件。它們使用「設定」裡的模型來源而不是登入，在 Harness Relay 自己的家目錄中執行（每次執行前由它寫入設定），完全存取以外則在 Harness Relay 自己的沙箱中執行。詳見[開源 agent](open-agents.zh-TW.md)：模型來源、家目錄、共用的 ACP 回合、權限對應與 Harness Relay 的沙箱。
+
 ### 權限對應
 
 權限決定哪些操作**不必詢問**就能執行；其他操作在對話設定為詢問（預設）時交給使用者決定，設定為拒絕（`settings.approvals = "deny"`）時則自動拒絕。
@@ -255,7 +262,7 @@ flowchart LR
 | Relay 權限 | Claude Code | Codex | Grok（ACP） |
 | --- | --- | --- | --- |
 | 唯讀 | `--permission-mode manual`（拒絕時：`dontAsk`）、`--allowedTools WebFetch WebSearch`、`--disallowedTools Edit MultiEdit Write NotebookEdit`：讀檔與上網直接執行，沒有修改檔案的工具，其他都要詢問；另有它的沙箱（見下文） | 由 `:read-only` 延伸的權限設定檔 `harness-relay-…`（每次執行換一個名稱；Windows 上，或 Codex 無法載入自訂設定檔時，例如 Linux 上的 Codex 0.167：沙箱 `read-only`）、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式（`_meta.yoloMode: false`）：讀網頁直接執行，其他都要詢問 |
-| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問；另有它的沙箱（見下文） | 由 `:workspace` 延伸、不能連網的權限設定檔 `harness-relay-…`（Windows 上，或 Codex 無法載入自訂設定檔時：沙箱 `workspace-write` 加上 `sandbox_workspace_write.network_access = false`）；兩者都不受 `~/.codex/config.toml` 影響；核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`、`gh release`……，由 `commands.ts` 判斷）要詢問，其他都直接執行 |
+| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問；另有它的沙箱（見下文） | 由 `:workspace` 延伸、不能連網的權限設定檔 `harness-relay-…`（Windows 上，或 Codex 無法載入自訂設定檔時：沙箱 `workspace-write` 加上 `sandbox_workspace_write.network_access = false`）；兩者都不受 `~/.codex/config.toml` 影響；核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`、`gh release`……，由 `commands.ts` 判斷），以及 shell 或直譯器執行從標準輸入讀到的內容（`… \| sh`）要詢問，其他都直接執行 |
 | 完全存取 | `--permission-mode bypassPermissions` | 沙箱 `danger-full-access`、核准政策 `never` | 全部自動核准（`_meta.yoloMode: true`） |
 
 - **Claude Code** 把每個請求以 `can_use_tool` 控制請求送出，並等待我們的控制回應（允許，或拒絕並附上模型看得到的訊息）。對話設定為拒絕時，不會指定 permission prompt tool，由 Claude Code 自己拒絕這類呼叫。Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍然有效；唯讀模式會移除修改檔案的工具，所以這類規則無法讓它們執行。
@@ -265,10 +272,14 @@ flowchart LR
 - **Grok** 透過 ACP 執行，因為非互動的 `grok -p` 無法詢問：需要詢問的呼叫會被回報為「User cancelled」並**結束整輪**。改用 ACP 後，請求會送到 adapter。拒絕（使用者拒絕或自動拒絕）時回覆 `reject_once` 並附上 `_meta.followup_message`，Grok 會把它當成給模型的回饋，而不是取消這一輪。
   - session 的模式一律明確指定，所以使用者在 `~/.grok/config.toml` 設的 `[ui] permission_mode = "always-approve"` 不會放寬唯讀或可編輯。
   - Grok 內建的唯讀工具與指令（包含單純的 `mkdir`／`touch`）仍會直接執行、不經詢問。
-  - 兩者都使用 Grok 的自訂設定檔 `harness-relay`（`workspace` 加上受保護的路徑，見[各平台的作業系統沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)），Harness Relay 會在每次執行前把它寫進 Grok 自己資料夾的 `sandbox.toml`；它也禁止 Grok 自己的程式（在 Linux 上，Grok 會透過 bubblewrap 再執行一次它，所以改為檢查並改回原樣），而 Grok 的設定在被某一輪改動後會改回原樣。唯讀模式不使用 Grok 的 `read-only`：後者在某些機器上無法啟動（例如 `/var/run/docker.sock` 是 symlink 時），而且設定檔一旦套用就無法撤除，使用者允許的寫入在它之下會失敗。兩者使用同一個設定檔，權限在兩者之間切換後 session 也能續用（Grok 會拒絕以不同的設定檔續用 session；續用失敗的那一輪會開始新的 session）。所以唯讀模式下，專案的檔案仍靠詢問保護，和以前一樣；沙箱則保護工作目錄、`~/.grok` 與暫存資料夾以外的一切；在 macOS 上它擋不了網路。
+  - 兩者都使用 Grok 的自訂設定檔 `harness-relay`（`workspace` 加上受保護的路徑，見[各平台的作業系統沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)），Harness Relay 會在每次執行前把它寫進 Grok 自己資料夾的 `sandbox.toml`；它也禁止 Grok 自己的程式（在 Linux 上，Grok 會透過 bubblewrap 再執行一次它，所以改為檢查並改回原樣），而 Grok 的設定在被某一輪改動後會改回原樣。唯讀模式不使用 Grok 的 `read-only`：後者在某些機器上無法啟動（例如 `/var/run/docker.sock` 是 symlink 時），而且設定檔一旦套用就無法撤除，使用者允許的寫入在它之下會失敗。兩者使用同一個設定檔，權限從可編輯降為唯讀後 session 也能續用（Grok 會拒絕以不同的設定檔續用 session；續用失敗的那一輪會開始新的 session）；權限提高時，每個 CLI 都會開始新的 session（見下）。所以唯讀模式下，專案的檔案仍靠詢問保護，和以前一樣；沙箱則保護工作目錄、`~/.grok` 與暫存資料夾以外的一切；在 macOS 上它擋不了網路。
   - Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原因；但 Grok 的文件說，無法套用的內建設定檔也可能只顯示警告，然後在沒有沙箱的情況下執行（見[各平台的作業系統沙箱](sandboxing.zh-TW.md#沙箱無法啟動時)）。
 
+**開源 agent。** 每個轉接器都把它的 CLI 設定成會詢問（多數預設幾乎什麼都不問），而 Harness Relay 用同一套方式判斷每個請求：唯讀時，讀取、搜尋、思考與抓取網頁的呼叫照常執行，其他的交給使用者；可編輯時，除了推送與發佈，以及 shell 或直譯器執行它從標準輸入讀到的內容，全部照常執行；完全存取則是 agent 自己的全部允許模式。Pi 自己不會詢問，所以由 Harness Relay 的一個 gate 擴充功能在它的每個工具呼叫前詢問。完全存取以外，不論 agent 自己怎麼設定，界線都是 Harness Relay 的沙箱：唯讀時，即使使用者允許了修改或指令，也寫不進工作目錄。回應只用 agent 的「這一次」選項，絕不用「always」的選項；回合被停止時還在等待的請求回答「cancelled」，在 prompt 送出前停止則這一輪就此結束。拒絕的理由怎麼傳給模型，依 CLI 而不同：OpenCode（透過它自己的伺服器）、Goose（在進行中的回合裡送入一則訊息）與 Pi（被擋下的呼叫的結果）會轉交使用者的留言；Cline 與 OpenHands 只傳它們自己固定的話，它們的角色說明會解釋被拒絕的呼叫代表什麼。見[開源 agent → 權限](open-agents.zh-TW.md#權限)與各 agent 的章節。
+
 被拒絕或失敗的呼叫會保留原因（`tool_end.error`，存在 `message_parts.tool_error`），這一輪會繼續進行。
+
+**權限提高時重新開始。** 成員在這個對話中最近一次執行的權限低於這一輪時（唯讀 → 可編輯 → 完全存取），不接續它的 session：這一輪改開新的 session，並從 Harness Relay 自己的紀錄給它完整的歷史，和接續失敗時一樣，所以權限較低的執行可能寫進它 session 的東西（例如 Grok 的沙箱讓它的指令能寫入 `~/.grok`），不會在權限較高時被讀到。開源 agent 在這個 CLI 家目錄裡的狀態資料夾，也會由 orchestrator 在執行前清空，無法清空時這一輪不執行（[開源 agent → 每位成員自己的狀態](open-agents.zh-TW.md#每位成員自己的狀態)）。每位成員最近一次執行的權限依 CLI 分別記在資料庫（`agent_sessions.by_cli`，開源 agent 的資料夾還要清空時附上標記；`permission` 是不論哪個 CLI 最近一次執行的權限），在執行開始前記下，絕不在 agent 能寫入的檔案中；記錄這項之前的 session 視為唯讀。權限降低時，session 照常接續。
 
 **可編輯模式擋不住 Grok 的專案程式碼連網。**「推送與發佈要詢問」能擋住 agent 直接執行這些指令；但可編輯模式不經詢問就能執行的指令（測試、建置、`npm run` 腳本、`make`）跑的是 agent 剛剛可能改過的程式碼，所以使用 Grok 時，執意要連網的 agent 仍能透過這些指令做到；在 Linux 上它的沙箱擋得住，但 Harness Relay 沒有要求它擋。Codex 的沙箱會讓所有指令都無法連網，Claude Code 的沙箱則會詢問每個主機（在 Claude Code 沒有沙箱的原生 Windows 上，只有 Codex 的沙箱會這樣做）。不信任的程式碼或指示，請使用唯讀，或把「超出權限的動作」設為自動拒絕。各 CLI 的沙箱能在哪些平台上運作、在那裡需要什麼前提，見[各平台的作業系統沙箱](sandboxing.zh-TW.md)。
 
@@ -276,13 +287,13 @@ flowchart LR
 
 轉接器收到請求時，協調器（`turn()` 中的 `requestApproval`，以及 `src/server/approvals.ts`）會：
 
-1. 在 agent 的訊息中建立一個 **approval part**：種類（`command` / `edit` / `fetch` / `other`）、指令、檔案或網址、agent 說明的原因，以及「本對話都允許」用的規則 key。指令的 key 是這行指令實際執行的每個指令各一個，包括串接、管線、背景執行、`$( )` 與反引號的命令替換，以及 `sh -c '…'` 裡的指令（`src/server/commands.ts`）：程式名稱，若該工具有子指令再加上子指令（`npm install`、`git push`，會略過 `-C` 這類 git 全域選項）；`env`／`sudo` 前綴與 `VAR=value` 會被略過。所以允許 `npm test` 絕不會讓 `npm test && rm …` 或 `npm test $(rm …)` 通過。`sudo`／`doas` 會保留在 key 中；執行時才知道是哪個程式的指令（`$(which x) …`），或帶有可執行程式之設定的 git 指令（`-c`、`GIT_*` 環境變數），則以完整指令文字當作 key。最初較簡單的解析方式（以空白拆開每個 `&&`／`;`／`|` 片段）得到的 key 也一律包含在內，所以就算解析有誤，也不會比以前更容易被自動允許。key 依 CLI 實際執行的指令計算（Codex 用的是它加上引號的原始形式，而不是卡片上整理過的版本）。所有檔案修改共用一個 key，讀網頁用主機名稱，其他工具用工具名稱。
+1. 在 agent 的訊息中建立一個 **approval part**：種類（`command` / `edit` / `fetch` / `other`）、指令、檔案或網址、agent 說明的原因，以及「本對話都允許」用的規則 key。指令的 key 是這行指令實際執行的每個指令各一個，包括串接、管線、背景執行、`$( )` 與反引號的命令替換、`sh -c '…'`、`eval` 與交給 shell 的 heredoc（`bash <<'EOF'`）裡的指令，以及 `if`／`while`／`until`／`for`／`case`、`{ }`／`( )` 群組與函式本體裡的指令，指令前的 shell 保留字與 `!` 會被略過（`src/server/commands.ts`）：程式名稱，若該工具有子指令再加上子指令（`npm install`、`git push`，會略過 `-C` 這類 git 全域選項）；`env`／`sudo` 前綴與 `VAR=value` 會被略過。所以允許 `npm test` 絕不會讓 `npm test && rm …` 或 `npm test $(rm …)` 通過，允許 `if` 也絕不會讓 `if … git push …` 通過。`sudo`／`doas` 會保留在 key 中（`sudo sh -c '…'` 裡執行的指令也是）；執行時才知道是哪個程式的指令（`$(which x) …`、`$TOOL`、`eval "$(…)"` 執行的內容），或帶有可執行程式之設定的 git 指令（`-c`、`GIT_*` 環境變數，包括設在外層 `sh -c` 上的），則以整行指令的完整文字當作 key。解析器有兩種讀法，兩者的 key 都會包含在內：一種逐字讀每個指令（所以 `if git push` 的 key 是 `if`），另一種也讀 shell 的語法。再加上最初較簡單的解析方式（以空白拆開每個 `&&`／`;`／`|` 片段）得到的 key，就算其中一種解析有誤，也不會比以前更容易被自動允許。巢狀太深而無法解析的指令（`sh -c` 裡再包 `sh -c`，超過三層）另外會以完整文字當作一個 key；shell 或直譯器執行它從標準輸入讀到的內容時（`curl … | bash`、`… | python3`、`xargs sh -c …`、`bash <(curl …)`）也一樣，因為讀不出它會執行什麼；推送／發佈判斷把這兩種都當作會發佈。分隔字沒有加引號的 heredoc 會執行內文中的 `$( )` 與反引號，所以這些也會被解析。決定執行什麼或如何執行的設定（`PATH`、`LD_*`、`DYLD_*`、`BASH_ENV`、`ENV`、`ZDOTDIR`、`PYTHONPATH`、`PYTHONSTARTUP`、`NODE_OPTIONS`、`PERL5OPT`、`RUBYOPT`、`GIT_*`、`npm_config_*`、`PROMPT_COMMAND` 等）不論在這行的哪裡設定（`PATH=… ls`、`export PATH=…; ls`），整行都會以完整文字當作 key，所以允許 `ls` 絕不會允許 `LD_PRELOAD=x ls`；其他 `VAR=value` 設定仍會被略過。只要一行裡有任何「shell 會評估陣列下標或算術」的情境——下標 `${v[…]}` 或 `a[i]=`、間接引用 `${!v}`／`${v@P}`、位移 `${v:n}`、`$[…]`、`(( … ))`／`$(( … ))`、`let`、`[[ … -eq|-v … ]]`、`declare`／`typeset`／`local` 加 `-i`／`-n`、`PS4=`、`trap`、`mapfile -C`、從標準輸入讀取的 `source`／`.`、`find -exec`——就只會以整行的完整文字當作 key，所以允許單一程式（`echo`、`declare`）絕不會把評估夾帶進來。這種行只有在隱藏形式真的會執行讀不到的東西時才算會發佈：評估所觸及的命令替換（`declare 'a[$(…)]=1'`、`x='a[$(…)]'; echo "${b[x]}"`、`y='[$(…)]'; declare "a$y=1"`）、執行回呼（`trap`、`PS4`、`mapfile -C`）、從標準輸入讀取的 `source`，或會發佈的 `find -exec`；沒有東西可執行的純評估（`for ((i=0; i<${#a[@]}; i++))`、`[[ ${#a[@]} -eq 0 ]]`、`export PS1='…'`）只會被 key，不會當作發佈。`/usr/bin/git push` 會與 `git push` 一樣解讀。**只能盡力而為：**程式自己做的事不會被解析，key 與推送／發佈判斷只看得到程式本身：它執行的腳本（`bash deploy.sh`、`source`／`.` 一個檔案）、`npm run` 腳本與 `make` 目標、git 與 shell alias、被當成指令使用的變數（`$cmd`）、`ssh host …`，以及直接交給其他語言的程式碼（`python -c`、`node -e`）。key 依 CLI 實際執行的指令計算（Codex 用的是它加上引號的原始形式，而不是卡片上整理過的版本）。所有檔案修改共用一個 key，讀網頁用主機，連接埠不是該協定預設的時候加上連接埠（`192.168.1.5:8000`，所以允許模型伺服器的連接埠，不會允許同一台主機的其他連接埠；443 與 80 則只用 `example.com`），其他工具用工具名稱。完全沒說是什麼的詢問（`noRule`：沒有標題、工具、指令、檔案、網址或輸入）沒有 key，所以只能允許一次。在這一輪開始收尾之後才來的詢問（例如沙箱排在另一個詢問後面的那一個），不建立 part，直接拒絕；替已經結束的執行回答的核准，也不會取得目錄鎖。
 2. 若所有 key 在這個對話中都已允許（`conversation.allowRules`），就立即同意，並把該 part 顯示為已自動允許。
 3. 否則該 part 為 `pending`，請求在 `orchestrator.approvals` 中等待，對話回報為 `waiting`（側邊欄與分頁標題會顯示）。`POST /api/conversations/:id/approvals/:approvalId` 帶上 `{ allow, always?, note? }` 回應請求；「always」會把這些 key 加進 `allowRules`。拒絕時附的說明會轉交給 agent。
-4. 停止執行，或 agent 的 CLI 結束這一輪（當掉、逾時）時，它等待中的請求都會以 `expired`（拒絕）結束；之後才送來的回應會得到 404。
+4. 停止執行，或 agent 的 CLI 結束這一輪（當掉、逾時）時，它等待中的請求都會以 `expired`（拒絕）結束；之後才送來的回應會得到 404。伺服器本身在執行中停止時，下次啟動會把那些沒完成的回覆中還在等待的核准也標為 `expired`，所以不會有卡片還讓你回應它們。
 5. 在沒有持有目錄鎖的執行中（唯讀）被允許的動作，會先鎖住工作目錄直到這次執行結束；若有其他對話正在寫入，這個動作會被拒絕，並告知 agent 原因。
 
-agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾時仍然適用。
+agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾時仍然適用。開源 agent 的請求也走同樣的步驟，它們的沙箱要詢問的主機也一樣（種類為 `fetch` 的核准，綁定在它來自的那次執行）。
 
 ## agent 活動
 
@@ -303,6 +314,8 @@ Harness Relay 提供給成員的 MCP 伺服器、skill 與記憶，每個 CLI �
 | 讀取 skill | 完整存取以外的權限，每個 skill 資料夾加一條 `Read(//<資料夾>/**)` 規則（只能讀：`--add-dir` 會連編輯都允許） | sandbox 允許讀取任何位置 | 可讀取任何位置 |
 | MCP 工具呼叫 | 和其他工具一樣走 `can_use_tool`：依權限詢問或拒絕 | Codex 用標示為工具呼叫核准的 MCP elicitation 詢問（`_meta.codex_approval_kind: "mcp_tool_call"`），和其他核准一樣顯示並回覆；其他 elicitation 一律拒絕。核准政策為 `never` 時 Codex 會拒絕 MCP 呼叫，所以完整存取下工具庫的伺服器會設 `default_tools_approval_mode = "approve"` | 和其他工具一樣走 `session/request_permission` |
 
+開源 agent 也拿得到工具庫：MCP 伺服器放在 ACP 的 `mcpServers` 或轉接器寫的設定裡（Pi 透過它的 MCP 擴充功能），skill 與記憶則和每個 agent 一樣放在角色說明裡；怎麼做見[開源 agent](open-agents.zh-TW.md)中各 agent 的章節。
+
 ## 各 CLI 自己載入的內容
 
 設定頁每個 CLI 的卡片可以列出這個 CLI 在預設工作目錄下自己載入的內容：它自己的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶檔，和工具庫分開（`src/server/native.ts`，`POST /api/providers/:provider/native`）。查詢方式和 IDE 一樣，不送 prompt，所以不會呼叫模型：
@@ -320,6 +333,8 @@ Harness Relay 提供給成員的 MCP 伺服器、skill 與記憶，每個 CLI �
 Claude Code 只在開始一個回合的 `system/init` 訊息裡列出它的工具，所以控制請求之後會送它 `/usage`，這是它自己回答的指令（不呼叫模型，不花費用量），並加上 `--no-session-persistence`，不留下 session，收到那則訊息就結束它。只有 `initialize` 的回答把 `usage` 列為內建指令、而且沒有同名的 skill 或指令時才會送，因為其他情況會送到模型；不送時，以及 Claude Code 不接受 `--no-session-persistence` 時（會改成不送這個回合再問一次），就不列出內建工具，並以錯誤說明。claude.ai connector 等較晚連上的伺服器，也是在這則訊息裡出現，狀態也較新。
 
 查詢時會短暫啟動 CLI：Claude Code 會執行使用者的 SessionStart hooks 並連線它的 MCP 伺服器，Codex 也會為了列出工具而啟動使用者的 MCP 伺服器。因此介面只在使用者按下 **查詢** 時才詢問，展開這一區時不會：使用者可能正是因為某個 MCP 伺服器一啟動就會造成問題，才打開這一區要關掉它。它用 POST，資料夾固定是預設工作目錄，所以其他網站無法在任何地方啟動 CLI。每個 CLI、執行檔與資料夾的結果保留一分鐘，前提是不載入的設定（見下文）沒有變（`refresh: true` 重新查詢）；CLI 沒有回報的部分會列出來，並依每次請求的語言顯示。回報的指示與記憶檔，以及 skill 的 `SKILL.md`，可以在介面中打開（`POST /api/providers/:provider/native/file`）：只會讀 CLI 最近一次回答裡的路徑，所以讀不到電腦上的其他檔案。只回傳名稱、說明、路徑與狀態；可能含有 token 的 MCP 伺服器設定與 hook 指令不會回傳。
+
+開源 agent 透過它們轉接器的 `native` hook（`OpenAgentDefinition.native`）詢問：OpenCode 用 `opencode debug skill` 與 `opencode agent list`，Goose 用 `_goose/unstable/sources/list`，Cline 用 `cline config <kind> --json`，OpenHands 與 Pi 則讀它們會讀的檔案；它們的家目錄是 Harness Relay 的，所以只會列出專案的檔案與它們自己找到的東西。見[開源 agent](open-agents.zh-TW.md)中各 agent 的章節。
 
 ### 在 Harness Relay 的執行中不載入
 
@@ -428,14 +443,15 @@ Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `
 | `message_changes` | 每則訊息修改的檔案（路徑、A/M/D、增刪行數） |
 | `agent_worktrees` | 平行模式中每個 agent 的 worktree（repository 根目錄、路徑、分支、起始快照、是否需要重設） |
 | `message_parts` | 每則訊息依序（`idx`）排列的 part：文字、思考、計畫與核准 part（資料以 JSON 存在 `data`），以及工具呼叫，含 `tool_error`（呼叫失敗或被拒絕的原因）與 `tool_output` |
-| `agent_sessions` | 每個對話中每個 agent 的 CLI session id 與 provider |
+| `agent_sessions` | 每個對話中每個 agent 的 CLI session id 與 provider，它最近一次執行的權限（`permission`，schema version 20），以及依 CLI 分別記下的那個 CLI 最近一次執行的權限，與開源 agent 的狀態資料夾是否還要清空（`by_cli`，JSON，schema version 21：權限高於這個 CLI 最近一次時開新的 session，並先清空它的資料夾） |
 | `agent_seen` | 每個 agent 已看過哪些訊息 |
 | `presets`、`preset_agents` | 使用者儲存的團隊範本（內建範本寫在程式碼裡）；`preset_agents.tools` 同上 |
 | `provider_settings` | 每個 CLI 的執行檔路徑、預設模型、預設推理強度；只有在系統沒有金鑰儲存區時才存 API key |
+| `model_backends` | 開源 agent 的模型來源：你的 OpenAI 相容端點（id、名稱、base URL、模型），以及只有在系統沒有金鑰儲存區時才存的 API 來源（`openai`、`anthropic`、`xai`）或端點的金鑰（schema version 19；見[開源 agent](open-agents.zh-TW.md#模型來源)） |
 | `app_settings` | key/value 形式的應用程式設定（預設工作目錄、首席 agent、語音輸入、工具庫、各 CLI 自己的資料夾、AgentsView 網址） |
 | `shares` | 分享成 secret gist 的對話（頁面 gist 的 id、對話、當時的標題、結束的那則回覆、頁面與 gist 的連結、附上了幾個檔案與放附檔的 gist 的 id、是否只上傳了放附檔的 gist）；沒有外鍵，因為對話刪除後 gist 仍在（schema 第 15 版；附檔為第 16 版） |
 
-使用中的對話會保留在記憶體中，因為協調器在串流時會直接修改它們。寫入是明確觸發的：使用者訊息、新的 agent 訊息、結束的回合與 session id 會立即寫入；串流中的變動則批次處理，每秒最多寫一次，而且只寫有變動的訊息。伺服器當機時留下的 `streaming` 訊息，會在下次啟動時標為 `aborted`。
+使用中的對話會保留在記憶體中，因為協調器在串流時會直接修改它們。寫入是明確觸發的：使用者訊息、新的 agent 訊息、結束的回合與 session id 會立即寫入；串流中的變動則批次處理，每秒最多寫一次，而且只寫有變動的訊息。伺服器當機時留下的 `streaming` 訊息，會在下次啟動時標為 `aborted`；它們等待中的核准標為過期，仍顯示執行中的工具呼叫則和停止的執行一樣，標為沒有結果就結束。
 
 Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_version`（見 `src/server/db.ts`）。
 
@@ -443,7 +459,7 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
 
 ## Provider：狀態、登入與模型
 
-- **狀態**：`<cli> --version` 加上登入檢查：`claude auth status`（JSON）、`codex login status`、`grok models`。快取 20 秒。
+- **狀態**：`<cli> --version` 加上登入檢查：`claude auth status`（JSON）、`codex login status`、`grok models`。快取 20 秒。開源 agent 沒有登入：CLI 已安裝、轉接器已完成，且設定了模型來源時就可使用（[開源 agent → 模型來源](open-agents.zh-TW.md#模型來源)）；它的登入路由回應 400。
 - **登入**：伺服器在背景執行 CLI 自己的登入指令並公開其輸出：從中擷取 URL 與裝置碼給介面顯示，介面中輸入的文字則寫進程序的 stdin（Claude Code 的貼上授權碼流程）。登入流程 15 分鐘後逾時。
 
   | CLI | 方式 |
@@ -452,24 +468,24 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
   | Codex | `codex login --device-auth` / `codex login`（瀏覽器，localhost 回呼） |
   | Grok | `grok login --device-auth` / `grok login --oauth` |
 
-- **API key**：Claude Code 與 Grok 的金鑰只會以 `ANTHROPIC_API_KEY` / `XAI_API_KEY` 注入到對應 CLI 的環境變數。Codex 的金鑰則透過 `codex login --with-api-key` 交給 Codex 自己保存。
+- **API key**：Claude Code 與 Grok 的金鑰只會以 `ANTHROPIC_API_KEY` / `XAI_API_KEY` 注入到對應 CLI 的環境變數。Codex 的金鑰則透過 `codex login --with-api-key` 交給 Codex 自己保存。開源 agent 的金鑰是模型來源的金鑰（`backend-<id>-api-key`、`endpoint-<id>-api-key`，規則相同：[開源 agent → 模型來源](open-agents.zh-TW.md#模型來源)）；它們的執行只拿到這些，絕不拿到伺服器繼承來的金鑰。
   - *存放位置*：透過 [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node)（預先編譯好的原生模組）存進作業系統的金鑰儲存區，service 為 `harness-relay`、account 為 `<provider>-api-key`：macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service。Linux 固定使用 Secret Service，因為這個函式庫的另一個儲存區（kernel keyring）重開機後就會清空。`SettingsStore` 在啟動時把金鑰讀進記憶體。
   - *備援*：`openSystemKeyring()` 會在啟動時用一次讀取確認儲存區可用。沒有可用的儲存區時（該平台沒有原生模組、沒有 D-Bus session，或設定了 `RELAY_KEYRING=off`），金鑰會留在 `provider_settings.api_key` 欄位，設定頁也會註明。若儲存區存在但拒絕寫入，該請求會回傳錯誤，絕不會默默改存到資料庫。
   - *搬移*：在儲存區可用時，若資料庫裡還有金鑰（舊版存的，或當時沒有儲存區），會先複製到儲存區、讀回確認、清空欄位，再對 WAL 做 checkpoint，讓明文不會殘留在 `relay.db-wal`。搬移失敗時金鑰會留在資料庫，設定頁也會顯示。
-- **模型**：Codex 用 `codex debug models`（含每個模型支援的推理強度與預設值；預設模型讀 `~/.codex/config.toml`）。Grok 用 `grok models`。Claude Code 沒有列出模型的指令，所以介面提供它的別名（`fable`、`opus`、`sonnet`、`haiku`），預設值從 `CLAUDE_CONFIG_DIR`（或 `~/.claude`）的 `settings.json` 讀取。快取 10 分鐘。
+- **模型**：Codex 用 `codex debug models`（含每個模型支援的推理強度與預設值；預設模型讀 `~/.codex/config.toml`）。Grok 用 `grok models`。Claude Code 沒有列出模型的指令，所以介面提供它的別名（`fable`、`opus`、`sonnet`、`haiku`），預設值從 `CLAUDE_CONFIG_DIR`（或 `~/.claude`）的 `settings.json` 讀取。開源 agent：CLI 有自己的模型清單時用它（`opencode models --verbose`、Goose 的 `_goose/unstable/providers/list`、Cline 對每個 API 來源各送一次 `session/new`、OpenHands 安裝裡 LiteLLM 的清單、Pi 的 `get_available_models`），寫成 `<模型來源>/<模型>`，只列出已設定的模型來源，再加上每個端點輸入的模型；不會呼叫任何模型 API。快取 10 分鐘。
 
 ## Agent 的家目錄與 AgentsView
 
 兩者都是選用的設定，存在 `app_settings`（`agent_home`、`agentsview_url`，以及介面連結打開的網址 `agentsview_link`），在 **設定 → Agent 的 session** 編輯，透過 `PUT /api/settings` 送出。兩者都不需要環境變數，所以在每個平台上 `npm start` 和 `npm run dev` 都不必改。
 
-**Agent 的家目錄。** 設定資料夾後，`SettingsStore.env(p)` 會把各 CLI 的家目錄變數指到裡面：`CLAUDE_CONFIG_DIR=<資料夾>/claude`、`CODEX_HOME=<資料夾>/codex`、`GROK_HOME=<資料夾>/grok`。這個值會取代伺服器繼承來的值（例如使用者為自己的 Claude Code 在 shell 設定的 `CLAUDE_CONFIG_DIR`），資料夾在第一次使用時建立，因為 Codex 不接受不存在的 `CODEX_HOME`。每次啟動 CLI 都經過 `env(p)`：執行、狀態檢查、從設定頁開始的登入、模型查詢、詢問 CLI 自己載入了什麼（快取也以家目錄區分）以及 Grok 的資料夾信任。所以從設定頁登入的 CLI 是登入在 Relay 的家目錄，session 紀錄也寫在那裡（`claude/projects/`、`codex/sessions/`、`grok/sessions/`）。更換資料夾會清掉 provider 狀態與模型的快取，並取消進行中的登入（它們會登入在舊的家目錄）；有對話正在執行、設定中、正在分群或首席 agent 正在修改團隊時會拒絕更換（409，且不會建立資料夾），因為回合會在 CLI 尚未登入的家目錄開始。更換前的 session 無法從新的家目錄接續，該回合會像其他接續失敗時一樣，開新 session 並提供完整紀錄。資料夾會先驗證（`validAgentHome`）：必須是完整路徑或 `~` 開頭的路徑（`~/` 與 `~\`），不可以是家目錄本身或檔案系統的根目錄，也不可以在 Harness Relay 自己的資料夾或預設工作目錄裡面，因為那裡的快照（`git add -A` 到暫存的 index）會把各 CLI 的登入與 session 紀錄一起收進去。在 macOS 與 Windows 上比對路徑時不分大小寫。資料夾只在請求不會被拒絕時才建立，而且只有擁有者能存取（`0700`）。這個檢查只是提早提醒；快照本身也會排除這個資料夾，不論它在 repository 的哪裡（`snapshot(root, exclude)` 加上 `:(exclude,literal)` pathspec，並解析連結），所以之後改的預設工作目錄、其他對話的工作目錄，或位於工作目錄上層的 repository 根目錄，也都不會把它收進去。
+**Agent 的家目錄。** 設定資料夾後，`SettingsStore.env(p)` 會把各 CLI 的家目錄變數指到裡面：`CLAUDE_CONFIG_DIR=<資料夾>/claude`、`CODEX_HOME=<資料夾>/codex`、`GROK_HOME=<資料夾>/grok`。這個值會取代伺服器繼承來的值（例如使用者為自己的 Claude Code 在 shell 設定的 `CLAUDE_CONFIG_DIR`），資料夾在第一次使用時建立，因為 Codex 不接受不存在的 `CODEX_HOME`。每次啟動 CLI 都經過 `env(p)`：執行、狀態檢查、從設定頁開始的登入、模型查詢、詢問 CLI 自己載入了什麼（快取也以家目錄區分）以及 Grok 的資料夾信任。所以從設定頁登入的 CLI 是登入在 Relay 的家目錄，session 紀錄也寫在那裡（`claude/projects/`、`codex/sessions/`、`grok/sessions/`）。開源 agent 一律在 Harness Relay 自己的家目錄中執行：在這個資料夾裡，或者在 `data/agent-homes/`（[開源 agent → Agent 的家目錄](open-agents.zh-TW.md#agent-的家目錄)），每位對話成員的 session、記錄與快取放在它自己的資料夾 `<home>/private/<key>`（[每位成員自己的狀態](open-agents.zh-TW.md#每位成員自己的狀態)）。更換資料夾會清掉 provider 狀態與模型的快取，並取消進行中的登入（它們會登入在舊的家目錄）；有對話正在執行、設定中、正在分群或首席 agent 正在修改團隊時會拒絕更換（409，且不會建立資料夾），因為回合會在 CLI 尚未登入的家目錄開始。更換前的 session 無法從新的家目錄接續，該回合會像其他接續失敗時一樣，開新 session 並提供完整紀錄。資料夾會先驗證（`validAgentHome`）：必須是完整路徑或 `~` 開頭的路徑（`~/` 與 `~\`），不可以是家目錄本身或檔案系統的根目錄，也不可以在 Harness Relay 自己的資料夾或預設工作目錄裡面，因為那裡的快照（`git add -A` 到暫存的 index）會把各 CLI 的登入與 session 紀錄一起收進去。在 macOS 與 Windows 上比對路徑時不分大小寫。資料夾只在請求不會被拒絕時才建立，而且只有擁有者能存取（`0700`）。這個檢查只是提早提醒；快照本身也會排除這個資料夾，不論它在 repository 的哪裡（`snapshot(root, exclude)` 加上 `:(exclude,literal)` pathspec，並解析連結），所以之後改的預設工作目錄、其他對話的工作目錄，或位於工作目錄上層的 repository 根目錄，也都不會把它收進去。
 
 **AgentsView。** [AgentsView](https://www.agentsview.io) 會索引各 CLI 的 session 紀錄，每個 agent 一個 session，但沒有東西把同一個對話的 session 串在一起。`src/server/agentsview.ts` 補上這一點：
 
 1. 每個回合結束和每次執行結束時，orchestrator 會呼叫 `TraceSink.schedule(conv)`（正在刪除的對話不會，而且 sink 出錯也不會中斷執行）；重新命名對話時也會呼叫。`AgentsViewSync` 對每個對話一次只跑一個更新；期間的變更會在它結束後一次送出。刪除對話會丟掉還在等待的更新（`forget`），已經送到 AgentsView 的內容則留著。
 2. `threadTranscript(conv)` 把對話寫成 Claude Code 的 session 紀錄（AgentsView 的上傳只接受這種格式）：使用者的訊息是 user turn，每位成員的回覆是以成員名稱和 CLI 開頭的 assistant turn，最後是帶對話標題的 `custom-title` 紀錄。系統訊息和還在串流的回覆不會放進去。紀錄沿用訊息的 id，session id 就是對話的 id，所以每次上傳都取代同一個 session（`allow_shorter=true`，因為重試或編輯會刪掉訊息）。
 3. thread 透過 `POST /api/v1/sessions/upload` 上傳，放在 AgentsView 給第一個它認得的 agent session 的 project 與 machine（`GET /api/v1/sessions/{id}`），否則用工作目錄的名稱和 `local`。
-4. 每位成員目前的 session 用 `PUT /api/v1/sessions/{id}/parent` 連到 thread（Claude Code 的 session 用它的 id，其他用 `codex:<id>`、`grok:<id>`），這個對話的首席 agent 與分群用的 session 也一樣（`TraceSink.link`，存在記憶體中直到伺服器停止；它們結束時會再送一次對話，因為分群常在執行結束後才完成）。AgentsView 會把它們放在 thread 底下，並把成本加總到 thread；連到它還沒讀到的 session 時，連結會等到讀到後才生效。
+4. 每位成員目前的 session 用 `PUT /api/v1/sessions/{id}/parent` 連到 thread（Claude Code 的 session 用它的 id，其他用 `<provider>:<id>`：`codex:<id>`、`grok:<id>`，開源 agent 則是 `opencode:<id>` 之類），這個對話的首席 agent 與分群用的 session 也一樣（`TraceSink.link`，存在記憶體中直到伺服器停止；它們結束時會再送一次對話，因為分群常在執行結束後才完成）。AgentsView 會把它們放在 thread 底下，並把成本加總到 thread；連到它還沒讀到的 session 時，連結會等到讀到後才生效。
 
 AgentsView 會拒絕沒有它自己 `Origin` 的寫入，所以每次寫入都會帶上；也絕不跟隨重新導向（`redirect: 'error'`），對話不會被轉送到其他主機。失敗會記在 log，並連同發生時的網址保留在 `AgentsViewSync.error`，由 `GET /api/settings` 回傳（`agentsViewError`），直到對那個網址的更新成功；換成其他網址時不會顯示。它不會影響對話。伺服器關閉時最多等三秒，讓進行中的更新完成。
 
@@ -540,6 +556,7 @@ sequenceDiagram
 - agent 回覆中的圖片以連結顯示、不會自動載入，所以回覆無法讓瀏覽器連到其他網站。例外是這台電腦上的圖片與影片（`![chart](out/chart.png)`、絕對路徑或 `file:` 網址），介面會從 `GET /api/conversations/:id/messages/:messageId/media?path=…` 載入。這個端點只提供圖片與影片類型（PNG、JPEG、GIF、WebP、AVIF、SVG、MP4、WebM、MOV），而且檔案的實際路徑（跟隨 symlink 之後，並再次檢查媒體類型）必須位在工作目錄、回覆者的 worktree 或對話的附件資料夾之內。回應帶有 `nosniff` 與沙箱化的 `Content-Security-Policy`，所以單獨開啟 SVG 也無法執行腳本。它支援影片的位元組範圍，並以 ETag 重新驗證（agent 可能重寫檔案）。agent 的 briefing 會告訴它們這樣嵌入媒體；
 - agent 回覆中連到這台電腦上檔案的連結（`[Slides](out/deck.pptx)`、絕對路徑或 `file:` 網址；瀏覽器不會從網頁開啟 `file:` 連結，其他裝置更不可能）會改成從 `GET /api/conversations/:id/messages/:messageId/download?path=…` 下載。這個端點接受和媒體端點相同資料夾裡的任何檔案（跟隨 symlink 之後判斷），但絕不提供 `.git` 裡的檔案，而且一律以下載提供：`application/octet-stream` 加上 `Content-Disposition: attachment`、`nosniff` 與沙箱化的 `Content-Security-Policy`，所以 agent 寫出的 HTML 頁面或 SVG 永遠無法在 app 的 origin 中執行。這些資料夾以外的路徑完全不會被查詢（在 Windows 上，光是解析 `\\host\share\…` 就會連到那台電腦），這類連結也不會變成下載。下載的位元組範圍會依 `Last-Modified` 檢查 `If-Range`，所以檔案被重寫後，續傳的下載會從頭開始（影片的跳轉維持原樣）；HEAD 不會開啟檔案就回答：聊天室用它先確認每個連結，檔案不存在時保留連結並在後面顯示 **⚠ 無法下載 …**，而不是一個會失敗的下載；再點一次會重新確認，檔案做好就會下載。因為連結是這台伺服器上的路徑，在這台電腦上和透過 `tailscale serve` 在手機上都一樣能用。agent 的 briefing 會告訴它們把這類檔案存在工作目錄，並用相對路徑連結；
 - ```` ```mermaid ```` 區塊會把 Mermaid 產生的 SVG（以 `securityLevel: 'strict'` 繪製）當成 `<img>` 顯示；瀏覽器在圖片中不執行任何腳本、也不載入任何資源，所以圖表同樣無法連到其他網站；
+- 開源 agent 的執行（完全存取以外）不能讀寫其他對話或其他成員的狀態，也只拿到它用的模型來源的金鑰；權限提高的成員會開新的 session（[開源 agent](open-agents.zh-TW.md#每位成員自己的狀態)）；
 - API key 存在作業系統的金鑰儲存區而不是資料庫（見上方）；SQLite 檔案（及其 WAL 檔）只有擁有者可讀寫，刪除的資料列會被覆寫；
 - 附加檔案回傳時帶有 `X-Content-Type-Options: nosniff` 與沙箱化的 `Content-Security-Policy`；只有 PNG、JPEG、GIF、WebP 會直接顯示，其他一律下載，所以附加的 HTML 或 SVG 檔絕不會在本程式的 origin 中執行。檔名寫入磁碟前會去掉目錄與控制字元；
 - 啟動 `claude` 前會移除 Claude Code 替自己子程序設定的環境變數，所以即使從 Claude Code session 裡啟動本程式也能正常運作；
@@ -547,9 +564,10 @@ sequenceDiagram
 - Grok 對資料夾的信任只會在使用者於介面確認後記錄，而且要用 JSON POST（其他網站送不出來）；
 - 對話只會送到這台電腦上的 AgentsView：`validAgentsViewUrl` 只接受 `localhost`、`127.0.0.1` 或 `[::1]` 的 `http(s)` 網址，不能帶帳號密碼，並只儲存 origin；也不跟隨重新導向。介面連結打開的網址（`agentsViewLink`）可以是任何 http(s) 網址，因為不會有資料送過去；
 - 瀏覽檔案（以及把資料夾下載成 ZIP 檔）只會讀取工作目錄或成員 worktree 裡的內容（跟隨符號連結之後），絕不讀 `.git`（不分大小寫，因為在不分大小寫的檔案系統上 `.GIT` 會開到 `.git`；結尾多一個點或空白，或 Windows 的短檔名如 `GIT~1` 也一樣，在 Windows 上會再用系統自己的真實路徑檢查），圖片與影片的提供方式和媒體端點相同，其他檔案只以下載提供（見[瀏覽檔案](#瀏覽檔案)）；
+- 完全存取以外，開源 agent 與它們啟動的一切都在 Harness Relay 自己的沙箱中執行（[各平台的作業系統沙箱](sandboxing.zh-TW.md#harness-relay-自己的沙箱)）：只能寫入權限允許的地方，受保護的路徑不能讀也不能寫，它們自己的設定唯讀，網路只到這次執行的模型來源（其他主機會詢問，但這台電腦自己與 link-local 的位址、安靜拒絕的主機，以及一次執行中第 30 個之後的主機會直接拒絕；Harness Relay 自己的埠一律連不到）。沙箱無法啟動就不執行，在原生 Windows 上它們只能以完全存取執行。它們的模型金鑰只透過環境變數傳入，絕不寫進設定檔；
 - 語音輸入的錄音不會離開這台電腦：語音引擎只聽 `127.0.0.1`，並藏在隨機路徑前綴之後；它下載的引擎與模型固定在某個版本或 commit，並檢查 SHA-256（見[語音輸入](#語音輸入)）。
 - 桌面 app 的視窗只顯示伺服器自己的頁面（sandbox、沒有 Node；其他連結交給預設瀏覽器，`file:` 與 `javascript:` 一律不開），頁面只能使用麥克風、剪貼簿與全螢幕。它的瀏覽器資料（cookie、localStorage：它的登入資訊）放在它自己的資料夾，以 `RELAY_APP_BROWSER_DIR` 告訴伺服器，`protectedReads()` 會像對待瀏覽器的資料夾一樣，讓權限低於完全存取的 agent 讀不到它。App 透過私有的 port 向伺服器拿登入連結，絕不經過記錄檔。在 Windows 與 Linux 上，它在瀏覽器打開的連結（「在瀏覽器打開」）會短暫出現在瀏覽器的指令列，其他程式可能讀得到，所以這些連結只在一分鐘內有效。除了伺服器的網址，app 只會在瀏覽器打開對話裡連結的網頁、Tailscale 的頁面（`login.tailscale.com`、`tailscale.com`）、Tailscale 下載頁，以及 GitHub 上該版本的頁面（只限 `github.com/Agentic-System-Lab/harness-relay/releases` 底下）。它只從這個 repository 的 release 下載網址下載更新（`isInstallerUrl()`），而且 SHA-256 相符才安裝。打包好的 app 關閉了 Electron 的 run-as-Node 模式、`NODE_OPTIONS` 與 `--inspect`（fuses），所以其他程式無法以這個 app 的身分執行程式碼、使用 macOS 給它的隱私權限；它只從自己的封存檔載入程式碼，並檢查封存檔（macOS、Windows），`file:` 頁面也不會得到額外權限。Cookie 加密維持關閉：視窗的資料夾本來就讓 agent 讀不到，localStorage 裡的 key 也不會被加密，而且 ad hoc 簽章的 app 每次更新後 macOS 都會詢問鑰匙圈。它的伺服器一律只聽 `127.0.0.1`；
-- 只有使用者在分享對話框中建立連結時，Harness Relay 才會把對話發布出去（各 CLI 仍照常把每一輪送到它們的模型服務），對話框會先說明它會去哪裡（使用者 GitHub 帳號上的 secret gist）；頁面不含工具呼叫與思考過程、圖片都包在頁面裡，並以自己的 `Content-Security-Policy` 禁止執行腳本。回覆連結的檔案只有在使用者於對話框中保持勾選時才會附上（對話框會說明有連結的人都能下載，看起來像機密的檔案一開始不勾選），而且只限該回覆的下載連結能提供的檔案，建立連結時由伺服器重新讀取；它們放在自己的 secret gist 裡，由 git 從 Harness Relay 自己資料夾裡的 clone 推上去（絕不用有沙盒的 agent 可能寫得進去的系統暫存資料夾），而且只走 HTTPS，再由 `gist.githubusercontent.com` 以純文字、圖片或下載（`application/octet-stream`）提供，絕不會成為會執行的網頁。移除分享時只會把十六進位的 gist id 交給 `gh`，兩個 gist 都會刪除。
+- 只有使用者在分享對話框中建立連結時，Harness Relay 才會把對話發佈出去（各 CLI 仍照常把每一輪送到它們的模型服務），對話框會先說明它會去哪裡（使用者 GitHub 帳號上的 secret gist）；頁面不含工具呼叫與思考過程、圖片都包在頁面裡，並以自己的 `Content-Security-Policy` 禁止執行腳本。回覆連結的檔案只有在使用者於對話框中保持勾選時才會附上（對話框會說明有連結的人都能下載，看起來像機密的檔案一開始不勾選），而且只限該回覆的下載連結能提供的檔案，建立連結時由伺服器重新讀取；它們放在自己的 secret gist 裡，由 git 從 Harness Relay 自己資料夾裡的 clone 推上去（絕不用有沙盒的 agent 可能寫得進去的系統暫存資料夾），而且只走 HTTPS，再由 `gist.githubusercontent.com` 以純文字、圖片或下載（`application/octet-stream`）提供，絕不會成為會執行的網頁。移除分享時只會把十六進位的 gist id 交給 `gh`，兩個 gist 都會刪除。
 
 這是單人使用的工具，只有使用者登入過的瀏覽器能使用 API：這台電腦上其他連得到 localhost 的程式，包括 agent 在沙箱中執行的程式碼，都會被拒絕（401，`code: "signed-out"`）。見[登入](#登入)。
 
@@ -558,7 +576,7 @@ sequenceDiagram
 - 瀏覽器用一次性代碼登入（`src/server/auth.ts`；8 個 Crockford base 32 字元）：來自伺服器啟動時印出的連結（`#code=…`，一小時內有效）、`npm run login`（`scripts/login.ts`，10 分鐘內有效，不論伺服器有沒有在執行，都寫進同一個資料庫），或已登入的瀏覽器（「**設定 → 已登入的瀏覽器 → 讓另一個裝置登入**」，10 分鐘內有效，給手機用）。同時有效的是最新的五個代碼。介面會先把代碼從網址中拿掉再登入，即使已開著的頁面只改了片段也一樣；已登入的瀏覽器打開連結時也會用掉代碼（新的 session 取代舊的），所以代碼不會在瀏覽器的歷史紀錄中繼續有效。一分鐘內錯了十次代碼，該分鐘剩下的時間都會被拒絕（429）；次數在每個代碼被試之前才檢查，所以同時送出的請求無法一起通過。
 - 登入會給瀏覽器兩個秘密，請求必須兩者都有：一個 cookie（`relay_session`，`HttpOnly`、`SameSite=Strict`、`Path=/api`，400 天），以及介面存在 localStorage、以 `X-Relay-Key` 送出的金鑰。cookie 會送到同一主機的每個 port，所以 agent 在這台電腦另一個 port 提供的網頁，若使用者打開了，就會拿到它；localStorage 則只屬於介面自己的來源。瀏覽器自己載入的內容（回覆中的圖片與影片、下載、附件、資料夾的檔案與 ZIP：`app.ts` 的 `BROWSER_LOADS`）只需要 cookie：這些路由只讀取對話的資料夾，而它的 agent 本來就讀得到。即時更新（EventSource，無法帶標頭）把金鑰放在查詢字串中。
 - 資料庫只存雜湊（`auth_codes`、`auth_sessions`）：cookie 的秘密與金鑰（各 256 位元）用 SHA-256，代碼則用 scrypt，每個各有自己的 salt，因為代碼短得可以手動輸入：40 位元的快速雜湊，逐一試過每個代碼，幾分鐘到幾小時就能還原。所以讀得到資料庫的程式（沙箱讓 agent 能讀）無法用它們登入。伺服器也會遵守 400 天的期限。「**設定 → 已登入的瀏覽器**」會列出已登入的瀏覽器（以 User-Agent 命名），並能登出其中任何一個。
-- 在完全存取以外的權限，agent 的沙箱既讀不到瀏覽器的資料夾（包括桌面 app 視窗的），也讀寫不到資料庫（[各平台的作業系統沙箱 → agent 不能讀寫的地方](sandboxing.zh-TW.md#agent-不能讀寫的地方)），工作目錄包含 Harness Relay 本身、家目錄或 CLI 自己的資料夾或程式時也會拒絕可編輯模式；Grok 的沙箱改不了它自己的程式，它的設定被改動時也會改回原樣。它擋不住的：在這些沙箱之外、讀得到瀏覽器設定檔的程式能在那裡找到金鑰；瀏覽器若把 cookie 以未加密的方式存放（Firefox 就是；macOS 上的 Chrome 與 Edge 會用鑰匙圈中的金鑰加密），也能找到 cookie；寫得到 `data/relay.db` 的程式能加入一個 session。這指的是擁有完全存取的 agent、使用者允許在沙箱外執行的指令、CLI 在沙箱外執行的東西（Claude Code 的 hooks 與本機 MCP 伺服器）、資料夾不在清單上的瀏覽器、Grok 在它資料夾中自己維護的 plugin 資料夾，或 Claude Code 與 Grok 沒有沙箱的原生 Windows。不斷送出錯誤代碼的程式，在它這麼做的期間會讓新的瀏覽器無法登入（已登入的瀏覽器照常運作）。
+- 在完全存取以外的權限，agent 的沙箱既讀不到瀏覽器的資料夾（包括桌面 app 視窗的），也讀寫不到資料庫（[各平台的作業系統沙箱 → agent 不能讀寫的地方](sandboxing.zh-TW.md#agent-不能讀寫的地方)），工作目錄包含 Harness Relay 本身、家目錄或 CLI 自己的資料夾或程式時也會拒絕可編輯模式；Grok 的沙箱改不了它自己的程式，它的設定被改動時也會改回原樣。它擋不住的：在這些沙箱之外、讀得到瀏覽器設定檔的程式能在那裡找到金鑰；瀏覽器若把 cookie 以未加密的方式存放（Firefox 就是；macOS 上的 Chrome 與 Edge 會用鑰匙圈中的金鑰加密），也能找到 cookie；寫得到 `data/relay.db` 的程式能加入一個 session。這指的是擁有完全存取的 agent、使用者允許在沙箱外執行的指令、CLI 在沙箱外執行的東西（Claude Code 的 hooks 與本機 MCP 伺服器）、資料夾不在清單上的瀏覽器、Grok 在它資料夾中自己維護的 plugin 資料夾，或 Claude Code 與 Grok 沒有沙箱（開源 agent 只能以完全存取執行）的原生 Windows。不斷送出錯誤代碼的程式，在它這麼做的期間會讓新的瀏覽器無法登入（已登入的瀏覽器照常運作）。
 
 要從手機使用時，伺服器仍然只綁定 `127.0.0.1`，由同一台電腦上的 `tailscale serve` 把使用者 tailnet 裡的請求以 HTTPS 轉給它；因為 Tailscale 會保留原本的 `Host` 標頭，tailnet 上的名稱要加進 `RELAY_ALLOWED_HOSTS`。之後 tailnet 裡的每台裝置都能連到它，登入後就能使用。若改成綁定 `0.0.0.0`，區域網路上的任何人都能透過未加密的 HTTP 連到它，代碼、cookie 與金鑰都能從網路上讀到。詳見[用手機連線](remote-access.zh-TW.md)。
 
@@ -568,7 +586,7 @@ sequenceDiagram
 - 圓桌 / 接力模式中，回合前後的快照會把該回合期間目錄裡的所有變更都算在該 agent 頭上，包括你同時在編輯器做的修改。
 - 目錄鎖存在伺服器程序中；其他工具（或第二個 Harness Relay 伺服器）仍然可以修改同樣的檔案。
 - 巢狀 repository 與 submodule：在 worktree 中是空資料夾，裡面的修改也不會被記錄（快照只記錄它們指向哪個 commit）。
-- Grok 執行的專案程式碼仍能連網，而在原生 Windows 上 Claude Code 與 Grok 完全沒有沙箱（見[權限對應](#權限對應)與[各平台的作業系統沙箱](sandboxing.zh-TW.md)）；判斷推送與發佈指令只能盡力而為。
+- Grok 執行的專案程式碼仍能連網，而在原生 Windows 上 Claude Code 與 Grok 完全沒有沙箱（見[權限對應](#權限對應)與[各平台的作業系統沙箱](sandboxing.zh-TW.md)）；判斷推送與發佈指令只能盡力而為：shell 或直譯器執行管線傳來的內容時會詢問，但腳本與程式自己做的事（`source`／`.`、腳本檔、`npm run`、`make`、git alias、`find -exec`、`ssh`）不會被解析（見[核准](#核准)）。
 - Grok 的沙箱讓指令連得到 localhost。Harness Relay 的 API 會拒絕它們，除非它們拿得出已登入瀏覽器的 cookie 與金鑰；而沙箱讓它們讀不到這些；但在沙箱之外、讀得到瀏覽器設定檔或寫得到 `data/relay.db` 的程式仍可能登入（見[登入](#登入)）。
 - Claude Code 的沙箱涵蓋它的 Bash 指令，不包括它自己的檔案工具、hooks 與 MCP 伺服器（包括工具庫的）；Grok 的沙箱涵蓋 Grok 執行的一切。Claude Code 的沙箱會擋下的指令會先詢問，允許後在沙箱外執行；Grok 的沙箱擋下的指令則完全無法允許。
 - Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍可讓指令不經詢問就執行。
@@ -581,10 +599,12 @@ sequenceDiagram
 - 首席 agent 選得好不好，完全取決於它的回覆品質；回覆無法使用時會保留目前的團隊，沒有團隊時改用「一般問題智囊團」範本。它讀的是精簡過的對話（說過的話中最新的 12,000 個字元），不是團隊改過的檔案。每次設計都是首席 agent 的 CLI 的一次執行，所以每個新問題都要多一次執行（預設還要多按一次確認）。被首席 agent 換掉的成員會從頭開始：重試已經不在團隊裡的成員的回覆會被拒絕。
 - Codex 只有在它的模型決定要求超出沙箱的權限時才會詢問；被擋下但沒有詢問的呼叫就只會失敗。
 - Claude Code 的思考內容需要未列入文件的 `--thinking-display summarized` 旗標；Claude Code 的待辦清單只有在它的 `TodoWrite` 工具可用時才會出現。
+- 提高對話的權限後，每個 agent 在下一輪都會以完整的對話紀錄開新的 CLI session（權限較低時執行過的 session 不會在權限較高時接續），這會讓那一次的 prompt 比較長；開源 agent 這位成員的狀態資料夾也會清空，它的 CLI 在那裡保存的東西（包括快取）會重新建立。
 - 重試或編輯訊息會讓每個 agent 以剩下的對話紀錄開新的 CLI session；分支出來的對話裡的 agent 也一樣，用的是複製過來的紀錄。分支共用工作目錄，不會倒回分支那則回覆當時的樣子。
 - Grok 只有在使用者信任過的資料夾才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks，而 `grok agent stdio` 無法指定信任。Harness Relay 會標示資料夾尚未信任（在 Grok 卡片、有 Grok 成員的團隊的工作目錄下方，以及等待確認、或最近一次直接採用、有 Grok 成員的團隊設計上），並在使用者確認後，用和 `grok --trust` 相同的方式記錄信任（`src/server/grokTrust.ts`：在 `$GROK_HOME/trusted_folders.toml` 加入 `[folders."<路徑>"]`，權限 `0600`，再用 `grok inspect` 確認）。Grok 是以專案根目錄決定信任，而不是輸入的工作目錄：也就是它以 `projectRoot` 回報的儲存庫根目錄（解析連結後），不在儲存庫裡時則是工作目錄的實際路徑。記錄與確認時顯示的都是這個資料夾；它是工作目錄上層的儲存庫根目錄時，確認畫面會說明整個儲存庫都會被信任。使用者確認時若 Grok 已改為另一個資料夾，請求會被拒絕；記錄後 Grok 仍回報未信任時，檔案會還原成原本的內容。工具庫的項目不受影響。平行模式下 Grok 在 `data/worktrees/` 下的 worktree 工作，那是另一個資料夾，工作目錄的信任不一定涵蓋。Codex 每次呼叫 MCP 工具前也會詢問：完整存取以外的權限下會在聊天室顯示核准請求，在設成自動拒絕的對話裡呼叫會失敗；完整存取下只有工具庫的伺服器不經詢問就執行（使用者 `config.toml` 裡自己的伺服器依它們自己的設定）。Codex 其他的 MCP elicitation 一律拒絕。Grok 只有在宣告支援 `mcpCapabilities.http` 時才會拿到工具庫的 HTTP MCP 伺服器，否則會略過並在伺服器 log 留下警告。完整存取以外的權限下，Claude Code 每次呼叫 MCP 工具都會詢問（沒有預先允許任何 MCP 工具），所以在設成自動拒絕的對話裡用不到它們。
 - Agent 的家目錄：各 CLI 不再讀使用者自己的設定、MCP 伺服器、skill、記憶與 plugin，而且要在新的家目錄重新登入。AgentsView：它的上傳只接受 Claude Code 的 session 紀錄，所以 thread 會被列為 Claude Code 的 session，所有回覆都是 assistant turn；它預設隱藏使用者只說了一則訊息的 session（直到對話有第二則，或開啟 **Include single-turn**）；不支援需要 token 的 AgentsView（`require_auth`）；成員開新 session 後，舊的 session 仍連在 thread 下，之後只會重新連結目前的 session；首席 agent 與分群用的 session 只在執行它們的伺服器還開著時才會連結；刪除對話後，它的 thread 仍留在 AgentsView。
 - 語音輸入：Linux 與 Windows 的預先編譯引擎用 CPU 執行（沒有 CUDA 或 Vulkan），大模型會比較慢；Linux 版需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新，不支援 musl）；macOS 需要 Homebrew，它也會一併安裝 whisper.cpp 的相依套件。文字要等說完才出現，不會邊說邊顯示。Whisper 仍可能寫出簡體字，或從雜音編出一句話。
 - 桌面 app：安裝檔沒有為發佈簽章，也沒有公證（Mac app 是 ad hoc 簽章，所以更新後 macOS 會再詢問它的鑰匙圈項目），每個安裝檔都要在它對應的系統與處理器上建置（Arm64 的在 GitHub 的 Arm runner 上）。更新依靠的是 GitHub 的檢查碼，不是簽章，而且只有放在能寫入的資料夾裡的 Mac app、Windows 安裝檔裝的 app 與 AppImage 能自己更新；macOS 可能不讓 app 取代自己（App 管理），這時會打開 `.dmg` 讓你手動安裝。在原生 Windows 上，Claude Code 與 Grok 沒有沙箱，所以沒有東西能讓它們讀不到視窗的瀏覽器資料夾。強制結束 app 時，正在回覆的 agent 可能會繼續執行，就像用 `kill -9` 停止 `npm start` 一樣。在限制非特權 user namespace 的系統（Ubuntu 24.04）上，AppImage 可能需要 `--no-sandbox`。它在啟動伺服器時（打開 app、**重新啟動伺服器…** 與 **啟動伺服器**）讀取登入 shell 的環境（Windows 上是 PATH 與使用者變數），伺服器執行期間不會再讀。在會隱藏系統匣圖示的 Linux 桌面（沒有 AppIndicator 擴充套件的 GNOME），系統匣選單用不到：再次打開 app 會顯示視窗，而視窗自己的選單除了編輯、縮放與視窗之外，只有 **在瀏覽器打開** 與 **結束**。
 - 排程只在 Harness Relay 執行時送出（背後沒有系統排程器）；期間錯過的時間會略過，或晚一點補送一次。每個對話一個排程、間隔以整數小時計，也還沒有事件（webhook）觸發：見[提案](proposals/triggers.zh-TW.md)。在同一個對話裡的排程執行都接著同樣的 agent session，所以長期的排程對話會一直變長；每次開新對話的排程從乾淨的上下文開始，但 agent 不記得前幾次的事（除非寫進檔案），而且它開的對話會在側邊欄越積越多——平行模式下每個都有自己的 worktree 與 `relay/*` 分支，刪除那個對話時才會清掉。
+- 開源 agent：它們的限制依 CLI 而不同，列在[開源 agent](open-agents.zh-TW.md)中各 agent 的章節。使用者最常遇到的：拒絕時的留言只會以 Cline 與 OpenHands 自己固定的話傳給它們的模型；OpenCode 自己的伺服器，任何知道它密碼的東西都能操作（在 macOS 上，指令讀得到 OpenCode 啟動時的環境變數），所以 Harness Relay 監看它的事件，有不是它做的核准、session 或權限變更時就結束這次執行，但那是事後的；監看本身失敗時也會結束；有些專案檔案一定會載入、沒有開關（Goose 的 skill、Cline 的規則與 hook、OpenHands 的指示、skill 與 hook）；Cline 與 Pi 沒有計畫或待辦清單；端點的模型不回報成本。Harness Relay 的沙箱會停掉一次執行留下還在跑的程序，伺服器當掉後也一樣（在下次啟動時），只有 macOS 上完全 daemon 化、關掉所有繼承來的檔案的程序例外；完全存取時，脫離的程序不在這一輪的行程樹裡，和其他 CLI 一樣。它不限制讀取（只有受保護的路徑除外），它允許的模型來源完全連得到；在 macOS 上，Goose 的憑證檢查會開放信任服務 trustd，是帶出少量資料的可能管道。在 Linux 上它需要 bubblewrap、socat 與 ripgrep（Ubuntu 23.10 以上還要 AppArmor 設定檔），也無法只允許單一個 Unix socket，所以 OpenHands 在那裡不用 tmux。各 agent 的章節會說明用真正的 CLI 驗證過什麼、在哪裡驗證（Cline 與 OpenHands 還沒在 Linux 上驗證；OpenHands 與 Pi 沒有試過 HTTP MCP 伺服器）。
 - 資料夾下載成 ZIP 檔時，檔案與資料夾合計最多 10,000 個、壓縮前 1 GB（不使用 ZIP64）；更大的資料夾若在 git repository 裡，可以只下載沒被 git 忽略的檔案，否則只能下載其中的子資料夾。

@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   LANGS,
+  OPEN_PROVIDERS,
   PROVIDERS,
   PROVIDER_INSTALL_URL,
   PROVIDER_LABEL,
+  SANDBOX_TERMINAL_SUPPORT,
   inheritedEffort,
+  isOpenProvider,
   type LeadAgentSettings,
   type LoginMethod,
   type LoginSessionView,
+  type OpenProvider,
   type Provider,
   type ProviderModels,
   type ProviderSettingsView,
@@ -27,7 +31,9 @@ import {
   settingsHref,
   type SettingsSection,
 } from '../route';
-import { PROVIDER_COLOR, switchProvider, type ModelChoice } from '../util';
+import { hasNativePanel } from '../native';
+import { PROVIDER_COLOR, inheritModelLabel, switchProvider, type ModelChoice } from '../util';
+import { BackendsCard } from './BackendsSettings';
 import { CwdInput } from './CwdInput';
 import { ModelPicker } from './ModelPicker';
 import { NativeSetupPanel } from './NativeSetupPanel';
@@ -147,8 +153,25 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
         </section>
 
         <div className="provider-list">
-          {PROVIDERS.map((p) => (
+          {PROVIDERS.filter((p) => !isOpenProvider(p)).map((p) => (
             <ProviderCard
+              key={p}
+              provider={p}
+              status={providers.find((x) => x.provider === p)}
+              catalog={catalog.find((x) => x.provider === p)}
+              settings={settings?.providers.find((x) => x.provider === p)}
+              onSettings={setSettings}
+              onRefresh={() => refreshProviders(true)}
+            />
+          ))}
+        </div>
+
+        {/* The open agents' model backends, then the open agents, which use them. */}
+        <BackendsCard onChanged={() => void refreshProviders(true)} />
+
+        <div className="provider-list">
+          {OPEN_PROVIDERS.map((p) => (
+            <OpenAgentCard
               key={p}
               provider={p}
               status={providers.find((x) => x.provider === p)}
@@ -242,7 +265,7 @@ function LeadCard({
     <section className="card" id={sectionId('lead')} style={{ ['--accent' as string]: PROVIDER_COLOR[lead.provider] }}>
       <SectionTitle section="lead">✦ {t.settings.lead}</SectionTitle>
       <p className="muted small">{t.settings.leadHint}</p>
-      <div className="segmented" role="radiogroup" aria-label={t.settings.lead}>
+      <div className="segmented cli-picker" role="radiogroup" aria-label={t.settings.lead}>
         {PROVIDERS.map((p) => (
           <button
             key={p}
@@ -267,7 +290,7 @@ function LeadCard({
         model={lead.model ?? ''}
         effort={lead.effort ?? ''}
         onChange={(v) => setLead({ ...lead, model: v.model, effort: v.effort })}
-        inheritModelLabel={t.team.defaultModel(pm?.defaultModel ?? (pm ? t.team.cliDecides : t.common.loading))}
+        inheritModelLabel={inheritModelLabel(pm, lead.provider, t)}
         inheritEffortLabel={(model) => {
           const e = pm && inheritedEffort(pm, model);
           return t.team.defaultModel(e ? t.effortLabel(e) : t.team.cliDecides);
@@ -275,10 +298,29 @@ function LeadCard({
       />
       {status && providerState(status) !== 'ok' && (
         <p className="warn-line">
-          {t.settings.leadNotReady(PROVIDER_LABEL[lead.provider])}{' '}
-          <a href={settingsHref(lead.provider)} onClick={() => scrollToSection(lead.provider)}>
-            {t.settings.goSignIn(PROVIDER_LABEL[lead.provider])}
-          </a>
+          {/* Not installed: its card (the executable path). An open agent without a backend: Model backends. Else: sign in. */}
+          {!status.installed ? (
+            <>
+              {t.settings.leadNotInstalled(PROVIDER_LABEL[lead.provider])}{' '}
+              <a href={settingsHref(lead.provider)} onClick={() => scrollToSection(lead.provider)}>
+                {t.settings.goCard(PROVIDER_LABEL[lead.provider])}
+              </a>
+            </>
+          ) : isOpenProvider(lead.provider) ? (
+            <>
+              {t.settings.leadNoBackend(PROVIDER_LABEL[lead.provider])}{' '}
+              <a href={settingsHref('backends')} onClick={() => scrollToSection('backends')}>
+                {t.settings.open.goBackends}
+              </a>
+            </>
+          ) : (
+            <>
+              {t.settings.leadNotReady(PROVIDER_LABEL[lead.provider])}{' '}
+              <a href={settingsHref(lead.provider)} onClick={() => scrollToSection(lead.provider)}>
+                {t.settings.goSignIn(PROVIDER_LABEL[lead.provider])}
+              </a>
+            </>
+          )}
         </p>
       )}
       <div className="button-row">
@@ -295,6 +337,8 @@ function statusPill(s: ProviderStatus | undefined, t: Messages): { text: string;
   const p = t.settings.pill;
   if (!s) return { text: p.checking, cls: '' };
   if (!s.installed) return { text: p.notInstalled, cls: 'off' };
+  // An open agent has no sign-in: it is ready once a model backend is set up (and its adapter is done).
+  if (isOpenProvider(s.provider)) return s.auth.loggedIn ? { text: p.openReady, cls: 'ok' } : { text: p.openNotReady, cls: 'warn' };
   if (s.usingStoredApiKey) return { text: p.apiKey, cls: 'ok' };
   if (s.auth.loggedIn) return { text: p.loggedIn, cls: 'ok' };
   if (s.auth.loggedIn === false) return { text: p.notLoggedIn, cls: 'warn' };
@@ -469,7 +513,7 @@ function ProviderCard({
         </summary>
         <div className="sub-body">
           <p className="muted small">
-            {t.settings.apiKeyHelp[provider]}
+            {t.settings.apiKeyHelp[provider as 'claude' | 'codex' | 'grok']}
             {settings?.apiKeyStorage && t.settings.keyStorage(t.settings.keyStorageName[settings.apiKeyStorage])}
             {settings?.apiKeyStorage === 'database' && t.settings.keyEnvHint(provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY')}
           </p>
@@ -530,6 +574,159 @@ function ProviderCard({
       </details>
 
       <NativeSetupPanel provider={provider} settings={settings} onSettings={onSettings} />
+
+      {note && <p className="muted small">{note}</p>}
+    </section>
+  );
+}
+
+/**
+ * An open agent's card (OpenCode, Goose, Cline, OpenHands, Pi): no sign-in and no key of its own, since
+ * it uses the model backends; its default model and effort, its executable, and what it loads by itself
+ * once its adapter can ask it.
+ */
+function OpenAgentCard({
+  provider,
+  status,
+  catalog,
+  settings,
+  onSettings,
+  onRefresh,
+}: {
+  provider: OpenProvider;
+  status?: ProviderStatus;
+  catalog?: ProviderModels;
+  settings?: ProviderSettingsView;
+  onSettings: (s: SettingsView) => void;
+  onRefresh: () => Promise<void>;
+}) {
+  const t = useT();
+  const o = t.settings.open;
+  const [bin, setBin] = useState('');
+  const [model, setModel] = useState('');
+  const [effort, setEffort] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const pill = statusPill(status, t);
+  const label = PROVIDER_LABEL[provider];
+
+  useEffect(() => {
+    setBin(settings?.bin ?? '');
+    setModel(settings?.defaultModel ?? '');
+    setEffort(settings?.defaultEffort ?? '');
+  }, [settings?.bin, settings?.defaultModel, settings?.defaultEffort]);
+
+  // The terminal switch saves at once; what is being saved shows until then.
+  const [terminal, setTerminal] = useState<boolean | null>(null);
+  const saveTerminal = async (on: boolean) => {
+    setTerminal(on);
+    setNote('');
+    try {
+      onSettings(await api.updateProvider(provider, { sandboxTerminal: on }));
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setTerminal(null);
+    }
+  };
+
+  const save = async () => {
+    setBusy(true);
+    setNote('');
+    try {
+      onSettings(await api.updateProvider(provider, { bin, defaultModel: model, defaultEffort: effort }));
+      await onRefresh();
+      setNote(t.settings.saved);
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card provider-card" id={sectionId(provider)} style={{ ['--accent' as string]: PROVIDER_COLOR[provider] }}>
+      <header className="provider-head">
+        <span className="provider-swatch" />
+        <SectionTitle section={provider}>{label}</SectionTitle>
+        <span className={`pill ${pill.cls}`}>{pill.text}</span>
+        <span className="muted small">
+          {status?.version && `v${status.version}`}
+          {status?.installed && status.auth.detail && ` · ${status.auth.detail}`}
+        </span>
+      </header>
+
+      {status && !status.installed && (
+        <p className="warn-line">
+          <span>
+            {status.auth.detail ?? t.settings.cliMissing(status.bin)}
+            {t.settings.setBinBelow}
+          </span>
+          <a href={PROVIDER_INSTALL_URL[provider]} target="_blank" rel="noopener noreferrer">
+            {t.settings.installCli(PROVIDER_LABEL[provider])} ↗
+          </a>
+        </p>
+      )}
+
+      <p className="muted small">
+        {o.intro(label)}{' '}
+        <a href={settingsHref('backends')} onClick={() => scrollToSection('backends')}>
+          {o.goBackends}
+        </a>
+      </p>
+      <p className="muted small">{o.noSubscription}</p>
+      <p className="muted small">{o.sandbox}</p>
+      {o.notes[provider] && <p className="muted small">{o.notes[provider]}</p>}
+
+      <details className="sub">
+        <summary>
+          {t.settings.defaults}
+          {(settings?.defaultModel || settings?.defaultEffort) &&
+            ` (${[settings.defaultModel, settings.defaultEffort && t.effortLabel(settings.defaultEffort)].filter(Boolean).join(' · ')})`}
+        </summary>
+        <div className="sub-body">
+          <p className="muted small">{t.settings.defaultsHint(label)}</p>
+          {catalog?.error && <p className="warn-line">{t.settings.modelsError(catalog.error)}</p>}
+          <ModelPicker
+            key={`${settings?.defaultModel}|${catalog?.models.length ?? 0}`}
+            catalog={catalog}
+            model={model}
+            effort={effort}
+            onChange={(v) => {
+              setModel(v.model);
+              setEffort(v.effort);
+            }}
+            inheritModelLabel={catalog?.cliDefaultModel ? t.settings.cliDefault(catalog.cliDefaultModel) : catalog ? o.noCliDefault : t.settings.cliDefault(t.settings.unknown)}
+            inheritEffortLabel={() => t.settings.cliDefault(catalog?.cliDefaultEffort ? t.effortLabel(catalog.cliDefaultEffort) : t.settings.unknown)}
+          />
+          <label className="field inline">
+            <span>{t.settings.bin}</span>
+            <input value={bin} placeholder={provider} onChange={(e) => setBin(e.target.value)} spellCheck={false} />
+          </label>
+          <div className="button-row">
+            <button className="ghost" onClick={save} disabled={busy}>
+              {t.common.save}
+            </button>
+          </div>
+        </div>
+      </details>
+
+      {SANDBOX_TERMINAL_SUPPORT.includes(provider) && (
+        <div className="sandbox-terminal">
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={terminal ?? settings?.sandboxTerminal ?? false}
+              disabled={terminal !== null || !settings}
+              onChange={(e) => void saveTerminal(e.target.checked)}
+            />
+            <span>{o.sandboxTerminal.label}</span>
+          </label>
+          <p className="muted small">{o.sandboxTerminal.detail}</p>
+        </div>
+      )}
+
+      {hasNativePanel(provider) && <NativeSetupPanel provider={provider} settings={settings} onSettings={onSettings} />}
 
       {note && <p className="muted small">{note}</p>}
     </section>
@@ -768,6 +965,12 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     claude: PROVIDER_LABEL.claude,
     codex: PROVIDER_LABEL.codex,
     grok: PROVIDER_LABEL.grok,
+    backends: short.backends,
+    opencode: PROVIDER_LABEL.opencode,
+    goose: PROVIDER_LABEL.goose,
+    cline: PROVIDER_LABEL.cline,
+    openhands: PROVIDER_LABEL.openhands,
+    pi: PROVIDER_LABEL.pi,
     lead: short.lead,
     tools: short.tools,
     voice: short.voice,

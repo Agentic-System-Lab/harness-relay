@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
+  isOpenProvider,
   inheritedEffort,
   type AgentConfig,
   type ConversationSchedule,
@@ -17,7 +18,7 @@ import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
 import { settingsHref } from '../route';
 import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
-import { PROVIDER_COLOR, initials, newAgent, switchProvider, type ModelChoice } from '../util';
+import { PROVIDER_COLOR, inheritModelLabel, initials, newAgent, switchProvider, type ModelChoice } from '../util';
 import { CwdInput } from './CwdInput';
 import { GrokTrustNote } from './GrokTrust';
 import { ModelPicker } from './ModelPicker';
@@ -155,7 +156,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                     </div>
                   </div>
 
-                  <div className="segmented" role="radiogroup" aria-label={t.team.codingAgent}>
+                  <div className="segmented cli-picker" role="radiogroup" aria-label={t.team.codingAgent}>
                     {PROVIDERS.map((p) => (
                       <button
                         key={p}
@@ -196,7 +197,11 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
 
                   {state !== 'ok' && status && (
                     <p className="warn-line">
-                      {status.installed ? t.team.notLoggedIn(PROVIDER_LABEL[a.provider]) : t.team.cliMissing(PROVIDER_LABEL[a.provider])}
+                      {!status.installed
+                        ? t.team.cliMissing(PROVIDER_LABEL[a.provider])
+                        : isOpenProvider(a.provider)
+                          ? t.team.noBackend(PROVIDER_LABEL[a.provider])
+                          : t.team.notLoggedIn(PROVIDER_LABEL[a.provider])}
                       <a href={settingsHref(a.provider)}>{t.team.goSettings}</a>
                     </p>
                   )}
@@ -453,7 +458,7 @@ function AgentModelPicker({
       model={agent.model ?? ''}
       effort={agent.effort ?? ''}
       onChange={onChange}
-      inheritModelLabel={t.team.defaultModel(catalog?.defaultModel ?? (catalog ? t.team.cliDecides : t.common.loading))}
+      inheritModelLabel={inheritModelLabel(catalog, agent.provider, t)}
       inheritEffortLabel={(model) => {
         const e = catalog && inheritedEffort(catalog, model);
         return t.team.defaultModel(e ? t.effortLabel(e) : t.team.cliDecides);

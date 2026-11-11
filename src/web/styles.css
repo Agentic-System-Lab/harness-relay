@@ -20,6 +20,11 @@
   --claude: #d97757;
   --codex: #10a37f;
   --grok: #7c5cff;
+  --opencode: #2563eb;
+  --goose: #b45309;
+  --cline: #c026d3;
+  --openhands: #0891b2;
+  --pi: #64748b;
 
   --radius: 14px;
   --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC',
@@ -1259,6 +1264,19 @@ p {
 
 .segmented button.danger.on {
   color: var(--danger);
+}
+
+/* A choice of CLI (eight of them, nine with "All members"): an even grid that wraps into rows
+   instead of running past its card, at any width. */
+.segmented.cli-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+}
+
+.segmented.cli-picker button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .segmented.wide {
@@ -4766,6 +4784,24 @@ details.sub summary {
 
 .check-row input {
   margin: 0;
+}
+
+.sandbox-terminal {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.sandbox-terminal .check-row {
+  align-items: flex-start;
+}
+
+.sandbox-terminal .check-row input {
+  margin-top: 3px;
+}
+
+.sandbox-terminal p {
+  margin: 0 0 0 24px;
 }
 
 .memory-input {

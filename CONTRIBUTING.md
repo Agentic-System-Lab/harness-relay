@@ -12,7 +12,7 @@ Open an issue and include:
 
 - what you did, what you expected and what happened instead;
 - your operating system, Node.js version (`node --version`) and Harness Relay commit (`git rev-parse --short HEAD`);
-- the agent CLIs involved and their versions (`claude --version`, `codex --version`, `grok --version`);
+- the agent CLIs involved and their versions (`claude --version`, `codex --version`, `grok --version`, `opencode --version`…), and for an open-source agent the kind of model backend (an API or your own endpoint, and which server);
 - the conversation's mode (roundtable, parallel or relay), permission (read-only, edit or full access), and whether the lead agent's team is used without asking;
 - the error shown on the message (it includes the end of the CLI's stderr) and the `[server]` lines from the `npm run dev` output around that time.
 
@@ -28,7 +28,7 @@ Open an issue that describes the problem you want solved before you describe a s
 
 ## Setting up
 
-You need Node.js **22.13 or later**. The agent CLIs (`claude`, `codex`, `grok`) are only needed to try the app by hand; the tests never run them.
+You need Node.js **22.13 or later**. The agent CLIs (`claude`, `codex`, `grok`, and the open-source `opencode`, `goose`, `cline`, `openhands`, `pi`) are only needed to try the app by hand; the tests never run them, and never start a real sandbox (`scripts/sandbox-check.ts` does that, by hand).
 
 ```bash
 git clone https://github.com/Agentic-System-Lab/harness-relay.git
@@ -59,6 +59,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 - New routes go under `/api/`, so they get the Host/Origin checks, the JSON content-type check on writes, sign-in and the request language. Don't weaken these checks. Only a read-only route the browser loads by itself (an image, a download link) may take the cookie without the key (`BROWSER_LOADS` in `src/server/app.ts`).
 - Never send secrets to the client. API keys belong in the OS credential store (`src/server/secrets.ts`), not in the database.
 - The server binds to `127.0.0.1`, and agent replies must not make the browser load remote content (images are shown as links; local media goes through the media endpoint's path checks).
+- An open-source agent's process starts only through `startOpenProcess()` (`src/server/agents/open.ts`), which puts it in Harness Relay's own sandbox below full access and fails closed. Model keys reach the CLI in environment variables (only the run's own backend's), never in the config files its adapter writes, and everything a run writes goes in the conversation member's own state folder (`home(root, state)`). A sandbox opening is asked for by one adapter for its own CLI only, and documented in [docs/open-agents.md](docs/open-agents.md) and [docs/sandboxing.md](docs/sandboxing.md).
 
 ### Database
 

@@ -1,5 +1,6 @@
 import type { Conversation, ConversationGroup, Provider } from '../shared/types';
 import { runners } from './agents';
+import { stateKeys } from './agents/types';
 import { parsePlanReply } from './planner';
 import type { SettingsStore } from './settings';
 import type { Store } from './store';
@@ -72,6 +73,8 @@ export class AutoGrouper {
     private settings: SettingsStore,
     /** Told about the sorter's session, so AgentsView files it under the conversation. */
     private onSession?: (conv: Conversation, provider: Provider, sessionId: string) => void,
+    /** The model the lead agent runs on (`Orchestrator.modelFor`): an open agent's picker default too. */
+    private modelFor?: (p: Provider, chosen?: string) => Promise<string | undefined>,
   ) {}
 
   /** The lead agent is sorting this conversation right now. */
@@ -113,13 +116,16 @@ export class AutoGrouper {
     const result = await runners[lead.provider].run({
       bin: this.settings.bin(lead.provider),
       env: this.settings.env(lead.provider),
+      backends: this.settings.backendsFor(lead.provider),
       nativeOff: this.settings.nativeOff(lead.provider),
       nativeItems: this.settings.nativeItems(lead.provider),
+      sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
       prompt,
       systemPrompt: GROUPER_BRIEFING,
       cwd: conv.settings.cwd,
       permission: 'read-only',
-      model: lead.model || this.settings.defaultModel(lead.provider) || undefined,
+      stateKey: stateKeys.sort(conv.id),
+      model: this.modelFor ? await this.modelFor(lead.provider, lead.model) : lead.model || this.settings.defaultModel(lead.provider) || undefined,
       effort: lead.effort || this.settings.defaultEffort(lead.provider) || undefined,
       signal,
       onEvent: (e) => {
