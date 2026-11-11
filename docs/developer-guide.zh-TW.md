@@ -130,6 +130,8 @@ playwright.config.ts       端對端測試的設定（E2E_BROWSERS）
 .github/workflows/ci.yml   CI：pull request 與推送到 main 時執行型別檢查、測試與建置；為 Linux 打包桌面 app 並檢查
 .github/workflows/e2e.yml  在 Linux、macOS 與 Windows 上執行端對端測試
 .github/workflows/pages.yml  把 site/ 發佈到 GitHub Pages
+.github/ISSUE_TEMPLATE/    issue 表單（回報問題、功能建議；每份都有兩種語言）與旁邊的連結
+.github/pull_request_template.md  pull request 說明要涵蓋的內容（兩種語言）
 scripts/preview-site.ts    npm run site:preview：在本機以 Pages 的方式提供 site/
 scripts/app-icons.ts       npm run icons：畫出主畫面圖示，並寫出 web app manifest
 scripts/release.ts         發佈版本的規則：npm run release:next、npm run release:check、發佈 workflow

@@ -130,6 +130,8 @@ playwright.config.ts       the end-to-end tests' configuration (E2E_BROWSERS)
 .github/workflows/ci.yml   CI: typecheck, tests and build on pull requests and pushes to main; the desktop app packaged for Linux and checked
 .github/workflows/e2e.yml  the end-to-end tests on Linux, macOS and Windows
 .github/workflows/pages.yml  publishes site/ to GitHub Pages
+.github/ISSUE_TEMPLATE/    the issue forms (bug report, feature request; both languages in each) and the links beside them
+.github/pull_request_template.md  what a pull request's description covers (both languages)
 scripts/preview-site.ts    npm run site:preview: serves site/ locally like Pages
 scripts/app-icons.ts       npm run icons: draws the home-screen icons and writes the web app manifest
 scripts/release.ts         the release version rules: npm run release:next, npm run release:check, the Release workflow
