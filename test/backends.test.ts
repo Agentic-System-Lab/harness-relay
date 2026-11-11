@@ -240,6 +240,35 @@ describe('ModelBackendStore', () => {
     ok();
   });
 
+  it('says there is no key, not an unreadable one, after a failed edit replaced a key the credential store could not give', () => {
+    const keyring = fakeKeyring();
+    new ModelBackendStore(db, keyring).putEndpoint('homelab', { ...endpoint, apiKey: 'secret-a' });
+    const locked: typeof keyring = {
+      ...keyring,
+      get: (name) => {
+        if (name === 'endpoint-homelab-api-key') throw new Error('the keyring is locked');
+        return keyring.get(name);
+      },
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const s = new ModelBackendStore(reopen(), locked);
+      expect(s.view().endpoints[0]).toMatchObject({ keyUnreadable: true });
+      db.exec("CREATE TRIGGER no_endpoints BEFORE INSERT ON model_backends BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+      // An edit that leaves the key alone keeps it marked unreadable.
+      expect(() => s.putEndpoint('homelab', { ...endpoint, name: 'Lab' })).toThrow(/disk full/);
+      expect(s.view().endpoints[0]).toMatchObject({ keyUnreadable: true });
+      // One that set a key replaced it: there is none now, and Settings says so.
+      expect(() => s.putEndpoint('homelab', { ...endpoint, apiKey: 'secret-b' })).toThrow(/disk full/);
+      expect(s.view().endpoints[0]).not.toHaveProperty('keyUnreadable');
+      expect(s.view().endpoints[0]!.keyMasked).toBe('');
+      expect(keyring.data.has('endpoint-homelab-api-key')).toBe(false);
+      db.exec('DROP TRIGGER no_endpoints');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('keeps a deleted endpoint remembered when adding it again could not be saved', () => {
     const s = new ModelBackendStore(db);
     s.putEndpoint('homelab', endpoint);
@@ -550,7 +579,8 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     expect(changed).toHaveBeenCalledTimes(2);
   });
 
-  it('shows an open agent ready once it is installed, its adapter is done and a backend is set up; it has no sign-in', async () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('shows an open agent ready once it is installed, its adapter is done and a backend is set up; it has no sign-in', async () => {
     const { app, settings, providers } = setup();
     const fake = join(root, 'fake-opencode');
     writeFileSync(fake, '#!/bin/sh\necho "1.19.5"\n', { mode: 0o755 });

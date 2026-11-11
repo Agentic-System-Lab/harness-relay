@@ -394,8 +394,29 @@ const MIGRATIONS: string[] = [
   `,
 ];
 
+/**
+ * The migrations of the model backends and what followed them (now 22–26) were 21–25 for a while, in
+ * builds that were never released, before 21 went to several working directories. A data folder those
+ * builds migrated is at a version one lower than what it holds, and has never had today's 21. Told by
+ * what it has (`model_backends`) and lacks (`conversations.extra_cwds`), it gets 21 and goes up by one,
+ * so that the migrations after what it holds run on it as on any other. Returns its version then.
+ */
+function repairEarlyNumbering(db: Database, version: number): number {
+  if (version < 21 || version > 25) return version;
+  const has = (sql: string) => Boolean(db.prepare(sql).get());
+  const early =
+    has("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'model_backends'") &&
+    !has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'");
+  if (!early) return version;
+  transaction(db, () => {
+    db.exec(MIGRATIONS[20]!);
+    db.exec(`PRAGMA user_version = ${version + 1}`);
+  });
+  return version + 1;
+}
+
 function migrate(db: Database): void {
-  const current = Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
+  const current = repairEarlyNumbering(db, Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version));
   for (let v = current; v < MIGRATIONS.length; v++) {
     transaction(db, () => {
       db.exec(MIGRATIONS[v]!);

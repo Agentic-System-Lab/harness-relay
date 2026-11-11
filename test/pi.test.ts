@@ -210,7 +210,8 @@ const http: McpServerSpec = { name: 'my docs.v2', transport: 'http', command: ''
 // --- Home, config and arguments -----------------------------------------------------------------
 
 describe('Pi: home and config', () => {
-  it('keeps its sessions in its home and never points at ~/.pi', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('keeps its sessions in its home and never points at ~/.pi', () => {
     const layout = piHomeLayout('/h');
     expect(layout).toEqual({
       env: { PI_CODING_AGENT_DIR: '/h/agent', PI_CODING_AGENT_SESSION_DIR: '/h/sessions', ...PI_ENV },
@@ -373,7 +374,8 @@ describe('Pi: home and config', () => {
     await preparePi(context({ permission: 'full', cwd: join(PI_GATE_PATH, '..') }));
   });
 
-  it('builds its arguments for each backend and permission', async () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('builds its arguments for each backend and permission', async () => {
     const cases: [string, Permission, Partial<RunOptions>][] = [
       ['openai/gpt-5.4-nano', 'full', {}],
       ['anthropic/claude-haiku-5-5', 'edit', { effort: 'high' }],
@@ -699,7 +701,8 @@ describe('Pi: events from recorded runs', () => {
 
 // --- Prompt, catalog and what it loads by itself ---------------------------------------------------------
 
-describe('Pi: prompt, catalog and native', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('Pi: prompt, catalog and native', () => {
   it('sends the prompt, a leading slash defused, with the images that fit', () => {
     const png = join(root, 'tiny.png');
     writeFileSync(png, Buffer.from('89504e470d0a1a0a', 'hex'));
@@ -765,7 +768,8 @@ describe('Pi: prompt, catalog and native', () => {
 
 // --- Whole turns against the fake Pi ------------------------------------------------------------------------
 
-describe('Pi: turns', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
   it('a text turn: the session, the reply, usage; LF-only framing across chunks', async () => {
     const r = run({ FAKE_PI_CHUNKED: '1', FAKE_PI_NOISE: '1' });
     const result = await piTurn(r.o, deps());

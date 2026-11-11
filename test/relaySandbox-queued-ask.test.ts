@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Duplex } from 'node:stream';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -12,7 +13,7 @@ import type { Conversation } from '../src/shared/types';
  * ends the turn the way acpTurn does (dispose, then return).
  */
 // In /tmp: the data folder's path must leave room for the sandbox's sockets (macOS's own temp folder is too deep).
-const root = realpathSync(mkdtempSync('/tmp/relay-queued-ask-'));
+const root = realpathSync(mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'relay-queued-ask-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { openDatabase } = await import('../src/server/db');
@@ -46,7 +47,8 @@ function runOnChannel(requestApproval: ConstructorParameters<typeof RelaySandbox
   return { run, back, ask };
 }
 
-describe('a network ask queued when the turn ends', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('a network ask queued when the turn ends', () => {
   it('is refused without asking the user', async () => {
     const asked: string[] = [];
     let answerFirst: (a: { allow: boolean }) => void = () => undefined;

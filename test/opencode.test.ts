@@ -197,7 +197,8 @@ const textOf = (r: Turn) =>
     .map((e) => e.text)
     .join('');
 
-describe('OpenCode turns replayed from the real CLI', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the real CLI', () => {
   it('runs a text turn on an endpoint: its model as relay-<id>, thinking and text, tokens', async () => {
     const r = turn('text-only', { model: 'homelab/muse-glimmer-30b-nvfp4' });
     const result = await runTurn(r);
@@ -508,7 +509,8 @@ function context(over: Partial<RunOptions> = {}, model = 'anthropic/claude-haiku
 }
 
 describe('its home', () => {
-  it('points every folder into the home, and says which are state and which config', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('points every folder into the home, and says which are state and which config', () => {
     const h = opencodeHome('/h');
     expect(h.env).toMatchObject({
       XDG_CONFIG_HOME: '/h/config',
@@ -527,7 +529,8 @@ describe('its home', () => {
     expect(opencodePaths('/h').db).toBe('/h/data/opencode/opencode.db');
   });
 
-  it('keeps its config folder exactly as Harness Relay writes it, read-only, and the home stand-in empty', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('keeps its config folder exactly as Harness Relay writes it, read-only, and the home stand-in empty', () => {
     const home = join(root, `home-${++n}`);
     ensureOpencodeHome(home);
     const p = opencodePaths(home);
@@ -1006,7 +1009,8 @@ describe('refusal reasons', () => {
 });
 
 describe('keeping its server to Harness Relay', () => {
-  it('runs its commands through a fixed read-only shell that drops the server password (shell from the environment)', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('runs its commands through a fixed read-only shell that drops the server password (shell from the environment)', () => {
     const home = join(root, `shell-${++n}`);
     ensureOpencodeHome(home);
     const wrapper = join(opencodePaths(home).configDir, OPENCODE_SHELL);
@@ -1033,7 +1037,8 @@ describe('keeping its server to Harness Relay', () => {
     expect(['/bin/bash', '/bin/sh']).toContain(opencodeUserShell(undefined, 'linux'));
   });
 
-  it('below full access refuses the hidden-substitution forms OpenCode would not ask about, and runs ordinary commands', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('below full access refuses the hidden-substitution forms OpenCode would not ask about, and runs ordinary commands', () => {
     const home = join(root, `shell2-${++n}`);
     ensureOpencodeHome(home);
     const wrapper = join(opencodePaths(home).configDir, OPENCODE_SHELL);
@@ -1433,7 +1438,8 @@ describe('usage and errors', () => {
   });
 });
 
-describe('its catalog and what it loads by itself', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('its catalog and what it loads by itself', () => {
   const verbose = readFileSync(join(FIXTURES, 'cli', 'models-verbose.txt'), 'utf8');
 
   it("lists the API backends' models that call tools and answer in text, with their efforts", () => {

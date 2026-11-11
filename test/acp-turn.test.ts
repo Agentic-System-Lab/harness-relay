@@ -131,7 +131,8 @@ function fakeSandbox(specs: RelaySandboxSpec[], disposed: string[] = [], failure
   };
 }
 
-describe('the generic ACP turn', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
   it('turns session updates into events, sets the model and effort, and reports usage', async () => {
     const r = run({}, { effort: 'high', model: 'openai/gpt-5.4' });
     const result = await acpTurn(r.o, spec(), deps());
@@ -558,7 +559,8 @@ describe('the generic ACP turn', () => {
   });
 });
 
-describe('the open agent process', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('the open agent process', () => {
   it('runs below full access only in the relay sandbox: its folders, the protected paths and the run’s hosts', async () => {
     const specs: RelaySandboxSpec[] = [];
     const disposed: string[] = [];

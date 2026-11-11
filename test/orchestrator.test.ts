@@ -602,7 +602,8 @@ describe("each member's own state, and a session that ran with less permission",
     expect(alice().at(-1)!.prompt).toContain('Here is the group chat so far:');
   });
 
-  it('does not run an open agent whose state folder could not be emptied, and empties it at the next turn', async () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('does not run an open agent whose state folder could not be emptied, and empties it at the next turn', async () => {
     await withOpenAgents(async () => {
       const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
       conv.agents = [{ ...agents[0]!, provider: 'opencode' }];

@@ -316,10 +316,12 @@ export class ModelBackendStore {
         } catch (err) {
           console.warn(`[backends] could not put back the ${id} API key in the system keyring: ${(err as Error).message}`);
         }
+        // One that could not be read at startup was replaced, so it cannot come back: there is none now.
+        if (flags.unreadable) console.warn(`[backends] the ${id} API key the system keyring could not give is gone: set it again`);
       }
       if (flags.leftInDb) this.keysLeftInDb.add(id);
       else this.keysLeftInDb.delete(id);
-      if (flags.unreadable) this.unreadable.add(id);
+      if (flags.unreadable && !keyStored) this.unreadable.add(id);
       else this.unreadable.delete(id);
     };
     const persist = () => {

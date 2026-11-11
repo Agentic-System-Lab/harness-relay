@@ -139,7 +139,8 @@ describe('the same sweep without blocking the server (a run’s teardown)', () =
     expect(await sweepRunSandboxesAsync([runTmp], deps(), () => undefined, stuck)).toBe(false);
   });
 
-  it('runs a program with input and returns its output (or its failure)', async () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('runs a program with input and returns its output (or its failure)', async () => {
     expect(await runAsync('/bin/cat', [], 'hello\n')).toMatchObject({ status: 0, stdout: 'hello\n' });
     const missing = await runAsync('/no/such/program', []);
     expect(missing.error).toBeDefined();

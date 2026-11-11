@@ -273,7 +273,8 @@ describe('what a deleted conversation and a stopped server leave', () => {
     for (const dir of kept) expect(existsSync(dir), dir).toBe(true);
   });
 
-  it('empties a state folder whatever the run did to it, and never touches what a link in it points to', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('empties a state folder whatever the run did to it, and never touches what a link in it points to', () => {
     const home = homes[0]!;
     const dir = leave(home, stateKeys.member('c4', 'a'));
     // A folder the run made unreadable, one with a read-only file, and links to a folder and a file outside.
@@ -327,7 +328,8 @@ describe('what a deleted conversation and a stopped server leave', () => {
     }
   });
 
-  it("clears at start what runs of a stopped server left: run temp folders and keyless runs' state, not a key's", () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')("clears at start what runs of a stopped server left: run temp folders and keyless runs' state, not a key's", () => {
     const runTmp = join(root, 'left-run-tmp');
     mkdirSync(join(runTmp, 'opencode-1a2b'), { recursive: true });
     const keyless = join(homes[1]!, PRIVATE_DIR, 'run-0123abcd');

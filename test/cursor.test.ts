@@ -303,7 +303,8 @@ describe("Cursor's settings for one run", () => {
     expect(cursorConfigDir({}, '/home/u')).toBe(join('/home/u', '.cursor'));
   });
 
-  it("makes a private folder with the run's settings and a link to the account's sessions, and removes only it", () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')("makes a private folder with the run's settings and a link to the account's sessions, and removes only it", () => {
     const account = mkdtempSync(join(tmpdir(), 'relay-cursor-account-'));
     try {
       writeFileSync(join(account, 'cli-config.json'), JSON.stringify({ permissions: { allow: ['Shell(ls)'] } }));
@@ -371,7 +372,8 @@ describe("Cursor's models", () => {
   });
 });
 
-describe('a Cursor turn (with a stand-in cursor-agent)', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('a Cursor turn (with a stand-in cursor-agent)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'relay-fake-cursor-'));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   // Answers like cursor-agent 2026.11.11's ACP server: a resumed session replays its history before

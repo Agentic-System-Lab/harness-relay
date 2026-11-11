@@ -23,6 +23,7 @@ import {
   relayFolderOverlap,
   relayFolderRefusal,
   relayTmpDir,
+  voiceFolder,
 } from './protect';
 import { runAsync, sweepRunSandboxes, sweepRunSandboxesAsync } from './sandboxProcs';
 import { clearUserFlags, removeTree } from './fsRemove';
@@ -165,6 +166,8 @@ export interface RelaySandboxContext {
   home: string;
   dataDir: string;
   relayRoot: string;
+  /** Voice input's folder (`voiceFolder()` of the data folder when left out), which no run may write. */
+  voiceDir?: string;
   /** Harness Relay's own ports (the API, and Vite's in development), never reachable from the sandbox. */
   relayPorts: number[];
   /** This computer's own addresses (its network interfaces). */
@@ -683,7 +686,7 @@ export function relaySandboxPaths(
  */
 export function relaySandboxRefusal(
   spec: Pick<RelaySandboxSpec, 'permission' | 'cwd' | 'extraCwds' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir'>,
-  ctx: Pick<RelaySandboxContext, 'home' | 'dataDir' | 'relayRoot'>,
+  ctx: Pick<RelaySandboxContext, 'home' | 'dataDir' | 'relayRoot' | 'voiceDir'>,
   o: { bins?: string[]; programs?: string[] } = {},
 ): string | undefined {
   const cwds = [spec.cwd, ...(spec.extraCwds ?? [])];
@@ -699,10 +702,13 @@ export function relaySandboxRefusal(
     }
   }
   const writes = [...spec.writable, ...(spec.permission === 'edit' ? [...cwds, ...(spec.attachmentsDir ? [spec.attachmentsDir] : [])] : [])];
-  const roots = { install: ctx.relayRoot, data: ctx.dataDir };
+  const voice = ctx.voiceDir ?? voiceFolder(ctx.dataDir);
+  const roots = { install: ctx.relayRoot, data: ctx.dataDir, voice };
   const others = agentFolders({ home: ctx.home });
   for (const w of writes) {
-    if (relayFolderOverlap(w, roots)) return t().relaySandboxWritable(w, ctx.relayRoot);
+    const overlap = relayFolderOverlap(w, roots);
+    // Named for what it overlaps: voice input's folder, else Harness Relay's.
+    if (overlap) return t().relaySandboxWritable(w, overlap === 'voice' ? voice : ctx.relayRoot);
     if (isWithin(ctx.home, w)) return t().relaySandboxWritable(w, ctx.home);
     const folder = others.find((f) => isWithin(f, w) || isWithin(w, f));
     if (folder) return t().relaySandboxWritable(w, folder);

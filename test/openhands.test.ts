@@ -264,7 +264,8 @@ function runCtx(over: Partial<RunOptions> = {}, run: Partial<BackendRun> = {}): 
 }
 
 describe('the run home and settings', () => {
-  it('keeps only the sessions in the agent home, and points the CLI there', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('keeps only the sessions in the agent home, and points the CLI there', () => {
     expect(openhandsHome('/h')).toEqual({
       env: { OPENHANDS_CONVERSATIONS_DIR: '/h/conversations', OPENHANDS_SUPPRESS_BANNER: '1', ...LITELLM_LOCAL },
       statePaths: ['/h/conversations'],
@@ -342,7 +343,8 @@ describe('the run home and settings', () => {
     expect(openhandsBashrc({})).toMatch(/export HOME='[^']+'/);
   });
 
-  it('never runs tmux below full access (a backgrounded command would outlive the turn); with full access, tmux', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('never runs tmux below full access (a backgrounded command would outlive the turn); with full access, tmux', () => {
     const short = mkdtempSync(join(tmpdir(), 'oh-'));
     const long = join(short, 'd'.repeat(90));
     mkdirSync(long);
@@ -362,11 +364,13 @@ describe('the run home and settings', () => {
     rmSync(short, { recursive: true });
   });
 
-  it('finds a session folder by its id without dashes', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('finds a session folder by its id without dashes', () => {
     expect(openhandsSessionDir('/c', '848BDC7F-74c6-47b7-af8d-cd9c51802610')).toBe('/c/848bdc7f74c647b7af8dcd9c51802610');
   });
 
-  it('writes the run home: settings, briefing with the refusal note, public skills off, MCP, .bashrc; the env set explicitly', async () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('writes the run home: settings, briefing with the refusal note, public skills off, MCP, .bashrc; the env set explicitly', async () => {
     const ctx = runCtx({ permission: 'read-only', effort: 'medium', mcpServers: [{ name: 'files', transport: 'stdio', command: 'node', args: [], env: {}, url: '', headers: {} }] });
     ctx.sandboxed = false;
     prepareOpenhands(ctx, 501, 'darwin');
@@ -477,7 +481,8 @@ describe('the run home and settings', () => {
     expect(SANDBOX_TERMINAL_SUPPORT).toEqual(['openhands']);
   });
 
-  it('without tmux, a tmux that fails comes first on its PATH (it has no other switch), read-only in the sandbox', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('without tmux, a tmux that fails comes first on its PATH (it has no other switch), read-only in the sandbox', () => {
     const ctx = runCtx({}, {});
     ctx.sandboxed = true;
     ctx.env.PATH = '/usr/bin';
@@ -834,7 +839,8 @@ describe('its errors', () => {
   });
 });
 
-describe('its stored sessions', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('its stored sessions', () => {
   const dir = () => join(root, `session-${++n}`);
 
   it('reads the actions it would run on resume as OpenHands does: no answer after them, by action id or by call', () => {
@@ -1048,7 +1054,8 @@ describe('its stored sessions', () => {
   });
 });
 
-describe('turns replayed from the real CLI', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI', () => {
   it('a text turn on each backend: one prompt, its system-prompt thought dropped, the turn\'s usage', async () => {
     for (const [fixture, model, input, output, cost] of [
       ['text-anthropic', 'anthropic/claude-haiku-5-5', 22309, 4, 0.0022329],

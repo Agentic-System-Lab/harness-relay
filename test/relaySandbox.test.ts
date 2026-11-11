@@ -52,7 +52,7 @@ import {
 import type { ApprovalAnswer } from '../src/shared/types';
 
 // In /tmp: the data folder's path must leave room for the sandbox's sockets (macOS's own temp folder is too deep).
-const dir = realpathSync(mkdtempSync('/tmp/relay-sbx-'));
+const dir = realpathSync(mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'relay-sbx-')));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 const data = join(dir, 'data');
@@ -94,7 +94,8 @@ function spec(over: Partial<RelaySandboxSpec> = {}): RelaySandboxSpec {
 
 const runDirs = { tmp: join(data, 'relay-sandbox', 'run1'), hostTmp: join(data, 'relay-sandbox', 'run1.host') };
 
-describe('relaySandboxPaths', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('relaySandboxPaths', () => {
   it("keeps every agent's project config and hook folders read-only in edit mode, Cline's .clinerules too", () => {
     for (const name of ['.clinerules', '.cline', 'opencode.json', 'opencode.jsonc', '.opencode', '.openhands', '.pi', '.agents', '.goose', '.claude', '.codex', '.grok', '.cursor', '.mcp.json']) {
       expect(PROJECT_AGENT_CONFIG).toContain(name);
@@ -193,7 +194,8 @@ describe('relaySandboxPaths', () => {
   });
 });
 
-describe('relaySandboxConfig', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('relaySandboxConfig', () => {
   it('gives every path as a literal name, and closes the network around the proxy', () => {
     const paths = relaySandboxPaths(spec({ protectedPaths: [join(home, 'odd[1]')] }), ctx, runDirs);
     const hosts = relaySandboxHosts(['api.openai.com'], ctx);
@@ -258,7 +260,8 @@ describe('relaySandboxConfig', () => {
   });
 });
 
-describe('connect-only ports', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('connect-only ports', () => {
   it('are reached through the proxy by every loopback name, and never served', () => {
     expect(relaySandboxConnectPorts([7777, 7777])).toEqual(['localhost:7777']);
     expect(relaySandboxConnectPorts(undefined)).toEqual([]);
@@ -288,7 +291,8 @@ describe('connect-only ports', () => {
   });
 });
 
-describe('host names that lead to this computer', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('host names that lead to this computer', () => {
   it('are never looked up by the server: a name is asked about like any other (sandbox-runtime refuses a local one when it dials)', async () => {
     const asked: string[] = [];
     const { run, host } = newRun(async (req) => (asked.push(req.detail!), { allow: false }));
@@ -313,7 +317,8 @@ describe('host names that lead to this computer', () => {
   });
 });
 
-describe('hosts', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('hosts', () => {
   it('reads host and host:port entries, and nothing else', () => {
     expect(parseHostEntry('api.openai.com')).toEqual({ host: 'api.openai.com' });
     expect(parseHostEntry('API.x.ai:443')).toEqual({ host: 'api.x.ai', port: 443 });
@@ -429,7 +434,8 @@ describe('hosts', () => {
   });
 });
 
-describe('relaySandboxRefusal', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('relaySandboxRefusal', () => {
   it('passes a well-formed spec', () => {
     expect(relaySandboxRefusal(spec(), ctx)).toBeUndefined();
     expect(relaySandboxRefusal(spec({ permission: 'edit' }), ctx)).toBeUndefined();
@@ -439,6 +445,12 @@ describe('relaySandboxRefusal', () => {
     expect(relaySandboxRefusal(spec({ writable: ['state'] }), ctx)).toMatch(/state/);
     expect(relaySandboxRefusal(spec({ protectedPaths: [join(home, 'Profiles*')] }), ctx)).toMatch(/Profiles\*/);
     expect(relaySandboxRefusal(spec({ readOnly: [join(home, 'conf[1].json')] }), ctx)).toMatch(/conf\[1\]/);
+  });
+
+  it("names voice input's folder when a folder the run may write overlaps it", () => {
+    const voice = join(dir, 'voice-elsewhere');
+    expect(relaySandboxRefusal(spec({ writable: [join(voice, 'models')] }), { ...ctx, voiceDir: voice })).toContain(voice);
+    expect(relaySandboxRefusal(spec({ writable: [join(voice, 'models')] }), { ...ctx, voiceDir: voice })).not.toContain(ctx.relayRoot);
   });
 
   it('refuses edit mode in Harness Relay or the home folder, but not read-only', () => {
@@ -473,7 +485,8 @@ describe('relaySandboxRefusal', () => {
   });
 });
 
-describe('relaySandboxEnv', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('relaySandboxEnv', () => {
   const env = {
     PATH: '/agent/bin:/usr/bin',
     HOME: home,
@@ -632,7 +645,8 @@ function newRun(requestApproval?: (req: ApprovalRequest) => Promise<ApprovalAnsw
 
 const answers = (lines: string[]) => lines.map((l) => JSON.parse(l)).filter((m) => m.t === 'answer');
 
-describe('disposing of a run whose leftovers survive', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('disposing of a run whose leftovers survive', () => {
   const disposeWith = async (bySandbox: boolean, byMarker: boolean) => {
     const dirs = makeRunDirs(data);
     const run = new RelaySandboxRun(dirs, {}, {
@@ -651,7 +665,8 @@ describe('disposing of a run whose leftovers survive', () => {
   });
 });
 
-describe('RelaySandboxRun', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('RelaySandboxRun', () => {
   it('sends the run its rules first, over its own channel only', async () => {
     const { run, host } = newRun();
     await until(() => host.lines.length > 0);
@@ -809,7 +824,8 @@ describe('RelaySandboxRun', () => {
   });
 });
 
-describe('run folders and their markers', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('run folders and their markers', () => {
   it("keeps the host's temp folder in the data folder, and refuses a data folder too long for its sockets", async () => {
     const d = makeRunDirs(data);
     expect(dirname(d.hostTmp)).toBe(relaySandboxHostRoot(data));
@@ -890,7 +906,8 @@ describe('run folders and their markers', () => {
   });
 });
 
-describe('run folders', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('run folders', () => {
   it('makes fresh folders and a fresh marker in the data folder', () => {
     const d = makeRunDirs(data);
     expect(d.tmp.startsWith(relaySandboxRoot(data))).toBe(true);
@@ -920,7 +937,8 @@ describe('run folders', () => {
   });
 });
 
-describe('leftoverSweepPids (startup sweep selection)', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('leftoverSweepPids (startup sweep selection)', () => {
   const ps = ['100 1', '200 100', '201 100', '300 200', '400 1', '500 999'].join('\n');
   it('kills every holder and its descendants, excluding this server and init', () => {
     // 100 holds a leftover file; 200/201 are its children, 300 a grandchild; 400 holds one too.
@@ -937,7 +955,8 @@ describe('leftoverSweepPids (startup sweep selection)', () => {
   });
 });
 
-describe('the host', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('the host', () => {
   it('runs with type stripping where Node does not do it by default', () => {
     expect(hostArgs({ typescript: false })).toEqual(['--experimental-strip-types', '--disable-warning=ExperimentalWarning', RELAY_SANDBOX_HOST]);
     expect(hostArgs({ typescript: 'strip' })).toEqual(['--disable-warning=ExperimentalWarning', RELAY_SANDBOX_HOST]);
@@ -972,7 +991,8 @@ describe('the host', () => {
   });
 });
 
-describe('fail closed', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('fail closed', () => {
   it('refuses native Windows, other platforms, missing programs and processors without the seccomp helper', async () => {
     const win = await sandboxAvailable({ ...ctx, platform: 'win32' });
     expect(win.ok).toBe(false);
@@ -1039,7 +1059,8 @@ describe('fail closed', () => {
   });
 });
 
-describe('process.ts control channel', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('process.ts control channel', () => {
   it('gives a process fd 3 when its env carries a channel, and leaves the variable out', async () => {
     const got: string[] = [];
     const env: NodeJS.ProcessEnv = { PATH: '/usr/bin:/bin' };

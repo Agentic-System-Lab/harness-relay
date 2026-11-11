@@ -482,7 +482,8 @@ describe("Grok on the user's own endpoints", () => {
     expect(withGrokModels('', block)).toBe(`${block}\n`);
   });
 
-  it('is written only once a turn uses it, then kept up to date, with the file’s mode and through a link', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('is written only once a turn uses it, then kept up to date, with the file’s mode and through a link', () => {
     const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-'));
     const file = join(home, 'config.toml');
     try {
@@ -564,7 +565,8 @@ describe("Grok on the user's own endpoints", () => {
     }
   });
 
-  it("runs the turn on that model: chosen by Grok's id for it, with no effort and the endpoint's key", async () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')("runs the turn on that model: chosen by Grok's id for it, with no effort and the endpoint's key", async () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-run-')));
     // A stand-in for `grok agent stdio` (grok 1.0.77's ACP answers, trimmed): each request and the
     // variables it was started with go to the log.

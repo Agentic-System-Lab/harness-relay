@@ -151,7 +151,8 @@ function context(over: Partial<RunOptions> = {}, env: NodeJS.ProcessEnv = {}): O
 }
 
 describe("Goose's home", () => {
-  it('points GOOSE_PATH_ROOT and HOME at its home, with keyring, telemetry and session naming off', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('points GOOSE_PATH_ROOT and HOME at its home, with keyring, telemetry and session naming off', () => {
     const h = gooseHome('/r');
     expect(h.env).toEqual({ HOME: '/r', GOOSE_PATH_ROOT: '/r', GOOSE_DISABLE_KEYRING: '1', GOOSE_TELEMETRY_OFF: '1', GOOSE_DISABLE_SESSION_NAMING: 'true' });
     expect(h.statePaths).toEqual(['/r/data', '/r/state']);
@@ -380,7 +381,8 @@ describe("Goose's settings per run", () => {
     expect(gooseMode('full')).toBe('auto');
   });
 
-  it("gives Goose's commands the user's own HOME back", () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')("gives Goose's commands the user's own HOME back", () => {
     // Fixed text: no path in it; run, it gives the command the user's HOME and leaves none of its variables.
     expect(GOOSE_SHELL_WRAPPER).not.toMatch(/\/Users|\/home/);
     const wrapper = join(root, 'goose-shell.sh');
@@ -826,7 +828,8 @@ describe('Goose updates → events', () => {
 describe("a turn's cost", () => {
   const usage = (cost: number | undefined) => ({ used: 1, size: 2, ...(cost === undefined ? {} : { cost: { amount: cost, currency: 'USD' } }) });
 
-  it('is the session total for a new session, and what a loaded one added', () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('is the session total for a new session, and what a loaded one added', () => {
     const ctx = context();
     ctx.state.method = 'new';
     ctx.state.sessionId = '20261110_9';
@@ -1172,7 +1175,8 @@ const deps = (): Partial<AcpTurnDeps> => ({
   runTmpDir: join(root, 'run-tmp'),
 });
 
-describe('a Goose turn', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
   it('starts with its variables, a new session, the briefing, and reports the turn', async () => {
     const r = turn({ FAKE_GOOSE_REPLAY: 'read-openai' }, { effort: 'low' });
     const result = await gooseRunner(deps()).run(r.o);
@@ -1386,7 +1390,8 @@ describe("a resumed Goose session's own row", () => {
   };
   const names = (r: Record<string, unknown>) => (JSON.parse(String(r.extension_data))['enabled_extensions.v0'].extensions as { name: string }[]).map((e) => e.name);
 
-  it('keeps the list a new session started with, and puts it back before a run resumes it, with what Harness Relay never sets cleared', async () => {
+  // POSIX paths, file modes or programs: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('keeps the list a new session started with, and puts it back before a run resumes it, with what Harness Relay never sets cleared', async () => {
     const ctx = context({ stateKey: 'conv.c1.a1' });
     const sealed = sealedFolder(ctx.home.root, 'conv.c1.a1');
     const file = sessionsDb(ctx.home.state, started);
@@ -1491,7 +1496,8 @@ describe("a resumed Goose session's own row", () => {
   });
 });
 
-describe("asking Goose outside a run", () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')("asking Goose outside a run", () => {
   const env = (fake: Record<string, string> = {}) => {
     const dir = join(root, `ask-${++n}`);
     return { PATH: process.env.PATH, [OPEN_AGENT_HOME_ENV]: join(dir, 'home'), FAKE_GOOSE_LOG: join(dir, 'log.jsonl'), FAKE_GOOSE_FIXTURES: FIXTURES, ...fake };

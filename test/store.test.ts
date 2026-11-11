@@ -362,6 +362,46 @@ describe('Store (SQLite)', () => {
     expect(migrated.messages[0]!.changes).toEqual(turn.changes);
   });
 
+  it('brings a database the model backends migrated as 21–25 (unreleased builds) to today\'s numbering, keeping what it holds', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    // As such a build left it: no extra_cwds, more_changes or worktrees by repository (today's 21), but
+    // the model backends' tables up to some point. At 25 (everything up to today's 26), and at 22 (up to 23).
+    const early = (version: number, upTo: string) =>
+      db.exec(`DROP TABLE agent_worktrees;
+               CREATE TABLE agent_worktrees (
+                 conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                 agent_id TEXT NOT NULL, repo_root TEXT NOT NULL, path TEXT NOT NULL, branch TEXT NOT NULL,
+                 base_commit TEXT NOT NULL, needs_reset INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY (conversation_id, agent_id));
+               INSERT INTO agent_worktrees VALUES ('${conv.id}', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 0);
+               ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
+               ${upTo}
+               PRAGMA user_version = ${version};`);
+    const version = () => (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+    const has = (sql: string) => Boolean(db.prepare(sql).get());
+    db.prepare("INSERT INTO deleted_endpoints (id, deleted_at) VALUES ('oldlab', 1)").run();
+    early(25, '');
+    reopen();
+    expect(version()).toBe(26);
+    expect(has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'")).toBe(true);
+    expect(db.prepare('SELECT id FROM deleted_endpoints').all()).toEqual([{ id: 'oldlab' }]);
+    expect(new Store(db).get(conv.id)!.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }] });
+    early(22, 'ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;');
+    reopen();
+    expect(version()).toBe(26);
+    expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'by_cli'")).toBe(true);
+    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
+    // A database of main's own at 21 (several working directories, no model backends) is left as it is.
+    db.exec(`DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli;
+             ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
+             PRAGMA user_version = 21;`);
+    reopen();
+    expect(version()).toBe(26);
+    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'model_backends'")).toBe(true);
+  });
+
   it('leaves out what cannot be read of the other working directories and repositories', () => {
     const store = new Store(db);
     const conv = sampleConversation();

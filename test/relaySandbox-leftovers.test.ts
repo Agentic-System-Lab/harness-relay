@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -13,7 +14,7 @@ import { afterAll, describe, expect, it } from 'vitest';
  * - T1: a run that fails in sandboxCommand after its folders were made leaves no marker behind.
  */
 // In /tmp: the data folder's path must leave room for the sandbox's sockets (macOS's own temp folder is too deep).
-const root = realpathSync(mkdtempSync('/tmp/relay-leftovers-'));
+const root = realpathSync(mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'relay-leftovers-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 const { RelaySandboxRun, clearRelaySandboxLeftovers, makeRunDirs, relaySandboxRoot } = await import('../src/server/relaySandbox');
 const { startOpenProcess } = await import('../src/server/agents/open');
@@ -72,7 +73,8 @@ describe.runIf(process.platform === 'darwin')('a marker still held when the run 
   }, 60_000);
 });
 
-describe('a run that fails in sandboxCommand', () => {
+// Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
+describe.skipIf(process.platform === 'win32')('a run that fails in sandboxCommand', () => {
   it('leaves no marker file in data/relay-sandbox', async () => {
     const dataDir = join(root, 'data-t1');
     mkdirSync(dataDir, { recursive: true });

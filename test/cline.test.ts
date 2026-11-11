@@ -189,7 +189,8 @@ const unprivate = (p: string) => p.replace(/^\/private\//, '/');
 /** A backend run for the pure helpers. */
 const backend = (model: string): BackendRun => backendRun(BACKENDS, model, 'Cline');
 
-describe('its home and the config written for each run', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('its home and the config written for each run', () => {
   it('keeps its state in the home and its settings apart, read-only', () => {
     const home = clineHome('/h');
     expect(home.env).toEqual({
@@ -587,7 +588,8 @@ describe('its other hooks', () => {
   });
 });
 
-describe('a whole turn, replayed from the real CLI', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the real CLI', () => {
   it('replies, and reports the turn’s usage from its session record', async () => {
     const { r, result } = await turn('text-openai');
     expect(result).toEqual({ sessionId: '1794314806528_svDqU_cli', inputTokens: 7505, outputTokens: 5, costUsd: 0.00565125 });
@@ -761,7 +763,8 @@ describe('a whole turn, replayed from the real CLI', () => {
   }, 10_000);
 });
 
-describe('its catalog and what it loads by itself', () => {
+// Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('its catalog and what it loads by itself', () => {
   it('reads each provider’s models from session/new, as <backend>/<model>', () => {
     const openai = parseClineCatalog('openai', newSession('initialize-session-new-openai'));
     expect(openai.models).toContainEqual({ id: 'openai/gpt-5.4-mini', label: 'GPT-5.4 mini · gpt-5.4-mini' });
