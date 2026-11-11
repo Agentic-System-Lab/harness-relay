@@ -18,6 +18,8 @@ import { withLang } from '../src/server/i18n';
 import { SettingsStore } from '../src/server/settings';
 import {
   NativeSetupService,
+  probeCompleteness,
+  saidNothing,
   claudeMemoryFiles,
   claudeMemoryState,
   listedFile,
@@ -414,6 +416,64 @@ describe('NativeSetupService', () => {
       const fresh = await service.get('codex', root);
       expect(fresh).not.toBe(first);
       expect(await service.latest('codex', root)).toBe(fresh);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('tells a probe that got nothing from one that got some of it, or answered its lists empty', () => {
+    const empty = { skills: [], mcpServers: [] };
+    const some = { skills: [{ name: 'commit' }], mcpServers: [] };
+    expect(probeCompleteness({ ...some, problems: [] })).toBe('complete');
+    expect(probeCompleteness({ ...empty, problems: [] })).toBe('complete'); // nothing of its own
+    expect(probeCompleteness({ ...some, problems: [{ kind: 'failed', detail: 'x', refused: true }] })).toBe('incomplete');
+    expect(probeCompleteness({ ...some, problems: [{ kind: 'timeout' }] })).toBe('incomplete');
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'no-answer', part: 'mcp' }] })).toBe('incomplete');
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'failed', detail: 'no hooks/list', refused: true }] })).toBe('incomplete');
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'timeout' }] })).toBe('late');
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'failed', detail: 'not found' }] })).toBe('failed');
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'no-answer', part: 'all' }] })).toBe('failed');
+    // Asking it again the way Harness Relay runs it is another matter: what it answered stands.
+    expect(probeCompleteness({ ...some, problems: [{ kind: 'as-run', cause: { kind: 'timeout' } }] })).toBe('complete');
+    expect(saidNothing({ ...empty, problems: [{ kind: 'no-answer', part: 'mcp' }] })).toBe(false);
+    expect(saidNothing({ ...empty, problems: [{ kind: 'timeout' }] })).toBe(true);
+  });
+
+  // A stand-in for `grok inspect --json` that counts its runs in its home and names its skill after the count.
+  const COUNTING_GROK = `#!/bin/sh
+n=$(cat "$GROK_HOME/runs" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$GROK_HOME/runs"
+printf '{"cwd": "%s", "skills": [{"name": "run-%s", "description": ""}]}' "$PWD" "$n"
+`;
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+
+  posixIt("gives the lead the last answer at once and asks again in the background once it is old; each account in its own home", async () => {
+    const bin = join(root, 'counting-grok');
+    writeFileSync(bin, COUNTING_GROK, { mode: 0o755 });
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    settings.update('grok', { bin });
+    settings.setAgentHome(join(root, 'recent-homes'));
+    const work = settings.addAccount('grok', 'Work');
+    const service = new NativeSetupService(settings);
+    const skill = async (p: Promise<{ skills: { name: string }[] }>) => (await p).skills.map((x) => x.name);
+    const real = Date.now.bind(Date);
+    let shift = 0;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => real() + shift);
+    try {
+      // None yet: it waits for the CLI.
+      expect(await skill(service.recent('grok', root))).toEqual(['run-1']);
+      expect(await skill(service.recent('grok', root))).toEqual(['run-1']); // fresh: not asked again
+      // Two minutes later: the old answer at once, and a new question in the background.
+      shift = 120_000;
+      expect(await skill(service.recent('grok', root))).toEqual(['run-1']);
+      await vi.waitFor(async () => expect(await skill(service.recent('grok', root))).toEqual(['run-2']));
+      // Another account: its own home, its own answers.
+      expect(await skill(service.recent('grok', root, work))).toEqual(['run-1']);
+      expect(readFileSync(join(settings.accountHome('grok', work)!, 'runs'), 'utf8').trim()).toBe('1');
+      expect(readFileSync(join(settings.accountHome('grok')!, 'runs'), 'utf8').trim()).toBe('2');
+      // What is left out changed: the old answer no longer fits, so it waits for a new one.
+      settings.update('grok', { nativeOff: ['skills'] });
+      const changed = await service.recent('grok', root);
+      expect(changed.nativeOff).toEqual(['skills']);
     } finally {
       now.mockRestore();
     }

@@ -48,7 +48,7 @@ Before you commit, run `npm run typecheck`, `npm test` and `npm run build` (and 
 - `src/server/scheduler.ts`: sends each schedule's message when it comes due (missed times, busy retries), through `Orchestrator.sendScheduled()` (`sendInNewChat()` for a new chat each time; `designForSchedule()` has the lead agent design a schedule's team).
 - `src/server/grouping.ts`: the lead agent sorts a new conversation into the user's sidebar groups.
 - `src/server/agents/`: one adapter per CLI. `claude.ts` (stream-json), `codex.ts` (`codex app-server`), `grok.ts` (ACP), `acp.ts` (the JSON-RPC peer), `index.ts` (registry).
-- `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations (and the lock one server holds its data folder with, `lockDataDir`), persistence, provider settings and child-process env (including the CLIs' own homes), API keys in the OS keyring.
+- `src/server/db.ts`, `store.ts`, `settings.ts`, `secrets.ts`: SQLite and migrations (and the lock one server holds its data folder with, `lockDataDir`), persistence, provider settings, each CLI's accounts (a home and an API key of their own; agents and the lead agent name theirs) and child-process env (including the CLIs' own homes), API keys in the OS keyring.
 - `src/server/agentsview.ts`: sends each conversation to AgentsView as one thread and links the agents' own sessions under it.
 - `src/server/workspace.ts`: git: auto init, snapshots, worktrees, diffs, apply.
 - `src/server/process.ts`: spawning, streaming and killing child processes.

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PROVIDER_LABEL, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
+import { PROVIDER_LABEL, accountUsable, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { settingsHref } from '../route';
@@ -157,8 +157,10 @@ function healthTitle(p: ProviderStatus | undefined, t: Messages): string {
   const h = t.sidebar.health;
   if (!p) return h.checking;
   if (!p.installed) return h.notInstalled;
-  if (p.usingStoredApiKey) return h.apiKey;
-  if (p.auth.loggedIn === false) return h.notLoggedIn;
-  if (p.auth.loggedIn) return h.loggedIn(p.auth.account);
-  return h.unknown;
+  // The dot is the default account's; with more accounts, how many of them agents can run as.
+  const more = p.accounts.length > 1 ? h.accounts(p.accounts.filter(accountUsable).length, p.accounts.length) : '';
+  if (p.usingStoredApiKey) return h.apiKey + more;
+  if (p.auth.loggedIn === false) return h.notLoggedIn + more;
+  if (p.auth.loggedIn) return h.loggedIn(p.auth.account) + more;
+  return h.unknown + more;
 }

@@ -3,8 +3,10 @@ import { homedir } from 'node:os';
 import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
+  ACCOUNT_ID_RE,
   CWD_MISSING,
   GROUP_LIMITS,
+  MAX_ACCOUNT_LABEL,
   MCP_NAME_RE,
   MAX_NATIVE_ITEM_ID,
   MAX_NATIVE_ITEMS,
@@ -26,6 +28,7 @@ import {
   type Mode,
   type Permission,
   type Provider,
+  type ProviderAccountUpdate,
   type ProviderSettingsUpdate,
   type ScheduleRepeat,
   type ScheduleUpdate,
@@ -190,6 +193,14 @@ function optionalString(v: unknown, field: string, max = 500): string | undefine
   return v.trim();
 }
 
+/**
+ * The account an agent or the lead names: an account id, or undefined for the default account (also
+ * for anything that is not an id). Whether the CLI has it is checked when it runs.
+ */
+function validAccount(input: unknown): { account?: string } {
+  return typeof input === 'string' && ACCOUNT_ID_RE.test(input) ? { account: input } : {};
+}
+
 /** The lead agent (auto team) from a settings update. */
 export function validateLead(input: unknown): LeadAgentSettings {
   const l = (input ?? {}) as Partial<LeadAgentSettings>;
@@ -198,7 +209,29 @@ export function validateLead(input: unknown): LeadAgentSettings {
     provider: l.provider as Provider,
     model: optionalString(l.model, 'lead.model') ?? '',
     effort: validEffort(optionalString(l.effort, 'lead.effort'), 'lead') ?? '',
+    ...validAccount(l.account),
   };
+}
+
+/** An account's name: a string of up to `MAX_ACCOUNT_LABEL` characters, with no line breaks. */
+export function validAccountLabel(input: unknown): string {
+  if (typeof input !== 'string' || input.trim().length > MAX_ACCOUNT_LABEL || /[\u0000-\u001f\u007f]/.test(input)) {
+    bad(t().badAccountLabel(MAX_ACCOUNT_LABEL));
+  }
+  return input.trim();
+}
+
+/** An account update: a name, and a key (null = remove it). */
+export function validateAccountUpdate(input: unknown): ProviderAccountUpdate {
+  const u = (input ?? {}) as Record<string, unknown>;
+  const out: ProviderAccountUpdate = {};
+  if (u.label !== undefined) out.label = validAccountLabel(u.label);
+  if (u.apiKey === null) out.apiKey = null;
+  else {
+    const key = optionalString(u.apiKey, 'apiKey', 4096);
+    if (key !== undefined) out.apiKey = key;
+  }
+  return out;
 }
 
 export function validVoiceModel(input: unknown): VoiceModelId {
@@ -291,6 +324,7 @@ export function validateAgents(input: unknown): AgentConfig[] {
       role: String(a.role ?? '').slice(0, 8000),
       model: String(a.model ?? '').trim() || undefined,
       effort: validEffort(a.effort, name),
+      ...validAccount(a.account),
       ...validAgentTools(a.tools),
     };
   });

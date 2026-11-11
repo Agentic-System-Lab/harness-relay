@@ -29,6 +29,8 @@ const status = (provider: ProviderStatus['provider'], installed: boolean, versio
   version,
   auth: { loggedIn: true, account: 'someone@example.com' },
   usingStoredApiKey: false,
+  // The accounts' names and sign-ins never go along with a report.
+  accounts: [],
 });
 const providers = [status('claude', true, '2.1.3 (Claude Code)'), status('codex', false), status('grok', true)];
 const draft = (d: Partial<ReportDraft> = {}): ReportDraft => ({ ...EMPTY_REPORT, description: 'It froze after I pressed Send.', ...d });

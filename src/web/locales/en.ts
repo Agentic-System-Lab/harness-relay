@@ -101,6 +101,7 @@ export const en: Messages = {
       notLoggedIn: 'Not signed in',
       loggedIn: (account) => `Signed in${account ? `: ${account}` : ''}`,
       unknown: 'Status unknown',
+      accounts: (usable, total) => ` (default account; ${usable} of ${total} accounts ready)`,
     },
   },
 
@@ -208,6 +209,29 @@ export const en: Messages = {
       duplicate: (name) => `The name @${name} is used twice`,
       needCwd: 'Enter a working directory',
     },
+  },
+
+  accounts: {
+    account: 'Account',
+    default: 'Default account',
+    unnamed: (id) => `Account ${id}`,
+    add: 'Add an account',
+    addHint: (p) =>
+      `Sign in to more than one ${p} account, such as a work and a personal subscription. Each account signs in on its own, has an API key of its own and a ${p} folder of its own (settings and session transcripts). Pick each member's account in the team settings; members with none use the default account.`,
+    nameLabel: 'Account name',
+    namePlaceholder: 'For example: Work',
+    nextName: (n) => `Account ${n}`,
+    added: (name) => `Added the account "${name}". Sign in to it above`,
+    limit: (max) => `Up to ${max} accounts (the default one included)`,
+    rename: 'Rename',
+    renamed: 'Renamed',
+    remove: 'Remove',
+    confirmRemove: (name, p, home) =>
+      `Remove the ${p} account "${name}"?\nHarness Relay signs it out and deletes its API key and its folder ${home}, with the ${p} sessions in it. Members who use it switch to the default account.`,
+    removed: (name) => `Removed the account "${name}"`,
+    folder: (dir) => `Folder: ${dir}`,
+    confirmLogout: (name, p) => `Sign out of the ${p} account "${name}"?`,
+    notLoggedIn: (p, name) => `The ${p} account "${name}" is not signed in.`,
   },
 
   models: {

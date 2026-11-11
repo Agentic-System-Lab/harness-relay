@@ -84,7 +84,8 @@ const short = (s: string) => s.trim().split('\n').slice(-3).join(' ').slice(0, 3
 export type NativeProblem =
   | { kind: 'timeout' }
   | { kind: 'no-answer'; part: 'all' | 'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins' }
-  | { kind: 'failed'; detail: string }
+  /** `refused`: the CLI refused one of the questions (or one list could not be read); its other answers stand. */
+  | { kind: 'failed'; detail: string; refused?: true }
   /** Asking the CLI again the way Harness Relay starts it went wrong, so nothing is marked left out. */
   | { kind: 'as-run'; cause: NativeProblem }
   /** Asking it again ran out of time after some answers: those are marked, the rest is not. */
@@ -499,7 +500,7 @@ async function askClaude(
 
 /** The CLI's words for the questions it refused, as problems. */
 const refused = (errors: Partial<Record<PropertyKey, string>>): NativeProblem[] =>
-  Object.values(errors).map((detail) => ({ kind: 'failed', detail: String(detail) }));
+  Object.values(errors).map((detail) => ({ kind: 'failed', detail: String(detail), refused: true }));
 
 const CLAUDE_ASKS = {
   init: { subtype: 'initialize' },
@@ -555,7 +556,7 @@ async function probeClaude(
       return undefined;
     });
     // Without them no subagent is marked built-in; with subagents left out, the second ask says so instead.
-    if (builtinsError !== undefined && !off.includes('agents')) problems.push({ kind: 'failed', detail: builtinsError });
+    if (builtinsError !== undefined && !off.includes('agents')) problems.push({ kind: 'failed', detail: builtinsError, refused: true });
   }
   const configDir = env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
   const files = claudeMemoryFiles(cwd, configDir);
@@ -1056,11 +1057,14 @@ const sameParts = (a: readonly NativePart[], b: readonly NativePart[]) => a.leng
  */
 export class NativeSetupService {
   private cache = new Map<string, { at: number; off: readonly NativePart[]; items: NativeItemsOff; result: Promise<NativeProbe> }>();
+  /** The last answer each CLI, folder and home gave, with what was left out then (`recent`). */
+  private answered = new Map<string, { off: readonly NativePart[]; items: NativeItemsOff; probe: NativeProbe }>();
 
   constructor(
     private settings: {
       bin(p: Provider): string;
-      env(p: Provider): NodeJS.ProcessEnv;
+      /** A CLI's environment; `account`: one of its accounts besides the default one (`SettingsStore.env`). */
+      env(p: Provider, account?: string): NodeJS.ProcessEnv;
       nativeOff?(p: Provider): readonly NativePart[];
       nativeItems?(p: Provider): NativeItemsOff;
     },
@@ -1068,10 +1072,25 @@ export class NativeSetupService {
     private timeoutMs = PROBE_TIMEOUT_MS,
   ) {}
 
-  /** Per CLI, executable, folder and CLI home (the agent home setting moves it). */
-  private key(provider: Provider, cwd: string): string {
-    const home = this.settings.env(provider)[AGENT_HOME_ENV[provider]] ?? '';
+  /** Per CLI, executable, folder and CLI home (the agent home setting and the account move it). */
+  private key(provider: Provider, cwd: string, account?: string): string {
+    const home = this.settings.env(provider, account)[AGENT_HOME_ENV[provider]] ?? '';
     return `${provider}\0${this.settings.bin(provider)}\0${cwd}\0${home}`;
+  }
+
+  /**
+   * For the lead agent, which should not wait for the CLIs on every question: the last answer for this
+   * CLI, folder and account however old, while what is left out of the runs is the same, asked again in
+   * the background once it is older than the cache keeps it; the CLI is waited for only when there is
+   * none yet (or the last one said nothing at all).
+   */
+  recent(provider: Provider, cwd: string, account?: string): Promise<NativeProbe> {
+    const off = this.settings.nativeOff?.(provider) ?? [];
+    const items = this.settings.nativeItems?.(provider) ?? {};
+    const last = this.answered.get(this.key(provider, cwd, account));
+    if (!last || !sameParts(last.off, off) || !sameNativeItems(last.items, items) || saidNothing(last.probe)) return this.get(provider, cwd, false, account);
+    void this.get(provider, cwd, false, account); // the cached question when it is fresh, else a new one
+    return Promise.resolve(last.probe);
   }
 
   /**
@@ -1083,14 +1102,15 @@ export class NativeSetupService {
     return this.cache.get(this.key(provider, cwd))?.result ?? this.get(provider, cwd);
   }
 
-  get(provider: Provider, cwd: string, refresh = false): Promise<NativeProbe> {
+  /** `account`: ask the CLI in that account's home (default: the default account's). */
+  get(provider: Provider, cwd: string, refresh = false, account?: string): Promise<NativeProbe> {
     const bin = this.settings.bin(provider);
     const off = [...(this.settings.nativeOff?.(provider) ?? [])];
     const items = this.settings.nativeItems?.(provider) ?? {};
-    const key = this.key(provider, cwd);
+    const key = this.key(provider, cwd, account);
     const hit = this.cache.get(key);
     if (hit && !refresh && Date.now() - hit.at < CACHE_MS && sameParts(hit.off, off) && sameNativeItems(hit.items, items)) return hit.result;
-    const result = PROBES[provider](bin, this.settings.env(provider), cwd, off, items, this.timeoutMs).catch(
+    const result = PROBES[provider](bin, this.settings.env(provider, account), cwd, off, items, this.timeoutMs).catch(
       (err: Error): NativeProbe => ({
         provider,
         cwd,
@@ -1106,8 +1126,38 @@ export class NativeSetupService {
       }),
     );
     this.cache.set(key, { at: Date.now(), off, items, result });
+    void result.then((probe) => this.answered.set(key, { off, items, probe }));
     return result;
   }
+}
+
+/**
+ * How much of what a CLI loads by itself a probe got: `complete`; `incomplete`, some of it (it refused
+ * a question, one part went unanswered, or it ran out of time after some answers); or none, because it
+ * ran out of time (`late`) or could not be asked (`failed`). A CLI that answered its lists empty, with
+ * only a question refused or a part unanswered, has nothing of its own: that is not none.
+ */
+export function probeCompleteness(probe: {
+  problems?: readonly NativeProblem[];
+  skills: readonly unknown[];
+  mcpServers: readonly unknown[];
+  builtinTools?: readonly unknown[];
+  agents?: readonly unknown[];
+  plugins?: readonly unknown[];
+}): 'complete' | 'incomplete' | 'late' | 'failed' {
+  const problems = probe.problems ?? [];
+  const lists = [probe.skills, probe.mcpServers, probe.builtinTools, probe.agents, probe.plugins];
+  if (lists.every((l) => !l?.length)) {
+    if (problems.some((x) => x.kind === 'timeout')) return 'late';
+    if (problems.some((x) => (x.kind === 'failed' && !x.refused) || (x.kind === 'no-answer' && x.part === 'all'))) return 'failed';
+  }
+  return problems.some((x) => x.kind === 'timeout' || x.kind === 'failed' || x.kind === 'no-answer') ? 'incomplete' : 'complete';
+}
+
+/** A probe that got none of the CLI's lists (`probeCompleteness`): not worth giving the lead again. */
+export function saidNothing(probe: Parameters<typeof probeCompleteness>[0]): boolean {
+  const c = probeCompleteness(probe);
+  return c === 'late' || c === 'failed';
 }
 
 /**

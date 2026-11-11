@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { planSavable, type AgentConfig, type ChatMessage, type ProviderModels, type TeamPreset } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
 import {
   buildPlannerPrompt,
   buildRevisePrompt,
+  cliToolsForLead,
   decidePlan,
   decideRevision,
   draftPlace,
@@ -11,10 +12,15 @@ import {
   fitAgents,
   historyForLead,
   keepMemberIds,
+  libraryForLead,
   parsePlanReply,
+  plannerContext,
   sameTeam,
   teamSettings,
+  memberLibraryTools,
+  type LibraryItem,
   type PlannerContext,
+  type PlannerSources,
   type TeamDraft,
 } from '../src/server/planner';
 import { builtinPresets } from '../src/server/presets';
@@ -170,7 +176,8 @@ describe('lead agent reply', () => {
   it('tells the lead what it can use and asks for JSON', () => {
     const prompt = buildPlannerPrompt('How do I bake bread?', { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '/tmp' }, ctx);
     expect(prompt).toContain('How do I bake bread?');
-    expect(prompt).toContain('- claude (Claude Code): models opus, haiku');
+    // Each model with the efforts it takes (its own list, else the CLI's), and the defaults.
+    expect(prompt).toContain('- claude (Claude Code)\n  Models: opus (efforts low/medium/high), haiku (efforts low)\n  Default model opus');
     expect(prompt).not.toContain('- grok');
     expect(prompt).toContain('"id": "builtin-general"');
     expect(prompt).toContain('"read-only"');
@@ -244,6 +251,91 @@ describe('a question in a conversation', () => {
     expect(keepMemberIds(next, team)[0]!.role).toBe('New role.');
   });
 
+  it('lets members who stay on keep the tools the user set (whatever the new team says); new ones have none', () => {
+    const current: AgentConfig[] = [{ id: 'r1', name: 'Researcher', provider: 'codex', role: 'Search the web', tools: { 'mcp:browser': true } }];
+    const next: AgentConfig[] = [
+      { id: 'n1', name: 'researcher', provider: 'codex', role: 'Search the web' },
+      { id: 'n2', name: 'Writer', provider: 'claude', role: 'Write it up' },
+      // A template's member that stays: its own tools, not the template's.
+      { id: 'n3', name: 'Reviewer', provider: 'grok', role: '', tools: { memory: false } },
+    ];
+    const kept = keepMemberIds(next, [...current, { id: 'v1', name: 'Reviewer', provider: 'grok', role: '' }]);
+    expect(kept.map((a) => [a.id, a.tools])).toEqual([
+      ['r1', { 'mcp:browser': true }],
+      ['n2', undefined],
+      ['v1', undefined],
+    ]);
+    expect('tools' in kept[2]!).toBe(false);
+  });
+
+  it("gives an adapted template's members who are one of its members that member's tools and account", () => {
+    const template: TeamPreset = {
+      id: 'user-research',
+      name: 'Research',
+      agents: [
+        { id: 't1', name: 'Researcher', provider: 'codex', role: 'Search', tools: { 'mcp:browser': true }, account: 'w1' },
+        { id: 't2', name: 'Writer', provider: 'claude', role: 'Write', tools: { memory: false } },
+      ],
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only' },
+    };
+    const withTemplate: PlannerContext = { ...ctx, presets: [...ctx.presets, template] };
+    const d = decidePlan(
+      {
+        choice: 'adapted',
+        baseTemplateId: 'user-research',
+        name: 'Research+',
+        agents: [
+          { name: 'researcher', provider: 'codex', role: 'Search, then check sources' },
+          { name: 'Writer', provider: 'grok', role: 'Write' }, // moved to another CLI: not that member any more
+          { name: 'Editor', provider: 'claude', role: 'Edit' },
+        ],
+        reason: 'r',
+      },
+      withTemplate,
+      lead,
+    );
+    expect(d.source).toBe('adapted');
+    expect(d.agents.map((a) => [a.name, a.tools, a.account])).toEqual([
+      ['researcher', { 'mcp:browser': true }, 'w1'],
+      ['Writer', undefined, undefined],
+      ['Editor', undefined, undefined],
+    ]);
+  });
+
+  it('lets members who stay on keep their accounts; new ones get a signed-in account of their CLI', () => {
+    const current: AgentConfig[] = [{ id: 'a1', name: 'Alice', provider: 'claude', role: '', account: 'work0001' }];
+    const next: AgentConfig[] = [
+      { id: 'n1', name: 'Alice', provider: 'claude', role: '' },
+      { id: 'n2', name: 'Bob', provider: 'claude', role: '', account: 'other001' },
+    ];
+    expect(keepMemberIds(next, current).map((a) => [a.id, a.account])).toEqual([
+      ['a1', 'work0001'],
+      ['n2', 'other001'],
+    ]);
+    // The default account is not signed in, the Work one is.
+    const signedIn: PlannerContext = { ...ctx, accounts: { claude: ['work0001'], codex: [''] } };
+    const fitted = fitAgents(
+      [
+        { id: 'x', name: 'A', provider: 'claude', role: '' },
+        { id: 'y', name: 'B', provider: 'claude', role: '', account: 'work0001' },
+        { id: 'z', name: 'C', provider: 'codex', role: '', account: 'gone0001' },
+        // On a CLI that is not available: moved to the lead's, whose accounts it then gets.
+        { id: 'w', name: 'D', provider: 'grok', role: '', account: 'grok0001' },
+      ],
+      signedIn,
+      lead,
+    );
+    expect(fitted.map((a) => [a.provider, a.account])).toEqual([
+      ['claude', 'work0001'],
+      ['claude', 'work0001'],
+      ['codex', undefined],
+      ['claude', 'work0001'],
+    ]);
+    expect('account' in fitted[2]!).toBe(false);
+    // Accounts unknown: left as they are.
+    expect(fitAgents([{ id: 'y', name: 'B', provider: 'claude', role: '', account: 'any00001' }], ctx, lead)[0]!.account).toBe('any00001');
+  });
+
   it('gives the lead the conversation in short: what was said, not tool calls, notes or plans', () => {
     const msg = (m: Partial<ChatMessage> & Pick<ChatMessage, 'author'>): ChatMessage => ({
       id: Math.random().toString(36),
@@ -288,6 +380,26 @@ describe('changing a team at the user\'s request', () => {
     ],
   };
   const where = { permission: 'edit' as const, cwd: '/work' };
+
+  it("keeps a member's account while it stays on the same CLI, and never shows the lead the account ids", () => {
+    const withAccount: TeamDraft = { ...draft, agents: [{ ...draft.agents[0]!, account: 'work0001' }, draft.agents[1]!] };
+    expect(buildRevisePrompt('x', withAccount, where, ctx)).not.toContain('work0001');
+    const stays = decideRevision({ agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Gus', provider: 'grok' }] }, withAccount, ctx, lead);
+    expect(stays.agents.map((a) => [a.id, a.account])).toEqual([
+      ['a1', 'work0001'],
+      ['g1', undefined],
+    ]);
+    // Its account is signed out and only the default one is usable: a member who keeps its CLI keeps
+    // it all the same, also when the lead changes its model.
+    const signedOut: PlannerContext = { ...ctx, accounts: { claude: [''], codex: [''] } };
+    for (const model of [undefined, 'haiku']) {
+      const r = decideRevision({ agents: [{ name: 'Alice', provider: 'claude', model }, { name: 'Gus', provider: 'grok' }] }, withAccount, signedOut, lead);
+      expect(r.agents[0]).toMatchObject({ id: 'a1', model: model ?? 'opus', account: 'work0001' });
+    }
+    const moves = decideRevision({ agents: [{ name: 'Alice', provider: 'codex' }] }, withAccount, ctx, lead);
+    expect(moves.agents[0]).toMatchObject({ id: 'a1', provider: 'codex' });
+    expect(moves.agents[0]!.account).toBeUndefined();
+  });
 
   it('shows the lead the team, the request and the conversation, and asks for the whole team back', () => {
     const prompt = buildRevisePrompt('加一位用 Codex 的測試人員', draft, where, ctx, { history: '[User]: Fix the login bug' });
@@ -579,5 +691,204 @@ describe('changing a team at the user\'s request', () => {
 
   it('tells the lead it cannot clear a role', () => {
     expect(buildRevisePrompt('x', draft, where, ctx)).toContain("or to clear a member's role, which the user does in the editor");
+  });
+});
+
+describe("what the lead knows of each coding agent's tools and models", () => {
+  const library: LibraryItem[] = libraryForLead({
+    mcpServers: [
+      { id: 'srv1', name: 'browser', transport: 'stdio', command: 'b', args: [], url: '', env: [], headers: [], providers: ['claude'] },
+      { id: 'srv2', name: 'db', transport: 'http', command: '', args: [], url: 'http://x', env: [], headers: [], providers: [] },
+    ],
+    skills: [
+      { path: '/skills/pdf', name: 'pdf', description: 'Make PDFs', providers: ['claude', 'codex', 'grok'] },
+      { path: '/skills/broken', name: 'broken', description: '', providers: ['claude'], problem: 'no SKILL.md' },
+    ],
+    memory: { all: 'We use pnpm.\n  Always.', claude: '', codex: 'Codex: run tests', grok: '' },
+  });
+
+  it('reads the tool library: MCP servers, usable skills and the memory parts that are set, with their keys', () => {
+    expect(library).toEqual([
+      { name: 'mcp:browser', key: 'mcp:srv1', providers: ['claude'] },
+      { name: 'mcp:db', key: 'mcp:srv2', providers: [] },
+      { name: 'skill:pdf', key: 'skill:/skills/pdf', about: 'Make PDFs', providers: ['claude', 'codex', 'grok'] },
+      { name: 'memory', key: 'memory', about: 'We use pnpm. Always.', providers: ['claude', 'codex', 'grok'] },
+      { name: 'memory:codex', key: 'memory:codex', about: 'Codex: run tests', providers: ['codex'], only: 'codex' },
+    ]);
+  });
+
+  it("reads what a CLI loads by itself as Harness Relay runs it: items left out of its runs, and disabled servers, are not there", () => {
+    const tools = cliToolsForLead({
+      builtinTools: [{ name: 'Bash' }, { name: 'WebSearch', leftOut: true }],
+      skills: [{ name: 'commit', description: ' Make commits ' }, { name: 'gone', description: '', leftOut: true }],
+      mcpServers: [
+        { name: 'github', status: 'connected', tools: [{ name: 'create_issue' }, { name: 'delete_repo', leftOut: true }] },
+        { name: 'jira', status: 'needs-auth' },
+        { name: 'old', status: 'disabled' },
+      ],
+      agents: [{ name: 'explorer', description: '' }],
+      plugins: [{ name: 'x@market' }],
+    });
+    expect(tools).toEqual({
+      builtinTools: ['Bash'],
+      skills: [{ name: 'commit', description: 'Make commits' }],
+      mcpServers: [{ name: 'github', tools: ['create_issue'] }, { name: 'jira', status: 'needs-auth' }],
+      agents: ['explorer'],
+      plugins: ['x@market'],
+    });
+  });
+
+  it("tells the lead each model's efforts and default effort, each CLI's own tools, the library and what each member gets from it", () => {
+    const rich: PlannerContext = {
+      ...ctx,
+      catalog: [
+        {
+          provider: 'claude',
+          models: [{ id: 'fable', label: 'Fable', latest: true, efforts: ['low', 'high', 'max'], defaultEffort: 'high' }, { id: 'haiku' }],
+          efforts: ['low', 'medium'],
+          defaultModel: 'fable',
+          defaultEffort: 'medium',
+          source: 'cli',
+        },
+      ],
+      native: {
+        claude: { builtinTools: ['Bash', 'WebSearch'], skills: [{ name: 'commit', description: 'Make commits' }], mcpServers: [{ name: 'github', tools: ['create_issue'] }], agents: ['explorer'], incomplete: true },
+        codex: { skills: [], mcpServers: [], unknown: 'late' },
+      },
+      library,
+    };
+    // Ann has the browser turned off and the db server turned on; Bob is on Codex with the defaults.
+    const current = {
+      agents: [
+        { id: 'a1', name: 'Ann', provider: 'claude' as const, role: 'R', tools: { 'mcp:srv1': false, 'mcp:srv2': true, 'skill:/gone': true } },
+        { id: 'b1', name: 'Bob', provider: 'codex' as const, role: 'S' },
+      ],
+      settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8 },
+    };
+    const prompt = buildPlannerPrompt('Fix the login bug', { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: '/w' }, rich, { current });
+    expect(prompt).toContain('  Models: fable (Fable; always its family\'s newest; efforts low/high/max; default effort high), haiku (efforts low/medium)');
+    expect(prompt).toContain('  Default model fable, effort medium');
+    expect(prompt).toContain('  Built-in tools: Bash, WebSearch');
+    expect(prompt).toContain('  Its own skills: commit (Make commits)');
+    expect(prompt).toContain('  Its own MCP servers: github (tools: create_issue)');
+    expect(prompt).toContain('  Its own subagents: explorer');
+    expect(prompt).toContain('  (It did not answer every question, so these lists may be incomplete.)');
+    expect(prompt).toContain('  New members get from the tool library: mcp:browser, skill:pdf, memory');
+    expect(prompt).toContain('- codex (Codex)\n  Its own tools, skills and MCP servers: unknown (it did not answer in time)\n  New members get from the tool library: skill:pdf, memory, memory:codex');
+    expect(prompt).toContain('- mcp:db: no member gets it unless the user gives it');
+    expect(prompt).toContain('- memory:codex (Codex: run tests): only for codex members');
+    expect(prompt).toContain('Choose the coding agent whose tools (built in, its own skills and MCP servers, and what it gets from the tool library) cover that part');
+    // Each member of the current team with what it actually gets: its CLI's defaults with its exceptions.
+    expect(prompt).toContain('"fromToolLibrary": [\n        "mcp:db",\n        "skill:pdf",\n        "memory"\n      ]');
+    expect(prompt).toContain('"fromToolLibrary": [\n        "skill:pdf",\n        "memory",\n        "memory:codex"\n      ]');
+    // The lead is never asked for tools.
+    expect(prompt).not.toContain('"tools"');
+    expect(prompt).not.toContain('/gone');
+  });
+
+  it('lists the library items a member gets: its CLI\'s defaults with its exceptions, a CLI\'s memory only for that CLI', () => {
+    expect(memberLibraryTools({ provider: 'claude' }, library)).toEqual(['mcp:browser', 'skill:pdf', 'memory']);
+    expect(memberLibraryTools({ provider: 'codex', tools: { 'skill:/skills/pdf': false, memory: false, 'memory:codex': true, 'mcp:srv2': true } }, library)).toEqual([
+      'mcp:db',
+      'memory:codex',
+    ]);
+    expect(memberLibraryTools({ provider: 'grok', tools: { 'memory:codex': true } }, library)).toEqual(['skill:pdf', 'memory']);
+    expect(memberLibraryTools({ provider: 'grok' }, undefined)).toBeUndefined();
+  });
+
+  it('ignores "tools" in the lead\'s reply: a designed member has its CLI\'s defaults, and a revision leaves members\' tools as they are', () => {
+    const withLibrary: PlannerContext = { ...ctx, library };
+    const d = decidePlan(
+      { choice: 'custom', name: 'T', agents: [{ name: 'Web', provider: 'codex', role: 'Browse', tools: { 'mcp:browser': true, memory: false } }], reason: 'r' },
+      withLibrary,
+      lead,
+    );
+    expect(d.agents[0]!.tools).toBeUndefined();
+
+    const draft: TeamDraft = {
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 8 },
+      agents: [
+        { id: 'a1', name: 'Ann', provider: 'claude', role: 'R', tools: { 'skill:/skills/pdf': false } },
+        { id: 'b1', name: 'Bob', provider: 'claude', role: 'S', tools: { memory: false } },
+      ],
+    };
+    const r = decideRevision(
+      {
+        agents: [
+          { name: 'Ann', provider: 'claude', tools: { 'mcp:browser': false, 'skill:pdf': true } },
+          // Moved to another CLI: its tools go with it, as for a change by hand.
+          { name: 'Bob', provider: 'codex', tools: { 'mcp:browser': true }, was: 'Bob' },
+          { name: 'Cy', provider: 'claude', role: 'New', tools: { 'mcp:db': true } },
+        ],
+      },
+      draft,
+      withLibrary,
+      lead,
+    );
+    expect(r.agents.map((a) => [a.name, a.tools])).toEqual([
+      ['Ann', { 'skill:/skills/pdf': false }],
+      ['Bob', { memory: false }],
+      ['Cy', undefined],
+    ]);
+  });
+
+  it('gathers the context: CLIs with a usable account, their tools asked in the home their new members get, the library', async () => {
+    const account = (id: string, loggedIn: boolean) => ({ id, label: '', auth: { loggedIn }, usingStoredApiKey: false });
+    const asked: string[] = [];
+    const src: PlannerSources = {
+      statuses: async () => [
+        { provider: 'claude', installed: true, bin: 'claude', auth: { loggedIn: true }, usingStoredApiKey: false, accounts: [account('', true), account('w2', true)] },
+        { provider: 'codex', installed: true, bin: 'codex', auth: { loggedIn: false }, usingStoredApiKey: false, accounts: [account('', false), account('w1', true)] },
+        { provider: 'grok', installed: true, bin: 'grok', auth: { loggedIn: false }, usingStoredApiKey: false, accounts: [account('', false)] },
+      ],
+      catalog: async () => catalog,
+      presets: () => [],
+      library: () => ({ mcpServers: [], skills: [], memory: { all: 'notes', claude: '', codex: '', grok: '' } }),
+      native: async (p, cwd, acc) => {
+        asked.push(`${p} ${cwd} ${acc || 'default'}`);
+        if (p === 'codex') return new Promise(() => {}); // never answers
+        return { skills: [{ name: 'commit', description: '' }], mcpServers: [], builtinTools: [{ name: 'Bash' }], problems: [] };
+      },
+    };
+    const got = await plannerContext(src, '/work', 50);
+    expect(got.available).toEqual(['claude', 'codex']);
+    expect(got.accounts).toEqual({ claude: ['', 'w2'], codex: ['w1'] });
+    // Codex's new members run as w1, its only usable account; Grok cannot run, so it is not asked.
+    expect(asked).toEqual(['claude /work default', 'codex /work w1']);
+    expect(got.native).toEqual({
+      claude: { builtinTools: ['Bash'], skills: [{ name: 'commit', description: '' }], mcpServers: [] },
+      codex: { skills: [], mcpServers: [], unknown: 'late' },
+    });
+    expect(got.library).toEqual([{ name: 'memory', key: 'memory', about: 'notes', providers: ['claude', 'codex', 'grok'] }]);
+    asked.length = 0;
+    expect((await plannerContext(src)).native).toBeUndefined();
+    expect(asked).toEqual([]);
+  });
+
+  it("keeps what a CLI answered when it refused a question or ran out of time on one; only a CLI that answered nothing is unknown", async () => {
+    const answered = { skills: [{ name: 'commit', description: '' }], mcpServers: [{ name: 'github', status: 'connected', tools: [{ name: 'create_issue' }] }], builtinTools: [{ name: 'Bash' }] };
+    const with_ = (native: PlannerSources['native']): PlannerSources => ({
+      statuses: async () => [{ provider: 'claude', installed: true, bin: 'claude', auth: { loggedIn: true }, usingStoredApiKey: false, accounts: [{ id: '', label: '', auth: { loggedIn: true }, usingStoredApiKey: false }] }],
+      catalog: async () => catalog,
+      presets: () => [],
+      library: () => ({ mcpServers: [], skills: [], memory: { all: '', claude: '', codex: '', grok: '' } }),
+      native,
+    });
+    const refused = await plannerContext(with_(async () => ({ ...answered, problems: [{ kind: 'failed', detail: 'Unsupported control request subtype: get_hooks_listing' }] })), '/w', 50);
+    expect(refused.native!.claude).toEqual({ builtinTools: ['Bash'], skills: [{ name: 'commit', description: '' }], mcpServers: [{ name: 'github', tools: ['create_issue'] }], incomplete: true });
+    const late = await plannerContext(with_(async () => ({ ...answered, problems: [{ kind: 'timeout' }] })), '/w', 50);
+    expect(late.native!.claude!.incomplete).toBe(true);
+    // Answered nothing: unknown, with why.
+    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'timeout' }] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], unknown: 'late' });
+    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'failed', detail: 'boom' }] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], unknown: 'failed' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await plannerContext(with_(async () => Promise.reject(new Error('gone'))), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], unknown: 'failed' });
+    warn.mockRestore();
+    // Lists answered empty (nothing of its own, as a new account's home has), one part unanswered or one
+    // question refused: incomplete, not unknown.
+    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'no-answer', part: 'mcp' }] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], incomplete: true });
+    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'failed', detail: 'no hooks/list', refused: true }] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], incomplete: true });
+    // Nothing of its own, and no trouble: known to have none.
+    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [] });
   });
 });
