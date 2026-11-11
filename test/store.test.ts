@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation, TeamPreset } from '../src/shared/types';
 import { dataLockFile, lockDataDir, openDatabase, type Database } from '../src/server/db';
@@ -147,6 +148,7 @@ describe('Store (SQLite)', () => {
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
+             ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
              PRAGMA user_version = 12;`);
     const migrated = new Store(reopen());
     expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
@@ -242,6 +244,90 @@ describe('Store (SQLite)', () => {
     expect(store.listCwds()).toEqual(['/work/a', '/work/b', '/work/c']);
   });
 
+  it('lists every working directory of each conversation, once each, the most recently used first', () => {
+    const store = new Store(db);
+    const at = (id: string, cwd: string, extraCwds: string[] | undefined, updatedAt: number) =>
+      store.create({ ...sampleConversation(), id, updatedAt, settings: { ...sampleConversation().settings, cwd, ...(extraCwds ? { extraCwds } : {}) } });
+    at('a', '/work/a', ['/work/docs', '/work/b'], 1);
+    at('b', '/work/b', undefined, 2);
+    at('c', '/work/c', ['/work/docs'], 0);
+    expect(store.listCwds()).toEqual(['/work/b', '/work/a', '/work/docs', '/work/c']);
+  });
+
+  it("keeps a conversation's other working directories, a turn's changes in each repository and each repository's worktree", () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    conv.settings = { ...conv.settings, extraCwds: ['/docs', '/infra'] };
+    store.create(conv);
+    const files = (path: string) => [{ path, status: 'M' as const, added: 1, deleted: 0 }];
+    const turn: ChatMessage = {
+      ...agentMsg,
+      changes: [
+        { root: '/tmp', base: 'a', head: 'b', files: files('x.ts'), isolated: true, branch: 'relay/c/A' },
+        { root: '/docs', base: 'c', head: 'd', files: files('guide.md'), isolated: true, branch: 'relay/c/A' },
+      ],
+    };
+    conv.messages.push(turn);
+    store.saveMessage(conv.id, turn, true);
+    const wt = (root: string, path: string) => ({ root, path, branch: 'relay/c/A', base: 'b0', needsReset: false });
+    store.saveWorktree(conv.id, 'a1', wt('/tmp', '/wt/a1'));
+    store.saveWorktree(conv.id, 'a1', wt('/docs', '/wt/a1-docs'));
+    store.saveWorktree(conv.id, 'a1', { ...wt('/docs', '/wt/a1-docs'), needsReset: true });
+    store.saveWorktree(conv.id, 'a1', wt('/old', '/wt/a1-old'));
+    store.deleteWorktree(conv.id, 'a1', '/old');
+
+    const loaded = new Store(reopen()).get(conv.id)!;
+    expect(loaded.settings.extraCwds).toEqual(['/docs', '/infra']);
+    expect(loaded.messages[0]!.changes).toEqual(turn.changes);
+    expect(loaded.worktrees.a1).toEqual([wt('/tmp', '/wt/a1'), { ...wt('/docs', '/wt/a1-docs'), needsReset: true }]);
+
+    // One folder again: none after it.
+    loaded.settings = { ...loaded.settings, extraCwds: undefined };
+    new Store(db).saveMeta(loaded);
+    expect(new Store(reopen()).get(conv.id)!.settings).not.toHaveProperty('extraCwds');
+  });
+
+  it('keeps the worktrees made before version 21, and reads a turn of one repository as before', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const turn: ChatMessage = { ...agentMsg, changes: [{ root: '/tmp', base: 'a', head: 'b', files: [], isolated: false }] };
+    conv.messages.push(turn);
+    store.saveMessage(conv.id, turn, true);
+    // A database from before version 21: one worktree per agent, and no extra_cwds or more_changes.
+    db.exec(`DROP TABLE agent_worktrees;
+             CREATE TABLE agent_worktrees (
+               conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+               agent_id TEXT NOT NULL, repo_root TEXT NOT NULL, path TEXT NOT NULL, branch TEXT NOT NULL,
+               base_commit TEXT NOT NULL, needs_reset INTEGER NOT NULL DEFAULT 0,
+               PRIMARY KEY (conversation_id, agent_id));
+             INSERT INTO agent_worktrees VALUES ('conv-1', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 1);
+             ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
+             PRAGMA user_version = 20;`);
+    const migrated = new Store(reopen()).get(conv.id)!;
+    expect(migrated.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: true }] });
+    expect(migrated.settings).not.toHaveProperty('extraCwds');
+    expect(migrated.messages[0]!.changes).toEqual(turn.changes);
+  });
+
+  it('leaves out what cannot be read of the other working directories and repositories', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const turn: ChatMessage = { ...agentMsg, changes: [{ root: '/tmp', base: 'a', head: 'b', files: [], isolated: false }] };
+    conv.messages.push(turn);
+    store.saveMessage(conv.id, turn, true);
+    db.exec(`UPDATE conversations SET extra_cwds = '["/docs", 3, "", null]';
+             UPDATE messages SET more_changes = '[{"root":"/docs"}, {"root":"/b","base":"c","head":"d","files":[],"isolated":false}]';`);
+    const loaded = new Store(reopen()).get(conv.id)!;
+    expect(loaded.settings.extraCwds).toEqual(['/docs']);
+    expect(loaded.messages[0]!.changes!.map((c) => c.root)).toEqual(['/tmp', '/b']);
+    db.exec(`UPDATE conversations SET extra_cwds = 'not json'; UPDATE messages SET more_changes = '{}';`);
+    const broken = new Store(reopen()).get(conv.id)!;
+    expect(broken.settings).not.toHaveProperty('extraCwds');
+    expect(broken.messages[0]!.changes!.map((c) => c.root)).toEqual(['/tmp']);
+  });
+
   it('marks conversations whose team design waits for confirmation, also after a restart', () => {
     const store = new Store(db);
     const conv: Conversation = { ...sampleConversation(), id: 'auto', messages: [] };
@@ -323,7 +409,7 @@ describe('the data folder lock', () => {
     const data = join(dir, 'data-gc');
     // As index.ts does: the handle is not kept. Then everything collectable is collected.
     const script = `
-      const { lockDataDir } = await import(${JSON.stringify(join(process.cwd(), 'src/server/db.ts'))});
+      const { lockDataDir } = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), 'src/server/db.ts')).href)});
       if (!lockDataDir(process.argv[1])) process.exit(3);
       for (let i = 0; i < 5; i++) { globalThis.gc(); await new Promise((r) => setTimeout(r, 20)); }
       process.stdout.write('collected\\n');
@@ -578,6 +664,7 @@ describe('Store shares', () => {
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
+             ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
              PRAGMA user_version = 15;`);
     const migrated = new Store(reopen());
     expect(migrated.getShare('aaaa')).toEqual(share('aaaa', 1));
@@ -723,7 +810,8 @@ describe('SettingsStore (SQLite)', () => {
     expect(again.env('grok').XAI_API_KEY).toBe('xai-1234567890');
     expect(again.view().providers.find((p) => p.provider === 'grok')!.apiKeyMasked).toBe('xai-…7890');
     expect(again.defaultCwd).toBe('/work');
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // (Windows has no permission bits: the user's own folder keeps it private there.)
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
   it('gives each CLI its own home in the agent home folder, in place of the one the server was started with', () => {
@@ -1030,6 +1118,7 @@ describe('SettingsStore accounts', () => {
     const grok = s.addAccount('grok', 'Team');
     db.exec(`ALTER TABLE provider_accounts DROP COLUMN default_model; ALTER TABLE provider_accounts DROP COLUMN default_effort;
              ALTER TABLE provider_accounts DROP COLUMN native_off; ALTER TABLE provider_accounts DROP COLUMN native_items;
+             ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
              PRAGMA user_version = 19;`);
     const migrated = new SettingsStore(reopen());
     // They run as before: as the CLI did, for every account.
@@ -1206,6 +1295,7 @@ describe('Store schedules', () => {
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
+             ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
              PRAGMA user_version = 13;`);
     const migrated = new Store(reopen()).get(conv.id)!.schedule!;
     expect(migrated.newChat).toBe(false);

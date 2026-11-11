@@ -149,13 +149,13 @@ const result = (id: string, agentId: string, base: string, head: string, extra: 
   createdAt: 0,
   status: 'done',
   parts: [],
-  changes: { root: '/r', base, head, files: [{ path: 'f', status: 'M', added: 1, deleted: 0 }], isolated: true, branch: `relay/c/${agentId}` },
+  changes: [{ root: '/r', base, head, files: [{ path: 'f', status: 'M', added: 1, deleted: 0 }], isolated: true, branch: `relay/c/${agentId}` }],
   ...extra,
 });
 
-const worktree = (agentId: string, base: string, needsReset = false): AgentWorktree => ({
-  root: '/r',
-  path: `/wt/${agentId}`,
+const worktree = (agentId: string, base: string, needsReset = false, root = '/r'): AgentWorktree => ({
+  root,
+  path: `/wt/${agentId}${root === '/r' ? '' : `-${root.slice(1)}`}`,
   branch: `relay/c/${agentId}`,
   base,
   needsReset,
@@ -174,7 +174,7 @@ describe('the conversation a branch comes from', () => {
 describe('which worktree result can be applied', () => {
   it("offers each agent's latest result, including later rounds in the same worktree", () => {
     const messages = [result('a1', 'A', 'S1', 'h1'), result('b1', 'B', 'S1', 'k1'), result('a2', 'A', 'h1', 'h2')];
-    const states = applyStates(messages, { A: worktree('A', 'S1'), B: worktree('B', 'S1') });
+    const states = applyStates(messages, { A: [worktree('A', 'S1')], B: [worktree('B', 'S1')] });
     expect([...states]).toEqual([
       ['a2', 'available'],
       ['b1', 'available'],
@@ -182,7 +182,7 @@ describe('which worktree result can be applied', () => {
   });
 
   it('marks the latest result stale once a result was applied', () => {
-    const states = applyStates([result('a1', 'A', 'S1', 'h1')], { A: worktree('A', 'S1', true) });
+    const states = applyStates([result('a1', 'A', 'S1', 'h1')], { A: [worktree('A', 'S1', true)] });
     expect(states.get('a1')).toBe('stale');
   });
 
@@ -190,17 +190,31 @@ describe('which worktree result can be applied', () => {
     // A result was applied, then the next parallel turn recreated the worktrees from snapshot S2;
     // A has made no changes since, so its old card must not offer Apply again.
     const messages = [result('a1', 'A', 'S1', 'h1'), result('b2', 'B', 'S2', 'k2')];
-    const states = applyStates(messages, { A: worktree('A', 'S2'), B: worktree('B', 'S2') });
+    const states = applyStates(messages, { A: [worktree('A', 'S2')], B: [worktree('B', 'S2')] });
     expect(states.has('a1')).toBe(false);
     expect(states.get('b2')).toBe('available');
   });
 
   it('ignores streaming replies, shared-directory changes and agents without a worktree', () => {
     const shared = result('s', 'A', 'S1', 'x');
-    shared.changes = { ...shared.changes!, isolated: false };
+    shared.changes = [{ ...shared.changes![0]!, isolated: false }];
     const messages = [result('a1', 'A', 'S1', 'h1'), shared, result('a2', 'A', 'h1', 'h2', { status: 'streaming' }), result('c1', 'C', 'S1', 'z')];
-    const states = applyStates(messages, { A: worktree('A', 'S1') });
+    const states = applyStates(messages, { A: [worktree('A', 'S1')] });
     expect([...states]).toEqual([['a1', 'available']]);
+  });
+
+  it('with several working directories: current only while every repository it changed is, stale once any worktree needs a reset', () => {
+    const both = result('a1', 'A', 'S1', 'h1');
+    both.changes = [...both.changes!, { ...both.changes![0]!, root: '/q', base: 'Q1', head: 'q1' }];
+    const onlyQ = result('a2', 'A', 'S1', 'h1');
+    onlyQ.changes = [{ ...onlyQ.changes![0]!, root: '/q', base: 'Q1', head: 'q2' }];
+    const wts = (q: string, reset = false) => ({ A: [worktree('A', 'S1'), worktree('A', q, reset, '/q')] });
+    expect(applyStates([both], wts('Q1')).get('a1')).toBe('available');
+    // The worktree of /q was made again from another snapshot: the result is not in it any more.
+    expect(applyStates([both], wts('Q2')).has('a1')).toBe(false);
+    // A turn that changed /q only is the latest result.
+    expect([...applyStates([both, onlyQ], wts('Q1'))]).toEqual([['a2', 'available']]);
+    expect(applyStates([both], wts('Q1', true)).get('a1')).toBe('stale');
   });
 });
 

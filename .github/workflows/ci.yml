@@ -1,7 +1,8 @@
 name: CI
 
 # Every pull request and every push to main (including merges) must typecheck, pass the tests
-# and build; the desktop app is also packaged for Linux and checked as a release is.
+# and build, on Linux and on Windows; the desktop app is also packaged for Linux and checked as a
+# release is.
 on:
   pull_request:
   push:
@@ -62,6 +63,32 @@ jobs:
 
       - name: Run the bundled server as the desktop app does
         run: npx tsx desktop/scripts/smoke.ts
+
+  # The desktop app ships for Windows, so the tests run there too: Git for Windows' defaults (CRLF
+  # line endings), Windows paths and processes. Tests of what only macOS or Linux have are skipped.
+  windows:
+    name: Typecheck, test, build (Windows, Node 24)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
 
   desktop-package:
     name: Package the desktop app and check it (Linux ${{ matrix.arch }})

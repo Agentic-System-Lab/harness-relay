@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 // A data folder of its own: asking Claude Code what it loads puts a --settings file in its tmp folder.
@@ -341,7 +341,9 @@ describe('memory files', () => {
     // Instruction files are left out one by one by their path; auto memory only all at once.
     expect(found.every((f) => (f.kind === 'instructions' ? f.id === f.path : f.id === undefined))).toBe(true);
     expect(found.filter((f) => f.kind === 'memory').map((f) => f.path)).toEqual([memory]);
-    expect(claudeProjectSlug('/Users/me/my.app')).toBe('-Users-me-my-app');
+    // On Windows the path is on the current drive (C:\Users\me\my.app), as Claude Code names it there.
+    const drive = process.platform === 'win32' ? `${resolve('/')[0]}-` : '';
+    expect(claudeProjectSlug('/Users/me/my.app')).toBe(`${drive}-Users-me-my-app`);
   });
 
   it("finds Codex's AGENTS.md files from its home and the repository root down, an override first", () => {
@@ -630,7 +632,8 @@ describe('marking what Harness Relay leaves out', () => {
   });
 });
 
-describe('asking again the way Harness Relay starts each CLI (stand-in CLIs)', () => {
+// The stand-ins are scripts run by their `#!` line, which Windows cannot start.
+describe.skipIf(process.platform === 'win32')('asking again the way Harness Relay starts each CLI (stand-in CLIs)', () => {
   const env = (extra: Record<string, string> = {}) => ({ ...process.env, ...extra });
 
   it('Claude Code: marks the skills, MCP servers, hooks, subagents, plugins and files a run leaves out', async () => {
@@ -681,6 +684,32 @@ describe('asking again the way Harness Relay starts each CLI (stand-in CLIs)', (
     ]);
     expect(probe.memory).toEqual([{ path: instructions, kind: 'instructions', id: instructions, leftOut: true }]);
     expect(JSON.stringify(probe)).not.toContain('secret');
+  });
+
+  it("Claude Code: is asked with the other working directories, as runs give them, and its answer kept apart", async () => {
+    const bin = writeFakeClaude(join(root, 'fake-claude-dirs'));
+    const log = join(root, 'claude-dirs.jsonl');
+    const cwd = join(root, 'claude-dirs-cwd');
+    mkdirSync(cwd, { recursive: true });
+    const service = new NativeSetupService({ bin: () => bin, env: () => env({ FAKE_CLAUDE_LOG: log }), nativeOff: () => ['skills'] });
+    await service.get('claude', cwd, false, undefined, ['/docs', '/infra']);
+    // Not the ask for its built-in parts alone (no settings, no project), nor `plugin list`.
+    const starts = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { args?: string[] })
+      .filter((l) => l.args && l.args[0] !== 'plugin' && !l.args.includes('--setting-sources'));
+    // Both asks, the second the way a run starts it.
+    expect(starts).toHaveLength(2);
+    expect(starts[1]!.args).toContain('--disable-slash-commands');
+    for (const { args } of starts) {
+      const at = args!.indexOf('--add-dir');
+      expect(args!.slice(at, at + 3)).toEqual(['--add-dir', '/docs', '/infra']);
+    }
+    // Other folders, another answer.
+    const before = starts.length;
+    await service.get('claude', cwd, false, undefined, ['/docs']);
+    expect(readFileSync(log, 'utf8').trim().split('\n').length).toBeGreaterThan(before);
   });
 
   it('Claude Code: marks the single skills, tools, MCP servers and tools, subagents, plugins and files a run leaves out', async () => {

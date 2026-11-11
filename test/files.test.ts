@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -136,13 +136,39 @@ describe('fileRoots', () => {
         { id: 'b', name: 'B' },
       ],
       worktrees: {
-        a: { root: project, path: join(project, 'src'), branch: 'relay/a', base: 'x', needsReset: false },
-        b: { root: project, path: join(root, 'gone'), branch: 'relay/b', base: 'x', needsReset: false },
+        a: [{ root: project, path: join(project, 'src'), branch: 'relay/a', base: 'x', needsReset: false }],
+        b: [{ root: project, path: join(root, 'gone'), branch: 'relay/b', base: 'x', needsReset: false }],
       },
     } as unknown as Conversation;
     expect(fileRoots(conv)).toEqual([
       { id: 'cwd', path: project },
       { id: 'a', path: join(project, 'src'), agentId: 'a' },
+    ]);
+  });
+
+  it('offers each working directory, then each worktree of each, the innermost repository\'s for a folder inside another', () => {
+    // Folders of their own, outside the project the other tests share.
+    const outer = join(root, 'outer-project');
+    const docs = join(outer, 'docs');
+    const other = join(root, 'other-folder');
+    for (const d of [docs, other, join(root, 'wt-a'), join(root, 'wt-a-docs')]) mkdirSync(d, { recursive: true });
+    const conv = {
+      settings: { cwd: outer, extraCwds: [docs, other] },
+      agents: [{ id: 'a', name: 'A' }],
+      worktrees: {
+        a: [
+          { root: outer, path: join(root, 'wt-a'), branch: 'relay/a', base: 'x', needsReset: false },
+          { root: docs, path: join(root, 'wt-a-docs'), branch: 'relay/a', base: 'y', needsReset: false },
+        ],
+      },
+    } as unknown as Conversation;
+    expect(fileRoots(conv)).toEqual([
+      { id: 'cwd', path: outer },
+      { id: 'cwd:1', path: docs, cwd: 1 },
+      { id: 'cwd:2', path: other, cwd: 2 },
+      { id: 'a', path: join(root, 'wt-a'), agentId: 'a' },
+      // other-folder is in no repository the agent has a worktree of.
+      { id: 'a:1', path: join(root, 'wt-a-docs'), agentId: 'a', cwd: 1 },
     ]);
   });
 });
@@ -180,6 +206,14 @@ describe('zipPlan', () => {
     expect(names(await zipPlan(project, 'src-link'))).toEqual(['src-link/', 'src-link/app.ts', 'src-link/deep/']);
   });
 
+  // Where the filesystem ignores case (macOS, Windows), a folder asked for in another case.
+  it.skipIf(!existsSync(project.toUpperCase()))('takes the same, by its own name, when the folder is asked for in another letter case', async () => {
+    const plan = await zipPlan(project.toUpperCase(), '');
+    expect(plan!.name).toBe('project');
+    expect(names(plan)).toEqual(names(await zipPlan(project, '')));
+    expect(plan!.files).toBe(6);
+  });
+
   it('refuses a file, anything outside the folder and .git', async () => {
     for (const bad of ['file2.txt', 'leak-dir', '..', '.git', 'Docs/.Git', 'missing']) {
       await expect(zipPlan(project, bad), bad).rejects.toThrow(notFound);
@@ -210,7 +244,8 @@ describe('zipPlan', () => {
     expect(plan.name).toBe('project-Alice');
     expect(names(plan)).toEqual(['project-Alice/', 'project-Alice/notes.txt', 'project-Alice/run.sh']);
     const mode = (n: string) => plan.entries.find((e) => e.name.endsWith(n))!.mode! & 0o777;
-    expect([mode('run.sh'), mode('notes.txt')]).toEqual([0o755, 0o640]);
+    // Windows has no permission bits to keep (a file there is 0o666, or 0o444 read-only).
+    if (process.platform !== 'win32') expect([mode('run.sh'), mode('notes.txt')]).toEqual([0o755, 0o640]);
     // A folder inside keeps its own name.
     expect((await zipPlan(project, 'src', { name: 'ignored' }))!.name).toBe('src');
     await expect(zipPlan(tools, '.git.')).rejects.toThrow(notFound);

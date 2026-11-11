@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { MessageChanges } from '../../shared/types';
+import type { FileChange, MessageChanges } from '../../shared/types';
 import { useT } from '../i18n';
 
 const PREVIEW = 8;
@@ -7,7 +7,8 @@ const PREVIEW = 8;
 export type ApplyState = 'available' | 'stale' | undefined;
 
 interface Props {
-  changes: MessageChanges;
+  /** One entry for each repository the turn changed. */
+  changes: MessageChanges[];
   agentName: string;
   /** Only the agent's latest isolated result can be applied. */
   applyState: ApplyState;
@@ -15,15 +16,29 @@ interface Props {
   onApply: () => Promise<void>;
 }
 
-/** Files an agent changed in one turn, with diff and (for worktree results) apply actions. */
+/**
+ * Files an agent changed in one turn, with diff and (for worktree results) apply actions. A turn that
+ * changed more than one repository (the conversation has several working directories) lists the
+ * files under each one's folder.
+ */
 export function ChangesCard({ changes, agentName, applyState, onDiff, onApply }: Props) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
-  const { files } = changes;
+  const sets = changes.filter((c) => c.files.length);
+  const files = sets.flatMap((c) => c.files);
   const added = files.reduce((n, f) => n + (f.added ?? 0), 0);
   const deleted = files.reduce((n, f) => n + (f.deleted ?? 0), 0);
-  const shown = expanded ? files : files.slice(0, PREVIEW);
+  const isolated = sets.find((c) => c.isolated);
+  // The first PREVIEW files in all, in their repositories' order.
+  let room = expanded ? files.length : PREVIEW;
+  const groups = sets
+    .map((c) => {
+      const shown = c.files.slice(0, Math.max(0, room));
+      room -= shown.length;
+      return { root: c.root, shown };
+    })
+    .filter((g) => g.shown.length);
 
   const apply = async () => {
     if (!confirm(t.changes.confirmApply(agentName))) return;
@@ -42,30 +57,20 @@ export function ChangesCard({ changes, agentName, applyState, onDiff, onApply }:
         <span className="diffstat">
           <span className="plus">+{added}</span> <span className="minus">−{deleted}</span>
         </span>
-        <span className={`changes-where ${changes.isolated ? 'isolated' : ''}`}>
-          {changes.isolated ? t.changes.inWorktree(changes.branch ?? '') : t.changes.written}
+        <span className={`changes-where ${isolated ? 'isolated' : ''}`}>
+          {isolated ? t.changes.inWorktree(isolated.branch ?? '') : t.changes.written}
         </span>
       </div>
-      <ul className="changes-files">
-        {shown.map((f) => (
-          <li key={f.path}>
-            <span className={`file-status s-${f.status}`} title={t.changes.status[f.status]}>
-              {f.status}
-            </span>
-            <code className="file-path">{f.path}</code>
-            <span className="diffstat small">
-              {f.added === null ? (
-                t.changes.binary
-              ) : (
-                <>
-                  {f.added > 0 && <span className="plus">+{f.added}</span>}{' '}
-                  {(f.deleted ?? 0) > 0 && <span className="minus">−{f.deleted}</span>}
-                </>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {groups.map((g) => (
+        <div key={g.root} className="changes-repo">
+          {sets.length > 1 && (
+            <div className="changes-repo-name muted small" title={g.root}>
+              📁 {g.root}
+            </div>
+          )}
+          <FileList files={g.shown} />
+        </div>
+      ))}
       {files.length > PREVIEW && (
         <button className="link-button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
           {expanded ? t.changes.collapse : t.changes.more(files.length - PREVIEW)}
@@ -88,6 +93,33 @@ export function ChangesCard({ changes, agentName, applyState, onDiff, onApply }:
         {applyState === 'stale' && <span className="muted small">{t.changes.stale}</span>}
       </div>
     </div>
+  );
+}
+
+/** Files changed in one repository. */
+function FileList({ files }: { files: FileChange[] }) {
+  const t = useT();
+  return (
+    <ul className="changes-files">
+      {files.map((f) => (
+        <li key={f.path}>
+          <span className={`file-status s-${f.status}`} title={t.changes.status[f.status]}>
+            {f.status}
+          </span>
+          <code className="file-path">{f.path}</code>
+          <span className="diffstat small">
+            {f.added === null ? (
+              t.changes.binary
+            ) : (
+              <>
+                {f.added > 0 && <span className="plus">+{f.added}</span>}{' '}
+                {(f.deleted ?? 0) > 0 && <span className="minus">−{f.deleted}</span>}
+              </>
+            )}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

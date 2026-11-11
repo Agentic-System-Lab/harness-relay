@@ -26,7 +26,7 @@ import type {
   SearchResult,
   SharedPage,
 } from '../shared/types';
-import { pendingPlan } from '../shared/types';
+import { cwdSettings, pendingPlan } from '../shared/types';
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
@@ -78,6 +78,7 @@ interface ConversationRow {
   max_hops: number;
   permission: Permission;
   cwd: string;
+  extra_cwds: string | null;
   auto_team: number;
   auto_confirm: number;
   approvals: string | null;
@@ -118,6 +119,7 @@ interface MessageRow {
   change_head: string | null;
   change_isolated: number | null;
   change_branch: string | null;
+  more_changes: string | null;
   plan: string | null;
   queued: number | null;
   asked: number | null;
@@ -243,9 +245,9 @@ function partColumns(p: MessagePart): (string | null)[] {
   }
 }
 
-function toChanges(r: MessageRow, files: FileChange[]): MessageChanges | undefined {
+function toChanges(r: MessageRow, files: FileChange[]): MessageChanges[] | undefined {
   if (!r.change_root || !r.change_base || !r.change_head) return undefined;
-  return {
+  const first: MessageChanges = {
     root: r.change_root,
     base: r.change_base,
     head: r.change_head,
@@ -253,6 +255,28 @@ function toChanges(r: MessageRow, files: FileChange[]): MessageChanges | undefin
     isolated: Boolean(r.change_isolated),
     branch: opt(r.change_branch),
   };
+  return [first, ...moreChanges(r.more_changes)];
+}
+
+/** The changes in the repositories after the first (`more_changes`), leaving out any that cannot be read. */
+function moreChanges(json: string | null): MessageChanges[] {
+  const list = parseJson<unknown>(json, []);
+  if (!Array.isArray(list)) return [];
+  return list.filter(
+    (c): c is MessageChanges =>
+      Boolean(c) &&
+      typeof c.root === 'string' &&
+      typeof c.base === 'string' &&
+      typeof c.head === 'string' &&
+      Array.isArray(c.files) &&
+      typeof c.isolated === 'boolean',
+  );
+}
+
+/** A conversation's working directories after the first (`extra_cwds`), leaving out what cannot be read. */
+function extraCwdsOf(json: string | null): string[] {
+  const list = parseJson<unknown>(json, []);
+  return Array.isArray(list) ? list.filter((d): d is string => typeof d === 'string' && d.length > 0) : [];
 }
 
 function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): ChatMessage {
@@ -417,14 +441,16 @@ function parsePlan(json: string | null): TeamPlan | undefined {
 
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
-                       change_root, change_base, change_head, change_isolated, change_branch, plan, queued, asked, scheduled)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       change_root, change_base, change_head, change_isolated, change_branch, more_changes, plan, queued, asked,
+                       scheduled)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
    input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
    change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
-   change_isolated = excluded.change_isolated, change_branch = excluded.change_branch, plan = excluded.plan,
+   change_isolated = excluded.change_isolated, change_branch = excluded.change_branch,
+   more_changes = excluded.more_changes, plan = excluded.plan,
    queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
@@ -603,20 +629,20 @@ export class Store {
       this.db.prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY seq').all(id) as unknown as MessageRow[]
     ).map((m) => toMessage(m, partsByMsg.get(m.id) ?? [], changesByMsg.get(m.id) ?? []));
 
-    const worktrees: Record<string, AgentWorktree> = {};
+    const worktrees: Record<string, AgentWorktree[]> = {};
     const wtRows = this.db
       .prepare(
-        'SELECT agent_id, repo_root, path, branch, base_commit, needs_reset FROM agent_worktrees WHERE conversation_id = ?',
+        'SELECT agent_id, repo_root, path, branch, base_commit, needs_reset FROM agent_worktrees WHERE conversation_id = ? ORDER BY rowid',
       )
       .all(id) as { agent_id: string; repo_root: string; path: string; branch: string; base_commit: string; needs_reset: number }[];
     for (const w of wtRows) {
-      worktrees[w.agent_id] = {
+      (worktrees[w.agent_id] ??= []).push({
         root: w.repo_root,
         path: w.path,
         branch: w.branch,
         base: w.base_commit,
         needsReset: Boolean(w.needs_reset),
-      };
+      });
     }
 
     const scheduleRow = this.db.prepare('SELECT * FROM schedules WHERE conversation_id = ?').get(id) as ScheduleRow | undefined;
@@ -633,7 +659,7 @@ export class Store {
         rounds: c.rounds,
         maxHops: c.max_hops,
         permission: c.permission,
-        cwd: c.cwd,
+        ...cwdSettings([c.cwd, ...extraCwdsOf(c.extra_cwds)]),
         ...(c.auto_team ? { autoTeam: true } : {}),
         ...(c.auto_confirm ? { autoConfirm: true } : {}),
         ...(c.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
@@ -655,9 +681,9 @@ export class Store {
       const s = conv.settings;
       this.db
         .prepare(
-          `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd, auto_team,
-                                     auto_confirm, approvals, allow_rules, pause, branch)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd, extra_cwds,
+                                     auto_team, auto_confirm, approvals, allow_rules, pause, branch)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           conv.id,
@@ -669,6 +695,7 @@ export class Store {
           s.maxHops,
           s.permission,
           s.cwd,
+          s.extraCwds?.length ? JSON.stringify(s.extraCwds) : null,
           s.autoTeam ? 1 : 0,
           s.autoConfirm ? 1 : 0,
           nul(s.approvals),
@@ -690,7 +717,7 @@ export class Store {
       this.db
         .prepare(
           `UPDATE conversations SET title = ?, updated_at = ?, mode = ?, rounds = ?, max_hops = ?, permission = ?, cwd = ?,
-             auto_team = ?, auto_confirm = ?, approvals = ?, allow_rules = ?, pause = ?, branch = ?
+             extra_cwds = ?, auto_team = ?, auto_confirm = ?, approvals = ?, allow_rules = ?, pause = ?, branch = ?
            WHERE id = ?`,
         )
         .run(
@@ -701,6 +728,7 @@ export class Store {
           s.maxHops,
           s.permission,
           s.cwd,
+          s.extraCwds?.length ? JSON.stringify(s.extraCwds) : null,
           s.autoTeam ? 1 : 0,
           s.autoConfirm ? 1 : 0,
           nul(s.approvals),
@@ -881,6 +909,8 @@ export class Store {
       if (!ids.has(m.id)) return;
       const agentId = m.author.kind === 'agent' ? m.author.agentId : null;
       const meta = m.meta ?? {};
+      // The first repository's changes in their columns and rows, the others' as JSON.
+      const [first, ...more] = m.changes ?? [];
       upsert.run(
         m.id,
         convId,
@@ -898,18 +928,19 @@ export class Store {
         nul(meta.costUsd),
         nul(meta.inputTokens),
         nul(meta.outputTokens),
-        nul(m.changes?.root),
-        nul(m.changes?.base),
-        nul(m.changes?.head),
-        m.changes ? (m.changes.isolated ? 1 : 0) : null,
-        nul(m.changes?.branch),
+        nul(first?.root),
+        nul(first?.base),
+        nul(first?.head),
+        first ? (first.isolated ? 1 : 0) : null,
+        nul(first?.branch),
+        more.length ? JSON.stringify(more) : null,
         m.plan ? JSON.stringify(m.plan) : null,
         m.queued ? 1 : null,
         m.asked ? 1 : null,
         m.scheduled ? 1 : null,
       );
       clearChanges.run(m.id);
-      m.changes?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));
+      first?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));
       clearParts.run(m.id);
       m.parts.forEach((p, idx) => insertPart.run(m.id, idx, p.type, ...partColumns(p)));
     });
@@ -957,16 +988,23 @@ export class Store {
 
   // Worktrees ----------------------------------------------------------------------
 
+  /** Saves an agent's worktree of one repository (`w.root`), in place of the one it had there. */
   saveWorktree(convId: string, agentId: string, w: AgentWorktree): void {
     if (this.deleted.has(convId)) return;
     this.db
       .prepare(
         `INSERT INTO agent_worktrees (conversation_id, agent_id, repo_root, path, branch, base_commit, needs_reset)
          VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(conversation_id, agent_id) DO UPDATE SET repo_root = excluded.repo_root, path = excluded.path,
+         ON CONFLICT(conversation_id, agent_id, repo_root) DO UPDATE SET path = excluded.path,
            branch = excluded.branch, base_commit = excluded.base_commit, needs_reset = excluded.needs_reset`,
       )
       .run(convId, agentId, w.root, w.path, w.branch, w.base, w.needsReset ? 1 : 0);
+  }
+
+  /** Forgets an agent's worktree of a repository no working directory is in any more. */
+  deleteWorktree(convId: string, agentId: string, root: string): void {
+    if (this.deleted.has(convId)) return;
+    this.db.prepare('DELETE FROM agent_worktrees WHERE conversation_id = ? AND agent_id = ? AND repo_root = ?').run(convId, agentId, root);
   }
 
   // --- Shared conversations (secret gists) ----------------------------------------------
@@ -1189,11 +1227,12 @@ export class Store {
     ).map((r) => r.title);
   }
 
-  /** The conversations' working directories, each once, the most recently used first. */
+  /** The conversations' working directories (all of each), each once, the most recently used first. */
   listCwds(): string[] {
-    return (
-      this.db.prepare('SELECT cwd FROM conversations GROUP BY cwd ORDER BY MAX(updated_at) DESC, cwd').all() as { cwd: string }[]
-    ).map((r) => r.cwd);
+    const rows = this.db
+      .prepare('SELECT cwd, extra_cwds FROM conversations ORDER BY updated_at DESC, cwd')
+      .all() as { cwd: string; extra_cwds: string | null }[];
+    return [...new Set(rows.flatMap((r) => [r.cwd, ...extraCwdsOf(r.extra_cwds)]))];
   }
 
   // Search -------------------------------------------------------------------------

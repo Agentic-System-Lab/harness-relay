@@ -1,0 +1,3 @@
+# Every text file is checked out with LF, also on Windows, where Git turns core.autocrlf on by
+# default: the tests and the build read these files as they are in the repository.
+* text=auto eol=lf

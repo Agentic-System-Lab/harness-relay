@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
+  cwdSettings,
+  cwdsOf,
   type Conversation,
   type LeadAgentSettings,
   type ProviderModels,
@@ -40,11 +42,22 @@ export const lastAutoConfirm = () => read(AUTO_CONFIRM_KEY) === '1';
 /** Remember whether this one did, so the next one starts the same way. */
 export const rememberAutoConfirm = (on: boolean | undefined) => write(AUTO_CONFIRM_KEY, on ? '1' : '');
 
-/** A new conversation: the lead agent designs the team for each question, so only the settings are chosen here. */
-export function autoTeam(cwd: string, autoConfirm: boolean): Team {
+/**
+ * A new conversation: the lead agent designs the team for each question, so only the settings are
+ * chosen here. It starts in the default working directories (`cwds`, the first where agents start).
+ */
+export function autoTeam(cwds: string[], autoConfirm: boolean): Team {
   return {
     agents: [],
-    settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd, autoTeam: true, ...(autoConfirm ? { autoConfirm } : {}) },
+    settings: {
+      mode: 'roundtable',
+      rounds: 1,
+      maxHops: 8,
+      permission: 'read-only',
+      ...cwdSettings(cwds),
+      autoTeam: true,
+      ...(autoConfirm ? { autoConfirm } : {}),
+    },
   };
 }
 
@@ -78,7 +91,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         if (initialized.current) return;
         initialized.current = true;
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam(autoTeam(settings.defaultCwd, lastAutoConfirm()));
+        setTeam(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, [lang]);
@@ -94,7 +107,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
     try {
       const conv = await orCreateCwd(
         (createCwd) => api.createConversation({ title, agents: [], settings: team.settings, createCwd }),
-        () => confirm(t.newChat.confirmCreateCwd(team.settings.cwd.trim())),
+        (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
       onCreated(conv);

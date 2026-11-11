@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { buildChapters, joinNames, planPhrase, RAILS, renderRail, replaceRail, rounds, teamWho } from '../scripts/demo/chapters';
@@ -84,15 +85,10 @@ describe('planCut', () => {
       { file: '000001.jpg', duration: 0.5 },
       { file: '000002.jpg', duration: 0.25 },
     ]);
-    expect(list.split('\n')).toEqual([
-      'ffconcat version 1.0',
-      "file '/rec/it'\\''s/frames/000001.jpg'",
-      'duration 0.50000',
-      "file '/rec/it'\\''s/frames/000002.jpg'",
-      'duration 0.25000',
-      "file '/rec/it'\\''s/frames/000002.jpg'",
-      '',
-    ]);
+    // The folder's quote quoted for FFmpeg, its separators this system's (`\` on Windows).
+    const frame = (file: string) => `file '${join('/rec', "it'\\''s", 'frames', file)}'`;
+    expect(list.split('\n')).toEqual(['ffconcat version 1.0', frame('000001.jpg'), 'duration 0.50000', frame('000002.jpg'), 'duration 0.25000', frame('000002.jpg'), '']);
+    expect(frame('000001.jpg')).toBe(process.platform === 'win32' ? "file '\\rec\\it'\\''s\\frames\\000001.jpg'" : "file '/rec/it'\\''s/frames/000001.jpg'");
   });
 });
 

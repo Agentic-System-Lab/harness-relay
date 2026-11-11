@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   appImageDownload,
   appImageTarget,
@@ -456,7 +456,7 @@ describe('downloading an update', () => {
 describe('putting the new version in place', () => {
   it('names a new AppImage after its version when the running one was named after its own', () => {
     expect(appImageTarget('/home/me/Apps/Harness-Relay-2026-11-10-linux-x86_64.AppImage', 'Harness-Relay-2026-11-12-linux-x86_64.AppImage', '2026-11-10')).toBe(
-      '/home/me/Apps/Harness-Relay-2026-11-12-linux-x86_64.AppImage',
+      join('/home/me/Apps', 'Harness-Relay-2026-11-12-linux-x86_64.AppImage'),
     );
     // A name the user gave it (a launcher may use it) stays.
     expect(appImageTarget('/home/me/bin/harness-relay.AppImage', 'Harness-Relay-2026-11-12-linux-x86_64.AppImage', '2026-11-10')).toBe('/home/me/bin/harness-relay.AppImage');
@@ -606,9 +606,9 @@ describe('waiting for the conversations', () => {
       now: new Promise<void>((r) => (switchNow = r)),
       everyMs: 1,
     }).then((how) => ((settled = true), how));
-    await new Promise((r) => setTimeout(r, 50));
+    // Asked again and again (as often as the system's timers allow: every 15.6 ms on Windows).
+    await vi.waitFor(() => expect(asked).toBeGreaterThan(5));
     expect(settled).toBe(false);
-    expect(asked).toBeGreaterThan(5);
     switchNow();
     expect(await waiting).toBe('now');
   });
@@ -631,7 +631,7 @@ describe('waiting for the conversations', () => {
 describe('what an update leaves next to the AppImage', () => {
   it('downloads the new AppImage hidden next to the running one', () => {
     expect(appImageDownload('/home/me/Apps/Harness-Relay-2026-11-10-linux-arm64.AppImage', 'Harness-Relay-2026-11-12-linux-arm64.AppImage')).toBe(
-      '/home/me/Apps/.Harness-Relay-2026-11-12-linux-arm64.AppImage.download',
+      join('/home/me/Apps', '.Harness-Relay-2026-11-12-linux-arm64.AppImage.download'),
     );
   });
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PROVIDER_LABEL, type Conversation, type ConversationSchedule, type LeadAgentSettings, type ProviderModels, type ProviderStatus } from '../../shared/types';
+import { PROVIDER_LABEL, cwdsOf, type Conversation, type ConversationSchedule, type LeadAgentSettings, type ProviderModels, type ProviderStatus } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { useI18n } from '../i18n';
 import { draftFrom, draftProblems, toUpdate, type ScheduleDraft } from '../schedule';
@@ -36,7 +36,7 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
       .then((settings) => {
         setLead(settings.lead);
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam((current) => current ?? autoTeam(settings.defaultCwd, lastAutoConfirm()));
+        setTeam((current) => current ?? autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, [lang]);
@@ -59,7 +59,7 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
     try {
       const conv = await orCreateCwd(
         (createCwd) => api.createSchedule({ title: title.trim() || undefined, settings: team.settings, createCwd, schedule: toUpdate(draft) }),
-        () => confirm(t.newChat.confirmCreateCwd(team.settings.cwd.trim())),
+        (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
       onCreated(conv);

@@ -1433,29 +1433,151 @@ details.sub .model-picker {
   min-width: 0;
 }
 
-/* The working directory box, with the list of the working directories in use below it */
+/* The working directories box: a chip for each, then a text box to add one; the list of the working
+   directories in use below it. The box looks like a text box; the text box inside has no border. */
 .cwd-input {
   position: relative;
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
   flex: 1;
+  min-width: 0;
+  min-height: 38px;
+  padding: 3px 36px 3px 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: text;
+}
+
+.cwd-input:focus-within {
+  border-color: color-mix(in srgb, var(--text) 45%, var(--border));
+}
+
+.cwd-input.can-pick {
+  padding-right: 66px;
+}
+
+/* What is being typed, and the Enter key right after its last character. The group takes the rest of
+   the line; the text box inside is as wide as its text (a hidden copy of it, `data-value`, sets the
+   width), up to the room there is, where it scrolls. */
+.cwd-entry {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 140px;
   min-width: 0;
 }
 
-.cwd-input > input {
-  flex: 1;
+.cwd-typing {
+  display: inline-grid;
+  flex: 0 1 auto;
   min-width: 0;
-  padding-right: 36px;
+}
+
+.cwd-typing::after,
+.cwd-typing > input {
+  grid-area: 1 / 1;
+  min-width: 1em;
+  padding: 4px 6px;
+  font: inherit;
+  line-height: 1.35;
+}
+
+.cwd-typing::after {
+  content: attr(data-value) ' ';
+  visibility: hidden;
+  white-space: pre;
+  overflow: hidden;
+}
+
+.cwd-typing > input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.cwd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 2px 2px 8px;
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.35;
+  cursor: default;
+}
+
+/* The first is where the agents start. */
+.cwd-chip:first-child {
+  font-weight: 600;
+}
+
+.cwd-chip-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cwd-chip-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.cwd-chip-remove:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text);
 }
 
 .input-row .cwd-input {
   min-width: 200px;
 }
 
-.cwd-toggle {
+/* While a folder is typed: the Enter key that adds it, at the end of the box */
+.cwd-enter {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  animation: cwd-enter-in 0.12s ease-out;
+}
+
+.cwd-enter:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 35%, var(--border));
+}
+
+@keyframes cwd-enter-in {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+}
+
+.cwd-toggle,
+.cwd-pick {
   position: absolute;
-  top: 50%;
+  top: 4px;
   right: 5px;
-  transform: translateY(-50%);
   width: 28px;
   height: 28px;
   display: grid;
@@ -1467,9 +1589,26 @@ details.sub .model-picker {
   color: var(--muted);
 }
 
-.cwd-toggle:hover {
+.cwd-toggle:hover,
+.cwd-pick:hover:not(:disabled) {
   background: var(--surface);
   color: var(--text);
+}
+
+/* The folder button: beside the arrow while the box has the focus, and while its dialog is open */
+.cwd-pick {
+  right: 35px;
+  visibility: hidden;
+}
+
+.cwd-input:focus-within .cwd-pick,
+.cwd-pick.busy {
+  visibility: visible;
+}
+
+.cwd-pick.busy {
+  color: var(--text);
+  animation: breathe 1.2s ease-in-out infinite;
 }
 
 .cwd-toggle svg {
@@ -2410,6 +2549,18 @@ a.branch-source:hover {
 
 .minus {
   color: var(--danger);
+}
+
+/* A turn that changed more than one repository: each one's folder above its files */
+.changes-repo + .changes-repo {
+  margin-top: 8px;
+}
+
+.changes-repo-name {
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .changes-files {

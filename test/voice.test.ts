@@ -192,10 +192,10 @@ describe('voice helpers', () => {
   });
 
   it('finds commands on PATH, with PATHEXT on Windows', () => {
-    const files = new Set(['/a/whisper-server', 'C:\\w/whisper-server.EXE', '/brew/brew']);
+    const files = new Set(['/a/whisper-server', 'C:\\w\\whisper-server.EXE', '/brew/brew']);
     const isFile = (p: string) => files.has(p);
     expect(findOnPath('whisper-server', { PATH: '/x:/a' }, 'linux', [], isFile)).toBe('/a/whisper-server');
-    expect(findOnPath('whisper-server', { Path: 'C:\\w', PATHEXT: '.COM;.EXE' }, 'win32', [], isFile)).toBe('C:\\w/whisper-server.EXE');
+    expect(findOnPath('whisper-server', { Path: 'C:\\w', PATHEXT: '.COM;.EXE' }, 'win32', [], isFile)).toBe('C:\\w\\whisper-server.EXE');
     expect(findOnPath('brew', { PATH: '/x' }, 'darwin', ['/brew'], isFile)).toBe('/brew/brew');
     expect(findOnPath('brew', { PATH: '/x' }, 'darwin', [], isFile)).toBeUndefined();
   });
@@ -290,7 +290,8 @@ describe('VoiceService', () => {
     expect(() => svc.install('small')).toThrow(HttpError);
   });
 
-  it('installs the engine with Homebrew on macOS', async () => {
+  // A macOS PATH (`:` between folders) cannot hold this system's folders on Windows (`C:\…`).
+  it.skipIf(process.platform === 'win32')('installs the engine with Homebrew on macOS', async () => {
     writeFileSync(join(dir, 'bin', 'brew'), '');
     // brew links bin/whisper-server to the Cellar.
     const cellar = join(dir, 'Cellar', 'whisper-cpp', '1.9.5', 'bin', 'whisper-server');

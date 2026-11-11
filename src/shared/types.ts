@@ -387,12 +387,17 @@ export interface NativeSetup {
 
 // --- Browsing a conversation's files ----------------------------------------------------------
 
-/** A folder that can be browsed: the working directory, or an agent's worktree (parallel mode). */
+/** A folder that can be browsed: a working directory, or an agent's worktree of one (parallel mode). */
 export interface FileRoot {
-  /** `cwd`, or the agent's id. */
+  /**
+   * The first working directory's is `cwd` and an agent's worktree of it the agent's id; for the
+   * others, `:` and the working directory's place follow (`cwd:1`, `<agent id>:1`).
+   */
   id: string;
   path: string;
   agentId?: string;
+  /** Which working directory it is, or is a worktree of: its place in `cwdsOf()` (absent: 0). */
+  cwd?: number;
 }
 
 /** Whether Grok trusts a folder (`POST /api/providers/grok/folder-trust`). */
@@ -570,8 +575,14 @@ export interface ConversationSettings {
   /** Maximum number of agent turns per user message in relay mode. */
   maxHops: number;
   permission: Permission;
-  /** Working directory shared by all agents. */
+  /** Working directory shared by all agents: the first one, where they start (see `extraCwds`). */
   cwd: string;
+  /**
+   * The conversation's other working directories, after `cwd` (absent: none). Each is the agents' as
+   * `cwd` is: given to every CLI with the same access, made a git repository, snapshotted around
+   * each turn, locked while agents write, and in parallel mode given a worktree of its own.
+   */
+  extraCwds?: string[];
   /**
    * Auto team: before the team answers a new question, the lead agent (Settings) chooses the team for
    * it from the question and the conversation so far — keeping the current team, using a template as
@@ -595,6 +606,16 @@ export interface WorkingDirectories {
   /** The home folder, so a typed `~` matches it. */
   home: string;
   dirs: { path: string; /** The default working directory (Settings). */ default?: true }[];
+  /**
+   * This browser can open this computer's own folder dialog (`POST /api/cwds/pick`): it runs on the
+   * computer the server runs on, which has one.
+   */
+  pick?: true;
+}
+
+/** The folders chosen in the folder dialog; none when it was cancelled. */
+export interface PickedFolders {
+  paths: string[];
 }
 
 /** The agent that designs the team for auto-team conversations. */
@@ -668,7 +689,21 @@ export const REVISE_REQUEST_MAX = 4000;
 export interface ReviseTeamRequest {
   request: string;
   agents: AgentConfig[];
-  settings: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops' | 'permission' | 'cwd'>;
+  settings: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops' | 'permission' | 'cwd' | 'extraCwds'>;
+}
+
+/** The most working directories a conversation may have (`cwd` and `extraCwds` together). */
+export const MAX_CWDS = 8;
+
+/** A conversation's working directories: `cwd`, then `extraCwds`. */
+export function cwdsOf(s: { cwd: string; extraCwds?: readonly string[] }): string[] {
+  return [s.cwd, ...(s.extraCwds ?? [])];
+}
+
+/** `cwd` and `extraCwds` for a list of working directories (the first is `cwd`). */
+export function cwdSettings(dirs: readonly string[]): { cwd: string; extraCwds?: string[] } {
+  const [cwd = '', ...extra] = dirs;
+  return extra.length ? { cwd, extraCwds: extra } : { cwd };
 }
 
 /**
@@ -690,7 +725,7 @@ export interface TeamPreset {
   description?: string;
   builtin?: boolean;
   agents: AgentConfig[];
-  settings: Omit<ConversationSettings, 'cwd'>;
+  settings: Omit<ConversationSettings, 'cwd' | 'extraCwds'>;
 }
 
 export type Author =
@@ -790,7 +825,10 @@ export interface FileChange {
   deleted: number | null;
 }
 
-/** Files an agent changed during one turn, as two git commits (diff base..head). */
+/**
+ * Files an agent changed during one turn in one repository, as two git commits (diff base..head). A
+ * turn has one for each repository of the conversation's working directories it changed.
+ */
 export interface MessageChanges {
   /** Repository root the commits live in. */
   root: string;
@@ -802,9 +840,12 @@ export interface MessageChanges {
   branch?: string;
 }
 
-/** A per-agent git worktree used in parallel mode so agents don't overwrite each other. */
+/**
+ * A per-agent git worktree used in parallel mode so agents don't overwrite each other: one for each
+ * repository of the conversation's working directories.
+ */
 export interface AgentWorktree {
-  /** Repository root of the conversation's working directory. */
+  /** Repository root of the working directory (or directories) it is a worktree of. */
   root: string;
   path: string;
   branch: string;
@@ -827,8 +868,11 @@ export interface ChatMessage {
   /** Snapshot of the agent at the time of the message (agents can be edited later). */
   agentName?: string;
   provider?: Provider;
-  /** Files the agent changed in this turn (only for conversations with edit / full permission). */
-  changes?: MessageChanges;
+  /**
+   * Files the agent changed in this turn (only for conversations with edit / full permission): one
+   * entry per repository it changed, in the order of the working directories.
+   */
+  changes?: MessageChanges[];
   /** A system message carrying the lead agent's team design (auto-team conversations). */
   plan?: TeamPlan;
   /** A user message sent while the team was replying: it waited in the queue for a later turn. */
@@ -955,8 +999,8 @@ export interface Conversation {
   settings: ConversationSettings;
   messages: ChatMessage[];
   agentState: Record<string, AgentSessionState>;
-  /** Parallel-mode worktrees by agent id. */
-  worktrees: Record<string, AgentWorktree>;
+  /** Parallel-mode worktrees by agent id: one per repository of the working directories. */
+  worktrees: Record<string, AgentWorktree[]>;
   /** "Always allow" answers given in this conversation. */
   allowRules?: AllowRule[];
   /**
@@ -1078,7 +1122,7 @@ export type ServerEvent =
       title: string;
       agents: AgentConfig[];
       settings: ConversationSettings;
-      worktrees: Record<string, AgentWorktree>;
+      worktrees: Record<string, AgentWorktree[]>;
       pause?: RunPause;
       schedule?: ConversationSchedule;
     };
@@ -1280,6 +1324,8 @@ export function inheritedEffort(pm: ProviderModels, model?: string): string | un
 export interface SettingsView {
   providers: ProviderSettingsView[];
   defaultCwd: string;
+  /** The default's other working directories, after `defaultCwd` (empty: none). */
+  defaultExtraCwds: string[];
   /** Designs the team in auto-team conversations. */
   lead: LeadAgentSettings;
   /**
@@ -1301,7 +1347,9 @@ export interface SettingsView {
 /** `PUT /api/settings`: only the fields given change. */
 export interface SettingsUpdate {
   defaultCwd?: string;
-  /** Create `defaultCwd` when it does not exist. */
+  /** The default's other working directories; given with `defaultCwd` (absent then: none). */
+  defaultExtraCwds?: string[];
+  /** Create `defaultCwd` and `defaultExtraCwds` when they do not exist. */
   createCwd?: boolean;
   lead?: LeadAgentSettings;
   /** Empty = the CLIs use their usual homes again. */

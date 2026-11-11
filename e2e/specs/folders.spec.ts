@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import * as shared from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, chatId, finishedReply, openTeamChat, send } from '../support/app';
 
@@ -43,11 +42,7 @@ test.describe('a folder the chat was not given', () => {
   }
 });
 
-// A conversation's several working directories (cwd and extraCwds) came with pull request #11:
-// until the server has them, these wait.
 test.describe('several working directories', () => {
-  test.skip(!('cwdsOf' in shared), 'needs several working directories in a conversation (pull request #11)');
-
   test('folders are added and removed in the box, and the chat works in all of them', async ({ page, relay }) => {
     const second = relay.addProject('second');
     const third = relay.addProject('third');
@@ -152,5 +147,67 @@ test.describe('several working directories', () => {
 
     await page.getByRole('button', { name: 'New chat' }).first().click();
     await expect(page.locator('.cwd-chip-path')).toHaveText([relay.workDir, second]);
+  });
+});
+
+/*
+ * The system's folder dialog, from the working directories box. Linux finds its dialog (zenity) on
+ * the PATH in a graphical session, so there the fake one (`e2e/fake-cli/fake-dialog.cjs`) stands in
+ * for it, answering with the folders E2E_FAKE_PICK names from where it opens. macOS and Windows open
+ * their own by their full paths (AppleScript, PowerShell), which a test cannot answer.
+ */
+test.describe('the folder dialog', () => {
+  test.skip(process.platform !== 'linux', 'only Linux finds its folder dialog on the PATH, where a fake one can stand in');
+  const DISPLAY = ':e2e';
+
+  test.describe('choosing folders', () => {
+    test.use({ serverEnv: { DISPLAY, E2E_FAKE_PICK: JSON.stringify(['../second', '../third']) } });
+
+    test('adds the folders chosen in it to the box, and the chat starts in all of them', async ({ page, relay }) => {
+      const second = relay.addProject('second');
+      const third = relay.addProject('third');
+      await page.getByRole('button', { name: 'New chat' }).first().click();
+      const chips = page.locator('.cwd-chip-path');
+      await expect(chips).toHaveText([relay.workDir]);
+      // The button shows once the box's list has told it the server has a dialog.
+      await page.getByRole('combobox', { name: 'Working directories' }).click();
+      await page.getByRole('button', { name: 'Choose folders…' }).click();
+      await expect(chips).toHaveText([relay.workDir, second, third]);
+
+      // Opened inside the last folder, with several folders allowed and the title in English.
+      const opened = relay.fakeLog().filter((e) => e.cli === 'zenity');
+      expect(opened).toHaveLength(1);
+      expect(opened[0]!.args).toEqual(expect.arrayContaining(['--directory', '--multiple', `--filename=${relay.workDir}/`, '--title=Choose a working directory']));
+
+      await page.getByRole('button', { name: 'Edit', exact: true }).click();
+      await page.getByRole('checkbox', { name: "Use the lead agent's team without asking me" }).check();
+      await page.getByRole('button', { name: 'Start chat →' }).click();
+      await page.waitForURL(/#\/c\//);
+      const conv = await relay.api<{ settings: { cwd: string; extraCwds?: string[] } }>(`/api/conversations/${chatId(page)}`);
+      expect([conv.settings.cwd, ...(conv.settings.extraCwds ?? [])]).toEqual([relay.workDir, second, third]);
+    });
+  });
+
+  test.describe('in Chinese, on a server without a UTF-8 locale', () => {
+    // Cancelled; a server that a service started may have no LANG.
+    test.use({ lang: 'zh-TW', serverEnv: { DISPLAY, E2E_FAKE_PICK: '[]', LANG: 'C', LC_ALL: '', LC_CTYPE: '' } });
+
+    test('opens with the title in Chinese and a UTF-8 character set, and Cancel adds nothing', async ({ page, relay }) => {
+      await expect(page.getByRole('heading', { name: '新對話' })).toBeVisible();
+      const chips = page.locator('.cwd-chip-path');
+      await expect(chips).toHaveText([relay.workDir]);
+      const box = page.getByRole('combobox', { name: '工作目錄' });
+      await box.click();
+      const pick = page.getByRole('button', { name: '選擇資料夾…' });
+      await pick.click();
+      await expect.poll(() => relay.fakeLog().filter((e) => e.cli === 'zenity').length).toBe(1);
+      // The button shows while the box has the focus, which it gave up for the dialog.
+      await box.click();
+      await expect(pick).toBeEnabled();
+      await expect(chips).toHaveText([relay.workDir]);
+      const [opened] = relay.fakeLog().filter((e) => e.cli === 'zenity');
+      expect(opened!.args).toContain('--title=選擇工作目錄');
+      expect(opened!.env).toEqual({ LANG: 'C', LC_CTYPE: 'C.UTF-8' });
+    });
   });
 });

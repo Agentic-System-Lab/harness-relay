@@ -3,6 +3,7 @@ import {
   PROVIDERS,
   PROVIDER_LABEL,
   catalogFor,
+  cwdsOf,
   inheritedEffort,
   type AgentConfig,
   type ConversationSchedule,
@@ -311,7 +312,12 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
               <span>
                 <label htmlFor={cwdId}>{t.team.cwd}</label>
               </span>
-              <CwdInput id={cwdId} value={settings.cwd} placeholder="/path/to/project" onChange={(cwd) => setSettings({ cwd })} />
+              <CwdInput
+                id={cwdId}
+                value={cwdsOf(settings).filter((d) => d.trim())}
+                placeholder="/path/to/project"
+                onChange={(dirs) => setSettings({ cwd: dirs[0] ?? '', extraCwds: dirs.length > 1 ? dirs.slice(1) : undefined })}
+              />
             </div>
           )}
         </div>

@@ -7,6 +7,7 @@ import {
   PROVIDER_INSTALL_URL,
   PROVIDER_LABEL,
   catalogFor,
+  cwdsOf,
   inheritedEffort,
   type AccountStatus,
   type LeadAgentSettings,
@@ -65,7 +66,8 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
   const { t, lang, setLang } = useI18n();
   const theme = useThemeChoice();
   const [settings, setSettings] = useState<SettingsView | null>(null);
-  const [cwd, setCwd] = useState('');
+  /** The default working directories, as the box has them (saved or not). */
+  const [cwds, setCwds] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [msg, setMsg] = useState<{ text: string; error?: boolean }>({ text: '' });
 
@@ -82,7 +84,7 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
     api.getSettings().then(
       (s) => {
         setSettings(s);
-        setCwd(s.defaultCwd);
+        setCwds(cwdsOf({ cwd: s.defaultCwd, extraCwds: s.defaultExtraCwds }));
       },
       (e: Error) => setMsg({ text: e.message, error: true }),
     );
@@ -102,13 +104,14 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
   const saveCwd = async () => {
     let created = false;
     try {
+      let missing = '';
       const s = await orCreateCwd(
-        (createCwd) => api.updateSettings({ defaultCwd: cwd, createCwd }),
-        () => (created = confirm(t.settings.confirmCreateCwd(cwd.trim()))),
+        (createCwd) => api.updateSettings({ defaultCwd: cwds[0] ?? '', defaultExtraCwds: cwds.slice(1), createCwd }),
+        (dirs) => (created = confirm(t.settings.confirmCreateCwd((missing = dirs)))),
       );
       setSettings(s);
-      setCwd(s.defaultCwd);
-      setMsg({ text: created ? t.settings.cwdCreated(s.defaultCwd) : t.settings.cwdSaved });
+      setCwds(cwdsOf({ cwd: s.defaultCwd, extraCwds: s.defaultExtraCwds }));
+      setMsg({ text: created ? t.settings.cwdCreated(missing.split('\n').join(', ')) : t.settings.cwdSaved });
     } catch (e) {
       setMsg({ text: (e as Error).message, error: true });
     }
@@ -187,8 +190,12 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
           <SectionTitle section="cwd">{t.settings.cwd}</SectionTitle>
           <p className="muted small">{t.settings.cwdHint}</p>
           <div className="input-row">
-            <CwdInput value={cwd} onChange={setCwd} ariaLabel={t.settings.cwd} />
-            <button className="primary" onClick={saveCwd} disabled={!settings || cwd === settings.defaultCwd}>
+            <CwdInput value={cwds} onChange={setCwds} ariaLabel={t.settings.cwd} />
+            <button
+              className="primary"
+              onClick={saveCwd}
+              disabled={!settings || !cwds.length || cwds.join('\n') === cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }).join('\n')}
+            >
               {t.common.save}
             </button>
           </div>

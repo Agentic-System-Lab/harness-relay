@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { fileName, isVideo, localFilePath, localMediaPath, mediaType } from '../src/shared/media';
 import type { ChatMessage, Conversation } from '../src/shared/types';
 import { attachmentsDir } from '../src/server/attachments';
-import { byteRange, contentDisposition, downloadProblem, mediaRoots, replyWorktree, resolveDownload, resolveMedia } from '../src/server/media';
+import { byteRange, contentDisposition, downloadProblem, mediaRoots, replyWorktrees, resolveDownload, resolveMedia } from '../src/server/media';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-media-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -210,14 +210,14 @@ describe('files a reply links to', () => {
     const conv = {
       id: 'c1',
       settings: { cwd },
-      worktrees: { a: { root: cwd, path: wt, branch: 'relay/a', base: 'x', needsReset: false } },
+      worktrees: { a: [{ root: cwd, path: wt, branch: 'relay/a', base: 'x', needsReset: false }] },
     } as unknown as Conversation;
     const reply = (isolated: boolean) =>
       ({
         id: 'm',
         author: { kind: 'agent', agentId: 'a' },
         parts: [],
-        changes: { root: cwd, base: 'x', head: 'y', files: [], isolated },
+        changes: [{ root: cwd, base: 'x', head: 'y', files: [], isolated }],
       }) as unknown as ChatMessage;
     expect(mediaRoots(conv, reply(true))).toEqual([wt, cwd, attachmentsDir('c1')]);
     expect(mediaRoots(conv, reply(false))).toEqual([cwd, wt, attachmentsDir('c1')]);
@@ -225,31 +225,60 @@ describe('files a reply links to', () => {
     expect(mediaRoots(conv, user)).toEqual([cwd, attachmentsDir('c1')]);
   });
 
+  it('with several working directories, looks in each one, inside every worktree of its repository', () => {
+    const [a, b] = ['roots-a', 'roots-b'].map((name) => join(root, name));
+    const [wtA, wtB] = ['roots-wt-a', 'roots-wt-b'].map((name) => join(root, name));
+    for (const dir of [a, b, wtA, wtB]) mkdirSync(dir, { recursive: true });
+    const conv = {
+      id: 'c2',
+      settings: { cwd: a, extraCwds: [b] },
+      worktrees: {
+        x: [
+          { root: a, path: wtA, branch: 'relay/x', base: 'p', needsReset: false },
+          { root: b, path: wtB, branch: 'relay/x', base: 'q', needsReset: false },
+        ],
+      },
+    } as unknown as Conversation;
+    const reply = (isolated: boolean) =>
+      ({
+        id: 'm',
+        author: { kind: 'agent', agentId: 'x' },
+        parts: [],
+        changes: [
+          { root: a, base: 'p', head: 'p2', files: [], isolated, branch: 'relay/x' },
+          { root: b, base: 'q', head: 'q2', files: [], isolated, branch: 'relay/x' },
+        ],
+      }) as unknown as ChatMessage;
+    // Each worktree holds its own working directory only.
+    expect(mediaRoots(conv, reply(true))).toEqual([wtA, wtB, a, b, attachmentsDir('c2')]);
+    expect(mediaRoots(conv, reply(false))).toEqual([a, b, wtA, wtB, attachmentsDir('c2')]);
+  });
+
   it("finds a copied parallel reply's worktree in the conversation it was branched from, further up for a branch of a branch", () => {
-    const wt = (branch: string) => ({ root: '/repo', path: `/wt/${branch}`, branch, base: 'x', needsReset: false });
+    const wt = (branch: string) => [{ root: '/repo', path: `/wt/${branch}`, branch, base: 'x', needsReset: false }];
     const reply = {
       id: 'm',
       author: { kind: 'agent', agentId: 'a' },
       parts: [],
-      changes: { root: '/repo', base: 'x', head: 'y', files: [], isolated: true, branch: 'relay/c0/Alice' },
+      changes: [{ root: '/repo', base: 'x', head: 'y', files: [], isolated: true, branch: 'relay/c0/Alice' }],
     } as unknown as ChatMessage;
     const conv = (id: string, from?: string, branch?: string) =>
       ({ id, worktrees: branch ? { a: wt(branch) } : {}, ...(from ? { branch: { fromId: from, fromTitle: '', afterId: 'm' } } : {}) }) as unknown as Conversation;
     const all = new Map([conv('c0', undefined, 'relay/c0/Alice'), conv('c1', 'c0', 'relay/c1/Alice'), conv('c2', 'c1')].map((c) => [c.id, c]));
     const lookup = (id: string) => all.get(id);
-    expect(replyWorktree(all.get('c0')!, reply, lookup)?.branch).toBe('relay/c0/Alice');
+    expect(replyWorktrees(all.get('c0')!, reply, lookup)[0]?.branch).toBe('relay/c0/Alice');
     // Not the branch's own worktree for that agent, which holds other work.
-    expect(replyWorktree(all.get('c1')!, reply, lookup)?.branch).toBe('relay/c0/Alice');
-    expect(replyWorktree(all.get('c2')!, reply, lookup)?.branch).toBe('relay/c0/Alice');
+    expect(replyWorktrees(all.get('c1')!, reply, lookup)[0]?.branch).toBe('relay/c0/Alice');
+    expect(replyWorktrees(all.get('c2')!, reply, lookup)[0]?.branch).toBe('relay/c0/Alice');
     // The original is gone: nowhere.
-    expect(replyWorktree(all.get('c2')!, reply, (id) => (id === 'c0' ? undefined : lookup(id)))).toBeUndefined();
+    expect(replyWorktrees(all.get('c2')!, reply, (id) => (id === 'c0' ? undefined : lookup(id)))).toEqual([]);
     // A branch whose earlier copied messages were written in c0, while the one it was branched from is
     // gone (or no longer a branch): found in c0 through that part.
     const c3 = { ...conv('c3', 'gone'), branch: { fromId: 'gone', fromTitle: '', afterId: 'm', earlier: [{ fromId: 'c0', fromTitle: '', afterId: 'm' }] } };
-    expect(replyWorktree(c3, reply, lookup)?.branch).toBe('relay/c0/Alice');
+    expect(replyWorktrees(c3, reply, lookup)[0]?.branch).toBe('relay/c0/Alice');
     // A loop of branches ends.
     const loop = new Map([conv('x', 'y'), conv('y', 'x')].map((c) => [c.id, c]));
-    expect(replyWorktree(loop.get('x')!, reply, (id) => loop.get(id))).toBeUndefined();
+    expect(replyWorktrees(loop.get('x')!, reply, (id) => loop.get(id))).toEqual([]);
   });
 
   it('names the file for saving, safely for any name', () => {

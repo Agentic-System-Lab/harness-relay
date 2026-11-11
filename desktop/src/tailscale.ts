@@ -3,7 +3,7 @@
  * `tailscale serve --bg <port>` the guide has people type, run from the app's menu.
  */
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { posix } from 'node:path';
 import { capture, type SpawnResult } from '../../src/server/process';
 
 /** The tailscale command: on PATH, or where the Tailscale apps put it. */
@@ -15,7 +15,7 @@ export function findTailscale(
   const name = platform === 'win32' ? 'tailscale.exe' : 'tailscale';
   const sep = platform === 'win32' ? ';' : ':';
   // Windows paths keep their own separators, so the parts are joined with `\` there.
-  const joinDir = (dir: string) => (platform === 'win32' ? `${dir.replace(/[\\/]+$/, '')}\\${name}` : join(dir, name));
+  const joinDir = (dir: string) => (platform === 'win32' ? `${dir.replace(/[\\/]+$/, '')}\\${name}` : posix.join(dir, name));
   for (const dir of (env.PATH ?? '').split(sep).filter(Boolean)) {
     const candidate = joinDir(dir);
     if (exists(candidate)) return candidate;

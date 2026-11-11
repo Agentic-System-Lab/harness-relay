@@ -89,3 +89,48 @@ export function updateLine(s: UpdateStatus, t: Messages, lang: string): { text: 
   const at = new Date(s.checkedAt).toLocaleString(lang, { dateStyle: 'medium', timeStyle: 'short' });
   return { text: v.upToDate(at), tone: 'ok' };
 }
+
+/** Whether the server now runs another version (`now`) than the one this page was loaded from (`loaded`). */
+export function versionChanged(loaded: string | undefined, now: string | undefined): boolean {
+  return Boolean(loaded && now && loaded !== now);
+}
+
+/**
+ * Reloads the page once the server runs another version than the one it was loaded from (it was
+ * updated while the page was open): this page's code may not read what the new version sends. The
+ * first answer is the version the page came from; the server is asked now and then and whenever the
+ * window comes back. It runs outside React, so a page whose rendering failed on the new data still
+ * reloads. Returns what stops it.
+ */
+export function watchVersion(
+  ask: () => Promise<UpdateStatus>,
+  reload: () => void,
+  o: { every?: number; on?: (event: 'focus', listener: () => void) => () => void } = {},
+): () => void {
+  let loaded: string | undefined;
+  let stopped = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let off: (() => void) | undefined;
+  const stop = () => {
+    stopped = true;
+    clearInterval(timer);
+    off?.();
+  };
+  const check = async () => {
+    if (stopped) return;
+    try {
+      const now = (await ask()).current;
+      if (stopped) return;
+      if (versionChanged(loaded, now)) {
+        stop();
+        reload();
+      } else loaded ??= now;
+    } catch {
+      /* the server is not answering (restarting, say): asked again later */
+    }
+  };
+  timer = setInterval(() => void check(), o.every ?? 60_000);
+  off = o.on?.('focus', () => void check());
+  void check();
+  return stop;
+}

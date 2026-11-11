@@ -54,16 +54,18 @@ const orchestrator = new Orchestrator(
   settings,
   {
     // What the lead agent may choose from when it designs a team.
-    context(cwd) {
+    context(cwd, addDirs) {
       return plannerContext(
         {
           statuses: () => providers.statusAll(),
           catalog: () => providers.modelsAll(),
           presets: () => store.listPresets(),
           library: () => settings.tools.view(),
-          native: (p, dir, account) => native.recent(p, dir, account || undefined),
+          native: (p, dir, account, dirs) => native.recent(p, dir, account || undefined, dirs),
         },
         cwd,
+        undefined,
+        addDirs,
       );
     },
   },

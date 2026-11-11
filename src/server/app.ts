@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createReadStream, realpathSync } from 'node:fs';
+import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, resolve } from 'node:path';
@@ -25,10 +25,12 @@ import {
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
   VOICE_MAX_SECONDS,
+  cwdsOf,
   pendingPlan,
   type ApprovalAnswer,
   type Conversation,
   type ConversationSchedule,
+  type PickedFolders,
   type Provider,
   type ServerEvent,
   type ReportScreenshots,
@@ -74,6 +76,7 @@ import {
   validAgentHome,
   validAgentsViewLink,
   validAgentsViewUrl,
+  validDirectories,
   validDirectory,
   validGroupName,
   validVoiceModel,
@@ -89,6 +92,7 @@ import {
   validSkillPath,
 } from './validate';
 import { VoiceService } from './voice';
+import { existingFolder, systemFolderPicker, type FolderPicker } from './folderPicker';
 import { nextRun } from '../shared/schedule';
 import { currentLang, parseLang, t, withLang } from './i18n';
 
@@ -118,6 +122,8 @@ export interface AppDeps {
   desktopApp?: boolean;
   /** This Harness Relay's version, for a problem report (`about.ts`; a fake in tests). */
   version?: () => Promise<string>;
+  /** Opens this computer's own folder dialog for the working directory box (a fake in tests). */
+  folderPicker?: FolderPicker;
   /**
    * Puts a shared conversation's page on the web, with the files it takes along (its placeholder links
    * name them by their place in `files`), and takes it down (secret gists through `gh`; fakes in tests).
@@ -180,6 +186,7 @@ export function createApp({
   extraHosts = [],
   desktopApp = false,
   version = relayVersion,
+  folderPicker = systemFolderPicker(),
   gists = {
     create: (html, description, files, onFilesGist) => shareToGist(html, description, undefined, files, { onFilesGist }),
     remove: unshareGist,
@@ -197,7 +204,9 @@ export function createApp({
   const making = new Set<string>();
 
   app.onError((err, c) => {
-    if (err instanceof HttpError) return c.json(err.code ? { error: err.message, code: err.code } : { error: err.message }, err.status);
+    if (err instanceof HttpError) {
+      return c.json({ error: err.message, ...(err.code ? { code: err.code } : {}), ...(err.paths ? { paths: err.paths } : {}) }, err.status);
+    }
     console.error('[server]', err);
     return c.json({ error: err.message || 'Internal error' }, 500);
   });
@@ -302,16 +311,37 @@ export function createApp({
    * Edit mode in a working directory that holds Harness Relay itself, or what decides how the agents
    * run (the home folder, a CLI's own folder or program), is refused (`relayFolderRefusal`).
    */
-  function refuseRelayFolder(s: { permission: string; cwd: string }): void {
+  function refuseRelayFolder(s: { permission: string; cwd: string; extraCwds?: readonly string[] }): void {
     const why = relayFolderRefusal(s, agentFolderOptions(settings));
     if (why) throw new HttpError(400, why, RELAY_FOLDER);
   }
 
-  /** The same for settings as sent, before `validateSettings` may create their working directory. */
-  function refuseRelayFolderFirst(raw: unknown, defaultCwd: string): void {
-    const s = (raw ?? {}) as { permission?: unknown; cwd?: unknown };
-    refuseRelayFolder({ permission: String(s.permission ?? ''), cwd: expandPath(String(s.cwd || defaultCwd)) });
+  /**
+   * The same for settings as sent, before `validateSettings` may create their working directories
+   * (`defaults`: the ones they get without a `cwd`).
+   */
+  function refuseRelayFolderFirst(raw: unknown, defaults: { cwd: string; extraCwds?: readonly string[] }): void {
+    const s = (raw ?? {}) as { permission?: unknown; cwd?: unknown; extraCwds?: unknown };
+    const given = typeof s.cwd === 'string' && s.cwd.trim() !== '';
+    const extra = given ? (Array.isArray(s.extraCwds) ? s.extraCwds : []) : (defaults.extraCwds ?? []);
+    refuseRelayFolder({
+      permission: String(s.permission ?? ''),
+      cwd: expandPath(given ? (s.cwd as string) : defaults.cwd),
+      extraCwds: extra.filter((d): d is string => typeof d === 'string' && d.trim() !== '').map(expandPath),
+    });
   }
+
+  /** The default working directories, as a new conversation gets them. */
+  const defaultCwds = () => ({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds });
+  /** The default working directories after the first that exist (`~` expanded), as runs give them to the CLIs. */
+  const defaultExtraDirs = () =>
+    settings.defaultExtraCwds.map(expandPath).filter((dir) => {
+      try {
+        return statSync(dir).isDirectory();
+      } catch {
+        return false;
+      }
+    });
 
 
   /** The request's JSON body, which must be an object. */
@@ -363,6 +393,7 @@ export function createApp({
   app.put('/api/settings', async (c) => {
     const b = await body<{
       defaultCwd?: unknown;
+      defaultExtraCwds?: unknown;
       createCwd?: unknown;
       lead?: unknown;
       agentHome?: unknown;
@@ -373,14 +404,17 @@ export function createApp({
     const lead = b.lead !== undefined ? validateLead(b.lead) : undefined;
     const viewUrl = b.agentsViewUrl !== undefined ? validAgentsViewUrl(b.agentsViewUrl) : undefined;
     const viewLink = b.agentsViewLink !== undefined ? validAgentsViewLink(b.agentsViewLink) : undefined;
-    const cwd = b.defaultCwd !== undefined ? validDirectory(b.defaultCwd, b.createCwd === true) : undefined;
-    // Not inside Harness Relay's folder or the default working directory (the new one, when it changes too).
-    const home = b.agentHome !== undefined ? validAgentHome(b.agentHome, [process.cwd(), cwd ?? settings.defaultCwd]) : undefined;
+    // The default working directories: `defaultCwd`, then the others (none when not given with it).
+    const cwds =
+      b.defaultCwd !== undefined ? validDirectories(b.defaultCwd, b.defaultExtraCwds, b.createCwd === true, 'defaultCwd') : undefined;
+    // Not inside Harness Relay's folder or a default working directory (the new ones, when they change too).
+    const home =
+      b.agentHome !== undefined ? validAgentHome(b.agentHome, [process.cwd(), ...cwdsOf(cwds ?? defaultCwds())]) : undefined;
     // A turn that starts in the new home would find its CLI signed out, and its session elsewhere.
     if (home !== undefined && home !== settings.agentHome && orchestrator.anyRunning()) throw new HttpError(409, t().agentHomeBusy);
     // Created only now that nothing refuses the request.
     if (home) ensureFolder(home);
-    if (cwd !== undefined) settings.setDefaultCwd(cwd);
+    if (cwds !== undefined) settings.setDefaultCwd(cwds.cwd, cwds.extraCwds);
     if (lead !== undefined) settings.setLead(lead);
     if (viewUrl !== undefined) settings.setAgentsViewUrl(viewUrl);
     if (viewLink !== undefined) settings.setAgentsViewLink(viewLink);
@@ -532,7 +566,7 @@ export function createApp({
     const id = account(c, p);
     const b = await body<{ refresh?: unknown }>(c);
     const cwd = validDirectory(settings.defaultCwd);
-    return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true, id || undefined)));
+    return c.json(nativeForClient(await native.get(p, cwd, b.refresh === true, id || undefined, defaultExtraDirs())));
   });
 
   // Whether Grok trusts a folder (the default working directory unless `cwd` names one), and with
@@ -571,7 +605,7 @@ export function createApp({
     const b = await body<{ path?: unknown }>(c);
     const path = typeof b.path === 'string' ? b.path : '';
     // Checked against the answer the UI showed, however old: opening a file must not start the CLI.
-    const probe = await native.latest(p, validDirectory(settings.defaultCwd), id || undefined);
+    const probe = await native.latest(p, validDirectory(settings.defaultCwd), id || undefined, defaultExtraDirs());
     if (!path || !listedFile(probe, path)) throw new HttpError(404, t().nativeFileNotListed);
     return c.json(readPreview(path, path, t().nativeFileNotListed));
   });
@@ -652,7 +686,8 @@ export function createApp({
     const b = await body<Partial<TeamPreset>>(c);
     const name = String(b.name ?? '').trim().slice(0, 100);
     if (!name) throw new HttpError(400, t().presetNameRequired);
-    const s = validateSettings({ ...b.settings, cwd: settings.defaultCwd }, settings.defaultCwd);
+    // A template has no working directories: only the default one is checked, as it always was.
+    const s = validateSettings({ ...b.settings, cwd: settings.defaultCwd, extraCwds: [] }, defaultCwds());
     const preset: TeamPreset = {
       // Only ids of user templates can be reused (to update one); never a built-in template's.
       id: typeof b.id === 'string' && /^user-[\w-]{1,80}$/.test(b.id) ? b.id : `user-${randomUUID()}`,
@@ -721,19 +756,49 @@ export function createApp({
   // The working directories the working directory box offers: the default one, then the conversations'
   // own, the most recently used first; only folders that still exist.
   app.get('/api/cwds', async (c) => {
-    // As a new conversation reads it (`~` expanded), so it is the folder conversations get by default.
-    const def = expandPath(settings.defaultCwd);
+    // As a new conversation reads them (`~` expanded), so they are the folders conversations get by default.
+    const defaults = cwdsOf(defaultCwds()).map(expandPath);
     // Each folder once, also when spelled in another case where the filesystem ignores case.
     const seen = new Set<string>();
-    const paths = [def, ...store.listCwds()].filter((p) => {
+    const paths = [...defaults, ...store.listCwds()].filter((p) => {
       const key = foldCase(resolve(p));
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
     const isDir = await Promise.all(paths.map((p) => stat(p).then((s) => s.isDirectory(), () => false)));
-    const dirs = paths.filter((_, i) => isDir[i]).map((path) => (path === def ? { path, default: true as const } : { path }));
-    return c.json({ home: homedir(), dirs } satisfies WorkingDirectories);
+    const dirs = paths.filter((_, i) => isDir[i]).map((path) => (defaults.includes(path) ? { path, default: true as const } : { path }));
+    return c.json({ home: homedir(), dirs, ...(canPick(c) ? { pick: true as const } : {}) } satisfies WorkingDirectories);
+  });
+
+  /**
+   * Whether the folder dialog can be opened for this request: the browser runs on this computer (it
+   * asks by a loopback name; through `tailscale serve` it asks by the tailnet's, from a phone, say,
+   * which would never see a dialog opened here), and this computer has one.
+   */
+  const canPick = (c: Context) => LOCAL_HOST.test(c.req.header('host') ?? '') && folderPicker.available();
+  /** A folder dialog is open: one at a time, so a second click does not hide a second one behind it. */
+  let picking = false;
+
+  // Opens this computer's own folder dialog at `start` (a path in the box, or the nearest folder of it
+  // that exists; the default working directory when empty) and answers with the folders chosen (more
+  // than one where the dialog lets the user pick several), none when cancelled. The dialog closes
+  // when the request does.
+  app.post('/api/cwds/pick', async (c) => {
+    const { start } = await body<{ start?: unknown }>(c);
+    if (!LOCAL_HOST.test(c.req.header('host') ?? '')) throw new HttpError(403, t().pickFolderNotHere);
+    if (!folderPicker.available()) throw new HttpError(503, t().pickFolderMissing);
+    if (picking) throw new HttpError(409, t().pickFolderBusy);
+    const from = typeof start === 'string' && start.trim() ? start : settings.defaultCwd;
+    picking = true;
+    try {
+      const paths = await folderPicker.pick({ title: t().pickFolderTitle, start: existingFolder(expandPath(from)), signal: c.req.raw.signal });
+      return c.json({ paths } satisfies PickedFolders);
+    } catch (err) {
+      throw new HttpError(502, t().pickFolderFailed((err as Error).message));
+    } finally {
+      picking = false;
+    }
   });
 
   /** Save a new conversation and set up its working directory; one that cannot be set up is not kept. */
@@ -754,8 +819,8 @@ export function createApp({
     // Auto team: the lead agent designs the team for each question, starting with the first.
     // The agents first: creating a missing working directory is a side effect.
     const agents = b.settings?.autoTeam === true ? [] : validateAgents(b.agents);
-    refuseRelayFolderFirst(b.settings, settings.defaultCwd);
-    const s = validateSettings(b.settings, settings.defaultCwd, b.createCwd === true);
+    refuseRelayFolderFirst(b.settings, defaultCwds());
+    const s = validateSettings(b.settings, defaultCwds(), b.createCwd === true);
     const conv: Conversation = {
       id: randomUUID(),
       title: String(b.title ?? '').trim() || t().defaultTitle,
@@ -779,8 +844,8 @@ export function createApp({
     const now = Date.now();
     // The schedule first: creating a missing working directory is a side effect.
     const update = validateSchedule(b.schedule, now);
-    refuseRelayFolderFirst(b.settings, settings.defaultCwd);
-    const s = validateSettings({ ...(b.settings ?? {}), autoTeam: true }, settings.defaultCwd, b.createCwd === true);
+    refuseRelayFolderFirst(b.settings, defaultCwds());
+    const s = validateSettings({ ...(b.settings ?? {}), autoTeam: true }, defaultCwds(), b.createCwd === true);
     const conv: Conversation = {
       id: randomUUID(),
       title: String(b.title ?? '').trim().slice(0, 200) || titleFrom(update.text) || t().defaultTitle,
@@ -830,8 +895,8 @@ export function createApp({
     const res = await orchestrator.exclusive(conv.id, t().busySettings, async () => {
       const agents = b.agents ? validateAgents(b.agents) : conv.agents;
       // After the agents: creating a missing working directory is a side effect.
-      if (b.settings) refuseRelayFolderFirst(b.settings, conv.settings.cwd);
-      const next = b.settings ? validateSettings(b.settings, conv.settings.cwd, b.createCwd === true) : { ...conv.settings };
+      if (b.settings) refuseRelayFolderFirst(b.settings, conv.settings);
+      const next = b.settings ? validateSettings(b.settings, conv.settings, b.createCwd === true) : { ...conv.settings };
       refuseRelayFolder(next);
       // Edits never switch auto team on or off; a team set by hand replaces the lead agent's pending
       // design (the next question is designed again).
@@ -1105,7 +1170,7 @@ export function createApp({
 
   // --- Browsing the working directory (and agents' worktrees) -------------------
 
-  /** The folder a files request names (`root`: `cwd` or an agent id) and the path inside it. */
+  /** The folder a files request names (`root`: a `FileRoot.id`, `cwd` when absent) and the path inside it. */
   function fileTarget(c: Context): { roots: ReturnType<typeof fileRoots>; root: string; path: string } {
     const roots = fileRoots(getConv(c.req.param('id') ?? ''));
     const root = roots.find((r) => r.id === (c.req.query('root') || 'cwd'));
@@ -1138,10 +1203,11 @@ export function createApp({
 
   /** The name a root's ZIP file goes by: an agent's worktree is named after the folder and the agent. */
   const zipName = (c: Context, root: string): string | undefined => {
-    if (root === 'cwd') return undefined;
     const conv = getConv(c.req.param('id') ?? '');
-    const agent = conv.agents.find((a) => a.id === root);
-    return `${basename(conv.settings.cwd)}-${agent?.name ?? root}`;
+    const found = fileRoots(conv).find((r) => r.id === root);
+    if (!found?.agentId) return undefined;
+    const agent = conv.agents.find((a) => a.id === found.agentId);
+    return `${basename(cwdsOf(conv.settings)[found.cwd ?? 0] ?? conv.settings.cwd)}-${agent?.name ?? found.agentId}`;
   };
 
   // What downloading a folder as a ZIP file would hold: all of it, or (when that is too much) only

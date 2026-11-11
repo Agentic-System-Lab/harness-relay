@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
+  cwdsOf,
   pendingPlan,
   type ApprovalAnswer,
   type ChatMessage,
@@ -308,7 +309,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     const c = convRef.current;
     if (!c) return false;
     const index = c.messages.findIndex((m) => m.id === messageId);
-    const changed = c.messages.slice(index + 1).filter((m) => m.changes && m.changes.files.length > 0).length;
+    const changed = c.messages.slice(index + 1).filter((m) => m.changes?.some((c) => c.files.length > 0)).length;
     if (changed > 0 && !confirm(tRef.current.chat.resendConfirm(changed))) return false;
     try {
       setError('');
@@ -362,7 +363,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     const c = convRef.current;
     if (!c || retrying.current) return; // a double click would get "busy" for the second request
     const later = c.messages.slice(c.messages.findIndex((m) => m.id === messageId) + 1);
-    const changed = later.filter((m) => m.changes && m.changes.files.length > 0).length;
+    const changed = later.filter((m) => m.changes?.some((c) => c.files.length > 0)).length;
     if (later.length > 0 && !confirm(tRef.current.chat.retryConfirm(later.length, changed))) return;
     retrying.current = true;
     try {
@@ -731,8 +732,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           onContinue={() => send('', [])}
           restore={restore}
         />
-        <p className="cwd-line muted small" title={conv.settings.cwd}>
-          📁 {conv.settings.cwd}
+        <p className="cwd-line muted small" title={cwdsOf(conv.settings).join('\n')}>
+          📁 {cwdsOf(conv.settings).join(' · ')}
         </p>
       </div>
 
@@ -936,7 +937,7 @@ function TeamDrawer({
       const change = members ? { agents: team.agents, settings: team.settings } : { settings: team.settings };
       await orCreateCwd(
         (createCwd) => api.updateConversation(conv.id, { ...change, createCwd }),
-        () => confirm(t.chat.confirmCreateCwd(team.settings.cwd.trim())),
+        (missing) => confirm(t.chat.confirmCreateCwd(missing)),
       );
       onClose();
     } catch (e) {

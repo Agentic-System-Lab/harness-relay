@@ -2,7 +2,7 @@
 // and how the list under the box answers the keyboard and its arrow button.
 
 import { highlightParts, searchTerms, termsIn } from '../shared/search';
-import type { WorkingDirectories } from '../shared/types';
+import { MAX_CWDS, type WorkingDirectories } from '../shared/types';
 
 type Dir = WorkingDirectories['dirs'][number];
 
@@ -98,4 +98,51 @@ export function cwdMenuKey(menu: CwdMenu, key: string, items: Dir[]): { menu: Cw
   if (key === 'Enter' && shown && at >= 0) return { menu: CWD_MENU_CLOSED, choose: items[at]!.path, handled: true };
   if (key === 'Escape' && shown) return { menu: CWD_MENU_CLOSED, handled: true };
   return { menu, handled: false };
+}
+
+// --- Several working directories, one chip each -------------------------------------------------
+
+/** A path as the box compares it: trimmed, without separators at the end (but a root's). */
+function cwdKey(dir: string): string {
+  const t = dir.trim();
+  return t.length > 1 ? t.replace(/(?<=[^:])[\\/]+$/, '') || t : t;
+}
+
+/** Whether `dir` is one of `dirs` (trimmed; a separator at the end aside). */
+export function hasCwd(dirs: readonly string[], dir: string): boolean {
+  const key = cwdKey(dir);
+  return dirs.some((d) => cwdKey(d) === key);
+}
+
+/**
+ * The working directories with each of `more` added at the end (trimmed), but those empty or there
+ * already, and none past `max` (a conversation's most).
+ */
+export function addCwds(dirs: readonly string[], more: readonly string[], max = MAX_CWDS): string[] {
+  const out = [...dirs];
+  for (const dir of more) {
+    const t = dir.trim();
+    if (t && !hasCwd(out, t) && out.length < max) out.push(t);
+  }
+  return out;
+}
+
+/** The working directories without the one at `i`. */
+export function removeCwd(dirs: readonly string[], i: number): string[] {
+  return dirs.filter((_, j) => j !== i);
+}
+
+/**
+ * A key in the box that is not the list's (`cwdMenuKey` goes first): Enter adds what is typed as a
+ * working directory, and Backspace in an empty box takes the last one out. Undefined: not the box's.
+ */
+export function cwdChipKey(dirs: readonly string[], text: string, key: string): { dirs: string[]; text: string } | undefined {
+  if (key === 'Enter' && text.trim()) return { dirs: addCwds(dirs, [text]), text: '' };
+  if (key === 'Backspace' && !text && dirs.length) return { dirs: dirs.slice(0, -1), text: '' };
+  return undefined;
+}
+
+/** Where the folder dialog opens: at what is typed, else the last working directory ('' for the default). */
+export function pickStart(dirs: readonly string[], text: string): string {
+  return text.trim() || dirs.at(-1) || '';
 }

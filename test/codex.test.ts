@@ -225,6 +225,27 @@ describe('codex thread config', () => {
     expect(codexConfig('full')).toEqual({});
   });
 
+  it("lets edit mode write the conversation's other working directories too", () => {
+    // The legacy sandbox (Windows, nothing to protect): writable roots.
+    expect(codexConfig('edit', undefined, [], { off: [] }, ['/docs', '/infra'])).toEqual({
+      sandbox_workspace_write: { network_access: false, writable_roots: ['/docs', '/infra'] },
+    });
+    expect(codexConfig('read-only', undefined, [], { off: [] }, ['/docs'])).toEqual({});
+    // A permission profile: a write entry each, and a protected path is denied all the same.
+    expect(codexProfile('edit', ['/x', '/docs/secret.db'], 'darwin', ['/docs'])).toEqual({
+      extends: ':workspace',
+      filesystem: { '/docs': 'write', '/x': 'deny', '/docs/secret.db': 'deny' },
+    });
+    expect(codexProfile('read-only', ['/x'], 'darwin', ['/docs'])).toEqual({ extends: ':read-only', filesystem: { '/x': 'deny' } });
+    const run = { cwd: '/repo', addDirs: ['/docs'], permission: 'edit' as const, systemPrompt: '', requestApproval: async () => ({ allow: true }) };
+    const profiled = codexThreadRequest({ ...run, protectedPaths: ['/x'] }, undefined, 'linux', 'harness-relay-1').params;
+    expect(profiled.config).toMatchObject({ permissions: { 'harness-relay-1': { filesystem: { '/docs': 'write', '/x': 'deny' } } } });
+    expect(profiled.config).not.toHaveProperty('sandbox_workspace_write');
+    expect(codexThreadRequest(run, undefined, 'win32').params.config).toMatchObject({
+      sandbox_workspace_write: { network_access: false, writable_roots: ['/docs'] },
+    });
+  });
+
   it("adds library MCP servers in one mcp_servers table, which Codex merges into the user's own", () => {
     expect(
       codexConfig('read-only', undefined, [
@@ -492,7 +513,8 @@ describe('codex thread config', () => {
 
 });
 
-describe('a Codex run that leaves out hooks and plugins (stand-in codex app-server)', () => {
+// The stand-ins are scripts run by their `#!` line, which Windows cannot start.
+describe.skipIf(process.platform === 'win32')('a Codex run that leaves out hooks and plugins (stand-in codex app-server)', () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-codex-')));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   // Answers like codex-cli 0.167.0's app-server. FAKE_CODEX_IGNORE plays a Codex that ignores the

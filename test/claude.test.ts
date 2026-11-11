@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 // A data folder of its own: a turn's --settings and --mcp-config files go in its tmp folder.
@@ -35,6 +35,7 @@ import {
   claudeRunSettings,
   claudeRunner,
   claudeSandboxSettings,
+  claudeSandboxWrites,
   createClaudeParser,
   parseClaudePluginList,
   type ClaudeControlRequest,
@@ -70,6 +71,19 @@ describe('claude allowed tools', () => {
 describe('claude arguments', () => {
   const base = { systemPrompt: 'briefing', ask: true, newSessionId: 'new-id' };
   const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+
+  it("gives Claude the conversation's other working directories, and the attachments, with --add-dir", () => {
+    const args = claudeArgs({ ...base, permission: 'edit', addDirs: ['/docs', '/infra'], attachmentsDir: '/data/att' });
+    const at = args.indexOf('--add-dir');
+    expect(args.slice(at, at + 4)).toEqual(['--add-dir', '/docs', '/infra', '/data/att']);
+    // Variadic: the next item is another flag.
+    expect(args[at + 4]!.startsWith('--')).toBe(true);
+    expect(claudeArgs({ ...base, permission: 'edit' })).not.toContain('--add-dir');
+    // Its sandbox lets commands write in them as in the working directory (no sandbox with full access,
+    // nor on Windows, where Claude Code has none).
+    expect(claudeSandboxWrites('edit', ['/work', '/docs'])).toEqual(process.platform === 'win32' ? undefined : expect.arrayContaining(['/work', '/docs']));
+    expect(claudeSandboxWrites('full', ['/work', '/docs'])).toBeUndefined();
+  });
 
   it('rebuilds the system prompt on every resume', () => {
     const args = claudeArgs({ ...base, permission: 'edit', sessionId: 'old-id' });
@@ -412,7 +426,8 @@ describe('leaving out Claude Code\'s own subagents before the prompt', () => {
   });
 });
 
-describe('a Claude Code run that leaves out its own setup (stand-in claude)', () => {
+// The stand-ins are scripts run by their `#!` line, which Windows cannot start.
+describe.skipIf(process.platform === 'win32')('a Claude Code run that leaves out its own setup (stand-in claude)', () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-')));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   const bin = writeFakeClaude(join(dir, 'claude'));
@@ -730,15 +745,20 @@ describe("the user's own Claude Code settings", () => {
     writeFileSync(file, JSON.stringify({ sandbox: { filesystem } }));
     return file;
   };
-  const guarded = ['/home/me/.mozilla', '/srv/relay/data/relay.db'];
+  // With a drive on Windows: there a path without one is on the drive of the folder it is read from,
+  // and the settings files (in the temporary folder) may be on another drive than the tests (GitHub's
+  // runners check out on D:).
+  const guarded = [resolve('/home/me/.mozilla'), resolve('/srv/relay/data/relay.db')];
 
   it('are caught when an allowed path reaches a protected one: it, a folder holding it, inside it, or a pattern', () => {
-    const holding = settings({ allowRead: ['/srv/relay'] });
-    expect(claudeReopening([holding], guarded)).toEqual([holding, '/srv/relay']);
+    const srv = resolve('/srv/relay');
+    const holding = settings({ allowRead: [srv] });
+    expect(claudeReopening([holding], guarded)).toEqual([holding, srv]);
     const inside = settings({ allowWrite: ['~/.mozilla/profiles'] });
     expect(claudeReopening([inside], guarded, { home: '/home/me' })).toEqual([inside, '~/.mozilla/profiles']);
-    const pattern = settings({ allowRead: ['/home/me/**'] });
-    expect(claudeReopening([pattern], guarded)).toEqual([pattern, '/home/me/**']);
+    const all = join(resolve('/home/me'), '**');
+    const pattern = settings({ allowRead: [all] });
+    expect(claudeReopening([pattern], guarded)).toEqual([pattern, all]);
     const relative = settings({ allowRead: ['../data'] });
     expect(claudeReopening([relative], guarded, { cwd: '/srv/relay/app' })).toEqual([relative, '../data']);
     // Claude Code takes a relative entry from the settings file's folder (~/.claude for the user's).

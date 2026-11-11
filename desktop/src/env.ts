@@ -9,7 +9,7 @@
  */
 import { existsSync } from 'node:fs';
 import { userInfo } from 'node:os';
-import { join } from 'node:path';
+import { posix } from 'node:path';
 import { capture, runShellScript } from '../../src/server/process';
 
 /** Marks the start and end of the environment in the shell's output (a profile may print more). */
@@ -88,9 +88,9 @@ export function mergeShellEnv(base: NodeJS.ProcessEnv, shell: Record<string, str
   return env;
 }
 
-/** Where the agent CLIs and their installers usually put themselves. */
+/** Where the agent CLIs and their installers usually put themselves on macOS and Linux (POSIX paths, whichever system this runs on). */
 function commonDirs(home: string, platform: NodeJS.Platform): string[] {
-  const user = ['.local/bin', '.npm-global/bin', '.bun/bin', '.volta/bin', '.grok/bin'].map((d) => join(home, d));
+  const user = ['.local/bin', '.npm-global/bin', '.bun/bin', '.volta/bin', '.grok/bin'].map((d) => posix.join(home, d));
   if (platform === 'darwin') return ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', ...user];
   return ['/usr/local/bin', ...user, '/snap/bin'];
 }

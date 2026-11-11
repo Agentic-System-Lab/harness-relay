@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkingDirectories } from '../src/shared/types';
+import { cwdSettings, cwdsOf, type WorkingDirectories } from '../src/shared/types';
 import {
   CWD_MENU_ALL,
   CWD_MENU_CLOSED,
+  addCwds,
+  cwdChipKey,
+  hasCwd,
+  pickStart,
+  removeCwd,
   cwdMenuKey,
   cwdMenuShown,
   cwdMenuToggle,
@@ -153,5 +158,46 @@ describe('the list under the working directory box', () => {
     expect(cwdMenuToggle(cwdMenuTyped('pro'), items)).toEqual(CWD_MENU_CLOSED);
     // Open, but nothing matches what is typed: the button shows them all rather than closing what shows nothing.
     expect(cwdMenuToggle(cwdMenuTyped('nowhere'), [])).toEqual(CWD_MENU_ALL);
+  });
+});
+
+describe('several working directories, one chip each', () => {
+  it('adds each folder once, trimmed, at the end; a separator at the end makes no other folder', () => {
+    expect(addCwds(['/a'], ['  /b ', '', '/a/', '/b', '/c'])).toEqual(['/a', '/b', '/c']);
+    expect(addCwds([], ['/'])).toEqual(['/']);
+    expect(hasCwd(['C:\\work'], 'C:\\work\\')).toBe(true);
+    // A root keeps its separator: `C:\` is not `C:`.
+    expect(hasCwd(['C:\\'], 'C:')).toBe(false);
+    expect(removeCwd(['/a', '/b', '/c'], 1)).toEqual(['/a', '/c']);
+    // No more than a conversation may have: the dialog's or the list's past that are left out.
+    const eight = Array.from({ length: 7 }, (_, i) => `/d${i}`);
+    expect(addCwds(eight, ['/x', '/y'])).toEqual([...eight, '/x']);
+    expect(addCwds(['/a'], ['/b', '/c'], 2)).toEqual(['/a', '/b']);
+  });
+
+  it('adds what is typed on Enter and takes out the last folder on Backspace in an empty box', () => {
+    expect(cwdChipKey(['/a'], ' /b ', 'Enter')).toEqual({ dirs: ['/a', '/b'], text: '' });
+    // Typed again: it is there already, and what was typed is cleared.
+    expect(cwdChipKey(['/a'], '/a', 'Enter')).toEqual({ dirs: ['/a'], text: '' });
+    expect(cwdChipKey(['/a', '/b'], '', 'Backspace')).toEqual({ dirs: ['/a'], text: '' });
+    // Not the box's: Enter with nothing typed (a form around it may take it), Backspace inside a path.
+    expect(cwdChipKey(['/a'], '  ', 'Enter')).toBeUndefined();
+    expect(cwdChipKey(['/a'], '/b', 'Backspace')).toBeUndefined();
+    expect(cwdChipKey([], '', 'Backspace')).toBeUndefined();
+    expect(cwdChipKey(['/a'], '/b', 'Tab')).toBeUndefined();
+  });
+
+  it('opens the folder dialog at what is typed, else the last folder, else the default', () => {
+    expect(pickStart(['/a', '/b'], ' /c ')).toBe('/c');
+    expect(pickStart(['/a', '/b'], '')).toBe('/b');
+    expect(pickStart([], '')).toBe('');
+  });
+
+  it("are a conversation's cwd and extraCwds, the first where agents start", () => {
+    expect(cwdSettings(['/a'])).toEqual({ cwd: '/a' });
+    expect(cwdSettings(['/a', '/b', '/c'])).toEqual({ cwd: '/a', extraCwds: ['/b', '/c'] });
+    expect(cwdSettings([])).toEqual({ cwd: '' });
+    expect(cwdsOf({ cwd: '/a', extraCwds: ['/b'] })).toEqual(['/a', '/b']);
+    expect(cwdsOf({ cwd: '/a' })).toEqual(['/a']);
   });
 });
