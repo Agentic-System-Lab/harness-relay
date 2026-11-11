@@ -96,8 +96,9 @@ export function parseRelease(json: unknown): UpdateRelease | undefined {
 
 /**
  * The newest release of ours in GitHub's list, by version, not by when it was published: a release
- * candidate when it is the newest (2026-11-12-rc after 2026-11-11.1), never one that sorts before the
- * day's release (2026-11-12-rc.1 before 2026-11-12).
+ * candidate when it is the newest (2026-11-12-rc after 2026-11-11.1, 2026-11-12.1-rc after
+ * 2026-11-12), never one that sorts before the release it is a candidate of (2026-11-12-rc.1 before
+ * 2026-11-12).
  */
 export function newestRelease(json: unknown): UpdateRelease | undefined {
   if (!Array.isArray(json)) return undefined;

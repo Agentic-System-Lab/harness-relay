@@ -4,12 +4,14 @@
  *
  * A version is the date the release is made, in RELEASE_TIME_ZONE:
  *
- *   YYYY-MM-DD        a release               YYYY-MM-DD.N      its Nth patch, made the same day
- *   YYYY-MM-DD-rc     a release candidate     YYYY-MM-DD-rc.N   its Nth patch, made the same day
+ *   YYYY-MM-DD        a release                    YYYY-MM-DD.N        its Nth patch, made the same day
+ *   YYYY-MM-DD-rc     a release candidate of it    YYYY-MM-DD.N-rc     a release candidate of its Nth patch
+ *   YYYY-MM-DD-rc.M   the candidate's Mth patch    YYYY-MM-DD.N-rc.M   that candidate's Mth patch
  *
- * Patches count up from .1 without gaps, separately for releases and release candidates. The git tag
- * is the version itself. A version must be today's date: a fix on a later day is that day's release.
- * Release candidates come before the day's release: once it is out, a fix that day is its patch.
+ * Patches count up from .1 without gaps: a release's patches, and each release candidate's own. The
+ * git tag is the version itself. A version must be today's date: a fix on a later day is that day's
+ * release. A release candidate comes before the release it is a candidate of (and is optional): it
+ * is for the day's next release only, the release itself or its next patch.
  *
  * Usage:
  *   tsx scripts/release.ts next                       today's next release and release candidate
@@ -30,22 +32,24 @@ import { pathToFileURL } from 'node:url';
 export const RELEASE_TIME_ZONE = 'Asia/Taipei';
 
 export interface ReleaseVersion {
-  /** As written, such as 2026-11-10-rc.1. It is also the tag. */
+  /** As written, such as 2026-11-10.1-rc.2. It is also the tag. */
   version: string;
   /** YYYY-MM-DD */
   date: string;
+  /** The release, or the one a release candidate comes before: 0 for the day's release, N for its Nth patch. */
+  patch: number;
   /** A release candidate. */
   rc: boolean;
-  /** 0 for the release itself, N for its Nth patch. */
-  patch: number;
+  /** A release candidate's own patch: 0 for the candidate itself (and for a release), M for its Mth patch. */
+  rcPatch: number;
 }
 
 export type Parsed = { ok: true; value: ReleaseVersion } | { ok: false; error: string };
 
 export const RULES =
-  'YYYY-MM-DD for a release, YYYY-MM-DD-rc for a release candidate, and .1, .2, … after either for the same day’s patches (2026-11-10, 2026-11-10.1, 2026-11-10-rc, 2026-11-10-rc.1)';
+  'YYYY-MM-DD for a release and .1, .2, … after it for the same day’s patches (2026-11-10, 2026-11-10.1), each with -rc after it for a release candidate of it and .1, .2, … after that for the candidate’s patches (2026-11-10-rc, 2026-11-10-rc.1, 2026-11-10.1-rc)';
 
-const VERSION = /^(\d{4})-(\d{2})-(\d{2})(-rc)?(?:\.(\d+))?$/;
+const VERSION = /^(\d{4})-(\d{2})-(\d{2})(?:\.(\d+))?(?:(-rc)(?:\.(\d+))?)?$/;
 
 /** Whether YYYY-MM-DD is a day of the calendar. */
 function realDate(y: number, m: number, d: number): boolean {
@@ -67,20 +71,24 @@ export function parseVersion(input: string): Parsed {
   }
   if (/^v\d/i.test(v)) return fail(`Drop the "${v[0]}": the version is the date itself, such as ${v.slice(1)}.`);
   if (/-rc/i.test(v) && !v.includes('-rc')) return fail(`Write "-rc" in lower case: ${v.replace(/-rc/i, '-rc')}.`);
-  if (/^\d{4}-\d{2}-\d{2}\.\d+-rc$/.test(v)) return fail(`"-rc" comes before the patch number: YYYY-MM-DD-rc.N, not ${v}.`);
   const m = VERSION.exec(v);
   if (!m) {
-    if (/^\d{4}-\d{1,2}-\d{1,2}(?:-rc)?(?:\.\d+)?$/.test(v)) return fail(`Write the month and the day with two digits each: YYYY-MM-DD, such as 2026-01-05.`);
+    if (/^\d{4}-\d{1,2}-\d{1,2}(?:\.\d+)?(?:-rc(?:\.\d+)?)?$/.test(v)) return fail(`Write the month and the day with two digits each: YYYY-MM-DD, such as 2026-01-05.`);
     if (/-rc\d/.test(v) || /-rc-\d/.test(v)) return fail(`Put a dot between "-rc" and the patch number: YYYY-MM-DD-rc.N.`);
     return fail(`"${v}" does not follow the rules: ${RULES}.`);
   }
-  const [, y, mo, d, rc, patch] = m;
+  const [, y, mo, d, patch, rc, rcPatch] = m;
   if (!realDate(Number(y), Number(mo), Number(d))) return fail(`${y}-${mo}-${d} is not a day of the calendar.`);
-  if (patch !== undefined) {
-    if (/^0+$/.test(patch)) return fail(`Patches start at .1: the ${rc ? 'release candidate' : 'release'} itself has no number.`);
-    if (patch.startsWith('0')) return fail(`Write the patch number without leading zeros: .${Number(patch)}, not .${patch}.`);
+  for (const [n, what] of [
+    [patch, 'release'],
+    [rcPatch, 'release candidate'],
+  ] as const) {
+    if (n === undefined) continue;
+    if (/^0+$/.test(n)) return fail(`Patches start at .1: the ${what} itself has no number.`);
+    if (n.startsWith('0')) return fail(`Write the patch number without leading zeros: .${Number(n)}, not .${n}.`);
   }
-  return { ok: true, value: { version: v, date: `${y}-${mo}-${d}`, rc: !!rc, patch: patch === undefined ? 0 : Number(patch) } };
+  const value = { version: v, date: `${y}-${mo}-${d}`, patch: Number(patch ?? 0), rc: !!rc, rcPatch: Number(rcPatch ?? 0) };
+  return { ok: true, value };
 }
 
 /** The day `now` is in `timeZone`, as YYYY-MM-DD. */
@@ -95,17 +103,28 @@ export function releasedVersions(tags: readonly string[]): ReleaseVersion[] {
   return tags.map((t) => (VERSION.test(t) ? parseVersion(t) : undefined)).flatMap((p) => (p?.ok ? [p.value] : []));
 }
 
-/** The version a day's next release (or release candidate) must have. */
-export function nextVersion(tags: readonly string[], date: string, rc: boolean): string {
-  const base = `${date}${rc ? '-rc' : ''}`;
-  const made = releasedVersions(tags).filter((v) => v.date === date && v.rc === rc);
-  if (made.length === 0) return base;
-  return `${base}.${Math.max(...made.map((v) => v.patch)) + 1}`;
+/** The day's next release: 0 when none is out yet, else the number of its next patch. */
+export function nextPatch(tags: readonly string[], date: string): number {
+  const made = releasedVersions(tags).filter((v) => v.date === date && !v.rc);
+  return made.length === 0 ? 0 : Math.max(...made.map((v) => v.patch)) + 1;
 }
 
-/** Whether the day's release (not a release candidate) is out already. */
-export function releasedOn(tags: readonly string[], date: string): boolean {
-  return releasedVersions(tags).some((v) => v.date === date && !v.rc);
+/** A day's release (patch 0) or its patch, as written. */
+function releaseName(date: string, patch: number): string {
+  return patch ? `${date}.${patch}` : date;
+}
+
+/**
+ * The version a day's next release must have, or its next release candidate: one of that next
+ * release (the day's release itself, or its next patch once it is out).
+ */
+export function nextVersion(tags: readonly string[], date: string, rc: boolean): string {
+  const patch = nextPatch(tags, date);
+  const release = releaseName(date, patch);
+  if (!rc) return release;
+  const made = releasedVersions(tags).filter((v) => v.date === date && v.rc && v.patch === patch);
+  if (made.length === 0) return `${release}-rc`;
+  return `${release}-rc.${Math.max(...made.map((v) => v.rcPatch)) + 1}`;
 }
 
 /** The year, then the month and day as one number (1110 for November 10). */
@@ -117,13 +136,14 @@ function semverCore(date: string): string {
 /**
  * The version as semver, which electron-builder and the operating systems need: the year, then the
  * month and day as one number (1110 for November 10), then the patch; a release candidate is a
- * pre-release of the day's release. Each number stays below 65536, as Windows requires, and later
+ * pre-release of the release it comes before (2026-11-10.1-rc.2 is 2026.1110.1-rc.2, after
+ * 2026.1110.0 and before 2026.1110.1). Each number stays below 65536, as Windows requires, and later
  * dates and patches sort later.
  */
 export function semverOf(v: ReleaseVersion): string {
-  const core = semverCore(v.date);
-  if (!v.rc) return `${core}.${v.patch}`;
-  return `${core}.0-rc${v.patch ? `.${v.patch}` : ''}`;
+  const release = `${semverCore(v.date)}.${v.patch}`;
+  if (!v.rc) return release;
+  return `${release}-rc${v.rcPatch ? `.${v.rcPatch}` : ''}`;
 }
 
 /**
@@ -189,32 +209,32 @@ export type CheckResult =
 export function checkRelease(c: ReleaseCheck): CheckResult {
   const errors: string[] = [];
   const zone = c.timeZone ?? RELEASE_TIME_ZONE;
-  const hint = () =>
-    releasedOn(c.tags, c.today)
-      ? `Today's release is out: its next patch is ${nextVersion(c.tags, c.today, false)}.`
-      : `Today's next release candidate is ${nextVersion(c.tags, c.today, true)}, and its next release ${nextVersion(c.tags, c.today, false)}.`;
+  const nextOnes = `next release candidate is ${nextVersion(c.tags, c.today, true)}, and its next release ${nextVersion(c.tags, c.today, false)}`;
+  const hint = `Today's ${nextOnes}.`;
   if (c.ref !== undefined && c.ref !== 'refs/heads/main') {
     errors.push(`Releases are made from main, and this run is on ${c.ref.replace(/^refs\/heads\//, '')}. Choose main under "Use workflow from".`);
   }
   const parsed = parseVersion(c.version);
-  if (!parsed.ok) return { ok: false, errors: [...errors, parsed.error, hint()] };
+  if (!parsed.ok) return { ok: false, errors: [...errors, parsed.error, hint] };
   const v = parsed.value;
   if (v.date !== c.today) {
-    errors.push(`${v.date} is not today: today is ${c.today} (${zone}). A version is the day it is released. ${hint()}`);
+    errors.push(`${v.date} is not today: today is ${c.today} (${zone}). A version is the day it is released. ${hint}`);
   } else {
     const expected = nextVersion(c.tags, v.date, v.rc);
+    const patch = nextPatch(c.tags, v.date);
+    const target = releaseName(v.date, v.patch);
     if (releasedVersions(c.tags).some((t) => t.version === v.version)) {
       errors.push(`${v.version} has already been released. The next one is ${expected}.`);
-    } else if (v.rc && releasedOn(c.tags, v.date)) {
-      // It would sort before the release and its patches, and the download page would offer it as the newest.
-      errors.push(
-        `${v.version} is a release candidate, but today's release ${v.date} is out already: a fix today is its patch, ${nextVersion(c.tags, v.date, false)}.`,
-      );
+    } else if (v.rc && v.patch < patch) {
+      // It would sort before the release it is a candidate of, and so before the newest release.
+      errors.push(`${v.version} is a release candidate of ${target}, which is out already: today's ${nextOnes}.`);
+    } else if (v.rc && v.patch > patch) {
+      errors.push(`${v.version} is a release candidate of ${target}, but today's next release is ${releaseName(v.date, patch)}: its next release candidate is ${expected}.`);
     } else if (v.version !== expected) {
-      const kind = v.rc ? 'release candidate' : 'release';
+      const first = v.rc ? `${target}-rc` : v.date;
       errors.push(
-        expected === `${v.date}${v.rc ? '-rc' : ''}`
-          ? `${v.version} is a patch, but there is no ${kind} today to patch yet: release ${expected} first.`
+        expected === first
+          ? `${v.version} is a patch, but there is no ${v.rc ? `release candidate of ${target}` : 'release today'} to patch yet: release ${expected} first.`
           : `${v.version} skips a number: patches count up by one, so the next is ${expected}.`,
       );
     }
@@ -269,8 +289,7 @@ function main(argv: string[]): number {
 
   if (command === 'next') {
     console.log(`Today (${today}, ${zone}):`);
-    if (releasedOn(tags, today)) console.log(`  release candidate  none: today's release is out`);
-    else console.log(`  release candidate  ${nextVersion(tags, today, true)}`);
+    console.log(`  release candidate  ${nextVersion(tags, today, true)}`);
     console.log(`  release            ${nextVersion(tags, today, false)}`);
     return 0;
   }

@@ -84,6 +84,7 @@ describe("GitHub's newest release", () => {
     const rc = parseRelease(githubRelease('2026-11-12-rc.1'))!;
     expect(rc).toMatchObject({ version: '2026-11-12-rc.1', semver: '2026.1112.0-rc.1' });
     expect(rc.assets.mac?.name).toBe('Harness-Relay-2026-11-12-rc.1-mac-arm64.dmg');
+    expect(parseRelease(githubRelease('2026-11-12.1-rc.2'))).toMatchObject({ version: '2026-11-12.1-rc.2', semver: '2026.1112.1-rc.2' });
     expect(parseRelease(githubRelease('2026-11-12', { prerelease: true }))?.version).toBe('2026-11-12');
     expect(parseRelease(githubRelease('2026-11-12-rc', { draft: true }))).toBeUndefined();
     expect(parseRelease(githubRelease('2026-11-12', { draft: true }))).toBeUndefined();
@@ -99,6 +100,10 @@ describe("GitHub's newest release", () => {
     // The day's release comes after its release candidates, and its patches after it.
     expect(newestRelease(tags('2026-11-12-rc.2', '2026-11-12', '2026-11-12-rc.1'))?.version).toBe('2026-11-12');
     expect(newestRelease(tags('2026-11-12', '2026-11-12.1', '2026-11-12-rc.3'))?.version).toBe('2026-11-12.1');
+    // A release candidate of a patch comes after the release before it, and before the patch.
+    expect(newestRelease(tags('2026-11-12.1-rc', '2026-11-12', '2026-11-12-rc.1'))?.version).toBe('2026-11-12.1-rc');
+    expect(newestRelease(tags('2026-11-12.1-rc', '2026-11-12.1-rc.1', '2026-11-12'))?.version).toBe('2026-11-12.1-rc.1');
+    expect(newestRelease(tags('2026-11-12.1', '2026-11-12.1-rc.1', '2026-11-12'))?.version).toBe('2026-11-12.1');
     // Drafts and tags that are not versions of ours are left out.
     expect(newestRelease([githubRelease('2026-11-13-rc', { draft: true }), githubRelease('v9.0.0'), githubRelease('2026-11-12')])?.version).toBe('2026-11-12');
     expect(newestRelease([])).toBeUndefined();
@@ -140,6 +145,10 @@ describe("GitHub's newest release", () => {
     expect(isNewer(rc, '2026.1112.0-rc.1')).toBe(false);
     expect(isNewer(rc, '2026.1112.0-rc.2')).toBe(false);
     expect(isNewer(rc, '2026.1112.0')).toBe(false);
+    // One of a patch is newer than the release it follows, not than the patch.
+    const patchRc = parseRelease(githubRelease('2026-11-12.1-rc'));
+    expect(isNewer(patchRc, '2026.1112.0')).toBe(true);
+    expect(isNewer(patchRc, '2026.1112.1')).toBe(false);
   });
 
   it('is asked for at GitHub; none yet is no update, any other failure an error', async () => {

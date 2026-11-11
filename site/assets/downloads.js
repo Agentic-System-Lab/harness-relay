@@ -110,7 +110,7 @@ export function installersOf(release) {
   return found;
 }
 
-/** Whether a release is a release candidate: a pre-release on GitHub, or a version ending in -rc or -rc.N. */
+/** Whether a release is a release candidate: a pre-release on GitHub, or a version ending in -rc or -rc.N (2026-11-10-rc, 2026-11-10.1-rc.2). */
 export function isCandidate(tag, prerelease = false) {
   return Boolean(prerelease) || typeof tag !== 'string' || /-rc(?:\.\d+)?$/.test(tag);
 }

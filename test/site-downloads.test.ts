@@ -120,6 +120,8 @@ describe('the newest release', () => {
     expect(isCandidate('2026-11-10.2')).toBe(false);
     expect(isCandidate('2026-11-10-rc')).toBe(true);
     expect(isCandidate('2026-11-10-rc.3')).toBe(true);
+    expect(isCandidate('2026-11-10.1-rc')).toBe(true);
+    expect(isCandidate('2026-11-10.1-rc.2')).toBe(true);
     expect(isCandidate('2026-11-10', true)).toBe(true);
   });
 

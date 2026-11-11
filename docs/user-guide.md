@@ -99,7 +99,7 @@ A Harness Relay that cannot update itself (one run from the source with `npm run
 
 ### Versions
 
-A version is the date it was released, in Taiwan's time zone: `2026-11-10` is a release, and `2026-11-10-rc` a release candidate, made to be tried before a release. A fix released the same day adds a number: `2026-11-10.1`, `2026-11-10-rc.2`. Once a day's release is out, a fix that day is its patch, never another release candidate. The menu shows the app's version, and [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) marks release candidates as pre-releases. An app you build yourself shows the day it was built with `-dev` and the commit, such as `2026-11-10-dev (30f3d4f)`: any release or release candidate of that day or later counts as newer, and is offered as an update.
+A version is the date it was released, in Taiwan's time zone: `2026-11-10` is a release, and `2026-11-10-rc` a release candidate, made to be tried before a release. A fix released the same day adds a number: `2026-11-10.1`, `2026-11-10-rc.2`. Once a day's release is out, a fix that day is its patch, and a patch can have a release candidate of its own first: `2026-11-10.1-rc`, then `2026-11-10.1-rc.1`, before `2026-11-10.1`. The menu shows the app's version, and [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) marks release candidates as pre-releases. An app you build yourself shows the day it was built with `-dev` and the commit, such as `2026-11-10-dev (30f3d4f)`: any release or release candidate of that day or later counts as newer, and is offered as an update.
 
 ### Language and the guided tour
 

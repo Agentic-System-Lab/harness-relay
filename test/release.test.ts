@@ -35,11 +35,17 @@ const error = (v: string) => {
 
 describe('the version rules', () => {
   it('accepts a release, a release candidate and their patches', () => {
-    expect(ok('2026-11-10')).toEqual({ version: '2026-11-10', date: '2026-11-10', rc: false, patch: 0 });
-    expect(ok('2026-11-10.1')).toEqual({ version: '2026-11-10.1', date: '2026-11-10', rc: false, patch: 1 });
+    expect(ok('2026-11-10')).toEqual({ version: '2026-11-10', date: '2026-11-10', patch: 0, rc: false, rcPatch: 0 });
+    expect(ok('2026-11-10.1')).toEqual({ version: '2026-11-10.1', date: '2026-11-10', patch: 1, rc: false, rcPatch: 0 });
     expect(ok('2026-11-10.12')).toMatchObject({ patch: 12 });
-    expect(ok('2026-11-10-rc')).toEqual({ version: '2026-11-10-rc', date: '2026-11-10', rc: true, patch: 0 });
-    expect(ok('2026-11-10-rc.3')).toEqual({ version: '2026-11-10-rc.3', date: '2026-11-10', rc: true, patch: 3 });
+    expect(ok('2026-11-10-rc')).toEqual({ version: '2026-11-10-rc', date: '2026-11-10', patch: 0, rc: true, rcPatch: 0 });
+    expect(ok('2026-11-10-rc.3')).toEqual({ version: '2026-11-10-rc.3', date: '2026-11-10', patch: 0, rc: true, rcPatch: 3 });
+  });
+
+  it("accepts a release candidate of a patch, and the candidate's own patches", () => {
+    expect(ok('2026-11-10.1-rc')).toEqual({ version: '2026-11-10.1-rc', date: '2026-11-10', patch: 1, rc: true, rcPatch: 0 });
+    expect(ok('2026-11-10.1-rc.2')).toEqual({ version: '2026-11-10.1-rc.2', date: '2026-11-10', patch: 1, rc: true, rcPatch: 2 });
+    expect(ok('2026-11-10.12-rc.10')).toMatchObject({ patch: 12, rcPatch: 10 });
   });
 
   it('forgives spaces around it (a paste), not inside it', () => {
@@ -55,14 +61,20 @@ describe('the version rules', () => {
     expect(error('V2026-11-10-rc')).toMatch(/Drop the "V"/);
     expect(error('2026-11-10-RC')).toMatch(/lower case: 2026-11-10-rc/);
     expect(error('2026-11-10-Rc.1')).toMatch(/lower case/);
-    expect(error('2026-11-10.1-rc')).toMatch(/"-rc" comes before the patch number/);
+    expect(error('2026-11-10.1-RC')).toMatch(/lower case: 2026-11-10\.1-rc/);
     expect(error('2026-11-10-rc1')).toMatch(/dot between "-rc" and the patch number/);
     expect(error('2026-11-10-rc-1')).toMatch(/dot between/);
+    expect(error('2026-11-10.1-rc1')).toMatch(/dot between/);
     expect(error('2026-11-10.0')).toMatch(/Patches start at \.1/);
+    expect(error('2026-11-10.0-rc')).toMatch(/Patches start at \.1: the release itself/);
     expect(error('2026-11-10-rc.0')).toMatch(/Patches start at \.1: the release candidate/);
+    expect(error('2026-11-10.1-rc.0')).toMatch(/Patches start at \.1: the release candidate/);
     expect(error('2026-11-10.01')).toMatch(/without leading zeros: \.1, not \.01/);
+    expect(error('2026-11-10.01-rc')).toMatch(/without leading zeros: \.1, not \.01/);
+    expect(error('2026-11-10.1-rc.02')).toMatch(/without leading zeros: \.2, not \.02/);
     expect(error('2026-1-5')).toMatch(/two digits/);
     expect(error('2026-11-5-rc')).toMatch(/two digits/);
+    expect(error('2026-11-5.1-rc.2')).toMatch(/two digits/);
   });
 
   it('refuses look-alike characters that would make a different tag', () => {
@@ -83,7 +95,7 @@ describe('the version rules', () => {
   });
 
   it('refuses anything else', () => {
-    for (const v of ['26-11-10', '2026/11/10', '20261110', '2026-11-10-beta', '2026-11-10-rc.', '2026-11-10.', '2026-11-10.1.2', '2026-11-10-rc.1.1', '2026-11-10rc', 'latest', '2026-11-10-rc.a']) {
+    for (const v of ['26-11-10', '2026/11/10', '20261110', '2026-11-10-beta', '2026-11-10-rc.', '2026-11-10.', '2026-11-10.1.2', '2026-11-10-rc.1.1', '2026-11-10.1-rc.1.1', '2026-11-10-rc.1-rc', '2026-11-10-rc-rc', '2026-11-10.1-rc.', '2026-11-10rc', 'latest', '2026-11-10-rc.a']) {
       expect(parseVersion(v).ok, v).toBe(false);
     }
   });
@@ -113,7 +125,7 @@ describe('checking a release', () => {
   it("accepts today's first release candidate, as a pre-release", () => {
     expect(check('2026-11-10-rc')).toEqual({
       ok: true,
-      release: { version: '2026-11-10-rc', date: '2026-11-10', rc: true, patch: 0 },
+      release: { version: '2026-11-10-rc', date: '2026-11-10', patch: 0, rc: true, rcPatch: 0 },
       tag: '2026-11-10-rc',
       title: 'Harness Relay 2026-11-10-rc',
       prerelease: true,
@@ -147,7 +159,7 @@ describe('checking a release', () => {
     const tags = ['2026-11-10-rc', '2026-11-10-rc.1'];
     expect(check('2026-11-10-rc.2', tags).ok).toBe(true);
     expect(errors('2026-11-10-rc.3', tags)).toMatch(/skips a number: .* the next is 2026-11-10-rc\.2/);
-    expect(errors('2026-11-10-rc.1')).toMatch(/is a patch, but there is no release candidate today to patch yet: release 2026-11-10-rc first/);
+    expect(errors('2026-11-10-rc.1')).toMatch(/is a patch, but there is no release candidate of 2026-11-10 to patch yet: release 2026-11-10-rc first/);
     expect(errors('2026-11-10.1')).toMatch(/no release today to patch yet: release 2026-11-10 first/);
   });
 
@@ -156,22 +168,39 @@ describe('checking a release', () => {
     expect(check('2026-11-10', tags).ok).toBe(true);
     expect(errors('2026-11-10.1', tags)).toMatch(/release 2026-11-10 first/);
     expect(check('2026-11-10.1', [...tags, '2026-11-10']).ok).toBe(true);
+    // A release needs no release candidate first.
+    expect(check('2026-11-10.2', [...tags, '2026-11-10', '2026-11-10.1']).ok).toBe(true);
   });
 
-  it("takes no release candidate once the day's release is out: a fix that day is its patch", () => {
-    // It would sort before the release's patches (2026.1110.0-rc.2 < 2026.1110.1), and the download
-    // page, which takes the newest release, would offer it instead of them.
+  it("takes a release candidate of the day's next release only: once a release is out, one of its next patch", () => {
     const tags = ['2026-11-10-rc', '2026-11-10-rc.1', '2026-11-10', '2026-11-10.1'];
-    expect(errors('2026-11-10-rc.2', tags)).toMatch(/today's release 2026-11-10 is out already: a fix today is its patch, 2026-11-10\.2/);
-    expect(errors('2026-11-10-rc', ['2026-11-10'])).toMatch(/is out already/);
-    expect(errors('2026-11-09', tags)).toMatch(/Today's release is out: its next patch is 2026-11-10\.2\./);
-    expect(check('2026-11-10.2', tags).ok).toBe(true);
+    expect(check('2026-11-10.2-rc', tags)).toMatchObject({ ok: true, tag: '2026-11-10.2-rc', prerelease: true, semver: '2026.1110.2-rc' });
+    expect(nextVersion(tags, '2026-11-10', true)).toBe('2026-11-10.2-rc');
+    // Its own patches count up as the day's release candidate's do, and the patch it comes before follows.
+    const more = [...tags, '2026-11-10.2-rc', '2026-11-10.2-rc.1'];
+    expect(check('2026-11-10.2-rc.2', more)).toMatchObject({ ok: true, semver: '2026.1110.2-rc.2' });
+    expect(errors('2026-11-10.2-rc.3', more)).toMatch(/skips a number: .* the next is 2026-11-10\.2-rc\.2/);
+    expect(errors('2026-11-10.2-rc.1', tags)).toMatch(/is a patch, but there is no release candidate of 2026-11-10\.2 to patch yet: release 2026-11-10\.2-rc first/);
+    expect(check('2026-11-10.2', more).ok).toBe(true);
+    // A release candidate of a release that is out would sort before it, and before the newest release.
+    expect(errors('2026-11-10-rc.2', tags)).toMatch(
+      /2026-11-10-rc\.2 is a release candidate of 2026-11-10, which is out already: today's next release candidate is 2026-11-10\.2-rc, and its next release 2026-11-10\.2\./,
+    );
+    expect(errors('2026-11-10.1-rc', tags)).toMatch(/release candidate of 2026-11-10\.1, which is out already/);
+    expect(errors('2026-11-10-rc', ['2026-11-10'])).toMatch(/is out already: today's next release candidate is 2026-11-10\.1-rc/);
+    // Nor one of a later patch than the next.
+    expect(errors('2026-11-10.3-rc', tags)).toMatch(/release candidate of 2026-11-10\.3, but today's next release is 2026-11-10\.2: its next release candidate is 2026-11-10\.2-rc\./);
+    expect(errors('2026-11-10.1-rc', ['2026-11-10-rc'])).toMatch(/today's next release is 2026-11-10: its next release candidate is 2026-11-10-rc\.1\./);
+    // Another day's error names today's next ones.
+    expect(errors('2026-11-09', tags)).toMatch(/Today's next release candidate is 2026-11-10\.2-rc, and its next release 2026-11-10\.2\./);
   });
 
   it("ignores other days' versions and tags that are not versions", () => {
     const tags = ['v0.1.0', '2026-11-09-rc', '2026-11-09-rc.1', '2026-11-09', 'nightly', '2026-11-10-rc.x', '2026-02-30'];
     expect(check('2026-11-10-rc', tags).ok).toBe(true);
-    expect(nextVersion(tags, '2026-11-09', true)).toBe('2026-11-09-rc.2');
+    expect(nextVersion(tags, '2026-11-09', true)).toBe('2026-11-09.1-rc');
+    expect(nextVersion(tags, '2026-11-09', false)).toBe('2026-11-09.1');
+    expect(nextVersion(tags.filter((t) => t !== '2026-11-09'), '2026-11-09', true)).toBe('2026-11-09-rc.2');
   });
 
   it('is made from main only', () => {
@@ -190,7 +219,7 @@ describe('the app version (semver)', () => {
   const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$/;
 
   it('is valid semver, below Windows’ limit of 65535 per number', () => {
-    for (const v of ['2026-01-01', '2026-01-01-rc', '2026-01-01-rc.1', '2026-12-31.9', '2099-12-31-rc.40']) {
+    for (const v of ['2026-01-01', '2026-01-01-rc', '2026-01-01-rc.1', '2026-12-31.9', '2099-12-31-rc.40', '2026-12-31.9-rc', '2099-12-31.40-rc.40']) {
       const s = semverOf(ok(v));
       expect(s, v).toMatch(SEMVER);
       for (const n of s.split('-')[0]!.split('.')) expect(Number(n)).toBeLessThan(65536);
@@ -198,10 +227,26 @@ describe('the app version (semver)', () => {
     expect(semverOf(ok('2026-01-05'))).toBe('2026.105.0');
     expect(semverOf(ok('2026-11-10.2'))).toBe('2026.1110.2');
     expect(semverOf(ok('2026-11-10-rc.2'))).toBe('2026.1110.0-rc.2');
+    expect(semverOf(ok('2026-11-10.1-rc'))).toBe('2026.1110.1-rc');
+    expect(semverOf(ok('2026-11-10.1-rc.2'))).toBe('2026.1110.1-rc.2');
   });
 
   it('sorts as the releases were made', () => {
-    const inOrder = ['2026-01-31', '2026-02-01-rc', '2026-02-01-rc.1', '2026-02-01-rc.10', '2026-02-01', '2026-02-01.1', '2026-02-01.2', '2026-10-09', '2026-11-10-rc', '2027-01-01-rc'];
+    const inOrder = [
+      '2026-01-31',
+      '2026-02-01-rc',
+      '2026-02-01-rc.1',
+      '2026-02-01-rc.10',
+      '2026-02-01',
+      '2026-02-01.1-rc',
+      '2026-02-01.1-rc.1',
+      '2026-02-01.1',
+      '2026-02-01.2',
+      '2026-02-01.3-rc',
+      '2026-10-09',
+      '2026-11-10-rc',
+      '2027-01-01-rc',
+    ];
     const semvers = inOrder.map((v) => semverOf(ok(v) as ReleaseVersion));
     expect([...semvers].reverse().sort(compareSemver)).toEqual(semvers);
     expect([...semvers].sort(() => 0.5 - Math.random()).sort(compareSemver)).toEqual(semvers);
@@ -226,6 +271,7 @@ describe('the app version (semver)', () => {
     expect(dev).toMatch(SEMVER);
     expect(compareSemver(dev, semverOf(ok('2026-11-10-rc')))).toBe(-1);
     expect(compareSemver(dev, semverOf(ok('2026-11-09.4')))).toBe(1);
+    expect(compareSemver(dev, semverOf(ok('2026-11-09.4-rc')))).toBe(1);
   });
 });
 
@@ -307,17 +353,27 @@ describe('the release script', () => {
     expect(run(['check', '2026-11-10-rc.1', '--today', '2026-11-10', '--remote']).code).toBe(0);
   });
 
+  it('accepts a release candidate of a patch once the release is out', () => {
+    git(repo, 'tag', '2026-11-11');
+    const r = run(['check', '2026-11-11.1-rc', '--today', '2026-11-11']);
+    expect(r.out).toContain('2026-11-11.1-rc may be released (a release candidate, published as a pre-release; app version 2026.1111.1-rc)');
+    expect(r.code).toBe(0);
+    git(repo, 'tag', '-d', '2026-11-11');
+  });
+
   it('prints the next versions for today', () => {
     const r = run(['next', '--today', '2026-11-10']);
     expect(r.code).toBe(0);
     expect(r.out).toContain('release candidate  2026-11-10-rc.1');
     expect(r.out).toContain('release            2026-11-10\n');
-    // Once the day's release is out, only its patches.
+    // Once the day's release is out, its next patch, and a release candidate of that patch.
     git(repo, 'tag', '2026-11-10');
     const after = run(['next', '--today', '2026-11-10']);
-    expect(after.out).toContain("release candidate  none: today's release is out");
+    expect(after.out).toContain('release candidate  2026-11-10.1-rc\n');
     expect(after.out).toContain('release            2026-11-10.1\n');
-    git(repo, 'tag', '-d', '2026-11-10');
+    git(repo, 'tag', '2026-11-10.1-rc');
+    expect(run(['next', '--today', '2026-11-10']).out).toContain('release candidate  2026-11-10.1-rc.1\n');
+    git(repo, 'tag', '-d', '2026-11-10', '2026-11-10.1-rc');
   });
 
   it('in GitHub Actions, writes the outputs, and refuses a branch other than main', () => {

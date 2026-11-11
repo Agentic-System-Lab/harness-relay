@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Today's date in Taiwan: YYYY-MM-DD-rc for a release candidate, YYYY-MM-DD for a release, then .1, .2… for the same day's patches (npm run release:next prints them)"
+        description: "Today's date in Taiwan: YYYY-MM-DD for a release, then .1, .2… for the same day's patches; -rc after either for a release candidate of it, then .1, .2… for its patches (npm run release:next prints them)"
         required: true
         type: string
 
