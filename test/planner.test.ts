@@ -90,6 +90,35 @@ describe('lead agent reply', () => {
     expect(d.reason).toContain('default template');
   });
 
+  it('keeps every team it designs within the team limit RELAY_MAX_TEAM_AGENTS sets', () => {
+    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'read-only' as const, cwd: '/tmp' };
+    const draft: TeamDraft = { settings: { mode: 'roundtable', rounds: 1, maxHops: 8 }, agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }] };
+    const small: PlannerContext = { ...ctx, maxTeamAgents: 2 };
+    const four = ['A', 'B', 'C', 'D'].map((name) => ({ name, provider: 'claude' }));
+    // A new team: the first two (5 when the limit is higher), and the prompt says so.
+    expect(decidePlan({ choice: 'custom', agents: four }, small, lead).agents.map((a) => a.name)).toEqual(['A', 'B']);
+    expect(decidePlan({ choice: 'custom', agents: [...four, ...four.map((m) => ({ ...m, name: `${m.name}2` }))] }, ctx, lead).agents).toHaveLength(5);
+    expect(buildPlannerPrompt('q', settings, small)).toContain('At most 2 members.');
+    expect(buildPlannerPrompt('q', settings, { ...ctx, maxTeamAgents: 1 })).toContain('At most 1 member.');
+    expect(buildPlannerPrompt('q', settings, ctx)).toContain('At most 5 members.');
+    // The built-in templates have 3 members: none is offered, nor taken.
+    expect(buildPlannerPrompt('q', settings, small)).not.toContain('builtin-general');
+    expect(() => withLang('en', () => decidePlan({ choice: 'template', templateId: 'builtin-general' }, small, lead))).toThrow(/builtin-general/);
+    // A template within the limit is.
+    const pair: TeamPreset = { id: 'user-pair', name: 'Pair', agents: four.slice(0, 2).map((m, i) => ({ ...m, id: `p${i}`, role: '' })), settings: { mode: 'relay', rounds: 1, maxHops: 4, permission: 'read-only' } } as TeamPreset;
+    const withPair = { ...small, presets: [...small.presets, pair] };
+    expect(buildPlannerPrompt('q', settings, withPair)).toContain('user-pair');
+    expect(decidePlan({ choice: 'template', templateId: 'user-pair' }, withPair, lead).agents.map((a) => a.name)).toEqual(['A', 'B']);
+    // The fallback: a template within the limit, else the general one cut to it.
+    expect(fallbackPlan(withPair, lead, 'no JSON')).toMatchObject({ presetId: 'user-pair' });
+    const cut = fallbackPlan(small, lead, 'no JSON');
+    expect(cut.presetId).toBe('builtin-general');
+    expect(cut.agents).toHaveLength(2);
+    // Changing a team: up to the limit.
+    expect(decideRevision({ agents: four.map((m) => ({ ...m, role: 'r' })) }, draft, small, lead).agents.map((a) => a.name)).toEqual(['A', 'B']);
+    expect(buildRevisePrompt('x', draft, { permission: 'read-only', cwd: '/w' }, small)).toContain('At most 2 members.');
+  });
+
   it('remaps members to signed-in CLIs and drops models those CLIs do not offer', () => {
     const [a] = fitAgents([{ id: 'x', name: 'G', provider: 'grok', role: '', model: 'grok-9', effort: 'xhigh' }], ctx, lead);
     expect(a).toMatchObject({ provider: 'claude', model: undefined, effort: undefined });

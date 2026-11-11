@@ -303,9 +303,9 @@ export const api = {
       timeout.clear();
     }
   },
-  /** This version, and the desktop app's updates (only the version otherwise). */
   /** What the server's environment sets that the UI keeps to or shows (`useLimits()`). */
   limits: () => request<ServerLimits>('GET', '/api/limits'),
+  /** This version, and the desktop app's updates (only the version otherwise). */
   update: () => request<UpdateStatus>('GET', '/api/update'),
   /**
    * The same, quietly, for the page's watch on the server's version: a browser that is not signed in

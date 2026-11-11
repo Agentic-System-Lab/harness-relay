@@ -78,6 +78,8 @@ const zhTW = {
     `這一輪中，Grok 自己資料夾裡的設定或程式被改動了（${names}）。agent 執行的指令可能改了它們；Harness Relay 已把它們改回原樣（改動後的版本另存在旁邊，名稱結尾為 .changed-…），skills 資料夾則請你自己檢查。用完全存取執行 Grok 之前，請先看過這些改動。`,
   claudeReopens: (file: string, entry: string) =>
     `你的 Claude Code 設定（${file}）中的 sandbox.filesystem 讓沙箱可以存取「${entry}」，這會開放 Harness Relay 保護的路徑（瀏覽器的資料夾或它的資料庫）。請移除這一項後再試，或改用完全存取。`,
+  cwdHoldsVoice: (dir: string, voice: string) =>
+    `工作目錄「${dir}」包含語音輸入的資料夾「${voice}」，或就在它裡面（RELAY_VOICE_DIR）。Harness Relay 會在沙箱外執行那裡的語音引擎，而可編輯模式下 agent 不經詢問就能修改這裡的檔案。請改用其他資料夾或唯讀模式。`,
   cwdIsRelay: (dir: string) =>
     `工作目錄「${dir}」包含 Harness Relay 本身（它的程式或資料）。可編輯模式下，agent 不經詢問就能修改這裡的檔案，也就能改動 Harness Relay 的程式碼或資料庫，繞過它的沙箱與登入。請改用其他資料夾或唯讀模式；要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。`,
   // Sharing a conversation (a gist through the GitHub CLI)
@@ -387,6 +389,8 @@ const en: ServerMessages = {
     `Grok's own settings or program changed during this turn (${names}). A command the agent ran may have changed them: Harness Relay put them back (the changed ones are kept beside them, ending in .changed-…); look at the skills folder yourself. Look at these changes before you run Grok with full access.`,
   claudeReopens: (file, entry) =>
     `sandbox.filesystem in your Claude Code settings (${file}) lets its sandbox reach ${entry}, which opens paths Harness Relay protects (the browsers' folders or its database). Remove it and try again, or use full access.`,
+  cwdHoldsVoice: (dir, voice) =>
+    `The working directory ${dir} holds voice input's folder ${voice}, or is inside it (RELAY_VOICE_DIR). Harness Relay runs the voice engine there outside any sandbox, and in edit mode agents change files there without asking. Choose another folder, or read-only.`,
   cwdIsRelay: (dir) =>
     `The working directory ${dir} holds Harness Relay itself (its code or its data). In edit mode agents change files there without asking, so they could change Harness Relay's code or database and get around its sandbox and sign-in. Choose another folder, or read-only; to work on Harness Relay itself, run the copy you use from another folder.`,
   shareEmpty: 'Nothing to share',
@@ -515,7 +519,7 @@ const en: ServerMessages = {
   keyringFailed: (e) => `Could not save the API key to the system credential store: ${e}`,
   noLogin: 'No sign-in in progress',
   unknownAccount: (provider, id) => `${provider} has no account ${id}`,
-  tooManyAccounts: (provider, max) => `${provider} can have up to ${max} accounts (the default one included)`,
+  tooManyAccounts: (provider, max) => `${provider} can have up to ${max} ${max === 1 ? 'account' : 'accounts'} (the default one included)`,
   badAccountLabel: (max) => `An account name has up to ${max} characters, on one line`,
   defaultAccountStays: 'The default account cannot be removed',
   accountBusy: 'A conversation is running, or the lead agent is sorting one into a group or changing a team. Wait until they finish (or stop the conversation, or close Team settings) before removing an account.',
@@ -528,7 +532,7 @@ const en: ServerMessages = {
   tooManyGroups: (max) => `You can have at most ${max} groups`,
 
   needAgent: 'At least one agent is needed',
-  tooManyAgents: (max) => `At most ${max} agents`,
+  tooManyAgents: (max) => `At most ${max} ${max === 1 ? 'agent' : 'agents'}`,
   badName: (i, name) => `Agent ${i}'s name "${name}" is invalid: use letters, digits, _ or -, up to 32 characters`,
   reservedName: (name) => `"${name}" is a reserved name`,
   duplicateName: (name) => `The agent name "${name}" is used twice`,

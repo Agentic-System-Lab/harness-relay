@@ -55,12 +55,21 @@ const NAME_RE = /^[\p{L}\p{N}_-]{1,32}$/u;
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
 
-/** What keeps the team from being saved; `members` and `template` as for `TeamEditor`. */
-export function teamProblems(team: Team, t: Messages, opts: { members?: boolean; template?: boolean } = {}): string[] {
+/**
+ * What keeps the team from being saved; `members` and `template` as for `TeamEditor`, `maxAgents` the
+ * server's team limit (`useLimits()`).
+ */
+export function teamProblems(
+  team: Team,
+  t: Messages,
+  opts: { members?: boolean; template?: boolean; maxAgents?: number } = {},
+): string[] {
   const p = t.team.problems;
   const out: string[] = [];
   if (opts.members ?? !team.settings.autoTeam) {
     if (team.agents.length === 0) out.push(p.needAgent);
+    // A team or template made before the limit was lowered.
+    if (opts.maxAgents !== undefined && team.agents.length > opts.maxAgents) out.push(p.tooMany(opts.maxAgents));
     const seen = new Set<string>();
     for (const a of team.agents) {
       if (!NAME_RE.test(a.name)) out.push(p.badName(a.name));

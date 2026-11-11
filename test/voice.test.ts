@@ -107,6 +107,7 @@ function fakeHost(dir: string, over: Partial<VoiceHost> = {}, opts: FakeOptions 
     arch: 'x64',
     env: { PATH: join(dir, 'bin') },
     dir,
+    publicDir: join(dir, 'public'),
     fetch: fetchFake as typeof fetch,
     run,
     freePort: async () => 54321,
@@ -393,27 +394,33 @@ describe('VoiceService', () => {
     expect(bad.status().models.find((m) => m.id === 'small')?.downloaded).toBe(false);
   });
 
-  it('removes only what it put in a folder RELAY_VOICE_DIR names', async () => {
-    const svc = service(fakeHost(dir, { ownDir: false }).host);
+  it('removes only what it put in a folder RELAY_VOICE_DIR names, and serves no folder of the user\'s', async () => {
+    // The user's own files in the folder, a public one among them.
+    mkdirSync(join(dir, 'public'));
+    writeFileSync(join(dir, 'public', 'index.html'), 'mine');
+    writeFileSync(join(dir, 'notes.txt'), 'mine');
+    const publicDir = join(root, `voice-public-${n}`);
+    const f = fakeHost(dir, { ownDir: false, publicDir });
+    const svc = service(f.host);
     svc.install('small');
     expect((await settle(svc)).state).toBe('success');
-    // The user's own files beside Harness Relay's.
-    writeFileSync(join(dir, 'notes.txt'), 'mine');
     writeFileSync(join(dir, 'models', 'my-model.bin'), 'mine');
     mkdirSync(join(dir, 'engine', 'b1234'));
+    // The engine serves an empty folder of Harness Relay's own.
+    const server = f.calls.find((c) => c.args.includes('--model'))!;
+    expect(server.args[server.args.indexOf('--public') + 1]).toBe(publicDir);
+    expect(readdirSync(publicDir)).toEqual([]);
 
     svc.uninstall();
+    expect(readdirSync(join(dir, 'public'))).toEqual(['index.html']);
     expect(existsSync(join(dir, 'notes.txt'))).toBe(true);
     expect(readdirSync(join(dir, 'models'))).toEqual(['my-model.bin']);
     expect(readdirSync(join(dir, 'engine'))).toEqual(['b1234']);
-    expect(existsSync(join(dir, 'public'))).toBe(false); // empty, so it went
+    expect(existsSync(publicDir)).toBe(false);
     expect(svc.status()).toMatchObject({ ready: false, job: undefined });
 
     // With nothing else there, the folder goes too.
-    rmSync(join(dir, 'notes.txt'));
-    rmSync(join(dir, 'models', 'my-model.bin'));
-    rmSync(join(dir, 'engine', 'b1234'), { recursive: true });
-    rmSync(join(dir, 'bin'), { recursive: true }); // the fake PATH's folder
+    for (const p of ['public', 'notes.txt', 'models/my-model.bin', 'engine/b1234', 'bin']) rmSync(join(dir, p), { recursive: true });
     svc.uninstall();
     expect(existsSync(dir)).toBe(false);
   });

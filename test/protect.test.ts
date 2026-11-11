@@ -15,8 +15,12 @@ import {
   relayFolderRefusal,
   relayTmpDir,
   RELAY_ROOT,
+  dirInTemp,
+  voiceDirProblem,
+  voiceFolder,
 } from '../src/server/protect';
 import { withLang } from '../src/server/i18n';
+import { DATA_DIR } from '../src/server/settings';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-protect-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -113,13 +117,39 @@ describe("Harness Relay's own folder as a working directory", () => {
     mkdirSync(join(voice, 'engine'), { recursive: true });
     mkdirSync(join(root, 'models/other'), { recursive: true });
     const withVoice = { ...roots, voice };
-    expect(relayFolderOverlap(root, withVoice)).toBe('data');
-    expect(relayFolderOverlap(join(root, 'models'), withVoice)).toBe('data');
-    expect(relayFolderOverlap(voice, withVoice)).toBe('data');
-    expect(relayFolderOverlap(join(voice, 'engine'), withVoice)).toBe('data');
+    expect(relayFolderOverlap(root, withVoice)).toBe('data'); // it holds the data folder too
+    expect(relayFolderOverlap(join(root, 'models'), withVoice)).toBe('voice');
+    expect(relayFolderOverlap(voice, withVoice)).toBe('voice');
+    expect(relayFolderOverlap(join(voice, 'engine'), withVoice)).toBe('voice');
     // Beside it is fine, and so is the same folder when voice input keeps to the data folder.
     expect(relayFolderOverlap(join(root, 'models/other'), withVoice)).toBeUndefined();
-    expect(relayFolderOverlap(join(root, 'models'), { ...roots, voice: undefined })).toBeUndefined();
+    expect(relayFolderOverlap(join(root, 'models'), roots)).toBeUndefined();
+    // The data folder's own voice folder is no place to work in either, unlike its worktrees.
+    expect(relayFolderOverlap(join(data, 'voice/engine'), roots)).toBe('voice');
+    expect(voiceFolder(data)).toBe(join(data, 'voice'));
+  });
+
+  it('says why when the working directory holds voice input\'s folder', () => {
+    const own = join(DATA_DIR, 'voice', 'engine');
+    const why = withLang('en', () => relayFolderRefusal({ permission: 'edit', cwd: own }));
+    expect(why).toContain(`holds voice input's folder ${join(DATA_DIR, 'voice')}`);
+    expect(why).toContain('RELAY_VOICE_DIR');
+    expect(withLang('zh-TW', () => relayFolderRefusal({ permission: 'edit', cwd: own }))).toContain('語音輸入的資料夾');
+    expect(relayFolderRefusal({ permission: 'read-only', cwd: own })).toBeUndefined();
+  });
+
+  it('refuses a voice folder in a temp folder at startup, where sandboxes could replace the engine', () => {
+    expect(voiceDirProblem(undefined)).toBeUndefined();
+    expect(voiceDirProblem('/srv/relay-voice')).toBeUndefined();
+    expect(dirInTemp('/srv/relay-voice')).toBe(false);
+    if (process.platform === 'win32') {
+      // No sandbox there to write in it.
+      expect(voiceDirProblem(join(tmpdir(), 'voice'))).toBeUndefined();
+      return;
+    }
+    expect(dirInTemp(join(tmpdir(), 'voice'))).toBe(true);
+    expect(dirInTemp('/tmp/voice')).toBe(true);
+    expect(voiceDirProblem(join(tmpdir(), 'voice'))).toMatch(/^RELAY_VOICE_DIR=.* is in a temp folder/);
   });
 
   it('is refused in edit mode only, where agents change files without asking', () => {

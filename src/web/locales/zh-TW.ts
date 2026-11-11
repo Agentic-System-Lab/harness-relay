@@ -220,6 +220,7 @@ export const zhTW = {
       needAgent: '至少需要一個 agent',
       badName: (name: string) => `名稱「${name || '(空白)'}」只能用字母、數字、_ 或 -`,
       duplicate: (name: string) => `名稱 @${name} 重複`,
+      tooMany: (max: number) => `一個隊伍最多 ${max} 位成員`,
       needCwd: '請填寫工作目錄',
     },
   },

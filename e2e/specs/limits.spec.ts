@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures';
-import { openTeamChat } from '../support/app';
+import { awaitingPlan, openTeamChat, replies, send, settled, startChat } from '../support/app';
 
 test.describe('limits the environment sets', () => {
   test.use({ serverEnv: { RELAY_MAX_TEAM_AGENTS: '2', RELAY_MAX_ACCOUNTS: '2', RELAY_TURN_TIMEOUT_MIN: '90' } });
@@ -17,6 +17,22 @@ test.describe('limits the environment sets', () => {
 
     const three = ['A', 'B', 'C'].map((name) => ({ name, provider: 'claude', role: '' }));
     await expect(relay.api('/api/presets', { body: { name: 'Too big', agents: three } })).rejects.toThrow('400 {"error":"At most 2 agents"}');
+  });
+
+  test('a template larger than the limit says why it cannot be used, and the lead agent does not pick one', async ({ page, relay }) => {
+    // The built-in templates have three members.
+    await page.locator('.preset-card', { hasText: 'Three-way debate' }).locator('.preset-main').click();
+    await expect(page.getByRole('dialog')).toContainText('A team may have at most 2 members');
+    await page.keyboard.press('Escape');
+
+    const id = await startChat(page);
+    await send(page, 'Should we rewrite it? e2e:template=builtin-debate');
+    const card = awaitingPlan(page);
+    await expect(card).toContainText('Using the template "General-question panel" instead');
+    await card.getByRole('button', { name: 'Confirm team' }).click();
+    const conv = await settled(relay, id);
+    expect(conv.agents.map((a) => a.name)).toEqual(['Analyst', 'Critic']);
+    await expect(replies(page, 'Synthesizer')).toHaveCount(0);
   });
 
   test("a schedule's hint gives the turn timeout RELAY_TURN_TIMEOUT_MIN sets", async ({ page }) => {

@@ -1,4 +1,5 @@
-import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CONFIG, CONFIG_PROBLEMS, limitsOf, readConfig } from '../src/server/config';
 import { DEFAULT_LIMITS } from '../src/shared/types';
@@ -70,6 +71,7 @@ describe('server configuration from the environment', () => {
       ['https://me:secret@files.lan/whisper', /user name or password/],
       ['https://files.lan/whisper?token=1', /without \? or #/],
       ['https://files.lan/whisper#models', /without \? or #/],
+      ['https://me:secret@files lan/', /is not a URL/],
     ] as const) {
       const { config, problems } = readConfig({ RELAY_VOICE_MODEL_BASE_URL: value, RELAY_VOICE_ENGINE_BASE_URL: value });
       expect(problems, value).toHaveLength(2);
@@ -83,9 +85,15 @@ describe('server configuration from the environment', () => {
     }
   });
 
-  it("takes voice input's folder as an absolute path", () => {
-    expect(readConfig({ RELAY_VOICE_DIR: '/srv/relay-voice' }).config.voiceDir).toBe(resolve('/srv/relay-voice'));
-    expect(readConfig({ RELAY_VOICE_DIR: 'voice-models' }).config.voiceDir).toBe(resolve('voice-models'));
+  it("takes voice input's folder as an absolute path, or one from the home folder", () => {
+    expect(readConfig({ RELAY_VOICE_DIR: '/srv/relay-voice/' })).toMatchObject({ config: { voiceDir: resolve('/srv/relay-voice') }, problems: [] });
+    expect(readConfig({ RELAY_VOICE_DIR: '~/models/voice' }).config.voiceDir).toBe(join(homedir(), 'models/voice'));
+    expect(readConfig({ RELAY_VOICE_DIR: '~' }).config.voiceDir).toBe(homedir());
+    // A relative one would depend on the folder the server starts in (the desktop app's own).
+    const relative = readConfig({ RELAY_VOICE_DIR: 'voice-models' });
+    expect(relative.config.voiceDir).toBeUndefined();
+    expect(relative.problems).toEqual(['RELAY_VOICE_DIR=voice-models is not an absolute path (or one starting with ~/).']);
+    expect(readConfig({ RELAY_VOICE_DIR: '~someone/voice' }).problems).toHaveLength(1);
   });
 
   it("reads this server's environment once, which the tests leave unset", () => {

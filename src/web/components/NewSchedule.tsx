@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { PROVIDER_LABEL, cwdsOf, type Conversation, type ConversationSchedule, type LeadAgentSettings, type ProviderModels, type ProviderStatus } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { useI18n } from '../i18n';
+import { useLimits } from '../limits';
 import { draftFrom, draftProblems, toUpdate, type ScheduleDraft } from '../schedule';
 import { leadLabel } from '../util';
 import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
@@ -21,6 +22,7 @@ interface Props {
  */
 export function NewSchedule({ providers, catalog, onCreated }: Props) {
   const { t, lang } = useI18n();
+  const { maxTeamAgents } = useLimits();
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
   const [draft, setDraft] = useState<ScheduleDraft>(() => draftFrom(undefined, Date.now()));
@@ -48,7 +50,7 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
     setTouched(true);
     setError('');
   };
-  const problems = [...draftProblems(draft, Date.now(), t), ...teamProblems(team, t)];
+  const problems = [...draftProblems(draft, Date.now(), t), ...teamProblems(team, t, { maxAgents: maxTeamAgents })];
   const leadText = lead ? leadLabel(lead) : PROVIDER_LABEL.claude;
   // What the team editor warns about: the runs this schedule starts may have nobody watching.
   const schedule: ConversationSchedule = { ...toUpdate(draft), lang, updatedAt: 0 };

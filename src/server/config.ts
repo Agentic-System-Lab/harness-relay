@@ -1,4 +1,5 @@
-import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { isAbsolute, join, resolve } from 'node:path';
 import { DEFAULT_LIMITS, type ServerLimits } from '../shared/types';
 
 /**
@@ -48,7 +49,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     try {
       url = new URL(raw);
     } catch {
-      problems.push(`${name}=${raw} is not a URL.`);
+      // Not repeated: it may hold a password all the same, and this goes to the log.
+      problems.push(`${name} is not a URL.`);
       return undefined;
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -67,8 +69,18 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return url.href.replace(/\/+$/, '');
   };
 
+  // An absolute path, or one from the home folder (`~`): the desktop app starts the server in a folder
+  // of its own, so a relative one would not be where the user meant.
+  const folder = (name: string): string | undefined => {
+    const raw = env[name]?.trim();
+    if (!raw) return undefined;
+    const path = raw === '~' ? homedir() : /^~[\\/]/.test(raw) ? join(homedir(), raw.slice(2)) : raw;
+    if (isAbsolute(path)) return resolve(path);
+    problems.push(`${name}=${raw} is not an absolute path (or one starting with ~/).`);
+    return undefined;
+  };
+
   const turnTimeoutMinutes = whole('RELAY_TURN_TIMEOUT_MIN', DEFAULT_LIMITS.turnTimeoutMinutes);
-  const voiceDir = env.RELAY_VOICE_DIR?.trim();
   const config: ServerConfig = {
     maxAccounts: whole('RELAY_MAX_ACCOUNTS', DEFAULT_LIMITS.maxAccounts),
     maxTeamAgents: whole('RELAY_MAX_TEAM_AGENTS', DEFAULT_LIMITS.maxTeamAgents),
@@ -76,7 +88,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     turnTimeoutMs: turnTimeoutMinutes * 60_000,
     voiceModelBaseUrl: base('RELAY_VOICE_MODEL_BASE_URL'),
     voiceEngineBaseUrl: base('RELAY_VOICE_ENGINE_BASE_URL'),
-    voiceDir: voiceDir ? resolve(voiceDir) : undefined,
+    voiceDir: folder('RELAY_VOICE_DIR'),
   };
   return { config, problems };
 }

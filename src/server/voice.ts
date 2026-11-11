@@ -21,6 +21,7 @@ import {
 } from '../shared/types';
 import { CONFIG } from './config';
 import { HttpError } from './errors';
+import { voiceFolder } from './protect';
 import { currentLang, t } from './i18n';
 import { runProcess, tail, type SpawnOptions, type SpawnResult } from './process';
 import { DATA_DIR, type SettingsStore } from './settings';
@@ -217,8 +218,14 @@ export interface VoiceHost {
   platform: string;
   arch: string;
   env: NodeJS.ProcessEnv;
-  /** Models, the downloaded engine and the engine's empty public folder live here. */
+  /** Models and the downloaded engine live here. */
   dir: string;
+  /**
+   * The empty folder the engine serves static files from (`--public`), which only Harness Relay writes
+   * in: `public` in its own `dir`; beside the data folder's `voice` for a folder `RELAY_VOICE_DIR` names,
+   * where a `public` of the user's own may already be (and whisper-server lets any page read it).
+   */
+  publicDir: string;
   /**
    * Whether `dir` is Harness Relay's own (`voice` in its data folder), which removing voice input
    * deletes whole; a folder `RELAY_VOICE_DIR` names keeps everything Harness Relay did not put there.
@@ -355,7 +362,8 @@ export class VoiceService {
       platform: process.platform,
       arch: process.arch,
       env: process.env,
-      dir: CONFIG.voiceDir ?? join(DATA_DIR, 'voice'),
+      dir: voiceFolder(),
+      publicDir: CONFIG.voiceDir ? join(DATA_DIR, 'voice-public') : join(DATA_DIR, 'voice', 'public'),
       ownDir: !CONFIG.voiceDir,
       modelBaseUrl: CONFIG.voiceModelBaseUrl ?? MODEL_BASE_URL,
       engineBaseUrl: CONFIG.voiceEngineBaseUrl ?? ENGINE_BASE_URL,
@@ -525,7 +533,8 @@ export class VoiceService {
     for (const b of Object.values(ENGINE_BUILDS)) {
       for (const f of [b.asset, `${b.asset}.part`]) rmSync(join(engine, f), { force: true });
     }
-    for (const d of [this.modelsDir, engine, join(this.host.dir, 'public'), this.host.dir]) {
+    rmSync(this.host.publicDir, { recursive: true, force: true });
+    for (const d of [this.modelsDir, engine, this.host.dir]) {
       try {
         rmdirSync(d);
       } catch {
@@ -752,8 +761,8 @@ export class VoiceService {
     proc.ready = (async () => {
       const port = await this.host.freePort();
       proc.base = `http://127.0.0.1:${port}/${secret}`;
-      // whisper-server also serves static files from --public: point it at an empty folder.
-      const publicDir = join(this.host.dir, 'public');
+      // whisper-server also serves static files from --public: point it at an empty folder of our own.
+      const { publicDir } = this.host;
       mkdirSync(publicDir, { recursive: true });
       const threads = String(Math.max(1, Math.min(8, availableParallelism())));
       const args = [
