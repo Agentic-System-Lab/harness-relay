@@ -2719,6 +2719,19 @@ describe('asking the lead agent to change the team', () => {
     expect(store.get(conv.id)!.agents).toEqual(before.agents);
   });
 
+  it('takes a team saved before the team limit was lowered, and cuts the answer to the limit', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    // Nine members: more than the limit (8 here), as a team saved under a higher one would be.
+    const nine = Array.from({ length: 9 }, (_, i) => ({ id: `m${i}`, name: `M${i}`, provider: 'claude' as const, role: 'Help.' }));
+    conv.agents = nine;
+    reviseReply = 'Done:\n```json\n' + JSON.stringify({ agents: nine.map((a) => ({ name: a.name, provider: a.provider })), reason: 'Kept.' }) + '\n```';
+    const r = await orchestrator.reviseTeam(conv.id, { request: 'remove one', agents: nine, settings: draft.settings });
+    expect(r.agents.map((a) => a.name)).toEqual(nine.slice(0, 8).map((a) => a.name));
+    // A draft larger than both the limit and the saved team is refused as before.
+    const ten = [...nine, { id: 'm9', name: 'M9', provider: 'claude' as const, role: '' }];
+    await expect(orchestrator.reviseTeam(conv.id, { request: 'add one', agents: ten, settings: draft.settings })).rejects.toMatchObject({ status: 400 });
+  });
+
   it("changes the lead agent's design waiting for confirmation, which keeps waiting", async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
     conv.agents = [];

@@ -27,6 +27,7 @@ import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest } from './agents/types';
 import type { TraceSink } from './agentsview';
 import { approvalKeys, isAllowed } from './approvals';
+import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { AutoGrouper } from './grouping';
 import type { Hub } from './hub';
@@ -1733,7 +1734,10 @@ export class Orchestrator {
     const request = typeof input.request === 'string' ? input.request.trim() : '';
     if (!request) throw new HttpError(400, t().reviseEmpty);
     if (request.length > REVISE_REQUEST_MAX) throw new HttpError(400, t().reviseTooLong(REVISE_REQUEST_MAX));
-    const draft: TeamDraft = { agents: validateAgents(input.agents), settings: teamSettings(input.settings, conv.settings) };
+    // A team saved before the team limit was lowered may be larger: the lead may be asked to shrink it
+    // (its answer is cut to the limit).
+    const draftMax = Math.max(CONFIG.maxTeamAgents, conv.agents.length);
+    const draft: TeamDraft = { agents: validateAgents(input.agents, draftMax), settings: teamSettings(input.settings, conv.settings) };
     // What the drawer says (maybe not saved yet), for the lead to read; it works in the saved folder.
     const place = draftPlace(input.settings, conv.settings);
 

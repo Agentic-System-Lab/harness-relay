@@ -45,6 +45,7 @@ import {
   type VoiceSettingsUpdate,
 } from '../shared/types';
 import { parseTime, validTimeZone } from '../shared/schedule';
+import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
 import { apiPort } from './ports';
@@ -53,7 +54,6 @@ import { isLocalHost, localAddresses, relayPorts } from './relaySandbox';
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
 export const NAME_RE = /^[\p{L}\p{N}_-]{1,32}$/u;
-const MAX_AGENTS = 8;
 
 function bad(msg: string): never {
   throw new HttpError(400, msg);
@@ -352,9 +352,10 @@ function validEffort(v: unknown, name: string): string | undefined {
   return e;
 }
 
-export function validateAgents(input: unknown): AgentConfig[] {
+/** A team's members, at least one and at most `max` (`RELAY_MAX_TEAM_AGENTS`, else 8). */
+export function validateAgents(input: unknown, max = CONFIG.maxTeamAgents): AgentConfig[] {
   if (!Array.isArray(input) || input.length === 0) bad(t().needAgent);
-  if (input.length > MAX_AGENTS) bad(t().tooManyAgents(MAX_AGENTS));
+  if (input.length > max) bad(t().tooManyAgents(max));
   const names = new Set<string>();
   const ids = new Set<string>();
   return input.map((raw, i) => {

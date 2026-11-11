@@ -4,6 +4,11 @@ import { tmpdir } from 'node:os';
 import { vi } from 'vitest';
 import { slow } from './timeouts';
 
+// The developer's own Harness Relay variables, such as a team limit or a voice folder set in a shell
+// profile for the desktop app, must not change what the tests see (`src/server/config.ts` reads them
+// as it loads, and the test file's modules load after this). A test that needs one sets it itself.
+for (const k of Object.keys(process.env)) if (k.startsWith('RELAY_')) delete process.env[k];
+
 /*
  * Windows' temporary folder may be named by its short 8.3 name (`C:\Users\RUNNER~1\…` for a user
  * name longer than eight letters, as on GitHub's runners), which `realpathSync` keeps and git and the

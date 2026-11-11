@@ -15,8 +15,10 @@ import { ProviderService } from '../src/server/providers';
 import { SettingsStore } from '../src/server/settings';
 import { Store } from '../src/server/store';
 import {
+  ENGINE_BASE_URL,
   ENGINE_BUILDS,
   ENGINE_TAG,
+  MODEL_BASE_URL,
   MODEL_FILES,
   VoiceService,
   cleanTranscript,
@@ -105,6 +107,7 @@ function fakeHost(dir: string, over: Partial<VoiceHost> = {}, opts: FakeOptions 
     arch: 'x64',
     env: { PATH: join(dir, 'bin') },
     dir,
+    publicDir: join(dir, 'public'),
     fetch: fetchFake as typeof fetch,
     run,
     freePort: async () => 54321,
@@ -161,6 +164,8 @@ describe('voice helpers', () => {
       expect(m.size).toBeGreaterThan(1e8);
     }
     expect(modelUrl('base')).toMatch(/^https:\/\/huggingface\.co\/ggerganov\/whisper\.cpp\/resolve\/[0-9a-f]{40}\/ggml-base\.bin$/);
+    expect(modelUrl('base', 'http://mirror.lan/whisper')).toBe('http://mirror.lan/whisper/ggml-base.bin');
+    expect(engineUrl(REAL_BUILD, 'http://mirror.lan/whisper')).toBe(`http://mirror.lan/whisper/${REAL_BUILD.asset}`);
     for (const b of [REAL_BUILD, ENGINE_BUILDS['linux-arm64']!, ENGINE_BUILDS['win32-x64']!, ENGINE_BUILDS['win32-arm64']!]) {
       expect(b.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(engineUrl(b)).toBe(`https://github.com/ggml-org/whisper.cpp/releases/download/${ENGINE_TAG}/${b.asset}`);
@@ -357,6 +362,67 @@ describe('VoiceService', () => {
     svc.uninstall();
     expect(existsSync(dir)).toBe(false);
     expect(svc.status()).toMatchObject({ ready: false, job: undefined });
+  });
+
+  it('downloads from the folders RELAY_VOICE_MODEL_BASE_URL and RELAY_VOICE_ENGINE_BASE_URL name, checked all the same', async () => {
+    const f = fakeHost(dir);
+    const mirror = { modelBaseUrl: 'http://mirror.lan/whisper/models', engineBaseUrl: 'http://mirror.lan/whisper/engine' };
+    const asked: string[] = [];
+    // The mirror serves what the usual places serve.
+    const fetchMirror = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      asked.push(url);
+      return f.host.fetch!(url.replace(mirror.modelBaseUrl, MODEL_BASE_URL).replace(mirror.engineBaseUrl, ENGINE_BASE_URL), init);
+    }) as typeof fetch;
+    const svc = service({ ...f.host, ...mirror, fetch: fetchMirror });
+    svc.install('small');
+    const job = await settle(svc);
+    expect(job.state).toBe('success');
+    const engine = `http://mirror.lan/whisper/engine/${ENGINE_BUILDS['linux-x64']!.asset}`;
+    const model = `http://mirror.lan/whisper/models/${MODEL_FILES.small.file}`;
+    expect(asked).toEqual(expect.arrayContaining([engine, model]));
+    expect(job.log).toContain(engine);
+    expect(job.log).toContain(model);
+
+    // A mirror that serves other bytes is caught by the pinned SHA-256.
+    svc.uninstall();
+    const other = fakeHost(dir, {}, { modelBody: () => Buffer.alloc(MODEL_BYTES.length, 1) });
+    const bad = service({ ...other.host, ...mirror, fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
+      other.host.fetch!(String(input).replace(mirror.modelBaseUrl, MODEL_BASE_URL).replace(mirror.engineBaseUrl, ENGINE_BASE_URL), init)) as typeof fetch });
+    bad.install('small');
+    expect((await settle(bad)).state).toBe('failed');
+    expect(bad.status().models.find((m) => m.id === 'small')?.downloaded).toBe(false);
+  });
+
+  it('removes only what it put in a folder RELAY_VOICE_DIR names, and serves no folder of the user\'s', async () => {
+    // The user's own files in the folder, a public one among them.
+    mkdirSync(join(dir, 'public'));
+    writeFileSync(join(dir, 'public', 'index.html'), 'mine');
+    writeFileSync(join(dir, 'notes.txt'), 'mine');
+    const publicDir = join(root, `voice-public-${n}`);
+    const f = fakeHost(dir, { ownDir: false, publicDir });
+    const svc = service(f.host);
+    svc.install('small');
+    expect((await settle(svc)).state).toBe('success');
+    writeFileSync(join(dir, 'models', 'my-model.bin'), 'mine');
+    mkdirSync(join(dir, 'engine', 'b1234'));
+    // The engine serves an empty folder of Harness Relay's own.
+    const server = f.calls.find((c) => c.args.includes('--model'))!;
+    expect(server.args[server.args.indexOf('--public') + 1]).toBe(publicDir);
+    expect(readdirSync(publicDir)).toEqual([]);
+
+    svc.uninstall();
+    expect(readdirSync(join(dir, 'public'))).toEqual(['index.html']);
+    expect(existsSync(join(dir, 'notes.txt'))).toBe(true);
+    expect(readdirSync(join(dir, 'models'))).toEqual(['my-model.bin']);
+    expect(readdirSync(join(dir, 'engine'))).toEqual(['b1234']);
+    expect(existsSync(publicDir)).toBe(false);
+    expect(svc.status()).toMatchObject({ ready: false, job: undefined });
+
+    // With nothing else there, the folder goes too.
+    for (const p of ['public', 'notes.txt', 'models/my-model.bin', 'engine/b1234', 'bin']) rmSync(join(dir, p), { recursive: true });
+    svc.uninstall();
+    expect(existsSync(dir)).toBe(false);
   });
 });
 

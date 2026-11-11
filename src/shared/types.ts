@@ -113,6 +113,12 @@ export function permissionAbove(a: Permission, b: Permission): boolean {
   return PERMISSION_ORDER.indexOf(a) > PERMISSION_ORDER.indexOf(b);
 }
 
+/**
+ * Most members a team may have, set by hand or by the lead agent, unless `RELAY_MAX_TEAM_AGENTS` says
+ * otherwise (`src/server/config.ts`; the UI gets the server's from `GET /api/limits`).
+ */
+export const DEFAULT_MAX_TEAM_AGENTS = 8;
+
 export interface AgentConfig {
   id: string;
   /** Handle used for @mentions. Letters, digits, `_` and `-` only. */
@@ -1292,10 +1298,31 @@ export function keyOnlyAccount(p: Provider, account: string | undefined): boolea
 }
 
 /**
- * Accounts per CLI, the default one included. Each account other than the default has a folder of its
- * own for the CLI (its sign-in, settings and sessions) and may have an API key of its own.
+ * Accounts per CLI, the default one included, unless `RELAY_MAX_ACCOUNTS` says otherwise
+ * (`src/server/config.ts`; the UI gets the server's from `GET /api/limits`). Each account other than
+ * the default has a folder of its own for the CLI (its sign-in, settings and sessions) and may have an
+ * API key of its own.
  */
-export const MAX_ACCOUNTS = 10;
+export const DEFAULT_MAX_ACCOUNTS = 10;
+/** Each agent turn's safety timeout in minutes, unless `RELAY_TURN_TIMEOUT_MIN` says otherwise. */
+export const DEFAULT_TURN_TIMEOUT_MIN = 45;
+
+/** `GET /api/limits`: what the server's environment sets that the UI keeps to or shows. */
+export interface ServerLimits {
+  /** Accounts per CLI, the default one included. */
+  maxAccounts: number;
+  /** Most members a team may have. */
+  maxTeamAgents: number;
+  /** Each agent turn's safety timeout, in minutes (a turn waiting for the user's answer included). */
+  turnTimeoutMinutes: number;
+}
+
+/** The limits when the environment sets none; the UI shows these until the server's arrive. */
+export const DEFAULT_LIMITS: ServerLimits = {
+  maxAccounts: DEFAULT_MAX_ACCOUNTS,
+  maxTeamAgents: DEFAULT_MAX_TEAM_AGENTS,
+  turnTimeoutMinutes: DEFAULT_TURN_TIMEOUT_MIN,
+};
 /** Longest name of an account. */
 export const MAX_ACCOUNT_LABEL = 40;
 /** Account ids: made by the server (8 hex digits); `default` names the default account in URLs. */

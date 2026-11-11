@@ -3,6 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROVIDERS, type Provider } from '../shared/types';
+import { CONFIG } from './config';
 import { t } from './i18n';
 import { DATA_DIR } from './settings';
 
@@ -226,20 +227,29 @@ function within(path: string, dir: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
+/** Where voice input keeps its models and engine: the folder `RELAY_VOICE_DIR` names, else `voice` in the data folder. */
+export function voiceFolder(dataDir = DATA_DIR): string {
+  return CONFIG.voiceDir ?? join(dataDir, 'voice');
+}
+
 /**
  * Why agents below full access may not work in `cwd`, or undefined when they may: it holds Harness
  * Relay's folder or its data folder (an agent could then change its code or its database), or it is
  * inside Harness Relay's folder, outside its data folder (its code). A folder inside the data folder,
- * as the worktrees of parallel mode are, is fine: the database is not in it.
+ * as the worktrees of parallel mode are, is fine: the database is not in it. Voice input's folder
+ * (`voiceFolder`) is not, wherever it is: neither it, a folder in it nor one that holds it, since
+ * Harness Relay runs the engine there outside any sandbox.
  */
 export function relayFolderOverlap(
   cwd: string,
-  roots: { install?: string; data?: string } = {},
-): 'install' | 'data' | undefined {
+  roots: { install?: string; data?: string; voice?: string } = {},
+): 'install' | 'data' | 'voice' | undefined {
   const dir = real(resolve(cwd));
   const install = real(roots.install ?? RELAY_ROOT);
   const data = real(roots.data ?? DATA_DIR);
+  const voice = roots.voice ?? voiceFolder(roots.data ?? DATA_DIR);
   if (within(data, dir)) return 'data';
+  if (overlaps(voice, dir)) return 'voice';
   if (within(install, dir)) return 'install';
   if (within(dir, install) && !within(dir, data)) return 'install';
   return undefined;
@@ -349,7 +359,9 @@ export function relayFolderRefusal(
 ): string | undefined {
   if (settings.permission !== 'edit') return undefined;
   for (const cwd of [settings.cwd, ...(settings.extraCwds ?? [])]) {
-    if (relayFolderOverlap(cwd)) return t().cwdIsRelay(cwd);
+    const overlap = relayFolderOverlap(cwd);
+    if (overlap === 'voice') return t().cwdHoldsVoice(cwd, voiceFolder(), Boolean(CONFIG.voiceDir));
+    if (overlap) return t().cwdIsRelay(cwd);
     const folder = agentFolderOverlap(cwd, o);
     if (folder) return t().cwdHoldsAgents(cwd, folder);
   }
@@ -369,8 +381,23 @@ export function tempFolders(): string[] {
   return [...new Set([tmpdir(), '/tmp', '/var/tmp', '/private/tmp', '/private/var/tmp', '/private/var/folders'].map(real))];
 }
 
+/** Whether `path` is in a temp folder, where a sandboxed agent could write (never on Windows, which has no such sandbox). */
+export function dirInTemp(path: string): boolean {
+  const dir = real(path);
+  return process.platform !== 'win32' && tempFolders().some((t) => within(dir, t));
+}
+
 /** Whether Harness Relay's data folder is in a temp folder, where a sandboxed agent could write its database. */
 export function dataDirInTemp(dataDir = DATA_DIR): boolean {
-  const dir = real(dataDir);
-  return process.platform !== 'win32' && tempFolders().some((t) => within(dir, t));
+  return dirInTemp(dataDir);
+}
+
+/**
+ * Why the server may not start with `RELAY_VOICE_DIR` set to `dir`, or undefined: in a temp folder a
+ * sandboxed agent could replace the voice engine, which Harness Relay runs outside any sandbox. (The
+ * data folder there is only warned about, as the tests keep theirs there; a voice folder is chosen.)
+ */
+export function voiceDirProblem(dir = CONFIG.voiceDir): string | undefined {
+  if (!dir || !dirInTemp(dir)) return undefined;
+  return `RELAY_VOICE_DIR=${dir} is in a temp folder, which agents' sandboxes may write in, and the voice engine there runs outside any sandbox: choose a folder elsewhere.`;
 }

@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
 import type { ApiBackend, ApprovalAnswer, ApprovalKind, NativeItemsOff, NativePart, Permission, PlanEntry, Provider } from '../../shared/types';
+import { CONFIG } from '../config';
 
 /** Normalised events every CLI adapter emits while an agent is working. */
 export type AgentEvent =
@@ -201,8 +202,11 @@ export class AgentRunError extends Error {
   }
 }
 
-/** Per-turn safety net; long coding tasks are fine, a hung CLI is not. */
-export const TURN_TIMEOUT_MS = 45 * 60 * 1000;
+/**
+ * Per-turn safety net; long coding tasks are fine, a hung CLI is not. 45 minutes unless
+ * `RELAY_TURN_TIMEOUT_MIN` says otherwise (`config.ts`); a turn waiting for the user's answer counts too.
+ */
+export const TURN_TIMEOUT_MS = CONFIG.turnTimeoutMs;
 
 // `target_file` / `target_directory`: Grok's read_file and list_dir.
 const DETAIL_KEYS = ['command', 'cmd', 'file_path', 'filePath', 'target_file', 'path', 'target_directory', 'pattern', 'url', 'query', 'description', 'prompt'];

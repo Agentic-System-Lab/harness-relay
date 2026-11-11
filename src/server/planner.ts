@@ -24,6 +24,7 @@ import {
   type ToolLibraryView,
 } from '../shared/types';
 import { unknownMentions } from '../shared/mentions';
+import { CONFIG } from './config';
 import { t } from './i18n';
 import { probeCompleteness, type NativeProblem } from './native';
 import { validateAgents } from './validate';
@@ -89,6 +90,8 @@ export interface PlannerContext {
   native?: Partial<Record<Provider, CliTools>>;
   /** Harness Relay's tool library; absent = unknown. */
   library?: LibraryItem[];
+  /** Most members a team may have; absent = `RELAY_MAX_TEAM_AGENTS`, else 8 (tests set others). */
+  maxTeamAgents?: number;
 }
 
 /** How long a design waits for a CLI to say what it loads by itself (the CLIs' probes go on, and are kept). */
@@ -235,7 +238,27 @@ export type PlanDecision = Required<Pick<TeamPlan, 'source' | 'name' | 'reason' 
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const FALLBACK_PRESET = 'builtin-general';
-const MAX_MEMBERS = 5;
+
+/** Most members a team may have (as in the team editor): `RELAY_MAX_TEAM_AGENTS`, else 8. */
+function teamLimit(ctx: Pick<PlannerContext, 'maxTeamAgents'>): number {
+  return ctx.maxTeamAgents ?? CONFIG.maxTeamAgents;
+}
+
+/**
+ * Most members of a team the lead agent designs by itself: kept small, as the prompt asks it to keep a
+ * team proportionate (it may run without anyone choosing its size: auto-confirm, schedules), and never
+ * more than a team may have. Asked to change a team, it may go up to that (`teamLimit`).
+ */
+function newTeamLimit(ctx: Pick<PlannerContext, 'maxTeamAgents'>): number {
+  return Math.min(5, teamLimit(ctx));
+}
+
+/** The templates a team may be: those within the team limit (one saved before it was lowered may be larger). */
+function usablePresets(ctx: PlannerContext): TeamPreset[] {
+  return ctx.presets.filter((p) => p.agents.length <= teamLimit(ctx));
+}
+
+const memberCount = (n: number) => `${n} member${n === 1 ? '' : 's'}`;
 /** How much of the conversation the lead reads: each message, and all of them (the latest are kept). */
 const HISTORY_MESSAGE_CHARS = 1500;
 const HISTORY_CHARS = 12000;
@@ -426,7 +449,7 @@ export function buildPlannerPrompt(
   conv: PlanConversation = {},
 ): string {
   const agents = agentsForLead(ctx);
-  const templates = JSON.stringify(ctx.presets.map((p) => templateForLead(p, ctx.library)), null, 2);
+  const templates = JSON.stringify(usablePresets(ctx).map((p) => templateForLead(p, ctx.library)), null, 2);
   const current = conv.current?.agents.length ? conv.current : undefined;
   const history = conv.history?.trim();
   // Like a template, without an id: it is not one.
@@ -511,7 +534,7 @@ ${templates}
 How to decide: read ${current ? 'the current team and ' : ''}the templates first, then pick exactly one of these ${choices.length}.
 ${choices.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
-Whichever you pick, keep it proportionate: simple work needs 1-2 members and one round; reserve big teams and several rounds for hard or open-ended problems. At most ${MAX_MEMBERS} members.
+Whichever you pick, keep it proportionate: simple work needs 1-2 members and one round; reserve big teams and several rounds for hard or open-ended problems. At most ${memberCount(newTeamLimit(ctx))}.
 
 For an adapted or custom team:
 - Mixing coding agents helps: different models catch different things.
@@ -607,7 +630,8 @@ function templateDecision(
     description: preset.description,
     reason,
     settings: { mode: preset.settings.mode, rounds: preset.settings.rounds, maxHops: preset.settings.maxHops },
-    agents: fitAgents(preset.agents, ctx, lead, staying),
+    // Within the team limit: a fallback template may be larger when the limit is low.
+    agents: fitAgents(preset.agents.slice(0, teamLimit(ctx)), ctx, lead, staying),
   };
 }
 
@@ -662,25 +686,28 @@ export function decidePlan(
     const id = String(raw.templateId ?? '');
     const preset = ctx.presets.find((p) => p.id === id);
     if (!preset) throw new Error(t().planUnknownTemplate(id));
+    // Not offered to the lead (one saved before the limit was lowered), but named all the same.
+    if (preset.agents.length > teamLimit(ctx)) throw new Error(t().planTemplateTooBig(preset.name, teamLimit(ctx)));
     return templateDecision(preset, 'template', reason || t().planTemplateFits(preset.name), ctx, lead, current?.agents);
   }
-  const members = Array.isArray(raw.agents) ? raw.agents.slice(0, MAX_MEMBERS) : [];
+  const listed = Array.isArray(raw.agents) ? raw.agents.slice(0, newTeamLimit(ctx)) : [];
   const agents = validateAgents(
-    members.map((a: any) => ({
+    listed.map((a: any) => ({
       name: String(a?.name ?? '').replace(/\s+/g, '_'),
       provider: String(a?.provider ?? '').toLowerCase(),
       role: String(a?.role ?? ''),
       model: a?.model ? String(a.model) : undefined,
       effort: a?.effort ? String(a.effort).toLowerCase() : undefined,
     })),
+    teamLimit(ctx),
   );
   const mode: Mode = MODES.includes(raw.mode) ? raw.mode : 'roundtable';
   const settings = { mode, rounds: clampInt(raw.rounds, 1, 5, 1), maxHops: clampInt(raw.maxHops, 1, 30, 8) };
   // A "new" team that is exactly a template is that template: nothing new to save. The lead's
   // reason would describe changes that were not made, so the card says plainly what happened.
-  const same = ctx.presets.find((p) => sameTeam(p, settings, agents));
+  const same = usablePresets(ctx).find((p) => sameTeam(p, settings, agents));
   if (same) return templateDecision(same, 'template', t().planTemplateFits(same.name), ctx, lead, current?.agents);
-  const base = raw.choice === 'adapted' ? ctx.presets.find((p) => p.id === String(raw.baseTemplateId ?? '')) : undefined;
+  const base = raw.choice === 'adapted' ? usablePresets(ctx).find((p) => p.id === String(raw.baseTemplateId ?? '')) : undefined;
   return {
     source: base ? 'adapted' : 'custom',
     ...(base ? { basedOn: { id: base.id, name: base.name } } : {}),
@@ -695,7 +722,9 @@ export function decidePlan(
 /** When planning fails: the current team, or the general-question template when there is none. */
 export function fallbackPlan(ctx: PlannerContext, lead: LeadAgentSettings, why: string, current?: PlanConversation['current']): PlanDecision {
   if (current?.agents.length) return keptDecision(current, 'fallback', t().planFailedKept(why));
-  const preset = ctx.presets.find((p) => p.id === FALLBACK_PRESET) ?? ctx.presets[0]!;
+  // A template within the team limit, else the general one cut to it.
+  const usable = usablePresets(ctx);
+  const preset = usable.find((p) => p.id === FALLBACK_PRESET) ?? usable[0] ?? ctx.presets.find((p) => p.id === FALLBACK_PRESET) ?? ctx.presets[0]!;
   return templateDecision(preset, 'fallback', t().planFailed(why), ctx, lead);
 }
 
@@ -763,8 +792,6 @@ export interface ReviseConversation {
   savedCwd?: string;
 }
 
-/** Most members a team may have (as in the team editor). */
-const MAX_TEAM = 8;
 
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
 
@@ -867,14 +894,14 @@ The file permission "${settings.permission}" and ${workingDirectories(settings)}
 
 Templates (built-in and saved by the user), in full, in case the user refers to one:
 <templates>
-${JSON.stringify(ctx.presets.map((p) => templateForLead(p, ctx.library)), null, 2)}
+${JSON.stringify(usablePresets(ctx).map((p) => templateForLead(p, ctx.library)), null, 2)}
 </templates>
 
 How to change the team:
 - Change only what the user asks for, and what that change needs (for example, roles that hand off to a member who was renamed or removed). List every member, in speaking order, but give "role" only for a new member or a role you rewrite: leave it out for every other member, whose role then stays exactly as it is.
 - A member who stays keeps its name and coding agent: then it keeps what it learned in this conversation. Rename a member or move it to another coding agent only when the user asks for it, and then give its current name as "was", so it stays the same member with its settings (moved to another coding agent, it reads this conversation afresh). "was" is only for that: never for a new member, even one based on another.
 - Write a new or rewritten role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
-- Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. At most ${MAX_TEAM} members.
+- Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. At most ${memberCount(teamLimit(ctx))}.
 - "model" and "effort": for a member who stays, leave them out to keep what it has, or give "" for its coding agent's default. For a new member, give them (from the lists above) only when its work needs other than its coding agent's default.
 ${STAFFING}
 - When the request cannot be done this way (for example, it asks to change the file permission, or to clear a member's role, which the user does in the editor), return the team as it is and say why in the reason.
@@ -916,7 +943,7 @@ export function decideRevision(
   const settings = teamSettings(raw, draft.settings);
   if (!Array.isArray(raw.agents) || raw.agents.length === 0) return { agents: draft.agents, settings, reason };
   const handle = (v: unknown) => String(v ?? '').trim().replace(/^@/, '').replace(/\s+/g, '_');
-  const listed = raw.agents.slice(0, MAX_TEAM).map((a: unknown) => {
+  const listed = raw.agents.slice(0, teamLimit(ctx)).map((a: unknown) => {
     const m = a && typeof a === 'object' ? (a as Record<string, unknown>) : {};
     const role = typeof m.role === 'string' && m.role.trim() ? m.role : undefined;
     return { m, name: handle(m.name), provider: String(m.provider ?? '').toLowerCase(), was: handle(m.was).toLowerCase(), role };
@@ -974,7 +1001,7 @@ export function decideRevision(
       effort: kept('effort').toLowerCase(),
     };
   });
-  const agents = validateAgents(members).map((a) => {
+  const agents = validateAgents(members, teamLimit(ctx)).map((a) => {
     const same = taken.get(a.id);
     if (!same || same.provider !== a.provider) return { ...fitAgents([a], ctx, lead)[0]!, id: a.id };
     if ((a.model || undefined) === (same.model || undefined) && (a.effort || undefined) === (same.effort || undefined)) return a;

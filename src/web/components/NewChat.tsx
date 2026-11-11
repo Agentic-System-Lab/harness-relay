@@ -11,6 +11,7 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { useI18n } from '../i18n';
+import { useLimits } from '../limits';
 import { leadLabel } from '../util';
 import { MemberDots } from './MemberDots';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
@@ -72,6 +73,7 @@ interface Props {
 
 export function NewChat({ providers, catalog, onCreated }: Props) {
   const { t, lang } = useI18n();
+  const { maxTeamAgents } = useLimits();
   const [presets, setPresets] = useState<TeamPreset[]>([]);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
@@ -98,7 +100,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
 
   if (!team) return <div className="page-center muted">{error || t.common.loading}</div>;
 
-  const problems = teamProblems(team, t);
+  const problems = teamProblems(team, t, { maxAgents: maxTeamAgents });
   const leadText = lead ? leadLabel(lead) : PROVIDER_LABEL.claude;
 
   const start = async () => {

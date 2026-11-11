@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { SCHEDULE_KINDS, SCHEDULE_LIMITS, type ConversationSchedule, type ConversationSettings } from '../../shared/types';
 import { mentionWarning } from '../copy';
 import { useI18n } from '../i18n';
+import { useLimits } from '../limits';
 import { browserTimeZone, draftProblems, formatWhen, localInput, previewRuns, shownZone, type ScheduleDraft } from '../schedule';
 
 /** Monday first, as a week is read. */
@@ -28,6 +29,7 @@ export function ScheduleForm({
   team?: string[];
 }) {
   const { t, lang } = useI18n();
+  const { turnTimeoutMinutes } = useLimits();
   // @mentions that reach nobody on the team.
   const warning = useMemo(() => (team ? mentionWarning(draft.text, team, t, 'form') : undefined), [draft.text, team, t]);
   const now = Date.now();
@@ -173,7 +175,9 @@ export function ScheduleForm({
             ? t.schedule.approvalsFull
             : settings.approvals === 'deny'
               ? t.schedule.approvalsTeamDeny
-              : t.schedule.approvalsHint[draft.approvals]}
+              : draft.approvals === 'ask'
+                ? t.schedule.approvalsHint.ask(turnTimeoutMinutes)
+                : t.schedule.approvalsHint.deny}
         </span>
       </div>
 

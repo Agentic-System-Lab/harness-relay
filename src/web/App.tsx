@@ -14,6 +14,7 @@ import { signInWhere } from './signin';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
+import { refreshLimits } from './limits';
 import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
 import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
 
@@ -154,14 +155,22 @@ function RelayApp() {
 
   const [loaded, setLoaded] = useState(false);
   // The conversations and the groups they are in (the lead agent sorts new ones in the background).
+  /** The last refresh failed: the server may be restarting (the desktop app's Restart server…). */
+  const unreachable = useRef(false);
   const refreshConversations = useCallback(() => {
     Promise.all([api.listConversations(), api.listGroups()])
       .then(([list, g]) => {
         setConversations(list);
         setGroups(g);
         setLoaded(true);
+        // Back after a restart, perhaps with other limits in its environment.
+        if (unreachable.current) refreshLimits();
+        unreachable.current = false;
       })
-      .catch(console.error);
+      .catch((err: unknown) => {
+        unreachable.current = true;
+        console.error(err);
+      });
   }, []);
 
   const refreshProviders = useCallback((force = false) => {

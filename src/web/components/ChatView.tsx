@@ -16,6 +16,7 @@ import {
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
 import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, scrollSpot, teamToEdit } from '../chat';
 import { useI18n, useT } from '../i18n';
+import { refreshLimits, useLimits } from '../limits';
 import { hashFor } from '../route';
 import { describeRepeat, scheduleState, scheduleTrouble } from '../schedule';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
@@ -207,7 +208,11 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         dispatch(e);
         if (e.type === 'status' || e.type === 'conversation') onChangedRef.current();
       };
-      source.onopen = () => setConnected(true);
+      source.onopen = () => {
+        setConnected(true);
+        // Connected again after a restart, the server may have other limits (Restart server…).
+        refreshLimits();
+      };
       source.onerror = () => {
         setConnected(false);
         // Only a 404 means the conversation is gone; anything else (e.g. the server restarting) is retried.
@@ -900,6 +905,7 @@ function TeamDrawer({
   onError: (s: string) => void;
 }) {
   const { t, lang } = useI18n();
+  const { maxTeamAgents } = useLimits();
   // While the lead agent's design waits for confirmation, the drawer edits that design: saving it
   // settles the design with the team as edited.
   const pending = pendingPlan(conv.messages)?.plan;
@@ -915,7 +921,7 @@ function TeamDrawer({
   const [revising, setRevising] = useState(false);
   // Auto team: there are members to edit once the lead agent has designed a team.
   const members = !conv.settings.autoTeam || current.agents.length > 0;
-  const problems = teamProblems(team, t, { members });
+  const problems = teamProblems(team, t, { members, maxAgents: maxTeamAgents });
   const dialog = useRef<HTMLElement>(null);
   useDialog(dialog, onClose);
 
