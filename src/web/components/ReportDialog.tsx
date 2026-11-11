@@ -376,10 +376,6 @@ export function ReportDialog({ providers, onClose }: Props) {
             <span>{r.send}</span>
           </button>
         </footer>
-        <p className="muted small report-to">
-          {r.sendTo}
-          <span className="report-address">{REPORT_EMAIL}</span>
-        </p>
       </div>
     </div>,
     document.body,

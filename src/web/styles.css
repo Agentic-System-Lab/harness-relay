@@ -6294,11 +6294,6 @@ a.share-action {
   margin-left: auto;
 }
 
-.report-address {
-  user-select: all;
-  font-weight: 600;
-}
-
 /* A new version of the desktop app, offered once (the tray menu offers it too) */
 .modal.update-dialog {
   width: min(460px, 100%);
