@@ -13,10 +13,11 @@ Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 Open an issue with the **Bug report** form. It asks for:
 
 - what you did, what you expected and what happened instead;
-- your operating system, Node.js version (`node --version`) and Harness Relay commit (`git rev-parse --short HEAD`);
+- how you run Harness Relay (the desktop app, `npm start` or `npm run dev`);
+- your operating system, Node.js version (`node --version`) and Harness Relay version (the desktop app's under **Settings & sign-in → Version**, or the commit, `git rev-parse --short HEAD`);
 - the agent CLIs involved and their versions (`claude --version`, `codex --version`, `grok --version`);
 - the conversation's mode (roundtable, parallel or relay), permission (read-only, edit or full access), and whether the lead agent's team is used without asking;
-- the error shown on the message (it includes the end of the CLI's stderr) and the `[server]` lines from the `npm run dev` output around that time (in the desktop app, **Show log** in its menu).
+- the error shown on the message (it includes the end of the CLI's stderr) and the server's output around that time (the `[server]` lines with `npm run dev`; in the desktop app, **Show log** in its menu).
 
 In the app, **Report a problem** (beside Settings & sign-in) sends a report by email instead, with the version and system details filled in.
 

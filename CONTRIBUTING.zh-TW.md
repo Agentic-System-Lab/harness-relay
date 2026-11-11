@@ -13,10 +13,11 @@
 請用 **Bug report · 回報問題** 表單開一個 issue，它會請你附上：
 
 - 你做了什麼、預期會發生什麼，以及實際發生了什麼；
-- 作業系統、Node.js 版本（`node --version`）與 Harness Relay 的 commit（`git rev-parse --short HEAD`）；
+- 你怎麼執行 Harness Relay（桌面 app、`npm start` 或 `npm run dev`）；
+- 作業系統、Node.js 版本（`node --version`）與 Harness Relay 的版本（桌面 app 在**設定與登入 → 版本**，或是 commit：`git rev-parse --short HEAD`）；
 - 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`）；
 - 對話的模式（圓桌、平行或接力）、權限（唯讀、可編輯或完全存取），以及是否直接採用首席 agent 組的團隊；
-- 訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間 `npm run dev` 輸出中的 `[server]` 行（桌面 app 則是選單裡的**查看記錄檔**）。
+- 訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間伺服器的輸出（用 `npm run dev` 時是其中的 `[server]` 行；桌面 app 則是選單裡的**查看記錄檔**）。
 
 在 app 裡，也可以用**回報問題**（在「設定與登入」旁）改用 email 寄出回報，版本與系統資訊會自動附上。
 

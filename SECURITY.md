@@ -8,7 +8,7 @@ Harness Relay starts coding agents that can change your files and run commands, 
 
 Please **don't** open a public issue or pull request about it, and don't put the details in a shared conversation.
 
-Report it privately on GitHub with **[Report a vulnerability](https://github.com/Agentic-System-Lab/harness-relay/security/advisories/new)** (the repository's **Security** tab → **Report a vulnerability**). Only you and the maintainers see the report, and we can work on the fix together there. If you can't use GitHub, email [chihyu.jimmy.yeh@gmail.com](mailto:chihyu.jimmy.yeh@gmail.com) with "Security" in the subject.
+Report it privately on GitHub with **[Report a vulnerability](https://github.com/Agentic-System-Lab/harness-relay/security/advisories/new)** (the repository's **Security** tab → **Report a vulnerability**). Only you and the maintainers see the report, and we can work on the fix together there. If you can't use GitHub, email [chihyu.jimmy.yeh@gmail.com](mailto:chihyu.jimmy.yeh@gmail.com) with "Security" in the subject. Writing from the app's **Report a problem**? Leave out **Upload screenshots**: it puts them in a secret gist that anyone with the link can see.
 
 Write in English or Traditional Chinese, and include:
 
@@ -37,17 +37,17 @@ Releases are named by date (for example `2026-11-11.1`). Fixes go into the next 
 | `main` | ✅ |
 | Older releases and release candidates | ❌ |
 
-The desktop app updates itself to the newest release (**Settings & sign-in → Version**). Running from a clone, pull `main`.
+The desktop app offers the newest release once it is out, and installs it when you choose **Update** (**Settings & sign-in → Version**). Running from a clone, pull `main`.
 
 ## What counts
 
-Only browsers the user signed in may use the server, and agents below full access stay inside their CLI's sandbox, which Harness Relay sets up. [Architecture → Security](docs/architecture.md#security) lists the defences. A way past them is a vulnerability, for example:
+Only browsers the user signed in may use the server. Below full access, each agent's commands run in its CLI's sandbox where the platform has one, set up by Harness Relay, which also keeps them out of a few places ([OS sandboxes by platform → What agents may not read or write](docs/sandboxing.md#what-agents-may-not-read-or-write)). [Architecture → Security](docs/architecture.md#security) lists the defences. A way past them is a vulnerability, for example:
 
 - a website, or a program on the same computer (code an agent runs included), that drives the API or the agents without a signed-in browser's cookie and key;
 - an agent's reply that makes the browser load something from another site, or that runs a script in the app's page;
-- reading or downloading, through the app, files outside the working directory, the agents' worktrees and the attachments, or anything in `.git`;
-- API keys or MCP servers' secret values reaching the browser, the database, a log or a command line;
-- an agent below full access reaching what Harness Relay keeps from it (the browsers' folders, Harness Relay's database, Harness Relay itself in edit mode) because of how Harness Relay set up its CLI;
+- a way past the path checks of the media, download and file-browsing endpoints (through a link in an agent's reply or a symlink, say) to files outside the working directory, the agents' worktrees and the attachments, or to anything in `.git`;
+- API keys or MCP servers' secret values reaching the browser, a log or a command line, or the database on a system that has a credential store;
+- an agent below full access reaching a place Harness Relay keeps it out of (the browsers' folders, Harness Relay's database and its temporary folder), or edit mode starting in a folder Harness Relay refuses (Harness Relay itself, your home folder, a CLI's own folder), because of how Harness Relay set up its CLI;
 - a shared conversation publishing something the user did not choose to share;
 - the desktop app's window loading another site or reaching Node.
 
@@ -55,10 +55,12 @@ Only browsers the user signed in may use the server, and agents below full acces
 
 These are known and documented, so they are not vulnerabilities:
 
-- what agents do within the permission you gave them: with **full access** they can run any command, and in **edit** mode they can change any file in the working directory, also when a file or web page they read tells them to;
-- the gaps in the CLIs' sandboxes listed in [OS sandboxes by platform](docs/sandboxing.md) and [Known limitations](docs/architecture.md#known-limitations): project code that Grok runs can reach the network, and on native Windows Claude Code and Grok have no sandbox at all;
-- a program outside the sandboxes that can already read your browser's profile or write Harness Relay's `data/` folder;
-- reaching the server some other way than through `tailscale serve` (binding it to `0.0.0.0`, a public tunnel), which [Use it from your phone](docs/remote-access.md#security) warns against;
+- what agents do within the permission you gave them, also when a file or web page they read tells them to: with **full access** they can run any command; in **edit** mode they can change files in the working directory and run project commands such as tests, builds and scripts without asking (with Grok, anything but pushing and publishing); and in every mode they can read web pages, which can carry away what they read;
+- what the CLIs' sandboxes do not cover, as [OS sandboxes by platform → What the sandboxes do not cover](docs/sandboxing.md#what-the-sandboxes-do-not-cover) and [Known limitations](docs/architecture.md#known-limitations) describe. Commands can read almost the whole computer (`~/.ssh` and `~/.aws` included) apart from the places above; project code that Grok runs can reach the network; Claude Code's sandbox covers its Bash commands, not its own tools, hooks or MCP servers; a command you allow runs outside the sandbox; and on native Windows Claude Code and Grok have no sandbox at all;
+- what sign-in does not stop, as [Architecture → Signing in](docs/architecture.md#signing-in) describes: a program outside the sandboxes that can read your browser's profile or write Harness Relay's `data/` folder; a page an agent serves on another port of this computer getting the cookie if you open it, which is all the read-only routes the browser loads by itself need; a program that keeps sending wrong codes, so that new browsers cannot sign in while it does;
+- API keys kept in `data/relay.db` on a system without a credential store, as the [README](README.md#safety) says;
+- what every device in your tailnet can reach once you share the server with `tailscale serve`: its sign-in page, and AgentsView, which has no sign-in ([Use it from your phone → Security](docs/remote-access.md#security));
+- reaching the server some other way (binding it to `0.0.0.0`, `tailscale funnel`), which that page warns against;
 - problems in the `claude`, `codex` and `grok` CLIs themselves or in their sandboxes: report those to Anthropic, OpenAI and xAI. If Harness Relay makes one worse, report it here as well.
 
 Not sure? Report it anyway, and we'll work it out together.

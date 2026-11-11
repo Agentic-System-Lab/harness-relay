@@ -1,5 +1,5 @@
 name: Bug report · 回報問題
-description: Something doesn't work as it should. · 有東西不如預期地運作。
+description: Something doesn't work as it should. · 有東西沒有照預期運作。
 labels: [bug]
 body:
   - type: markdown
@@ -49,8 +49,8 @@ body:
         在 app 裡，**回報問題**（在「設定與登入」旁）的「會一併附上版本與系統資訊」底下列有這些資訊。從 clone 下來的專案執行時：`git rev-parse --short HEAD`、`node --version`、`claude --version`、`codex --version`、`grok --version`。
       placeholder: |
         Harness Relay: 2026-11-11.1 · desktop app
-        OS: macOS 15.5 (arm64)
-        Node.js: 22.13.0
+        OS: darwin 25.6.0 (arm64)
+        Node.js: v22.13.0
         Claude Code: …
         Codex: …
         Grok: …
@@ -92,11 +92,11 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: Error and logs · 錯誤訊息與記錄
+      label: Error and logs · 錯誤訊息與記錄檔
       description: |
-        The error shown on the message (it includes the end of the CLI's stderr), and the server's log around that time: the `[server]` lines in the terminal, or **Show log** in the desktop app's menu.
+        The error shown on the message (it includes the end of the CLI's stderr), and the server's log around that time: the terminal's output (with `npm run dev`, its `[server]` lines), or **Show log** in the desktop app's menu.
 
-        訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間伺服器的記錄：終端機裡的 `[server]` 行，或桌面 app 選單裡的 **查看記錄檔**。
+        訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間伺服器的記錄檔：終端機的輸出（用 `npm run dev` 時是其中的 `[server]` 行），或桌面 app 選單裡的 **查看記錄檔**。
       render: text
 
   - type: textarea
@@ -110,7 +110,7 @@ body:
     attributes:
       label: Before you submit · 送出之前
       options:
-        - label: I removed API keys, tokens and anything private from what I pasted (and did not attach `data/relay.db`). · 我已從貼上的內容移除 API key、token 與任何私人內容（也沒有附上 `data/relay.db`）。
+        - label: I removed API keys, tokens and anything private from what I pasted (and did not attach data/relay.db). · 我已從貼上的內容移除 API key、token 與任何私人內容（也沒有附上 data/relay.db）。
           required: true
-        - label: I searched the existing issues for this problem. · 我已搜尋過現有的 issue。
+        - label: I searched the existing issues for this problem. · 我已搜尋過現有的 issue，沒有人回報過這個問題。
           required: true
