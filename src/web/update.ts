@@ -44,11 +44,11 @@ export function shouldOffer(status: UpdateStatus | undefined, dismissed: string 
 
 /**
  * Whether the dialog offering a new version shows: it opens only while no other dialog (nor the tour)
- * is open and the user is not typing, so it never takes keys meant for something else, and once it
- * shows it stays while the version is on offer.
+ * is open, the user is not typing, and nothing holds dialogs back (`held`: a voice recording), so it
+ * never takes keys meant for something else; once it shows it stays while the version is on offer.
  */
-export function offerShows(showing: boolean, o: { offerable: boolean; tourOpen: boolean; dialogsOpen: number; typing: boolean }): boolean {
-  return showing ? o.offerable : o.offerable && !o.tourOpen && o.dialogsOpen === 0 && !o.typing;
+export function offerShows(showing: boolean, o: { offerable: boolean; tourOpen: boolean; dialogsOpen: number; typing: boolean; held?: boolean }): boolean {
+  return showing ? o.offerable : o.offerable && !o.tourOpen && o.dialogsOpen === 0 && !o.typing && !o.held;
 }
 
 /** How long after a key typed into a text field the user still counts as typing. */

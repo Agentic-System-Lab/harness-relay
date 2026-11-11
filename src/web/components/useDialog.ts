@@ -1,5 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore, type RefObject } from 'react';
-import { dialogsOpen, onDialogsChange, openDialog } from '../dialogs';
+import { dialogsHeld, dialogsOpen, onDialogsChange, openDialog } from '../dialogs';
 
 const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])';
 
@@ -56,4 +56,9 @@ export function useDialog(ref: RefObject<HTMLElement | null>, onClose: () => voi
 /** How many dialogs are open on the page, kept up to date. */
 export function useDialogsOpen(): number {
   return useSyncExternalStore(onDialogsChange, dialogsOpen);
+}
+
+/** How many things hold dialogs back (a voice recording), kept up to date. */
+export function useDialogsHeld(): number {
+  return useSyncExternalStore(onDialogsChange, dialogsHeld);
 }

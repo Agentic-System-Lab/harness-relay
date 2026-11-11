@@ -3,6 +3,8 @@
 // itself (a new version, src/web/update.ts) waits until none is open. No DOM: tested in Node.
 
 const open: object[] = [];
+/** Things under way that no dialog may open over, though they are no dialog (a voice recording). */
+let held = 0;
 const listeners = new Set<() => void>();
 
 const changed = () => listeners.forEach((fn) => fn());
@@ -34,4 +36,22 @@ export function onDialogsChange(fn: () => void): () => void {
   return () => {
     listeners.delete(fn);
   };
+}
+
+/** Holds dialogs that offer themselves back while something is under way (a voice recording); returns its release (once). */
+export function holdDialogs(): () => void {
+  held++;
+  changed();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    held--;
+    changed();
+  };
+}
+
+/** How many things hold dialogs back. */
+export function dialogsHeld(): number {
+  return held;
 }

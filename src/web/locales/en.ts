@@ -691,7 +691,7 @@ export const en: Messages = {
       label: 'Screenshots (optional)',
       add: 'Add screenshots',
       hint: (max) =>
-        `Paste, drag in or choose images, up to ${max}. Upload screenshots puts them on GitHub as a secret gist with your GitHub CLI (gh), and the mail links to it: anyone with the link can see them. A sent mail cannot be taken back: deleting the gist on GitHub later makes its link stop working, but what the developer has already seen or saved stays with them.`,
+        `Paste, drag in or choose images, up to ${max}. Upload screenshots puts them on GitHub as a secret gist with your GitHub CLI (gh), their location and other metadata left behind, and the mail links to it: anyone with the link can see them, and the link shows your GitHub account name. A sent mail cannot be taken back: deleting the gist on GitHub later makes its link stop working, but what the developer has already seen or saved stays with them.`,
       upload: 'Upload screenshots',
       uploading: 'Uploading…',
       uploaded: 'Screenshots uploaded: the mail links to them.',

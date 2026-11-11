@@ -109,6 +109,15 @@ describe("GitHub's newest release", () => {
     expect(parseRelease(reversed)!.assets.win?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-win-x64-update.exe`);
     // A release made before there were copies: the installers themselves.
     expect(parseRelease(githubRelease('2026-11-12.1'))!.assets.win?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-win-x64.exe`);
+    // A copy GitHub gives no checksum for is not taken over an installer it gives one for (the update would go by the release page).
+    const unchecked = githubRelease('2026-11-12.1', { copies: true });
+    for (const a of unchecked.assets) if (a.name.includes('-update.')) delete (a as { digest?: string }).digest;
+    expect(parseRelease(unchecked)!.assets.mac).toEqual({
+      name: 'Harness-Relay-2026-11-12.1-mac-arm64.dmg',
+      url: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-arm64.dmg`,
+      size: 1000,
+      sha256: sha('Harness-Relay-2026-11-12.1-mac-arm64.dmg'),
+    });
   });
 
   it('can be a release candidate, as the app was built for one; never a draft or a tag that is not a version of ours', () => {
@@ -426,19 +435,20 @@ describe('downloading an update', () => {
 
   it('keeps going as long as bytes keep coming, however long it takes', async () => {
     const to = join(dir, 'slow.dmg');
+    // 18 parts 25 ms apart: the whole takes over twice the limit, each wait an eighth of it.
     const slow: Fetch = async () =>
       new Response(
         new ReadableStream({
           async start(controller) {
-            for (let at = 0; at < body.length; at += 4000) {
-              await new Promise((r) => setTimeout(r, 20));
-              controller.enqueue(new Uint8Array(body.subarray(at, at + 4000)));
+            for (let at = 0; at < body.length; at += 1000) {
+              await new Promise((r) => setTimeout(r, 25));
+              controller.enqueue(new Uint8Array(body.subarray(at, at + 1000)));
             }
             controller.close();
           },
         }),
       );
-    await download({ fetch: slow, asset, to, stallMs: 60 });
+    await download({ fetch: slow, asset, to, stallMs: 200 });
     expect(readFileSync(to)).toEqual(body);
   });
 });

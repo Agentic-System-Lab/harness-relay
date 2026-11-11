@@ -6,7 +6,7 @@ import { GH_MISSING, REPORT_SCREENSHOT_LIMITS } from '../src/shared/types';
 import { HttpError } from '../src/server/errors';
 import { t } from '../src/server/i18n';
 import { CommandNotFoundError, type SpawnOptions, type SpawnResult } from '../src/server/process';
-import { SCREENSHOTS_DESCRIPTION, imageKind, parseScreenshots, uploadScreenshots, withoutMetadata } from '../src/server/screenshots';
+import { SCREENSHOTS_DESCRIPTION, exifOrientation, imageKind, parseScreenshots, uploadScreenshots, withoutMetadata } from '../src/server/screenshots';
 import {
   CREATED_JQ,
   FILES_PLACEHOLDER,
@@ -33,10 +33,43 @@ function result(o: Partial<SpawnResult> = {}): SpawnResult {
   };
 }
 
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
-const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46]);
-const GIF = Buffer.from('GIF89a\x01\x00\x01\x00', 'latin1');
-const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x24, 0, 0, 0]), Buffer.from('WEBPVP8 ')]);
+// Small images whole enough to be read through: each kind's structure, with stand-ins for pixels.
+const pngChunk = (type: string, data: Buffer) => {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  return Buffer.concat([len, Buffer.from(type, 'latin1'), data, Buffer.alloc(4)]);
+};
+const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const IHDR = pngChunk('IHDR', Buffer.alloc(13));
+const IDAT = pngChunk('IDAT', Buffer.from('pixels'));
+const IEND = pngChunk('IEND', Buffer.alloc(0));
+const PNG = Buffer.concat([PNG_SIG, IHDR, IDAT, IEND]);
+const segment = (marker: number, payload: Buffer) => Buffer.concat([Buffer.from([0xff, marker]), Buffer.from([(payload.length + 2) >> 8, (payload.length + 2) & 0xff]), payload]);
+const SOI = Buffer.from([0xff, 0xd8]);
+const EOI = Buffer.from([0xff, 0xd9]);
+const JFIF = segment(0xe0, Buffer.from('JFIF\0\x01\x02'));
+const DQT = segment(0xdb, Buffer.from([0, 1, 2, 3]));
+const SOF = segment(0xc0, Buffer.from([8, 0, 1, 0, 1, 1, 1, 0x11, 0]));
+const DHT = segment(0xc4, Buffer.from([0, 1, 2]));
+/** A scan: its header, then entropy-coded data with a stuffed FF 00 and a restart marker in it. */
+const SCAN = Buffer.concat([segment(0xda, Buffer.from([1, 1, 0, 0, 63, 0])), Buffer.from([0x12, 0xff, 0x00, 0x34, 0xff, 0xd0, 0x56])]);
+const JPEG = Buffer.concat([SOI, JFIF, DQT, SOF, DHT, SCAN, EOI]);
+const webpChunk = (type: string, data: Buffer) => {
+  const size = Buffer.alloc(4);
+  size.writeUInt32LE(data.length);
+  return Buffer.concat([Buffer.from(type, 'latin1'), size, data, data.length % 2 ? Buffer.alloc(1) : Buffer.alloc(0)]);
+};
+const riff = (chunks: Buffer) => {
+  const head = Buffer.from('RIFF\0\0\0\0WEBP', 'latin1');
+  head.writeUInt32LE(4 + chunks.length, 4);
+  return Buffer.concat([head, chunks]);
+};
+const VP8 = webpChunk('VP8 ', Buffer.from('pixels!'));
+const WEBP = riff(VP8);
+/** A GIF: header, screen descriptor without a table, one image (LZW size, one sub-block), trailer. */
+const GIF_HEAD = Buffer.from('GIF89a\x01\x00\x01\x00\x00\x00\x00', 'latin1');
+const GIF_IMAGE = Buffer.from([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x4c, 0x01, 0]);
+const GIF = Buffer.concat([GIF_HEAD, GIF_IMAGE, Buffer.from([0x3b])]);
 const b64 = (b: Buffer) => b.toString('base64');
 
 describe('a screenshot', () => {
@@ -62,60 +95,123 @@ describe('a screenshot', () => {
 });
 
 describe("a screenshot's metadata", () => {
-  const segment = (marker: number, payload: Buffer) => Buffer.concat([Buffer.from([0xff, marker]), Buffer.from([(payload.length + 2) >> 8, (payload.length + 2) & 0xff]), payload]);
   const gps = Buffer.from('Exif\0\0GPSLatitude 25.03 N GPSLongitude 121.56 E');
+  /** An EXIF APP1 payload whose IFD0 holds an orientation (and a stand-in for the rest). */
+  const exifWith = (orientation: number, order: 'II' | 'MM' = 'II') => {
+    const tiff = Buffer.alloc(8 + 2 + 2 * 12 + 4);
+    const u16 = (v: number, at: number) => (order === 'II' ? tiff.writeUInt16LE(v, at) : tiff.writeUInt16BE(v, at));
+    const u32 = (v: number, at: number) => (order === 'II' ? tiff.writeUInt32LE(v, at) : tiff.writeUInt32BE(v, at));
+    tiff.write(order, 0, 'latin1');
+    u16(42, 2);
+    u32(8, 4);
+    u16(2, 8);
+    u16(0x010f, 10); // Make: ASCII, a stand-in
+    u16(2, 12);
+    u32(4, 14);
+    tiff.write('GPS', 18, 'latin1');
+    u16(0x0112, 22); // Orientation
+    u16(3, 24);
+    u32(1, 26);
+    u16(orientation, 30);
+    return Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
+  };
 
-  it("leaves a JPEG's EXIF, XMP, IPTC and comments behind, and its pixels as they are", () => {
-    const jfif = segment(0xe0, Buffer.from('JFIF\0\x01\x02'));
+  it("keeps of a JPEG only what showing it needs, its scans as they are, up to its end", () => {
     const icc = segment(0xe2, Buffer.from('ICC_PROFILE\0colors'));
-    const scan = Buffer.from([0xff, 0xda, 0x00, 0x04, 0x01, 0x00, 0x12, 0x34, 0xff, 0x00, 0x56, 0xff, 0xd9]);
-    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8]), jfif, segment(0xe1, gps), segment(0xed, Buffer.from('Photoshop 3.0 IPTC')), segment(0xfe, Buffer.from('a comment')), icc, scan]);
+    const adobe = segment(0xee, Buffer.from('Adobe\0\x64'));
+    const jpeg = Buffer.concat([
+      SOI,
+      JFIF,
+      segment(0xe1, gps),
+      segment(0xe1, Buffer.from('http://ns.adobe.com/xap/1.0/\0<x:xmpmeta/>')),
+      segment(0xed, Buffer.from('Photoshop 3.0 IPTC')),
+      segment(0xeb, Buffer.from('JP JUMBF c2pa Exif GPS')), // content credentials
+      segment(0xe2, Buffer.from('MPF\0second image')),
+      segment(0xe0, Buffer.from('JFXX\0thumbnail')),
+      segment(0xfe, Buffer.from('a comment')),
+      icc,
+      adobe,
+      DQT,
+      SOF,
+      DHT,
+      SCAN,
+      EOI,
+      Buffer.from('ftypmp42 a motion photo, GPS 25.03'), // after the end: gone
+    ]);
     const clean = withoutMetadata(jpeg, 'jpg');
-    expect(clean).toEqual(Buffer.concat([Buffer.from([0xff, 0xd8]), jfif, icc, scan]));
-    expect(clean.toString('latin1')).not.toMatch(/GPS|IPTC|comment/);
+    expect(clean).toEqual(Buffer.concat([SOI, JFIF, icc, adobe, DQT, SOF, DHT, SCAN, EOI]));
+    expect(clean.toString('latin1')).not.toMatch(/GPS|IPTC|comment|xmpmeta|c2pa|MPF|JFXX|ftyp/);
   });
 
-  it("leaves a PNG's EXIF, text and time chunks behind", () => {
-    const chunk = (type: string, data: Buffer) => {
-      const len = Buffer.alloc(4);
-      len.writeUInt32BE(data.length);
-      return Buffer.concat([len, Buffer.from(type, 'latin1'), data, Buffer.alloc(4)]);
-    };
-    const ihdr = chunk('IHDR', Buffer.alloc(13));
-    const idat = chunk('IDAT', Buffer.from('pixels'));
-    const iend = chunk('IEND', Buffer.alloc(0));
-    const png = Buffer.concat([PNG.subarray(0, 8), ihdr, chunk('eXIf', gps), chunk('tEXt', Buffer.from('Author\0someone')), chunk('iTXt', Buffer.from('XML:com.adobe.xmp')), chunk('tIME', Buffer.alloc(7)), idat, iend]);
-    expect(withoutMetadata(png, 'png')).toEqual(Buffer.concat([PNG.subarray(0, 8), ihdr, idat, iend]));
+  it("keeps a progressive JPEG's scans and the tables between them", () => {
+    const second = Buffer.concat([DHT, SCAN]);
+    const jpeg = Buffer.concat([SOI, DQT, SOF, DHT, SCAN, segment(0xfe, Buffer.from('between scans')), second, EOI]);
+    expect(withoutMetadata(jpeg, 'jpg')).toEqual(Buffer.concat([SOI, DQT, SOF, DHT, SCAN, second, EOI]));
   });
 
-  it("leaves a WebP's EXIF and XMP chunks behind, with their flags and its size set again", () => {
-    const chunk = (type: string, data: Buffer) => {
-      const size = Buffer.alloc(4);
-      size.writeUInt32LE(data.length);
-      return Buffer.concat([Buffer.from(type, 'latin1'), size, data, data.length % 2 ? Buffer.alloc(1) : Buffer.alloc(0)]);
-    };
-    const vp8x = (flags: number) => chunk('VP8X', Buffer.from([flags, 0, 0, 0, 1, 0, 0, 1, 0, 0]));
-    const image = chunk('VP8 ', Buffer.from('pixels!'));
-    const riff = (chunks: Buffer) => {
-      const head = Buffer.from('RIFF\0\0\0\0WEBP', 'latin1');
-      head.writeUInt32LE(4 + chunks.length, 4);
-      return Buffer.concat([head, chunks]);
-    };
-    const webp = riff(Buffer.concat([vp8x(0x0c), image, chunk('EXIF', gps), chunk('XMP ', Buffer.from('<x:xmpmeta/>'))]));
-    expect(withoutMetadata(webp, 'webp')).toEqual(riff(Buffer.concat([vp8x(0x00), image])));
+  it("keeps a JPEG's orientation alone, so a photo shows the right way up", () => {
+    for (const order of ['II', 'MM'] as const) {
+      const jpeg = Buffer.concat([SOI, segment(0xe1, exifWith(6, order)), DQT, SOF, DHT, SCAN, EOI]);
+      const clean = withoutMetadata(jpeg, 'jpg');
+      expect(clean.toString('latin1')).not.toContain('GPS');
+      const app1 = clean.subarray(2, 2 + 4 + clean.readUInt16BE(4) - 2);
+      expect(app1[1]).toBe(0xe1);
+      expect(exifOrientation(app1.subarray(4))).toBe(6);
+    }
+    // Upright already: no EXIF at all.
+    const upright = Buffer.concat([SOI, segment(0xe1, exifWith(1)), DQT, SOF, DHT, SCAN, EOI]);
+    expect(withoutMetadata(upright, 'jpg')).toEqual(Buffer.concat([SOI, DQT, SOF, DHT, SCAN, EOI]));
   });
 
-  it('gives an image it cannot read through as it is, and a GIF as it is', () => {
-    const broken = Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff]);
-    expect(withoutMetadata(broken, 'jpg')).toEqual(broken);
-    expect(withoutMetadata(GIF, 'gif')).toEqual(GIF);
-    expect(withoutMetadata(PNG, 'png')).toEqual(PNG); // no IEND
+  it('skips stray bytes between segments, as decoders do, and keeps none of them', () => {
+    const jpeg = Buffer.concat([SOI, JFIF, Buffer.from([0x00]), segment(0xe1, gps), DQT, SOF, DHT, SCAN, EOI]);
+    expect(withoutMetadata(jpeg, 'jpg')).toEqual(JPEG);
   });
 
-  it('goes before anything is uploaded', () => {
-    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8]), segment(0xe1, gps), Buffer.from([0xff, 0xda, 0x00, 0x02, 0xff, 0xd9])]);
-    const [shot] = parseScreenshots([{ data: b64(jpeg) }]);
-    expect(shot!.data.toString('latin1')).not.toContain('GPS');
+  it("keeps of a PNG only the chunks showing it needs, up to its IEND", () => {
+    const srgb = pngChunk('sRGB', Buffer.from([0]));
+    const png = Buffer.concat([
+      PNG_SIG,
+      IHDR,
+      srgb,
+      pngChunk('eXIf', gps),
+      pngChunk('tEXt', Buffer.from('Author\0someone')),
+      pngChunk('iTXt', Buffer.from('XML:com.adobe.xmp')),
+      pngChunk('tIME', Buffer.alloc(7)),
+      pngChunk('caBX', Buffer.from('c2pa GPS')),
+      pngChunk('prVt', Buffer.from('a private chunk')),
+      IDAT,
+      IEND,
+      Buffer.from('after the end GPS'),
+    ]);
+    expect(withoutMetadata(png, 'png')).toEqual(Buffer.concat([PNG_SIG, IHDR, srgb, IDAT, IEND]));
+  });
+
+  it("keeps of a WebP only the chunks showing it needs, within its RIFF size, its flags and size set again", () => {
+    const vp8x = (flags: number) => webpChunk('VP8X', Buffer.from([flags, 0, 0, 0, 1, 0, 0, 1, 0, 0]));
+    const icc = webpChunk('ICCP', Buffer.from('colors'));
+    const webp = Buffer.concat([
+      riff(Buffer.concat([vp8x(0x2c), icc, VP8, webpChunk('EXIF', gps), webpChunk('XMP ', Buffer.from('<x:xmpmeta/>')), webpChunk('UNKN', Buffer.from('?'))])),
+      Buffer.from('GPS'), // past the RIFF size
+    ]);
+    expect(withoutMetadata(webp, 'webp')).toEqual(riff(Buffer.concat([vp8x(0x20), icc, VP8])));
+  });
+
+  it("keeps of a GIF its images, frame timing and loop, without comments, other extensions or bytes after its end", () => {
+    const control = Buffer.from([0x21, 0xf9, 4, 0, 10, 0, 0, 0]);
+    const loop = Buffer.concat([Buffer.from([0x21, 0xff, 11]), Buffer.from('NETSCAPE2.0'), Buffer.from([3, 1, 0, 0, 0])]);
+    const comment = Buffer.concat([Buffer.from([0x21, 0xfe, 9]), Buffer.from('GPS 25.03'), Buffer.from([0])]);
+    const xmp = Buffer.concat([Buffer.from([0x21, 0xff, 11]), Buffer.from('XMP DataXMP'), Buffer.from([5]), Buffer.from('<xmp>'), Buffer.from([0])]);
+    const gif = Buffer.concat([GIF_HEAD, loop, comment, control, GIF_IMAGE, xmp, control, GIF_IMAGE, Buffer.from([0x3b]), Buffer.from('junk')]);
+    expect(withoutMetadata(gif, 'gif')).toEqual(Buffer.concat([GIF_HEAD, loop, control, GIF_IMAGE, control, GIF_IMAGE, Buffer.from([0x3b])]));
+  });
+
+  it("refuses what it cannot read through, rather than letting its metadata go along", () => {
+    expect(() => withoutMetadata(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff]), 'jpg')).toThrow();
+    expect(() => withoutMetadata(Buffer.concat([SOI, JFIF, SCAN]), 'jpg')).toThrow(); // no end
+    expect(() => withoutMetadata(Buffer.concat([PNG_SIG, IHDR, IDAT]), 'png')).toThrow(); // no IEND
+    expect(() => withoutMetadata(Buffer.concat([riff(VP8).subarray(0, 14)]), 'webp')).toThrow();
+    expect(() => withoutMetadata(GIF_HEAD, 'gif')).toThrow(); // no trailer
   });
 });
 
@@ -130,11 +226,19 @@ describe('the screenshots a request sends', () => {
     throw new Error('taken');
   };
 
-  it('are named by their place and kind, never by the name the file had', () => {
-    const files = parseScreenshots([{ data: b64(PNG), name: 'secret-project.png' }, { data: b64(JPEG) }, { data: b64(WEBP) }]);
-    expect(files.map((f) => f.name)).toEqual(['screenshot-1.png', 'screenshot-2.jpg', 'screenshot-3.webp']);
-    // Bytes it cannot read through (this PNG has no IEND) go as they are.
+  it('are named by their place and kind, never by the name the file had, and go without their metadata', () => {
+    const tagged = Buffer.concat([SOI, segment(0xe1, Buffer.from('Exif\0\0GPS 25.03')), DQT, SOF, DHT, SCAN, EOI]);
+    const files = parseScreenshots([{ data: b64(PNG), name: 'secret-project.png' }, { data: b64(tagged) }, { data: b64(WEBP) }, { data: b64(GIF) }]);
+    expect(files.map((f) => f.name)).toEqual(['screenshot-1.png', 'screenshot-2.jpg', 'screenshot-3.webp', 'screenshot-4.gif']);
     expect(files[0]!.data.equals(PNG)).toBe(true);
+    expect(files[1]!.data.toString('latin1')).not.toContain('GPS');
+  });
+
+  it('refuses one it cannot read through, saying which, instead of uploading it with its metadata', () => {
+    expect(refused([{ data: b64(PNG) }, { data: b64(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', Buffer.from('GPS'))])) }])).toEqual({
+      status: 400,
+      message: t().reportShotUnreadable(2),
+    });
   });
 
   it('must be some, and not too many', () => {

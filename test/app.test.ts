@@ -1030,7 +1030,8 @@ describe('/api/update', () => {
 
 describe('/api/report/screenshots', () => {
   const ID = 'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff';
-  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]).toString('base64');
+  // A PNG whole enough to be read through: signature, then IEND (length, type, CRC).
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]).toString('base64');
   type Upload = { name: string; data: Buffer };
   function shotsApp(gists: { upload?: (files: Upload[]) => Promise<{ id: string; url: string }>; remove?: (id: string) => Promise<void> }) {
     const s = new SettingsStore(openDatabase(':memory:'));

@@ -277,7 +277,8 @@ export const api = {
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),
   providers: (refresh = false) => request<ProviderStatus[]>('GET', `/api/providers${refresh ? '?refresh=1' : ''}`),
   /** Which Harness Relay this is, and on what, for a problem report. */
-  about: () => request<AboutInfo>('GET', '/api/about'),
+  /** Given up on after 10 s: the report then says the server did not answer, instead of waiting for good. */
+  about: () => request<AboutInfo>('GET', '/api/about', undefined, AbortSignal.timeout(10_000)),
   /** This version, and the desktop app's updates (only the version otherwise). */
   update: () => request<UpdateStatus>('GET', '/api/update'),
   /** Has the desktop app ask GitHub for a new version now (at most every five minutes); what it knows once it has. */

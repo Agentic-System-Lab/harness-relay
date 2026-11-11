@@ -25,75 +25,178 @@ export function imageKind(data: Buffer): 'png' | 'jpg' | 'gif' | 'webp' | undefi
 }
 
 /**
- * The image without what it says besides its pixels: the EXIF data (a phone photo's location, the
- * camera, the time), XMP, IPTC and comments of a JPEG; the EXIF, text and time chunks of a PNG; the
- * EXIF and XMP chunks of a WebP. A GIF holds none of those. An image whose structure cannot be read
- * through is given as it is: it was checked to be an image by its first bytes, and its pixels decide.
+ * The image without what it says besides its pixels, or an error when its structure cannot be read
+ * through (it is then refused, never uploaded as it is). Only what showing it needs is kept, whatever
+ * else a file holds (an allow-list): a photo's location, its camera and time, comments, text, XMP,
+ * IPTC, content credentials, a phone's motion-photo video or second image after the image, and bytes
+ * after its end, all go. A JPEG keeps its orientation (a minimal EXIF of that tag alone), so a photo
+ * shows the right way up.
  */
 export function withoutMetadata(data: Buffer, kind: 'png' | 'jpg' | 'gif' | 'webp'): Buffer {
-  try {
-    if (kind === 'jpg') return jpegWithout(data);
-    if (kind === 'png') return pngWithout(data);
-    if (kind === 'webp') return webpWithout(data);
-  } catch {
-    /* not what it should be: as it is */
-  }
-  return data;
+  if (kind === 'jpg') return jpegWithout(data);
+  if (kind === 'png') return pngWithout(data);
+  if (kind === 'webp') return webpWithout(data);
+  return gifWithout(data);
 }
 
-/** A JPEG's APP1 (EXIF, XMP), APP13 (IPTC) and COM segments go; the rest, from the scan on, stays as it is. */
+/** Reads past the end: the structure is not what it says. */
+function need(data: Buffer, end: number): void {
+  if (end > data.length) throw new Error('truncated');
+}
+
+// --- JPEG ---------------------------------------------------------------------------------
+
+/** Markers a JPEG needs to be shown: frames, tables, restart interval, scan; nothing else. */
+const JPEG_KEPT = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xdb, 0xdc, 0xdd, 0xdf]);
+
+/** Whether an APPn segment is one showing the image needs: JFIF (APP0), its ICC profile (APP2), Adobe's colour transform (APP14). */
+function jpegAppKept(marker: number, payload: Buffer): boolean {
+  const starts = (s: string) => payload.subarray(0, s.length).toString('latin1') === s;
+  return (marker === 0xe0 && starts('JFIF\0')) || (marker === 0xe2 && starts('ICC_PROFILE\0')) || (marker === 0xee && starts('Adobe'));
+}
+
+/** A JPEG's EXIF orientation (1 to 8), from its APP1 payload; undefined when it has none. */
+export function exifOrientation(payload: Buffer): number | undefined {
+  if (payload.subarray(0, 6).toString('latin1') !== 'Exif\0\0') return undefined;
+  const tiff = payload.subarray(6);
+  const order = tiff.subarray(0, 2).toString('latin1');
+  if (order !== 'II' && order !== 'MM') return undefined;
+  const u16 = (at: number) => (order === 'II' ? tiff.readUInt16LE(at) : tiff.readUInt16BE(at));
+  const u32 = (at: number) => (order === 'II' ? tiff.readUInt32LE(at) : tiff.readUInt32BE(at));
+  const ifd = u32(4);
+  const count = u16(ifd);
+  for (let i = 0; i < count; i++) {
+    const entry = ifd + 2 + i * 12;
+    // Orientation: SHORT, one value.
+    if (u16(entry) === 0x0112 && u16(entry + 2) === 3 && u32(entry + 4) === 1) {
+      const value = u16(entry + 8);
+      return value >= 1 && value <= 8 ? value : undefined;
+    }
+  }
+  return undefined;
+}
+
+/** An APP1 segment of a minimal EXIF holding the orientation alone. */
+function orientationSegment(orientation: number): Buffer {
+  const tiff = Buffer.alloc(26);
+  tiff.write('MM', 0, 'latin1');
+  tiff.writeUInt16BE(42, 2);
+  tiff.writeUInt32BE(8, 4); // IFD0
+  tiff.writeUInt16BE(1, 8); // one entry
+  tiff.writeUInt16BE(0x0112, 10);
+  tiff.writeUInt16BE(3, 12);
+  tiff.writeUInt32BE(1, 14);
+  tiff.writeUInt16BE(orientation, 18);
+  tiff.writeUInt32BE(0, 22); // no next IFD
+  const payload = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
+  const head = Buffer.from([0xff, 0xe1, 0, 0]);
+  head.writeUInt16BE(payload.length + 2, 2);
+  return Buffer.concat([head, payload]);
+}
+
+/**
+ * A JPEG from its start to its end marker (EOI), with only the segments showing it needs, its scans
+ * as they are. Bytes between segments that are no marker are left out (as decoders skip them).
+ */
 function jpegWithout(data: Buffer): Buffer {
+  if (data[0] !== 0xff || data[1] !== 0xd8) throw new Error('no SOI');
   const out: Buffer[] = [data.subarray(0, 2)];
   let at = 2;
-  while (at < data.length) {
-    if (data[at] !== 0xff) throw new Error('not a marker');
-    let marker = data[at + 1]!;
-    // Fill bytes before a marker.
-    while (marker === 0xff) marker = data[++at + 1]!;
-    // Start of scan: the image data, to the end.
-    if (marker === 0xda) {
-      out.push(data.subarray(at));
-      return Buffer.concat(out);
+  for (;;) {
+    // To the next marker: stray bytes are skipped, fill bytes (FF FF…) too.
+    while (at < data.length && data[at] !== 0xff) at++;
+    while (at + 1 < data.length && data[at + 1] === 0xff) at++;
+    need(data, at + 2);
+    const marker = data[at + 1]!;
+    if (marker === 0xd9) {
+      out.push(Buffer.from([0xff, 0xd9]));
+      return Buffer.concat(out); // what follows the image (a motion photo's video, a second image) goes
     }
+    if ((marker >= 0xd0 && marker <= 0xd7) || marker === 0x01 || marker === 0x00) {
+      at += 2; // no segment to keep
+      continue;
+    }
+    need(data, at + 4);
     const length = data.readUInt16BE(at + 2);
-    if (length < 2 || at + 2 + length > data.length) throw new Error('bad segment');
+    if (length < 2) throw new Error('bad segment');
     const end = at + 2 + length;
-    if (marker !== 0xe1 && marker !== 0xed && marker !== 0xfe) out.push(data.subarray(at, end));
+    need(data, end);
+    const payload = data.subarray(at + 4, end);
+    if (marker === 0xda) {
+      // The scan's header, then its entropy-coded data up to the next marker (FF 00 and restarts are data).
+      let next = end;
+      while (next < data.length) {
+        if (data[next] === 0xff) {
+          const after = data[next + 1];
+          if (after === 0x00 || (after !== undefined && after >= 0xd0 && after <= 0xd7)) {
+            next += 2;
+            continue;
+          }
+          break;
+        }
+        next++;
+      }
+      out.push(data.subarray(at, next));
+      at = next;
+      continue;
+    }
+    if (JPEG_KEPT.has(marker) || (marker >= 0xe0 && marker <= 0xef && jpegAppKept(marker, payload))) {
+      out.push(data.subarray(at, end));
+    } else if (marker === 0xe1) {
+      let orientation: number | undefined;
+      try {
+        orientation = exifOrientation(payload);
+      } catch {
+        orientation = undefined;
+      }
+      if (orientation && orientation !== 1) out.push(orientationSegment(orientation));
+    }
     at = end;
   }
-  throw new Error('no scan');
 }
 
-const PNG_DROPPED = new Set(['eXIf', 'tEXt', 'zTXt', 'iTXt', 'tIME']);
+// --- PNG ----------------------------------------------------------------------------------
 
-/** A PNG's eXIf, tEXt, zTXt, iTXt and tIME chunks go. */
+/** Chunks a PNG needs to be shown (critical, colour, transparency, animation, HDR): nothing else. */
+const PNG_KEPT = new Set(['IHDR', 'PLTE', 'IDAT', 'IEND', 'tRNS', 'gAMA', 'cHRM', 'sRGB', 'iCCP', 'sBIT', 'bKGD', 'pHYs', 'acTL', 'fcTL', 'fdAT', 'cICP', 'mDCV', 'cLLI']);
+
+/** A PNG up to its IEND, with only the chunks showing it needs. */
 function pngWithout(data: Buffer): Buffer {
   const out: Buffer[] = [data.subarray(0, 8)];
   let at = 8;
-  while (at < data.length) {
+  for (;;) {
+    need(data, at + 8);
     const length = data.readUInt32BE(at);
     const type = data.subarray(at + 4, at + 8).toString('latin1');
     const end = at + 12 + length;
-    if (end > data.length) throw new Error('bad chunk');
-    if (!PNG_DROPPED.has(type)) out.push(data.subarray(at, end));
+    need(data, end);
+    if (PNG_KEPT.has(type)) out.push(data.subarray(at, end));
+    if (type === 'IEND') return Buffer.concat(out); // what follows it goes
     at = end;
-    if (type === 'IEND') return Buffer.concat(out);
   }
-  throw new Error('no IEND');
 }
 
-/** A WebP's EXIF and XMP chunks go, with their flags in its VP8X chunk, and its size is set again. */
+// --- WebP ---------------------------------------------------------------------------------
+
+/** Chunks a WebP needs to be shown: its image (lossy, lossless, alpha), animation, ICC profile. */
+const WEBP_KEPT = new Set(['VP8 ', 'VP8L', 'VP8X', 'ALPH', 'ANIM', 'ANMF', 'ICCP']);
+
+/** A WebP within its RIFF size, with only the chunks showing it needs; its VP8X flags and size set again. */
 function webpWithout(data: Buffer): Buffer {
+  need(data, 12);
+  const riffEnd = 8 + data.readUInt32LE(4);
+  need(data, riffEnd);
   const out: Buffer[] = [];
   let at = 12;
-  while (at < data.length) {
+  while (at < riffEnd) {
+    need(data, at + 8);
     const type = data.subarray(at, at + 4).toString('latin1');
     const size = data.readUInt32LE(at + 4);
     const end = at + 8 + size + (size % 2);
-    if (end > data.length) throw new Error('bad chunk');
-    if (type !== 'EXIF' && type !== 'XMP ') {
+    if (end > riffEnd) throw new Error('bad chunk');
+    if (WEBP_KEPT.has(type)) {
       const chunk = Buffer.from(data.subarray(at, end));
-      // VP8X flags: EXIF 0x08, XMP 0x04.
+      // VP8X flags: EXIF 0x08, XMP 0x04 (their chunks are gone).
       if (type === 'VP8X') chunk[8] = chunk[8]! & ~0x0c;
       out.push(chunk);
     }
@@ -103,6 +206,63 @@ function webpWithout(data: Buffer): Buffer {
   const head = Buffer.from(data.subarray(0, 12));
   head.writeUInt32LE(4 + body.length, 4);
   return Buffer.concat([head, body]);
+}
+
+// --- GIF ----------------------------------------------------------------------------------
+
+/** Application extensions a GIF needs: how its animation loops. */
+const GIF_APPS_KEPT = new Set(['NETSCAPE2.0', 'ANIMEXTS1.0']);
+
+/** A GIF up to its trailer, without its comments and its other application extensions (XMP, say). */
+function gifWithout(data: Buffer): Buffer {
+  need(data, 13);
+  const out: Buffer[] = [];
+  const flags = data[10]!;
+  let at = 13 + (flags & 0x80 ? 3 * 2 ** ((flags & 0x07) + 1) : 0);
+  need(data, at);
+  out.push(data.subarray(0, at));
+  /** Past the data sub-blocks at `from`, to after their terminator. */
+  const subBlocks = (from: number) => {
+    let i = from;
+    for (;;) {
+      need(data, i + 1);
+      const size = data[i]!;
+      i += 1 + size;
+      if (size === 0) return i;
+    }
+  };
+  for (;;) {
+    need(data, at + 1);
+    const block = data[at]!;
+    if (block === 0x3b) {
+      out.push(data.subarray(at, at + 1));
+      return Buffer.concat(out); // what follows the trailer goes
+    }
+    if (block === 0x21) {
+      need(data, at + 2);
+      const label = data[at + 1]!;
+      const end = subBlocks(at + 2);
+      let keep = label === 0xf9 || label === 0x01; // graphic control, plain text (both drawn)
+      if (label === 0xff) {
+        need(data, at + 14);
+        keep = data[at + 2] === 11 && GIF_APPS_KEPT.has(data.subarray(at + 3, at + 14).toString('latin1'));
+      }
+      if (keep) out.push(data.subarray(at, end));
+      at = end;
+      continue;
+    }
+    if (block === 0x2c) {
+      need(data, at + 10);
+      const local = data[at + 9]!;
+      const tableEnd = at + 10 + (local & 0x80 ? 3 * 2 ** ((local & 0x07) + 1) : 0);
+      // The LZW minimum code size, then the image's data sub-blocks.
+      const end = subBlocks(tableEnd + 1);
+      out.push(data.subarray(at, end));
+      at = end;
+      continue;
+    }
+    throw new Error('bad block');
+  }
 }
 
 /** Base64 as a browser's FileReader writes it: nothing else, so nothing is dropped as it is decoded. */
@@ -131,7 +291,14 @@ export function parseScreenshots(v: unknown): GistUpload[] {
     if (bytes.length > maxBytes) throw new HttpError(413, t().reportShotTooLarge(i + 1, maxBytes / 1024 / 1024));
     const kind = imageKind(bytes);
     if (!kind) throw new HttpError(400, t().reportShotNotImage(i + 1));
-    return { name: `screenshot-${i + 1}.${kind}`, data: withoutMetadata(bytes, kind) };
+    let clean: Buffer;
+    try {
+      clean = withoutMetadata(bytes, kind);
+    } catch {
+      // Its metadata could not be told from its pixels: refused, never uploaded with them.
+      throw new HttpError(400, t().reportShotUnreadable(i + 1));
+    }
+    return { name: `screenshot-${i + 1}.${kind}`, data: clean };
   });
 }
 

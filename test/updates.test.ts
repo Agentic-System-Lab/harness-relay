@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DesktopUpdate, ServerToDesktop, UpdateStatus } from '../src/shared/types';
 import { Updates } from '../src/server/updates';
 import { en } from '../src/web/locales/en';
-import { dialogsOpen, onDialogsChange, openDialog } from '../src/web/dialogs';
+import { dialogsHeld, dialogsOpen, holdDialogs, onDialogsChange, openDialog } from '../src/web/dialogs';
 import { isAppWindow, offerShows, pollDelay, shouldOffer, typesText, updateLine } from '../src/web/update';
 
 /** The desktop app, as the server's parent port: what the server sends it, and what it says. */
@@ -125,6 +125,8 @@ describe('the update in the chat', () => {
     // Not while the user types into a text field: it would take their keys. Shown, typing elsewhere does not close it.
     expect(offerShows(false, { offerable: true, tourOpen: false, dialogsOpen: 0, typing: true })).toBe(false);
     expect(offerShows(true, { offerable: true, tourOpen: false, dialogsOpen: 1, typing: true })).toBe(true);
+    // Not over a voice recording (it holds dialogs back): Escape would close both.
+    expect(offerShows(false, { offerable: true, tourOpen: false, dialogsOpen: 0, typing: false, held: true })).toBe(false);
   });
 
   it('counts keys into text fields as typing, and no others', () => {
@@ -188,5 +190,17 @@ describe('the dialogs open on the page', () => {
     a.close();
     expect(b.isTop()).toBe(true);
     b.close();
+  });
+
+  it('are held back while something that is no dialog goes on (a voice recording), until it is released once', () => {
+    let told = 0;
+    const stop = onDialogsChange(() => told++);
+    const release = holdDialogs();
+    expect(dialogsHeld()).toBe(1);
+    release();
+    release(); // once only
+    expect(dialogsHeld()).toBe(0);
+    expect(told).toBe(2);
+    stop();
   });
 });

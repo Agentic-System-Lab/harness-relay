@@ -15,7 +15,7 @@ import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
 import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
-import { useDialogsOpen } from './components/useDialog';
+import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
 
 type SeenMap = Record<string, number>;
 const SEEN_KEY = 'relay:seen';
@@ -270,6 +270,7 @@ function RelayApp() {
   }, [update]);
   // Shown only while no other dialog is open (it would take that one's keys), then kept while on offer.
   const dialogs = useDialogsOpen();
+  const held = useDialogsHeld() > 0;
   // Closed without Later (Escape, ×): not offered again while the page is open.
   const [closedFor, setClosedFor] = useState<string>();
   const offerable = shouldOffer(update, dismissed, isAppWindow(navigator.userAgent), closedFor);
@@ -291,8 +292,8 @@ function RelayApp() {
   }, []);
   const [offer, setOffer] = useState(false);
   useEffect(() => {
-    setOffer((showing) => offerShows(showing, { offerable, tourOpen, dialogsOpen: dialogs, typing }));
-  }, [offerable, tourOpen, dialogs, typing]);
+    setOffer((showing) => offerShows(showing, { offerable, tourOpen, dialogsOpen: dialogs, typing, held }));
+  }, [offerable, tourOpen, dialogs, typing, held]);
 
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>

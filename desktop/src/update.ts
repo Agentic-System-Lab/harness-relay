@@ -183,7 +183,11 @@ export function parseRelease(json: unknown): UpdateRelease | undefined {
       (copy ? copies : installers)[system] = { name, url: a.browser_download_url as string, size: typeof a.size === 'number' ? a.size : undefined, sha256 };
     }
   }
-  const assets: UpdateRelease['assets'] = { ...installers, ...copies };
+  // The copy only with its checksum (else the update would go by the release page instead), or when the installer has none either.
+  const assets: UpdateRelease['assets'] = { ...installers };
+  for (const [system, copy] of Object.entries(copies) as [UpdateSystem, UpdateAsset][]) {
+    if (copy.sha256 || !installers[system]?.sha256) assets[system] = copy;
+  }
   const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${RELEASES_PAGE}/tag/`) ? r.html_url : RELEASES_PAGE;
   return { version: parsed.value.version, semver: semverOf(parsed.value), page, candidate: parsed.value.rc, assets };
 }
@@ -340,7 +344,6 @@ export async function download(o: {
   asset: UpdateAsset;
   to: string;
   onProgress?: (done: number) => void;
-  signal?: AbortSignal;
   stallMs?: number;
 }): Promise<void> {
   if (!o.asset.sha256) throw new UpdateError('checksum', 'no checksum');
@@ -348,7 +351,7 @@ export async function download(o: {
   rmSync(part, { force: true });
   const stallMs = o.stallMs ?? DOWNLOAD_STALL_MS;
   const stalled = new AbortController();
-  const signal = o.signal ? AbortSignal.any([o.signal, stalled.signal]) : stalled.signal;
+  const signal = stalled.signal;
   /** Why it failed: given up on for no data, else `err`. */
   const reason = (err: unknown) => ((stalled.signal.reason as Error | undefined) ?? (err as Error)).message;
   let body: Readable | undefined;
