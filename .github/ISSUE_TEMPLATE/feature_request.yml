@@ -1,0 +1,55 @@
+name: Feature request · 功能建議
+description: An idea for something Harness Relay could do. · 提出 Harness Relay 可以做到的事。
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before the solution. For anything larger than a small fix (a new mode, a new agent CLI, a schema change, a new setting), please discuss it here before you write the code. Write in English or 繁體中文.
+
+        請先描述問題，再談解法。比小修正更大的改動（新的對話模式、新的 agent CLI、schema 變更、新的設定），請先在這裡討論再動手寫程式。用中文或英文寫都可以。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve? · 想解決什麼問題？
+      description: What you are trying to do, and what gets in the way today. · 你想做到什麼，以及現在卡在哪裡。
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like it to do? · 希望它怎麼做？
+      description: How it would work, and when you would use it. · 它會怎麼運作，你會在什麼時候用到。
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered · 考慮過的其他做法
+      description: Workarounds you use now, or other ways it could be done. · 你現在的變通方法，或其他可行的做法。
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area · 相關部分
+      multiple: true
+      options:
+        - Chat and turns · 對話與輪流發言
+        - Teams / templates / the lead agent · 團隊／範本／首席 agent
+        - Agent CLIs (Claude Code / Codex / Grok) · Agent CLI
+        - Files / workspaces / git · 檔案／工作目錄／git
+        - Tools / skills / memory · 工具／skill／記憶
+        - Schedules · 排程
+        - Desktop app · 桌面 app
+        - Phone and remote access · 手機與遠端連線
+        - Docs and translations · 文件與翻譯
+        - Other · 其他
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit · 送出之前
+      options:
+        - label: I searched the existing issues for this idea. · 我已搜尋過現有的 issue，沒有人提過這個想法。
+          required: true
