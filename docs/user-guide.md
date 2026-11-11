@@ -414,6 +414,16 @@ To try another direction without losing where a conversation went, branch it: **
 
 **Settings → Shared conversations** lists every link you made, the newest first, with what it holds (and how many files went along) and when: open the page, its chat, its gist on GitHub or the gist with its files, and remove the ones that should go, one at a time or several at once. Removing one deletes all of its gists on GitHub (`gh gist delete`): the page's and the one with its files, so the link and the files' links stop working (GitHub may keep serving a removed file from its cache for a few minutes); the share leaves the list only once both are gone, and stays with the reason when one could not be deleted, so you can remove it again. One you already deleted on GitHub just leaves the list. A gist made while `gh` was signed in to another GitHub account stays until you switch back to that account (`gh auth switch`).
 
+### Reporting a problem
+
+Ran into a problem, or have an idea? The speech-bubble icon at the right of **Settings & sign-in**, at the foot of the sidebar, opens **Report a problem**. Choose its type (problem, idea or other), write what happened (a subject is optional: the first line stands in), and press **Send**: your mail app opens with the developer's address, the subject and your report filled in. Drag screenshots into the mail, then send it. Nothing leaves your computer until you do.
+
+- **Screenshots (optional)**: paste images, drag them in or choose them (up to 5), then press **Upload screenshots**: they go up to GitHub as a secret gist with your GitHub CLI (`gh`, signed in), and the mail links to it. Anyone with the link can see them; **Remove upload** deletes the gist again before you send. A sent mail cannot be taken back: deleting the gist on GitHub later makes the link in it stop working, but what the developer has already seen or saved stays with them. Without `gh`, remove them and drag them into the mail instead.
+- No mail app? **Send with Gmail** opens Gmail in a new tab, filled in the same way; or press **Copy report** and send it from any mail to the address shown.
+- The mail always carries Harness Relay's version, the system, the browser, each CLI's version and the language, so the problem is easier to track down; open **Version and system details are included** to see every line. None of your files, paths or accounts go along.
+- A report too long for a mail link goes on the clipboard instead, and the mail says to paste it.
+- What you typed stays when you close the dialog, until you send it.
+
 ### Voice input
 
 Press 🎙 next to Send and speak; press it again (it shows a red timer while recording) and the text appears where the cursor is, so you can fix it, add an `@mention` and send it yourself. Esc cancels a recording, and one recording lasts at most two minutes. Speech is turned into text on your computer by whisper.cpp; the recording is never uploaded.

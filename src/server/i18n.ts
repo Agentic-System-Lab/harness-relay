@@ -112,6 +112,17 @@ const zhTW = {
     `無法建立分享頁（${detail}），已經上傳的檔案也沒能刪除，還在 GitHub 上（一個只有檔案、沒有頁面的 secret gist）。請到「設定 → 分享的對話」移除它。`,
   shareFilesUnknown: (detail: string, token: string) =>
     `無法建立分享頁（${detail}），也無法確認附上的檔案是否已經上傳。如果 GitHub 上有說明含「${token}」的 gist，請用 gh gist list 找到並刪除它。`,
+  reportShotsNone: '沒有要上傳的截圖。',
+  reportShotsTooMany: (max: number) => `一次最多只能上傳 ${max} 張截圖。`,
+  reportShotTooLarge: (n: number, mb: number) => `第 ${n} 張截圖超過 ${mb} MB 的上限。`,
+  reportShotNotImage: (n: number) => `第 ${n} 張截圖不是 PNG、JPEG、GIF 或 WebP 圖片。`,
+  reportShotsUndone: (detail: string) => `無法上傳截圖（${detail}），已經建立的 gist 也刪除了。請再試一次。`,
+  reportShotsLeftover: (detail: string, url: string) =>
+    `無法上傳截圖（${detail}），已經建立的 gist 也沒能刪除，還在 GitHub 上：${url}。請到 GitHub 刪除它。`,
+  reportShotsUnknown: (detail: string, token: string) =>
+    `無法上傳截圖（${detail}），也無法確認 gist 是否已經建立。如果 GitHub 上有說明含「${token}」的 gist，請用 gh gist list 找到並刪除它。`,
+  reportShotsNotGithub: 'gh 登入的不是 github.com，截圖只能上傳到 github.com 的 gist',
+  reportShotsNotFound: '這裡找不到這次上傳的截圖（可能是伺服器重新啟動過）：請到 GitHub 刪除那個 gist。',
   messageNotFound: '找不到這則訊息',
   branchTitle: (title: string) => `分支 · ${title}`,
   branchOnlyReply: '只能從 agent 的回覆分支',
@@ -394,6 +405,17 @@ const en: ServerMessages = {
     `Could not make the shared page (${detail}), and could not delete the files uploaded for it either: they are still on GitHub, in a secret gist without the page. Remove it under Settings → Shared conversations.`,
   shareFilesUnknown: (detail, token) =>
     `Could not make the shared page (${detail}), nor tell whether the files went up. If GitHub has a gist whose description holds "${token}", find it with gh gist list and delete it.`,
+  reportShotsNone: 'No screenshots to upload.',
+  reportShotsTooMany: (max) => `At most ${max} screenshots can be uploaded.`,
+  reportShotTooLarge: (n, mb) => `Screenshot ${n} is over the ${mb} MB limit.`,
+  reportShotNotImage: (n) => `Screenshot ${n} is not a PNG, JPEG, GIF or WebP image.`,
+  reportShotsUndone: (detail) => `Could not upload the screenshots (${detail}), so the gist made for them was deleted again. Try once more.`,
+  reportShotsLeftover: (detail, url) =>
+    `Could not upload the screenshots (${detail}), and could not delete the gist made for them either: it is still on GitHub, at ${url}. Delete it there.`,
+  reportShotsUnknown: (detail, token) =>
+    `Could not upload the screenshots (${detail}), nor tell whether their gist was made. If GitHub has a gist whose description holds "${token}", find it with gh gist list and delete it.`,
+  reportShotsNotGithub: 'gh is signed in to a host other than github.com: screenshots go only to gists on github.com',
+  reportShotsNotFound: 'This upload is not known here (the server may have restarted since): delete its gist on GitHub.',
   messageNotFound: 'Message not found',
   branchTitle: (title) => `Branch · ${title}`,
   branchOnlyReply: "Only an agent's reply can be branched from",

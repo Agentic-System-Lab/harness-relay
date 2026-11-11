@@ -51,6 +51,16 @@ export function newAgent(provider: Provider, taken: string[]): AgentConfig {
   return { id: crypto.randomUUID(), name, provider, role: '' };
 }
 
+/** A file's contents as base64, as the API takes files (a browser's FileReader: not for tests). */
+export function toBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;

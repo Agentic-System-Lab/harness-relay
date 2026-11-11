@@ -1,6 +1,7 @@
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING } from '../shared/types';
 import type {
+  AboutInfo,
   AgentConfig,
   ApprovalAnswer,
   AuthSessionView,
@@ -22,6 +23,7 @@ import type {
   ProviderModels,
   ProviderSettingsUpdate,
   ProviderStatus,
+  ReportScreenshots,
   ScheduleUpdate,
   SearchResult,
   SettingsUpdate,
@@ -273,6 +275,13 @@ export const api = {
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),
   providers: (refresh = false) => request<ProviderStatus[]>('GET', `/api/providers${refresh ? '?refresh=1' : ''}`),
+  /** Which Harness Relay this is, and on what, for a problem report. */
+  about: () => request<AboutInfo>('GET', '/api/about'),
+  /** A problem report's screenshots (each base64) up to GitHub, as a secret gist through the user's gh. */
+  uploadScreenshots: (images: string[]) =>
+    request<ReportScreenshots>('POST', '/api/report/screenshots', { files: images.map((data) => ({ data })) }),
+  /** Deletes the screenshots' gist again (one uploaded since the server started). */
+  removeScreenshots: (id: string) => request<{ ok: true }>('DELETE', `/api/report/screenshots/${encodeURIComponent(id)}`),
   nativeSetup: (p: Provider, refresh = false) => request<NativeSetup>('POST', `/api/providers/${p}/native`, { refresh }),
   nativeFile: (p: Provider, path: string) => request<FilePreview>('POST', `/api/providers/${p}/native/file`, { path }),
   /**

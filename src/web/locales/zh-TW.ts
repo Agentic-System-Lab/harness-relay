@@ -14,6 +14,7 @@ import type {
   VoiceLanguage,
   VoiceModelId,
 } from '../../shared/types';
+import type { ReportKind } from '../report';
 import type { ThemeChoice } from '../theme';
 
 /** A conversation's state as the sidebar shows it. */
@@ -102,6 +103,7 @@ export const zhTW = {
     searchFailed: (message: string) => `搜尋失敗：${message}`,
     matches: (n: number) => `${n} 則訊息符合`,
     settings: '設定與登入',
+    report: '回報問題',
     health: {
       checking: '檢查中…',
       notInstalled: '未安裝',
@@ -678,6 +680,77 @@ export const zhTW = {
     add: '讓另一個裝置登入',
     codeHint: (until: string) => `在另一個裝置（例如透過 Tailscale 打開的手機）的登入頁輸入這個代碼，或打開下面的連結。只能用一次，${until} 前有效。`,
     link: '連結：',
+  },
+
+  /** Reporting a problem or an idea by email (the sidebar's button beside Settings). */
+  report: {
+    title: '回報問題',
+    intro: '遇到問題或有想法？寫下來，會寄到開發者的信箱。',
+    kind: '類型',
+    kinds: { bug: '問題', idea: '建議', other: '其他' } as Record<ReportKind, string>,
+    subject: '主旨',
+    subjectPlaceholder: '一句話說明（可不填）',
+    description: '內容',
+    placeholder: {
+      bug: '發生了什麼事？你原本預期會怎樣？怎麼做會再發生一次？',
+      idea: '你想要什麼功能？會用在什麼情況？',
+      other: '想說什麼都可以',
+    } as Record<ReportKind, string>,
+    infoSummary: '會一併附上版本與系統資訊',
+    infoLoading: '讀取中…',
+    infoHint: '只有版本與系統，不含你的檔案、路徑或帳號。',
+    shots: {
+      label: '截圖（選填）',
+      add: '加入截圖',
+      hint: (max: number) =>
+        `可以貼上、拖進來或選擇圖片，最多 ${max} 張。按「上傳截圖」會用你的 GitHub CLI（gh）把截圖上傳成 secret gist，信裡附上連結，有連結的人都看得到。信寄出後就收不回來：之後在 GitHub 上刪除 gist，信裡的連結會失效，但開發者已經看過或存下的截圖收不回來。`,
+      upload: '上傳截圖',
+      uploading: '上傳中…',
+      uploaded: '截圖已上傳，信裡會附上連結。',
+      view: '在 GitHub 上查看',
+      removeUpload: '刪除上傳',
+      removing: '刪除中…',
+      uploadFirst: '先上傳截圖，或把它們移除，才能寄出。',
+      fallback: '也可以移除截圖，寄出後再把它們拖進信裡。',
+      alt: (n: number) => `截圖 ${n}`,
+      remove: (n: number) => `移除截圖 ${n}`,
+      tooMany: (max: number) => `最多只能加入 ${max} 張截圖。`,
+      notImage: (name: string) => `「${name}」不是 PNG、JPEG、GIF 或 WebP 圖片。`,
+      tooLarge: (name: string, max: string) => `「${name}」超過 ${max} 的上限。`,
+    },
+    hint: '按「寄出」會打開你的郵件程式，收件人與內容都已填好。截圖可以直接拖進信裡，再按寄出。',
+    send: '寄出',
+    sent: {
+      mail: '已打開你的郵件程式：截圖可以直接拖進信裡，再按寄出。沒有看到的話，改用 Gmail 或複製內容。',
+      gmail: '已在新分頁打開 Gmail：截圖可以直接拖進信裡，再按寄出。',
+      cut: '內容太長，放不進信裡，已複製到剪貼簿：請在信裡貼上。',
+      cutCopyFailed: '內容太長，放不進信裡：請按「複製內容」，再貼進信裡。',
+    },
+    noMailApp: '沒有郵件程式？',
+    gmail: '用 Gmail 寄',
+    copy: '複製內容',
+    sendTo: '收件信箱：',
+    /** One line of the report's details: a label and its value. */
+    line: (label: string, value: string) => `${label}：${value}`,
+    subjectLine: (kind: string, subject: string) => `[Harness Relay] ${kind}：${subject}`,
+    info: {
+      desktop: '桌面版',
+      web: '網頁版',
+      os: '作業系統',
+      browser: '瀏覽器',
+      language: '介面語言',
+      installed: '已安裝',
+      notInstalled: '未安裝',
+    },
+    /** In the mail itself. */
+    mail: {
+      to: '收件人',
+      subject: '主旨',
+      kind: '類型',
+      screenshots: '（截圖可以直接拖進這封信）',
+      screenshotsLink: '截圖',
+      pasteHere: '（內容太長，已複製到剪貼簿：請貼在這裡。）',
+    },
   },
 
   share: {

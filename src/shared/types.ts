@@ -1096,6 +1096,32 @@ export interface ProviderStatus {
 }
 
 /**
+ * What the server says about itself (`GET /api/about`), for a problem report: no paths, no names.
+ * `version`: the release (or dev build) the desktop app was built as, else `source (<commit>)`.
+ */
+export interface AboutInfo {
+  version: string;
+  /** Started by the desktop app, not `npm start`. */
+  desktop: boolean;
+  /** "darwin 25.6.0 (arm64)". */
+  os: string;
+  /** "v24.1.0". */
+  node: string;
+}
+
+/** A problem report's screenshots: at most this many, each this large (`POST /api/report/screenshots`). */
+export const REPORT_SCREENSHOT_LIMITS = { maxFiles: 5, maxBytes: 10 * 1024 * 1024 };
+
+/** The kinds of image a report's screenshot may be (the server goes by its bytes, not by what it says it is). */
+export const REPORT_SCREENSHOT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+/** A problem report's screenshots, uploaded: their secret gist, and its page on GitHub (which shows them). */
+export interface ReportScreenshots {
+  id: string;
+  url: string;
+}
+
+/**
  * Where Harness Relay keeps API keys: the operating system's credential store (macOS Keychain,
  * Windows Credential Manager, Linux Secret Service) or, when there is none, its database.
  */

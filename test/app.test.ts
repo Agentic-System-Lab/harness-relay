@@ -970,6 +970,91 @@ describe('sidebar groups', () => {
   });
 });
 
+describe('GET /api/about', () => {
+  it('says which Harness Relay this is and on what, for a problem report', async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const own = createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      desktopApp: true,
+      version: async () => '2026-11-10',
+    });
+    const res = await own.request('/api/about', { headers: HOST });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ version: '2026-11-10', desktop: true, os: expect.any(String), node: process.version });
+  });
+});
+
+describe('/api/report/screenshots', () => {
+  const ID = 'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff';
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]).toString('base64');
+  type Upload = { name: string; data: Buffer };
+  function shotsApp(gists: { upload?: (files: Upload[]) => Promise<{ id: string; url: string }>; remove?: (id: string) => Promise<void> }) {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const never = async () => {
+      throw new Error('should not be called');
+    };
+    return createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      screenshotGists: { upload: gists.upload ?? never, remove: gists.remove ?? never },
+    });
+  }
+
+  it('uploads the screenshots as named by their place, and deletes only an upload made here', async () => {
+    const uploads: Upload[][] = [];
+    const removed: string[] = [];
+    const own = shotsApp({
+      upload: async (files) => {
+        uploads.push(files);
+        return { id: ID, url: `https://gist.github.com/someone/${ID}` };
+      },
+      remove: async (id) => {
+        removed.push(id);
+      },
+    });
+    // None made here yet.
+    expect((await own.request(`/api/report/screenshots/${ID}`, json('DELETE', {}))).status).toBe(404);
+
+    const res = await own.request('/api/report/screenshots', json('POST', { files: [{ data: PNG }, { data: PNG }] }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: ID, url: `https://gist.github.com/someone/${ID}` });
+    expect(uploads.map((files) => files.map((f) => f.name))).toEqual([['screenshot-1.png', 'screenshot-2.png']]);
+
+    const del = await own.request(`/api/report/screenshots/${ID}`, json('DELETE', {}));
+    expect(del.status).toBe(200);
+    expect(removed).toEqual([ID]);
+    // Once only.
+    expect((await own.request(`/api/report/screenshots/${ID}`, json('DELETE', {}))).status).toBe(404);
+  });
+
+  it('refuses what is not a screenshot before anything goes up', async () => {
+    const own = shotsApp({});
+    const res = await own.request('/api/report/screenshots', json('POST', { files: [{ data: Buffer.from('<svg/>').toString('base64') }] }));
+    expect(res.status).toBe(400);
+    expect((await own.request('/api/report/screenshots', json('POST', {}))).status).toBe(400);
+  });
+
+  it("passes on gh's trouble with its code, for the dialog to say what to do", async () => {
+    const own = shotsApp({
+      upload: async () => {
+        throw new ShareError('gh is missing', 'gh-missing');
+      },
+    });
+    const res = await own.request('/api/report/screenshots', json('POST', { files: [{ data: PNG }] }));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'gh is missing', code: 'gh-missing' });
+  });
+});
+
 describe('GET /api/search', () => {
   it('finds conversations by title and by what was written in them', async () => {
     const conv = await createConversation();

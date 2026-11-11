@@ -1,0 +1,140 @@
+// A problem report (the sidebar's button beside Settings), sent by email: the dialog's text, made
+// into a mail the user's own mail app (a mailto link) or Gmail opens, filled in, for them to send.
+// Nothing goes out until they do. Pure, so it can be tested without a DOM.
+
+import {
+  PROVIDERS,
+  PROVIDER_LABEL,
+  REPORT_SCREENSHOT_LIMITS,
+  REPORT_SCREENSHOT_TYPES,
+  type AboutInfo,
+  type ProviderStatus,
+} from '../shared/types';
+import type { Messages } from './i18n';
+
+/** Where problem reports go. */
+export const REPORT_EMAIL = 'chihyu.jimmy.yeh@gmail.com';
+
+export const REPORT_KINDS = ['bug', 'idea', 'other'] as const;
+export type ReportKind = (typeof REPORT_KINDS)[number];
+
+export interface ReportDraft {
+  kind: ReportKind;
+  /** May be empty: the description's first line stands in. */
+  subject: string;
+  description: string;
+}
+
+export const EMPTY_REPORT: ReportDraft = { kind: 'bug', subject: '', description: '' };
+
+export const REPORT_SUBJECT_MAX = 120;
+export const REPORT_DESCRIPTION_MAX = 20_000;
+
+/**
+ * The longest mailto link handed to the mail app. Every mail app takes 2,000 characters; some cut a
+ * longer one short without a word. A report that does not fit goes by the clipboard instead.
+ */
+export const MAILTO_MAX = 2_000;
+/** The longest Gmail link (its address takes much more; this stays well clear of what Google refuses). */
+export const GMAIL_MAX = 8_000;
+
+/** Only the description is needed: there is nothing to report without it. */
+export function reportReady(d: ReportDraft): boolean {
+  return d.description.trim().length > 0;
+}
+
+/**
+ * What goes along with a report, a line each: this Harness Relay's version and how it runs, the
+ * computer's system, the browser, each CLI's version and the UI's language. Nothing that names the
+ * user, their accounts or their files. `about`: undefined while it loads, or when it could not.
+ */
+export function infoLines(o: { about?: AboutInfo; providers: ProviderStatus[]; userAgent: string; lang: string }, t: Messages): string[] {
+  const { info: i, line } = t.report;
+  const lines: string[] = [];
+  if (o.about) {
+    lines.push(line('Harness Relay', `${o.about.version} · ${o.about.desktop ? i.desktop : i.web}`));
+    lines.push(line(i.os, o.about.os));
+    lines.push(line('Node.js', o.about.node));
+  }
+  if (o.userAgent) lines.push(line(i.browser, o.userAgent));
+  for (const p of PROVIDERS) {
+    const s = o.providers.find((x) => x.provider === p);
+    if (s) lines.push(line(PROVIDER_LABEL[p], s.installed ? s.version?.trim() || i.installed : i.notInstalled));
+  }
+  lines.push(line(i.language, o.lang));
+  return lines;
+}
+
+/** `max` characters of `text` at most (whole characters, not UTF-16 halves), an ellipsis marking a cut. */
+function clip(text: string, max: number): string {
+  const chars = [...text];
+  return chars.length > max ? `${chars.slice(0, max).join('')}…` : text;
+}
+
+/** The mail's subject: its kind, and the subject typed (or the description's first line). */
+export function reportSubject(d: ReportDraft, t: Messages): string {
+  const typed = d.subject.replace(/\s+/g, ' ').trim();
+  const firstLine = d.description.trim().split('\n')[0]!.trim();
+  return t.report.subjectLine(t.report.kinds[d.kind], typed || clip(firstLine, 60));
+}
+
+/**
+ * The mail's text: the description, then its kind and `info` (always, shown in the dialog), then the
+ * link to the screenshots uploaded (`screenshots`, their gist's page), or else where screenshots go.
+ */
+export function reportBody(d: ReportDraft, info: string[], t: Messages, screenshots?: string): string {
+  const m = t.report.mail;
+  const last = screenshots ? t.report.line(m.screenshotsLink, screenshots) : m.screenshots;
+  return [d.description.trim(), '', '---', t.report.line(m.kind, t.report.kinds[d.kind]), ...info, '', last].join('\n');
+}
+
+/**
+ * Why an image cannot be added to the report's screenshots, `count` being there already: one too many,
+ * not a PNG, JPEG, GIF or WebP image (by its type: the server checks its bytes), or too large.
+ */
+export function screenshotProblem(file: { type: string; size: number }, count: number): 'tooMany' | 'notImage' | 'tooLarge' | undefined {
+  if (count >= REPORT_SCREENSHOT_LIMITS.maxFiles) return 'tooMany';
+  if (!REPORT_SCREENSHOT_TYPES.includes(file.type)) return 'notImage';
+  if (file.size > REPORT_SCREENSHOT_LIMITS.maxBytes) return 'tooLarge';
+  return undefined;
+}
+
+/** The whole mail as text, to paste into any mail: where it goes, its subject and its text. */
+export function reportText(to: string, subject: string, body: string, t: Messages): string {
+  const { line, mail } = t.report;
+  return `${line(mail.to, to)}\n${line(mail.subject, subject)}\n\n${body}`;
+}
+
+/** Line breaks as RFC 6068 has them in a mailto link (CRLF), the rest percent-encoded. */
+const mailtoPart = (s: string) => encodeURIComponent(s.replace(/\r?\n/g, '\r\n'));
+
+export function mailtoUrl(to: string, subject: string, body: string): string {
+  return `mailto:${to}?subject=${mailtoPart(subject)}&body=${mailtoPart(body)}`;
+}
+
+/** Gmail's page for writing a mail, filled in. */
+export function gmailUrl(to: string, subject: string, body: string): string {
+  const q = (s: string) => encodeURIComponent(s);
+  return `https://mail.google.com/mail/?view=cm&fs=1&to=${q(to)}&su=${q(subject)}&body=${q(body)}`;
+}
+
+export interface MailLink {
+  url: string;
+  /** The report did not fit: the mail only says to paste it (from the clipboard). */
+  cut: boolean;
+}
+
+/**
+ * The link `make` makes of the mail, when it is `max` characters at most. A longer one carries
+ * `pasteHere` for its text instead (and, should even that be too long, its subject shortened).
+ */
+export function fitLink(make: (subject: string, body: string) => string, subject: string, body: string, pasteHere: string, max: number): MailLink {
+  const url = make(subject, body);
+  if (url.length <= max) return { url, cut: false };
+  const chars = [...subject];
+  for (let n = chars.length; n > 0; n--) {
+    const short = make(n === chars.length ? subject : `${chars.slice(0, n).join('')}…`, pasteHere);
+    if (short.length <= max) return { url: short, cut: true };
+  }
+  return { url: make('', pasteHere), cut: true };
+}
