@@ -535,8 +535,25 @@ function writeGrokOwn(home: string, write: () => void): void {
   const guard = grokGuards.get(realPath(home));
   const putBack = guard ? restoreGrokSettings(guard.snapshot, home) : [];
   guard?.found.push(...putBack);
-  write();
-  if (guard) for (const name of GROK_OWN) if (!putBack.includes(name)) guard.snapshot.entries.set(name, settingNow(home, name));
+  // A setting still not as the snapshot has it could not be put back: it stays out of the snapshot.
+  const stuck = guard
+    ? GROK_OWN.filter((name) => {
+        const was = guard.snapshot.entries.get(name);
+        try {
+          return was !== undefined && !sameEntry(name, was, join(home, name));
+        } catch {
+          return true;
+        }
+      })
+    : [];
+  try {
+    write();
+  } finally {
+    // Every other one is taken as `write` left it, also one just put back, and also when `write`
+    // failed part way: what Harness Relay wrote there (another conversation's folder profile, say) is
+    // not a command's change.
+    if (guard) for (const name of GROK_OWN) if (!stuck.includes(name)) guard.snapshot.entries.set(name, settingNow(home, name));
+  }
 }
 
 /**
