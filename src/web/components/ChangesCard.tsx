@@ -67,7 +67,7 @@ export function ChangesCard({ changes, agentName, applyState, onDiff, onApply }:
         ))}
       </ul>
       {files.length > PREVIEW && (
-        <button className="link-button" onClick={() => setExpanded(!expanded)}>
+        <button className="link-button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
           {expanded ? t.changes.collapse : t.changes.more(files.length - PREVIEW)}
         </button>
       )}

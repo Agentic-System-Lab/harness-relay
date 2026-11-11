@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
   pendingPlan,
@@ -13,7 +13,7 @@ import {
   type ServerEvent,
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
-import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, teamToEdit } from '../chat';
+import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, scrollSpot, teamToEdit } from '../chat';
 import { useI18n, useT } from '../i18n';
 import { hashFor } from '../route';
 import { describeRepeat, scheduleState, scheduleTrouble } from '../schedule';
@@ -187,7 +187,10 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     open(true);
   };
 
+  /** The messages follow new output (see `followsAfterScroll`). */
   const stick = useRef(true);
+  /** Where the messages stood last, to tell the reader scrolling up or down from more coming in. */
+  const lastSpot = useRef({ top: 0, distance: 0 });
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
 
@@ -238,11 +241,41 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     if (autoTeam) api.getSettings().then((s) => setLead(s.lead), () => {});
   }, [autoTeam]);
 
-  // Follow the stream unless the user scrolled up to read.
-  useEffect(() => {
+  /**
+   * Notes where the messages stand. While they follow, the browser must not move them itself when
+   * something above shrinks (scroll anchoring): that would read as the reader scrolling up. Once they
+   * stop, anchoring keeps the reader's place as content above changes.
+   */
+  const settle = (el: HTMLElement) => {
+    lastSpot.current = scrollSpot(el);
+    el.style.overflowAnchor = stick.current ? 'none' : '';
+  };
+  /** Stop following: the reader is about to look at something else in the messages. */
+  const stopFollowing = () => {
+    stick.current = false;
+    if (scroller.current) settle(scroller.current);
+  };
+
+  // Follow the stream unless the user scrolled up to read. It follows when the messages change size (a
+  // reply streaming, an image loading, the message box growing), at that moment, and never on a render
+  // that changes nothing: the sidebar's list, fetched every few seconds, used to pull a reader down then.
+  const loaded = state.conv !== null;
+  useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
-  });
+    const inner = el?.firstElementChild;
+    if (!el || !inner) return;
+    const follow = () => {
+      // A scroll whose event has not come yet (the reader's, or a message scrolled into view) counts first.
+      stick.current = followsAfterScroll(stick.current, lastSpot.current, el);
+      if (stick.current) el.scrollTop = el.scrollHeight;
+      settle(el);
+    };
+    follow();
+    const observer = new ResizeObserver(follow);
+    observer.observe(el);
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [loaded]);
 
   // Read through a ref so the callbacks stay stable while messages stream (MessageItem is memoised).
   const convRef = useRef(state.conv);
@@ -574,7 +607,13 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         ref={scroller}
         onScroll={(e) => {
           const el = e.currentTarget;
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          stick.current = followsAfterScroll(stick.current, lastSpot.current, el);
+          settle(el);
+        }}
+        onClickCapture={(e) => {
+          // Opening or folding part of a message (an activity row, Show more) leaves it where the reader
+          // is looking: following would scroll what just opened out of view.
+          if ((e.target as Element).closest('summary, [aria-expanded], [aria-pressed]')) stopFollowing();
         }}
       >
         <div className="messages-inner">
@@ -629,7 +668,11 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           <button
             type="button"
             className="approval-banner"
-            onClick={() => document.getElementById(`approval-${pending[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+            onClick={() => {
+              // Stop following first: another agent's output would pull the list back down mid-scroll.
+              stopFollowing();
+              document.getElementById(`approval-${pending[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
           >
             ⏸ {pending.map((p) => `@${p.agent}`).join(t.common.listSeparator)} · {t.approval.waiting}
           </button>
@@ -638,7 +681,10 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           <button
             type="button"
             className="approval-banner"
-            onClick={() => document.getElementById(`ask-${questions[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+            onClick={() => {
+              stopFollowing();
+              document.getElementById(`ask-${questions[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
           >
             ❓ {t.chat.asking(askers)}
           </button>

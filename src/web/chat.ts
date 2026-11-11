@@ -28,6 +28,45 @@ export function afterStreamError(err: unknown, browserGaveUp: boolean): 'stop' |
   return browserGaveUp ? 'reconnect' : 'wait';
 }
 
+/** How far from the bottom of the messages still counts as at the bottom: fractions of a pixel from zoom. */
+export const BOTTOM_SLACK = 4;
+
+/**
+ * How near the bottom scrolling down starts following again. While a reply streams, the browser stops a
+ * scroll at the bottom as it was, and a line or two more has come in below by the time its event comes.
+ */
+export const FOLLOW_AGAIN = 80;
+
+/** How a scrolled list stands: how far it is scrolled, and how far that is from its bottom. */
+export interface ScrollSpot {
+  top: number;
+  distance: number;
+}
+
+type ScrollBox = { scrollTop: number; scrollHeight: number; clientHeight: number };
+
+/** Where `scroll` stands now. */
+export function scrollSpot(scroll: ScrollBox): ScrollSpot {
+  return { top: scroll.scrollTop, distance: scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight };
+}
+
+/**
+ * Whether the messages keep following new output after they moved to `scroll` from `previous`.
+ * Reaching the bottom starts following, and so does scrolling down to near it (`FOLLOW_AGAIN`). Scrolling
+ * up stops it, however near the bottom it stops, so a reader a few lines up is never pulled down. Anything
+ * else leaves it as it was: more came in below while the list stayed (it still follows when it did), the
+ * reader scrolled down but not near the bottom, or the browser moved the list down as much as content
+ * above it grew to keep the reader's place (scroll anchoring: as far from the bottom as before).
+ */
+export function followsAfterScroll(following: boolean, previous: ScrollSpot, scroll: ScrollBox): boolean {
+  const { top, distance } = scrollSpot(scroll);
+  if (distance <= BOTTOM_SLACK) return true;
+  if (top < previous.top) return false;
+  // Nearer the bottom than before, beyond a pixel of rounding: the reader scrolled down.
+  if (previous.distance - distance > BOTTOM_SLACK && distance <= FOLLOW_AGAIN) return true;
+  return following;
+}
+
 /**
  * Which results can be applied: each agent's latest worktree result, but only while it belongs to the
  * agent's current worktree. After a result is applied or the chat is rewound, the worktree is recreated

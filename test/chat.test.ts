@@ -5,16 +5,20 @@ import {
   activityCounts,
   afterStreamError,
   applyStates,
+  BOTTOM_SLACK,
   branchSource,
   BUTTON_HOLD_MS,
   buttonHeld,
   draftStatus,
   enterSends,
   focusBoxAfterAnswer,
+  FOLLOW_AGAIN,
+  followsAfterScroll,
   isPathDetail,
   reviseRequest,
   revisedTeam,
   revisionOutcome,
+  scrollSpot,
   segments,
   teamChanges,
   teamToEdit,
@@ -48,6 +52,60 @@ describe('Enter in a message box', () => {
     // A hardware keyboard on a tablet can still send with ⌘/Ctrl+Enter.
     expect(enterSends(key('Enter', { metaKey: true }), true)).toBe(true);
     expect(enterSends(key('Enter', { ctrlKey: true }), true)).toBe(true);
+  });
+});
+
+describe('following new output in the messages', () => {
+  // 2000px of messages in a 600px window: the bottom is at 1400.
+  const at = (scrollTop: number, scrollHeight = 2000) => ({ scrollTop, scrollHeight, clientHeight: 600 });
+  const was = (scrollTop: number, scrollHeight = 2000) => scrollSpot(at(scrollTop, scrollHeight));
+
+  it('notes how far the list is scrolled and how far that is from the bottom', () => {
+    expect(scrollSpot(at(1000))).toEqual({ top: 1000, distance: 400 });
+  });
+
+  it('follows once the reader reaches the bottom, give or take a fraction of a pixel', () => {
+    expect(followsAfterScroll(false, was(1000), at(1400))).toBe(true);
+    expect(followsAfterScroll(false, was(1000), at(1400 - BOTTOM_SLACK))).toBe(true);
+    expect(followsAfterScroll(false, was(1000), at(1399.5))).toBe(true);
+    // At the bottom without having moved: a short conversation, or the list already there.
+    expect(followsAfterScroll(false, was(1400), at(1400))).toBe(true);
+  });
+
+  it('stops as soon as the reader scrolls up, however near the bottom', () => {
+    expect(followsAfterScroll(true, was(1400), at(1380))).toBe(false);
+    expect(followsAfterScroll(true, was(1400), at(1400 - BOTTOM_SLACK - 1))).toBe(false);
+    expect(followsAfterScroll(true, was(1400), at(1300))).toBe(false);
+  });
+
+  it('keeps following while more comes in below and the list has not moved', () => {
+    // It scrolled to 1400 to follow; a reply grew by 200px before the next scroll event or resize.
+    expect(followsAfterScroll(true, was(1400), at(1400, 2200))).toBe(true);
+    // A reader who stopped following is not pulled down by more coming in either.
+    expect(followsAfterScroll(false, was(1000), at(1000, 2200))).toBe(false);
+  });
+
+  it('follows again when the reader scrolls down to near the bottom while more comes in', () => {
+    // The scroll stopped at the bottom as it was (1400), and a line more came in before its event.
+    expect(followsAfterScroll(false, was(1000), at(1400, 2030))).toBe(true);
+    expect(followsAfterScroll(false, was(1000), at(1400 - FOLLOW_AGAIN))).toBe(true);
+  });
+
+  it('still does not follow while the reader scrolls down short of that', () => {
+    expect(followsAfterScroll(false, was(1000), at(1400 - FOLLOW_AGAIN - 1))).toBe(false);
+    expect(followsAfterScroll(false, was(1000), at(1300))).toBe(false);
+  });
+
+  it('does not take the browser keeping the reader in place for the reader scrolling down', () => {
+    // 40px up, and 200px grew above: the browser moved the list down 200px (scroll anchoring), still 40px up.
+    expect(followsAfterScroll(false, was(1360), at(1560, 2200))).toBe(false);
+    // WebKit rounds each such move by a pixel.
+    expect(followsAfterScroll(false, was(1360), at(1561, 2200))).toBe(false);
+  });
+
+  it('keeps following when shorter messages leave it at the new bottom', () => {
+    // A reply folded away: the browser moved the list up to its new bottom.
+    expect(followsAfterScroll(true, was(1400), at(1200, 1800))).toBe(true);
   });
 });
 
