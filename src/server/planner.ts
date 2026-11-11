@@ -681,8 +681,10 @@ export function decidePlan(
   }
   if (raw.choice === 'template') {
     const id = String(raw.templateId ?? '');
-    const preset = usablePresets(ctx).find((p) => p.id === id);
+    const preset = ctx.presets.find((p) => p.id === id);
     if (!preset) throw new Error(t().planUnknownTemplate(id));
+    // Not offered to the lead (one saved before the limit was lowered), but named all the same.
+    if (preset.agents.length > teamLimit(ctx)) throw new Error(t().planTemplateTooBig(preset.name, teamLimit(ctx)));
     return templateDecision(preset, 'template', reason || t().planTemplateFits(preset.name), ctx, lead, current?.agents);
   }
   const listed = Array.isArray(raw.agents) ? raw.agents.slice(0, newTeamLimit(ctx)) : [];

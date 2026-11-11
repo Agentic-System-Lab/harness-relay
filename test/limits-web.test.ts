@@ -46,6 +46,21 @@ describe("the server's limits in the UI", () => {
     off();
   });
 
+  it('asks again on a page event only while a component listens (none does on the sign-in page)', async () => {
+    const load = vi.fn(async () => ({ ...DEFAULT_LIMITS, maxAccounts: 5 }));
+    const store = limitsStore(load);
+    store.refreshIfListened();
+    expect(load).not.toHaveBeenCalled();
+    const off = store.subscribe(() => {});
+    await settle();
+    store.refreshIfListened();
+    await settle();
+    expect(load).toHaveBeenCalledTimes(2);
+    off();
+    store.refreshIfListened();
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it('asks again for each new listener, but once at a time', async () => {
     let answer!: (l: ServerLimits) => void;
     const load = vi.fn(() => new Promise<ServerLimits>((r) => (answer = r)));

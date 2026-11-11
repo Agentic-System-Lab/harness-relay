@@ -29,6 +29,7 @@ test.describe('limits the environment sets', () => {
     await send(page, 'Should we rewrite it? e2e:template=builtin-debate');
     const card = awaitingPlan(page);
     await expect(card).toContainText('Using the template "General-question panel" instead');
+    await expect(card).toContainText('the template "Three-way debate" has more members than a team may have (2)');
     await card.getByRole('button', { name: 'Confirm team' }).click();
     const conv = await settled(relay, id);
     expect(conv.agents.map((a) => a.name)).toEqual(['Analyst', 'Critic']);

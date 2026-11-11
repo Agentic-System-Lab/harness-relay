@@ -132,8 +132,9 @@ describe("Harness Relay's own folder as a working directory", () => {
   it('says why when the working directory holds voice input\'s folder', () => {
     const own = join(DATA_DIR, 'voice', 'engine');
     const why = withLang('en', () => relayFolderRefusal({ permission: 'edit', cwd: own }));
-    expect(why).toContain(`holds voice input's folder ${join(DATA_DIR, 'voice')}`);
-    expect(why).toContain('RELAY_VOICE_DIR');
+    expect(why).toContain(`holds voice input's folder ${join(DATA_DIR, 'voice')}, or is inside it.`);
+    // The default folder: no variable to name.
+    expect(why).not.toContain('RELAY_VOICE_DIR');
     expect(withLang('zh-TW', () => relayFolderRefusal({ permission: 'edit', cwd: own }))).toContain('語音輸入的資料夾');
     expect(relayFolderRefusal({ permission: 'read-only', cwd: own })).toBeUndefined();
   });

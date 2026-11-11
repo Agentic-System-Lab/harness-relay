@@ -315,7 +315,7 @@ export function relayFolderRefusal(
   if (settings.permission !== 'edit') return undefined;
   for (const cwd of [settings.cwd, ...(settings.extraCwds ?? [])]) {
     const overlap = relayFolderOverlap(cwd);
-    if (overlap === 'voice') return t().cwdHoldsVoice(cwd, voiceFolder());
+    if (overlap === 'voice') return t().cwdHoldsVoice(cwd, voiceFolder(), Boolean(CONFIG.voiceDir));
     if (overlap) return t().cwdIsRelay(cwd);
     const folder = agentFolderOverlap(cwd, o);
     if (folder) return t().cwdHoldsAgents(cwd, folder);

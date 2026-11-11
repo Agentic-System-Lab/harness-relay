@@ -103,7 +103,10 @@ describe('lead agent reply', () => {
     expect(buildPlannerPrompt('q', settings, ctx)).toContain('At most 5 members.');
     // The built-in templates have 3 members: none is offered, nor taken.
     expect(buildPlannerPrompt('q', settings, small)).not.toContain('builtin-general');
-    expect(() => withLang('en', () => decidePlan({ choice: 'template', templateId: 'builtin-general' }, small, lead))).toThrow(/builtin-general/);
+    expect(() => withLang('en', () => decidePlan({ choice: 'template', templateId: 'builtin-general' }, small, lead))).toThrow(
+      'the template "General-question panel" has more members than a team may have (2)',
+    );
+    expect(() => withLang('en', () => decidePlan({ choice: 'template', templateId: 'no-such' }, small, lead))).toThrow('there is no template with id "no-such"');
     // A template within the limit is.
     const pair: TeamPreset = { id: 'user-pair', name: 'Pair', agents: four.slice(0, 2).map((m, i) => ({ ...m, id: `p${i}`, role: '' })), settings: { mode: 'relay', rounds: 1, maxHops: 4, permission: 'read-only' } } as TeamPreset;
     const withPair = { ...small, presets: [...small.presets, pair] };

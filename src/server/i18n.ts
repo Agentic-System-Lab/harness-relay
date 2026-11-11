@@ -78,8 +78,8 @@ const zhTW = {
     `這一輪中，Grok 自己資料夾裡的設定或程式被改動了（${names}）。agent 執行的指令可能改了它們；Harness Relay 已把它們改回原樣（改動後的版本另存在旁邊，名稱結尾為 .changed-…），skills 資料夾則請你自己檢查。用完全存取執行 Grok 之前，請先看過這些改動。`,
   claudeReopens: (file: string, entry: string) =>
     `你的 Claude Code 設定（${file}）中的 sandbox.filesystem 讓沙箱可以存取「${entry}」，這會開放 Harness Relay 保護的路徑（瀏覽器的資料夾或它的資料庫）。請移除這一項後再試，或改用完全存取。`,
-  cwdHoldsVoice: (dir: string, voice: string) =>
-    `工作目錄「${dir}」包含語音輸入的資料夾「${voice}」，或就在它裡面（RELAY_VOICE_DIR）。Harness Relay 會在沙箱外執行那裡的語音引擎，而可編輯模式下 agent 不經詢問就能修改這裡的檔案。請改用其他資料夾或唯讀模式。`,
+  cwdHoldsVoice: (dir: string, voice: string, fromEnv: boolean) =>
+    `工作目錄「${dir}」包含語音輸入的資料夾「${voice}」，或就在它裡面${fromEnv ? '（RELAY_VOICE_DIR）' : ''}。Harness Relay 會在沙箱外執行那裡的語音引擎，而可編輯模式下 agent 不經詢問就能修改這裡的檔案。請改用其他資料夾或唯讀模式。`,
   cwdIsRelay: (dir: string) =>
     `工作目錄「${dir}」包含 Harness Relay 本身（它的程式或資料）。可編輯模式下，agent 不經詢問就能修改這裡的檔案，也就能改動 Harness Relay 的程式碼或資料庫，繞過它的沙箱與登入。請改用其他資料夾或唯讀模式；要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。`,
   // Sharing a conversation (a gist through the GitHub CLI)
@@ -170,6 +170,7 @@ const zhTW = {
   planFailed: (why: string) => `首席 agent 沒有給出可用的團隊設計（${why}），改用預設範本。`,
   planUnparsable: '回覆中找不到 JSON 團隊設計',
   planUnknownTemplate: (id: string) => `沒有 id 為「${id}」的範本`,
+  planTemplateTooBig: (name: string, max: number) => `範本「${name}」的成員比隊伍上限（${max} 位）多`,
   planTemplateFits: (name: string) => `首席 agent 判斷範本「${name}」適合這個問題，直接套用。`,
   planFailedKept: (why: string) => `首席 agent 沒有給出可用的團隊設計（${why}），沿用目前的團隊。`,
   planKeepFits: '首席 agent 判斷目前的團隊也適合這個問題，沿用不變。',
@@ -389,8 +390,8 @@ const en: ServerMessages = {
     `Grok's own settings or program changed during this turn (${names}). A command the agent ran may have changed them: Harness Relay put them back (the changed ones are kept beside them, ending in .changed-…); look at the skills folder yourself. Look at these changes before you run Grok with full access.`,
   claudeReopens: (file, entry) =>
     `sandbox.filesystem in your Claude Code settings (${file}) lets its sandbox reach ${entry}, which opens paths Harness Relay protects (the browsers' folders or its database). Remove it and try again, or use full access.`,
-  cwdHoldsVoice: (dir, voice) =>
-    `The working directory ${dir} holds voice input's folder ${voice}, or is inside it (RELAY_VOICE_DIR). Harness Relay runs the voice engine there outside any sandbox, and in edit mode agents change files there without asking. Choose another folder, or read-only.`,
+  cwdHoldsVoice: (dir, voice, fromEnv) =>
+    `The working directory ${dir} holds voice input's folder ${voice}, or is inside it${fromEnv ? ' (RELAY_VOICE_DIR)' : ''}. Harness Relay runs the voice engine there outside any sandbox, and in edit mode agents change files there without asking. Choose another folder, or read-only.`,
   cwdIsRelay: (dir) =>
     `The working directory ${dir} holds Harness Relay itself (its code or its data). In edit mode agents change files there without asking, so they could change Harness Relay's code or database and get around its sandbox and sign-in. Choose another folder, or read-only; to work on Harness Relay itself, run the copy you use from another folder.`,
   shareEmpty: 'Nothing to share',
@@ -478,6 +479,7 @@ const en: ServerMessages = {
   planFailed: (why) => `The lead agent did not produce a usable team design (${why}); using the default template instead.`,
   planUnparsable: 'no JSON team design found in the reply',
   planUnknownTemplate: (id) => `there is no template with id "${id}"`,
+  planTemplateTooBig: (name, max) => `the template "${name}" has more members than a team may have (${max})`,
   planTemplateFits: (name) => `The lead agent found the template "${name}" a good fit for this question and uses it as it is.`,
   planFailedKept: (why) => `The lead agent did not produce a usable team design (${why}); keeping the current team.`,
   planKeepFits: 'The lead agent found the current team a good fit for this question too and keeps it as it is.',

@@ -8,6 +8,11 @@ export interface LimitsStore {
   subscribe(listener: () => void): () => void;
   /** Asks the server again (once at a time); listeners hear of it only when something changed. */
   refresh(): void;
+  /**
+   * `refresh()`, but only while a component listens: only signed-in pages do, and a request made on the
+   * sign-in page would answer 401, which signs the browser out (perhaps just as it signs in).
+   */
+  refreshIfListened(): void;
 }
 
 const same = (a: ServerLimits, b: ServerLimits) =>
@@ -45,17 +50,21 @@ export function limitsStore(load: () => Promise<ServerLimits>): LimitsStore {
       return () => listeners.delete(listener);
     },
     refresh,
+    refreshIfListened: () => {
+      if (listeners.size) refresh();
+    },
   };
 }
 
 const store = limitsStore(() => api.limits());
 
 /**
- * Asks the server for its limits again: when a chat's live updates connect again (the server may have
- * restarted with other values, from the desktop app's Restart server…) and when the page is shown again.
+ * Asks the server for its limits again, while a page shows them: when a chat's live updates connect
+ * again or the sidebar reaches the server again (it may have restarted with other values, from the
+ * desktop app's Restart server…), and when the page is shown again.
  */
 export function refreshLimits(): void {
-  store.refresh();
+  store.refreshIfListened();
 }
 
 if (typeof window !== 'undefined') {
