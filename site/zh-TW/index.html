@@ -334,7 +334,7 @@
               </div>
               <div class="t-plain">
                 <dt>Cursor</dt>
-                <dd>透過 <code>cursor-agent acp</code> 使用 Agent Client Protocol（ACP）。它在這裡沒有沙箱，所以完全存取以外，它要執行的每個指令都會先問你，你的 Cursor 團隊允許清單上的除外。</dd>
+                <dd>透過 <code>cursor-agent acp</code> 使用 Agent Client Protocol（ACP）。它在這裡沒有沙箱，所以完全存取以外，它要執行的每個指令都會先問你（對話設為自動拒絕時則直接拒絕），你的 Cursor 團隊允許清單上的除外。</dd>
               </div>
             </dl>
             <p class="agents-foot">不必全部都有：九個中任何組合都能用。Claude Code、Codex、Grok 和 Cursor 在設定頁登入，其他的則給它們一個<a href="#open">模型來源</a>。</p>
@@ -761,7 +761,7 @@
             <p>沒有任何雲端服務。伺服器只在你的電腦上監聽，agent 的回覆也無法讓瀏覽器載入遠端內容。</p>
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>只綁定 <code>127.0.0.1</code>，只接受你登入過的瀏覽器，並拒絕跨站請求。</span></li>
-              <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>完全存取以外，Claude Code、Codex 和 Grok 的指令都在各自 CLI 的作業系統沙箱中執行：只能寫入工作目錄，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Cursor 沒有沙箱，所以每個指令都會先問你，你的 Cursor 團隊允許清單上的除外。</span></li>
+              <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>完全存取以外，Claude Code、Codex 和 Grok 的指令都在各自 CLI 的作業系統沙箱中執行：只能寫入工作目錄，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Cursor 沒有沙箱，所以每個指令都會先問你（對話設為自動拒絕時則直接拒絕），你的 Cursor 團隊允許清單上的除外。</span></li>
               <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>五個開源 agent 和它們啟動的一切，都在 Harness Relay 自己的沙箱中執行（sandbox-runtime：macOS 上用 Seatbelt、Linux 上用 bubblewrap，網路經過會過濾的 proxy）：同樣碰不到那些資料夾，每位成員的 session 都是它自己的，不必詢問就能連到的只有這次執行的模型來源。沙箱無法啟動就不執行；在原生 Windows 上只能以完全存取執行。</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>每個改檔的回合都有 git 快照；平行模式的 agent 在各自的 worktree 工作。</span></li>
               <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 與 MCP 伺服器的 token 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service。</span></li>

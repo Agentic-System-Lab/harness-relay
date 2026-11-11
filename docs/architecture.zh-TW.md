@@ -464,7 +464,7 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 | `provider_settings` | 每個 CLI 的執行檔路徑；它預設帳號的名稱（`account_label`）、預設模型與推理強度，以及執行時不載入的項目（`native_off`、`native_items`）；macOS 上 OpenHands 能不能在 Harness Relay 的沙箱裡使用終端機（`sandbox_terminal`，schema version 24）；只有在系統沒有金鑰儲存區時才存預設帳號的 API key |
 | `provider_accounts` | 每個 CLI 預設帳號以外的帳號與順序（id、provider、名稱）；每個帳號自己的預設模型與推理強度，以及執行時不載入的項目（schema 版本 20：原有的帳號沿用它所屬 CLI 的值）；只有在系統沒有金鑰儲存區時才存帳號的 API key（schema 版本 19）。開源 agent 沒有其他帳號 |
 | `model_backends` | 開源 agent 的模型來源：你的 OpenAI 相容端點（id、名稱、base URL、模型），以及只有在系統沒有金鑰儲存區時才存的 API 來源（`openai`、`anthropic`、`xai`）或端點的金鑰（schema version 21；見[開源 agent](open-agents.zh-TW.md#模型來源)） |
-| `deleted_endpoints` | 在「設定」裡刪除的端點 id，直到再新增同 id 的端點為止：仍指定其中某個端點模型的 Claude Code、Codex 或 Grok 成員，這一輪會失敗，不會帶著那個模型送到 CLI 自己的服務（schema version 25） |
+| `deleted_endpoints` | 在「設定」裡刪除的端點 id，直到再新增同 id 的端點，或忘掉這個 id 為止（**忘掉**，`DELETE /api/backends/deleted-endpoints/:id`）：仍指定其中某個端點模型的 Claude Code、Codex 或 Grok 成員，這一輪會失敗，不會帶著那個模型送到 CLI 自己的服務（schema version 25） |
 | `app_settings` | key/value 形式的應用程式設定（預設工作目錄、首席 agent、語音輸入、工具庫、各 CLI 自己的資料夾與開源 agent 的家目錄待過的每個資料夾（`open_agent_roots`）、AgentsView 網址） |
 | `shares` | 分享成 secret gist 的對話（頁面 gist 的 id、對話、當時的標題、結束的那則回覆、頁面與 gist 的連結、附上了幾個檔案與放附檔的 gist 的 id、是否只上傳了放附檔的 gist）；沒有外鍵，因為對話刪除後 gist 仍在（schema 第 15 版；附檔為第 16 版） |
 

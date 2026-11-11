@@ -218,9 +218,15 @@ describe('ModelBackendStore', () => {
     // The endpoint's row cannot be written: nothing of the change is kept.
     db.exec("CREATE TRIGGER no_endpoints BEFORE INSERT ON model_backends BEGIN SELECT RAISE(ABORT, 'disk full'); END");
     expect(() => s.putEndpoint('homelab', endpoint)).toThrow(/disk full/);
-    expect(s.forRun().deletedEndpoints).toEqual(['homelab']);
+    // Neither saved nor kept in memory: runs do not use it, and it is still remembered as deleted.
+    expect(s.forRun()).toEqual({ apis: {}, endpoints: [], deletedEndpoints: ['homelab'] });
+    expect(s.view()).toMatchObject({ endpoints: [], deletedEndpoints: ['homelab'] });
     db.exec('DROP TRIGGER no_endpoints');
-    expect(new ModelBackendStore(reopen()).forRun()).toMatchObject({ endpoints: [], deletedEndpoints: ['homelab'] });
+    // Tried again, it is added and no longer remembered as deleted, in memory and on disk.
+    s.putEndpoint('homelab', endpoint);
+    expect(s.view()).toMatchObject({ endpoints: [{ id: 'homelab' }], deletedEndpoints: [] });
+    expect(new ModelBackendStore(reopen()).view()).toMatchObject({ endpoints: [{ id: 'homelab' }], deletedEndpoints: [] });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM deleted_endpoints').get()).toMatchObject({ n: 0 });
   });
 });
 

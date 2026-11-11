@@ -181,7 +181,7 @@ RestartSec=3
 WantedBy=default.target
 ```
 
-Below full access, the agents' commands run in sandboxes that on Linux need programs of their own: Claude Code's needs `bubblewrap` and `socat`, Codex's `bubblewrap`, Grok's `bubblewrap` (and kernel 5.13 or later), and Harness Relay's own, which the open-source agents run in, `bubblewrap`, `socat` and `ripgrep`. So install `sudo apt-get install bubblewrap socat ripgrep`, and on Ubuntu 23.10 or later the AppArmor profile in [OS sandboxes by platform](sandboxing.md#on-linux). Cursor needs none: it has no sandbox, so its commands ask. The service finds these programs on the same `PATH`.
+Below full access, the agents' commands run in sandboxes that on Linux need programs of their own: Claude Code's needs `bubblewrap` and `socat`; Codex's uses `bubblewrap` (the copy it ships with when none is installed; installing it is recommended); Grok's needs `bubblewrap` (and kernel 5.13 or later); and Harness Relay's own, which the open-source agents run in, needs `bubblewrap`, `socat` and `ripgrep`. So run `sudo apt-get install bubblewrap socat ripgrep`, and on Ubuntu 23.10 or later add the AppArmor profile in [OS sandboxes by platform](sandboxing.md#on-linux). Cursor needs none: it has no sandbox, so its commands ask you (but those on a Cursor team's allowlist, or are refused when the chat refuses automatically). The service finds these programs on the same `PATH`.
 
 Then start it, and let it run while you are logged out:
 

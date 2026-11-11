@@ -285,7 +285,8 @@ export class ModelBackendStore {
     let e = this.endpoints.find((x) => x.id === id);
     // Added again: its models run on it again, once it is saved (in the same write, so that a failed
     // save leaves it deleted, not neither).
-    const readded = !e && this.deleted.has(id);
+    const readded = this.deleted.has(id);
+    const added = !e;
     if (!e) {
       if (this.endpoints.length >= BACKEND_LIMITS.maxEndpoints) throw new HttpError(400, t().tooManyEndpoints(BACKEND_LIMITS.maxEndpoints));
       e = { id, name: u.name, baseUrl: u.baseUrl, models: [...u.models], createdAt: Date.now() };
@@ -293,11 +294,18 @@ export class ModelBackendStore {
     } else {
       Object.assign(e, { name: u.name, baseUrl: u.baseUrl, models: [...u.models] });
     }
+    const endpoint = e;
     const persist = () => {
-      transaction(this.db, () => {
-        this.save(id);
-        if (readded) this.db.prepare('DELETE FROM deleted_endpoints WHERE id = ?').run(id);
-      });
+      try {
+        transaction(this.db, () => {
+          this.save(id);
+          if (readded) this.db.prepare('DELETE FROM deleted_endpoints WHERE id = ?').run(id);
+        });
+      } catch (err) {
+        // Not saved: an endpoint added now is not kept in memory either, so runs do not use it.
+        if (added) this.endpoints.splice(this.endpoints.indexOf(endpoint), 1);
+        throw err;
+      }
       if (readded) this.deleted.delete(id);
     };
     if (u.apiKey !== undefined) {

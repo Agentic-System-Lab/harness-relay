@@ -984,7 +984,8 @@ export const grokRunner: AgentRunner = {
         return result;
       }
       writeGrokOwn(grokHome(env), writeModels);
-      return grokTurn(o, args, sandbox, env);
+      // Awaited here: the hold is released in `finally` only once the turn is over.
+      return await grokTurn(o, args, sandbox, env);
     } finally {
       release();
     }

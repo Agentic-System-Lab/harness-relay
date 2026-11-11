@@ -340,7 +340,7 @@
               </div>
               <div class="t-plain">
                 <dt>Cursor</dt>
-                <dd>The Agent Client Protocol, over <code>cursor-agent acp</code>. It has no sandbox there, so below full access every command it wants to run asks you first, except those on your Cursor team’s allowlist.</dd>
+                <dd>The Agent Client Protocol, over <code>cursor-agent acp</code>. It has no sandbox there, so below full access every command it wants to run asks you first (or is refused, if the chat refuses automatically), except those on your Cursor team’s allowlist.</dd>
               </div>
             </dl>
             <p class="agents-foot">You don’t need them all. Any subset of the nine works: sign in to Claude Code, Codex, Grok and Cursor from Settings, and give the others a <a href="#open">model backend</a>.</p>
@@ -799,7 +799,7 @@
             </p>
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>Bound to <code>127.0.0.1</code> and takes only browsers you signed in; cross-site requests are rejected.</span></li>
-              <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>Below full access, Claude Code’s, Codex’s and Grok’s commands run in their CLI’s own OS sandbox: they write only in the working directory, and can’t read your browsers’ folders or Harness Relay’s data. Cursor has no sandbox, so it asks you before every command, except those on your Cursor team’s allowlist.</span></li>
+              <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>Below full access, Claude Code’s, Codex’s and Grok’s commands run in their CLI’s own OS sandbox: they write only in the working directory, and can’t read your browsers’ folders or Harness Relay’s data. Cursor has no sandbox, so it asks you before every command (or refuses it, if the chat refuses automatically), except those on your Cursor team’s allowlist.</span></li>
               <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>The five open-source agents, and everything they start, run in Harness Relay’s own sandbox (sandbox-runtime: Seatbelt on macOS, bubblewrap on Linux, a filtering proxy for the network): the same folders are out of reach, each member’s sessions are its own, and only the run’s model backend is reachable without asking. If it can’t start, they don’t run; on native Windows they run only with full access.</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>Git snapshots for every turn that edits; parallel agents in their own worktrees.</span></li>
               <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API keys and MCP server tokens in your OS credential store: macOS Keychain, Windows Credential Manager or Secret Service.</span></li>

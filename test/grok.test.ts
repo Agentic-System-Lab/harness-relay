@@ -615,8 +615,11 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         { sessionId: 's-1', configId: 'model', value: 'harness-relay/homelab/gemma4:e4b' },
       ]);
 
-      // A model typed for the endpoint (Custom…) that its list leaves out gets a table too, for its run.
+      // A model typed for the endpoint (Custom…) that its list leaves out gets a table too, for its run,
+      // and every write of the block in that home keeps it until the turn is over (here with full
+      // access, where Harness Relay's own write is not inside a settings guard).
       const typedLog = join(dir, 'typed.jsonl');
+      const during: string[][] = [];
       await grokRunner.run({
         bin,
         env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: typedLog },
@@ -627,8 +630,12 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         model: 'homelab/qwen3:32b',
         backends: { apis: {}, endpoints: [{ ...lab, apiKey: 'lab-key' }] },
         signal: new AbortController().signal,
-        onEvent: () => undefined,
+        // What another run in this home would write while this turn streams its reply.
+        onEvent: (e) => void (e.type === 'text' && during.push(grokBlockEndpoints(home, [lab])[0]!.models)),
       });
+      expect(during.length).toBeGreaterThan(0);
+      for (const models of during) expect(models).toContain('qwen3:32b');
+      expect(grokBlockEndpoints(home, [lab])[0]!.models).not.toContain('qwen3:32b');
       const typed = readFileSync(typedLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>);
       expect(typed[0]!.config).toContain('[model."harness-relay/homelab/qwen3:32b"]');
       expect(typed[0]!.config).toContain('[model."harness-relay/homelab/gemma4:e4b"]');
