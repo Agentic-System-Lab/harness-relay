@@ -208,6 +208,21 @@ jobs:
             exit 1
           fi
 
+      # The same installers again for the app's own updates, which download these instead
+      # (UPDATE_INSTALLERS in site/assets/downloads.js): GitHub's download counts then tell new
+      # installs from updates of an installed app.
+      - name: Copy the installers for the app's updates
+        run: |
+          node --input-type=module -e "
+          import { copyFileSync, readdirSync } from 'node:fs';
+          import { updateCopyName } from './site/assets/downloads.js';
+          for (const name of readdirSync('installers')) {
+            const copy = updateCopyName(name);
+            if (!copy) throw new Error('Not an installer: ' + name);
+            copyFileSync('installers/' + name, 'installers/' + copy);
+          }"
+          ls -l installers
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -224,6 +239,6 @@ jobs:
           fi
           notes="$kind
 
-          **Download:** \`.dmg\` for macOS 13 or later on Apple Silicon (no Intel Macs), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. A Harness Relay already installed offers this release in its menu (**Update to …**) and updates itself. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
+          **Download:** \`.dmg\` for macOS 13 or later on Apple Silicon (no Intel Macs), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. A Harness Relay already installed offers this release in its menu (**Update to …**) and updates itself, with the files ending in \`-update\`: the same installers, kept apart so that downloads count new installs and updates separately. To install, download the others. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
           # The tag is made on the commit that was checked and built.
           gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes "$notes" --generate-notes "${channel[@]}"

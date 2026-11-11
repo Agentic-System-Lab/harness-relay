@@ -512,6 +512,12 @@ describe('the release workflow', () => {
     expect(release).toContain("import { INSTALLERS } from './site/assets/downloads.js'");
     expect(release).toContain('Expected one installer ending in $end');
     expect(release).toContain('found others too');
+    // Then each one copied for the app's updates (counted apart from new installs), before it is all published.
+    expect(release).toContain("import { updateCopyName } from './site/assets/downloads.js'");
+    const copied = release.indexOf("- name: Copy the installers for the app's updates");
+    expect(copied).toBeGreaterThan(release.indexOf('found others too'));
+    expect(copied).toBeLessThan(release.indexOf('- name: Publish'));
+    expect(release).toContain("if (!copy) throw new Error('Not an installer: ' + name);");
   });
 
   it('may write to the repository only in the job that publishes', () => {

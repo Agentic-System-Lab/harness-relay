@@ -3,7 +3,8 @@
  * for its releases and takes the newest version (`checkLatest`, never a draft): a release candidate
  * too when the app is one (or a build of your own), only a release when it is a release
  * (`takesCandidates`); when it is newer than the running app and has an installer for this system (`updateSystem`:
- * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer,
+ * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer (its
+ * copy for updates, `-update`, so that GitHub counts updates apart from new installs),
  * checks it against the SHA-256 GitHub publishes for it (`download`), waits until no conversation has
  * agents at work (`whenIdle`), and puts it in place of the running app, which then quits and the new
  * one starts:
@@ -32,7 +33,7 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { compareSemver, parseVersion, semverOf } from '../../scripts/release';
-import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO } from '../../site/assets/downloads.js';
+import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO, UPDATE_INSTALLERS } from '../../site/assets/downloads.js';
 import { capture } from '../../src/server/process';
 import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
 
@@ -111,8 +112,12 @@ export function oneAtATime(fn: () => Promise<void>): () => Promise<void> {
 }
 
 export interface UpdateAsset {
-  /** The file's name, such as Harness-Relay-2026-11-12-mac-arm64.dmg. */
+  /**
+   * The installer's name, such as Harness-Relay-2026-11-12-mac-arm64.dmg (also when it is fetched from
+   * its copy for updates: the AppImage takes this name).
+   */
   name: string;
+  /** Where it is fetched from: its copy for the app's updates (`-update`), else the installer itself. */
   url: string;
   size?: number;
   /** Lowercase hex, from GitHub's `digest` of the asset. */
@@ -145,15 +150,22 @@ export function parseRelease(json: unknown): UpdateRelease | undefined {
   if (!r || typeof r !== 'object' || r.draft || typeof r.tag_name !== 'string') return undefined;
   const parsed = parseVersion(r.tag_name);
   if (!parsed.ok) return undefined;
-  const assets: UpdateRelease['assets'] = {};
+  // Each system's copy for updates (UPDATE_INSTALLERS), so that GitHub counts updates apart from new
+  // installs; the installer itself for a release made before there were copies.
+  const installers: UpdateRelease['assets'] = {};
+  const copies: UpdateRelease['assets'] = {};
   for (const a of Array.isArray(r.assets) ? r.assets : []) {
     if (typeof a?.name !== 'string' || !PLAIN_NAME.test(a.name) || !isInstallerUrl(a.browser_download_url)) continue;
     for (const [system, end] of Object.entries(INSTALLERS) as [UpdateSystem, string][]) {
-      if (!a.name.endsWith(end)) continue;
+      const copyEnd = UPDATE_INSTALLERS[system];
+      const copy = a.name.endsWith(copyEnd);
+      if (!copy && !a.name.endsWith(end)) continue;
       const sha256 = typeof a.digest === 'string' ? /^sha256:([0-9a-f]{64})$/i.exec(a.digest)?.[1]?.toLowerCase() : undefined;
-      assets[system] = { name: a.name, url: a.browser_download_url as string, size: typeof a.size === 'number' ? a.size : undefined, sha256 };
+      const name = copy ? a.name.slice(0, -copyEnd.length) + end : a.name;
+      (copy ? copies : installers)[system] = { name, url: a.browser_download_url as string, size: typeof a.size === 'number' ? a.size : undefined, sha256 };
     }
   }
+  const assets: UpdateRelease['assets'] = { ...installers, ...copies };
   const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${RELEASES_PAGE}/tag/`) ? r.html_url : RELEASES_PAGE;
   return { version: parsed.value.version, semver: semverOf(parsed.value), page, candidate: parsed.value.rc, assets };
 }

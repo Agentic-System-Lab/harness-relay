@@ -51,7 +51,7 @@ const DOWNLOAD = 'https://github.com/Agentic-System-Lab/harness-relay/releases/d
 const sha = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 
 /** A release as GitHub lists it (GET /repos/…/releases). */
-function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; digest?: boolean } = {}) {
+function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; digest?: boolean; copies?: boolean } = {}) {
   const asset = (end: string) => {
     const name = `Harness-Relay-${tag}${end}`;
     return { name, browser_download_url: `${DOWNLOAD}/${tag}/${name}`, size: 1000, ...(o.digest === false ? {} : { digest: `sha256:${sha(name)}` }) };
@@ -67,6 +67,8 @@ function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; 
       asset('-win-arm64.exe'),
       asset('-linux-x86_64.AppImage'),
       asset('-linux-arm64.AppImage'),
+      // The same installers again for the app's updates (the Release workflow's copies), in releases made since.
+      ...(o.copies ? ['-mac-arm64-update.dmg', '-win-x64-update.exe', '-win-arm64-update.exe', '-linux-x86_64-update.AppImage', '-linux-arm64-update.AppImage'].map(asset) : []),
       { name: 'notes.txt', browser_download_url: `${DOWNLOAD}/${tag}/notes.txt` },
     ],
   };
@@ -85,6 +87,25 @@ describe("GitHub's newest release", () => {
       sha256: sha('Harness-Relay-2026-11-12.1-mac-arm64.dmg'),
     });
     expect(Object.keys(r.assets).sort()).toEqual(['linux', 'linux-arm64', 'mac', 'win', 'win-arm64']);
+  });
+
+  it("is fetched from each installer's copy for updates, so that GitHub counts updates apart, named as the installer", () => {
+    const r = parseRelease(githubRelease('2026-11-12.1', { copies: true }))!;
+    expect(r.assets.mac).toEqual({
+      name: 'Harness-Relay-2026-11-12.1-mac-arm64.dmg',
+      url: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-arm64-update.dmg`,
+      size: 1000,
+      sha256: sha('Harness-Relay-2026-11-12.1-mac-arm64-update.dmg'),
+    });
+    expect(r.assets.linux?.name).toBe('Harness-Relay-2026-11-12.1-linux-x86_64.AppImage');
+    expect(r.assets.linux?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-linux-x86_64-update.AppImage`);
+    expect(Object.values(r.assets).every((a) => a.url.includes('-update.'))).toBe(true);
+    // Whatever order GitHub lists them in.
+    const reversed = githubRelease('2026-11-12.1', { copies: true });
+    reversed.assets.reverse();
+    expect(parseRelease(reversed)!.assets.win?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-win-x64-update.exe`);
+    // A release made before there were copies: the installers themselves.
+    expect(parseRelease(githubRelease('2026-11-12.1'))!.assets.win?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-win-x64.exe`);
   });
 
   it('can be a release candidate, as the app was built for one; never a draft or a tag that is not a version of ours', () => {
