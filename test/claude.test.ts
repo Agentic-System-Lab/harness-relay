@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 // A data folder of its own: a turn's --settings and --mcp-config files go in its tmp folder.
@@ -745,15 +745,20 @@ describe("the user's own Claude Code settings", () => {
     writeFileSync(file, JSON.stringify({ sandbox: { filesystem } }));
     return file;
   };
-  const guarded = ['/home/me/.mozilla', '/srv/relay/data/relay.db'];
+  // With a drive on Windows: there a path without one is on the drive of the folder it is read from,
+  // and the settings files (in the temporary folder) may be on another drive than the tests (GitHub's
+  // runners check out on D:).
+  const guarded = [resolve('/home/me/.mozilla'), resolve('/srv/relay/data/relay.db')];
 
   it('are caught when an allowed path reaches a protected one: it, a folder holding it, inside it, or a pattern', () => {
-    const holding = settings({ allowRead: ['/srv/relay'] });
-    expect(claudeReopening([holding], guarded)).toEqual([holding, '/srv/relay']);
+    const srv = resolve('/srv/relay');
+    const holding = settings({ allowRead: [srv] });
+    expect(claudeReopening([holding], guarded)).toEqual([holding, srv]);
     const inside = settings({ allowWrite: ['~/.mozilla/profiles'] });
     expect(claudeReopening([inside], guarded, { home: '/home/me' })).toEqual([inside, '~/.mozilla/profiles']);
-    const pattern = settings({ allowRead: ['/home/me/**'] });
-    expect(claudeReopening([pattern], guarded)).toEqual([pattern, '/home/me/**']);
+    const all = join(resolve('/home/me'), '**');
+    const pattern = settings({ allowRead: [all] });
+    expect(claudeReopening([pattern], guarded)).toEqual([pattern, all]);
     const relative = settings({ allowRead: ['../data'] });
     expect(claudeReopening([relative], guarded, { cwd: '/srv/relay/app' })).toEqual([relative, '../data']);
     // Claude Code takes a relative entry from the settings file's folder (~/.claude for the user's).

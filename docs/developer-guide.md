@@ -428,7 +428,7 @@ npx vitest test/store.test.ts
 
 The tests run on macOS, Linux and Windows (CI runs them on Linux and Windows). For a test to pass on each:
 
-- Build paths with `join()` and `resolve()`, not as text with `/`: on Windows `/repo` resolves to `C:\repo`. A function that takes a `platform` builds that platform's paths (`posix` or `win32` from `node:path`), whichever system it runs on.
+- Build paths with `join()` and `resolve()`, not as text with `/`: on Windows `/repo` resolves to `C:\repo`, or to the drive of the folder it is resolved from (GitHub's runners check the repository out on `D:`, with the temporary folder and the home folder on `C:`). A function that takes a `platform` builds that platform's paths (`posix` or `win32` from `node:path`), whichever system it runs on.
 - Split a PATH with `delimiter` (`;` on Windows), and write a path into a git config file with `/`: the file reads `\` as an escape.
 - Skip what only macOS or Linux have with `it.skipIf(process.platform === 'win32')` (or `describe.skipIf`): permission bits, POSIX signals and process groups, `/bin/sh`, and stand-in CLIs run by their `#!` line, which Windows cannot start.
 - Leave time limits to `test/timeouts.ts` and `test/setup.ts`: `vi.waitFor` waits up to 5 s unless a test says otherwise (Vitest's own 1 s is too short for a run that records its changes with git while all the test files run at once), and on Windows, which starts processes and runs git several times slower, every test's limit and every wait is six times longer; a test that sets its own limit uses `slow(ms)`.

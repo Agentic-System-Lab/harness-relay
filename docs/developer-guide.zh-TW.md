@@ -427,7 +427,7 @@ npx vitest test/store.test.ts
 
 測試在 macOS、Linux 與 Windows 上都會跑（CI 在 Linux 與 Windows 上跑）。要讓測試在每個系統上都通過：
 
-- 用 `join()` 與 `resolve()` 組路徑，不要寫成以 `/` 分隔的文字：在 Windows 上 `/repo` 會解析成 `C:\repo`。接受 `platform` 參數的函式，不論在哪個系統上執行，都組出那個平台的路徑（用 `node:path` 的 `posix` 或 `win32`）。
+- 用 `join()` 與 `resolve()` 組路徑，不要寫成以 `/` 分隔的文字：在 Windows 上 `/repo` 會解析成 `C:\repo`，或是解析時所在資料夾的那個磁碟（GitHub 的 runner 把 repository 取出在 `D:`，暫存資料夾與家目錄則在 `C:`）。接受 `platform` 參數的函式，不論在哪個系統上執行，都組出那個平台的路徑（用 `node:path` 的 `posix` 或 `win32`）。
 - 用 `delimiter`（Windows 上是 `;`）切開 PATH；把路徑寫進 git 設定檔時用 `/`：設定檔會把 `\` 當成跳脫字元。
 - 只有 macOS 或 Linux 才有的東西，用 `it.skipIf(process.platform === 'win32')`（或 `describe.skipIf`）跳過：權限位元、POSIX 訊號與 process group、`/bin/sh`，以及靠 `#!` 那一行執行、Windows 無法啟動的替身 CLI。
 - 時間限制交給 `test/timeouts.ts` 與 `test/setup.ts`：測試沒指定時，`vi.waitFor` 最多等 5 秒（Vitest 預設的 1 秒，對所有測試檔同時在跑時、要用 git 記錄變更的執行來說太短）；Windows 啟動程序與執行 git 慢上好幾倍，所以那裡每個測試的時間限制與每次等待都是六倍長；自己設時間限制的測試用 `slow(ms)`。
