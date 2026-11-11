@@ -42,6 +42,7 @@ import {
 import { parseTime, validTimeZone } from '../shared/schedule';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
+import { apiPort } from './ports';
 import { isLocalHost, localAddresses, relayPorts } from './relaySandbox';
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
@@ -532,7 +533,7 @@ export function validEndpointId(input: string): string {
  * reach, however the address is spelled: loopback (`localhost` and names under it, a trailing dot,
  * 127/8, `::1`, IPv4 in IPv6), the unspecified address, or one of this computer's own (`own`).
  */
-export function validEndpointUrl(input: unknown, relayPort = Number(process.env.PORT ?? 8787), own: readonly string[] = localAddresses()): string {
+export function validEndpointUrl(input: unknown, relayPort = apiPort(), own: readonly string[] = localAddresses()): string {
   if (typeof input !== 'string' || input.length > BACKEND_LIMITS.maxUrl) bad(t().invalidField('baseUrl'));
   const raw = input.trim();
   let url: URL;

@@ -4,6 +4,7 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { DEFAULT_PORT } from '../../src/server/ports';
 
 export interface DesktopPrefs {
   /** Keep the computer from going to sleep while the app runs (so the phone can reach it). */
@@ -19,7 +20,7 @@ export interface DesktopPrefs {
   window?: { width: number; height: number };
 }
 
-export const DEFAULT_PREFS: DesktopPrefs = { keepAwake: false, port: 8787 };
+export const DEFAULT_PREFS: DesktopPrefs = { keepAwake: false, port: DEFAULT_PORT };
 
 /** A host name: lowercase labels of letters, digits and hyphens. */
 const HOST_NAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;

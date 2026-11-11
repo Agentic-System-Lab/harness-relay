@@ -271,6 +271,7 @@ describe('masked keys and endpoint addresses', () => {
       'http://0x7f000001:8787',
       'http://192.168.1.20:8787',
       'http://localhost:5173', // the dev server's port, which reaches the API too
+      'http://127.0.0.1:8789', // npm run dev's API
     ];
     for (const url of refused) expect(() => withLang('en', () => validEndpointUrl(url, 8787, own)), url).toThrow(/Harness Relay's own address/);
     expect(validEndpointUrl('http://10.0.0.5:8787/v1', 8787, own)).toBe('http://10.0.0.5:8787/v1');

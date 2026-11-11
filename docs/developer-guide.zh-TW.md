@@ -167,7 +167,7 @@ desktop/                   桌面 app（Electron），是獨立的套件：npm i
 
 ```bash
 npm install
-npm run dev        # tsx watch（API :8787）+ vite（介面 :5173，把 /api/ 代理到 API）；印出 :5173 的登入連結
+npm run dev        # tsx watch（API :8789）+ vite（介面 :5173，把 /api/ 代理到 API）；印出 :5173 的登入連結
 npm run typecheck
 npm test
 npm run build      # 介面 → dist/web
@@ -192,7 +192,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 
 | 變數 | 預設值 | 用途 |
 | --- | --- | --- |
-| `PORT` | `8787` | API port（Vite 代理也會使用） |
+| `PORT` | `8787`（`npm run dev` 為 `8789`） | API port（Vite 代理也會使用）。`npm run dev` 有自己的 port，所以能和使用 8787 的 `npm start` 或桌面 app 同時執行（`src/server/ports.ts`） |
 | `HOST` | `127.0.0.1` | 綁定位址 |
 | `RELAY_DATA_DIR` | `./data` | `relay.db` 的位置 |
 | `RELAY_DEFAULT_CWD` | 程序的 cwd | 初始預設工作目錄（在設定頁修改前） |
@@ -468,6 +468,7 @@ npx vitest test/store.test.ts
 - `test/opencode.test.ts`：OpenCode 轉接器：以真實 CLI 錄下的訊息重播回合（`test/fixtures/opencode/`，由 `test/fake-opencode.ts` 的假 `opencode` 播放：文字、思考、工具與它們的列、待辦清單轉成計畫、各權限的核准、`fs/write_text_file` 只回覆不照做、停止、接續與接續失敗、錯誤的 key 與模型、MCP 伺服器）；它的家目錄（變數、維持原樣的唯讀設定資料夾、清掉 console 帳號）、各模型來源與權限的執行設定（跳脫 `{env:}` / `{file:}`）、專案的指示檔、模式／模型／推理強度的順序、透過它的伺服器傳回拒絕理由、這一輪在 session 花費中的部分、它的錯誤訊息、它的模型目錄與它自己載入的內容。
 - `test/grok.test.ts`：Grok 的 ACP 轉接器：各權限的核准規則、session 更新轉成 `AgentEvent`（後端網路搜尋與 X 搜尋查了什麼，依 grok 1.0.77 送出的格式從結果取得：查詢、開啟的網頁或在網頁中找的文字；失敗的搜尋保留查詢與原因；`read_file` 讀的檔案與 `list_dir` 列出的資料夾）、JSON-RPC 連線。也測試工具庫的 MCP 伺服器轉成 ACP 的格式。HTTP MCP 伺服器只傳給宣告支援的 Grok。也測試不載入 Grok 從 Claude Code、Cursor 載入的內容（skill、MCP 伺服器、hook）與它的記憶所用的環境變數，以及它們和使用者的環境變數、sandbox 並存（唯讀與可編輯模式為 `harness-relay`，Windows 上為 `workspace`，完全存取時不設定）。
 - `test/goose.test.ts`：Goose 轉接器，使用 Goose 1.58.1 錄下的訊息（`test/fixtures/goose/`）與重播它們的假 `goose acp`：它的家目錄（`GOOSE_PATH_ROOT` 與 `HOME`，關閉金鑰儲存區、遙測與 session 命名），以及各種模型來源與權限的環境變數（provider、模型、模式、擴充、plugin、指示檔；拿掉繼承來的）；執行前寫入的檔案（端點寫成 provider 檔、金鑰絕不寫入；空的 `permission.yaml`；讓指令拿回使用者 `HOME` 的 shell 包裝：固定的文字、值放在環境變數，實際執行過）；`session/load` 之後依序重新設定 provider、模型、推理強度與模式；以 `system-prompt/set` 傳角色說明；從 Goose 的工具名稱判斷種類、唯讀模式下只讀取的 shell 指令、各權限的判斷與核准卡片、只回答 `allow_once`／`reject_once`、以 `session/steer` 把拒絕的理由交給模型、subagent 的呼叫在上層 session 底下詢問；從錄下的訊息把 update 轉成事件（讀取、編輯、指令、思考、todo 筆記成為計畫、被取消的呼叫）；從 Goose 的 session 總和算出這一輪的費用；金鑰、模型或端點有誤時的清楚錯誤；接續失敗；取消；Harness Relay 沙箱的選項（只在 HTTPS 時開 `allowTlsTrustd`、靜默拒絕的主機、本機 MCP 連接埠）；模型目錄與它自己載入的項目。
+- `test/ports.test.ts`：Harness Relay 的 port（`src/server/ports.ts`）：`npm start` 用 8787，`npm run dev` 用 8789（依 `npm_lifecycle_event` 判斷），`PORT` 優先於兩者；桌面 app 預設的 port 與 `npm start` 相同，`npm run dev` 的 API 與 Vite 絕不使用它。
 - `test/pi.test.ts`：用假的 `pi --mode rpc`（`test/fake-pi.ts`）與錄下的 Pi 訊息（`test/fixtures/pi/`，已清理）測試 Pi 轉接器：家目錄（保留 session、每一輪全新的 agent 資料夾且每個設定檔唯讀、關閉會載入程式碼的快取）、各種模型來源的 models.json（端點的金鑰透過變數、Pi 目錄沒有的模型）、秘密值放在變數裡的 mcp.json、各模型來源與權限的參數（唯讀的工具、gate、角色說明、接續、不載入指示檔）；只以 LF 分隔的格式；gate 擴充功能本身（`src/server/agents/piGate.js`）：每個呼叫都詢問、依權限判斷、使用者的留言交給模型、遇到問題一律拒絕、沒有它就不執行、停止時讓等待中的核准過期；各模型來源錄下的執行轉成的事件（文字、思考、讀取、帶 diff 的修改、bash、失敗、被拒絕的呼叫、MCP 工具）、用量與費用；以 session 檔案接續（不見了、換了資料夾、另一個 session）、重設模型、先確認推理強度；停止、模型來源的錯誤說明（金鑰、模型、端點）、Pi 無法啟動、沙箱的原因、逾時；它的模型目錄與指示檔。
 - `test/claude.test.ts`：Claude 預先允許與移除的工具、它的參數（`--system-prompt-snapshot off`、舊版不接受的旗標），以及工具被拒絕時顯示的原因。也測試完全存取以外的沙箱（原生 Windows 除外）：`--settings` 中的 `sandbox` 與詢問規則，以及它們和這一輪不載入的內容並存；沙箱要連的主機以讀取網頁的形式詢問；哪些允許的指令會在沙箱外執行（沙箱無法寫入的路徑，或模型自己要求的；工作目錄中的檔案不會）；以及沙箱無法執行時的訊息。也測試工具庫：`--mcp-config` 檔案與 skill 資料夾的 `Read` 規則（完整存取時不加）、Windows 路徑的 `Read` 規則，以及 `--mcp-config` 的內容。也測試不載入 Claude Code 自己的內容：skill 與 MCP 的旗標（工具庫的 `--mcp-config` 會保留）、指示檔與記憶的環境變數、用 `--settings` 關掉 hook 與每個已安裝的 plugin、讀取 `claude plugin list --json`，以及在送出 prompt 前拒絕它自己的 subagent（依名稱與說明，只拒絕非內建的；做不到，或 `initialize` 沒有列出 subagent 時，不送 prompt、直接失敗）。也測試用 `--settings` 不載入個別項目：skill（`skillOverrides`）、指示檔（`claudeMdExcludes`，路徑寫成只符合那個檔案，並用 picomatch 依 Claude Code 的比對方式驗證）、內建工具、MCP 伺服器與工具（依 Claude Code 的命名）與 subagent 的拒絕規則、依 id 關掉 plugin、整類不載入時不再加個別項目（subagent 與 plugin 除外）、工具庫給這次執行的伺服器不加規則，以及用 `--tools ""` 關掉所有內建工具。執行透過替身 `claude`（`test/fake-claude.ts`，依 Claude Code 2.1.319 的回答格式）測試：關掉 hook 與 plugin、用放在私有檔案（在 Harness Relay 自己的暫存資料夾，不是系統的；執行後刪除）的 `--settings` 不載入個別項目並立刻送出 prompt、送出 prompt 前拒絕 subagent（包括取代內建 subagent 的同名 subagent）、無法不載入 subagent 或 plugin 時清楚地失敗、等待中按下停止、舊版不接受某個旗標時不帶它重試、完全存取以外開啟沙箱，以及沙箱無法執行的情況。也測試工具列超過 160 個字的說明：路徑（`file_path`、Grok 的 `target_file`、資料夾）保留結尾與檔名，其他的保留開頭；核准卡片顯示完整路徑。
 - `test/templates.test.ts`：判斷範本編輯器有沒有修改範本（成員 id、前後空白與空的選填欄位不算；名稱、說明、成員、模式、輪數與交棒次數都算）。

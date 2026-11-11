@@ -369,9 +369,10 @@ describe('hosts', () => {
     expect(cl.network.allowedDomains.some((d) => d.endsWith(':4096'))).toBe(false);
   });
 
-  it("takes Harness Relay's ports from PORT, and Vite's", () => {
-    expect(relayPorts({ PORT: '9000' })).toEqual([9000, 8787, 5173]);
-    expect(relayPorts({})).toEqual([8787, 5173]);
+  it("takes Harness Relay's ports from PORT, and npm run dev's and Vite's", () => {
+    expect(relayPorts({ PORT: '9000' })).toEqual([9000, 8787, 8789, 5173]);
+    expect(relayPorts({})).toEqual([8787, 8789, 5173]);
+    expect(relayPorts({ npm_lifecycle_event: 'dev' })).toEqual([8789, 8787, 5173]);
   });
 
   it('labels a host as approvals key it, host alone for 443 and 80', () => {

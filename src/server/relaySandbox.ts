@@ -11,6 +11,7 @@ import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import type { ApprovalAnswer } from '../shared/types';
 import { AgentRunError, type ApprovalRequest } from './agents/types';
 import { currentLang, t, withLang } from './i18n';
+import { DEFAULT_PORT, DEV_API_PORT, DEV_WEB_PORT, apiPort } from './ports';
 import { CONTROL_CHANNEL, CommandNotFoundError, type ControlChannel, runProcess } from './process';
 import { spawnSync } from 'node:child_process';
 import {
@@ -242,10 +243,10 @@ function sandboxRuntimeDir(): string | undefined {
 /** Programs that sandbox-runtime and the host start outside the sandbox: they are looked for here only. */
 const SYSTEM_PATH = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'];
 
-/** Harness Relay's own ports: `PORT` (8787 by default) and Vite's 5173 (`npm run dev`). */
+/** Harness Relay's own ports: this server's (`apiPort()`), 8787, and `npm run dev`'s API and Vite's (`ports.ts`). */
 export function relayPorts(env: NodeJS.ProcessEnv = process.env): number[] {
-  const port = Number(env.PORT ?? 8787);
-  return [...new Set([...(Number.isInteger(port) && port > 0 ? [port] : []), 8787, 5173])];
+  const port = apiPort(env);
+  return [...new Set([...(Number.isInteger(port) && port > 0 ? [port] : []), DEFAULT_PORT, DEV_API_PORT, DEV_WEB_PORT])];
 }
 
 /** This computer's own addresses, without the zone of a link-local one. */

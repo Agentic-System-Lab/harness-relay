@@ -8,6 +8,7 @@ import { openDatabase } from './db';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
 import { desktopParent } from './parent';
+import { apiPort, isDevRun } from './ports';
 import { killAll } from './process';
 import { ProviderService } from './providers';
 import { Scheduler } from './scheduler';
@@ -91,7 +92,7 @@ try {
 clearOpenRunLeftovers(OPEN_PROVIDERS.map((p) => settings.openAgentHome(p)));
 for (const dir of [relaySandboxRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
-const port = Number(process.env.PORT ?? 8787);
+const port = apiPort();
 const host = process.env.HOST ?? '127.0.0.1';
 const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   console.log(`Harness Relay API listening on http://${host}:${info.port}`);
@@ -107,7 +108,7 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
     // Only this terminal gets the code (nothing keeps it but its hash): a browser opens the link once.
     // With `npm run dev`, the link is Vite's, also when an older build is there.
     const { code } = auth.createCode(CODE_TTL_MS.startup);
-    const dev = !built || process.env.npm_lifecycle_event === 'dev';
+    const dev = !built || isDevRun();
     console.log(`Sign this browser in (once, within an hour): ${signInLink(code, { host, port: info.port, dev })}`);
   }
   // Times missed while the server was not running are handled now, by each schedule's choice.
