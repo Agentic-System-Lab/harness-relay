@@ -1,6 +1,5 @@
 {
   "name": "harness-relay",
-  "version": "0.1.0",
   "private": true,
   "description": "A local group chat for the real Claude Code, Codex and Grok CLIs: give each a role, choose how they take turns, and they work on your code, or any question, and answer each other.",
   "license": "Apache-2.0",
