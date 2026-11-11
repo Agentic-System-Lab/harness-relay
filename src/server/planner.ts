@@ -675,8 +675,9 @@ export function decideRevision(
     const same = taken.get(a.id);
     if (!same || same.provider !== a.provider) return { ...fitAgents([a], ctx, lead)[0]!, id: a.id };
     if ((a.model || undefined) === (same.model || undefined) && (a.effort || undefined) === (same.effort || undefined)) return a;
-    // Its CLI stays (no remapping); only a model or effort that CLI does not offer is dropped.
-    return { ...fitAgents([a], { ...ctx, available: [] }, lead)[0]!, id: a.id };
+    // Its CLI and account stay (no remapping, even when signed out: the user chose them); only a model
+    // or effort that CLI does not offer is dropped.
+    return { ...fitAgents([a], { ...ctx, available: [], accounts: undefined }, lead)[0]!, id: a.id };
   });
   return { agents, settings, reason };
 }

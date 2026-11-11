@@ -145,11 +145,11 @@ Claude Code 與 Grok 的金鑰由 Harness Relay 存放在系統的金鑰儲存�
 每個 CLI 都能同時登入多個帳號，例如兩個 Claude 訂閱（公司和個人）、Codex 的三個 ChatGPT 帳號、Grok 的三個 xAI 帳號：每個 CLI 最多 10 個，含預設帳號。打開 CLI 卡片最下方的 **新增帳號**，取個名稱（或用建議的名稱），按 **新增帳號**。之後卡片會把每個帳號放在自己的框裡，顯示名稱、登入狀態，以及 CLI 回報的 email；每個帳號都各自登入、登出、設定 API key，做法和上面相同。
 
 - **預設帳號** 就是你原本的帳號：CLI 平常的家目錄（或[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)），以及啟動 Harness Relay 時環境變數裡的 API key。按 **重新命名** 也能幫它取名。
-- **其他每個帳號** 都有自己的 CLI 資料夾（登入、設定與 session 紀錄），路徑顯示在名稱下方：設定了各 CLI 自己的資料夾時放在裡面，否則放在 Harness Relay 的資料夾（`data/accounts/<cli>-<id>`）。它只用自己的 API key，不會用環境變數裡的。在某個帳號開始 Codex 登入，只會登出那個帳號。因為是新的資料夾，那裡的 CLI 不會讀你自己的設定、MCP 伺服器、skill 與記憶；[工具庫](#工具庫mcp-伺服器skill-與記憶)照常提供。
+- **其他每個帳號** 都有自己的 CLI 資料夾（登入、設定與 session 紀錄），路徑顯示在名稱下方：設定了各 CLI 自己的資料夾時放在裡面，否則放在 Harness Relay 的資料夾（`data/accounts/<cli>-<id>`）。它只用自己的 API key：啟動 Harness Relay 的環境變數裡的憑證都不會傳給它（Claude Code 的 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`CLAUDE_CODE_OAUTH_TOKEN`，Codex 的 `CODEX_API_KEY`、`OPENAI_API_KEY`，Grok 的 `XAI_API_KEY`），所以它的成員執行的指令也看不到它們。在某個帳號開始 Codex 登入，只會登出那個帳號。因為是新的資料夾，那裡的 CLI 不會讀你自己的設定、MCP 伺服器、skill 與記憶；[工具庫](#工具庫mcp-伺服器skill-與記憶)照常提供。
 - **選擇帳號**：在團隊設定裡用每位成員的 **帳號** 選擇，[首席 agent](#首席-agent) 則在它的卡片上選。CLI 有不只一個帳號時才會出現這個選單；選單會標出尚未登入的帳號，成員的帳號尚未登入時卡片也會提醒。沒有選帳號的成員使用預設帳號。新成員、以及首席 agent 設計的團隊中的成員，預設帳號已登入時用預設帳號，否則用第一個已登入的帳號；留任的成員保留原本的帳號。
 - 成員換到另一個帳號時，會開始新的 CLI session（並收到目前為止的對話），因為原本的 session 存在另一個帳號的資料夾。
 - **移除** 會登出這個帳號，刪除它的 API key 和資料夾（包括 CLI 在裡面的 session 紀錄）；原本用它的成員之後改用預設帳號。有對話正在執行時不能移除。預設帳號不能移除。
-- Grok 的資料夾信任會一次記錄到每個 Grok 帳號。
+- Grok 的資料夾信任會一次記錄到每個 Grok 帳號；之後新增的 Grok 帳號，一開始就信任預設帳號信任的資料夾。
 
 ### 預設模型與推理強度
 
@@ -191,7 +191,7 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 **各 CLI 自己的資料夾**：預設各 CLI 用它們平常的家目錄（`~/.claude`、`~/.codex`、`~/.grok`），也就是你自己執行 CLI 時用的那一個。在這裡填入一個資料夾（完整路徑，或以 `~` 開頭的路徑），或按 **使用 ~/.relay-agents**，Harness Relay 就會在裡面替每個 CLI 準備自己的家目錄：`claude`、`codex`、`grok` 子資料夾。之後各 CLI 的登入、設定與 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。
 
-- 各 CLI 要重新登入一次（在上方各 CLI 的卡片，或設定 API key）：新的家目錄一開始是空的。
+- 各 CLI 要重新登入一次（在上方各 CLI 的卡片，或設定 API key）：新的家目錄一開始是空的。[每個帳號](#多個帳號)都是如此：其他帳號的資料夾也會改放在新的資料夾裡，舊的則連同登入資料留在原處，要自己刪除（**移除** 只會刪掉帳號目前的資料夾）。
 - 各 CLI 不再讀你平常家目錄裡的設定、MCP 伺服器、skill、記憶與 plugin；[工具庫](#工具庫mcp-伺服器skill-與記憶)裡的工具照常提供給每位成員。
 - 成員在下一回合會開新的 session，並取得對話的完整紀錄：之前的 session 留在原本的家目錄。
 - session 紀錄在那個資料夾的 `claude/projects/`、`codex/sessions/` 與 `grok/sessions/`。

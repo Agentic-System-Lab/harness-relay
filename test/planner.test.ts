@@ -331,6 +331,13 @@ describe('changing a team at the user\'s request', () => {
       ['a1', 'work0001'],
       ['g1', undefined],
     ]);
+    // Its account is signed out and only the default one is usable: a member who keeps its CLI keeps
+    // it all the same, also when the lead changes its model.
+    const signedOut: PlannerContext = { ...ctx, accounts: { claude: [''], codex: [''] } };
+    for (const model of [undefined, 'haiku']) {
+      const r = decideRevision({ agents: [{ name: 'Alice', provider: 'claude', model }, { name: 'Gus', provider: 'grok' }] }, withAccount, signedOut, lead);
+      expect(r.agents[0]).toMatchObject({ id: 'a1', model: model ?? 'opus', account: 'work0001' });
+    }
     const moves = decideRevision({ agents: [{ name: 'Alice', provider: 'codex' }] }, withAccount, ctx, lead);
     expect(moves.agents[0]).toMatchObject({ id: 'a1', provider: 'codex' });
     expect(moves.agents[0]!.account).toBeUndefined();

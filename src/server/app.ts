@@ -40,7 +40,7 @@ import type { AgentsViewSync } from './agentsview';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
 import { zipStream } from './zip';
-import { restoreGrokTrust, trustGrokFolder } from './grokTrust';
+import { copyGrokTrust, restoreGrokTrustAll, trustGrokFolderAll } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
@@ -417,6 +417,14 @@ export function createApp({
     const label = validAccountLabel(b.label ?? '');
     if (settings.accountIds(p).length + 1 >= MAX_ACCOUNTS) throw new HttpError(409, t().tooManyAccounts(PROVIDER_LABEL[p], MAX_ACCOUNTS));
     const id = settings.addAccount(p, label);
+    if (p === 'grok') {
+      // The folders the default account trusts (which Settings shows) are trusted for this one too.
+      try {
+        copyGrokTrust(settings.env('grok'), settings.env('grok', id));
+      } catch (err) {
+        console.warn(`[settings] could not copy Grok's folder trust to account ${id}: ${(err as Error).message}`);
+      }
+    }
     providers.invalidate(p);
     return c.json({ id, settings: settingsView() });
   });
@@ -446,8 +454,12 @@ export function createApp({
     // A turn of this account would go on in a folder being deleted.
     if (orchestrator.anyRunning()) throw new HttpError(409, t().accountBusy);
     providers.forgetLogin(p, id);
-    await providers.logout(p, id, 15_000).catch(() => {});
+    // Forgotten at once, with nothing awaited since the check: a turn that starts while the CLI signs
+    // out runs as the default account, never in the folder about to go. The sign-out uses the
+    // account's environment taken before (its id now names the default account).
+    const env = settings.env(p, id);
     const home = settings.removeAccount(p, id);
+    await providers.logoutIn(p, env, 15_000).catch(() => {});
     if (home) await rm(home, { recursive: true, force: true }).catch((err: Error) => console.warn(`[settings] could not delete ${home}: ${err.message}`));
     providers.invalidate(p);
     return c.json(settingsView());
@@ -481,13 +493,14 @@ export function createApp({
     if (!trust || before.folderTrusted === true) return c.json({ cwd, folder, above, trusted: before.folderTrusted });
     // The user confirmed trust in the folder they were shown; if Grok now names another, ask again.
     if (typeof b.folder === 'string' && b.folder !== folder) throw new HttpError(409, t().grokTrustFolderChanged(folder));
-    // Every Grok account keeps its own trust, in its own folder: the folder is trusted for all of them.
+    // Every Grok account keeps its own trust, in its own folder: the folder is trusted for all of them
+    // (or none, when one of them cannot be written).
     const envs = ['', ...settings.accountIds('grok')].map((id) => settings.env('grok', id));
-    const previous = envs.map((env) => ({ env, before: trustGrokFolder(folder, env) }));
+    const written = trustGrokFolderAll(folder, envs);
     const after = await native.get('grok', cwd, true);
     if (after.folderTrusted === false) {
       // Grok did not take it: leave no entry behind that does nothing.
-      for (const { env, before } of previous) restoreGrokTrust(before, env);
+      restoreGrokTrustAll(written);
       throw new HttpError(409, t().grokTrustNotTaken(folder));
     }
     return c.json({ cwd, folder, above, trusted: after.folderTrusted });

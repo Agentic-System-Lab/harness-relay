@@ -932,6 +932,36 @@ describe('SettingsStore accounts', () => {
     }
   });
 
+  it("gives an account besides the default one none of the credentials in the server's environment", () => {
+    const inherited = {
+      ANTHROPIC_API_KEY: 'sk-ant-shell',
+      ANTHROPIC_AUTH_TOKEN: 'shell-bearer',
+      CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell',
+      CODEX_API_KEY: 'codex-shell',
+      OPENAI_API_KEY: 'sk-openai-shell',
+      XAI_API_KEY: 'xai-shell',
+    };
+    for (const [k, v] of Object.entries(inherited)) vi.stubEnv(k, v);
+    try {
+      const s = new SettingsStore(db);
+      s.setAgentHome(join(dir, 'agents'));
+      const ids = { claude: s.addAccount('claude', 'Work'), codex: s.addAccount('codex', 'Work'), grok: s.addAccount('grok', 'Work') };
+      s.updateAccount('grok', ids.grok, { apiKey: 'xai-own-key' });
+      const pick = (env: NodeJS.ProcessEnv) => Object.fromEntries(Object.keys(inherited).map((k) => [k, env[k]]).filter(([, v]) => v !== undefined));
+      // The default accounts keep what the server was started with.
+      expect(pick(s.env('claude'))).toEqual(inherited);
+      // The others: nothing that would sign them in as someone else, only their own key.
+      const others = (['claude', 'codex', 'grok'] as const).map((p) => [p, pick(s.env(p, ids[p]))]);
+      expect(Object.fromEntries(others)).toEqual({
+        claude: { CODEX_API_KEY: 'codex-shell', OPENAI_API_KEY: 'sk-openai-shell', XAI_API_KEY: 'xai-shell' },
+        codex: { ANTHROPIC_API_KEY: 'sk-ant-shell', ANTHROPIC_AUTH_TOKEN: 'shell-bearer', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell', XAI_API_KEY: 'xai-shell' },
+        grok: { ANTHROPIC_API_KEY: 'sk-ant-shell', ANTHROPIC_AUTH_TOKEN: 'shell-bearer', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell', CODEX_API_KEY: 'codex-shell', OPENAI_API_KEY: 'sk-openai-shell', XAI_API_KEY: 'xai-own-key' },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("keeps the other accounts' homes in the data folder when the CLIs have no folder of their own", async () => {
     const { ACCOUNTS_DIR } = await import('../src/server/settings');
     const s = new SettingsStore(db);

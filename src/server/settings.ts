@@ -60,6 +60,19 @@ export const API_KEY_ENV: Partial<Record<Provider, string>> = {
   grok: 'XAI_API_KEY',
 };
 
+/**
+ * The variables each CLI takes a sign-in from ahead of the one kept in its home: Claude Code reads
+ * `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`)
+ * before its own sign-in, Codex an API key from `CODEX_API_KEY` or `OPENAI_API_KEY`, Grok from
+ * `XAI_API_KEY`. An account besides the default one gets none of them from the server's environment
+ * (only its own key), or every such account would run as whoever they sign in.
+ */
+export const CREDENTIAL_ENV: Record<Provider, readonly string[]> = {
+  claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'],
+  codex: ['CODEX_API_KEY', 'OPENAI_API_KEY'],
+  grok: ['XAI_API_KEY'],
+};
+
 const DEFAULT_BIN: Record<Provider, string> = { claude: 'claude', codex: 'codex', grok: 'grok' };
 
 /** The variable that moves each CLI's home: its sign-in, settings and session transcripts. */
@@ -589,8 +602,8 @@ export class SettingsStore {
    * started with, so the CLI's sign-in, settings and sessions are Harness Relay's own.
    *
    * `account`: one of the CLI's accounts besides its default one (an unknown one is the default
-   * account). Its home is a folder of its own, and it gets its own key only: an API key the server
-   * was started with is the default account's.
+   * account). Its home is a folder of its own, and it gets its own key only: the credentials the
+   * server was started with (`CREDENTIAL_ENV`) are the default account's.
    */
   env(p: Provider, account?: string): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
@@ -598,7 +611,7 @@ export class SettingsStore {
     const id = this.resolveAccount(p, account);
     const keyVar = API_KEY_ENV[p];
     const key = this.apiKey(p, id);
-    if (keyVar && id) delete env[keyVar];
+    if (id) for (const k of CREDENTIAL_ENV[p]) delete env[k];
     if (keyVar && key) env[keyVar] = key;
     const home = this.accountHome(p, id);
     if (home) {

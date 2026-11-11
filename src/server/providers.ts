@@ -198,9 +198,17 @@ export class ProviderService {
   }
 
   async logout(p: Provider, account = '', timeoutMs = 30_000): Promise<string> {
+    return this.logoutIn(p, this.settings.env(p, account), timeoutMs);
+  }
+
+  /**
+   * Signs the CLI out in the environment given: an account's, taken while it was still one (a removed
+   * account's id names the default account).
+   */
+  async logoutIn(p: Provider, env: NodeJS.ProcessEnv, timeoutMs = 30_000): Promise<string> {
     const bin = this.settings.bin(p);
     const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
-    const r = await capture(bin, args, this.settings.env(p, account), { timeoutMs });
+    const r = await capture(bin, args, env, { timeoutMs });
     this.invalidate(p);
     if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || t().logoutFailed(r.code));
     return tail(r.stdout || r.stderr, 300);

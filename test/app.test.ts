@@ -473,12 +473,13 @@ describe('accounts', () => {
     const hub = new Hub();
     const providers = new ProviderService(settings);
     const logout = vi.spyOn(providers, 'logout').mockResolvedValue('');
+    const logoutIn = vi.spyOn(providers, 'logoutIn').mockResolvedValue('');
     const codexKey = vi.spyOn(providers, 'codexApiKeyLogin').mockResolvedValue('');
     const orch = new Orchestrator(s, hub, settings);
     const local = createApp({ auth: null, store: s, settings, hub, orchestrator: orch, providers });
     const call = (method: string, path: string, body: unknown = {}) => local.request(path, json(method, body, { 'x-relay-lang': 'en' }));
     const read = (path: string) => local.request(path, { headers: HOST });
-    return { settings, providers, logout, codexKey, orch, call, read, store: s };
+    return { settings, providers, logout, logoutIn, codexKey, orch, call, read, store: s };
   }
 
   it('adds, names and lists accounts of a CLI, the default one first', async () => {
@@ -556,16 +557,24 @@ describe('accounts', () => {
   });
 
   it('removes an account: signs it out, deletes its folder, and its agents use the default account', async () => {
-    const { call, settings, logout } = accountsApp();
+    const { call, settings, logoutIn } = accountsApp();
     const id = ((await (await call('POST', '/api/settings/providers/grok/accounts', { label: 'Team' })).json()) as { id: string }).id;
     const home = settings.env('grok', id).GROK_HOME!;
     writeFileSync(join(home, 'auth.json'), '{}');
     settings.setLead({ provider: 'grok', account: id });
+    // While the CLI signs out (up to 15 s), a turn that starts runs as the default account, not in the
+    // folder about to be deleted; the sign-out itself is the account's, never the default one's.
+    const during: { known: boolean; turnHome?: string }[] = [];
+    logoutIn.mockImplementation(async () => {
+      during.push({ known: settings.hasAccount('grok', id), turnHome: settings.env('grok', id).GROK_HOME });
+      return '';
+    });
 
     expect((await call('DELETE', '/api/settings/providers/grok/accounts/default')).status).toBe(400);
     const res = await call('DELETE', `/api/settings/providers/grok/accounts/${id}`);
     expect(res.status).toBe(200);
-    expect(logout).toHaveBeenCalledWith('grok', id, 15_000);
+    expect(logoutIn).toHaveBeenCalledWith('grok', expect.objectContaining({ GROK_HOME: home }), 15_000);
+    expect(during).toEqual([{ known: false, turnHome: settings.agentHomeFor('grok') }]);
     expect(existsSync(home)).toBe(false);
     const view = (await res.json()) as SettingsView;
     expect(view.providers.find((p) => p.provider === 'grok')!.accounts.map((a) => a.id)).toEqual(['']);
@@ -1575,6 +1584,46 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
       expect(await res.json()).toMatchObject({ folder: project, trusted: true });
       for (const f of stores) expect(readFileSync(f, 'utf8')).toContain(`[folders."${project}"]`);
     } finally {
+      if (saved === undefined) delete process.env.FAKE_GROK_REFUSE;
+      else process.env.FAKE_GROK_REFUSE = saved;
+    }
+  });
+
+  it("records trust for all Grok accounts or none, and gives an account added later the default account's trust", async () => {
+    const fakeGrok = join(root, `fake-grok-${++n}`);
+    writeFileSync(fakeGrok, FAKE_GROK, { mode: 0o755 });
+    const saved = process.env.FAKE_GROK_REFUSE;
+    delete process.env.FAKE_GROK_REFUSE;
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    settings.setDefaultCwd(project);
+    settings.setAgentHome(join(root, `agents-${n}`));
+    const broken = settings.addAccount('grok', 'Broken');
+    const s = new Store(db);
+    const hub = new Hub();
+    const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
+    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const store = (id = '') => join(settings.env('grok', id).GROK_HOME!, 'trusted_folders.toml');
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // The second account's store cannot be written: the default account's entry is put back too.
+      mkdirSync(store(broken));
+      const failed = await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }));
+      expect(failed.status).toBe(500);
+      expect(existsSync(store())).toBe(false);
+      rmSync(store(broken), { recursive: true });
+
+      expect(await (await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }))).json()).toMatchObject({ trusted: true });
+      // A Grok account added now trusts what the default account trusts.
+      const added = await local.request('/api/settings/providers/grok/accounts', json('POST', { label: 'Later' }));
+      const { id } = (await added.json()) as { id: string };
+      expect(readFileSync(store(id), 'utf8')).toBe(readFileSync(store(), 'utf8'));
+      expect(statSync(store(id)).mode & 0o777).toBe(0o600);
+      // Another CLI's account gets nothing of Grok's.
+      const claude = (await (await local.request('/api/settings/providers/claude/accounts', json('POST', { label: 'C' }))).json()) as { id: string };
+      expect(existsSync(join(settings.env('claude', claude.id).CLAUDE_CONFIG_DIR!, 'trusted_folders.toml'))).toBe(false);
+    } finally {
+      warn.mockRestore();
       if (saved === undefined) delete process.env.FAKE_GROK_REFUSE;
       else process.env.FAKE_GROK_REFUSE = saved;
     }
