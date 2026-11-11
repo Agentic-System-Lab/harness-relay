@@ -16,6 +16,7 @@ import {
   reportState,
   countsAsSent,
   sentLinks,
+  uploadUnlinked,
   reportSubject,
   reportText,
   screenshotProblem,
@@ -176,6 +177,18 @@ describe('the note after a report went', () => {
     // The clipboard's notes say nothing of links.
     expect(sentLinks('cut', 'A', 'A')).toBe(false);
     expect(sentLinks(undefined, 'A', 'A')).toBe(false);
+  });
+});
+
+describe('screenshots uploaded after the report went', () => {
+  it('are pointed out, as no sent mail links to them and closing deletes them', () => {
+    expect(uploadUnlinked('mail', 'B', undefined)).toBe(true);
+    expect(uploadUnlinked('copied', 'B', 'A')).toBe(true);
+    // Linked, not sent yet, or the clipboard refused the report (not sent): nothing to say.
+    expect(uploadUnlinked('mail', 'A', 'A')).toBe(false);
+    expect(uploadUnlinked(undefined, 'B', undefined)).toBe(false);
+    expect(uploadUnlinked('cutCopyFailed', 'B', undefined)).toBe(false);
+    expect(uploadUnlinked('mail', undefined, undefined)).toBe(false);
   });
 });
 

@@ -735,6 +735,7 @@ export const zhTW = {
       removeUpload: '刪除上傳',
       removing: '刪除中…',
       uploadFirst: '先上傳截圖，或把它們移除，才能寄出。',
+      notLinked: '這些截圖是寄出之後才上傳的，已寄出的信裡沒有它們的連結：再寄出一次才會附上；直接關掉對話框會刪除它們。',
       fallback: '也可以移除截圖，寄出後再把它們拖進信裡。',
       alt: (n: number) => `截圖 ${n}`,
       remove: (n: number) => `移除截圖 ${n}`,

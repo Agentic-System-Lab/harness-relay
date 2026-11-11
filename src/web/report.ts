@@ -62,6 +62,14 @@ export function sentLinks(sent: Sent | undefined, uploadId: string | undefined, 
   return !!uploadId && uploadId === linkedId && (sent === 'mail' || sent === 'gmail' || sent === 'copied');
 }
 
+/**
+ * Whether the screenshots there are now were uploaded after the report went, so no sent mail links to
+ * them: the dialog says to send again, as closing it deletes them (`ShotUploads.forget`).
+ */
+export function uploadUnlinked(sent: Sent | undefined, uploadId: string | undefined, linkedId: string | undefined): boolean {
+  return countsAsSent(sent) && !!uploadId && uploadId !== linkedId;
+}
+
 /** Only the description is needed: there is nothing to report without it. */
 export function reportReady(d: ReportDraft): boolean {
   return d.description.trim().length > 0;

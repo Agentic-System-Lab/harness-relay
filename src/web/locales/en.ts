@@ -723,6 +723,7 @@ export const en: Messages = {
       removeUpload: 'Remove upload',
       removing: 'Removing…',
       uploadFirst: 'Upload the screenshots, or remove them, to send.',
+      notLinked: 'These screenshots were uploaded after the mail went, so it does not link to them: send again to include them. Closing the dialog deletes them.',
       fallback: 'Or remove the screenshots, and drag them into the mail once it opens.',
       alt: (n) => `Screenshot ${n}`,
       remove: (n) => `Remove screenshot ${n}`,

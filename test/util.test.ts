@@ -83,11 +83,18 @@ describe("an agent's account", () => {
 });
 
 describe('a timeout signal', () => {
-  it('aborts after its time, as AbortSignal.timeout() does where a browser has it', async () => {
-    const signal = timeoutSignal(20);
+  it('aborts after its time, as AbortSignal.timeout() does', async () => {
+    const { signal } = timeoutSignal(20);
     expect(signal.aborted).toBe(false);
     await new Promise((r) => setTimeout(r, 40));
     expect(signal.aborted).toBe(true);
     expect((signal.reason as DOMException).name).toBe('TimeoutError');
+  });
+
+  it('does not abort once cleared, the request being done', async () => {
+    const { signal, clear } = timeoutSignal(20);
+    clear();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(signal.aborted).toBe(false);
   });
 });

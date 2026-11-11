@@ -23,6 +23,7 @@ import {
   reportText,
   countsAsSent,
   sentLinks,
+  uploadUnlinked,
   screenshotProblem,
   ShotUploads,
   type MailLink,
@@ -341,6 +342,11 @@ export function ReportDialog({ providers, onClose }: Props) {
         {sent && (
           <p className={sent === 'cutCopyFailed' ? 'small warn-text' : 'small report-sent'} role="status">
             {sentLinks(sent, upload?.id, uploads.linkedId) ? r.sentLinked[sent] : r.sent[sent]}
+          </p>
+        )}
+        {uploadUnlinked(sent, upload?.id, uploads.linkedId) && (
+          <p className="small warn-text" role="status">
+            {r.shots.notLinked}
           </p>
         )}
 
