@@ -1268,6 +1268,11 @@ export const zhTW = {
       removeKey: '移除金鑰',
       saved: '已儲存',
       deleted: '已刪除',
+      deletedEndpoints: '已刪除的端點',
+      deletedEndpointsHint:
+        'Claude Code、Codex 與 Grok 的成員若還指定這些端點的模型（端點 id/…），這一輪會失敗，不會改送到 CLI 自己的服務。如果某個 CLI 自己的模型剛好以同樣的名稱開頭（例如你 Codex 設定裡的 qwen/…），忘掉這個端點就能照常使用那個模型。',
+      forgetDeleted: '忘掉',
+      forgotten: (id: string) => `已忘掉「${id}」`,
       problems: {
         name: '請輸入名稱。',
         nameLong: (n: number) => `名稱最多 ${n} 個字元。`,
@@ -1428,7 +1433,7 @@ export const zhTW = {
           '唯讀：只讀檔、分析與上網查資料',
           '可編輯：在工作目錄內修改檔案、執行測試與建置',
           '完全存取：執行任何指令，不再詢問',
-          '完全存取以外，除了 Cursor，每個 agent 的指令都在沙箱中執行：只能寫入工作目錄與暫存資料夾，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Claude Code、Codex 與 Grok 用它們自己的沙箱，開源 agent 用 Harness Relay 自己的（原生 Windows 上只有 Codex 有沙箱，開源 agent 只能以完全存取執行）。Cursor 沒有沙箱：它要執行的每個指令都會先問你，你允許的指令會以你的完整權限執行',
+          '完全存取以外，除了 Cursor，每個 agent 的指令都在沙箱中執行：只能寫入工作目錄與暫存資料夾，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Claude Code、Codex 與 Grok 用它們自己的沙箱，開源 agent 用 Harness Relay 自己的（原生 Windows 上只有 Codex 有沙箱，開源 agent 只能以完全存取執行）。Cursor 沒有沙箱：它要執行的每個指令都會先問你（對話設為自動拒絕時則直接拒絕），你的 Cursor 團隊允許清單上的除外；你允許的指令會以你的完整權限執行',
           '在你的家目錄與 Harness Relay 自己的資料夾中，不能使用可編輯模式：請選專案的資料夾',
           '提高權限時，每個 agent 下一輪都會帶著完整的歷史開始新的 session',
           '每回合改了哪些檔案都會列出來，可以看 diff；平行模式再選擇要套用誰的結果',

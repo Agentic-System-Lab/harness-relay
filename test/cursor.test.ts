@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
@@ -22,6 +22,7 @@ import {
   cursorConfigDir,
   cursorDenyRules,
   cursorEnv,
+  cursorHomePath,
   cursorPath,
   cursorPermissionDecision,
   cursorPromptText,
@@ -87,6 +88,24 @@ describe('cursor permission policy (no sandbox)', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('edit: takes a path in the home folder (`~/…`) for one there, not in the working directory', () => {
+    // A shell, and Cursor, take `~` for the home folder: a delete there is not the working directory's.
+    expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Delete `~/notes.txt`' }, CWD).allow).toBe(false);
+    expect(cursorPermissionDecision('edit', { kind: 'delete', rawInput: { path: '~' } }, CWD).allow).toBe(false);
+    // In a working directory inside the home folder, `~/…` there is inside it.
+    const project = join(homedir(), 'relay-cursor-project');
+    expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Delete `~/relay-cursor-project/old.ts`' }, project).allow).toBe(true);
+    expect(cursorHomePath('~/a/b', '/home/me')).toBe(join('/home/me', 'a/b'));
+    expect(cursorHomePath('~\\a', '/home/me')).toBe(join('/home/me', 'a'));
+    expect(cursorHomePath('~', '/home/me')).toBe('/home/me');
+    // Not a home path: a name that starts with a tilde, and every other path.
+    for (const path of ['~notes', 'a/~/b', '/w/~/x', 'src/a.ts']) expect(cursorHomePath(path, '/home/me')).toBe(path);
+    // The card says a write there is outside the working directory.
+    expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Write ~/.zshrc' }, CWD)).reason).toBe(
+      'This file is outside the working directory: Cursor asks before writing outside it.',
+    );
   });
 
   it('full: approves everything', () => {

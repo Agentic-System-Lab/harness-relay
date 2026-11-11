@@ -435,6 +435,12 @@ export function createApp({
     return c.json(settings.backends.view());
   });
 
+  // A deleted endpoint's id, forgotten: its models go to their CLI as they are again.
+  app.delete('/api/backends/deleted-endpoints/:id', (c) => {
+    settings.backends.forgetDeletedEndpoint(validEndpointId(c.req.param('id')));
+    return c.json(settings.backends.view());
+  });
+
   // --- Tool library: MCP servers, skills and memory for the agents --------------
 
   app.get('/api/tools', (c) => c.json(settings.tools.view()));

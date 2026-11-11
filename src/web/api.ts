@@ -286,6 +286,7 @@ export const api = {
   setBackendKey: (id: ApiBackend, apiKey: string | null) => request<ModelBackendsView>('PUT', `/api/backends/${id}`, { apiKey }),
   saveEndpoint: (id: string, b: ModelEndpointUpdate) => request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, b),
   deleteEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/endpoints/${encodeURIComponent(id)}`),
+  forgetDeletedEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/deleted-endpoints/${encodeURIComponent(id)}`),
   updateSettings: (b: SettingsUpdate) => request<SettingsView>('PUT', '/api/settings', b),
   updateProvider: (p: Provider, b: ProviderSettingsUpdate) =>
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),

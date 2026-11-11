@@ -136,7 +136,7 @@ const zhTW = {
   openEndpointMissing: (cli: string, endpoint: string, id: string) =>
     `${cli} 要用模型「${id}」，但沒有 id 為「${endpoint}」的自訂端點。請到「設定 → 模型來源」新增，或改選其他模型。`,
   endpointDeleted: (cli: string, endpoint: string, id: string) =>
-    `${cli} 要用模型「${id}」，但它的自訂端點「${endpoint}」已在「設定 → 模型來源」刪除。這一輪沒有執行，也沒有改送到 ${cli} 自己的服務。請改選其他模型，或重新新增這個端點。`,
+    `${cli} 要用模型「${id}」，但它的自訂端點「${endpoint}」已在「設定 → 模型來源」刪除。這一輪沒有執行，也沒有改送到 ${cli} 自己的服務。請改選其他模型，或重新新增這個端點；如果「${id}」是 ${cli} 自己的模型，到「設定 → 模型來源 → 已刪除的端點」忘掉「${endpoint}」。`,
   openNoHome: 'Harness Relay 沒有給這個 agent 它自己的家目錄。',
   openNoWindowsSandbox: (cli: string) =>
     `在 Windows 上，Harness Relay 的沙箱還不能保護 ${cli}，所以它只能以「完全存取」執行。請改用完全存取（只在你信任的資料夾），或在 WSL 中執行 Harness Relay。`,
@@ -220,6 +220,7 @@ const zhTW = {
 
   tooManyEndpoints: (n: number) => `最多只能設定 ${n} 個自訂端點。`,
   endpointNotFound: (id: string) => `找不到端點「${id}」`,
+  deletedEndpointNotFound: (id: string) => `沒有記著已刪除的端點「${id}」`,
   endpointIdInvalid: (id: string) => `端點 id「${id}」只能用小寫英文字母、數字與 -（開頭與結尾不能是 -，最多 32 個字元）。`,
   endpointIdReserved: (id: string) => `「${id}」是內建模型來源的名稱，請為端點取別的 id。`,
   endpointNameMissing: '請輸入端點的名稱',
@@ -602,7 +603,7 @@ const en: ServerMessages = {
   openEndpointMissing: (cli, endpoint, id) =>
     `${cli} is to use the model "${id}", but there is no custom endpoint with the id "${endpoint}". Add it under Settings → Model backends, or pick another model.`,
   endpointDeleted: (cli, endpoint, id) =>
-    `${cli} is to use the model "${id}", but its custom endpoint "${endpoint}" was deleted under Settings → Model backends. The turn did not run, and was not sent to ${cli}'s own service instead. Pick another model, or add the endpoint again.`,
+    `${cli} is to use the model "${id}", but its custom endpoint "${endpoint}" was deleted under Settings → Model backends. The turn did not run, and was not sent to ${cli}'s own service instead. Pick another model, or add the endpoint again; if "${id}" is a model of ${cli}'s own, forget "${endpoint}" under Settings → Model backends → Deleted endpoints.`,
   openNoHome: 'Harness Relay gave this agent no home of its own.',
   openNoWindowsSandbox: (cli) =>
     `On Windows, Harness Relay's sandbox cannot protect ${cli} yet, so it only runs with full access. Use full access (only in a folder you trust), or run Harness Relay in WSL.`,
@@ -686,6 +687,7 @@ const en: ServerMessages = {
 
   tooManyEndpoints: (n) => `At most ${n} custom endpoints can be set up.`,
   endpointNotFound: (id) => `No endpoint "${id}"`,
+  deletedEndpointNotFound: (id) => `No deleted endpoint "${id}" is remembered`,
   endpointIdInvalid: (id) => `The endpoint id "${id}" may only hold lowercase letters, digits and - (not first or last; at most 32 characters).`,
   endpointIdReserved: (id) => `"${id}" is the name of a built-in model backend; give the endpoint another id.`,
   endpointNameMissing: 'Enter a name for the endpoint',

@@ -1528,6 +1528,12 @@ export interface ModelEndpointView {
 export interface ModelBackendsView {
   apis: ApiBackendView[];
   endpoints: ModelEndpointView[];
+  /**
+   * The ids of endpoints deleted (and not added again): a Claude Code, Codex or Grok model `<id>/…`
+   * fails instead of going to the CLI's own service, until the id is forgotten
+   * (`DELETE /api/backends/deleted-endpoints/:id`).
+   */
+  deletedEndpoints: string[];
 }
 
 /** `PUT /api/backends/endpoints/:id`: the endpoint as it should be. */

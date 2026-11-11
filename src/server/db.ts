@@ -360,8 +360,8 @@ const MIGRATIONS: string[] = [
   // 25: the endpoints deleted in Settings (deleted_endpoints, until one of the same id is added
   // again), so that a Claude Code, Codex or Grok member still naming a model of one fails its turn
   // instead of sending it to the CLI's own service; and the backend each member's session was made on
-  // (agent_sessions.backend: an endpoint's id, '' the CLI's own service; NULL: not recorded, taken as
-  // the CLI's own), so that a session is not resumed on another one.
+  // (agent_sessions.backend: an endpoint's id; NULL: the CLI's own service, or not recorded, taken as
+  // the same), so that a session is not resumed on another one.
   `
   CREATE TABLE deleted_endpoints (
     id         TEXT PRIMARY KEY,

@@ -283,24 +283,42 @@ export class ModelBackendStore {
   /** Adds an endpoint, or replaces the one with this id (its key stays unless `apiKey` is given). */
   putEndpoint(id: string, u: ModelEndpointUpdate): void {
     let e = this.endpoints.find((x) => x.id === id);
+    // Added again: its models run on it again, once it is saved (in the same write, so that a failed
+    // save leaves it deleted, not neither).
+    const readded = !e && this.deleted.has(id);
     if (!e) {
       if (this.endpoints.length >= BACKEND_LIMITS.maxEndpoints) throw new HttpError(400, t().tooManyEndpoints(BACKEND_LIMITS.maxEndpoints));
       e = { id, name: u.name, baseUrl: u.baseUrl, models: [...u.models], createdAt: Date.now() };
       this.endpoints.push(e);
-      // Added again: its models run on it again.
-      if (this.deleted.delete(id)) this.db.prepare('DELETE FROM deleted_endpoints WHERE id = ?').run(id);
     } else {
       Object.assign(e, { name: u.name, baseUrl: u.baseUrl, models: [...u.models] });
     }
+    const persist = () => {
+      transaction(this.db, () => {
+        this.save(id);
+        if (readded) this.db.prepare('DELETE FROM deleted_endpoints WHERE id = ?').run(id);
+      });
+      if (readded) this.deleted.delete(id);
+    };
     if (u.apiKey !== undefined) {
       try {
         this.storeKey(id, (u.apiKey ?? '').trim());
       } catch (err) {
-        this.save(id); // the endpoint itself is saved; only its key was refused
+        persist(); // the endpoint itself is saved; only its key was refused
         throw err;
       }
     }
-    this.save(id);
+    persist();
+  }
+
+  /**
+   * Forgets that an endpoint of this id was deleted: a model `<id>/…` goes to its CLI as it is again
+   * (a model of the user's own Codex config that starts with the same name, say).
+   */
+  forgetDeletedEndpoint(id: string): void {
+    if (!this.deleted.has(id)) throw new HttpError(404, t().deletedEndpointNotFound(id));
+    this.db.prepare('DELETE FROM deleted_endpoints WHERE id = ?').run(id);
+    this.deleted.delete(id);
   }
 
   deleteEndpoint(id: string): void {
@@ -342,6 +360,7 @@ export class ModelBackendStore {
         keyStorage: this.storage(e.id),
         ...flags(e.id),
       })),
+      deletedEndpoints: [...this.deleted].sort(),
     };
   }
 

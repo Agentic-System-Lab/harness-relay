@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -224,5 +224,20 @@ describe("the turns' own temporary folders", () => {
     expect(existsSync(join(sessions, 'chat.json'))).toBe(true);
     // None yet: nothing to do.
     expect(() => clearRunTmp(join(root, 'no-tmp-yet'))).not.toThrow();
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('goes on past one it cannot remove, and names it', () => {
+    const tmp = join(root, 'run-tmp-locked');
+    // Its own folder may not be written in: what is in it cannot be removed.
+    mkdirSync(join(tmp, 'claude-l0cked', 'inner'), { recursive: true });
+    writeFileSync(join(tmp, 'claude-l0cked', 'inner', 'settings.json'), '{}');
+    chmodSync(join(tmp, 'claude-l0cked', 'inner'), 0o500);
+    mkdirSync(join(tmp, 'cursor-0pen00'));
+    try {
+      expect(() => clearRunTmp(tmp)).toThrow(/claude-l0cked/);
+      expect(readdirSync(tmp)).toEqual(['claude-l0cked']);
+    } finally {
+      chmodSync(join(tmp, 'claude-l0cked', 'inner'), 0o700);
+    }
   });
 });

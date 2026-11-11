@@ -154,7 +154,8 @@ export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-' } as cons
  * Removes the folders of turns the server was stopped during (`RUN_TMP_PREFIXES`; a turn removes its
  * own when it ends), so that no key stays there outside the credential store: for the server's start,
  * before any turn runs. A link in one (a Cursor turn's to the account's sessions) goes, not what it
- * leads to.
+ * leads to. One that cannot be removed does not keep the others: it throws once all were tried, naming
+ * each that is left.
  */
 export function clearRunTmp(root = relayTmpDir()): void {
   let names: string[];
@@ -164,9 +165,16 @@ export function clearRunTmp(root = relayTmpDir()): void {
     return; // none yet
   }
   const prefixes = Object.values(RUN_TMP_PREFIXES);
+  const left: string[] = [];
   for (const name of names) {
-    if (prefixes.some((p) => name.startsWith(p))) rmSync(join(root, name), { recursive: true, force: true });
+    if (!prefixes.some((p) => name.startsWith(p))) continue;
+    try {
+      rmSync(join(root, name), { recursive: true, force: true });
+    } catch (err) {
+      left.push(`${join(root, name)} (${(err as Error).message})`);
+    }
   }
+  if (left.length) throw new Error(`could not remove ${left.join(', ')}`);
 }
 
 /**

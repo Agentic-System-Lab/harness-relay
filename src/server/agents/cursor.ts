@@ -218,9 +218,15 @@ const isWeb = (call: CursorToolCall) =>
 /** A delete (Cursor reports one as kind `edit`, titled "Delete `<path>`"). */
 const isDelete = (call: CursorToolCall) => call.kind === 'delete' || /^delete\b/i.test(call.title ?? '');
 
-/** Whether `path` is in `dir`, links on the way resolved (a link in the project may lead out of it). */
+/** A path as a shell takes it: `~` and `~/…` (`~\…` on Windows) are in the home folder, not in the working directory. */
+export function cursorHomePath(path: string, home = homedir()): string {
+  if (path === '~') return home;
+  return /^~[\\/]/.test(path) ? join(home, path.slice(2)) : path;
+}
+
+/** Whether `path` is in `dir`, `~` and links on the way resolved (a link in the project may lead out of it). */
 const inside = (dir: string, path: string) => {
-  const rel = relative(realPath(resolve(dir)), realPath(resolve(dir, path)));
+  const rel = relative(realPath(resolve(dir)), realPath(resolve(dir, cursorHomePath(path))));
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 };
 

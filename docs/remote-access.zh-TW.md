@@ -181,7 +181,7 @@ RestartSec=3
 WantedBy=default.target
 ```
 
-完全存取以外，開源 agent 在 Harness Relay 自己的沙箱中執行，在 Linux 上需要 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`；Ubuntu 23.10 以後還要加上[各平台的作業系統沙箱](sandboxing.zh-TW.md#在-linux-上)裡的 AppArmor 設定檔）。service 也是在同一個 `PATH` 上找它們。
+完全存取以外，agent 的指令都在沙箱中執行，而這些沙箱在 Linux 上各自需要一些程式：Claude Code 的需要 `bubblewrap` 與 `socat`，Codex 的需要 `bubblewrap`，Grok 的需要 `bubblewrap`（以及 5.13 以後的 kernel），開源 agent 所用的 Harness Relay 自己的沙箱需要 `bubblewrap`、`socat` 與 `ripgrep`。所以請安裝 `sudo apt-get install bubblewrap socat ripgrep`，Ubuntu 23.10 以後還要加上[各平台的作業系統沙箱](sandboxing.zh-TW.md#在-linux-上)裡的 AppArmor 設定檔。Cursor 不需要：它沒有沙箱，所以它的指令都要詢問。service 也是在同一個 `PATH` 上找這些程式。
 
 接著啟動它，並讓它在你登出後繼續執行：
 

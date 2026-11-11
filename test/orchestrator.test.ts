@@ -386,6 +386,27 @@ describe('AgentsView', () => {
   });
 });
 
+describe('parallel mode, replies in order', () => {
+  it("adds every member's reply in the team's order, whichever CLI each runs on", async () => {
+    const saved = runners.cursor;
+    runners.cursor = { ...runners.claude, provider: 'cursor' };
+    try {
+      const conv = conversation({ mode: 'parallel', permission: 'read-only' });
+      // Claude Code works out whether it runs on an endpoint first; Cursor does not.
+      conv.agents = [
+        { id: 'a', name: 'Alice', provider: 'claude', role: '' },
+        { id: 'b', name: 'Bob', provider: 'cursor', role: '' },
+      ];
+      store.saveMeta(conv);
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      expect(agentMessages(conv).map((m) => m.agentName)).toEqual(['Alice', 'Bob']);
+    } finally {
+      runners.cursor = saved;
+    }
+  });
+});
+
 describe('parallel mode with edit permission', () => {
   it('gives each agent its own worktree so they cannot overwrite each other', async () => {
     const conv = conversation({ mode: 'parallel' });

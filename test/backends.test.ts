@@ -86,6 +86,7 @@ describe('ModelBackendStore', () => {
         { id: 'xai', keyMasked: '', keyStorage: 'database' },
       ],
       endpoints: [{ id: 'homelab', ...endpoint, keyMasked: '••••', keyStorage: 'database' }],
+      deletedEndpoints: [],
     } satisfies ModelBackendsView);
     expect(again.configured()).toEqual(['openai', 'homelab']);
     expect(again.forRun()).toEqual({ apis: { openai: 'sk-test-openai-1234' }, endpoints: [{ id: 'homelab', ...endpoint, apiKey: 'lab-key-5678' }] });
@@ -193,6 +194,33 @@ describe('ModelBackendStore', () => {
     expect(again.forRun()).not.toHaveProperty('deletedEndpoints');
     expect(tombstones()).toEqual([]);
     expect(new ModelBackendStore(reopen()).forRun()).not.toHaveProperty('deletedEndpoints');
+  });
+
+  it("lists the deleted endpoints' ids, and forgets one when asked, so that its models go to their CLI again", () => {
+    const s = new ModelBackendStore(db);
+    for (const id of ['qwen', 'homelab']) {
+      s.putEndpoint(id, endpoint);
+      s.deleteEndpoint(id);
+    }
+    expect(s.view().deletedEndpoints).toEqual(['homelab', 'qwen']);
+    s.forgetDeletedEndpoint('qwen');
+    expect(s.view().deletedEndpoints).toEqual(['homelab']);
+    expect(s.forRun().deletedEndpoints).toEqual(['homelab']);
+    expect(endpointRunModel(s.forRun(), 'qwen/qwen3-coder', 'Codex')).toBeUndefined();
+    expect(new ModelBackendStore(reopen()).view().deletedEndpoints).toEqual(['homelab']);
+    expect(() => new ModelBackendStore(db).forgetDeletedEndpoint('qwen')).toThrow(/qwen/);
+  });
+
+  it('keeps a deleted endpoint remembered when adding it again could not be saved', () => {
+    const s = new ModelBackendStore(db);
+    s.putEndpoint('homelab', endpoint);
+    s.deleteEndpoint('homelab');
+    // The endpoint's row cannot be written: nothing of the change is kept.
+    db.exec("CREATE TRIGGER no_endpoints BEFORE INSERT ON model_backends BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+    expect(() => s.putEndpoint('homelab', endpoint)).toThrow(/disk full/);
+    expect(s.forRun().deletedEndpoints).toEqual(['homelab']);
+    db.exec('DROP TRIGGER no_endpoints');
+    expect(new ModelBackendStore(reopen()).forRun()).toMatchObject({ endpoints: [], deletedEndpoints: ['homelab'] });
   });
 });
 
@@ -459,8 +487,16 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     await refused('lab', { ...endpoint, baseUrl: 'http://10.0.0.5/v1?key=1' }, /not an endpoint address/);
     await refused('lab', { ...endpoint, baseUrl: 'http://127.0.0.1:8787/v1' }, /Harness Relay's own address/);
     await refused('lab', { ...endpoint, models: ['has space'] }, /without spaces/);
-    expect((await app.request('/api/backends/endpoints/homelab', json('DELETE'))).status).toBe(200);
+    const deleted = await app.request('/api/backends/endpoints/homelab', json('DELETE'));
+    expect(deleted.status).toBe(200);
+    expect(((await deleted.json()) as ModelBackendsView).deletedEndpoints).toEqual(['homelab']);
     expect((await app.request('/api/backends/endpoints/homelab', json('DELETE'))).status).toBe(404);
+    // Its id, forgotten: once (404 after), and only an endpoint id.
+    const forgot = await app.request('/api/backends/deleted-endpoints/homelab', json('DELETE'));
+    expect(forgot.status).toBe(200);
+    expect(((await forgot.json()) as ModelBackendsView).deletedEndpoints).toEqual([]);
+    expect((await app.request('/api/backends/deleted-endpoints/homelab', json('DELETE'))).status).toBe(404);
+    expect((await app.request('/api/backends/deleted-endpoints/Home_Lab', json('DELETE'))).status).toBe(400);
   });
 
   it('refreshes the model menus and the agents\' status also after a change that failed part way', async () => {

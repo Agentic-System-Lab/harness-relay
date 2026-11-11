@@ -12,7 +12,9 @@ import {
   grokEnv,
   grokHome,
   grokModelsBlock,
+  grokBlockEndpoints,
   grokRunner,
+  holdGrokTypedModel,
   withGrokModels,
   writeGrokModels,
   grokProfileBlock,
@@ -521,6 +523,37 @@ describe("Grok on the user's own endpoints", () => {
       writeFileSync(file, `${readFileSync(file, 'utf8')}[mcp_servers.evil]\n`);
       expect(third()).toEqual(['config.toml']);
       expect(readFileSync(file, 'utf8')).not.toContain('evil');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the table of a model typed for an endpoint while a run that uses it is under way, whoever writes the block', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-typed-'));
+    const file = join(home, 'config.toml');
+    const has = (model: string) => readFileSync(file, 'utf8').includes(`[model."harness-relay/homelab/${model}"]`);
+    try {
+      // Two runs on the typed model (two members, say), then another run on Grok's own model, which
+      // writes the block from the endpoint's own list.
+      const first = holdGrokTypedModel(home, 'homelab', 'qwen3:32b');
+      const second = holdGrokTypedModel(home, 'homelab', 'qwen3:32b');
+      writeGrokModels(home, grokBlockEndpoints(home, [lab]), true);
+      writeGrokModels(home, grokBlockEndpoints(home, [lab]), false);
+      expect([has('gemma4:e4b'), has('qwen3:32b')]).toEqual([true, true]);
+      // Kept until the last of them ends; then the next write leaves it out.
+      first();
+      first(); // once is enough
+      writeGrokModels(home, grokBlockEndpoints(home, [lab]), false);
+      expect(has('qwen3:32b')).toBe(true);
+      second();
+      writeGrokModels(home, grokBlockEndpoints(home, [lab]), false);
+      expect([has('gemma4:e4b'), has('qwen3:32b')]).toEqual([true, false]);
+      // Only in that home, and only for an endpoint still set up.
+      const other = holdGrokTypedModel(join(home, 'elsewhere'), 'homelab', 'llama4');
+      const gone = holdGrokTypedModel(home, 'oldlab', 'x');
+      expect(grokBlockEndpoints(home, [lab])).toEqual([lab]);
+      other();
+      gone();
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

@@ -181,7 +181,7 @@ RestartSec=3
 WantedBy=default.target
 ```
 
-Below full access, the open-source agents run in Harness Relay's own sandbox, which on Linux needs `bubblewrap`, `socat` and `ripgrep` (`sudo apt-get install bubblewrap socat ripgrep`; on Ubuntu 23.10 or later, also the AppArmor profile in [OS sandboxes by platform](sandboxing.md#on-linux)). The service finds them on the same `PATH`.
+Below full access, the agents' commands run in sandboxes that on Linux need programs of their own: Claude Code's needs `bubblewrap` and `socat`, Codex's `bubblewrap`, Grok's `bubblewrap` (and kernel 5.13 or later), and Harness Relay's own, which the open-source agents run in, `bubblewrap`, `socat` and `ripgrep`. So install `sudo apt-get install bubblewrap socat ripgrep`, and on Ubuntu 23.10 or later the AppArmor profile in [OS sandboxes by platform](sandboxing.md#on-linux). Cursor needs none: it has no sandbox, so its commands ask. The service finds these programs on the same `PATH`.
 
 Then start it, and let it run while you are logged out:
 

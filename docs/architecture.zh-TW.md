@@ -59,7 +59,7 @@ flowchart LR
 | `src/server/approvals.ts` | 「本對話都允許」的規則 key 與比對 |
 | `src/server/commands.ts` | 解析一行 shell 指令實際會執行哪些程式（串接、命令替換、`sh -c`／`eval`、`env`／`sudo`、保留字與 `if`／`while`／`for` 等複合指令、git 的全域選項）：用於核准規則 key，以及 Grok 與開源 agent 的推送／發佈判斷 |
 | `src/server/agents/*` | 每個 CLI 一個轉接器：組參數、把 CLI 的 JSON 事件串流轉成共通事件（`acp.ts`：ACP 與 Codex 用的 JSON-RPC 對端，以及 ACP 組 prompt、MCP 伺服器與回覆權限請求的函式；`acpTurn.ts`：開源 agent 共用的 ACP 回合；`open.ts`：開源 agent 在程序周圍共用的部分；見[開源 agent](open-agents.zh-TW.md)） |
-| `src/server/backends.ts` | 開源 agent 的模型來源：OpenAI、Anthropic、xAI 的 API key，以及使用者的 OpenAI 相容端點（金鑰存在作業系統的金鑰儲存區），還有一次執行拿到什麼（`backendRun()`）；Claude Code、Codex 或 Grok 的一次執行是否在某個端點上（`endpointModel()`） |
+| `src/server/backends.ts` | 開源 agent 的模型來源：OpenAI、Anthropic、xAI 的 API key，以及使用者的 OpenAI 相容端點（金鑰存在作業系統的金鑰儲存區），還有一次執行拿到什麼（`backendRun()`）；Claude Code、Codex 或 Grok 的一次執行是否在某個端點上，以及在已刪除的端點上時拒絕執行（`endpointRunModel()`，已刪除的 id 在 `deleted_endpoints`） |
 | `src/server/relaySandbox.ts`、`relaySandboxHost.ts` | 完全存取以外，包住開源 agent 的 Harness Relay 自己的沙箱（`@anthropic-ai/sandbox-runtime`，每次執行一個 host 程序；見[各平台的作業系統沙箱](sandboxing.zh-TW.md#harness-relay-自己的沙箱)）；`sandboxProcs.ts` 在 macOS 上依沙箱找出某次執行殘留的行程 |
 | `src/server/i18n.ts` | 兩種語言的伺服器訊息；每個請求與執行所用的語言（AsyncLocalStorage） |
 | `src/server/process.ts` | 以獨立 process group 啟動程序、逐行讀 stdout、以原始位元組保存輸出、處理中止與逾時（先 SIGTERM，再對整個 process group 送 SIGKILL） |
@@ -282,7 +282,7 @@ Cursor 的轉接器（`src/server/agents/cursor.ts`）在工作目錄啟動 `cur
   - 每一輪都有自己的私有設定資料夾（`CURSOR_CONFIG_DIR`：在 Harness Relay 自己的 `data/tmp` 裡新建、只有擁有者能存取的資料夾，回合結束後刪除）：裡面是帳號的 `cli-config.json`（它的模型與網路設定）的副本，但沒有允許規則（`permissions.allow: []`，所以使用者自己的規則，例如 `Shell(ls)`，不會生效），保留使用者的拒絕規則並加上 Harness Relay 的，`approvalMode` 如上表；另有一個連到帳號 session 資料夾的連結 `acp-sessions`，所以 session 會保留，也能接續。Cursor 寫進設定的模型選擇與任何規則，都不會進到帳號自己的 `cli-config.json`。
   - `--disable-project-configs`：不讀專案自己的 `.cursor/cli.json`（Cursor 會把它合併到自己的設定上，例如用來允許指令）。
   - 在完全存取以外的權限，它的讀取與寫入工具碰不到受保護的路徑：每個路徑都有拒絕規則 `Read(<路徑>)`、`Read(<路徑>/**)`、`Write(<路徑>)` 與 `Write(<路徑>/**)`（見[各平台的作業系統沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）。這些規則只約束 Cursor 自己的工具，不約束 shell 指令；指令只能靠詢問擋在這些路徑之外。而且這些規則只擋得住 Cursor 比對得到的：它拿寫下來的路徑去比對，分大小寫，也不解析連結。所以受保護路徑的另一種寫法（換個大小寫，在 macOS 一般不分大小寫的磁碟上）或專案裡指向它的連結都不會被拒絕，它的讀取工具不經詢問就能讀。受保護的路徑名稱含 `*`、`?` 或 `[` 時，這次執行會拒絕開始，和 Grok 一樣。
-  - Cursor 在工作區內寫入不會詢問，但它受保護的檔案（`.git/hooks/**`、`.git/config`、`.vscode/**`、`.claude/*.json`、`.cursor/*.json`、`*.code-workspace`……）會詢問。它詢問的每個寫入都會交給使用者（或被拒絕），工作目錄內的也一樣，因為這種寫入可能讓程式碼之後在任何沙箱之外執行。卡片會說 Cursor 為什麼詢問：寫入工作目錄外，或是工作目錄內它受保護的檔案。可編輯模式只核准工作目錄內的刪除（Cursor 每次刪除都會詢問；路上的連結以它指向的地方為準）。在完全存取以外的權限，網路搜尋與讀網頁直接執行，subagent 的也是（它會問「Allow web search?」／「Allow web fetch?」）。
+  - Cursor 在工作區內寫入不會詢問，但它受保護的檔案（`.git/hooks/**`、`.git/config`、`.vscode/**`、`.claude/*.json`、`.cursor/*.json`、`*.code-workspace`……）會詢問。它詢問的每個寫入都會交給使用者（或被拒絕），工作目錄內的也一樣，因為這種寫入可能讓程式碼之後在任何沙箱之外執行。卡片會說 Cursor 為什麼詢問：寫入工作目錄外，或是工作目錄內它受保護的檔案。可編輯模式只核准工作目錄內的刪除（Cursor 每次刪除都會詢問；路上的連結以它指向的地方為準，`~/…` 的路徑則以家目錄為準）。在完全存取以外的權限，網路搜尋與讀網頁直接執行，subagent 的也是（它會問「Allow web search?」／「Allow web fetch?」）。
   - Cursor 團隊自動執行允許清單上的指令（由團隊管理員在 Cursor 的後台設定，從 Cursor 的伺服器讀取）可能不經詢問就執行。Harness Relay 無法清除它。
   - 拒絕只會以 Cursor 自己的「Rejected: User rejected」讓模型知道：Cursor 不接受附帶的訊息（它沒有像 Grok 的 `followup_message` 那樣的東西），所以拒絕時附的說明只顯示在聊天室，不會轉交給 agent。這一輪會繼續進行。
   - 模型自己的提問（Cursor 的 AskQuestion 工具）會以帶有略過選項的權限請求送來。它們都會被略過，因為 agent 是透過 Harness Relay 詢問使用者（`[ASK_USER]`）。
@@ -458,7 +458,7 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 | `message_changes` | 每則訊息修改的檔案（路徑、A/M/D、增刪行數） |
 | `agent_worktrees` | 平行模式中每個 agent 的 worktree（repository 根目錄、路徑、分支、起始快照、是否需要重設） |
 | `message_parts` | 每則訊息依序（`idx`）排列的 part：文字、思考、計畫與核准 part（資料以 JSON 存在 `data`），以及工具呼叫，含 `tool_error`（呼叫失敗或被拒絕的原因）與 `tool_output` |
-| `agent_sessions` | 每個對話中每個 agent 的 CLI session id、provider 與帳號（NULL 表示預設帳號），它最近一次執行的權限（`permission`，schema version 22），以及依 CLI 分別記下的那個 CLI 最近一次執行的權限，與開源 agent 的狀態資料夾是否還要清空（`by_cli`，JSON，schema version 23：權限高於這個 CLI 最近一次時開新的 session，並先清空它的資料夾），以及 Claude Code、Codex 與 Grok 的 session 建立時所在的 backend（`backend`：端點的 id，NULL 表示 CLI 自己的服務；schema version 25：在另一個 backend 上的一輪會開新的 session） |
+| `agent_sessions` | 每個對話中每個 agent 的 CLI session id、provider 與帳號（NULL 表示預設帳號），它最近一次執行的權限（`permission`，schema version 22），以及依 CLI 分別記下的那個 CLI 最近一次執行的權限，與開源 agent 的狀態資料夾是否還要清空（`by_cli`，JSON，schema version 23：權限高於這個 CLI 最近一次時開新的 session，並先清空它的資料夾），以及 Claude Code、Codex 與 Grok 的 session 建立時所在的模型來源（`backend`：端點的 id，NULL 表示 CLI 自己的服務；schema version 25：在另一個模型來源上的一輪會開新的 session） |
 | `agent_seen` | 每個 agent 已看過哪些訊息 |
 | `presets`、`preset_agents` | 使用者儲存的團隊範本（內建範本寫在程式碼裡）；`preset_agents.tools` 與 `account` 同上 |
 | `provider_settings` | 每個 CLI 的執行檔路徑；它預設帳號的名稱（`account_label`）、預設模型與推理強度，以及執行時不載入的項目（`native_off`、`native_items`）；macOS 上 OpenHands 能不能在 Harness Relay 的沙箱裡使用終端機（`sandbox_terminal`，schema version 24）；只有在系統沒有金鑰儲存區時才存預設帳號的 API key |
@@ -634,7 +634,7 @@ sequenceDiagram
 - 保留的快照 ref（`refs/harness-relay/…`）會出現在列出所有 ref 的工具中（`git log --all`、部分 git GUI），`git push --mirror` 也會一併推送。編輯訊息時會移除被刪掉回合的 ref，刪除對話時移除其餘的。
 - 開始新的 Codex 登入時，會先登出目前的 Codex 帳號。
 - Claude Code 沒有列出模型的指令；模型選單只提供別名與自訂欄位。
-- 長對話每回合只會傳送新訊息，但全新的 session（接續失敗、更換 provider 或編輯訊息之後）會收到完整的對話紀錄。
+- 長對話每回合只會傳送新訊息，但全新的 session（接續失敗、更換 provider、模型換到另一個模型來源、權限提高或編輯訊息之後）會收到完整的對話紀錄。
 - 伺服器產生的文字使用產生當下的語言：系統訊息會一直維持那個語言，provider 狀態的細節也會維持那個語言，直到 20 秒的狀態快取過期。
 - 首席 agent 選得好不好，完全取決於它的回覆品質；回覆無法使用時會保留目前的團隊，沒有團隊時改用「一般問題智囊團」範本。它讀的是精簡過的對話（說過的話中最新的 12,000 個字元），不是團隊改過的檔案。每次設計都是首席 agent 的 CLI 的一次執行，所以每個新問題都要多一次執行（預設還要多按一次確認）。被首席 agent 換掉的成員會從頭開始：重試已經不在團隊裡的成員的回覆會被拒絕。
 - Codex 只有在它的模型決定要求超出沙箱的權限時才會詢問；被擋下但沒有詢問的呼叫就只會失敗。

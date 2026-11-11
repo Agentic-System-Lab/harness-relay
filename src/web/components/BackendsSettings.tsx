@@ -60,6 +60,25 @@ export function BackendsCard({ onChanged }: { onChanged: () => void }) {
       <p className="muted small">{b.endpointsHint}</p>
       {view && <Endpoints endpoints={view.endpoints} apply={apply} />}
 
+      {view && view.deletedEndpoints.length > 0 && (
+        <>
+          <h4>{b.deletedEndpoints}</h4>
+          <p className="muted small">{b.deletedEndpointsHint}</p>
+          {view.deletedEndpoints.map((id) => (
+            <div key={id} className="field">
+              <span>
+                <code>{id}/…</code>
+              </span>
+              <div className="button-row">
+                <button className="ghost" onClick={() => void apply(() => api.forgetDeletedEndpoint(id), b.forgotten(id))}>
+                  {b.forgetDeleted}
+                </button>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
       {note.text && <p className={note.error ? 'error-line' : 'muted small'}>{note.text}</p>}
     </section>
   );

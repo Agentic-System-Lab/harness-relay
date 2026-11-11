@@ -1253,6 +1253,11 @@ export const en: Messages = {
       removeKey: 'Remove key',
       saved: 'Saved',
       deleted: 'Deleted',
+      deletedEndpoints: 'Deleted endpoints',
+      deletedEndpointsHint:
+        "Claude Code, Codex and Grok members still on a model of one of these (its id/…) fail their turn instead of reaching the CLI's own service. If a model of a CLI's own starts with the same name (a qwen/… of your Codex config, say), forget the endpoint to use that model again.",
+      forgetDeleted: 'Forget',
+      forgotten: (id) => `Forgot "${id}"`,
       problems: {
         name: 'Enter a name.',
         nameLong: (n) => `The name may be at most ${n} characters.`,
@@ -1412,7 +1417,7 @@ export const en: Messages = {
           'Read-only: read files, analyse, look things up on the web',
           'Edit: change files in the working directory, run tests and builds',
           'Full access: run any command without asking',
-          "Below full access, each agent's commands but Cursor's run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex and Grok use their own; the open-source agents use Harness Relay's (on native Windows only Codex has one, and the open-source agents run only with full access). Cursor has none: every command it wants to run asks you first, and one you allow runs with your full rights",
+          "Below full access, each agent's commands but Cursor's run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex and Grok use their own; the open-source agents use Harness Relay's (on native Windows only Codex has one, and the open-source agents run only with full access). Cursor has none: every command it wants to run asks you first (or is refused, if the chat refuses automatically), except those on your Cursor team's allowlist, and one you allow runs with your full rights",
           "Edit mode is refused in your home folder and in Harness Relay's own folder: choose a project's folder",
           'Raising the permission makes every agent start a fresh session, with the whole history, at its next turn',
           'Each turn lists the files it changed, with a diff; in parallel mode you choose whose result to apply',

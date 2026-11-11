@@ -1916,9 +1916,11 @@ export class Orchestrator {
     // Claude Code, Codex and Grok run on one of the user's endpoints or on their own service. A session
     // made on another one is not resumed: its context (Claude's signed thinking, Grok's session model)
     // belongs to that backend, and Grok would stay on an endpoint's model when the member's model is
-    // the CLI's default. The run's model is the one `attempt` gets (`modelFor`, the same for these CLIs).
+    // the CLI's default. The run's model is the one `attempt` gets from `modelFor`, which for these CLIs
+    // asks nothing: worked out here without waiting, so that in parallel mode every member's reply is
+    // still added in the team's order.
     if (isEndpointCli(agent.provider)) {
-      const model = await this.modelFor(agent.provider, agent.model, account);
+      const model = agent.model?.trim() || this.settings.defaultModel(agent.provider, account) || undefined;
       const backend = endpointModel(this.settings.backendsFor(agent.provider), model)?.endpoint.id;
       if (state.sessionId && (state.backend ?? '') !== (backend ?? '')) {
         state.sessionId = undefined;

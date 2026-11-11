@@ -878,6 +878,42 @@ export function grokEnv(o: Pick<RunOptions, 'env' | 'nativeOff' | 'permission'>,
   return { ...o.env, ...grokNativeEnv(o.nativeOff), ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
 }
 
+/**
+ * The models typed for an endpoint (Custom…) that its list leaves out, of the Grok runs under way, per
+ * Grok home (its real path) and with how many runs hold each: every write of the models' block there
+ * keeps their tables until those runs end (`grokBlockEndpoints`).
+ */
+const typedModels = new Map<string, Map<string, number>>();
+
+/** Keeps `model` of endpoint `id` in the models' block of `home` until the function returned is called. */
+export function holdGrokTypedModel(home: string, id: string, model: string): () => void {
+  const key = realPath(home);
+  const held = typedModels.get(key) ?? new Map<string, number>();
+  typedModels.set(key, held);
+  const entry = JSON.stringify([id, model]);
+  held.set(entry, (held.get(entry) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const left = (held.get(entry) ?? 1) - 1;
+    if (left > 0) held.set(entry, left);
+    else held.delete(entry);
+    if (!held.size && typedModels.get(key) === held) typedModels.delete(key);
+  };
+}
+
+/** The endpoints of the models' block of `home`: each with the typed models that runs under way there hold. */
+export function grokBlockEndpoints(home: string, endpoints: readonly RunEndpoint[]): RunEndpoint[] {
+  const held = typedModels.get(realPath(home));
+  if (!held?.size) return endpoints.map((e) => ({ ...e, models: [...e.models] }));
+  const typed = [...held.keys()].map((k) => JSON.parse(k) as [string, string]);
+  return endpoints.map((e) => {
+    const extra = typed.filter(([id, model]) => id === e.id && !e.models.includes(model)).map(([, model]) => model);
+    return { ...e, models: [...e.models, ...new Set(extra)] };
+  });
+}
+
 export const grokRunner: AgentRunner = {
   provider: 'grok',
   async run(given): Promise<RunResult> {
@@ -891,60 +927,67 @@ export const grokRunner: AgentRunner = {
     const sandbox = grokSandboxProfile(o.permission);
     const env = endpoint ? endpointKeyEnv(grokEnv(o), endpoint) : grokEnv(o);
     // A model typed for an endpoint (Custom…) that its list leaves out gets a table too, or Grok would
-    // refuse it; Claude Code and Codex run any model named on an endpoint.
-    const endpoints = (o.backends?.endpoints ?? []).map((e) =>
-      endpoint && e.id === endpoint.endpoint.id && !e.models.includes(endpoint.model) ? { ...e, models: [...e.models, endpoint.model] } : e,
-    );
+    // refuse it (Claude Code and Codex run any model named on an endpoint). It is held for the whole
+    // run, so that another run's write of the block in the same home (another member's, the lead
+    // agent's) keeps its table while this Grok may still read it.
+    const release =
+      endpoint && !endpoint.endpoint.models.includes(endpoint.model)
+        ? holdGrokTypedModel(grokHome(env), endpoint.endpoint.id, endpoint.model)
+        : () => undefined;
     const writeModels = () => {
       const home = grokHome(env);
       try {
-        writeGrokModels(home, endpoints, Boolean(endpoint));
+        writeGrokModels(home, grokBlockEndpoints(home, o.backends?.endpoints ?? []), Boolean(endpoint));
       } catch (err) {
         throw new AgentRunError(t().grokModelsFailed(join(home, 'config.toml'), (err as Error).message));
       }
     };
-    if (sandbox === GROK_PROFILE) {
-      const deny = o.protectedPaths ?? protectedReads();
-      // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
-      const pattern = patternPath(deny);
-      if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
-      const home = grokHome(env);
-      // Grok reads its settings after its sandbox is on, so they cannot be denied: they are checked
-      // around the turn instead, and put back when a command changed them.
-      const bins = commandPaths(o.bin, env);
-      let settle: () => string[];
-      let settleProgram: () => string[] = () => [];
-      try {
-        settle = guardGrokSettings(home, () => {
-          try {
-            writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)]);
-          } catch (err) {
-            throw new AgentRunError(t().grokSandbox((err as Error).message));
-          }
-          writeModels();
-        });
-      } catch (err) {
-        throw err instanceof AgentRunError ? err : new AgentRunError(t().grokSandbox((err as Error).message));
+    try {
+      if (sandbox === GROK_PROFILE) {
+        const deny = o.protectedPaths ?? protectedReads();
+        // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
+        const pattern = patternPath(deny);
+        if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
+        const home = grokHome(env);
+        // Grok reads its settings after its sandbox is on, so they cannot be denied: they are checked
+        // around the turn instead, and put back when a command changed them.
+        const bins = commandPaths(o.bin, env);
+        let settle: () => string[];
+        let settleProgram: () => string[] = () => [];
+        try {
+          settle = guardGrokSettings(home, () => {
+            try {
+              writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)]);
+            } catch (err) {
+              throw new AgentRunError(t().grokSandbox((err as Error).message));
+            }
+            writeModels();
+          });
+        } catch (err) {
+          throw err instanceof AgentRunError ? err : new AgentRunError(t().grokSandbox((err as Error).message));
+        }
+        try {
+          if (process.platform === 'linux') settleProgram = guardGrokProgram(home, bins);
+        } catch (err) {
+          settle(); // the turn does not run: its settings guard ends here
+          throw new AgentRunError(t().grokSandbox((err as Error).message));
+        }
+        let result: RunResult;
+        try {
+          result = await grokTurn(o, args, sandbox, env);
+        } finally {
+          const changed = [...settle(), ...settleProgram()];
+          // Thrown from here, it takes the place of the turn's own result or error.
+          // eslint-disable-next-line no-unsafe-finally
+          if (changed.length) throw new AgentRunError(t().grokSettingsChanged(changed.join(', ')));
+        }
+        return result;
       }
-      try {
-        if (process.platform === 'linux') settleProgram = guardGrokProgram(home, bins);
-      } catch (err) {
-        settle(); // the turn does not run: its settings guard ends here
-        throw new AgentRunError(t().grokSandbox((err as Error).message));
-      }
-      let result: RunResult;
-      try {
-        result = await grokTurn(o, args, sandbox, env);
-      } finally {
-        const changed = [...settle(), ...settleProgram()];
-        // Thrown from here, it takes the place of the turn's own result or error.
-        // eslint-disable-next-line no-unsafe-finally
-        if (changed.length) throw new AgentRunError(t().grokSettingsChanged(changed.join(', ')));
-      }
-      return result;
+      writeGrokOwn(grokHome(env), writeModels);
+      return grokTurn(o, args, sandbox, env);
+    } finally {
+      release();
     }
-    writeGrokOwn(grokHome(env), writeModels);
-    return grokTurn(o, args, sandbox, env);
   },
 };
 
