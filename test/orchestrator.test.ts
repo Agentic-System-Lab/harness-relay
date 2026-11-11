@@ -590,6 +590,41 @@ describe('accounts', () => {
   });
 });
 
+describe("the lead agent's context", () => {
+  it('is gathered for the folder the team works in, and the lead reads each CLI\'s tools from it', async () => {
+    const folders: (string | undefined)[] = [];
+    orchestrator = new Orchestrator(store, new Hub(), settings, {
+      context: async (cwd) => {
+        folders.push(cwd);
+        return {
+          available: ['claude'],
+          catalog: [],
+          presets: store.listPresets(),
+          native: { claude: { builtinTools: ['WebSearch'], skills: [], mcpServers: [{ name: 'github', tools: ['create_issue'] }] } },
+        };
+      },
+    });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    conv.agents = [];
+    leadReply = JSON.stringify({ choice: 'template', templateId: 'builtin-general', reason: 'x' });
+    await orchestrator.send(conv.id, 'design one');
+    await finish(conv.id);
+    expect(folders).toEqual([project]);
+    expect(calls[0]!.prompt).toContain('  Built-in tools: WebSearch\n  Its own MCP servers: github (tools: create_issue)');
+
+    // Changing the team: the folder in the drawer, saved or not.
+    const other = join(root, `other-${n}`);
+    mkdirSync(other, { recursive: true });
+    reviseReply = JSON.stringify({ agents: [{ name: 'Ann', provider: 'claude', role: 'r' }], reason: 'r' });
+    await orchestrator.reviseTeam(conv.id, {
+      request: 'one member',
+      agents: [{ id: 'x', name: 'Ann', provider: 'claude', role: 'r' }],
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 5, permission: 'read-only', cwd: other },
+    });
+    expect(folders).toEqual([project, other]);
+  });
+});
+
 describe('auto team', () => {
   const autoConversation = () => conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
   const customTeam = JSON.stringify({

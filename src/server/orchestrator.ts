@@ -204,7 +204,8 @@ function questionStart(messages: ChatMessage[]): number {
 
 /** Where the lead agent's choices come from (signed-in CLIs, their models, the templates). */
 export interface PlannerSource {
-  context(): Promise<PlannerContext>;
+  /** What the lead may choose from; with `cwd`, also what each CLI loads by itself there. */
+  context(cwd?: string): Promise<PlannerContext>;
 }
 
 function textOf(m: ChatMessage): string {
@@ -1396,7 +1397,7 @@ export class Orchestrator {
     let decision: PlanDecision | undefined;
     let result: RunResult | undefined;
     try {
-      ctx = await this.planner.context();
+      ctx = await this.planner.context(conv.settings.cwd);
       let reply = '';
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
@@ -1602,7 +1603,8 @@ export class Orchestrator {
     let result: RunResult;
     let ctx: PlannerContext;
     try {
-      ctx = await this.planner.context();
+      // The folder the team will work in: the drawer's, saved or not.
+      ctx = await this.planner.context(place.cwd);
       if (signal.aborted) throw stopped();
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),

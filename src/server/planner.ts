@@ -1,17 +1,23 @@
 import { randomUUID } from 'node:crypto';
 import {
+  PROVIDERS,
   PROVIDER_LABEL,
+  accountUsable,
   effortsFor,
+  toolKey,
   type AgentConfig,
   type ChatMessage,
   type ConversationSettings,
   type LeadAgentSettings,
   type Mode,
+  type NativeSetup,
   type Permission,
   type Provider,
   type ProviderModels,
+  type ProviderStatus,
   type TeamPlan,
   type TeamPreset,
+  type ToolLibraryView,
 } from '../shared/types';
 import { unknownMentions } from '../shared/mentions';
 import { t } from './i18n';
@@ -27,6 +33,35 @@ import { validateAgents } from './validate';
  * general-question template when there is none.
  */
 
+/**
+ * What one CLI's members can use besides their model, as the lead reads it: what the CLI loads by
+ * itself in the working directory, without what Harness Relay's runs leave out (`cliToolsForLead`).
+ */
+export interface CliTools {
+  /** Tools built into the CLI (only Claude Code lists them). */
+  builtinTools?: string[];
+  skills: { name: string; description: string }[];
+  /** Its MCP servers, with their tools when the CLI connected to them, and a state other than connected. */
+  mcpServers: { name: string; status?: string; tools?: string[] }[];
+  /** Its subagents and plugins, when the CLI lists them. */
+  agents?: string[];
+  plugins?: string[];
+}
+
+/** An item of Harness Relay's tool library, as the lead reads it and names it in a member's "tools". */
+export interface LibraryItem {
+  /** How the lead names it: `mcp:<name>`, `skill:<name>`, `memory` or `memory:<cli>`. */
+  name: string;
+  /** Its tool key (`toolKey`). */
+  key: string;
+  /** A skill's description, or the start of a memory part. */
+  about?: string;
+  /** The CLIs whose members get it unless they turn it off. */
+  providers: Provider[];
+  /** A CLI's own memory part: only that CLI's members can have it. */
+  only?: Provider;
+}
+
 /** What the lead agent may choose from. */
 export interface PlannerContext {
   /** CLIs that are installed and signed in; empty = unknown (nothing is remapped). */
@@ -38,6 +73,138 @@ export interface PlannerContext {
   accounts?: Partial<Record<Provider, string[]>>;
   catalog: ProviderModels[];
   presets: TeamPreset[];
+  /**
+   * What each available CLI loads by itself in the working directory (as Harness Relay runs it); a CLI
+   * that was not asked, or did not answer in time, is absent.
+   */
+  native?: Partial<Record<Provider, CliTools>>;
+  /** Harness Relay's tool library; absent = unknown (then no "tools" are taken from the lead). */
+  library?: LibraryItem[];
+}
+
+/** How long a design waits for a CLI to say what it loads by itself (the CLIs' probes go on, and are kept). */
+export const NATIVE_WAIT_MS = 20_000;
+/** At most this many names per list, and characters per description, in what the lead reads of the tools. */
+const TOOL_NAMES_MAX = 40;
+const TOOL_ABOUT_MAX = 160;
+
+/** What a CLI loads by itself, as the lead reads it: what Harness Relay's runs leave out is left out here too. */
+export function cliToolsForLead(setup: Pick<NativeSetup, 'skills' | 'mcpServers' | 'builtinTools' | 'agents' | 'plugins'>): CliTools {
+  const kept = <T extends { leftOut?: boolean }>(items: T[]) => items.filter((i) => !i.leftOut);
+  return {
+    ...(setup.builtinTools ? { builtinTools: kept(setup.builtinTools).map((t) => t.name) } : {}),
+    skills: kept(setup.skills).map((s) => ({ name: s.name, description: shorten(s.description.trim(), TOOL_ABOUT_MAX) })),
+    mcpServers: kept(setup.mcpServers)
+      .filter((m) => m.status !== 'disabled')
+      .map((m) => ({
+        name: m.name,
+        ...(m.status && m.status !== 'connected' ? { status: m.status } : {}),
+        ...(m.tools ? { tools: kept(m.tools).map((t) => t.name) } : {}),
+      })),
+    ...(setup.agents ? { agents: kept(setup.agents).map((a) => a.name) } : {}),
+    ...(setup.plugins ? { plugins: kept(setup.plugins).map((p) => p.name) } : {}),
+  };
+}
+
+/** The tool library's items members can be given, as the lead names them (a skill that cannot be used is left out). */
+export function libraryForLead(view: Pick<ToolLibraryView, 'mcpServers' | 'skills' | 'memory'>): LibraryItem[] {
+  const items: LibraryItem[] = [
+    ...view.mcpServers.map((m) => ({ name: `mcp:${m.name}`, key: toolKey('mcp', m.id), providers: [...m.providers] })),
+    ...view.skills
+      .filter((sk) => !sk.problem)
+      .map((sk) => ({ name: `skill:${sk.name}`, key: toolKey('skill', sk.path), about: shorten(sk.description.trim(), TOOL_ABOUT_MAX), providers: [...sk.providers] })),
+  ];
+  const memory = view.memory.all.trim();
+  if (memory) items.push({ name: 'memory', key: toolKey('memory'), about: shorten(memory.replace(/\s+/g, ' '), TOOL_ABOUT_MAX), providers: [...PROVIDERS] });
+  for (const p of PROVIDERS) {
+    const part = view.memory[p].trim();
+    if (part) items.push({ name: `memory:${p}`, key: toolKey('memory', p), about: shorten(part.replace(/\s+/g, ' '), TOOL_ABOUT_MAX), providers: [p], only: p });
+  }
+  return items;
+}
+
+/**
+ * A member's tool exceptions with the lead's "tools" applied: library items by name, true to give one
+ * the member's CLI does not give by default, false to take one away. An item set back to its default
+ * loses its exception; unknown names, and another CLI's memory, are ignored. Exceptions the lead does
+ * not name stay.
+ */
+export function toolsFromLead(
+  current: Record<string, boolean> | undefined,
+  raw: unknown,
+  provider: Provider,
+  library: LibraryItem[] | undefined,
+): Record<string, boolean> | undefined {
+  const out: Record<string, boolean> = { ...(current ?? {}) };
+  if (library && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [name, on] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof on !== 'boolean') continue;
+      const item = library.find((i) => i.name.toLowerCase() === name.trim().toLowerCase());
+      if (!item || (item.only && item.only !== provider)) continue;
+      if (on === item.providers.includes(provider)) delete out[item.key];
+      else out[item.key] = on;
+    }
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** A member's tool exceptions as the lead reads them: by library name (exceptions for items gone are left out). */
+function memberToolsForLead(tools: Record<string, boolean> | undefined, library: LibraryItem[] | undefined): Record<string, boolean> | undefined {
+  if (!tools || !library) return undefined;
+  const named = Object.entries(tools).flatMap(([key, on]) => {
+    const item = library.find((i) => i.key === key);
+    return item ? [[item.name, on] as const] : [];
+  });
+  return named.length ? Object.fromEntries(named) : undefined;
+}
+
+/** What the lead agent may choose from, gathered for a design or a revision in `cwd`. */
+export interface PlannerSources {
+  statuses(): Promise<ProviderStatus[]>;
+  catalog(): Promise<ProviderModels[]>;
+  presets(): TeamPreset[];
+  library(): Pick<ToolLibraryView, 'mcpServers' | 'skills' | 'memory'>;
+  /** What a CLI loads by itself in a folder, asked without a prompt (`NativeSetupService.get`). */
+  native(p: Provider, cwd: string): Promise<Pick<NativeSetup, 'skills' | 'mcpServers' | 'builtinTools' | 'agents' | 'plugins'> & { problems?: { kind: string; part?: string }[] }>;
+}
+
+/**
+ * The lead's context: the CLIs available (any usable account) and their accounts, models and templates;
+ * the tool library; and, for a working directory, what each available CLI loads by itself there. A CLI
+ * that does not say within `waitMs` (or not at all) is left out of that last part.
+ */
+export async function plannerContext(src: PlannerSources, cwd?: string, waitMs = NATIVE_WAIT_MS): Promise<PlannerContext> {
+  const [statuses, catalog] = await Promise.all([src.statuses(), src.catalog()]);
+  // A CLI is available with any account agents can run as; its members get one of those.
+  const usable = statuses.map((s) => ({ provider: s.provider, ids: s.installed ? s.accounts.filter(accountUsable).map((a) => a.id) : [] }));
+  const available = usable.filter((u) => u.ids.length).map((u) => u.provider);
+  const accounts = Object.fromEntries(usable.filter((u) => u.ids.length).map((u) => [u.provider, u.ids]));
+  let library: LibraryItem[] | undefined;
+  try {
+    library = libraryForLead(src.library());
+  } catch (err) {
+    console.warn('[planner] could not read the tool library:', (err as Error).message);
+  }
+  const native: Partial<Record<Provider, CliTools>> = {};
+  if (cwd) {
+    await Promise.all(
+      available.map(async (p) => {
+        let timer: NodeJS.Timeout | undefined;
+        const late = new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), waitMs)));
+        try {
+          const probe = await Promise.race([src.native(p, cwd), late]);
+          // A CLI that did not answer at all is unknown, not without tools.
+          const silent = probe?.problems?.some((x) => x.kind === 'timeout' || x.kind === 'failed' || (x.kind === 'no-answer' && x.part === 'all'));
+          if (probe && !silent) native[p] = cliToolsForLead(probe);
+        } catch (err) {
+          console.warn(`[planner] could not ask ${p} what it loads:`, (err as Error).message);
+        } finally {
+          clearTimeout(timer);
+        }
+      }),
+    );
+  }
+  return { available, accounts, catalog, presets: src.presets(), ...(cwd ? { native } : {}), ...(library ? { library } : {}) };
 }
 
 /** The conversation a question is asked in. */
@@ -76,27 +243,35 @@ const MODE_HELP: Record<Mode, string> = {
 };
 
 /** A template as the lead sees it: everything in it, roles in full, so it can be reused or adapted. */
-function templateForLead(p: TeamPreset): Record<string, unknown> {
+function templateForLead(p: TeamPreset, library?: LibraryItem[]): Record<string, unknown> {
   return {
     id: p.id,
     name: p.name,
     ...(p.description ? { description: p.description } : {}),
-    ...teamForLead(p.settings, p.agents),
+    ...teamForLead(p.settings, p.agents, library),
   };
 }
 
-/** How a team works and its members, roles in full. */
-function teamForLead(s: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops'>, agents: AgentConfig[]): Record<string, unknown> {
+/** How a team works and its members, roles in full, with their tool exceptions by library name. */
+function teamForLead(
+  s: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops'>,
+  agents: AgentConfig[],
+  library?: LibraryItem[],
+): Record<string, unknown> {
   return {
     mode: s.mode,
     ...(s.mode === 'relay' ? { maxHops: s.maxHops } : { rounds: s.rounds }),
-    agents: agents.map((a) => ({
-      name: a.name,
-      provider: a.provider,
-      ...(a.model ? { model: a.model } : {}),
-      ...(a.effort ? { effort: a.effort } : {}),
-      role: a.role.trim(),
-    })),
+    agents: agents.map((a) => {
+      const tools = memberToolsForLead(a.tools, library);
+      return {
+        name: a.name,
+        provider: a.provider,
+        ...(a.model ? { model: a.model } : {}),
+        ...(a.effort ? { effort: a.effort } : {}),
+        ...(tools ? { tools } : {}),
+        role: a.role.trim(),
+      };
+    }),
   };
 }
 
@@ -143,21 +318,88 @@ export function historyForLead(messages: ChatMessage[]): string {
 
 const TEAM_FIELDS =
   '"name": "<short team name>", "description": "<one line>", "mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, ' +
-  '"agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}]';
+  '"agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>", "tools": {"<optional: tool library item>": true | false}}]';
 
-/** The coding agents the lead may staff, one line each: the signed-in CLIs, their models and efforts. */
+/** At most `max` names, then how many more there are. */
+function names(list: string[], max = TOOL_NAMES_MAX): string {
+  return list.length > max ? `${list.slice(0, max).join(', ')}, … (${list.length - max} more)` : list.join(', ');
+}
+
+/** A CLI's models as the lead reads them: each one's name, its efforts and its default effort. */
+function modelsForLead(c: ProviderModels): string {
+  return c.models
+    .map((m) => {
+      const efforts = effortsFor(c, m.id);
+      const notes = [
+        m.label && m.label !== m.id ? m.label : '',
+        m.latest ? 'always its family\'s newest' : '',
+        efforts.length ? `efforts ${efforts.join('/')}` : '',
+        m.defaultEffort ? `default effort ${m.defaultEffort}` : '',
+      ].filter(Boolean);
+      return notes.length ? `${m.id} (${notes.join('; ')})` : m.id;
+    })
+    .join(', ');
+}
+
+/**
+ * The coding agents the lead may staff: the signed-in CLIs, each with its models (and each model's
+ * efforts and default effort), what it loads by itself in the working directory (built-in tools,
+ * skills, MCP servers with their tools, subagents, plugins), and what its members get from the tool
+ * library by default.
+ */
 function agentsForLead(ctx: PlannerContext): string {
   const available = ctx.available.length ? ctx.available : (Object.keys(PROVIDER_LABEL) as Provider[]);
   return available
     .map((p) => {
+      const lines = [`- ${p} (${PROVIDER_LABEL[p]})`];
       const c = ctx.catalog.find((x) => x.provider === p);
-      const models = c?.models.map((m) => m.id).join(', ');
-      return `- ${p} (${PROVIDER_LABEL[p]})${models ? `: models ${models}` : ''}${c?.defaultModel ? `; default model ${c.defaultModel}` : ''}${
-        c?.efforts.length ? `; efforts ${c.efforts.join(', ')}` : ''
-      }`;
+      if (c?.models.length) lines.push(`  Models: ${modelsForLead(c)}`);
+      const defaults = [c?.defaultModel ? `model ${c.defaultModel}` : '', c?.defaultEffort ? `effort ${c.defaultEffort}` : ''].filter(Boolean);
+      if (defaults.length) lines.push(`  Default ${defaults.join(', ')}`);
+      else if (c?.efforts.length && !c.models.length) lines.push(`  Efforts: ${c.efforts.join('/')}`);
+      const own = ctx.native?.[p];
+      if (own) {
+        if (own.builtinTools?.length) lines.push(`  Built-in tools: ${names(own.builtinTools)}`);
+        if (own.skills.length) lines.push(`  Its own skills: ${own.skills.slice(0, TOOL_NAMES_MAX).map((sk) => (sk.description ? `${sk.name} (${sk.description})` : sk.name)).join('; ')}${own.skills.length > TOOL_NAMES_MAX ? `; … (${own.skills.length - TOOL_NAMES_MAX} more)` : ''}`);
+        if (own.mcpServers.length) {
+          lines.push(
+            `  Its own MCP servers: ${own.mcpServers
+              .map((m) => `${m.name}${m.status ? ` [${m.status}]` : ''}${m.tools?.length ? ` (tools: ${names(m.tools, 20)})` : ''}`)
+              .join('; ')}`,
+          );
+        }
+        if (own.agents?.length) lines.push(`  Its own subagents: ${names(own.agents)}`);
+        if (own.plugins?.length) lines.push(`  Its own plugins: ${names(own.plugins)}`);
+        if (!own.builtinTools?.length && !own.skills.length && !own.mcpServers.length) lines.push('  Nothing of its own besides its built-in tools');
+      } else if (ctx.native) {
+        lines.push('  Its own tools, skills and MCP servers: unknown (it did not say in time)');
+      }
+      const given = ctx.library?.filter((i) => i.providers.includes(p)).map((i) => i.name) ?? [];
+      if (given.length) lines.push(`  From the tool library by default: ${given.join(', ')}`);
+      return lines.join('\n');
     })
     .join('\n');
 }
+
+/** Harness Relay's tool library as the lead reads it, and how to give or take its items; empty when there is none. */
+function libraryForPrompt(ctx: PlannerContext): string {
+  if (!ctx.library?.length) return '';
+  const items = ctx.library.map((i) => {
+    const who = i.only ? `only for ${i.only} members` : i.providers.length ? `by default for ${i.providers.join(', ')} members` : 'for nobody by default';
+    return `- ${i.name}${i.about ? ` (${i.about})` : ''}: ${who}`;
+  });
+  return `
+Harness Relay's tool library, given to members on top of what their coding agent loads by itself:
+${items.join('\n')}
+A member's "tools" gives it a library item its coding agent does not get by default (true) or takes one away (false), e.g. {"mcp:browser": true}; leave "tools" out to keep the defaults.
+`;
+}
+
+/** How the lead matches members to the work, for a design or a revision. */
+const STAFFING =
+  '- Match each member to its part of the work. Give it a coding agent that has the tools that part needs (built in, its own skills and MCP servers, or from the tool library with "tools"), ' +
+  'and a model and effort that fit it: a stronger model or higher effort for hard reasoning (design, debugging, review), a faster one or lower effort for simple or bulk work. ' +
+  'Every coding agent reads and edits files and runs commands in the working directory, within the file permission.';
 
 export function buildPlannerPrompt(
   question: string,
@@ -166,11 +408,11 @@ export function buildPlannerPrompt(
   conv: PlanConversation = {},
 ): string {
   const agents = agentsForLead(ctx);
-  const templates = JSON.stringify(ctx.presets.map(templateForLead), null, 2);
+  const templates = JSON.stringify(ctx.presets.map((p) => templateForLead(p, ctx.library)), null, 2);
   const current = conv.current?.agents.length ? conv.current : undefined;
   const history = conv.history?.trim();
   // Like a template, without an id: it is not one.
-  const currentTeam = current && JSON.stringify(teamForLead(current.settings, current.agents), null, 2);
+  const currentTeam = current && JSON.stringify(teamForLead(current.settings, current.agents, ctx.library), null, 2);
   const scheduled = conv.schedule;
   // Names a schedule's message @mentions that no member has yet: the members it is for, most likely.
   // (Only for a schedule: an ordinary question's @-words are as often code, like decorators.)
@@ -235,9 +477,9 @@ It @mentions ${addressed.map((n) => `@${n}`).join(', ')}. If these name the peop
 `
     : ''
 }
-Coding agents you can use (only these):
+Coding agents you can use (only these), with what their members can use:
 ${agents}
-
+${libraryForPrompt(ctx)}
 Conversation modes:
 ${MODES.map((m) => `- ${m}: ${MODE_HELP[m]}`).join('\n')}
 
@@ -255,9 +497,10 @@ Whichever you pick, keep it proportionate: simple work needs 1-2 members and one
 
 For an adapted or custom team:
 - Mixing coding agents helps: different models catch different things.
+${STAFFING}
 - Write each member's role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. A member who stays on from the current team keeps its name and coding agent, so it keeps what it learned.
-- Leave "model" and "effort" out unless the work clearly needs a stronger or faster model than the default.
+- Give "model" and "effort" (from the lists above) only when the member's work needs other than its coding agent's default.
 
 Write the reason (and for a new team its name, description and roles) in the language of the user's question. Do not use tools unless the choice depends on the files in the working directory.
 
@@ -387,13 +630,17 @@ export function decidePlan(
   }
   const members = Array.isArray(raw.agents) ? raw.agents.slice(0, MAX_MEMBERS) : [];
   const agents = validateAgents(
-    members.map((a: any) => ({
-      name: String(a?.name ?? '').replace(/\s+/g, '_'),
-      provider: String(a?.provider ?? '').toLowerCase(),
-      role: String(a?.role ?? ''),
-      model: a?.model ? String(a.model) : undefined,
-      effort: a?.effort ? String(a.effort).toLowerCase() : undefined,
-    })),
+    members.map((a: any) => {
+      const provider = String(a?.provider ?? '').toLowerCase();
+      return {
+        name: String(a?.name ?? '').replace(/\s+/g, '_'),
+        provider,
+        role: String(a?.role ?? ''),
+        model: a?.model ? String(a.model) : undefined,
+        effort: a?.effort ? String(a.effort).toLowerCase() : undefined,
+        tools: (PROVIDERS as string[]).includes(provider) ? toolsFromLead(undefined, a?.tools, provider as Provider, ctx.library) : undefined,
+      };
+    }),
   );
   const mode: Mode = MODES.includes(raw.mode) ? raw.mode : 'roundtable';
   const settings = { mode, rounds: clampInt(raw.rounds, 1, 5, 1), maxHops: clampInt(raw.maxHops, 1, 30, 8) };
@@ -532,7 +779,7 @@ ${history}
 }
 The team now (members in speaking order):
 <team>
-${JSON.stringify(teamForLead(team.settings, team.agents), null, 2)}
+${JSON.stringify(teamForLead(team.settings, team.agents, ctx.library), null, 2)}
 </team>
 ${
   scheduled
@@ -552,9 +799,9 @@ What the user asks you to change:
 ${request}
 </request>
 
-Coding agents you can use (only these):
+Coding agents you can use (only these), with what their members can use:
 ${agentsForLead(ctx)}
-
+${libraryForPrompt(ctx)}
 Conversation modes:
 ${MODES.map((m) => `- ${m}: ${MODE_HELP[m]}`).join('\n')}
 
@@ -566,7 +813,7 @@ The file permission "${settings.permission}" and the working directory ${setting
 
 Templates (built-in and saved by the user), in full, in case the user refers to one:
 <templates>
-${JSON.stringify(ctx.presets.map(templateForLead), null, 2)}
+${JSON.stringify(ctx.presets.map((p) => templateForLead(p, ctx.library)), null, 2)}
 </templates>
 
 How to change the team:
@@ -574,13 +821,15 @@ How to change the team:
 - A member who stays keeps its name and coding agent: then it keeps what it learned in this conversation. Rename a member or move it to another coding agent only when the user asks for it, and then give its current name as "was", so it stays the same member with its settings (moved to another coding agent, it reads this conversation afresh). "was" is only for that: never for a new member, even one based on another.
 - Write a new or rewritten role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. At most ${MAX_TEAM} members.
-- "model" and "effort": for a member who stays, leave them out to keep what it has, or give "" for its coding agent's default. For a new member, leave them out unless the work clearly needs a stronger or faster model than the default.
+- "model" and "effort": for a member who stays, leave them out to keep what it has, or give "" for its coding agent's default. For a new member, give them (from the lists above) only when its work needs other than its coding agent's default.
+- "tools": leave it out to keep a member's tools as they are; give only the library items to change, true to give one, false to take one away.
+${STAFFING}
 - When the request cannot be done this way (for example, it asks to change the file permission, or to clear a member's role, which the user does in the editor), return the team as it is and say why in the reason.
 
 Write the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools unless the change depends on the files in the folder you are running in.
 
 Reply with only this JSON object, in a \`\`\`json code block, with the whole team (every member, in speaking order):
-{"mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions: only for a new member or a role you rewrite>", "model": "<optional>", "effort": "<optional>", "was": "<its current name: only for a member you renamed or moved to another coding agent>"}], "reason": "<what you changed and why: one or two sentences for the user>"}`;
+{"mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions: only for a new member or a role you rewrite>", "model": "<optional>", "effort": "<optional>", "tools": {"<optional: tool library item to change>": true | false}, "was": "<its current name: only for a member you renamed or moved to another coding agent>"}], "reason": "<what you changed and why: one or two sentences for the user>"}`;
 }
 
 /**
@@ -597,7 +846,8 @@ Reply with only this JSON object, in a \`\`\`json code block, with the whole tea
  *    over, and the listed one has no role or the same one: that one (renamed, though the lead did not
  *    say so).
  * A matched member keeps what the lead does not see — its id (and with it its CLI session, which starts
- * afresh on another CLI) and its tools — and the role, model and effort the lead left out (null, or a
+ * afresh on another CLI) and its account — its tools but the library items the lead names in "tools"
+ * (`toolsFromLead`), and the role, model and effort the lead left out (null, or a
  * blank role, is left out; a model or effort of its old CLI does not carry over to another one). A role
  * the lead copied, trimmed, stays as the user wrote it. A changed model or effort, and every new or moved
  * member, is fitted to the CLIs here (`fitAgents`); a member who stays on its CLI keeps it even when that
@@ -660,8 +910,13 @@ export function decideRevision(
       m[key] !== undefined && m[key] !== null ? String(m[key]) : sameCli ? (same?.[key] ?? '') : '';
     // A new member based on another (a misused "was") starts from that one's role.
     const role = given ?? same?.role ?? basedOn[i]?.role ?? '';
+    // Its tools as they were, with the library items the lead names changed (for the CLI it is on now).
+    const tools = (PROVIDERS as string[]).includes(provider)
+      ? toolsFromLead(same?.tools, m.tools, provider as Provider, ctx.library)
+      : same?.tools;
     return {
-      ...(same ? { id: same.id, ...(same.tools ? { tools: same.tools } : {}) } : {}),
+      ...(same ? { id: same.id } : {}),
+      ...(tools ? { tools } : {}),
       // Its account stays while it stays on the same CLI.
       ...(sameCli && same?.account ? { account: same.account } : {}),
       name,
