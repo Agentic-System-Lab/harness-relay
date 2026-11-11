@@ -18,6 +18,7 @@ import {
   mailtoUrl,
   reportBody,
   reportReady,
+  reportState,
   reportSubject,
   reportText,
   screenshotProblem,
@@ -98,14 +99,14 @@ export function ReportDialog({ providers, onClose }: Props) {
     if (sent) forget();
     onClose();
   };
-  /** Whether the dialog is still open, for what an upload says once it is done. */
+  /** Whether the dialog is still open, for what an upload says once it is done (set on each mount: StrictMode mounts twice). */
   const live = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    live.current = true;
+    return () => {
       live.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   useDialog(dialog, close);
   useEffect(() => {
     kept = draft;
@@ -124,14 +125,10 @@ export function ReportDialog({ providers, onClose }: Props) {
 
   const update = (patch: Partial<ReportDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const info = useMemo(
-    () => infoLines({ about: about ?? undefined, providers, userAgent: navigator.userAgent, lang }, t),
+    () => infoLines({ about, providers, userAgent: navigator.userAgent, lang }, t),
     [about, providers, lang, t],
   );
-  /** Screenshots can change only until they are uploaded (Remove upload lets them change again). */
-  const editable = !upload && !busy;
-  /** Screenshots that are not uploaded yet: the mail would say nothing of them. */
-  const waiting = shots.length > 0 && !upload;
-  const ready = reportReady(draft) && !waiting && !busy;
+  const { editable, waiting, ready } = reportState({ draft, shots: shots.length, uploaded: !!upload, busy: !!busy, aboutKnown: about !== undefined });
   const subject = reportSubject(draft, t);
   const body = reportBody(draft, info, t, upload?.url);
   const whole = () => reportText(REPORT_EMAIL, subject, body, t);

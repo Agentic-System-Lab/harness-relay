@@ -14,7 +14,7 @@ import { signInWhere } from './signin';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
-import { AFTER_UPDATE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, writeDismissed } from './update';
+import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
 import { useDialogsOpen } from './components/useDialog';
 
 type SeenMap = Record<string, number>;
@@ -270,11 +270,29 @@ function RelayApp() {
   }, [update]);
   // Shown only while no other dialog is open (it would take that one's keys), then kept while on offer.
   const dialogs = useDialogsOpen();
-  const offerable = shouldOffer(update, dismissed, isAppWindow(navigator.userAgent));
+  // Closed without Later (Escape, ×): not offered again while the page is open.
+  const [closedFor, setClosedFor] = useState<string>();
+  const offerable = shouldOffer(update, dismissed, isAppWindow(navigator.userAgent), closedFor);
+  // Typing into a text field holds the dialog back, so it takes no keys meant for it.
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (!typesText(e.target as HTMLElement | null)) return;
+      setTyping(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => setTyping(false), TYPING_PAUSE_MS);
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      clearTimeout(timer);
+    };
+  }, []);
   const [offer, setOffer] = useState(false);
   useEffect(() => {
-    setOffer((showing) => offerShows(showing, { offerable, tourOpen, dialogsOpen: dialogs }));
-  }, [offerable, tourOpen, dialogs]);
+    setOffer((showing) => offerShows(showing, { offerable, tourOpen, dialogsOpen: dialogs, typing }));
+  }, [offerable, tourOpen, dialogs, typing]);
 
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
@@ -354,6 +372,7 @@ function RelayApp() {
           page={update.available.page}
           onUpdate={installUpdate}
           onLater={() => dismiss(update.available!.version)}
+          onClose={() => setClosedFor(update.available!.version)}
         />
       )}
     </div>

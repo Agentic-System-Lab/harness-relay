@@ -234,14 +234,14 @@ jobs:
           if [ "$PRERELEASE" = true ]; then
             channel=(--prerelease --latest=false)
             kind='A release candidate: try it before the release.'
-            offered='A Harness Relay that is a release candidate offers this one in its menu (**Update to …**) and updates itself; a release is offered releases only.'
+            offered='A Harness Relay that is a release candidate (or a build of your own) offers this one in its menu (**Update to …**) and in its chat, and updates itself; a release is offered releases only.'
           else
             channel=(--latest)
             kind='A release.'
-            offered='A Harness Relay already installed offers this release in its menu (**Update to …**) and updates itself.'
+            offered='A Harness Relay already installed offers this release in its menu (**Update to …**) and in its chat, and updates itself.'
           fi
           notes="$kind
 
-          **Download:** \`.dmg\` for macOS 13 or later on Apple Silicon (no Intel Macs), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. $offered It downloads the files ending in \`-update\`: the same installers, kept apart so that downloads count new installs and updates separately. To install, download the others. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
+          **Download:** \`.dmg\` for macOS 13 or later on Apple Silicon (no Intel Macs), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. $offered It downloads the files with \`-update\` before the extension (\`…-mac-arm64-update.dmg\` and so on): the same installers, kept apart so that downloads count new installs and updates separately. To install, download the others. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
           # The tag is made on the commit that was checked and built.
           gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes "$notes" --generate-notes "${channel[@]}"

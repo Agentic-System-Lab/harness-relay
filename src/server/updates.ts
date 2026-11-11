@@ -36,10 +36,13 @@ export class Updates {
   async check(timeoutMs = CHECK_ANSWER_MS): Promise<UpdateStatus> {
     if (this.parent && this.last.updates) {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const checked = new Promise<void>((done) => this.waiting.push(done));
+      let answered: () => void = () => {};
+      const checked = new Promise<void>((done) => this.waiting.push((answered = done)));
       this.parent.send({ type: 'update-check' });
       await Promise.race([checked, new Promise<void>((done) => (timer = setTimeout(done, timeoutMs)))]);
       clearTimeout(timer);
+      // Not answered in time: no longer waited for.
+      this.waiting = this.waiting.filter((w) => w !== answered);
     }
     return this.status();
   }

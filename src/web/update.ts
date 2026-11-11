@@ -34,18 +34,33 @@ export function isAppWindow(userAgent: string): boolean {
 
 /**
  * Whether to offer the newer version with a dialog: in the app's own window, once per version (not one
- * this browser dismissed), and not while an update is under way.
+ * this browser dismissed with Later, nor one closed otherwise while the page is open: `closed`), and
+ * not while an update is under way.
  */
-export function shouldOffer(status: UpdateStatus | undefined, dismissed: string | null, appWindow: boolean): boolean {
-  return !!status?.available && appWindow && !status.progress && status.available.version !== dismissed;
+export function shouldOffer(status: UpdateStatus | undefined, dismissed: string | null, appWindow: boolean, closed?: string): boolean {
+  const version = status?.available?.version;
+  return !!version && appWindow && !status.progress && version !== dismissed && version !== closed;
 }
 
 /**
  * Whether the dialog offering a new version shows: it opens only while no other dialog (nor the tour)
- * is open, so it never takes another's keys, and once it shows it stays while the version is on offer.
+ * is open and the user is not typing, so it never takes keys meant for something else, and once it
+ * shows it stays while the version is on offer.
  */
-export function offerShows(showing: boolean, o: { offerable: boolean; tourOpen: boolean; dialogsOpen: number }): boolean {
-  return showing ? o.offerable : o.offerable && !o.tourOpen && o.dialogsOpen === 0;
+export function offerShows(showing: boolean, o: { offerable: boolean; tourOpen: boolean; dialogsOpen: number; typing: boolean }): boolean {
+  return showing ? o.offerable : o.offerable && !o.tourOpen && o.dialogsOpen === 0 && !o.typing;
+}
+
+/** How long after a key typed into a text field the user still counts as typing. */
+export const TYPING_PAUSE_MS = 5000;
+
+/** Whether a key went to something the user types into (a text field, a text area, an editable element). */
+export function typesText(target: { tagName?: string; isContentEditable?: boolean; type?: string } | null): boolean {
+  if (!target) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName?.toLowerCase();
+  if (tag === 'textarea') return true;
+  return tag === 'input' && !['button', 'checkbox', 'radio', 'submit', 'reset', 'file', 'range', 'color', 'image'].includes((target.type ?? 'text').toLowerCase());
 }
 
 /** How soon to ask the server again after an Update (the app's own dialog may start one any time now). */

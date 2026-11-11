@@ -59,13 +59,13 @@ import {
   chatUpdate,
   CHECK_EVERY_MS,
   CHECK_TIMEOUT_MS,
+  checkNow,
   checkLatest,
   download,
   FIRST_CHECK_MS,
   installPlan,
   isNewer,
   macAppOf,
-  mayAskGitHub,
   oneAtATime,
   placeAppImage,
   relaunchCommand,
@@ -594,7 +594,7 @@ function run(): void {
    * a check asked for sooner from the chat gives what is known.
    */
   async function checkForUpdate(): Promise<void> {
-    if (updating || checking || !checksUpdates() || !mayAskGitHub(askedAt, Date.now())) {
+    if (!checkNow({ updates: checksUpdates(), updating: !!updating, checking, askedAt, now: Date.now() })) {
       tellServer();
       return;
     }

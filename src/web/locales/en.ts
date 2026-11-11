@@ -732,6 +732,7 @@ export const en: Messages = {
       language: 'Language',
       installed: 'installed',
       notInstalled: 'not installed',
+      unknown: '(the server did not answer: version and system unknown)',
     },
     mail: {
       to: 'To',

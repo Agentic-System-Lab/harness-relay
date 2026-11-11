@@ -79,7 +79,7 @@ If you can only write one of the two languages, send the pull request anyway and
 
 Docs come in pairs: `README.md` / `README.zh-TW.md`, `CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md` and `docs/<name>.md` / `docs/<name>.zh-TW.md`. When a change affects behaviour, the HTTP API, the schema, settings, environment variables or the list of tests, update both languages in the same pull request. The developer guide lists every HTTP route and what each test file covers; keep those lists current.
 
-The website in `site/` has an English and a Chinese page. Read [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md) before you change it, change both pages together, and preview them with `npm run site:preview`. The installers' file name endings in `site/assets/downloads.js` must stay in step with the names the Release workflow gives them: the download buttons and the desktop app's updates both find the installers by them.
+The website in `site/` has an English and a Chinese page. Read [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md) before you change it, change both pages together, and preview them with `npm run site:preview`. The installers' file name endings in `site/assets/downloads.js` must stay in step with the names the Release workflow gives them: the download buttons and the desktop app's updates both find the installers by them. The same goes for `UPDATE_INSTALLERS`, the names of the copies the workflow publishes beside them for the app's updates.
 
 ### Tests
 

@@ -45,17 +45,39 @@ export function reportReady(d: ReportDraft): boolean {
 }
 
 /**
+ * What the dialog lets the user do: change the screenshots only until they are uploaded (Remove upload
+ * lets them change again), nothing while an upload or a removal goes on; and send once there is a
+ * description, the details that go along are known (`aboutKnown`: loaded, or known to be missing), and
+ * the screenshots added are uploaded (`waiting` until then: the mail would say nothing of them).
+ */
+export function reportState(o: { draft: ReportDraft; shots: number; uploaded: boolean; busy: boolean; aboutKnown: boolean }): {
+  editable: boolean;
+  waiting: boolean;
+  ready: boolean;
+} {
+  const waiting = o.shots > 0 && !o.uploaded;
+  return {
+    editable: !o.uploaded && !o.busy,
+    waiting,
+    ready: reportReady(o.draft) && !waiting && !o.busy && o.aboutKnown,
+  };
+}
+
+/**
  * What goes along with a report, a line each: this Harness Relay's version and how it runs, the
  * computer's system, the browser, each CLI's version and the UI's language. Nothing that names the
- * user, their accounts or their files. `about`: undefined while it loads, or when it could not.
+ * user, their accounts or their files. `about`: undefined while it loads (left out), null when the
+ * server could not say (said so).
  */
-export function infoLines(o: { about?: AboutInfo; providers: ProviderStatus[]; userAgent: string; lang: string }, t: Messages): string[] {
+export function infoLines(o: { about?: AboutInfo | null; providers: ProviderStatus[]; userAgent: string; lang: string }, t: Messages): string[] {
   const { info: i, line } = t.report;
   const lines: string[] = [];
   if (o.about) {
     lines.push(line('Harness Relay', `${o.about.version} · ${o.about.desktop ? i.desktop : i.web}`));
     lines.push(line(i.os, o.about.os));
     lines.push(line('Node.js', o.about.node));
+  } else if (o.about === null) {
+    lines.push(line('Harness Relay', i.unknown));
   }
   if (o.userAgent) lines.push(line(i.browser, o.userAgent));
   for (const p of PROVIDERS) {
@@ -158,6 +180,8 @@ export class ShotUploads {
   done?: ReportScreenshots;
   private going?: Promise<ReportScreenshots>;
   private removing?: Promise<void>;
+  /** Counts the reports forgotten: what goes on for one forgotten no longer counts. */
+  private report = 0;
   private listeners = new Set<() => void>();
 
   constructor(private api: ShotsApi) {}
@@ -184,19 +208,28 @@ export class ShotUploads {
     this.listeners.forEach((fn) => fn());
   }
 
-  /** Uploads the screenshots `images` gives (base64): the upload under way when there is one, the one done when it is. */
+  /**
+   * Uploads the screenshots `images` gives (base64): the upload under way when there is one, the one
+   * done when it is. One that ends after its report was forgotten (sent) belongs to no report: its gist
+   * is deleted again, and the next report knows nothing of it.
+   */
   upload(images: () => Promise<string[]>): Promise<ReportScreenshots> {
     if (this.done) return Promise.resolve(this.done);
     if (!this.going) {
-      this.going = (async () => {
+      const report = this.report;
+      let going: Promise<ReportScreenshots> | undefined = undefined;
+      going = (async () => {
         try {
-          this.done = await this.api.upload(await images());
-          return this.done;
+          const done = await this.api.upload(await images());
+          if (report === this.report) this.done = done;
+          else void Promise.resolve(this.api.remove(done.id)).catch(() => undefined);
+          return done;
         } finally {
-          this.going = undefined;
+          if (this.going === going) this.going = undefined;
           this.changed();
         }
       })();
+      this.going = going;
       this.changed();
     }
     return this.going;
@@ -207,26 +240,32 @@ export class ShotUploads {
     const done = this.done;
     if (!done) return Promise.resolve();
     if (!this.removing) {
-      this.removing = (async () => {
+      const report = this.report;
+      let removing: Promise<void> | undefined = undefined;
+      removing = (async () => {
         try {
           await this.api.remove(done.id);
-          this.done = undefined;
+          if (report === this.report) this.done = undefined;
         } catch (err) {
-          if (this.api.gone(err)) this.done = undefined;
+          if (report === this.report && this.api.gone(err)) this.done = undefined;
           throw err;
         } finally {
-          this.removing = undefined;
+          if (this.removing === removing) this.removing = undefined;
           this.changed();
         }
       })();
+      this.removing = removing;
       this.changed();
     }
     return this.removing;
   }
 
-  /** Forgets the upload: the report was sent, and its mail links to it. */
+  /** Forgets the upload, and what goes on: the report was sent, and its mail links to it. */
   forget(): void {
+    this.report++;
     this.done = undefined;
+    this.going = undefined;
+    this.removing = undefined;
     this.changed();
   }
 }

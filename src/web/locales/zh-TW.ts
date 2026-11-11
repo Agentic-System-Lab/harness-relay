@@ -746,6 +746,7 @@ export const zhTW = {
       language: '介面語言',
       installed: '已安裝',
       notInstalled: '未安裝',
+      unknown: '（伺服器沒有回應，讀不到版本與系統）',
     },
     /** In the mail itself. */
     mail: {

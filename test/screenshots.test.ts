@@ -6,7 +6,7 @@ import { GH_MISSING, REPORT_SCREENSHOT_LIMITS } from '../src/shared/types';
 import { HttpError } from '../src/server/errors';
 import { t } from '../src/server/i18n';
 import { CommandNotFoundError, type SpawnOptions, type SpawnResult } from '../src/server/process';
-import { SCREENSHOTS_DESCRIPTION, imageKind, parseScreenshots, uploadScreenshots } from '../src/server/screenshots';
+import { SCREENSHOTS_DESCRIPTION, imageKind, parseScreenshots, uploadScreenshots, withoutMetadata } from '../src/server/screenshots';
 import {
   CREATED_JQ,
   FILES_PLACEHOLDER,
@@ -61,6 +61,64 @@ describe('a screenshot', () => {
   });
 });
 
+describe("a screenshot's metadata", () => {
+  const segment = (marker: number, payload: Buffer) => Buffer.concat([Buffer.from([0xff, marker]), Buffer.from([(payload.length + 2) >> 8, (payload.length + 2) & 0xff]), payload]);
+  const gps = Buffer.from('Exif\0\0GPSLatitude 25.03 N GPSLongitude 121.56 E');
+
+  it("leaves a JPEG's EXIF, XMP, IPTC and comments behind, and its pixels as they are", () => {
+    const jfif = segment(0xe0, Buffer.from('JFIF\0\x01\x02'));
+    const icc = segment(0xe2, Buffer.from('ICC_PROFILE\0colors'));
+    const scan = Buffer.from([0xff, 0xda, 0x00, 0x04, 0x01, 0x00, 0x12, 0x34, 0xff, 0x00, 0x56, 0xff, 0xd9]);
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8]), jfif, segment(0xe1, gps), segment(0xed, Buffer.from('Photoshop 3.0 IPTC')), segment(0xfe, Buffer.from('a comment')), icc, scan]);
+    const clean = withoutMetadata(jpeg, 'jpg');
+    expect(clean).toEqual(Buffer.concat([Buffer.from([0xff, 0xd8]), jfif, icc, scan]));
+    expect(clean.toString('latin1')).not.toMatch(/GPS|IPTC|comment/);
+  });
+
+  it("leaves a PNG's EXIF, text and time chunks behind", () => {
+    const chunk = (type: string, data: Buffer) => {
+      const len = Buffer.alloc(4);
+      len.writeUInt32BE(data.length);
+      return Buffer.concat([len, Buffer.from(type, 'latin1'), data, Buffer.alloc(4)]);
+    };
+    const ihdr = chunk('IHDR', Buffer.alloc(13));
+    const idat = chunk('IDAT', Buffer.from('pixels'));
+    const iend = chunk('IEND', Buffer.alloc(0));
+    const png = Buffer.concat([PNG.subarray(0, 8), ihdr, chunk('eXIf', gps), chunk('tEXt', Buffer.from('Author\0someone')), chunk('iTXt', Buffer.from('XML:com.adobe.xmp')), chunk('tIME', Buffer.alloc(7)), idat, iend]);
+    expect(withoutMetadata(png, 'png')).toEqual(Buffer.concat([PNG.subarray(0, 8), ihdr, idat, iend]));
+  });
+
+  it("leaves a WebP's EXIF and XMP chunks behind, with their flags and its size set again", () => {
+    const chunk = (type: string, data: Buffer) => {
+      const size = Buffer.alloc(4);
+      size.writeUInt32LE(data.length);
+      return Buffer.concat([Buffer.from(type, 'latin1'), size, data, data.length % 2 ? Buffer.alloc(1) : Buffer.alloc(0)]);
+    };
+    const vp8x = (flags: number) => chunk('VP8X', Buffer.from([flags, 0, 0, 0, 1, 0, 0, 1, 0, 0]));
+    const image = chunk('VP8 ', Buffer.from('pixels!'));
+    const riff = (chunks: Buffer) => {
+      const head = Buffer.from('RIFF\0\0\0\0WEBP', 'latin1');
+      head.writeUInt32LE(4 + chunks.length, 4);
+      return Buffer.concat([head, chunks]);
+    };
+    const webp = riff(Buffer.concat([vp8x(0x0c), image, chunk('EXIF', gps), chunk('XMP ', Buffer.from('<x:xmpmeta/>'))]));
+    expect(withoutMetadata(webp, 'webp')).toEqual(riff(Buffer.concat([vp8x(0x00), image])));
+  });
+
+  it('gives an image it cannot read through as it is, and a GIF as it is', () => {
+    const broken = Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff]);
+    expect(withoutMetadata(broken, 'jpg')).toEqual(broken);
+    expect(withoutMetadata(GIF, 'gif')).toEqual(GIF);
+    expect(withoutMetadata(PNG, 'png')).toEqual(PNG); // no IEND
+  });
+
+  it('goes before anything is uploaded', () => {
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8]), segment(0xe1, gps), Buffer.from([0xff, 0xda, 0x00, 0x02, 0xff, 0xd9])]);
+    const [shot] = parseScreenshots([{ data: b64(jpeg) }]);
+    expect(shot!.data.toString('latin1')).not.toContain('GPS');
+  });
+});
+
 describe('the screenshots a request sends', () => {
   const refused = (v: unknown) => {
     try {
@@ -75,6 +133,7 @@ describe('the screenshots a request sends', () => {
   it('are named by their place and kind, never by the name the file had', () => {
     const files = parseScreenshots([{ data: b64(PNG), name: 'secret-project.png' }, { data: b64(JPEG) }, { data: b64(WEBP) }]);
     expect(files.map((f) => f.name)).toEqual(['screenshot-1.png', 'screenshot-2.jpg', 'screenshot-3.webp']);
+    // Bytes it cannot read through (this PNG has no IEND) go as they are.
     expect(files[0]!.data.equals(PNG)).toBe(true);
   });
 

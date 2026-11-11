@@ -13,6 +13,7 @@ import {
   mailtoUrl,
   reportBody,
   reportReady,
+  reportState,
   reportSubject,
   reportText,
   screenshotProblem,
@@ -54,6 +55,8 @@ describe('infoLines', () => {
 
   it('goes without what the server could not say, in the UI language', () => {
     expect(infoLines({ providers: [], userAgent: '', lang: 'zh-TW' }, zhTW)).toEqual(['介面語言：zh-TW']);
+    // Known to be missing (the server did not answer): said so in the mail, not left out without a word.
+    expect(infoLines({ about: null, providers: [], userAgent: '', lang: 'en' }, en)).toEqual([`Harness Relay: ${en.report.info.unknown}`, 'Language: en']);
     expect(infoLines({ about: { ...about, desktop: false, version: 'source (92449c7)' }, providers: [], userAgent: '', lang: 'zh-TW' }, zhTW)[0]).toBe(
       'Harness Relay：source (92449c7) · 網頁版',
     );
@@ -140,6 +143,26 @@ describe('mail links', () => {
     expect(subject.endsWith('…')).toBe(true);
     expect(subject).not.toContain('�');
     expect([...subject.slice(0, -1)].every((c) => c === '🐛')).toBe(true);
+  });
+});
+
+describe('what the dialog lets the user do', () => {
+  const draft = { ...EMPTY_REPORT, description: 'It froze' };
+  const state = (o: Partial<Parameters<typeof reportState>[0]> = {}) =>
+    reportState({ draft, shots: 0, uploaded: false, busy: false, aboutKnown: true, ...o });
+
+  it('sends a description once the details that go along are known', () => {
+    expect(state().ready).toBe(true);
+    expect(state({ draft: EMPTY_REPORT }).ready).toBe(false);
+    // Still loading: the mail would go without them.
+    expect(state({ aboutKnown: false }).ready).toBe(false);
+  });
+
+  it('waits for screenshots added to be uploaded or removed, and for an upload or a removal under way', () => {
+    expect(state({ shots: 2 })).toEqual({ editable: true, waiting: true, ready: false });
+    expect(state({ shots: 2, uploaded: true })).toEqual({ editable: false, waiting: false, ready: true });
+    expect(state({ shots: 2, busy: true })).toEqual({ editable: false, waiting: true, ready: false });
+    expect(state({ shots: 2, uploaded: true, busy: true })).toEqual({ editable: false, waiting: false, ready: false });
   });
 });
 
@@ -251,5 +274,39 @@ describe("a report's screenshots on GitHub", () => {
     uploads.forget();
     expect(uploads.done).toBeUndefined();
     expect(await uploads.remove()).toBeUndefined();
+  });
+
+  it('belong to no report when their upload ends after the report was sent: their gist is deleted again', async () => {
+    const server = fakeServer();
+    const uploads = new ShotUploads(server.api);
+    const up = uploads.upload(async () => ['a']);
+    await flush();
+    uploads.forget(); // sent, and the dialog closed
+    expect(uploads.busy).toBeUndefined();
+    expect(uploads.pending).toBeUndefined();
+    server.ok(gist);
+    await up;
+    await flush();
+    expect(uploads.done).toBeUndefined();
+    expect(server.calls).toEqual(['upload a', `remove ${gist.id}`]);
+  });
+
+  it("keep the next report's upload when a removal for the one before ends after it was sent", async () => {
+    const other = { ...gist, id: 'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf' };
+    let finishRemoval: () => void = () => {};
+    const uploads = new ShotUploads({
+      upload: async (images) => (images[0] === 'a' ? gist : other),
+      remove: () => new Promise<void>((done) => (finishRemoval = done)),
+      gone: () => false,
+    });
+    await uploads.upload(async () => ['a']);
+    const removing = uploads.remove();
+    uploads.forget(); // sent, and the dialog closed
+    await uploads.upload(async () => ['b']);
+    expect(uploads.done).toEqual(other);
+    finishRemoval(); // the removal for the report before ends now
+    await removing;
+    expect(uploads.done).toEqual(other);
+    expect(uploads.busy).toBeUndefined();
   });
 });

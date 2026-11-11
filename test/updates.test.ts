@@ -3,7 +3,7 @@ import type { DesktopUpdate, ServerToDesktop, UpdateStatus } from '../src/shared
 import { Updates } from '../src/server/updates';
 import { en } from '../src/web/locales/en';
 import { dialogsOpen, onDialogsChange, openDialog } from '../src/web/dialogs';
-import { isAppWindow, offerShows, pollDelay, shouldOffer, updateLine } from '../src/web/update';
+import { isAppWindow, offerShows, pollDelay, shouldOffer, typesText, updateLine } from '../src/web/update';
 
 /** The desktop app, as the server's parent port: what the server sends it, and what it says. */
 function fakeApp() {
@@ -50,8 +50,10 @@ describe("the desktop app's updates, as the server passes them on", () => {
     const updates = new Updates(app.parent, version);
     expect(await updates.check(10)).toEqual({ updates: false, current: '2026-11-11' });
     expect(app.sent).toEqual([]);
-    app.say({ updates: true, checkedAt: 1 });
-    expect(await updates.check(10)).toEqual({ updates: true, checkedAt: 1, current: '2026-11-11' });
+    app.say({ updates: true, checking: true, checkedAt: 1 });
+    expect(await updates.check(10)).toEqual({ updates: true, checking: true, checkedAt: 1, current: '2026-11-11' });
+    // A check not answered in time is no longer waited for.
+    expect((updates as unknown as { waiting: unknown[] }).waiting).toEqual([]);
   });
 
   it('asks the app to update only when there is a newer version and none under way, saying which it is', () => {
@@ -111,15 +113,37 @@ describe('the update in the chat', () => {
   });
 
   it('offers a new version only while no other dialog nor the tour is open, then keeps it while it is on offer', () => {
-    expect(offerShows(false, { offerable: true, tourOpen: false, dialogsOpen: 0 })).toBe(true);
+    expect(offerShows(false, { offerable: true, tourOpen: false, dialogsOpen: 0, typing: false })).toBe(true);
     // Never over another dialog (it would take that one's keys), nor over the tour.
-    expect(offerShows(false, { offerable: true, tourOpen: false, dialogsOpen: 1 })).toBe(false);
-    expect(offerShows(false, { offerable: true, tourOpen: true, dialogsOpen: 0 })).toBe(false);
+    expect(offerShows(false, { offerable: true, tourOpen: false, dialogsOpen: 1, typing: false })).toBe(false);
+    expect(offerShows(false, { offerable: true, tourOpen: true, dialogsOpen: 0, typing: false })).toBe(false);
     // Shown, it counts as an open dialog itself: it stays.
-    expect(offerShows(true, { offerable: true, tourOpen: false, dialogsOpen: 1 })).toBe(true);
+    expect(offerShows(true, { offerable: true, tourOpen: false, dialogsOpen: 1, typing: false })).toBe(true);
     // Dismissed, or an update started from the menu: it goes.
-    expect(offerShows(true, { offerable: false, tourOpen: false, dialogsOpen: 1 })).toBe(false);
-    expect(offerShows(false, { offerable: false, tourOpen: false, dialogsOpen: 0 })).toBe(false);
+    expect(offerShows(true, { offerable: false, tourOpen: false, dialogsOpen: 1, typing: false })).toBe(false);
+    expect(offerShows(false, { offerable: false, tourOpen: false, dialogsOpen: 0, typing: false })).toBe(false);
+    // Not while the user types into a text field: it would take their keys. Shown, typing elsewhere does not close it.
+    expect(offerShows(false, { offerable: true, tourOpen: false, dialogsOpen: 0, typing: true })).toBe(false);
+    expect(offerShows(true, { offerable: true, tourOpen: false, dialogsOpen: 1, typing: true })).toBe(true);
+  });
+
+  it('counts keys into text fields as typing, and no others', () => {
+    expect(typesText({ tagName: 'TEXTAREA' })).toBe(true);
+    expect(typesText({ tagName: 'INPUT', type: 'text' })).toBe(true);
+    expect(typesText({ tagName: 'INPUT', type: 'search' })).toBe(true);
+    expect(typesText({ tagName: 'INPUT' })).toBe(true);
+    expect(typesText({ tagName: 'DIV', isContentEditable: true })).toBe(true);
+    expect(typesText({ tagName: 'INPUT', type: 'checkbox' })).toBe(false);
+    expect(typesText({ tagName: 'BUTTON' })).toBe(false);
+    expect(typesText({ tagName: 'BODY' })).toBe(false);
+    expect(typesText(null)).toBe(false);
+  });
+
+  it('is not offered again while the page is open once closed without Later, but is next time', () => {
+    expect(shouldOffer(status({ available }), null, true, '2026-11-12')).toBe(false);
+    expect(shouldOffer(status({ available }), null, true, undefined)).toBe(true);
+    // A newer one than the one closed is offered.
+    expect(shouldOffer(status({ available: { ...available, version: '2026-11-13' } }), null, true, '2026-11-12')).toBe(true);
   });
   it('says what there is to know of updates, an update under way first', () => {
     const v = en.settings.version;

@@ -79,7 +79,7 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 
 文件成對存在：`README.md` / `README.zh-TW.md`、`CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`，以及 `docs/<name>.md` / `docs/<name>.zh-TW.md`。當修改影響到行為、HTTP API、schema、設定、環境變數或測試清單時，請在同一個 pull request 中更新兩種語言。開發者說明列出了每一條 HTTP 路由與每個測試檔涵蓋的內容，請保持這些清單是最新的。
 
-`site/` 裡的網站有英文與中文兩個頁面。修改前請先讀 [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md)，兩個頁面一起改，並用 `npm run site:preview` 預覽。`site/assets/downloads.js` 裡安裝檔的檔名結尾，必須跟發佈 workflow 給安裝檔的名稱一致：下載按鈕與桌面 app 的更新都靠它們找到安裝檔。
+`site/` 裡的網站有英文與中文兩個頁面。修改前請先讀 [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md)，兩個頁面一起改，並用 `npm run site:preview` 預覽。`site/assets/downloads.js` 裡安裝檔的檔名結尾，必須跟發佈 workflow 給安裝檔的名稱一致：下載按鈕與桌面 app 的更新都靠它們找到安裝檔。`UPDATE_INSTALLERS`（workflow 在安裝檔旁另外發佈、給 app 更新用的副本的名稱）也一樣。
 
 ### 測試
 

@@ -12,19 +12,22 @@ interface Props {
   onUpdate: () => Promise<void>;
   /** Later: this version is not offered again with a dialog (Settings still offers it). */
   onLater: () => void;
+  /** Closed otherwise (Escape, ×, outside): not offered again while the page is open, but next time. */
+  onClose: () => void;
 }
 
 /**
  * Offers a newer version of the desktop app, once per version, in the app's own window (src/web/update.ts,
  * `shouldOffer`). The tray menu offers it as before.
  */
-export function UpdateDialog({ version, current, page, onUpdate, onLater }: Props) {
+export function UpdateDialog({ version, current, page, onUpdate, onLater, onClose }: Props) {
   const t = useT();
   const u = t.update;
   const dialog = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useDialog(dialog, onLater);
+  // Escape may be a reflex: it closes the dialog for now, without dismissing the version for good (Later does).
+  useDialog(dialog, onClose);
 
   const update = async () => {
     setBusy(true);
@@ -38,7 +41,7 @@ export function UpdateDialog({ version, current, page, onUpdate, onLater }: Prop
   };
 
   return createPortal(
-    <div className="modal-scrim" onClick={onLater}>
+    <div className="modal-scrim" onClick={onClose}>
       <div
         ref={dialog}
         className="modal update-dialog"
@@ -50,7 +53,7 @@ export function UpdateDialog({ version, current, page, onUpdate, onLater }: Prop
       >
         <header className="drawer-head">
           <h2 id="update-title">{u.title}</h2>
-          <button type="button" className="icon-button" onClick={onLater} aria-label={t.common.close}>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t.common.close}>
             ×
           </button>
         </header>

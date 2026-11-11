@@ -44,6 +44,13 @@ import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
 export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=20`;
 
 /**
+ * GitHub's newest release, never a release candidate (the Release workflow marks each release the
+ * latest, and no release candidate): what an app that is a release asks for, however many release
+ * candidates came out since.
+ */
+export const LATEST_RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+
+/**
  * How often the app asks: one request an hour, of the 60 an hour GitHub allows each address without
  * signing in (shared by everything on that address: many apps behind one office network could use them
  * up, and a check that fails only waits for the next one).
@@ -61,6 +68,14 @@ export const MIN_CHECK_GAP_MS = 5 * 60_000;
 
 /** How long one question to GitHub may take: a stalled one (the computer slept, a captive portal) would hold back every check after it. */
 export const CHECK_TIMEOUT_MS = 30_000;
+
+/**
+ * Whether a check asks GitHub now: for a copy that updates itself, with no update nor check under way,
+ * and none asked too recently (`mayAskGitHub`). Otherwise the chat is told what is known.
+ */
+export function checkNow(o: { updates: boolean; updating: boolean; checking: boolean; askedAt?: number; now: number }): boolean {
+  return o.updates && !o.updating && !o.checking && mayAskGitHub(o.askedAt, o.now);
+}
 
 /** Whether a check may ask GitHub now, the last question having been asked at `askedAt` (none yet: undefined). */
 export function mayAskGitHub(askedAt: number | undefined, now: number): boolean {
@@ -221,13 +236,18 @@ export type Fetch = (url: string, init?: { headers?: Record<string, string>; sig
 /** Asks GitHub for the newest release, release candidates included; undefined when there is none yet. */
 export async function checkLatest(fetch: Fetch, o: { candidates?: boolean; signal?: AbortSignal } = {}): Promise<UpdateRelease | undefined> {
   const { candidates = true, signal } = o;
-  const res = await fetch(RELEASES_API, {
+  // A release candidate (or a build of your own) looks through the newest releases, candidates too; a
+  // release asks for the newest release alone.
+  const res = await fetch(candidates ? RELEASES_API : LATEST_RELEASE_API, {
     headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
     signal,
   });
   if (res.status === 404) return undefined;
   if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
-  return newestRelease(await res.json(), candidates);
+  const json: unknown = await res.json();
+  if (candidates) return newestRelease(json, true);
+  const latest = parseRelease(json);
+  return latest && !latest.candidate ? latest : undefined;
 }
 
 export type ManualReason =
@@ -305,36 +325,73 @@ export class UpdateError extends Error {
 }
 
 /**
- * Downloads `asset` to `to` (through `to`.part, so a broken download never looks like a whole one),
- * checking it against its SHA-256 on the way. `onProgress` gets the share done, from 0 to 1.
+ * How long a download may go without a byte before it is given up on: a connection that dropped would
+ * otherwise hold the update (and every check after it) until the app restarts.
  */
-export async function download(o: { fetch: Fetch; asset: UpdateAsset; to: string; onProgress?: (done: number) => void; signal?: AbortSignal }): Promise<void> {
+export const DOWNLOAD_STALL_MS = 60_000;
+
+/**
+ * Downloads `asset` to `to` (through `to`.part, so a broken download never looks like a whole one),
+ * checking it against its SHA-256 on the way. `onProgress` gets the share done, from 0 to 1. Given up
+ * on after `stallMs` without a byte (DOWNLOAD_STALL_MS).
+ */
+export async function download(o: {
+  fetch: Fetch;
+  asset: UpdateAsset;
+  to: string;
+  onProgress?: (done: number) => void;
+  signal?: AbortSignal;
+  stallMs?: number;
+}): Promise<void> {
   if (!o.asset.sha256) throw new UpdateError('checksum', 'no checksum');
   const part = `${o.to}.part`;
   rmSync(part, { force: true });
-  let res: Response;
-  try {
-    res = await o.fetch(o.asset.url, { signal: o.signal });
-  } catch (err) {
-    throw new UpdateError('download', (err as Error).message);
-  }
-  if (!res.ok || !res.body) throw new UpdateError('download', `HTTP ${res.status}`);
-  const total = Number(res.headers.get('content-length')) || o.asset.size || 0;
+  const stallMs = o.stallMs ?? DOWNLOAD_STALL_MS;
+  const stalled = new AbortController();
+  const signal = o.signal ? AbortSignal.any([o.signal, stalled.signal]) : stalled.signal;
+  /** Why it failed: given up on for no data, else `err`. */
+  const reason = (err: unknown) => ((stalled.signal.reason as Error | undefined) ?? (err as Error)).message;
+  let body: Readable | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  /** Waits `stallMs` again for the next byte. */
+  const waitForData = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const why = new Error(`no data for ${Math.round(stallMs / 1000)} s`);
+      stalled.abort(why);
+      body?.destroy(why);
+    }, stallMs);
+  };
   const hash = createHash('sha256');
-  let received = 0;
-  const count = new Transform({
-    transform(chunk: Buffer, _encoding, next) {
-      hash.update(chunk);
-      received += chunk.length;
-      if (total) o.onProgress?.(Math.min(1, received / total));
-      next(null, chunk);
-    },
-  });
+  waitForData();
   try {
-    await pipeline(Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>), count, createWriteStream(part));
-  } catch (err) {
-    rmSync(part, { force: true });
-    throw new UpdateError('download', (err as Error).message);
+    let res: Response;
+    try {
+      res = await o.fetch(o.asset.url, { signal });
+    } catch (err) {
+      throw new UpdateError('download', reason(err));
+    }
+    if (!res.ok || !res.body) throw new UpdateError('download', `HTTP ${res.status}`);
+    const total = Number(res.headers.get('content-length')) || o.asset.size || 0;
+    let received = 0;
+    const count = new Transform({
+      transform(chunk: Buffer, _encoding, next) {
+        waitForData();
+        hash.update(chunk);
+        received += chunk.length;
+        if (total) o.onProgress?.(Math.min(1, received / total));
+        next(null, chunk);
+      },
+    });
+    body = Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>);
+    try {
+      await pipeline(body, count, createWriteStream(part));
+    } catch (err) {
+      rmSync(part, { force: true });
+      throw new UpdateError('download', reason(err));
+    }
+  } finally {
+    clearTimeout(timer);
   }
   const got = hash.digest('hex');
   if (got !== o.asset.sha256) {
