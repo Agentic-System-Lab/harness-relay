@@ -18,6 +18,12 @@ export interface FakeLogEntry {
   args?: string[];
   prompt?: string;
   briefing?: string;
+  /** A session started (`resumed: false`) or resumed. */
+  session?: string;
+  resumed?: boolean;
+  /** The images and the tool library's MCP servers a turn got. */
+  images?: number;
+  mcp?: string[];
 }
 
 export interface RelayServer {
@@ -74,7 +80,6 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     RELAY_WEB_DIR: WEB_DIR,
     RELAY_KEYRING: 'off',
     RELAY_KEYRING_SERVICE: 'harness-relay-e2e',
-    RELAY_UPDATES: 'off',
     HOME: home,
     USERPROFILE: home,
     XDG_CONFIG_HOME: join(home, '.config'),
@@ -103,97 +108,108 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     windowsHide: true,
   });
   const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
-  const link = await new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The server did not start in ${STARTUP_MS / 1000} s:\n${output}`)), STARTUP_MS);
-    const take = (chunk: Buffer) => {
-      output += chunk.toString('utf8');
-      const m = /Sign this browser in[^:]*: (http:\/\/\S+)/.exec(output);
-      if (m) {
+  const stop = async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      // SIGTERM lets it stop its agents and close the database; Windows has no signal to send, so
+      // the process ends at once there (the fake CLIs end with their stdin).
+      child.kill('SIGTERM');
+      await Promise.race([exited, new Promise((r) => setTimeout(r, 15_000))]);
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      await Promise.race([exited, new Promise((r) => setTimeout(r, 5_000))]);
+    }
+    // Windows may hold a file a moment after its process ended; a folder left in the temporary
+    // folder is no reason to fail a test.
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    } catch (err) {
+      console.warn(`[e2e] could not remove ${root}: ${(err as Error).message}`);
+    }
+  };
+  try {
+    return await signIn();
+  } catch (err) {
+    // A server that did not start, or would not sign the tests in, is not left running.
+    await stop();
+    throw err;
+  }
+
+  async function signIn(): Promise<RelayServer> {
+    const link = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`The server did not start in ${STARTUP_MS / 1000} s:\n${output}`)), STARTUP_MS);
+      const take = (chunk: Buffer) => {
+        output += chunk.toString('utf8');
+        const m = /Sign this browser in[^:]*: (http:\/\/\S+)/.exec(output);
+        if (m) {
+          clearTimeout(timer);
+          resolve(m[1]!);
+        }
+      };
+      child.stdout!.on('data', take);
+      child.stderr!.on('data', take);
+      child.once('exit', (code) => {
         clearTimeout(timer);
-        resolve(m[1]!);
-      }
+        reject(new Error(`The server exited (${code}) before it listened:\n${output}`));
+      });
+    });
+    const url = new URL(link);
+    const base = url.origin;
+    const firstCode = /code=([^&]+)/.exec(url.hash)![1]!;
+
+    // The tests' own requests sign in as a browser does: a cookie and a key.
+    const login = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base },
+      body: JSON.stringify({ code: firstCode }),
+    });
+    if (!login.ok) throw new Error(`Could not sign the tests in: ${login.status} ${await login.text()}`);
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const { key } = (await login.json()) as { key: string };
+
+    const api = async <T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> => {
+      const method = init.method ?? (init.body === undefined ? 'GET' : 'POST');
+      const r = await fetch(base + path, {
+        method,
+        headers: {
+          cookie,
+          'x-relay-key': key,
+          'x-relay-lang': 'en',
+          origin: base,
+          ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      });
+      const text = await r.text();
+      if (!r.ok) throw new Error(`${method} ${path}: ${r.status} ${text}`);
+      return (text ? JSON.parse(text) : undefined) as T;
     };
-    child.stdout!.on('data', take);
-    child.stderr!.on('data', take);
-    child.once('exit', (code) => {
-      clearTimeout(timer);
-      reject(new Error(`The server exited (${code}) before it listened:\n${output}`));
-    });
-  });
-  const url = new URL(link);
-  const base = url.origin;
-  const firstCode = /code=([^&]+)/.exec(url.hash)![1]!;
 
-  // The tests' own requests sign in as a browser does: a cookie and a key.
-  const login = await fetch(`${base}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', origin: base },
-    body: JSON.stringify({ code: firstCode }),
-  });
-  if (!login.ok) throw new Error(`Could not sign the tests in: ${login.status} ${await login.text()}`);
-  const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]!;
-  const { key } = (await login.json()) as { key: string };
-
-  const api = async <T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> => {
-    const method = init.method ?? (init.body === undefined ? 'GET' : 'POST');
-    const r = await fetch(base + path, {
-      method,
-      headers: {
-        cookie,
-        'x-relay-key': key,
-        'x-relay-lang': 'en',
-        origin: base,
-        ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+    return {
+      base,
+      root,
+      dataDir,
+      workDir,
+      home,
+      api,
+      addProject(name) {
+        const dir = join(root, name);
+        seedProject(dir);
+        writeFileSync(join(dir, `${name}.md`), `# ${name}\n`);
+        return dir;
       },
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    });
-    const text = await r.text();
-    if (!r.ok) throw new Error(`${method} ${path}: ${r.status} ${text}`);
-    return (text ? JSON.parse(text) : undefined) as T;
-  };
-
-  return {
-    base,
-    root,
-    dataDir,
-    workDir,
-    home,
-    api,
-    addProject(name) {
-      const dir = join(root, name);
-      seedProject(dir);
-      writeFileSync(join(dir, `${name}.md`), `# ${name}\n`);
-      return dir;
-    },
-    async newSignInCode() {
-      return (await api<{ code: string }>('/api/auth/codes', { body: {} })).code;
-    },
-    fakeLog() {
-      if (!existsSync(fakeLog)) return [];
-      return readFileSync(fakeLog, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map((l) => JSON.parse(l) as FakeLogEntry);
-    },
-    output: () => output,
-    async stop() {
-      if (child.exitCode === null && child.signalCode === null) {
-        // SIGTERM lets it stop its agents and close the database; Windows has no signal to send, so
-        // the process ends at once there (the fake CLIs end with their stdin).
-        child.kill('SIGTERM');
-        await Promise.race([exited, new Promise((r) => setTimeout(r, 15_000))]);
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-        await Promise.race([exited, new Promise((r) => setTimeout(r, 5_000))]);
-      }
-      // Windows may hold a file a moment after its process ended; a folder left in the temporary
-      // folder is no reason to fail a test.
-      try {
-        rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
-      } catch (err) {
-        console.warn(`[e2e] could not remove ${root}: ${(err as Error).message}`);
-      }
-    },
-  };
+      async newSignInCode() {
+        return (await api<{ code: string }>('/api/auth/codes', { body: {} })).code;
+      },
+      fakeLog() {
+        if (!existsSync(fakeLog)) return [];
+        return readFileSync(fakeLog, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => JSON.parse(l) as FakeLogEntry);
+      },
+      output: () => output,
+      stop,
+    };
+  }
 }
 
 /** A small project to work in: a README, some code and a nested folder (not a git repository: edit mode makes one). */

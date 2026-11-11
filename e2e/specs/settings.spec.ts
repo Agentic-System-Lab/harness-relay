@@ -1,11 +1,30 @@
 import { expect, test } from '../fixtures';
-import { askAndConfirm, finishedReply, startChat } from '../support/app';
+import { askAndConfirm, finishedReply, openTeamChat, replies, send, startChat } from '../support/app';
 
 const CLIS = [
   { provider: 'claude', label: 'Claude Code', version: 'v2.1.999' },
   { provider: 'codex', label: 'Codex', version: 'v0.999.0' },
   { provider: 'grok', label: 'Grok', version: 'v1.0.999' },
 ] as const;
+
+test.describe('a CLI that is not signed in', () => {
+  test.use({ serverEnv: { E2E_FAKE_SIGNED_OUT: 'codex' } });
+
+  test('shows as signed out in Settings and the sidebar, and its reply says why', async ({ page, relay }) => {
+    await expect(page.locator('.provider-health a[href="#/settings/codex"]')).toHaveAttribute('title', 'Not signed in');
+    await expect(page.locator('.provider-health a[href="#/settings/claude"]')).toHaveAttribute('title', 'Signed in: e2e@example.com');
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    const card = page.locator('#settings-codex');
+    await expect(card).toContainText('Not signed in');
+    // Nothing of the CLI's own words after it ("Not logged in").
+    await expect(card).not.toContainText('Not logged in');
+    await expect(card.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+
+    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }]);
+    await send(page, 'Anyone there?');
+    await expect(replies(page, 'Codex').last().locator('.msg-error')).toContainText('Not logged in');
+  });
+});
 
 test.describe('settings', () => {
   test('each CLI is found, with its version, and signed in', async ({ page }) => {
@@ -52,9 +71,12 @@ test.describe('settings', () => {
   });
 
   test('another CLI can be the lead agent', async ({ page, relay }) => {
-    const settings = await relay.api<{ lead: Record<string, unknown> }>('/api/settings');
-    await relay.api('/api/settings', { method: 'PUT', body: { lead: { ...settings.lead, provider: 'codex' } } });
-    await page.reload();
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    const lead = page.locator('#settings-lead');
+    await lead.getByRole('radio', { name: 'Codex' }).click();
+    await lead.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(lead).toContainText('Lead agent saved');
+    await page.getByRole('button', { name: 'New chat' }).first().click();
     await expect(page.getByText(/the lead agent \(Codex\)/).first()).toBeVisible();
 
     await startChat(page);

@@ -20,7 +20,7 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | --- | --- |
 | `npm install` | Install dependencies |
 | `npm run dev` | API server on :8789 (`tsx watch`) + Vite on :5173 (proxies `/api/`), off `npm start`'s and the desktop app's 8787 (`src/server/ports.ts`); not beside an `npm start` of the same checkout, which holds its `data/` |
-| `npm run typecheck` | `tsc --noEmit` over `src`, `test`, `scripts` and the config files |
+| `npm run typecheck` | `tsc --noEmit` over `src`, `test`, `scripts`, `e2e` and the config files |
 | `npm test` | All Vitest tests (offline) |
 | `npx vitest test/store.test.ts` | One test file |
 | `npm run test:e2e` | End-to-end tests (Playwright): the built UI in Chromium against the real server, with fake CLIs (`e2e/`); builds the UI first when it is out of date |

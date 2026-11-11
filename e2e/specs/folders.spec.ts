@@ -22,10 +22,23 @@ test.describe('a folder the chat was not given', () => {
       // Grok has no sandbox on native Windows (docs/sandboxing.md): nothing keeps it in its folders.
       test.skip(cli.provider === 'grok' && process.platform === 'win32', 'Grok has no sandbox on Windows');
       const other = relay.addProject('other');
-      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }], { permission: 'edit' });
+      // Refused automatically: what is outside the chat's folders is beyond its permission.
+      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }], { permission: 'edit', approvals: 'deny' });
       await send(page, 'Write next door e2e:write=../other/x.txt');
       await expect(await finishedReply(page, cli.name)).toContainText('I may not write ../other/x.txt here.');
       expect(existsSync(join(other, 'x.txt'))).toBe(false);
+    });
+  }
+
+  for (const cli of CLIS.filter((c) => c.provider !== 'grok')) {
+    test(`${cli.provider}: asks first, and writes there once the user allows it`, async ({ page, relay }) => {
+      const other = relay.addProject('other');
+      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }], { permission: 'edit' });
+      await send(page, 'Write next door e2e:write=../other/y.txt');
+      const card = page.getByRole('region', { name: `@${cli.name} wants to change files` });
+      await card.getByRole('button', { name: 'Allow', exact: true }).click();
+      await expect(await finishedReply(page, cli.name)).toContainText('I wrote ../other/y.txt.');
+      expect(existsSync(join(other, 'y.txt'))).toBe(true);
     });
   }
 });

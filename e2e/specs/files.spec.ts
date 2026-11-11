@@ -24,12 +24,35 @@ test.describe('files and changes', () => {
     await expect(diff).toBeHidden();
   });
 
-  test('in a read-only chat no file is written', async ({ page, relay }) => {
-    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }]);
+  // A read-only chat as each CLI is set up for it: Claude Code without its file tools, Codex in its
+  // read-only sandbox (it may ask to write), Grok asking and Harness Relay refusing, or the user.
+  for (const cli of [
+    { name: 'Claude', provider: 'claude', asks: false },
+    { name: 'Codex', provider: 'codex', asks: true },
+    { name: 'Grok', provider: 'grok', asks: true },
+  ] as const) {
+    test(`${cli.provider}: in a read-only chat no file is written`, async ({ page, relay }) => {
+      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }]);
+      await send(page, 'Write it e2e:write=out.txt');
+      if (cli.asks) {
+        const card = page.getByRole('region', { name: `@${cli.name} wants to change files` });
+        await card.getByRole('button', { name: 'Decline' }).click();
+      }
+      const reply = await finishedReply(page, cli.name);
+      await expect(reply).toContainText('I may not write out.txt here.');
+      await expect(reply.locator('.changes-card')).toHaveCount(0);
+      if (!cli.asks) await expect(reply.locator('.approval-done')).toHaveCount(0);
+      expect(existsSync(join(relay.workDir, 'out.txt'))).toBe(false);
+    });
+  }
+
+  test('grok: a read-only chat that refuses automatically says why', async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], { approvals: 'deny' });
     await send(page, 'Write it e2e:write=out.txt');
-    const reply = await finishedReply(page, 'Codex');
+    const reply = await finishedReply(page, 'Grok');
     await expect(reply).toContainText('I may not write out.txt here.');
-    await expect(reply.locator('.changes-card')).toHaveCount(0);
+    await reply.locator('details.tool-group > summary').first().click();
+    await expect(reply.locator('.tool-error')).toHaveText('Not allowed in read-only mode; Grok was told to use read-only tools');
     expect(existsSync(join(relay.workDir, 'out.txt'))).toBe(false);
   });
 
