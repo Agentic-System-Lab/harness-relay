@@ -14,7 +14,8 @@ import { signInWhere } from './signin';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
-import { isAppWindow, pollDelay, readDismissed, shouldOffer, writeDismissed } from './update';
+import { AFTER_UPDATE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, writeDismissed } from './update';
+import { useDialogsOpen } from './components/useDialog';
 
 type SeenMap = Record<string, number>;
 const SEEN_KEY = 'relay:seen';
@@ -224,6 +225,8 @@ function RelayApp() {
   // This version and the desktop app's updates: asked now and then (often while one is under way).
   const [update, setUpdate] = useState<UpdateStatus>();
   const pollUpdate = useRef<() => void>(() => {});
+  /** Asked often until then: Update was pressed, and the app's own dialog may start the update. */
+  const fastUntil = useRef(0);
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -236,7 +239,7 @@ function RelayApp() {
       } catch {
         /* asked again later */
       }
-      if (!stopped) timer = setTimeout(() => void tick(), pollDelay(next));
+      if (!stopped) timer = setTimeout(() => void tick(), pollDelay(next, Date.now(), fastUntil.current));
     };
     pollUpdate.current = () => void tick();
     void tick();
@@ -262,9 +265,16 @@ function RelayApp() {
     const version = update?.available?.version;
     await api.installUpdate();
     if (version) dismiss(version);
+    fastUntil.current = Date.now() + AFTER_UPDATE_MS;
     pollUpdate.current();
   }, [update]);
-  const offer = !tourOpen && shouldOffer(update, dismissed, isAppWindow(navigator.userAgent));
+  // Shown only while no other dialog is open (it would take that one's keys), then kept while on offer.
+  const dialogs = useDialogsOpen();
+  const offerable = shouldOffer(update, dismissed, isAppWindow(navigator.userAgent));
+  const [offer, setOffer] = useState(false);
+  useEffect(() => {
+    setOffer((showing) => offerShows(showing, { offerable, tourOpen, dialogsOpen: dialogs }));
+  }, [offerable, tourOpen, dialogs]);
 
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>

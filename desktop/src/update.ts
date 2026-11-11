@@ -53,8 +53,11 @@ export const CHECK_EVERY_MS = 60 * 60_000;
 /** The first check, a while after the app started (not in the way of the server's start). */
 export const FIRST_CHECK_MS = 30_000;
 
-/** The least time between two questions to GitHub: a check asked for sooner (Settings' "Check again") gives what is known. */
-export const MIN_CHECK_GAP_MS = 60_000;
+/**
+ * The least time between two questions to GitHub: a check asked for sooner (Settings' "Check again")
+ * gives what is known. Five minutes: however often it is pressed, at most 12 of GitHub's 60 an hour.
+ */
+export const MIN_CHECK_GAP_MS = 5 * 60_000;
 
 /** How long one question to GitHub may take: a stalled one (the computer slept, a captive portal) would hold back every check after it. */
 export const CHECK_TIMEOUT_MS = 30_000;

@@ -40,9 +40,25 @@ export function shouldOffer(status: UpdateStatus | undefined, dismissed: string 
   return !!status?.available && appWindow && !status.progress && status.available.version !== dismissed;
 }
 
-/** How soon to ask the server again: often while something changes (a check, an update under way), else now and then. */
-export function pollDelay(status: UpdateStatus | undefined): number {
-  return status?.checking || status?.progress ? 2000 : 60_000;
+/**
+ * Whether the dialog offering a new version shows: it opens only while no other dialog (nor the tour)
+ * is open, so it never takes another's keys, and once it shows it stays while the version is on offer.
+ */
+export function offerShows(showing: boolean, o: { offerable: boolean; tourOpen: boolean; dialogsOpen: number }): boolean {
+  return showing ? o.offerable : o.offerable && !o.tourOpen && o.dialogsOpen === 0;
+}
+
+/** How soon to ask the server again after an Update (the app's own dialog may start one any time now). */
+export const AFTER_UPDATE_MS = 60_000;
+
+/**
+ * How soon to ask the server again: often while a check, a download or an install goes on, or for a
+ * while after Update was pressed (until `fastUntil`); else now and then (also while an update waits for
+ * the conversations, which can take as long as they reply).
+ */
+export function pollDelay(status: UpdateStatus | undefined, now = 0, fastUntil = 0): number {
+  const moving = status?.checking || status?.progress?.kind === 'downloading' || status?.progress?.kind === 'installing';
+  return moving || now < fastUntil ? 2000 : 60_000;
 }
 
 /** What Settings' Version card says of updates, and whether it is good news, news, or trouble. */

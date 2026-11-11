@@ -534,6 +534,10 @@ describe('the release workflow', () => {
     const publish = job('release').slice(job('release').indexOf('- name: Publish'));
     expect(publish).toContain('if [ "$PRERELEASE" = true ]; then');
     expect(publish).toContain('channel=(--prerelease --latest=false)');
+    // A release is not offered release candidates: the notes say who is offered which.
+    expect(publish).toContain("offered='A Harness Relay that is a release candidate offers this one in its menu");
+    expect(publish).toContain("offered='A Harness Relay already installed offers this release in its menu");
+    expect(publish).toContain('$offered It downloads the files ending in');
     expect(publish).toContain('--target "$GITHUB_SHA"');
     expect(publish).toContain('gh release create "$TAG"');
   });

@@ -280,7 +280,7 @@ export const api = {
   about: () => request<AboutInfo>('GET', '/api/about'),
   /** This version, and the desktop app's updates (only the version otherwise). */
   update: () => request<UpdateStatus>('GET', '/api/update'),
-  /** Has the desktop app ask GitHub for a new version now (at most once a minute); what it knows once it has. */
+  /** Has the desktop app ask GitHub for a new version now (at most every five minutes); what it knows once it has. */
   checkUpdate: () => request<UpdateStatus>('POST', '/api/update/check'),
   /** Has the desktop app update to the newer version: it asks the user first, in its own dialog. */
   installUpdate: () => request<{ ok: true }>('POST', '/api/update/install'),

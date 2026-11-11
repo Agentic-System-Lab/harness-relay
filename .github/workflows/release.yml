@@ -3,8 +3,9 @@ name: Release
 # Run by hand: Actions → Release → Run workflow, from main, with today's version (see
 # docs/developer-guide.md, "Releasing"). It checks the version (scripts/release.ts) and the code,
 # builds the desktop app's installers on macOS, Windows and Linux (x64, and Arm64 on GitHub's Arm
-# runners), and publishes the five as one GitHub release, tagged with the version. A release
-# candidate is published as a pre-release.
+# runners), and publishes the five, each with a copy for the app's updates (counted apart from new
+# installs), as one GitHub release, tagged with the version. A release candidate is published as a
+# pre-release.
 on:
   workflow_dispatch:
     inputs:
@@ -233,12 +234,14 @@ jobs:
           if [ "$PRERELEASE" = true ]; then
             channel=(--prerelease --latest=false)
             kind='A release candidate: try it before the release.'
+            offered='A Harness Relay that is a release candidate offers this one in its menu (**Update to …**) and updates itself; a release is offered releases only.'
           else
             channel=(--latest)
             kind='A release.'
+            offered='A Harness Relay already installed offers this release in its menu (**Update to …**) and updates itself.'
           fi
           notes="$kind
 
-          **Download:** \`.dmg\` for macOS 13 or later on Apple Silicon (no Intel Macs), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. A Harness Relay already installed offers this release in its menu (**Update to …**) and updates itself, with the files ending in \`-update\`: the same installers, kept apart so that downloads count new installs and updates separately. To install, download the others. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
+          **Download:** \`.dmg\` for macOS 13 or later on Apple Silicon (no Intel Macs), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. $offered It downloads the files ending in \`-update\`: the same installers, kept apart so that downloads count new installs and updates separately. To install, download the others. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
           # The tag is made on the commit that was checked and built.
           gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes "$notes" --generate-notes "${channel[@]}"

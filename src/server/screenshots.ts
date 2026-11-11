@@ -70,6 +70,7 @@ export async function uploadScreenshots(
   run: (o: SpawnOptions) => Promise<SpawnResult> = runProcess,
   o: ShareOptions = {},
 ): Promise<ReportScreenshots> {
-  const { gist } = await filesToGist(SCREENSHOTS_DESCRIPTION, files, run, o, reportWords());
+  // Only the gist's page is linked to: its files' raw URLs are not read back.
+  const { gist } = await filesToGist(SCREENSHOTS_DESCRIPTION, files, run, { ...o, readBack: false }, reportWords());
   return { id: gist.id, url: gistPage(gist.id, gist.url) };
 }

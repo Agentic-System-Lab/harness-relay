@@ -544,12 +544,18 @@ export interface ShareOptions {
   onFilesGist?: (gist: ShareLink) => void;
   /** Where the temporary clone goes (pushToGist). */
   tmpRoot?: string;
+  /**
+   * Whether filesToGist reads back each file's raw URL (the default: a share's page links to them). A
+   * report's screenshots need only the gist's page, so GitHub being slow to list them fails nothing.
+   */
+  readBack?: boolean;
 }
 
 /**
  * A secret gist of `files` alone (`run` spawns `gh` and `git`, fakes in tests): `gh api` creates it
  * with a placeholder, described with a token (filesGistDescription), git pushes the files into it (a
- * gist made through GitHub's API holds text only), then `gh api` reads back each file's raw URL. If
+ * gist made through GitHub's API holds text only), then `gh api` reads back each file's raw URL (none
+ * with `readBack: false`: `urls` is then empty). If
  * the files cannot go up, the gist is deleted again; if that fails too, the error says so (`words`) and
  * carries it (`leftover`). When gh cannot say whether it made the gist, it is looked for by its token.
  */
@@ -576,7 +582,7 @@ export async function filesToGist(
     o.onFilesGist?.(leftoverLink(gist.id, gist.url));
     if (!created.link) throw new ShareError(words.notGithub);
     await pushToGist(created.id, files, run, o.tmpRoot);
-    urls = await pushedUrls(run, created.id, files, o.wait ?? sleep);
+    urls = o.readBack === false ? [] : await pushedUrls(run, created.id, files, o.wait ?? sleep);
   } catch (err) {
     return dropFilesGist(run, gist, err instanceof ShareError ? err : new ShareError((err as Error).message), words);
   }

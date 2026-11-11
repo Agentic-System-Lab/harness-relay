@@ -1,6 +1,6 @@
 // Harness Relay landing page: the download buttons. The page links every button to the releases page;
 // this module points each one at its installer in the newest release (never a release candidate: those
-// are for trying, and the app offers them by itself once installed), names the visitor's system on the
+// are for trying, and an app that is one offers the next by itself), names the visitor's system on the
 // main button, and marks it in the quick start. Its functions are tested in test/site-downloads.test.ts.
 
 export const REPO = 'Agentic-System-Lab/harness-relay';

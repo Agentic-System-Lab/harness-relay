@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { REPORT_SCREENSHOT_LIMITS, REPORT_SCREENSHOT_TYPES, type AboutInfo, type ProviderStatus, type ReportScreenshots } from '../../shared/types';
+import { REPORT_SCREENSHOT_LIMITS, REPORT_SCREENSHOT_TYPES, type AboutInfo, type ProviderStatus } from '../../shared/types';
 import { ApiError, api } from '../api';
 import { copyText } from '../copy';
 import { useI18n } from '../i18n';
@@ -21,6 +21,7 @@ import {
   reportSubject,
   reportText,
   screenshotProblem,
+  ShotUploads,
   type MailLink,
   type ReportDraft,
 } from '../report';
@@ -39,23 +40,24 @@ interface Shot {
 
 /**
  * What was typed and added, kept while the page is open, so closing the dialog by mistake loses
- * nothing. Forgotten once the report was sent and the dialog closed (an upload stays on GitHub: the
- * mail links to it).
+ * nothing; and the screenshots' upload, which goes on when the dialog closes (src/web/report.ts).
+ * Forgotten once the report was sent and the dialog closed (an upload stays on GitHub: the mail links
+ * to it).
  */
 let kept: ReportDraft = EMPTY_REPORT;
 let keptShots: Shot[] = [];
-let keptUpload: ReportScreenshots | undefined;
-/**
- * The screenshots going up: kept apart from the dialog, so one closed meanwhile and opened again
- * follows the same upload (and its gist is remembered), instead of offering to upload them again.
- */
-let uploading: Promise<ReportScreenshots> | undefined;
+const uploads = new ShotUploads({
+  upload: (images) => api.uploadScreenshots(images),
+  remove: (id) => api.removeScreenshots(id),
+  // Not known to the server (it restarted): its message says to delete the gist on GitHub.
+  gone: (err) => err instanceof ApiError && err.status === 404,
+});
 
 function forget() {
   keptShots.forEach((s) => URL.revokeObjectURL(s.url));
   kept = EMPTY_REPORT;
   keptShots = [];
-  keptUpload = undefined;
+  uploads.forget();
 }
 
 type Sent = 'mail' | 'gmail' | 'cut' | 'cutCopyFailed';
@@ -79,9 +81,11 @@ export function ReportDialog({ providers, onClose }: Props) {
   const picker = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(kept);
   const [shots, setShots] = useState(keptShots);
-  const [upload, setUpload] = useState(keptUpload);
-  /** Uploading the screenshots, or removing the upload. */
-  const [busy, setBusy] = useState<'upload' | 'remove'>();
+  // The upload, and what goes on (uploading, removing), as `uploads` has them.
+  const [, uploadsChanged] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => uploads.subscribe(uploadsChanged), []);
+  const upload = uploads.done;
+  const busy = uploads.busy;
   /** Why images could not be added. */
   const [notice, setNotice] = useState('');
   /** Why the upload, or removing it, failed. */
@@ -106,8 +110,7 @@ export function ReportDialog({ providers, onClose }: Props) {
   useEffect(() => {
     kept = draft;
     keptShots = shots;
-    keptUpload = upload;
-  }, [draft, shots, upload]);
+  }, [draft, shots]);
   useEffect(() => {
     let live = true;
     api.about().then(
@@ -160,54 +163,24 @@ export function ReportDialog({ providers, onClose }: Props) {
     setFailure('');
   };
 
-  /** Waits for the upload under way, saying how it went while the dialog is open. */
-  const follow = async (going: Promise<ReportScreenshots>) => {
-    setBusy('upload');
-    try {
-      const done = await going;
-      if (live.current) setUpload(done);
-    } catch (err) {
-      if (live.current) setFailure((err as Error).message);
-    } finally {
-      if (live.current) setBusy(undefined);
-    }
+  /** Says why it failed while the dialog is open. */
+  const failed = (err: unknown) => {
+    if (live.current) setFailure((err as Error).message);
   };
-  // Opened again while the screenshots go up: follows that upload.
+  // Opened again while the screenshots go up: says how that upload went.
   useEffect(() => {
-    if (uploading) void follow(uploading);
+    uploads.pending?.catch(failed);
   }, []);
 
   const uploadShots = () => {
     setNotice('');
     setFailure('');
-    uploading = (async () => {
-      const done = await api.uploadScreenshots(await Promise.all(shots.map((s) => toBase64(s.file))));
-      keptUpload = done; // also when the dialog was closed meanwhile
-      return done;
-    })();
-    const going = uploading;
-    void going
-      .catch(() => undefined)
-      .finally(() => {
-        if (uploading === going) uploading = undefined;
-      });
-    void follow(going);
+    uploads.upload(() => Promise.all(shots.map((s) => toBase64(s.file)))).catch(failed);
   };
 
-  const removeUpload = async () => {
-    if (!upload) return;
-    setBusy('remove');
+  const removeUpload = () => {
     setFailure('');
-    try {
-      await api.removeScreenshots(upload.id);
-      setUpload(undefined);
-    } catch (err) {
-      setFailure((err as Error).message);
-      // Not known to the server (it restarted): the message says to delete it on GitHub.
-      if (err instanceof ApiError && err.status === 404) setUpload(undefined);
-    } finally {
-      setBusy(undefined);
-    }
+    uploads.remove().catch(failed);
   };
 
   // Images pasted anywhere in the dialog, or dropped on it, become screenshots.
@@ -326,7 +299,7 @@ export function ReportDialog({ providers, onClose }: Props) {
                 <a className="small" href={upload.url} target="_blank" rel="noopener noreferrer">
                   {r.shots.view}
                 </a>
-                <button type="button" className="ghost small-button" disabled={!!busy} onClick={() => void removeUpload()}>
+                <button type="button" className="ghost small-button" disabled={!!busy} onClick={removeUpload}>
                   {busy === 'remove' ? r.shots.removing : r.shots.removeUpload}
                 </button>
               </>
@@ -365,7 +338,7 @@ export function ReportDialog({ providers, onClose }: Props) {
         {waiting && reportReady(draft) && <p className="small warn-text">{r.shots.uploadFirst}</p>}
         {sent && (
           <p className={sent === 'cutCopyFailed' ? 'small warn-text' : 'small report-sent'} role="status">
-            {r.sent[sent]}
+            {upload && (sent === 'mail' || sent === 'gmail') ? r.sentLinked[sent] : r.sent[sent]}
           </p>
         )}
 

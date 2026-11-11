@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { DesktopUpdate, ServerToDesktop, UpdateStatus } from '../src/shared/types';
 import { Updates } from '../src/server/updates';
 import { en } from '../src/web/locales/en';
-import { isAppWindow, pollDelay, shouldOffer, updateLine } from '../src/web/update';
+import { dialogsOpen, onDialogsChange, openDialog } from '../src/web/dialogs';
+import { isAppWindow, offerShows, pollDelay, shouldOffer, updateLine } from '../src/web/update';
 
 /** The desktop app, as the server's parent port: what the server sends it, and what it says. */
 function fakeApp() {
@@ -96,13 +97,30 @@ describe('the update in the chat', () => {
     expect(shouldOffer(undefined, null, true)).toBe(false);
   });
 
-  it('asks the server often while something changes, else now and then', () => {
+  it('asks the server often while a check, a download or an install goes on, or a while after Update; else now and then', () => {
     expect(pollDelay(status({ checking: true }))).toBe(2000);
     expect(pollDelay(status({ progress: { kind: 'downloading', percent: 3 } }))).toBe(2000);
+    expect(pollDelay(status({ progress: { kind: 'installing' } }))).toBe(2000);
+    // Waiting for the conversations can take as long as they reply.
+    expect(pollDelay(status({ progress: { kind: 'waiting' } }))).toBe(60_000);
     expect(pollDelay(status())).toBe(60_000);
     expect(pollDelay(undefined)).toBe(60_000);
+    // Update was pressed: the app's own dialog may start the update any time now.
+    expect(pollDelay(status(), 1000, 5000)).toBe(2000);
+    expect(pollDelay(status(), 5000, 5000)).toBe(60_000);
   });
 
+  it('offers a new version only while no other dialog nor the tour is open, then keeps it while it is on offer', () => {
+    expect(offerShows(false, { offerable: true, tourOpen: false, dialogsOpen: 0 })).toBe(true);
+    // Never over another dialog (it would take that one's keys), nor over the tour.
+    expect(offerShows(false, { offerable: true, tourOpen: false, dialogsOpen: 1 })).toBe(false);
+    expect(offerShows(false, { offerable: true, tourOpen: true, dialogsOpen: 0 })).toBe(false);
+    // Shown, it counts as an open dialog itself: it stays.
+    expect(offerShows(true, { offerable: true, tourOpen: false, dialogsOpen: 1 })).toBe(true);
+    // Dismissed, or an update started from the menu: it goes.
+    expect(offerShows(true, { offerable: false, tourOpen: false, dialogsOpen: 1 })).toBe(false);
+    expect(offerShows(false, { offerable: false, tourOpen: false, dialogsOpen: 0 })).toBe(false);
+  });
   it('says what there is to know of updates, an update under way first', () => {
     const v = en.settings.version;
     expect(updateLine(status({ updates: false }), en, 'en')).toEqual({ text: v.noUpdates, tone: 'muted' });
@@ -115,5 +133,36 @@ describe('the update in the chat', () => {
     const up = updateLine(status({ checkedAt: Date.UTC(2026, 10, 11, 8, 30) }), en, 'en');
     expect(up.tone).toBe('ok');
     expect(up.text).toMatch(/^Up to date \(checked .*2026.*\)$/);
+  });
+});
+
+describe('the dialogs open on the page', () => {
+  it('give keys to the top one only, and say how many are open as they open and close', () => {
+    let told = 0;
+    const stop = onDialogsChange(() => told++);
+    const report = openDialog();
+    expect(report.isTop()).toBe(true);
+    const update = openDialog();
+    expect(dialogsOpen()).toBe(2);
+    // Escape goes to the update dialog over the report, not to both.
+    expect(update.isTop()).toBe(true);
+    expect(report.isTop()).toBe(false);
+    update.close();
+    expect(report.isTop()).toBe(true);
+    update.close(); // once only
+    report.close();
+    expect(dialogsOpen()).toBe(0);
+    expect(told).toBe(4);
+    stop();
+    openDialog().close();
+    expect(told).toBe(4);
+  });
+
+  it('give keys back to the one below when one under the top closes first', () => {
+    const a = openDialog();
+    const b = openDialog();
+    a.close();
+    expect(b.isTop()).toBe(true);
+    b.close();
   });
 });

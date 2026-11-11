@@ -148,9 +148,11 @@ describe('uploading the screenshots', () => {
   const ok = (stdout = '') => () => result({ stdout });
 
   it('puts them in one secret gist, pushed with git, and gives its page on GitHub', async () => {
-    const f = fake([ok(created([FILES_PLACEHOLDER])), ok(created(files.map((x) => x.name)))]);
+    const f = fake([ok(created([FILES_PLACEHOLDER]))]);
     expect(await uploadScreenshots(files, f.run, opts)).toEqual({ id: ID, url: `https://gist.github.com/someone/${ID}` });
-    expect(f.args()).toEqual([createGistArgs(), gistFilesArgs(ID)]);
+    // The files' raw URLs are not read back (the mail links to the gist's page): GitHub slow to list them fails nothing.
+    expect(f.args()).toEqual([createGistArgs()]);
+    expect(f.args()).not.toContainEqual(gistFilesArgs(ID));
     expect(gistFilesArgs(ID)).toEqual(['api', `gists/${ID}`, '--jq', CREATED_JQ]);
     expect(JSON.parse(String(f.gh[0]!.stdin))).toMatchObject({ description: filesGistDescription(SCREENSHOTS_DESCRIPTION, TOKEN), public: false });
     expect(f.pushed).toEqual(files.map((x) => x.data));

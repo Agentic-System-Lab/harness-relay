@@ -92,11 +92,6 @@ declare const __RELAY_VERSION__: string;
 const APP_ID = 'io.github.agentic-system-lab.harness-relay';
 
 /**
- * An update under way: downloading (the share done, 0 to 1), being checked and put in place, or
- * ready and waiting until no conversation has agents at work.
- */
-
-/**
  * `--smoke-test[=<report file>]`: the packaged app checks itself and exits (desktop/scripts/check-package.ts,
  * the Release workflow), with its own temporary data, apart from a Harness Relay that may be running.
  */
@@ -595,7 +590,7 @@ function run(): void {
 
   /**
    * Asks GitHub for the newest release (a release candidate too); the menu, and the chat, offer it when
-   * it is newer. A failure waits for the next time. GitHub is asked at most once a minute (`mayAskGitHub`):
+   * it is newer. A failure waits for the next time. GitHub is asked at most every five minutes (`mayAskGitHub`):
    * a check asked for sooner from the chat gives what is known.
    */
   async function checkForUpdate(): Promise<void> {

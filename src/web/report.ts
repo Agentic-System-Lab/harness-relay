@@ -9,6 +9,7 @@ import {
   REPORT_SCREENSHOT_TYPES,
   type AboutInfo,
   type ProviderStatus,
+  type ReportScreenshots,
 } from '../shared/types';
 import type { Messages } from './i18n';
 
@@ -137,4 +138,95 @@ export function fitLink(make: (subject: string, body: string) => string, subject
     if (short.length <= max) return { url: short, cut: true };
   }
   return { url: make('', pasteHere), cut: true };
+}
+
+/** What a report's screenshots need of the server (api.ts; fakes in tests). */
+export interface ShotsApi {
+  upload(images: string[]): Promise<ReportScreenshots>;
+  remove(id: string): Promise<unknown>;
+  /** Whether a removal failed because the server no longer knows the upload (it restarted): forgotten here too. */
+  gone(err: unknown): boolean;
+}
+
+/**
+ * A report's screenshots on GitHub: the upload under way or done, and its removal. Kept apart from the
+ * dialog, which may close while either goes on: opened again, it shows how they went, instead of
+ * offering to upload the screenshots again or showing an upload that was removed.
+ */
+export class ShotUploads {
+  /** The upload done: its gist. */
+  done?: ReportScreenshots;
+  private going?: Promise<ReportScreenshots>;
+  private removing?: Promise<void>;
+  private listeners = new Set<() => void>();
+
+  constructor(private api: ShotsApi) {}
+
+  /** What goes on: an upload, or a removal. */
+  get busy(): 'upload' | 'remove' | undefined {
+    return this.going ? 'upload' : this.removing ? 'remove' : undefined;
+  }
+
+  /** The upload under way, for a dialog opened meanwhile to say how it went. */
+  get pending(): Promise<ReportScreenshots> | undefined {
+    return this.going;
+  }
+
+  /** Told each time something changes; returns the unsubscribe. */
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
+  }
+
+  private changed(): void {
+    this.listeners.forEach((fn) => fn());
+  }
+
+  /** Uploads the screenshots `images` gives (base64): the upload under way when there is one, the one done when it is. */
+  upload(images: () => Promise<string[]>): Promise<ReportScreenshots> {
+    if (this.done) return Promise.resolve(this.done);
+    if (!this.going) {
+      this.going = (async () => {
+        try {
+          this.done = await this.api.upload(await images());
+          return this.done;
+        } finally {
+          this.going = undefined;
+          this.changed();
+        }
+      })();
+      this.changed();
+    }
+    return this.going;
+  }
+
+  /** Deletes the upload's gist, and forgets it once it is gone (also when the server no longer knows it). */
+  remove(): Promise<void> {
+    const done = this.done;
+    if (!done) return Promise.resolve();
+    if (!this.removing) {
+      this.removing = (async () => {
+        try {
+          await this.api.remove(done.id);
+          this.done = undefined;
+        } catch (err) {
+          if (this.api.gone(err)) this.done = undefined;
+          throw err;
+        } finally {
+          this.removing = undefined;
+          this.changed();
+        }
+      })();
+      this.changed();
+    }
+    return this.removing;
+  }
+
+  /** Forgets the upload: the report was sent, and its mail links to it. */
+  forget(): void {
+    this.done = undefined;
+    this.changed();
+  }
 }

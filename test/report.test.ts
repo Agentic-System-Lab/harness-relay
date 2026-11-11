@@ -16,6 +16,7 @@ import {
   reportSubject,
   reportText,
   screenshotProblem,
+  ShotUploads,
   type ReportDraft,
 } from '../src/web/report';
 
@@ -139,5 +140,116 @@ describe('mail links', () => {
     expect(subject.endsWith('…')).toBe(true);
     expect(subject).not.toContain('�');
     expect([...subject.slice(0, -1)].every((c) => c === '🐛')).toBe(true);
+  });
+});
+
+describe("a report's screenshots on GitHub", () => {
+  const gist = { id: 'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff', url: 'https://gist.github.com/someone/f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff' };
+  /** A server whose answers the test gives, one call at a time. */
+  function fakeServer() {
+    const calls: string[] = [];
+    let answer: { ok: (v?: unknown) => void; fail: (e: unknown) => void } | undefined;
+    const pending = <T,>(what: string) =>
+      new Promise<T>((ok, fail) => {
+        calls.push(what);
+        answer = { ok: ok as (v?: unknown) => void, fail };
+      });
+    const api = {
+      upload: (images: string[]) => pending<typeof gist>(`upload ${images.join(',')}`),
+      remove: (id: string) => pending<unknown>(`remove ${id}`),
+      gone: (err: unknown) => (err as { status?: number }).status === 404,
+    };
+    return { api, calls, ok: (v?: unknown) => answer!.ok(v), fail: (e: unknown) => answer!.fail(e) };
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('go up once however often asked, and are remembered once up: a dialog opened again shows them', async () => {
+    const server = fakeServer();
+    const uploads = new ShotUploads(server.api);
+    let told = 0;
+    uploads.subscribe(() => told++);
+    const first = uploads.upload(async () => ['a', 'b']);
+    const again = uploads.upload(async () => ['other']);
+    expect(uploads.busy).toBe('upload');
+    expect(uploads.pending).toBe(first);
+    await flush();
+    expect(server.calls).toEqual(['upload a,b']);
+    server.ok(gist);
+    expect(await first).toEqual(gist);
+    expect(await again).toEqual(gist);
+    expect(uploads.done).toEqual(gist);
+    expect(uploads.busy).toBeUndefined();
+    expect(told).toBeGreaterThanOrEqual(2);
+    // Up already: nothing goes up again.
+    expect(await uploads.upload(async () => ['c'])).toEqual(gist);
+    expect(server.calls).toEqual(['upload a,b']);
+  });
+
+  it('can be uploaded again after an upload that failed', async () => {
+    const server = fakeServer();
+    const uploads = new ShotUploads(server.api);
+    const first = uploads.upload(async () => ['a']);
+    await flush();
+    server.fail(new Error('gh is missing'));
+    await expect(first).rejects.toThrow('gh is missing');
+    expect(uploads.done).toBeUndefined();
+    expect(uploads.busy).toBeUndefined();
+    const second = uploads.upload(async () => ['a']);
+    await flush();
+    server.ok(gist);
+    expect(await second).toEqual(gist);
+  });
+
+  it('are forgotten once removed, also when the dialog closed meanwhile, and kept when the removal fails', async () => {
+    const server = fakeServer();
+    const uploads = new ShotUploads(server.api);
+    const up = uploads.upload(async () => ['a']);
+    await flush();
+    server.ok(gist);
+    await up;
+    const removing = uploads.remove();
+    expect(uploads.busy).toBe('remove');
+    expect(uploads.remove()).toBe(removing); // once
+    await flush();
+    server.ok();
+    await removing;
+    expect(uploads.done).toBeUndefined();
+    expect(server.calls).toEqual(['upload a', `remove ${gist.id}`]);
+
+    const again = uploads.upload(async () => ['a']);
+    await flush();
+    server.ok(gist);
+    await again;
+    const failing = uploads.remove();
+    await flush();
+    server.fail(Object.assign(new Error('could not delete'), { status: 502 }));
+    await expect(failing).rejects.toThrow('could not delete');
+    expect(uploads.done).toEqual(gist);
+  });
+
+  it('are forgotten when the server no longer knows the upload (it restarted), saying why', async () => {
+    const server = fakeServer();
+    const uploads = new ShotUploads(server.api);
+    const up = uploads.upload(async () => ['a']);
+    await flush();
+    server.ok(gist);
+    await up;
+    const removing = uploads.remove();
+    await flush();
+    server.fail(Object.assign(new Error('delete it on GitHub'), { status: 404 }));
+    await expect(removing).rejects.toThrow('delete it on GitHub');
+    expect(uploads.done).toBeUndefined();
+  });
+
+  it('are forgotten once the report is sent (its mail links to them)', async () => {
+    const server = fakeServer();
+    const uploads = new ShotUploads(server.api);
+    const up = uploads.upload(async () => ['a']);
+    await flush();
+    server.ok(gist);
+    await up;
+    uploads.forget();
+    expect(uploads.done).toBeUndefined();
+    expect(await uploads.remove()).toBeUndefined();
   });
 });

@@ -1000,8 +1000,11 @@ describe('/api/update', () => {
     const get = async () => (await own.request('/api/update', { headers: HOST })).json();
 
     expect(await get()).toEqual({ updates: false, current: '2026-11-11' });
-    // Nothing to update to yet.
-    expect((await own.request('/api/update/install', json('POST', {}))).status).toBe(409);
+    // Nothing to update to yet: said so.
+    const none = await own.request('/api/update/install', json('POST', {}));
+    expect(none.status).toBe(409);
+    const noneText = ((await none.json()) as { error: string }).error;
+    expect(noneText).toMatch(/no newer version|沒有可以更新的新版本/);
 
     say({ updates: true });
     const checked = own.request('/api/update/check', json('POST', {}));
@@ -1019,7 +1022,9 @@ describe('/api/update', () => {
     say({ updates: true, available, progress: { kind: 'installing' } } as Parameters<typeof say>[0]);
     const busy = await own.request('/api/update/install', json('POST', {}));
     expect(busy.status).toBe(409);
-    expect(((await busy.json()) as { error: string }).error).toMatch(/under way|進行中/);
+    const busyText = ((await busy.json()) as { error: string }).error;
+    expect(busyText).toMatch(/under way|進行中/);
+    expect(busyText).not.toBe(noneText);
   });
 });
 

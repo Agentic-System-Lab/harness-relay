@@ -249,12 +249,12 @@ describe('how often GitHub is asked', () => {
     expect(CHECK_EVERY_MS).toBe(60 * 60_000);
   });
 
-  it('at most once a minute, also when the chat asks again sooner', () => {
+  it('at most every five minutes, also when the chat asks again sooner: at most 12 of the 60 an hour', () => {
     const at = 1_000_000;
     expect(mayAskGitHub(undefined, at)).toBe(true);
     expect(mayAskGitHub(at, at + MIN_CHECK_GAP_MS - 1)).toBe(false);
     expect(mayAskGitHub(at, at + MIN_CHECK_GAP_MS)).toBe(true);
-    expect(MIN_CHECK_GAP_MS).toBe(60_000);
+    expect(MIN_CHECK_GAP_MS).toBe(5 * 60_000);
     // A clock set back does not stop it for good.
     expect(mayAskGitHub(at, at - 5000)).toBe(true);
   });

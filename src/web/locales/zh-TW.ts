@@ -726,6 +726,11 @@ export const zhTW = {
       cut: '內容太長，放不進信裡，已複製到剪貼簿：請在信裡貼上。',
       cutCopyFailed: '內容太長，放不進信裡：請按「複製內容」，再貼進信裡。',
     },
+    /** Sent with the screenshots uploaded: the mail links to them. */
+    sentLinked: {
+      mail: '已打開你的郵件程式，信裡附上了截圖的連結，按寄出即可。沒有看到的話，改用 Gmail 或複製內容。',
+      gmail: '已在新分頁打開 Gmail，信裡附上了截圖的連結，按寄出即可。',
+    },
     noMailApp: '沒有郵件程式？',
     gmail: '用 Gmail 寄',
     copy: '複製內容',
@@ -1053,7 +1058,7 @@ export const zhTW = {
       releaseNotes: '版本說明',
       confirmHere: '請在 Harness Relay 跳出的對話框確認更新。',
       confirmThere: '請在執行 Harness Relay 的電腦上，於它跳出的對話框確認更新。',
-      hint: '桌面版每小時檢查一次 GitHub 上有沒有新版本；按「重新檢查狀態」會立刻再檢查一次。更新時會等正在回覆的對話結束才切換。',
+      hint: '桌面版每小時檢查一次 GitHub 上有沒有新版本；按「重新檢查狀態」會立刻再檢查一次（最多每 5 分鐘一次）。更新時會等正在回覆的對話結束才切換。',
     },
     language: '介面語言',
     languageHint: '第一次開啟時依瀏覽器語言決定，之後記在這個瀏覽器。',

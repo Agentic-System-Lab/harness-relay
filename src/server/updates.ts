@@ -30,7 +30,7 @@ export class Updates {
   }
 
   /**
-   * Asks the app to check GitHub now (it asks at most once a minute: otherwise it says what it knows),
+   * Asks the app to check GitHub now (it asks at most every five minutes: otherwise it says what it knows),
    * and gives what it says once the check is done, or what is known after `timeoutMs`.
    */
   async check(timeoutMs = CHECK_ANSWER_MS): Promise<UpdateStatus> {
