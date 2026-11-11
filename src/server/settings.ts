@@ -406,8 +406,8 @@ export class SettingsStore {
   }
 
   /**
-   * Adds an account to a CLI, signed out and with no key; returns its id. The caller checks
-   * `MAX_ACCOUNTS`. Its home starts empty, so it runs with the CLI's own defaults and leaves nothing out.
+   * Adds an account to a CLI, signed out and with no key; returns its id. The caller checks the
+   * account limit (`RELAY_MAX_ACCOUNTS`, else 10). Its home starts empty, so it runs with the CLI's own defaults and leaves nothing out.
    */
   addAccount(p: Provider, label: string): string {
     let id: string;

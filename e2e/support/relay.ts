@@ -71,9 +71,10 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   seedProject(workDir);
 
   const env: NodeJS.ProcessEnv = { ...process.env };
-  // Claude Code's nesting variables (when the tests run inside a Claude Code session) and the
-  // runner's own: none of them is the server's business.
-  for (const k of Object.keys(env)) if (/^(CLAUDECODE|CLAUDE_CODE_|PLAYWRIGHT_|PW_|TEST_|E2E_|FORCE_COLOR$)/.test(k)) delete env[k];
+  // Claude Code's nesting variables (when the tests run inside a Claude Code session), the runner's
+  // own, and the developer's own Harness Relay settings (limits, a voice folder): none of them is the
+  // server's business. A spec that needs one sets it (`serverEnv`).
+  for (const k of Object.keys(env)) if (/^(CLAUDECODE|CLAUDE_CODE_|PLAYWRIGHT_|PW_|TEST_|E2E_|RELAY_|FORCE_COLOR$)/.test(k)) delete env[k];
   Object.assign(env, {
     PORT: '0',
     HOST: '127.0.0.1',

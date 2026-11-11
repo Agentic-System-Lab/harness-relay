@@ -154,7 +154,7 @@ flowchart LR
 
 回覆內容恰好是 `[PASS]`（或沒有工具呼叫的空回覆）會被標記為 *pass*，並以淡色顯示。
 
-同一個對話一次只能有一個執行；不同對話可以同時執行。「**停止**」會中止執行並結束正在跑的 CLI 程序（對 process group 送 `SIGTERM`，3 秒後 `SIGKILL`）。每個 agent 回合另有 45 分鐘的安全逾時。
+同一個對話一次只能有一個執行；不同對話可以同時執行。「**停止**」會中止執行並結束正在跑的 CLI 程序（對 process group 送 `SIGTERM`，3 秒後 `SIGKILL`）。每個 agent 回合另有安全逾時：45 分鐘，或 `RELAY_TURN_TIMEOUT_MIN` 設定的分鐘數。
 
 **團隊回覆時送出的訊息**（`Orchestrator.send()`）不會開始第二個執行。執行進行中或正在準備、或首席 agent 的團隊設計還在等確認時，訊息會放進對話的佇列（`conversation.queue`，存在 `conversations.queue`，最多 20 則），瀏覽器把它顯示在輸入框上方（`queue` 事件）。`deliverQueued()` 會在下一個「該收到它的 agent」發言前，依送出順序貼出等待中的訊息：圓桌在每位發言者之前、接力在每一棒之前、平行在每一輪開始時（讓同一輪的人看到相同的訊息）。只 @ 了其他 agent 的訊息會等到其中一位發言，排在它後面的訊息也一起等，所以對話維持送出的順序。送達的訊息就是一般的使用者訊息，另外標上 `queued`（介面顯示「插話」）；每個 agent 跟其他訊息一樣，從「還沒看過的訊息」收到它，所以當時正在發言的 agent 會在下一次發言時看到。執行結束時若還有訊息在等、而且不是被停止的，`startQueued()` 會為它們再開一次執行，參與者依它們的 @ 決定（每則都有 @：就是那些 agent；否則全員）。按「停止」後它們會繼續等使用者處理（`DELETE /api/conversations/:id/queue/:messageId` 撤回一則）；下一次送出或「繼續」會把它們排在新訊息前面送出。以 `interrupt: true` 送出時，會停止執行、等它結束，再把等待中的訊息與這則新訊息當成新的執行送出。訊息會先存成訊息、才從存好的佇列移除，所以當機後兩邊都有的訊息算已送達。
 
@@ -174,7 +174,7 @@ flowchart LR
 
 1. 對話中出現一則 `plan.status = "planning"` 的系統訊息。
 2. 首席 agent（在設定頁指定：provider，以及選填的模型與推理強度）以唯讀權限在對話的工作目錄中執行一次，system prompt 為 `PLANNER_BRIEFING`。prompt（`buildPlannerPrompt()`）內容包括**問題**——團隊上次發言或上次設計團隊之後使用者說的所有內容（`questionStart()`），所以被停止的那次設計的問題仍然算數——在它之前**到目前為止的對話**（`historyForLead()`：使用者的訊息與 agent 的回覆，由舊到新，不含工具呼叫、系統訊息、plan、pass 與失敗的回覆；每則最多 1,500 個字元，全部最多 12,000 個字元，保留最新的部分）、**目前的團隊**（模式、輪數或交棒次數，以及每位成員的 CLI、模型、推理強度與完整角色）、已登入的 CLI（`agentsForLead()`），每個都附上它提供的每個模型（名稱、支援的推理強度與預設推理強度）與 Harness Relay 執行它時用的預設值（兩者都以新成員會用的帳號為準：`catalogFor(ctx.catalog, p, ctx.accounts[p][0])`）、它在對話工作目錄裡自己載入的內容（`ctx.native`：內建工具、skill、MCP 伺服器與它們的工具、subagent 與 plugin，不含執行時不載入的項目；透過 `NativeSetupService.recent()` 詢問，不呼叫模型，在它新成員會用的帳號（`ctx.accounts[p][0]`）的家目錄裡問；只要執行時不載入的項目沒變，就直接用那個 CLI、資料夾與家目錄上次的答案，不論多舊，超過一分鐘就在背景重新詢問；還沒有答案時，設計最多等 `NATIVE_WAIT_MS`（20 秒），到時什麼都沒回答的 CLI 標為未知並註明原因；拒絕某個問題、某部分沒回答，或回答了一些之後逾時的 CLI，保留已回答的清單並註明可能不完整（`probeCompleteness()`；被拒絕的問題會標為 `refused`，所以清單都回答為空、自己什麼都沒有的 CLI，不會被當成無法詢問）），以及它的新成員會拿到的工具庫項目；接著是工具庫本身（`ctx.library`：每個 MCP 伺服器、可用的 skill 與記憶，以及預設給哪些 CLI 的成員），並說明怎麼依這些分配成員；三種模式、使用者選的權限與工作目錄（首席 agent 無法更改）、使用者會先檢視團隊還是團隊立刻回答、排程訊息 @ 了但目前沒有成員叫這個名字的名字（`src/shared/mentions.ts` 的 `unknownMentions()`；如果它們是訊息要找的人或角色，首席 agent 要用這些名字為成員命名，必要時調整範本為成員改名，因為只有被 @ 的成員會回答——一般問題不加這段，因為裡面的 @ 常常是程式碼），以及所有範本（內建與使用者儲存的）的完整內容（JSON）。它必須回覆一個 JSON 物件：保留目前的團隊是 `{"choice": "keep", "reason"}`（只有已經有團隊時才提供；同一件工作的後續問題優先選它，因為成員會保有他們已經知道的事）；直接套用範本是 `{"choice": "template", "templateId", "reason"}`；依範本調整是 `{"choice": "adapted", "baseTemplateId", …團隊, "reason"}`；從頭設計是 `{"choice": "custom", …團隊, "reason"}`，其中團隊為 `"name", "description", "mode", "rounds", "maxHops", "agents": [{name, provider, role, model?, effort?}]`。首席 agent 只看工具，不會改：目前的團隊和範本以 `fromToolLibrary` 列出每位成員實際拿到的工具庫項目（CLI 的預設套用成員的例外之後，`memberLibraryTools()`，規則同 `ToolLibrary.forAgent`）；新成員用它 CLI 的預設，留下的成員保留原本的例外設定。這些資料由 `planner.ts` 的 `plannerContext()` 收集（伺服器的 `PlannerSource.context(cwd)`）。reason 是給使用者看的說明。
-3. `parsePlanReply()` 從程式碼區塊（或最外層的大括號）取出 JSON；`decidePlan()` 把它轉成團隊。保留的團隊就是目前的團隊原樣（id 也一樣）。自訂成員會經過與手動設計團隊相同的驗證（`validateAgents`）：名稱中的空白會被替換，最多 5 位成員，輪數 1–5，交棒次數 1–30。`fitAgents()` 會把 CLI 尚未登入的成員改到首席 agent 的 CLI，移除該 CLI 不提供的模型或推理強度，並把帳號不可用的成員改到該 CLI 一個可用的帳號（見[帳號](#帳號)）。直接套用範本時若首席 agent 沒給原因，會補上預設說明。調整過的團隊會在 `plan.basedOn` 記下原本的範本（id 與名稱），其中是範本成員的成員（名稱不分大小寫相同、CLI 也相同）保留那位範本成員的工具與帳號（`fromTemplate()`）；若原本範本的 id 不存在，就當成自訂團隊。調整或自訂的團隊若與某個範本完全相同（`sameTeam()`：成員、CLI、角色、模型、推理強度、模式與輪數或交棒次數都一樣），就記為直接套用該範本。
+3. `parsePlanReply()` 從程式碼區塊（或最外層的大括號）取出 JSON；`decidePlan()` 把它轉成團隊。保留的團隊就是目前的團隊原樣（id 也一樣）。自訂成員會經過與手動設計團隊相同的驗證（`validateAgents`）：名稱中的空白會被替換，最多 5 位成員（`RELAY_MAX_TEAM_AGENTS` 更小時以它為準），輪數 1–5，交棒次數 1–30。成員比隊伍上限多的範本（上限調低之前存的）不會提供給首席 agent，它點名時也不採用；備用的範本會截到上限。上限調低之前存的隊伍，仍可交給首席 agent 修改，它的回答會截到上限。`fitAgents()` 會把 CLI 尚未登入的成員改到首席 agent 的 CLI，移除該 CLI 不提供的模型或推理強度，並把帳號不可用的成員改到該 CLI 一個可用的帳號（見[帳號](#帳號)）。直接套用範本時若首席 agent 沒給原因，會補上預設說明。調整過的團隊會在 `plan.basedOn` 記下原本的範本（id 與名稱），其中是範本成員的成員（名稱不分大小寫相同、CLI 也相同）保留那位範本成員的工具與帳號（`fromTemplate()`）；若原本範本的 id 不存在，就當成自訂團隊。調整或自訂的團隊若與某個範本完全相同（`sameTeam()`：成員、CLI、角色、模型、推理強度、模式與輪數或交棒次數都一樣），就記為直接套用該範本。
 4. 若首席 agent 執行失敗或回覆無法使用，`fallbackPlan()` 會保留目前的團隊，沒有團隊時改用「一般問題智囊團」範本，卡片上會說明原因（`source: "fallback"`，只有改用範本時才帶 `presetId`）。若使用者停止執行，這則訊息會標為已中斷；下一個問題或「繼續」會重新設計。
 5. 留下來的成員（名稱與目前某位成員相同、不分大小寫，CLI 也相同；`keepMemberIds()`）保留原本的 id，連帶保留他們的 CLI session、worktree，以及使用者設定的帳號與工具（不論新團隊裡的那位成員怎麼寫）；其他成員從頭開始，跟任何新成員一樣，從「還沒看過的訊息」讀到這段對話。plan 卡片變成 `ready`（附上首席 agent 的費用與 token 數），團隊記在卡片上（`plan.agents`、`plan.settings`）。這次執行到此結束。
 6. **確認。** 預設情況下 plan 會等待確認（`awaitingConfirmation`），對話仍保留目前的團隊，所以這時重試或編輯較早的訊息（會連同後面等待中的 plan 一起刪除）仍由那個團隊處理。使用者回應之前，「繼續」會被拒絕（409），訊息則放進佇列等待（首席 agent 設計期間送出的也一樣）。使用者可以確認（`POST /api/conversations/:id/messages/:messageId/confirm-plan`：plan 的團隊與模式成為對話的團隊，設定 `plan.confirmedAt`）、不採用（`…/decline-plan`：保留目前的團隊，設定 `plan.declinedAt`；第一個問題沒有團隊可以保留，所以不行），或手動設定團隊（`PATCH … { agents }`，以送出的團隊作為決定：團隊設定抽屜會編輯等待中的設計，並說明儲存就會採用它）。有其他操作佔用這個對話時，兩個按鈕都會被拒絕（409）。無論哪種，團隊接著都會回答（`startConfirmed()`）：用現在的團隊開始一次執行，先貼出等待中的訊息，並在歷史中看到那個問題。設了 `settings.autoConfirm` 時，plan 的團隊會立刻採用（`confirmedAt`、`autoConfirmed`），團隊的執行在設計團隊的執行結束時開始（`Run.answerNext`）；若無法開始（另一個對話正在修改同一個資料夾），對話中會說明原因，按「繼續」就由團隊回答，不會重新設計。plan 訊息是系統訊息，所以永遠不會轉交給 agent。
@@ -282,7 +282,7 @@ flowchart LR
 4. 停止執行，或 agent 的 CLI 結束這一輪（當掉、逾時）時，它等待中的請求都會以 `expired`（拒絕）結束；之後才送來的回應會得到 404。
 5. 在沒有持有目錄鎖的執行中（唯讀）被允許的動作，會先鎖住工作目錄直到這次執行結束；若有其他對話正在寫入，這個動作會被拒絕，並告知 agent 原因。
 
-agent 的 CLI 在這段期間會一直等待；每回合 45 分鐘的安全逾時仍然適用。
+agent 的 CLI 在這段期間會一直等待；每回合的安全逾時（45 分鐘，除非 `RELAY_TURN_TIMEOUT_MIN` 另有設定）仍然適用。
 
 ## agent 活動
 
@@ -477,7 +477,7 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
 
 ### 帳號
 
-一個 CLI 可以登入多個帳號（最多 `MAX_ACCOUNTS`，10 個，含預設帳號）。帳號就是 CLI 的一個家目錄（CLI 在裡面保存登入、設定與 session），加上帳號自己的 API key：
+一個 CLI 可以登入多個帳號（最多 10 個，含預設帳號，或 `RELAY_MAX_ACCOUNTS` 設定的數目）。帳號就是 CLI 的一個家目錄（CLI 在裡面保存登入、設定與 session），加上帳號自己的 API key：
 
 - **預設帳號**（id 為 `''`，URL 中寫作 `default`）就是有帳號功能之前的樣子：CLI 平常的家目錄或 `<agentHome>/<cli>`，以及 `provider_settings`（或金鑰儲存區的 `<provider>-api-key`）裡的金鑰，沒有時則是伺服器環境變數裡的金鑰。它的名稱存在 `provider_settings.account_label`。
 - **其他每個帳號**（`provider_accounts`；id 是 `SettingsStore.addAccount()` 產生的 8 位十六進位數字）的家目錄是 `<accountsDir>/<cli>-<id>`，`accountsDir` 在設定了各 CLI 自己的資料夾（`agentHome`）時就是它，否則是 `data/accounts`（`ACCOUNTS_DIR`）。它的金鑰在金鑰儲存區的名稱是 `<provider>-api-key-<id>`（和預設帳號的一樣，啟動時會從資料庫移過去）；`env(p, id)` 會先移除從伺服器環境變數繼承、CLI 會優先於家目錄裡的登入讀取的每個憑證變數（`CREDENTIAL_ENV`：Claude Code 的 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`CLAUDE_CODE_OAUTH_TOKEN`，Codex 的 `CODEX_API_KEY`、`OPENAI_API_KEY`，Grok 的 `XAI_API_KEY`），再加入帳號自己的金鑰，所以帳號絕不會以別人的登入執行，它的成員執行的指令也看不到這些變數。Codex 的金鑰會讓那個帳號登入（在它的家目錄執行 `codex login --with-api-key`）。
@@ -533,7 +533,7 @@ sequenceDiagram
   | 模型 | 從 Hugging Face 下載 `ggml-<model>.bin`（固定在某個 commit），放到 `data/voice/models/` | 同左 | 同左 |
   | 檢查 | `whisper-server --help`，再用該模型啟動 | 同左 | 同左 |
 
-  每個下載都會邊寫入 `.part` 檔邊比對固定的大小與 SHA-256，兩者都相符才改名，否則刪除。下載前會先檢查硬碟空間。電腦上已有的引擎會直接使用（設定中指定的路徑、Harness Relay 下載的，或 PATH 與 Homebrew 目錄中的 `whisper-server`）。
+  `RELAY_VOICE_MODEL_BASE_URL` 與 `RELAY_VOICE_ENGINE_BASE_URL` 可以指定其他 http(s) 資料夾，從那裡下載模型與引擎（鏡像站，或辦公室裡的伺服器）；`RELAY_VOICE_DIR` 可以指定 `data/voice/` 以外的資料夾來存放它們。每個下載都會邊寫入 `.part` 檔邊比對固定的大小與 SHA-256，兩者都相符才改名，否則刪除，所以鏡像站能提供檔案，卻改不了內容。下載前會先檢查硬碟空間。移除語音輸入時會刪掉整個 `data/voice/`；但在 `RELAY_VOICE_DIR` 指定的資料夾，只依檔名刪掉 Harness Relay 下載的檔案（模型、這個版本的引擎），以及它建立、已經變空的資料夾。那裡的引擎在沙箱外執行，所以那個資料夾不能在暫存資料夾裡（伺服器會拒絕啟動）；工作目錄包含語音輸入的資料夾或在它裡面時，可編輯模式會被拒絕，`data/voice/` 也一樣。設了 `RELAY_VOICE_DIR` 時，引擎提供靜態檔案的空資料夾（`--public`）是 `data/voice-public/`，不會用到使用者自己的 `public`。電腦上已有的引擎會直接使用（設定中指定的路徑、Harness Relay 下載的，或 PATH 與 Homebrew 目錄中的 `whisper-server`）。
 - **模型**：Base、Small、Large v3 Turbo（q5_0 量化）、Large v3 Turbo、Large v3（q5_0）。Apple Silicon 推薦 Large v3 Turbo q5_0；其他電腦用 CPU 執行引擎，推薦 Small。改用已下載的模型只是改設定；未下載的會先安裝。
 - **引擎程序**：`whisper-server` 透過 `process.ts` 啟動，只聽 `127.0.0.1` 上的空閒埠，並加上隨機 128 位元的路徑前綴（`--request-path`），`--public` 指向空資料夾。whisper-server 對任何 origin 都回應（`Access-Control-Allow-Origin: *`），所以是靠這個祕密前綴讓其他網頁無法使用它。第一次使用時（或一開始錄音時）啟動，模型或引擎路徑改變時重新啟動，閒置 10 分鐘或伺服器關閉時停止。
 - **語言**：`follow`（跟隨介面語言）、`auto`、`zh` 或 `en`。中文會附上一段繁體中文的 prompt，引導 Whisper 輸出繁體字。辨識結果會整理過：去掉 `[BLANK_AUDIO]` 之類的標記，中日韓文字之間不留空白。瀏覽器不會送出太短、或從未高過背景噪音的錄音，因為 Whisper 會替靜音編出文字。
@@ -594,7 +594,7 @@ sequenceDiagram
 - 瀏覽器用一次性代碼登入（`src/server/auth.ts`；8 個 Crockford base 32 字元）：來自伺服器啟動時印出的連結（`#code=…`，一小時內有效）、`npm run login`（`scripts/login.ts`，10 分鐘內有效，不論伺服器有沒有在執行，都寫進同一個資料庫），或已登入的瀏覽器（「**設定 → 已登入的瀏覽器 → 讓另一個裝置登入**」，10 分鐘內有效，給手機用）。同時有效的是最新的五個代碼。介面會先把代碼從網址中拿掉再登入，即使已開著的頁面只改了片段也一樣；已登入的瀏覽器打開連結時也會用掉代碼（新的 session 取代舊的），所以代碼不會在瀏覽器的歷史紀錄中繼續有效。一分鐘內錯了十次代碼，該分鐘剩下的時間都會被拒絕（429）；次數在每個代碼被試之前才檢查，所以同時送出的請求無法一起通過。
 - 登入會給瀏覽器兩個秘密，請求必須兩者都有：一個 cookie（`relay_session`，`HttpOnly`、`SameSite=Strict`、`Path=/api`，400 天），以及介面存在 localStorage、以 `X-Relay-Key` 送出的金鑰。cookie 會送到同一主機的每個 port，所以 agent 在這台電腦另一個 port 提供的網頁，若使用者打開了，就會拿到它；localStorage 則只屬於介面自己的來源。瀏覽器自己載入的內容（回覆中的圖片與影片、下載、附件、資料夾的檔案與 ZIP：`app.ts` 的 `BROWSER_LOADS`）只需要 cookie：這些路由只讀取對話的資料夾，而它的 agent 本來就讀得到。即時更新（EventSource，無法帶標頭）把金鑰放在查詢字串中。
 - 資料庫只存雜湊（`auth_codes`、`auth_sessions`）：cookie 的秘密與金鑰（各 256 位元）用 SHA-256，代碼則用 scrypt，每個各有自己的 salt，因為代碼短得可以手動輸入：40 位元的快速雜湊，逐一試過每個代碼，幾分鐘到幾小時就能還原。所以讀得到資料庫的程式（沙箱讓 agent 能讀）無法用它們登入。伺服器也會遵守 400 天的期限。「**設定 → 已登入的瀏覽器**」會列出已登入的瀏覽器（以 User-Agent 命名），並能登出其中任何一個。
-- 在完全存取以外的權限，agent 的沙箱既讀不到瀏覽器的資料夾（包括桌面 app 視窗的），也讀寫不到資料庫（[各平台的作業系統沙箱 → agent 不能讀寫的地方](sandboxing.zh-TW.md#agent-不能讀寫的地方)），工作目錄包含 Harness Relay 本身、家目錄或 CLI 自己的資料夾或程式時也會拒絕可編輯模式；Grok 的沙箱改不了它自己的程式，它的設定被改動時也會改回原樣。它擋不住的：在這些沙箱之外、讀得到瀏覽器設定檔的程式能在那裡找到金鑰；瀏覽器若把 cookie 以未加密的方式存放（Firefox 就是；macOS 上的 Chrome 與 Edge 會用鑰匙圈中的金鑰加密），也能找到 cookie；寫得到 `data/relay.db` 的程式能加入一個 session。這指的是擁有完全存取的 agent、使用者允許在沙箱外執行的指令、CLI 在沙箱外執行的東西（Claude Code 的 hooks 與本機 MCP 伺服器）、資料夾不在清單上的瀏覽器、Grok 在它資料夾中自己維護的 plugin 資料夾，或 Claude Code 與 Grok 沒有沙箱的原生 Windows。不斷送出錯誤代碼的程式，在它這麼做的期間會讓新的瀏覽器無法登入（已登入的瀏覽器照常運作）。
+- 在完全存取以外的權限，agent 的沙箱既讀不到瀏覽器的資料夾（包括桌面 app 視窗的），也讀寫不到資料庫（[各平台的作業系統沙箱 → agent 不能讀寫的地方](sandboxing.zh-TW.md#agent-不能讀寫的地方)），工作目錄包含 Harness Relay 本身（包括語音輸入的資料夾：`data/voice` 或 `RELAY_VOICE_DIR` 指定的位置）、家目錄或 CLI 自己的資料夾或程式時也會拒絕可編輯模式；Grok 的沙箱改不了它自己的程式，它的設定被改動時也會改回原樣。它擋不住的：在這些沙箱之外、讀得到瀏覽器設定檔的程式能在那裡找到金鑰；瀏覽器若把 cookie 以未加密的方式存放（Firefox 就是；macOS 上的 Chrome 與 Edge 會用鑰匙圈中的金鑰加密），也能找到 cookie；寫得到 `data/relay.db` 的程式能加入一個 session。這指的是擁有完全存取的 agent、使用者允許在沙箱外執行的指令、CLI 在沙箱外執行的東西（Claude Code 的 hooks 與本機 MCP 伺服器）、資料夾不在清單上的瀏覽器、Grok 在它資料夾中自己維護的 plugin 資料夾，或 Claude Code 與 Grok 沒有沙箱的原生 Windows。不斷送出錯誤代碼的程式，在它這麼做的期間會讓新的瀏覽器無法登入（已登入的瀏覽器照常運作）。
 
 要從手機使用時，伺服器仍然只綁定 `127.0.0.1`，由同一台電腦上的 `tailscale serve` 把使用者 tailnet 裡的請求以 HTTPS 轉給它；因為 Tailscale 會保留原本的 `Host` 標頭，tailnet 上的名稱要加進 `RELAY_ALLOWED_HOSTS`。之後 tailnet 裡的每台裝置都能連到它，登入後就能使用。若改成綁定 `0.0.0.0`，區域網路上的任何人都能透過未加密的 HTTP 連到它，代碼、cookie 與金鑰都能從網路上讀到。詳見[用手機連線](remote-access.zh-TW.md)。
 

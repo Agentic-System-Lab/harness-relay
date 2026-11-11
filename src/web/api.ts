@@ -28,6 +28,7 @@ import type {
   ReportScreenshots,
   ScheduleUpdate,
   SearchResult,
+  ServerLimits,
   SettingsUpdate,
   SettingsView,
   ShareFileInfo,
@@ -302,6 +303,8 @@ export const api = {
       timeout.clear();
     }
   },
+  /** What the server's environment sets that the UI keeps to or shows (`useLimits()`). */
+  limits: () => request<ServerLimits>('GET', '/api/limits'),
   /** This version, and the desktop app's updates (only the version otherwise). */
   update: () => request<UpdateStatus>('GET', '/api/update'),
   /**

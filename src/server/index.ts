@@ -17,7 +17,8 @@ import { Scheduler } from './scheduler';
 import { clearShareTmp } from './share';
 import { openSystemKeyring } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
-import { dataDirInTemp, relayTmpDir } from './protect';
+import { dataDirInTemp, relayTmpDir, voiceDirProblem } from './protect';
+import { CONFIG_PROBLEMS } from './config';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { serveWebApp, webAppDir } from './web';
@@ -27,6 +28,14 @@ import { plannerContext } from './planner';
 // A failure in a background task (a run winding down, a stream write) must not take the server — and
 // every other conversation — down with it.
 process.on('unhandledRejection', (reason) => console.error('[server] unhandled rejection:', reason));
+
+// A value of the environment that is not valid (a limit, a timeout, an address): refuse to start rather
+// than run with another one than the user meant.
+const configProblems = [...CONFIG_PROBLEMS, voiceDirProblem()].filter((p): p is string => Boolean(p));
+if (configProblems.length) {
+  for (const p of configProblems) console.error(`[server] ${p}`);
+  process.exit(1);
+}
 
 // One server per data folder: before the database is opened, since opening it already marks
 // replies left streaming aborted (the Store).

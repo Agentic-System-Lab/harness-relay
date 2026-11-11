@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { PROVIDERS, accountUsable, type AgentConfig, type ProviderModels, type ProviderStatus, type TeamPreset } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
+import { useLimits } from '../limits';
 import { templateKey } from '../templates';
 import { newAgent, readyAccount } from '../util';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
@@ -47,6 +48,7 @@ interface Props {
  */
 export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }: Props) {
   const t = useT();
+  const { maxTeamAgents } = useLimits();
   const builtin = Boolean(preset?.builtin);
   const [name, setName] = useState(() => (preset ? (builtin ? t.template.copyName(preset.name) : preset.name) : ''));
   const [description, setDescription] = useState(preset?.description ?? '');
@@ -62,7 +64,7 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
   const unchanged = Boolean(preset) && !changed;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const problems = [...(name.trim() ? [] : [t.template.needName]), ...teamProblems(team, t, { members: true, template: true })];
+  const problems = [...(name.trim() ? [] : [t.template.needName]), ...teamProblems(team, t, { members: true, template: true, maxAgents: maxTeamAgents })];
   const title = !preset ? t.template.newTitle : builtin ? t.template.builtinTitle(preset.name) : t.template.editTitle(preset.name);
   const close = () => {
     if (changed && !confirm(t.template.confirmDiscard)) return;

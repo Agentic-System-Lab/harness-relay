@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   LANGS,
-  MAX_ACCOUNTS,
   MAX_ACCOUNT_LABEL,
   PROVIDERS,
   PROVIDER_INSTALL_URL,
@@ -23,6 +22,7 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
+import { useLimits } from '../limits';
 import { setThemeChoice, THEMES, useThemeChoice } from '../theme';
 import {
   SETTINGS_SECTIONS,
@@ -356,6 +356,7 @@ function ProviderCard({
   onDefaults: () => Promise<void>;
 }) {
   const { t, lang } = useI18n();
+  const { maxAccounts } = useLimits();
   const [methods, setMethods] = useState<LoginMethod[]>([]);
   const [bin, setBin] = useState('');
   const [newName, setNewName] = useState('');
@@ -462,13 +463,13 @@ function ProviderCard({
               aria-label={t.accounts.nameLabel}
               maxLength={MAX_ACCOUNT_LABEL}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !busy && accounts.length < MAX_ACCOUNTS && addAccount()}
+              onKeyDown={(e) => e.key === 'Enter' && !busy && accounts.length < maxAccounts && addAccount()}
             />
-            <button className="primary" onClick={addAccount} disabled={busy || !settings || accounts.length >= MAX_ACCOUNTS}>
+            <button className="primary" onClick={addAccount} disabled={busy || !settings || accounts.length >= maxAccounts}>
               {t.accounts.add}
             </button>
           </div>
-          {accounts.length >= MAX_ACCOUNTS && <p className="muted small">{t.accounts.limit(MAX_ACCOUNTS)}</p>}
+          {accounts.length >= maxAccounts && <p className="muted small">{t.accounts.limit(maxAccounts)}</p>}
         </div>
       </details>
 

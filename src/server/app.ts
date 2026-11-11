@@ -10,12 +10,12 @@ import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { aboutInfo, relayVersion } from './about';
+import { CONFIG, limitsOf } from './config';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
   DEFAULT_ACCOUNT,
   FILE_LIMITS,
   GROUP_LIMITS,
-  MAX_ACCOUNTS,
   PROVIDER_LABEL,
   PROVIDERS,
   SHARE_FILES_MAX,
@@ -29,6 +29,7 @@ import {
   pendingPlan,
   type ApprovalAnswer,
   type Conversation,
+  type ServerLimits,
   type ConversationSchedule,
   type PickedFolders,
   type Provider,
@@ -135,6 +136,8 @@ export interface AppDeps {
   };
   /** The desktop app's updates (`updates.ts`); none when it is not given. */
   updates?: Updates;
+  /** Accounts per CLI, team size and the turn timeout, from the environment (`config.ts`; others in tests). */
+  limits?: ServerLimits;
   /** Puts a problem report's screenshots on GitHub as a secret gist, and deletes it again (`gh`; fakes in tests). */
   screenshotGists?: {
     upload(files: GistUpload[]): Promise<ReportScreenshots>;
@@ -193,6 +196,7 @@ export function createApp({
   },
   screenshotGists = { upload: (files) => uploadScreenshots(files), remove: unshareGist },
   updates = new Updates(undefined, version),
+  limits = limitsOf(CONFIG),
 }: AppDeps): Hono {
   const app = new Hono();
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
@@ -467,7 +471,7 @@ export function createApp({
     const p = provider(c);
     const b = await body<{ label?: unknown }>(c);
     const label = validAccountLabel(b.label ?? '');
-    if (settings.accountIds(p).length + 1 >= MAX_ACCOUNTS) throw new HttpError(409, t().tooManyAccounts(PROVIDER_LABEL[p], MAX_ACCOUNTS));
+    if (settings.accountIds(p).length + 1 >= limits.maxAccounts) throw new HttpError(409, t().tooManyAccounts(PROVIDER_LABEL[p], limits.maxAccounts));
     const id = settings.addAccount(p, label);
     if (p === 'grok') {
       // The folders the default account trusts (which Settings shows) are trusted for this one too.
@@ -521,6 +525,10 @@ export function createApp({
   });
 
   app.get('/api/providers', async (c) => c.json(await providers.statusAll(c.req.query('refresh') === '1')));
+
+  // What the server's environment sets that the UI keeps to or shows: accounts per CLI, team size, the
+  // turn timeout (`RELAY_MAX_ACCOUNTS`, `RELAY_MAX_TEAM_AGENTS`, `RELAY_TURN_TIMEOUT_MIN`).
+  app.get('/api/limits', (c) => c.json(limits));
 
   // Which Harness Relay this is, and on what, for a problem report the user sends by email.
   app.get('/api/about', async (c) => c.json(await aboutInfo(desktopApp, version)));
@@ -693,7 +701,7 @@ export function createApp({
       id: typeof b.id === 'string' && /^user-[\w-]{1,80}$/.test(b.id) ? b.id : `user-${randomUUID()}`,
       name,
       description: String(b.description ?? '').trim().slice(0, 2000) || undefined,
-      agents: validateAgents(b.agents),
+      agents: validateAgents(b.agents, limits.maxTeamAgents),
       settings: { mode: s.mode, rounds: s.rounds, maxHops: s.maxHops, permission: s.permission },
     };
     store.savePreset(preset);
@@ -818,7 +826,7 @@ export function createApp({
     const now = Date.now();
     // Auto team: the lead agent designs the team for each question, starting with the first.
     // The agents first: creating a missing working directory is a side effect.
-    const agents = b.settings?.autoTeam === true ? [] : validateAgents(b.agents);
+    const agents = b.settings?.autoTeam === true ? [] : validateAgents(b.agents, limits.maxTeamAgents);
     refuseRelayFolderFirst(b.settings, defaultCwds());
     const s = validateSettings(b.settings, defaultCwds(), b.createCwd === true);
     const conv: Conversation = {
@@ -893,7 +901,7 @@ export function createApp({
     let confirmed = false;
     // Reserved while the workspace is prepared, so no run starts with half-changed settings.
     const res = await orchestrator.exclusive(conv.id, t().busySettings, async () => {
-      const agents = b.agents ? validateAgents(b.agents) : conv.agents;
+      const agents = b.agents ? validateAgents(b.agents, limits.maxTeamAgents) : conv.agents;
       // After the agents: creating a missing working directory is a side effect.
       if (b.settings) refuseRelayFolderFirst(b.settings, conv.settings);
       const next = b.settings ? validateSettings(b.settings, conv.settings, b.createCwd === true) : { ...conv.settings };

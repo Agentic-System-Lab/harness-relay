@@ -17,6 +17,7 @@ import {
 import { api } from '../api';
 import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
+import { useLimits } from '../limits';
 import { settingsHref } from '../route';
 import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
 import { PROVIDER_COLOR, accountName, accountOf, accountState, initials, newAgent, readyAccount, switchProvider, type ModelChoice } from '../util';
@@ -54,12 +55,21 @@ const NAME_RE = /^[\p{L}\p{N}_-]{1,32}$/u;
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
 
-/** What keeps the team from being saved; `members` and `template` as for `TeamEditor`. */
-export function teamProblems(team: Team, t: Messages, opts: { members?: boolean; template?: boolean } = {}): string[] {
+/**
+ * What keeps the team from being saved; `members` and `template` as for `TeamEditor`, `maxAgents` the
+ * server's team limit (`useLimits()`).
+ */
+export function teamProblems(
+  team: Team,
+  t: Messages,
+  opts: { members?: boolean; template?: boolean; maxAgents?: number } = {},
+): string[] {
   const p = t.team.problems;
   const out: string[] = [];
   if (opts.members ?? !team.settings.autoTeam) {
     if (team.agents.length === 0) out.push(p.needAgent);
+    // A team or template made before the limit was lowered.
+    if (opts.maxAgents !== undefined && team.agents.length > opts.maxAgents) out.push(p.tooMany(opts.maxAgents));
     const seen = new Set<string>();
     for (const a of team.agents) {
       if (!NAME_RE.test(a.name)) out.push(p.badName(a.name));
@@ -73,6 +83,7 @@ export function teamProblems(team: Team, t: Messages, opts: { members?: boolean;
 
 export function TeamEditor({ value, onChange, providers, catalog, members, template = false, proposed = false, leadLabel, schedule }: Props) {
   const t = useT();
+  const { maxTeamAgents } = useLimits();
   const { agents, settings } = value;
   /** Per member: the model, effort and account picked for each CLI, so switching a member's CLI and back restores them. */
   const kept = useRef(new Map<string, Partial<Record<Provider, ModelChoice>>>());
@@ -221,7 +232,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                   key={p}
                   className="add-agent"
                   style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
-                  disabled={agents.length >= 8}
+                  disabled={agents.length >= maxTeamAgents}
                   onClick={() => {
                     const agent = newAgent(p, agents.map((a) => a.name));
                     const account = readyAccount(providers.find((s) => s.provider === p));
