@@ -1161,14 +1161,14 @@ describe('/api/update', () => {
     say({ updates: true });
     const checked = own.request('/api/update/check', json('POST', {}));
     await new Promise((r) => setTimeout(r, 0));
-    expect(sent).toEqual([{ type: 'update-check' }]);
+    expect(sent).toEqual([{ type: 'update-check', id: 1 }]);
     const available = { version: '2026-11-12', page: 'https://github.com/x/y/releases/tag/2026-11-12' };
-    say({ updates: true, available, checkedAt: 7 });
+    say({ updates: true, available, checkedAt: 7, answered: [1] } as Parameters<typeof say>[0]);
     expect(await (await checked).json()).toEqual({ updates: true, available, checkedAt: 7, current: '2026-11-11' });
 
     const res = await own.request('/api/update/install', json('POST', {}));
     expect(res.status).toBe(200);
-    expect(sent).toEqual([{ type: 'update-check' }, { type: 'update-install' }]);
+    expect(sent).toEqual([{ type: 'update-check', id: 1 }, { type: 'update-install' }]);
 
     // Under way: said so, not that there is nothing to update to.
     say({ updates: true, available, progress: { kind: 'installing' } } as Parameters<typeof say>[0]);

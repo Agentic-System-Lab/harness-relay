@@ -40,39 +40,40 @@ export function withoutMetadata(data: Buffer, kind: 'png' | 'jpg' | 'webp'): Buf
 }
 
 /**
- * What is kept of an image: ranges of its bytes, merged when one follows another (a file of millions of
- * tiny kept segments makes one piece, not millions), and bytes made anew in between.
+ * What is kept of an image, written as it is found into one buffer about the image's size: ranges of
+ * its bytes, and bytes made anew (an end marker, a JFIF header, a minimal EXIF). However many tiny
+ * pieces a crafted file is made of, the cost stays one copy of the image, not an object for each.
  */
-class Kept {
-  private parts: Buffer[] = [];
-  private from = -1;
-  private to = -1;
+export class Kept {
+  private buf: Buffer;
+  private at = 0;
 
-  constructor(private data: Buffer) {}
+  constructor(private data: Buffer) {
+    this.buf = Buffer.allocUnsafe(data.length + 64);
+  }
+
+  /** Room for `n` more bytes (what is made anew can, rarely, outgrow what it replaces). */
+  private room(n: number): void {
+    if (this.at + n <= this.buf.length) return;
+    const bigger = Buffer.allocUnsafe(Math.max(this.buf.length * 2, this.at + n));
+    this.buf.copy(bigger, 0, 0, this.at);
+    this.buf = bigger;
+  }
 
   range(start: number, end: number): void {
-    if (start === this.to) {
-      this.to = end;
-      return;
-    }
-    this.flush();
-    this.from = start;
-    this.to = end;
+    if (end <= start) return;
+    this.room(end - start);
+    this.at += this.data.copy(this.buf, this.at, start, end);
   }
 
   bytes(made: Buffer): void {
-    this.flush();
-    this.parts.push(made);
+    this.room(made.length);
+    this.at += made.copy(this.buf, this.at);
   }
 
-  private flush(): void {
-    if (this.to > this.from && this.from >= 0) this.parts.push(this.data.subarray(this.from, this.to));
-    this.from = this.to = -1;
-  }
-
+  /** What was kept: only the bytes written (the rest of the buffer is never read). */
   done(): Buffer {
-    this.flush();
-    return Buffer.concat(this.parts);
+    return this.buf.subarray(0, this.at);
   }
 }
 

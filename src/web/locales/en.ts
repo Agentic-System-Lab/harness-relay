@@ -737,10 +737,12 @@ export const en: Messages = {
       gmail: 'Gmail is open in a new tab: drag screenshots into the mail, then send it.',
       cut: 'The report is too long for the mail link, so it is on the clipboard: paste it into the mail.',
       cutCopyFailed: 'The report is too long for the mail link: press Copy report, then paste it into the mail.',
+      copied: 'Report copied: paste it into any mail to the address below, then send it.',
     },
     sentLinked: {
       mail: 'Your mail app is open, the mail linking to the screenshots: just send it. Nothing there? Use Gmail or copy the report.',
       gmail: 'Gmail is open in a new tab, the mail linking to the screenshots: just send it.',
+      copied: 'Report copied, with the link to the screenshots: paste it into any mail to the address below, then send it.',
     },
     noMailApp: 'No mail app?',
     gmail: 'Send with Gmail',

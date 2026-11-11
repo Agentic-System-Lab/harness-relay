@@ -11,16 +11,17 @@ export const CHECK_ANSWER_MS = 30_000;
 
 export class Updates {
   private last: DesktopUpdate = { updates: false };
-  /** Checks asked for from the chat, waiting for the app to say it has checked. */
-  private waiting: (() => void)[] = [];
+  /** Checks asked for from the chat, by id, waiting for the app to say it has answered them. */
+  private waiting = new Map<number, () => void>();
+  private nextCheck = 1;
 
   constructor(
     private parent: Pick<DesktopParent, 'send' | 'onUpdate'> | undefined,
     private version: () => Promise<string>,
   ) {
-    parent?.onUpdate((update) => {
+    parent?.onUpdate(({ answered, ...update }) => {
       this.last = update;
-      if (!update.checking) for (const done of this.waiting.splice(0)) done();
+      for (const id of answered ?? []) this.waiting.get(id)?.();
     });
   }
 
@@ -35,14 +36,14 @@ export class Updates {
    */
   async check(timeoutMs = CHECK_ANSWER_MS): Promise<UpdateStatus> {
     if (this.parent && this.last.updates) {
+      const id = this.nextCheck++;
       let timer: ReturnType<typeof setTimeout> | undefined;
-      let answered: () => void = () => {};
-      const checked = new Promise<void>((done) => this.waiting.push((answered = done)));
-      this.parent.send({ type: 'update-check' });
+      const checked = new Promise<void>((done) => this.waiting.set(id, done));
+      this.parent.send({ type: 'update-check', id });
       await Promise.race([checked, new Promise<void>((done) => (timer = setTimeout(done, timeoutMs)))]);
       clearTimeout(timer);
-      // Not answered in time: no longer waited for.
-      this.waiting = this.waiting.filter((w) => w !== answered);
+      // Answered, or not in time: no longer waited for.
+      this.waiting.delete(id);
     }
     return this.status();
   }

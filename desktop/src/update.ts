@@ -113,6 +113,25 @@ export function chatUpdate(o: {
 }
 
 /**
+ * The chat's checks the app owes an answer to, by id: answered by the first state it tells the server
+ * once no check is under way (`take`), so a state already on its way when one was asked for never
+ * answers it, and one asked during a check is answered when that check ends.
+ */
+export class CheckAnswers {
+  private owed: number[] = [];
+
+  ask(id: number): void {
+    this.owed.push(id);
+  }
+
+  /** The checks a state answers, no longer owed: none while a check is under way. */
+  take(checking: boolean): number[] | undefined {
+    if (checking || !this.owed.length) return undefined;
+    return this.owed.splice(0);
+  }
+}
+
+/**
  * `fn`, the calls made while an earlier one still runs ignored: an update asked for twice (two clicks,
  * the menu and the chat) asks once, and never runs two downloads or swaps at once.
  */

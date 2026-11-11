@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { REPORT_SCREENSHOT_EXTENSIONS, REPORT_SCREENSHOT_LIMITS, REPORT_SCREENSHOT_TYPES, type AboutInfo, type ProviderStatus } from '../../shared/types';
+import { REPORT_SCREENSHOT_EXTENSIONS, REPORT_SCREENSHOT_LIMITS, type AboutInfo, type ProviderStatus } from '../../shared/types';
 import { ApiError, api } from '../api';
 import { copyText } from '../copy';
 import { useI18n } from '../i18n';
@@ -61,7 +61,7 @@ function forget() {
   uploads.forget();
 }
 
-type Sent = 'mail' | 'gmail' | 'cut' | 'cutCopyFailed';
+type Sent = 'mail' | 'gmail' | 'cut' | 'cutCopyFailed' | 'copied';
 
 interface Props {
   /** Each CLI's status, as the sidebar has it: their versions go along with the report. */
@@ -306,7 +306,8 @@ export function ReportDialog({ providers, onClose }: Props) {
           <input
             ref={picker}
             type="file"
-            accept={[...REPORT_SCREENSHOT_EXTENSIONS, ...REPORT_SCREENSHOT_TYPES].join(',')}
+            // Endings only: image/jpeg would have the system list .jfif, .jpe and the like too.
+            accept={REPORT_SCREENSHOT_EXTENSIONS.join(',')}
             multiple
             hidden
             onChange={(e) => {
@@ -336,7 +337,7 @@ export function ReportDialog({ providers, onClose }: Props) {
         {waiting && reportReady(draft) && <p className="small warn-text">{r.shots.uploadFirst}</p>}
         {sent && (
           <p className={sent === 'cutCopyFailed' ? 'small warn-text' : 'small report-sent'} role="status">
-            {upload && (sent === 'mail' || sent === 'gmail') ? r.sentLinked[sent] : r.sent[sent]}
+            {upload && (sent === 'mail' || sent === 'gmail' || sent === 'copied') ? r.sentLinked[sent] : r.sent[sent]}
           </p>
         )}
 
@@ -350,10 +351,13 @@ export function ReportDialog({ providers, onClose }: Props) {
               className="ghost small-button report-copy"
               label={r.copy}
               icon={<CopyIcon size={14} />}
-              // Copied to send by hand: the mail links to the upload done now, which then stays on GitHub.
-              text={() => {
+              text={whole}
+              // Copied to send by hand, it counts as sent: the mail links to the upload done now, which then
+              // stays on GitHub, and the report is forgotten once the dialog closes. Not when copying failed.
+              onDone={(copied) => {
+                if (!copied) return;
                 uploads.sent();
-                return whole();
+                setSent('copied');
               }}
               disabled={!ready}
             />

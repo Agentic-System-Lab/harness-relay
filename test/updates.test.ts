@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DesktopUpdate, ServerToDesktop, UpdateStatus } from '../src/shared/types';
 import { Updates } from '../src/server/updates';
+import { CheckAnswers } from '../desktop/src/update';
 import { en } from '../src/web/locales/en';
 import { dialogsHeld, dialogsOpen, holdDialogs, onDialogsChange, openDialog } from '../src/web/dialogs';
 import { isAppWindow, offerShows, pollDelay, shouldOffer, typesText, updateLine } from '../src/web/update';
@@ -39,10 +40,25 @@ describe("the desktop app's updates, as the server passes them on", () => {
     const updates = new Updates(app.parent, version);
     app.say({ updates: true });
     const checked = updates.check();
-    expect(app.sent).toEqual([{ type: 'update-check' }]);
+    expect(app.sent).toEqual([{ type: 'update-check', id: 1 }]);
     app.say({ updates: true, checking: true });
-    app.say({ updates: true, available, checkedAt: 9 });
+    app.say({ updates: true, available, checkedAt: 9, answered: [1] });
+    // What it answered is not part of the state the chat gets.
     expect(await checked).toEqual({ updates: true, available, checkedAt: 9, current: '2026-11-11' });
+  });
+
+  it('is not answered by a state already on its way when the check was asked for', async () => {
+    const app = fakeApp();
+    const updates = new Updates(app.parent, version);
+    app.say({ updates: true });
+    let done = false;
+    const checked = updates.check().then((s) => ((done = true), s));
+    // The app told this before it heard of the check (a download's progress, say).
+    app.say({ updates: true, checkedAt: 1 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(done).toBe(false);
+    app.say({ updates: true, available, checkedAt: 2, answered: [1] });
+    expect(await checked).toMatchObject({ available, checkedAt: 2 });
   });
 
   it('gives what is known when the app does not say in time, and does not ask an app that does not update', async () => {
@@ -53,7 +69,7 @@ describe("the desktop app's updates, as the server passes them on", () => {
     app.say({ updates: true, checking: true, checkedAt: 1 });
     expect(await updates.check(10)).toEqual({ updates: true, checking: true, checkedAt: 1, current: '2026-11-11' });
     // A check not answered in time is no longer waited for.
-    expect((updates as unknown as { waiting: unknown[] }).waiting).toEqual([]);
+    expect((updates as unknown as { waiting: Map<number, unknown> }).waiting.size).toBe(0);
   });
 
   it('asks the app to update only when there is a newer version and none under way, saying which it is', () => {
@@ -73,7 +89,8 @@ describe("the desktop app's updates, as the server passes them on", () => {
     const updates = new Updates(app.parent, version);
     app.say({ updates: true });
     const both = Promise.all([updates.check(), updates.check()]);
-    app.say({ updates: true, checkedAt: 3 });
+    expect(app.sent).toEqual([{ type: 'update-check', id: 1 }, { type: 'update-check', id: 2 }]);
+    app.say({ updates: true, checkedAt: 3, answered: [1, 2] });
     expect((await both).map((s) => s.checkedAt)).toEqual([3, 3]);
   });
 });
@@ -202,5 +219,18 @@ describe('the dialogs open on the page', () => {
     expect(dialogsHeld()).toBe(0);
     expect(told).toBe(2);
     stop();
+  });
+});
+
+describe("the app's answers to the chat's checks", () => {
+  it('answer each check with the first state told once no check is under way, once', () => {
+    const answers = new CheckAnswers();
+    expect(answers.take(false)).toBeUndefined();
+    answers.ask(1);
+    // A check under way: answered when it ends, not before.
+    expect(answers.take(true)).toBeUndefined();
+    answers.ask(2);
+    expect(answers.take(false)).toEqual([1, 2]);
+    expect(answers.take(false)).toBeUndefined();
   });
 });

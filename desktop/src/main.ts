@@ -57,6 +57,7 @@ import {
   appImageTarget,
   busyWithoutAsking,
   chatUpdate,
+  CheckAnswers,
   CHECK_EVERY_MS,
   CHECK_TIMEOUT_MS,
   checkNow,
@@ -260,6 +261,8 @@ function run(): void {
   let checkFailed = false;
   /** Updating, from asking the user to the switch: asked for again meanwhile (the menu, the chat), it does nothing. */
   const updateOnce = oneAtATime(() => runUpdate());
+  /** The chat's checks the app owes an answer to. */
+  const checkAnswers = new CheckAnswers();
   /** While an update waits for the conversations: switches at once (the menu's "Switch to the new version now"). */
   let switchNow: (() => void) | undefined;
   /** Where downloaded installers wait (macOS, Windows): emptied at each start. */
@@ -272,8 +275,10 @@ function run(): void {
   supervisor.on('output', (chunk) => log.write(chunk));
   // Asked from the chat (Settings' Version card, the dialog offering a new version).
   supervisor.on('request', (request) => {
-    if (request === 'update-check') void checkForUpdate();
-    else void installFromChat();
+    if (request.type === 'update-check') {
+      checkAnswers.ask(request.id);
+      void checkForUpdate();
+    } else void installFromChat();
   });
   supervisor.on('state', (state) => {
     updateTray();
@@ -626,9 +631,10 @@ function run(): void {
     return chatUpdate({ updates: checksUpdates(), update, updating, checking, checkedAt, checkFailed });
   }
 
-  /** Tells the server what the chat shows of updates, each time that changes. */
+  /** Tells the server what the chat shows of updates, each time that changes, and which of its checks that answers. */
   function tellServer(): void {
-    supervisor.tell({ type: 'update', update: desktopUpdate() });
+    const answered = checkAnswers.take(checking);
+    supervisor.tell({ type: 'update', update: answered ? { ...desktopUpdate(), answered } : desktopUpdate() });
   }
 
   /** Update, chosen in the chat: asked first, as from the menu, with the chat's window in front for it. */

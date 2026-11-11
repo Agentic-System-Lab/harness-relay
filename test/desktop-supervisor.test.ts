@@ -399,13 +399,14 @@ describe("the chat's asks about updates", () => {
     const started = supervisor.start({}, 8787);
     await tick();
     // Still starting: not asked yet.
-    servers[0]!.emit('message', { type: 'update-check' });
+    servers[0]!.emit('message', { type: 'update-check', id: 1 });
     servers[0]!.listening();
     await started;
-    servers[0]!.emit('message', { type: 'update-check' });
+    servers[0]!.emit('message', { type: 'update-check', id: 2 });
     servers[0]!.emit('message', { type: 'update-install' });
     servers[0]!.emit('message', { type: 'something-else' });
-    expect(asked).toEqual(['update-check', 'update-install']);
+    // With what they carry: a check's id, for the answer.
+    expect(asked).toEqual([{ type: 'update-check', id: 2 }, { type: 'update-install' }]);
   });
 
   it("tells the running server the app's updates, and no server that does not run", async () => {

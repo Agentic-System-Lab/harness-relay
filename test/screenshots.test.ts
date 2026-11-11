@@ -7,7 +7,7 @@ import { GH_MISSING, REPORT_SCREENSHOT_LIMITS } from '../src/shared/types';
 import { HttpError } from '../src/server/errors';
 import { t } from '../src/server/i18n';
 import { CommandNotFoundError, type SpawnOptions, type SpawnResult } from '../src/server/process';
-import { SCREENSHOTS_DESCRIPTION, exifOrientation, imageKind, parseScreenshots, tiffOrientation, uploadScreenshots, withoutMetadata } from '../src/server/screenshots';
+import { Kept, SCREENSHOTS_DESCRIPTION, exifOrientation, imageKind, parseScreenshots, tiffOrientation, uploadScreenshots, withoutMetadata } from '../src/server/screenshots';
 import {
   CREATED_JQ,
   FILES_PLACEHOLDER,
@@ -253,13 +253,30 @@ describe("a screenshot's metadata", () => {
     expect(withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', gps), IDAT, IEND]), 'png')).toEqual(PNG);
   });
 
-  it('makes one piece of the many tiny segments a crafted file may hold, quickly', () => {
-    // 1 MB of empty tables (a crafted JPEG): kept as they are, without a piece for each.
-    const tables = Buffer.concat(Array.from({ length: 250_000 }, () => Buffer.from([0xff, 0xdb, 0x00, 0x02])));
-    const jpeg = Buffer.concat([SOI, tables, SOF, DHT, SCAN, EOI]);
+  it('keeps what a crafted file of alternating kept and dropped segments leaves, in order, quickly', () => {
+    // 1.75 MB: 250k empty tables, each followed by a comment that goes.
+    const table = Buffer.from([0xff, 0xdb, 0x00, 0x02]);
+    const comment = Buffer.from([0xff, 0xfe, 0x00, 0x03, 0x41]);
+    const jpeg = Buffer.concat([SOI, ...Array.from({ length: 250_000 }, () => Buffer.concat([table, comment])), SOF, DHT, SCAN, EOI]);
     const started = performance.now();
-    expect(withoutMetadata(jpeg, 'jpg')).toEqual(jpeg);
+    const clean = withoutMetadata(jpeg, 'jpg');
     expect(performance.now() - started).toBeLessThan(2000);
+    expect(clean).toEqual(Buffer.concat([SOI, Buffer.concat(Array.from({ length: 250_000 }, () => table)), SOF, DHT, SCAN, EOI]));
+  });
+
+  it('writes what is kept into one buffer, ranges and bytes made anew in order, growing when what is made outgrows the image', () => {
+    const data = Buffer.from('0123456789');
+    const kept = new Kept(data);
+    kept.range(2, 4);
+    kept.bytes(Buffer.from('ab'));
+    kept.range(4, 4); // empty: nothing
+    kept.range(8, 10);
+    expect(kept.done().toString()).toBe('23ab89');
+    // More made anew than the image and its room hold: it grows, keeping what was there.
+    const grown = new Kept(Buffer.from('x'));
+    grown.range(0, 1);
+    grown.bytes(Buffer.alloc(200, 0x79));
+    expect(grown.done().toString()).toBe(`x${'y'.repeat(200)}`);
   });
 
   it('reads no orientation from an EXIF structure that is not what it says', () => {

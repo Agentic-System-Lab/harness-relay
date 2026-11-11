@@ -749,11 +749,13 @@ export const zhTW = {
       gmail: '已在新分頁打開 Gmail：截圖可以直接拖進信裡，再按寄出。',
       cut: '內容太長，放不進信裡，已複製到剪貼簿：請在信裡貼上。',
       cutCopyFailed: '內容太長，放不進信裡：請按「複製內容」，再貼進信裡。',
+      copied: '已複製內容：貼進任何一封寄到下方信箱的信，再寄出。',
     },
     /** Sent with the screenshots uploaded: the mail links to them. */
     sentLinked: {
       mail: '已打開你的郵件程式，信裡附上了截圖的連結，按寄出即可。沒有看到的話，改用 Gmail 或複製內容。',
       gmail: '已在新分頁打開 Gmail，信裡附上了截圖的連結，按寄出即可。',
+      copied: '已複製內容，裡面附上了截圖的連結：貼進任何一封寄到下方信箱的信，再寄出。',
     },
     noMailApp: '沒有郵件程式？',
     gmail: '用 Gmail 寄',

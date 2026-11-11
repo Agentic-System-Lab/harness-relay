@@ -1432,6 +1432,11 @@ export interface DesktopUpdate {
   checkedAt?: number;
   /** The last check could not reach GitHub (offline, or its hourly limit): the next one tries again. */
   checkFailed?: boolean;
+  /**
+   * The chat's checks (`update-check`, by id) this state answers: told once they were checked (or
+   * refused, asked too soon). A state already on its way when one was asked for never answers it.
+   */
+  answered?: number[];
 }
 
 /** This Harness Relay's version, and its updates when the desktop app runs it (`GET /api/update`). */
@@ -1457,7 +1462,7 @@ export type ServerToDesktop =
   | { type: 'busy'; conversations: number }
   /** The server could not start listening (`code` is the error code, such as EADDRINUSE); it exits next. */
   | { type: 'error'; code: string; message: string }
-  /** The user asks from the chat: check GitHub for a new release now (Settings' "Check again"). */
-  | { type: 'update-check' }
+  /** The user asks from the chat: check GitHub for a new release now (Settings' "Check again"); answered by its id. */
+  | { type: 'update-check'; id: number }
   /** The user asks from the chat: update to the newer release (the app asks first, as from its menu). */
   | { type: 'update-install' };

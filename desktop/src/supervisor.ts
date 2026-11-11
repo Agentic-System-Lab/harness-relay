@@ -54,9 +54,9 @@ interface Request {
   done: (answer: ServerToDesktop | undefined) => void;
 }
 
-/** What the server asks the app for, on the user's behalf (from the chat), with no answer awaited. */
-export type ServerRequest = Extract<ServerToDesktop['type'], 'update-check' | 'update-install'>;
-const REQUESTS: ServerRequest[] = ['update-check', 'update-install'];
+/** What the server asks the app for, on the user's behalf (from the chat): its message. */
+export type ServerRequest = Extract<ServerToDesktop, { type: 'update-check' | 'update-install' }>;
+const REQUESTS: ServerRequest['type'][] = ['update-check', 'update-install'];
 
 export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [string]; request: [ServerRequest] }> {
   state: ServerState = { kind: 'stopped' };
@@ -115,9 +115,9 @@ export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [st
     this.questions.set(child, questions);
     child.onMessage((m) => {
       const answer = m as ServerToDesktop | undefined;
-      if (REQUESTS.includes(answer?.type as ServerRequest)) {
+      if (REQUESTS.includes(answer?.type as ServerRequest['type'])) {
         // Only from the server that runs (not one still starting, or stopping).
-        if (this.child === child && this.state.kind === 'running') this.emit('request', answer!.type as ServerRequest);
+        if (this.child === child && this.state.kind === 'running') this.emit('request', answer as ServerRequest);
         return;
       }
       const request = questions.get(answer?.type as Question)?.shift();
