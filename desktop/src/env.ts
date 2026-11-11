@@ -2,7 +2,7 @@
  * The environment the desktop app gives the server, and through it the agent CLIs.
  *
  * An app opened from the Finder, the Dock or a desktop launcher does not get the PATH and the other
- * variables the user's shell profile sets, so `claude`, `codex` and `grok` (in ~/.local/bin,
+ * variables the user's shell profile sets, so `claude`, `codex`, `grok` and `cursor-agent` (in ~/.local/bin,
  * /opt/homebrew/bin, an nvm folder…) would not be found. The app asks the user's login shell for its
  * environment instead, the way a terminal would have it. Windows apps get the user's PATH from the
  * system when they start; a restart of the server reads it again (`windowsEnv`).

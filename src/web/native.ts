@@ -21,6 +21,7 @@ const TABS: Record<Provider, NativeTab[]> = {
   claude: ['skills', 'mcp', 'tools', 'hooks', 'agents', 'plugins', 'instructions', 'memory'],
   codex: ['skills', 'mcp', 'hooks', 'plugins', 'instructions', 'memory'],
   grok: ['skills', 'mcp', 'hooks', 'agents', 'plugins', 'instructions', 'memory'],
+  cursor: ['skills', 'mcp', 'hooks', 'agents', 'instructions'],
 };
 
 /** The part (the "leave all out" switch) of each tab. */

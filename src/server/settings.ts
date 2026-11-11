@@ -67,29 +67,46 @@ function applyRun(p: Provider, run: AccountRunSettings, u: ProviderAccountUpdate
 export const API_KEY_ENV: Partial<Record<Provider, string>> = {
   claude: 'ANTHROPIC_API_KEY',
   grok: 'XAI_API_KEY',
+  cursor: 'CURSOR_API_KEY',
 };
 
 /**
  * The variables each CLI takes a sign-in from ahead of the one kept in its home: Claude Code reads
  * `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`)
  * before its own sign-in, Codex an API key from `CODEX_API_KEY` or `OPENAI_API_KEY`, Grok from
- * `XAI_API_KEY`. An account besides the default one gets none of them from the server's environment
+ * `XAI_API_KEY`, Cursor from `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN`. An account besides the default one gets none of them from the server's environment
  * (only its own key), or every such account would run as whoever they sign in.
  */
 export const CREDENTIAL_ENV: Record<Provider, readonly string[]> = {
   claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'],
   codex: ['CODEX_API_KEY', 'OPENAI_API_KEY'],
   grok: ['XAI_API_KEY'],
+  cursor: ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'],
 };
 
-const DEFAULT_BIN: Record<Provider, string> = { claude: 'claude', codex: 'codex', grok: 'grok' };
+const DEFAULT_BIN: Record<Provider, string> = { claude: 'claude', codex: 'codex', grok: 'grok', cursor: 'cursor-agent' };
 
-/** The variable that moves each CLI's home: its sign-in, settings and session transcripts. */
+/**
+ * The variable that moves each CLI's home: its sign-in, settings and session transcripts. Cursor's
+ * moves its settings and sessions only: its sign-in stays where Cursor keeps it for the computer user
+ * (on macOS, the keychain), see `CURSOR_SHARED_SIGN_IN`.
+ */
 export const AGENT_HOME_ENV: Record<Provider, string> = {
   claude: 'CLAUDE_CONFIG_DIR',
   codex: 'CODEX_HOME',
   grok: 'GROK_HOME',
+  cursor: 'CURSOR_CONFIG_DIR',
 };
+
+/**
+ * Cursor keeps its sign-in once per computer user, under fixed names (macOS: the login keychain;
+ * Linux and Windows: an `auth.json` its config folder does not move), and saves an API key it is given
+ * there too, over that sign-in. So Cursor gets `AGENT_CLI_CREDENTIAL_STORE=memory`, which keeps what it
+ * signs in with to the one run, whenever it runs with a key, and always as an account besides the
+ * default one: such an account signs in with its API key only, and never reads or replaces the
+ * shared sign-in (`ProviderService.startLogin` refuses it a browser sign-in).
+ */
+export const CURSOR_SHARED_SIGN_IN = 'AGENT_CLI_CREDENTIAL_STORE';
 
 /**
  * Variables Claude Code sets for its own child processes. If Harness Relay is started from inside
@@ -175,7 +192,7 @@ export class SettingsStore {
       nativeOff: [],
       nativeItems: {},
     });
-    this.providers = { claude: empty(), codex: empty(), grok: empty() };
+    this.providers = { claude: empty(), codex: empty(), grok: empty(), cursor: empty() };
     const rows = db
       .prepare(
         'SELECT provider, bin, api_key, account_label, default_model, default_effort, native_off, native_items FROM provider_settings',
@@ -202,7 +219,7 @@ export class SettingsStore {
         nativeItems: nativeItemsFor(r.provider, parseJson(r.native_items)),
       };
     }
-    this.accountList = { claude: [], codex: [], grok: [] };
+    this.accountList = { claude: [], codex: [], grok: [], cursor: [] };
     const accounts = db
       .prepare(
         `SELECT id, provider, label, api_key, default_model, default_effort, native_off, native_items
@@ -675,6 +692,7 @@ export class SettingsStore {
     const key = this.apiKey(p, id);
     if (id) for (const k of CREDENTIAL_ENV[p]) delete env[k];
     if (keyVar && key) env[keyVar] = key;
+    if (p === 'cursor' && (id || CREDENTIAL_ENV.cursor.some((k) => env[k]))) env[CURSOR_SHARED_SIGN_IN] = 'memory';
     const home = this.accountHome(p, id);
     if (home) {
       // Codex refuses a CODEX_HOME that does not exist.

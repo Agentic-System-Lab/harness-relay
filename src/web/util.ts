@@ -30,6 +30,7 @@ export const PROVIDER_COLOR: Record<Provider, string> = {
   claude: 'var(--claude)',
   codex: 'var(--codex)',
   grok: 'var(--grok)',
+  cursor: 'var(--cursor)',
 };
 
 /** A model, reasoning effort and account picked for one CLI ('' or absent: that CLI's default). */
@@ -85,7 +86,7 @@ export function readyAccount(status: ProviderStatus | undefined): string | undef
 }
 
 export function newAgent(provider: Provider, taken: string[]): AgentConfig {
-  const base = { claude: 'Claude', codex: 'Codex', grok: 'Grok' }[provider];
+  const base = { claude: 'Claude', codex: 'Codex', grok: 'Grok', cursor: 'Cursor' }[provider];
   let name = base;
   for (let i = 2; taken.some((t) => t.toLowerCase() === name.toLowerCase()); i++) name = `${base}${i}`;
   return { id: crypto.randomUUID(), name, provider, role: '' };

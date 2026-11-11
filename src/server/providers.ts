@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
 import {
   PROVIDERS,
+  keyOnlyAccount,
   type AccountStatus,
   type LoginMethod,
   type LoginSessionView,
@@ -12,7 +13,7 @@ import {
 } from '../shared/types';
 import { discoverModels, type DiscoveredModels } from './models';
 import { CommandNotFoundError, capture, killTree, spawnInteractive, stripAnsi, tail } from './process';
-import type { SettingsStore } from './settings';
+import { CREDENTIAL_ENV, CURSOR_SHARED_SIGN_IN, type SettingsStore } from './settings';
 import { t } from './i18n';
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,15 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
       return r.code === 0
         ? { loggedIn: true, detail: model ? t().defaultModelDetail(model) : undefined }
         : { loggedIn: null, detail: tail(out, 200) };
+    }
+    case 'cursor': {
+      // `status` signs nothing in and needs no terminal; anything else it took for a prompt.
+      const r = await capture(bin, ['status', '--format', 'json'], { ...env, NO_OPEN_BROWSER: '1' });
+      const j = firstJsonObject(r.stdout);
+      if (!j) return { loggedIn: null, detail: tail(stripAnsi(r.stderr || r.stdout), 200) };
+      if (j.isAuthenticated === true) return { loggedIn: true, account: j.userInfo?.email ?? undefined };
+      if (j.status === 'unauthenticated') return { loggedIn: false };
+      return { loggedIn: null, detail: typeof j.message === 'string' ? j.message : undefined };
     }
   }
 }
@@ -178,9 +188,12 @@ export class ProviderService {
 
   /** Signs an account in (empty `account`: the default one), with the CLI's own flow, in its home. */
   startLogin(p: Provider, methodId?: string, account = ''): LoginSessionView {
+    // Its sign-in would replace the default account's (see `keyOnlyAccount`).
+    if (keyOnlyAccount(p, this.settings.resolveAccount(p, account))) throw new KeyOnlyAccountError();
     const method = LOGIN_METHODS[p].find((m) => m.id === methodId) ?? LOGIN_METHODS[p][0];
     this.logins.get(slot(p, account))?.cancel();
-    const session = new LoginSession(p, account, method, this.settings.bin(p), this.settings.env(p, account), () => this.invalidate(p));
+    const env = { ...this.settings.env(p, account), ...method.env };
+    const session = new LoginSession(p, account, method, this.settings.bin(p), env, () => this.invalidate(p));
     this.logins.set(slot(p, account), session);
     return session.view();
   }
@@ -213,7 +226,13 @@ export class ProviderService {
   }
 
   async logout(p: Provider, account = '', timeoutMs = 30_000): Promise<string> {
-    return this.logoutIn(p, this.settings.env(p, account), timeoutMs);
+    const env = this.settings.env(p, account);
+    // Cursor's default account signs out of the sign-in Cursor keeps, which its API key (if any) keeps aside.
+    if (p === 'cursor' && !this.settings.resolveAccount(p, account)) {
+      delete env[CURSOR_SHARED_SIGN_IN];
+      for (const k of CREDENTIAL_ENV.cursor) delete env[k];
+    }
+    return this.logoutIn(p, env, timeoutMs);
   }
 
   /**
@@ -221,6 +240,11 @@ export class ProviderService {
    * account's id names the default account).
    */
   async logoutIn(p: Provider, env: NodeJS.ProcessEnv, timeoutMs = 30_000): Promise<string> {
+    // Signed in for the one run only (an API key, an account besides the default): nothing is kept to sign out of.
+    if (p === 'cursor' && env[CURSOR_SHARED_SIGN_IN] === 'memory') {
+      this.invalidate(p);
+      return '';
+    }
     const bin = this.settings.bin(p);
     const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
     const r = await capture(bin, args, env, { timeoutMs });
@@ -248,8 +272,11 @@ export class ProviderService {
 // ---------------------------------------------------------------------------
 // Login sessions: run the CLI's own login flow headlessly and surface its URL / code.
 
-/** `key` names the method's label and description in the server messages (i18n.ts). */
-const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[] }[]> = {
+/**
+ * `key` names the method's label and description in the server messages (i18n.ts); `env` is added to
+ * the CLI's environment for the sign-in.
+ */
+const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[]; env?: Record<string, string> }[]> = {
   claude: [
     {
       id: 'claudeai',
@@ -286,7 +313,23 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[] 
       args: ['login', '--oauth'],
     },
   ],
+  // It prints the sign-in link instead of opening a browser here, so it can be opened on any device.
+  cursor: [
+    {
+      id: 'browser',
+      key: 'cursorBrowser',
+      args: ['login'],
+      env: { NO_OPEN_BROWSER: '1' },
+    },
+  ],
 };
+
+/** A browser sign-in asked for an account that signs in with its API key only (`keyOnlyAccount`). */
+export class KeyOnlyAccountError extends Error {
+  constructor() {
+    super(t().cursorAccountLogin);
+  }
+}
 
 const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 const URL_RE = /https?:\/\/[^\s"'<>\u001b]+/g;

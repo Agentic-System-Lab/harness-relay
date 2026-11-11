@@ -1,7 +1,7 @@
 // Types shared by the server and the web client.
 
-export type Provider = 'claude' | 'codex' | 'grok';
-export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok'];
+export type Provider = 'claude' | 'codex' | 'grok' | 'cursor';
+export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok', 'cursor'];
 
 /** The error `code` (with a 404) for a working directory that does not exist; resend with `createCwd: true` to create it. */
 export const CWD_MISSING = 'cwd-missing';
@@ -20,6 +20,7 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   grok: 'Grok',
+  cursor: 'Cursor',
 };
 
 /** Where each CLI is installed from: Settings links to it when the CLI is not found. */
@@ -27,6 +28,7 @@ export const PROVIDER_INSTALL_URL: Record<Provider, string> = {
   claude: 'https://claude.com/product/claude-code',
   codex: 'https://openai.com/codex/',
   grok: 'https://x.ai/build',
+  cursor: 'https://cursor.com/cli',
 };
 
 /** UI languages. The server localizes its messages from the `X-Relay-Lang` request header. */
@@ -190,12 +192,15 @@ export type NativePart = (typeof NATIVE_PARTS)[number];
  * still reads its own ~/.codex/AGENTS.md, and has no setting that leaves out only its own
  * subagents. Grok's switches reach only what it loads from Claude Code and Cursor (its own skills,
  * MCP servers and hooks are turned off in ~/.grok/config.toml), and it has none for instruction
- * files, its own subagents or plugins. Only Claude Code lists its built-in tools.
+ * files, its own subagents or plugins. Cursor has no switch for any of them over ACP (its run gets a
+ * config folder of its own, but its skills, MCP servers and hooks are read from the home folder). Only
+ * Claude Code lists its built-in tools.
  */
 export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
   claude: ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins'],
   codex: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'plugins'],
   grok: ['skills', 'mcp', 'memory', 'hooks'],
+  cursor: [],
 };
 
 /** The parts in `parts` that `provider` can leave out, once each, in NATIVE_PARTS order. */
@@ -221,13 +226,14 @@ export type NativeItemsOff = Partial<Record<NativeItemKind, string[]>>;
  * settings. Claude Code: skills by name (`skillOverrides`), MCP servers and their tools and its
  * built-in tools by permission rules (an MCP server still starts: only its tools are taken away),
  * instruction files by path (`claudeMdExcludes`), subagents by name, plugins by id. Codex: skills by
- * path, MCP servers and their tools, hooks by key, plugins by id. Grok has no such setting for a
- * single run.
+ * path, MCP servers and their tools, hooks by key, plugins by id. Grok and Cursor have no such
+ * setting for a single run.
  */
 export const NATIVE_ITEM_SUPPORT: Record<Provider, readonly NativeItemKind[]> = {
   claude: ['skills', 'mcp', 'mcpTools', 'tools', 'instructions', 'agents', 'plugins'],
   codex: ['skills', 'mcp', 'mcpTools', 'hooks', 'plugins'],
   grok: [],
+  cursor: [],
 };
 
 /** The part (and tab) each kind of item belongs to. */
@@ -1120,6 +1126,14 @@ export interface AccountStatus {
 /** Whether agents can run as this account: signed in (or it could not be told), or with an API key. */
 export function accountUsable(a: Pick<AccountStatus, 'auth' | 'usingStoredApiKey'>): boolean {
   return a.auth.loggedIn !== false || a.usingStoredApiKey;
+}
+
+/**
+ * Whether an account signs in with its API key only: Cursor's accounts besides the default one, since
+ * Cursor keeps one sign-in per computer user (on macOS, in the keychain) whatever its config folder.
+ */
+export function keyOnlyAccount(p: Provider, account: string | undefined): boolean {
+  return p === 'cursor' && Boolean(account);
 }
 
 /**

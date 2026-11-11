@@ -834,7 +834,7 @@ export const zhTW = {
     },
     /** Text on the shared page itself. */
     page: {
-      tagline: '讓真正的 Claude Code、Codex 和 Grok CLI 一起工作的本機群組聊天室',
+      tagline: '讓真正的 Claude Code、Codex、Grok 和 Cursor CLI 一起工作的本機群組聊天室',
       note: (date: string) => `分享於 ${date}`,
       /** The link icon beside the time: it links to Harness Relay's website. */
       site: 'Harness Relay 網站',
@@ -884,7 +884,7 @@ export const zhTW = {
 
   tools: {
     title: '工具庫',
-    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，Claude Code、Codex 和 Grok 都能用，而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
+    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，Claude Code、Codex、Grok 和 Cursor 都能用，而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
     mcp: 'MCP 伺服器',
     mcpHint: '工具呼叫一樣受對話的權限限制：權限範圍以外的會詢問你，或依設定自動拒絕。',
     addMcp: '新增 MCP 伺服器',
@@ -1021,6 +1021,16 @@ export const zhTW = {
         agents: 'Grok 沒有只略過自訂 subagent 的設定',
         plugins: 'Grok 的 plugin（包括它載入的 Claude Code plugin）只能在 ~/.grok/config.toml 的 plugins.disabled 關閉（這是 Grok 的全域設定，也會影響你在終端機使用 Grok；Harness Relay 不會修改它）',
       },
+      cursor: {
+        skills: 'Cursor 沒有能單次略過 skill 的設定（它從工作目錄與家目錄的 .cursor、.claude、.codex、.grok、.agents 底下的 skills 資料夾載入）',
+        mcp: 'Cursor 沒有能單次略過 MCP 伺服器的設定：~/.cursor/mcp.json 的照常載入；專案 .cursor/mcp.json 的要先在 Cursor 裡核准，Harness Relay 的執行不會詢問，所以不會載入',
+        tools: 'Cursor 不回報它的內建工具',
+        instructions: 'Cursor 沒有能單次略過指示檔的設定（工作目錄與它上層每個資料夾的 AGENTS.md、CLAUDE.md、CLAUDE.local.md 與 .cursor/rules）',
+        memory: 'Cursor 沒有自己的記憶檔',
+        hooks: 'Cursor 沒有能單次略過 hook 的設定：~/.cursor/hooks.json 與組織的 hook 也會在 Harness Relay 的執行中執行',
+        agents: 'Cursor 沒有能單次略過 subagent 的設定',
+        plugins: 'Cursor 在 ACP 模式下不載入 plugin',
+      },
     } as Record<Provider, Record<NativePart, string>>,
     offCodexThreads:
       'Codex 會沿用對話開始時載入的 skill 清單、指示檔與記憶：這些項目的變更（包括 plugin 帶來的 skill）從新對話開始生效。MCP 伺服器、它們的工具與 hook 的變更下一回合就生效。',
@@ -1067,7 +1077,7 @@ export const zhTW = {
   },
   settings: {
     title: '設定與登入',
-    intro: 'Harness Relay 用你電腦上的 claude、codex、grok CLI 執行各個 agent。在這裡登入各個 CLI，設定 API key、執行檔路徑與預設模型，查看各 CLI 自己載入的 skill、MCP 與記憶，管理所有 CLI 共用的工具庫，並決定各 CLI 的 session 紀錄放在哪裡、要不要在 AgentsView 中檢視每個對話。',
+    intro: 'Harness Relay 用你電腦上的 claude、codex、grok、cursor-agent CLI 執行各個 agent。在這裡登入各個 CLI，設定 API key、執行檔路徑與預設模型，查看各 CLI 自己載入的 skill、MCP 與記憶，管理所有 CLI 共用的工具庫，並決定各 CLI 的 session 紀錄放在哪裡、要不要在 AgentsView 中檢視每個對話。',
     checking: '檢查中…',
     recheck: '重新檢查狀態',
     version: {
@@ -1110,10 +1120,10 @@ export const zhTW = {
     confirmCreateCwd: (dir: string) => `目錄不存在：${dir}\n要建立這個目錄並設為預設工作目錄嗎？`,
     cwdCreated: (dir: string) => `已建立 ${dir} 並設為預設工作目錄`,
     sessions: 'Agent 的 session',
-    sessionsHint: 'Harness Relay 啟動 claude、codex、grok 時，它們把登入、設定與 session 紀錄放在哪裡，以及是否在 AgentsView 中檢視每個對話。',
+    sessionsHint: 'Harness Relay 啟動 claude、codex、grok、cursor-agent 時，它們把登入、設定與 session 紀錄放在哪裡，以及是否在 AgentsView 中檢視每個對話。',
     agentHome: '各 CLI 自己的資料夾',
     agentHomeHint:
-      '設定後，Harness Relay 讓 claude、codex、grok 分別用這個資料夾下的 claude、codex、grok 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們也不再讀你平常家目錄裡的設定、MCP、skill、記憶與 plugin，Harness Relay 工具庫裡的照常提供。留空則使用各 CLI 平常的家目錄。',
+      '設定後，Harness Relay 讓 claude、codex、grok、cursor-agent 分別用這個資料夾下的 claude、codex、grok、cursor 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們也不再讀你平常家目錄裡的設定、MCP、skill、記憶與 plugin，Harness Relay 工具庫裡的照常提供。Cursor 例外：只有它的設定與 session 紀錄會放到那裡；它的登入，以及 ~/.cursor 裡的 skill、MCP 與 hooks，仍留在 Cursor 為你的使用者保存的地方。留空則使用各 CLI 平常的家目錄。',
     agentHomeUse: (dir: string) => `使用 ${dir}`,
     agentHomeSaved: (dir: string) => `各 CLI 現在使用 ${dir} 下的資料夾，請在上方重新登入`,
     agentHomeOff: '各 CLI 已改回使用平常的家目錄',
@@ -1140,6 +1150,7 @@ export const zhTW = {
       claude: '儲存後，Harness Relay 啟動 Claude Code 時會帶入 ANTHROPIC_API_KEY（改用 API 計費，優先於訂閱登入）。',
       codex: '會執行 codex login --with-api-key，金鑰由 Codex 自己保存（取代目前的 ChatGPT 登入）。',
       grok: '儲存後，Harness Relay 啟動 Grok 時會帶入 XAI_API_KEY。',
+      cursor: '儲存後，Harness Relay 啟動 Cursor 時會帶入 CURSOR_API_KEY，並讓 Cursor 只在那次執行中使用它，不會存進 Cursor 的登入（也就不會取代你自己的 Cursor 登入）。',
     },
     cliMissing: (bin: string) => `找不到 ${bin}`,
     setBinBelow: '（可在下方「執行檔」指定路徑）',
@@ -1150,6 +1161,8 @@ export const zhTW = {
     confirmCodexRelogin: '開始新的 Codex 登入會先登出目前的帳號，確定要繼續？',
     confirmLogout: (p: string) => `登出 ${p}？這會影響這台電腦上所有使用此 CLI 的地方。`,
     loggedOut: '已登出',
+    keyOnlyAccount:
+      'Cursor 在每個電腦使用者只保留一個登入（macOS 上存在鑰匙圈裡，不論它的資料夾在哪），所以這個額外帳號只能用 API key：請在下方設定。Cursor 自己的登入只屬於預設帳號。',
     keySaved: '已儲存 API key',
     keyRemoved: '已移除 API key',
     saved: '已儲存',
@@ -1201,7 +1214,7 @@ export const zhTW = {
     steps: [
       {
         title: '歡迎使用 Harness Relay',
-        body: '這是一個群組聊天室：Claude Code、Codex 和 Grok 會一起回答你的問題、一起改你的程式，全都在你的電腦上執行。接下來幾個步驟帶你認識主要功能。',
+        body: '這是一個群組聊天室：Claude Code、Codex、Grok 和 Cursor 會一起回答你的問題、一起改你的程式，全都在你的電腦上執行。接下來幾個步驟帶你認識主要功能。',
       },
       {
         title: '先確認各 agent 已登入',
@@ -1309,7 +1322,7 @@ export const zhTW = {
       },
       {
         title: '工具庫：MCP、skill 與記憶',
-        body: '在「設定 → 工具庫」設定一次，Claude Code、Codex 和 Grok 的成員都能用，而且加在各 CLI 自己的設定之外：',
+        body: '在「設定 → 工具庫」設定一次，Claude Code、Codex、Grok 和 Cursor 的成員都能用，而且加在各 CLI 自己的設定之外：',
         points: [
           'MCP 伺服器：本機指令或網址，token 存在系統的金鑰儲存區',
           'Skills：從資料夾裡挑選要加入的 skill（例如 ~/.claude/skills）',

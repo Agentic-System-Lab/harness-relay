@@ -114,7 +114,7 @@ describe('ToolLibrary', () => {
     expect(view.mcpServers[0]).toMatchObject({
       name: 'github',
       env: [{ name: 'GITHUB_TOKEN', masked: 'ghp…def' }],
-      providers: ['claude', 'codex', 'grok'],
+      providers: ['claude', 'codex', 'grok', 'cursor'],
     });
     expect(view.secretStorage).toBe('keychain');
     expect(JSON.stringify(stored(db))).not.toContain('ghp_1234567890abcdef');
@@ -351,7 +351,7 @@ describe('ToolLibrary', () => {
     );
     const view = new ToolLibrary(db).view();
     expect(view.mcpServers[0]!.providers).toEqual([]);
-    expect(view.skills[0]!.providers).toEqual(['claude', 'codex', 'grok']);
-    expect(view.memory).toEqual({ all: 'old notes', claude: '', codex: '', grok: '' });
+    expect(view.skills[0]!.providers).toEqual(['claude', 'codex', 'grok', 'cursor']);
+    expect(view.memory).toEqual({ all: 'old notes', claude: '', codex: '', grok: '', cursor: '' });
   });
 });

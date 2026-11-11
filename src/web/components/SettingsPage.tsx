@@ -7,6 +7,7 @@ import {
   PROVIDER_INSTALL_URL,
   PROVIDER_LABEL,
   catalogFor,
+  keyOnlyAccount,
   inheritedEffort,
   type AccountStatus,
   type LeadAgentSettings,
@@ -60,6 +61,17 @@ interface Props {
   /** Has the desktop app update (it asks the user first). */
   onInstallUpdate: () => Promise<void>;
 }
+
+/** The variable each CLI reads its API key from, as the server's own environment may set it (Codex keeps its key itself). */
+const KEY_ENV: Record<Provider, string> = {
+  claude: 'ANTHROPIC_API_KEY',
+  codex: 'CODEX_API_KEY',
+  grok: 'XAI_API_KEY',
+  cursor: 'CURSOR_API_KEY',
+};
+
+/** How each CLI's API keys start, as the key box's placeholder. */
+const KEY_PLACEHOLDER: Record<Provider, string> = { claude: 'sk-ant-…', codex: 'sk-…', grok: 'xai-…', cursor: 'key_…' };
 
 export function SettingsPage({ section, providers, catalog, refreshProviders, onShowTour, update, onCheckUpdate, onInstallUpdate }: Props) {
   const { t, lang, setLang } = useI18n();
@@ -536,6 +548,7 @@ function AccountBlock({
   const [busy, setBusy] = useState(false);
   const pill = statusPill(status && { installed, auth: status.auth, usingStoredApiKey: status.usingStoredApiKey }, t);
   const loggedIn = Boolean(status?.auth.loggedIn);
+  const keyOnly = keyOnlyAccount(provider, id);
 
   useEffect(() => setMethod((cur) => (methods.some((x) => x.id === cur) ? cur : (methods[0]?.id ?? ''))), [methods]);
 
@@ -659,28 +672,34 @@ function AccountBlock({
       </div>
       {id && account?.home && <p className="muted small mono-path">{t.accounts.folder(account.home)}</p>}
 
-      <div className="method-list" role="radiogroup">
-        {methods.map((m) => (
-          <label key={m.id} className={`method ${method === m.id ? 'on' : ''}`}>
-            <input type="radio" name={`m-${provider}-${id}`} checked={method === m.id} onChange={() => setMethod(m.id)} />
-            <span>{m.label}</span>
-          </label>
-        ))}
-      </div>
-      {selected && <p className="muted small">{selected.description}</p>}
-      <div className="button-row">
-        <button className="primary" onClick={startLogin} disabled={busy || running || !installed}>
-          {loggedIn ? t.settings.relogin : t.settings.login}
-        </button>
-        {loggedIn && (
-          <button className="ghost" onClick={logout} disabled={busy || running}>
-            {t.settings.logout}
-          </button>
-        )}
-      </div>
+      {keyOnly ? (
+        <p className="muted small">{t.settings.keyOnlyAccount}</p>
+      ) : (
+        <>
+          <div className="method-list" role="radiogroup">
+            {methods.map((m) => (
+              <label key={m.id} className={`method ${method === m.id ? 'on' : ''}`}>
+                <input type="radio" name={`m-${provider}-${id}`} checked={method === m.id} onChange={() => setMethod(m.id)} />
+                <span>{m.label}</span>
+              </label>
+            ))}
+          </div>
+          {selected && <p className="muted small">{selected.description}</p>}
+          <div className="button-row">
+            <button className="primary" onClick={startLogin} disabled={busy || running || !installed}>
+              {loggedIn ? t.settings.relogin : t.settings.login}
+            </button>
+            {loggedIn && (
+              <button className="ghost" onClick={logout} disabled={busy || running}>
+                {t.settings.logout}
+              </button>
+            )}
+          </div>
+        </>
+      )}
       {login && <LoginPanel login={login} provider={provider} account={id} onUpdate={setLogin} onError={setNote} />}
 
-      <details className="sub">
+      <details className="sub" open={keyOnly || undefined}>
         <summary>
           {t.settings.apiKey}
           {account?.apiKeyMasked ? t.settings.apiKeySet(account.apiKeyMasked) : ''}
@@ -690,13 +709,13 @@ function AccountBlock({
             {t.settings.apiKeyHelp[provider]}
             {account?.apiKeyStorage && t.settings.keyStorage(t.settings.keyStorageName[account.apiKeyStorage])}
             {/* The server's own environment is the default account's only. */}
-            {!id && account?.apiKeyStorage === 'database' && t.settings.keyEnvHint(provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY')}
+            {!id && account?.apiKeyStorage === 'database' && t.settings.keyEnvHint(KEY_ENV[provider])}
           </p>
           <div className="input-row">
             <input
               type="password"
               value={apiKey}
-              placeholder={provider === 'claude' ? 'sk-ant-…' : provider === 'codex' ? 'sk-…' : 'xai-…'}
+              placeholder={KEY_PLACEHOLDER[provider]}
               onChange={(e) => setApiKey(e.target.value)}
               autoComplete="off"
             />
@@ -1037,6 +1056,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     claude: PROVIDER_LABEL.claude,
     codex: PROVIDER_LABEL.codex,
     grok: PROVIDER_LABEL.grok,
+    cursor: PROVIDER_LABEL.cursor,
     lead: short.lead,
     tools: short.tools,
     voice: short.voice,

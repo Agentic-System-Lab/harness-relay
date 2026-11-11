@@ -80,6 +80,13 @@ describe("the agents' sessions", () => {
     expect(agentsViewSessionId('grok', 'abc')).toBe('grok:abc');
     expect(agentSessionIds(conversation())).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0']);
   });
+
+  it("leaves out Cursor's, which AgentsView does not read (its ACP sessions are a database of its own)", () => {
+    expect(agentsViewSessionId('cursor', 'abc')).toBeUndefined();
+    const conv = conversation();
+    conv.agentState.c = { provider: 'cursor', sessionId: 'c1a2', seen: [] };
+    expect(agentSessionIds(conv)).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0']);
+  });
 });
 
 interface Call {
@@ -266,6 +273,7 @@ describe('sending a conversation to AgentsView', () => {
     sync.link(conv, 'grok', 'lead-1');
     sync.link(conv, 'claude', 'sorter-1');
     sync.link(conv, 'codex', '01a1bb71-4292'); // a member's session: linked once
+    sync.link(conv, 'cursor', 'lead-2'); // not one AgentsView reads
     sync.schedule(conv);
     await sync.idle();
     const linked = av.calls.filter((c) => c.method === 'PUT').map((c) => decodeURIComponent(c.url.pathname).split('/')[4]);

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PROVIDER_LABEL, accountUsable, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
+import { PROVIDERS, PROVIDER_LABEL, accountUsable, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { settingsHref } from '../route';
@@ -121,7 +121,7 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
 
       <div className="sidebar-bottom" data-tour="settings">
         <div className="provider-health">
-          {(['claude', 'codex', 'grok'] as const).map((id) => {
+          {PROVIDERS.map((id) => {
             const p = providers.find((x) => x.provider === id);
             const s = providerState(p);
             return (

@@ -12,7 +12,7 @@ Open an issue and include:
 
 - what you did, what you expected and what happened instead;
 - your operating system, Node.js version (`node --version`) and Harness Relay commit (`git rev-parse --short HEAD`);
-- the agent CLIs involved and their versions (`claude --version`, `codex --version`, `grok --version`);
+- the agent CLIs involved and their versions (`claude --version`, `codex --version`, `grok --version`, `cursor-agent --version`);
 - the conversation's mode (roundtable, parallel or relay), permission (read-only, edit or full access), and whether the lead agent's team is used without asking;
 - the error shown on the message (it includes the end of the CLI's stderr) and the `[server]` lines from the `npm run dev` output around that time.
 
@@ -28,7 +28,7 @@ Open an issue that describes the problem you want solved before you describe a s
 
 ## Setting up
 
-You need Node.js **22.13 or later**. The agent CLIs (`claude`, `codex`, `grok`) are only needed to try the app by hand; the tests never run them.
+You need Node.js **22.13 or later**. The agent CLIs (`claude`, `codex`, `grok`, `cursor-agent`) are only needed to try the app by hand; the tests never run them.
 
 ```bash
 git clone https://github.com/Agentic-System-Lab/harness-relay.git

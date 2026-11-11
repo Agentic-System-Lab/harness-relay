@@ -337,7 +337,7 @@ export function validateAgents(input: unknown): AgentConfig[] {
   });
 }
 
-const TOOL_KEY_RE = /^(memory|memory:(claude|codex|grok)|mcp:[A-Za-z0-9_-]{1,40}|skill:[^\0]{1,4000})$/;
+const TOOL_KEY_RE = /^(memory|memory:(claude|codex|grok|cursor)|mcp:[A-Za-z0-9_-]{1,40}|skill:[^\0]{1,4000})$/;
 
 /** The CLIs a library item is on for by default; absent = all of them. */
 function validProviders(input: unknown, field: string): Provider[] {

@@ -784,7 +784,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       { path: '/skills/pdf', name: 'pdf', description: 'Make PDFs', providers: ['claude', 'codex', 'grok'] },
       { path: '/skills/broken', name: 'broken', description: '', providers: ['claude'], problem: 'no SKILL.md' },
     ],
-    memory: { all: 'We use pnpm.\n  Always.', claude: '', codex: 'Codex: run tests', grok: '' },
+    memory: { all: 'We use pnpm.\n  Always.', claude: '', codex: 'Codex: run tests', grok: '', cursor: '' },
   });
 
   it('reads the tool library: MCP servers, usable skills and the memory parts that are set, with their keys', () => {
@@ -792,7 +792,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       { name: 'mcp:browser', key: 'mcp:srv1', providers: ['claude'] },
       { name: 'mcp:db', key: 'mcp:srv2', providers: [] },
       { name: 'skill:pdf', key: 'skill:/skills/pdf', about: 'Make PDFs', providers: ['claude', 'codex', 'grok'] },
-      { name: 'memory', key: 'memory', about: 'We use pnpm. Always.', providers: ['claude', 'codex', 'grok'] },
+      { name: 'memory', key: 'memory', about: 'We use pnpm. Always.', providers: ['claude', 'codex', 'grok', 'cursor'] },
       { name: 'memory:codex', key: 'memory:codex', about: 'Codex: run tests', providers: ['codex'], only: 'codex' },
     ]);
   });
@@ -937,7 +937,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       ],
       catalog: async () => catalog,
       presets: () => [],
-      library: () => ({ mcpServers: [], skills: [], memory: { all: 'notes', claude: '', codex: '', grok: '' } }),
+      library: () => ({ mcpServers: [], skills: [], memory: { all: 'notes', claude: '', codex: '', grok: '', cursor: '' } }),
       native: async (p, cwd, acc) => {
         asked.push(`${p} ${cwd} ${acc || 'default'}`);
         if (p === 'codex') return new Promise(() => {}); // never answers
@@ -953,7 +953,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       claude: { builtinTools: ['Bash'], skills: [{ name: 'commit', description: '' }], mcpServers: [] },
       codex: { skills: [], mcpServers: [], unknown: 'late' },
     });
-    expect(got.library).toEqual([{ name: 'memory', key: 'memory', about: 'notes', providers: ['claude', 'codex', 'grok'] }]);
+    expect(got.library).toEqual([{ name: 'memory', key: 'memory', about: 'notes', providers: ['claude', 'codex', 'grok', 'cursor'] }]);
     asked.length = 0;
     expect((await plannerContext(src)).native).toBeUndefined();
     expect(asked).toEqual([]);
@@ -965,7 +965,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       statuses: async () => [{ provider: 'claude', installed: true, bin: 'claude', auth: { loggedIn: true }, usingStoredApiKey: false, accounts: [{ id: '', label: '', auth: { loggedIn: true }, usingStoredApiKey: false }] }],
       catalog: async () => catalog,
       presets: () => [],
-      library: () => ({ mcpServers: [], skills: [], memory: { all: '', claude: '', codex: '', grok: '' } }),
+      library: () => ({ mcpServers: [], skills: [], memory: { all: '', claude: '', codex: '', grok: '', cursor: '' } }),
       native,
     });
     const refused = await plannerContext(with_(async () => ({ ...answered, problems: [{ kind: 'failed', detail: 'Unsupported control request subtype: get_hooks_listing' }] })), '/w', 50);

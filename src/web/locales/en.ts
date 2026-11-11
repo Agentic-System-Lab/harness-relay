@@ -817,7 +817,7 @@ export const en: Messages = {
       included: (n) => `${n} ${n === 1 ? 'file is' : 'files are'} included: anyone with the link can download ${n === 1 ? 'it' : 'them'}.`,
     },
     page: {
-      tagline: 'A local group chat for the real Claude Code, Codex and Grok CLIs',
+      tagline: 'A local group chat for the real Claude Code, Codex, Grok and Cursor CLIs',
       note: (date) => `Shared ${date}`,
       site: "Harness Relay's website",
       image: (name) => `(Image not included${name ? `: ${name}` : ''})`,
@@ -865,7 +865,7 @@ export const en: Messages = {
 
   tools: {
     title: 'Tool library',
-    hint: 'MCP servers, skills and memory here are given to members, the same way for Claude Code, Codex and Grok, in addition to each CLI\'s own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member\'s card under New chat, or Team settings in a chat\'s header. Changes take effect from a member\'s next turn.',
+    hint: 'MCP servers, skills and memory here are given to members, the same way for Claude Code, Codex, Grok and Cursor, in addition to each CLI\'s own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member\'s card under New chat, or Team settings in a chat\'s header. Changes take effect from a member\'s next turn.',
     mcp: 'MCP servers',
     mcpHint: "Their tool calls follow the conversation's permission like any other action: anything beyond it asks you, or is refused if you chose so.",
     addMcp: 'Add MCP server',
@@ -1008,6 +1008,16 @@ export const en: Messages = {
         agents: 'Grok has no setting that leaves out only its custom subagents',
         plugins: "Grok's plugins (the Claude Code plugins it loads among them) can only be turned off in plugins.disabled in ~/.grok/config.toml (Grok's own global setting: it also applies when you use Grok in a terminal, and Harness Relay does not change it)",
       },
+      cursor: {
+        skills: 'Cursor has no setting to skip skills for one run (it loads the skills folders of .cursor, .claude, .codex, .grok and .agents in the working directory and in your home folder)',
+        mcp: "Cursor has no setting to skip MCP servers for one run: those in ~/.cursor/mcp.json load; a project's .cursor/mcp.json servers must be approved in Cursor first, which Harness Relay's runs never ask, so they do not load",
+        tools: 'Cursor does not report its built-in tools',
+        instructions: 'Cursor has no setting to skip instruction files for one run (AGENTS.md, CLAUDE.md, CLAUDE.local.md and .cursor/rules in the working directory and every folder above it)',
+        memory: 'Cursor keeps no memory files of its own',
+        hooks: "Cursor has no setting to skip hooks for one run: ~/.cursor/hooks.json and your organisation's hooks also run in Harness Relay's runs",
+        agents: 'Cursor has no setting to skip subagents for one run',
+        plugins: 'Cursor loads no plugins in ACP mode',
+      },
     },
     offCodexThreads:
       "Codex keeps the skills list, instruction files and memory a chat started with: changes to these (plugins' skills among them) take effect in new chats. Changes to MCP servers, their tools and hooks take effect at the next turn.",
@@ -1054,7 +1064,7 @@ export const en: Messages = {
   },
   settings: {
     title: 'Settings & sign-in',
-    intro: "Harness Relay runs each agent through the claude, codex and grok CLIs on your computer. Sign in to each CLI here, set API keys, executable paths and default models, see the skills, MCP servers and memory each CLI loads by itself, manage the tool library every CLI shares, and choose where the CLIs keep their session records and whether to view each conversation in AgentsView.",
+    intro: "Harness Relay runs each agent through the claude, codex, grok and cursor-agent CLIs on your computer. Sign in to each CLI here, set API keys, executable paths and default models, see the skills, MCP servers and memory each CLI loads by itself, manage the tool library every CLI shares, and choose where the CLIs keep their session records and whether to view each conversation in AgentsView.",
     checking: 'Checking…',
     recheck: 'Check again',
     version: {
@@ -1097,10 +1107,10 @@ export const en: Messages = {
     cwdCreated: (dir: string) => `Created ${dir} and made it the default working directory`,
     sessions: 'Agent sessions',
     sessionsHint:
-      'Where claude, codex and grok keep their sign-in, settings and session records when Harness Relay runs them, and whether to view each conversation in AgentsView.',
+      'Where claude, codex, grok and cursor-agent keep their sign-in, settings and session records when Harness Relay runs them, and whether to view each conversation in AgentsView.',
     agentHome: "The CLIs' own folder",
     agentHomeHint:
-      "When set, Harness Relay has claude, codex and grok use its claude, codex and grok subfolders as their homes: their sign-in, settings and session records go there, apart from your own use of the CLIs. Sign in to each CLI again above (or set an API key). They also stop reading the settings, MCP servers, skills, memory and plugins in your usual homes; those in Harness Relay's tool library are still given. Leave it empty to use each CLI's usual home.",
+      "When set, Harness Relay has claude, codex, grok and cursor-agent use its claude, codex, grok and cursor subfolders as their homes: their sign-in, settings and session records go there, apart from your own use of the CLIs. Sign in to each CLI again above (or set an API key). They also stop reading the settings, MCP servers, skills, memory and plugins in your usual homes; those in Harness Relay's tool library are still given. Cursor is the exception: only its settings and session records move there; its sign-in, and the skills, MCP servers and hooks in ~/.cursor, stay where Cursor keeps them for your user. Leave it empty to use each CLI's usual home.",
     agentHomeUse: (dir: string) => `Use ${dir}`,
     agentHomeSaved: (dir: string) => `The CLIs now use the folders in ${dir}. Sign in to them again above.`,
     agentHomeOff: 'The CLIs use their usual homes again',
@@ -1127,6 +1137,7 @@ export const en: Messages = {
       claude: 'Once saved, Harness Relay passes ANTHROPIC_API_KEY when it starts Claude Code (API billing, which takes precedence over a subscription sign-in).',
       codex: 'Runs codex login --with-api-key; Codex keeps the key itself (replacing the current ChatGPT sign-in).',
       grok: 'Once saved, Harness Relay passes XAI_API_KEY when it starts Grok.',
+      cursor: "Once saved, Harness Relay passes CURSOR_API_KEY when it starts Cursor, and has Cursor use it for that run only: it is not saved into Cursor's sign-in (so it does not replace your own Cursor sign-in).",
     },
     cliMissing: (bin) => `${bin} not found`,
     setBinBelow: ' (set its path under "Executable" below)',
@@ -1137,6 +1148,8 @@ export const en: Messages = {
     confirmCodexRelogin: 'Starting a new Codex sign-in signs out the current account first. Continue?',
     confirmLogout: (p) => `Sign out of ${p}? This affects everything on this computer that uses this CLI.`,
     loggedOut: 'Signed out',
+    keyOnlyAccount:
+      "Cursor keeps one sign-in per computer user (on macOS in the keychain, wherever its folder is), so this extra account can only use an API key: set one below. Cursor's own sign-in belongs to the default account.",
     keySaved: 'API key saved',
     keyRemoved: 'API key removed',
     saved: 'Saved',
@@ -1188,7 +1201,7 @@ export const en: Messages = {
     steps: [
       {
         title: 'Welcome to Harness Relay',
-        body: 'A group chat where Claude Code, Codex and Grok answer your questions and work on your code together, all on your own computer. The next few steps show you around.',
+        body: 'A group chat where Claude Code, Codex, Grok and Cursor answer your questions and work on your code together, all on your own computer. The next few steps show you around.',
       },
       {
         title: 'Check that each agent is signed in',
@@ -1296,7 +1309,7 @@ export const en: Messages = {
       },
       {
         title: 'Tool library: MCP, skills and memory',
-        body: "Set them up once in Settings → Tool library, and members on Claude Code, Codex and Grok can all use them, in addition to each CLI's own setup:",
+        body: "Set them up once in Settings → Tool library, and members on Claude Code, Codex, Grok and Cursor can all use them, in addition to each CLI's own setup:",
         points: [
           'MCP servers: a local command or a URL; tokens go to your system credential store',
           'Skills: pick the skills to add from a folder (such as ~/.claude/skills)',

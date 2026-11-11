@@ -6,9 +6,9 @@
 
 **網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/
 
-一個在本機執行的群組聊天室，讓真正的 **Claude Code、Codex 和 Grok** CLI 組成團隊：替每個 agent 安排角色、決定輪流發言的方式，它們就會處理你的程式碼或任何問題，並且互相回應。
+一個在本機執行的群組聊天室，讓真正的 **Claude Code、Codex、Grok 和 Cursor** CLI 組成團隊：替每個 agent 安排角色、決定輪流發言的方式，它們就會處理你的程式碼或任何問題，並且互相回應。
 
-每個問題都由首席 agent 從你的範本挑選團隊（或依範本調整、重新設計），你確認後團隊才開始回答：每個 agent 的定位（架構師、實作者、審查者、魔鬼代言人……）、模型與推理強度，以及對話模式（圓桌、平行或接力）。團隊設計放在範本裡。Harness Relay 會用你自己的登入與工具執行 `claude`、`codex`、`grok`，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
+每個問題都由首席 agent 從你的範本挑選團隊（或依範本調整、重新設計），你確認後團隊才開始回答：每個 agent 的定位（架構師、實作者、審查者、魔鬼代言人……）、模型與推理強度，以及對話模式（圓桌、平行或接力）。團隊設計放在範本裡。Harness Relay 會用你自己的登入與工具執行 `claude`、`codex`、`grok`、`cursor-agent`，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
 
 ## 示範
 
@@ -16,9 +16,9 @@
 
 ## 功能
 
-- **三個 coding agent 同一個聊天室**：直接使用你已安裝的 `claude`、`codex`、`grok` CLI，保有它們各自的工具、session 與登入狀態。
+- **四個 coding agent 同一個聊天室**：直接使用你已安裝的 `claude`、`codex`、`grok`、`cursor-agent` CLI，保有它們各自的工具、session 與登入狀態。
 - **用範本設計團隊**：角色、模型、推理強度、發言順序；五個內建範本（寫程式與一般問題）可以複製修改，也能在新對話頁新增、修改自己的範本。對話中也能隨時調整目前的團隊：自己動手改，或告訴首席 agent 想怎麼改。
-- **附加檔案**：直接貼上截圖、拖曳檔案或按 📎；每個 agent 都拿得到檔案，圖片也會直接交給三種 CLI 看。
+- **附加檔案**：直接貼上截圖、拖曳檔案或按 📎；每個 agent 都拿得到檔案，圖片也會直接交給四種 CLI 看。
 - **語音輸入（選用）**：在輸入框按 🎙 說話，由你電腦上的 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) 轉成文字，錄音不會離開這台電腦。不需要就不會安裝：第一次按下時會先說明要下載什麼，再於背景安裝引擎與模型（進度、換模型與移除都在設定頁）。支援 macOS（Homebrew、Metal GPU）、Linux 與 Windows（x64 / arm64）。
 - **每個問題自動組隊**：首席 agent 會讀你的問題、先前的對話、目前的團隊與所有範本的完整內容，再決定沿用團隊、直接套用範本、依範本調整，或從頭設計新團隊，並說明原因；你確認後（也可以設定為直接採用）團隊就開始回答；@ 成員的追問則直接交給他。它設計或調整的團隊可以存成範本。
 - **agent 之間互相溝通**，三種對話模式：
@@ -39,10 +39,10 @@
 - **狀態一目了然**：側邊欄會標示需要你處理、正在回覆或有新回覆的對話；切換到其他對話時，原本的對話會繼續執行。
 - **群組與搜尋**：在側邊欄建立群組，把對話拖進去；首席 agent 會依新對話的第一則訊息把它放進最適合的群組（都不適合就留在 **其他**）。群組裡的分支會列在它分支出來的對話底下，換群組時整串一起移動。搜尋可以用對話裡寫過的任何內容找到對話。
 - **工具庫：MCP 伺服器、skill 與記憶**：在設定裡設定一次，不管成員跑在哪個 CLI 都能用，而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；記憶分成所有成員共用和各 CLI 專屬；也能針對單一成員調整。token 存在系統的金鑰儲存區。
-- **在 AgentsView 中檢視 agent 的 session（選用）**：讓各 CLI 在 Harness Relay 中使用自己的資料夾（例如 `~/.relay-agents`），和你平常直接使用時分開；並在 [AgentsView](https://www.agentsview.io) 中把每個對話看成一個 thread，底下是各 agent 自己的 session（工具呼叫、token 與成本）。兩者都是設定，所以在 macOS、Linux、Windows 上都照常用 `npm start`。見[使用者說明](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)。
+- **在 AgentsView 中檢視 agent 的 session（選用）**：讓各 CLI 在 Harness Relay 中使用自己的資料夾（例如 `~/.relay-agents`），和你平常直接使用時分開；並在 [AgentsView](https://www.agentsview.io) 中把每個對話看成一個 thread，底下是各 agent 自己的 session（工具呼叫、token 與成本；Cursor 的不在其中，AgentsView 讀不到）。兩者都是設定，所以在 macOS、Linux、Windows 上都照常用 `npm start`。見[使用者說明](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)。
 - **瀏覽工作目錄**：對話上方的 **檔案** 會列出工作目錄（平行模式下也可以看某位成員的 worktree），並預覽程式碼（附行號和語法上色）、Markdown、圖片與影片；任何檔案都可以下載，任何資料夾（包括目前所在的資料夾）也可以下載成 ZIP 檔。
-- **每個 CLI 多個帳號**：每個 CLI 都能登入多個帳號，例如兩個 Claude 訂閱、Codex 的三個 ChatGPT 帳號、Grok 的三個 xAI 帳號，各自有自己的登入、API key、資料夾、預設模型與推理強度，以及不載入哪些項目，並為每位團隊成員（以及首席 agent）選擇要用哪個帳號。見[使用說明](docs/user-guide.zh-TW.md#多個帳號)。
-- **設定與登入頁**：分別登入各個 CLI（裝置碼、瀏覽器、貼上授權碼），設定執行檔路徑與首席 agent，並為每個帳號設定 API key、預設模型與推理強度；也能查看各 CLI 在每個帳號裡自己載入的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶，並讓 Harness Relay 執行時整類或逐項不載入。
+- **每個 CLI 多個帳號**：每個 CLI 都能登入多個帳號，例如兩個 Claude 訂閱、Codex 的三個 ChatGPT 帳號、Grok 的三個 xAI 帳號（Cursor 在每個電腦使用者只保留一個登入，所以它額外的帳號用 API key 登入），各自有自己的登入、API key、資料夾、預設模型與推理強度，以及不載入哪些項目，並為每位團隊成員（以及首席 agent）選擇要用哪個帳號。見[使用說明](docs/user-guide.zh-TW.md#多個帳號)。
+- **設定與登入頁**：分別登入各個 CLI（裝置碼、瀏覽器、貼上授權碼），設定執行檔路徑與首席 agent，並為每個帳號設定 API key、預設模型與推理強度；也能查看各 CLI 在每個帳號裡自己載入的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶，並讓 Harness Relay 執行時整類或逐項不載入（Cursor 沒辦法）。
 - **回報問題**：側邊欄「設定」旁的圖示會用你的郵件程式或 Gmail 寫信給開發者，回報內容與版本、系統資訊都已填好；截圖可以拖進信裡，或用 `gh` 上傳成 secret gist 讓信裡附上連結，再寄出。
 - **English 與繁體中文**：介面跟著瀏覽器的語言（可在設定頁切換）；第一次開啟時會有使用導覽介紹主要功能。
 - **完全在本機**：所有資料存在單一 SQLite 檔案；伺服器只監聽 `127.0.0.1`。
@@ -56,8 +56,9 @@
   - [Claude Code](https://docs.claude.com/en/docs/claude-code)（`claude`）
   - [Codex CLI](https://github.com/openai/codex)（`codex`）
   - [Grok CLI](https://github.com/xai-org/grok-build)（`grok`）
+  - [Cursor CLI](https://cursor.com/cli)（`cursor-agent`）
 
-不需要三個都裝；任何組合都能用，也可以在設定頁登入。
+不需要四個都裝；任何組合都能用，也可以在設定頁登入。
 
 語音輸入是選用的，開啟時會自動安裝：macOS 需要 [Homebrew](https://brew.sh)；Linux 的預先編譯引擎需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新）。
 
@@ -110,9 +111,9 @@ npm run desktop:dist
 
 ## 安全性
 
-agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**或**完全存取**）。完全存取會讓 agent 不經詢問就執行任何指令，請只在你信任的目錄使用。在完全存取以外的權限，每個 agent 的指令都在它那個 CLI 的作業系統沙箱中執行，只能寫入工作目錄與暫存資料夾；Codex 的沙箱也讓指令無法連網，Claude Code 的沙箱會在指令要連到每個主機時詢問你。Grok 的沙箱只在 Linux 上擋得了網路，所以在可編輯模式下，Grok 執行的專案程式碼仍能連網：測試、建置和專案腳本執行的都是 agent 能修改的程式碼，所以不信任的程式碼或指示請用唯讀。在原生 Windows 上只有 Codex 有沙箱（見[各平台的作業系統沙箱](docs/sandboxing.zh-TW.md)）。沙箱也讓 agent 碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫；工作目錄包含 Harness Relay 本身、你的家目錄或 CLI 自己的資料夾時，則會拒絕可編輯模式。伺服器只綁定 `127.0.0.1`、拒絕跨站請求，並且只接受你登入過的瀏覽器：用它啟動時印出的連結、`npm run login`，或已登入瀏覽器產生的代碼（給手機用）登入。所以你電腦上的其他程式，包括 agent 執行的程式碼，都無法透過它操作 agent，除非它們讀得到你瀏覽器的資料，或寫得到 Harness Relay 的 `data/` 資料夾（見[登入](docs/architecture.zh-TW.md#登入)）。只透過 `tailscale serve` 分享到你的 tailnet；請不要用其他方式開放它（見[用手機連線](docs/remote-access.zh-TW.md#安全性)）。詳見[架構 → 安全性](docs/architecture.zh-TW.md#安全性)。
+agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**或**完全存取**）。完全存取會讓 agent 不經詢問就執行任何指令，請只在你信任的目錄使用。在完全存取以外的權限，Claude Code、Codex 與 Grok 的指令都在它們那個 CLI 的作業系統沙箱中執行，只能寫入工作目錄與暫存資料夾；Codex 的沙箱也讓指令無法連網，Claude Code 的沙箱會在指令要連到每個主機時詢問你。Grok 的沙箱只在 Linux 上擋得了網路，所以在可編輯模式下，Grok 執行的專案程式碼仍能連網：測試、建置和專案腳本執行的都是 agent 能修改的程式碼，所以不信任的程式碼或指示請用唯讀。在原生 Windows 上只有 Codex 有沙箱（見[各平台的作業系統沙箱](docs/sandboxing.zh-TW.md)）。Cursor 在 Harness Relay 執行它的模式下，不管哪個系統都沒有沙箱：在完全存取以外的權限，它要執行的每個指令都會先詢問你（對話設為自動拒絕時則直接拒絕），你允許的指令會在沙箱外、以你的權限執行，也能連網。沙箱也讓 agent 碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫（Cursor 自己的檔案工具靠拒絕規則，它的指令只靠詢問）；工作目錄包含 Harness Relay 本身、你的家目錄或 CLI 自己的資料夾時，則會拒絕可編輯模式。伺服器只綁定 `127.0.0.1`、拒絕跨站請求，並且只接受你登入過的瀏覽器：用它啟動時印出的連結、`npm run login`，或已登入瀏覽器產生的代碼（給手機用）登入。所以你電腦上的其他程式，包括 agent 執行的程式碼，都無法透過它操作 agent，除非它們讀得到你瀏覽器的資料，或寫得到 Harness Relay 的 `data/` 資料夾（見[登入](docs/architecture.zh-TW.md#登入)）。只透過 `tailscale serve` 分享到你的 tailnet；請不要用其他方式開放它（見[用手機連線](docs/remote-access.zh-TW.md#安全性)）。詳見[架構 → 安全性](docs/architecture.zh-TW.md#安全性)。
 
-在設定頁儲存的 API key，以及工具庫裡 MCP 伺服器環境變數與標頭的值，會放在作業系統的金鑰儲存區（macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service，例如 GNOME Keyring、KWallet），而不是資料庫。只有在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，才會留在只有你的帳號能讀取的 `data/relay.db`；若想避免，可以不在設定頁儲存，改在啟動 Harness Relay 前設定 `ANTHROPIC_API_KEY` / `XAI_API_KEY`。
+在設定頁儲存的 API key，以及工具庫裡 MCP 伺服器環境變數與標頭的值，會放在作業系統的金鑰儲存區（macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service，例如 GNOME Keyring、KWallet），而不是資料庫。只有在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，才會留在只有你的帳號能讀取的 `data/relay.db`；若想避免，可以不在設定頁儲存，改在啟動 Harness Relay 前設定 `ANTHROPIC_API_KEY` / `XAI_API_KEY` / `CURSOR_API_KEY`。
 
 ## 指令
 

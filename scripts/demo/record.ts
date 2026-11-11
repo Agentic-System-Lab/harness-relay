@@ -168,8 +168,12 @@ async function api<T>(base: string, path: string, body?: unknown): Promise<T> {
 }
 
 /** Every CLI installed and signed in, and Grok trusting this repository (it asks otherwise, and the demo would stop there). */
+/** The CLIs the demo's first question asks for, one member each. */
+export const DEMO_PROVIDERS: readonly Provider[] = ['claude', 'codex', 'grok'];
+
 export async function checkProviders(base: string, log: (...a: unknown[]) => void): Promise<void> {
-  const all = await api<ProviderStatus[]>(base, '/api/providers?refresh=1');
+  // The CLIs its questions name (Cursor is not among them).
+  const all = (await api<ProviderStatus[]>(base, '/api/providers?refresh=1')).filter((p) => DEMO_PROVIDERS.includes(p.provider));
   const missing = all.filter((p) => !p.installed || p.auth.loggedIn === false);
   for (const p of all) log('provider', p.provider, p.version ?? '', p.installed ? (p.auth.loggedIn === false ? 'not signed in' : 'ready') : 'not installed');
   if (missing.length) throw new Error(`The demo needs all three CLIs, installed and signed in: ${missing.map((p) => p.provider).join(', ')}`);

@@ -24,11 +24,10 @@ import type { NativePart, Permission } from '../../shared/types';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
 import { commandPaths, patternPath, protectedReads, realPath, relayTmpDir } from '../protect';
-import { JsonRpcConnection, RpcError } from './acp';
+import { JsonRpcConnection, RpcError, acpContentText as contentText, acpMcpServers, acpPrompt, answerPermission } from './acp';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
-  imageData,
   summarizeInput,
   tailText,
   webSearchDetail,
@@ -41,15 +40,6 @@ import {
 } from './types';
 import { t } from '../i18n';
 
-/** ACP prompt blocks: the text, plus attached images (Grok advertises promptCapabilities.image). */
-export function grokPrompt(prompt: string, images: RunOptions['images']): unknown[] {
-  const blocks: unknown[] = [{ type: 'text', text: prompt }];
-  for (const img of images ?? []) {
-    const data = imageData(img.path);
-    if (data) blocks.push({ type: 'image', data, mimeType: img.mimeType });
-  }
-  return blocks;
-}
 
 /*
  * Grok runs as an ACP agent (`grok agent stdio`: JSON-RPC over stdin/stdout), not headless `grok -p`.
@@ -619,30 +609,6 @@ function declined(call: GrokToolCall, note?: string): GrokDecision {
   };
 }
 
-/** Builds the reply to `session/request_permission`. */
-function answerPermission(decision: GrokDecision, options: { optionId: string; kind: string }[]) {
-  const pick = (kind: string) => options.find((o) => o.kind === kind)?.optionId;
-  if (decision.allow) {
-    const optionId = pick('allow_once') ?? pick('allow_always');
-    if (optionId) return { outcome: { outcome: 'selected', optionId } };
-  } else {
-    const optionId = pick('reject_once') ?? pick('reject_always');
-    // grok treats a rejection carrying a follow-up message as feedback for the model, not a cancel.
-    if (optionId) return { outcome: { outcome: 'selected', optionId }, _meta: { followup_message: decision.reason } };
-  }
-  return { outcome: { outcome: 'cancelled' } };
-}
-
-/** Text of an ACP tool-call `content` array (e.g. the reason a call failed). */
-function contentText(content: unknown): string | undefined {
-  if (!Array.isArray(content)) return undefined;
-  const text = content
-    .map((c) => (typeof c?.content?.text === 'string' ? c.content.text : typeof c?.text === 'string' ? c.text : ''))
-    .filter(Boolean)
-    .join(' ')
-    .trim();
-  return text || undefined;
-}
 
 const DONE = new Set(['completed', 'failed', 'cancelled', 'rejected']);
 
@@ -783,19 +749,9 @@ export function describeGrokCancel(failure: { tool: string; reason?: string } | 
   return m.grokCancelled(failure.tool, failure.reason) + hint;
 }
 
-/**
- * The tool library's MCP servers in ACP's form. Grok adds the ones from its own config files. HTTP
- * servers only go to an agent that says it takes them (`mcpCapabilities.http`); ACP forbids them otherwise.
- */
+/** The tool library's MCP servers in ACP's form (`acpMcpServers`); Grok adds the ones from its own config files. */
 export function grokMcpServers(servers: McpServerSpec[], http = true): Record<string, unknown>[] {
-  const list = (vars: Record<string, string>) => Object.entries(vars).map(([name, value]) => ({ name, value }));
-  const skipped = http ? [] : servers.filter((s) => s.transport === 'http');
-  if (skipped.length) console.warn(`[grok] this grok does not take HTTP MCP servers; left out: ${skipped.map((s) => s.name).join(', ')}`);
-  return servers.filter((s) => http || s.transport !== 'http').map((s) =>
-    s.transport === 'http'
-      ? { type: 'http', name: s.name, url: s.url, headers: list(s.headers) }
-      : { name: s.name, command: s.command, args: s.args, env: list(s.env) },
-  );
+  return acpMcpServers(servers, http, 'grok');
 }
 
 /** `costUsdTicks` are 1e-10 USD. */
@@ -963,7 +919,7 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
         });
     }
 
-    const result = await conn.request('session/prompt', { sessionId, prompt: grokPrompt(o.prompt, o.images) });
+    const result = await conn.request('session/prompt', { sessionId, prompt: acpPrompt(o.prompt, o.images) });
     updates.finish();
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (result?.stopReason === 'cancelled') throw new AgentRunError(describeGrokCancel(updates.lastFailure, o.permission));

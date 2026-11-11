@@ -10,8 +10,13 @@ import type { ChatMessage, Conversation, Provider } from '../shared/types';
  * agents' sessions nested under it and their costs added up.
  */
 
-/** How AgentsView names a CLI's session: Claude Code's by its own id, the others with a prefix. */
-export function agentsViewSessionId(provider: Provider, sessionId: string): string {
+/**
+ * How AgentsView names a CLI's session: Claude Code's by its own id, Codex's and Grok's with a prefix.
+ * Cursor keeps its ACP sessions in a database of its own (`acp-sessions/<id>/store.db`), which
+ * AgentsView does not read, so they are not linked (undefined); its replies are in the thread.
+ */
+export function agentsViewSessionId(provider: Provider, sessionId: string): string | undefined {
+  if (provider === 'cursor') return undefined;
   return provider === 'claude' ? sessionId : `${provider}:${sessionId}`;
 }
 
@@ -19,7 +24,8 @@ export function agentsViewSessionId(provider: Provider, sessionId: string): stri
 export function agentSessionIds(conv: Conversation): string[] {
   const ids: string[] = [];
   for (const state of Object.values(conv.agentState)) {
-    if (state.sessionId && state.provider) ids.push(agentsViewSessionId(state.provider, state.sessionId));
+    const id = state.sessionId && state.provider ? agentsViewSessionId(state.provider, state.sessionId) : undefined;
+    if (id) ids.push(id);
   }
   return ids;
 }
@@ -136,8 +142,10 @@ export class AgentsViewSync implements TraceSink {
   }
 
   link(conv: Conversation, provider: Provider, sessionId: string): void {
+    const id = agentsViewSessionId(provider, sessionId);
+    if (!id) return;
     const ids = this.extra.get(conv.id) ?? new Set<string>();
-    ids.add(agentsViewSessionId(provider, sessionId));
+    ids.add(id);
     this.extra.set(conv.id, ids);
   }
 

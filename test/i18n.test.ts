@@ -65,6 +65,7 @@ describe("where Settings sends someone whose CLI is not found", () => {
       claude: 'https://claude.com/product/claude-code',
       codex: 'https://openai.com/codex/',
       grok: 'https://x.ai/build',
+      cursor: 'https://cursor.com/cli',
     });
     for (const p of PROVIDERS) expect(new URL(PROVIDER_INSTALL_URL[p]).protocol, p).toBe('https:');
     expect(zhTW.settings.installCli('Grok')).toBe('到官網安裝 Grok');

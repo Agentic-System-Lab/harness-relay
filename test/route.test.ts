@@ -23,7 +23,7 @@ describe('client routes', () => {
   });
 
   it('has a settings section for every CLI', () => {
-    expect(SETTINGS_SECTIONS).toEqual(['version', 'language', 'appearance', 'claude', 'codex', 'grok', 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'browsers', 'tour']);
+    expect(SETTINGS_SECTIONS).toEqual(['version', 'language', 'appearance', 'claude', 'codex', 'grok', 'cursor', 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'browsers', 'tour']);
   });
 });
 

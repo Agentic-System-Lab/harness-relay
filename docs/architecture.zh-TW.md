@@ -7,7 +7,7 @@ Harness Relay 是一個在本機執行的網頁應用程式，分成兩半：
 - **Node.js 伺服器**（Hono、TypeScript）：管理對話、決定下一個發言的 agent、啟動各個 agent CLI，並把所有資料存進 SQLite；
 - **React 前端**（Vite）：顯示聊天畫面，並透過 Server-Sent Events（SSE）接收即時更新。
 
-伺服器從不直接呼叫模型 API。每一次 agent 發言都是一次真正的 CLI（`claude`、`codex`、`grok`）無頭模式執行，所以每個 agent 都保有自己的工具、權限、登入狀態與 session 歷史。
+伺服器從不直接呼叫模型 API。每一次 agent 發言都是一次真正的 CLI（`claude`、`codex`、`grok`、`cursor-agent`）無頭模式執行，所以每個 agent 都保有自己的工具、權限、登入狀態與 session 歷史。
 
 ```mermaid
 flowchart LR
@@ -26,6 +26,7 @@ flowchart LR
   CLAUDE[[claude -p]]
   CODEX[[codex app-server]]
   GROK[[grok agent stdio]]
+  CURSOR[[cursor-agent acp]]
 
   UI -- REST (JSON) --> API
   HUB -- SSE 事件 --> UI
@@ -35,8 +36,8 @@ flowchart LR
   ORCH --> HUB
   ORCH --> STORE
   STORE --> DB
-  RUN --> CLAUDE & CODEX & GROK
-  PROV --> CLAUDE & CODEX & GROK
+  RUN --> CLAUDE & CODEX & GROK & CURSOR
+  PROV --> CLAUDE & CODEX & GROK & CURSOR
 ```
 
 ## 元件
@@ -54,7 +55,7 @@ flowchart LR
 | `src/server/prompt.ts` | 角色簡報（system prompt）、每回合的 prompt、`@` 解析、`[PASS]` 判斷 |
 | `src/server/approvals.ts` | 「本對話都允許」的規則 key 與比對 |
 | `src/server/commands.ts` | 解析一行 shell 指令實際會執行哪些程式（串接、命令替換、`sh -c`、`env`／`sudo`、git 的全域選項）：用於核准規則 key 與 Grok 的推送／發佈判斷 |
-| `src/server/agents/*` | 每個 CLI 一個轉接器：組參數、把 CLI 的 JSON 事件串流轉成共通事件（`acp.ts`：Grok ACP 的 JSON-RPC 對端） |
+| `src/server/agents/*` | 每個 CLI 一個轉接器：組參數、把 CLI 的 JSON 事件串流轉成共通事件（`acp.ts`：Grok 與 Cursor 的 ACP 共用的 JSON-RPC 對端，以及組 prompt、MCP 伺服器與回覆權限請求的函式） |
 | `src/server/i18n.ts` | 兩種語言的伺服器訊息；每個請求與執行所用的語言（AsyncLocalStorage） |
 | `src/server/process.ts` | 以獨立 process group 啟動程序、逐行讀 stdout、以原始位元組保存輸出、處理中止與逾時（先 SIGTERM，再對整個 process group 送 SIGKILL） |
 | `src/server/providers.ts` | CLI 狀態（是否安裝、版本、是否登入）、登入流程、登出、模型清單快取 |
@@ -123,7 +124,7 @@ flowchart LR
 
    `<actions>` 區塊摘要發言者改了哪些檔案、跑了哪些指令，讓隊友不用看原始工具輸出也知道變更了什麼。
 
-   附加了檔案的使用者訊息還會多一個 `<attachments>` 區塊，列出每個檔案的名稱、類型、大小與絕對路徑，讓 agent 用自己的工具開啟。交付的訊息中的圖片（PNG、JPEG、GIF、WebP）也會以原生方式傳入：Claude Code 是 stream-json 使用者訊息中的 base64 圖片區塊（並以 `--add-dir` 加入附件資料夾，讓它的 Read 工具可以開啟檔案）、Codex 是 `turn/start` 的 `localImage` 輸入、Grok 則是 ACP 的圖片區塊（它宣告了 `promptCapabilities.image`）。超過約 3.75 MB 的圖片只會列出路徑，以免超過 API 每張 5 MB 的上限。
+   附加了檔案的使用者訊息還會多一個 `<attachments>` 區塊，列出每個檔案的名稱、類型、大小與絕對路徑，讓 agent 用自己的工具開啟。交付的訊息中的圖片（PNG、JPEG、GIF、WebP）也會以原生方式傳入：Claude Code 是 stream-json 使用者訊息中的 base64 圖片區塊（並以 `--add-dir` 加入附件資料夾，讓它的 Read 工具可以開啟檔案）、Codex 是 `turn/start` 的 `localImage` 輸入、Grok 與 Cursor 則是 ACP 的圖片區塊（兩者都宣告了 `promptCapabilities.image`）。超過約 3.75 MB 的圖片只會列出路徑，以免超過 API 每張 5 MB 的上限。
 3. 用保存的 session id 接續 CLI，所以它記得之前看過的所有內容。
 4. 回合成功後，把這次交付的訊息 id（以及 agent 自己的回覆）加進 `seen`。若回合失敗，交付會被撤回，下一回合重新提供這些訊息。
 
@@ -133,13 +134,14 @@ flowchart LR
 
 ### 角色簡報
 
-每個 agent 的角色透過 CLI 的 system prompt 機制注入，並且**每回合重新產生**，所以修改角色或團隊會在下一回合生效：
+每個 agent 的角色透過 CLI 的 system prompt 機制注入（Cursor 沒有這種機制，所以它的簡報放在 prompt 裡），並且**每回合重新產生**，所以修改角色或團隊會在下一回合生效：
 
 | CLI | 機制 |
 | --- | --- |
 | Claude Code | `--append-system-prompt <簡報>`，搭配 `--system-prompt-snapshot off`（否則接續的 session 會一直沿用第一次請求的 system prompt） |
 | Codex | `thread/start`／`thread/resume` 的 `developerInstructions` |
 | Grok | ACP `session/new`／`session/resume` 的 `_meta.rules` |
+| Cursor | 透過 ACP 時沒有：簡報放在 prompt 的最前面，包在 `<harness-relay-briefing>…</harness-relay-briefing>` 裡；新的 session 一定會送，接續的 session 只在簡報和上次送出的不同時才送（每個 session 記在記憶體中，所以伺服器重新啟動後會再送一次） |
 
 簡報內容包括 agent 的角色、團隊名單（含每位隊友的角色摘要）、目前模式的規則、`[PASS]` 約定、共用的工作目錄與權限等級。平行模式中還會寫出 agent 自己的 worktree 與分支，以及每位隊友的分支和該隊友 worktree 的起始快照。有[工具庫](#工具庫)項目時，簡報也會包含成員的記憶和它的 skill 清單。
 
@@ -233,30 +235,32 @@ flowchart LR
 
 每個轉接器把一次 CLI 回合轉成共通事件串流：`session`、`text`、`text_end`、`thinking`、`plan`、`tool_start`、`tool_end`（附上呼叫的輸出或失敗原因；CLI 到結束才說明這次呼叫做了什麼時，例如網路搜尋的查詢，也一併附上）；CLI 要求做權限沒涵蓋的事時，則呼叫 `requestApproval`（見[核准](#核准)）。
 
-| | Claude Code | Codex | Grok |
-| --- | --- | --- | --- |
-| 指令 | `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages` | `codex app-server`（透過 stdin/stdout 傳 JSON-RPC，也就是 Codex IDE 擴充套件使用的協定） | `grok agent --no-leader stdio`（ACP：透過 stdin/stdout 傳 JSON-RPC） |
-| prompt 傳入方式 | stdin 上的一則 `user` 訊息 | `turn/start` | `session/prompt` |
-| 新建 / 接續 session | `--session-id <uuid>` / `--resume <id>` | `thread/start` / `thread/resume` | `session/new` / `session/resume` |
-| 模型 | `--model` | thread 上的 `model` | `session/set_config_option`（`model`） |
-| 推理強度 | `--effort` | thread 上的 `config.model_reasoning_effort` | `session/set_config_option`（`reasoning_effort`） |
-| 文字串流 | `stream_event` 文字 delta | `item/agentMessage/delta` | `agent_message_chunk` |
-| 思考過程 | `thinking_delta`（搭配 `--thinking-display summarized`） | `item/reasoning/summaryTextDelta`（`model_reasoning_summary="auto"`） | `agent_thought_chunk` |
-| 計畫 / 待辦清單 | `TodoWrite` 工具 | `turn/plan/updated` | `plan` 更新（它的 `todo_write` 呼叫不會顯示成工具列） |
-| 工具事件 | `tool_use` / `tool_result` 區塊 | `commandExecution`、`fileChange`、`mcpToolCall`、`webSearch` 項目 | `tool_call` / `tool_call_update` |
-| 請求核准 | `can_use_tool` 控制請求（`--permission-prompt-tool stdio`） | `item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/permissions/requestApproval` | `session/request_permission` |
+| | Claude Code | Codex | Grok | Cursor |
+| --- | --- | --- | --- | --- |
+| 指令 | `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages` | `codex app-server`（透過 stdin/stdout 傳 JSON-RPC，也就是 Codex IDE 擴充套件使用的協定） | `grok agent --no-leader stdio`（ACP：透過 stdin/stdout 傳 JSON-RPC） | `cursor-agent --disable-project-configs acp`（ACP），完全存取時在 `acp` 前加上 `--force` |
+| prompt 傳入方式 | stdin 上的一則 `user` 訊息 | `turn/start` | `session/prompt` | `session/prompt`，簡報放在最前面（見[角色簡報](#角色簡報)） |
+| 新建 / 接續 session | `--session-id <uuid>` / `--resume <id>` | `thread/start` / `thread/resume` | `session/new` / `session/resume` | `session/new` / `session/load`（它沒有 `session/resume`） |
+| 模型 | `--model` | thread 上的 `model` | `session/set_config_option`（`model`） | `session/set_config_option`（`model`：基本名稱，例如 `claude-opus-5-5`；`default` 是 Auto） |
+| 推理強度 | `--effort` | thread 上的 `config.model_reasoning_effort` | `session/set_config_option`（`reasoning_effort`） | `session/set_config_option`，設定模型自己類別為 `thought_level` 的選項（依模型叫 `effort`、`reasoning_effort`、`reasoning`……），只在模型提供那個值時才設 |
+| 文字串流 | `stream_event` 文字 delta | `item/agentMessage/delta` | `agent_message_chunk` | `agent_message_chunk` |
+| 思考過程 | `thinking_delta`（搭配 `--thinking-display summarized`） | `item/reasoning/summaryTextDelta`（`model_reasoning_summary="auto"`） | `agent_thought_chunk` | `agent_thought_chunk` |
+| 計畫 / 待辦清單 | `TodoWrite` 工具 | `turn/plan/updated` | `plan` 更新（它的 `todo_write` 呼叫不會顯示成工具列） | `plan` 更新 |
+| 工具事件 | `tool_use` / `tool_result` 區塊 | `commandExecution`、`fileChange`、`mcpToolCall`、`webSearch` 項目 | `tool_call` / `tool_call_update` | `tool_call` / `tool_call_update`（指令的輸出與結束代碼取自 `rawOutput`） |
+| 請求核准 | `can_use_tool` 控制請求（`--permission-prompt-tool stdio`） | `item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/permissions/requestApproval` | `session/request_permission` | `session/request_permission`（請求裡沒有指令；轉接器從對應的 `tool_call` 取得） |
 
 每個回合執行一個程序。Claude Code 的 `--thinking-display` 旗標沒有列在它的 `--help` 中，`--system-prompt-snapshot` 則是較新的旗標；若某個版本不接受其中之一，轉接器會記住，之後改為不帶它執行。
+
+Cursor 的轉接器（`src/server/agents/cursor.ts`）在工作目錄啟動 `cursor-agent`，它會從那裡讀取指示檔。它先送出帶 `clientCapabilities._meta.parameterizedModelPicker: true` 的 `initialize`（模型與推理強度分成兩個設定，而不是每種組合一個項目），再送 `authenticate`（`cursor_login`）；有 API key 時不送：`CURSOR_API_KEY` 或 `CURSOR_AUTH_TOKEN` 已經讓它登入，`authenticate` 反而會丟掉存著的金鑰。`session/load` 在回答之前，會以 `session/update` 通知重播 session 的歷史；這些不屬於這一輪，所以會被忽略。無法載入的 session 會讓這一輪在說出任何話之前就失敗，所以協調器會用全新的 session 加上完整的對話紀錄重試。處於其他模式的 session 會切回 Cursor 的 `agent` 模式（`session/set_config_option` 的 `mode`）。沒有推理強度選項的模型（例如 Auto），或只有思考開關的模型，用它自己的推理強度執行；Cursor 不接受的模型會讓這一輪失敗。工具列依種類命名（Shell、Edit、Delete、Read、Search、Fetch……），MCP 工具則用它的標題（`<伺服器>: <工具>`）；結束代碼不是 0 的指令顯示為失敗；修改的檔案要等呼叫開始後才知道，所以隨 `tool_end.detail` 送來。Cursor 服務的錯誤會以回覆文字送來（`"\n\nError: …"`、「Upgrade your plan to continue」、「Please sign in to continue」……）：它們不會放進回覆，這一輪會帶著這些錯誤失敗。Cursor 不回報用量與費用（它的結果只有 `stopReason`）。
 
 ### 權限對應
 
 權限決定哪些操作**不必詢問**就能執行；其他操作在對話設定為詢問（預設）時交給使用者決定，設定為拒絕（`settings.approvals = "deny"`）時則自動拒絕。
 
-| Relay 權限 | Claude Code | Codex | Grok（ACP） |
-| --- | --- | --- | --- |
-| 唯讀 | `--permission-mode manual`（拒絕時：`dontAsk`）、`--allowedTools WebFetch WebSearch`、`--disallowedTools Edit MultiEdit Write NotebookEdit`：讀檔與上網直接執行，沒有修改檔案的工具，其他都要詢問；另有它的沙箱（見下文） | 由 `:read-only` 延伸的權限設定檔 `harness-relay-…`（每次執行換一個名稱；Windows 上，或 Codex 無法載入自訂設定檔時，例如 Linux 上的 Codex 0.167：沙箱 `read-only`）、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式（`_meta.yoloMode: false`）：讀網頁直接執行，其他都要詢問 |
-| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問；另有它的沙箱（見下文） | 由 `:workspace` 延伸、不能連網的權限設定檔 `harness-relay-…`（Windows 上，或 Codex 無法載入自訂設定檔時：沙箱 `workspace-write` 加上 `sandbox_workspace_write.network_access = false`）；兩者都不受 `~/.codex/config.toml` 影響；核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`、`gh release`……，由 `commands.ts` 判斷）要詢問，其他都直接執行 |
-| 完全存取 | `--permission-mode bypassPermissions` | 沙箱 `danger-full-access`、核准政策 `never` | 全部自動核准（`_meta.yoloMode: true`） |
+| Relay 權限 | Claude Code | Codex | Grok（ACP） | Cursor（ACP） |
+| --- | --- | --- | --- | --- |
+| 唯讀 | `--permission-mode manual`（拒絕時：`dontAsk`）、`--allowedTools WebFetch WebSearch`、`--disallowedTools Edit MultiEdit Write NotebookEdit`：讀檔與上網直接執行，沒有修改檔案的工具，其他都要詢問；另有它的沙箱（見下文） | 由 `:read-only` 延伸的權限設定檔 `harness-relay-…`（每次執行換一個名稱；Windows 上，或 Codex 無法載入自訂設定檔時，例如 Linux 上的 Codex 0.167：沙箱 `read-only`）、核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式（`_meta.yoloMode: false`）：讀網頁直接執行，其他都要詢問 | 沒有作業系統沙箱；私有的設定資料夾，沒有允許規則、`approvalMode: "allowlist"`，並以拒絕規則擋住受保護的路徑與 `Write(**)`：讀檔、讀網頁與網路搜尋直接執行；它的寫入工具完全不能寫；每個指令、MCP 工具呼叫與刪除都要詢問 |
+| 可編輯 | `--permission-mode acceptEdits`，加上上網與常用的建置／測試／lint 指令（`CLAUDE_EDIT_COMMANDS`）：其他指令要詢問；另有它的沙箱（見下文） | 由 `:workspace` 延伸、不能連網的權限設定檔 `harness-relay-…`（Windows 上，或 Codex 無法載入自訂設定檔時：沙箱 `workspace-write` 加上 `sandbox_workspace_write.network_access = false`）；兩者都不受 `~/.codex/config.toml` 影響；核准政策 `on-request`（拒絕時：`never`） | 在 `GROK_SANDBOX=harness-relay` 中使用詢問模式：除了推送／發佈（`git push`、`npm publish`、`gh release`……，由 `commands.ts` 判斷）要詢問，其他都直接執行 | 沒有作業系統沙箱；同樣的設定，但沒有 `Write(**)`：它自己在工作目錄內的修改直接執行（Cursor 不會詢問），它詢問的工作目錄內的寫入或刪除也直接執行；每個指令（包括測試與建置）、MCP 工具呼叫與工作目錄以外的寫入都要詢問 |
+| 完全存取 | `--permission-mode bypassPermissions` | 沙箱 `danger-full-access`、核准政策 `never` | 全部自動核准（`_meta.yoloMode: true`） | `--force`（Cursor 的 Run Everything）、`approvalMode: "unrestricted"`、沒有拒絕規則 |
 
 - **Claude Code** 把每個請求以 `can_use_tool` 控制請求送出，並等待我們的控制回應（允許，或拒絕並附上模型看得到的訊息）。對話設定為拒絕時，不會指定 permission prompt tool，由 Claude Code 自己拒絕這類呼叫。Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍然有效；唯讀模式會移除修改檔案的工具，所以這類規則無法讓它們執行。
   - 在完全存取以外的權限，`--settings` 會開啟它的沙箱（`claudeSandboxSettings()`）：它的 Bash 指令及它們啟動的行程，只能寫入工作目錄、附件資料夾與暫存資料夾，要連到的每個主機都會詢問。`failIfUnavailable` 讓這一輪在沙箱無法使用時失敗並說明如何修正，而不是在沙箱外執行指令；`autoAllowBashIfSandboxed: false` 讓哪些操作不必詢問仍由權限決定；詢問規則 `Bash(dangerouslyDisableSandbox:true)` 則讓模型要在沙箱外執行的每個指令都交給使用者決定，包括可編輯模式允許規則涵蓋的指令。它的沙箱既不能讀也不能寫受保護的路徑（`denyRead`、`denyWrite`），`Read` 拒絕規則也讓它在沙箱外的檔案工具碰不到它們（[各平台的作業系統沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）；`filesystem.disabled: false` 勝過使用者的設定，而使用者自己的或受管理設定中的 `allowRead`／`allowWrite` 碰到受保護的路徑時，執行不會開始（`claudeReopening()`）。Claude Code 在原生 Windows 上沒有沙箱，所以在那裡不使用沙箱執行。
@@ -267,10 +271,17 @@ flowchart LR
   - Grok 內建的唯讀工具與指令（包含單純的 `mkdir`／`touch`）仍會直接執行、不經詢問。
   - 兩者都使用 Grok 的自訂設定檔 `harness-relay`（`workspace` 加上受保護的路徑，見[各平台的作業系統沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)），Harness Relay 會在每次執行前把它寫進 Grok 自己資料夾的 `sandbox.toml`；它也禁止 Grok 自己的程式（在 Linux 上，Grok 會透過 bubblewrap 再執行一次它，所以改為檢查並改回原樣），而 Grok 的設定在被某一輪改動後會改回原樣。唯讀模式不使用 Grok 的 `read-only`：後者在某些機器上無法啟動（例如 `/var/run/docker.sock` 是 symlink 時），而且設定檔一旦套用就無法撤除，使用者允許的寫入在它之下會失敗。兩者使用同一個設定檔，權限在兩者之間切換後 session 也能續用（Grok 會拒絕以不同的設定檔續用 session；續用失敗的那一輪會開始新的 session）。所以唯讀模式下，專案的檔案仍靠詢問保護，和以前一樣；沙箱則保護工作目錄、`~/.grok` 與暫存資料夾以外的一切；在 macOS 上它擋不了網路。
   - Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原因；但 Grok 的文件說，無法套用的內建設定檔也可能只顯示警告，然後在沒有沙箱的情況下執行（見[各平台的作業系統沙箱](sandboxing.zh-TW.md#沙箱無法啟動時)）。
+- **Cursor** 也透過 ACP 執行，而且在那裡**沒有作業系統沙箱**：它的 ACP 模式從不套用沙箱（`--sandbox` 旗標與 `sandbox.mode` 都被忽略），在任何平台上都一樣。所以在完全存取以外的權限，沒有任何指令能不經詢問就執行，測試與建置也一樣（對話中的「本對話都允許」會讓下一次同樣的指令直接執行）；使用者允許的指令則以使用者的完整權限執行，包括連網。請求一律以 allow-once 或 reject-once 回覆，絕不用「allow always」，因為 Cursor 會把它當成規則寫進自己的設定。
+  - 每一輪都有自己的私有設定資料夾（`CURSOR_CONFIG_DIR`：在 Harness Relay 自己的 `data/tmp` 裡新建、只有擁有者能存取的資料夾，回合結束後刪除）：裡面是帳號的 `cli-config.json`（它的模型與網路設定）的副本，但沒有允許規則（`permissions.allow: []`，所以使用者自己的規則，例如 `Shell(ls)`，不會生效），保留使用者的拒絕規則並加上 Harness Relay 的，`approvalMode` 如上表；另有一個連到帳號 session 資料夾的連結 `acp-sessions`，所以 session 會保留，也能接續。Cursor 寫進設定的模型選擇與任何規則，都不會進到帳號自己的 `cli-config.json`。
+  - `--disable-project-configs`：不讀專案自己的 `.cursor/cli.json`（Cursor 會把它合併到自己的設定上，例如用來允許指令）。
+  - 在完全存取以外的權限，它的讀取與寫入工具碰不到受保護的路徑：每個路徑都有拒絕規則 `Read(<路徑>)`、`Read(<路徑>/**)`、`Write(<路徑>)` 與 `Write(<路徑>/**)`（見[各平台的作業系統沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）。這些規則只約束 Cursor 自己的工具，不約束 shell 指令；指令只能靠詢問擋在這些路徑之外。受保護的路徑名稱含 `*`、`?` 或 `[` 時，這次執行會拒絕開始，和 Grok 一樣。
+  - 拒絕只會以 Cursor 自己的「Rejected: User rejected」讓模型知道：Cursor 不接受附帶的訊息（它沒有像 Grok 的 `followup_message` 那樣的東西），所以拒絕時附的說明只顯示在聊天室，不會轉交給 agent。這一輪會繼續進行。
+  - 模型自己的提問（Cursor 的 AskQuestion 工具）會以帶有略過選項的權限請求送來。它們都會被略過，因為 agent 是透過 Harness Relay 詢問使用者（`[ASK_USER]`）。
+  - Cursor 自己的 hook（`~/.cursor/hooks.json`、組織的）在 Harness Relay 的執行中仍會在它的工具呼叫上執行；沒有能在單次執行中關掉它們的開關。
 
 被拒絕或失敗的呼叫會保留原因（`tool_end.error`，存在 `message_parts.tool_error`），這一輪會繼續進行。
 
-**可編輯模式擋不住 Grok 的專案程式碼連網。**「推送與發佈要詢問」能擋住 agent 直接執行這些指令；但可編輯模式不經詢問就能執行的指令（測試、建置、`npm run` 腳本、`make`）跑的是 agent 剛剛可能改過的程式碼，所以使用 Grok 時，執意要連網的 agent 仍能透過這些指令做到；在 Linux 上它的沙箱擋得住，但 Harness Relay 沒有要求它擋。Codex 的沙箱會讓所有指令都無法連網，Claude Code 的沙箱則會詢問每個主機（在 Claude Code 沒有沙箱的原生 Windows 上，只有 Codex 的沙箱會這樣做）。不信任的程式碼或指示，請使用唯讀，或把「超出權限的動作」設為自動拒絕。各 CLI 的沙箱能在哪些平台上運作、在那裡需要什麼前提，見[各平台的作業系統沙箱](sandboxing.zh-TW.md)。
+**可編輯模式擋不住 Grok 與 Cursor 的專案程式碼連網。**「推送與發佈要詢問」能擋住 agent 直接執行這些指令；但可編輯模式不經詢問就能執行的指令（測試、建置、`npm run` 腳本、`make`）跑的是 agent 剛剛可能改過的程式碼，所以使用 Grok 時，執意要連網的 agent 仍能透過這些指令做到；在 Linux 上它的沙箱擋得住，但 Harness Relay 沒有要求它擋。Cursor 因為沒有沙箱，在完全存取以外的權限沒有任何指令能不經詢問就執行；但使用者允許的指令，以及它啟動的一切，都在任何沙箱之外以使用者的完整權限執行，包括連網。Codex 的沙箱會讓所有指令都無法連網，Claude Code 的沙箱則會詢問每個主機（在 Claude Code 沒有沙箱的原生 Windows 上，只有 Codex 的沙箱會這樣做）。不信任的程式碼或指示，請使用唯讀，或把「超出權限的動作」設為自動拒絕。各 CLI 的沙箱能在哪些平台上運作、在那裡需要什麼前提，見[各平台的作業系統沙箱](sandboxing.zh-TW.md)。
 
 ## 核准
 
@@ -278,7 +289,7 @@ flowchart LR
 
 1. 在 agent 的訊息中建立一個 **approval part**：種類（`command` / `edit` / `fetch` / `other`）、指令、檔案或網址、agent 說明的原因，以及「本對話都允許」用的規則 key。指令的 key 是這行指令實際執行的每個指令各一個，包括串接、管線、背景執行、`$( )` 與反引號的命令替換，以及 `sh -c '…'` 裡的指令（`src/server/commands.ts`）：程式名稱，若該工具有子指令再加上子指令（`npm install`、`git push`，會略過 `-C` 這類 git 全域選項）；`env`／`sudo` 前綴與 `VAR=value` 會被略過。所以允許 `npm test` 絕不會讓 `npm test && rm …` 或 `npm test $(rm …)` 通過。`sudo`／`doas` 會保留在 key 中；執行時才知道是哪個程式的指令（`$(which x) …`），或帶有可執行程式之設定的 git 指令（`-c`、`GIT_*` 環境變數），則以完整指令文字當作 key。最初較簡單的解析方式（以空白拆開每個 `&&`／`;`／`|` 片段）得到的 key 也一律包含在內，所以就算解析有誤，也不會比以前更容易被自動允許。key 依 CLI 實際執行的指令計算（Codex 用的是它加上引號的原始形式，而不是卡片上整理過的版本）。所有檔案修改共用一個 key，讀網頁用主機名稱，其他工具用工具名稱。
 2. 若所有 key 在這個對話中都已允許（`conversation.allowRules`），就立即同意，並把該 part 顯示為已自動允許。
-3. 否則該 part 為 `pending`，請求在 `orchestrator.approvals` 中等待，對話回報為 `waiting`（側邊欄與分頁標題會顯示）。`POST /api/conversations/:id/approvals/:approvalId` 帶上 `{ allow, always?, note? }` 回應請求；「always」會把這些 key 加進 `allowRules`。拒絕時附的說明會轉交給 agent。
+3. 否則該 part 為 `pending`，請求在 `orchestrator.approvals` 中等待，對話回報為 `waiting`（側邊欄與分頁標題會顯示）。`POST /api/conversations/:id/approvals/:approvalId` 帶上 `{ allow, always?, note? }` 回應請求；「always」會把這些 key 加進 `allowRules`。拒絕時附的說明會轉交給 agent，Cursor 除外：它不接受拒絕時附帶的訊息，所以說明只顯示在聊天室。
 4. 停止執行，或 agent 的 CLI 結束這一輪（當掉、逾時）時，它等待中的請求都會以 `expired`（拒絕）結束；之後才送來的回應會得到 404。
 5. 在沒有持有目錄鎖的執行中（唯讀）被允許的動作，會先鎖住工作目錄直到這次執行結束；若有其他對話正在寫入，這個動作會被拒絕，並告知 agent 原因。
 
@@ -297,33 +308,33 @@ Harness Relay 提供給成員的 MCP 伺服器、skill 與記憶，每個 CLI �
 - **Skill** 是有 `SKILL.md` 的資料夾，名稱和用途取自它的 YAML front matter（`parseFrontMatter`）。簡報會列出它們和 `SKILL.md` 的路徑，任務符合時由 agent 自己讀檔，因此每個 CLI 用法都一樣。加入資料夾之前，介面會先列出底下的 skill（`scanSkills`：資料夾本身，以及往下兩層內的 skill 資料夾，不看 skill 內部、隱藏資料夾與 `node_modules`）讓使用者勾選。工具庫的 skill 是加在各 CLI 自己載入的 skill 之外，工具庫無法拿掉後者。檔案不見、或名稱和前面的 skill 重複的，會在介面上標示且不會提供。
 - **機密值。** 伺服器環境變數（stdio）與標頭（HTTP）的值存在作業系統的金鑰儲存區，每個伺服器一筆 `mcp-<id>`（JSON，以伺服器的 id 命名，改名時 id 不變），啟動時讀進記憶體；沒有金鑰儲存區時留在資料庫，同樣以 id 存放。介面只拿到遮蔽後的值；編輯時沒有送出的值會保留，改名完全不會動到金鑰儲存區（所以名稱不分大小寫的儲存區，例如 Windows 認證管理員，也不會因為 `github` → `GitHub` 而弄丟值）。沒能搬進金鑰儲存區的值會留在資料庫，等之後啟動時再搬；讀不到值的伺服器（金鑰儲存區被鎖住）要重新輸入值才能儲存，所以真正的值不會被空值覆蓋；在讀得到值之前（每回合會再試）不會提供給 agent。
 
-| | Claude Code | Codex | Grok |
-| --- | --- | --- | --- |
-| MCP 伺服器 | `--mcp-config <檔案>`：放在 `data/tmp` 裡新建私有資料夾中的 `0600` 檔案（不是沙箱中的指令寫得進去的系統暫存資料夾），回合結束後刪除（token 不會出現在指令列） | 在 `thread/start` / `thread/resume` 上每個伺服器一個設定覆寫 `mcp_servers.<name>`（`command`、`args`、`env` 或 `url`、`http_headers`），所以 `config.toml` 裡的伺服器仍保留 | ACP `session/new` / `session/resume` 的 `mcpServers`（`env` 與 `headers` 是名稱 / 值清單；HTTP 伺服器只在 Grok 宣告支援時才傳） |
-| 讀取 skill | 完整存取以外的權限，每個 skill 資料夾加一條 `Read(//<資料夾>/**)` 規則（只能讀：`--add-dir` 會連編輯都允許） | sandbox 允許讀取任何位置 | 可讀取任何位置 |
-| MCP 工具呼叫 | 和其他工具一樣走 `can_use_tool`：依權限詢問或拒絕 | Codex 用標示為工具呼叫核准的 MCP elicitation 詢問（`_meta.codex_approval_kind: "mcp_tool_call"`），和其他核准一樣顯示並回覆；其他 elicitation 一律拒絕。核准政策為 `never` 時 Codex 會拒絕 MCP 呼叫，所以完整存取下工具庫的伺服器會設 `default_tools_approval_mode = "approve"` | 和其他工具一樣走 `session/request_permission` |
+| | Claude Code | Codex | Grok | Cursor |
+| --- | --- | --- | --- | --- |
+| MCP 伺服器 | `--mcp-config <檔案>`：放在 `data/tmp` 裡新建私有資料夾中的 `0600` 檔案（不是沙箱中的指令寫得進去的系統暫存資料夾），回合結束後刪除（token 不會出現在指令列） | 在 `thread/start` / `thread/resume` 上每個伺服器一個設定覆寫 `mcp_servers.<name>`（`command`、`args`、`env` 或 `url`、`http_headers`），所以 `config.toml` 裡的伺服器仍保留 | ACP `session/new` / `session/resume` 的 `mcpServers`（`env` 與 `headers` 是名稱 / 值清單；HTTP 伺服器只在 Grok 宣告支援時才傳） | ACP `session/new` / `session/load` 的 `mcpServers`，格式相同（HTTP 伺服器只在 Cursor 宣告支援時才傳，2026.11.11 有宣告） |
+| 讀取 skill | 完整存取以外的權限，每個 skill 資料夾加一條 `Read(//<資料夾>/**)` 規則（只能讀：`--add-dir` 會連編輯都允許） | sandbox 允許讀取任何位置 | 可讀取任何位置 | 它沒有沙箱：可讀取任何位置（它的讀取工具則除了受保護的路徑） |
+| MCP 工具呼叫 | 和其他工具一樣走 `can_use_tool`：依權限詢問或拒絕 | Codex 用標示為工具呼叫核准的 MCP elicitation 詢問（`_meta.codex_approval_kind: "mcp_tool_call"`），和其他核准一樣顯示並回覆；其他 elicitation 一律拒絕。核准政策為 `never` 時 Codex 會拒絕 MCP 呼叫，所以完整存取下工具庫的伺服器會設 `default_tools_approval_mode = "approve"` | 和其他工具一樣走 `session/request_permission` | 和其他工具一樣走 `session/request_permission`：完整存取以外的權限會詢問（或拒絕） |
 
 ## 各 CLI 自己載入的內容
 
-設定頁每個 CLI 的每個帳號，可以列出這個 CLI 在該帳號的家目錄、預設工作目錄下自己載入的內容：它自己的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶檔，和工具庫分開（`src/server/native.ts`，`POST /api/providers/:provider/native[?account=<id>]`）。每個帳號都有自己的家目錄（見[帳號](#帳號)），所以各自載入、各自查詢。查詢方式和 IDE 一樣，不送 prompt，所以不會呼叫模型：
+設定頁每個 CLI 的每個帳號，可以列出這個 CLI 在該帳號的家目錄、預設工作目錄下自己載入的內容：它自己的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶檔，和工具庫分開（`src/server/native.ts`，`POST /api/providers/:provider/native[?account=<id>]`）。每個帳號都有自己的家目錄（見[帳號](#帳號)），所以各自載入、各自查詢。查詢方式和 IDE 一樣，不送 prompt，所以不會呼叫模型。Cursor 透過 ACP 沒有這種查詢，所以它的清單來自已知它會讀的檔案（`probeCursor`）：不啟動 CLI、不花費用量；而且每個 Cursor 帳號列出的都一樣，因為它們都從家目錄讀取，不會隨它的設定資料夾移動：
 
-| | Claude Code | Codex | Grok |
-| --- | --- | --- | --- |
-| Skill | stream-json 的 `initialize` 控制請求：非內建的指令（skill、plugin 與自訂指令；只有名稱與說明） | `codex app-server` 的 `skills/list` | `grok inspect --json` |
-| MCP 伺服器與它們的工具 | `mcp_status` 控制請求（名稱、狀態、範圍），加上 `/usage` 回合的 `system/init` 訊息裡的伺服器與工具（見下文） | `config/read`（設定的伺服器），再對每個開著的伺服器逐一詢問 `mcpServerStatus/list`（它的工具；這會啟動它） | `grok inspect --json`（沒有工具） |
-| 內建工具 | `/usage` 回合的 `system/init` 訊息：名稱不是 `mcp__…` 的工具 | 沒有清單 | 沒有清單 |
-| Hook | `get_hooks_listing` 控制請求（事件、matcher、來源） | `hooks/list`（事件、matcher、來源、檔案） | `grok inspect --json`（檔案型 hook 的檔案） |
-| Subagent | `initialize`（名稱與說明），加上 `get_settings` 得知權限規則拒絕了哪些。它不說 subagent 從哪裡來，所以另外詢問哪些是內建的（見下文） | 沒有清單 | `grok inspect --json` |
-| Plugin | `claude plugin list --json`（id、範圍、開或關），加上 `get_settings` 得知設定關掉了哪些 | `plugin/installed`（已安裝的） | `grok inspect --json` |
-| 記憶與指示 | 沒有清單：依文件列出它會讀、且目前存在的檔案（設定資料夾的 `CLAUDE.md` 與 `rules/`，從資料夾往上各層的 `CLAUDE.md` / `CLAUDE.local.md` / `.claude/CLAUDE.md` / `.claude/rules/`，以及 `projects/<資料夾>/memory/` 下的自動記憶），會依 `CLAUDE_CONFIG_DIR` | 沒有清單：`CODEX_HOME` 與 repository 根目錄往下各層的 `AGENTS.override.md` 或 `AGENTS.md`，以及它的 `memories/` | `grok inspect --json`（指示檔） |
+| | Claude Code | Codex | Grok | Cursor（從它的檔案） |
+| --- | --- | --- | --- | --- |
+| Skill | stream-json 的 `initialize` 控制請求：非內建的指令（skill、plugin 與自訂指令；只有名稱與說明） | `codex app-server` 的 `skills/list` | `grok inspect --json` | 資料夾（專案）與家目錄（使用者）中 `.cursor`、`.claude`、`.codex`、`.grok`、`.agents` 的 `skills` 資料夾，以及 `~/.cursor/skills-cursor` 中內建的：每個有 `SKILL.md` 的資料夾（不含連結；同名時以先找到的為準） |
+| MCP 伺服器與它們的工具 | `mcp_status` 控制請求（名稱、狀態、範圍），加上 `/usage` 回合的 `system/init` 訊息裡的伺服器與工具（見下文） | `config/read`（設定的伺服器），再對每個開著的伺服器逐一詢問 `mcpServerStatus/list`（它的工具；這會啟動它） | `grok inspect --json`（沒有工具） | `~/.cursor/mcp.json`（只有名稱，沒有工具），以及專案的 `.cursor/mcp.json`（repository 根目錄與資料夾的），標示為需要核准：Cursor 只在 Cursor 裡核准過後才載入它們，而它的 ACP 模式從不詢問，所以它們不會在 Harness Relay 的執行中載入 |
+| 內建工具 | `/usage` 回合的 `system/init` 訊息：名稱不是 `mcp__…` 的工具 | 沒有清單 | 沒有清單 | 沒有清單 |
+| Hook | `get_hooks_listing` 控制請求（事件、matcher、來源） | `hooks/list`（事件、matcher、來源、檔案） | `grok inspect --json`（檔案型 hook 的檔案） | `~/.cursor/hooks.json` 與組織的（macOS 是 `/Library/Application Support/Cursor/hooks.json`，Linux 是 `/etc/cursor/hooks.json`，Windows 是 `%ProgramData%\Cursor\hooks.json`）：事件與 matcher，絕不包括它們的指令 |
+| Subagent | `initialize`（名稱與說明），加上 `get_settings` 得知權限規則拒絕了哪些。它不說 subagent 從哪裡來，所以另外詢問哪些是內建的（見下文） | 沒有清單 | `grok inspect --json` | 資料夾的 `.cursor/agents` 與 `.claude/agents` 中的 Markdown 檔案 |
+| Plugin | `claude plugin list --json`（id、範圍、開或關），加上 `get_settings` 得知設定關掉了哪些 | `plugin/installed`（已安裝的） | `grok inspect --json` | 沒有：它在 ACP 模式下不載入 plugin |
+| 記憶與指示 | 沒有清單：依文件列出它會讀、且目前存在的檔案（設定資料夾的 `CLAUDE.md` 與 `rules/`，從資料夾往上各層的 `CLAUDE.md` / `CLAUDE.local.md` / `.claude/CLAUDE.md` / `.claude/rules/`，以及 `projects/<資料夾>/memory/` 下的自動記憶），會依 `CLAUDE_CONFIG_DIR` | 沒有清單：`CODEX_HOME` 與 repository 根目錄往下各層的 `AGENTS.override.md` 或 `AGENTS.md`，以及它的 `memories/` | `grok inspect --json`（指示檔） | 資料夾與它上層每個資料夾的 `AGENTS.md`、`CLAUDE.md`、`CLAUDE.local.md` 與 `.cursor/rules/*.mdc` / `*.md`（在 Cursor 帳號上設定的規則不是檔案，不會列出）；沒有記憶檔 |
 
 Claude Code 只在開始一個回合的 `system/init` 訊息裡列出它的工具，所以控制請求之後會送它 `/usage`，這是它自己回答的指令（不呼叫模型，不花費用量），並加上 `--no-session-persistence`，不留下 session，收到那則訊息就結束它。只有 `initialize` 的回答把 `usage` 列為內建指令、而且沒有同名的 skill 或指令時才會送，因為其他情況會送到模型；不送時，以及 Claude Code 不接受 `--no-session-persistence` 時（會改成不送這個回合再問一次），就不列出內建工具，並以錯誤說明。claude.ai connector 等較晚連上的伺服器，也是在這則訊息裡出現，狀態也較新。
 
-查詢時會短暫啟動 CLI：Claude Code 會執行使用者的 SessionStart hooks 並連線它的 MCP 伺服器，Codex 也會為了列出工具而啟動使用者的 MCP 伺服器。因此介面只在使用者按下 **查詢** 時才詢問，展開這一區時不會：使用者可能正是因為某個 MCP 伺服器一啟動就會造成問題，才打開這一區要關掉它。它用 POST，資料夾固定是預設工作目錄，所以其他網站無法在任何地方啟動 CLI。每個 CLI、執行檔、資料夾與帳號家目錄的結果保留一分鐘，前提是該帳號不載入的設定（見下文）沒有變（`refresh: true` 重新查詢）；CLI 沒有回報的部分會列出來，並依每次請求的語言顯示。回報的指示與記憶檔，以及 skill 的 `SKILL.md`，可以在介面中打開（`POST /api/providers/:provider/native/file[?account=<id>]`）：只會讀該帳號最近一次回答裡的路徑，所以讀不到電腦上的其他檔案。只回傳名稱、說明、路徑與狀態；可能含有 token 的 MCP 伺服器設定與 hook 指令不會回傳。
+查詢時會短暫啟動 CLI：Claude Code 會執行使用者的 SessionStart hooks 並連線它的 MCP 伺服器，Codex 也會為了列出工具而啟動使用者的 MCP 伺服器（Cursor 的清單不會啟動任何東西）。因此介面只在使用者按下 **查詢** 時才詢問，展開這一區時不會：使用者可能正是因為某個 MCP 伺服器一啟動就會造成問題，才打開這一區要關掉它。它用 POST，資料夾固定是預設工作目錄，所以其他網站無法在任何地方啟動 CLI。每個 CLI、執行檔、資料夾與帳號家目錄的結果保留一分鐘，前提是該帳號不載入的設定（見下文）沒有變（`refresh: true` 重新查詢）；CLI 沒有回報的部分會列出來，並依每次請求的語言顯示。回報的指示與記憶檔，以及 skill 的 `SKILL.md`，可以在介面中打開（`POST /api/providers/:provider/native/file[?account=<id>]`）：只會讀該帳號最近一次回答裡的路徑，所以讀不到電腦上的其他檔案。只回傳名稱、說明、路徑與狀態；可能含有 token 的 MCP 伺服器設定與 hook 指令不會回傳。
 
 ### 在 Harness Relay 的執行中不載入
 
-使用者可以針對每個 CLI 的每個帳號，讓 Harness Relay 以該帳號啟動的每一次執行都不載入 CLI 自己的 skill、MCP 伺服器、內建工具、指示檔、記憶、hook、subagent 或 plugin，可以整類不載入（`ProviderAccountView.nativeOff`；預設帳號存在 `provider_settings` 的 `native_off` 欄位，其他帳號存在 `provider_accounts` 的同名欄位），也可以逐項（`nativeItems`，見下文）；新帳號什麼都不略過。`RunOptions.nativeOff` 與 `RunOptions.nativeItems` 用的是該帳號的設定（`SettingsStore.nativeOff(p, account)`）：orchestrator 傳給成員（依它的 `AgentConfig.account`）與首席 agent（依 `LeadAgentSettings.account`），群組分類也會傳（用首席 agent 的）。已不存在的帳號就是預設帳號，和家目錄的規則一樣。各轉接器只在那一次執行中關掉，絕不修改 CLI 自己的設定檔。`src/shared/types.ts` 的 `NATIVE_OFF_SUPPORT` 列出各 CLI 能整類關掉的項目，`NATIVE_ITEM_SUPPORT` 列出能逐項關掉的種類，其他的伺服器會丟掉。除了 Grok 的 hook（見下文），每個機制都在不呼叫模型的情況下，對真正的 CLI 驗證過（Claude Code 2.1.319、Codex 0.167.0、Grok 1.0.77）：
+使用者可以針對每個 CLI 的每個帳號，讓 Harness Relay 以該帳號啟動的每一次執行都不載入 CLI 自己的 skill、MCP 伺服器、內建工具、指示檔、記憶、hook、subagent 或 plugin，可以整類不載入（`ProviderAccountView.nativeOff`；預設帳號存在 `provider_settings` 的 `native_off` 欄位，其他帳號存在 `provider_accounts` 的同名欄位），也可以逐項（`nativeItems`，見下文）；新帳號什麼都不略過。`RunOptions.nativeOff` 與 `RunOptions.nativeItems` 用的是該帳號的設定（`SettingsStore.nativeOff(p, account)`）：orchestrator 傳給成員（依它的 `AgentConfig.account`）與首席 agent（依 `LeadAgentSettings.account`），群組分類也會傳（用首席 agent 的）。已不存在的帳號就是預設帳號，和家目錄的規則一樣。各轉接器只在那一次執行中關掉，絕不修改 CLI 自己的設定檔。`src/shared/types.ts` 的 `NATIVE_OFF_SUPPORT` 列出各 CLI 能整類關掉的項目，`NATIVE_ITEM_SUPPORT` 列出能逐項關掉的種類，其他的伺服器會丟掉。Cursor 什麼都不能略過（兩份清單對它都是空的）：沒有任何旗標或環境變數能在單次執行中關掉這些項目，而它的 skill、MCP 伺服器與 hook 從家目錄讀取，不會隨這次執行的設定資料夾移動；所以下面的表格沒有 Cursor 欄。除了 Grok 的 hook（見下文），每個機制都在不呼叫模型的情況下，對真正的 CLI 驗證過（Claude Code 2.1.319、Codex 0.167.0、Grok 1.0.77）：
 
 | | Claude Code | Codex（thread `config`） | Grok（環境變數） |
 | --- | --- | --- | --- |
@@ -366,6 +377,8 @@ Codex 在 thread 開始時，會把它的 skill 清單（包括 plugin 帶來的
 agent 的 CLI 不載入它自己的 skill 時，簡報裡工具庫的 skill 區塊不會再說 CLI 自己的 skill 照常可用。
 
 Grok 自己的 skill、MCP 伺服器與 hook，以及它的 plugin，只能在 `~/.grok/config.toml` 關閉（`skills.disabled`、`mcp_servers.<name>.enabled`、`plugins.disabled`），這是 Grok 的全域設定，在終端機使用 Grok 時也有效，Harness Relay 不會修改它；它的 subagent 只能連同內建的一起關掉（`subagents.enabled`、`GROK_SUBAGENTS=0`）；ACP client 可以傳的覆寫層 `GROK_CONFIG` 只接受 `models`、`features`、`toolset` 與 `shell_environment_policy`。所以它的 skill 開關只略過從 Claude Code 與 Cursor 匯入的（包括專案的 `.claude/skills`）：Grok 自己找到的 skill（`~/.agents/skills`、`~/.grok/skills`、專案的 `.grok/skills` 與 `.agents/skills`、內建的）照常載入，卡片上也會說明。`grok inspect` 會顯示 Grok 讀到了 hook 的環境變數（它的 `externalCompat`，來源為 `env`），但不會列出它從 Claude Code 設定檔匯入的 hook，所以 hook 本身無法驗證；這個開關依據的是 Grok 自己的文件（`compat.claude.hooks`，也可用 `GROK_CLAUDE_HOOKS_ENABLED`）。plugin 的 hook 不在其中，仍會執行。
+
+Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的資料夾（例如 `.claude/skills`）取得的也沒有：它自己載入的一切都會在 Harness Relay 的執行中載入，包括它的 hook，它的卡片上也會逐類說明。
 
 ### 檢查執行時不載入的項目
 
@@ -444,7 +457,7 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
 
 ## Provider：狀態、登入與模型
 
-- **狀態**：`<cli> --version` 加上登入檢查：`claude auth status`（JSON）、`codex login status`、`grok models`。快取 20 秒。
+- **狀態**：`<cli> --version` 加上登入檢查：`claude auth status`（JSON）、`codex login status`、`grok models`、`cursor-agent status --format json`（`isAuthenticated` 與帳號的 email；`status: "unauthenticated"` 表示未登入）。快取 20 秒。
 - **登入**：伺服器在背景執行 CLI 自己的登入指令並公開其輸出：從中擷取 URL 與裝置碼給介面顯示，介面中輸入的文字則寫進程序的 stdin（Claude Code 的貼上授權碼流程）。登入流程 15 分鐘後逾時。
 
   | CLI | 方式 |
@@ -452,39 +465,41 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
   | Claude Code | `claude auth login --claudeai`（訂閱帳號）/ `--console` |
   | Codex | `codex login --device-auth` / `codex login`（瀏覽器，localhost 回呼） |
   | Grok | `grok login --device-auth` / `grok login --oauth` |
+  | Cursor | `cursor-agent login`，搭配 `NO_OPEN_BROWSER=1`：它印出登入連結，而不是在伺服器上開瀏覽器，所以能在任何裝置上打開；只限預設帳號（見[帳號](#帳號)）。每次執行 Cursor 也都設定 `NO_OPEN_BROWSER=1`，所以未登入的 Cursor 絕不會在伺服器上開瀏覽器。登出用 `cursor-agent logout` |
 
-- **API key**：Claude Code 與 Grok 的金鑰只會以 `ANTHROPIC_API_KEY` / `XAI_API_KEY` 注入到對應 CLI 的環境變數。Codex 的金鑰則透過 `codex login --with-api-key` 交給 Codex 自己保存。
+- **API key**：Claude Code、Grok 與 Cursor 的金鑰只會以 `ANTHROPIC_API_KEY` / `XAI_API_KEY` / `CURSOR_API_KEY` 注入到對應 CLI 的環境變數（Cursor 只在那一次執行中使用金鑰，見[帳號](#帳號)）。Codex 的金鑰則透過 `codex login --with-api-key` 交給 Codex 自己保存。
   - *存放位置*：透過 [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node)（預先編譯好的原生模組）存進作業系統的金鑰儲存區，service 為 `harness-relay`、account 為 `<provider>-api-key`：macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service。Linux 固定使用 Secret Service，因為這個函式庫的另一個儲存區（kernel keyring）重開機後就會清空。`SettingsStore` 在啟動時把金鑰讀進記憶體。
   - *備援*：`openSystemKeyring()` 會在啟動時用一次讀取確認儲存區可用。沒有可用的儲存區時（該平台沒有原生模組、沒有 D-Bus session，或設定了 `RELAY_KEYRING=off`），金鑰會留在 `provider_settings.api_key` 欄位，設定頁也會註明。若儲存區存在但拒絕寫入，該請求會回傳錯誤，絕不會默默改存到資料庫。
   - *搬移*：在儲存區可用時，若資料庫裡還有金鑰（舊版存的，或當時沒有儲存區），會先複製到儲存區、讀回確認、清空欄位，再對 WAL 做 checkpoint，讓明文不會殘留在 `relay.db-wal`。搬移失敗時金鑰會留在資料庫，設定頁也會顯示。
-- **模型**：Codex 用 `codex debug models`（含每個模型支援的推理強度與預設值；預設模型讀 `~/.codex/config.toml`）。Grok 用 `grok models`。Claude Code 沒有列出模型的指令，所以介面提供它的別名（`fable`、`opus`、`sonnet`、`haiku`），預設值從 `CLAUDE_CONFIG_DIR`（或 `~/.claude`）的 `settings.json` 讀取。快取 10 分鐘。
+- **模型**：Codex 用 `codex debug models`（含每個模型支援的推理強度與預設值；預設模型讀 `~/.codex/config.toml`）。Grok 用 `grok models`。Claude Code 沒有列出模型的指令，所以介面提供它的別名（`fable`、`opus`、`sonnet`、`haiku`），預設值從 `CLAUDE_CONFIG_DIR`（或 `~/.claude`）的 `settings.json` 讀取。Cursor 透過 ACP 查詢，不開 session 也不送 prompt（帶參數化模型選擇器的 `initialize`、沒有 API key 時再 `authenticate`，然後 `cursor/list_available_models`，限時 30 秒）：每個模型以基本名稱列出，附上它類別為 `thought_level` 的選項中的推理強度與該選項的預設值（思考的開關不算推理強度）；`default` 是 Auto。不從 Cursor 讀取預設模型：session 一開始用的是帳號設定裡的模型（使用者沒選過時是 Auto）。快取 10 分鐘。
 
 ### 帳號
 
 一個 CLI 可以登入多個帳號（最多 `MAX_ACCOUNTS`，10 個，含預設帳號）。帳號就是 CLI 的一個家目錄（CLI 在裡面保存登入、設定與 session），加上帳號自己的 API key：
 
 - **預設帳號**（id 為 `''`，URL 中寫作 `default`）就是有帳號功能之前的樣子：CLI 平常的家目錄或 `<agentHome>/<cli>`，以及 `provider_settings`（或金鑰儲存區的 `<provider>-api-key`）裡的金鑰，沒有時則是伺服器環境變數裡的金鑰。它的名稱存在 `provider_settings.account_label`。
-- **其他每個帳號**（`provider_accounts`；id 是 `SettingsStore.addAccount()` 產生的 8 位十六進位數字）的家目錄是 `<accountsDir>/<cli>-<id>`，`accountsDir` 在設定了各 CLI 自己的資料夾（`agentHome`）時就是它，否則是 `data/accounts`（`ACCOUNTS_DIR`）。它的金鑰在金鑰儲存區的名稱是 `<provider>-api-key-<id>`（和預設帳號的一樣，啟動時會從資料庫移過去）；`env(p, id)` 會先移除從伺服器環境變數繼承、CLI 會優先於家目錄裡的登入讀取的每個憑證變數（`CREDENTIAL_ENV`：Claude Code 的 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`CLAUDE_CODE_OAUTH_TOKEN`，Codex 的 `CODEX_API_KEY`、`OPENAI_API_KEY`，Grok 的 `XAI_API_KEY`），再加入帳號自己的金鑰，所以帳號絕不會以別人的登入執行，它的成員執行的指令也看不到這些變數。Codex 的金鑰會讓那個帳號登入（在它的家目錄執行 `codex login --with-api-key`）。
+- **其他每個帳號**（`provider_accounts`；id 是 `SettingsStore.addAccount()` 產生的 8 位十六進位數字）的家目錄是 `<accountsDir>/<cli>-<id>`，`accountsDir` 在設定了各 CLI 自己的資料夾（`agentHome`）時就是它，否則是 `data/accounts`（`ACCOUNTS_DIR`）。它的金鑰在金鑰儲存區的名稱是 `<provider>-api-key-<id>`（和預設帳號的一樣，啟動時會從資料庫移過去）；`env(p, id)` 會先移除從伺服器環境變數繼承、CLI 會優先於家目錄裡的登入讀取的每個憑證變數（`CREDENTIAL_ENV`：Claude Code 的 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`CLAUDE_CODE_OAUTH_TOKEN`，Codex 的 `CODEX_API_KEY`、`OPENAI_API_KEY`，Grok 的 `XAI_API_KEY`，Cursor 的 `CURSOR_API_KEY`、`CURSOR_AUTH_TOKEN`），再加入帳號自己的金鑰，所以帳號絕不會以別人的登入執行，它的成員執行的指令也看不到這些變數。Codex 的金鑰會讓那個帳號登入（在它的家目錄執行 `codex login --with-api-key`）。
 - **每次啟動 CLI 都指定帳號。** `SettingsStore.env(p, account)` 設定帳號的家目錄變數與金鑰（CLI 沒有的 id，例如已移除的帳號，就是預設帳號：`resolveAccount()`）。agent 的回合用 `AgentConfig.account`，首席 agent 的執行（設計團隊、調整團隊、分群）用 `LeadAgentSettings.account`。狀態檢查會對每個帳號各做一次登入檢查（`ProviderStatus.accounts`，預設帳號在最前面；最上層的 `auth` 仍是預設帳號的），登入工作階段也按帳號分開保存（登入與登出路由的 `?account=<id>`）。模型清單在每個帳號的家目錄各問一次（`ProviderService.models(p, refresh, account)`，按帳號快取），所以各自帶有 CLI 在自己設定裡的預設值；`GET /api/models` 列出每個 CLI 的每個帳號（`ProviderModels.account`，預設帳號沒有這個欄位並排在最前面），`catalogFor()` 取出成員、首席 agent 或設定頁所用帳號的那一份（已不存在的帳號用預設帳號的）。
 - **每個帳號各自的執行方式。** 預設模型與推理強度，以及它的執行不載入 CLI 在它家目錄裡自己載入的哪些項目（見[各 CLI 自己載入的內容](#各-cli-自己載入的內容)），都是帳號自己的（`AccountRunSettings`，在 `ProviderAccountView` 裡；用 `PUT /api/settings/providers/:provider/accounts/:account` 修改）：預設帳號的存在 `provider_settings`，其他帳號的存在 `provider_accounts`。新帳號的家目錄一開始是空的，所以它用 CLI 自己的預設值、什麼都不略過；schema 版本 20 讓原有的帳號沿用所屬 CLI 當時的值，執行方式不變。每次啟動都從所用的帳號取值（`SettingsStore.defaultModel(p, account)`、`defaultEffort`、`nativeOff`、`nativeItems`）：agent 的回合依 `AgentConfig.account`（成員自己指定的模型或推理強度優先），首席 agent 的執行與群組分類依 `LeadAgentSettings.account`。設定頁把它們和登入、API key 一起放在每個帳號的區塊裡；只有執行檔是整個 CLI 共用的（`PUT /api/settings/providers/:provider`，會拒絕帳號層級的欄位）。
 - **session 跟著帳號。** session 存在建立它的家目錄，所以 `agent_sessions` 會記錄帳號；agent 改用另一個帳號（或另一個 CLI）執行時，回合會開始新的 session 並收到完整歷史，和任何續接失敗之後一樣。
 - **選擇帳號。** 成員在團隊編輯器裡選擇帳號（`AccountPicker`，CLI 有不只一個帳號時才出現），模型選單隨之顯示該帳號的模型與預設值；在那裡新增的成員、以及空白範本的成員，預設帳號可用時用預設帳號，否則用第一個可用的帳號（`readyAccount()`）。首席 agent 看不到帳號 id：`keepMemberIds()` 與 `decideRevision()` 讓留任的成員在 CLI 不變時保留帳號，`fitAgents()` 則在其他成員的帳號不可用時，給它該 CLI 的一個可用帳號（`PlannerContext.accounts`，來自狀態：已登入、無法判斷，或有金鑰），預設帳號優先，再依該帳號的模型清單檢查成員的模型與推理強度。留任的成員保留自己的帳號（收到 `current` 時，`fitAgents()` 用和 `keepMemberIds()` 相同的方式比對成員），所以依它保留的帳號檢查模型。CLI 只要有任一帳號可用，對首席 agent 而言就算可用；首席 agent 讀到的模型、預設值與 CLI 自己的工具，都以它新成員會用的帳號為準。
 - **移除帳號**（`DELETE /api/settings/providers/:provider/accounts/:account`，有對話正在執行時回 409）會停止它的登入，並在那次檢查之後立刻連同金鑰忘掉它（首席 agent 若用這個帳號，也會改回預設帳號）：之後指定它的 agent 都用預設帳號執行，所以這段期間開始的回合絕不會在它的家目錄執行。接著用忘掉之前取得的環境變數，在 15 秒內盡量讓 CLI 登出（macOS 上 Claude Code 把憑證存在鑰匙圈，名稱由家目錄推得），再刪除它的家目錄。
 - **Grok 的資料夾信任** 會記錄到每個 Grok 帳號的家目錄，全部都寫或全部都不寫（`trustGrokFolderAll()`：有一個寫不進去時，已寫入的會還原）；Grok 不接受時，全部還原。之後新增的 Grok 帳號會複製一份預設帳號的信任紀錄（`copyGrokTrust()`），因為設定頁是問預設帳號哪些資料夾受信任。
+- **Cursor 只有一個登入。** Cursor 在每個電腦使用者只保留一個登入，存在固定的名稱下（macOS 上在登入鑰匙圈，Linux 與 Windows 上在一個不隨設定資料夾移動的 `auth.json`），交給它的 API key 也會存在那裡，取代那個登入。所以它的家目錄變數 `CURSOR_CONFIG_DIR`（`AGENT_HOME_ENV.cursor`）只會移動它的設定與 session。Cursor 帶著金鑰執行時（`CURSOR_API_KEY` 或 `CURSOR_AUTH_TOKEN`，不論是 Harness Relay 的還是伺服器自己的），以及預設帳號以外的帳號一律，`env(p, account)` 都會設定 `AGENT_CLI_CREDENTIAL_STORE=memory`（`settings.ts` 的 `CURSOR_SHARED_SIGN_IN`），讓 Cursor 用來登入的東西只留在那一次執行；所以金鑰絕不會取代使用者自己的 Cursor 登入。預設帳號使用 Cursor 自己的登入。其他每個 Cursor 帳號只能用 API key 登入（`src/shared/types.ts` 的 `keyOnlyAccount()`）：設定頁以一段說明取代登入按鈕，並展開它的 API key 欄位；`POST /api/providers/cursor/login?account=<id>` 回 400；登出（或移除）這種帳號不會執行任何 CLI，因為它什麼都沒保存。登出預設帳號時，會在不帶金鑰、也不用記憶體儲存的情況下執行 `cursor-agent logout`，所以登出的是 Cursor 自己的登入。
 - **編輯模式** 不能用在包含 `accountsDir` 或位於其中的工作目錄，和其他 CLI 的家目錄一樣（`agentFolders()`）；快照也會略過每個帳號的家目錄。
 
 ## Agent 的家目錄與 AgentsView
 
 兩者都是選用的設定，存在 `app_settings`（`agent_home`、`agentsview_url`，以及介面連結打開的網址 `agentsview_link`），在 **設定 → Agent 的 session** 編輯，透過 `PUT /api/settings` 送出。兩者都不需要環境變數，所以在每個平台上 `npm start` 和 `npm run dev` 都不必改。
 
-**Agent 的家目錄。** 設定資料夾後，`SettingsStore.env(p)` 會把各 CLI 的家目錄變數指到裡面：`CLAUDE_CONFIG_DIR=<資料夾>/claude`、`CODEX_HOME=<資料夾>/codex`、`GROK_HOME=<資料夾>/grok`，其他[帳號](#帳號)的家目錄也放在裡面（`<資料夾>/<cli>-<id>`）。所以換資料夾會讓每個帳號都換成新的、空的家目錄；舊的留在原處（移除帳號只會刪掉它目前的家目錄）。這個值會取代伺服器繼承來的值（例如使用者為自己的 Claude Code 在 shell 設定的 `CLAUDE_CONFIG_DIR`），資料夾在第一次使用時建立，因為 Codex 不接受不存在的 `CODEX_HOME`。每次啟動 CLI 都經過 `env(p)`：執行、狀態檢查、從設定頁開始的登入、模型查詢、詢問 CLI 自己載入了什麼（快取也以家目錄區分）以及 Grok 的資料夾信任。所以從設定頁登入的 CLI 是登入在 Relay 的家目錄，session 紀錄也寫在那裡（`claude/projects/`、`codex/sessions/`、`grok/sessions/`）。更換資料夾會清掉 provider 狀態與模型的快取，並取消進行中的登入（它們會登入在舊的家目錄）；有對話正在執行、設定中、正在分群或首席 agent 正在修改團隊時會拒絕更換（409，且不會建立資料夾），因為回合會在 CLI 尚未登入的家目錄開始。更換前的 session 無法從新的家目錄接續，該回合會像其他接續失敗時一樣，開新 session 並提供完整紀錄。資料夾會先驗證（`validAgentHome`）：必須是完整路徑或 `~` 開頭的路徑（`~/` 與 `~\`），不可以是家目錄本身或檔案系統的根目錄，也不可以在 Harness Relay 自己的資料夾或預設工作目錄裡面，因為那裡的快照（`git add -A` 到暫存的 index）會把各 CLI 的登入與 session 紀錄一起收進去。在 macOS 與 Windows 上比對路徑時不分大小寫。資料夾只在請求不會被拒絕時才建立，而且只有擁有者能存取（`0700`）。這個檢查只是提早提醒；快照本身也會排除這個資料夾，不論它在 repository 的哪裡（`snapshot(root, exclude)` 加上 `:(exclude,literal)` pathspec，並解析連結），所以之後改的預設工作目錄、其他對話的工作目錄，或位於工作目錄上層的 repository 根目錄，也都不會把它收進去。
+**Agent 的家目錄。** 設定資料夾後，`SettingsStore.env(p)` 會把各 CLI 的家目錄變數指到裡面：`CLAUDE_CONFIG_DIR=<資料夾>/claude`、`CODEX_HOME=<資料夾>/codex`、`GROK_HOME=<資料夾>/grok`、`CURSOR_CONFIG_DIR=<資料夾>/cursor`，其他[帳號](#帳號)的家目錄也放在裡面（`<資料夾>/<cli>-<id>`）。所以換資料夾會讓每個帳號都換成新的、空的家目錄；舊的留在原處（移除帳號只會刪掉它目前的家目錄）。這個值會取代伺服器繼承來的值（例如使用者為自己的 Claude Code 在 shell 設定的 `CLAUDE_CONFIG_DIR`），資料夾在第一次使用時建立，因為 Codex 不接受不存在的 `CODEX_HOME`。每次啟動 CLI 都經過 `env(p)`：執行、狀態檢查、從設定頁開始的登入、模型查詢、詢問 CLI 自己載入了什麼（快取也以家目錄區分）以及 Grok 的資料夾信任。所以從設定頁登入的 CLI 是登入在 Relay 的家目錄，session 紀錄也寫在那裡（`claude/projects/`、`codex/sessions/`、`grok/sessions/`、`cursor/acp-sessions/`）。登入的部分 Cursor 是例外：它的資料夾只放它的設定與 session，登入仍屬於電腦使用者（見[帳號](#帳號)），所以不必重新登入。更換資料夾會清掉 provider 狀態與模型的快取，並取消進行中的登入（它們會登入在舊的家目錄）；有對話正在執行、設定中、正在分群或首席 agent 正在修改團隊時會拒絕更換（409，且不會建立資料夾），因為回合會在 CLI 尚未登入的家目錄開始。更換前的 session 無法從新的家目錄接續，該回合會像其他接續失敗時一樣，開新 session 並提供完整紀錄。資料夾會先驗證（`validAgentHome`）：必須是完整路徑或 `~` 開頭的路徑（`~/` 與 `~\`），不可以是家目錄本身或檔案系統的根目錄，也不可以在 Harness Relay 自己的資料夾或預設工作目錄裡面，因為那裡的快照（`git add -A` 到暫存的 index）會把各 CLI 的登入與 session 紀錄一起收進去。在 macOS 與 Windows 上比對路徑時不分大小寫。資料夾只在請求不會被拒絕時才建立，而且只有擁有者能存取（`0700`）。這個檢查只是提早提醒；快照本身也會排除這個資料夾，不論它在 repository 的哪裡（`snapshot(root, exclude)` 加上 `:(exclude,literal)` pathspec，並解析連結），所以之後改的預設工作目錄、其他對話的工作目錄，或位於工作目錄上層的 repository 根目錄，也都不會把它收進去。
 
 **AgentsView。** [AgentsView](https://www.agentsview.io) 會索引各 CLI 的 session 紀錄，每個 agent 一個 session，但沒有東西把同一個對話的 session 串在一起。`src/server/agentsview.ts` 補上這一點：
 
 1. 每個回合結束和每次執行結束時，orchestrator 會呼叫 `TraceSink.schedule(conv)`（正在刪除的對話不會，而且 sink 出錯也不會中斷執行）；重新命名對話時也會呼叫。`AgentsViewSync` 對每個對話一次只跑一個更新；期間的變更會在它結束後一次送出。刪除對話會丟掉還在等待的更新（`forget`），已經送到 AgentsView 的內容則留著。
 2. `threadTranscript(conv)` 把對話寫成 Claude Code 的 session 紀錄（AgentsView 的上傳只接受這種格式）：使用者的訊息是 user turn，每位成員的回覆是以成員名稱和 CLI 開頭的 assistant turn，最後是帶對話標題的 `custom-title` 紀錄。系統訊息和還在串流的回覆不會放進去。紀錄沿用訊息的 id，session id 就是對話的 id，所以每次上傳都取代同一個 session（`allow_shorter=true`，因為重試或編輯會刪掉訊息）。
 3. thread 透過 `POST /api/v1/sessions/upload` 上傳，放在 AgentsView 給第一個它認得的 agent session 的 project 與 machine（`GET /api/v1/sessions/{id}`），否則用工作目錄的名稱和 `local`。
-4. 每位成員目前的 session 用 `PUT /api/v1/sessions/{id}/parent` 連到 thread（Claude Code 的 session 用它的 id，其他用 `codex:<id>`、`grok:<id>`），這個對話的首席 agent 與分群用的 session 也一樣（`TraceSink.link`，存在記憶體中直到伺服器停止；它們結束時會再送一次對話，因為分群常在執行結束後才完成）。AgentsView 會把它們放在 thread 底下，並把成本加總到 thread；連到它還沒讀到的 session 時，連結會等到讀到後才生效。
+4. 每位成員目前的 session 用 `PUT /api/v1/sessions/{id}/parent` 連到 thread（Claude Code 的 session 用它的 id，Codex 與 Grok 的用 `codex:<id>`、`grok:<id>`），這個對話的首席 agent 與分群用的 session 也一樣（`TraceSink.link`，存在記憶體中直到伺服器停止；它們結束時會再送一次對話，因為分群常在執行結束後才完成）。AgentsView 會把它們放在 thread 底下，並把成本加總到 thread；連到它還沒讀到的 session 時，連結會等到讀到後才生效。Cursor 的 session 不會連結：Cursor 把它的 ACP session 存在自己的資料庫（`acp-sessions/<id>/store.db`），AgentsView 不讀它（`agentsViewSessionId('cursor', …)` 不給 id），所以 Cursor 成員或首席 agent 的回覆只在 thread 本身裡。
 
 AgentsView 會拒絕沒有它自己 `Origin` 的寫入，所以每次寫入都會帶上；也絕不跟隨重新導向（`redirect: 'error'`），對話不會被轉送到其他主機。失敗會記在 log，並連同發生時的網址保留在 `AgentsViewSync.error`，由 `GET /api/settings` 回傳（`agentsViewError`），直到對那個網址的更新成功；換成其他網址時不會顯示。它不會影響對話。伺服器關閉時最多等三秒，讓進行中的更新完成。
 
@@ -564,6 +579,7 @@ sequenceDiagram
 - 啟動 `claude` 前會移除 Claude Code 替自己子程序設定的環境變數，所以即使從 Claude Code session 裡啟動本程式也能正常運作；
 - MCP 伺服器變數與標頭的值和 API key 一樣是機密：存在金鑰儲存區、送到介面時會遮蔽，交給 Claude Code 時寫在私有暫存檔而不是指令列；
 - Grok 對資料夾的信任只會在使用者於介面確認後記錄，而且要用 JSON POST（其他網站送不出來）；
+- 每一輪 Cursor 都用 `data/tmp` 裡沒有允許規則的私有設定資料夾執行，也不讀專案的 `.cursor/cli.json`（`--disable-project-configs`），所以使用者自己的 Cursor 允許規則與專案的設定，都不能讓指令不經詢問就執行；Cursor 的請求絕不以「allow always」回覆，執行中決定的事（模型、規則）也不會寫進使用者自己的 Cursor 設定；
 - 對話只會送到這台電腦上的 AgentsView：`validAgentsViewUrl` 只接受 `localhost`、`127.0.0.1` 或 `[::1]` 的 `http(s)` 網址，不能帶帳號密碼，並只儲存 origin；也不跟隨重新導向。介面連結打開的網址（`agentsViewLink`）可以是任何 http(s) 網址，因為不會有資料送過去；
 - 瀏覽檔案（以及把資料夾下載成 ZIP 檔）只會讀取工作目錄或成員 worktree 裡的內容（跟隨符號連結之後），絕不讀 `.git`（不分大小寫，因為在不分大小寫的檔案系統上 `.GIT` 會開到 `.git`；結尾多一個點或空白，或 Windows 的短檔名如 `GIT~1` 也一樣，在 Windows 上會再用系統自己的真實路徑檢查），圖片與影片的提供方式和媒體端點相同，其他檔案只以下載提供（見[瀏覽檔案](#瀏覽檔案)）；
 - 語音輸入的錄音不會離開這台電腦：語音引擎只聽 `127.0.0.1`，並藏在隨機路徑前綴之後；它下載的引擎與模型固定在某個版本或 commit，並檢查 SHA-256（見[語音輸入](#語音輸入)）。
@@ -577,7 +593,7 @@ sequenceDiagram
 - 瀏覽器用一次性代碼登入（`src/server/auth.ts`；8 個 Crockford base 32 字元）：來自伺服器啟動時印出的連結（`#code=…`，一小時內有效）、`npm run login`（`scripts/login.ts`，10 分鐘內有效，不論伺服器有沒有在執行，都寫進同一個資料庫），或已登入的瀏覽器（「**設定 → 已登入的瀏覽器 → 讓另一個裝置登入**」，10 分鐘內有效，給手機用）。同時有效的是最新的五個代碼。介面會先把代碼從網址中拿掉再登入，即使已開著的頁面只改了片段也一樣；已登入的瀏覽器打開連結時也會用掉代碼（新的 session 取代舊的），所以代碼不會在瀏覽器的歷史紀錄中繼續有效。一分鐘內錯了十次代碼，該分鐘剩下的時間都會被拒絕（429）；次數在每個代碼被試之前才檢查，所以同時送出的請求無法一起通過。
 - 登入會給瀏覽器兩個秘密，請求必須兩者都有：一個 cookie（`relay_session`，`HttpOnly`、`SameSite=Strict`、`Path=/api`，400 天），以及介面存在 localStorage、以 `X-Relay-Key` 送出的金鑰。cookie 會送到同一主機的每個 port，所以 agent 在這台電腦另一個 port 提供的網頁，若使用者打開了，就會拿到它；localStorage 則只屬於介面自己的來源。瀏覽器自己載入的內容（回覆中的圖片與影片、下載、附件、資料夾的檔案與 ZIP：`app.ts` 的 `BROWSER_LOADS`）只需要 cookie：這些路由只讀取對話的資料夾，而它的 agent 本來就讀得到。即時更新（EventSource，無法帶標頭）把金鑰放在查詢字串中。
 - 資料庫只存雜湊（`auth_codes`、`auth_sessions`）：cookie 的秘密與金鑰（各 256 位元）用 SHA-256，代碼則用 scrypt，每個各有自己的 salt，因為代碼短得可以手動輸入：40 位元的快速雜湊，逐一試過每個代碼，幾分鐘到幾小時就能還原。所以讀得到資料庫的程式（沙箱讓 agent 能讀）無法用它們登入。伺服器也會遵守 400 天的期限。「**設定 → 已登入的瀏覽器**」會列出已登入的瀏覽器（以 User-Agent 命名），並能登出其中任何一個。
-- 在完全存取以外的權限，agent 的沙箱既讀不到瀏覽器的資料夾（包括桌面 app 視窗的），也讀寫不到資料庫（[各平台的作業系統沙箱 → agent 不能讀寫的地方](sandboxing.zh-TW.md#agent-不能讀寫的地方)），工作目錄包含 Harness Relay 本身、家目錄或 CLI 自己的資料夾或程式時也會拒絕可編輯模式；Grok 的沙箱改不了它自己的程式，它的設定被改動時也會改回原樣。它擋不住的：在這些沙箱之外、讀得到瀏覽器設定檔的程式能在那裡找到金鑰；瀏覽器若把 cookie 以未加密的方式存放（Firefox 就是；macOS 上的 Chrome 與 Edge 會用鑰匙圈中的金鑰加密），也能找到 cookie；寫得到 `data/relay.db` 的程式能加入一個 session。這指的是擁有完全存取的 agent、使用者允許在沙箱外執行的指令、CLI 在沙箱外執行的東西（Claude Code 的 hooks 與本機 MCP 伺服器）、資料夾不在清單上的瀏覽器、Grok 在它資料夾中自己維護的 plugin 資料夾，或 Claude Code 與 Grok 沒有沙箱的原生 Windows。不斷送出錯誤代碼的程式，在它這麼做的期間會讓新的瀏覽器無法登入（已登入的瀏覽器照常運作）。
+- 在完全存取以外的權限，agent 的沙箱既讀不到瀏覽器的資料夾（包括桌面 app 視窗的），也讀寫不到資料庫（[各平台的作業系統沙箱 → agent 不能讀寫的地方](sandboxing.zh-TW.md#agent-不能讀寫的地方)）；沒有沙箱的 Cursor，則靠它自己讀寫工具上的拒絕規則，以及每個指令之前的詢問擋在外面。工作目錄包含 Harness Relay 本身、家目錄或 CLI 自己的資料夾或程式時，也會拒絕可編輯模式；Grok 的沙箱改不了它自己的程式，它的設定被改動時也會改回原樣。它擋不住的：在這些沙箱之外、讀得到瀏覽器設定檔的程式能在那裡找到金鑰；瀏覽器若把 cookie 以未加密的方式存放（Firefox 就是；macOS 上的 Chrome 與 Edge 會用鑰匙圈中的金鑰加密），也能找到 cookie；寫得到 `data/relay.db` 的程式能加入一個 session。這指的是擁有完全存取的 agent、使用者允許在沙箱外執行的指令、CLI 在沙箱外執行的東西（Claude Code 的 hooks 與本機 MCP 伺服器）、使用者允許 Cursor 執行的任何指令，以及 Cursor 的 hook 與 MCP 伺服器（Cursor 沒有沙箱）、資料夾不在清單上的瀏覽器、Grok 在它資料夾中自己維護的 plugin 資料夾，或 Claude Code 與 Grok 沒有沙箱的原生 Windows。不斷送出錯誤代碼的程式，在它這麼做的期間會讓新的瀏覽器無法登入（已登入的瀏覽器照常運作）。
 
 要從手機使用時，伺服器仍然只綁定 `127.0.0.1`，由同一台電腦上的 `tailscale serve` 把使用者 tailnet 裡的請求以 HTTPS 轉給它；因為 Tailscale 會保留原本的 `Host` 標頭，tailnet 上的名稱要加進 `RELAY_ALLOWED_HOSTS`。之後 tailnet 裡的每台裝置都能連到它，登入後就能使用。若改成綁定 `0.0.0.0`，區域網路上的任何人都能透過未加密的 HTTP 連到它，代碼、cookie 與金鑰都能從網路上讀到。詳見[用手機連線](remote-access.zh-TW.md)。
 
@@ -588,10 +604,12 @@ sequenceDiagram
 - 目錄鎖存在伺服器程序中；其他工具（或第二個 Harness Relay 伺服器）仍然可以修改同樣的檔案。
 - 巢狀 repository 與 submodule：在 worktree 中是空資料夾，裡面的修改也不會被記錄（快照只記錄它們指向哪個 commit）。
 - Grok 執行的專案程式碼仍能連網，而在原生 Windows 上 Claude Code 與 Grok 完全沒有沙箱（見[權限對應](#權限對應)與[各平台的作業系統沙箱](sandboxing.zh-TW.md)）；判斷推送與發佈指令只能盡力而為。
+- Cursor 在 Harness Relay 的執行中沒有作業系統沙箱，任何平台都一樣（它的 ACP 模式不套用沙箱）：在完全存取以外的權限，它執行的每個指令都要詢問，包括測試與建置；使用者允許的指令則以使用者的完整權限執行，包括連網。它的拒絕規則只讓它自己的讀取與寫入工具碰不到受保護的路徑，而且只在 macOS 與 Linux 上（在 Windows 上 Harness Relay 沒有受保護的路徑）。它的 hook（`~/.cursor/hooks.json`、組織的）每次執行都會執行，它自己載入的東西也都無法在單次執行中略過。
+- Cursor 透過 ACP 沒有 system prompt，所以它的簡報放在 prompt 的最前面，模型會把它當成使用者訊息的一部分來讀；接續的 session 只在簡報改變時才會再收到（伺服器重新啟動後會再收到一次）。拒絕時附的說明只顯示在聊天室，不會轉交給 Cursor 的 agent，它只知道呼叫被拒絕了。Cursor 不回報用量與費用，所以它的回合不會顯示 token 與費用。
 - Grok 的沙箱讓指令連得到 localhost。Harness Relay 的 API 會拒絕它們，除非它們拿得出已登入瀏覽器的 cookie 與金鑰；而沙箱讓它們讀不到這些；但在沙箱之外、讀得到瀏覽器設定檔或寫得到 `data/relay.db` 的程式仍可能登入（見[登入](#登入)）。
 - Claude Code 的沙箱涵蓋它的 Bash 指令，不包括它自己的檔案工具、hooks 與 MCP 伺服器（包括工具庫的）；Grok 的沙箱涵蓋 Grok 執行的一切。Claude Code 的沙箱會擋下的指令會先詢問，允許後在沙箱外執行；Grok 的沙箱擋下的指令則完全無法允許。
 - Claude Code 自己的 `permissions.allow` 規則（使用者設定，或已信任專案的設定）仍可讓指令不經詢問就執行。
-- 唯讀並選「詢問我」時，Claude Code 無法請求修改檔案（修改檔案的工具已移除）；Codex 與 Grok 可以。
+- 唯讀並選「詢問我」時，Claude Code 無法請求修改檔案（修改檔案的工具已移除），Cursor 的寫入工具則完全不能寫（`Write(**)`：這種寫入會顯示為沒有寫入）；Codex 與 Grok 可以。
 - 保留的快照 ref（`refs/harness-relay/…`）會出現在列出所有 ref 的工具中（`git log --all`、部分 git GUI），`git push --mirror` 也會一併推送。編輯訊息時會移除被刪掉回合的 ref，刪除對話時移除其餘的。
 - 開始新的 Codex 登入時，會先登出目前的 Codex 帳號。
 - Claude Code 沒有列出模型的指令；模型選單只提供別名與自訂欄位。
@@ -601,10 +619,10 @@ sequenceDiagram
 - Codex 只有在它的模型決定要求超出沙箱的權限時才會詢問；被擋下但沒有詢問的呼叫就只會失敗。
 - Claude Code 的思考內容需要未列入文件的 `--thinking-display summarized` 旗標；Claude Code 的待辦清單只有在它的 `TodoWrite` 工具可用時才會出現。
 - 重試或編輯訊息會讓每個 agent 以剩下的對話紀錄開新的 CLI session；分支出來的對話裡的 agent 也一樣，用的是複製過來的紀錄。分支共用工作目錄，不會倒回分支那則回覆當時的樣子。
-- Grok 只有在使用者信任過的資料夾才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks，而 `grok agent stdio` 無法指定信任。Harness Relay 會標示資料夾尚未信任（在 Grok 卡片、有 Grok 成員的團隊的工作目錄下方，以及等待確認、或最近一次直接採用、有 Grok 成員的團隊設計上），並在使用者確認後，用和 `grok --trust` 相同的方式記錄信任（`src/server/grokTrust.ts`：在 `$GROK_HOME/trusted_folders.toml` 加入 `[folders."<路徑>"]`，權限 `0600`，再用 `grok inspect` 確認）。Grok 是以專案根目錄決定信任，而不是輸入的工作目錄：也就是它以 `projectRoot` 回報的儲存庫根目錄（解析連結後），不在儲存庫裡時則是工作目錄的實際路徑。記錄與確認時顯示的都是這個資料夾；它是工作目錄上層的儲存庫根目錄時，確認畫面會說明整個儲存庫都會被信任。使用者確認時若 Grok 已改為另一個資料夾，請求會被拒絕；記錄後 Grok 仍回報未信任時，檔案會還原成原本的內容。工具庫的項目不受影響。平行模式下 Grok 在 `data/worktrees/` 下的 worktree 工作，那是另一個資料夾，工作目錄的信任不一定涵蓋。Codex 每次呼叫 MCP 工具前也會詢問：完整存取以外的權限下會在聊天室顯示核准請求，在設成自動拒絕的對話裡呼叫會失敗；完整存取下只有工具庫的伺服器不經詢問就執行（使用者 `config.toml` 裡自己的伺服器依它們自己的設定）。Codex 其他的 MCP elicitation 一律拒絕。Grok 只有在宣告支援 `mcpCapabilities.http` 時才會拿到工具庫的 HTTP MCP 伺服器，否則會略過並在伺服器 log 留下警告。完整存取以外的權限下，Claude Code 每次呼叫 MCP 工具都會詢問（沒有預先允許任何 MCP 工具），所以在設成自動拒絕的對話裡用不到它們。
-- 帳號：首席 agent 讀的各 CLI 的模型、預設值與自己的工具，以它新成員會用的帳號為準，所以已經在其他帳號的成員，可能有和它讀到的不同的模型、預設值、skill 與 MCP 伺服器。CLI 的執行檔由它的所有帳號共用。首席 agent 不能替它設計的團隊選帳號（新成員用第一個可用的帳號；可在團隊編輯器修改）。移除帳號會連同家目錄刪除它的 session 紀錄。把憑證存在家目錄以外的 CLI（macOS 鑰匙圈裡的 Claude Code），登出失敗時憑證仍會留在那裡。
-- Agent 的家目錄：各 CLI 不再讀使用者自己的設定、MCP 伺服器、skill、記憶與 plugin，而且要在新的家目錄重新登入。AgentsView：它的上傳只接受 Claude Code 的 session 紀錄，所以 thread 會被列為 Claude Code 的 session，所有回覆都是 assistant turn；它預設隱藏使用者只說了一則訊息的 session（直到對話有第二則，或開啟 **Include single-turn**）；不支援需要 token 的 AgentsView（`require_auth`）；成員開新 session 後，舊的 session 仍連在 thread 下，之後只會重新連結目前的 session；首席 agent 與分群用的 session 只在執行它們的伺服器還開著時才會連結；刪除對話後，它的 thread 仍留在 AgentsView。
+- Grok 只有在使用者信任過的資料夾才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks，而 `grok agent stdio` 無法指定信任。Harness Relay 會標示資料夾尚未信任（在 Grok 卡片、有 Grok 成員的團隊的工作目錄下方，以及等待確認、或最近一次直接採用、有 Grok 成員的團隊設計上），並在使用者確認後，用和 `grok --trust` 相同的方式記錄信任（`src/server/grokTrust.ts`：在 `$GROK_HOME/trusted_folders.toml` 加入 `[folders."<路徑>"]`，權限 `0600`，再用 `grok inspect` 確認）。Grok 是以專案根目錄決定信任，而不是輸入的工作目錄：也就是它以 `projectRoot` 回報的儲存庫根目錄（解析連結後），不在儲存庫裡時則是工作目錄的實際路徑。記錄與確認時顯示的都是這個資料夾；它是工作目錄上層的儲存庫根目錄時，確認畫面會說明整個儲存庫都會被信任。使用者確認時若 Grok 已改為另一個資料夾，請求會被拒絕；記錄後 Grok 仍回報未信任時，檔案會還原成原本的內容。工具庫的項目不受影響。平行模式下 Grok 在 `data/worktrees/` 下的 worktree 工作，那是另一個資料夾，工作目錄的信任不一定涵蓋。Codex 每次呼叫 MCP 工具前也會詢問：完整存取以外的權限下會在聊天室顯示核准請求，在設成自動拒絕的對話裡呼叫會失敗；完整存取下只有工具庫的伺服器不經詢問就執行（使用者 `config.toml` 裡自己的伺服器依它們自己的設定）。Codex 其他的 MCP elicitation 一律拒絕。Grok 只有在宣告支援 `mcpCapabilities.http` 時才會拿到工具庫的 HTTP MCP 伺服器，否則會略過並在伺服器 log 留下警告；Cursor 也一樣。完整存取以外的權限下，Claude Code 每次呼叫 MCP 工具都會詢問（沒有預先允許任何 MCP 工具），Cursor 也是，所以在設成自動拒絕的對話裡它們用不到 MCP 工具。
+- 帳號：首席 agent 讀的各 CLI 的模型、預設值與自己的工具，以它新成員會用的帳號為準，所以已經在其他帳號的成員，可能有和它讀到的不同的模型、預設值、skill 與 MCP 伺服器。CLI 的執行檔由它的所有帳號共用。首席 agent 不能替它設計的團隊選帳號（新成員用第一個可用的帳號；可在團隊編輯器修改）。移除帳號會連同家目錄刪除它的 session 紀錄。把憑證存在家目錄以外的 CLI（macOS 鑰匙圈裡的 Claude Code），登出失敗時憑證仍會留在那裡。Cursor 在每個電腦使用者只保留一個登入，所以預設帳號以外的 Cursor 帳號只能用 API key 登入。
+- Agent 的家目錄：各 CLI 不再讀使用者自己的設定、MCP 伺服器、skill、記憶與 plugin，而且要在新的家目錄重新登入（Cursor 除外：只有它的設定與 session 會移動，它的登入，以及家目錄裡的 skill、MCP 伺服器與 hook 都維持原樣）。AgentsView：Cursor 的 session 不會連到 thread（AgentsView 不讀 Cursor 的 session 資料庫）；它的上傳只接受 Claude Code 的 session 紀錄，所以 thread 會被列為 Claude Code 的 session，所有回覆都是 assistant turn；它預設隱藏使用者只說了一則訊息的 session（直到對話有第二則，或開啟 **Include single-turn**）；不支援需要 token 的 AgentsView（`require_auth`）；成員開新 session 後，舊的 session 仍連在 thread 下，之後只會重新連結目前的 session；首席 agent 與分群用的 session 只在執行它們的伺服器還開著時才會連結；刪除對話後，它的 thread 仍留在 AgentsView。
 - 語音輸入：Linux 與 Windows 的預先編譯引擎用 CPU 執行（沒有 CUDA 或 Vulkan），大模型會比較慢；Linux 版需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新，不支援 musl）；macOS 需要 Homebrew，它也會一併安裝 whisper.cpp 的相依套件。文字要等說完才出現，不會邊說邊顯示。Whisper 仍可能寫出簡體字，或從雜音編出一句話。
-- 桌面 app：安裝檔沒有為發佈簽章，也沒有公證（Mac app 是 ad hoc 簽章，所以更新後 macOS 會再詢問它的鑰匙圈項目），每個安裝檔都要在它對應的系統與處理器上建置（Arm64 的在 GitHub 的 Arm runner 上）。更新依靠的是 GitHub 的檢查碼，不是簽章，而且只有放在能寫入的資料夾裡的 Mac app、Windows 安裝檔裝的 app 與 AppImage 能自己更新；macOS 可能不讓 app 取代自己（App 管理），這時會打開 `.dmg` 讓你手動安裝。在原生 Windows 上，Claude Code 與 Grok 沒有沙箱，所以沒有東西能讓它們讀不到視窗的瀏覽器資料夾。強制結束 app 時，正在回覆的 agent 可能會繼續執行，就像用 `kill -9` 停止 `npm start` 一樣。在限制非特權 user namespace 的系統（Ubuntu 24.04）上，AppImage 可能需要 `--no-sandbox`。它在啟動伺服器時（打開 app、**重新啟動伺服器…** 與 **啟動伺服器**）讀取登入 shell 的環境（Windows 上是 PATH 與使用者變數），伺服器執行期間不會再讀。在會隱藏系統匣圖示的 Linux 桌面（沒有 AppIndicator 擴充套件的 GNOME），系統匣選單用不到：再次打開 app 會顯示視窗，而視窗自己的選單除了編輯、縮放與視窗之外，只有 **在瀏覽器打開** 與 **結束**。
+- 桌面 app：安裝檔沒有為發佈簽章，也沒有公證（Mac app 是 ad hoc 簽章，所以更新後 macOS 會再詢問它的鑰匙圈項目），每個安裝檔都要在它對應的系統與處理器上建置（Arm64 的在 GitHub 的 Arm runner 上）。更新依靠的是 GitHub 的檢查碼，不是簽章，而且只有放在能寫入的資料夾裡的 Mac app、Windows 安裝檔裝的 app 與 AppImage 能自己更新；macOS 可能不讓 app 取代自己（App 管理），這時會打開 `.dmg` 讓你手動安裝。在原生 Windows 上，Claude Code 與 Grok 沒有沙箱，所以沒有東西能讓它們讀不到視窗的瀏覽器資料夾；Cursor 在任何系統上都沒有沙箱，所以使用者允許它執行的指令，在每個系統上都讀得到那個資料夾。強制結束 app 時，正在回覆的 agent 可能會繼續執行，就像用 `kill -9` 停止 `npm start` 一樣。在限制非特權 user namespace 的系統（Ubuntu 24.04）上，AppImage 可能需要 `--no-sandbox`。它在啟動伺服器時（打開 app、**重新啟動伺服器…** 與 **啟動伺服器**）讀取登入 shell 的環境（Windows 上是 PATH 與使用者變數），伺服器執行期間不會再讀。在會隱藏系統匣圖示的 Linux 桌面（沒有 AppIndicator 擴充套件的 GNOME），系統匣選單用不到：再次打開 app 會顯示視窗，而視窗自己的選單除了編輯、縮放與視窗之外，只有 **在瀏覽器打開** 與 **結束**。
 - 排程只在 Harness Relay 執行時送出（背後沒有系統排程器）；期間錯過的時間會略過，或晚一點補送一次。每個對話一個排程、間隔以整數小時計，也還沒有事件（webhook）觸發：見[提案](proposals/triggers.zh-TW.md)。在同一個對話裡的排程執行都接著同樣的 agent session，所以長期的排程對話會一直變長；每次開新對話的排程從乾淨的上下文開始，但 agent 不記得前幾次的事（除非寫進檔案），而且它開的對話會在側邊欄越積越多——平行模式下每個都有自己的 worktree 與 `relay/*` 分支，刪除那個對話時才會清掉。
 - 資料夾下載成 ZIP 檔時，檔案與資料夾合計最多 10,000 個、壓縮前 1 GB（不使用 ZIP64）；更大的資料夾若在 git repository 裡，可以只下載沒被 git 忽略的檔案，否則只能下載其中的子資料夾。
