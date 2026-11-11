@@ -1056,11 +1056,14 @@ const sameParts = (a: readonly NativePart[], b: readonly NativePart[]) => a.leng
  */
 export class NativeSetupService {
   private cache = new Map<string, { at: number; off: readonly NativePart[]; items: NativeItemsOff; result: Promise<NativeProbe> }>();
+  /** The last answer each CLI, folder and home gave, with what was left out then (`recent`). */
+  private answered = new Map<string, { off: readonly NativePart[]; items: NativeItemsOff; probe: NativeProbe }>();
 
   constructor(
     private settings: {
       bin(p: Provider): string;
-      env(p: Provider): NodeJS.ProcessEnv;
+      /** A CLI's environment; `account`: one of its accounts besides the default one (`SettingsStore.env`). */
+      env(p: Provider, account?: string): NodeJS.ProcessEnv;
       nativeOff?(p: Provider): readonly NativePart[];
       nativeItems?(p: Provider): NativeItemsOff;
     },
@@ -1068,10 +1071,25 @@ export class NativeSetupService {
     private timeoutMs = PROBE_TIMEOUT_MS,
   ) {}
 
-  /** Per CLI, executable, folder and CLI home (the agent home setting moves it). */
-  private key(provider: Provider, cwd: string): string {
-    const home = this.settings.env(provider)[AGENT_HOME_ENV[provider]] ?? '';
+  /** Per CLI, executable, folder and CLI home (the agent home setting and the account move it). */
+  private key(provider: Provider, cwd: string, account?: string): string {
+    const home = this.settings.env(provider, account)[AGENT_HOME_ENV[provider]] ?? '';
     return `${provider}\0${this.settings.bin(provider)}\0${cwd}\0${home}`;
+  }
+
+  /**
+   * For the lead agent, which should not wait for the CLIs on every question: the last answer for this
+   * CLI, folder and account however old, while what is left out of the runs is the same, asked again in
+   * the background once it is older than the cache keeps it; the CLI is waited for only when there is
+   * none yet (or the last one said nothing at all).
+   */
+  recent(provider: Provider, cwd: string, account?: string): Promise<NativeProbe> {
+    const off = this.settings.nativeOff?.(provider) ?? [];
+    const items = this.settings.nativeItems?.(provider) ?? {};
+    const last = this.answered.get(this.key(provider, cwd, account));
+    if (!last || !sameParts(last.off, off) || !sameNativeItems(last.items, items) || saidNothing(last.probe)) return this.get(provider, cwd, false, account);
+    void this.get(provider, cwd, false, account); // the cached question when it is fresh, else a new one
+    return Promise.resolve(last.probe);
   }
 
   /**
@@ -1083,14 +1101,15 @@ export class NativeSetupService {
     return this.cache.get(this.key(provider, cwd))?.result ?? this.get(provider, cwd);
   }
 
-  get(provider: Provider, cwd: string, refresh = false): Promise<NativeProbe> {
+  /** `account`: ask the CLI in that account's home (default: the default account's). */
+  get(provider: Provider, cwd: string, refresh = false, account?: string): Promise<NativeProbe> {
     const bin = this.settings.bin(provider);
     const off = [...(this.settings.nativeOff?.(provider) ?? [])];
     const items = this.settings.nativeItems?.(provider) ?? {};
-    const key = this.key(provider, cwd);
+    const key = this.key(provider, cwd, account);
     const hit = this.cache.get(key);
     if (hit && !refresh && Date.now() - hit.at < CACHE_MS && sameParts(hit.off, off) && sameNativeItems(hit.items, items)) return hit.result;
-    const result = PROBES[provider](bin, this.settings.env(provider), cwd, off, items, this.timeoutMs).catch(
+    const result = PROBES[provider](bin, this.settings.env(provider, account), cwd, off, items, this.timeoutMs).catch(
       (err: Error): NativeProbe => ({
         provider,
         cwd,
@@ -1106,8 +1125,16 @@ export class NativeSetupService {
       }),
     );
     this.cache.set(key, { at: Date.now(), off, items, result });
+    void result.then((probe) => this.answered.set(key, { off, items, probe }));
     return result;
   }
+}
+
+/** A probe that got none of its lists: it timed out, or failed or went unanswered as a whole. */
+export function saidNothing(probe: Pick<NativeProbe, 'problems' | 'skills' | 'mcpServers' | 'builtinTools' | 'agents' | 'plugins'>): boolean {
+  const trouble = probe.problems.some((x) => x.kind === 'timeout' || x.kind === 'failed' || x.kind === 'no-answer');
+  const lists = [probe.skills, probe.mcpServers, probe.builtinTools, probe.agents, probe.plugins];
+  return trouble && lists.every((l) => !l?.length);
 }
 
 /**

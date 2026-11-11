@@ -59,7 +59,7 @@ const orchestrator = new Orchestrator(
           catalog: () => providers.modelsAll(),
           presets: () => store.listPresets(),
           library: () => settings.tools.view(),
-          native: (p, dir) => native.get(p, dir),
+          native: (p, dir, account) => native.recent(p, dir, account || undefined),
         },
         cwd,
       );
