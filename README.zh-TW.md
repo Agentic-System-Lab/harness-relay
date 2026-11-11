@@ -116,7 +116,7 @@ agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**
 
 | 指令 | 說明 |
 | --- | --- |
-| `npm run dev` | 開發用：API 伺服器（port 8787，自動重啟）+ Vite 開發伺服器（port 5173） |
+| `npm run dev` | 開發用：API 伺服器（port 8789，自動重啟）+ Vite 開發伺服器（port 5173），所以能和使用 8787 的 `npm start` 或桌面 app 同時執行 |
 | `npm run build` | 把網頁介面建置到 `dist/web` |
 | `npm start` | 由單一程序在 http://127.0.0.1:8787 提供建置好的介面與 API |
 | `npm run login` | 印出一次性的登入連結（與代碼），用在 `npm start` 印出的那個已經用過或過期時 |

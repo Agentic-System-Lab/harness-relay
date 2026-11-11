@@ -19,7 +19,7 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | Command | What it does |
 | --- | --- |
 | `npm install` | Install dependencies |
-| `npm run dev` | API server on :8787 (`tsx watch`) + Vite on :5173 (proxies `/api/`) |
+| `npm run dev` | API server on :8789 (`tsx watch`) + Vite on :5173 (proxies `/api/`), off `npm start`'s and the desktop app's 8787 (`src/server/ports.ts`) |
 | `npm run typecheck` | `tsc --noEmit` over `src`, `test`, `scripts` and the config files |
 | `npm test` | All Vitest tests (offline) |
 | `npx vitest test/store.test.ts` | One test file |

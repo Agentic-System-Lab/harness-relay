@@ -1,7 +1,6 @@
 import { defineConfig, type Plugin, type Rolldown } from 'vite';
 import react from '@vitejs/plugin-react';
-
-const apiPort = Number(process.env.PORT ?? 8787);
+import { DEV_WEB_PORT, apiPort } from './src/server/ports.ts';
 
 /** The most a chunk loaded at startup may weigh (minified, in kB): the page waits for all of them. */
 const STARTUP_CHUNK_LIMIT_KB = 500;
@@ -36,9 +35,9 @@ export default defineConfig({
   root: 'src/web',
   plugins: [react(), startupChunkLimit(STARTUP_CHUNK_LIMIT_KB)],
   server: {
-    port: 5173,
+    port: DEV_WEB_PORT,
     // Trailing slash matters: a bare '/api' prefix would also swallow the client module '/api.ts'.
-    proxy: { '/api/': { target: `http://localhost:${apiPort}`, changeOrigin: false } },
+    proxy: { '/api/': { target: `http://localhost:${apiPort()}`, changeOrigin: false } },
   },
   build: {
     outDir: '../../dist/web',

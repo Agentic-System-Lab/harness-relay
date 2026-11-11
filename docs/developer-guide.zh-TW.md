@@ -52,6 +52,7 @@ src/
       acp.ts               Codex 與 Grok 轉接器共用的 JSON-RPC 對端
       index.ts             runner 註冊表
     process.ts             啟動/結束程序（process group、逐行串流、以位元組保存輸出、逾時）
+    ports.ts               Harness Relay 的 port：8787（npm start、桌面 app）、8789 與 Vite 的 5173（npm run dev），PORT 優先
     share.ts               分享對話：透過使用者的 gh 把頁面放成 secret gist（建立、刪除），以及 gistpreview 連結；回覆連結的檔案（照下載路由的方式找、不限種類、檔名不重複）用 git 推進另一個 secret gist（由 gh 幫 git 登入），gh 說不出是否建立了它時用代號再找出來
     providers.ts           CLI 狀態、登入流程、登出、模型快取
     models.ts              各 CLI 的模型 / 推理強度探索
@@ -155,7 +156,7 @@ desktop/                   桌面 app（Electron），是獨立的套件：npm i
 
 ```bash
 npm install
-npm run dev        # tsx watch（API :8787）+ vite（介面 :5173，把 /api/ 代理到 API）；印出 :5173 的登入連結
+npm run dev        # tsx watch（API :8789）+ vite（介面 :5173，把 /api/ 代理到 API）；印出 :5173 的登入連結
 npm run typecheck
 npm test
 npm run build      # 介面 → dist/web
@@ -180,7 +181,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 
 | 變數 | 預設值 | 用途 |
 | --- | --- | --- |
-| `PORT` | `8787` | API port（Vite 代理也會使用） |
+| `PORT` | `8787`（`npm run dev` 為 `8789`） | API port（Vite 代理也會使用）。`npm run dev` 有自己的 port，所以能和使用 8787 的 `npm start` 或桌面 app 同時執行（`src/server/ports.ts`） |
 | `HOST` | `127.0.0.1` | 綁定位址 |
 | `RELAY_DATA_DIR` | `./data` | `relay.db` 的位置 |
 | `RELAY_DEFAULT_CWD` | 程序的 cwd | 初始預設工作目錄（在設定頁修改前） |
@@ -403,6 +404,7 @@ npx vitest test/store.test.ts
 - `test/hub.test.ts`：瀏覽器重新連線時的 SSE 分送。
 - `test/web.test.ts`：提供建置好的介面：帶雜湊的檔案永久快取、index.html（含前端路由）與 web app manifest（以 `application/manifest+json` 提供）每次都檢查、缺少的檔案回 404、不影響先前註冊的路由。也測試介面放在哪裡：伺服器啟動所在資料夾的 `dist/web`，或 `RELAY_WEB_DIR`（絕對或相對路徑；空白視同未設定）。
 - `test/parent.test.ts`：伺服器眼中的桌面 app：沒有 Electron 的 `parentPort` 就不存在；伺服器開始接收連線時通知它；收到關閉要求，忽略其他訊息；每次要登入連結都給一個新的，每次問有幾個對話有 agent 在工作都照當時的數量回答。也像 app 一樣從原始碼執行伺服器（`desktop/scripts/smoke.ts`，用一個代替建置好介面的資料夾）：keyring 模組能從它旁邊載入、只聽 127.0.0.1、提供介面、瀏覽器登入前拒絕 API、給出自己網址的登入連結且代碼能讓瀏覽器登入、不印出代碼、說沒有對話有 agent 在工作，並在被要求關閉時以代碼 0 結束。也實際在已被佔用的 port 上啟動伺服器（設定了 `HOST`，因為 shell 可能會匯出它）：它會說明原因（並建議換一個 `PORT`），以代碼 1 結束，不印出 stack trace；透過桌面 app 的 port（`parent-port.mjs`）也一樣：app 會收到 `EADDRINUSE`，絕不會收到開始接收連線的訊息，伺服器以代碼 1 結束。
+- `test/ports.test.ts`：Harness Relay 的 port（`src/server/ports.ts`）：`npm start` 用 8787，`npm run dev` 用 8789（依 `npm_lifecycle_event` 判斷），`PORT` 優先於兩者；桌面 app 預設的 port 與 `npm start` 相同，`npm run dev` 的 API 與 Vite 絕不使用它。
 - `test/desktop-supervisor.test.ts`：桌面 app 的伺服器 supervisor，用假的伺服器程序：以它的環境啟動，開始接收連線後就是執行中；一次只有一個伺服器，停止期間也一樣；port 被佔用時不啟動，在檢查與開始接收之間被佔用也一樣回報；其他接收錯誤（`EACCES`）與開始接收前就結束，都附上最後的輸出回報；沒有及時開始接收的伺服器會被停止；停止時要求關閉並等待，沒有及時停止就強制結束，期間自己結束的伺服器不算當機；回報當機，之後能再啟動新的伺服器；啟動期間要求停止，會立刻結束還沒開始接收連線的伺服器（不等啟動的時限），在檢查 port 時要求停止就不會啟動伺服器，剛好在停止前開始接收的伺服器照一般方式停止，同時兩次停止（重新啟動後接著結束）只會停止一次。登入連結：每次都要一個新的；伺服器沒有及時回應時不給（晚到的回應仍屬於那個要求）、沒有執行或在回應前停止時也不給；很晚才結束的伺服器（停止時已放棄它）不會取消下一個伺服器的請求；連結不會被誤認為啟動完成。有幾個對話有 agent 在工作：每次都問，連結不會被當成答案、答案也不會被當成連結，伺服器沒有執行、沒有及時回應（晚到的回應仍屬於那個問題）或先停止時沒有數字。也用真的 socket 測試 port 檢查。也測試既沒有及時開始接收、被強制結束時也不結束的伺服器：會放棄它，結束 app 時也不會等它。
 - `test/desktop-env.test.ts`：桌面 app 給伺服器的環境：在標記之間讀取登入 shell 的變數（含換行的值、值裡的 `=`、前後的其他輸出），沒有標記或 PATH 時不採用；透過假的設定檔實際執行 shell（也從含空白與引號的路徑；shell 不存在；卡住的 shell 會及時放棄），不包含 shell 本身的變數與 app 為 shell 設定的變數；無法詢問 shell 時把常見的安裝資料夾加到 PATH；不管設定檔匯出什麼，都用 127.0.0.1 與 app 的 port，保留使用者的變數但不含 Electron 的，保留使用者選的資料夾與工作目錄；使用 app 自己的資料時 API key 存在 `harness-relay-desktop`，共用資料時用平常的名稱；tailnet 名稱只加進 `RELAY_ALLOWED_HOSTS` 一次；視窗的瀏覽器資料夾以 `RELAY_APP_BROWSER_DIR` 傳入。也測試重新啟動時重新讀取的 Windows 目前的環境：PowerShell 的回答（有沒有 byte order mark 都可以；其他內容不採用）、照 Windows 組成的 PATH（系統的、使用者的，再接 app 自己原本的其他項目，每個只出現一次，並沿用 app 環境裡的變數名稱）、採用使用者新加的變數，但不採用系統的預設值（`USERNAME`）。
 - `test/desktop-tailscale.test.ts`：從桌面 app 分享到 tailnet：找到 `tailscale`（在 PATH 上、Mac App 自己的執行檔、Windows 的 `tailscale.exe`、找不到），它的狀態（執行中、去掉結尾句點的電腦名稱；已登出；不是 JSON），某個 port 分享在哪個網址（HTTPS 443 或其他 port、以 `localhost` 為目標、其他 port、沒有分享），在哪裡分享才不會搶走其他服務（443，否則 8443，再否則 10000；TCP 轉送或提供檔案的 `/` 算已佔用，其他路徑不算；全部被佔用），**分享到手機** 要做什麼（`sharePlan`：讀不到目前分享了什麼時什麼都不做，例如指令失敗或印出的不是它的 JSON；否則用第一個沒被佔用的 port、已經分享在哪裡，或全部被佔用），以及 `tailscale serve --bg` 的結果（網址、開啟 Serve 的頁面且必須是 Tailscale 的、Linux 上的 *Access denied*、其他失敗與逾時）。也透過假的 `tailscale` 執行指令：status 與 serve status、在 443 不加參數分享與在 8443 加 `--https` 分享、印出連結後等待的分享會及時停止，以及失敗或不存在的指令。公開到網際網路（Funnel）的 port 算已佔用。
@@ -546,7 +548,7 @@ gh api repos/Agentic-System-Lab/harness-relay/releases --paginate --jq '.[] | .t
 ## 除錯技巧
 
 - **伺服器 log**：`npm run dev` 輸出中的 `[server]` 行；轉接器失敗時，訊息的錯誤內容會附上 CLI stderr 的最後一段。
-- **SSE**：`curl -N http://localhost:8787/api/conversations/<id>/events` 可以看到原始事件串流。
+- **SSE**：`npm run dev` 時用 `curl -N -b 'relay_session=<cookie>' 'http://127.0.0.1:8789/api/conversations/<id>/events?key=<key>'` 可以看到原始事件串流（`npm start` 時是 8787）。`relay_session` cookie 與金鑰（localStorage 的 `relay:key`）從已登入瀏覽器的開發者工具取得。
 - **語言**：在 `curl` 指令加上 `-H 'X-Relay-Lang: en'`，就能看到英文的錯誤與範本。
 - **自動組隊**：首席 agent 的執行就是對話工作目錄中一個普通的 CLI session；它的回覆與費用記在 plan 訊息上（`messages.plan`、`cost_usd`）。
 - **重現 CLI 呼叫**：`src/server/agents/*.ts` 中的參數可以手動執行；加上 `--debug`（Claude、Grok）可看到更多資訊。
