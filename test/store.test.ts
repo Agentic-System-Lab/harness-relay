@@ -91,6 +91,12 @@ describe('Store (SQLite)', () => {
 
     const loaded = new Store(reopen()).get(conv.id);
     expect(loaded).toEqual({ ...conv, agentState: { a1: { provider: 'claude', sessionId: 'sess-1', seen: ['m1', 'm2'] } } });
+
+    // The endpoint a session was made on (schema version 25); none: the CLI's own service.
+    new Store(db).saveAgentState(conv.id, 'a1', { provider: 'claude', sessionId: 'sess-2', backend: 'homelab', seen: [] });
+    expect(new Store(reopen()).get(conv.id)!.agentState.a1).toEqual({ provider: 'claude', sessionId: 'sess-2', backend: 'homelab', seen: [] });
+    new Store(db).saveAgentState(conv.id, 'a1', { provider: 'claude', sessionId: 'sess-3', seen: [] });
+    expect(new Store(reopen()).get(conv.id)!.agentState.a1).toEqual({ provider: 'claude', sessionId: 'sess-3', seen: [] });
   });
 
   it('saves a branch with the messages it starts with, and where its copied messages end', () => {
@@ -148,6 +154,7 @@ describe('Store (SQLite)', () => {
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 12;`);
     const migrated = new Store(reopen());
     expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
@@ -622,6 +629,7 @@ describe('Store shares', () => {
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 15;`);
     const migrated = new Store(reopen());
     expect(migrated.getShare('aaaa')).toEqual(share('aaaa', 1));
@@ -1131,6 +1139,7 @@ describe('SettingsStore accounts', () => {
     db.exec(`ALTER TABLE provider_accounts DROP COLUMN default_model; ALTER TABLE provider_accounts DROP COLUMN default_effort;
              ALTER TABLE provider_accounts DROP COLUMN native_off; ALTER TABLE provider_accounts DROP COLUMN native_items;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 19;`);
     const migrated = new SettingsStore(reopen());
     // They run as before: as the CLI did, for every account.
@@ -1308,6 +1317,7 @@ describe('Store schedules', () => {
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 13;`);
     const migrated = new Store(reopen()).get(conv.id)!.schedule!;
     expect(migrated.newChat).toBe(false);

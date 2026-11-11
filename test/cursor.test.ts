@@ -95,19 +95,27 @@ describe('cursor permission policy (no sandbox)', () => {
 
   it('describes what Cursor asks about, with the command or path its tool call gave', () => {
     // Its permission requests leave the input out; the runner adds the tool call's.
-    expect(cursorApprovalRequest({ kind: 'execute', title: '`npm test`', rawInput: { command: 'npm test' } })).toEqual({ kind: 'command', detail: 'npm test', outsideSandbox: true });
+    expect(cursorApprovalRequest({ kind: 'execute', title: '`npm test`', rawInput: { command: 'npm test' } }, '/w')).toEqual({ kind: 'command', detail: 'npm test', outsideSandbox: true });
     expect(cursorCommand({ kind: 'execute', title: "`printf 'hi\\n' > a && cat a`" })).toBe("printf 'hi\\n' > a && cat a");
-    expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Edit `/w/.git/config`' }))).toEqual({
+    // Inside the working directory Cursor asks only about its protected files: the card says why.
+    expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Edit `/w/.git/config`' }, '/w'))).toEqual({
       kind: 'edit',
       detail: '/w/.git/config',
       reason: "Cursor asks before changing files like this one: a change here could make code run later, outside any sandbox (a git hook, an editor task), or change an agent's settings.",
     });
-    expect(cursorApprovalRequest({ kind: 'edit', title: 'Write /tmp/x.txt' })).toMatchObject({ kind: 'edit', detail: '/tmp/x.txt' });
-    expect(cursorApprovalRequest({ kind: 'edit', title: 'Delete `/w/old.ts`' })).toEqual({ kind: 'edit', detail: '/w/old.ts', reason: 'Delete `/w/old.ts`' });
+    // Outside it, about any write: the card says that instead.
+    expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Write /tmp/x.txt' }, '/w'))).toEqual({
+      kind: 'edit',
+      detail: '/tmp/x.txt',
+      reason: 'This file is outside the working directory: Cursor asks before writing outside it.',
+    });
+    expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', rawInput: { path: '.vscode/tasks.json' } }, '/w')).reason).toMatch(/^Cursor asks before changing files like this one/);
+    expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Edit File' }, '/w')).reason).toMatch(/^Cursor asks before changing files like this one/);
+    expect(cursorApprovalRequest({ kind: 'edit', title: 'Delete `/w/old.ts`' }, '/w')).toEqual({ kind: 'edit', detail: '/w/old.ts', reason: 'Delete `/w/old.ts`' });
     expect(cursorPath({ kind: 'edit', title: 'Edit File', content: [{ type: 'diff', path: '/w/a.ts', oldText: 'a', newText: 'b' }] })).toBe('/w/a.ts');
     expect(cursorPath({ kind: 'edit', title: 'Delete `/w/old.ts`' })).toBe('/w/old.ts');
-    expect(cursorApprovalRequest({ kind: 'fetch', title: 'Fetch https://example.com/a' })).toMatchObject({ kind: 'fetch', detail: 'https://example.com/a' });
-    expect(cursorApprovalRequest({ kind: 'other', title: 'github: create_issue', content: [{ type: 'content', content: { type: 'text', text: '{"title":"x"}' } }] })).toMatchObject({
+    expect(cursorApprovalRequest({ kind: 'fetch', title: 'Fetch https://example.com/a' }, '/w')).toMatchObject({ kind: 'fetch', detail: 'https://example.com/a' });
+    expect(cursorApprovalRequest({ kind: 'other', title: 'github: create_issue', content: [{ type: 'content', content: { type: 'text', text: '{"title":"x"}' } }] }, '/w')).toMatchObject({
       kind: 'other',
       tool: 'github: create_issue',
       detail: '{"title":"x"}',

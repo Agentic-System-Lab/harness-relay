@@ -456,7 +456,9 @@ export class SettingsStore {
   backendsFor(p: Provider): RunBackends {
     const all = this.backends.forRun();
     if (isOpenProvider(p)) return all;
-    return { apis: {}, endpoints: isEndpointCli(p) ? all.endpoints : [] };
+    if (!isEndpointCli(p)) return { apis: {}, endpoints: [] };
+    // The deleted endpoints too, so that a model of one fails rather than reach the CLI's own service.
+    return { apis: {}, endpoints: all.endpoints, ...(all.deletedEndpoints ? { deletedEndpoints: all.deletedEndpoints } : {}) };
   }
 
   // --- Accounts: each CLI's default account, and any others, each with a home of its own ----------

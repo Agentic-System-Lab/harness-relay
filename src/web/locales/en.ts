@@ -823,7 +823,7 @@ export const en: Messages = {
       included: (n) => `${n} ${n === 1 ? 'file is' : 'files are'} included: anyone with the link can download ${n === 1 ? 'it' : 'them'}.`,
     },
     page: {
-      tagline: 'A local group chat for the real Claude Code, Codex, Grok and Cursor CLIs',
+      tagline: 'A local group chat for the real Claude Code, Codex, Grok and Cursor CLIs and open-source coding agents',
       note: (date) => `Shared ${date}`,
       site: "Harness Relay's website",
       image: (name) => `(Image not included${name ? `: ${name}` : ''})`,
@@ -871,7 +871,7 @@ export const en: Messages = {
 
   tools: {
     title: 'Tool library',
-    hint: 'MCP servers, skills and memory here are given to members, the same way for Claude Code, Codex, Grok and Cursor, in addition to each CLI\'s own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member\'s card under New chat, or Team settings in a chat\'s header. Changes take effect from a member\'s next turn.',
+    hint: 'MCP servers, skills and memory here are given to members, the same way for every CLI (Claude Code, Codex, Grok, Cursor and the open-source agents), in addition to each CLI\'s own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member\'s card under New chat, or Team settings in a chat\'s header. Changes take effect from a member\'s next turn.',
     mcp: 'MCP servers',
     mcpHint: "Their tool calls follow the conversation's permission like any other action: anything beyond it asks you, or is refused if you chose so.",
     addMcp: 'Add MCP server',
@@ -1412,7 +1412,7 @@ export const en: Messages = {
           'Read-only: read files, analyse, look things up on the web',
           'Edit: change files in the working directory, run tests and builds',
           'Full access: run any command without asking',
-          "Below full access, each agent's commands run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex and Grok use their own; the open-source agents use Harness Relay's (on native Windows only Codex has one, and the open-source agents run only with full access)",
+          "Below full access, each agent's commands but Cursor's run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex and Grok use their own; the open-source agents use Harness Relay's (on native Windows only Codex has one, and the open-source agents run only with full access). Cursor has none: every command it wants to run asks you first, and one you allow runs with your full rights",
           "Edit mode is refused in your home folder and in Harness Relay's own folder: choose a project's folder",
           'Raising the permission makes every agent start a fresh session, with the whole history, at its next turn',
           'Each turn lists the files it changed, with a diff; in parallel mode you choose whose result to apply',

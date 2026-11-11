@@ -98,6 +98,7 @@ const zhTW = {
   cursorRefused: '超出這個對話的權限，已拒絕',
   cursorReadOnlyWrite: '唯讀模式不允許寫入，Cursor 沒有寫入這個檔案',
   cursorProtectedWrite: 'Cursor 對這類檔案會先詢問：改動這裡可能讓程式碼之後在沙箱外執行（例如 git hook、編輯器的工作設定），或改變 agent 的設定。',
+  cursorOutsideWrite: '這個檔案在工作目錄外：Cursor 寫入工作目錄外的檔案前會先詢問。',
   cursorCancelled: 'Cursor 自行中止了這一輪（stopReason: cancelled），沒有給出原因。',
   cursorNoSession: 'cursor-agent 沒有回傳 session id',
   cursorRejectedModel: (value: string, err: string) => `Cursor 不接受模型「${value}」：${err}`,
@@ -134,6 +135,8 @@ const zhTW = {
     `${cli} 要用模型「${id}」，但還沒有設定 ${backend} 的 API key。請到「設定 → 模型來源」設定，或改選其他模型。`,
   openEndpointMissing: (cli: string, endpoint: string, id: string) =>
     `${cli} 要用模型「${id}」，但沒有 id 為「${endpoint}」的自訂端點。請到「設定 → 模型來源」新增，或改選其他模型。`,
+  endpointDeleted: (cli: string, endpoint: string, id: string) =>
+    `${cli} 要用模型「${id}」，但它的自訂端點「${endpoint}」已在「設定 → 模型來源」刪除。這一輪沒有執行，也沒有改送到 ${cli} 自己的服務。請改選其他模型，或重新新增這個端點。`,
   openNoHome: 'Harness Relay 沒有給這個 agent 它自己的家目錄。',
   openNoWindowsSandbox: (cli: string) =>
     `在 Windows 上，Harness Relay 的沙箱還不能保護 ${cli}，所以它只能以「完全存取」執行。請改用完全存取（只在你信任的資料夾），或在 WSL 中執行 Harness Relay。`,
@@ -563,6 +566,7 @@ const en: ServerMessages = {
   cursorRefused: "Refused: not covered by this conversation's permission",
   cursorReadOnlyWrite: 'Not written: Cursor may not write in read-only mode',
   cursorProtectedWrite: "Cursor asks before changing files like this one: a change here could make code run later, outside any sandbox (a git hook, an editor task), or change an agent's settings.",
+  cursorOutsideWrite: 'This file is outside the working directory: Cursor asks before writing outside it.',
   cursorCancelled: 'Cursor ended the turn by itself (stopReason: cancelled) without giving a reason.',
   cursorNoSession: 'cursor-agent returned no session id',
   cursorRejectedModel: (value, err) => `Cursor does not accept the model "${value}": ${err}`,
@@ -597,6 +601,8 @@ const en: ServerMessages = {
     `${cli} is to use the model "${id}", but no ${backend} API key is set up. Add one under Settings → Model backends, or pick another model.`,
   openEndpointMissing: (cli, endpoint, id) =>
     `${cli} is to use the model "${id}", but there is no custom endpoint with the id "${endpoint}". Add it under Settings → Model backends, or pick another model.`,
+  endpointDeleted: (cli, endpoint, id) =>
+    `${cli} is to use the model "${id}", but its custom endpoint "${endpoint}" was deleted under Settings → Model backends. The turn did not run, and was not sent to ${cli}'s own service instead. Pick another model, or add the endpoint again.`,
   openNoHome: 'Harness Relay gave this agent no home of its own.',
   openNoWindowsSandbox: (cli) =>
     `On Windows, Harness Relay's sandbox cannot protect ${cli} yet, so it only runs with full access. Use full access (only in a folder you trust), or run Harness Relay in WSL.`,

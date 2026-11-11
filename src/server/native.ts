@@ -1351,25 +1351,34 @@ export class NativeSetupService {
     const key = this.key(provider, cwd, account);
     const hit = this.cache.get(key);
     if (hit && !refresh && Date.now() - hit.at < CACHE_MS && sameParts(hit.off, off) && sameNativeItems(hit.items, items)) return hit.result;
-    const result = PROBES[provider](bin, this.settings.env(provider, account), cwd, off, items, this.timeoutMs).catch(
-      (err: Error): NativeProbe => ({
-        provider,
-        cwd,
-        skills: [],
-        mcpServers: [],
-        memory: [],
-        memoryFromFiles: provider === 'claude' || provider === 'codex',
-        nativeOff: off,
-        nativeItems: items,
-        asRun: false,
-        problems: [{ kind: 'failed', detail: err.message }],
-        checkedAt: Date.now(),
-      }),
+    const result = PROBES[provider](bin, this.settings.env(provider, account), cwd, off, items, this.timeoutMs).catch((err: Error) =>
+      failedProbe(provider, cwd, off, items, err),
     );
     this.cache.set(key, { at: Date.now(), off, items, result });
     void result.then((probe) => this.answered.set(key, { off, items, probe }));
     return result;
   }
+}
+
+/**
+ * The answer for a CLI that could not be asked: nothing of its own, and the error. The instruction and
+ * memory files of Claude Code, Codex and Cursor are the files at the places they are documented to
+ * read (`memoryFromFiles`, as their probes say), whatever the CLI answered.
+ */
+export function failedProbe(provider: Provider, cwd: string, off: NativePart[], items: NativeItemsOff, err: Error): NativeProbe {
+  return {
+    provider,
+    cwd,
+    skills: [],
+    mcpServers: [],
+    memory: [],
+    memoryFromFiles: provider === 'claude' || provider === 'codex' || provider === 'cursor',
+    nativeOff: off,
+    nativeItems: items,
+    asRun: false,
+    problems: [{ kind: 'failed', detail: err.message }],
+    checkedAt: Date.now(),
+  };
 }
 
 /**

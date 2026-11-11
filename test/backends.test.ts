@@ -10,7 +10,7 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-backends-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { openDatabase } = await import('../src/server/db');
-const { ModelBackendStore, ENDPOINT_KEY_ENV, backendEnv, backendRun, endpointKeyEnv, endpointModel, urlHost } = await import('../src/server/backends');
+const { ModelBackendStore, ENDPOINT_KEY_ENV, backendEnv, backendRun, endpointKeyEnv, endpointModel, endpointRunModel, urlHost } = await import('../src/server/backends');
 const { discoverModels, withEndpointModels } = await import('../src/server/models');
 const { SettingsStore, OPEN_AGENT_HOME_ENV, OPEN_HOMES_DIR } = await import('../src/server/settings');
 const { createApp } = await import('../src/server/app');
@@ -21,6 +21,7 @@ const { Store } = await import('../src/server/store');
 const { openAgents } = await import('../src/server/agents');
 const { opencodeAcp } = await import('../src/server/agents/opencode');
 const { withLang } = await import('../src/server/i18n');
+const { AgentRunError } = await import('../src/server/agents/types');
 const { maskSecret } = await import('../src/server/secrets');
 const { validEndpointUrl } = await import('../src/server/validate');
 
@@ -173,6 +174,26 @@ describe('ModelBackendStore', () => {
     // Order of creation is kept.
     expect(s.view().endpoints.map((e) => e.id).slice(0, 3)).toEqual(['lab-0', 'lab-1', 'lab-2']);
   });
+
+  it('remembers a deleted endpoint, also after a restart, until one of its id is added again', () => {
+    const tombstones = () => (db.prepare('SELECT id FROM deleted_endpoints ORDER BY id').all() as { id: string }[]).map((r) => r.id);
+    const s = new ModelBackendStore(db);
+    s.putEndpoint('homelab', endpoint);
+    s.putEndpoint('studio', endpoint);
+    expect(s.forRun()).not.toHaveProperty('deletedEndpoints');
+    s.deleteEndpoint('homelab');
+    expect(s.forRun()).toMatchObject({ endpoints: [{ id: 'studio' }], deletedEndpoints: ['homelab'] });
+    expect(tombstones()).toEqual(['homelab']);
+    expect(new ModelBackendStore(reopen()).forRun().deletedEndpoints).toEqual(['homelab']);
+    // Changing another endpoint keeps it; adding one of its id again takes it out.
+    const again = new ModelBackendStore(db);
+    again.putEndpoint('studio', { ...endpoint, name: 'Studio' });
+    expect(again.forRun().deletedEndpoints).toEqual(['homelab']);
+    again.putEndpoint('homelab', endpoint);
+    expect(again.forRun()).not.toHaveProperty('deletedEndpoints');
+    expect(tombstones()).toEqual([]);
+    expect(new ModelBackendStore(reopen()).forRun()).not.toHaveProperty('deletedEndpoints');
+  });
 });
 
 describe('a run’s backend', () => {
@@ -241,6 +262,22 @@ describe('Claude Code, Codex and Grok on the user’s own endpoints', () => {
       expect(endpointModel(backends, model), String(model)).toBeUndefined();
     }
     expect(endpointModel(undefined, 'homelab/gemma4:e4b')).toBeUndefined();
+  });
+
+  it('fails a run on a model of an endpoint deleted in Settings, instead of sending it to the CLI’s own service', () => {
+    const gone = { ...backends, deletedEndpoints: ['lab2'] };
+    expect(() => withLang('en', () => endpointRunModel(gone, ' lab2/x ', 'Claude Code'))).toThrow(
+      'Claude Code is to use the model "lab2/x", but its custom endpoint "lab2" was deleted under Settings → Model backends.',
+    );
+    expect(() => endpointRunModel(gone, 'lab2/x', 'Codex')).toThrow(AgentRunError);
+    // An endpoint set up runs there; any other model, one with a slash too, goes to the CLI as it is.
+    expect(endpointRunModel(gone, 'homelab/gemma4:e4b', 'Grok')).toEqual(endpointModel(backends, 'homelab/gemma4:e4b'));
+    for (const model of ['opus', 'qwen/qwen3-coder', 'lab3/x', 'anthropic/claude-haiku-5-5', '', undefined]) {
+      expect(endpointRunModel(gone, model, 'Codex'), String(model)).toBeUndefined();
+    }
+    // Without the record (an endpoint never set up), as before.
+    expect(endpointRunModel(backends, 'lab2/x', 'Codex')).toBeUndefined();
+    expect(endpointRunModel(undefined, 'lab2/x', 'Codex')).toBeUndefined();
   });
 
   it('puts the endpoint’s key in a variable of its own, and takes out one inherited without a key', () => {
@@ -323,6 +360,11 @@ describe('an open agent’s environment', () => {
         endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'], apiKey: 'lab-key' }],
       });
       // Cursor runs only on Cursor's own models: no endpoint, and no key, reaches its runs.
+      expect(s.backendsFor('cursor')).toEqual({ apis: {}, endpoints: [] });
+      // The endpoints deleted in Settings reach Claude Code's, Codex's and Grok's runs, to fail a model of one.
+      s.backends.putEndpoint('oldlab', { name: 'Old lab', baseUrl: 'http://10.0.0.7:8000/v1', models: ['x'] });
+      s.backends.deleteEndpoint('oldlab');
+      for (const p of ['claude', 'codex', 'grok'] as const) expect(s.backendsFor(p).deletedEndpoints, p).toEqual(['oldlab']);
       expect(s.backendsFor('cursor')).toEqual({ apis: {}, endpoints: [] });
       // With an agent-home folder, the open agents' homes are in it too.
       s.setAgentHome(join(root, 'homes'));
@@ -462,6 +504,15 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     expect((await app.request('/api/providers/opencode/login', json('POST', {}))).status).toBe(400);
     expect((await app.request('/api/providers/opencode/logout', json('POST', {}))).status).toBe(400);
     providers.shutdown();
+  });
+
+  it("drops the cached menus of Claude Code, Codex and Grok (every account's) after the endpoints change, not Cursor's", () => {
+    const { providers } = setup();
+    const cache = (providers as unknown as { modelCache: Map<string, unknown> }).modelCache;
+    const keys = ['claude\0', 'claude\0work', 'codex\0', 'grok\0team', 'cursor\0', 'cursor\0work'];
+    for (const key of keys) cache.set(key, { at: Date.now(), models: Promise.resolve({ models: [] }) });
+    providers.backendsChanged();
+    expect([...cache.keys()]).toEqual(['cursor\0', 'cursor\0work']);
   });
 
   it("adds each endpoint's models to Claude Code's menu, and asks again after the endpoints change", async () => {

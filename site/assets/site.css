@@ -1122,7 +1122,8 @@ p {
   margin-top: 0;
 }
 
-.driven.open-agents dt::before {
+.driven.open-agents dt::before,
+.driven > .t-plain dt::before {
   background: var(--muted);
 }
 

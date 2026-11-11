@@ -150,6 +150,8 @@ describe('buildBriefing', () => {
     const plain = buildBriefing(conv, team[0]!);
     expect(plain).not.toContain('# Memory');
     expect(plain).not.toContain('# Skills');
+    // Every member is told what kinds of agents the chat holds: the open-source ones too.
+    expect(plain).toContain('(Claude Code, Codex, Grok, Cursor, and open-source coding agents such as OpenCode, Goose, Cline, OpenHands and Pi)');
   });
 
   it("says the CLI's own skills still work only while the user has not left them out", () => {

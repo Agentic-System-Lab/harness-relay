@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { endpointEffort, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
-import { endpointModel, type EndpointModel } from '../backends';
+import { endpointEffort, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
+import { endpointRunModel, type EndpointModel } from '../backends';
 import { converse, runProcess, tail } from '../process';
 import {
   AgentRunError,
@@ -22,7 +22,7 @@ import {
   type RunResult,
 } from './types';
 import { t } from '../i18n';
-import { overlaps, patternPath, protectedReads, relayTmpDir } from '../protect';
+import { overlaps, patternPath, protectedReads, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
 
 /*
  * Claude Code runs as `claude -p` with stream-json in both directions. The prompt goes in as a
@@ -614,7 +614,7 @@ function privateTempFile(name: string, content: string): { file: string; remove:
   // Not in the system's temporary folder, where sandboxed commands could change it (`relayTmpDir`).
   const root = relayTmpDir();
   mkdirSync(root, { recursive: true, mode: 0o700 });
-  const dir = mkdtempSync(join(root, 'claude-'));
+  const dir = mkdtempSync(join(root, RUN_TMP_PREFIXES.claude));
   const file = join(dir, name);
   writeFileSync(file, content, { mode: 0o600 });
   return { file, remove: () => rmSync(dir, { recursive: true, force: true }) };
@@ -956,7 +956,7 @@ async function pluginIdsForRun(o: Parameters<AgentRunner['run']>[0]): Promise<st
 
 async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: string): Promise<RunResult> {
   // On the user's own endpoint: its model by its own name, an effort it takes, and its variables.
-  const endpoint = endpointModel(given.backends, given.model);
+  const endpoint = endpointRunModel(given.backends, given.model, PROVIDER_LABEL.claude);
   const endpointEnv = endpoint ? claudeEndpointEnv(endpoint) : undefined;
   const o = endpoint
     ? { ...given, model: endpoint.model, effort: endpointEffort('claude', given.effort), env: claudeEndpointProcessEnv(given.env, endpointEnv!) }

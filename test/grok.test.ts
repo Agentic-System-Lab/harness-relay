@@ -32,6 +32,7 @@ import {
   type GrokToolCall,
 } from '../src/server/agents/grok';
 import type { AgentEvent } from '../src/server/agents/types';
+import { withLang } from '../src/server/i18n';
 
 // Shapes below are trimmed from real `grok agent stdio` traffic (grok 1.0.77).
 const SHELL_CALL: GrokToolCall = {
@@ -580,6 +581,45 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       expect(lines.filter((l) => l.method === 'session/set_config_option').map((l) => l.params)).toEqual([
         { sessionId: 's-1', configId: 'model', value: 'harness-relay/homelab/gemma4:e4b' },
       ]);
+
+      // A model typed for the endpoint (Custom…) that its list leaves out gets a table too, for its run.
+      const typedLog = join(dir, 'typed.jsonl');
+      await grokRunner.run({
+        bin,
+        env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: typedLog },
+        prompt: 'hello',
+        systemPrompt: 'briefing',
+        cwd: dir,
+        permission: 'full',
+        model: 'homelab/qwen3:32b',
+        backends: { apis: {}, endpoints: [{ ...lab, apiKey: 'lab-key' }] },
+        signal: new AbortController().signal,
+        onEvent: () => undefined,
+      });
+      const typed = readFileSync(typedLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>);
+      expect(typed[0]!.config).toContain('[model."harness-relay/homelab/qwen3:32b"]');
+      expect(typed[0]!.config).toContain('[model."harness-relay/homelab/gemma4:e4b"]');
+      expect(typed.filter((l) => l.method === 'session/set_config_option').map((l) => l.params.value)).toEqual(['harness-relay/homelab/qwen3:32b']);
+
+      // A model of an endpoint deleted in Settings fails before Grok starts: its id would go to xAI.
+      const goneLog = join(dir, 'gone.jsonl');
+      await expect(
+        withLang('en', () =>
+          grokRunner.run({
+            bin,
+            env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: goneLog },
+            prompt: 'hello',
+            systemPrompt: 'briefing',
+            cwd: dir,
+            permission: 'full',
+            model: 'oldlab/qwen3:32b',
+            backends: { apis: {}, endpoints: [{ ...lab, apiKey: 'lab-key' }], deletedEndpoints: ['oldlab'] },
+            signal: new AbortController().signal,
+            onEvent: () => undefined,
+          }),
+        ),
+      ).rejects.toThrow(/its custom endpoint "oldlab" was deleted/);
+      expect(existsSync(goneLog)).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -728,6 +728,27 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     const own = await go({ model: 'gpt-6.1-sol', effort: 'xhigh' });
     expect(own.started).toEqual({ model: 'gpt-6.1-sol', modelProvider: null, configProvider: null, providers: null, effort: 'xhigh', key: 'from-the-shell' });
     expect(own.args.join(' ')).not.toContain('model_provider');
+    // A model of an endpoint deleted in Settings fails before Codex starts: its id would go to OpenAI.
+    // An id of the user's Codex config with a slash still runs as Codex has it.
+    const gone = join(dir, `log-${++n}.jsonl`);
+    appendFileSync(gone, '');
+    await expect(
+      withLang('en', () =>
+        codexRunner.run({
+          bin,
+          env: { ...process.env, FAKE_CODEX_LOG: gone },
+          prompt: 'hello',
+          systemPrompt: 'briefing',
+          cwd: dir,
+          permission: 'read-only',
+          model: 'oldlab/gemma4:e4b',
+          backends: { apis: {}, endpoints: [endpoint()], deletedEndpoints: ['oldlab'] },
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+        }),
+      ),
+    ).rejects.toThrow('Codex is to use the model "oldlab/gemma4:e4b", but its custom endpoint "oldlab" was deleted');
+    expect(readFileSync(gone, 'utf8')).toBe('');
   });
 
   it('does not start the turn when stopped during the check', async () => {

@@ -7,7 +7,7 @@ import type { Permission } from '../../shared/types';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { cursorEffortOption, cursorOptionValues } from '../models';
-import { patternPath, protectedReads, realPath, relayTmpDir } from '../protect';
+import { patternPath, protectedReads, realPath, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
 import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, answerPermission, type AcpDecision } from './acp';
 import {
   AgentRunError,
@@ -127,7 +127,7 @@ export function prepareCursorRun(accountDir: string, permission: Permission, den
   const sessions = join(accountDir, 'acp-sessions');
   mkdirSync(sessions, { recursive: true, mode: 0o700 });
   mkdirSync(tmp, { recursive: true, mode: 0o700 });
-  const dir = mkdtempSync(join(tmp, 'cursor-'));
+  const dir = mkdtempSync(join(tmp, RUN_TMP_PREFIXES.cursor));
   chmodSync(dir, 0o700);
   const done = () => rmSync(dir, { recursive: true, force: true }); // the link goes, not what it leads to
   try {
@@ -246,11 +246,13 @@ export function cursorPermissionDecision(permission: Permission, call: CursorToo
  * What to show the user when Cursor asks about a call the permission does not cover. A command it
  * runs once allowed runs outside any sandbox (Cursor has none over ACP), and the card says so.
  */
-export function cursorApprovalRequest(call: CursorToolCall): ApprovalRequest {
+export function cursorApprovalRequest(call: CursorToolCall, cwd: string): ApprovalRequest {
   if (call.kind === 'execute') return { kind: 'command', detail: cursorCommand(call), reason: call.rawInput?.description, outsideSandbox: true };
-  // Cursor asks about a write inside the workspace only for its protected files: say why.
+  // Cursor asks about a write outside the workspace, and inside it only for its protected files: say which.
   if (call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move') {
-    return { kind: 'edit', detail: cursorPath(call), reason: isDelete(call) ? call.title : t().cursorProtectedWrite };
+    const path = cursorPath(call);
+    const reason = isDelete(call) ? call.title : path && !inside(cwd, path) ? t().cursorOutsideWrite : t().cursorProtectedWrite;
+    return { kind: 'edit', detail: path, reason };
   }
   if (call.kind === 'fetch') return { kind: 'fetch', detail: call.rawInput?.url ?? titleSubject(call.title), reason: call.title };
   const tool = call.title?.replace(/\s*\(.*$/, '') || call.kind || 'tool';
@@ -487,7 +489,7 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
     let decision = cursorPermissionDecision(o.permission, call, o.cwd);
     let label = t().cursorRefused;
     if (!decision.allow && o.requestApproval) {
-      const answer = await o.requestApproval(cursorApprovalRequest(call));
+      const answer = await o.requestApproval(cursorApprovalRequest(call, o.cwd));
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = declinedLabel(answer.note);
     }

@@ -357,6 +357,18 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE provider_settings ADD COLUMN sandbox_terminal INTEGER NOT NULL DEFAULT 0;
   `,
+  // 25: the endpoints deleted in Settings (deleted_endpoints, until one of the same id is added
+  // again), so that a Claude Code, Codex or Grok member still naming a model of one fails its turn
+  // instead of sending it to the CLI's own service; and the backend each member's session was made on
+  // (agent_sessions.backend: an endpoint's id, '' the CLI's own service; NULL: not recorded, taken as
+  // the CLI's own), so that a session is not resumed on another one.
+  `
+  CREATE TABLE deleted_endpoints (
+    id         TEXT PRIMARY KEY,
+    deleted_at INTEGER NOT NULL
+  );
+  ALTER TABLE agent_sessions ADD COLUMN backend TEXT;
+  `,
 ];
 
 function migrate(db: Database): void {

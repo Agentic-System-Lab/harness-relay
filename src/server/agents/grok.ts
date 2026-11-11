@@ -20,8 +20,8 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { endpointEffort, type NativePart, type Permission } from '../../shared/types';
-import { endpointKeyEnv, endpointModel, ENDPOINT_KEY_ENV } from '../backends';
+import { endpointEffort, PROVIDER_LABEL, type NativePart, type Permission } from '../../shared/types';
+import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV } from '../backends';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
 import { commandPaths, patternPath, protectedReads, realPath, relayTmpDir } from '../protect';
@@ -884,16 +884,21 @@ export const grokRunner: AgentRunner = {
     if (given.signal.aborted) throw new AgentRunError(t().stopped, true);
     // On the user's own endpoint: its model as Grok's config names it (`writeGrokModels`), no effort
     // (Grok takes none for a model it does not know), and its key in the variable that model names.
-    const endpoint = endpointModel(given.backends, given.model);
+    const endpoint = endpointRunModel(given.backends, given.model, PROVIDER_LABEL.grok);
     const o = endpoint ? { ...given, model: grokEndpointModelId(endpoint.endpoint.id, endpoint.model), effort: endpointEffort('grok', given.effort) } : given;
     // Model and effort are set per session below: `grok agent --reasoning-effort` does not reach ACP sessions.
     const args = ['agent', '--no-leader', 'stdio'];
     const sandbox = grokSandboxProfile(o.permission);
     const env = endpoint ? endpointKeyEnv(grokEnv(o), endpoint) : grokEnv(o);
+    // A model typed for an endpoint (Custom…) that its list leaves out gets a table too, or Grok would
+    // refuse it; Claude Code and Codex run any model named on an endpoint.
+    const endpoints = (o.backends?.endpoints ?? []).map((e) =>
+      endpoint && e.id === endpoint.endpoint.id && !e.models.includes(endpoint.model) ? { ...e, models: [...e.models, endpoint.model] } : e,
+    );
     const writeModels = () => {
       const home = grokHome(env);
       try {
-        writeGrokModels(home, o.backends?.endpoints ?? [], Boolean(endpoint));
+        writeGrokModels(home, endpoints, Boolean(endpoint));
       } catch (err) {
         throw new AgentRunError(t().grokModelsFailed(join(home, 'config.toml'), (err as Error).message));
       }

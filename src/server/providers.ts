@@ -3,6 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
+  isEndpointCli,
   isOpenProvider,
   keyOnlyAccount,
   type AccountStatus,
@@ -197,13 +198,14 @@ export class ProviderService {
   }
 
   /**
-   * The open agents' status and models follow the model backends, and the other CLIs' model menus list
-   * the endpoints' models too: asked again after a change (the other CLIs' sign-ins stay cached).
+   * The open agents' status and models follow the model backends, and the model menus of Claude Code,
+   * Codex and Grok list the endpoints' models too: asked again after a change (their sign-ins stay
+   * cached). Cursor's menu has no endpoint models, so it stays.
    */
   backendsChanged(): void {
     for (const p of PROVIDERS) {
       if (isOpenProvider(p)) this.invalidate(p);
-      else for (const key of this.modelCache.keys()) if (key.startsWith(slot(p))) this.modelCache.delete(key);
+      else if (isEndpointCli(p)) for (const key of this.modelCache.keys()) if (key.startsWith(slot(p))) this.modelCache.delete(key);
     }
   }
 

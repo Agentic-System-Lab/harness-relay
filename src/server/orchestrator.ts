@@ -21,7 +21,7 @@ import type {
   TeamRevision,
 } from '../shared/types';
 import { splitAsk } from '../shared/ask';
-import { OPEN_PROVIDERS, PROVIDER_LABEL, REVISE_REQUEST_MAX, isOpenProvider, pendingPlan, permissionAbove, planSavable } from '../shared/types';
+import { OPEN_PROVIDERS, PROVIDER_LABEL, REVISE_REQUEST_MAX, isEndpointCli, isOpenProvider, pendingPlan, permissionAbove, planSavable } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest } from './agents/types';
@@ -66,6 +66,7 @@ import {
   type BriefingWorkspace,
   type TurnInfo,
 } from './prompt';
+import { endpointModel } from './backends';
 import { DATA_DIR, OPEN_HOMES_DIR, type SettingsStore } from './settings';
 import type { Store } from './store';
 import {
@@ -1912,6 +1913,22 @@ export class Orchestrator {
     state.provider = agent.provider;
     if (account) state.account = account;
     else delete state.account;
+    // Claude Code, Codex and Grok run on one of the user's endpoints or on their own service. A session
+    // made on another one is not resumed: its context (Claude's signed thinking, Grok's session model)
+    // belongs to that backend, and Grok would stay on an endpoint's model when the member's model is
+    // the CLI's default. The run's model is the one `attempt` gets (`modelFor`, the same for these CLIs).
+    if (isEndpointCli(agent.provider)) {
+      const model = await this.modelFor(agent.provider, agent.model, account);
+      const backend = endpointModel(this.settings.backendsFor(agent.provider), model)?.endpoint.id;
+      if (state.sessionId && (state.backend ?? '') !== (backend ?? '')) {
+        state.sessionId = undefined;
+        state.seen = [];
+      }
+      if (backend) state.backend = backend;
+      else delete state.backend;
+    } else {
+      delete state.backend;
+    }
     // A member whose CLI's latest run had a lower permission (read-only → edit → full; not recorded
     // counts as read-only) does not resume its session: it starts a fresh one with the whole history
     // from Harness Relay's own record, and an open agent's state folder (one per CLI and member) is

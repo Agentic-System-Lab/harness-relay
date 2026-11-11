@@ -38,8 +38,10 @@ import {
   cursorMcpServers,
   cursorMemoryFiles,
   cursorSkills,
+  failedProbe,
 } from '../src/server/native';
 import { codexMcpToolId } from '../src/server/agents/codex';
+import { PROVIDERS, type Provider } from '../src/shared/types';
 import { writeFakeClaude } from './fake-claude';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-native-')));
@@ -451,6 +453,12 @@ describe('what Cursor loads by itself, from its files', () => {
     expect(probe).toMatchObject({ provider: 'cursor', cwd, memoryFromFiles: true, asRun: false, problems: [] });
     expect(probe.memory.some((m) => m.path === join(cwd, 'CLAUDE.md'))).toBe(true);
     expect(listedFile(probe, join(cwd, 'CLAUDE.md'))).toBe(true);
+  });
+
+  it('says, when it could not be asked, that its instruction files are the ones it is documented to read, as its probe does', () => {
+    const failed = (p: Provider) => failedProbe(p, cwd, [], {}, new Error('no')).memoryFromFiles;
+    expect(PROVIDERS.filter(failed)).toEqual(['claude', 'codex', 'cursor']);
+    expect(failedProbe('cursor', cwd, [], {}, new Error('no')).problems).toEqual([{ kind: 'failed', detail: 'no' }]);
   });
 });
 

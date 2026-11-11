@@ -11,7 +11,7 @@ import {
   type ModelEndpointUpdate,
 } from '../shared/types';
 import { AgentRunError, type RunBackends, type RunEndpoint } from './agents/types';
-import type { Database } from './db';
+import { transaction, type Database } from './db';
 import { HttpError } from './errors';
 import { t } from './i18n';
 import { maskSecret, type SecretStore } from './secrets';
@@ -144,6 +144,8 @@ export class ModelBackendStore {
   private keysLeftInDb = new Set<string>();
   /** With a keyring: backends whose key could not be read at startup. */
   private unreadable = new Set<string>();
+  /** The endpoints deleted in Settings and not added again (`deleted_endpoints`). */
+  private deleted = new Set<string>();
 
   constructor(
     private db: Database,
@@ -164,6 +166,9 @@ export class ModelBackendStore {
         ...(r.api_key ? { apiKey: r.api_key } : {}),
         createdAt: r.created_at,
       });
+    }
+    for (const r of db.prepare('SELECT id FROM deleted_endpoints').all() as { id: string }[]) {
+      if (!this.endpoints.some((e) => e.id === r.id)) this.deleted.add(r.id);
     }
     if (keyring) this.loadKeys(keyring);
   }
@@ -282,6 +287,8 @@ export class ModelBackendStore {
       if (this.endpoints.length >= BACKEND_LIMITS.maxEndpoints) throw new HttpError(400, t().tooManyEndpoints(BACKEND_LIMITS.maxEndpoints));
       e = { id, name: u.name, baseUrl: u.baseUrl, models: [...u.models], createdAt: Date.now() };
       this.endpoints.push(e);
+      // Added again: its models run on it again.
+      if (this.deleted.delete(id)) this.db.prepare('DELETE FROM deleted_endpoints WHERE id = ?').run(id);
     } else {
       Object.assign(e, { name: u.name, baseUrl: u.baseUrl, models: [...u.models] });
     }
@@ -310,7 +317,15 @@ export class ModelBackendStore {
     this.endpoints.splice(at, 1);
     this.keysLeftInDb.delete(id);
     this.unreadable.delete(id);
-    this.db.prepare('DELETE FROM model_backends WHERE id = ?').run(id);
+    // Remembered, so that a member still naming one of its models fails instead of reaching its CLI's
+    // own service with that id (`endpointRunModel`).
+    this.deleted.add(id);
+    transaction(this.db, () => {
+      this.db.prepare('DELETE FROM model_backends WHERE id = ?').run(id);
+      this.db
+        .prepare('INSERT INTO deleted_endpoints (id, deleted_at) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET deleted_at = excluded.deleted_at')
+        .run(id, Date.now());
+    });
   }
 
   /** What the UI sees: keys masked. */
@@ -340,6 +355,7 @@ export class ModelBackendStore {
     return {
       apis: { ...this.apis },
       endpoints: this.endpoints.map(({ createdAt: _, ...e }) => ({ ...e, models: [...e.models] })),
+      ...(this.deleted.size ? { deletedEndpoints: [...this.deleted] } : {}),
     };
   }
 }
@@ -398,6 +414,22 @@ export function endpointModel(backends: RunBackends | undefined, model: string |
   const endpoint = parsed && backends?.endpoints.find((e) => e.id === parsed.backend);
   if (!parsed || !endpoint) return undefined;
   return { id: model!.trim(), model: parsed.model, endpoint: { ...endpoint, models: [...endpoint.models] } };
+}
+
+/**
+ * `endpointModel()` for a run of Claude Code, Codex or Grok (`cli`, its name), which fails with an
+ * AgentRunError the user can act on when the model is on an endpoint deleted in Settings
+ * (`RunBackends.deletedEndpoints`): its id would otherwise go to the CLI's own service, and the prompt
+ * with it, though the user chose an endpoint of their own for it.
+ */
+export function endpointRunModel(backends: RunBackends | undefined, model: string | undefined, cli: string): EndpointModel | undefined {
+  const run = endpointModel(backends, model);
+  if (run) return run;
+  const parsed = model ? parseBackendModel(model) : undefined;
+  if (parsed && backends?.deletedEndpoints?.includes(parsed.backend)) {
+    throw new AgentRunError(t().endpointDeleted(cli, parsed.backend, model!.trim()));
+  }
+  return undefined;
 }
 
 /** A run's environment with its endpoint's key in `ENDPOINT_KEY_ENV`, or without that variable when the endpoint has none. */

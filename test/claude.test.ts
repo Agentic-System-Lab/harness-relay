@@ -536,6 +536,25 @@ describe('a Claude Code run that leaves out its own setup (stand-in claude)', ()
     expect(ownStart.args.slice(ownStart.args.indexOf('--model'), ownStart.args.indexOf('--model') + 4)).toEqual(['--model', 'opus', '--effort', 'xhigh']);
     expect(ownStart.args).not.toContain('--settings');
     expect(ownStart.env.ANTHROPIC_API_KEY).toBe('sk-ant-from-settings');
+    // A model of an endpoint deleted in Settings fails before Claude Code starts: its id would go to Anthropic.
+    const gone = join(dir, `log-${++n}.jsonl`);
+    await expect(
+      withLang('en', () =>
+        claudeRunner.run({
+          bin,
+          env: { ...process.env, FAKE_CLAUDE_LOG: gone, ANTHROPIC_API_KEY: 'sk-ant-from-settings' },
+          prompt: 'hello',
+          systemPrompt: 'briefing',
+          cwd: dir,
+          permission: 'full',
+          model: 'oldlab/gemma4:e4b',
+          backends: { ...backends, deletedEndpoints: ['oldlab'] },
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+        }),
+      ),
+    ).rejects.toThrow('Claude Code is to use the model "oldlab/gemma4:e4b", but its custom endpoint "oldlab" was deleted');
+    expect(existsSync(gone)).toBe(false);
   });
 
   it('denies plugin subagents too when only subagents are left out, and sends the prompt at once otherwise', async () => {

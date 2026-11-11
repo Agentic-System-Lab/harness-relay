@@ -127,6 +127,11 @@ export interface RunBackends {
   /** The API key of each API backend that has one. */
   apis: Partial<Record<ApiBackend, string>>;
   endpoints: RunEndpoint[];
+  /**
+   * The ids of endpoints deleted in Settings (and not added again): a Claude Code, Codex or Grok run
+   * on a model of one fails (`endpointRunModel()`), since its id would otherwise go to the CLI's own service.
+   */
+  deletedEndpoints?: string[];
 }
 
 /** A custom OpenAI-compatible endpoint, with its key when it has one. */

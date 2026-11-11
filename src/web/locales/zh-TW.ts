@@ -841,7 +841,7 @@ export const zhTW = {
     },
     /** Text on the shared page itself. */
     page: {
-      tagline: '讓真正的 Claude Code、Codex、Grok 和 Cursor CLI 一起工作的本機群組聊天室',
+      tagline: '讓真正的 Claude Code、Codex、Grok、Cursor CLI 與開源 coding agent 一起工作的本機群組聊天室',
       note: (date: string) => `分享於 ${date}`,
       /** The link icon beside the time: it links to Harness Relay's website. */
       site: 'Harness Relay 網站',
@@ -891,7 +891,7 @@ export const zhTW = {
 
   tools: {
     title: '工具庫',
-    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，Claude Code、Codex、Grok 和 Cursor 都能用，而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
+    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
     mcp: 'MCP 伺服器',
     mcpHint: '工具呼叫一樣受對話的權限限制：權限範圍以外的會詢問你，或依設定自動拒絕。',
     addMcp: '新增 MCP 伺服器',
@@ -1428,7 +1428,7 @@ export const zhTW = {
           '唯讀：只讀檔、分析與上網查資料',
           '可編輯：在工作目錄內修改檔案、執行測試與建置',
           '完全存取：執行任何指令，不再詢問',
-          '完全存取以外，每個 agent 的指令都在沙箱中執行：只能寫入工作目錄與暫存資料夾，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Claude Code、Codex 與 Grok 用它們自己的沙箱，開源 agent 用 Harness Relay 自己的（原生 Windows 上只有 Codex 有沙箱，開源 agent 只能以完全存取執行）',
+          '完全存取以外，除了 Cursor，每個 agent 的指令都在沙箱中執行：只能寫入工作目錄與暫存資料夾，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Claude Code、Codex 與 Grok 用它們自己的沙箱，開源 agent 用 Harness Relay 自己的（原生 Windows 上只有 Codex 有沙箱，開源 agent 只能以完全存取執行）。Cursor 沒有沙箱：它要執行的每個指令都會先問你，你允許的指令會以你的完整權限執行',
           '在你的家目錄與 Harness Relay 自己的資料夾中，不能使用可編輯模式：請選專案的資料夾',
           '提高權限時，每個 agent 下一輪都會帶著完整的歷史開始新的 session',
           '每回合改了哪些檔案都會列出來，可以看 diff；平行模式再選擇要套用誰的結果',

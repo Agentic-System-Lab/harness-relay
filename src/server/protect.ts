@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -141,6 +141,32 @@ export function relayDatabaseFiles(dataDir = DATA_DIR): string[] {
  */
 export function relayTmpDir(dataDir = DATA_DIR): string {
   return join(dataDir, 'tmp');
+}
+
+/**
+ * How the folders a turn makes in `relayTmpDir` for its own files begin: a Claude Code turn's
+ * `--settings` and `--mcp-config` files (the settings hold an endpoint's key when it runs on one, the
+ * MCP config the servers' secret values), and a Cursor turn's config folder.
+ */
+export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-' } as const;
+
+/**
+ * Removes the folders of turns the server was stopped during (`RUN_TMP_PREFIXES`; a turn removes its
+ * own when it ends), so that no key stays there outside the credential store: for the server's start,
+ * before any turn runs. A link in one (a Cursor turn's to the account's sessions) goes, not what it
+ * leads to.
+ */
+export function clearRunTmp(root = relayTmpDir()): void {
+  let names: string[];
+  try {
+    names = readdirSync(root);
+  } catch {
+    return; // none yet
+  }
+  const prefixes = Object.values(RUN_TMP_PREFIXES);
+  for (const name of names) {
+    if (prefixes.some((p) => name.startsWith(p))) rmSync(join(root, name), { recursive: true, force: true });
+  }
 }
 
 /**

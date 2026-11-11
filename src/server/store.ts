@@ -597,7 +597,7 @@ export class Store {
 
     const agentState: Record<string, AgentSessionState> = {};
     const sessions = this.db
-      .prepare('SELECT agent_id, provider, account, session_id, permission, by_cli FROM agent_sessions WHERE conversation_id = ?')
+      .prepare('SELECT agent_id, provider, account, session_id, permission, by_cli, backend FROM agent_sessions WHERE conversation_id = ?')
       .all(id) as {
       agent_id: string;
       provider: Provider | null;
@@ -605,6 +605,7 @@ export class Store {
       session_id: string | null;
       permission: string | null;
       by_cli: string | null;
+      backend: string | null;
     }[];
     for (const s of sessions) {
       const permission = PERMISSION_ORDER.find((p) => p === s.permission);
@@ -617,6 +618,7 @@ export class Store {
         seen: [],
       };
       if (s.account) agentState[s.agent_id]!.account = s.account;
+      if (s.backend) agentState[s.agent_id]!.backend = s.backend;
     }
     const seen = this.db
       .prepare('SELECT agent_id, message_id FROM agent_seen WHERE conversation_id = ?')
@@ -989,10 +991,10 @@ export class Store {
     transaction(this.db, () => {
       this.db
         .prepare(
-          `INSERT INTO agent_sessions (conversation_id, agent_id, provider, account, session_id, permission, by_cli) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO agent_sessions (conversation_id, agent_id, provider, account, session_id, permission, by_cli, backend) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(conversation_id, agent_id) DO UPDATE SET
              provider = excluded.provider, account = excluded.account, session_id = excluded.session_id,
-             permission = excluded.permission, by_cli = excluded.by_cli`,
+             permission = excluded.permission, by_cli = excluded.by_cli, backend = excluded.backend`,
         )
         .run(
           convId,
@@ -1002,6 +1004,7 @@ export class Store {
           nul(state.sessionId),
           nul(state.permission),
           state.byCli ? JSON.stringify(state.byCli) : null,
+          state.backend || null,
         );
       // Write only what changed since the last save: the list grows with the conversation.
       const key = seenKey(convId, agentId);

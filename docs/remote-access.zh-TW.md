@@ -8,7 +8,7 @@ Harness Relay 在一台電腦上執行：agent、你的專案和各 CLI 的登�
 flowchart LR
   P["手機或平板<br/>（Tailscale App）"] -- "HTTPS，只在你的 tailnet 內" --> S["tailscale serve<br/>（在那台電腦上）"]
   S -- "http://127.0.0.1:8787" --> R["Harness Relay"]
-  R --> A["claude · codex · grok · cursor-agent"]
+  R --> A["claude · codex · grok · cursor-agent<br/>opencode · goose · cline · openhands · pi"]
 ```
 
 伺服器仍然只綁定 `127.0.0.1`。同一台電腦上的 `tailscale serve` 會接收從 tailnet 進來的請求，再轉給它。因此：
@@ -164,7 +164,9 @@ WorkingDirectory=%h/harness-relay
 Environment=PORT=8787
 Environment=RELAY_ALLOWED_HOSTS=my-computer.tail1234.ts.net
 # systemd 不會讀 shell 的設定檔。把 `echo $PATH` 的結果貼在這裡，
-# 伺服器才找得到 node 以及 claude、codex、grok、cursor-agent 指令。
+# 伺服器才找得到 node 以及各 agent 的指令：claude、codex、grok、cursor-agent，
+# 以及開源 agent 的 opencode、goose、cline、openhands 與 pi（常在 ~/.local/bin，
+# 或 npm、Homebrew、uv 安裝的位置）。
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/harness-relay/node_modules/.bin/tsx src/server/index.ts
 # 只停止伺服器：它會自己停掉 agent 的程序。
@@ -178,6 +180,8 @@ RestartSec=3
 [Install]
 WantedBy=default.target
 ```
+
+完全存取以外，開源 agent 在 Harness Relay 自己的沙箱中執行，在 Linux 上需要 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`；Ubuntu 23.10 以後還要加上[各平台的作業系統沙箱](sandboxing.zh-TW.md#在-linux-上)裡的 AppArmor 設定檔）。service 也是在同一個 `PATH` 上找它們。
 
 接著啟動它，並讓它在你登出後繼續執行：
 
@@ -231,6 +235,6 @@ systemctl --user restart harness-relay
 | 桌面 app 說讀不到這台電腦分享了什麼 | `tailscale serve status --json` 失敗或沒有及時回應，所以 app 沒有分享任何東西。確認 Tailscale 正在執行並已登入（`tailscale status`），再選一次 **分享到手機**，或照[第 1 步](#1-把伺服器分享到-tailnet)手動分享。 |
 | 出現其他程式的頁面或憑證 | 電腦上有其他程式在監聽 443 port，沒有分享時就由它回應。先看 `tailscale serve status`：網址不見了就重做第 1 步。如果網址還在、卻仍由那個程式回應，就改用其他 port 分享：`tailscale serve --bg --https=8443 8787`，然後打開 `https://my-computer.tail1234.ts.net:8443`（`RELAY_ALLOWED_HOSTS` 不用改）。 |
 | 手機上 AgentsView 的頁面打得開，但一直是空的 | `public_url` 跟你打開的網址不一樣，所以它的請求被拒絕。檢查 `~/.relay-agents/agentsview/config.toml` 最上方那一行（完整網址，含 `https://` 與 `:9999`），然後重新啟動 AgentsView。 |
-| 只有以 service 執行時，agent 顯示「找不到指令」 | service 的 `PATH` 裡沒有那個 CLI。用 `command -v claude`（或 `codex`、`grok`、`cursor-agent`）找到它的位置，把所在資料夾加進 `Environment=PATH=`，再重新啟動。 |
+| 只有以 service 執行時，agent 顯示「找不到指令」 | service 的 `PATH` 裡沒有那個 CLI。用 `command -v claude`（或 `codex`、`grok`、`cursor-agent`、`opencode`、`goose`、`cline`、`openhands`、`pi`）找到它的位置，把所在資料夾加進 `Environment=PATH=`，再重新啟動。 |
 | 手機上 🎙 顯示無法使用麥克風 | 請打開 `https://` 開頭的網址，不要用 `http://`。在瀏覽器允許這個網站使用麥克風，並在手機設定中允許該瀏覽器使用麥克風。 |
 | 主畫面圖示打開後是空白或錯誤頁 | 開啟手機的 Tailscale，再點一次圖示。 |

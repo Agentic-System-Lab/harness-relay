@@ -17,7 +17,7 @@ import { Scheduler } from './scheduler';
 import { clearShareTmp } from './share';
 import { openSystemKeyring } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
-import { dataDirInTemp, relayTmpDir } from './protect';
+import { clearRunTmp, dataDirInTemp, relayTmpDir } from './protect';
 import { OPEN_PROVIDERS } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
 import { clearRelaySandboxLeftovers, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
@@ -101,6 +101,13 @@ if (!built) {
 await clearShareTmp().catch((err: unknown) => console.error('[server] could not clear the temporary share folders:', err));
 // There before any agent runs, so that every sandbox is kept out of it from the first turn (protectedReads).
 mkdirSync(relayTmpDir(), { recursive: true, mode: 0o700 });
+// What turns the server was stopped during left there (a Claude Code turn's settings may hold an
+// endpoint's key); none is running yet.
+try {
+  clearRunTmp();
+} catch (err) {
+  console.error('[server] could not clear the turns\' temporary folders:', err);
+}
 // The temporary folders of relay-sandbox runs the server was stopped during (none is running yet).
 // Whether nothing of them still runs: only then may permissions be given back to remove what is locked.
 let swept = false;

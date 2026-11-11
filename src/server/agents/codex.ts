@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { endpointEffort, ENDPOINT_CLI, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
-import { endpointKeyEnv, endpointModel, ENDPOINT_KEY_ENV, type EndpointModel } from '../backends';
+import { endpointEffort, ENDPOINT_CLI, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
+import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV, type EndpointModel } from '../backends';
 import { unwrapShell } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
@@ -649,7 +649,7 @@ const codexTurnRunner: AgentRunner = {
   async run(given): Promise<RunResult> {
     if (given.signal.aborted) throw new AgentRunError(t().stopped, true);
     // On the user's own endpoint: its key in the variable its model provider names, and no other.
-    const endpoint = endpointModel(given.backends, given.model);
+    const endpoint = endpointRunModel(given.backends, given.model, PROVIDER_LABEL.codex);
     const o = {
       ...given,
       protectedPaths: given.protectedPaths ?? protectedReads(),

@@ -15,6 +15,8 @@ import {
   libraryForLead,
   parsePlanReply,
   plannerContext,
+  PLANNER_BRIEFING,
+  REVISER_BRIEFING,
   sameTeam,
   teamSettings,
   memberLibraryTools,
@@ -36,6 +38,14 @@ const catalog: ProviderModels[] = [
 ];
 const ctx: PlannerContext = { available: ['claude', 'codex'], catalog, presets: builtinPresets('en') };
 const lead = { provider: 'claude' as const };
+
+describe("the lead agent's briefings", () => {
+  it('name the kinds of agents the chat holds, the open-source ones too', () => {
+    for (const briefing of [PLANNER_BRIEFING, REVISER_BRIEFING]) {
+      expect(briefing).toContain('(Claude Code, Codex, Grok, Cursor, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi)');
+    }
+  });
+});
 
 describe('lead agent reply', () => {
   it('reads the JSON from a code block, or from bare braces', () => {

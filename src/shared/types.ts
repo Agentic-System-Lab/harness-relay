@@ -1043,6 +1043,11 @@ export interface AgentSessionState {
   /** The account the session was made with (empty = the default account): another account starts a new one. */
   account?: string;
   /**
+   * For Claude Code, Codex and Grok: the backend the session was made on, one of the user's endpoints
+   * (its id), or the CLI's own service (absent): a turn on another one starts a fresh session.
+   */
+  backend?: string;
+  /**
    * The permission of this member's latest run in the conversation (Harness Relay's own record).
    */
   permission?: Permission;

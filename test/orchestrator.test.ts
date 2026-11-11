@@ -903,6 +903,37 @@ describe('accounts', () => {
     ]);
   });
 
+  it("starts a new session when a member's model moves between the CLI's own service and an endpoint, or to another endpoint", async () => {
+    settings.backends.putEndpoint('homelab', { name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'] });
+    settings.backends.putEndpoint('studio', { name: 'Studio', baseUrl: 'http://10.0.0.6:1234/v1', models: ['qwen3'] });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.agents = [{ id: 'a', name: 'Alice', provider: 'claude', role: '', model: 'homelab/gemma4:e4b' }];
+    store.saveMeta(conv);
+    const turn = async (model: string | undefined, text: string) => {
+      calls = [];
+      conv.agents = [{ ...conv.agents[0]!, model }];
+      store.saveMeta(conv);
+      await orchestrator.send(conv.id, text);
+      await finish(conv.id);
+      return calls[0]!;
+    };
+    expect(await turn('homelab/gemma4:e4b', 'one')).toMatchObject({ sessionId: undefined, model: 'homelab/gemma4:e4b' });
+    expect(new Store(db).get(conv.id)!.agentState.a).toMatchObject({ backend: 'homelab', sessionId: 'session-Alice' });
+    // The same endpoint, another model of it: the session goes on.
+    expect((await turn('homelab/other', 'two')).sessionId).toBe('session-Alice');
+    // The CLI's own model (named, or its default): the session was the endpoint's, so a fresh one, with the whole history.
+    const own = await turn(undefined, 'three');
+    expect(own.sessionId).toBeUndefined();
+    expect(own.prompt).toContain('one');
+    expect(new Store(db).get(conv.id)!.agentState.a).not.toHaveProperty('backend');
+    expect((await turn('opus', 'four')).sessionId).toBe('session-Alice');
+    // Back on an endpoint, and then on another one: fresh each time.
+    expect((await turn('homelab/gemma4:e4b', 'five')).sessionId).toBeUndefined();
+    expect((await turn('studio/qwen3', 'six')).sessionId).toBeUndefined();
+    expect(new Store(db).get(conv.id)!.agentState.a).toMatchObject({ backend: 'studio' });
+    expect((await turn('studio/qwen3', 'seven')).sessionId).toBe('session-Alice');
+  });
+
   it("runs the lead agent as its account, and new members of its team as an account that is signed in", async () => {
     const home = join(root, `agents-${n}`);
     settings.setAgentHome(home);
