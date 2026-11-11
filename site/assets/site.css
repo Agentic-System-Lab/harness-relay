@@ -747,10 +747,6 @@ p {
   font-size: 13.5px;
 }
 
-.dl-detail [data-size]:not(:empty)::before {
-  content: ' · ';
-}
-
 /* The visitor's system: a firmer outline and a label on the edge. */
 .dl.is-yours {
   border-color: var(--text);

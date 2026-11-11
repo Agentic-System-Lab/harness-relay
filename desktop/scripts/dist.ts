@@ -2,7 +2,7 @@
  * `npm run desktop:dist`: makes the installer for this system into desktop/release/ (electron-builder,
  * desktop/electron-builder.yml), and ends by saying what to double-click. On macOS it is signed ad hoc,
  * never with a certificate electron-builder would otherwise pick from the keychain. The Release
- * workflow calls electron-builder itself, for a universal Mac app and the release's file names.
+ * workflow calls electron-builder itself, for the release's file names.
  *
  * `--output <folder>` puts the result elsewhere (to try a build without replacing an app in use):
  * `npm run desktop:dist -- --output <folder>`.

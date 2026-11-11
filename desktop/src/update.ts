@@ -49,7 +49,7 @@ export const FIRST_CHECK_MS = 30_000;
 export type UpdateSystem = keyof typeof INSTALLERS;
 
 export interface UpdateAsset {
-  /** The file's name, such as Harness-Relay-2026-11-12-mac-universal.dmg. */
+  /** The file's name, such as Harness-Relay-2026-11-12-mac-arm64.dmg. */
   name: string;
   url: string;
   size?: number;
@@ -115,12 +115,12 @@ export function isNewer(latest: UpdateRelease | undefined, current: string): lat
 }
 
 /**
- * Which installer updates this system: one Mac app for both processors; on Windows and Linux, the one
- * for the processor the running app was built for (`process.arch`). An x64 app on Windows on Arm runs
- * emulated and reports x64 itself, so it stays the x64 app.
+ * Which installer updates this system: the Mac app for Apple Silicon (there is none for Intel Macs);
+ * on Windows and Linux, the one for the processor the running app was built for (`process.arch`). An
+ * x64 app on Windows on Arm runs emulated and reports x64 itself, so it stays the x64 app.
  */
 export function updateSystem(platform: NodeJS.Platform, arch: string): UpdateSystem | undefined {
-  if (platform === 'darwin') return 'mac';
+  if (platform === 'darwin') return arch === 'arm64' ? 'mac' : undefined;
   if (platform === 'win32') return arch === 'x64' ? 'win' : arch === 'arm64' ? 'win-arm64' : undefined;
   if (platform === 'linux') return arch === 'x64' ? 'linux' : arch === 'arm64' ? 'linux-arm64' : undefined;
   return undefined;

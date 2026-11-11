@@ -36,10 +36,6 @@ mac:
   # Signed ad hoc, the same on every computer (not with a certificate found in the keychain): Apple
   # Silicon runs no unsigned code, and the fuses above change the binary after it was linked.
   identity: '-'
-  # One app for Apple Silicon and Intel (the Release workflow builds it --universal). The keyring
-  # module's native parts for both processors are in it, the same files in both halves: the server
-  # loads the one for the processor it runs on.
-  x64ArchFiles: 'Contents/Resources/server/node_modules/@napi-rs/keyring-darwin-*/*.node'
   # The microphone, for voice input in the chat's window: the hardened runtime needs the entitlement,
   # and macOS shows the reason (Info.plist, translated in macos/*.lproj) when it asks.
   entitlements: entitlements.mac.plist

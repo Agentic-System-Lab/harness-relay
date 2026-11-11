@@ -22,11 +22,11 @@ npm start
 
 ### 桌面 app
 
-除了在終端機執行 `npm start`，也可以把 Harness Relay 安裝成桌面 app，支援 macOS（13 Ventura 以上，Apple Silicon 或 Intel）、Windows 10 以上（x64 或 Arm64），以及有桌面環境的 Linux（x64 或 Arm64）。它在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列或系統匣留著一個圖示，所以手機照常能用。跟 `npm start` 一樣，它需要 agent 的 CLI，編輯與平行模式也需要 Git；但不需要 Node.js。
+除了在終端機執行 `npm start`，也可以把 Harness Relay 安裝成桌面 app，支援 macOS（13 Ventura 以上，Apple Silicon）、Windows 10 以上（x64 或 Arm64），以及有桌面環境的 Linux（x64 或 Arm64）。它在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列或系統匣留著一個圖示，所以手機照常能用。跟 `npm start` 一樣，它需要 agent 的 CLI，編輯與平行模式也需要 Git；但不需要 Node.js。
 
 **安裝。** 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)（提供最新的版本）或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) 下載你系統的安裝檔。最新的版本可能是候選版本（版本結尾是 `-rc`，見[版本](#版本)），app 也會自己更新到最新的版本，包括候選版本（見下方 **更新**）。
 
-- **macOS**：`Harness-Relay-<版本>-mac-universal.dmg`（Apple Silicon 與 Intel 通用）。打開後把 Harness Relay 拖到「應用程式」。
+- **macOS**：`Harness-Relay-<版本>-mac-arm64.dmg`，給 Apple Silicon 的 Mac。打開後把 Harness Relay 拖到「應用程式」。Intel Mac 沒有 app：請在那裡從原始碼執行 Harness Relay（`npm start`，見[快速開始](../README.zh-TW.md#快速開始)）。2026-11-11 與它的候選版本的 Mac app 是兩種 Mac 通用的，它們的選單找不到之後的版本：請從網站重新下載一次新版。
 - **Windows**：`Harness-Relay-<版本>-win-x64.exe`，Windows on Arm 用 `Harness-Relay-<版本>-win-arm64.exe`。只安裝給你的帳號，不需要系統管理員權限。Windows 11 on Arm 也能執行 x64 版（透過模擬），Windows 10 on Arm 則不行；Arm64 版在兩者上都是原生執行。
 - **Linux**：`Harness-Relay-<版本>-linux-x86_64.AppImage`，64 位元 Arm（aarch64）用 `Harness-Relay-<版本>-linux-arm64.AppImage`。加上執行權限（`chmod +x`）後執行。
 

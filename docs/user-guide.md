@@ -22,11 +22,11 @@ To use Harness Relay from your phone, a tablet or another computer, share it wit
 
 ### Desktop app
 
-Instead of `npm start` in a terminal, you can install Harness Relay as a desktop app on macOS (13 Ventura or later, Apple Silicon or Intel), Windows 10 or later (x64 or Arm64), or Linux with a desktop (x64 or Arm64). It runs the same server in the background and shows the chat in a window of its own, signed in, with no address bar. Closing the window leaves the server running, with an icon in the menu bar or the system tray, so the chat works on your phone as before. Like `npm start`, it needs the agent CLIs, and Git for edit and parallel modes; it does not need Node.js.
+Instead of `npm start` in a terminal, you can install Harness Relay as a desktop app on macOS (13 Ventura or later, Apple Silicon), Windows 10 or later (x64 or Arm64), or Linux with a desktop (x64 or Arm64). It runs the same server in the background and shows the chat in a window of its own, signed in, with no address bar. Closing the window leaves the server running, with an icon in the menu bar or the system tray, so the chat works on your phone as before. Like `npm start`, it needs the agent CLIs, and Git for edit and parallel modes; it does not need Node.js.
 
 **Install it.** Download the installer for your system from the [website](https://agentic-system-lab.github.io/harness-relay/), which offers the newest release, or from [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases). The newest can be a release candidate (a version ending in `-rc`, see [Versions](#versions)), and the app updates itself to the newest too, release candidates included (see **Updates** below).
 
-- **macOS**: `Harness-Relay-<version>-mac-universal.dmg` (one app for Apple Silicon and Intel). Open it and drag Harness Relay to Applications.
+- **macOS**: `Harness-Relay-<version>-mac-arm64.dmg`, for Macs with Apple Silicon. Open it and drag Harness Relay to Applications. There is no app for Intel Macs: run Harness Relay from the source there (`npm start`, see [Quick start](../README.md#quick-start)). A Mac app from 2026-11-11 or its release candidate was one for both, and does not find the releases after it in its menu: download the new version once from the website.
 - **Windows**: `Harness-Relay-<version>-win-x64.exe`, or `Harness-Relay-<version>-win-arm64.exe` on Windows on Arm. It installs for your user only, without administrator rights. Windows 11 on Arm runs the x64 app too (emulated), Windows 10 on Arm does not; the Arm64 one runs natively on both.
 - **Linux**: `Harness-Relay-<version>-linux-x86_64.AppImage`, or `Harness-Relay-<version>-linux-arm64.AppImage` on 64-bit Arm (aarch64). Make it executable (`chmod +x`) and run it.
 

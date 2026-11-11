@@ -55,7 +55,7 @@ function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; 
     prerelease: o.prerelease ?? tag.includes('-rc'),
     html_url: `https://github.com/Agentic-System-Lab/harness-relay/releases/tag/${tag}`,
     assets: [
-      asset('-mac-universal.dmg'),
+      asset('-mac-arm64.dmg'),
       asset('-win-x64.exe'),
       asset('-win-arm64.exe'),
       asset('-linux-x86_64.AppImage'),
@@ -72,10 +72,10 @@ describe("GitHub's newest release", () => {
     expect(r.semver).toBe('2026.1112.1');
     expect(r.page).toBe('https://github.com/Agentic-System-Lab/harness-relay/releases/tag/2026-11-12.1');
     expect(r.assets.mac).toEqual({
-      name: 'Harness-Relay-2026-11-12.1-mac-universal.dmg',
-      url: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-universal.dmg`,
+      name: 'Harness-Relay-2026-11-12.1-mac-arm64.dmg',
+      url: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-arm64.dmg`,
       size: 1000,
-      sha256: sha('Harness-Relay-2026-11-12.1-mac-universal.dmg'),
+      sha256: sha('Harness-Relay-2026-11-12.1-mac-arm64.dmg'),
     });
     expect(Object.keys(r.assets).sort()).toEqual(['linux', 'linux-arm64', 'mac', 'win', 'win-arm64']);
   });
@@ -83,7 +83,7 @@ describe("GitHub's newest release", () => {
   it('can be a release candidate, as the app was built for one; never a draft or a tag that is not a version of ours', () => {
     const rc = parseRelease(githubRelease('2026-11-12-rc.1'))!;
     expect(rc).toMatchObject({ version: '2026-11-12-rc.1', semver: '2026.1112.0-rc.1' });
-    expect(rc.assets.mac?.name).toBe('Harness-Relay-2026-11-12-rc.1-mac-universal.dmg');
+    expect(rc.assets.mac?.name).toBe('Harness-Relay-2026-11-12-rc.1-mac-arm64.dmg');
     expect(parseRelease(githubRelease('2026-11-12', { prerelease: true }))?.version).toBe('2026-11-12');
     expect(parseRelease(githubRelease('2026-11-12-rc', { draft: true }))).toBeUndefined();
     expect(parseRelease(githubRelease('2026-11-12', { draft: true }))).toBeUndefined();
@@ -109,7 +109,7 @@ describe("GitHub's newest release", () => {
 
   it('leaves out installers elsewhere, with a name that leaves its folder, or a checksum that is not SHA-256', () => {
     const r = githubRelease('2026-11-12');
-    r.assets[0]!.browser_download_url = 'https://evil.example/Harness-Relay-2026-11-12-mac-universal.dmg';
+    r.assets[0]!.browser_download_url = 'https://evil.example/Harness-Relay-2026-11-12-mac-arm64.dmg';
     r.assets[1]!.name = '../../Harness-Relay-2026-11-12-win-x64.exe';
     (r.assets.find((a) => a.name.endsWith('-linux-x86_64.AppImage')) as { digest?: string }).digest = 'md5:abc';
     const parsed = parseRelease(r)!;
@@ -157,9 +157,9 @@ describe("GitHub's newest release", () => {
     await expect(checkLatest(answer(403, { message: 'rate limited' }))).rejects.toThrow('403');
   });
 
-  it("has one installer for each system: the universal Mac app, the running app's processor's for Windows and Linux", () => {
+  it("has one installer for each system: the Mac app for Apple Silicon (none for Intel), the running app's processor's for Windows and Linux", () => {
     expect(updateSystem('darwin', 'arm64')).toBe('mac');
-    expect(updateSystem('darwin', 'x64')).toBe('mac');
+    expect(updateSystem('darwin', 'x64')).toBeUndefined();
     expect(updateSystem('win32', 'x64')).toBe('win');
     expect(updateSystem('win32', 'arm64')).toBe('win-arm64');
     expect(updateSystem('linux', 'x64')).toBe('linux');

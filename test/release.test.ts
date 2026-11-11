@@ -434,15 +434,9 @@ describe('the release workflow', () => {
       expect(build).toMatch(new RegExp(`os: ${os}\\n(?:\\s+#.*\\n)*\\s+target: ${target}`));
     }
     expect(build).toMatch(/fail-fast: true/);
-    // The Mac app is universal, with the keyring module's Intel part added before the app is built.
-    expect(build).toMatch(/target: --mac dmg --universal/);
-    const intel = build.indexOf('- name: Add the keyring module for Intel Macs');
-    expect(intel).toBeGreaterThan(build.indexOf('run: npm ci\n'));
-    expect(intel).toBeLessThan(build.indexOf('run: npm --prefix desktop run build'));
-    expect(build.slice(intel, intel + 400)).toContain("if: runner.os == 'macOS'");
-    const both = build.indexOf('- name: Check that the Mac app has the keyring module for both processors');
-    expect(both).toBeGreaterThan(build.indexOf('run: npm --prefix desktop run build'));
-    expect(build.slice(both, both + 400)).toContain('keyring-darwin-x64');
+    // Macs with Apple Silicon only: no universal app, no Intel half of the keyring module.
+    expect(build).toMatch(/target: --mac dmg --arm64/);
+    expect(build).not.toMatch(/--universal|keyring-darwin-x64|Intel Macs/);
     // The bundled server is tried on each system before its installer is made.
     expect(build.indexOf('run: npx tsx desktop/scripts/smoke.ts')).toBeGreaterThan(build.indexOf('run: npm --prefix desktop run build'));
     expect(build.indexOf('run: npx tsx desktop/scripts/smoke.ts')).toBeLessThan(build.indexOf('- name: Make the installer'));

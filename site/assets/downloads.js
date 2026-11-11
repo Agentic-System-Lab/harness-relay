@@ -11,9 +11,8 @@ export const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
  * Harness-Relay-<version>-<os>-<arch>.<ext> (.github/workflows/release.yml).
  */
 export const INSTALLERS = {
-  // One app for Apple Silicon and Intel Macs: a browser cannot tell them apart (Safari says "Intel"
-  // on both), so there is nothing to choose.
-  mac: '-mac-universal.dmg',
+  // Macs with Apple Silicon only: there is no app for Intel Macs.
+  mac: '-mac-arm64.dmg',
   win: '-win-x64.exe',
   'win-arm64': '-win-arm64.exe',
   linux: '-linux-x86_64.AppImage',
@@ -55,7 +54,8 @@ export function isInstallerUrl(url) {
 /**
  * The visitor's system: an installer's key ('mac', 'win', 'win-arm64', 'linux', 'linux-arm64') for
  * the computers with one, 'mobile' for a phone or tablet (iPadOS says it is a Mac, but has touch),
- * else 'other': ChromeOS, BSD, or Linux on 32-bit ARM. The processor comes from the user agent and
+ * else 'other': an Intel Mac (when Chromium's hints say so: Safari and Firefox say "Intel" on every
+ * Mac, so a Mac counts as one with Apple Silicon), ChromeOS, BSD, or Linux on 32-bit ARM. The processor comes from the user agent and
  * `navigator.platform` where they tell it (Firefox, Linux), or from Chromium's high-entropy hints
  * (`architecture` 'arm' or 'x86', `bitness`): Chromium says "x64" in its user agent on any Windows
  * and on any Linux. Without a hint, a Windows or Linux computer counts as x64 (Windows 11 on Arm
@@ -69,7 +69,7 @@ export function systemOf({ userAgent = '', platform = '', uaPlatform = '', maxTo
   const hinted = architecture === 'arm' ? (bitness === '32' ? 'arm32' : 'arm64') : architecture === 'x86' ? 'x86' : '';
   const cpu = hinted || (/aarch64|\barm64\b/.test(said) ? 'arm64' : /\barmv?\d|\barm\b/.test(said) ? 'arm32' : 'x86');
   if (/android|iphone|ipad|ipod/.test(ua) || /android|ios|iphone|ipad/.test(p)) return 'mobile';
-  if (/mac/.test(p) || /macintosh|mac os x/.test(ua)) return maxTouchPoints > 1 ? 'mobile' : 'mac';
+  if (/mac/.test(p) || /macintosh|mac os x/.test(ua)) return maxTouchPoints > 1 ? 'mobile' : hinted === 'x86' ? 'other' : 'mac';
   if (/win/.test(p) || /windows/.test(ua)) return cpu === 'arm64' ? 'win-arm64' : 'win';
   if (/cros|chrome os|chromeos/.test(p) || /\bcros\b/.test(ua)) return 'other';
   if (/linux/.test(p) || /linux|x11/.test(ua)) return cpu === 'arm64' ? 'linux-arm64' : cpu === 'arm32' ? 'other' : 'linux';
@@ -97,13 +97,13 @@ export function processorHints(nav) {
     .catch(() => ({}));
 }
 
-/** A release's installers, by system: { url, name, size } each, for the ones it has. */
+/** A release's installers, by system: { url, name } each, for the ones it has. */
 export function installersOf(release) {
   const found = {};
   for (const asset of release?.assets ?? []) {
     for (const [system, end] of Object.entries(INSTALLERS)) {
       if (typeof asset?.name === 'string' && asset.name.endsWith(end) && isInstallerUrl(asset.browser_download_url)) {
-        found[system] = { url: asset.browser_download_url, name: asset.name, size: asset.size };
+        found[system] = { url: asset.browser_download_url, name: asset.name };
       }
     }
   }
@@ -131,11 +131,6 @@ export function newestRelease(releases) {
     if (Object.keys(installers).length) return { tag: r.tag_name, prerelease: isCandidate(r.tag_name, r.prerelease), installers };
   }
   return null;
-}
-
-/** "122 MB" (decimal megabytes, as the systems show file sizes). */
-export function sizeLabel(bytes) {
-  return Number.isFinite(bytes) && bytes > 0 ? `${Math.max(1, Math.round(bytes / 1e6))} MB` : '';
 }
 
 // ---------- On the page ----------
@@ -221,10 +216,7 @@ function wireButtons({ doc, root, nav, hints, storage, fetchJson, now }) {
     if (!release || typeof release.tag !== 'string') return;
     for (const link of doc.querySelectorAll('[data-download]')) {
       const found = release.installers?.[link.dataset.download];
-      const ok = isInstallerUrl(found?.url);
-      link.setAttribute('href', ok ? found.url : RELEASES_PAGE);
-      const size = link.querySelector('[data-size]');
-      if (size) size.textContent = ok ? sizeLabel(found.size) : '';
+      link.setAttribute('href', isInstallerUrl(found?.url) ? found.url : RELEASES_PAGE);
     }
     const mine = release.installers?.[system];
     if (primary && system in INSTALLERS) primary.setAttribute('href', isInstallerUrl(mine?.url) ? mine.url : RELEASES_PAGE);

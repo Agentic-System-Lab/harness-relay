@@ -5,7 +5,6 @@ export type System = InstallerSystem | 'mobile' | 'other';
 export interface Installer {
   url: string;
   name: string;
-  size?: number;
 }
 export interface NewestRelease {
   tag: string;
@@ -30,7 +29,6 @@ export function processorHints(nav: unknown): Promise<{ architecture?: string; b
 export function installersOf(release: unknown): NewestRelease['installers'];
 export function isCandidate(tag: unknown, prerelease?: unknown): boolean;
 export function newestRelease(releases: unknown): NewestRelease | null;
-export function sizeLabel(bytes: number | undefined): string;
 export const DOWNLOAD_PREFIX: string;
 export const STORAGE_KEY: string;
 export function isInstallerUrl(url: unknown): boolean;
