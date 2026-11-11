@@ -47,6 +47,7 @@ import type {
 } from '../shared/types';
 import { clearKey, readKey, writeKey } from './auth';
 import { currentLang } from './i18n';
+import { timeoutSignal } from './util';
 
 /** An account in a URL path: its id, or `default` for the default account. */
 const accountPath = (account: string) => encodeURIComponent(account || DEFAULT_ACCOUNT);
@@ -286,7 +287,7 @@ export const api = {
    * Which Harness Relay this is, and on what, for a problem report. Given up on after 10 s: the report
    * then says the server did not answer, instead of waiting for good.
    */
-  about: () => request<AboutInfo>('GET', '/api/about', undefined, AbortSignal.timeout(10_000)),
+  about: () => request<AboutInfo>('GET', '/api/about', undefined, timeoutSignal(10_000)),
   /** This version, and the desktop app's updates (only the version otherwise). */
   update: () => request<UpdateStatus>('GET', '/api/update'),
   /** Has the desktop app ask GitHub for a new version now (at most every five minutes); what it knows once it has. */

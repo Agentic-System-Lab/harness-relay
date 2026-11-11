@@ -22,6 +22,7 @@ import {
   reportSubject,
   reportText,
   countsAsSent,
+  sentLinks,
   screenshotProblem,
   ShotUploads,
   type MailLink,
@@ -62,7 +63,6 @@ function forget() {
   keptShots = [];
   uploads.forget();
 }
-
 
 interface Props {
   /** Each CLI's status, as the sidebar has it: their versions go along with the report. */
@@ -340,7 +340,7 @@ export function ReportDialog({ providers, onClose }: Props) {
         {waiting && reportReady(draft) && <p className="small warn-text">{r.shots.uploadFirst}</p>}
         {sent && (
           <p className={sent === 'cutCopyFailed' ? 'small warn-text' : 'small report-sent'} role="status">
-            {upload && (sent === 'mail' || sent === 'gmail' || sent === 'copied') ? r.sentLinked[sent] : r.sent[sent]}
+            {sentLinks(sent, upload?.id, uploads.linkedId) ? r.sentLinked[sent] : r.sent[sent]}
           </p>
         )}
 

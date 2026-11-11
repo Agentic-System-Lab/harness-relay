@@ -54,6 +54,14 @@ export function countsAsSent(sent: Sent | undefined): boolean {
   return sent !== undefined && sent !== 'cutCopyFailed';
 }
 
+/**
+ * Whether the note after a report went says its mail links to the screenshots: only when the upload
+ * there is now (`uploadId`) is the one the sent mail links to (`linkedId`), not one made after it went.
+ */
+export function sentLinks(sent: Sent | undefined, uploadId: string | undefined, linkedId: string | undefined): sent is 'mail' | 'gmail' | 'copied' {
+  return !!uploadId && uploadId === linkedId && (sent === 'mail' || sent === 'gmail' || sent === 'copied');
+}
+
 /** Only the description is needed: there is nothing to report without it. */
 export function reportReady(d: ReportDraft): boolean {
   return d.description.trim().length > 0;
@@ -287,6 +295,12 @@ export class ShotUploads {
   /** The mail was sent: it links to the upload done now, if any, which then stays on GitHub. */
   sent(): void {
     this.linked = this.done?.id;
+    this.changed(); // what the dialog says of it may change, though how it went did not (sent again the same way)
+  }
+
+  /** The upload the last sent mail links to, if any. */
+  get linkedId(): string | undefined {
+    return this.linked;
   }
 
   /**

@@ -15,6 +15,7 @@ import {
   reportReady,
   reportState,
   countsAsSent,
+  sentLinks,
   reportSubject,
   reportText,
   screenshotProblem,
@@ -164,6 +165,20 @@ describe('a report sent', () => {
   });
 });
 
+describe('the note after a report went', () => {
+  it('says the mail links to the screenshots only when the upload there is now is the one it links to', () => {
+    for (const how of ['mail', 'gmail', 'copied'] as const) expect(sentLinks(how, 'A', 'A')).toBe(true);
+    // Sent without screenshots, then some uploaded: the mail does not link to them.
+    expect(sentLinks('mail', 'B', undefined)).toBe(false);
+    // Sent linking to A, then A removed and B uploaded.
+    expect(sentLinks('copied', 'B', 'A')).toBe(false);
+    expect(sentLinks('mail', undefined, undefined)).toBe(false);
+    // The clipboard's notes say nothing of links.
+    expect(sentLinks('cut', 'A', 'A')).toBe(false);
+    expect(sentLinks(undefined, 'A', 'A')).toBe(false);
+  });
+});
+
 describe('what the dialog lets the user do', () => {
   const draft = { ...EMPTY_REPORT, description: 'It froze' };
   const state = (o: Partial<Parameters<typeof reportState>[0]> = {}) =>
@@ -307,6 +322,19 @@ describe("a report's screenshots on GitHub", () => {
     uploads.forget(); // the dialog closed
     expect(uploads.done).toBeUndefined();
     expect(server.calls).toEqual(['upload a', `remove ${gist.id}`]);
+  });
+
+  it('say which upload the last sent mail links to, telling the dialog each time it is sent', async () => {
+    const uploads = new ShotUploads({ upload: async () => gist, remove: async () => undefined, gone: () => false });
+    let told = 0;
+    uploads.subscribe(() => told++);
+    uploads.sent();
+    expect(told).toBe(1);
+    expect(uploads.linkedId).toBeUndefined();
+    await uploads.upload(async () => ['a']);
+    expect(uploads.linkedId).toBeUndefined(); // uploaded after the mail went
+    uploads.sent();
+    expect(uploads.linkedId).toBe(gist.id);
   });
 
   it('keep only the upload the last sent mail links to', async () => {

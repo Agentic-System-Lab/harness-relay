@@ -101,6 +101,16 @@ export function toBase64(file: Blob): Promise<string> {
   });
 }
 
+/**
+ * A signal that aborts after `ms`: AbortSignal.timeout() as browsers without it (Safari before 16) can
+ * have it, the rest of the client running on Safari 15.4.
+ */
+export function timeoutSignal(ms: number): AbortSignal {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(new DOMException('The request timed out.', 'TimeoutError')), ms);
+  return controller.signal;
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
