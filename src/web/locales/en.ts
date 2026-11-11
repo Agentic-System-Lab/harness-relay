@@ -727,7 +727,7 @@ export const en: Messages = {
       alt: (n) => `Screenshot ${n}`,
       remove: (n) => `Remove screenshot ${n}`,
       tooMany: (max) => `At most ${max} screenshots.`,
-      notImage: (name) => `"${name}" is not a PNG, JPEG, GIF or WebP image.`,
+      notImage: (name) => `"${name}" is not a PNG, JPEG or WebP image (GIF and .jfif are not taken).`,
       tooLarge: (name, max) => `"${name}" is over the ${max} limit.`,
     },
     hint: 'Send opens your mail app with the address and the report filled in. Drag screenshots into the mail, then send it.',

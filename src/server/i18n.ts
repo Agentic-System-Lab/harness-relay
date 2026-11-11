@@ -117,7 +117,7 @@ const zhTW = {
   updateUnderWay: '更新已經在進行中。',
   reportShotsTooMany: (max: number) => `一次最多只能上傳 ${max} 張截圖。`,
   reportShotTooLarge: (n: number, mb: number) => `第 ${n} 張截圖超過 ${mb} MB 的上限。`,
-  reportShotNotImage: (n: number) => `第 ${n} 張截圖不是 PNG、JPEG、GIF 或 WebP 圖片。`,
+  reportShotNotImage: (n: number) => `第 ${n} 張截圖不是 PNG、JPEG 或 WebP 圖片。`,
   reportShotUnreadable: (n: number) => `第 ${n} 張截圖讀不懂它的檔案結構，沒辦法確定拿掉了中繼資料，所以不上傳：請重新截圖，或另存成 PNG 再試。`,
   reportShotsUndone: (detail: string) => `無法上傳截圖（${detail}），已經建立的 gist 也刪除了。請再試一次。`,
   reportShotsLeftover: (detail: string, url: string) =>
@@ -418,7 +418,7 @@ const en: ServerMessages = {
   updateUnderWay: 'An update is already under way.',
   reportShotsTooMany: (max) => `At most ${max} screenshots can be uploaded.`,
   reportShotTooLarge: (n, mb) => `Screenshot ${n} is over the ${mb} MB limit.`,
-  reportShotNotImage: (n) => `Screenshot ${n} is not a PNG, JPEG, GIF or WebP image.`,
+  reportShotNotImage: (n) => `Screenshot ${n} is not a PNG, JPEG or WebP image.`,
   reportShotUnreadable: (n) => `Screenshot ${n} could not be read through, so its metadata could not be left behind: it is not uploaded. Take it again, or save it as a PNG and try again.`,
   reportShotsUndone: (detail) => `Could not upload the screenshots (${detail}), so the gist made for them was deleted again. Try once more.`,
   reportShotsLeftover: (detail, url) =>

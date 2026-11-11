@@ -68,18 +68,14 @@ const riff = (chunks: Buffer) => {
 };
 const VP8 = webpChunk('VP8 ', Buffer.from('pixels!'));
 const WEBP = riff(VP8);
-/** A GIF: header, screen descriptor without a table, one image (LZW size, one sub-block), trailer. */
-const GIF_HEAD = Buffer.from('GIF89a\x01\x00\x01\x00\x00\x00\x00', 'latin1');
-const GIF_IMAGE = Buffer.from([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x4c, 0x01, 0]);
-const GIF = Buffer.concat([GIF_HEAD, GIF_IMAGE, Buffer.from([0x3b])]);
+/** A GIF, which is not taken: header, screen descriptor, one image, trailer. */
+const GIF = Buffer.from('GIF89a\x01\x00\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x4c\x01\x00\x3b', 'latin1');
 const b64 = (b: Buffer) => b.toString('base64');
 
 describe('a screenshot', () => {
-  it('is known by its first bytes as a PNG, JPEG, GIF or WebP image', () => {
+  it('is known by its first bytes as a PNG, JPEG or WebP image', () => {
     expect(imageKind(PNG)).toBe('png');
     expect(imageKind(JPEG)).toBe('jpg');
-    expect(imageKind(GIF)).toBe('gif');
-    expect(imageKind(Buffer.from('GIF87a', 'latin1'))).toBe('gif');
     expect(imageKind(WEBP)).toBe('webp');
   });
 
@@ -89,6 +85,9 @@ describe('a screenshot', () => {
       Buffer.from('%PDF-1.7\n'),
       Buffer.from('RIFF\x24\x00\x00\x00WAVEfmt ', 'latin1'),
       PNG.subarray(0, 7),
+      // Not taken: a GIF.
+      GIF,
+      Buffer.from('GIF87a', 'latin1'),
       Buffer.alloc(0),
     ]) {
       expect(imageKind(b)).toBeUndefined();
@@ -220,23 +219,11 @@ describe("a screenshot's metadata", () => {
     expect(clean.toString('latin1')).not.toContain('GPS');
   });
 
-  it("keeps of a GIF its images, frame timing and loop, without comments, plain text, other extensions or bytes after its end", () => {
-    const control = Buffer.from([0x21, 0xf9, 4, 0, 10, 0, 0, 0]);
-    const loop = Buffer.concat([Buffer.from([0x21, 0xff, 11]), Buffer.from('NETSCAPE2.0'), Buffer.from([3, 1, 0, 0, 0])]);
-    const comment = Buffer.concat([Buffer.from([0x21, 0xfe, 9]), Buffer.from('GPS 25.03'), Buffer.from([0])]);
-    const xmp = Buffer.concat([Buffer.from([0x21, 0xff, 11]), Buffer.from('XMP DataXMP'), Buffer.from([5]), Buffer.from('<xmp>'), Buffer.from([0])]);
-    // Plain text: a grid header (12 bytes), then its words.
-    const text = Buffer.concat([Buffer.from([0x21, 0x01, 12]), Buffer.alloc(12), Buffer.from([9]), Buffer.from('GPS 25.03'), Buffer.from([0])]);
-    const gif = Buffer.concat([GIF_HEAD, loop, comment, control, GIF_IMAGE, xmp, text, control, GIF_IMAGE, Buffer.from([0x3b]), Buffer.from('junk')]);
-    expect(withoutMetadata(gif, 'gif')).toEqual(Buffer.concat([GIF_HEAD, loop, control, GIF_IMAGE, control, GIF_IMAGE, Buffer.from([0x3b])]));
-  });
-
   it("refuses what it cannot read through before its image begins, rather than letting its metadata go along", () => {
     expect(() => withoutMetadata(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff]), 'jpg')).toThrow();
     expect(() => withoutMetadata(Buffer.concat([SOI, JFIF, DQT]), 'jpg')).toThrow(); // no scan
     expect(() => withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', gps)]), 'png')).toThrow(); // no image data
     expect(() => withoutMetadata(Buffer.concat([riff(VP8).subarray(0, 14)]), 'webp')).toThrow();
-    expect(() => withoutMetadata(GIF_HEAD, 'gif')).toThrow(); // no whole image
   });
 
   it('ends an image cut short after its image began, as browsers show what there is of it, without its metadata', () => {
@@ -249,10 +236,8 @@ describe("a screenshot's metadata", () => {
     const realIend = Buffer.from([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
     const cutPng = Buffer.concat([PNG_SIG, IHDR, IDAT, pngChunk('tEXt', Buffer.from('GPS')), IDAT.subarray(0, 9)]);
     expect(withoutMetadata(cutPng, 'png')).toEqual(Buffer.concat([PNG_SIG, IHDR, IDAT, realIend]));
-    // A GIF cut after its first image: its whole blocks, then a trailer.
-    const comment = Buffer.concat([Buffer.from([0x21, 0xfe, 3]), Buffer.from('GPS'), Buffer.from([0])]);
-    const cutGif = Buffer.concat([GIF_HEAD, GIF_IMAGE, comment, GIF_IMAGE.subarray(0, 12)]);
-    expect(withoutMetadata(cutGif, 'gif')).toEqual(Buffer.concat([GIF_HEAD, GIF_IMAGE, Buffer.from([0x3b])]));
+    // A WebP cut short is not read through: refused.
+    expect(() => withoutMetadata(riff(VP8).subarray(0, 18), 'webp')).toThrow();
   });
 
   it("keeps a PNG's orientation alone, in a minimal EXIF chunk with its CRC", () => {
@@ -268,17 +253,21 @@ describe("a screenshot's metadata", () => {
     expect(withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', gps), IDAT, IEND]), 'png')).toEqual(PNG);
   });
 
+  it('makes one piece of the many tiny segments a crafted file may hold, quickly', () => {
+    // 1 MB of empty tables (a crafted JPEG): kept as they are, without a piece for each.
+    const tables = Buffer.concat(Array.from({ length: 250_000 }, () => Buffer.from([0xff, 0xdb, 0x00, 0x02])));
+    const jpeg = Buffer.concat([SOI, tables, SOF, DHT, SCAN, EOI]);
+    const started = performance.now();
+    expect(withoutMetadata(jpeg, 'jpg')).toEqual(jpeg);
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+
   it('reads no orientation from an EXIF structure that is not what it says', () => {
     expect(tiffOrientation(Buffer.from('MM\0\x2a\xff\xff\xff\xff', 'latin1'))).toBeUndefined();
     expect(tiffOrientation(Buffer.from('XX'))).toBeUndefined();
     expect(tiffOrientation(Buffer.alloc(0))).toBeUndefined();
   });
 
-  it("keeps a GIF's colour profile", () => {
-    const icc = Buffer.concat([Buffer.from([0x21, 0xff, 11]), Buffer.from('ICCRGBG1012'), Buffer.from([6]), Buffer.from('colors'), Buffer.from([0])]);
-    const gif = Buffer.concat([GIF_HEAD, icc, GIF_IMAGE, Buffer.from([0x3b])]);
-    expect(withoutMetadata(gif, 'gif')).toEqual(gif);
-  });
 });
 
 describe('the screenshots a request sends', () => {
@@ -294,8 +283,8 @@ describe('the screenshots a request sends', () => {
 
   it('are named by their place and kind, never by the name the file had, and go without their metadata', () => {
     const tagged = Buffer.concat([SOI, segment(0xe1, Buffer.from('Exif\0\0GPS 25.03')), DQT, SOF, DHT, SCAN, EOI]);
-    const files = parseScreenshots([{ data: b64(PNG), name: 'secret-project.png' }, { data: b64(tagged) }, { data: b64(WEBP) }, { data: b64(GIF) }]);
-    expect(files.map((f) => f.name)).toEqual(['screenshot-1.png', 'screenshot-2.jpg', 'screenshot-3.webp', 'screenshot-4.gif']);
+    const files = parseScreenshots([{ data: b64(PNG), name: 'secret-project.png' }, { data: b64(tagged) }, { data: b64(WEBP) }]);
+    expect(files.map((f) => f.name)).toEqual(['screenshot-1.png', 'screenshot-2.jpg', 'screenshot-3.webp']);
     expect(files[0]!.data.equals(PNG)).toBe(true);
     expect(files[1]!.data.toString('latin1')).not.toContain('GPS');
   });
@@ -316,6 +305,8 @@ describe('the screenshots a request sends', () => {
 
   it('must each be an image, in base64 as a browser writes it, saying which one is not', () => {
     expect(refused([{ data: b64(PNG) }, { data: b64(Buffer.from('<svg/>')) }])).toEqual({ status: 400, message: t().reportShotNotImage(2) });
+    // Only the usual kinds for screenshots and photos: not a GIF.
+    expect(refused([{ data: b64(GIF) }])).toEqual({ status: 400, message: t().reportShotNotImage(1) });
     expect(refused([{ data: 'not base64!' }])).toEqual({ status: 400, message: t().reportShotNotImage(1) });
     expect(refused([{ data: 42 }])).toEqual({ status: 400, message: t().reportShotNotImage(1) });
     expect(refused([null])).toEqual({ status: 400, message: t().reportShotNotImage(1) });

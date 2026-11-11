@@ -739,7 +739,7 @@ export const zhTW = {
       alt: (n: number) => `截圖 ${n}`,
       remove: (n: number) => `移除截圖 ${n}`,
       tooMany: (max: number) => `最多只能加入 ${max} 張截圖。`,
-      notImage: (name: string) => `「${name}」不是 PNG、JPEG、GIF 或 WebP 圖片。`,
+      notImage: (name: string) => `「${name}」不是 PNG、JPEG 或 WebP 圖片（不接受 GIF 與 .jfif）。`,
       tooLarge: (name: string, max: string) => `「${name}」超過 ${max} 的上限。`,
     },
     hint: '按「寄出」會打開你的郵件程式，收件人與內容都已填好。截圖可以直接拖進信裡，再按寄出。',

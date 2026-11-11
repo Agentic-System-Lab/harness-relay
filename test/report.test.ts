@@ -100,8 +100,9 @@ describe('the mail', () => {
 
 describe('screenshots', () => {
   const { maxFiles, maxBytes } = REPORT_SCREENSHOT_LIMITS;
-  it('takes PNG, JPEG, GIF and WebP images up to the limits', () => {
-    for (const type of ['image/png', 'image/jpeg', 'image/gif', 'image/webp']) expect(screenshotProblem({ type, size: 1000 }, 0)).toBeUndefined();
+  it('takes PNG, JPEG and WebP images up to the limits, pasted ones too (they have no name)', () => {
+    for (const type of ['image/png', 'image/jpeg', 'image/webp']) expect(screenshotProblem({ type, size: 1000 }, 0)).toBeUndefined();
+    for (const name of ['a.png', 'b.JPG', 'c.jpeg', 'd.webp', 'image']) expect(screenshotProblem({ type: 'image/jpeg', size: 1, name }, 0)).toBeUndefined();
     expect(screenshotProblem({ type: 'image/png', size: maxBytes }, maxFiles - 1)).toBeUndefined();
   });
 
@@ -109,6 +110,11 @@ describe('screenshots', () => {
     expect(screenshotProblem({ type: 'image/png', size: 1 }, maxFiles)).toBe('tooMany');
     expect(screenshotProblem({ type: 'application/pdf', size: maxBytes + 1 }, 0)).toBe('notImage');
     expect(screenshotProblem({ type: 'image/svg+xml', size: 1 }, 0)).toBe('notImage');
+    // Not a GIF, nor a JPEG saved as .jfif (browsers call it image/jpeg).
+    expect(screenshotProblem({ type: 'image/gif', size: 1 }, 0)).toBe('notImage');
+    expect(screenshotProblem({ type: 'image/jpeg', size: 1, name: 'photo.jfif' }, 0)).toBe('notImage');
+    expect(screenshotProblem({ type: 'image/jpeg', size: 1, name: 'photo.JFIF' }, 0)).toBe('notImage');
+    expect(screenshotProblem({ type: 'image/jpeg', size: 1, name: 'photo.jpe' }, 0)).toBe('notImage');
     expect(screenshotProblem({ type: '', size: 1 }, 0)).toBe('notImage');
     expect(screenshotProblem({ type: 'image/png', size: maxBytes + 1 }, 0)).toBe('tooLarge');
   });

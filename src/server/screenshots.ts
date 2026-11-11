@@ -16,11 +16,10 @@ export const SCREENSHOTS_DESCRIPTION = 'Harness Relay problem report · screensh
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 /** An image's kind by its first bytes, as its file extension; undefined for anything else. */
-export function imageKind(data: Buffer): 'png' | 'jpg' | 'gif' | 'webp' | undefined {
+export function imageKind(data: Buffer): 'png' | 'jpg' | 'webp' | undefined {
   if (data.subarray(0, 8).equals(PNG)) return 'png';
   if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return 'jpg';
   const head = data.subarray(0, 12).toString('latin1');
-  if (/^GIF8[79]a/.test(head)) return 'gif';
   if (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') return 'webp';
   return undefined;
 }
@@ -34,11 +33,47 @@ export function imageKind(data: Buffer): 'png' | 'jpg' | 'gif' | 'webp' | undefi
  * and bytes after its end, all go. A JPEG or PNG keeps its orientation (a minimal EXIF of that tag
  * alone), so a photo shows the right way up.
  */
-export function withoutMetadata(data: Buffer, kind: 'png' | 'jpg' | 'gif' | 'webp'): Buffer {
+export function withoutMetadata(data: Buffer, kind: 'png' | 'jpg' | 'webp'): Buffer {
   if (kind === 'jpg') return jpegWithout(data);
   if (kind === 'png') return pngWithout(data);
-  if (kind === 'webp') return webpWithout(data);
-  return gifWithout(data);
+  return webpWithout(data);
+}
+
+/**
+ * What is kept of an image: ranges of its bytes, merged when one follows another (a file of millions of
+ * tiny kept segments makes one piece, not millions), and bytes made anew in between.
+ */
+class Kept {
+  private parts: Buffer[] = [];
+  private from = -1;
+  private to = -1;
+
+  constructor(private data: Buffer) {}
+
+  range(start: number, end: number): void {
+    if (start === this.to) {
+      this.to = end;
+      return;
+    }
+    this.flush();
+    this.from = start;
+    this.to = end;
+  }
+
+  bytes(made: Buffer): void {
+    this.flush();
+    this.parts.push(made);
+  }
+
+  private flush(): void {
+    if (this.to > this.from && this.from >= 0) this.parts.push(this.data.subarray(this.from, this.to));
+    this.from = this.to = -1;
+  }
+
+  done(): Buffer {
+    this.flush();
+    return Buffer.concat(this.parts);
+  }
 }
 
 /** Reads past the end: the structure is not what it says. */
@@ -130,13 +165,14 @@ const JPEG_EOI = Buffer.from([0xff, 0xd9]);
  */
 function jpegWithout(data: Buffer): Buffer {
   if (data[0] !== 0xff || data[1] !== 0xd8) throw new Error('no SOI');
-  const out: Buffer[] = [data.subarray(0, 2)];
+  const out = new Kept(data);
+  out.range(0, 2);
   let scanned = false;
   /** Cut short: what there is, ended, once a scan began; nothing to show before. */
   const cutShort = () => {
     if (!scanned) throw new Error('truncated');
-    out.push(JPEG_EOI);
-    return Buffer.concat(out);
+    out.bytes(JPEG_EOI);
+    return out.done();
   };
   let at = 2;
   for (;;) {
@@ -146,8 +182,8 @@ function jpegWithout(data: Buffer): Buffer {
     if (at + 2 > data.length) return cutShort();
     const marker = data[at + 1]!;
     if (marker === 0xd9) {
-      out.push(JPEG_EOI);
-      return Buffer.concat(out); // what follows the image (a motion photo's video, a second image) goes
+      out.bytes(JPEG_EOI);
+      return out.done(); // what follows the image (a motion photo's video, a second image) goes
     }
     if ((marker >= 0xd0 && marker <= 0xd7) || marker === 0x01 || marker === 0x00) {
       at += 2; // no segment to keep
@@ -173,18 +209,18 @@ function jpegWithout(data: Buffer): Buffer {
         }
         next++;
       }
-      out.push(data.subarray(at, Math.min(next, data.length)));
+      out.range(at, Math.min(next, data.length));
       scanned = true;
       at = next;
       continue;
     }
     if (marker === 0xe0 && jpegAppKept(marker, payload)) {
-      out.push(jfifWithoutThumbnail(payload));
+      out.bytes(jfifWithoutThumbnail(payload));
     } else if (JPEG_KEPT.has(marker) || (marker >= 0xe0 && marker <= 0xef && jpegAppKept(marker, payload))) {
-      out.push(data.subarray(at, end));
+      out.range(at, end);
     } else if (marker === 0xe1) {
       const orientation = exifOrientation(payload);
-      if (orientation && orientation !== 1) out.push(orientationSegment(orientation));
+      if (orientation && orientation !== 1) out.bytes(orientationSegment(orientation));
     }
     at = end;
   }
@@ -211,26 +247,27 @@ function pngChunk(type: string, data: Buffer): Buffer {
  * an IEND, as browsers show what there is of it.
  */
 function pngWithout(data: Buffer): Buffer {
-  const out: Buffer[] = [data.subarray(0, 8)];
+  const out = new Kept(data);
+  out.range(0, 8);
   let pixels = false;
   let at = 8;
   for (;;) {
     if (at + 12 > data.length || at + 12 + data.readUInt32BE(at) > data.length) {
       // Cut short: what there is, ended, once its image data began; nothing to show before.
       if (!pixels) throw new Error('truncated');
-      out.push(pngChunk('IEND', Buffer.alloc(0)));
-      return Buffer.concat(out);
+      out.bytes(pngChunk('IEND', Buffer.alloc(0)));
+      return out.done();
     }
     const length = data.readUInt32BE(at);
     const type = data.subarray(at + 4, at + 8).toString('latin1');
     const end = at + 12 + length;
-    if (PNG_KEPT.has(type)) out.push(data.subarray(at, end));
+    if (PNG_KEPT.has(type)) out.range(at, end);
     else if (type === 'eXIf') {
       const orientation = tiffOrientation(data.subarray(at + 8, end - 4));
-      if (orientation && orientation !== 1) out.push(pngChunk('eXIf', orientationTiff(orientation)));
+      if (orientation && orientation !== 1) out.bytes(pngChunk('eXIf', orientationTiff(orientation)));
     }
     if (type === 'IDAT' || type === 'fdAT') pixels = true;
-    if (type === 'IEND') return Buffer.concat(out); // what follows it goes
+    if (type === 'IEND') return out.done(); // what follows it goes
     at = end;
   }
 }
@@ -243,9 +280,11 @@ const WEBP_KEPT = new Set(['VP8 ', 'VP8L', 'VP8X', 'ALPH', 'ANIM', 'ANMF', 'ICCP
 /** What an animation frame (ANMF) holds that showing it needs: its image. */
 const WEBP_FRAME_KEPT = new Set(['VP8 ', 'VP8L', 'ALPH']);
 
-/** The chunks from `at` to `end` that `kept` names, padded as they were; `end` must fall on a chunk's end. */
-function webpChunks(data: Buffer, at: number, end: number, kept: Set<string>, each?: (type: string, chunk: Buffer) => Buffer): Buffer[] {
-  const out: Buffer[] = [];
+/**
+ * Keeps in `out` the chunks from `at` to `end` that `kept` names, padded as they are (or as `change`
+ * makes them); `end` must fall on a chunk's end.
+ */
+function webpChunks(data: Buffer, at: number, end: number, kept: Set<string>, out: Kept, change?: (type: string, chunk: Buffer) => Buffer | undefined): void {
   while (at < end) {
     need(data, at + 8);
     const type = data.subarray(at, at + 4).toString('latin1');
@@ -253,12 +292,12 @@ function webpChunks(data: Buffer, at: number, end: number, kept: Set<string>, ea
     const next = at + 8 + size + (size % 2);
     if (next > end) throw new Error('bad chunk');
     if (kept.has(type)) {
-      const chunk = Buffer.from(data.subarray(at, next));
-      out.push(each ? each(type, chunk) : chunk);
+      const changed = change?.(type, data.subarray(at, next));
+      if (changed) out.bytes(changed);
+      else out.range(at, next);
     }
     at = next;
   }
-  return out;
 }
 
 /** An animation frame without what its image does not need, its size set again. */
@@ -266,10 +305,12 @@ function webpFrame(chunk: Buffer): Buffer {
   const size = chunk.readUInt32LE(4);
   // 16 bytes of frame header (position, size, duration, flags), then its own chunks.
   if (size < 16) throw new Error('short frame');
-  const inner = Buffer.concat(webpChunks(chunk, 24, 8 + size, WEBP_FRAME_KEPT));
+  const inner = new Kept(chunk);
+  webpChunks(chunk, 24, 8 + size, WEBP_FRAME_KEPT, inner);
+  const body = inner.done();
   const head = Buffer.from(chunk.subarray(0, 24));
-  head.writeUInt32LE(16 + inner.length, 4);
-  return Buffer.concat([head, inner]);
+  head.writeUInt32LE(16 + body.length, 4);
+  return Buffer.concat([head, body]);
 }
 
 /** A WebP within its RIFF size, with only the chunks showing it needs; its VP8X flags and size set again. */
@@ -277,86 +318,19 @@ function webpWithout(data: Buffer): Buffer {
   need(data, 12);
   const riffEnd = 8 + data.readUInt32LE(4);
   need(data, riffEnd);
-  const out = webpChunks(data, 12, riffEnd, WEBP_KEPT, (type, chunk) => {
+  const out = new Kept(data);
+  webpChunks(data, 12, riffEnd, WEBP_KEPT, out, (type, chunk) => {
+    if (type === 'ANMF') return webpFrame(chunk);
+    if (type !== 'VP8X') return undefined;
     // VP8X flags: EXIF 0x08, XMP 0x04 (their chunks are gone).
-    if (type === 'VP8X') chunk[8] = chunk[8]! & ~0x0c;
-    return type === 'ANMF' ? webpFrame(chunk) : chunk;
+    const copy = Buffer.from(chunk);
+    copy[8] = copy[8]! & ~0x0c;
+    return copy;
   });
-  const body = Buffer.concat(out);
+  const body = out.done();
   const head = Buffer.from(data.subarray(0, 12));
   head.writeUInt32LE(4 + body.length, 4);
   return Buffer.concat([head, body]);
-}
-
-// --- GIF ----------------------------------------------------------------------------------
-
-/** Application extensions a GIF needs: how its animation loops, and its colours (an ICC profile). */
-const GIF_APPS_KEPT = new Set(['NETSCAPE2.0', 'ANIMEXTS1.0', 'ICCRGBG1012']);
-
-/**
- * A GIF up to its trailer, without its comments, plain text and other application extensions (XMP,
- * say). One cut short ends after its last whole block, with a trailer, once it has a whole image, as
- * browsers show what there is of it.
- */
-function gifWithout(data: Buffer): Buffer {
-  need(data, 13);
-  const out: Buffer[] = [];
-  const flags = data[10]!;
-  let at = 13 + (flags & 0x80 ? 3 * 2 ** ((flags & 0x07) + 1) : 0);
-  need(data, at);
-  out.push(data.subarray(0, at));
-  let images = 0;
-  /** Cut short: its whole blocks, ended, once it has a whole image; nothing to show before. */
-  const cutShort = () => {
-    if (!images) throw new Error('truncated');
-    out.push(Buffer.from([0x3b]));
-    return Buffer.concat(out);
-  };
-  /** Past the data sub-blocks at `from`, to after their terminator; undefined when they run past the end. */
-  const subBlocks = (from: number): number | undefined => {
-    let i = from;
-    for (;;) {
-      if (i + 1 > data.length) return undefined;
-      const size = data[i]!;
-      i += 1 + size;
-      if (i > data.length) return undefined;
-      if (size === 0) return i;
-    }
-  };
-  for (;;) {
-    if (at + 1 > data.length) return cutShort();
-    const block = data[at]!;
-    if (block === 0x3b) {
-      out.push(data.subarray(at, at + 1));
-      return Buffer.concat(out); // what follows the trailer goes
-    }
-    if (block === 0x21) {
-      if (at + 2 > data.length) return cutShort();
-      const label = data[at + 1]!;
-      const end = subBlocks(at + 2);
-      if (end === undefined) return cutShort();
-      // Only the graphic control extension (a frame's timing and transparency): plain text, which hardly
-      // a viewer draws, could carry any words.
-      let keep = label === 0xf9;
-      if (label === 0xff) keep = data[at + 2] === 11 && at + 14 <= end && GIF_APPS_KEPT.has(data.subarray(at + 3, at + 14).toString('latin1'));
-      if (keep) out.push(data.subarray(at, end));
-      at = end;
-      continue;
-    }
-    if (block === 0x2c) {
-      if (at + 10 > data.length) return cutShort();
-      const local = data[at + 9]!;
-      const tableEnd = at + 10 + (local & 0x80 ? 3 * 2 ** ((local & 0x07) + 1) : 0);
-      // The LZW minimum code size, then the image's data sub-blocks.
-      const end = tableEnd + 1 <= data.length ? subBlocks(tableEnd + 1) : undefined;
-      if (end === undefined) return cutShort();
-      out.push(data.subarray(at, end));
-      images++;
-      at = end;
-      continue;
-    }
-    throw new Error('bad block');
-  }
 }
 
 /** Base64 as a browser's FileReader writes it: nothing else, so nothing is dropped as it is decoded. */
@@ -369,7 +343,7 @@ const BASE64_MAX = Math.ceil(REPORT_SCREENSHOT_LIMITS.maxBytes / 3) * 4;
  * The screenshots a request sends (`[{ data }]`, each base64), named in their gist by their place and
  * kind (`screenshot-1.png`…): never by the name the file had, which could say more than the image; and
  * for the same reason without their metadata (`withoutMetadata`: a photo's location, say).
- * Throws an HttpError for none, too many, too large, or one that is not a PNG, JPEG, GIF or WebP image.
+ * Throws an HttpError for none, too many, too large, or one that is not a PNG, JPEG or WebP image.
  */
 export function parseScreenshots(v: unknown): GistUpload[] {
   if (!Array.isArray(v) || !v.length) throw new HttpError(400, t().reportShotsNone);

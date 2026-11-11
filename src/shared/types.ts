@@ -1150,8 +1150,14 @@ export interface AboutInfo {
 /** A problem report's screenshots: at most this many, each this large (`POST /api/report/screenshots`). */
 export const REPORT_SCREENSHOT_LIMITS = { maxFiles: 5, maxBytes: 10 * 1024 * 1024 };
 
-/** The kinds of image a report's screenshot may be (the server goes by its bytes, not by what it says it is). */
-export const REPORT_SCREENSHOT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+/**
+ * The kinds of image a report's screenshot may be: the usual ones for screenshots and photos (the server
+ * goes by its bytes, not by what it says it is). Not GIF, nor a JPEG saved as .jfif.
+ */
+export const REPORT_SCREENSHOT_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+
+/** The file name endings a report's screenshot may have, for the file picker (a pasted image has none). */
+export const REPORT_SCREENSHOT_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
 
 /** A problem report's screenshots, uploaded: their secret gist, and its page on GitHub (which shows them). */
 export interface ReportScreenshots {

@@ -5,6 +5,7 @@
 import {
   PROVIDERS,
   PROVIDER_LABEL,
+  REPORT_SCREENSHOT_EXTENSIONS,
   REPORT_SCREENSHOT_LIMITS,
   REPORT_SCREENSHOT_TYPES,
   type AboutInfo,
@@ -113,11 +114,14 @@ export function reportBody(d: ReportDraft, info: string[], t: Messages, screensh
 
 /**
  * Why an image cannot be added to the report's screenshots, `count` being there already: one too many,
- * not a PNG, JPEG, GIF or WebP image (by its type: the server checks its bytes), or too large.
+ * not a PNG, JPEG or WebP image (by its type, and its name when it has one with an ending: a JPEG saved
+ * as .jfif is not taken; the server checks its bytes), or too large.
  */
-export function screenshotProblem(file: { type: string; size: number }, count: number): 'tooMany' | 'notImage' | 'tooLarge' | undefined {
+export function screenshotProblem(file: { type: string; size: number; name?: string }, count: number): 'tooMany' | 'notImage' | 'tooLarge' | undefined {
   if (count >= REPORT_SCREENSHOT_LIMITS.maxFiles) return 'tooMany';
   if (!REPORT_SCREENSHOT_TYPES.includes(file.type)) return 'notImage';
+  const ending = /\.[^./\\]+$/.exec(file.name ?? '')?.[0]?.toLowerCase();
+  if (ending && !REPORT_SCREENSHOT_EXTENSIONS.includes(ending)) return 'notImage';
   if (file.size > REPORT_SCREENSHOT_LIMITS.maxBytes) return 'tooLarge';
   return undefined;
 }

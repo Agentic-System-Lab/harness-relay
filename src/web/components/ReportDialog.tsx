@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { REPORT_SCREENSHOT_LIMITS, REPORT_SCREENSHOT_TYPES, type AboutInfo, type ProviderStatus } from '../../shared/types';
+import { REPORT_SCREENSHOT_EXTENSIONS, REPORT_SCREENSHOT_LIMITS, REPORT_SCREENSHOT_TYPES, type AboutInfo, type ProviderStatus } from '../../shared/types';
 import { ApiError, api } from '../api';
 import { copyText } from '../copy';
 import { useI18n } from '../i18n';
@@ -306,7 +306,7 @@ export function ReportDialog({ providers, onClose }: Props) {
           <input
             ref={picker}
             type="file"
-            accept={REPORT_SCREENSHOT_TYPES.join(',')}
+            accept={[...REPORT_SCREENSHOT_EXTENSIONS, ...REPORT_SCREENSHOT_TYPES].join(',')}
             multiple
             hidden
             onChange={(e) => {
@@ -346,7 +346,17 @@ export function ReportDialog({ providers, onClose }: Props) {
             <button type="button" className="ghost small-button" disabled={!ready} onClick={sendGmail}>
               {r.gmail}
             </button>
-            <CopyButton className="ghost small-button report-copy" label={r.copy} icon={<CopyIcon size={14} />} text={whole} disabled={!ready} />
+            <CopyButton
+              className="ghost small-button report-copy"
+              label={r.copy}
+              icon={<CopyIcon size={14} />}
+              // Copied to send by hand: the mail links to the upload done now, which then stays on GitHub.
+              text={() => {
+                uploads.sent();
+                return whole();
+              }}
+              disabled={!ready}
+            />
           </div>
           <button type="button" className="primary report-send" disabled={!ready} onClick={sendMail}>
             <MailIcon size={16} />
