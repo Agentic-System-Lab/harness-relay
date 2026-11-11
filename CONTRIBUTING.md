@@ -89,7 +89,8 @@ Add or update tests with every change in behaviour. Tests stay offline: no real 
 - recorded CLI messages for the adapters;
 - real temporary git repositories for `workspace.ts`;
 - `app.request()` for the HTTP API;
-- a fake keyring passed to `SettingsStore`.
+- a fake keyring passed to `SettingsStore`;
+- for the end-to-end tests (`e2e/`), the fake CLIs in `e2e/fake-cli/`, which a message steers with `e2e:` directives (see [End-to-end tests](docs/developer-guide.md#end-to-end-tests)).
 
 ## Before you open a pull request
 
@@ -101,11 +102,13 @@ npm test
 npm run build
 ```
 
+If you changed the UI, the HTTP API, the orchestrator or an adapter, also run the end-to-end tests: `npm run test:e2e` (`npm run test:e2e:install` once first).
+
 If you changed the desktop app, also run `npm run desktop:typecheck`, and try it with `npm run desktop`; for changes to its packaging, build the installer (`npm run desktop:dist`) and check it with `npx tsx desktop/scripts/check-package.ts`.
 
 Releases are made by maintainers with the Release workflow only (**Actions → Release**, from `main`, today's date as the version): never tag a version by hand. See [Releasing](docs/developer-guide.md#releasing) in the developer guide.
 
-[CI](.github/workflows/ci.yml) runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked.
+[CI](.github/workflows/ci.yml) runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked. [Another workflow](.github/workflows/e2e.yml) runs the end-to-end tests on Linux, macOS and Windows.
 
 If your change affects what agents see or do, also try it in the app with at least one real CLI, and say which ones you used.
 
