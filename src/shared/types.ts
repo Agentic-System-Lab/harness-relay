@@ -1179,20 +1179,30 @@ export interface ProviderSettingsView {
   apiKeyMasked: string;
   /** Where this provider's key is (or would be) stored; absent for Codex, which keeps its own. */
   apiKeyStorage?: KeyStorage;
-  /** Model used when an agent does not specify one. */
-  defaultModel: string;
-  /** Reasoning effort used when an agent does not specify one. */
-  defaultEffort: string;
-  /** What this CLI loads by itself that Harness Relay's runs leave out, all of a kind (see NATIVE_OFF_SUPPORT). */
-  nativeOff: NativePart[];
-  /** Single items Harness Relay's runs leave out (see NATIVE_ITEM_SUPPORT). */
-  nativeItems: NativeItemsOff;
-  /** Every account of this CLI, the default account first (its key is `apiKeyMasked` above too). */
+  /**
+   * Every account of this CLI, the default account first (its key is `apiKeyMasked` above too). Each
+   * has its own defaults and its own choice of what Harness Relay's runs leave out.
+   */
   accounts: ProviderAccountView[];
 }
 
+/**
+ * How Harness Relay runs a CLI as one of its accounts. Each account has a home of its own, with its
+ * own settings, skills, MCP servers, hooks and memory, so each one has its own of these too.
+ */
+export interface AccountRunSettings {
+  /** Model used when an agent of this account does not specify one; empty = the CLI's own default. */
+  defaultModel: string;
+  /** Reasoning effort used when an agent of this account does not specify one; empty = the CLI's own. */
+  defaultEffort: string;
+  /** What the CLI loads by itself in this account's home that Harness Relay's runs leave out, all of a kind (see NATIVE_OFF_SUPPORT). */
+  nativeOff: NativePart[];
+  /** Single items Harness Relay's runs leave out (see NATIVE_ITEM_SUPPORT). */
+  nativeItems: NativeItemsOff;
+}
+
 /** One account of a CLI as Settings shows it. */
-export interface ProviderAccountView {
+export interface ProviderAccountView extends AccountRunSettings {
   /** Empty for the default account. */
   id: string;
   /** The name the user gave it; empty = none. */
@@ -1210,6 +1220,12 @@ export interface ProviderAccountUpdate {
   label?: string;
   /** string = set / replace, null = remove (Codex: signs the account in with it, and keeps nothing). */
   apiKey?: string | null;
+  defaultModel?: string;
+  defaultEffort?: string;
+  /** The whole list, replacing the current one; parts the CLI cannot leave out are dropped. */
+  nativeOff?: NativePart[];
+  /** All the single items, replacing the current ones; kinds the CLI cannot leave out are dropped. */
+  nativeItems?: NativeItemsOff;
 }
 
 export interface ModelOption {
@@ -1222,19 +1238,33 @@ export interface ModelOption {
   defaultEffort?: string;
 }
 
-/** Models and reasoning-effort levels a provider offers, as discovered from its CLI. */
+/**
+ * Models and reasoning-effort levels a provider offers, as discovered from its CLI in one account's
+ * home (`GET /api/models` lists every account of every CLI, each CLI's default account first).
+ */
 export interface ProviderModels {
   provider: Provider;
+  /** The account asked (its home holds the CLI's own config); absent or empty = the default account. */
+  account?: string;
   models: ModelOption[];
   efforts: string[];
-  /** The CLI's own defaults (from its config or catalog). */
+  /** The CLI's own defaults (from its config or catalog in the account's home). */
   cliDefaultModel?: string;
   cliDefaultEffort?: string;
-  /** What actually runs when an agent leaves the field on "default": Relay setting first, then the CLI default. */
+  /** What actually runs when an agent leaves the field on "default": the account's Relay setting first, then the CLI default. */
   defaultModel?: string;
   defaultEffort?: string;
   source: 'cli' | 'builtin';
   error?: string;
+}
+
+/**
+ * The models of a CLI as one of its accounts runs it: that account's entry, else (an account removed
+ * since, or not listed yet) the default account's, else the CLI's first.
+ */
+export function catalogFor(catalog: readonly ProviderModels[], provider: Provider, account?: string): ProviderModels | undefined {
+  const mine = catalog.filter((c) => c.provider === provider);
+  return mine.find((c) => (c.account ?? '') === (account ?? '')) ?? mine.find((c) => !c.account) ?? mine[0];
 }
 
 /** Effort levels valid for a model (falls back to the provider-wide list). */
@@ -1287,16 +1317,14 @@ export const SUGGESTED_AGENT_HOME = '~/.relay-agents';
 /** AgentsView's default address (`agentsview serve`). */
 export const AGENTSVIEW_DEFAULT_URL = 'http://127.0.0.1:8080';
 
+/**
+ * `PUT /api/settings/providers/:provider`: what a CLI has once for all its accounts. Each account's
+ * defaults and what its runs leave out go to its own route (`ProviderAccountUpdate`).
+ */
 export interface ProviderSettingsUpdate {
   bin?: string;
-  defaultModel?: string;
-  defaultEffort?: string;
-  /** string = set / replace, null = remove. */
+  /** The default account's key: string = set / replace, null = remove. */
   apiKey?: string | null;
-  /** The whole list, replacing the current one; parts the CLI cannot leave out are dropped. */
-  nativeOff?: NativePart[];
-  /** All the single items, replacing the current ones; kinds the CLI cannot leave out are dropped. */
-  nativeItems?: NativeItemsOff;
 }
 
 export type LoginState = 'running' | 'success' | 'failed' | 'cancelled';

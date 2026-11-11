@@ -74,38 +74,48 @@ export class ProviderService {
   private cache = new Map<Provider, { at: number; status: ProviderStatus }>();
   /** Sign-ins running or finished, by account (`slot`). */
   private logins = new Map<string, LoginSession>();
-  private modelCache = new Map<Provider, { at: number; models: Promise<DiscoveredModels> }>();
+  /** Models each account's CLI offers (`slot`): asked in its home, whose config has the CLI's own defaults. */
+  private modelCache = new Map<string, { at: number; models: Promise<DiscoveredModels> }>();
 
   constructor(private settings: SettingsStore) {}
 
   invalidate(p?: Provider): void {
     if (p) {
       this.cache.delete(p);
-      this.modelCache.delete(p);
+      for (const key of this.modelCache.keys()) if (key.startsWith(slot(p))) this.modelCache.delete(key);
     } else {
       this.cache.clear();
       this.modelCache.clear();
     }
   }
 
-  /** Models / effort levels per provider, with Relay's own defaults layered over the CLI's. */
-  async models(p: Provider, refresh = false): Promise<ProviderModels> {
-    let entry = this.modelCache.get(p);
+  /**
+   * Models / effort levels of a CLI as one of its accounts runs it (empty: the default account), with
+   * that account's own defaults in Harness Relay layered over the CLI's in its home.
+   */
+  async models(p: Provider, refresh = false, account = ''): Promise<ProviderModels> {
+    const id = this.settings.resolveAccount(p, account);
+    let entry = this.modelCache.get(slot(p, id));
     if (refresh || !entry || Date.now() - entry.at > 10 * 60_000) {
-      entry = { at: Date.now(), models: discoverModels(p, this.settings.bin(p), this.settings.env(p)) };
-      this.modelCache.set(p, entry);
+      entry = { at: Date.now(), models: discoverModels(p, this.settings.bin(p), this.settings.env(p, id)) };
+      this.modelCache.set(slot(p, id), entry);
     }
     const d = await entry.models;
     return {
       ...d,
-      defaultModel: this.settings.defaultModel(p) || d.cliDefaultModel,
+      ...(id ? { account: id } : {}),
+      defaultModel: this.settings.defaultModel(p, id) || d.cliDefaultModel,
       // Model-specific defaults (e.g. codex catalog) are applied by the client per selected model.
-      defaultEffort: this.settings.defaultEffort(p) || d.cliDefaultEffort,
+      defaultEffort: this.settings.defaultEffort(p, id) || d.cliDefaultEffort,
     };
   }
 
-  modelsAll(refresh = false): Promise<ProviderModels[]> {
-    return Promise.all(PROVIDERS.map((p) => this.models(p, refresh)));
+  /** Every account of every CLI, each CLI's default account first (`catalogFor` picks one out). */
+  async modelsAll(refresh = false): Promise<ProviderModels[]> {
+    const all = await Promise.all(
+      PROVIDERS.map((p) => Promise.all(['', ...this.settings.accountIds(p)].map((id) => this.models(p, refresh, id)))),
+    );
+    return all.flat();
   }
 
   async status(p: Provider, refresh = false): Promise<ProviderStatus> {

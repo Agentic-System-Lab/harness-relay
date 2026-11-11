@@ -336,6 +336,86 @@ describe('a question in a conversation', () => {
     expect(fitAgents([{ id: 'y', name: 'B', provider: 'claude', role: '', account: 'any00001' }], ctx, lead)[0]!.account).toBe('any00001');
   });
 
+  it("checks a member who stays on against the models of the account it keeps", () => {
+    // Only the Work account's Codex offers gpt-b; only the default account's offers gpt-a.
+    const perAccount: PlannerContext = {
+      ...ctx,
+      accounts: { claude: [''], codex: [''] }, // the Work account is signed out: a member who stays keeps it anyway
+      catalog: [
+        ...catalog,
+        { provider: 'codex', models: [{ id: 'gpt-a', efforts: ['low'] }], efforts: ['low'], source: 'cli' },
+        { provider: 'codex', account: 'work0001', models: [{ id: 'gpt-b', efforts: ['high'] }], efforts: ['high'], source: 'cli' },
+      ],
+    };
+    const current = {
+      agents: [
+        { id: 'a1', name: 'Alice', provider: 'codex' as const, role: 'R', account: 'work0001', model: 'gpt-b', effort: 'high' },
+        { id: 'b1', name: 'Bob', provider: 'codex' as const, role: 'S', account: 'work0001' },
+      ],
+      settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8 },
+    };
+    const reply = {
+      choice: 'custom',
+      name: 'Team',
+      mode: 'roundtable',
+      agents: [
+        { name: 'alice', provider: 'codex', role: 'R', model: 'gpt-b', effort: 'high' },
+        // Bob stays, but asks for a model only the default account offers: dropped.
+        { name: 'Bob', provider: 'codex', role: 'S', model: 'gpt-a', effort: 'low' },
+        // A new member: the first usable account, and its models.
+        { name: 'Cy', provider: 'codex', role: 'T', model: 'gpt-b' },
+      ],
+    };
+    const decided = decidePlan(reply, perAccount, lead, current);
+    const kept = keepMemberIds(decided.agents, current.agents);
+    expect(kept.map((a) => [a.name, a.id === 'a1' || a.id === 'b1', a.account, a.model, a.effort])).toEqual([
+      ['alice', true, 'work0001', 'gpt-b', 'high'],
+      ['Bob', true, 'work0001', undefined, undefined],
+      ['Cy', false, undefined, undefined, undefined],
+    ]);
+    // A template used as it is: its members who stay on are checked the same way.
+    const template = { ...ctx.presets[0]!, id: 'user-t', agents: [{ id: 't1', name: 'Alice', provider: 'codex' as const, role: 'R', model: 'gpt-b' }] };
+    const used = decidePlan({ choice: 'template', templateId: 'user-t' }, { ...perAccount, presets: [template] }, lead, current);
+    expect(used.agents.map((a) => [a.account, a.model])).toEqual([['work0001', 'gpt-b']]);
+  });
+
+  it("checks each member's model and effort against what its own account's CLI offers", () => {
+    // The Work account's Codex offers another model, with other efforts, and has another default.
+    const perAccount: PlannerContext = {
+      ...ctx,
+      accounts: { codex: ['', 'work0001'] },
+      catalog: [
+        ...catalog,
+        { provider: 'codex', models: [{ id: 'gpt-a', efforts: ['low'] }], efforts: ['low'], defaultModel: 'gpt-a', source: 'cli' },
+        {
+          provider: 'codex',
+          account: 'work0001',
+          models: [{ id: 'gpt-a', efforts: ['low'] }, { id: 'gpt-b', efforts: ['high'] }],
+          efforts: ['low', 'high'],
+          defaultModel: 'gpt-b',
+          source: 'cli',
+        },
+      ],
+    };
+    const fitted = fitAgents(
+      [
+        { id: 'x', name: 'A', provider: 'codex', role: '', model: 'gpt-b', effort: 'high' },
+        { id: 'y', name: 'B', provider: 'codex', role: '', account: 'work0001', model: 'gpt-b', effort: 'high' },
+        // On default, the Work account runs gpt-b, which takes high.
+        { id: 'z', name: 'C', provider: 'codex', role: '', account: 'work0001', effort: 'high' },
+        { id: 'w', name: 'D', provider: 'codex', role: '', effort: 'high' },
+      ],
+      perAccount,
+      lead,
+    );
+    expect(fitted.map((a) => [a.name, a.model, a.effort])).toEqual([
+      ['A', undefined, undefined],
+      ['B', 'gpt-b', 'high'],
+      ['C', undefined, 'high'],
+      ['D', undefined, undefined],
+    ]);
+  });
+
   it('gives the lead the conversation in short: what was said, not tool calls, notes or plans', () => {
     const msg = (m: Partial<ChatMessage> & Pick<ChatMessage, 'author'>): ChatMessage => ({
       id: Math.random().toString(36),
@@ -768,6 +848,20 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     const prompt = buildPlannerPrompt('Fix the login bug', { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: '/w' }, rich, { current });
     expect(prompt).toContain('  Models: fable (Fable; always its family\'s newest; efforts low/high/max; default effort high), haiku (efforts low/medium)');
     expect(prompt).toContain('  Default model fable, effort medium');
+    // As its new members run it: the models and defaults of the account they get.
+    const work = buildPlannerPrompt(
+      'Fix the login bug',
+      { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: '/w' },
+      {
+        ...rich,
+        accounts: { claude: ['work0001'], codex: [''] },
+        catalog: [...rich.catalog, { provider: 'claude', account: 'work0001', models: [{ id: 'sonnet' }], efforts: ['low'], defaultModel: 'sonnet', defaultEffort: 'low', source: 'cli' }],
+      },
+      { current },
+    );
+    expect(work).toContain('  Models: sonnet (efforts low)');
+    expect(work).toContain('  Default model sonnet, effort low');
+    expect(work).not.toContain('Default model fable');
     expect(prompt).toContain('  Built-in tools: Bash, WebSearch');
     expect(prompt).toContain('  Its own skills: commit (Make commits)');
     expect(prompt).toContain('  Its own MCP servers: github (tools: create_issue)');

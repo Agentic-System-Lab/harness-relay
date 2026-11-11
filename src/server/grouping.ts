@@ -113,14 +113,14 @@ export class AutoGrouper {
     const result = await runners[lead.provider].run({
       bin: this.settings.bin(lead.provider),
       env: this.settings.env(lead.provider, lead.account),
-      nativeOff: this.settings.nativeOff(lead.provider),
-      nativeItems: this.settings.nativeItems(lead.provider),
+      nativeOff: this.settings.nativeOff(lead.provider, lead.account),
+      nativeItems: this.settings.nativeItems(lead.provider, lead.account),
       prompt,
       systemPrompt: GROUPER_BRIEFING,
       cwd: conv.settings.cwd,
       permission: 'read-only',
-      model: lead.model || this.settings.defaultModel(lead.provider) || undefined,
-      effort: lead.effort || this.settings.defaultEffort(lead.provider) || undefined,
+      model: lead.model || this.settings.defaultModel(lead.provider, lead.account) || undefined,
+      effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
       signal,
       onEvent: (e) => {
         if (e.type === 'text') reply += e.text;

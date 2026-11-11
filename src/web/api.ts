@@ -298,8 +298,11 @@ export const api = {
     request<ReportScreenshots>('POST', '/api/report/screenshots', { files: images.map((data) => ({ data })) }),
   /** Deletes the screenshots' gist again (one uploaded since the server started). */
   removeScreenshots: (id: string) => request<{ ok: true }>('DELETE', `/api/report/screenshots/${encodeURIComponent(id)}`),
-  nativeSetup: (p: Provider, refresh = false) => request<NativeSetup>('POST', `/api/providers/${p}/native`, { refresh }),
-  nativeFile: (p: Provider, path: string) => request<FilePreview>('POST', `/api/providers/${p}/native/file`, { path }),
+  /** What a CLI loads by itself in an account's home (empty: the default account's), with what its runs leave out. */
+  nativeSetup: (p: Provider, refresh = false, account = '') =>
+    request<NativeSetup>('POST', `/api/providers/${p}/native${accountQuery(account)}`, { refresh }),
+  nativeFile: (p: Provider, path: string, account = '') =>
+    request<FilePreview>('POST', `/api/providers/${p}/native/file${accountQuery(account)}`, { path }),
   /**
    * Whether Grok trusts `cwd`. With `trustFolder`, trust it first: only after the user confirmed that
    * folder (the `folder` of an earlier answer); the server refuses if Grok now names another.

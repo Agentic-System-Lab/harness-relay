@@ -56,6 +56,8 @@ let calls: {
   nativeItems?: Record<string, string[]>;
   /** The CLI's home it was started with (its account's). */
   home?: string;
+  model?: string;
+  effort?: string;
 }[] = [];
 let settings: InstanceType<typeof SettingsStore>;
 /** What the fake lead agent replies when asked to design a team (auto team). */
@@ -89,7 +91,7 @@ beforeAll(() => {
     provider: 'claude',
     async run(o) {
       if (o.systemPrompt === GROUPER_BRIEFING) {
-        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems });
+        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, model: o.model, effort: o.effort });
         if (sorterGate && !o.signal?.aborted) {
           await Promise.race([sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
@@ -99,7 +101,7 @@ beforeAll(() => {
         return { sessionId: 'sorter-session' };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
-        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd });
+        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd, model: o.model, effort: o.effort, nativeOff: o.nativeOff, home: o.env?.CLAUDE_CONFIG_DIR });
         // Only the run that starts while it is set lingers.
         const linger = reviseLinger;
         reviseLinger = undefined;
@@ -115,7 +117,16 @@ beforeAll(() => {
         return { costUsd: 0.02, sessionId: 'reviser-session' };
       }
       if (o.systemPrompt === PLANNER_BRIEFING) {
-        calls.push({ name: 'lead', sessionId: o.sessionId, prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, home: o.env?.CLAUDE_CONFIG_DIR });
+        calls.push({
+          name: 'lead',
+          sessionId: o.sessionId,
+          prompt: o.prompt,
+          nativeOff: o.nativeOff,
+          nativeItems: o.nativeItems,
+          home: o.env?.CLAUDE_CONFIG_DIR,
+          model: o.model,
+          effort: o.effort,
+        });
         if (leadGate) await leadGate;
         o.onEvent({ type: 'text', text: leadReply });
         o.onEvent({ type: 'text_end' });
@@ -132,6 +143,8 @@ beforeAll(() => {
         nativeOff: o.nativeOff,
         nativeItems: o.nativeItems,
         home: o.env?.CLAUDE_CONFIG_DIR,
+        model: o.model,
+        effort: o.effort,
       });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
@@ -398,7 +411,7 @@ describe('parallel mode with edit permission', () => {
 
 describe('what a CLI loads by itself', () => {
   it("leaves out of every agent's run what the user turned off for that CLI", async () => {
-    settings.update('claude', { nativeOff: ['mcp', 'memory'], nativeItems: { skills: ['commit'] } });
+    settings.updateAccount('claude', '', { nativeOff: ['mcp', 'memory'], nativeItems: { skills: ['commit'] } });
     const conv = conversation({ mode: 'roundtable' });
     await orchestrator.send(conv.id, 'go');
     await finish(conv.id);
@@ -409,7 +422,7 @@ describe('what a CLI loads by itself', () => {
   });
 
   it("leaves it out of the lead agent's and the group sorter's runs too", async () => {
-    settings.update('claude', { nativeOff: ['skills', 'instructions'], nativeItems: { tools: ['WebSearch'] } });
+    settings.updateAccount('claude', '', { nativeOff: ['skills', 'instructions'], nativeItems: { tools: ['WebSearch'] } });
     store.createGroup({ id: 'g1', name: 'Docs' });
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
     conv.agents = [];
@@ -587,6 +600,58 @@ describe('accounts', () => {
     await finish(conv.id);
     expect(calls.map((c) => [c.name, c.home])).toEqual([['lead', join(home, `claude-${work}`)]]);
     expect(conv.messages.find((m) => m.plan)!.plan!.agents!.map((a) => [a.name, a.account])).toEqual([['Ann', work]]);
+  });
+});
+
+describe("each account's own defaults and what its runs leave out", () => {
+  it("runs each member with its account's default model and effort, and leaves out what that account leaves out", async () => {
+    settings.setAgentHome(join(root, `agents-${n}`));
+    settings.updateAccount('claude', '', { defaultModel: 'opus', defaultEffort: 'high', nativeOff: ['mcp'] });
+    const work = settings.addAccount('claude', 'Work');
+    settings.updateAccount('claude', work, { defaultModel: 'sonnet', defaultEffort: 'low', nativeOff: ['hooks'], nativeItems: { skills: ['commit'] } });
+    const gone = settings.addAccount('claude', 'Gone');
+    settings.updateAccount('claude', gone, { defaultModel: 'haiku', nativeOff: ['plugins'] });
+    settings.removeAccount('claude', gone);
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.agents = [
+      { id: 'a', name: 'Alice', provider: 'claude', role: '', account: work },
+      // Her own model and effort come before her account's defaults.
+      { id: 'b', name: 'Bob', provider: 'claude', role: '', account: work, model: 'fable', effort: 'max' },
+      { id: 'c', name: 'Cid', provider: 'claude', role: '' },
+      // An account removed since is the default account, with its defaults.
+      { id: 'd', name: 'Dee', provider: 'claude', role: '', account: gone },
+    ];
+    store.saveMeta(conv);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(calls.map((c) => [c.name, c.model, c.effort, c.nativeOff?.join(), c.nativeItems?.skills?.join()])).toEqual([
+      ['Alice', 'sonnet', 'low', 'hooks', 'commit'],
+      ['Bob', 'fable', 'max', 'hooks', 'commit'],
+      ['Cid', 'opus', 'high', 'mcp', undefined],
+      ['Dee', 'opus', 'high', 'mcp', undefined],
+    ]);
+    // Briefed with what its own runs leave out.
+    expect(calls[0]!.systemPrompt).not.toEqual(calls[2]!.systemPrompt);
+  });
+
+  it("runs the lead agent and the group sorter with the lead's account's defaults and what it leaves out", async () => {
+    settings.setAgentHome(join(root, `agents-${n}`));
+    settings.updateAccount('claude', '', { defaultModel: 'opus', nativeOff: ['mcp'] });
+    const work = settings.addAccount('claude', 'Work');
+    settings.updateAccount('claude', work, { defaultModel: 'sonnet', defaultEffort: 'medium', nativeOff: ['skills'], nativeItems: { tools: ['WebFetch'] } });
+    settings.setLead({ provider: 'claude', account: work });
+    store.createGroup({ id: 'g1', name: 'Docs' });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
+    conv.agents = [];
+    leadReply = JSON.stringify({ choice: 'template', templateId: 'builtin-parallel', reason: 'Compare.' });
+    await orchestrator.send(conv.id, 'Write the README');
+    await finish(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(false));
+    const helpers = calls.filter((c) => c.name === 'lead' || c.name === 'sorter').sort((x, y) => x.name.localeCompare(y.name));
+    expect(helpers.map((c) => [c.name, c.model, c.effort, c.nativeOff?.join(), c.nativeItems?.tools?.join()])).toEqual([
+      ['lead', 'sonnet', 'medium', 'skills', 'WebFetch'],
+      ['sorter', 'sonnet', 'medium', 'skills', 'WebFetch'],
+    ]);
   });
 });
 
@@ -1995,6 +2060,21 @@ describe('asking the lead agent to change the team', () => {
       { name: 'Tester', provider: 'codex', role: 'Test it.' },
     ],
     reason: 'Added a tester.',
+  });
+
+  it("runs as the lead's account, with that account's defaults and what it leaves out", async () => {
+    const home = join(root, `agents-${n}`);
+    settings.setAgentHome(home);
+    settings.updateAccount('claude', '', { defaultModel: 'opus', nativeOff: ['mcp'] });
+    const work = settings.addAccount('claude', 'Work');
+    settings.updateAccount('claude', work, { defaultModel: 'sonnet', defaultEffort: 'low', nativeOff: ['hooks'] });
+    settings.setLead({ provider: 'claude', account: work });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    reviseReply = 'Done:\n```json\n' + withTester + '\n```';
+    await orchestrator.reviseTeam(conv.id, { request: 'add a tester', ...draft });
+    expect(calls.map((c) => [c.name, c.home, c.model, c.effort, c.nativeOff?.join()])).toEqual([
+      ['reviser', join(home, `claude-${work}`), 'sonnet', 'low', 'hooks'],
+    ]);
   });
 
   it('returns the changed team and changes nothing in the conversation', async () => {

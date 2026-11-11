@@ -712,7 +712,8 @@ describe('Store write errors', () => {
 describe('SettingsStore (SQLite)', () => {
   it('persists provider settings and keeps the database private', () => {
     const s = new SettingsStore(db);
-    s.update('grok', { apiKey: 'xai-1234567890', defaultModel: 'grok-4.7', defaultEffort: 'high', bin: '/opt/grok' });
+    s.update('grok', { apiKey: 'xai-1234567890', bin: '/opt/grok' });
+    s.updateAccount('grok', '', { defaultModel: 'grok-4.7', defaultEffort: 'high' });
     s.setDefaultCwd('/work');
 
     const again = new SettingsStore(reopen());
@@ -778,22 +779,22 @@ describe('SettingsStore (SQLite)', () => {
 
   it("keeps what each CLI's runs leave out, only what that CLI can leave out", () => {
     const s = new SettingsStore(db);
-    s.update('grok', { nativeOff: ['instructions', 'mcp', 'skills', 'mcp'] });
-    s.update('claude', { nativeOff: ['memory', 'instructions'] });
+    s.updateAccount('grok', '', { nativeOff: ['instructions', 'mcp', 'skills', 'mcp'] });
+    s.updateAccount('claude', '', { nativeOff: ['memory', 'instructions'] });
 
     const again = new SettingsStore(reopen());
     expect(again.nativeOff('grok')).toEqual(['skills', 'mcp']); // Grok cannot leave out instruction files
     expect(again.nativeOff('claude')).toEqual(['instructions', 'memory']);
     expect(again.nativeOff('codex')).toEqual([]);
-    expect(again.view().providers.find((p) => p.provider === 'grok')!.nativeOff).toEqual(['skills', 'mcp']);
-    again.update('claude', { nativeOff: [] });
+    expect(again.view().providers.find((p) => p.provider === 'grok')!.accounts[0]!.nativeOff).toEqual(['skills', 'mcp']);
+    again.updateAccount('claude', '', { nativeOff: [] });
     const cleared = new SettingsStore(reopen());
     expect(cleared.nativeOff('claude')).toEqual([]);
 
     // Hooks, subagents and plugins: Claude Code all three, Codex no subagents, Grok only hooks.
-    cleared.update('claude', { nativeOff: ['plugins', 'agents', 'hooks'] });
-    cleared.update('codex', { nativeOff: ['plugins', 'agents', 'hooks'] });
-    cleared.update('grok', { nativeOff: ['plugins', 'agents', 'hooks', 'skills'] });
+    cleared.updateAccount('claude', '', { nativeOff: ['plugins', 'agents', 'hooks'] });
+    cleared.updateAccount('codex', '', { nativeOff: ['plugins', 'agents', 'hooks'] });
+    cleared.updateAccount('grok', '', { nativeOff: ['plugins', 'agents', 'hooks', 'skills'] });
     const later = new SettingsStore(reopen());
     expect(later.nativeOff('claude')).toEqual(['hooks', 'agents', 'plugins']);
     expect(later.nativeOff('codex')).toEqual(['hooks', 'plugins']);
@@ -803,24 +804,25 @@ describe('SettingsStore (SQLite)', () => {
   it("keeps the single items each CLI's runs leave out, only kinds that CLI can leave out alone", () => {
     const s = new SettingsStore(db);
     expect(s.nativeItems('claude')).toEqual({});
-    s.update('claude', { nativeItems: { skills: ['commit', 'commit'], tools: ['WebSearch'], hooks: ['h1'], instructions: [] } });
-    s.update('codex', { nativeItems: { hooks: ['h1'], tools: ['Bash'], mcpTools: ['["node","js"]'] } });
-    s.update('grok', { nativeItems: { skills: ['x'] } });
+    s.updateAccount('claude', '', { nativeItems: { skills: ['commit', 'commit'], tools: ['WebSearch'], hooks: ['h1'], instructions: [] } });
+    s.updateAccount('codex', '', { nativeItems: { hooks: ['h1'], tools: ['Bash'], mcpTools: ['["node","js"]'] } });
+    s.updateAccount('grok', '', { nativeItems: { skills: ['x'] } });
 
     const again = new SettingsStore(reopen());
     // Claude Code cannot leave out one hook, Codex lists no built-in tools, Grok can leave out no single item.
     expect(again.nativeItems('claude')).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
     expect(again.nativeItems('codex')).toEqual({ mcpTools: ['["node","js"]'], hooks: ['h1'] });
     expect(again.nativeItems('grok')).toEqual({});
-    expect(again.view().providers.find((p) => p.provider === 'claude')!.nativeItems).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
+    expect(again.view().providers.find((p) => p.provider === 'claude')!.accounts[0]!.nativeItems).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
     // A copy: changing it changes nothing stored.
     again.nativeItems('claude').skills!.push('other');
     expect(again.nativeItems('claude').skills).toEqual(['commit']);
     // Other updates keep them; an empty object clears them.
-    again.update('claude', { defaultModel: 'opus' });
+    again.updateAccount('claude', '', { defaultModel: 'opus' });
+    again.update('claude', { bin: '/opt/claude' });
     const kept = new SettingsStore(reopen());
     expect(kept.nativeItems('claude')).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
-    kept.update('claude', { nativeItems: {} });
+    kept.updateAccount('claude', '', { nativeItems: {} });
     expect(new SettingsStore(reopen()).nativeItems('claude')).toEqual({});
   });
 
@@ -921,10 +923,11 @@ describe('SettingsStore accounts', () => {
       expect(again.accountHomes()).toEqual([join(home, `claude-${work}`), join(home, `claude-${alt}`), join(home, `codex-${second}`)]);
 
       const claude = again.view().providers.find((p) => p.provider === 'claude')!;
+      const run = { defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} };
       expect(claude.accounts).toEqual([
-        { id: '', label: 'Personal', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, 'claude') },
-        { id: work, label: 'Work', apiKeyMasked: 'sk-a…3456', apiKeyStorage: 'database', home: join(home, `claude-${work}`) },
-        { id: alt, label: 'Alt', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, `claude-${alt}`) },
+        { id: '', label: 'Personal', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, 'claude'), ...run },
+        { id: work, label: 'Work', apiKeyMasked: 'sk-a…3456', apiKeyStorage: 'database', home: join(home, `claude-${work}`), ...run },
+        { id: alt, label: 'Alt', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, `claude-${alt}`), ...run },
       ]);
       expect(again.view().providers.find((p) => p.provider === 'codex')!.accounts.map((a) => a.apiKeyStorage)).toEqual([undefined, undefined]);
     } finally {
@@ -960,6 +963,81 @@ describe('SettingsStore accounts', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it('gives each account its own default model, effort and what its runs leave out, and keeps them', () => {
+    const s = new SettingsStore(db);
+    s.updateAccount('claude', '', { defaultModel: 'opus', defaultEffort: 'high', nativeOff: ['hooks'], nativeItems: { skills: ['commit'] } });
+    const work = s.addAccount('claude', 'Work');
+    // A new account's home is empty: it starts with the CLI's own defaults and leaves nothing out.
+    expect(s.defaultModel('claude', work)).toBe('');
+    expect(s.defaultEffort('claude', work)).toBe('');
+    expect(s.nativeOff('claude', work)).toEqual([]);
+    expect(s.nativeItems('claude', work)).toEqual({});
+
+    s.updateAccount('claude', work, {
+      defaultModel: ' sonnet ',
+      defaultEffort: 'low',
+      nativeOff: ['mcp', 'skills', 'rules' as never],
+      nativeItems: { tools: ['WebSearch'], hooks: ['h1'] },
+    });
+    const again = new SettingsStore(reopen());
+    // Each its own; what the CLI cannot leave out is dropped.
+    expect([again.defaultModel('claude'), again.defaultEffort('claude'), again.nativeOff('claude'), again.nativeItems('claude')]).toEqual([
+      'opus',
+      'high',
+      ['hooks'],
+      { skills: ['commit'] },
+    ]);
+    expect([again.defaultModel('claude', work), again.defaultEffort('claude', work), again.nativeOff('claude', work), again.nativeItems('claude', work)]).toEqual([
+      'sonnet',
+      'low',
+      ['skills', 'mcp'],
+      { tools: ['WebSearch'] },
+    ]);
+    expect(again.view().providers.find((p) => p.provider === 'claude')!.accounts).toMatchObject([
+      { id: '', defaultModel: 'opus', defaultEffort: 'high', nativeOff: ['hooks'], nativeItems: { skills: ['commit'] } },
+      { id: work, defaultModel: 'sonnet', defaultEffort: 'low', nativeOff: ['skills', 'mcp'], nativeItems: { tools: ['WebSearch'] } },
+    ]);
+    // Copies: changing them changes nothing stored.
+    again.nativeOff('claude', work).push('memory');
+    again.nativeItems('claude', work).tools!.push('Bash');
+    expect(again.nativeOff('claude', work)).toEqual(['skills', 'mcp']);
+    expect(again.nativeItems('claude', work)).toEqual({ tools: ['WebSearch'] });
+    // Renaming it, or the CLI's executable, keeps them.
+    again.updateAccount('claude', work, { label: 'Office' });
+    again.update('claude', { bin: '/opt/claude' });
+    const later = new SettingsStore(reopen());
+    expect(later.defaultModel('claude', work)).toBe('sonnet');
+
+    // An account the CLI does not have (another CLI's, or one removed since) runs as the default account.
+    const codex = later.addAccount('codex', 'Second');
+    expect(later.defaultModel('codex', work)).toBe('');
+    expect(later.defaultModel('claude', codex)).toBe('opus');
+    expect(later.nativeOff('claude', 'gone')).toEqual(['hooks']);
+    later.removeAccount('claude', work);
+    expect(later.defaultModel('claude', work)).toBe('opus');
+    expect(later.nativeItems('claude', work)).toEqual({ skills: ['commit'] });
+    // Updating an account that is gone changes nothing.
+    later.updateAccount('claude', work, { defaultModel: 'haiku' });
+    expect(later.defaultModel('claude')).toBe('opus');
+  });
+
+  it("gives the accounts there were before schema version 20 their CLI's defaults and what it left out", () => {
+    const s = new SettingsStore(db);
+    s.updateAccount('claude', '', { defaultModel: 'opus', defaultEffort: 'max', nativeOff: ['plugins'], nativeItems: { tools: ['WebFetch'] } });
+    const work = s.addAccount('claude', 'Work');
+    const grok = s.addAccount('grok', 'Team');
+    db.exec(`ALTER TABLE provider_accounts DROP COLUMN default_model; ALTER TABLE provider_accounts DROP COLUMN default_effort;
+             ALTER TABLE provider_accounts DROP COLUMN native_off; ALTER TABLE provider_accounts DROP COLUMN native_items;
+             PRAGMA user_version = 19;`);
+    const migrated = new SettingsStore(reopen());
+    // They run as before: as the CLI did, for every account.
+    expect([migrated.defaultModel('claude', work), migrated.defaultEffort('claude', work)]).toEqual(['opus', 'max']);
+    expect(migrated.nativeOff('claude', work)).toEqual(['plugins']);
+    expect(migrated.nativeItems('claude', work)).toEqual({ tools: ['WebFetch'] });
+    // A CLI with no settings saved: the defaults, nothing left out.
+    expect([migrated.defaultModel('grok', grok), migrated.nativeOff('grok', grok), migrated.nativeItems('grok', grok)]).toEqual(['', [], {}]);
   });
 
   it("keeps the other accounts' homes in the data folder when the CLIs have no folder of their own", async () => {
