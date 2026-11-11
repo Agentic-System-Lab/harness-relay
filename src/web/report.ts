@@ -40,6 +40,20 @@ export const MAILTO_MAX = 2_000;
 /** The longest Gmail link (its address takes much more; this stays well clear of what Google refuses). */
 export const GMAIL_MAX = 8_000;
 
+/**
+ * How a report went out: through the mail app or Gmail, put on the clipboard for a mail link too short
+ * for it (`cut`) or by Copy report (`copied`); or not, the clipboard refusing it (`cutCopyFailed`).
+ */
+export type Sent = 'mail' | 'gmail' | 'cut' | 'cutCopyFailed' | 'copied';
+
+/**
+ * Whether the report counts as sent: its upload is the one the mail links to (kept on GitHub), and it is
+ * forgotten when the dialog closes. Not when the clipboard refused it: the mail holds no report then.
+ */
+export function countsAsSent(sent: Sent | undefined): boolean {
+  return sent !== undefined && sent !== 'cutCopyFailed';
+}
+
 /** Only the description is needed: there is nothing to report without it. */
 export function reportReady(d: ReportDraft): boolean {
   return d.description.trim().length > 0;

@@ -21,10 +21,12 @@ import {
   reportState,
   reportSubject,
   reportText,
+  countsAsSent,
   screenshotProblem,
   ShotUploads,
   type MailLink,
   type ReportDraft,
+  type Sent,
 } from '../report';
 import { isAppWindow } from '../update';
 import { formatBytes, toBase64 } from '../util';
@@ -61,7 +63,6 @@ function forget() {
   uploads.forget();
 }
 
-type Sent = 'mail' | 'gmail' | 'cut' | 'cutCopyFailed' | 'copied';
 
 interface Props {
   /** Each CLI's status, as the sidebar has it: their versions go along with the report. */
@@ -96,7 +97,7 @@ export function ReportDialog({ providers, onClose }: Props) {
   const [sent, setSent] = useState<Sent>();
 
   const close = () => {
-    if (sent) forget();
+    if (countsAsSent(sent)) forget();
     onClose();
   };
   /** Whether the dialog is still open, for what an upload says once it is done (set on each mount: StrictMode mounts twice). */
@@ -202,11 +203,13 @@ export function ReportDialog({ providers, onClose }: Props) {
    * app's window, a mail link goes through its window handler (to the mail app); a page cannot move to it.
    */
   const open = async (link: MailLink, how: 'mail' | 'gmail') => {
-    uploads.sent(); // the mail links to the upload done now, if any: it stays on GitHub
     const copied = link.cut ? copyText(whole()) : undefined;
     if (how === 'gmail' || isAppWindow(navigator.userAgent)) window.open(link.url, '_blank', 'noopener,noreferrer');
     else window.location.href = link.url;
-    setSent(copied ? ((await copied) ? 'cut' : 'cutCopyFailed') : how);
+    const went: Sent = copied ? ((await copied) ? 'cut' : 'cutCopyFailed') : how;
+    // The mail links to the upload done now, if any (it stays on GitHub): not when it holds no report.
+    if (countsAsSent(went)) uploads.sent();
+    setSent(went);
   };
   const sendMail = () => open(fitLink((s, b) => mailtoUrl(REPORT_EMAIL, s, b), subject, body, r.mail.pasteHere, MAILTO_MAX), 'mail');
   const sendGmail = () => open(fitLink((s, b) => gmailUrl(REPORT_EMAIL, s, b), subject, body, r.mail.pasteHere, GMAIL_MAX), 'gmail');

@@ -14,6 +14,7 @@ import {
   reportBody,
   reportReady,
   reportState,
+  countsAsSent,
   reportSubject,
   reportText,
   screenshotProblem,
@@ -151,6 +152,15 @@ describe('mail links', () => {
     expect(subject.endsWith('…')).toBe(true);
     expect(subject).not.toContain('�');
     expect([...subject.slice(0, -1)].every((c) => c === '🐛')).toBe(true);
+  });
+});
+
+describe('a report sent', () => {
+  it('counts as sent through the mail app, Gmail, the clipboard or Copy report, not when the clipboard refused it', () => {
+    for (const how of ['mail', 'gmail', 'cut', 'copied'] as const) expect(countsAsSent(how)).toBe(true);
+    // The mail then holds only "paste here": closing must not forget what was typed, nor keep its upload as linked.
+    expect(countsAsSent('cutCopyFailed')).toBe(false);
+    expect(countsAsSent(undefined)).toBe(false);
   });
 });
 

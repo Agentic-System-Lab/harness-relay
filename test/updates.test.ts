@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DesktopUpdate, ServerToDesktop, UpdateStatus } from '../src/shared/types';
-import { Updates } from '../src/server/updates';
-import { CheckAnswers } from '../desktop/src/update';
+import { CHECK_ANSWER_MS, Updates } from '../src/server/updates';
+import { CHECK_TIMEOUT_MS, CheckAnswers } from '../desktop/src/update';
 import { en } from '../src/web/locales/en';
 import { dialogsHeld, dialogsOpen, holdDialogs, onDialogsChange, openDialog } from '../src/web/dialogs';
 import { isAppWindow, offerShows, pollDelay, shouldOffer, typesText, updateLine } from '../src/web/update';
@@ -232,5 +232,11 @@ describe("the app's answers to the chat's checks", () => {
     answers.ask(2);
     expect(answers.take(false)).toEqual([1, 2]);
     expect(answers.take(false)).toBeUndefined();
+  });
+});
+
+describe("the server's wait for a check", () => {
+  it("outlasts the app's own wait for GitHub, so a question that stalls is answered as failed, not left under way", () => {
+    expect(CHECK_ANSWER_MS).toBeGreaterThan(CHECK_TIMEOUT_MS);
   });
 });

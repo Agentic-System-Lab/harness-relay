@@ -169,6 +169,11 @@ describe("a screenshot's metadata", () => {
       expect(app1[1]).toBe(0xe1);
       expect(exifOrientation(app1.subarray(4))).toBe(6);
     }
+    // Many EXIF segments (a crafted file): one minimal EXIF, the first's orientation.
+    const many = Buffer.concat([SOI, ...Array.from({ length: 1000 }, (_, i) => segment(0xe1, exifWith(i % 2 ? 3 : 6))), DQT, SOF, DHT, SCAN, EOI]);
+    const once = withoutMetadata(many, 'jpg');
+    expect(once.length).toBeLessThan(200);
+    expect(exifOrientation(once.subarray(6, 6 + once.readUInt16BE(4) - 2))).toBe(6);
     // Upright already: no EXIF at all.
     const upright = Buffer.concat([SOI, segment(0xe1, exifWith(1)), DQT, SOF, DHT, SCAN, EOI]);
     expect(withoutMetadata(upright, 'jpg')).toEqual(Buffer.concat([SOI, DQT, SOF, DHT, SCAN, EOI]));
@@ -248,6 +253,9 @@ describe("a screenshot's metadata", () => {
     const length = clean.readUInt32BE(at);
     expect(tiffOrientation(clean.subarray(at + 8, at + 8 + length))).toBe(8);
     expect(clean.readUInt32BE(at + 8 + length)).toBe(crc32(clean.subarray(at + 4, at + 8 + length)) >>> 0);
+    // Many eXIf chunks: one, the first's orientation.
+    const many = withoutMetadata(Buffer.concat([PNG_SIG, IHDR, ...Array.from({ length: 100 }, () => pngChunk('eXIf', exif)), IDAT, IEND]), 'png');
+    expect(many.toString('latin1').split('eXIf').length - 1).toBe(1);
     // Upright already, or no orientation: no EXIF at all.
     expect(withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', exifWith(1).subarray(6)), IDAT, IEND]), 'png')).toEqual(PNG);
     expect(withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', gps), IDAT, IEND]), 'png')).toEqual(PNG);

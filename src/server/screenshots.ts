@@ -169,6 +169,8 @@ function jpegWithout(data: Buffer): Buffer {
   const out = new Kept(data);
   out.range(0, 2);
   let scanned = false;
+  /** Its orientation is kept once: a crafted file of many EXIF segments gets one minimal EXIF, not many. */
+  let oriented = false;
   /** Cut short: what there is, ended, once a scan began; nothing to show before. */
   const cutShort = () => {
     if (!scanned) throw new Error('truncated');
@@ -219,9 +221,12 @@ function jpegWithout(data: Buffer): Buffer {
       out.bytes(jfifWithoutThumbnail(payload));
     } else if (JPEG_KEPT.has(marker) || (marker >= 0xe0 && marker <= 0xef && jpegAppKept(marker, payload))) {
       out.range(at, end);
-    } else if (marker === 0xe1) {
+    } else if (marker === 0xe1 && !oriented) {
       const orientation = exifOrientation(payload);
-      if (orientation && orientation !== 1) out.bytes(orientationSegment(orientation));
+      if (orientation && orientation !== 1) {
+        out.bytes(orientationSegment(orientation));
+        oriented = true;
+      }
     }
     at = end;
   }
@@ -251,6 +256,8 @@ function pngWithout(data: Buffer): Buffer {
   const out = new Kept(data);
   out.range(0, 8);
   let pixels = false;
+  /** Its orientation is kept once, as a JPEG's is. */
+  let oriented = false;
   let at = 8;
   for (;;) {
     if (at + 12 > data.length || at + 12 + data.readUInt32BE(at) > data.length) {
@@ -263,9 +270,12 @@ function pngWithout(data: Buffer): Buffer {
     const type = data.subarray(at + 4, at + 8).toString('latin1');
     const end = at + 12 + length;
     if (PNG_KEPT.has(type)) out.range(at, end);
-    else if (type === 'eXIf') {
+    else if (type === 'eXIf' && !oriented) {
       const orientation = tiffOrientation(data.subarray(at + 8, end - 4));
-      if (orientation && orientation !== 1) out.bytes(pngChunk('eXIf', orientationTiff(orientation)));
+      if (orientation && orientation !== 1) {
+        out.bytes(pngChunk('eXIf', orientationTiff(orientation)));
+        oriented = true;
+      }
     }
     if (type === 'IDAT' || type === 'fdAT') pixels = true;
     if (type === 'IEND') return out.done(); // what follows it goes

@@ -6,8 +6,12 @@
 import type { DesktopUpdate, UpdateStatus } from '../shared/types';
 import type { DesktopParent } from './parent';
 
-/** How long a check asked for from the chat is waited for before what is known is given. */
-export const CHECK_ANSWER_MS = 30_000;
+/**
+ * How long a check asked for from the chat is waited for before what is known is given: longer than the
+ * app gives GitHub (CHECK_TIMEOUT_MS, 30 s), so a question that stalls is answered as failed, not left
+ * looking under way.
+ */
+export const CHECK_ANSWER_MS = 35_000;
 
 export class Updates {
   private last: DesktopUpdate = { updates: false };
