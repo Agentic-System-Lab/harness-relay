@@ -1142,7 +1142,27 @@ function cursorHooksIn(file: string, source: string): NativeHook[] {
   );
 }
 
-/** Cursor's hooks: the organisation's (managed) and the user's `~/.cursor/hooks.json`. */
+/**
+ * The hooks of Claude Code's `~/.claude/settings.json`, which Cursor loads too
+ * (`{ hooks: { <Event>: [{ matcher?, hooks: [{ type, command }] }] } }`), one per matcher entry.
+ */
+function claudeHooksIn(file: string): NativeHook[] {
+  const hooks = jsonFile(file)?.hooks;
+  if (!hooks || typeof hooks !== 'object') return [];
+  return Object.entries(hooks as Json).flatMap(([event, list]) =>
+    (Array.isArray(list) ? list : []).map((h: Json) => ({
+      event,
+      ...(typeof h?.matcher === 'string' && h.matcher ? { matcher: h.matcher } : {}),
+      source: 'Claude Code (user)',
+      file,
+    })),
+  );
+}
+
+/**
+ * Cursor's hooks: the organisation's (managed), the user's `~/.cursor/hooks.json`, and Claude Code's in
+ * `~/.claude/settings.json` (always that file: Cursor does not follow `CLAUDE_CONFIG_DIR`).
+ */
 export function cursorHooks(home = homedir(), platform: NodeJS.Platform = process.platform): NativeHook[] {
   const managed =
     platform === 'darwin'
@@ -1150,7 +1170,11 @@ export function cursorHooks(home = homedir(), platform: NodeJS.Platform = proces
       : platform === 'linux'
         ? '/etc/cursor/hooks.json'
         : join(process.env.ProgramData ?? 'C:\\ProgramData', 'Cursor', 'hooks.json');
-  return [...cursorHooksIn(managed, 'managed'), ...cursorHooksIn(join(home, '.cursor', 'hooks.json'), 'user')];
+  return [
+    ...cursorHooksIn(managed, 'managed'),
+    ...cursorHooksIn(join(home, '.cursor', 'hooks.json'), 'user'),
+    ...claudeHooksIn(join(home, '.claude', 'settings.json')),
+  ];
 }
 
 /** Cursor's subagents: the Markdown files in the working directory's `.cursor/agents` and `.claude/agents`. */

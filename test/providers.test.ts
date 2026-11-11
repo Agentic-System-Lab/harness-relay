@@ -79,14 +79,14 @@ esac`,
 
 describe("Cursor's one sign-in", () => {
   // A stand-in for \`cursor-agent\`: its sign-in is the computer user's (here, a file outside its
-  // config folder), an API key signs it in, and the in-memory store keeps it from the stored sign-in.
+  // config folder), and \`status\` reads only the store it is given: with the in-memory store it says
+  // signed out, key or no key (as the real one does).
   const FAKE_CURSOR = `#!/bin/sh
 signed="$FAKE_CURSOR_DIR/signed-in"
 case "$1" in
   --version) echo "2026.11.11-043ef28" ;;
   status)
-    if [ -n "$CURSOR_API_KEY" ]; then echo '{"status":"authenticated","isAuthenticated":true,"userInfo":{"email":"key@example.com"}}'
-    elif [ "$AGENT_CLI_CREDENTIAL_STORE" != "memory" ] && [ -f "$signed" ]; then printf '{"status":"authenticated","isAuthenticated":true,"userInfo":{"email":"%s"}}\\n' "$(cat "$signed")"
+    if [ "$AGENT_CLI_CREDENTIAL_STORE" != "memory" ] && [ -f "$signed" ]; then printf '{"status":"authenticated","isAuthenticated":true,"userInfo":{"email":"%s"}}\\n' "$(cat "$signed")"
     else echo '{"status":"unauthenticated","isAuthenticated":false,"message":"Not logged in"}'; fi ;;
   login) echo "login browser=\${NO_OPEN_BROWSER:-open}" >> "$FAKE_CURSOR_DIR/log"; echo "Open a browser and navigate to this link: https://cursor.com/loginDeepControl?challenge=abc"; echo "me@example.com" > "$signed" ;;
   logout) echo "logout store=\${AGENT_CLI_CREDENTIAL_STORE:-system} key=\${CURSOR_API_KEY:-none}" >> "$FAKE_CURSOR_DIR/log"; rm -f "$signed" ;;
@@ -126,7 +126,8 @@ esac
       ]);
       settings.updateAccount('cursor', team, { apiKey: 'key_team' });
       service.invalidate('cursor');
-      expect((await service.status('cursor', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, account: 'key@example.com' }, usingStoredApiKey: true });
+      // Its key signs it in for each run only, which \`status\` cannot see: it is taken as signed in by it.
+      expect((await service.status('cursor', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: true });
 
       // Signing the other account out signs nothing out: it kept nothing.
       await service.logout('cursor', team);
@@ -135,6 +136,10 @@ esac
       settings.updateAccount('cursor', '', { apiKey: 'key_default' });
       await service.logout('cursor');
       expect(log()).toEqual(['login browser=1', 'logout store=system key=none']);
+      // In the store the server was started with, when it names one.
+      vi.stubEnv('AGENT_CLI_CREDENTIAL_STORE', 'file');
+      await service.logout('cursor');
+      expect(log().at(-1)).toBe('logout store=file key=none');
     } finally {
       vi.unstubAllEnvs();
     }

@@ -140,7 +140,7 @@ CLI 完成後，面板會變成綠色的 **登入成功 ✓**。若出了問題�
 - **Claude Code**：以 `ANTHROPIC_API_KEY` 傳入（改為 API 計費，優先於訂閱登入）。
 - **Grok**：以 `XAI_API_KEY` 傳入。
 - **Codex**：交給 `codex login --with-api-key`，由 Codex 自己保存，會取代 ChatGPT 登入。
-- **Cursor**：以 `CURSOR_API_KEY` 傳入，只用在 Harness Relay 的執行：Cursor 不會把它存進去蓋掉你自己的 Cursor 登入，你的登入維持原樣。
+- **Cursor**：以 `CURSOR_API_KEY` 傳入，只用在 Harness Relay 的執行：Cursor 不會把它存進去蓋掉你自己的 Cursor 登入，你的登入維持原樣。Cursor 只在每次執行時用金鑰登入，`cursor-agent status` 看不到，所以有金鑰的帳號（包括從啟動 Harness Relay 時環境中的 `CURSOR_API_KEY` 或 `CURSOR_AUTH_TOKEN` 拿到金鑰的）會顯示為以 *API key* 登入。
 
 Claude Code、Grok 與 Cursor 的金鑰由 Harness Relay 存放在系統的金鑰儲存區，名稱為 `harness-relay`（[桌面 app](#桌面-app) 則是 `harness-relay-desktop`）：macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service（GNOME Keyring、KWallet）。卡片上會寫出存放位置。在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，金鑰會改存在只有你的帳號能讀取的資料庫；若不想這樣，可以不填這個欄位，改在啟動 Harness Relay 前設定環境變數 `ANTHROPIC_API_KEY` / `XAI_API_KEY` / `CURSOR_API_KEY`。舊版存在資料庫裡的金鑰，會在伺服器下次啟動時移出資料庫。macOS 可能會詢問是否允許 `node` 使用這把金鑰（例如更新 Node.js 之後），請選 **永遠允許**。
 
@@ -175,7 +175,7 @@ Claude Code、Grok 與 Cursor 的金鑰由 Harness Relay 存放在系統的金�
 - **Claude Code**：每一類都能全部不載入，也能逐項勾選：skill 依名稱（plugin 指令與自訂指令也列在一起）、MCP 伺服器與它的每個工具、內建工具、指示檔、subagent（內建的也可以）與 plugin。它的 hook 沒有名稱，自動記憶是一整份，所以這兩類只能全部不載入。各類的 **全部不載入**：skill 也包括 plugin 指令與自訂指令；MCP 是它自己的伺服器都不啟動，只保留工具庫的，而個別勾選的伺服器仍會啟動，只是它的工具不提供給成員（工具庫裡同名的伺服器工具照常提供）；內建工具全部不載入後，成員只能對話並使用 MCP 工具（Harness Relay 依權限關掉的工具不論這裡怎麼設都會關掉；沒有任何能讀檔工具的成員，簡報裡不會列出工具庫的 skill）；指示檔是各層的 `CLAUDE.md` 與規則檔；記憶是它的自動記憶；hook 是設定檔與 plugin 裡的 hook；subagent 是你自己的與 plugin 的（內建的照常提供，除非你或專案有同名的 subagent 取代了它：這時那個名稱在執行中就沒有 subagent）；plugin 會關掉每個已安裝的 plugin，連同它的 skill、subagent、hook 與 MCP 伺服器。Claude Code 無法列出它的 plugin，或無法不載入它的 subagent 時（舊版 Claude Code），這次執行會失敗並說明原因，而不是照常載入。
 - **Codex**：每一類都能全部不載入，也能逐項勾選：skill、你設定檔裡的 MCP 伺服器與它的每個工具、hook 與 plugin。MCP 開關也會關掉 ChatGPT apps；plugin 帶來的伺服器在 Plugins 分頁設定。指示檔是專案裡的 `AGENTS.md`，只能全部不載入：Codex 仍會讀它自己的 `~/.codex/AGENTS.md`。Hook 也包括 plugin 的 hook；plugin 會連同它們的 skill、MCP 伺服器與 hook 一起關掉。設為不載入的 skill、hook 或 plugin 若仍被 Codex 載入（不認得這項設定的舊版 Codex），這次執行會失敗並說明原因。Codex 不列出 subagent，也沒有只略過它自己 subagent 的開關。Codex 會沿用對話開始時載入的 skill 清單（包括 plugin 帶來的 skill）、指示檔與記憶，所以這些變更從新對話開始生效；MCP 伺服器、它們的工具與 hook 的變更下一回合就生效。Codex 無法列出它的 MCP 伺服器時，這次執行會失敗並說明原因，而不是照常執行它們。
 - **Grok**：只能全部不載入，而且 skill、MCP 伺服器與 hook 只有從 Claude Code、Cursor 匯入的（包括專案的 `.claude/skills` 與 Claude Code plugin 的 skill，但不包括它們的 hook）。Grok 自己找到的 skill 照常載入，包括 `~/.agents/skills`、`~/.grok/skills`、專案的 `.grok/skills` 與 `.agents/skills`，以及內建的：要關掉，請在 `~/.grok/config.toml` 的 `skills.disabled` 列出名稱，Grok 自己的 MCP 伺服器也在那裡關閉。這個檔案是 Grok 的全域設定：在那裡的變更也會影響你在終端機使用 Grok，Harness Relay 不會修改它。個別項目、指示檔與它的 plugin 都沒有單次執行的開關（plugin 要在 `~/.grok/config.toml` 的 `plugins.disabled` 關閉），也沒有只略過它自己 subagent 的開關（它的 subagent 開關會連內建的一起關掉）。
-- **Cursor**：都不行。它沒有任何設定或變數能讓單次執行不載入這些項目，所以它的分頁（Skills、MCP 工具、Hooks、Subagents、指示）只顯示它會載入什麼：工作目錄與家目錄裡 `.cursor`、`.claude`、`.codex`、`.grok`、`.agents` 底下 `skills` 資料夾的 skill，以及它內建的；`~/.cursor/mcp.json` 的 MCP 伺服器（專案 `.cursor/mcp.json` 裡的會標示 `needs approval`：要先在 Cursor 裡核准才會載入，而 Harness Relay 的執行從不詢問，所以不會載入）；`~/.cursor/hooks.json` 與你組織的 hook，它們在 Harness Relay 的執行中也會在它的工具呼叫上執行；工作目錄 `.cursor/agents` 與 `.claude/agents` 裡的 subagent；以及工作目錄與它上層每個資料夾的 `AGENTS.md`、`CLAUDE.md`、`CLAUDE.local.md` 與 `.cursor/rules`。設在 Cursor 帳號上的規則不是檔案，所以不會列出。
+- **Cursor**：都不行。它沒有任何設定或變數能讓單次執行不載入這些項目，所以它的分頁（Skills、MCP 工具、Hooks、Subagents、指示）只顯示它會載入什麼：工作目錄與家目錄裡 `.cursor`、`.claude`、`.codex`、`.grok`、`.agents` 底下 `skills` 資料夾的 skill，以及它內建的；`~/.cursor/mcp.json` 的 MCP 伺服器（專案 `.cursor/mcp.json` 裡的會標示 `needs approval`：要先在 Cursor 裡核准才會載入，而 Harness Relay 的執行從不詢問，所以不會載入）；`~/.cursor/hooks.json` 與你組織的 hook，以及 `~/.claude/settings.json` 裡 Claude Code 的 hook（列為 *Claude Code (user)*：Cursor 也會載入，一律從這個檔案，不論你讓 Claude Code 的執行不載入哪些），它們在 Harness Relay 的執行中也會在它的工具呼叫上執行；工作目錄 `.cursor/agents` 與 `.claude/agents` 裡的 subagent；以及工作目錄與它上層每個資料夾的 `AGENTS.md`、`CLAUDE.md`、`CLAUDE.local.md` 與 `.cursor/rules`。設在 Cursor 帳號上的規則不是檔案，所以不會列出。
 
 Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks。資料夾尚未信任時，Grok 卡片會標示出來；團隊裡有 Grok 成員時，團隊編輯器的工作目錄下方也會提示。在這種資料夾開始一個有 Grok 成員的新對話時，會先問你：**信任並開始**、**不信任，直接開始**或 **取消**。Grok 是以整個專案決定信任：工作目錄在 git 儲存庫裡時，被信任的是儲存庫的根目錄（解析連結後），確認時也會這樣說明。按 **信任這個資料夾** 會先請你確認這個資料夾，再用和 `grok --trust` 相同的方式記錄（在 `~/.grok/trusted_folders.toml`，或 `$GROK_HOME`）。請只信任你信任的專案：信任後 Grok 也會執行專案的 hooks。工具庫的項目不管有沒有信任都會提供給 Grok。**重新查詢** 會更新結果（結果保留一分鐘）。
 
@@ -198,7 +198,7 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 **各 CLI 自己的資料夾**：預設各 CLI 用它們平常的家目錄（`~/.claude`、`~/.codex`、`~/.grok`、`~/.cursor`），也就是你自己執行 CLI 時用的那一個。在這裡填入一個資料夾（完整路徑，或以 `~` 開頭的路徑），或按 **使用 ~/.relay-agents**，Harness Relay 就會在裡面替每個 CLI 準備自己的家目錄：`claude`、`codex`、`grok`、`cursor` 子資料夾。之後各 CLI 的登入、設定與 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。
 
 - 各 CLI 要重新登入一次（在上方各 CLI 的卡片，或設定 API key）：新的家目錄一開始是空的。[每個帳號](#多個帳號)都是如此：其他帳號的資料夾也會改放在新的資料夾裡，舊的則連同登入資料留在原處，要自己刪除（**移除** 只會刪掉帳號目前的資料夾）。Cursor 例外：它的登入屬於你的電腦使用者，不在它的資料夾裡，所以仍然是登入狀態；移過去的只有它的設定與 session。
-- 各 CLI 不再讀你平常家目錄裡的設定、MCP 伺服器、skill、記憶與 plugin（Cursor 仍會從 `~/.cursor` 讀它的 skill、MCP 伺服器與 hook）；[工具庫](#工具庫mcp-伺服器skill-與記憶)裡的工具照常提供給每位成員。
+- 各 CLI 不再讀你平常家目錄裡的設定、MCP 伺服器、skill、記憶與 plugin（Cursor 仍會從 `~/.cursor` 讀它的 skill、MCP 伺服器與 hook，也會從 `~/.claude/settings.json` 讀 Claude Code 的 hook）；[工具庫](#工具庫mcp-伺服器skill-與記憶)裡的工具照常提供給每位成員。
 - 成員在下一回合會開新的 session，並取得對話的完整紀錄：之前的 session 留在原本的家目錄。
 - session 紀錄在那個資料夾的 `claude/projects/`、`codex/sessions/`、`grok/sessions/` 與 `cursor/acp-sessions/`。
 
@@ -327,10 +327,10 @@ AgentsView 預設會隱藏使用者只說了一則訊息的 session。你只傳�
 | 等級 | 不必詢問就能做 |
 | --- | --- |
 | 唯讀 | 讀檔、搜尋、上網查資料。 |
-| 可編輯 | 另外還能修改工作目錄中的檔案，並執行測試、建置等專案指令（Claude Code 限常用的一組指令；Codex 則是沙箱內的任何操作，沙箱無法連網；Cursor 沒有，每個指令都會詢問）。不包含推送與發佈。 |
+| 可編輯 | 另外還能修改工作目錄中的檔案，並執行測試、建置等專案指令（Claude Code 限常用的一組指令；Codex 則是沙箱內的任何操作，沙箱無法連網；Cursor 沒有，每個指令都會詢問，你的 Cursor 團隊允許清單上的除外；寫入那些一改就可能讓程式碼之後執行的檔案，例如 `.git/config` 與 `.vscode/`，也會詢問）。不包含推送與發佈。 |
 | 完全存取 | 所有操作，不再詢問。請只在信任的目錄使用。 |
 
-在完全存取以外的權限，Claude Code、Codex 與 Grok 的指令都在它們那個 CLI 的作業系統沙箱中執行，只能寫入工作目錄與暫存資料夾。Codex 的沙箱也讓指令無法連網，Claude Code 的沙箱會在指令要連到每個主機時詢問你；Grok 的沙箱只有在 Linux 上擋得了網路。在原生 Windows 上只有 Codex 有沙箱（見[各平台的作業系統沙箱](sandboxing.zh-TW.md)）。Cursor 在 Harness Relay 執行它的模式下，不管哪個系統都沒有沙箱：在完全存取以外的權限，它要執行的每個指令都會詢問你（對話設為自動拒絕時則直接拒絕），測試與建置也一樣；你允許的指令會以你的權限執行，也能連網。它自己的工具讀檔不必詢問，在可編輯模式下修改工作目錄裡的檔案也不必詢問。沙箱也讓 agent 碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫（Cursor 自己的檔案工具靠它這次執行設定裡的拒絕規則，它的指令只靠詢問）；工作目錄包含 Harness Relay 本身、你的家目錄或 CLI 自己的資料夾時，則會拒絕可編輯模式。要開發 Harness Relay，請從另一個資料夾執行你使用的那份。可編輯模式適合你信任的程式碼：測試、建置和專案腳本執行的都是 agent 能修改的程式碼，所以使用 Grok 時，agent 仍可能透過它們連上網路。不信任的程式碼或指示，請使用唯讀，或把權限範圍以外的動作設為自動拒絕。唯讀模式下，Claude Code 修改檔案的工具會完全關閉，Cursor 的則不能寫入（這種寫入會顯示「唯讀模式不允許寫入」）。
+在完全存取以外的權限，Claude Code、Codex 與 Grok 的指令都在它們那個 CLI 的作業系統沙箱中執行，只能寫入工作目錄與暫存資料夾。Codex 的沙箱也讓指令無法連網，Claude Code 的沙箱會在指令要連到每個主機時詢問你；Grok 的沙箱只有在 Linux 上擋得了網路。在原生 Windows 上只有 Codex 有沙箱（見[各平台的作業系統沙箱](sandboxing.zh-TW.md)）。Cursor 在 Harness Relay 執行它的模式下，不管哪個系統都沒有沙箱：在完全存取以外的權限，它要執行的每個指令都會詢問你（對話設為自動拒絕時則直接拒絕），測試與建置也一樣，但 Cursor 團隊管理員放進團隊自動執行允許清單的指令除外（Harness Relay 無法清除它）；你允許的指令會以你的權限執行，也能連網。它自己的工具讀檔不必詢問，在可編輯模式下修改工作目錄裡的檔案也不必詢問，但那些一改就可能讓程式碼之後在任何沙箱之外執行的檔案（`.git/hooks`、`.git/config`、`.vscode/`、`.claude/*.json`、`.cursor/*.json`、`*.code-workspace`……）除外：Cursor 會詢問這些，Harness Relay 則會問你。沙箱也讓 agent 碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫（Cursor 自己的檔案工具只靠它這次執行設定裡的拒絕規則，而 Cursor 是拿寫下來的路徑去比對：受保護路徑換個大小寫，或指向它的連結，都擋不住；它的指令只靠詢問）；工作目錄包含 Harness Relay 本身、你的家目錄或 CLI 自己的資料夾時，則會拒絕可編輯模式。要開發 Harness Relay，請從另一個資料夾執行你使用的那份。可編輯模式適合你信任的程式碼：測試、建置和專案腳本執行的都是 agent 能修改的程式碼，所以使用 Grok 時，agent 仍可能透過它們連上網路。不信任的程式碼或指示，請使用唯讀，或把權限範圍以外的動作設為自動拒絕。唯讀模式下，Claude Code 修改檔案的工具會完全關閉，Cursor 的則既不能寫入也不能刪除（兩者都會顯示「唯讀模式不允許寫入」）。
 
 **權限範圍以外的動作**：選 **詢問我**（預設）時，agent 想做權限沒涵蓋的事，會在對話中詢問你（見[核准](#核准)）。選 **自動拒絕** 時，這類動作會直接被拒絕，agent 會被告知並改用其他方式。（完全存取時不會顯示這個設定。）
 
@@ -363,7 +363,7 @@ agent 想做權限沒涵蓋的事時（安裝套件、在唯讀模式執行指�
 - **本對話都允許「…」**：這次以及之後類似的請求，在這個對話接下來都不再詢問（指令的話，指的是同一個程式與子指令，例如 `npm install`；串接的指令要每一段都符合才會允許）。
 - **拒絕**：可以先輸入要它改做什麼（選填）；agent 會收到你的訊息（Cursor 的只會知道你拒絕了）並繼續。
 
-訊息框上方的橫幅會指出正在等待的請求；側邊欄會把這個對話標為 **等你核准**，瀏覽器分頁標題也會顯示有幾個對話在等你。按 **■ 停止** 會拒絕所有還在等待的請求；agent 已經停止（當掉或逾時）的請求也會失效。在唯讀對話中允許某個動作時，若另一個對話正在修改同一個目錄，這個動作會被拒絕，並告知 agent 原因。Codex 在自己的沙箱中執行指令，只有在它判斷需要超出沙箱允許的範圍時才會詢問。Cursor 沒有沙箱，所以在完全存取以外的權限，它的每個指令都會詢問，你允許它執行的每個指令都在沙箱外執行（它的卡片會註明）。拒絕時附上的說明會顯示在對話中，但 Cursor 的拒絕不能附帶訊息，所以它的 agent 收不到。Cursor 自己要問你的問題會略過：agent 改透過 Harness Relay 問你。
+訊息框上方的橫幅會指出正在等待的請求；側邊欄會把這個對話標為 **等你核准**，瀏覽器分頁標題也會顯示有幾個對話在等你。按 **■ 停止** 會拒絕所有還在等待的請求；agent 已經停止（當掉或逾時）的請求也會失效。在唯讀對話中允許某個動作時，若另一個對話正在修改同一個目錄，這個動作會被拒絕，並告知 agent 原因。Codex 在自己的沙箱中執行指令，只有在它判斷需要超出沙箱允許的範圍時才會詢問。Cursor 沒有沙箱，所以在完全存取以外的權限，它的每個指令都會詢問（你的 Cursor 團隊允許清單上的除外），你允許它執行的每個指令都在沙箱外執行（它的卡片會註明）。拒絕時附上的說明會顯示在對話中，但 Cursor 的拒絕不能附帶訊息，所以它的 agent 收不到。Cursor 自己要問你的問題會略過：agent 改透過 Harness Relay 問你。
 
 ### 檢視與套用修改
 
@@ -522,8 +522,9 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 | 套用時出現「衝突」 | agent 開始之後，你的工作目錄有了變動。沒有套用任何修改；送出新訊息讓 agent 從目前狀態重新開始，或自行合併該 agent 的 `relay/…` 分支。 |
 | 平行模式的 agent 無法跑測試 | worktree 不包含被忽略的檔案（例如 `node_modules/`）；請 agent 先在自己的 worktree 安裝相依套件。 |
 | agent 好像卡住了 | 看看有沒有 **等你核准** 標籤或核准卡片：它可能正在等你回應。 |
-| Cursor 每個指令都要問，連測試和建置也是 | 正常現象：Cursor 沒有沙箱，所以在完全存取以外的權限，沒有指令能不經詢問就執行。在對話中選 **本對話都允許** 可以涵蓋之後類似的指令；完全存取只在你信任的資料夾使用。 |
-| Cursor 的回覆以「Cursor 的服務回報錯誤：…」結束 | 這是 Cursor 服務自己的回答。*Upgrade your plan to continue*：這個模型需要帳號沒有的 Cursor 方案，請換一個模型，或改用 Auto。*Please sign in to continue*：到設定頁重新登入這個帳號，或設定 API key。 |
+| Cursor 每個指令都要問，連測試和建置也是 | 正常現象：Cursor 沒有沙箱，所以在完全存取以外的權限，沒有指令能不經詢問就執行（你的 Cursor 團隊允許清單上的除外）。在對話中選 **本對話都允許** 可以涵蓋之後類似的指令；完全存取只在你信任的資料夾使用。 |
+| Cursor 的回覆以「Cursor 的服務回報錯誤：…」結束 | 這是 Cursor 服務自己的回答。*Upgrade your plan to continue*：這個模型需要帳號沒有的 Cursor 方案，請換一個模型，或改用 Auto。*Please sign in to continue*：到設定頁重新登入這個帳號，或設定 API key。*Add a payment method to continue* 或 *Check your settings to continue*：到你的 Cursor 帳號處理。其他種類的錯誤，Cursor 以純文字送來，和回覆分不出來，所以會顯示成 agent 的回覆。 |
+| Cursor 的回合以「Cursor 尚未登入（…）」失敗 | 到設定頁的 Cursor 登入，或設定 API key。這則訊息不附 Cursor 自己的登入連結，因為那一輪結束後，這個連結就沒有作用。 |
 | 儲存 API key 失敗（「無法把 API key 存進系統的金鑰儲存區」） | 鑰匙圈 / 金鑰圈被鎖定或拒絕存取。解鎖（或在詢問時允許存取）後再儲存一次，或改用環境變數。 |
 | 一直顯示「重新連線中」 | 伺服器停止或正在重新啟動；恢復後頁面會自動重新連線。 |
 | 用手機或其他裝置打開時出現 *Forbidden host* | 啟動 Harness Relay 時，把那個網址的名稱加進 `RELAY_ALLOWED_HOSTS`；詳見[用手機連線](remote-access.zh-TW.md#疑難排解)。 |

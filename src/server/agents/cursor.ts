@@ -28,8 +28,9 @@ import {
  *
  * - It has no OS sandbox: its ACP permission layer never applies one, whatever `--sandbox` or
  *   `sandbox.mode` say. So below full access every shell command it wants to run comes to Harness
- *   Relay (`session/request_permission`): none runs without asking. Its own tools read anywhere and
- *   edit inside the workspace without asking.
+ *   Relay (`session/request_permission`); none runs without asking, except those on a Cursor team's
+ *   auto-run allowlist, which a team admin sets on Cursor's side. Its own tools read anywhere and
+ *   edit inside the workspace without asking (but for its protected files, which it asks about).
  * - Its settings file (`cli-config.json` in `CURSOR_CONFIG_DIR`) decides what runs without asking
  *   (`permissions.allow`, `approvalMode`), and Cursor writes into it when a session changes its model
  *   or the user answers "allow always". Each run therefore gets a private config folder of its own
@@ -37,8 +38,10 @@ import {
  *   and a link to the account's sessions folder (`acp-sessions`), so sessions still resume. A
  *   project's own `.cursor/cli.json`, which Cursor would merge over it, is not read
  *   (`--disable-project-configs`).
- * - Below full access its read tool may not read the protected paths (`Read(<path>/**)` deny rules),
- *   and in read-only mode its write tool may not write at all (`Write(**)`).
+ * - Below full access its read and write tools may not reach the protected paths (`Read(<path>/**)`,
+ *   `Write(<path>/**)` deny rules), as far as Cursor matches them: against the path as written, by
+ *   letter case, without resolving links. In read-only mode its write tool may not write at all
+ *   (`Write(**)`).
  * - Full access: `--force` (its "Run Everything"); no rules are added.
  * - It has no system prompt over ACP, so the briefing goes at the top of the prompt: in a new session,
  *   and in a resumed one when it changed since it was last sent (`cursorPromptText`).
@@ -206,7 +209,14 @@ export function cursorPath(call: CursorToolCall): string | undefined {
   return (diff as { path?: string } | undefined)?.path ?? titleSubject(call.title);
 }
 
-const isWeb = (call: CursorToolCall) => call.kind === 'fetch' || (call.kind === 'search' && /^web[ _]search/i.test(call.title ?? call.toolCallId ?? ''));
+/** A web fetch or search: the main agent's (kind fetch, or a search titled "Web search…"), or a subagent's ("Allow web search?"). */
+const isWeb = (call: CursorToolCall) =>
+  call.kind === 'fetch' ||
+  (call.kind === 'search' && /^web[ _]search/i.test(call.title ?? call.toolCallId ?? '')) ||
+  /^Allow web (search|fetch)\?/i.test(call.title ?? '');
+
+/** A delete (Cursor reports one as kind `edit`, titled "Delete `<path>`"). */
+const isDelete = (call: CursorToolCall) => call.kind === 'delete' || /^delete\b/i.test(call.title ?? '');
 
 /** Whether `path` is in `dir`, links on the way resolved (a link in the project may lead out of it). */
 const inside = (dir: string, path: string) => {
@@ -216,13 +226,16 @@ const inside = (dir: string, path: string) => {
 
 /**
  * Whether to approve a call Cursor asks about under this permission. It has no sandbox, so below full
- * access the permission covers only web fetches and searches, reads, and in edit mode a write or
- * delete inside the working directory; every command, MCP tool call and anything else goes to the user.
+ * access the permission covers only web fetches and searches, reads, and in edit mode a delete inside
+ * the working directory (Cursor asks about every delete). Every command, MCP tool call and anything
+ * else goes to the user, and so does a write: Cursor writes inside the workspace without asking, except
+ * its protected files (`.git/hooks/**`, `.git/config`, `.vscode/**`, `.cursor/*.json`…), where a write
+ * could make code run later, outside any sandbox.
  */
 export function cursorPermissionDecision(permission: Permission, call: CursorToolCall, cwd: string): AcpDecision {
   if (permission === 'full') return { allow: true };
   if (isWeb(call) || call.kind === 'read') return { allow: true };
-  if (permission === 'edit' && (call.kind === 'edit' || call.kind === 'delete')) {
+  if (permission === 'edit' && isDelete(call)) {
     const path = cursorPath(call);
     if (path && inside(cwd, path)) return { allow: true };
   }
@@ -266,14 +279,15 @@ const KIND_NAME: Record<string, string> = {
 
 /**
  * Cursor's service errors, which it sends as reply text on a text block of their own (as its code
- * does in 2026.11.11: `"\n\nError: …"`, "Upgrade your plan to continue", "Please sign in to
- * continue"). Returns the error, or undefined.
+ * does in 2026.11.11: `"\n\nError: …"`, or "Please sign in", "Upgrade your plan", "Add a payment
+ * method" or "Check your settings" "to continue"). Returns the error, or undefined. An error of
+ * another kind it sends as its bare message, which cannot be told from a reply.
  */
 export function cursorServiceError(chunk: string): string | undefined {
   if (!chunk.startsWith('\n\n')) return undefined;
   const text = chunk.trim();
   if (/^Error: \S/.test(text)) return text.slice('Error: '.length);
-  if (/^(Upgrade your plan to continue|Please sign in to continue)\b/i.test(text)) return text;
+  if (/^(Upgrade your plan|Please sign in|Add a payment method|Check your settings) to continue\b/i.test(text)) return text;
   return undefined;
 }
 
@@ -290,7 +304,8 @@ interface CallState {
 
 /**
  * Turns Cursor's ACP `session/update` payloads into AgentEvents. `readOnly`: its write tool may not
- * write (`Write(**)`), which Cursor reports as a completed call, so its writes are shown as not made.
+ * write or delete (`Write(**)`, which Cursor checks before it would ask), and reports such a call as
+ * completed, so its writes and deletes are shown as not made.
  */
 export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnly = false) {
   const calls = new Map<string, CallState>();
@@ -323,7 +338,7 @@ export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnl
     const code = typeof out?.exitCode === 'number' ? out.exitCode : undefined;
     const printed = [out?.stdout, out?.stderr].filter((s): s is string => typeof s === 'string' && s.length > 0).join('\n');
     const text = acpContentText(u.content);
-    const blocked = readOnly && c.kind === 'edit' && u.status === 'completed' && !/^delete\b/i.test(c.title ?? '');
+    const blocked = readOnly && (c.kind === 'edit' || c.kind === 'delete') && u.status === 'completed';
     const why = refused.get(id) ?? (blocked ? t().cursorReadOnlyWrite : undefined);
     const ok = u.status === 'completed' && !why && (code === undefined || code === 0);
     const output = printed ? tailText(printed) : ok && text ? tailText(text) : undefined;
@@ -408,6 +423,11 @@ export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnl
 }
 
 // --- The runner --------------------------------------------------------------------------------
+
+/** Why `authenticate` failed, without the sign-in link Cursor adds (signing in goes through Settings). */
+export function cursorSignInError(message: string): string {
+  return message.replace(/[\s.:]*Please visit:?\s*https?:\/\/\S+/gi, '').replace(/[\s:]+$/, '').trim();
+}
 
 /** The decision after the user declined; Cursor cannot pass their note to the model. */
 function declinedLabel(note?: string): string {
@@ -513,7 +533,10 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
     const methods: { id?: string }[] = Array.isArray(init?.authMethods) ? init.authMethods : [];
     if (!env.CURSOR_API_KEY && !env.CURSOR_AUTH_TOKEN && methods.some((m) => m.id === 'cursor_login')) {
       await conn.request('authenticate', { methodId: 'cursor_login' }).catch((err: Error) => {
-        throw new AgentRunError(t().cursorSignIn(err.message));
+        // Cursor's own words are in the error's data. Its sign-in link would lead nowhere: this
+        // process, which would finish that sign-in, ends with the turn.
+        const data = err instanceof RpcError ? (err.data as { message?: unknown } | undefined) : undefined;
+        throw new AgentRunError(t().cursorSignIn(cursorSignInError(typeof data?.message === 'string' ? data.message : err.message)));
       });
     }
     const mcpServers = acpMcpServers(o.mcpServers ?? [], Boolean(init?.agentCapabilities?.mcpCapabilities?.http), 'cursor');

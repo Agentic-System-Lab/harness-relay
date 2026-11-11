@@ -1014,7 +1014,7 @@ export const en: Messages = {
         tools: 'Cursor does not report its built-in tools',
         instructions: 'Cursor has no setting to skip instruction files for one run (AGENTS.md, CLAUDE.md, CLAUDE.local.md and .cursor/rules in the working directory and every folder above it)',
         memory: 'Cursor keeps no memory files of its own',
-        hooks: "Cursor has no setting to skip hooks for one run: ~/.cursor/hooks.json and your organisation's hooks also run in Harness Relay's runs",
+        hooks: "Cursor has no setting to skip hooks for one run: ~/.cursor/hooks.json, your organisation's hooks and Claude Code's in ~/.claude/settings.json (which Cursor loads too, whatever you leave out of Claude Code's runs) also run in Harness Relay's runs",
         agents: 'Cursor has no setting to skip subagents for one run',
         plugins: 'Cursor loads no plugins in ACP mode',
       },

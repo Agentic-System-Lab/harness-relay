@@ -167,10 +167,10 @@ async function api<T>(base: string, path: string, body?: unknown): Promise<T> {
   return (await r.json()) as T;
 }
 
-/** Every CLI installed and signed in, and Grok trusting this repository (it asks otherwise, and the demo would stop there). */
 /** The CLIs the demo's first question asks for, one member each. */
 export const DEMO_PROVIDERS: readonly Provider[] = ['claude', 'codex', 'grok'];
 
+/** Those CLIs installed and signed in, and Grok trusting this repository (it asks otherwise, and the demo would stop there). */
 export async function checkProviders(base: string, log: (...a: unknown[]) => void): Promise<void> {
   // The CLIs its questions name (Cursor is not among them).
   const all = (await api<ProviderStatus[]>(base, '/api/providers?refresh=1')).filter((p) => DEMO_PROVIDERS.includes(p.provider));

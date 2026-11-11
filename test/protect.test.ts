@@ -141,6 +141,8 @@ describe('what decides how the agents run, as a working directory', () => {
     expect(agentFolderOverlap(join(home, '.cursor'), moved)).toBe(join(home, '.cursor'));
     const xdg = { ...o, env: { XDG_CONFIG_HOME: join(root, 'xdg') } };
     expect(agentFolderOverlap(join(root, 'xdg/cursor/rules'), xdg)).toBe(join(root, 'xdg/cursor'));
+    // Where it keeps its sign-in on Linux, also with its config folder moved.
+    expect(agentFolderOverlap(join(home, '.config/cursor'), moved)).toBe(join(home, '.config/cursor'));
   });
 
   it("refuses the folder of the other accounts' homes, and a project in one of them", () => {

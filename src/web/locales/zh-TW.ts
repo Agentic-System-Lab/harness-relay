@@ -1027,7 +1027,7 @@ export const zhTW = {
         tools: 'Cursor 不回報它的內建工具',
         instructions: 'Cursor 沒有能單次略過指示檔的設定（工作目錄與它上層每個資料夾的 AGENTS.md、CLAUDE.md、CLAUDE.local.md 與 .cursor/rules）',
         memory: 'Cursor 沒有自己的記憶檔',
-        hooks: 'Cursor 沒有能單次略過 hook 的設定：~/.cursor/hooks.json 與組織的 hook 也會在 Harness Relay 的執行中執行',
+        hooks: 'Cursor 沒有能單次略過 hook 的設定：~/.cursor/hooks.json、組織的 hook，以及 ~/.claude/settings.json 裡 Claude Code 的 hook（Cursor 也會載入，不論你讓 Claude Code 的執行不載入哪些）也會在 Harness Relay 的執行中執行',
         agents: 'Cursor 沒有能單次略過 subagent 的設定',
         plugins: 'Cursor 在 ACP 模式下不載入 plugin',
       },

@@ -29,11 +29,12 @@ import {
   cursorRunConfig,
   cursorRunner,
   cursorServiceError,
+  cursorSignInError,
   prepareCursorRun,
 } from '../src/server/agents/cursor';
 import { AgentRunError, type AgentEvent, type ApprovalRequest } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
-import { cursorEffortOption, parseCursorModels } from '../src/server/models';
+import { cursorEffortOption, discoverModels, parseCursorModels } from '../src/server/models';
 import { relayTmpDir } from '../src/server/protect';
 
 const CWD = '/work/app';
@@ -54,26 +55,32 @@ describe('cursor permission policy (no sandbox)', () => {
     }
   });
 
-  it('edit: also writes and deletes inside the working directory, but every command and MCP call asks', () => {
-    expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Edit `/work/app/src/a.ts`' }, CWD).allow).toBe(true);
+  it('edit: also deletes inside the working directory, but every write it asks about, command and MCP call asks', () => {
     expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Delete `/work/app/old.ts`' }, CWD).allow).toBe(true);
-    expect(cursorPermissionDecision('edit', { kind: 'edit', rawInput: { path: 'src/b.ts' } }, CWD).allow).toBe(true);
+    expect(cursorPermissionDecision('edit', { kind: 'delete', rawInput: { path: 'old.ts' } }, CWD).allow).toBe(true);
+    expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Delete `/work/other/x.ts`' }, CWD).allow).toBe(false);
+    // Cursor asks about a write inside the workspace only for its protected files, where code could run later.
+    for (const title of ['Edit `/work/app/.git/hooks/pre-commit`', 'Write /work/app/.vscode/tasks.json', 'Edit `/work/app/.claude/settings.json`']) {
+      expect(cursorPermissionDecision('edit', { kind: 'edit', title }, CWD).allow, title).toBe(false);
+    }
+    expect(cursorPermissionDecision('edit', { kind: 'edit', rawInput: { path: 'src/b.ts' } }, CWD).allow).toBe(false);
     expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Write /work/other/x.txt' }, CWD).allow).toBe(false);
-    expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Write /work/app/../other/x.txt' }, CWD).allow).toBe(false);
-    expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Edit File' }, CWD).allow).toBe(false); // no path: ask
     expect(cursorPermissionDecision('edit', { kind: 'execute', rawInput: { command: 'npm test' } }, CWD).allow).toBe(false);
     expect(cursorPermissionDecision('edit', { kind: 'other', title: 'github: create_issue' }, CWD).allow).toBe(false);
+    // A subagent's web search and fetch, asked with kind "other".
+    expect(cursorPermissionDecision('edit', { kind: 'other', title: 'Allow web search?' }, CWD).allow).toBe(true);
+    expect(cursorPermissionDecision('read-only', { kind: 'other', title: 'Allow web fetch?' }, CWD).allow).toBe(true);
   });
 
-  it('edit: takes a link out of the working directory for what it leads to', () => {
+  it('edit: takes a link out of the working directory for what it leads to (for a delete)', () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-cursor-link-')));
     try {
       mkdirSync(join(root, 'app'));
       mkdirSync(join(root, 'outside'));
       symlinkSync(join(root, 'outside'), join(root, 'app', 'out'));
       const cwd = join(root, 'app');
-      expect(cursorPermissionDecision('edit', { kind: 'edit', title: `Write ${join(cwd, 'out', 'x.txt')}` }, cwd).allow).toBe(false);
-      expect(cursorPermissionDecision('edit', { kind: 'edit', title: `Write ${join(cwd, 'new', 'x.txt')}` }, cwd).allow).toBe(true);
+      expect(cursorPermissionDecision('edit', { kind: 'edit', title: `Delete \`${join(cwd, 'out', 'x.txt')}\`` }, cwd).allow).toBe(false);
+      expect(cursorPermissionDecision('edit', { kind: 'edit', title: `Delete \`${join(cwd, 'new', 'x.txt')}\`` }, cwd).allow).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -170,7 +177,7 @@ describe('cursor session updates', () => {
     expect(h.call('r1')).toMatchObject({ kind: 'execute', rawInput: { command: 'rm -rf x' } });
   });
 
-  it('shows the writes of read-only mode as not made (Cursor reports a denied write as completed), not its deletes', () => {
+  it('shows the writes and deletes of read-only mode as not made (Cursor reports a denied one as completed)', () => {
     const events: AgentEvent[] = [];
     const h = createCursorUpdateHandler((e) => events.push(e), true);
     withLang('en', () => {
@@ -181,7 +188,7 @@ describe('cursor session updates', () => {
     });
     expect(events.filter((e) => e.type === 'tool_end')).toEqual([
       { type: 'tool_end', id: 'w1', ok: false, error: 'Not written: Cursor may not write in read-only mode' },
-      { type: 'tool_end', id: 'd1', ok: true },
+      { type: 'tool_end', id: 'd1', ok: false, error: 'Not written: Cursor may not write in read-only mode' },
     ]);
   });
 
@@ -194,6 +201,8 @@ describe('cursor session updates', () => {
     expect(h.serviceError).toBe('Upgrade your plan to continue');
     expect(cursorServiceError('\n\nError: S: WritableIterable is closed')).toBe('S: WritableIterable is closed');
     expect(cursorServiceError('\n\nPlease sign in to continue')).toBe('Please sign in to continue');
+    expect(cursorServiceError('\n\nAdd a payment method to continue')).toBe('Add a payment method to continue');
+    expect(cursorServiceError('\n\nCheck your settings to continue')).toBe('Check your settings to continue');
     expect(cursorServiceError('\n\nError handling is covered below.')).toBeUndefined(); // "Error " is not "Error: "
     expect(cursorServiceError('Error: but not on a block of its own')).toBeUndefined();
     expect(cursorServiceError('\n\nThe tests pass.')).toBeUndefined();
@@ -339,19 +348,28 @@ const ask = (method, params) => new Promise((done) => { const id = next++; waiti
 const update = (sessionId, u) => out({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: u } });
 const MODEL_OPTIONS = { 'claude-opus-5-5': [{ id: 'effort', category: 'thought_level', currentValue: 'medium', options: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }] }] };
 let options = [{ id: 'mode', currentValue: 'ask' }, { id: 'model', currentValue: 'default' }];
+let hung;
 const rl = require('node:readline').createInterface({ input: process.stdin });
 rl.on('close', () => process.exit(0));
 rl.on('line', async (line) => {
   const m = JSON.parse(line);
   if (!m.method) { const done = waiting.get(m.id); waiting.delete(m.id); if (done) done(m.result); return; }
-  if (m.id === undefined) return log({ notification: m.method });
+  if (m.id === undefined) {
+    log({ notification: m.method });
+    if (m.method === 'session/cancel' && hung) hung({ stopReason: 'cancelled' });
+    return;
+  }
   log({ method: m.method, params: m.params });
   const reply = (result) => out({ jsonrpc: '2.0', id: m.id, result });
   const fail = (message) => out({ jsonrpc: '2.0', id: m.id, error: { code: -32602, message: 'Invalid params', data: { message } } });
   switch (m.method) {
     case 'initialize':
       return reply({ protocolVersion: 1, agentCapabilities: { loadSession: true, mcpCapabilities: { http: true }, promptCapabilities: { image: true } }, authMethods: [{ id: 'cursor_login' }] });
-    case 'authenticate': return reply({});
+    case 'authenticate':
+      if (process.env.FAKE_CURSOR_SIGNED_OUT) return fail('Failed to open browser for login. Please visit: https://cursor.com/loginDeepControl?challenge=x');
+      return reply({});
+    case 'cursor/list_available_models':
+      return reply({ models: [{ value: 'default', name: 'Auto', configOptions: [] }, { value: 'claude-opus-5-5', name: 'Claude Opus 5.5', configOptions: MODEL_OPTIONS['claude-opus-5-5'] }] });
     case 'session/new': return reply({ sessionId: 'sess-1', configOptions: options });
     case 'session/load': {
       const id = m.params.sessionId;
@@ -371,6 +389,10 @@ rl.on('line', async (line) => {
     }
     case 'session/prompt': {
       const sid = m.params.sessionId;
+      if (process.env.FAKE_CURSOR_HANG) {
+        update(sid, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Working…' } });
+        return (hung = reply);
+      }
       update(sid, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Thinking.' } });
       update(sid, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Running it.' } });
       update(sid, { sessionUpdate: 'tool_call', toolCallId: 'c1\\nfc1', title: '\`npm test\`', kind: 'execute', status: 'pending', rawInput: { command: 'npm test' } });
@@ -401,7 +423,7 @@ rl.on('line', async (line) => {
   mkdirSync(account);
   writeFileSync(join(account, 'cli-config.json'), JSON.stringify({ permissions: { allow: ['Shell(*)'], deny: ['Read(.env)'] }, model: { modelId: 'x' } }));
 
-  const turn = async (o: { log: string; sessionId?: string; permission?: 'read-only' | 'edit' | 'full'; model?: string; effort?: string; env?: NodeJS.ProcessEnv; ask?: boolean }) => {
+  const turn = async (o: { log: string; sessionId?: string; permission?: 'read-only' | 'edit' | 'full'; model?: string; effort?: string; env?: NodeJS.ProcessEnv; ask?: boolean; signal?: AbortSignal; onEvent?: (e: AgentEvent) => void }) => {
     const events: AgentEvent[] = [];
     const asked: ApprovalRequest[] = [];
     const logFile = join(dir, o.log);
@@ -418,8 +440,8 @@ rl.on('line', async (line) => {
         permission: o.permission ?? 'edit',
         model: o.model,
         effort: o.effort,
-        signal: new AbortController().signal,
-        onEvent: (e) => events.push(e),
+        signal: o.signal ?? new AbortController().signal,
+        onEvent: (e) => (events.push(e), o.onEvent?.(e)),
         requestApproval: o.ask === false ? undefined : async (req) => (asked.push(req), { allow: true }),
         protectedPaths: ['/protected/browser'],
       }));
@@ -508,6 +530,48 @@ rl.on('line', async (line) => {
     const gone = await turn({ log: 'gone.log', sessionId: 'gone' });
     expect(gone.error).toBeInstanceOf(AgentRunError);
     expect(gone.events).toEqual([]);
+  });
+
+  it('says a signed-out Cursor is not signed in, without the sign-in link that would lead nowhere', async () => {
+    expect(cursorSignInError('Failed to open browser for login. Please visit: https://cursor.com/loginDeepControl?challenge=x')).toBe('Failed to open browser for login');
+    const t = await turn({ log: 'signed-out.log', env: { FAKE_CURSOR_SIGNED_OUT: '1' } });
+    expect((t.error as Error).message).toBe('Cursor is not signed in (Failed to open browser for login). Sign in under Cursor in Settings, or set an API key.');
+    expect(t.methods).toEqual(['initialize', 'authenticate']);
+  });
+
+  it('stops a turn: cancels the session, and removes the private folder', async () => {
+    const stop = new AbortController();
+    const t = await turn({ log: 'stop.log', env: { FAKE_CURSOR_HANG: '1' }, signal: stop.signal, onEvent: (e) => e.type === 'text' && stop.abort() });
+    expect(t.error).toBeInstanceOf(AgentRunError);
+    expect((t.error as AgentRunError).aborted).toBe(true);
+    expect(t.lines.some((l) => l.notification === 'session/cancel')).toBe(true);
+    expect(existsSync(t.lines[0].configDir)).toBe(false);
+  });
+
+  it("fails before it starts when the run's config folder cannot be made", async () => {
+    const file = join(dir, 'not-a-folder');
+    writeFileSync(file, '');
+    const t = await turn({ log: 'no-folder.log', env: { CURSOR_CONFIG_DIR: file } });
+    expect((t.error as Error).message).toMatch(/^Could not prepare Cursor's config folder for this turn: /);
+    expect(t.lines).toEqual([]);
+  });
+
+  it("asks it for its models over ACP, with no session or prompt, and not authenticate over a key", async () => {
+    const log = join(dir, 'models.log');
+    const models = await discoverModels('cursor', bin, { ...process.env, CURSOR_CONFIG_DIR: account, FAKE_CURSOR_LOG: log });
+    expect(models).toMatchObject({ provider: 'cursor', source: 'cli', efforts: ['low', 'medium', 'high'] });
+    expect(models.models).toEqual([
+      { id: 'default', label: 'Auto', efforts: [] },
+      { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', efforts: ['low', 'medium', 'high'], defaultEffort: 'medium' },
+    ]);
+    const methods = () => readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((l) => l.method).map((l) => l.method);
+    expect(methods()).toEqual(['initialize', 'authenticate', 'cursor/list_available_models']);
+    rmSync(log);
+    await discoverModels('cursor', bin, { ...process.env, CURSOR_CONFIG_DIR: account, FAKE_CURSOR_LOG: log, CURSOR_API_KEY: 'key_1' });
+    expect(methods()).toEqual(['initialize', 'cursor/list_available_models']);
+    const missing = await discoverModels('cursor', join(dir, 'no-such-cursor'), process.env);
+    expect(missing).toMatchObject({ provider: 'cursor', models: [], source: 'builtin' });
+    expect(missing.error).toBeTruthy();
   });
 
   it('does not start with a protected path its rules would read as a pattern', async () => {

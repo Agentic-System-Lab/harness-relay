@@ -399,6 +399,7 @@ describe('what Cursor loads by itself, from its files', () => {
   at(join(home, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { github: { command: 'npx', env: { TOKEN: 'secret' } }, docs: { url: 'https://x' } } }));
   at(join(repo, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { local: { command: 'node' }, github: { command: 'other' } } }));
   at(join(home, '.cursor', 'hooks.json'), JSON.stringify({ version: 1, hooks: { beforeShellExecution: [{ command: 'secret-hook --token x' }], preToolUse: [{ command: 'y', matcher: 'Shell' }] } }));
+  at(join(home, '.claude', 'settings.json'), JSON.stringify({ model: 'opus', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'claude-secret' }] }] } }));
   at(join(cwd, '.cursor', 'agents', 'planner.md'), '---\nname: planner\ndescription: Plans\n---\n');
   at(join(cwd, '.claude', 'agents', 'tester.md'), 'no front matter');
   at(join(repo, 'AGENTS.md'), '# repo');
@@ -430,8 +431,11 @@ describe('what Cursor loads by itself, from its files', () => {
     expect(hooks).toEqual([
       { event: 'beforeShellExecution', source: 'user', file: join(home, '.cursor', 'hooks.json') },
       { event: 'preToolUse', matcher: 'Shell', source: 'user', file: join(home, '.cursor', 'hooks.json') },
+      // Claude Code's, which Cursor loads too.
+      { event: 'PreToolUse', matcher: 'Bash', source: 'Claude Code (user)', file: join(home, '.claude', 'settings.json') },
     ]);
     expect(JSON.stringify(hooks)).not.toContain('secret-hook');
+    expect(JSON.stringify(hooks)).not.toContain('claude-secret');
     expect(cursorAgents(cwd)).toEqual([
       { name: 'planner', description: 'Plans', source: 'project' },
       { name: 'tester', description: '', source: 'project' },

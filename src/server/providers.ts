@@ -71,6 +71,9 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
         : { loggedIn: null, detail: tail(out, 200) };
     }
     case 'cursor': {
+      // With a key it runs on that key, in the one run's memory (`CURSOR_SHARED_SIGN_IN`), which
+      // `status` does not sign in with: it would say signed out.
+      if (CREDENTIAL_ENV.cursor.some((k) => env[k])) return { loggedIn: true, method: 'API key' };
       // `status` signs nothing in and needs no terminal; anything else it took for a prompt.
       const r = await capture(bin, ['status', '--format', 'json'], { ...env, NO_OPEN_BROWSER: '1' });
       const j = firstJsonObject(r.stdout);
@@ -227,9 +230,12 @@ export class ProviderService {
 
   async logout(p: Provider, account = '', timeoutMs = 30_000): Promise<string> {
     const env = this.settings.env(p, account);
-    // Cursor's default account signs out of the sign-in Cursor keeps, which its API key (if any) keeps aside.
+    // Cursor's default account signs out of the sign-in Cursor keeps, which its API key (if any) keeps
+    // aside: in the store the server was started with, if it names one.
     if (p === 'cursor' && !this.settings.resolveAccount(p, account)) {
-      delete env[CURSOR_SHARED_SIGN_IN];
+      const own = process.env[CURSOR_SHARED_SIGN_IN];
+      if (own) env[CURSOR_SHARED_SIGN_IN] = own;
+      else delete env[CURSOR_SHARED_SIGN_IN];
       for (const k of CREDENTIAL_ENV.cursor) delete env[k];
     }
     return this.logoutIn(p, env, timeoutMs);
