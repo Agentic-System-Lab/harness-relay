@@ -40,6 +40,7 @@ import {
   relaySandboxPaths,
   relaySandboxRefusal,
   relaySandboxRoot,
+  freeLoopbackPort,
   relaySandboxHostRoot,
   HOST_TMP_MAX,
   sandboxAvailable,
@@ -527,16 +528,22 @@ describe('relaySandboxEnv', () => {
     expect(run(true).NODE_USE_ENV_PROXY).toBe('1');
   });
 
-  it("relays the loopback ports the run may reach onto the sandbox's own loopback, through the proxy (Linux)", () => {
-    // A stand-in socat that says what it was asked to do.
+  it("relays the loopback ports the run may reach onto the sandbox's own loopback, through the proxy (Linux)", async () => {
+    // A stand-in socat that says what it was asked to do, one line each (the relays start side by side),
+    // and listens on an IPv4 port it is given for a moment, so the script sees it up (Linux) and goes on.
     const log = join(dir, 'socat.log');
     rmSync(log, { force: true });
     const socat = join(dir, 'fake-socat');
-    // One write per line: the relays start side by side.
-    writeFileSync(socat, `#!/bin/sh\nline=$(printf '%s|' "$@")\nprintf '%s\\n' "$line" >> '${log}'\n`, { mode: 0o755 });
-    const { outerEnv, command } = relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true, loopbackRelay: { socat, ports: [11434, 18081] } });
+    writeFileSync(
+      socat,
+      `#!${process.execPath}\nconst a = process.argv.slice(2);\nrequire('node:fs').appendFileSync(${JSON.stringify(log)}, a.join('|') + '|\\n');\n` +
+        `const m = /^TCP4-LISTEN:(\\d+)/.exec(a[0] ?? '');\nif (m) { const s = require('node:net').createServer().listen(Number(m[1]), '127.0.0.1'); setTimeout(() => s.close(), 3000); }\n`,
+      { mode: 0o755 },
+    );
+    const [p1, p2] = [await freeLoopbackPort(), await freeLoopbackPort()].sort((a, b) => a - b);
+    const { outerEnv, command } = relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true, loopbackRelay: { socat, ports: [p1, p2] } });
     expect(command).toBe(SANDBOX_EXEC_SCRIPT); // still fixed text: the ports and socat's path are in the environment
-    expect(outerEnv).toMatchObject({ [`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`]: '11434 18081', [`${SANDBOX_EXEC_PREFIX}SOCAT`]: socat });
+    expect(outerEnv).toMatchObject({ [`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`]: `${p1} ${p2}`, [`${SANDBOX_EXEC_PREFIX}SOCAT`]: socat });
     // sandbox-runtime's proxy, with the run's own credentials, percent-encoded as it gives them.
     const proxy = 'http://srt.aGk%3D:t0k%2Ben@localhost:3128';
     const r = spawnSync('/bin/sh', ['-c', command], { env: { ...outerEnv, HTTP_PROXY: proxy }, encoding: 'utf8' });
@@ -545,12 +552,15 @@ describe('relaySandboxEnv', () => {
     const until = Date.now() + 5000;
     while (Date.now() < until && (!existsSync(log) || readFileSync(log, 'utf8').trim().split('\n').length < 4)) spawnSync('/bin/sleep', ['0.05']);
     const calls = readFileSync(log, 'utf8').trim().split('\n').sort();
-    expect(calls).toEqual([
-      'TCP4-LISTEN:11434,bind=127.0.0.1,fork,reuseaddr|PROXY:localhost:127.0.0.1:11434,proxyport=3128,proxyauth=srt.aGk=:t0k+en|',
-      'TCP4-LISTEN:18081,bind=127.0.0.1,fork,reuseaddr|PROXY:localhost:127.0.0.1:18081,proxyport=3128,proxyauth=srt.aGk=:t0k+en|',
-      'TCP6-LISTEN:11434,bind=[::1],ipv6only=1,fork,reuseaddr|PROXY:localhost:127.0.0.1:11434,proxyport=3128,proxyauth=srt.aGk=:t0k+en|',
-      'TCP6-LISTEN:18081,bind=[::1],ipv6only=1,fork,reuseaddr|PROXY:localhost:127.0.0.1:18081,proxyport=3128,proxyauth=srt.aGk=:t0k+en|',
-    ]);
+    const relay = (listen: string, port: number) => `${listen}|PROXY:localhost:127.0.0.1:${port},proxyport=3128,proxyauth=srt.aGk=:t0k+en|`;
+    expect(calls).toEqual(
+      [
+        relay(`TCP4-LISTEN:${p1},bind=127.0.0.1,fork,reuseaddr`, p1),
+        relay(`TCP4-LISTEN:${p2},bind=127.0.0.1,fork,reuseaddr`, p2),
+        relay(`TCP6-LISTEN:${p1},bind=[::1],ipv6only=1,fork,reuseaddr`, p1),
+        relay(`TCP6-LISTEN:${p2},bind=[::1],ipv6only=1,fork,reuseaddr`, p2),
+      ].sort(),
+    );
     // Nothing is relayed without ports, or without a proxy to go through.
     expect(relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true, loopbackRelay: { socat, ports: [] } }).outerEnv[`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`]).toBeUndefined();
     expect(relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true }).outerEnv[`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`]).toBeUndefined();

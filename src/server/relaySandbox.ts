@@ -814,9 +814,9 @@ if [ -n "$HARNESS_RELAY_SBX_RELAY_PORTS" ] && [ -n "$HTTP_PROXY" ]; then
     "$HARNESS_RELAY_SBX_SOCAT" "TCP4-LISTEN:$port,bind=127.0.0.1,fork,reuseaddr" "PROXY:${'$'}{h%:*}:127.0.0.1:$port,proxyport=${'$'}{h##*:},proxyauth=$a" </dev/null >/dev/null 2>&1 &
     "$HARNESS_RELAY_SBX_SOCAT" "TCP6-LISTEN:$port,bind=[::1],ipv6only=1,fork,reuseaddr" "PROXY:${'$'}{h%:*}:127.0.0.1:$port,proxyport=${'$'}{h##*:},proxyauth=$a" </dev/null >/dev/null 2>&1 &
   done
+  k=0
   for port in $HARNESS_RELAY_SBX_RELAY_PORTS; do
     x=$(printf '%04X' "$port")
-    k=0
     while [ "$k" -lt 100 ] && [ -r /proc/net/tcp ]; do
       up=
       while read -r s l r st rest; do
