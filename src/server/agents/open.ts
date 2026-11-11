@@ -227,6 +227,19 @@ export function stateFolder(home: string, key: string): string {
 /** How a state folder set aside to be removed is named in `private/` (never a key's: those start alnum). */
 const SET_ASIDE = '.gone-';
 
+/** How a state key's sealed folder is named in `private/` (never a key's either). */
+const SEALED = '.sealed-';
+
+/**
+ * A state key's sealed folder in an open agent's home: what the server keeps about the key's state
+ * for its later runs (Goose's extension list as a session started), beside the state folder. No run
+ * may read or write it (it is in a private root, outside every run's own folders), so a command
+ * cannot change what the next run is given back. Emptied with the state folder.
+ */
+export function sealedFolder(home: string, key: string): string {
+  return join(home, PRIVATE_DIR, `${SEALED}${stateFolderName(key)}`);
+}
+
 /**
  * Empties a folder in an open agent's `private/` folder so that the next run starts with a new, empty
  * one: it is renamed aside first (which needs only `private/` to be writable, not anything a run may
@@ -259,6 +272,8 @@ function emptyPrivateFolder(dir: string): void {
  */
 export function emptyStateFolder(home: string, key: string): void {
   emptyPrivateFolder(stateFolder(home, key));
+  // Only the server writes it, so nothing in it can keep it from going.
+  rmSync(sealedFolder(home, key), { recursive: true, force: true });
 }
 
 /**
@@ -408,6 +423,7 @@ export async function startOpenProcess(
   const keyed = Boolean(o.stateKey);
   const state = join(root, PRIVATE_DIR, keyed ? stateFolderName(o.stateKey!) : `run-${randomBytes(8).toString('hex')}`);
   if (o.freshState || !keyed) emptyPrivateFolder(state);
+  if (o.freshState && keyed) rmSync(sealedFolder(root, o.stateKey!), { recursive: true, force: true });
   mkdirSync(state, { recursive: true, mode: 0o700 });
   const home: OpenAgentHome = { root, state, ...agent.home(root, state) };
   // Sandboxed, the run's temp folder is the sandbox's own (its TMPDIR, where Unix sockets may go), made

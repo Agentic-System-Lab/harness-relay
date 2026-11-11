@@ -15,6 +15,7 @@ import {
 } from '../src/server/agents/acpTurn';
 import {
   GOOSE_CONFIG_YAML,
+  GOOSE_SESSION_CLEARED,
   GOOSE_EFFORTS,
   GOOSE_HINT_FILES,
   GOOSE_PERMISSION_YAML,
@@ -54,6 +55,7 @@ import {
   gooseProvider,
   gooseRunner,
   gooseSessionParams,
+  gooseSessionsDb,
   GOOSE_SHELL_WRAPPER,
   gooseShellEnv,
   gooseToolName,
@@ -63,10 +65,13 @@ import {
   parseGooseCatalog,
   parseGooseSkills,
   prepareGoose,
+  restoreGooseSession,
+  sealGooseExtensions,
   resetGooseDir,
   shellMask,
 } from '../src/server/agents/goose';
-import type { OpenRunContext } from '../src/server/agents/open';
+import { emptyStateFolder, sealedFolder, type OpenRunContext } from '../src/server/agents/open';
+import { openSqliteFile } from '../src/server/db';
 import { AgentRunError, type AgentEvent, type ApprovalRequest, type RunBackends, type RunOptions } from '../src/server/agents/types';
 import { backendRun } from '../src/server/backends';
 import { withLang } from '../src/server/i18n';
@@ -1348,6 +1353,88 @@ describe('a Goose turn', () => {
     const ctx = context({ permission: 'read-only' });
     await gooseAfterSession(conn, { sessionId: 's', method: 'new', state: { configOptions: [{ id: 'provider', currentValue: 'openai' }, { id: 'model', currentValue: 'gpt-5.4-mini' }] } }, ctx);
     expect((conn as any).request.mock.calls.map((c: any[]) => c[0])).toEqual(['_goose/unstable/session/system-prompt/set', 'session/set_mode']);
+  });
+});
+
+describe("a resumed Goose session's own row", () => {
+  const platform = (name: string) => ({ type: 'platform', name, description: '', display_name: null, bundled: true });
+  const stdio = (name: string, cmd: string) => ({ type: 'stdio', name, description: '', cmd, args: [], envs: {}, env_keys: [], timeout: 300, bundled: null });
+  const started = [platform('developer'), platform('analyze'), platform('summon'), platform('todo'), stdio('p1:plug', '/usr/bin/plug'), stdio('lib', '/usr/bin/lib')];
+  /** Goose's sessions table as 1.58.1 makes it (the columns that matter here), with one session. */
+  const sessionsDb = (state: string, extensions: unknown[], extra: Record<string, string> = {}) => {
+    const file = gooseSessionsDb(state);
+    mkdirSync(dirname(file), { recursive: true });
+    const db = openSqliteFile(file);
+    db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, working_dir TEXT NOT NULL, extension_data TEXT DEFAULT '{}', goose_mode TEXT NOT NULL DEFAULT 'auto',
+      recipe_json TEXT, user_recipe_values_json TEXT, system_prompt_override TEXT, system_prompt_extras_json TEXT, container_id TEXT)`);
+    db.prepare('INSERT INTO sessions (id, working_dir, extension_data) VALUES (?, ?, ?)').run('s1', '/p', JSON.stringify({ 'enabled_extensions.v0': { extensions }, 'todo.v0': { notes: 'kept' } }));
+    for (const [column, value] of Object.entries(extra)) db.prepare(`UPDATE sessions SET "${column}" = ?`).run(value);
+    db.close();
+    return file;
+  };
+  const row = (file: string) => {
+    const db = openSqliteFile(file);
+    try {
+      return db.prepare('SELECT * FROM sessions').get() as Record<string, unknown>;
+    } finally {
+      db.close();
+    }
+  };
+  const names = (r: Record<string, unknown>) => (JSON.parse(String(r.extension_data))['enabled_extensions.v0'].extensions as { name: string }[]).map((e) => e.name);
+
+  it('keeps the list a new session started with, and puts it back before a run resumes it, with what Harness Relay never sets cleared', async () => {
+    const ctx = context({ stateKey: 'conv.c1.a1' });
+    const sealed = sealedFolder(ctx.home.root, 'conv.c1.a1');
+    const file = sessionsDb(ctx.home.state, started);
+    // Right after session/new, before the prompt: the list as Goose made it.
+    const conn = { request: vi.fn(async () => ({})) } as unknown as Parameters<typeof gooseAfterSession>[0];
+    await gooseAfterSession(conn, { sessionId: 's1', method: 'new', state: {} }, ctx);
+    expect(JSON.parse(readFileSync(join(sealed, 'goose-extensions.json'), 'utf8'))).toEqual({ sessionId: 's1', extensions: started });
+    expect(statSync(sealed).mode & 0o777).toBe(0o700);
+    // A command of that run (the sandbox lets it write the database) plants a program, a platform
+    // extension that runs are not given, a recipe and a system prompt.
+    const db = openSqliteFile(file);
+    db.prepare('UPDATE sessions SET extension_data = ?, recipe_json = ?, system_prompt_override = ?, system_prompt_extras_json = ?, container_id = ?').run(
+      JSON.stringify({ 'enabled_extensions.v0': { extensions: [...started, stdio('planted', '/bin/sh'), platform('computercontroller')] }, 'todo.v0': { notes: 'kept' } }),
+      '{"extensions":[]}',
+      'planted',
+      '{"other":"planted"}',
+      'c1',
+    );
+    db.close();
+    // The next run resumes it: Harness Relay's list again, the rest of its data kept.
+    prepareGoose({ ...ctx, o: { ...ctx.o, sessionId: 's1' } }, { realHome: '/h', bash: '/bin/bash' });
+    const after = row(file);
+    expect(names(after)).toEqual(['developer', 'analyze', 'summon', 'todo', 'p1:plug', 'lib']);
+    expect(JSON.parse(String(after.extension_data))['todo.v0']).toEqual({ notes: 'kept' });
+    for (const column of GOOSE_SESSION_CLEARED) expect(after[column]).toBeNull();
+    // A list sealed for another session is not this one's.
+    restoreGooseSession(ctx.home.state, sealed, 's2');
+    expect(names(row(file))).toEqual(['developer', 'analyze', 'summon', 'todo', 'p1:plug', 'lib']);
+    // Emptied with the state folder.
+    emptyStateFolder(ctx.home.root, 'conv.c1.a1');
+    expect(existsSync(sealed)).toBe(false);
+  });
+
+  it("keeps only a session's own platform extensions when nothing was sealed for it, and never resumes one it cannot check", () => {
+    const ctx = context({ stateKey: 'conv.c2.a1', sessionId: 's1' });
+    const file = sessionsDb(ctx.home.state, [...started, stdio('planted', '/bin/sh'), platform('computercontroller')], { recipe_json: '{}' });
+    prepareGoose(ctx, { realHome: '/h', bash: '/bin/bash' });
+    // The tool library's servers come back with the load (`mcpServers`); a plugin's only in a new session.
+    expect(names(row(file))).toEqual(['developer', 'analyze', 'summon', 'todo']);
+    expect(row(file).recipe_json).toBeNull();
+    // Nothing to resume: the load says so.
+    expect(() => prepareGoose(context({ stateKey: 'conv.c3.a1', sessionId: 's1' }), { realHome: '/h', bash: '/bin/bash' })).not.toThrow();
+    // A database it cannot read is not resumed (the orchestrator then starts a fresh session).
+    const bad = context({ stateKey: 'conv.c4.a1', sessionId: 's1' });
+    mkdirSync(dirname(gooseSessionsDb(bad.home.state)), { recursive: true });
+    writeFileSync(gooseSessionsDb(bad.home.state), 'not a database');
+    expect(() => withLang('en', () => prepareGoose(bad, { realHome: '/h', bash: '/bin/bash' }))).toThrow(/could not check the extension list Goose keeps for this session/);
+    // A run without a key never resumes, so nothing is sealed for it.
+    const keyless = context();
+    sessionsDb(keyless.home.state, started);
+    sealGooseExtensions(keyless.home.state, sealedFolder(keyless.home.root, 'x'), 'missing');
+    expect(existsSync(sealedFolder(keyless.home.root, 'x'))).toBe(false);
   });
 });
 

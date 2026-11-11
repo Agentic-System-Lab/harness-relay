@@ -336,6 +336,11 @@ function migrate(db: Database): void {
 }
 
 /** Open (or create) the database. The file holds API keys, so it is readable by the owner only. */
+/** A plain connection to another program's SQLite database (no migrations, no pragmas of ours). */
+export function openSqliteFile(file: string): Database {
+  return new DatabaseSync(file);
+}
+
 export function openDatabase(file: string): Database {
   if (file !== ':memory:') {
     mkdirSync(dirname(file), { recursive: true });

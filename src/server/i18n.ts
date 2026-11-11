@@ -147,6 +147,8 @@ const zhTW = {
   openNoBackend: '尚未設定模型來源（設定 → 模型來源）',
 
   // Goose (src/server/agents/goose.ts)
+  gooseSessionNotChecked: (detail: string) =>
+    `Harness Relay 無法檢查 Goose 這個 session 存的擴充功能清單（${detail}），所以沒有接續它：先前執行的指令可能在裡面加了不經詢問就會啟動的程式。這一輪改用新的 session。`,
   gooseAuthFailed: (backend: string) => `Goose 無法用 ${backend} 的 API key 登入。請到「設定 → 模型來源」檢查這把 key。`,
   gooseModelNotFound: (backend: string, model: string) => `${backend} 沒有模型「${model}」（404）。請在成員設定換一個模型。`,
   gooseUnreachable: (backend: string, host: string) => `Goose 連不上 ${backend}（${host}）。請檢查網路，或在「設定 → 模型來源」檢查端點的網址。`,
@@ -568,6 +570,8 @@ const en: ServerMessages = {
   openNoBackend: 'No model backend set up yet (Settings → Model backends)',
 
   // Goose (src/server/agents/goose.ts)
+  gooseSessionNotChecked: (detail) =>
+    `Harness Relay could not check the extension list Goose keeps for this session (${detail}), so it did not resume it: an earlier run's command could have added a program there that starts without asking. The turn starts a fresh session instead.`,
   gooseAuthFailed: (backend) => `Goose could not sign in with the ${backend} API key. Check that key under Settings → Model backends.`,
   gooseModelNotFound: (backend, model) => `${backend} has no model "${model}" (404). Pick another model in the member's settings.`,
   gooseUnreachable: (backend, host) => `Goose could not reach ${backend} (${host}). Check the network, or the endpoint's address under Settings → Model backends.`,

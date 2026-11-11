@@ -19,6 +19,7 @@ import { API_BACKEND_HOST, backendLabel, urlHost, type BackendRun } from '../bac
 import { commandLine, parseCommandLine, parseShellSyntax } from '../commands';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
+import { openSqliteFile } from '../db';
 import { converse } from '../process';
 import type { JsonRpcConnection } from './acp';
 import {
@@ -35,7 +36,7 @@ import {
   type AcpTurnDeps,
   type AcpUsageUpdate,
 } from './acpTurn';
-import { openAgentHome, type OpenAgentDefinition, type OpenCatalog, type OpenHomeLayout, type OpenRunContext, type OpenSandboxNeeds } from './open';
+import { openAgentHome, sealedFolder, type OpenAgentDefinition, type OpenCatalog, type OpenHomeLayout, type OpenRunContext, type OpenSandboxNeeds } from './open';
 import { AgentRunError, type AgentRunner, type McpServerSpec, type RunOptions, type RunResult } from './types';
 
 /*
@@ -447,9 +448,122 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
     CONTEXT_FILE_NAMES: JSON.stringify(o.nativeOff?.includes('instructions') ? [] : GOOSE_HINT_FILES),
   });
   if (run.endpoint?.apiKey) env[gooseEndpointKeyVar(run.endpoint.id)] = run.endpoint.apiKey;
+  // A resumed session: only what Harness Relay gave it (a keyless run never resumes).
+  if (o.sessionId && o.stateKey) restoreGooseSession(own, sealedFolder(root, o.stateKey), o.sessionId);
 }
 
 // --- The session ------------------------------------------------------------------------------
+
+/** Goose's sessions database in a run's state folder (its `data/` under `GOOSE_PATH_ROOT`). */
+export function gooseSessionsDb(state: string): string {
+  return join(state, 'data', 'sessions', 'sessions.db');
+}
+
+/** Where a session's extension list is kept in its row's `extension_data`. */
+const GOOSE_EXTENSIONS_KEY = 'enabled_extensions.v0';
+
+/** The file in a state key's sealed folder with the extension list its session started with. */
+const SEALED_EXTENSIONS = 'goose-extensions.json';
+
+/** The platform extensions a session may have: `developer` and the run's (`GOOSE_PLATFORM_EXTENSIONS`). */
+const GOOSE_SESSION_PLATFORMS = new Set(['developer', ...GOOSE_PLATFORM_EXTENSIONS]);
+
+/**
+ * The columns of a session's row that change what Goose does with it once loaded, which Harness Relay
+ * never sets (its briefing in `system_prompt_extras_json` is set again after every load): a recipe,
+ * with extensions and instructions of its own, the system prompt, a container to run in.
+ */
+export const GOOSE_SESSION_CLEARED = ['recipe_json', 'user_recipe_values_json', 'system_prompt_override', 'system_prompt_extras_json', 'container_id'];
+
+type GooseExtension = { type?: unknown; name?: unknown } & Record<string, unknown>;
+
+/** A session row's extension list, or undefined when it has none. */
+function storedExtensions(extensionData: unknown): GooseExtension[] | undefined {
+  if (typeof extensionData !== 'string') return undefined;
+  try {
+    const list = (JSON.parse(extensionData) as Record<string, { extensions?: unknown }>)?.[GOOSE_EXTENSIONS_KEY]?.extensions;
+    return Array.isArray(list) ? (list as GooseExtension[]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Keeps the extension list Goose stored for a session it just started, in the key's sealed folder.
+ * Called right after `session/new`, before the prompt: nothing of the run has run a command yet, so
+ * the list is what Goose made of the run's own extensions, plugins and the tool library's servers.
+ * Best-effort: without it a resumed session gets its platform extensions only.
+ */
+export function sealGooseExtensions(state: string, sealed: string, sessionId: string): void {
+  const file = gooseSessionsDb(state);
+  if (!existsSync(file)) return;
+  try {
+    const db = openSqliteFile(file);
+    try {
+      db.exec('PRAGMA busy_timeout = 3000');
+      const row = db.prepare('SELECT extension_data FROM sessions WHERE id = ?').get(sessionId) as { extension_data?: unknown } | undefined;
+      const extensions = storedExtensions(row?.extension_data);
+      if (!extensions) return;
+      mkdirSync(sealed, { recursive: true, mode: 0o700 });
+      writeFileSync(join(sealed, SEALED_EXTENSIONS), JSON.stringify({ sessionId, extensions }), { mode: 0o600 });
+    } finally {
+      db.close();
+    }
+  } catch (err) {
+    console.warn('[goose] could not keep the extension list of its new session:', (err as Error).message);
+  }
+}
+
+/** The extension list sealed for this session, if any. */
+function sealedExtensions(sealed: string, sessionId: string): GooseExtension[] | undefined {
+  try {
+    const kept = JSON.parse(readFileSync(join(sealed, SEALED_EXTENSIONS), 'utf8')) as { sessionId?: unknown; extensions?: unknown };
+    return kept.sessionId === sessionId && Array.isArray(kept.extensions) ? (kept.extensions as GooseExtension[]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Before a run resumes a session, takes out of its row what the earlier runs' commands could have
+ * put there (the database is in the member's state folder, which the sandbox lets them write): its
+ * extension list goes back to the one sealed when the session started (`sealGooseExtensions`), or,
+ * without one, to its own platform extensions that a run may have; and the columns Harness Relay
+ * never sets are cleared (`GOOSE_SESSION_CLEARED`). Goose starts every extension in a loaded
+ * session's list, a stdio one's command included, without asking, and ignores a list sent with
+ * `session/load`. The tool library's servers are added back by the load (`mcpServers`). Fails closed:
+ * a session whose row cannot be checked is not resumed (the orchestrator then starts a fresh one).
+ */
+export function restoreGooseSession(state: string, sealed: string, sessionId: string): void {
+  const file = gooseSessionsDb(state);
+  if (!existsSync(file)) return; // nothing to resume: the load says so
+  try {
+    const db = openSqliteFile(file);
+    try {
+      db.exec('PRAGMA busy_timeout = 3000');
+      const columns = new Set((db.prepare('PRAGMA table_info("sessions")').all() as { name: string }[]).map((c) => c.name));
+      const row = db.prepare('SELECT extension_data FROM sessions WHERE id = ?').get(sessionId) as { extension_data?: unknown } | undefined;
+      if (!row) return;
+      let data: Record<string, unknown> = {};
+      try {
+        const parsed: unknown = JSON.parse(String(row.extension_data ?? '{}'));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) data = parsed as Record<string, unknown>;
+      } catch {
+        /* unreadable: only the extension list is put back */
+      }
+      const extensions =
+        sealedExtensions(sealed, sessionId) ??
+        (storedExtensions(row.extension_data) ?? []).filter((e) => e.type === 'platform' && typeof e.name === 'string' && GOOSE_SESSION_PLATFORMS.has(e.name));
+      data[GOOSE_EXTENSIONS_KEY] = { extensions };
+      const cleared = GOOSE_SESSION_CLEARED.filter((c) => columns.has(c)).map((c) => `"${c}" = NULL`);
+      db.prepare(`UPDATE sessions SET extension_data = ?${cleared.map((c) => `, ${c}`).join('')} WHERE id = ?`).run(JSON.stringify(data), sessionId);
+    } finally {
+      db.close();
+    }
+  } catch (err) {
+    throw new AgentRunError(t().gooseSessionNotChecked((err as Error).message));
+  }
+}
 
 /** Said with the briefing: how Harness Relay shows Goose's todo notes. */
 export const GOOSE_TODO_NOTE =
@@ -487,6 +601,8 @@ export async function gooseAfterSession(
   const cli = 'Goose';
   ctx.state.method = session.method;
   ctx.state.sessionId = sessionId;
+  // A new session's extension list, kept where no run can change it, for the runs that resume it.
+  if (session.method === 'new' && o.stateKey) sealGooseExtensions(ctx.home.state, sealedFolder(ctx.home.root, o.stateKey), sessionId);
   // Always, so that a loaded session's earlier briefing is replaced (empty text would clear it).
   await conn.request('_goose/unstable/session/system-prompt/set', { sessionId, mode: 'append', key: 'harness-relay', text: gooseBriefing(o) });
 

@@ -15,7 +15,7 @@ import { OPEN_PROVIDERS, type OpenProvider } from '../src/shared/types';
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-open-state-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
-const { startOpenProcess, stateFolder, stateFolderName, emptyStateFolder, PRIVATE_DIR, PROBE_STATE, privateRoots, removeConversationState, clearOpenRunLeftovers } = await import(
+const { startOpenProcess, stateFolder, stateFolderName, emptyStateFolder, PRIVATE_DIR, PROBE_STATE, privateRoots, removeConversationState, clearOpenRunLeftovers, sealedFolder } = await import(
   '../src/server/agents/open'
 );
 const { stateKeys } = await import('../src/server/agents/types');
@@ -108,6 +108,11 @@ describe("a conversation member's own state", () => {
     expect(paths.denyRead).toContain(join(home, PRIVATE_DIR));
     expect(paths.allowRead).toContain(join(stateA, 'sessions'));
     expect(paths.allowRead.some((p) => inside(p, stateB))).toBe(false);
+    // What the server sealed for the key itself (Goose's extension list) is in the private root, and
+    // not among the run's own folders: neither readable nor writable.
+    const sealed = sealedFolder(home, 'conv.c1.a1');
+    expect(paths.denyRead.some((p) => inside(sealed, p))).toBe(true);
+    expect([...paths.allowRead, ...paths.allowWrite].some((p) => inside(sealed, p) || inside(p, sealed))).toBe(false);
     expect(paths.allowWrite.some((p) => inside(p, stateB))).toBe(false);
     // The other way round as well.
     const other = relaySandboxPaths(specs[1]!, ctx, { tmp: b.ctx.tmpDir, hostTmp: join(root, 'h') });
