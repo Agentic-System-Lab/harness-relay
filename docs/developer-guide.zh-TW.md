@@ -121,7 +121,14 @@ src/
                            VersionSettings（設定 → 版本）、UpdateDialog（新版本，只提示一次）、
                            useDialog（對話框的焦點處理）
 test/                      Vitest 測試
+e2e/                       端對端測試（Playwright）：npm run test:e2e
+  fake-cli/fake-cli.cjs    假的 claude、codex 與 grok CLI
+  support/                 每個測試的伺服器（relay.ts）、安裝假 CLI（fake-cli.ts）、UI 操作步驟（app.ts）
+  fixtures.ts              relay 與 page fixture；global-setup.ts 建置 UI 並安裝假 CLI
+  specs/                   測試本身
+playwright.config.ts       端對端測試的設定（E2E_BROWSERS）
 .github/workflows/ci.yml   CI：pull request 與推送到 main 時執行型別檢查、測試與建置；為 Linux 打包桌面 app 並檢查
+.github/workflows/e2e.yml  在 Linux、macOS 與 Windows 上執行端對端測試
 .github/workflows/pages.yml  把 site/ 發佈到 GitHub Pages
 scripts/preview-site.ts    npm run site:preview：在本機以 Pages 的方式提供 site/
 scripts/app-icons.ts       npm run icons：畫出主畫面圖示，並寫出 web app manifest
@@ -167,6 +174,7 @@ npm install
 npm run dev        # tsx watch（API :8789）+ vite（介面 :5173，把 /api/ 代理到 API）；印出 :5173 的登入連結
 npm run typecheck
 npm test
+npm run test:e2e   # 在瀏覽器中以假 CLI 執行端對端測試（先執行一次 npm run test:e2e:install）
 npm run build      # 介面 → dist/web
 npm start          # 單一程序：API + 建置好的介面，port 8787；會印出登入連結
 npm run login      # 另一個一次性登入連結（10 分鐘內有效）
@@ -500,11 +508,50 @@ npx vitest test/store.test.ts
 
 在測試中跑真正的 agent 會花錢且需要登入，所以自動化測試請保持離線。測試也不會碰到真正的金鑰儲存區：`SettingsStore` 由建構子參數取得它，只有 `src/server/index.ts` 會傳入 `openSystemKeyring()`。
 
+## 端對端測試
+
+```bash
+npm run test:e2e:install                  # 一次即可：Playwright 驅動的 Chromium（Linux：npx playwright install --with-deps chromium）
+npm run test:e2e                          # e2e/specs/ 裡的所有測試，在 Chromium 中執行
+npx playwright test e2e/specs/chat.spec.ts
+npx playwright test -g approvals          # 依標題挑選
+npx playwright test --ui                  # 在 Playwright 的視窗中挑選並觀看測試
+npx playwright show-report                # 上一次執行的報告，附失敗測試的 trace
+E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwright install firefox webkit
+```
+
+它們在真正的瀏覽器中操作 UI（[Playwright](https://playwright.dev)、[`playwright.config.ts`](../playwright.config.ts)），面對的是真正的伺服器：`src/server/index.ts` 加上建置好的 UI。因此路由、登入、SSE、協調器、轉接器與工作目錄的 git 會像使用者實際操作時一樣一起被測到。agent 是假的 CLI，所以測試保持離線、不花錢，並且在 macOS、Linux 與 Windows 上的跑法相同。
+
+- **每個測試有自己的伺服器**（`e2e/support/relay.ts`，即 [`e2e/fixtures.ts`](../e2e/fixtures.ts) 的 `relay` fixture）：使用空閒的 port（`PORT=0`），並在一個暫存資料夾中放它的資料（`RELAY_DATA_DIR`）、家目錄（`HOME`、`USERPROFILE`）、各 CLI 的家目錄（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`）與預設工作目錄（一個小專案，`seedProject()`），且 `RELAY_KEYRING=off`：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈。fixture 會讀取伺服器印出的登入連結。`page` fixture 會開啟一組新代碼的連結，所以一開始就已登入，導覽已完成，介面為英文；`test.use()` 可以改變這些（`lang: 'zh-TW'`、`signIn: false`、`tour: true`），或給伺服器更多環境變數（`serverEnv`）。`relay.api()` 以已登入瀏覽器的身分呼叫 API，用來準備狀態或檢查存下的內容；`relay.fakeLog()` 回傳假 CLI 啟動時的參數與收到的內容。失敗的測試除了 trace、截圖與影片，還會附上伺服器的輸出與假 CLI 的紀錄。
+- **假的 CLI**（[`e2e/fake-cli/fake-cli.cjs`](../e2e/fake-cli/fake-cli.cjs)，一個只用 Node 內建模組的 CommonJS 檔案）照轉接器驅動的方式說各 CLI 的協定：Claude Code 的 stream-json（含 control request 與 `can_use_tool`）、`codex app-server`，以及 Grok 的 ACP；也回答各種探詢（`--version`、登入狀態、模型、`grok inspect --json`）。伺服器會在 PATH 最前面依名稱找到它們，和找真正的 CLI 一樣。在 macOS 與 Linux 上，每一個都是這支腳本加上指向執行測試的 Node 的 `#!` 行。Windows 不透過 shell 時只能啟動真正的程式（`.exe`），所以在那裡 `e2e/support/fake-cli.ts` 會把腳本做成 Node 的 single executable application（`node --experimental-sea-config`，再用 `postject`），以三個名稱各放一份。這需要幾秒鐘與約 100 MB，所以會存在 `node_modules/.cache/harness-relay-e2e/`，直到腳本或 Node 改變為止。設定 `E2E_FAKE_SEA=1` 也會在 macOS 與 Linux 上這樣建置。
+- **假 CLI 的回答**取決於 prompt，就像模型一樣。首席 agent 的 prompt 會得到一個團隊（`e2e:team=claude,codex,grok`、`e2e:mode=relay`、`e2e:rounds=2`、`e2e:name=Some_name`、`e2e:template=<id>`；預設是一位 Claude 成員）與一個群組（第一則訊息裡提到的第一個群組）。一般的回合會得到 `Hello from <名稱> (<CLI>). You said: “<使用者最新的訊息>”.`，分段串流，並依該訊息中的指令改變：`e2e:think`、`e2e:tool`、`e2e:todo`、`e2e:approve`（執行指令前先詢問）、`e2e:write=<路徑>`（權限允許時）、`e2e:ask`、`e2e:handoff=<名稱>`、`e2e:slow`、`e2e:fail`、`e2e:flaky`（失敗一次，重試時回答）與 `e2e:markdown`（見腳本中的 `DIRECTIVES`）。在指令後加上 `@<cli>` 就只對那個 CLI 有效：`e2e:write=a.txt@codex`。之後的回合若使用者沒有新的訊息，回答 `[PASS]`。
+- **測試開始前**，[`e2e/global-setup.ts`](../e2e/global-setup.ts) 會在 UI 的來源檔比 `dist/web` 新時建置 UI（`E2E_BUILD=always` 每次都建置，`E2E_BUILD=never` 從不建置），並安裝假 CLI。
+- **撰寫測試**：在 `e2e/specs/<範圍>.spec.ts` 中，從 `../fixtures` 匯入 `test` 與 `expect`，並從 [`e2e/support/app.ts`](../e2e/support/app.ts) 匯入操作步驟（`startChat`、`send`、`confirmTeam`、`finishedReply`，以及透過 API 建立自訂團隊對話的 `openTeamChat` 等）。在 UI 有提供時，依角色與看得到的文字找元素（除非測試改了語言，否則是英文），否則才用 CSS class。要讓 agent 做新的事，就在假 CLI 中加一個新指令。
+
+目前的測試：
+
+- `e2e/specs/chat.spec.ts` — 新對話：首席 agent 的團隊卡片、確認後的回答；不詢問直接使用團隊；三個 CLI 組成的團隊依序回答；追問時另組團隊。
+- `e2e/specs/activity.spec.ts` — 各 CLI 的思考、工具呼叫（含輸出）與待辦清單；Markdown 回答（標題、清單、表格、程式碼）。
+- `e2e/specs/approvals.spec.ts` — 各 CLI 執行指令前的詢問：允許（會執行）、附註後拒絕（不會執行）；自動拒絕的對話。
+- `e2e/specs/files.spec.ts` — 編輯模式：寫入檔案、`git init`、變更卡片與這一回合的差異；唯讀對話不寫入任何檔案；各 CLI 的回合各自記下變更；平行模式的 worktree 與套用其中一份結果；檔案瀏覽器與檔案預覽。
+- `e2e/specs/turns.spec.ts` — 向使用者提問並取得回答、略過問題、接力交棒、只有被 @ 的成員回答、之後的回合 PASS、停止回答、各 CLI 的錯誤與重試、回答途中送出的訊息交給下一位成員。
+- `e2e/specs/sidebar.spec.ts` — 群組與首席 agent 把新對話分進群組、重新命名與刪除、依 agent 寫的內容搜尋、一開始就給的標題。
+- `e2e/specs/templates.spec.ts` — 內建範本與其成員、首席 agent 直接使用範本、把設計好的團隊存成範本。
+- `e2e/specs/schedule.spec.ts` — 儲存對話的排程並立即執行一次。
+- `e2e/specs/settings.spec.ts` — 各 CLI 的版本與登入、執行檔路徑（錯誤的路徑顯示找不到 CLI）、重新載入後保留的語言、由另一個 CLI 擔任首席 agent。
+- `e2e/specs/signin.spec.ts` — 登入頁、錯誤的代碼、用代碼登入、一次性的登入連結、在設定中登出。
+- `e2e/specs/i18n.spec.ts` — 繁體中文的介面與首席 agent 卡片，而 prompt 仍是英文；登入頁與伺服器自己的訊息為中文。
+- `e2e/specs/mobile.spec.ts` — 手機畫面：從選單開啟側邊欄、以觸控送出、標題列的動作收在 ⋯ 之下、頁面不會左右捲動。
+
+假 CLI 檢查的是 Harness Relay 這一側的協定，不是 CLI 本身：CLI 若改變輸出，會由轉接器測試中錄下的訊息，以及在 app 中試用真正的 CLI 發現。
+
 ## 持續整合（CI）
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時執行：`npm ci`、`npm run typecheck`、`npm test` 與 `npm run build`，在 Ubuntu 上以 Node 22（支援的最低版本）與 Node 24 各跑一次。它也會安裝桌面 app 的工具（不下載 Electron 執行檔）、型別檢查並建置桌面 app（`desktop/scripts/build.ts`），並像 app 一樣執行打包好的伺服器（`desktop/scripts/smoke.ts`）。第二個 job（`desktop-package`）會為 Linux 打包桌面 app（不建置安裝檔：`electron-builder --linux dir`），x64 一份，也像發佈一樣在 GitHub 的 Arm runner 上打包 Arm64，並像檢查發佈一樣檢查它（`desktop/scripts/check-package.ts`，在虛擬顯示器上，runner 缺 Electron 需要的函式庫時會先安裝）。發佈有自己的 workflow：見[發佈](#發佈)。對同一個 pull request 再次推送時會取消前一次的執行。推送前請先在本機跑過同樣的指令。
 
-若要在檢查通過前禁止合併，請在 repository 設定中替 `main` 加上 branch protection rule（或 ruleset），並把 `Typecheck, test, build` 檢查設為必要。
+[`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) 會在每個 pull request 與每次推送到 `main` 時，於 Ubuntu、macOS 與 Windows 上執行[端對端測試](#端對端測試)（`npm run test:e2e`，Node 24，Chromium）；手動執行（**Actions → End-to-end tests → Run workflow**）可以選擇其他瀏覽器。每次執行都會上傳 HTML 報告，並附上每個失敗測試的 trace、截圖、影片與紀錄（`e2e-report-<os>`）。
+
+若要在檢查通過前禁止合併，請在 repository 設定中替 `main` 加上 branch protection rule（或 ruleset），並把 `Typecheck, test, build` 檢查設為必要（若也想要，可加上 `End-to-end` 檢查）。
 
 ### 網站
 

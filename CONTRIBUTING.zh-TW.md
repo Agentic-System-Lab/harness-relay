@@ -89,7 +89,8 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 - 轉接器用錄下來的 CLI 訊息；
 - `workspace.ts` 用真正的暫存 git repository；
 - HTTP API 用 `app.request()`；
-- 把假的 keyring 傳給 `SettingsStore`。
+- 把假的 keyring 傳給 `SettingsStore`；
+- 端對端測試（`e2e/`）用 `e2e/fake-cli/` 裡的假 CLI，由訊息中的 `e2e:` 指令操控（見[端對端測試](docs/developer-guide.zh-TW.md#端對端測試)）。
 
 ## 開 pull request 之前
 
@@ -101,11 +102,13 @@ npm test
 npm run build
 ```
 
+如果修改了介面、HTTP API、協調器或轉接器，也請執行端對端測試：`npm run test:e2e`（第一次先執行 `npm run test:e2e:install`）。
+
 如果修改了桌面 app，也要執行 `npm run desktop:typecheck`，並用 `npm run desktop` 試用；修改它的打包方式時，建置安裝檔（`npm run desktop:dist`），再用 `npx tsx desktop/scripts/check-package.ts` 檢查。
 
 發佈只由維護者透過發佈 workflow 進行（**Actions → Release**，從 `main`，以今天的日期為版本）：絕不要手動建立版本 tag。詳見開發者說明的[發佈](docs/developer-guide.zh-TW.md#發佈)。
 
-[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行型別檢查、測試與建置。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。
+[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行型別檢查、測試與建置。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。[另一個 workflow](.github/workflows/e2e.yml) 會在 Linux、macOS 與 Windows 上執行端對端測試。
 
 如果你的修改會影響 agent 看到或做的事，也請在 app 中用至少一個真正的 CLI 試過，並說明用了哪些。
 

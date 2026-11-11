@@ -121,7 +121,14 @@ src/
                            VersionSettings (Settings → Version), UpdateDialog (a new version, offered once),
                            useDialog (focus handling for dialogs)
 test/                      Vitest tests
+e2e/                       end-to-end tests (Playwright): npm run test:e2e
+  fake-cli/fake-cli.cjs    the fake claude, codex and grok CLIs
+  support/                 a server for each test (relay.ts), installing the fakes (fake-cli.ts), the UI steps (app.ts)
+  fixtures.ts              the relay and page fixtures; global-setup.ts builds the UI and installs the fakes
+  specs/                   the tests
+playwright.config.ts       the end-to-end tests' configuration (E2E_BROWSERS)
 .github/workflows/ci.yml   CI: typecheck, tests and build on pull requests and pushes to main; the desktop app packaged for Linux and checked
+.github/workflows/e2e.yml  the end-to-end tests on Linux, macOS and Windows
 .github/workflows/pages.yml  publishes site/ to GitHub Pages
 scripts/preview-site.ts    npm run site:preview: serves site/ locally like Pages
 scripts/app-icons.ts       npm run icons: draws the home-screen icons and writes the web app manifest
@@ -168,6 +175,7 @@ npm install
 npm run dev        # tsx watch (API :8789) + vite (UI :5173, proxies /api/ to the API); prints a sign-in link for :5173
 npm run typecheck
 npm test
+npm run test:e2e   # end-to-end tests in a browser, with fake CLIs (npm run test:e2e:install once)
 npm run build      # UI → dist/web
 npm start          # one process: API + built UI on :8787; prints a sign-in link
 npm run login      # another one-time sign-in link (ten minutes)
@@ -501,11 +509,50 @@ Good next candidates:
 
 Running real agents in tests costs money and needs logins, so keep automated tests offline. Tests never touch the real credential store either: `SettingsStore` takes it as a constructor argument, and only `src/server/index.ts` passes `openSystemKeyring()`.
 
+## End-to-end tests
+
+```bash
+npm run test:e2e:install                  # once: the Chromium Playwright drives (Linux: npx playwright install --with-deps chromium)
+npm run test:e2e                          # every spec in e2e/specs/, in Chromium
+npx playwright test e2e/specs/chat.spec.ts
+npx playwright test -g approvals          # by title
+npx playwright test --ui                  # pick and watch tests in Playwright's window
+npx playwright show-report                # the last run's report, with the traces of failed tests
+E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # after npx playwright install firefox webkit
+```
+
+They drive the UI in a real browser ([Playwright](https://playwright.dev), [`playwright.config.ts`](../playwright.config.ts)) against the real server, `src/server/index.ts` with the built UI, so the routes, sign-in, SSE, the orchestrator, the adapters and the workspace's git are tried together, as a person uses them. The agents are fake CLIs, so the tests stay offline and cost nothing, and they run the same on macOS, Linux and Windows.
+
+- **Each test has a server of its own** (`e2e/support/relay.ts`, the `relay` fixture in [`e2e/fixtures.ts`](../e2e/fixtures.ts)): on a free port (`PORT=0`), with a temporary folder for its data (`RELAY_DATA_DIR`), a home (`HOME`, `USERPROFILE`), the CLIs' homes (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`) and the default working directory (a small project, `seedProject()`), and `RELAY_KEYRING=off`: nothing of your own Harness Relay, CLIs or keychain is read or changed. The fixture reads the sign-in link the server prints. The `page` fixture opens the link of a new code, so it starts signed in, with the tour done and the UI in English; `test.use()` changes that (`lang: 'zh-TW'`, `signIn: false`, `tour: true`) or adds environment for the server (`serverEnv`). `relay.api()` calls the API as a signed-in browser, to set things up or check what was stored, and `relay.fakeLog()` returns what the fake CLIs were started with and given. A failed test gets the server's output and the fake CLIs' log attached, besides its trace, screenshot and video.
+- **The fake CLIs** ([`e2e/fake-cli/fake-cli.cjs`](../e2e/fake-cli/fake-cli.cjs), one CommonJS file using only Node's built-ins) speak each CLI's protocol as the adapters drive it: Claude Code's stream-json with its control requests and `can_use_tool`, `codex app-server`, and Grok's ACP; and they answer the probes (`--version`, the sign-in status, the models, `grok inspect --json`). The server finds them first on its PATH, by name, as it finds the real ones. On macOS and Linux each one is the script with a `#!` line for the Node that runs the tests. Windows starts only real programs (`.exe`) without a shell, so there `e2e/support/fake-cli.ts` makes the script a Node single executable application (`node --experimental-sea-config`, then `postject`), copied under the three names. That takes a few seconds and about 100 MB, so it is kept in `node_modules/.cache/harness-relay-e2e/` until the script or Node changes. `E2E_FAKE_SEA=1` builds them that way on macOS and Linux too.
+- **What the fakes answer** depends on the prompt, as a model's would. The lead agent's prompts get a team (`e2e:team=claude,codex,grok`, `e2e:mode=relay`, `e2e:rounds=2`, `e2e:name=Some_name`, `e2e:template=<id>`; one Claude member by default) and a group (the first group that the first message names). A turn gets `Hello from <name> (<CLI>). You said: “<the user's latest message>”.`, streamed in pieces and changed by directives in that message: `e2e:think`, `e2e:tool`, `e2e:todo`, `e2e:approve` (asks before running a command), `e2e:write=<path>` (when the permission allows it), `e2e:ask`, `e2e:handoff=<Name>`, `e2e:slow`, `e2e:fail`, `e2e:flaky` (fails once, answers the retry) and `e2e:markdown` (`DIRECTIVES` in the script). `@<cli>` after a directive keeps it to that CLI: `e2e:write=a.txt@codex`. A later round with nothing new from the user is `[PASS]`.
+- **Before the tests**, [`e2e/global-setup.ts`](../e2e/global-setup.ts) builds the UI when a file it is built from is newer than `dist/web` (`E2E_BUILD=always` builds it every run, `E2E_BUILD=never` never does) and installs the fakes.
+- **Writing a test**: in `e2e/specs/<area>.spec.ts`, import `test` and `expect` from `../fixtures`, and the steps from [`e2e/support/app.ts`](../e2e/support/app.ts) (`startChat`, `send`, `confirmTeam`, `finishedReply`, `openTeamChat` for a chat with a team of its own, made through the API, and so on). Find elements by their role and visible text where the UI gives them (English unless the test changes the language), CSS classes only otherwise. Something new an agent should do goes in the fake as a new directive.
+
+Current specs:
+
+- `e2e/specs/chat.spec.ts` — a new chat: the lead agent's team card, confirming it and the reply; teams used without asking; a team of all three CLIs answering in order; a follow-up question with a team of its own.
+- `e2e/specs/activity.spec.ts` — each CLI's thinking, tool call (with its output) and to-do list; a reply in Markdown (heading, list, table, code).
+- `e2e/specs/approvals.spec.ts` — each CLI asking before a command: allowed (it runs), declined with a note (it does not); a chat that refuses automatically.
+- `e2e/specs/files.spec.ts` — edit mode: a file written, `git init`, the changes card and the turn's diff; a read-only chat writing nothing; each CLI's turn recording its own change; parallel mode's worktrees and applying one result; the file browser and a file's preview.
+- `e2e/specs/turns.spec.ts` — asking the user and answering, skipping a question, relay hand-offs, an @mention answered by that member only, passing in a later round, stopping a reply, each CLI's error and Retry, a message sent mid-reply reaching the next member.
+- `e2e/specs/sidebar.spec.ts` — a group and the lead agent sorting a new conversation into it, renaming and deleting, search by what an agent wrote, a title given at the start.
+- `e2e/specs/templates.spec.ts` — the built-in templates and their members, the lead agent using one as it is, saving a designed team as a template.
+- `e2e/specs/schedule.spec.ts` — a chat's schedule saved and run once.
+- `e2e/specs/settings.spec.ts` — each CLI's version and sign-in, an executable path (a wrong one shows the CLI missing), the language kept after a reload, another CLI as the lead agent.
+- `e2e/specs/signin.spec.ts` — the sign-in page, a wrong code, signing in with a code, a one-time sign-in link, signing out in Settings.
+- `e2e/specs/i18n.spec.ts` — the UI and the lead agent's card in Traditional Chinese with the prompts in English; the sign-in page and the server's own messages in Chinese.
+- `e2e/specs/mobile.spec.ts` — a phone's screen: the sidebar from the menu, sending by touch, the header's actions under ⋯, no sideways scrolling.
+
+The fakes check Harness Relay's side of each protocol, not the CLIs' own: a CLI that changes what it writes is caught by the adapter tests' recorded messages and by trying the real CLI in the app.
+
 ## Continuous integration
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and every push to `main`: `npm ci`, `npm run typecheck`, `npm test` and `npm run build`, on Ubuntu with Node 22 (the oldest supported) and Node 24. It also installs the desktop app's tools (without the Electron binary), typechecks the desktop app, builds it (`desktop/scripts/build.ts`) and runs its bundled server as the app does (`desktop/scripts/smoke.ts`). A second job (`desktop-package`) packages the desktop app for Linux without an installer (`electron-builder --linux dir`), for x64 and on GitHub's Arm runner for Arm64 as a release does, and checks it as a release is checked (`desktop/scripts/check-package.ts`, on a virtual display, with Electron's own libraries installed where the runner lacks them). Releases have a workflow of their own: see [Releasing](#releasing). A new push to a pull request cancels its previous run. Run the same commands locally before pushing.
 
-To block merging until the checks pass, add a branch protection rule (or ruleset) for `main` in the repository settings and require the `Typecheck, test, build` checks.
+[`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) runs the [end-to-end tests](#end-to-end-tests) (`npm run test:e2e`, Node 24, Chromium) on Ubuntu, macOS and Windows for every pull request and every push to `main`; run it by hand (**Actions → End-to-end tests → Run workflow**) to choose other browsers. Each run uploads the HTML report, with the trace, screenshot, video and logs of each failed test (`e2e-report-<os>`).
+
+To block merging until the checks pass, add a branch protection rule (or ruleset) for `main` in the repository settings and require the `Typecheck, test, build` checks (and `End-to-end` ones, if you want them too).
 
 ### Website
 
