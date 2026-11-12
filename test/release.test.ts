@@ -11,6 +11,7 @@ import {
   commitsSince,
   compareSemver,
   mapLimit,
+  notFoundTarget,
   devVersion,
   newContributors,
   nextVersion,
@@ -518,6 +519,21 @@ describe("a release's list of changes", () => {
     expect(asked.sort()).toEqual([q('old'), q('new'), q('new@example.com'), q('new@other.example'), q('dependabot[bot]'), q('49699333+dependabot[bot]@users.noreply.github.com')].sort());
     // From the first commit on, every author with a GitHub account is new.
     expect((await newContributors(() => [{ sha: sha(0) }], repo, undefined, changes)).map((c) => c.login)).toEqual(['old', 'new', 'dependabot[bot]']);
+    // Named with their first pull request, as GitHub's notes do, though a commit of its branch comes first;
+    // in the order they first appear.
+    const branch = changesOf(
+      [
+        commit(10, 'Work on the branch\n', { login: 'contributor' }),
+        commit(11, 'Fix it\n', { login: 'other' }),
+        commit(12, 'Merge pull request #7 from contributor/branch\n\nThe work\n', { parents: [11, 10], login: 'maintainer' }),
+      ],
+      repo,
+      (s) => (s === sha(12) ? { number: 7, title: 'The work', author: 'contributor' } : undefined),
+    );
+    expect((await newContributors(() => [], repo, '2026-11-12', branch)).map((c) => [c.login, c.url.replace(site, '')])).toEqual([
+      ['contributor', '/pull/7'],
+      ['other', `/commit/${sha(11)}`],
+    ]);
   });
 
   it('asks GitHub a few things at once, never more than eight', async () => {
@@ -584,9 +600,16 @@ describe("a release's list of changes", () => {
     expect(subjectMarkdown('Bump `@types/node` and @types/react')).toBe('Bump `@types/node` and `@types/react`');
     expect(subjectMarkdown('@lead goes first')).toBe('`@lead` goes first');
     expect(subjectMarkdown('Keep paths out of shell commands')).toBe('Keep paths out of shell commands');
+    // Wherever GitHub would take one for a mention: after an underscore or a slash too.
+    expect(subjectMarkdown('Hi _@octocat_')).toBe('Hi _`@octocat`_');
+    expect(subjectMarkdown('a/@octocat')).toBe('a/`@octocat`');
+    expect(subjectMarkdown('first_last@example.com')).toBe('first_last@example.com');
+    // An author's name in git, too.
+    const named: Change = { title: 'Fix it', name: '@someone', url: `${site}/commit/${sha(1)}` };
+    expect(changesMarkdown({ repo, tag: 't', since: 's', changes: [named], newContributors: [] })).toContain(`* Fix it by \`@someone\` in ${site}/commit/${sha(1)}`);
   });
 
-  it('ends a list too long for GitHub with how many more changes the Full Changelog holds', () => {
+  it('ends a list too long for GitHub with how many more changes there are', () => {
     const changes: Change[] = Array.from({ length: 50 }, (_, i) => ({ title: `Change number ${i + 1}`, login: 'dev', name: 'Dev', url: `${site}/commit/${sha(i + 1)}` }));
     const full = changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [] });
     expect(full).not.toContain('more change');
@@ -595,10 +618,12 @@ describe("a release's list of changes", () => {
     const shown = cut.split('\n').filter((l) => l.startsWith('* Change number'));
     expect(shown.length).toBeGreaterThan(5);
     expect(shown).toEqual(changes.slice(0, shown.length).map((c) => `* ${c.title} by @dev in ${c.url}`));
-    expect(cut).toContain(`\n* … and ${50 - shown.length} more changes, in the Full Changelog below\n\n## New Contributors\n`);
+    // GitHub's comparison page shows 250 commits at most: the history up to the tag holds them all.
+    expect(cut).toContain(`\n* … and ${50 - shown.length} more changes, in the history up to t: ${site}/commits/t\n\n## New Contributors\n`);
     expect(cut.endsWith(`**Full Changelog**: ${site}/compare/s...t\n`)).toBe(true);
     // As long as it fits, every change.
-    expect(changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [], limit: full.length + 80 })).toBe(full);
+    expect(changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [], limit: full.length })).toBe(full);
+    expect(changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [], limit: full.length - 1 }).length).toBeLessThanOrEqual(full.length - 1);
   });
 
   it("lists this repository's 2026-11-12.1 with the commits pushed to main between its pull requests", async () => {
@@ -634,6 +659,29 @@ describe("a release's list of changes", () => {
         '',
       ].join('\n'),
     );
+  });
+
+  it('tells when GitHub does not know where the list ends, from other failures', () => {
+    expect(notFoundTarget('gh api repos/o/n/compare/2026-11-13...2026-11-14?per_page=100&page=1: gh: Not Found (HTTP 404)')).toBe(true);
+    expect(notFoundTarget('gh api repos/o/n/commits?sha=abc&per_page=100&page=1: gh: Not Found (HTTP 404)')).toBe(true);
+    expect(notFoundTarget('gh api repos/o/n/compare/2026-11-11.1...2026-11-12?per_page=100&page=1: gh: Bad credentials (HTTP 401)')).toBe(false);
+    expect(notFoundTarget('gh api repos/o/n/commits/abc/pulls?per_page=100: gh: Not Found (HTTP 404)')).toBe(false);
+    expect(notFoundTarget('GitHub listed 100 of the 150 commits from a to b.')).toBe(false);
+  });
+
+  it('bundles into the desktop app, which is CommonJS: no top-level await', async () => {
+    // desktop/src/update.ts imports this file, and desktop/scripts/build.ts bundles the app this way.
+    const { build } = await import('esbuild');
+    const r = await build({
+      entryPoints: ['scripts/release.ts'],
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      write: false,
+      logLevel: 'silent',
+      define: { 'import.meta.url': 'undefined' },
+    });
+    expect(r.errors).toEqual([]);
   });
 
   it("reads owner/name from a GitHub remote's URL", () => {

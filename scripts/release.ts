@@ -446,8 +446,8 @@ export async function pullMergedBy(api: GitHubApi, repo: string, sha: string): P
 }
 
 /**
- * The authors of these changes who had no commit before `since`, each with their first change here,
- * in the order of the changes; without `since` the changes start at the repository's first commit, so
+ * The authors of these changes who had no commit before `since`, each with their first pull request
+ * here (else their first change), in the order they first appear; without `since` the changes start at the repository's first commit, so
  * every author with a GitHub account is new. An author counts as having one when GitHub finds a
  * commit before `since` by their account or by an address of theirs in these changes: it never finds
  * a bot's (`…[bot]`) by its account.
@@ -455,19 +455,24 @@ export async function pullMergedBy(api: GitHubApi, repo: string, sha: string): P
 export async function newContributors(api: GitHubApi, repo: string, since: string | undefined, changes: readonly Change[]): Promise<Change[]> {
   const first = new Map<string, Change>();
   const emails = new Map<string, Set<string>>();
+  const isPull = (c: Change) => /\/pull\/\d+$/.test(c.url);
   for (const c of changes) {
     if (!c.login) continue;
-    if (!first.has(c.login)) first.set(c.login, c);
+    const had = first.get(c.login);
+    // Their first pull request, as GitHub's notes name it, else their first change.
+    if (!had || (!isPull(had) && isPull(c))) first.set(c.login, c);
     if (c.email) emails.set(c.login, (emails.get(c.login) ?? new Set()).add(c.email));
   }
-  if (!since) return [...first.values()];
+  const order = new Map([...first.keys()].map((login) => [login, changes.findIndex((c) => c.login === login)]));
+  const logins = [...first.keys()].sort((a, b) => order.get(a)! - order.get(b)!);
+  if (!since) return logins.map((l) => first.get(l)!);
   const before = async (author: string) =>
     ((await api(`repos/${repo}/commits?sha=${encodeURIComponent(since)}&author=${encodeURIComponent(author)}&per_page=1`)) as unknown[]).length > 0;
-  const isNew = await mapLimit([...first.keys()], AT_ONCE, async (login) => {
+  const isNew = await mapLimit(logins, AT_ONCE, async (login) => {
     for (const author of [login, ...(emails.get(login) ?? [])]) if (await before(author)) return false;
     return true;
   });
-  return [...first.values()].filter((_, i) => isNew[i]);
+  return logins.filter((_, i) => isNew[i]).map((l) => first.get(l)!);
 }
 
 /** An account as GitHub's notes name it: a bot without its `[bot]`. */
@@ -484,8 +489,17 @@ export function subjectMarkdown(subject: string): string {
   const escaped = subject.replace(/^(\d{1,9})([.)])(?=\s|$)/, '$1\\$2').replace(/^(#{1,6}(?=\s|$)|>|[-+*](?=\s|$))/, '\\$1');
   return escaped
     .split(/(`+[^`]*`+)/)
-    .map((part, i) => (i % 2 ? part : part.replace(/(^|[^\w`/@])@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\/[\w.-]+)?)/g, '$1`@$2`')))
+    .map((part, i) => (i % 2 ? part : codeMentions(part)))
     .join('');
+}
+
+/**
+ * Each `@name` put in code, so that GitHub links and notifies nobody: wherever GitHub would take it for
+ * one (after anything but a letter, a digit or a backtick, `_@name_` and `a/@name` too), but not an
+ * address (`dev@example.com`).
+ */
+function codeMentions(text: string): string {
+  return text.replace(/(^|[^A-Za-z0-9`])@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\/[\w.-]+)?)/g, '$1`@$2`');
 }
 
 /**
@@ -498,7 +512,8 @@ export const CHANGES_LIMIT = 100_000;
  * The part of a release's notes that lists its changes, in the form GitHub's own notes take: What's
  * Changed (none without changes), New Contributors (when there are), and the Full Changelog link to
  * the comparison the list is made from. A list longer than `limit` characters ends with how many more
- * changes the Full Changelog holds, rather than make notes GitHub would refuse.
+ * changes there are, linked to the history up to the tag (GitHub's comparison page shows 250 commits
+ * at most), rather than make notes GitHub would refuse.
  */
 export function changesMarkdown(n: {
   repo: string;
@@ -514,15 +529,18 @@ export function changesMarkdown(n: {
     tail.push('## New Contributors', ...n.newContributors.map((c) => `* ${mention(c.login!)} made their first contribution in ${c.url}`), '');
   }
   tail.push(`**Full Changelog**: ${n.since ? `${site}/compare/${n.since}...${n.tag}` : `${site}/commits/${n.tag}`}`);
-  const items = n.changes.map((c) => `* ${subjectMarkdown(c.title)} by ${c.login ? mention(c.login) : c.name} in ${c.url}`);
+  const items = n.changes.map((c) => `* ${subjectMarkdown(c.title)} by ${c.login ? mention(c.login) : codeMentions(c.name)} in ${c.url}`);
   if (items.length) {
     const size = (lines: readonly string[]) => lines.reduce((sum, l) => sum + l.length + 1, 0);
-    let budget = (n.limit ?? CHANGES_LIMIT) - size(tail) - size(["## What's Changed", '', '* … and 000000 more changes, in the Full Changelog below']);
+    const moreLine = (more: number) => `* … and ${more} more change${more === 1 ? '' : 's'}, in the history up to ${n.tag}: ${site}/commits/${n.tag}`;
+    const limit = n.limit ?? CHANGES_LIMIT;
+    const whole = `${["## What's Changed", ...items, '', ...tail].join('\n')}\n`;
+    if (whole.length <= limit) return whole;
+    // Too long: as many as fit with the line that says how many more there are.
+    let budget = limit - size(tail) - size(["## What's Changed", '', moreLine(items.length)]);
     let shown = 0;
     while (shown < items.length && budget - (items[shown]!.length + 1) >= 0) budget -= items[shown++]!.length + 1;
-    const more = items.length - shown;
-    const listed = more ? [...items.slice(0, shown), `* … and ${more} more change${more === 1 ? '' : 's'}, in the Full Changelog below`] : items;
-    return `${["## What's Changed", ...listed, '', ...tail].join('\n')}\n`;
+    return `${["## What's Changed", ...items.slice(0, shown), moreLine(items.length - shown), '', ...tail].join('\n')}\n`;
   }
   return `${tail.join('\n')}\n`;
 }
@@ -541,6 +559,11 @@ export async function releaseChanges(o: {
   const changes = changesOf(commits, o.repo, (sha) => bySha.get(sha));
   const markdown = changesMarkdown({ repo: o.repo, tag: o.tag, since: o.since, changes, newContributors: await newContributors(o.api, o.repo, o.since, changes) });
   return { markdown, changes };
+}
+
+/** Whether `gh api` failed with Not Found on the list of commits itself: GitHub does not know where it ends. */
+export function notFoundTarget(message: string): boolean {
+  return /^gh api repos\/[^/\s]+\/[^/\s]+\/(compare\/|commits\?)\S*: .*\(HTTP 404\)/.test(message);
 }
 
 /** `owner/name` from a GitHub remote's URL (HTTPS or SSH), if it is one. */
@@ -616,12 +639,16 @@ async function main(argv: string[]): Promise<number> {
       console.error(`${changes.length} change${changes.length === 1 ? '' : 's'} ${since ? `since ${since}` : 'since the first commit'}, up to ${target ?? tag}.`);
       return 0;
     } catch (e) {
-      console.error(`✗ ${(e as Error).message}`);
-      console.error(
-        target
-          ? `  GitHub must know ${target}: a commit's SHA, a tag or a branch on GitHub (main, not origin/main).`
-          : `  ${tag} has no tag on GitHub yet: give the commit it will be made on with --target <commit>.`,
-      );
+      const message = (e as Error).message;
+      console.error(`✗ ${message}`);
+      // Not Found from the list of commits: GitHub does not know where the list ends.
+      if (notFoundTarget(message)) {
+        console.error(
+          target
+            ? `  GitHub must know ${target}: a commit's SHA, a tag or a branch on GitHub (main, not origin/main).`
+            : `  ${tag} has no tag on GitHub yet: give the commit it will be made on with --target <commit>.`,
+        );
+      }
       return 1;
     }
   }
@@ -655,4 +682,16 @@ async function main(argv: string[]): Promise<number> {
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exit(await main(process.argv.slice(2)));
+// No top-level await: the desktop app bundles this file as CommonJS (desktop/src/update.ts). And
+// process.exitCode rather than process.exit(), which could cut off output still on its way to a pipe.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (e: unknown) => {
+      console.error(e);
+      process.exitCode = 1;
+    },
+  );
+}
