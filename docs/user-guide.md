@@ -306,7 +306,7 @@ To browse AgentsView from your phone too, see [Use it from your phone](remote-ac
 
 ## 3. Start a chat — New chat and templates
 
-Click **＋ New chat**. Here you choose where the team works and what it may do — the **working directory**, the **file permission** and what happens to **actions beyond the permission** (see [Conversation rules](#conversation-rules)) — and whether you confirm the lead agent's teams (**Use the lead agent's team without asking me**; the page remembers your choice). Click **Start chat →** and ask your first question.
+The app opens on its home page: the logo and a short tagline. Clicking the logo or **Harness Relay** at the top of the sidebar brings you back to it. To start, click **＋ New chat**. Here you choose where the team works and what it may do — the **working directory**, the **file permission** and what happens to **actions beyond the permission** (see [Conversation rules](#conversation-rules)) — and whether you confirm the lead agent's teams (**Use the lead agent's team without asking me**; the page remembers your choice). Click **Start chat →** and ask your first question.
 
 You don't pick a team for the chat: the lead agent chooses one for each question (see [Auto team](#auto-team)), from the [templates](#templates) on this page, where you design teams.
 

@@ -342,6 +342,15 @@ p {
   flex-shrink: 0;
 }
 
+.brand-home {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  text-decoration: none;
+  border-radius: 8px;
+}
+
 .new-chat {
   display: flex;
   align-items: center;
@@ -963,6 +972,150 @@ p {
   height: 100%;
   display: grid;
   place-items: center;
+}
+
+/* The home page: the logo, centred both ways in the main area, and the tagline under it. */
+.home-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.home-line {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  animation: home-line-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.65s both;
+}
+
+/*
+ * On a phone the tagline is smaller and each of its lines stays one line: as large as fits the
+ * screen less the hero's 16px gutters, at most 18px. At those sizes the longest line, English's
+ * second, is about 15.5em wide and the Chinese one 14em (measured in Chromium on macOS, whose
+ * system font is wider at small sizes), with a margin for other fonts.
+ */
+@media (max-width: 560px) {
+  .home-line {
+    white-space: nowrap;
+    font-size: min(18px, calc((100vw - 32px) / 16.5));
+  }
+}
+
+/*
+ * The Logo's drawing (a 32-unit square) at 96px: 3px a unit. On each load the three dots spiral in
+ * from outside and meet, one after another, while the mark turns once: transform and opacity only,
+ * so it runs on the compositor (no layout, no paint), once (about 1.4 s), and not at all with
+ * reduced motion (the prefers-reduced-motion rule further down). Filled both ways: a finished
+ * animation stays applied and costs nothing more, where dropping it would lay out and paint again
+ * as each one ends (measured in a Chrome trace).
+ */
+.home-logo {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  flex: none;
+}
+
+.home-logo-orbit {
+  position: absolute;
+  inset: 0;
+  animation: home-orbit 1.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Longhands, not the `animation` shorthand: without a name in it, the minifier turns it into `animation: none`. */
+.home-dot {
+  position: absolute;
+  border-radius: 50%;
+  animation-duration: 0.9s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: both;
+}
+
+.home-dot-claude {
+  left: 9px;
+  top: 30px;
+  width: 36px;
+  height: 36px;
+  background: var(--claude);
+  animation-name: home-join-claude;
+}
+
+.home-dot-codex {
+  left: 54px;
+  top: 15px;
+  width: 30px;
+  height: 30px;
+  background: var(--codex);
+  animation-name: home-join-codex;
+  animation-delay: 0.12s;
+}
+
+.home-dot-grok {
+  left: 54px;
+  top: 54px;
+  width: 30px;
+  height: 30px;
+  background: var(--grok);
+  animation-name: home-join-grok;
+  animation-delay: 0.24s;
+}
+
+@keyframes home-orbit {
+  from {
+    transform: rotate(-300deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+/* Each dot comes in from farther out along its own direction from the centre. */
+@keyframes home-join-claude {
+  from {
+    opacity: 0;
+    transform: translate(-28px, 0) scale(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes home-join-codex {
+  from {
+    opacity: 0;
+    transform: translate(24px, -20px) scale(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes home-join-grok {
+  from {
+    opacity: 0;
+    transform: translate(24px, 24px) scale(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes home-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .section-head {

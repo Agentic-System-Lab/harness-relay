@@ -1,10 +1,15 @@
-// The client's routes, kept in the URL hash: #/ (new chat), #/schedule (new schedule), #/c/<id>, #/settings
-// and #/settings/<section>.
+// The client's routes, kept in the URL hash: #/ (home), #/new (new chat), #/schedule (new schedule), #/c/<id>,
+// #/settings and #/settings/<section>.
 
 import { OPEN_PROVIDERS, PROVIDERS, isOpenProvider, type Provider } from '../shared/types';
 
 /** `section`: the card of the settings page to scroll to. */
-export type Route = { page: 'new' } | { page: 'schedule' } | { page: 'chat'; id: string } | { page: 'settings'; section?: SettingsSection };
+export type Route =
+  | { page: 'home' }
+  | { page: 'new' }
+  | { page: 'schedule' }
+  | { page: 'chat'; id: string }
+  | { page: 'settings'; section?: SettingsSection };
 
 /**
  * The cards of the settings page, in page order; each is the element `settings-<section>`. The model
@@ -32,18 +37,20 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export function routeFromHash(hash: string): Route {
   const h = hash.replace(/^#\/?/, '');
   if (h.startsWith('c/')) return { page: 'chat', id: h.slice(2) };
+  if (h === 'new') return { page: 'new' };
   if (h === 'schedule') return { page: 'schedule' };
   if (h === 'settings') return { page: 'settings' };
   if (h.startsWith('settings/')) {
     const section = h.slice('settings/'.length) as SettingsSection;
     return SETTINGS_SECTIONS.includes(section) ? { page: 'settings', section } : { page: 'settings' };
   }
-  return { page: 'new' };
+  return { page: 'home' };
 }
 
 export function hashFor(r: Route): string {
   if (r.page === 'chat') return `#/c/${r.id}`;
   if (r.page === 'settings') return r.section ? `#/settings/${r.section}` : '#/settings';
+  if (r.page === 'new') return '#/new';
   if (r.page === 'schedule') return '#/schedule';
   return '#/';
 }

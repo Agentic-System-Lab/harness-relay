@@ -3,8 +3,11 @@ import { SETTINGS_SECTIONS, currentSection, hashFor, readingLine, revealLink, ro
 
 describe('client routes', () => {
   it('reads the hash', () => {
-    expect(routeFromHash('')).toEqual({ page: 'new' });
-    expect(routeFromHash('#/')).toEqual({ page: 'new' });
+    expect(routeFromHash('')).toEqual({ page: 'home' });
+    expect(routeFromHash('#/')).toEqual({ page: 'home' });
+    expect(routeFromHash('#/new')).toEqual({ page: 'new' });
+    // A route this version does not know opens the home page.
+    expect(routeFromHash('#/nope')).toEqual({ page: 'home' });
     expect(routeFromHash('#/c/abc')).toEqual({ page: 'chat', id: 'abc' });
     expect(routeFromHash('#/schedule')).toEqual({ page: 'schedule' });
     expect(routeFromHash('#/settings')).toEqual({ page: 'settings' });
@@ -15,7 +18,7 @@ describe('client routes', () => {
   });
 
   it('writes it back the same way', () => {
-    for (const hash of ['#/', '#/schedule', '#/c/abc', '#/settings', ...SETTINGS_SECTIONS.map((s) => `#/settings/${s}`)]) {
+    for (const hash of ['#/', '#/new', '#/schedule', '#/c/abc', '#/settings', ...SETTINGS_SECTIONS.map((s) => `#/settings/${s}`)]) {
       expect(hashFor(routeFromHash(hash))).toBe(hash);
     }
     expect(settingsHref('lead')).toBe('#/settings/lead');

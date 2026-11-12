@@ -193,6 +193,7 @@ test.describe('the folder dialog', () => {
     test.use({ lang: 'zh-TW', serverEnv: { DISPLAY, E2E_FAKE_PICK: '[]', LANG: 'C', LC_ALL: '', LC_CTYPE: '' } });
 
     test('opens with the title in Chinese and a UTF-8 character set, and Cancel adds nothing', async ({ page, relay }) => {
+      await page.getByRole('button', { name: '新對話' }).first().click();
       await expect(page.getByRole('heading', { name: '新對話' })).toBeVisible();
       const chips = page.locator('.cwd-chip-path');
       await expect(chips).toHaveText([relay.workDir]);
