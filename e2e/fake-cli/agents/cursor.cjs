@@ -28,6 +28,8 @@
  * A refusal reaches it as Cursor's own "Rejected: User rejected": it ignores the note Harness Relay
  * sends with it (`_meta.followup_message`). The model's questions (`e2e:ask`) are asked first as
  * Cursor asks them when the client has no `cursor/ask_question`: a permission request with a skip option.
+ * A web fetch (`e2e:fetch=<url>`) asks below full access and fetches nothing; every command it is
+ * allowed to run (`e2e:approve`, `=publish`) prints what `echo e2e-approval` would.
  * A service error (`e2e:error`) is reply text of its own (`"\n\nError: …"`), as Cursor sends one.
  *
  * Homes: the account's folder is CURSOR_CONFIG_DIR, else `$XDG_CONFIG_HOME/cursor`, else ~/.cursor; in
@@ -629,10 +631,18 @@ async function cursorTurn(peer, s, u, steps) {
         const why = r.allow.some((x) => x.startsWith('Shell(')) ? 'Not in the shell allowlist' : 'Shell allowlist is empty';
         ok = await ask({ toolCallId: id, title, kind: 'execute', status: 'pending', content: [{ type: 'content', content: { type: 'text', text: why } }] }, `Shell(${step.command.split(' ')[0]})`);
       }
-      const printed = `${step.command.replace(/^echo\s+/, '')}\n`;
-      // A refused call is reported completed, with nothing else.
-      update(id, ok ? { status: 'completed', rawOutput: { exitCode: 0, stdout: printed, stderr: '' } } : { status: 'completed' });
-      prefix += ok ? `The command ran: ${printed.trim()}. ` : declined('command', '');
+      // A refused call is reported completed, with nothing else. (No command really runs: each prints what `echo e2e-approval` would.)
+      update(id, ok ? { status: 'completed', rawOutput: { exitCode: 0, stdout: 'e2e-approval\n', stderr: '' } } : { status: 'completed' });
+      prefix += ok ? 'The command ran: e2e-approval. ' : declined('command', '');
+    }
+    if (step.type === 'fetch') {
+      const id = nextId();
+      const title = `Fetch ${step.url}`;
+      u.toolCall({ toolCallId: id, title, kind: 'fetch', status: 'pending', rawInput: { url: step.url } });
+      // Its web fetch asks below full access (Harness Relay's permission covers it); nothing is fetched.
+      const ok = s.mode === 'agent' && (r.runEverything || (await ask({ toolCallId: id, title, kind: 'fetch', status: 'pending' })));
+      update(id, ok ? { status: 'completed', content: [{ type: 'content', content: { type: 'text', text: `Fetched ${step.url}` } }] } : { status: 'completed' });
+      prefix += ok ? `I fetched ${step.url}. ` : `I may not fetch ${step.url} here. `;
     }
     if (step.type === 'write') {
       const file = targetOf(step, s.cwd, others);

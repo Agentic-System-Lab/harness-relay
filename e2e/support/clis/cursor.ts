@@ -31,4 +31,6 @@ export const cursor: CliFacts = {
   accounts: 'key-only',
   apiKeyEnv: 'CURSOR_API_KEY',
   apiKeyPlaceholder: 'key_…',
+  // Its `authenticate` fails, as the real one's does without a sign-in (src/server/i18n.ts `cursorSignIn`).
+  signedOutError: 'Cursor is not signed in (Failed to open browser for login)',
 };
