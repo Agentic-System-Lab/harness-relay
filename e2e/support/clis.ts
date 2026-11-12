@@ -69,6 +69,10 @@ export const HALVES = [
 export function teamOf(clis: readonly Cli[], least = 1): Cli[] {
   const team = faked(clis);
   test.skip(team.length < least, `${least === 1 ? 'none' : `fewer than ${least}`} of ${clis.map((c) => c.label).join(', ')} has a fake written yet`);
+  // Its members take their turns one after another, each CLI started anew (and an open agent's adapter
+  // asks its CLI for its models before each turn): on Windows, slower to start programs, five of them
+  // need more than a test's minute.
+  test.slow(process.platform === 'win32' && team.length > 2, 'a team of several CLIs on Windows, each started anew in turn');
   return team;
 }
 
