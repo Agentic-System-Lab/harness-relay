@@ -31,4 +31,6 @@ export const goose: CliFacts = {
   pickModel: { model: 'e2e/e2e-model-mini', effort: 'high', logged: { model: 'e2e-model-mini', effort: 'off' } },
   defaultHome: { in: 'data', path: ['agent-homes', 'goose'] },
   accounts: 'none',
+  // Its stdio MCP servers get the user's HOME back, and below full access caches in the run's temp folder (gooseMcpServers).
+  mcpEnvAdded: ['HOME', 'npm_config_cache', 'XDG_CACHE_HOME', 'UV_CACHE_DIR', 'PIP_CACHE_DIR'],
 };
