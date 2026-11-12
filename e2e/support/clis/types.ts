@@ -1,0 +1,92 @@
+/**
+ * What the end-to-end tests know of one CLI and its fake (`e2e/fake-cli/agents/<provider>.cjs`): the
+ * facts a spec branches on. Each CLI has a file of its own (`clis/<provider>.ts`), changed together
+ * with its fake; `clis/all.ts` gathers them and `support/clis.ts` answers the specs' questions with them.
+ * A fact marked optional has its default in `support/clis.ts`, as its comment says.
+ */
+import type { Permission, Provider } from '../../../src/shared/types';
+
+export interface CliFacts {
+  provider: Provider;
+  /** The executable's name, without `.exe`: the server's default for the CLI, and the name its fake is installed under. */
+  bin: string;
+  /** The member name tests give it, and the fake lead agent too (its fake's `name`): a valid @mention. */
+  name: string;
+  /** Its name in the chat and in Settings (`PROVIDER_LABEL`). */
+  label: string;
+  /**
+   * Whether its fake is written. One that is not says so and exits with code 2, and a test server
+   * leaves the CLI not installed (unless the test's `missingClis` says otherwise).
+   */
+  implemented: boolean;
+  /** Its version as Settings shows it (`v2.1.999`): what its fake's `--version` prints. */
+  version: string;
+  /**
+   * What keeps it in the chat's folders below full access: its own sandbox (`own`), Harness Relay's
+   * (`relay`, the open agents'), or nothing (`none`: it asks before what it may not do by itself).
+   */
+  sandbox: 'own' | 'relay' | 'none';
+  /** The systems it runs on below full access; on the others Harness Relay runs it with full access only. */
+  belowFullOn: readonly NodeJS.Platform[];
+  /** Systems where nothing keeps it in its folders below full access although it runs there (Grok on Windows). */
+  unconfinedOn?: readonly NodeJS.Platform[];
+  /** The tool its `e2e:tool` step (a listing of the working directory) shows as in the activity. */
+  listTool: string;
+  /**
+   * A command it asks to run (`approvals.spec.ts`): asked in a chat of `permission`, by `directive`
+   * in the message, for `command`.
+   */
+  approve: { permission: Permission; directive: string; command: string };
+  /** What it does with the note the user declines a request with: passes it on to the model, drops it, or ends its turn. */
+  decline: 'passed' | 'dropped' | 'ends-turn';
+  /** In a read-only chat, whether a write asks the user first (a card to decline) rather than being refused without one. */
+  readOnlyWriteAsks: boolean;
+  /** In edit mode, a write outside the chat's folders: whether it asks first, and whether it is written once the user allows it. */
+  outsideWrite: { asks: boolean; writtenOnceAllowed: boolean };
+  /** In edit mode, whether a write in another of the chat's working directories asks first. */
+  otherCwdWriteAsks: boolean;
+  /** Whether it is given the tool library's HTTP MCP servers (else stdio ones only). */
+  mcpHttp: boolean;
+  /** Whether a prompt's images reach it. */
+  images: boolean;
+  /**
+   * For `models.spec.ts`: a model to pick for a member in Team settings, and an effort it offers for
+   * that model; `logged`: the model and effort its fake then logs for the turn, where they differ
+   * from those picked (an open agent's model without its backend, say). Default: those picked.
+   */
+  pickModel: { model: string; effort: string; logged?: { model?: string; effort?: string } };
+  /** Its default account's home in a test server: a folder under the test's home folder (`home`) or data folder (`data`). */
+  defaultHome: { in: 'home' | 'data'; path: readonly string[] };
+  /**
+   * Its accounts besides the default one: each signs in on its own (`sign-in`), signs in with an API
+   * key only (`key-only`), or there are none (`none`: the open agents run on the model backends).
+   */
+  accounts: 'sign-in' | 'key-only' | 'none';
+  /** The variable an API key reaches it in, the server's own environment's too (Codex: one of two); none for the open agents. */
+  apiKeyEnv?: string;
+  /** The placeholder of an account's API key box in Settings. */
+  apiKeyPlaceholder?: string;
+  /**
+   * Where its fake's home (what it logs as `home`) is in an account's folder: the folder itself
+   * (default, `[]`), or a folder in it (`['.gemini']`, where the CLI keeps its own).
+   */
+  homeIn?: readonly string[];
+  /** The arguments of its own sign-out command, as its fake logs them (default `logout`; Claude Code `auth logout`). */
+  logout?: string;
+  /** A part of its reply's error when it is not signed in (E2E_FAKE_SIGNED_OUT); none: the reply's error is not checked. */
+  signedOutError?: string;
+  /** Whether it asks the user before reading a tool library skill outside the working directory (default false). */
+  skillReadAsks?: boolean;
+  /** Whether its `e2e:todo` step shows a to-do list (default true; Pi has none). */
+  todoList?: boolean;
+  /** The tool its `e2e:tool` listing shows as with full access, where that is not `listTool` (Pi: no `ls` tool then, so `Bash`). */
+  listToolFull?: string;
+  /** The permission it runs `e2e:fetch` in, the lowest where it has a tool to reach a URL (default read-only; Pi edit, as read-only gives it no command tool). */
+  fetchPermission?: Permission;
+  /**
+   * The variables its adapter adds to a tool library stdio MCP server's environment besides the
+   * library's own (default none; Goose: the user's HOME, and below full access the caches in the run's
+   * temp folder).
+   */
+  mcpEnvAdded?: readonly string[];
+}

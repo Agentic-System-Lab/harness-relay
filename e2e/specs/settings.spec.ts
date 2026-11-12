@@ -1,28 +1,66 @@
+import type { Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { askAndConfirm, finishedReply, openTeamChat, replies, send, startChat } from '../support/app';
+import { chatWith, CLIS, eachCli, faked, member, OPEN, SIGNED_IN } from '../support/clis';
+import { NOT_YET_FAKED } from '../support/fake-cli';
 
-const CLIS = [
-  { provider: 'claude', label: 'Claude Code', version: 'v2.1.999' },
-  { provider: 'codex', label: 'Codex', version: 'v0.999.0' },
-  { provider: 'grok', label: 'Grok', version: 'v1.0.999' },
-] as const;
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test.describe('a CLI that is not signed in', () => {
-  test.use({ serverEnv: { E2E_FAKE_SIGNED_OUT: 'codex' } });
+  eachCli(SIGNED_IN, (cli) => {
+    test.describe(() => {
+      test.use({ serverEnv: { E2E_FAKE_SIGNED_OUT: cli.provider } });
 
-  test('shows as signed out in Settings and the sidebar, and its reply says why', async ({ page, relay }) => {
-    await expect(page.locator('.provider-health a[href="#/settings/codex"]')).toHaveAttribute('title', 'Codex · Not signed in');
-    await expect(page.locator('.provider-health a[href="#/settings/claude"]')).toHaveAttribute('title', 'Claude Code · Signed in: e2e@example.com');
+      test(`${cli.provider}: shows as signed out in Settings and the sidebar, and its reply says why`, async ({ page, relay }) => {
+        // Another CLI stays signed in.
+        const other = SIGNED_IN.find((c) => c.provider === (cli.provider === 'claude' ? 'codex' : 'claude'))!;
+        await expect(page.locator(`.provider-health a[href="#/settings/${cli.provider}"]`)).toHaveAttribute('title', `${cli.label} · Not signed in`);
+        await expect(page.locator(`.provider-health a[href="#/settings/${other.provider}"]`)).toHaveAttribute('title', new RegExp(`^${escape(other.label)} · Signed in`));
+        await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+        const card = page.locator(`#settings-${cli.provider}`);
+        const head = card.locator('.account-block').first().locator('.account-head');
+        await expect(head).toContainText('Not signed in');
+        // Nothing of the CLI's own words after it (Codex's "Not logged in"). (Elsewhere on the card,
+        // a CLI whose models it asks for may say why it could not list them.)
+        if (cli.signedOutError) await expect(head).not.toContainText(cli.signedOutError);
+        await expect(card.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+
+        await openTeamChat(page, relay, [member(cli)]);
+        await send(page, 'Anyone there?');
+        if (cli.signedOutError) await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText(cli.signedOutError);
+        else await expect(replies(page, cli.name).last().locator('.msg-error')).not.toBeEmpty();
+      });
+    });
+  });
+});
+
+test.describe('a CLI that is not installed', () => {
+  test.use({ missingClis: [...new Set<Provider>([...NOT_YET_FAKED, 'cursor', 'antigravity'])] });
+
+  test('shows so in Settings and the sidebar', async ({ page }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
-    const card = page.locator('#settings-codex');
-    await expect(card).toContainText('Not signed in');
-    // Nothing of the CLI's own words after it ("Not logged in").
-    await expect(card).not.toContainText('Not logged in');
-    await expect(card.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+    for (const c of SIGNED_IN.filter((x) => x.provider === 'cursor' || x.provider === 'antigravity')) {
+      await expect(page.locator(`.provider-health .health.off[href="#/settings/${c.provider}"]`)).toHaveAttribute('title', `${c.label} · Not installed`);
+      await expect(page.locator(`#settings-${c.provider} .provider-head .pill`)).toHaveText('Not installed');
+    }
+  });
+});
 
-    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }]);
+test.describe('an open agent without a model backend', () => {
+  test.use({ openBackend: false });
+
+  test('is not ready, and its turn says to set one up', async ({ page, relay }) => {
+    const cli = faked(OPEN)[0];
+    test.skip(!cli, 'no open agent has a fake written yet');
+    await expect(page.locator(`.provider-health a[href="#/settings/${cli!.provider}"]`)).toHaveAttribute('title', `${cli!.label} · No model backend yet`);
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    const card = page.locator(`#settings-${cli!.provider}`);
+    await expect(card.locator('.provider-head .pill')).toHaveText('Not ready');
+    await expect(card).toContainText('No model backend set up yet (Settings → Model backends)');
+
+    await chatWith(page, relay, cli!);
     await send(page, 'Anyone there?');
-    await expect(replies(page, 'Codex').last().locator('.msg-error')).toContainText('Not logged in');
+    await expect(replies(page, cli!.name).last().locator('.msg-error')).toContainText(`${cli!.label} has no model.`);
   });
 });
 
@@ -30,24 +68,34 @@ test.describe('settings', () => {
   test('each CLI is found, with its version, and signed in', async ({ page }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     await expect(page.getByRole('heading', { name: 'Settings & sign-in', level: 1 })).toBeVisible();
+    // Each CLI whose fake is written, with its version: signed in, or for an open agent ready on the
+    // test's fake endpoint. Those whose fake is not written yet are not installed here.
     for (const cli of CLIS) {
       const card = page.locator(`#settings-${cli.provider}`);
       await expect(card.locator('.provider-head')).toContainText(cli.label);
+      if (!cli.implemented) {
+        await expect(card.locator('.provider-head .pill')).toHaveText('Not installed');
+        continue;
+      }
       await expect(card.locator('.provider-head')).toContainText(cli.version);
-      await expect(card).toContainText('Signed in');
+      if (cli.open) await expect(card.locator('.provider-head .pill')).toHaveText('Ready');
+      else await expect(card).toContainText('Signed in');
     }
     await expect(page.locator('#settings-claude')).toContainText('e2e@example.com');
-    // The sidebar's health dots say the same. Cursor and Antigravity, which no fake stands in for, are
-    // not installed here; the open agents get a dot only once installed.
-    for (const cli of CLIS) await expect(page.locator(`.provider-health .health.ok[href="#/settings/${cli.provider}"]`)).toBeVisible();
-    await expect(page.locator('.provider-health .health.off[href="#/settings/cursor"]')).toHaveAttribute('title', 'Cursor · Not installed');
-    await expect(page.locator('#settings-cursor .provider-head .pill')).toHaveText('Not installed');
-    await expect(page.locator('.provider-health .health.off[href="#/settings/antigravity"]')).toHaveAttribute('title', 'Antigravity · Not installed');
-    await expect(page.locator('#settings-antigravity .provider-head .pill')).toHaveText('Not installed');
-    await expect(page.locator('.provider-health .health')).toHaveCount(5);
+    // The sidebar's health dots say the same; the open agents get a dot only once installed.
+    for (const cli of faked(CLIS)) {
+      const dot = page.locator(`.provider-health .health.ok[href="#/settings/${cli.provider}"]`);
+      await expect(dot).toBeVisible();
+      if (cli.open) await expect(dot).toHaveAttribute('title', `${cli.label} · Model backends set up`);
+    }
+    for (const cli of SIGNED_IN.filter((c) => !c.implemented)) {
+      await expect(page.locator(`.provider-health .health.off[href="#/settings/${cli.provider}"]`)).toHaveAttribute('title', `${cli.label} · Not installed`);
+    }
+    const dots = SIGNED_IN.length + faked(OPEN).length;
+    await expect(page.locator('.provider-health .health')).toHaveCount(dots);
     // Dots alone on one line, with how many are ready; their names beside them when asked for, kept after a reload.
     const toggle = page.locator('.provider-health .health-toggle');
-    await expect(toggle).toHaveText('3/5 ready');
+    await expect(toggle).toHaveText(`${faked(CLIS).length}/${dots} ready`);
     const nameWidth = async () => (await page.locator('.provider-health a[href="#/settings/grok"] .health-name').boundingBox())?.width ?? 0;
     expect(await nameWidth()).toBeLessThanOrEqual(1);
     await toggle.click();

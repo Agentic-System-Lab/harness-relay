@@ -7,12 +7,14 @@ import type { Locator, Page } from '@playwright/test';
 import type { Provider, SettingsView } from '../../src/shared/types';
 import { expect, test as base } from '../fixtures';
 import { acceptNextDialog, composer, finishedReply, openTeamChat, replies, send, settled, type Member } from '../support/app';
+import { chatOf, defaultHome, HALVES, logged, sessionFile, teamOf } from '../support/clis';
 import { ROOT } from '../support/paths';
 import type { RelayServer } from '../support/relay';
 
 /*
- * Settings → Agent sessions. The fakes keep their sessions in their homes (`e2e-sessions/`), so where
- * a session lands tells which home the CLI ran in. AgentsView is a server the user runs, which Harness
+ * Settings → Agent sessions. The fakes keep their sessions in their homes (`e2e-sessions/`; an open
+ * agent's in its state folder there, `private/<key>/…`), so where a session lands tells which home
+ * the CLI ran in (`sessionFile()` finds it). AgentsView is a server the user runs, which Harness
  * Relay only sends requests to: a small HTTP server in the test stands in for it.
  */
 
@@ -82,10 +84,10 @@ function records(hit: Hit): Record<string, any>[] {
   });
 }
 
-const TEAM: Member[] = [
+/** The members AgentsView's tests ask: Claude Code, whose sessions it does not know, and Codex, whose it does. */
+const VIEWED: Member[] = [
   { name: 'Claude', provider: 'claude' },
   { name: 'Codex', provider: 'codex' },
-  { name: 'Grok', provider: 'grok' },
 ];
 
 /** The Agent sessions card's parts: the CLIs' own folder, and AgentsView. */
@@ -103,65 +105,75 @@ async function sessionsCard(page: Page, relay: RelayServer): Promise<{ home: Loc
 const startedSessions = (relay: RelayServer, cli: Provider) =>
   relay.fakeLog().filter((e) => e.cli === cli && e.session && e.resumed === false).map((e) => e.session!);
 
-/** Where the fake keeps a session in a CLI home. */
-const sessionFile = (home: string, id: string) => join(home, 'e2e-sessions', encodeURIComponent(id));
+/** The sessions each of `providers` started, once each has started `count` (a fake in Harness Relay's own sandbox logs them a moment later). */
+async function sessionsOf(relay: RelayServer, providers: Provider[], count: number): Promise<Map<Provider, string[]>> {
+  for (const p of providers) await expect.poll(() => startedSessions(relay, p).length, { message: `${p}'s sessions` }).toBeGreaterThanOrEqual(count);
+  return new Map(providers.map((p) => [p, startedSessions(relay, p)]));
+}
 
 test.describe("the CLIs' own folder", () => {
-  test('the folder chosen in Settings is where each CLI keeps its sessions', async ({ page, relay }) => {
-    const { home } = await sessionsCard(page, relay);
-    await home.getByRole('button', { name: 'Use ~/.relay-agents' }).click();
-    const dir = join(relay.home, '.relay-agents');
-    await expect(home).toContainText(`The CLIs now use the folders in ${dir}. Sign in to them again above.`);
-    await expect(home.getByPlaceholder('~/.relay-agents')).toHaveValue(dir);
-    expect((await relay.api<SettingsView>('/api/settings')).agentHome).toBe(dir);
-    // Made for the CLIs' sign-ins: readable by its owner only.
-    if (process.platform !== 'win32') expect(statSync(dir).mode & 0o777).toBe(0o700);
+  // Each with a team of the CLIs with a sign-in, and of the open agents (`open agents: …`).
+  for (const half of HALVES) {
+    test(half.title('the folder chosen in Settings is where each CLI keeps its sessions'), async ({ page, relay }) => {
+      const TEAM = teamOf(half.clis);
+      const { home } = await sessionsCard(page, relay);
+      await home.getByRole('button', { name: 'Use ~/.relay-agents' }).click();
+      const dir = join(relay.home, '.relay-agents');
+      await expect(home).toContainText(`The CLIs now use the folders in ${dir}. Sign in to them again above.`);
+      await expect(home.getByPlaceholder('~/.relay-agents')).toHaveValue(dir);
+      expect((await relay.api<SettingsView>('/api/settings')).agentHome).toBe(dir);
+      // Made for the CLIs' sign-ins: readable by its owner only.
+      if (process.platform !== 'win32') expect(statSync(dir).mode & 0o777).toBe(0o700);
 
-    const id = await openTeamChat(page, relay, TEAM);
-    await send(page, 'Where do you keep this?');
-    for (const m of TEAM) await finishedReply(page, m.name);
-    await settled(relay, id);
-    for (const m of TEAM) {
-      const started = startedSessions(relay, m.provider);
-      expect(started).toHaveLength(1);
-      expect(existsSync(sessionFile(join(dir, m.provider), started[0]!))).toBe(true);
-      // Nothing in its usual home.
-      expect(existsSync(join(relay.home, `.${m.provider}`, 'e2e-sessions'))).toBe(false);
-    }
-  });
+      const id = await chatOf(page, relay, TEAM.map((cli) => ({ cli })));
+      await send(page, 'Where do you keep this?');
+      for (const m of TEAM) await finishedReply(page, m.name);
+      await settled(relay, id);
+      const started = await sessionsOf(relay, TEAM.map((m) => m.provider), 1);
+      for (const m of TEAM) {
+        const [session, ...more] = started.get(m.provider)!;
+        expect(more).toEqual([]);
+        // In the CLI's folder of the one chosen, and nothing in its usual home.
+        expect(sessionFile(join(dir, m.provider), session!), `${m.provider}'s session`).toBeDefined();
+        expect(sessionFile(defaultHome(relay, m.provider), session!), `${m.provider}'s session`).toBeUndefined();
+      }
+    });
 
-  test('after the folder changes, each member starts a fresh session there with the chat so far', async ({ page, relay }) => {
-    const id = await openTeamChat(page, relay, TEAM);
-    await send(page, 'Remember this');
-    for (const m of TEAM) await finishedReply(page, m.name);
-    await settled(relay, id);
+    test(half.title('after the folder changes, each member starts a fresh session there with the chat so far'), async ({ page, relay }) => {
+      const TEAM = teamOf(half.clis);
+      const id = await chatOf(page, relay, TEAM.map((cli) => ({ cli })));
+      await send(page, 'Remember this');
+      for (const m of TEAM) await finishedReply(page, m.name);
+      await settled(relay, id);
 
-    const { home } = await sessionsCard(page, relay);
-    const dir = join(relay.root, 'agent-homes');
-    await home.getByPlaceholder('~/.relay-agents').fill(dir);
-    await home.getByRole('button', { name: 'Save' }).click();
-    await expect(home).toContainText(`The CLIs now use the folders in ${dir}.`);
+      const { home } = await sessionsCard(page, relay);
+      const dir = join(relay.root, 'agent-homes');
+      await home.getByPlaceholder('~/.relay-agents').fill(dir);
+      await home.getByRole('button', { name: 'Save' }).click();
+      await expect(home).toContainText(`The CLIs now use the folders in ${dir}.`);
 
-    await page.goto(`${relay.base}/#/c/${id}`);
-    await expect(composer(page)).toBeVisible();
-    await send(page, 'And this');
-    for (const m of TEAM) {
-      await expect(replies(page, m.name)).toHaveCount(2);
-      await expect(await finishedReply(page, m.name)).toContainText('You said: “And this”.');
-    }
-    await settled(relay, id);
-    for (const m of TEAM) {
-      // Its session could not be resumed from the new home: a new one, given the whole chat.
-      const last = relay.fakeLog().filter((e) => e.cli === m.provider && e.prompt).pop()!;
-      expect(last.prompt).toContain('Here is the group chat so far:');
-      expect(last.prompt).toContain('Remember this');
-      const [before, after, ...more] = startedSessions(relay, m.provider);
-      expect(more).toEqual([]);
-      // The earlier one stays where it was.
-      expect(existsSync(sessionFile(join(relay.home, `.${m.provider}`), before!))).toBe(true);
-      expect(existsSync(sessionFile(join(dir, m.provider), after!))).toBe(true);
-    }
-  });
+      await page.goto(`${relay.base}/#/c/${id}`);
+      await expect(composer(page)).toBeVisible();
+      await send(page, 'And this');
+      for (const m of TEAM) {
+        await expect(replies(page, m.name)).toHaveCount(2);
+        await expect(await finishedReply(page, m.name)).toContainText('You said: “And this”.');
+      }
+      await settled(relay, id);
+      const started = await sessionsOf(relay, TEAM.map((m) => m.provider), 2);
+      for (const m of TEAM) {
+        // Its session could not be resumed from the new home: a new one, given the whole chat.
+        const last = (await logged(relay, (e) => e.cli === m.provider && e.prompt?.includes('And this'))).pop()!;
+        expect(last.prompt).toContain('Here is the group chat so far:');
+        expect(last.prompt).toContain('Remember this');
+        const [before, after, ...more] = started.get(m.provider)!;
+        expect(more).toEqual([]);
+        // The earlier one stays where it was.
+        expect(sessionFile(defaultHome(relay, m.provider), before!), `${m.provider}'s first session`).toBeDefined();
+        expect(sessionFile(join(dir, m.provider), after!), `${m.provider}'s second session`).toBeDefined();
+      }
+    });
+  }
 
   test("a folder inside Harness Relay's own folder or the default working directory is refused", async ({ page, relay }) => {
     const { home } = await sessionsCard(page, relay);
@@ -218,7 +230,7 @@ test.describe('AgentsView', () => {
     await expect(view).toContainText('AgentsView is set; it is updated after every turn');
     await expect(view.getByRole('link', { name: 'Open AgentsView ↗' })).toHaveAttribute('href', agentsView.url);
 
-    const team = TEAM.slice(0, 2);
+    const team = VIEWED;
     const id = await openTeamChat(page, relay, team, {}, 'Pelican report');
     await send(page, 'Count the pelicans');
     for (const m of team) await finishedReply(page, m.name);

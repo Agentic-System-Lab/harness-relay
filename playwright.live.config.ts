@@ -3,8 +3,8 @@ import { defineConfig, devices } from '@playwright/test';
 /*
  * The live end-to-end tests (`npm run test:e2e:live`): the real server and the built UI with the real
  * CLIs, signed in as the user is, on real models (an Ollama or vLLM server of the user's own, and the
- * CLIs' own cloud models when E2E_LIVE_CLOUD=1). They are never run on CI: each spec is skipped
- * unless the environment names a model server. One at a time, since a turn on a real model is slow
+ * CLIs' own cloud models when E2E_LIVE_CLOUD=1). They are never run on CI: each test is skipped
+ * unless the environment names what it needs (a model server, or E2E_LIVE_CLOUD=1). One at a time, since a turn on a real model is slow
  * and the CLIs share the user's own folders. See the developer guide, "Live tests".
  */
 export default defineConfig({

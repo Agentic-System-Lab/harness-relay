@@ -421,6 +421,12 @@ describe.skipIf(process.platform === 'win32')('hosts', () => {
     expect(relayPorts({ npm_lifecycle_event: 'dev' })).toEqual([8789, 8787, 5173]);
   });
 
+  it('takes the port the server got too, when PORT=0 let it pick a free one', () => {
+    expect(relayPorts({ PORT: '0' }, 51234)).toEqual([51234, 8787, 8789, 5173]);
+    expect(relayPorts({ PORT: '9000' }, 9000)).toEqual([9000, 8787, 8789, 5173]);
+    expect(relayPorts({ PORT: '0' }, undefined)).toEqual([8787, 8789, 5173]);
+  });
+
   it('labels a host as approvals key it, host alone for 443 and 80', () => {
     expect(hostLabel('example.com', 443)).toBe('example.com');
     expect(hostLabel('example.com', 8080)).toBe('example.com:8080');
@@ -678,6 +684,18 @@ describe.skipIf(process.platform === 'win32')('RelaySandboxRun', () => {
     run.attach(other.server, {} as never);
     await until(() => closed);
     expect(closed).toBe(true);
+    await run.dispose();
+  });
+
+  it('tells its listeners when the host says the command exited, and a later one at once', async () => {
+    const { run, host } = newRun();
+    const seen: string[] = [];
+    run.onExit(() => seen.push('first'));
+    host.write({ t: 'exit', code: 1, signal: null });
+    await until(() => seen.length === 1);
+    expect(run.exit).toEqual({ code: 1, signal: null });
+    run.onExit(() => seen.push('later'));
+    expect(seen).toEqual(['first', 'later']);
     await run.dispose();
   });
 

@@ -1,6 +1,8 @@
 import type { Page } from '@playwright/test';
+import type { Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { finishedReply, openTeamChat, send, settled } from '../support/app';
+import { chatWith, CLIS, eachCli, loggedModel } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
 /** A member's card in the open Team settings drawer, by its name. */
@@ -24,7 +26,7 @@ async function pickModel(page: Page, name: string, model: string, effort: string
 }
 
 /** The fake's log of the turn that got `text`: its prompt entry and the arguments its CLI started with. */
-function turnFor(relay: RelayServer, cli: 'claude' | 'codex' | 'grok', text: string) {
+function turnFor(relay: RelayServer, cli: Provider, text: string) {
   const log = relay.fakeLog();
   const turn = log.find((e) => e.cli === cli && e.prompt?.includes(text));
   if (!turn) throw new Error(`No ${cli} turn got “${text}”`);
@@ -48,28 +50,25 @@ test.describe("a member's model and reasoning effort", () => {
     expect(passes(args, '--effort', 'high')).toBe(true);
   });
 
-  test("codex: the model and effort chosen for a member reach Codex's thread", async ({ page, relay }) => {
-    const id = await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }]);
-    // Codex's own list (`codex debug models`), with each model's own efforts.
-    await pickModel(page, 'Codex', 'gpt-fake-mini', 'high');
-    await send(page, 'Which model are you?');
-    await finishedReply(page, 'Codex');
-    const conv = await settled(relay, id);
-    expect(conv.agents[0]).toMatchObject({ model: 'gpt-fake-mini', effort: 'high' });
-    // `thread/start` names the model, and its config the effort (`model_reasoning_effort`).
-    expect(turnFor(relay, 'codex', 'Which model are you?').turn).toMatchObject({ model: 'gpt-fake-mini', effort: 'high' });
-  });
-
-  test("grok: the model and effort chosen for a member are set on Grok's session", async ({ page, relay }) => {
-    const id = await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }]);
-    // Grok's own list (`grok models`).
-    await pickModel(page, 'Grok', 'grok-fake-mini', 'high');
-    await send(page, 'Which model are you?');
-    await finishedReply(page, 'Grok');
-    const conv = await settled(relay, id);
-    expect(conv.agents[0]).toMatchObject({ model: 'grok-fake-mini', effort: 'high' });
-    // Set with `session/set_config_option` before the prompt (the session started on grok-fake, medium).
-    expect(turnFor(relay, 'grok', 'Which model are you?').turn).toMatchObject({ model: 'grok-fake-mini', effort: 'high' });
+  // The others: a model from the CLI's own list (Codex's `codex debug models`, Grok's `grok models`,
+  // …; an open agent's from its model backends, the test's fake endpoint), with an effort it offers
+  // for it; its fake logs the model and effort its turn ran with (Codex's thread, Grok's session, …).
+  // (Codex's and Grok's tests keep the titles they had before the others joined.)
+  const reach: Partial<Record<Provider, string>> = { codex: "reach Codex's thread", grok: "are set on Grok's session" };
+  eachCli(CLIS.filter((c) => c.provider !== 'claude'), (cli) => {
+    test(`${cli.provider}: the model and effort chosen for a member ${reach[cli.provider] ?? `reach ${cli.label}`}`, async ({ page, relay }) => {
+      const { model, effort } = cli.pickModel;
+      const id = await chatWith(page, relay, cli);
+      await pickModel(page, cli.name, model, effort);
+      await send(page, 'Which model are you?');
+      await expect(await finishedReply(page, cli.name)).toContainText('You said: “Which model are you?”.');
+      const conv = await settled(relay, id);
+      // No effort (''): the CLI offers none for that model (OpenCode on an endpoint), so none is kept, and its turn runs on its own (null).
+      expect(conv.agents[0]).toMatchObject({ model, ...(effort ? { effort } : {}) });
+      await expect.poll(() => relay.fakeLog().some((e) => e.cli === cli.provider && e.prompt?.includes('Which model are you?'))).toBe(true);
+      const logged = loggedModel(cli);
+      expect(turnFor(relay, cli.provider, 'Which model are you?').turn).toMatchObject({ ...logged, effort: logged.effort || null });
+    });
   });
 
   test("the default model and effort in Settings are what a member left on Default runs with", async ({ page, relay }) => {

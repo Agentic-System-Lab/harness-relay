@@ -3,7 +3,7 @@ import type { ChatMessage, Conversation, Provider } from '../../src/shared/types
 import { expect, test } from '../fixtures';
 import { composer, replies, send } from '../support/app';
 import type { RelayServer } from '../support/relay';
-import { CLOUD, ENDPOINTS, ENDPOINT_CLIS, OPEN, TYPED_MODEL, askPermission, has, modelId, sessionBackend, setUpEndpoints, type LiveEndpoint } from './live';
+import { CLOUD, CLOUD_CLIS, ENDPOINTS, ENDPOINT_CLIS, OPEN, TYPED_MODEL, askPermission, endpointOf, has, modelId, ownModel, sessionBackend, setUpEndpoints, type LiveEndpoint } from './live';
 
 test.use({ live: true });
 
@@ -66,8 +66,8 @@ async function pickAndAsk(page: Page, relay: RelayServer, provider: Provider, mo
   expect(last?.error, 'the turn failed').toBeUndefined();
   expect(answer(last)).toMatch(FORTY_TWO);
   expect(done.agents[0]?.model ?? '').toBe(model ?? '');
-  // Claude Code, Codex and Grok record where the session ran: the endpoint, not their own service.
-  if ((ENDPOINT_CLIS as readonly string[]).includes(provider)) expect(sessionBackend(relay, conv.id, 'm1')).toBe(model?.split('/')[0]);
+  // Claude Code, Codex and Grok record where the session ran: the endpoint, or (none) their own service.
+  if ((ENDPOINT_CLIS as readonly string[]).includes(provider)) expect(sessionBackend(relay, conv.id, 'm1')).toBe(endpointOf(model));
   return done;
 }
 
@@ -123,10 +123,17 @@ test.describe("a CLI's default model set to an endpoint's in Settings", () => {
 
 test.describe("the CLIs' own cloud models", () => {
   test.skip(!CLOUD, "E2E_LIVE_CLOUD=1 runs these (the user's sign-ins pay for them)");
-  for (const provider of (['claude', 'cursor'] as const).filter(has)) {
+  for (const provider of CLOUD_CLIS.filter(has)) {
     test(`${provider} on its default model answers`, async ({ page, relay }) => {
       await pickAndAsk(page, relay, provider, undefined);
     });
+    // A model of its own list, picked in Team settings as a person would (E2E_LIVE_MODEL_<CLI>).
+    const own = ownModel(provider);
+    if (own) {
+      test(`${provider} on ${own}, picked in Team settings, answers`, async ({ page, relay }) => {
+        await pickAndAsk(page, relay, provider, own);
+      });
+    }
   }
 });
 
