@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Harness Relay：Claude Code、Codex 和 Grok 同一個群組聊天</title>
+    <title>Harness Relay：Claude Code、Codex 和 Grok 同一個群組幹活</title>
     <meta
       name="description"
       content="在你電腦上執行的網頁 app：真正的 claude、codex、grok、cursor-agent、agy CLI，以及用你自己的模型來源執行的五個開源 coding agent，和你一起工作，也彼此溝通。設計團隊、決定發言方式，並核准它們的動作。"
@@ -16,7 +16,7 @@
     <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Harness Relay" />
-    <meta property="og:title" content="Harness Relay：Claude Code、Codex 和 Grok 同一個群組聊天" />
+    <meta property="og:title" content="Harness Relay：Claude Code、Codex 和 Grok 同一個群組幹活" />
     <meta
       property="og:description"
       content="真正的 claude、codex、grok、cursor-agent、agy CLI，以及用你的 API key 或自己的模型執行的五個開源 coding agent，和你一起工作，也彼此溝通。設計團隊、決定發言方式，並核准它們的動作。"
@@ -164,7 +164,7 @@
         <div class="wrap hero-grid">
           <h1 id="hero-title">
             <span class="name-claude">Claude&nbsp;Code</span>、<span class="name-codex">Codex</span> 和
-            <span class="name-grok">Grok</span>，<span class="phrase">同一個群組聊天</span>
+            <span class="name-grok">Grok</span>，<span class="phrase">同一個群組幹活</span>
           </h1>
           <div class="hero-side">
             <p class="lead">
@@ -258,7 +258,7 @@
                     ><span class="av" aria-hidden="true">S</span><span class="who">@Skeptic</span
                     ><span class="via">Grok</span></span
                   >
-                  <span class="say">想執行一小段腳本，實際測試交棒用的 @mention 解析，唯讀模式會先問你：它在聊天裡等你決定，你選擇拒絕。</span>
+                  <span class="say">想執行一小段腳本，實際測試交棒用的 @mention 解析，唯讀模式會先問你：它在對話裡等你決定，你選擇拒絕。</span>
                   <span class="bar" aria-hidden="true"></span>
                 </button>
               </li>
@@ -333,14 +333,14 @@
               <h2 id="agents-title">是你自己的 CLI，不是仿製品</h2>
               <p class="lead">
                 Harness Relay 不會自己呼叫任何模型 API。它啟動你已經安裝的 <code>claude</code>、<code>codex</code>、
-                <code>grok</code>、<code>cursor-agent</code> 和 <code>agy</code>，保有它們各自的工具、session 與登入狀態，把每個 agent 還沒看過的訊息交給它，再把所有內容串流到同一個聊天室。OpenCode、Goose、Cline、OpenHands 與 Pi
+                <code>grok</code>、<code>cursor-agent</code> 和 <code>agy</code>，保有它們各自的工具、session 與登入狀態，把每個 agent 還沒看過的訊息交給它，再把所有內容串流到同一個對話。OpenCode、Goose、Cline、OpenHands 與 Pi
                 也以同樣的方式啟動，用你設定的模型來源。
               </p>
             </div>
             <dl class="driven">
               <div class="t-claude">
                 <dt>Claude Code</dt>
-                <dd><code>claude</code>，雙向使用 stream-json；它的權限請求會變成聊天裡的核准卡片。</dd>
+                <dd><code>claude</code>，雙向使用 stream-json；它的權限請求會變成對話裡的核准卡片。</dd>
               </div>
               <div class="t-codex">
                 <dt>Codex</dt>
@@ -401,7 +401,7 @@
               </div>
             </dl>
             <p class="agents-foot">
-              完全存取以外，它們每一個和它啟動的一切，都在 Harness Relay 自己的作業系統沙箱中執行：只能寫入它自己的暫存資料夾與它自己的 session（其他對話的 agent 都讀不到也改不了），可編輯模式再加上工作目錄與對話的附件。不必詢問就能連到這次執行的模型來源；其他主機會先問你，但這台電腦自己的位址、agent 自己會連的少數主機，以及一次執行中第 30 個之後的主機，會直接拒絕。核准一樣是聊天裡的卡片。
+              完全存取以外，它們每一個和它啟動的一切，都在 Harness Relay 自己的作業系統沙箱中執行：只能寫入它自己的暫存資料夾與它自己的 session（其他對話的 agent 都讀不到也改不了），可編輯模式再加上工作目錄與對話的附件。不必詢問就能連到這次執行的模型來源；其他主機會先問你，但這台電腦自己的位址、agent 自己會連的少數主機，以及一次執行中第 30 個之後的主機，會直接拒絕。核准一樣是對話裡的卡片。
             </p>
           </div>
           <article class="excerpt">
@@ -677,7 +677,7 @@
         <div class="wrap">
           <div class="section-head">
             <h2 id="control-title">主導權在你手上</h2>
-            <p class="lead">agent 依你為這個對話設定的權限工作；超出範圍的事，會在聊天裡問你，並等你回答。</p>
+            <p class="lead">agent 依你為這個對話設定的權限工作；超出範圍的事，會在對話裡問你，並等你回答。</p>
           </div>
           <div class="control-grid">
             <article class="excerpt">
@@ -695,7 +695,7 @@
                 </div>
               </div>
               <div class="excerpt-text">
-                <h3>在聊天裡核准</h3>
+                <h3>在對話裡核准</h3>
                 <p>允許一次、本對話都允許，或拒絕並附上說明，告訴它改做什麼。</p>
               </div>
             </article>
@@ -763,11 +763,11 @@
             <li><b>看見思考與動作</b>推理過程、計畫與每個工具的輸出即時串流；Mermaid 程式碼區塊會畫成圖表。</li>
             <li><b>複製、編輯與重試</b>把一則訊息或整段對話複製成 Markdown；編輯自己的訊息或重試某則回覆，團隊就從那裡重新回答。</li>
             <li><b>分支對話</b>回覆下方的「分支對話」會把到這則回覆為止的對話複製成新對話，讓你試另一個方向，原本的對話維持不變。</li>
-            <li><b>把對話分享成連結</b>把整段對話，或到某則回覆為止的內容，分享成和聊天室一樣的頁面，不含工具呼叫和思考過程。它會用你的 GitHub CLI 上傳成 secret gist，在 gistpreview.github.io 打開；設定頁列出所有連結，可以移除不要的。</li>
+            <li><b>把對話分享成連結</b>把整段對話，或到某則回覆為止的內容，分享成和對話畫面一樣的頁面，不含工具呼叫和思考過程。它會用你的 GitHub CLI 上傳成 secret gist，在 gistpreview.github.io 打開；設定頁列出所有連結，可以移除不要的。</li>
             <li><b>排程傳訊息</b>在設定的時間把訊息傳給團隊，在同一個對話裡或每次開新對話：一次、每天、每週選定的星期幾，或每隔幾小時。也可以從「新排程」開始，由首席 agent 挑選團隊。排程執行時可能沒人看著，所以預設會自動拒絕權限範圍以外的動作（設為本對話都允許的除外）。Harness Relay 關閉期間錯過的時間會略過，也可以選擇在開啟後補送一次。</li>
             <li><b>狀態一目了然</b>側邊欄標示需要你處理、正在回覆或有新回覆的對話；切換到別的對話時，原本的對話會繼續執行。</li>
             <li><b>在 app 裡登入</b>Claude Code、Codex、Grok、Cursor 和 Antigravity 都能用裝置碼、瀏覽器或貼上授權碼登入，開源 agent 則設定模型來源；也能設定 API key、執行檔路徑與預設模型，並查看各 CLI 自己載入的 skill、MCP 工具、內建工具、hook、subagent、plugin、指示與記憶，也能讓 Harness Relay 執行時整類或逐項不載入（Cursor 與 Antigravity 沒辦法）。</li>
-            <li><b>聊天室裡的圖片與影片</b>agent 存在工作目錄裡的圖片與影片，會直接顯示在對話中。</li>
+            <li><b>對話裡的圖片與影片</b>agent 存在工作目錄裡的圖片與影片，會直接顯示在對話中。</li>
             <li><b>瀏覽工作目錄</b>上方的「檔案」列出工作目錄或某位成員的 worktree，並預覽附行號的程式碼、Markdown、圖片與影片。任何檔案都能下載，資料夾也能下載成 ZIP 檔。</li>
             <li><b>所有成員共用的工具庫</b>MCP 伺服器、skill 與記憶設定一次，不論成員用十種 CLI 中的哪一種都能用，而且加在各 CLI 自己的設定之外；每一項可以只給某幾種 CLI 或特定成員。</li>
             <li><b>在 AgentsView 中看每個 session</b>可以讓各 CLI 使用自己的資料夾，並在 <a href="https://www.agentsview.io">AgentsView</a> 中把每個對話看成一個 thread，底下是每位成員自己的 session（工具呼叫、token 與成本）；Cursor 與 Antigravity 的除外，AgentsView 讀不到。</li>
@@ -879,7 +879,7 @@
               </div>
             </li>
             <li>
-              <h3>登入，然後開始聊天</h3>
+              <h3>登入，然後開始幹活</h3>
               <p>
                 Harness Relay 會在它自己的視窗裡打開已登入的對話；關掉視窗後，它會繼續待在選單列（或系統匣），手機照樣連得到。在「設定與登入」確認每個 agent 都已登入；開源 agent 則在「模型來源」加上 API key 或你的端點。再按「新對話」：選好工作目錄與權限，直接提出第一個問題。
               </p>

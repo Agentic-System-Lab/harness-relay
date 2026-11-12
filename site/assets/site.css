@@ -588,6 +588,9 @@ html:not(.js) .theme-toggle {
   display: grid;
   /* The buttons take what they need; the lead, the rest (up to its 38em). */
   grid-template-columns: minmax(0, 1fr) auto;
+  /* The headline, the download row, the GitHub row. A lead taller than the two rows beside it grows
+     the last one only, so the GitHub button stays right under the download button in every language. */
+  grid-template-rows: auto auto 1fr;
   gap: 18px clamp(24px, 4vw, 64px);
   align-items: start;
 }
@@ -2050,6 +2053,7 @@ html:not(.js) .theme-toggle {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .hero-grid,
   .safety-grid {
     grid-template-rows: none;
   }
