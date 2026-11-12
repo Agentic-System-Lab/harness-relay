@@ -37,14 +37,8 @@ async function apiAccount(relay: RelayServer, provider: Provider, label = 'Work'
   return { id, home: join(relay.dataDir, 'accounts', `${provider}-${id}`) };
 }
 
-/**
- * Signs the page in only now, at a CLI's card in Settings, for a test that added accounts through
- * the API before: the app's first look at the CLIs' status has them. (A look already under way when
- * one is added answers without it, and that answer can arrive after a newer one's.)
- */
+/** Opens a CLI's card in Settings, for a test that added accounts through the API: it asks the CLIs' status again. */
 async function openSettings(page: Page, relay: RelayServer, provider: Provider): Promise<void> {
-  await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
-  await expect(page.locator('.app main.main')).toBeVisible();
   await page.goto(`${relay.base}/#/settings/${provider}`);
 }
 
@@ -126,9 +120,6 @@ test.describe('more than one account', () => {
   }
 
   test.describe(() => {
-    // Signed in only once the accounts are added (`openSettings`).
-    test.use({ signIn: false });
-
     test('each account signs in and out on its own', async ({ page, relay }) => {
       const { home } = await apiAccount(relay, 'claude');
       await openSettings(page, relay, 'claude');
@@ -183,7 +174,7 @@ test.describe('more than one account', () => {
 
   for (const cli of KEYED) {
     test.describe(() => {
-      test.use({ serverEnv: { E2E_EXPECTED_API_KEY: cli.key }, signIn: false });
+      test.use({ serverEnv: { E2E_EXPECTED_API_KEY: cli.key } });
 
       test(`${cli.provider}: with the credential store off, an account's API key is kept in the database, shown masked, and given to its CLI only`, async ({ page, relay }) => {
         const { id } = await apiAccount(relay, cli.provider);
@@ -227,7 +218,7 @@ test.describe('more than one account', () => {
 
   test.describe(() => {
     const key = 'sk-proj-e2e-work-key-5678';
-    test.use({ serverEnv: { E2E_EXPECTED_API_KEY: key }, signIn: false });
+    test.use({ serverEnv: { E2E_EXPECTED_API_KEY: key } });
 
     test("codex: an account's API key signs that account in with Codex's own login, which keeps it, and only its CLI gets it", async ({ page, relay }) => {
       const { id, home } = await apiAccount(relay, 'codex');
@@ -339,6 +330,36 @@ test.describe('more than one account', () => {
       expect(relay.fakeLog().flatMap((e) => (e.pid === start!.pid && e.session ? [e.resumed] : []))).toEqual([false]);
     });
   }
+
+  test("an account added while the CLIs' status is on its way keeps the newer answer's state", async ({ page, relay }) => {
+    // The page's next look at the CLIs' status is held on its way back: asked before the account is
+    // added, it arrives after the answer that has the account, as a slow one would.
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    let answered!: () => void;
+    const asked = new Promise<void>((r) => (answered = r));
+    let held = false;
+    await page.route(/\/api\/providers(\?|$)/, async (route) => {
+      if (held) return route.continue();
+      held = true;
+      const response = await route.fetch();
+      answered();
+      await released;
+      await route.fulfill({ response });
+    });
+    await page.goto(`${relay.base}/#/settings/claude`);
+    await asked;
+    await addAccount(page, relay, 'claude', 'Work');
+    const pill = accountBlock(page, 'claude', 'Work').locator('.pill');
+    await expect(pill).toHaveText('Signed in');
+
+    release();
+    // The older answer, without the account, comes in last: the page keeps the newer one's state.
+    for (let i = 0; i < 20; i++) {
+      await expect(pill).toHaveText('Signed in', { timeout: 1_000 });
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
+    }
+  });
 
   test('an account is not removed while a conversation runs', async ({ page, relay }) => {
     const { home } = await apiAccount(relay, 'claude');

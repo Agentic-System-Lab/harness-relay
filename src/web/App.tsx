@@ -189,17 +189,27 @@ function RelayApp() {
       });
   }, []);
 
+  // Only the latest request's answer is shown: an older one arriving last (asked before an account was
+  // added or signed in, say) would put back the state the newer one replaced.
+  const providersRequest = useRef(0);
   const refreshProviders = useCallback((force = false) => {
+    const n = ++providersRequest.current;
     return api
       .providers(force)
-      .then(setProviders)
+      .then((list) => {
+        if (n === providersRequest.current) setProviders(list);
+      })
       .catch(console.error);
   }, []);
 
+  const catalogRequest = useRef(0);
   const refreshCatalog = useCallback((force = false) => {
+    const n = ++catalogRequest.current;
     return api
       .models(force)
-      .then(setCatalog)
+      .then((list) => {
+        if (n === catalogRequest.current) setCatalog(list);
+      })
       .catch(console.error);
   }, []);
 

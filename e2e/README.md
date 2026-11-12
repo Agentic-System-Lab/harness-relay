@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 169 tests in 26 spec files, in each browser that runs them (Chromium by default).
+There are 170 tests in 26 spec files, in each browser that runs them (Chromium by default).
 
 ## Running them
 
@@ -51,7 +51,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 6 | [User guide → Groups](../docs/user-guide.md#groups), [Search](../docs/user-guide.md#search) |
 | [Schedules](#schedules) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [User guide → Schedules](../docs/user-guide.md#schedules), [Architecture → Schedules](../docs/architecture.md#schedules) |
 | [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 5 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent) |
-| [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 16 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
+| [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 17 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
 | [What each CLI loads by itself, and Grok's trust](#what-each-cli-loads-by-itself-and-groks-trust) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [User guide → What each CLI loads by itself](../docs/user-guide.md#what-each-cli-loads-by-itself), [Architecture → What each CLI loads by itself](../docs/architecture.md#what-each-cli-loads-by-itself) |
 | [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 6 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
 | [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
@@ -284,6 +284,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | An account's API key signs that account in with Codex's own login | Codex | Codex takes no key in its environment: the key goes on stdin to `codex login --with-api-key` in that account's folder only, Harness Relay keeps none, and only that account's runs have it. |
 | The API key Harness Relay was started with is the default account's only | each | A key in the server's own environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`) reaches the default account's turns and not an added account's. |
 | Removing an added account signs it out and deletes its folder, and its member and the lead agent use the default account | each | The confirmation names the folder; the account signs out there, then the folder and its sessions are gone; the lead agent goes back to the default account; the member's next turn runs in the default home, in a new session. |
+| An account added while the CLIs' status is on its way keeps the newer answer's state | Claude Code | The page's next status answer is held back until after the account is added (`page.route`): when that older answer, without the account, comes in last, the account's pill stays **Signed in** instead of going back to "Checking…". |
 | An account is not removed while a conversation runs | Claude Code | During a slow reply **Remove** says a conversation is running and nothing changes; once the chat is stopped, it works. |
 
 ## What each CLI loads by itself, and Grok's trust

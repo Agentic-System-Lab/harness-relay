@@ -100,6 +100,11 @@ const slot = (p: Provider, account = '') => `${p}\0${account}`;
 
 export class ProviderService {
   private cache = new Map<Provider, { at: number; status: ProviderStatus }>();
+  /**
+   * Raised by `invalidate()`: a status asked before it (an account added, a sign-in finished meanwhile)
+   * is still answered, but not kept, or it would hide the change for as long as the cache lasts.
+   */
+  private generation = new Map<Provider, number>();
   /** Sign-ins running or finished, by account (`slot`). */
   private logins = new Map<string, LoginSession>();
   /** Models each account's CLI offers (`slot`): asked in its home, whose config has the CLI's own defaults. */
@@ -108,6 +113,7 @@ export class ProviderService {
   constructor(private settings: SettingsStore) {}
 
   invalidate(p?: Provider): void {
+    for (const q of p ? [p] : PROVIDERS) this.generation.set(q, (this.generation.get(q) ?? 0) + 1);
     if (p) {
       this.cache.delete(p);
       for (const key of this.modelCache.keys()) if (key.startsWith(slot(p))) this.modelCache.delete(key);
@@ -150,6 +156,7 @@ export class ProviderService {
   async status(p: Provider, refresh = false): Promise<ProviderStatus> {
     const cached = this.cache.get(p);
     if (!refresh && cached && Date.now() - cached.at < 20_000) return cached.status;
+    const generation = this.generation.get(p) ?? 0;
     const bin = this.settings.bin(p);
     const env = this.settings.env(p);
     const ids = ['', ...this.settings.accountIds(p)];
@@ -182,7 +189,7 @@ export class ProviderService {
       const accounts = ids.map((id) => account(id, { loggedIn: null }));
       status = { provider: p, installed: false, bin, auth, usingStoredApiKey: accounts[0]!.usingStoredApiKey, accounts };
     }
-    this.cache.set(p, { at: Date.now(), status });
+    if ((this.generation.get(p) ?? 0) === generation) this.cache.set(p, { at: Date.now(), status });
     return status;
   }
 

@@ -168,6 +168,25 @@ esac
 `;
   const posixIt = process.platform === 'win32' ? it.skip : it;
 
+  posixIt('keeps no status that was being asked when an account changed, so the next one has it', async () => {
+    const dir = join(root, 'changed-while-asked');
+    mkdirSync(dir, { recursive: true });
+    const bin = join(dir, 'claude');
+    writeFileSync(bin, FAKE_CLAUDE, { mode: 0o755 });
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    settings.update('claude', { bin });
+    settings.setAgentHome(join(dir, 'homes'));
+    const service = new ProviderService(settings);
+
+    // Asked before the account is added (and the status invalidated, as the route does), answered after.
+    const asking = service.status('claude', true);
+    const work = settings.addAccount('claude', 'Work');
+    service.invalidate('claude');
+    expect((await asking).accounts.map((a) => a.id)).toEqual(['']);
+    // Not kept: the next status, not forced, asks again instead of giving that answer for 20 s.
+    expect((await service.status('claude')).accounts.map((a) => a.id)).toEqual(['', work]);
+  });
+
   posixIt('checks, signs in and signs out each account in its own home', async () => {
     const dir = join(root, 'accounts');
     mkdirSync(dir, { recursive: true });

@@ -495,7 +495,7 @@ Schema 變更以依序執行的遷移套用，版本記錄在 `PRAGMA user_versi
 
 ## Provider：狀態、登入與模型
 
-- **狀態**：`<cli> --version` 加上登入檢查：`claude auth status`（JSON）、`codex login status`、`grok models`、`cursor-agent status --format json`（`isAuthenticated` 與帳號的 email；`status: "unauthenticated"` 表示未登入）。帶著金鑰的 Cursor 帳號（`CURSOR_API_KEY`／`CURSOR_AUTH_TOKEN`，不論是 Harness Relay 的還是伺服器的）不執行 `status`：Cursor 只在每次執行時用金鑰登入（放在它的記憶體儲存區），`status` 看不到，所以這個帳號顯示為以「API key」登入。快取 20 秒。開源 agent 沒有登入：CLI 已安裝、轉接器已完成，且設定了模型來源時就可使用（[開源 agent → 模型來源](open-agents.zh-TW.md#模型來源)）；它的登入路由回應 400。
+- **狀態**：`<cli> --version` 加上登入檢查：`claude auth status`（JSON）、`codex login status`、`grok models`、`cursor-agent status --format json`（`isAuthenticated` 與帳號的 email；`status: "unauthenticated"` 表示未登入）。帶著金鑰的 Cursor 帳號（`CURSOR_API_KEY`／`CURSOR_AUTH_TOKEN`，不論是 Harness Relay 的還是伺服器的）不執行 `status`：Cursor 只在每次執行時用金鑰登入（放在它的記憶體儲存區），`status` 看不到，所以這個帳號顯示為以「API key」登入。快取 20 秒，但在帳號、登入或設定改變（`invalidate()`）之前就開始詢問的狀態不會留下，所以不會蓋掉這個改變；聊天介面只採用最後一次請求的回答（`App.tsx` 的 `refreshProviders`），所以較舊的回答比較晚到也一樣不會。開源 agent 沒有登入：CLI 已安裝、轉接器已完成，且設定了模型來源時就可使用（[開源 agent → 模型來源](open-agents.zh-TW.md#模型來源)）；它的登入路由回應 400。
 - **登入**：伺服器在背景執行 CLI 自己的登入指令並公開其輸出：從中擷取 URL 與裝置碼給介面顯示，介面中輸入的文字則寫進程序的 stdin（Claude Code 的貼上授權碼流程）。登入流程 15 分鐘後逾時。
 
   | CLI | 方式 |
