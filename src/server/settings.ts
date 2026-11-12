@@ -93,7 +93,7 @@ export const CREDENTIAL_ENV: Record<Provider, readonly string[]> = {
   codex: ['CODEX_API_KEY', 'OPENAI_API_KEY'],
   grok: ['XAI_API_KEY'],
   cursor: ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'],
-  antigravity: ['GEMINI_API_KEY'],
+  antigravity: ['GEMINI_API_KEY', 'AGY_ADC_AUTH'],
   opencode: [],
   goose: [],
   cline: [],
@@ -135,6 +135,14 @@ export const OPEN_AGENT_ROOTS_ENV = 'HARNESS_RELAY_AGENT_HOMES_BEFORE';
  * that ask it something (`antigravityProbeEnv`). Unset: `~/.gemini`.
  */
 export const ANTIGRAVITY_HOME_ENV = 'HARNESS_RELAY_ANTIGRAVITY_HOME';
+
+/**
+ * Set ('1') for an Antigravity account besides the default one, which runs on its own Gemini API key
+ * only (`keyOnlyAccount`): its runs and questions tell agy to use the key (`modelProvider: "gemini"`),
+ * so that it never falls back to the Google sign-in agy keeps in the system keyring, the default
+ * account's; without a key it counts as signed out. Not passed on to agy.
+ */
+export const ANTIGRAVITY_KEY_ONLY_ENV = 'HARNESS_RELAY_ANTIGRAVITY_KEY_ONLY';
 
 /**
  * The variable that moves each CLI's home: its sign-in, settings and session transcripts. Cursor's
@@ -853,6 +861,7 @@ export class SettingsStore {
     if (id) for (const k of CREDENTIAL_ENV[p]) delete env[k];
     if (keyVar && key) env[keyVar] = key;
     if (p === 'cursor' && (id || CREDENTIAL_ENV.cursor.some((k) => env[k]))) env[CURSOR_SHARED_SIGN_IN] = 'memory';
+    if (p === 'antigravity' && id) env[ANTIGRAVITY_KEY_ONLY_ENV] = '1';
     const home = this.accountHome(p, id);
     if (home) {
       // Codex refuses a CODEX_HOME that does not exist.

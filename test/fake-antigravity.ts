@@ -9,8 +9,12 @@ import { writeFileSync } from 'node:fs';
  *   segment of a recorded request of that method (its answer takes the id of the request it got), a
  *   notification the next one of that method, and an answer to one of its own requests (a permission
  *   request) the segment recorded after that answer. A request with no recorded segment left gets `{}`
- *   (`set_config_option`: `{ configOptions: [] }`). Without a fixture it answers `initialize` (with
- *   agy's capabilities) and `logout` only. `/work/app`, the recordings' working directory, is played as
+ *   (`set_config_option`: `{ configOptions: [] }`). Without a fixture it plays a short turn of its own:
+ *   `initialize` (agy's capabilities, or `FAKE_AGY_CAPS`), `session/new` (`s-1`, with a model and a
+ *   thinking-level option; none with `FAKE_AGY_NO_SESSION`), `session/resume`, `session/set_config_option`
+ *   (an error for the value `FAKE_AGY_REJECT`), `session/prompt` (a reply, after an update of another
+ *   session with `FAKE_AGY_FOREIGN`; `stopReason: "cancelled"` with `FAKE_AGY_CANCELLED`) and `logout`
+ *   (an error with `FAKE_AGY_LOGOUT_FAIL`). `/work/app`, the recordings' working directory, is played as
  *   `FAKE_AGY_CWD` when that is set.
  * - `acp --login`: prints agy's sign-in link and prompt, and exits 0 once it reads a line.
  * - `--version`: prints 1.5.6. `--settings <json>` before a subcommand is skipped (its first line records it).
@@ -80,6 +84,11 @@ function play(s) {
     send(m);
   }
 }
+const OPTIONS = [
+  { id: 'model', category: 'model', type: 'select', currentValue: 'gemini-3.1-pro', options: [{ value: 'gemini-3.1-pro' }, { value: 'gemini-3.8-flash' }] },
+  { id: 'thought_level', category: 'thought_level', type: 'select', currentValue: 'low', options: [{ value: 'low' }, { value: 'high' }] },
+  { id: 'mode', category: 'mode', type: 'select', currentValue: env.FAKE_AGY_MODE || 'default', options: [{ value: 'default' }, { value: 'accept-edits' }, { value: 'plan' }] },
+];
 const CAPS = { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true }, sessionCapabilities: { resume: {}, close: {}, load: {}, list: {}, additionalDirectories: {} }, auth: { logout: {} }, _meta: { antigravity: { tier: true, systemPrompt: { append: true } } } };
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   let m;
@@ -88,9 +97,21 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   if (m.method !== undefined && m.id !== undefined) {
     const s = (queues.get('req:' + m.method) || []).shift();
     if (s) { ids.set(s.recordedId, m.id); return play(s); }
-    if (m.method === 'initialize') return send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: 1, agentCapabilities: CAPS, agentInfo: { name: 'Antigravity ACP Server', version: '1.5.6' }, authMethods: [] } });
-    if (m.method === 'logout') return send({ jsonrpc: '2.0', id: m.id, result: {} });
-    if (m.method === 'session/set_config_option') return send({ jsonrpc: '2.0', id: m.id, result: { configOptions: [] } });
+    if (m.method === 'initialize') return send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: 1, agentCapabilities: env.FAKE_AGY_CAPS ? JSON.parse(env.FAKE_AGY_CAPS) : CAPS, agentInfo: { name: 'Antigravity ACP Server', version: '1.5.6' }, authMethods: [] } });
+    if (m.method === 'logout') return env.FAKE_AGY_LOGOUT_FAIL ? send({ jsonrpc: '2.0', id: m.id, error: { code: -32603, message: 'keyring locked' } }) : send({ jsonrpc: '2.0', id: m.id, result: {} });
+    if (m.method === 'session/new') return send({ jsonrpc: '2.0', id: m.id, result: env.FAKE_AGY_NO_SESSION ? {} : { sessionId: 's-1', configOptions: OPTIONS } });
+    if (m.method === 'session/resume') return send({ jsonrpc: '2.0', id: m.id, result: { configOptions: OPTIONS } });
+    if (m.method === 'session/set_config_option') {
+      if (env.FAKE_AGY_REJECT && m.params && m.params.value === env.FAKE_AGY_REJECT) return send({ jsonrpc: '2.0', id: m.id, error: { code: -32602, message: 'unknown value ' + m.params.value } });
+      return send({ jsonrpc: '2.0', id: m.id, result: { configOptions: OPTIONS } });
+    }
+    if (m.method === 'session/prompt') {
+      const sid = m.params && m.params.sessionId;
+      if (env.FAKE_AGY_FOREIGN) send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'other', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'foreign' } } } });
+      if (env.FAKE_AGY_CANCELLED) return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'cancelled' } });
+      send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hello' } } } });
+      return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 1 } } });
+    }
     if (m.method.startsWith('session/')) return send({ jsonrpc: '2.0', id: m.id, result: {} });
     return send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: m.method + ' not found' } });
   }

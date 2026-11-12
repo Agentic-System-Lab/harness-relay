@@ -1,13 +1,13 @@
 import type { ChildProcess } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Permission } from '../../shared/types';
 import { t } from '../i18n';
-import { converse, runProcess, tail } from '../process';
+import { converse, runProcess, runSync, tail } from '../process';
 import { protectedReads, realPath } from '../protect';
-import { ANTIGRAVITY_HOME_ENV } from '../settings';
+import { ANTIGRAVITY_HOME_ENV, ANTIGRAVITY_KEY_ONLY_ENV } from '../settings';
 import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, answerPermission, type AcpDecision } from './acp';
 import {
   AgentRunError,
@@ -76,6 +76,7 @@ export function antigravityProbeEnv(env: NodeJS.ProcessEnv, platform: NodeJS.Pla
   const root = env[ANTIGRAVITY_HOME_ENV];
   const out: NodeJS.ProcessEnv = { ...env, ...ANTIGRAVITY_NO_BROWSER };
   delete out[ANTIGRAVITY_HOME_ENV];
+  delete out[ANTIGRAVITY_KEY_ONLY_ENV];
   if (root) out[platform === 'win32' ? 'USERPROFILE' : 'HOME'] = root;
   return out;
 }
@@ -86,7 +87,12 @@ export function antigravityProbeEnv(env: NodeJS.ProcessEnv, platform: NodeJS.Pla
  * as if signed out. Placed before the subcommand (`agy --settings … models`); `-p` takes it after.
  */
 export function antigravityProbeSettings(env: NodeJS.ProcessEnv): string[] {
-  return env.GEMINI_API_KEY ? ['--settings', JSON.stringify({ modelProvider: 'gemini' })] : [];
+  return env.GEMINI_API_KEY || antigravityKeyOnly(env) ? ['--settings', JSON.stringify({ modelProvider: 'gemini' })] : [];
+}
+
+/** Whether this is an account that runs on its own Gemini API key only (`ANTIGRAVITY_KEY_ONLY_ENV`). */
+export function antigravityKeyOnly(env: NodeJS.ProcessEnv): boolean {
+  return env[ANTIGRAVITY_KEY_ONLY_ENV] === '1';
 }
 
 /**
@@ -99,6 +105,7 @@ export async function antigravityLogout(bin: string, env: NodeJS.ProcessEnv, tim
   const failed = (msg: Record<string, any>) => String(msg.error?.data?.message ?? msg.error?.message ?? 'error');
   const own: NodeJS.ProcessEnv = { ...env, ...ANTIGRAVITY_NO_BROWSER };
   delete own[ANTIGRAVITY_HOME_ENV];
+  delete own[ANTIGRAVITY_KEY_ONLY_ENV];
   const res = await converse({
     bin,
     args: ['acp', ...(env[ANTIGRAVITY_HOME_ENV] ? ['--gemini-dir', antigravityGeminiDir(env)] : [])],
@@ -140,19 +147,30 @@ export function antigravityArgs(env: NodeJS.ProcessEnv, permission: Permission, 
 }
 
 /**
- * The settings of one run: the account's own (`settings.json`: its model, theme, sandbox…), with
- * `toolPermission: "request-review"` (so that nothing runs without asking that Harness Relay has not
- * decided on; full access passes `--dangerously-skip-permissions` instead), the default mode (the mode
- * is also set on each session), and, with a Gemini API key, `modelProvider: "gemini"`, without which
- * agy does not use the key.
+ * The keys of the account's own `settings.json` a run keeps: which model and service it uses. Nothing
+ * else is kept, since other keys decide what runs without asking (`toolPermission`,
+ * `allowNonWorkspaceAccess`, `permissions`, `trustedWorkspaces`, `agentMode`) or run commands of
+ * their own (`statusLine`). With `--cli_dir_name`, agy reads the run's settings only, not the account's.
  */
-export function antigravityRunSettings(own: unknown, permission: Permission, apiKey: boolean): Record<string, unknown> {
-  const base = own && typeof own === 'object' && !Array.isArray(own) ? { ...(own as Record<string, unknown>) } : {};
+export const ANTIGRAVITY_KEPT_SETTINGS = ['model', 'modelProvider', 'gcp', 'customModelsConfig'] as const;
+
+/**
+ * The settings of one run: the account's model and service (`ANTIGRAVITY_KEPT_SETTINGS`), with
+ * `toolPermission: "request-review"` and `allowNonWorkspaceAccess: false` (so that nothing runs
+ * without asking that Harness Relay has not decided on: a read outside the workspace asks too; full
+ * access passes `--dangerously-skip-permissions` instead), the default mode (also set on each
+ * session), and `modelProvider: "gemini"` with a Gemini API key, or for an account that runs on its key
+ * only (`keyOnly`): without it agy does not use the key, and would take the Google sign-in it keeps.
+ */
+export function antigravityRunSettings(own: unknown, permission: Permission, apiKey: boolean, keyOnly = false): Record<string, unknown> {
+  const base = own && typeof own === 'object' && !Array.isArray(own) ? (own as Record<string, unknown>) : {};
+  const kept = Object.fromEntries(ANTIGRAVITY_KEPT_SETTINGS.filter((k) => base[k] !== undefined).map((k) => [k, base[k]]));
   return {
-    ...base,
+    ...kept,
     toolPermission: permission === 'full' ? 'always-proceed' : 'request-review',
     agentMode: '',
-    ...(apiKey ? { modelProvider: 'gemini' } : {}),
+    ...(permission === 'full' ? {} : { allowNonWorkspaceAccess: false }),
+    ...(apiKey || keyOnly ? { modelProvider: 'gemini' } : {}),
   };
 }
 
@@ -194,7 +212,7 @@ function sweep(appDir: string, now = Date.now()): void {
  * Makes a run's settings folder in the account's CLI folder (owner only), with its `settings.json`
  * (`antigravityRunSettings`); the account's own settings stay as they are.
  */
-export function prepareAntigravityRun(appDir: string, permission: Permission, apiKey: boolean): AntigravityRun {
+export function prepareAntigravityRun(appDir: string, permission: Permission, apiKey: boolean, keyOnly = false): AntigravityRun {
   let own: unknown;
   try {
     own = JSON.parse(readFileSync(join(appDir, 'settings.json'), 'utf8'));
@@ -213,12 +231,185 @@ export function prepareAntigravityRun(appDir: string, permission: Permission, ap
     rmSync(dir, { recursive: true, force: true });
   };
   try {
-    writeFileSync(join(dir, 'settings.json'), `${JSON.stringify(antigravityRunSettings(own, permission, apiKey), null, 2)}\n`, { mode: 0o600 });
+    writeFileSync(join(dir, 'settings.json'), `${JSON.stringify(antigravityRunSettings(own, permission, apiKey, keyOnly), null, 2)}\n`, { mode: 0o600 });
   } catch (err) {
     done();
     throw err;
   }
   return { name, dir, done };
+}
+
+// --- What a project makes agy run by itself -------------------------------------------------------
+
+/** The customization folders agy reads in a project, from the working directory up to its repository's root. */
+const AGY_ROOTS = ['.agents', '.agent', '_agents', '_agent'];
+
+/** What in them agy starts or runs by itself, outside any sandbox and without asking: MCP servers, hooks, plugins. */
+const AGY_RUNNABLE = ['mcp_config.json', 'hooks.json', 'plugins', 'plugins.json'];
+
+/** The folders from `dir` up to its repository's root (a folder with `.git`), or `dir` alone outside one. */
+function upToRepo(dir: string): string[] {
+  const dirs: string[] = [];
+  for (let d = resolve(dir); ; d = dirname(d)) {
+    dirs.push(d);
+    if (existsSync(join(d, '.git'))) return dirs;
+    if (dirname(d) === d) return [resolve(dir)];
+  }
+}
+
+/**
+ * The files of the chat's working directories that agy would start or run when its session opens,
+ * without a permission request, even in read-only mode: a project's MCP servers, hooks and plugins
+ * (`AGY_RUNNABLE` in `AGY_ROOTS`, from each folder up to its repository's root). Another agent in edit
+ * mode can write them there, and so can whoever made the repository.
+ */
+export function antigravityProjectFiles(dirs: readonly string[]): string[] {
+  const out = new Set<string>();
+  for (const dir of dirs) {
+    for (const up of upToRepo(dir)) for (const r of AGY_ROOTS) for (const f of AGY_RUNNABLE) {
+      const p = join(up, r, f);
+      if (existsSync(p)) out.add(p);
+    }
+  }
+  return [...out];
+}
+
+/** What tells these files apart from what they were: their contents (a folder's files' names, sizes and times). */
+export function antigravityProjectFingerprint(files: readonly string[]): string {
+  const h = createHash('sha256');
+  const add = (path: string, depth: number) => {
+    let st;
+    try {
+      st = statSync(path);
+    } catch {
+      return;
+    }
+    h.update(`${path}\0`);
+    if (st.isDirectory()) {
+      if (depth > 4) return;
+      for (const name of readdirSync(path).sort()) add(join(path, name), depth + 1);
+    } else if (st.size <= 1 << 20) {
+      try {
+        h.update(readFileSync(path));
+      } catch {
+        h.update(`${st.size}:${st.mtimeMs}`);
+      }
+    } else h.update(`${st.size}:${st.mtimeMs}`);
+  };
+  for (const f of [...files].sort()) add(f, 0);
+  return h.digest('hex').slice(0, 8);
+}
+
+/**
+ * Below full access, before agy starts: when the working directories hold what agy would run by itself
+ * (`antigravityProjectFiles`), the user decides first (its card names the files; "always allow" holds
+ * while their contents stay the same); refused, or when the chat refuses automatically, the turn does
+ * not start.
+ */
+async function antigravityProjectGate(o: RunOptions): Promise<void> {
+  if (o.permission === 'full') return;
+  const files = antigravityProjectFiles([o.cwd, ...(o.addDirs ?? [])]);
+  if (!files.length) return;
+  const shown = files.map((f) => {
+    const rel = relative(o.cwd, f);
+    return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : f;
+  });
+  const answer = o.requestApproval
+    ? await o.requestApproval({
+        kind: 'other',
+        // Not translated: it names the "always allow" rule, which must be the same in every language.
+        tool: `Antigravity project setup ${antigravityProjectFingerprint(files)}`,
+        detail: shown.join(', '),
+        reason: t().antigravityProjectSetup,
+      })
+    : { allow: false };
+  if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
+  if (!answer.allow) throw new AgentRunError(t().antigravityProjectSetupRefused(shown.join(', ')));
+}
+
+// --- Commands left running ------------------------------------------------------------------------
+
+/** A process as `ps` lists it: its id, its parent's, its process group and how long it has run (seconds). */
+export interface AntigravityProc {
+  pid: number;
+  ppid: number;
+  pgid: number;
+  age: number;
+}
+
+/** `[[dd-]hh:]mm:ss`, as `ps -o etime` prints it, in seconds. */
+export function elapsedSeconds(etime: string): number {
+  const m = etime.trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
+  if (!m) return Number.POSITIVE_INFINITY;
+  const [, d, h, min, sec] = m;
+  return Number(d ?? 0) * 86400 + Number(h ?? 0) * 3600 + Number(min) * 60 + Number(sec);
+}
+
+/** The lines of `ps -A -o pid=,ppid=,pgid=,etime=`. */
+export function parseProcs(out: string): AntigravityProc[] {
+  return out.split('\n').flatMap((line) => {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)$/);
+    return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), pgid: Number(m[3]), age: elapsedSeconds(m[4]!) }] : [];
+  });
+}
+
+/**
+ * The process groups of `root`'s descendants besides `root`'s own: agy starts each command in a session
+ * of its own, which ending agy's process group does not reach, and leaves a command it moved to the
+ * background (`WaitMsBeforeAsync`, `IsDaemon`) running when it exits.
+ */
+export function commandGroups(procs: readonly AntigravityProc[], root: number): number[] {
+  const children = new Map<number, AntigravityProc[]>();
+  for (const p of procs) children.set(p.ppid, [...(children.get(p.ppid) ?? []), p]);
+  const own = procs.find((p) => p.pid === root)?.pgid ?? root;
+  const groups = new Set<number>();
+  const stack = [...(children.get(root) ?? [])];
+  const seen = new Set<number>();
+  while (stack.length) {
+    const p = stack.pop()!;
+    if (seen.has(p.pid)) continue;
+    seen.add(p.pid);
+    if (p.pgid !== own && p.pgid > 1) groups.add(p.pgid);
+    stack.push(...(children.get(p.pid) ?? []));
+  }
+  return [...groups];
+}
+
+/**
+ * The processes still running in those groups that started during the turn (`maxAge` seconds ago at
+ * most), never this server: a group id used again by an unrelated older process is left alone.
+ */
+export function strayProcs(procs: readonly AntigravityProc[], groups: ReadonlySet<number>, maxAge: number, self = process.pid): number[] {
+  return procs.filter((p) => groups.has(p.pgid) && p.age <= maxAge && p.pid !== self && p.pid > 1).map((p) => p.pid);
+}
+
+/**
+ * This computer's processes (macOS and Linux), or none when `ps` cannot be run. On Windows there is
+ * nothing to do: the commands agy started end with it, a backgrounded one and a stopped one too
+ * (checked with agy 1.5.6 on Windows 11).
+ */
+function listProcs(): AntigravityProc[] {
+  if (process.platform === 'win32') return [];
+  const r = runSync('/bin/ps', ['-A', '-o', 'pid=', '-o', 'ppid=', '-o', 'pgid=', '-o', 'etime='], { timeoutMs: 4000 });
+  return r.error ? [] : parseProcs(r.stdout ?? '');
+}
+
+/** Ends what agy's commands left running (`commandGroups` seen during the turn), once agy is gone. */
+async function endStrays(groups: ReadonlySet<number>, startedAt: number): Promise<void> {
+  if (!groups.size) return;
+  const maxAge = (Date.now() - startedAt) / 1000 + 2;
+  for (const [sig, wait] of [['SIGTERM', 500], ['SIGKILL', 0]] as const) {
+    const pids = strayProcs(listProcs(), groups, maxAge);
+    if (!pids.length) return;
+    for (const pid of pids) {
+      try {
+        process.kill(pid, sig);
+      } catch {
+        // gone already
+      }
+    }
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+  }
 }
 
 // --- The briefing ------------------------------------------------------------------------------
@@ -292,12 +483,20 @@ export function antigravityCommand(call: AntigravityToolCall): string {
   return typeof cmd === 'string' && cmd ? cmd : (call.title ?? '');
 }
 
-/** The file a read, write or edit is about: its input's path, else its first location. */
+/** The input keys a tool call names a file or folder by. */
+const PATH_KEYS = ['Path', 'path', 'AbsolutePath', 'SearchPath', 'DirectoryPath', 'TargetFile', 'Source', 'Destination', 'file_path'] as const;
+
+/** Every file or folder a call is about: its input's paths and its locations, each once. */
+export function antigravityPaths(call: AntigravityToolCall): string[] {
+  const input = call.rawInput ?? {};
+  const fromInput = PATH_KEYS.map((k) => input[k]).filter((p): p is string => typeof p === 'string' && p.length > 0);
+  const fromLocations = Array.isArray(call.locations) ? call.locations.map((l) => l?.path).filter((p): p is string => typeof p === 'string' && p.length > 0) : [];
+  return [...new Set([...fromInput, ...fromLocations])];
+}
+
+/** The file a read, write or edit is about, for its card and row: the first of `antigravityPaths`. */
 export function antigravityPath(call: AntigravityToolCall): string | undefined {
-  const p = call.rawInput?.Path ?? call.rawInput?.path ?? call.rawInput?.AbsolutePath ?? call.rawInput?.SearchPath ?? call.rawInput?.DirectoryPath;
-  if (typeof p === 'string' && p) return p;
-  const loc = Array.isArray(call.locations) ? call.locations.find((l) => typeof l?.path === 'string' && l.path) : undefined;
-  return loc?.path;
+  return antigravityPaths(call)[0];
 }
 
 /** A path as a shell takes it: `~` and `~/…` (`~\…` on Windows) are in the home folder. */
@@ -318,15 +517,30 @@ function within(cwd: string, path: string, dir: string): boolean {
  * reads from the working directory up to the repository's root), the other CLIs', git's hooks and
  * config, and the editor's tasks.
  */
-const AGENT_CONFIG = [/^\.agents?$/, /^_agents?$/, /^\.gemini$/, /^\.claude$/, /^\.codex$/, /^\.grok$/, /^\.cursor$/, /^\.vscode$/, /^\.mcp\.json$/];
+const AGENT_CONFIG = new Set([
+  '.agents', '.agent', '_agents', '_agent', '.gemini', '.claude', '.codex', '.grok', '.cursor', '.opencode', '.goose', '.cline', '.clinerules', '.openhands', '.pi',
+  '.vscode', '.idea', '.mcp.json', '.gitmodules', '.gitconfig', '.envrc',
+]);
 
-/** Whether a path inside `dir` is one where a write could change how agents run (`AGENT_CONFIG`, `.git/hooks`, `.git/config`). */
-function agentConfigPath(cwd: string, path: string, dir: string): boolean {
+/**
+ * A path part as the file system may take it: letter case aside (macOS's usual disk and Windows ignore
+ * it, so `.Claude` is `.claude`), and on Windows without trailing dots and spaces, which it drops.
+ */
+const folded = (part: string) => part.replace(/[. ]+$/, (m) => (m === part ? m : '')).toLowerCase();
+
+/**
+ * Whether a path inside `dir` is one where a write could change how agents run: `AGENT_CONFIG` at any
+ * depth, and git's hooks and config, a submodule's (`.git/modules/<name>/hooks`, `…/config`) too.
+ */
+export function agentConfigPath(cwd: string, path: string, dir: string): boolean {
   const rel = relative(realPath(resolve(dir)), realPath(resolve(cwd, homePath(path))));
-  const parts = rel.split(/[\\/]/).filter(Boolean);
-  if (parts.some((p) => AGENT_CONFIG.some((re) => re.test(p)))) return true;
+  const parts = rel.split(/[\\/]/).filter(Boolean).map(folded);
+  if (parts.some((p) => AGENT_CONFIG.has(p))) return true;
   const git = parts.indexOf('.git');
-  return git >= 0 && (parts[git + 1] === 'hooks' || parts[git + 1] === 'config');
+  if (git < 0) return false;
+  const inGit = parts.slice(git + 1);
+  if (inGit[0] === 'hooks' || inGit[0] === 'config') return true;
+  return inGit[0] === 'modules' && inGit.some((p, i) => i > 0 && (p === 'hooks' || p === 'config'));
 }
 
 /** A web search or fetch. */
@@ -337,11 +551,11 @@ const isWrite = (call: AntigravityToolCall) =>
   call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move' || call.name === 'write_file' || call.name === 'edit_file';
 
 /**
- * A read of a file or folder, or a search of its files with the place it searches given (a search
- * whose place is not known could be of a protected folder: it asks).
+ * A read of a file or folder, or a search of its files, with the place it reads given: one whose place
+ * is not known could be of a protected folder, and asks.
  */
 const isRead = (call: AntigravityToolCall) =>
-  call.kind === 'read' || call.name === 'read_file' || call.name === 'list_dir' || (call.kind === 'search' && !isWeb(call) && Boolean(antigravityPath(call)));
+  (call.kind === 'read' || call.name === 'read_file' || call.name === 'list_dir' || (call.kind === 'search' && !isWeb(call))) && antigravityPaths(call).length > 0;
 
 /** What to do with a call Antigravity asks about: run it, ask the user, or refuse it without asking. */
 export type AntigravityDecision = { run: 'allow' } | { run: 'ask' } | { run: 'refuse'; reason: string };
@@ -361,14 +575,17 @@ export function antigravityPermissionDecision(
   protectedPaths: readonly string[] = [],
 ): AntigravityDecision {
   if (permission === 'full') return { run: 'allow' };
-  const path = antigravityPath(call);
-  const isProtected = path ? protectedPaths.some((p) => within(cwd, path, p)) : false;
-  if (isProtected) return { run: 'refuse', reason: t().antigravityProtected };
+  // Every path it names: a move or a call with several locations is about all of them.
+  const paths = antigravityPaths(call);
+  if (paths.some((path) => protectedPaths.some((p) => within(cwd, path, p)))) return { run: 'refuse', reason: t().antigravityProtected };
   if (isWeb(call)) return { run: 'allow' };
   if (isRead(call)) return { run: 'allow' };
-  if (permission === 'edit' && isWrite(call) && path) {
-    const dir = [cwd, ...addDirs].find((d) => within(cwd, path, d));
-    if (dir && !agentConfigPath(cwd, path, dir)) return { run: 'allow' };
+  if (permission === 'edit' && isWrite(call) && paths.length) {
+    const fine = paths.every((path) => {
+      const dir = [cwd, ...addDirs].find((d) => within(cwd, path, d));
+      return dir !== undefined && !agentConfigPath(cwd, path, dir);
+    });
+    if (fine) return { run: 'allow' };
   }
   return { run: 'ask' };
 }
@@ -567,9 +784,10 @@ export const antigravityRunner: AgentRunner = {
   provider: 'antigravity',
   async run(o): Promise<RunResult> {
     if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
+    await antigravityProjectGate(o);
     let run: AntigravityRun;
     try {
-      run = prepareAntigravityRun(antigravityAppDir(o.env), o.permission, Boolean(o.env.GEMINI_API_KEY));
+      run = prepareAntigravityRun(antigravityAppDir(o.env), o.permission, Boolean(o.env.GEMINI_API_KEY), antigravityKeyOnly(o.env));
     } catch (err) {
       throw new AgentRunError(t().antigravityConfigFailed((err as Error).message));
     }
@@ -594,10 +812,20 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
   const updates = createAntigravityUpdateHandler(o.onEvent);
+  // The process groups agy's commands run in, to end what they leave running (`endStrays`).
+  const startedAt = Date.now();
+  const groups = new Set<number>();
+  const noteGroups = () => {
+    if (child?.pid) for (const g of commandGroups(listProcs(), child.pid)) groups.add(g);
+  };
   conn.onNotification = (method, params) => {
-    if (method !== 'session/update' || opening) return;
+    if (method !== 'session/update') return;
+    const u = params?.update;
+    // A command running (or just backgrounded): its process group, while agy is still its parent.
+    if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update') && (u.kind === 'execute' || u.name === 'run_command')) noteGroups();
+    if (opening) return;
     if (!sessionId || params?.sessionId !== sessionId) return;
-    updates.handle(params.update);
+    updates.handle(u);
   };
   conn.onRequest = async (method, params) => {
     if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
@@ -628,6 +856,7 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
 
   const env: NodeJS.ProcessEnv = { ...o.env };
   delete env[ANTIGRAVITY_HOME_ENV];
+  delete env[ANTIGRAVITY_KEY_ONLY_ENV];
   const exited = runProcess({
     bin: o.bin,
     args: antigravityArgs(o.env, o.permission, runDir),
@@ -701,9 +930,11 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
   } finally {
     opening = false;
     o.signal.removeEventListener('abort', onAbort);
+    noteGroups();
     child?.stdin?.end(); // agy exits when its stdin closes
     stopSoon(3000);
     await exited.catch(() => undefined);
+    await endStrays(groups, startedAt);
   }
 }
 

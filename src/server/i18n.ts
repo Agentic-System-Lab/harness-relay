@@ -118,6 +118,10 @@ const zhTW = {
   antigravityRefused: '超出這個對話的權限，已拒絕',
   antigravityProtected: '這是受保護的路徑（瀏覽器資料、Harness Relay 的資料庫等），低於完整權限時不能讀寫，已拒絕',
   antigravityEndsTurn: '（Antigravity 在拒絕後會結束這一輪）',
+  antigravityProjectSetup:
+    '這個專案有 Antigravity 會自己啟動或執行的設定（.agents 等資料夾裡的 MCP 伺服器、hook 或 plugin）：agy 一開啟 session 就會在沙箱外執行它們，不經詢問，唯讀模式下也一樣。另一個 agent 或這個 repository 的作者都可能放進這些檔案。允許後這一輪才會開始；檔案內容改變後會再問一次。',
+  antigravityProjectSetupRefused: (files: string) =>
+    `這一輪沒有開始：這個專案有 Antigravity 會在沙箱外自己執行的設定（${files}），而它沒有被允許。檢查並移除這些檔案，或允許它們，或改用完全存取。`,
   antigravityOutsideWrite: '這個檔案不在這個對話的工作目錄裡：編輯權限只涵蓋工作目錄內的寫入。',
   antigravityConfigWrite:
     '這裡是 agent 的設定（例如 .agents/、.git/hooks、.vscode/）：寫在這裡可能讓程式碼之後在沒有沙箱的情況下執行，或改變 agent 的行為，所以先詢問。',
@@ -620,6 +624,10 @@ const en: ServerMessages = {
   antigravityRefused: "Refused: not covered by this conversation's permission",
   antigravityProtected: "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
   antigravityEndsTurn: ' (Antigravity ends its turn after a refusal)',
+  antigravityProjectSetup:
+    "This project has setup Antigravity starts or runs by itself (MCP servers, hooks or plugins in a folder such as .agents): agy runs them outside any sandbox as soon as its session opens, without asking, in read-only mode too. Another agent, or whoever made the repository, may have put them there. The turn starts once you allow it; it asks again when the files change.",
+  antigravityProjectSetupRefused: (files) =>
+    `The turn did not start: this project has setup Antigravity would run by itself outside any sandbox (${files}), and it was not allowed. Check and remove those files, allow them, or use full access.`,
   antigravityOutsideWrite: "This file is not in the chat's working directories: edit mode covers writes in them only.",
   antigravityConfigWrite:
     "This is an agent's configuration (such as .agents/, .git/hooks or .vscode/): a change here could make code run later outside any sandbox, or change how an agent works, so it asks first.",

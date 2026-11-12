@@ -14,7 +14,7 @@ import {
   type ProviderModels,
   type ProviderStatus,
 } from '../shared/types';
-import { antigravityLogout, antigravityProbeEnv, ANTIGRAVITY_NO_BROWSER } from './agents/antigravity';
+import { antigravityKeyOnly, antigravityLogout, antigravityProbeEnv, antigravityProbeSettings, ANTIGRAVITY_NO_BROWSER } from './agents/antigravity';
 import { openAgents } from './agents/index';
 import { openHomeEnv } from './agents/open';
 import { backendLabel } from './backends';
@@ -93,9 +93,12 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
     }
     case 'antigravity': {
       // With a Gemini API key it runs on that key (its runs' own settings make agy use it).
-      if (CREDENTIAL_ENV.antigravity.some((k) => env[k])) return { loggedIn: true, method: 'API key' };
+      if (env.GEMINI_API_KEY) return { loggedIn: true, method: 'API key' };
+      // An account besides the default one runs on its own key only: without one it is signed out,
+      // whatever Google sign-in agy keeps (that is the default account's).
+      if (antigravityKeyOnly(env)) return { loggedIn: false };
       // `agy models` answers only signed in ("Please sign in to view available models"); it opens no browser.
-      const r = await capture(bin, ['models'], antigravityProbeEnv(env), { timeoutMs: 30_000 });
+      const r = await capture(bin, [...antigravityProbeSettings(env), 'models'], antigravityProbeEnv(env), { timeoutMs: 30_000 });
       const out = stripAnsi(`${r.stdout}\n${r.stderr}`);
       if (/please sign in|not signed in|authentication required/i.test(out)) return { loggedIn: false };
       return r.code === 0 ? { loggedIn: true } : { loggedIn: null, detail: tail(out, 200) };

@@ -28,7 +28,7 @@
 | 問題 | 為什麼重要 | 以前的例子 |
 | --- | --- | --- |
 | 有沒有能在工具呼叫前**詢問**的協定（ACP、JSON-RPC、帶權限 hook 的 stream-json）？ | 不能詢問的 headless 模式，第一次拒絕就會把回覆截斷。 | Grok 為此從 `grok -p` 改走 ACP（`Run Grok over ACP so refused tool calls no longer end the turn`）。 |
-| 它的每種模式下哪些**不詢問**就執行，它自己的設定能放寬什麼？ | 它自己的允許規則、核准模式或「一律允許」的回答，都不能放寬唯讀或編輯。 | Cursor：`cli-config.json` 的允許規則（每次執行一個私有設定資料夾）；Antigravity：`toolPermission`（每次執行自己的設定資料夾），而它的允許與拒絕規則在 ACP 下不生效。 |
+| 它的每種模式下哪些**不詢問**就執行，它自己的設定能放寬什麼？ | 它自己的允許規則、核准模式或「一律允許」的回答，都不能放寬唯讀或編輯。 | Cursor：`cli-config.json` 的允許規則（每次執行一個私有設定資料夾）；Antigravity：`toolPermission` 與 `allowNonWorkspaceAccess`（每次執行自己的設定，只保留帳號的模型與服務），而它的允許與拒絕規則在 ACP 下不生效。 |
 | 它的**沙箱**在這個模式下能用嗎？無法啟用時會不會直接拒絕執行？ | 低於完全存取時，是沙箱把編輯限制在工作目錄裡。 | Cursor 的 ACP 模式不套用任何沙箱；Antigravity 的沙箱在 ACP 下不讓指令寫工作目錄；Grok 的自訂 profile 套不上時會拒絕啟動，而不是不帶沙箱執行。 |
 | **拒絕**會發生什麼事？理由能不能傳給模型？ | 決定簡報要怎麼寫、聊天室要顯示什麼。 | Grok 接受 `_meta.followup_message`；Cursor 與 Cline 只傳它們自己的固定字句；Antigravity 會結束這一輪。 |
 | **簡報**放在哪裡？ | 系統提示（Claude Code 的 `--append-system-prompt`、Grok 的 `_meta.rules`、Antigravity 的 `_meta.antigravity.systemPrompt.append`），或 prompt 的最上面（Cursor）。接續的 session 要不要再給一次。 | Antigravity 每收到一份簡報就加一份，所以只有內容變了才再給。 |
@@ -36,7 +36,7 @@
 | **家目錄與登入**：搬移家目錄的變數、登入存在哪裡、怎麼用連結登入、不靠提示就能查狀態與登出？ | 帳號、「設定」的登入、狀態標籤。每個電腦使用者只保留一份的登入，會讓額外帳號只能用 key。 | Cursor（鑰匙圈）與 Antigravity（系統 keyring）的非預設帳號只用 API key 登入。 |
 | **模型與推理強度**：怎麼列出、怎麼命名、每個 session 怎麼設定？ | 模型選單，以及每一輪要設定什麼。 | Cursor 的參數化模型選擇；Antigravity 在 resume 後會重設模型。 |
 | **MCP 伺服器**、圖片、其他工作目錄？ | 工具庫與附件能提供它什麼。 | HTTP MCP 伺服器只給有宣告支援的 agent。 |
-| **它自己會載入的東西**（skill、MCP 伺服器、hook、subagent、plugin、指示檔），以及每一種有沒有單次執行的開關？ | 「設定」裡的清單與 `NATIVE_OFF_SUPPORT`；會執行程式碼的專案檔案（hook、MCP 伺服器）是逃出沙箱的途徑。 | Antigravity 的 `.agents/hooks.json`：在 relay 沙箱裡保持唯讀，在 Antigravity 的編輯模式下要先詢問。 |
+| **它自己會載入的東西**（skill、MCP 伺服器、hook、subagent、plugin、指示檔），以及每一種有沒有單次執行的開關？ | 「設定」裡的清單與 `NATIVE_OFF_SUPPORT`；會執行程式碼的專案檔案（hook、MCP 伺服器）是逃出沙箱的途徑。 | Antigravity 一開啟 session 就會啟動專案的 `.agents/hooks.json` 與 `mcp_config.json`，不經詢問，唯讀模式下也一樣；其他 agent 寫得到它們，所以 Harness Relay 會在 agy 啟動前先詢問。 |
 
 **沒有付費帳號時**，若 CLI 能設定 base URL，就讓它連到模型 API 的模擬伺服器（Antigravity 是用 Gemini API key 搭配一個照腳本回應的 Gemini API 模擬伺服器探索的，順便看到它送出的系統提示與工具），或是 OpenAI 相容的 CLI 連到本機模型伺服器（Ollama、vLLM）。用這種方式確認不了的部分（真正的登入、真正的模型），要在文件裡寫明。
 
@@ -53,11 +53,11 @@
 
 ## 5. 寫 adapter
 
-照著[開發者說明的檢查清單](developer-guide.zh-TW.md#新增一個-agent-cli)（原生 adapter 或開源 agent）做，再處理型別檢查找不到的地方：`TOOL_KEY_RE` 的記憶範圍、首席 agent 與各 agent 的簡報（CLI 的清單）、`agentFolders()`、`agentsViewSessionId()`，以及需要時的 `INHERITED_BACKEND_VARS`、`PROJECT_AGENT_CONFIG`、`keyOnlyAccount()` 與 `failedProbe()`。接著：
+照著[開發者說明的檢查清單](developer-guide.zh-TW.md#新增一個-agent-cli)（原生 adapter 或開源 agent）做，再處理型別檢查找不到的地方：首席 agent 與各 agent 的簡報（CLI 的清單）、`agentFolders()`、`agentsViewSessionId()`，以及需要時的 `INHERITED_BACKEND_VARS`、`PROJECT_AGENT_CONFIG`、`keyOnlyAccount()` 與 `failedProbe()`。接著：
 
 - 讓 parser 保持純函式（更新進、`AgentEvent` 出），決策也是（`<name>PermissionDecision`、`<name>ApprovalRequest`），測試才能餵它錄下來的訊息。
 - 只透過 `src/server/process.ts` 啟動 CLI，絕不透過 shell；開源 agent 透過 `startOpenProcess()`。
-- 每次執行的設定寫在它自己的資料夾，只有擁有者能存取，這一輪結束就刪掉，絕不寫進使用者自己的檔案（Cursor 的設定資料夾、Antigravity 的 `--cli_dir_name` 資料夾）。
+- 每次執行的設定寫在它自己的資料夾，只有擁有者能存取，這一輪結束就刪掉，絕不寫進使用者自己的檔案（Cursor 的設定資料夾、Antigravity 的 `--cli_dir_name` 資料夾），也只從使用者自己的設定拿這次執行需要的部分（Antigravity：模型與服務）。
 - 小心循環 import：`agents/index.ts` 會 import 每個 adapter，所以 adapter 不能 import 會反過來 import `agents/index.ts` 的模組（`models.ts`、`native.ts`、`providers.ts`）；循環會在伺服器啟動時出現「Cannot access … before initialization」（`test/parent.test.ts`）。
 - 每則訊息都要有兩種語言（`src/server/i18n.ts`、語系檔），以及 UI 的部分（顏色、「設定」卡片、API key 說明、原生設定附註、問題回報表單、pull request 範本）。
 

@@ -177,15 +177,18 @@ describe("Antigravity's sign-in", () => {
       const log = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>) : []);
       const starts = () => log().filter((l) => l.start);
 
-      // `agy models` answers only signed in, asked in each account's home (as HOME: only `agy acp` takes --gemini-dir).
+      // `agy models` answers only signed in, asked in the account's home (as HOME: only `agy acp` takes
+      // --gemini-dir). The other account runs on its own key only: without one it is signed out, and agy
+      // is not asked (the Google sign-in it keeps is the default account's), even when agy is signed in.
+      vi.stubEnv('FAKE_AGY_MODELS', 'models.txt');
       const out = await service.status('antigravity', true);
       expect(out.accounts.map((a) => [a.id, a.auth.loggedIn])).toEqual([
-        ['', false],
+        ['', true],
         [team, false],
       ]);
-      expect(starts().filter((l) => l.argv[0] === 'models').map((l) => l.env.HOME).sort()).toEqual(
-        [join(dir, 'homes', 'antigravity'), join(settings.accountsDir, `antigravity-${team}`)].sort(),
-      );
+      expect(starts().filter((l) => l.argv.includes('models')).map((l) => l.env.HOME)).toEqual([join(dir, 'homes', 'antigravity')]);
+      vi.stubEnv('FAKE_AGY_MODELS', 'models-signed-out.txt');
+      expect((await service.status('antigravity', true)).accounts[0]!.auth.loggedIn).toBe(false);
       expect(starts().filter((l) => l.argv[0] === 'models').every((l) => l.env.SSH_CONNECTION && l.env.HARNESS_RELAY_ANTIGRAVITY_HOME === null)).toBe(true);
       expect(out).toMatchObject({ installed: true, version: '1.5.6' });
       vi.stubEnv('FAKE_AGY_MODELS', 'models.txt');
