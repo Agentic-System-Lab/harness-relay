@@ -681,6 +681,7 @@ export const en: Messages = {
     codeLabel: 'Sign-in code',
     submit: 'Sign in',
     signingIn: 'Signing in…',
+    noAnswer: 'Harness Relay did not answer. Check that it is still running, then try again.',
     whereTitle: 'Where the code comes from',
     whereTerminal: 'The sign-in link Harness Relay printed in its terminal when it started: opening it signs you in (once, within an hour).',
     whereLogin: 'Or run this in the Harness Relay folder:',

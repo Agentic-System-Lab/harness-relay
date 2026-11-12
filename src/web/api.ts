@@ -48,8 +48,14 @@ import type {
   ZipCheck,
 } from '../shared/types';
 import { clearKey, readKey, signedOutAnswer, whileSigningIn, writeKey } from './auth';
-import { currentLang } from './i18n';
+import { currentLang, currentMessages } from './i18n';
 import { timeoutSignal } from './util';
+
+/**
+ * How long a sign-in may take before it is given up (it is quick: one code checked). Requests
+ * answered "signed out" meanwhile wait for it (`signedOutAnswer`), so not for good either.
+ */
+export const SIGN_IN_TIMEOUT_MS = 30_000;
 
 /** An account in a URL path: its id, or `default` for the default account. */
 const accountPath = (account: string) => encodeURIComponent(account || DEFAULT_ACCOUNT);
@@ -172,8 +178,15 @@ export const api = {
   signIn: (code: string) =>
     whileSigningIn(
       (async () => {
-        const { key } = await request<{ key: string }>('POST', '/api/auth/login', { code }, undefined, { signIn: true });
-        writeKey(key);
+        const timeout = timeoutSignal(SIGN_IN_TIMEOUT_MS);
+        try {
+          const { key } = await request<{ key: string }>('POST', '/api/auth/login', { code }, timeout.signal, { signIn: true });
+          writeKey(key);
+        } catch (e) {
+          throw timeout.signal.aborted ? new Error(currentMessages().signIn.noAnswer) : e;
+        } finally {
+          timeout.clear();
+        }
       })(),
     ),
   /** A one-time code for another device (a phone), from this signed-in browser. */

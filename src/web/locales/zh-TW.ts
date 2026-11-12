@@ -693,6 +693,7 @@ export const zhTW = {
     codeLabel: '登入代碼',
     submit: '登入',
     signingIn: '登入中…',
+    noAnswer: 'Harness Relay 沒有回應。請確認它還在執行，再試一次。',
     whereTitle: '代碼從哪裡來',
     whereTerminal: 'Harness Relay 啟動時在終端機印出的登入連結：直接打開就會登入（一小時內有效，只能用一次）。',
     whereLogin: '或在 Harness Relay 的資料夾執行',

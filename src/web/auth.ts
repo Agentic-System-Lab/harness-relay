@@ -80,3 +80,13 @@ export async function signedOutAnswer(sentWith: string | null, resent = false): 
   }
   return now !== null && !resent ? 'resend' : 'stale';
 }
+
+/**
+ * A change another tab of this browser made to the key, from a `storage` event: a new key ('arrived'),
+ * or the key gone ('removed', also when the storage was cleared). Undefined for any other change.
+ */
+export function keyChange(e: { key: string | null; newValue: string | null }): 'arrived' | 'removed' | undefined {
+  if (e.key === null) return 'removed';
+  if (e.key !== KEY) return undefined;
+  return e.newValue ? 'arrived' : 'removed';
+}

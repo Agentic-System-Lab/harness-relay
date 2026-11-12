@@ -66,6 +66,60 @@ async function linkInSignedInTab(page: Page, relay: RelayServer): Promise<void> 
   await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
 }
 
+/**
+ * A sign-in link opened in a new tab (as a terminal opens one) while another tab of the browser has
+ * requests on their way: the new tab's sign-in ends the session both used, and the other tab's answers
+ * ("signed out") reach it together with the sign-in's. Both tabs end signed in, also after a reload.
+ */
+async function linkInAnotherTab(page: Page, relay: RelayServer): Promise<void> {
+  await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
+  await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+  const keyIn = (p: Page) => p.evaluate(() => localStorage.getItem('relay:key'));
+  const oldKey = await keyIn(page);
+
+  const held: Route[] = [];
+  let loggedIn = false;
+  let deliver!: () => void;
+  const delivered = new Promise<void>((r) => (deliver = r));
+  await page.route('**/api/**', async (route) => {
+    if (route.request().headers()['x-relay-key'] === oldKey && !loggedIn) {
+      held.push(route);
+      await delivered; // answered below, with the other tab's sign-in
+    } else await route.continue();
+  });
+  await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+  await expect.poll(() => held.length).toBeGreaterThan(0);
+
+  const other = await page.context().newPage();
+  try {
+    await other.route('**/api/auth/login', async (route) => {
+      const login = await route.fetch();
+      loggedIn = true;
+      const answers = await Promise.all(held.map((h) => h.fetch()));
+      await Promise.all([route.fulfill({ response: login }), ...held.map((h, i) => h.fulfill({ response: answers[i] }))]);
+      deliver();
+    });
+    await other.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
+    await expect(other.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    const newKey = await keyIn(other);
+    expect(newKey).not.toBeNull();
+    expect(newKey).not.toBe(oldKey);
+    // The first tab may show the sign-in page a moment (its answers came before the new key did),
+    // and comes back on its own: it follows the other tab's sign-in.
+    await expect(page.locator('.app main.main')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sign in to Harness Relay' })).toHaveCount(0);
+    await expect.poll(() => keyIn(page)).toBe(newKey);
+
+    await page.unroute('**/api/**');
+    for (const tab of [page, other]) {
+      await tab.reload();
+      await expect(tab.locator('.app main.main')).toBeVisible();
+    }
+  } finally {
+    await other.close();
+  }
+}
+
 test.describe('signing in', () => {
   test.use({ signIn: false });
 
@@ -135,6 +189,42 @@ test.describe('signing in', () => {
   test('a sign-in link opened in a tab signed in already keeps it signed in, with requests still on their way', ({ page, relay }) =>
     linkInSignedInTab(page, relay));
 
+  test('a tab that shows the sign-in page follows a sign-in in another tab of the browser', async ({ page, relay }) => {
+    await page.goto(relay.base);
+    await expect(page.getByRole('heading', { name: 'Sign in to Harness Relay' })).toBeVisible();
+    const other = await page.context().newPage();
+    try {
+      await other.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
+      await expect(other.getByRole('heading', { name: 'New chat' })).toBeVisible();
+      // Without a reload: the tabs share the cookie and the key.
+      await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    } finally {
+      await other.close();
+    }
+  });
+
+  test('a sign-in link opened in another tab keeps every tab signed in, with requests still on their way', ({ page, relay }) =>
+    linkInAnotherTab(page, relay));
+
+  test('a key another tab cleared is kept again by a tab whose sign-in still works', async ({ page, relay }) => {
+    // The other tab clears the key of the session this tab's sign-in replaced, a moment after this
+    // tab kept its new one: the tabs' copies of the storage meet late, and the new key goes too.
+    await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
+    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    const key = await page.evaluate(() => localStorage.getItem('relay:key'));
+    const other = await page.context().newPage();
+    try {
+      await other.goto(relay.base);
+      await expect(other.getByRole('heading', { name: 'New chat' })).toBeVisible();
+      await other.evaluate(() => localStorage.removeItem('relay:key'));
+      await expect.poll(() => other.evaluate(() => localStorage.getItem('relay:key'))).toBe(key);
+      await other.reload();
+      await expect(other.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    } finally {
+      await other.close();
+    }
+  });
+
   test('a browser can sign itself out in Settings', async ({ page, relay }) => {
     await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
@@ -164,6 +254,9 @@ test.describe('signing in, in a development build of the UI', () => {
 
   test('a sign-in link opened in a tab signed in already keeps it signed in, with requests still on their way', ({ page, relay }) =>
     linkInSignedInTab(page, relay));
+
+  test('a sign-in link opened in another tab keeps every tab signed in, with requests still on their way', ({ page, relay }) =>
+    linkInAnotherTab(page, relay));
 
   test('a link that does not work shows its error on the first load', async ({ page, relay }) => {
     await page.goto(`${relay.base}/#code=AAAA-BBBB`);

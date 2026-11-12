@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, SIGNED_OUT_EVENT, api } from '../src/web/api';
-import { clearKey, readKey, signedOutAnswer, whileSigningIn, writeKey } from '../src/web/auth';
+import { ApiError, SIGN_IN_TIMEOUT_MS, SIGNED_OUT_EVENT, api } from '../src/web/api';
+import { clearKey, keyChange, readKey, signedOutAnswer, whileSigningIn, writeKey } from '../src/web/auth';
+import { en } from '../src/web/locales/en';
 
 const KEY = 'x-relay-key';
 const SIGNED_OUT = { error: 'Signed out', code: 'signed-out' };
@@ -102,13 +103,13 @@ describe('a request answered "signed out"', () => {
   let signedOutEvents: number;
 
   /** `fetch`, answering each request by its path and the key it was sent with. */
-  function server(respond: (path: string, key: string | null) => Response | Promise<Response>) {
+  function server(respond: (path: string, key: string | null, init: RequestInit) => Response | Promise<Response>) {
     vi.stubGlobal('fetch', async (path: string, init: RequestInit) => {
       if (init.signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
       const key = (init.headers as Record<string, string>)[KEY] ?? null;
       (sent[path] ??= []).push(key);
       if (init.body !== undefined) bodies.push(JSON.parse(init.body as string));
-      return respond(path, key);
+      return respond(path, key, init);
     });
   }
 
@@ -121,7 +122,10 @@ describe('a request answered "signed out"', () => {
     page.addEventListener(SIGNED_OUT_EVENT, () => signedOutEvents++);
     vi.stubGlobal('window', page);
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it('for the key it was sent with signs the page out', async () => {
     writeKey('old');
@@ -237,6 +241,26 @@ describe('a request answered "signed out"', () => {
     expect(signedOutEvents).toBe(0);
   });
 
+  it('is decided when a sign-in that never answers is given up', async () => {
+    vi.useFakeTimers();
+    writeKey('old');
+    server((path, _key, init) =>
+      path === '/api/auth/login'
+        ? new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
+        : answer(401, SIGNED_OUT),
+    );
+    const signingIn = api.signIn('ABCD-EFGH').catch((e: unknown) => e);
+    const listing = api.listConversations().catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(SIGN_IN_TIMEOUT_MS - 1);
+    expect(signedOutEvents).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    // The sign-in says the server did not answer; the request waiting for it is decided then.
+    expect(((await signingIn) as Error).message).toBe(en.signIn.noAnswer);
+    expect(await listing).toBeInstanceOf(ApiError);
+    expect(signedOutEvents).toBe(1);
+    expect(readKey()).toBeNull();
+  });
+
   it('is sent again for a text answer too (a diff)', async () => {
     writeKey('old');
     server((_path, key) =>
@@ -245,5 +269,16 @@ describe('a request answered "signed out"', () => {
     expect(await api.messageDiff('c1', 'm1')).toBe('diff --git');
     expect(sent['/api/conversations/c1/messages/m1/diff']).toEqual(['old', 'new']);
     expect(signedOutEvents).toBe(0);
+  });
+});
+
+describe("another tab's change to the key", () => {
+  const KEY_NAME = 'relay:key';
+
+  it('is a new key, the key gone, or nothing of ours', () => {
+    expect(keyChange({ key: KEY_NAME, newValue: 'new' })).toBe('arrived');
+    expect(keyChange({ key: KEY_NAME, newValue: null })).toBe('removed');
+    expect(keyChange({ key: null, newValue: null })).toBe('removed'); // the storage cleared
+    expect(keyChange({ key: 'relay:lang', newValue: 'en' })).toBeUndefined();
   });
 });
