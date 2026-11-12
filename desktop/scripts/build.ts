@@ -2,7 +2,8 @@
  * Builds the desktop app into desktop/build/ (`npm run desktop`, `npm run desktop:dist`), after the
  * web app is built (`npm run build`):
  *
- * - build/app/: what Electron runs (main.cjs, its package.json, the tray icons);
+ * - build/app/: what Electron runs (main.cjs, its package.json, the tray icons), and the LICENSE whose
+ *   terms its package.json names (electron-builder.yml also puts it in the app's resources, to be opened);
  * - build/server/: the server as one file (server.mjs), the built web app (web/) and the keyring
  *   module, which is native code and stays a separate package (node_modules/@napi-rs/); the relay
  *   sandbox's host (relaySandboxHost.mjs, which the server starts with a Node on PATH, since the app's
@@ -126,6 +127,8 @@ await build({
   logLevel: 'warning',
 });
 writeFileSync(join(OUT, 'app/package.json'), `${JSON.stringify(appManifest({ ...rootPackage, version: version.app }), null, 2)}\n`);
+// The license's terms, which go with every copy, beside the package.json whose `license` names them.
+cpSync(join(ROOT, 'LICENSE'), join(OUT, 'app/LICENSE'));
 
 for (const icon of DESKTOP_ICONS) {
   const dir = icon.file === 'icon.png' ? join(OUT, 'resources') : join(OUT, 'app/icons');

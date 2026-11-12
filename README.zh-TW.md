@@ -186,4 +186,4 @@ agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**
 
 ## 授權
 
-本專案的程式碼以 [Apache License 2.0](LICENSE) 授權。
+Harness Relay 的程式碼以 [Sustainable Use License](LICENSE)（1.0 版，由 n8n 撰寫；SPDX 代號 [`SUL-1.0`](https://spdx.org/licenses/SUL-1.0.html)）授權，屬於 [fair-code](https://faircode.io/) 授權。你可以為了自己公司內部的業務（包括在工作上）、個人或非商業用途使用與修改它，也可以免費、為非商業目的分享給別人，修改過的也可以，但要附上它的條款（改過的話，還要註明你改了它）。你不能販售它：不能收費散布它，也不能收費提供給別人使用，例如代管服務。它是原始碼公開（source-available）的軟體，不是開放原始碼促進會（OSI）所定義的開源軟體。它包含的第三方套件與字型沿用各自的授權。以上只是摘要，條款以 [LICENSE](LICENSE) 為準。

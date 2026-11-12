@@ -2,7 +2,7 @@
   "name": "harness-relay-desktop",
   "private": true,
   "description": "The Harness Relay desktop app: runs the server in the background, with an icon in the menu bar or system tray, and shows the chat in a window of its own.",
-  "license": "Apache-2.0",
+  "license": "SUL-1.0",
   "type": "module",
   "scripts": {
     "build": "tsx scripts/build.ts",

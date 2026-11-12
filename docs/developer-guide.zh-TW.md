@@ -270,7 +270,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 
 建置：`npm run desktop` 與 `npm run desktop:dist` 會先建置介面（`npm run build`），再執行 `desktop/scripts/build.ts`，寫出 `desktop/build/`：
 
-- `app/` 是 Electron 執行的內容：`main.cjs`、它的 `package.json`（來自 `src/manifest.ts`；`productName` 讓使用者資料夾叫做 `Harness Relay`）與系統匣圖示。
+- `app/` 是 Electron 執行的內容：`main.cjs`、它的 `package.json`（來自 `src/manifest.ts`；`productName` 讓使用者資料夾叫做 `Harness Relay`）與系統匣圖示，以及儲存庫裡的 `LICENSE`：那個 `package.json` 的 `license` 指的就是它的條款，而每一份副本都必須附上它（`electron-builder.yml` 也會把它放進 app 的 resources，讓人能打開來看）。
 - `server/` 是伺服器、介面與 keyring 模組，以及在伺服器之外執行的東西：Harness Relay 自己沙箱的 host（`relaySandboxHost.mjs`，由 `src/server/relaySandboxHost.ts` 打包，沙箱 runtime 不打包進去）、Pi 的 gate 擴充功能（`piGate.js`，Pi 依路徑載入它），以及放在 `node_modules/` 的沙箱 runtime 套件（`@anthropic-ai/sandbox-runtime` 與它需要的套件；它在 Linux 上的 seccomp 輔助程式是原生程式）。
 - `resources/icon.png` 是 app 圖示，給 electron-builder 使用。
 
@@ -280,7 +280,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 
 `npx tsx desktop/scripts/smoke.ts` 會像 app 一樣執行打包好的伺服器，用一般的 Node 代替 Electron（`desktop/scripts/parent-port.mjs` 透過 Node 的 IPC 提供 `process.parentPort`）：keyring 模組必須能從伺服器旁邊載入，沙箱的 host 與 Pi 的 gate 必須在它旁邊、host 必須找得到沙箱 runtime，伺服器必須只聽 127.0.0.1、提供介面、瀏覽器登入前拒絕 API、給出代碼能用的登入連結、讓 claude、codex 與 grok 組成的團隊回答一個問題、不印出代碼、說沒有對話有 agent 在工作，並在被要求關閉時以代碼 0 結束。這個團隊是端對端測試的假 CLI（`e2e/fake-cli/`，由 `e2e/support/fake-cli.ts` 的 `installFakeClis()` 建置：macOS 與 Linux 上是指令碼，Windows 上是 Node 單一執行檔）：`selftest.ts` 的 `checkTurn()` 開一個三者的唯讀圓桌對話，送出一個問題並等這輪執行結束，每一個的回覆都必須完成並複述這個問題，這表示伺服器依名稱找到了每個 CLI、說了它的協定（stream-json、`codex app-server`、ACP），並把回覆串流進對話。它絕不會執行真正的 CLI。開發者自己的 `RELAY_*` 與 `E2E_*` 變數不會進入伺服器的環境（`selftest.ts` 的 `withoutOwnSettings()`，app 自己的 `--smoke-test` 與 `check-package.ts` 也用它），`withFakeClis()` 也不帶使用者的憑證（API key 與 token），所以萬一找到的是真正的 CLI，它也沒有憑證可用。CI 在建置桌面 app 後執行它，發佈 workflow 在每個系統上執行它，`test/parent.test.ts` 則對 `src/server/index.ts` 做同樣的檢查。
 
-`npx tsx desktop/scripts/check-package.ts [--dir <資料夾>]` 會檢查 electron-builder 放在安裝檔旁邊的打包好的 app（預設是 `desktop/release/`：`mac-universal/` 或 `mac-arm64/`、`win-unpacked/` 或 `win-arm64-unpacked/`、`linux-unpacked/` 或 `linux-arm64-unpacked/`）：fuses 是否照 `electron-builder.yml` 設定（用 `@electron/fuses` 讀回來）、resources 裡有沒有伺服器、介面與 keyring 模組（通用版 Mac app 要有兩種處理器的原生部分）、沙箱的 host、Pi 的 gate 與沙箱 runtime（Linux 上它的 seccomp 輔助程式要能執行），以及 app 自己的 `--smoke-test`，並用 `--smoke-test-clis` 給它假 CLI（像 `smoke.ts` 一樣先建置），所以打包好的 app 也會讓它的 agent 回答一個問題。app 拿到的是這個指令碼的環境，但不含 `RELAY_*` 與 `E2E_*`。在 Linux 上它需要顯示器（`xvfb-run`），並以 `--no-sandbox` 執行 app。發佈 workflow 在每個系統建置安裝檔後執行它，CI 則對 Linux 與 Windows 的打包結果（`electron-builder --linux dir`、`--win dir`）執行。
+`npx tsx desktop/scripts/check-package.ts [--dir <資料夾>]` 會檢查 electron-builder 放在安裝檔旁邊的打包好的 app（預設是 `desktop/release/`：`mac-universal/` 或 `mac-arm64/`、`win-unpacked/` 或 `win-arm64-unpacked/`、`linux-unpacked/` 或 `linux-arm64-unpacked/`）：fuses 是否照 `electron-builder.yml` 設定（用 `@electron/fuses` 讀回來）、resources 裡有沒有伺服器、介面與 keyring 模組（通用版 Mac app 要有兩種處理器的原生部分）、沙箱的 host、Pi 的 gate 與沙箱 runtime（Linux 上它的 seccomp 輔助程式要能執行）、resources 與封存檔（`app.asar`，用 `@electron/asar` 讀取）裡的 `LICENSE` 是否和儲存庫裡的一樣，以及 app 自己的 `--smoke-test`，並用 `--smoke-test-clis` 給它假 CLI（像 `smoke.ts` 一樣先建置），所以打包好的 app 也會讓它的 agent 回答一個問題。app 拿到的是這個指令碼的環境，但不含 `RELAY_*` 與 `E2E_*`。在 Linux 上它需要顯示器（`xvfb-run`），並以 `--no-sandbox` 執行 app。發佈 workflow 在每個系統建置安裝檔後執行它，CI 則對 Linux 與 Windows 的打包結果（`electron-builder --linux dir`、`--win dir`）執行。
 
 幾件要知道的事：
 

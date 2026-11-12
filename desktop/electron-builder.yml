@@ -2,7 +2,7 @@
 # runs on. They are not signed for distribution: see docs/user-guide.md, "Desktop app".
 appId: io.github.agentic-system-lab.harness-relay
 productName: Harness Relay
-copyright: Copyright © Harness Relay contributors
+copyright: Copyright © 2026 ChihYu Yeh
 directories:
   app: build/app
   buildResources: build/resources
@@ -15,6 +15,9 @@ extraResources:
   # keyring module (native code, not bundled into server.mjs) is copied as its own folder.
   - from: build/server/node_modules
     to: server/node_modules
+  # The license, where people can open it (the same file is in the app's archive, beside its package.json).
+  - from: build/app/LICENSE
+    to: LICENSE
 npmRebuild: false
 electronFuses:
   # Nobody may run the app's binary as plain Node (macOS would let that code use the app's privacy permissions).

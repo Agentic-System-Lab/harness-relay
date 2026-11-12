@@ -186,4 +186,4 @@ Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING
 
 ## License
 
-This project's code is licensed under the [Apache License 2.0](LICENSE).
+Harness Relay's code is licensed under the [Sustainable Use License](LICENSE) (version 1.0, written by n8n; SPDX [`SUL-1.0`](https://spdx.org/licenses/SUL-1.0.html)), a [fair-code](https://faircode.io/) license. You may use and change it for your own internal business purposes, at work included, or for personal or non-commercial use, and share it, changed or not, free of charge for non-commercial purposes, with its terms (and a notice saying you changed it, if you did). You may not sell it: neither charge for copies of it nor offer it to others for a fee, as a hosted service, say. It is source-available software, not open source as the Open Source Initiative defines it. The libraries and fonts it includes keep their own licenses. This is a summary; the terms are those in [LICENSE](LICENSE).
