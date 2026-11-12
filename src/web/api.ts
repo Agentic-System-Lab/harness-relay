@@ -47,9 +47,16 @@ import type {
   WorkingDirectories,
   ZipCheck,
 } from '../shared/types';
-import { clearKey, readKey, writeKey } from './auth';
-import { currentLang } from './i18n';
+import { clearKey, readKey, signedOutAnswer, whileSigningIn, writeKey } from './auth';
+import { currentLang, currentMessages } from './i18n';
 import { timeoutSignal } from './util';
+
+/**
+ * How long a sign-in may take before it is given up (it is quick: the server checks a code against
+ * the few live ones). Requests answered "signed out" meanwhile wait for it (`signedOutAnswer`), so
+ * not for good either.
+ */
+export const SIGN_IN_TIMEOUT_MS = 30_000;
 
 /** An account in a URL path: its id, or `default` for the default account. */
 const accountPath = (account: string) => encodeURIComponent(account || DEFAULT_ACCOUNT);
@@ -84,9 +91,8 @@ export async function orCreateCwd<T>(call: (createCwd: boolean) => Promise<T>, a
   }
 }
 
-/** Every request names the UI language, so server messages come back in it. */
-function headers(json: boolean): Record<string, string> {
-  const key = readKey();
+/** Every request names the UI language, so server messages come back in it. `key`: the one it sends. */
+function headers(json: boolean, key: string | null): Record<string, string> {
   return {
     'X-Relay-Lang': currentLang(),
     ...(key ? { [AUTH_KEY_HEADER]: key } : {}),
@@ -97,32 +103,50 @@ function headers(json: boolean): Record<string, string> {
 /** The event the app listens for to show the sign-in page: the server no longer knows this browser. */
 export const SIGNED_OUT_EVENT = 'relay:signed-out';
 
-function signedOut(code: string | undefined): void {
-  if (code !== SIGNED_OUT) return;
-  clearKey();
-  window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+/** How a request is sent: again after an answer "signed out" (`resent`), or as the sign-in itself. */
+interface Sending {
+  resent?: boolean;
+  signIn?: boolean;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+/**
+ * An answer "signed out" to a request sent with `key`, read in full (`signedOutAnswer`): true when the
+ * request is to be sent again with a new key. The page is told when this browser is signed out.
+ */
+async function signedOut(code: string | undefined, key: string | null, o: Sending): Promise<boolean> {
+  // The sign-in's own request never waits for itself (and is never answered so).
+  if (code !== SIGNED_OUT || o.signIn) return false;
+  const answer = await signedOutAnswer(key, o.resent);
+  if (answer === 'signed-out') window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+  return answer === 'resend';
+}
+
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, o: Sending = {}): Promise<T> {
+  const key = readKey();
   const res = await fetch(path, {
     method,
     // Always JSON: the server rejects non-JSON writes as a CSRF guard.
-    headers: headers(method !== 'GET'),
+    headers: headers(method !== 'GET', key),
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
     signal,
   });
-  const data = await res.json().catch(() => ({}));
+  const data = await res.json().catch(() => {
+    // Given up (its signal) while the answer was read: not an answer, but the request given up.
+    if (signal?.aborted) throw signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+    return {};
+  });
   if (!res.ok) {
     const err = data as { error?: string; code?: string; paths?: unknown };
-    if (res.status === 401) signedOut(err.code);
+    if (res.status === 401 && (await signedOut(err.code, key, o))) return request<T>(method, path, body, signal, { resent: true });
     const paths = Array.isArray(err.paths) ? err.paths.filter((p): p is string => typeof p === 'string') : undefined;
     throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code, paths);
   }
   return data as T;
 }
 
-async function requestText(path: string): Promise<string> {
-  const res = await fetch(path, { headers: headers(false) });
+async function requestText(path: string, o: Sending = {}): Promise<string> {
+  const key = readKey();
+  const res = await fetch(path, { headers: headers(false, key) });
   const text = await res.text();
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
@@ -134,12 +158,11 @@ async function requestText(path: string): Promise<string> {
     } catch {
       /* not JSON */
     }
-    if (res.status === 401) signedOut(code);
+    if (res.status === 401 && (await signedOut(code, key, o))) return requestText(path, { resent: true });
     throw new ApiError(msg, res.status, code);
   }
   return text;
 }
-
 
 /** A file attached to a message, as sent to the server. */
 export interface AttachmentUpload {
@@ -157,10 +180,23 @@ export const api = {
   /** Whether this browser is signed in, and whether the desktop app started the server (no terminal then). */
   authStatus: () => request<{ signedIn: boolean; desktop?: boolean }>('GET', '/api/auth'),
   /** Signs this browser in with a one-time code; the server sets its cookie, the key is kept here. */
-  signIn: async (code: string) => {
-    const { key } = await request<{ key: string }>('POST', '/api/auth/login', { code });
-    writeKey(key);
-  },
+  signIn: (code: string) =>
+    whileSigningIn(
+      (async () => {
+        const timeout = timeoutSignal(SIGN_IN_TIMEOUT_MS);
+        try {
+          const { key } = await request<{ key?: unknown }>('POST', '/api/auth/login', { code }, timeout.signal, { signIn: true });
+          // No key in the answer: none to keep (it would be the string "undefined").
+          if (typeof key !== 'string') throw new Error(currentMessages().signIn.noAnswer);
+          writeKey(key);
+        } catch (e) {
+          // The server's own answer stands, also one that came as the time ran out.
+          throw timeout.signal.aborted && !(e instanceof ApiError) ? new Error(currentMessages().signIn.noAnswer) : e;
+        } finally {
+          timeout.clear();
+        }
+      })(),
+    ),
   /** A one-time code for another device (a phone), from this signed-in browser. */
   newSignInCode: () => request<{ code: string; expiresAt: number }>('POST', '/api/auth/codes'),
   signedInBrowsers: () => request<AuthSessionView[]>('GET', '/api/auth/sessions'),
@@ -312,7 +348,7 @@ export const api = {
    * (any failure) is no answer, rather than the sign-in page shown again.
    */
   serverVersion: async (): Promise<UpdateStatus> => {
-    const res = await fetch('/api/update', { headers: headers(false) });
+    const res = await fetch('/api/update', { headers: headers(false, readKey()) });
     if (!res.ok) throw new Error(`${res.status}`);
     return (await res.json()) as UpdateStatus;
   },

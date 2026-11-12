@@ -416,6 +416,7 @@ describe('the data folder lock', () => {
       setInterval(() => {}, 1000);
     `;
     const child = spawn(process.execPath, ['--expose-gc', '--no-warnings', '--import', 'tsx', '--input-type=module', '-e', script, data], { stdio: ['ignore', 'pipe', 'inherit'] });
+    const exited = new Promise((r) => child.once('exit', r));
     try {
       await new Promise<void>((resolve, reject) => {
         child.stdout!.on('data', (d: Buffer) => d.toString().includes('collected') && resolve());
@@ -423,7 +424,10 @@ describe('the data folder lock', () => {
       });
       expect(lockDataDir(data)).toBeUndefined();
     } finally {
+      // Until the holder has exited, Windows keeps its lock file open, and the folder cannot be
+      // removed after the test.
       child.kill('SIGKILL');
+      await exited;
     }
   });
 });

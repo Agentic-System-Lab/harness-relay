@@ -3914,7 +3914,8 @@ details.sub summary {
   font-size: 13.5px;
 }
 
-.voice-steps li.todo {
+/* The step's state is an attribute: as a class, `todo` took the chat's to-do card style (.todo). */
+.voice-steps li[data-state='todo'] {
   color: var(--muted);
 }
 
@@ -3931,17 +3932,17 @@ details.sub summary {
   color: var(--muted);
 }
 
-.voice-steps li.now .step-mark {
+.voice-steps li[data-state='now'] .step-mark {
   background: var(--text);
   color: var(--bg);
 }
 
-.voice-steps li.done .step-mark {
+.voice-steps li[data-state='done'] .step-mark {
   background: color-mix(in srgb, var(--ok) 18%, transparent);
   color: var(--ok);
 }
 
-.voice-steps li.stopped .step-mark {
+.voice-steps li[data-state='stopped'] .step-mark {
   background: color-mix(in srgb, var(--danger) 15%, transparent);
   color: var(--danger);
 }
@@ -3963,7 +3964,9 @@ details.sub summary {
   display: block;
   height: 100%;
   background: var(--text);
-  transition: width 0.3s ease;
+  /* Scaled rather than resized, so the bar's progress moves without a layout on every step. */
+  transform-origin: left center;
+  transition: transform 0.3s ease;
 }
 
 .voice-row {

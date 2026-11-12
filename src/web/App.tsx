@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
-import { codeFromHash } from '../shared/auth';
 import { SIGNED_OUT_EVENT, api } from './api';
+import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
@@ -10,7 +10,15 @@ import { SettingsPage } from './components/SettingsPage';
 import { SignIn } from './components/SignIn';
 import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route } from './route';
-import { signInWhere } from './signin';
+import {
+  askSignedIn,
+  runFirstCheck,
+  signInWhere,
+  signInWithLink,
+  type LinkDeps,
+  type LinkResult,
+  type PageStart,
+} from './signin';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
@@ -56,6 +64,14 @@ export function navigate(r: Route): void {
   window.location.hash = hashFor(r);
 }
 
+/** Signing in with a link's code, in this page's address. */
+const LINK: LinkDeps = {
+  status: api.authStatus,
+  signIn: api.signIn,
+  hash: () => window.location.hash,
+  dropCode: () => history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/`),
+};
+
 /**
  * The app once this browser is signed in; before that, the sign-in page. A sign-in link's code
  * (`#code=…`) is taken out of the address first, so it stays in neither the history nor a shared link.
@@ -67,50 +83,45 @@ export function App() {
   const [desktopApp, setDesktopApp] = useState(false);
   const state = useRef(auth);
   state.current = auth;
+  /** The page's first check while it runs, shared by both runs of the effect below in development (`runFirstCheck`). */
+  const start = useRef<Promise<PageStart>>(undefined);
 
   useEffect(() => {
     let live = true;
-    /**
-     * Signs in with the code a sign-in link carries, also one opened in a tab that shows the app
-     * already (only its fragment changes then), and takes the code out of the address. The code is
-     * used up also in a browser signed in already (its new session replaces the old one), so it does
-     * not keep working in the browser's history. True when there was one to sign in with.
-     */
-    const fromLink = async (): Promise<boolean> => {
-      const code = codeFromHash(window.location.hash);
-      if (!code) return false;
-      history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/`);
-      try {
-        await api.signIn(code);
-        if (live) setAuth('in');
-      } catch (e) {
-        // A link that no longer works changes nothing for a browser that is signed in.
-        const signedIn = state.current === 'in' || (await api.authStatus().catch(() => ({ signedIn: false }))).signedIn;
-        if (live && signedIn) setAuth('in');
-        else if (live) {
-          setError((e as Error).message);
-          setAuth('out');
-        }
-      }
-      return true;
+    const show = (r: LinkResult) => {
+      if (!live) return;
+      setError(r.error);
+      setAuth(r.signedIn ? 'in' : 'out');
     };
-    void (async () => {
-      // First, also when the page opens with a link (the desktop app always opens it with one): a link
-      // that no longer works, or a sign-out later, shows the sign-in page, which then points at the
-      // app's menu rather than a terminal.
-      const status = await api.authStatus().catch(() => ({ signedIn: false, desktop: false }));
-      if (live) setDesktopApp(status.desktop === true);
-      if (await fromLink()) return;
-      if (live) setAuth(status.signedIn ? 'in' : 'out');
-    })();
-    const onHash = () => void fromLink();
+    // Whether the desktop app started the server, also when the page opens with a link: a link that
+    // no longer works, or a sign-out later, shows the sign-in page, which then points at the app's
+    // menu rather than a terminal.
+    const first = runFirstCheck(start, LINK, (s) => {
+      setDesktopApp(s.desktop);
+      show(s);
+    });
+    // A link opened in a tab that shows the app already: only its fragment changes.
+    const onHash = () =>
+      void signInWithLink(LINK, () => state.current === 'in' || askSignedIn(LINK)).then((r) => r && show(r));
     const out = () => setAuth('out');
+    // Another tab kept a new key: it signed this browser in (the tabs share the cookie and the key).
+    // The server is asked whatever this tab shows, as one just signed out may not show the sign-in page
+    // yet, and the app is shown when the browser is signed in (with the first check, if it still runs).
+    const onStorage = (e: StorageEvent) => {
+      if (!keyArrived(e)) return;
+      void askSignedIn(LINK).then((signedIn) => {
+        if (signedIn && first.signedInElsewhere()) show({ signedIn: true });
+      });
+    };
     window.addEventListener('hashchange', onHash);
     window.addEventListener(SIGNED_OUT_EVENT, out);
+    window.addEventListener('storage', onStorage);
     return () => {
       live = false;
+      first.end();
       window.removeEventListener('hashchange', onHash);
       window.removeEventListener(SIGNED_OUT_EVENT, out);
+      window.removeEventListener('storage', onStorage);
     };
   }, []);
 
@@ -118,7 +129,12 @@ export function App() {
   // Keyed by the error, so a link with a wrong code shows its message on a page already open.
   if (auth === 'out') {
     const where = signInWhere({ desktopServer: desktopApp, userAgent: navigator.userAgent });
-    return <SignIn key={error} error={error} where={where} onSignedIn={() => setAuth('in')} />;
+    // Signed in with the form: a link's error goes, so a sign-out later does not show it again.
+    const signedIn = () => {
+      setError(undefined);
+      setAuth('in');
+    };
+    return <SignIn key={error} error={error} where={where} onSignedIn={signedIn} />;
   }
   return <RelayApp />;
 }
