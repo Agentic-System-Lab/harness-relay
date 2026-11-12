@@ -30,7 +30,7 @@ function turnFor(relay: RelayServer, cli: Provider, text: string) {
   const log = relay.fakeLog();
   const turn = log.find((e) => e.cli === cli && e.prompt?.includes(text));
   if (!turn) throw new Error(`No ${cli} turn got “${text}”`);
-  const start = log.find((e) => e.cli === cli && e.pid === turn.pid && e.args);
+  const start = log.find((e) => e.proc === turn.proc && e.args);
   return { turn, args: start?.args ?? [] };
 }
 

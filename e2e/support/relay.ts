@@ -25,6 +25,12 @@ import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
 export interface FakeLogEntry {
   /** The CLI, by provider id (`cursor` for `cursor-agent`, `antigravity` for `agy`). */
   cli: Provider | 'zenity' | 'gh';
+  /**
+   * The fake CLI process that wrote the line, as no other in the test (not on `gh`'s or `zenity`'s,
+   * a line a process). Match a process's lines by this, never by `pid`: Windows soon gives an ended
+   * process's pid to a new one.
+   */
+  proc?: string;
   pid: number;
   at: number;
   /** Sent from inside Harness Relay's own sandbox, where the fake could not write the log itself. */
