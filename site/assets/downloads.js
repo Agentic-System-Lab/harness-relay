@@ -23,7 +23,8 @@ export const INSTALLERS = {
  * The same installers again, under these ends, for the app's own updates, which download them in place
  * of the ones above (desktop/src/update.ts): GitHub's download counts then tell new installs (INSTALLERS,
  * from this website or the releases page) from updates of an installed app (UPDATE_INSTALLERS). The
- * Release workflow makes the copies (`updateCopyName`); this website never offers them.
+ * Release workflow makes the copies (`updateCopyName`) and publishes them in a repository of their own
+ * (UPDATES_REPO), so that the releases page lists the installers alone; this website never offers them.
  */
 export const UPDATE_INSTALLERS = {
   mac: '-mac-arm64-update.dmg',
@@ -40,6 +41,26 @@ export function updateCopyName(name) {
     if (name.endsWith(end)) return name.slice(0, -end.length) + UPDATE_INSTALLERS[system];
   }
   return undefined;
+}
+
+/**
+ * Where the copies for the app's updates are: each release's under the same tag in this public
+ * repository's releases (README: what it is), published there by the Release workflow before the
+ * release itself.
+ */
+export const UPDATES_REPO = 'Agentic-System-Lab/harness-relay-updates';
+
+/** A tag or a file name that stays in its place in a download's path (no `.` or `..`, no `/`). */
+const PLAIN_PART = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * Where an app's update downloads `installer` (an installer's name) of the release tagged `tag`: its
+ * copy (`updateCopyName`) in UPDATES_REPO. Undefined for a file that is not an installer.
+ */
+export function updateCopyUrl(tag, installer) {
+  const copy = updateCopyName(installer);
+  if (!copy || typeof tag !== 'string' || !PLAIN_PART.test(tag) || !PLAIN_PART.test(installer)) return undefined;
+  return `https://github.com/${UPDATES_REPO}/releases/download/${tag}/${copy}`;
 }
 
 /** Where the installers are: links to anything else are not used (a forged or broken API answer). */

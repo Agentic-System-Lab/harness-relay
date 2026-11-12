@@ -4,8 +4,10 @@
  * too when the app is one (or a build of your own), only a release when it is a release
  * (`takesCandidates`); when it is newer than the running app and has an installer for this system (`updateSystem`:
  * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer (its
- * copy for updates, `-update`, so that GitHub counts updates apart from new installs),
- * checks it against the SHA-256 GitHub publishes for it (`download`), waits until no conversation has
+ * copy for updates, `-update`, from the releases of a repository of their own, so that GitHub counts
+ * updates apart from new installs and the release page lists the installers alone; the installer itself
+ * where that copy is not there), checks it against the SHA-256 GitHub publishes for the installer
+ * (`download`), waits until no conversation has
  * agents at work (`whenIdle`), and puts it in place of the running app, which then quits and the new
  * one starts:
  *
@@ -33,7 +35,7 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { compareSemver, parseVersion, semverOf } from '../../scripts/release';
-import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO, UPDATE_INSTALLERS } from '../../site/assets/downloads.js';
+import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO, updateCopyUrl } from '../../site/assets/downloads.js';
 import { capture } from '../../src/server/process';
 import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
 
@@ -154,10 +156,12 @@ export interface UpdateAsset {
    * its copy for updates: the AppImage takes this name).
    */
   name: string;
-  /** Where it is fetched from: its copy for the app's updates (`-update`), else the installer itself. */
+  /** Where it is fetched from: its copy for the app's updates (`-update`, `updateCopyUrl`), else the installer itself. */
   url: string;
+  /** The installer itself, fetched when its copy is not there (404): a release published before the copies, say. */
+  fallback?: string;
   size?: number;
-  /** Lowercase hex, from GitHub's `digest` of the asset. */
+  /** Lowercase hex, from GitHub's `digest` of the installer (its copy is the same file). */
   sha256?: string;
 }
 
@@ -187,25 +191,20 @@ export function parseRelease(json: unknown): UpdateRelease | undefined {
   if (!r || typeof r !== 'object' || r.draft || typeof r.tag_name !== 'string') return undefined;
   const parsed = parseVersion(r.tag_name);
   if (!parsed.ok) return undefined;
-  // Each system's copy for updates (UPDATE_INSTALLERS), so that GitHub counts updates apart from new
-  // installs; the installer itself for a release made before there were copies.
-  const installers: UpdateRelease['assets'] = {};
-  const copies: UpdateRelease['assets'] = {};
+  // Each system's installer, fetched from its copy for updates (`updateCopyUrl`: the same file, in the
+  // releases of a repository of its own), so that GitHub counts updates apart from new installs; the
+  // installer itself where that copy is not there. Copies in the release itself (2026-11-12-rc) are not
+  // read: they end as no installer does.
+  const assets: UpdateRelease['assets'] = {};
   for (const a of Array.isArray(r.assets) ? r.assets : []) {
     if (typeof a?.name !== 'string' || !PLAIN_NAME.test(a.name) || !isInstallerUrl(a.browser_download_url)) continue;
     for (const [system, end] of Object.entries(INSTALLERS) as [UpdateSystem, string][]) {
-      const copyEnd = UPDATE_INSTALLERS[system];
-      const copy = a.name.endsWith(copyEnd);
-      if (!copy && !a.name.endsWith(end)) continue;
+      if (!a.name.endsWith(end)) continue;
+      const installer = a.browser_download_url as string;
+      const copy = updateCopyUrl(r.tag_name, a.name);
       const sha256 = typeof a.digest === 'string' ? /^sha256:([0-9a-f]{64})$/i.exec(a.digest)?.[1]?.toLowerCase() : undefined;
-      const name = copy ? a.name.slice(0, -copyEnd.length) + end : a.name;
-      (copy ? copies : installers)[system] = { name, url: a.browser_download_url as string, size: typeof a.size === 'number' ? a.size : undefined, sha256 };
+      assets[system] = { name: a.name, ...(copy ? { url: copy, fallback: installer } : { url: installer }), size: typeof a.size === 'number' ? a.size : undefined, sha256 };
     }
-  }
-  // The copy only with its checksum (else the update would go by the release page instead), or when the installer has none either.
-  const assets: UpdateRelease['assets'] = { ...installers };
-  for (const [system, copy] of Object.entries(copies) as [UpdateSystem, UpdateAsset][]) {
-    if (copy.sha256 || !installers[system]?.sha256) assets[system] = copy;
   }
   const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${RELEASES_PAGE}/tag/`) ? r.html_url : RELEASES_PAGE;
   return { version: parsed.value.version, semver: semverOf(parsed.value), page, candidate: parsed.value.rc, assets };
@@ -355,8 +354,9 @@ export const DOWNLOAD_STALL_MS = 60_000;
 
 /**
  * Downloads `asset` to `to` (through `to`.part, so a broken download never looks like a whole one),
- * checking it against its SHA-256 on the way. `onProgress` gets the share done, from 0 to 1. Given up
- * on after `stallMs` without a byte (DOWNLOAD_STALL_MS).
+ * checking it against its SHA-256 on the way: from its `url`, or from its `fallback` when GitHub has
+ * nothing there (404). `onProgress` gets the share done, from 0 to 1. Given up on after `stallMs`
+ * without a byte (DOWNLOAD_STALL_MS).
  */
 export async function download(o: {
   fetch: Fetch;
@@ -390,6 +390,11 @@ export async function download(o: {
     let res: Response;
     try {
       res = await o.fetch(o.asset.url, { signal });
+      // Its copy for updates is not there (a release published before the copies, its repository gone): the installer itself.
+      if (res.status === 404 && o.asset.fallback) {
+        res.body?.cancel().catch(() => undefined);
+        res = await o.fetch(o.asset.fallback, { signal });
+      }
     } catch (err) {
       throw new UpdateError('download', reason(err));
     }

@@ -512,12 +512,33 @@ describe('the release workflow', () => {
     expect(release).toContain("import { INSTALLERS } from './site/assets/downloads.js'");
     expect(release).toContain('Expected one installer ending in $end');
     expect(release).toContain('found others too');
-    // Then each one copied for the app's updates (counted apart from new installs), before it is all published.
+    // Then each one copied for the app's updates (counted apart from new installs), in a folder of their own.
     expect(release).toContain("import { updateCopyName } from './site/assets/downloads.js'");
     const copied = release.indexOf("- name: Copy the installers for the app's updates");
     expect(copied).toBeGreaterThan(release.indexOf('found others too'));
-    expect(copied).toBeLessThan(release.indexOf('- name: Publish'));
     expect(release).toContain("if (!copy) throw new Error('Not an installer: ' + name);");
+    expect(release).toContain("copyFileSync('installers/' + name, 'updates/' + copy);");
+    // The copies are published in their own repository first (no app offered the release before they are
+    // there), so that the release itself holds the installers alone.
+    const copies = release.indexOf("- name: Publish the copies for the app's updates");
+    const published = release.indexOf('- name: Publish\n');
+    expect(copies).toBeGreaterThan(copied);
+    expect(published).toBeGreaterThan(copies);
+    const step = release.slice(copies, published);
+    expect(step).toContain("import { UPDATES_REPO } from './site/assets/downloads.js'");
+    expect(step).toContain('gh release create "$TAG" updates/* --repo "$repo"');
+    // Tried again: the copies uploaded again over the ones there.
+    expect(step).toContain('gh release upload "$TAG" updates/* --repo "$repo" --clobber');
+    expect(step).toContain('The UPDATES_TOKEN secret is not set');
+    expect(release.slice(published)).toContain('gh release create "$TAG" installers/*');
+    expect(release.slice(published)).not.toContain('updates/');
+  });
+
+  it('hands the token for the copies’ repository to the step that publishes them only', () => {
+    expect(workflow.match(/secrets\./g)).toEqual(['secrets.']);
+    const release = job('release');
+    const copies = release.slice(release.indexOf("- name: Publish the copies for the app's updates"), release.indexOf('- name: Publish\n'));
+    expect(copies).toContain('GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
   });
 
   it('may write to the repository only in the job that publishes', () => {
@@ -537,7 +558,9 @@ describe('the release workflow', () => {
     // A release is not offered release candidates: the notes say who is offered which.
     expect(publish).toContain("offered='A Harness Relay that is a release candidate (or a build of your own) offers this one in its menu");
     expect(publish).toContain("offered='A Harness Relay already installed offers this release in its menu");
-    expect(publish).toContain('$offered It downloads the files with');
+    // The notes say nothing of the copies, which are not on the release page.
+    expect(publish).toContain('$offered See [Desktop app]');
+    expect(publish).not.toContain('-update');
     expect(publish).toContain('--target "$GITHUB_SHA"');
     expect(publish).toContain('gh release create "$TAG"');
   });
