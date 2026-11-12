@@ -43,11 +43,12 @@ export interface FakeLogEntry {
   /** With `mcpEnv`: the URL of each server among them that the CLI was given as an HTTP server, by server. */
   mcpHttp?: Record<string, string>;
   /**
-   * A start: the CLI's home it runs in, its account's (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`; for
-   * an open agent the folder of its state it keeps its sessions in): the fake module's `home()`.
+   * A start: the CLI's home it runs in, its account's (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`,
+   * Cursor's account folder, Antigravity's `.gemini` folder; for an open agent the folder of its state it
+   * keeps its sessions in): the fake module's `home()`.
    */
   home?: string;
-  /** A start: whether it was given an API key (`ANTHROPIC_API_KEY`, `XAI_API_KEY`; Codex: `CODEX_API_KEY`, `OPENAI_API_KEY`, else the one `codex login --with-api-key` kept in its home): the one the test expects (`E2E_EXPECTED_API_KEY` in `serverEnv`), another, or none (null). */
+  /** A start: whether it was given an API key (`ANTHROPIC_API_KEY`, `XAI_API_KEY`, `CURSOR_API_KEY`, `GEMINI_API_KEY`; Codex: `CODEX_API_KEY`, `OPENAI_API_KEY`, else the one `codex login --with-api-key` kept in its home; each agent module's `apiKey()`): the one the test expects (`E2E_EXPECTED_API_KEY` in `serverEnv`), another, or none (null). */
   apiKey?: 'expected' | 'other' | null;
   /** A turn: the model and reasoning effort it runs with (null: the CLI's own default). */
   model?: string | null;

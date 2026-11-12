@@ -2,9 +2,10 @@ import { defineConfig, devices, type Project } from '@playwright/test';
 
 /*
  * End-to-end tests (`npm run test:e2e`): the real server and the built UI in a real browser, with
- * fake `claude`, `codex` and `grok` CLIs (`e2e/fake-cli/`), so they run offline, on macOS, Linux
- * and Windows. Each test gets a server of its own (`e2e/fixtures.ts`). See the developer guide,
- * "End-to-end tests".
+ * a fake for each of the ten agent CLIs (`e2e/fake-cli/`), so they run offline, on macOS, Linux
+ * and Windows (below full access the open agents' fakes run in Harness Relay's own sandbox, on
+ * macOS and Linux). Each test gets a server of its own (`e2e/fixtures.ts`). See the developer
+ * guide, "End-to-end tests".
  *
  * E2E_BROWSERS picks the browsers, comma-separated: chromium (the default), firefox and webkit.
  * (A phone's screen and touch are tried in `e2e/specs/mobile.spec.ts`, in each of them.)
