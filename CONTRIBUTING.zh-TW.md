@@ -150,4 +150,4 @@ pull request 範本會請你填寫這些。請在說明中寫出：
 
 ## 授權
 
-Harness Relay 以 [Apache License 2.0](LICENSE) 授權。除非你另外聲明，你提交的任何貢獻都以相同條款授權，如授權條款第 5 節所述。
+Harness Relay 以 [Sustainable Use License](LICENSE) 授權：任何人都可以使用與修改，也可以免費、為非商業目的分享，但不能販售（見 [README](README.zh-TW.md#授權)）。你提交貢獻時，就是以相同條款授權它，作為 Harness Relay 的一部分。

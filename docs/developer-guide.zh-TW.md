@@ -112,7 +112,7 @@ src/
     tools.ts               團隊編輯器的工具選擇：工具庫項目、依 CLI 的預設、成員的例外設定
     backends.ts            設定 → 模型來源：端點表單的純邏輯（從名稱產生 id、輸入的模型、表單的問題）
     native.ts              NativeSetupPanel 的純邏輯：各 CLI 的分頁與數量、勾選個別項目、執行時不載入幾項、設定是否已變更
-    route.ts               前端放在網址 hash 的路由，包括 #/schedule 與 #/settings/<區塊>
+    route.ts               前端放在網址 hash 的路由：#/（首頁）、#/new（新對話）、#/schedule、#/c/<id> 與 #/settings/<區塊>
     voice.ts               語音輸入的純邏輯：WAV 編碼、靜音判斷、把辨識結果插入游標處、安裝進度
     recorder.ts            在瀏覽器錄音，解碼成 16 kHz 單聲道
     useVoice.ts            語音輸入狀態的 hook（安裝時輪詢）
@@ -122,7 +122,7 @@ src/
     theme.ts               淺色或深色主題：跟隨系統，或在「設定 → 外觀」選的（data-theme，記在 localStorage）
     locales/               zh-TW.ts（訊息結構的來源）、en.ts
     components/            Sidebar、SidebarGroups（群組、拖放）、SidebarSearch、
-                           NewChat、TemplateEditor（範本對話框）、TeamEditor、TeamReviser（團隊設定的
+                           Home（app 打開時有動畫的 logo 與標語）、NewChat、TemplateEditor（範本對話框）、TeamEditor、TeamReviser（團隊設定的
                            「請首席 agent 調整」）、ModelPicker、CliPicker（選 CLI：可水平捲動的一排）、ChatView、
                            MessageItem（含 plan 卡片）、ChangesCard、Composer、Markdown、
                            SettingsPage、CopyButton、Logo、Onboarding（使用導覽）、
@@ -274,7 +274,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 
 建置：`npm run desktop` 與 `npm run desktop:dist` 會先建置介面（`npm run build`），再執行 `desktop/scripts/build.ts`，寫出 `desktop/build/`：
 
-- `app/` 是 Electron 執行的內容：`main.cjs`、它的 `package.json`（來自 `src/manifest.ts`；`productName` 讓使用者資料夾叫做 `Harness Relay`）與系統匣圖示。
+- `app/` 是 Electron 執行的內容：`main.cjs`、它的 `package.json`（來自 `src/manifest.ts`；`productName` 讓使用者資料夾叫做 `Harness Relay`）與系統匣圖示，以及儲存庫裡的 `LICENSE`：那個 `package.json` 的 `license` 指的就是它的條款，而每一份副本都必須附上它（`electron-builder.yml` 也會把它放進 app 的 resources，讓人能打開來看）。
 - `server/` 是伺服器、介面與 keyring 模組，以及在伺服器之外執行的東西：Harness Relay 自己沙箱的 host（`relaySandboxHost.mjs`，由 `src/server/relaySandboxHost.ts` 打包，沙箱 runtime 不打包進去）、Pi 的 gate 擴充功能（`piGate.js`，Pi 依路徑載入它），以及放在 `node_modules/` 的沙箱 runtime 套件（`@anthropic-ai/sandbox-runtime` 與它需要的套件；它在 Linux 上的 seccomp 輔助程式是原生程式）。
 - `resources/icon.png` 是 app 圖示，給 electron-builder 使用。
 
@@ -284,7 +284,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 
 `npx tsx desktop/scripts/smoke.ts` 會像 app 一樣執行打包好的伺服器，用一般的 Node 代替 Electron（`desktop/scripts/parent-port.mjs` 透過 Node 的 IPC 提供 `process.parentPort`）：keyring 模組必須能從伺服器旁邊載入，沙箱的 host 與 Pi 的 gate 必須在它旁邊、host 必須找得到沙箱 runtime，伺服器必須只聽 127.0.0.1、提供介面、瀏覽器登入前拒絕 API、給出代碼能用的登入連結、讓 claude、codex 與 grok 組成的團隊回答一個問題、不印出代碼、說沒有對話有 agent 在工作，並在被要求關閉時以代碼 0 結束。這個團隊是端對端測試的假 CLI（`e2e/fake-cli/`，由 `e2e/support/fake-cli.ts` 的 `installFakeClis()` 建置：macOS 與 Linux 上是指令碼，Windows 上是 Node 單一執行檔）：`selftest.ts` 的 `checkTurn()` 開一個三者的唯讀圓桌對話，送出一個問題並等這輪執行結束，每一個的回覆都必須完成並複述這個問題，這表示伺服器依名稱找到了每個 CLI、說了它的協定（stream-json、`codex app-server`、ACP），並把回覆串流進對話。它絕不會執行真正的 CLI。開發者自己的 `RELAY_*` 與 `E2E_*` 變數不會進入伺服器的環境（`selftest.ts` 的 `withoutOwnSettings()`，app 自己的 `--smoke-test` 與 `check-package.ts` 也用它），`withFakeClis()` 也不帶使用者的憑證（API key 與 token），所以萬一找到的是真正的 CLI，它也沒有憑證可用。CI 在建置桌面 app 後執行它，發佈 workflow 在每個系統上執行它，`test/parent.test.ts` 則對 `src/server/index.ts` 做同樣的檢查。
 
-`npx tsx desktop/scripts/check-package.ts [--dir <資料夾>]` 會檢查 electron-builder 放在安裝檔旁邊的打包好的 app（預設是 `desktop/release/`：`mac-universal/` 或 `mac-arm64/`、`win-unpacked/` 或 `win-arm64-unpacked/`、`linux-unpacked/` 或 `linux-arm64-unpacked/`）：fuses 是否照 `electron-builder.yml` 設定（用 `@electron/fuses` 讀回來）、resources 裡有沒有伺服器、介面與 keyring 模組（通用版 Mac app 要有兩種處理器的原生部分）、沙箱的 host、Pi 的 gate 與沙箱 runtime（Linux 上它的 seccomp 輔助程式要能執行），以及 app 自己的 `--smoke-test`，並用 `--smoke-test-clis` 給它假 CLI（像 `smoke.ts` 一樣先建置），所以打包好的 app 也會讓它的 agent 回答一個問題。app 拿到的是這個指令碼的環境，但不含 `RELAY_*` 與 `E2E_*`。在 Linux 上它需要顯示器（`xvfb-run`），並以 `--no-sandbox` 執行 app。發佈 workflow 在每個系統建置安裝檔後執行它，CI 則對 Linux 與 Windows 的打包結果（`electron-builder --linux dir`、`--win dir`）執行。
+`npx tsx desktop/scripts/check-package.ts [--dir <資料夾>]` 會檢查 electron-builder 放在安裝檔旁邊的打包好的 app（預設是 `desktop/release/`：`mac-universal/` 或 `mac-arm64/`、`win-unpacked/` 或 `win-arm64-unpacked/`、`linux-unpacked/` 或 `linux-arm64-unpacked/`）：fuses 是否照 `electron-builder.yml` 設定（用 `@electron/fuses` 讀回來）、resources 裡有沒有伺服器、介面與 keyring 模組（通用版 Mac app 要有兩種處理器的原生部分）、沙箱的 host、Pi 的 gate 與沙箱 runtime（Linux 上它的 seccomp 輔助程式要能執行）、resources 與封存檔（`app.asar`，用 `@electron/asar` 讀取）裡的 `LICENSE` 是否和儲存庫裡的一樣，以及 app 自己的 `--smoke-test`，並用 `--smoke-test-clis` 給它假 CLI（像 `smoke.ts` 一樣先建置），所以打包好的 app 也會讓它的 agent 回答一個問題。app 拿到的是這個指令碼的環境，但不含 `RELAY_*` 與 `E2E_*`。在 Linux 上它需要顯示器（`xvfb-run`），並以 `--no-sandbox` 執行 app。發佈 workflow 在每個系統建置安裝檔後執行它，CI 則對 Linux 與 Windows 的打包結果（`electron-builder --linux dir`、`--win dir`）執行。
 
 幾件要知道的事：
 
@@ -600,7 +600,7 @@ npx vitest test/store.test.ts
 - `test/refresh-web.test.ts`：回答的順序錯亂時，聊天介面顯示的 CLI 狀態與模型清單（`src/web/refresh.ts`）：每個 CLI 都以最後一次檢查的狀態為準，不論回答到達的順序（時間相同，或顯示中的沒有時間時採用新的；顯示中的有時間而新的沒有時，保留顯示中的）；模型清單則是比較晚到的舊回答被丟掉、較新的請求失敗時保留較舊的回答，以及強制載入進行中時的一般載入等它完成後才送出（期間的多個一般載入只送出一次，強制載入的回答無法顯示時也一樣會送出）。
 - `test/theme.test.ts`：淺色或深色主題（`src/web/theme.ts`）：讀取存下的選擇（其他值都算跟隨系統）、每種選擇與系統模式下顯示的主題、淺色或深色時設定 `<html data-theme>`，跟隨系統時移除，瀏覽器的頂列顏色（`theme-color`）也跟著改；記在瀏覽器裡，儲存區丟出錯誤時跟隨系統；在頁面裡（替換掉全域物件）：從存下的選擇開始，接著跟隨系統模式、其他分頁的選擇（只看它的 key）與使用者的選擇。也檢查 `styles.css` 裡兩份深色顏色（系統的深色模式與選了深色）相同、沒有其他地方只跟隨 `prefers-color-scheme`、頂列顏色等於頁面背景、`index.html` 在 app 的 module 之前、從同一個 key 設定主題且只設成淺色或深色（包在 `try` 裡），以及每個選擇在兩種語言都有名稱。
 - `test/updates.test.ts`：聊天介面裡的桌面 app 更新：不是桌面 app 啟動的伺服器只有版本；app 最後說的狀態加上這個版本；向 app 要求檢查，檢查完才回答（太久沒回應就給已知的狀態；不會向不更新的 app 要求）；同時要求的檢查在 app 依編號回答後都會得到回答，已經在路上的狀態不算，逾時的不再等待；app 欠聊天介面的回答在沒有檢查進行中時才給（`CheckAnswers`）；伺服器等待的時間比 app 等 GitHub 的長；只在有較新的版本且沒有更新進行中時才要求 app 更新（並說明是哪一種情況）。分辨 app 自己的視窗與其他瀏覽器（手機）；只在那裡為每個版本跳出一次對話框，更新進行中時不跳，只在沒有其他對話框或導覽開著、使用者沒在文字欄位打字、也沒有東西擋住對話框（錄音）時才跳出，跳出後在仍可更新時保留，沒按「稍後再說」就關掉的下次會再提示；檢查、下載或安裝進行中，以及按下「更新」後一段時間內較常詢問（等對話結束時不會）；頁面上的對話框只有最上層的處理按鍵，錄音時擋住會自己跳出的對話框（只釋放一次）；以及設定的「版本」卡片說什麼（先說進行中的更新，接著是檢查中、有新版本、檢查失敗、還沒檢查、已是最新並附上時間）。頁面對伺服器版本的監看：伺服器回答另一個版本時重新載入，定時詢問、視窗回到前景時也詢問，伺服器沒有回應不算改變，重新載入後就不再詢問。
-- `test/route.test.ts`：前端的 hash 路由（含「新排程」頁面），包括設定頁的區塊（「版本」在最前面），以及正在看哪張設定卡片（在連結列標亮）；標亮的連結看得到時連結列不動，看不到時只捲動剛好需要的距離，也不會捲過兩端。模型來源排在外觀之後、所有 CLI 之前。
+- `test/route.test.ts`：前端的 hash 路由（`#/` 的首頁，不認得的路由也是；`#/new` 的新對話，以及「新排程」頁面），包括設定頁的區塊（「版本」在最前面），以及正在看哪張設定卡片（在連結列標亮）；標亮的連結看得到時連結列不動，看不到時只捲動剛好需要的距離，也不會捲過兩端。模型來源排在外觀之後、所有 CLI 之前。
 - `test/grok-trust.test.ts`：記錄 Grok 對資料夾的信任：和 `grok --trust` 相同的紀錄、取代標為不信任的紀錄並保留其他內容、Windows 路徑的 TOML 跳脫、寫在暫存 `GROK_HOME` 的檔案（只有擁有者能讀）、還原成原本的內容，從 `grok inspect` 讀出信任狀態與決定信任的資料夾（去掉結尾斜線的專案根目錄，是否在資料夾上層，否則就是資料夾本身），以及等待確認的團隊設計什麼情況會顯示它（有 Grok 成員與資料夾）。
 - `test/util.test.ts`：把成員或首席 agent 切到另一個 CLI 再切回來，會還原每個 CLI 選過的模型、推理強度與帳號；模型選單的「預設」寫出成員接著用哪個模型執行（沒有預設的開源 agent 需要選一個）。agent 的帳號：CLI 還有它時就是它指定的帳號，否則是預設帳號；能不能執行（已登入、無法判斷，或有金鑰）；新成員拿到的帳號（預設帳號可用時用它，否則用第一個可用的）；它在介面上的名稱。逾時訊號會在時間到時中止，和 `AbortSignal.timeout()` 一樣，清除後就不會中止。
 - `test/open-state.test.ts`：每個開源 agent 自己的狀態：兩個對話的執行，彼此都不能讀寫對方的狀態資料夾（Harness Relay 沙箱的規格與它的檔案規則）、key 的資料夾從一輪留到下一輪並在 `freshState` 時清空、沒有 key 的執行用執行後就刪除的資料夾、完全存取以外拒絕在成員資料夾之外的狀態路徑、key 作為資料夾名稱（不尋常的用雜湊）、每個開源 agent 的 private 資料夾不能讀取；五個轉接器各自的配置（一次執行寫入的一切都在狀態資料夾，CLI 也指向那裡）；執行的環境中只有它自己模型來源的金鑰，沒有其他模型供應商繼承來的金鑰，不屬於模型來源的仍會傳入（`allBackendKeys` 時全部）；不論執行對狀態資料夾做了什麼（以 `chmod 000` 鎖住的資料夾、唯讀的檔案）都能清空，且不跟隨連結到資料夾外；刪除的對話的狀態從每個開源 agent 的家目錄移除，啟動時清掉停下的伺服器的執行留下的東西（包括移到一旁的資料夾）；驗證會保留成員對開源 agent 記憶的例外；MCP 工具的核准卡片（它的輸入，唯讀仍是界線）。也測試家目錄先前所在資料夾裡的 private 資料夾，執行讀不到（從它的環境變數得知），那裡也不會建立任何資料夾；以及停下的執行留下的東西可能還在執行時，啟動時的清理不恢復權限。
@@ -644,10 +644,11 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - **假的選擇資料夾視窗**（[`e2e/fake-cli/fake-dialog.cjs`](../e2e/fake-cli/fake-dialog.cjs)）會在 macOS 與 Linux 上和假 CLI 一起安裝成 `zenity`。Linux 在圖形環境中會從 PATH 找選擇資料夾視窗，所以設定了 `DISPLAY`（透過 `serverEnv`）的測試，輸入框會出現選擇資料夾按鈕，而假視窗會回答 `E2E_FAKE_PICK` 列出的資料夾（JSON，每個都從視窗開啟的資料夾解析），沒有列出任何資料夾時就當作取消。它的參數與字元集會記到 `relay.fakeLog()`（`cli: 'zenity'`）。macOS 與 Windows 會以完整路徑開啟自己的視窗，所以這些測試只在 Linux 上執行。
 - **假的 GitHub CLI**（[`e2e/fake-cli/fake-gh.cjs`](../e2e/fake-cli/fake-gh.cjs)）會在每個系統上和假 CLI 一起安裝成 `gh`（在 Windows 上是假 CLI 的同一個執行檔換成這個名稱：以 `gh` 啟動時它執行假的 GitHub CLI，所以全部十一個名稱只需建置一次）。它回答分享與問題回報的截圖向 `gh` 要求的事（`--version`、`gist create`、`gist delete`、`api gists/<id>`），把 gist 存在測試的資料夾（`fake-github/`），記下它的參數（`cli: 'gh'`），其他指令一律拒絕，所以不會連到 GitHub。AgentsView 不需要假程式：`e2e/specs/sessions.spec.ts` 會在 127.0.0.1 上為它啟動一個小 HTTP 伺服器。
 - **測試開始前**，[`e2e/global-setup.ts`](../e2e/global-setup.ts) 會在 UI 的來源檔比 build 新時建置 UI，兩份都會：`npm run build` 的那份（`dist/web`），以及開發版 build（`dist/web-dev`，`NODE_ENV=development`：React 的 StrictMode 會把每個 effect 執行兩次，就像 `npm run dev`），給需要它的測試使用（把 `RELAY_WEB_DIR` 設成 `e2e/support/paths.ts` 的 `DEV_WEB_DIR`）。`E2E_BUILD=always` 每次都建置兩份，`E2E_BUILD=never` 從不建置（CI 在自己的步驟中用同樣的方式建置）。接著安裝假 CLI，並判斷一次 Harness Relay 自己的沙箱在這台電腦上能不能運作（`E2E_RELAY_SANDBOX`，交給各個 worker）。
-- **撰寫測試**：在 `e2e/specs/<範圍>.spec.ts` 中，從 `../fixtures` 匯入 `test` 與 `expect`，並從 [`e2e/support/app.ts`](../e2e/support/app.ts) 匯入操作步驟（`startChat`、`send`、`confirmTeam`、`finishedReply`，以及透過 API 建立自訂團隊對話的 `openTeamChat` 等）。測試每個 CLI 時，用 [`e2e/support/clis.ts`](../e2e/support/clis.ts) 的輔助函式（`eachCli(CLIS, …)`、`chatWith()`、`HALVES` 與 `teamOf()`、`needsBelowFull()`），CLI 之間不同的地方從它的資料（`e2e/support/clis/<provider>.ts`）取得，而不是看它的名稱。在 UI 有提供時，依角色與看得到的文字找元素（除非測試改了語言，否則是英文），否則才用 CSS class。要讓 agent 做新的事，就在假 CLI 中加一個新指令（`e2e/fake-cli/lib/plan.cjs` 的 `DIRECTIVES`），再由每個 CLI 的模組以自己的協定做出來。
+- **撰寫測試**：在 `e2e/specs/<範圍>.spec.ts` 中，從 `../fixtures` 匯入 `test` 與 `expect`，並從 [`e2e/support/app.ts`](../e2e/support/app.ts) 匯入操作步驟（`startChat`、`send`、`confirmTeam`、`finishedReply`，以及透過 API 建立自訂團隊對話的 `openTeamChat` 等）。測試每個 CLI 時，用 [`e2e/support/clis.ts`](../e2e/support/clis.ts) 的輔助函式（`eachCli(CLIS, …)`、`chatWith()`、`HALVES` 與 `teamOf()`、`needsBelowFull()`），CLI 之間不同的地方從它的資料（`e2e/support/clis/<provider>.ts`）取得，而不是看它的名稱。登入後的頁面從首頁開始（`homePage`）；`openNewChat` 從側邊欄打開新對話頁。在 UI 有提供時，依角色與看得到的文字找元素（除非測試改了語言，否則是英文），否則才用 CSS class。要讓 agent 做新的事，就在假 CLI 中加一個新指令（`e2e/fake-cli/lib/plan.cjs` 的 `DIRECTIVES`），再由每個 CLI 的模組以自己的協定做出來。
 
 目前的測試（每個情境見 [`e2e/README.zh-TW.md`](../e2e/README.zh-TW.md)）：
 
+- `e2e/specs/home.spec.ts` — app 打開時的首頁、側邊欄的 logo 與名稱回到首頁，以及 logo 的動畫：只播一次、只動 `transform` 與 `opacity`、減少動態效果時不播放。
 - `e2e/specs/chat.spec.ts` — 新對話：首席 agent 的團隊卡片、確認後的回答；不詢問直接使用團隊；所有 CLI 組成的團隊依序回答（有登入的五個，以及五個開源 agent）；追問時另組團隊。
 - `e2e/specs/activity.spec.ts` — 各 CLI 的思考、工具呼叫（它自己列出目錄的工具，含輸出）與待辦清單（Cline 與 Pi 沒有）；Markdown 回答（標題、清單、表格、程式碼）。
 - `e2e/specs/approvals.spec.ts` — 各 CLI 執行指令前的詢問（Pi 在編輯模式下，針對 `npm publish`）：允許（會執行）、附註後拒絕（附註顯示在卡片上；轉交給 Claude Code、Grok、OpenCode、Goose 與 Pi，Codex、Cursor、Cline 與 OpenHands 則丟掉它，Antigravity 結束它的回合）；「一律允許」讓下一次同樣的請求自動通過；請求等待時停止；各 CLI 在完整權限下不詢問就執行指令並寫到任何地方；自動拒絕的對話。
@@ -658,7 +659,7 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/team.spec.ts` — 在團隊設定中請首席 agent 加入成員，儲存後新成員回答；首席 agent 的回答無法解讀時改用範本；拒絕為新問題提議的團隊，由目前的團隊回答。
 - `e2e/specs/inputs.spec.ts` — 除了 prompt 之外交給各 CLI 的東西：工具庫的 MCP 伺服器（其秘密不會出現在命令列上）、透過 HTTP 的 MCP 伺服器（其秘密標頭也一樣；Antigravity 除外，它的轉接器不給它）與附加的圖片（Cline 除外，它不接受圖片）。
 - `e2e/specs/sandbox.spec.ts` — 包住開源 agent 的 Harness Relay 自己的沙箱：唯讀對話中使用者允許的寫入仍被拒絕，這次執行不能連的主機會先詢問、拒絕後就不連；在只能以完全存取執行的地方（Windows；Linux 上的 OpenCode），權限低於完全存取的開源 agent 不會啟動，並說明原因；macOS 上沒有終端機開關的 OpenHands；Antigravity 在 agy 啟動前先詢問專案自己的設定，被拒絕時就不啟動。
-- `e2e/specs/sidebar.spec.ts` — 群組與首席 agent 把新對話分進群組、重新命名與刪除、依 agent 寫的內容搜尋、一開始就給的標題；把對話拖進與拖出群組，以及分支對話的家族一起移動；每個 CLI 的狀態點與可用數量排在一行，箭頭尖端對齊回報問題圖示的右緣。
+- `e2e/specs/sidebar.spec.ts` — 群組與首席 agent 把新對話分進群組、重新命名與刪除（刪除開著的對話後改為顯示首頁）、依 agent 寫的內容搜尋、一開始就給的標題；把對話拖進與拖出群組，以及分支對話的家族一起移動；每個 CLI 的狀態點與可用數量排在一行，箭頭尖端對齊回報問題圖示的右緣。
 - `e2e/specs/models.spec.ts` — 成員的模型與推理強度交給各 CLI（Claude Code 的參數、Codex 的 thread、Grok 的 session 選項，其他則照各自轉接器交給它們的方式；開源 agent 的模型來自假端點），以及設定中的預設模型與推理強度用於保留「預設」的成員。
 - `e2e/specs/tools.spec.ts` — 工具庫的頁面，每個 CLI 各一位成員，分成兩個團隊：MCP 伺服器（秘密遮蔽顯示且不在命令列上）、從資料夾挑選並由各 CLI 讀取的 skill、給所有成員與給某個 CLI 的記憶，以及各自對某個 CLI 或在成員的工具中關掉；給 MCP 伺服器新的值後移除它，以及移除 skill 與記憶筆記。
 - `e2e/specs/share.spec.ts` — 複製回答的 Markdown 與整段對話（Chromium）；透過假的 `gh` 分享成 secret gist，在設定中列出並移除；`gh` 未登入與不存在（Windows 上跳過）。
@@ -674,8 +675,8 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/windows.spec.ts` — 只在 Windows 上：透過 CLI 在那裡安裝後的啟動器（Cursor 自己的 `cursor-agent.cmd`、npm 給 Node 腳本與給程式的 shim）啟動 CLI，在設定中把它們設成執行檔路徑：每個都找得到版本，並且會回答。
 - `e2e/specs/signin.spec.ts` — 登入頁、錯誤的代碼、用代碼登入、一次性的登入連結（用過的連結顯示錯誤）、在已顯示登入頁的分頁打開連結、用代碼登入後又被登出時不再顯示連結的錯誤、在已登入的分頁打開連結時，帶舊金鑰還在路上的請求不會讓它被登出（這些請求的「已登出」回應與登入的回應同時到達頁面；頁面一次也不會登出）、顯示登入頁的分頁跟著同一個瀏覽器的另一個分頁登入、在另一個分頁打開連結時，即使第一個分頁有請求還在路上，所有分頁都保持登入、還在做第一次檢查的分頁跟著別的分頁登入（它的第一個回答那時已過時）、登入沒有回應時 30 秒後放棄並顯示訊息（用頁面的時鐘）、在設定中登出；在介面的開發版 build（React 的 StrictMode）中，連結第一次載入就進入 app（只問一次是否已登入）、錯誤的連結顯示錯誤，在已登入的分頁打開連結，以及在另一個分頁打開連結。
 - `e2e/specs/voice.spec.ts` — 設定中的語音輸入安裝（GET /api/voice 的狀態加上一個安裝，因為真正的安裝要下載）：步驟排成一列、給螢幕閱讀器的步驟狀態（目前的步驟有 `aria-current`）、下載百分比與進度條的填色；安裝失敗時停下的步驟。
-- `e2e/specs/i18n.spec.ts` — 繁體中文的介面與首席 agent 卡片，而 prompt 仍是英文；登入頁與伺服器自己的訊息為中文。
-- `e2e/specs/mobile.spec.ts` — 手機畫面：從選單開啟側邊欄、以觸控送出、標題列的動作收在 ⋯ 之下、頁面不會左右捲動。
+- `e2e/specs/i18n.spec.ts` — 繁體中文的介面（包括首頁的標語）與首席 agent 卡片，而 prompt 仍是英文；登入頁與伺服器自己的訊息為中文。
+- `e2e/specs/mobile.spec.ts` — 手機畫面：從選單開啟側邊欄、以觸控送出、標題列的動作收在 ⋯ 之下、頁面不會左右捲動；首頁的標語變小且每行不換行，點 logo 會收起側邊欄。
 
 假 CLI 檢查的是 Harness Relay 這一側的協定，不是 CLI 本身：CLI 若改變輸出，會由轉接器測試中錄下的訊息，以及執行真正 CLI 的[實機測試](#實機測試)發現。它們也不執行 CLI 自己的沙箱：Claude Code、Codex 與 Grok 的假 CLI 推算它們的沙箱會允許什麼，而開源 agent 的假 CLI 是真的在 Harness Relay 自己的沙箱中執行；真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`e2e/live/sandbox.spec.ts`）檢查。
 

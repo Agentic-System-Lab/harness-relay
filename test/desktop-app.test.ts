@@ -271,8 +271,8 @@ describe("the packaged apps electron-builder leaves (desktop/scripts/check-packa
 
 describe("the app folder's package.json", () => {
   it('names the app, so its folders are called Harness Relay, and runs main.cjs', () => {
-    const m = appManifest({ version: '1.2.3', description: 'd', license: 'Apache-2.0' });
-    expect(m).toMatchObject({ name: 'harness-relay', productName: 'Harness Relay', version: '1.2.3', main: 'main.cjs', license: 'Apache-2.0' });
+    const m = appManifest({ version: '1.2.3', description: 'd', license: 'SUL-1.0' });
+    expect(m).toMatchObject({ name: 'harness-relay', productName: 'Harness Relay', version: '1.2.3', main: 'main.cjs', license: 'SUL-1.0' });
   });
 });
 

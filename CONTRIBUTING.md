@@ -150,4 +150,4 @@ When you change a rule that applies to everyone, change it in AGENTS.md and in t
 
 ## License
 
-Harness Relay is licensed under the [Apache License 2.0](LICENSE). Unless you say otherwise, any contribution you submit is licensed under the same terms, as section 5 of the license states.
+Harness Relay is licensed under the [Sustainable Use License](LICENSE): anyone may use and change it, and share it free of charge for non-commercial purposes, but not sell it (see the [README](README.md#license)). When you submit a contribution, you license it under the same terms, as part of Harness Relay.

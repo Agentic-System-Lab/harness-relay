@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures';
-import { awaitingPlan, openTeamChat, replies, send, settled, startChat } from '../support/app';
+import { awaitingPlan, openNewChat, openTeamChat, replies, send, settled, startChat } from '../support/app';
 
 test.describe('limits the environment sets', () => {
   test.use({ serverEnv: { RELAY_MAX_TEAM_AGENTS: '2', RELAY_MAX_ACCOUNTS: '2', RELAY_TURN_TIMEOUT_MIN: '90' } });
@@ -21,6 +21,7 @@ test.describe('limits the environment sets', () => {
 
   test('a template larger than the limit says why it cannot be used, and the lead agent does not pick one', async ({ page, relay }) => {
     // The built-in templates have three members.
+    await openNewChat(page);
     await page.locator('.preset-card', { hasText: 'Three-way debate' }).locator('.preset-main').click();
     await expect(page.getByRole('dialog')).toContainText('A team may have at most 2 members');
     await page.keyboard.press('Escape');

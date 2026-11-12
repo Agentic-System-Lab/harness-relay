@@ -401,8 +401,11 @@ export async function record(opts: RecordOptions, base: string, log: (...a: unkn
     };
 
     // --- The demo ---------------------------------------------------------------------------------
-    // Signed in by a sign-in link, as a person would be; the app then opens on a new chat.
+    // Signed in by a sign-in link, as a person would be; the app opens on its home page, and the
+    // demo starts on a new chat.
     await page.goto(`${base}/#code=${signInCode(base)}`);
+    await page.waitForSelector('.home-hero');
+    await page.evaluate(() => (window.location.hash = '#/new'));
     await page.waitForSelector('.new-chat-page .preset-card');
     await sleep(500);
     startCapture();

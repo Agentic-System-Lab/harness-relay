@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 28 個 spec 檔、322 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 29 個 spec 檔、325 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -36,6 +36,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 分區 | Spec | 測試數 | 相關文件 |
 | --- | --- | --- | --- |
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
+| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 2 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#3-開始對話新對話與範本) |
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 3 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 3 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
@@ -62,7 +63,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [使用導覽與主題](#使用導覽與主題) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 4 | [使用者說明 → 介面語言與使用導覽](../docs/user-guide.zh-TW.md#介面語言與使用導覽) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
 | [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 2 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
-| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 2 | [用手機連線](../docs/remote-access.zh-TW.md) |
+| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 3 | [用手機連線](../docs/remote-access.zh-TW.md) |
 
 測試以英文介面執行，所以下面括號裡附上測試實際操作的英文標籤。
 
@@ -72,7 +73,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 還沒登入的瀏覽器看到登入頁，輸入代碼後登入 | 顯示登入頁，API 回應 401；錯誤的代碼會顯示代碼錯誤或已過期；新的代碼會打開 app，重新載入後仍保持登入。 |
+| 還沒登入的瀏覽器看到登入頁，輸入代碼後登入 | 顯示登入頁，API 回應 401；錯誤的代碼會顯示代碼錯誤或已過期；新的代碼會打開 app 的首頁，重新載入後仍保持登入。 |
 | 登入連結只能用一次 | `/#code=…` 會登入，代碼也會從網址列消失；另一個頁面開同一個連結時顯示它的錯誤。 |
 | 在已顯示登入頁的分頁打開連結就會登入 | 分頁從登入頁進入 app。 |
 | 用代碼登入後又被登出時，不再顯示連結的錯誤 | 再次登出後，登入頁沒有過時的錯誤。 |
@@ -85,6 +86,15 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 開發版 build：登入連結第一次載入就進入 app，只問一次是否已登入 | StrictMode 第二次執行 effect 時不會再問，也不會弄丟代碼。 |
 | 開發版 build：在已登入的分頁或另一個分頁打開連結 | 同上，在 StrictMode 下。 |
 | 開發版 build：無效的連結在第一次載入時顯示錯誤 | 錯誤顯示在登入頁上。 |
+
+## 首頁
+
+[`home.spec.ts`](specs/home.spec.ts)
+
+| 情境 | 檢查的內容 |
+| --- | --- |
+| app 打開時是首頁，點 logo 與名稱會回到首頁 | 首頁顯示 logo 與下面的標語；從新對話頁和對話中點側邊欄的 logo 與 **Harness Relay**（在首頁時標為目前的頁面），都會回到首頁（`#/`）。 |
+| logo 每次進入首頁播放一次動畫，只動 transform 與 opacity，減少動態效果時不播放 | logo 的圓點、轉圈與標語都有一段播放時間（而不是像沒寫名稱的 `animation` 簡寫被壓縮成 `none` 那樣完全不播），只播一次，只改變 `transform` 與 `opacity`；播完會自己結束，再次打開首頁時會重播；開啟減少動態效果時完全沒有動畫。 |
 
 ## 新對話與首席 agent 的團隊
 
@@ -263,7 +273,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 首席 agent 把新對話分進使用者的群組 | Claude Code | 用**新群組**（New group）建立的群組，收到第一則訊息提到它名稱的新對話。 |
-| 重新命名與刪除對話 | — | 標題列與側邊欄的標題都改變；**刪除對話**（Delete conversation）會把它從側邊欄與伺服器上移除。 |
+| 重新命名與刪除對話 | — | 標題列與側邊欄的標題都改變；**刪除對話**（Delete conversation）會把它從側邊欄與伺服器上移除，並改為顯示首頁。 |
 | 依 agent 寫的內容搜尋對話 | Codex | 搜尋回答中的文字，找到那一個對話，點了就打開。 |
 | 在 UI 開始的對話保留一開始給的標題 | Claude Code | 第一個問題之後標題不變。 |
 | 拖進群組的對話會留在那裡，拖出來則回到「其他」 | — | 伺服器存下群組，重新載入後仍在；拖到「其他」後群組被清除，群組裡又顯示可以把對話拖到這裡。 |
@@ -392,7 +402,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| app、範本與首席 agent 的卡片都是中文，agent 收到英文 prompt | 在 zh-TW 下，新對話頁、內建範本、輸入框的提示與團隊卡片都是中文，而回合的 prompt 是英文（見 [AGENTS.md](../AGENTS.md) 的「Prompts and languages」）。 |
+| app、範本與首席 agent 的卡片都是中文，agent 收到英文 prompt | 在 zh-TW 下，首頁的標語、新對話頁、內建範本、輸入框的提示與團隊卡片都是中文，而回合的 prompt 是英文（見 [AGENTS.md](../AGENTS.md) 的「Prompts and languages」）。 |
 | 登入頁與伺服器自己的訊息跟著語言 | 登入頁與伺服器對錯誤代碼的訊息都是中文。 |
 
 ## 在手機上
@@ -403,6 +413,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 從選單開啟側邊欄，以觸控使用對話 | Grok | 按**開啟側邊欄**（Open sidebar）前側邊欄不在畫面上，前往別處時又會收起；送出按鈕會送出（觸控螢幕上 Enter 是換行）；標題列的動作收在**更多**（More）之下。 |
 | 很長的訊息不會讓頁面左右捲動 | Claude Code | 300 個字元的單字與 Markdown 回答都不會造成左右捲動。 |
+| 首頁的標語變小，每一行都不換行，點 logo 會收起側邊欄 | — | 標語小於 22px，英文兩行、中文一行，頁面不會左右捲動；在首頁點側邊欄的 **Harness Relay** 會收起側邊欄。 |
 
 ## 各 CLI 一覽
 
@@ -477,6 +488,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現。
 - **CLI 自己的沙箱。**Claude Code、Codex 與 Grok 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。
+- **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。
 - **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex、Grok、Cursor 與 Antigravity（它們自己的登入流程），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；AgentsView 中首席 agent 與分類對話的 session 連結，以及設定網址後才送出的對話；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試

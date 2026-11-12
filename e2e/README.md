@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 322 tests in 28 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 325 tests in 29 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -36,6 +36,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Area | Spec | Tests | Related docs |
 | --- | --- | --- | --- |
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
+| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 2 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 3 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 3 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
@@ -62,7 +63,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 4 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
 | [Limits the environment sets](#limits-the-environment-sets) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [Developer guide → Environment variables](../docs/developer-guide.md#environment-variables) |
 | [Languages](#languages) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 2 | [Architecture → Languages](../docs/architecture.md#languages) |
-| [On a phone](#on-a-phone) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 2 | [Use it from your phone](../docs/remote-access.md) |
+| [On a phone](#on-a-phone) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 3 | [Use it from your phone](../docs/remote-access.md) |
 
 ## Signing in
 
@@ -70,7 +71,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Scenario | What is checked |
 | --- | --- |
-| A browser that is not signed in gets the sign-in page, and a code signs it in | The sign-in page shows and the API answers 401; a wrong code says it is wrong or has expired; a new code opens the app, and the session outlives a reload. |
+| A browser that is not signed in gets the sign-in page, and a code signs it in | The sign-in page shows and the API answers 401; a wrong code says it is wrong or has expired; a new code opens the app on its home page, and the session outlives a reload. |
 | A sign-in link signs in once; the code cannot be used again | `/#code=…` signs in and the code leaves the address bar; the same link in another page shows its error. |
 | A link opened in a tab that shows the sign-in page already signs it in | The tab goes from the sign-in page into the app. |
 | A link's error does not come back after signing in with a code and being signed out | Once signed out again, the sign-in page has no stale error. |
@@ -83,6 +84,15 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | In a development build: a sign-in link opens the app on the first load, asking once whether the browser is signed in | StrictMode's second run of the effect does not ask again or lose the code. |
 | In a development build: a link opened in a tab signed in already, or in another tab | As above, with StrictMode. |
 | In a development build: a link that does not work shows its error on the first load | The error is on the sign-in page. |
+
+## The home page
+
+[`home.spec.ts`](specs/home.spec.ts)
+
+| Scenario | What is checked |
+| --- | --- |
+| The app opens on it, and the logo and name lead back to it | The home page shows the logo and its tagline; the sidebar's logo and **Harness Relay** (marked as the current page there) go back to it from the New chat page and from a chat (`#/`). |
+| The logo plays its animation once on each visit, with transform and opacity alone, and not with reduced motion | The logo's dots, its turn and the tagline animate for a while (not for no time, as a nameless `animation` shorthand minified to `none` would), once, changing only `transform` and `opacity`; they end by themselves and play again when the home page opens again; with reduced motion nothing animates. |
 
 ## A new chat and the lead agent's team
 
@@ -261,7 +271,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
 | The lead agent sorts a new conversation into the user's group | Claude Code | A group made with **New group** gets the new chat whose first message names it. |
-| A conversation is renamed and deleted | — | The title changes in the header and the sidebar; **Delete conversation** removes it from the sidebar and the server. |
+| A conversation is renamed and deleted | — | The title changes in the header and the sidebar; **Delete conversation** removes it from the sidebar and the server, and the home page opens in its place. |
 | Search finds a conversation by what an agent wrote in it | Codex | Searching for words of the reply finds that one chat, which opens. |
 | A conversation started in the UI keeps the title given at the start | Claude Code | The title stays after the first question. |
 | A conversation dragged into a group is kept there, and dragged out goes back to Other | — | The server stores the group, which a reload keeps; dragged to Other, its group is cleared and the group shows "Drag conversations here" again. |
@@ -390,7 +400,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Scenario | What is checked |
 | --- | --- |
-| The app, its templates and the lead agent's card are in Chinese; the agents get English prompts | In zh-TW, the New chat page, a built-in template, the composer's hint and the team card are in Chinese, and the turn prompt is in English ([AGENTS.md](../AGENTS.md), "Prompts and languages"). |
+| The app, its templates and the lead agent's card are in Chinese; the agents get English prompts | In zh-TW, the home page's tagline, the New chat page, a built-in template, the composer's hint and the team card are in Chinese, and the turn prompt is in English ([AGENTS.md](../AGENTS.md), "Prompts and languages"). |
 | The sign-in page and the server's own messages follow the language | The sign-in page and the server's error for a wrong code are in Chinese. |
 
 ## On a phone
@@ -401,6 +411,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- | --- |
 | The sidebar opens from the menu, and a chat works by touch | Grok | The sidebar is out of view until **Open sidebar**, and closes again on going somewhere; the send button sends (Enter is a new line on a touch screen); the header's actions are under **More**. |
 | A long message keeps the page from scrolling sideways | Claude Code | A 300-character word and a Markdown reply leave no sideways scroll. |
+| The home page's tagline is smaller, each of its lines on one line, and the logo closes the sidebar | — | The tagline is under its 22px, English on two lines and Chinese on one, without sideways scroll; tapping the sidebar's **Harness Relay** on the home page closes the sidebar. |
 
 ## Each CLI at a glance
 
@@ -475,6 +486,7 @@ The open agents, in Harness Relay's own sandbox below full access:
 - **The CLIs themselves.** The fakes check Harness Relay's side of each protocol; the [live tests](#the-live-tests) try the real ones, by hand. A CLI that changes what it writes is caught by the adapter tests' recorded messages (`test/claude.test.ts`, `test/codex.test.ts`, `test/grok.test.ts`, `test/cursor.test.ts`, `test/antigravity.test.ts` and the open agents', the last ones replaying messages recorded from the real CLIs) and by trying the real CLI in the app.
 - **The CLIs' own sandboxes.** The fakes of Claude Code, Codex and Grok work out from what Harness Relay gave them what their CLI's sandbox would allow; only Harness Relay's own sandbox, around the open agents, is the real one. That the real CLIs below full access write nowhere outside the chat's folders is tried by the live tests (`live/sandbox.spec.ts`).
 - **What Cursor does without asking in a temporary folder.** The real Cursor writes in a temporary folder (`/tmp`, macOS' `/private/var/folders`) without asking; its fake does not, as the tests' folders are all in one and every write outside the workspace would then go through unasked. Nor does a spec try a Cursor team's auto-run allowlist (the fake has one, `E2E_FAKE_CURSOR_TEAM_ALLOW`).
+- **How smoothly the home logo's animation runs.** [The home page](#the-home-page) checks that it animates `transform` and `opacity` alone, once; that Chrome runs it on the compositor, with no layout or paint after the page is drawn, was checked by hand in a Chrome trace.
 - **Features no spec goes through yet**: voice input itself, recording and transcribing (it downloads its engine and models, and needs a microphone; only its install's panel is tried); the files a shared reply links to, and uploading a report's screenshots (both push to a gist with git, which the fake `gh` does not stand in for); API keys in the OS credential store (the tests keep it off, so they go to the database); signing Codex, Grok, Cursor and Antigravity in from Settings (their own flows), and what the real Codex does with a key `codex login --with-api-key` was given; AgentsView's links to the lead agent's and the group sorter's sessions, and conversations sent once an address is set; a ZIP too large even without what git ignores; and the desktop app's window beyond signing in (its own checks, `desktop/scripts/smoke.ts` and `desktop/scripts/check-package.ts`, start a read-only chat of these fake claude, codex and grok and have each answer a question, on the bundled server and in the packaged app: in CI on Linux and Windows, and on every system before a release). Some of them have unit tests in [`test/`](../test/), listed in the developer guide's [Testing](../docs/developer-guide.md#testing).
 
 ## The live tests

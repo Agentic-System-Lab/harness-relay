@@ -7,7 +7,7 @@ export function appManifest(root: { version: string; description?: string; licen
     version: root.version,
     description: root.description ?? 'Harness Relay',
     license: root.license,
-    author: 'Harness Relay contributors',
+    author: 'ChihYu Yeh',
     private: true,
     main: 'main.cjs',
   };

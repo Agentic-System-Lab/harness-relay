@@ -14,10 +14,18 @@ export interface NewChatOptions {
   title?: string;
 }
 
-/** Starts a chat from the New chat page (the lead agent designs each question's team) and waits for it to open. */
-export async function startChat(page: Page, o: NewChatOptions = {}): Promise<string> {
+/** The home page (#/), where the app opens: the logo and its tagline. Shows once the browser is signed in. */
+export const homePage = (page: Page) => page.getByRole('heading', { name: 'From now on, let your agent team work for you' });
+
+/** Opens the New chat page from the sidebar. */
+export async function openNewChat(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'New chat' }).first().click();
   await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+}
+
+/** Starts a chat from the New chat page (the lead agent designs each question's team) and waits for it to open. */
+export async function startChat(page: Page, o: NewChatOptions = {}): Promise<string> {
+  await openNewChat(page);
   if (o.permission) await page.getByRole('button', { name: permissionLabel(o.permission), exact: true }).click();
   const auto = page.getByRole('checkbox', { name: "Use the lead agent's team without asking me" });
   if (o.autoConfirm !== undefined) await auto.setChecked(o.autoConfirm);

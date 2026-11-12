@@ -1,8 +1,9 @@
 import { expect, test } from '../fixtures';
-import { askAndConfirm, awaitingPlan, finishedReply, replies, send, settled, startChat } from '../support/app';
+import { askAndConfirm, awaitingPlan, finishedReply, openNewChat, replies, send, settled, startChat } from '../support/app';
 
 test.describe('templates', () => {
   test('the built-in templates are listed, and one opens to show its members', async ({ page }) => {
+    await openNewChat(page);
     const card = page.locator('.preset-card', { hasText: 'Three-way debate' });
     await expect(card).toBeVisible();
     await expect(card).toContainText('Built-in');

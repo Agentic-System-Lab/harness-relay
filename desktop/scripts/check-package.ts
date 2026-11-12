@@ -8,6 +8,8 @@
  * - the server and the keyring module are in its resources (a universal Mac app holds the module's
  *   native part for both processors), and so are Harness Relay's own sandbox host, Pi's gate extension
  *   and the sandbox runtime (on Linux, with its seccomp helper executable);
+ * - the repository's LICENSE is in its resources and in its archive (beside the package.json whose
+ *   `license` names it), the same file;
  * - the app passes its own check (`--smoke-test`, desktop/src/main.ts): in Electron as it ships, the
  *   server starts in a utility process, a team of claude, codex and grok answers a question (the fake
  *   CLIs of the end-to-end tests, e2e/fake-cli/, built here and given to it with `--smoke-test-clis`),
@@ -23,12 +25,23 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { extractFile } from '@electron/asar';
 import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 import { installFakeClis } from '../../e2e/support/fake-cli';
 import { withoutOwnSettings } from '../src/selftest';
 import { packagedApps } from './packaged';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = resolve(DESKTOP, '..');
+
+/** The file `name` in the asar archive at `archive`, or undefined when it is not there. */
+function fromArchive(archive: string, name: string): Buffer | undefined {
+  try {
+    return extractFile(archive, name);
+  } catch {
+    return undefined;
+  }
+}
 
 /** A fuse's state in the binary, as @electron/fuses reads it (its FuseState: the characters '0' and '1'). */
 const OFF = 48;
@@ -83,6 +96,7 @@ async function main(): Promise<number> {
     console.error(`✗ No packaged app in ${dir}: run electron-builder (npm run desktop:dist) first.`);
     return 1;
   }
+  const license = readFileSync(join(ROOT, 'LICENSE'));
   const clis = await installFakeClis();
   let failed = false;
   const check = (ok: unknown, what: string) => {
@@ -113,6 +127,9 @@ async function main(): Promise<number> {
       const seccomp = join(runtime, 'vendor', 'seccomp', process.arch === 'arm64' ? 'arm64' : 'x64', 'apply-seccomp');
       check(existsSync(seccomp) && (statSync(seccomp).mode & 0o111) !== 0, "the sandbox runtime's seccomp helper is executable");
     }
+    const shipped = join(app.resources, 'LICENSE');
+    check(existsSync(shipped) && readFileSync(shipped).equals(license), "the repository's LICENSE is in its resources");
+    check(fromArchive(join(app.resources, 'app.asar'), 'LICENSE')?.equals(license), "the repository's LICENSE is in its archive, beside its package.json");
     const { code, report } = await selfCheck(app.exe, clis);
     process.stdout.write(report.replace(/^/gm, '  '));
     check(code === 0, `the app checks itself (--smoke-test): exit code ${code}`);

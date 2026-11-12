@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { PROVIDERS, PROVIDER_LABEL, accountUsable, isOpenProvider, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
-import { settingsHref } from '../route';
+import { hashFor, settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
 import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
 import { CalendarPlusIcon, ChevronIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon } from './icons';
@@ -23,6 +23,8 @@ interface Props {
   onChanged: () => void;
   /** Hide the sidebar (wide screens). */
   onCollapse: () => void;
+  /** The logo and name were clicked: on a phone the sidebar closes, also when the home page is open already. */
+  onHome: () => void;
 }
 
 export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
@@ -31,7 +33,7 @@ export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
   return 'ok';
 }
 
-export function Sidebar({ route, conversations, groups, seen, providers, onDeleted, onChanged, onCollapse }: Props) {
+export function Sidebar({ route, conversations, groups, seen, providers, onDeleted, onChanged, onCollapse, onHome }: Props) {
   const t = useT();
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -69,8 +71,11 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
     <aside className="sidebar">
       <div className="sidebar-top">
         <div className="brand">
-          <Logo />
-          Harness Relay
+          {/* The logo and the name lead back to the home page. */}
+          <a className="brand-home" href={hashFor({ page: 'home' })} onClick={onHome} aria-current={route.page === 'home' ? 'page' : undefined}>
+            <Logo />
+            Harness Relay
+          </a>
           <button className="icon-button collapse-sidebar" onClick={onCollapse} aria-label={t.app.collapseSidebar} title={t.app.collapseSidebar}>
             <PanelIcon />
           </button>

@@ -55,6 +55,8 @@ export const en: Messages = {
 
   app: { openSidebar: 'Open sidebar', collapseSidebar: 'Collapse sidebar', expandSidebar: 'Expand sidebar' },
 
+  home: { tagline: 'From now on,\nlet your agent team work for you' },
+
   sidebar: {
     newChat: 'New chat',
     newSchedule: 'New schedule',
@@ -1147,7 +1149,6 @@ export const en: Messages = {
   },
   settings: {
     title: 'Settings & sign-in',
-    intro: "Harness Relay runs each agent through the claude, codex, grok, cursor-agent and agy CLIs on your computer. Sign in to each CLI here, set API keys, executable paths and default models, see the skills, MCP servers and memory each CLI loads by itself, manage the tool library every CLI shares, and choose where the CLIs keep their session records and whether to view each conversation in AgentsView.",
     checking: 'Checking…',
     recheck: 'Check again',
     version: {
