@@ -505,7 +505,8 @@ function context(over: Partial<RunOptions> = {}, model = 'anthropic/claude-haiku
     ...over,
   };
   const run = backendRun(o.backends, o.model, 'OpenCode');
-  return { o, run, home: { root: homeRoot, state: homeRoot, ...opencodeHome(homeRoot) }, env: { ...o.env }, sandboxed: o.permission !== 'full', tmpDir: tmp, state: {} };
+  // On Linux unless a test says otherwise: relay-shell is not used on Windows.
+  return { o, run, home: { root: homeRoot, state: homeRoot, ...opencodeHome(homeRoot) }, env: { ...o.env }, sandboxed: o.permission !== 'full', platform: 'linux', tmpDir: tmp, state: {} };
 }
 
 describe('its home', () => {

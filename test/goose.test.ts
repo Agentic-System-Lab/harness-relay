@@ -147,7 +147,8 @@ function context(over: Partial<RunOptions> = {}, env: NodeJS.ProcessEnv = {}): O
   // The member's own state folder, apart from the shared home (as startOpenProcess gives it).
   const state = join(home, 'private', 'm1');
   const layout = gooseHome(home, state);
-  return { o, run, home: { root: home, state, ...layout }, env: { ...o.env, ...run.env, ...layout.env, ...env }, sandboxed: o.permission !== 'full', tmpDir: join(dir, 'tmp'), state: {} };
+  // On Linux unless a test says otherwise: Goose's shell wrapper is not used on Windows.
+  return { o, run, home: { root: home, state, ...layout }, env: { ...o.env, ...run.env, ...layout.env, ...env }, sandboxed: o.permission !== 'full', platform: 'linux', tmpDir: join(dir, 'tmp'), state: {} };
 }
 
 describe("Goose's home", () => {
