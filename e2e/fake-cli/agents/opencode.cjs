@@ -404,7 +404,8 @@ const DENIED = 'The user has specified a rule which prevents you from using this
 /** A session id as OpenCode makes them: `ses_` and 26 letters and digits. */
 function newSessionId() {
   const abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  return `ses_${[...crypto.randomBytes(26)].map((b) => abc[b % abc.length]).join('')}`;
+  // Each character drawn uniformly (`randomInt`), not a byte's remainder, which favours the first ones.
+  return `ses_${Array.from({ length: 26 }, () => abc[crypto.randomInt(abc.length)]).join('')}`;
 }
 
 /** What it keeps of a session in its data folder (next to the mark `sessions` keeps). */
