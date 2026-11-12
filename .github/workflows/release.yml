@@ -3,9 +3,10 @@ name: Release
 # Run by hand: Actions → Release → Run workflow, from main, with today's version (see
 # docs/developer-guide.md, "Releasing"). It checks the version (scripts/release.ts) and the code,
 # builds the desktop app's installers on macOS, Windows and Linux (x64, and Arm64 on GitHub's Arm
-# runners), and publishes the five, each with a copy for the app's updates (counted apart from new
-# installs), as one GitHub release, tagged with the version. A release candidate is published as a
-# pre-release.
+# runners), and publishes the five as one GitHub release, tagged with the version; first, a copy of
+# each for the app's updates (counted apart from new installs) under the same tag in a repository of
+# their own (UPDATES_REPO in site/assets/downloads.js), with the UPDATES_TOKEN secret. A release
+# candidate is published as a pre-release.
 on:
   workflow_dispatch:
     inputs:
@@ -211,18 +212,46 @@ jobs:
 
       # The same installers again for the app's own updates, which download these instead
       # (UPDATE_INSTALLERS in site/assets/downloads.js): GitHub's download counts then tell new
-      # installs from updates of an installed app.
+      # installs from updates of an installed app. In a folder of their own: they are published in
+      # another repository, so that the release page lists the installers alone.
       - name: Copy the installers for the app's updates
         run: |
+          mkdir updates
           node --input-type=module -e "
           import { copyFileSync, readdirSync } from 'node:fs';
           import { updateCopyName } from './site/assets/downloads.js';
           for (const name of readdirSync('installers')) {
             const copy = updateCopyName(name);
             if (!copy) throw new Error('Not an installer: ' + name);
-            copyFileSync('installers/' + name, 'installers/' + copy);
+            copyFileSync('installers/' + name, 'updates/' + copy);
           }"
-          ls -l installers
+          ls -l updates
+
+      # Before the release, so that no app is offered it before its copies are there (it would download
+      # the installer itself, counted as a new install). Under the same tag in the public repository
+      # UPDATES_REPO (site/assets/downloads.js), with a token that may write there alone (UPDATES_TOKEN,
+      # see docs/developer-guide.md, "Releasing"): this job's own token writes to this repository only.
+      # A run tried again uploads the copies again.
+      - name: Publish the copies for the app's updates
+        env:
+          GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}
+          TAG: ${{ needs.check.outputs.tag }}
+          TITLE: ${{ needs.check.outputs.title }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::The UPDATES_TOKEN secret is not set (docs/developer-guide.md, \"Releasing\")."
+            exit 1
+          fi
+          repo=$(node --input-type=module -e "import { UPDATES_REPO } from './site/assets/downloads.js'; console.log(UPDATES_REPO)")
+          if gh release view "$TAG" --repo "$repo" >/dev/null 2>&1; then
+            gh release upload "$TAG" updates/* --repo "$repo" --clobber
+          else
+            channel=(--latest)
+            if [ "$PRERELEASE" = true ]; then channel=(--prerelease --latest=false); fi
+            notes="Copies of the installers of [$TITLE](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}), which an installed Harness Relay downloads to update itself. To install Harness Relay, download the installers there."
+            gh release create "$TAG" updates/* --repo "$repo" --title "$TITLE" --notes "$notes" "${channel[@]}"
+          fi
 
       - name: Publish
         env:
@@ -242,6 +271,6 @@ jobs:
           fi
           notes="$kind
 
-          **Download:** \`.dmg\` for macOS 13 or later on Apple Silicon (no Intel Macs), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. $offered It downloads the files with \`-update\` before the extension (\`…-mac-arm64-update.dmg\` and so on): the same installers, kept apart so that downloads count new installs and updates separately. To install, download the others. See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
+          **Download:** \`.dmg\` for macOS 13 or later on Apple Silicon (no Intel Macs), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. $offered See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
           # The tag is made on the commit that was checked and built.
           gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes "$notes" --generate-notes "${channel[@]}"

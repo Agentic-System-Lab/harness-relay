@@ -51,6 +51,8 @@ const posixIt = process.platform === 'win32' ? it.skip : it;
 const macIt = process.platform === 'darwin' ? it : it.skip;
 
 const DOWNLOAD = 'https://github.com/Agentic-System-Lab/harness-relay/releases/download';
+/** Where the Release workflow publishes the copies for the app's updates (UPDATES_REPO). */
+const COPIES = 'https://github.com/Agentic-System-Lab/harness-relay-updates/releases/download';
 const sha = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 
 /** A release as GitHub lists it (GET /repos/…/releases). */
@@ -70,7 +72,7 @@ function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; 
       asset('-win-arm64.exe'),
       asset('-linux-x86_64.AppImage'),
       asset('-linux-arm64.AppImage'),
-      // The same installers again for the app's updates (the Release workflow's copies), in releases made since.
+      // The same installers again for the app's updates, in the release itself, as in 2026-11-12-rc.
       ...(o.copies ? ['-mac-arm64-update.dmg', '-win-x64-update.exe', '-win-arm64-update.exe', '-linux-x86_64-update.AppImage', '-linux-arm64-update.AppImage'].map(asset) : []),
       { name: 'notes.txt', browser_download_url: `${DOWNLOAD}/${tag}/notes.txt` },
     ],
@@ -85,39 +87,39 @@ describe("GitHub's newest release", () => {
     expect(r.page).toBe('https://github.com/Agentic-System-Lab/harness-relay/releases/tag/2026-11-12.1');
     expect(r.assets.mac).toEqual({
       name: 'Harness-Relay-2026-11-12.1-mac-arm64.dmg',
-      url: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-arm64.dmg`,
+      url: `${COPIES}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-arm64-update.dmg`,
+      fallback: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-arm64.dmg`,
       size: 1000,
       sha256: sha('Harness-Relay-2026-11-12.1-mac-arm64.dmg'),
     });
     expect(Object.keys(r.assets).sort()).toEqual(['linux', 'linux-arm64', 'mac', 'win', 'win-arm64']);
   });
 
-  it("is fetched from each installer's copy for updates, so that GitHub counts updates apart, named as the installer", () => {
-    const r = parseRelease(githubRelease('2026-11-12.1', { copies: true }))!;
-    expect(r.assets.mac).toEqual({
-      name: 'Harness-Relay-2026-11-12.1-mac-arm64.dmg',
-      url: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-arm64-update.dmg`,
-      size: 1000,
-      sha256: sha('Harness-Relay-2026-11-12.1-mac-arm64-update.dmg'),
-    });
-    expect(r.assets.linux?.name).toBe('Harness-Relay-2026-11-12.1-linux-x86_64.AppImage');
-    expect(r.assets.linux?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-linux-x86_64-update.AppImage`);
-    expect(Object.values(r.assets).every((a) => a.url.includes('-update.'))).toBe(true);
-    // Whatever order GitHub lists them in.
-    const reversed = githubRelease('2026-11-12.1', { copies: true });
-    reversed.assets.reverse();
-    expect(parseRelease(reversed)!.assets.win?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-win-x64-update.exe`);
-    // A release made before there were copies: the installers themselves.
-    expect(parseRelease(githubRelease('2026-11-12.1'))!.assets.win?.url).toBe(`${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-win-x64.exe`);
-    // A copy GitHub gives no checksum for is not taken over an installer it gives one for (the update would go by the release page).
-    const unchecked = githubRelease('2026-11-12.1', { copies: true });
-    for (const a of unchecked.assets) if (a.name.includes('-update.')) delete (a as { digest?: string }).digest;
-    expect(parseRelease(unchecked)!.assets.mac).toEqual({
-      name: 'Harness-Relay-2026-11-12.1-mac-arm64.dmg',
-      url: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1-mac-arm64.dmg`,
-      size: 1000,
-      sha256: sha('Harness-Relay-2026-11-12.1-mac-arm64.dmg'),
-    });
+  it("is fetched from each installer's copy for updates in their own repository, so that GitHub counts updates apart, named as the installer", () => {
+    const r = parseRelease(githubRelease('2026-11-12.1'))!;
+    for (const [system, end] of [
+      ['mac', '-mac-arm64'],
+      ['win', '-win-x64'],
+      ['win-arm64', '-win-arm64'],
+      ['linux', '-linux-x86_64'],
+      ['linux-arm64', '-linux-arm64'],
+    ] as const) {
+      const ext = system.startsWith('mac') ? 'dmg' : system.startsWith('win') ? 'exe' : 'AppImage';
+      expect(r.assets[system], system).toMatchObject({
+        name: `Harness-Relay-2026-11-12.1${end}.${ext}`,
+        url: `${COPIES}/2026-11-12.1/Harness-Relay-2026-11-12.1${end}-update.${ext}`,
+        fallback: `${DOWNLOAD}/2026-11-12.1/Harness-Relay-2026-11-12.1${end}.${ext}`,
+        // The copy is the same file: checked against the installer's checksum.
+        sha256: sha(`Harness-Relay-2026-11-12.1${end}.${ext}`),
+      });
+    }
+    // The copies in the release itself (2026-11-12-rc) are left alone, whatever order GitHub lists them in.
+    const inline = githubRelease('2026-11-12.1', { copies: true });
+    expect(parseRelease(inline)!.assets).toEqual(r.assets);
+    inline.assets.reverse();
+    expect(parseRelease(inline)!.assets).toEqual(r.assets);
+    // No checksum from GitHub: none for the copy either (the update goes by the release page).
+    expect(parseRelease(githubRelease('2026-11-12.1', { digest: false }))!.assets.win?.sha256).toBeUndefined();
   });
 
   it('can be a release candidate, as the app was built for one; never a draft or a tag that is not a version of ours', () => {
@@ -383,6 +385,33 @@ describe('downloading an update', () => {
   const body = Buffer.from('the new installer '.repeat(1000));
   const asset: UpdateAsset = { name: 'H.dmg', url: `${DOWNLOAD}/v/H.dmg`, size: body.length, sha256: sha(body) };
   const serve = (data: Buffer, status = 200): Fetch => async () => new Response(new Uint8Array(data), { status, headers: { 'content-length': String(data.length) } });
+
+  it('fetches the installer itself when its copy for updates is not there, and only then', async () => {
+    const copy: UpdateAsset = { ...asset, url: `${COPIES}/v/H-update.dmg`, fallback: `${DOWNLOAD}/v/H.dmg` };
+    const asked: string[] = [];
+    const answer = (status: (url: string) => number): Fetch => async (url) => {
+      asked.push(url);
+      const s = status(url);
+      return new Response(s === 200 ? new Uint8Array(body) : 'Not Found', { status: s });
+    };
+    const to = join(dir, 'fallback.dmg');
+    await download({ fetch: answer((url) => (url === copy.url ? 404 : 200)), asset: copy, to });
+    expect(asked).toEqual([copy.url, copy.fallback]);
+    expect(readFileSync(to)).toEqual(body);
+    // The copy there: the installer is not asked for.
+    asked.length = 0;
+    await download({ fetch: answer(() => 200), asset: copy, to });
+    expect(asked).toEqual([copy.url]);
+    // Another failure is no reason to go elsewhere, and neither is a 404 with nowhere else to go.
+    asked.length = 0;
+    const busy = (await download({ fetch: answer(() => 503), asset: copy, to }).catch((e: unknown) => e)) as UpdateError;
+    expect(busy.failure).toBe('download');
+    expect(asked).toEqual([copy.url]);
+    const gone = (await download({ fetch: answer(() => 404), asset: copy, to }).catch((e: unknown) => e)) as UpdateError;
+    expect(gone.message).toBe('HTTP 404');
+    const nowhere = (await download({ fetch: answer(() => 404), asset, to }).catch((e: unknown) => e)) as UpdateError;
+    expect(nowhere.failure).toBe('download');
+  });
 
   it('saves the file once its checksum matches, telling how far it got', async () => {
     const to = join(dir, 'ok.dmg');
