@@ -1,5 +1,5 @@
 /* Harness Relay landing page. Tokens follow the app (src/web/styles.css): neutrals, the three
-   agent colours (the five open agents stay neutral), 14px radius, system UI text. Bricolage Grotesque is the display face. */
+   agent colours (the other seven CLIs' only on their dots in the CLI lists), 14px radius, system UI text. Bricolage Grotesque is the display face. */
 
 @font-face {
   font-family: 'Bricolage Grotesque';
@@ -34,6 +34,14 @@
   --claude-deep: #b2502c;
   --codex-deep: #0b7a5f;
   --grok-deep: #6440f0;
+  /* The other seven CLIs' colours, as in the app (the same in both themes): only the dots in their lists. */
+  --cursor: #d6409f;
+  --antigravity: #65a30d;
+  --opencode: #2563eb;
+  --goose: #b45309;
+  --cline: #c026d3;
+  --openhands: #0891b2;
+  --pi: #64748b;
 
   /* The screening band around the demo. */
   --band: #111113;
@@ -321,6 +329,35 @@ p {
   --agent-ink: var(--grok-ink);
   --agent-lit: var(--grok-lit);
   --agent-deep: var(--grok-deep);
+}
+
+/* The other seven: their brand colour only, for the dot in their list. */
+.t-cursor {
+  --agent: var(--cursor);
+}
+
+.t-antigravity {
+  --agent: var(--antigravity);
+}
+
+.t-opencode {
+  --agent: var(--opencode);
+}
+
+.t-goose {
+  --agent: var(--goose);
+}
+
+.t-cline {
+  --agent: var(--cline);
+}
+
+.t-openhands {
+  --agent: var(--openhands);
+}
+
+.t-pi {
+  --agent: var(--pi);
 }
 
 .name-claude {
@@ -1179,8 +1216,8 @@ html:not(.js) .theme-toggle {
   color: #ffffff;
 }
 
-/* Open agents: the five, beside the app's Model backends card. They have no colour on the page:
-   colour means one of the three agents the demo shows. */
+/* Open agents: the five, beside the app's Model backends card. Their colour is only their dot in the list,
+   as in the app: the headline and the mark keep the demo's three. */
 .open-grid {
   display: grid;
   grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
@@ -1194,11 +1231,6 @@ html:not(.js) .theme-toggle {
 
 .open-grid .excerpt-note {
   margin-top: 0;
-}
-
-.driven.open-agents dt::before,
-.driven > .t-plain dt::before {
-  background: var(--muted);
 }
 
 .ui-backends {
