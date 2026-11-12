@@ -516,7 +516,8 @@ p {
 
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  /* The buttons take what they need; the lead, the rest (up to its 38em). */
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 18px clamp(24px, 4vw, 64px);
   align-items: start;
 }
