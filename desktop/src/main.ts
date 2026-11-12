@@ -63,6 +63,8 @@ import {
   checkNow,
   checkLatest,
   download,
+  DOWNLOAD_CONNECTIONS,
+  type Fetch,
   FIRST_CHECK_MS,
   installPlan,
   isNewer,
@@ -81,6 +83,7 @@ import {
   updateSystem,
   whenIdle,
   WINDOWS_INSTALLER_ARGS,
+  type Locate,
   type UpdateRelease,
   type Updating,
 } from './update';
@@ -114,6 +117,45 @@ if (smokeArg !== undefined) {
 function serverDir(): string {
   return app.isPackaged ? join(process.resourcesPath, 'server') : join(app.getAppPath(), '..', 'server');
 }
+
+/**
+ * A fetch for each connection an update downloads on (`download`): each in a session of its own, kept
+ * in memory, as Chromium sends one session's requests to a host down one HTTP/2 connection, which goes
+ * no faster than one would. Nothing of them is cached.
+ */
+function updateConnections(): Fetch[] {
+  return Array.from({ length: DOWNLOAD_CONNECTIONS }, (_, i) => {
+    const s = session.fromPartition(`relay-update-${i}`);
+    return (url, init) => s.fetch(url, { ...init, cache: 'no-store' });
+  });
+}
+
+/**
+ * Where a download's address leads (`Locate`), asked without following it: net.fetch follows a
+ * redirect and keeps nothing of where it went (its Response's url stays empty).
+ */
+const locateRedirect: Locate = (url, signal) =>
+  new Promise((resolve, reject) => {
+    signal.throwIfAborted();
+    const req = net.request({ url, redirect: 'manual', cache: 'no-store' });
+    const onAbort = () => {
+      req.abort();
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    const settle = (answer: { status: number; location?: string }) => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(answer);
+      req.abort();
+    };
+    req.on('redirect', (status, _method, location) => settle({ status, location }));
+    req.on('response', (res) => settle({ status: res.statusCode }));
+    req.on('error', (err) => {
+      signal.removeEventListener('abort', onAbort);
+      reject(err);
+    });
+    req.end();
+  });
 
 /** The server in an Electron utility process, as the supervisor sees it. */
 function forkServer(childEnv: NodeJS.ProcessEnv): ServerChild {
@@ -798,14 +840,15 @@ function run(): void {
       shown = percent;
       setUpdating({ kind: 'downloading', done });
     };
-    const fetch = (url: string, init?: { signal?: AbortSignal }) => net.fetch(url, init);
+    const fetch: Fetch = (url, init) => net.fetch(url, init);
+    const parts = { connections: updateConnections(), locate: locateRedirect };
     let installer: string | undefined;
     try {
       if (plan.kind === 'linux') {
         // Downloaded next to the AppImage, so that putting it in place is a rename.
         const target = appImageTarget(plan.appImage, asset.name, __RELAY_VERSION__);
         const downloaded = appImageDownload(plan.appImage, asset.name);
-        await download({ fetch, asset, to: downloaded, onProgress });
+        await download({ fetch, ...parts, asset, to: downloaded, onProgress });
         setUpdating({ kind: 'installing' });
         if (!(await waitForConversations())) return;
         placeAppImage(downloaded, target, plan.appImage);
@@ -815,7 +858,7 @@ function run(): void {
       }
       mkdirSync(updatesDir, { recursive: true });
       installer = join(updatesDir, asset.name);
-      await download({ fetch, asset, to: installer, onProgress });
+      await download({ fetch, ...parts, asset, to: installer, onProgress });
       setUpdating({ kind: 'installing' });
       if (plan.kind === 'mac') {
         await stageMacApp({ dmg: installer, app: plan.app, bundleId: APP_ID, semver: release.semver, env });

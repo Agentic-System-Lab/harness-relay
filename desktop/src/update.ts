@@ -28,12 +28,10 @@
  * Electron: main.ts passes in what it needs (net.fetch, the paths).
  */
 import { createHash } from 'node:crypto';
-import { accessSync, chmodSync, constants, createWriteStream, existsSync, mkdtempSync, readdirSync, renameSync, rmdirSync, rmSync } from 'node:fs';
+import { accessSync, chmodSync, constants, createReadStream, existsSync, mkdtempSync, readdirSync, renameSync, rmdirSync, rmSync } from 'node:fs';
+import { open, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { compareSemver, parseVersion, semverOf } from '../../scripts/release';
 import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO, updateCopyUrl } from '../../site/assets/downloads.js';
 import { capture } from '../../src/server/process';
@@ -348,15 +346,42 @@ export class UpdateError extends Error {
 
 /**
  * How long a download may go without a byte before it is given up on: a connection that dropped would
- * otherwise hold the update (and every check after it) until the app restarts.
+ * otherwise hold the update (and every check after it) until the app restarts. In parts, also how long
+ * one part may: it is then asked for again, from where it stopped.
  */
 export const DOWNLOAD_STALL_MS = 60_000;
 
 /**
- * Downloads `asset` to `to` (through `to`.part, so a broken download never looks like a whole one),
- * checking it against its SHA-256 on the way: from its `url`, or from its `fallback` when GitHub has
- * nothing there (404). `onProgress` gets the share done, from 0 to 1. Given up on after `stallMs`
- * without a byte (DOWNLOAD_STALL_MS).
+ * How many connections a download uses at most (`download`, given a fetch for each). On some networks
+ * GitHub's CDN sends each connection only so fast (some 200 KB/s from Taiwan, on a network that takes
+ * 30 MB/s elsewhere), and several of them together go several times faster.
+ */
+export const DOWNLOAD_CONNECTIONS = 6;
+
+/**
+ * The least a connection takes on: a file smaller than twice this downloads in one request, and a part
+ * is split for a connection with nothing left to do only while it has twice this to go.
+ */
+export const MIN_PART_BYTES = 1024 * 1024;
+
+/** How many times the parts of one download may fail (each asked for again from where it stopped) before it is given up on. */
+export const PART_FAILURES = 3;
+
+/**
+ * Where a download's address leads, asked without following it: GitHub answers a release file's address
+ * with a redirect to the file on its CDN (signed, for up to an hour), and the parts are fetched from there,
+ * so that GitHub counts the download once, not once a part. No `location` for an answer that is no redirect.
+ */
+export type Locate = (url: string, signal: AbortSignal) => Promise<{ status: number; location?: string }>;
+
+/**
+ * Downloads `asset` to `to` (through `to`.part, so a broken download never looks like a whole one) and
+ * checks it against its SHA-256: from its `url`, or from its `fallback` when GitHub has nothing there
+ * (404). Given `connections` (a fetch for each: main.ts gives each a session of its own, as one session's
+ * requests to a host share one connection) and `locate`, a file of twice `minPart` or more comes in parts,
+ * one a connection (`inParts`); any other, and one from a server that takes no ranges, in one request.
+ * `onProgress` gets the share done, from 0 to 1. Given up on after `stallMs` without a byte
+ * (DOWNLOAD_STALL_MS).
  */
 export async function download(o: {
   fetch: Fetch;
@@ -364,68 +389,328 @@ export async function download(o: {
   to: string;
   onProgress?: (done: number) => void;
   stallMs?: number;
+  connections?: Fetch[];
+  locate?: Locate;
+  minPart?: number;
 }): Promise<void> {
   if (!o.asset.sha256) throw new UpdateError('checksum', 'no checksum');
   const part = `${o.to}.part`;
   rmSync(part, { force: true });
   const stallMs = o.stallMs ?? DOWNLOAD_STALL_MS;
-  const stalled = new AbortController();
-  const signal = stalled.signal;
-  /** Why it failed: given up on for no data, else `err`. */
-  const reason = (err: unknown) => ((stalled.signal.reason as Error | undefined) ?? (err as Error)).message;
-  let body: Readable | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  /** Waits `stallMs` again for the next byte. */
-  const waitForData = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      const why = new Error(`no data for ${Math.round(stallMs / 1000)} s`);
-      stalled.abort(why);
-      body?.destroy(why);
-    }, stallMs);
-  };
-  const hash = createHash('sha256');
-  waitForData();
+  const minPart = o.minPart ?? MIN_PART_BYTES;
+  const size = o.asset.size ?? 0;
+  const stall = new Stall(stallMs);
+  let file: FileHandle | undefined;
+  let failed = false;
+  let failure: unknown;
   try {
-    let res: Response;
-    try {
-      res = await o.fetch(o.asset.url, { signal });
-      // Its copy for updates is not there (a release published before the copies, its repository gone): the installer itself.
-      if (res.status === 404 && o.asset.fallback) {
-        res.body?.cancel().catch(() => undefined);
-        res = await o.fetch(o.asset.fallback, { signal });
+    file = await open(part, 'w');
+    const write = writer(file);
+    if (o.connections && o.connections.length > 1 && o.locate && size >= 2 * minPart) {
+      try {
+        await inParts({ connections: o.connections, locate: o.locate, asset: o.asset, size, minPart, stall, stallMs, write, onProgress: o.onProgress });
+      } catch (err) {
+        if (!(err instanceof NoRanges)) throw err;
+        // A server (or a proxy) that sends the whole file for a part of it: all of it in one request, from there.
+        await file.truncate(0);
+        await whole({ fetch: o.fetch, url: err.address, size, stall, write, onProgress: o.onProgress });
       }
-    } catch (err) {
-      throw new UpdateError('download', reason(err));
+    } else {
+      await whole({ fetch: o.fetch, url: o.asset.url, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress });
     }
-    if (!res.ok || !res.body) throw new UpdateError('download', `HTTP ${res.status}`);
-    const total = Number(res.headers.get('content-length')) || o.asset.size || 0;
-    let received = 0;
-    const count = new Transform({
-      transform(chunk: Buffer, _encoding, next) {
-        waitForData();
-        hash.update(chunk);
-        received += chunk.length;
-        if (total) o.onProgress?.(Math.min(1, received / total));
-        next(null, chunk);
-      },
-    });
-    body = Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>);
-    try {
-      await pipeline(body, count, createWriteStream(part));
-    } catch (err) {
-      rmSync(part, { force: true });
-      throw new UpdateError('download', reason(err));
-    }
+  } catch (err) {
+    failed = true;
+    failure = err;
   } finally {
-    clearTimeout(timer);
+    stall.stop();
+    await file?.close().catch(() => undefined);
   }
-  const got = hash.digest('hex');
+  if (failed) {
+    rmSync(part, { force: true });
+    throw failure instanceof UpdateError ? failure : new UpdateError('download', stall.why(failure));
+  }
+  const got = await sha256Of(part);
   if (got !== o.asset.sha256) {
     rmSync(part, { force: true });
     throw new UpdateError('checksum', `expected ${o.asset.sha256}, got ${got}`);
   }
   renameSync(part, o.to);
+}
+
+/** Writes `length` bytes of `chunk` at `at` in the file being downloaded. */
+type Write = (chunk: Uint8Array, length: number, at: number) => Promise<void>;
+
+/** Writes into `file` at the places given, one write at a time. */
+function writer(file: FileHandle): Write {
+  let last: Promise<unknown> = Promise.resolve();
+  return (chunk, length, at) => {
+    const done = last.then(() => file.write(chunk, 0, length, at));
+    last = done.catch(() => undefined);
+    return done.then(() => undefined);
+  };
+}
+
+/** A download's watch for bytes: `signal` aborts after `ms` without `touch()`, saying so. */
+class Stall {
+  private readonly controller = new AbortController();
+  readonly signal = this.controller.signal;
+  private readonly ms: number;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(ms: number) {
+    this.ms = ms;
+    this.touch();
+  }
+
+  touch(): void {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.controller.abort(new Error(`no data for ${Math.round(this.ms / 1000)} s`)), this.ms);
+  }
+
+  stop(): void {
+    clearTimeout(this.timer);
+  }
+
+  /** Why a download failed: given up on for no data, else `err`. */
+  why(err: unknown): string {
+    const cause = this.signal.aborted ? this.signal.reason : err;
+    return cause instanceof Error ? cause.message : String(cause);
+  }
+}
+
+/**
+ * Gives `body`'s chunks to `take`, one at a time, until it ends or `take` has had enough (false: the rest
+ * is cancelled). Stops with `signal`'s reason once it aborts, also with a body that would go on.
+ */
+async function readBody(body: ReadableStream<Uint8Array>, signal: AbortSignal, take: (chunk: Uint8Array) => Promise<boolean>): Promise<void> {
+  const reader = body.getReader();
+  const cancel = () => void reader.cancel(signal.reason).catch(() => undefined);
+  signal.addEventListener('abort', cancel, { once: true });
+  try {
+    for (;;) {
+      signal.throwIfAborted();
+      const { done, value } = await reader.read();
+      signal.throwIfAborted();
+      if (done) return;
+      if (!(await take(value))) {
+        await reader.cancel().catch(() => undefined);
+        return;
+      }
+    }
+  } finally {
+    signal.removeEventListener('abort', cancel);
+    if (signal.aborted) cancel();
+  }
+}
+
+/** The SHA-256 of a file, in lowercase hex. */
+async function sha256Of(file: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
+  return hash.digest('hex');
+}
+
+/** The whole file in one request: from `url`, or from `fallback` when there is nothing there (404). */
+async function whole(o: { fetch: Fetch; url: string; fallback?: string; size: number; stall: Stall; write: Write; onProgress?: (done: number) => void }): Promise<void> {
+  const signal = o.stall.signal;
+  let res = await o.fetch(o.url, { signal });
+  // Its copy for updates is not there (a release published before the copies, its repository gone): the installer itself.
+  if (res.status === 404 && o.fallback) {
+    res.body?.cancel().catch(() => undefined);
+    res = await o.fetch(o.fallback, { signal });
+  }
+  if (!res.ok || !res.body) throw new UpdateError('download', `HTTP ${res.status}`);
+  const total = Number(res.headers.get('content-length')) || o.size;
+  let received = 0;
+  await readBody(res.body, signal, async (chunk) => {
+    o.stall.touch();
+    const at = received;
+    received += chunk.length;
+    await o.write(chunk, chunk.length, at);
+    if (total) o.onProgress?.(Math.min(1, received / total));
+    return true;
+  });
+}
+
+/** A server sent the whole file for a part of it (it takes no ranges): the file is then downloaded in one request, from `address`. */
+class NoRanges extends Error {
+  readonly address: string;
+  constructor(address: string) {
+    super('ranges not taken');
+    this.address = address;
+  }
+}
+
+/** The CDN refused a part (403): the signed `address` it was asked at has expired. */
+class Expired extends Error {
+  readonly address: string;
+  constructor(address: string) {
+    super('HTTP 403');
+    this.address = address;
+  }
+}
+
+/** A part of a download in parts: the bytes from `pos` up to `end` (not included) still to come. */
+interface Part {
+  pos: number;
+  /** Moved back when another connection takes the second half of what is left. */
+  end: number;
+}
+
+/**
+ * Downloads the file in parts, one a connection, from where its address leads (`locate`: GitHub is asked
+ * once, the copy's address or the fallback's when the copy is not there, and the parts are fetched from
+ * its CDN). A connection done with its part takes the second half of what the part with the most left
+ * has still to go (while that is at least twice `minPart`), so that a slow connection holds the end up
+ * less. A part that fails, or goes `stallMs` without a byte, is asked for again from where it stopped,
+ * up to PART_FAILURES times in all; when its signed address has expired (403), at a new one.
+ */
+async function inParts(o: {
+  connections: Fetch[];
+  locate: Locate;
+  asset: UpdateAsset;
+  size: number;
+  minPart: number;
+  stall: Stall;
+  stallMs: number;
+  write: Write;
+  onProgress?: (done: number) => void;
+}): Promise<void> {
+  const { size, stall } = o;
+  let source = o.asset.url;
+  let found = await o.locate(source, stall.signal);
+  // Its copy for updates is not there (a release published before the copies, its repository gone): the installer itself.
+  if (found.status === 404 && o.asset.fallback) {
+    source = o.asset.fallback;
+    found = await o.locate(source, stall.signal);
+  }
+  const addressOf = (f: { status: number; location?: string }): string => {
+    if (f.location !== undefined) {
+      const url = URL.canParse(f.location, source) ? new URL(f.location, source) : undefined;
+      if (url?.protocol !== 'https:') throw new UpdateError('download', `redirected to ${f.location}`);
+      return url.href;
+    }
+    if (f.status >= 200 && f.status < 300) return source;
+    throw new UpdateError('download', `HTTP ${f.status}`);
+  };
+  let address = addressOf(found);
+  // Stops every connection: given up on for no data, or when a part fails for good.
+  const failed = new AbortController();
+  const stop = AbortSignal.any([stall.signal, failed.signal]);
+  let fatal: { err: unknown } | undefined;
+  const fail = (err: unknown) => {
+    fatal ??= { err };
+    failed.abort(err);
+  };
+
+  let relocating: Promise<void> | undefined;
+  /** Asks where the file is again, for a new signed address (once at a time). */
+  const relocate = () => {
+    relocating ??= o.locate(source, stop).then(
+      (f) => {
+        address = addressOf(f);
+        relocating = undefined;
+      },
+      (err: unknown) => {
+        relocating = undefined;
+        throw err;
+      },
+    );
+    return relocating;
+  };
+
+  const count = Math.min(o.connections.length, Math.floor(size / o.minPart));
+  const waiting: Part[] = Array.from({ length: count }, (_, i) => ({ pos: Math.floor((size * i) / count), end: Math.floor((size * (i + 1)) / count) }));
+  const active = new Set<Part>();
+  let received = 0;
+  let failures = 0;
+
+  /** The next part for a connection: one waiting, else the second half of the one with the most left. */
+  const next = (): Part | undefined => {
+    const part = waiting.shift();
+    if (part) return part;
+    let widest: Part | undefined;
+    for (const p of active) if (!widest || p.end - p.pos > widest.end - widest.pos) widest = p;
+    if (!widest || widest.end - widest.pos < 2 * o.minPart) return undefined;
+    const half = { pos: widest.pos + Math.floor((widest.end - widest.pos) / 2), end: widest.end };
+    widest.end = half.pos;
+    return half;
+  };
+
+  const fetchPart = async (fetch: Fetch, part: Part): Promise<void> => {
+    const from = part.pos;
+    const at = address;
+    const watch = new Stall(o.stallMs);
+    const signal = AbortSignal.any([stop, watch.signal]);
+    try {
+      const res = await fetch(at, { headers: { Range: `bytes=${from}-${part.end - 1}` }, signal });
+      if (res.status !== 206 || !res.body) {
+        res.body?.cancel().catch(() => undefined);
+        if (res.status === 200) throw new NoRanges(at);
+        if (res.status === 403) throw new Expired(at);
+        throw new UpdateError('download', `HTTP ${res.status}`);
+      }
+      const range = /^bytes (\d+)-\d+\/(\d+|\*)$/.exec(res.headers.get('content-range') ?? '');
+      if (!range || Number(range[1]) !== from || (range[2] !== '*' && Number(range[2]) !== size)) {
+        res.body.cancel().catch(() => undefined);
+        throw new UpdateError('download', `sent ${res.headers.get('content-range')} for bytes ${from}-`);
+      }
+      await readBody(res.body, signal, async (chunk) => {
+        watch.touch();
+        stall.touch();
+        // Up to the part's end, which another connection may have moved back since.
+        const length = Math.min(chunk.length, part.end - part.pos);
+        if (length > 0) {
+          const pos = part.pos;
+          part.pos += length;
+          received += length;
+          try {
+            await o.write(chunk, length, pos);
+          } catch (err) {
+            fail(err);
+            throw err;
+          }
+          o.onProgress?.(Math.min(1, received / size));
+        }
+        return part.pos < part.end;
+      });
+      if (part.pos < part.end) throw new UpdateError('download', `connection closed at byte ${part.pos}`);
+    } catch (err) {
+      throw watch.signal.aborted && !stop.aborted ? watch.signal.reason : err;
+    } finally {
+      watch.stop();
+    }
+  };
+
+  const connection = async (fetch: Fetch): Promise<void> => {
+    for (let part = next(); part && !stop.aborted; part = next()) {
+      active.add(part);
+      try {
+        await fetchPart(fetch, part);
+      } catch (err) {
+        if (stop.aborted) return;
+        if (err instanceof NoRanges) return fail(err);
+        if (err instanceof Expired) {
+          // Asked again at a new address, found already when another part found this one expired (and
+          // counted as one failure, however many parts find it).
+          if (err.address === address) {
+            if (!relocating && ++failures > PART_FAILURES) return fail(new UpdateError('download', err.message));
+            await relocate();
+          }
+        } else if (++failures > PART_FAILURES) {
+          return fail(err);
+        }
+        waiting.unshift(part);
+      } finally {
+        active.delete(part);
+      }
+    }
+  };
+
+  await Promise.all(o.connections.slice(0, count).map((fetch) => connection(fetch).catch(fail)));
+  if (fatal) throw fatal.err;
+  stall.signal.throwIfAborted();
+  if (received !== size) throw new UpdateError('download', `got ${received} of ${size} bytes`);
 }
 
 // --- Waiting for the conversations ----------------------------------------------------------
