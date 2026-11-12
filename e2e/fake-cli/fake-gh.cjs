@@ -2,8 +2,8 @@
 /*
  * A stand-in for the GitHub CLI (`gh`), which Harness Relay shares conversations with
  * (`src/server/share.ts`), for the end-to-end tests. `e2e/support/fake-cli.ts` installs it as `gh`
- * next to the fake CLIs (a script on macOS and Linux, a Node single executable on Windows), where the
- * server finds it first on its PATH. It never reaches GitHub.
+ * next to the fake CLIs (a script on macOS and Linux; on Windows their single executable, named
+ * `gh`), where the server finds it first on its PATH. It never reaches GitHub.
  *
  * It answers what share.ts asks of gh for a page shared without files:
  * - `gist create --filename <name> --desc <text> -`: keeps the page it reads on stdin as a gist of its

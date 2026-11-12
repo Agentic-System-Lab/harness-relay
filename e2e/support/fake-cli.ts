@@ -15,7 +15,9 @@
  *
  * The fake GitHub CLI (`e2e/fake-cli/fake-gh.cjs`), which the server shares conversations through,
  * goes with them as `gh` on every system: a script on macOS and Linux, and on Windows (or with
- * `E2E_FAKE_SEA=1`) a single executable of its own, as the server starts it without a shell too.
+ * `E2E_FAKE_SEA=1`) the same executable under a fourth name, as the server starts it without a shell
+ * too. The executable runs the fake GitHub CLI when it runs as `gh`, the fake CLIs otherwise: one
+ * build instead of two, each of which takes over ten seconds on Windows.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -65,12 +67,38 @@ export async function installFakeClis(): Promise<string> {
     if (Date.now() - statSync(path).mtimeMs > IN_USE_MS) rmSync(path, { recursive: true, force: true });
   }
   mkdirSync(dir, { recursive: true });
-  if (sea) await buildExecutables(script, dir, bins);
-  else for (const bin of bins) writeScript(bin, script);
+  if (sea) {
+    await buildExecutables(seaEntry(script, ghScript), dir, [...bins, gh], [
+      [bins[0]!, /Claude Code/],
+      [gh, /^gh version/],
+    ]);
+  } else {
+    for (const bin of bins) writeScript(bin, script);
+    writeScript(gh, ghScript);
+  }
   if (dialog) writeScript(dialog, dialogScript);
-  if (sea) await buildExecutables(ghScript, dir, [gh], { name: 'fake-gh', says: /^gh version/ });
-  else writeScript(gh, ghScript);
   return dir;
+}
+
+/**
+ * The single executable's script: the fake GitHub CLI when it runs as `gh`, else the fake CLIs (which
+ * tell claude, codex and grok apart by the same name). Each runs in a function of its own, as it
+ * would in a module of its own.
+ */
+function seaEntry(cliScript: string, ghScript: string): string {
+  return [
+    "'use strict';",
+    "if (require('node:path').basename(process.execPath).replace(/\\.exe$/i, '').toLowerCase() === 'gh') {",
+    '(function () {',
+    ghScript,
+    '})();',
+    '} else {',
+    '(function () {',
+    cliScript,
+    '})();',
+    '}',
+    '',
+  ].join('\n');
 }
 
 /** `script` as a program of its own at `bin`, run by this Node (macOS and Linux). */
@@ -83,18 +111,13 @@ function writeScript(bin: string, script: string): void {
 }
 
 /**
- * `script` as a Node single executable at each of `bins`. `name`: what its build files are called in
- * `dir`; `says`: what the first one's `--version` prints when it runs.
+ * `script` as a Node single executable at each of `bins`; `checks`: what `--version` prints, run as
+ * each of the names given, when it runs.
  */
-async function buildExecutables(
-  script: string,
-  dir: string,
-  bins: string[],
-  { name = 'fake-cli', says = /Claude Code/ }: { name?: string; says?: RegExp } = {},
-): Promise<void> {
-  const main = join(dir, `${name}.cjs`);
-  const blob = join(dir, `${name}.blob`);
-  const config = join(dir, `${name}.sea-config.json`);
+async function buildExecutables(script: string, dir: string, bins: string[], checks: [bin: string, says: RegExp][]): Promise<void> {
+  const main = join(dir, 'fake-cli.cjs');
+  const blob = join(dir, 'fake-cli.blob');
+  const config = join(dir, 'fake-cli.sea-config.json');
   writeFileSync(main, script);
   writeFileSync(config, JSON.stringify({ main, output: blob, disableExperimentalSEAWarning: true, useCodeCache: false, useSnapshot: false }));
   run(process.execPath, ['--experimental-sea-config', config]);
@@ -121,9 +144,11 @@ async function buildExecutables(
       copyFileSync(first, bin);
     }
   }
-  const check = spawnSync(first, ['--version'], { encoding: 'utf8', windowsHide: true });
-  if (check.status !== 0 || !says.test(check.stdout)) {
-    throw new Error(`The fake ${basename(first)} executable does not run: ${check.status} ${check.stdout} ${check.stderr} ${check.error ?? ''}`);
+  for (const [bin, says] of checks) {
+    const check = spawnSync(bin, ['--version'], { encoding: 'utf8', windowsHide: true });
+    if (check.status !== 0 || !says.test(check.stdout)) {
+      throw new Error(`The fake ${basename(bin)} executable does not run: ${check.status} ${check.stdout} ${check.stderr} ${check.error ?? ''}`);
+    }
   }
 }
 
