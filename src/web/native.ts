@@ -22,6 +22,7 @@ const TABS: Record<Provider, NativeTab[]> = {
   codex: ['skills', 'mcp', 'hooks', 'plugins', 'instructions', 'memory'],
   grok: ['skills', 'mcp', 'hooks', 'agents', 'plugins', 'instructions', 'memory'],
   cursor: ['skills', 'mcp', 'hooks', 'agents', 'instructions'],
+  antigravity: ['skills', 'mcp', 'hooks', 'agents', 'plugins', 'instructions'],
   // The open agents: none until each adapter lists what its CLI reports (one line each, kept apart).
   opencode: ['skills', 'agents', 'instructions'],
 

@@ -12,11 +12,12 @@ import type { ChatMessage, Conversation, Provider } from '../shared/types';
 
 /**
  * How AgentsView names a CLI's session: Claude Code's by its own id, Codex's and Grok's with a prefix.
- * Cursor keeps its ACP sessions in a database of its own (`acp-sessions/<id>/store.db`), which
- * AgentsView does not read, so they are not linked (undefined); its replies are in the thread.
+ * Cursor keeps its ACP sessions in a database of its own (`acp-sessions/<id>/store.db`), and
+ * Antigravity in one of its own too (`antigravity-cli/conversations/<id>.db`), neither of which
+ * AgentsView reads, so they are not linked (undefined); their replies are in the thread.
  */
 export function agentsViewSessionId(provider: Provider, sessionId: string): string | undefined {
-  if (provider === 'cursor') return undefined;
+  if (provider === 'cursor' || provider === 'antigravity') return undefined;
   return provider === 'claude' ? sessionId : `${provider}:${sessionId}`;
 }
 

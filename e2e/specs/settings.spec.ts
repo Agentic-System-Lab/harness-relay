@@ -37,15 +37,17 @@ test.describe('settings', () => {
       await expect(card).toContainText('Signed in');
     }
     await expect(page.locator('#settings-claude')).toContainText('e2e@example.com');
-    // The sidebar's health dots say the same. Cursor, which no fake stands in for, is not installed
-    // here; the open agents get a dot only once installed.
+    // The sidebar's health dots say the same. Cursor and Antigravity, which no fake stands in for, are
+    // not installed here; the open agents get a dot only once installed.
     for (const cli of CLIS) await expect(page.locator(`.provider-health .health.ok[href="#/settings/${cli.provider}"]`)).toBeVisible();
     await expect(page.locator('.provider-health .health.off[href="#/settings/cursor"]')).toHaveAttribute('title', 'Cursor · Not installed');
     await expect(page.locator('#settings-cursor .provider-head .pill')).toHaveText('Not installed');
-    await expect(page.locator('.provider-health .health')).toHaveCount(4);
+    await expect(page.locator('.provider-health .health.off[href="#/settings/antigravity"]')).toHaveAttribute('title', 'Antigravity · Not installed');
+    await expect(page.locator('#settings-antigravity .provider-head .pill')).toHaveText('Not installed');
+    await expect(page.locator('.provider-health .health')).toHaveCount(5);
     // Dots alone on one line, with how many are ready; their names beside them when asked for, kept after a reload.
     const toggle = page.locator('.provider-health .health-toggle');
-    await expect(toggle).toHaveText('3/4 ready');
+    await expect(toggle).toHaveText('3/5 ready');
     const nameWidth = async () => (await page.locator('.provider-health a[href="#/settings/grok"] .health-name').boundingBox())?.width ?? 0;
     expect(await nameWidth()).toBeLessThanOrEqual(1);
     await toggle.click();

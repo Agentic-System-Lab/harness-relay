@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 171 tests in 26 spec files, in each browser that runs them (Chromium by default).
+There are 172 tests in 26 spec files, in each browser that runs them (Chromium by default).
 
 ## Running them
 
@@ -48,7 +48,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 7 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [Changing a chat's history](#changing-a-chats-history) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [User guide → Copying, editing and retrying](../docs/user-guide.md#copying-editing-and-retrying), [Branching a conversation](../docs/user-guide.md#branching-a-conversation) |
 | [Copying and sharing](#copying-and-sharing) | [`share.spec.ts`](specs/share.spec.ts) | 5 | [User guide → Sharing a conversation](../docs/user-guide.md#sharing-a-conversation), [Architecture → Sharing a conversation](../docs/architecture.md#sharing-a-conversation) |
-| [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 6 | [User guide → Groups](../docs/user-guide.md#groups), [Search](../docs/user-guide.md#search) |
+| [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 7 | [User guide → Groups](../docs/user-guide.md#groups), [Search](../docs/user-guide.md#search) |
 | [Schedules](#schedules) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [User guide → Schedules](../docs/user-guide.md#schedules), [Architecture → Schedules](../docs/architecture.md#schedules) |
 | [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 5 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent) |
 | [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 18 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
@@ -250,6 +250,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | A conversation started in the UI keeps the title given at the start | Claude Code | The title stays after the first question. |
 | A conversation dragged into a group is kept there, and dragged out goes back to Other | — | The server stores the group, which a reload keeps; dragged to Other, its group is cleared and the group shows "Drag conversations here" again. |
 | A branched conversation's family moves between groups as one | Codex | Dragging the branch moves its original with it, the branch still under it; dragging the original back brings both. |
+| Every CLI's dot and the count fit on one line | — | With all ten CLIs installed and ready (the server's answer changed on the way, "10/10 ready"), the line overflows nowhere, its first dot is under Settings' ⚙, and the chevron's tip ends at the report icon's right edge, also turned down with the names shown. |
 
 ## Schedules
 
@@ -265,7 +266,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| Each CLI is found, with its version, and signed in | each, in one test | Each card shows the CLI's version and **Signed in** (Claude Code with its account); the sidebar's dots are OK for the three and show Cursor, which no fake stands in for, as not installed ("3/4 ready"); their names show when asked for, and stay after a reload. |
+| Each CLI is found, with its version, and signed in | each, in one test | Each card shows the CLI's version and **Signed in** (Claude Code with its account); the sidebar's dots are OK for the three and show Cursor and Antigravity, which no fake stands in for, as not installed ("3/5 ready"); their names show when asked for, and stay after a reload. |
 | A CLI's executable path can be set, and a wrong one shows it as missing | Grok | A path that does not exist shows **Not installed**; an empty one finds it again. |
 | The language can be switched, and the choice is kept | — | 繁體中文 changes the page, a reload keeps it, and English changes it back. |
 | Another CLI can be the lead agent | Codex as lead agent | The New chat page names it, the team card says "Lead agent: Codex", and the lead agent's prompt went to Codex. |
@@ -415,7 +416,7 @@ The scenarios tried with each of the three CLIs (most of them as a test per CLI)
 
 ## What they do not cover
 
-- **The CLIs themselves.** The fakes check Harness Relay's side of each protocol; the [live tests](#the-live-tests) try the real ones, by hand. A CLI that changes what it writes is caught by the adapter tests' recorded messages (`test/claude.test.ts`, `test/codex.test.ts`, `test/grok.test.ts`) and by trying the real CLI in the app.
+- **The CLIs themselves.** The fakes check Harness Relay's side of each protocol; the [live tests](#the-live-tests) try the real ones, by hand. A CLI that changes what it writes is caught by the adapter tests' recorded messages (`test/claude.test.ts`, `test/codex.test.ts`, `test/grok.test.ts`) and by trying the real CLI in the app. Cursor, Antigravity and the open agents have no fake: the specs see them only as not installed, and their adapters are tried by their own tests (`test/cursor.test.ts`, `test/antigravity.test.ts` and the open agents', the last two replaying messages recorded from the real CLIs).
 - **Features no spec goes through yet**: voice input itself, recording and transcribing (it downloads its engine and models, and needs a microphone; only its install's panel is tried); the files a shared reply links to, and uploading a report's screenshots (both push to a gist with git, which the fake `gh` does not stand in for); API keys in the OS credential store (the tests keep it off, so they go to the database); signing Codex and Grok in from Settings (their device flows), and what the real Codex does with a key `codex login --with-api-key` was given; AgentsView's links to the lead agent's and the group sorter's sessions, and conversations sent once an address is set; a ZIP too large even without what git ignores; and the desktop app's window beyond signing in (its own checks, `desktop/scripts/smoke.ts` and `desktop/scripts/check-package.ts`, start a read-only chat of these fake claude, codex and grok and have each answer a question, on the bundled server and in the packaged app: in CI on Linux and Windows, and on every system before a release). Some of them have unit tests in [`test/`](../test/), listed in the developer guide's [Testing](../docs/developer-guide.md#testing).
 
 ## The live tests

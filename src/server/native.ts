@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
   PROVIDER_LABEL,
   nativeItemCount,
@@ -42,6 +42,7 @@ import {
   codexOverrideArgs,
   codexUserMcpConfig,
 } from './agents/codex';
+import { antigravityGeminiDir, antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
 import { grokNativeEnv } from './agents/grok';
 import { openAgents } from './agents/index';
 import { openHomeEnv } from './agents/open';
@@ -1271,6 +1272,174 @@ async function probeCursor(
   };
 }
 
+// --- Antigravity ----------------------------------------------------------------------------------
+
+/** Antigravity's customization folders in a project (`.agents`, or `.agent`, `_agents`, `_agent`). */
+const AGY_ROOTS = ['.agents', '.agent', '_agents', '_agent'];
+
+/** The folders from `cwd` up to the repository's root (or `cwd` alone outside one), nearest first: where agy looks for a project's customizations. */
+function upToRepo(cwd: string): string[] {
+  const root = gitRoot(cwd);
+  const dirs = upFrom(cwd);
+  return root ? dirs.slice(0, dirs.indexOf(root) + 1) : [resolve(cwd)];
+}
+
+/**
+ * Antigravity's MCP servers, by name only (their configs can hold tokens): the user's
+ * (`<.gemini>/config/mcp_config.json`) and the project's (`mcp_config.json` in its customization
+ * folders, from the working directory up to the repository's root). A name found earlier wins, as agy
+ * keeps the first server of a name.
+ */
+export function antigravityMcpServers(cwd: string, geminiDir: string): NativeMcpServer[] {
+  const servers: NativeMcpServer[] = [];
+  const add = (file: string, source: string) => {
+    const list = jsonFile(file)?.mcpServers;
+    if (!list || typeof list !== 'object') return;
+    for (const [name, config] of Object.entries(list as Json)) {
+      if (servers.some((x) => x.name === name)) continue;
+      const transport = typeof config?.url === 'string' || typeof config?.serverUrl === 'string' ? 'http' : 'stdio';
+      servers.push({ name, transport, source, ...(config?.disabled === true ? { enabled: false, status: 'disabled' } : {}) });
+    }
+  };
+  for (const dir of upToRepo(cwd)) for (const r of AGY_ROOTS) add(join(dir, r, 'mcp_config.json'), 'project');
+  add(join(geminiDir, 'config', 'mcp_config.json'), 'user');
+  return servers;
+}
+
+/** The instruction files Antigravity reads for `cwd`: `GEMINI.md`, `AGENTS.md` and `.agents/rules/*.md` from the working directory up to the repository's root. */
+export function antigravityMemoryFiles(cwd: string): NativeMemoryFile[] {
+  const files: string[] = [];
+  for (const dir of upToRepo(cwd).reverse()) {
+    files.push(join(dir, 'GEMINI.md'), join(dir, 'AGENTS.md'));
+    for (const r of AGY_ROOTS) files.push(...markdownIn(join(dir, r, 'rules')).sort());
+  }
+  return [...new Set(files)].filter(isFile).map((path) => ({ path, kind: 'instructions' as const }));
+}
+
+/** Where one of Antigravity's skills comes from, by its path. */
+function antigravitySource(path: string | undefined, cwd: string, geminiDir: string, builtin: boolean): string | undefined {
+  if (builtin) return 'built-in';
+  if (!path) return undefined;
+  const inside = (dir: string) => {
+    const rel = relative(resolve(dir), resolve(path));
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  };
+  if (/[\\/]plugins[\\/]/.test(path)) return 'plugin';
+  if (upToRepo(cwd).some(inside)) return 'project';
+  if (inside(geminiDir)) return 'user';
+  return undefined;
+}
+
+/** The lists Antigravity's print-mode commands give (`/skills`, `/hooks`, `/agents`) and `agy plugin list --json`. */
+export interface AntigravityAnswers {
+  skills?: Json;
+  hooks?: Json;
+  agents?: Json;
+  plugins?: unknown;
+}
+
+/** What Antigravity loads by itself, from its answers (`AntigravityAnswers`). Hooks keep their event, matcher and file, never their commands. */
+export function parseAntigravityProbe(a: AntigravityAnswers, cwd: string, geminiDir: string): Pick<NativeLists, 'skills' | 'hooks' | 'agents' | 'plugins'> {
+  const list = (v: unknown): Json[] => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
+  const skills: NativeSkill[] = list(a.skills?.skills).map((s) => {
+    const path = typeof s.path === 'string' ? s.path : undefined;
+    const source = antigravitySource(path, cwd, geminiDir, s.builtin === true);
+    return { name: String(s.name ?? ''), description: String(s.description ?? ''), ...(source ? { source } : {}), ...(path ? { path } : {}) };
+  });
+  const hooks: NativeHook[] | undefined = a.hooks
+    ? list(a.hooks.hooks).flatMap((h) =>
+        list(h.actions).map((act) => ({
+          event: String(act.event ?? ''),
+          ...(typeof act.matcher === 'string' && act.matcher ? { matcher: act.matcher } : {}),
+          ...(typeof h.name === 'string' && h.name ? { source: h.name } : {}),
+          ...(typeof h.source === 'string' && h.source ? { file: h.source } : {}),
+          ...(h.enabled === false ? { enabled: false } : {}),
+        })),
+      )
+    : undefined;
+  const agents: NativeAgent[] | undefined = a.agents
+    ? (Array.isArray(a.agents.agents) ? a.agents.agents : []).flatMap((x: unknown) =>
+        typeof x === 'string' ? [{ name: x, description: '' }] : x && typeof x === 'object' && typeof (x as Json).name === 'string' ? [{ name: (x as Json).name, description: String((x as Json).description ?? '') }] : [],
+      )
+    : undefined;
+  const plugins: NativePlugin[] | undefined = Array.isArray(a.plugins)
+    ? a.plugins.flatMap((x: unknown) =>
+        typeof x === 'string'
+          ? [{ name: x }]
+          : x && typeof x === 'object' && typeof (x as Json).name === 'string'
+            ? [{ name: (x as Json).name, ...((x as Json).enabled === false ? { enabled: false } : {}) }]
+            : [],
+      )
+    : undefined;
+  return { skills, ...(hooks ? { hooks } : {}), ...(agents ? { agents } : {}), ...(plugins ? { plugins } : {}) };
+}
+
+/**
+ * Asks Antigravity one of the commands it answers in print mode without a model or a conversation
+ * (`agy -p /skills --output-format json`): its `command.data`, or what went wrong.
+ */
+async function askAntigravity(bin: string, env: NodeJS.ProcessEnv, cwd: string, command: string, timeoutMs: number): Promise<{ data?: Json; problem?: NativeProblem }> {
+  // With a Gemini API key it needs `modelProvider: "gemini"` for this one command, or it answers as if signed out.
+  const res = await runProcess({ bin, args: ['-p', command, '--output-format', 'json', ...antigravityProbeSettings(env)], cwd, env: antigravityProbeEnv(env), timeoutMs, maxCapture: 8 * 1024 * 1024 });
+  try {
+    const j = JSON.parse(res.stdout.trim()) as Json;
+    if (j.status === 'SUCCESS' && j.command?.data && typeof j.command.data === 'object') return { data: j.command.data as Json };
+    return { problem: { kind: 'failed', detail: short(String(j.error ?? res.stderr)) || command, refused: true } };
+  } catch {
+    return { problem: missing([], true, res)[0] };
+  }
+}
+
+/** Antigravity's installed plugins (`agy plugin list --json`), or what went wrong. */
+async function antigravityPlugins(bin: string, env: NodeJS.ProcessEnv, cwd: string, timeoutMs: number): Promise<{ data?: unknown; problem?: NativeProblem }> {
+  const res = await runProcess({ bin, args: ['plugin', 'list', '--json'], cwd, env: antigravityProbeEnv(env), timeoutMs, maxCapture: 4 * 1024 * 1024 });
+  try {
+    const v = JSON.parse(res.stdout.trim());
+    return Array.isArray(v) ? { data: v } : { problem: { kind: 'no-answer', part: 'plugins' } };
+  } catch {
+    return { problem: res.timedOut ? { kind: 'timeout' } : { kind: 'no-answer', part: 'plugins' } };
+  }
+}
+
+/**
+ * What Antigravity loads by itself for `cwd`: its skills, hooks and custom agents as it reports them
+ * (`/skills`, `/hooks`, `/agents` in print mode, which start no agent turn and spend nothing), its
+ * plugins (`agy plugin list --json`), and its MCP servers and instruction files from the files it reads.
+ * Nothing can be left out of its runs (`NATIVE_OFF_SUPPORT`).
+ */
+async function probeAntigravity(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  off: readonly NativePart[],
+  items: NativeItemsOff,
+  timeoutMs = PROBE_TIMEOUT_MS,
+): Promise<NativeProbe> {
+  const geminiDir = antigravityGeminiDir(env);
+  const [skills, hooks, agents, plugins] = await Promise.all([
+    askAntigravity(bin, env, cwd, '/skills', timeoutMs),
+    askAntigravity(bin, env, cwd, '/hooks', timeoutMs),
+    askAntigravity(bin, env, cwd, '/agents', timeoutMs),
+    antigravityPlugins(bin, env, cwd, timeoutMs),
+  ]);
+  const problems = [skills, hooks, agents, plugins].flatMap((r) => (r.problem ? [r.problem] : []));
+  const lists = parseAntigravityProbe({ skills: skills.data, hooks: hooks.data, agents: agents.data, plugins: plugins.data }, cwd, geminiDir);
+  return {
+    provider: 'antigravity',
+    cwd,
+    ...lists,
+    mcpServers: antigravityMcpServers(cwd, geminiDir),
+    memory: antigravityMemoryFiles(cwd),
+    memoryFromFiles: true,
+    nativeOff: [...off],
+    nativeItems: items,
+    asRun: false,
+    // The same failure from each question (signed out, say) is told once.
+    problems: problems.filter((p, i) => problems.findIndex((q) => JSON.stringify(q) === JSON.stringify(p)) === i),
+    checkedAt: Date.now(),
+  };
+}
+
 const PROBES: Record<
   Provider,
   (
@@ -1288,6 +1457,7 @@ const PROBES: Record<
   codex: probeCodex,
   grok: probeGrok,
   cursor: probeCursor,
+  antigravity: probeAntigravity,
   opencode: probeOpen('opencode'),
   goose: probeOpen('goose'),
   cline: probeOpen('cline'),
@@ -1379,7 +1549,7 @@ export class NativeSetupService {
 
 /**
  * The answer for a CLI that could not be asked: nothing of its own, and the error. The instruction and
- * memory files of Claude Code, Codex and Cursor are the files at the places they are documented to
+ * memory files of Claude Code, Codex, Cursor and Antigravity are the files at the places they are documented to
  * read (`memoryFromFiles`, as their probes say), whatever the CLI answered.
  */
 export function failedProbe(provider: Provider, cwd: string, off: NativePart[], items: NativeItemsOff, err: Error): NativeProbe {
@@ -1389,7 +1559,7 @@ export function failedProbe(provider: Provider, cwd: string, off: NativePart[], 
     skills: [],
     mcpServers: [],
     memory: [],
-    memoryFromFiles: provider === 'claude' || provider === 'codex' || provider === 'cursor',
+    memoryFromFiles: provider === 'claude' || provider === 'codex' || provider === 'cursor' || provider === 'antigravity',
     nativeOff: off,
     nativeItems: items,
     asRun: false,

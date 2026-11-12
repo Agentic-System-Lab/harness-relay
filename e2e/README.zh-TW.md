@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 26 個 spec 檔、171 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。
+目前共有 26 個 spec 檔、172 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。
 
 ## 執行
 
@@ -48,7 +48,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 7 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 5 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
-| [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 6 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[搜尋](../docs/user-guide.zh-TW.md#搜尋) |
+| [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 7 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[搜尋](../docs/user-guide.zh-TW.md#搜尋) |
 | [排程](#排程) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [使用者說明 → 排程](../docs/user-guide.zh-TW.md#排程)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 5 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent) |
 | [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 18 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
@@ -252,6 +252,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在 UI 開始的對話保留一開始給的標題 | Claude Code | 第一個問題之後標題不變。 |
 | 拖進群組的對話會留在那裡，拖出來則回到「其他」 | — | 伺服器存下群組，重新載入後仍在；拖到「其他」後群組被清除，群組裡又顯示可以把對話拖到這裡。 |
 | 分支對話的家族在群組之間一起移動 | Codex | 拖動分支時，原本的對話跟著移動，分支仍在它底下；把原本的對話拖回來時兩個都回來。 |
+| 每個 CLI 的狀態點與可用數量排得進一行 | — | 十個 CLI 都已安裝且可用時（在傳到頁面的途中改掉伺服器的回答，「10/10 ready」），這一行沒有超出邊界，第一個點在設定的 ⚙ 正下方，箭頭的尖端對齊下方回報問題圖示的右緣；顯示名稱、箭頭轉向下時也一樣。 |
 
 ## 排程
 
@@ -267,7 +268,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 找到每個 CLI，顯示版本，且已登入 | 三個，同一個測試 | 每張卡片顯示 CLI 的版本與**已登入**（Claude Code 附帳號）；側邊欄這三個的狀態點都正常，沒有假 CLI 代替的 Cursor 顯示未安裝（「3/4 ready」）；要求時顯示它們的名稱，重新載入後仍保留。 |
+| 找到每個 CLI，顯示版本，且已登入 | 三個，同一個測試 | 每張卡片顯示 CLI 的版本與**已登入**（Claude Code 附帳號）；側邊欄這三個的狀態點都正常，沒有假 CLI 代替的 Cursor 與 Antigravity 顯示未安裝（「3/5 ready」）；要求時顯示它們的名稱，重新載入後仍保留。 |
 | 可以指定 CLI 的執行檔路徑，錯誤的路徑顯示找不到 | Grok | 不存在的路徑顯示**未安裝**（Not installed）；清空後又找到它。 |
 | 切換語言，選擇會保留 | — | 選繁體中文後頁面改變，重新載入後仍保留，選 English 再改回來。 |
 | 選另一個 CLI 擔任首席 agent | Codex 當首席 agent | 新對話頁寫出它，團隊卡片寫著「Lead agent: Codex」，首席 agent 的 prompt 交給了 Codex。 |
@@ -417,7 +418,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
-- **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`）以及在 app 中試用真正的 CLI 發現。
+- **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`）以及在 app 中試用真正的 CLI 發現。Cursor、Antigravity 與開源 agent 沒有假 CLI：測試裡只看得到它們未安裝，它們的轉接器由各自的測試試用（`test/cursor.test.ts`、`test/antigravity.test.ts` 與開源 agent 的測試，後兩者重播從真正的 CLI 錄下的訊息）。
 - **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex 與 Grok（它們的裝置登入流程），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；AgentsView 中首席 agent 與分類對話的 session 連結，以及設定網址後才送出的對話；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試

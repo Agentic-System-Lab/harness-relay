@@ -15,6 +15,7 @@ import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
   DEFAULT_ACCOUNT,
   FILE_LIMITS,
+  keyOnlyAccount,
   GROUP_LIMITS,
   PROVIDER_LABEL,
   isOpenProvider,
@@ -567,7 +568,7 @@ export function createApp({
     // account's environment taken before (its id now names the default account).
     const env = settings.env(p, id);
     const home = settings.removeAccount(p, id);
-    await providers.logoutIn(p, env, 15_000).catch(() => {});
+    await providers.logoutIn(p, env, 15_000, keyOnlyAccount(p, id)).catch(() => {});
     if (home) await rm(home, { recursive: true, force: true }).catch((err: Error) => console.warn(`[settings] could not delete ${home}: ${err.message}`));
     providers.invalidate(p);
     return c.json(settingsView());

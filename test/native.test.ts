@@ -459,7 +459,7 @@ describe('what Cursor loads by itself, from its files', () => {
 
   it('says, when it could not be asked, that its instruction files are the ones it is documented to read, as its probe does', () => {
     const failed = (p: Provider) => failedProbe(p, cwd, [], {}, new Error('no')).memoryFromFiles;
-    expect(PROVIDERS.filter(failed)).toEqual(['claude', 'codex', 'cursor']);
+    expect(PROVIDERS.filter(failed)).toEqual(['claude', 'codex', 'cursor', 'antigravity']);
     expect(failedProbe('cursor', cwd, [], {}, new Error('no')).problems).toEqual([{ kind: 'failed', detail: 'no' }]);
   });
 });

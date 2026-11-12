@@ -835,7 +835,7 @@ export const en: Messages = {
       included: (n) => `${n} ${n === 1 ? 'file is' : 'files are'} included: anyone with the link can download ${n === 1 ? 'it' : 'them'}.`,
     },
     page: {
-      tagline: 'A local group chat for the real Claude Code, Codex, Grok and Cursor CLIs and open-source coding agents',
+      tagline: 'A local group chat for the real Claude Code, Codex, Grok, Cursor and Antigravity CLIs and open-source coding agents',
       note: (date) => `Shared ${date}`,
       site: "Harness Relay's website",
       image: (name) => `(Image not included${name ? `: ${name}` : ''})`,
@@ -883,7 +883,7 @@ export const en: Messages = {
 
   tools: {
     title: 'Tool library',
-    hint: 'MCP servers, skills and memory here are given to members, the same way for every CLI (Claude Code, Codex, Grok, Cursor and the open-source agents), in addition to each CLI\'s own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member\'s card under New chat, or Team settings in a chat\'s header. Changes take effect from a member\'s next turn.',
+    hint: 'MCP servers, skills and memory here are given to members, the same way for every CLI (Claude Code, Codex, Grok, Cursor, Antigravity and the open-source agents), in addition to each CLI\'s own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member\'s card under New chat, or Team settings in a chat\'s header. Changes take effect from a member\'s next turn.',
     mcp: 'MCP servers',
     mcpHint: "Their tool calls follow the conversation's permission like any other action: anything beyond it asks you, or is refused if you chose so.",
     addMcp: 'Add MCP server',
@@ -1036,6 +1036,16 @@ export const en: Messages = {
         agents: 'Cursor has no setting to skip subagents for one run',
         plugins: 'Cursor loads no plugins in ACP mode',
       },
+      antigravity: {
+        skills: 'Antigravity has no setting to skip skills for one run (it loads its built-in ones, those in ~/.gemini/config/skills, and those in .agents/skills from the working directory up to the repository root)',
+        mcp: "Antigravity has no setting to skip MCP servers for one run: those in ~/.gemini/config/mcp_config.json and a project's .agents/mcp_config.json load, and run outside any sandbox",
+        tools: 'Antigravity does not report its built-in tools',
+        instructions: 'Antigravity has no setting to skip instruction files for one run (GEMINI.md, AGENTS.md and .agents/rules from the working directory up to the repository root)',
+        memory: 'Antigravity has no setting to skip its memory for one run',
+        hooks: "Antigravity has no setting to skip hooks for one run: those in ~/.gemini/config/hooks.json and a project's .agents/hooks.json run in Harness Relay's runs too, outside any sandbox",
+        agents: 'Antigravity has no setting to skip custom agents for one run',
+        plugins: "Antigravity has no setting to skip plugins for one run (their skills, rules, MCP servers and hooks load as usual)",
+      },
       goose: {
         skills: "Goose has no setting that turns skills off: those in the project's .goose/skills, .claude/skills and .agents/skills always load (its home is Harness Relay's own, so it does not read your ~/.claude/skills and the like)",
         mcp: "the MCP servers of the project's plugins do not start; only the tool library's do. From a new conversation on (a resumed session keeps the list it started with)",
@@ -1137,7 +1147,7 @@ export const en: Messages = {
   },
   settings: {
     title: 'Settings & sign-in',
-    intro: "Harness Relay runs each agent through the claude, codex, grok and cursor-agent CLIs on your computer. Sign in to each CLI here, set API keys, executable paths and default models, see the skills, MCP servers and memory each CLI loads by itself, manage the tool library every CLI shares, and choose where the CLIs keep their session records and whether to view each conversation in AgentsView.",
+    intro: "Harness Relay runs each agent through the claude, codex, grok, cursor-agent and agy CLIs on your computer. Sign in to each CLI here, set API keys, executable paths and default models, see the skills, MCP servers and memory each CLI loads by itself, manage the tool library every CLI shares, and choose where the CLIs keep their session records and whether to view each conversation in AgentsView.",
     checking: 'Checking…',
     recheck: 'Check again',
     version: {
@@ -1183,10 +1193,10 @@ export const en: Messages = {
     cwdCreated: (dirs: string) => `Created ${dirs}; the default working directories are saved`,
     sessions: 'Agent sessions',
     sessionsHint:
-      'Where claude, codex, grok and cursor-agent keep their sign-in, settings and session records when Harness Relay runs them, and whether to view each conversation in AgentsView.',
+      'Where claude, codex, grok, cursor-agent and agy keep their sign-in, settings and session records when Harness Relay runs them, and whether to view each conversation in AgentsView.',
     agentHome: "The CLIs' own folder",
     agentHomeHint:
-      "When set, Harness Relay has claude, codex, grok and cursor-agent use its claude, codex, grok and cursor subfolders as their homes: their sign-in, settings and session records go there, apart from your own use of the CLIs. Sign in to each CLI again above (or set an API key). They also stop reading the settings, MCP servers, skills, memory and plugins in your usual homes; those in Harness Relay's tool library are still given. Cursor is the exception: only its settings and session records move there; its sign-in, and the skills, MCP servers and hooks in ~/.cursor, stay where Cursor keeps them for your user. Leave it empty to use each CLI's usual home.",
+      "When set, Harness Relay has claude, codex, grok, cursor-agent and agy use its claude, codex, grok, cursor and antigravity subfolders as their homes: their sign-in, settings and session records go there, apart from your own use of the CLIs. Sign in to each CLI again above (or set an API key). They also stop reading the settings, MCP servers, skills, memory and plugins in your usual homes; those in Harness Relay's tool library are still given. Cursor is the exception: only its settings and session records move there; its sign-in, and the skills, MCP servers and hooks in ~/.cursor, stay where Cursor keeps them for your user. Antigravity's .gemini folder (its settings, skills, MCP servers, hooks and conversations) moves there, while its Google sign-in stays in the system keyring. Leave it empty to use each CLI's usual home.",
     agentHomeUse: (dir: string) => `Use ${dir}`,
     agentHomeSaved: (dir: string) => `The CLIs now use the folders in ${dir}. Sign in to them again above.`,
     agentHomeOff: 'The CLIs use their usual homes again',
@@ -1292,6 +1302,8 @@ export const en: Messages = {
       codex: 'Runs codex login --with-api-key; Codex keeps the key itself (replacing the current ChatGPT sign-in).',
       grok: 'Once saved, Harness Relay passes XAI_API_KEY when it starts Grok.',
       cursor: "Once saved, Harness Relay passes CURSOR_API_KEY when it starts Cursor, and has Cursor use it for that run only: it is not saved into Cursor's sign-in (so it does not replace your own Cursor sign-in).",
+      antigravity:
+        'Once saved, Harness Relay passes GEMINI_API_KEY when it starts Antigravity, and adds modelProvider: "gemini" to that run\'s own settings, so it runs on the Gemini API (billed by usage) instead of your Google sign-in; your own settings file is not changed.',
     },
     cliMissing: (bin) => `${bin} not found`,
     setBinBelow: ' (set its path under "Executable" below)',
@@ -1304,6 +1316,8 @@ export const en: Messages = {
     loggedOut: 'Signed out',
     keyOnlyAccount:
       "Cursor keeps one sign-in per computer user (on macOS in the keychain, wherever its folder is), so this extra account can only use an API key: set one below. Cursor's own sign-in belongs to the default account.",
+    keyOnlyAntigravity:
+      "Antigravity keeps its Google sign-in in the system keyring, and Harness Relay cannot be sure that another account's sign-in would not replace the default one's, so this extra account can only use a Gemini API key: set one below. The Google sign-in belongs to the default account.",
     keySaved: 'API key saved',
     keyRemoved: 'API key removed',
     saved: 'Saved',
@@ -1355,11 +1369,11 @@ export const en: Messages = {
     steps: [
       {
         title: 'Welcome to Harness Relay',
-        body: 'A group chat where Claude Code, Codex, Grok and Cursor, and five open-source agents (OpenCode, Goose, Cline, OpenHands and Pi), answer your questions and work on your code together, all on your own computer. The next few steps show you around.',
+        body: 'A group chat where Claude Code, Codex, Grok, Cursor and Antigravity, and five open-source agents (OpenCode, Goose, Cline, OpenHands and Pi), answer your questions and work on your code together, all on your own computer. The next few steps show you around.',
       },
       {
         title: 'Check that each agent is ready',
-        body: 'Harness Relay runs the CLIs on your computer. The lights at the bottom left show each agent\'s status; "Settings & sign-in" is where you sign in to Claude Code, Codex, Grok and Cursor, and set API keys and default models. It takes only browsers you signed in: to use it from your phone, get a code in Settings → Signed-in browsers.',
+        body: 'Harness Relay runs the CLIs on your computer. The lights at the bottom left show each agent\'s status; "Settings & sign-in" is where you sign in to Claude Code, Codex, Grok, Cursor and Antigravity, and set API keys and default models. It takes only browsers you signed in: to use it from your phone, get a code in Settings → Signed-in browsers.',
       },
       {
         title: 'Open-source agents and model backends',
@@ -1429,7 +1443,7 @@ export const en: Messages = {
           'Read-only: read files, analyse, look things up on the web',
           'Edit: change files in the working directory, run tests and builds',
           'Full access: run any command without asking',
-          "Below full access, each agent's commands but Cursor's run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex and Grok use their own; the open-source agents use Harness Relay's (on native Windows only Codex has one, and the open-source agents run only with full access). Cursor has none: every command it wants to run asks you first (or is refused, if the chat refuses automatically), except those on your Cursor team's allowlist, and one you allow runs with your full rights",
+          "Below full access, each agent's commands but Cursor's and Antigravity's run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex and Grok use their own; the open-source agents use Harness Relay's (on native Windows only Codex has one, and the open-source agents run only with full access). Cursor has none: every command it wants to run asks you first (or is refused, if the chat refuses automatically), except those on your Cursor team's allowlist, and one you allow runs with your full rights. So does Antigravity: every command it wants to run asks you first, and it ends its turn when you refuse one",
           "Edit mode is refused in your home folder and in Harness Relay's own folder: choose a project's folder",
           'Raising the permission makes every agent start a fresh session, with the whole history, at its next turn',
           'Each turn lists the files it changed, with a diff; in parallel mode you choose whose result to apply',

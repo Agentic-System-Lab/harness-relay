@@ -193,6 +193,11 @@ describe('what decides how the agents run, as a working directory', () => {
     expect(agentFolderOverlap(join(home, '.config/cursor'), moved)).toBe(join(home, '.config/cursor'));
     // And on Windows, in %APPDATA%.
     expect(agentFolderOverlap(join(root, 'appdata/Cursor/x'), { ...o, env: { APPDATA: join(root, 'appdata') } })).toBe(join(root, 'appdata/Cursor'));
+    // Antigravity's .gemini folder (its hooks, MCP servers, plugins), the user's own and the account's.
+    expect(agentFolderOverlap(join(home, '.gemini/config'), o)).toBe(join(home, '.gemini'));
+    const account = { ...o, env: { HARNESS_RELAY_ANTIGRAVITY_HOME: join(root, 'accounts/antigravity-a1') } };
+    expect(agentFolderOverlap(join(root, 'accounts/antigravity-a1/.gemini/antigravity-cli'), account)).toBe(join(root, 'accounts/antigravity-a1/.gemini'));
+    expect(agentFolderOverlap(join(home, '.gemini'), account)).toBe(join(home, '.gemini'));
   });
 
   it("refuses the folder of the other accounts' homes, and a project in one of them", () => {

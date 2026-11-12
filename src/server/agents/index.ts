@@ -1,4 +1,5 @@
 import type { OpenProvider, Provider } from '../../shared/types';
+import { antigravityRunner } from './antigravity';
 import { claudeRunner } from './claude';
 import { clineAgent } from './cline';
 import { codexRunner } from './codex';
@@ -25,6 +26,7 @@ export const runners: Record<Provider, AgentRunner> = {
   codex: codexRunner,
   grok: grokRunner,
   cursor: cursorRunner,
+  antigravity: antigravityRunner,
   opencode: opencodeAgent.runner,
   goose: gooseAgent.runner,
   cline: clineAgent.runner,

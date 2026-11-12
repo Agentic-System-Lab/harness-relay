@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import type { ConversationGroup, ConversationSummary } from '../../src/shared/types';
+import { PROVIDERS, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, askAndConfirm, chatId, finishedReply, openTeamChat, send, settled, startChat } from '../support/app';
 import type { RelayServer } from '../support/relay';
@@ -130,5 +130,47 @@ test.describe('the sidebar', () => {
     await expect(other.locator('.conv-item')).toHaveCount(2);
     await expect(billing).toContainText('Drag conversations here');
     await expect.poll(groups).toEqual([null, null]);
+  });
+  test("every CLI's dot and the count fit on one line, the chevron ending at the report icon's edge", async ({ page }) => {
+    // Every CLI installed and ready, the widest the line gets ("10/10 ready"). The e2e server has no
+    // Cursor, Antigravity or open agent, so its answer is changed on the way to the page.
+    await page.route('**/api/providers*', async (route) => {
+      const res = await route.fetch();
+      const list = (await res.json()) as ProviderStatus[];
+      await route.fulfill({ response: res, json: list.map((p) => ({ ...p, installed: true, auth: { ...p.auth, loggedIn: true } })) });
+    });
+    await page.reload();
+    const health = page.locator('.provider-health');
+    await expect(health.locator('a.health')).toHaveCount(PROVIDERS.length);
+    const toggle = health.locator('.health-toggle');
+    await expect(toggle).toHaveText(`${PROVIDERS.length}/${PROVIDERS.length} ready`);
+
+    // Where each drawn line ends: an icon's paths, plus half their stroke (1 of the icon's 24 units).
+    const measure = () =>
+      page.evaluate(() => {
+        const row = document.querySelector('.provider-health') as HTMLElement;
+        const end = (svg: Element) =>
+          Math.max(...[...svg.querySelectorAll('path')].map((p) => p.getBoundingClientRect().right)) + svg.getBoundingClientRect().width / 24;
+        const settings = document.querySelector('.settings-link') as HTMLElement;
+        return {
+          overflow: row.scrollWidth - row.clientWidth,
+          chevron: end(document.querySelector('.health-toggle svg')!),
+          reportIcon: end(document.querySelector('.report-button svg')!),
+          firstDot: document.querySelector('.provider-health .health i')!.getBoundingClientRect().left,
+          settingsText: settings.getBoundingClientRect().left + parseFloat(getComputedStyle(settings).paddingLeft),
+        };
+      });
+
+    // The dots alone: one line, nothing cut off; the first dot under Settings' ⚙, the chevron's tip
+    // at the right edge of the report icon under it.
+    const dots = await measure();
+    expect(dots.overflow).toBe(0);
+    expect(Math.abs(dots.firstDot - dots.settingsText)).toBeLessThan(0.5);
+    expect(Math.abs(dots.chevron - dots.reportIcon)).toBeLessThan(0.5);
+
+    // With the names, the chevron turned down still ends there (once it has turned).
+    await toggle.click();
+    await expect(health.locator('a[href="#/settings/antigravity"]')).toContainText('Antigravity');
+    await expect.poll(async () => Math.abs((await measure()).chevron - dots.reportIcon)).toBeLessThan(0.5);
   });
 });

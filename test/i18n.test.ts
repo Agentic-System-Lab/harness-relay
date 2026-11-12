@@ -66,6 +66,7 @@ describe("where Settings sends someone whose CLI is not found", () => {
       codex: 'https://openai.com/codex/',
       grok: 'https://x.ai/build',
       cursor: 'https://cursor.com/cli',
+      antigravity: 'https://antigravity.google/download',
       opencode: 'https://www.npmjs.com/package/opencode-ai',
       goose: 'https://formulae.brew.sh/formula/block-goose-cli',
       cline: 'https://www.npmjs.com/package/cline',
