@@ -76,6 +76,10 @@ export function teamOf(clis: readonly Cli[], least = 1): Cli[] {
 export const homeIn = (c: CliFacts): readonly string[] => c.homeIn ?? [];
 export const logoutArgs = (c: CliFacts): string => c.logout ?? 'logout';
 export const skillReadAsks = (c: CliFacts): boolean => c.skillReadAsks ?? false;
+export const showsTodo = (c: CliFacts): boolean => c.todoList ?? true;
+/** The tool its `e2e:tool` listing shows as in a chat of `permission`. */
+export const listToolAt = (c: CliFacts, permission: Permission): string => (permission === 'full' ? (c.listToolFull ?? c.listTool) : c.listTool);
+export const fetchPermission = (c: CliFacts): Permission => c.fetchPermission ?? 'read-only';
 export const loggedModel = (c: CliFacts): { model: string; effort: string } => ({
   model: c.pickModel.logged?.model ?? c.pickModel.model,
   effort: c.pickModel.logged?.effort ?? c.pickModel.effort,
@@ -204,7 +208,8 @@ export function defaultHome(relay: RelayServer, p: Provider): string {
 /**
  * Where a fake keeps session `id` under `home`: the first file or folder of that name (or the name
  * encoded, as the fakes keep it) a walk of `home` finds, at most `depth` folders down, never through
- * a link. An open agent keeps its sessions in its state folder (`private/<key>/…`).
+ * a link, or a file whose name ends in `_<id>.jsonl` (Pi's `<time>_<id>.jsonl`). An open agent keeps
+ * its sessions in its state folder (`private/<key>/…`).
  */
 export function sessionFile(home: string, id: string, depth = 6): string | undefined {
   const names = new Set([id, encodeURIComponent(id)]);
@@ -215,7 +220,7 @@ export function sessionFile(home: string, id: string, depth = 6): string | undef
     } catch {
       return undefined;
     }
-    const hit = entries.find((e) => names.has(e.name));
+    const hit = entries.find((e) => names.has(e.name) || (e.isFile() && e.name.endsWith(`_${id}.jsonl`)));
     if (hit) return join(dir, hit.name);
     if (left <= 0) return undefined;
     for (const e of entries) {
