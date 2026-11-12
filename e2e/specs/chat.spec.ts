@@ -1,5 +1,6 @@
 import { expect, test } from '../fixtures';
 import { askAndConfirm, awaitingPlan, chatId, composer, confirmTeam, finishedReply, replies, send, settled, startChat } from '../support/app';
+import { HALVES, sharedPermission, teamOf } from '../support/clis';
 
 test.describe('a new chat', () => {
   test('the lead agent proposes a team, and once it is confirmed the team answers', async ({ page, relay }) => {
@@ -32,21 +33,22 @@ test.describe('a new chat', () => {
     await expect(awaitingPlan(page)).toHaveCount(0);
   });
 
-  test('a team of all three CLIs answers in turn', async ({ page }) => {
-    await startChat(page);
-    await askAndConfirm(page, 'Review the code together e2e:team=claude,codex,grok');
-    for (const [name, label] of [
-      ['Claude', 'Claude Code'],
-      ['Codex', 'Codex'],
-      ['Grok', 'Grok'],
-    ] as const) {
-      const reply = await finishedReply(page, name);
-      await expect(reply).toContainText(`Hello from ${name} (${label}). You said: “Review the code together”.`);
-      await expect(reply.locator('.provider-tag')).toHaveText(label);
-    }
-    // Roundtable order: Claude, then Codex, then Grok.
-    await expect(page.locator('.msg-agent .msg-head strong')).toHaveText(['@Claude', '@Codex', '@Grok']);
-  });
+  // The CLIs with a sign-in, then the open agents (those whose fake is written), each a team the lead
+  // agent picks, in a chat with the permission all of them can run with here.
+  for (const half of HALVES) {
+    test(half.title('a team of every CLI answers in turn'), async ({ page }) => {
+      const team = teamOf(half.clis);
+      await startChat(page, { permission: sharedPermission(team) });
+      await askAndConfirm(page, `Review the code together e2e:team=${team.map((c) => c.provider).join(',')}`);
+      for (const c of team) {
+        const reply = await finishedReply(page, c.name);
+        await expect(reply).toContainText(`Hello from ${c.name} (${c.label}). You said: “Review the code together”.`);
+        await expect(reply.locator('.provider-tag')).toHaveText(c.label);
+      }
+      // Roundtable order: the team's.
+      await expect(page.locator('.msg-agent .msg-head strong')).toHaveText(team.map((c) => `@${c.name}`));
+    });
+  }
 
   test('a follow-up question gets a team again and the members answer it', async ({ page, relay }) => {
     await startChat(page);

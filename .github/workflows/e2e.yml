@@ -1,7 +1,8 @@
 name: End-to-end tests
 
-# The UI in a real browser against the real server (npm run test:e2e), with fake claude, codex and
-# grok CLIs (e2e/fake-cli/), on Linux, macOS and Windows: no agent is paid for and nothing signs in.
+# The UI in a real browser against the real server (npm run test:e2e), with a fake for each of the ten
+# agent CLIs (e2e/fake-cli/), on Linux, macOS and Windows: no agent is paid for and nothing signs in.
+# Below full access the open agents' fakes run in Harness Relay's own sandbox for real (Linux, macOS).
 on:
   pull_request:
   push:
@@ -25,7 +26,7 @@ jobs:
   e2e:
     name: End-to-end (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +59,34 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then deps=--with-deps; fi
           npx playwright install $deps --only-shell ${E2E_BROWSERS//,/ }
 
+      # Harness Relay's own sandbox, which the open agents run in below full access (docs/sandboxing.md):
+      # bubblewrap, socat and ripgrep on Linux, and where Ubuntu restricts unprivileged user namespaces
+      # (23.10 and later) the AppArmor profile that lets /usr/bin/bwrap make them. Nothing to install on
+      # macOS; none on Windows, where the open agents run only with full access.
+      - name: Set up Harness Relay's sandbox (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          missing=$(for p in bubblewrap socat ripgrep; do dpkg -s "$p" >/dev/null 2>&1 || echo "$p"; done)
+          if [ -n "$missing" ]; then sudo apt-get update -q && sudo apt-get install -y -q $missing; fi
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+            sudo tee /etc/apparmor.d/bwrap > /dev/null <<'EOF'
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+            include if exists <local/bwrap>
+          }
+          EOF
+            sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          fi
+          bwrap --ro-bind / / true && echo "bubblewrap works"
+
+      # The real sandbox's own checks (what it lets through, as a table), before the tests that rely on it.
+      - name: Check Harness Relay's sandbox
+        if: runner.os != 'Windows'
+        run: npx tsx scripts/sandbox-check.ts
+
       - name: Build the UI
         run: npm run build
 
@@ -73,6 +102,8 @@ jobs:
         env:
           # Built in the steps above.
           E2E_BUILD: never
+          # A test that needs Harness Relay's own sandbox fails, not skips, when it cannot run here.
+          E2E_REQUIRE_RELAY_SANDBOX: ${{ runner.os != 'Windows' && '1' || '' }}
 
       # The HTML report, and for a failed test its trace, screenshot, video, server log and the fake
       # CLIs' log: `npx playwright show-report <folder>` or `npx playwright show-trace <trace.zip>`.

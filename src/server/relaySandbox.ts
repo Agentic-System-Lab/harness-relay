@@ -276,10 +276,21 @@ function sandboxRuntimeDir(): string | undefined {
 /** Programs that sandbox-runtime and the host start outside the sandbox: they are looked for here only. */
 const SYSTEM_PATH = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'];
 
-/** Harness Relay's own ports: this server's (`apiPort()`), 8787, and `npm run dev`'s API and Vite's (`ports.ts`). */
-export function relayPorts(env: NodeJS.ProcessEnv = process.env): number[] {
+/** The port this server listens on, once it does (`noteListeningPort()`): with `PORT=0`, whichever was free. */
+let listeningPort: number | undefined;
+
+/** Notes the port the server got, which `relayPorts()` adds to the one its settings name. */
+export function noteListeningPort(port: number): void {
+  listeningPort = Number.isInteger(port) && port > 0 ? port : undefined;
+}
+
+/**
+ * Harness Relay's own ports: this server's (`apiPort()`, and the one it got when that is 0: any free
+ * one), 8787, and `npm run dev`'s API and Vite's (`ports.ts`).
+ */
+export function relayPorts(env: NodeJS.ProcessEnv = process.env, listening: number | undefined = listeningPort): number[] {
   const port = apiPort(env);
-  return [...new Set([...(Number.isInteger(port) && port > 0 ? [port] : []), DEFAULT_PORT, DEV_API_PORT, DEV_WEB_PORT])];
+  return [...new Set([...(Number.isInteger(port) && port > 0 ? [port] : []), ...(listening ? [listening] : []), DEFAULT_PORT, DEV_API_PORT, DEV_WEB_PORT])];
 }
 
 /** This computer's own addresses, without the zone of a link-local one. */
