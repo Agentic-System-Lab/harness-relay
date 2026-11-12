@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, SIGN_IN_TIMEOUT_MS, SIGNED_OUT_EVENT, api } from '../src/web/api';
-import { clearKey, keyChange, readKey, signedOutAnswer, whileSigningIn, writeKey } from '../src/web/auth';
+import { clearKey, keyArrived, readKey, signedOutAnswer, whileSigningIn, writeKey } from '../src/web/auth';
 import { en } from '../src/web/locales/en';
 
 const KEY = 'x-relay-key';
@@ -12,11 +12,14 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 describe('what an answer "signed out" means', () => {
   beforeEach(() => clearKey());
 
-  it('signs the browser out when the request was sent with the key kept', async () => {
+  it('signs the tab out when the request was sent with the key kept, leaving the key for the other tabs', async () => {
+    // Another tab may keep a newer one a moment later, which this tab's copy of the storage does not
+    // show yet: taking the key out here could take that one out too.
     writeKey('old');
     expect(await signedOutAnswer('old')).toBe('signed-out');
-    expect(readKey()).toBeNull();
-    // Also for a page that had no key.
+    expect(readKey()).toBe('old');
+    // Also for a page that has no key.
+    clearKey();
     expect(await signedOutAnswer(null)).toBe('signed-out');
   });
 
@@ -26,7 +29,7 @@ describe('what an answer "signed out" means', () => {
     expect(readKey()).toBe('new');
   });
 
-  it('does nothing more when the key went (signed out already), or changed again after a resend', async () => {
+  it('does nothing more when the key went (signed out on purpose), or changed again after a resend', async () => {
     expect(await signedOutAnswer('old')).toBe('stale');
     writeKey('newer');
     expect(await signedOutAnswer('new', true)).toBe('stale');
@@ -134,7 +137,7 @@ describe('a request answered "signed out"', () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(401);
     expect(signedOutEvents).toBe(1);
-    expect(readKey()).toBeNull();
+    expect(readKey()).toBe('old');
   });
 
   it('is sent again with the new key when a sign-in replaced the key while its answer was read', async () => {
@@ -182,7 +185,7 @@ describe('a request answered "signed out"', () => {
     expect(await signingIn).toBeInstanceOf(ApiError);
     expect(await listing).toBeInstanceOf(ApiError);
     expect(signedOutEvents).toBe(1);
-    expect(readKey()).toBeNull();
+    expect(readKey()).toBe('old');
   });
 
   it('is not sent again once the key went, nor more than once', async () => {
@@ -258,7 +261,37 @@ describe('a request answered "signed out"', () => {
     expect(((await signingIn) as Error).message).toBe(en.signIn.noAnswer);
     expect(await listing).toBeInstanceOf(ApiError);
     expect(signedOutEvents).toBe(1);
-    expect(readKey()).toBeNull();
+    expect(readKey()).toBe('old');
+  });
+
+  it('keeps no key from a sign-in answer cut short, and says the server did not answer', async () => {
+    // Given up while the answer was read: its body reads as nothing.
+    writeKey('old');
+    server(
+      () =>
+        ({
+          ok: true,
+          status: 200,
+          json: () => Promise.reject(new DOMException('The request timed out.', 'TimeoutError')),
+        }) as unknown as Response,
+    );
+    expect(((await api.signIn('ABCD-EFGH').catch((e: unknown) => e)) as Error).message).toBe(en.signIn.noAnswer);
+    expect(readKey()).toBe('old');
+  });
+
+  it("gives the server's own answer when it came just as the time ran out", async () => {
+    vi.useFakeTimers();
+    server((_path, _key, init) => {
+      // The answer "wrong code" arrives as the time limit aborts the request.
+      return new Promise<Response>((resolve) =>
+        init.signal?.addEventListener('abort', () => resolve(answer(400, { error: 'That code is wrong or has expired.' }))),
+      );
+    });
+    const signingIn = api.signIn('WXYZ-0000').catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(SIGN_IN_TIMEOUT_MS);
+    const err = (await signingIn) as ApiError;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.message).toBe('That code is wrong or has expired.');
   });
 
   it('is sent again for a text answer too (a diff)', async () => {
@@ -275,10 +308,10 @@ describe('a request answered "signed out"', () => {
 describe("another tab's change to the key", () => {
   const KEY_NAME = 'relay:key';
 
-  it('is a new key, the key gone, or nothing of ours', () => {
-    expect(keyChange({ key: KEY_NAME, newValue: 'new' })).toBe('arrived');
-    expect(keyChange({ key: KEY_NAME, newValue: null })).toBe('removed');
-    expect(keyChange({ key: null, newValue: null })).toBe('removed'); // the storage cleared
-    expect(keyChange({ key: 'relay:lang', newValue: 'en' })).toBeUndefined();
+  it('is a sign-in when it keeps a new key, and nothing else is', () => {
+    expect(keyArrived({ key: KEY_NAME, newValue: 'new' })).toBe(true);
+    expect(keyArrived({ key: KEY_NAME, newValue: null })).toBe(false); // signed out on purpose
+    expect(keyArrived({ key: null, newValue: null })).toBe(false); // the storage cleared
+    expect(keyArrived({ key: 'relay:lang', newValue: 'en' })).toBe(false);
   });
 });

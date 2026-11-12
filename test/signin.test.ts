@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  afterOtherTab,
   inDesktopWindow,
   pageStart,
   runFirstCheck,
@@ -8,7 +7,6 @@ import {
   signInWithLink,
   type HeldCheck,
   type LinkDeps,
-  type OtherTabDeps,
   type PageStart,
 } from '../src/web/signin';
 
@@ -182,65 +180,5 @@ describe("the first check shared by the runs of the page's effect", () => {
     await settle();
     expect(later).toEqual([{ signedIn: false, desktop: false }]);
     expect(page.calls).toEqual(['status', 'dropCode', 'signIn ABCD-EFGH', 'status']);
-  });
-});
-
-/** A tab: the key it has (`stored`, else `held`), and whether the server takes it (`works`). */
-function otherTab(o: { stored?: string | null; held?: string | null; works?: (key: string | null) => boolean }) {
-  const tab = { stored: o.stored ?? null, held: o.held ?? null, asked: [] as (string | null)[] };
-  const key = () => tab.stored ?? tab.held;
-  const deps: OtherTabDeps = {
-    signedIn: async () => {
-      tab.asked.push(key());
-      return o.works?.(key()) ?? false;
-    },
-    key,
-    keep: (k) => {
-      tab.stored = k;
-    },
-  };
-  return { tab, deps };
-}
-
-describe("following another tab's change to the key", () => {
-  it('shows the app when another tab signed this browser in, after asking the server', async () => {
-    const yes = otherTab({ stored: 'new', works: (k) => k === 'new' });
-    expect(await afterOtherTab('arrived', yes.deps)).toBe(true);
-    expect(yes.tab.asked).toEqual(['new']);
-    const no = otherTab({ stored: 'new' });
-    expect(await afterOtherTab('arrived', no.deps)).toBe(false);
-  });
-
-  it('keeps its own key again when another tab cleared it and the server still takes it', async () => {
-    // Another tab cleared the old session's key a moment after this tab's sign-in kept a new one.
-    const { tab, deps } = otherTab({ held: 'new', works: (k) => k === 'new' });
-    expect(await afterOtherTab('removed', deps)).toBe(false);
-    expect(tab.asked).toEqual(['new']);
-    expect(tab.stored).toBe('new');
-  });
-
-  it('lets the key go when the server no longer takes it, or when this tab holds none', async () => {
-    const revoked = otherTab({ held: 'old' });
-    await afterOtherTab('removed', revoked.deps);
-    expect(revoked.tab.stored).toBeNull();
-    const none = otherTab({});
-    await afterOtherTab('removed', none.deps);
-    expect(none.tab.asked).toEqual([]);
-  });
-
-  it('does not put its key over one another sign-in kept meanwhile', async () => {
-    const { tab, deps } = otherTab({ held: 'mine', works: () => true });
-    deps.signedIn = async () => {
-      tab.stored = 'newer';
-      return true;
-    };
-    await afterOtherTab('removed', deps);
-    expect(tab.stored).toBe('newer');
-  });
-
-  it('does nothing for any other change', async () => {
-    const { tab, deps } = otherTab({ held: 'mine', works: () => true });
-    expect(await afterOtherTab(undefined, deps)).toBe(false);
-    expect(tab.asked).toEqual([]);
   });
 });

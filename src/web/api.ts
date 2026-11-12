@@ -52,8 +52,9 @@ import { currentLang, currentMessages } from './i18n';
 import { timeoutSignal } from './util';
 
 /**
- * How long a sign-in may take before it is given up (it is quick: one code checked). Requests
- * answered "signed out" meanwhile wait for it (`signedOutAnswer`), so not for good either.
+ * How long a sign-in may take before it is given up (it is quick: the server checks a code against
+ * the few live ones). Requests answered "signed out" meanwhile wait for it (`signedOutAnswer`), so
+ * not for good either.
  */
 export const SIGN_IN_TIMEOUT_MS = 30_000;
 
@@ -180,10 +181,13 @@ export const api = {
       (async () => {
         const timeout = timeoutSignal(SIGN_IN_TIMEOUT_MS);
         try {
-          const { key } = await request<{ key: string }>('POST', '/api/auth/login', { code }, timeout.signal, { signIn: true });
+          const { key } = await request<{ key?: unknown }>('POST', '/api/auth/login', { code }, timeout.signal, { signIn: true });
+          // An answer cut short (given up while it was read) reads as none.
+          if (typeof key !== 'string') throw new Error(currentMessages().signIn.noAnswer);
           writeKey(key);
         } catch (e) {
-          throw timeout.signal.aborted ? new Error(currentMessages().signIn.noAnswer) : e;
+          // The server's own answer stands, also one that came as the time ran out.
+          throw timeout.signal.aborted && !(e instanceof ApiError) ? new Error(currentMessages().signIn.noAnswer) : e;
         } finally {
           timeout.clear();
         }

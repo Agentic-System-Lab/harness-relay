@@ -107,34 +107,3 @@ export function runFirstCheck(held: HeldCheck, d: LinkDeps, show: (s: PageStart)
     live = false;
   };
 }
-
-/** What the page needs to follow another tab's change to the key (`afterOtherTab`). */
-export interface OtherTabDeps {
-  /** Whether the server knows this browser, with the key this tab has now (`askSignedIn`). */
-  signedIn(): Promise<boolean>;
-  /** The key this tab has now: the one kept, else the one it holds itself (`readKey`). */
-  key(): string | null;
-  /** Keeps a key again (`writeKey`). */
-  keep(key: string): void;
-}
-
-/**
- * After another tab of this browser changed the key (`keyChange`); true when this tab is to show the
- * app. Tabs share the cookie and the key, so:
- * - A new key: another tab signed this browser in, so the server is asked, and a tab showing the
- *   sign-in page shows the app when it is signed in. It was shown there when a sign-in link opened
- *   in another tab ended the session this tab was using, before that tab kept its new key.
- * - The key gone while this tab still holds one: the server is asked with it, and it is kept again
- *   when it still works. Another tab cleared the key of the session this tab's sign-in had just
- *   replaced, and that came after this tab kept the new one (each tab's copy of the storage learns of
- *   the other's changes a moment late).
- */
-export async function afterOtherTab(change: 'arrived' | 'removed' | undefined, d: OtherTabDeps): Promise<boolean> {
-  if (change === 'arrived') return d.signedIn();
-  if (change !== 'removed') return false;
-  const mine = d.key();
-  if (mine === null || !(await d.signedIn())) return false;
-  // Not over a key another sign-in kept meanwhile.
-  if (d.key() === mine) d.keep(mine);
-  return false;
-}

@@ -206,23 +206,49 @@ test.describe('signing in', () => {
   test('a sign-in link opened in another tab keeps every tab signed in, with requests still on their way', ({ page, relay }) =>
     linkInAnotherTab(page, relay));
 
-  test('a key another tab cleared is kept again by a tab whose sign-in still works', async ({ page, relay }) => {
-    // The other tab clears the key of the session this tab's sign-in replaced, a moment after this
-    // tab kept its new one: the tabs' copies of the storage meet late, and the new key goes too.
-    await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
-    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
-    const key = await page.evaluate(() => localStorage.getItem('relay:key'));
+  test('a tab still on its first check follows a sign-in in another tab of the browser', async ({ page, relay }) => {
+    // The tab's first question to the server gets its answer ("not signed in") only after another
+    // tab signed the browser in: out of date by then.
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    let first = true;
+    let answered = 0;
+    page.on('requestfinished', (r) => {
+      if (new URL(r.url()).pathname === '/api/auth') answered++;
+    });
+    await page.route('**/api/auth', async (route) => {
+      if (!first) return route.continue();
+      first = false;
+      const res = await route.fetch();
+      await released;
+      await route.fulfill({ response: res });
+    });
+    await page.goto(relay.base);
     const other = await page.context().newPage();
     try {
-      await other.goto(relay.base);
+      await other.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
       await expect(other.getByRole('heading', { name: 'New chat' })).toBeVisible();
-      await other.evaluate(() => localStorage.removeItem('relay:key'));
-      await expect.poll(() => other.evaluate(() => localStorage.getItem('relay:key'))).toBe(key);
-      await other.reload();
-      await expect(other.getByRole('heading', { name: 'New chat' })).toBeVisible();
+      // The tab asked the server about the other tab's new key, while its first check still ran.
+      await expect.poll(() => answered).toBe(1);
+      release();
+      await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
     } finally {
       await other.close();
     }
+  });
+
+  test('a sign-in that gets no answer is given up after 30 seconds, with a message', async ({ page, relay }) => {
+    await page.clock.install();
+    await page.route('**/api/auth/login', () => new Promise<void>(() => {})); // never answered
+    await page.goto(relay.base);
+    await page.getByLabel('Sign-in code').fill('ABCD-EFGH');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('button', { name: 'Signing in…' })).toBeVisible();
+    await page.clock.runFor(29_000);
+    await expect(page.getByRole('button', { name: 'Signing in…' })).toBeVisible();
+    await page.clock.runFor(1_000); // SIGN_IN_TIMEOUT_MS in src/web/api.ts
+    await expect(page.getByRole('alert')).toHaveText('Harness Relay did not answer. Check that it is still running, then try again.');
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeEnabled();
   });
 
   test('a browser can sign itself out in Settings', async ({ page, relay }) => {

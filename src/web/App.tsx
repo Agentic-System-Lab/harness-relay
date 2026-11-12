@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
 import { SIGNED_OUT_EVENT, api } from './api';
-import { keyChange, readKey, writeKey } from './auth';
+import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
@@ -11,14 +11,12 @@ import { SignIn } from './components/SignIn';
 import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route } from './route';
 import {
-  afterOtherTab,
   askSignedIn,
   runFirstCheck,
   signInWhere,
   signInWithLink,
   type LinkDeps,
   type LinkResult,
-  type OtherTabDeps,
   type PageStart,
 } from './signin';
 import { Sidebar } from './components/Sidebar';
@@ -74,9 +72,6 @@ const LINK: LinkDeps = {
   dropCode: () => history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/`),
 };
 
-/** Following another tab of this browser, which shares the cookie and the key (`afterOtherTab`). */
-const OTHER_TAB: OtherTabDeps = { signedIn: () => askSignedIn(LINK), key: readKey, keep: writeKey };
-
 /**
  * The app once this browser is signed in; before that, the sign-in page. A sign-in link's code
  * (`#code=…`) is taken out of the address first, so it stays in neither the history nor a shared link.
@@ -101,20 +96,29 @@ export function App() {
     // Whether the desktop app started the server, also when the page opens with a link: a link that
     // no longer works, or a sign-out later, shows the sign-in page, which then points at the app's
     // menu rather than a terminal.
+    // Another tab signed this browser in while the first check ran (`onStorage` below).
+    let firstShown = false;
+    let signedInElsewhere = false;
     const endFirst = runFirstCheck(start, LINK, (s) => {
+      firstShown = true;
       setDesktopApp(s.desktop);
-      show(s);
+      show(signedInElsewhere ? { signedIn: true } : s);
     });
     // A link opened in a tab that shows the app already: only its fragment changes.
     const onHash = () =>
       void signInWithLink(LINK, () => state.current === 'in' || askSignedIn(LINK)).then((r) => r && show(r));
     const out = () => setAuth('out');
-    // Another tab signed this browser in, or cleared the key of a session a sign-in here replaced. The
-    // server is asked whatever this tab shows: one just signed out may not show the sign-in page yet.
-    const onStorage = (e: StorageEvent) =>
-      void afterOtherTab(keyChange(e), OTHER_TAB).then((signedIn) => {
-        if (signedIn && state.current === 'out') show({ signedIn: true });
+    // Another tab kept a new key: it signed this browser in (the tabs share the cookie and the key).
+    // The server is asked whatever this tab shows, as one just signed out may not show the sign-in page
+    // yet, and the app is shown when the browser is signed in; after the first check, if it still runs.
+    const onStorage = (e: StorageEvent) => {
+      if (!keyArrived(e)) return;
+      void askSignedIn(LINK).then((signedIn) => {
+        if (!signedIn) return;
+        if (firstShown) show({ signedIn: true });
+        else signedInElsewhere = true;
       });
+    };
     window.addEventListener('hashchange', onHash);
     window.addEventListener(SIGNED_OUT_EVENT, out);
     window.addEventListener('storage', onStorage);
