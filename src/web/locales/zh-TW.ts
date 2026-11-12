@@ -67,6 +67,9 @@ export const zhTW = {
 
   app: { openSidebar: '開啟側邊欄', collapseSidebar: '收合側邊欄', expandSidebar: '展開側邊欄' },
 
+  /** The home page (#/): the logo and this tagline under it (`\n` starts a new line). */
+  home: { tagline: '讓你的 agent 團隊從此為你幹活' },
+
   sidebar: {
     newChat: '新對話',
     newSchedule: '新排程',
@@ -1159,7 +1162,6 @@ export const zhTW = {
   },
   settings: {
     title: '設定與登入',
-    intro: 'Harness Relay 用你電腦上的 claude、codex、grok、cursor-agent、agy CLI 執行各個 agent。在這裡登入各個 CLI，設定 API key、執行檔路徑與預設模型，查看各 CLI 自己載入的 skill、MCP 與記憶，管理所有 CLI 共用的工具庫，並決定各 CLI 的 session 紀錄放在哪裡、要不要在 AgentsView 中檢視每個對話。',
     checking: '檢查中…',
     recheck: '重新檢查狀態',
     version: {

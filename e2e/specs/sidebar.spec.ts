@@ -1,7 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 import { PROVIDERS, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, askAndConfirm, chatId, finishedReply, openTeamChat, send, settled, startChat } from '../support/app';
+import { acceptNextDialog, askAndConfirm, chatId, finishedReply, homePage, openTeamChat, send, settled, startChat } from '../support/app';
 import type { RelayServer } from '../support/relay';
 
 /** Makes a group in the sidebar, as the user does, and returns its section. */
@@ -56,6 +56,8 @@ test.describe('the sidebar', () => {
     acceptNextDialog(page);
     await item.getByRole('button', { name: 'Delete conversation' }).click();
     await expect(page.locator('.conv-item', { hasText: 'New title' })).toHaveCount(0);
+    // The chat that was open is gone: the home page opens.
+    await expect(homePage(page)).toBeVisible();
     await expect.poll(async () => (await relay.api<{ id: string }[]>('/api/conversations')).some((c) => c.id === id)).toBe(false);
   });
 

@@ -3,6 +3,7 @@ import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderSt
 import { SIGNED_OUT_EVENT, api } from './api';
 import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
+import { Home } from './components/Home';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
 import { Onboarding, onboardingDone } from './components/Onboarding';
@@ -323,6 +324,7 @@ function RelayApp() {
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar
         onCollapse={() => setCollapsed(true)}
+        onHome={() => setSidebarOpen(false)}
         route={route}
         conversations={conversations}
         groups={groups}
@@ -331,7 +333,7 @@ function RelayApp() {
         onChanged={refreshConversations}
         onDeleted={(id) => {
           refreshConversations();
-          if (route.page === 'chat' && route.id === id) navigate({ page: 'new' });
+          if (route.page === 'chat' && route.id === id) navigate({ page: 'home' });
         }}
       />
       <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />
@@ -346,6 +348,7 @@ function RelayApp() {
             </button>
           </div>
         )}
+        {route.page === 'home' && <Home />}
         {route.page === 'new' && (
           <NewChat
             providers={providers}

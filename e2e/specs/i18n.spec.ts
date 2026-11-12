@@ -5,6 +5,8 @@ test.describe('in Traditional Chinese', () => {
   test.use({ lang: 'zh-TW' });
 
   test('the app, its templates and the lead agent’s card are in Chinese; the agents get English prompts', async ({ page, relay }) => {
+    await expect(page.getByRole('heading', { name: '讓你的 agent 團隊從此為你幹活' })).toBeVisible();
+    await page.getByRole('button', { name: '新對話' }).first().click();
     await expect(page.getByRole('heading', { name: '新對話' })).toBeVisible();
     await expect(page.locator('.preset-card', { hasText: '三方辯論' })).toBeVisible();
 

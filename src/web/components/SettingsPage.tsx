@@ -144,7 +144,7 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
   return (
     <div className="page scroll">
       <div className="page-inner">
-        {/* The title and its button share a row; the intro below takes the whole width (phones too). */}
+        {/* The title and its button share a row (phones too). */}
         <header className="page-head">
           <div className="page-title-row">
             <h1>{t.settings.title}</h1>
@@ -152,7 +152,6 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
               {refreshing ? t.settings.checking : t.settings.recheck}
             </button>
           </div>
-          <p className="muted">{t.settings.intro}</p>
         </header>
 
         <SettingsNav section={section} />

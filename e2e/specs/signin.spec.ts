@@ -1,6 +1,6 @@
 import type { Page, Route } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog } from '../support/app';
+import { acceptNextDialog, homePage } from '../support/app';
 import { DEV_WEB_DIR } from '../support/paths';
 import type { RelayServer } from '../support/relay';
 
@@ -10,7 +10,7 @@ import type { RelayServer } from '../support/relay';
  */
 async function linkInSignedInTab(page: Page, relay: RelayServer): Promise<void> {
   await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
-  await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+  await expect(homePage(page)).toBeVisible();
   const keyNow = () => page.evaluate(() => localStorage.getItem('relay:key'));
   const oldKey = await keyNow();
   // The page's sign-outs: the event the app shows the sign-in page on (SIGNED_OUT_EVENT).
@@ -63,7 +63,7 @@ async function linkInSignedInTab(page: Page, relay: RelayServer): Promise<void> 
   await expect(page.getByRole('heading', { name: 'Sign in to Harness Relay' })).toHaveCount(0);
   await page.unroute('**/api/**');
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+  await expect(homePage(page)).toBeVisible();
 }
 
 /**
@@ -73,7 +73,7 @@ async function linkInSignedInTab(page: Page, relay: RelayServer): Promise<void> 
  */
 async function linkInAnotherTab(page: Page, relay: RelayServer): Promise<void> {
   await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
-  await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+  await expect(homePage(page)).toBeVisible();
   const keyIn = (p: Page) => p.evaluate(() => localStorage.getItem('relay:key'));
   const oldKey = await keyIn(page);
 
@@ -100,7 +100,7 @@ async function linkInAnotherTab(page: Page, relay: RelayServer): Promise<void> {
       deliver();
     });
     await other.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
-    await expect(other.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    await expect(homePage(other)).toBeVisible();
     const newKey = await keyIn(other);
     expect(newKey).not.toBeNull();
     expect(newKey).not.toBe(oldKey);
@@ -136,18 +136,18 @@ test.describe('signing in', () => {
 
     await code.fill(await relay.newSignInCode());
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    await expect(homePage(page)).toBeVisible();
     await expect(page.locator('[data-signin]')).toHaveCount(0);
 
     // The session outlives a reload.
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    await expect(homePage(page)).toBeVisible();
   });
 
   test('a sign-in link signs in once; the code cannot be used again', async ({ page, browser, relay }) => {
     const code = await relay.newSignInCode();
     await page.goto(`${relay.base}/#code=${code}`);
-    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    await expect(homePage(page)).toBeVisible();
     // The code is gone from the address bar.
     expect(page.url()).not.toContain(code);
 
@@ -167,7 +167,7 @@ test.describe('signing in', () => {
     // Only the fragment changes: the page does not load again.
     const code = await relay.newSignInCode();
     await page.evaluate((c) => (window.location.hash = `#code=${c}`), code);
-    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    await expect(homePage(page)).toBeVisible();
     expect(page.url()).not.toContain(code);
   });
 
@@ -176,7 +176,7 @@ test.describe('signing in', () => {
     await expect(page.getByRole('alert')).toHaveText('That code is wrong or has expired.');
     await page.getByLabel('Sign-in code').fill(await relay.newSignInCode());
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    await expect(homePage(page)).toBeVisible();
 
     // The server no longer knows this browser (its session gone): the page finds out on its next
     // request, without loading again, and shows the sign-in page without the old link's error.
@@ -195,9 +195,9 @@ test.describe('signing in', () => {
     const other = await page.context().newPage();
     try {
       await other.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
-      await expect(other.getByRole('heading', { name: 'New chat' })).toBeVisible();
+      await expect(homePage(other)).toBeVisible();
       // Without a reload: the tabs share the cookie and the key.
-      await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+      await expect(homePage(page)).toBeVisible();
     } finally {
       await other.close();
     }
@@ -227,11 +227,11 @@ test.describe('signing in', () => {
     const other = await page.context().newPage();
     try {
       await other.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
-      await expect(other.getByRole('heading', { name: 'New chat' })).toBeVisible();
+      await expect(homePage(other)).toBeVisible();
       // The tab asked the server about the other tab's new key, while its first check still ran.
       await expect.poll(() => answered).toBe(1);
       release();
-      await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+      await expect(homePage(page)).toBeVisible();
     } finally {
       await other.close();
     }
@@ -273,7 +273,7 @@ test.describe('signing in, in a development build of the UI', () => {
     });
     const code = await relay.newSignInCode();
     await page.goto(`${relay.base}/#code=${code}`);
-    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    await expect(homePage(page)).toBeVisible();
     expect(page.url()).not.toContain(code);
     expect(asked).toEqual(['GET']);
   });
