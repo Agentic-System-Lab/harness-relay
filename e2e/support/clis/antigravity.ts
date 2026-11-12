@@ -31,4 +31,10 @@ export const antigravity: CliFacts = {
   accounts: 'key-only',
   apiKeyEnv: 'GEMINI_API_KEY',
   apiKeyPlaceholder: 'AIza…',
+  homeIn: ['.gemini'],
+  // Its ACP `logout`, in an `agy acp` of its own (the default account's: no --gemini-dir).
+  logout: 'acp',
+  signedOutError: 'Authentication required',
+  // It asks before reading outside the workspace, and its adapter allows any read but of the protected paths.
+  skillReadAsks: false,
 };

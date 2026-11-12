@@ -20,7 +20,8 @@
  * working directory and the session's `additionalDirectories`, unless `allowNonWorkspaceAccess` is
  * true); `proceed-in-sandbox` runs commands without asking, and `always-proceed` or
  * `--dangerously-skip-permissions` asks nothing. A call allowed (or not asked about) runs wherever
- * it points. A refused, cancelled or unanswered call fails, and the turn ends there at once
+ * it points; a web page it reads without asking (the fake reaches no network). A refused, cancelled
+ * or unanswered call fails, and the turn ends there at once
  * (`end_turn`, nothing more said): the note a refusal carries is ignored (logged as `refused`).
  *
  * Each session keeps, in the home, the briefing it was last given (the real one adds each to its
@@ -455,9 +456,17 @@ async function agyTurn(peer, sessionId, s, rules, prompt, steps, skillFiles) {
       u.toolCall({ ...call, status: 'in_progress' });
       if (rules.commandsAsk && !(await permit(call))) return refused(call, { rawOutput: { output: '' }, content: [{ type: 'content', content: { type: 'text', text: '' } }] });
       const at = new Date().toISOString();
-      const output = `Created At: ${at}\nCompleted At: ${at}\nCommand exited with code 0.\n\nCommand output:\n${step.command.replace(/^echo /, '')}\n`;
+      const output = `Created At: ${at}\nCompleted At: ${at}\nCommand exited with code 0.\n\nCommand output:\ne2e-approval\n`;
       report(call, 'completed', { rawOutput: { output, exit_code: 0 }, content: [{ type: 'content', content: { type: 'text', text: output } }] });
       prefix += 'The command ran: e2e-approval. ';
+    }
+    if (step.type === 'fetch') {
+      // A web page: read without asking (the fake reaches no network: it says what it read).
+      const input = { Url: step.url };
+      const call = { toolCallId: callId(), name: 'read_url_content', args: input, kind: 'fetch', title: step.url, rawInput: input };
+      u.toolCall({ ...call, status: 'in_progress' });
+      report(call, 'completed', { content: [{ type: 'content', content: { type: 'text', text: `Content of ${step.url}` } }] });
+      prefix += `I read ${step.url}. `;
     }
     if (step.type === 'write') {
       const file = targetOf(step, s.cwd, s.others);

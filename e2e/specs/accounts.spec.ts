@@ -200,7 +200,8 @@ test.describe('more than one account', () => {
         await expect(keyBox(main)).toContainText("Keys are kept in Harness Relay's database (readable only by your user account).");
         // The server's own environment is the default account's only.
         await expect(keyBox(main)).toContainText(`To keep it out of the database, set ${cli.apiKeyEnv} before starting Harness Relay instead.`);
-        await keyBox(work).locator('summary').click();
+        // A key-only account's box is open already: its key is how it signs in.
+        if (cli.accounts !== 'key-only') await keyBox(work).locator('summary').click();
         await expect(keyBox(work)).toContainText("Keys are kept in Harness Relay's database");
         await expect(keyBox(work)).not.toContainText(`set ${cli.apiKeyEnv}`);
 
