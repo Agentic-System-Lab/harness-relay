@@ -1399,7 +1399,8 @@ p {
   color: var(--muted);
 }
 
-.teams-copy p strong {
+.teams-copy p strong,
+.hero .lead strong {
   color: var(--text);
 }
 
