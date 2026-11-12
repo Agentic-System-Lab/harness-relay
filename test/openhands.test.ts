@@ -399,6 +399,18 @@ describe('the run home and settings', () => {
     expect(ctx.state.before).toEqual({ input: 0, output: 0, cost: 0 });
   });
 
+  it("gives it the run's home as USERPROFILE too on Windows, where Python finds ~ through it", () => {
+    const windows = runCtx({ permission: 'full' });
+    prepareOpenhands(windows, 501, 'win32');
+    const f = openhandsRunFiles(windows.tmpDir);
+    expect(windows.env).toMatchObject({ HOME: f.home, USERPROFILE: f.home });
+    expect(windows.state.terminal).toBe('pty');
+    const mac = runCtx({ permission: 'full' });
+    delete mac.env.USERPROFILE;
+    prepareOpenhands(mac, 501, 'darwin');
+    expect(mac.env).not.toHaveProperty('USERPROFILE');
+  });
+
   it('in full access, the briefing alone; an endpoint key under OpenAI\'s variable; a proxy the server has is kept', () => {
     const endpoint = { id: 'homelab/m', backend: 'homelab', kind: 'endpoint' as const, model: 'm', endpoint: BACKENDS.endpoints[0], hosts: ['vllm.example:8000'] };
     const ctx = runCtx({ permission: 'full' }, endpoint);

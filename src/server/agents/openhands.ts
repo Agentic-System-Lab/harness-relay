@@ -595,6 +595,9 @@ export function prepareOpenhands(ctx: OpenRunContext, uid = process.getuid?.() ?
 
   Object.assign(env, {
     HOME: home,
+    // Python finds `~` through USERPROFILE on Windows, not HOME: without it, OpenHands would use the
+    // user's own ~/.openhands (its public skills fetched from GitHub there, its cloud and profiles).
+    ...(platform === 'win32' ? { USERPROFILE: home } : {}),
     OPENHANDS_PERSISTENCE_DIR: own,
     PERSISTENCE_DIR: own, // its cli_config.json reads this one
     OPENHANDS_CONVERSATIONS_DIR: conversations,
