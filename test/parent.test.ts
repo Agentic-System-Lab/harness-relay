@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { smoke } from '../desktop/scripts/smoke';
+import { installFakeClis } from '../e2e/support/fake-cli';
 import { desktopParent } from '../src/server/parent';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-parent-'));
@@ -87,7 +88,7 @@ describe('the desktop app, seen from the server', () => {
 });
 
 describe('the server, run as the desktop app runs it', () => {
-  it('listens, signs a browser in with a link it gives the app, prints no code, and shuts down when asked', async () => {
+  it('listens, signs a browser in with a link it gives the app, has a team of the fake CLIs answer a question, prints no code, and shuts down when asked', async () => {
     // A stand-in for the built UI (npm run build is not run before the tests).
     const web = join(dir, 'web');
     mkdirSync(join(web, 'assets'), { recursive: true });
@@ -96,6 +97,8 @@ describe('the server, run as the desktop app runs it', () => {
       entry: resolve('src/server/index.ts'),
       execArgv: ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href],
       webDir: web,
+      // The end-to-end tests' fake claude, codex and grok (on Windows, built once as executables).
+      fakeClis: await installFakeClis(),
       timeoutMs: 30_000,
     });
     expect(passed).toEqual([
@@ -106,6 +109,12 @@ describe('the server, run as the desktop app runs it', () => {
       'gives a sign-in link for its own address',
       "signs a browser in with the link's code",
       'answers the signed-in browser',
+      'starts a read-only chat with claude, codex and grok',
+      'sends them a question',
+      "the team's run ends within 90 s",
+      'claude answers it',
+      'codex answers it',
+      'grok answers it',
       'prints no sign-in code',
       'says no conversation has agents at work',
       'exits with code 0 when asked to shut down (got 0)',

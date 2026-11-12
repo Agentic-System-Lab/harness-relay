@@ -10,6 +10,9 @@
  * - it serves the built web app;
  * - asked for a sign-in link, it gives one for its own address, and the code in it signs a browser in;
  * - it prints no sign-in code (its output is the app's log, which agents may read);
+ * - given stand-ins for the CLIs (`fakeClis`; the command line always builds them, with
+ *   e2e/support/fake-cli.ts), a team of claude, codex and grok answers a question in a read-only chat
+ *   (selftest.ts, `checkTurn`);
  * - asked how many conversations have agents at work (an update waits for none), it says none;
  * - asked to shut down, it exits with code 0.
  *
@@ -24,7 +27,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DesktopToServer, ServerToDesktop } from '../../src/shared/types';
-import { checkServer, printsNoCode } from '../src/selftest';
+import { installFakeClis } from '../../e2e/support/fake-cli';
+import { checkServer, checkTurn, printsNoCode, withFakeClis } from '../src/selftest';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -37,17 +41,24 @@ export interface SmokeOptions {
   webDir: string;
   /** Extra environment (over the defaults below). */
   env?: NodeJS.ProcessEnv;
+  /** The folder of the fake CLIs (e2e/support/fake-cli.ts): a team of them answers a question. */
+  fakeClis?: string;
   timeoutMs?: number;
 }
 
 /** Runs the checks; resolves with what was checked, or rejects with the first failure. */
 export async function smoke(o: SmokeOptions): Promise<string[]> {
-  const data = mkdtempSync(join(tmpdir(), 'relay-smoke-'));
+  const root = mkdtempSync(join(tmpdir(), 'relay-smoke-'));
+  const data = join(root, 'data');
   const passed: string[] = [];
   let output = '';
+  // The developer's own Harness Relay settings (a team size, a data folder) are not the check's.
+  const base: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) if (!/^(RELAY_|E2E_)/.test(k)) base[k] = v;
+  const fakes = o.fakeClis ? withFakeClis(base, o.fakeClis, root) : undefined;
   const child: ChildProcess = fork(o.entry, [], {
     execArgv: [...(o.execArgv ?? []), '--import', pathToFileURL(join(DESKTOP, 'scripts/parent-port.mjs')).href],
-    env: { ...process.env, PORT: '0', HOST: '127.0.0.1', RELAY_DATA_DIR: data, RELAY_KEYRING: 'off', RELAY_WEB_DIR: o.webDir, RELAY_ALLOWED_HOSTS: '', ...o.env },
+    env: { ...(fakes?.env ?? base), PORT: '0', HOST: '127.0.0.1', RELAY_DATA_DIR: data, RELAY_KEYRING: 'off', RELAY_WEB_DIR: o.webDir, RELAY_ALLOWED_HOSTS: '', ...o.env },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   child.stdout!.on('data', (b: Buffer) => (output += b.toString()));
@@ -84,17 +95,18 @@ export async function smoke(o: SmokeOptions): Promise<string[]> {
     }
 
     const listening = await next('listening');
-    const base = `http://127.0.0.1:${listening.port}`;
-    check(listening.host === '127.0.0.1' && listening.port > 0, `listens on ${base}`);
+    const url = `http://127.0.0.1:${listening.port}`;
+    check(listening.host === '127.0.0.1' && listening.port > 0, `listens on ${url}`);
 
-    await checkServer(
-      base,
+    const auth = await checkServer(
+      url,
       async () => {
         send({ type: 'sign-in-link' });
         return (await next('sign-in-link')).link;
       },
       check,
     );
+    if (fakes) await checkTurn(url, auth, check, { cwd: fakes.cwd });
 
     check(printsNoCode(output), 'prints no sign-in code');
 
@@ -108,7 +120,8 @@ export async function smoke(o: SmokeOptions): Promise<string[]> {
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     await exited;
-    rmSync(data, { recursive: true, force: true });
+    // Windows may hold a file a moment after its process ended.
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
   }
 }
 
@@ -122,14 +135,16 @@ function resolves(from: string, id: string): boolean {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const server = join(DESKTOP, 'build/server');
-  smoke({ entry: join(server, 'server.mjs'), webDir: join(server, 'web') }).then(
-    (passed) => {
-      for (const p of passed) console.log(`✓ ${p}`);
-      console.log('The bundled server works as the desktop app runs it.');
-    },
-    (err: Error) => {
-      console.error(`✗ ${err.message}`);
-      process.exit(1);
-    },
-  );
+  installFakeClis()
+    .then((fakeClis) => smoke({ entry: join(server, 'server.mjs'), webDir: join(server, 'web'), fakeClis }))
+    .then(
+      (passed) => {
+        for (const p of passed) console.log(`✓ ${p}`);
+        console.log('The bundled server works as the desktop app runs it.');
+      },
+      (err: Error) => {
+        console.error(`✗ ${err.message}`);
+        process.exit(1);
+      },
+    );
 }
