@@ -115,6 +115,22 @@ const zhTW = {
   cursorConfigFailed: (err: string) => `無法替這一輪準備 Cursor 的設定資料夾：${err}`,
   cursorAccountLogin:
     'Cursor 在每個電腦使用者只保留一個登入（macOS 上存在鑰匙圈裡），所以額外的 Cursor 帳號不能用瀏覽器登入：請替它設定 API key。預設帳號才用 Cursor 自己的登入。',
+  antigravityRefused: '超出這個對話的權限，已拒絕',
+  antigravityProtected: '這是受保護的路徑（瀏覽器資料、Harness Relay 的資料庫等），低於完整權限時不能讀寫，已拒絕',
+  antigravityEndsTurn: '（Antigravity 在拒絕後會結束這一輪）',
+  antigravityOutsideWrite: '這個檔案不在這個對話的工作目錄裡：編輯權限只涵蓋工作目錄內的寫入。',
+  antigravityConfigWrite:
+    '這裡是 agent 的設定（例如 .agents/、.git/hooks、.vscode/）：寫在這裡可能讓程式碼之後在沒有沙箱的情況下執行，或改變 agent 的行為，所以先詢問。',
+  antigravityExitCode: (code: number) => `結束代碼 ${code}`,
+  antigravityCancelled: 'Antigravity 自行中止了這一輪（stopReason: cancelled），沒有給出原因。',
+  antigravityNoSession: 'agy 沒有回傳 session id',
+  antigravityRejectedModel: (value: string, err: string) => `Antigravity 不接受模型「${value}」：${err}`,
+  antigravityRejectedEffort: (value: string, err: string) => `Antigravity 不接受思考強度「${value}」：${err}`,
+  antigravityRejectedMode: (err: string) => `Antigravity 無法切換回預設模式：${err}`,
+  antigravitySignIn: (err: string) => `Antigravity 尚未登入（${err}）。請到「設定」的 Antigravity 登入，或設定 Gemini API key。`,
+  antigravityConfigFailed: (err: string) => `無法替這一輪準備 Antigravity 的設定：${err}`,
+  antigravityAccountLogin:
+    'Antigravity 把 Google 登入存在系統的 keyring 裡，Harness Relay 無法確定另一個帳號的登入不會取代預設帳號的，所以額外的 Antigravity 帳號只能用 Gemini API key。預設帳號才用 Google 登入。',
 
   // Conversations and runs
   defaultTitle: '新對話',
@@ -479,6 +495,7 @@ const zhTW = {
   codexModelsFailed: 'codex debug models 失敗',
   grokModelsEmpty: 'grok models 沒有回傳模型',
   cursorModelsFailed: 'cursor-agent 沒有回傳模型清單',
+  antigravityModelsFailed: 'agy models 沒有回傳模型',
   // Voice input
   voiceNotReady: '語音輸入還沒安裝完成，請到「設定 → 語音輸入」查看。',
   voiceBusy: '語音輸入正在安裝中，請等它完成或先取消。',
@@ -508,6 +525,7 @@ const zhTW = {
     grokDevice: ['xAI 裝置碼', '開啟連結並確認下方代碼。'],
     grokBrowser: ['xAI 瀏覽器登入', '在這台電腦開啟瀏覽器完成 OAuth 登入。'],
     cursorBrowser: ['Cursor 帳號', '開啟下方連結，在任何一台裝置的瀏覽器登入 Cursor 並允許 CLI。'],
+    antigravityGoogle: ['Google 帳號', '開啟下方連結，在任何一台裝置的瀏覽器登入 Google，再把頁面顯示的授權碼（或整個網址）貼回來。'],
   } as Record<string, [string, string]>,
 };
 
@@ -599,6 +617,22 @@ const en: ServerMessages = {
   cursorConfigFailed: (err) => `Could not prepare Cursor's config folder for this turn: ${err}`,
   cursorAccountLogin:
     "Cursor keeps one sign-in per computer user (on macOS, in the keychain), so an extra Cursor account cannot sign in with a browser: give it an API key. Only the default account uses Cursor's own sign-in.",
+  antigravityRefused: "Refused: not covered by this conversation's permission",
+  antigravityProtected: "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
+  antigravityEndsTurn: ' (Antigravity ends its turn after a refusal)',
+  antigravityOutsideWrite: "This file is not in the chat's working directories: edit mode covers writes in them only.",
+  antigravityConfigWrite:
+    "This is an agent's configuration (such as .agents/, .git/hooks or .vscode/): a change here could make code run later outside any sandbox, or change how an agent works, so it asks first.",
+  antigravityExitCode: (code) => `exit code ${code}`,
+  antigravityCancelled: 'Antigravity ended the turn by itself (stopReason: cancelled) without giving a reason.',
+  antigravityNoSession: 'agy returned no session id',
+  antigravityRejectedModel: (value, err) => `Antigravity does not accept the model "${value}": ${err}`,
+  antigravityRejectedEffort: (value, err) => `Antigravity does not accept the thinking level "${value}": ${err}`,
+  antigravityRejectedMode: (err) => `Antigravity could not switch back to its default mode: ${err}`,
+  antigravitySignIn: (err) => `Antigravity is not signed in (${err}). Sign in under Antigravity in Settings, or set a Gemini API key.`,
+  antigravityConfigFailed: (err) => `Could not prepare Antigravity's settings for this turn: ${err}`,
+  antigravityAccountLogin:
+    "Antigravity keeps its Google sign-in in the system keyring, and Harness Relay cannot be sure that another account's sign-in would not replace the default one's, so an extra Antigravity account runs on a Gemini API key only. Only the default account signs in with Google.",
 
   defaultTitle: 'New chat',
   conversationNotFound: 'Conversation not found',
@@ -949,6 +983,7 @@ const en: ServerMessages = {
   codexModelsFailed: 'codex debug models failed',
   grokModelsEmpty: 'grok models returned no models',
   cursorModelsFailed: 'cursor-agent returned no model list',
+  antigravityModelsFailed: 'agy models returned no models',
   voiceNotReady: 'Voice input is not set up yet. See Settings → Voice input.',
   voiceBusy: 'Voice input is being installed. Wait for it to finish, or cancel it first.',
   voiceNoJob: 'No install is running',
@@ -977,6 +1012,7 @@ const en: ServerMessages = {
     grokDevice: ['xAI device code', 'Open the link and confirm the code below.'],
     grokBrowser: ['xAI browser sign-in', 'Opens a browser on this computer to finish the OAuth sign-in.'],
     cursorBrowser: ['Cursor account', 'Open the link below in a browser on any device, sign in to Cursor and allow the CLI.'],
+    antigravityGoogle: ['Google account', 'Open the link below in a browser on any device, sign in to Google, then paste back the code the page shows (or its whole address).'],
   },
 };
 

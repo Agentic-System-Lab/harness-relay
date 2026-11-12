@@ -6,7 +6,7 @@
     <title>Harness Relay: Claude Code, Codex and Grok in one group chat</title>
     <meta
       name="description"
-      content="A local web app where the real claude, codex, grok and cursor-agent CLIs, and five open-source coding agents on your own model backends, work with you and with each other. Design the team, choose how they take turns, and approve what they do."
+      content="A local web app where the real claude, codex, grok, cursor-agent and agy CLIs, and five open-source coding agents on your own model backends, work with you and with each other. Design the team, choose how they take turns, and approve what they do."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Harness Relay: Claude Code, Codex and Grok in one group chat" />
     <meta
       property="og:description"
-      content="The real claude, codex, grok and cursor-agent CLIs, and five open-source coding agents on your API keys or your own model, work with you and with each other. Design the team, choose how they take turns, approve what they do."
+      content="The real claude, codex, grok, cursor-agent and agy CLIs, and five open-source coding agents on your API keys or your own model, work with you and with each other. Design the team, choose how they take turns, approve what they do."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -154,8 +154,9 @@
           <div class="hero-side">
             <p class="lead">
               Give each agent a role, choose how they take turns, and let the real CLIs on your machine work on your
-              code, or any question, and answer each other. <strong>Cursor Agent and five open-source coding agents can
-              join them</strong>: Cursor on your Cursor account, the open-source ones on your API keys or your own model.
+              code, or any question, and answer each other. <strong>Cursor Agent, Antigravity and five open-source coding agents can
+              join them</strong>: Cursor on your Cursor account, Antigravity on your Google account or a Gemini API key, the
+              open-source ones on your API keys or your own model.
             </p>
             <div class="download" data-downloads data-mac="Download for macOS" data-win="Download for Windows" data-win-arm64="Download for Windows on Arm" data-linux="Download for Linux" data-linux-arm64="Download for Linux on Arm" data-release="Release" data-mobile="Harness Relay runs on a computer: open this page there.">
               <div class="download-row">
@@ -320,7 +321,7 @@
               <h2 id="agents-title">Your CLIs, not imitations</h2>
               <p class="lead">
                 Harness Relay never calls a model API. It starts the <code>claude</code>, <code>codex</code>,
-                <code>grok</code> and <code>cursor-agent</code> you already have, with their own tools, sessions and logins,
+                <code>grok</code>, <code>cursor-agent</code> and <code>agy</code> you already have, with their own tools, sessions and logins,
                 passes each agent the messages it hasn’t seen yet, and streams everything into one chat. OpenCode, Goose,
                 Cline, OpenHands and Pi are started the same way, on the model backends you set up.
               </p>
@@ -342,8 +343,12 @@
                 <dt>Cursor</dt>
                 <dd>The Agent Client Protocol, over <code>cursor-agent acp</code>. It has no sandbox there, so below full access every command it wants to run asks you first (or is refused, if the chat refuses automatically), except those on your Cursor team’s allowlist.</dd>
               </div>
+              <div class="t-plain">
+                <dt>Antigravity</dt>
+                <dd>The Agent Client Protocol, over <code>agy acp</code>. It has no sandbox there either, so below full access every command it wants to run asks you first (or is refused, if the chat refuses automatically), and a refusal ends its turn.</dd>
+              </div>
             </dl>
-            <p class="agents-foot">You don’t need them all. Any subset of the nine works: sign in to Claude Code, Codex, Grok and Cursor from Settings, and give the others a <a href="#open">model backend</a>.</p>
+            <p class="agents-foot">You don’t need them all. Any subset of the ten works: sign in to Claude Code, Codex, Grok, Cursor and Antigravity from Settings, and give the others a <a href="#open">model backend</a>.</p>
           </div>
           <div class="mark" aria-hidden="true">
             <div class="disc t-claude"><strong>Claude Code</strong><code>claude</code></div>
@@ -779,11 +784,11 @@
             <li><b>Share a chat as a link</b>Share the whole chat, or everything up to one reply, as a page that looks like the chat, without tool calls and thinking. It goes up as a secret gist with your GitHub CLI and opens on gistpreview.github.io; Settings lists every link, to remove the ones that should go.</li>
             <li><b>Messages on a schedule</b>Send the team a message at set times, in the same chat or in a new one each time: once, every day, every week on the days you pick, or every few hours. Or start from New schedule, and the lead agent picks the team. Nobody may be watching, so by default anything beyond the permission is refused automatically, unless you always allow it in that chat. A time missed while Harness Relay was closed is skipped or, if you choose, sent once when it starts.</li>
             <li><b>Status at a glance</b>The sidebar marks chats that need you, are replying or have a new reply. Chats keep running when you switch away.</li>
-            <li><b>Sign in from the app</b>Device-code, browser and paste-code sign-in for Claude Code, Codex, Grok and Cursor, model backends for the open-source agents, plus API keys, executable paths and default models. See the skills, MCP tools, built-in tools, hooks, subagents, plugins, instructions and memory each CLI loads by itself, and leave them out of Harness Relay's runs, all of a kind or one by one (Cursor has no way to).</li>
+            <li><b>Sign in from the app</b>Device-code, browser and paste-code sign-in for Claude Code, Codex, Grok, Cursor and Antigravity, model backends for the open-source agents, plus API keys, executable paths and default models. See the skills, MCP tools, built-in tools, hooks, subagents, plugins, instructions and memory each CLI loads by itself, and leave them out of Harness Relay's runs, all of a kind or one by one (Cursor and Antigravity have no way to).</li>
             <li><b>Images and video in the chat</b>Images and videos an agent saves in the working directory show up right in the conversation.</li>
             <li><b>Browse the working directory</b>Files in the header lists the working directory, or an agent’s worktree, and previews code with line numbers, Markdown, images and video. Download any file, or a folder as a ZIP file.</li>
-            <li><b>One tool library for every member</b>MCP servers, skills and memory set up once reach every member, whichever of the nine CLIs it runs on, on top of each CLI’s own setup. Give each to some CLIs or to single members.</li>
-            <li><b>Every session in AgentsView</b>Optionally give the CLIs a folder of their own, and see each chat in <a href="https://www.agentsview.io">AgentsView</a> as one thread, with every agent’s own session (tool calls, tokens and cost) under it, except Cursor’s, which AgentsView does not read.</li>
+            <li><b>One tool library for every member</b>MCP servers, skills and memory set up once reach every member, whichever of the ten CLIs it runs on, on top of each CLI’s own setup. Give each to some CLIs or to single members.</li>
+            <li><b>Every session in AgentsView</b>Optionally give the CLIs a folder of their own, and see each chat in <a href="https://www.agentsview.io">AgentsView</a> as one thread, with every agent’s own session (tool calls, tokens and cost) under it, except Cursor’s and Antigravity’s, which AgentsView does not read.</li>
             <li><b>English and 繁體中文</b>The interface follows your browser’s language, with a guided tour on the first visit.</li>
           </ul>
         </div>
@@ -799,7 +804,7 @@
             </p>
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>Bound to <code>127.0.0.1</code> and takes only browsers you signed in; cross-site requests are rejected.</span></li>
-              <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>Below full access, Claude Code’s, Codex’s and Grok’s commands run in their CLI’s own OS sandbox: they write only in the working directory, and can’t read your browsers’ folders or Harness Relay’s data. Cursor has no sandbox, so it asks you before every command (or refuses it, if the chat refuses automatically), except those on your Cursor team’s allowlist.</span></li>
+              <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>Below full access, Claude Code’s, Codex’s and Grok’s commands run in their CLI’s own OS sandbox: they write only in the working directory, and can’t read your browsers’ folders or Harness Relay’s data. Cursor has no sandbox, so it asks you before every command (or refuses it, if the chat refuses automatically), except those on your Cursor team’s allowlist. Antigravity has none either: it asks you before every command, and a refusal ends its turn.</span></li>
               <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>The five open-source agents, and everything they start, run in Harness Relay’s own sandbox (sandbox-runtime: Seatbelt on macOS, bubblewrap on Linux, a filtering proxy for the network): the same folders are out of reach, each member’s sessions are its own, and only the run’s model backend is reachable without asking. If it can’t start, they don’t run; on native Windows they run only with full access.</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>Git snapshots for every turn that edits; parallel agents in their own worktrees.</span></li>
               <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API keys and MCP server tokens in your OS credential store: macOS Keychain, Windows Credential Manager or Secret Service.</span></li>
@@ -827,8 +832,8 @@
             <p class="excerpt-note">
               In edit mode, tests and scripts run code the agents can change. Codex’s sandbox keeps it off the network;
               Claude Code’s, and Harness Relay’s own around the open-source agents, ask you about each host (an open agent
-              reaches its model backend without asking); Grok’s commands can still reach the network, and Cursor has no
-              sandbox (a command you allow runs with your rights). On native Windows only Codex has a sandbox. For code or
+              reaches its model backend without asking); Grok’s commands can still reach the network, and Cursor and Antigravity
+              have no sandbox (a command you allow runs with your rights). On native Windows only Codex has a sandbox. For code or
               instructions you don’t trust, use read-only.
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/sandboxing.md">What each sandbox covers, by platform</a>
             </p>
@@ -848,7 +853,8 @@
                 <li>
                   Any of the CLIs: <a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a> (<code>claude</code>),
                   <a href="https://github.com/openai/codex">Codex CLI</a> (<code>codex</code>), <a href="https://github.com/xai-org/grok-build">Grok CLI</a> (<code>grok</code>),
-                  <a href="https://cursor.com/cli">Cursor CLI</a> (<code>cursor-agent</code>)
+                  <a href="https://cursor.com/cli">Cursor CLI</a> (<code>cursor-agent</code>),
+                  <a href="https://antigravity.google/download">Antigravity CLI</a> (<code>agy</code>)
                 </li>
                 <li>
                   Or the open-source ones (versions tested): <a href="https://www.npmjs.com/package/opencode-ai">OpenCode</a>

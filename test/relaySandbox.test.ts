@@ -96,8 +96,8 @@ const runDirs = { tmp: join(data, 'relay-sandbox', 'run1'), hostTmp: join(data, 
 
 // Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
 describe.skipIf(process.platform === 'win32')('relaySandboxPaths', () => {
-  it("keeps every agent's project config and hook folders read-only in edit mode, Cline's .clinerules too", () => {
-    for (const name of ['.clinerules', '.cline', 'opencode.json', 'opencode.jsonc', '.opencode', '.openhands', '.pi', '.agents', '.goose', '.claude', '.codex', '.grok', '.cursor', '.mcp.json']) {
+  it("keeps every agent's project config and hook folders read-only in edit mode, Cline's .clinerules and Antigravity's other spellings of .agents too", () => {
+    for (const name of ['.clinerules', '.cline', 'opencode.json', 'opencode.jsonc', '.opencode', '.openhands', '.pi', '.agents', '.agent', '_agents', '_agent', '.goose', '.claude', '.codex', '.grok', '.cursor', '.mcp.json']) {
       expect(PROJECT_AGENT_CONFIG).toContain(name);
     }
     const p = relaySandboxPaths(spec({ permission: 'edit' }), ctx, runDirs);

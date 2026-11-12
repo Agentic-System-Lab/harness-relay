@@ -87,6 +87,13 @@ describe("the agents' sessions", () => {
     conv.agentState.c = { provider: 'cursor', sessionId: 'c1a2', seen: [] };
     expect(agentSessionIds(conv)).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0']);
   });
+
+  it("leaves out Antigravity's, which AgentsView does not read either (its conversations are databases of its own)", () => {
+    expect(agentsViewSessionId('antigravity', 'abc')).toBeUndefined();
+    const conv = conversation();
+    conv.agentState.ag = { provider: 'antigravity', sessionId: 'c3471ccd', seen: [] };
+    expect(agentSessionIds(conv)).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0']);
+  });
 });
 
 interface Call {

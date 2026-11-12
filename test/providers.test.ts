@@ -153,6 +153,77 @@ esac
   });
 });
 
+describe("Antigravity's sign-in", () => {
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+
+  posixIt("signs the default account in with Google in its home, prints the link rather than open a browser, and gives another account its key only", async () => {
+    const { KeyOnlyAccountError } = await import('../src/server/providers');
+    const { writeFakeAntigravity } = await import('./fake-antigravity');
+    const { t } = await import('../src/server/i18n');
+    const dir = join(root, 'antigravity-sign-in');
+    mkdirSync(dir, { recursive: true });
+    const bin = writeFakeAntigravity(join(dir, 'agy'));
+    const logFile = join(dir, 'log.jsonl');
+    vi.stubEnv('FAKE_AGY_LOG', logFile);
+    vi.stubEnv('FAKE_AGY_CLI', join(__dirname, 'fixtures', 'antigravity', 'cli'));
+    vi.stubEnv('FAKE_AGY_MODELS', 'models-signed-out.txt');
+    vi.stubEnv('GEMINI_API_KEY', '');
+    try {
+      const settings = new SettingsStore(openDatabase(':memory:'));
+      settings.update('antigravity', { bin });
+      settings.setAgentHome(join(dir, 'homes'));
+      const team = settings.addAccount('antigravity', 'Team');
+      const service = new ProviderService(settings);
+      const log = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>) : []);
+      const starts = () => log().filter((l) => l.start);
+
+      // `agy models` answers only signed in, asked in each account's home (as HOME: only `agy acp` takes --gemini-dir).
+      const out = await service.status('antigravity', true);
+      expect(out.accounts.map((a) => [a.id, a.auth.loggedIn])).toEqual([
+        ['', false],
+        [team, false],
+      ]);
+      expect(starts().filter((l) => l.argv[0] === 'models').map((l) => l.env.HOME).sort()).toEqual(
+        [join(dir, 'homes', 'antigravity'), join(settings.accountsDir, `antigravity-${team}`)].sort(),
+      );
+      expect(starts().filter((l) => l.argv[0] === 'models').every((l) => l.env.SSH_CONNECTION && l.env.HARNESS_RELAY_ANTIGRAVITY_HOME === null)).toBe(true);
+      expect(out).toMatchObject({ installed: true, version: '1.5.6' });
+      vi.stubEnv('FAKE_AGY_MODELS', 'models.txt');
+      expect((await service.status('antigravity', true)).accounts[0]!.auth).toEqual({ loggedIn: true });
+
+      // Its sign-in prints the link and waits for the code the page shows.
+      const view = service.startLogin('antigravity');
+      expect(view.method).toBe('google');
+      await vi.waitFor(() => expect(service.login('antigravity')?.wantsInput).toBe(true));
+      expect(service.login('antigravity')?.urls).toEqual(['https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=test']);
+      service.sendLoginInput('antigravity', '4/0Abc-code');
+      await vi.waitFor(() => expect(service.login('antigravity')?.state).toBe('success'));
+      const login = starts().find((l) => l.argv.includes('--login'))!;
+      expect(login.argv).toEqual(['acp', '--login']);
+      expect(login.env).toMatchObject({ HOME: join(dir, 'homes', 'antigravity'), SSH_CONNECTION: expect.any(String) });
+      expect(log().find((l) => l.code)?.code).toBe('4/0Abc-code');
+      // Another account's sign-in could replace the default one's in the keyring: it runs on its key only.
+      expect(() => service.startLogin('antigravity', undefined, team)).toThrow(KeyOnlyAccountError);
+      expect(() => service.startLogin('antigravity', undefined, team)).toThrow(t().antigravityAccountLogin);
+      settings.updateAccount('antigravity', team, { apiKey: 'AIza-team' });
+      service.invalidate('antigravity');
+      expect((await service.status('antigravity', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: true });
+
+      // Signing that account out drops nothing (the Google sign-in agy keeps is the default account's);
+      // the default account signs out with agy's ACP logout, in its home.
+      const before = starts().length;
+      await service.logout('antigravity', team);
+      expect(starts().length).toBe(before);
+      await service.logout('antigravity');
+      const logout = starts().at(-1)!;
+      expect(logout.argv).toEqual(['acp', '--gemini-dir', join(dir, 'homes', 'antigravity', '.gemini')]);
+      expect(log().at(-1)).toMatchObject({ method: 'logout' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe('accounts of a CLI', () => {
   // A stand-in for `claude` that keeps its sign-in in its home, as the real one does.
   const FAKE_CLAUDE = `#!/bin/sh
@@ -247,6 +318,7 @@ esac
         ['grok', ''],
         ['grok', team],
         ['cursor', ''],
+        ['antigravity', ''],
         ...OPEN_PROVIDERS.map((p) => [p, '']),
       ]);
       expect(catalogFor(all, 'claude', work)?.defaultModel).toBe('haiku');

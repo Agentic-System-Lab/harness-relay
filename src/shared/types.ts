@@ -1,6 +1,6 @@
 // Types shared by the server and the web client.
 
-export type Provider = 'claude' | 'codex' | 'grok' | 'cursor' | OpenProvider;
+export type Provider = 'claude' | 'codex' | 'grok' | 'cursor' | 'antigravity' | OpenProvider;
 
 /**
  * The open-source coding agents ("open agents"): they use the model backends set up in Settings
@@ -10,7 +10,7 @@ export type Provider = 'claude' | 'codex' | 'grok' | 'cursor' | OpenProvider;
 export type OpenProvider = 'opencode' | 'goose' | 'cline' | 'openhands' | 'pi';
 export const OPEN_PROVIDERS: OpenProvider[] = ['opencode', 'goose', 'cline', 'openhands', 'pi'];
 
-export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok', 'cursor', ...OPEN_PROVIDERS];
+export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok', 'cursor', 'antigravity', ...OPEN_PROVIDERS];
 
 export function isOpenProvider(p: Provider): p is OpenProvider {
   return (OPEN_PROVIDERS as Provider[]).includes(p);
@@ -19,7 +19,7 @@ export function isOpenProvider(p: Provider): p is OpenProvider {
 /**
  * The CLIs with a sign-in of their own that can also run on one of the user's own endpoints of
  * Settings → Model backends (Claude Code, Codex, Grok): a member's model `<endpoint id>/<model>`.
- * Cursor has a sign-in too, but its models run only through Cursor's own service.
+ * Cursor and Antigravity have a sign-in too, but their models run only through their own services.
  */
 export type EndpointCli = 'claude' | 'codex' | 'grok';
 
@@ -70,6 +70,7 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   codex: 'Codex',
   grok: 'Grok',
   cursor: 'Cursor',
+  antigravity: 'Antigravity',
   opencode: 'OpenCode',
   goose: 'Goose',
   cline: 'Cline',
@@ -83,6 +84,7 @@ export const PROVIDER_INSTALL_URL: Record<Provider, string> = {
   codex: 'https://openai.com/codex/',
   grok: 'https://x.ai/build',
   cursor: 'https://cursor.com/cli',
+  antigravity: 'https://antigravity.google/download',
   opencode: 'https://www.npmjs.com/package/opencode-ai',
   goose: 'https://formulae.brew.sh/formula/block-goose-cli',
   cline: 'https://www.npmjs.com/package/cline',
@@ -266,14 +268,16 @@ export type NativePart = (typeof NATIVE_PARTS)[number];
  * subagents. Grok's switches reach only what it loads from Claude Code and Cursor (its own skills,
  * MCP servers and hooks are turned off in ~/.grok/config.toml), and it has none for instruction
  * files, its own subagents or plugins. Cursor has no switch for any of them over ACP (its run gets a
- * config folder of its own, but its skills, MCP servers and hooks are read from the home folder). Only
- * Claude Code lists its built-in tools.
+ * config folder of its own, but its skills, MCP servers and hooks are read from the home folder), and
+ * neither has Antigravity (`agy acp` takes no flag or setting for them that a run's own settings could
+ * hold). Only Claude Code lists its built-in tools.
  */
 export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
   claude: ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins'],
   codex: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'plugins'],
   grok: ['skills', 'mcp', 'memory', 'hooks'],
   cursor: [],
+  antigravity: [],
   // The open agents: each adapter lists what its CLI can really leave out (one line each, kept apart).
   // OpenCode: skills (denied with `permission.skill`, which turns off its skill tool), the project's instruction files Harness Relay passes on, its subagents (`agent.<name>.disable`).
   opencode: ['skills', 'instructions', 'agents'],
@@ -312,14 +316,15 @@ export type NativeItemsOff = Partial<Record<NativeItemKind, string[]>>;
  * settings. Claude Code: skills by name (`skillOverrides`), MCP servers and their tools and its
  * built-in tools by permission rules (an MCP server still starts: only its tools are taken away),
  * instruction files by path (`claudeMdExcludes`), subagents by name, plugins by id. Codex: skills by
- * path, MCP servers and their tools, hooks by key, plugins by id. Grok and Cursor have no such
- * setting for a single run.
+ * path, MCP servers and their tools, hooks by key, plugins by id. Grok, Cursor and Antigravity have
+ * no such setting for a single run.
  */
 export const NATIVE_ITEM_SUPPORT: Record<Provider, readonly NativeItemKind[]> = {
   claude: ['skills', 'mcp', 'mcpTools', 'tools', 'instructions', 'agents', 'plugins'],
   codex: ['skills', 'mcp', 'mcpTools', 'hooks', 'plugins'],
   grok: [],
   cursor: [],
+  antigravity: [],
   // The open agents: each adapter lists what its CLI can leave out alone (one line each, kept apart).
   // OpenCode: a skill by name (its `skill` permission), a subagent by name.
   opencode: ['skills', 'agents'],
@@ -1290,11 +1295,13 @@ export function accountUsable(a: Pick<AccountStatus, 'auth' | 'usingStoredApiKey
 }
 
 /**
- * Whether an account signs in with its API key only: Cursor's accounts besides the default one, since
- * Cursor keeps one sign-in per computer user (on macOS, in the keychain) whatever its config folder.
+ * Whether an account signs in with its API key only: Cursor's and Antigravity's accounts besides the
+ * default one. Cursor keeps one sign-in per computer user (on macOS, in the keychain) whatever its
+ * config folder; Antigravity keeps its Google sign-in in the system keyring too, under names its
+ * folder may not change, so another account's sign-in could replace the default one's.
  */
 export function keyOnlyAccount(p: Provider, account: string | undefined): boolean {
-  return p === 'cursor' && Boolean(account);
+  return (p === 'cursor' || p === 'antigravity') && Boolean(account);
 }
 
 /**

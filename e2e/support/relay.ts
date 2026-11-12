@@ -2,7 +2,7 @@
  * One Harness Relay server for one test: `src/server/index.ts` with the built UI, on a free port,
  * with everything it keeps in a temporary folder of its own (data, the CLIs' homes, a home folder,
  * the default working directory), the fake CLIs first on its PATH and the OS credential store off.
- * The CLIs no fake stands in for (Cursor and the open agents) are not installed there, as on CI.
+ * The CLIs no fake stands in for (Cursor, Antigravity and the open agents) are not installed there, as on CI.
  * Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -91,8 +91,8 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   // own, and the developer's own Harness Relay settings (limits, a voice folder): none of them is the
   // server's business. A spec that needs one sets it (`serverEnv`).
   for (const k of Object.keys(env)) if (/^(CLAUDECODE|CLAUDE_CODE_|PLAYWRIGHT_|PW_|TEST_|E2E_|RELAY_|FORCE_COLOR$)/.test(k)) delete env[k];
-  // Nor the user's own Cursor sign-in by key, or its folder (live runs sign in as the user does).
-  if (!o.live) for (const k of ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN', 'CURSOR_CONFIG_DIR']) delete env[k];
+  // Nor the user's own Cursor or Antigravity sign-in by key, or Cursor's folder (live runs sign in as the user does).
+  if (!o.live) for (const k of ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN', 'CURSOR_CONFIG_DIR', 'GEMINI_API_KEY', 'AGY_ADC_AUTH']) delete env[k];
   const homes = o.live
     ? {}
     : {
@@ -215,7 +215,7 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
       return (text ? JSON.parse(text) : undefined) as T;
     };
 
-    // The CLIs no fake stands in for (Cursor and the open agents) are not installed here, as on CI:
+    // The CLIs no fake stands in for (Cursor, Antigravity and the open agents) are not installed here, as on CI:
     // a real one on the user's PATH would otherwise be started (Cursor with the sign-in it keeps in
     // the macOS keychain), and what each test sees would depend on what that computer has. Their
     // executable is set to a path that does not exist, before the page asks for any CLI's status.

@@ -1070,7 +1070,7 @@ describe('SettingsStore (SQLite)', () => {
     expect(storedKeys()).toEqual(['', '']);
     expect(s.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
     const view = (v: SettingsStore) => Object.fromEntries(v.view().providers.map((p) => [p.provider, p.apiKeyStorage]));
-    expect(view(s)).toEqual({ claude: 'keychain', codex: undefined, grok: 'keychain', cursor: 'keychain' });
+    expect(view(s)).toEqual({ claude: 'keychain', codex: undefined, grok: 'keychain', cursor: 'keychain', antigravity: 'keychain' });
 
     const again = new SettingsStore(reopen(), keyring);
     expect(again.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');

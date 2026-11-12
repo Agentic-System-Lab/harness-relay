@@ -14,6 +14,7 @@ import {
   type ProviderModels,
   type ProviderStatus,
 } from '../shared/types';
+import { antigravityLogout, antigravityProbeEnv, ANTIGRAVITY_NO_BROWSER } from './agents/antigravity';
 import { openAgents } from './agents/index';
 import { openHomeEnv } from './agents/open';
 import { backendLabel } from './backends';
@@ -89,6 +90,15 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
       if (j.isAuthenticated === true) return { loggedIn: true, account: j.userInfo?.email ?? undefined };
       if (j.status === 'unauthenticated') return { loggedIn: false };
       return { loggedIn: null, detail: typeof j.message === 'string' ? j.message : undefined };
+    }
+    case 'antigravity': {
+      // With a Gemini API key it runs on that key (its runs' own settings make agy use it).
+      if (CREDENTIAL_ENV.antigravity.some((k) => env[k])) return { loggedIn: true, method: 'API key' };
+      // `agy models` answers only signed in ("Please sign in to view available models"); it opens no browser.
+      const r = await capture(bin, ['models'], antigravityProbeEnv(env), { timeoutMs: 30_000 });
+      const out = stripAnsi(`${r.stdout}\n${r.stderr}`);
+      if (/please sign in|not signed in|authentication required/i.test(out)) return { loggedIn: false };
+      return r.code === 0 ? { loggedIn: true } : { loggedIn: null, detail: tail(out, 200) };
     }
     default:
       return { loggedIn: null };
@@ -227,11 +237,13 @@ export class ProviderService {
   /** Signs an account in (empty `account`: the default one), with the CLI's own flow, in its home. */
   startLogin(p: Provider, methodId?: string, account = ''): LoginSessionView {
     // Its sign-in would replace the default account's (see `keyOnlyAccount`).
-    if (keyOnlyAccount(p, this.settings.resolveAccount(p, account))) throw new KeyOnlyAccountError();
+    if (keyOnlyAccount(p, this.settings.resolveAccount(p, account))) throw new KeyOnlyAccountError(p);
     const method = LOGIN_METHODS[p].find((m) => m.id === methodId) ?? LOGIN_METHODS[p][0];
     if (!method) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     this.logins.get(slot(p, account))?.cancel();
-    const env = { ...this.settings.env(p, account), ...method.env };
+    // Antigravity's sign-in (`agy acp --login`) finds the account's home by `HOME` (`antigravityProbeEnv`).
+    const own = this.settings.env(p, account);
+    const env = { ...(p === 'antigravity' ? antigravityProbeEnv(own) : own), ...method.env };
     let session: LoginSession;
     try {
       session = new LoginSession(p, account, method, this.settings.bin(p), env, () => this.invalidate(p));
@@ -282,20 +294,29 @@ export class ProviderService {
       else delete env[CURSOR_SHARED_SIGN_IN];
       for (const k of CREDENTIAL_ENV.cursor) delete env[k];
     }
-    return this.logoutIn(p, env, timeoutMs);
+    return this.logoutIn(p, env, timeoutMs, keyOnlyAccount(p, this.settings.resolveAccount(p, account)));
   }
 
   /**
    * Signs the CLI out in the environment given: an account's, taken while it was still one (a removed
    * account's id names the default account).
    */
-  async logoutIn(p: Provider, env: NodeJS.ProcessEnv, timeoutMs = 30_000): Promise<string> {
+  async logoutIn(p: Provider, env: NodeJS.ProcessEnv, timeoutMs = 30_000, keyOnly = false): Promise<string> {
     // Signed in for the one run only (an API key, an account besides the default): nothing is kept to sign out of.
-    if (p === 'cursor' && env[CURSOR_SHARED_SIGN_IN] === 'memory') {
+    // An Antigravity account that signs in with its key only has no Google sign-in of its own to drop: the one agy keeps is the default account's.
+    if ((p === 'cursor' && env[CURSOR_SHARED_SIGN_IN] === 'memory') || (p === 'antigravity' && keyOnly)) {
       this.invalidate(p);
       return '';
     }
     const bin = this.settings.bin(p);
+    if (p === 'antigravity') {
+      try {
+        await antigravityLogout(bin, env, timeoutMs);
+      } finally {
+        this.invalidate(p);
+      }
+      return '';
+    }
     const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
     const r = await capture(bin, args, env, { timeoutMs });
     this.invalidate(p);
@@ -372,6 +393,16 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[];
       env: { NO_OPEN_BROWSER: '1' },
     },
   ],
+  // `agy acp --login` prints its link (it opens no browser when it finds itself over SSH:
+  // `ANTIGRAVITY_NO_BROWSER`), then reads the code the page shows, or the page's whole address.
+  antigravity: [
+    {
+      id: 'google',
+      key: 'antigravityGoogle',
+      args: ['acp', '--login'],
+      env: { ...ANTIGRAVITY_NO_BROWSER },
+    },
+  ],
   // The open agents have no sign-in: they use the model backends in Settings.
   opencode: [],
   goose: [],
@@ -382,8 +413,8 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[];
 
 /** A browser sign-in asked for an account that signs in with its API key only (`keyOnlyAccount`). */
 export class KeyOnlyAccountError extends Error {
-  constructor() {
-    super(t().cursorAccountLogin);
+  constructor(p: Provider) {
+    super(p === 'antigravity' ? t().antigravityAccountLogin : t().cursorAccountLogin);
   }
 }
 

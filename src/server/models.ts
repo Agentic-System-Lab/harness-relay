@@ -14,6 +14,7 @@ import {
   type Provider,
   type ProviderModels,
 } from '../shared/types';
+import { antigravityAppDir, antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
 import { openAgents } from './agents/index';
 import { openHomeEnv, type OpenCatalog } from './agents/open';
 import { capture, converse, stripAnsi, tail } from './process';
@@ -26,6 +27,7 @@ const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const GROK_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
 const CURSOR_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const ANTIGRAVITY_EFFORTS = ['low', 'medium', 'high'];
 
 /** Claude Code accepts aliases that always point at the latest model of each family. */
 const CLAUDE_MODELS: ModelOption[] = [
@@ -196,6 +198,69 @@ async function discoverCursor(bin: string, env: NodeJS.ProcessEnv): Promise<Disc
   };
 }
 
+/** The thinking levels an Antigravity model's id may end in, lowest first. */
+const AGY_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
+ * Antigravity's models from `agy models` (lines `<id>\t<name>`, such as `gemini-4-argon-high\tGemini 4
+ * Argon (High)`): one model per base id (`gemini-4-argon`, as its sessions' `model` option names it),
+ * with the thinking levels its ids end in (its sessions' `thought_level` option), lowest first.
+ */
+export function parseAntigravityModels(out: string): ModelOption[] {
+  const models: ModelOption[] = [];
+  for (const line of stripAnsi(out).split('\n')) {
+    const m = line.match(/^\s*([A-Za-z0-9][A-Za-z0-9._:/-]*)\t+(.+?)\s*$/);
+    if (!m) continue;
+    const [, slug, name] = m as unknown as [string, string, string];
+    const level = AGY_LEVELS.find((l) => slug.endsWith(`-${l}`));
+    const id = level ? slug.slice(0, -level.length - 1) : slug;
+    const label = level ? name.replace(/\s*\([^)]*\)\s*$/, '') : name;
+    let model = models.find((x) => x.id === id);
+    if (!model) {
+      model = { id, ...(label && label !== id ? { label } : {}) };
+      models.push(model);
+    }
+    if (level) model.efforts = [...new Set([...(model.efforts ?? []), level])].sort((a, b) => AGY_LEVELS.indexOf(a) - AGY_LEVELS.indexOf(b));
+  }
+  return models;
+}
+
+/** The model an Antigravity account's settings name (`model`), as a base id with its thinking level when the id carries one. */
+export function antigravityDefaultModel(model: unknown, models: readonly ModelOption[]): { model?: string; effort?: string } {
+  if (typeof model !== 'string' || !model.trim()) return {};
+  const v = model.trim();
+  if (models.some((m) => m.id === v)) return { model: v };
+  const level = AGY_LEVELS.find((l) => v.endsWith(`-${l}`));
+  const id = level ? v.slice(0, -level.length - 1) : undefined;
+  return id && models.some((m) => m.id === id) ? { model: id, effort: level } : {};
+}
+
+/**
+ * Asks Antigravity for its models (`agy models`, signed in: it lists those of the account's plan), in
+ * the account's home; with a Gemini API key, told to use it (`antigravityProbeSettings`).
+ */
+async function discoverAntigravity(bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
+  const r = await capture(bin, [...antigravityProbeSettings(env), 'models'], antigravityProbeEnv(env), { timeoutMs: 30_000 });
+  const models = parseAntigravityModels(r.stdout);
+  let own: unknown;
+  try {
+    own = (JSON.parse(readFileSync(join(antigravityAppDir(env), 'settings.json'), 'utf8')) as Record<string, unknown>).model;
+  } catch {
+    own = undefined;
+  }
+  const def = antigravityDefaultModel(own, models);
+  const efforts = [...new Set(models.flatMap((m) => m.efforts ?? []))].sort((a, b) => AGY_LEVELS.indexOf(a) - AGY_LEVELS.indexOf(b));
+  return {
+    provider: 'antigravity',
+    models,
+    efforts: efforts.length ? efforts : ANTIGRAVITY_EFFORTS,
+    ...(def.model ? { cliDefaultModel: def.model } : {}),
+    ...(def.effort ? { cliDefaultEffort: def.effort } : {}),
+    source: models.length ? 'cli' : 'builtin',
+    error: models.length ? undefined : tail(stripAnsi(`${r.stdout}\n${r.stderr}`).replace(/^Fetching available models\.\.\.\s*/m, ''), 200) || t().antigravityModelsFailed,
+  };
+}
+
 function discoverClaude(env: NodeJS.ProcessEnv): DiscoveredModels {
   // Claude Code has no list command; read the user's configured default if there is one.
   const dir = env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
@@ -292,12 +357,13 @@ export async function discoverModels(
     if (p === 'claude') own = discoverClaude(env);
     else if (p === 'codex') own = await discoverCodex(bin, env);
     else if (p === 'cursor') own = await discoverCursor(bin, env);
+    else if (p === 'antigravity') own = await discoverAntigravity(bin, env);
     else own = await discoverGrok(bin, env);
   } catch (err) {
-    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS }[p];
+    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS, antigravity: ANTIGRAVITY_EFFORTS }[p];
     own = { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
   }
-  // Cursor's models run only through Cursor's own service, so the endpoints' models are not its.
+  // Cursor's and Antigravity's models run only through their own services, so the endpoints' models are not theirs.
   return isEndpointCli(p) ? withEndpointModels(p, own, backends.endpoints) : own;
 }
 
