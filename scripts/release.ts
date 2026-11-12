@@ -19,8 +19,9 @@
  *
  * `--remote` reads the tags from origin (`git ls-remote`) instead of the local repository, and
  * `--today` checks against a given day (the workflow's publish step re-checks against the day it
- * started). In GitHub Actions, `check` refuses a run on another branch than main and writes the
- * version's tag, title, semver and whether it is a pre-release to $GITHUB_OUTPUT.
+ * started). `check` also says which version the release's notes start from (previousVersion()). In
+ * GitHub Actions, it refuses a run on another branch than main and writes the version's tag, title,
+ * semver, whether it is a pre-release and the version its notes start from to $GITHUB_OUTPUT.
  *
  * Only erasable TypeScript here: the workflow runs it with plain `node`.
  */
@@ -127,6 +128,19 @@ export function nextVersion(tags: readonly string[], date: string, rc: boolean):
   return `${release}-rc.${Math.max(...made.map((v) => v.rcPatch)) + 1}`;
 }
 
+/**
+ * The version a release's notes start from (the changes listed are those since it): for a release,
+ * the newest release before it, so that they hold everything since that release, its release
+ * candidates' changes included; for a release candidate, the newest version before it of either kind,
+ * release or release candidate. None when there is no such version.
+ */
+export function previousVersion(tags: readonly string[], v: ReleaseVersion): string | undefined {
+  const own = semverOf(v);
+  const before = releasedVersions(tags).filter((t) => (v.rc || !t.rc) && compareSemver(semverOf(t), own) < 0);
+  before.sort((a, b) => compareSemver(semverOf(b), semverOf(a)));
+  return before[0]?.version;
+}
+
 /** The year, then the month and day as one number (1110 for November 10). */
 function semverCore(date: string): string {
   const [y, m, d] = date.split('-').map(Number);
@@ -202,7 +216,16 @@ export interface ReleaseCheck {
 }
 
 export type CheckResult =
-  | { ok: true; release: ReleaseVersion; tag: string; title: string; prerelease: boolean; semver: string }
+  | {
+      ok: true;
+      release: ReleaseVersion;
+      tag: string;
+      title: string;
+      prerelease: boolean;
+      semver: string;
+      /** The version its notes start from (previousVersion()); none when there is no earlier one. */
+      previous: string | undefined;
+    }
   | { ok: false; errors: string[] };
 
 /** Everything wrong with releasing `version` now; nothing when it may be released. */
@@ -240,7 +263,15 @@ export function checkRelease(c: ReleaseCheck): CheckResult {
     }
   }
   if (errors.length) return { ok: false, errors };
-  return { ok: true, release: v, tag: v.version, title: `Harness Relay ${v.version}`, prerelease: v.rc, semver: semverOf(v) };
+  return {
+    ok: true,
+    release: v,
+    tag: v.version,
+    title: `Harness Relay ${v.version}`,
+    prerelease: v.rc,
+    semver: semverOf(v),
+    previous: previousVersion(c.tags, v),
+  };
 }
 
 /**
@@ -315,8 +346,14 @@ function main(argv: string[]): number {
     prerelease: String(result.prerelease),
     semver: result.semver,
     today,
+    previous: result.previous ?? '',
   };
   console.log(`✓ ${result.tag} may be released (${result.prerelease ? 'a release candidate, published as a pre-release' : 'a release'}; app version ${result.semver}).`);
+  console.log(
+    result.previous
+      ? `  Its notes list the changes since ${result.previous}${result.prerelease ? '' : ', the release before it'}.`
+      : `  There is no ${result.prerelease ? 'version' : 'release'} before it: GitHub chooses where its notes start.`,
+  );
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(out).map(([k, v]) => `${k}=${v}\n`).join(''));
   return 0;
 }

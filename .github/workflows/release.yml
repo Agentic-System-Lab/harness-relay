@@ -206,8 +206,10 @@ jobs:
           node-version: 24
 
       # Again, against the tags as they are now and the day the run started (a long build may end
-      # after midnight): another release may have taken the version meanwhile.
+      # after midnight): another release may have taken the version meanwhile. It also gives the
+      # version the notes start from (previousVersion() in scripts/release.ts).
       - name: Check the version again
+        id: version
         env:
           VERSION: ${{ needs.check.outputs.tag }}
           TODAY: ${{ needs.check.outputs.today }}
@@ -288,6 +290,7 @@ jobs:
           TAG: ${{ needs.check.outputs.tag }}
           TITLE: ${{ needs.check.outputs.title }}
           PRERELEASE: ${{ needs.check.outputs.prerelease }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
         run: |
           if [ "$PRERELEASE" = true ]; then
             channel=(--prerelease --latest=false)
@@ -301,5 +304,10 @@ jobs:
           notes="$kind
 
           **Download:** \`.dmg\` for macOS 13 or later on Apple Silicon (no Intel Macs), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. $offered See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
+          # The notes list the pull requests merged since PREVIOUS: for a release, the release before it
+          # (its release candidates' changes included); for a release candidate, the version before it,
+          # release or release candidate. Without one, GitHub chooses.
+          start=()
+          if [ -n "$PREVIOUS" ]; then start=(--notes-start-tag "$PREVIOUS"); fi
           # The tag is made on the commit that was checked and built.
-          gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes "$notes" --generate-notes "${channel[@]}"
+          gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes "$notes" --generate-notes "${start[@]}" "${channel[@]}"

@@ -10,6 +10,7 @@ import {
   devVersion,
   nextVersion,
   parseVersion,
+  previousVersion,
   RELEASE_TIME_ZONE,
   semverOf,
   actionsData,
@@ -130,6 +131,7 @@ describe('checking a release', () => {
       title: 'Harness Relay 2026-11-10-rc',
       prerelease: true,
       semver: '2026.1110.0-rc',
+      previous: undefined,
     });
   });
 
@@ -212,6 +214,53 @@ describe('checking a release', () => {
   it('reports every problem at once', () => {
     const r = check('2026-11-09', [], { ref: 'refs/heads/dev' });
     expect(r.ok === false && r.errors).toHaveLength(2);
+  });
+});
+
+describe("where a release's notes start", () => {
+  // This repository's own releases, in the order they were made.
+  const made = ['2026-11-11-rc', '2026-11-11', '2026-11-11.1-rc', '2026-11-11.1', '2026-11-12-rc', '2026-11-12-rc.1', '2026-11-12'];
+  const since = (version: string, tags: readonly string[]) => previousVersion(tags, ok(version));
+
+  it('starts a release at the release before it, past its release candidates', () => {
+    expect(since('2026-11-12', made.slice(0, 6))).toBe('2026-11-11.1');
+    expect(since('2026-11-11.1', made.slice(0, 3))).toBe('2026-11-11');
+    expect(since('2026-11-12.1', made)).toBe('2026-11-12');
+    expect(since('2026-11-12.1', [...made, '2026-11-12.1-rc', '2026-11-12.1-rc.1'])).toBe('2026-11-12');
+    // Days apart, with release candidates in between that never became a release.
+    expect(since('2026-11-14', [...made, '2026-11-13-rc', '2026-11-13-rc.1'])).toBe('2026-11-12');
+  });
+
+  it('starts a release candidate at the version before it, release or release candidate', () => {
+    expect(since('2026-11-12-rc', made.slice(0, 4))).toBe('2026-11-11.1');
+    expect(since('2026-11-12-rc.1', made.slice(0, 5))).toBe('2026-11-12-rc');
+    expect(since('2026-11-11.1-rc', made.slice(0, 2))).toBe('2026-11-11');
+    expect(since('2026-11-12.1-rc', made)).toBe('2026-11-12');
+    expect(since('2026-11-12.1-rc.1', [...made, '2026-11-12.1-rc'])).toBe('2026-11-12.1-rc');
+    expect(since('2026-11-14-rc', [...made, '2026-11-13-rc', '2026-11-13-rc.1'])).toBe('2026-11-13-rc.1');
+  });
+
+  it('goes by version, not by the order the tags are listed in, and ignores tags that are not versions', () => {
+    const shuffled = ['v1.0', '2026-11-11.1', 'latest', '2026-11-12-rc.1', '2026-11-11', '2026-11-12-rc', '2026-11-11.1-rc', '2026-11-11-rc'];
+    expect(since('2026-11-12', shuffled)).toBe('2026-11-11.1');
+    expect(since('2026-11-12-rc.2', shuffled)).toBe('2026-11-12-rc.1');
+    // Patches by number, not as text: .10 comes after .9.
+    expect(since('2026-11-12.11', ['2026-11-12.9', '2026-11-12.10', '2026-11-12.10-rc'])).toBe('2026-11-12.10');
+    // Never a version after it.
+    expect(since('2026-11-12-rc', ['2026-11-11', '2026-11-12', '2026-11-13-rc'])).toBe('2026-11-11');
+  });
+
+  it('has none for the first release or release candidate', () => {
+    expect(since('2026-11-11-rc', [])).toBeUndefined();
+    expect(since('2026-11-11', ['v1.0'])).toBeUndefined();
+    // A release with only release candidates before it has no release to start at.
+    expect(since('2026-11-11', ['2026-11-11-rc', '2026-11-11-rc.1'])).toBeUndefined();
+  });
+
+  it('comes with an accepted version', () => {
+    expect(checkRelease({ version: '2026-11-12', today: '2026-11-12', tags: made.slice(0, 6) })).toMatchObject({ ok: true, previous: '2026-11-11.1' });
+    expect(checkRelease({ version: '2026-11-12-rc.1', today: '2026-11-12', tags: made.slice(0, 5) })).toMatchObject({ ok: true, previous: '2026-11-12-rc' });
+    expect(checkRelease({ version: '2026-11-11-rc', today: '2026-11-11', tags: [] })).toMatchObject({ ok: true, previous: undefined });
   });
 });
 
@@ -357,6 +406,7 @@ describe('the release script', () => {
     git(repo, 'tag', '2026-11-11');
     const r = run(['check', '2026-11-11.1-rc', '--today', '2026-11-11']);
     expect(r.out).toContain('2026-11-11.1-rc may be released (a release candidate, published as a pre-release; app version 2026.1111.1-rc)');
+    expect(r.out).toContain('Its notes list the changes since 2026-11-11.\n');
     expect(r.code).toBe(0);
     git(repo, 'tag', '-d', '2026-11-11');
   });
@@ -382,8 +432,17 @@ describe('the release script', () => {
     const actions = { GITHUB_ACTIONS: 'true', GITHUB_OUTPUT: output };
     expect(run(['check', '2026-11-12-rc', '--today', '2026-11-12'], { ...actions, GITHUB_REF: 'refs/heads/main' }).code).toBe(0);
     expect(readFileSync(output, 'utf8')).toBe(
-      'tag=2026-11-12-rc\ntitle=Harness Relay 2026-11-12-rc\nprerelease=true\nsemver=2026.1112.0-rc\ntoday=2026-11-12\n',
+      'tag=2026-11-12-rc\ntitle=Harness Relay 2026-11-12-rc\nprerelease=true\nsemver=2026.1112.0-rc\ntoday=2026-11-12\nprevious=2026-11-10-rc\n',
     );
+    // A release starts its notes at the release before it, past the release candidates since.
+    git(repo, 'tag', '2026-11-11');
+    git(repo, 'tag', '2026-11-12-rc');
+    writeFileSync(output, '');
+    const release = run(['check', '2026-11-12', '--today', '2026-11-12'], { ...actions, GITHUB_REF: 'refs/heads/main' });
+    expect(release.code).toBe(0);
+    expect(release.out).toContain('Its notes list the changes since 2026-11-11, the release before it.');
+    expect(readFileSync(output, 'utf8')).toContain('\nprevious=2026-11-11\n');
+    git(repo, 'tag', '-d', '2026-11-11', '2026-11-12-rc');
     const r = run(['check', '2026-11-12-rc', '--today', '2026-11-12'], { ...actions, GITHUB_REF: 'refs/heads/feature' });
     expect(r.code).toBe(1);
     expect(r.err).toContain('::error title=Release version::Releases are made from main');
@@ -396,7 +455,10 @@ describe('the release script', () => {
     expect(run(['check', '2026-11-10-rc', '--today', '11/10/2026']).code).toBe(2);
     expect(run(['check', '2026-11-10-rc', '--today']).code).toBe(2);
     expect(run(['check', '2026-11-10-rc', '--today', '2026-13-45']).code).toBe(2);
-    expect(run(['check', '2026-11-10', '--today', '2026-11-10']).code).toBe(0);
+    const first = run(['check', '2026-11-10', '--today', '2026-11-10']);
+    expect(first.code).toBe(0);
+    // Only a release candidate is out (2026-11-10-rc, from the test before): no release to start the notes at.
+    expect(first.out).toContain('There is no release before it: GitHub chooses where its notes start.');
     expect(run(['check']).code).toBe(2);
     expect(run(['check', '--remote']).code).toBe(2);
     expect(run(['publish', '2026-11-10']).code).toBe(2);
@@ -563,5 +625,15 @@ describe('the release workflow', () => {
     expect(publish).not.toContain('-update');
     expect(publish).toContain('--target "$GITHUB_SHA"');
     expect(publish).toContain('gh release create "$TAG"');
+  });
+
+  it("starts the notes where the rules say, from the check just before publishing", () => {
+    const release = job('release');
+    const again = release.slice(release.indexOf('- name: Check the version again'), release.indexOf('uses: actions/download-artifact'));
+    expect(again).toMatch(/\n\s+id: version\n/);
+    const publish = release.slice(release.indexOf('- name: Publish\n'));
+    expect(publish).toContain('PREVIOUS: ${{ steps.version.outputs.previous }}');
+    expect(publish).toContain('if [ -n "$PREVIOUS" ]; then start=(--notes-start-tag "$PREVIOUS"); fi');
+    expect(publish).toContain('--generate-notes "${start[@]}" "${channel[@]}"');
   });
 });
