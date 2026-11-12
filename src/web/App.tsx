@@ -9,7 +9,15 @@ import { SettingsPage } from './components/SettingsPage';
 import { SignIn } from './components/SignIn';
 import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route } from './route';
-import { pageStart, signInWhere, signInWithLink, type LinkDeps, type LinkResult, type PageStart } from './signin';
+import {
+  askSignedIn,
+  runFirstCheck,
+  signInWhere,
+  signInWithLink,
+  type LinkDeps,
+  type LinkResult,
+  type PageStart,
+} from './signin';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
@@ -74,10 +82,7 @@ export function App() {
   const [desktopApp, setDesktopApp] = useState(false);
   const state = useRef(auth);
   state.current = auth;
-  /**
-   * The page's first check while it runs, shared by both runs of the effect below in development
-   * (`pageStart`); let go once shown, so a later run (a Fast Refresh) asks again rather than shows it twice.
-   */
+  /** The page's first check while it runs, shared by both runs of the effect below in development (`runFirstCheck`). */
   const start = useRef<Promise<PageStart>>(undefined);
 
   useEffect(() => {
@@ -90,20 +95,19 @@ export function App() {
     // Whether the desktop app started the server, also when the page opens with a link: a link that
     // no longer works, or a sign-out later, shows the sign-in page, which then points at the app's
     // menu rather than a terminal.
-    const first = (start.current ??= pageStart(LINK));
-    void first.then((s) => {
-      if (!live) return;
-      if (start.current === first) start.current = undefined;
+    const endFirst = runFirstCheck(start, LINK, (s) => {
       setDesktopApp(s.desktop);
       show(s);
     });
     // A link opened in a tab that shows the app already: only its fragment changes.
-    const onHash = () => void signInWithLink(LINK, state.current === 'in').then((r) => r && show(r));
+    const onHash = () =>
+      void signInWithLink(LINK, () => state.current === 'in' || askSignedIn(LINK)).then((r) => r && show(r));
     const out = () => setAuth('out');
     window.addEventListener('hashchange', onHash);
     window.addEventListener(SIGNED_OUT_EVENT, out);
     return () => {
       live = false;
+      endFirst();
       window.removeEventListener('hashchange', onHash);
       window.removeEventListener(SIGNED_OUT_EVENT, out);
     };

@@ -37,13 +37,23 @@ export interface LinkResult {
   error?: string;
 }
 
+/** Whether the server knows this browser (GET /api/auth); not when it cannot say. */
+export async function askSignedIn(d: LinkDeps): Promise<boolean> {
+  return (await d.status().catch(() => ({ signedIn: false }))).signedIn;
+}
+
 /**
  * Signs in with the code a sign-in link carries (`#code=…`), and takes it out of the address;
  * undefined when the address has none. The code is used up also in a browser signed in already (its
  * new session replaces the old one), so it does not keep working in the browser's history. A link
- * that no longer works changes nothing for a browser that is signed in (`signedIn`, else asked).
+ * that no longer works changes nothing for a browser that is signed in: `signedIn` says whether it
+ * is, read once the code has failed (a failed code leaves the session as it was); else the server is
+ * asked.
  */
-export async function signInWithLink(d: LinkDeps, signedIn = false): Promise<LinkResult | undefined> {
+export async function signInWithLink(
+  d: LinkDeps,
+  signedIn: () => boolean | Promise<boolean> = () => askSignedIn(d),
+): Promise<LinkResult | undefined> {
   const code = codeFromHash(d.hash());
   if (!code) return undefined;
   d.dropCode();
@@ -51,7 +61,7 @@ export async function signInWithLink(d: LinkDeps, signedIn = false): Promise<Lin
     await d.signIn(code);
     return { signedIn: true };
   } catch (e) {
-    if (signedIn || (await d.status().catch(() => ({ signedIn: false }))).signedIn) return { signedIn: true };
+    if (await signedIn()) return { signedIn: true };
     return { signedIn: false, error: (e as Error).message };
   }
 }
@@ -63,14 +73,37 @@ export interface PageStart extends LinkResult {
 
 /**
  * The page's first check: the server's word, then the link the page opened with, if any (the desktop
- * app always opens it with one). The page asks for it once, also when React runs its effect twice
- * (StrictMode, in development): a second check would find the link's code gone from the address and
- * go by a status asked before the first one's sign-in, and show the sign-in page to a browser the
- * link had just signed in.
+ * app always opens it with one). The server is asked once, also for a link that does not work.
  */
 export async function pageStart(d: LinkDeps): Promise<PageStart> {
   const status = await d.status().catch(() => ({ signedIn: false, desktop: false }));
   const desktop = status.desktop === true;
-  const link = await signInWithLink(d);
+  const link = await signInWithLink(d, () => status.signedIn);
   return link ? { ...link, desktop } : { signedIn: status.signedIn, desktop };
+}
+
+/** Where the page keeps its first check while it runs (a React ref). */
+export interface HeldCheck {
+  current: Promise<PageStart> | undefined;
+}
+
+/**
+ * One run of the page's first effect: shows the first check (`pageStart`) when it is done, unless the
+ * run has ended by then (the function it returns ends it). Runs share the check while it runs: React
+ * runs the effect twice in development (StrictMode), ending the first run at once, and a check of the
+ * second run's own would find the link's code gone from the address and go by a status asked before
+ * the first one's sign-in, showing the sign-in page to a browser the link had just signed in. The run
+ * that shows the check lets it go, so a run after it checks again rather than shows an old result.
+ */
+export function runFirstCheck(held: HeldCheck, d: LinkDeps, show: (s: PageStart) => void): () => void {
+  let live = true;
+  const first = (held.current ??= pageStart(d));
+  void first.then((s) => {
+    if (!live) return;
+    if (held.current === first) held.current = undefined;
+    show(s);
+  });
+  return () => {
+    live = false;
+  };
 }
