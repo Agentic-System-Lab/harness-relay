@@ -121,7 +121,7 @@ src/
     locales/               zh-TW.ts（訊息結構的來源）、en.ts
     components/            Sidebar、SidebarGroups（群組、拖放）、SidebarSearch、
                            NewChat、TemplateEditor（範本對話框）、TeamEditor、TeamReviser（團隊設定的
-                           「請首席 agent 調整」）、ModelPicker、ChatView、
+                           「請首席 agent 調整」）、ModelPicker、CliPicker（選 CLI：可水平捲動的一排）、ChatView、
                            MessageItem（含 plan 卡片）、ChangesCard、Composer、Markdown、
                            SettingsPage、CopyButton、Logo、Onboarding（使用導覽）、
                            MemberDots、icons、VoiceInput（麥克風、安裝說明對話框、安裝進度）、

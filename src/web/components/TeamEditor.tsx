@@ -25,6 +25,7 @@ import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel
 import { AccountPicker } from './AccountPicker';
 import { CwdInput } from './CwdInput';
 import { GrokTrustNote } from './GrokTrust';
+import { CliPicker } from './CliPicker';
 import { ModelPicker } from './ModelPicker';
 
 export interface Team {
@@ -171,25 +172,15 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                     </div>
                   </div>
 
-                  <div className="segmented cli-picker" role="radiogroup" aria-label={t.team.codingAgent}>
-                    {PROVIDERS.map((p) => (
-                      <button
-                        key={p}
-                        role="radio"
-                        aria-checked={a.provider === p}
-                        className={a.provider === p ? 'on' : ''}
-                        style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
-                        onClick={() => {
-                          if (a.provider === p) return;
-                          const next = switchProvider(a, p, kept.current.get(a.id) ?? {});
-                          kept.current.set(a.id, next.kept);
-                          updateAgent(a.id, { provider: p, model: next.value.model, effort: next.value.effort, account: next.value.account });
-                        }}
-                      >
-                        {PROVIDER_LABEL[p]}
-                      </button>
-                    ))}
-                  </div>
+                  <CliPicker
+                    value={a.provider}
+                    label={t.team.codingAgent}
+                    onPick={(p) => {
+                      const next = switchProvider(a, p, kept.current.get(a.id) ?? {});
+                      kept.current.set(a.id, next.kept);
+                      updateAgent(a.id, { provider: p, model: next.value.model, effort: next.value.effort, account: next.value.account });
+                    }}
+                  />
 
                   <label className="field">
                     <span>{t.team.role}</span>

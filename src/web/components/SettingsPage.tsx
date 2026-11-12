@@ -45,6 +45,7 @@ import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel
 import { AccountPicker } from './AccountPicker';
 import { BackendsCard } from './BackendsSettings';
 import { CwdInput } from './CwdInput';
+import { CliPicker } from './CliPicker';
 import { ModelPicker } from './ModelPicker';
 import { NativeSetupPanel } from './NativeSetupPanel';
 import { SectionTitle } from './SectionTitle';
@@ -310,25 +311,15 @@ function LeadCard({
     <section className="card" id={sectionId('lead')} style={{ ['--accent' as string]: PROVIDER_COLOR[lead.provider] }}>
       <SectionTitle section="lead">✦ {t.settings.lead}</SectionTitle>
       <p className="muted small">{t.settings.leadHint}</p>
-      <div className="segmented cli-picker" role="radiogroup" aria-label={t.settings.lead}>
-        {PROVIDERS.map((p) => (
-          <button
-            key={p}
-            role="radio"
-            aria-checked={lead.provider === p}
-            className={lead.provider === p ? 'on' : ''}
-            style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
-            onClick={() => {
-              if (lead.provider === p) return;
-              const next = switchProvider(lead, p, kept.current);
-              kept.current = next.kept;
-              setLead(next.value);
-            }}
-          >
-            {PROVIDER_LABEL[p]}
-          </button>
-        ))}
-      </div>
+      <CliPicker
+        value={lead.provider}
+        label={t.settings.lead}
+        onPick={(p) => {
+          const next = switchProvider(lead, p, kept.current);
+          kept.current = next.kept;
+          setLead(next.value);
+        }}
+      />
       <AccountPicker status={status} value={lead.account} onChange={(a) => setLead({ ...lead, account: a })} />
       <ModelPicker
         key={`${lead.provider}|${lead.account ?? ''}`}

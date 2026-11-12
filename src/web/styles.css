@@ -1294,17 +1294,19 @@ p {
   color: var(--danger);
 }
 
-/* A choice of CLI (eight of them, nine with "All members"): an even grid that wraps into rows
-   instead of running past its card, at any width. */
+/* A choice of CLI (nine of them, `CliPicker`): one row, each name whole, that scrolls sideways where
+   it does not fit its card; the chosen one is scrolled into view. */
 .segmented.cli-picker {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
 }
 
+/* Spread over the row where they fit, never narrower than their names. */
 .segmented.cli-picker button {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 1 0 auto;
+  scroll-snap-align: start;
 }
 
 .segmented.wide {

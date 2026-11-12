@@ -121,7 +121,7 @@ src/
     locales/               zh-TW.ts (source of the message shape), en.ts
     components/            Sidebar, SidebarGroups (groups, drag and drop), SidebarSearch,
                            NewChat, TemplateEditor (the template dialog), TeamEditor, TeamReviser (the team
-                           drawer's "Ask the lead agent"), ModelPicker, ChatView,
+                           drawer's "Ask the lead agent"), ModelPicker, CliPicker (a choice of CLI: one row that scrolls sideways), ChatView,
                            MessageItem (incl. plan card), ChangesCard, Composer, Markdown,
                            SettingsPage, CopyButton, Logo, Onboarding (guided tour),
                            MemberDots, icons, VoiceInput (microphone, setup dialog, install progress),
