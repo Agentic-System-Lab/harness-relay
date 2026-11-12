@@ -651,6 +651,8 @@ export const zhTW = {
     languageHint: '「中文」也聽得懂夾雜的英文詞；常常整句換語言的話選「自動偵測」。',
     languages: { follow: '跟隨介面語言', auto: '自動偵測', zh: '中文（繁體）', en: 'English' } as Record<VoiceLanguage, string>,
     steps: { engine: '安裝 whisper.cpp', model: (name: string) => `下載模型 ${name}`, check: '啟動引擎、載入模型' },
+    /** A step's state, read by screen readers after the step (its mark is not read). */
+    stepState: { done: '（已完成）', now: '（進行中）', todo: '（尚未開始）', stopped: '（已停止）' },
     jobState: { running: '安裝中…', success: '安裝完成 ✓', failed: '安裝失敗', cancelled: '已取消' } as Record<LoginState, string>,
     progress: (got: string, total: string) => `${got} / ${total}`,
     speed: (perSecond: string) => `${perSecond}/秒`,

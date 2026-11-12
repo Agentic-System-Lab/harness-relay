@@ -34,3 +34,21 @@ export function clearKey(): void {
     /* storage unavailable */
   }
 }
+
+/**
+ * Sends a request with this browser's key: `init` makes the request for a key. One refused as signed
+ * out (a 401, which only the sign-in check gives, before a route does anything) after a sign-in
+ * replaced the key on its way is sent once more, with the new key: a sign-in link opened in a tab
+ * signed in already ends the session it replaces, and a request still on its way with that session's
+ * key must not sign the tab out again. `send` is `fetch`, or a stand-in in tests.
+ */
+export async function sendWithKey(
+  url: string,
+  init: (key: string | null) => RequestInit,
+  send: (url: string, init: RequestInit) => Promise<Response> = fetch,
+): Promise<Response> {
+  const key = readKey();
+  const res = await send(url, init(key));
+  const now = readKey();
+  return res.status === 401 && now !== key ? send(url, init(now)) : res;
+}

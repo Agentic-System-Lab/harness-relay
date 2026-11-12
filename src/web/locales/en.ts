@@ -640,6 +640,7 @@ export const en: Messages = {
     languageHint: 'Chinese also understands English words mixed in; if you often switch whole sentences, choose auto-detect.',
     languages: { follow: 'Follow the UI language', auto: 'Auto-detect', zh: 'Chinese (Traditional)', en: 'English' },
     steps: { engine: 'Install whisper.cpp', model: (name) => `Download the ${name} model`, check: 'Start the engine and load the model' },
+    stepState: { done: ' (done)', now: ' (in progress)', todo: ' (not started)', stopped: ' (stopped)' },
     jobState: { running: 'Installing…', success: 'Installed ✓', failed: 'Install failed', cancelled: 'Cancelled' },
     progress: (got, total) => `${got} / ${total}`,
     speed: (perSecond) => `${perSecond}/s`,

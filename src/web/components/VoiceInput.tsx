@@ -313,11 +313,12 @@ export function JobProgress({ job, onCancel }: { job: VoiceJobView; onCancel?: (
           const state = job.state === 'success' || i < at ? 'done' : i > at ? 'todo' : job.state === 'running' ? 'now' : 'stopped';
           const text = s === 'engine' ? t.voice.steps.engine : s === 'model' ? t.voice.steps.model(modelName) : t.voice.steps.check;
           return (
-            <li key={s} data-state={state}>
+            <li key={s} data-state={state} aria-current={state === 'now' ? 'step' : undefined}>
               <span className="step-mark" aria-hidden="true">
                 {state === 'done' ? '✓' : state === 'stopped' ? '✕' : i + 1}
               </span>
               <span>{text}</span>
+              <span className="visually-hidden">{t.voice.stepState[state]}</span>
               {state === 'now' && pct === undefined && <span className="spinner" aria-hidden="true" />}
             </li>
           );

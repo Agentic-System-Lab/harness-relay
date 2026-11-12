@@ -47,7 +47,7 @@ import type {
   WorkingDirectories,
   ZipCheck,
 } from '../shared/types';
-import { clearKey, readKey, writeKey } from './auth';
+import { clearKey, readKey, sendWithKey, writeKey } from './auth';
 import { currentLang } from './i18n';
 import { timeoutSignal } from './util';
 
@@ -84,9 +84,8 @@ export async function orCreateCwd<T>(call: (createCwd: boolean) => Promise<T>, a
   }
 }
 
-/** Every request names the UI language, so server messages come back in it. */
-function headers(json: boolean): Record<string, string> {
-  const key = readKey();
+/** Every request names the UI language, so server messages come back in it. `key`: the one it sends. */
+function headers(json: boolean, key: string | null): Record<string, string> {
   return {
     'X-Relay-Lang': currentLang(),
     ...(key ? { [AUTH_KEY_HEADER]: key } : {}),
@@ -104,13 +103,13 @@ function signedOut(code: string | undefined): void {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(path, {
+  const res = await sendWithKey(path, (key) => ({
     method,
     // Always JSON: the server rejects non-JSON writes as a CSRF guard.
-    headers: headers(method !== 'GET'),
+    headers: headers(method !== 'GET', key),
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
     signal,
-  });
+  }));
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = data as { error?: string; code?: string; paths?: unknown };
@@ -122,7 +121,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
 }
 
 async function requestText(path: string): Promise<string> {
-  const res = await fetch(path, { headers: headers(false) });
+  const res = await sendWithKey(path, (key) => ({ headers: headers(false, key) }));
   const text = await res.text();
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
@@ -312,7 +311,7 @@ export const api = {
    * (any failure) is no answer, rather than the sign-in page shown again.
    */
   serverVersion: async (): Promise<UpdateStatus> => {
-    const res = await fetch('/api/update', { headers: headers(false) });
+    const res = await sendWithKey('/api/update', (key) => ({ headers: headers(false, key) }));
     if (!res.ok) throw new Error(`${res.status}`);
     return (await res.json()) as UpdateStatus;
   },
