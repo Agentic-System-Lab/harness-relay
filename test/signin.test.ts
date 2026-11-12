@@ -153,7 +153,7 @@ describe("the first check shared by the runs of the page's effect", () => {
     const held: HeldCheck = { current: undefined };
     const first: PageStart[] = [];
     const second: PageStart[] = [];
-    runFirstCheck(held, deps, (s) => first.push(s))();
+    runFirstCheck(held, deps, (s) => first.push(s)).end();
     runFirstCheck(held, deps, (s) => second.push(s));
     await settle();
     expect(first).toEqual([]);
@@ -161,9 +161,27 @@ describe("the first check shared by the runs of the page's effect", () => {
     expect(page.calls).toEqual(['status', 'dropCode', 'signIn ABCD-EFGH']);
   });
 
+  it("shows the app with the check's result when another tab signed the browser in while it ran", async () => {
+    // The check's answer ("not signed in", with a link's error) is out of date by then.
+    const shown: PageStart[] = [];
+    const run = runFirstCheck({ current: undefined }, fakePage('#code=WXYZ-0000', { desktop: true }).deps, (s) => shown.push(s));
+    expect(run.signedInElsewhere()).toBe(false);
+    await settle();
+    expect(shown).toEqual([{ signedIn: true, desktop: true }]);
+  });
+
+  it('tells the page to show the app itself when another tab signs in after the check was shown', async () => {
+    const shown: PageStart[] = [];
+    const run = runFirstCheck({ current: undefined }, fakePage('#/').deps, (s) => shown.push(s));
+    await settle();
+    expect(shown).toEqual([{ signedIn: false, desktop: false }]);
+    expect(run.signedInElsewhere()).toBe(true);
+    expect(shown).toHaveLength(1);
+  });
+
   it('shows nothing once its run has ended', async () => {
     const shown: PageStart[] = [];
-    runFirstCheck({ current: undefined }, fakePage('#/').deps, (s) => shown.push(s))();
+    runFirstCheck({ current: undefined }, fakePage('#/').deps, (s) => shown.push(s)).end();
     await settle();
     expect(shown).toEqual([]);
   });

@@ -279,6 +279,44 @@ describe('a request answered "signed out"', () => {
     expect(readKey()).toBe('old');
   });
 
+  it('says the server did not answer when the time ran out while an error answer was read', async () => {
+    vi.useFakeTimers();
+    server(
+      (_path, _key, init) =>
+        new Promise<Response>((resolve) =>
+          init.signal?.addEventListener('abort', () =>
+            resolve({
+              ok: false,
+              status: 400,
+              statusText: 'Bad Request',
+              json: () => Promise.reject(init.signal?.reason),
+            } as unknown as Response),
+          ),
+        ),
+    );
+    const signingIn = api.signIn('WXYZ-0000').catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(SIGN_IN_TIMEOUT_MS);
+    expect(((await signingIn) as Error).message).toBe(en.signIn.noAnswer);
+  });
+
+  it('fails as given up when a request is given up while its answer is read', async () => {
+    writeKey('old');
+    const stop = new AbortController();
+    server(
+      () =>
+        ({
+          ok: true,
+          status: 200,
+          json: () => {
+            stop.abort();
+            return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+          },
+        }) as unknown as Response,
+    );
+    const err = (await api.pickCwd('/', stop.signal).catch((e: unknown) => e)) as Error;
+    expect(err.name).toBe('AbortError');
+  });
+
   it("gives the server's own answer when it came just as the time ran out", async () => {
     vi.useFakeTimers();
     server((_path, _key, init) => {

@@ -130,7 +130,11 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
     signal,
   });
-  const data = await res.json().catch(() => ({}));
+  const data = await res.json().catch(() => {
+    // Given up (its signal) while the answer was read: not an answer, but the request given up.
+    if (signal?.aborted) throw signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+    return {};
+  });
   if (!res.ok) {
     const err = data as { error?: string; code?: string; paths?: unknown };
     if (res.status === 401 && (await signedOut(err.code, key, o))) return request<T>(method, path, body, signal, { resent: true });
@@ -182,7 +186,7 @@ export const api = {
         const timeout = timeoutSignal(SIGN_IN_TIMEOUT_MS);
         try {
           const { key } = await request<{ key?: unknown }>('POST', '/api/auth/login', { code }, timeout.signal, { signIn: true });
-          // An answer cut short (given up while it was read) reads as none.
+          // No key in the answer: none to keep (it would be the string "undefined").
           if (typeof key !== 'string') throw new Error(currentMessages().signIn.noAnswer);
           writeKey(key);
         } catch (e) {

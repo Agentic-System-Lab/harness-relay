@@ -96,13 +96,9 @@ export function App() {
     // Whether the desktop app started the server, also when the page opens with a link: a link that
     // no longer works, or a sign-out later, shows the sign-in page, which then points at the app's
     // menu rather than a terminal.
-    // Another tab signed this browser in while the first check ran (`onStorage` below).
-    let firstShown = false;
-    let signedInElsewhere = false;
-    const endFirst = runFirstCheck(start, LINK, (s) => {
-      firstShown = true;
+    const first = runFirstCheck(start, LINK, (s) => {
       setDesktopApp(s.desktop);
-      show(signedInElsewhere ? { signedIn: true } : s);
+      show(s);
     });
     // A link opened in a tab that shows the app already: only its fragment changes.
     const onHash = () =>
@@ -110,13 +106,11 @@ export function App() {
     const out = () => setAuth('out');
     // Another tab kept a new key: it signed this browser in (the tabs share the cookie and the key).
     // The server is asked whatever this tab shows, as one just signed out may not show the sign-in page
-    // yet, and the app is shown when the browser is signed in; after the first check, if it still runs.
+    // yet, and the app is shown when the browser is signed in (with the first check, if it still runs).
     const onStorage = (e: StorageEvent) => {
       if (!keyArrived(e)) return;
       void askSignedIn(LINK).then((signedIn) => {
-        if (!signedIn) return;
-        if (firstShown) show({ signedIn: true });
-        else signedInElsewhere = true;
+        if (signedIn && first.signedInElsewhere()) show({ signedIn: true });
       });
     };
     window.addEventListener('hashchange', onHash);
@@ -124,7 +118,7 @@ export function App() {
     window.addEventListener('storage', onStorage);
     return () => {
       live = false;
-      endFirst();
+      first.end();
       window.removeEventListener('hashchange', onHash);
       window.removeEventListener(SIGNED_OUT_EVENT, out);
       window.removeEventListener('storage', onStorage);

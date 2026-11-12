@@ -70,8 +70,8 @@ export type SignedOutAnswer = 'signed-out' | 'resend' | 'stale';
  * - another one, which a sign-in put in its place while the request was on its way (a sign-in link
  *   opened in a tab signed in already ends the session it replaces): the request is to be sent
  *   again with it, once ('resend'; `resent` says it has been);
- * - none any more, or another one after a resend: nothing more ('stale': signed out already, or
- *   left to the newest sign-in).
+ * - none any more, or another one after a resend: nothing more ('stale': signed out on purpose,
+ *   or left to the newest sign-in).
  */
 export async function signedOutAnswer(sentWith: string | null, resent = false): Promise<SignedOutAnswer> {
   while (signingIn) await signingIn;
