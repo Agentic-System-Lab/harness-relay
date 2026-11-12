@@ -1,4 +1,3 @@
-import { availableParallelism } from 'node:os';
 import { defineConfig, devices, type Project } from '@playwright/test';
 
 /*
@@ -33,9 +32,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: ci,
   retries: ci ? 1 : 0,
-  // Every test starts a server, a browser and agents of its own: on CI, one test fewer than the
-  // runner has cores (GitHub's have four on Linux and Windows, three on macOS), and two at least.
-  workers: ci ? Math.max(2, availableParallelism() - 1) : '50%',
+  // Every test starts a server, a browser and agents of its own. On CI, two at a time keep Linux's
+  // and macOS's runners busy (a third only made each test slower there), while Windows' tests
+  // mostly wait on processes starting: there each of the runner's four cores takes one.
+  workers: ci ? (process.platform === 'win32' ? 4 : 2) : '50%',
   reporter: ci
     ? [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }], ['github']]
     : [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
