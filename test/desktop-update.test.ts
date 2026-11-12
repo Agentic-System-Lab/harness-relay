@@ -13,6 +13,7 @@ import {
   CHECK_TIMEOUT_MS,
   checkLatest,
   checkNow,
+  DOWNLOAD_CONNECTIONS,
   DOWNLOAD_STALL_MS,
   download,
   installPlan,
@@ -20,12 +21,14 @@ import {
   LATEST_RELEASE_API,
   macAppOf,
   macStaging,
+  MIN_PART_BYTES,
   mayAskGitHub,
   takesCandidates,
   MIN_CHECK_GAP_MS,
   newestRelease,
   oneAtATime,
   parseRelease,
+  PART_FAILURES,
   placeAppImage,
   RELAUNCH_PID,
   RELAUNCH_TARGET,
@@ -41,6 +44,7 @@ import {
   whenIdle,
   WINDOWS_INSTALLER_ARGS,
   type Fetch,
+  type Locate,
   type UpdateAsset,
 } from '../desktop/src/update';
 import { spawnDetached } from '../src/server/process';
@@ -479,6 +483,256 @@ describe('downloading an update', () => {
       );
     await download({ fetch: slow, asset, to, stallMs: 200 });
     expect(readFileSync(to)).toEqual(body);
+  });
+});
+
+describe('downloading an update in parts', () => {
+  // 64 KB, which the CDN sends 1 KB at a time: four parts of 16 KB, none split below 4 KB.
+  const body = Buffer.from(Array.from({ length: 64 * 1024 }, (_, i) => (i * 31 + (i >> 10)) & 0xff));
+  const minPart = 4 * 1024;
+  const quarter = body.length / 4;
+  const copy: UpdateAsset = { name: 'H.dmg', url: `${COPIES}/v/H-update.dmg`, fallback: `${DOWNLOAD}/v/H.dmg`, size: body.length, sha256: sha(body) };
+  /** Where GitHub sends a download: its CDN, signed (a new signature each time it is asked). */
+  const CDN = 'https://release-assets.githubusercontent.com/github-production-release-asset/1/h?sig=';
+
+  /** GitHub's address for a download, asked where it leads (`locate`): a redirect to its CDN, or 404 for one in `missing`. */
+  function github(missing: string[] = []) {
+    const located: string[] = [];
+    const locate: Locate = async (url) => {
+      located.push(url);
+      return missing.includes(url) ? { status: 404 } : { status: 302, location: `${CDN}${located.length}` };
+    };
+    return { located, locate };
+  }
+
+  /** Waits `ms`, or until `signal` aborts. */
+  const pause = (ms: number, signal?: AbortSignal) =>
+    new Promise<void>((done) => {
+      if (!ms) return done();
+      const timer = setTimeout(done, ms);
+      signal?.addEventListener('abort', () => (clearTimeout(timer), done()), { once: true });
+    });
+
+  interface Asked {
+    conn: number;
+    url: string;
+    from: number;
+    to: number;
+    sent: number;
+    cancelled: boolean;
+  }
+
+  /**
+   * The CDN, as `n` connections: the range asked for in 1 KB chunks, each `pause(asked)` ms after the
+   * last; `answer(asked)` is its status (200 sends the whole file), and the connection drops after
+   * `cut(asked)` bytes. It stops when aborted, as fetch does.
+   */
+  function cdn(data: Buffer, n: number, how: { pause?: (a: Asked) => number; answer?: (a: Asked) => number; cut?: (a: Asked) => number | undefined } = {}) {
+    const asked: Asked[] = [];
+    const connections = Array.from(
+      { length: n },
+      (_, conn): Fetch =>
+        async (url, init) => {
+          const range = /^bytes=(\d+)-(\d+)$/.exec(init?.headers?.Range ?? '');
+          const a: Asked = { conn, url, from: range ? Number(range[1]) : 0, to: range ? Number(range[2]) + 1 : data.length, sent: 0, cancelled: false };
+          asked.push(a);
+          const status = how.answer?.(a) ?? (range ? 206 : 200);
+          if (status !== 200 && status !== 206) return new Response('no', { status });
+          const bytes = status === 206 ? data.subarray(a.from, a.to) : data;
+          const cut = how.cut?.(a);
+          const signal = init?.signal;
+          const stream = new ReadableStream<Uint8Array>(
+            {
+              start(controller) {
+                signal?.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+              },
+              async pull(controller) {
+                await pause(how.pause?.(a) ?? 0, signal);
+                if (signal?.aborted || a.cancelled) return;
+                if (cut !== undefined && a.sent >= cut) return controller.error(new Error('connection reset'));
+                if (a.sent >= bytes.length) return controller.close();
+                const chunk = bytes.subarray(a.sent, a.sent + 1024);
+                a.sent += chunk.length;
+                controller.enqueue(new Uint8Array(chunk));
+              },
+              cancel() {
+                a.cancelled = true;
+              },
+            },
+            { highWaterMark: 0 },
+          );
+          const headers: Record<string, string> =
+            status === 206 ? { 'content-range': `bytes ${a.from}-${a.to - 1}/${data.length}` } : { 'content-length': String(data.length) };
+          return new Response(stream, { status, headers });
+        },
+    );
+    return { connections, asked };
+  }
+
+  /** A fetch for the whole file in one request, which says where it was asked. */
+  function single(data: Buffer) {
+    const asked: string[] = [];
+    const fetch: Fetch = async (url) => {
+      asked.push(url);
+      return new Response(new Uint8Array(data), { headers: { 'content-length': String(data.length) } });
+    };
+    return { asked, fetch };
+  }
+
+  const failure = (p: Promise<void>) => p.then(() => undefined, (e: unknown) => e as UpdateError);
+
+  it('asks GitHub once where the file is, and fetches it from there, a part on each connection', async () => {
+    const gh = github();
+    const served = cdn(body, 4);
+    const whole = single(body);
+    const to = join(dir, 'parts.dmg');
+    const progress: number[] = [];
+    await download({ fetch: whole.fetch, connections: served.connections, locate: gh.locate, asset: copy, to, minPart, onProgress: (d) => progress.push(d) });
+    expect(readFileSync(to)).toEqual(body);
+    expect(gh.located).toEqual([copy.url]);
+    expect(whole.asked).toEqual([]);
+    expect(served.asked.slice(0, 4).map((a) => [a.conn, a.from, a.to])).toEqual([0, 1, 2, 3].map((i) => [i, i * quarter, (i + 1) * quarter]));
+    expect(served.asked.every((a) => a.url === `${CDN}1`)).toBe(true);
+    expect(progress.at(-1)).toBe(1);
+    expect(progress.every((p, i) => i === 0 || p >= progress[i - 1]!)).toBe(true);
+    expect(existsSync(`${to}.part`)).toBe(false);
+  });
+
+  it('uses only as many connections as the file has parts of `minPart`, and one request for a file under two', async () => {
+    const six = cdn(body, 6);
+    await download({ fetch: single(body).fetch, connections: six.connections, locate: github().locate, asset: copy, to: join(dir, 'parts-four.dmg'), minPart: quarter });
+    expect(new Set(six.asked.map((a) => a.conn))).toEqual(new Set([0, 1, 2, 3]));
+    // A small file: from GitHub's address itself, as without connections.
+    const small = Buffer.from('a small file');
+    const whole = single(small);
+    const unused = cdn(small, 4);
+    const gh = github();
+    const to = join(dir, 'parts-small.dmg');
+    await download({ fetch: whole.fetch, connections: unused.connections, locate: gh.locate, asset: { ...copy, size: small.length, sha256: sha(small) }, to, minPart });
+    expect(readFileSync(to)).toEqual(small);
+    expect(whole.asked).toEqual([copy.url]);
+    expect(unused.asked).toEqual([]);
+    expect(gh.located).toEqual([]);
+  });
+
+  it('fetches the installer itself when its copy is not there, and fails on any other answer, keeping nothing', async () => {
+    const gh = github([copy.url]);
+    const to = join(dir, 'parts-fallback.dmg');
+    await download({ fetch: single(body).fetch, connections: cdn(body, 4).connections, locate: gh.locate, asset: copy, to, minPart });
+    expect(gh.located).toEqual([copy.url, copy.fallback]);
+    expect(readFileSync(to)).toEqual(body);
+    const failed = join(dir, 'parts-none.dmg');
+    const answers = (answer: { status: number; location?: string }) =>
+      failure(download({ fetch: single(body).fetch, connections: cdn(body, 4).connections, locate: async () => answer, asset: copy, to: failed, minPart }));
+    expect((await answers({ status: 503 }))?.message).toBe('HTTP 503');
+    expect((await answers({ status: 404 }))?.message).toBe('HTTP 404');
+    // Sent anywhere but to HTTPS.
+    const plain = await answers({ status: 302, location: 'http://release-assets.githubusercontent.com/h' });
+    expect(plain).toBeInstanceOf(UpdateError);
+    expect(plain?.failure).toBe('download');
+    expect(existsSync(failed)).toBe(false);
+    expect(existsSync(`${failed}.part`)).toBe(false);
+  });
+
+  it('gives a connection done with its part the second half of what the slowest one has left', async () => {
+    // The first connection sends a KB every 40 ms, the others at once.
+    const served = cdn(body, 4, { pause: (a) => (a.conn === 0 ? 40 : 0) });
+    const to = join(dir, 'parts-slow.dmg');
+    await download({ fetch: single(body).fetch, connections: served.connections, locate: github().locate, asset: copy, to, minPart });
+    expect(readFileSync(to)).toEqual(body);
+    const slow = served.asked.filter((a) => a.conn === 0);
+    expect(slow).toHaveLength(1);
+    // It stopped where another connection took over, before the end it asked for.
+    expect(slow[0]!.cancelled).toBe(true);
+    expect(slow[0]!.sent).toBeLessThan(quarter);
+    const taken = served.asked.slice(4);
+    expect(taken.length).toBeGreaterThan(0);
+    expect(taken.every((a) => a.conn !== 0 && a.from > 0 && a.to <= quarter)).toBe(true);
+  });
+
+  it('asks for a part again from where its connection dropped, and gives up after a few drops, keeping nothing', async () => {
+    const served = cdn(body, 4, { cut: (a) => (a.from === quarter ? 5 * 1024 : undefined) });
+    const to = join(dir, 'parts-drop.dmg');
+    await download({ fetch: single(body).fetch, connections: served.connections, locate: github().locate, asset: copy, to, minPart });
+    expect(readFileSync(to)).toEqual(body);
+    expect(served.asked.filter((a) => a.from === quarter + 5 * 1024)).toHaveLength(1);
+    // Every connection drops after 2 KB: one more drop than PART_FAILURES fails it.
+    const drops = cdn(body, 4, { cut: () => 2048 });
+    const failed = join(dir, 'parts-drops.dmg');
+    const err = await failure(download({ fetch: single(body).fetch, connections: drops.connections, locate: github().locate, asset: copy, to: failed, minPart }));
+    expect(err).toBeInstanceOf(UpdateError);
+    expect(err?.failure).toBe('download');
+    expect(err?.message).toBe('connection reset');
+    expect(drops.asked).toHaveLength(4 + PART_FAILURES);
+    expect(existsSync(failed)).toBe(false);
+    expect(existsSync(`${failed}.part`)).toBe(false);
+  });
+
+  it('finds the file again when its signed address has expired, once however many parts find it, and gives up on one that keeps expiring', async () => {
+    // The parts taken from the slow connection are refused at the first address, which has expired since.
+    const gh = github();
+    const served = cdn(body, 4, { pause: (a) => (a.conn === 0 ? 40 : 0), answer: (a) => (a.url === `${CDN}1` && a.from % quarter !== 0 ? 403 : 206) });
+    const to = join(dir, 'parts-expired.dmg');
+    await download({ fetch: single(body).fetch, connections: served.connections, locate: gh.locate, asset: copy, to, minPart });
+    expect(readFileSync(to)).toEqual(body);
+    expect(gh.located).toEqual([copy.url, copy.url]);
+    expect(served.asked.some((a) => a.url === `${CDN}2`)).toBe(true);
+    // Every address refusing them: located again PART_FAILURES times, then given up on.
+    const again = github();
+    const refused = cdn(body, 4, { pause: (a) => (a.conn === 0 ? 40 : 0), answer: (a) => (a.from % quarter !== 0 ? 403 : 206) });
+    const err = await failure(download({ fetch: single(body).fetch, connections: refused.connections, locate: again.locate, asset: copy, to: join(dir, 'parts-refused.dmg'), minPart }));
+    expect(err?.failure).toBe('download');
+    expect(err?.message).toBe('HTTP 403');
+    expect(again.located).toHaveLength(1 + PART_FAILURES);
+  });
+
+  it('downloads in one request, from where GitHub sends it, when the CDN sends the whole file for a part', async () => {
+    const whole = single(body);
+    const gh = github();
+    const to = join(dir, 'parts-whole.dmg');
+    await download({ fetch: whole.fetch, connections: cdn(body, 4, { answer: () => 200 }).connections, locate: gh.locate, asset: copy, to, minPart });
+    expect(readFileSync(to)).toEqual(body);
+    expect(gh.located).toEqual([copy.url]);
+    expect(whole.asked).toEqual([`${CDN}1`]);
+  });
+
+  it('asks again for a part that goes without a byte, and gives up when none of them gets one', async () => {
+    // The second part's first answer sends nothing; the others a KB every 10 ms.
+    let first = true;
+    const served = cdn(body, 4, {
+      pause: (a) => {
+        if (a.from !== quarter || !first) return 10;
+        first = false;
+        return 60_000;
+      },
+    });
+    const to = join(dir, 'parts-stalled.dmg');
+    await download({ fetch: single(body).fetch, connections: served.connections, locate: github().locate, asset: copy, to, minPart, stallMs: 300 });
+    expect(readFileSync(to)).toEqual(body);
+    expect(served.asked.filter((a) => a.from === quarter)).toHaveLength(2);
+    // None sends a byte, or GitHub never answers.
+    const failed = join(dir, 'parts-silent.dmg');
+    const silent = await failure(download({ fetch: single(body).fetch, connections: cdn(body, 4, { pause: () => 60_000 }).connections, locate: github().locate, asset: copy, to: failed, minPart, stallMs: 100 }));
+    expect(silent?.failure).toBe('download');
+    expect(silent?.message).toMatch(/no data/);
+    const never: Locate = (_url, signal) => new Promise((_, fail) => signal.addEventListener('abort', () => fail(signal.reason), { once: true }));
+    const unanswered = await failure(download({ fetch: single(body).fetch, connections: cdn(body, 4).connections, locate: never, asset: copy, to: failed, minPart, stallMs: 100 }));
+    expect(unanswered?.message).toMatch(/no data/);
+    expect(existsSync(`${failed}.part`)).toBe(false);
+  });
+
+  it('deletes parts that do not add up to the checksum', async () => {
+    const to = join(dir, 'parts-bad.dmg');
+    const err = await failure(download({ fetch: single(body).fetch, connections: cdn(Buffer.alloc(body.length), 4).connections, locate: github().locate, asset: copy, to, minPart }));
+    expect(err?.failure).toBe('checksum');
+    expect(existsSync(to)).toBe(false);
+    expect(existsSync(`${to}.part`)).toBe(false);
+  });
+
+  it('downloads on six connections at most, in parts of a megabyte at least, failing after three failed parts', () => {
+    expect(DOWNLOAD_CONNECTIONS).toBe(6);
+    expect(MIN_PART_BYTES).toBe(1024 * 1024);
+    expect(PART_FAILURES).toBe(3);
   });
 });
 

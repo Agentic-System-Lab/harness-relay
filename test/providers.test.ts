@@ -242,6 +242,39 @@ esac
 `;
   const posixIt = process.platform === 'win32' ? it.skip : it;
 
+  posixIt('keeps no status that was being asked when an account changed, so the next one has it', async () => {
+    const dir = join(root, 'changed-while-asked');
+    mkdirSync(dir, { recursive: true });
+    const bin = join(dir, 'claude');
+    writeFileSync(bin, FAKE_CLAUDE, { mode: 0o755 });
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    settings.update('claude', { bin });
+    settings.setAgentHome(join(dir, 'homes'));
+    const service = new ProviderService(settings);
+
+    // Asked before the account is added (and the status invalidated, as the route does), answered after.
+    const asking = service.status('claude', true);
+    const work = settings.addAccount('claude', 'Work');
+    service.invalidate('claude');
+    expect((await asking).accounts.map((a) => a.id)).toEqual(['']);
+    // Not kept: the next status, not forced, asks again instead of giving that answer for 20 s.
+    const next = await service.status('claude');
+    expect(next.accounts.map((a) => a.id)).toEqual(['', work]);
+    // A cached answer keeps the time of the check it came from; a forced one is checked anew.
+    expect((await service.status('claude')).checkedAt).toBe(next.checkedAt);
+    expect((await service.status('claude', true)).checkedAt).toBeGreaterThanOrEqual(next.checkedAt!);
+    expect((await asking).checkedAt).toBeLessThanOrEqual(next.checkedAt!);
+
+    // The clock set back: each new check is still dated later, so it still wins in the chat.
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now - 60_000);
+    try {
+      expect((await service.status('claude', true)).checkedAt).toBeGreaterThan(next.checkedAt!);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   posixIt('checks, signs in and signs out each account in its own home', async () => {
     const dir = join(root, 'accounts');
     mkdirSync(dir, { recursive: true });

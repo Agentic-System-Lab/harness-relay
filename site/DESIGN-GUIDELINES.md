@@ -20,7 +20,7 @@ How the Harness Relay landing page (`site/`) looks, reads and behaves, and what 
 
 ### Colour
 
-Tokens live at the top of [`assets/site.css`](assets/site.css) and follow the app (`src/web/styles.css`). The page follows the visitor's light/dark setting, like the app.
+Tokens live at the top of [`assets/site.css`](assets/site.css) and follow the app (`src/web/styles.css`). The page follows the visitor's light/dark setting, like the app, until they pick a theme with the theme button (see Components). The dark values are written twice, for the system's dark mode (unless `<html data-theme="light">`) and for `data-theme="dark"`, and `test/site-theme.test.ts` checks the two lists are the same. So anything that differs in dark mode is a token in those lists (`--claude-name`, `--warn`, `--danger`, `--when-light` and `--when-dark` for what shows in one theme only), never a `prefers-color-scheme` query of its own.
 
 | Role | Light | Dark | Use |
 | --- | --- | --- | --- |
@@ -73,6 +73,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 - **Buttons:** primary is ink on light (`.btn-primary`), secondary is outlined (`.btn-ghost`). One primary per view: in the hero, the download button.
 - **Downloads** (`assets/downloads.js`, a module whose functions `test/site-downloads.test.ts` tests): every download link points at the releases page in the HTML, so the page works without JavaScript. The module reads GitHub's list of releases (kept in `localStorage` under `harness-relay.release` for ten minutes, like the stars), points each `[data-download]` link at its installer (`-mac-arm64.dmg`, `-win-x64.exe`, `-win-arm64.exe`, `-linux-x86_64.AppImage`, `-linux-arm64.AppImage`, as the Release workflow names them) in the newest release (never a release candidate: a kept one from an earlier visit is not shown, and GitHub is asked again), fills in the version line (`data-release` before the version), names the visitor's system on the hero's button (`data-mac`, `data-win`, `data-win-arm64`, `data-linux`, `data-linux-arm64` on `[data-downloads]` hold the words) and marks their card *Your system*. The Mac app is for Apple Silicon only: a Mac counts as one with Apple Silicon unless Chromium's hints say Intel, and then as another system (Safari and Firefox say "Intel" on every Mac). Windows and Linux have a card per processor; the processor comes from Chromium's high-entropy hints (`getHighEntropyValues`), else the user agent or `navigator.platform` (Chromium says x64 in its user agent on any Windows and Linux), else x64; a system the newest release has no installer for gets the releases page, as any other. On a phone the hero's button goes to the quick start, with a line saying Harness Relay runs on a computer. With no release found, nothing changes: the links keep the releases page.
 - **Download cards** (`.dl`): one row per system and processor in the quick start (macOS; Windows and Windows on Arm; Linux and Linux on Arm), with the system's icon, name, processor and file type (no size), and the download icon; the visitor's has a firmer outline and the *Your system* label on its edge.
+- **Theme button** (`.theme-toggle`, [`assets/theme.js`](assets/theme.js), a module whose functions `test/site-theme.test.ts` tests): the last thing in the header, after the GitHub button, and only there. A round outlined button with one icon: the moon in the light theme, the sun in the dark one, for the theme a press gives; its label says the same (`data-to-dark`, `data-to-light`: "Switch to dark theme" / "切換成深色主題"). Until the visitor presses it the page follows the system's light or dark mode. A press switches to the other theme and keeps it in `localStorage` under `harness-relay.theme` (`light` or `dark`), for both languages; pressing it again for the theme the system has removes the key, and the page follows the system again. The inline script in each page's `<head>` sets `data-theme` on `<html>` from the key before anything renders, so a chosen theme does not flash. The browser's bar colour (`theme-color`) follows, and the other tabs too. Every colour changes at once (no button fades during the switch). Without JavaScript the button is not shown.
 - **Star count** (`.stars`): the GitHub buttons in the header and the hero end in the repository's star count after a hairline, with the `#i-star` icon filled yellow (`--star`, with a darker `--star-edge` on a light button; the primary button uses the `--star-inverse` pair), and screen readers hear "12 stars" / "12 顆星". `site.js` reads it from `api.github.com` as the page loads, shortens it like GitHub does in the page's language (English `999`, `1.2K`, `12.3K`, `123K`, `1.2M`; 中文 `999`, `1,234`, `1.2萬`, `12.3萬`, `123萬`) and keeps it in `localStorage` under `harness-relay.stars` for ten minutes (the API allows a visitor 60 requests an hour). When GitHub can't be reached the last count shows; with none, or without JavaScript, the buttons show no count. On phones the header button drops the word "GitHub" and keeps the count.
 - **Quick start step:** a step with more than one block (the download cards, text) wraps them in `.step-body`, so they stay together in the right-hand column.
 - **Command block** (`.cmd`, not on the page now): `$` prompts are not copied; the copy button copies the commands only and confirms with a check. One command per line, never joined with `&&`: Windows PowerShell 5.1, still the default shell on Windows, rejects `&&`, while separate lines run in every shell.
@@ -83,7 +84,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 
 | # | Section | Purpose |
 | --- | --- | --- |
-| 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count |
+| 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count, the theme button |
 | 2 | Hero | Headline with the three agent names in their colours, one sentence, the download button for the visitor's system with the link to the requirements beside it, GitHub button with the star count |
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
 | 4 | Your CLIs (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor and Antigravity neutrally); the mark at page scale |
@@ -143,7 +144,7 @@ The origin of each raster is also embedded in the file (PNG text chunk) or in a 
 - Visible focus ring (2px, Grok ink) on every interactive element.
 - Mode tabs follow the tabs pattern (arrow keys, Home, End). Diagrams have a text alternative.
 - Decorative avatars and discs are hidden from assistive technology; the names next to them carry the meaning.
-- Check both colour schemes and widths from 360px to 1600px after a change.
+- Check both colour schemes and widths from 360px to 1600px after a change: the system's light and dark modes, and each theme chosen with the theme button against the other system mode.
 
 ## Previewing locally
 
@@ -151,4 +152,4 @@ The origin of each raster is also embedded in the file (PNG text chunk) or in a 
 npm run site:preview   # http://127.0.0.1:4180/ and /zh-TW/ (SITE_PORT changes the port)
 ```
 
-[`scripts/preview-site.ts`](../scripts/preview-site.ts) serves `site/` the way GitHub Pages will: the demo videos come from `docs/media/` under `/media/`, and Markdown files and `*.webp.json` sidecars are not served. To see the first-visit language redirect again, remove the `harness-relay.lang` key from the browser's local storage.
+[`scripts/preview-site.ts`](../scripts/preview-site.ts) serves `site/` the way GitHub Pages will: the demo videos come from `docs/media/` under `/media/`, and Markdown files and `*.webp.json` sidecars are not served. To see the first-visit language redirect again, remove the `harness-relay.lang` key from the browser's local storage; to have the page follow the system's light or dark mode again, remove `harness-relay.theme` (or press the theme button until it shows the system's theme).

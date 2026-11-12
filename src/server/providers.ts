@@ -113,6 +113,13 @@ const slot = (p: Provider, account = '') => `${p}\0${account}`;
 
 export class ProviderService {
   private cache = new Map<Provider, { at: number; status: ProviderStatus }>();
+  /**
+   * Raised by `invalidate()`: a status asked before it (an account added, a sign-in finished meanwhile)
+   * is still answered, but not kept, or it would hide the change for as long as the cache lasts.
+   */
+  private generation = new Map<Provider, number>();
+  /** The last `checkedAt` given: each check's is later, even if the clock is set back. */
+  private lastCheckedAt = 0;
   /** Sign-ins running or finished, by account (`slot`). */
   private logins = new Map<string, LoginSession>();
   /** Models each account's CLI offers (`slot`): asked in its home, whose config has the CLI's own defaults. */
@@ -121,6 +128,7 @@ export class ProviderService {
   constructor(private settings: SettingsStore) {}
 
   invalidate(p?: Provider): void {
+    for (const q of p ? [p] : PROVIDERS) this.generation.set(q, (this.generation.get(q) ?? 0) + 1);
     if (p) {
       this.cache.delete(p);
       for (const key of this.modelCache.keys()) if (key.startsWith(slot(p))) this.modelCache.delete(key);
@@ -163,6 +171,8 @@ export class ProviderService {
   async status(p: Provider, refresh = false): Promise<ProviderStatus> {
     const cached = this.cache.get(p);
     if (!refresh && cached && Date.now() - cached.at < 20_000) return cached.status;
+    const generation = this.generation.get(p) ?? 0;
+    const checkedAt = (this.lastCheckedAt = Math.max(Date.now(), this.lastCheckedAt + 1));
     const bin = this.settings.bin(p);
     const env = this.settings.env(p);
     const ids = ['', ...this.settings.accountIds(p)];
@@ -187,15 +197,15 @@ export class ProviderService {
         }),
       );
       const first = accounts[0]!;
-      status = { provider: p, installed: true, bin, version, auth: first.auth, usingStoredApiKey: first.usingStoredApiKey, accounts };
+      status = { provider: p, installed: true, bin, version, auth: first.auth, usingStoredApiKey: first.usingStoredApiKey, accounts, checkedAt };
     } catch (err) {
       // Not found: Settings says so in its own words, with where to install it. Anything else (the
       // file is there but cannot run, say) is told as it happened.
       const auth: ProviderAuth = { loggedIn: null, detail: err instanceof CommandNotFoundError ? undefined : (err as Error).message };
       const accounts = ids.map((id) => account(id, { loggedIn: null }));
-      status = { provider: p, installed: false, bin, auth, usingStoredApiKey: accounts[0]!.usingStoredApiKey, accounts };
+      status = { provider: p, installed: false, bin, auth, usingStoredApiKey: accounts[0]!.usingStoredApiKey, accounts, checkedAt };
     }
-    this.cache.set(p, { at: Date.now(), status });
+    if ((this.generation.get(p) ?? 0) === generation) this.cache.set(p, { at: Date.now(), status });
     return status;
   }
 

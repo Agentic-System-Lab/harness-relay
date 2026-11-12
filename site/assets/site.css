@@ -52,6 +52,17 @@
   --star-inverse: #e3b341;
   --star-inverse-edge: #e3b341;
 
+  /* The headline's agent names: the brand colours on the light page, the -lit ones on the dark. */
+  --claude-name: var(--claude);
+  --codex-name: var(--codex);
+  --grok-name: var(--grok);
+  /* A file changed or removed, and the amber of a waiting approval, in the UI excerpts (as in the app). */
+  --warn: #b45309;
+  --danger: #dc2626;
+  /* What shows in one theme only (the theme button's icon): its display there, none in the other. */
+  --when-light: block;
+  --when-dark: none;
+
   --radius: 14px;
   --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC',
     'Microsoft JhengHei', sans-serif;
@@ -62,8 +73,11 @@
   color-scheme: light;
 }
 
+/* The dark colours: the visitor's system in dark mode, unless they chose light with the theme button
+   (assets/theme.js: <html data-theme="light">), and dark chosen there. Keep the two lists the same
+   (test/site-theme.test.ts checks), and keep everything else that differs in dark mode a token here. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #141415;
     --surface: #1e1e20;
     --surface-2: #2a2a2d;
@@ -82,8 +96,44 @@
     --star-edge: #e3b341;
     --star-inverse: #eac54f;
     --star-inverse-edge: #bf8700;
+    --claude-name: var(--claude-lit);
+    --codex-name: var(--codex-lit);
+    --grok-name: var(--grok-lit);
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --when-light: none;
+    --when-dark: block;
     color-scheme: dark;
   }
+}
+
+:root[data-theme='dark'] {
+  --bg: #141415;
+  --surface: #1e1e20;
+  --surface-2: #2a2a2d;
+  --border: #333336;
+  --text: #ececec;
+  --muted: #a1a1aa;
+  --primary: #ececec;
+  --primary-contrast: #18181b;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 12px -4px rgb(0 0 0 / 0.45);
+  --claude-ink: #e8906f;
+  --codex-ink: #34c79d;
+  --grok-ink: #a593ff;
+  --band: #0a0a0b;
+  --band-2: #18181a;
+  --star: #e3b341;
+  --star-edge: #e3b341;
+  --star-inverse: #eac54f;
+  --star-inverse-edge: #bf8700;
+  --claude-name: var(--claude-lit);
+  --codex-name: var(--codex-lit);
+  --grok-name: var(--grok-lit);
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --when-light: none;
+  --when-dark: block;
+  color-scheme: dark;
 }
 
 *,
@@ -274,29 +324,15 @@ p {
 }
 
 .name-claude {
-  color: var(--claude);
+  color: var(--claude-name);
 }
 
 .name-codex {
-  color: var(--codex);
+  color: var(--codex-name);
 }
 
 .name-grok {
-  color: var(--grok);
-}
-
-@media (prefers-color-scheme: dark) {
-  .name-claude {
-    color: var(--claude-lit);
-  }
-
-  .name-codex {
-    color: var(--codex-lit);
-  }
-
-  .name-grok {
-    color: var(--grok-lit);
-  }
+  color: var(--grok-name);
 }
 
 /* The app's avatar: a coloured disc with the member's initial. */
@@ -506,6 +542,40 @@ p {
   height: 36px;
   padding: 0 14px;
   font-size: 14px;
+}
+
+/* The theme button at the end of the header (assets/theme.js): the moon in the light theme and the sun
+   in the dark one, for the theme a press gives. It only works with JavaScript, so without it, it is not
+   there. */
+.header-tools .btn.theme-toggle {
+  width: 36px;
+  min-width: 36px;
+  padding: 0;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.header-tools .btn.theme-toggle:hover {
+  color: var(--text);
+}
+
+.theme-toggle .i-moon {
+  display: var(--when-light);
+}
+
+.theme-toggle .i-sun {
+  display: var(--when-dark);
+}
+
+html:not(.js) .theme-toggle {
+  display: none;
+}
+
+/* While the theme changes (assets/theme.js), every colour changes at once: no button fades. */
+.theme-changing *,
+.theme-changing *::before,
+.theme-changing *::after {
+  transition: none !important;
 }
 
 /* ---------- Hero ---------- */
@@ -1569,16 +1639,10 @@ p {
 }
 
 .waiting {
-  color: #b45309;
+  color: var(--warn);
   font-size: 12.5px;
   font-weight: 650;
   white-space: nowrap;
-}
-
-@media (prefers-color-scheme: dark) {
-  .waiting {
-    color: #fbbf24;
-  }
 }
 
 .ui pre {
@@ -1643,7 +1707,7 @@ p {
 }
 
 .files .st.m {
-  color: #b45309;
+  color: var(--warn);
 }
 
 .files .st.a {
@@ -1666,17 +1730,7 @@ p {
 }
 
 .files .del {
-  color: #dc2626;
-}
-
-@media (prefers-color-scheme: dark) {
-  .files .st.m {
-    color: #fbbf24;
-  }
-
-  .files .del {
-    color: #f87171;
-  }
+  color: var(--danger);
 }
 
 .ui-tray {

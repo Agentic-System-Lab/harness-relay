@@ -2,11 +2,14 @@ import { fork, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { smoke } from '../desktop/scripts/smoke';
+import { withFakeClis, withoutOwnSettings } from '../desktop/src/selftest';
+import { installFakeClis } from '../e2e/support/fake-cli';
 import { desktopParent } from '../src/server/parent';
+import { slow } from './timeouts';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-parent-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -87,7 +90,14 @@ describe('the desktop app, seen from the server', () => {
 });
 
 describe('the server, run as the desktop app runs it', () => {
-  it('listens, signs a browser in with a link it gives the app, prints no code, and shuts down when asked', async () => {
+  // The end-to-end tests' fake claude, codex and grok: on Windows built once as executables, which
+  // takes a while, so outside the test's own time limit.
+  let fakeClis = '';
+  beforeAll(async () => {
+    fakeClis = await installFakeClis();
+  }, slow(120_000));
+
+  it('listens, signs a browser in with a link it gives the app, has a team of the fake CLIs answer a question, prints no code, and shuts down when asked', async () => {
     // A stand-in for the built UI (npm run build is not run before the tests).
     const web = join(dir, 'web');
     mkdirSync(join(web, 'assets'), { recursive: true });
@@ -96,7 +106,10 @@ describe('the server, run as the desktop app runs it', () => {
       entry: resolve('src/server/index.ts'),
       execArgv: ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href],
       webDir: web,
-      timeoutMs: 30_000,
+      fakeClis,
+      timeoutMs: slow(30_000),
+      // Shorter than the test's own limit, so that a slow run fails with the check's own message.
+      turnTimeoutMs: slow(30_000),
     });
     expect(passed).toEqual([
       'loads the keyring module',
@@ -106,11 +119,41 @@ describe('the server, run as the desktop app runs it', () => {
       'gives a sign-in link for its own address',
       "signs a browser in with the link's code",
       'answers the signed-in browser',
+      'starts a read-only chat with claude, codex and grok',
+      'sends them a question',
+      expect.stringMatching(/^the team's run ends within \d+ s$/),
+      'claude answers it',
+      'codex answers it',
+      'grok answers it',
       'prints no sign-in code',
       'says no conversation has agents at work',
       'exits with code 0 when asked to shut down (got 0)',
     ]);
-  }, 60_000);
+  }, slow(60_000));
+});
+
+describe("the desktop checks' environment", () => {
+  it("leaves out the developer's own Harness Relay and end-to-end settings", () => {
+    const env = withoutOwnSettings({ PATH: '/bin', HOME: '/home/me', RELAY_DATA_DIR: '/home/me/relay', RELAY_MAX_TEAM_AGENTS: '2', E2E_BUILD: 'never' });
+    expect(env).toEqual({ PATH: '/bin', HOME: '/home/me' });
+  });
+
+  it("gives the stand-in CLIs homes of their own and none of the user's credentials", () => {
+    const root = mkdtempSync(join(tmpdir(), 'relay-fakes-env-'));
+    try {
+      const { env, cwd } = withFakeClis(
+        { PATH: 'bin', ANTHROPIC_API_KEY: 'sk-ant', OPENAI_API_KEY: 'sk-oa', XAI_API_KEY: 'xai', GH_TOKEN: 'gho', GITHUB_TOKEN: 'ghp', NPM_TOKEN: 'npm', LANG: 'C.UTF-8' },
+        join(root, 'fakes'),
+        root,
+      );
+      expect(Object.keys(env).filter((k) => /KEY|TOKEN/.test(k))).toEqual([]);
+      expect(env.LANG).toBe('C.UTF-8');
+      expect(env.PATH!.split(delimiter)[0]).toBe(join(root, 'fakes'));
+      expect([env.HOME, env.CODEX_HOME, cwd]).toEqual([join(root, 'home'), join(root, 'home', '.codex'), join(root, 'work')]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('a server whose port is taken', () => {

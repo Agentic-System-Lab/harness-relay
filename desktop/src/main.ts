@@ -49,7 +49,7 @@ import {
 import { ServerLog } from './log';
 import { loadPrefs, savePrefs, type DesktopPrefs } from './prefs';
 import { prepareBrowserDir } from './profile';
-import { checkServer, printsNoCode } from './selftest';
+import { checkServer, checkTurn, printsNoCode, withFakeClis, withoutOwnSettings } from './selftest';
 import { portFree, Supervisor, type ServerChild, type ServerState, type StartError } from './supervisor';
 import { LiveMenu, menuText, patchMenu, REOPEN_DELAY_MS } from './traymenu';
 import {
@@ -63,6 +63,8 @@ import {
   checkNow,
   checkLatest,
   download,
+  DOWNLOAD_CONNECTIONS,
+  type Fetch,
   FIRST_CHECK_MS,
   installPlan,
   isNewer,
@@ -81,6 +83,7 @@ import {
   updateSystem,
   whenIdle,
   WINDOWS_INSTALLER_ARGS,
+  type Locate,
   type UpdateRelease,
   type Updating,
 } from './update';
@@ -95,12 +98,15 @@ const APP_ID = 'io.github.agentic-system-lab.harness-relay';
 /**
  * `--smoke-test[=<report file>]`: the packaged app checks itself and exits (desktop/scripts/check-package.ts,
  * the Release workflow), with its own temporary data, apart from a Harness Relay that may be running.
+ * With `--smoke-test-clis=<folder>`, the fake CLIs there (e2e/support/fake-cli.ts) answer a question too.
  */
 const SMOKE_ARG = '--smoke-test';
+const SMOKE_CLIS_ARG = '--smoke-test-clis=';
 const smokeArg = process.argv.find((a) => a === SMOKE_ARG || a.startsWith(`${SMOKE_ARG}=`));
 
 if (smokeArg !== undefined) {
-  smokeTest(smokeArg.includes('=') ? smokeArg.slice(SMOKE_ARG.length + 1) : undefined);
+  const clis = process.argv.find((a) => a.startsWith(SMOKE_CLIS_ARG))?.slice(SMOKE_CLIS_ARG.length);
+  smokeTest(smokeArg.includes('=') ? smokeArg.slice(SMOKE_ARG.length + 1) : undefined, clis || undefined);
 } else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -111,6 +117,45 @@ if (smokeArg !== undefined) {
 function serverDir(): string {
   return app.isPackaged ? join(process.resourcesPath, 'server') : join(app.getAppPath(), '..', 'server');
 }
+
+/**
+ * A fetch for each connection an update downloads on (`download`): each in a session of its own, kept
+ * in memory, as Chromium sends one session's requests to a host down one HTTP/2 connection, which goes
+ * no faster than one would. Nothing of them is cached.
+ */
+function updateConnections(): Fetch[] {
+  return Array.from({ length: DOWNLOAD_CONNECTIONS }, (_, i) => {
+    const s = session.fromPartition(`relay-update-${i}`);
+    return (url, init) => s.fetch(url, { ...init, cache: 'no-store' });
+  });
+}
+
+/**
+ * Where a download's address leads (`Locate`), asked without following it: net.fetch follows a
+ * redirect and keeps nothing of where it went (its Response's url stays empty).
+ */
+const locateRedirect: Locate = (url, signal) =>
+  new Promise((resolve, reject) => {
+    signal.throwIfAborted();
+    const req = net.request({ url, redirect: 'manual', cache: 'no-store' });
+    const onAbort = () => {
+      req.abort();
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    const settle = (answer: { status: number; location?: string }) => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(answer);
+      req.abort();
+    };
+    req.on('redirect', (status, _method, location) => settle({ status, location }));
+    req.on('response', (res) => settle({ status: res.statusCode }));
+    req.on('error', (err) => {
+      signal.removeEventListener('abort', onAbort);
+      reject(err);
+    });
+    req.end();
+  });
 
 /** The server in an Electron utility process, as the supervisor sees it. */
 function forkServer(childEnv: NodeJS.ProcessEnv): ServerChild {
@@ -138,10 +183,11 @@ function forkServer(childEnv: NodeJS.ProcessEnv): ServerChild {
 /**
  * The packaged app's check of itself, in Electron as it ships (its fuses, its archive, the server in
  * a utility process): the keyring module loads, the server starts, serves the web app and signs a
- * browser in with the links it gives the app, a sandboxed window signs in with one, and the server
- * stops when asked. Prints what passed (and writes it to `report`), then exits with 0 or 1.
+ * browser in with the links it gives the app, a team of the fake CLIs in `clis` (when given) answers
+ * a question, a sandboxed window signs in with one, and the server stops when asked. Prints what
+ * passed (and writes it to `report`), then exits with 0 or 1.
  */
-function smokeTest(report: string | undefined): void {
+function smokeTest(report: string | undefined, clis: string | undefined): void {
   const home = mkdtempSync(join(tmpdir(), 'harness-relay-smoke-'));
   app.setPath('userData', home);
   app.setPath('sessionData', join(home, 'browser'));
@@ -161,8 +207,11 @@ function smokeTest(report: string | undefined): void {
     try {
       const keyring = createRequire(join(serverDir(), 'server.mjs'))('@napi-rs/keyring') as { Entry?: unknown };
       check(typeof keyring.Entry === 'function', "loads the keyring module from the server's folder");
+      // The developer's own settings (a data folder above all) are not the check's, however it starts.
+      const base = withoutOwnSettings(process.env);
+      const fakes = clis ? withFakeClis(base, clis, home) : undefined;
       const childEnv = serverEnv({
-        base: process.env,
+        base: fakes?.env ?? base,
         dataDir: join(home, 'data'),
         webDir: join(serverDir(), 'web'),
         port: 0,
@@ -174,7 +223,9 @@ function smokeTest(report: string | undefined): void {
       const state = await supervisor.start(childEnv, 0);
       check(state.kind === 'running', `starts the server in a utility process (${state.kind})`);
       const url = (state as Extract<ServerState, { kind: 'running' }>).url;
-      await checkServer(url, () => supervisor.signInLink(), check);
+      const auth = await checkServer(url, () => supervisor.signInLink(), check);
+      if (fakes) await checkTurn(url, auth, check, { cwd: fakes.cwd });
+      else lines.push('- asks no agent a question (no --smoke-test-clis folder)');
       check(printsNoCode(output), 'prints no sign-in code');
       check((await supervisor.busy()) === 0, 'says no conversation has agents at work');
 
@@ -194,6 +245,8 @@ function smokeTest(report: string | undefined): void {
       if (!failed) lines.push(`✗ ${(err as Error).message}`);
       failed = true;
     }
+    // A failed check leaves the server, and the agents of a failed turn, running in `home`.
+    if (supervisor.state.kind !== 'stopped') await supervisor.stop().catch(() => undefined);
     if (failed) lines.push('--- server output ---', output.slice(-4000));
     const text = `${lines.join('\n')}\n`;
     process.stdout.write(text);
@@ -205,7 +258,8 @@ function smokeTest(report: string | undefined): void {
       }
     }
     try {
-      rmSync(home, { recursive: true, force: true });
+      // Windows may hold a file a moment after its process ended.
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
     } catch {
       /* in the temporary folder */
     }
@@ -786,14 +840,15 @@ function run(): void {
       shown = percent;
       setUpdating({ kind: 'downloading', done });
     };
-    const fetch = (url: string, init?: { signal?: AbortSignal }) => net.fetch(url, init);
+    const fetch: Fetch = (url, init) => net.fetch(url, init);
+    const parts = { connections: updateConnections(), locate: locateRedirect };
     let installer: string | undefined;
     try {
       if (plan.kind === 'linux') {
         // Downloaded next to the AppImage, so that putting it in place is a rename.
         const target = appImageTarget(plan.appImage, asset.name, __RELAY_VERSION__);
         const downloaded = appImageDownload(plan.appImage, asset.name);
-        await download({ fetch, asset, to: downloaded, onProgress });
+        await download({ fetch, ...parts, asset, to: downloaded, onProgress });
         setUpdating({ kind: 'installing' });
         if (!(await waitForConversations())) return;
         placeAppImage(downloaded, target, plan.appImage);
@@ -803,7 +858,7 @@ function run(): void {
       }
       mkdirSync(updatesDir, { recursive: true });
       installer = join(updatesDir, asset.name);
-      await download({ fetch, asset, to: installer, onProgress });
+      await download({ fetch, ...parts, asset, to: installer, onProgress });
       setUpdating({ kind: 'installing' });
       if (plan.kind === 'mac') {
         await stageMacApp({ dmg: installer, app: plan.app, bundleId: APP_ID, semver: release.semver, env });

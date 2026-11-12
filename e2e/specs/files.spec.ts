@@ -1,7 +1,44 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { inflateRawSync } from 'node:zlib';
+import type { Download, Locator, Page } from '@playwright/test';
+import { FILE_LIMITS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, askAndConfirm, finishedReply, openTeamChat, send, startChat } from '../support/app';
+
+/**
+ * A ZIP file's entries, by name (a folder's ends with `/`), with each one's bytes: read from its central
+ * directory, which follows the data, and each file's local header, as any unzip tool reads them.
+ */
+function zipEntries(zip: Buffer): Map<string, Buffer> {
+  // The end of the central directory: its 22 bytes come last (this archive has no comment).
+  const end = zip.length - 22;
+  expect(zip.readUInt32LE(end), 'the end of the central directory').toBe(0x06054b50);
+  const count = zip.readUInt16LE(end + 10);
+  let at = zip.readUInt32LE(end + 16);
+  const entries = new Map<string, Buffer>();
+  for (let i = 0; i < count; i++) {
+    expect(zip.readUInt32LE(at), 'a central directory header').toBe(0x02014b50);
+    const method = zip.readUInt16LE(at + 10);
+    const size = zip.readUInt32LE(at + 20);
+    const nameLength = zip.readUInt16LE(at + 28);
+    const name = zip.toString('utf8', at + 46, at + 46 + nameLength);
+    const local = zip.readUInt32LE(at + 42);
+    expect(zip.readUInt32LE(local), 'a local file header').toBe(0x04034b50);
+    const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    const data = zip.subarray(start, start + size);
+    entries.set(name, method === 8 ? inflateRawSync(data) : Buffer.from(data));
+    at += 46 + nameLength + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);
+  }
+  return entries;
+}
+
+/** Clicks a folder's download button, and returns the ZIP file the browser saved, and its entries. */
+async function downloadZip(page: Page, button: Locator): Promise<{ download: Download; entries: Map<string, Buffer> }> {
+  const [download] = await Promise.all([page.waitForEvent('download'), button.click()]);
+  expect(await download.failure()).toBeNull();
+  return { download, entries: zipEntries(readFileSync(await download.path())) };
+}
 
 test.describe('files and changes', () => {
   test('in edit mode an agent changes files, and the chat shows what changed', async ({ page, relay }) => {
@@ -115,5 +152,71 @@ test.describe('files and changes', () => {
     await expect(browser.locator('.code-text')).toContainText('export function hello(name: string): string {');
     await page.keyboard.press('Escape');
     await expect(browser).toBeHidden();
+  });
+
+  test('a folder downloads as a ZIP file of its files, without .git', async ({ page, relay }) => {
+    // Edit mode makes the working directory a git repository at the first turn.
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    await send(page, 'Write the plan down e2e:write=notes/plan.md');
+    await finishedReply(page, 'Claude');
+    expect(existsSync(join(relay.workDir, '.git'))).toBe(true);
+
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    const browser = page.getByRole('dialog', { name: 'Files' });
+    // The whole working directory, named after its folder.
+    const all = await downloadZip(page, browser.getByRole('button', { name: 'Download "Working directory" as a ZIP file' }));
+    expect(all.download.suggestedFilename()).toBe('work.zip');
+    expect([...all.entries.keys()].sort()).toEqual([
+      'work/',
+      'work/README.md',
+      'work/notes/',
+      'work/notes/plan.md',
+      'work/src/',
+      'work/src/hello.ts',
+      'work/src/lib/',
+      'work/src/lib/math.ts',
+    ]);
+    expect(all.entries.get('work/src/hello.ts')!.toString('utf8')).toBe(readFileSync(join(relay.workDir, 'src', 'hello.ts'), 'utf8'));
+    expect(all.entries.get('work/notes/plan.md')!.toString('utf8')).toBe('Written by Claude (Claude Code).\n');
+
+    // A folder of the list, from its row.
+    const src = await downloadZip(page, browser.getByRole('button', { name: 'Download "src" as a ZIP file' }));
+    expect(src.download.suggestedFilename()).toBe('src.zip');
+    expect([...src.entries.keys()].sort()).toEqual(['src/', 'src/hello.ts', 'src/lib/', 'src/lib/math.ts']);
+    expect(src.entries.get('src/lib/math.ts')!.toString('utf8')).toBe(readFileSync(join(relay.workDir, 'src', 'lib', 'math.ts'), 'utf8'));
+  });
+
+  test('a folder too large to zip in full is offered without what git ignores', async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    await send(page, 'Write the plan down e2e:write=notes/plan.md');
+    await finishedReply(page, 'Claude');
+    // An ignored file over the ZIP's limit, made by setting its length: nothing is written, and the
+    // server only looks at its size.
+    writeFileSync(join(relay.workDir, '.gitignore'), 'build/\n');
+    mkdirSync(join(relay.workDir, 'build'));
+    writeFileSync(join(relay.workDir, 'build', 'huge.bin'), '');
+    truncateSync(join(relay.workDir, 'build', 'huge.bin'), FILE_LIMITS.zipBytes + 1);
+
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    const browser = page.getByRole('dialog', { name: 'Files' });
+    const button = browser.getByRole('button', { name: 'Download "Working directory" as a ZIP file' });
+    // Declined, nothing is downloaded.
+    let asked = '';
+    page.once('dialog', (d) => {
+      asked = d.message();
+      void d.dismiss();
+    });
+    let downloads = 0;
+    page.on('download', () => downloads++);
+    await button.click();
+    await expect.poll(() => asked).toContain('is too large to zip in full');
+    expect(asked).toContain('Download only the files git does not ignore? 5 files');
+    await expect(button).toBeEnabled();
+    expect(downloads).toBe(0);
+
+    acceptNextDialog(page);
+    const { download, entries } = await downloadZip(page, button);
+    expect(download.suggestedFilename()).toBe('work.zip');
+    expect([...entries.keys()].sort()).toEqual(['work/', 'work/.gitignore', 'work/README.md', 'work/notes/plan.md', 'work/src/hello.ts', 'work/src/lib/math.ts']);
   });
 });
