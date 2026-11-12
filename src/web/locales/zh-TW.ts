@@ -105,6 +105,9 @@ export const zhTW = {
     matches: (n: number) => `${n} 則訊息符合`,
     settings: '設定與登入',
     report: '回報問題',
+    healthReady: (ready: number, total: number) => `${ready}/${total} 可用`,
+    healthShowNames: '顯示 CLI 名稱',
+    healthHideNames: '只顯示圓點',
     health: {
       checking: '檢查中…',
       notInstalled: '未安裝',

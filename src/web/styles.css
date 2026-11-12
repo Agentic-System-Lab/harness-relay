@@ -5720,6 +5720,64 @@ details.sub summary {
   text-decoration: underline;
 }
 
+/* Dots only, on one line: each CLI's name is still its link's text, for a screen reader, and its title. */
+.provider-health.compact {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.provider-health.compact a.health {
+  padding: 4px;
+  border-radius: 50%;
+}
+
+.provider-health.compact a.health:hover,
+.provider-health.compact a.health:focus-visible {
+  background: var(--surface);
+}
+
+.provider-health.compact .health i {
+  width: 8px;
+  height: 8px;
+}
+
+.provider-health.compact .health-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.health-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.health-toggle:hover {
+  color: var(--text);
+}
+
+.health-toggle svg {
+  transition: transform 0.15s;
+}
+
+.health-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
 /* What a CLI loads by itself (Settings, in each CLI's card) */
 .native-setup > summary .badge {
   margin-left: 8px;

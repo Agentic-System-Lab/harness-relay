@@ -186,6 +186,8 @@ describe('claude parser', () => {
 
   it('describes approval requests by tool', () => {
     expect(claudeApprovalRequest('Bash', { command: 'git push', description: 'Push' })).toEqual({ kind: 'command', detail: 'git push', reason: 'Push' });
+    // On Windows its commands come through its PowerShell tool: a command too.
+    expect(claudeApprovalRequest('PowerShell', { command: 'echo hi > hello.txt', description: 'Write' })).toEqual({ kind: 'command', detail: 'echo hi > hello.txt', reason: 'Write' });
     expect(claudeApprovalRequest('Write', { file_path: '/a.txt' })).toMatchObject({ kind: 'edit', detail: '/a.txt' });
     expect(claudeApprovalRequest('WebFetch', { url: 'https://x.dev' })).toMatchObject({ kind: 'fetch', detail: 'https://x.dev' });
     expect(claudeApprovalRequest('mcp__linear__create', { title: 'Bug' })).toMatchObject({ kind: 'other', tool: 'mcp__linear__create' });

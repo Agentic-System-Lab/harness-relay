@@ -16,6 +16,7 @@ import {
   grokRunner,
   holdGrokTypedModel,
   withGrokModels,
+  withoutStrayGrokModels,
   writeGrokModels,
   grokProfileBlock,
   grokPrograms,
@@ -480,6 +481,54 @@ describe("Grok on the user's own endpoints", () => {
     expect(withGrokModels(once, '')).toBe(user);
     expect(withGrokModels(user, '')).toBe(user);
     expect(withGrokModels('', block)).toBe(`${block}\n`);
+  });
+
+  it('takes out the tables Grok kept when it wrote its config again without the block\'s markers, so none is defined twice', () => {
+    // As grok 1.0.77 left it on Windows after `grok login`: its own settings written again, the comments
+    // (the markers) dropped, the table kept among its own.
+    const rewritten = [
+      '[cli]',
+      'installer = "internal"',
+      '',
+      '[model."harness-relay/homelab/gemma4:e4b"]',
+      'model = "gemma4:e4b"',
+      'base_url = "http://vllm.example:8000/v1"',
+      'hidden = true',
+      '',
+      '[ui]',
+      'yolo = false',
+      '',
+    ].join('\n');
+    const block = grokModelsBlock([lab]);
+    const fixed = withGrokModels(rewritten, block);
+    expect(fixed.match(/\[model\."harness-relay\/homelab\/gemma4:e4b"\]/g)).toHaveLength(1);
+    expect(fixed).toBe(`[cli]\ninstaller = "internal"\n\n[ui]\nyolo = false\n\n${block}\n`);
+    // Also with the block there, and with Windows' line ends; the user's own models stay.
+    const both = `${withGrokModels('[model."mine"]\nmodel = "x"\n', block)}\r\n[model."harness-relay/homelab/old"]\r\nmodel = "old"\r\n`;
+    const once = withGrokModels(both, block);
+    expect(once.match(/harness-relay\/homelab\/old/g)).toBeNull();
+    expect(once).toContain('[model."mine"]');
+    expect(once.match(/# >>> harness-relay models/g)).toHaveLength(1);
+    expect(withoutStrayGrokModels(once)).toBe(once);
+  });
+
+  it('puts such a table back in a block, kept up to date, even when no turn adds one', () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-stray-'));
+    try {
+      const file = join(home, 'config.toml');
+      writeFileSync(file, '[cli]\nx = 1\n\n[model."harness-relay/homelab/gemma4:e4b"]\nmodel = "gemma4:e4b"\n');
+      writeGrokModels(home, [lab], false);
+      // Written before (Grok kept its table): the block again, with its markers, the table once.
+      const text = readFileSync(file, 'utf8');
+      expect(text.match(/\[model\."harness-relay\/homelab\/gemma4:e4b"\]/g)).toHaveLength(1);
+      expect(text).toBe(`[cli]\nx = 1\n\n${grokModelsBlock([lab])}\n`);
+      // A config with nothing of Harness Relay's is left as it is.
+      writeFileSync(file, '[cli]\nx = 1\n');
+      writeGrokModels(home, [lab], false);
+      expect(readFileSync(file, 'utf8')).toBe('[cli]\nx = 1\n');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.

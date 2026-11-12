@@ -94,6 +94,9 @@ export const en: Messages = {
     matches: (n) => (n === 1 ? '1 matching message' : `${n} matching messages`),
     settings: 'Settings & sign-in',
     report: 'Report a problem',
+    healthReady: (ready, total) => `${ready}/${total} ready`,
+    healthShowNames: 'Show the CLIs’ names',
+    healthHideNames: 'Dots only',
     health: {
       checking: 'Checking…',
       notInstalled: 'Not installed',

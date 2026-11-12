@@ -712,11 +712,45 @@ export function grokModelsBlock(endpoints: readonly RunEndpoint[]): string {
   return tables.length ? [MODELS_BEGIN, tables.join('\n\n'), MODELS_END].join('\n') : '';
 }
 
+/** A table of one of Harness Relay's models (`grokEndpointModelId`), whatever is around it. */
+const OWN_MODEL_TABLE = /^\s*\[\s*model\s*\.\s*"harness-relay\/[^"]*"\s*\]\s*$/;
+
+/**
+ * `config.toml` without the tables of Harness Relay's models that are outside its block. Grok writes
+ * its whole config again when it saves a setting of its own (a sign-in, say), which drops the
+ * comments, the block's markers among them, and keeps the tables: left there, the block written again
+ * would define each twice, and Grok refuses a config with a duplicate key (seen with grok 1.0.77 on
+ * Windows, after `grok login`). A table runs to the next table or the block. No model of Grok's or
+ * of the user's own has such an id.
+ */
+export function withoutStrayGrokModels(existing: string): string {
+  const out: string[] = [];
+  let inBlock = false;
+  let skipping = false;
+  for (const line of existing.split('\n')) {
+    const text = line.replace(/\r$/, '');
+    if (text === MODELS_BEGIN) inBlock = true;
+    if (!inBlock) {
+      if (OWN_MODEL_TABLE.test(text)) {
+        skipping = true;
+        continue;
+      }
+      if (skipping && /^\s*\[/.test(text)) skipping = false;
+      if (skipping) continue;
+    }
+    if (text === MODELS_END) inBlock = false;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
 /**
  * `config.toml` with the models' block in place of the one there was, or after the user's own
- * settings (TOML tables go last); `block` empty takes it out.
+ * settings (TOML tables go last); `block` empty takes it out. Tables of Harness Relay's models outside
+ * the block are taken out first (`withoutStrayGrokModels`).
  */
-export function withGrokModels(existing: string, block: string): string {
+export function withGrokModels(current: string, block: string): string {
+  const existing = withoutStrayGrokModels(current);
   const start = existing.indexOf(MODELS_BEGIN);
   const end = start < 0 ? -1 : existing.indexOf(MODELS_END, start);
   if (end >= 0) {
@@ -741,7 +775,8 @@ export function writeGrokModels(home: string, endpoints: readonly RunEndpoint[],
   const path = join(home, 'config.toml');
   const file = existsSync(path) ? realpathSync(path) : path;
   const existing = existsSync(file) ? readFileSync(file, 'utf8') : '';
-  if (!add && !existing.includes(MODELS_BEGIN)) return;
+  // A stray table of Harness Relay's (Grok wrote its config again) is taken out even when no block is added.
+  if (!add && !existing.includes(MODELS_BEGIN) && withoutStrayGrokModels(existing) === existing) return;
   const next = withGrokModels(existing, grokModelsBlock(endpoints));
   if (next === existing) return;
   mkdirSync(home, { recursive: true });

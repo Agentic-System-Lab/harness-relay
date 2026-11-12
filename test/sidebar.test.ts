@@ -1,21 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { families, familyOf } from '../src/shared/family';
 import type { ConversationSummary } from '../src/shared/types';
-import {
-  ancestorsOf,
-  branchCount,
-  descendants,
-  familyIds,
-  familySizes,
-  foldedNow,
-  groupSections,
-  groupStatus,
-  moveFamily,
-  revealIn,
-  settleMoves,
-  undoMoves,
-  type ConvNode,
-} from '../src/web/sidebar';
+import { ancestorsOf, branchCount, descendants, familyIds, familySizes, foldedNow, groupSections, groupStatus, moveFamily, revealIn, settleMoves, undoMoves, type ConvNode, HEALTH_NAMES_KEY, readHealthNames, readyCount, writeHealthNames } from '../src/web/sidebar';
 import { convStatus } from '../src/web/util';
 
 const conv = (extra: Partial<ConversationSummary>): ConversationSummary => ({
@@ -233,5 +219,34 @@ describe('sidebar families of branched conversations', () => {
     const loop = members.map((m) => conv({ id: m.id, createdAt: m.createdAt, branchFrom: { id: m.fromId, title: '' } }));
     expect(groupSections(loop, [])[0]!.trees).toHaveLength(2);
     expect(branchCount(loop, 'a') + branchCount(loop, 'b') + branchCount(loop, 'c')).toBe(3);
+  });
+});
+
+describe("the CLIs' health at the sidebar's foot", () => {
+  it('counts the CLIs that are ready', () => {
+    expect(readyCount(['ok', 'warn', 'ok', 'off'])).toEqual({ ready: 2, total: 4 });
+    expect(readyCount([])).toEqual({ ready: 0, total: 0 });
+  });
+
+  it('shows the dots alone unless this browser asked for the names, and copes with no storage', () => {
+    const store = new Map<string, string>();
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    expect(readHealthNames(storage)).toBe(false);
+    writeHealthNames(true, storage);
+    expect(store.get(HEALTH_NAMES_KEY)).toBe('1');
+    expect(readHealthNames(storage)).toBe(true);
+    writeHealthNames(false, storage);
+    expect(readHealthNames(storage)).toBe(false);
+    const broken = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+    };
+    expect(readHealthNames(broken)).toBe(false);
+    expect(() => writeHealthNames(true, broken)).not.toThrow();
+    expect(readHealthNames(undefined)).toBe(false);
   });
 });
