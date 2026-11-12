@@ -6,7 +6,8 @@ name: Release
 # runners), and publishes the five as one GitHub release, tagged with the version; first, a copy of
 # each for the app's updates (counted apart from new installs) under the same tag in a repository of
 # their own (UPDATES_REPO in site/assets/downloads.js), with the UPDATES_TOKEN secret. A release
-# candidate is published as a pre-release.
+# candidate is published as a pre-release. Its notes list every commit that came into main since the
+# version before (scripts/release.ts notes), pushed to main or merged from a pull request.
 on:
   workflow_dispatch:
     inputs:
@@ -198,6 +199,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      # The pull request each commit in the notes merged (GitHub's commits/<sha>/pulls).
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
 
@@ -206,14 +209,23 @@ jobs:
           node-version: 24
 
       # Again, against the tags as they are now and the day the run started (a long build may end
-      # after midnight): another release may have taken the version meanwhile. It also gives the
-      # version the notes start from (previousVersion() in scripts/release.ts).
+      # after midnight): another release may have taken the version meanwhile.
       - name: Check the version again
-        id: version
         env:
           VERSION: ${{ needs.check.outputs.tag }}
           TODAY: ${{ needs.check.outputs.today }}
         run: node scripts/release.ts check "$VERSION" --remote --today "$TODAY"
+
+      # The notes' list of changes: every commit that came into main since the version the notes
+      # start from (previousVersion() in scripts/release.ts, by the same tags), up to the commit that
+      # was checked and built, whether pushed to main or merged from a pull request, as GitHub's
+      # comparison of the two lists them; each by its subject, linked to the pull request it merged or
+      # else to itself. Before anything is published, so that a failure here publishes nothing.
+      - name: List the changes since the version before
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.tag }}
+        run: node scripts/release.ts notes "$VERSION" --target "$GITHUB_SHA" --remote > "$RUNNER_TEMP/changes.md"
 
       - uses: actions/download-artifact@v8
         with:
@@ -290,7 +302,6 @@ jobs:
           TAG: ${{ needs.check.outputs.tag }}
           TITLE: ${{ needs.check.outputs.title }}
           PRERELEASE: ${{ needs.check.outputs.prerelease }}
-          PREVIOUS: ${{ steps.version.outputs.previous }}
         run: |
           if [ "$PRERELEASE" = true ]; then
             channel=(--prerelease --latest=false)
@@ -304,10 +315,10 @@ jobs:
           notes="$kind
 
           **Download:** \`.dmg\` for macOS 13 or later on Apple Silicon (no Intel Macs), \`.exe\` for Windows 10 or later (\`win-x64\`, or \`win-arm64\` for Windows on Arm), \`.AppImage\` for Linux (\`linux-x86_64\`, or \`linux-arm64\` for Arm). The installers are not signed yet: on macOS, open **System Settings → Privacy & Security** and click **Open Anyway**; on Windows, click **More info → Run anyway**; on Linux, make the AppImage executable, and on Ubuntu 24.04 and later start it with \`--no-sandbox\`. $offered See [Desktop app](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.md#desktop-app) ([繁體中文](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/user-guide.zh-TW.md#桌面-app))."
-          # The notes list the pull requests merged since PREVIOUS: for a release, the release before it
-          # (its release candidates' changes included); for a release candidate, the version before it,
-          # release or release candidate. Without one, GitHub chooses.
-          start=()
-          if [ -n "$PREVIOUS" ]; then start=(--notes-start-tag "$PREVIOUS"); fi
+          # Then the changes since the version before (for a release, the release before it, its release
+          # candidates' changes included; for a release candidate, the version before it, release or
+          # release candidate), listed by the step above.
+          printf '%s\n\n' "$notes" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/changes.md" >> "$RUNNER_TEMP/notes.md"
           # The tag is made on the commit that was checked and built.
-          gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes "$notes" --generate-notes "${start[@]}" "${channel[@]}"
+          gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" "${channel[@]}"

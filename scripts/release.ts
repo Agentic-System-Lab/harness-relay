@@ -1,6 +1,7 @@
 /**
  * The rules for a release's version (`npm run release:next`, `npm run release:check`, and the Release
- * workflow, .github/workflows/release.yml).
+ * workflow, .github/workflows/release.yml), and the list of changes in its notes (`npm run
+ * release:notes`, and the same workflow).
  *
  * A version is the date the release is made, in RELEASE_TIME_ZONE:
  *
@@ -16,6 +17,7 @@
  * Usage:
  *   tsx scripts/release.ts next                       today's next release and release candidate
  *   tsx scripts/release.ts check <version> [--remote] [--today YYYY-MM-DD]
+ *   tsx scripts/release.ts notes <version> [--target <commit>] [--remote]
  *
  * `--remote` reads the tags from origin (`git ls-remote`) instead of the local repository, and
  * `--today` checks against a given day (the workflow's publish step re-checks against the day it
@@ -23,11 +25,18 @@
  * GitHub Actions, it refuses a run on another branch than main and writes the version's tag, title,
  * semver, whether it is a pre-release and the version its notes start from to $GITHUB_OUTPUT.
  *
+ * `notes` prints the part of a release's notes that lists its changes (releaseChanges()): every
+ * commit that came into main since the version its notes start from, up to `--target` (the commit the
+ * release is made on; the version's own tag by default, for a release that is out), whether pushed to
+ * main or merged from a pull request, as GitHub's comparison of the two lists them (through `gh api`,
+ * in the repository GITHUB_REPOSITORY names, else origin's).
+ *
  * Only erasable TypeScript here: the workflow runs it with plain `node`.
  */
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 
 /** The day of a release is the day in Taiwan, where the maintainers are. */
 export const RELEASE_TIME_ZONE = 'Asia/Taipei';
@@ -297,12 +306,292 @@ export function tagsFromLsRemote(output: string): string[] {
   return [...new Set(names)];
 }
 
+/** A commit as GitHub's REST API gives it, with the fields the notes use. */
+export interface ApiCommit {
+  sha: string;
+  parents: readonly { sha: string }[];
+  /** The GitHub account of the commit's author; null when its address belongs to none. */
+  author: { login: string } | null;
+  commit: { message: string; author: { name: string; email?: string } | null };
+}
+
+/** One line of a release's notes: a pull request merged into main, or a commit pushed to it. */
+export interface Change {
+  title: string;
+  /** The author's GitHub account, when GitHub knows it. */
+  login?: string;
+  /** The author's name in git, for an author without one. */
+  name: string;
+  /** The author's address in git, when it is that account's: GitHub finds a bot's commits by it alone. */
+  email?: string;
+  /** The pull request, or the commit. */
+  url: string;
+}
+
+/** A pull request: its number, its title, and who opened it. */
+export interface Pull {
+  number: number;
+  title: string;
+  author?: string;
+}
+
+/** The pull request a commit merged into main (GitHub's record of that pull request's merge commit), if any. */
+export type PullOf = (sha: string) => Pull | undefined;
+
+/** GitHub's own merge commit of a pull request: its body holds the pull request's title. */
+const MERGED_PULL = /^Merge pull request #(\d+) from \S/;
+
+/**
+ * The lines of a release's notes for the commits that came into main, oldest first, one for each
+ * commit: its subject, linked to the pull request it merged (squashed, rebased or fast-forwarded:
+ * the subject without the " (#N)" GitHub ends a squash's with), by whoever opened that pull request;
+ * or else linked to the commit itself, by its author. A merge commit in git's words ("Merge pull
+ * request …", "Merge branch …", "Merge main into …") says nothing of its own: one that merged a pull
+ * request is listed as that pull request's title; any other has no line, since the commits it
+ * brought in have theirs.
+ */
+export function changesOf(commits: readonly ApiCommit[], repo: string, pullOf: PullOf): Change[] {
+  const bySha = new Map(commits.map((c) => [c.sha, c]));
+  const site = `https://github.com/${repo}`;
+  /** Credited to `login` when given (a pull request's author), else to the commit's author. */
+  const by = (c: ApiCommit, login?: string) => {
+    const own = c.author?.login || undefined;
+    const email = c.commit.author?.email?.trim() || undefined;
+    return {
+      login: login || own,
+      name: c.commit.author?.name?.trim() || login || own || c.sha.slice(0, 7),
+      email: !login || login === own ? email : undefined,
+    };
+  };
+  return commits.flatMap((c): Change[] => {
+    const [first = '', ...body] = c.commit.message.split('\n');
+    const subject = first.trim();
+    const pull = pullOf(c.sha);
+    if (c.parents.length > 1 && /^Merge\s/.test(subject)) {
+      const own = MERGED_PULL.exec(subject);
+      const merged = pull ?? (own ? { number: Number(own[1]), title: body.map((l) => l.trim()).find(Boolean) ?? subject } : undefined);
+      if (!merged) return [];
+      // Without GitHub's record of who opened it, the author of the branch it merged.
+      const tip = bySha.get(c.parents[c.parents.length - 1]!.sha) ?? c;
+      return [{ title: merged.title.trim() || subject, ...by(tip, merged.author), url: `${site}/pull/${merged.number}` }];
+    }
+    if (pull) {
+      const title = subject.endsWith(`(#${pull.number})`) ? subject.slice(0, -`(#${pull.number})`.length).trim() : subject;
+      return [{ title: title || pull.title.trim() || subject, ...by(c, pull.author), url: `${site}/pull/${pull.number}` }];
+    }
+    return [{ title: subject || c.sha.slice(0, 7), ...by(c), url: `${site}/commit/${c.sha}` }];
+  });
+}
+
+/** GitHub's REST API: the parsed answer for a path such as `repos/<owner>/<name>/commits`. */
+export type GitHubApi = (path: string) => unknown;
+
+const PAGE = 100;
+
+/** How many requests to GitHub run at once. */
+const AT_ONCE = 8;
+
+/** `fn` for each item, `limit` at a time, the results in the items' order. */
+export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => R | Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+/**
+ * The commits that came into `target` since `since` (`git log since..target`: pushed to main or
+ * merged from a pull request, the commits a merge brought in included), oldest first, as GitHub's
+ * comparison of the two lists them; without `since`, every commit of `target`'s history. GitHub
+ * lists them a page at a time; fewer than it counts is an error, never a shorter list.
+ */
+export async function commitsSince(api: GitHubApi, repo: string, since: string | undefined, target: string): Promise<ApiCommit[]> {
+  const out: ApiCommit[] = [];
+  const at = encodeURIComponent(target);
+  if (since) {
+    for (let page = 1; ; page++) {
+      const r = (await api(`repos/${repo}/compare/${encodeURIComponent(since)}...${at}?per_page=${PAGE}&page=${page}`)) as {
+        total_commits: number;
+        commits: ApiCommit[];
+      };
+      out.push(...r.commits);
+      if (out.length >= r.total_commits) return out;
+      if (r.commits.length === 0) throw new Error(`GitHub listed ${out.length} of the ${r.total_commits} commits from ${since} to ${target}.`);
+    }
+  }
+  for (let page = 1; ; page++) {
+    const r = (await api(`repos/${repo}/commits?sha=${at}&per_page=${PAGE}&page=${page}`)) as ApiCommit[];
+    out.push(...r);
+    if (r.length < PAGE) return out.reverse();
+  }
+}
+
+/** The pull request GitHub records `sha` as the merge commit of, if any (not one it is merely part of). */
+export async function pullMergedBy(api: GitHubApi, repo: string, sha: string): Promise<Pull | undefined> {
+  const pulls = (await api(`repos/${repo}/commits/${encodeURIComponent(sha)}/pulls?per_page=100`)) as {
+    number: number;
+    title: string;
+    merged_at: string | null;
+    merge_commit_sha: string | null;
+    user: { login: string } | null;
+  }[];
+  const p = pulls.find((p) => p.merged_at && p.merge_commit_sha === sha);
+  return p && { number: p.number, title: p.title, author: p.user?.login || undefined };
+}
+
+/**
+ * The authors of these changes who had no commit before `since`, each with their first pull request
+ * here (else their first change), in the order they first appear; without `since` the changes start at the repository's first commit, so
+ * every author with a GitHub account is new. An author counts as having one when GitHub finds a
+ * commit before `since` by their account or by an address of theirs in these changes: it never finds
+ * a bot's (`…[bot]`) by its account.
+ */
+export async function newContributors(api: GitHubApi, repo: string, since: string | undefined, changes: readonly Change[]): Promise<Change[]> {
+  const first = new Map<string, Change>();
+  const emails = new Map<string, Set<string>>();
+  const isPull = (c: Change) => /\/pull\/\d+$/.test(c.url);
+  for (const c of changes) {
+    if (!c.login) continue;
+    const had = first.get(c.login);
+    // Their first pull request, as GitHub's notes name it, else their first change.
+    if (!had || (!isPull(had) && isPull(c))) first.set(c.login, c);
+    if (c.email) emails.set(c.login, (emails.get(c.login) ?? new Set()).add(c.email));
+  }
+  // A Map keeps the order its keys first came in, also when one is set again.
+  const logins = [...first.keys()];
+  if (!since) return logins.map((l) => first.get(l)!);
+  const before = async (author: string) =>
+    ((await api(`repos/${repo}/commits?sha=${encodeURIComponent(since)}&author=${encodeURIComponent(author)}&per_page=1`)) as unknown[]).length > 0;
+  const isNew = await mapLimit(logins, AT_ONCE, async (login) => {
+    for (const author of [login, ...(emails.get(login) ?? [])]) if (await before(author)) return false;
+    return true;
+  });
+  return logins.filter((_, i) => isNew[i]).map((l) => first.get(l)!);
+}
+
+/** An account as GitHub's notes name it: a bot without its `[bot]`. */
+function mention(login: string): string {
+  return `@${login.replace(/\[bot\]$/, '')}`;
+}
+
+/**
+ * A commit's subject as one line of Markdown inside a list item: a leading `#`, `>`, `-`, `+`, `*` or
+ * `1.` that would make it a heading, a quote or a list escaped, and each `@name` outside code and
+ * links put in code, so that the notes notify nobody a subject merely names (the authors are named by
+ * the notes).
+ */
+export function subjectMarkdown(subject: string): string {
+  const escaped = subject.replace(/^(\d{1,9})([.)])(?=\s|$)/, '$1\\$2').replace(/^(#{1,6}(?=\s|$)|>|[-+*](?=\s|$))/, '\\$1');
+  return escaped
+    .split(/(`+[^`]*`+|https?:\/\/\S+)/)
+    .map((part, i) => (i % 2 ? part : codeMentions(part)))
+    .join('');
+}
+
+/**
+ * Each `@name` put in code, so that GitHub links and notifies nobody: wherever GitHub would take it for
+ * one (after anything but a letter, a digit, a backtick or a word's `_`: `_@name_` and `a/@name` too),
+ * with what is attached to it (`@scope/package@latest`, whose `@latest` GitHub would link once the rest
+ * is in code), but not an address (`dev@example.com`, `dev_@example.com`).
+ */
+function codeMentions(text: string): string {
+  return text.replace(/(?<![A-Za-z0-9`])(?<![A-Za-z0-9]_)@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\/[\w.-]*[\w-])?(?:@[\w.-]*[\w-])*)/g, '`@$1`');
+}
+
+/**
+ * Below GitHub's limit for a release's notes (125,000 characters), with room for the install notes
+ * before the changes.
+ */
+export const CHANGES_LIMIT = 100_000;
+
+/**
+ * The part of a release's notes that lists its changes, in the form GitHub's own notes take: What's
+ * Changed (none without changes), New Contributors (when there are), and the Full Changelog link to
+ * the comparison the list is made from. A list longer than `limit` characters ends with how many more
+ * changes there are, linked to the history up to the tag (GitHub's comparison page shows 250 commits
+ * at most), rather than make notes GitHub would refuse.
+ */
+export function changesMarkdown(n: {
+  repo: string;
+  tag: string;
+  since: string | undefined;
+  changes: readonly Change[];
+  newContributors: readonly Change[];
+  limit?: number;
+}): string {
+  const site = `https://github.com/${n.repo}`;
+  const tail: string[] = [];
+  if (n.newContributors.length) {
+    tail.push('## New Contributors', ...n.newContributors.map((c) => `* ${mention(c.login!)} made their first contribution in ${c.url}`), '');
+  }
+  tail.push(`**Full Changelog**: ${n.since ? `${site}/compare/${n.since}...${n.tag}` : `${site}/commits/${n.tag}`}`);
+  const items = n.changes.map((c) => `* ${subjectMarkdown(c.title)} by ${c.login ? mention(c.login) : codeMentions(c.name)} in ${c.url}`);
+  if (items.length) {
+    const size = (lines: readonly string[]) => lines.reduce((sum, l) => sum + l.length + 1, 0);
+    const moreLine = (more: number) => `* … and ${more} more change${more === 1 ? '' : 's'}, in the history up to ${n.tag}: ${site}/commits/${n.tag}`;
+    const limit = n.limit ?? CHANGES_LIMIT;
+    const whole = `${["## What's Changed", ...items, '', ...tail].join('\n')}\n`;
+    if (whole.length <= limit) return whole;
+    // Too long: as many as fit with the line that says how many more there are.
+    let budget = limit - size(tail) - size(["## What's Changed", '', moreLine(items.length)]);
+    let shown = 0;
+    while (shown < items.length && budget - (items[shown]!.length + 1) >= 0) budget -= items[shown++]!.length + 1;
+    return `${["## What's Changed", ...items.slice(0, shown), moreLine(items.length - shown), '', ...tail].join('\n')}\n`;
+  }
+  return `${tail.join('\n')}\n`;
+}
+
+/** A release's list of changes: every commit into `target` since `since`, read from GitHub. */
+export async function releaseChanges(o: {
+  api: GitHubApi;
+  repo: string;
+  tag: string;
+  since: string | undefined;
+  target: string;
+}): Promise<{ markdown: string; changes: Change[] }> {
+  const commits = await commitsSince(o.api, o.repo, o.since, o.target);
+  const pulls = await mapLimit(commits, AT_ONCE, (c) => pullMergedBy(o.api, o.repo, c.sha));
+  const bySha = new Map(commits.map((c, i) => [c.sha, pulls[i]]));
+  const changes = changesOf(commits, o.repo, (sha) => bySha.get(sha));
+  const markdown = changesMarkdown({ repo: o.repo, tag: o.tag, since: o.since, changes, newContributors: await newContributors(o.api, o.repo, o.since, changes) });
+  return { markdown, changes };
+}
+
+/** Whether `gh api` failed with Not Found on the list of commits itself: GitHub does not know where it ends. */
+export function notFoundTarget(message: string): boolean {
+  return /^gh api repos\/[^/\s]+\/[^/\s]+\/(compare\/|commits\?)\S*: .*\(HTTP 404\)/.test(message);
+}
+
+/** `owner/name` from a GitHub remote's URL (HTTPS or SSH), if it is one. */
+export function repoOfRemote(url: string): string | undefined {
+  return /github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(url.trim())?.[1];
+}
+
+const execFileAsync = promisify(execFile);
+
+/** GitHub's REST API through `gh api` (signed in as gh is, or with GH_TOKEN). */
+const ghApi: GitHubApi = async (path) => {
+  try {
+    const { stdout } = await execFileAsync('gh', ['api', path], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+    return JSON.parse(stdout);
+  } catch (e) {
+    const err = e as { stderr?: string; message: string };
+    throw new Error(`gh api ${path}: ${err.stderr?.trim() || err.message}`);
+  }
+};
+
 function readTags(remote: boolean): string[] {
   if (remote) return tagsFromLsRemote(execFileSync('git', ['ls-remote', '--tags', 'origin'], { encoding: 'utf8' }));
   return execFileSync('git', ['tag', '--list'], { encoding: 'utf8' }).split('\n').map((t) => t.trim()).filter(Boolean);
 }
 
-function main(argv: string[]): number {
+async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   const flag = (name: string) => rest.includes(name);
   const option = (name: string) => {
@@ -324,9 +613,46 @@ function main(argv: string[]): number {
     console.log(`  release            ${nextVersion(tags, today, false)}`);
     return 0;
   }
-  if (command !== 'check' || rest.length === 0 || rest[0]!.startsWith('--')) {
-    console.error('Usage: tsx scripts/release.ts next | check <version> [--remote] [--today YYYY-MM-DD]');
+  if ((command !== 'check' && command !== 'notes') || rest.length === 0 || rest[0]!.startsWith('--')) {
+    console.error('Usage: tsx scripts/release.ts next | check <version> [--remote] [--today YYYY-MM-DD] | notes <version> [--target <commit>] [--remote]');
     return 2;
+  }
+  if (command === 'notes') {
+    const parsed = parseVersion(rest[0]!);
+    if (!parsed.ok) {
+      console.error(`✗ ${parsed.error}`);
+      return 1;
+    }
+    const target = option('--target');
+    if (flag('--target') && (!target || target.startsWith('--'))) {
+      console.error('--target takes the commit the release is made on (a SHA, a tag or a branch).');
+      return 2;
+    }
+    const repo = process.env.GITHUB_REPOSITORY?.trim() || repoOfRemote(execFileSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8' }));
+    if (!repo) {
+      console.error('origin is not a GitHub repository: set GITHUB_REPOSITORY to owner/name.');
+      return 2;
+    }
+    const tag = parsed.value.version;
+    const since = previousVersion(tags, parsed.value);
+    try {
+      const { markdown, changes } = await releaseChanges({ api: ghApi, repo, tag, since, target: target ?? tag });
+      process.stdout.write(markdown);
+      console.error(`${changes.length} change${changes.length === 1 ? '' : 's'} ${since ? `since ${since}` : 'since the first commit'}, up to ${target ?? tag}.`);
+      return 0;
+    } catch (e) {
+      const message = (e as Error).message;
+      console.error(`✗ ${message}`);
+      // Not Found from the list of commits: GitHub does not know where the list ends.
+      if (notFoundTarget(message)) {
+        console.error(
+          target
+            ? `  GitHub must know ${target}: a commit's SHA, a tag or a branch on GitHub (main, not origin/main).`
+            : `  ${tag} has no tag on GitHub yet: give the commit it will be made on with --target <commit>.`,
+        );
+      }
+      return 1;
+    }
   }
   const inActions = process.env.GITHUB_ACTIONS === 'true';
   const result = checkRelease({
@@ -352,10 +678,22 @@ function main(argv: string[]): number {
   console.log(
     result.previous
       ? `  Its notes list the changes since ${result.previous}${result.prerelease ? '' : ', the release before it'}.`
-      : `  There is no ${result.prerelease ? 'version' : 'release'} before it: GitHub chooses where its notes start.`,
+      : `  There is no ${result.prerelease ? 'version' : 'release'} before it: its notes list every commit up to it.`,
   );
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(out).map(([k, v]) => `${k}=${v}\n`).join(''));
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exit(main(process.argv.slice(2)));
+// No top-level await: the desktop app bundles this file as CommonJS (desktop/src/update.ts). And
+// process.exitCode rather than process.exit(), which could cut off output still on its way to a pipe.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (e: unknown) => {
+      console.error(e);
+      process.exitCode = 1;
+    },
+  );
+}

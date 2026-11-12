@@ -21,7 +21,8 @@
     "desktop:dist": "npm run build && npm --prefix desktop run build && npm --prefix desktop run dist --",
     "desktop:typecheck": "npm --prefix desktop run typecheck",
     "release:next": "tsx scripts/release.ts next --remote",
-    "release:check": "tsx scripts/release.ts check"
+    "release:check": "tsx scripts/release.ts check",
+    "release:notes": "tsx scripts/release.ts notes"
   },
   "engines": {
     "node": ">=22.13"
@@ -49,6 +50,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
     "concurrently": "^10.0.7",
+    "esbuild": "^0.28.2",
     "playwright-core": "^1.65.0",
     "postject": "^1.0.0-alpha.6",
     "tsx": "^4.23.15",

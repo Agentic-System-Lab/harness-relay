@@ -1,0 +1,139 @@
+{
+  "repo": "Agentic-System-Lab/harness-relay",
+  "since": "2026-11-12",
+  "target": "2026-11-12.1",
+  "compare": {
+    "total_commits": 5,
+    "commits": [
+      {
+        "sha": "4f85614ae21b2b407b7f40cb46d0ff51a59c665e",
+        "parents": [
+          {
+            "sha": "babab631037a9b8e2007e4d196757b05bb3b7efa"
+          }
+        ],
+        "author": {
+          "login": "cyyeh"
+        },
+        "commit": {
+          "message": "Let visitors pick a light or dark theme on the landing page, remembered in their browser\n",
+          "author": {
+            "name": "Jimmy Yeh"
+          }
+        }
+      },
+      {
+        "sha": "269e8d42f8c435ac75cc953fc6f43b90125160e6",
+        "parents": [
+          {
+            "sha": "4f85614ae21b2b407b7f40cb46d0ff51a59c665e"
+          }
+        ],
+        "author": {
+          "login": "cyyeh"
+        },
+        "commit": {
+          "message": "Run the end-to-end tests and the Windows release builds faster (#25)\n",
+          "author": {
+            "name": "Chih-Yu Yeh"
+          }
+        }
+      },
+      {
+        "sha": "45b7a093b66ab7757031e99d070d31bf9780eef1",
+        "parents": [
+          {
+            "sha": "269e8d42f8c435ac75cc953fc6f43b90125160e6"
+          }
+        ],
+        "author": {
+          "login": "cyyeh"
+        },
+        "commit": {
+          "message": "List a release's changes since the release before it, and a release candidate's since the version before it (#27)\n",
+          "author": {
+            "name": "Chih-Yu Yeh"
+          }
+        }
+      },
+      {
+        "sha": "5e26fb06074dced4c1aee5f39124d006356277b3",
+        "parents": [
+          {
+            "sha": "45b7a093b66ab7757031e99d070d31bf9780eef1"
+          }
+        ],
+        "author": {
+          "login": "cyyeh"
+        },
+        "commit": {
+          "message": "Add Antigravity as a fifth coding agent, run over ACP with every command asked below full access (#26)\n",
+          "author": {
+            "name": "Chih-Yu Yeh"
+          }
+        }
+      },
+      {
+        "sha": "48897c446bd533597e5ff2eb05d5c1c4ecb0dfcb",
+        "parents": [
+          {
+            "sha": "5e26fb06074dced4c1aee5f39124d006356277b3"
+          }
+        ],
+        "author": {
+          "login": "cyyeh"
+        },
+        "commit": {
+          "message": "Say the agents work together on the landing page, not chat, and keep its GitHub button close in English\n",
+          "author": {
+            "name": "Jimmy Yeh"
+          }
+        }
+      }
+    ]
+  },
+  "pulls": {
+    "4f85614ae21b2b407b7f40cb46d0ff51a59c665e": [],
+    "269e8d42f8c435ac75cc953fc6f43b90125160e6": [
+      {
+        "number": 25,
+        "title": "Run the end-to-end tests and the Windows release builds faster",
+        "merged_at": "2026-11-12T10:39:03Z",
+        "merge_commit_sha": "269e8d42f8c435ac75cc953fc6f43b90125160e6",
+        "user": {
+          "login": "cyyeh"
+        }
+      }
+    ],
+    "45b7a093b66ab7757031e99d070d31bf9780eef1": [
+      {
+        "number": 27,
+        "title": "List a release's changes since the release before it, and a release candidate's since the version before it",
+        "merged_at": "2026-11-12T10:54:53Z",
+        "merge_commit_sha": "45b7a093b66ab7757031e99d070d31bf9780eef1",
+        "user": {
+          "login": "cyyeh"
+        }
+      }
+    ],
+    "5e26fb06074dced4c1aee5f39124d006356277b3": [
+      {
+        "number": 26,
+        "title": "Add Antigravity as a fifth coding agent, run over ACP with every command asked below full access",
+        "merged_at": "2026-11-12T11:24:03Z",
+        "merge_commit_sha": "5e26fb06074dced4c1aee5f39124d006356277b3",
+        "user": {
+          "login": "cyyeh"
+        }
+      }
+    ],
+    "48897c446bd533597e5ff2eb05d5c1c4ecb0dfcb": []
+  },
+  "before": {
+    "cyyeh": [
+      {
+        "sha": "babab631037a9b8e2007e4d196757b05bb3b7efa"
+      }
+    ]
+  }
+}
