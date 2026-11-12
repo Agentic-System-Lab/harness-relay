@@ -6,11 +6,12 @@
  */
 import { readdirSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
-import { test } from '@playwright/test';
-import { DEFAULT_MAX_TEAM_AGENTS, isOpenProvider, PROVIDERS, type Permission, type Provider } from '../../src/shared/types';
-import type { Member } from './app';
+import type { Page } from '@playwright/test';
+import { DEFAULT_MAX_TEAM_AGENTS, isOpenProvider, PROVIDERS, type ConversationSettings, type Mode, type Permission, type Provider } from '../../src/shared/types';
+import { expect, test } from '../fixtures';
+import { openTeamChat, type Member } from './app';
 import { FACTS, type CliFacts } from './clis/all';
-import type { RelayServer } from './relay';
+import type { FakeLogEntry, RelayServer } from './relay';
 import { relaySandboxHere } from './sandbox';
 
 export type { CliFacts } from './clis/all';
@@ -32,6 +33,59 @@ export const OPEN: Cli[] = CLIS.filter((c) => c.open);
 
 /** Whether the CLI's fake is written (the others are not installed in a test server by default). */
 export const implemented = (p: Provider): boolean => FACTS[p].implemented;
+
+/** The CLIs of `clis` whose fake is written. */
+export const faked = (clis: readonly Cli[]): Cli[] => clis.filter((c) => c.implemented);
+
+/**
+ * Skips the test (or, called in a `test.describe`, its tests, before any server starts) while the
+ * CLI's fake is not written, saying so: its tests run once it is.
+ */
+export function needsFake(p: Provider): void {
+  test.skip(!FACTS[p].implemented, `${FACTS[p].label}'s fake is not written yet (e2e/fake-cli/agents/${p}.cjs)`);
+}
+
+/** `body`'s tests once for each of `clis`, each CLI's in a group of its own that is skipped while its fake is not written. */
+export function eachCli(clis: readonly Cli[], body: (c: Cli) => void): void {
+  for (const c of clis) {
+    test.describe(() => {
+      needsFake(c.provider);
+      body(c);
+    });
+  }
+}
+
+/**
+ * The two halves "every CLI" tests run as, a team each (at most `DEFAULT_MAX_TEAM_AGENTS`): the CLIs
+ * with a sign-in, which keep the tests' titles of old, and the open agents, whose titles start with
+ * `open agents:`.
+ */
+export const HALVES = [
+  { title: (what: string) => what, clis: SIGNED_IN },
+  { title: (what: string) => `open agents: ${what}`, clis: OPEN },
+] as const;
+
+/** The members of a half's team: its CLIs whose fake is written; the test is skipped when that is fewer than `least`. */
+export function teamOf(clis: readonly Cli[], least = 1): Cli[] {
+  const team = faked(clis);
+  test.skip(team.length < least, `${least === 1 ? 'none' : `fewer than ${least}`} of ${clis.map((c) => c.label).join(', ')} has a fake written yet`);
+  return team;
+}
+
+/** The facts' defaults, for the facts a CLI's file may leave out (see `CliFacts`). */
+export const homeIn = (c: CliFacts): readonly string[] => c.homeIn ?? [];
+export const logoutArgs = (c: CliFacts): string => c.logout ?? 'logout';
+export const skillReadAsks = (c: CliFacts): boolean => c.skillReadAsks ?? false;
+export const loggedModel = (c: CliFacts): { model: string; effort: string } => ({
+  model: c.pickModel.logged?.model ?? c.pickModel.model,
+  effort: c.pickModel.logged?.effort ?? c.pickModel.effort,
+});
+
+/** What a reply says of a CLI that ends its turn after a refusal (`decline: 'ends-turn'`). */
+export const endsTurnNote = (c: CliFacts): string => `(${c.label} ends its turn after a refusal)`;
+
+/** What a fake writes in a file (`e2e:write`): who wrote it. */
+export const writtenBy = (c: CliFacts, name = c.name): string => `Written by ${name} (${c.label}).\n`;
 
 /** What each CLI does with the note the user declines a request with. */
 export const DECLINE = Object.fromEntries(PROVIDERS.map((p) => [p, FACTS[p].decline])) as Record<Provider, CliFacts['decline']>;
@@ -62,6 +116,42 @@ export function belowFull(p: Provider): boolean {
 /** The permission a test that is not about permissions runs the CLI with: `wanted`, or full access where it cannot run below it here. */
 export function basePermission(p: Provider, wanted: Permission = 'read-only'): Permission {
   return wanted === 'full' || belowFull(p) ? wanted : 'full';
+}
+
+/** The permission one team of `clis` runs with: `wanted`, or full access when one of them cannot run below it here. */
+export function sharedPermission(clis: readonly Cli[], wanted: Permission = 'read-only'): Permission {
+  return clis.every((c) => basePermission(c.provider, wanted) === wanted) ? wanted : 'full';
+}
+
+/**
+ * A chat of `members` of the CLIs (`member()` each), at `settings.permission` (default read-only)
+ * where each runs below it here, else with full access: for a test that is not about permissions.
+ */
+export async function chatOf(
+  page: Page,
+  relay: RelayServer,
+  members: { cli: Cli; member?: Partial<Member> }[],
+  settings: Partial<ConversationSettings> & { mode?: Mode } = {},
+  title?: string,
+): Promise<string> {
+  const permission = sharedPermission(
+    members.map((m) => m.cli),
+    settings.permission ?? 'read-only',
+  );
+  return openTeamChat(page, relay, members.map((m) => member(m.cli, m.member)), { ...settings, permission }, title);
+}
+
+/** A chat with the CLI as its one member (its usual name), as `chatOf()`. */
+export const chatWith = (page: Page, relay: RelayServer, c: Cli, settings: Partial<ConversationSettings> & { mode?: Mode } = {}): Promise<string> =>
+  chatOf(page, relay, [{ cli: c }], settings);
+
+/**
+ * The fakes' log entries `match` takes, once there is at least one: a fake in Harness Relay's own
+ * sandbox sends its lines over HTTP, which land a moment after its reply.
+ */
+export async function logged(relay: RelayServer, match: (e: FakeLogEntry) => unknown): Promise<FakeLogEntry[]> {
+  await expect.poll(() => relay.fakeLog().filter((e) => match(e)).length, { message: 'the fakes logged what the test looks for' }).toBeGreaterThan(0);
+  return relay.fakeLog().filter((e) => match(e));
 }
 
 /** Skips the test on a system where the CLI runs with full access only, saying so. */

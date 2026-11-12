@@ -28,4 +28,5 @@ export const grok: CliFacts = {
   accounts: 'sign-in',
   apiKeyEnv: 'XAI_API_KEY',
   apiKeyPlaceholder: 'xai-…',
+  signedOutError: 'not authenticated',
 };
