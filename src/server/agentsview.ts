@@ -22,8 +22,9 @@ import { PROVIDER_LABEL, type ChatMessage, type Conversation, type MessagePart, 
  * - Cursor keeps its ACP sessions in a database alone (`acp-sessions/<id>/store.db`), and AgentsView
  *   reads Cursor's sessions only from the transcripts in `projects/<project>/agent-transcripts/`.
  * - The open agents keep each member's sessions in a folder of its own in Harness Relay's homes
- *   (`<home>/private/<key>`), and AgentsView reads only the folders its own settings list, one
- *   level deep, so it would need one setting per member.
+ *   (`<home>/private/<key>`), and AgentsView reads only the folders its own settings list (and
+ *   syncs a given path only inside them): OpenCode's, Goose's, Cline's and OpenHands' at a fixed
+ *   place below each, so it would take a setting per member.
  */
 export const AGENTSVIEW_SESSIONS: Record<Provider, { prefix: string } | 'recorded'> = {
   claude: { prefix: '' },
@@ -218,16 +219,19 @@ function replyRecords(m: ChatMessage, model: string): Record<string, unknown>[] 
   return out;
 }
 
-/** JSON numbers AgentsView reads as dollars: no exponent (it parses the number's text). */
+/** Dollars to the microdollar, AgentsView's unit of money. */
 const dollars = (usd: number) => Math.round(usd * 1e6) / 1e6;
 
 /**
  * A member's own session as Harness Relay recorded it, for its replies on a CLI whose sessions
  * AgentsView cannot read (`AGENTSVIEW_SESSIONS`), as a Claude Code transcript: before each of those
  * replies, a user turn with what was said since its last one (the user's messages and the other
- * agents' replies, as the thread shows them); then the reply itself (`replyRecords`); at the end its
- * tokens and cost (Claude Code's `cost-state` record, the session's total, which AgentsView adds to
- * the thread's) and a name: the member's name and CLI, and the conversation's title. One session per
+ * agents' replies, as the thread shows them); then the reply itself (`replyRecords`), its last
+ * assistant message carrying the reply's tokens (`message.usage`, which AgentsView counts, and
+ * prices when its catalog knows the model); at the end the cost the CLIs reported (Claude Code's
+ * `cost-state` record, the session's total, which AgentsView keeps apart from its own figures and
+ * shows beside them, never adding it to them) and a name: the member's name and CLI, and the
+ * conversation's title. One session per
  * member, whatever CLI sessions it went through. Records get ids of their own (derived, so sending it
  * again replaces the same session), never the messages' ids the thread uses. Empty while it has no
  * such reply.
@@ -255,6 +259,11 @@ export function memberTranscript(conv: Conversation, agentId: string): string {
     const model = (member?.provider === provider && member.model?.trim()) || provider;
     const reply = replyRecords(m, model);
     if (!reply.length) continue;
+    const meta = m.meta;
+    const lastAssistant = reply.findLast((r) => r.type === 'assistant') as { message: Record<string, unknown> } | undefined;
+    if (lastAssistant && (meta?.inputTokens || meta?.outputTokens)) {
+      lastAssistant.message.usage = { input_tokens: meta.inputTokens ?? 0, output_tokens: meta.outputTokens ?? 0 };
+    }
     const turn = heard.length ? [{ type: 'user', message: { role: 'user', content: heard.join('\n\n') } }, ...reply] : reply;
     turn.forEach((r, n) => {
       const uuid = derivedId(sessionId, m.id, String(n));
@@ -272,7 +281,6 @@ export function memberTranscript(conv: Conversation, agentId: string): string {
     });
     heard = [];
     last = { name: who.name, provider };
-    const meta = m.meta;
     if (meta && (meta.inputTokens || meta.outputTokens || meta.costUsd)) {
       const u = usage.get(model) ?? { inputTokens: 0, outputTokens: 0, costUSD: 0 };
       u.inputTokens += meta.inputTokens ?? 0;
@@ -343,6 +351,11 @@ export class AgentsViewSync implements TraceSink {
   private forgotten = new Set<string>();
   /** Sessions to link besides the members' current ones, by conversation (kept until the server stops). */
   private extra = new Map<string, Set<string>>();
+  /**
+   * The recorded sessions as last sent, by conversation: a hash of each by address and session, so
+   * one that has not changed since (a member who did not reply) is not sent again.
+   */
+  private sent = new Map<string, Map<string, string>>();
 
   constructor(
     /** AgentsView's origin; empty = off. Read at every update, so a settings change applies at once. */
@@ -378,6 +391,7 @@ export class AgentsViewSync implements TraceSink {
   forget(convId: string): void {
     this.again.delete(convId);
     this.extra.delete(convId);
+    this.sent.delete(convId);
     if (this.running.has(convId)) this.forgotten.add(convId);
   }
 
@@ -410,16 +424,17 @@ export class AgentsViewSync implements TraceSink {
   }
 
   /**
-   * Sends the thread, and the members' sessions Harness Relay records (`memberTranscripts`) in the
+   * Sends the thread, then the members' sessions Harness Relay records (`memberTranscripts`) in the
    * same project and machine, then links the agents' sessions (and the conversation's other
-   * sessions, and the recorded ones) to it.
+   * sessions, and the recorded ones) to it. A thread that cannot be sent stops the update; past
+   * that, one session that fails (AgentsView refuses a session the user moved to its trash, say)
+   * keeps none of the others from being sent and linked, and the first failure is reported once
+   * all have been tried.
    */
   async send(base: string, conv: Conversation): Promise<void> {
     const transcript = threadTranscript(conv);
     if (!transcript) return;
     const members = agentSessionIds(conv);
-    const recorded = memberTranscripts(conv);
-    const sessions = [...new Set([...members, ...(this.extra.get(conv.id) ?? []), ...recorded.map((r) => r.id)])];
     // The thread goes where its agents' sessions are, so filters by project or machine keep them together.
     const where = await this.placeOf(base, members);
     const query = new URLSearchParams({
@@ -428,15 +443,39 @@ export class AgentsViewSync implements TraceSink {
       // Retried or edited turns remove messages: the thread may get shorter.
       allow_shorter: 'true',
     });
-    for (const [id, jsonl] of [[conv.id, transcript], ...recorded.map((r) => [r.id, r.transcript])] as const) {
+    const upload = async (id: string, jsonl: string) => {
       const form = new FormData();
       form.append('file', new Blob([jsonl], { type: 'application/octet-stream' }), `${id}.jsonl`);
       await this.call(base, 'POST', `/api/v1/sessions/upload?${query}`, form);
+    };
+    await upload(conv.id, transcript);
+
+    let failure: unknown;
+    const sent = this.sent.get(conv.id) ?? new Map<string, string>();
+    this.sent.set(conv.id, sent);
+    const recorded: string[] = [];
+    for (const r of memberTranscripts(conv)) {
+      const key = `${base}\0${r.id}`;
+      const hash = createHash('sha256').update(r.transcript).digest('hex');
+      try {
+        if (sent.get(key) !== hash) {
+          await upload(r.id, r.transcript);
+          sent.set(key, hash);
+        }
+        recorded.push(r.id);
+      } catch (err) {
+        failure ??= err;
+      }
     }
-    for (const id of sessions) {
-      // Recorded even before AgentsView has read the session: the link applies once it has.
-      await this.call(base, 'PUT', `/api/v1/sessions/${encodeURIComponent(id)}/parent`, JSON.stringify({ parent_session_id: conv.id }));
+    for (const id of new Set([...members, ...(this.extra.get(conv.id) ?? []), ...recorded])) {
+      try {
+        // Recorded even before AgentsView has read the session: the link applies once it has.
+        await this.call(base, 'PUT', `/api/v1/sessions/${encodeURIComponent(id)}/parent`, JSON.stringify({ parent_session_id: conv.id }));
+      } catch (err) {
+        failure ??= err;
+      }
     }
+    if (failure) throw failure;
   }
 
   /** Project and machine of the first agent session AgentsView knows. */

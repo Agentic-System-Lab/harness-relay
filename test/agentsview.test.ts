@@ -175,6 +175,9 @@ describe("a member's recorded session", () => {
       { type: 'tool_result', tool_use_id: shell.id, content: '1 failed' },
       { type: 'tool_result', tool_use_id: read.id, content: 'not found', is_error: true },
     ]);
+    // The reply's tokens on its last assistant message, for AgentsView to count.
+    expect(r[1]!.message.usage).toBeUndefined();
+    expect(r[3]!.message.usage).toEqual({ input_tokens: 1200, output_tokens: 300 });
     expect(r[3]!.message.content).toEqual([
       { type: 'text', text: '[Asked to run `rm -rf dist`: declined: "not now"]' },
       { type: 'text', text: 'Claude is right: the parser drops the zone.' },
@@ -191,7 +194,8 @@ describe("a member's recorded session", () => {
     for (const u of uuids) expect(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7']).not.toContain(u);
     r.slice(1, 7).forEach((x, i) => expect(x.parentUuid).toBe(r[i]!.uuid));
 
-    // Its tokens and cost, for AgentsView to add to the thread's, and its name.
+    expect(r[5]!.message.usage).toBeUndefined();
+    // The cost the CLI reported, as the session's total (AgentsView shows it beside its own figures), and its name.
     expect(r[7]).toEqual({
       type: 'cost-state',
       sessionId: id,
@@ -208,7 +212,11 @@ describe("a member's recorded session", () => {
   it("names the CLI as the model when the member has none set, and says when a reply's cost is unknown", () => {
     const r = records(memberTranscript(recordedTeam(), 'oc'));
     expect(r.map((x) => x.type)).toEqual(['user', 'assistant', 'cost-state', 'custom-title']);
-    expect(r[1]!.message).toMatchObject({ model: 'opencode', content: [{ type: 'text', text: 'Done.' }] });
+    // What it heard is what the thread shows: the Reviewer's text, never its thinking or its tools' output.
+    expect(r[0]!.message.content).toBe(
+      'Fix the failing test\n\n**Claude** · claude\n\nIt is the date parser.\n\n**Reviewer** · cursor\n\nClaude is right: the parser drops the zone.\n\nGo ahead',
+    );
+    expect(r[1]!.message).toMatchObject({ model: 'opencode', content: [{ type: 'text', text: 'Done.' }], usage: { input_tokens: 50, output_tokens: 5 } });
     expect(r.at(-2)).toMatchObject({ totalCostUSD: 0, hasUnknownModelCost: true, modelUsage: { opencode: { inputTokens: 50, outputTokens: 5, costUSD: 0 } } });
     expect(r.at(-1)!.customTitle).toBe('Builder · OpenCode — Plan the release');
   });
@@ -221,6 +229,61 @@ describe("a member's recorded session", () => {
     expect(r[0]!.message.content).toContain('**Reviewer** · claude\n\nEarlier, on Claude.');
     expect(memberTranscript(conv, 'a')).toBe('');
     expect(memberTranscript(conversation(), 'a')).toBe('');
+  });
+
+  it('puts what an agent says or how it ended after the results of the tool calls before it', () => {
+    const conv = conversation({
+      agents: [{ id: 'p', name: 'Pi', provider: 'pi', role: '' }],
+      messages: [
+        message('m1', { kind: 'user' }, 'Go'),
+        message('m2', { kind: 'agent', agentId: 'p' }, '', {
+          provider: 'pi',
+          passed: true,
+          parts: [
+            { type: 'tool', id: 't1', name: 'bash', status: 'done', output: 'ok' },
+            { type: 'thinking', text: 'Nothing to add.' },
+            { type: 'tool', id: 't2', name: 'read', detail: 'a.md', status: 'running' },
+          ],
+        }),
+        message('m3', { kind: 'agent', agentId: 'p' }, '', {
+          provider: 'pi',
+          status: 'error',
+          error: 'timed out',
+          parts: [{ type: 'tool', id: 't3', name: 'bash', detail: 'sleep 99', status: 'error' }],
+        }),
+      ],
+    });
+    const r = records(memberTranscript(conv, 'p'));
+    expect(r.map((x) => [x.type, x.message?.content.map?.((b: { type: string }) => b.type) ?? x.message?.content])).toEqual([
+      ['user', 'Go'],
+      ['assistant', ['tool_use']],
+      ['user', ['tool_result']],
+      ['assistant', ['thinking', 'tool_use']],
+      ['user', ['tool_result']],
+      ['assistant', ['text']],
+      ['assistant', ['tool_use']],
+      ['user', ['tool_result']],
+      ['assistant', ['text']],
+      ['custom-title', undefined],
+    ]);
+    // A call still running when the turn ended has no output; one that failed without saying why, none either.
+    expect(r[4]!.message.content[0]).toEqual({ type: 'tool_result', tool_use_id: r[3]!.message.content[1].id, content: '' });
+    expect(r[5]!.message.content).toEqual([{ type: 'text', text: '[PASS]' }]);
+    expect(r[7]!.message.content[0]).toMatchObject({ content: '', is_error: true });
+    expect(r[8]!.message.content).toEqual([{ type: 'text', text: '(timed out)' }]);
+    // No tokens recorded: no usage and no cost record.
+    expect(r.some((x) => x.message?.usage || x.type === 'cost-state')).toBe(false);
+  });
+
+  it("names the CLI as the model once the member has left the team or moved to another CLI", () => {
+    const left = recordedTeam();
+    left.agents = left.agents.filter((a) => a.id !== 'cur');
+    expect(records(memberTranscript(left, 'cur'))[1]!.message.model).toBe('cursor');
+    // The member's own name and CLI come from its replies, as the thread has them.
+    expect(records(memberTranscript(left, 'cur')).at(-1)!.customTitle).toBe('Reviewer · Cursor — Plan the release');
+    const moved = recordedTeam();
+    moved.agents[0] = { ...moved.agents[0]!, provider: 'goose', model: 'gpt-x' };
+    expect(records(memberTranscript(moved, 'cur'))[1]!.message.model).toBe('cursor');
   });
 
   it('is sent for each member with such a reply, in the order they first replied, and none for the others', () => {
@@ -314,6 +377,108 @@ describe('sending a conversation to AgentsView', () => {
     expect(links).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', cur, oc]);
     // Only after the uploads: the thread is there to be the parent.
     expect(av.calls.findIndex((c) => c.method === 'PUT')).toBeGreaterThan(av.calls.findLastIndex((c) => c.method === 'POST'));
+  });
+
+  it("keeps sending and linking the others when one member's session is refused, then says why", async () => {
+    const conv = recordedTeam();
+    const cur = memberSessionId(conv.id, 'cur');
+    const oc = memberSessionId(conv.id, 'oc');
+    const calls: string[] = [];
+    const fetchImpl = (async (input: string | URL | Request, init: RequestInit = {}) => {
+      const url = new URL(String(input));
+      const method = init.method ?? 'GET';
+      const file = method === 'POST' ? ((init.body as FormData).get('file') as File).name : '';
+      calls.push(`${method} ${decodeURIComponent(url.pathname)} ${file}`.trim());
+      if (method === 'GET') return Response.json({ error: 'session not found' }, { status: 404 });
+      // The user moved the Reviewer's session to AgentsView's trash.
+      if (file === `${cur}.jsonl`) return Response.json({ error: 'session is in trash' }, { status: 409 });
+      return Response.json({ ok: true });
+    }) as typeof fetch;
+    await expect(new AgentsViewSync(() => BASE, fetchImpl).send(BASE, conv)).rejects.toThrow('POST /api/v1/sessions/upload: HTTP 409 session is in trash');
+    expect(calls.filter((c) => !c.startsWith('GET'))).toEqual([
+      `POST /api/v1/sessions/upload ${conv.id}.jsonl`,
+      `POST /api/v1/sessions/upload ${cur}.jsonl`,
+      `POST /api/v1/sessions/upload ${oc}.jsonl`,
+      // The refused one is not linked; the others are.
+      'PUT /api/v1/sessions/977d79d5-4d98-4e2a-9a1d-20fe70d1417e/parent',
+      `PUT /api/v1/sessions/${oc}/parent`,
+    ]);
+  });
+
+  it('sends nothing more when the thread itself cannot be sent', async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (input: string | URL | Request, init: RequestInit = {}) => {
+      calls.push(`${init.method ?? 'GET'} ${new URL(String(input)).pathname}`);
+      if ((init.method ?? 'GET') === 'GET') return Response.json({ error: 'session not found' }, { status: 404 });
+      return Response.json({ error: 'read-only' }, { status: 501 });
+    }) as typeof fetch;
+    await expect(new AgentsViewSync(() => BASE, fetchImpl).send(BASE, recordedTeam())).rejects.toThrow('HTTP 501');
+    expect(calls.filter((c) => !c.startsWith('GET'))).toEqual(['POST /api/v1/sessions/upload']);
+  });
+
+  it("sends a member's recorded session again only once it changed, or to another address, or after it failed", async () => {
+    const av = fakeAgentsView();
+    const sync = new AgentsViewSync(() => BASE, av.fetchImpl);
+    const conv = recordedTeam();
+    const files = () => av.calls.filter((c) => c.method === 'POST').map((c) => ((c.body as FormData).get('file') as File).name);
+    const cur = `${memberSessionId(conv.id, 'cur')}.jsonl`;
+    const oc = `${memberSessionId(conv.id, 'oc')}.jsonl`;
+    await sync.send(BASE, conv);
+    expect(files()).toEqual([`${conv.id}.jsonl`, cur, oc]);
+
+    // The user writes again and only the Builder answers: the Reviewer's session is the same.
+    av.calls.length = 0;
+    conv.messages.push(message('m9', { kind: 'user' }, 'And the docs?'), message('m10', { kind: 'agent', agentId: 'oc' }, 'Updated.', { provider: 'opencode' }));
+    await sync.send(BASE, conv);
+    expect(files()).toEqual([`${conv.id}.jsonl`, oc]);
+    // Every session is still linked, the unchanged one too.
+    expect(av.calls.filter((c) => c.method === 'PUT')).toHaveLength(3);
+
+    // Another AgentsView has none of them yet.
+    av.calls.length = 0;
+    await sync.send('http://127.0.0.1:8080', conv);
+    expect(files()).toEqual([`${conv.id}.jsonl`, cur, oc]);
+
+    // A conversation forgotten (deleted) leaves nothing behind: it would be sent in full.
+    av.calls.length = 0;
+    sync.forget(conv.id);
+    await sync.send(BASE, conv);
+    expect(files()).toEqual([`${conv.id}.jsonl`, cur, oc]);
+  });
+
+  it('retries a recorded session that failed at the next update, though it did not change', async () => {
+    let refuse = true;
+    const uploaded: string[] = [];
+    const fetchImpl = (async (input: string | URL | Request, init: RequestInit = {}) => {
+      const method = init.method ?? 'GET';
+      if (method === 'GET') return Response.json({ error: 'session not found' }, { status: 404 });
+      if (method === 'POST') {
+        const name = ((init.body as FormData).get('file') as File).name;
+        uploaded.push(name);
+        if (refuse && name !== `${recordedTeam().id}.jsonl`) return Response.json({ error: 'busy' }, { status: 503 });
+      }
+      return Response.json({ ok: true });
+    }) as typeof fetch;
+    const sync = new AgentsViewSync(() => BASE, fetchImpl);
+    const conv = recordedTeam();
+    await expect(sync.send(BASE, conv)).rejects.toThrow('HTTP 503 busy');
+    refuse = false;
+    uploaded.length = 0;
+    await sync.send(BASE, conv);
+    expect(uploaded).toEqual([`${conv.id}.jsonl`, `${memberSessionId(conv.id, 'cur')}.jsonl`, `${memberSessionId(conv.id, 'oc')}.jsonl`]);
+  });
+
+  it("places the thread with an Antigravity member's session when AgentsView knows it", async () => {
+    const conv = conversation({
+      agents: [{ id: 'ag', name: 'Gemini', provider: 'antigravity', role: '' }],
+      agentState: { ag: { provider: 'antigravity', sessionId: 'c3471ccd-0000-4000-8000-000000000001', seen: [] } },
+    });
+    const av = fakeAgentsView({ 'antigravity-cli:c3471ccd-0000-4000-8000-000000000001': { project: 'web', machine: 'm-7' } });
+    await new AgentsViewSync(() => BASE, av.fetchImpl).send(BASE, conv);
+    expect(Object.fromEntries(av.calls.find((c) => c.method === 'POST')!.url.searchParams)).toMatchObject({ project: 'web', machine: 'm-7' });
+    expect(av.calls.filter((c) => c.method === 'PUT').map((c) => decodeURIComponent(c.url.pathname))).toEqual([
+      '/api/v1/sessions/antigravity-cli:c3471ccd-0000-4000-8000-000000000001/parent',
+    ]);
   });
 
   it("uses the working directory's name before AgentsView has read any agent session", async () => {
