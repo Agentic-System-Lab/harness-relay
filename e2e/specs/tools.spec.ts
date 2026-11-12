@@ -4,7 +4,7 @@ import type { Locator, Page } from '@playwright/test';
 import { PROVIDER_LABEL, PROVIDERS, type Provider, type ToolLibraryView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, finishedReply, replies, send, settled } from '../support/app';
-import { chatOf, HALVES, logged, skillReadAsks, teamOf, type Cli } from '../support/clis';
+import { chatOf, HALVES, libraryEnv, logged, skillReadAsks, teamOf, type Cli } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
 /*
@@ -313,7 +313,7 @@ for (const half of HALVES) test.describe('the tool library', () => {
       // The server got the new value only, and no CLI was started with it.
       const given = turns.filter((e) => e.cli === m.provider && e.mcpEnv?.['e2e-tools']);
       expect(given.length).toBeGreaterThan(0);
-      for (const e of given) expect(e.mcpEnv!['e2e-tools']).toEqual({ E2E_TOKEN: NEW });
+      for (const e of given) expect(libraryEnv(m, e.mcpEnv!['e2e-tools']!)).toEqual({ E2E_TOKEN: NEW });
       for (const start of turns.filter((e) => e.cli === m.provider && e.args)) expect(JSON.stringify(start.args)).not.toContain(NEW);
     }
 

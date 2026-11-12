@@ -80,6 +80,9 @@ export const showsTodo = (c: CliFacts): boolean => c.todoList ?? true;
 /** The tool its `e2e:tool` listing shows as in a chat of `permission`. */
 export const listToolAt = (c: CliFacts, permission: Permission): string => (permission === 'full' ? (c.listToolFull ?? c.listTool) : c.listTool);
 export const fetchPermission = (c: CliFacts): Permission => c.fetchPermission ?? 'read-only';
+/** A stdio MCP server's environment as the CLI was given it, without what its adapter adds (`mcpEnvAdded`). */
+export const libraryEnv = (c: CliFacts, env: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(env).filter(([k]) => !(c.mcpEnvAdded ?? []).includes(k)));
 export const loggedModel = (c: CliFacts): { model: string; effort: string } => ({
   model: c.pickModel.logged?.model ?? c.pickModel.model,
   effort: c.pickModel.logged?.effort ?? c.pickModel.effort,

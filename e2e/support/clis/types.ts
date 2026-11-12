@@ -83,4 +83,10 @@ export interface CliFacts {
   listToolFull?: string;
   /** The permission it runs `e2e:fetch` in, the lowest where it has a tool to reach a URL (default read-only; Pi edit, as read-only gives it no command tool). */
   fetchPermission?: Permission;
+  /**
+   * The variables its adapter adds to a tool library stdio MCP server's environment besides the
+   * library's own (default none; Goose: the user's HOME, and below full access the caches in the run's
+   * temp folder).
+   */
+  mcpEnvAdded?: readonly string[];
 }

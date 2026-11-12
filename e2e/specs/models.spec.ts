@@ -63,9 +63,11 @@ test.describe("a member's model and reasoning effort", () => {
       await send(page, 'Which model are you?');
       await expect(await finishedReply(page, cli.name)).toContainText('You said: “Which model are you?”.');
       const conv = await settled(relay, id);
-      expect(conv.agents[0]).toMatchObject({ model, effort });
+      // No effort (''): the CLI offers none for that model (OpenCode on an endpoint), so none is kept, and its turn runs on its own (null).
+      expect(conv.agents[0]).toMatchObject({ model, ...(effort ? { effort } : {}) });
       await expect.poll(() => relay.fakeLog().some((e) => e.cli === cli.provider && e.prompt?.includes('Which model are you?'))).toBe(true);
-      expect(turnFor(relay, cli.provider, 'Which model are you?').turn).toMatchObject(loggedModel(cli));
+      const logged = loggedModel(cli);
+      expect(turnFor(relay, cli.provider, 'Which model are you?').turn).toMatchObject({ ...logged, effort: logged.effort || null });
     });
   });
 
