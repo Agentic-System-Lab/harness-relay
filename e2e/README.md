@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 153 tests in 26 spec files, in each browser that runs them (Chromium by default).
+There are 169 tests in 26 spec files, in each browser that runs them (Chromium by default).
 
 ## Running them
 
@@ -44,14 +44,14 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 12 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
 | [Files and changes](#files-and-changes) | [`files.spec.ts`](specs/files.spec.ts) | 10 | [User guide → Reviewing and applying changes](../docs/user-guide.md#reviewing-and-applying-changes), [Browsing files](../docs/user-guide.md#browsing-files), [Architecture → Workspaces and file changes](../docs/architecture.md#workspaces-and-file-changes) |
 | [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 14 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
-| [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 6 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
-| [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 5 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
+| [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 9 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
+| [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 7 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [Changing a chat's history](#changing-a-chats-history) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [User guide → Copying, editing and retrying](../docs/user-guide.md#copying-editing-and-retrying), [Branching a conversation](../docs/user-guide.md#branching-a-conversation) |
 | [Copying and sharing](#copying-and-sharing) | [`share.spec.ts`](specs/share.spec.ts) | 5 | [User guide → Sharing a conversation](../docs/user-guide.md#sharing-a-conversation), [Architecture → Sharing a conversation](../docs/architecture.md#sharing-a-conversation) |
 | [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 6 | [User guide → Groups](../docs/user-guide.md#groups), [Search](../docs/user-guide.md#search) |
 | [Schedules](#schedules) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [User guide → Schedules](../docs/user-guide.md#schedules), [Architecture → Schedules](../docs/architecture.md#schedules) |
 | [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 5 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent) |
-| [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 5 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
+| [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 16 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
 | [What each CLI loads by itself, and Grok's trust](#what-each-cli-loads-by-itself-and-groks-trust) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [User guide → What each CLI loads by itself](../docs/user-guide.md#what-each-cli-loads-by-itself), [Architecture → What each CLI loads by itself](../docs/architecture.md#what-each-cli-loads-by-itself) |
 | [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 6 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
 | [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
@@ -199,6 +199,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
 | An MCP server from the tool library, with its secret kept off the command line | each | The member names the server it got, and its secret value is in no argument the CLI was started with. |
+| An HTTP MCP server from the tool library, with its secret header kept off the command line | each | The CLI gets it as an HTTP server at its URL, with the `Authorization` header and its value, which is in no argument the CLI was started with. |
 | An attached image | each | The image is attached in the composer, the reply says it got one image, and the prompt names the file for the agent's own tools. |
 
 ## The tool library
@@ -212,6 +213,8 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | A skill picked from a folder is in each CLI's briefing, and each reads its SKILL.md | all three | Of a folder with two skills, the one added is in each briefing and each reads its first line; the other never shows. Claude Code may read it only through the `Read(…)` rule its adapter adds (the fake refuses without it). |
 | A skill turned off for a CLI, or in a member's Tools, is not given | all three | Off for Grok and unticked in Claude's **Tools**, neither gets it, and Claude Code's arguments name it nowhere. |
 | Memory for all members and for one CLI reaches each briefing, and a member's Tools can leave it out | all three | Codex gets the shared memory and its own note, in order, the others only the shared one; unticking "Shared memory" in Grok's **Tools** leaves Grok none. |
+| An MCP server given a new value on the page gets it at the next turn, and once removed it is given no more | all three | Edited, the page shows the new mask and each CLI's next turn gets only the new value, in no argument; removed, the next turn gets it neither by name nor by value. A second server stays throughout, so that "given nothing" cannot pass on a turn that got no library at all. |
+| A skill and a memory note removed on the page are given no more | all three | One of two skills and the shared memory note removed: the next briefing and reply have neither, while the other skill and each CLI's own note still arrive. |
 
 ## Changing a chat's history
 
@@ -262,7 +265,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| Each CLI is found, with its version, and signed in | each, in one test | Each card shows the CLI's version and **Signed in** (Claude Code with its account), and the sidebar's three health dots are all OK. |
+| Each CLI is found, with its version, and signed in | each, in one test | Each card shows the CLI's version and **Signed in** (Claude Code with its account); the sidebar's dots are OK for the three and show Cursor, which no fake stands in for, as not installed ("3/4 ready"); their names show when asked for, and stay after a reload. |
 | A CLI's executable path can be set, and a wrong one shows it as missing | Grok | A path that does not exist shows **Not installed**; an empty one finds it again. |
 | The language can be switched, and the choice is kept | — | 繁體中文 changes the page, a reload keeps it, and English changes it back. |
 | Another CLI can be the lead agent | Codex as lead agent | The New chat page names it, the team card says "Lead agent: Codex", and the lead agent's prompt went to Codex. |
@@ -276,7 +279,12 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | --- | --- | --- |
 | An added account has a folder of its own, and a member set to use it runs there | each | The account lives in `<data>/accounts/<cli>-<id>`, which its card shows; a member on it runs with that home (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`), a member on the default account with the default one. |
 | Each account signs in and out on its own | Claude Code | **Sign out** runs `auth logout` in the added account's home only; **Sign in** goes through the CLI's own flow (a link, then a pasted code) and shows the account signed in. |
-| With the credential store off, an account's API key is kept in the database, shown masked, and given to its CLI only | Claude Code | The key box says where keys are kept; saved, the key shows masked with "Using an API key" and never in `/api/settings`; that account's run gets it as `ANTHROPIC_API_KEY`, in no argument, and the default account's does not. |
+| Signing an added account out signs out only that account | Codex, Grok | `logout` runs in that account's folder only; its card says **Not signed in**, and the default account stays signed in. |
+| With the credential store off, an account's API key is kept in the database, shown masked, and given to its CLI only | Claude Code, Grok | The key box says where keys are kept; saved, the key shows masked with "Using an API key" and never in `/api/settings`; that account's run gets it (`ANTHROPIC_API_KEY`, `XAI_API_KEY`), in no argument, and the default account's does not. |
+| An account's API key signs that account in with Codex's own login | Codex | Codex takes no key in its environment: the key goes on stdin to `codex login --with-api-key` in that account's folder only, Harness Relay keeps none, and only that account's runs have it. |
+| The API key Harness Relay was started with is the default account's only | each | A key in the server's own environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`) reaches the default account's turns and not an added account's. |
+| Removing an added account signs it out and deletes its folder, and its member and the lead agent use the default account | each | The confirmation names the folder; the account signs out there, then the folder and its sessions are gone; the lead agent goes back to the default account; the member's next turn runs in the default home, in a new session. |
+| An account is not removed while a conversation runs | Claude Code | During a slow reply **Remove** says a conversation is running and nothing changes; once the chat is stopped, it works. |
 
 ## What each CLI loads by itself, and Grok's trust
 
@@ -385,9 +393,14 @@ The scenarios tried with each of the three CLIs (most of them as a test per CLI)
 | Version and sign-in in Settings | ✓ | ✓ | ✓ |
 | A member's model and effort | ✓ | ✓ | ✓ |
 | An added account's own home | ✓ | ✓ | ✓ |
-| The tool library's MCP server, skill and memory, given and taken away | ✓ | ✓ | ✓ |
+| The tool library's MCP server, skill and memory: given, edited and removed | ✓ | ✓ | ✓ |
 | The CLIs' own folder for sessions, and a fresh session after it changes | ✓ | ✓ | ✓ |
 | Its own skills listed, and left out of the next run | ✓ | ✓ | ✓ (after trusting the folder) |
+| An HTTP MCP server and its header | ✓ | ✓ | ✓ |
+| An added account signed out on its own | ✓ | ✓ | ✓ |
+| An account's API key, to that account only | ✓ | ✓ (through `codex login`) | ✓ |
+| The server's own API key, to the default account only | ✓ | ✓ | ✓ |
+| Removing an added account | ✓ | ✓ | ✓ |
 
 ## Platforms and browsers
 
@@ -400,8 +413,12 @@ The scenarios tried with each of the three CLIs (most of them as a test per CLI)
 
 ## What they do not cover
 
-- **The CLIs themselves.** The fakes check Harness Relay's side of each protocol. A CLI that changes what it writes is caught by the adapter tests' recorded messages (`test/claude.test.ts`, `test/codex.test.ts`, `test/grok.test.ts`) and by trying the real CLI in the app.
-- **Features no spec goes through yet**: voice input itself, recording and transcribing (it downloads its engine and models, and needs a microphone; only its install's panel is tried); the files a shared reply links to, and uploading a report's screenshots (both push to a gist with git, which the fake `gh` does not stand in for); API keys in the OS credential store (the tests keep it off, so they go to the database); signing Codex and Grok in from Settings; AgentsView's links to the lead agent's and the group sorter's sessions, and conversations sent once an address is set; a ZIP too large even without what git ignores; and the desktop app's window beyond signing in (its own checks, `desktop/scripts/smoke.ts` and `desktop/scripts/check-package.ts`, start a read-only chat of these fake claude, codex and grok and have each answer a question, on the bundled server and in the packaged app: in CI on Linux and Windows, and on every system before a release). Some of them have unit tests in [`test/`](../test/), listed in the developer guide's [Testing](../docs/developer-guide.md#testing).
+- **The CLIs themselves.** The fakes check Harness Relay's side of each protocol; the [live tests](#the-live-tests) try the real ones, by hand. A CLI that changes what it writes is caught by the adapter tests' recorded messages (`test/claude.test.ts`, `test/codex.test.ts`, `test/grok.test.ts`) and by trying the real CLI in the app.
+- **Features no spec goes through yet**: voice input itself, recording and transcribing (it downloads its engine and models, and needs a microphone; only its install's panel is tried); the files a shared reply links to, and uploading a report's screenshots (both push to a gist with git, which the fake `gh` does not stand in for); API keys in the OS credential store (the tests keep it off, so they go to the database); signing Codex and Grok in from Settings (their device flows), and what the real Codex does with a key `codex login --with-api-key` was given; AgentsView's links to the lead agent's and the group sorter's sessions, and conversations sent once an address is set; a ZIP too large even without what git ignores; and the desktop app's window beyond signing in (its own checks, `desktop/scripts/smoke.ts` and `desktop/scripts/check-package.ts`, start a read-only chat of these fake claude, codex and grok and have each answer a question, on the bundled server and in the packaged app: in CI on Linux and Windows, and on every system before a release). Some of them have unit tests in [`test/`](../test/), listed in the developer guide's [Testing](../docs/developer-guide.md#testing).
+
+## The live tests
+
+[`live/`](live/) holds a second suite, `npm run test:e2e:live` with [`playwright.live.config.ts`](../playwright.live.config.ts): the real CLIs, signed in as you are, on real models, so it costs a little and never runs on CI. It is not counted above. Its 11 tests try a CLI's default model set to an endpoint's in Settings, the CLIs' own cloud models, a member on a deleted endpoint's model, a model typed for an endpoint, the open agents on native Windows below full access, a team on cloud and local models together, and Cursor writing in a chat's second working directory. How to run them: the developer guide's [Live tests](../docs/developer-guide.md#live-tests).
 
 ## Related docs
 
@@ -412,4 +429,5 @@ The scenarios tried with each of the three CLIs (most of them as a test per CLI)
 - [Architecture](../docs/architecture.md): how the server does what they check ([CLI adapters](../docs/architecture.md#cli-adapters), [Permission mapping](../docs/architecture.md#permission-mapping), [Security](../docs/architecture.md#security)).
 - [OS sandboxes by platform](../docs/sandboxing.md): why a folder the chat was not given stays out of each CLI's reach, and where it does not.
 - [Use it from your phone](../docs/remote-access.md): what [On a phone](#on-a-phone) stands for.
+- [Developer guide → Live tests](../docs/developer-guide.md#live-tests): the second suite, with the real CLIs.
 - Code: [`playwright.config.ts`](../playwright.config.ts), [`fixtures.ts`](fixtures.ts), [`global-setup.ts`](global-setup.ts), [`support/`](support/) (`relay.ts`, `app.ts`, `fake-cli.ts`), [`fake-cli/`](fake-cli/) and [`specs/`](specs/).

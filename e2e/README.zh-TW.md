@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 26 個 spec 檔、153 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。
+目前共有 26 個 spec 檔、169 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。
 
 ## 執行
 
@@ -44,14 +44,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 12 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 10 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 14 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
-| [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 6 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
-| [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 5 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
+| [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 9 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
+| [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 7 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 5 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 6 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[搜尋](../docs/user-guide.zh-TW.md#搜尋) |
 | [排程](#排程) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [使用者說明 → 排程](../docs/user-guide.zh-TW.md#排程)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 5 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent) |
-| [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 5 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
+| [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 16 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
 | [各 CLI 自己載入的內容，以及 Grok 的信任](#各-cli-自己載入的內容以及-grok-的信任) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [使用者說明 → 各 CLI 自己載入的內容](../docs/user-guide.zh-TW.md#各-cli-自己載入的內容)、[架構 → 各 CLI 自己載入的內容](../docs/architecture.zh-TW.md#各-cli-自己載入的內容) |
 | [Agent 的 session 與 AgentsView](#agent-的-session-與-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 6 | [使用者說明 → Agent 的 session](../docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)、[架構 → Agent 的家目錄與 AgentsView](../docs/architecture.zh-TW.md#agent-的家目錄與-agentsview) |
 | [語音輸入的安裝](#語音輸入的安裝) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [使用者說明 → 語音輸入](../docs/user-guide.zh-TW.md#語音輸入)、[架構 → 語音輸入](../docs/architecture.zh-TW.md#語音輸入) |
@@ -201,6 +201,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 工具庫的 MCP 伺服器，其秘密不會出現在命令列上 | 各一 | 成員說出它拿到的伺服器，而秘密的值不在 CLI 啟動的任何參數裡。 |
+| 工具庫的 HTTP MCP 伺服器，其秘密標頭不會出現在命令列上 | 各一 | CLI 以 HTTP 伺服器的形式拿到它的網址、`Authorization` 標頭與它的值，而值不在 CLI 啟動的任何參數裡。 |
 | 附加的圖片 | 各一 | 圖片附加在輸入框中，回答說收到一張圖片，prompt 也寫出檔案名稱，讓 agent 能用自己的工具讀取。 |
 
 ## 工具庫
@@ -214,6 +215,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 從資料夾挑選的 skill 出現在每個 CLI 的簡報中，每個 CLI 都讀了它的 SKILL.md | 三個一起 | 有兩個 skill 的資料夾中，加入的那個列在每份簡報中，每個 CLI 都讀出它的第一行；另一個從沒出現。Claude Code 只能透過轉接器加上的 `Read(…)` 規則讀取它（沒有這條規則時假 CLI 會拒絕）。 |
 | 對某個 CLI 或在成員的工具中關掉的 skill 不會給出去 | 三個一起 | 對 Grok 關掉、在 Claude 的**工具**中取消勾選後，兩者都拿不到，Claude Code 的參數裡也沒有它。 |
 | 給所有成員與給某個 CLI 的記憶會進入各自的簡報，成員的工具可以不帶 | 三個一起 | Codex 依序拿到共享記憶與它自己的筆記，其他人只有共享記憶；在 Grok 的**工具**中取消勾選**共享記憶**後，Grok 一則都沒有。 |
+| 在頁面上給 MCP 伺服器新的值，下一回合就拿到它；移除後不再給出去 | 三個一起 | 修改後頁面顯示新的遮蔽值，每個 CLI 的下一回合只拿到新的值，而且不在任何參數裡；移除後下一回合既沒有它的名稱也沒有它的值。另一個伺服器全程保留，所以「什麼都沒給」不會因為某個回合完全沒拿到工具庫而通過。 |
+| 在頁面上移除的 skill 與記憶筆記不再給出去 | 三個一起 | 移除兩個 skill 之一與共享記憶後，下一份簡報與回答都沒有它們，另一個 skill 與每個 CLI 自己的筆記仍然送到。 |
 
 ## 修改對話的歷史
 
@@ -264,7 +267,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 找到每個 CLI，顯示版本，且已登入 | 三個，同一個測試 | 每張卡片顯示 CLI 的版本與**已登入**（Claude Code 附帳號），側邊欄的三個狀態點都正常。 |
+| 找到每個 CLI，顯示版本，且已登入 | 三個，同一個測試 | 每張卡片顯示 CLI 的版本與**已登入**（Claude Code 附帳號）；側邊欄這三個的狀態點都正常，沒有假 CLI 代替的 Cursor 顯示未安裝（「3/4 ready」）；要求時顯示它們的名稱，重新載入後仍保留。 |
 | 可以指定 CLI 的執行檔路徑，錯誤的路徑顯示找不到 | Grok | 不存在的路徑顯示**未安裝**（Not installed）；清空後又找到它。 |
 | 切換語言，選擇會保留 | — | 選繁體中文後頁面改變，重新載入後仍保留，選 English 再改回來。 |
 | 選另一個 CLI 擔任首席 agent | Codex 當首席 agent | 新對話頁寫出它，團隊卡片寫著「Lead agent: Codex」，首席 agent 的 prompt 交給了 Codex。 |
@@ -278,7 +281,12 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 新增的帳號有自己的資料夾，設定使用它的成員在那裡執行 | 各一 | 帳號放在 `<資料>/accounts/<cli>-<id>`，卡片上顯示這個資料夾；使用它的成員以這個家目錄執行（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`），使用預設帳號的成員則用預設的。 |
 | 每個帳號各自登入與登出 | Claude Code | **登出**只在新增帳號的家目錄執行 `auth logout`；**登入**走 CLI 自己的流程（一個連結，再貼上代碼），之後顯示這個帳號已登入。 |
-| 金鑰儲存區關閉時，帳號的 API key 存在資料庫、遮蔽顯示，並只交給它的 CLI | Claude Code | API key 欄位說明金鑰存在哪裡；儲存後顯示遮蔽的值與「Using an API key」，`/api/settings` 裡從沒有它；那個帳號的執行以 `ANTHROPIC_API_KEY` 拿到它，不在任何參數裡，預設帳號的執行則沒有。 |
+| 登出新增的帳號，只會登出那個帳號 | Codex、Grok | `logout` 只在那個帳號的資料夾執行；它的卡片顯示**未登入**，預設帳號仍然登入。 |
+| 金鑰儲存區關閉時，帳號的 API key 存在資料庫、遮蔽顯示，並只交給它的 CLI | Claude Code、Grok | API key 欄位說明金鑰存在哪裡；儲存後顯示遮蔽的值與「Using an API key」，`/api/settings` 裡從沒有它；那個帳號的執行拿到它（`ANTHROPIC_API_KEY`、`XAI_API_KEY`），不在任何參數裡，預設帳號的執行則沒有。 |
+| 帳號的 API key 用 Codex 自己的登入讓那個帳號登入 | Codex | Codex 不從環境變數拿 key：key 經由 stdin 交給只在那個帳號資料夾執行的 `codex login --with-api-key`，Harness Relay 不保存它，只有那個帳號的執行拿得到。 |
+| 啟動 Harness Relay 時帶的 API key 只屬於預設帳號 | 各一 | 伺服器自己環境中的 key（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`XAI_API_KEY`）會交給預設帳號的回合，不會交給新增的帳號。 |
+| 移除新增的帳號會登出它並刪除它的資料夾，它的成員與首席 agent 改用預設帳號 | 各一 | 確認時寫出資料夾；帳號在那裡登出，之後資料夾與其中的 session 都刪除；首席 agent 回到預設帳號；成員的下一回合在預設的家目錄、以新的 session 執行。 |
+| 有對話正在執行時不能移除帳號 | Claude Code | 回答慢慢進行時，**移除**說有對話正在執行，什麼都不變；停止對話後就能移除。 |
 
 ## 各 CLI 自己載入的內容，以及 Grok 的信任
 
@@ -387,9 +395,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 設定中的版本與登入 | ✓ | ✓ | ✓ |
 | 成員的模型與推理強度 | ✓ | ✓ | ✓ |
 | 新增帳號自己的家目錄 | ✓ | ✓ | ✓ |
-| 工具庫的 MCP 伺服器、skill 與記憶，給出去與拿掉 | ✓ | ✓ | ✓ |
+| 工具庫的 MCP 伺服器、skill 與記憶：給出去、修改與移除 | ✓ | ✓ | ✓ |
 | 各 CLI 存放 session 的資料夾，以及改變後的新 session | ✓ | ✓ | ✓ |
 | 列出它自己的 skill，並在下一次執行時不載入 | ✓ | ✓ | ✓（信任資料夾之後） |
+| HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ |
+| 新增的帳號各自登出 | ✓ | ✓ | ✓ |
+| 帳號的 API key 只交給那個帳號 | ✓ | ✓（透過 `codex login`） | ✓ |
+| 伺服器自己的 API key 只交給預設帳號 | ✓ | ✓ | ✓ |
+| 移除新增的帳號 | ✓ | ✓ | ✓ |
 
 ## 平台與瀏覽器
 
@@ -402,8 +415,12 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
-- **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`）以及在 app 中試用真正的 CLI 發現。
-- **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex 與 Grok；AgentsView 中首席 agent 與分類對話的 session 連結，以及設定網址後才送出的對話；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
+- **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`）以及在 app 中試用真正的 CLI 發現。
+- **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex 與 Grok（它們的裝置登入流程），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；AgentsView 中首席 agent 與分類對話的 session 連結，以及設定網址後才送出的對話；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
+
+## 實機測試
+
+[`live/`](live/) 裡是第二套測試，`npm run test:e2e:live`，設定是 [`playwright.live.config.ts`](../playwright.live.config.ts)：真正的 CLI，用你自己的登入，跑在真正的模型上，所以會花一點費用，也從不在 CI 上執行，不算在上面的數量裡。它的 11 個測試涵蓋：在設定中把 CLI 的預設模型設為某個端點的模型、各 CLI 自己的雲端模型、成員用的端點被刪除、替端點手動輸入的模型、原生 Windows 上權限低於完全存取的開放 agent、雲端與本機模型一起組成的團隊，以及 Cursor 在對話的第二個工作目錄寫檔。執行方式見開發者說明的[實機測試](../docs/developer-guide.zh-TW.md#實機測試)。
 
 ## 相關文件
 
@@ -414,4 +431,5 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - [架構](../docs/architecture.zh-TW.md)：伺服器如何做到它們檢查的事（[CLI 轉接器](../docs/architecture.zh-TW.md#cli-轉接器)、[權限對應](../docs/architecture.zh-TW.md#權限對應)、[安全性](../docs/architecture.zh-TW.md#安全性)）。
 - [各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md)：為什麼對話沒有的資料夾各 CLI 都碰不到，以及哪裡做不到。
 - [用手機連線](../docs/remote-access.zh-TW.md)：[在手機上](#在手機上)代表的使用情境。
+- [開發者說明 → 實機測試](../docs/developer-guide.zh-TW.md#實機測試)：第二套測試，用真正的 CLI。
 - 程式碼：[`playwright.config.ts`](../playwright.config.ts)、[`fixtures.ts`](fixtures.ts)、[`global-setup.ts`](global-setup.ts)、[`support/`](support/)（`relay.ts`、`app.ts`、`fake-cli.ts`）、[`fake-cli/`](fake-cli/) 與 [`specs/`](specs/)。

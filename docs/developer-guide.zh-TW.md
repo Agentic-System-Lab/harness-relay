@@ -641,12 +641,12 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/turns.spec.ts` — 向使用者提問並取得回答、略過問題、接力交棒、只有被 @ 的成員回答、之後的回合 PASS、各 CLI 的回答被停止、它的錯誤（結束程式與協定之內的錯誤）與重試、下一回合接續自己的 session、CLI 遺失 session 的成員帶著到目前為止的對話重新開始、回答途中送出的訊息交給下一位成員。
 - `e2e/specs/history.spec.ts` — 編輯訊息後重新送出（取代它之後的內容）、對已完成的回答重試、從某則回答分支出新對話。
 - `e2e/specs/team.spec.ts` — 在團隊設定中請首席 agent 加入成員，儲存後新成員回答；首席 agent 的回答無法解讀時改用範本；拒絕為新問題提議的團隊，由目前的團隊回答。
-- `e2e/specs/inputs.spec.ts` — 除了 prompt 之外交給各 CLI 的東西：工具庫的 MCP 伺服器（其秘密不會出現在命令列上）與附加的圖片。
+- `e2e/specs/inputs.spec.ts` — 除了 prompt 之外交給各 CLI 的東西：工具庫的 MCP 伺服器（其秘密不會出現在命令列上）、透過 HTTP 的 MCP 伺服器（其秘密標頭也一樣）與附加的圖片。
 - `e2e/specs/sidebar.spec.ts` — 群組與首席 agent 把新對話分進群組、重新命名與刪除、依 agent 寫的內容搜尋、一開始就給的標題；把對話拖進與拖出群組，以及分支對話的家族一起移動。
 - `e2e/specs/models.spec.ts` — 成員的模型與推理強度交給各 CLI（Claude Code 的參數、Codex 的 thread、Grok 的 session 選項），以及設定中的預設模型與推理強度用於保留「預設」的成員。
-- `e2e/specs/tools.spec.ts` — 工具庫的頁面，每個 CLI 各一位成員：MCP 伺服器（秘密遮蔽顯示且不在命令列上）、從資料夾挑選並由各 CLI 讀取的 skill、給所有成員與給某個 CLI 的記憶，以及各自對某個 CLI 或在成員的工具中關掉。
+- `e2e/specs/tools.spec.ts` — 工具庫的頁面，每個 CLI 各一位成員：MCP 伺服器（秘密遮蔽顯示且不在命令列上）、從資料夾挑選並由各 CLI 讀取的 skill、給所有成員與給某個 CLI 的記憶，以及各自對某個 CLI 或在成員的工具中關掉；給 MCP 伺服器新的值後移除它，以及移除 skill 與記憶筆記。
 - `e2e/specs/share.spec.ts` — 複製回答的 Markdown 與整段對話（Chromium）；透過假的 `gh` 分享成 secret gist，在設定中列出並移除；`gh` 未登入與不存在（Windows 上跳過）。
-- `e2e/specs/accounts.spec.ts` — 每個 CLI 新增帳號自己的家目錄、每個帳號各自登入與登出，以及金鑰儲存區關閉時帳號的 API key（遮蔽顯示，只交給它的 CLI）。
+- `e2e/specs/accounts.spec.ts` — 每個 CLI 新增帳號自己的家目錄、每個帳號各自登入與登出（Claude Code 的登入流程；Codex 與 Grok 各自登出）、金鑰儲存區關閉時帳號的 API key（Claude Code 與 Grok：遮蔽顯示，只交給它的 CLI；Codex：在它的資料夾執行 `codex login --with-api-key`）、伺服器自己的 key 只給預設帳號、移除帳號（登出、刪除它的資料夾、它的成員與首席 agent 改用預設帳號），以及對話執行中不能移除。
 - `e2e/specs/native.spec.ts` — 各 CLI 自己載入的內容：列出它自己的 skill，並在下一次執行時不載入（Claude Code、Codex），以及 Grok 對資料夾的信任（從 Grok 卡片，以及從新對話的團隊卡片信任或拒絕）。
 - `e2e/specs/sessions.spec.ts` — 各 CLI 自己的資料夾：session 存在那裡、改變後開始新的 session、被拒絕的資料夾、對話執行中不能改；AgentsView（代替的伺服器）：送出對話與成員的 session、拒絕其他位置的網址、在設定中顯示更新失敗。
 - `e2e/specs/report.spec.ts` — 問題回報：郵件的 `mailto:` 與 Gmail 連結帶著資訊、保留草稿、太長而放不進連結的回報、要先上傳的截圖，以及無法上傳的截圖（`gh` 未登入）。
