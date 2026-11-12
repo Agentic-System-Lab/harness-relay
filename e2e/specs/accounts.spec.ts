@@ -60,7 +60,7 @@ async function chatWith(page: Page, relay: RelayServer, members: { name: string;
 function turnStart(relay: RelayServer, provider: Provider, name: string, text: string): FakeLogEntry | undefined {
   const log = relay.fakeLog();
   const turn = log.find((e) => e.cli === provider && e.prompt?.includes(text) && new RegExp(`your turn, @${name}\\b`).test(e.prompt));
-  return turn && log.find((e) => e.pid === turn.pid && e.args);
+  return turn && log.find((e) => e.proc === turn.proc && e.args);
 }
 
 const CLAUDE = SIGNED_IN.find((c) => c.provider === 'claude')!;
@@ -315,7 +315,7 @@ test.describe('more than one account', () => {
       const before = turnStart(relay, cli.provider, cli.name, 'Before the removal');
       expect(before?.home).toBe(homeOf(cli, home));
       // Its session is kept in that folder.
-      const session = relay.fakeLog().find((e) => e.pid === before!.pid && e.session)?.session;
+      const session = relay.fakeLog().find((e) => e.proc === before!.proc && e.session)?.session;
       expect(session && sessionFile(home, session), 'its session').toBeTruthy();
 
       await page.goto(`${relay.base}/#/settings/${cli.provider}`);
@@ -348,7 +348,7 @@ test.describe('more than one account', () => {
       await expect(await finishedReply(page, cli.name)).toContainText('You said: “After the removal”.');
       const start = turnStart(relay, cli.provider, cli.name, 'After the removal');
       expect(start?.home).toBe(defaultHome(relay, cli.provider));
-      expect(relay.fakeLog().flatMap((e) => (e.pid === start!.pid && e.session ? [e.resumed] : []))).toEqual([false]);
+      expect(relay.fakeLog().flatMap((e) => (e.proc === start!.proc && e.session ? [e.resumed] : []))).toEqual([false]);
     });
   });
 

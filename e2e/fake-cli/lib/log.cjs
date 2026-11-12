@@ -8,10 +8,17 @@
  * `sandboxed: true`. Lines sent that way are awaited by every way out of the process (`exitAfterLog()`),
  * for two seconds at most.
  */
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const self = require('./self.cjs');
+
+/**
+ * This process, as no other in the test: its lines are told apart by this, not by the pid, which
+ * Windows soon gives to a new process once one ends (a status probe of another CLI, say).
+ */
+const PROC = crypto.randomUUID();
 
 /** What a write gets where it may not write: the sandbox's refusal (EPERM on macOS, EROFS on Linux), or a folder's permissions. */
 const REFUSED = new Set(['EPERM', 'EACCES', 'EROFS']);
@@ -35,11 +42,11 @@ function tryWrite(file, content) {
 /** Log lines on their way to the fake endpoint. */
 const sending = new Set();
 
-/** Appends `entry` to the log, with which CLI, process and time; over HTTP where the file may not be written. */
+/** Appends `entry` to the log, with which CLI, process (`proc`; and its pid) and time; over HTTP where the file may not be written. */
 function record(entry) {
   const file = process.env.E2E_FAKE_LOG;
   if (!file) return;
-  const line = { cli: self.cli(), pid: process.pid, at: Date.now(), ...entry };
+  const line = { cli: self.cli(), proc: PROC, pid: process.pid, at: Date.now(), ...entry };
   try {
     fs.appendFileSync(file, JSON.stringify(line) + '\n');
   } catch (err) {
