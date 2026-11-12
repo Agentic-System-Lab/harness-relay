@@ -651,7 +651,7 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/history.spec.ts` — 編輯訊息後重新送出（取代它之後的內容）、對已完成的回答重試、從某則回答分支出新對話。
 - `e2e/specs/team.spec.ts` — 在團隊設定中請首席 agent 加入成員，儲存後新成員回答；首席 agent 的回答無法解讀時改用範本；拒絕為新問題提議的團隊，由目前的團隊回答。
 - `e2e/specs/inputs.spec.ts` — 除了 prompt 之外交給各 CLI 的東西：工具庫的 MCP 伺服器（其秘密不會出現在命令列上）、透過 HTTP 的 MCP 伺服器（其秘密標頭也一樣）與附加的圖片。
-- `e2e/specs/sidebar.spec.ts` — 群組與首席 agent 把新對話分進群組、重新命名與刪除、依 agent 寫的內容搜尋、一開始就給的標題；把對話拖進與拖出群組，以及分支對話的家族一起移動。
+- `e2e/specs/sidebar.spec.ts` — 群組與首席 agent 把新對話分進群組、重新命名與刪除、依 agent 寫的內容搜尋、一開始就給的標題；把對話拖進與拖出群組，以及分支對話的家族一起移動；每個 CLI 的狀態點與可用數量排在一行，箭頭尖端對齊回報問題圖示的右緣。
 - `e2e/specs/models.spec.ts` — 成員的模型與推理強度交給各 CLI（Claude Code 的參數、Codex 的 thread、Grok 的 session 選項），以及設定中的預設模型與推理強度用於保留「預設」的成員。
 - `e2e/specs/tools.spec.ts` — 工具庫的頁面，每個 CLI 各一位成員：MCP 伺服器（秘密遮蔽顯示且不在命令列上）、從資料夾挑選並由各 CLI 讀取的 skill、給所有成員與給某個 CLI 的記憶，以及各自對某個 CLI 或在成員的工具中關掉；給 MCP 伺服器新的值後移除它，以及移除 skill 與記憶筆記。
 - `e2e/specs/share.spec.ts` — 複製回答的 Markdown 與整段對話（Chromium）；透過假的 `gh` 分享成 secret gist，在設定中列出並移除；`gh` 未登入與不存在（Windows 上跳過）。

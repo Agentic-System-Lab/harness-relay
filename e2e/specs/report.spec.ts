@@ -47,8 +47,8 @@ async function catchMail(page: Page): Promise<() => Promise<Caught>> {
 async function infoLines(page: Page, relay: RelayServer): Promise<string[]> {
   const about = await relay.api<AboutInfo>('/api/about');
   const clis = await relay.api<ProviderStatus[]>('/api/providers');
-  // Every CLI the server knows, in its order: a version, or that it is not installed (Cursor and the
-  // open agents, which no fake stands in for).
+  // Every CLI the server knows, in its order: a version, or that it is not installed (Cursor,
+  // Antigravity and the open agents, which no fake stands in for).
   const cliLines = PROVIDERS.flatMap((p) => {
     const s = clis.find((x) => x.provider === p);
     return s ? [`${PROVIDER_LABEL[p]}: ${s.installed ? s.version!.trim() : 'not installed'}`] : [];
