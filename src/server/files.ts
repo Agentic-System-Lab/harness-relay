@@ -222,8 +222,6 @@ export interface ZipPlan extends ZipSize {
 /** How much a ZIP file may hold: files and folders together, and bytes before compression (FILE_LIMITS; smaller in tests). */
 export type ZipLimits = { items: number; bytes: number };
 
-const ZIP_LIMITS: ZipLimits = { items: FILE_LIMITS.zipItems, bytes: FILE_LIMITS.zipBytes };
-
 /** How deep repositories inside repositories are followed when taking only what git does not ignore. */
 const MAX_NESTED_REPOS = 8;
 
@@ -240,7 +238,8 @@ export async function zipPlan(
   rel: string,
   opts: { unignored?: boolean; limits?: ZipLimits; name?: string } = {},
 ): Promise<ZipPlan | null> {
-  const limits = opts.limits ?? ZIP_LIMITS;
+  // FILE_LIMITS read on each call, so that a test of the routes can lower them.
+  const limits = opts.limits ?? { items: FILE_LIMITS.zipItems, bytes: FILE_LIMITS.zipBytes };
   const dir = resolveInRoot(root, rel);
   const self = await stat(dir.real);
   if (!self.isDirectory()) throw new HttpError(404, t().fileNotFound);

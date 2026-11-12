@@ -52,6 +52,11 @@ export function currentLang(): Lang {
   return current;
 }
 
+/** The messages in that language, for code outside React (an error the API client makes itself). */
+export function currentMessages(): Messages {
+  return MESSAGES[current];
+}
+
 interface I18n {
   lang: Lang;
   setLang: (lang: Lang) => void;
