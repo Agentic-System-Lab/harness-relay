@@ -48,10 +48,15 @@ jobs:
       - name: Install
         run: npm ci
 
-      # The browsers Playwright drives, and on Linux the system libraries they need.
+      # The browsers Playwright drives (headless: Chromium's headless shell, not the whole browser),
+      # and on Linux the system libraries they need. Not on Windows: there --with-deps only adds
+      # Windows Server's Media Foundation, for media no test plays, and that takes three minutes.
       - name: Install the browsers
         shell: bash
-        run: npx playwright install --with-deps ${E2E_BROWSERS//,/ }
+        run: |
+          deps=''
+          if [ "$RUNNER_OS" = Linux ]; then deps=--with-deps; fi
+          npx playwright install $deps --only-shell ${E2E_BROWSERS//,/ }
 
       - name: Build the UI
         run: npm run build

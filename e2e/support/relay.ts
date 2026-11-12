@@ -172,11 +172,14 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       await Promise.race([exited, new Promise((r) => setTimeout(r, 5_000))]);
     }
-    // Windows may hold a file a moment after its process ended; a folder left in the temporary
-    // folder is no reason to fail a test. Harness Relay makes some of an open agent's folders in
-    // its home read-only (OpenCode's config): those are given back to their owner first.
+    // Harness Relay makes some of an open agent's folders in its home read-only (OpenCode's config,
+    // made when the page asks for the models). Node 24 on macOS cannot empty them and calls that
+    // ENOTEMPTY, which rmSync retries (15 s with the retries below, on each test that opened the app), so the
+    // first try has none: when it fails, those folders are given back to their owner, then the rest is
+    // removed with retries, since Windows may hold a file a moment after its process ended. A folder
+    // left in the temporary folder is no reason to fail a test.
     try {
-      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+      rmSync(root, { recursive: true, force: true });
     } catch {
       try {
         makeWritable(root);
