@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { en } from '../../src/web/locales/en';
 import { expect, test } from '../fixtures';
 
 /** The guided tour, whichever step it shows (each step names the dialog after its title). */
@@ -20,14 +21,16 @@ test.describe('the guided tour', () => {
   test.use({ tour: true });
 
   test('shows on a first visit, steps through to the end, and is not shown again', async ({ page }) => {
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    // The steps as the English locale names them, so that a changed tour changes them here too.
+    const titles = en.tour.steps.map((s) => s.title);
+    await expect(page.getByRole('dialog', { name: titles[0] })).toBeVisible();
     const steps = await tourSteps(page);
     expect(steps).toBeGreaterThan(2);
     // The first step has nothing to go back to.
     await expect(tour(page).getByRole('button', { name: 'Back' })).toHaveCount(0);
 
     await tour(page).getByRole('button', { name: 'Next' }).click();
-    await expect(page.getByRole('dialog', { name: 'Check that each agent is signed in' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: titles[1] })).toBeVisible();
     await expect(tour(page).getByText(`2 / ${steps}`)).toBeVisible();
     await tour(page).getByRole('button', { name: 'Back' }).click();
     await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
@@ -40,7 +43,7 @@ test.describe('the guided tour', () => {
       await expect(tour(page).getByText(`${i} / ${steps}`)).toBeVisible();
     }
     // The last step finishes it, with nothing left to skip.
-    await expect(page.getByRole('dialog', { name: 'Adjust any time' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: titles.at(-1) })).toBeVisible();
     await expect(tour(page).getByRole('button', { name: 'Skip tour' })).toHaveCount(0);
     await tour(page).getByRole('button', { name: 'Get started' }).click();
     await expect(tour(page)).toBeHidden();

@@ -81,8 +81,8 @@ const logoutHomes = (relay: RelayServer, provider: FakeProvider) =>
  * shape: the fake CLIs say whether they were given the one the test expects (E2E_EXPECTED_API_KEY).
  */
 const KEYED = [
-  { ...CLIS[0], key: 'sk-ant-e2e-work-key-5678', masked: 'sk-a…5678', env: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-…' },
-  { ...CLIS[2], key: 'xai-e2e-work-key-5678', masked: 'xai-…5678', env: 'XAI_API_KEY', placeholder: 'xai-…' },
+  { ...CLIS[0], key: 'sk-ant-e2e-work-key-5678', masked: '••••5678', env: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-…' },
+  { ...CLIS[2], key: 'xai-e2e-work-key-5678', masked: '••••5678', env: 'XAI_API_KEY', placeholder: 'xai-…' },
 ] as const;
 
 /** The variable each CLI reads an API key from that the server's own environment may hold (Codex: one of two). */

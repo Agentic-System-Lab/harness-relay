@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
-import type { ToolLibraryView } from '../../src/shared/types';
+import { PROVIDERS, type ToolLibraryView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled, type Member } from '../support/app';
 import type { RelayServer } from '../support/relay';
@@ -59,7 +59,8 @@ test.describe('the tool library', () => {
     const row = form.locator('.var-row');
     await row.getByRole('textbox', { name: 'Name' }).fill('E2E_TOKEN');
     await row.getByLabel('Value').fill(SECRET);
-    await expect(form.getByRole('group', { name: 'Given by default to' }).getByRole('button', { pressed: true })).toHaveCount(3);
+    // Given to every CLI's members by default.
+    await expect(form.getByRole('group', { name: 'Given by default to' }).getByRole('button', { pressed: true })).toHaveCount(PROVIDERS.length);
     await form.getByRole('button', { name: 'Save' }).click();
 
     const server = card.locator('.lib-row', { hasText: 'e2e-tools' });
@@ -177,10 +178,10 @@ test.describe('the tool library', () => {
     await card.getByRole('textbox', { name: 'Skill folder path' }).fill(dir);
     await card.getByRole('button', { name: 'Add', exact: true }).click();
     const picks = card.getByRole('group', { name: 'release-notes: Given by default to' });
-    await expect(picks.getByRole('button', { pressed: true })).toHaveCount(3);
+    await expect(picks.getByRole('button', { pressed: true })).toHaveCount(PROVIDERS.length);
     await picks.getByRole('button', { name: 'Grok' }).click();
     await expect(picks.getByRole('button', { name: 'Grok' })).toHaveAttribute('aria-pressed', 'false');
-    await expect.poll(async () => (await relay.api<ToolLibraryView>('/api/tools')).skills[0]?.providers).toEqual(['claude', 'codex']);
+    await expect.poll(async () => (await relay.api<ToolLibraryView>('/api/tools')).skills[0]?.providers).toEqual(PROVIDERS.filter((p) => p !== 'grok'));
 
     const id = await openTeamChat(page, relay, TEAM);
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
@@ -320,7 +321,8 @@ test.describe('the tool library', () => {
     await expect(memory).toContainText('Saved');
     const lib = await relay.api<ToolLibraryView>('/api/tools');
     expect(lib.skills.map((s) => s.name)).toEqual(['release-notes']);
-    expect(lib.memory).toEqual({ all: '', claude: own, codex: own, grok: own });
+    // Each fake CLI's own note stays; the other CLIs have none.
+    expect(lib.memory).toEqual({ ...Object.fromEntries(PROVIDERS.map((p) => [p, ''])), all: '', claude: own, codex: own, grok: own });
 
     await page.goto(`${relay.base}/#/c/${id}`);
     await send(page, 'And now? e2e:memory e2e:skills');
