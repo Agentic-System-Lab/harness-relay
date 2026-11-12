@@ -87,23 +87,44 @@ export interface HeldCheck {
   current: Promise<PageStart> | undefined;
 }
 
+/** One run of the page's first effect, as `runFirstCheck` started it. */
+export interface FirstCheckRun {
+  /** Ends the run: nothing is shown after. */
+  end(): void;
+  /**
+   * Another tab signed this browser in, and the server says so. True when the first check is shown
+   * already, for the page to show the app now; else the first check's result shows it, as that
+   * check's answer is out of date.
+   */
+  signedInElsewhere(): boolean;
+}
+
 /**
  * One run of the page's first effect: shows the first check (`pageStart`) when it is done, unless the
- * run has ended by then (the function it returns ends it). Runs share the check while it runs: React
- * runs the effect twice in development (StrictMode), ending the first run at once, and a check of the
- * second run's own would find the link's code gone from the address and go by a status asked before
- * the first one's sign-in, showing the sign-in page to a browser the link had just signed in. The run
- * that shows the check lets it go, so a run after it checks again rather than shows an old result.
+ * run has ended by then. Runs share the check while it runs: React runs the effect twice in
+ * development (StrictMode), ending the first run at once, and a check of the second run's own would
+ * find the link's code gone from the address and go by a status asked before the first one's sign-in,
+ * showing the sign-in page to a browser the link had just signed in. The run that shows the check lets
+ * it go, so a run after it checks again rather than shows an old result.
  */
-export function runFirstCheck(held: HeldCheck, d: LinkDeps, show: (s: PageStart) => void): () => void {
+export function runFirstCheck(held: HeldCheck, d: LinkDeps, show: (s: PageStart) => void): FirstCheckRun {
   let live = true;
+  let shown = false;
+  let elsewhere = false;
   const first = (held.current ??= pageStart(d));
   void first.then((s) => {
     if (!live) return;
     if (held.current === first) held.current = undefined;
-    show(s);
+    shown = true;
+    show(elsewhere ? { signedIn: true, desktop: s.desktop } : s);
   });
-  return () => {
-    live = false;
+  return {
+    end: () => {
+      live = false;
+    },
+    signedInElsewhere: () => {
+      if (!shown) elsewhere = true;
+      return shown;
+    },
   };
 }

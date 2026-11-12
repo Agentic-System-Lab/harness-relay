@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
 import { SIGNED_OUT_EVENT, api } from './api';
+import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
@@ -95,7 +96,7 @@ export function App() {
     // Whether the desktop app started the server, also when the page opens with a link: a link that
     // no longer works, or a sign-out later, shows the sign-in page, which then points at the app's
     // menu rather than a terminal.
-    const endFirst = runFirstCheck(start, LINK, (s) => {
+    const first = runFirstCheck(start, LINK, (s) => {
       setDesktopApp(s.desktop);
       show(s);
     });
@@ -103,13 +104,24 @@ export function App() {
     const onHash = () =>
       void signInWithLink(LINK, () => state.current === 'in' || askSignedIn(LINK)).then((r) => r && show(r));
     const out = () => setAuth('out');
+    // Another tab kept a new key: it signed this browser in (the tabs share the cookie and the key).
+    // The server is asked whatever this tab shows, as one just signed out may not show the sign-in page
+    // yet, and the app is shown when the browser is signed in (with the first check, if it still runs).
+    const onStorage = (e: StorageEvent) => {
+      if (!keyArrived(e)) return;
+      void askSignedIn(LINK).then((signedIn) => {
+        if (signedIn && first.signedInElsewhere()) show({ signedIn: true });
+      });
+    };
     window.addEventListener('hashchange', onHash);
     window.addEventListener(SIGNED_OUT_EVENT, out);
+    window.addEventListener('storage', onStorage);
     return () => {
       live = false;
-      endFirst();
+      first.end();
       window.removeEventListener('hashchange', onHash);
       window.removeEventListener(SIGNED_OUT_EVENT, out);
+      window.removeEventListener('storage', onStorage);
     };
   }, []);
 
