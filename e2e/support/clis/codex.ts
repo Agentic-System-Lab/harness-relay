@@ -27,4 +27,5 @@ export const codex: CliFacts = {
   // Codex keeps a key itself (`codex login --with-api-key`); the server's own may be OPENAI_API_KEY or CODEX_API_KEY.
   apiKeyEnv: 'OPENAI_API_KEY',
   apiKeyPlaceholder: 'sk-…',
+  signedOutError: 'Not logged in',
 };

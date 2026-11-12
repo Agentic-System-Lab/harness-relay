@@ -26,10 +26,14 @@
  * `E2E_FAKE_SEA=1`) the same executable under one more name, as the server starts it without a shell
  * too. The executable runs the fake GitHub CLI when it runs as `gh`, the fake CLIs otherwise: one
  * build instead of two, each of which takes over ten seconds on Windows.
+ *
+ * For `e2e/specs/windows.spec.ts`, `installFakeLaunchers()` also builds the fakes as some Windows
+ * users' CLIs come: Cursor's own launcher (`cursor-agent.cmd`, which starts a Node and a script of its
+ * own), and npm's shims (`.cmd`), for a Node script (Cline, Pi) and for a program (OpenCode).
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname, join, relative } from 'node:path';
 import { PROVIDERS, type Provider } from '../../src/shared/types';
@@ -263,6 +267,102 @@ async function buildExecutables(script: string, dir: string, bins: string[], che
       throw new Error(`The fake ${basename(bin)} executable does not run: ${check.status} ${check.stdout} ${check.stderr} ${check.error ?? ''}`);
     }
   }
+}
+
+/** The launchers of `installFakeLaunchers()`: their folder, and each one's path by the CLI it starts. */
+export interface FakeLaunchers {
+  dir: string;
+  bins: Record<'cursor' | 'cline' | 'pi' | 'opencode', string>;
+}
+
+/** Cursor's launcher, as its installer writes it: it says how it was invoked (`%~nx0`), and runs `cursor-agent.ps1`. */
+const CURSOR_LAUNCHER =
+  '@echo off\r\nset "CURSOR_INVOKED_AS=%~nx0"\r\nset "SCRIPT_DIR=%~dp0"\r\n' +
+  '%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\\cursor-agent.ps1" %*\r\n';
+/** The version folder of Cursor's (`YYYY.M.D-<commit>`), which holds its Node and its script. */
+const CURSOR_VERSION = '2026.11.11-e2e0001';
+/** The lines npm's cmd-shim writes before the one that runs the CLI (npm 11). */
+const NPM_PREAMBLE = '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n';
+/** npm's shim for a program, `rel` from its folder. */
+const npmProgramShim = (rel: string) => `${NPM_PREAMBLE}"%dp0%\\${rel}"   %*\r\n`;
+/** npm's shim for a Node script, `rel` from its folder: Node beside it, else the PATH's. */
+const npmNodeShim = (rel: string) =>
+  `${NPM_PREAMBLE}\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\n\r\n` +
+  `endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\${rel}" %*\r\n`;
+
+/** `from` at `to` too: the same file where it can be (a hard link), else a copy. */
+function linkOrCopy(from: string, to: string): void {
+  try {
+    linkSync(from, to);
+  } catch {
+    copyFileSync(from, to);
+  }
+}
+
+/**
+ * Writes the launchers into `dir` (the fake CLIs' bundle `script`, a Node at `node` for Cursor's
+ * version folder, and the program `program` for OpenCode's shim), each in a folder of its kind, with
+ * no `.exe` of a CLI's name beside it (it would be found first):
+ * - `cursor\cursor-agent.cmd`, Cursor's launcher, and `cursor\versions\<version>\node.exe` and
+ *   `index.js` (the script, which tells it is Cursor from CURSOR_INVOKED_AS);
+ * - `npm\cline.cmd` and `npm\pi.cmd`, npm's shims for Node scripts (`node_modules\<cli>\<cli>.cjs`,
+ *   run with the PATH's Node);
+ * - `npm\opencode.cmd`, npm's shim for a program (`node_modules\opencode-ai\bin\opencode.exe`).
+ * Returns each launcher's path.
+ */
+export function writeFakeLaunchers(dir: string, from: { script: string; node: string; program: string }): FakeLaunchers['bins'] {
+  const cursor = join(dir, 'cursor');
+  const version = join(cursor, 'versions', CURSOR_VERSION);
+  mkdirSync(version, { recursive: true });
+  writeFileSync(join(cursor, 'cursor-agent.cmd'), CURSOR_LAUNCHER);
+  linkOrCopy(from.node, join(version, 'node.exe'));
+  writeFileSync(join(version, 'index.js'), from.script);
+
+  const npm = join(dir, 'npm');
+  for (const p of ['cline', 'pi']) {
+    mkdirSync(join(npm, 'node_modules', p), { recursive: true });
+    writeFileSync(join(npm, 'node_modules', p, `${p}.cjs`), from.script);
+    writeFileSync(join(npm, `${p}.cmd`), npmNodeShim(['node_modules', p, `${p}.cjs`].join('\\')));
+  }
+  const program = ['node_modules', 'opencode-ai', 'bin', 'opencode.exe'];
+  mkdirSync(join(npm, ...program.slice(0, -1)), { recursive: true });
+  linkOrCopy(from.program, join(npm, ...program));
+  writeFileSync(join(npm, 'opencode.cmd'), npmProgramShim(program.join('\\')));
+  return { cursor: join(cursor, 'cursor-agent.cmd'), cline: join(npm, 'cline.cmd'), pi: join(npm, 'pi.cmd'), opencode: join(npm, 'opencode.cmd') };
+}
+
+/**
+ * Builds (or finds) the launchers of `writeFakeLaunchers()` for the fake CLIs in `fakeBinDir` (OpenCode's
+ * program is its executable there), kept in `node_modules/.cache/` like the fakes: Cursor's Node is a
+ * copy of this one where it cannot be a link (another drive), about 90 MB. Windows only (the
+ * launchers are `.cmd` scripts); a worker that finds another building them takes the one done first.
+ */
+export function installFakeLaunchers(fakeBinDir: string): FakeLaunchers {
+  const script = bundleFakeCli();
+  const key = createHash('sha256').update(LAYOUT).update('launchers-1').update(script).update(fakeBinDir).update(process.version).update(process.execPath).digest('hex').slice(0, 16);
+  const cache = join(ROOT, 'node_modules', '.cache', 'harness-relay-e2e');
+  const dir = join(cache, `fake-launchers-${key}`);
+  const done = join(dir, 'done');
+  if (!existsSync(done)) {
+    for (const old of existsSync(cache) ? readdirSync(cache) : []) {
+      const path = join(cache, old);
+      if (old.startsWith('fake-launchers-') && path !== dir && Date.now() - statSync(path).mtimeMs > IN_USE_MS) rmSync(path, { recursive: true, force: true });
+    }
+    // Made aside and moved into place whole: another worker may be making it too.
+    const making = `${dir}.${process.pid}-${Date.now().toString(36)}`;
+    writeFakeLaunchers(making, { script, node: process.execPath, program: join(fakeBinDir, fakeBin('opencode')) });
+    writeFileSync(join(making, 'done'), '');
+    try {
+      renameSync(making, dir);
+    } catch {
+      rmSync(making, { recursive: true, force: true });
+      if (!existsSync(done)) throw new Error(`Could not put the fake launchers in ${dir}`);
+    }
+  }
+  const now = new Date();
+  utimesSync(dir, now, now);
+  const at = (...parts: string[]) => join(dir, ...parts);
+  return { dir, bins: { cursor: at('cursor', 'cursor-agent.cmd'), cline: at('npm', 'cline.cmd'), pi: at('npm', 'pi.cmd'), opencode: at('npm', 'opencode.cmd') } };
 }
 
 function run(bin: string, args: string[]): void {
