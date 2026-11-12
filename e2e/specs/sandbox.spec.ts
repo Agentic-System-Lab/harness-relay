@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
 import { finishedReply, openTeamChat, replies, send, settled } from '../support/app';
-import { CLIS, eachCli, member, needsFake, needsRelaySandbox, OPEN, SIGNED_IN } from '../support/clis';
+import { CLIS, eachCli, fetchPermission, member, needsFake, needsRelaySandbox, OPEN, SIGNED_IN } from '../support/clis';
 
 /*
  * Harness Relay's own sandbox, which the open agents run in below full access (docs/sandboxing.md),
@@ -34,7 +34,7 @@ test.describe("Harness Relay's own sandbox", () => {
   eachCli(OPEN, (cli) => {
     test(`${cli.provider}: a host the run may not reach is asked about, and refused when declined`, async ({ page, relay }) => {
       needsRelaySandbox(cli.provider);
-      const id = await openTeamChat(page, relay, [member(cli)]);
+      const id = await openTeamChat(page, relay, [member(cli)], { permission: fetchPermission(cli) });
       await send(page, 'Look it up e2e:fetch=http://e2e.example.invalid/');
       const card = page.getByRole('region', { name: `@${cli.name} wants to read a web page` });
       await expect(card.locator('.approval-detail')).toContainText('e2e.example.invalid');

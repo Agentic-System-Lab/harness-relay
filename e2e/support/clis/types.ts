@@ -77,4 +77,10 @@ export interface CliFacts {
   signedOutError?: string;
   /** Whether it asks the user before reading a tool library skill outside the working directory (default false). */
   skillReadAsks?: boolean;
+  /** Whether its `e2e:todo` step shows a to-do list (default true; Pi has none). */
+  todoList?: boolean;
+  /** The tool its `e2e:tool` listing shows as with full access, where that is not `listTool` (Pi: no `ls` tool then, so `Bash`). */
+  listToolFull?: string;
+  /** The permission it runs `e2e:fetch` in, the lowest where it has a tool to reach a URL (default read-only; Pi edit, as read-only gives it no command tool). */
+  fetchPermission?: Permission;
 }
