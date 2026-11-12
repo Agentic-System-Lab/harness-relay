@@ -20,8 +20,9 @@
  * <minutes> per agent step (default 25), --no-build, --dry.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { removeTree } from '../../src/server/fsRemove';
 import { DEFAULT_OUT, DEMO_LANGS, ROOT, type DemoLang } from './common';
 import { checkProviders, record, startServer } from './record';
 
@@ -85,7 +86,10 @@ const logger = (lang: DemoLang) => (...a: unknown[]) => console.log(new Date().t
 async function recordOne(o: Options, lang: DemoLang, port: number): Promise<void> {
   const log = logger(lang);
   const dir = join(o.out, lang);
-  rmSync(dir, { recursive: true, force: true });
+  // The last recording's server is gone, so its folders get their owner's permissions back first:
+  // the open agents' homes hold read-only config folders, which a plain rmSync cannot remove.
+  removeTree(dir, { restore: true });
+  if (existsSync(dir)) throw new Error(`Could not remove the last recording in ${dir}`);
   mkdirSync(dir, { recursive: true });
   const server = await startServer(port, join(dir, 'relay-data'), join(dir, 'server.log'));
   log('Harness Relay on', server.base);
