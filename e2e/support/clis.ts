@@ -210,12 +210,13 @@ export function defaultHome(relay: RelayServer, p: Provider): string {
 
 /**
  * Where a fake keeps session `id` under `home`: the first file or folder of that name (or the name
- * encoded, as the fakes keep it) a walk of `home` finds, at most `depth` folders down, never through
- * a link, or a file whose name ends in `_<id>.jsonl` (Pi's `<time>_<id>.jsonl`). An open agent keeps
- * its sessions in its state folder (`private/<key>/…`).
+ * encoded, as the fakes keep it, or without its dashes, as OpenHands names a session's folder) a walk
+ * of `home` finds, at most `depth` folders down, never through a link, or a file whose name ends in
+ * `_<id>.jsonl` (Pi's `<time>_<id>.jsonl`). An open agent keeps its sessions in its state folder
+ * (`private/<key>/…`).
  */
 export function sessionFile(home: string, id: string, depth = 6): string | undefined {
-  const names = new Set([id, encodeURIComponent(id)]);
+  const names = new Set([id, encodeURIComponent(id), id.replace(/-/g, '').toLowerCase()]);
   const walk = (dir: string, left: number): string | undefined => {
     let entries: Dirent[];
     try {
