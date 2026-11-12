@@ -432,8 +432,11 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
   // Every endpoint as a provider (the same file for every run, so parallel runs agree).
   for (const e of run.backends.endpoints) writeIfChanged(join(providers, `${gooseEndpointProvider(e.id)}.json`), JSON.stringify(gooseEndpointFile(e), null, 2) + '\n');
 
+  // The shell wrapper is a POSIX shell script, which Windows cannot run: there Goose keeps its own
+  // shell (it runs only with full access there).
+  const windows = (ctx.platform ?? process.platform) === 'win32';
   const shell = join(root, 'bin', 'bash');
-  writeIfChanged(shell, GOOSE_SHELL_WRAPPER, 0o700);
+  if (!windows) writeIfChanged(shell, GOOSE_SHELL_WRAPPER, 0o700);
   // The tool library's MCP servers get the user's HOME too (gooseMcpServers).
   ctx.state.realHome = deps.realHome;
 
@@ -442,8 +445,7 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
     GOOSE_PROVIDER: gooseProvider(run),
     GOOSE_MODEL: run.model,
     GOOSE_MODE: gooseMode(o.permission),
-    GOOSE_SHELL: shell,
-    ...gooseShellEnv(deps.realHome, deps.bash),
+    ...(windows ? {} : { GOOSE_SHELL: shell, ...gooseShellEnv(deps.realHome, deps.bash) }),
     EXTENSIONS: gooseExtensionsEnv(),
     PLUGINS: goosePluginsEnv(goosePluginDirs(o.cwd, own), o),
     CONTEXT_FILE_NAMES: JSON.stringify(o.nativeOff?.includes('instructions') ? [] : GOOSE_HINT_FILES),

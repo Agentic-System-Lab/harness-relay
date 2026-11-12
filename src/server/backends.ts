@@ -309,15 +309,24 @@ export class ModelBackendStore {
       }
       if (keyStored && this.keyring) {
         const name = backendKeyName(id);
+        let putBack = true;
         try {
           // The key there was comes back to the keyring (one kept in the database is still there); else none.
           if (before?.apiKey && !flags.leftInDb) this.keyring.set(name, before.apiKey);
           else this.keyring.delete(name);
         } catch (err) {
+          putBack = false;
           console.warn(`[backends] could not put back the ${id} API key in the system keyring: ${(err as Error).message}`);
         }
-        // One that could not be read at startup was replaced, so it cannot come back: there is none now.
-        if (flags.unreadable) console.warn(`[backends] the ${id} API key the system keyring could not give is gone: set it again`);
+        // One that could not be read at startup was replaced, so it cannot come back: there is none now,
+        // or (when the new one could not be taken out) the keyring holds the key of the change not saved.
+        if (flags.unreadable) {
+          console.warn(
+            putBack
+              ? `[backends] the ${id} API key the system keyring could not give is gone: set it again`
+              : `[backends] the ${id} API key the system keyring could not give was replaced, and the keyring still holds the key of the change that was not saved: set the key again`,
+          );
+        }
       }
       if (flags.leftInDb) this.keysLeftInDb.add(id);
       else this.keysLeftInDb.delete(id);

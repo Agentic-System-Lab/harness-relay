@@ -18,6 +18,14 @@ interface Props {
 export function ModelPicker({ catalog, model, effort, onChange, inheritModelLabel, inheritEffortLabel }: Props) {
   const t = useT();
   const models = catalog?.models ?? [];
+  // The CLI's own models, then those of the user's own endpoints (Claude Code, Codex and Grok), apart.
+  const own = models.filter((m) => !m.endpoint);
+  const onEndpoints = models.filter((m) => m.endpoint);
+  const option = (m: (typeof models)[number]) => (
+    <option key={m.id} value={m.id}>
+      {(m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id) + (m.latest ? ` · ${t.models.latest}` : '')}
+    </option>
+  );
   const known = !model || models.some((m) => m.id === model);
   const [customMode, setCustomMode] = useState(!known);
   const custom = customMode || !known;
@@ -43,11 +51,8 @@ export function ModelPicker({ catalog, model, effort, onChange, inheritModelLabe
         <span>{t.models.model}</span>
         <select value={custom ? CUSTOM : model} onChange={(e) => pickModel(e.target.value)}>
           <option value="">{inheritModelLabel}</option>
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {(m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id) + (m.latest ? ` · ${t.models.latest}` : '')}
-            </option>
-          ))}
+          {own.map(option)}
+          {onEndpoints.length > 0 && <optgroup label={t.models.endpointModels}>{onEndpoints.map(option)}</optgroup>}
           <option value={CUSTOM}>{t.models.custom}</option>
         </select>
         {custom && (

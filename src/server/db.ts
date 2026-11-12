@@ -395,24 +395,30 @@ const MIGRATIONS: string[] = [
 ];
 
 /**
- * The migrations of the model backends and what followed them (now 22–26) were 21–25 for a while, in
- * builds that were never released, before 21 went to several working directories. A data folder those
- * builds migrated is at a version one lower than what it holds, and has never had today's 21. Told by
- * what it has (`model_backends`) and lacks (`conversations.extra_cwds`), it gets 21 and goes up by one,
- * so that the migrations after what it holds run on it as on any other. Returns its version then.
+ * The migrations of the model backends and what followed them (now 22–26) had other numbers in builds
+ * that were never released: first 19–22, before the accounts (today's 19 and 20) and several working
+ * directories (21) came in, then 21–25 once the accounts had. A data folder those builds migrated
+ * holds today's 22 onwards as far as it went, but has never had today's 21, nor 19 and 20 when it has
+ * no `provider_accounts`. Told by what it has (`model_backends`) and lacks (`conversations.extra_cwds`),
+ * it gets those, and its version goes up by as many, so that the migrations after what it holds run on
+ * it as on any other (their SQL is as it was in those builds). Returns its version then.
  */
 function repairEarlyNumbering(db: Database, version: number): number {
-  if (version < 21 || version > 25) return version;
+  if (version < 19 || version > 25) return version;
   const has = (sql: string) => Boolean(db.prepare(sql).get());
   const early =
     has("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'model_backends'") &&
     !has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'");
   if (!early) return version;
+  // With the accounts, the model backends were 21–25; before them, 19–22.
+  const accounts = has("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_accounts'");
+  if (accounts ? version < 21 : version > 22) return version;
+  const missing = accounts ? [20] : [18, 19, 20];
   transaction(db, () => {
-    db.exec(MIGRATIONS[20]!);
-    db.exec(`PRAGMA user_version = ${version + 1}`);
+    for (const i of missing) db.exec(MIGRATIONS[i]!);
+    db.exec(`PRAGMA user_version = ${version + missing.length}`);
   });
-  return version + 1;
+  return version + missing.length;
 }
 
 function migrate(db: Database): void {

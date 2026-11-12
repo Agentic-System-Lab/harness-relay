@@ -215,6 +215,19 @@ describe("Goose's settings per run", () => {
     }
   });
 
+  it("keeps Goose's own shell on Windows, where the POSIX wrapper cannot run", () => {
+    const ctx: OpenRunContext = { ...context({ model: 'homelab/muse-glimmer-30b-nvfp4' }), platform: 'win32' };
+    ctx.env.GOOSE_SHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    prepareGoose(ctx, { realHome: 'C:\\Users\\me', bash: 'unused' });
+    // Goose picks its own (an inherited GOOSE_SHELL is taken out, as anywhere); none of the wrapper's variables are set.
+    expect(ctx.env).not.toHaveProperty('GOOSE_SHELL');
+    expect(ctx.env).not.toHaveProperty('HARNESS_RELAY_USER_HOME');
+    expect(ctx.env).not.toHaveProperty('HARNESS_RELAY_GOOSE_BASH');
+    expect(existsSync(join(ctx.home.root, 'bin', 'bash'))).toBe(false);
+    // Everything else as anywhere.
+    expect(ctx.env).toMatchObject({ GOOSE_PROVIDER: 'relay-homelab', GOOSE_MODEL: 'muse-glimmer-30b-nvfp4' });
+  });
+
   it('writes its config, an empty permission file, each endpoint as a provider, and its shell; never a key', () => {
     const ctx = context({ model: 'homelab/muse-glimmer-30b-nvfp4' });
     const config = join(ctx.home.state, 'config');
@@ -1176,8 +1189,8 @@ const deps = (): Partial<AcpTurnDeps> => ({
 });
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
-  it('starts with its variables, a new session, the briefing, and reports the turn', async () => {
+describe('a Goose turn', () => {
+  it.skipIf(process.platform === 'win32')('starts with its variables, a new session, the briefing, and reports the turn', async () => {
     const r = turn({ FAKE_GOOSE_REPLAY: 'read-openai' }, { effort: 'low' });
     const result = await gooseRunner(deps()).run(r.o);
     expect(result).toEqual({ sessionId: '20261110_1', inputTokens: 2933, outputTokens: 16, costUsd: 0.0026502 });
@@ -1193,7 +1206,7 @@ describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
     expect(r.events.some((e) => e.type === 'tool_end' && e.ok)).toBe(true);
   });
 
-  it('sets provider, model, effort and mode again after a load, in that order, and drops the replay', async () => {
+  it.skipIf(process.platform === 'win32')('sets provider, model, effort and mode again after a load, in that order, and drops the replay', async () => {
     const r = turn(
       { FAKE_GOOSE_REPLAY: 'text-anthropic', FAKE_GOOSE_STORED: JSON.stringify({ provider: 'openai', model: 'gpt-5.4-nano', mode: 'auto', effort: 'off' }), FAKE_GOOSE_COST: '0.0007' },
       { sessionId: '20261110_7', model: 'anthropic/claude-haiku-5-5', effort: 'high', permission: 'edit' },
@@ -1215,7 +1228,7 @@ describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
     expect(result.costUsd).toBe(0.0000969);
   });
 
-  it('runs below full access in the relay sandbox, with its home, its backend and its opt-ins', async () => {
+  it.skipIf(process.platform === 'win32')('runs below full access in the relay sandbox, with its home, its backend and its opt-ins', async () => {
     specs.length = 0;
     const r = turn({ FAKE_GOOSE_REPLAY: 'text-openai' }, { permission: 'edit' });
     await gooseRunner(deps()).run(r.o);
@@ -1236,14 +1249,14 @@ describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
     expect(specs.at(-1)!.connectPorts).toBeUndefined();
   });
 
-  it('runs with the effort a provider offers, else with its own', async () => {
+  it.skipIf(process.platform === 'win32')('runs with the effort a provider offers, else with its own', async () => {
     const r = turn({ FAKE_GOOSE_REPLAY: 'text-vllm', FAKE_GOOSE_EFFORTS: '["off"]' }, { model: 'homelab/muse-glimmer-30b-nvfp4', effort: 'high' });
     await gooseRunner(deps()).run(r.o);
     expect(sent(r, 'session/set_config_option')).toEqual([]);
     expect(r.log().find((m) => m.start)!.env).toMatchObject({ GOOSE_PROVIDER: 'relay-homelab', HARNESS_RELAY_ENDPOINT_HOMELAB_API_KEY: 'endpoint-key-0000' });
   });
 
-  it.each([
+  it.skipIf(process.platform === 'win32').each([
     ['openai', 'Goose does not accept the model "openai/gpt-5.4-mini"'],
     ['gpt-5.4-nano', 'Goose does not accept the model "openai/gpt-5.4-nano"'],
     ['high', 'Goose does not accept the reasoning effort "high"'],
@@ -1254,13 +1267,13 @@ describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
     await expect(withLang('en', () => gooseRunner(deps()).run(r.o))).rejects.toThrow(message);
   });
 
-  it('fails a resume it cannot do, so the orchestrator starts over with the history', async () => {
+  it.skipIf(process.platform === 'win32')('fails a resume it cannot do, so the orchestrator starts over with the history', async () => {
     const r = turn({ FAKE_GOOSE_LOAD_FAIL: '1' }, { sessionId: '20991231_99' });
     await expect(withLang('en', () => gooseRunner(deps()).run(r.o))).rejects.toThrow(/could not resume the earlier session: Resource not found: Session not found: 20991231_99/);
     expect(sent(r, 'session/prompt')).toEqual([]);
   });
 
-  it('asks the user about a publish command in edit, and passes the declined note on through steer', async () => {
+  it.skipIf(process.platform === 'win32')('asks the user about a publish command in edit, and passes the declined note on through steer', async () => {
     const r = turn({ FAKE_GOOSE_REPLAY: 'permission-reject-steer-openai' }, { permission: 'edit' }, () => ({ allow: false, note: 'name it ok.txt' }));
     // The recorded run asks about two writes: neither is a publish, so in edit both run without asking...
     await gooseRunner(deps()).run(r.o);
@@ -1291,7 +1304,7 @@ describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
     expect(ro.events.find((e) => e.type === 'tool_end' && !e.ok)).toMatchObject({ error: expect.stringContaining('name it ok.txt') });
   });
 
-  it('refuses without asking when the conversation refuses, and never answers an "always" option', async () => {
+  it.skipIf(process.platform === 'win32')('refuses without asking when the conversation refuses, and never answers an "always" option', async () => {
     const r = turn({ FAKE_GOOSE_REPLAY: 'permission-reject-openai' }, { permission: 'read-only' });
     await gooseRunner(deps()).run(r.o);
     expect(r.log().filter((m) => m.answered).map((m) => m.answered.outcome.optionId)).toEqual(['reject_once']);
@@ -1308,7 +1321,7 @@ describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
     expect(reading.log().filter((m) => m.answered).map((m) => m.answered.outcome.optionId)).toEqual(['allow_once']);
   });
 
-  it("asks about a subagent's calls under the parent session", async () => {
+  it.skipIf(process.platform === 'win32')("asks about a subagent's calls under the parent session", async () => {
     // The recorded run, with the subagent's command made one that writes.
     const file = join(root, `subagent-${++n}.jsonl`);
     writeFileSync(file, readFileSync(join(FIXTURES, 'approve-skill-subagent-openai.jsonl'), 'utf8').replaceAll('echo from-subagent', 'touch from-subagent'));
@@ -1319,7 +1332,7 @@ describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
     expect(r.log().filter((m) => m.answered).map((m) => m.answered.outcome.optionId)).toEqual(['allow_once', 'allow_once', 'allow_once']);
   });
 
-  it('leaves out the MCP servers it loads by itself with its whole extension list', async () => {
+  it.skipIf(process.platform === 'win32')('leaves out the MCP servers it loads by itself with its whole extension list', async () => {
     const r = turn({ FAKE_GOOSE_REPLAY: 'text-openai' }, { nativeOff: ['mcp', 'plugins', 'instructions'], mcpServers: [{ name: 'probe', transport: 'stdio', command: 'node', args: [], url: '', env: {}, headers: {} }] });
     await gooseRunner(deps()).run(r.o);
     const params = sent(r, 'session/new')[0]!.params;
@@ -1328,7 +1341,7 @@ describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
     expect(r.log().find((m) => m.start)!.env.CONTEXT_FILE_NAMES).toBe('[]');
   });
 
-  it('cancels: Goose is told, the open row is closed, the turn says it was stopped', async () => {
+  it.skipIf(process.platform === 'win32')('cancels: Goose is told, the open row is closed, the turn says it was stopped', async () => {
     const r = turn({ FAKE_GOOSE_SCENARIO: 'hang' });
     setTimeout(() => r.abort.abort(), 600);
     await expect(gooseRunner(deps()).run(r.o)).rejects.toMatchObject({ aborted: true });
@@ -1336,7 +1349,7 @@ describe.skipIf(process.platform === 'win32')('a Goose turn', () => {
     expect(r.events.at(-1)).toMatchObject({ type: 'tool_end', id: 'h1', ok: false });
   });
 
-  it('says plainly that a key was refused', async () => {
+  it.skipIf(process.platform === 'win32')('says plainly that a key was refused', async () => {
     const r = turn({ FAKE_GOOSE_SCENARIO: 'auth' }, { model: 'xai/grok-4.3' });
     await expect(withLang('en', () => gooseRunner(deps()).run(r.o))).rejects.toThrow('Goose could not sign in with the xAI API key');
   });
@@ -1497,13 +1510,13 @@ describe("a resumed Goose session's own row", () => {
 });
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')("asking Goose outside a run", () => {
+describe("asking Goose outside a run", () => {
   const env = (fake: Record<string, string> = {}) => {
     const dir = join(root, `ask-${++n}`);
     return { PATH: process.env.PATH, [OPEN_AGENT_HOME_ENV]: join(dir, 'home'), FAKE_GOOSE_LOG: join(dir, 'log.jsonl'), FAKE_GOOSE_FIXTURES: FIXTURES, ...fake };
   };
 
-  it('lists its catalog without a session or a key', async () => {
+  it.skipIf(process.platform === 'win32')('lists its catalog without a session or a key', async () => {
     const catalog = await gooseModels(fakeBin, env());
     expect(catalog.models.length).toBeGreaterThan(60);
     expect(catalog.models.map((m) => m.id)).toContain('anthropic/claude-haiku-5-5');
@@ -1511,7 +1524,7 @@ describe.skipIf(process.platform === 'win32')("asking Goose outside a run", () =
     await expect(gooseAgent.models!(join(root, 'no-such-goose'), env())).rejects.toThrow();
   });
 
-  it('says what it loads by itself for a folder', async () => {
+  it.skipIf(process.platform === 'win32')('says what it loads by itself for a folder', async () => {
     const e = env();
     const cwd = join(root, `native-cwd-${++n}`);
     mkdirSync(cwd, { recursive: true });

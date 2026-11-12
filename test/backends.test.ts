@@ -263,6 +263,34 @@ describe('ModelBackendStore', () => {
       expect(s.view().endpoints[0]).not.toHaveProperty('keyUnreadable');
       expect(s.view().endpoints[0]!.keyMasked).toBe('');
       expect(keyring.data.has('endpoint-homelab-api-key')).toBe(false);
+      expect(warn).toHaveBeenCalledWith('[backends] the homelab API key the system keyring could not give is gone: set it again');
+      db.exec('DROP TRIGGER no_endpoints');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('says the keyring still holds the new key when it could not be taken out after such an edit failed', () => {
+    const keyring = fakeKeyring();
+    new ModelBackendStore(db, keyring).putEndpoint('homelab', { ...endpoint, apiKey: 'secret-a' });
+    const locked: typeof keyring = {
+      ...keyring,
+      get: (name) => {
+        if (name === 'endpoint-homelab-api-key') throw new Error('the keyring is locked');
+        return keyring.get(name);
+      },
+      delete: () => {
+        throw new Error('the keyring is locked');
+      },
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const s = new ModelBackendStore(reopen(), locked);
+      db.exec("CREATE TRIGGER no_endpoints BEFORE INSERT ON model_backends BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+      expect(() => s.putEndpoint('homelab', { ...endpoint, apiKey: 'secret-b' })).toThrow(/disk full/);
+      expect(keyring.data.get('endpoint-homelab-api-key')).toBe('secret-b');
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('the keyring still holds the key of the change that was not saved'));
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('is gone'));
       db.exec('DROP TRIGGER no_endpoints');
     } finally {
       warn.mockRestore();

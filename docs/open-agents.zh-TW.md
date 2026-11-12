@@ -23,7 +23,7 @@
 - **API 來源**：`openai`、`anthropic` 與 `xai`，各一把 API key。
 - **自訂端點**：你自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio、llama.cpp），每個是 `{ id, name, baseUrl, models }`，加上選用的金鑰。id 是小寫的 slug（`ENDPOINT_ID_RE`，不能是 API 來源的名稱），是它的模型 id 的開頭，改名時不變；`models` 是你輸入的模型名稱，因為 Harness Relay 從不向任何模型 API 查詢。base URL 必須是 http(s)，不含帳號密碼、查詢字串或 #，也不能是 Harness Relay 在這台電腦上自己的位址（它的 API 的連接埠或開發伺服器的），不論怎麼寫：`localhost` 與它底下的名稱、結尾多一個點、127/8、`::1`、寫成 IPv6 的 IPv4 位址、未指定位址（`0`、`[::]`），或這台電腦自己的位址之一（`validEndpointUrl`）。
 
-**金鑰**存在作業系統的金鑰儲存區，服務名稱 `harness-relay`，帳號為 `backend-<id>-api-key` 與 `endpoint-<id>-api-key`，規則和各 CLI 的 API key 相同（[架構 → Provider](architecture.zh-TW.md#provider狀態登入與模型)）：沒有金鑰儲存區時留在資料庫，「設定」會註明；有儲存區時，在資料庫中找到的金鑰會搬進去、讀回確認並從資料庫清除（並做 WAL checkpoint）；儲存區拒絕儲存時請求直接失敗，絕不默默改存資料庫；啟動時讀不到的金鑰會標示出來，讓你重新輸入。介面只會拿到遮蔽過的金鑰：20 個字元以上的金鑰顯示 `••••` 加最後四個字元，較短的只顯示 `••••`（`maskSecret`），所以短的金鑰不會露出大半。端點本身存在 `model_backends` 資料表（schema version 22），API 來源的金鑰只有在必須留在資料庫時才放在這裡。
+**金鑰**存在作業系統的金鑰儲存區，服務名稱 `harness-relay`，帳號為 `backend-<id>-api-key` 與 `endpoint-<id>-api-key`，規則和各 CLI 的 API key 相同（[架構 → Provider](architecture.zh-TW.md#provider狀態登入與模型)）：沒有金鑰儲存區時留在資料庫，「設定」會註明；有儲存區時，在資料庫中找到的金鑰會搬進去、讀回確認並從資料庫清除（並做 WAL checkpoint）；儲存區拒絕儲存時請求直接失敗，絕不默默改存資料庫；啟動時讀不到的金鑰會標示出來，讓你重新輸入。介面只會拿到遮蔽過的金鑰：20 個字元以上的金鑰顯示 `••••` 加最後四個字元，較短的只顯示 `••••`（`maskSecret`），所以短的金鑰不會露出大半。端點本身存在 `model_backends` 資料表（schema 版本 22），API 來源的金鑰只有在必須留在資料庫時才放在這裡。
 
 **模型 id。** 開源 agent 的模型寫成 `<模型來源>/<模型>`，例如 `openai/gpt-5.4-nano`、`anthropic/claude-haiku-5-5`、`xai/grok-4.3` 或 `homelab/muse-glimmer-30b-nvfp4`（只是例子：實際的 id 請以各 API 或 CLI 的模型清單為準）。第一個 `/` 之前是模型來源，所以模型名稱本身也可以含 `/`（`parseBackendModel()`，伺服器與介面共用）。
 
@@ -41,7 +41,7 @@ orchestrator 把模型來源傳給每次 開源 agent 的執行（`RunOptions.ba
 
 ### Claude Code、Codex 與 Grok 在端點上執行
 
-自訂端點不只給開源 agent 用：Claude Code、Codex 與 Grok（`src/shared/types.ts` 的 `EndpointCli`、`ENDPOINT_CLI`）也能在上面執行，但絕不用 API 模型來源，那些金鑰只給開源 agent。`SettingsStore.backendsFor()` 只把端點交給它們的執行（`{ apis: {}, endpoints, deletedEndpoints }`），`backends.ts` 的 `endpointModel()` 判斷一次執行是不是在端點上：模型是 `<端點 id>/<模型>`，而且那個端點已設定。其他模型照原樣交給 CLI，包括它自己帶 `/` 的 id（例如使用者 Codex 設定裡某個 provider 的模型，像 OpenRouter 的），但在「設定」裡刪掉的端點的模型例外：刪掉的端點會被記住（`deleted_endpoints`，schema version 26，直到再新增同 id 的端點，或忘掉這個 id 為止，見下文），`endpointRunModel()` 會在 CLI 啟動前讓這樣的一輪失敗（`endpointDeleted`），而不是把那個 id 和 prompt 送到 CLI 自己的服務。session 屬於建立它的模型來源（`agent_sessions.backend`，schema version 26）：成員的模型在 CLI 自己的服務與端點之間移動，或換到另一個端點時，會帶著完整歷史開始新的 session（Claude Code 的 thinking 由寫下它的模型來源簽章；成員的模型改回 CLI 預設時，若接續 Grok 的 session，它會停留在端點的模型上）。對 Grok 來說，為端點輸入的模型（「自訂…」）若不在端點的清單裡，用到它的那次執行會為它另寫一個 table，因為 Grok 不接受設定裡沒有的模型；在同一個 Grok 家目錄裡每次重寫這個區塊（另一位成員的執行、首席 agent 的）都會保留這個 table，直到用到它的執行都結束（`holdGrokTypedModel()`）。已刪除端點的 id 會列在「設定」裡（`ModelBackendsView.deletedEndpoints`），可以忘掉（`DELETE /api/backends/deleted-endpoints/:id`），給剛好以同樣名稱開頭的 CLI 自己的模型用。它們的模型選單會在 CLI 自己的模型後面列出每個端點輸入的模型（`models.ts` 的 `withEndpointModels()`，標上 `ModelOption.endpoint`），並隨端點變動（`ProviderService.backendsChanged()` 會丟掉它們快取的選單，但不動登入狀態，也不動 Cursor 的選單，它沒有端點的模型）。它們的狀態仍然是自己的登入。
+自訂端點不只給開源 agent 用：Claude Code、Codex 與 Grok（`src/shared/types.ts` 的 `EndpointCli`、`ENDPOINT_CLI`）也能在上面執行，但絕不用 API 模型來源，那些金鑰只給開源 agent。`SettingsStore.backendsFor()` 只把端點交給它們的執行（`{ apis: {}, endpoints, deletedEndpoints }`），`backends.ts` 的 `endpointModel()` 判斷一次執行是不是在端點上：模型是 `<端點 id>/<模型>`，而且那個端點已設定。其他模型照原樣交給 CLI，包括它自己帶 `/` 的 id（例如使用者 Codex 設定裡某個 provider 的模型，像 OpenRouter 的），但在「設定」裡刪掉的端點的模型例外：刪掉的端點會被記住（`deleted_endpoints`，schema 版本 26，直到再新增同 id 的端點，或忘掉這個 id 為止，見下文），`endpointRunModel()` 會在 CLI 啟動前讓這樣的一輪失敗（`endpointDeleted`），而不是把那個 id 和 prompt 送到 CLI 自己的服務。session 屬於建立它的模型來源（`agent_sessions.backend`，schema 版本 26）：成員的模型在 CLI 自己的服務與端點之間移動，或換到另一個端點時，會帶著完整歷史開始新的 session（Claude Code 的 thinking 由寫下它的模型來源簽章；成員的模型改回 CLI 預設時，若接續 Grok 的 session，它會停留在端點的模型上）。對 Grok 來說，為端點輸入的模型（「自訂…」）若不在端點的清單裡，用到它的那次執行會為它另寫一個 table，因為 Grok 不接受設定裡沒有的模型；在同一個 Grok 家目錄裡每次重寫這個區塊（另一位成員的執行、首席 agent 的）都會保留這個 table，直到用到它的執行都結束（`holdGrokTypedModel()`）。已刪除端點的 id 會列在「設定」裡（`ModelBackendsView.deletedEndpoints`），可以忘掉（`DELETE /api/backends/deleted-endpoints/:id`），給剛好以同樣名稱開頭的 CLI 自己的模型用。它們的模型選單會在 CLI 自己的模型後面列出每個端點輸入的模型（`models.ts` 的 `withEndpointModels()`，標上 `ModelOption.endpoint`），並隨端點變動（`ProviderService.backendsChanged()` 會丟掉它們快取的選單，但不動登入狀態，也不動 Cursor 的選單，它沒有端點的模型）。它們的狀態仍然是自己的登入。
 
 每個 CLI 用自己的 API，端點也要提供（vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供）；端點的金鑰放在環境變數裡，不寫進會留下來的檔案：
 
@@ -70,7 +70,7 @@ orchestrator 把模型來源傳給每次 開源 agent 的執行（`RunOptions.ba
 
 - **key** 由 orchestrator 給出（`RunOptions.stateKey`，`src/server/agents/types.ts` 的 `stateKeys`）：成員是 `conv.<對話>.<成員>`，每一輪都相同，所以它的 session 可以接續；首席 agent 設計團隊、依你的要求修改團隊、把對話分進群組，分別是 `lead.<對話>`、`revise.<對話>` 與 `sort.<對話>`。分支出來的對話是另一個對話，所以它的成員從自己的狀態開始，session 也和以前一樣重新開始。沒有 key 的執行有一個自己的資料夾，執行後刪除。
 - **寫入。** 轉接器的 `home(root, state)` 把每個可寫入的路徑（`statePaths`）放在 `state` 裡；完全存取以外，有一個在它之外時就不會執行。伺服器為一個 key 留給之後執行的東西（Goose 的擴充清單）放在它旁邊的封存資料夾（`<家目錄>/private/.sealed-<key>`，`sealedFolder`），任何執行都不能讀寫，並和狀態資料夾一起清空。家目錄中共用的部分（每次執行前寫入的設定、模型清單）留在 `root`，沙箱中的執行絕不能寫入。
-- **讀取。** 完全存取以外，Harness Relay 的沙箱不讓執行讀取每個 開源 agent 的 `private/` 資料夾（也包括 **設定 → Agent 的 session** 把家目錄搬走之前所在資料夾裡的，`openAgentRoots`，以 `HARNESS_RELAY_AGENT_HOMES_BEFORE` 交給每次執行）與每次執行的暫存資料夾所在的資料夾（`privateRoots`），只有其中屬於這次執行自己的資料夾例外（`denyRead`，自己的放在 `allowRead`）。已在 macOS 上用 `scripts/sandbox-check.ts --only private` 驗證：執行可以讀寫自己的資料夾，不能讀、寫或列出別人的。
+- **讀取。** 完全存取以外，Harness Relay 的沙箱不讓執行讀取每個開源 agent 的 `private/` 資料夾（也包括 **設定 → Agent 的 session** 把家目錄搬走之前所在資料夾裡的，`openAgentRoots`，以 `HARNESS_RELAY_AGENT_HOMES_BEFORE` 交給每次執行）與每次執行的暫存資料夾所在的資料夾（`privateRoots`），只有其中屬於這次執行自己的資料夾例外（`denyRead`，自己的放在 `allowRead`）。已在 macOS 上用 `scripts/sandbox-check.ts --only private` 驗證：執行可以讀寫自己的資料夾，不能讀、寫或列出別人的。
 - **會載入程式碼的快取**放在這次執行的暫存資料夾，或關掉（各 agent 見下）；不會在成員之間共用，也只有成員自己的才會留到下一次執行。
 - **權限提高時。** 成員在這個 CLI 上最近一次執行的權限較低時（唯讀 → 可編輯 → 完全存取），不接續它的 session：改開新的 session，從 Harness Relay 自己的紀錄給它完整的歷史，並由 orchestrator 在執行前清空它在這個 CLI 家目錄裡的狀態資料夾（`emptyStateFolder`；也會告訴這次執行，`freshState`），所以權限較低的執行寫下的東西，不會在權限較高時被讀到。紀錄是每個 CLI 各一份（`agent_sessions.by_cli`）：成員先用 OpenCode 以唯讀執行，再用 Goose 以可編輯執行，之後回到 OpenCode 以可編輯執行時，OpenCode 的資料夾會被清空。紀錄裡也記著那次執行所在的家目錄：在另一個家目錄執行時（**設定 → Agent 的 session** 把它們搬走之後，或回到先前的家目錄），不論權限，也同樣開新的 session 並清空那裡的資料夾，因為那個資料夾可能留著權限較低的舊執行寫下的東西。它在執行前寫進 Harness Relay 的資料庫，絕不在 agent 能寫入的檔案中，並附上一個「資料夾還要清空」的標記（`mustEmpty`），清空之後才會取消：資料夾無法清空時，這一輪不執行並說明原因，成員的下一輪會先清空它，即使權限相同。清空時先把資料夾改名移到一旁（`private/.gone-<隨機>`），這只需要 `private/` 可寫入，所以執行在自己資料夾裡做的任何事（對資料夾 `chmod 000`、唯讀的檔案、macOS 上的不可變更旗標 `chflags uchg`，會先清掉資料夾本身的這個旗標），都無法讓下一輪不能以新的資料夾開始；舊的資料夾接著盡力移除，絕不跟隨連結，被執行鎖住的部分會留在一旁，等到某次啟動清掃殘留的行程、確定沒有還在執行的之後，才恢復擁有者的權限（並清掉不可變更旗標）再移除，所以執行放進去的連結，無法讓伺服器更改或刪除 `private/` 以外的東西。清掃發現有行程留下來、或無法判斷時，那次啟動不恢復任何權限，並保留 Harness Relay 沙箱的資料夾與標記檔，讓之後的啟動還找得到它。從未記錄的權限視為唯讀。權限降低時，session 照常接續。
 - **留下的東西。** 刪除對話時，會從每個開源 agent 的家目錄（也包括家目錄先前所在的資料夾）移除它的成員、首席 agent 與側邊欄分組的狀態資料夾（`removeConversationState`）。啟動時、任何執行開始之前，伺服器會移除執行中途停下的伺服器留下的東西：`data/run-tmp` 裡的每個資料夾，以及沒有 key 的執行、或移到一旁等待移除的狀態資料夾（`private/run-*`、`private/.gone-*`）（`clearOpenRunLeftovers`）。
@@ -126,13 +126,17 @@ Pi 自己沒有權限詢問：Harness Relay 的一個小型 gate 擴充功能會
 
 ## Harness Relay 的沙箱
 
-完全存取以外，每個 開源 agent 的程序，以及它啟動的一切，都在 Harness Relay 自己的沙箱中執行（`src/server/relaySandbox.ts`，基於 [`@anthropic-ai/sandbox-runtime`](https://www.npmjs.com/package/@anthropic-ai/sandbox-runtime)），不論 CLI 自己的沙箱怎麼做：
+完全存取以外，每個開源 agent 的程序，以及它啟動的一切，都在 Harness Relay 自己的沙箱中執行（`src/server/relaySandbox.ts`，基於 [`@anthropic-ai/sandbox-runtime`](https://www.npmjs.com/package/@anthropic-ai/sandbox-runtime)），不論 CLI 自己的沙箱怎麼做：
 
 - **檔案**：只能寫入上表所列的地方；受保護的路徑（瀏覽器的資料夾、Harness Relay 的資料庫與暫存資料夾：`protectedReads()`）不能讀也不能寫；agent 的 `configPaths` 唯讀；其他讀取照常允許，和其他 CLI 一樣。
 - **網路**：只能連到這次執行的模型來源的主機；連線能確定屬於這次執行時，其他主機會詢問使用者（種類為 `fetch` 的核准），否則直接拒絕，並附上模型看得到的原因。不詢問就直接拒絕的有：這台電腦自己的位址、link-local 與 metadata 位址（不論怎麼寫：`127.1`、`2130706433`、`0x7f.0.0.1`、`localhost.` 都讀成 proxy 實際連的位址，`canonicalHost`）、轉接器列為安靜拒絕的主機，以及一次執行中第 30 個之後要詢問的主機。Harness Relay 自己的埠（`PORT`、8787、8789 與 5173：`npm start` 與桌面 app 的，以及 `npm run dev` 的 API 與 Vite）一律連不到。沙箱透過本機的 proxy 轉送網路（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`），並自己設定 `NODE_USE_ENV_PROXY=1`，讓 Node 22 的 `fetch` 也走 proxy；CLI 還需要別的時，由轉接器加上（`proxyEnv`；目前五個都不需要）。
 - **無法啟動就不執行**：沙箱無法啟動時（沒有 `sandbox-exec`；在 Linux 上沒有 `bubblewrap`、`socat` 或 `ripgrep`），這一輪會失敗並說明如何修正；在原生 Windows 上它還沒準備好，所以 開源 agent 只能以完全存取執行，Linux 上的 OpenCode 也一樣（`sandboxUnsupported`；見 [OpenCode](#opencode)）。
 
 各 CLI 自己的沙箱，以及每個平台需要什麼，請見[各平台的作業系統沙箱](sandboxing.zh-TW.md)。
+
+### 在原生 Windows 上
+
+開源 agent 在那裡只以完全存取執行（見上方）。用 npm 安裝的，在 PATH 上都是 `.cmd`，Harness Relay 會讀出它執行的程式並直接啟動（[架構 → 在 Windows 上啟動 CLI](architecture.zh-TW.md#cli-轉接器)）；用 uv 安裝的 OpenHands 本身就是程式。Goose 與 OpenCode 在那裡保留自己的 shell：Harness Relay 在其他平台給它們的包裝（`GOOSE_SHELL`、`relay-shell`，見下方）是 POSIX shell script，Windows 無法執行。Pi 在 Git Bash 中執行指令，所以需要含 bash 的 Git for Windows（安裝程式，或把 `bin` 放上 PATH 的 PortableGit；MinGit 沒有 bash）。已在 Windows 11 on Arm 上以 Ollama 模型試過 OpenCode 1.19.5、Goose 1.59.0（它的 x64 版，以模擬執行）、Cline 3.0.74 與 Pi 1.5.1：每個都回答了，也都用它的 shell 在兩個工作目錄中各寫了一個檔案。
 
 ## OpenCode
 
@@ -181,7 +185,7 @@ Pi 自己沒有權限詢問：Harness Relay 的一個小型 gate 擴充功能會
 
 **沙箱需要它的**（`opencodeSandbox()`）：`localPorts` 只有它自己伺服器的埠（沒有它，`opencode acp` 會在回答 `initialize` 前以 `ServeError` 結束）；它的指令連不到其他本機埠，也連不到 Harness Relay 的。`quietlyDeniedHosts`：它的模型目錄 `models.opencode.ai`（執行中本來就關掉了）。Bun 自己讀 proxy 變數，不需要 PTY、Unix socket 或 macOS 的 trustd。沙箱裡 stderr 會出現無害的「Error starting FSEvents stream」（它的檔案監看）。
 
-**它自己的伺服器**：這個伺服器的埠必須讓 OpenCode 連得到，所以 agent 的指令也連得到；它的密碼不在指令的環境變數裡（指令都經過設定資料夾裡唯讀的 `relay-shell`，它會先移除 `OPENCODE_SERVER_PASSWORD` 再啟動使用者的 shell），但仍能從 OpenCode 程序啟動時的環境讀到（macOS 的 `sysctl kern.procargs2`、Linux 的 `/proc/<pid>/environ`），OpenCode 也沒有 Unix socket、單次 token 或關掉 API 路由的選項。所以完全存取以外，Harness Relay 會監看它伺服器的事件（`GET /global/event`），看到下列任何一件事就停止這次執行，並在對話裡記下安全錯誤：不是 Harness Relay 允許的權限請求被核准；不是這次執行（或它的 subagent）的 session 被建立或開始工作；這次執行的 session 被設定了權限規則；開了一個終端機（PTY）；以及 OpenCode 沒有詢問就執行的指令（這個檢查比照 OpenCode 自己的 tree-sitter 判斷，所以只切換資料夾的一行、宣告、`(( ))`／`[[ ]]`、賦值或註解都不會誤觸）。監看一直持續到 prompt 回覆為止，回覆時、在通知程序結束之前就停止，所以程序退出時串流關閉不會被當成問題；使用者停止一輪時，只有串流關閉被視為預期（其他事件照樣算數）；其他任何結束方式，都會在程序被清理時停止監看。無法監看時就不執行。仍然可能的：在被發現之前，透過它的伺服器做一件沙箱本來就允許的事（一個被自己核准的工具呼叫、一個新加入的 MCP 伺服器所啟動的程式、發給這次執行自己 session 的訊息）；這些都還在沙箱的檔案與網路限制內，連到其他主機仍要經過沙箱的核准，而 Harness Relay 的埠一律連不到。
+**它自己的伺服器**：這個伺服器的埠必須讓 OpenCode 連得到，所以 agent 的指令也連得到；它的密碼不在指令的環境變數裡（指令都經過設定資料夾裡唯讀的 `relay-shell`，它會先移除 `OPENCODE_SERVER_PASSWORD` 再啟動使用者的 shell），但仍能從 OpenCode 程序啟動時的環境讀到（macOS 的 `sysctl kern.procargs2`、Linux 的 `/proc/<pid>/environ`），OpenCode 也沒有 Unix socket、單次 token 或關掉 API 路由的選項。所以完全存取以外，Harness Relay 會監看它伺服器的事件（`GET /global/event`），看到下列任何一件事就停止這次執行，並在對話裡記下安全錯誤：不是 Harness Relay 允許的權限請求被核准；不是這次執行（或它的 subagent）的 session 被建立或開始工作；這次執行的 session 被設定了權限規則；開了一個終端機（PTY）；以及 OpenCode 沒有詢問就執行的指令（這個檢查比照 OpenCode 自己的 tree-sitter 判斷，所以只切換資料夾的一行、宣告、`(( ))`／`[[ ]]`、賦值或註解都不會誤觸）。監看一直持續到 prompt 回覆為止，回覆時、在通知程序結束之前就停止，所以程序退出時串流關閉不會被當成問題；使用者停止一輪時，只有串流關閉被視為預期（其他事件照樣算數）；其他任何結束方式，都會在程序被清理時停止監看。無法監看時就不執行。仍然可能的：在被發現之前，透過它的伺服器做一件沙箱本來就允許的事（一個被自己核准的工具呼叫、一個新加入的 MCP 伺服器所啟動的程式、發給這次執行自己 session 的訊息）；這些都還在沙箱的檔案與網路限制內，連到其他主機仍要經過沙箱的核准，而 Harness Relay 的埠一律連不到。在原生 Windows 上 OpenCode 只以完全存取執行，`relay-shell`（POSIX shell script，Windows 無法執行）不會使用：OpenCode 以它自己的 Windows shell 執行指令，它伺服器的密碼會留在指令的環境變數裡；反正在完全存取下指令什麼都能做。
 
 **限制**：
 
@@ -235,7 +239,7 @@ Goose 每次存取都會重讀 `config.yaml`，而且任何設定鍵都先看同
 
 **限制。**
 - 唯讀模式下只讀取的指令不經詢問直接執行（如上）；無論執行什麼，沙箱都讓資料夾無法寫入。
-- 它的 shell 指令以使用者真正的 `HOME` 執行（`GOOSE_SHELL`：一段固定的包裝 script，從 `HARNESS_RELAY_USER_HOME` 與 `HARNESS_RELAY_GOOSE_BASH` 取得那個家目錄與使用者的 bash，再移除這兩個變數），所以能讀取使用者的家目錄，和任何 agent 的指令一樣；網路封鎖才是界線。
+- 它的 shell 指令以使用者真正的 `HOME` 執行（`GOOSE_SHELL`：一段固定的包裝 script，從 `HARNESS_RELAY_USER_HOME` 與 `HARNESS_RELAY_GOOSE_BASH` 取得那個家目錄與使用者的 bash，再移除這兩個變數），所以能讀取使用者的家目錄，和任何 agent 的指令一樣；網路封鎖才是界線。在原生 Windows 上 Goose 只以完全存取執行，這個包裝（POSIX shell script，Windows 無法執行）不會使用：Goose 以它自己的 Windows shell 執行指令，`HOME` 是它執行時的那個（Windows 程式從 `USERPROFILE` 讀使用者的資料夾，它仍是使用者的；Git for Windows 會讀 `HOME`）。
 - 無法略過 skill，也無法略過專案的 recipe 與 agent；接續的 session 沿用開始時的擴充與 plugin 的 MCP 伺服器。
 - 拒絕的理由是以這一輪的使用者訊息（steer）送到模型，在 Goose 自己的「已拒絕，請停下」之後。
 - macOS 上使用 HTTPS 模型來源時會開放 trustd 服務（如上）。

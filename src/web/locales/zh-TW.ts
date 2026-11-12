@@ -260,6 +260,7 @@ export const zhTW = {
     modelIdPlaceholder: '輸入模型 ID',
     effort: '推理強度',
     latest: '最新',
+    endpointModels: '你自己的端點（設定 → 模型來源）',
   },
 
   chat: {
@@ -1291,11 +1292,11 @@ export const zhTW = {
     },
     ownEndpoint: {
       claude:
-        'Claude Code 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b。那台伺服器也要提供 Anthropic Messages API（/v1/messages）；這時 Claude Code 不需要登入，你的登入也不會送到那裡。',
+        'Claude Code 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器也要提供 Anthropic Messages API（/v1/messages）；這時 Claude Code 不需要登入，你的登入也不會送到那裡。',
       codex:
-        'Codex 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b。那台伺服器也要提供 Responses API（/v1/responses）；這時 Codex 不需要登入，你的登入也不會送到那裡。推理強度只送端點都接受的 none、low、medium、high，其他的改送 medium。',
+        'Codex 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器也要提供 Responses API（/v1/responses）；這時 Codex 不需要登入，你的登入也不會送到那裡。推理強度只送端點都接受的 none、low、medium、high，其他的改送 medium。',
       grok:
-        'Grok 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b。那台伺服器要提供 Chat Completions（/v1/chat/completions）。Grok 啟動時仍需要登入（或 API key），但不會把它送到那裡；Harness Relay 會把端點的模型寫進 Grok 的 config.toml，不出現在 Grok 自己的模型選單。這些模型不帶推理強度。',
+        'Grok 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器要提供 Chat Completions（/v1/chat/completions）。Grok 啟動時仍需要登入（或 API key），但不會把它送到那裡；Harness Relay 會把端點的模型寫進 Grok 的 config.toml，不出現在 Grok 自己的模型選單。這些模型不帶推理強度。',
     },
     apiKeyHelp: {
       claude: '儲存後，Harness Relay 啟動 Claude Code 時會帶入 ANTHROPIC_API_KEY（改用 API 計費，優先於訂閱登入）。',

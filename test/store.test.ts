@@ -362,7 +362,7 @@ describe('Store (SQLite)', () => {
     expect(migrated.messages[0]!.changes).toEqual(turn.changes);
   });
 
-  it('brings a database the model backends migrated as 21–25 (unreleased builds) to today\'s numbering, keeping what it holds', () => {
+  it('brings a database the model backends migrated as 21–25 or 19–22 (unreleased builds) to today\'s numbering, keeping what it holds', () => {
     const store = new Store(db);
     const conv = sampleConversation();
     store.create(conv);
@@ -393,6 +393,28 @@ describe('Store (SQLite)', () => {
     expect(version()).toBe(26);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'by_cli'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
+    // Builds from before the accounts numbered the model backends 19–22: without the accounts or several
+    // working directories (today's 19–21). At 22 (everything up to today's 25), and at 19 (up to 22).
+    const beforeAccounts = (version: number, upTo: string) =>
+      early(
+        version,
+        `DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label; ALTER TABLE conversation_agents DROP COLUMN account;
+         ALTER TABLE preset_agents DROP COLUMN account; ALTER TABLE agent_sessions DROP COLUMN account; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend; ${upTo}`,
+      );
+    beforeAccounts(22, '');
+    reopen();
+    expect(version()).toBe(26);
+    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
+    expect(has("SELECT 1 FROM pragma_table_info('provider_accounts') WHERE name = 'native_items'")).toBe(true);
+    expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'account'")).toBe(true);
+    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
+    expect(new Store(db).get(conv.id)!.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }] });
+    beforeAccounts(19, 'ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;');
+    reopen();
+    expect(version()).toBe(26);
+    expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'permission'")).toBe(true);
+    expect(has("SELECT 1 FROM pragma_table_info('provider_settings') WHERE name = 'sandbox_terminal'")).toBe(true);
+    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
     // A database of main's own at 21 (several working directories, no model backends) is left as it is.
     db.exec(`DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli;
              ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;

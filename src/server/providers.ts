@@ -22,6 +22,7 @@ import { discoverModels, type DiscoveredModels } from './models';
 import { CommandNotFoundError, capture, killTree, spawnInteractive, stripAnsi, tail } from './process';
 import { CREDENTIAL_ENV, CURSOR_SHARED_SIGN_IN, type SettingsStore } from './settings';
 import { t } from './i18n';
+import { WindowsScriptError } from './winLaunch';
 
 // ---------------------------------------------------------------------------
 // Status
@@ -231,7 +232,14 @@ export class ProviderService {
     if (!method) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     this.logins.get(slot(p, account))?.cancel();
     const env = { ...this.settings.env(p, account), ...method.env };
-    const session = new LoginSession(p, account, method, this.settings.bin(p), env, () => this.invalidate(p));
+    let session: LoginSession;
+    try {
+      session = new LoginSession(p, account, method, this.settings.bin(p), env, () => this.invalidate(p));
+    } catch (err) {
+      // On Windows, a script whose program cannot be told: the user sets the program's path.
+      if (err instanceof WindowsScriptError) throw new HttpError(400, err.message);
+      throw err;
+    }
     this.logins.set(slot(p, account), session);
     return session.view();
   }

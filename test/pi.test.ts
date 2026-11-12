@@ -702,7 +702,7 @@ describe('Pi: events from recorded runs', () => {
 // --- Prompt, catalog and what it loads by itself ---------------------------------------------------------
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('Pi: prompt, catalog and native', () => {
+describe('Pi: prompt, catalog and native', () => {
   it('sends the prompt, a leading slash defused, with the images that fit', () => {
     const png = join(root, 'tiny.png');
     writeFileSync(png, Buffer.from('89504e470d0a1a0a', 'hex'));
@@ -728,7 +728,7 @@ describe.skipIf(process.platform === 'win32')('Pi: prompt, catalog and native', 
     expect(piCatalog([null, { id: 1 }, { id: 'x', provider: 'groq' }]).models).toEqual([]);
   });
 
-  it('asks Pi for its catalog offline, in a folder of its own', async () => {
+  it.skipIf(process.platform === 'win32')('asks Pi for its catalog offline, in a folder of its own', async () => {
     const r = run({ FAKE_PI_MODELS: fixture('available-models') });
     const env = { ...r.o.env, ...piHomeLayout(join(r.dir, 'home')).env };
     const c = await piModels(bin, env);
@@ -769,8 +769,8 @@ describe.skipIf(process.platform === 'win32')('Pi: prompt, catalog and native', 
 // --- Whole turns against the fake Pi ------------------------------------------------------------------------
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
-  it('a text turn: the session, the reply, usage; LF-only framing across chunks', async () => {
+describe('Pi: turns', () => {
+  it.skipIf(process.platform === 'win32')('a text turn: the session, the reply, usage; LF-only framing across chunks', async () => {
     const r = run({ FAKE_PI_CHUNKED: '1', FAKE_PI_NOISE: '1' });
     const result = await piTurn(r.o, deps());
     expect(result).toEqual({ sessionId: 'fake-session-1', inputTokens: 3, outputTokens: 1 });
@@ -789,7 +789,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     expect(existsSync(s.env.PI_CODING_AGENT_DIR)).toBe(false); // the run's temp folder is gone
   });
 
-  it('replays a recorded turn: thinking, text, usage of an endpoint (no cost)', async () => {
+  it.skipIf(process.platform === 'win32')('replays a recorded turn: thinking, text, usage of an endpoint (no cost)', async () => {
     const r = run({ FAKE_PI_FIXTURE: fixture('text-only') }, { model: 'homelab/muse-glimmer-30b-nvfp4' });
     const result = await piTurn(r.o, deps());
     expect(result).toEqual({ sessionId: 'fake-session-1', inputTokens: 1628, outputTokens: 89 });
@@ -798,7 +798,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     expect(start(r).files['models.json']).toContain('relay-homelab');
   });
 
-  it('below full access: the gate loaded, the sandbox given the run\'s paths, Pi\'s config read-only', async () => {
+  it.skipIf(process.platform === 'win32')('below full access: the gate loaded, the sandbox given the run\'s paths, Pi\'s config read-only', async () => {
     const specs: RelaySandboxSpec[] = [];
     const r = run({ FAKE_PI_FIXTURE: fixture('read-tool') }, { permission: 'edit', model: 'anthropic/claude-haiku-5-5' });
     await piTurn(r.o, sandboxed(specs));
@@ -825,13 +825,13 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     expect(r.log().some((m) => m.type === 'prompt')).toBe(false);
   });
 
-  it('fails closed when the gate did not load', async () => {
+  it.skipIf(process.platform === 'win32')('fails closed when the gate did not load', async () => {
     const r = run({ FAKE_PI_NO_GATE: '1' }, { permission: 'read-only' });
     await expect(en(() => piTurn(r.o, sandboxed()))).rejects.toThrow(/gate extension did not load in Pi/);
     expect(sent(r, 'prompt')).toHaveLength(0);
   });
 
-  it('asks about a call through the real gate, and passes the user\'s note to the model', async () => {
+  it.skipIf(process.platform === 'win32')('asks about a call through the real gate, and passes the user\'s note to the model', async () => {
     const calls = [
       { toolCallId: 't1', toolName: 'read', input: { path: 'notes.txt' } },
       { toolCallId: 't2', toolName: 'bash', input: { command: 'git push origin main' } },
@@ -855,7 +855,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     ]);
   });
 
-  it('a batch of commands: only the declined one is refused, and its refusal names it', async () => {
+  it.skipIf(process.platform === 'win32')('a batch of commands: only the declined one is refused, and its refusal names it', async () => {
     const calls = ['ls', 'npm publish --dry-run', 'npm test'].map((command, i) => ({ toolCallId: `b${i}`, toolName: 'bash', input: { command } }));
     const r = run({ FAKE_PI_CALLS: JSON.stringify(calls) }, { permission: 'edit' }, () => ({ allow: false }));
     await en(() => piTurn(r.o, sandboxed()));
@@ -866,7 +866,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     expect(r.events.filter((e) => e.type === 'tool_end').map((e) => e.type === 'tool_end' && e.ok)).toEqual([true, false, true]);
   });
 
-  it('read-only: reading runs without asking, and a refused call keeps Pi going', async () => {
+  it.skipIf(process.platform === 'win32')('read-only: reading runs without asking, and a refused call keeps Pi going', async () => {
     const calls = [
       { toolCallId: 'r1', toolName: 'read', input: { path: 'a' } },
       { toolCallId: 'r2', toolName: 'mcp__shout__shout', input: { text: 'hi' } },
@@ -878,7 +878,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     expect(start(r).argv).toEqual(expect.arrayContaining(['--tools']));
   });
 
-  it('the gate fails closed on an answer it cannot read', async () => {
+  it.skipIf(process.platform === 'win32')('the gate fails closed on an answer it cannot read', async () => {
     const r = run({ FAKE_PI_FIXTURE: fixture('approval-allowed') }, { permission: 'read-only' });
     await en(() => piTurn(r.o, sandboxed()));
     // The recorded bash call: refused in read-only (the conversation refuses on its own).
@@ -897,7 +897,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     expect(await handlers.tool_call(call, { hasUI: true, ui: { input: async () => Promise.reject('plain') } })).toEqual({ block: true, reason: expect.stringContaining('plain') });
   });
 
-  it('a gate request it cannot read is refused', async () => {
+  it.skipIf(process.platform === 'win32')('a gate request it cannot read is refused', async () => {
     const r = run({ FAKE_PI_FIXTURE: join(root, 'bad-gate.jsonl') }, { permission: 'edit' });
     writeFileSync(
       join(root, 'bad-gate.jsonl'),
@@ -915,7 +915,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     expect(JSON.parse(uiAnswers(r)[0]!.value)).toEqual({ allow: false, reason: expect.stringMatching(/could not read/) });
   });
 
-  it('stops a run: abort sent, rows not finished, a pending approval expired', async () => {
+  it.skipIf(process.platform === 'win32')('stops a run: abort sent, rows not finished, a pending approval expired', async () => {
     const r = run({ FAKE_PI_FIXTURE: fixture('cancel') });
     r.o.onEvent = (e) => {
       r.events.push(e);
@@ -944,7 +944,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     expect(JSON.stringify(row)).not.toContain('declined');
   });
 
-  it('a run stopped before it starts, or before its prompt', async () => {
+  it.skipIf(process.platform === 'win32')('a run stopped before it starts, or before its prompt', async () => {
     const r = run();
     r.abort.abort();
     await expect(piTurn(r.o, deps())).rejects.toMatchObject({ aborted: true });
@@ -956,7 +956,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     await expect(en(() => piTurn(q.o, deps()))).rejects.toMatchObject({ aborted: true });
   });
 
-  it('a stop on the way to the prompt keeps the prompt from going out', async () => {
+  it.skipIf(process.platform === 'win32')('a stop on the way to the prompt keeps the prompt from going out', async () => {
     for (const [slow, over] of [
       ['get_commands', { permission: 'edit' as Permission }],
       ['get_available_thinking_levels', { effort: 'high' }],
@@ -974,7 +974,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     }
   });
 
-  it('resumes a session by its file, checking it is the one Pi opened', async () => {
+  it.skipIf(process.platform === 'win32')('resumes a session by its file, checking it is the one Pi opened', async () => {
     const r = run({ FAKE_PI_FIXTURE: fixture('resume-2-second-process') }, { sessionId: 'abc' });
     mkdirSync(join(r.dir, 'home', 'private', STATE_KEY, 'sessions'), { recursive: true });
     const file = join(r.dir, 'home', 'private', STATE_KEY, 'sessions', '2026-11-10T12-41-59-246Z_abc.jsonl');
@@ -995,7 +995,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     expect(gone.log()).toEqual([]);
   });
 
-  it('sets the model again when Pi picked another, and fails when it cannot', async () => {
+  it.skipIf(process.platform === 'win32')('sets the model again when Pi picked another, and fails when it cannot', async () => {
     const r = run({ FAKE_PI_STATE: JSON.stringify({ model: { provider: 'openai', id: 'gpt-5.4' } }) });
     await piTurn(r.o, deps());
     expect(sent(r, 'set_model')[0]).toMatchObject({ provider: 'openai', modelId: 'gpt-5.4-nano' });
@@ -1005,7 +1005,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     await piTurn(quiet.o, deps());
   });
 
-  it('checks the effort against the model\'s levels before setting it', async () => {
+  it.skipIf(process.platform === 'win32')('checks the effort against the model\'s levels before setting it', async () => {
     const r = run({ FAKE_PI_STATE: JSON.stringify({ thinkingLevel: 'medium' }) }, { effort: 'high' });
     await piTurn(r.o, deps());
     expect(sent(r, 'set_thinking_level')).toEqual([expect.objectContaining({ level: 'high' })]);
@@ -1019,7 +1019,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     await expect(en(() => piTurn(none.o, deps()))).rejects.toThrow(/this model takes: —/);
   });
 
-  it('errors: a rejected prompt, a provider error, a run Pi ended by itself, no session', async () => {
+  it.skipIf(process.platform === 'win32')('errors: a rejected prompt, a provider error, a run Pi ended by itself, no session', async () => {
     const rejected = run({ FAKE_PI_PROMPT_FAIL: 'No API key found for openai.' });
     await expect(en(() => piTurn(rejected.o, deps()))).rejects.toThrow("Pi did not take this turn's message: No API key found for openai.");
     const badKey = run({ FAKE_PI_FIXTURE: fixture('anthropic-bad-key') }, { model: 'anthropic/claude-haiku-5-5' });
@@ -1038,7 +1038,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     expect(await piTurn(handled.o, deps())).toEqual({ sessionId: 'fake-session-1' });
   });
 
-  it('a Pi that will not start: its own words, or the sandbox\'s reason', async () => {
+  it.skipIf(process.platform === 'win32')('a Pi that will not start: its own words, or the sandbox\'s reason', async () => {
     const r = run({ FAKE_PI_EXIT: '1', FAKE_PI_STDERR: "No session found matching 'x'" });
     await expect(piTurn(r.o, deps())).rejects.toThrow("No session found matching 'x'");
     const s = run({ FAKE_PI_EXIT: '1' }, { permission: 'edit' });
@@ -1047,7 +1047,7 @@ describe.skipIf(process.platform === 'win32')('Pi: turns', () => {
     await expect(piTurn(missing.o, deps())).rejects.toThrow();
   });
 
-  it('times out a turn that never settles', async () => {
+  it.skipIf(process.platform === 'win32')('times out a turn that never settles', async () => {
     const r = run({ FAKE_PI_HANG: '1' });
     await expect(en(() => piTurn(r.o, deps({ timeoutMs: 800, exitGraceMs: 100 })))).rejects.toThrow(/timed out|did not finish/i);
   });

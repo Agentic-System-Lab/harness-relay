@@ -373,7 +373,7 @@ describe("Cursor's models", () => {
 });
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('a Cursor turn (with a stand-in cursor-agent)', () => {
+describe('a Cursor turn (with a stand-in cursor-agent)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'relay-fake-cursor-'));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   // Answers like cursor-agent 2026.11.11's ACP server: a resumed session replays its history before
@@ -505,7 +505,7 @@ rl.on('line', async (line) => {
     return { events, asked, result, error, lines, methods: lines.filter((l) => l.method).map((l) => l.method as string) };
   };
 
-  it('starts a session in a private config folder, briefs it, and asks the user about its command', async () => {
+  it.skipIf(process.platform === 'win32')('starts a session in a private config folder, briefs it, and asks the user about its command', async () => {
     const t = await turn({ log: 'new.log' });
     expect(t.error).toBeUndefined();
     expect(t.result).toEqual({ sessionId: 'sess-1' });
@@ -545,7 +545,7 @@ rl.on('line', async (line) => {
     ]);
   });
 
-  it('resumes a session without its replayed history or the same briefing again, with the model and effort asked for', async () => {
+  it.skipIf(process.platform === 'win32')('resumes a session without its replayed history or the same briefing again, with the model and effort asked for', async () => {
     const t = await turn({ log: 'resume.log', sessionId: 'sess-1', permission: 'read-only', model: 'claude-opus-5-5', effort: 'high', ask: false });
     expect(t.error).toBeUndefined();
     expect(t.methods).toEqual(['initialize', 'authenticate', 'session/load', 'session/set_config_option', 'session/set_config_option', 'session/set_config_option', 'session/prompt']);
@@ -559,7 +559,7 @@ rl.on('line', async (line) => {
     expect(t.events.find((e) => e.type === 'tool_end')).toEqual({ type: 'tool_end', id: 'c1\nfc1', ok: false, error: "Refused: not covered by this conversation's permission" });
   });
 
-  it('skips an effort the model does not offer, and fails on a model Cursor rejects', async () => {
+  it.skipIf(process.platform === 'win32')('skips an effort the model does not offer, and fails on a model Cursor rejects', async () => {
     const auto = await turn({ log: 'auto.log', effort: 'high' });
     expect(auto.error).toBeUndefined();
     expect(auto.lines.filter((l) => l.method === 'session/set_config_option').map((l) => l.params.configId)).toEqual(['mode']);
@@ -568,7 +568,7 @@ rl.on('line', async (line) => {
     expect(String((bogus.error as Error).message)).toContain('bogus');
   });
 
-  it('runs everything with full access, and does not authenticate over an API key', async () => {
+  it.skipIf(process.platform === 'win32')('runs everything with full access, and does not authenticate over an API key', async () => {
     const t = await turn({ log: 'full.log', permission: 'full', env: { CURSOR_API_KEY: 'key_123' } });
     expect(t.error).toBeUndefined();
     expect(t.lines[0].args).toEqual(['--disable-project-configs', '--force', 'acp']);
@@ -577,7 +577,7 @@ rl.on('line', async (line) => {
     expect(t.asked).toEqual([]);
   });
 
-  it("fails a turn on a service error, and on a session it cannot load (so it is retried fresh)", async () => {
+  it.skipIf(process.platform === 'win32')("fails a turn on a service error, and on a session it cannot load (so it is retried fresh)", async () => {
     const service = await turn({ log: 'service.log', env: { FAKE_CURSOR_SERVICE_ERROR: '1' } });
     expect((service.error as Error).message).toBe("Cursor's service reported an error: Upgrade your plan to continue");
     const gone = await turn({ log: 'gone.log', sessionId: 'gone' });
@@ -585,14 +585,14 @@ rl.on('line', async (line) => {
     expect(gone.events).toEqual([]);
   });
 
-  it('says a signed-out Cursor is not signed in, without the sign-in link that would lead nowhere', async () => {
+  it.skipIf(process.platform === 'win32')('says a signed-out Cursor is not signed in, without the sign-in link that would lead nowhere', async () => {
     expect(cursorSignInError('Failed to open browser for login. Please visit: https://cursor.com/loginDeepControl?challenge=x')).toBe('Failed to open browser for login');
     const t = await turn({ log: 'signed-out.log', env: { FAKE_CURSOR_SIGNED_OUT: '1' } });
     expect((t.error as Error).message).toBe('Cursor is not signed in (Failed to open browser for login). Sign in under Cursor in Settings, or set an API key.');
     expect(t.methods).toEqual(['initialize', 'authenticate']);
   });
 
-  it('stops a turn: cancels the session, and removes the private folder', async () => {
+  it.skipIf(process.platform === 'win32')('stops a turn: cancels the session, and removes the private folder', async () => {
     const stop = new AbortController();
     const t = await turn({ log: 'stop.log', env: { FAKE_CURSOR_HANG: '1' }, signal: stop.signal, onEvent: (e) => e.type === 'text' && stop.abort() });
     expect(t.error).toBeInstanceOf(AgentRunError);
@@ -609,7 +609,7 @@ rl.on('line', async (line) => {
     expect(t.lines).toEqual([]);
   });
 
-  it("asks it for its models over ACP, with no session or prompt, and not authenticate over a key", async () => {
+  it.skipIf(process.platform === 'win32')("asks it for its models over ACP, with no session or prompt, and not authenticate over a key", async () => {
     const log = join(dir, 'models.log');
     const models = await discoverModels('cursor', bin, { ...process.env, CURSOR_CONFIG_DIR: account, FAKE_CURSOR_LOG: log });
     expect(models).toMatchObject({ provider: 'cursor', source: 'cli', efforts: ['low', 'medium', 'high'] });

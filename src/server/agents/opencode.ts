@@ -636,7 +636,10 @@ export async function prepareOpencode(ctx: OpenRunContext, port: () => Promise<n
     writeFileSync(file, `${briefing}\n`, { mode: 0o600 });
     instructions.push(file);
   }
-  env.OPENCODE_CONFIG_CONTENT = opencodeConfigText({ ...opencodeRunConfig(o, run, instructions), shell: join(p.configDir, OPENCODE_SHELL) });
+  // relay-shell is a POSIX shell script, which Windows cannot run: there OpenCode keeps its own shell
+  // (it runs only with full access there, where relay-shell's screen is off anyway).
+  const windows = (ctx.platform ?? process.platform) === 'win32';
+  env.OPENCODE_CONFIG_CONTENT = opencodeConfigText({ ...opencodeRunConfig(o, run, instructions), ...(windows ? {} : { shell: join(p.configDir, OPENCODE_SHELL) }) });
   if (run.endpoint?.apiKey) env[OPENCODE_ENDPOINT_KEY_ENV] = run.endpoint.apiKey;
   else delete env[OPENCODE_ENDPOINT_KEY_ENV];
   // Its server's password, for this run only (its ACP side uses the same variable).

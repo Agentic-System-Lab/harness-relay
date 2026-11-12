@@ -4,6 +4,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Duplex } from 'node:stream';
 import { t } from './i18n';
+import { windowsLaunch, type WindowsLaunch } from './winLaunch';
 
 /**
  * A private two-way channel a process gets besides its stdio, as its fd 3 (a socket pair the server
@@ -145,13 +146,31 @@ export function resolveBin(bin: string): string {
   return bin.includes('/') && !isAbsolute(bin) ? resolve(bin) : bin;
 }
 
+/**
+ * What to start for a CLI: on Windows, the program its `.cmd` runs when the CLI is one (npm's
+ * cmd-shim, Cursor's launcher; `winLaunch.ts`), since a script would need a shell; elsewhere the CLI
+ * itself. Throws when it is a script whose program cannot be told.
+ */
+export function launchOf(bin: string, args: readonly string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): WindowsLaunch {
+  const resolved = resolveBin(bin);
+  return platform === 'win32' ? windowsLaunch(resolved, args, env) : { file: resolved, args: [...args] };
+}
+
+/** The CLI's environment with what its launch needs besides. */
+const withLaunchEnv = (env: NodeJS.ProcessEnv, launch: WindowsLaunch): NodeJS.ProcessEnv => (launch.env ? { ...env, ...launch.env } : env);
+
 /** How runProcess and runShellScript run what they start: everything but the program and its arguments. */
 export type RunOptions = Omit<SpawnOptions, 'bin' | 'args'>;
 
 /** Spawn a CLI, stream its stdout line by line, and resolve when it exits. It never runs through a shell. */
 export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
-  const bin = resolveBin(o.bin);
-  return supervise(o.bin, o, (options) => spawn(bin, o.args, options));
+  let launch: WindowsLaunch;
+  try {
+    launch = launchOf(o.bin, o.args, o.env);
+  } catch (err) {
+    return Promise.reject(err);
+  }
+  return supervise(o.bin, { ...o, env: withLaunchEnv(o.env, launch) }, (options) => spawn(launch.file, launch.args, options));
 }
 
 /**
@@ -353,7 +372,8 @@ export async function converse(o: {
 
 /** Spawn a long-lived interactive process (used for login flows). */
 export function spawnInteractive(bin: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
-  const child = spawn(resolveBin(bin), args, { env, detached: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  const launch = launchOf(bin, args, env);
+  const child = spawn(launch.file, launch.args, { env: withLaunchEnv(env, launch), detached: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   live.add(child);
   child.on('close', () => live.delete(child));
   child.on('error', () => live.delete(child));

@@ -51,6 +51,8 @@ const zhTW = {
     `Claude Code 無法啟動它的沙箱（完全存取以外的權限都需要）：${why}。在 Linux 與 WSL2 上請安裝 bubblewrap 與 socat（例如 sudo apt-get install bubblewrap socat），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」），再試一次；或把權限改成「完全存取」，在沙箱外執行。`,
   sandboxHost: '沙箱中的指令想連到這個主機。',
   commandNotFound: (bin: string) => `找不到指令「${bin}」。請確認已安裝，或在「設定」頁指定執行檔路徑。`,
+  windowsScript: (bin: string, script: string) =>
+    `「${bin}」是指令稿 ${script}，Harness Relay 無法啟動它：它只啟動程式，從不透過 shell，而且讀不出這個指令稿執行的是哪個程式。請在「設定」頁把執行檔路徑改成它執行的程式（.exe）。`,
   permission: { 'read-only': '唯讀', edit: '可編輯', full: '完全存取' } as Record<Permission, string>,
   grokRefusedReadOnly: '唯讀模式不允許，已告知 Grok 改用唯讀工具',
   grokRefusedPublish: '可編輯模式不允許推送或發佈',
@@ -531,6 +533,8 @@ const en: ServerMessages = {
     `Claude Code could not start its sandbox (needed below full access): ${why}. On Linux and WSL2, install bubblewrap and socat (for example sudo apt-get install bubblewrap socat), on Ubuntu 23.10 or later also an AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md), and try again; or switch the permission to "Full access" to run without one.`,
   sandboxHost: 'A command in the sandbox wants to connect to this host.',
   commandNotFound: (bin) => `Command "${bin}" not found. Make sure it is installed, or set its path on the Settings page.`,
+  windowsScript: (bin, script) =>
+    `"${bin}" is the script ${script}, which Harness Relay cannot start: it starts programs only, never through a shell, and cannot tell which program this script runs. Set the path to the program it runs (an .exe) on the Settings page.`,
   permission: { 'read-only': 'Read-only', edit: 'Edit', full: 'Full access' },
   grokRefusedReadOnly: 'Not allowed in read-only mode; Grok was told to use read-only tools',
   grokRefusedPublish: 'Pushing or publishing is not allowed with edit permission',

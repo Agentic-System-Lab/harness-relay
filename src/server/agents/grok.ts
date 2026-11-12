@@ -522,16 +522,24 @@ export function writeGrokSetting(home: string, name: string, write: () => string
 const grokGuards = new Map<string, { snapshot: GrokSettingsSnapshot; turns: number; found: string[] }>();
 
 /** The settings Harness Relay writes before a turn: its profile, and the models of the user's own endpoints. */
-const GROK_OWN = ['sandbox.toml', 'config.toml'];
+const GROK_OWN = ['sandbox.toml', 'config.toml'] as const;
+
+/**
+ * Tells the guard what Harness Relay wrote of its own settings before a turn: the file's name in Grok's
+ * home and the text written (undefined: it was as it should be, and nothing was written).
+ */
+export type GrokOwnWrite = (name: (typeof GROK_OWN)[number], text: string | undefined) => void;
 
 /**
  * Writes what Harness Relay keeps in Grok's settings before a turn (`write`). With sandboxed turns of
  * this home running, what their commands changed is put back first (and named when they end), and
- * those turns then take Harness Relay's settings as `write` left them: one it changed (the endpoints'
- * models, after the user changed their endpoints) is not taken for a command's change. A setting that
- * had to be put back stays as it was, so a failure to put it back is not taken either.
+ * those turns then take what `write` says it wrote (`wrote`, as it writes each, so also what it wrote
+ * before it failed part way): one it changed (the endpoints' models, after the user changed their
+ * endpoints; another conversation's folder profile) is not taken for a command's change. What is
+ * there afterwards is not read: a command may have changed it meanwhile. A setting that had to be
+ * put back and still is not as it was stays out, so a failure to put it back is not taken either.
  */
-function writeGrokOwn(home: string, write: () => void): void {
+function writeGrokOwn(home: string, write: (wrote: GrokOwnWrite) => void): void {
   const guard = grokGuards.get(realPath(home));
   const putBack = guard ? restoreGrokSettings(guard.snapshot, home) : [];
   guard?.found.push(...putBack);
@@ -546,26 +554,25 @@ function writeGrokOwn(home: string, write: () => void): void {
         }
       })
     : [];
-  try {
-    write();
-  } finally {
-    // Every other one is taken as `write` left it, also one just put back, and also when `write`
-    // failed part way: what Harness Relay wrote there (another conversation's folder profile, say) is
-    // not a command's change.
-    if (guard) for (const name of GROK_OWN) if (!stuck.includes(name)) guard.snapshot.entries.set(name, settingNow(home, name));
-  }
+  write((name, text) => {
+    if (!guard || text === undefined || stuck.includes(name)) return;
+    const was = guard.snapshot.entries.get(name);
+    const content = Buffer.from(text);
+    // A link stays one: the file it leads to was written.
+    guard.snapshot.entries.set(name, was?.kind === 'link' ? { ...was, content } : { kind: 'file', content, mode: was?.kind === 'file' ? was.mode : 0o600 });
+  });
 }
 
 /**
  * Guards Grok's settings around one sandboxed turn; `write` writes what Harness Relay itself keeps
- * there for the turn (its profile), and returns `sandbox.toml` as it wrote it (nothing: unchanged).
+ * there for the turn (its profile, the endpoints' models), and says what it wrote (`GrokOwnWrite`).
  * Turns of the same Grok home at the same time share what the settings were before the first of
  * them: so a turn starting while another runs neither takes a change that one's commands made for
  * the settings as they were (it is put back first), nor puts it back afterwards; what `write` wrote
  * then (another conversation's profile) becomes part of what they were. Returns what to call once the
  * turn is over: the settings changed during it, which it has put back (`restoreGrokSettings`).
  */
-export function guardGrokSettings(home: string, write: () => string | void = () => undefined): () => string[] {
+export function guardGrokSettings(home: string, write: (wrote: GrokOwnWrite) => void = () => undefined): () => string[] {
   const key = realPath(home);
   writeGrokOwn(home, write);
   let guard = grokGuards.get(key);
@@ -726,8 +733,9 @@ export function withGrokModels(existing: string, block: string): string {
  * they are not there as they should be: `add` for a turn on one of them; without it, a block written
  * before is only kept up to date (or taken out), so Grok's config gets one only once it is used.
  * Written beside it and renamed into place with its mode, a link followed (as `writeGrokProfile`).
+ * Returns the file as written (nothing when it was as it should be).
  */
-export function writeGrokModels(home: string, endpoints: readonly RunEndpoint[], add: boolean): void {
+export function writeGrokModels(home: string, endpoints: readonly RunEndpoint[], add: boolean): string | undefined {
   const path = join(home, 'config.toml');
   const file = existsSync(path) ? realpathSync(path) : path;
   const existing = existsSync(file) ? readFileSync(file, 'utf8') : '';
@@ -745,6 +753,7 @@ export function writeGrokModels(home: string, endpoints: readonly RunEndpoint[],
     rmSync(temp, { force: true });
     throw err;
   }
+  return next;
 }
 
 /** The `toolCall` of an ACP `session/request_permission`. */
@@ -1046,10 +1055,10 @@ export const grokRunner: AgentRunner = {
       endpoint && !endpoint.endpoint.models.includes(endpoint.model)
         ? holdGrokTypedModel(grokHome(env), endpoint.endpoint.id, endpoint.model)
         : () => undefined;
-    const writeModels = () => {
+    const writeModels = (wrote: GrokOwnWrite = () => undefined) => {
       const home = grokHome(env);
       try {
-        writeGrokModels(home, grokBlockEndpoints(home, o.backends?.endpoints ?? []), Boolean(endpoint));
+        wrote('config.toml', writeGrokModels(home, grokBlockEndpoints(home, o.backends?.endpoints ?? []), Boolean(endpoint)));
       } catch (err) {
         throw new AgentRunError(t().grokModelsFailed(join(home, 'config.toml'), (err as Error).message));
       }
@@ -1069,13 +1078,13 @@ export const grokRunner: AgentRunner = {
         // In use until the turn ends: no other run's write drops its block meanwhile.
         const releaseProfile = holdGrokProfile(sandbox);
         try {
-          settle = guardGrokSettings(home, () => {
+          settle = guardGrokSettings(home, (wrote) => {
             try {
-              writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)], readWrite, sandbox, grokProfilesInUse());
+              wrote('sandbox.toml', writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)], readWrite, sandbox, grokProfilesInUse()));
             } catch (err) {
               throw new AgentRunError(t().grokSandbox((err as Error).message));
             }
-            writeModels();
+            writeModels(wrote);
           });
         } catch (err) {
           releaseProfile();

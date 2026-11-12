@@ -519,16 +519,37 @@ describe("Grok on the user's own endpoints", () => {
     const file = join(home, 'config.toml');
     try {
       writeFileSync(file, '[ui]\n');
-      const first = guardGrokSettings(home, () => writeGrokModels(home, [lab], true));
-      const second = guardGrokSettings(home, () => writeGrokModels(home, [{ ...lab, models: ['gemma4:26b'] }], true));
+      const first = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [lab], true)));
+      const second = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [{ ...lab, models: ['gemma4:26b'] }], true)));
       expect(second()).toEqual([]);
       expect(first()).toEqual([]);
       expect(readFileSync(file, 'utf8')).toContain('harness-relay/homelab/gemma4:26b');
       // A command's change is still put back and named.
-      const third = guardGrokSettings(home, () => writeGrokModels(home, [lab], true));
+      const third = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [lab], true)));
       writeFileSync(file, `${readFileSync(file, 'utf8')}[mcp_servers.evil]\n`);
       expect(third()).toEqual(['config.toml']);
       expect(readFileSync(file, 'utf8')).not.toContain('evil');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("still names a command's change made while a new turn writes Harness Relay's own settings", () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-race-'));
+    const file = join(home, 'config.toml');
+    try {
+      writeFileSync(file, '[ui]\n');
+      const first = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [lab], true)));
+      // A second turn starts; while it writes its settings, a command of the first turn changes them.
+      const second = guardGrokSettings(home, (wrote) => {
+        wrote('config.toml', writeGrokModels(home, [{ ...lab, models: ['gemma4:26b'] }], true));
+        appendFileSync(file, '[mcp_servers.evil]\n');
+      });
+      // Put back, keeping what the second turn wrote; named to both, as either one's command may have made it.
+      expect(first()).toEqual(['config.toml']);
+      expect(readFileSync(file, 'utf8')).not.toContain('evil');
+      expect(readFileSync(file, 'utf8')).toContain('harness-relay/homelab/gemma4:26b');
+      expect(second()).toEqual(['config.toml']);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -829,12 +850,12 @@ describe("Grok's own folder in its sandbox", () => {
   it("keeps a later turn's own folder profile after putting back what an earlier turn's command changed, also when its write failed", () => {
     const home = mkdtempSync(join(tmpdir(), 'relay-grok-guard-own-'));
     try {
-      const first = guardGrokSettings(home, () => void writeGrokProfile(home, ['/deny'], [], 'harness-relay'));
+      const first = guardGrokSettings(home, (wrote) => wrote('sandbox.toml', writeGrokProfile(home, ['/deny'], [], 'harness-relay')));
       // A command of the first turn changes sandbox.toml; a turn of another conversation, with another
       // working directory, starts meanwhile: the change is put back, and its own profile written.
       appendFileSync(join(home, 'sandbox.toml'), '\n# a command changed this\n');
       const other = grokSandboxProfile('edit', 'darwin', ['/other'])!;
-      const second = guardGrokSettings(home, () => void writeGrokProfile(home, ['/deny'], ['/other'], other, new Set([other])));
+      const second = guardGrokSettings(home, (wrote) => wrote('sandbox.toml', writeGrokProfile(home, ['/deny'], ['/other'], other, new Set([other]))));
       expect(readFileSync(join(home, 'sandbox.toml'), 'utf8')).toContain(other);
       // The first turn's change is named; the second turn's profile is Harness Relay's, not a change.
       expect(first()).toEqual(['sandbox.toml']);
@@ -842,11 +863,11 @@ describe("Grok's own folder in its sandbox", () => {
       expect(second()).toEqual([]);
       // A turn whose write fails part way (its endpoints' models, after its profile): what it wrote is
       // still Harness Relay's, so a turn running beside it is not told of a change it did not make.
-      const third = guardGrokSettings(home, () => void writeGrokProfile(home, ['/deny'], [], 'harness-relay'));
+      const third = guardGrokSettings(home, (wrote) => wrote('sandbox.toml', writeGrokProfile(home, ['/deny'], [], 'harness-relay')));
       const another = grokSandboxProfile('edit', 'darwin', ['/another'])!;
       expect(() =>
-        guardGrokSettings(home, () => {
-          writeGrokProfile(home, ['/deny'], ['/another'], another, new Set([another]));
+        guardGrokSettings(home, (wrote) => {
+          wrote('sandbox.toml', writeGrokProfile(home, ['/deny'], ['/another'], another, new Set([another])));
           throw new Error('config.toml could not be written');
         }),
       ).toThrow('config.toml could not be written');
@@ -922,8 +943,8 @@ describe("Grok's own folder in its sandbox", () => {
     try {
       const a = grokSandboxProfile('edit', 'linux', ['/a'])!;
       const b = grokSandboxProfile('edit', 'linux', ['/b'])!;
-      const first = guardGrokSettings(home, () => writeGrokProfile(home, ['/x'], ['/a'], a));
-      const second = guardGrokSettings(home, () => writeGrokProfile(home, ['/x'], ['/b'], b));
+      const first = guardGrokSettings(home, (wrote) => wrote('sandbox.toml', writeGrokProfile(home, ['/x'], ['/a'], a)));
+      const second = guardGrokSettings(home, (wrote) => wrote('sandbox.toml', writeGrokProfile(home, ['/x'], ['/b'], b)));
       expect(readFileSync(join(home, 'sandbox.toml'), 'utf8')).toContain(`[profiles.${b}]`);
       expect(first()).toEqual([]);
       expect(readFileSync(join(home, 'sandbox.toml'), 'utf8')).toContain(`[profiles.${b}]`);

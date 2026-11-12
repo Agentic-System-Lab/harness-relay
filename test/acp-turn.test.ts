@@ -132,8 +132,8 @@ function fakeSandbox(specs: RelaySandboxSpec[], disposed: string[] = [], failure
 }
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
-  it('turns session updates into events, sets the model and effort, and reports usage', async () => {
+describe('the generic ACP turn', () => {
+  it.skipIf(process.platform === 'win32')('turns session updates into events, sets the model and effort, and reports usage', async () => {
     const r = run({}, { effort: 'high', model: 'openai/gpt-5.4' });
     const result = await acpTurn(r.o, spec(), deps());
     expect(result).toEqual({ sessionId: 'fake-1', inputTokens: 12, outputTokens: 34, costUsd: 0.0042 });
@@ -158,7 +158,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(sent(r, 'initialize')[0]!.params).toMatchObject({ protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'harness-relay' } });
   });
 
-  it('sets only what differs, as a config option of its category, or not at all when the config sets it', async () => {
+  it.skipIf(process.platform === 'win32')('sets only what differs, as a config option of its category, or not at all when the config sets it', async () => {
     const r = run({}, { effort: 'medium' });
     await acpTurn(r.o, spec({ model: { via: 'config_option' }, effort: { via: 'config_option' } }), deps());
     // Both are what the session has already.
@@ -178,7 +178,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(sent(config, 'session/prompt')[0]!.params.prompt).toEqual([{ type: 'text', text: 'What is in a.txt?' }]);
   });
 
-  it('sets the session mode for the permission, and fails with a clear message when a value is refused', async () => {
+  it.skipIf(process.platform === 'win32')('sets the session mode for the permission, and fails with a clear message when a value is refused', async () => {
     const mode = (p: Permission) => (p === 'full' ? 'yolo' : 'ask');
     const r = run();
     await acpTurn(r.o, spec({ mode }), deps());
@@ -188,7 +188,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     await expect(withLang('en', () => acpTurn(refused.o, spec(), deps()))).rejects.toThrow(/OpenCode does not accept the model "openai\/gpt-5\.4": unknown model/);
   });
 
-  it('passes the run its model backend keys and home, and the extra fields of the session', async () => {
+  it.skipIf(process.platform === 'win32')('passes the run its model backend keys and home, and the extra fields of the session', async () => {
     const r = run({ FAKE_ACP_ENV: 'OPENAI_API_KEY' });
     await acpTurn(r.o, spec({ sessionParams: (ctx, method) => ({ _meta: { method, rules: ctx.o.systemPrompt } }) }), deps());
     const start = r.log().find((m) => m.start)!;
@@ -197,7 +197,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(sent(r, 'session/new')[0]!.params._meta).toEqual({ method: 'new', rules: 'You are @Ada on a team.' });
   });
 
-  it('resumes with session/resume or session/load as the agent advertises, and ignores the replayed history', async () => {
+  it.skipIf(process.platform === 'win32')('resumes with session/resume or session/load as the agent advertises, and ignores the replayed history', async () => {
     const resume = run({ FAKE_ACP_CAPS: JSON.stringify({ loadSession: true, sessionCapabilities: { resume: {} } }) }, { sessionId: 'old-7' });
     expect((await acpTurn(resume.o, spec(), deps())).sessionId).toBe('old-7');
     expect(sent(resume, 'session/resume')[0]!.params).toMatchObject({ sessionId: 'old-7', cwd: resume.o.cwd });
@@ -210,7 +210,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(texts).toEqual(['Hello ', 'world']); // not "old reply"
   });
 
-  it("fails before saying anything when it cannot resume, so the orchestrator starts a fresh session", async () => {
+  it.skipIf(process.platform === 'win32')("fails before saying anything when it cannot resume, so the orchestrator starts a fresh session", async () => {
     const none = run({}, { sessionId: 'old-9' });
     await expect(withLang('en', () => acpTurn(none.o, spec(), deps()))).rejects.toThrow(/offers no way to resume a session/);
     const failing = run({ FAKE_ACP_CAPS: JSON.stringify({ loadSession: true }), FAKE_ACP_RESUME_FAIL: '1' }, { sessionId: 'gone' });
@@ -218,7 +218,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(failing.events.filter((e) => e.type !== 'session')).toEqual([]);
   });
 
-  it('asks the user about a call the permission does not cover, and hands a declined note to the model', async () => {
+  it.skipIf(process.platform === 'win32')('asks the user about a call the permission does not cover, and hands a declined note to the model', async () => {
     const r = run({ FAKE_ACP_SCENARIO: 'permission' }, { permission: 'read-only' }, () => ({ allow: false, note: 'Only read it.' }));
     await withLang('en', () => acpTurn(r.o, spec({ rejection: (reason) => ({ _meta: { followup_message: reason } }) }), deps(fakeSandbox([]))));
     expect(r.approvals).toEqual([{ kind: 'edit', detail: 'a.txt', reason: 'Edit a.txt', readOnlySandbox: true }]);
@@ -228,7 +228,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(r.events).toContainEqual({ type: 'tool_end', id: 'e1', ok: false, error: 'The user declined this action. Only read it.' });
   });
 
-  it('tells the model in the briefing what a refusal means when the agent cannot pass the reason on', async () => {
+  it.skipIf(process.platform === 'win32')('tells the model in the briefing what a refusal means when the agent cannot pass the reason on', async () => {
     const plain = run({ FAKE_ACP_SCENARIO: 'permission' }, { permission: 'read-only' });
     await acpTurn(plain.o, spec(), deps(fakeSandbox([])));
     expect(sent(plain, 'session/prompt')[0]!.params.prompt[0].text).toContain(ACP_REFUSAL_NOTE);
@@ -237,7 +237,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(sent(feedback, 'session/prompt')[0]!.params.prompt[0].text).not.toContain(ACP_REFUSAL_NOTE);
   });
 
-  it('gives describeCall what the agent said of the call before it asked about it', async () => {
+  it.skipIf(process.platform === 'win32')('gives describeCall what the agent said of the call before it asked about it', async () => {
     const announce = JSON.stringify({ toolCallId: 'd1', title: 'Write /outside/x.txt', kind: 'edit', rawInput: { filepath: '/outside/x.txt' } });
     const ask = JSON.stringify({ toolCallId: 'd1', title: '/outside', kind: 'other', rawInput: { filepath: '/outside/x.txt', parentDir: '/outside' } });
     const r = run({ FAKE_ACP_SCENARIO: 'permission', FAKE_ACP_ANNOUNCE: announce, FAKE_ACP_CALL: ask }, { permission: 'edit' }, () => ({ allow: false }));
@@ -252,7 +252,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(r.approvals).toEqual([]);
   });
 
-  it("never does what an agent asks of the client (files, terminals): refused, or answered as its spec says", async () => {
+  it.skipIf(process.platform === 'win32')("never does what an agent asks of the client (files, terminals): refused, or answered as its spec says", async () => {
     const r = run({ FAKE_ACP_SCENARIO: 'client' });
     await acpTurn(r.o, spec(), deps());
     const reply = r.events.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text).join('');
@@ -269,7 +269,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(existsSync(join(tolerant.o.cwd, 'written-by-client.txt'))).toBe(false);
   });
 
-  it('describes a permission request that names no call from the calls updated just before it', async () => {
+  it.skipIf(process.platform === 'win32')('describes a permission request that names no call from the calls updated just before it', async () => {
     const announce = JSON.stringify({ toolCallId: 'a1', title: 'Write notes.md', kind: 'edit', rawInput: { path: 'notes.md' } });
     const ask = JSON.stringify({ toolCallId: 'confirmation-fake-1', title: 'Confirm Agent Actions', kind: 'other' });
     const r = run({ FAKE_ACP_SCENARIO: 'permission', FAKE_ACP_ANNOUNCE: announce, FAKE_ACP_CALL: ask }, { permission: 'read-only' }, () => ({ allow: false }));
@@ -285,7 +285,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(turns).toEqual([{ sessionId: expect.any(String), cwd: r.o.cwd }]);
   });
 
-  it("takes the adapter's own refusal as final (the user is not asked), and shows it on the calls the request covered", async () => {
+  it.skipIf(process.platform === 'win32')("takes the adapter's own refusal as final (the user is not asked), and shows it on the calls the request covered", async () => {
     const announce = JSON.stringify({ toolCallId: 'a1', title: 'Start a subagent', kind: 'other', rawInput: { kind: 'TaskAction' } });
     const ask = JSON.stringify({ toolCallId: 'confirmation-fake-1', title: 'Confirm Agent Actions', kind: 'other' });
     const r = run({ FAKE_ACP_SCENARIO: 'permission', FAKE_ACP_ANNOUNCE: announce, FAKE_ACP_CALL: ask }, { permission: 'edit' }, () => ({ allow: true }));
@@ -305,7 +305,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(allowed.events.find((e) => e.type === 'text')).toMatchObject({ text: expect.stringContaining('"optionId":"yes"') });
   });
 
-  it('labels each covered call by what the decision says of it, the others by its label', async () => {
+  it.skipIf(process.platform === 'win32')('labels each covered call by what the decision says of it, the others by its label', async () => {
     const announce = JSON.stringify({ toolCallId: 'a1', title: 'Push', kind: 'execute', rawInput: { command: 'git push' } });
     const ask = JSON.stringify({ toolCallId: 'confirmation-fake-1', title: 'Confirm Agent Actions', kind: 'other' });
     const r = run({ FAKE_ACP_SCENARIO: 'permission', FAKE_ACP_ANNOUNCE: announce, FAKE_ACP_CALL: ask, FAKE_ACP_END_ANNOUNCED: '1' }, { permission: 'edit' });
@@ -318,7 +318,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(labelled).toEqual([['a1', 'this one']]);
   });
 
-  it('fails a turn the agent ended without finishing it, as its spec reads it (endTurn)', async () => {
+  it.skipIf(process.platform === 'win32')('fails a turn the agent ended without finishing it, as its spec reads it (endTurn)', async () => {
     const r = run({ FAKE_ACP_SCENARIO: 'permission' }, { permission: 'read-only' });
     const seen: string[] = [];
     const endTurn: AcpAgentSpec['endTurn'] = (_result, ctx, sessionId) => {
@@ -339,7 +339,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(fine.events.filter((e) => e.type === 'tool_end')).toEqual([{ type: 'tool_end', id: 'a1', ok: true }]);
   });
 
-  it('passes a refusal on with a request of the agent’s own once it is answered, and runs steps after the session starts', async () => {
+  it.skipIf(process.platform === 'win32')('passes a refusal on with a request of the agent’s own once it is answered, and runs steps after the session starts', async () => {
     const r = run({ FAKE_ACP_SCENARIO: 'permission' }, { permission: 'read-only' });
     const order: string[] = [];
     const afterRefusal: AcpAgentSpec['afterRefusal'] = async (conn, refusal, ctx) => {
@@ -360,7 +360,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(sent(r, 'session/prompt')[0]!.params.prompt[0].text).not.toContain(ACP_REFUSAL_NOTE);
   });
 
-  it('lets the spec filter each update, set variables to empty on purpose, and stop an agent that does not exit', async () => {
+  it.skipIf(process.platform === 'win32')('lets the spec filter each update, set variables to empty on purpose, and stop an agent that does not exit', async () => {
     const r = run({ FAKE_ACP_ENV: 'OPENAI_BASE_URL', OPENAI_BASE_URL: 'https://from-a-dotenv.example' });
     const filterUpdate: AcpAgentSpec['filterUpdate'] = ({ update }) =>
       update.sessionUpdate === 'agent_thought_chunk' ? undefined : update.sessionUpdate === 'tool_call_update' ? { ...update, status: 'failed' } : update;
@@ -372,7 +372,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(Date.now() - started).toBeLessThan(2500);
   });
 
-  it('ends the rows of tool calls a stopped turn left open, as not finished', async () => {
+  it.skipIf(process.platform === 'win32')('ends the rows of tool calls a stopped turn left open, as not finished', async () => {
     const r = run({ FAKE_ACP_SCENARIO: 'hang' });
     const turn = withLang('en', () => acpTurn(r.o, spec(), deps()));
     await vi.waitFor(() => expect(r.events).toContainEqual({ type: 'text', text: 'working' }), { timeout: 5000 });
@@ -415,7 +415,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect((plain.at(-1) as { error?: string }).error).toBe('EPERM: operation not permitted');
   });
 
-  it('runs what the user allows, and refuses on its own when the conversation does not ask', async () => {
+  it.skipIf(process.platform === 'win32')('runs what the user allows, and refuses on its own when the conversation does not ask', async () => {
     const allowed = run({ FAKE_ACP_SCENARIO: 'permission' }, { permission: 'read-only' }, () => ({ allow: true }));
     await acpTurn(allowed.o, spec(), deps(fakeSandbox([])));
     expect(allowed.log().find((m) => m.id === 100)!.result).toEqual({ outcome: { outcome: 'selected', optionId: 'yes' } });
@@ -428,7 +428,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(refused.events).toContainEqual({ type: 'tool_end', id: 'e1', ok: false, error: 'Not allowed in read-only mode; OpenCode was told to use tools that only read' });
   });
 
-  it('lets edit run commands, except pushing and publishing, which ask', async () => {
+  it.skipIf(process.platform === 'win32')('lets edit run commands, except pushing and publishing, which ask', async () => {
     const push = JSON.stringify({ toolCallId: 'c1', title: 'git push', kind: 'execute', rawInput: { command: 'git push origin main' } });
     const r = run({ FAKE_ACP_SCENARIO: 'permission', FAKE_ACP_CALL: push }, { permission: 'edit' }, () => ({ allow: true }));
     await acpTurn(r.o, spec(), deps(fakeSandbox([])));
@@ -441,7 +441,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(quiet.log().find((m) => m.id === 100)!.result.outcome.optionId).toBe('yes');
   });
 
-  it('stops when the user stops it: session/cancel, then the turn ends as stopped', async () => {
+  it.skipIf(process.platform === 'win32')('stops when the user stops it: session/cancel, then the turn ends as stopped', async () => {
     const r = run({ FAKE_ACP_SCENARIO: 'hang' });
     const turn = acpTurn(r.o, spec(), deps());
     await vi.waitFor(() => expect(r.events).toContainEqual({ type: 'text', text: 'working' }), { timeout: 5000 });
@@ -452,7 +452,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(sent(r, 'session/cancel')[0]!.params).toEqual({ sessionId: 'fake-1' });
   });
 
-  it('stops at whichever step on the way to the prompt a stop comes: the prompt is never sent', async () => {
+  it.skipIf(process.platform === 'win32')('stops at whichever step on the way to the prompt a stop comes: the prompt is never sent', async () => {
     const steps: Record<string, (stop: () => void) => { s?: Partial<AcpAgentSpec>; d?: Partial<AcpTurnDeps>; o?: Partial<RunOptions> }> = {
       'the sandbox check': (stop) => ({
         o: { permission: 'edit' },
@@ -516,7 +516,7 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     }
   }, 30_000);
 
-  it('answers a permission request the user was asked about as cancelled when the turn is stopped meanwhile', async () => {
+  it.skipIf(process.platform === 'win32')('answers a permission request the user was asked about as cancelled when the turn is stopped meanwhile', async () => {
     let refusals = 0;
     const r = run({ FAKE_ACP_SCENARIO: 'permission' }, { permission: 'read-only' });
     r.o.requestApproval = async () => {
@@ -530,21 +530,21 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
     expect(refusals).toBe(0);
   });
 
-  it('fails with what the agent said when it crashes, and with its last failure when it ends the turn itself', async () => {
+  it.skipIf(process.platform === 'win32')('fails with what the agent said when it crashes, and with its last failure when it ends the turn itself', async () => {
     const crash = run({ FAKE_ACP_SCENARIO: 'crash' });
     await expect(acpTurn(crash.o, spec(), deps())).rejects.toThrow(/panic: the fake agent fell over/);
     const self = run({ FAKE_ACP_SCENARIO: 'self-cancel' });
     await expect(withLang('en', () => acpTurn(self.o, spec(), deps()))).rejects.toThrow('OpenCode ended the turn while running "Run tests" (no terminal).');
   });
 
-  it('fails a turn its model refused, and closes the rows it left open as not finished', async () => {
+  it.skipIf(process.platform === 'win32')('fails a turn its model refused, and closes the rows it left open as not finished', async () => {
     const r = run({ FAKE_ACP_SCENARIO: 'refusal' });
     await expect(withLang('en', () => acpTurn(r.o, spec(), deps()))).rejects.toThrow("OpenCode's model refused to answer this turn (stopReason: refusal).");
     const end = r.events.find((e) => e.type === 'tool_end' && e.id === 'r1');
     expect(end).toMatchObject({ type: 'tool_end', id: 'r1', ok: false });
   });
 
-  it('times out a turn that never ends', async () => {
+  it.skipIf(process.platform === 'win32')('times out a turn that never ends', async () => {
     const r = run({ FAKE_ACP_SCENARIO: 'silent' });
     await expect(withLang('en', () => acpTurn(r.o, spec(), deps({ timeoutMs: 1500 })))).rejects.toThrow('Timed out');
   }, 15_000);
@@ -560,8 +560,8 @@ describe.skipIf(process.platform === 'win32')('the generic ACP turn', () => {
 });
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('the open agent process', () => {
-  it('runs below full access only in the relay sandbox: its folders, the protected paths and the run’s hosts', async () => {
+describe('the open agent process', () => {
+  it.skipIf(process.platform === 'win32')('runs below full access only in the relay sandbox: its folders, the protected paths and the run’s hosts', async () => {
     const specs: RelaySandboxSpec[] = [];
     const disposed: string[] = [];
     const r = run({ FAKE_ACP_ENV: 'TMPDIR' }, { permission: 'edit', model: 'homelab/muse', attachmentsDir: join(root, 'attachments'), protectedPaths: ['/secret/db'], stateKey: 'conv.c1.a1' });
@@ -605,7 +605,7 @@ describe.skipIf(process.platform === 'win32')('the open agent process', () => {
     await full.dispose();
   });
 
-  it('reports why the relay sandbox stopped a run instead of the agent’s own output', async () => {
+  it.skipIf(process.platform === 'win32')('reports why the relay sandbox stopped a run instead of the agent’s own output', async () => {
     const r = run({ FAKE_ACP_EXIT_AT_START: '1' }, { permission: 'edit' });
     await expect(acpTurn(r.o, spec(), deps(fakeSandbox([], [], 'the sandbox refused to start: no bubblewrap')))).rejects.toThrow('the sandbox refused to start: no bubblewrap');
   });

@@ -190,8 +190,8 @@ const unprivate = (p: string) => p.replace(/^\/private\//, '/');
 const backend = (model: string): BackendRun => backendRun(BACKENDS, model, 'Cline');
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('its home and the config written for each run', () => {
-  it('keeps its state in the home and its settings apart, read-only', () => {
+describe('its home and the config written for each run', () => {
+  it.skipIf(process.platform === 'win32')('keeps its state in the home and its settings apart, read-only', () => {
     const home = clineHome('/h');
     expect(home.env).toEqual({
       CLINE_DIR: '/h/config',
@@ -296,7 +296,7 @@ describe.skipIf(process.platform === 'win32')('its home and the config written f
   for (const model of ['openai/gpt-5.4-mini', 'anthropic/claude-haiku-5-5', 'xai/grok-4.3', 'homelab/muse-glimmer-30b-nvfp4', 'open/qwen']) {
     for (const permission of ['read-only', 'edit', 'full'] as Permission[]) cases.push([model, permission]);
   }
-  it.each(cases)('runs %s in %s with its own CLINE_DIR, settings and key, nothing else', async (model, permission) => {
+  it.skipIf(process.platform === 'win32').each(cases)('runs %s in %s with its own CLINE_DIR, settings and key, nothing else', async (model, permission) => {
     const specs: RelaySandboxSpec[] = [];
     const mcp: McpServerSpec[] = [{ name: 'echo', transport: 'stdio', command: 'node', args: ['echo.js'], url: '', env: {}, headers: {} }];
     const { r } = await turn('text-openai', { model, permission, mcpServers: mcp, nativeOff: ['skills'] }, () => ({ allow: true }), {}, specs);
@@ -343,7 +343,7 @@ describe.skipIf(process.platform === 'win32')('its home and the config written f
     }
   });
 
-  it('writes the briefing, the settings and the MCP servers it reads into the run’s CLINE_DIR', async () => {
+  it.skipIf(process.platform === 'win32')('writes the briefing, the settings and the MCP servers it reads into the run’s CLINE_DIR', async () => {
     const mcp: McpServerSpec[] = [{ name: 'echo', transport: 'stdio', command: 'node', args: ['echo.js'], url: '', env: {}, headers: {} }];
     let files: Record<string, string> = {};
     const r = run({ FAKE_CLINE_FIXTURE: fixture('text-openai') }, { permission: 'edit', mcpServers: mcp, nativeItems: { tools: ['spawn_agent'] } });
@@ -589,8 +589,8 @@ describe('its other hooks', () => {
 });
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the real CLI', () => {
-  it('replies, and reports the turn’s usage from its session record', async () => {
+describe('a whole turn, replayed from the real CLI', () => {
+  it.skipIf(process.platform === 'win32')('replies, and reports the turn’s usage from its session record', async () => {
     const { r, result } = await turn('text-openai');
     expect(result).toEqual({ sessionId: '1794314806528_svDqU_cli', inputTokens: 7505, outputTokens: 5, costUsd: 0.00565125 });
     expect(r.events).toEqual([{ type: 'session', sessionId: '1794314806528_svDqU_cli' }, { type: 'text', text: 'pong' }, { type: 'text_end' }]);
@@ -599,14 +599,14 @@ describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the r
     expect(sent(r, 'session/set_mode')).toEqual([]);
   });
 
-  it('sets a model its catalog does not have, rather than let it fall back to its default', async () => {
+  it.skipIf(process.platform === 'win32')('sets a model its catalog does not have, rather than let it fall back to its default', async () => {
     const { r } = await turn('text-vllm', { model: 'homelab/muse-glimmer-30b-nvfp4' });
     expect(sent(r, 'session/set_config_option').map((m) => m.params)).toEqual([{ sessionId: '1794315476085_ZO3LV_cli', configId: 'model', value: 'muse-glimmer-30b-nvfp4' }]);
     expect(r.events.some((e) => e.type === 'thinking')).toBe(true);
     expect(texts(r)).toBe('pong');
   });
 
-  it('shows a call before Cline asks about it, once, with its output; reading runs in read-only', async () => {
+  it.skipIf(process.platform === 'win32')('shows a call before Cline asks about it, once, with its output; reading runs in read-only', async () => {
     const { r } = await turn('read-openai', { permission: 'read-only', prompt: 'Read notes.txt' }, () => ({ allow: false }));
     expect(r.approvals).toEqual([]);
     expect(answers(r).map((a) => a.result.outcome)).toEqual([{ outcome: 'selected', optionId: 'allow_once' }]);
@@ -614,7 +614,7 @@ describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the r
     expect(toolEnds(r)).toEqual([{ type: 'tool_end', id: 'call_mTsWjBHgDkgTkvspHP6sMdJM', ok: true, output: '1 | hello from cline test' }]);
   });
 
-  it('lets apply_patch and the editor run in edit, and shows the files they change', async () => {
+  it.skipIf(process.platform === 'win32')('lets apply_patch and the editor run in edit, and shows the files they change', async () => {
     const patch = await turn('edit-apply-patch-openai', { permission: 'edit' }, () => ({ allow: false }));
     expect(patch.r.approvals).toEqual([]);
     expect(toolStarts(patch.r).map((s) => [s.name, s.detail])).toEqual([
@@ -632,13 +632,13 @@ describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the r
     expect(toolEnds(editor.r)[1]!.output).toContain('```diff\n-1: hello from cline test\n+1: hello from cline edit\n```');
   });
 
-  it('asks the user about a command in read-only, and runs it when allowed', async () => {
+  it.skipIf(process.platform === 'win32')('asks the user about a command in read-only, and runs it when allowed', async () => {
     const { r } = await turn('bash-permission-allowed-openai', { permission: 'read-only' }, () => ({ allow: true }));
     expect(r.approvals).toEqual([{ kind: 'command', detail: 'echo relay-$((6*7)) && ls', reason: 'run_commands: echo relay-$((6*7)) && ls', readOnlySandbox: true }]);
     expect(toolEnds(r)).toEqual([{ type: 'tool_end', id: 'call_Vv2WnnUQWQH71EuwdyX2wlQz', ok: true, output: 'relay-42\nnotes.txt' }]);
   });
 
-  it('rejects a declined call, shows the note, and lets the turn go on', async () => {
+  it.skipIf(process.platform === 'win32')('rejects a declined call, shows the note, and lets the turn go on', async () => {
     const { r } = await withLang('en', () => turn('permission-rejected-openai', { permission: 'read-only' }, () => ({ allow: false, note: 'Not now.' })));
     expect(r.approvals).toHaveLength(1);
     expect(answers(r)[0]!.result).toEqual({ outcome: { outcome: 'selected', optionId: 'reject_once' } });
@@ -646,13 +646,13 @@ describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the r
     expect(texts(r)).toContain('User rejected the tool call');
   });
 
-  it('refuses a call by itself when the conversation refuses approvals', async () => {
+  it.skipIf(process.platform === 'win32')('refuses a call by itself when the conversation refuses approvals', async () => {
     const { r } = await withLang('en', () => turn('permission-rejected-openai', { permission: 'read-only' }));
     expect(answers(r)[0]!.result.outcome.optionId).toBe('reject_once');
     expect(toolEnds(r)[0]).toMatchObject({ ok: false, error: withLang('en', () => t().openRefusedReadOnly('Cline')) });
   });
 
-  it('marks a command or an edit that failed as failed, with its reason', async () => {
+  it.skipIf(process.platform === 'win32')('marks a command or an edit that failed as failed, with its reason', async () => {
     const confined = await turn('srt-bash-confined-openai');
     expect(toolEnds(confined.r).map((e) => e.ok)).toEqual([true, false, true]);
     expect(toolEnds(confined.r)[1]!.error).toContain('Operation not permitted');
@@ -662,7 +662,7 @@ describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the r
     expect(toolEnds(xai.r).filter((e) => e.ok)).toHaveLength(5);
   });
 
-  it('shows a provider’s own web search, a fetch and a search, which read-only runs', async () => {
+  it.skipIf(process.platform === 'win32')('shows a provider’s own web search, a fetch and a search, which read-only runs', async () => {
     const web = await turn('native-web-search-openai', { permission: 'read-only' }, () => ({ allow: false }));
     expect(toolStarts(web.r)).toEqual([{ type: 'tool_start', id: expect.stringMatching(/^ws_/), name: 'web_search' }]);
     expect(toolEnds(web.r)[0]).toMatchObject({ ok: true, detail: 'https://example.com/' });
@@ -674,27 +674,27 @@ describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the r
     expect(toolStarts(search.r)[0]).toMatchObject({ name: 'search_codebase', detail: 'created' });
   });
 
-  it('streams its thinking with --thinking for the effort', async () => {
+  it.skipIf(process.platform === 'win32')('streams its thinking with --thinking for the effort', async () => {
     const { r } = await turn('thinking-anthropic', { model: 'anthropic/claude-haiku-5-5', effort: 'low' });
     expect(started(r).argv).toEqual(['--acp', '--auto-approve', 'true', '--thinking', 'low']);
     expect(r.events.filter((e) => e.type === 'thinking').length).toBeGreaterThan(0);
     expect(texts(r)).toBe('$0.05');
   });
 
-  it('uses the tool library’s MCP servers from its settings file', async () => {
+  it.skipIf(process.platform === 'win32')('uses the tool library’s MCP servers from its settings file', async () => {
     const { r } = await turn('mcp-settings-file-openai', { permission: 'edit' }, () => ({ allow: false }));
     expect(r.approvals).toEqual([]);
     expect(toolStarts(r)[0]).toMatchObject({ name: 'relayecho__relay_echo' });
     expect(toolEnds(r)[0]).toMatchObject({ ok: true, output: 'echo: ping' });
   });
 
-  it('always approves with full access: calls come as tool_call only', async () => {
+  it.skipIf(process.platform === 'win32')('always approves with full access: calls come as tool_call only', async () => {
     const { r } = await turn('auto-approve-openai');
     expect(started(r).argv).toEqual(['--acp', '--auto-approve', 'true']);
     expect(toolEnds(r)).toEqual([{ type: 'tool_end', id: 'call_BPiOripieFXcrWkfheRfFk12', ok: true, output: 'auto-5' }]);
   });
 
-  it('stops when asked, mid-reply', async () => {
+  it.skipIf(process.platform === 'win32')('stops when asked, mid-reply', async () => {
     const r = run({ FAKE_CLINE_FIXTURE: fixture('cancel-openai') });
     r.o.onEvent = (e) => {
       r.events.push(e);
@@ -704,7 +704,7 @@ describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the r
     expect(sent(r, 'session/cancel')).toHaveLength(1);
   });
 
-  it('answers a pending permission request cancelled when stopped, so the turn ends at once', async () => {
+  it.skipIf(process.platform === 'win32')('answers a pending permission request cancelled when stopped, so the turn ends at once', async () => {
     let asked = 0;
     const r = run({ FAKE_CLINE_FIXTURE: fixture('cancel-during-permission-openai') }, { permission: 'read-only' }, () => {
       asked++;
@@ -718,7 +718,7 @@ describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the r
     expect(Date.now() - t0).toBeLessThan(2000);
   });
 
-  it('resumes with session/load and leaves out the history it replays', async () => {
+  it.skipIf(process.platform === 'win32')('resumes with session/load and leaves out the history it replays', async () => {
     const r = run({ FAKE_CLINE_FIXTURE: fixture('resume-load-openai') }, { sessionId: '1794315049137_s9pAA_cli', prompt: 'What did I ask?' });
     // The record has the earlier turns' usage: this turn reports its own part.
     const file = clineSessionFile(join(r.home, 'private', STATE_KEY, 'data'), '1794315049137_s9pAA_cli');
@@ -731,13 +731,13 @@ describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the r
     expect(result).toEqual({ sessionId: '1794315049137_s9pAA_cli', inputTokens: 505, outputTokens: 2, costUsd: 0.00065125 });
   });
 
-  it('fails before saying anything when the session is gone, so a fresh one gets the history', async () => {
+  it.skipIf(process.platform === 'win32')('fails before saying anything when the session is gone, so a fresh one gets the history', async () => {
     const r = run({ FAKE_CLINE_FIXTURE: fixture('resume-unknown-id-openai') }, { sessionId: '1794315049137_nopeX_cli' });
     await expect(withLang('en', () => acpTurn(r.o, clineAcp, deps()))).rejects.toThrow(/Cline could not resume the earlier session: Resource not found: 1794315049137_nopeX_cli/);
     expect(r.events.filter((e) => e.type !== 'session')).toEqual([]);
   });
 
-  it('says what to do about a bad key, a bad model or an endpoint it cannot reach', async () => {
+  it.skipIf(process.platform === 'win32')('says what to do about a bad key, a bad model or an endpoint it cannot reach', async () => {
     const r1 = run({ FAKE_CLINE_FIXTURE: fixture('bad-key-openai') });
     await expect(withLang('en', () => acpTurn(r1.o, clineAcp, deps()))).rejects.toThrow(/^The model backend "openai" refused Cline's API key: Incorrect API key provided/);
     const r2 = run({ FAKE_CLINE_FIXTURE: fixture('bad-model-openai') }, { model: 'openai/gpt-nonexistent-9' });
@@ -752,19 +752,19 @@ describe.skipIf(process.platform === 'win32')('a whole turn, replayed from the r
     await expect(withLang('en', () => acpTurn(r5.o, clineAcp, deps()))).rejects.toThrow(/Authentication required: Call authenticate before starting a session/);
   });
 
-  it('fails with the end of what it said when it exits in the middle of the prompt', async () => {
+  it.skipIf(process.platform === 'win32')('fails with the end of what it said when it exits in the middle of the prompt', async () => {
     const r = run({ FAKE_CLINE_FIXTURE: fixture('text-openai'), FAKE_CLINE_EXIT_ON: 'session/prompt' });
     await expect(withLang('en', () => acpTurn(r.o, clineAcp, deps()))).rejects.toThrow(/crashed on session\/prompt/);
   });
 
-  it('reports no usage when its record does not change', async () => {
+  it.skipIf(process.platform === 'win32')('reports no usage when its record does not change', async () => {
     const { result } = await turn('text-xai', { model: 'xai/grok-4.20-0309-non-reasoning' }, undefined, { FAKE_CLINE_USAGE: '' });
     expect(result).toEqual({ sessionId: expect.any(String) });
   }, 10_000);
 });
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('its catalog and what it loads by itself', () => {
+describe('its catalog and what it loads by itself', () => {
   it('reads each provider’s models from session/new, as <backend>/<model>', () => {
     const openai = parseClineCatalog('openai', newSession('initialize-session-new-openai'));
     expect(openai.models).toContainEqual({ id: 'openai/gpt-5.4-mini', label: 'GPT-5.4 mini · gpt-5.4-mini' });
@@ -777,7 +777,7 @@ describe.skipIf(process.platform === 'win32')('its catalog and what it loads by 
     expect(parseClineCatalog('xai', { models: { currentModelId: 'gone', availableModels: [{ modelId: 'same', name: 'same' }] } })).toEqual({ models: [{ id: 'xai/same' }] });
   });
 
-  it('asks Cline for each API backend’s catalog with a placeholder key, and picks the default of a configured one', async () => {
+  it.skipIf(process.platform === 'win32')('asks Cline for each API backend’s catalog with a placeholder key, and picks the default of a configured one', async () => {
     const home = join(root, 'catalog-home');
     const log = join(root, 'catalog.jsonl');
     const env = openHomeEnv(clineAcp, {
@@ -799,7 +799,7 @@ describe.skipIf(process.platform === 'win32')('its catalog and what it loads by 
     expect(JSON.parse(readFileSync(join(home, 'config', 'mcp.json'), 'utf8'))).toEqual({ mcpServers: {} });
   });
 
-  it('says why a provider’s catalog could not be read, and has no default without a key', async () => {
+  it.skipIf(process.platform === 'win32')('says why a provider’s catalog could not be read, and has no default without a key', async () => {
     const home = join(root, 'catalog-home-2');
     const env = openHomeEnv(clineAcp, {
       PATH: process.env.PATH,
@@ -854,7 +854,7 @@ describe.skipIf(process.platform === 'win32')('its catalog and what it loads by 
     expect(bare.plugins).toEqual([{ name: '' }]);
   });
 
-  it('asks `cline config <kind> --json` for each kind, in its home, and says what it could not list', async () => {
+  it.skipIf(process.platform === 'win32')('asks `cline config <kind> --json` for each kind, in its home, and says what it could not list', async () => {
     const home = join(root, 'native-home');
     const env = openHomeEnv(clineAcp, { PATH: process.env.PATH, [OPEN_AGENT_HOME_ENV]: home, FAKE_CLINE_NATIVE_DIR: join(FIX, 'native'), FAKE_CLINE_LOG: join(root, 'native.jsonl'), OPENAI_API_KEY: 'sk-real', CLINE_HUB_PORT: '1' });
     const cwd = mkdtempSync(join(root, 'native-cwd-'));
@@ -898,7 +898,7 @@ describe.skipIf(process.platform === 'win32')('its catalog and what it loads by 
     expect(marked.plugins!.map((x) => Boolean(x.leftOut))).toEqual([false, true, false]);
   });
 
-  it('shows skills left out in Settings when the runs leave them out, though `cline config` lists them', async () => {
+  it.skipIf(process.platform === 'win32')('shows skills left out in Settings when the runs leave them out, though `cline config` lists them', async () => {
     const home = join(root, 'native-off-home');
     const env = { PATH: process.env.PATH, [OPEN_AGENT_HOME_ENV]: home, FAKE_CLINE_NATIVE_DIR: join(FIX, 'native') };
     const cwd = mkdtempSync(join(root, 'native-off-cwd-'));

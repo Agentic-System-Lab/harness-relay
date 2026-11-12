@@ -3,8 +3,8 @@
  * browser page signed in to it, with the guided tour already done and the UI in English.
  *
  * Options (`test.use({ … })`): `lang` ('en' | 'zh-TW'), `signIn` (false: the page is left on no
- * page, signed out), `tour` (true: the guided tour is not marked done) and `serverEnv` (more
- * environment for the server and the CLIs it starts).
+ * page, signed out), `tour` (true: the guided tour is not marked done), `serverEnv` (more
+ * environment for the server and the CLIs it starts) and `live` (the real CLIs: `e2e/live/`).
  */
 import { test as base, expect } from '@playwright/test';
 import { installFakeClis } from './support/fake-cli';
@@ -18,6 +18,8 @@ interface TestFixtures {
   signIn: boolean;
   tour: boolean;
   serverEnv: Record<string, string>;
+  /** The real CLIs as the user signed them in, on real models (`e2e/live/`, `startRelay`'s `live`). */
+  live: boolean;
 }
 
 interface WorkerFixtures {
@@ -29,11 +31,12 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   signIn: [true, { option: true }],
   tour: [false, { option: true }],
   serverEnv: [{}, { option: true }],
+  live: [false, { option: true }],
 
   fakeBinDir: [async ({}, use) => use(process.env.E2E_FAKE_BIN_DIR || (await installFakeClis())), { scope: 'worker' }],
 
-  relay: async ({ fakeBinDir, serverEnv }, use, testInfo) => {
-    const relay = await startRelay({ fakeBinDir, env: serverEnv });
+  relay: async ({ fakeBinDir, serverEnv, live }, use, testInfo) => {
+    const relay = await startRelay({ fakeBinDir, env: serverEnv, live });
     try {
       await use(relay);
     } finally {

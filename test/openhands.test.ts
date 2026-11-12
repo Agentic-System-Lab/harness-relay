@@ -840,7 +840,7 @@ describe('its errors', () => {
 });
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('its stored sessions', () => {
+describe('its stored sessions', () => {
   const dir = () => join(root, `session-${++n}`);
 
   it('reads the actions it would run on resume as OpenHands does: no answer after them, by action id or by call', () => {
@@ -895,7 +895,7 @@ describe.skipIf(process.platform === 'win32')('its stored sessions', () => {
     expect(() => openhandsAcp.endTurn!(undefined, ctx, id)).not.toThrow();
   });
 
-  it('a log OpenHands alone would not have written is not read: its actions are not known', () => {
+  it.skipIf(process.platform === 'win32')('a log OpenHands alone would not have written is not read: its actions are not known', () => {
     const odd = (change: (d: string, names: string[]) => void, base?: unknown) => {
       const d = dir();
       const names = writeLog(d, [...ev.start, ev.act('a1', 'c1', 'ls')], base);
@@ -991,7 +991,7 @@ describe.skipIf(process.platform === 'win32')('its stored sessions', () => {
     expect(openhandsDecide('full', info([ls]))).toBeUndefined();
   });
 
-  it('a batch refused by itself: each row says why, its own reason or that another call held the batch back', async () => {
+  it.skipIf(process.platform === 'win32')('a batch refused by itself: each row says why, its own reason or that another call held the batch back', async () => {
     // The recording with its second call made harmless (python3 calc.py), and no one to ask (refuse automatically).
     const text = readFileSync(join(FIXTURES, 'batch-of-two-publishes-anthropic.jsonl'), 'utf8').replaceAll('npm publish --dry-run', 'python3 calc.py');
     const fixture = join(root, 'push-and-calc.jsonl');
@@ -1012,7 +1012,7 @@ describe.skipIf(process.platform === 'win32')('its stored sessions', () => {
     expect(openhandsDecide('edit', { kind: 'other', title: 'x', calls: [{ kind: 'other', tool: 'task', id: 's1' }] })).not.toHaveProperty('labels');
   });
 
-  it('a request that comes before its tool calls are announced: the card shows the stored actions, and the user decides', async () => {
+  it.skipIf(process.platform === 'win32')('a request that comes before its tool calls are announced: the card shows the stored actions, and the user decides', async () => {
     // The recording with its permission request moved before the two tool calls it is about.
     const lines = readFileSync(join(FIXTURES, 'batch-of-two-publishes-anthropic.jsonl'), 'utf8').split('\n').filter(Boolean);
     const isCall = (l: string) => (JSON.parse(l) as any).msg?.params?.update?.sessionUpdate === 'tool_call';
@@ -1035,7 +1035,7 @@ describe.skipIf(process.platform === 'win32')('its stored sessions', () => {
     expect(t.log().find((m) => m.method === undefined && m.result?.outcome)!.result.outcome.optionId).toBe('accept');
   });
 
-  it('a turn whose request covers an action it did not announce asks, even when the announced ones are always allowed', async () => {
+  it.skipIf(process.platform === 'win32')('a turn whose request covers an action it did not announce asks, even when the announced ones are always allowed', async () => {
     const rules = [{ kind: 'command' as const, key: 'git push' }, { kind: 'command' as const, key: 'npm publish' }];
     const sid = '22367af6-32f9-473a-964a-f7290d015b97'; // the recording's session
     const stored = [ev.act('p1', 'toolu_01AgG3JEa6vcRsL7DTkKmFi3', 'git push origin HEAD:main --dry-run'), ev.act('p2', 'toolu_01AmsqFSH4fek19LTsJCAdun', 'npm publish --dry-run')];
@@ -1055,8 +1055,8 @@ describe.skipIf(process.platform === 'win32')('its stored sessions', () => {
 });
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI', () => {
-  it('a text turn on each backend: one prompt, its system-prompt thought dropped, the turn\'s usage', async () => {
+describe('turns replayed from the real CLI', () => {
+  it.skipIf(process.platform === 'win32')('a text turn on each backend: one prompt, its system-prompt thought dropped, the turn\'s usage', async () => {
     for (const [fixture, model, input, output, cost] of [
       ['text-anthropic', 'anthropic/claude-haiku-5-5', 22309, 4, 0.0022329],
       ['text-openai', 'openai/gpt-5.4-nano', 13582, 5, 0.00272265],
@@ -1079,7 +1079,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     }
   });
 
-  it('sets every variable it relies on, the key for the run, and empties those a project .env could set', async () => {
+  it.skipIf(process.platform === 'win32')('sets every variable it relies on, the key for the run, and empties those a project .env could set', async () => {
     const t = turn('text-vllm', { model: 'homelab/muse-glimmer-30b-nvfp4' });
     await play(t);
     const env = started(t).env;
@@ -1106,7 +1106,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(readdirSync(join(t.home, 'private', STATE_KEY))).toEqual(['conversations']);
   });
 
-  it('edit: reads, edits and commands run without asking; the rows show the tools, their paths and outputs', async () => {
+  it.skipIf(process.platform === 'win32')('edit: reads, edits and commands run without asking; the rows show the tools, their paths and outputs', async () => {
     const t = turn('read-edit-bash-allowed-vllm', { model: 'homelab/muse-glimmer-30b-nvfp4', permission: 'edit' }, () => ({ allow: false }));
     await play(t);
     expect(t.approvals).toEqual([]);
@@ -1137,7 +1137,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(started(t).env.TMUX_TMPDIR).toBeUndefined();
   });
 
-  it("below full access, without the user's switch, it does not start where the sandbox needs one (macOS)", async () => {
+  it.skipIf(process.platform === 'win32')("below full access, without the user's switch, it does not start where the sandbox needs one (macOS)", async () => {
     const t = turn('read-edit-bash-allowed-vllm', { model: 'homelab/muse-glimmer-30b-nvfp4', permission: 'edit', sandboxTerminal: false });
     if (openhandsNeedsTerminalSwitch(process.platform)) {
       await expect(withLang('en', () => play(t))).rejects.toThrow(/turn on "Let OpenHands use a terminal in the sandbox/);
@@ -1149,7 +1149,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     }
   });
 
-  it('read-only: a read runs, an edit and a command go to the user, and the card says the sandbox still refuses writes', async () => {
+  it.skipIf(process.platform === 'win32')('read-only: a read runs, an edit and a command go to the user, and the card says the sandbox still refuses writes', async () => {
     const t = turn('read-edit-bash-allowed-vllm', { model: 'homelab/muse-glimmer-30b-nvfp4', permission: 'read-only' }, (req) => ({ allow: req.kind === 'edit' }));
     await play(t);
     expect(t.approvals).toEqual([
@@ -1160,7 +1160,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(answers.map((m) => m.result.outcome.optionId)).toEqual(['accept', 'accept', 'reject']);
   });
 
-  it('a declined call: its row shows the refusal (with the note), and the turn goes on', async () => {
+  it.skipIf(process.platform === 'win32')('a declined call: its row shows the refusal (with the note), and the turn goes on', async () => {
     const t = turn('permission-rejected-vllm', { model: 'homelab/muse-glimmer-30b-nvfp4', permission: 'read-only' }, () => ({ allow: false, note: 'use greet.txt' }));
     await withLang('en', () => play(t));
     expect(t.approvals).toHaveLength(1);
@@ -1170,13 +1170,13 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(answer!.result).toEqual({ outcome: { outcome: 'selected', optionId: 'reject' } });
   });
 
-  it('refused automatically when the conversation does not ask', async () => {
+  it.skipIf(process.platform === 'win32')('refused automatically when the conversation does not ask', async () => {
     const t = turn('permission-rejected-vllm', { model: 'homelab/muse-glimmer-30b-nvfp4', permission: 'read-only' });
     await withLang('en', () => play(t));
     expect(t.events.find((e) => e.type === 'tool_end')).toMatchObject({ ok: false, error: 'Not allowed in read-only mode; OpenHands was told to use tools that only read' });
   });
 
-  it('a subagent is refused below full access without asking the user', async () => {
+  it.skipIf(process.platform === 'win32')('a subagent is refused below full access without asking the user', async () => {
     const t = turn('subagent-runs-unasked-anthropic', { permission: 'edit' }, () => ({ allow: true }));
     await withLang('en', () => play(t));
     expect(t.approvals).toEqual([]);
@@ -1184,7 +1184,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(answer!.result.outcome.optionId).toBe('reject');
   });
 
-  it('its plan comes as plan updates; the task_tracker calls are not rows', async () => {
+  it.skipIf(process.platform === 'win32')('its plan comes as plan updates; the task_tracker calls are not rows', async () => {
     const t = turn('plan-anthropic', { permission: 'read-only' }, () => ({ allow: false }));
     await play(t);
     expect(t.approvals).toEqual([]); // planning only reads
@@ -1195,7 +1195,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     ]);
   });
 
-  it('a failing tool is a failed row, from its observation; its reasoning is thinking', async () => {
+  it.skipIf(process.platform === 'win32')('a failing tool is a failed row, from its observation; its reasoning is thinking', async () => {
     const t = turn('tool-failure-and-thinking-xai', { model: 'xai/grok-4.3' });
     await play(t);
     const ends = t.events.filter((e) => e.type === 'tool_end');
@@ -1210,7 +1210,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(escape.events.filter((e) => e.type === 'tool_end').map((e) => (e as { ok: boolean }).ok)).toEqual([true, false, false, false, false]);
   });
 
-  it("a reply's reasoning header and a finish call's rendering are taken off the text", async () => {
+  it.skipIf(process.platform === 'win32')("a reply's reasoning header and a finish call's rendering are taken off the text", async () => {
     const t = turn('thinking-openai-responses', { model: 'openai/gpt-5.4-nano' });
     await play(t);
     expect(t.events.filter((e) => e.type === 'text')).toEqual([{ type: 'text', text: 'The ball costs **$0.05**.' }]);
@@ -1219,14 +1219,14 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect((finish.events.filter((e) => e.type === 'text').at(-1) as { text: string }).text).toMatch(/^I stopped at step 2\./);
   });
 
-  it('the tool library goes into mcp.json, not into session/new; its tool call is a row', async () => {
+  it.skipIf(process.platform === 'win32')('the tool library goes into mcp.json, not into session/new; its tool call is a row', async () => {
     const t = turn('mcp-stdio-anthropic', { mcpServers: [{ name: 'relay', transport: 'stdio', command: 'node', args: ['echo.mjs'], env: {}, url: '', headers: {} }] });
     await play(t);
     expect(sent(t, 'session/new')[0]!.params.mcpServers).toEqual([]);
     expect(t.events.filter((e) => e.type === 'tool_end')).toEqual([{ type: 'tool_end', id: 'toolu_01XFfMYR2f5JEjzAGjYnnur2', ok: true, output: expect.stringContaining('echo:abc') }]);
   });
 
-  it('resumes with session/load: the replayed history is not shown, the usage is the turn\'s alone', async () => {
+  it.skipIf(process.platform === 'win32')('resumes with session/load: the replayed history is not shown, the usage is the turn\'s alone', async () => {
     const id = '848bdc7f-74c6-47b7-af8d-cd9c51802610';
     const t = turn('resume-load-vllm', { model: 'homelab/muse-glimmer-30b-nvfp4', sessionId: id, prompt: 'What exact word did you reply with?' });
     const dir = openhandsSessionDir(join(t.home, 'private', STATE_KEY, 'conversations'), id);
@@ -1240,7 +1240,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(result).toEqual({ sessionId: id, inputTokens: 28558 - 14263, outputTokens: 5 });
   });
 
-  it('a batch of two calls asks about both, even with one of them always allowed; the answer covers both', async () => {
+  it.skipIf(process.platform === 'win32')('a batch of two calls asks about both, even with one of them always allowed; the answer covers both', async () => {
     const rules = [{ kind: 'command' as const, key: 'git push' }];
     const t = turn('batch-of-two-publishes-anthropic', { permission: 'edit' }, (req) => ({ allow: isAllowed(rules, req.kind, approvalKeys(req.kind, req.command ?? req.detail, req.tool)) }));
     await withLang('en', () => play(t));
@@ -1260,7 +1260,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(t2.log().find((m) => m.method === undefined && m.result?.outcome)!.result.outcome.optionId).toBe('accept');
   });
 
-  it('a permission request with no call announced before it (an action left waiting) is never allowed by itself', async () => {
+  it.skipIf(process.platform === 'win32')('a permission request with no call announced before it (an action left waiting) is never allowed by itself', async () => {
     const id = 'bf00c3de-f844-4296-8e95-21ddede2b14b';
     const resumed = (over: Partial<RunOptions>, answer?: (req: ApprovalRequest) => ApprovalAnswer) => {
       const t = turn('pending-approval-resumed-anthropic', { permission: 'edit', sessionId: id, prompt: 'Hello again', ...over }, answer);
@@ -1278,7 +1278,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(refused.log().find((m) => m.method === undefined && m.result?.outcome)!.result.outcome.optionId).toBe('reject');
   });
 
-  it('actions an earlier turn left (stopped, or cut off waiting for an answer) are rejected before the session resumes', async () => {
+  it.skipIf(process.platform === 'win32')('actions an earlier turn left (stopped, or cut off waiting for an answer) are rejected before the session resumes', async () => {
     const id = '2b15a51a-1d7a-4bef-a5c7-de4c064eefbe';
     const left = (t: Turn) => {
       const dir = openhandsSessionDir(join(t.home, 'private', STATE_KEY, 'conversations'), id);
@@ -1317,7 +1317,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(t.log()).toEqual([]);
   });
 
-  it('bad key, missing key and bad model: what the user can do, without its error notice in the reply', async () => {
+  it.skipIf(process.platform === 'win32')('bad key, missing key and bad model: what the user can do, without its error notice in the reply', async () => {
     const bad = turn('bad-key-vllm', { model: 'homelab/muse-glimmer-30b-nvfp4' });
     await expect(withLang('en', () => play(bad))).rejects.toThrow('Homelab refused the API key OpenHands used (401). Check the key under Settings → Model backends.');
     expect(bad.events.filter((e) => e.type === 'text')).toEqual([]);
@@ -1332,7 +1332,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     await expect(withLang('en', () => play(terminal))).rejects.toThrow(/^OpenHands could not start its terminal \(tmux\): new-session: error creating/);
   });
 
-  it('cancel: session/cancel, then the process is stopped (OpenHands would wait for the command, and never exits by itself)', async () => {
+  it.skipIf(process.platform === 'win32')('cancel: session/cancel, then the process is stopped (OpenHands would wait for the command, and never exits by itself)', async () => {
     const t = turn('cancel-during-command-anthropic', {}, undefined, { REPLAY_WAIT_CANCEL: '1', REPLAY_STALL_AFTER_CANCEL: '1' });
     const p = withLang('en', () => play(t));
     const until = Date.now() + 15000;
@@ -1345,7 +1345,7 @@ describe.skipIf(process.platform === 'win32')('turns replayed from the real CLI'
     expect(t.events.filter((e) => e.type === 'tool_end')).toEqual([{ type: 'tool_end', id: 'toolu_01GPZPF3HfUPbUF9zxPHDdeF', ok: false, error: 'Did not finish' }]);
   }, 20000);
 
-  it('a cancel the command outlives is still a stopped turn when OpenHands answers it', async () => {
+  it.skipIf(process.platform === 'win32')('a cancel the command outlives is still a stopped turn when OpenHands answers it', async () => {
     const t = turn('cancel-during-command-anthropic', {}, undefined, { REPLAY_WAIT_CANCEL: '1' });
     const p = play(t);
     const until = Date.now() + 15000;

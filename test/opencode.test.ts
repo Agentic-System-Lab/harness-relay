@@ -198,8 +198,8 @@ const textOf = (r: Turn) =>
     .join('');
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the real CLI', () => {
-  it('runs a text turn on an endpoint: its model as relay-<id>, thinking and text, tokens', async () => {
+describe('OpenCode turns replayed from the real CLI', () => {
+  it.skipIf(process.platform === 'win32')('runs a text turn on an endpoint: its model as relay-<id>, thinking and text, tokens', async () => {
     const r = turn('text-only', { model: 'homelab/muse-glimmer-30b-nvfp4' });
     const result = await runTurn(r);
     expect(result).toEqual({ sessionId: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2', inputTokens: 7721, outputTokens: 52, costUsd: 0 });
@@ -245,7 +245,7 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     }
   });
 
-  it('read-only: asks about the write and the command, never does fs/write_text_file, shows each call', async () => {
+  it.skipIf(process.platform === 'win32')('read-only: asks about the write and the command, never does fs/write_text_file, shows each call', async () => {
     const r = turn('read-write-bash-permission-allowed', { permission: 'read-only', model: 'homelab/muse-glimmer-30b-nvfp4' }, () => ({ allow: true }));
     await runTurn(r);
     expect(r.approvals).toEqual([
@@ -281,7 +281,7 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(config.agent.title).toEqual({ disable: true });
   });
 
-  it('read-only, declined with a note: refuses with reject_once, the reason going through its server, not in the answer', async () => {
+  it.skipIf(process.platform === 'win32')('read-only, declined with a note: refuses with reject_once, the reason going through its server, not in the answer', async () => {
     const r = turn('permission-rejected-turn-ends', { permission: 'read-only', model: 'homelab/muse-glimmer-30b-nvfp4' }, () => ({ allow: false, note: 'not now' }));
     await withLang('en', () => runTurn(r));
     expect(r.approvals).toHaveLength(1);
@@ -290,7 +290,7 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(end.error).toBe(`${withLang('en', () => t().approvalDeclined)} not now`);
   });
 
-  it('full access on Anthropic: no approvals, model then effort set in its order, the cost of the turn', async () => {
+  it.skipIf(process.platform === 'win32')('full access on Anthropic: no approvals, model then effort set in its order, the cost of the turn', async () => {
     const r = turn('anthropic-read-write-bash', { effort: 'low' });
     const result = await runTurn(r);
     expect(r.approvals).toEqual([]);
@@ -305,7 +305,7 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(config.provider).toBeUndefined();
   });
 
-  it('OpenAI: its apply_patch row says the file it adds', async () => {
+  it.skipIf(process.platform === 'win32')('OpenAI: its apply_patch row says the file it adds', async () => {
     const r = turn('openai-read-applypatch-bash', { model: 'openai/gpt-6-luna', effort: 'low' });
     await runTurn(r);
     const patch = tools(r).find((e) => e.type === 'tool_end' && e.id === 'call_YgrjV0eZoUW0kxgnn42ju2LF');
@@ -313,14 +313,14 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(sent(r, 'session/set_config_option').map((m) => m.params.value)).toEqual(['openai/gpt-6-luna', 'low']);
   });
 
-  it('xAI: thinking, then its tools', async () => {
+  it.skipIf(process.platform === 'win32')('xAI: thinking, then its tools', async () => {
     const r = turn('xai-read-write-bash-thinking', { model: 'xai/grok-4.3', effort: 'low' });
     await runTurn(r);
     expect(r.events.filter((e) => e.type === 'thinking').length).toBeGreaterThan(0);
     expect(tools(r).filter((e) => e.type === 'tool_end').map((e) => (e as any).ok)).toEqual([true, true, true]);
   });
 
-  it('turns its todowrite calls into the plan, without rows', async () => {
+  it.skipIf(process.platform === 'win32')('turns its todowrite calls into the plan, without rows', async () => {
     const r = turn('todo-plan');
     await runTurn(r);
     expect(tools(r)).toEqual([]);
@@ -330,14 +330,14 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     ]);
   });
 
-  it('streams thinking at a high effort', async () => {
+  it.skipIf(process.platform === 'win32')('streams thinking at a high effort', async () => {
     const r = turn('thinking', { effort: 'high' });
     await runTurn(r);
     expect(r.events.filter((e) => e.type === 'thinking').length).toBeGreaterThan(3);
     expect(sent(r, 'session/set_config_option').map((m) => m.params.configId)).toEqual(['model', 'effort']);
   });
 
-  it('edit: edits and commands run without asking, each allowed once (never "always")', async () => {
+  it.skipIf(process.platform === 'win32')('edit: edits and commands run without asking, each allowed once (never "always")', async () => {
     const r = turn('edit-diff-bash-exit1-always', { permission: 'edit' }, () => ({ allow: false }));
     await runTurn(r);
     expect(r.approvals).toEqual([]);
@@ -348,20 +348,20 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(config.permission).toMatchObject({ '*': 'ask', edit: 'allow', task: 'deny' });
   });
 
-  it('edit: a push asks the user; declined, it is refused', async () => {
+  it.skipIf(process.platform === 'win32')('edit: a push asks the user; declined, it is refused', async () => {
     const r = turn('edit-mode-config', { permission: 'edit' }, () => ({ allow: false }));
     await runTurn(r);
     expect(r.approvals).toEqual([{ kind: 'command', detail: 'git push origin main', reason: 'git push origin main' }]);
     expect(answers(r).map((x) => x.result?.outcome?.optionId)).toEqual(['reject', 'once']);
   });
 
-  it('watches its own server below full access, with the run\'s password', async () => {
+  it.skipIf(process.platform === 'win32')('watches its own server below full access, with the run\'s password', async () => {
     const r = turn('edit-mode-config', { permission: 'edit' }, () => ({ allow: true }));
     await runTurn(r);
     expect(r.log().filter((m) => m.http)).toContainEqual({ http: 'GET /global/event', auth: true });
   });
 
-  it('ends a turn quietly: its stream resetting while the process exits is no security event (ended or stopped)', async () => {
+  it.skipIf(process.platform === 'win32')('ends a turn quietly: its stream resetting while the process exits is no security event (ended or stopped)', async () => {
     const quiet = async (r: Turn) => {
       r.o.env.FAKE_OC_SLOW_EXIT = String(WATCH_CLOSE_GRACE_MS + 500); // the stream resets at once; the exit comes after the grace
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -386,7 +386,7 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(sent(stopped, 'session/cancel')).toHaveLength(1);
   });
 
-  it('ends the run with a security error when something else drives its server', async () => {
+  it.skipIf(process.platform === 'win32')('ends the run with a security error when something else drives its server', async () => {
     const replied = { type: 'permission.replied', properties: { sessionID: 'ses_x', requestID: 'per_foreign', reply: 'once' } };
     const r = turn('edit-mode-config', { permission: 'edit' }, () => ({ allow: true }));
     r.o.env.FAKE_OC_FOREIGN = JSON.stringify(replied);
@@ -398,7 +398,7 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(sent(r, 'session/cancel')).toHaveLength(1);
   });
 
-  it('does not run below full access when its server cannot be watched', async () => {
+  it.skipIf(process.platform === 'win32')('does not run below full access when its server cannot be watched', async () => {
     const r = turn('edit-mode-config', { permission: 'edit' });
     r.o.env.FAKE_OC_NO_EVENTS = '1';
     const err = (await withLang('en', () => runTurn(r)).catch((e: unknown) => e)) as AgentRunError;
@@ -406,13 +406,13 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(sent(r, 'session/prompt')).toEqual([]);
   });
 
-  it('read-only without asking the user (approvals refused): refused at once', async () => {
+  it.skipIf(process.platform === 'win32')('read-only without asking the user (approvals refused): refused at once', async () => {
     const r = turn('edit-mode-config', { permission: 'read-only' });
     await runTurn(r);
     expect(answers(r).map((x) => x.result?.outcome?.optionId)).toEqual(['reject', 'reject']);
   });
 
-  it('stops: session/cancel, and the turn ends as stopped', async () => {
+  it.skipIf(process.platform === 'win32')('stops: session/cancel, and the turn ends as stopped', async () => {
     const r = turn('cancel-then-next-prompt', { onEvent: (e) => (r.events.push(e), e.type === 'text' && r.abort.abort()) });
     const err = await runTurn(r).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AgentRunError);
@@ -420,7 +420,7 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(sent(r, 'session/cancel')).toHaveLength(1);
   });
 
-  it('resumes with session/resume, and counts only this turn of the session cost', async () => {
+  it.skipIf(process.platform === 'win32')('resumes with session/resume, and counts only this turn of the session cost', async () => {
     const r = turn('resume-3-session-resume', { sessionId: 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO', effort: 'low' });
     writeSessionCost(r.home, 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO', 0.0001);
     const result = await runTurn(r);
@@ -431,20 +431,20 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(readSessionCost(r.home, 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO')).toBe(0.00036044);
   });
 
-  it('a session it cannot resume fails before anything is said, without its error data', async () => {
+  it.skipIf(process.platform === 'win32')('a session it cannot resume fails before anything is said, without its error data', async () => {
     const r = turn('resume-5-resume-unknown-id', { sessionId: 'ses_doesnotexist000000000000' });
     const err = (await withLang('en', () => runTurn(r)).catch((e: unknown) => e)) as AgentRunError;
     expect(err.message).toBe(withLang('en', () => t().openResumeFailed('OpenCode', 'Internal error: OpenCode service failure')));
     expect(r.events).toEqual([]);
   });
 
-  it('a bad key: the backend error, with where to fix it', async () => {
+  it.skipIf(process.platform === 'win32')('a bad key: the backend error, with where to fix it', async () => {
     const r = turn('bad-key');
     const err = (await withLang('en', () => runTurn(r)).catch((e: unknown) => e)) as AgentRunError;
     expect(err.message).toBe(withLang('en', () => t().opencodeBackendError('Anthropic', 'invalid x-api-key')));
   });
 
-  it('a model OpenCode does not know: refused when it is set', async () => {
+  it.skipIf(process.platform === 'win32')('a model OpenCode does not know: refused when it is set', async () => {
     const r = turn('bad-model-config-option', { model: 'anthropic/claude-nonexistent-9' });
     const err = (await withLang('en', () => runTurn(r)).catch((e: unknown) => e)) as AgentRunError;
     expect(err.message).toBe(
@@ -453,7 +453,7 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(sent(r, 'session/prompt')).toEqual([]);
   });
 
-  it("a model the endpoint does not have: the endpoint's answer", async () => {
+  it.skipIf(process.platform === 'win32')("a model the endpoint does not have: the endpoint's answer", async () => {
     const r = turn('bad-model-endpoint', { model: 'homelab/no-such-model' });
     const err = (await withLang('en', () => runTurn(r)).catch((e: unknown) => e)) as AgentRunError;
     expect(err.message).toBe(withLang('en', () => t().opencodeBackendError('Homelab', 'The model `no-such-model` does not exist')));
@@ -461,7 +461,7 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(Object.keys(config.provider['relay-homelab'].models)).toEqual(['muse-glimmer-30b-nvfp4', 'no-such-model']);
   });
 
-  it("passes the tool library's MCP servers, stdio and HTTP", async () => {
+  it.skipIf(process.platform === 'win32')("passes the tool library's MCP servers, stdio and HTTP", async () => {
     const servers: McpServerSpec[] = [
       { name: 'relayecho', transport: 'stdio', command: 'node', args: ['echo.mjs'], url: '', env: { A: '1' }, headers: {} },
       { name: 'relayhttp', transport: 'http', command: '', args: [], url: 'http://127.0.0.1:18765/mcp', env: {}, headers: { 'x-relay-token': 'tok' } },
@@ -476,7 +476,7 @@ describe.skipIf(process.platform === 'win32')('OpenCode turns replayed from the 
     expect(r.approvals).toEqual([{ kind: 'other', tool: 'relayhttp_http_marker', reason: 'relayhttp_http_marker', readOnlySandbox: true }]);
   });
 
-  it('an MCP tool in edit runs without asking', async () => {
+  it.skipIf(process.platform === 'win32')('an MCP tool in edit runs without asking', async () => {
     const r = turn('mcp-stdio', { permission: 'edit' }, () => ({ allow: false }));
     await runTurn(r);
     expect(r.approvals).toEqual([]);
@@ -763,6 +763,15 @@ describe('prepare', () => {
     });
     expect(ctx.env.OPENCODE_SERVER_PASSWORD).toMatch(/^[A-Za-z0-9_-]{32}$/);
     expect(existsSync(join(ctx.home.root, 'config', 'opencode', '.gitignore'))).toBe(true);
+  });
+
+  it("keeps OpenCode's own shell on Windows, where relay-shell (a POSIX shell script) cannot run", async () => {
+    const posix = context({ permission: 'full' });
+    await prepareOpencode(posix, async () => 1);
+    expect(JSON.parse(posix.env.OPENCODE_CONFIG_CONTENT!).shell).toBe(join(opencodePaths(posix.home.root).configDir, OPENCODE_SHELL));
+    const windows: OpenRunContext = { ...context({ permission: 'full' }), platform: 'win32' };
+    await prepareOpencode(windows, async () => 1);
+    expect(JSON.parse(windows.env.OPENCODE_CONFIG_CONTENT!)).not.toHaveProperty('shell');
   });
 
   it('leaves out the instruction files when asked, has no briefing file without a briefing in full access, and no endpoint key on an API backend', async () => {
@@ -1439,7 +1448,7 @@ describe('usage and errors', () => {
 });
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
-describe.skipIf(process.platform === 'win32')('its catalog and what it loads by itself', () => {
+describe('its catalog and what it loads by itself', () => {
   const verbose = readFileSync(join(FIXTURES, 'cli', 'models-verbose.txt'), 'utf8');
 
   it("lists the API backends' models that call tools and answer in text, with their efforts", () => {
@@ -1475,7 +1484,7 @@ describe.skipIf(process.platform === 'win32')('its catalog and what it loads by 
     expect((await opencodeModels('opencode', { [OPEN_AGENT_HOME_ENV]: home }, async () => result({ code: 1 }))).error).toBe(t().exitedWithoutTurn('OpenCode', 1));
   });
 
-  it('reads its skills and subagents', () => {
+  it.skipIf(process.platform === 'win32')('reads its skills and subagents', () => {
     const skills = parseOpencodeSkills(readFileSync(join(FIXTURES, 'cli', 'debug-skill.json'), 'utf8'), '/home/user/project');
     expect(skills!.map((s) => [s.name, s.source, s.path])).toEqual([
       ['customize-opencode', 'built-in', undefined],
@@ -1520,7 +1529,7 @@ describe.skipIf(process.platform === 'win32')('its catalog and what it loads by 
     expect(silent.problems).toEqual([{ kind: 'no-answer', part: 'skills' }, { kind: 'no-answer', part: 'agents' }]);
   });
 
-  it('runs the real hooks against the fake CLI', async () => {
+  it.skipIf(process.platform === 'win32')('runs the real hooks against the fake CLI', async () => {
     const home = join(root, `hooks-${++n}`);
     const env = { PATH: process.env.PATH, [OPEN_AGENT_HOME_ENV]: home, FAKE_OC_CLI: join(FIXTURES, 'cli') };
     const cat = await opencodeAgent.models!(bin, env);

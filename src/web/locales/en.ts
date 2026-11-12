@@ -250,6 +250,7 @@ export const en: Messages = {
     modelIdPlaceholder: 'Model ID',
     effort: 'Reasoning effort',
     latest: 'latest',
+    endpointModels: 'Your own endpoints (Settings → Model backends)',
   },
 
   chat: {
@@ -1276,10 +1277,10 @@ export const en: Messages = {
     },
     ownEndpoint: {
       claude:
-        'Claude Code can also run on your own endpoint (Model backends): give a member one of its models, such as homelab/gemma4:e4b. The server must also serve the Anthropic Messages API (/v1/messages); Claude Code then needs no sign-in, and yours is not sent there.',
+        'Claude Code can also run on your own endpoint (Model backends): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must also serve the Anthropic Messages API (/v1/messages); Claude Code then needs no sign-in, and yours is not sent there.',
       codex:
-        'Codex can also run on your own endpoint (Model backends): give a member one of its models, such as homelab/gemma4:e4b. The server must also serve the Responses API (/v1/responses); Codex then needs no sign-in, and yours is not sent there. It sends only an effort every endpoint takes (none, low, medium, high), medium in place of another.',
-      grok: "Grok can also run on your own endpoint (Model backends): give a member one of its models, such as homelab/gemma4:e4b. The server must serve Chat Completions (/v1/chat/completions). Grok still needs its sign-in (or an API key) to start, but does not send it there; Harness Relay adds the endpoints' models to Grok's config.toml, hidden from Grok's own model picker. These models run without an effort.",
+        'Codex can also run on your own endpoint (Model backends): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must also serve the Responses API (/v1/responses); Codex then needs no sign-in, and yours is not sent there. It sends only an effort every endpoint takes (none, low, medium, high), medium in place of another.',
+      grok: "Grok can also run on your own endpoint (Model backends): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must serve Chat Completions (/v1/chat/completions). Grok still needs its sign-in (or an API key) to start, but does not send it there; Harness Relay adds the endpoints' models to Grok's config.toml, hidden from Grok's own model picker. These models run without an effort.",
     },
     apiKeyHelp: {
       claude: 'Once saved, Harness Relay passes ANTHROPIC_API_KEY when it starts Claude Code (API billing, which takes precedence over a subscription sign-in).',

@@ -85,6 +85,8 @@ export interface OpenRunContext {
   env: NodeJS.ProcessEnv;
   /** Below full access the process runs in the relay sandbox. */
   sandboxed: boolean;
+  /** The system it runs on (default: this one's). On Windows it runs only with full access. */
+  platform?: NodeJS.Platform;
   /**
    * This run's own temp folder (`TMPDIR`, `TMP` and `TEMP` in `env`), writable inside the sandbox and
    * removed after the run: `prepare` relocates or turns off the CLI's code-loading caches here.
@@ -471,7 +473,7 @@ export async function startOpenProcess(
     ...(sandboxed ? agent.proxyEnv : {}),
     ...Object.fromEntries((agent.emptyEnv ?? []).map((name) => [name, ''])),
   };
-  const ctx: OpenRunContext = { o, run, home, env, sandboxed, tmpDir, state: {} };
+  const ctx: OpenRunContext = { o, run, home, env, sandboxed, platform: deps.platform, tmpDir, state: {} };
   const cleanup = async () => {
     try {
       await agent.cleanup?.(ctx);

@@ -4,6 +4,7 @@ data/
 # The end-to-end tests' results and report (npm run test:e2e)
 test-results/
 playwright-report/
+playwright-report-live/
 *.log
 .DS_Store
 .impeccable/
