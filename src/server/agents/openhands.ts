@@ -522,7 +522,7 @@ function writePrivate(path: string, content: string): void {
  * Writes the run's home in its temp folder and points OpenHands at it: settings, MCP servers, briefing,
  * the public skills turned off, the terminal's `.bashrc`; checks a session to resume is there.
  */
-export function prepareOpenhands(ctx: OpenRunContext, uid = process.getuid?.() ?? 0, platform: NodeJS.Platform = ctx.platform ?? process.platform): void {
+export function prepareOpenhands(ctx: OpenRunContext, uid = process.getuid?.() ?? 0, platform: NodeJS.Platform = process.platform): void {
   const { o, run, env, tmpDir } = ctx;
   // Its terminal is a pseudo-terminal, which the relay sandbox on macOS can only allow along with the
   // user's other terminal windows: only when the user said so (Settings, OpenHands' card).
