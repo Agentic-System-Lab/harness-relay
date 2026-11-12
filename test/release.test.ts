@@ -5,18 +5,30 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  changesMarkdown,
+  changesOf,
   checkRelease,
+  commitsSince,
   compareSemver,
   devVersion,
+  newContributors,
   nextVersion,
   parseVersion,
   previousVersion,
+  pullMergedBy,
+  releaseChanges,
   RELEASE_TIME_ZONE,
+  repoOfRemote,
   semverOf,
   actionsData,
   tagsFromLsRemote,
   todayIn,
   validDay,
+  type ApiCommit,
+  type Change,
+  type GitHubApi,
+  type Pull,
+  type PullOf,
   type ReleaseVersion,
 } from '../scripts/release';
 
@@ -344,6 +356,211 @@ describe('tags on the remote', () => {
   });
 });
 
+describe("a release's list of changes", () => {
+  const repo = 'owner/name';
+  const site = 'https://github.com/owner/name';
+  const sha = (n: number) => n.toString(16).padStart(40, '0');
+  /** A commit as GitHub's API gives it. */
+  const commit = (n: number, message: string, o: { parents?: number[]; login?: string | null; name?: string } = {}): ApiCommit => ({
+    sha: sha(n),
+    parents: (o.parents ?? [n - 1]).map((p) => ({ sha: sha(p) })),
+    author: o.login === null ? null : { login: o.login ?? 'dev' },
+    commit: { message, author: { name: o.name ?? 'Dev' } },
+  });
+  const noPulls: PullOf = () => undefined;
+  const lines = (changes: Change[]) => changes.map((c) => `${c.title} | ${c.login ?? c.name} | ${c.url.replace(site, '')}`);
+
+  it('lists every commit that came into main, oldest first: a pull request it merged by its number, any other commit by itself', () => {
+    const pulls: Record<string, Pull> = { [sha(2)]: { number: 25, title: 'Faster tests' }, [sha(4)]: { number: 2, title: 'Fix the review findings' } };
+    const changes = changesOf(
+      [
+        commit(1, 'Let visitors pick a theme\n'),
+        // Squash-merged: GitHub ends the subject with the number.
+        commit(2, 'Run the tests faster (#25)\n\n* one\n* two\n'),
+        commit(3, 'Say the agents work together\r\n\r\nWhy.\r\n'),
+        // Rebased or fast-forwarded: no number in the subject, but GitHub records the pull request's merge commit.
+        commit(4, 'Fix the issue #1 review findings\n'),
+        // A number in the subject that is not a pull request this commit merged stays in the subject.
+        commit(5, 'Back out "Run the tests faster (#25)"\n'),
+      ],
+      repo,
+      (s) => pulls[s],
+    );
+    expect(lines(changes)).toEqual([
+      `Let visitors pick a theme | dev | /commit/${sha(1)}`,
+      'Run the tests faster | dev | /pull/25',
+      `Say the agents work together | dev | /commit/${sha(3)}`,
+      'Fix the issue #1 review findings | dev | /pull/2',
+      `Back out "Run the tests faster (#25)" | dev | /commit/${sha(5)}`,
+    ]);
+  });
+
+  it("lists a pull request merged with a merge commit by its title and its branch's author, and leaves out merges of branches", () => {
+    const changes = changesOf(
+      [
+        commit(10, 'Work on the branch\n', { parents: [1], login: 'contributor' }),
+        commit(11, 'Merge main into the-branch\n', { parents: [10, 2], login: 'contributor' }),
+        commit(12, 'Merge pull request #7 from contributor/the-branch\n\nKeep the chat where the reader left it\n', { parents: [3, 11], login: 'maintainer' }),
+        commit(13, "Merge branch 'main' into worktree-schedules\n", { parents: [12, 4] }),
+        // A merge in words of its own says what it brought in.
+        commit(14, 'Run Harness Relay as a desktop app\n', { parents: [13, 5] }),
+        // A merge GitHub records as a pull request's merge commit, whatever its words.
+        commit(15, 'Merge main into feature\n', { parents: [14, 6] }),
+      ],
+      repo,
+      (s) => (s === sha(15) ? { number: 9, title: 'Several accounts for each CLI ' } : undefined),
+    );
+    expect(lines(changes)).toEqual([
+      `Work on the branch | contributor | /commit/${sha(10)}`,
+      'Keep the chat where the reader left it | contributor | /pull/7',
+      `Run Harness Relay as a desktop app | dev | /commit/${sha(14)}`,
+      'Several accounts for each CLI | dev | /pull/9',
+    ]);
+    // GitHub's own words for a pull request merged with a merge commit, if GitHub's record of it is missing.
+    expect(lines(changesOf([commit(20, 'Merge pull request #8 from a/b\n', { parents: [1, 2] })], repo, noPulls))).toEqual(['Merge pull request #8 from a/b | dev | /pull/8']);
+  });
+
+  it('names an author without a GitHub account by their name in git', () => {
+    const changes = changesOf([commit(1, 'Fix it\n', { login: null, name: ' Someone ' }), commit(2, '\n', { login: null, name: '' })], repo, noPulls);
+    expect(changes.map((c) => [c.login, c.name, c.title])).toEqual([
+      [undefined, 'Someone', 'Fix it'],
+      [undefined, sha(2).slice(0, 7), sha(2).slice(0, 7)],
+    ]);
+  });
+
+  it("reads every page of GitHub's comparison, and refuses fewer commits than GitHub counts", () => {
+    const all = Array.from({ length: 230 }, (_, i) => commit(i + 1, `Change ${i + 1}\n`));
+    const asked: string[] = [];
+    const api: GitHubApi = (path) => {
+      asked.push(path);
+      const page = Number(/[?&]page=(\d+)/.exec(path)![1]);
+      return { total_commits: all.length, commits: all.slice((page - 1) * 100, page * 100) };
+    };
+    expect(commitsSince(api, repo, '2026-11-12', 'abc').map((c) => c.sha)).toEqual(all.map((c) => c.sha));
+    expect(asked).toEqual([1, 2, 3].map((p) => `repos/owner/name/compare/2026-11-12...abc?per_page=100&page=${p}`));
+    const short: GitHubApi = (path) => ({ total_commits: 150, commits: path.endsWith('&page=1') ? all.slice(0, 100) : [] });
+    expect(() => commitsSince(short, repo, '2026-11-12', 'abc')).toThrow('GitHub listed 100 of the 150 commits from 2026-11-12 to abc.');
+    // Nothing since: the same commit.
+    expect(commitsSince(() => ({ total_commits: 0, commits: [] }), repo, '2026-11-13-rc', '2026-11-13')).toEqual([]);
+  });
+
+  it("without a version before it, lists the whole history, oldest first", () => {
+    const newest = Array.from({ length: 130 }, (_, i) => commit(130 - i, `Change ${130 - i}\n`));
+    const asked: string[] = [];
+    const api: GitHubApi = (path) => {
+      asked.push(path);
+      const page = Number(/[?&]page=(\d+)/.exec(path)![1]);
+      return newest.slice((page - 1) * 100, page * 100);
+    };
+    expect(commitsSince(api, repo, undefined, '2026-11-11-rc').map((c) => c.commit.message)).toEqual(newest.map((c) => c.commit.message).reverse());
+    expect(asked).toEqual(['repos/owner/name/commits?sha=2026-11-11-rc&per_page=100&page=1', 'repos/owner/name/commits?sha=2026-11-11-rc&per_page=100&page=2']);
+  });
+
+  it('takes the pull request GitHub records a commit as the merge commit of, not one the commit is only part of', () => {
+    const answers: Record<string, unknown> = {
+      [`repos/owner/name/commits/${sha(1)}/pulls?per_page=100`]: [
+        // Open, with this commit in its branch.
+        { number: 30, title: 'Later work', merged_at: null, merge_commit_sha: sha(9) },
+        // Merged, with this commit in its branch, by another merge commit.
+        { number: 29, title: 'Other work', merged_at: '2026-11-12T00:00:00Z', merge_commit_sha: sha(8) },
+        { number: 28, title: 'This work', merged_at: '2026-11-12T00:00:00Z', merge_commit_sha: sha(1) },
+      ],
+      [`repos/owner/name/commits/${sha(2)}/pulls?per_page=100`]: [{ number: 31, title: 'Open', merged_at: null, merge_commit_sha: sha(2) }],
+      [`repos/owner/name/commits/${sha(3)}/pulls?per_page=100`]: [],
+    };
+    const api: GitHubApi = (path) => answers[path];
+    expect(pullMergedBy(api, repo, sha(1))).toEqual({ number: 28, title: 'This work' });
+    expect(pullMergedBy(api, repo, sha(2))).toBeUndefined();
+    expect(pullMergedBy(api, repo, sha(3))).toBeUndefined();
+  });
+
+  it('names the authors with no commit before the version before it, each once, with their first change', () => {
+    const changes = changesOf(
+      [commit(1, 'One\n', { login: 'old' }), commit(2, 'Two\n', { login: 'new[bot]' }), commit(3, 'Three\n', { login: 'new[bot]' }), commit(4, 'Four\n', { login: null })],
+      repo,
+      noPulls,
+    );
+    const asked: string[] = [];
+    const api: GitHubApi = (path) => {
+      asked.push(path);
+      return path.includes('author=old') ? [{ sha: sha(0) }] : [];
+    };
+    expect(newContributors(api, repo, '2026-11-12', changes).map((c) => [c.login, c.title])).toEqual([['new[bot]', 'Two']]);
+    expect(asked).toEqual(['repos/owner/name/commits?sha=2026-11-12&author=old&per_page=1', 'repos/owner/name/commits?sha=2026-11-12&author=new%5Bbot%5D&per_page=1']);
+    // From the first commit on, every author with a GitHub account is new.
+    expect(newContributors(() => [{ sha: sha(0) }], repo, undefined, changes).map((c) => c.login)).toEqual(['old', 'new[bot]']);
+  });
+
+  it("writes the list as GitHub's notes do", () => {
+    const changes: Change[] = [
+      { title: 'Pick a theme', login: 'dev', name: 'Dev', url: `${site}/commit/${sha(1)}` },
+      { title: 'Faster tests', login: 'dev', name: 'Dev', url: `${site}/pull/25` },
+      { title: 'A fix', name: 'Someone', url: `${site}/commit/${sha(2)}` },
+    ];
+    expect(changesMarkdown({ repo, tag: '2026-11-12.1', since: '2026-11-12', changes, newContributors: [changes[1]!] })).toBe(
+      [
+        "## What's Changed",
+        `* Pick a theme by @dev in ${site}/commit/${sha(1)}`,
+        `* Faster tests by @dev in ${site}/pull/25`,
+        `* A fix by Someone in ${site}/commit/${sha(2)}`,
+        '',
+        '## New Contributors',
+        `* @dev made their first contribution in ${site}/pull/25`,
+        '',
+        `**Full Changelog**: ${site}/compare/2026-11-12...2026-11-12.1`,
+        '',
+      ].join('\n'),
+    );
+    // Nothing since the version before: the link alone, as GitHub writes it; none before: the history up to it.
+    expect(changesMarkdown({ repo, tag: '2026-11-13-rc.1', since: '2026-11-13-rc', changes: [], newContributors: [] })).toBe(`**Full Changelog**: ${site}/compare/2026-11-13-rc...2026-11-13-rc.1\n`);
+    expect(changesMarkdown({ repo, tag: '2026-11-11-rc', since: undefined, changes: [], newContributors: [] })).toBe(`**Full Changelog**: ${site}/commits/2026-11-11-rc\n`);
+  });
+
+  it("lists this repository's 2026-11-12.1 with the commits pushed to main between its pull requests", () => {
+    // GitHub's answers for it, recorded (only the fields the notes read).
+    const f = JSON.parse(readFileSync('test/fixtures/release/2026-11-12.1.json', 'utf8')) as {
+      repo: string;
+      since: string;
+      target: string;
+      compare: unknown;
+      pulls: Record<string, unknown>;
+      before: Record<string, unknown>;
+    };
+    const api: GitHubApi = (path) => {
+      if (path.startsWith(`repos/${f.repo}/compare/${f.since}...${f.target}?`)) return path.endsWith('page=1') ? f.compare : { total_commits: 5, commits: [] };
+      const pulls = /\/commits\/([0-9a-f]{40})\/pulls\?/.exec(path);
+      if (pulls) return f.pulls[pulls[1]!];
+      const before = /\/commits\?sha=[^&]+&author=([^&]+)&/.exec(path);
+      if (before) return f.before[decodeURIComponent(before[1]!)];
+      throw new Error(`Not recorded: ${path}`);
+    };
+    const { markdown } = releaseChanges({ api, repo: f.repo, tag: f.target, since: f.since, target: f.target });
+    const s = 'https://github.com/Agentic-System-Lab/harness-relay';
+    expect(markdown).toBe(
+      [
+        "## What's Changed",
+        `* Let visitors pick a light or dark theme on the landing page, remembered in their browser by @cyyeh in ${s}/commit/4f85614ae21b2b407b7f40cb46d0ff51a59c665e`,
+        `* Run the end-to-end tests and the Windows release builds faster by @cyyeh in ${s}/pull/25`,
+        `* List a release's changes since the release before it, and a release candidate's since the version before it by @cyyeh in ${s}/pull/27`,
+        `* Add Antigravity as a fifth coding agent, run over ACP with every command asked below full access by @cyyeh in ${s}/pull/26`,
+        `* Say the agents work together on the landing page, not chat, and keep its GitHub button close in English by @cyyeh in ${s}/commit/48897c446bd533597e5ff2eb05d5c1c4ecb0dfcb`,
+        '',
+        `**Full Changelog**: ${s}/compare/2026-11-12...2026-11-12.1`,
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it("reads owner/name from a GitHub remote's URL", () => {
+    expect(repoOfRemote('https://github.com/Agentic-System-Lab/harness-relay.git\n')).toBe('Agentic-System-Lab/harness-relay');
+    expect(repoOfRemote('https://github.com/Agentic-System-Lab/harness-relay')).toBe('Agentic-System-Lab/harness-relay');
+    expect(repoOfRemote('git@github.com:owner/name.git')).toBe('owner/name');
+    expect(repoOfRemote('ssh://git@github.com/owner/my.repo.git')).toBe('owner/my.repo');
+    expect(repoOfRemote('/tmp/origin.git')).toBeUndefined();
+    expect(repoOfRemote('https://gitlab.com/owner/name.git')).toBeUndefined();
+  });
+});
+
 describe('the release script', () => {
   const script = resolve('scripts/release.ts');
   // tsx from this repository: the script runs in another one, where `--import tsx` would not find it.
@@ -458,10 +675,26 @@ describe('the release script', () => {
     const first = run(['check', '2026-11-10', '--today', '2026-11-10']);
     expect(first.code).toBe(0);
     // Only a release candidate is out (2026-11-10-rc, from the test before): no release to start the notes at.
-    expect(first.out).toContain('There is no release before it: GitHub chooses where its notes start.');
+    expect(first.out).toContain('There is no release before it: its notes list every commit up to it.');
     expect(run(['check']).code).toBe(2);
     expect(run(['check', '--remote']).code).toBe(2);
     expect(run(['publish', '2026-11-10']).code).toBe(2);
+  });
+
+  it('refuses notes for a version that breaks the rules, a --target without a commit, and an origin that is not on GitHub', () => {
+    // None of these reaches GitHub.
+    const offline = { GITHUB_REPOSITORY: '', GH_TOKEN: '' };
+    expect(run(['notes'], offline).code).toBe(2);
+    expect(run(['notes', '--remote'], offline).code).toBe(2);
+    const bad = run(['notes', 'v2026-11-10'], offline);
+    expect(bad.code).toBe(1);
+    expect(bad.err).toContain('Drop the "v"');
+    expect(run(['notes', '2026-11-10', '--target'], offline).code).toBe(2);
+    expect(run(['notes', '2026-11-10', '--target', '--remote'], offline).code).toBe(2);
+    // This repository's origin is a folder.
+    const local = run(['notes', '2026-11-10'], offline);
+    expect(local.code).toBe(2);
+    expect(local.err).toContain('origin is not a GitHub repository: set GITHUB_REPOSITORY to owner/name.');
   });
 
   it('follows RELEASE_TIME_ZONE', () => {
@@ -627,13 +860,24 @@ describe('the release workflow', () => {
     expect(publish).toContain('gh release create "$TAG"');
   });
 
-  it("starts the notes where the rules say, from the check just before publishing", () => {
+  it('lists every commit into main since the version before in the notes, not only pull requests, before publishing anything', () => {
     const release = job('release');
-    const again = release.slice(release.indexOf('- name: Check the version again'), release.indexOf('uses: actions/download-artifact'));
-    expect(again).toMatch(/\n\s+id: version\n/);
-    const publish = release.slice(release.indexOf('- name: Publish\n'));
-    expect(publish).toContain('PREVIOUS: ${{ steps.version.outputs.previous }}');
-    expect(publish).toContain('if [ -n "$PREVIOUS" ]; then start=(--notes-start-tag "$PREVIOUS"); fi');
-    expect(publish).toContain('--generate-notes "${start[@]}" "${channel[@]}"');
+    const step = (name: string) => release.indexOf(`- name: ${name}\n`);
+    const changes = release.slice(step('List the changes since the version before'), release.indexOf('uses: actions/download-artifact'));
+    // After the last check, by the same tags (--remote), up to the commit that was checked and built.
+    expect(step('List the changes since the version before')).toBeGreaterThan(step('Check the version again'));
+    expect(changes).toContain('run: node scripts/release.ts notes "$VERSION" --target "$GITHUB_SHA" --remote > "$RUNNER_TEMP/changes.md"');
+    expect(changes).toContain('VERSION: ${{ needs.check.outputs.tag }}');
+    // Read with this job's own token, never the copies' one.
+    expect(changes).toContain('GH_TOKEN: ${{ github.token }}');
+    // Before the copies for the app's updates and the release are published.
+    expect(step('List the changes since the version before')).toBeLessThan(step("Publish the copies for the app's updates"));
+    const publish = release.slice(step('Publish'));
+    expect(publish).toContain(`printf '%s\\n\\n' "$notes" > "$RUNNER_TEMP/notes.md"`);
+    expect(publish).toContain('cat "$RUNNER_TEMP/changes.md" >> "$RUNNER_TEMP/notes.md"');
+    expect(publish).toContain('--notes-file "$RUNNER_TEMP/notes.md" "${channel[@]}"');
+    // GitHub's own notes list pull requests only, and would leave out what was pushed to main.
+    expect(workflow).not.toContain('--generate-notes');
+    expect(workflow).not.toContain('--notes-start-tag');
   });
 });
