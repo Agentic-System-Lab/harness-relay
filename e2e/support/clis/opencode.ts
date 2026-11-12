@@ -25,8 +25,9 @@ export const opencode: CliFacts = {
   mcpHttp: true,
   images: true,
   // An endpoint's models have no effort levels in OpenCode (variants come only with its catalog's models),
-  // so Team settings offers none for it: the effort stays the default.
-  pickModel: { model: 'e2e/e2e-model-mini', effort: '' },
+  // so Team settings offers none for it: the effort stays the default. OpenCode's own id for the model
+  // is its provider's (`relay-<endpoint>/<model>`).
+  pickModel: { model: 'e2e/e2e-model-mini', effort: '', logged: { model: 'relay-e2e/e2e-model-mini', effort: '' } },
   defaultHome: { in: 'data', path: ['agent-homes', 'opencode'] },
   accounts: 'none',
 };

@@ -22,7 +22,6 @@
  * Its sessions and marks are kept in its data folder (`$GOOSE_PATH_ROOT/data`, the conversation member's
  * own, which a run may write), never in `sessions/sessions.db` there (Harness Relay opens that as SQLite).
  */
-const { spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -34,6 +33,7 @@ const { exitAfterLog, record, refused } = require('../lib/log.cjs');
 const { declined, lastUserMessage, noOther, noteIn, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError } = require('../lib/rpc.cjs');
 const { args, sleep } = require('../lib/self.cjs');
+const { briefedOthers, reach, reached, runCommand } = require('./opencode-goose.cjs');
 
 const VERSION = '1.58.999';
 const env = process.env;
@@ -248,24 +248,6 @@ function staticCommand() {
 }
 
 // --- The turn ----------------------------------------------------------------------------------
-
-/** The working directories besides `cwd` its briefing names (Harness Relay's "use full paths for the others"; in parallel mode its worktrees). */
-function briefedOthers(briefing, cwd) {
-  const shared = /share these working directories, each with the same access: (.+?)\. You start in /.exec(briefing);
-  const dirs = shared ? shared[1].split(', ') : [...briefing.matchAll(/^ {2}- (.+?) \(branch /gm)].map((m) => m[1]);
-  return dirs.filter((d) => path.resolve(d) !== path.resolve(cwd));
-}
-
-/** A command's output as Goose runs it: `$GOOSE_SHELL -c <command>` in the session's folder; without one (Windows), what it would print. */
-function runCommand(command, cwd) {
-  const shell = env.GOOSE_SHELL;
-  if (!shell) {
-    const m = /^(?:env )?echo (.*)$/.exec(command);
-    return { stdout: m ? `${m[1]}\n` : '', stderr: '', code: 0 };
-  }
-  const r = spawnSync(shell, ['-c', command], { cwd, encoding: 'utf8', timeout: 30_000 });
-  return { stdout: r.stdout || '', stderr: r.stderr || (r.error ? String(r.error.message) : ''), code: typeof r.status === 'number' ? r.status : 1 };
-}
 
 const PERMISSION_OPTIONS = ['allow_always', 'allow_once', 'reject_once', 'reject_always'].map((k) => ({ optionId: k, name: k, kind: k }));
 const DECLINED = 'The user has declined to run this tool. DO NOT attempt to call this tool again. If there are no alternative methods to proceed, clearly explain the situation and STOP.';
@@ -575,11 +557,32 @@ async function gooseTurn(peer, p, s, next) {
         refuse(id, r);
         prefix += declined('command', r.note);
       } else {
-        const out = runCommand(command, s.cwd);
+        // Through GOOSE_SHELL, as Goose runs its commands (on Windows, where it has none, what it would print).
+        const out = runCommand(env.GOOSE_SHELL, command, s.cwd);
         update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', _meta: { toolNotification: { type: 'live_output', params: { sequence: 1, chunks: [{ stream: 'stdout', output: out.stdout }], truncated: false } } } });
         // A command that fails is a failed call.
         done(id, out.code === 0, out.code === 0 ? out.stdout : `${out.stdout}${out.stderr}\nCommand exited with code ${out.code}`, { rawOutput: { stdout: out.stdout, stderr: out.stderr, exit_code: out.code } });
-        prefix += out.code === 0 ? `The command ran: ${out.stdout.trim()}. ` : `The command failed (exit ${out.code}): ${(out.stderr || out.stdout).trim()}. `;
+        prefix += out.code === 0 ? 'The command ran: e2e-approval. ' : `The command failed (exit ${out.code}): ${(out.stderr || out.stdout).trim()}. `;
+      }
+    }
+    if (step.type === 'fetch' && tools) {
+      // `read_image`, the one tool of Goose's that fetches an http(s) URL (Harness Relay counts it as
+      // reaching the web, which read-only allows); the sandbox's proxy asks about the host.
+      const url = step.url;
+      const rawInput = { path: url };
+      const title = `read_image · ${url}`;
+      const id = announce('read_image', 'developer', title, rawInput);
+      const p = await permit(id, title, rawInput);
+      if (s.cancelled) return cancelled();
+      if (!p.ok) {
+        refuse(id, p);
+        prefix += `I may not reach ${url} here. `;
+      } else {
+        const r = await reach(url);
+        if (s.cancelled) return cancelled();
+        const ok = Boolean(r.status && !r.refused && r.status < 400);
+        done(id, ok, ok ? `Fetched ${url}` : `Failed to fetch image from URL: ${r.error || `HTTP status ${r.status}`}`);
+        prefix += reached(url, r);
       }
     }
     if (step.type === 'write') {

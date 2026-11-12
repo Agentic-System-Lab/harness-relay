@@ -22,7 +22,6 @@
  * Its sessions and marks are kept in its data folder (XDG_DATA_HOME, the conversation member's own,
  * which a run may write), never in `opencode/opencode.db` there (Harness Relay opens that as SQLite).
  */
-const { spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -35,6 +34,7 @@ const { exitAfterLog, record, tryWrite } = require('../lib/log.cjs');
 const { declined, lastUserMessage, noOther, noteIn, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError } = require('../lib/rpc.cjs');
 const { args, sleep } = require('../lib/self.cjs');
+const { briefedOthers, reach, reached, runCommand } = require('./opencode-goose.cjs');
 
 const VERSION = '1.19.999';
 
@@ -367,13 +367,6 @@ function startServer(port, ready) {
 
 // --- The turn ----------------------------------------------------------------------------------
 
-/** The working directories besides `cwd` its briefing names (Harness Relay's "use full paths for the others"; in parallel mode its worktrees). */
-function briefedOthers(briefing, cwd) {
-  const shared = /share these working directories, each with the same access: (.+?)\. You start in /.exec(briefing);
-  const dirs = shared ? shared[1].split(', ') : [...briefing.matchAll(/^ {2}- (.+?) \(branch /gm)].map((m) => m[1]);
-  return dirs.filter((d) => path.resolve(d) !== path.resolve(cwd));
-}
-
 /** Its briefing (the instruction file Harness Relay names `harness-relay-briefing.md`) and its other instruction files. */
 function instructionsOf(config) {
   const list = Array.isArray(config.instructions) ? config.instructions.map(String) : [];
@@ -397,16 +390,6 @@ function external(file, cwd) {
   };
   const root = gitRoot(cwd);
   return !within(path.resolve(cwd)) && !(root && within(root));
-}
-
-/** A command's output as OpenCode runs it: `<shell> -c <command>` in the session's folder; without a shell (Windows), what it would print. */
-function runCommand(shell, command, cwd) {
-  if (!shell) {
-    const m = /^(?:env )?echo (.*)$/.exec(command);
-    return { stdout: m ? `${m[1]}\n` : '', stderr: '', code: 0 };
-  }
-  const r = spawnSync(shell, ['-c', command], { cwd, encoding: 'utf8', timeout: 30_000 });
-  return { stdout: r.stdout || '', stderr: r.stderr || (r.error ? String(r.error.message) : ''), code: typeof r.status === 'number' ? r.status : 1 };
 }
 
 const PERMISSION_OPTIONS = [
@@ -645,7 +628,26 @@ async function opencodeTurn(peer, server, p, s, c, next) {
         u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', kind: 'execute', title: command, locations: [{ path: s.cwd }], rawInput: { command, cwd: s.cwd }, content: [{ type: 'content', content: { type: 'text', text: output } }] });
         // Done whatever its exit code, as OpenCode says it.
         u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed', title: command, content: [{ type: 'content', content: { type: 'text', text: output } }], rawOutput: { output, metadata: { output, exit: r.code, truncated: false } } });
-        prefix += r.code === 0 ? `The command ran: ${r.stdout.trim()}. ` : `The command failed (exit ${r.code}): ${(r.stderr || r.stdout).trim()}. `;
+        prefix += r.code === 0 ? 'The command ran: e2e-approval. ' : `The command failed (exit ${r.code}): ${(r.stderr || r.stdout).trim()}. `;
+      }
+    }
+    if (step.type === 'fetch') {
+      // Its `webfetch` tool, which its rules let run below full access; the sandbox's proxy asks about the host.
+      const id = next('call');
+      const url = step.url;
+      u.toolCall({ toolCallId: id, title: 'webfetch', kind: 'fetch', status: 'pending', locations: [], rawInput: {} });
+      u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', kind: 'fetch', title: url, locations: [], rawInput: { url, format: 'markdown' } });
+      const ok = await permit('webfetch', url, { toolCallId: id, title: url, kind: 'fetch', status: 'pending', locations: [], rawInput: { url, format: 'markdown' } });
+      if (s.cancelled) return cancelled;
+      if (!ok.ok) {
+        refuse(id, ok);
+        prefix += `I may not reach ${url} here. `;
+      } else {
+        const r = await reach(url);
+        if (s.cancelled) return cancelled;
+        const text = r.status && !r.refused && r.status < 400 ? `Fetched ${url}` : r.error ? `Unable to connect. Is the computer able to access the url? (${r.error})` : `Request failed with status code: ${r.status}`;
+        u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: r.status && !r.refused && r.status < 400 ? 'completed' : 'failed', content: [{ type: 'content', content: { type: 'text', text } }] });
+        prefix += reached(url, r);
       }
     }
     if (step.type === 'write') {

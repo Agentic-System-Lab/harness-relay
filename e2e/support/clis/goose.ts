@@ -26,8 +26,9 @@ export const goose: CliFacts = {
   mcpHttp: true,
   images: true,
   // Team settings offers Goose's five levels for every model, but an endpoint's provider offers only
-  // `off`, so Harness Relay does not set the one picked: the turn runs with `off`.
-  pickModel: { model: 'e2e/e2e-model-mini', effort: 'high' },
+  // `off`, so Harness Relay does not set the one picked: the turn runs with `off`. Goose names the model
+  // alone (GOOSE_MODEL), its provider apart (`relay-e2e`).
+  pickModel: { model: 'e2e/e2e-model-mini', effort: 'high', logged: { model: 'e2e-model-mini', effort: 'off' } },
   defaultHome: { in: 'data', path: ['agent-homes', 'goose'] },
   accounts: 'none',
 };
