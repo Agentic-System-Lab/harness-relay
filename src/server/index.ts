@@ -21,7 +21,7 @@ import { clearRunTmp, dataDirInTemp, relayTmpDir, voiceDirProblem } from './prot
 import { CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
-import { clearRelaySandboxLeftovers, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
+import { clearRelaySandboxLeftovers, noteListeningPort, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { serveWebApp, webAppDir } from './web';
@@ -137,6 +137,8 @@ for (const dir of [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR]) mkd
 const port = apiPort();
 const host = process.env.HOST ?? '127.0.0.1';
 const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
+  // Kept from the open agents' sandbox like the port the settings name, also when PORT=0 let it pick one.
+  noteListeningPort(info.port);
   console.log(`Harness Relay API listening on http://${host}:${info.port}`);
   if (dataDirInTemp()) {
     console.warn(`[server] The data folder ${DATA_DIR} is in a temp folder, which agents' sandboxes may write in: set RELAY_DATA_DIR to a folder elsewhere.`);
