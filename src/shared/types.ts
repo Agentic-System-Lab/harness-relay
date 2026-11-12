@@ -1273,8 +1273,9 @@ export interface ProviderStatus {
   /** Every account of this CLI, the default account first: each one signs in on its own. */
   accounts: AccountStatus[];
   /**
-   * When the server began this check (ms since the epoch); an answer from its cache keeps the time of
-   * the check it came from. The chat shows, for each CLI, the status checked last (`newerStatuses()`).
+   * When the server began this check (ms since the epoch, later for each check even if the clock is
+   * set back); an answer from its cache keeps the time of the check it came from. The chat shows, for
+   * each CLI, the status checked last (`newerStatuses()`).
    */
   checkedAt?: number;
 }

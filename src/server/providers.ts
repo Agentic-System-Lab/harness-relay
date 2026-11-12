@@ -105,6 +105,8 @@ export class ProviderService {
    * is still answered, but not kept, or it would hide the change for as long as the cache lasts.
    */
   private generation = new Map<Provider, number>();
+  /** The last `checkedAt` given: each check's is later, even if the clock is set back. */
+  private lastCheckedAt = 0;
   /** Sign-ins running or finished, by account (`slot`). */
   private logins = new Map<string, LoginSession>();
   /** Models each account's CLI offers (`slot`): asked in its home, whose config has the CLI's own defaults. */
@@ -157,7 +159,7 @@ export class ProviderService {
     const cached = this.cache.get(p);
     if (!refresh && cached && Date.now() - cached.at < 20_000) return cached.status;
     const generation = this.generation.get(p) ?? 0;
-    const checkedAt = Date.now();
+    const checkedAt = (this.lastCheckedAt = Math.max(Date.now(), this.lastCheckedAt + 1));
     const bin = this.settings.bin(p);
     const env = this.settings.env(p);
     const ids = ['', ...this.settings.accountIds(p)];

@@ -190,6 +190,15 @@ esac
     expect((await service.status('claude')).checkedAt).toBe(next.checkedAt);
     expect((await service.status('claude', true)).checkedAt).toBeGreaterThanOrEqual(next.checkedAt!);
     expect((await asking).checkedAt).toBeLessThanOrEqual(next.checkedAt!);
+
+    // The clock set back: each new check is still dated later, so it still wins in the chat.
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now - 60_000);
+    try {
+      expect((await service.status('claude', true)).checkedAt).toBeGreaterThan(next.checkedAt!);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   posixIt('checks, signs in and signs out each account in its own home', async () => {

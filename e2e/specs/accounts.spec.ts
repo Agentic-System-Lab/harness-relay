@@ -364,15 +364,31 @@ test.describe('more than one account', () => {
   });
 
   test('a CLI signed out outside Harness Relay shows so when Settings is opened again', async ({ page, relay }) => {
+    // Settings' own look when it first opens, finished before the sign-out: so the server's cache is
+    // the signed-in answer, and the look the test waits for below is the reopened page's.
+    const opened = page.waitForEvent('requestfinished', (r) => /\/api\/providers\?refresh=1$/.test(r.url()));
     await page.goto(`${relay.base}/#/settings/claude`);
+    await opened;
     const pill = accountBlock(page, 'claude', 'Default account').locator('.pill');
     await expect(pill).toHaveText('Signed in');
     // Signed out in a terminal (`claude auth logout`): the server is not told, and its cache, a few
-    // seconds old, still says signed in. Settings looks again when it opens, and that answer wins over
-    // the cached one the app asks for at the same time, whichever comes in last.
+    // seconds old, still says signed in. Reopened, Settings looks again (`?refresh=1`) while the app
+    // asks as usual and gets that cached answer, held here until Settings' own has landed: coming in
+    // last, it must not win.
     writeFileSync(join(relay.home, '.claude', 'e2e-signed-out'), '');
+    const looked = page.waitForEvent('requestfinished', (r) => /\/api\/providers\?refresh=1$/.test(r.url()));
+    await page.route(/\/api\/providers$/, async (route) => {
+      const response = await route.fetch();
+      await looked;
+      await route.fulfill({ response });
+    });
+    const cachedLanded = page.waitForEvent('requestfinished', (r) => /\/api\/providers$/.test(r.url()));
     await page.reload();
-    await expect(pill).toHaveText('Not signed in');
+    await cachedLanded;
+    for (let i = 0; i < 20; i++) {
+      await expect(pill).toHaveText('Not signed in', { timeout: 5_000 });
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
+    }
   });
 
   test('an account is not removed while a conversation runs', async ({ page, relay }) => {

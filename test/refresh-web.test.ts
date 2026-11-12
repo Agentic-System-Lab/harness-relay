@@ -36,7 +36,7 @@ describe("the CLIs' status the chat shows", () => {
     expect(newerStatuses(fresh, cached)).toEqual(fresh);
   });
 
-  it('takes the new one when they were checked at the same time, or when either has no time', () => {
+  it('takes the new one when both have the same time or the shown one has none, and keeps a dated one over an undated new one', () => {
     expect(newerStatuses([status('grok', 100, false)], [status('grok', 100, true)])[0]!.auth.loggedIn).toBe(true);
     expect(newerStatuses([status('grok', undefined, false)], [status('grok', 100, true)])[0]!.auth.loggedIn).toBe(true);
     expect(newerStatuses([status('grok', 100, false)], [status('grok', undefined, true)])[0]!.auth.loggedIn).toBe(false);
@@ -74,20 +74,50 @@ describe("loading what the server does not date (the model catalog)", () => {
     expect(errors).toHaveLength(1);
   });
 
-  it('waits for a forced load on its way instead of asking the cache, and asks again once it is over', async () => {
+  it('asks a plain load during a forced one only once that one has landed, so the plain answer comes after it', async () => {
     const forced = deferred<string>();
-    const load = vi.fn((force: boolean) => (force ? forced.promise : Promise.resolve('cached')));
+    const load = vi.fn((force: boolean) => (force ? forced.promise : Promise.resolve('after')));
     const shown: string[] = [];
     const refresh = latestLoader(load, (v) => shown.push(v), () => {});
     const a = refresh(true);
     const b = refresh();
-    expect(b).toBe(a);
+    // Not asked yet: asked now, it could be answered from a cache made before the forced look.
     expect(load).toHaveBeenCalledTimes(1);
     forced.resolve('fresh');
+    await a;
     await b;
-    expect(shown).toEqual(['fresh']);
+    expect(load.mock.calls).toEqual([[true], [false]]);
+    expect(shown).toEqual(['fresh', 'after']);
+    // Nothing on its way: a plain load asks at once.
     await refresh();
-    expect(load).toHaveBeenLastCalledWith(false);
-    expect(shown).toEqual(['fresh', 'cached']);
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+
+  it('asks once for the plain loads made during one forced load', async () => {
+    const forced = deferred<string>();
+    const load = vi.fn((force: boolean) => (force ? forced.promise : Promise.resolve('after')));
+    const refresh = latestLoader(load, () => {}, () => {});
+    const waiting = [refresh(true), refresh(), refresh(), refresh()];
+    forced.resolve('fresh');
+    await Promise.all(waiting);
+    expect(load.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('goes on loading after a forced load whose answer could not be shown', async () => {
+    const load = vi.fn((force: boolean) => Promise.resolve(force ? 'bad' : 'good'));
+    const shown: string[] = [];
+    const errors: unknown[] = [];
+    const refresh = latestLoader(
+      load,
+      (v) => {
+        if (v === 'bad') throw new Error('cannot show it');
+        shown.push(v);
+      },
+      (e) => errors.push(e),
+    );
+    await expect(refresh(true)).rejects.toThrow('cannot show it');
+    await refresh();
+    expect(load.mock.calls).toEqual([[true], [false]]);
+    expect(shown).toEqual(['good']);
   });
 });
