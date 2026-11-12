@@ -558,8 +558,10 @@ function writeGrokOwn(home: string, write: (wrote: GrokOwnWrite) => void): void 
     if (!guard || text === undefined || stuck.includes(name)) return;
     const was = guard.snapshot.entries.get(name);
     const content = Buffer.from(text);
-    // A link stays one: the file it leads to was written.
-    guard.snapshot.entries.set(name, was?.kind === 'link' ? { ...was, content } : { kind: 'file', content, mode: was?.kind === 'file' ? was.mode : 0o600 });
+    // A link to a file stays one: that file was written. A link that led nowhere was replaced by a
+    // file (the writers follow a link only to a file that is there).
+    const toFile = was?.kind === 'link' && was.content !== null;
+    guard.snapshot.entries.set(name, toFile ? { ...was, content } : { kind: 'file', content, mode: was?.kind === 'file' ? was.mode : 0o600 });
   });
 }
 

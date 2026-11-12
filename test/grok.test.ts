@@ -534,6 +534,23 @@ describe("Grok on the user's own endpoints", () => {
     }
   });
 
+  it.skipIf(process.platform === 'win32')("takes a config.toml that was a link leading nowhere as the file a new turn wrote in its place", () => {
+    const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-dangling-'));
+    const file = join(home, 'config.toml');
+    try {
+      symlinkSync(join(home, 'gone.toml'), file);
+      const first = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [lab], false)));
+      // The second turn's write replaces the link with a file of the models' block: Harness Relay's, not a command's.
+      const second = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [lab], true)));
+      expect(lstatSync(file).isSymbolicLink()).toBe(false);
+      expect(second()).toEqual([]);
+      expect(first()).toEqual([]);
+      expect(readFileSync(file, 'utf8')).toContain('harness-relay/homelab/gemma4:e4b');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("still names a command's change made while a new turn writes Harness Relay's own settings", () => {
     const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-race-'));
     const file = join(home, 'config.toml');

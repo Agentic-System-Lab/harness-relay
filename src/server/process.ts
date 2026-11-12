@@ -170,6 +170,8 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
   } catch (err) {
     return Promise.reject(err);
   }
+  // Not found on Windows: started bare, it would be looked for in the working directory (the agent's project) first.
+  if (launch.missing) return Promise.reject(new CommandNotFoundError(o.bin));
   return supervise(o.bin, { ...o, env: withLaunchEnv(o.env, launch) }, (options) => spawn(launch.file, launch.args, options));
 }
 

@@ -110,7 +110,7 @@ npm test
 npm run build
 ```
 
-If you changed the UI, the HTTP API, the orchestrator or an adapter, also run the end-to-end tests: `npm run test:e2e` (`npm run test:e2e:install` once first). If you changed an adapter, the sandboxes or the model backends and have a model server of your own, also run the live tests with the real CLIs where you can (`npm run test:e2e:live`; see the developer guide, "Live tests").
+If you changed the UI, the HTTP API, the orchestrator or an adapter, also run the end-to-end tests: `npm run test:e2e` (`npm run test:e2e:install` once first). If you changed an adapter, the sandboxes or the model backends and have a model server of your own, also run the live tests with the real CLIs on each system you can (`npm run test:e2e:live`; see the developer guide, "Live tests").
 
 If you changed the desktop app, also run `npm run desktop:typecheck`, and try it with `npm run desktop`; for changes to its packaging, build the installer (`npm run desktop:dist`) and check it with `npx tsx desktop/scripts/check-package.ts`.
 

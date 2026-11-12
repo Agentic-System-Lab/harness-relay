@@ -109,8 +109,23 @@ export function folder(relay: RelayServer, name: string): string {
 }
 
 /**
+ * Whether a live test allows what a member asks: only what the tests ask for, a command that writes
+ * `hi` into a file (`echo hi > …`), and a write in the chat's own folders. Anything else is refused,
+ * since the CLIs run with the user's own homes and sign-ins.
+ */
+export function liveAllows(a: { kind: string; detail?: string }, folders: readonly string[]): boolean {
+  const detail = a.detail ?? '';
+  if (a.kind === 'command') return /\becho hi >/.test(detail);
+  if (a.kind === 'edit') {
+    const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+    return folders.some((f) => norm(detail).startsWith(`${norm(f)}/`));
+  }
+  return false;
+}
+
+/**
  * Sends one message to a new chat of these members and waits until the team is done, answering each
- * approval (allowed, but a host to fetch, which is refused).
+ * approval (`liveAllows`).
  */
 export async function liveTurn(
   relay: RelayServer,
@@ -137,7 +152,7 @@ export async function liveTurn(
           for (const p of m.parts) {
             if (p.type !== 'approval' || p.status !== 'pending' || answered.has(p.id)) continue;
             answered.add(p.id);
-            const allowed = p.kind !== 'fetch';
+            const allowed = liveAllows(p, [settings.cwd, ...(settings.extraCwds ?? [])]);
             approvals.push({ kind: p.kind, detail: p.detail, reason: p.reason, allowed });
             await relay.api(`/api/conversations/${conv.id}/approvals/${p.id}`, { body: { allow: allowed } });
           }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { withLang } from '../src/server/i18n';
 import { launchOf } from '../src/server/process';
-import { findWindowsCommand, windowsLaunch, WindowsScriptError, type LaunchFs } from '../src/server/winLaunch';
+import { findWindowsCommand, npmShimTarget, windowsLaunch, WindowsScriptError, type LaunchFs } from '../src/server/winLaunch';
 
 /** A disk of Windows paths: files with their text, and the folders they make. */
 function disk(files: Record<string, string>): LaunchFs {
@@ -45,13 +45,21 @@ describe('finding a CLI on Windows', () => {
     // Programs only, when asked.
     expect(findWindowsCommand('claude', env(`${NPM};C:\\Tools`), fs, ['.exe', '.com'])).toBe('C:\\Tools\\claude.exe');
   });
+
+  it('reads PATH as Node passes it to the child (of Path and PATH, the first in sorted order), and passes over what it cannot start', () => {
+    const fs = disk({ 'C:\\Old\\claude.exe': '', 'C:\\New\\claude.exe': '', 'C:\\Js\\claude.js': '', 'C:\\Js2\\claude.exe': '' });
+    expect(findWindowsCommand('claude', { Path: 'C:\\Old', PATH: 'C:\\New', PATHEXT: '.EXE' }, fs)).toBe('C:\\New\\claude.exe');
+    // A .JS (or .VBS, .PS1…) PATHEXT names, found first, is not taken: Windows would not start it.
+    expect(findWindowsCommand('claude', { PATH: 'C:\\Js;C:\\Js2', PATHEXT: '.JS;.EXE' }, fs)).toBe('C:\\Js2\\claude.exe');
+  });
 });
 
 describe('starting a CLI on Windows', () => {
   it('starts a program as it is, and leaves a command that is not there for spawn to report missing', () => {
     const fs = disk({ 'C:\\Users\\me\\.grok\\bin\\grok.exe': '' });
     expect(windowsLaunch('grok', ['agent', 'stdio'], env('C:\\Users\\me\\.grok\\bin'), fs)).toEqual({ file: 'C:\\Users\\me\\.grok\\bin\\grok.exe', args: ['agent', 'stdio'] });
-    expect(windowsLaunch('codex', ['app-server'], env('C:\\nowhere'), fs)).toEqual({ file: 'codex', args: ['app-server'] });
+    // Not there: said so, not started bare (Windows would look in the working directory first).
+    expect(windowsLaunch('codex', ['app-server'], env('C:\\nowhere'), fs)).toEqual({ file: 'codex', args: ['app-server'], missing: true });
   });
 
   it("starts the program an npm shim names (Claude Code's, OpenCode's)", () => {
@@ -68,17 +76,24 @@ describe('starting a CLI on Windows', () => {
   it("runs the script an npm shim names with Node: the one beside it, else the PATH's, else Harness Relay's (Codex, Cline, Pi)", () => {
     const shim = nodeShim('node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js');
     const script = `${NPM}\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js`;
-    const onPath = disk({ [`${NPM}\\pi.cmd`]: shim, 'C:\\Program Files\\nodejs\\node.exe': '' });
+    const onPath = disk({ [`${NPM}\\pi.cmd`]: shim, [script]: '', 'C:\\Program Files\\nodejs\\node.exe': '' });
     expect(windowsLaunch('pi', ['--mode', 'rpc'], env(`${NPM};C:\\Program Files\\nodejs`), onPath, 'C:\\relay\\node.exe')).toEqual({
       file: 'C:\\Program Files\\nodejs\\node.exe',
       args: [script, '--mode', 'rpc'],
     });
-    const beside = disk({ [`${NPM}\\pi.cmd`]: shim, [`${NPM}\\node.exe`]: '', 'C:\\Program Files\\nodejs\\node.exe': '' });
+    const beside = disk({ [`${NPM}\\pi.cmd`]: shim, [script]: '', [`${NPM}\\node.exe`]: '', 'C:\\Program Files\\nodejs\\node.exe': '' });
     expect(windowsLaunch('pi', [], env(`${NPM};C:\\Program Files\\nodejs`), beside).file).toBe(`${NPM}\\node.exe`);
-    const none = disk({ [`${NPM}\\pi.cmd`]: shim });
+    const none = disk({ [`${NPM}\\pi.cmd`]: shim, [script]: '' });
     expect(windowsLaunch('pi', [], env(NPM), none, 'C:\\relay\\node.exe')).toEqual({ file: 'C:\\relay\\node.exe', args: [script] });
+    // No Node at all (the desktop app is no Node): said so.
+    expect(() => withLang('en', () => windowsLaunch('pi', [], env(NPM), none, null))).toThrow(`"pi" is ${NPM}\\pi.cmd, which runs on Node.js, and no Node.js is on the PATH`);
+    // Its script not there: a broken install, said so.
+    expect(() => withLang('en', () => windowsLaunch('pi', [], env(NPM), disk({ [`${NPM}\\pi.cmd`]: shim }), 'C:\\relay\\node.exe'))).toThrow(`and ${script}, which it runs, is not there: install pi again`);
     // Older npm: `%~dp0`, node.exe named in the line.
-    const old = disk({ [`${NPM}\\cline.cmd`]: '@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe"  "%~dp0\\node_modules\\cline\\bin\\cline" %*\r\n) ELSE (\r\n  node  "%~dp0\\node_modules\\cline\\bin\\cline" %*\r\n)\r\n' });
+    const old = disk({
+      [`${NPM}\\cline.cmd`]: '@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe"  "%~dp0\\node_modules\\cline\\bin\\cline" %*\r\n) ELSE (\r\n  @SETLOCAL\r\n  @SET PATHEXT=%PATHEXT:;.JS;=;%\r\n  node  "%~dp0\\node_modules\\cline\\bin\\cline" %*\r\n)\r\n',
+      [`${NPM}\\node_modules\\cline\\bin\\cline`]: '',
+    });
     expect(windowsLaunch('cline', ['--acp'], env(NPM), old, 'C:\\relay\\node.exe')).toEqual({ file: 'C:\\relay\\node.exe', args: [`${NPM}\\node_modules\\cline\\bin\\cline`, '--acp'] });
   });
 
@@ -102,16 +117,36 @@ describe('starting a CLI on Windows', () => {
     });
     // A compile cache of the user's own is kept.
     expect(windowsLaunch('cursor-agent', [], env(home, { NODE_COMPILE_CACHE: 'D:\\cache' }), fs).env).toEqual({ CURSOR_INVOKED_AS: 'cursor-agent.cmd' });
+    // The newest folder without its files (an update cut short): the newest whole one.
+    const cut = disk({ [`${home}\\cursor-agent.cmd`]: fs.read(`${home}\\cursor-agent.cmd`)!, ...version('2026.11.2-bbbb222'), [`${home}\\versions\\2026.11.11-b912975\\node.exe`]: '' });
+    expect(windowsLaunch('cursor-agent', [], env(home), cut).file).toBe(`${home}\\versions\\2026.11.2-bbbb222\\node.exe`);
+    // Another script beside such folders is not taken for Cursor's launcher.
+    const other = disk({ [`${home}\\mine.cmd`]: '@echo off\r\nmine.exe %*\r\n', ...version('2026.11.2-bbbb222') });
+    expect(() => windowsLaunch('mine', [], env(home), other)).toThrow(WindowsScriptError);
+  });
+
+  it("takes a script for npm's shim only when every line of it is one npm writes, for Node", () => {
+    expect(npmShimTarget(programShim('node_modules\\x\\x.exe'))).toEqual({ program: 'node_modules\\x\\x.exe' });
+    expect(npmShimTarget(nodeShim('node_modules\\x\\cli.js'))).toEqual({ node: 'node_modules\\x\\cli.js' });
+    // A script of the user's own that sets something first: what it sets would be lost.
+    const mine = `@echo off\r\nset CLAUDE_CODE_USE_BEDROCK=1\r\nset AWS_PROFILE=work\r\n"%~dp0\\bin\\claude.exe" %*\r\n`;
+    expect(npmShimTarget(mine)).toBeUndefined();
+    const fs = disk({ 'C:\\Tools\\claude.cmd': mine, 'C:\\Tools\\bin\\claude.exe': '' });
+    expect(() => windowsLaunch('claude', [], env('C:\\Tools'), fs)).toThrow(WindowsScriptError);
+    // A shim for another interpreter (bun, deno, sh…) is not one for Node.
+    expect(npmShimTarget(nodeShim('node_modules\\x\\cli.ts').replace('SET "_prog=node"', 'SET "_prog=bun"'))).toBeUndefined();
+    // Nor one that runs two different things.
+    expect(npmShimTarget(`${programShim('a.exe')}"%dp0%\\b.exe"   %*\r\n`)).toBeUndefined();
   });
 
   it('does not start a script whose program it cannot tell, and says why', () => {
     const fs = disk({ 'C:\\Tools\\mycli.bat': '@echo off\r\npowershell -File mycli.ps1 %*\r\n' });
     expect(() => windowsLaunch('mycli', [], env('C:\\Tools'), fs)).toThrow(WindowsScriptError);
     expect(() => withLang('en', () => windowsLaunch('mycli', [], env('C:\\Tools'), fs))).toThrow('"mycli" is the script C:\\Tools\\mycli.bat, which Harness Relay cannot start');
-    expect(() => windowsLaunch('mycli', [], env('C:\\Tools'), fs)).toThrow('「mycli」是指令稿 C:\\Tools\\mycli.bat，Harness Relay 無法啟動它');
-    // Nor a shim whose program is not there.
+    expect(() => windowsLaunch('mycli', [], env('C:\\Tools'), fs)).toThrow('「mycli」是腳本 C:\\Tools\\mycli.bat，Harness Relay 無法啟動它');
+    // Nor a shim whose program is not there: a broken install, said so.
     const gone = disk({ [`${NPM}\\opencode.cmd`]: programShim('node_modules\\opencode-ai\\bin\\opencode.exe') });
-    expect(() => windowsLaunch('opencode', [], env(NPM), gone)).toThrow(WindowsScriptError);
+    expect(() => withLang('en', () => windowsLaunch('opencode', [], env(NPM), gone))).toThrow('which it runs, is not there: install opencode again');
   });
 
   it('is used on Windows only', () => {

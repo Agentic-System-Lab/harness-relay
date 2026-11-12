@@ -99,7 +99,7 @@ describe('cursor permission policy (no sandbox)', () => {
     // A write Cursor asks about there still goes to the user (its protected files cannot be told from the rest).
     expect(cursorPermissionDecision('edit', { kind: 'edit', title: 'Write /work/docs/a.md' }, CWD, docs).allow).toBe(false);
     expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Write /work/docs/a.md' }, CWD, docs)).reason).toBe(
-      "This file is in another of the chat's working directories: Cursor works in the first one, and asks before writing anywhere else.",
+      "This file is in another of the chat's working directories: Cursor works in the first one, and asks before writing in the others.",
     );
     expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Write /work/other/a.md' }, CWD, docs)).reason).toMatch(/^This file is outside the working directory/);
     expect(withLang('en', () => cursorApprovalRequest({ kind: 'edit', title: 'Edit `/work/app/.vscode/tasks.json`' }, CWD, docs)).reason).toMatch(/^Cursor asks before changing files like this one/);
