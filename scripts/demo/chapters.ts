@@ -61,7 +61,7 @@ export const RAILS: Record<DemoLang, RailSpec> = {
       { at: 'chat-open', kind: 'you', say: '開新對話，直接提問：「接力模式的設計好嗎？」' },
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: '依你的第一則訊息把對話歸進「{group}」，{plan}，並說明原因。' },
       { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '確認後{rounds}圓桌：依序讀程式碼，每位都接續並挑戰前面的說法。' },
-      { at: 'approval', kind: 'agent', say: '想執行一段 shell 指令讀取接力模式的程式碼，唯讀模式會先問你：它在聊天裡等你決定，你選擇拒絕。' },
+      { at: 'approval', kind: 'agent', say: '想執行一小段腳本，實際測試交棒用的 @mention 解析，唯讀模式會先問你：它在聊天裡等你決定，你選擇拒絕。' },
       { at: 'q1-answered', kind: 'team', team: 'q1', say: '結論：排好優先順序的修改建議，從最先該改的開始。' },
       { at: 'q1-read', kind: 'you', say: '問新的問題：寫一段放在 README 的接力模式說明。' },
       { at: 'q2-plan', kind: 'lead', team: 'q2', say: '為它挑新團隊：{names}，{rounds}。確認之前，對話仍是原本的審查團隊。' },
