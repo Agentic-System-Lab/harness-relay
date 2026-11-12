@@ -23,7 +23,7 @@ function newest(path: string): number {
 /** The two builds: Vite's arguments and environment for each. */
 const BUILDS = [
   { dir: WEB_DIR, args: ['--logLevel', 'warn'], env: {} },
-  // Its chunks are not minified, so past the startup limit: only errors are worth showing.
+  // React's development code takes its startup chunks past the size limit: only errors are worth showing.
   { dir: DEV_WEB_DIR, args: ['--outDir', DEV_WEB_DIR, '--emptyOutDir', '--logLevel', 'error'], env: { NODE_ENV: 'development' } },
 ];
 

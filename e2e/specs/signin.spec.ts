@@ -1,6 +1,70 @@
+import type { Page, Route } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog } from '../support/app';
 import { DEV_WEB_DIR } from '../support/paths';
+import type { RelayServer } from '../support/relay';
+
+/**
+ * A sign-in link opened in a tab signed in already (only its fragment changes), with requests the
+ * page sent with its key still on their way: the tab stays signed in.
+ */
+async function linkInSignedInTab(page: Page, relay: RelayServer): Promise<void> {
+  await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
+  await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+  const keyNow = () => page.evaluate(() => localStorage.getItem('relay:key'));
+  const oldKey = await keyNow();
+  // The page's sign-outs: the event the app shows the sign-in page on (SIGNED_OUT_EVENT).
+  await page.evaluate(() => {
+    const w = window as unknown as { signedOuts: number };
+    w.signedOuts = 0;
+    window.addEventListener('relay:signed-out', () => w.signedOuts++);
+  });
+
+  // Requests the page sends with its key are held until the link's sign-in, which ends the session
+  // they were sent for. Their answers ("signed out") then reach the page together with the sign-in's.
+  const held: Route[] = [];
+  const heldPaths = new Set<string>();
+  const heldAnswers: number[] = [];
+  const resent = new Set<string>();
+  let newKey = '';
+  let deliver!: () => void;
+  const delivered = new Promise<void>((r) => (deliver = r));
+  await page.route('**/api/**', async (route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname;
+    const key = req.headers()['x-relay-key'];
+    if (path === '/api/auth/login') {
+      const login = await route.fetch();
+      newKey = ((await login.json()) as { key: string }).key;
+      const answers = await Promise.all(held.map((h) => h.fetch()));
+      heldAnswers.push(...answers.map((a) => a.status()));
+      await Promise.all([route.fulfill({ response: login }), ...held.map((h, i) => h.fulfill({ response: answers[i] }))]);
+      deliver();
+    } else if (key === oldKey && !newKey) {
+      held.push(route);
+      heldPaths.add(path);
+      await delivered; // answered above, with the sign-in
+    } else {
+      if (key === newKey && heldPaths.has(path)) resent.add(path);
+      await route.continue();
+    }
+  });
+  await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+  await expect.poll(() => held.length).toBeGreaterThan(0);
+
+  await page.evaluate((c) => (window.location.hash = `#code=${c}`), await relay.newSignInCode());
+  // Each held request, answered "signed out", is sent again with the new key; the page is never
+  // signed out, not even for a moment.
+  await expect.poll(() => [...heldPaths].every((p) => resent.has(p))).toBe(true);
+  expect(heldAnswers.length).toBeGreaterThan(0);
+  expect(heldAnswers.every((s) => s === 401)).toBe(true);
+  expect(await keyNow()).toBe(newKey);
+  expect(await page.evaluate(() => (window as unknown as { signedOuts: number }).signedOuts)).toBe(0);
+  await expect(page.getByRole('heading', { name: 'Sign in to Harness Relay' })).toHaveCount(0);
+  await page.unroute('**/api/**');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+}
 
 test.describe('signing in', () => {
   test.use({ signIn: false });
@@ -68,43 +132,8 @@ test.describe('signing in', () => {
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
-  test('a sign-in link opened in a tab signed in already keeps it signed in, with requests still on their way', async ({ page, relay }) => {
-    await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
-    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
-    const keyNow = () => page.evaluate(() => localStorage.getItem('relay:key'));
-    const oldKey = await keyNow();
-
-    // Requests the page sends with its key are held until the new link has signed it in again, which
-    // ends the session they were sent for: they are answered "signed out", after the new key came.
-    let release!: () => void;
-    const released = new Promise<void>((r) => (release = r));
-    const held = new Set<string>();
-    const resent = new Set<string>();
-    await page.route('**/api/**', async (route) => {
-      const req = route.request();
-      const path = new URL(req.url()).pathname;
-      const key = req.headers()['x-relay-key'];
-      if (path !== '/api/auth/login' && key === oldKey) {
-        held.add(path);
-        await released;
-      } else if (held.has(path)) resent.add(path);
-      await route.continue();
-    });
-    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
-    await expect.poll(() => held.size).toBeGreaterThan(0);
-
-    await page.evaluate((c) => (window.location.hash = `#code=${c}`), await relay.newSignInCode());
-    await expect.poll(keyNow).not.toBe(oldKey);
-    const newKey = await keyNow();
-    release();
-    // Each held request is sent again with the new key, and the tab stays signed in.
-    await expect.poll(() => [...held].every((p) => resent.has(p))).toBe(true);
-    expect(await keyNow()).toBe(newKey);
-    await expect(page.getByRole('heading', { name: 'Sign in to Harness Relay' })).toHaveCount(0);
-    await page.unroute('**/api/**');
-    await page.reload();
-    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
-  });
+  test('a sign-in link opened in a tab signed in already keeps it signed in, with requests still on their way', ({ page, relay }) =>
+    linkInSignedInTab(page, relay));
 
   test('a browser can sign itself out in Settings', async ({ page, relay }) => {
     await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
@@ -132,6 +161,9 @@ test.describe('signing in, in a development build of the UI', () => {
     expect(page.url()).not.toContain(code);
     expect(asked).toEqual(['GET']);
   });
+
+  test('a sign-in link opened in a tab signed in already keeps it signed in, with requests still on their way', ({ page, relay }) =>
+    linkInSignedInTab(page, relay));
 
   test('a link that does not work shows its error on the first load', async ({ page, relay }) => {
     await page.goto(`${relay.base}/#code=AAAA-BBBB`);

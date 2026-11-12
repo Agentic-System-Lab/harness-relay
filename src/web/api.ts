@@ -47,7 +47,7 @@ import type {
   WorkingDirectories,
   ZipCheck,
 } from '../shared/types';
-import { clearKey, readKey, sendWithKey, writeKey } from './auth';
+import { clearKey, readKey, signedOutAnswer, whileSigningIn, writeKey } from './auth';
 import { currentLang } from './i18n';
 import { timeoutSignal } from './util';
 
@@ -96,32 +96,46 @@ function headers(json: boolean, key: string | null): Record<string, string> {
 /** The event the app listens for to show the sign-in page: the server no longer knows this browser. */
 export const SIGNED_OUT_EVENT = 'relay:signed-out';
 
-function signedOut(code: string | undefined): void {
-  if (code !== SIGNED_OUT) return;
-  clearKey();
-  window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+/** How a request is sent: again after an answer "signed out" (`resent`), or as the sign-in itself. */
+interface Sending {
+  resent?: boolean;
+  signIn?: boolean;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const res = await sendWithKey(path, (key) => ({
+/**
+ * An answer "signed out" to a request sent with `key`, read in full (`signedOutAnswer`): true when the
+ * request is to be sent again with a new key. The page is told when this browser is signed out.
+ */
+async function signedOut(code: string | undefined, key: string | null, o: Sending): Promise<boolean> {
+  // The sign-in's own request never waits for itself (and is never answered so).
+  if (code !== SIGNED_OUT || o.signIn) return false;
+  const answer = await signedOutAnswer(key, o.resent);
+  if (answer === 'signed-out') window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+  return answer === 'resend';
+}
+
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, o: Sending = {}): Promise<T> {
+  const key = readKey();
+  const res = await fetch(path, {
     method,
     // Always JSON: the server rejects non-JSON writes as a CSRF guard.
     headers: headers(method !== 'GET', key),
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
     signal,
-  }));
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = data as { error?: string; code?: string; paths?: unknown };
-    if (res.status === 401) signedOut(err.code);
+    if (res.status === 401 && (await signedOut(err.code, key, o))) return request<T>(method, path, body, signal, { resent: true });
     const paths = Array.isArray(err.paths) ? err.paths.filter((p): p is string => typeof p === 'string') : undefined;
     throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code, paths);
   }
   return data as T;
 }
 
-async function requestText(path: string): Promise<string> {
-  const res = await sendWithKey(path, (key) => ({ headers: headers(false, key) }));
+async function requestText(path: string, o: Sending = {}): Promise<string> {
+  const key = readKey();
+  const res = await fetch(path, { headers: headers(false, key) });
   const text = await res.text();
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
@@ -133,7 +147,7 @@ async function requestText(path: string): Promise<string> {
     } catch {
       /* not JSON */
     }
-    if (res.status === 401) signedOut(code);
+    if (res.status === 401 && (await signedOut(code, key, o))) return requestText(path, { resent: true });
     throw new ApiError(msg, res.status, code);
   }
   return text;
@@ -156,10 +170,13 @@ export const api = {
   /** Whether this browser is signed in, and whether the desktop app started the server (no terminal then). */
   authStatus: () => request<{ signedIn: boolean; desktop?: boolean }>('GET', '/api/auth'),
   /** Signs this browser in with a one-time code; the server sets its cookie, the key is kept here. */
-  signIn: async (code: string) => {
-    const { key } = await request<{ key: string }>('POST', '/api/auth/login', { code });
-    writeKey(key);
-  },
+  signIn: (code: string) =>
+    whileSigningIn(
+      (async () => {
+        const { key } = await request<{ key: string }>('POST', '/api/auth/login', { code }, undefined, { signIn: true });
+        writeKey(key);
+      })(),
+    ),
   /** A one-time code for another device (a phone), from this signed-in browser. */
   newSignInCode: () => request<{ code: string; expiresAt: number }>('POST', '/api/auth/codes'),
   signedInBrowsers: () => request<AuthSessionView[]>('GET', '/api/auth/sessions'),
@@ -311,7 +328,7 @@ export const api = {
    * (any failure) is no answer, rather than the sign-in page shown again.
    */
   serverVersion: async (): Promise<UpdateStatus> => {
-    const res = await sendWithKey('/api/update', (key) => ({ headers: headers(false, key) }));
+    const res = await fetch('/api/update', { headers: headers(false, readKey()) });
     if (!res.ok) throw new Error(`${res.status}`);
     return (await res.json()) as UpdateStatus;
   },

@@ -108,7 +108,6 @@ describe('signing in with a link', () => {
   });
 });
 
-
 describe("the page's first check", () => {
   it('goes by the server without a link, and says whether the desktop app started it', async () => {
     expect(await pageStart(fakePage('#/').deps)).toEqual({ signedIn: false, desktop: false });

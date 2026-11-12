@@ -35,20 +35,46 @@ export function clearKey(): void {
   }
 }
 
+/** The sign-in on its way, if any (`whileSigningIn`). */
+let signingIn: Promise<void> | undefined;
+
 /**
- * Sends a request with this browser's key: `init` makes the request for a key. One refused as signed
- * out (a 401, which only the sign-in check gives, before a route does anything) after a sign-in
- * replaced the key on its way is sent once more, with the new key: a sign-in link opened in a tab
- * signed in already ends the session it replaces, and a request still on its way with that session's
- * key must not sign the tab out again. `send` is `fetch`, or a stand-in in tests.
+ * Runs a sign-in (`api.signIn`): until it is done, a request answered "signed out" waits for it
+ * before deciding what that means (`signedOutAnswer`), since it may put a new key in place.
  */
-export async function sendWithKey(
-  url: string,
-  init: (key: string | null) => RequestInit,
-  send: (url: string, init: RequestInit) => Promise<Response> = fetch,
-): Promise<Response> {
-  const key = readKey();
-  const res = await send(url, init(key));
+export function whileSigningIn<T>(signIn: Promise<T>): Promise<T> {
+  const settled = signIn.then(
+    () => undefined,
+    () => undefined,
+  );
+  signingIn = settled;
+  void settled.then(() => {
+    if (signingIn === settled) signingIn = undefined;
+  });
+  return signIn;
+}
+
+/** What an answer "signed out" means for a request (`signedOutAnswer`). */
+export type SignedOutAnswer = 'signed-out' | 'resend' | 'stale';
+
+/**
+ * What an answer "signed out" (a 401, which only the sign-in check gives, before a route does
+ * anything) means for a request sent with the key `sentWith`, once that answer has been read. A
+ * sign-in on its way is waited for first. Then, in one step with the key kept now, so that no
+ * sign-in can come in between:
+ * - the same key: this browser is signed out, and the key is cleared ('signed-out');
+ * - another one, which a sign-in put in its place while the request was on its way (a sign-in link
+ *   opened in a tab signed in already ends the session it replaces): the request is to be sent
+ *   again with it, once ('resend'; `resent` says it has been);
+ * - none any more, or another one after a resend: nothing more ('stale': signed out already, or
+ *   left to the newest sign-in).
+ */
+export async function signedOutAnswer(sentWith: string | null, resent = false): Promise<SignedOutAnswer> {
+  while (signingIn) await signingIn;
   const now = readKey();
-  return res.status === 401 && now !== key ? send(url, init(now)) : res;
+  if (now === sentWith) {
+    clearKey();
+    return 'signed-out';
+  }
+  return now !== null && !resent ? 'resend' : 'stale';
 }
