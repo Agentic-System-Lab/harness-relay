@@ -9,7 +9,9 @@
  *   native part for both processors), and so are Harness Relay's own sandbox host, Pi's gate extension
  *   and the sandbox runtime (on Linux, with its seccomp helper executable);
  * - the app passes its own check (`--smoke-test`, desktop/src/main.ts): in Electron as it ships, the
- *   server starts in a utility process, signs a sandboxed window in, and stops.
+ *   server starts in a utility process, a team of claude, codex and grok answers a question (the fake
+ *   CLIs of the end-to-end tests, e2e/fake-cli/, built here and given to it with `--smoke-test-clis`),
+ *   it signs a sandboxed window in, and stops.
  *
  * On Linux, the app needs a display: run this under xvfb-run (the Release workflow does), and the
  * app runs with --no-sandbox (a CI machine's chrome-sandbox is not set up as an installed one is).
@@ -22,6 +24,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
+import { installFakeClis } from '../../e2e/support/fake-cli';
+import { withoutOwnSettings } from '../src/selftest';
 import { packagedApps } from './packaged';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -41,13 +45,15 @@ export const EXPECTED_FUSES: Partial<Record<FuseV1Options, number>> = {
   [FuseV1Options.GrantFileProtocolExtraPrivileges]: OFF,
 };
 
-/** Runs the app's own check; resolves with its report and exit code. */
-function selfCheck(exe: string, timeoutMs = 180_000): Promise<{ code: number | null; report: string }> {
+/** Runs the app's own check, with the fake CLIs in `clis`; resolves with its report and exit code. */
+function selfCheck(exe: string, clis: string, timeoutMs = 180_000): Promise<{ code: number | null; report: string }> {
   const work = mkdtempSync(join(tmpdir(), 'relay-check-package-'));
   const report = join(work, 'report.txt');
-  const args = [`--smoke-test=${report}`, ...(process.platform === 'linux' ? ['--no-sandbox'] : [])];
+  const args = [`--smoke-test=${report}`, `--smoke-test-clis=${clis}`, ...(process.platform === 'linux' ? ['--no-sandbox'] : [])];
+  // The developer's own Harness Relay settings (a data folder, a team size) are not the check's.
+  const env = withoutOwnSettings(process.env);
   return new Promise((done) => {
-    const child = spawn(exe, args, { stdio: ['ignore', 'ignore', 'inherit'] });
+    const child = spawn(exe, args, { env, stdio: ['ignore', 'ignore', 'inherit'] });
     const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
     const finish = (code: number | null) => {
       clearTimeout(timer);
@@ -77,6 +83,7 @@ async function main(): Promise<number> {
     console.error(`✗ No packaged app in ${dir}: run electron-builder (npm run desktop:dist) first.`);
     return 1;
   }
+  const clis = await installFakeClis();
   let failed = false;
   const check = (ok: unknown, what: string) => {
     console.log(`${ok ? '✓' : '✗'} ${what}`);
@@ -106,7 +113,7 @@ async function main(): Promise<number> {
       const seccomp = join(runtime, 'vendor', 'seccomp', process.arch === 'arm64' ? 'arm64' : 'x64', 'apply-seccomp');
       check(existsSync(seccomp) && (statSync(seccomp).mode & 0o111) !== 0, "the sandbox runtime's seccomp helper is executable");
     }
-    const { code, report } = await selfCheck(app.exe);
+    const { code, report } = await selfCheck(app.exe, clis);
     process.stdout.write(report.replace(/^/gm, '  '));
     check(code === 0, `the app checks itself (--smoke-test): exit code ${code}`);
   }

@@ -6,16 +6,16 @@
  * Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { PROVIDERS } from '../../src/shared/types';
 import { CLIS as FAKE_CLIS } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
 
-/** What a fake CLI wrote to its log (E2E_FAKE_LOG): a start, or a prompt it got; or a start of the fake folder dialog. */
+/** What a fake CLI wrote to its log (E2E_FAKE_LOG): a start, or a prompt it got; or a start of the fake folder dialog or the fake gh. */
 export interface FakeLogEntry {
-  cli: 'claude' | 'codex' | 'grok' | 'zenity';
+  cli: 'claude' | 'codex' | 'grok' | 'zenity' | 'gh';
   pid: number;
   at: number;
   args?: string[];
@@ -27,6 +27,20 @@ export interface FakeLogEntry {
   /** The images and the tool library's MCP servers a turn got. */
   images?: number;
   mcp?: string[];
+  /** The values the tool library's MCP servers were given, by server (env, or an HTTP server's headers). */
+  mcpEnv?: Record<string, Record<string, string>>;
+  /** With `mcpEnv`: the URL of each server among them that the CLI was given as an HTTP server, by server. */
+  mcpHttp?: Record<string, string>;
+  /** A start: the CLI's home it runs in (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`). */
+  home?: string;
+  /** A start: whether it was given an API key (`ANTHROPIC_API_KEY`, `XAI_API_KEY`; Codex: `CODEX_API_KEY`, `OPENAI_API_KEY`, else the one `codex login --with-api-key` kept in its home): the one the test expects (`E2E_EXPECTED_API_KEY` in `serverEnv`), another, or none (null). */
+  apiKey?: 'expected' | 'other' | null;
+  /** A turn: the model and reasoning effort it runs with (null: the CLI's own default). */
+  model?: string | null;
+  effort?: string | null;
+  /** A turn: the skills the CLI loaded by itself (its own, not the tool library's), and for Grok whether it trusts the folder. */
+  skills?: string[];
+  trusted?: boolean;
   /** The fake folder dialog's character set. */
   env?: { LANG: string | null; LC_CTYPE: string | null };
 }
@@ -70,6 +84,15 @@ const STARTUP_MS = 60_000;
 
 export async function startRelay(o: StartOptions): Promise<RelayServer> {
   if (!existsSync(join(WEB_DIR, 'index.html'))) throw new Error(`The UI is not built in ${WEB_DIR}: run \`npm run build\`.`);
+  if (!o.live) {
+    // Without its fakes, the server would find the real CLIs and gh on the PATH: refuse to start.
+    const exe = process.platform === 'win32' ? '.exe' : '';
+    const missing = [...FAKE_CLIS, 'gh'].map((name) => join(o.fakeBinDir, name + exe)).filter((bin) => !existsSync(bin));
+    if (missing.length) throw new Error(`The fake CLIs are missing (${missing.join(', ')}): run the tests again to build them.`);
+    // In use as long as servers start with it, so that a run of a changed script leaves it alone.
+    const now = new Date();
+    utimesSync(o.fakeBinDir, now, now);
+  }
   // The real path: macOS's temporary folder is a link (/var → /private/var), Windows' may be a short
   // 8.3 name (RUNNER~1), and the server shows real paths.
   // Live runs use Harness Relay's own sandbox, whose sockets need a short data folder path on macOS
@@ -93,6 +116,9 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   for (const k of Object.keys(env)) if (/^(CLAUDECODE|CLAUDE_CODE_|PLAYWRIGHT_|PW_|TEST_|E2E_|RELAY_|FORCE_COLOR$)/.test(k)) delete env[k];
   // Nor the user's own Cursor sign-in by key, or its folder (live runs sign in as the user does).
   if (!o.live) for (const k of ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN', 'CURSOR_CONFIG_DIR']) delete env[k];
+  // Nor, outside live runs, the developer's credentials: should a real CLI or gh ever be found
+  // instead of a fake (a fake build removed under a run), it finds no key or token to reach a service with.
+  if (!o.live) for (const k of Object.keys(env)) if (/^(ANTHROPIC_|OPENAI_|XAI_|GROK_|CODEX_|GH_|GITHUB_TOKEN$|GITHUB_ENTERPRISE_TOKEN$)|_(API_KEY|TOKEN|SECRET|SECRET_ACCESS_KEY|ACCESS_KEY_ID)$/i.test(k)) delete env[k];
   const homes = o.live
     ? {}
     : {
@@ -117,6 +143,9 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     GIT_COMMITTER_NAME: 'Relay E2E',
     GIT_COMMITTER_EMAIL: 'e2e@example.com',
     GIT_CONFIG_NOSYSTEM: '1',
+    // Git looks for a repository no further up than the test's folder: one around it (a home kept
+    // in git, a repository at C:\) is not the working directory's.
+    GIT_CEILING_DIRECTORIES: root,
     E2E_FAKE_LOG: fakeLog,
     // The fake CLIs first, found by name as the real ones are; this Node next, for the scripts.
     PATH: [...(o.live ? [] : [o.fakeBinDir]), dirname(process.execPath), env.PATH ?? env.Path ?? ''].join(delimiter),

@@ -124,7 +124,8 @@ jobs:
       - name: Build the desktop app
         run: npm --prefix desktop run build
 
-      # On each system: the bundled server listens, signs a browser in and stops as the app needs.
+      # On each system: the bundled server listens, signs a browser in, has a team of the fake CLIs
+      # (e2e/fake-cli/) answer a question and stops as the app needs.
       - name: Run the bundled server as the desktop app does
         run: npx tsx desktop/scripts/smoke.ts
 
@@ -139,7 +140,8 @@ jobs:
 
       # The packaged app itself, as it ships (desktop/scripts/check-package.ts): its fuses, the keyring
       # module in its resources, and its own check in Electron (--smoke-test: the server in a utility
-      # process, a sandboxed window signed in). On Linux it needs a display.
+      # process, a question answered by a team of the fake CLIs, a sandboxed window signed in). On
+      # Linux it needs a display.
       - name: Check the packaged app
         if: runner.os != 'Linux'
         run: npx tsx desktop/scripts/check-package.ts

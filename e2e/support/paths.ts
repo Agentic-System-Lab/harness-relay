@@ -7,6 +7,8 @@ export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const FAKE_CLI_SCRIPT = join(ROOT, 'e2e', 'fake-cli', 'fake-cli.cjs');
 /** The fake folder dialog (`zenity`, which Linux finds on the PATH). */
 export const FAKE_DIALOG_SCRIPT = join(ROOT, 'e2e', 'fake-cli', 'fake-dialog.cjs');
+/** The fake GitHub CLI (`gh`), which shares conversations as gists. */
+export const FAKE_GH_SCRIPT = join(ROOT, 'e2e', 'fake-cli', 'fake-gh.cjs');
 /** The built UI the servers under test serve (`npm run build`). */
 export const WEB_DIR = join(ROOT, 'dist', 'web');
 /**

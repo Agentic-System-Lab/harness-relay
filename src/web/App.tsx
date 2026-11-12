@@ -23,6 +23,7 @@ import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useT } from './i18n';
 import { refreshLimits } from './limits';
+import { latestLoader, newerStatuses } from './refresh';
 import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
 import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
 
@@ -189,19 +190,17 @@ function RelayApp() {
       });
   }, []);
 
+  // Each CLI's status as the server checked it last (`newerStatuses`): an answer that comes in after a
+  // newer one (asked before an account was added, or from the server's cache) cannot put it back.
   const refreshProviders = useCallback((force = false) => {
     return api
       .providers(force)
-      .then(setProviders)
+      .then((list) => setProviders((shown) => newerStatuses(shown, list)))
       .catch(console.error);
   }, []);
 
-  const refreshCatalog = useCallback((force = false) => {
-    return api
-      .models(force)
-      .then(setCatalog)
-      .catch(console.error);
-  }, []);
+  // The catalog is not dated by the server: answers are taken in the order they were asked for.
+  const [refreshCatalog] = useState(() => latestLoader((force) => api.models(force), setCatalog, console.error));
 
   // Stable identity: the settings page re-checks on mount via an effect that depends on it.
   const refreshProviderInfo = useCallback(

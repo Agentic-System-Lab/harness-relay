@@ -83,7 +83,9 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 
 ### 文件
 
-文件成對存在：`README.md` / `README.zh-TW.md`、`CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`、`CODE_OF_CONDUCT.md` / `CODE_OF_CONDUCT.zh-TW.md`、`SECURITY.md` / `SECURITY.zh-TW.md`，以及 `docs/<name>.md` / `docs/<name>.zh-TW.md`。當修改影響到行為、HTTP API、schema、設定、環境變數或測試清單時，請在同一個 pull request 中更新兩種語言。開發者說明列出了每一條 HTTP 路由與每個測試檔涵蓋的內容，請保持這些清單是最新的。
+文件成對存在：`README.md` / `README.zh-TW.md`、`CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`、`CODE_OF_CONDUCT.md` / `CODE_OF_CONDUCT.zh-TW.md`、`SECURITY.md` / `SECURITY.zh-TW.md`、`docs/<name>.md` / `docs/<name>.zh-TW.md`，以及 `e2e/` 與 `desktop/` 的 README（各自的 `README.md` / `README.zh-TW.md`）。當修改影響到行為、HTTP API、schema、設定、環境變數或測試清單時，請在同一個 pull request 中更新兩種語言。開發者說明列出了每一條 HTTP 路由與每個測試檔涵蓋的內容，請保持這些清單是最新的。
+
+[`e2e/README.zh-TW.md`](e2e/README.zh-TW.md) 列出每個端對端測試的情境：新增、修改或刪除端對端測試時，請在同一個 pull request 中一起更新它與英文版。[`desktop/README.zh-TW.md`](desktop/README.zh-TW.md) 是寫給開發者的桌面 app 說明：app 的檔案、指令或檢查改變時，請更新它（兩種語言）。
 
 `site/` 裡的網站有英文與中文兩個頁面。修改前請先讀 [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md)，兩個頁面一起改，並用 `npm run site:preview` 預覽。`site/assets/downloads.js` 裡安裝檔的檔名結尾，必須跟發佈 workflow 給安裝檔的名稱一致：下載按鈕與桌面 app 的更新都靠它們找到安裝檔。`UPDATE_INSTALLERS`（workflow 另外發佈到專用 repository（`UPDATES_REPO`）、給 app 更新用的副本的名稱）也一樣。
 
@@ -96,7 +98,7 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 - `workspace.ts` 用真正的暫存 git repository；
 - HTTP API 用 `app.request()`；
 - 把假的 keyring 傳給 `SettingsStore`；
-- 端對端測試（`e2e/`）用 `e2e/fake-cli/` 裡的假 CLI，由訊息中的 `e2e:` 指令操控（見[端對端測試](docs/developer-guide.zh-TW.md#端對端測試)）。
+- 端對端測試（`e2e/`）用 `e2e/fake-cli/` 裡的假 CLI，由訊息中的 `e2e:` 指令操控（見[端對端測試](docs/developer-guide.zh-TW.md#端對端測試)）；情境的每個改變也要寫進 [`e2e/README.zh-TW.md`](e2e/README.zh-TW.md)，兩種語言都要。
 
 測試在 Windows 上也要通過，CI 也會在那裡跑：用 `join()` 與 `resolve()` 組路徑，不要直接寫成以 `/` 分隔的文字；只有 macOS 或 Linux 才有的東西用 `skipIf(process.platform === 'win32')` 跳過；時間限制取自 `test/timeouts.ts`。詳見[開發者指南](docs/developer-guide.zh-TW.md#測試)。
 

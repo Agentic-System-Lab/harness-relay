@@ -58,7 +58,7 @@ describe('commands people copy', () => {
   });
 
   it('no bare address runs into the Chinese text after it, which GitHub would link along with it', () => {
-    const docs = ['README.zh-TW.md', 'CONTRIBUTING.zh-TW.md', 'CODE_OF_CONDUCT.zh-TW.md', 'SECURITY.zh-TW.md', ...['architecture', 'developer-guide', 'user-guide', 'remote-access'].map((d) => `docs/${d}.zh-TW.md`)];
+    const docs = ['README.zh-TW.md', 'CONTRIBUTING.zh-TW.md', 'CODE_OF_CONDUCT.zh-TW.md', 'SECURITY.zh-TW.md', 'e2e/README.zh-TW.md', 'desktop/README.zh-TW.md', ...['architecture', 'developer-guide', 'user-guide', 'remote-access'].map((d) => `docs/${d}.zh-TW.md`)];
     for (const doc of docs) {
       // Outside code: an address written as <…>, [text](…) or in backticks ends where it should.
       const prose = read(doc).replace(/```[\s\S]*?```|`[^`\n]+`/g, '');

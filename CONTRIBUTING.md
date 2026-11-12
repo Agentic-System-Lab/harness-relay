@@ -83,7 +83,9 @@ If you can only write one of the two languages, send the pull request anyway and
 
 ### Documentation
 
-Docs come in pairs: `README.md` / `README.zh-TW.md`, `CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`, `CODE_OF_CONDUCT.md` / `CODE_OF_CONDUCT.zh-TW.md`, `SECURITY.md` / `SECURITY.zh-TW.md` and `docs/<name>.md` / `docs/<name>.zh-TW.md`. When a change affects behaviour, the HTTP API, the schema, settings, environment variables or the list of tests, update both languages in the same pull request. The developer guide lists every HTTP route and what each test file covers; keep those lists current.
+Docs come in pairs: `README.md` / `README.zh-TW.md`, `CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`, `CODE_OF_CONDUCT.md` / `CODE_OF_CONDUCT.zh-TW.md`, `SECURITY.md` / `SECURITY.zh-TW.md`, `docs/<name>.md` / `docs/<name>.zh-TW.md`, and the READMEs of `e2e/` and `desktop/` (`README.md` / `README.zh-TW.md` in each). When a change affects behaviour, the HTTP API, the schema, settings, environment variables or the list of tests, update both languages in the same pull request. The developer guide lists every HTTP route and what each test file covers; keep those lists current.
+
+[`e2e/README.md`](e2e/README.md) lists every end-to-end scenario: when you add, change or remove an end-to-end test, update it and its Chinese copy in the same pull request. [`desktop/README.md`](desktop/README.md) is the desktop app's page for developers: update it (both languages) when the app's files, commands or checks change.
 
 The website in `site/` has an English and a Chinese page. Read [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md) before you change it, change both pages together, and preview them with `npm run site:preview`. The installers' file name endings in `site/assets/downloads.js` must stay in step with the names the Release workflow gives them: the download buttons and the desktop app's updates both find the installers by them. The same goes for `UPDATE_INSTALLERS`, the names of the copies the workflow publishes for the app's updates, in a repository of their own (`UPDATES_REPO`).
 
@@ -96,7 +98,7 @@ Add or update tests with every change in behaviour. Tests stay offline: no real 
 - real temporary git repositories for `workspace.ts`;
 - `app.request()` for the HTTP API;
 - a fake keyring passed to `SettingsStore`;
-- for the end-to-end tests (`e2e/`), the fake CLIs in `e2e/fake-cli/`, which a message steers with `e2e:` directives (see [End-to-end tests](docs/developer-guide.md#end-to-end-tests)).
+- for the end-to-end tests (`e2e/`), the fake CLIs in `e2e/fake-cli/`, which a message steers with `e2e:` directives (see [End-to-end tests](docs/developer-guide.md#end-to-end-tests)); each change to their scenarios also goes into [`e2e/README.md`](e2e/README.md), in both languages.
 
 Tests also have to pass on Windows, where CI runs them too: build paths with `join()` and `resolve()` rather than writing them with `/`, skip what only macOS or Linux have with `skipIf(process.platform === 'win32')`, and take time limits from `test/timeouts.ts`. The [developer guide](docs/developer-guide.md#testing) says more.
 
