@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import { PROVIDER_LABEL, PROVIDERS, type AboutInfo, type ProviderStatus } from '../../src/shared/types';
 import { MAILTO_MAX, REPORT_EMAIL } from '../../src/web/report';
 import { expect, test } from '../fixtures';
+import { CLIS, faked } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
 /** What the dialog handed on, kept in the page instead of going anywhere (`catchMail`). */
@@ -47,13 +48,13 @@ async function catchMail(page: Page): Promise<() => Promise<Caught>> {
 async function infoLines(page: Page, relay: RelayServer): Promise<string[]> {
   const about = await relay.api<AboutInfo>('/api/about');
   const clis = await relay.api<ProviderStatus[]>('/api/providers');
-  // Every CLI the server knows, in its order: a version, or that it is not installed (Cursor,
-  // Antigravity and the open agents, which no fake stands in for).
+  // Every CLI the server knows, in its order: a version, or that it is not installed (those whose
+  // fake is not written yet).
   const cliLines = PROVIDERS.flatMap((p) => {
     const s = clis.find((x) => x.provider === p);
     return s ? [`${PROVIDER_LABEL[p]}: ${s.installed ? s.version!.trim() : 'not installed'}`] : [];
   });
-  expect(cliLines).toEqual(expect.arrayContaining([expect.stringMatching(/^Claude Code: \d/), expect.stringMatching(/^Codex: \d/), expect.stringMatching(/^Grok: \d/)]));
+  expect(cliLines).toEqual(expect.arrayContaining(faked(CLIS).map((c) => `${c.label}: ${c.version.slice(1)}`)));
   return [
     `Harness Relay: ${about.version} · web`,
     `OS: ${about.os}`,

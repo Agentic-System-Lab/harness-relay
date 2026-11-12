@@ -132,8 +132,8 @@ test.describe('the sidebar', () => {
     await expect.poll(groups).toEqual([null, null]);
   });
   test("every CLI's dot and the count fit on one line, the chevron ending at the report icon's edge", async ({ page }) => {
-    // Every CLI installed and ready, the widest the line gets ("10/10 ready"). The e2e server has no
-    // Cursor, Antigravity or open agent, so its answer is changed on the way to the page.
+    // Every CLI installed and ready, the widest the line gets ("10/10 ready"), whichever fakes are
+    // written yet: the server's answer is changed on the way to the page.
     await page.route('**/api/providers*', async (route) => {
       const res = await route.fetch();
       const list = (await res.json()) as ProviderStatus[];

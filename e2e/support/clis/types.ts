@@ -2,6 +2,7 @@
  * What the end-to-end tests know of one CLI and its fake (`e2e/fake-cli/agents/<provider>.cjs`): the
  * facts a spec branches on. Each CLI has a file of its own (`clis/<provider>.ts`), changed together
  * with its fake; `clis/all.ts` gathers them and `support/clis.ts` answers the specs' questions with them.
+ * A fact marked optional has its default in `support/clis.ts`, as its comment says.
  */
 import type { Permission, Provider } from '../../../src/shared/types';
 
@@ -48,8 +49,12 @@ export interface CliFacts {
   mcpHttp: boolean;
   /** Whether a prompt's images reach it. */
   images: boolean;
-  /** For `models.spec.ts`: a model to pick for a member in Team settings, and an effort it offers for that model. */
-  pickModel: { model: string; effort: string };
+  /**
+   * For `models.spec.ts`: a model to pick for a member in Team settings, and an effort it offers for
+   * that model; `logged`: the model and effort its fake then logs for the turn, where they differ
+   * from those picked (an open agent's model without its backend, say). Default: those picked.
+   */
+  pickModel: { model: string; effort: string; logged?: { model?: string; effort?: string } };
   /** Its default account's home in a test server: a folder under the test's home folder (`home`) or data folder (`data`). */
   defaultHome: { in: 'home' | 'data'; path: readonly string[] };
   /**
@@ -61,4 +66,15 @@ export interface CliFacts {
   apiKeyEnv?: string;
   /** The placeholder of an account's API key box in Settings. */
   apiKeyPlaceholder?: string;
+  /**
+   * Where its fake's home (what it logs as `home`) is in an account's folder: the folder itself
+   * (default, `[]`), or a folder in it (`['.gemini']`, where the CLI keeps its own).
+   */
+  homeIn?: readonly string[];
+  /** The arguments of its own sign-out command, as its fake logs them (default `logout`; Claude Code `auth logout`). */
+  logout?: string;
+  /** A part of its reply's error when it is not signed in (E2E_FAKE_SIGNED_OUT); none: the reply's error is not checked. */
+  signedOutError?: string;
+  /** Whether it asks the user before reading a tool library skill outside the working directory (default false). */
+  skillReadAsks?: boolean;
 }
