@@ -32,9 +32,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: ci,
   retries: ci ? 1 : 0,
-  // Every test starts a server and agents of its own: a few at a time is plenty, and CI's
-  // two-core runners get two.
-  workers: ci ? 2 : '50%',
+  // Every test starts a server, a browser and agents of its own. On CI, two at a time keep Linux's
+  // and macOS's runners busy (a third only made each test slower there), while Windows' tests
+  // mostly wait on processes starting: three there took no longer each. Four were only a little
+  // faster, and on a slow runner some ran out of time.
+  workers: ci ? (process.platform === 'win32' ? 3 : 2) : '50%',
   reporter: ci
     ? [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }], ['github']]
     : [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],

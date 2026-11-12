@@ -82,10 +82,12 @@ jobs:
             os: windows-latest
             target: --win nsis --x64
           # Built on an Arm runner, so that npm installs the keyring module's native part for Arm
-          # (@napi-rs/keyring-win32-arm64-msvc) and the packaged app's own check runs natively.
+          # (@napi-rs/keyring-win32-arm64-msvc) and the packaged app's own check runs natively. On a
+          # Dev Drive (the step "Make a Dev Drive to build on" below).
           - name: Windows Arm64
             os: windows-11-arm
             target: --win nsis --arm64
+            devDrive: true
           - name: Linux
             os: ubuntu-latest
             target: --linux AppImage --x64
@@ -98,8 +100,33 @@ jobs:
     env:
       # The version the app is built as (desktop/scripts/build.ts) and its installers are named after.
       RELAY_VERSION: ${{ needs.check.outputs.tag }}
+      # Where it is built: the checkout, or its copy on a Dev Drive.
+      BUILD_DIR: ${{ matrix.devDrive && 'R:\harness-relay' || github.workspace }}
+    # These replace the workflow's defaults, so bash is named again.
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.BUILD_DIR }}
     steps:
       - uses: actions/checkout@v7
+
+      # GitHub's Windows on Arm runner has one disk, which writes small files about 14 times slower
+      # than a Dev Drive does (x64's runner builds on a fast disk of its own), and npm ci writes tens of
+      # thousands: there the job builds in a copy of the checkout on a Dev Drive, with npm's cache and
+      # the temporary folder, which makes installing about twice as fast. It holds only this job's
+      # files, so no antivirus filter is attached to it.
+      - name: Make a Dev Drive to build on
+        if: matrix.devDrive
+        working-directory: ${{ github.workspace }}
+        shell: pwsh
+        run: |
+          New-VHD -Path (Join-Path $env:RUNNER_TEMP 'dev-drive.vhdx') -SizeBytes 20GB -Dynamic | Mount-VHD -PassThru |
+            Initialize-Disk -PassThru | New-Partition -DriveLetter R -UseMaximumSize | Format-Volume -DevDrive -Confirm:$false -Force | Out-Null
+          fsutil devdrv enable /disallowAv
+          fsutil devdrv trust /f R:
+          Copy-Item -Path $env:GITHUB_WORKSPACE -Destination $env:BUILD_DIR -Recurse -Force
+          New-Item -ItemType Directory -Path R:\npm-cache, R:\tmp | Out-Null
+          Add-Content -Path $env:GITHUB_ENV -Value 'npm_config_cache=R:\npm-cache', 'TEMP=R:\tmp', 'TMP=R:\tmp'
 
       - uses: actions/setup-node@v7
         with:
@@ -133,7 +160,7 @@ jobs:
       # Apple Silicon runs nothing unsigned), and no identity is looked for in the keychain.
       # The installers are named after the version: Harness-Relay-<version>-<os>-<arch>.<ext>.
       - name: Make the installer
-        working-directory: desktop
+        working-directory: ${{ env.BUILD_DIR }}/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.target }} --publish never -c.artifactName='Harness-Relay-${env.RELAY_VERSION}-${os}-${arch}.${ext}'
@@ -158,9 +185,9 @@ jobs:
         with:
           name: installer-${{ matrix.name }}
           path: |
-            desktop/release/Harness-Relay-*.dmg
-            desktop/release/Harness-Relay-*.exe
-            desktop/release/Harness-Relay-*.AppImage
+            ${{ env.BUILD_DIR }}/desktop/release/Harness-Relay-*.dmg
+            ${{ env.BUILD_DIR }}/desktop/release/Harness-Relay-*.exe
+            ${{ env.BUILD_DIR }}/desktop/release/Harness-Relay-*.AppImage
           if-no-files-found: error
           retention-days: 7
 
