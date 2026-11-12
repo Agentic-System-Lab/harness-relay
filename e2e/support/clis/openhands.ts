@@ -30,4 +30,6 @@ export const openhands: CliFacts = {
   pickModel: { model: 'e2e/e2e-model-mini', effort: 'high', logged: { model: 'openai/e2e-model-mini' } },
   defaultHome: { in: 'data', path: ['agent-homes', 'openhands'] },
   accounts: 'none',
+  // Its fetch is `curl` in its terminal, which asks first in a read-only chat; in edit mode only the sandbox asks.
+  fetchPermission: 'edit',
 };

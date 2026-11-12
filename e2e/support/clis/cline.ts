@@ -29,4 +29,6 @@ export const cline: CliFacts = {
   pickModel: { model: 'e2e/e2e-model-mini', effort: 'high', logged: { model: 'e2e-model-mini' } },
   defaultHome: { in: 'data', path: ['agent-homes', 'cline'] },
   accounts: 'none',
+  // No to-do list over ACP.
+  todoList: false,
 };
