@@ -1272,6 +1272,11 @@ export interface ProviderStatus {
   usingStoredApiKey: boolean;
   /** Every account of this CLI, the default account first: each one signs in on its own. */
   accounts: AccountStatus[];
+  /**
+   * When the server began this check (ms since the epoch); an answer from its cache keeps the time of
+   * the check it came from. The chat shows, for each CLI, the status checked last (`newerStatuses()`).
+   */
+  checkedAt?: number;
 }
 
 /** One account of a CLI and its sign-in. */

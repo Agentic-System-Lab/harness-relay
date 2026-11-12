@@ -1,6 +1,6 @@
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Locator, Page } from '@playwright/test';
+import type { Locator, Page, Request } from '@playwright/test';
 import type { Provider, SettingsView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
@@ -338,10 +338,10 @@ test.describe('more than one account', () => {
     const released = new Promise<void>((r) => (release = r));
     let answered!: () => void;
     const asked = new Promise<void>((r) => (answered = r));
-    let held = false;
+    let held: Request | undefined;
     await page.route(/\/api\/providers(\?|$)/, async (route) => {
       if (held) return route.continue();
-      held = true;
+      held = route.request();
       const response = await route.fetch();
       answered();
       await released;
@@ -353,12 +353,26 @@ test.describe('more than one account', () => {
     const pill = accountBlock(page, 'claude', 'Work').locator('.pill');
     await expect(pill).toHaveText('Signed in');
 
+    const landed = page.waitForEvent('requestfinished', (r) => r === held);
     release();
-    // The older answer, without the account, comes in last: the page keeps the newer one's state.
+    await landed;
+    // The older answer, without the account, came in last: the page keeps the newer one's state.
     for (let i = 0; i < 20; i++) {
       await expect(pill).toHaveText('Signed in', { timeout: 1_000 });
       await page.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
     }
+  });
+
+  test('a CLI signed out outside Harness Relay shows so when Settings is opened again', async ({ page, relay }) => {
+    await page.goto(`${relay.base}/#/settings/claude`);
+    const pill = accountBlock(page, 'claude', 'Default account').locator('.pill');
+    await expect(pill).toHaveText('Signed in');
+    // Signed out in a terminal (`claude auth logout`): the server is not told, and its cache, a few
+    // seconds old, still says signed in. Settings looks again when it opens, and that answer wins over
+    // the cached one the app asks for at the same time, whichever comes in last.
+    writeFileSync(join(relay.home, '.claude', 'e2e-signed-out'), '');
+    await page.reload();
+    await expect(pill).toHaveText('Not signed in');
   });
 
   test('an account is not removed while a conversation runs', async ({ page, relay }) => {

@@ -157,6 +157,7 @@ export class ProviderService {
     const cached = this.cache.get(p);
     if (!refresh && cached && Date.now() - cached.at < 20_000) return cached.status;
     const generation = this.generation.get(p) ?? 0;
+    const checkedAt = Date.now();
     const bin = this.settings.bin(p);
     const env = this.settings.env(p);
     const ids = ['', ...this.settings.accountIds(p)];
@@ -181,13 +182,13 @@ export class ProviderService {
         }),
       );
       const first = accounts[0]!;
-      status = { provider: p, installed: true, bin, version, auth: first.auth, usingStoredApiKey: first.usingStoredApiKey, accounts };
+      status = { provider: p, installed: true, bin, version, auth: first.auth, usingStoredApiKey: first.usingStoredApiKey, accounts, checkedAt };
     } catch (err) {
       // Not found: Settings says so in its own words, with where to install it. Anything else (the
       // file is there but cannot run, say) is told as it happened.
       const auth: ProviderAuth = { loggedIn: null, detail: err instanceof CommandNotFoundError ? undefined : (err as Error).message };
       const accounts = ids.map((id) => account(id, { loggedIn: null }));
-      status = { provider: p, installed: false, bin, auth, usingStoredApiKey: accounts[0]!.usingStoredApiKey, accounts };
+      status = { provider: p, installed: false, bin, auth, usingStoredApiKey: accounts[0]!.usingStoredApiKey, accounts, checkedAt };
     }
     if ((this.generation.get(p) ?? 0) === generation) this.cache.set(p, { at: Date.now(), status });
     return status;

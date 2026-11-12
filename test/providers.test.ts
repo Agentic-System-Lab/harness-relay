@@ -184,7 +184,12 @@ esac
     service.invalidate('claude');
     expect((await asking).accounts.map((a) => a.id)).toEqual(['']);
     // Not kept: the next status, not forced, asks again instead of giving that answer for 20 s.
-    expect((await service.status('claude')).accounts.map((a) => a.id)).toEqual(['', work]);
+    const next = await service.status('claude');
+    expect(next.accounts.map((a) => a.id)).toEqual(['', work]);
+    // A cached answer keeps the time of the check it came from; a forced one is checked anew.
+    expect((await service.status('claude')).checkedAt).toBe(next.checkedAt);
+    expect((await service.status('claude', true)).checkedAt).toBeGreaterThanOrEqual(next.checkedAt!);
+    expect((await asking).checkedAt).toBeLessThanOrEqual(next.checkedAt!);
   });
 
   posixIt('checks, signs in and signs out each account in its own home', async () => {
