@@ -9,10 +9,25 @@ const MB = 1024 * 1024;
  * (pinned sizes and SHA-256), which the tests cannot do offline, so the page gets the server's own
  * answer to GET /api/voice with `job` put in.
  */
+/**
+ * The server's answer, asked again when the connection was reset: the page asks every moment while an
+ * install runs, and on Windows a request sent on a kept-alive connection the server has just closed
+ * fails with ECONNRESET now and then.
+ */
+async function fetchAgain<T>(fetch: () => Promise<T>, tries = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fetch();
+    } catch (err) {
+      if (i >= tries || !/ECONNRESET|ECONNREFUSED|socket hang up/.test(String(err))) throw err;
+    }
+  }
+}
+
 async function showInstall(page: Page, base: string, job: Omit<VoiceJobView, 'model'>): Promise<void> {
   await page.route('**/api/voice', async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
-    const res = await route.fetch();
+    const res = await fetchAgain(() => route.fetch());
     const status = (await res.json()) as VoiceStatus;
     await route.fulfill({ response: res, json: { ...status, job: { ...job, model: status.model } } });
   });
@@ -23,6 +38,12 @@ async function showInstall(page: Page, base: string, job: Omit<VoiceJobView, 'mo
 const STEPS = ['engine', 'model', 'check'] as VoiceJobView['steps'];
 
 test.describe("voice input's install", () => {
+  // The page keeps asking for the install's state while a test ends and its server stops: a request
+  // the route is fetching then fails (ECONNRESET on Windows). Let the route go first, quietly.
+  test.afterEach(async ({ page }) => {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  });
+
   test('shows its steps in line, says their state to screen readers, and its download in the bar', async ({ page, relay }) => {
     await showInstall(page, relay.base, {
       id: 'e2e',
