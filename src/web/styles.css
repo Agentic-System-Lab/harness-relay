@@ -5506,10 +5506,6 @@ details.sub summary {
   margin-top: 4px;
 }
 
-.memory-scopes {
-  max-width: 560px;
-}
-
 .memory-scopes button {
   display: inline-flex;
   align-items: center;
@@ -5950,7 +5946,6 @@ details.sub summary {
 
 /* Segmented tabs whose labels do not fit a phone: the buttons shrink and their labels wrap, instead of running past the edge. */
 .native-tabs button,
-.memory-scopes button,
 .mcp-form .segmented button {
   min-width: 0;
   white-space: normal;
