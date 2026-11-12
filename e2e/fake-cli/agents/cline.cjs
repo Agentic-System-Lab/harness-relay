@@ -26,6 +26,8 @@
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const http = require('node:http');
+const https = require('node:https');
 const os = require('node:os');
 const path = require('node:path');
 const { acpAgent, picked, requestPermission, sessionUpdates } = require('../lib/acp.cjs');
@@ -407,6 +409,63 @@ function briefedOthers(briefing, cwd) {
   return dirs.filter((d) => path.resolve(d) !== path.resolve(cwd));
 }
 
+/**
+ * Reaches `url` for real, as its own tools do: through the proxy the environment names (below full
+ * access Harness Relay's sandbox's, which asks the user about a host the run may not reach, and
+ * refuses it when declined), else directly. `{ ok, status, why, body }`.
+ */
+function reach(url) {
+  return new Promise((resolve) => {
+    let target;
+    try {
+      target = new URL(url);
+    } catch {
+      return resolve({ ok: false, why: 'not a URL' });
+    }
+    const secure = target.protocol === 'https:';
+    const via = secure ? env.HTTPS_PROXY || env.https_proxy : env.HTTP_PROXY || env.http_proxy;
+    let settled = false;
+    const done = (r) => {
+      if (!settled) resolve(r);
+      settled = true;
+    };
+    const answer = (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (d) => (body = (body + d).slice(0, 2000)));
+      res.on('end', () => done({ ok: res.statusCode < 400, status: res.statusCode, why: `${res.statusCode} ${res.statusMessage || ''}`.trim(), body: body.trim() }));
+      res.on('error', (err) => done({ ok: false, why: err.code || err.message }));
+    };
+    // Its own agent: the proxy is asked as named here (an agent of Node's own might send this request to a proxy too).
+    const o = { agent: new http.Agent(), timeout: 600_000 };
+    let req;
+    if (via) {
+      const proxy = new URL(via);
+      const auth = proxy.username
+        ? { 'proxy-authorization': `Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString('base64')}` }
+        : {};
+      const at = { ...o, host: proxy.hostname.replace(/^\[|\]$/g, ''), port: Number(proxy.port) || 80 };
+      if (secure) {
+        req = http.request({ ...at, method: 'CONNECT', path: `${target.hostname}:${target.port || 443}`, headers: { host: `${target.hostname}:${target.port || 443}`, ...auth } });
+        req.on('connect', (res, socket) => {
+          socket.destroy();
+          done({ ok: res.statusCode === 200, status: res.statusCode, why: `${res.statusCode} ${res.statusMessage || ''}`.trim(), body: '' });
+        });
+      } else {
+        req = http.request({ ...at, method: 'GET', path: target.href, headers: { host: target.host, ...auth } }, answer);
+      }
+    } else {
+      req = (secure ? https : http).request(target, { ...o, agent: secure ? new https.Agent() : o.agent, method: 'GET' }, answer);
+    }
+    req.on('error', (err) => done({ ok: false, why: err.code || err.message }));
+    req.on('timeout', () => req.destroy(new Error('timed out')));
+    req.end();
+  });
+}
+
+/** What it says of a URL it tried to reach. */
+const reached = (url, r) => (r.ok ? `I fetched ${url}. ` : `I could not reach ${url} (${r.why}). `);
+
 /** Writes a file as its editor does: `{ ok }`, or why not where it may not write (the sandbox's refusal). */
 function writeAt(file, content) {
   try {
@@ -468,10 +527,23 @@ async function clineTurn(peer, sessionId, s, steps, briefing) {
     }
     if (step.type === 'approve') {
       const r = await call('execute', { commands: [step.command] }, `run_commands: ${step.command}`, async () => ({
-        raw: [{ query: step.command, result: 'e2e-approval\n', success: true }],
+        raw: [{ query: step.command, result: /^npm publish/.test(step.command) ? '+ e2e-approval@1.0.0\n' : 'e2e-approval\n', success: true }],
       }));
       if (r.cancelled) return cancelled();
       prefix += r.ran ? 'The command ran: e2e-approval. ' : declined('command', '');
+    }
+    if (step.type === 'fetch') {
+      // Its web fetch reaches the page for real (below full access through the sandbox's proxy, which asks).
+      let got = { ok: false, why: 'not run' };
+      const input = { requests: [{ url: step.url, prompt: 'What does this page say?' }] };
+      const r = await call('fetch', input, `fetch_web_content: ${step.url}`, async () => {
+        got = await reach(step.url);
+        return {
+          raw: [got.ok ? { query: step.url, result: got.body || '(an empty page)', success: true } : { query: step.url, result: '', error: `Failed to fetch ${step.url}: ${got.why}`, success: false }],
+        };
+      });
+      if (r.cancelled) return cancelled();
+      prefix += r.ran ? reached(step.url, got) : declined('fetch', '');
     }
     if (step.type === 'write') {
       const file = targetOf(step, s.cwd, briefedOthers(briefing, s.cwd));

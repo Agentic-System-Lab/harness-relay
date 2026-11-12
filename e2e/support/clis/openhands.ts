@@ -27,7 +27,7 @@ export const openhands: CliFacts = {
   otherCwdWriteAsks: false,
   mcpHttp: true,
   images: true,
-  pickModel: { model: 'e2e/e2e-model-mini', effort: 'high' },
+  pickModel: { model: 'e2e/e2e-model-mini', effort: 'high', logged: { model: 'openai/e2e-model-mini' } },
   defaultHome: { in: 'data', path: ['agent-homes', 'openhands'] },
   accounts: 'none',
 };
