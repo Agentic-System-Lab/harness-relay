@@ -83,8 +83,12 @@ jobs:
           bwrap --ro-bind / / true && echo "bubblewrap works"
 
       # The real sandbox's own checks (what it lets through, as a table), before the tests that rely on it.
+      # On Linux only: on GitHub's macOS runners (macOS 26.7) curl cannot verify a certificate inside
+      # the sandbox, so the checks that reach example.com through its proxy fail there, while Node's
+      # fetch passes (not seen on macOS 26.6). The tests themselves reach no host on the internet, and
+      # still run the open agents in the sandbox on macOS.
       - name: Check Harness Relay's sandbox
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         run: npx tsx scripts/sandbox-check.ts
 
       - name: Build the UI
