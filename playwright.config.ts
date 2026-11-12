@@ -34,8 +34,9 @@ export default defineConfig({
   retries: ci ? 1 : 0,
   // Every test starts a server, a browser and agents of its own. On CI, two at a time keep Linux's
   // and macOS's runners busy (a third only made each test slower there), while Windows' tests
-  // mostly wait on processes starting: there each of the runner's four cores takes one.
-  workers: ci ? (process.platform === 'win32' ? 4 : 2) : '50%',
+  // mostly wait on processes starting: three there took no longer each. Four were only a little
+  // faster, and on a slow runner some ran out of time.
+  workers: ci ? (process.platform === 'win32' ? 3 : 2) : '50%',
   reporter: ci
     ? [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }], ['github']]
     : [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
