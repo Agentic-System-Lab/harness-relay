@@ -8,12 +8,14 @@
  * (`bundleFakeCli()`): a Node single executable's `require` loads built-in modules only, and a
  * script runs from this cache's folder, where the modules beside it are not.
  *
- * On macOS and Linux each is the script itself with a `#!` line for this Node. Harness Relay starts a
- * CLI without a shell, which on Windows runs only real programs (`.exe`), not scripts or `.cmd`
- * shims, so there the fake becomes a Node single executable application: this Node's own `node.exe`
- * with the script injected (`postject`), linked under every name. That takes a few seconds and
- * about 100 MB, so it is kept in `node_modules/.cache/` and made again only when a module or Node
- * changes. `E2E_FAKE_SEA=1` builds the executables on macOS and Linux too, to check them there.
+ * On macOS and Linux each is the script itself with a `#!` line for this Node (OpenHands' in a
+ * Python virtual environment of its own, as `uv tool install` lays it out: `installOpenhands()`).
+ * Harness Relay starts a CLI without a shell, which on Windows runs only real programs (`.exe`),
+ * not scripts or `.cmd` shims, so there the fake becomes a Node single executable application: this
+ * Node's own `node.exe` with the script injected (`postject`), linked under every name. That takes a
+ * few seconds and about 100 MB, so it is kept in `node_modules/.cache/` and made again only when a
+ * module or Node changes. `E2E_FAKE_SEA=1` builds the executables on macOS and Linux too, to check
+ * them there.
  *
  * On macOS and Linux the fake folder dialog (`e2e/fake-cli/fake-dialog.cjs`) goes with them as
  * `zenity`, a script too: Linux looks for its dialog on the PATH (macOS and Windows open their own by
@@ -31,9 +33,9 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, join } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { PROVIDERS, type Provider } from '../../src/shared/types';
 import { FACTS } from './clis/all';
 import { FAKE_CLI_DIR, FAKE_DIALOG_SCRIPT, FAKE_GH_SCRIPT, ROOT } from './paths';
@@ -49,10 +51,21 @@ const exe = process.platform === 'win32' ? '.exe' : '';
 /** A build used this recently may still be in use by another run (a module changed meanwhile): it is kept. */
 const IN_USE_MS = 60 * 60 * 1000;
 /** What the bundle is made of, changed when how it is made changes (its text is in the cache key too). */
-const LAYOUT = 'bundle-1';
+const LAYOUT = 'bundle-2';
 
 /** A CLI's fake's file name in the fake folder (`cursor-agent`, `agy.exe`). */
 export const fakeBin = (p: Provider): string => FACTS[p].bin + exe;
+
+/**
+ * Where OpenHands' fake goes in script mode, as `uv tool install openhands` lays the real one out: its
+ * program in a Python virtual environment, with LiteLLM's model list in that environment's
+ * site-packages, which is where the server reads OpenHands' models from (`openhandsSitePackages`:
+ * the real path of the program on the PATH, two folders up).
+ */
+const OPENHANDS_VENV = {
+  bin: join('openhands-venv', 'bin', 'openhands'),
+  models: join('openhands-venv', 'lib', 'python3.12', 'site-packages', 'litellm', 'model_prices_and_context_window_backup.json'),
+};
 
 /** The fakes that are standalone scripts of their own, not modules of the fake CLIs. */
 const STANDALONE = new Set([basename(FAKE_DIALOG_SCRIPT), basename(FAKE_GH_SCRIPT)]);
@@ -133,7 +146,8 @@ export async function installFakeClis(): Promise<string> {
   const bins = PROVIDERS.map((p) => join(folder, fakeBin(p)));
   const dialog = dialogScript ? join(folder, 'zenity') : undefined;
   const gh = join(folder, `gh${exe}`);
-  if ([...bins, ...(dialog ? [dialog] : []), gh].every((b) => existsSync(b))) {
+  const litellm = sea ? [] : [join(folder, OPENHANDS_VENV.models)];
+  if ([...bins, ...(dialog ? [dialog] : []), gh, ...litellm].every((b) => existsSync(b))) {
     // Marked as in use, so that another run, of a changed module, leaves it to this one.
     const now = new Date();
     utimesSync(folder, now, now);
@@ -154,7 +168,10 @@ export async function installFakeClis(): Promise<string> {
     const checks = IMPLEMENTED_FAKES.map((p): [string, RegExp] => [join(folder, fakeBin(p)), (load(join(FAKE_CLI_DIR, 'agents', `${p}.cjs`)) as { versionRe: RegExp }).versionRe]);
     await buildExecutables(seaEntry(script, ghScript), folder, [...bins, gh], [...checks, [gh, /^gh version/]]);
   } else {
-    for (const bin of bins) writeScript(bin, script);
+    for (const p of PROVIDERS) {
+      if (p === 'openhands') installOpenhands(folder, script);
+      else writeScript(join(folder, fakeBin(p)), script);
+    }
     writeScript(gh, ghScript);
   }
   if (dialog) writeScript(dialog, dialogScript);
@@ -180,6 +197,25 @@ function seaEntry(cliScript: string, ghScript: string): string {
     '}',
     '',
   ].join('\n');
+}
+
+/**
+ * OpenHands' fake as a `uv tool install` (`OPENHANDS_VENV`): the script in its virtual environment,
+ * its name in `folder` a link to it, and LiteLLM's model list beside it (its module's
+ * `litellmModels`). Not for a single executable, which has no `#!` line, and whose hard link has no
+ * other real path: there (Windows) the server finds no list, and OpenHands' models are the endpoints'.
+ */
+function installOpenhands(folder: string, script: string): void {
+  const program = join(folder, OPENHANDS_VENV.bin);
+  mkdirSync(dirname(program), { recursive: true });
+  writeScript(program, script);
+  const link = join(folder, fakeBin('openhands'));
+  rmSync(link, { force: true });
+  symlinkSync(relative(folder, program), link);
+  const list = join(folder, OPENHANDS_VENV.models);
+  mkdirSync(dirname(list), { recursive: true });
+  const { litellmModels } = createRequire(import.meta.url)(join(FAKE_CLI_DIR, 'agents', 'openhands.cjs')) as { litellmModels: Record<string, unknown> };
+  writeFileSync(list, JSON.stringify(litellmModels, null, 2));
 }
 
 /** `script` as a program of its own at `bin`, run by this Node (macOS and Linux). */
