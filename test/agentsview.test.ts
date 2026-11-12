@@ -1,6 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatMessage, Conversation } from '../src/shared/types';
-import { AgentsViewSync, agentSessionIds, agentsViewSessionId, fallbackProject, threadTranscript } from '../src/server/agentsview';
+import { OPEN_PROVIDERS, PROVIDERS, type ChatMessage, type Conversation } from '../src/shared/types';
+import {
+  AGENTSVIEW_SESSIONS,
+  AgentsViewSync,
+  agentSessionIds,
+  agentsViewSessionId,
+  fallbackProject,
+  memberSessionId,
+  memberTranscript,
+  memberTranscripts,
+  recordedSession,
+  threadTranscript,
+} from '../src/server/agentsview';
 
 const BASE = 'http://127.0.0.1:9999';
 
@@ -81,18 +92,143 @@ describe("the agents' sessions", () => {
     expect(agentSessionIds(conversation())).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0']);
   });
 
-  it("leaves out Cursor's, which AgentsView does not read (its ACP sessions are a database of its own)", () => {
-    expect(agentsViewSessionId('cursor', 'abc')).toBeUndefined();
-    const conv = conversation();
-    conv.agentState.c = { provider: 'cursor', sessionId: 'c1a2', seen: [] };
-    expect(agentSessionIds(conv)).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0']);
-  });
-
-  it("leaves out Antigravity's, which AgentsView does not read either (its conversations are databases of its own)", () => {
-    expect(agentsViewSessionId('antigravity', 'abc')).toBeUndefined();
+  it("names Antigravity's as AgentsView's Antigravity CLI does, after its conversation's file", () => {
+    expect(agentsViewSessionId('antigravity', 'c3471ccd')).toBe('antigravity-cli:c3471ccd');
     const conv = conversation();
     conv.agentState.ag = { provider: 'antigravity', sessionId: 'c3471ccd', seen: [] };
+    expect(agentSessionIds(conv)).toContain('antigravity-cli:c3471ccd');
+  });
+
+  it("leaves out Cursor's and the open agents', which AgentsView cannot read where they are: Harness Relay records those itself", () => {
+    const recorded = PROVIDERS.filter(recordedSession);
+    expect(recorded).toEqual(['cursor', ...OPEN_PROVIDERS]);
+    const conv = conversation();
+    for (const p of recorded) {
+      expect(agentsViewSessionId(p, 'abc')).toBeUndefined();
+      conv.agentState[p] = { provider: p, sessionId: `${p}-1`, seen: [] };
+    }
     expect(agentSessionIds(conv)).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0']);
+    // Every CLI is one or the other.
+    for (const p of PROVIDERS) expect(AGENTSVIEW_SESSIONS[p]).toBeDefined();
+  });
+});
+
+/** A team with a Cursor member, an OpenCode member and Claude Code. */
+function recordedTeam(): Conversation {
+  return conversation({
+    agents: [
+      { id: 'cur', name: 'Reviewer', provider: 'cursor', role: '', model: 'claude-opus-5-5' },
+      { id: 'oc', name: 'Builder', provider: 'opencode', role: '' },
+      { id: 'a', name: 'Claude', provider: 'claude', role: '' },
+    ],
+    messages: [
+      message('m1', { kind: 'user' }, 'Fix the failing test'),
+      message('m2', { kind: 'agent', agentId: 'a' }, 'It is the date parser.', { agentName: 'Claude', provider: 'claude' }),
+      message('m3', { kind: 'agent', agentId: 'cur' }, '', {
+        agentName: 'Reviewer',
+        provider: 'cursor',
+        meta: { inputTokens: 1200, outputTokens: 300, costUsd: 0.0123456789 },
+        parts: [
+          { type: 'thinking', text: 'Look at the test first.' },
+          { type: 'tool', id: 't1', name: 'Shell', detail: 'npm test', status: 'done', output: '1 failed' },
+          { type: 'tool', id: 't2', name: 'Read', detail: 'src/date.ts', status: 'error', error: 'not found' },
+          { type: 'approval', id: 'p1', kind: 'command', detail: 'rm -rf dist', status: 'denied', note: 'not now' },
+          { type: 'text', text: 'Claude is right: the parser drops the zone.' },
+          { type: 'plan', entries: [{ text: 'Fix it', status: 'in_progress' }, { text: 'Test it', status: 'pending' }] },
+        ],
+      }),
+      message('m4', { kind: 'user' }, 'Go ahead'),
+      message('m5', { kind: 'agent', agentId: 'oc' }, 'Done.', { agentName: 'Builder', provider: 'opencode', meta: { inputTokens: 50, outputTokens: 5 } }),
+      message('m6', { kind: 'agent', agentId: 'cur' }, '', { agentName: 'Reviewer', provider: 'cursor', parts: [], passed: true }),
+      message('m7', { kind: 'agent', agentId: 'cur' }, '', { agentName: 'Reviewer', provider: 'cursor', parts: [], status: 'error', error: 'signed out' }),
+      message('m8', { kind: 'agent', agentId: 'oc' }, 'still typing', { provider: 'opencode', status: 'streaming' }),
+    ],
+    agentState: {
+      cur: { provider: 'cursor', sessionId: 'cursor-session', seen: [] },
+      oc: { provider: 'opencode', sessionId: 'ses_1', seen: [] },
+      a: { provider: 'claude', sessionId: '977d79d5-4d98-4e2a-9a1d-20fe70d1417e', seen: [] },
+    },
+  });
+}
+
+describe("a member's recorded session", () => {
+  it('is a Claude Code transcript of its replies: what it heard, its thinking, tool calls and their results, approvals, text, plan', () => {
+    const conv = recordedTeam();
+    const id = memberSessionId(conv.id, 'cur');
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    const r = records(memberTranscript(conv, 'cur'));
+    expect(r.map((x) => x.type)).toEqual(['user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'assistant', 'cost-state', 'custom-title']);
+    for (const x of r.filter((x) => x.type === 'user' || x.type === 'assistant')) {
+      expect(x).toMatchObject({ sessionId: id, cwd: '/work/chats', isSidechain: false, userType: 'external' });
+    }
+
+    // What was said before its first reply, the other agents' replies under their names.
+    expect(r[0]).toMatchObject({ parentUuid: null, timestamp: '2026-11-08T12:00:03.000Z' });
+    expect(r[0]!.message.content).toBe('Fix the failing test\n\n**Claude** · claude\n\nIt is the date parser.');
+    // Its thinking and tool calls, then their results, then what it said after them.
+    expect(r[1]!.message).toMatchObject({ role: 'assistant', model: 'claude-opus-5-5' });
+    const [thinking, shell, read] = r[1]!.message.content;
+    expect(thinking).toEqual({ type: 'thinking', thinking: 'Look at the test first.' });
+    expect(shell).toMatchObject({ type: 'tool_use', name: 'Shell', input: { detail: 'npm test' } });
+    expect(read).toMatchObject({ type: 'tool_use', name: 'Read', input: { detail: 'src/date.ts' } });
+    expect(r[2]!.message.content).toEqual([
+      { type: 'tool_result', tool_use_id: shell.id, content: '1 failed' },
+      { type: 'tool_result', tool_use_id: read.id, content: 'not found', is_error: true },
+    ]);
+    expect(r[3]!.message.content).toEqual([
+      { type: 'text', text: '[Asked to run `rm -rf dist`: declined: "not now"]' },
+      { type: 'text', text: 'Claude is right: the parser drops the zone.' },
+      { type: 'text', text: 'Plan:\n[~] Fix it\n[ ] Test it' },
+    ]);
+    // Then the user and the other member, and its later replies: a [PASS], a failure.
+    expect(r[4]!.message.content).toBe('Go ahead\n\n**Builder** · opencode\n\nDone.');
+    expect(r[5]!.message.content).toEqual([{ type: 'text', text: '[PASS]' }]);
+    expect(r[6]!.message.content).toEqual([{ type: 'text', text: '(signed out)' }]);
+
+    // One chain of records with ids of their own, never the thread's message ids.
+    const uuids = r.filter((x) => x.uuid).map((x) => x.uuid);
+    expect(new Set(uuids).size).toBe(uuids.length);
+    for (const u of uuids) expect(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7']).not.toContain(u);
+    r.slice(1, 7).forEach((x, i) => expect(x.parentUuid).toBe(r[i]!.uuid));
+
+    // Its tokens and cost, for AgentsView to add to the thread's, and its name.
+    expect(r[7]).toEqual({
+      type: 'cost-state',
+      sessionId: id,
+      totalCostUSD: 0.012346,
+      hasUnknownModelCost: false,
+      modelUsage: { 'claude-opus-5-5': { inputTokens: 1200, outputTokens: 300, costUSD: 0.012346 } },
+    });
+    expect(r[8]).toEqual({ type: 'custom-title', customTitle: 'Reviewer · Cursor — Plan the release', sessionId: id });
+
+    // The same conversation gives the same session.
+    expect(memberTranscript(conv, 'cur')).toBe(memberTranscript(recordedTeam(), 'cur'));
+  });
+
+  it("names the CLI as the model when the member has none set, and says when a reply's cost is unknown", () => {
+    const r = records(memberTranscript(recordedTeam(), 'oc'));
+    expect(r.map((x) => x.type)).toEqual(['user', 'assistant', 'cost-state', 'custom-title']);
+    expect(r[1]!.message).toMatchObject({ model: 'opencode', content: [{ type: 'text', text: 'Done.' }] });
+    expect(r.at(-2)).toMatchObject({ totalCostUSD: 0, hasUnknownModelCost: true, modelUsage: { opencode: { inputTokens: 50, outputTokens: 5, costUSD: 0 } } });
+    expect(r.at(-1)!.customTitle).toBe('Builder · OpenCode — Plan the release');
+  });
+
+  it("holds only the member's replies on a CLI AgentsView cannot read: those on another CLI are what it heard", () => {
+    const conv = recordedTeam();
+    // The Cursor member answered on Claude Code before (its own session there is AgentsView's own).
+    conv.messages.splice(1, 0, message('m1b', { kind: 'agent', agentId: 'cur' }, 'Earlier, on Claude.', { agentName: 'Reviewer', provider: 'claude' }));
+    const r = records(memberTranscript(conv, 'cur'));
+    expect(r[0]!.message.content).toContain('**Reviewer** · claude\n\nEarlier, on Claude.');
+    expect(memberTranscript(conv, 'a')).toBe('');
+    expect(memberTranscript(conversation(), 'a')).toBe('');
+  });
+
+  it('is sent for each member with such a reply, in the order they first replied, and none for the others', () => {
+    const conv = recordedTeam();
+    expect(memberTranscripts(conv).map((s) => s.id)).toEqual([memberSessionId(conv.id, 'cur'), memberSessionId(conv.id, 'oc')]);
+    expect(memberTranscripts(conversation())).toEqual([]);
+    // Another conversation, another session for the same member.
+    expect(memberSessionId('other', 'cur')).not.toBe(memberSessionId(conv.id, 'cur'));
   });
 });
 
@@ -157,6 +293,27 @@ describe('sending a conversation to AgentsView', () => {
       expect(JSON.parse(String(link.body))).toEqual({ parent_session_id: conv.id });
       expect(link.headers).toMatchObject({ Origin: BASE, 'Content-Type': 'application/json' });
     }
+  });
+
+  it("uploads the members' recorded sessions where the thread goes, and links them under it", async () => {
+    const av = fakeAgentsView({ '977d79d5-4d98-4e2a-9a1d-20fe70d1417e': { project: 'chats', machine: 'm-1234' } });
+    const conv = recordedTeam();
+    await new AgentsViewSync(() => BASE, av.fetchImpl).send(BASE, conv);
+
+    const uploads = av.calls.filter((c) => c.method === 'POST');
+    const cur = memberSessionId(conv.id, 'cur');
+    const oc = memberSessionId(conv.id, 'oc');
+    expect(uploads.map((u) => ((u.body as FormData).get('file') as File).name)).toEqual([`${conv.id}.jsonl`, `${cur}.jsonl`, `${oc}.jsonl`]);
+    for (const u of uploads) {
+      expect(Object.fromEntries(u.url.searchParams)).toEqual({ project: 'chats', machine: 'm-1234', allow_shorter: 'true' });
+      expect(u.headers.Origin).toBe(BASE);
+    }
+    expect(await ((uploads[1]!.body as FormData).get('file') as File).text()).toBe(memberTranscript(conv, 'cur'));
+
+    const links = av.calls.filter((c) => c.method === 'PUT').map((c) => decodeURIComponent(c.url.pathname).split('/')[4]);
+    expect(links).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', cur, oc]);
+    // Only after the uploads: the thread is there to be the parent.
+    expect(av.calls.findIndex((c) => c.method === 'PUT')).toBeGreaterThan(av.calls.findLastIndex((c) => c.method === 'POST'));
   });
 
   it("uses the working directory's name before AgentsView has read any agent session", async () => {
@@ -280,11 +437,13 @@ describe('sending a conversation to AgentsView', () => {
     sync.link(conv, 'grok', 'lead-1');
     sync.link(conv, 'claude', 'sorter-1');
     sync.link(conv, 'codex', '01a1bb71-4292'); // a member's session: linked once
-    sync.link(conv, 'cursor', 'lead-2'); // not one AgentsView reads
+    sync.link(conv, 'cursor', 'lead-2'); // not one AgentsView reads, nor one Harness Relay keeps a record of
+    sync.link(conv, 'opencode', 'sorter-2');
+    sync.link(conv, 'antigravity', 'lead-3');
     sync.schedule(conv);
     await sync.idle();
     const linked = av.calls.filter((c) => c.method === 'PUT').map((c) => decodeURIComponent(c.url.pathname).split('/')[4]);
-    expect(linked).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0', 'grok:lead-1', 'sorter-1']);
+    expect(linked).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0', 'grok:lead-1', 'sorter-1', 'antigravity-cli:lead-3']);
   });
 
   it('drops what still waits to be sent for a conversation being deleted', async () => {

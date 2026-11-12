@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
-import type { ChatMessage, Conversation, Provider } from '../shared/types';
+import { PROVIDER_LABEL, type ChatMessage, type Conversation, type MessagePart, type Provider } from '../shared/types';
 
 /*
  * AgentsView (https://www.agentsview.io) indexes the CLIs' own session transcripts. Each agent of a
@@ -8,20 +9,48 @@ import type { ChatMessage, Conversation, Provider } from '../shared/types';
  * Claude Code transcript, the format AgentsView's upload takes — and links each agent's session
  * to it as a worker the thread started. AgentsView then lists the conversation once, with the
  * agents' sessions nested under it and their costs added up.
+ *
+ * Where AgentsView cannot read a CLI's own sessions, Harness Relay sends that member's session
+ * itself, from its own record of the conversation (`memberTranscript`), and links it the same way.
  */
 
 /**
- * How AgentsView names a CLI's session: Claude Code's by its own id, Codex's and Grok's with a prefix.
- * Cursor keeps its ACP sessions in a database of its own (`acp-sessions/<id>/store.db`), and
- * Antigravity in one of its own too (`antigravity-cli/conversations/<id>.db`), neither of which
- * AgentsView reads, so they are not linked (undefined); their replies are in the thread.
+ * How each CLI's sessions reach AgentsView. A prefix: AgentsView reads the CLI's own sessions where
+ * the CLI keeps them, and names them by the CLI's session id after that prefix (Claude Code's by the
+ * id alone). `recorded`: it cannot, so the member's session is Harness Relay's record of it:
+ *
+ * - Cursor keeps its ACP sessions in a database alone (`acp-sessions/<id>/store.db`), and AgentsView
+ *   reads Cursor's sessions only from the transcripts in `projects/<project>/agent-transcripts/`.
+ * - The open agents keep each member's sessions in a folder of its own in Harness Relay's homes
+ *   (`<home>/private/<key>`), and AgentsView reads only the folders its own settings list, one
+ *   level deep, so it would need one setting per member.
  */
+export const AGENTSVIEW_SESSIONS: Record<Provider, { prefix: string } | 'recorded'> = {
+  claude: { prefix: '' },
+  codex: { prefix: 'codex:' },
+  grok: { prefix: 'grok:' },
+  // agy's conversations (`antigravity-cli/conversations/<id>.db`), AgentsView's "Antigravity CLI".
+  antigravity: { prefix: 'antigravity-cli:' },
+  cursor: 'recorded',
+  opencode: 'recorded',
+  goose: 'recorded',
+  cline: 'recorded',
+  openhands: 'recorded',
+  pi: 'recorded',
+};
+
+/** How AgentsView names a CLI's own session; undefined for a CLI whose sessions Harness Relay records itself. */
 export function agentsViewSessionId(provider: Provider, sessionId: string): string | undefined {
-  if (provider === 'cursor' || provider === 'antigravity') return undefined;
-  return provider === 'claude' ? sessionId : `${provider}:${sessionId}`;
+  const how = AGENTSVIEW_SESSIONS[provider];
+  return how === 'recorded' ? undefined : `${how.prefix}${sessionId}`;
 }
 
-/** The agents' current sessions in AgentsView's naming. */
+/** Whether a reply's session is Harness Relay's record of it rather than the CLI's own. */
+export function recordedSession(provider: Provider): boolean {
+  return AGENTSVIEW_SESSIONS[provider] === 'recorded';
+}
+
+/** The agents' current sessions in AgentsView's naming (those AgentsView reads itself). */
 export function agentSessionIds(conv: Conversation): string[] {
   const ids: string[] = [];
   for (const state of Object.values(conv.agentState)) {
@@ -29,6 +58,17 @@ export function agentSessionIds(conv: Conversation): string[] {
     if (id) ids.push(id);
   }
   return ids;
+}
+
+/** A UUID-shaped id made from the parts (the same parts, the same id): valid as a session id and a record's. */
+function derivedId(...parts: string[]): string {
+  const h = createHash('sha256').update(parts.join('\0')).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+/** The id of a member's recorded session: one per conversation and member, whatever CLI sessions it went through. */
+export function memberSessionId(convId: string, agentId: string): string {
+  return derivedId('harness-relay-member', convId, agentId);
 }
 
 /** A message as plain text for the thread: its text, attached files by name, a failure noted. */
@@ -43,6 +83,27 @@ function threadText(m: ChatMessage): string {
   return lines.join('\n\n');
 }
 
+/** A reply's agent and CLI: the message's snapshot, else the team's member as it is now. */
+function authorOf(conv: Conversation, m: ChatMessage): { agentId: string; name: string; provider?: Provider } | undefined {
+  if (m.author.kind !== 'agent') return undefined;
+  const agentId = m.author.agentId;
+  const agent = conv.agents.find((a) => a.id === agentId);
+  return { agentId, name: m.agentName ?? agent?.name ?? 'agent', provider: m.provider ?? agent?.provider };
+}
+
+/** What the thread shows of a message: the user's text, or a reply under its agent's name and CLI ('' for nothing). */
+function threadEntry(conv: Conversation, m: ChatMessage): string {
+  const text = threadText(m);
+  const who = authorOf(conv, m);
+  if (!text || !who) return text;
+  return `${who.provider ? `**${who.name}** · ${who.provider}` : `**${who.name}**`}\n\n${text}`;
+}
+
+/** Messages a transcript can show: not system notes, team designs or replies still streaming. */
+const shown = (m: ChatMessage) => m.status !== 'streaming' && m.author.kind !== 'system';
+
+const toJsonl = (records: unknown[]) => records.map((r) => `${JSON.stringify(r)}\n`).join('');
+
 /**
  * The conversation as a Claude Code transcript (JSONL, one record per line): the user's messages
  * as user turns and each agent's reply as an assistant turn that starts with the agent's name.
@@ -53,8 +114,8 @@ export function threadTranscript(conv: Conversation): string {
   const records: unknown[] = [];
   let parentUuid: string | null = null;
   for (const m of conv.messages) {
-    if (m.status === 'streaming' || m.author.kind === 'system') continue;
-    const text = threadText(m);
+    if (!shown(m)) continue;
+    const text = threadEntry(conv, m);
     if (!text) continue;
     const base = {
       uuid: m.id,
@@ -68,15 +129,10 @@ export function threadTranscript(conv: Conversation): string {
     if (m.author.kind === 'user') {
       records.push({ ...base, type: 'user', message: { role: 'user', content: text } });
     } else {
-      const agentId = m.author.agentId;
-      const agent = conv.agents.find((a) => a.id === agentId);
-      const name = m.agentName ?? agent?.name ?? 'agent';
-      const provider = m.provider ?? agent?.provider;
-      const who = provider ? `**${name}** · ${provider}` : `**${name}**`;
       records.push({
         ...base,
         type: 'assistant',
-        message: { role: 'assistant', model: 'harness-relay', content: [{ type: 'text', text: `${who}\n\n${text}` }] },
+        message: { role: 'assistant', model: 'harness-relay', content: [{ type: 'text', text }] },
       });
     }
     parentUuid = m.id;
@@ -84,7 +140,175 @@ export function threadTranscript(conv: Conversation): string {
   if (!records.length) return '';
   // Claude Code's record of /rename: AgentsView shows it as the session's name.
   if (conv.title.trim()) records.push({ type: 'custom-title', customTitle: conv.title.trim(), sessionId: conv.id });
-  return records.map((r) => `${JSON.stringify(r)}\n`).join('');
+  return toJsonl(records);
+}
+
+const APPROVAL_ASK: Record<Extract<MessagePart, { type: 'approval' }>['kind'], string> = {
+  command: 'run',
+  edit: 'edit',
+  fetch: 'fetch',
+  other: 'use',
+};
+const APPROVAL_ANSWER: Record<Extract<MessagePart, { type: 'approval' }>['status'], string> = {
+  pending: 'not answered',
+  allowed: 'allowed',
+  denied: 'declined',
+  expired: 'expired',
+};
+const PLAN_MARK = { pending: '[ ]', in_progress: '[~]', completed: '[x]' } as const;
+
+/** A part of a reply that is not a tool call, as a block of a Claude Code assistant message (none for nothing). */
+function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, unknown> | undefined {
+  switch (p.type) {
+    case 'text':
+      return p.text.trim() ? { type: 'text', text: p.text.trim() } : undefined;
+    case 'thinking':
+      return p.text.trim() ? { type: 'thinking', thinking: p.text.trim() } : undefined;
+    case 'plan':
+      return p.entries.length ? { type: 'text', text: ['Plan:', ...p.entries.map((e) => `${PLAN_MARK[e.status]} ${e.text}`)].join('\n') } : undefined;
+    case 'approval': {
+      const what = [p.kind === 'other' ? (p.tool ?? 'a tool') : '', p.detail ? `\`${p.detail}\`` : ''].filter(Boolean).join(' ');
+      const answer = `${APPROVAL_ANSWER[p.status]}${p.always ? ' for the rest of the conversation' : ''}${p.note ? `: "${p.note}"` : ''}`;
+      return { type: 'text', text: `[Asked to ${APPROVAL_ASK[p.kind]}${what ? ` ${what}` : ''}: ${answer}]` };
+    }
+    case 'attachment':
+      return { type: 'text', text: `[${p.name}]` };
+  }
+}
+
+/**
+ * A reply as Claude Code records it: assistant messages with its thinking, text and tool calls, each
+ * group of tool calls followed by a user message with their results (the end of their output, as
+ * the chat keeps it, or why they failed). A [PASS] and a failure are noted at the end.
+ */
+function replyRecords(m: ChatMessage, model: string): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  let content: unknown[] = [];
+  let results: unknown[] = [];
+  const flush = () => {
+    if (content.length) out.push({ type: 'assistant', message: { role: 'assistant', model, content } });
+    if (results.length) out.push({ type: 'user', message: { role: 'user', content: results } });
+    content = [];
+    results = [];
+  };
+  let said = false;
+  m.parts.forEach((p, i) => {
+    if (p.type === 'tool') {
+      const id = `toolu_${createHash('sha256').update(`${m.id}\0${i}\0${p.id}`).digest('hex').slice(0, 24)}`;
+      content.push({ type: 'tool_use', id, name: p.name, input: p.detail ? { detail: p.detail } : {} });
+      const result = (p.status === 'error' ? [p.error, p.output] : [p.output]).filter((x) => x?.trim()).join('\n\n');
+      results.push({ type: 'tool_result', tool_use_id: id, content: result, ...(p.status === 'error' ? { is_error: true } : {}) });
+      return;
+    }
+    const block = replyBlock(p);
+    if (!block) return;
+    // What the agent says after its tool calls comes after their results.
+    if (results.length) flush();
+    content.push(block);
+    if (p.type === 'text') said = true;
+  });
+  const tail: string[] = [];
+  if (m.passed && !said) tail.push('[PASS]');
+  if (m.status === 'error' && m.error) tail.push(`(${m.error})`);
+  if (tail.length) {
+    if (results.length) flush();
+    content.push({ type: 'text', text: tail.join('\n\n') });
+  }
+  flush();
+  return out;
+}
+
+/** JSON numbers AgentsView reads as dollars: no exponent (it parses the number's text). */
+const dollars = (usd: number) => Math.round(usd * 1e6) / 1e6;
+
+/**
+ * A member's own session as Harness Relay recorded it, for its replies on a CLI whose sessions
+ * AgentsView cannot read (`AGENTSVIEW_SESSIONS`), as a Claude Code transcript: before each of those
+ * replies, a user turn with what was said since its last one (the user's messages and the other
+ * agents' replies, as the thread shows them); then the reply itself (`replyRecords`); at the end its
+ * tokens and cost (Claude Code's `cost-state` record, the session's total, which AgentsView adds to
+ * the thread's) and a name: the member's name and CLI, and the conversation's title. One session per
+ * member, whatever CLI sessions it went through. Records get ids of their own (derived, so sending it
+ * again replaces the same session), never the messages' ids the thread uses. Empty while it has no
+ * such reply.
+ */
+export function memberTranscript(conv: Conversation, agentId: string): string {
+  const sessionId = memberSessionId(conv.id, agentId);
+  const records: unknown[] = [];
+  let parentUuid: string | null = null;
+  let heard: string[] = [];
+  let last: { name: string; provider: Provider } | undefined;
+  const usage = new Map<string, { inputTokens: number; outputTokens: number; costUSD: number }>();
+  let total = 0;
+  let unknownCost = false;
+  const member = conv.agents.find((a) => a.id === agentId);
+  for (const m of conv.messages) {
+    if (!shown(m)) continue;
+    const who = authorOf(conv, m);
+    if (who?.agentId !== agentId || !who.provider || !recordedSession(who.provider)) {
+      const text = threadEntry(conv, m);
+      if (text) heard.push(text);
+      continue;
+    }
+    const provider = who.provider;
+    // The member's model, while it is still on this CLI; else the CLI (its default model, or one since changed).
+    const model = (member?.provider === provider && member.model?.trim()) || provider;
+    const reply = replyRecords(m, model);
+    if (!reply.length) continue;
+    const turn = heard.length ? [{ type: 'user', message: { role: 'user', content: heard.join('\n\n') } }, ...reply] : reply;
+    turn.forEach((r, n) => {
+      const uuid = derivedId(sessionId, m.id, String(n));
+      records.push({
+        uuid,
+        parentUuid,
+        sessionId,
+        timestamp: new Date(m.createdAt).toISOString(),
+        cwd: conv.settings.cwd,
+        isSidechain: false,
+        userType: 'external',
+        ...r,
+      });
+      parentUuid = uuid;
+    });
+    heard = [];
+    last = { name: who.name, provider };
+    const meta = m.meta;
+    if (meta && (meta.inputTokens || meta.outputTokens || meta.costUsd)) {
+      const u = usage.get(model) ?? { inputTokens: 0, outputTokens: 0, costUSD: 0 };
+      u.inputTokens += meta.inputTokens ?? 0;
+      u.outputTokens += meta.outputTokens ?? 0;
+      if (meta.costUsd !== undefined) {
+        u.costUSD += meta.costUsd;
+        total += meta.costUsd;
+      } else unknownCost = true;
+      usage.set(model, u);
+    }
+  }
+  if (!last) return '';
+  if (usage.size) {
+    records.push({
+      type: 'cost-state',
+      sessionId,
+      totalCostUSD: dollars(total),
+      hasUnknownModelCost: unknownCost,
+      modelUsage: Object.fromEntries([...usage].map(([model, u]) => [model, { ...u, costUSD: dollars(u.costUSD) }])),
+    });
+  }
+  const title = conv.title.trim();
+  records.push({ type: 'custom-title', customTitle: `${last.name} · ${PROVIDER_LABEL[last.provider]}${title ? ` — ${title}` : ''}`, sessionId });
+  return toJsonl(records);
+}
+
+/** The members' recorded sessions (those with a reply on a CLI AgentsView cannot read), in the order they first replied. */
+export function memberTranscripts(conv: Conversation): { id: string; transcript: string }[] {
+  const members: string[] = [];
+  for (const m of conv.messages) {
+    const who = shown(m) ? authorOf(conv, m) : undefined;
+    if (who?.provider && recordedSession(who.provider) && !members.includes(who.agentId)) members.push(who.agentId);
+  }
+  return members
+    .map((agentId) => ({ id: memberSessionId(conv.id, agentId), transcript: memberTranscript(conv, agentId) }))
+    .filter((s) => s.transcript);
 }
 
 /** Where the thread goes when none of its agents' sessions is in AgentsView yet. */
@@ -143,6 +367,7 @@ export class AgentsViewSync implements TraceSink {
   }
 
   link(conv: Conversation, provider: Provider, sessionId: string): void {
+    // A session on a CLI AgentsView cannot read: Harness Relay has no record of it to send instead.
     const id = agentsViewSessionId(provider, sessionId);
     if (!id) return;
     const ids = this.extra.get(conv.id) ?? new Set<string>();
@@ -184,23 +409,30 @@ export class AgentsViewSync implements TraceSink {
     }
   }
 
-  /** Sends the thread and links the agents' sessions (and the conversation's other sessions) to it. */
+  /**
+   * Sends the thread, and the members' sessions Harness Relay records (`memberTranscripts`) in the
+   * same project and machine, then links the agents' sessions (and the conversation's other
+   * sessions, and the recorded ones) to it.
+   */
   async send(base: string, conv: Conversation): Promise<void> {
     const transcript = threadTranscript(conv);
     if (!transcript) return;
     const members = agentSessionIds(conv);
-    const sessions = [...new Set([...members, ...(this.extra.get(conv.id) ?? [])])];
+    const recorded = memberTranscripts(conv);
+    const sessions = [...new Set([...members, ...(this.extra.get(conv.id) ?? []), ...recorded.map((r) => r.id)])];
     // The thread goes where its agents' sessions are, so filters by project or machine keep them together.
     const where = await this.placeOf(base, members);
-    const form = new FormData();
-    form.append('file', new Blob([transcript], { type: 'application/octet-stream' }), `${conv.id}.jsonl`);
     const query = new URLSearchParams({
       project: where?.project || fallbackProject(conv.settings.cwd),
       machine: where?.machine || 'local',
       // Retried or edited turns remove messages: the thread may get shorter.
       allow_shorter: 'true',
     });
-    await this.call(base, 'POST', `/api/v1/sessions/upload?${query}`, form);
+    for (const [id, jsonl] of [[conv.id, transcript], ...recorded.map((r) => [r.id, r.transcript])] as const) {
+      const form = new FormData();
+      form.append('file', new Blob([jsonl], { type: 'application/octet-stream' }), `${id}.jsonl`);
+      await this.call(base, 'POST', `/api/v1/sessions/upload?${query}`, form);
+    }
     for (const id of sessions) {
       // Recorded even before AgentsView has read the session: the link applies once it has.
       await this.call(base, 'PUT', `/api/v1/sessions/${encodeURIComponent(id)}/parent`, JSON.stringify({ parent_session_id: conv.id }));

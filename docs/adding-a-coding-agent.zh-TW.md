@@ -53,7 +53,7 @@
 
 ## 5. 寫 adapter
 
-照著[開發者說明的檢查清單](developer-guide.zh-TW.md#新增一個-agent-cli)（原生 adapter 或開源 agent）做，再處理型別檢查找不到的地方：首席 agent 與各 agent 的簡報（CLI 的清單）、`agentFolders()`、`agentsViewSessionId()`，以及需要時的 `INHERITED_BACKEND_VARS`、`PROJECT_AGENT_CONFIG`、`keyOnlyAccount()` 與 `failedProbe()`。接著：
+照著[開發者說明的檢查清單](developer-guide.zh-TW.md#新增一個-agent-cli)（原生 adapter 或開源 agent）做，再處理型別檢查找不到的地方：首席 agent 與各 agent 的簡報（CLI 的清單）、`agentFolders()`，以及需要時的 `INHERITED_BACKEND_VARS`、`PROJECT_AGENT_CONFIG`、`keyOnlyAccount()` 與 `failedProbe()`。`AGENTSVIEW_SESSIONS` 型別檢查會指出來，但該填什麼它不知道：先從 AgentsView 自己的原始碼查清楚，它讀不讀得到 Harness Relay 的執行留下 session 的地方、用什麼 id，再決定給它前綴還是 `recorded`。接著：
 
 - 讓 parser 保持純函式（更新進、`AgentEvent` 出），決策也是（`<name>PermissionDecision`、`<name>ApprovalRequest`），測試才能餵它錄下來的訊息。
 - 只透過 `src/server/process.ts` 啟動 CLI，絕不透過 shell；開源 agent 透過 `startOpenProcess()`。
