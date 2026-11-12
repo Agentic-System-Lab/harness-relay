@@ -971,6 +971,7 @@ export class RelaySandboxRun {
   ready?: { proxyPort: number | null; socksPort: number | null };
   probeOk = false;
   exit?: { code: number | null; signal: string | null };
+  private exitListeners: (() => void)[] = [];
   readonly lang = currentLang();
 
   constructor(
@@ -1025,7 +1026,17 @@ export class RelaySandboxRun {
       this.probeOk = msg.ok === true;
     } else if (msg.t === 'exit') {
       this.exit = { code: msg.code ?? null, signal: msg.signal ?? null };
+      for (const listener of this.exitListeners.splice(0)) listener();
     }
+  }
+
+  /**
+   * Calls `listener` once the host says the sandboxed command has exited (at once when it already has):
+   * a moment before the host itself exits, after taking down what it started for the run.
+   */
+  onExit(listener: () => void): void {
+    if (this.exit) listener();
+    else this.exitListeners.push(listener);
   }
 
   /**
