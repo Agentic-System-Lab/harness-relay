@@ -90,7 +90,7 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 
 每個行為上的改變都要新增或更新測試。測試保持離線：不執行真正的 CLI、不連網路，也不使用真正的金鑰儲存區。請沿用現有的做法：
 
-- 把假的 runner 換進 `runners`（`test/orchestrator.test.ts`）；
+- 把假的 runner 換進 `runners`（`test/orchestrator-harness.ts`）；
 - 轉接器用錄下來的 CLI 訊息；
 - `workspace.ts` 用真正的暫存 git repository；
 - HTTP API 用 `app.request()`；

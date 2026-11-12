@@ -90,7 +90,7 @@ The website in `site/` has an English and a Chinese page. Read [`site/DESIGN-GUI
 
 Add or update tests with every change in behaviour. Tests stay offline: no real CLI runs, no network and no real credential store. Follow the existing patterns:
 
-- a fake runner swapped into `runners` (`test/orchestrator.test.ts`);
+- a fake runner swapped into `runners` (`test/orchestrator-harness.ts`);
 - recorded CLI messages for the adapters;
 - real temporary git repositories for `workspace.ts`;
 - `app.request()` for the HTTP API;
