@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
-import { PROVIDER_LABEL, type ChatMessage, type Conversation, type MessagePart, type Provider } from '../shared/types';
+import { PROVIDER_LABEL, type ChatMessage, type Conversation, type MessagePart, type Provider, type ToolCallKind } from '../shared/types';
 
 /*
  * AgentsView (https://www.agentsview.io) indexes the CLIs' own session transcripts. Each agent of a
@@ -42,8 +42,9 @@ export const AGENTSVIEW_SESSIONS: Record<Provider, { prefix: string } | 'recorde
 
 /** How AgentsView names a CLI's own session; undefined for a CLI whose sessions Harness Relay records itself. */
 export function agentsViewSessionId(provider: Provider, sessionId: string): string | undefined {
-  const how = AGENTSVIEW_SESSIONS[provider];
-  return how === 'recorded' ? undefined : `${how.prefix}${sessionId}`;
+  // `undefined` for a CLI this build does not know (data a newer one wrote).
+  const how = AGENTSVIEW_SESSIONS[provider] as (typeof AGENTSVIEW_SESSIONS)[Provider] | undefined;
+  return !how || how === 'recorded' ? undefined : `${how.prefix}${sessionId}`;
 }
 
 /** Whether a reply's session is Harness Relay's record of it rather than the CLI's own. */
@@ -144,6 +145,32 @@ export function threadTranscript(conv: Conversation): string {
   return toJsonl(records);
 }
 
+/**
+ * Claude Code's tool for each kind of call it has one for, and the key of its input that names what
+ * the call is about: AgentsView shows and counts Claude Code's tools by their names, and shows the
+ * command, the file, the pattern or the URL only under those keys.
+ */
+const CLAUDE_TOOL: Partial<Record<ToolCallKind, { name: string; key: string }>> = {
+  execute: { name: 'Bash', key: 'command' },
+  read: { name: 'Read', key: 'file_path' },
+  edit: { name: 'Edit', key: 'file_path' },
+  search: { name: 'Grep', key: 'pattern' },
+  fetch: { name: 'WebFetch', key: 'url' },
+};
+const WEB_SEARCH = { name: 'WebSearch', key: 'query' };
+
+/**
+ * A tool call as a Claude Code `tool_use`: a call whose kind Claude Code has a tool for as that tool,
+ * its detail under the tool's key and the CLI's own name kept as `tool` (Cursor's `Shell` as `Bash`,
+ * `{ command, tool: 'Shell' }`); any other under the CLI's name, with its detail as `detail`.
+ */
+export function toolUse(p: Extract<MessagePart, { type: 'tool' }>): { name: string; input: Record<string, string> } {
+  // A search of the web (Cline's `web_search`) is not one of the files.
+  const as = p.kind === 'search' && /web/i.test(p.name) ? WEB_SEARCH : p.kind ? CLAUDE_TOOL[p.kind] : undefined;
+  if (!as) return { name: p.name, input: p.detail ? { detail: p.detail } : {} };
+  return { name: as.name, input: { ...(p.detail ? { [as.key]: p.detail } : {}), ...(p.name !== as.name ? { tool: p.name } : {}) } };
+}
+
 const APPROVAL_ASK: Record<Extract<MessagePart, { type: 'approval' }>['kind'], string> = {
   command: 'run',
   edit: 'edit',
@@ -196,7 +223,7 @@ function replyRecords(m: ChatMessage, model: string): Record<string, unknown>[] 
   m.parts.forEach((p, i) => {
     if (p.type === 'tool') {
       const id = `toolu_${createHash('sha256').update(`${m.id}\0${i}\0${p.id}`).digest('hex').slice(0, 24)}`;
-      content.push({ type: 'tool_use', id, name: p.name, input: p.detail ? { detail: p.detail } : {} });
+      content.push({ type: 'tool_use', id, ...toolUse(p) });
       const result = (p.status === 'error' ? [p.error, p.output] : [p.output]).filter((x) => x?.trim()).join('\n\n');
       results.push({ type: 'tool_result', tool_use_id: id, content: result, ...(p.status === 'error' ? { is_error: true } : {}) });
       return;
@@ -229,12 +256,12 @@ const dollars = (usd: number) => Math.round(usd * 1e6) / 1e6;
  * agents' replies, as the thread shows them); then the reply itself (`replyRecords`), its last
  * assistant message carrying the reply's tokens (`message.usage`, which AgentsView counts, and
  * prices when its catalog knows the model); at the end the cost the CLIs reported (Claude Code's
- * `cost-state` record, the session's total, which AgentsView keeps apart from its own figures and
- * shows beside them, never adding it to them) and a name: the member's name and CLI, and the
- * conversation's title. One session per
- * member, whatever CLI sessions it went through. Records get ids of their own (derived, so sending it
- * again replaces the same session), never the messages' ids the thread uses. Empty while it has no
- * such reply.
+ * `cost-state` record, the session's total, which AgentsView keeps apart from its own figures, never
+ * adding it to them, and shows only in `agentsview session usage` and its API; none claimed where no
+ * reply reported one) and a name: the member's name and CLI, and the conversation's title. One
+ * session per member, whatever CLI sessions it went through. Records get ids of their own (derived,
+ * so sending it again replaces the same session), never the messages' ids the thread uses. Empty
+ * while it has no such reply.
  */
 export function memberTranscript(conv: Conversation, agentId: string): string {
   const sessionId = memberSessionId(conv.id, agentId);
@@ -242,8 +269,9 @@ export function memberTranscript(conv: Conversation, agentId: string): string {
   let parentUuid: string | null = null;
   let heard: string[] = [];
   let last: { name: string; provider: Provider } | undefined;
-  const usage = new Map<string, { inputTokens: number; outputTokens: number; costUSD: number }>();
-  let total = 0;
+  const usage = new Map<string, { inputTokens: number; outputTokens: number; costUSD?: number }>();
+  /** The cost the replies reported; undefined while none did (AgentsView takes a 0 as a cost). */
+  let total: number | undefined;
   let unknownCost = false;
   const member = conv.agents.find((a) => a.id === agentId);
   for (const m of conv.messages) {
@@ -282,12 +310,12 @@ export function memberTranscript(conv: Conversation, agentId: string): string {
     heard = [];
     last = { name: who.name, provider };
     if (meta && (meta.inputTokens || meta.outputTokens || meta.costUsd)) {
-      const u = usage.get(model) ?? { inputTokens: 0, outputTokens: 0, costUSD: 0 };
+      const u = usage.get(model) ?? { inputTokens: 0, outputTokens: 0 };
       u.inputTokens += meta.inputTokens ?? 0;
       u.outputTokens += meta.outputTokens ?? 0;
       if (meta.costUsd !== undefined) {
-        u.costUSD += meta.costUsd;
-        total += meta.costUsd;
+        u.costUSD = (u.costUSD ?? 0) + meta.costUsd;
+        total = (total ?? 0) + meta.costUsd;
       } else unknownCost = true;
       usage.set(model, u);
     }
@@ -297,9 +325,11 @@ export function memberTranscript(conv: Conversation, agentId: string): string {
     records.push({
       type: 'cost-state',
       sessionId,
-      totalCostUSD: dollars(total),
+      ...(total !== undefined ? { totalCostUSD: dollars(total) } : {}),
       hasUnknownModelCost: unknownCost,
-      modelUsage: Object.fromEntries([...usage].map(([model, u]) => [model, { ...u, costUSD: dollars(u.costUSD) }])),
+      modelUsage: Object.fromEntries(
+        [...usage].map(([model, { costUSD, ...tokens }]) => [model, { ...tokens, ...(costUSD !== undefined ? { costUSD: dollars(costUSD) } : {}) }]),
+      ),
     });
   }
   const title = conv.title.trim();
@@ -307,14 +337,19 @@ export function memberTranscript(conv: Conversation, agentId: string): string {
   return toJsonl(records);
 }
 
-/** The members' recorded sessions (those with a reply on a CLI AgentsView cannot read), in the order they first replied. */
-export function memberTranscripts(conv: Conversation): { id: string; transcript: string }[] {
+/** The members with a reply on a CLI AgentsView cannot read, in the order they first replied. */
+export function recordedMembers(conv: Conversation): string[] {
   const members: string[] = [];
   for (const m of conv.messages) {
     const who = shown(m) ? authorOf(conv, m) : undefined;
     if (who?.provider && recordedSession(who.provider) && !members.includes(who.agentId)) members.push(who.agentId);
   }
-  return members
+  return members;
+}
+
+/** The members' recorded sessions (`recordedMembers`), in the order they first replied. */
+export function memberTranscripts(conv: Conversation): { id: string; transcript: string }[] {
+  return recordedMembers(conv)
     .map((agentId) => ({ id: memberSessionId(conv.id, agentId), transcript: memberTranscript(conv, agentId) }))
     .filter((s) => s.transcript);
 }
@@ -325,6 +360,16 @@ export function fallbackProject(cwd: string): string {
 }
 
 type Fetch = typeof fetch;
+
+/** AgentsView's answer to a request when it is not a success. */
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
 /** What the orchestrator tells about a conversation (AgentsView when its address is set). */
 export interface TraceSink {
@@ -352,10 +397,11 @@ export class AgentsViewSync implements TraceSink {
   /** Sessions to link besides the members' current ones, by conversation (kept until the server stops). */
   private extra = new Map<string, Set<string>>();
   /**
-   * The recorded sessions as last sent, by conversation: a hash of each by address and session, so
-   * one that has not changed since (a member who did not reply) is not sent again.
+   * The recorded sessions as last sent, by conversation and session: a hash of each with where it
+   * went (address, project and machine), so one that has not changed since (a member who did not
+   * reply) is not sent again, and whether AgentsView refused it as deleted.
    */
-  private sent = new Map<string, Map<string, string>>();
+  private sent = new Map<string, Map<string, { hash: string; deleted: boolean }>>();
 
   constructor(
     /** AgentsView's origin; empty = off. Read at every update, so a settings change applies at once. */
@@ -424,12 +470,14 @@ export class AgentsViewSync implements TraceSink {
   }
 
   /**
-   * Sends the thread, then the members' sessions Harness Relay records (`memberTranscripts`) in the
-   * same project and machine, then links the agents' sessions (and the conversation's other
-   * sessions, and the recorded ones) to it. A thread that cannot be sent stops the update; past
-   * that, one session that fails (AgentsView refuses a session the user moved to its trash, say)
-   * keeps none of the others from being sent and linked, and the first failure is reported once
-   * all have been tried.
+   * Sends the thread, then the members' sessions Harness Relay records (`memberTranscript`, one at a
+   * time) in the same project and machine, then links the agents' sessions (and the conversation's
+   * other sessions, and the recorded ones) to it. A thread that cannot be sent stops the update; past
+   * that, one session that fails keeps none of the others from being sent and linked, and the first
+   * failure is reported once all have been tried. A recorded session AgentsView refuses as deleted
+   * (409: the user moved it to its trash, or deleted it for good) is the user's choice, not a
+   * failure: it is neither linked nor sent again until it changes. Nothing more is sent once the
+   * conversation is being deleted.
    */
   async send(base: string, conv: Conversation): Promise<void> {
     const transcript = threadTranscript(conv);
@@ -451,23 +499,36 @@ export class AgentsViewSync implements TraceSink {
     await upload(conv.id, transcript);
 
     let failure: unknown;
-    const sent = this.sent.get(conv.id) ?? new Map<string, string>();
-    this.sent.set(conv.id, sent);
+    const sent = this.sent.get(conv.id) ?? new Map<string, { hash: string; deleted: boolean }>();
     const recorded: string[] = [];
-    for (const r of memberTranscripts(conv)) {
-      const key = `${base}\0${r.id}`;
-      const hash = createHash('sha256').update(r.transcript).digest('hex');
-      try {
-        if (sent.get(key) !== hash) {
-          await upload(r.id, r.transcript);
-          sent.set(key, hash);
+    for (const agentId of recordedMembers(conv)) {
+      // One at a time, with other work let in between: a long conversation's sessions are large.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      if (this.forgotten.has(conv.id)) return;
+      const id = memberSessionId(conv.id, agentId);
+      const jsonl = memberTranscript(conv, agentId);
+      if (!jsonl) continue;
+      const hash = createHash('sha256').update(`${base}\0${query}\0`).update(jsonl).digest('hex');
+      const last = sent.get(id);
+      if (last?.hash !== hash) {
+        try {
+          await upload(id, jsonl);
+          sent.set(id, { hash, deleted: false });
+        } catch (err) {
+          if (err instanceof HttpError && err.status === 409) sent.set(id, { hash, deleted: true });
+          else {
+            sent.delete(id);
+            failure ??= err;
+          }
+          continue;
         }
-        recorded.push(r.id);
-      } catch (err) {
-        failure ??= err;
-      }
+      } else if (last.deleted) continue;
+      recorded.push(id);
     }
+    if (this.forgotten.has(conv.id)) return;
+    this.sent.set(conv.id, sent);
     for (const id of new Set([...members, ...(this.extra.get(conv.id) ?? []), ...recorded])) {
+      if (this.forgotten.has(conv.id)) return;
       try {
         // Recorded even before AgentsView has read the session: the link applies once it has.
         await this.call(base, 'PUT', `/api/v1/sessions/${encodeURIComponent(id)}/parent`, JSON.stringify({ parent_session_id: conv.id }));
@@ -518,6 +579,6 @@ export class AgentsViewSync implements TraceSink {
     } catch {
       /* not JSON */
     }
-    throw new Error(`${method} ${path.split('?')[0]}: HTTP ${res.status}${detail ? ` ${detail}` : ''}`);
+    throw new HttpError(res.status, `${method} ${path.split('?')[0]}: HTTP ${res.status}${detail ? ` ${detail}` : ''}`);
   }
 }

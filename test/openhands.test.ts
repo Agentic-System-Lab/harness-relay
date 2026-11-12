@@ -1127,11 +1127,11 @@ describe('turns replayed from the real CLI', () => {
     expect(answers.map((m) => m.result.outcome.optionId)).toEqual(['accept', 'accept', 'accept']);
     const rows = t.events.filter((e) => e.type === 'tool_start' || e.type === 'tool_end');
     expect(rows).toEqual([
-      { type: 'tool_start', id: 'chatcmpl-tool-ac3118bbc0783b17', name: 'file_editor view', detail: '/home/user/project/notes.txt' },
+      { type: 'tool_start', id: 'chatcmpl-tool-ac3118bbc0783b17', name: 'file_editor view', detail: '/home/user/project/notes.txt', kind: 'read' },
       { type: 'tool_end', id: 'chatcmpl-tool-ac3118bbc0783b17', ok: true, output: expect.stringContaining('hello from the project') },
-      { type: 'tool_start', id: 'chatcmpl-tool-b1a3156faecd6927', name: 'file_editor create', detail: '/home/user/project/hello.txt' },
+      { type: 'tool_start', id: 'chatcmpl-tool-b1a3156faecd6927', name: 'file_editor create', detail: '/home/user/project/hello.txt', kind: 'edit' },
       { type: 'tool_end', id: 'chatcmpl-tool-b1a3156faecd6927', ok: true, output: 'File created successfully at: /home/user/project/hello.txt' },
-      { type: 'tool_start', id: 'chatcmpl-tool-a0c618641f2473c3', name: 'terminal', detail: 'echo done-$((40+2))' },
+      { type: 'tool_start', id: 'chatcmpl-tool-a0c618641f2473c3', name: 'terminal', detail: 'echo done-$((40+2))', kind: 'execute' },
       { type: 'tool_end', id: 'chatcmpl-tool-a0c618641f2473c3', ok: true, output: 'done-42' },
     ]);
     expect(t.events.find((e) => e.type === 'thinking')).toMatchObject({ text: expect.stringMatching(/^The user wants me to do these steps/) });

@@ -610,7 +610,7 @@ describe('a whole turn, replayed from the real CLI', () => {
     const { r } = await turn('read-openai', { permission: 'read-only', prompt: 'Read notes.txt' }, () => ({ allow: false }));
     expect(r.approvals).toEqual([]);
     expect(answers(r).map((a) => a.result.outcome)).toEqual([{ outcome: 'selected', optionId: 'allow_once' }]);
-    expect(toolStarts(r)).toEqual([{ type: 'tool_start', id: 'call_mTsWjBHgDkgTkvspHP6sMdJM', name: 'read_files', detail: '/home/user/project/notes.txt' }]);
+    expect(toolStarts(r)).toEqual([{ type: 'tool_start', id: 'call_mTsWjBHgDkgTkvspHP6sMdJM', name: 'read_files', detail: '/home/user/project/notes.txt', kind: 'read' }]);
     expect(toolEnds(r)).toEqual([{ type: 'tool_end', id: 'call_mTsWjBHgDkgTkvspHP6sMdJM', ok: true, output: '1 | hello from cline test' }]);
   });
 
@@ -664,7 +664,7 @@ describe('a whole turn, replayed from the real CLI', () => {
 
   it.skipIf(process.platform === 'win32')('shows a provider’s own web search, a fetch and a search, which read-only runs', async () => {
     const web = await turn('native-web-search-openai', { permission: 'read-only' }, () => ({ allow: false }));
-    expect(toolStarts(web.r)).toEqual([{ type: 'tool_start', id: expect.stringMatching(/^ws_/), name: 'web_search' }]);
+    expect(toolStarts(web.r)).toEqual([{ type: 'tool_start', id: expect.stringMatching(/^ws_/), name: 'web_search', kind: 'search' }]);
     expect(toolEnds(web.r)[0]).toMatchObject({ ok: true, detail: 'https://example.com/' });
     const fetch = await turn('web-fetch-xai', { permission: 'read-only', model: 'xai/grok-4.3' }, () => ({ allow: false }));
     expect(fetch.r.approvals).toEqual([]);

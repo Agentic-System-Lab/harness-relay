@@ -58,6 +58,7 @@ import {
   gooseSessionsDb,
   GOOSE_SHELL_WRAPPER,
   gooseShellEnv,
+  gooseToolKind,
   gooseToolName,
   gooseToolOf,
   gooseUsage,
@@ -646,6 +647,18 @@ describe('what a Goose tool call is', () => {
     expect(gooseToolName({})).toBe('tool');
   });
 
+  it("tells what a call does from its tool, since Goose's kind is always other", () => {
+    expect(gooseToolKind({ kind: 'other', title: 'shell · cat a.txt' })).toBe('execute');
+    expect(gooseToolKind({ kind: 'other', title: 'write · notes.txt' })).toBe('edit');
+    expect(gooseToolKind({ kind: 'other', title: 'edit · notes.txt' })).toBe('edit');
+    expect(gooseToolKind({ kind: 'other', title: 'tree · .' })).toBe('read');
+    expect(gooseToolKind({ kind: 'other', title: 'analyze · src' })).toBe('read');
+    expect(gooseToolKind({ kind: 'other', title: 'read image · a.png', rawInput: { path: 'a.png' } })).toBe('read');
+    expect(gooseToolKind({ kind: 'other', title: 'read image · x', rawInput: { path: 'https://example.com/a.png' } })).toBe('fetch');
+    expect(gooseToolKind({ _meta: { goose: { toolCall: { toolName: 'probe__magic_number' } } }, kind: 'other' })).toBeUndefined();
+    expect(gooseToolKind({})).toBeUndefined();
+  });
+
   /** The permission requests of the recorded runs, with the `tool_call` each one is about. */
   const requests = (name: string) => {
     const calls = new Map<string, AcpToolCall>();
@@ -748,7 +761,7 @@ describe('Goose updates → events', () => {
   it('a read through its shell, with live output and the result', () => {
     const { events, result, updates, ctx } = replay('read-openai');
     expect(events).toEqual([
-      { type: 'tool_start', id: 'call_60fmPeq3mDITD7IRTdG5cxYR', name: 'shell', detail: 'cat hello.txt' },
+      { type: 'tool_start', id: 'call_60fmPeq3mDITD7IRTdG5cxYR', name: 'shell', detail: 'cat hello.txt', kind: 'execute' },
       { type: 'tool_end', id: 'call_60fmPeq3mDITD7IRTdG5cxYR', ok: true, output: 'hello from the project' },
       ...'`hello.txt` contains: **hello from the project**'.length ? [expect.objectContaining({ type: 'text' })] : [],
       ...events.slice(3),
@@ -764,8 +777,8 @@ describe('Goose updates → events', () => {
   it('a write and an edit (no diff: what changed is in the call)', () => {
     const { events } = replay('edit-openai');
     expect(events.slice(0, 4)).toEqual([
-      { type: 'tool_start', id: 'call_xP8BpxVq6E14EY0TK663XDtm', name: 'write', detail: 'notes.txt' },
-      { type: 'tool_start', id: 'call_br8LRfiuCWi3cTjtOmtiu0SH', name: 'edit', detail: 'notes.txt' },
+      { type: 'tool_start', id: 'call_xP8BpxVq6E14EY0TK663XDtm', name: 'write', detail: 'notes.txt', kind: 'edit' },
+      { type: 'tool_start', id: 'call_br8LRfiuCWi3cTjtOmtiu0SH', name: 'edit', detail: 'notes.txt', kind: 'edit' },
       { type: 'tool_end', id: 'call_xP8BpxVq6E14EY0TK663XDtm', ok: true, output: 'Created notes.txt (1 lines)' },
       { type: 'tool_end', id: 'call_br8LRfiuCWi3cTjtOmtiu0SH', ok: true, output: 'Edited notes.txt (1 lines -> 1 lines)' },
     ]);
@@ -773,7 +786,7 @@ describe('Goose updates → events', () => {
 
   it('a command with its output', () => {
     const { events } = replay('bash-openai');
-    expect(events[0]).toEqual({ type: 'tool_start', id: 'call_7A92FC8InwqqqAxvsk3voVfi', name: 'shell', detail: 'echo hello-from-shell && ls' });
+    expect(events[0]).toEqual({ type: 'tool_start', id: 'call_7A92FC8InwqqqAxvsk3voVfi', name: 'shell', detail: 'echo hello-from-shell && ls', kind: 'execute' });
     expect(events[1]).toEqual({ type: 'tool_end', id: 'call_7A92FC8InwqqqAxvsk3voVfi', ok: true, output: 'hello-from-shell\nhello.txt\nnotes.txt' });
   });
 

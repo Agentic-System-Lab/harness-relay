@@ -2242,7 +2242,7 @@ export class Orchestrator {
         }
         case 'tool_start':
           textOpen = false;
-          msg.parts.push({ type: 'tool', id: e.id, name: e.name, detail: e.detail, status: 'running' });
+          msg.parts.push({ type: 'tool', id: e.id, name: e.name, detail: e.detail, ...(e.kind ? { kind: e.kind } : {}), status: 'running' });
           this.hub.emit(conv.id, { type: 'message', message: msg });
           break;
         case 'tool_end': {

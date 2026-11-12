@@ -257,11 +257,11 @@ describe('OpenCode turns replayed from the real CLI', () => {
     expect(a.map((x) => x.result?.outcome?.optionId ?? x.result)).toEqual(['once', null, 'once']);
     expect(existsSync('/home/user/project/notes.txt')).toBe(false);
     expect(tools(r)).toEqual([
-      { type: 'tool_start', id: 'chatcmpl-tool-97137ca34452aed8', name: 'read' },
+      { type: 'tool_start', id: 'chatcmpl-tool-97137ca34452aed8', name: 'read', kind: 'read' },
       { type: 'tool_end', id: 'chatcmpl-tool-97137ca34452aed8', ok: true, output: 'hello from the fixture project\nline two', detail: '/home/user/project/hello.txt' },
-      { type: 'tool_start', id: 'chatcmpl-tool-817550916c09ed0d', name: 'write' },
+      { type: 'tool_start', id: 'chatcmpl-tool-817550916c09ed0d', name: 'write', kind: 'edit' },
       { type: 'tool_end', id: 'chatcmpl-tool-817550916c09ed0d', ok: true, output: 'Wrote file successfully.', detail: '/home/user/project/notes.txt' },
-      { type: 'tool_start', id: 'chatcmpl-tool-a441a6e679f5edc6', name: 'bash' },
+      { type: 'tool_start', id: 'chatcmpl-tool-a441a6e679f5edc6', name: 'bash', kind: 'execute' },
       { type: 'tool_end', id: 'chatcmpl-tool-a441a6e679f5edc6', ok: true, output: 'AGENTS.md\nhello.txt\nnotes.txt', detail: 'ls -1' },
     ]);
     // In the relay sandbox: its own server's port only, its config read-only, the run's temp folder its cache.

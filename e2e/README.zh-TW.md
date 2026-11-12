@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 29 個 spec 檔、325 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 29 個 spec 檔、326 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -57,7 +57,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) | [`windows.spec.ts`](specs/windows.spec.ts) | 4 | [架構 → CLI 轉接器](../docs/architecture.zh-TW.md#cli-轉接器) |
 | [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 26 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
 | [各 CLI 自己載入的內容，以及 Grok 的信任](#各-cli-自己載入的內容以及-grok-的信任) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [使用者說明 → 各 CLI 自己載入的內容](../docs/user-guide.zh-TW.md#各-cli-自己載入的內容)、[架構 → 各 CLI 自己載入的內容](../docs/architecture.zh-TW.md#各-cli-自己載入的內容) |
-| [Agent 的 session 與 AgentsView](#agent-的-session-與-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 8 | [使用者說明 → Agent 的 session](../docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)、[架構 → Agent 的家目錄與 AgentsView](../docs/architecture.zh-TW.md#agent-的家目錄與-agentsview) |
+| [Agent 的 session 與 AgentsView](#agent-的-session-與-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 9 | [使用者說明 → Agent 的 session](../docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)、[架構 → Agent 的家目錄與 AgentsView](../docs/architecture.zh-TW.md#agent-的家目錄與-agentsview) |
 | [語音輸入的安裝](#語音輸入的安裝) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [使用者說明 → 語音輸入](../docs/user-guide.zh-TW.md#語音輸入)、[架構 → 語音輸入](../docs/architecture.zh-TW.md#語音輸入) |
 | [回報問題](#回報問題) | [`report.spec.ts`](specs/report.spec.ts) | 5 | [使用者說明 → 回報問題](../docs/user-guide.zh-TW.md#回報問題)、[架構 → 回報問題](../docs/architecture.zh-TW.md#回報問題) |
 | [使用導覽與主題](#使用導覽與主題) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 4 | [使用者說明 → 介面語言與使用導覽](../docs/user-guide.zh-TW.md#介面語言與使用導覽) |
@@ -351,6 +351,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | Harness Relay 自己的資料夾或預設工作目錄裡的資料夾會被拒絕 | — | 兩種拒絕都會顯示，不建立任何東西，設定維持空白。 |
 | 有對話正在執行時不能改資料夾 | Claude Code | 回答慢慢進行時，儲存會說有對話正在執行；停止後就能儲存。 |
 | 每個回合之後與重新命名時，對話會送到 AgentsView，成員的 session 列在它底下 | Claude Code、Codex | 上傳帶著 AgentsView 自己的 `Origin`，以及它認得的 session 的專案與電腦；紀錄包含問題、兩則回答與標題；每位成員的 session 都連到它底下；重新命名會送出新標題。 |
+| Cursor 成員的 session 是 Harness Relay 記下的，在討論串之後送出並放在它底下 | Codex、Cursor | 這個 session（id 由對話與成員的 id 推出）在討論串之後送出，與它同一個專案與電腦；內容有成員聽到的話、它的思考、列出資料夾的呼叫（以 Claude Code 的 `Read` 呈現，資料夾放在 `file_path`）、呼叫的結果與它的回答，名稱是成員、它的 CLI 與對話的標題；它連到討論串底下，Cursor 自己的 session id 從不送出。 |
 | 其他位置的網址會被拒絕；更新失敗時設定會說明原因，對話照常進行 | Claude Code | 不在這台電腦上的網址會被拒絕並說明原因，設定維持空白；AgentsView 回應 503 時，回答沒有錯誤，卡片說明上次更新失敗與原因。 |
 
 ## 回報問題
@@ -445,6 +446,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 移除新增的帳號 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CLI 啟動前先詢問專案自己的設定 | — | — | — | — | ✓ |
 | 在 Windows 上透過 `.cmd` 啟動器啟動 | — | — | — | ✓（它自己的） | — |
+| 它在 AgentsView 中的 session，放在對話的討論串底下 | ✓ | ✓ | — | ✓（由 Harness Relay 記下） | — |
 
 開源 agent，在完全存取以外於 Harness Relay 自己的沙箱中執行：
 
@@ -489,7 +491,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **CLI 自己的沙箱。**Claude Code、Codex 與 Grok 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。
 - **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。
-- **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex、Grok、Cursor 與 Antigravity（它們自己的登入流程），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為 Cursor 與開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
+- **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex、Grok、Cursor 與 Antigravity（它們自己的登入流程），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試
 

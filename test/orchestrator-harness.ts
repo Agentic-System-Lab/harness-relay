@@ -246,7 +246,7 @@ beforeAll(() => {
         o.onEvent({ type: 'tool_start', id: `ws-${name}`, name: 'Web search' });
         o.onEvent({ type: 'tool_end', id: `ws-${name}`, ok: true, detail: `${name}'s query` });
         // Most calls say what they are about from the start.
-        o.onEvent({ type: 'tool_start', id: `sh-${name}`, name: 'Shell', detail: 'npm test' });
+        o.onEvent({ type: 'tool_start', id: `sh-${name}`, name: 'Shell', detail: 'npm test', kind: 'execute' });
         o.onEvent({ type: 'tool_end', id: `sh-${name}`, ok: true, output: 'ok' });
       }
       if (fake.asking.has(name) && !o.prompt.includes('ANSWER:')) {

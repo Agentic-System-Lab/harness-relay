@@ -20,7 +20,7 @@ import {
   type AcpTurnDeps,
 } from '../src/server/agents/acpTurn';
 import { startOpenProcess } from '../src/server/agents/open';
-import { AgentRunError, type AgentEvent, type ApprovalRequest, type McpServerSpec, type RunOptions } from '../src/server/agents/types';
+import { AgentRunError, toolCallKind, type AgentEvent, type ApprovalRequest, type McpServerSpec, type RunOptions } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
 import type { RelaySandboxCommand, RelaySandboxSpec } from '../src/server/relaySandbox';
 import { OPEN_AGENT_HOME_ENV } from '../src/server/settings';
@@ -141,7 +141,7 @@ describe('the generic ACP turn', () => {
       { type: 'session', sessionId: 'fake-1' },
       { type: 'thinking', text: 'Thinking it over.' },
       { type: 'plan', entries: [{ text: 'Read the file', status: 'in_progress' }, { text: 'Answer', status: 'pending' }] },
-      { type: 'tool_start', id: 't1', name: 'Read a.txt', detail: 'a.txt' },
+      { type: 'tool_start', id: 't1', name: 'Read a.txt', detail: 'a.txt', kind: 'read' },
       { type: 'tool_end', id: 't1', ok: true, output: 'file body' },
       { type: 'text', text: 'Hello ' },
       { type: 'text', text: 'world' },
@@ -379,7 +379,7 @@ describe('the generic ACP turn', () => {
     r.abort.abort();
     await turn.catch(() => undefined);
     expect(r.events.filter((e) => e.type === 'tool_start' || e.type === 'tool_end')).toEqual([
-      { type: 'tool_start', id: 'h1', name: 'Run tests', detail: 'npm test' },
+      { type: 'tool_start', id: 'h1', name: 'Run tests', detail: 'npm test', kind: 'execute' },
       { type: 'tool_end', id: 'h1', ok: false, error: 'Did not finish' },
     ]);
     // After a turn the agent ended itself, a row it never closed counts as done.
@@ -669,6 +669,25 @@ describe('the open agent process', () => {
 });
 
 describe('ACP pieces', () => {
+  it("keeps a tool call's ACP kind: one ACP does not name as other, none as none", () => {
+    for (const k of ['read', 'edit', 'delete', 'move', 'search', 'execute', 'think', 'fetch', 'other'] as const) expect(toolCallKind(k)).toBe(k);
+    expect(toolCallKind('switch_mode')).toBe('other');
+    expect(toolCallKind('')).toBeUndefined();
+    expect(toolCallKind(undefined)).toBeUndefined();
+    expect(toolCallKind(3)).toBeUndefined();
+  });
+
+  it("asks the spec what a call does when it has a way of its own to tell", () => {
+    const events: AgentEvent[] = [];
+    const h = createAcpUpdateHandler((e) => events.push(e), { toolKind: (u) => (u.title === 'shell' ? 'execute' : undefined) });
+    h.handle({ sessionUpdate: 'tool_call', toolCallId: '1', title: 'shell', kind: 'other', status: 'pending' });
+    h.handle({ sessionUpdate: 'tool_call', toolCallId: '2', title: 'probe', kind: 'other', status: 'pending' });
+    expect(events.filter((e) => e.type === 'tool_start')).toEqual([
+      { type: 'tool_start', id: '1', name: 'shell', kind: 'execute' },
+      { type: 'tool_start', id: '2', name: 'probe' },
+    ]);
+  });
+
   it('decides by the permission: reading and the web in read-only, everything but publishing in edit', () => {
     const info = (kind: string, rawInput: Record<string, any> = {}) => acpCallInfo({ kind, title: kind, rawInput });
     expect(acpPermissionDecision('read-only', info('read'), 'X')).toEqual({ allow: true });
@@ -766,9 +785,9 @@ describe('ACP pieces', () => {
     expect(events).toEqual([
       { type: 'text', text: 'a' },
       { type: 'text_end' },
-      { type: 'tool_start', id: '1', name: '[search] grep' },
+      { type: 'tool_start', id: '1', name: '[search] grep', kind: 'search' },
       { type: 'tool_end', id: '1', ok: true, detail: 'TODO' },
-      { type: 'tool_start', id: '4', name: '[read] Late' },
+      { type: 'tool_start', id: '4', name: '[read] Late', kind: 'read' },
       { type: 'tool_end', id: '4', ok: false },
     ]);
     expect(h.lastFailure).toEqual({ tool: '[read] Late', reason: undefined });
