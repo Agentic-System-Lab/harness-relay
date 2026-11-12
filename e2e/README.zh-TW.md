@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 25 個 spec 檔、140 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。
+目前共有 26 個 spec 檔、153 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。
 
 ## 執行
 
@@ -34,7 +34,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 分區 | Spec | 測試數 | 相關文件 |
 | --- | --- | --- | --- |
-| [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 3 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
+| [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 4 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 3 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 3 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
@@ -54,6 +54,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 5 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
 | [各 CLI 自己載入的內容，以及 Grok 的信任](#各-cli-自己載入的內容以及-grok-的信任) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [使用者說明 → 各 CLI 自己載入的內容](../docs/user-guide.zh-TW.md#各-cli-自己載入的內容)、[架構 → 各 CLI 自己載入的內容](../docs/architecture.zh-TW.md#各-cli-自己載入的內容) |
 | [Agent 的 session 與 AgentsView](#agent-的-session-與-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 6 | [使用者說明 → Agent 的 session](../docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)、[架構 → Agent 的家目錄與 AgentsView](../docs/architecture.zh-TW.md#agent-的家目錄與-agentsview) |
+| [語音輸入的安裝](#語音輸入的安裝) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [使用者說明 → 語音輸入](../docs/user-guide.zh-TW.md#語音輸入)、[架構 → 語音輸入](../docs/architecture.zh-TW.md#語音輸入) |
 | [回報問題](#回報問題) | [`report.spec.ts`](specs/report.spec.ts) | 5 | [使用者說明 → 回報問題](../docs/user-guide.zh-TW.md#回報問題)、[架構 → 回報問題](../docs/architecture.zh-TW.md#回報問題) |
 | [使用導覽與主題](#使用導覽與主題) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 4 | [使用者說明 → 介面語言與使用導覽](../docs/user-guide.zh-TW.md#介面語言與使用導覽) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
@@ -64,13 +65,23 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 登入
 
-[`signin.spec.ts`](specs/signin.spec.ts)：還沒登入的瀏覽器（`signIn: false`）。
+[`signin.spec.ts`](specs/signin.spec.ts)：還沒登入的瀏覽器（`signIn: false`）。最後四個也在介面的開發版 build 中執行（React 的 StrictMode 會把每個 effect 跑兩次），由 `global-setup.ts` 在一般的 build 旁邊建置。
 
 | 情境 | 檢查的內容 |
 | --- | --- |
 | 還沒登入的瀏覽器看到登入頁，輸入代碼後登入 | 顯示登入頁，API 回應 401；錯誤的代碼會顯示代碼錯誤或已過期；新的代碼會打開 app，重新載入後仍保持登入。 |
-| 登入連結只能用一次 | `/#code=…` 會登入，代碼也會從網址列消失；另一個頁面開同一個連結時看到的是登入頁。 |
+| 登入連結只能用一次 | `/#code=…` 會登入，代碼也會從網址列消失；另一個頁面開同一個連結時顯示它的錯誤。 |
+| 在已顯示登入頁的分頁打開連結就會登入 | 分頁從登入頁進入 app。 |
+| 用代碼登入後又被登出時，不再顯示連結的錯誤 | 再次登出後，登入頁沒有過時的錯誤。 |
+| 在已登入的分頁打開登入連結，帶舊金鑰還在路上的請求不會讓它登出 | 這些請求的「已登出」回應與登入的回應同時到達，頁面一次也不會登出。 |
+| 顯示登入頁的分頁跟著同一個瀏覽器的另一個分頁登入 | 不需要自己的代碼就進入 app。 |
+| 在另一個分頁打開登入連結，所有分頁都保持登入 | 第一個分頁即使有請求還在路上，也留在 app 裡。 |
+| 還在做第一次檢查的分頁跟著別的分頁登入 | 它的第一個回答那時已過時，仍會登入。 |
+| 登入沒有回應時，30 秒後放棄並顯示訊息 | 把頁面的時鐘往前調，登入頁會說明原因。 |
 | 瀏覽器在設定中自己登出 | **設定 → 已登入的瀏覽器**列出「this browser」；按**登出**（Sign out）後回到登入頁。 |
+| 開發版 build：登入連結第一次載入就進入 app，只問一次是否已登入 | StrictMode 第二次執行 effect 時不會再問，也不會弄丟代碼。 |
+| 開發版 build：在已登入的分頁或另一個分頁打開連結 | 同上，在 StrictMode 下。 |
+| 開發版 build：無效的連結在第一次載入時顯示錯誤 | 錯誤顯示在登入頁上。 |
 
 ## 新對話與首席 agent 的團隊
 
@@ -305,6 +316,15 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 加入的截圖要先上傳或移除，郵件才能送出 | 文字檔會被拒絕並說明原因；PNG 顯示縮圖，兩個送出按鈕都暫停，直到移除它。 |
 | 無法上傳的截圖會說明原因，回報不帶截圖送出 | 假的 `gh` 未登入時，**上傳截圖**說明 gh 沒有登入，移除截圖後就能送出。 |
 
+## 語音輸入的安裝
+
+[`voice.spec.ts`](specs/voice.spec.ts)：安裝進行中的**設定 → 語音輸入**。真正的安裝要下載引擎與模型，測試無法離線做到，所以頁面拿到的是伺服器自己對 `GET /api/voice` 的回答，再加上一個安裝。
+
+| 情境 | 檢查的內容 |
+| --- | --- |
+| 安裝的步驟排成一列，向螢幕閱讀器說明狀態，下載顯示在進度條上 | 步驟排成一列、目前的步驟標為 `aria-current`、下載百分比與進度條的填色。 |
+| 安裝失敗時說明停在哪一步 | 停下的步驟顯示為失敗。 |
+
 ## 使用導覽與主題
 
 [`appearance.spec.ts`](specs/appearance.spec.ts)：像第一次造訪時的導覽（`tour: true`），以及**設定 → 外觀**。
@@ -383,7 +403,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 ## 沒有測到的部分
 
 - **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`）以及在 app 中試用真正的 CLI 發現。
-- **還沒有 spec 走過的功能**：語音輸入（它會下載引擎與模型，也需要麥克風）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex 與 Grok；AgentsView 中首席 agent 與分類對話的 session 連結，以及設定網址後才送出的對話；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
+- **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex 與 Grok；AgentsView 中首席 agent 與分類對話的 session 連結，以及設定網址後才送出的對話；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 相關文件
 

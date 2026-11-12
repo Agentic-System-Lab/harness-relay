@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 140 tests in 25 spec files, in each browser that runs them (Chromium by default).
+There are 153 tests in 26 spec files, in each browser that runs them (Chromium by default).
 
 ## Running them
 
@@ -34,7 +34,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 
 | Area | Spec | Tests | Related docs |
 | --- | --- | --- | --- |
-| [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 3 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
+| [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 4 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 3 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 3 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
@@ -54,6 +54,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 5 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
 | [What each CLI loads by itself, and Grok's trust](#what-each-cli-loads-by-itself-and-groks-trust) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [User guide → What each CLI loads by itself](../docs/user-guide.md#what-each-cli-loads-by-itself), [Architecture → What each CLI loads by itself](../docs/architecture.md#what-each-cli-loads-by-itself) |
 | [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 6 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
+| [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
 | [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 5 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
 | [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 4 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
 | [Limits the environment sets](#limits-the-environment-sets) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [Developer guide → Environment variables](../docs/developer-guide.md#environment-variables) |
@@ -62,13 +63,23 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 
 ## Signing in
 
-[`signin.spec.ts`](specs/signin.spec.ts): a browser that has not signed in (`signIn: false`).
+[`signin.spec.ts`](specs/signin.spec.ts): a browser that has not signed in (`signIn: false`). The last four also in a development build of the UI (React's StrictMode, which runs each effect twice), which `global-setup.ts` builds next to the usual one.
 
 | Scenario | What is checked |
 | --- | --- |
 | A browser that is not signed in gets the sign-in page, and a code signs it in | The sign-in page shows and the API answers 401; a wrong code says it is wrong or has expired; a new code opens the app, and the session outlives a reload. |
-| A sign-in link signs in once | `/#code=…` signs in and the code leaves the address bar; the same link in another page gets the sign-in page. |
+| A sign-in link signs in once; the code cannot be used again | `/#code=…` signs in and the code leaves the address bar; the same link in another page shows its error. |
+| A link opened in a tab that shows the sign-in page already signs it in | The tab goes from the sign-in page into the app. |
+| A link's error does not come back after signing in with a code and being signed out | Once signed out again, the sign-in page has no stale error. |
+| A sign-in link opened in a tab signed in already keeps it signed in, with requests still on their way | Requests sent with the old key that answer "signed out" arrive with the sign-in's answer, and the page never signs out. |
+| A tab that shows the sign-in page follows a sign-in in another tab of the browser | It opens the app without a code of its own. |
+| A sign-in link opened in another tab keeps every tab signed in, with requests still on their way | The first tab stays in the app. |
+| A tab still on its first check follows a sign-in in another tab | Its first answer is stale by then, and it signs in anyway. |
+| A sign-in that gets no answer is given up after 30 seconds, with a message | With the page's clock run forward, the sign-in page says why. |
 | A browser signs itself out in Settings | **Settings → Signed-in browsers** lists "this browser"; **Sign out** goes back to the sign-in page. |
+| In a development build: a sign-in link opens the app on the first load, asking once whether the browser is signed in | StrictMode's second run of the effect does not ask again or lose the code. |
+| In a development build: a link opened in a tab signed in already, or in another tab | As above, with StrictMode. |
+| In a development build: a link that does not work shows its error on the first load | The error is on the sign-in page. |
 
 ## A new chat and the lead agent's team
 
@@ -303,6 +314,15 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | Screenshots added must be uploaded or removed before the mail can go | A text file is refused with its reason; a PNG shows a thumbnail and holds both send buttons until it is removed. |
 | Screenshots that cannot be uploaded say why, and the report goes without them | With the fake `gh` signed out, **Upload screenshots** says gh is not signed in, and once the screenshot is removed the report can go. |
 
+## Voice input's install
+
+[`voice.spec.ts`](specs/voice.spec.ts): **Settings → Voice input** with an install under way. A real install downloads the engine and a model, which the tests cannot do offline, so the page gets the server's own answer to `GET /api/voice` with an install put in.
+
+| Scenario | What is checked |
+| --- | --- |
+| The install shows its steps in line, says their state to screen readers, and its download in the bar | The steps in a row, the current one marked `aria-current`, the download's percent and the bar's fill. |
+| A failed install says which step stopped | The step it stopped at is shown as failed. |
+
 ## The guided tour and the theme
 
 [`appearance.spec.ts`](specs/appearance.spec.ts): the tour as on a first visit (`tour: true`), and **Settings → Appearance**.
@@ -381,7 +401,7 @@ The scenarios tried with each of the three CLIs (most of them as a test per CLI)
 ## What they do not cover
 
 - **The CLIs themselves.** The fakes check Harness Relay's side of each protocol. A CLI that changes what it writes is caught by the adapter tests' recorded messages (`test/claude.test.ts`, `test/codex.test.ts`, `test/grok.test.ts`) and by trying the real CLI in the app.
-- **Features no spec goes through yet**: voice input (it downloads its engine and models, and needs a microphone); the files a shared reply links to, and uploading a report's screenshots (both push to a gist with git, which the fake `gh` does not stand in for); API keys in the OS credential store (the tests keep it off, so they go to the database); signing Codex and Grok in from Settings; AgentsView's links to the lead agent's and the group sorter's sessions, and conversations sent once an address is set; a ZIP too large even without what git ignores; and the desktop app's window beyond signing in (its own checks, `desktop/scripts/smoke.ts` and `desktop/scripts/check-package.ts`, start a read-only chat of these fake claude, codex and grok and have each answer a question, on the bundled server and in the packaged app: in CI on Linux and Windows, and on every system before a release). Some of them have unit tests in [`test/`](../test/), listed in the developer guide's [Testing](../docs/developer-guide.md#testing).
+- **Features no spec goes through yet**: voice input itself, recording and transcribing (it downloads its engine and models, and needs a microphone; only its install's panel is tried); the files a shared reply links to, and uploading a report's screenshots (both push to a gist with git, which the fake `gh` does not stand in for); API keys in the OS credential store (the tests keep it off, so they go to the database); signing Codex and Grok in from Settings; AgentsView's links to the lead agent's and the group sorter's sessions, and conversations sent once an address is set; a ZIP too large even without what git ignores; and the desktop app's window beyond signing in (its own checks, `desktop/scripts/smoke.ts` and `desktop/scripts/check-package.ts`, start a read-only chat of these fake claude, codex and grok and have each answer a question, on the bundled server and in the packaged app: in CI on Linux and Windows, and on every system before a release). Some of them have unit tests in [`test/`](../test/), listed in the developer guide's [Testing](../docs/developer-guide.md#testing).
 
 ## Related docs
 
