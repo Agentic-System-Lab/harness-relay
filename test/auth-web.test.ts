@@ -45,6 +45,39 @@ describe('what an answer "signed out" means', () => {
     expect(answer).toBe('resend');
     expect(readKey()).toBe('new');
   });
+
+  it('waits for every sign-in on its way: one that finished first does not end the wait', async () => {
+    writeKey('old');
+    let slow!: () => void;
+    let quick!: () => void;
+    void whileSigningIn(new Promise<void>((r) => (slow = r)).then(() => writeKey('slow')));
+    void whileSigningIn(new Promise<void>((r) => (quick = r)).then(() => {}));
+    quick();
+    await settle();
+    let answer: string | undefined;
+    void signedOutAnswer('old').then((a) => (answer = a));
+    await settle();
+    expect(answer).toBeUndefined();
+    slow();
+    await settle();
+    expect(answer).toBe('resend');
+  });
+
+  it('also waits for a sign-in that starts while it waits', async () => {
+    writeKey('old');
+    let first!: () => void;
+    let second!: () => void;
+    void whileSigningIn(new Promise<void>((r) => (first = r)));
+    let answer: string | undefined;
+    void signedOutAnswer('old').then((a) => (answer = a));
+    void whileSigningIn(new Promise<void>((r) => (second = r)).then(() => writeKey('new')));
+    first();
+    await settle();
+    expect(answer).toBeUndefined();
+    second();
+    await settle();
+    expect(answer).toBe('resend');
+  });
 });
 
 /** An answer whose body is read with `meanwhile` run first: what the page does while it is read. */
@@ -63,15 +96,18 @@ function answer(status: number, body: unknown, meanwhile?: () => void): Response
 }
 
 describe('a request answered "signed out"', () => {
-  /** The keys each path was sent with, in order. */
+  /** The keys each path was sent with, in order, and the bodies. */
   let sent: Record<string, (string | null)[]>;
+  let bodies: unknown[];
   let signedOutEvents: number;
 
   /** `fetch`, answering each request by its path and the key it was sent with. */
   function server(respond: (path: string, key: string | null) => Response | Promise<Response>) {
     vi.stubGlobal('fetch', async (path: string, init: RequestInit) => {
+      if (init.signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
       const key = (init.headers as Record<string, string>)[KEY] ?? null;
       (sent[path] ??= []).push(key);
+      if (init.body !== undefined) bodies.push(JSON.parse(init.body as string));
       return respond(path, key);
     });
   }
@@ -79,6 +115,7 @@ describe('a request answered "signed out"', () => {
   beforeEach(() => {
     clearKey();
     sent = {};
+    bodies = [];
     signedOutEvents = 0;
     const page = new EventTarget();
     page.addEventListener(SIGNED_OUT_EVENT, () => signedOutEvents++);
@@ -158,6 +195,46 @@ describe('a request answered "signed out"', () => {
     expect(sent['/api/conversations']).toEqual(['old', 'k0', 'k1']);
     expect(signedOutEvents).toBe(0);
     expect(readKey()).toBe('k2');
+  });
+
+  it("waits for the sign-in also when the page had no key, and a write is sent again with its body", async () => {
+    let login!: (r: Response) => void;
+    server((path, key) => {
+      if (path === '/api/auth/login') return new Promise<Response>((r) => (login = r));
+      return key === 'new' ? answer(200, { id: 'c1' }) : answer(401, SIGNED_OUT);
+    });
+    const signingIn = api.signIn('ABCD-EFGH');
+    const renaming = api.updateConversation('c1', { title: 'Renamed' });
+    await settle();
+    login(answer(200, { key: 'new' }));
+    await signingIn;
+    expect(await renaming).toEqual({ id: 'c1' });
+    expect(sent['/api/conversations/c1']).toEqual([null, 'new']);
+    expect(bodies.filter((b) => (b as { title?: string }).title)).toEqual([{ title: 'Renamed' }, { title: 'Renamed' }]);
+    expect(signedOutEvents).toBe(0);
+  });
+
+  it('is not sent again once it was aborted while it waited', async () => {
+    writeKey('old');
+    let login!: (r: Response) => void;
+    server((path) => (path === '/api/auth/login' ? new Promise<Response>((r) => (login = r)) : answer(401, SIGNED_OUT)));
+    const signingIn = api.signIn('ABCD-EFGH');
+    const stop = new AbortController();
+    const picking = api.pickCwd('/', stop.signal).catch((e: unknown) => e);
+    await settle();
+    stop.abort();
+    login(answer(200, { key: 'new' }));
+    await signingIn;
+    expect(((await picking) as Error).name).toBe('AbortError');
+    expect(sent['/api/cwds/pick']).toEqual(['old']);
+    expect(signedOutEvents).toBe(0);
+  });
+
+  it("does not let the sign-in's own request wait for itself", async () => {
+    // Never answered so (the sign-in route takes no session), but if it were, it must not hang.
+    server(() => answer(401, SIGNED_OUT));
+    expect(await api.signIn('ABCD-EFGH').catch((e: unknown) => e)).toBeInstanceOf(ApiError);
+    expect(signedOutEvents).toBe(0);
   });
 
   it('is sent again for a text answer too (a diff)', async () => {

@@ -153,7 +153,6 @@ async function requestText(path: string, o: Sending = {}): Promise<string> {
   return text;
 }
 
-
 /** A file attached to a message, as sent to the server. */
 export interface AttachmentUpload {
   name: string;

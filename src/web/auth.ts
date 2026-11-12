@@ -35,21 +35,23 @@ export function clearKey(): void {
   }
 }
 
-/** The sign-in on its way, if any (`whileSigningIn`). */
+/** Done when every sign-in on its way in this tab is (`whileSigningIn`); none, when there is none. */
 let signingIn: Promise<void> | undefined;
 
 /**
- * Runs a sign-in (`api.signIn`): until it is done, a request answered "signed out" waits for it
- * before deciding what that means (`signedOutAnswer`), since it may put a new key in place.
+ * Runs a sign-in (`api.signIn`): until it is done, and any other on its way, a request answered
+ * "signed out" waits for them before deciding what that means (`signedOutAnswer`), since each may put
+ * a new key in place.
  */
 export function whileSigningIn<T>(signIn: Promise<T>): Promise<T> {
   const settled = signIn.then(
     () => undefined,
     () => undefined,
   );
-  signingIn = settled;
-  void settled.then(() => {
-    if (signingIn === settled) signingIn = undefined;
+  const all = signingIn ? Promise.all([signingIn, settled]).then(() => undefined) : settled;
+  signingIn = all;
+  void all.then(() => {
+    if (signingIn === all) signingIn = undefined;
   });
   return signIn;
 }
@@ -59,8 +61,8 @@ export type SignedOutAnswer = 'signed-out' | 'resend' | 'stale';
 
 /**
  * What an answer "signed out" (a 401, which only the sign-in check gives, before a route does
- * anything) means for a request sent with the key `sentWith`, once that answer has been read. A
- * sign-in on its way is waited for first. Then, in one step with the key kept now, so that no
+ * anything) means for a request sent with the key `sentWith`, once that answer has been read. The
+ * sign-ins on their way in this tab are waited for first (one in another tab is not known here). Then, in one step with the key kept now, so that no
  * sign-in can come in between:
  * - the same key: this browser is signed out, and the key is cleared ('signed-out');
  * - another one, which a sign-in put in its place while the request was on its way (a sign-in link
