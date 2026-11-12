@@ -13,9 +13,9 @@ import { PROVIDERS } from '../../src/shared/types';
 import { CLIS as FAKE_CLIS } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
 
-/** What a fake CLI wrote to its log (E2E_FAKE_LOG): a start, or a prompt it got; or a start of the fake folder dialog. */
+/** What a fake CLI wrote to its log (E2E_FAKE_LOG): a start, or a prompt it got; or a start of the fake folder dialog or the fake gh. */
 export interface FakeLogEntry {
-  cli: 'claude' | 'codex' | 'grok' | 'zenity';
+  cli: 'claude' | 'codex' | 'grok' | 'zenity' | 'gh';
   pid: number;
   at: number;
   args?: string[];
@@ -27,6 +27,18 @@ export interface FakeLogEntry {
   /** The images and the tool library's MCP servers a turn got. */
   images?: number;
   mcp?: string[];
+  /** The values the tool library's MCP servers were given, by server (env, or an HTTP server's headers). */
+  mcpEnv?: Record<string, Record<string, string>>;
+  /** A start: the CLI's home it runs in (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`). */
+  home?: string;
+  /** A start: the API key it was given (`ANTHROPIC_API_KEY`, `XAI_API_KEY`) as a fingerprint, the first 16 hex digits of its SHA-256; null: none. */
+  apiKey?: string | null;
+  /** A turn: the model and reasoning effort it runs with (null: the CLI's own default). */
+  model?: string | null;
+  effort?: string | null;
+  /** A turn: the skills the CLI loaded by itself (its own, not the tool library's), and for Grok whether it trusts the folder. */
+  skills?: string[];
+  trusted?: boolean;
   /** The fake folder dialog's character set. */
   env?: { LANG: string | null; LC_CTYPE: string | null };
 }
@@ -93,6 +105,9 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   for (const k of Object.keys(env)) if (/^(CLAUDECODE|CLAUDE_CODE_|PLAYWRIGHT_|PW_|TEST_|E2E_|RELAY_|FORCE_COLOR$)/.test(k)) delete env[k];
   // Nor the user's own Cursor sign-in by key, or its folder (live runs sign in as the user does).
   if (!o.live) for (const k of ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN', 'CURSOR_CONFIG_DIR']) delete env[k];
+  // Nor, outside live runs, the developer's credentials: should a real CLI or gh ever be found
+  // instead of a fake (a fake build removed under a run), it finds no key or token to reach a service with.
+  if (!o.live) for (const k of Object.keys(env)) if (/^(ANTHROPIC_|OPENAI_|XAI_|GROK_|CODEX_|GH_|GITHUB_TOKEN$|GITHUB_ENTERPRISE_TOKEN$)|_(API_KEY|TOKEN|SECRET|SECRET_ACCESS_KEY|ACCESS_KEY_ID)$/i.test(k)) delete env[k];
   const homes = o.live
     ? {}
     : {
@@ -117,6 +132,9 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     GIT_COMMITTER_NAME: 'Relay E2E',
     GIT_COMMITTER_EMAIL: 'e2e@example.com',
     GIT_CONFIG_NOSYSTEM: '1',
+    // Git looks for a repository no further up than the test's folder: one around it (a home kept
+    // in git, a repository at C:\) is not the working directory's.
+    GIT_CEILING_DIRECTORIES: root,
     E2E_FAKE_LOG: fakeLog,
     // The fake CLIs first, found by name as the real ones are; this Node next, for the scripts.
     PATH: [...(o.live ? [] : [o.fakeBinDir]), dirname(process.execPath), env.PATH ?? env.Path ?? ''].join(delimiter),
