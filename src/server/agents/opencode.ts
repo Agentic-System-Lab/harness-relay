@@ -1332,7 +1332,7 @@ async function setOption(
 async function startWatch(
   conn: Pick<JsonRpcConnection, 'notify' | 'close'>,
   sessionId: string,
-  ctx: Pick<OpenRunContext, 'o' | 'env' | 'state'>,
+  ctx: Pick<OpenRunContext, 'o' | 'env' | 'state' | 'onAgentExit'>,
   watch: typeof watchOpencode,
 ): Promise<void> {
   const st = ctx.state as OpencodeState;
@@ -1352,6 +1352,10 @@ async function startWatch(
   // Stopped by the user (or timed out): the process is told to exit, and its stream closes as it does.
   if (ctx.o.signal.aborted) st.watch.closing();
   else ctx.o.signal.addEventListener('abort', () => st.watch?.closing(), { once: true });
+  // Its process gone (the sandbox's host says so before the run's process ends), its server is gone too:
+  // nothing is left to drive, so its stream closing is expected, and the run ends with what the process
+  // said (it crashed, say), not with a security error once the grace has passed.
+  ctx.onAgentExit?.(() => st.watch?.closing());
   let timer: NodeJS.Timeout | undefined;
   try {
     await Promise.race([
@@ -1371,7 +1375,7 @@ async function startWatch(
 export async function opencodeAfterSession(
   conn: Pick<JsonRpcConnection, 'request' | 'onRequest' | 'notify' | 'close'>,
   session: { sessionId: string; state: AcpSessionState },
-  ctx: Pick<OpenRunContext, 'o' | 'run' | 'state' | 'home' | 'env' | 'sandboxed'>,
+  ctx: Pick<OpenRunContext, 'o' | 'run' | 'state' | 'home' | 'env' | 'sandboxed' | 'onAgentExit'>,
   watch: typeof watchOpencode = watchOpencode,
 ): Promise<void> {
   const { sessionId } = session;

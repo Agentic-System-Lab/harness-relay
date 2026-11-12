@@ -687,6 +687,18 @@ describe.skipIf(process.platform === 'win32')('RelaySandboxRun', () => {
     await run.dispose();
   });
 
+  it('tells its listeners when the host says the command exited, and a later one at once', async () => {
+    const { run, host } = newRun();
+    const seen: string[] = [];
+    run.onExit(() => seen.push('first'));
+    host.write({ t: 'exit', code: 1, signal: null });
+    await until(() => seen.length === 1);
+    expect(run.exit).toEqual({ code: 1, signal: null });
+    run.onExit(() => seen.push('later'));
+    expect(seen).toEqual(['first', 'later']);
+    await run.dispose();
+  });
+
   it("asks this run's requestApproval about a host, once, and answers with the reason the model sees", async () => {
     const asked: ApprovalRequest[] = [];
     const { run, host } = newRun(async (req) => {
