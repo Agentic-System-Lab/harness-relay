@@ -20,7 +20,9 @@
  * real one: a write step really writes, and a write the sandbox refuses (EPERM, EROFS, EACCES) ends
  * the tool call as failed and the reply says "I may not write <path> here.". Commands are never run
  * (`echo e2e-approval`, or `npm publish e2e-approval` for `e2e:approve=publish`, the one kind that
- * asks in edit mode); with no tool for it (a read-only chat has no `bash` or `write`) it says so.
+ * asks in edit mode), but a URL (`e2e:fetch`) is reached for real, as `bash` `curl` would, so below
+ * full access through the sandbox's proxy, which asks the user about a host that is not the run's
+ * model backend; with no tool for a step (a read-only chat has no `bash` or `write`) it says so.
  * Pi has no to-do lists: `e2e:todo` shows nothing. It knows of no other working directory but those
  * its briefing names.
  *
@@ -633,7 +635,11 @@ function rpcMain() {
       let result;
       if (signal.aborted) result = { ok: false, aborted: true, text: 'Operation aborted', details: {} };
       else if (blocked) result = { ok: false, text: blocked, details: {} };
-      else result = run();
+      else {
+        result = await run();
+        // Stopped while it ran (a request the sandbox's proxy asks about, say): Pi's own words.
+        if (signal.aborted) result = { ok: false, aborted: true, text: 'Command aborted', details: {} };
+      }
       out({ type: 'tool_execution_end', toolCallId, toolName, result: { content: [{ type: 'text', text: result.text }], details: result.details || {} }, isError: !result.ok });
       const toolResult = { role: 'toolResult', toolCallId, toolName, content: [{ type: 'text', text: result.text }], details: result.details || {}, isError: !result.ok, timestamp: Date.now() };
       out({ type: 'message_start', message: toolResult });
@@ -647,6 +653,20 @@ function rpcMain() {
     const bash = (command) => () => {
       if (command === 'ls') return { ok: true, text: fs.readdirSync(cwd).filter((e) => !e.startsWith('.')).sort().join('\n') };
       return { ok: true, text: /\be2e-approval\b/.test(command) ? 'e2e-approval' : '(no output)' };
+    };
+    /**
+     * `curl` of a URL through `bash`, as a model reaches one with Pi: the request made for real, so
+     * below full access through the sandbox's proxy, which asks the user about a host that is not
+     * the run's model backend and refuses it when declined.
+     */
+    const curl = (url) => async () => {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]) });
+        const body = await res.text();
+        return res.ok ? { ok: true, text: body.slice(0, 2000) || '(no output)' } : { ok: false, text: `curl: (22) The requested URL returned error: ${res.status}` };
+      } catch (err) {
+        return { ok: false, text: `curl: ${(err && err.cause && err.cause.message) || (err && err.message) || err}` };
+      }
     };
     /** The `write` tool: the file really written, as far as the sandbox lets it. */
     const write = (file, content) => () => {
@@ -677,14 +697,22 @@ function rpcMain() {
         if (r && r.aborted) return stopped();
       }
       if (step.type === 'approve') {
-        const command = d.approve === 'publish' ? 'npm publish e2e-approval' : step.command;
         if (!isActive('bash')) {
           prefix += 'I have no tool to run commands here. ';
           continue;
         }
-        const r = await call('bash', { command }, bash(command));
+        const r = await call('bash', { command: step.command }, bash(step.command));
         if (r.aborted) return stopped();
         prefix += r.ok ? 'The command ran: e2e-approval. ' : declined('command', noteIn(r.text));
+      }
+      if (step.type === 'fetch') {
+        if (!isActive('bash')) {
+          prefix += `I have no tool to reach ${step.url} here. `;
+          continue;
+        }
+        const r = await call('bash', { command: `curl -sS ${step.url}` }, curl(step.url));
+        if (r.aborted) return stopped();
+        prefix += r.ok ? `I reached ${step.url}. ` : `I could not reach ${step.url}. `;
       }
       if (step.type === 'write') {
         const file = targetOf(step, cwd, briefedOthers(briefing, cwd));
