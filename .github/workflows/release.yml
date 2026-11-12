@@ -199,6 +199,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      # The pull request each commit in the notes merged (GitHub's commits/<sha>/pulls).
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
 

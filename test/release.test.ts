@@ -10,6 +10,7 @@ import {
   checkRelease,
   commitsSince,
   compareSemver,
+  mapLimit,
   devVersion,
   newContributors,
   nextVersion,
@@ -20,6 +21,7 @@ import {
   RELEASE_TIME_ZONE,
   repoOfRemote,
   semverOf,
+  subjectMarkdown,
   actionsData,
   tagsFromLsRemote,
   todayIn,
@@ -361,17 +363,17 @@ describe("a release's list of changes", () => {
   const site = 'https://github.com/owner/name';
   const sha = (n: number) => n.toString(16).padStart(40, '0');
   /** A commit as GitHub's API gives it. */
-  const commit = (n: number, message: string, o: { parents?: number[]; login?: string | null; name?: string } = {}): ApiCommit => ({
+  const commit = (n: number, message: string, o: { parents?: number[]; login?: string | null; name?: string; email?: string } = {}): ApiCommit => ({
     sha: sha(n),
     parents: (o.parents ?? [n - 1]).map((p) => ({ sha: sha(p) })),
     author: o.login === null ? null : { login: o.login ?? 'dev' },
-    commit: { message, author: { name: o.name ?? 'Dev' } },
+    commit: { message, author: { name: o.name ?? 'Dev', ...(o.email ? { email: o.email } : {}) } },
   });
   const noPulls: PullOf = () => undefined;
   const lines = (changes: Change[]) => changes.map((c) => `${c.title} | ${c.login ?? c.name} | ${c.url.replace(site, '')}`);
 
   it('lists every commit that came into main, oldest first: a pull request it merged by its number, any other commit by itself', () => {
-    const pulls: Record<string, Pull> = { [sha(2)]: { number: 25, title: 'Faster tests' }, [sha(4)]: { number: 2, title: 'Fix the review findings' } };
+    const pulls: Record<string, Pull> = { [sha(2)]: { number: 25, title: 'Faster tests', author: 'opener' }, [sha(4)]: { number: 2, title: 'Fix the review findings' } };
     const changes = changesOf(
       [
         commit(1, 'Let visitors pick a theme\n'),
@@ -388,14 +390,23 @@ describe("a release's list of changes", () => {
     );
     expect(lines(changes)).toEqual([
       `Let visitors pick a theme | dev | /commit/${sha(1)}`,
-      'Run the tests faster | dev | /pull/25',
+      // By whoever opened the pull request.
+      'Run the tests faster | opener | /pull/25',
       `Say the agents work together | dev | /commit/${sha(3)}`,
       'Fix the issue #1 review findings | dev | /pull/2',
       `Back out "Run the tests faster (#25)" | dev | /commit/${sha(5)}`,
     ]);
+    // The commit's address goes with its author only: not with a pull request someone else opened.
+    const [own, opened] = changesOf(
+      [commit(1, 'Mine (#3)\n', { email: 'dev@example.com' }), commit(2, 'Theirs (#4)\n', { email: 'dev@example.com' })],
+      repo,
+      (s) => (s === sha(1) ? { number: 3, title: 'Mine', author: 'dev' } : { number: 4, title: 'Theirs', author: 'other' }),
+    );
+    expect([own!.login, own!.email]).toEqual(['dev', 'dev@example.com']);
+    expect([opened!.login, opened!.email]).toEqual(['other', undefined]);
   });
 
-  it("lists a pull request merged with a merge commit by its title and its branch's author, and leaves out merges of branches", () => {
+  it('lists a pull request merged with a merge commit by its title and its author, and leaves out merges of branches', () => {
     const changes = changesOf(
       [
         commit(10, 'Work on the branch\n', { parents: [1], login: 'contributor' }),
@@ -408,14 +419,18 @@ describe("a release's list of changes", () => {
         commit(15, 'Merge main into feature\n', { parents: [14, 6] }),
       ],
       repo,
-      (s) => (s === sha(15) ? { number: 9, title: 'Several accounts for each CLI ' } : undefined),
+      (s) => (s === sha(15) ? { number: 9, title: 'Several accounts for each CLI ', author: 'opener' } : s === sha(12) ? { number: 7, title: 'Keep the chat where the reader left it', author: 'contributor' } : undefined),
     );
     expect(lines(changes)).toEqual([
       `Work on the branch | contributor | /commit/${sha(10)}`,
+      // By whoever opened it, though the maintainer merged it and updated its branch last.
       'Keep the chat where the reader left it | contributor | /pull/7',
       `Run Harness Relay as a desktop app | dev | /commit/${sha(14)}`,
-      'Several accounts for each CLI | dev | /pull/9',
+      'Several accounts for each CLI | opener | /pull/9',
     ]);
+    // Without GitHub's record of who opened it, the author of the branch it merged.
+    const merged = [commit(30, 'Work\n', { login: 'contributor' }), commit(31, 'Merge pull request #12 from contributor/work\n\nWork\n', { parents: [29, 30], login: 'maintainer' })];
+    expect(lines(changesOf(merged, repo, (s) => (s === sha(31) ? { number: 12, title: 'Work' } : undefined)))[1]).toBe('Work | contributor | /pull/12');
     // GitHub's own words for a pull request merged with a merge commit, if GitHub's record of it is missing.
     expect(lines(changesOf([commit(20, 'Merge pull request #8 from a/b\n', { parents: [1, 2] })], repo, noPulls))).toEqual(['Merge pull request #8 from a/b | dev | /pull/8']);
   });
@@ -428,7 +443,7 @@ describe("a release's list of changes", () => {
     ]);
   });
 
-  it("reads every page of GitHub's comparison, and refuses fewer commits than GitHub counts", () => {
+  it("reads every page of GitHub's comparison, and refuses fewer commits than GitHub counts", async () => {
     const all = Array.from({ length: 230 }, (_, i) => commit(i + 1, `Change ${i + 1}\n`));
     const asked: string[] = [];
     const api: GitHubApi = (path) => {
@@ -436,15 +451,15 @@ describe("a release's list of changes", () => {
       const page = Number(/[?&]page=(\d+)/.exec(path)![1]);
       return { total_commits: all.length, commits: all.slice((page - 1) * 100, page * 100) };
     };
-    expect(commitsSince(api, repo, '2026-11-12', 'abc').map((c) => c.sha)).toEqual(all.map((c) => c.sha));
+    expect((await commitsSince(api, repo, '2026-11-12', 'abc')).map((c) => c.sha)).toEqual(all.map((c) => c.sha));
     expect(asked).toEqual([1, 2, 3].map((p) => `repos/owner/name/compare/2026-11-12...abc?per_page=100&page=${p}`));
     const short: GitHubApi = (path) => ({ total_commits: 150, commits: path.endsWith('&page=1') ? all.slice(0, 100) : [] });
-    expect(() => commitsSince(short, repo, '2026-11-12', 'abc')).toThrow('GitHub listed 100 of the 150 commits from 2026-11-12 to abc.');
+    await expect(commitsSince(short, repo, '2026-11-12', 'abc')).rejects.toThrow('GitHub listed 100 of the 150 commits from 2026-11-12 to abc.');
     // Nothing since: the same commit.
-    expect(commitsSince(() => ({ total_commits: 0, commits: [] }), repo, '2026-11-13-rc', '2026-11-13')).toEqual([]);
+    expect(await commitsSince(() => ({ total_commits: 0, commits: [] }), repo, '2026-11-13-rc', '2026-11-13')).toEqual([]);
   });
 
-  it("without a version before it, lists the whole history, oldest first", () => {
+  it('without a version before it, lists the whole history, oldest first', async () => {
     const newest = Array.from({ length: 130 }, (_, i) => commit(130 - i, `Change ${130 - i}\n`));
     const asked: string[] = [];
     const api: GitHubApi = (path) => {
@@ -452,43 +467,71 @@ describe("a release's list of changes", () => {
       const page = Number(/[?&]page=(\d+)/.exec(path)![1]);
       return newest.slice((page - 1) * 100, page * 100);
     };
-    expect(commitsSince(api, repo, undefined, '2026-11-11-rc').map((c) => c.commit.message)).toEqual(newest.map((c) => c.commit.message).reverse());
+    expect((await commitsSince(api, repo, undefined, '2026-11-11-rc')).map((c) => c.commit.message)).toEqual(newest.map((c) => c.commit.message).reverse());
     expect(asked).toEqual(['repos/owner/name/commits?sha=2026-11-11-rc&per_page=100&page=1', 'repos/owner/name/commits?sha=2026-11-11-rc&per_page=100&page=2']);
   });
 
-  it('takes the pull request GitHub records a commit as the merge commit of, not one the commit is only part of', () => {
+  it('takes the pull request GitHub records a commit as the merge commit of, not one the commit is only part of, with who opened it', async () => {
     const answers: Record<string, unknown> = {
       [`repos/owner/name/commits/${sha(1)}/pulls?per_page=100`]: [
         // Open, with this commit in its branch.
         { number: 30, title: 'Later work', merged_at: null, merge_commit_sha: sha(9) },
         // Merged, with this commit in its branch, by another merge commit.
         { number: 29, title: 'Other work', merged_at: '2026-11-12T00:00:00Z', merge_commit_sha: sha(8) },
-        { number: 28, title: 'This work', merged_at: '2026-11-12T00:00:00Z', merge_commit_sha: sha(1) },
+        { number: 28, title: 'This work', merged_at: '2026-11-12T00:00:00Z', merge_commit_sha: sha(1), user: { login: 'opener' } },
       ],
+      [`repos/owner/name/commits/${sha(4)}/pulls?per_page=100`]: [{ number: 27, title: 'Ghost', merged_at: '2026-11-12T00:00:00Z', merge_commit_sha: sha(4), user: null }],
       [`repos/owner/name/commits/${sha(2)}/pulls?per_page=100`]: [{ number: 31, title: 'Open', merged_at: null, merge_commit_sha: sha(2) }],
       [`repos/owner/name/commits/${sha(3)}/pulls?per_page=100`]: [],
     };
     const api: GitHubApi = (path) => answers[path];
-    expect(pullMergedBy(api, repo, sha(1))).toEqual({ number: 28, title: 'This work' });
-    expect(pullMergedBy(api, repo, sha(2))).toBeUndefined();
-    expect(pullMergedBy(api, repo, sha(3))).toBeUndefined();
+    expect(await pullMergedBy(api, repo, sha(1))).toEqual({ number: 28, title: 'This work', author: 'opener' });
+    expect(await pullMergedBy(api, repo, sha(2))).toBeUndefined();
+    expect(await pullMergedBy(api, repo, sha(3))).toBeUndefined();
+    // An account that is gone.
+    expect(await pullMergedBy(api, repo, sha(4))).toEqual({ number: 27, title: 'Ghost', author: undefined });
   });
 
-  it('names the authors with no commit before the version before it, each once, with their first change', () => {
+  it('names the authors with no commit before the version before it, each once, with their first change', async () => {
     const changes = changesOf(
-      [commit(1, 'One\n', { login: 'old' }), commit(2, 'Two\n', { login: 'new[bot]' }), commit(3, 'Three\n', { login: 'new[bot]' }), commit(4, 'Four\n', { login: null })],
+      [
+        commit(1, 'One\n', { login: 'old', email: 'old@example.com' }),
+        commit(2, 'Two\n', { login: 'new', email: 'new@example.com' }),
+        commit(3, 'Three\n', { login: 'new', email: 'new@other.example' }),
+        // GitHub finds no commit by a bot's account, only by its address.
+        commit(4, 'Bump a dependency\n', { login: 'dependabot[bot]', email: '49699333+dependabot[bot]@users.noreply.github.com' }),
+        commit(5, 'Five\n', { login: null }),
+      ],
       repo,
       noPulls,
     );
+    const before = new Set(['old', '49699333+dependabot[bot]@users.noreply.github.com']);
     const asked: string[] = [];
     const api: GitHubApi = (path) => {
       asked.push(path);
-      return path.includes('author=old') ? [{ sha: sha(0) }] : [];
+      const author = decodeURIComponent(/&author=([^&]+)&/.exec(path)![1]!);
+      return before.has(author) ? [{ sha: sha(0) }] : [];
     };
-    expect(newContributors(api, repo, '2026-11-12', changes).map((c) => [c.login, c.title])).toEqual([['new[bot]', 'Two']]);
-    expect(asked).toEqual(['repos/owner/name/commits?sha=2026-11-12&author=old&per_page=1', 'repos/owner/name/commits?sha=2026-11-12&author=new%5Bbot%5D&per_page=1']);
+    expect((await newContributors(api, repo, '2026-11-12', changes)).map((c) => [c.login, c.title])).toEqual([['new', 'Two']]);
+    const q = (author: string) => `repos/owner/name/commits?sha=2026-11-12&author=${encodeURIComponent(author)}&per_page=1`;
+    // Each account, then each of its addresses here, until one has a commit before.
+    expect(asked.sort()).toEqual([q('old'), q('new'), q('new@example.com'), q('new@other.example'), q('dependabot[bot]'), q('49699333+dependabot[bot]@users.noreply.github.com')].sort());
     // From the first commit on, every author with a GitHub account is new.
-    expect(newContributors(() => [{ sha: sha(0) }], repo, undefined, changes).map((c) => c.login)).toEqual(['old', 'new[bot]']);
+    expect((await newContributors(() => [{ sha: sha(0) }], repo, undefined, changes)).map((c) => c.login)).toEqual(['old', 'new', 'dependabot[bot]']);
+  });
+
+  it('asks GitHub a few things at once, never more than eight', async () => {
+    let now = 0;
+    let most = 0;
+    const done = await mapLimit(Array.from({ length: 30 }, (_, i) => i), 8, async (i) => {
+      most = Math.max(most, ++now);
+      await new Promise((r) => setTimeout(r, 1 + (i % 3)));
+      now--;
+      return i * 2;
+    });
+    expect(done).toEqual(Array.from({ length: 30 }, (_, i) => i * 2));
+    expect(most).toBe(8);
+    expect(await mapLimit([], 8, (i: number) => i)).toEqual([]);
   });
 
   it("writes the list as GitHub's notes do", () => {
@@ -514,9 +557,51 @@ describe("a release's list of changes", () => {
     // Nothing since the version before: the link alone, as GitHub writes it; none before: the history up to it.
     expect(changesMarkdown({ repo, tag: '2026-11-13-rc.1', since: '2026-11-13-rc', changes: [], newContributors: [] })).toBe(`**Full Changelog**: ${site}/compare/2026-11-13-rc...2026-11-13-rc.1\n`);
     expect(changesMarkdown({ repo, tag: '2026-11-11-rc', since: undefined, changes: [], newContributors: [] })).toBe(`**Full Changelog**: ${site}/commits/2026-11-11-rc\n`);
+    // A bot as GitHub's notes name it.
+    const bot: Change = { title: 'Bump a dependency', login: 'dependabot[bot]', name: 'dependabot[bot]', url: `${site}/pull/40` };
+    expect(changesMarkdown({ repo, tag: 't', since: 's', changes: [bot], newContributors: [bot] })).toContain(
+      `* Bump a dependency by @dependabot in ${site}/pull/40\n\n## New Contributors\n* @dependabot made their first contribution in ${site}/pull/40\n`,
+    );
   });
 
-  it("lists this repository's 2026-11-12.1 with the commits pushed to main between its pull requests", () => {
+  it('keeps a subject one line of text: no heading, quote or list of its own, and nobody notified it merely names', () => {
+    expect(subjectMarkdown('# Not a heading')).toBe('\\# Not a heading');
+    expect(subjectMarkdown('### Not a heading')).toBe('\\### Not a heading');
+    expect(subjectMarkdown('#123 is fixed')).toBe('#123 is fixed');
+    expect(subjectMarkdown('> not a quote')).toBe('\\> not a quote');
+    expect(subjectMarkdown('- not a list')).toBe('\\- not a list');
+    expect(subjectMarkdown('* not a list')).toBe('\\* not a list');
+    expect(subjectMarkdown('+ not a list')).toBe('\\+ not a list');
+    expect(subjectMarkdown('1. not a list')).toBe('1\\. not a list');
+    expect(subjectMarkdown('2) not a list')).toBe('2\\) not a list');
+    expect(subjectMarkdown('2026-11-12 was a release')).toBe('2026-11-12 was a release');
+    expect(subjectMarkdown('-rc releases')).toBe('-rc releases');
+    // An @name outside code goes in code, so that the notes notify no one it names; addresses, packages in code, and the rest stay.
+    expect(subjectMarkdown('Thank @alice and @bob-2 for the fix')).toBe('Thank `@alice` and `@bob-2` for the fix');
+    expect(subjectMarkdown('Name the members its message @mentions')).toBe('Name the members its message `@mentions`');
+    expect(subjectMarkdown('Ask @org/team')).toBe('Ask `@org/team`');
+    expect(subjectMarkdown('Mail dev@example.com')).toBe('Mail dev@example.com');
+    expect(subjectMarkdown('Bump `@types/node` and @types/react')).toBe('Bump `@types/node` and `@types/react`');
+    expect(subjectMarkdown('@lead goes first')).toBe('`@lead` goes first');
+    expect(subjectMarkdown('Keep paths out of shell commands')).toBe('Keep paths out of shell commands');
+  });
+
+  it('ends a list too long for GitHub with how many more changes the Full Changelog holds', () => {
+    const changes: Change[] = Array.from({ length: 50 }, (_, i) => ({ title: `Change number ${i + 1}`, login: 'dev', name: 'Dev', url: `${site}/commit/${sha(i + 1)}` }));
+    const full = changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [] });
+    expect(full).not.toContain('more change');
+    const cut = changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [changes[0]!], limit: 2000 });
+    expect(cut.length).toBeLessThanOrEqual(2000);
+    const shown = cut.split('\n').filter((l) => l.startsWith('* Change number'));
+    expect(shown.length).toBeGreaterThan(5);
+    expect(shown).toEqual(changes.slice(0, shown.length).map((c) => `* ${c.title} by @dev in ${c.url}`));
+    expect(cut).toContain(`\n* … and ${50 - shown.length} more changes, in the Full Changelog below\n\n## New Contributors\n`);
+    expect(cut.endsWith(`**Full Changelog**: ${site}/compare/s...t\n`)).toBe(true);
+    // As long as it fits, every change.
+    expect(changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [], limit: full.length + 80 })).toBe(full);
+  });
+
+  it("lists this repository's 2026-11-12.1 with the commits pushed to main between its pull requests", async () => {
     // GitHub's answers for it, recorded (only the fields the notes read).
     const f = JSON.parse(readFileSync('test/fixtures/release/2026-11-12.1.json', 'utf8')) as {
       repo: string;
@@ -534,7 +619,7 @@ describe("a release's list of changes", () => {
       if (before) return f.before[decodeURIComponent(before[1]!)];
       throw new Error(`Not recorded: ${path}`);
     };
-    const { markdown } = releaseChanges({ api, repo: f.repo, tag: f.target, since: f.since, target: f.target });
+    const { markdown } = await releaseChanges({ api, repo: f.repo, tag: f.target, since: f.since, target: f.target });
     const s = 'https://github.com/Agentic-System-Lab/harness-relay';
     expect(markdown).toBe(
       [
@@ -840,6 +925,9 @@ describe('the release workflow', () => {
     expect(block('permissions')).toBe('  contents: read');
     expect(workflow.match(/contents: write/g)).toHaveLength(1);
     expect(job('release')).toMatch(/permissions:\n\s+contents: write/);
+    // It reads the pull requests the notes' commits merged, and may change none.
+    expect(job('release')).toMatch(/permissions:\n\s+contents: write\n(?:\s+#.*\n)?\s+pull-requests: read\n/);
+    expect(workflow).not.toContain('pull-requests: write');
   });
 
   it('makes one release at a time, never cancelling one under way', () => {
