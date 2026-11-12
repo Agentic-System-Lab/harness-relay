@@ -116,7 +116,7 @@ The server can start agents with write access, so keep its defences intact (see 
 ### Tests
 
 - Add or update tests with every behaviour change.
-- Keep tests offline: no real CLI runs, no network, no real credential store. Follow the existing patterns: a fake runner swapped into `runners` (`test/orchestrator.test.ts`), recorded CLI messages for adapters, real temporary git repositories for `workspace.ts`, `app.request()` for the HTTP API, and a fake keyring passed to `SettingsStore`. End-to-end tests use the fake CLIs (`e2e/fake-cli/`): something new an agent should do there is a new `e2e:` directive in the fake, not a real CLI.
+- Keep tests offline: no real CLI runs, no network, no real credential store. Follow the existing patterns: a fake runner swapped into `runners` (`test/orchestrator-harness.ts`), recorded CLI messages for adapters, real temporary git repositories for `workspace.ts`, `app.request()` for the HTTP API, and a fake keyring passed to `SettingsStore`. End-to-end tests use the fake CLIs (`e2e/fake-cli/`): something new an agent should do there is a new `e2e:` directive in the fake, not a real CLI.
 - Keep tests passing on Windows too (CI runs them there): paths built with `join()` / `resolve()`, not POSIX literals; what only macOS or Linux have (permission bits, signals, `/bin/sh`, stand-in CLIs started by their `#!` line) skipped with `skipIf(process.platform === 'win32')`; time limits from `test/timeouts.ts`. See the developer guide, "Testing".
 
 ### Worktrees

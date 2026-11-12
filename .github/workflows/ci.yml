@@ -84,8 +84,15 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # The tests' temporary folders (git repositories, worktrees, many small files) on D:, the
+      # runner's own disk that the checkout is on, rather than C: (TEMP's own drive, as home's).
+      # The end-to-end tests (e2e.yml) keep TEMP on C:, and home stays there for these too, so a
+      # path read on another drive than the checkout's is still tried.
       - name: Test
         run: npm test
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
 
       - name: Build
         run: npm run build

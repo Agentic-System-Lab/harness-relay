@@ -235,14 +235,18 @@ describe('diffFiles', () => {
   it('lists every changed file, however long the list', async () => {
     await ensureRepo(repo);
     const base = (await snapshot(repo)).commit;
-    // Well over 64 KB of `git diff --name-status` output.
+    // Well over 64 KB of `git diff --name-status` output, from long names rather than many files (each
+    // one written and committed takes a while on Windows), but short enough for its 260-character paths.
     const dirName = 'a-rather-long-directory-name-for-generated-files';
+    const name = (i: number) => `a-generated-file-whose-long-name-makes-the-list-long-with-fewer-files-${i}.txt`;
     mkdirSync(join(repo, dirName));
-    for (let i = 0; i < 3000; i++) writeFileSync(join(repo, dirName, `generated-file-number-${i}.txt`), `${i}\n`);
+    for (let i = 0; i < 1000; i++) writeFileSync(join(repo, dirName, name(i)), `${i}\n`);
     const head = (await snapshot(repo)).commit;
     const files = await diffFiles(repo, base, head);
-    expect(files).toHaveLength(3000);
+    expect(files).toHaveLength(1000);
     expect(files.every((f) => f.status === 'A' && f.added === 1 && f.deleted === 0)).toBe(true);
+    // "A\0<path>\0" each: about 125 KB.
+    expect(files.reduce((bytes, f) => bytes + Buffer.byteLength(f.path) + 3, 0)).toBeGreaterThan(64 * 1024);
   }, slow(30_000));
 
   it('keeps file names with quotes, tabs, backslashes and non-ASCII characters as they are', async () => {
