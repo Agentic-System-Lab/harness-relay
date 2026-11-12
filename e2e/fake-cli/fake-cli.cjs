@@ -42,7 +42,7 @@
  *
  * Each home (an account's) also keeps its sign-in: signed in until signed out there (`auth logout`,
  * `logout`), and claude's `auth login` signs in again with the code pasted. A start logs its home and
- * its API key's fingerprint; a turn its model and effort, and the skills the CLI loaded by itself, read
+ * whether it got the API key a test expects (E2E_EXPECTED_API_KEY); a turn its model and effort, and the skills the CLI loaded by itself, read
  * from where the real one finds them and left out as Harness Relay asks: Claude Code's home skills/
  * and the projects' .claude/skills/ (`--disable-slash-commands`, `skillOverrides` in `--settings`),
  * Codex's home skills/ (`skills.include_instructions`, `skills.config` in `-c` or the thread's config),
@@ -89,10 +89,11 @@ function record(entry) {
     /* the log is a convenience */
   }
 }
-// The home it runs in too: each account of a CLI has one of its own. And the API key it was given
-// (ANTHROPIC_API_KEY, XAI_API_KEY), as a fingerprint only: the key itself stays out of the log.
+// The home it runs in too: each account of a CLI has one of its own. And whether it was given an API
+// key (ANTHROPIC_API_KEY, XAI_API_KEY): the one a test expects (E2E_EXPECTED_API_KEY), another, or
+// none. The key itself stays out of the log.
 const apiKey = process.env[{ claude: 'ANTHROPIC_API_KEY', grok: 'XAI_API_KEY' }[CLI] || ''];
-record({ args, home: home(), apiKey: apiKey ? require('node:crypto').createHash('sha256').update(apiKey).digest('hex').slice(0, 16) : null });
+record({ args, home: home(), apiKey: apiKey ? (apiKey === process.env.E2E_EXPECTED_API_KEY ? 'expected' : 'other') : null });
 
 /** The CLI's own folder, as the real one finds it. */
 function home() {

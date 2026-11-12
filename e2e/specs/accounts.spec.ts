@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import type { Provider, SettingsView } from '../../src/shared/types';
@@ -35,7 +34,12 @@ function turnHome(relay: RelayServer, provider: Provider, name: string, text: st
   return turn && log.find((e) => e.pid === turn.pid && e.args)?.home;
 }
 
+/** The API key a test saves for an account; the fake CLIs say whether they were given it. */
+const WORK_KEY = 'sk-ant-e2e-work-key-5678';
+
 test.describe('more than one account', () => {
+  test.use({ serverEnv: { E2E_EXPECTED_API_KEY: WORK_KEY } });
+
   for (const cli of CLIS) {
     test(`${cli.provider}: an added account has a folder of its own, and a member set to use it runs there`, async ({ page, relay }) => {
       await page.getByRole('link', { name: /Settings & sign-in/ }).click();
@@ -121,7 +125,7 @@ test.describe('more than one account', () => {
     await expect(keyBox(work)).toContainText("Keys are kept in Harness Relay's database");
     await expect(keyBox(work)).not.toContainText('set ANTHROPIC_API_KEY');
 
-    const key = 'sk-ant-e2e-work-key-5678';
+    const key = WORK_KEY;
     await keyBox(work).getByPlaceholder('sk-ant-…').fill(key);
     await keyBox(work).getByRole('button', { name: 'Save', exact: true }).click();
     await expect(keyBox(work).locator('summary')).toHaveText('API key (set: sk-a…5678)');
@@ -145,15 +149,14 @@ test.describe('more than one account', () => {
     await finishedReply(page, 'Claude');
     await finishedReply(page, 'Claude2');
     await settled(relay, conv.id);
-    // The account's CLI got its key as ANTHROPIC_API_KEY (the fake logs a fingerprint only); the default account's did not.
-    const fingerprint = createHash('sha256').update(key).digest('hex').slice(0, 16);
+    // The account's CLI got its key as ANTHROPIC_API_KEY (the fake logs only whether it is the one expected); the default account's did not.
     const starts = relay.fakeLog().filter((e) => e.cli === 'claude' && e.args);
     const turnStart = (name: string) => {
       const turn = relay.fakeLog().find((e) => e.cli === 'claude' && e.prompt?.includes('Which key do you have?') && new RegExp(`your turn, @${name}\\b`).test(e.prompt));
       return starts.find((e) => e.pid === turn?.pid);
     };
-    expect(turnStart('Claude')?.apiKey).toBe(fingerprint);
-    expect(turnStart('Claude2')?.apiKey).not.toBe(fingerprint);
+    expect(turnStart('Claude')?.apiKey).toBe('expected');
+    expect(turnStart('Claude2')?.apiKey).toBeNull();
     for (const s of starts) expect(JSON.stringify(s.args)).not.toContain(key);
   });
 });

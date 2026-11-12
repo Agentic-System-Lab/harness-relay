@@ -31,8 +31,8 @@ export interface FakeLogEntry {
   mcpEnv?: Record<string, Record<string, string>>;
   /** A start: the CLI's home it runs in (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`). */
   home?: string;
-  /** A start: the API key it was given (`ANTHROPIC_API_KEY`, `XAI_API_KEY`) as a fingerprint, the first 16 hex digits of its SHA-256; null: none. */
-  apiKey?: string | null;
+  /** A start: whether it was given an API key (`ANTHROPIC_API_KEY`, `XAI_API_KEY`): the one the test expects (`E2E_EXPECTED_API_KEY` in `serverEnv`), another, or none (null). */
+  apiKey?: 'expected' | 'other' | null;
   /** A turn: the model and reasoning effort it runs with (null: the CLI's own default). */
   model?: string | null;
   effort?: string | null;
