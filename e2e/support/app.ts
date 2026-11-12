@@ -71,11 +71,14 @@ export function replies(page: Page, name: string): Locator {
   return page.locator('.msg-agent').filter({ has: page.locator('.msg-head strong', { hasText: new RegExp(`^@${escape(name)}$`) }) });
 }
 
-/** A member's latest reply, once it has finished streaming. */
-export async function finishedReply(page: Page, name: string): Promise<Locator> {
+/**
+ * A member's latest reply, once it has finished streaming (within `timeoutMs`: a turn in Harness
+ * Relay's own sandbox starts the sandbox first, and the first of a server checks that it works).
+ */
+export async function finishedReply(page: Page, name: string, timeoutMs = 45_000): Promise<Locator> {
   const reply = replies(page, name).last();
   await expect(reply).toBeVisible();
-  await expect(reply.locator('.live-tag')).toHaveCount(0, { timeout: 30_000 });
+  await expect(reply.locator('.live-tag')).toHaveCount(0, { timeout: timeoutMs });
   return reply;
 }
 
@@ -101,6 +104,11 @@ export interface Member {
   name: string;
   provider: AgentConfig['provider'];
   role?: string;
+  /** Its model (an open agent's: `<backend>/<model>`, `e2e/e2e-model` say), else its CLI's default. */
+  model?: string;
+  effort?: string;
+  /** The account of its CLI it runs as (`ProviderAccountView.id`), else the default one. */
+  account?: string;
 }
 
 /**
@@ -117,7 +125,15 @@ export async function openTeamChat(
   const conv = await relay.api<Conversation>('/api/conversations', {
     body: {
       title,
-      agents: members.map((m, i) => ({ id: `m${i + 1}`, name: m.name, provider: m.provider, role: m.role ?? `You are ${m.name}.` })),
+      agents: members.map((m, i) => ({
+        id: `m${i + 1}`,
+        name: m.name,
+        provider: m.provider,
+        role: m.role ?? `You are ${m.name}.`,
+        ...(m.model ? { model: m.model } : {}),
+        ...(m.effort ? { effort: m.effort } : {}),
+        ...(m.account ? { account: m.account } : {}),
+      })),
       settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: relay.workDir, ...settings },
     },
   });

@@ -1,14 +1,16 @@
 /**
  * Before any test: the UI is built (again when a file it is built from is newer than the build), as
- * `npm run build` makes it and as a development build (`DEV_WEB_DIR`), and the fake CLIs are
- * installed. E2E_BUILD=always builds both every run, E2E_BUILD=never never does (CI builds them in
- * steps of their own, the same way).
+ * `npm run build` makes it and as a development build (`DEV_WEB_DIR`), the fake CLIs are installed,
+ * and whether Harness Relay's own sandbox can work on this computer is checked once
+ * (`E2E_RELAY_SANDBOX`, for `support/clis.ts`). E2E_BUILD=always builds both every run,
+ * E2E_BUILD=never never does (CI builds them in steps of their own, the same way).
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { installFakeClis } from './support/fake-cli';
 import { DEV_WEB_DIR, ROOT, WEB_DIR } from './support/paths';
+import { relaySandboxHere } from './support/sandbox';
 
 /** The newest modification time of the files under `path`. */
 function newest(path: string): number {
@@ -51,6 +53,8 @@ export default async function globalSetup(): Promise<void> {
     if (!existsSync(join(b.dir, 'index.html'))) throw new Error(`The UI is not built in ${b.dir}: run \`npm run test:e2e\` without E2E_BUILD=never.`);
   }
   const dir = await installFakeClis();
-  // Workers read it (they inherit the environment set here).
+  // Workers read them (they inherit the environment set here).
   process.env.E2E_FAKE_BIN_DIR = dir;
+  process.env.E2E_RELAY_SANDBOX = relaySandboxHere();
+  if (process.env.E2E_RELAY_SANDBOX !== 'ok' && process.platform !== 'win32') console.log(`[e2e] Harness Relay's own sandbox is not available here: ${process.env.E2E_RELAY_SANDBOX}`);
 }
