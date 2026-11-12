@@ -5,6 +5,7 @@ import type { Download, Locator, Page } from '@playwright/test';
 import { FILE_LIMITS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, askAndConfirm, finishedReply, openTeamChat, send, startChat } from '../support/app';
+import { CLIS, eachCli, endsTurnNote, HALVES, member, needsBelowFull, teamOf, teams } from '../support/clis';
 
 /**
  * A ZIP file's entries, by name (a folder's ends with `/`), with each one's bytes: read from its central
@@ -61,27 +62,26 @@ test.describe('files and changes', () => {
     await expect(diff).toBeHidden();
   });
 
-  // A read-only chat as each CLI is set up for it: Claude Code without its file tools, Codex in its
-  // read-only sandbox (it may ask to write), Grok asking and Harness Relay refusing, or the user.
-  for (const cli of [
-    { name: 'Claude', provider: 'claude', asks: false },
-    { name: 'Codex', provider: 'codex', asks: true },
-    { name: 'Grok', provider: 'grok', asks: true },
-  ] as const) {
+  // A read-only chat as each CLI is set up for it: without file tools (Claude Code, Pi), or its write
+  // refused by its own rules without a card (Cursor), or asking (`readOnlyWriteAsks`), declined by the
+  // user. (That a write the user allows still cannot reach the folder: sandbox.spec.ts.)
+  eachCli(CLIS, (cli) => {
     test(`${cli.provider}: in a read-only chat no file is written`, async ({ page, relay }) => {
-      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }]);
+      needsBelowFull(cli.provider);
+      await openTeamChat(page, relay, [member(cli)]);
       await send(page, 'Write it e2e:write=out.txt');
-      if (cli.asks) {
+      if (cli.readOnlyWriteAsks) {
         const card = page.getByRole('region', { name: `@${cli.name} wants to change files` });
         await card.getByRole('button', { name: 'Decline' }).click();
       }
       const reply = await finishedReply(page, cli.name);
-      await expect(reply).toContainText('I may not write out.txt here.');
+      // A CLI that ends its turn after a refusal says nothing more of it.
+      await expect(reply).toContainText(cli.decline === 'ends-turn' && cli.readOnlyWriteAsks ? endsTurnNote(cli) : 'I may not write out.txt here.');
       await expect(reply.locator('.changes-card')).toHaveCount(0);
-      if (!cli.asks) await expect(reply.locator('.approval-done')).toHaveCount(0);
+      if (!cli.readOnlyWriteAsks) await expect(reply.locator('.approval-done')).toHaveCount(0);
       expect(existsSync(join(relay.workDir, 'out.txt'))).toBe(false);
     });
-  }
+  });
 
   test('grok: a read-only chat that refuses automatically says why', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], { approvals: 'deny' });
@@ -93,28 +93,21 @@ test.describe('files and changes', () => {
     expect(existsSync(join(relay.workDir, 'out.txt'))).toBe(false);
   });
 
-  test('every CLI writes in edit mode, and each turn records its own change', async ({ page, relay }) => {
-    await openTeamChat(
-      page,
-      relay,
-      [
-        { name: 'Claude', provider: 'claude' },
-        { name: 'Codex', provider: 'codex' },
-        { name: 'Grok', provider: 'grok' },
-      ],
-      { permission: 'edit' },
-    );
-    await send(page, 'Each of you, write a file e2e:write=claude.txt@claude e2e:write=codex.txt@codex e2e:write=grok.txt@grok');
-    for (const [name, file] of [
-      ['Claude', 'claude.txt'],
-      ['Codex', 'codex.txt'],
-      ['Grok', 'grok.txt'],
-    ] as const) {
-      const reply = await finishedReply(page, name);
-      await expect(reply.locator('.changes-files')).toContainText(file);
-      expect(existsSync(join(relay.workDir, file))).toBe(true);
-    }
-  });
+  // The CLIs in two teams, each in a chat of its own: those that cannot run below full access here in
+  // one with full access (`teams()`).
+  for (const half of HALVES) {
+    test(half.title('every CLI writes in edit mode, and each turn records its own change'), async ({ page, relay }) => {
+      for (const team of teams(teamOf(half.clis), 'edit')) {
+        await openTeamChat(page, relay, team.members.map((c) => member(c)), { permission: team.permission });
+        await send(page, `Each of you, write a file ${team.members.map((c) => `e2e:write=${c.provider}.txt@${c.provider}`).join(' ')}`);
+        for (const c of team.members) {
+          const reply = await finishedReply(page, c.name);
+          await expect(reply.locator('.changes-files')).toContainText(`${c.provider}.txt`);
+          expect(existsSync(join(relay.workDir, `${c.provider}.txt`))).toBe(true);
+        }
+      }
+    });
+  }
 
   test('in parallel mode each member works in its own worktree, and a result can be applied', async ({ page, relay }) => {
     await openTeamChat(

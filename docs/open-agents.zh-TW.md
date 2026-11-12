@@ -129,7 +129,7 @@ Pi 自己沒有權限詢問：Harness Relay 的一個小型 gate 擴充功能會
 完全存取以外，每個開源 agent 的程序，以及它啟動的一切，都在 Harness Relay 自己的沙箱中執行（`src/server/relaySandbox.ts`，基於 [`@anthropic-ai/sandbox-runtime`](https://www.npmjs.com/package/@anthropic-ai/sandbox-runtime)），不論 CLI 自己的沙箱怎麼做：
 
 - **檔案**：只能寫入上表所列的地方；受保護的路徑（瀏覽器的資料夾、Harness Relay 的資料庫與暫存資料夾：`protectedReads()`）不能讀也不能寫；agent 的 `configPaths` 唯讀；其他讀取照常允許，和其他 CLI 一樣。
-- **網路**：只能連到這次執行的模型來源的主機；連線能確定屬於這次執行時，其他主機會詢問使用者（種類為 `fetch` 的核准），否則直接拒絕，並附上模型看得到的原因。不詢問就直接拒絕的有：這台電腦自己的位址、link-local 與 metadata 位址（不論怎麼寫：`127.1`、`2130706433`、`0x7f.0.0.1`、`localhost.` 都讀成 proxy 實際連的位址，`canonicalHost`）、轉接器列為安靜拒絕的主機，以及一次執行中第 30 個之後要詢問的主機。Harness Relay 自己的埠（`PORT`、8787、8789 與 5173：`npm start` 與桌面 app 的，以及 `npm run dev` 的 API 與 Vite）一律連不到。沙箱透過本機的 proxy 轉送網路（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`），並自己設定 `NODE_USE_ENV_PROXY=1`，讓 Node 22 的 `fetch` 也走 proxy；CLI 還需要別的時，由轉接器加上（`proxyEnv`；目前五個都不需要）。
+- **網路**：只能連到這次執行的模型來源的主機；連線能確定屬於這次執行時，其他主機會詢問使用者（種類為 `fetch` 的核准），否則直接拒絕，並附上模型看得到的原因。不詢問就直接拒絕的有：這台電腦自己的位址、link-local 與 metadata 位址（不論怎麼寫：`127.1`、`2130706433`、`0x7f.0.0.1`、`localhost.` 都讀成 proxy 實際連的位址，`canonicalHost`）、轉接器列為安靜拒絕的主機，以及一次執行中第 30 個之後要詢問的主機。Harness Relay 自己的埠（`PORT`（為 0 時是伺服器實際取得的埠）、8787、8789 與 5173：`npm start` 與桌面 app 的，以及 `npm run dev` 的 API 與 Vite）一律連不到。沙箱透過本機的 proxy 轉送網路（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`），並自己設定 `NODE_USE_ENV_PROXY=1`，讓 Node 22 的 `fetch` 也走 proxy；CLI 還需要別的時，由轉接器加上（`proxyEnv`；目前五個都不需要）。
 - **無法啟動就不執行**：沙箱無法啟動時（沒有 `sandbox-exec`；在 Linux 上沒有 `bubblewrap`、`socat` 或 `ripgrep`），這一輪會失敗並說明如何修正；在原生 Windows 上它還沒準備好，所以 開源 agent 只能以完全存取執行，Linux 上的 OpenCode 也一樣（`sandboxUnsupported`；見 [OpenCode](#opencode)）。
 
 各 CLI 自己的沙箱，以及每個平台需要什麼，請見[各平台的作業系統沙箱](sandboxing.zh-TW.md)。

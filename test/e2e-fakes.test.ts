@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
@@ -7,10 +7,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FACTS } from '../e2e/support/clis/all';
-import { bundleFakeCli, IMPLEMENTED_FAKES, NOT_YET_FAKED } from '../e2e/support/fake-cli';
+import { bundleFakeCli, IMPLEMENTED_FAKES, NOT_YET_FAKED, writeFakeLaunchers } from '../e2e/support/fake-cli';
 import { FAKE_CLI_DIR } from '../e2e/support/paths';
 import { DATA_DIR_MAX } from '../e2e/support/relay';
 import { hostTmpRefusal } from '../src/server/relaySandbox';
+import { windowsLaunch, type LaunchFs } from '../src/server/winLaunch';
 import { PROVIDERS, PROVIDER_LABEL, type Provider } from '../src/shared/types';
 import { slow } from './timeouts';
 
@@ -173,6 +174,64 @@ describe('the fake CLIs', () => {
         chmodSync(locked, 0o755);
       }
     });
+  });
+});
+
+describe("the fakes as launchers start them on Windows (e2e/specs/windows.spec.ts)", () => {
+  // The launchers' folder seen as Windows sees it, at C:\e2e: Harness Relay's own reading of a
+  // launcher (winLaunch.ts) says what it would start, which then runs here with this Node.
+  const WIN = 'C:\\e2e';
+  let folder = '';
+  let bins: ReturnType<typeof writeFakeLaunchers>;
+  const local = (p: string) => join(folder, ...p.slice(WIN.length + 1).split('\\'));
+  const win = (p: string) => `${WIN}\\${p.slice(folder.length + 1).split(/[\\/]/).join('\\')}`;
+  const stat = (p: string) => {
+    try {
+      return p.startsWith(`${WIN}\\`) ? statSync(local(p)) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const fs: LaunchFs = {
+    isFile: (p) => Boolean(stat(p)?.isFile()),
+    isDir: (p) => Boolean(stat(p)?.isDirectory()),
+    read: (p) => (stat(p)?.isFile() ? readFileSync(local(p), 'utf8') : undefined),
+    list: (p) => (stat(p)?.isDirectory() ? readdirSync(local(p)) : []),
+  };
+  const env = (dir: string) => ({ PATH: `${WIN}\\${dir}`, PATHEXT: '.COM;.EXE;.BAT;.CMD' });
+
+  beforeAll(() => {
+    folder = join(dir, 'launchers');
+    writeFileSync(join(dir, 'node.exe'), 'a stand-in for node.exe');
+    writeFileSync(join(dir, 'opencode.exe'), 'a stand-in for the fakes’ executable');
+    bins = writeFakeLaunchers(folder, { script: bundleFakeCli(), node: join(dir, 'node.exe'), program: join(dir, 'opencode.exe') });
+  });
+
+  /** What running the script `args[0]` as Harness Relay would says it is: its version, or that its fake is not written yet. */
+  function says(p: Provider, args: string[], extra: NodeJS.ProcessEnv = {}) {
+    const r = spawnSync(process.execPath, [local(args[0]!), ...args.slice(1)], { encoding: 'utf8', env: { ...withoutFakeVars(process.env), ...extra }, timeout: slow(15_000) });
+    if (FACTS[p].implemented) expect(r.stdout).toMatch(fakeModule(p).versionRe);
+    else expect(r.stderr).toContain(`fake ${p}: not implemented yet`);
+  }
+
+  it("starts Cursor's launcher as its Node and its script, which runs as Cursor", () => {
+    expect(win(bins.cursor)).toBe(`${WIN}\\cursor\\cursor-agent.cmd`);
+    const launch = windowsLaunch('cursor-agent', ['--version'], env('cursor'), fs, null);
+    const version = `${WIN}\\cursor\\versions\\2026.11.11-e2e0001`;
+    expect(launch).toEqual({ file: `${version}\\node.exe`, args: [`${version}\\index.js`, '--version'], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } });
+    says('cursor', launch.args, launch.env);
+  });
+
+  it.each([['cline'], ['pi']] as const)("starts %s's npm shim as the PATH's Node with its script", (p) => {
+    const launch = windowsLaunch(p, ['--version'], env('npm'), fs, 'C:\\relay\\node.exe');
+    expect(launch).toEqual({ file: 'C:\\relay\\node.exe', args: [`${WIN}\\npm\\node_modules\\${p}\\${p}.cjs`, '--version'] });
+    says(p, launch.args);
+  });
+
+  it("starts OpenCode's npm shim as the program it names, the fakes' executable", () => {
+    const launch = windowsLaunch('opencode', ['--version'], env('npm'), fs, null);
+    expect(launch).toEqual({ file: `${WIN}\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe`, args: ['--version'] });
+    expect(readFileSync(local(launch.file), 'utf8')).toBe('a stand-in for the fakes’ executable');
   });
 });
 

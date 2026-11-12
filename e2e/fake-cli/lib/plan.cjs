@@ -18,7 +18,8 @@ const DIRECTIVES = {
   think: 'show some thinking first',
   tool: 'list the working directory with a tool first',
   todo: 'show a to-do list',
-  approve: 'run a command that needs approval (`echo e2e-approval`), then say whether it ran',
+  approve: 'run a command that needs approval (`echo e2e-approval`; with `=publish`, `npm publish e2e-approval`, which asks in edit mode too), then say whether it ran',
+  fetch: 'reach the URL given (a host the run may not reach without asking), then say whether it could',
   write: 'write the file named (relative to the working directory)',
   writeother: 'write the file named in the first other working directory the CLI was given (none: it says so)',
   ask: 'end the reply with a question for the user ([ASK_USER])',
@@ -134,8 +135,8 @@ const json = (value) => '```json\n' + JSON.stringify(value, null, 2) + '\n```';
 
 /**
  * The steps of a reply: `think`, `text` (streamed in pieces), `tool` (a tool call and its result),
- * `todo`, `approve` (a command that needs approval), `write` (a file), `fail` (exit) and `error` (a
- * failure in the protocol). `turn`: what the turn got besides its prompt (`cwd`, `images`, `mcp`,
+ * `todo`, `approve` (a command that needs approval), `write` (a file), `fetch` (a URL, `url`), `fail`
+ * (exit) and `error` (a failure in the protocol). A CLI's module plays the steps it knows. `turn`: what the turn got besides its prompt (`cwd`, `images`, `mcp`,
  * `briefing`), and `mayRead(file)` where the CLI reads only some folders without asking (Claude Code).
  */
 function plan(prompt, turn) {
@@ -170,7 +171,8 @@ function plan(prompt, turn) {
     });
   }
   if (d.tool) steps.push({ type: 'tool', kind: 'list', output: safeList(turn.cwd) });
-  if (d.approve) steps.push({ type: 'approve', command: 'echo e2e-approval' });
+  if (d.approve) steps.push({ type: 'approve', command: d.approve === 'publish' ? 'npm publish e2e-approval' : 'echo e2e-approval' });
+  if (typeof d.fetch === 'string') steps.push({ type: 'fetch', url: d.fetch });
   const content = `Written by ${me} (${self.label()}).\n`;
   if (typeof d.write === 'string') steps.push({ type: 'write', path: d.write, content });
   if (typeof d.writeother === 'string') steps.push({ type: 'write', path: d.writeother, other: true, content });

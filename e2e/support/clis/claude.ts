@@ -27,4 +27,6 @@ export const claude: CliFacts = {
   accounts: 'sign-in',
   apiKeyEnv: 'ANTHROPIC_API_KEY',
   apiKeyPlaceholder: 'sk-ant-…',
+  logout: 'auth logout',
+  signedOutError: 'Not logged in',
 };
