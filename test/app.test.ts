@@ -21,7 +21,6 @@ import {
   type WorkingDirectories,
 } from '../src/shared/types';
 import { shareFileHref } from '../src/shared/share';
-import { slow } from './timeouts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -1830,24 +1829,31 @@ describe('browsing files', () => {
   });
 
   it('offers a folder too large to zip without what git ignores, and refuses all of it', async () => {
-    const conv = await createConversation({ permission: 'edit' }); // a git repository
-    writeFileSync(join(project, '.gitignore'), 'node_modules/\n');
-    writeFileSync(join(project, 'index.js'), 'require("pkg");\n');
-    const modules = join(project, 'node_modules', 'pkg');
-    mkdirSync(modules, { recursive: true });
-    for (let i = 0; i <= FILE_LIMITS.zipItems; i++) writeFileSync(join(modules, `f${i}.js`), '');
-    const base = `/api/conversations/${conv.id}/files`;
+    // A lower limit than the 10,000 of FILE_LIMITS (read on each request), for a tenth of the files to
+    // write: Windows takes a while for each.
+    const items = FILE_LIMITS.zipItems;
+    FILE_LIMITS.zipItems = 1_000;
+    try {
+      const conv = await createConversation({ permission: 'edit' }); // a git repository
+      writeFileSync(join(project, '.gitignore'), 'node_modules/\n');
+      writeFileSync(join(project, 'index.js'), 'require("pkg");\n');
+      const modules = join(project, 'node_modules', 'pkg');
+      mkdirSync(modules, { recursive: true });
+      for (let i = 0; i <= FILE_LIMITS.zipItems; i++) writeFileSync(join(modules, `f${i}.js`), '');
+      const base = `/api/conversations/${conv.id}/files`;
 
-    const check = await (await get(`${base}/zip/check?path=`)).json();
-    expect(check).toEqual({ all: null, unignored: { files: 2, bytes: Buffer.byteLength('node_modules/\n') + Buffer.byteLength('require("pkg");\n') } });
-    const big = await get(`${base}/zip?path=`, { 'x-relay-lang': 'en' });
-    expect(big.status).toBe(413);
-    expect(((await big.json()) as { error: string }).error).toMatch(/too large for a ZIP file: at most 10,000 files and folders, 1 GB/);
-    const res = await get(`${base}/zip?path=&unignored=1`);
-    expect(res.status).toBe(200);
-    expect(readZip(Buffer.from(await res.arrayBuffer())).map((e) => e.name.split('/').slice(1).join('/')).sort()).toEqual(['', '.gitignore', 'index.js']);
-    // Over ten thousand files written and walked: about 2 s alone, more than the default 5 s on a busy machine.
-  }, slow(30_000));
+      const check = await (await get(`${base}/zip/check?path=`)).json();
+      expect(check).toEqual({ all: null, unignored: { files: 2, bytes: Buffer.byteLength('node_modules/\n') + Buffer.byteLength('require("pkg");\n') } });
+      const big = await get(`${base}/zip?path=`, { 'x-relay-lang': 'en' });
+      expect(big.status).toBe(413);
+      expect(((await big.json()) as { error: string }).error).toMatch(/too large for a ZIP file: at most 1,000 files and folders, 1 GB/);
+      const res = await get(`${base}/zip?path=&unignored=1`);
+      expect(res.status).toBe(200);
+      expect(readZip(Buffer.from(await res.arrayBuffer())).map((e) => e.name.split('/').slice(1).join('/')).sort()).toEqual(['', '.gitignore', 'index.js']);
+    } finally {
+      FILE_LIMITS.zipItems = items;
+    }
+  });
 });
 
 describe("what each CLI loads by itself", () => {
