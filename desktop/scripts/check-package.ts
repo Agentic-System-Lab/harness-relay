@@ -25,6 +25,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 import { installFakeClis } from '../../e2e/support/fake-cli';
+import { withoutOwnSettings } from '../src/selftest';
 import { packagedApps } from './packaged';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -50,8 +51,7 @@ function selfCheck(exe: string, clis: string, timeoutMs = 180_000): Promise<{ co
   const report = join(work, 'report.txt');
   const args = [`--smoke-test=${report}`, `--smoke-test-clis=${clis}`, ...(process.platform === 'linux' ? ['--no-sandbox'] : [])];
   // The developer's own Harness Relay settings (a data folder, a team size) are not the check's.
-  const env: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(process.env)) if (!/^(RELAY_|E2E_)/.test(k)) env[k] = v;
+  const env = withoutOwnSettings(process.env);
   return new Promise((done) => {
     const child = spawn(exe, args, { env, stdio: ['ignore', 'ignore', 'inherit'] });
     const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);

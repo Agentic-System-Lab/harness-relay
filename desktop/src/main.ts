@@ -49,7 +49,7 @@ import {
 import { ServerLog } from './log';
 import { loadPrefs, savePrefs, type DesktopPrefs } from './prefs';
 import { prepareBrowserDir } from './profile';
-import { checkServer, checkTurn, printsNoCode, withFakeClis } from './selftest';
+import { checkServer, checkTurn, printsNoCode, withFakeClis, withoutOwnSettings } from './selftest';
 import { portFree, Supervisor, type ServerChild, type ServerState, type StartError } from './supervisor';
 import { LiveMenu, menuText, patchMenu, REOPEN_DELAY_MS } from './traymenu';
 import {
@@ -165,9 +165,11 @@ function smokeTest(report: string | undefined, clis: string | undefined): void {
     try {
       const keyring = createRequire(join(serverDir(), 'server.mjs'))('@napi-rs/keyring') as { Entry?: unknown };
       check(typeof keyring.Entry === 'function', "loads the keyring module from the server's folder");
-      const fakes = clis ? withFakeClis(process.env, clis, home) : undefined;
+      // The developer's own settings (a data folder above all) are not the check's, however it starts.
+      const base = withoutOwnSettings(process.env);
+      const fakes = clis ? withFakeClis(base, clis, home) : undefined;
       const childEnv = serverEnv({
-        base: fakes?.env ?? process.env,
+        base: fakes?.env ?? base,
         dataDir: join(home, 'data'),
         webDir: join(serverDir(), 'web'),
         port: 0,
@@ -201,6 +203,8 @@ function smokeTest(report: string | undefined, clis: string | undefined): void {
       if (!failed) lines.push(`✗ ${(err as Error).message}`);
       failed = true;
     }
+    // A failed check leaves the server, and the agents of a failed turn, running in `home`.
+    if (supervisor.state.kind !== 'stopped') await supervisor.stop().catch(() => undefined);
     if (failed) lines.push('--- server output ---', output.slice(-4000));
     const text = `${lines.join('\n')}\n`;
     process.stdout.write(text);
@@ -212,7 +216,8 @@ function smokeTest(report: string | undefined, clis: string | undefined): void {
       }
     }
     try {
-      rmSync(home, { recursive: true, force: true });
+      // Windows may hold a file a moment after its process ended.
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
     } catch {
       /* in the temporary folder */
     }

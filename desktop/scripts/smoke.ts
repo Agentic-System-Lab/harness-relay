@@ -28,7 +28,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DesktopToServer, ServerToDesktop } from '../../src/shared/types';
 import { installFakeClis } from '../../e2e/support/fake-cli';
-import { checkServer, checkTurn, printsNoCode, withFakeClis } from '../src/selftest';
+import { checkServer, checkTurn, printsNoCode, withFakeClis, withoutOwnSettings } from '../src/selftest';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -43,7 +43,10 @@ export interface SmokeOptions {
   env?: NodeJS.ProcessEnv;
   /** The folder of the fake CLIs (e2e/support/fake-cli.ts): a team of them answers a question. */
   fakeClis?: string;
+  /** How long to wait for each message from the server. */
   timeoutMs?: number;
+  /** How long the team's run may take (`checkTurn`'s own default otherwise). */
+  turnTimeoutMs?: number;
 }
 
 /** Runs the checks; resolves with what was checked, or rejects with the first failure. */
@@ -53,8 +56,7 @@ export async function smoke(o: SmokeOptions): Promise<string[]> {
   const passed: string[] = [];
   let output = '';
   // The developer's own Harness Relay settings (a team size, a data folder) are not the check's.
-  const base: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(process.env)) if (!/^(RELAY_|E2E_)/.test(k)) base[k] = v;
+  const base = withoutOwnSettings(process.env);
   const fakes = o.fakeClis ? withFakeClis(base, o.fakeClis, root) : undefined;
   const child: ChildProcess = fork(o.entry, [], {
     execArgv: [...(o.execArgv ?? []), '--import', pathToFileURL(join(DESKTOP, 'scripts/parent-port.mjs')).href],
@@ -106,7 +108,7 @@ export async function smoke(o: SmokeOptions): Promise<string[]> {
       },
       check,
     );
-    if (fakes) await checkTurn(url, auth, check, { cwd: fakes.cwd });
+    if (fakes) await checkTurn(url, auth, check, { cwd: fakes.cwd, timeoutMs: o.turnTimeoutMs });
 
     check(printsNoCode(output), 'prints no sign-in code');
 

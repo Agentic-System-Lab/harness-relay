@@ -50,15 +50,31 @@ export function printsNoCode(output: string): boolean {
 export const TURN_CLIS: readonly Provider[] = ['claude', 'codex', 'grok'];
 
 /**
+ * `env` without the developer's own Harness Relay settings (`RELAY_*`: a data folder, a team size)
+ * and the end-to-end tests' (`E2E_*`): a check runs a server of its own, whoever starts it.
+ */
+export function withoutOwnSettings(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(env)) if (!/^(RELAY_|E2E_)/.test(k)) out[k] = v;
+  return out;
+}
+
+/** The user's credentials for the CLIs and GitHub (API keys and tokens), by their names. */
+const CREDENTIALS = /^(ANTHROPIC_|OPENAI_|XAI_|GROK_|CODEX_|GH_|GITHUB_TOKEN$|GITHUB_ENTERPRISE_TOKEN$)|_(API_KEY|TOKEN)$/i;
+
+/**
  * The server's environment for a turn with stand-ins for the CLIs (e2e/fake-cli/, installed in
  * `fakeDir` by e2e/support/fake-cli.ts): they come first on its PATH, found by name as the real ones
  * are, and the home folder and the CLIs' own homes are folders in `root`, so that nothing of the
- * user's own CLIs is read or changed. Returns the environment and the folder to work in.
+ * user's own CLIs is read or changed. The user's credentials are left out, so that a real CLI found
+ * instead of a stand-in has no key to reach a service with. Returns the environment and the folder
+ * to work in.
  */
 export function withFakeClis(env: NodeJS.ProcessEnv, fakeDir: string, root: string): { env: NodeJS.ProcessEnv; cwd: string } {
   const home = join(root, 'home');
   const cwd = join(root, 'work');
-  const out: NodeJS.ProcessEnv = { ...env };
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(env)) if (!CREDENTIALS.test(k)) out[k] = v;
   // Windows spells it Path; a second spelling would leave the server one of the two.
   const pathKey = Object.keys(out).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
   out[pathKey] = [fakeDir, out[pathKey]].filter(Boolean).join(delimiter);

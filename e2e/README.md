@@ -174,7 +174,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | In parallel mode each member works in its own worktree, and a result can be applied | Claude Code, Codex | Both changes cards say "in worktree" and nothing reaches the working directory until **Apply to working directory** brings in Codex's file. |
 | The file browser shows the working directory and previews a file | Claude Code | **Files** lists the project; `src/hello.ts` opens with its code; Escape closes it. |
 | A folder downloads as a ZIP file of its files, without .git | Claude Code | The working directory's ZIP (`work.zip`) holds exactly its files, with their contents, and no `.git`; a folder's own (`src.zip`) only that folder. |
-| A folder too large to zip in full is offered without what git ignores | Claude Code | An ignored file of over 1 GiB (sparse, nothing written) makes it too large: declining the offer downloads nothing, accepting gives the ZIP without the ignored folder. |
+| A folder too large to zip in full is offered without what git ignores | Claude Code | An ignored file set to more than 1 GiB without writing to it (on Windows it still takes the space on disk) makes it too large: declining the offer downloads nothing, accepting gives the ZIP without the ignored folder. |
 
 ## Working directories and other folders
 
@@ -300,11 +300,11 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | A folder inside Harness Relay's own folder or the default working directory is refused | — | Both refusals are shown, nothing is created, and the setting stays empty. |
 | The folder cannot change while a conversation runs | Claude Code | During a slow reply Save says a conversation is running; once it is stopped, Save works. |
 | A conversation is sent to AgentsView after each turn and when it is renamed, with its members' sessions under it | Claude Code, Codex | The upload carries AgentsView's own `Origin` and the project and machine of a session it knows; the transcript holds the question, both replies and the title; each member's session is linked under it; a rename sends the new title. |
-| An address elsewhere is refused, and when an update fails Settings says why while the chat goes on | Claude Code | An address off this computer is refused with no request sent; when AgentsView answers 503, the reply has no error and the card says the last update failed, and why. |
+| An address elsewhere is refused, and when an update fails Settings says why while the chat goes on | Claude Code | An address off this computer is refused with the reason, and the setting stays empty; when AgentsView answers 503, the reply has no error and the card says the last update failed, and why. |
 
 ## Reporting a problem
 
-[`report.spec.ts`](specs/report.spec.ts): the sidebar's **Report a problem**. The mail's links are caught in the page (`window.open`, the clipboard, and the `mailto:` navigation, cancelled), so nothing opens and nothing goes online. Skipped in a browser without the Navigation API.
+[`report.spec.ts`](specs/report.spec.ts): the sidebar's **Report a problem**. The mail's links are caught in the page (`window.open`, the clipboard, and the `mailto:` navigation, cancelled), so nothing opens and nothing goes online. The three tests that read the mail's links are skipped in a browser without the Navigation API.
 
 | Scenario | What is checked |
 | --- | --- |
@@ -396,7 +396,7 @@ The scenarios tried with each of the three CLIs (most of them as a test per CLI)
 - "A folder the chat was not given stays out of reach" is skipped for Grok on Windows, which has no sandbox there ([OS sandboxes by platform](../docs/sandboxing.md)).
 - [On a phone](#on-a-phone) is skipped in Firefox.
 - The two copy tests in [Copying and sharing](#copying-and-sharing) run in Chromium only (reading the clipboard), and "Without gh" is skipped on Windows.
-- [Reporting a problem](#reporting-a-problem) is skipped in a browser without the Navigation API.
+- The three tests of [Reporting a problem](#reporting-a-problem) that read the mail's links are skipped in a browser without the Navigation API.
 
 ## What they do not cover
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -169,20 +169,25 @@ test.describe("the CLIs' own folder", () => {
     const why = "its snapshots would take in the CLIs' sign-ins and session records. Pick a place outside it, such as ~/.relay-agents";
 
     const inRelay = join(ROOT, `.e2e-agent-home-${randomUUID().slice(0, 8)}`);
-    await box.fill(inRelay);
-    await home.getByRole('button', { name: 'Save' }).click();
-    await expect(home.locator('.error-line')).toContainText(`${inRelay} is inside `);
-    await expect(home.locator('.error-line')).toContainText(why);
+    try {
+      await box.fill(inRelay);
+      await home.getByRole('button', { name: 'Save' }).click();
+      await expect(home.locator('.error-line')).toContainText(`${inRelay} is inside `);
+      await expect(home.locator('.error-line')).toContainText(why);
 
-    const inWork = join(relay.workDir, '.agent-homes');
-    await box.fill(inWork);
-    await home.getByRole('button', { name: 'Save' }).click();
-    await expect(home.locator('.error-line')).toContainText(`${inWork} is inside ${relay.workDir}: ${why}`);
+      const inWork = join(relay.workDir, '.agent-homes');
+      await box.fill(inWork);
+      await home.getByRole('button', { name: 'Save' }).click();
+      await expect(home.locator('.error-line')).toContainText(`${inWork} is inside ${relay.workDir}: ${why}`);
 
-    // Nothing was made, and the CLIs keep their usual homes.
-    expect(existsSync(inRelay)).toBe(false);
-    expect(existsSync(inWork)).toBe(false);
-    expect((await relay.api<SettingsView>('/api/settings')).agentHome).toBe('');
+      // Nothing was made, and the CLIs keep their usual homes.
+      expect(existsSync(inRelay)).toBe(false);
+      expect(existsSync(inWork)).toBe(false);
+      expect((await relay.api<SettingsView>('/api/settings')).agentHome).toBe('');
+    } finally {
+      // Should the refusal ever break, the folder would be in this checkout.
+      rmSync(inRelay, { recursive: true, force: true });
+    }
   });
 
   test('the folder cannot change while a conversation runs', async ({ page, relay }) => {

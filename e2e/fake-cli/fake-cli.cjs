@@ -38,11 +38,12 @@
  * the real CLIs do. E2E_FAKE_SIGNED_OUT (a list: `codex,grok`) makes those CLIs signed out. E2E_FAKE_LOG
  * names a file that gets a JSON line for each start (its arguments), each session started or resumed
  * and each prompt (with the images and MCP servers the turn got), and the values (environment or
- * headers) the tool library's MCP servers were given, for the tests to read.
+ * headers) the tool library's MCP servers were given, with the URL of each HTTP one, for the tests to read.
  *
  * Each home (an account's) also keeps its sign-in: signed in until signed out there (`auth logout`,
- * `logout`), and claude's `auth login` signs in again with the code pasted. A start logs its home and
- * whether it got the API key a test expects (E2E_EXPECTED_API_KEY); a turn its model and effort, and the skills the CLI loaded by itself, read
+ * `logout`), claude's `auth login` signs in again with the code pasted, and codex's `login
+ * --with-api-key` with the key on stdin. A start logs its home and whether it got the API key a test
+ * expects (E2E_EXPECTED_API_KEY; Codex's also from its home); a turn its model and effort, and the skills the CLI loaded by itself, read
  * from where the real one finds them and left out as Harness Relay asks: Claude Code's home skills/
  * and the projects' .claude/skills/ (`--disable-slash-commands`, `skillOverrides` in `--settings`),
  * Codex's home skills/ (`skills.include_instructions`, `skills.config` in `-c` or the thread's config),
@@ -91,9 +92,24 @@ function record(entry) {
 }
 // The home it runs in too: each account of a CLI has one of its own. And whether it was given an API
 // key (ANTHROPIC_API_KEY, XAI_API_KEY): the one a test expects (E2E_EXPECTED_API_KEY), another, or
-// none. The key itself stays out of the log.
-const apiKey = process.env[{ claude: 'ANTHROPIC_API_KEY', grok: 'XAI_API_KEY' }[CLI] || ''];
-record({ args, home: home(), apiKey: apiKey ? (apiKey === process.env.E2E_EXPECTED_API_KEY ? 'expected' : 'other') : null });
+// none. The key itself stays out of the log. Codex reads one from CODEX_API_KEY or OPENAI_API_KEY, or
+// else uses the one `codex login --with-api-key` kept in its home (`keptApiKey`).
+const apiKey = CLI === 'codex' ? process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY : process.env[{ claude: 'ANTHROPIC_API_KEY', grok: 'XAI_API_KEY' }[CLI]];
+record({ args, home: home(), apiKey: apiKey ? keyVerdict(apiKey) : CLI === 'codex' ? keptApiKey() : null });
+
+/** Whether `key` is the one the test expects (E2E_EXPECTED_API_KEY): what the fakes say of a key, never the key. */
+function keyVerdict(key) {
+  return key === process.env.E2E_EXPECTED_API_KEY ? 'expected' : 'other';
+}
+
+/** Codex: the verdict on the key `login --with-api-key` kept in its home, or null (signed in otherwise, or out). */
+function keptApiKey() {
+  try {
+    return fs.readFileSync(path.join(home(), 'e2e-api-key'), 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 /** The CLI's own folder, as the real one finds it. */
 function home() {
@@ -105,10 +121,12 @@ function home() {
  * Its sign-in, kept in its home as the real ones keep theirs: signed in (as e2e@example.com) until
  * signed out there (`auth logout`, `logout`), which leaves `e2e-signed-out`; signing in again
  * (`auth login`) takes it away, as the account the code pasted names when it is an email address.
+ * Codex's `login --with-api-key` signs in with the key on stdin, keeping only `keyVerdict` of it.
  */
 const signIn = {
   out: () => path.join(home(), 'e2e-signed-out'),
   account: () => path.join(home(), 'e2e-account'),
+  apiKey: () => path.join(home(), 'e2e-api-key'),
   email() {
     try {
       return fs.readFileSync(this.account(), 'utf8').trim() || 'e2e@example.com';
@@ -120,12 +138,20 @@ const signIn = {
     fs.mkdirSync(home(), { recursive: true });
     fs.writeFileSync(this.out(), '');
     fs.rmSync(this.account(), { force: true });
+    fs.rmSync(this.apiKey(), { force: true });
   },
   login(code) {
     fs.mkdirSync(home(), { recursive: true });
     fs.rmSync(this.out(), { force: true });
     if (/^[^\s@]+@[^\s@]+$/.test(code)) fs.writeFileSync(this.account(), code);
     else fs.rmSync(this.account(), { force: true });
+  },
+  /** Codex: signed in with an API key, which replaces the sign-in it had. */
+  loginWithApiKey(key) {
+    fs.mkdirSync(home(), { recursive: true });
+    fs.rmSync(this.out(), { force: true });
+    fs.rmSync(this.account(), { force: true });
+    fs.writeFileSync(this.apiKey(), keyVerdict(key));
   },
 };
 
@@ -399,9 +425,12 @@ function readSkills(turn) {
     .join('');
 }
 
-/** Records the values the tool library's MCP servers were given (by server: env, or an HTTP server's headers). */
-function recordMcpEnv(servers) {
-  if (Object.keys(servers).length) record({ mcpEnv: servers });
+/**
+ * Records the values the tool library's MCP servers were given (by server: env, or an HTTP server's
+ * headers), and `http`: the URL of each one given as an HTTP server, by server.
+ */
+function recordMcpEnv(servers, http = {}) {
+  if (Object.keys(servers).length) record({ mcpEnv: servers, ...(Object.keys(http).length ? { mcpHttp: http } : {}) });
 }
 
 /** Pieces of `text` to stream: a few words each, or many small ones for a slow reply. */
@@ -614,6 +643,20 @@ function claudeMcpEnv() {
   return out;
 }
 
+/** The URL of each `--mcp-config` server given as an HTTP server (`"type": "http"`), by server. */
+function claudeMcpHttp() {
+  const out = {};
+  for (const file of values('--mcp-config')) {
+    try {
+      const servers = JSON.parse(file.trim().startsWith('{') ? file : fs.readFileSync(file, 'utf8')).mcpServers || {};
+      for (const [name, s] of Object.entries(servers)) if (s.type === 'http') out[name] = s.url;
+    } catch {
+      /* not one to read */
+    }
+  }
+  return out;
+}
+
 /** The folders of the `Read(//<folder>/**)` rules in --allowedTools (Windows' C:\… is written /c/…). */
 function claudeReadRules() {
   return values('--allowedTools').flatMap((rule) => {
@@ -735,7 +778,7 @@ function claudeStream() {
       briefing,
       mayRead: (file) => inside(file, o.reads),
     };
-    recordMcpEnv(claudeMcpEnv());
+    recordMcpEnv(claudeMcpEnv(), claudeMcpHttp());
     if (persist) sessions.start(sessionId);
     record({
       prompt,
@@ -854,7 +897,21 @@ async function claudeTurn(steps, o) {
 
 function codexStatic() {
   if (has('--version')) return void process.stdout.write('codex-cli 0.999.0\n');
-  if (args[0] === 'login' && args[1] === 'status') return void process.stderr.write(signedOut ? 'Not logged in\n' : 'Logged in using ChatGPT\n');
+  if (args[0] === 'login' && args[1] === 'status') {
+    return void process.stderr.write(signedOut ? 'Not logged in\n' : keptApiKey() ? 'Logged in using an API key\n' : 'Logged in using ChatGPT\n');
+  }
+  if (args[0] === 'login' && args[1] === '--with-api-key') {
+    // The key comes on stdin, as `printenv OPENAI_API_KEY | codex login --with-api-key`.
+    let key = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => (key += chunk));
+    process.stdin.on('end', () => {
+      if (!key.trim()) return void process.stderr.write('No API key provided via stdin\n', () => process.exit(1));
+      signIn.loginWithApiKey(key.trim());
+      process.stderr.write('Successfully logged in\n', () => process.exit(0));
+    });
+    return;
+  }
   if (args[0] === 'logout') {
     signIn.logout();
     return void process.stderr.write('Successfully logged out\n');
@@ -931,12 +988,11 @@ function codexAppServer() {
             mcp: Object.keys(config.mcp_servers || {}).filter((name) => (config.mcp_servers[name] || {}).enabled !== false),
             ...codexWrites(p),
           });
+          const given = Object.entries(config.mcp_servers || {}).filter(([, s]) => s && s.enabled !== false && (s.command || s.url));
           recordMcpEnv(
-            Object.fromEntries(
-              Object.entries(config.mcp_servers || {})
-                .filter(([, s]) => s && s.enabled !== false && (s.command || s.url))
-                .map(([name, s]) => [name, s.env || s.http_headers || {}]),
-            ),
+            Object.fromEntries(given.map(([name, s]) => [name, s.env || s.http_headers || {}])),
+            // A server with a URL (and no command) is a Streamable HTTP one.
+            Object.fromEntries(given.filter(([, s]) => s.url && !s.command).map(([name, s]) => [name, s.url])),
           );
           return {
             thread: { id, preview: '', modelProvider: 'openai', createdAt: Math.floor(Date.now() / 1000), cwd: p.cwd },
@@ -1199,7 +1255,10 @@ function grokAgent() {
           // No sandbox: nothing but the briefing names the other folders.
           if (!writes.dirs) writes.others = briefedOthers(meta.rules || '', cwd);
           open.set(id, { cwd, briefing: meta.rules || '', yolo: Boolean(meta.yoloMode), cancelled: false, mcp: (p.mcpServers || []).map((s) => s.name), ...writes });
-          recordMcpEnv(Object.fromEntries((p.mcpServers || []).map((s) => [s.name, Object.fromEntries((s.env || s.headers || []).map((v) => [v.name, v.value]))])));
+          recordMcpEnv(
+            Object.fromEntries((p.mcpServers || []).map((s) => [s.name, Object.fromEntries((s.env || s.headers || []).map((v) => [v.name, v.value]))])),
+            Object.fromEntries((p.mcpServers || []).filter((s) => s.type === 'http').map((s) => [s.name, s.url])),
+          );
           // A new session starts on Grok's defaults (a resumed one too: the options are per process).
           Object.assign(open.get(id), { model: 'grok-fake', effort: 'medium' });
           return {

@@ -6,7 +6,7 @@
  * Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { PROVIDERS } from '../../src/shared/types';
@@ -29,9 +29,11 @@ export interface FakeLogEntry {
   mcp?: string[];
   /** The values the tool library's MCP servers were given, by server (env, or an HTTP server's headers). */
   mcpEnv?: Record<string, Record<string, string>>;
+  /** With `mcpEnv`: the URL of each server among them that the CLI was given as an HTTP server, by server. */
+  mcpHttp?: Record<string, string>;
   /** A start: the CLI's home it runs in (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`). */
   home?: string;
-  /** A start: whether it was given an API key (`ANTHROPIC_API_KEY`, `XAI_API_KEY`): the one the test expects (`E2E_EXPECTED_API_KEY` in `serverEnv`), another, or none (null). */
+  /** A start: whether it was given an API key (`ANTHROPIC_API_KEY`, `XAI_API_KEY`; Codex: `CODEX_API_KEY`, `OPENAI_API_KEY`, else the one `codex login --with-api-key` kept in its home): the one the test expects (`E2E_EXPECTED_API_KEY` in `serverEnv`), another, or none (null). */
   apiKey?: 'expected' | 'other' | null;
   /** A turn: the model and reasoning effort it runs with (null: the CLI's own default). */
   model?: string | null;
@@ -82,6 +84,15 @@ const STARTUP_MS = 60_000;
 
 export async function startRelay(o: StartOptions): Promise<RelayServer> {
   if (!existsSync(join(WEB_DIR, 'index.html'))) throw new Error(`The UI is not built in ${WEB_DIR}: run \`npm run build\`.`);
+  if (!o.live) {
+    // Without its fakes, the server would find the real CLIs and gh on the PATH: refuse to start.
+    const exe = process.platform === 'win32' ? '.exe' : '';
+    const missing = [...FAKE_CLIS, 'gh'].map((name) => join(o.fakeBinDir, name + exe)).filter((bin) => !existsSync(bin));
+    if (missing.length) throw new Error(`The fake CLIs are missing (${missing.join(', ')}): run the tests again to build them.`);
+    // In use as long as servers start with it, so that a run of a changed script leaves it alone.
+    const now = new Date();
+    utimesSync(o.fakeBinDir, now, now);
+  }
   // The real path: macOS's temporary folder is a link (/var → /private/var), Windows' may be a short
   // 8.3 name (RUNNER~1), and the server shows real paths.
   // Live runs use Harness Relay's own sandbox, whose sockets need a short data folder path on macOS

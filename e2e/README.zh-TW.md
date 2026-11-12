@@ -176,7 +176,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 平行模式中每位成員在自己的 worktree 工作，可以套用其中一份結果 | Claude Code、Codex | 兩張變更卡片都寫著「in worktree」，工作目錄裡什麼都沒有，直到按**套用到工作目錄**（Apply to working directory）帶進 Codex 的檔案。 |
 | 檔案瀏覽器顯示工作目錄並預覽檔案 | Claude Code | **檔案**（Files）列出專案；`src/hello.ts` 打開後顯示程式碼；按 Escape 關閉。 |
 | 資料夾可下載成 ZIP 檔，裡面沒有 .git | Claude Code | 工作目錄的 ZIP（`work.zip`）剛好包含它的檔案與內容，沒有 `.git`；某個資料夾自己的 ZIP（`src.zip`）只有那個資料夾。 |
-| 太大而無法整個壓縮的資料夾，改為提供不含 git 忽略的檔案 | Claude Code | 一個超過 1 GiB 的被忽略檔案（稀疏檔，沒有真的寫入）讓資料夾太大：拒絕時不下載任何東西，接受時得到不含被忽略資料夾的 ZIP。 |
+| 太大而無法整個壓縮的資料夾，改為提供不含 git 忽略的檔案 | Claude Code | 一個長度設為超過 1 GiB、但沒有真的寫入的被忽略檔案（Windows 上仍會佔用磁碟空間）讓資料夾太大：拒絕時不下載任何東西，接受時得到不含被忽略資料夾的 ZIP。 |
 
 ## 工作目錄與其他資料夾
 
@@ -302,11 +302,11 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | Harness Relay 自己的資料夾或預設工作目錄裡的資料夾會被拒絕 | — | 兩種拒絕都會顯示，不建立任何東西，設定維持空白。 |
 | 有對話正在執行時不能改資料夾 | Claude Code | 回答慢慢進行時，儲存會說有對話正在執行；停止後就能儲存。 |
 | 每個回合之後與重新命名時，對話會送到 AgentsView，成員的 session 列在它底下 | Claude Code、Codex | 上傳帶著 AgentsView 自己的 `Origin`，以及它認得的 session 的專案與電腦；紀錄包含問題、兩則回答與標題；每位成員的 session 都連到它底下；重新命名會送出新標題。 |
-| 其他位置的網址會被拒絕；更新失敗時設定會說明原因，對話照常進行 | Claude Code | 不在這台電腦上的網址會被拒絕，也不送出任何請求；AgentsView 回應 503 時，回答沒有錯誤，卡片說明上次更新失敗與原因。 |
+| 其他位置的網址會被拒絕；更新失敗時設定會說明原因，對話照常進行 | Claude Code | 不在這台電腦上的網址會被拒絕並說明原因，設定維持空白；AgentsView 回應 503 時，回答沒有錯誤，卡片說明上次更新失敗與原因。 |
 
 ## 回報問題
 
-[`report.spec.ts`](specs/report.spec.ts)：側邊欄的**回報問題**。郵件的連結在頁面中攔下（`window.open`、剪貼簿與被取消的 `mailto:` 導覽），所以不會開啟任何東西，也不會連上網路。沒有 Navigation API 的瀏覽器會跳過。
+[`report.spec.ts`](specs/report.spec.ts)：側邊欄的**回報問題**。郵件的連結在頁面中攔下（`window.open`、剪貼簿與被取消的 `mailto:` 導覽），所以不會開啟任何東西，也不會連上網路。讀取郵件連結的三個測試，在沒有 Navigation API 的瀏覽器中跳過。
 
 | 情境 | 檢查的內容 |
 | --- | --- |
@@ -398,7 +398,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - 「對話沒有的資料夾碰不到」在 Windows 上跳過 Grok，因為它在那裡沒有沙箱（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md)）。
 - [在手機上](#在手機上)在 Firefox 中跳過。
 - [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」則在 Windows 上跳過。
-- [回報問題](#回報問題)在沒有 Navigation API 的瀏覽器中跳過。
+- [回報問題](#回報問題)中讀取郵件連結的三個測試，在沒有 Navigation API 的瀏覽器中跳過。
 
 ## 沒有測到的部分
 

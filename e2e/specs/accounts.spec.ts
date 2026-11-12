@@ -1,9 +1,10 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import type { Provider, SettingsView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, finishedReply, openTeamChat, send, settled } from '../support/app';
-import type { RelayServer } from '../support/relay';
+import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
+import type { FakeLogEntry, RelayServer } from '../support/relay';
 
 const CLIS = [
   { name: 'Claude', provider: 'claude', label: 'Claude Code' },
@@ -14,6 +15,9 @@ const CLIS = [
 /** An account's box in a CLI's card in Settings, by the name it shows. */
 const accountBlock = (page: Page, provider: Provider, name: string) =>
   page.locator(`#settings-${provider} .account-block`).filter({ has: page.locator('.account-head strong', { hasText: new RegExp(`^${name}$`) }) });
+
+/** The API key box of an account's box. */
+const keyBox = (block: Locator) => block.locator('details.sub').filter({ has: block.page().locator('summary', { hasText: /^API key/ }) });
 
 /** Adds an account to a CLI in Settings, as the user does, and returns it as the server keeps it. */
 async function addAccount(page: Page, relay: RelayServer, provider: Provider, label: string) {
@@ -27,19 +31,64 @@ async function addAccount(page: Page, relay: RelayServer, provider: Provider, la
   return settings.providers.find((p) => p.provider === provider)!.accounts.find((a) => a.label === label)!;
 }
 
-/** The home the CLI ran a member's turn in: the start of the process that got `@<name>`'s prompt. */
-function turnHome(relay: RelayServer, provider: Provider, name: string, text: string): string | undefined {
-  const log = relay.fakeLog();
-  const turn = log.find((e) => e.cli === provider && e.prompt?.includes(text) && new RegExp(`your turn, @${name}\\b`).test(e.prompt));
-  return turn && log.find((e) => e.pid === turn.pid && e.args)?.home;
+/** Adds an account through the API; returns its id and the folder the server gives it. */
+async function apiAccount(relay: RelayServer, provider: Provider, label = 'Work'): Promise<{ id: string; home: string }> {
+  const { id } = await relay.api<{ id: string }>(`/api/settings/providers/${provider}/accounts`, { body: { label } });
+  return { id, home: join(relay.dataDir, 'accounts', `${provider}-${id}`) };
 }
 
-/** The API key a test saves for an account; the fake CLIs say whether they were given it. */
-const WORK_KEY = 'sk-ant-e2e-work-key-5678';
+/**
+ * Signs the page in only now, at a CLI's card in Settings, for a test that added accounts through
+ * the API before: the app's first look at the CLIs' status has them. (A look already under way when
+ * one is added answers without it, and that answer can arrive after a newer one's.)
+ */
+async function openSettings(page: Page, relay: RelayServer, provider: Provider): Promise<void> {
+  await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
+  await expect(page.locator('.app main.main')).toBeVisible();
+  await page.goto(`${relay.base}/#/settings/${provider}`);
+}
+
+/** A chat of `members` (each on the account it names, else the default one), opened in the page. */
+async function chatWith(page: Page, relay: RelayServer, members: { name: string; provider: Provider; account?: string }[]): Promise<string> {
+  const conv = await relay.api<{ id: string }>('/api/conversations', {
+    body: {
+      title: 'Accounts',
+      agents: members.map((m, i) => ({ id: `m${i + 1}`, name: m.name, provider: m.provider, role: `You are ${m.name}.`, ...(m.account ? { account: m.account } : {}) })),
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: relay.workDir },
+    },
+  });
+  await page.goto(`${relay.base}/#/c/${conv.id}`);
+  return conv.id;
+}
+
+/** The start of the process that ran a member's turn: the one that got `@<name>`'s prompt with `text`. */
+function turnStart(relay: RelayServer, provider: Provider, name: string, text: string): FakeLogEntry | undefined {
+  const log = relay.fakeLog();
+  const turn = log.find((e) => e.cli === provider && e.prompt?.includes(text) && new RegExp(`your turn, @${name}\\b`).test(e.prompt));
+  return turn && log.find((e) => e.pid === turn.pid && e.args);
+}
+
+/** The CLIs the fakes stand in for. */
+type FakeProvider = (typeof CLIS)[number]['provider'];
+
+/** The CLI's own sign-out command. */
+const LOGOUT: Record<FakeProvider, string> = { claude: 'auth logout', codex: 'logout', grok: 'logout' };
+const logoutHomes = (relay: RelayServer, provider: FakeProvider) =>
+  relay.fakeLog().flatMap((e) => (e.cli === provider && e.args?.join(' ') === LOGOUT[provider] ? [e.home] : []));
+
+/**
+ * The CLIs Harness Relay gives an account's API key to in the environment, with a key of each one's
+ * shape: the fake CLIs say whether they were given the one the test expects (E2E_EXPECTED_API_KEY).
+ */
+const KEYED = [
+  { ...CLIS[0], key: 'sk-ant-e2e-work-key-5678', masked: 'sk-a…5678', env: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-…' },
+  { ...CLIS[2], key: 'xai-e2e-work-key-5678', masked: 'xai-…5678', env: 'XAI_API_KEY', placeholder: 'xai-…' },
+] as const;
+
+/** The variable each CLI reads an API key from that the server's own environment may hold (Codex: one of two). */
+const SERVER_KEY_ENV: Record<FakeProvider, string> = { claude: 'ANTHROPIC_API_KEY', codex: 'OPENAI_API_KEY', grok: 'XAI_API_KEY' };
 
 test.describe('more than one account', () => {
-  test.use({ serverEnv: { E2E_EXPECTED_API_KEY: WORK_KEY } });
-
   for (const cli of CLIS) {
     test(`${cli.provider}: an added account has a folder of its own, and a member set to use it runs there`, async ({ page, relay }) => {
       await page.getByRole('link', { name: /Settings & sign-in/ }).click();
@@ -71,92 +120,248 @@ test.describe('more than one account', () => {
       const conv = await settled(relay, id);
       expect(conv.agents.map((a) => a.account ?? '')).toEqual([work.id, '']);
       // Each member's CLI ran in its account's home: the added one's folder, and the default one's own.
-      expect(turnHome(relay, cli.provider, cli.name, 'Whose account is this?')).toBe(work.home);
-      expect(turnHome(relay, cli.provider, `${cli.name}2`, 'Whose account is this?')).toBe(join(relay.home, `.${cli.provider}`));
+      expect(turnStart(relay, cli.provider, cli.name, 'Whose account is this?')?.home).toBe(work.home);
+      expect(turnStart(relay, cli.provider, `${cli.name}2`, 'Whose account is this?')?.home).toBe(join(relay.home, `.${cli.provider}`));
     });
   }
 
-  test('each account signs in and out on its own', async ({ page, relay }) => {
-    const { id } = await relay.api<{ id: string }>('/api/settings/providers/claude/accounts', { body: { label: 'Work' } });
-    const home = join(relay.dataDir, 'accounts', `claude-${id}`);
-    await page.goto(page.url().replace(/#.*$/, '#/settings/claude'));
-    const work = accountBlock(page, 'claude', 'Work');
-    const main = accountBlock(page, 'claude', 'Default account');
-    await expect(work.locator('.pill')).toHaveText('Signed in');
+  test.describe(() => {
+    // Signed in only once the accounts are added (`openSettings`).
+    test.use({ signIn: false });
 
-    // Signing out runs the CLI's own sign-out in that account's folder only.
-    acceptNextDialog(page);
-    await work.getByRole('button', { name: 'Sign out', exact: true }).click();
-    await expect(work.locator('.pill')).toHaveText('Not signed in');
-    await expect(main.locator('.pill')).toHaveText('Signed in');
-    await expect(main.locator('.account-head')).toContainText('e2e@example.com');
-    const logouts = relay.fakeLog().filter((e) => e.cli === 'claude' && e.args?.join(' ') === 'auth logout');
-    expect(logouts.map((e) => e.home)).toEqual([home]);
+    test('each account signs in and out on its own', async ({ page, relay }) => {
+      const { home } = await apiAccount(relay, 'claude');
+      await openSettings(page, relay, 'claude');
+      const work = accountBlock(page, 'claude', 'Work');
+      const main = accountBlock(page, 'claude', 'Default account');
+      await expect(work.locator('.pill')).toHaveText('Signed in');
 
-    // Signing in again, with Claude Code's own flow: a page to open, then the code it shows pasted back.
-    await work.getByRole('button', { name: 'Sign in', exact: true }).click();
-    const login = work.locator('.login-panel');
-    await expect(login).toContainText('Waiting for authorisation…');
-    await expect(login.getByRole('link', { name: /claude\.example\.invalid\/e2e-login/ })).toBeVisible();
-    // The fake signs in as the account the code names.
-    await login.getByPlaceholder('Paste the code').fill('work@example.com');
-    await login.getByRole('button', { name: 'Submit' }).click();
-    await expect(login).toContainText('Signed in ✓');
-    await expect(work.locator('.pill')).toHaveText('Signed in');
-    await expect(work.locator('.account-head')).toContainText('work@example.com');
-    await expect(main.locator('.account-head')).toContainText('e2e@example.com');
-    const logins = relay.fakeLog().filter((e) => e.cli === 'claude' && e.args?.[0] === 'auth' && e.args[1] === 'login');
-    expect(logins.map((e) => e.home)).toEqual([home]);
+      // Signing out runs the CLI's own sign-out in that account's folder only.
+      acceptNextDialog(page);
+      await work.getByRole('button', { name: 'Sign out', exact: true }).click();
+      await expect(work.locator('.pill')).toHaveText('Not signed in');
+      await expect(main.locator('.pill')).toHaveText('Signed in');
+      await expect(main.locator('.account-head')).toContainText('e2e@example.com');
+      expect(logoutHomes(relay, 'claude')).toEqual([home]);
+
+      // Signing in again, with Claude Code's own flow: a page to open, then the code it shows pasted back.
+      await work.getByRole('button', { name: 'Sign in', exact: true }).click();
+      const login = work.locator('.login-panel');
+      await expect(login).toContainText('Waiting for authorisation…');
+      await expect(login.getByRole('link', { name: /claude\.example\.invalid\/e2e-login/ })).toBeVisible();
+      // The fake signs in as the account the code names.
+      await login.getByPlaceholder('Paste the code').fill('work@example.com');
+      await login.getByRole('button', { name: 'Submit' }).click();
+      await expect(login).toContainText('Signed in ✓');
+      await expect(work.locator('.pill')).toHaveText('Signed in');
+      await expect(work.locator('.account-head')).toContainText('work@example.com');
+      await expect(main.locator('.account-head')).toContainText('e2e@example.com');
+      const logins = relay.fakeLog().filter((e) => e.cli === 'claude' && e.args?.[0] === 'auth' && e.args[1] === 'login');
+      expect(logins.map((e) => e.home)).toEqual([home]);
+    });
+
+    for (const cli of CLIS.filter((c) => c.provider !== 'claude')) {
+      test(`${cli.provider}: signing an added account out signs out only that account`, async ({ page, relay }) => {
+        const { home } = await apiAccount(relay, cli.provider);
+        await openSettings(page, relay, cli.provider);
+        const work = accountBlock(page, cli.provider, 'Work');
+        const main = accountBlock(page, cli.provider, 'Default account');
+        await expect(work.locator('.pill')).toHaveText('Signed in');
+        await expect(main.locator('.pill')).toHaveText('Signed in');
+
+        acceptNextDialog(page);
+        await work.getByRole('button', { name: 'Sign out', exact: true }).click();
+        await expect(work.locator('.pill')).toHaveText('Not signed in');
+        await expect(work.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+        // The CLI's own `logout`, in that account's folder only: the default account stays signed in.
+        expect(logoutHomes(relay, cli.provider)).toEqual([home]);
+        await expect(main.locator('.pill')).toHaveText('Signed in');
+        await expect(main.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+      });
+    }
   });
 
-  test("with the credential store off, an account's API key is kept in the database, shown masked, and given to its CLI only", async ({ page, relay }) => {
-    const { id } = await relay.api<{ id: string }>('/api/settings/providers/claude/accounts', { body: { label: 'Work' } });
-    await page.goto(page.url().replace(/#.*$/, '#/settings/claude'));
-    const work = accountBlock(page, 'claude', 'Work');
-    const main = accountBlock(page, 'claude', 'Default account');
-    const keyBox = (block: typeof work) => block.locator('details.sub').filter({ has: page.locator('summary', { hasText: /^API key/ }) });
+  for (const cli of KEYED) {
+    test.describe(() => {
+      test.use({ serverEnv: { E2E_EXPECTED_API_KEY: cli.key }, signIn: false });
 
-    // The tests' servers run with RELAY_KEYRING=off: the boxes say where a key goes.
-    await keyBox(main).locator('summary').click();
-    await expect(keyBox(main)).toContainText("Keys are kept in Harness Relay's database (readable only by your user account).");
-    // The server's own environment is the default account's only.
-    await expect(keyBox(main)).toContainText('To keep it out of the database, set ANTHROPIC_API_KEY before starting Harness Relay instead.');
-    await keyBox(work).locator('summary').click();
-    await expect(keyBox(work)).toContainText("Keys are kept in Harness Relay's database");
-    await expect(keyBox(work)).not.toContainText('set ANTHROPIC_API_KEY');
+      test(`${cli.provider}: with the credential store off, an account's API key is kept in the database, shown masked, and given to its CLI only`, async ({ page, relay }) => {
+        const { id } = await apiAccount(relay, cli.provider);
+        await openSettings(page, relay, cli.provider);
+        const work = accountBlock(page, cli.provider, 'Work');
+        const main = accountBlock(page, cli.provider, 'Default account');
 
-    const key = WORK_KEY;
-    await keyBox(work).getByPlaceholder('sk-ant-…').fill(key);
-    await keyBox(work).getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(keyBox(work).locator('summary')).toHaveText('API key (set: sk-a…5678)');
-    await expect(work.locator('.pill')).toHaveText('Using an API key');
-    await expect(main.locator('.pill')).toHaveText('Signed in');
-    // Never sent back to the browser.
-    expect(JSON.stringify(await relay.api('/api/settings'))).not.toContain(key);
+        // The tests' servers run with RELAY_KEYRING=off: the boxes say where a key goes.
+        await keyBox(main).locator('summary').click();
+        await expect(keyBox(main)).toContainText("Keys are kept in Harness Relay's database (readable only by your user account).");
+        // The server's own environment is the default account's only.
+        await expect(keyBox(main)).toContainText(`To keep it out of the database, set ${cli.env} before starting Harness Relay instead.`);
+        await keyBox(work).locator('summary').click();
+        await expect(keyBox(work)).toContainText("Keys are kept in Harness Relay's database");
+        await expect(keyBox(work)).not.toContainText(`set ${cli.env}`);
 
-    const conv = await relay.api<{ id: string }>('/api/conversations', {
-      body: {
-        title: 'Keys',
-        agents: [
-          { id: 'm1', name: 'Claude', provider: 'claude', role: 'You are Claude.', account: id },
-          { id: 'm2', name: 'Claude2', provider: 'claude', role: 'You are Claude2.' },
-        ],
-        settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: relay.workDir },
-      },
+        await keyBox(work).getByPlaceholder(cli.placeholder).fill(cli.key);
+        await keyBox(work).getByRole('button', { name: 'Save', exact: true }).click();
+        await expect(keyBox(work).locator('summary')).toHaveText(`API key (set: ${cli.masked})`);
+        await expect(work.locator('.pill')).toHaveText('Using an API key');
+        await expect(main.locator('.pill')).toHaveText('Signed in');
+        // Never sent back to the browser.
+        expect(JSON.stringify(await relay.api('/api/settings'))).not.toContain(cli.key);
+
+        const conv = await chatWith(page, relay, [
+          { name: cli.name, provider: cli.provider, account: id },
+          { name: `${cli.name}2`, provider: cli.provider },
+        ]);
+        await send(page, 'Which key do you have?');
+        await finishedReply(page, cli.name);
+        await finishedReply(page, `${cli.name}2`);
+        await settled(relay, conv);
+        // The account's CLI got its key, in `cli.env` (the fake logs only whether it is the one
+        // expected); the default account's did not.
+        expect(turnStart(relay, cli.provider, cli.name, 'Which key do you have?')?.apiKey).toBe('expected');
+        expect(turnStart(relay, cli.provider, `${cli.name}2`, 'Which key do you have?')?.apiKey).toBeNull();
+        for (const s of relay.fakeLog().filter((e) => e.cli === cli.provider && e.args)) expect(JSON.stringify(s.args)).not.toContain(cli.key);
+      });
     });
-    await page.goto(`${relay.base}/#/c/${conv.id}`);
-    await send(page, 'Which key do you have?');
-    await finishedReply(page, 'Claude');
-    await finishedReply(page, 'Claude2');
-    await settled(relay, conv.id);
-    // The account's CLI got its key as ANTHROPIC_API_KEY (the fake logs only whether it is the one expected); the default account's did not.
-    const starts = relay.fakeLog().filter((e) => e.cli === 'claude' && e.args);
-    const turnStart = (name: string) => {
-      const turn = relay.fakeLog().find((e) => e.cli === 'claude' && e.prompt?.includes('Which key do you have?') && new RegExp(`your turn, @${name}\\b`).test(e.prompt));
-      return starts.find((e) => e.pid === turn?.pid);
-    };
-    expect(turnStart('Claude')?.apiKey).toBe('expected');
-    expect(turnStart('Claude2')?.apiKey).toBeNull();
-    for (const s of starts) expect(JSON.stringify(s.args)).not.toContain(key);
+  }
+
+  test.describe(() => {
+    const key = 'sk-proj-e2e-work-key-5678';
+    test.use({ serverEnv: { E2E_EXPECTED_API_KEY: key }, signIn: false });
+
+    test("codex: an account's API key signs that account in with Codex's own login, which keeps it, and only its CLI gets it", async ({ page, relay }) => {
+      const { id, home } = await apiAccount(relay, 'codex');
+      // Signed out first, as a new account is: the key is what signs it in.
+      await relay.api(`/api/providers/codex/logout?account=${id}`, { body: {} });
+      await openSettings(page, relay, 'codex');
+      const work = accountBlock(page, 'codex', 'Work');
+      const main = accountBlock(page, 'codex', 'Default account');
+      await expect(work.locator('.pill')).toHaveText('Not signed in');
+
+      await keyBox(work).locator('summary').click();
+      await expect(keyBox(work)).toContainText('Runs codex login --with-api-key; Codex keeps the key itself');
+      // Harness Relay keeps no Codex key, so the box names no place it keeps one.
+      await expect(keyBox(work)).not.toContainText('Keys are kept in');
+      await keyBox(work).getByPlaceholder('sk-…').fill(key);
+      await keyBox(work).getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(work).toContainText('API key saved');
+      await expect(work.locator('.pill')).toHaveText('Signed in');
+      await expect(work.locator('.account-head')).toContainText('Logged in using an API key');
+      await expect(main.locator('.account-head')).toContainText('Logged in using ChatGPT');
+      // Nothing of it is kept here: no key set, none masked, none sent back.
+      await expect(keyBox(work).locator('summary')).toHaveText('API key');
+      const settings = await relay.api<SettingsView>('/api/settings');
+      expect(JSON.stringify(settings)).not.toContain(key);
+      expect(settings.providers.find((p) => p.provider === 'codex')!.accounts.find((a) => a.id === id)!.apiKeyMasked).toBe('');
+      // `codex login --with-api-key` ran in that account's folder only, with the key on its stdin.
+      const logins = relay.fakeLog().filter((e) => e.cli === 'codex' && e.args?.join(' ') === 'login --with-api-key');
+      expect(logins.map((e) => e.home)).toEqual([home]);
+
+      const conv = await chatWith(page, relay, [
+        { name: 'Codex', provider: 'codex', account: id },
+        { name: 'Codex2', provider: 'codex' },
+      ]);
+      await send(page, 'Which key do you have?');
+      await finishedReply(page, 'Codex');
+      await finishedReply(page, 'Codex2');
+      await settled(relay, conv);
+      // The account's Codex runs with the key it kept in that folder; the default account's has none.
+      expect(turnStart(relay, 'codex', 'Codex', 'Which key do you have?')?.apiKey).toBe('expected');
+      expect(turnStart(relay, 'codex', 'Codex2', 'Which key do you have?')?.apiKey).toBeNull();
+      for (const s of relay.fakeLog().filter((e) => e.cli === 'codex' && e.args)) expect(JSON.stringify(s.args)).not.toContain(key);
+    });
+  });
+
+  for (const cli of CLIS) {
+    test.describe(() => {
+      const key = 'e2e-server-env-key-1234';
+      test.use({ serverEnv: { E2E_EXPECTED_API_KEY: key, [SERVER_KEY_ENV[cli.provider]]: key } });
+
+      test(`${cli.provider}: the API key Harness Relay was started with is the default account's only`, async ({ page, relay }) => {
+        const { id } = await apiAccount(relay, cli.provider);
+        const conv = await chatWith(page, relay, [
+          { name: cli.name, provider: cli.provider, account: id },
+          { name: `${cli.name}2`, provider: cli.provider },
+        ]);
+        await send(page, 'Which key do you have?');
+        await finishedReply(page, cli.name);
+        await finishedReply(page, `${cli.name}2`);
+        await settled(relay, conv);
+        // The server's own key reaches the default account's CLI, and not the added account's (`SERVER_KEY_ENV`).
+        expect(turnStart(relay, cli.provider, `${cli.name}2`, 'Which key do you have?')?.apiKey).toBe('expected');
+        expect(turnStart(relay, cli.provider, cli.name, 'Which key do you have?')?.apiKey).toBeNull();
+      });
+    });
+  }
+
+  for (const cli of CLIS) {
+    test(`${cli.provider}: removing an added account signs it out and deletes its folder, and its member and the lead agent use the default account`, async ({ page, relay }) => {
+      const { id, home } = await apiAccount(relay, cli.provider);
+      await relay.api('/api/settings', { method: 'PUT', body: { lead: { provider: cli.provider, account: id } } });
+      const conv = await chatWith(page, relay, [{ name: cli.name, provider: cli.provider, account: id }]);
+      await send(page, 'Before the removal');
+      await finishedReply(page, cli.name);
+      await settled(relay, conv);
+      expect(turnStart(relay, cli.provider, cli.name, 'Before the removal')?.home).toBe(home);
+      // Its session is kept in that folder.
+      expect(existsSync(join(home, 'e2e-sessions'))).toBe(true);
+
+      await page.goto(`${relay.base}/#/settings/${cli.provider}`);
+      const work = accountBlock(page, cli.provider, 'Work');
+      await expect(work.locator('.pill')).toHaveText('Signed in');
+      // The confirmation names the folder that goes.
+      const asked = new Promise<string>((resolve) =>
+        page.once('dialog', (d) => {
+          resolve(d.message());
+          void d.accept();
+        }),
+      );
+      await work.locator('.account-head').getByRole('button', { name: 'Remove', exact: true }).click();
+      expect(await asked).toContain(`deletes its API key and its folder ${home}`);
+      await expect(work).toHaveCount(0);
+      await expect(accountBlock(page, cli.provider, 'Default account').locator('.pill')).toHaveText('Signed in');
+      // Signed out with the CLI's own command in that folder (and nowhere else), then the folder deleted,
+      // with the session in it.
+      expect(logoutHomes(relay, cli.provider)).toEqual([home]);
+      expect(existsSync(home)).toBe(false);
+      const settings = await relay.api<SettingsView>('/api/settings');
+      expect(settings.providers.find((p) => p.provider === cli.provider)!.accounts.map((a) => a.id)).toEqual(['']);
+      expect(settings.lead.provider).toBe(cli.provider);
+      expect(settings.lead.account).toBeUndefined();
+
+      // Its member answers as the default account, in its home, in a new session of its own there.
+      await page.goto(`${relay.base}/#/c/${conv}`);
+      await send(page, 'After the removal');
+      await expect(replies(page, cli.name)).toHaveCount(2);
+      await expect(await finishedReply(page, cli.name)).toContainText('You said: “After the removal”.');
+      const start = turnStart(relay, cli.provider, cli.name, 'After the removal');
+      expect(start?.home).toBe(join(relay.home, `.${cli.provider}`));
+      expect(relay.fakeLog().flatMap((e) => (e.pid === start!.pid && e.session ? [e.resumed] : []))).toEqual([false]);
+    });
+  }
+
+  test('an account is not removed while a conversation runs', async ({ page, relay }) => {
+    const { home } = await apiAccount(relay, 'claude');
+    const chat = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await send(page, 'Take your time e2e:slow');
+    await expect(replies(page, 'Claude').last().locator('.live-tag')).toBeVisible();
+
+    await page.goto(`${relay.base}/#/settings/claude`);
+    const work = accountBlock(page, 'claude', 'Work');
+    const remove = work.locator('.account-head').getByRole('button', { name: 'Remove', exact: true });
+    acceptNextDialog(page);
+    await remove.click();
+    await expect(work).toContainText('A conversation is running, or the lead agent is sorting one into a group or changing a team.');
+    // Nothing was done: still there, signed in, with its folder.
+    await expect(work.locator('.pill')).toHaveText('Signed in');
+    expect(existsSync(home)).toBe(true);
+    expect(logoutHomes(relay, 'claude')).toEqual([]);
+
+    await relay.api(`/api/conversations/${chat}/stop`, { body: {} });
+    await settled(relay, chat);
+    acceptNextDialog(page);
+    await remove.click();
+    await expect(work).toHaveCount(0);
+    expect(existsSync(home)).toBe(false);
   });
 });

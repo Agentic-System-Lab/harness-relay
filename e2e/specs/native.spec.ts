@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { Page } from '@playwright/test';
 import type { Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, awaitingPlan, finishedReply, openTeamChat, send, settled, startChat } from '../support/app';
+import { acceptNextDialog, awaitingPlan, finishedReply, openTeamChat, replies, send, settled, startChat } from '../support/app';
 import type { RelayServer } from '../support/relay';
 
 /** A skill the CLI finds by itself: `<dir>/<name>/SKILL.md`, as the real CLIs keep theirs. */
@@ -71,6 +71,8 @@ test.describe('what each CLI loads by itself', () => {
 
     await page.goto(`${relay.base}/#/c/${chat}`);
     await send(page, 'After leaving it out');
+    // Its second reply, finished, so that the turn is in the log.
+    await expect(replies(page, 'Claude')).toHaveCount(2);
     await finishedReply(page, 'Claude');
     expect(turnSkills(relay, 'claude', 'After leaving it out')).toEqual([]);
   });

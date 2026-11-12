@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import type { ToolLibraryView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { finishedReply, openTeamChat, send, settled, type Member } from '../support/app';
+import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled, type Member } from '../support/app';
 import type { RelayServer } from '../support/relay';
 
 /*
@@ -125,6 +125,9 @@ test.describe('the tool library', () => {
     await send(page, 'And now?');
     await expect(await finishedReply(page, 'Claude')).toContainText('You said: “And now?”. ' + HAS_MCP);
     await expect(await finishedReply(page, 'Codex')).toContainText('You said: “And now?”. ' + HAS_MCP);
+    // Its second reply, finished: before that, a check that something is missing would pass on a
+    // reply still streaming (or on the first one).
+    await expect(replies(page, 'Grok')).toHaveCount(2);
     const grok = await finishedReply(page, 'Grok');
     await expect(grok).toContainText('You said: “And now?”.');
     await expect(grok).not.toContainText("My tool library's MCP servers");
@@ -199,7 +202,12 @@ test.describe('the tool library', () => {
     const card = await toolLibrary(page, relay);
     const memory = card.locator('.tools-section', { has: page.getByRole('heading', { name: 'Memory' }) });
     await memory.getByRole('textbox', { name: 'Memory: All members' }).fill('Lead with the conclusion.');
-    await memory.getByRole('tab', { name: 'Codex', exact: true }).click();
+    // A click while the page still settles can land without switching tabs: click until it is selected.
+    const codexTab = memory.getByRole('tab', { name: 'Codex', exact: true });
+    await expect(async () => {
+      await codexTab.click();
+      await expect(codexTab).toHaveAttribute('aria-selected', 'true', { timeout: 1_000 });
+    }).toPass();
     await memory.getByRole('textbox', { name: 'Memory: Codex' }).fill('Indent with tabs.');
     await memory.getByRole('button', { name: 'Save' }).click();
     await expect(memory).toContainText('Saved');
@@ -221,5 +229,112 @@ test.describe('the tool library', () => {
     await send(page, 'And now? e2e:memory');
     await expect(await finishedReply(page, 'Claude')).toContainText('You said: “And now?”. My memory: “Lead with the conclusion.”.');
     await expect(await finishedReply(page, 'Grok')).toContainText('You said: “And now?”. I have no memory notes.');
+  });
+
+  test('an MCP server given a new value on the page gets it at the next turn, and once removed it is given no more', async ({ page, relay }) => {
+    const NEW = 'n3w-e2e-token-9876';
+    await relay.api('/api/tools/mcp/e2e-tools', {
+      method: 'PUT',
+      body: { transport: 'stdio', command: 'e2e-mcp-server', args: [], env: [{ name: 'E2E_TOKEN', value: SECRET }] },
+    });
+    // Another server, which stays: a turn after the changes still gets the library's servers.
+    await relay.api('/api/tools/mcp/e2e-other', { method: 'PUT', body: { transport: 'stdio', command: 'e2e-other-server', args: [] } });
+    const id = await openTeamChat(page, relay, TEAM);
+    await send(page, 'Which tools do you have?');
+    for (const m of TEAM) await expect(await finishedReply(page, m.name)).toContainText("My tool library's MCP servers: e2e-tools, e2e-other.");
+    await settled(relay, id);
+
+    // A new value, typed where the masked one was.
+    const card = await toolLibrary(page, relay);
+    await card.locator('.lib-row', { hasText: 'e2e-tools' }).getByRole('button', { name: 'Edit' }).click();
+    const form = card.locator('.mcp-form');
+    await form.locator('.var-row').getByLabel('Value').fill(NEW);
+    await form.getByRole('button', { name: 'Save' }).click();
+    await expect(form).toHaveCount(0);
+    expect((await relay.api<ToolLibraryView>('/api/tools')).mcpServers.find((s) => s.name === 'e2e-tools')!.env).toEqual([{ name: 'E2E_TOKEN', masked: 'n3w…876' }]);
+
+    /** What the CLIs logged during the next message's turns. */
+    const nextTurns = async (text: string, n: number) => {
+      const from = relay.fakeLog().length;
+      await page.goto(`${relay.base}/#/c/${id}`);
+      await send(page, text);
+      for (const m of TEAM) {
+        // Each member's reply to this message, finished.
+        await expect(replies(page, m.name)).toHaveCount(n);
+        await expect(await finishedReply(page, m.name)).toContainText(`You said: “${text}”.`);
+      }
+      await settled(relay, id);
+      return relay.fakeLog().slice(from);
+    };
+
+    let turns = await nextTurns('And now?', 2);
+    for (const m of TEAM) {
+      await expect(replies(page, m.name).last()).toContainText("My tool library's MCP servers: e2e-tools, e2e-other.");
+      // The server got the new value only, and no CLI was started with it.
+      const given = turns.filter((e) => e.cli === m.provider && e.mcpEnv?.['e2e-tools']);
+      expect(given.length).toBeGreaterThan(0);
+      for (const e of given) expect(e.mcpEnv!['e2e-tools']).toEqual({ E2E_TOKEN: NEW });
+      for (const start of turns.filter((e) => e.cli === m.provider && e.args)) expect(JSON.stringify(start.args)).not.toContain(NEW);
+    }
+
+    await toolLibrary(page, relay);
+    acceptNextDialog(page);
+    await card.locator('.lib-row', { hasText: 'e2e-tools' }).getByRole('button', { name: 'Remove' }).click();
+    await expect(card.locator('.lib-row', { hasText: 'e2e-tools' })).toHaveCount(0);
+    expect((await relay.api<ToolLibraryView>('/api/tools')).mcpServers.map((s) => s.name)).toEqual(['e2e-other']);
+
+    turns = await nextTurns('And after removing it?', 3);
+    for (const m of TEAM) {
+      await expect(replies(page, m.name).last()).toContainText("My tool library's MCP servers: e2e-other.");
+      expect(turns.some((e) => e.cli === m.provider && e.mcpEnv?.['e2e-other'])).toBe(true);
+      expect(turns.filter((e) => e.cli === m.provider && (e.mcpEnv?.['e2e-tools'] || e.mcp?.includes('e2e-tools')))).toEqual([]);
+    }
+  });
+
+  test('a skill and a memory note removed on the page are given no more', async ({ page, relay }) => {
+    const skills = join(relay.root, 'skills');
+    const notes = writeSkill(join(skills, 'release-notes'), 'release-notes', 'Write release notes', 'Begin each note with the words Shipped today.');
+    const haiku = writeSkill(join(skills, 'haiku'), 'haiku', 'Answer in a haiku', 'Count the syllables.');
+    // Memory for all members, and each CLI's own, which stays (as does the other skill): a turn after
+    // the changes still gets the library's items.
+    const own = 'Indent with tabs.';
+    await relay.api('/api/tools', {
+      method: 'PUT',
+      body: { skills: [{ path: notes }, { path: haiku }], memory: { all: 'Lead with the conclusion.', claude: own, codex: own, grok: own } },
+    });
+    const id = await openTeamChat(page, relay, TEAM);
+    await send(page, 'What do you know? e2e:memory e2e:skills');
+    for (const m of TEAM) {
+      const reply = await finishedReply(page, m.name);
+      await expect(reply).toContainText(`My memory: “Lead with the conclusion. ${own}”.`);
+      await expect(reply).toContainText('I read the skill haiku: “Count the syllables.”.');
+    }
+    await settled(relay, id);
+
+    const card = await toolLibrary(page, relay);
+    await card.locator('.lib-row', { hasText: 'haiku' }).getByRole('button', { name: 'Remove' }).click();
+    await expect(card.locator('.lib-row', { hasText: 'haiku' })).toHaveCount(0);
+    const memory = card.locator('.tools-section', { has: page.getByRole('heading', { name: 'Memory' }) });
+    await memory.getByRole('textbox', { name: 'Memory: All members' }).fill('');
+    await memory.getByRole('button', { name: 'Save' }).click();
+    await expect(memory).toContainText('Saved');
+    const lib = await relay.api<ToolLibraryView>('/api/tools');
+    expect(lib.skills.map((s) => s.name)).toEqual(['release-notes']);
+    expect(lib.memory).toEqual({ all: '', claude: own, codex: own, grok: own });
+
+    await page.goto(`${relay.base}/#/c/${id}`);
+    await send(page, 'And now? e2e:memory e2e:skills');
+    for (const m of TEAM) {
+      await expect(replies(page, m.name)).toHaveCount(2);
+      const reply = await finishedReply(page, m.name);
+      await expect(reply).toContainText(`You said: “And now?”. My memory: “${own}”. I read the skill release-notes: “Begin each note with the words Shipped today.”.`);
+      await expect(reply).not.toContainText('haiku');
+    }
+    await settled(relay, id);
+    for (const m of TEAM) {
+      const turn = relay.fakeLog().find((e) => e.cli === m.provider && e.prompt?.includes('And now?'))!;
+      expect(turn.briefing).not.toContain('haiku');
+      expect(turn.briefing).not.toContain('Lead with the conclusion.');
+    }
   });
 });
