@@ -285,3 +285,28 @@ export const writeCollapsedGroups = (keys: Set<string>) => writeKeys(COLLAPSED_G
 /** Conversations whose branches the user hid in this browser (by the tree node's id). */
 export const readCollapsedBranches = () => readKeys(COLLAPSED_BRANCHES);
 export const writeCollapsedBranches = (keys: Set<string>) => writeKeys(COLLAPSED_BRANCHES, keys);
+
+/** The CLIs' health at the sidebar's foot: how many of those shown are ready (their dot green). */
+export function readyCount(states: readonly ('ok' | 'warn' | 'off')[]): { ready: number; total: number } {
+  return { ready: states.filter((s) => s === 'ok').length, total: states.length };
+}
+
+/** Where the sidebar keeps whether the CLIs' names are shown beside their dots (this browser only). */
+export const HEALTH_NAMES_KEY = 'relay:health-names';
+
+/** Whether to show the CLIs' names: off (dots only) unless this browser turned them on. */
+export function readHealthNames(storage: Pick<Storage, 'getItem'> | undefined = globalThis.localStorage): boolean {
+  try {
+    return storage?.getItem(HEALTH_NAMES_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function writeHealthNames(on: boolean, storage: Pick<Storage, 'setItem'> | undefined = globalThis.localStorage): void {
+  try {
+    storage?.setItem(HEALTH_NAMES_KEY, on ? '1' : '0');
+  } catch {
+    // storage unavailable: kept until a reload
+  }
+}

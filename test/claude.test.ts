@@ -25,6 +25,9 @@ import {
   claudeReopening,
   claudeApprovalRequest,
   claudeArgs,
+  claudeEndpointEnv,
+  claudeEndpointProcessEnv,
+  claudeEndpointUrl,
   claudeMcpConfig,
   claudeExcludePattern,
   claudeItemsBesideLibrary,
@@ -183,6 +186,8 @@ describe('claude parser', () => {
 
   it('describes approval requests by tool', () => {
     expect(claudeApprovalRequest('Bash', { command: 'git push', description: 'Push' })).toEqual({ kind: 'command', detail: 'git push', reason: 'Push' });
+    // On Windows its commands come through its PowerShell tool: a command too.
+    expect(claudeApprovalRequest('PowerShell', { command: 'echo hi > hello.txt', description: 'Write' })).toEqual({ kind: 'command', detail: 'echo hi > hello.txt', reason: 'Write' });
     expect(claudeApprovalRequest('Write', { file_path: '/a.txt' })).toMatchObject({ kind: 'edit', detail: '/a.txt' });
     expect(claudeApprovalRequest('WebFetch', { url: 'https://x.dev' })).toMatchObject({ kind: 'fetch', detail: 'https://x.dev' });
     expect(claudeApprovalRequest('mcp__linear__create', { title: 'Bug' })).toMatchObject({ kind: 'other', tool: 'mcp__linear__create' });
@@ -494,6 +499,81 @@ describe.skipIf(process.platform === 'win32')('a Claude Code run that leaves out
     expect(r.lines().find((l) => 'prompt' in l)).toEqual({ prompt: 'hello', denied: [] });
   });
 
+  it("runs on the user's own endpoint: its address, key and model in --settings, never the user's Anthropic key or sign-in", async () => {
+    const log = join(dir, `log-${++n}.jsonl`);
+    const backends = {
+      apis: {},
+      endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'], apiKey: 'lab-key' }],
+    };
+    const result = await claudeRunner.run({
+      bin,
+      env: { ...process.env, FAKE_CLAUDE_LOG: log, ANTHROPIC_API_KEY: 'sk-ant-from-settings', CLAUDE_CODE_OAUTH_TOKEN: 'oauth-token' },
+      prompt: 'hello',
+      systemPrompt: 'briefing',
+      cwd: dir,
+      permission: 'full',
+      model: 'homelab/gemma4:e4b',
+      effort: 'xhigh',
+      backends,
+      signal: new AbortController().signal,
+      onEvent: () => undefined,
+    });
+    // Claude Code would price the model as one of its own.
+    expect(result).toMatchObject({ sessionId: 'fake-session', costUsd: undefined });
+    const start = turn(readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>))!;
+    expect(start.args[start.args.indexOf('--model') + 1]).toBe('gemma4:e4b');
+    // An effort the endpoint may not take is not sent.
+    expect(start.args).not.toContain('--effort');
+    // In the private settings file (the flag layer, over the user's own settings files).
+    expect(start.args[start.args.indexOf('--settings') + 1]).toMatch(/settings\.json$/);
+    expect(start.settings.env).toMatchObject({ ANTHROPIC_BASE_URL: 'http://10.0.0.5:11434', ANTHROPIC_AUTH_TOKEN: 'lab-key', ANTHROPIC_API_KEY: '', ANTHROPIC_MODEL: 'gemma4:e4b' });
+    expect(start.env).toEqual({
+      CLAUDE_CODE_DISABLE_CLAUDE_MDS: null,
+      ANTHROPIC_BASE_URL: 'http://10.0.0.5:11434',
+      ANTHROPIC_AUTH_TOKEN: 'lab-key',
+      ANTHROPIC_API_KEY: null,
+      CLAUDE_CODE_OAUTH_TOKEN: null,
+    });
+    // Its own models stay with Claude Code.
+    const own = join(dir, `log-${++n}.jsonl`);
+    await claudeRunner.run({
+      bin,
+      env: { ...process.env, FAKE_CLAUDE_LOG: own, ANTHROPIC_API_KEY: 'sk-ant-from-settings' },
+      prompt: 'hello',
+      systemPrompt: 'briefing',
+      cwd: dir,
+      permission: 'full',
+      model: 'opus',
+      effort: 'xhigh',
+      backends,
+      signal: new AbortController().signal,
+      onEvent: () => undefined,
+    });
+    const ownStart = turn(readFileSync(own, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>))!;
+    expect(ownStart.args.slice(ownStart.args.indexOf('--model'), ownStart.args.indexOf('--model') + 4)).toEqual(['--model', 'opus', '--effort', 'xhigh']);
+    expect(ownStart.args).not.toContain('--settings');
+    expect(ownStart.env.ANTHROPIC_API_KEY).toBe('sk-ant-from-settings');
+    // A model of an endpoint deleted in Settings fails before Claude Code starts: its id would go to Anthropic.
+    const gone = join(dir, `log-${++n}.jsonl`);
+    await expect(
+      withLang('en', () =>
+        claudeRunner.run({
+          bin,
+          env: { ...process.env, FAKE_CLAUDE_LOG: gone, ANTHROPIC_API_KEY: 'sk-ant-from-settings' },
+          prompt: 'hello',
+          systemPrompt: 'briefing',
+          cwd: dir,
+          permission: 'full',
+          model: 'oldlab/gemma4:e4b',
+          backends: { ...backends, deletedEndpoints: ['oldlab'] },
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+        }),
+      ),
+    ).rejects.toThrow('Claude Code is to use the model "oldlab/gemma4:e4b", but its custom endpoint "oldlab" was deleted');
+    expect(existsSync(gone)).toBe(false);
+  });
+
   it('denies plugin subagents too when only subagents are left out, and sends the prompt at once otherwise', async () => {
     const agents = run(['agents']);
     await agents.result;
@@ -611,6 +691,42 @@ describe("Claude Code's sandbox below full access", () => {
       expect(claudeSandboxSettings('full', platform)).toBeUndefined();
     }
     expect(claudeSandboxSettings('edit', 'win32')).toBeUndefined();
+  });
+
+  it("sets the user's own endpoint's variables over what the user's settings files set, with any sandbox", () => {
+    const run = { id: 'lab/qwen3', model: 'qwen3', endpoint: { id: 'lab', name: 'Lab', baseUrl: 'https://lab.example/v1/', models: ['qwen3'] } };
+    const env = claudeEndpointEnv(run);
+    expect(env).toEqual({
+      ANTHROPIC_BASE_URL: 'https://lab.example',
+      // A credential of its own: without one the user's sign-in would be sent there.
+      ANTHROPIC_AUTH_TOKEN: 'no-key',
+      ANTHROPIC_API_KEY: '',
+      CLAUDE_CODE_OAUTH_TOKEN: '',
+      CLAUDE_CODE_USE_BEDROCK: '0',
+      CLAUDE_CODE_USE_VERTEX: '0',
+      CLAUDE_CODE_USE_FOUNDRY: '0',
+      ANTHROPIC_MODEL: 'qwen3',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'qwen3',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'qwen3',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'qwen3',
+      ANTHROPIC_SMALL_FAST_MODEL: 'qwen3',
+      CLAUDE_CODE_SUBAGENT_MODEL: 'qwen3',
+    });
+    expect(claudeEndpointEnv({ ...run, endpoint: { ...run.endpoint, apiKey: 'k' } }).ANTHROPIC_AUTH_TOKEN).toBe('k');
+    expect(claudeEndpointUrl('http://10.0.0.5:11434/v1')).toBe('http://10.0.0.5:11434');
+    expect(claudeEndpointUrl('http://10.0.0.5:11434')).toBe('http://10.0.0.5:11434');
+    expect(claudeEndpointUrl('https://gw.example/anthropic/')).toBe('https://gw.example/anthropic');
+    // Empty values are taken out of the process environment.
+    expect(claudeEndpointProcessEnv({ PATH: '/bin', ANTHROPIC_API_KEY: 'sk', CLAUDE_CODE_USE_BEDROCK: '1' }, env)).toMatchObject({
+      PATH: '/bin',
+      ANTHROPIC_AUTH_TOKEN: 'no-key',
+      CLAUDE_CODE_USE_BEDROCK: '0',
+    });
+    expect(claudeEndpointProcessEnv({ ANTHROPIC_API_KEY: 'sk' }, env)).not.toHaveProperty('ANTHROPIC_API_KEY');
+    expect(claudeRunSettings('full', [], [], {}, 'linux', [], env)).toEqual({ env });
+    expect(claudeRunSettings('edit', ['hooks'], [], {}, 'linux', [], env)).toEqual({ disableAllHooks: true, ...sandbox, env });
+    const args = claudeArgs({ systemPrompt: 'b', ask: false, newSessionId: 'id', permission: 'full', platform: 'linux', endpointEnv: env, settingsFile: '/tmp/s.json' });
+    expect(args.slice(args.indexOf('--settings'), args.indexOf('--settings') + 2)).toEqual(['--settings', '/tmp/s.json']);
   });
 
   it('adds it to what a turn leaves out, keeping both sets of permission rules', () => {

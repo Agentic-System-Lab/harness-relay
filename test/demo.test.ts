@@ -5,7 +5,8 @@ import { buildChapters, joinNames, planPhrase, RAILS, renderRail, replaceRail, r
 import type { FrameEntry, Mark, Timeline } from '../scripts/demo/common';
 import { ffconcat, MIN_FAST, planCut, TAIL } from '../scripts/demo/cut';
 import { retimeGuidelines } from '../scripts/demo/publish';
-import { SCENARIOS } from '../scripts/demo/record';
+import { DEMO_PROVIDERS, SCENARIOS } from '../scripts/demo/record';
+import { PROVIDER_LABEL } from '../src/shared/types';
 import { pngChunks, pngText, swapScreen, withPngText } from '../scripts/demo/stills';
 
 /** Frames every `step` seconds from `from` to `to`. */
@@ -203,6 +204,8 @@ describe('demo scenario and site', () => {
     for (const s of Object.values(SCENARIOS)) {
       for (const cli of ['Claude Code', 'Codex', 'Grok']) expect(s.question).toContain(cli);
     }
+    // Only those must be installed and signed in to record it (Cursor is not asked for).
+    expect(DEMO_PROVIDERS.map((p) => PROVIDER_LABEL[p])).toEqual(['Claude Code', 'Codex', 'Grok']);
   });
 
   it('re-times only the language’s poster frame in the design guidelines', () => {

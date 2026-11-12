@@ -1,8 +1,22 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { ModelOption, Provider, ProviderModels } from '../shared/types';
-import { capture, stripAnsi, tail } from './process';
+import {
+  ENDPOINT_CLI,
+  backendModelId,
+  isEndpointCli,
+  isOpenProvider,
+  parseBackendModel,
+  type EndpointCli,
+  type ModelEndpointView,
+  type ModelOption,
+  type OpenProvider,
+  type Provider,
+  type ProviderModels,
+} from '../shared/types';
+import { openAgents } from './agents/index';
+import { openHomeEnv, type OpenCatalog } from './agents/open';
+import { capture, converse, stripAnsi, tail } from './process';
 import { t } from './i18n';
 
 /** Discovered once per CLI and cached; defaults from Relay settings are layered on at request time. */
@@ -11,6 +25,7 @@ export type DiscoveredModels = Omit<ProviderModels, 'defaultModel' | 'defaultEff
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const GROK_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+const CURSOR_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 /** Claude Code accepts aliases that always point at the latest model of each family. */
 const CLAUDE_MODELS: ModelOption[] = [
@@ -83,6 +98,104 @@ async function discoverGrok(bin: string, env: NodeJS.ProcessEnv): Promise<Discov
   };
 }
 
+/** A name as Cursor shows it, without the zero-width spaces and doubled spaces some have. */
+const cleanName = (name: unknown) => (typeof name === 'string' ? name.replace(/\u200b/g, '').replace(/\s+/g, ' ').trim() : '');
+
+/** An option's values. */
+export const cursorOptionValues = (option: any): string[] =>
+  Array.isArray(option?.options) ? option.options.map((o: any) => (typeof o?.value === 'string' ? o.value : '')).filter(Boolean) : [];
+
+/**
+ * A Cursor model's reasoning effort: its option of category `thought_level`, unless that is only a
+ * thinking switch (`true` / `false`), which is no level to pick (such a model runs at its own).
+ */
+export function cursorEffortOption(options: unknown): any {
+  const option = Array.isArray(options) ? options.find((c: any) => c?.category === 'thought_level') : undefined;
+  const values = cursorOptionValues(option);
+  return values.length && !values.every((v) => v === 'true' || v === 'false') ? option : undefined;
+}
+
+/**
+ * Cursor's models from its `cursor/list_available_models` answer (with the parameterized model picker):
+ * each model by its base name, with the reasoning efforts of its option of category `thought_level`
+ * (named `effort`, `reasoning_effort`, `reasoning`… per model, `cursorEffortOption`) and that option's
+ * default. `default` is
+ * Auto, which picks a model by itself.
+ */
+export function parseCursorModels(result: unknown): ModelOption[] {
+  const list = (result as { models?: unknown } | undefined)?.models;
+  if (!Array.isArray(list)) return [];
+  const models: ModelOption[] = [];
+  for (const m of list) {
+    const id = typeof m?.value === 'string' ? m.value : '';
+    if (!id || models.some((x) => x.id === id)) continue;
+    const effort = cursorEffortOption(m.configOptions);
+    const efforts = effort ? cursorOptionValues(effort) : undefined;
+    const label = cleanName(m.name);
+    models.push({
+      id,
+      ...(label && label !== id ? { label } : {}),
+      ...(efforts?.length ? { efforts } : { efforts: [] }),
+      ...(efforts?.length && typeof effort.currentValue === 'string' ? { defaultEffort: effort.currentValue } : {}),
+    });
+  }
+  return models;
+}
+
+/**
+ * Asks Cursor for its models over ACP, the way Harness Relay runs it, without a session or a prompt:
+ * `initialize`, `authenticate` (not with an API key, which signs it in already), then
+ * `cursor/list_available_models`.
+ */
+async function discoverCursor(bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
+  const keyed = Boolean(env.CURSOR_API_KEY || env.CURSOR_AUTH_TOKEN);
+  let answer: unknown;
+  let error: string | undefined;
+  const failed = (msg: Record<string, any>) => String(msg.error?.data?.message ?? msg.error?.message ?? 'error');
+  const res = await converse({
+    bin,
+    args: ['--disable-project-configs', 'acp'],
+    cwd: homedir(),
+    env: { ...env, NO_OPEN_BROWSER: '1' },
+    timeoutMs: 30_000,
+    open: (write) =>
+      write({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: 1,
+          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, _meta: { parameterizedModelPicker: true } },
+        },
+      }),
+    onMessage: (msg, write, finish) => {
+      const list = () => write({ jsonrpc: '2.0', id: 3, method: 'cursor/list_available_models', params: {} });
+      if (msg.method !== undefined) return;
+      if (msg.error) {
+        error = failed(msg);
+        finish();
+      } else if (msg.id === 1) {
+        const login = Array.isArray(msg.result?.authMethods) && msg.result.authMethods.some((m: any) => m?.id === 'cursor_login');
+        if (keyed || !login) list();
+        else write({ jsonrpc: '2.0', id: 2, method: 'authenticate', params: { methodId: 'cursor_login' } });
+      } else if (msg.id === 2) list();
+      else if (msg.id === 3) {
+        answer = msg.result;
+        finish();
+      }
+    },
+  });
+  const models = parseCursorModels(answer);
+  const efforts = [...new Set(models.flatMap((m) => m.efforts ?? []))];
+  return {
+    provider: 'cursor',
+    models,
+    efforts: efforts.length ? efforts : CURSOR_EFFORTS,
+    source: models.length ? 'cli' : 'builtin',
+    error: models.length ? undefined : error || (res.timedOut ? t().timedOut : tail(res.stderr, 200)) || t().cursorModelsFailed,
+  };
+}
+
 function discoverClaude(env: NodeJS.ProcessEnv): DiscoveredModels {
   // Claude Code has no list command; read the user's configured default if there is one.
   const dir = env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
@@ -98,14 +211,93 @@ function discoverClaude(env: NodeJS.ProcessEnv): DiscoveredModels {
   return { provider: 'claude', models: CLAUDE_MODELS, efforts: CLAUDE_EFFORTS, cliDefaultModel, cliDefaultEffort, source: 'builtin' };
 }
 
-export async function discoverModels(p: Provider, bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
-  try {
-    if (p === 'claude') return discoverClaude(env);
-    if (p === 'codex') return await discoverCodex(bin, env);
-    return await discoverGrok(bin, env);
-  } catch (err) {
-    const efforts = p === 'claude' ? CLAUDE_EFFORTS : p === 'codex' ? CODEX_EFFORTS : GROK_EFFORTS;
-    return { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
+/** The model backends set up in Settings: an open agent's models may be on any; Claude Code's, Codex's and Grok's on the endpoints. */
+export interface ConfiguredBackends {
+  /** API backends with a key, and every endpoint (`ModelBackendStore.configured()`). */
+  configured: string[];
+  endpoints: ModelEndpointView[];
+}
+
+/**
+ * An open agent's models: those of its CLI's own catalog (adapter's `models` hook) whose backend is set
+ * up, then each endpoint's typed models (`<endpoint id>/<model>`). Harness Relay never asks a model
+ * API for its list.
+ */
+export async function discoverOpenModels(p: OpenProvider, bin: string, env: NodeJS.ProcessEnv, backends: ConfiguredBackends): Promise<DiscoveredModels> {
+  const agent = openAgents[p];
+  let catalog: OpenCatalog = { models: [] };
+  if (agent.models) {
+    try {
+      catalog = await agent.models(bin, openHomeEnv(agent.process, env));
+    } catch (err) {
+      catalog = { models: [], error: (err as Error).message };
+    }
   }
+  const configured = new Set(backends.configured);
+  const fromCli = catalog.models.filter((m) => configured.has(parseBackendModel(m.id)?.backend ?? ''));
+  const ids = new Set(fromCli.map((m) => m.id));
+  const fromEndpoints = backends.endpoints.flatMap((e) =>
+    e.models.map((model): ModelOption => ({ id: backendModelId(e.id, model), label: `${model} · ${e.name || e.id}` })).filter((m) => !ids.has(m.id)),
+  );
+  return {
+    provider: p,
+    models: [...fromCli, ...fromEndpoints],
+    efforts: catalog.efforts ?? agent.efforts,
+    ...(catalog.defaultModel && configured.has(parseBackendModel(catalog.defaultModel)?.backend ?? '') ? { cliDefaultModel: catalog.defaultModel } : {}),
+    ...(catalog.defaultEffort ? { cliDefaultEffort: catalog.defaultEffort } : {}),
+    source: agent.models ? 'cli' : 'builtin',
+    ...(catalog.error ? { error: catalog.error } : {}),
+  };
+}
+
+/**
+ * Claude Code's, Codex's or Grok's models with each endpoint's typed models after them
+ * (`<endpoint id>/<model>`, marked with the endpoint and the efforts the CLI may send there:
+ * `ENDPOINT_CLI`). An id the CLI already lists stays its own.
+ */
+export function withEndpointModels(p: EndpointCli, d: DiscoveredModels, endpoints: readonly ModelEndpointView[]): DiscoveredModels {
+  const ids = new Set(d.models.map((m) => m.id));
+  const { efforts, fallbackEffort } = ENDPOINT_CLI[p];
+  const fromEndpoints = endpoints.flatMap((e) =>
+    e.models
+      .map(
+        (model): ModelOption => ({
+          id: backendModelId(e.id, model),
+          label: `${model} · ${e.name || e.id}`,
+          endpoint: e.id,
+          efforts: [...efforts],
+          ...(fallbackEffort ? { defaultEffort: fallbackEffort } : {}),
+        }),
+      )
+      .filter((m) => !ids.has(m.id)),
+  );
+  return fromEndpoints.length ? { ...d, models: [...d.models, ...fromEndpoints] } : d;
+}
+
+export async function discoverModels(
+  p: Provider,
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  backends: ConfiguredBackends = { configured: [], endpoints: [] },
+): Promise<DiscoveredModels> {
+  if (isOpenProvider(p)) {
+    try {
+      return await discoverOpenModels(p, bin, env, backends);
+    } catch (err) {
+      return { provider: p, models: [], efforts: openAgents[p].efforts, source: 'builtin', error: (err as Error).message };
+    }
+  }
+  let own: DiscoveredModels;
+  try {
+    if (p === 'claude') own = discoverClaude(env);
+    else if (p === 'codex') own = await discoverCodex(bin, env);
+    else if (p === 'cursor') own = await discoverCursor(bin, env);
+    else own = await discoverGrok(bin, env);
+  } catch (err) {
+    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS }[p];
+    own = { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
+  }
+  // Cursor's models run only through Cursor's own service, so the endpoints' models are not its.
+  return isEndpointCli(p) ? withEndpointModels(p, own, backends.endpoints) : own;
 }
 

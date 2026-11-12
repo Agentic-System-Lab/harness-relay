@@ -4,6 +4,7 @@ import {
   PROVIDER_LABEL,
   catalogFor,
   cwdsOf,
+  isOpenProvider,
   inheritedEffort,
   type AgentConfig,
   type ConversationSchedule,
@@ -20,10 +21,11 @@ import { useT, type Messages } from '../i18n';
 import { useLimits } from '../limits';
 import { settingsHref } from '../route';
 import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
-import { PROVIDER_COLOR, accountName, accountOf, accountState, initials, newAgent, readyAccount, switchProvider, type ModelChoice } from '../util';
+import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, initials, newAgent, readyAccount, switchProvider, type ModelChoice } from '../util';
 import { AccountPicker } from './AccountPicker';
 import { CwdInput } from './CwdInput';
 import { GrokTrustNote } from './GrokTrust';
+import { CliPicker } from './CliPicker';
 import { ModelPicker } from './ModelPicker';
 
 export interface Team {
@@ -170,25 +172,15 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                     </div>
                   </div>
 
-                  <div className="segmented" role="radiogroup" aria-label={t.team.codingAgent}>
-                    {PROVIDERS.map((p) => (
-                      <button
-                        key={p}
-                        role="radio"
-                        aria-checked={a.provider === p}
-                        className={a.provider === p ? 'on' : ''}
-                        style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
-                        onClick={() => {
-                          if (a.provider === p) return;
-                          const next = switchProvider(a, p, kept.current.get(a.id) ?? {});
-                          kept.current.set(a.id, next.kept);
-                          updateAgent(a.id, { provider: p, model: next.value.model, effort: next.value.effort, account: next.value.account });
-                        }}
-                      >
-                        {PROVIDER_LABEL[p]}
-                      </button>
-                    ))}
-                  </div>
+                  <CliPicker
+                    value={a.provider}
+                    label={t.team.codingAgent}
+                    onPick={(p) => {
+                      const next = switchProvider(a, p, kept.current.get(a.id) ?? {});
+                      kept.current.set(a.id, next.kept);
+                      updateAgent(a.id, { provider: p, model: next.value.model, effort: next.value.effort, account: next.value.account });
+                    }}
+                  />
 
                   <label className="field">
                     <span>{t.team.role}</span>
@@ -215,8 +207,10 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                     <p className="warn-line">
                       {!status.installed
                         ? t.team.cliMissing(PROVIDER_LABEL[a.provider])
-                        : multi && account
-                          ? t.accounts.notLoggedIn(PROVIDER_LABEL[a.provider], accountName(account, t))
+                        : isOpenProvider(a.provider)
+                          ? t.team.noBackend(PROVIDER_LABEL[a.provider])
+                          : multi && account
+                            ? t.accounts.notLoggedIn(PROVIDER_LABEL[a.provider], accountName(account, t))
                           : t.team.notLoggedIn(PROVIDER_LABEL[a.provider])}
                       <a href={settingsHref(a.provider)}>{t.team.goSettings}</a>
                     </p>
@@ -483,7 +477,7 @@ function AgentModelPicker({
       model={agent.model ?? ''}
       effort={agent.effort ?? ''}
       onChange={onChange}
-      inheritModelLabel={t.team.defaultModel(catalog?.defaultModel ?? (catalog ? t.team.cliDecides : t.common.loading))}
+      inheritModelLabel={inheritModelLabel(catalog, agent.provider, t)}
       inheritEffortLabel={(model) => {
         const e = catalog && inheritedEffort(catalog, model);
         return t.team.defaultModel(e ? t.effortLabel(e) : t.team.cliDecides);

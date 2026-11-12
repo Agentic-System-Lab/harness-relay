@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { AccountStatus, ProviderStatus } from '../src/shared/types';
+import type { AccountStatus, ProviderModels, ProviderStatus } from '../src/shared/types';
 import { en } from '../src/web/locales/en';
-import { accountName, accountOf, accountState, readyAccount, switchProvider, timeoutSignal } from '../src/web/util';
+import { accountName, accountOf, accountState, inheritModelLabel, readyAccount, switchProvider, timeoutSignal } from '../src/web/util';
 
 describe('switching an agent to another CLI', () => {
   it('restores the model and effort picked for a CLI when switching back to it', () => {
@@ -26,6 +26,19 @@ describe('switching an agent to another CLI', () => {
     const away = switchProvider(lead, 'claude', {});
     expect(away.kept.grok).toEqual({ model: '', effort: '' });
     expect(switchProvider(away.value, 'grok', away.kept).value).toEqual({ provider: 'grok', model: '', effort: '' });
+  });
+});
+
+describe("the model picker's default", () => {
+  const t = en;
+  const pm = (over: Partial<ProviderModels> = {}): ProviderModels => ({ provider: 'opencode', models: [], efforts: [], source: 'cli', ...over });
+
+  it('names the model an open agent then runs on, and says it needs one when there is none', () => {
+    expect(inheritModelLabel(pm({ defaultModel: 'openai/gpt-5.4-nano' }), 'opencode', t)).toBe(t.team.defaultModel('openai/gpt-5.4-nano'));
+    expect(inheritModelLabel(pm(), 'opencode', t)).toBe(t.team.noDefaultModel);
+    // The other CLIs choose their own default.
+    expect(inheritModelLabel(pm({ provider: 'claude' }), 'claude', t)).toBe(t.team.defaultModel(t.team.cliDecides));
+    expect(inheritModelLabel(undefined, 'goose', t)).toBe(t.team.defaultModel(t.common.loading));
   });
 });
 

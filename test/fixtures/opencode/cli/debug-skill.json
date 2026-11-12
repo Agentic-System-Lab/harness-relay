@@ -1,0 +1,26 @@
+[
+  {
+    "name": "customize-opencode",
+    "description": "Use ONLY when the user is editing or creating opencode's own configuration: opencode.json, opencode.jsonc, files under .opencode/, or files under ~/.config/opencode/. Also use when creating or fixing opencode agents, subagents, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring opencode itself.",
+    "location": "<built-in>",
+    "content": "<!--\n  Built-in skill. Name and description are registered in code at\n  packages/core/src/plugin/skill.ts\n  and CUSTOMIZE_OPENCODE_SKILL_DESCRIPTION). The body below becomes the\n  skill's content.\n-->\n\n# Customizing opencode\n\nopencode validates its own config strictly and refuses to start when a fie\n…(cut)"
+  },
+  {
+    "name": "user-agents-skill",
+    "description": "USER-AGENTS-SKILL-CANARY-3",
+    "location": "/home/user/.agents/skills/user-agents-skill/SKILL.md",
+    "content": "Body of user-agents-skill.\n"
+  },
+  {
+    "name": "user-claude-skill",
+    "description": "USER-CLAUDE-SKILL-CANARY-2",
+    "location": "/home/user/.claude/skills/user-claude-skill/SKILL.md",
+    "content": "Body of user-claude-skill.\n"
+  },
+  {
+    "name": "proj-claude-skill",
+    "description": "PROJECT-CLAUDE-SKILL-CANARY-10",
+    "location": "/home/user/project/.claude/skills/proj-claude-skill/SKILL.md",
+    "content": "Body of proj-claude-skill.\n"
+  }
+]

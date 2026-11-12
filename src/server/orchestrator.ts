@@ -21,9 +21,10 @@ import type {
   TeamRevision,
 } from '../shared/types';
 import { splitAsk } from '../shared/ask';
-import { REVISE_REQUEST_MAX, cwdsOf, pendingPlan, planSavable } from '../shared/types';
+import { OPEN_PROVIDERS, PROVIDER_LABEL, REVISE_REQUEST_MAX, cwdsOf, isEndpointCli, isOpenProvider, pendingPlan, permissionAbove, planSavable } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
-import type { ApprovalRequest } from './agents/types';
+import { emptyStateFolder, removeConversationState } from './agents/open';
+import { stateKeys, type ApprovalRequest } from './agents/types';
 import type { TraceSink } from './agentsview';
 import { approvalKeys, isAllowed } from './approvals';
 import { CONFIG } from './config';
@@ -66,7 +67,8 @@ import {
   type BriefingWorkspace,
   type TurnInfo,
 } from './prompt';
-import { DATA_DIR, type SettingsStore } from './settings';
+import { endpointModel } from './backends';
+import { DATA_DIR, OPEN_HOMES_DIR, type SettingsStore } from './settings';
 import type { Store } from './store';
 import {
   applyPatch,
@@ -247,6 +249,12 @@ export interface PlannerSource {
    * other working directories, `addDirs`, as runs have them).
    */
   context(cwd?: string, addDirs?: readonly string[]): Promise<PlannerContext>;
+  /**
+   * The model an open agent with none of its own runs on: the one its model picker shows as the
+   * default (Settings' default, else its CLI catalog's default on a configured backend). The other
+   * CLIs choose their own default, as their picker says.
+   */
+  defaultModel?(p: Provider): Promise<string | undefined>;
 }
 
 function textOf(m: ChatMessage): string {
@@ -463,7 +471,28 @@ export class Orchestrator {
     /** Told after each turn and run, to send the conversation to AgentsView. */
     private traces?: TraceSink,
   ) {
-    this.grouper = new AutoGrouper(store, settings, (conv, provider, sessionId) => this.linkSession(conv, provider, sessionId));
+    this.grouper = new AutoGrouper(
+      store,
+      settings,
+      (conv, provider, sessionId) => this.linkSession(conv, provider, sessionId),
+      (p, chosen, account) => this.modelFor(p, chosen, account),
+    );
+  }
+
+  /**
+   * The model a run of `p` (as `account`) gets: the one chosen, else that account's default in Settings; for an open agent with
+   * neither, the default its model picker shows (`PlannerSource.defaultModel`), so that what runs is
+   * what the picker said. Undefined: the CLI decides (an open agent then says to pick one).
+   */
+  async modelFor(p: Provider, chosen?: string, account?: string): Promise<string | undefined> {
+    const model = chosen?.trim() || this.settings.defaultModel(p, account);
+    if (model || !isOpenProvider(p) || !this.planner.defaultModel) return model || undefined;
+    try {
+      return (await this.planner.defaultModel(p)) || undefined;
+    } catch (err) {
+      console.warn(`[orchestrator] could not ask for ${p}'s default model:`, (err as Error).message);
+      return undefined;
+    }
   }
 
   isRunning(id: string): boolean {
@@ -564,7 +593,12 @@ export class Orchestrator {
       for (const r of revisions) r.abort.abort();
       await Promise.all(revisions.map((r) => r.done.catch(() => undefined)));
       const conv = this.store.get(convId);
-      if (conv) await this.cleanupWorktrees(conv);
+      if (conv) {
+        await this.cleanupWorktrees(conv);
+        // What each open agent kept for its members, its lead agent and its group sorter.
+        const members = new Set([...conv.agents.map((a) => a.id), ...Object.keys(conv.agentState)]);
+        removeConversationState(OPEN_PROVIDERS.flatMap((p) => this.settings.openAgentHomes(p)), convId, [...members]);
+      }
       // A schedule that opened it no longer links to it.
       for (const id of this.store.delete(convId)) {
         const linked = this.store.get(id);
@@ -1038,7 +1072,9 @@ export class Orchestrator {
       console.warn('[orchestrator] snapshot ref cleanup failed:', (err as Error).message),
     );
     for (const agentId of new Set([...Object.keys(conv.agentState), ...conv.agents.map((a) => a.id)])) {
-      const state: AgentSessionState = { provider: conv.agentState[agentId]?.provider, seen: [] };
+      const was = conv.agentState[agentId];
+      // What each CLI's state folder was written with stays recorded: those folders are not emptied here.
+      const state: AgentSessionState = { provider: was?.provider, permission: was?.permission, ...(was?.byCli ? { byCli: was.byCli } : {}), seen: [] };
       conv.agentState[agentId] = state;
       this.store.saveAgentState(conv.id, agentId, state);
     }
@@ -1190,9 +1226,12 @@ export class Orchestrator {
     this.trace(conv);
   }
 
-  /** Folders snapshots never take in: the CLIs' own homes, with their sign-ins and transcripts. */
+  /**
+   * Folders snapshots never take in: the CLIs' own homes and every account's, with their sign-ins and
+   * transcripts (the open agents' are in Harness Relay's data folder when no agent-home folder is set).
+   */
   private snapshotExcludes(): string[] {
-    return [...new Set([...(this.settings.agentHome ? [this.settings.agentHome] : []), ...this.settings.accountHomes()])];
+    return [...new Set([...(this.settings.agentHome ? [this.settings.agentHome] : [OPEN_HOMES_DIR]), ...this.settings.accountHomes()])];
   }
 
   /** Send the conversation to AgentsView, unless it is being deleted (a run winding down after the delete). */
@@ -1337,6 +1376,8 @@ export class Orchestrator {
    * conversation is writing in one of them (the action is then declined).
    */
   private lockForApproval(conv: Conversation, run: Run): string | undefined {
+    // A run that has ended let go of its lock already: taking one now would keep it until a restart.
+    if (this.runs.get(conv.id) !== run) return undefined;
     if (run.ws.isolated || run.lockRoots) return undefined;
     const dirs: string[] = [];
     for (const cwd of cwdsOf(conv.settings)) {
@@ -1531,8 +1572,10 @@ export class Orchestrator {
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
+        backends: this.settings.backendsFor(lead.provider),
         nativeOff: this.settings.nativeOff(lead.provider, lead.account),
         nativeItems: this.settings.nativeItems(lead.provider, lead.account),
+        sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildPlannerPrompt(question, conv.settings, ctx, {
           history,
           current,
@@ -1541,7 +1584,8 @@ export class Orchestrator {
         systemPrompt: PLANNER_BRIEFING,
         cwd: conv.settings.cwd,
         permission: 'read-only',
-        model: lead.model || this.settings.defaultModel(lead.provider, lead.account) || undefined,
+        stateKey: stateKeys.lead(conv.id),
+        model: await this.modelFor(lead.provider, lead.model, lead.account),
         effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
         signal: run.abort.signal,
         onEvent: (e) => {
@@ -1741,8 +1785,10 @@ export class Orchestrator {
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
+        backends: this.settings.backendsFor(lead.provider),
         nativeOff: this.settings.nativeOff(lead.provider, lead.account),
         nativeItems: this.settings.nativeItems(lead.provider, lead.account),
+        sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildRevisePrompt(request, draft, place, ctx, {
           history: historyForLead(conv.messages),
           pending: waiting ? (waiting.forSchedule ? 'schedule' : 'question') : undefined,
@@ -1756,8 +1802,9 @@ export class Orchestrator {
         }),
         systemPrompt: REVISER_BRIEFING,
         cwd: conv.settings.cwd,
+        stateKey: stateKeys.revise(conv.id),
         permission: 'read-only',
-        model: lead.model || this.settings.defaultModel(lead.provider, lead.account) || undefined,
+        model: await this.modelFor(lead.provider, lead.model, lead.account),
         effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
         signal,
         onEvent: (e) => {
@@ -1989,6 +2036,7 @@ export class Orchestrator {
   /** One agent turn: build its prompt, run the CLI, stream into a new chat message. */
   private async turn(conv: Conversation, agent: AgentConfig, run: Run, info: TurnInfo): Promise<ChatMessage> {
     const state: AgentSessionState = (conv.agentState[agent.id] ??= { seen: [] });
+    const lastProvider = state.provider;
     // The account it runs as: one that was removed is the default account. A session is kept in its
     // CLI's home, which is the account's, so another CLI or another account starts a new one.
     const account = this.settings.resolveAccount(agent.provider, agent.account);
@@ -1999,6 +2047,66 @@ export class Orchestrator {
     state.provider = agent.provider;
     if (account) state.account = account;
     else delete state.account;
+    // Claude Code, Codex and Grok run on one of the user's endpoints or on their own service. A session
+    // made on another one is not resumed: its context (Claude's signed thinking, Grok's session model)
+    // belongs to that backend, and Grok would stay on an endpoint's model when the member's model is
+    // the CLI's default. The run's model is the one `attempt` gets from `modelFor`, which for these CLIs
+    // asks nothing: worked out here without waiting, so that in parallel mode every member's reply is
+    // still added in the team's order.
+    if (isEndpointCli(agent.provider)) {
+      const model = agent.model?.trim() || this.settings.defaultModel(agent.provider, account) || undefined;
+      const backend = endpointModel(this.settings.backendsFor(agent.provider), model)?.endpoint.id;
+      if (state.sessionId && (state.backend ?? '') !== (backend ?? '')) {
+        state.sessionId = undefined;
+        state.seen = [];
+      }
+      if (backend) state.backend = backend;
+      else delete state.backend;
+    } else {
+      delete state.backend;
+    }
+    // A member whose CLI's latest run had a lower permission (read-only → edit → full; not recorded
+    // counts as read-only) does not resume its session: it starts a fresh one with the whole history
+    // from Harness Relay's own record, and an open agent's state folder (one per CLI and member) is
+    // emptied, so nothing a run with less permission wrote (into its session, or a cache that loads
+    // code) is read with more. Kept per CLI: the folder of a CLI the member left keeps what it wrote.
+    // The same when an open agent's home moved since that run (Settings → Agent sessions): its session
+    // is in the other home, and the folder in this one may hold what an older run, at any permission,
+    // left there. All of it is recorded in the database before the run, never in a file the agent can
+    // write, and the flag that the folder must be emptied stays there until it has been.
+    const permission = conv.settings.permission;
+    const home = isOpenProvider(agent.provider) ? this.settings.openAgentHome(agent.provider) : undefined;
+    // Saved before the record per CLI: the latest run's permission, when it was on this CLI.
+    const lastRun = state.byCli
+      ? state.byCli[agent.provider]
+      : lastProvider === agent.provider && state.permission
+        ? { permission: state.permission }
+        : undefined;
+    // A latest run recorded without its home (before homes were recorded) counts as in another one.
+    const moved = home !== undefined && lastRun !== undefined && lastRun.home !== home;
+    const raised = permissionAbove(permission, lastRun?.permission ?? 'read-only') || moved;
+    if (raised && state.sessionId) {
+      state.sessionId = undefined;
+      state.seen = [];
+    }
+    const mustEmpty = isOpenProvider(agent.provider) && (raised || lastRun?.mustEmpty === true);
+    const ran = { permission, ...(home ? { home } : {}) };
+    state.permission = permission;
+    state.byCli = { ...state.byCli, [agent.provider]: { ...ran, ...(mustEmpty ? { mustEmpty: true } : {}) } };
+    this.store.saveAgentState(conv.id, agent.id, state);
+    /** Why the turn cannot run: the member's state folder could not be emptied. */
+    let notEmptied: AgentRunError | undefined;
+    if (mustEmpty) {
+      try {
+        emptyStateFolder(home!, stateKeys.member(conv.id, agent.id));
+        state.byCli[agent.provider] = ran;
+        this.store.saveAgentState(conv.id, agent.id, state);
+      } catch (err) {
+        notEmptied = new AgentRunError(t().openStateNotEmptied(PROVIDER_LABEL[agent.provider], (err as Error).message));
+      }
+    }
+    /** The run is told its state is fresh on the first attempt only (a fresh retry runs at the same permission). */
+    let emptyState = mustEmpty;
 
     const msg: ChatMessage = {
       id: randomUUID(),
@@ -2026,7 +2134,7 @@ export class Orchestrator {
     let addDirs = conv.settings.extraCwds ?? [];
     let workspace: BriefingWorkspace = { kind: 'shared' };
     let before: Map<string, { commit: string; tree?: string }> | undefined;
-    let setupError: unknown;
+    let setupError: unknown = notEmptied;
     try {
       // Settings from before the check (or changed since): edit mode in Harness Relay's own folder.
       const refusal = relayFolderRefusal(conv.settings, agentFolderOptions(this.settings));
@@ -2085,6 +2193,8 @@ export class Orchestrator {
     let committedSeen = state.seen;
     /** Approval requests of this turn still waiting for the user (expired when the turn ends). */
     const waiting = new Set<string>();
+    /** The turn's cleanup has started: a request that comes now is refused without asking. */
+    let turnOver = false;
     /** The session was rolled back to the one before this turn (a fresh retry failed too). */
     let keptOldSession = false;
     const onEvent = (e: AgentEvent) => {
@@ -2156,8 +2266,12 @@ export class Orchestrator {
       conv.settings.approvals === 'deny'
         ? undefined
         : async (req: ApprovalRequest): Promise<ApprovalAnswer> => {
+            // Asked after the turn ended (a request queued behind another one, say): it expired, as
+            // the turn's own waiting requests did. No card is shown, and nothing can lock the folder.
+            if (turnOver) return { allow: false };
             // Keys come from the command as it will run; `detail` may be tidied up for display.
-            const keys = approvalKeys(req.kind, req.command ?? req.detail, req.tool);
+            // A request nothing tells apart gets no keys: no "always allow" (it would allow every such request).
+            const keys = req.noRule ? [] : approvalKeys(req.kind, req.command ?? req.detail, req.tool);
             const part: Extract<MessagePart, { type: 'approval' }> = {
               type: 'approval',
               id: randomUUID(),
@@ -2167,6 +2281,7 @@ export class Orchestrator {
               reason: req.reason,
               ruleLabel: keys.join(', ') || undefined,
               ...(req.outsideSandbox ? { outsideSandbox: true } : {}),
+              ...(req.readOnlySandbox ? { readOnlySandbox: true } : {}),
               status: 'pending',
             };
             textOpen = false;
@@ -2244,19 +2359,26 @@ export class Orchestrator {
       // The account's own: its home has its own skills, MCP servers and hooks.
       const nativeOff = this.settings.nativeOff(agent.provider, account);
       const nativeItems = this.settings.nativeItems(agent.provider, account);
+      const freshState = emptyState;
+      emptyState = false;
+      const model = await this.modelFor(agent.provider, agent.model, account);
       try {
         const result = await runners[agent.provider].run({
           bin: this.settings.bin(agent.provider),
           env: this.settings.env(agent.provider, account),
+          backends: this.settings.backendsFor(agent.provider),
           nativeOff,
           nativeItems,
+          sandboxTerminal: this.settings.sandboxTerminal(agent.provider),
           prompt,
           systemPrompt: buildBriefing(conv, agent, workspace, tools, nativeOff, nativeItems, Boolean(run.refuseApprovals)),
           sessionId: state.sessionId,
           cwd,
           ...(addDirs.length ? { addDirs } : {}),
           permission: conv.settings.permission,
-          model: agent.model?.trim() || this.settings.defaultModel(agent.provider, account) || undefined,
+          stateKey: stateKeys.member(conv.id, agent.id),
+          freshState,
+          model,
           effort: agent.effort?.trim() || this.settings.defaultEffort(agent.provider, account) || undefined,
           signal: run.abort.signal,
           onEvent,
@@ -2321,7 +2443,8 @@ export class Orchestrator {
       msg.meta = { ...msg.meta, durationMs: Date.now() - started };
       for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
     } finally {
-      // The CLI is gone: requests it was still waiting on can no longer be answered.
+      // The CLI is gone: requests it was still waiting on can no longer be answered, nor can new ones.
+      turnOver = true;
       for (const id of waiting) this.approvals.get(id)?.resolve({ allow: false, expired: true });
       // Record file changes even when the turn failed or was stopped: the files changed anyway.
       if (before) {

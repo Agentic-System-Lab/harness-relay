@@ -1,16 +1,18 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { removeTree } from '../src/server/fsRemove';
 
 const root = mkdtempSync(join(tmpdir(), 'relay-providers-'));
 process.env.RELAY_DATA_DIR = join(root, 'data');
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+// An open agent's home keeps its config read-only (the model lookups write one): taken apart as runs leave it.
+afterAll(() => removeTree(root, { restore: true }));
 
 const { openDatabase } = await import('../src/server/db');
 const { ProviderService } = await import('../src/server/providers');
 const { SettingsStore } = await import('../src/server/settings');
-const { catalogFor } = await import('../src/shared/types');
+const { OPEN_PROVIDERS, catalogFor } = await import('../src/shared/types');
 
 describe("a CLI's status when it cannot run", () => {
   const providers = () => {
@@ -41,7 +43,7 @@ describe("a CLI's status when it cannot run", () => {
 
 describe('a signed-out account', () => {
   // What each CLI prints when its home has no sign-in (tried with the real ones).
-  const SIGNED_OUT: Record<'claude' | 'codex' | 'grok', string> = {
+  const SIGNED_OUT: Record<'claude' | 'codex' | 'grok' | 'cursor', string> = {
     claude: `case "$1 $2" in
   "--version ") echo "2.1.0 (Claude Code)" ;;
   "auth status") echo '{\n  "loggedIn": false,\n  "authMethod": "none",\n  "apiProvider": "firstParty",\n  "loginExpiresAt": null\n}'; exit 1 ;;
@@ -54,10 +56,14 @@ esac`,
   --version) echo "grok 1.2.0" ;;
   models) printf 'You are not authenticated.\\n\\nDefault model: grok-4.6\\n' ;;
 esac`,
+    cursor: `case "$1 $2 $3" in
+  "--version  ") echo "2026.11.11-043ef28" ;;
+  "status --format json") printf '{\\n  "status": "unauthenticated",\\n  "isAuthenticated": false,\\n  "message": "Not logged in"\\n}\\n' ;;
+esac`,
   };
   const posixIt = process.platform === 'win32' ? it.skip : it;
 
-  for (const provider of ['claude', 'codex', 'grok'] as const) {
+  for (const provider of ['claude', 'codex', 'grok', 'cursor'] as const) {
     posixIt(`says only that it is signed out (${provider}), with nothing of the CLI's own words after the pill`, async () => {
       const dir = join(root, `signed-out-${provider}`);
       mkdirSync(dir, { recursive: true });
@@ -71,6 +77,80 @@ esac`,
       expect(status.accounts).toEqual([{ id: '', label: '', auth: { loggedIn: false }, usingStoredApiKey: false }]);
     });
   }
+});
+
+describe("Cursor's one sign-in", () => {
+  // A stand-in for \`cursor-agent\`: its sign-in is the computer user's (here, a file outside its
+  // config folder), and \`status\` reads only the store it is given: with the in-memory store it says
+  // signed out, key or no key (as the real one does).
+  const FAKE_CURSOR = `#!/bin/sh
+signed="$FAKE_CURSOR_DIR/signed-in"
+case "$1" in
+  --version) echo "2026.11.11-043ef28" ;;
+  status)
+    if [ "$AGENT_CLI_CREDENTIAL_STORE" != "memory" ] && [ -f "$signed" ]; then printf '{"status":"authenticated","isAuthenticated":true,"userInfo":{"email":"%s"}}\\n' "$(cat "$signed")"
+    else echo '{"status":"unauthenticated","isAuthenticated":false,"message":"Not logged in"}'; fi ;;
+  login) echo "login browser=\${NO_OPEN_BROWSER:-open}" >> "$FAKE_CURSOR_DIR/log"; echo "Open a browser and navigate to this link: https://cursor.com/loginDeepControl?challenge=abc"; echo "me@example.com" > "$signed" ;;
+  logout) echo "logout store=\${AGENT_CLI_CREDENTIAL_STORE:-system} key=\${CURSOR_API_KEY:-none}" >> "$FAKE_CURSOR_DIR/log"; rm -f "$signed" ;;
+esac
+`;
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+
+  posixIt('belongs to the default account; another account signs in with its API key only, apart from it', async () => {
+    const { KeyOnlyAccountError } = await import('../src/server/providers');
+    const dir = join(root, 'cursor-sign-in');
+    mkdirSync(dir, { recursive: true });
+    const bin = join(dir, 'cursor-agent');
+    writeFileSync(bin, FAKE_CURSOR, { mode: 0o755 });
+    vi.stubEnv('FAKE_CURSOR_DIR', dir);
+    vi.stubEnv('CURSOR_API_KEY', '');
+    vi.stubEnv('CURSOR_AUTH_TOKEN', '');
+    try {
+      const settings = new SettingsStore(openDatabase(':memory:'));
+      settings.update('cursor', { bin });
+      settings.setAgentHome(join(dir, 'homes'));
+      const team = settings.addAccount('cursor', 'Team');
+      const service = new ProviderService(settings);
+      const log = () => (existsSync(join(dir, 'log')) ? readFileSync(join(dir, 'log'), 'utf8').trim().split('\n') : []);
+
+      // Its sign-in link is printed, not opened in a browser here.
+      service.startLogin('cursor');
+      await vi.waitFor(() => expect(service.login('cursor')?.state).toBe('success'));
+      expect(service.login('cursor')?.urls).toEqual(['https://cursor.com/loginDeepControl?challenge=abc']);
+      expect(log()).toEqual(['login browser=1']);
+      expect(() => service.startLogin('cursor', undefined, team)).toThrow(KeyOnlyAccountError);
+
+      const status = await service.status('cursor', true);
+      expect(status).toMatchObject({ installed: true, version: '2026.11.11-043ef28' });
+      expect(status.accounts.map((a) => [a.id, a.auth])).toEqual([
+        ['', { loggedIn: true, account: 'me@example.com' }],
+        [team, { loggedIn: false }], // not the default account's sign-in
+      ]);
+      settings.updateAccount('cursor', team, { apiKey: 'key_team' });
+      service.invalidate('cursor');
+      // Its key signs it in for each run only, which \`status\` cannot see: it is taken as signed in by it.
+      expect((await service.status('cursor', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: true });
+
+      // A key only in the server's environment: the default account runs on it, and shows so.
+      vi.stubEnv('CURSOR_API_KEY', 'key_from_shell');
+      expect((await service.status('cursor', true)).accounts[0]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: false });
+      vi.stubEnv('CURSOR_API_KEY', '');
+
+      // Signing the other account out signs nothing out: it kept nothing.
+      await service.logout('cursor', team);
+      expect(log()).toEqual(['login browser=1']);
+      // The default account signs out of Cursor's own sign-in, also when it has a key of its own.
+      settings.updateAccount('cursor', '', { apiKey: 'key_default' });
+      await service.logout('cursor');
+      expect(log()).toEqual(['login browser=1', 'logout store=system key=none']);
+      // In the store the server was started with, when it names one.
+      vi.stubEnv('AGENT_CLI_CREDENTIAL_STORE', 'file');
+      await service.logout('cursor');
+      expect(log().at(-1)).toBe('logout store=file key=none');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('accounts of a CLI', () => {
@@ -133,6 +213,8 @@ esac
       // Not installed: their models are the built-in lists, and no CLI runs.
       settings.update('codex', { bin: join(root, 'no-such-codex') });
       settings.update('grok', { bin: join(root, 'no-such-grok-models') });
+      for (const p of OPEN_PROVIDERS) settings.update(p, { bin: join(root, `no-such-${p}-models`) });
+      settings.update('cursor', { bin: join(root, 'no-such-cursor-models') });
       const work = settings.addAccount('claude', 'Work');
       const team = settings.addAccount('grok', 'Team');
       writeFileSync(join(settings.env('claude').CLAUDE_CONFIG_DIR!, 'settings.json'), JSON.stringify({ model: 'opus', effortLevel: 'high' }));
@@ -164,6 +246,8 @@ esac
         ['codex', ''],
         ['grok', ''],
         ['grok', team],
+        ['cursor', ''],
+        ...OPEN_PROVIDERS.map((p) => [p, '']),
       ]);
       expect(catalogFor(all, 'claude', work)?.defaultModel).toBe('haiku');
       expect(catalogFor(all, 'claude')?.defaultModel).toBe('opus');

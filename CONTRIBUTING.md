@@ -15,7 +15,7 @@ Open an issue with the **Bug report** form. It asks for:
 - what you did, what you expected and what happened instead;
 - how you run Harness Relay (the desktop app, `npm start` or `npm run dev`);
 - your operating system, Node.js version (`node --version`) and Harness Relay version (the desktop app's under **Settings & sign-in → Version**, or the commit, `git rev-parse --short HEAD`);
-- the agent CLIs involved and their versions (`claude --version`, `codex --version`, `grok --version`);
+- the agent CLIs involved and their versions (`claude --version`, `codex --version`, `grok --version`, `cursor-agent --version`, `opencode --version`…), and for an open-source agent the kind of model backend (an API or your own endpoint, and which server);
 - the conversation's mode (roundtable, parallel or relay), permission (read-only, edit or full access), and whether the lead agent's team is used without asking;
 - the error shown on the message (it includes the end of the CLI's stderr) and the server's output around that time (the `[server]` lines with `npm run dev`; in the desktop app, **Show log** in its menu).
 
@@ -33,7 +33,7 @@ Open an issue with the **Feature request** form, and describe the problem you wa
 
 ## Setting up
 
-You need Node.js **22.13 or later**. The agent CLIs (`claude`, `codex`, `grok`) are only needed to try the app by hand; the tests never run them.
+You need Node.js **22.13 or later**. The agent CLIs (`claude`, `codex`, `grok`, `cursor-agent`, and the open-source `opencode`, `goose`, `cline`, `openhands`, `pi`) are only needed to try the app by hand; the tests never run them, and never start a real sandbox (`scripts/sandbox-check.ts` does that, by hand).
 
 ```bash
 git clone https://github.com/Agentic-System-Lab/harness-relay.git
@@ -53,7 +53,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 ### Code
 
 - Strict TypeScript with ES modules. Shared types live only in `src/shared/types.ts`.
-- Start child processes only through `src/server/process.ts`, so they are tracked and stopped on shutdown. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments.
+- Start child processes only through `src/server/process.ts`, so they are tracked and stopped on shutdown; a quick probe the server waits for (`lsof`, `ps`, `chflags`) goes through its `runSync()`, which kills it after its timeout. The relay sandbox's host (`relaySandboxHost.ts`) is a program of its own and starts the agent itself. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments. On Windows a CLI found as a `.cmd` (npm's shims, Cursor's launcher) is started as the program it runs (`src/server/winLaunch.ts`), never through `cmd.exe`.
 - Keep CLI output parsers pure (lines in, `AgentEvent`s out) so they can be tested with recorded output.
 - Tests run in Node without a DOM. Put client logic you want to test in plain modules (like `src/web/chat.ts`), not inside components.
 - In the desktop app, only `desktop/src/main.ts` imports `electron`. Put the rest in modules without it (like `desktop/src/lifecycle.ts`), which the root `test/` tests like the other code.
@@ -64,6 +64,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 - New routes go under `/api/`, so they get the Host/Origin checks, the JSON content-type check on writes, sign-in and the request language. Don't weaken these checks. Only a read-only route the browser loads by itself (an image, a download link) may take the cookie without the key (`BROWSER_LOADS` in `src/server/app.ts`).
 - Never send secrets to the client. API keys belong in the OS credential store (`src/server/secrets.ts`), not in the database.
 - The server binds to `127.0.0.1`, and agent replies must not make the browser load remote content (images are shown as links; local media goes through the media endpoint's path checks).
+- An open-source agent's process starts only through `startOpenProcess()` (`src/server/agents/open.ts`), which puts it in Harness Relay's own sandbox below full access and fails closed. Model keys reach the CLI in environment variables (only the run's own backend's), never in the config files its adapter writes, and everything a run writes goes in the conversation member's own state folder (`home(root, state)`). A sandbox opening is asked for by one adapter for its own CLI only, and documented in [docs/open-agents.md](docs/open-agents.md) and [docs/sandboxing.md](docs/sandboxing.md).
 
 ### Database
 
@@ -109,7 +110,7 @@ npm test
 npm run build
 ```
 
-If you changed the UI, the HTTP API, the orchestrator or an adapter, also run the end-to-end tests: `npm run test:e2e` (`npm run test:e2e:install` once first).
+If you changed the UI, the HTTP API, the orchestrator or an adapter, also run the end-to-end tests: `npm run test:e2e` (`npm run test:e2e:install` once first). If you changed an adapter, the sandboxes or the model backends and have a model server of your own, also run the live tests with the real CLIs on each system you can (`npm run test:e2e:live`; see the developer guide, "Live tests").
 
 If you changed the desktop app, also run `npm run desktop:typecheck`, and try it with `npm run desktop`; for changes to its packaging, build the installer (`npm run desktop:dist`) and check it with `npx tsx desktop/scripts/check-package.ts`.
 

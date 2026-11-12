@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
-import type { ApprovalAnswer, ApprovalKind, NativeItemsOff, NativePart, Permission, PlanEntry, Provider } from '../../shared/types';
+import type { ApiBackend, ApprovalAnswer, ApprovalKind, NativeItemsOff, NativePart, Permission, PlanEntry, Provider } from '../../shared/types';
 import { CONFIG } from '../config';
 
 /** Normalised events every CLI adapter emits while an agent is working. */
@@ -35,6 +35,13 @@ export interface ApprovalRequest {
   command?: string;
   /** Allowing it runs the command outside the CLI's sandbox. */
   outsideSandbox?: boolean;
+  /**
+   * Asked in a read-only conversation by an agent in Harness Relay's own sandbox, which keeps it from
+   * writing whatever the answer: allowing it cannot lift read-only.
+   */
+  readOnlySandbox?: boolean;
+  /** Nothing tells this request from another (a call the agent names in no way): no rule keys, no "always allow". */
+  noRule?: boolean;
 }
 
 export interface RunOptions {
@@ -80,6 +87,66 @@ export interface RunOptions {
    * adapter when not given).
    */
   protectedPaths?: string[];
+  /**
+   * The model backends set up in Settings, with their keys (`SettingsStore.backendsFor()`): an open
+   * agent's run reads it with `backendRun()`, and a run of Claude Code, Codex or Grok, which gets the
+   * user's own endpoints only, with `endpointModel()` (both in `src/server/backends.ts`).
+   */
+  backends?: RunBackends;
+  /**
+   * The user lets the CLI's commands use a terminal in the relay sandbox (Settings, the CLI's card;
+   * `SettingsStore.sandboxTerminal()`): OpenHands does not run below full access on macOS without it.
+   */
+  sandboxTerminal?: boolean;
+  /**
+   * Whose state this run is, as a stable key from the orchestrator (`stateKeys`): one per member of a
+   * conversation, and one each for the lead agent's and the group sorter's runs for a conversation.
+   * An open agent keeps everything its run may write (sessions, logs, caches) in a folder of that key's
+   * own, which no run of another key can read or write; without a key, in a folder of the run's own,
+   * removed after it (nothing can be resumed then).
+   */
+  stateKey?: string;
+  /**
+   * Empty the key's state folder before the run: this key's previous run had a lower permission
+   * (read-only → edit → full), so nothing it wrote may be read now. The session starts afresh too.
+   */
+  freshState?: boolean;
+}
+
+/**
+ * The state keys the orchestrator gives its runs (`RunOptions.stateKey`): a branched conversation is
+ * another conversation, so its members start with state of their own.
+ */
+export const stateKeys = {
+  /** A member of a conversation. */
+  member: (conversationId: string, agentId: string): string => `conv.${conversationId}.${agentId}`,
+  /** The lead agent designing a conversation's team. */
+  lead: (conversationId: string): string => `lead.${conversationId}`,
+  /** The lead agent changing a conversation's team at the user's request. */
+  revise: (conversationId: string): string => `revise.${conversationId}`,
+  /** The lead agent sorting a conversation into a sidebar group. */
+  sort: (conversationId: string): string => `sort.${conversationId}`,
+};
+
+/** The model backends one open-agent run may use, with their secrets (never sent to the client). */
+export interface RunBackends {
+  /** The API key of each API backend that has one. */
+  apis: Partial<Record<ApiBackend, string>>;
+  endpoints: RunEndpoint[];
+  /**
+   * The ids of endpoints deleted in Settings (and not added again): a Claude Code, Codex or Grok run
+   * on a model of one fails (`endpointRunModel()`), since its id would otherwise go to the CLI's own service.
+   */
+  deletedEndpoints?: string[];
+}
+
+/** A custom OpenAI-compatible endpoint, with its key when it has one. */
+export interface RunEndpoint {
+  id: string;
+  name: string;
+  baseUrl: string;
+  models: string[];
+  apiKey?: string;
 }
 
 /** An MCP server to hand to a CLI, with its secret values. */

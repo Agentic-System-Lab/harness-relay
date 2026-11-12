@@ -17,6 +17,7 @@ import {
   FILE_LIMITS,
   GROUP_LIMITS,
   PROVIDER_LABEL,
+  isOpenProvider,
   PROVIDERS,
   SHARE_FILES_MAX,
   SHARE_FILES_MAX_BYTES,
@@ -50,7 +51,7 @@ import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
 import { HttpError, forClient, titleFrom, type Orchestrator } from './orchestrator';
-import type { ProviderService } from './providers';
+import { KeyOnlyAccountError, type ProviderService } from './providers';
 import type { SettingsStore } from './settings';
 import { fileLinkCount, fileLinksIn, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';
 import {
@@ -75,6 +76,10 @@ import {
   foldCase,
   validAccountLabel,
   validAgentHome,
+  validApiBackend,
+  validEndpointId,
+  validateBackendKey,
+  validateEndpoint,
   validAgentsViewLink,
   validAgentsViewUrl,
   validDirectories,
@@ -432,6 +437,48 @@ export function createApp({
     return c.json(settingsView());
   });
 
+  // --- Model backends: what the open agents run their models on (keys masked) ---------
+
+  app.get('/api/backends', (c) => c.json(settings.backends.view()));
+
+  // Each change to the backends refreshes the model menus and the agents' status, also one that failed
+  // part way (an endpoint saved while the credential store refused its key).
+  const changingBackends = <T>(change: () => T): T => {
+    try {
+      return change();
+    } finally {
+      providers.backendsChanged();
+    }
+  };
+
+  // An API backend's key (openai, anthropic, xai): `{ apiKey }`, null or "" removes it.
+  app.put('/api/backends/:id', async (c) => {
+    const id = validApiBackend(c.req.param('id'));
+    const key = validateBackendKey(await body<unknown>(c));
+    changingBackends(() => settings.backends.setApiKey(id, key));
+    return c.json(settings.backends.view());
+  });
+
+  // Adds a custom endpoint, or replaces the one with this id (its key stays unless `apiKey` is sent).
+  app.put('/api/backends/endpoints/:id', async (c) => {
+    const id = validEndpointId(c.req.param('id'));
+    const endpoint = validateEndpoint(await body<unknown>(c));
+    changingBackends(() => settings.backends.putEndpoint(id, endpoint));
+    return c.json(settings.backends.view());
+  });
+
+  app.delete('/api/backends/endpoints/:id', (c) => {
+    const id = validEndpointId(c.req.param('id'));
+    changingBackends(() => settings.backends.deleteEndpoint(id));
+    return c.json(settings.backends.view());
+  });
+
+  // A deleted endpoint's id, forgotten: its models go to their CLI as they are again.
+  app.delete('/api/backends/deleted-endpoints/:id', (c) => {
+    settings.backends.forgetDeletedEndpoint(validEndpointId(c.req.param('id')));
+    return c.json(settings.backends.view());
+  });
+
   // --- Tool library: MCP servers, skills and memory for the agents --------------
 
   app.get('/api/tools', (c) => c.json(settings.tools.view()));
@@ -469,6 +516,8 @@ export function createApp({
   // settings and sessions) and may have an API key of its own. Agents and the lead agent name theirs.
   app.post('/api/settings/providers/:provider/accounts', async (c) => {
     const p = provider(c);
+    // An open agent has no sign-in, so no other account: it runs on the model backends.
+    if (isOpenProvider(p)) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     const b = await body<{ label?: unknown }>(c);
     const label = validAccountLabel(b.label ?? '');
     if (settings.accountIds(p).length + 1 >= limits.maxAccounts) throw new HttpError(409, t().tooManyAccounts(PROVIDER_LABEL[p], limits.maxAccounts));
@@ -625,7 +674,12 @@ export function createApp({
     const p = provider(c);
     const id = account(c, p);
     const b = await body<{ method?: string }>(c);
-    return c.json(providers.startLogin(p, b.method, id));
+    try {
+      return c.json(providers.startLogin(p, b.method, id));
+    } catch (err) {
+      if (err instanceof KeyOnlyAccountError) throw new HttpError(400, err.message);
+      throw err;
+    }
   });
 
   app.get('/api/providers/:provider/login', (c) => {

@@ -264,7 +264,7 @@ const HISTORY_MESSAGE_CHARS = 1500;
 const HISTORY_CHARS = 12000;
 
 export const PLANNER_BRIEFING =
-  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok) ' +
+  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
   'work together on the user\'s questions. Right now your only job is to choose the team for the user\'s new question. ' +
   'Do not answer the question or do the work yourself. Reply with the JSON object you are asked for and nothing else.';
 
@@ -348,9 +348,12 @@ export function historyForLead(messages: ChatMessage[]): string {
   return kept.join('\n\n');
 }
 
+/** The CLIs a member may run on, as the JSON the lead returns names them: "claude" | "codex" | … */
+const PROVIDER_CHOICES = PROVIDERS.map((p) => `"${p}"`).join(' | ');
+
 const TEAM_FIELDS =
   '"name": "<short team name>", "description": "<one line>", "mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, ' +
-  '"agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}]';
+  `"agents": [{"name": "<Name>", "provider": ${PROVIDER_CHOICES}, "role": "<instructions>", "model": "<optional>", "effort": "<optional>"}]`;
 
 /** At most `max` names, then how many more there are. */
 function names(list: string[], max = TOOL_NAMES_MAX): string {
@@ -761,7 +764,7 @@ export function fromTemplate(agents: AgentConfig[], template: TeamPreset): Agent
  */
 
 export const REVISER_BRIEFING =
-  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok) ' +
+  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
   'work together on the user\'s questions. Right now your only job is to change the conversation\'s team the way the user asks. ' +
   'Do not answer the conversation\'s questions or do the work yourself. Reply with the JSON object you are asked for and nothing else.';
 
@@ -906,7 +909,7 @@ ${STAFFING}
 Write the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools unless the change depends on the files in the folder you are running in.
 
 Reply with only this JSON object, in a \`\`\`json code block, with the whole team (every member, in speaking order):
-{"mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": "claude" | "codex" | "grok", "role": "<instructions: only for a new member or a role you rewrite>", "model": "<optional>", "effort": "<optional>", "was": "<its current name: only for a member you renamed or moved to another coding agent>"}], "reason": "<what you changed and why: one or two sentences for the user>"}`;
+{"mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": ${PROVIDER_CHOICES}, "role": "<instructions: only for a new member or a role you rewrite>", "model": "<optional>", "effort": "<optional>", "was": "<its current name: only for a member you renamed or moved to another coding agent>"}], "reason": "<what you changed and why: one or two sentences for the user>"}`;
 }
 
 /**

@@ -1,0 +1,1 @@
+[{"fileName":"PreToolUse","hookEventName":"tool_call","path":"/home/user/project/.cline/hooks/PreToolUse.sh"},{"fileName":"TaskStart","hookEventName":"agent_start","path":"/home/user/project/.clinerules/hooks/TaskStart"}]

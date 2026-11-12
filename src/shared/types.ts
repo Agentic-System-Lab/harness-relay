@@ -1,7 +1,56 @@
 // Types shared by the server and the web client.
 
-export type Provider = 'claude' | 'codex' | 'grok';
-export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok'];
+export type Provider = 'claude' | 'codex' | 'grok' | 'cursor' | OpenProvider;
+
+/**
+ * The open-source coding agents ("open agents"): they use the model backends set up in Settings
+ * (OpenAI, Anthropic, xAI API keys, or the user's own OpenAI-compatible endpoints), never a sign-in
+ * of their own (see docs/open-agents.md).
+ */
+export type OpenProvider = 'opencode' | 'goose' | 'cline' | 'openhands' | 'pi';
+export const OPEN_PROVIDERS: OpenProvider[] = ['opencode', 'goose', 'cline', 'openhands', 'pi'];
+
+export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok', 'cursor', ...OPEN_PROVIDERS];
+
+export function isOpenProvider(p: Provider): p is OpenProvider {
+  return (OPEN_PROVIDERS as Provider[]).includes(p);
+}
+
+/**
+ * The CLIs with a sign-in of their own that can also run on one of the user's own endpoints of
+ * Settings → Model backends (Claude Code, Codex, Grok): a member's model `<endpoint id>/<model>`.
+ * Cursor has a sign-in too, but its models run only through Cursor's own service.
+ */
+export type EndpointCli = 'claude' | 'codex' | 'grok';
+
+export function isEndpointCli(p: Provider): p is EndpointCli {
+  return p === 'claude' || p === 'codex' || p === 'grok';
+}
+
+/**
+ * How each of them talks to the user's own endpoint, and the efforts it may send there:
+ * - `path`: the API it calls under the endpoint's base URL, which the server must also serve (vLLM,
+ *   Ollama, LM Studio and llama.cpp serve all three);
+ * - `efforts`: the reasoning efforts its models on an endpoint offer, the levels every such server
+ *   takes; Grok takes none for a model it does not know;
+ * - `fallbackEffort`: what runs instead of another effort, one the member, Settings or the CLI's own
+ *   config would give (Codex, whose config cannot be told to send none); without it, none is sent.
+ */
+export const ENDPOINT_CLI: Record<EndpointCli, { path: string; efforts: string[]; fallbackEffort?: string }> = {
+  claude: { path: '/v1/messages', efforts: ['low', 'medium', 'high'] },
+  codex: { path: '/v1/responses', efforts: ['none', 'low', 'medium', 'high'], fallbackEffort: 'medium' },
+  grok: { path: '/v1/chat/completions', efforts: [] },
+};
+
+/**
+ * The effort a run of Claude Code, Codex or Grok on an endpoint sends: the one given when its
+ * endpoint models offer it, else the CLI's `fallbackEffort` when one was given, else none.
+ */
+export function endpointEffort(p: EndpointCli, effort: string | undefined): string | undefined {
+  const e = effort?.trim();
+  if (!e) return undefined;
+  return ENDPOINT_CLI[p].efforts.includes(e) ? e : ENDPOINT_CLI[p].fallbackEffort;
+}
 
 /** The error `code` (with a 404) for a working directory that does not exist; resend with `createCwd: true` to create it. */
 export const CWD_MISSING = 'cwd-missing';
@@ -20,6 +69,12 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   grok: 'Grok',
+  cursor: 'Cursor',
+  opencode: 'OpenCode',
+  goose: 'Goose',
+  cline: 'Cline',
+  openhands: 'OpenHands',
+  pi: 'Pi',
 };
 
 /** Where each CLI is installed from: Settings links to it when the CLI is not found. */
@@ -27,6 +82,12 @@ export const PROVIDER_INSTALL_URL: Record<Provider, string> = {
   claude: 'https://claude.com/product/claude-code',
   codex: 'https://openai.com/codex/',
   grok: 'https://x.ai/build',
+  cursor: 'https://cursor.com/cli',
+  opencode: 'https://www.npmjs.com/package/opencode-ai',
+  goose: 'https://formulae.brew.sh/formula/block-goose-cli',
+  cline: 'https://www.npmjs.com/package/cline',
+  openhands: 'https://pypi.org/project/openhands/',
+  pi: 'https://www.npmjs.com/package/@earendil-works/pi-coding-agent',
 };
 
 /** UI languages. The server localizes its messages from the `X-Relay-Lang` request header. */
@@ -43,6 +104,14 @@ export type Mode = 'roundtable' | 'parallel' | 'relay';
 
 /** File-system permission granted to every agent in a conversation. */
 export type Permission = 'read-only' | 'edit' | 'full';
+
+/** The permissions from least to most: a session that last ran below this turn's permission is not resumed. */
+export const PERMISSION_ORDER: readonly Permission[] = ['read-only', 'edit', 'full'];
+
+/** Whether `a` is a higher permission than `b`. */
+export function permissionAbove(a: Permission, b: Permission): boolean {
+  return PERMISSION_ORDER.indexOf(a) > PERMISSION_ORDER.indexOf(b);
+}
 
 /**
  * Most members a team may have, set by hand or by the lead agent, unless `RELAY_MAX_TEAM_AGENTS` says
@@ -196,12 +265,28 @@ export type NativePart = (typeof NATIVE_PARTS)[number];
  * still reads its own ~/.codex/AGENTS.md, and has no setting that leaves out only its own
  * subagents. Grok's switches reach only what it loads from Claude Code and Cursor (its own skills,
  * MCP servers and hooks are turned off in ~/.grok/config.toml), and it has none for instruction
- * files, its own subagents or plugins. Only Claude Code lists its built-in tools.
+ * files, its own subagents or plugins. Cursor has no switch for any of them over ACP (its run gets a
+ * config folder of its own, but its skills, MCP servers and hooks are read from the home folder). Only
+ * Claude Code lists its built-in tools.
  */
 export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
   claude: ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins'],
   codex: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'plugins'],
   grok: ['skills', 'mcp', 'memory', 'hooks'],
+  cursor: [],
+  // The open agents: each adapter lists what its CLI can really leave out (one line each, kept apart).
+  // OpenCode: skills (denied with `permission.skill`, which turns off its skill tool), the project's instruction files Harness Relay passes on, its subagents (`agent.<name>.disable`).
+  opencode: ['skills', 'instructions', 'agents'],
+
+  goose: ['mcp', 'instructions', 'plugins'],
+
+  // Cline: its `skills` tool off (`disabledTools` in its global settings, written per run).
+  cline: ['skills'],
+
+  openhands: [], // none: its home is Harness Relay's, and the project's files have no switch (docs/open-agents.md)
+
+  // Pi: `--no-context-files` leaves out every AGENTS.md / CLAUDE.md it would load (none alone).
+  pi: ['instructions'],
 };
 
 /** The parts in `parts` that `provider` can leave out, once each, in NATIVE_PARTS order. */
@@ -227,13 +312,26 @@ export type NativeItemsOff = Partial<Record<NativeItemKind, string[]>>;
  * settings. Claude Code: skills by name (`skillOverrides`), MCP servers and their tools and its
  * built-in tools by permission rules (an MCP server still starts: only its tools are taken away),
  * instruction files by path (`claudeMdExcludes`), subagents by name, plugins by id. Codex: skills by
- * path, MCP servers and their tools, hooks by key, plugins by id. Grok has no such setting for a
- * single run.
+ * path, MCP servers and their tools, hooks by key, plugins by id. Grok and Cursor have no such
+ * setting for a single run.
  */
 export const NATIVE_ITEM_SUPPORT: Record<Provider, readonly NativeItemKind[]> = {
   claude: ['skills', 'mcp', 'mcpTools', 'tools', 'instructions', 'agents', 'plugins'],
   codex: ['skills', 'mcp', 'mcpTools', 'hooks', 'plugins'],
   grok: [],
+  cursor: [],
+  // The open agents: each adapter lists what its CLI can leave out alone (one line each, kept apart).
+  // OpenCode: a skill by name (its `skill` permission), a subagent by name.
+  opencode: ['skills', 'agents'],
+
+  goose: ['plugins'],
+
+  // Cline: built-in tools by name (`disabledTools`) and plugins by path (`disabledPlugins`), per run.
+  cline: ['tools', 'plugins'],
+
+  openhands: [], // none
+
+  pi: [],
 };
 
 /** The part (and tab) each kind of item belongs to. */
@@ -778,6 +876,8 @@ export type MessagePart =
       ruleLabel?: string;
       /** Allowing it runs the command outside the CLI's sandbox. */
       outsideSandbox?: boolean;
+      /** Read-only is a boundary here: Harness Relay's sandbox keeps the agent from writing even when allowed. */
+      readOnlySandbox?: boolean;
       status: ApprovalStatus;
       /** Allowed for the rest of the conversation (or by such an earlier answer). */
       always?: boolean;
@@ -992,6 +1092,23 @@ export interface AgentSessionState {
   provider?: Provider;
   /** The account the session was made with (empty = the default account): another account starts a new one. */
   account?: string;
+  /**
+   * For Claude Code, Codex and Grok: the backend the session was made on, one of the user's endpoints
+   * (its id), or the CLI's own service (absent): a turn on another one starts a fresh session.
+   */
+  backend?: string;
+  /**
+   * The permission of this member's latest run in the conversation (Harness Relay's own record).
+   */
+  permission?: Permission;
+  /**
+   * Per CLI the member ran on (each open agent keeps a state folder of its own for it): the permission
+   * of that CLI's latest run, the open agent's home that run was in (`home`), and `mustEmpty` while its
+   * state folder still has to be emptied before it runs again (set when the permission went up or the
+   * home moved, cleared once the folder is empty). A turn with a higher permission than its CLI's
+   * latest, or in another home, starts a fresh session.
+   */
+  byCli?: Partial<Record<Provider, { permission: Permission; home?: string; mustEmpty?: boolean }>>;
   /** Ids of chat messages this agent has already been shown. */
   seen: string[];
 }
@@ -1173,6 +1290,14 @@ export function accountUsable(a: Pick<AccountStatus, 'auth' | 'usingStoredApiKey
 }
 
 /**
+ * Whether an account signs in with its API key only: Cursor's accounts besides the default one, since
+ * Cursor keeps one sign-in per computer user (on macOS, in the keychain) whatever its config folder.
+ */
+export function keyOnlyAccount(p: Provider, account: string | undefined): boolean {
+  return p === 'cursor' && Boolean(account);
+}
+
+/**
  * Accounts per CLI, the default one included, unless `RELAY_MAX_ACCOUNTS` says otherwise
  * (`src/server/config.ts`; the UI gets the server's from `GET /api/limits`). Each account other than
  * the default has a folder of its own for the CLI (its sign-in, settings and sessions) and may have an
@@ -1255,6 +1380,13 @@ export interface ProviderSettingsView {
    * has its own defaults and its own choice of what Harness Relay's runs leave out.
    */
   accounts: ProviderAccountView[];
+  /**
+   * The user lets this CLI's commands use a terminal (a pseudo-terminal) inside the relay sandbox, where
+   * on macOS they can then print into and read from the user's other terminal windows (typing into them
+   * stays blocked). Without it, a CLI that needs one does not run below full access there. Only for
+   * `SANDBOX_TERMINAL_SUPPORT`; false for the others.
+   */
+  sandboxTerminal: boolean;
 }
 
 /**
@@ -1299,6 +1431,13 @@ export interface ProviderAccountUpdate {
   nativeItems?: NativeItemsOff;
 }
 
+/**
+ * The CLIs whose runs need a terminal in the relay sandbox (OpenHands: it runs every command in one),
+ * which the user must allow (`ProviderSettingsView.sandboxTerminal`) for them to run below full access
+ * on macOS. On Linux the sandbox has terminals of its own (a private `/dev/pts`), so no switch is needed.
+ */
+export const SANDBOX_TERMINAL_SUPPORT: readonly Provider[] = ['openhands'];
+
 export interface ModelOption {
   id: string;
   label?: string;
@@ -1307,6 +1446,12 @@ export interface ModelOption {
   /** Effort levels this model supports; undefined = use the provider-wide list. */
   efforts?: string[];
   defaultEffort?: string;
+  /**
+   * The id of the user's own endpoint this model is on, for Claude Code, Codex and Grok (a model of
+   * Settings → Model backends): it runs only an effort of `efforts`, and another one it would inherit
+   * becomes `defaultEffort`, or none (`endpointEffort`).
+   */
+  endpoint?: string;
 }
 
 /**
@@ -1345,7 +1490,10 @@ export function effortsFor(pm: Pick<ProviderModels, 'models' | 'efforts'>, model
 
 /** The effort that runs when an agent leaves effort on default, for the model it will use. */
 export function inheritedEffort(pm: ProviderModels, model?: string): string | undefined {
-  return pm.defaultEffort ?? pm.models.find((m) => m.id === (model || pm.defaultModel))?.defaultEffort;
+  const m = pm.models.find((x) => x.id === (model || pm.defaultModel));
+  // On an endpoint, an effort its models do not offer is not sent as it is (`endpointEffort`).
+  if (m?.endpoint) return pm.defaultEffort && !m.efforts?.includes(pm.defaultEffort) ? m.defaultEffort : pm.defaultEffort;
+  return pm.defaultEffort ?? m?.defaultEffort;
 }
 
 export interface SettingsView {
@@ -1400,7 +1548,102 @@ export interface ProviderSettingsUpdate {
   bin?: string;
   /** The default account's key: string = set / replace, null = remove. */
   apiKey?: string | null;
+  /** Ignored for a CLI not in `SANDBOX_TERMINAL_SUPPORT`. */
+  sandboxTerminal?: boolean;
 }
+
+// --- Model backends: what the open agents run their models on --------------------------------
+
+/**
+ * The model APIs the open agents reach with an API key kept in Settings (Settings → Model backends).
+ * The Claude subscription and Grok's sign-in cannot be used by these CLIs.
+ */
+export const API_BACKENDS = ['openai', 'anthropic', 'xai'] as const;
+export type ApiBackend = (typeof API_BACKENDS)[number];
+export const API_BACKEND_LABEL: Record<ApiBackend, string> = { openai: 'OpenAI', anthropic: 'Anthropic', xai: 'xAI' };
+
+export function isApiBackend(id: string): id is ApiBackend {
+  return (API_BACKENDS as readonly string[]).includes(id);
+}
+
+/**
+ * A custom endpoint's id: a lowercase slug that starts its models' ids (`homelab/<model>`), which
+ * stays when the endpoint is renamed. Never one of API_BACKENDS.
+ */
+export const ENDPOINT_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
+
+/** Most endpoints, models per endpoint, and characters of a model id, a name and a base URL. */
+export const BACKEND_LIMITS = { maxEndpoints: 20, maxModels: 100, maxModelId: 200, maxName: 60, maxUrl: 500 };
+
+/** One of API_BACKENDS as the UI sees it (its key masked). */
+export interface ApiBackendView {
+  id: ApiBackend;
+  /** Masked API key; empty = not set up. */
+  keyMasked: string;
+  /** Where its key is (or would be) kept. */
+  keyStorage: KeyStorage;
+  /** A key may be stored, but the credential store could not be read at startup (locked, say). */
+  keyUnreadable?: boolean;
+}
+
+/** The user's own OpenAI-compatible server (vLLM, Ollama, LM Studio, llama.cpp…). */
+export interface ModelEndpointView {
+  id: string;
+  name: string;
+  /** Its OpenAI-compatible base URL, such as `http://10.0.0.5:8000/v1`. */
+  baseUrl: string;
+  /** The model names it serves, as typed by the user (Harness Relay never asks the server). */
+  models: string[];
+  /** Masked API key; empty = none (many local servers take none). */
+  keyMasked: string;
+  keyStorage: KeyStorage;
+  keyUnreadable?: boolean;
+}
+
+export interface ModelBackendsView {
+  apis: ApiBackendView[];
+  endpoints: ModelEndpointView[];
+  /**
+   * The ids of endpoints deleted (and not added again): a Claude Code, Codex or Grok model `<id>/…`
+   * fails instead of going to the CLI's own service, until the id is forgotten
+   * (`DELETE /api/backends/deleted-endpoints/:id`).
+   */
+  deletedEndpoints: string[];
+}
+
+/** `PUT /api/backends/endpoints/:id`: the endpoint as it should be. */
+export interface ModelEndpointUpdate {
+  name: string;
+  baseUrl: string;
+  models: string[];
+  /** string = set / replace, null = remove, absent = keep. */
+  apiKey?: string | null;
+}
+
+/** An open agent's model id, `<backend>/<model>`, taken apart. */
+export interface BackendModel {
+  /** One of API_BACKENDS, or an endpoint's id. */
+  backend: string;
+  /** The model's own name (it may hold `/` too: `homelab/Qwen/Qwen3-30B-A3B`). */
+  model: string;
+}
+
+/**
+ * Reads an open agent's model id: `openai/gpt-5.4-nano`, `anthropic/claude-haiku-5-5`, `xai/grok-4.3`,
+ * `homelab/muse-glimmer-30b-nvfp4`. The backend is everything before the first `/`. Undefined when it
+ * is not one (no `/`, nothing on either side, or a backend that is not a valid id).
+ */
+export function parseBackendModel(id: string): BackendModel | undefined {
+  const text = id.trim();
+  const at = text.indexOf('/');
+  if (at <= 0 || at === text.length - 1) return undefined;
+  const backend = text.slice(0, at);
+  if (!isApiBackend(backend) && !ENDPOINT_ID_RE.test(backend)) return undefined;
+  return { backend, model: text.slice(at + 1) };
+}
+
+/** `<backend>/<model>`. */
+export const backendModelId = (backend: string, model: string): string => `${backend}/${model}`;
 
 export type LoginState = 'running' | 'success' | 'failed' | 'cancelled';
 

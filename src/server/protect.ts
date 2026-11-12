@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,6 +146,40 @@ export function relayTmpDir(dataDir = DATA_DIR): string {
 }
 
 /**
+ * How the folders a turn makes in `relayTmpDir` for its own files begin: a Claude Code turn's
+ * `--settings` and `--mcp-config` files (the settings hold an endpoint's key when it runs on one, the
+ * MCP config the servers' secret values), and a Cursor turn's config folder.
+ */
+export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-' } as const;
+
+/**
+ * Removes the folders of turns the server was stopped during (`RUN_TMP_PREFIXES`; a turn removes its
+ * own when it ends), so that no key stays there outside the credential store: for the server's start,
+ * before any turn runs. A link in one (a Cursor turn's to the account's sessions) goes, not what it
+ * leads to. One that cannot be removed does not keep the others: it throws once all were tried, naming
+ * each that is left.
+ */
+export function clearRunTmp(root = relayTmpDir()): void {
+  let names: string[];
+  try {
+    names = readdirSync(root);
+  } catch {
+    return; // none yet
+  }
+  const prefixes = Object.values(RUN_TMP_PREFIXES);
+  const left: string[] = [];
+  for (const name of names) {
+    if (!prefixes.some((p) => name.startsWith(p))) continue;
+    try {
+      rmSync(join(root, name), { recursive: true, force: true });
+    } catch (err) {
+      left.push(`${join(root, name)} (${(err as Error).message})`);
+    }
+  }
+  if (left.length) throw new Error(`could not remove ${left.join(', ')}`);
+}
+
+/**
  * A path's real path. One that does not exist (yet), such as a working directory still to be
  * created, takes the real path of the nearest folder above it that does, with the rest as given: so
  * a link or another letter case on the way is resolved before the folder is made.
@@ -252,7 +286,8 @@ export interface AgentFolderOptions {
 
 /**
  * The folders that decide how the agents run, outside any project: each CLI's own folder (its
- * settings, hooks, MCP servers and, for Codex and Grok, its program), Claude Code's `~/.claude.json`,
+ * settings, hooks, MCP servers and, for Codex and Grok, its program; for Cursor its config folder and
+ * `~/.cursor`, where its hooks and MCP servers stay), Claude Code's `~/.claude.json`,
  * the CLIs' own folder Harness Relay gives them (`agentHome`), the folder of the other accounts' homes
  * (`accountsDir`), and the folders their programs are in (`bins`, from `commandPaths`).
  */
@@ -264,6 +299,16 @@ export function agentFolders(o: AgentFolderOptions = {}): string[] {
     join(home, '.claude.json'),
     env.CODEX_HOME || join(home, '.codex'),
     env.GROK_HOME || join(home, '.grok'),
+    // Cursor's config folder as it finds it (`cursorConfigDir`); ~/.cursor, where its hooks and MCP
+    // servers stay; and where it keeps its sign-in on Linux (`$XDG_CONFIG_HOME/cursor`, else
+    // ~/.config/cursor) and Windows (`%APPDATA%\Cursor`).
+    ...new Set([
+      env.CURSOR_CONFIG_DIR || (env.XDG_CONFIG_HOME ? join(env.XDG_CONFIG_HOME, 'cursor') : join(home, '.cursor')),
+      join(home, '.cursor'),
+      env.XDG_CONFIG_HOME ? join(env.XDG_CONFIG_HOME, 'cursor') : join(home, '.config', 'cursor'),
+      // On Windows, its sign-in is in %APPDATA%\Cursor.
+      ...(env.APPDATA ? [join(env.APPDATA, 'Cursor')] : []),
+    ]),
     ...(o.agentHome ? [o.agentHome] : []),
     ...(o.accountsDir && o.accountsDir !== o.agentHome ? [o.accountsDir] : []),
     ...(o.bins ?? []).map((bin) => dirname(bin)),

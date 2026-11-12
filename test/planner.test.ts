@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { planSavable, type AgentConfig, type ChatMessage, type ProviderModels, type TeamPreset } from '../src/shared/types';
+import { PROVIDERS, planSavable, type AgentConfig, type ChatMessage, type ProviderModels, type TeamPreset } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
 import {
   buildPlannerPrompt,
@@ -15,6 +15,8 @@ import {
   libraryForLead,
   parsePlanReply,
   plannerContext,
+  PLANNER_BRIEFING,
+  REVISER_BRIEFING,
   sameTeam,
   teamSettings,
   memberLibraryTools,
@@ -36,6 +38,14 @@ const catalog: ProviderModels[] = [
 ];
 const ctx: PlannerContext = { available: ['claude', 'codex'], catalog, presets: builtinPresets('en') };
 const lead = { provider: 'claude' as const };
+
+describe("the lead agent's briefings", () => {
+  it('name the kinds of agents the chat holds, the open-source ones too', () => {
+    for (const briefing of [PLANNER_BRIEFING, REVISER_BRIEFING]) {
+      expect(briefing).toContain('(Claude Code, Codex, Grok, Cursor, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi)');
+    }
+  });
+});
 
 describe('lead agent reply', () => {
   it('reads the JSON from a code block, or from bare braces', () => {
@@ -824,7 +834,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       { path: '/skills/pdf', name: 'pdf', description: 'Make PDFs', providers: ['claude', 'codex', 'grok'] },
       { path: '/skills/broken', name: 'broken', description: '', providers: ['claude'], problem: 'no SKILL.md' },
     ],
-    memory: { all: 'We use pnpm.\n  Always.', claude: '', codex: 'Codex: run tests', grok: '' },
+    memory: { all: 'We use pnpm.\n  Always.', claude: '', codex: 'Codex: run tests', grok: '', cursor: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' },
   });
 
   it('reads the tool library: MCP servers, usable skills and the memory parts that are set, with their keys', () => {
@@ -832,7 +842,8 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       { name: 'mcp:browser', key: 'mcp:srv1', providers: ['claude'] },
       { name: 'mcp:db', key: 'mcp:srv2', providers: [] },
       { name: 'skill:pdf', key: 'skill:/skills/pdf', about: 'Make PDFs', providers: ['claude', 'codex', 'grok'] },
-      { name: 'memory', key: 'memory', about: 'We use pnpm. Always.', providers: ['claude', 'codex', 'grok'] },
+      // The shared memory reaches every agent, the open ones too.
+      { name: 'memory', key: 'memory', about: 'We use pnpm. Always.', providers: PROVIDERS },
       { name: 'memory:codex', key: 'memory:codex', about: 'Codex: run tests', providers: ['codex'], only: 'codex' },
     ]);
   });
@@ -977,7 +988,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       ],
       catalog: async () => catalog,
       presets: () => [],
-      library: () => ({ mcpServers: [], skills: [], memory: { all: 'notes', claude: '', codex: '', grok: '' } }),
+      library: () => ({ mcpServers: [], skills: [], memory: { all: 'notes', claude: '', codex: '', grok: '', cursor: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' } }),
       native: async (p, cwd, acc) => {
         asked.push(`${p} ${cwd} ${acc || 'default'}`);
         if (p === 'codex') return new Promise(() => {}); // never answers
@@ -993,7 +1004,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       claude: { builtinTools: ['Bash'], skills: [{ name: 'commit', description: '' }], mcpServers: [] },
       codex: { skills: [], mcpServers: [], unknown: 'late' },
     });
-    expect(got.library).toEqual([{ name: 'memory', key: 'memory', about: 'notes', providers: ['claude', 'codex', 'grok'] }]);
+    expect(got.library).toEqual([{ name: 'memory', key: 'memory', about: 'notes', providers: PROVIDERS }]);
     asked.length = 0;
     expect((await plannerContext(src)).native).toBeUndefined();
     expect(asked).toEqual([]);
@@ -1005,7 +1016,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       statuses: async () => [{ provider: 'claude', installed: true, bin: 'claude', auth: { loggedIn: true }, usingStoredApiKey: false, accounts: [{ id: '', label: '', auth: { loggedIn: true }, usingStoredApiKey: false }] }],
       catalog: async () => catalog,
       presets: () => [],
-      library: () => ({ mcpServers: [], skills: [], memory: { all: '', claude: '', codex: '', grok: '' } }),
+      library: () => ({ mcpServers: [], skills: [], memory: { all: '', claude: '', codex: '', grok: '', cursor: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' } }),
       native,
     });
     const refused = await plannerContext(with_(async () => ({ ...answered, problems: [{ kind: 'failed', detail: 'Unsupported control request subtype: get_hooks_listing' }] })), '/w', 50);

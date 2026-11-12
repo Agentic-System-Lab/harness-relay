@@ -17,8 +17,11 @@ import { Scheduler } from './scheduler';
 import { clearShareTmp } from './share';
 import { openSystemKeyring } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
-import { dataDirInTemp, relayTmpDir, voiceDirProblem } from './protect';
+import { clearRunTmp, dataDirInTemp, relayTmpDir, voiceDirProblem } from './protect';
 import { CONFIG_PROBLEMS } from './config';
+import { OPEN_PROVIDERS } from '../shared/types';
+import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
+import { clearRelaySandboxLeftovers, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { serveWebApp, webAppDir } from './web';
@@ -38,7 +41,7 @@ if (configProblems.length) {
 }
 
 // One server per data folder: before the database is opened, since opening it already marks
-// replies left streaming aborted (the Store).
+// replies left streaming aborted (the Store), and the start sweeps below kill what runs left.
 if (!lockDataDir(DATA_DIR)) {
   console.error(
     `[server] Another Harness Relay server is using the data folder ${DATA_DIR}. Stop it first, or give this one a folder of its own with RELAY_DATA_DIR.`,
@@ -77,6 +80,10 @@ const orchestrator = new Orchestrator(
         addDirs,
       );
     },
+    // What an open agent with no model of its own runs on: what its model picker shows as the default.
+    async defaultModel(p) {
+      return (await providers.models(p)).defaultModel;
+    },
   },
   agentsView,
 );
@@ -105,6 +112,27 @@ if (!built) {
 await clearShareTmp().catch((err: unknown) => console.error('[server] could not clear the temporary share folders:', err));
 // There before any agent runs, so that every sandbox is kept out of it from the first turn (protectedReads).
 mkdirSync(relayTmpDir(), { recursive: true, mode: 0o700 });
+// What turns the server was stopped during left there (a Claude Code turn's settings may hold an
+// endpoint's key); none is running yet.
+try {
+  clearRunTmp();
+} catch (err) {
+  console.error('[server] could not clear the turns\' temporary folders:', err);
+}
+// The temporary folders of relay-sandbox runs the server was stopped during (none is running yet).
+// Whether nothing of them still runs: only then may permissions be given back to remove what is locked.
+let swept = false;
+try {
+  swept = clearRelaySandboxLeftovers();
+} catch (err) {
+  console.error('[server] could not clear the relay sandbox folders:', err);
+}
+// Where open agents' runs keep their temp folders: there before any run, so that every sandboxed run
+// is kept from reading other runs' folders in them from the first turn (`privateRoots`).
+// What open agents' runs a stopped server was running left: their temp folders, and the state folders of
+// runs without a key.
+clearOpenRunLeftovers(OPEN_PROVIDERS.flatMap((p) => settings.openAgentHomes(p)), undefined, { restore: swept });
+for (const dir of [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
 const port = apiPort();
 const host = process.env.HOST ?? '127.0.0.1';

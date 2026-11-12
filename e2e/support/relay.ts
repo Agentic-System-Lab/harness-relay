@@ -2,12 +2,15 @@
  * One Harness Relay server for one test: `src/server/index.ts` with the built UI, on a free port,
  * with everything it keeps in a temporary folder of its own (data, the CLIs' homes, a home folder,
  * the default working directory), the fake CLIs first on its PATH and the OS credential store off.
+ * The CLIs no fake stands in for (Cursor and the open agents) are not installed there, as on CI.
  * Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
+import { PROVIDERS } from '../../src/shared/types';
+import { CLIS as FAKE_CLIS } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
 
 /** What a fake CLI wrote to its log (E2E_FAKE_LOG): a start, or a prompt it got; or a start of the fake folder dialog. */
@@ -54,6 +57,13 @@ export interface StartOptions {
   fakeBinDir: string;
   /** Extra environment for the server (and so for the CLIs). */
   env?: Record<string, string>;
+  /**
+   * The live tests (`e2e/live/`): the real CLIs, signed in as the user is, on real models. The
+   * server's data, working directories and keyring stay the test's own, but HOME and each CLI's own
+   * folder are the user's (their sign-ins), no fake comes first on the PATH, and no CLI is set to be
+   * missing; `E2E_LIVE_BIN_<PROVIDER>` names a CLI that is not on the PATH.
+   */
+  live?: boolean;
 }
 
 const STARTUP_MS = 60_000;
@@ -62,7 +72,9 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   if (!existsSync(join(WEB_DIR, 'index.html'))) throw new Error(`The UI is not built in ${WEB_DIR}: run \`npm run build\`.`);
   // The real path: macOS's temporary folder is a link (/var → /private/var), Windows' may be a short
   // 8.3 name (RUNNER~1), and the server shows real paths.
-  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'relay-e2e-')));
+  // Live runs use Harness Relay's own sandbox, whose sockets need a short data folder path on macOS
+  // and Linux: macOS's temporary folder is too deep for it.
+  const root = realpathSync.native(mkdtempSync(join(o.live && process.platform !== 'win32' ? '/tmp' : tmpdir(), 'relay-e2e-')));
   const dataDir = join(root, 'data');
   const home = join(root, 'home');
   const workDir = join(root, 'work');
@@ -70,11 +82,27 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   for (const d of [dataDir, home, join(home, '.claude'), join(home, '.codex'), join(home, '.grok'), join(home, '.config')]) mkdirSync(d, { recursive: true });
   seedProject(workDir);
 
+  const bins = Object.entries(process.env).flatMap(([k, v]) => {
+    const m = /^E2E_LIVE_BIN_([A-Z]+)$/.exec(k);
+    return m && v ? [[m[1]!.toLowerCase(), v] as const] : [];
+  });
   const env: NodeJS.ProcessEnv = { ...process.env };
   // Claude Code's nesting variables (when the tests run inside a Claude Code session), the runner's
   // own, and the developer's own Harness Relay settings (limits, a voice folder): none of them is the
   // server's business. A spec that needs one sets it (`serverEnv`).
   for (const k of Object.keys(env)) if (/^(CLAUDECODE|CLAUDE_CODE_|PLAYWRIGHT_|PW_|TEST_|E2E_|RELAY_|FORCE_COLOR$)/.test(k)) delete env[k];
+  // Nor the user's own Cursor sign-in by key, or its folder (live runs sign in as the user does).
+  if (!o.live) for (const k of ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN', 'CURSOR_CONFIG_DIR']) delete env[k];
+  const homes = o.live
+    ? {}
+    : {
+        HOME: home,
+        USERPROFILE: home,
+        XDG_CONFIG_HOME: join(home, '.config'),
+        CLAUDE_CONFIG_DIR: join(home, '.claude'),
+        CODEX_HOME: join(home, '.codex'),
+        GROK_HOME: join(home, '.grok'),
+      };
   Object.assign(env, {
     PORT: '0',
     HOST: '127.0.0.1',
@@ -83,12 +111,7 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     RELAY_WEB_DIR: WEB_DIR,
     RELAY_KEYRING: 'off',
     RELAY_KEYRING_SERVICE: 'harness-relay-e2e',
-    HOME: home,
-    USERPROFILE: home,
-    XDG_CONFIG_HOME: join(home, '.config'),
-    CLAUDE_CONFIG_DIR: join(home, '.claude'),
-    CODEX_HOME: join(home, '.codex'),
-    GROK_HOME: join(home, '.grok'),
+    ...homes,
     GIT_AUTHOR_NAME: 'Relay E2E',
     GIT_AUTHOR_EMAIL: 'e2e@example.com',
     GIT_COMMITTER_NAME: 'Relay E2E',
@@ -96,7 +119,7 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     GIT_CONFIG_NOSYSTEM: '1',
     E2E_FAKE_LOG: fakeLog,
     // The fake CLIs first, found by name as the real ones are; this Node next, for the scripts.
-    PATH: [o.fakeBinDir, dirname(process.execPath), env.PATH ?? env.Path ?? ''].join(delimiter),
+    PATH: [...(o.live ? [] : [o.fakeBinDir]), dirname(process.execPath), env.PATH ?? env.Path ?? ''].join(delimiter),
     NO_COLOR: '1',
     ...o.env,
   });
@@ -121,11 +144,17 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
       await Promise.race([exited, new Promise((r) => setTimeout(r, 5_000))]);
     }
     // Windows may hold a file a moment after its process ended; a folder left in the temporary
-    // folder is no reason to fail a test.
+    // folder is no reason to fail a test. Harness Relay makes some of an open agent's folders in
+    // its home read-only (OpenCode's config): those are given back to their owner first.
     try {
       rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
-    } catch (err) {
-      console.warn(`[e2e] could not remove ${root}: ${(err as Error).message}`);
+    } catch {
+      try {
+        makeWritable(root);
+        rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+      } catch (err) {
+        console.warn(`[e2e] could not remove ${root}: ${(err as Error).message}`);
+      }
     }
   };
   try {
@@ -186,6 +215,18 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
       return (text ? JSON.parse(text) : undefined) as T;
     };
 
+    // The CLIs no fake stands in for (Cursor and the open agents) are not installed here, as on CI:
+    // a real one on the user's PATH would otherwise be started (Cursor with the sign-in it keeps in
+    // the macOS keychain), and what each test sees would depend on what that computer has. Their
+    // executable is set to a path that does not exist, before the page asks for any CLI's status.
+    // Live runs start the real ones, from the PATH or where E2E_LIVE_BIN_<PROVIDER> says.
+    if (!o.live) {
+      for (const p of PROVIDERS.filter((x) => !(FAKE_CLIS as readonly string[]).includes(x))) {
+        await api(`/api/settings/providers/${p}`, { method: 'PUT', body: { bin: join(root, 'not-installed', p) } });
+      }
+    }
+    for (const [p, bin] of o.live ? bins : []) await api(`/api/settings/providers/${p}`, { method: 'PUT', body: { bin } });
+
     return {
       base,
       root,
@@ -213,6 +254,23 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
       stop,
     };
   }
+}
+
+/** Gives the owner write permission on `dir` and every folder under it, never following a link. */
+function makeWritable(dir: string): void {
+  let st;
+  try {
+    st = lstatSync(dir);
+  } catch {
+    return;
+  }
+  if (!st.isDirectory()) return;
+  try {
+    chmodSync(dir, (st.mode & 0o777) | 0o700);
+  } catch {
+    /* not ours to change: rmSync says so */
+  }
+  for (const name of readdirSync(dir)) makeWritable(join(dir, name));
 }
 
 /** A small project to work in: a README, some code and a nested folder (not a git repository: edit mode makes one). */

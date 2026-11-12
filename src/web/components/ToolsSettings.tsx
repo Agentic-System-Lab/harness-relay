@@ -490,7 +490,7 @@ function MemorySection({ lib, change }: { lib: ToolLibraryView; change: Change }
     <div className="tools-section">
       <h4>{t.tools.memory}</h4>
       <p className="muted small">{t.tools.memoryHint}</p>
-      <div className="segmented memory-scopes" role="tablist" aria-label={t.tools.memory}>
+      <div className="segmented cli-picker memory-scopes" role="tablist" aria-label={t.tools.memory}>
         {MEMORY_SCOPES.map((s) => (
           <button
             key={s}

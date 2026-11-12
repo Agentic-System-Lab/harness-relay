@@ -23,7 +23,30 @@ describe('client routes', () => {
   });
 
   it('has a settings section for every CLI', () => {
-    expect(SETTINGS_SECTIONS).toEqual(['version', 'language', 'appearance', 'claude', 'codex', 'grok', 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'browsers', 'tour']);
+    // The model backends come before every CLI: the open agents run on them, and the others on their endpoints too.
+    expect(SETTINGS_SECTIONS).toEqual([
+      'version',
+      'language',
+      'appearance',
+      'backends',
+      'claude',
+      'codex',
+      'grok',
+      'cursor',
+      'opencode',
+      'goose',
+      'cline',
+      'openhands',
+      'pi',
+      'lead',
+      'tools',
+      'voice',
+      'cwd',
+      'sessions',
+      'shares',
+      'browsers',
+      'tour',
+    ]);
   });
 });
 

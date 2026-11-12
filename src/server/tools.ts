@@ -89,7 +89,7 @@ const secretName = (serverId: string) => `mcp-${serverId}`;
 const SKILL_FILE = 'SKILL.md';
 const MAX_DESCRIPTION = 1024;
 
-const emptyMemory = (): Record<MemoryScope, string> => ({ all: '', claude: '', codex: '', grok: '' });
+const emptyMemory = (): Record<MemoryScope, string> => Object.fromEntries(MEMORY_SCOPES.map((s) => [s, ''])) as Record<MemoryScope, string>;
 
 /** An item's CLIs as stored; data saved before items had them has `enabled` instead. */
 function storedProviders(v: { providers?: unknown; enabled?: unknown }): Provider[] {

@@ -17,7 +17,8 @@ import { writeFileSync } from 'node:fs';
  * command and subagent; `skillOverrides` "off" takes away that command; permission rules deny tools
  * by name, a server's tools by `mcp__local`) and `--setting-sources ''` (only the built-in
  * subagents).
- * FAKE_CLAUDE_LOG names a file that gets a JSON line for each start (its arguments, settings and variables),
+ * FAKE_CLAUDE_LOG names a file that gets a JSON line for each start (its arguments, settings and some
+ * variables: the instruction files' switch, and Anthropic's address, keys and sign-in token),
  * for the rules applied, and for the prompt (with the rules in force when it came).
  * FAKE_CLAUDE_NO_APPLY refuses `apply_flag_settings`, as an older Claude Code would;
  * FAKE_CLAUDE_NO_PLUGINS makes `plugin list` fail; FAKE_CLAUDE_NO_AGENTS leaves `agents` out of
@@ -67,7 +68,18 @@ const strictMcp = has('--strict-mcp-config');
 const flagDeny = ((settings.permissions || {}).deny || []);
 const agents = ['general-purpose', 'Explore'].concat(builtinOnly ? [] : ['reviewer', 'deck:designer']).filter((a) => !pluginOff(a));
 const deny = [];
-record({ args, settings, env: { CLAUDE_CODE_DISABLE_CLAUDE_MDS: process.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS || null } });
+const envOf = (name) => (process.env[name] === undefined ? null : process.env[name]);
+record({
+  args,
+  settings,
+  env: {
+    CLAUDE_CODE_DISABLE_CLAUDE_MDS: process.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS || null,
+    ANTHROPIC_BASE_URL: envOf('ANTHROPIC_BASE_URL'),
+    ANTHROPIC_AUTH_TOKEN: envOf('ANTHROPIC_AUTH_TOKEN'),
+    ANTHROPIC_API_KEY: envOf('ANTHROPIC_API_KEY'),
+    CLAUDE_CODE_OAUTH_TOKEN: envOf('CLAUDE_CODE_OAUTH_TOKEN'),
+  },
+});
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
@@ -108,7 +120,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       .concat(strictMcp ? [] : ['mcp__local__search', 'mcp__local__fetch'])
       .filter((name) => !rules.some((r) => r === name || (r.startsWith('mcp__') && name.startsWith(r + '__'))));
     out({ type: 'system', subtype: 'init', session_id: 'fake-session', tools, mcp_servers: strictMcp ? [] : [{ name: 'local', status: 'connected' }] });
-    out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'fake-session', usage: { input_tokens: 1, output_tokens: 1 } });
+    out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'fake-session', total_cost_usd: 0.25, usage: { input_tokens: 1, output_tokens: 1 } });
   }
 });
 `;

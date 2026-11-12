@@ -4,15 +4,15 @@ How the Harness Relay landing page (`site/`) looks, reads and behaves, and what 
 
 ## Goal
 
-- **Reader:** a developer who already uses one or more of the Claude Code, Codex and Grok CLIs.
-- **Job of the page:** within a minute, show three real CLIs working in one chat, then get the reader to download the desktop app for their system, or open the repository. There are no commands to start it: running from source (`npm start`, and `npm run dev` for people working on Harness Relay itself) is one line at the end of the quick start, for servers without a desktop, linking to the README.
-- **Primary action:** the download button in the hero, named after the visitor's system ("Download for macOS"), with the link to the requirements and the other systems beside it; the GitHub button sits under them. The hero is as wide as the header: the headline fills the width (`text-wrap: pretty`, not balanced shorter), and the buttons end at the right edge, under the header's GitHub button (on one column, 920px and narrower, they start at the left). The page ends on the quick start, never on a dead end.
+- **Reader:** a developer who already uses one or more of the Claude Code, Codex, Grok and Cursor CLIs, or an open-source coding agent (OpenCode, Goose, Cline, OpenHands, Pi) on their own API keys or model.
+- **Job of the page:** within a minute, show three real CLIs working in one chat (the demo's: Claude Code, Codex and Grok), then get the reader to download the desktop app for their system, or open the repository. There are no commands to start it: running from source (`npm start`, and `npm run dev` for people working on Harness Relay itself) is one line at the end of the quick start, for servers without a desktop, linking to the README.
+- **Primary action:** the download button in the hero, named after the visitor's system ("Download for macOS"), with the link to the requirements and the other systems beside it; the GitHub button sits under them. The buttons' column takes only the width they need, and the lead sentence the rest (up to its 38em), so that it reads in a few long lines. The hero is as wide as the header: the headline fills the width (`text-wrap: pretty`, not balanced shorter), and the buttons end at the right edge, under the header's GitHub button (on one column, 920px and narrower, they start at the left). The page ends on the quick start, never on a dead end.
 
 ## Principles
 
 1. **Show the run, don't describe it.** The first viewport is the real demo recording with a chapter rail. Every section after it shows the mechanism (mode diagrams, the app's own UI) before it explains it.
 2. **The app's world, at poster scale.** The page is recognisably the same product as the app: same neutrals, same agent colours, same three-dot mark, same avatars and pills. It is bolder in scale, not in new decoration.
-3. **Colour means an agent.** Claude Code orange, Codex green and Grok violet appear only where that agent acts or is named. Never use them for generic accents, links or section themes. The one other colour is the GitHub star's yellow, only on that star.
+3. **Colour means an agent.** Claude Code orange, Codex green and Grok violet appear only where that agent acts or is named. Never use them for generic accents, links or section themes. The one other colour is the GitHub star's yellow, only on that star. Cursor and the five open-source agents are shown neutrally (plain text, a `--muted` dot in their list: `.t-plain` for Cursor's row in "Your CLIs"): the demo does not show them, and their colours in the app are not part of the page's palette. So the headline and the mark keep the demo's three.
 4. **Facts only.** Every claim must be true of the code in this repository. There are no testimonials, user counts, download counts or benchmarks; do not add any. The numbers about the project are the GitHub star count on the two GitHub buttons and the newest release's version in the quick start, read live from GitHub's API; never write them into the page. The download cards show no installer sizes.
 5. **Two languages, equal.** English and 繁體中文 pages have the same sections, order and facts.
 
@@ -67,7 +67,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 
 ### Components
 
-- **Mark:** the three circles from the favicon (`#i-mark` symbol), same geometry as `src/web/components/Logo.tsx`. At page scale it becomes the three agent discs in "Your CLIs, not imitations".
+- **Mark:** the three circles from the favicon (`#i-mark` symbol), same geometry as `src/web/components/Logo.tsx`. At page scale it becomes the three agent discs in "Your CLIs, not imitations": the app's mark and the demo's three, not a count of the CLIs (the list beside it names Cursor too).
 - **Avatar** (`.av`): the member's initial on a `-deep` fill, like the app. Initials match the template or demo member names.
 - **Pill** (`.pill`): the app's CLI badge, tinted agent colour with `-ink` text. **Chip** (`.chip`): neutral outline for mode, permission and round labels.
 - **Buttons:** primary is ink on light (`.btn-primary`), secondary is outlined (`.btn-ghost`). One primary per view: in the hero, the download button.
@@ -76,7 +76,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 - **Star count** (`.stars`): the GitHub buttons in the header and the hero end in the repository's star count after a hairline, with the `#i-star` icon filled yellow (`--star`, with a darker `--star-edge` on a light button; the primary button uses the `--star-inverse` pair), and screen readers hear "12 stars" / "12 顆星". `site.js` reads it from `api.github.com` as the page loads, shortens it like GitHub does in the page's language (English `999`, `1.2K`, `12.3K`, `123K`, `1.2M`; 中文 `999`, `1,234`, `1.2萬`, `12.3萬`, `123萬`) and keeps it in `localStorage` under `harness-relay.stars` for ten minutes (the API allows a visitor 60 requests an hour). When GitHub can't be reached the last count shows; with none, or without JavaScript, the buttons show no count. On phones the header button drops the word "GitHub" and keeps the count.
 - **Quick start step:** a step with more than one block (the download cards, text) wraps them in `.step-body`, so they stay together in the right-hand column.
 - **Command block** (`.cmd`, not on the page now): `$` prompts are not copied; the copy button copies the commands only and confirms with a check. One command per line, never joined with `&&`: Windows PowerShell 5.1, still the default shell on Windows, rejects `&&`, while separate lines run in every shell.
-- **UI excerpts** (`.ui`): approval card, question, changed files, waiting message tray. They recreate the app's components with sample content, and the page says so under them. Keep them faithful to the app when the app changes.
+- **UI excerpts** (`.ui`): approval card, question, changed files, waiting message tray, and Settings → Model backends (`.ui-backends`, from `src/web/components/BackendsSettings.tsx`). They recreate the app's components with sample content, and the page says so under them. Keep them faithful to the app when the app changes.
 - **Icons:** drawn inline SVG symbols in one 1.8px stroke. No emoji or Unicode glyphs as icons, and no company logos: the systems are a command key (macOS), a four-pane window (Windows) and a penguin (Linux).
 
 ## Page structure
@@ -86,13 +86,14 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count |
 | 2 | Hero | Headline with the three agent names in their colours, one sentence, the download button for the visitor's system with the link to the requirements beside it, GitHub button with the star count |
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
-| 4 | Your CLIs (`#agents`) | How each CLI is driven; the mark at page scale |
-| 5 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
-| 6 | Teams (`#teams`) | A team for every question: the lead agent picks it, you design the templates; the five built-in templates |
-| 7 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray |
-| 8 | Also in every chat (`#more`) | The remaining features as a two-column list |
-| 9 | Safety (`#safety`) | Local-only facts (sign-in, the agents' sandboxes) and the permission table, with a link to the sandboxing doc |
-| 10 | Quick start (`#start`) | One row per step (title left, content right): requirements (the CLIs), the three installers with the newest version and how to open them the first time, first steps, then (optional) opening it on a phone with the app's *Share with your phone*; then running from source in one line, and links to the docs |
+| 4 | Your CLIs (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor neutrally); the mark at page scale |
+| 5 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |
+| 6 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
+| 7 | Teams (`#teams`) | A team for every question: the lead agent picks it, you design the templates; the five built-in templates |
+| 8 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray |
+| 9 | Also in every chat (`#more`) | The remaining features as a two-column list |
+| 10 | Safety (`#safety`) | Local-only facts (sign-in, the CLIs' own sandboxes, Harness Relay's own sandbox around the open agents) and the permission table, with a link to the sandboxing doc |
+| 11 | Quick start (`#start`) | One row per step (title left, content right): requirements (the CLIs, the open-source ones with the versions tested), the three installers with the newest version and how to open them the first time, first steps, then (optional) opening it on a phone with the app's *Share with your phone*; then running from source in one line, and links to the docs |
 
 Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numbers, gradient text, stat counters.
 
@@ -108,11 +109,11 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 ## Copy and languages
 
 - Voice: plain, specific, second person, short sentences. Name real things (`claude`, `codex app-server`, `127.0.0.1`). No hype words.
-- Use the app's own terms. English: Auto team, Roundtable, Parallel, Relay, Read-only, Edit, Full access, lead agent. 繁體中文: 自動組隊、圓桌、平行、接力、唯讀、可編輯、完全存取、首席 agent (see `src/web/locales/zh-TW.ts`).
+- Use the app's own terms. English: Auto team, Roundtable, Parallel, Relay, Read-only, Edit, Full access, lead agent, model backends, custom endpoints. 繁體中文: 自動組隊、圓桌、平行、接力、唯讀、可編輯、完全存取、首席 agent、模型來源、自訂端點、開源 agent (see `src/web/locales/zh-TW.ts`).
 - English page: `site/index.html`. Chinese page: `site/zh-TW/index.html` (`lang="zh-Hant-TW"`). A change to one is a change to both.
 - The site remembers the visitor's language. Clicking the language switch in the header (`data-lang`) stores the choice in `localStorage` under `harness-relay.lang` (`en` or `zh-TW`). On every later visit the inline script in each page's `<head>` sends the visitor to the page in that language before anything renders, keeping the `#section` anchor. Until they choose, the English page follows the browser like the app does: a browser whose first language is Chinese gets `zh-TW/`; a Chinese page opened directly stays as it is.
 - Template names and descriptions come from `src/server/presets.ts`; keep them in sync.
-- CLI links: Claude Code https://docs.claude.com/en/docs/claude-code, Codex https://github.com/openai/codex, Grok https://github.com/xai-org/grok-build.
+- CLI links: Claude Code https://docs.claude.com/en/docs/claude-code, Codex https://github.com/openai/codex, Grok https://github.com/xai-org/grok-build, Cursor https://cursor.com/cli. The open agents link to their packages: OpenCode https://www.npmjs.com/package/opencode-ai, Goose https://formulae.brew.sh/formula/block-goose-cli, Cline https://www.npmjs.com/package/cline, OpenHands https://pypi.org/project/openhands/, Pi https://www.npmjs.com/package/@earendil-works/pi-coding-agent. Keep the tested versions in step with [docs/open-agents.md](../docs/open-agents.md).
 
 ## Assets
 

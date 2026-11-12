@@ -26,7 +26,7 @@ import type {
   SearchResult,
   SharedPage,
 } from '../shared/types';
-import { cwdSettings, pendingPlan } from '../shared/types';
+import { PERMISSION_ORDER, PROVIDERS, cwdSettings, pendingPlan } from '../shared/types';
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
@@ -164,6 +164,23 @@ interface PartRow {
   tool_output: string | null;
   /** JSON: plan entries, or the approval request. */
   data: string | null;
+}
+
+/** A member's record per CLI (`agent_sessions.by_cli`): only known CLIs and permissions are kept. */
+function byCliOf(json: string | null): AgentSessionState['byCli'] {
+  const raw = parseJson<Record<string, { permission?: unknown; home?: unknown; mustEmpty?: unknown }>>(json, {});
+  const out: NonNullable<AgentSessionState['byCli']> = {};
+  for (const p of PROVIDERS) {
+    const e = raw[p];
+    const permission = PERMISSION_ORDER.find((x) => x === e?.permission);
+    if (!permission) continue;
+    out[p] = {
+      permission,
+      ...(typeof e?.home === 'string' && e.home ? { home: e.home } : {}),
+      ...(e?.mustEmpty === true ? { mustEmpty: true } : {}),
+    };
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function parseJson<T>(json: string | null, fallback: T): T {
@@ -473,8 +490,28 @@ export class Store {
   private savedSeen = new Map<string, Set<string>>();
 
   constructor(private db: Database) {
-    // A previous server process died mid-turn.
-    db.prepare("UPDATE messages SET status = 'aborted' WHERE status = 'streaming'").run();
+    // A previous server process died mid-turn: its replies are aborted, an approval they still waited
+    // on can no longer be answered (expired, as when a run is stopped), and a tool call they still
+    // showed running ended without a result (as a stopped run closes it). Also in replies an older
+    // server already marked aborted.
+    transaction(db, () => {
+      const waiting = db
+        .prepare(
+          `SELECT p.message_id, p.idx, p.data FROM message_parts p JOIN messages m ON m.id = p.message_id
+           WHERE m.status = 'streaming' AND p.type = 'approval'`,
+        )
+        .all() as { message_id: string; idx: number; data: string | null }[];
+      const expire = db.prepare('UPDATE message_parts SET data = ? WHERE message_id = ? AND idx = ?');
+      for (const r of waiting) {
+        const data = parseJson<Record<string, unknown>>(r.data, {});
+        if (data.status === 'pending') expire.run(JSON.stringify({ ...data, status: 'expired' }), r.message_id, r.idx);
+      }
+      db.prepare(
+        `UPDATE message_parts SET tool_status = 'error' WHERE type = 'tool' AND tool_status = 'running'
+           AND message_id IN (SELECT id FROM messages WHERE status IN ('streaming', 'aborted'))`,
+      ).run();
+      db.prepare("UPDATE messages SET status = 'aborted' WHERE status = 'streaming'").run();
+    });
   }
 
   // Conversations ------------------------------------------------------------
@@ -586,11 +623,28 @@ export class Store {
 
     const agentState: Record<string, AgentSessionState> = {};
     const sessions = this.db
-      .prepare('SELECT agent_id, provider, account, session_id FROM agent_sessions WHERE conversation_id = ?')
-      .all(id) as { agent_id: string; provider: Provider | null; account: string | null; session_id: string | null }[];
+      .prepare('SELECT agent_id, provider, account, session_id, permission, by_cli, backend FROM agent_sessions WHERE conversation_id = ?')
+      .all(id) as {
+      agent_id: string;
+      provider: Provider | null;
+      account: string | null;
+      session_id: string | null;
+      permission: string | null;
+      by_cli: string | null;
+      backend: string | null;
+    }[];
     for (const s of sessions) {
-      agentState[s.agent_id] = { provider: opt(s.provider), sessionId: opt(s.session_id), seen: [] };
+      const permission = PERMISSION_ORDER.find((p) => p === s.permission);
+      const byCli = byCliOf(s.by_cli);
+      agentState[s.agent_id] = {
+        provider: opt(s.provider),
+        sessionId: opt(s.session_id),
+        ...(permission ? { permission } : {}),
+        ...(byCli ? { byCli } : {}),
+        seen: [],
+      };
       if (s.account) agentState[s.agent_id]!.account = s.account;
+      if (s.backend) agentState[s.agent_id]!.backend = s.backend;
     }
     const seen = this.db
       .prepare('SELECT agent_id, message_id FROM agent_seen WHERE conversation_id = ?')
@@ -968,11 +1022,21 @@ export class Store {
     transaction(this.db, () => {
       this.db
         .prepare(
-          `INSERT INTO agent_sessions (conversation_id, agent_id, provider, account, session_id) VALUES (?, ?, ?, ?, ?)
+          `INSERT INTO agent_sessions (conversation_id, agent_id, provider, account, session_id, permission, by_cli, backend) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(conversation_id, agent_id) DO UPDATE SET
-             provider = excluded.provider, account = excluded.account, session_id = excluded.session_id`,
+             provider = excluded.provider, account = excluded.account, session_id = excluded.session_id,
+             permission = excluded.permission, by_cli = excluded.by_cli, backend = excluded.backend`,
         )
-        .run(convId, agentId, nul(state.provider), state.account || null, nul(state.sessionId));
+        .run(
+          convId,
+          agentId,
+          nul(state.provider),
+          state.account || null,
+          nul(state.sessionId),
+          nul(state.permission),
+          state.byCli ? JSON.stringify(state.byCli) : null,
+          state.backend || null,
+        );
       // Write only what changed since the last save: the list grows with the conversation.
       const key = seenKey(convId, agentId);
       const saved = this.savedSeen.get(key);

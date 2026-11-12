@@ -1,8 +1,31 @@
-import { spawn, type ChildProcess, type SpawnOptions as ChildOptions } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions as ChildOptions, type SpawnSyncReturns } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import type { Duplex } from 'node:stream';
 import { t } from './i18n';
+import { windowsLaunch, type WindowsLaunch } from './winLaunch';
+
+/**
+ * A private two-way channel a process gets besides its stdio, as its fd 3 (a socket pair the server
+ * holds the other end of), and what the server does with its end once the process is spawned. The
+ * relay sandbox's host (`relaySandbox.ts`) takes its rules and asks about hosts over it.
+ */
+export type ControlChannel = (channel: Duplex, child: ChildProcess) => void;
+
+/**
+ * Where a `ControlChannel` can also ride along: on the `env` passed to `runProcess`, under this key,
+ * which spreading `env` (`{ ...env, X: '1' }`) keeps and `spawn` leaves out (it only takes string
+ * keys). So an adapter that passes the env a sandbox command came with passes its channel too.
+ */
+export const CONTROL_CHANNEL: unique symbol = Symbol.for('harness-relay.controlChannel');
+
+/** The channel a spawn asks for: `channel`, else the one riding on its env. */
+function controlChannelOf(o: Pick<SpawnOptions, 'channel' | 'env'>): ControlChannel | undefined {
+  if (o.channel) return o.channel;
+  const riding = (o.env as Record<PropertyKey, unknown>)[CONTROL_CHANNEL];
+  return typeof riding === 'function' ? (riding as ControlChannel) : undefined;
+}
 
 export interface SpawnOptions {
   bin: string;
@@ -23,6 +46,8 @@ export interface SpawnOptions {
   maxCapture?: number;
   /** Keep the first `maxCapture` bytes of stdout instead of the last. */
   keepStart?: boolean;
+  /** A control channel for the process, on its fd 3 (see `ControlChannel`; also taken from `env`). */
+  channel?: ControlChannel;
 }
 
 export interface SpawnResult {
@@ -121,13 +146,34 @@ export function resolveBin(bin: string): string {
   return bin.includes('/') && !isAbsolute(bin) ? resolve(bin) : bin;
 }
 
+/**
+ * What to start for a CLI: on Windows, the program its `.cmd` runs when the CLI is one (npm's
+ * cmd-shim, Cursor's launcher; `winLaunch.ts`), since a script would need a shell; elsewhere the CLI
+ * itself. Throws when it is a script whose program cannot be told.
+ */
+export function launchOf(bin: string, args: readonly string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): WindowsLaunch {
+  const resolved = resolveBin(bin);
+  return platform === 'win32' ? windowsLaunch(resolved, args, env) : { file: resolved, args: [...args] };
+}
+
+/** The CLI's environment with what its launch needs besides. */
+const withLaunchEnv = (env: NodeJS.ProcessEnv, launch: WindowsLaunch): NodeJS.ProcessEnv => (launch.env ? { ...env, ...launch.env } : env);
+
 /** How runProcess and runShellScript run what they start: everything but the program and its arguments. */
 export type RunOptions = Omit<SpawnOptions, 'bin' | 'args'>;
 
 /** Spawn a CLI, stream its stdout line by line, and resolve when it exits. It never runs through a shell. */
 export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
-  const bin = resolveBin(o.bin);
-  return supervise(o.bin, o, (options) => spawn(bin, o.args, options));
+  let launch: WindowsLaunch;
+  try {
+    launch = launchOf(o.bin, o.args, o.env);
+  } catch (err) {
+    return Promise.reject(err);
+  }
+  // Not found on Windows: started bare, it would be looked for in the working directory (the agent's
+  // project) first. A missing working directory is still said first (by `supervise`).
+  if (launch.missing && !(o.cwd && !existsSync(o.cwd))) return Promise.reject(new CommandNotFoundError(o.bin));
+  return supervise(o.bin, { ...o, env: withLaunchEnv(o.env, launch) }, (options) => spawn(launch.file, launch.args, options));
 }
 
 /**
@@ -162,15 +208,29 @@ function supervise(name: string, o: RunOptions, start: (options: ChildOptions) =
       reject(new Error(t().dirNotFound(o.cwd)));
       return;
     }
+    const channel = controlChannelOf(o);
     const child = start({
       cwd: o.cwd,
       env: o.env,
       detached: true,
       // On Windows a detached child would get a console window of its own.
       windowsHide: true,
-      stdio: [o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      stdio: [o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe', 'pipe', 'pipe', ...(channel ? ['pipe' as const] : [])],
     });
     live.add(child);
+    if (channel) {
+      const end = child.stdio[3] as Duplex | null | undefined;
+      if (end) {
+        end.on('error', () => {
+          /* the process may exit while the server still writes */
+        });
+        try {
+          channel(end, child);
+        } catch (err) {
+          console.error('[process] control channel failed:', err);
+        }
+      }
+    }
     if (o.keepStdinOpen) {
       child.stdin!.on('error', () => {
         /* the CLI may exit while we are still writing */
@@ -315,7 +375,8 @@ export async function converse(o: {
 
 /** Spawn a long-lived interactive process (used for login flows). */
 export function spawnInteractive(bin: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
-  const child = spawn(resolveBin(bin), args, { env, detached: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  const launch = launchOf(bin, args, env);
+  const child = spawn(launch.file, launch.args, { env: withLaunchEnv(env, launch), detached: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   live.add(child);
   child.on('close', () => live.delete(child));
   child.on('error', () => live.delete(child));
@@ -354,6 +415,33 @@ export async function killAll(graceMs = KILL_GRACE_MS): Promise<void> {
 }
 
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*(\u0007|\u001b\\)/g;
+/**
+ * A short program the server waits for, such as a probe (`lsof`, `ps`, `chflags`, `node --version`):
+ * started directly, never through a shell, and killed (SIGKILL, so one that ignores SIGTERM cannot hold
+ * the server) after `timeoutMs`. It cannot outlive the call, so it needs no tracking for shutdown; it
+ * blocks every conversation while it runs, so keep it to quick ones and use `runProcess` for the rest.
+ */
+export function runSync(
+  bin: string,
+  args: readonly string[],
+  o: { timeoutMs: number; input?: string; maxBuffer?: number; quiet?: boolean },
+): SpawnSyncReturns<string> {
+  return spawnSync(bin, args, {
+    encoding: 'utf8',
+    timeout: o.timeoutMs,
+    killSignal: 'SIGKILL',
+    maxBuffer: o.maxBuffer ?? 1 << 22,
+    ...(o.input !== undefined ? { input: o.input } : {}),
+    ...(o.quiet ? { stdio: 'ignore' as const } : {}),
+    windowsHide: true,
+  });
+}
+
+/** Waits `ms` without starting a process (between the rounds of a sweep). */
+export function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 export function stripAnsi(s: string): string {
   return s.replace(ANSI, '');
 }

@@ -51,6 +51,10 @@ const zhTW = {
     `Claude Code 無法啟動它的沙箱（完全存取以外的權限都需要）：${why}。在 Linux 與 WSL2 上請安裝 bubblewrap 與 socat（例如 sudo apt-get install bubblewrap socat），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」），再試一次；或把權限改成「完全存取」，在沙箱外執行。`,
   sandboxHost: '沙箱中的指令想連到這個主機。',
   commandNotFound: (bin: string) => `找不到指令「${bin}」。請確認已安裝，或在「設定」頁指定執行檔路徑。`,
+  windowsShimBroken: (bin: string, script: string, target: string) => `「${bin}」是 ${script}，它執行的 ${target} 不在了：請重新安裝 ${bin}。`,
+  windowsNoNode: (bin: string, script: string) => `「${bin}」是 ${script}，它要用 Node.js 執行，但 PATH 上找不到 Node.js：請安裝 Node.js，或把它加到 PATH。`,
+  windowsScript: (bin: string, script: string) =>
+    `「${bin}」是腳本 ${script}，Harness Relay 無法啟動它：它只啟動程式，從不透過 shell，而且讀不出這個腳本執行的是哪個程式。請在「設定」頁把執行檔路徑改成它執行的程式（.exe）。`,
   permission: { 'read-only': '唯讀', edit: '可編輯', full: '完全存取' } as Record<Permission, string>,
   grokRefusedReadOnly: '唯讀模式不允許，已告知 Grok 改用唯讀工具',
   grokRefusedPublish: '可編輯模式不允許推送或發佈',
@@ -59,8 +63,58 @@ const zhTW = {
   grokCancelHint: (permission: string) => `目前的權限是「${permission}」；若這個操作是必要的，可以把權限改成「完全存取」再試。`,
   grokSandbox: (why: string) => `Grok 無法啟動沙箱（完全存取以外的權限都需要）：${why}。在 Linux 上，它禁止讀取的路徑需要 bubblewrap（例如 sudo apt-get install bubblewrap），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」）。`,
   grokNoSession: 'grok 沒有回傳 session id',
+  grokModelsFailed: (path: string, why: string) => `無法把你自己的端點的模型寫進 Grok 的設定（${path}）：${why}`,
+  // Harness Relay's own sandbox (relaySandbox.ts), for the CLIs that have none of their own
+  relaySandboxWindows:
+    'Harness Relay 自己的沙箱無法在原生 Windows 上使用（它用的 sandbox-runtime 在 Windows 上還是 alpha 版），所以這個 agent 在「唯讀」與「可編輯」下不會在這裡執行。請在 WSL2 裡執行 Harness Relay，或把權限改成「完全存取」（不使用沙箱）。',
+  relaySandboxPathTooLong: (dataDir: string, max: number) =>
+    `Harness Relay 的資料資料夾路徑（${dataDir}）太長，沙箱放不下它要建立的 socket，所以沒有執行：請把 RELAY_DATA_DIR 設成路徑不超過 ${max} 個位元組的資料夾（UTF-8：中文字每個佔 3 個），再重新啟動 Harness Relay；或改用完全存取。`,
+  relaySandboxNoNode: 'Harness Relay 的沙箱需要 Node.js 22.12 或更新版本才能執行它的沙箱程式，而桌面 app 自己的執行環境不能當成 Node 使用：請安裝 Node.js，讓它出現在登入 shell 的 PATH 上，再重新開啟 app；或改用完全存取。',
+  relaySandboxPlatform: (platform: string) =>
+    `Harness Relay 自己的沙箱只能在 macOS 與 Linux 上使用（這裡是 ${platform}），所以這個 agent 在「唯讀」與「可編輯」下不會執行。請把權限改成「完全存取」，或在 macOS 或 Linux 上執行。`,
+  relaySandboxMissing: (what: string, packages: string) =>
+    `Harness Relay 自己的沙箱需要 ${what}，這台電腦上沒有，所以沒有執行（「完全存取」以外的權限都需要它）。請安裝：sudo apt-get install ${packages}（Fedora：sudo dnf install ${packages}），再試一次；或把權限改成「完全存取」。`,
+  relaySandboxArch: (arch: string) =>
+    `Harness Relay 自己的沙箱在這種處理器（${arch}）上擋不住 Unix socket（它的 seccomp 過濾器只有 x64 與 arm64 版），沙箱裡的程式就可能透過 Docker 等服務的 socket 跑到沙箱外，所以沒有執行。請把權限改成「完全存取」，或在 x64 或 arm64 的電腦上執行。`,
+  relaySandboxFailed: (detail: string, platform: string) =>
+    `Harness Relay 自己的沙箱無法啟動（「完全存取」以外的權限都需要它），所以沒有執行：${detail}。` +
+    (platform === 'darwin'
+      ? 'sandbox-exec 是 macOS 內建的；Harness Relay 本身若在另一個沙箱裡執行（例如由沙箱中的指令啟動），就無法再開沙箱：請從一般的終端機啟動 Harness Relay。'
+      : platform === 'linux'
+        ? 'bubblewrap 需要非特權的 user namespace：Ubuntu 23.10 以後請加上 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」）；在容器裡，容器要允許 user namespace 並能掛載新的 /proc（例如 docker run --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined），或改用「完全存取」，讓容器當沙箱；WSL1 不支援，請用 WSL2。'
+        : '') +
+    '或把權限改成「完全存取」。',
+  relaySandboxBadHost: (entry: string) => `「${entry}」不是沙箱可以連線的主機（只能是主機名稱或 IP 位址，可加上 :port），所以沒有執行。`,
+  relaySandboxLocalPort: (entry: string) =>
+    `模型來源「${entry}」在這台電腦上，卻沒有寫連接埠；沙箱只讓程式連到這台電腦上指定的連接埠，所以沒有執行。請在位址裡加上模型伺服器的連接埠（例如 localhost:11434）。`,
+  relaySandboxRelayPort: (entry: string) =>
+    `模型來源「${entry}」是 Harness Relay 自己的連接埠，沙箱裡的程式不能連到那裡，所以沒有執行。請改用模型伺服器自己的位址。`,
+  relaySandboxRelative: (path: string) => `沙箱的路徑必須是絕對路徑，「${path}」不是，所以沒有執行。`,
+  relaySandboxWritable: (path: string, folder: string) =>
+    `這次執行可以寫入的「${path}」包含或位於「${folder}」，那裡的檔案決定 Harness Relay 或 agent 怎麼執行，agent 就能繞過沙箱，所以沒有執行。`,
+  relaySandboxProgram: (path: string) =>
+    `沙箱要用的程式「${path}」在這次執行可以寫入的資料夾裡，可能被 agent 換掉後在沙箱外執行，所以沒有執行。`,
+  relaySandboxNoChannel:
+    'Harness Relay 自己的沙箱沒有拿到它的控制通道（這是 Harness Relay 的錯誤：啟動它時沒有傳入 channel），所以沒有執行。',
+  relaySandboxHost: '沙箱中的程式想連到這個主機。允許後，這次執行就能連到它（之後的執行也會，若你選了一律允許）。',
   grokRejectedModel: (value: string, err: string) => `Grok 不接受模型「${value}」：${err}`,
   grokRejectedEffort: (value: string, err: string) => `Grok 不接受推理強度「${value}」：${err}`,
+  cursorRefused: '超出這個對話的權限，已拒絕',
+  cursorReadOnlyWrite: '唯讀模式不允許寫入，Cursor 沒有寫入這個檔案',
+  cursorProtectedWrite: 'Cursor 對這類檔案會先詢問：改動這裡可能讓程式碼之後在沙箱外執行（例如 git hook、編輯器的工作設定），或改變 agent 的設定。',
+  cursorOutsideWrite: '這個檔案在工作目錄外：Cursor 寫入工作目錄外的檔案前會先詢問。',
+  cursorOtherCwdWrite: '這個檔案在這個對話的另一個工作目錄裡：Cursor 只在第一個工作目錄裡工作，寫入其他工作目錄前會先詢問。',
+  cursorCancelled: 'Cursor 自行中止了這一輪（stopReason: cancelled），沒有給出原因。',
+  cursorNoSession: 'cursor-agent 沒有回傳 session id',
+  cursorRejectedModel: (value: string, err: string) => `Cursor 不接受模型「${value}」：${err}`,
+  cursorRejectedEffort: (value: string, err: string) => `Cursor 不接受推理強度「${value}」：${err}`,
+  cursorRejectedMode: (err: string) => `Cursor 無法切換到 Agent 模式：${err}`,
+  cursorExitCode: (code: number) => `結束代碼 ${code}`,
+  cursorService: (error: string) => `Cursor 的服務回報錯誤：${error}`,
+  cursorSignIn: (err: string) => `Cursor 尚未登入（${err}）。請到「設定」的 Cursor 登入，或設定 API key。`,
+  cursorConfigFailed: (err: string) => `無法替這一輪準備 Cursor 的設定資料夾：${err}`,
+  cursorAccountLogin:
+    'Cursor 在每個電腦使用者只保留一個登入（macOS 上存在鑰匙圈裡），所以額外的 Cursor 帳號不能用瀏覽器登入：請替它設定 API key。預設帳號才用 Cursor 自己的登入。',
 
   // Conversations and runs
   defaultTitle: '新對話',
@@ -76,12 +130,128 @@ const zhTW = {
     `Harness Relay 無法保護「${path}」：它的名稱含有 *、? 或 [，agent 的沙箱會把它當成樣式。請改名或搬到別處，或改用完全存取。`,
   grokSettingsChanged: (names: string) =>
     `這一輪中，Grok 自己資料夾裡的設定或程式被改動了（${names}）。agent 執行的指令可能改了它們；Harness Relay 已把它們改回原樣（改動後的版本另存在旁邊，名稱結尾為 .changed-…），skills 資料夾則請你自己檢查。用完全存取執行 Grok 之前，請先看過這些改動。`,
+  // The open agents (OpenCode, Goose, Cline, OpenHands, Pi) and their model backends
+  openNotImplemented: (cli: string) => `Harness Relay 還不能執行 ${cli}：它的轉接器尚未完成。請先改用其他 agent。`,
+  openNoModel: (cli: string) =>
+    `${cli} 沒有指定模型。請在團隊設定為這位成員選一個模型，或在「設定」裡 ${cli} 的「預設模型與推理強度」指定，格式是「模型來源/模型」，例如 openai/gpt-5.4-nano 或 homelab/muse-glimmer-30b-nvfp4。`,
+  openBadModel: (cli: string, id: string) =>
+    `${cli} 的模型「${id}」不是「模型來源/模型」的格式（例如 anthropic/claude-haiku-5-5、xai/grok-4.3，或你的端點 id 加上模型名稱）。`,
+  openBackendMissing: (cli: string, backend: string, id: string) =>
+    `${cli} 要用模型「${id}」，但還沒有設定 ${backend} 的 API key。請到「設定 → 模型來源」設定，或改選其他模型。`,
+  openEndpointMissing: (cli: string, endpoint: string, id: string) =>
+    `${cli} 要用模型「${id}」，但沒有 id 為「${endpoint}」的自訂端點。請到「設定 → 模型來源」新增，或改選其他模型。`,
+  endpointDeleted: (cli: string, endpoint: string, id: string) =>
+    `${cli} 要用模型「${id}」，但它的自訂端點「${endpoint}」已在「設定 → 模型來源」刪除。這一輪沒有執行，也沒有改送到 ${cli} 自己的服務。請改選其他模型，或重新新增這個端點；如果「${id}」是 ${cli} 自己的模型，到「設定 → 模型來源 → 已刪除的端點」忘掉「${endpoint}」。`,
+  openNoHome: 'Harness Relay 沒有給這個 agent 它自己的家目錄。',
+  openNoWindowsSandbox: (cli: string) =>
+    `在 Windows 上，Harness Relay 的沙箱還不能保護 ${cli}，所以它只能以「完全存取」執行。請改用完全存取（只在你信任的資料夾），或在 WSL 中執行 Harness Relay。`,
+  openSandboxUnavailable: (cli: string, reason: string) =>
+    `Harness Relay 的沙箱無法為 ${cli} 準備這次執行（完全存取以外的權限都需要它），所以沒有執行：${reason}。請見 docs/sandboxing.zh-TW.md。`,
+  openPrepareFailed: (cli: string, e: string) => `無法在 ${cli} 的家目錄寫入這次執行的設定：${e}`,
+  openRefusedReadOnly: (cli: string) => `唯讀模式不允許，已告知 ${cli} 只用讀取的工具`,
+  openToolNotRun: '沒有執行',
+  openStateNotEmptied: (cli: string, e: string) =>
+    `權限提高了，${cli} 在這位成員的資料夾必須先清空才能執行，但無法清空（${e}），所以沒有執行。請再試一次。`,
+  openStateShared: (cli: string, path: string) =>
+    `${cli} 這次執行要寫入「${path}」，但那裡不在這位成員自己的資料夾中，其他對話的執行也會讀到，所以沒有執行。這是 ${cli} 轉接器的錯誤，請回報。`,
+  openToolNotFinished: '沒有執行完',
+  openCannotResume: (cli: string) => `${cli} 沒有提供接續 session 的方法（session/resume 或 session/load）。`,
+  openResumeFailed: (cli: string, e: string) => `${cli} 無法接續先前的 session：${e}`,
+  openNoSession: (cli: string) => `${cli} 沒有回傳 session id`,
+  openCancelled: (cli: string, tool: string, reason: string | undefined) => `${cli} 在執行工具「${tool}」時中止了這一輪${reason ? `（${reason}）` : ''}。`,
+  openCancelledNoReason: (cli: string) => `${cli} 自行中止了這一輪（stopReason: cancelled），沒有給出原因。`,
+  openRefusal: (cli: string) => `${cli} 的模型拒絕回答這一輪（stopReason: refusal）。`,
+  openRejectedMode: (cli: string, mode: string, e: string) => `${cli} 不接受 session 模式「${mode}」：${e}`,
+  openRejectedModel: (cli: string, model: string, e: string) => `${cli} 不接受模型「${model}」：${e}`,
+  openRejectedEffort: (cli: string, effort: string, e: string) => `${cli} 不接受推理強度「${effort}」：${e}`,
+  openNativeNotYet: (cli: string) => `Harness Relay 還不能列出 ${cli} 自己載入的項目。`,
+  openNoLogin: (cli: string) => `${cli} 不需要登入：它使用「設定 → 模型來源」裡的 API key 與端點。`,
+  openBackendsReady: (names: string) => `模型來源：${names}`,
+  openNoBackend: '尚未設定模型來源（設定 → 模型來源）',
+
+  // Goose (src/server/agents/goose.ts)
+  gooseSessionNotChecked: (detail: string) =>
+    `Harness Relay 無法檢查 Goose 這個 session 存的擴充功能清單（${detail}），所以沒有接續它：先前執行的指令可能在裡面加了不經詢問就會啟動的程式。這一輪改用新的 session。`,
+  gooseAuthFailed: (backend: string) => `Goose 無法用 ${backend} 的 API key 登入。請到「設定 → 模型來源」檢查這把 key。`,
+  gooseModelNotFound: (backend: string, model: string) => `${backend} 沒有模型「${model}」（404）。請在成員設定換一個模型。`,
+  gooseUnreachable: (backend: string, host: string) => `Goose 連不上 ${backend}（${host}）。請檢查網路，或在「設定 → 模型來源」檢查端點的網址。`,
+  // Pi (src/server/agents/pi.ts)
+  piSessionMissing: (id: string) => `找不到 session ${id} 的檔案（可能已被刪除）`,
+  piSessionMoved: (then: string, now: string) => `這個 session 的工作目錄是 ${then}，這一輪的是 ${now}`,
+  piSessionMismatch: (want: string, got: string) => `Pi 開啟的是 session ${got}，不是 ${want}`,
+  piGateMissing:
+    'Harness Relay 的把關擴充套件沒有在 Pi 裡載入（它負責在每個工具呼叫前詢問），所以這一輪沒有開始。請確認 Harness Relay 的資料夾裡有 src/server/agents/piGate.js。',
+  piGateWritable: (path: string) => `Harness Relay 的把關擴充套件（${path}）在這一輪可以寫入的資料夾裡，所以沒有執行 Pi。請換一個工作目錄。`,
+  piModelMismatch: (want: string, got: string) => `Pi 選了模型「${got}」，不是指定的「${want}」`,
+  piEffortLevels: (levels: string) => `這個模型可用的強度：${levels}`,
+  piPromptRejected: (e: string) => `Pi 沒有接受這一輪的訊息：${e}`,
+  piKeyRejected: (backend: string, e: string) => `${backend} 拒絕了 API key（${e}）。請到「設定 → 模型來源」檢查金鑰。`,
+  piModelRejected: (model: string, backend: string, e: string) => `${backend} 沒有可用的模型「${model}」（${e}）。請改選其他模型。`,
+  piUnreachable: (backend: string, e: string) => `連不上 ${backend}：${e}`,
+  piEndpointUnreachable: (name: string, url: string, e: string) => `連不上端點「${name}」（${url}）：${e}。請確認伺服器正在執行，網址正確。`,
+  piModelError: (e: string) => `模型回報錯誤：${e}`,
+
+  // Cline (src/server/agents/cline.ts)
+  clineBadKey: (where: string, e: string) => `Cline 的模型來源「${where}」拒絕了 API key：${e}。請到「設定 → 模型來源」檢查這把 key。`,
+  clineBadModel: (model: string, where: string, e: string) => `模型來源「${where}」沒有 Cline 要用的模型「${model}」：${e}。請改選這個來源提供的模型。`,
+  clineUnreachable: (where: string, e: string) => `Cline 連不上模型來源「${where}」：${e}。請確認端點正在執行、網址正確（設定 → 模型來源）。`,
+  clineFailed: (e: string) => `Cline 沒有完成這一輪：${e}`,
+  // OpenHands (agents/openhands.ts)
+  openhandsSubagentRefused: '完全存取以外不允許：OpenHands 的 subagent 會不經詢問執行指令與修改檔案',
+  openhandsNoSuchSession: '它的 session 資料夾裡沒有這個 session',
+  openhandsBadKey: (backend: string) => `${backend} 不接受 OpenHands 用的 API key（401）。請到「設定 → 模型來源」檢查金鑰。`,
+  openhandsBadModel: (backend: string, model: string) => `${backend} 沒有模型「${model}」，或這把金鑰不能用它。請為這位成員選另一個模型。`,
+  openhandsUnreachable: (backend: string, e: string) => `OpenHands 連不到模型來源 ${backend}：${e}`,
+  openhandsRateLimited: (backend: string, e: string) => `${backend} 暫時拒絕了 OpenHands 的請求（額度或速率限制）：${e}`,
+  openhandsTerminal: (e: string) => `OpenHands 無法啟動它的終端機（tmux）：${e}`,
+  openhandsFailed: (e: string) => `OpenHands 沒有完成這一輪：${e}`,
+  openhandsNoCatalog: '找不到 OpenHands 安裝裡 LiteLLM 的模型清單',
+  openhandsUnknownAction: '無法得知 OpenHands 要做的是哪個動作，所以沒有自動允許',
+  openhandsLeftover: (n: number) => `它的 session 還留著 ${n} 個上一輪沒有完成的動作（停止或中斷時留下的），不能讓它們在不經詢問下執行`,
+  openhandsAction: 'OpenHands 的動作',
+  openhandsBatchTitle: (title: string, more: number) => `${title}（另有 ${more} 個）`,
+  openhandsBatch: (n: number, calls: string[]) => `一次回答涵蓋這 ${n} 個動作：\n${calls.map((c) => `• ${c}`).join('\n')}`,
+  openhandsNoTerminal:
+    '完全存取以外，OpenHands 需要在沙箱裡使用終端機才能執行：請到「設定 → OpenHands」打開「讓 OpenHands 在沙箱裡使用終端機：它的指令因此可以讀寫你其他的終端機視窗」（打開後，它的指令可以在你其他的終端機視窗印出文字、讀取你在那裡輸入的內容、更改它們的設定，但仍無法替你在那些視窗打字），或把這個對話設成完全存取。',
+  openhandsStuck: 'OpenHands 自己停止了這一輪：它的卡住偵測發現它一直重複相同的動作（或得到相同的錯誤）卻沒有進展。請再問一次、換個說法，或為這位成員選另一個模型。',
+  openhandsBatchRefused: '跟同一批動作一起被拒絕：OpenHands 對整批只問一次，而其中另一個動作不被允許',
+  openhandsOddLog: '它的 session 紀錄跟 OpenHands 自己寫下的樣子不同（可能被別的程式改過），Harness Relay 無法確定 OpenHands 接續時會不經詢問執行其中哪些動作',
+  openhandsNoEffort: (backend: string, model: string) => `${backend} 的模型「${model}」不接受推理強度。請把這位成員的推理強度設成 none（或預設）。`,
+  openhandsSandboxRefusedReadOnly: 'Harness Relay 的沙箱拒絕了：這個對話是唯讀的。',
+  openhandsSandboxProtected: 'Harness Relay 的沙箱拒絕了：這是受保護的路徑，Harness Relay 不讓代理讀取（它自己的資料庫與暫存檔、瀏覽器的資料）。',
+  openhandsSandboxRefused: 'Harness Relay 的沙箱拒絕了：這個位置不在這個對話可以寫入的資料夾內。',
+  openSandboxRefusedReadOnly: 'Harness Relay 的沙箱拒絕了：這個對話是唯讀的。',
+  openSandboxRefused: 'Harness Relay 的沙箱拒絕了：這個位置不在這個對話可以寫入的資料夾內。',
+
+  tooManyEndpoints: (n: number) => `最多只能設定 ${n} 個自訂端點。`,
+  endpointNotFound: (id: string) => `找不到端點「${id}」`,
+  deletedEndpointNotFound: (id: string) => `沒有記著已刪除的端點「${id}」`,
+  endpointIdInvalid: (id: string) => `端點 id「${id}」只能用小寫英文字母、數字與 -（開頭與結尾不能是 -，最多 32 個字元）。`,
+  endpointIdReserved: (id: string) => `「${id}」是內建模型來源的名稱，請為端點取別的 id。`,
+  endpointNameMissing: '請輸入端點的名稱',
+  endpointUrlInvalid: (url: string) => `「${url}」不是可用的端點網址：需要 http:// 或 https:// 開頭，不含帳號密碼、查詢字串或 #。`,
+  endpointUrlRelay: (url: string) => `「${url}」是 Harness Relay 自己的位址，不能當成模型端點。`,
+  endpointModelsInvalid: (n: number, chars: number) => `模型名稱最多 ${n} 個，每個最多 ${chars} 個字元，不能含空白。`,
+  backendUnknown: (id: string) => `未知的模型來源：${id}`,
   claudeReopens: (file: string, entry: string) =>
     `你的 Claude Code 設定（${file}）中的 sandbox.filesystem 讓沙箱可以存取「${entry}」，這會開放 Harness Relay 保護的路徑（瀏覽器的資料夾或它的資料庫）。請移除這一項後再試，或改用完全存取。`,
   cwdHoldsVoice: (dir: string, voice: string, fromEnv: boolean) =>
     `工作目錄「${dir}」包含語音輸入的資料夾「${voice}」，或就在它裡面${fromEnv ? '（RELAY_VOICE_DIR）' : ''}。Harness Relay 會在沙箱外執行那裡的語音引擎，而可編輯模式下 agent 不經詢問就能修改這裡的檔案。請改用其他資料夾或唯讀模式。`,
   cwdIsRelay: (dir: string) =>
     `工作目錄「${dir}」包含 Harness Relay 本身（它的程式或資料）。可編輯模式下，agent 不經詢問就能修改這裡的檔案，也就能改動 Harness Relay 的程式碼或資料庫，繞過它的沙箱與登入。請改用其他資料夾或唯讀模式；要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。`,
+  // OpenCode (agents/opencode.ts)
+  opencodeBackendError: (backend: string, e: string) =>
+    `模型來源 ${backend} 回報錯誤，OpenCode 無法完成這一輪：${e}。請檢查「設定 → 模型來源」裡的 API key、端點網址與模型名稱。`,
+  opencodeAuthRequired: (backend: string) => `OpenCode 無法使用模型來源 ${backend}：缺少 API key 或它被拒絕。請到「設定 → 模型來源」檢查。`,
+  opencodeForeignControl: (detail: string) =>
+    `安全問題，這次執行已停止：OpenCode 自己的伺服器被 Harness Relay 以外的程式操作了（${detail}）。agent 執行的指令可能讀到了它伺服器的密碼。沙箱的檔案與網路限制仍然有效；請檢查這一輪做了什麼。`,
+  opencodeNoLinuxSandbox:
+    '在 Linux 上，OpenCode 只能以「完全存取」執行：Harness Relay 的沙箱給它一個自己的網路，它的伺服器在那裡，Harness Relay 無法監看（完全存取以外需要監看），所以沒有執行它。請改用完全存取（只在你信任的資料夾），或改用另一個 agent。',
+  opencodeDatabaseNotChecked: (detail: string) =>
+    `Harness Relay 無法清掉 OpenCode 資料庫裡先前執行的指令可能加進去的權限規則（${detail}），所以清空了這位成員的 OpenCode 狀態，沒有接續這個 session。這一輪改用新的 session。`,
+  opencodeWatchFailed: (e: string) => `Harness Relay 無法監看 OpenCode 自己的伺服器，所以沒有執行它（完全存取以外需要）：${e}`,
+  opencodeWriteRefused: (path: string) => `沙箱不允許寫入 ${path}（唯讀模式，或不在這次執行能寫入的資料夾裡）`,
+
   // Sharing a conversation (a gist through the GitHub CLI)
   shareEmpty: '沒有可以分享的內容',
   shareTooLarge: (mb: string) => `這個分享頁有 ${mb} MB，超過 gistpreview 能顯示的 1 MB。請改成分享到比較前面的某則回覆。`,
@@ -308,6 +478,7 @@ const zhTW = {
   codexLoginFailed: (code: number | null) => `codex login 失敗（exit ${code}）`,
   codexModelsFailed: 'codex debug models 失敗',
   grokModelsEmpty: 'grok models 沒有回傳模型',
+  cursorModelsFailed: 'cursor-agent 沒有回傳模型清單',
   // Voice input
   voiceNotReady: '語音輸入還沒安裝完成，請到「設定 → 語音輸入」查看。',
   voiceBusy: '語音輸入正在安裝中，請等它完成或先取消。',
@@ -336,6 +507,7 @@ const zhTW = {
     codexBrowser: ['ChatGPT 瀏覽器登入', '在這台電腦開啟瀏覽器完成登入（需要本機 localhost 回呼）。'],
     grokDevice: ['xAI 裝置碼', '開啟連結並確認下方代碼。'],
     grokBrowser: ['xAI 瀏覽器登入', '在這台電腦開啟瀏覽器完成 OAuth 登入。'],
+    cursorBrowser: ['Cursor 帳號', '開啟下方連結，在任何一台裝置的瀏覽器登入 Cursor 並允許 CLI。'],
   } as Record<string, [string, string]>,
 };
 
@@ -363,6 +535,10 @@ const en: ServerMessages = {
     `Claude Code could not start its sandbox (needed below full access): ${why}. On Linux and WSL2, install bubblewrap and socat (for example sudo apt-get install bubblewrap socat), on Ubuntu 23.10 or later also an AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md), and try again; or switch the permission to "Full access" to run without one.`,
   sandboxHost: 'A command in the sandbox wants to connect to this host.',
   commandNotFound: (bin) => `Command "${bin}" not found. Make sure it is installed, or set its path on the Settings page.`,
+  windowsShimBroken: (bin, script, target) => `"${bin}" is ${script}, and ${target}, which it runs, is not there: install ${bin} again.`,
+  windowsNoNode: (bin, script) => `"${bin}" is ${script}, which runs on Node.js, and no Node.js is on the PATH: install Node.js, or add it to the PATH.`,
+  windowsScript: (bin, script) =>
+    `"${bin}" is the script ${script}, which Harness Relay cannot start: it starts programs only, never through a shell, and cannot tell which program this script runs. Set the path to the program it runs (an .exe) on the Settings page.`,
   permission: { 'read-only': 'Read-only', edit: 'Edit', full: 'Full access' },
   grokRefusedReadOnly: 'Not allowed in read-only mode; Grok was told to use read-only tools',
   grokRefusedPublish: 'Pushing or publishing is not allowed with edit permission',
@@ -372,8 +548,57 @@ const en: ServerMessages = {
     ` The permission is "${permission}"; if this action is needed, switch the permission to "Full access" and try again.`,
   grokSandbox: (why) => `Grok could not start its sandbox (needed below full access): ${why}. On Linux, the paths it may not read need bubblewrap (for example sudo apt-get install bubblewrap), and on Ubuntu 23.10 or later an AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md).`,
   grokNoSession: 'grok returned no session id',
+  grokModelsFailed: (path, why) => `Could not write your own endpoints' models into Grok's settings (${path}): ${why}`,
+  relaySandboxWindows:
+    "Harness Relay's own sandbox does not work on native Windows (the sandbox-runtime it uses is alpha there), so this agent does not run here in read-only or edit mode. Run Harness Relay in WSL2, or set the permission to full access (no sandbox).",
+  relaySandboxPathTooLong: (dataDir, max) =>
+    `The path of Harness Relay's data folder (${dataDir}) is too long for the sockets its sandbox makes there, so this did not run: set RELAY_DATA_DIR to a folder whose path is at most ${max} bytes (UTF-8: a character outside ASCII takes 2 to 4) and restart Harness Relay; or switch to full access.`,
+  relaySandboxNoNode: "Harness Relay's sandbox needs Node.js 22.12 or later to run its sandbox helper, and the desktop app's own runtime cannot be used as Node: install Node.js so that it is on your login shell's PATH, then reopen the app; or switch to full access.",
+  relaySandboxPlatform: (platform) =>
+    `Harness Relay's own sandbox works on macOS and Linux only (this is ${platform}), so this agent does not run in read-only or edit mode. Set the permission to full access, or run it on macOS or Linux.`,
+  relaySandboxMissing: (what, packages) =>
+    `Harness Relay's own sandbox needs ${what}, which this computer does not have, so the agent did not run (every permission below full access needs it). Install it with sudo apt-get install ${packages} (Fedora: sudo dnf install ${packages}) and try again, or set the permission to full access.`,
+  relaySandboxArch: (arch) =>
+    `Harness Relay's own sandbox cannot block Unix sockets on this processor (${arch}; its seccomp filter is built for x64 and arm64 only), so a program in it could leave it through the socket of a service such as Docker, and the agent did not run. Set the permission to full access, or run it on an x64 or arm64 computer.`,
+  relaySandboxFailed: (detail, platform) =>
+    `Harness Relay's own sandbox could not start (every permission below full access needs it), so the agent did not run: ${detail}. ` +
+    (platform === 'darwin'
+      ? 'sandbox-exec is part of macOS; it cannot start a sandbox when Harness Relay itself runs inside one (for example, started by a sandboxed command): start Harness Relay from an ordinary terminal. '
+      : platform === 'linux'
+        ? 'bubblewrap needs unprivileged user namespaces: on Ubuntu 23.10 or later, add the AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md); in a container, the container must allow user namespaces and mounting a fresh /proc (for example docker run --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined), or use full access and let the container be the sandbox; WSL1 cannot, use WSL2. '
+        : '') +
+    'Or set the permission to full access.',
+  relaySandboxBadHost: (entry) => `${entry} is not a host the sandbox can connect to (a host name or an IP address, with :port or without), so the agent did not run.`,
+  relaySandboxLocalPort: (entry) =>
+    `The model backend ${entry} is on this computer but has no port; the sandbox lets programs reach a port on this computer only when it is named, so the agent did not run. Add the model server's port to its address (for example localhost:11434).`,
+  relaySandboxRelayPort: (entry) =>
+    `The model backend ${entry} is Harness Relay's own port, which programs in the sandbox may not reach, so the agent did not run. Use the model server's own address.`,
+  relaySandboxRelative: (path) => `The sandbox's paths must be absolute, and ${path} is not, so the agent did not run.`,
+  relaySandboxWritable: (path, folder) =>
+    `${path}, which this run may write, holds or is inside ${folder}, whose files decide how Harness Relay or the agents run, so the agent could get around the sandbox, and it did not run.`,
+  relaySandboxProgram: (path) =>
+    `The program ${path}, which the sandbox runs, is in a folder this run may write, where the agent could replace it and have it run outside the sandbox, so the agent did not run.`,
+  relaySandboxNoChannel:
+    "Harness Relay's own sandbox did not get its control channel (a bug in Harness Relay: it was started without its channel), so the agent did not run.",
+  relaySandboxHost: 'A program in the sandbox wants to connect to this host. Allowing it lets this run reach it (and later runs too, if you allow it always).',
   grokRejectedModel: (value, err) => `Grok does not accept the model "${value}": ${err}`,
   grokRejectedEffort: (value, err) => `Grok does not accept the reasoning effort "${value}": ${err}`,
+  cursorRefused: "Refused: not covered by this conversation's permission",
+  cursorReadOnlyWrite: 'Not written: Cursor may not write in read-only mode',
+  cursorProtectedWrite: "Cursor asks before changing files like this one: a change here could make code run later, outside any sandbox (a git hook, an editor task), or change an agent's settings.",
+  cursorOutsideWrite: 'This file is outside the working directory: Cursor asks before writing outside it.',
+  cursorOtherCwdWrite: "This file is in another of the chat's working directories: Cursor works in the first one, and asks before writing in the others.",
+  cursorCancelled: 'Cursor ended the turn by itself (stopReason: cancelled) without giving a reason.',
+  cursorNoSession: 'cursor-agent returned no session id',
+  cursorRejectedModel: (value, err) => `Cursor does not accept the model "${value}": ${err}`,
+  cursorRejectedEffort: (value, err) => `Cursor does not accept the reasoning effort "${value}": ${err}`,
+  cursorRejectedMode: (err) => `Cursor could not switch to Agent mode: ${err}`,
+  cursorExitCode: (code) => `exit code ${code}`,
+  cursorService: (error) => `Cursor's service reported an error: ${error}`,
+  cursorSignIn: (err) => `Cursor is not signed in (${err}). Sign in under Cursor in Settings, or set an API key.`,
+  cursorConfigFailed: (err) => `Could not prepare Cursor's config folder for this turn: ${err}`,
+  cursorAccountLogin:
+    "Cursor keeps one sign-in per computer user (on macOS, in the keychain), so an extra Cursor account cannot sign in with a browser: give it an API key. Only the default account uses Cursor's own sign-in.",
 
   defaultTitle: 'New chat',
   conversationNotFound: 'Conversation not found',
@@ -388,12 +613,126 @@ const en: ServerMessages = {
     `Harness Relay cannot protect ${path}: its name has *, ? or [, which the agents' sandboxes read as a pattern. Rename or move it, or use full access.`,
   grokSettingsChanged: (names) =>
     `Grok's own settings or program changed during this turn (${names}). A command the agent ran may have changed them: Harness Relay put them back (the changed ones are kept beside them, ending in .changed-…); look at the skills folder yourself. Look at these changes before you run Grok with full access.`,
+  openNotImplemented: (cli) => `Harness Relay cannot run ${cli} yet: its adapter is not implemented yet. Use another agent for now.`,
+  openNoModel: (cli) =>
+    `${cli} has no model. Pick one for this member in the team editor, or set ${cli}'s default model in Settings, as "backend/model", such as openai/gpt-5.4-nano or homelab/muse-glimmer-30b-nvfp4.`,
+  openBadModel: (cli, id) =>
+    `${cli}'s model "${id}" is not "backend/model" (such as anthropic/claude-haiku-5-5, xai/grok-4.3, or your endpoint's id and a model name).`,
+  openBackendMissing: (cli, backend, id) =>
+    `${cli} is to use the model "${id}", but no ${backend} API key is set up. Add one under Settings → Model backends, or pick another model.`,
+  openEndpointMissing: (cli, endpoint, id) =>
+    `${cli} is to use the model "${id}", but there is no custom endpoint with the id "${endpoint}". Add it under Settings → Model backends, or pick another model.`,
+  endpointDeleted: (cli, endpoint, id) =>
+    `${cli} is to use the model "${id}", but its custom endpoint "${endpoint}" was deleted under Settings → Model backends. The turn did not run, and was not sent to ${cli}'s own service instead. Pick another model, or add the endpoint again; if "${id}" is a model of ${cli}'s own, forget "${endpoint}" under Settings → Model backends → Deleted endpoints.`,
+  openNoHome: 'Harness Relay gave this agent no home of its own.',
+  openNoWindowsSandbox: (cli) =>
+    `On Windows, Harness Relay's sandbox cannot protect ${cli} yet, so it only runs with full access. Use full access (only in a folder you trust), or run Harness Relay in WSL.`,
+  openSandboxUnavailable: (cli, reason) =>
+    `Harness Relay's sandbox could not set up this run of ${cli} (it is needed below full access), so it did not run: ${reason}. See docs/sandboxing.md.`,
+  openPrepareFailed: (cli, e) => `Could not write this run's settings into ${cli}'s home: ${e}`,
+  openRefusedReadOnly: (cli) => `Not allowed in read-only mode; ${cli} was told to use tools that only read`,
+  openToolNotRun: 'Not run',
+  openStateNotEmptied: (cli, e) =>
+    `The permission went up, so ${cli}'s folder for this member must be emptied before it runs, but it could not be (${e}); it did not run. Please try again.`,
+  openStateShared: (cli, path) =>
+    `${cli} did not run: it was to write in "${path}", which is not in this member's own folder, so other conversations' runs would read it. This is a fault of the ${cli} adapter; please report it.`,
+  openToolNotFinished: 'Did not finish',
+  openCannotResume: (cli) => `${cli} offers no way to resume a session (session/resume or session/load).`,
+  openResumeFailed: (cli, e) => `${cli} could not resume the earlier session: ${e}`,
+  openNoSession: (cli) => `${cli} returned no session id`,
+  openCancelled: (cli, tool, reason) => `${cli} ended the turn while running "${tool}"${reason ? ` (${reason})` : ''}.`,
+  openCancelledNoReason: (cli) => `${cli} ended the turn by itself (stopReason: cancelled) without giving a reason.`,
+  openRefusal: (cli) => `${cli}'s model refused to answer this turn (stopReason: refusal).`,
+  openRejectedMode: (cli, mode, e) => `${cli} does not accept the session mode "${mode}": ${e}`,
+  openRejectedModel: (cli, model, e) => `${cli} does not accept the model "${model}": ${e}`,
+  openRejectedEffort: (cli, effort, e) => `${cli} does not accept the reasoning effort "${effort}": ${e}`,
+  openNativeNotYet: (cli) => `Harness Relay cannot list what ${cli} loads by itself yet.`,
+  openNoLogin: (cli) => `${cli} needs no sign-in: it uses the API keys and endpoints under Settings → Model backends.`,
+  openBackendsReady: (names) => `Model backends: ${names}`,
+  openNoBackend: 'No model backend set up yet (Settings → Model backends)',
+
+  // Goose (src/server/agents/goose.ts)
+  gooseSessionNotChecked: (detail) =>
+    `Harness Relay could not check the extension list Goose keeps for this session (${detail}), so it did not resume it: an earlier run's command could have added a program there that starts without asking. The turn starts a fresh session instead.`,
+  gooseAuthFailed: (backend) => `Goose could not sign in with the ${backend} API key. Check that key under Settings → Model backends.`,
+  gooseModelNotFound: (backend, model) => `${backend} has no model "${model}" (404). Pick another model in the member's settings.`,
+  gooseUnreachable: (backend, host) => `Goose could not reach ${backend} (${host}). Check the network, or the endpoint's address under Settings → Model backends.`,
+  // Pi (src/server/agents/pi.ts)
+  piSessionMissing: (id) => `The file of session ${id} is gone (it may have been deleted)`,
+  piSessionMoved: (then, now) => `the session's working directory is ${then}, this turn's is ${now}`,
+  piSessionMismatch: (want, got) => `Pi opened session ${got}, not ${want}`,
+  piGateMissing:
+    "Harness Relay's gate extension did not load in Pi (it asks about every tool call before it runs), so this turn did not start. Check that src/server/agents/piGate.js is in Harness Relay's folder.",
+  piGateWritable: (path) => `Harness Relay's gate extension (${path}) is inside a folder this turn may write, so Pi did not run. Pick another working directory.`,
+  piModelMismatch: (want, got) => `Pi picked the model "${got}", not "${want}"`,
+  piEffortLevels: (levels) => `this model takes: ${levels}`,
+  piPromptRejected: (e) => `Pi did not take this turn's message: ${e}`,
+  piKeyRejected: (backend, e) => `${backend} rejected the API key (${e}). Check it under Settings → Model backends.`,
+  piModelRejected: (model, backend, e) => `${backend} has no model "${model}" it can use (${e}). Pick another model.`,
+  piUnreachable: (backend, e) => `Could not reach ${backend}: ${e}`,
+  piEndpointUnreachable: (name, url, e) => `Could not reach the endpoint "${name}" (${url}): ${e}. Check that the server is running and the address is right.`,
+  piModelError: (e) => `The model reported an error: ${e}`,
+
+  // Cline (src/server/agents/cline.ts)
+  clineBadKey: (where, e) => `The model backend "${where}" refused Cline's API key: ${e}. Check the key in Settings → Model backends.`,
+  clineBadModel: (model, where, e) => `The model backend "${where}" has no model "${model}" for Cline: ${e}. Pick a model this backend offers.`,
+  clineUnreachable: (where, e) => `Cline cannot reach the model backend "${where}": ${e}. Check that the endpoint is running and its URL is right (Settings → Model backends).`,
+  clineFailed: (e) => `Cline did not finish this turn: ${e}`,
+  // OpenHands (agents/openhands.ts)
+  openhandsSubagentRefused: "Not allowed below full access: OpenHands' subagents run commands and edit files without asking",
+  openhandsNoSuchSession: 'its session folder holds no such session',
+  openhandsBadKey: (backend) => `${backend} refused the API key OpenHands used (401). Check the key under Settings → Model backends.`,
+  openhandsBadModel: (backend, model) => `${backend} has no model "${model}", or this key cannot use it. Pick another model for this member.`,
+  openhandsUnreachable: (backend, e) => `OpenHands could not reach the model backend ${backend}: ${e}`,
+  openhandsRateLimited: (backend, e) => `${backend} turned OpenHands' requests away for now (quota or rate limit): ${e}`,
+  openhandsTerminal: (e) => `OpenHands could not start its terminal (tmux): ${e}`,
+  openhandsFailed: (e) => `OpenHands did not finish this turn: ${e}`,
+  openhandsNoCatalog: "LiteLLM's model list was not found in the OpenHands install",
+  openhandsUnknownAction: 'Not allowed by itself: Harness Relay could not tell which OpenHands action this is',
+  openhandsLeftover: (n) => `its session still holds ${n} action(s) left unfinished by an earlier turn (stopped or cut off), which must not run without asking`,
+  openhandsAction: 'OpenHands action',
+  openhandsBatchTitle: (title, more) => `${title} (+${more} more)`,
+  openhandsBatch: (n, calls) => `One answer covers all ${n} actions:\n${calls.map((c) => `• ${c}`).join('\n')}`,
+  openhandsNoTerminal:
+    'Below full access OpenHands runs only with a terminal in the sandbox: turn on "Let OpenHands use a terminal in the sandbox: its commands can then read and write your other terminal windows" under Settings → OpenHands (its commands can then print text into your other terminal windows, read what you type there and change their settings, but still cannot type into them), or give this conversation full access.',
+  openhandsStuck: 'OpenHands stopped this turn by itself: its stuck detector found it repeating the same action (or getting the same error) without getting anywhere. Ask again, put it differently, or pick another model for this member.',
+  openhandsBatchRefused: 'Refused along with the rest of its batch: OpenHands asks once for all of them, and another one is not allowed',
+  openhandsOddLog: "its session's history is not laid out as OpenHands writes it (something else may have changed it), so Harness Relay cannot tell which of its actions OpenHands would run without asking",
+  openhandsNoEffort: (backend, model) => `${backend}'s model "${model}" takes no reasoning effort. Set this member's effort to none (or the default).`,
+  openhandsSandboxRefusedReadOnly: "Harness Relay's sandbox refused it: this conversation is read-only.",
+  openhandsSandboxProtected: "Harness Relay's sandbox refused it: this is a protected path, which Harness Relay keeps agents from reading (its own database and temporary files, browsers' data).",
+  openhandsSandboxRefused: "Harness Relay's sandbox refused it: that is outside the folders this conversation may write.",
+  openSandboxRefusedReadOnly: "Harness Relay's sandbox refused it: this conversation is read-only.",
+  openSandboxRefused: "Harness Relay's sandbox refused it: that is outside the folders this conversation may write.",
+
+  tooManyEndpoints: (n) => `At most ${n} custom endpoints can be set up.`,
+  endpointNotFound: (id) => `No endpoint "${id}"`,
+  deletedEndpointNotFound: (id) => `No deleted endpoint "${id}" is remembered`,
+  endpointIdInvalid: (id) => `The endpoint id "${id}" may only hold lowercase letters, digits and - (not first or last; at most 32 characters).`,
+  endpointIdReserved: (id) => `"${id}" is the name of a built-in model backend; give the endpoint another id.`,
+  endpointNameMissing: 'Enter a name for the endpoint',
+  endpointUrlInvalid: (url) => `"${url}" is not an endpoint address that can be used: it must start with http:// or https://, without a user name, password, query or #.`,
+  endpointUrlRelay: (url) => `"${url}" is Harness Relay's own address; it cannot be a model endpoint.`,
+  endpointModelsInvalid: (n, chars) => `At most ${n} model names, each at most ${chars} characters, without spaces.`,
+  backendUnknown: (id) => `Unknown model backend: ${id}`,
   claudeReopens: (file, entry) =>
     `sandbox.filesystem in your Claude Code settings (${file}) lets its sandbox reach ${entry}, which opens paths Harness Relay protects (the browsers' folders or its database). Remove it and try again, or use full access.`,
   cwdHoldsVoice: (dir, voice, fromEnv) =>
     `The working directory ${dir} holds voice input's folder ${voice}, or is inside it${fromEnv ? ' (RELAY_VOICE_DIR)' : ''}. Harness Relay runs the voice engine there outside any sandbox, and in edit mode agents change files there without asking. Choose another folder, or read-only.`,
   cwdIsRelay: (dir) =>
     `The working directory ${dir} holds Harness Relay itself (its code or its data). In edit mode agents change files there without asking, so they could change Harness Relay's code or database and get around its sandbox and sign-in. Choose another folder, or read-only; to work on Harness Relay itself, run the copy you use from another folder.`,
+  opencodeBackendError: (backend, e) =>
+    `The model backend ${backend} answered with an error, so OpenCode could not finish the turn: ${e}. Check the API key, the endpoint's URL and the model name under Settings → Model backends.`,
+  opencodeAuthRequired: (backend) => `OpenCode cannot use the model backend ${backend}: its API key is missing or was refused. Check it under Settings → Model backends.`,
+  opencodeForeignControl: (detail) =>
+    `Security problem, so this run was stopped: OpenCode's own server was driven by something other than Harness Relay (${detail}). A command the agent ran may have read its server's password. The sandbox's file and network rules still held; check what this turn did.`,
+  opencodeNoLinuxSandbox:
+    "On Linux, OpenCode runs only with full access: Harness Relay's sandbox gives it a network of its own, where Harness Relay cannot watch its server (needed below full access), so it did not run it. Use full access (only in a folder you trust), or another agent.",
+  opencodeDatabaseNotChecked: (detail) =>
+    `Harness Relay could not take out of OpenCode's database the permission rules an earlier run's command could have put there (${detail}), so it emptied this member's OpenCode state and did not resume the session. The turn starts a fresh session instead.`,
+  opencodeWatchFailed: (e) => `Harness Relay cannot watch OpenCode's own server, so it did not run it (needed below full access): ${e}`,
+  opencodeWriteRefused: (path) => `The sandbox does not allow writing ${path} (read-only, or outside the folders this run may write)`,
+
   shareEmpty: 'Nothing to share',
   shareTooLarge: (mb) => `This page is ${mb} MB, over the 1 MB that gistpreview can show. Share up to an earlier reply instead.`,
   shareNoGh: (min) => `GitHub CLI (gh) not found. Install ${min} or later from https://cli.github.com, run gh auth login in a terminal, then try again.`,
@@ -609,6 +948,7 @@ const en: ServerMessages = {
   codexLoginFailed: (code) => `codex login failed (exit ${code})`,
   codexModelsFailed: 'codex debug models failed',
   grokModelsEmpty: 'grok models returned no models',
+  cursorModelsFailed: 'cursor-agent returned no model list',
   voiceNotReady: 'Voice input is not set up yet. See Settings → Voice input.',
   voiceBusy: 'Voice input is being installed. Wait for it to finish, or cancel it first.',
   voiceNoJob: 'No install is running',
@@ -636,6 +976,7 @@ const en: ServerMessages = {
     codexBrowser: ['ChatGPT browser sign-in', 'Opens a browser on this computer to sign in (needs a localhost callback).'],
     grokDevice: ['xAI device code', 'Open the link and confirm the code below.'],
     grokBrowser: ['xAI browser sign-in', 'Opens a browser on this computer to finish the OAuth sign-in.'],
+    cursorBrowser: ['Cursor account', 'Open the link below in a browser on any device, sign in to Cursor and allow the CLI.'],
   },
 };
 

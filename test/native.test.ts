@@ -33,8 +33,15 @@ import {
   CLAUDE_TOOLS_TURN,
   claudeAnswersUsage,
   parseGrokInspect,
+  cursorAgents,
+  cursorHooks,
+  cursorMcpServers,
+  cursorMemoryFiles,
+  cursorSkills,
+  failedProbe,
 } from '../src/server/native';
 import { codexMcpToolId } from '../src/server/agents/codex';
+import { PROVIDERS, type Provider } from '../src/shared/types';
 import { writeFakeClaude } from './fake-claude';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-native-')));
@@ -374,6 +381,86 @@ describe('listedFile', () => {
     expect(listedFile(probe, '/etc/passwd')).toBe(false);
     expect(listedFile(probe, '/u/.claude/../.claude/CLAUDE.md')).toBe(false);
     expect(listedFile(probe, '')).toBe(false);
+  });
+});
+
+describe('what Cursor loads by itself, from its files', () => {
+  const at = (path: string, text = '') => {
+    mkdirSync(join(path, '..'), { recursive: true });
+    writeFileSync(path, text);
+  };
+  const home = join(root, 'cursor-home');
+  const repo = join(root, 'cursor-repo');
+  const cwd = join(repo, 'app');
+  mkdirSync(join(repo, '.git'), { recursive: true });
+  const skill = (dir: string, name: string, description = '') => at(join(dir, name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n`);
+  skill(join(cwd, '.cursor', 'skills'), 'deploy', 'Ship it');
+  skill(join(cwd, '.agents', 'skills'), 'review');
+  skill(join(home, '.claude', 'skills'), 'commit', 'Commit well');
+  skill(join(home, '.cursor', 'skills'), 'deploy', 'Shadowed by the project');
+  skill(join(home, '.cursor', 'skills-cursor'), 'canvas', 'Built in');
+  mkdirSync(join(home, '.grok', 'skills', 'not-a-skill'), { recursive: true }); // no SKILL.md
+  at(join(home, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { github: { command: 'npx', env: { TOKEN: 'secret' } }, docs: { url: 'https://x' } } }));
+  at(join(repo, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { local: { command: 'node' }, github: { command: 'other' } } }));
+  at(join(home, '.cursor', 'hooks.json'), JSON.stringify({ version: 1, hooks: { beforeShellExecution: [{ command: 'secret-hook --token x' }], preToolUse: [{ command: 'y', matcher: 'Shell' }] } }));
+  at(join(home, '.claude', 'settings.json'), JSON.stringify({ model: 'opus', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'claude-secret' }] }] } }));
+  at(join(cwd, '.cursor', 'agents', 'planner.md'), '---\nname: planner\ndescription: Plans\n---\n');
+  at(join(cwd, '.claude', 'agents', 'tester.md'), 'no front matter');
+  at(join(repo, 'AGENTS.md'), '# repo');
+  at(join(cwd, 'CLAUDE.md'), '# app');
+  at(join(cwd, '.cursor', 'rules', 'style.mdc'), '---\nalwaysApply: true\n---\n');
+  at(join(cwd, '.cursor', 'rules', 'notes.txt'), 'not a rule');
+
+  it('lists its skills from each folder it reads, the first of a name only', () => {
+    expect(cursorSkills(cwd, home)).toEqual([
+      { name: 'deploy', description: 'Ship it', source: 'project', path: join(cwd, '.cursor', 'skills', 'deploy', 'SKILL.md') },
+      { name: 'review', description: '', source: 'project', path: join(cwd, '.agents', 'skills', 'review', 'SKILL.md') },
+      { name: 'commit', description: 'Commit well', source: 'user', path: join(home, '.claude', 'skills', 'commit', 'SKILL.md') },
+      { name: 'canvas', description: 'Built in', source: 'built-in', path: join(home, '.cursor', 'skills-cursor', 'canvas', 'SKILL.md') },
+    ]);
+  });
+
+  it("lists its MCP servers by name only, a project's as needing approval", () => {
+    const servers = cursorMcpServers(cwd, home);
+    expect(servers).toEqual([
+      { name: 'github', transport: 'stdio', source: 'user' },
+      { name: 'docs', transport: 'http', source: 'user' },
+      { name: 'local', transport: 'stdio', source: 'project', status: 'needs approval' },
+    ]);
+    expect(JSON.stringify(servers)).not.toContain('secret');
+  });
+
+  it("lists its hooks by event, never their commands, and its subagents and instruction files", () => {
+    const hooks = cursorHooks(home, 'freebsd' as NodeJS.Platform);
+    expect(hooks).toEqual([
+      { event: 'beforeShellExecution', source: 'user', file: join(home, '.cursor', 'hooks.json') },
+      { event: 'preToolUse', matcher: 'Shell', source: 'user', file: join(home, '.cursor', 'hooks.json') },
+      // Claude Code's, which Cursor loads too.
+      { event: 'PreToolUse', matcher: 'Bash', source: 'Claude Code', file: join(home, '.claude', 'settings.json') },
+    ]);
+    expect(JSON.stringify(hooks)).not.toContain('secret-hook');
+    expect(JSON.stringify(hooks)).not.toContain('claude-secret');
+    expect(cursorAgents(cwd)).toEqual([
+      { name: 'planner', description: 'Plans', source: 'project' },
+      { name: 'tester', description: '', source: 'project' },
+    ]);
+    const files = cursorMemoryFiles(cwd).map((m) => m.path).filter((p) => p.startsWith(repo));
+    expect(files).toEqual([join(repo, 'AGENTS.md'), join(cwd, 'CLAUDE.md'), join(cwd, '.cursor', 'rules', 'style.mdc')]);
+    expect(cursorMemoryFiles(cwd).every((m) => m.kind === 'instructions')).toBe(true);
+  });
+
+  it('answers without starting Cursor, with nothing to leave out', async () => {
+    const service = new NativeSetupService({ bin: () => join(root, 'no-such-cursor'), env: () => process.env });
+    const probe = await service.get('cursor', cwd);
+    expect(probe).toMatchObject({ provider: 'cursor', cwd, memoryFromFiles: true, asRun: false, problems: [] });
+    expect(probe.memory.some((m) => m.path === join(cwd, 'CLAUDE.md'))).toBe(true);
+    expect(listedFile(probe, join(cwd, 'CLAUDE.md'))).toBe(true);
+  });
+
+  it('says, when it could not be asked, that its instruction files are the ones it is documented to read, as its probe does', () => {
+    const failed = (p: Provider) => failedProbe(p, cwd, [], {}, new Error('no')).memoryFromFiles;
+    expect(PROVIDERS.filter(failed)).toEqual(['claude', 'codex', 'cursor']);
+    expect(failedProbe('cursor', cwd, [], {}, new Error('no')).problems).toEqual([{ kind: 'failed', detail: 'no' }]);
   });
 });
 

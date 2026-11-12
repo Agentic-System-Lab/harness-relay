@@ -1,0 +1,716 @@
+build (primary)
+  [
+  {
+    "permission": "*",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "doom_loop",
+    "action": "ask",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/tmp/opencode/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.claude/skills/user-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.agents/skills/user-agents-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/project/.claude/skills/proj-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "question",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_enter",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_exit",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "read",
+    "pattern": "*",
+    "action": "allow"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.*",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.example",
+    "action": "allow"
+  },
+  {
+    "permission": "question",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_enter",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  }
+]
+compaction (primary)
+  [
+  {
+    "permission": "*",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "doom_loop",
+    "action": "ask",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/tmp/opencode/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.claude/skills/user-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.agents/skills/user-agents-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/project/.claude/skills/proj-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "question",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_enter",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_exit",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "read",
+    "pattern": "*",
+    "action": "allow"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.*",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.example",
+    "action": "allow"
+  },
+  {
+    "permission": "*",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  }
+]
+explore (subagent)
+  [
+  {
+    "permission": "*",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "doom_loop",
+    "action": "ask",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/tmp/opencode/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.claude/skills/user-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.agents/skills/user-agents-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/project/.claude/skills/proj-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "question",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_enter",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_exit",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "read",
+    "pattern": "*",
+    "action": "allow"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.*",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.example",
+    "action": "allow"
+  },
+  {
+    "permission": "*",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "grep",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "glob",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "list",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "bash",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "webfetch",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "websearch",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "read",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/tmp/opencode/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.claude/skills/user-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.agents/skills/user-agents-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/project/.claude/skills/proj-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  }
+]
+general (subagent)
+  [
+  {
+    "permission": "*",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "doom_loop",
+    "action": "ask",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/tmp/opencode/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.claude/skills/user-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.agents/skills/user-agents-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/project/.claude/skills/proj-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "question",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_enter",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_exit",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "read",
+    "pattern": "*",
+    "action": "allow"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.*",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.example",
+    "action": "allow"
+  },
+  {
+    "permission": "todowrite",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  }
+]
+plan (primary)
+  [
+  {
+    "permission": "*",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "doom_loop",
+    "action": "ask",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/tmp/opencode/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.claude/skills/user-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.agents/skills/user-agents-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/project/.claude/skills/proj-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "question",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_enter",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_exit",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "read",
+    "pattern": "*",
+    "action": "allow"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.*",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.example",
+    "action": "allow"
+  },
+  {
+    "permission": "question",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_exit",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "task",
+    "pattern": "general",
+    "action": "deny"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/plans/*",
+    "action": "allow"
+  },
+  {
+    "permission": "edit",
+    "pattern": "*",
+    "action": "deny"
+  },
+  {
+    "permission": "edit",
+    "pattern": ".opencode/plans/*.md",
+    "action": "allow"
+  },
+  {
+    "permission": "edit",
+    "pattern": "../home/h3/data/opencode/plans/*.md",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  }
+]
+summary (primary)
+  [
+  {
+    "permission": "*",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "doom_loop",
+    "action": "ask",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/tmp/opencode/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.claude/skills/user-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.agents/skills/user-agents-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/project/.claude/skills/proj-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "question",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_enter",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_exit",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "read",
+    "pattern": "*",
+    "action": "allow"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.*",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.example",
+    "action": "allow"
+  },
+  {
+    "permission": "*",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  }
+]
+title (primary)
+  [
+  {
+    "permission": "*",
+    "action": "allow",
+    "pattern": "*"
+  },
+  {
+    "permission": "doom_loop",
+    "action": "ask",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/tmp/opencode/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.claude/skills/user-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.agents/skills/user-agents-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/project/.claude/skills/proj-claude-skill/*",
+    "action": "allow"
+  },
+  {
+    "permission": "question",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_enter",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "plan_exit",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "read",
+    "pattern": "*",
+    "action": "allow"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.*",
+    "action": "ask"
+  },
+  {
+    "permission": "read",
+    "pattern": "*.env.example",
+    "action": "allow"
+  },
+  {
+    "permission": "*",
+    "action": "deny",
+    "pattern": "*"
+  },
+  {
+    "permission": "external_directory",
+    "pattern": "/home/user/.relay/agents/opencode/data/opencode/tool-output/*",
+    "action": "allow"
+  }
+]

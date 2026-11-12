@@ -15,7 +15,7 @@
 - 你做了什麼、預期會發生什麼，以及實際發生了什麼；
 - 你怎麼執行 Harness Relay（桌面 app、`npm start` 或 `npm run dev`）；
 - 作業系統、Node.js 版本（`node --version`）與 Harness Relay 的版本（桌面 app 在**設定與登入 → 版本**，或是 commit：`git rev-parse --short HEAD`）；
-- 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`）；
+- 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`、`cursor-agent --version`、`opencode --version`…），開源 agent 再加上模型來源的種類（API 或你自己的端點，以及哪一種伺服器）；
 - 對話的模式（圓桌、平行或接力）、權限（唯讀、可編輯或完全存取），以及是否直接採用首席 agent 組的團隊；
 - 訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間伺服器的輸出（用 `npm run dev` 時是其中的 `[server]` 行；桌面 app 則是選單裡的**查看記錄檔**）。
 
@@ -33,7 +33,7 @@
 
 ## 建立開發環境
 
-需要 Node.js **22.13 以上**。agent CLI（`claude`、`codex`、`grok`）只有在手動試用 app 時才需要；測試從不執行它們。
+需要 Node.js **22.13 以上**。agent CLI（`claude`、`codex`、`grok`、`cursor-agent`，以及開源的 `opencode`、`goose`、`cline`、`openhands`、`pi`）只有在手動試用 app 時才需要；測試從不執行它們，也從不啟動真正的沙箱（那是手動執行的 `scripts/sandbox-check.ts` 做的事）。
 
 ```bash
 git clone https://github.com/Agentic-System-Lab/harness-relay.git
@@ -53,7 +53,7 @@ npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://
 ### 程式碼
 
 - 使用 strict TypeScript 與 ES modules。共用型別只放在 `src/shared/types.ts`。
-- 子程序一律透過 `src/server/process.ts` 啟動，這樣才會被追蹤並在關閉時結束。程式要直接啟動，不經過 shell；shell 腳本（`runShellScript()`，或交給 `spawnDetached()` 的 `sh -c`）是固定的文字，它需要的值（路徑、名稱、設定）放在它的環境變數裡，絕不放進腳本文字或參數。
+- 子程序一律透過 `src/server/process.ts` 啟動，這樣才會被追蹤並在關閉時結束；伺服器等它結束的簡短檢查（`lsof`、`ps`、`chflags`）用它的 `runSync()`，逾時就結束它。Harness Relay 沙箱的 host（`relaySandboxHost.ts`）是獨立的程式，由它自己啟動 agent。程式要直接啟動，不經過 shell；shell 腳本（`runShellScript()`，或交給 `spawnDetached()` 的 `sh -c`）是固定的文字，它需要的值（路徑、名稱、設定）放在它的環境變數裡，絕不放進腳本文字或參數。在 Windows 上，找到的 CLI 若是 `.cmd`（npm 的包裝檔、Cursor 的啟動檔），會改為啟動它執行的程式（`src/server/winLaunch.ts`），絕不經過 `cmd.exe`。
 - CLI 輸出的 parser 保持純函式（輸入一行行文字，輸出 `AgentEvent`），方便用錄下來的輸出測試。
 - 測試在沒有 DOM 的 Node 環境執行。想測試的前端邏輯請放在一般模組（例如 `src/web/chat.ts`），不要寫在元件裡。
 - 桌面 app 裡只有 `desktop/src/main.ts` 會 import `electron`。其他部分請放在不依賴它的模組（例如 `desktop/src/lifecycle.ts`），由根目錄的 `test/` 跟其他程式碼一樣測試。
@@ -64,6 +64,7 @@ npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://
 - 新的路由放在 `/api/` 底下，才會經過 Host/Origin 檢查、寫入請求的 JSON content-type 檢查、登入檢查，並取得請求的語言。請不要放寬這些檢查。只有瀏覽器自己載入的唯讀路由（圖片、下載連結）可以只憑 cookie、不帶金鑰（`src/server/app.ts` 的 `BROWSER_LOADS`）。
 - 絕不把機密傳給前端。API key 放在作業系統的金鑰儲存區（`src/server/secrets.ts`），不放在資料庫。
 - 伺服器只綁定 `127.0.0.1`，而且 agent 的回覆不能讓瀏覽器載入遠端內容（圖片以連結顯示；本機媒體要經過媒體端點的路徑檢查）。
+- 開源 agent 的程序只能透過 `startOpenProcess()`（`src/server/agents/open.ts`）啟動：完全存取以外，它會把程序放進 Harness Relay 自己的沙箱，沙箱無法啟動就不執行。模型的金鑰以環境變數交給 CLI（只有這次執行的模型來源那一把），絕不寫進轉接器寫的設定檔；一次執行寫入的一切都放在對話成員自己的狀態資料夾（`home(root, state)`）。沙箱的開口只由一個轉接器為它自己的 CLI 申請，並寫在 [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) 與 [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md)。
 
 ### 資料庫
 
@@ -109,7 +110,7 @@ npm test
 npm run build
 ```
 
-如果修改了介面、HTTP API、協調器或轉接器，也請執行端對端測試：`npm run test:e2e`（第一次先執行 `npm run test:e2e:install`）。
+如果修改了介面、HTTP API、協調器或轉接器，也請執行端對端測試：`npm run test:e2e`（第一次先執行 `npm run test:e2e:install`）。如果修改了轉接器、沙箱或模型來源，而且你有自己的模型伺服器，也請盡量在各系統上用真正的 CLI 執行實機測試（`npm run test:e2e:live`；見開發者指南「實機測試」）。
 
 如果修改了桌面 app，也要執行 `npm run desktop:typecheck`，並用 `npm run desktop` 試用；修改它的打包方式時，建置安裝檔（`npm run desktop:dist`），再用 `npx tsx desktop/scripts/check-package.ts` 檢查。
 

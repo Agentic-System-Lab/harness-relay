@@ -4,7 +4,10 @@
  *
  * - build/app/: what Electron runs (main.cjs, its package.json, the tray icons);
  * - build/server/: the server as one file (server.mjs), the built web app (web/) and the keyring
- *   module, which is native code and stays a separate package (node_modules/@napi-rs/);
+ *   module, which is native code and stays a separate package (node_modules/@napi-rs/); the relay
+ *   sandbox's host (relaySandboxHost.mjs, which the server starts with a Node on PATH, since the app's
+ *   runtime may not run as Node) and sandbox-runtime with its packages (node_modules/), which reads
+ *   files of its own at run time (its Linux seccomp helpers); Pi's gate extension (piGate.js);
  * - build/resources/: the app icon, for electron-builder.
  *
  * RELAY_VERSION (set by the Release workflow) is the release's version, such as 2026-11-10-rc.1: it
@@ -73,6 +76,31 @@ await build({
   logLevel: 'warning',
 });
 cpSync(web, join(OUT, 'server/web'), { recursive: true });
+
+// The relay sandbox's host, as one ES module beside the server (relaySandbox.ts finds it there), with
+// sandbox-runtime left as a package: it reads its own files at run time (vendor/seccomp on Linux).
+await build({
+  entryPoints: [join(ROOT, 'src/server/relaySandboxHost.ts')],
+  outfile: join(OUT, 'server/relaySandboxHost.mjs'),
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: TARGET,
+  external: ['@anthropic-ai/sandbox-runtime'],
+  legalComments: 'none',
+  logLevel: 'warning',
+});
+// Pi's gate extension, loaded by Pi by its absolute path beside the server (pi.ts, PI_GATE_PATH).
+cpSync(join(ROOT, 'src/server/agents/piGate.js'), join(OUT, 'server/piGate.js'));
+// sandbox-runtime and what it needs, as npm installed them (its own nested node_modules included).
+for (const pkg of ['@anthropic-ai/sandbox-runtime', '@pondwader/socks5-server', 'node-forge', 'zod']) {
+  const from = join(ROOT, 'node_modules', pkg);
+  if (!existsSync(from)) {
+    console.error(`${pkg} is missing from node_modules: run \`npm install\` first.`);
+    process.exit(1);
+  }
+  cpSync(from, join(OUT, 'server/node_modules', pkg), { recursive: true, dereference: true });
+}
 
 // The keyring module and the native part for this platform (npm installs only that one).
 const napi = join(ROOT, 'node_modules/@napi-rs');

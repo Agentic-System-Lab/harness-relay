@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
 import {
   PROVIDERS,
+  PROVIDER_LABEL,
+  isEndpointCli,
+  isOpenProvider,
+  keyOnlyAccount,
   type AccountStatus,
   type LoginMethod,
   type LoginSessionView,
@@ -10,10 +14,15 @@ import {
   type ProviderModels,
   type ProviderStatus,
 } from '../shared/types';
+import { openAgents } from './agents/index';
+import { openHomeEnv } from './agents/open';
+import { backendLabel } from './backends';
+import { HttpError } from './errors';
 import { discoverModels, type DiscoveredModels } from './models';
 import { CommandNotFoundError, capture, killTree, spawnInteractive, stripAnsi, tail } from './process';
-import type { SettingsStore } from './settings';
+import { CREDENTIAL_ENV, CURSOR_SHARED_SIGN_IN, type SettingsStore } from './settings';
 import { t } from './i18n';
+import { WindowsScriptError } from './winLaunch';
 
 // ---------------------------------------------------------------------------
 // Status
@@ -69,6 +78,20 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
         ? { loggedIn: true, detail: model ? t().defaultModelDetail(model) : undefined }
         : { loggedIn: null, detail: tail(out, 200) };
     }
+    case 'cursor': {
+      // With a key it runs on that key, in the one run's memory (`CURSOR_SHARED_SIGN_IN`), which
+      // `status` does not sign in with: it would say signed out.
+      if (CREDENTIAL_ENV.cursor.some((k) => env[k])) return { loggedIn: true, method: 'API key' };
+      // `status` signs nothing in and needs no terminal; anything else it took for a prompt.
+      const r = await capture(bin, ['status', '--format', 'json'], { ...env, NO_OPEN_BROWSER: '1' });
+      const j = firstJsonObject(r.stdout);
+      if (!j) return { loggedIn: null, detail: tail(stripAnsi(r.stderr || r.stdout), 200) };
+      if (j.isAuthenticated === true) return { loggedIn: true, account: j.userInfo?.email ?? undefined };
+      if (j.status === 'unauthenticated') return { loggedIn: false };
+      return { loggedIn: null, detail: typeof j.message === 'string' ? j.message : undefined };
+    }
+    default:
+      return { loggedIn: null };
   }
 }
 
@@ -102,7 +125,8 @@ export class ProviderService {
     const id = this.settings.resolveAccount(p, account);
     let entry = this.modelCache.get(slot(p, id));
     if (refresh || !entry || Date.now() - entry.at > 10 * 60_000) {
-      entry = { at: Date.now(), models: discoverModels(p, this.settings.bin(p), this.settings.env(p, id)) };
+      const backends = { configured: this.settings.backends.configured(), endpoints: this.settings.backends.view().endpoints };
+      entry = { at: Date.now(), models: discoverModels(p, this.settings.bin(p), this.settings.env(p, id), backends) };
       this.modelCache.set(slot(p, id), entry);
     }
     const d = await entry.models;
@@ -137,13 +161,13 @@ export class ProviderService {
     });
     let status: ProviderStatus;
     try {
-      const v = await capture(bin, ['--version'], env, { timeoutMs: 10_000 });
+      const v = await capture(bin, ['--version'], isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env, { timeoutMs: 10_000 });
       const version = parseVersion(v.stdout || v.stderr);
-      // Each account signs in on its own, in its own home.
+      // Each account signs in on its own, in its own home; an open agent has no sign-in (and no other account).
       const accounts = await Promise.all(
         ids.map(async (id) => {
           try {
-            return account(id, await checkAuth(p, bin, id ? this.settings.env(p, id) : env));
+            return account(id, isOpenProvider(p) ? this.openAuth(p) : await checkAuth(p, bin, id ? this.settings.env(p, id) : env));
           } catch (err) {
             return account(id, { loggedIn: null, detail: (err as Error).message });
           }
@@ -162,6 +186,30 @@ export class ProviderService {
     return status;
   }
 
+  /**
+   * An open agent has no sign-in: it is ready once at least one model backend is set up in Settings
+   * (and its adapter is done).
+   */
+  private openAuth(p: Provider): ProviderAuth {
+    if (isOpenProvider(p) && !openAgents[p].process.implemented) return { loggedIn: false, detail: t().openNotImplemented(PROVIDER_LABEL[p]) };
+    const view = this.settings.backends.view();
+    const configured = this.settings.backends.configured();
+    if (!configured.length) return { loggedIn: false, detail: t().openNoBackend };
+    return { loggedIn: true, detail: t().openBackendsReady(configured.map((id) => backendLabel(view, id)).join(', ')) };
+  }
+
+  /**
+   * The open agents' status and models follow the model backends, and the model menus of Claude Code,
+   * Codex and Grok list the endpoints' models too: asked again after a change (their sign-ins stay
+   * cached). Cursor's menu has no endpoint models, so it stays.
+   */
+  backendsChanged(): void {
+    for (const p of PROVIDERS) {
+      if (isOpenProvider(p)) this.invalidate(p);
+      else if (isEndpointCli(p)) for (const key of this.modelCache.keys()) if (key.startsWith(slot(p))) this.modelCache.delete(key);
+    }
+  }
+
   statusAll(refresh = false): Promise<ProviderStatus[]> {
     return Promise.all(PROVIDERS.map((p) => this.status(p, refresh)));
   }
@@ -178,9 +226,20 @@ export class ProviderService {
 
   /** Signs an account in (empty `account`: the default one), with the CLI's own flow, in its home. */
   startLogin(p: Provider, methodId?: string, account = ''): LoginSessionView {
+    // Its sign-in would replace the default account's (see `keyOnlyAccount`).
+    if (keyOnlyAccount(p, this.settings.resolveAccount(p, account))) throw new KeyOnlyAccountError();
     const method = LOGIN_METHODS[p].find((m) => m.id === methodId) ?? LOGIN_METHODS[p][0];
+    if (!method) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     this.logins.get(slot(p, account))?.cancel();
-    const session = new LoginSession(p, account, method, this.settings.bin(p), this.settings.env(p, account), () => this.invalidate(p));
+    const env = { ...this.settings.env(p, account), ...method.env };
+    let session: LoginSession;
+    try {
+      session = new LoginSession(p, account, method, this.settings.bin(p), env, () => this.invalidate(p));
+    } catch (err) {
+      // On Windows, a script whose program cannot be told: the user sets the program's path.
+      if (err instanceof WindowsScriptError) throw new HttpError(400, err.message);
+      throw err;
+    }
     this.logins.set(slot(p, account), session);
     return session.view();
   }
@@ -213,7 +272,17 @@ export class ProviderService {
   }
 
   async logout(p: Provider, account = '', timeoutMs = 30_000): Promise<string> {
-    return this.logoutIn(p, this.settings.env(p, account), timeoutMs);
+    if (!LOGIN_METHODS[p].length) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
+    const env = this.settings.env(p, account);
+    // Cursor's default account signs out of the sign-in Cursor keeps, which its API key (if any) keeps
+    // aside: in the store the server was started with, if it names one.
+    if (p === 'cursor' && !this.settings.resolveAccount(p, account)) {
+      const own = process.env[CURSOR_SHARED_SIGN_IN];
+      if (own) env[CURSOR_SHARED_SIGN_IN] = own;
+      else delete env[CURSOR_SHARED_SIGN_IN];
+      for (const k of CREDENTIAL_ENV.cursor) delete env[k];
+    }
+    return this.logoutIn(p, env, timeoutMs);
   }
 
   /**
@@ -221,6 +290,11 @@ export class ProviderService {
    * account's id names the default account).
    */
   async logoutIn(p: Provider, env: NodeJS.ProcessEnv, timeoutMs = 30_000): Promise<string> {
+    // Signed in for the one run only (an API key, an account besides the default): nothing is kept to sign out of.
+    if (p === 'cursor' && env[CURSOR_SHARED_SIGN_IN] === 'memory') {
+      this.invalidate(p);
+      return '';
+    }
     const bin = this.settings.bin(p);
     const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
     const r = await capture(bin, args, env, { timeoutMs });
@@ -248,8 +322,11 @@ export class ProviderService {
 // ---------------------------------------------------------------------------
 // Login sessions: run the CLI's own login flow headlessly and surface its URL / code.
 
-/** `key` names the method's label and description in the server messages (i18n.ts). */
-const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[] }[]> = {
+/**
+ * `key` names the method's label and description in the server messages (i18n.ts); `env` is added to
+ * the CLI's environment for the sign-in.
+ */
+const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[]; env?: Record<string, string> }[]> = {
   claude: [
     {
       id: 'claudeai',
@@ -286,7 +363,29 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[] 
       args: ['login', '--oauth'],
     },
   ],
+  // It prints the sign-in link instead of opening a browser here, so it can be opened on any device.
+  cursor: [
+    {
+      id: 'browser',
+      key: 'cursorBrowser',
+      args: ['login'],
+      env: { NO_OPEN_BROWSER: '1' },
+    },
+  ],
+  // The open agents have no sign-in: they use the model backends in Settings.
+  opencode: [],
+  goose: [],
+  cline: [],
+  openhands: [],
+  pi: [],
 };
+
+/** A browser sign-in asked for an account that signs in with its API key only (`keyOnlyAccount`). */
+export class KeyOnlyAccountError extends Error {
+  constructor() {
+    super(t().cursorAccountLogin);
+  }
+}
 
 const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 const URL_RE = /https?:\/\/[^\s"'<>\u001b]+/g;

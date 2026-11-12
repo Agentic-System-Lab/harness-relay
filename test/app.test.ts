@@ -2,8 +2,10 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { removeTree } from '../src/server/fsRemove';
 import {
   FILE_LIMITS,
+  OPEN_PROVIDERS,
   SHARE_FILES_MAX,
   SHARE_FILES_MAX_BYTES,
   SHARE_FILE_MAX_BYTES,
@@ -65,7 +67,8 @@ beforeAll(() => {
   };
 });
 
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+// An open agent's home keeps its config read-only (the model lookups write one): taken apart as runs leave it.
+afterAll(() => removeTree(root, { restore: true }));
 
 beforeEach(() => {
   const db = openDatabase(':memory:');
@@ -258,6 +261,16 @@ describe('settings', () => {
     const withItems = ((await items.json()) as SettingsView).providers.find((p) => p.provider === 'claude')!.accounts[0]!;
     expect(withItems.nativeItems).toEqual({ skills: ['commit'], mcpTools: ['mcp__local__fetch'] });
     expect(withItems.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
+
+    // OpenHands' terminal in the sandbox: a boolean, off by default, no secret in it.
+    const openhands = (body: unknown) => app.request('/api/settings/providers/openhands', json('PUT', body));
+    expect((await openhands({ sandboxTerminal: 'yes' })).status).toBe(400);
+    expect((await openhands({ sandboxTerminal: 1 })).status).toBe(400);
+    const on = await openhands({ sandboxTerminal: true });
+    expect(on.status).toBe(200);
+    expect(((await on.json()) as SettingsView).providers.find((p) => p.provider === 'openhands')).toMatchObject({ sandboxTerminal: true, apiKeyMasked: '' });
+    const offAgain = (await (await openhands({ sandboxTerminal: false })).json()) as SettingsView;
+    expect(offAgain.providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(false);
     // Back as they were, for the tests after this one.
     expect((await account({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} })).status).toBe(200);
   });
@@ -660,6 +673,8 @@ describe('accounts', () => {
     // Not installed: no CLI runs (Claude Code's models are read from its settings file).
     settings.update('codex', { bin: join(root, 'no-such-codex') });
     settings.update('grok', { bin: join(root, 'no-such-grok') });
+    for (const p of OPEN_PROVIDERS) settings.update(p, { bin: join(root, `no-such-${p}`) });
+    settings.update('cursor', { bin: join(root, 'no-such-cursor') });
     const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
     await call('PUT', `/api/settings/providers/claude/accounts/${id}`, { defaultModel: 'sonnet' });
     await call('PUT', '/api/settings/providers/claude/accounts/default', { defaultModel: 'opus' });
@@ -669,7 +684,12 @@ describe('accounts', () => {
       ['claude', id, 'sonnet'],
       ['codex', '', undefined],
       ['grok', '', undefined],
+      ['cursor', '', undefined],
+      // The open agents have their default account only.
+      ...OPEN_PROVIDERS.map((p) => [p, '', undefined]),
     ]);
+    // And no other: they have no sign-in.
+    expect((await call('POST', '/api/settings/providers/opencode/accounts', { label: 'Work' })).status).toBe(400);
   });
 
   it('gives the UI the limits the environment sets, and keeps to them for accounts and teams', async () => {
@@ -704,7 +724,8 @@ describe('accounts', () => {
     const claude = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
     const codex = ((await (await call('POST', '/api/settings/providers/codex/accounts', { label: 'Work' })).json()) as { id: string }).id;
     const view = (await (await call('PUT', `/api/settings/providers/claude/accounts/${claude}`, { apiKey: 'sk-ant-work-98765' })).json()) as SettingsView;
-    expect(view.providers[0]!.accounts[1]!.apiKeyMasked).toBe('sk-a…8765');
+    // Shorter than 20 characters: nothing of it shows (`maskSecret`).
+    expect(view.providers[0]!.accounts[1]!.apiKeyMasked).toBe('••••');
     expect(view.providers[0]!.apiKeyMasked).toBe(''); // the default account's is its own
     expect(settings.env('claude', claude).ANTHROPIC_API_KEY).toBe('sk-ant-work-98765');
     await call('PUT', `/api/settings/providers/codex/accounts/${codex}`, { apiKey: 'sk-codex-key' });
@@ -714,6 +735,15 @@ describe('accounts', () => {
     expect(settings.hasStoredApiKey('codex', codex)).toBe(false);
     const removed = (await (await call('PUT', `/api/settings/providers/claude/accounts/${claude}`, { apiKey: null })).json()) as SettingsView;
     expect(removed.providers[0]!.accounts[1]!.apiKeyMasked).toBe('');
+  });
+
+  it("refuses a browser sign-in for a Cursor account besides the default one, which signs in with its key", async () => {
+    const { call, read } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/cursor/accounts', { label: 'Team' })).json()) as { id: string }).id;
+    const res = await call('POST', `/api/providers/cursor/login?account=${id}`, { method: 'browser' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/one sign-in per computer user/);
+    expect((await (await read('/api/providers/cursor/login-methods')).json()).map((m: { id: string }) => m.id)).toEqual(['browser']);
   });
 
   it('signs each account in and out on its own, and refuses accounts the CLI does not have', async () => {
@@ -1647,7 +1677,7 @@ describe('tool library', () => {
     expect(res.status).toBe(200);
     const view = await res.json();
     expect(view.skills).toEqual([{ path: skills, name: 'commit', description: 'Commit well.', providers: ['codex'] }]);
-    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '' });
+    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '', cursor: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
     expect((await app.request('/api/tools', json('PUT', { memory: { gemini: 'x' } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);

@@ -2,6 +2,9 @@ import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT } from '../shared/types';
 import type {
   AboutInfo,
+  ApiBackend,
+  ModelBackendsView,
+  ModelEndpointUpdate,
   AgentConfig,
   ApprovalAnswer,
   AuthSessionView,
@@ -322,6 +325,12 @@ export const api = {
     `/api/conversations/${id}/files/zip?${fileQuery(root, path)}${unignored ? '&unignored=1' : ''}`,
 
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
+  // Model backends (the open agents): keys come back masked
+  backends: () => request<ModelBackendsView>('GET', '/api/backends'),
+  setBackendKey: (id: ApiBackend, apiKey: string | null) => request<ModelBackendsView>('PUT', `/api/backends/${id}`, { apiKey }),
+  saveEndpoint: (id: string, b: ModelEndpointUpdate) => request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, b),
+  deleteEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/endpoints/${encodeURIComponent(id)}`),
+  forgetDeletedEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/deleted-endpoints/${encodeURIComponent(id)}`),
   updateSettings: (b: SettingsUpdate) => request<SettingsView>('PUT', '/api/settings', b),
   updateProvider: (p: Provider, b: ProviderSettingsUpdate) =>
     request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),

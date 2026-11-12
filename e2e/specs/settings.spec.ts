@@ -11,8 +11,8 @@ test.describe('a CLI that is not signed in', () => {
   test.use({ serverEnv: { E2E_FAKE_SIGNED_OUT: 'codex' } });
 
   test('shows as signed out in Settings and the sidebar, and its reply says why', async ({ page, relay }) => {
-    await expect(page.locator('.provider-health a[href="#/settings/codex"]')).toHaveAttribute('title', 'Not signed in');
-    await expect(page.locator('.provider-health a[href="#/settings/claude"]')).toHaveAttribute('title', 'Signed in: e2e@example.com');
+    await expect(page.locator('.provider-health a[href="#/settings/codex"]')).toHaveAttribute('title', 'Codex · Not signed in');
+    await expect(page.locator('.provider-health a[href="#/settings/claude"]')).toHaveAttribute('title', 'Claude Code · Signed in: e2e@example.com');
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     const card = page.locator('#settings-codex');
     await expect(card).toContainText('Not signed in');
@@ -37,9 +37,23 @@ test.describe('settings', () => {
       await expect(card).toContainText('Signed in');
     }
     await expect(page.locator('#settings-claude')).toContainText('e2e@example.com');
-    // The sidebar's health dots say the same.
-    await expect(page.locator('.provider-health .health')).toHaveCount(3);
-    await expect(page.locator('.provider-health .health.ok')).toHaveCount(3);
+    // The sidebar's health dots say the same. Cursor, which no fake stands in for, is not installed
+    // here; the open agents get a dot only once installed.
+    for (const cli of CLIS) await expect(page.locator(`.provider-health .health.ok[href="#/settings/${cli.provider}"]`)).toBeVisible();
+    await expect(page.locator('.provider-health .health.off[href="#/settings/cursor"]')).toHaveAttribute('title', 'Cursor · Not installed');
+    await expect(page.locator('#settings-cursor .provider-head .pill')).toHaveText('Not installed');
+    await expect(page.locator('.provider-health .health')).toHaveCount(4);
+    // Dots alone on one line, with how many are ready; their names beside them when asked for, kept after a reload.
+    const toggle = page.locator('.provider-health .health-toggle');
+    await expect(toggle).toHaveText('3/4 ready');
+    const nameWidth = async () => (await page.locator('.provider-health a[href="#/settings/grok"] .health-name').boundingBox())?.width ?? 0;
+    expect(await nameWidth()).toBeLessThanOrEqual(1);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('.provider-health a[href="#/settings/grok"]')).toContainText('Grok');
+    await expect.poll(nameWidth).toBeGreaterThan(10);
+    await page.reload();
+    await expect(page.locator('.provider-health .health-toggle')).toHaveAttribute('aria-expanded', 'true');
   });
 
   test("a CLI's executable path can be set, and a wrong one shows it as missing", async ({ page }) => {

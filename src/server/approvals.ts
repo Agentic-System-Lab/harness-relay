@@ -1,16 +1,18 @@
 import type { AllowRule, ApprovalKind } from '../shared/types';
-import { approvalKey, parseCommandLine, unwrapShell } from './commands';
+import { approvalKey, evaluationContext, parseCommandLine, parseShellSyntax, unwrapShell, type SimpleCommand } from './commands';
 
 /*
  * "Always allow in this conversation": an answer is remembered as rule keys, and later
  * requests whose keys are all allowed are approved without asking.
  *
  * - command: one key per command the line runs (`npm test && git push` → "npm test", "git push";
- *   also commands in `$( )`, backticks and `sh -c '…'`), so allowing `npm test` never lets a chained
- *   or embedded `rm …` through. `sudo` stays in the key; a command whose program is computed when it
- *   runs, or `git -c …`, is keyed by its full text;
+ *   also commands in `$( )`, backticks, `sh -c '…'`, `eval`, and inside `if` / `while` / `for` /
+ *   `case`, groups and function bodies), so allowing `npm test` never lets a chained or embedded
+ *   `rm …` through, nor allowing `if` an `if … git push …`. `sudo` stays in the key; a command whose
+ *   program is computed when it runs, or `git -c …`, is keyed by its full text;
  * - edit: all file edits ("*");
- * - fetch: the host name;
+ * - fetch: the host, with its port when it is not its scheme's own (`192.168.1.5:8000`), so one
+ *   port of a host allowed allows no other;
  * - other: the tool's name.
  */
 
@@ -72,29 +74,45 @@ function legacyKeys(detail: string): string[] {
 export function approvalKeys(kind: ApprovalKind, detail?: string, tool?: string): string[] {
   switch (kind) {
     case 'command': {
-      // Every command the line runs (chains, pipes, substitutions, `sh -c '…'`), each by program and
-      // subcommand — plus the keys the first, simpler reading gave, as a floor: a request is only
-      // approved automatically when all of them are allowed, so a line this reading gets wrong can
-      // never match more than it used to.
+      // Every command the line runs (chains, pipes, substitutions, `sh -c '…'`, compound commands),
+      // each by program and subcommand, from both readings of `commands.ts` — plus the keys the first,
+      // simpler reading gave. Each set is a floor: a request is only approved automatically when all
+      // of them are allowed, so a line one reading gets wrong can never match more than it used to.
       const line = detail ?? '';
-      let keys: string[];
-      try {
-        keys = parseCommandLine(line)
-          .map((cmd) => approvalKey(cmd, WITH_SUBCOMMANDS))
-          .filter((k): k is string => Boolean(k));
-      } catch {
-        keys = [line.trim()]; // too convoluted to read: only this exact command
-      }
-      return [...new Set([...keys, ...legacyKeys(line)])].filter(Boolean);
+      // A line with any context where the shell evaluates a subscript or arithmetic (`echo "${b[x]}"`,
+      // `(( x ))`, `declare 'a[$(…)]'`, `find -exec …`) gets only its exact text as a key, so an allowed
+      // single program never carries the evaluation in. It only stops "always allow" from generalising.
+      if (evaluationContext(line)) return [line.trim()].filter(Boolean);
+      const keysOf = (readLine: (line: string) => SimpleCommand[]): string[] => {
+        try {
+          return readLine(line)
+            .map((cmd) => approvalKey(cmd, WITH_SUBCOMMANDS))
+            .filter((k): k is string => Boolean(k));
+        } catch {
+          return [line.trim()]; // too convoluted to read: only this exact command
+        }
+      };
+      return [...new Set([...keysOf(parseShellSyntax), ...keysOf(parseCommandLine), ...legacyKeys(line)])].filter(Boolean);
     }
     case 'edit':
       return ['*'];
-    case 'fetch':
+    case 'fetch': {
+      const text = (detail ?? '').trim();
       try {
-        return [new URL(detail ?? '').hostname || '*'];
+        // A URL, or a host with or without a port (`example.com:8080`, `[::1]:22`, as a sandbox asks
+        // about one), which a URL parser would otherwise read as a scheme. Keyed by host and port, so
+        // that allowing one port of a host (a model server's 8000) allows no other (its SSH on 22);
+        // a URL on its scheme's own port (443, 80) and a bare host are keyed by the host alone.
+        const scheme = /^[a-z][a-z\d+.-]*:\/\//i.test(text);
+        const url = new URL(scheme ? text : `http://${text}`);
+        if (!url.hostname) return ['*'];
+        // A bare host on 443 or 80 is the host alone, as the relay sandbox labels it (`hostLabel`).
+        const port = !scheme && (url.port === '443' || url.port === '80') ? '' : url.port;
+        return [port ? `${url.hostname}:${port}` : url.hostname];
       } catch {
-        return detail ? [detail] : [];
+        return text ? [text] : [];
       }
+    }
     default:
       return tool ? [tool] : [];
   }

@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, mkdirSync, openSync } from 'node:fs';
+import { chmodSync, closeSync, mkdirSync, openSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
@@ -349,10 +349,80 @@ const MIGRATIONS: string[] = [
   DROP TABLE agent_worktrees;
   ALTER TABLE agent_worktrees_by_root RENAME TO agent_worktrees;
   `,
+  // 22: model backends for the open agents (src/server/backends.ts): the user's OpenAI-compatible
+  // endpoints (id: the slug their models' ids start with), and an API backend's key (id: openai,
+  // anthropic or xai) only while there is no credential store to keep it in. Endpoints' keys likewise.
+  `
+  CREATE TABLE model_backends (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL DEFAULT '',
+    base_url   TEXT NOT NULL DEFAULT '',
+    models     TEXT NOT NULL DEFAULT '[]',
+    api_key    TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  );
+  `,
+  // 23: the permission of each member's latest run (agent_sessions.permission): a turn with a higher
+  // one does not resume the session. Kept here, never in a file an agent can write. NULL: not recorded
+  // (sessions from before), taken as read-only.
+  `
+  ALTER TABLE agent_sessions ADD COLUMN permission TEXT;
+  `,
+  // 24: the same per CLI the member ran on (agent_sessions.by_cli, JSON: provider → { permission,
+  // mustEmpty }), since each open agent keeps a state folder of its own for the member: one written at
+  // a lower permission is emptied before that CLI runs with a higher one, and the flag that says it
+  // must be stays until it has been.
+  `
+  ALTER TABLE agent_sessions ADD COLUMN by_cli TEXT;
+  `,
+  // 25: whether the user lets a CLI's commands use a terminal in the relay sandbox
+  // (provider_settings.sandbox_terminal, 0/1; OpenHands only, see SANDBOX_TERMINAL_SUPPORT).
+  `
+  ALTER TABLE provider_settings ADD COLUMN sandbox_terminal INTEGER NOT NULL DEFAULT 0;
+  `,
+  // 26: the endpoints deleted in Settings (deleted_endpoints, until one of the same id is added
+  // again), so that a Claude Code, Codex or Grok member still naming a model of one fails its turn
+  // instead of sending it to the CLI's own service; and the backend each member's session was made on
+  // (agent_sessions.backend: an endpoint's id; NULL: the CLI's own service, or not recorded, taken as
+  // the same), so that a session is not resumed on another one.
+  `
+  CREATE TABLE deleted_endpoints (
+    id         TEXT PRIMARY KEY,
+    deleted_at INTEGER NOT NULL
+  );
+  ALTER TABLE agent_sessions ADD COLUMN backend TEXT;
+  `,
 ];
 
+/**
+ * The migrations of the model backends and what followed them (now 22–26) had other numbers in builds
+ * that were never released: first 19–22, before the accounts (today's 19 and 20) and several working
+ * directories (21) came in, then 21–25 once the accounts had. A data folder those builds migrated
+ * holds today's 22 onwards as far as it went, but has never had today's 21, nor 19 and 20 when it has
+ * no `provider_accounts`. Told by what it has (`model_backends`) and lacks (`conversations.extra_cwds`),
+ * it gets those, and its version goes up by as many, so that the migrations after what it holds run on
+ * it as on any other (their SQL is as it was in those builds). Returns its version then.
+ */
+function repairEarlyNumbering(db: Database, version: number): number {
+  if (version < 19 || version > 25) return version;
+  const has = (sql: string) => Boolean(db.prepare(sql).get());
+  const early =
+    has("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'model_backends'") &&
+    !has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'");
+  if (!early) return version;
+  // With the accounts, the model backends were 21–25; before them, 19–22.
+  const accounts = has("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_accounts'");
+  if (accounts ? version < 21 : version > 22) return version;
+  const missing = accounts ? [20] : [18, 19, 20];
+  transaction(db, () => {
+    for (const i of missing) db.exec(MIGRATIONS[i]!);
+    db.exec(`PRAGMA user_version = ${version + missing.length}`);
+  });
+  return version + missing.length;
+}
+
 function migrate(db: Database): void {
-  const current = Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
+  const current = repairEarlyNumbering(db, Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version));
   for (let v = current; v < MIGRATIONS.length; v++) {
     transaction(db, () => {
       db.exec(MIGRATIONS[v]!);
@@ -361,12 +431,71 @@ function migrate(db: Database): void {
   }
 }
 
+/** A plain connection to another program's SQLite database (no migrations, no pragmas of ours). */
+export function openSqliteFile(file: string): Database {
+  return new DatabaseSync(file);
+}
+
+/**
+ * A connection to an open agent's own SQLite database in its state folder, which the run's commands
+ * may have written, for the server to take out of it what would widen a later run. Every trigger and
+ * view in it is dropped first: a command could otherwise plant a trigger that writes back what the
+ * server takes out, on the server's own write or on the CLI's next one (`AFTER UPDATE ON session BEGIN
+ * UPDATE session SET permission = … END`), or put a view with `INSTEAD OF` triggers where a table was.
+ * Neither OpenCode nor Goose makes any (checked with OpenCode 1.19.5 and Goose 1.58.1). A column a
+ * command redefined (generated, or with a check) can still refuse or ignore a write, so the caller
+ * reads back what it changed.
+ */
+export function openRunDatabase(file: string): Database {
+  const db = new DatabaseSync(file);
+  try {
+    db.exec('PRAGMA busy_timeout = 3000; PRAGMA trusted_schema = OFF;');
+    const planted = db.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view')").all() as { type: string; name: string }[];
+    for (const { type, name } of planted) db.exec(`DROP ${type === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS "${name.replaceAll('"', '""')}"`);
+    return db;
+  } catch (err) {
+    db.close();
+    throw err;
+  }
+}
+
+/**
+ * The files this process holds SQLite locks on while it runs: its database with its journal files
+ * (`openDatabase`), and its data folder's lock (`lockDataDir`).
+ */
+const lockedFiles = new Set<string>();
+
+/**
+ * The files this process holds SQLite locks on, as `dev:ino` (`fileKey`), for the server never to
+ * open them itself: the system drops every lock a process holds on a file as soon as that process
+ * closes any other handle to it (POSIX advisory locks). Reading `server.lock` in the Files panel
+ * would free the data folder for a second server, and reading `relay.db` would drop SQLite's own
+ * locks while the database is in use. By file, not path: a link or another letter case names it too.
+ */
+export function lockedFileKeys(): Set<string> {
+  const keys = new Set<string>();
+  for (const file of lockedFiles) {
+    try {
+      keys.add(fileKey(statSync(file)));
+    } catch {
+      /* not there (yet): a journal file */
+    }
+  }
+  return keys;
+}
+
+/** A file's identity on this computer, whatever path names it. */
+export function fileKey(st: { dev: number; ino: number }): string {
+  return `${st.dev}:${st.ino}`;
+}
+
 /** Open (or create) the database. The file holds API keys, so it is readable by the owner only. */
 export function openDatabase(file: string): Database {
   if (file !== ':memory:') {
     mkdirSync(dirname(file), { recursive: true });
     closeSync(openSync(file, 'a', 0o600));
     chmodSync(file, 0o600); // SQLite gives the -wal / -shm files the same mode
+    for (const suffix of ['', '-wal', '-shm', '-journal']) lockedFiles.add(`${file}${suffix}`);
   }
   const db = new DatabaseSync(file);
   // secure_delete: overwrite deleted content (removed API keys, deleted chats) instead of leaving it in free pages.
@@ -388,10 +517,11 @@ export function dataLockFile(dataDir: string): string {
 
 /**
  * Takes the data folder for this server while it runs, or returns undefined when another server
- * holds it. Two servers on one data folder would undo each other: at its start each one marks the
- * other's streaming replies aborted and expires their approvals, and removes the temporary folders
- * of the other's shares in progress, and both would send every schedule. So a second server on the
- * same data folder (`npm run dev` beside an `npm start` of the same checkout, say) refuses to start.
+ * holds it. Two servers on one data folder would undo each other: at its start each one kills the
+ * processes of the other's sandboxed runs and removes their folders, marks the other's streaming
+ * replies aborted and expires their approvals, and removes the temporary folders of the other's
+ * shares in progress, and both would send every schedule. So a second server on the same data folder
+ * (`npm run dev` beside an `npm start` of the same checkout, say) refuses to start.
  *
  * The lock is SQLite's own on that file (an exclusive transaction kept open, with the journal in
  * memory so no other file is made): the system releases it when the process ends, however it ends,
@@ -405,6 +535,7 @@ export function lockDataDir(dataDir: string): Database | undefined {
   try {
     db.exec('PRAGMA busy_timeout = 0; PRAGMA journal_mode = MEMORY; BEGIN EXCLUSIVE;');
     heldDataDirs.push(db);
+    lockedFiles.add(dataLockFile(dataDir));
     return db;
   } catch (err) {
     db.close();

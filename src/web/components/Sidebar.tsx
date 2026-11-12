@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { PROVIDER_LABEL, accountUsable, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
+import { PROVIDERS, PROVIDER_LABEL, accountUsable, isOpenProvider, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
-import { branchCount } from '../sidebar';
-import { CalendarPlusIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon } from './icons';
+import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
+import { CalendarPlusIcon, ChevronIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
 import { ReportDialog } from './ReportDialog';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
@@ -38,6 +38,8 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
   /** Focuses the search field again when search is asked for while it is open. */
   const [searchFocus, setSearchFocus] = useState(0);
   const [creating, setCreating] = useState(false);
+  /** The CLIs' names beside their dots at the sidebar's foot (else the dots alone, on one line). */
+  const [healthNames, setHealthNames] = useState(readHealthNames);
   const [reporting, setReporting] = useState(false);
 
   const openSearch = () => {
@@ -120,18 +122,40 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
       </nav>
 
       <div className="sidebar-bottom" data-tour="settings">
-        <div className="provider-health">
-          {(['claude', 'codex', 'grok'] as const).map((id) => {
+        {(() => {
+          // The open agents only once installed: most people have only some of them.
+          const shown = PROVIDERS.filter((id) => !isOpenProvider(id) || providers.some((x) => x.provider === id && x.installed)).map((id) => {
             const p = providers.find((x) => x.provider === id);
-            const s = providerState(p);
-            return (
-              <a key={id} href={settingsHref(id)} className={`health ${s}`} title={healthTitle(p, t)}>
-                <i />
-                {PROVIDER_LABEL[id]}
-              </a>
-            );
-          })}
-        </div>
+            return { id, p, state: providerState(p) };
+          });
+          const { ready, total } = readyCount(shown.map((x) => x.state));
+          const toggle = () => {
+            writeHealthNames(!healthNames);
+            setHealthNames(!healthNames);
+          };
+          return (
+            // Dots alone on one line by default (each still names its CLI on hover and to a screen
+            // reader), with how many are ready; the names beside them when asked for.
+            <div className={`provider-health ${healthNames ? '' : 'compact'}`}>
+              {shown.map(({ id, p, state }) => (
+                <a key={id} href={settingsHref(id)} className={`health ${state}`} title={`${PROVIDER_LABEL[id]} · ${healthTitle(p, t)}`}>
+                  <i aria-hidden />
+                  <span className="health-name">{PROVIDER_LABEL[id]}</span>
+                </a>
+              ))}
+              <button
+                type="button"
+                className="health-toggle"
+                onClick={toggle}
+                aria-expanded={healthNames}
+                title={healthNames ? t.sidebar.healthHideNames : t.sidebar.healthShowNames}
+              >
+                {!healthNames && <span>{t.sidebar.healthReady(ready, total)}</span>}
+                <ChevronIcon size={13} />
+              </button>
+            </div>
+          );
+        })()}
         {/* Report a problem: an icon only, at the row's end, so Settings keeps the row. */}
         <div className="sidebar-bottom-row">
           <a href="#/settings" className={`settings-link ${route.page === 'settings' ? 'active' : ''}`}>
@@ -157,6 +181,7 @@ function healthTitle(p: ProviderStatus | undefined, t: Messages): string {
   const h = t.sidebar.health;
   if (!p) return h.checking;
   if (!p.installed) return h.notInstalled;
+  if (isOpenProvider(p.provider)) return p.auth.loggedIn ? h.openReady : h.openNotReady;
   // The dot is the default account's; with more accounts, how many of them agents can run as.
   const more = p.accounts.length > 1 ? h.accounts(p.accounts.filter(accountUsable).length, p.accounts.length) : '';
   if (p.usingStoredApiKey) return h.apiKey + more;

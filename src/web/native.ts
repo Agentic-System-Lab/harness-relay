@@ -21,7 +21,23 @@ const TABS: Record<Provider, NativeTab[]> = {
   claude: ['skills', 'mcp', 'tools', 'hooks', 'agents', 'plugins', 'instructions', 'memory'],
   codex: ['skills', 'mcp', 'hooks', 'plugins', 'instructions', 'memory'],
   grok: ['skills', 'mcp', 'hooks', 'agents', 'plugins', 'instructions', 'memory'],
+  cursor: ['skills', 'mcp', 'hooks', 'agents', 'instructions'],
+  // The open agents: none until each adapter lists what its CLI reports (one line each, kept apart).
+  opencode: ['skills', 'agents', 'instructions'],
+
+  goose: ['skills', 'mcp', 'hooks', 'plugins', 'instructions'],
+
+  cline: ['skills', 'tools', 'hooks', 'agents', 'plugins', 'instructions'],
+
+  openhands: ['skills', 'hooks', 'agents', 'instructions'],
+
+  // Pi: only its instruction files (AGENTS.md / CLAUDE.md up from the folder); its skills, prompt
+  // templates, extensions and the project's .pi folder are never loaded in Harness Relay's runs.
+  pi: ['instructions'],
 };
+
+/** Whether a CLI's card shows what it loads by itself (an open agent's only once its adapter asks it). */
+export const hasNativePanel = (provider: Provider): boolean => TABS[provider].length > 0;
 
 /** The part (the "leave all out" switch) of each tab. */
 export const TAB_PART: Record<NativeTab, NativePart> = {

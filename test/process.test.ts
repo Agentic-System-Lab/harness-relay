@@ -1,8 +1,8 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { CommandNotFoundError, capture, killAll, runProcess, runShellScript, spawnDetached } from '../src/server/process';
+import { CommandNotFoundError, capture, killAll, runProcess, runShellScript, runSync, sleepSync, spawnDetached } from '../src/server/process';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-proc-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -96,10 +96,42 @@ describe('runProcess', () => {
     expect(missing).toBeInstanceOf(CommandNotFoundError);
   });
 
+  it.runIf(process.platform === 'win32')("starts an npm shim's script with Node on Windows, with its arguments as they are, and no shell", async () => {
+    // As npm writes a CLI's .cmd (cmd-shim), found on the PATH by its name.
+    const npm = join(dir, 'npm');
+    mkdirSync(join(npm, 'node_modules', 'fake', 'bin'), { recursive: true });
+    writeFileSync(join(npm, 'node_modules', 'fake', 'bin', 'cli.js'), 'process.stdout.write(JSON.stringify(process.argv.slice(2)))');
+    writeFileSync(
+      join(npm, 'fakecli.cmd'),
+      '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n)\r\n\r\n' +
+        'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\fake\\bin\\cli.js" %*\r\n',
+    );
+    const args = ['a b', '"quoted"', 'x&y|z', '%PATH%'];
+    const res = await runProcess({ bin: 'fakecli', args, env: { ...process.env, PATH: `${npm};${process.env.PATH ?? ''}` } });
+    expect(res.code).toBe(0);
+    expect(JSON.parse(res.stdout)).toEqual(args);
+  });
+
   posixIt('resolves a relative executable path against the server directory, wherever the CLI runs', async () => {
     const script = cli('fake-cli.sh', 'echo ok');
     const res = await capture(`./${relative(process.cwd(), script)}`, [], process.env, { cwd: tmpdir() });
     expect(res.stdout).toBe('ok\n');
+  });
+});
+
+describe('runSync', () => {
+  it('runs a quick probe directly, with its input, and kills one that outlives its timeout even if it ignores SIGTERM', () => {
+    const r = runSync(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], { timeoutMs: 10_000, input: 'a; $(echo b)' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('a; $(echo b)'); // never through a shell
+    const started = Date.now();
+    const stuck = runSync(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { timeoutMs: 500 });
+    expect(stuck.signal).toBe('SIGKILL');
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(runSync(join(dir, 'missing'), [], { timeoutMs: 1000 }).error).toBeDefined();
+    const waited = Date.now();
+    sleepSync(50);
+    expect(Date.now() - waited).toBeGreaterThanOrEqual(45);
   });
 });
 

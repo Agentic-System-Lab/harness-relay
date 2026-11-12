@@ -1,0 +1,5 @@
+{"dir": "->", "t": 7, "msg": {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {"fs": {"readTextFile": false, "writeTextFile": false}, "terminal": false}, "clientInfo": {"name": "probe", "version": "0"}}}}
+{"dir": "<-", "t": 4000, "msg": {"jsonrpc": "2.0", "id": 1, "result": {"agentCapabilities": {"loadSession": true, "mcpCapabilities": {"http": true, "sse": true}, "promptCapabilities": {"audio": false, "embeddedContext": true, "image": true}}, "agentInfo": {"name": "OpenHands CLI ACP Agent", "version": "1.16.0"}, "authMethods": [{"_meta": {"type": "agent"}, "description": "Authenticate through agent", "id": "oauth", "name": "OAuth with OpenHands Cloud"}], "protocolVersion": 1}}}
+{"dir": "->", "t": 4000, "msg": {"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {"cwd": "/home/user/project", "mcpServers": []}}}
+{"dir": "<-", "t": 4001, "msg": {"jsonrpc": "2.0", "id": 2, "error": {"code": -32000, "message": "Authentication required", "data": {"reason": "Authentication required to create a session"}}}}
+{"dir": "exit", "t": 9011, "msg": {"code": null, "signal": "SIGTERM", "t": 9011}}

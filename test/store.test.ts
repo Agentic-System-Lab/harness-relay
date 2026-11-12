@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation, TeamPreset } from '../src/shared/types';
 import { dataLockFile, lockDataDir, openDatabase, type Database } from '../src/server/db';
 import type { SecretStore } from '../src/server/secrets';
-import { SettingsStore } from '../src/server/settings';
+import { OPEN_AGENT_ROOTS_ENV, OPEN_HOMES_DIR, SettingsStore } from '../src/server/settings';
 import { Store } from '../src/server/store';
 
 let dir: string;
@@ -92,6 +92,12 @@ describe('Store (SQLite)', () => {
 
     const loaded = new Store(reopen()).get(conv.id);
     expect(loaded).toEqual({ ...conv, agentState: { a1: { provider: 'claude', sessionId: 'sess-1', seen: ['m1', 'm2'] } } });
+
+    // The endpoint a session was made on (schema version 26); none: the CLI's own service.
+    new Store(db).saveAgentState(conv.id, 'a1', { provider: 'claude', sessionId: 'sess-2', backend: 'homelab', seen: [] });
+    expect(new Store(reopen()).get(conv.id)!.agentState.a1).toEqual({ provider: 'claude', sessionId: 'sess-2', backend: 'homelab', seen: [] });
+    new Store(db).saveAgentState(conv.id, 'a1', { provider: 'claude', sessionId: 'sess-3', seen: [] });
+    expect(new Store(reopen()).get(conv.id)!.agentState.a1).toEqual({ provider: 'claude', sessionId: 'sess-3', seen: [] });
   });
 
   it('saves a branch with the messages it starts with, and where its copied messages end', () => {
@@ -149,6 +155,8 @@ describe('Store (SQLite)', () => {
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
+             DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 12;`);
     const migrated = new Store(reopen());
     expect(migrated.get(fixed.id)!.settings).toMatchObject({ autoTeam: true });
@@ -202,6 +210,48 @@ describe('Store (SQLite)', () => {
     store.saveMessage(conv.id, live, true);
 
     expect(new Store(reopen()).get(conv.id)!.messages[0]!.status).toBe('aborted');
+  });
+
+  it('expires the approvals a crashed server left waiting, so no card offers to answer them', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const approval = (id: string, status: 'pending' | 'allowed') => ({ type: 'approval' as const, id, kind: 'command' as const, detail: 'npm test', status });
+    const live: ChatMessage = { ...agentMsg, id: 'm5', status: 'streaming', parts: [{ type: 'text', text: 'working' }, approval('p1', 'pending'), approval('p2', 'allowed')] };
+    const done: ChatMessage = { ...agentMsg, id: 'm6', status: 'done', parts: [approval('p3', 'pending')] };
+    conv.messages.push(live, done);
+    store.saveMessage(conv.id, live, true);
+    store.saveMessage(conv.id, done, true);
+
+    const after = new Store(reopen()).get(conv.id)!.messages;
+    const parts = after.find((m) => m.id === 'm5')!.parts;
+    expect(after.find((m) => m.id === 'm5')!.status).toBe('aborted');
+    expect(parts.map((p) => (p.type === 'approval' ? p.status : p.type))).toEqual(['text', 'expired', 'allowed']);
+    expect(parts[1]).toMatchObject({ detail: 'npm test', kind: 'command' });
+    // Only in replies the crash cut off.
+    expect(after.find((m) => m.id === 'm6')!.parts[0]).toMatchObject({ status: 'pending' });
+  });
+
+  it('ends the tool calls a crashed server left running, so no row shows them running forever', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const tool = (id: string, status: 'running' | 'done') => ({ type: 'tool' as const, id, name: 'Shell', detail: 'npm test', status });
+    const live: ChatMessage = { ...agentMsg, id: 'm7', status: 'streaming', parts: [tool('t1', 'running'), tool('t2', 'done')] };
+    // Left by an older server, which marked the reply aborted but not its rows.
+    const old: ChatMessage = { ...agentMsg, id: 'm8', status: 'aborted', parts: [tool('t3', 'running')] };
+    const done: ChatMessage = { ...agentMsg, id: 'm9', status: 'done', parts: [tool('t4', 'running')] };
+    conv.messages.push(live, old, done);
+    for (const m of [live, old, done]) store.saveMessage(conv.id, m, true);
+
+    const after = new Store(reopen()).get(conv.id)!.messages;
+    const statuses = (id: string) => after.find((m) => m.id === id)!.parts.map((p) => (p.type === 'tool' ? p.status : p.type));
+    expect(after.find((m) => m.id === 'm7')!.status).toBe('aborted');
+    expect(statuses('m7')).toEqual(['error', 'done']);
+    expect(after.find((m) => m.id === 'm7')!.parts[0]).toMatchObject({ name: 'Shell', detail: 'npm test' });
+    expect(statuses('m8')).toEqual(['error']);
+    // Only in replies the crash cut off.
+    expect(statuses('m9')).toEqual(['running']);
   });
 
   it('deletes a conversation with all its rows', () => {
@@ -303,11 +353,75 @@ describe('Store (SQLite)', () => {
                PRIMARY KEY (conversation_id, agent_id));
              INSERT INTO agent_worktrees VALUES ('conv-1', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 1);
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
+             DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 20;`);
     const migrated = new Store(reopen()).get(conv.id)!;
     expect(migrated.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: true }] });
     expect(migrated.settings).not.toHaveProperty('extraCwds');
     expect(migrated.messages[0]!.changes).toEqual(turn.changes);
+  });
+
+  it('brings a database the model backends migrated as 21–25 or 19–22 (unreleased builds) to today\'s numbering, keeping what it holds', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    // As such a build left it: no extra_cwds, more_changes or worktrees by repository (today's 21), but
+    // the model backends' tables up to some point. At 25 (everything up to today's 26), and at 22 (up to 23).
+    const early = (version: number, upTo: string) =>
+      db.exec(`DROP TABLE agent_worktrees;
+               CREATE TABLE agent_worktrees (
+                 conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                 agent_id TEXT NOT NULL, repo_root TEXT NOT NULL, path TEXT NOT NULL, branch TEXT NOT NULL,
+                 base_commit TEXT NOT NULL, needs_reset INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY (conversation_id, agent_id));
+               INSERT INTO agent_worktrees VALUES ('${conv.id}', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 0);
+               ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
+               ${upTo}
+               PRAGMA user_version = ${version};`);
+    const version = () => (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+    const has = (sql: string) => Boolean(db.prepare(sql).get());
+    db.prepare("INSERT INTO deleted_endpoints (id, deleted_at) VALUES ('oldlab', 1)").run();
+    early(25, '');
+    reopen();
+    expect(version()).toBe(26);
+    expect(has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'")).toBe(true);
+    expect(db.prepare('SELECT id FROM deleted_endpoints').all()).toEqual([{ id: 'oldlab' }]);
+    expect(new Store(db).get(conv.id)!.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }] });
+    early(22, 'ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;');
+    reopen();
+    expect(version()).toBe(26);
+    expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'by_cli'")).toBe(true);
+    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
+    // Builds from before the accounts numbered the model backends 19–22: without the accounts or several
+    // working directories (today's 19–21). At 22 (everything up to today's 25), and at 19 (up to 22).
+    const beforeAccounts = (version: number, upTo: string) =>
+      early(
+        version,
+        `DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label; ALTER TABLE conversation_agents DROP COLUMN account;
+         ALTER TABLE preset_agents DROP COLUMN account; ALTER TABLE agent_sessions DROP COLUMN account; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend; ${upTo}`,
+      );
+    beforeAccounts(22, '');
+    reopen();
+    expect(version()).toBe(26);
+    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
+    expect(has("SELECT 1 FROM pragma_table_info('provider_accounts') WHERE name = 'native_items'")).toBe(true);
+    expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'account'")).toBe(true);
+    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
+    expect(new Store(db).get(conv.id)!.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }] });
+    beforeAccounts(19, 'ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;');
+    reopen();
+    expect(version()).toBe(26);
+    expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'permission'")).toBe(true);
+    expect(has("SELECT 1 FROM pragma_table_info('provider_settings') WHERE name = 'sandbox_terminal'")).toBe(true);
+    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
+    // A database of main's own at 21 (several working directories, no model backends) is left as it is.
+    db.exec(`DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli;
+             ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
+             PRAGMA user_version = 21;`);
+    reopen();
+    expect(version()).toBe(26);
+    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'model_backends'")).toBe(true);
   });
 
   it('leaves out what cannot be read of the other working directories and repositories', () => {
@@ -669,6 +783,8 @@ describe('Store shares', () => {
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
+             DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 15;`);
     const migrated = new Store(reopen());
     expect(migrated.getShare('aaaa')).toEqual(share('aaaa', 1));
@@ -812,7 +928,7 @@ describe('SettingsStore (SQLite)', () => {
     expect(again.defaultModel('grok')).toBe('grok-4.7');
     expect(again.defaultEffort('grok')).toBe('high');
     expect(again.env('grok').XAI_API_KEY).toBe('xai-1234567890');
-    expect(again.view().providers.find((p) => p.provider === 'grok')!.apiKeyMasked).toBe('xai-…7890');
+    expect(again.view().providers.find((p) => p.provider === 'grok')!.apiKeyMasked).toBe('••••');
     expect(again.defaultCwd).toBe('/work');
     // (Windows has no permission bits: the user's own folder keeps it private there.)
     if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
@@ -835,6 +951,7 @@ describe('SettingsStore (SQLite)', () => {
       expect(again.env('claude').CLAUDE_CONFIG_DIR).toBe(join(home, 'claude'));
       expect(again.env('codex').CODEX_HOME).toBe(join(home, 'codex'));
       expect(again.env('grok').GROK_HOME).toBe(join(home, 'grok'));
+      expect(again.env('cursor').CURSOR_CONFIG_DIR).toBe(join(home, 'cursor'));
       // Only its own variable: Claude Code does not get Codex's home.
       expect(again.env('claude').CODEX_HOME).toBe('');
       // Created, since Codex refuses a CODEX_HOME that does not exist.
@@ -850,6 +967,13 @@ describe('SettingsStore (SQLite)', () => {
       const off = new SettingsStore(reopen());
       expect(off.env('claude').CLAUDE_CONFIG_DIR).toBe('/users/me/.claude-personal');
       expect(off.view()).toMatchObject({ agentHome: '', agentsViewUrl: '' });
+      // The open agents' homes are back in the data folder, and the folder they were in is remembered:
+      // a run is kept from what runs kept there, and a deleted conversation's state goes from there too.
+      expect(off.openAgentHome('opencode')).toBe(join(OPEN_HOMES_DIR, 'opencode'));
+      expect(off.openAgentHomes('opencode')).toEqual([join(OPEN_HOMES_DIR, 'opencode'), join(home, 'opencode')]);
+      expect(JSON.parse(off.env('opencode')[OPEN_AGENT_ROOTS_ENV]!)).toEqual([home]);
+      off.setAgentHome(home);
+      expect(new SettingsStore(reopen()).openAgentRoots()).toEqual([home, OPEN_HOMES_DIR]);
     } finally {
       vi.unstubAllEnvs();
     }
@@ -893,6 +1017,24 @@ describe('SettingsStore (SQLite)', () => {
     expect(later.nativeOff('grok')).toEqual(['skills', 'hooks']);
   });
 
+  it("keeps whether OpenHands may use a terminal in the sandbox: off until turned on, only for OpenHands", () => {
+    const s = new SettingsStore(db);
+    expect(s.sandboxTerminal('openhands')).toBe(false);
+    expect(s.view().providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(false);
+    s.update('openhands', { sandboxTerminal: true });
+    s.update('opencode', { sandboxTerminal: true }); // needs none: stays off
+    const again = new SettingsStore(reopen());
+    expect(again.sandboxTerminal('openhands')).toBe(true);
+    expect(again.sandboxTerminal('opencode')).toBe(false);
+    expect(again.view().providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(true);
+    // Other changes keep it; turning it off is kept too.
+    again.updateAccount('openhands', '', { defaultModel: 'openai/gpt-5.4-nano' });
+    const later = new SettingsStore(reopen());
+    expect(later.sandboxTerminal('openhands')).toBe(true);
+    later.update('openhands', { sandboxTerminal: false });
+    expect(new SettingsStore(reopen()).sandboxTerminal('openhands')).toBe(false);
+  });
+
   it("keeps the single items each CLI's runs leave out, only kinds that CLI can leave out alone", () => {
     const s = new SettingsStore(db);
     expect(s.nativeItems('claude')).toEqual({});
@@ -928,11 +1070,11 @@ describe('SettingsStore (SQLite)', () => {
     expect(storedKeys()).toEqual(['', '']);
     expect(s.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
     const view = (v: SettingsStore) => Object.fromEntries(v.view().providers.map((p) => [p.provider, p.apiKeyStorage]));
-    expect(view(s)).toEqual({ claude: 'keychain', codex: undefined, grok: 'keychain' });
+    expect(view(s)).toEqual({ claude: 'keychain', codex: undefined, grok: 'keychain', cursor: 'keychain' });
 
     const again = new SettingsStore(reopen(), keyring);
     expect(again.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
-    expect(again.view().providers[0]!.apiKeyMasked).toBe('sk-a…1234');
+    expect(again.view().providers[0]!.apiKeyMasked).toBe('••••');
 
     again.update('claude', { apiKey: null });
     expect(keyring.data.has('claude-api-key')).toBe(false);
@@ -1018,7 +1160,7 @@ describe('SettingsStore accounts', () => {
       const run = { defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} };
       expect(claude.accounts).toEqual([
         { id: '', label: 'Personal', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, 'claude'), ...run },
-        { id: work, label: 'Work', apiKeyMasked: 'sk-a…3456', apiKeyStorage: 'database', home: join(home, `claude-${work}`), ...run },
+        { id: work, label: 'Work', apiKeyMasked: '••••', apiKeyStorage: 'database', home: join(home, `claude-${work}`), ...run },
         { id: alt, label: 'Alt', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, `claude-${alt}`), ...run },
       ]);
       expect(again.view().providers.find((p) => p.provider === 'codex')!.accounts.map((a) => a.apiKeyStorage)).toEqual([undefined, undefined]);
@@ -1052,6 +1194,36 @@ describe('SettingsStore accounts', () => {
         codex: { ANTHROPIC_API_KEY: 'sk-ant-shell', ANTHROPIC_AUTH_TOKEN: 'shell-bearer', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell', XAI_API_KEY: 'xai-shell' },
         grok: { ANTHROPIC_API_KEY: 'sk-ant-shell', ANTHROPIC_AUTH_TOKEN: 'shell-bearer', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell', CODEX_API_KEY: 'codex-shell', OPENAI_API_KEY: 'sk-openai-shell', XAI_API_KEY: 'xai-own-key' },
       });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("keeps Cursor's one sign-in to its default account: a key or another account signs in for the run only", () => {
+    vi.stubEnv('CURSOR_API_KEY', '');
+    vi.stubEnv('CURSOR_AUTH_TOKEN', '');
+    vi.stubEnv('AGENT_CLI_CREDENTIAL_STORE', '');
+    try {
+      const s = new SettingsStore(db);
+      const team = s.addAccount('cursor', 'Team');
+      const store = (account?: string) => s.env('cursor', account).AGENT_CLI_CREDENTIAL_STORE;
+      // The default account uses the sign-in Cursor keeps for this computer user.
+      expect(store()).toBe('');
+      // Another account never reads or replaces it, key or no key.
+      expect(store(team)).toBe('memory');
+      s.updateAccount('cursor', team, { apiKey: 'key_team' });
+      expect(s.env('cursor', team)).toMatchObject({ CURSOR_API_KEY: 'key_team', AGENT_CLI_CREDENTIAL_STORE: 'memory' });
+      // A key of the default account's (or the server's own) is not saved over the sign-in either.
+      s.updateAccount('cursor', '', { apiKey: 'key_default' });
+      expect(s.env('cursor')).toMatchObject({ CURSOR_API_KEY: 'key_default', AGENT_CLI_CREDENTIAL_STORE: 'memory' });
+      s.updateAccount('cursor', '', { apiKey: null });
+      vi.stubEnv('CURSOR_AUTH_TOKEN', 'shell-token');
+      expect(store()).toBe('memory');
+      // The server's own credentials are the default account's only.
+      const other = s.addAccount('cursor', 'Other');
+      expect([s.env('cursor', other).CURSOR_AUTH_TOKEN, s.env('cursor').CURSOR_AUTH_TOKEN]).toEqual([undefined, 'shell-token']);
+      // Other CLIs are left alone.
+      expect(s.env('claude', s.addAccount('claude', 'Work')).AGENT_CLI_CREDENTIAL_STORE).toBe('');
     } finally {
       vi.unstubAllEnvs();
     }
@@ -1123,6 +1295,8 @@ describe('SettingsStore accounts', () => {
     db.exec(`ALTER TABLE provider_accounts DROP COLUMN default_model; ALTER TABLE provider_accounts DROP COLUMN default_effort;
              ALTER TABLE provider_accounts DROP COLUMN native_off; ALTER TABLE provider_accounts DROP COLUMN native_items;
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
+             DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 19;`);
     const migrated = new SettingsStore(reopen());
     // They run as before: as the CLI did, for every account.
@@ -1177,7 +1351,7 @@ describe('SettingsStore accounts', () => {
     const again = new SettingsStore(reopen(), keyring);
     expect(keyring.data.get(`claude-api-key-${id}`)).toBe('sk-ant-old-plaintext');
     expect((db.prepare('SELECT api_key FROM provider_accounts').get() as { api_key: string }).api_key).toBe('');
-    expect(again.view().providers[0]!.accounts[1]).toMatchObject({ apiKeyMasked: 'sk-a…text', apiKeyStorage: 'keychain' });
+    expect(again.view().providers[0]!.accounts[1]).toMatchObject({ apiKeyMasked: '••••text', apiKeyStorage: 'keychain' });
   });
 });
 
@@ -1300,6 +1474,8 @@ describe('Store schedules', () => {
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
+             DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
+             DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 13;`);
     const migrated = new Store(reopen()).get(conv.id)!.schedule!;
     expect(migrated.newChat).toBe(false);

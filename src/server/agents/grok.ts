@@ -20,15 +20,15 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import type { NativePart, Permission } from '../../shared/types';
+import { endpointEffort, PROVIDER_LABEL, type NativePart, type Permission } from '../../shared/types';
+import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV } from '../backends';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
 import { commandPaths, patternPath, protectedReads, realPath, relayTmpDir } from '../protect';
-import { JsonRpcConnection, RpcError } from './acp';
+import { JsonRpcConnection, RpcError, acpContentText as contentText, acpMcpServers, acpPrompt, answerPermission } from './acp';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
-  imageData,
   summarizeInput,
   tailText,
   webSearchDetail,
@@ -36,20 +36,12 @@ import {
   type AgentRunner,
   type ApprovalRequest,
   type McpServerSpec,
+  type RunEndpoint,
   type RunOptions,
   type RunResult,
 } from './types';
 import { t } from '../i18n';
 
-/** ACP prompt blocks: the text, plus attached images (Grok advertises promptCapabilities.image). */
-export function grokPrompt(prompt: string, images: RunOptions['images']): unknown[] {
-  const blocks: unknown[] = [{ type: 'text', text: prompt }];
-  for (const img of images ?? []) {
-    const data = imageData(img.path);
-    if (data) blocks.push({ type: 'image', data, mimeType: img.mimeType });
-  }
-  return blocks;
-}
 
 /*
  * Grok runs as an ACP agent (`grok agent stdio`: JSON-RPC over stdin/stdout), not headless `grok -p`.
@@ -442,18 +434,21 @@ function asideName(path: string, now: number): string {
   return `${name}-${randomBytes(4).toString('hex')}`;
 }
 
+/** One of Grok's settings as it is now, by its name in Grok's home (a link as a link). */
+function settingNow(home: string, name: string): GrokEntry {
+  let entry: GrokEntry | undefined;
+  try {
+    entry = grokEntry(join(home, name));
+  } catch {
+    entry = undefined;
+  }
+  return entry ?? { kind: 'other', type: UNREADABLE };
+}
+
 /** Reads Grok's settings, each by its name in Grok's home (a link as a link). */
 export function snapshotGrokSettings(home: string): GrokSettingsSnapshot {
   const entries = new Map<string, GrokEntry>();
-  for (const name of GROK_SETTINGS) {
-    let entry: GrokEntry | undefined;
-    try {
-      entry = grokEntry(join(home, name));
-    } catch {
-      entry = undefined;
-    }
-    entries.set(name, entry ?? { kind: 'other', type: UNREADABLE });
-  }
+  for (const name of GROK_SETTINGS) entries.set(name, settingNow(home, name));
   return { home, entries, skills: folderFingerprint(join(home, GROK_SKILLS)) };
 }
 
@@ -526,28 +521,63 @@ export function writeGrokSetting(home: string, name: string, write: () => string
 /** The settings each Grok home had before the first of its sandboxed turns now running started. */
 const grokGuards = new Map<string, { snapshot: GrokSettingsSnapshot; turns: number; found: string[] }>();
 
+/** The settings Harness Relay writes before a turn: its profile, and the models of the user's own endpoints. */
+const GROK_OWN = ['sandbox.toml', 'config.toml'] as const;
+
+/**
+ * Tells the guard what Harness Relay wrote of its own settings before a turn: the file's name in Grok's
+ * home and the text written (undefined: it was as it should be, and nothing was written).
+ */
+export type GrokOwnWrite = (name: (typeof GROK_OWN)[number], text: string | undefined) => void;
+
+/**
+ * Writes what Harness Relay keeps in Grok's settings before a turn (`write`). With sandboxed turns of
+ * this home running, what their commands changed is put back first (and named when they end), and
+ * those turns then take what `write` says it wrote (`wrote`, as it writes each, so also what it wrote
+ * before it failed part way): one it changed (the endpoints' models, after the user changed their
+ * endpoints; another conversation's folder profile) is not taken for a command's change. What is
+ * there afterwards is not read: a command may have changed it meanwhile. A setting that had to be
+ * put back and still is not as it was stays out, so a failure to put it back is not taken either.
+ */
+function writeGrokOwn(home: string, write: (wrote: GrokOwnWrite) => void): void {
+  const guard = grokGuards.get(realPath(home));
+  const putBack = guard ? restoreGrokSettings(guard.snapshot, home) : [];
+  guard?.found.push(...putBack);
+  // A setting still not as the snapshot has it could not be put back: it stays out of the snapshot.
+  const stuck = guard
+    ? GROK_OWN.filter((name) => {
+        const was = guard.snapshot.entries.get(name);
+        try {
+          return was !== undefined && !sameEntry(name, was, join(home, name));
+        } catch {
+          return true;
+        }
+      })
+    : [];
+  write((name, text) => {
+    if (!guard || text === undefined || stuck.includes(name)) return;
+    const was = guard.snapshot.entries.get(name);
+    const content = Buffer.from(text);
+    // A link to a file stays one: that file was written. A link that led nowhere was replaced by a
+    // file (the writers follow a link only to a file that is there).
+    const toFile = was?.kind === 'link' && was.content !== null;
+    guard.snapshot.entries.set(name, toFile ? { ...was, content } : { kind: 'file', content, mode: was?.kind === 'file' ? was.mode : 0o600 });
+  });
+}
+
 /**
  * Guards Grok's settings around one sandboxed turn; `write` writes what Harness Relay itself keeps
- * there for the turn (its profile), and returns `sandbox.toml` as it wrote it (nothing: unchanged).
+ * there for the turn (its profile, the endpoints' models), and says what it wrote (`GrokOwnWrite`).
  * Turns of the same Grok home at the same time share what the settings were before the first of
  * them: so a turn starting while another runs neither takes a change that one's commands made for
  * the settings as they were (it is put back first), nor puts it back afterwards; what `write` wrote
  * then (another conversation's profile) becomes part of what they were. Returns what to call once the
  * turn is over: the settings changed during it, which it has put back (`restoreGrokSettings`).
  */
-export function guardGrokSettings(home: string, write: () => string | void = () => undefined): () => string[] {
+export function guardGrokSettings(home: string, write: (wrote: GrokOwnWrite) => void = () => undefined): () => string[] {
   const key = realPath(home);
+  writeGrokOwn(home, write);
   let guard = grokGuards.get(key);
-  if (guard) guard.found.push(...restoreGrokSettings(guard.snapshot, home));
-  const wrote = write();
-  if (guard && typeof wrote === 'string') {
-    const was = guard.snapshot.entries.get(GROK_SANDBOX_FILE);
-    const content = Buffer.from(wrote);
-    guard.snapshot.entries.set(
-      GROK_SANDBOX_FILE,
-      was?.kind === 'link' ? { ...was, content } : { kind: 'file', content, mode: was?.kind === 'file' ? was.mode : 0o644 },
-    );
-  }
   if (!guard) {
     guard = { snapshot: snapshotGrokSettings(home), turns: 0, found: [] };
     grokGuards.set(key, guard);
@@ -648,6 +678,121 @@ export function writeGrokProfile(
 }
 
 
+/**
+ * The id Harness Relay gives a model of the user's own endpoint in Grok's config:
+ * `harness-relay/<endpoint id>/<model>`, which no model of Grok's or of the user's own config has.
+ */
+export const grokEndpointModelId = (endpointId: string, model: string): string => `harness-relay/${endpointId}/${model}`;
+
+const MODELS_BEGIN =
+  "# >>> harness-relay models: your own endpoints of Harness Relay's Settings → Model backends, written before its Grok runs; changes here are replaced";
+const MODELS_END = '# <<< harness-relay models';
+
+/**
+ * The block of Grok's `config.toml` that defines the models of the user's own endpoints, one table each
+ * (`[model."<grokEndpointModelId>"]`): its base URL and model name, Chat Completions (Grok's default
+ * API, `/v1/chat/completions`), hidden from Grok's own model picker (a run still selects it), and its
+ * key from `ENDPOINT_KEY_ENV`: with that variable unset Grok sends no key, never the user's Grok sign-in
+ * (checked with grok 1.0.77). Empty without endpoint models.
+ */
+export function grokModelsBlock(endpoints: readonly RunEndpoint[]): string {
+  const toml = (v: string) => JSON.stringify(v).replace(/\u007f/g, '\\u007F');
+  const tables = endpoints.flatMap((e) =>
+    e.models.map((model) =>
+      [
+        `[model.${toml(grokEndpointModelId(e.id, model))}]`,
+        `model = ${toml(model)}`,
+        `base_url = ${toml(e.baseUrl)}`,
+        `name = ${toml(`${model} · ${e.name || e.id}`)}`,
+        `env_key = ${toml(ENDPOINT_KEY_ENV)}`,
+        'hidden = true',
+      ].join('\n'),
+    ),
+  );
+  return tables.length ? [MODELS_BEGIN, tables.join('\n\n'), MODELS_END].join('\n') : '';
+}
+
+/** A table of one of Harness Relay's models (`grokEndpointModelId`), whatever is around it. */
+const OWN_MODEL_TABLE = /^\s*\[\s*model\s*\.\s*"harness-relay\/[^"]*"\s*\]\s*$/;
+
+/**
+ * `config.toml` without the tables of Harness Relay's models that are outside its block. Grok writes
+ * its whole config again when it saves a setting of its own (a sign-in, say), which drops the
+ * comments, the block's markers among them, and keeps the tables: left there, the block written again
+ * would define each twice, and Grok refuses a config with a duplicate key (seen with grok 1.0.77 on
+ * Windows, after `grok login`). A table runs to the next table or the block. No model of Grok's or
+ * of the user's own has such an id.
+ */
+export function withoutStrayGrokModels(existing: string): string {
+  const out: string[] = [];
+  let inBlock = false;
+  let skipping = false;
+  for (const line of existing.split('\n')) {
+    const text = line.replace(/\r$/, '');
+    if (text === MODELS_BEGIN) inBlock = true;
+    if (!inBlock) {
+      if (OWN_MODEL_TABLE.test(text)) {
+        skipping = true;
+        continue;
+      }
+      if (skipping && /^\s*\[/.test(text)) skipping = false;
+      if (skipping) continue;
+    }
+    if (text === MODELS_END) inBlock = false;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+/**
+ * `config.toml` with the models' block in place of the one there was, or after the user's own
+ * settings (TOML tables go last); `block` empty takes it out. Tables of Harness Relay's models outside
+ * the block are taken out first (`withoutStrayGrokModels`).
+ */
+export function withGrokModels(current: string, block: string): string {
+  const existing = withoutStrayGrokModels(current);
+  const start = existing.indexOf(MODELS_BEGIN);
+  const end = start < 0 ? -1 : existing.indexOf(MODELS_END, start);
+  if (end >= 0) {
+    if (block) return existing.slice(0, start) + block + existing.slice(end + MODELS_END.length);
+    const before = existing.slice(0, start).trimEnd();
+    const after = existing.slice(end + MODELS_END.length).replace(/^\n+/, '');
+    return before && after ? `${before}\n\n${after}` : before ? `${before}\n` : after;
+  }
+  if (!block) return existing;
+  const before = existing.trimEnd();
+  return `${before ? `${before}\n\n` : ''}${block}\n`;
+}
+
+/**
+ * Writes the models of the user's own endpoints into `<home>/config.toml` (`grokModelsBlock`), when
+ * they are not there as they should be: `add` for a turn on one of them; without it, a block written
+ * before is only kept up to date (or taken out), so Grok's config gets one only once it is used.
+ * Written beside it and renamed into place with its mode, a link followed (as `writeGrokProfile`).
+ * Returns the file as written (nothing when it was as it should be).
+ */
+export function writeGrokModels(home: string, endpoints: readonly RunEndpoint[], add: boolean): string | undefined {
+  const path = join(home, 'config.toml');
+  const file = existsSync(path) ? realpathSync(path) : path;
+  const existing = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  // A stray table of Harness Relay's (Grok wrote its config again) is taken out even when no block is added.
+  if (!add && !existing.includes(MODELS_BEGIN) && withoutStrayGrokModels(existing) === existing) return;
+  const next = withGrokModels(existing, grokModelsBlock(endpoints));
+  if (next === existing) return;
+  mkdirSync(home, { recursive: true });
+  const mode = existsSync(file) ? statSync(file).mode & 0o777 : 0o600;
+  const temp = `${file}.${process.pid}-${randomBytes(6).toString('hex')}.tmp`;
+  writeFileSync(temp, next, { flag: 'wx', mode });
+  try {
+    chmodSync(temp, mode);
+    renameSync(temp, file);
+  } catch (err) {
+    rmSync(temp, { force: true });
+    throw err;
+  }
+  return next;
+}
+
 /** The `toolCall` of an ACP `session/request_permission`. */
 export interface GrokToolCall {
   toolCallId?: string;
@@ -718,30 +863,6 @@ function declined(call: GrokToolCall, note?: string): GrokDecision {
   };
 }
 
-/** Builds the reply to `session/request_permission`. */
-function answerPermission(decision: GrokDecision, options: { optionId: string; kind: string }[]) {
-  const pick = (kind: string) => options.find((o) => o.kind === kind)?.optionId;
-  if (decision.allow) {
-    const optionId = pick('allow_once') ?? pick('allow_always');
-    if (optionId) return { outcome: { outcome: 'selected', optionId } };
-  } else {
-    const optionId = pick('reject_once') ?? pick('reject_always');
-    // grok treats a rejection carrying a follow-up message as feedback for the model, not a cancel.
-    if (optionId) return { outcome: { outcome: 'selected', optionId }, _meta: { followup_message: decision.reason } };
-  }
-  return { outcome: { outcome: 'cancelled' } };
-}
-
-/** Text of an ACP tool-call `content` array (e.g. the reason a call failed). */
-function contentText(content: unknown): string | undefined {
-  if (!Array.isArray(content)) return undefined;
-  const text = content
-    .map((c) => (typeof c?.content?.text === 'string' ? c.content.text : typeof c?.text === 'string' ? c.text : ''))
-    .filter(Boolean)
-    .join(' ')
-    .trim();
-  return text || undefined;
-}
 
 const DONE = new Set(['completed', 'failed', 'cancelled', 'rejected']);
 
@@ -882,19 +1003,9 @@ export function describeGrokCancel(failure: { tool: string; reason?: string } | 
   return m.grokCancelled(failure.tool, failure.reason) + hint;
 }
 
-/**
- * The tool library's MCP servers in ACP's form. Grok adds the ones from its own config files. HTTP
- * servers only go to an agent that says it takes them (`mcpCapabilities.http`); ACP forbids them otherwise.
- */
+/** The tool library's MCP servers in ACP's form (`acpMcpServers`); Grok adds the ones from its own config files. */
 export function grokMcpServers(servers: McpServerSpec[], http = true): Record<string, unknown>[] {
-  const list = (vars: Record<string, string>) => Object.entries(vars).map(([name, value]) => ({ name, value }));
-  const skipped = http ? [] : servers.filter((s) => s.transport === 'http');
-  if (skipped.length) console.warn(`[grok] this grok does not take HTTP MCP servers; left out: ${skipped.map((s) => s.name).join(', ')}`);
-  return servers.filter((s) => http || s.transport !== 'http').map((s) =>
-    s.transport === 'http'
-      ? { type: 'http', name: s.name, url: s.url, headers: list(s.headers) }
-      : { name: s.name, command: s.command, args: s.args, env: list(s.env) },
-  );
+  return acpMcpServers(servers, http, 'grok');
 }
 
 /** `costUsdTicks` are 1e-10 USD. */
@@ -924,56 +1035,123 @@ export function grokEnv(
   return { ...o.env, ...grokNativeEnv(o.nativeOff), ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
 }
 
+/**
+ * The models typed for an endpoint (Custom…) that its list leaves out, of the Grok runs under way, per
+ * Grok home (its real path) and with how many runs hold each: every write of the models' block there
+ * keeps their tables until those runs end (`grokBlockEndpoints`).
+ */
+const typedModels = new Map<string, Map<string, number>>();
+
+/** Keeps `model` of endpoint `id` in the models' block of `home` until the function returned is called. */
+export function holdGrokTypedModel(home: string, id: string, model: string): () => void {
+  const key = realPath(home);
+  const held = typedModels.get(key) ?? new Map<string, number>();
+  typedModels.set(key, held);
+  const entry = JSON.stringify([id, model]);
+  held.set(entry, (held.get(entry) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const left = (held.get(entry) ?? 1) - 1;
+    if (left > 0) held.set(entry, left);
+    else held.delete(entry);
+    if (!held.size && typedModels.get(key) === held) typedModels.delete(key);
+  };
+}
+
+/** The endpoints of the models' block of `home`: each with the typed models that runs under way there hold. */
+export function grokBlockEndpoints(home: string, endpoints: readonly RunEndpoint[]): RunEndpoint[] {
+  const held = typedModels.get(realPath(home));
+  if (!held?.size) return endpoints.map((e) => ({ ...e, models: [...e.models] }));
+  const typed = [...held.keys()].map((k) => JSON.parse(k) as [string, string]);
+  return endpoints.map((e) => {
+    const extra = typed.filter(([id, model]) => id === e.id && !e.models.includes(model)).map(([, model]) => model);
+    return { ...e, models: [...e.models, ...new Set(extra)] };
+  });
+}
+
 export const grokRunner: AgentRunner = {
   provider: 'grok',
-  async run(o): Promise<RunResult> {
-    if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
+  async run(given): Promise<RunResult> {
+    if (given.signal.aborted) throw new AgentRunError(t().stopped, true);
+    // On the user's own endpoint: its model as Grok's config names it (`writeGrokModels`), no effort
+    // (Grok takes none for a model it does not know), and its key in the variable that model names.
+    const endpoint = endpointRunModel(given.backends, given.model, PROVIDER_LABEL.grok);
+    const o = endpoint ? { ...given, model: grokEndpointModelId(endpoint.endpoint.id, endpoint.model), effort: endpointEffort('grok', given.effort) } : given;
     // Model and effort are set per session below: `grok agent --reasoning-effort` does not reach ACP sessions.
     const args = ['agent', '--no-leader', 'stdio'];
     const readWrite = grokReadWrite(o.addDirs);
     const sandbox = grokSandboxProfile(o.permission, process.platform, readWrite);
-    const env = grokEnv(o);
-    if (isRelayProfile(sandbox)) {
-      const deny = o.protectedPaths ?? protectedReads();
-      // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
-      const pattern = patternPath(deny);
-      if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
+    const env = endpoint ? endpointKeyEnv(grokEnv(o), endpoint) : grokEnv(o);
+    // A model typed for an endpoint (Custom…) that its list leaves out gets a table too, or Grok would
+    // refuse it (Claude Code and Codex run any model named on an endpoint). It is held for the whole
+    // run, so that another run's write of the block in the same home (another member's, the lead
+    // agent's) keeps its table while this Grok may still read it.
+    const release =
+      endpoint && !endpoint.endpoint.models.includes(endpoint.model)
+        ? holdGrokTypedModel(grokHome(env), endpoint.endpoint.id, endpoint.model)
+        : () => undefined;
+    const writeModels = (wrote: GrokOwnWrite = () => undefined) => {
       const home = grokHome(env);
-      // Grok reads its settings after its sandbox is on, so they cannot be denied: they are checked
-      // around the turn instead, and put back when a command changed them.
-      const bins = commandPaths(o.bin, env);
-      let settle: () => string[];
-      let settleProgram: () => string[] = () => [];
-      // In use until the turn ends: no other run's write drops its block meanwhile.
-      const release = holdGrokProfile(sandbox);
       try {
-        settle = guardGrokSettings(home, () =>
-          writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)], readWrite, sandbox, grokProfilesInUse()),
-        );
+        wrote('config.toml', writeGrokModels(home, grokBlockEndpoints(home, o.backends?.endpoints ?? []), Boolean(endpoint)));
       } catch (err) {
-        release();
-        throw new AgentRunError(t().grokSandbox((err as Error).message));
+        throw new AgentRunError(t().grokModelsFailed(join(home, 'config.toml'), (err as Error).message));
       }
-      try {
-        if (process.platform === 'linux') settleProgram = guardGrokProgram(home, bins);
-      } catch (err) {
-        settle(); // the turn does not run: its settings guard ends here
-        release();
-        throw new AgentRunError(t().grokSandbox((err as Error).message));
+    };
+    try {
+      if (isRelayProfile(sandbox)) {
+        const deny = o.protectedPaths ?? protectedReads();
+        // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
+        const pattern = patternPath(deny);
+        if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
+        const home = grokHome(env);
+        // Grok reads its settings after its sandbox is on, so they cannot be denied: they are checked
+        // around the turn instead, and put back when a command changed them.
+        const bins = commandPaths(o.bin, env);
+        let settle: () => string[];
+        let settleProgram: () => string[] = () => [];
+        // In use until the turn ends: no other run's write drops its block meanwhile.
+        const releaseProfile = holdGrokProfile(sandbox);
+        try {
+          settle = guardGrokSettings(home, (wrote) => {
+            try {
+              wrote('sandbox.toml', writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)], readWrite, sandbox, grokProfilesInUse()));
+            } catch (err) {
+              throw new AgentRunError(t().grokSandbox((err as Error).message));
+            }
+            writeModels(wrote);
+          });
+        } catch (err) {
+          releaseProfile();
+          throw err instanceof AgentRunError ? err : new AgentRunError(t().grokSandbox((err as Error).message));
+        }
+        try {
+          if (process.platform === 'linux') settleProgram = guardGrokProgram(home, bins);
+        } catch (err) {
+          settle(); // the turn does not run: its settings guard ends here
+          releaseProfile();
+          throw new AgentRunError(t().grokSandbox((err as Error).message));
+        }
+        let result: RunResult;
+        try {
+          result = await grokTurn(o, args, sandbox, env);
+        } finally {
+          releaseProfile();
+          const changed = [...settle(), ...settleProgram()];
+          // Thrown from here, it takes the place of the turn's own result or error.
+          // eslint-disable-next-line no-unsafe-finally
+          if (changed.length) throw new AgentRunError(t().grokSettingsChanged(changed.join(', ')));
+        }
+        return result;
       }
-      let result: RunResult;
-      try {
-        result = await grokTurn(o, args, sandbox, env);
-      } finally {
-        release();
-        const changed = [...settle(), ...settleProgram()];
-        // Thrown from here, it takes the place of the turn's own result or error.
-        // eslint-disable-next-line no-unsafe-finally
-        if (changed.length) throw new AgentRunError(t().grokSettingsChanged(changed.join(', ')));
-      }
-      return result;
+      writeGrokOwn(grokHome(env), writeModels);
+      // Awaited here: the hold is released in `finally` only once the turn is over.
+      return await grokTurn(o, args, sandbox, env);
+    } finally {
+      release();
     }
-    return grokTurn(o, args, sandbox, env);
   },
 };
 
@@ -1073,7 +1251,7 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
         });
     }
 
-    const result = await conn.request('session/prompt', { sessionId, prompt: grokPrompt(o.prompt, o.images) });
+    const result = await conn.request('session/prompt', { sessionId, prompt: acpPrompt(o.prompt, o.images) });
     updates.finish();
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (result?.stopReason === 'cancelled') throw new AgentRunError(describeGrokCancel(updates.lastFailure, o.permission));

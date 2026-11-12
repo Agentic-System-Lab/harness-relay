@@ -183,7 +183,7 @@ export function buildBriefing(
     .map((a) => `- @${a.name} (${PROVIDER_LABEL[a.provider]})${a.id === agent.id ? ' — this is you' : ''}: ${roleSummary(a.role)}`)
     .join('\n');
 
-  return `You are @${agent.name}, one of several AI agents in "Harness Relay", a group chat where a human user works together with multiple AI agents (Claude Code, Codex and Grok). Each agent is a separate program with its own tools and memory; you only learn what others did through the chat. Topics are not limited to programming — answer whatever the user brings, within your role.
+  return `You are @${agent.name}, one of several AI agents in "Harness Relay", a group chat where a human user works together with multiple AI agents (Claude Code, Codex, Grok, Cursor, and open-source coding agents such as OpenCode, Goose, Cline, OpenHands and Pi). Each agent is a separate program with its own tools and memory; you only learn what others did through the chat. Topics are not limited to programming — answer whatever the user brings, within your role.
 
 # Your role
 ${agent.role.trim() || 'General-purpose assistant.'}

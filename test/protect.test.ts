@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -6,6 +6,7 @@ import {
   agentFolderOverlap,
   appBrowserDirs,
   browserDataDirs,
+  clearRunTmp,
   commandPaths,
   overlaps,
   patternPath,
@@ -181,6 +182,17 @@ describe('what decides how the agents run, as a working directory', () => {
     expect(agentFolderOverlap(join(home, 'relay-agents/grok'), o)).toBe(join(home, 'relay-agents'));
     // A CLI home moved by its variable.
     expect(agentFolderOverlap(join(root, 'elsewhere'), { ...o, env: { CODEX_HOME: join(root, 'elsewhere/codex') } })).toBe(join(root, 'elsewhere/codex'));
+    // Cursor's: its config folder, and ~/.cursor, where its hooks and MCP servers stay when that moves.
+    expect(agentFolderOverlap(join(home, '.cursor/rules'), o)).toBe(join(home, '.cursor'));
+    const moved = { ...o, env: { CURSOR_CONFIG_DIR: join(root, 'elsewhere/cursor') } };
+    expect(agentFolderOverlap(join(root, 'elsewhere/cursor/x'), moved)).toBe(join(root, 'elsewhere/cursor'));
+    expect(agentFolderOverlap(join(home, '.cursor'), moved)).toBe(join(home, '.cursor'));
+    const xdg = { ...o, env: { XDG_CONFIG_HOME: join(root, 'xdg') } };
+    expect(agentFolderOverlap(join(root, 'xdg/cursor/rules'), xdg)).toBe(join(root, 'xdg/cursor'));
+    // Where it keeps its sign-in on Linux, also with its config folder moved.
+    expect(agentFolderOverlap(join(home, '.config/cursor'), moved)).toBe(join(home, '.config/cursor'));
+    // And on Windows, in %APPDATA%.
+    expect(agentFolderOverlap(join(root, 'appdata/Cursor/x'), { ...o, env: { APPDATA: join(root, 'appdata') } })).toBe(join(root, 'appdata/Cursor'));
   });
 
   it("refuses the folder of the other accounts' homes, and a project in one of them", () => {
@@ -236,5 +248,43 @@ describe('finding a CLI and naming protected paths', () => {
     expect(overlaps('/a/b', '/a/b/c')).toBe(true);
     expect(overlaps('/a/b/c', '/a')).toBe(true);
     expect(overlaps('/a/bc', '/a/b')).toBe(false);
+  });
+});
+
+describe("the turns' own temporary folders", () => {
+  it('removes those of turns the server was stopped during, and nothing else, nor what a link in one leads to', () => {
+    const tmp = join(root, 'run-tmp');
+    const sessions = join(root, 'cursor-account', 'acp-sessions');
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(join(sessions, 'chat.json'), '{}');
+    // A Claude Code turn's settings (with an endpoint's key), a Cursor turn's config folder with its link.
+    mkdirSync(join(tmp, 'claude-a1B2c3'), { recursive: true });
+    writeFileSync(join(tmp, 'claude-a1B2c3', 'settings.json'), '{"env":{"ANTHROPIC_AUTH_TOKEN":"lab-key"}}');
+    mkdirSync(join(tmp, 'cursor-x9Y8z7'));
+    writeFileSync(join(tmp, 'cursor-x9Y8z7', 'cli-config.json'), '{}');
+    symlinkSync(sessions, join(tmp, 'cursor-x9Y8z7', 'acp-sessions'), process.platform === 'win32' ? 'junction' : 'dir');
+    // What others keep there: shares' clones (cleared by shares), Grok's kept programs.
+    mkdirSync(join(tmp, 'share-k1'));
+    mkdirSync(join(tmp, 'grok-programs'));
+    clearRunTmp(tmp);
+    expect(readdirSync(tmp).sort()).toEqual(['grok-programs', 'share-k1']);
+    expect(existsSync(join(sessions, 'chat.json'))).toBe(true);
+    // None yet: nothing to do.
+    expect(() => clearRunTmp(join(root, 'no-tmp-yet'))).not.toThrow();
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('goes on past one it cannot remove, and names it', () => {
+    const tmp = join(root, 'run-tmp-locked');
+    // Its own folder may not be written in: what is in it cannot be removed.
+    mkdirSync(join(tmp, 'claude-l0cked', 'inner'), { recursive: true });
+    writeFileSync(join(tmp, 'claude-l0cked', 'inner', 'settings.json'), '{}');
+    chmodSync(join(tmp, 'claude-l0cked', 'inner'), 0o500);
+    mkdirSync(join(tmp, 'cursor-0pen00'));
+    try {
+      expect(() => clearRunTmp(tmp)).toThrow(/claude-l0cked/);
+      expect(readdirSync(tmp)).toEqual(['claude-l0cked']);
+    } finally {
+      chmodSync(join(tmp, 'claude-l0cked', 'inner'), 0o700);
+    }
   });
 });

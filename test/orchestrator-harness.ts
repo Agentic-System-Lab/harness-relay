@@ -5,7 +5,7 @@
  * split by topic into several files. Each file gets a copy of this module of its own (Vitest isolates
  * test files), with a temporary folder and a data folder of its own.
  */
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, expect, vi } from 'vitest';
@@ -39,7 +39,9 @@ export const { Hub } = await import('../src/server/hub');
 export const { Orchestrator, branchAfterCut, branchOrigin, branchPause } = await import('../src/server/orchestrator');
 export const { SettingsStore } = await import('../src/server/settings');
 export const { Store } = await import('../src/server/store');
-export const { AgentRunError, runners } = await import('../src/server/agents');
+export const { AgentRunError, runners, stateKeys } = await import('../src/server/agents');
+export const { removeTree } = await import('../src/server/fsRemove');
+export const { stateFolder } = await import('../src/server/agents/open');
 export const { PLANNER_BRIEFING, REVISER_BRIEFING } = await import('../src/server/planner');
 export const { GROUPER_BRIEFING } = await import('../src/server/grouping');
 export const { withLang } = await import('../src/server/i18n');
@@ -61,6 +63,10 @@ export interface Call {
   attachmentsDir?: string;
   nativeOff?: readonly string[];
   nativeItems?: Record<string, string[]>;
+  sandboxTerminal?: boolean;
+  stateKey?: string;
+  freshState?: boolean;
+  permission?: string;
   /** The CLI's home it was started with (its account's). */
   home?: string;
   model?: string;
@@ -115,6 +121,8 @@ export interface Fake {
   asking: Set<string>;
   /** Makes an agent's fake CLI run fail (after it wrote its files), e.g. to simulate a rate limit. */
   fail: ((name: string, sessionId?: string) => Error | undefined) | undefined;
+  /** The way to ask the user that a fake CLI run whose prompt says "keep asking" had (kept past its turn). */
+  keptAsk: ((req: { kind: 'fetch'; detail: string }) => Promise<unknown>) | undefined;
 }
 
 const fresh = (): Fake => ({
@@ -131,6 +139,7 @@ const fresh = (): Fake => ({
   during: undefined,
   asking: new Set(),
   fail: undefined,
+  keptAsk: undefined,
 });
 
 export const fake: Fake = fresh();
@@ -141,7 +150,7 @@ beforeAll(() => {
     provider: 'claude',
     async run(o) {
       if (o.systemPrompt === GROUPER_BRIEFING) {
-        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, model: o.model, effort: o.effort });
+        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, sandboxTerminal: o.sandboxTerminal, stateKey: o.stateKey, model: o.model, effort: o.effort });
         if (fake.sorterGate && !o.signal?.aborted) {
           await Promise.race([fake.sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
@@ -151,7 +160,7 @@ beforeAll(() => {
         return { sessionId: 'sorter-session' };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
-        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd, model: o.model, effort: o.effort, nativeOff: o.nativeOff, home: o.env?.CLAUDE_CONFIG_DIR });
+        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd, stateKey: o.stateKey, model: o.model, effort: o.effort, nativeOff: o.nativeOff, home: o.env?.CLAUDE_CONFIG_DIR });
         // Only the run that starts while it is set lingers.
         const linger = fake.reviseLinger;
         fake.reviseLinger = undefined;
@@ -173,6 +182,8 @@ beforeAll(() => {
           prompt: o.prompt,
           nativeOff: o.nativeOff,
           nativeItems: o.nativeItems,
+          sandboxTerminal: o.sandboxTerminal,
+          stateKey: o.stateKey,
           home: o.env?.CLAUDE_CONFIG_DIR,
           model: o.model,
           effort: o.effort,
@@ -194,6 +205,10 @@ beforeAll(() => {
         attachmentsDir: o.attachmentsDir,
         nativeOff: o.nativeOff,
         nativeItems: o.nativeItems,
+        sandboxTerminal: o.sandboxTerminal,
+        stateKey: o.stateKey,
+        freshState: o.freshState,
+        permission: o.permission,
         home: o.env?.CLAUDE_CONFIG_DIR,
         model: o.model,
         effort: o.effort,
@@ -210,6 +225,7 @@ beforeAll(() => {
       if (o.signal?.aborted) throw new AgentRunError('stopped', true);
       const failure = fake.fail?.(name, o.sessionId);
       if (failure) throw failure;
+      if (o.prompt.includes('keep asking')) fake.keptAsk = o.requestApproval;
       if (o.prompt.includes('crash after asking')) {
         // The CLI asks, then dies before the user answers.
         void o.requestApproval?.({ kind: 'command', detail: 'npm install left-pad' });
@@ -245,7 +261,12 @@ beforeAll(() => {
   };
 });
 
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+// As the server does at its next start: a folder a run locked (`chmod 000`) stays set aside until then, and
+// rmSync cannot remove it as it is (Node 24's, not even an empty one).
+afterAll(() => {
+  removeTree(root, { restore: true });
+  expect(existsSync(root)).toBe(false);
+});
 
 beforeEach(() => {
   calls.length = 0;

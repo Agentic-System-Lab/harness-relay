@@ -1,5 +1,5 @@
 /* Harness Relay landing page. Tokens follow the app (src/web/styles.css): neutrals, the three
-   agent colours, 14px radius, system UI text. Bricolage Grotesque is the display face. */
+   agent colours (the five open agents stay neutral), 14px radius, system UI text. Bricolage Grotesque is the display face. */
 
 @font-face {
   font-family: 'Bricolage Grotesque';
@@ -516,7 +516,8 @@ p {
 
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  /* The buttons take what they need; the lead, the rest (up to its 38em). */
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 18px clamp(24px, 4vw, 64px);
   align-items: start;
 }
@@ -1105,6 +1106,72 @@ p {
   color: #ffffff;
 }
 
+/* Open agents: the five, beside the app's Model backends card. They have no colour on the page:
+   colour means one of the three agents the demo shows. */
+.open-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+  gap: clamp(40px, 6vw, 96px);
+  align-items: start;
+}
+
+.open-grid .section-head {
+  margin-bottom: 28px;
+}
+
+.open-grid .excerpt-note {
+  margin-top: 0;
+}
+
+.driven.open-agents dt::before,
+.driven > .t-plain dt::before {
+  background: var(--muted);
+}
+
+.ui-backends {
+  display: grid;
+  gap: 10px;
+}
+
+.ui-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.ui-group {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.ui-field {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.ui-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ui-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.ui-backends code,
+.ui-backends .ui-muted {
+  overflow-wrap: anywhere;
+}
+
 /* Modes */
 .modes-tabs {
   display: none;
@@ -1332,7 +1399,8 @@ p {
   color: var(--muted);
 }
 
-.teams-copy p strong {
+.teams-copy p strong,
+.hero .lead strong {
   color: var(--text);
 }
 
@@ -1481,10 +1549,22 @@ p {
   gap: 10px;
 }
 
+/* A phrase a heading must not break inside (Chinese breaks between any two characters). */
+.keep {
+  white-space: nowrap;
+}
+
+/* A long member name (@Adversarial_Reviewer) wraps instead of pushing a phone's page sideways. */
+.ui-approval-head > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .ui-approval-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 10px;
+  gap: 4px 10px;
   font-weight: 650;
 }
 
@@ -1910,6 +1990,7 @@ p {
 
   .hero-grid,
   .agents-grid,
+  .open-grid,
   .teams-grid,
   .safety-grid {
     grid-template-columns: minmax(0, 1fr);
