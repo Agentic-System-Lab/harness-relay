@@ -421,6 +421,12 @@ describe.skipIf(process.platform === 'win32')('hosts', () => {
     expect(relayPorts({ npm_lifecycle_event: 'dev' })).toEqual([8789, 8787, 5173]);
   });
 
+  it('takes the port the server got too, when PORT=0 let it pick a free one', () => {
+    expect(relayPorts({ PORT: '0' }, 51234)).toEqual([51234, 8787, 8789, 5173]);
+    expect(relayPorts({ PORT: '9000' }, 9000)).toEqual([9000, 8787, 8789, 5173]);
+    expect(relayPorts({ PORT: '0' }, undefined)).toEqual([8787, 8789, 5173]);
+  });
+
   it('labels a host as approvals key it, host alone for 443 and 80', () => {
     expect(hostLabel('example.com', 443)).toBe('example.com');
     expect(hostLabel('example.com', 8080)).toBe('example.com:8080');
