@@ -1,7 +1,10 @@
 /**
  * Cline: an open agent, ACP (`cline --acp`), in Harness Relay's own sandbox below full access
- * (docs/open-agents.md). Its fake is not written yet: these are the values it is expected to have,
- * to be checked then.
+ * (docs/open-agents.md). It asks about every tool call, reads too (Harness Relay allows the reads by
+ * itself); a refusal reaches its model only as its own fixed words, so the user's note is dropped. It
+ * has no to-do list over ACP, and its model never sees a prompt's images (only their paths, in the
+ * prompt's text). On Windows it runs with full access only, and Settings cannot list what it loads by
+ * itself there (that runs `/bin/sh`).
  */
 import type { CliFacts } from './types';
 
@@ -10,7 +13,7 @@ export const cline: CliFacts = {
   bin: 'cline',
   name: 'Cline',
   label: 'Cline',
-  implemented: false,
+  implemented: true,
   version: 'v3.99.999',
   sandbox: 'relay',
   belowFullOn: ['darwin', 'linux'],
@@ -18,10 +21,11 @@ export const cline: CliFacts = {
   approve: { permission: 'read-only', directive: 'e2e:approve', command: 'echo e2e-approval' },
   decline: 'dropped',
   readOnlyWriteAsks: true,
+  // Edit mode lets it write without asking; the sandbox refuses a folder the chat was not given.
   outsideWrite: { asks: false, writtenOnceAllowed: false },
   otherCwdWriteAsks: false,
   mcpHttp: true,
-  images: true,
+  images: false,
   pickModel: { model: 'e2e/e2e-model-mini', effort: 'high' },
   defaultHome: { in: 'data', path: ['agent-homes', 'cline'] },
   accounts: 'none',
