@@ -66,17 +66,18 @@
 - **錄下由你的 adapter 驅動的真正 CLI**：把 adapter 的執行檔指向一個小包裝程式，由它啟動真正的 CLI，並把雙向的每一行都記下來（`{dir, msg}`），然後跑每個情境：一般回覆（含思考與工具呼叫）、唯讀下的拒絕、自動拒絕、受保護路徑、工作目錄內外的編輯、完全存取、接續 session、中途停止、未登入。
 - 錄音放進 `test/fixtures/<name>/` 前**先清理**：你的路徑（改成 `/work/app`、`/home/user`）、使用者名稱、key、token、登入連結；然後在資料夾裡搜尋確認都清掉了。
 - 透過 stand-in **重播**它們（`test/fake-<name>.ts`，像 `fake-cline.ts` 與 `fake-antigravity.ts`），在 `test/<name>.test.ts` 測：決策、核准卡片、parser、每次執行的設定與參數、簡報、模型與原生清單，以及完整的一輪。把它的情境加進共用的測試（`providers`、`protect`、`agentsview`、`native`、`store`、`app`、`route`、`i18n`、`tour`），並親手用 CLI 真正的指令跑一次狀態、模型與原生清單。
+- **幫它寫端對端測試用的假 CLI**（見開發者說明的[端對端測試](developer-guide.zh-TW.md#端對端測試)）：`e2e/fake-cli/agents/<name>.cjs`（列在 `e2e/fake-cli/fake-cli.cjs` 裡）照錄音的格式，說它的 adapter 會用到的那部分協定（ACP 的 CLI 用 `lib/acp.cjs`）；伺服器問它的每件事（版本、狀態、模型、原生清單、登入與登出）都要回答，其他的一律立刻以錯誤結束；它的行為只取決於 Harness Relay 設好的東西：參數、設定檔與環境變數、權限、核准請求的答覆，開源 agent 則還有完全存取以外真正的 relay 沙箱。它的事實寫在 `e2e/support/clis/<name>.ts`（列在 `clis/all.ts` 裡）：每個逐 CLI 的 spec 依它分支。設成 `implemented: true` 後，每個逐 CLI 的測試都會為它執行，標題是 `<name>: …`（`npx playwright test -g "<name>:"`），它也會加入團隊測試。spec 需要、但之前的 CLI 都沒有的事實，加在 `CliFacts` 最後，設為選填，預設值寫在 `clis.ts`。先用一個它自己的暫時 spec 經由真正的 UI 試過各個情境：比共用的 spec 更快找出格式錯在哪裡。
 - 測試要保持離線，並在 Windows 上通過：靠 `#!` 啟動的 stand-in 放在 `skipIf(process.platform === 'win32')` 底下，路徑用 `join()` 組。
 
 ## 7. 端到端檢查
 
-- `npm run typecheck`、`npm test`、`npm run build`、`npm run test:e2e`（沒有 fake 的新 CLI 在那裡是「未安裝」：更新計算側邊欄燈號數量的地方），沙箱相關檔案有改時再跑 `npx tsx scripts/sandbox-check.ts`。改到 `desktop/` 時跑 `npm run desktop:typecheck`。
+- `npm run typecheck`、`npm test`、`npm run build`、`npm run test:e2e`（它的假 CLI 的測試、有它的團隊測試，以及設定頁與側邊欄的數量，它們會算進每個 CLI），沙箱相關檔案有改時再跑 `npx tsx scripts/sandbox-check.ts`。改到 `desktop/` 時跑 `npm run desktop:typecheck`。
 - **在 agent 會執行的每個系統上**：macOS、Linux（一台機器，或用 Docker 跑 relay 沙箱：[各平台的作業系統沙箱](sandboxing.zh-TW.md)）、Windows（一台電腦或 VM；那裡用 npm 安裝的 CLI 是 `.cmd` shim，照 `winLaunch.ts` 的方式啟動）。在那裡跑測試，以及對真正的 CLI 跑錄製過的情境。
-- 有模型伺服器或登入時跑 `npm run test:e2e:live`，新的 CLI 能跑在其中一個上時就幫它寫 live 測試。
+- 有模型伺服器或登入時跑 `npm run test:e2e:live`。把 CLI 加進 `e2e/live/live.ts`：加到 `CLIS` 的預設清單，並依它能跑在哪裡加到 `ENDPOINT_CLIS`、`OPEN` 或 `CLOUD_CLIS`，實機的模型、團隊、寫入與沙箱測試才會納入它；只有它會做的事，再寫一個它自己的測試（例如 Antigravity 被拒絕後會結束這一輪）。
 
 ## 8. 寫文件，兩種語言
 
-先把你確認過的事實（含版本與系統）整理成一份清單，文件才會一致；然後更新以下每一份及它的 `.zh-TW.md`：[README](../README.zh-TW.md)、[使用者說明](user-guide.zh-TW.md)、[架構](architecture.zh-TW.md)（每個逐 CLI 表格的一欄、adapter 段落、權限對應、providers 與帳號、安全性與已知限制）、[各平台的作業系統沙箱](sandboxing.zh-TW.md)、[開發者說明](developer-guide.zh-TW.md)（專案結構、測試清單）、開源 agent 的話還有[開源 agent](open-agents.zh-TW.md)（每個 agent 一節，附上確認過的版本）、[遠端存取](remote-access.zh-TW.md)、CONTRIBUTING 與 AGENTS.md，以及官網（`site/`，照 `site/DESIGN-GUIDELINES.md`）。確認不了的要寫出來。
+先把你確認過的事實（含版本與系統）整理成一份清單，文件才會一致；然後更新以下每一份及它的 `.zh-TW.md`：[README](../README.zh-TW.md)、[使用者說明](user-guide.zh-TW.md)、[架構](architecture.zh-TW.md)（每個逐 CLI 表格的一欄、adapter 段落、權限對應、providers 與帳號、安全性與已知限制）、[各平台的作業系統沙箱](sandboxing.zh-TW.md)、[開發者說明](developer-guide.zh-TW.md)（專案結構、測試清單）、[端對端測試情境](../e2e/README.zh-TW.md)（各區的表格與「各 CLI 一覽」）、開源 agent 的話還有[開源 agent](open-agents.zh-TW.md)（每個 agent 一節，附上確認過的版本）、[遠端存取](remote-access.zh-TW.md)、CONTRIBUTING 與 AGENTS.md，以及官網（`site/`，照 `site/DESIGN-GUIDELINES.md`）。確認不了的要寫出來。
 
 ## 9. Commit 與 review
 

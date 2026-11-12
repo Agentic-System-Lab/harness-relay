@@ -1,21 +1,22 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
-import { PROVIDERS, type ToolLibraryView } from '../../src/shared/types';
+import { PROVIDER_LABEL, PROVIDERS, type Provider, type ToolLibraryView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled, type Member } from '../support/app';
+import { acceptNextDialog, finishedReply, replies, send, settled } from '../support/app';
+import { chatOf, HALVES, libraryEnv, logged, skillReadAsks, teamOf, type Cli } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
 /*
  * Settings → Tool library, as a person sets it up, and what each CLI then gets: the fakes say which
  * MCP servers they were given, the memory in their briefing, and the first line of each skill's
  * SKILL.md they could read (Claude Code only where its Read rules let it, as the real one).
+ *
+ * Each test runs twice: with a team of the CLIs with a sign-in, and with one of the open agents
+ * (`open agents: …`), of those whose fake is written. A test that turns an item off for one CLI and
+ * on or off for one member takes the team's second and third members for that (Codex and Grok in
+ * the first team).
  */
-const TEAM: Member[] = [
-  { name: 'Claude', provider: 'claude' },
-  { name: 'Codex', provider: 'codex' },
-  { name: 'Grok', provider: 'grok' },
-];
 
 const SECRET = 's3cr3t-e2e-token';
 const HAS_MCP = "My tool library's MCP servers: e2e-tools.";
@@ -46,8 +47,21 @@ async function setMemberTool(page: Page, index: number, item: string, on: boolea
   await tools.getByRole('button', { name: 'Done' }).click();
 }
 
-test.describe('the tool library', () => {
-  test('an MCP server added on the page reaches every CLI, with its secret masked and kept off the command line', async ({ page, relay }) => {
+/** A team chat of `team`, each member under its CLI's usual name. */
+const teamChat = (page: Page, relay: RelayServer, team: Cli[]) => chatOf(page, relay, team.map((cli) => ({ cli })));
+
+/** A member's reply once it has read the skills (`e2e:skills`): a CLI that asks before reading them is allowed to. */
+async function readingReply(page: Page, c: Cli) {
+  if (skillReadAsks(c)) await page.getByRole('region', { name: new RegExp(`^@${c.name} wants to`) }).getByRole('button', { name: 'Allow', exact: true }).click();
+  return finishedReply(page, c.name);
+}
+
+/** What the tool library's summary says of an item given to every CLI but `off`. */
+const allBut = (off: Provider) => `Only ${PROVIDERS.filter((p) => p !== off).map((p) => PROVIDER_LABEL[p]).join(', ')}`;
+
+for (const half of HALVES) test.describe('the tool library', () => {
+  test(half.title('an MCP server added on the page reaches every CLI, with its secret masked and kept off the command line'), async ({ page, relay }) => {
+    const TEAM = teamOf(half.clis);
     const card = await toolLibrary(page, relay);
     await expect(card).toContainText('No MCP servers yet.');
     await card.getByRole('button', { name: /Add MCP server/ }).click();
@@ -76,25 +90,28 @@ test.describe('the tool library', () => {
     expect(lib.mcpServers[0]!.env).toEqual([{ name: 'E2E_TOKEN', masked: 's3c…ken' }]);
     expect(JSON.stringify(lib)).not.toContain(SECRET);
 
-    const id = await openTeamChat(page, relay, TEAM);
+    const id = await teamChat(page, relay, TEAM);
     await send(page, 'Which tools do you have?');
     for (const m of TEAM) await expect(await finishedReply(page, m.name)).toContainText(HAS_MCP);
     await settled(relay, id);
 
-    const log = relay.fakeLog();
     for (const m of TEAM) {
       // The server got the value…
-      expect(log.some((e) => e.cli === m.provider && e.mcpEnv?.['e2e-tools']?.E2E_TOKEN === SECRET)).toBe(true);
+      await logged(relay, (e) => e.cli === m.provider && e.mcpEnv?.['e2e-tools']?.E2E_TOKEN === SECRET);
       // …and no CLI was started with it.
-      for (const start of log.filter((e) => e.cli === m.provider && e.args)) expect(JSON.stringify(start.args)).not.toContain(SECRET);
+      for (const start of relay.fakeLog().filter((e) => e.cli === m.provider && e.args)) expect(JSON.stringify(start.args)).not.toContain(SECRET);
     }
     // Claude Code got it in a file of its own, gone once the turn ended.
-    const claudeRun = log.find((e) => e.cli === 'claude' && e.args?.includes('--mcp-config'))!;
-    const file = claudeRun.args![claudeRun.args!.indexOf('--mcp-config') + 1]!;
-    await expect.poll(() => existsSync(file)).toBe(false);
+    if (TEAM.some((c) => c.provider === 'claude')) {
+      const claudeRun = relay.fakeLog().find((e) => e.cli === 'claude' && e.args?.includes('--mcp-config'))!;
+      const file = claudeRun.args![claudeRun.args!.indexOf('--mcp-config') + 1]!;
+      await expect.poll(() => existsSync(file)).toBe(false);
+    }
   });
 
-  test("an MCP server turned off for a CLI, or in a member's Tools, is not given", async ({ page, relay }) => {
+  test(half.title("an MCP server turned off for a CLI, or in a member's Tools, is not given"), async ({ page, relay }) => {
+    const TEAM = teamOf(half.clis, 3);
+    const [, off, other] = TEAM as [Cli, Cli, Cli];
     await relay.api('/api/tools/mcp/e2e-tools', {
       method: 'PUT',
       body: { transport: 'stdio', command: 'e2e-mcp-server', args: [], env: [{ name: 'E2E_TOKEN', value: SECRET }] },
@@ -103,20 +120,22 @@ test.describe('the tool library', () => {
     const server = card.locator('.lib-row', { hasText: 'e2e-tools' });
     await server.getByRole('button', { name: 'Edit' }).click();
     const form = card.locator('.mcp-form');
-    await form.getByRole('group', { name: 'Given by default to' }).getByRole('button', { name: 'Codex' }).click();
-    await expect(form).toContainText('Only Claude Code, Grok');
+    await form.getByRole('group', { name: 'Given by default to' }).getByRole('button', { name: off.label, exact: true }).click();
+    await expect(form).toContainText(allBut(off.provider));
     // Its value is kept: the row is left empty.
     await form.getByRole('button', { name: 'Save' }).click();
-    await expect(card.locator('.lib-row', { hasText: 'e2e-tools' })).toContainText('Only Claude Code, Grok');
+    await expect(card.locator('.lib-row', { hasText: 'e2e-tools' })).toContainText(allBut(off.provider));
 
-    const id = await openTeamChat(page, relay, TEAM);
+    const id = await teamChat(page, relay, TEAM);
     await send(page, 'Which tools do you have?');
-    await expect(await finishedReply(page, 'Claude')).toContainText(HAS_MCP);
-    await expect(await finishedReply(page, 'Codex')).not.toContainText("My tool library's MCP servers");
-    await expect(await finishedReply(page, 'Grok')).toContainText(HAS_MCP);
+    for (const m of TEAM) {
+      const reply = await finishedReply(page, m.name);
+      if (m === off) await expect(reply).not.toContainText("My tool library's MCP servers");
+      else await expect(reply).toContainText(HAS_MCP);
+    }
     await settled(relay, id);
 
-    // A member's Tools: given to this Codex member after all, taken away from Grok.
+    // A member's Tools: given to the member of the CLI it is off for after all, taken away from the next.
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
     await setMemberTool(page, 1, 'e2e-tools', true);
     await setMemberTool(page, 2, 'e2e-tools', false);
@@ -124,19 +143,23 @@ test.describe('the tool library', () => {
     await expect(page.getByRole('dialog', { name: 'Team settings' })).toBeHidden();
 
     await send(page, 'And now?');
-    await expect(await finishedReply(page, 'Claude')).toContainText('You said: “And now?”. ' + HAS_MCP);
-    await expect(await finishedReply(page, 'Codex')).toContainText('You said: “And now?”. ' + HAS_MCP);
-    // Its second reply, finished: before that, a check that something is missing would pass on a
-    // reply still streaming (or on the first one).
-    await expect(replies(page, 'Grok')).toHaveCount(2);
-    const grok = await finishedReply(page, 'Grok');
-    await expect(grok).toContainText('You said: “And now?”.');
-    await expect(grok).not.toContainText("My tool library's MCP servers");
+    for (const m of TEAM) {
+      // Its second reply, finished: before that, a check that something is missing would pass on a
+      // reply still streaming (or on the first one).
+      await expect(replies(page, m.name)).toHaveCount(2);
+      const reply = await finishedReply(page, m.name);
+      if (m === other) {
+        await expect(reply).toContainText('You said: “And now?”.');
+        await expect(reply).not.toContainText("My tool library's MCP servers");
+      } else await expect(reply).toContainText('You said: “And now?”. ' + HAS_MCP);
+    }
+    await settled(relay, id);
     // The secret still reaches the server it is given to.
-    expect(relay.fakeLog().some((e) => e.cli === 'codex' && e.mcpEnv?.['e2e-tools']?.E2E_TOKEN === SECRET)).toBe(true);
+    await logged(relay, (e) => e.cli === off.provider && e.mcpEnv?.['e2e-tools']?.E2E_TOKEN === SECRET);
   });
 
-  test('a skill picked from a folder on the page is in each CLI\'s briefing, and each reads its SKILL.md', async ({ page, relay }) => {
+  test(half.title("a skill picked from a folder on the page is in each CLI's briefing, and each reads its SKILL.md"), async ({ page, relay }) => {
+    const TEAM = teamOf(half.clis);
     const skills = join(relay.root, 'skills');
     writeSkill(join(skills, 'release-notes'), 'release-notes', 'Write release notes in the house style', 'Begin each note with the words Shipped today.');
     writeSkill(join(skills, 'haiku'), 'haiku', 'Answer in a haiku', 'Count the syllables.');
@@ -156,22 +179,24 @@ test.describe('the tool library', () => {
     await expect(skill).toContainText(join(skills, 'release-notes'));
     await expect(card.locator('.lib-row', { hasText: 'haiku' })).toHaveCount(0);
 
-    const id = await openTeamChat(page, relay, TEAM);
+    const id = await teamChat(page, relay, TEAM);
     await send(page, 'Write the notes e2e:skills');
     for (const m of TEAM) {
-      const reply = await finishedReply(page, m.name);
+      const reply = await readingReply(page, m);
       // Claude Code reads it outside its working directory only by the Read rule its adapter adds.
       await expect(reply).toContainText('I read the skill release-notes: “Begin each note with the words Shipped today.”.');
       await expect(reply).not.toContainText('haiku');
     }
     await settled(relay, id);
     for (const m of TEAM) {
-      const turn = relay.fakeLog().find((e) => e.cli === m.provider && e.prompt?.includes('Write the notes'))!;
-      expect(turn.briefing).toContain(`- release-notes: Write release notes in the house style (${join(skills, 'release-notes', 'SKILL.md')})`);
+      const [turn] = await logged(relay, (e) => e.cli === m.provider && e.prompt?.includes('Write the notes'));
+      expect(turn!.briefing).toContain(`- release-notes: Write release notes in the house style (${join(skills, 'release-notes', 'SKILL.md')})`);
     }
   });
 
-  test("a skill turned off for a CLI, or in a member's Tools, is not given", async ({ page, relay }) => {
+  test(half.title("a skill turned off for a CLI, or in a member's Tools, is not given"), async ({ page, relay }) => {
+    const TEAM = teamOf(half.clis, 3);
+    const [first, , off] = TEAM as [Cli, Cli, Cli];
     const dir = writeSkill(join(relay.root, 'skills', 'release-notes'), 'release-notes', 'Write release notes', 'Begin each note with the words Shipped today.');
     const card = await toolLibrary(page, relay);
     // A folder that is a skill itself is added at once.
@@ -179,47 +204,57 @@ test.describe('the tool library', () => {
     await card.getByRole('button', { name: 'Add', exact: true }).click();
     const picks = card.getByRole('group', { name: 'release-notes: Given by default to' });
     await expect(picks.getByRole('button', { pressed: true })).toHaveCount(PROVIDERS.length);
-    await picks.getByRole('button', { name: 'Grok' }).click();
-    await expect(picks.getByRole('button', { name: 'Grok' })).toHaveAttribute('aria-pressed', 'false');
-    await expect.poll(async () => (await relay.api<ToolLibraryView>('/api/tools')).skills[0]?.providers).toEqual(PROVIDERS.filter((p) => p !== 'grok'));
+    await picks.getByRole('button', { name: off.label, exact: true }).click();
+    await expect(picks.getByRole('button', { name: off.label, exact: true })).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(async () => (await relay.api<ToolLibraryView>('/api/tools')).skills[0]?.providers).toEqual(PROVIDERS.filter((p) => p !== off.provider));
 
-    const id = await openTeamChat(page, relay, TEAM);
+    const id = await teamChat(page, relay, TEAM);
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
     await setMemberTool(page, 0, 'release-notes', false);
     await page.getByRole('dialog', { name: 'Team settings' }).getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'Team settings' })).toBeHidden();
 
     await send(page, 'Which skills? e2e:skills');
-    await expect(await finishedReply(page, 'Claude')).toContainText('I was given no skills.');
-    await expect(await finishedReply(page, 'Codex')).toContainText('I read the skill release-notes: “Begin each note with the words Shipped today.”.');
-    await expect(await finishedReply(page, 'Grok')).toContainText('I was given no skills.');
+    for (const m of TEAM) {
+      if (m === first || m === off) await expect(await finishedReply(page, m.name)).toContainText('I was given no skills.');
+      else await expect(await readingReply(page, m)).toContainText('I read the skill release-notes: “Begin each note with the words Shipped today.”.');
+    }
     await settled(relay, id);
     // Neither in Claude Code's briefing nor in a Read rule for its folder.
-    const claudeRun = relay.fakeLog().filter((e) => e.cli === 'claude' && e.args?.includes('--append-system-prompt')).pop()!;
-    expect(JSON.stringify(claudeRun.args)).not.toContain('release-notes');
+    if (first.provider === 'claude') {
+      const claudeRun = relay.fakeLog().filter((e) => e.cli === 'claude' && e.args?.includes('--append-system-prompt')).pop()!;
+      expect(JSON.stringify(claudeRun.args)).not.toContain('release-notes');
+    }
   });
 
-  test("memory for all members and for one CLI reaches each CLI's briefing, and a member's Tools can leave it out", async ({ page, relay }) => {
+  test(half.title("memory for all members and for one CLI reaches each CLI's briefing, and a member's Tools can leave it out"), async ({ page, relay }) => {
+    const TEAM = teamOf(half.clis, 3);
+    const [first, own, other] = TEAM as [Cli, Cli, Cli];
     const card = await toolLibrary(page, relay);
     const memory = card.locator('.tools-section', { has: page.getByRole('heading', { name: 'Memory' }) });
     await memory.getByRole('textbox', { name: 'Memory: All members' }).fill('Lead with the conclusion.');
     // A click while the page still settles can land without switching tabs: click until it is selected.
-    const codexTab = memory.getByRole('tab', { name: 'Codex', exact: true });
+    const ownTab = memory.getByRole('tab', { name: own.label, exact: true });
     await expect(async () => {
-      await codexTab.click();
-      await expect(codexTab).toHaveAttribute('aria-selected', 'true', { timeout: 1_000 });
+      await ownTab.click();
+      await expect(ownTab).toHaveAttribute('aria-selected', 'true', { timeout: 1_000 });
     }).toPass();
-    await memory.getByRole('textbox', { name: 'Memory: Codex' }).fill('Indent with tabs.');
+    await memory.getByRole('textbox', { name: `Memory: ${own.label}` }).fill('Indent with tabs.');
     await memory.getByRole('button', { name: 'Save' }).click();
     await expect(memory).toContainText('Saved');
-    expect((await relay.api<ToolLibraryView>('/api/tools')).memory).toMatchObject({ all: 'Lead with the conclusion.', codex: 'Indent with tabs.', claude: '', grok: '' });
+    expect((await relay.api<ToolLibraryView>('/api/tools')).memory).toMatchObject({
+      all: 'Lead with the conclusion.',
+      [own.provider]: 'Indent with tabs.',
+      [first.provider]: '',
+      [other.provider]: '',
+    });
 
-    const id = await openTeamChat(page, relay, TEAM);
+    const id = await teamChat(page, relay, TEAM);
     await send(page, 'What do you remember? e2e:memory');
-    await expect(await finishedReply(page, 'Claude')).toContainText('My memory: “Lead with the conclusion.”.');
-    // The CLI's own part comes after the shared one.
-    await expect(await finishedReply(page, 'Codex')).toContainText('My memory: “Lead with the conclusion. Indent with tabs.”.');
-    await expect(await finishedReply(page, 'Grok')).toContainText('My memory: “Lead with the conclusion.”.');
+    for (const m of TEAM) {
+      // The CLI's own part comes after the shared one.
+      await expect(await finishedReply(page, m.name)).toContainText(m === own ? 'My memory: “Lead with the conclusion. Indent with tabs.”.' : 'My memory: “Lead with the conclusion.”.');
+    }
     await settled(relay, id);
 
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
@@ -228,11 +263,13 @@ test.describe('the tool library', () => {
     await expect(page.getByRole('dialog', { name: 'Team settings' })).toBeHidden();
 
     await send(page, 'And now? e2e:memory');
-    await expect(await finishedReply(page, 'Claude')).toContainText('You said: “And now?”. My memory: “Lead with the conclusion.”.');
-    await expect(await finishedReply(page, 'Grok')).toContainText('You said: “And now?”. I have no memory notes.');
+    await expect(await finishedReply(page, first.name)).toContainText('You said: “And now?”. My memory: “Lead with the conclusion.”.');
+    await expect(replies(page, other.name)).toHaveCount(2);
+    await expect(await finishedReply(page, other.name)).toContainText('You said: “And now?”. I have no memory notes.');
   });
 
-  test('an MCP server given a new value on the page gets it at the next turn, and once removed it is given no more', async ({ page, relay }) => {
+  test(half.title('an MCP server given a new value on the page gets it at the next turn, and once removed it is given no more'), async ({ page, relay }) => {
+    const TEAM = teamOf(half.clis);
     const NEW = 'n3w-e2e-token-9876';
     await relay.api('/api/tools/mcp/e2e-tools', {
       method: 'PUT',
@@ -240,7 +277,7 @@ test.describe('the tool library', () => {
     });
     // Another server, which stays: a turn after the changes still gets the library's servers.
     await relay.api('/api/tools/mcp/e2e-other', { method: 'PUT', body: { transport: 'stdio', command: 'e2e-other-server', args: [] } });
-    const id = await openTeamChat(page, relay, TEAM);
+    const id = await teamChat(page, relay, TEAM);
     await send(page, 'Which tools do you have?');
     for (const m of TEAM) await expect(await finishedReply(page, m.name)).toContainText("My tool library's MCP servers: e2e-tools, e2e-other.");
     await settled(relay, id);
@@ -265,6 +302,8 @@ test.describe('the tool library', () => {
         await expect(await finishedReply(page, m.name)).toContainText(`You said: “${text}”.`);
       }
       await settled(relay, id);
+      // Every member's prompt logged (a fake in Harness Relay's own sandbox sends its lines a moment later).
+      for (const m of TEAM) await logged(relay, (e) => e.cli === m.provider && e.prompt?.includes(text));
       return relay.fakeLog().slice(from);
     };
 
@@ -274,7 +313,7 @@ test.describe('the tool library', () => {
       // The server got the new value only, and no CLI was started with it.
       const given = turns.filter((e) => e.cli === m.provider && e.mcpEnv?.['e2e-tools']);
       expect(given.length).toBeGreaterThan(0);
-      for (const e of given) expect(e.mcpEnv!['e2e-tools']).toEqual({ E2E_TOKEN: NEW });
+      for (const e of given) expect(libraryEnv(m, e.mcpEnv!['e2e-tools']!)).toEqual({ E2E_TOKEN: NEW });
       for (const start of turns.filter((e) => e.cli === m.provider && e.args)) expect(JSON.stringify(start.args)).not.toContain(NEW);
     }
 
@@ -292,7 +331,8 @@ test.describe('the tool library', () => {
     }
   });
 
-  test('a skill and a memory note removed on the page are given no more', async ({ page, relay }) => {
+  test(half.title('a skill and a memory note removed on the page are given no more'), async ({ page, relay }) => {
+    const TEAM = teamOf(half.clis);
     const skills = join(relay.root, 'skills');
     const notes = writeSkill(join(skills, 'release-notes'), 'release-notes', 'Write release notes', 'Begin each note with the words Shipped today.');
     const haiku = writeSkill(join(skills, 'haiku'), 'haiku', 'Answer in a haiku', 'Count the syllables.');
@@ -301,12 +341,12 @@ test.describe('the tool library', () => {
     const own = 'Indent with tabs.';
     await relay.api('/api/tools', {
       method: 'PUT',
-      body: { skills: [{ path: notes }, { path: haiku }], memory: { all: 'Lead with the conclusion.', claude: own, codex: own, grok: own } },
+      body: { skills: [{ path: notes }, { path: haiku }], memory: { all: 'Lead with the conclusion.', ...Object.fromEntries(TEAM.map((m) => [m.provider, own])) } },
     });
-    const id = await openTeamChat(page, relay, TEAM);
+    const id = await teamChat(page, relay, TEAM);
     await send(page, 'What do you know? e2e:memory e2e:skills');
     for (const m of TEAM) {
-      const reply = await finishedReply(page, m.name);
+      const reply = await readingReply(page, m);
       await expect(reply).toContainText(`My memory: “Lead with the conclusion. ${own}”.`);
       await expect(reply).toContainText('I read the skill haiku: “Count the syllables.”.');
     }
@@ -321,22 +361,22 @@ test.describe('the tool library', () => {
     await expect(memory).toContainText('Saved');
     const lib = await relay.api<ToolLibraryView>('/api/tools');
     expect(lib.skills.map((s) => s.name)).toEqual(['release-notes']);
-    // Each fake CLI's own note stays; the other CLIs have none.
-    expect(lib.memory).toEqual({ ...Object.fromEntries(PROVIDERS.map((p) => [p, ''])), all: '', claude: own, codex: own, grok: own });
+    // Each team CLI's own note stays; the other CLIs have none.
+    expect(lib.memory).toEqual({ ...Object.fromEntries(PROVIDERS.map((p) => [p, ''])), all: '', ...Object.fromEntries(TEAM.map((m) => [m.provider, own])) });
 
     await page.goto(`${relay.base}/#/c/${id}`);
     await send(page, 'And now? e2e:memory e2e:skills');
     for (const m of TEAM) {
       await expect(replies(page, m.name)).toHaveCount(2);
-      const reply = await finishedReply(page, m.name);
+      const reply = await readingReply(page, m);
       await expect(reply).toContainText(`You said: “And now?”. My memory: “${own}”. I read the skill release-notes: “Begin each note with the words Shipped today.”.`);
       await expect(reply).not.toContainText('haiku');
     }
     await settled(relay, id);
     for (const m of TEAM) {
-      const turn = relay.fakeLog().find((e) => e.cli === m.provider && e.prompt?.includes('And now?'))!;
-      expect(turn.briefing).not.toContain('haiku');
-      expect(turn.briefing).not.toContain('Lead with the conclusion.');
+      const [turn] = await logged(relay, (e) => e.cli === m.provider && e.prompt?.includes('And now?'));
+      expect(turn!.briefing).not.toContain('haiku');
+      expect(turn!.briefing).not.toContain('Lead with the conclusion.');
     }
   });
 });

@@ -2,11 +2,11 @@
 
 # End-to-end test scenarios
 
-What the end-to-end tests (`npm run test:e2e`) try today, area by area. They drive the built UI in a real browser ([Playwright](https://playwright.dev)) against the real server, with fake `claude`, `codex` and `grok` CLIs, so they run offline, cost nothing and run the same on macOS, Linux and Windows.
+What the end-to-end tests (`npm run test:e2e`) try today, area by area. They drive the built UI in a real browser ([Playwright](https://playwright.dev)) against the real server, with a fake for each of the ten agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, and the five open agents: OpenCode, Goose, Cline, OpenHands and Pi), so they run offline, cost nothing and run on macOS, Linux and Windows alike, but for what each system's sandboxes allow ([Platforms and browsers](#platforms-and-browsers)).
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 175 tests in 27 spec files, in each browser that runs them (Chromium by default).
+There are 325 tests in 29 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -22,13 +22,14 @@ The developer guide has the rest (other browsers, the report, the variables they
 
 ## What every test starts with
 
-- **A server of its own** on a free port, with temporary data, a temporary home, the CLIs' homes and the OS keyring off: nothing of your own Harness Relay, CLIs or keychain is read or changed, your credentials are left out of its environment, and git looks for a repository no further up than the test's folder ([`support/relay.ts`](support/relay.ts)).
+- **A server of its own** on a free port, with temporary data, a temporary home, the CLIs' homes (`.claude`, `.codex`, `.grok`, `.gemini` and `.config/cursor` in that home, the open agents' in the data folder) and the OS keyring off: nothing of your own Harness Relay, CLIs or keychain is read or changed, your credentials (Cursor's, Antigravity's and Google's too) are left out of its environment, and git looks for a repository no further up than the test's folder ([`support/relay.ts`](support/relay.ts)). On macOS and Linux its folder is in `/tmp` (or `E2E_TMP_DIR`), whose path is short enough for the sockets of Harness Relay's own sandbox.
+- **A fake model endpoint** of its own: a small HTTP server set up as the model backend `e2e` (**Settings → Model backends**) with the models `e2e-model` and `e2e-model-mini`, and `e2e/e2e-model` as each open agent's default model, so the open agents are installed and ready (OpenHands with its terminal switch on). No model answers there: it lists its models, and takes the log lines of the fakes that run inside Harness Relay's own sandbox. A test can start without it (`openBackend: false`), with OpenHands' switch off (`sandboxTerminal: false`), or with CLIs not installed (`missingClis`).
 - **A working directory** with a small project in it: `README.md`, `src/hello.ts` and `src/lib/math.ts` (`seedProject()`). A test that needs other folders adds them next to it (`relay.addProject()`).
 - **A browser page signed in** with a new one-time code, the guided tour done and the UI in English ([`fixtures.ts`](fixtures.ts)). A test changes that with `test.use()`: `lang: 'zh-TW'`, `signIn: false`, `tour: true`, or more environment for the server (`serverEnv`).
-- **Fake CLIs** ([`fake-cli/fake-cli.cjs`](fake-cli/fake-cli.cjs)) that speak each CLI's protocol and answer `Hello from <name> (<CLI>). You said: “<the user's latest message>”.` The test steers them with `e2e:` directives in the message (`e2e:write=notes.md`, `e2e:approve`, `e2e:slow`…). A fake always tries what a directive asks, and whether it happens depends only on what Harness Relay gave the CLI (its permission, sandbox, folders and the answers to its approval requests), so a test that writes where it may not tells whether the adapter set the CLI up right.
+- **Fake CLIs** ([`fake-cli/`](fake-cli/)), one for each of the ten, that speak each CLI's protocol and answer `Hello from <name> (<CLI>). You said: “<the user's latest message>”.` The test steers them with `e2e:` directives in the message (`e2e:write=notes.md`, `e2e:approve`, `e2e:slow`…). A fake always tries what a directive asks, and whether it happens depends only on what Harness Relay gave the CLI (its permission, flags and settings, sandbox, folders and the answers to its approval requests), so a test that writes where it may not tells whether the adapter set the CLI up right. The fakes of Claude Code, Codex and Grok work out what their CLI's own sandbox would allow; Cursor's and Antigravity's, which have no sandbox, ask as the real ones do; the open agents' fakes write and reach hosts for real, so below full access what is not theirs is refused by Harness Relay's own sandbox itself (on macOS and Linux). A fake inside it cannot write the fakes' log, so it sends its lines to the fake endpoint.
 - **A fake `gh`** ([`fake-cli/fake-gh.cjs`](fake-cli/fake-gh.cjs)) for sharing and a problem report's screenshots: it keeps its gists in the test's own folder (`fake-github/`), never on GitHub, and `E2E_FAKE_SIGNED_OUT=gh` signs it out. On Linux, a fake folder dialog (`zenity`) too. AgentsView is a small HTTP server inside [`specs/sessions.spec.ts`](specs/sessions.spec.ts), as Harness Relay only sends it requests.
 
-In the tables below, **each** in the CLI column means the test runs once for each CLI (Claude Code, Codex and Grok).
+In the tables below, the CLI column says which CLIs a test runs with: **each** means once for each of the ten; **each with a sign-in** once for each of Claude Code, Codex, Grok, Cursor and Antigravity; **each open agent** once for each of OpenCode, Goose, Cline, OpenHands and Pi; and **two teams** that the test runs twice, with a team of the five with a sign-in and with a team of the five open agents (its title then starts with `open agents:`). Where a CLI runs only with full access (the open agents on Windows, OpenCode on Linux), a test about permissions skips it, saying why, and any other test runs it with full access.
 
 ## Areas
 
@@ -36,25 +37,27 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | --- | --- | --- | --- |
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
 | [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 2 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
-| [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 4 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
+| [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 3 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 3 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
-| [A member's model and reasoning effort](#a-members-model-and-reasoning-effort) | [`models.spec.ts`](specs/models.spec.ts) | 4 | [User guide → Default model and reasoning effort](../docs/user-guide.md#default-model-and-reasoning-effort), [Team members](../docs/user-guide.md#team-members) |
-| [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 19 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
-| [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 4 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
-| [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 12 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
-| [Files and changes](#files-and-changes) | [`files.spec.ts`](specs/files.spec.ts) | 10 | [User guide → Reviewing and applying changes](../docs/user-guide.md#reviewing-and-applying-changes), [Browsing files](../docs/user-guide.md#browsing-files), [Architecture → Workspaces and file changes](../docs/architecture.md#workspaces-and-file-changes) |
-| [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 14 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
-| [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 9 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
-| [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 7 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
+| [A member's model and reasoning effort](#a-members-model-and-reasoning-effort) | [`models.spec.ts`](specs/models.spec.ts) | 11 | [User guide → Default model and reasoning effort](../docs/user-guide.md#default-model-and-reasoning-effort), [Team members](../docs/user-guide.md#team-members) |
+| [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 47 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
+| [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 11 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
+| [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 33 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
+| [Files and changes](#files-and-changes) | [`files.spec.ts`](specs/files.spec.ts) | 18 | [User guide → Reviewing and applying changes](../docs/user-guide.md#reviewing-and-applying-changes), [Browsing files](../docs/user-guide.md#browsing-files), [Architecture → Workspaces and file changes](../docs/architecture.md#workspaces-and-file-changes) |
+| [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 30 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
+| [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 16 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
+| [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 28 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
+| [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 14 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [Changing a chat's history](#changing-a-chats-history) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [User guide → Copying, editing and retrying](../docs/user-guide.md#copying-editing-and-retrying), [Branching a conversation](../docs/user-guide.md#branching-a-conversation) |
 | [Copying and sharing](#copying-and-sharing) | [`share.spec.ts`](specs/share.spec.ts) | 5 | [User guide → Sharing a conversation](../docs/user-guide.md#sharing-a-conversation), [Architecture → Sharing a conversation](../docs/architecture.md#sharing-a-conversation) |
 | [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 7 | [User guide → Groups](../docs/user-guide.md#groups), [Search](../docs/user-guide.md#search) |
 | [Schedules](#schedules) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [User guide → Schedules](../docs/user-guide.md#schedules), [Architecture → Schedules](../docs/architecture.md#schedules) |
-| [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 5 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent) |
-| [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 18 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
+| [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 11 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent), [Open agents → Model backends](../docs/open-agents.md#model-backends) |
+| [CLIs that are scripts on Windows](#clis-that-are-scripts-on-windows) | [`windows.spec.ts`](specs/windows.spec.ts) | 4 | [Architecture → CLI adapters](../docs/architecture.md#cli-adapters) |
+| [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 26 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
 | [What each CLI loads by itself, and Grok's trust](#what-each-cli-loads-by-itself-and-groks-trust) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [User guide → What each CLI loads by itself](../docs/user-guide.md#what-each-cli-loads-by-itself), [Architecture → What each CLI loads by itself](../docs/architecture.md#what-each-cli-loads-by-itself) |
-| [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 6 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
+| [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 8 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
 | [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
 | [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 5 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
 | [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 4 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
@@ -99,7 +102,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | --- | --- | --- |
 | The lead agent proposes a team, and once it is confirmed the team answers | Claude Code | The team card names the team, the reason and the member; after **Confirm team** the reply comes with its CLI's tag; the chat is in the sidebar under its first question, and the reply is stored as done. |
 | The lead agent's teams used without asking | Claude Code | The card says **Used without asking** and the team answers without waiting. |
-| A team of all three CLIs answers in turn | all three | Each member answers with its own CLI's tag, in roundtable order: Claude, Codex, Grok. |
+| A team of every CLI answers in turn | two teams | Each member answers with its own CLI's tag, in roundtable order: Claude Code, Codex, Grok, Cursor, Antigravity; and OpenCode, Goose, Cline, OpenHands, Pi (a team with a CLI that runs only with full access here in a chat with full access). |
 | A follow-up question gets a team again | Claude Code, Codex | The second question gets a team of its own, and only its member answers it. |
 
 ## Templates
@@ -109,7 +112,7 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
 | The built-in templates are listed, and one opens to show its members | — | "Three-way debate" is marked built-in, and its dialog lists Proposer, Pragmatist and Skeptic. |
-| The lead agent picks a template as it is | all three | The card says it uses "Three-way debate"; over its two rounds each member answers with its CLI, then passes (six replies). |
+| The lead agent picks a template as it is | Claude Code, Codex, Grok | The card says it uses "Three-way debate"; over its two rounds each member answers with its CLI, then passes (six replies). |
 | A team the lead agent designed is saved as a template | Claude Code, Grok | **Save as template** suggests the team's name, the card says it was saved, and the template is on the New chat page. |
 
 ## Changing a chat's team
@@ -128,7 +131,8 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| The model and effort chosen for a member reach its CLI | each | They are stored with the member, and the CLI gets them as its adapter passes them: Claude Code's `--model` and `--effort`, Codex's `thread/start` parameters (`model_reasoning_effort`), Grok's `session/set_config_option` before the prompt. |
+| The model and effort chosen for a member reach Claude Code as `--model` and `--effort` | Claude Code | `opus` and High are stored with the member, and its turn gets `--model opus --effort high`. |
+| The model and effort chosen for a member reach its CLI | each but Claude Code | A model from the CLI's own list (as `codex debug models`, `grok models`, Cursor and Antigravity list them; for an open agent, its model backends': the fake endpoint's `e2e/e2e-model-mini`) and an effort it offers for it are stored with the member, and the fake logs the turn running with them, as the adapter passes them (Codex's `thread/start` parameters, Grok's `session/set_config_option` before the prompt, …) and as the CLI names them (OpenCode's and Pi's `relay-e2e/e2e-model-mini`, OpenHands' `openai/e2e-model-mini`). OpenCode offers no effort for that model, so none is kept, and Goose's provider for an endpoint offers only `off`, which its turn runs with. |
 | The default model and effort in Settings are what a member left on Default runs with | Claude Code | With sonnet and Low saved as the default, the drawer says "Default: sonnet", the member stays on Default, and its turn gets `--model sonnet --effort low`. |
 
 ## How members take turns
@@ -140,10 +144,10 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | An agent asks the user, waits for the answer, then answers with it | Claude Code | The question shows without `[ASK_USER]`, with a card that waits for the answer; the composer says **Answer @Claude…** and the sidebar **Answer needed**; the answer reaches the agent. |
 | A question is skipped, and the rest of the team goes on | Claude Code, Grok | **Skip, let the team go on**, and the next member answers. |
 | Relay mode: a member hands the floor to the teammate it mentions | Claude Code, Codex | The first member answers first and mentions the second, which answers; then the floor comes back to the user (two replies). |
-| A message that @mentions a member is answered by that member only | all three | Only @Grok answers. |
+| A message that @mentions a member is answered by that member only | Claude Code, Codex, Grok | Only @Grok answers. |
 | In a later round, members with nothing to add pass, and the round ends early | Claude Code, Codex | With three rounds: both answer, both pass, and there is no third round. |
 | A reply can be stopped | each | While the reply streams, **Stop** ends it with "(stopped)", and the live tag and the Stop button go away. |
-| An error inside the CLI's protocol is shown on the reply | each | Claude's error result, a failed Codex turn and a Grok JSON-RPC error show on the reply. |
+| An error inside the CLI's protocol is shown on the reply | each | The error as each CLI reports it shows on the reply: Claude's error result, a failed Codex turn, an ACP agent's JSON-RPC error (Cursor's error text in its reply, as Cursor sends one), Pi's failed message. |
 | A member's next turn resumes its own session | each | The second turn resumes the session the first started (the fakes refuse to resume one they never started, as the real CLIs do). |
 | A member whose CLI lost its session starts a new one with the chat so far | Claude Code | With the CLI's sessions deleted, the next prompt carries the whole chat, the first message too. |
 | A failed reply shows the CLI's error, and Retry answers again | each | A CLI that exits with an error: its error is on the reply, and **Retry** answers. |
@@ -155,20 +159,20 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| Thinking, a tool call and a to-do list are shown with the reply | each | The steps fold into rows; opened, they show the thinking, the tool (Claude's `Bash`, Codex's `Shell`, Grok's `list_dir`) done with its output, and the to-do list with one of three done and one in progress. |
+| Thinking, a tool call and a to-do list are shown with the reply | each | The steps fold into rows; opened, they show the thinking, the CLI's own tool for a listing of the working directory done with its output (Claude's `Bash`, Codex's `Shell`, Grok's `list_dir`, Cursor's and Antigravity's `Read`, OpenCode's `glob`, Goose's `tree`, Cline's `read_files`, OpenHands' `file_editor`, Pi's `List`, or `Bash` with full access), and the to-do list with one of three done and one in progress (Cline and Pi have none to show). |
 | A reply in Markdown is rendered | Claude Code | A heading, a list, a table and highlighted code. |
 
 ## Approvals
 
-[`approvals.spec.ts`](specs/approvals.spec.ts): an agent that wants to run a command (`echo e2e-approval`) in a read-only chat that asks the user. The answer reaches each CLI's own request: Claude Code's `can_use_tool`, Codex's approval request and Grok's `session/request_permission`.
+[`approvals.spec.ts`](specs/approvals.spec.ts): an agent that wants to run a command (`echo e2e-approval`) in a chat that asks the user, a read-only one for every CLI but Pi, which has no command tool there: it asks in edit mode, about the one kind of command that asks there (`npm publish e2e-approval`, through `e2e:approve=publish`). Goose asks to run `env echo e2e-approval`, since in read-only Harness Relay lets it run plain reading commands such as `echo` without asking. The answer reaches each CLI's own request: Claude Code's `can_use_tool`, Codex's approval request, the ACP agents' `session/request_permission` (Grok, Cursor, Antigravity, OpenCode, Goose, Cline, OpenHands) and the dialog of Pi's gate.
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| A command the user allows runs | each | The card shows the command and the sidebar **Needs you**; after **Allow** the command ran and the card says Allowed. |
-| A command the user declines does not run, and the note goes with it | each | The card says "Declined: Not now"; Claude Code and Grok get the note with the refusal (Codex's answer has no room for one). |
+| A command the user allows runs | each | The card shows the command and the sidebar **Needs you**; after **Allow** the command ran and the card says Allowed. Skipped where the CLI runs only with full access. |
+| A command the user declines does not run, and the note goes with it | each | The card says "Declined: Not now". Claude Code, Grok, OpenCode, Goose and Pi get the note with the refusal; Codex's answer has no room for one, and Cursor, Cline and OpenHands drop it (the reply says only that the command was declined); Antigravity ends its turn at a refusal, and its reply says so and nothing more. Skipped where the CLI runs only with full access. |
 | "Always allow" answers the same request by itself the next time | Claude Code | The second request is allowed automatically, with no card. |
 | Stopping the team while a request waits ends it without running the command | Claude Code | The reply ends "(stopped)" and the request is declined or unanswered. |
-| With full access, the command runs and files are written anywhere without asking | each | The header warns **Full access**; the command runs and a file is written in another folder, with no card. |
+| With full access, the command runs and files are written anywhere without asking | each | The header warns **Full access**; the command runs and a file is written in another folder, with no card (on every system: no sandbox is around a CLI with full access). |
 | A chat that refuses automatically declines without asking | Claude Code | The command is declined, with no card. |
 
 ## Files and changes
@@ -178,9 +182,9 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
 | In edit mode an agent changes files, and the chat shows what changed | Claude Code | The file is in the working directory, which became a git repository; the changes card lists it and opens the turn's diff. |
-| In a read-only chat no file is written | each | Claude Code runs without its file tools (no card); Codex and Grok ask, and are declined; no file is written and there is no changes card. |
+| In a read-only chat no file is written | each | Claude Code and Pi run without their file tools, and Cursor's write is refused by its own rules, all without a card; the others ask, and are declined (Antigravity then ends its turn); no file is written and there is no changes card. Skipped where the CLI runs only with full access. (That a write the user allows still cannot reach the folder: [Harness Relay's own sandbox](#harness-relays-own-sandbox).) |
 | Grok in a read-only chat that refuses automatically says why | Grok | The tool's error says it is not allowed in read-only mode. |
-| Every CLI writes in edit mode, and each turn records its own change | all three | Each member writes its own file, and each reply's changes card lists it. |
+| Every CLI writes in edit mode, and each turn records its own change | two teams | Each member writes its own file (`<cli>.txt`), and each reply's changes card lists it. A CLI that runs only with full access here does so in a chat of its own. |
 | In parallel mode each member works in its own worktree, and a result can be applied | Claude Code, Codex | Both changes cards say "in worktree" and nothing reaches the working directory until **Apply to working directory** brings in Codex's file. |
 | The file browser shows the working directory and previews a file | Claude Code | **Files** lists the project; `src/hello.ts` opens with its code; Escape closes it. |
 | A folder downloads as a ZIP file of its files, without .git | Claude Code | The working directory's ZIP (`work.zip`) holds exactly its files, with their contents, and no `.git`; a folder's own (`src.zip`) only that folder. |
@@ -188,19 +192,31 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 
 ## Working directories and other folders
 
-[`folders.spec.ts`](specs/folders.spec.ts): the fakes write only where the real CLIs could, so these tell whether a chat's folders reach each CLI.
+[`folders.spec.ts`](specs/folders.spec.ts): the fakes write only where the real CLIs could, so these tell whether a chat's folders reach each CLI. The open agents' fakes write for real, and Harness Relay's own sandbox refuses what is not theirs to write.
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| A folder the chat was not given stays out of reach in edit mode | each (Grok not on Windows) | Refused automatically, nothing is written next door. Grok has no sandbox on native Windows, so it is skipped there. |
-| Writing in a folder the chat was not given asks first, and writes once the user allows it | Claude Code, Codex | **Allow** on the "wants to change files" card, and the file is written there. |
+| A folder the chat was not given stays out of reach in edit mode | each (Grok not on Windows) | Refused automatically, nothing is written next door: the CLIs with a sign-in ask, and are refused (Antigravity then ends its turn), and an open agent writes without asking and Harness Relay's own sandbox refuses it. Skipped where the CLI runs only with full access, and for Grok on native Windows, which has no sandbox there. |
+| Writing in a folder the chat was not given asks first, and writes once the user allows it | Claude Code, Codex, Cursor, Antigravity | **Allow** on the "wants to change files" card, and the file is written there. Not Grok, whose sandbox refuses it all the same, nor the open agents, whose sandbox no answer widens. |
 | Folders are added and removed in the box, and the chat works in all of them | Claude Code | Folders typed into **Working directories** become chips and can be removed; the chat stores the folders left, and the agent writes in the first and the second, not the removed one. |
-| Each CLI writes in each folder, and the changes card lists them by folder | each | Two files in two folders: the card says "Changed 2 files" with a group per folder, and the diff shows both. |
+| Each CLI writes in each folder, and the changes card lists them by folder | each | Two files in two folders: the card says "Changed 2 files" with a group per folder, and the diff shows both. Cursor asks before it writes in the second folder, and is allowed. |
 | The file browser lists every working directory | Claude Code | **Files** has a **Folder** list with both folders; the second shows its own files. |
 | In parallel mode each member gets a worktree of each folder, and Apply applies them all | Claude Code, Codex | Both replies have a worktree change in each folder; **Apply** writes Codex's files in both folders. |
 | Settings' default working directories are where new chats start | — | A folder saved in **Settings → Default working directories** is in the box of the next new chat. |
 | The folder dialog adds the folders chosen in it, and the chat starts in all of them | Linux only | **Choose folders…** (the fake `zenity`) adds two folders; the dialog opened inside the last folder, with several allowed and an English title; the new chat has the three folders. |
 | The folder dialog in Chinese, on a server without a UTF-8 locale | Linux only | The dialog's title is in Chinese and it gets `LC_CTYPE=C.UTF-8`; Cancel adds nothing. |
+
+## Harness Relay's own sandbox
+
+[`sandbox.spec.ts`](specs/sandbox.spec.ts): the sandbox the open agents run in below full access ([OS sandboxes by platform](../docs/sandboxing.md#harness-relays-own-sandbox)), and what Harness Relay does where it has none. The open agents' fakes write and reach hosts for real, so what they may not do is refused by the real sandbox, not by the fake. The tests that need it run where it works (macOS, and Linux with bubblewrap, socat and ripgrep), and are skipped elsewhere, saying why, or fail when `E2E_REQUIRE_RELAY_SANDBOX=1` says it must work (CI).
+
+| Scenario | CLI | What is checked |
+| --- | --- | --- |
+| In a read-only chat a write the user allows still cannot reach the working directory | each open agent but Pi | **Allow** on the "wants to change files" card: the fake writes, the sandbox refuses it (the folder is read-only there), and the reply says "I may not write out.txt here."; no file, no changes card. Pi has no write tool in a read-only chat. |
+| A host the run may not reach is asked about, and refused when declined | each open agent | `e2e:fetch=http://e2e.example.invalid/`: the sandbox's proxy asks before it connects (so no name needs to resolve), the "wants to read a web page" card names the host, and **Decline** refuses it. OpenHands and Pi ask in edit mode, the lowest where they have a tool to reach a URL. |
+| Below full access, an open agent that runs only with full access here does not run, and says why | each open agent | On Windows (all five) and on Linux (OpenCode): the reply's error says it only runs with full access, and its CLI never got the prompt. Skipped where it runs below full access. |
+| OpenHands below full access needs its terminal switch | OpenHands | With the switch off (`sandboxTerminal: false`), the reply's error says that below full access OpenHands runs only with a terminal in the sandbox. macOS only: Linux gives the sandbox a terminal of its own, and Windows runs it with full access only. |
+| Antigravity's project setup is asked about before agy starts, and a refusal keeps it from starting | Antigravity | With `.agents/mcp_config.json` in the working directory, the "wants to use a tool" card names it; declined, the turn does not start (its error says why) and agy never gets the prompt. On every system: Antigravity has no sandbox. |
 
 ## What reaches each CLI besides the prompt
 
@@ -209,22 +225,22 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
 | An MCP server from the tool library, with its secret kept off the command line | each | The member names the server it got, and its secret value is in no argument the CLI was started with. |
-| An HTTP MCP server from the tool library, with its secret header kept off the command line | each | The CLI gets it as an HTTP server at its URL, with the `Authorization` header and its value, which is in no argument the CLI was started with. |
-| An attached image | each | The image is attached in the composer, the reply says it got one image, and the prompt names the file for the agent's own tools. |
+| An HTTP MCP server from the tool library, with its secret header kept off the command line | each but Antigravity | The CLI gets it as an HTTP server at its URL, with the `Authorization` header and its value, which is in no argument the CLI was started with. Antigravity's adapter gives it no HTTP servers, since agy says over ACP that it takes none. |
+| An attached image | each but Cline | The image is attached in the composer, the reply says it got one image, and the prompt names the file for the agent's own tools. Cline takes no images over ACP (its model gets only their paths, in the prompt's text). |
 
 ## The tool library
 
-[`tools.spec.ts`](specs/tools.spec.ts): **Settings → Tool library**, in a chat with a Claude Code, a Codex and a Grok member.
+[`tools.spec.ts`](specs/tools.spec.ts): **Settings → Tool library**, each test twice: in a chat with a member of each CLI with a sign-in, and in one with a member of each open agent (`open agents: …`). A test that turns an item off for a CLI, or on or off for a member, takes the team's second and third members for that (Codex and Grok; Goose and Cline).
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| An MCP server added on the page reaches every CLI, its secret masked and kept off the command line | all three | The row says "All members"; editing shows the value empty with a masked placeholder; neither the page nor `GET /api/tools` holds the secret; each member names the server and got its value, in no argument; Claude Code's `--mcp-config` file is gone after the turn. |
-| An MCP server turned off for a CLI, or in a member's Tools, is not given | all three | Off for Codex in "Given by default to", Codex gets nothing; ticked in Codex's **Tools** and unticked in Grok's, Codex gets it (its saved value kept) and Grok does not. |
-| A skill picked from a folder is in each CLI's briefing, and each reads its SKILL.md | all three | Of a folder with two skills, the one added is in each briefing and each reads its first line; the other never shows. Claude Code may read it only through the `Read(…)` rule its adapter adds (the fake refuses without it). |
-| A skill turned off for a CLI, or in a member's Tools, is not given | all three | Off for Grok and unticked in Claude's **Tools**, neither gets it, and Claude Code's arguments name it nowhere. |
-| Memory for all members and for one CLI reaches each briefing, and a member's Tools can leave it out | all three | Codex gets the shared memory and its own note, in order, the others only the shared one; unticking "Shared memory" in Grok's **Tools** leaves Grok none. |
-| An MCP server given a new value on the page gets it at the next turn, and once removed it is given no more | all three | Edited, the page shows the new mask and each CLI's next turn gets only the new value, in no argument; removed, the next turn gets it neither by name nor by value. A second server stays throughout, so that "given nothing" cannot pass on a turn that got no library at all. |
-| A skill and a memory note removed on the page are given no more | all three | One of two skills and the shared memory note removed: the next briefing and reply have neither, while the other skill and each CLI's own note still arrive. |
+| An MCP server added on the page reaches every CLI, its secret masked and kept off the command line | two teams | The row says "All members"; editing shows the value empty with a masked placeholder; neither the page nor `GET /api/tools` holds the secret; each member names the server and got its value, in no argument; Claude Code's `--mcp-config` file is gone after the turn. |
+| An MCP server turned off for a CLI, or in a member's Tools, is not given | two teams | Off for the second CLI (Codex; Goose) in "Given by default to", it gets nothing; ticked in its member's **Tools** and unticked in the third's (Grok; Cline), the second gets it (its saved value kept) and the third does not. |
+| A skill picked from a folder is in each CLI's briefing, and each reads its SKILL.md | two teams | Of a folder with two skills, the one added is in each briefing and each reads its first line; the other never shows. Claude Code may read it only through the `Read(…)` rule its adapter adds (the fake refuses without it). |
+| A skill turned off for a CLI, or in a member's Tools, is not given | two teams | Off for the third CLI (Grok; Cline) and unticked in the first's **Tools** (Claude; OpenCode), neither gets it, and Claude Code's arguments name it nowhere. |
+| Memory for all members and for one CLI reaches each briefing, and a member's Tools can leave it out | two teams | The second CLI (Codex; Goose) gets the shared memory and its own note, in order, the others only the shared one; unticking "Shared memory" in the third's **Tools** (Grok; Cline) leaves it none. |
+| An MCP server given a new value on the page gets it at the next turn, and once removed it is given no more | two teams | Edited, the page shows the new mask and each CLI's next turn gets only the new value, in no argument; removed, the next turn gets it neither by name nor by value. A second server stays throughout, so that "given nothing" cannot pass on a turn that got no library at all. |
+| A skill and a memory note removed on the page are given no more | two teams | One of two skills and the shared memory note removed: the next briefing and reply have neither, while the other skill and each CLI's own note still arrive. |
 
 ## Changing a chat's history
 
@@ -276,25 +292,37 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| Each CLI is found, with its version, and signed in | each, in one test | Each card shows the CLI's version and **Signed in** (Claude Code with its account); the sidebar's dots are OK for the three and show Cursor and Antigravity, which no fake stands in for, as not installed ("3/5 ready"); their names show when asked for, and stay after a reload. |
+| Each CLI is found, with its version, and signed in | each, in one test | Each card shows the CLI's version, and **Signed in** (Claude Code with its account) or, for an open agent on the fake endpoint, **Ready**; the sidebar's ten dots are OK ("10/10 ready", an open agent's titled "Model backends set up"); their names show when asked for, and stay after a reload. |
+| A CLI that is not installed shows so in Settings and the sidebar | Cursor, Antigravity | Left not installed (`missingClis`): their dots and cards say **Not installed**. |
+| An open agent without a model backend is not ready, and its turn says to set one up | OpenCode | `openBackend: false`: its dot says "No model backend yet", its card **Not ready** with "No model backend set up yet (Settings → Model backends)", and its reply's error that OpenCode has no model. |
 | A CLI's executable path can be set, and a wrong one shows it as missing | Grok | A path that does not exist shows **Not installed**; an empty one finds it again. |
 | The language can be switched, and the choice is kept | — | 繁體中文 changes the page, a reload keeps it, and English changes it back. |
 | Another CLI can be the lead agent | Codex as lead agent | The New chat page names it, the team card says "Lead agent: Codex", and the lead agent's prompt went to Codex. |
-| A CLI that is not signed in shows as signed out, and its reply says why | Codex | `E2E_FAKE_SIGNED_OUT=codex`: its health dot and card say **Not signed in** (without the CLI's own words), with a **Sign in** button, and its reply carries the CLI's error. |
+| A CLI that is not signed in shows as signed out, and its reply says why | each with a sign-in | `E2E_FAKE_SIGNED_OUT=<cli>`: its health dot and card say **Not signed in** (without the CLI's own words), with a **Sign in** button, while another CLI stays signed in; its reply carries the CLI's error. |
 
-## Accounts
+## CLIs that are scripts on Windows
 
-[`accounts.spec.ts`](specs/accounts.spec.ts): **Settings → each CLI's card → Add an account**.
+[`windows.spec.ts`](specs/windows.spec.ts): Windows only. Everywhere else, and by default on Windows too, the fakes are programs found on the PATH. Here each CLI's executable path is set in Settings, as a user does, to a launcher of the kind it comes with on Windows, which Harness Relay starts as the program it runs (`src/server/winLaunch.ts`), never through `cmd.exe`.
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| An added account has a folder of its own, and a member set to use it runs there | each | The account lives in `<data>/accounts/<cli>-<id>`, which its card shows; a member on it runs with that home (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`), a member on the default account with the default one. |
+| Started through Cursor's own launcher, it is found with its version and answers | Cursor | Through `cursor-agent.cmd` (which runs a Node and a script of Cursor's), Settings shows its version, and a turn with full access runs as Cursor. |
+| Started through npm's shim for a Node script, it is found with its version and answers | Cline, Pi | The same through npm's `.cmd` shim for a Node script. |
+| Started through npm's shim for a program, it is found with its version and answers | OpenCode | The same through npm's `.cmd` shim for a program. |
+
+## Accounts
+
+[`accounts.spec.ts`](specs/accounts.spec.ts): **Settings → each CLI's card → Add an account**, for the five CLIs with a sign-in (the open agents have no accounts: they run on the model backends). Cursor's and Antigravity's added accounts sign in with an API key only, which these tests give them.
+
+| Scenario | CLI | What is checked |
+| --- | --- | --- |
+| An added account has a folder of its own, and a member set to use it runs there | each with a sign-in | The account lives in `<data>/accounts/<cli>-<id>`, which its card shows, and is signed in there (Cursor's and Antigravity's with the key given it: "Using an API key"); a member on it runs with that home (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, Cursor's account folder, Antigravity's `.gemini` in it), a member on the default account with the default one. |
 | Each account signs in and out on its own | Claude Code | **Sign out** runs `auth logout` in the added account's home only; **Sign in** goes through the CLI's own flow (a link, then a pasted code) and shows the account signed in. |
 | Signing an added account out signs out only that account | Codex, Grok | `logout` runs in that account's folder only; its card says **Not signed in**, and the default account stays signed in. |
-| With the credential store off, an account's API key is kept in the database, shown masked, and given to its CLI only | Claude Code, Grok | The key box says where keys are kept; saved, the key shows masked with "Using an API key" and never in `/api/settings`; that account's run gets it (`ANTHROPIC_API_KEY`, `XAI_API_KEY`), in no argument, and the default account's does not. |
+| With the credential store off, an account's API key is kept in the database, shown masked, and given to its CLI only | Claude Code, Grok, Cursor, Antigravity | The key box says where keys are kept (a key-only account's is open from the start); saved, the key shows masked with "Using an API key" and never in `/api/settings`; that account's run gets it (`ANTHROPIC_API_KEY`, `XAI_API_KEY`, `CURSOR_API_KEY`, `GEMINI_API_KEY`), in no argument, and the default account's does not. |
 | An account's API key signs that account in with Codex's own login | Codex | Codex takes no key in its environment: the key goes on stdin to `codex login --with-api-key` in that account's folder only, Harness Relay keeps none, and only that account's runs have it. |
-| The API key Harness Relay was started with is the default account's only | each | A key in the server's own environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`) reaches the default account's turns and not an added account's. |
-| Removing an added account signs it out and deletes its folder, and its member and the lead agent use the default account | each | The confirmation names the folder; the account signs out there, then the folder and its sessions are gone; the lead agent goes back to the default account; the member's next turn runs in the default home, in a new session. |
+| The API key Harness Relay was started with is the default account's only | each with a sign-in | A key in the server's own environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `CURSOR_API_KEY`, `GEMINI_API_KEY`) reaches the default account's turns and not an added account's (Cursor's and Antigravity's run on a key of their own). |
+| Removing an added account signs it out and deletes its folder, and its member and the lead agent use the default account | each with a sign-in | The confirmation names the folder; the account signs out there (a key-only one has nothing to sign out of), then the folder and its sessions are gone; the lead agent goes back to the default account; the member's next turn runs in the default home, in a new session. |
 | An account added while the CLIs' status is on its way keeps the newer answer's state | Claude Code | The page's next status answer is held back until after the account is added (`page.route`): when that older answer, without the account, comes in last, the account's pill stays **Signed in** instead of going back to "Checking…". |
 | A CLI signed out outside Harness Relay shows so when Settings is opened again | Claude Code | Signed out in its home, as `claude auth logout` in a terminal would, while the server's cache still says signed in. Reopened, Settings checks again while the app gets the cached answer, held back (`page.route`) until Settings' own has landed: coming in last, it does not win, and the pill says **Not signed in**. |
 | An account is not removed while a conversation runs | Claude Code | During a slow reply **Remove** says a conversation is running and nothing changes; once the chat is stopped, it works. |
@@ -316,8 +344,8 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| The folder chosen in Settings is where each CLI keeps its sessions | all three | The folder is saved (owner-only, not checked on Windows), each CLI's session lands in `<folder>/<cli>/`, and nothing goes to the usual homes. |
-| After the folder changes, each member starts a fresh session there with the chat so far | all three | The next prompt carries the whole chat, the new session is in the new folder, and the old one stays where it was. |
+| The folder chosen in Settings is where each CLI keeps its sessions | two teams | The folder is saved (owner-only, not checked on Windows), each CLI's session lands in `<folder>/<cli>/` (an open agent's in its member's state there), and nothing goes to the usual homes. |
+| After the folder changes, each member starts a fresh session there with the chat so far | two teams | The next prompt carries the whole chat, the new session is in the new folder, and the old one stays where it was. |
 | A folder inside Harness Relay's own folder or the default working directory is refused | — | Both refusals are shown, nothing is created, and the setting stays empty. |
 | The folder cannot change while a conversation runs | Claude Code | During a slow reply Save says a conversation is running; once it is stopped, Save works. |
 | A conversation is sent to AgentsView after each turn and when it is renamed, with its members' sessions under it | Claude Code, Codex | The upload carries AgentsView's own `Origin` and the project and machine of a session it knows; the transcript holds the question, both replies and the title; each member's session is linked under it; a rename sends the new title. |
@@ -387,38 +415,66 @@ In the tables below, **each** in the CLI column means the test runs once for eac
 
 ## Each CLI at a glance
 
-The scenarios tried with each of the three CLIs (most of them as a test per CLI), so a change in one adapter shows up here:
+The scenarios tried with each CLI (most of them as a test per CLI, the rest with a team of five), so a change in one adapter shows up here. The CLIs with a sign-in of their own:
 
-| Scenario | Claude Code | Codex | Grok |
-| --- | --- | --- | --- |
-| Thinking, a tool call and a to-do list | ✓ | ✓ | ✓ |
-| A command allowed, and declined with a note | ✓ | ✓ (no note) | ✓ |
-| Full access: runs and writes anywhere without asking | ✓ | ✓ | ✓ |
-| A read-only chat writes nothing | ✓ (no file tools) | ✓ (asks, declined) | ✓ (asks, declined) |
-| A folder the chat was not given stays out of reach | ✓ | ✓ | ✓ (not on Windows) |
-| Writing there once the user allows it | ✓ | ✓ | — |
-| Several working directories: a file in each | ✓ | ✓ | ✓ |
-| An MCP server from the tool library, its secret off the command line | ✓ | ✓ | ✓ |
-| An attached image | ✓ | ✓ | ✓ |
-| A reply stopped | ✓ | ✓ | ✓ |
-| An error inside the protocol | ✓ | ✓ | ✓ |
-| A failed reply (the CLI exits) and Retry | ✓ | ✓ | ✓ |
-| The next turn resumes its own session | ✓ | ✓ | ✓ |
-| Version and sign-in in Settings | ✓ | ✓ | ✓ |
-| A member's model and effort | ✓ | ✓ | ✓ |
-| An added account's own home | ✓ | ✓ | ✓ |
-| The tool library's MCP server, skill and memory: given, edited and removed | ✓ | ✓ | ✓ |
-| The CLIs' own folder for sessions, and a fresh session after it changes | ✓ | ✓ | ✓ |
-| Its own skills listed, and left out of the next run | ✓ | ✓ | ✓ (after trusting the folder) |
-| An HTTP MCP server and its header | ✓ | ✓ | ✓ |
-| An added account signed out on its own | ✓ | ✓ | ✓ |
-| An account's API key, to that account only | ✓ | ✓ (through `codex login`) | ✓ |
-| The server's own API key, to the default account only | ✓ | ✓ | ✓ |
-| Removing an added account | ✓ | ✓ | ✓ |
+| Scenario | Claude Code | Codex | Grok | Cursor | Antigravity |
+| --- | --- | --- | --- | --- | --- |
+| Thinking, a tool call and a to-do list | ✓ | ✓ | ✓ | ✓ | ✓ |
+| A command allowed, and declined with a note | ✓ | ✓ (no note) | ✓ | ✓ (the note dropped) | ✓ (the refusal ends its turn) |
+| Full access: runs and writes anywhere without asking | ✓ | ✓ | ✓ | ✓ | ✓ |
+| A read-only chat writes nothing | ✓ (no file tools) | ✓ (asks, declined) | ✓ (asks, declined) | ✓ (its own rules refuse, no card) | ✓ (asks, declined; ends its turn) |
+| A folder the chat was not given stays out of reach | ✓ (asks, refused) | ✓ (asks, refused) | ✓ (asks, refused; not on Windows) | ✓ (asks, refused) | ✓ (asks, refused; ends its turn) |
+| Writing there once the user allows it | ✓ | ✓ | — (its sandbox refuses it) | ✓ | ✓ |
+| Several working directories: a file in each | ✓ | ✓ | ✓ | ✓ (the second asks first) | ✓ |
+| An MCP server from the tool library, its secret off the command line | ✓ | ✓ | ✓ | ✓ | ✓ |
+| An HTTP MCP server and its header | ✓ | ✓ | ✓ | ✓ | — (none given) |
+| An attached image | ✓ | ✓ | ✓ | ✓ | ✓ |
+| A reply stopped; an error inside the protocol; a failed reply and Retry | ✓ | ✓ | ✓ | ✓ | ✓ |
+| The next turn resumes its own session | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Version and sign-in in Settings, and signed out | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Not installed, in Settings and the sidebar | — | — | ✓ (a wrong executable path) | ✓ | ✓ |
+| A member's model and effort | ✓ | ✓ | ✓ | ✓ | ✓ |
+| In a team of the five: answering in turn, edit mode's changes, the tool library, the CLIs' own folder for sessions | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Its own skills listed, and left out of the next run | ✓ | ✓ | ✓ (after trusting the folder) | — | — |
+| An added account's own home | ✓ | ✓ | ✓ | ✓ (with its API key) | ✓ (with its API key) |
+| An added account signed out on its own | ✓ | ✓ | ✓ | — (key only) | — (key only) |
+| An account's API key, to that account only | ✓ | ✓ (through `codex login`) | ✓ | ✓ | ✓ |
+| The server's own API key, to the default account only | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Removing an added account | ✓ | ✓ | ✓ | ✓ | ✓ |
+| A project's own setup asked about before the CLI starts | — | — | — | — | ✓ |
+| Started through a `.cmd` launcher on Windows | — | — | — | ✓ (its own) | — |
+
+The open agents, in Harness Relay's own sandbox below full access:
+
+| Scenario | OpenCode | Goose | Cline | OpenHands | Pi |
+| --- | --- | --- | --- | --- | --- |
+| Runs below full access (elsewhere with full access only, and says so when asked for less) | macOS | macOS, Linux | macOS, Linux | macOS (with its terminal switch, also tried off), Linux | macOS, Linux |
+| Thinking, a tool call and a to-do list | ✓ | ✓ | ✓ (no to-do list) | ✓ | ✓ (no to-do list) |
+| A command allowed, and declined with a note | ✓ | ✓ (`env echo`) | ✓ (the note dropped) | ✓ (the note dropped) | ✓ (in edit mode, `npm publish`, through its gate) |
+| Full access: runs and writes anywhere without asking | ✓ | ✓ | ✓ | ✓ | ✓ |
+| A read-only chat writes nothing | ✓ (asks, declined) | ✓ (asks, declined) | ✓ (asks, declined) | ✓ (asks, declined) | ✓ (no write tool) |
+| A write allowed in a read-only chat, refused by the sandbox | ✓ | ✓ | ✓ | ✓ | — (no write tool) |
+| A folder the chat was not given stays out of reach (the sandbox refuses it) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Writing there once the user allows it | — | — | — | — | — |
+| A host the run may not reach asked about, and refused | ✓ | ✓ | ✓ | ✓ (in edit mode) | ✓ (in edit mode) |
+| Several working directories: a file in each | ✓ | ✓ | ✓ | ✓ | ✓ |
+| An MCP server from the tool library, its secret off the command line | ✓ | ✓ | ✓ | ✓ | ✓ |
+| An HTTP MCP server and its header | ✓ | ✓ | ✓ | ✓ | ✓ |
+| An attached image | ✓ | ✓ | — (paths only) | ✓ | ✓ |
+| A reply stopped; an error inside the protocol; a failed reply and Retry | ✓ | ✓ | ✓ | ✓ | ✓ |
+| The next turn resumes its own session | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Version and "Ready" in Settings, on the fake endpoint | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Not ready without a model backend | ✓ | — | — | — | — |
+| A member's model (the endpoint's) and effort | ✓ (no effort) | ✓ (`off`) | ✓ | ✓ | ✓ |
+| In a team of the five: answering in turn, edit mode's changes, the tool library, the CLIs' own folder for sessions | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Started through a `.cmd` launcher on Windows | ✓ (npm's, for a program) | — | ✓ (npm's, for a Node script) | — | ✓ (npm's, for a Node script) |
 
 ## Platforms and browsers
 
-- [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) runs every spec in Chromium on Ubuntu, macOS and Windows with Node 24, and on Ubuntu with Node 22, for each pull request and each push to `main`. Run it by hand to choose other browsers; locally, `E2E_BROWSERS=chromium,firefox,webkit` ([`playwright.config.ts`](../playwright.config.ts)).
+- [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) runs every spec in Chromium on Ubuntu, macOS and Windows with Node 24, and on Ubuntu with Node 22, for each pull request and each push to `main`. Run it by hand to choose other browsers; locally, `E2E_BROWSERS=chromium,firefox,webkit` ([`playwright.config.ts`](../playwright.config.ts)). On Ubuntu it installs what Harness Relay's own sandbox needs (bubblewrap, socat and ripgrep, and the AppArmor profile that lets `/usr/bin/bwrap` make its namespaces), on Ubuntu and macOS it runs the sandbox's own checks (`scripts/sandbox-check.ts`) first, and it sets `E2E_REQUIRE_RELAY_SANDBOX=1` there, so a test that needs the sandbox fails rather than skips.
+- The open agents run below full access on macOS and Linux only (Linux with bubblewrap, socat and ripgrep): on Windows, which Harness Relay's own sandbox does not cover, they run with full access only, and so does OpenCode on Linux. There the tests about permissions skip them, saying why, the others run them with full access, and [Harness Relay's own sandbox](#harness-relays-own-sandbox) checks that a chat below full access does not start them. Without the sandbox on a Mac or Linux computer, the tests that need it are skipped, saying why (`E2E_RELAY_SANDBOX`, which `global-setup.ts` works out once).
+- OpenHands below full access needs a terminal in the sandbox on macOS: the test servers turn its switch on, and the test with it off runs on macOS only.
+- [CLIs that are scripts on Windows](#clis-that-are-scripts-on-windows) runs on Windows only.
 - The folder dialog tests run on Linux only: Linux finds its dialog on the PATH, where the fake one stands in; macOS and Windows open their own by their full paths.
 - "A folder the chat was not given stays out of reach" is skipped for Grok on Windows, which has no sandbox there ([OS sandboxes by platform](../docs/sandboxing.md)).
 - [On a phone](#on-a-phone) is skipped in Firefox.
@@ -427,13 +483,15 @@ The scenarios tried with each of the three CLIs (most of them as a test per CLI)
 
 ## What they do not cover
 
-- **The CLIs themselves.** The fakes check Harness Relay's side of each protocol; the [live tests](#the-live-tests) try the real ones, by hand. A CLI that changes what it writes is caught by the adapter tests' recorded messages (`test/claude.test.ts`, `test/codex.test.ts`, `test/grok.test.ts`) and by trying the real CLI in the app. Cursor, Antigravity and the open agents have no fake: the specs see them only as not installed, and their adapters are tried by their own tests (`test/cursor.test.ts`, `test/antigravity.test.ts` and the open agents', the last two replaying messages recorded from the real CLIs).
+- **The CLIs themselves.** The fakes check Harness Relay's side of each protocol; the [live tests](#the-live-tests) try the real ones, by hand. A CLI that changes what it writes is caught by the adapter tests' recorded messages (`test/claude.test.ts`, `test/codex.test.ts`, `test/grok.test.ts`, `test/cursor.test.ts`, `test/antigravity.test.ts` and the open agents', the last ones replaying messages recorded from the real CLIs) and by trying the real CLI in the app.
+- **The CLIs' own sandboxes.** The fakes of Claude Code, Codex and Grok work out from what Harness Relay gave them what their CLI's sandbox would allow; only Harness Relay's own sandbox, around the open agents, is the real one. That the real CLIs below full access write nowhere outside the chat's folders is tried by the live tests (`live/sandbox.spec.ts`).
+- **What Cursor does without asking in a temporary folder.** The real Cursor writes in a temporary folder (`/tmp`, macOS' `/private/var/folders`) without asking; its fake does not, as the tests' folders are all in one and every write outside the workspace would then go through unasked. Nor does a spec try a Cursor team's auto-run allowlist (the fake has one, `E2E_FAKE_CURSOR_TEAM_ALLOW`).
 - **How smoothly the home logo's animation runs.** [The home page](#the-home-page) checks that it animates `transform` and `opacity` alone, once; that Chrome runs it on the compositor, with no layout or paint after the page is drawn, was checked by hand in a Chrome trace.
-- **Features no spec goes through yet**: voice input itself, recording and transcribing (it downloads its engine and models, and needs a microphone; only its install's panel is tried); the files a shared reply links to, and uploading a report's screenshots (both push to a gist with git, which the fake `gh` does not stand in for); API keys in the OS credential store (the tests keep it off, so they go to the database); signing Codex and Grok in from Settings (their device flows), and what the real Codex does with a key `codex login --with-api-key` was given; AgentsView's links to the lead agent's and the group sorter's sessions, conversations sent once an address is set, and the members' sessions Harness Relay records for Cursor and the open agents (no fake stands in for those CLIs; `test/agentsview.test.ts` covers them); a ZIP too large even without what git ignores; and the desktop app's window beyond signing in (its own checks, `desktop/scripts/smoke.ts` and `desktop/scripts/check-package.ts`, start a read-only chat of these fake claude, codex and grok and have each answer a question, on the bundled server and in the packaged app: in CI on Linux and Windows, and on every system before a release). Some of them have unit tests in [`test/`](../test/), listed in the developer guide's [Testing](../docs/developer-guide.md#testing).
+- **Features no spec goes through yet**: voice input itself, recording and transcribing (it downloads its engine and models, and needs a microphone; only its install's panel is tried); the files a shared reply links to, and uploading a report's screenshots (both push to a gist with git, which the fake `gh` does not stand in for); API keys in the OS credential store (the tests keep it off, so they go to the database); signing Codex, Grok, Cursor and Antigravity in from Settings (their own flows), and what the real Codex does with a key `codex login --with-api-key` was given; AgentsView's links to the lead agent's and the group sorter's sessions, conversations sent once an address is set, and the members' sessions Harness Relay records for Cursor and the open agents (`test/agentsview.test.ts` covers them); a ZIP too large even without what git ignores; and the desktop app's window beyond signing in (its own checks, `desktop/scripts/smoke.ts` and `desktop/scripts/check-package.ts`, start a read-only chat of these fake claude, codex and grok and have each answer a question, on the bundled server and in the packaged app: in CI on Linux and Windows, and on every system before a release). Some of them have unit tests in [`test/`](../test/), listed in the developer guide's [Testing](../docs/developer-guide.md#testing).
 
 ## The live tests
 
-[`live/`](live/) holds a second suite, `npm run test:e2e:live` with [`playwright.live.config.ts`](../playwright.live.config.ts): the real CLIs, signed in as you are, on real models, so it costs a little and never runs on CI. It is not counted above. Its 11 tests try a CLI's default model set to an endpoint's in Settings, the CLIs' own cloud models, a member on a deleted endpoint's model, a model typed for an endpoint, the open agents on native Windows below full access, a team on cloud and local models together, and Cursor writing in a chat's second working directory. How to run them: the developer guide's [Live tests](../docs/developer-guide.md#live-tests).
+[`live/`](live/) holds a second suite, `npm run test:e2e:live` with [`playwright.live.config.ts`](../playwright.live.config.ts): the real CLIs, signed in as you are, on real models, so it costs a little and never runs on CI. It is not counted above. It tries all ten CLIs by default, each test skipped unless the environment names what it needs (an endpoint, `E2E_LIVE_CLOUD=1` for the CLIs' own cloud models): on a Mac, 40 tests in three files with one endpoint, and 47 with the cloud models too (one more for each `E2E_LIVE_MODEL_<CLI>`; with nothing set, 16 tests are listed, all skipped). They try each CLI on an endpoint's model picked in Team settings, a CLI's default model set to an endpoint's in Settings, the five CLIs' own cloud models (Claude Code's, Codex's, Grok's, Cursor's and Antigravity's), a member on a deleted endpoint's model, a model typed for an endpoint, the open agents on native Windows below full access, a team on cloud and local models together, each CLI writing a file in each of a chat's two working directories through its shell (on an endpoint's model, and the five with a sign-in on their own too), Cursor's own file tool in the second one, Antigravity ending its turn at a refused command and asking about a project's own MCP server before it starts, and every CLI below full access writing nothing outside the chat's folders. How to run them: the developer guide's [Live tests](../docs/developer-guide.md#live-tests).
 
 ## Related docs
 
@@ -443,6 +501,7 @@ The scenarios tried with each of the three CLIs (most of them as a test per CLI)
 - [User guide](../docs/user-guide.md): the features these scenarios go through, as a person uses them.
 - [Architecture](../docs/architecture.md): how the server does what they check ([CLI adapters](../docs/architecture.md#cli-adapters), [Permission mapping](../docs/architecture.md#permission-mapping), [Security](../docs/architecture.md#security)).
 - [OS sandboxes by platform](../docs/sandboxing.md): why a folder the chat was not given stays out of each CLI's reach, and where it does not.
+- [Open agents](../docs/open-agents.md): their model backends, permissions and the relay sandbox, which their fakes run in.
 - [Use it from your phone](../docs/remote-access.md): what [On a phone](#on-a-phone) stands for.
 - [Developer guide → Live tests](../docs/developer-guide.md#live-tests): the second suite, with the real CLIs.
-- Code: [`playwright.config.ts`](../playwright.config.ts), [`fixtures.ts`](fixtures.ts), [`global-setup.ts`](global-setup.ts), [`support/`](support/) (`relay.ts`, `app.ts`, `fake-cli.ts`), [`fake-cli/`](fake-cli/) and [`specs/`](specs/).
+- Code: [`playwright.config.ts`](../playwright.config.ts), [`fixtures.ts`](fixtures.ts), [`global-setup.ts`](global-setup.ts), [`support/`](support/) (`relay.ts`, `app.ts`, `clis.ts` and the facts of each CLI in `clis/`, `fake-cli.ts`, `sandbox.ts`), [`fake-cli/`](fake-cli/) and [`specs/`](specs/).

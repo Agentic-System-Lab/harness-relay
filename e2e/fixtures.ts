@@ -4,10 +4,14 @@
  *
  * Options (`test.use({ … })`): `lang` ('en' | 'zh-TW'), `signIn` (false: the page is left on no
  * page, signed out), `tour` (true: the guided tour is not marked done), `serverEnv` (more
- * environment for the server and the CLIs it starts) and `live` (the real CLIs: `e2e/live/`).
+ * environment for the server and the CLIs it starts), `live` (the real CLIs: `e2e/live/`),
+ * `missingClis` (the CLIs not installed: by default those whose fake is not written yet),
+ * `openBackend` (false: no model backend, so the open agents are installed but not ready) and
+ * `sandboxTerminal` (false: OpenHands' terminal switch off).
  */
 import { test as base, expect } from '@playwright/test';
-import { installFakeClis } from './support/fake-cli';
+import type { Provider } from '../src/shared/types';
+import { installFakeClis, NOT_YET_FAKED } from './support/fake-cli';
 import { startRelay, type RelayServer } from './support/relay';
 
 export type Lang = 'en' | 'zh-TW';
@@ -20,6 +24,12 @@ interface TestFixtures {
   serverEnv: Record<string, string>;
   /** The real CLIs as the user signed them in, on real models (`e2e/live/`, `startRelay`'s `live`). */
   live: boolean;
+  /** The CLIs not installed in the test's server (`startRelay`'s `missingClis`). */
+  missingClis: readonly Provider[];
+  /** Whether the fake endpoint is the open agents' model backend (`startRelay`'s `openBackend`). */
+  openBackend: boolean;
+  /** Whether OpenHands may use a terminal in Harness Relay's own sandbox (`startRelay`'s `sandboxTerminal`). */
+  sandboxTerminal: boolean;
 }
 
 interface WorkerFixtures {
@@ -32,11 +42,14 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   tour: [false, { option: true }],
   serverEnv: [{}, { option: true }],
   live: [false, { option: true }],
+  missingClis: [NOT_YET_FAKED, { option: true }],
+  openBackend: [true, { option: true }],
+  sandboxTerminal: [true, { option: true }],
 
   fakeBinDir: [async ({}, use) => use(process.env.E2E_FAKE_BIN_DIR || (await installFakeClis())), { scope: 'worker' }],
 
-  relay: async ({ fakeBinDir, serverEnv, live }, use, testInfo) => {
-    const relay = await startRelay({ fakeBinDir, env: serverEnv, live });
+  relay: async ({ fakeBinDir, serverEnv, live, missingClis, openBackend, sandboxTerminal }, use, testInfo) => {
+    const relay = await startRelay({ fakeBinDir, env: serverEnv, live, missingClis, openBackend, sandboxTerminal });
     try {
       await use(relay);
     } finally {

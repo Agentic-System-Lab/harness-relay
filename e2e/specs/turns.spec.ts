@@ -2,12 +2,7 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
 import { composer, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
-
-const CLIS = [
-  { name: 'Claude', provider: 'claude' },
-  { name: 'Codex', provider: 'codex' },
-  { name: 'Grok', provider: 'grok' },
-] as const;
+import { chatWith, CLIS, eachCli } from '../support/clis';
 
 test.describe('how members take turns', () => {
   test('an agent that asks the user waits for the answer, then answers with it', async ({ page, relay }) => {
@@ -87,9 +82,9 @@ test.describe('how members take turns', () => {
     await expect(page.locator('.msg-agent')).toHaveCount(4);
   });
 
-  for (const cli of CLIS) {
+  eachCli(CLIS, (cli) => {
     test(`${cli.provider}: a reply can be stopped`, async ({ page, relay }) => {
-      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }]);
+      await chatWith(page, relay, cli);
       await send(page, 'Take your time e2e:slow');
       const reply = replies(page, cli.name).last();
       await expect(reply.locator('.live-tag')).toBeVisible();
@@ -101,24 +96,25 @@ test.describe('how members take turns', () => {
     });
 
     test(`${cli.provider}: an error inside the CLI's protocol is shown on the reply`, async ({ page, relay }) => {
-      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }]);
+      await chatWith(page, relay, cli);
       await send(page, 'Go e2e:error');
       await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText(`fake ${cli.provider}: the model returned an error (e2e:error)`);
     });
 
     test(`${cli.provider}: a member's next turn resumes its own session`, async ({ page, relay }) => {
-      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }]);
+      const id = await chatWith(page, relay, cli);
       await send(page, 'First');
       await expect(await finishedReply(page, cli.name)).toContainText('You said: “First”.');
       await send(page, 'Second');
       await expect(replies(page, cli.name)).toHaveCount(2);
       await expect(await finishedReply(page, cli.name)).toContainText('You said: “Second”.');
+      await settled(relay, id);
       // The fakes keep their sessions and refuse to resume one they never started, as the real CLIs do.
-      const turns = relay.fakeLog().filter((e) => e.cli === cli.provider && e.session);
-      expect(turns.map((e) => e.resumed)).toEqual([false, true]);
-      expect(turns[1]!.session).toBe(turns[0]!.session);
+      const sessions = () => relay.fakeLog().filter((e) => e.cli === cli.provider && e.session);
+      await expect.poll(() => sessions().map((e) => e.resumed)).toEqual([false, true]);
+      expect(sessions()[1]!.session).toBe(sessions()[0]!.session);
     });
-  }
+  });
 
   test('a member whose CLI lost its session starts a new one with the chat so far', async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
@@ -137,9 +133,9 @@ test.describe('how members take turns', () => {
     expect(last.prompt).toContain('Remember this');
   });
 
-  for (const cli of CLIS) {
+  eachCli(CLIS, (cli) => {
     test(`${cli.provider}: a failed reply shows the CLI's error, and Retry answers again`, async ({ page, relay }) => {
-      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }]);
+      await chatWith(page, relay, cli);
       await send(page, 'Try this e2e:flaky');
       const failed = replies(page, cli.name).last();
       await expect(failed.locator('.msg-error')).toContainText(`fake ${cli.provider}: failing this once (e2e:flaky)`);
@@ -149,7 +145,7 @@ test.describe('how members take turns', () => {
       await expect(again).toContainText('You said: “Try this”.');
       await expect(page.locator('.msg-error')).toHaveCount(0);
     });
-  }
+  });
 
   test('a message sent while the team replies waits, then reaches the next member', async ({ page, relay }) => {
     await openTeamChat(page, relay, [

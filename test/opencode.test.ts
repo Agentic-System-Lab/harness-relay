@@ -1311,6 +1311,20 @@ describe('keeping its server to Harness Relay', () => {
     expect(watch).not.toHaveBeenCalled();
   });
 
+  it('expects its stream to close once the sandbox says its process exited (a crash is no security error)', async () => {
+    const ctx = context({ permission: 'edit' });
+    Object.assign(ctx.state, { port: 3 });
+    ctx.env.OPENCODE_SERVER_PASSWORD = 'pw';
+    let exited: (() => void) | undefined;
+    ctx.onAgentExit = (listener) => (exited = listener);
+    const closing = vi.fn();
+    const base = { sessionId: 's1', state: { configOptions: [{ id: 'model', currentValue: opencodeModelId(ctx.run) }, { id: 'mode', currentValue: 'build' }] } };
+    await opencodeAfterSession({ ...fakeConn(() => ({})), notify: vi.fn(), close: vi.fn() } as any, base, ctx, (() => ({ ready: Promise.resolve(), allowed: () => undefined, closing, stop: vi.fn() })) as any);
+    expect(closing).not.toHaveBeenCalled();
+    exited!();
+    expect(closing).toHaveBeenCalledTimes(1);
+  });
+
   it('stops the watch as the prompt answers, and in its cleanup hook however else the turn ends', () => {
     const stop = vi.fn();
     const ctx = { state: { watch: { stop, allowed: () => undefined, closing: () => undefined, ready: Promise.resolve() } } } as unknown as OpenRunContext;

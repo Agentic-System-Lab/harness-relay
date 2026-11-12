@@ -2,44 +2,47 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, chatId, finishedReply, openTeamChat, send } from '../support/app';
+import { chatWith, CLIS, eachCli, endsTurnNote, member, needsBelowFull, writtenBy } from '../support/clis';
 
 /*
  * The fake CLIs write only where the real ones could (their permission and sandbox, and the folders
- * Harness Relay passes them), so these tell whether a chat's folders reach each CLI.
+ * Harness Relay passes them), so these tell whether a chat's folders reach each CLI. The open agents'
+ * fakes write for real, and Harness Relay's own sandbox refuses what is not theirs to write.
  */
-const CLIS = [
-  { name: 'Claude', provider: 'claude' },
-  { name: 'Codex', provider: 'codex' },
-  { name: 'Grok', provider: 'grok' },
-] as const;
-
 const read = (file: string) => readFileSync(file, 'utf8');
 
 test.describe('a folder the chat was not given', () => {
-  for (const cli of CLIS) {
+  eachCli(CLIS, (cli) => {
     test(`${cli.provider}: stays out of reach in edit mode`, async ({ page, relay }) => {
+      needsBelowFull(cli.provider);
       // Grok has no sandbox on native Windows (docs/sandboxing.md): nothing keeps it in its folders.
-      test.skip(cli.provider === 'grok' && process.platform === 'win32', 'Grok has no sandbox on Windows');
+      test.skip(Boolean(cli.unconfinedOn?.includes(process.platform)), `${cli.label} has no sandbox on ${process.platform}`);
       const other = relay.addProject('other');
-      // Refused automatically: what is outside the chat's folders is beyond its permission.
-      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }], { permission: 'edit', approvals: 'deny' });
+      // Refused automatically: what is outside the chat's folders is beyond its permission (a CLI
+      // without a sandbox asks, and is refused; the others' sandbox refuses it).
+      await openTeamChat(page, relay, [member(cli)], { permission: 'edit', approvals: 'deny' });
       await send(page, 'Write next door e2e:write=../other/x.txt');
-      await expect(await finishedReply(page, cli.name)).toContainText('I may not write ../other/x.txt here.');
+      const reply = await finishedReply(page, cli.name);
+      // A CLI that ends its turn after a refusal says nothing more of it.
+      await expect(reply).toContainText(cli.decline === 'ends-turn' && cli.outsideWrite.asks ? endsTurnNote(cli) : 'I may not write ../other/x.txt here.');
       expect(existsSync(join(other, 'x.txt'))).toBe(false);
     });
-  }
+  });
 
-  for (const cli of CLIS.filter((c) => c.provider !== 'grok')) {
+  // The CLIs that ask about it (`outsideWrite`), and write once allowed: not Grok, whose sandbox
+  // refuses it all the same, nor the open agents, whose sandbox nothing widens.
+  eachCli(CLIS.filter((c) => c.outsideWrite.asks && c.outsideWrite.writtenOnceAllowed), (cli) => {
     test(`${cli.provider}: asks first, and writes there once the user allows it`, async ({ page, relay }) => {
+      needsBelowFull(cli.provider);
       const other = relay.addProject('other');
-      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }], { permission: 'edit' });
+      await openTeamChat(page, relay, [member(cli)], { permission: 'edit' });
       await send(page, 'Write next door e2e:write=../other/y.txt');
       const card = page.getByRole('region', { name: `@${cli.name} wants to change files` });
       await card.getByRole('button', { name: 'Allow', exact: true }).click();
       await expect(await finishedReply(page, cli.name)).toContainText('I wrote ../other/y.txt.');
       expect(existsSync(join(other, 'y.txt'))).toBe(true);
     });
-  }
+  });
 });
 
 test.describe('several working directories', () => {
@@ -72,14 +75,16 @@ test.describe('several working directories', () => {
     expect(existsSync(join(third, 'two.txt'))).toBe(false);
   });
 
-  for (const cli of CLIS) {
+  eachCli(CLIS, (cli) => {
     test(`${cli.provider}: writes in each folder, and the changes card lists them by folder`, async ({ page, relay }) => {
       const second = relay.addProject('second');
-      await openTeamChat(page, relay, [{ name: cli.name, provider: cli.provider }], { permission: 'edit', extraCwds: [second] });
+      await chatWith(page, relay, cli, { permission: 'edit', extraCwds: [second] });
       await send(page, 'Note it in both e2e:write=one.txt e2e:writeother=two.txt');
+      // A CLI that asks before writing in the folders after its first (Cursor), allowed.
+      if (cli.otherCwdWriteAsks) await page.getByRole('region', { name: `@${cli.name} wants to change files` }).getByRole('button', { name: 'Allow', exact: true }).click();
       const reply = await finishedReply(page, cli.name);
       await expect(reply).toContainText('I wrote one.txt. I wrote two.txt.');
-      expect(read(join(relay.workDir, 'one.txt'))).toBe(`Written by ${cli.name} (${cli.provider === 'claude' ? 'Claude Code' : cli.name}).\n`);
+      expect(read(join(relay.workDir, 'one.txt'))).toBe(writtenBy(cli));
       expect(existsSync(join(second, 'two.txt'))).toBe(true);
 
       const changes = reply.locator('.changes-card');
@@ -91,7 +96,7 @@ test.describe('several working directories', () => {
       await expect(diff).toContainText('one.txt');
       await expect(diff).toContainText('two.txt');
     });
-  }
+  });
 
   test('the file browser lists every working directory', async ({ page, relay }) => {
     const second = relay.addProject('second');

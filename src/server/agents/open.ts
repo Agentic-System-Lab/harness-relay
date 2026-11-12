@@ -94,6 +94,12 @@ export interface OpenRunContext {
   tmpDir: string;
   /** What the adapter's hooks keep about this run (each run has its own: hooks are shared by parallel runs). */
   state: Record<string, unknown>;
+  /**
+   * Inside the relay sandbox: calls `listener` once the agent's process has exited, as soon as the
+   * sandbox's host says so (the host itself exits a moment later, and only then does the run's process
+   * end). Not set outside the sandbox, where the process's own end is seen at once.
+   */
+  onAgentExit?(listener: () => void): void;
 }
 
 /** What every open agent's adapter declares about its CLI's process. */
@@ -527,6 +533,7 @@ export async function startOpenProcess(
       if (err instanceof AgentRunError || err instanceof CommandNotFoundError) throw err;
       throw new AgentRunError(t().openSandboxUnavailable(cli, (err as Error).message.trim().replace(/[.。]+$/, '')));
     }
+    ctx.onAgentExit = (listener) => wrapped.run?.onExit?.(listener);
     return {
       bin: wrapped.bin,
       args: wrapped.args,
