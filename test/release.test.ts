@@ -604,6 +604,14 @@ describe("a release's list of changes", () => {
     expect(subjectMarkdown('Hi _@octocat_')).toBe('Hi _`@octocat`_');
     expect(subjectMarkdown('a/@octocat')).toBe('a/`@octocat`');
     expect(subjectMarkdown('first_last@example.com')).toBe('first_last@example.com');
+    // With what is attached to it: GitHub would link `@latest` once the rest is in code.
+    expect(subjectMarkdown('Install @openai/codex@latest')).toBe('Install `@openai/codex@latest`');
+    expect(subjectMarkdown('Pin @types/node@22.')).toBe('Pin `@types/node@22`.');
+    expect(subjectMarkdown('@a@octocat')).toBe('`@a@octocat`');
+    expect(subjectMarkdown('Thanks @alice.')).toBe('Thanks `@alice`.');
+    // Links and addresses stay as they are: GitHub links no mention in them.
+    expect(subjectMarkdown('See https://www.npmjs.com/package/@types/node')).toBe('See https://www.npmjs.com/package/@types/node');
+    expect(subjectMarkdown('Mail dev_@example.com')).toBe('Mail dev_@example.com');
     // An author's name in git, too.
     const named: Change = { title: 'Fix it', name: '@someone', url: `${site}/commit/${sha(1)}` };
     expect(changesMarkdown({ repo, tag: 't', since: 's', changes: [named], newContributors: [] })).toContain(`* Fix it by \`@someone\` in ${site}/commit/${sha(1)}`);

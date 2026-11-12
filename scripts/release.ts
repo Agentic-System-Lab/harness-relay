@@ -463,8 +463,8 @@ export async function newContributors(api: GitHubApi, repo: string, since: strin
     if (!had || (!isPull(had) && isPull(c))) first.set(c.login, c);
     if (c.email) emails.set(c.login, (emails.get(c.login) ?? new Set()).add(c.email));
   }
-  const order = new Map([...first.keys()].map((login) => [login, changes.findIndex((c) => c.login === login)]));
-  const logins = [...first.keys()].sort((a, b) => order.get(a)! - order.get(b)!);
+  // A Map keeps the order its keys first came in, also when one is set again.
+  const logins = [...first.keys()];
   if (!since) return logins.map((l) => first.get(l)!);
   const before = async (author: string) =>
     ((await api(`repos/${repo}/commits?sha=${encodeURIComponent(since)}&author=${encodeURIComponent(author)}&per_page=1`)) as unknown[]).length > 0;
@@ -482,24 +482,26 @@ function mention(login: string): string {
 
 /**
  * A commit's subject as one line of Markdown inside a list item: a leading `#`, `>`, `-`, `+`, `*` or
- * `1.` that would make it a heading, a quote or a list escaped, and each `@name` outside code put in
- * code, so that the notes notify nobody a subject merely names (the authors are named by the notes).
+ * `1.` that would make it a heading, a quote or a list escaped, and each `@name` outside code and
+ * links put in code, so that the notes notify nobody a subject merely names (the authors are named by
+ * the notes).
  */
 export function subjectMarkdown(subject: string): string {
   const escaped = subject.replace(/^(\d{1,9})([.)])(?=\s|$)/, '$1\\$2').replace(/^(#{1,6}(?=\s|$)|>|[-+*](?=\s|$))/, '\\$1');
   return escaped
-    .split(/(`+[^`]*`+)/)
+    .split(/(`+[^`]*`+|https?:\/\/\S+)/)
     .map((part, i) => (i % 2 ? part : codeMentions(part)))
     .join('');
 }
 
 /**
  * Each `@name` put in code, so that GitHub links and notifies nobody: wherever GitHub would take it for
- * one (after anything but a letter, a digit or a backtick, `_@name_` and `a/@name` too), but not an
- * address (`dev@example.com`).
+ * one (after anything but a letter, a digit, a backtick or a word's `_`: `_@name_` and `a/@name` too),
+ * with what is attached to it (`@scope/package@latest`, whose `@latest` GitHub would link once the rest
+ * is in code), but not an address (`dev@example.com`, `dev_@example.com`).
  */
 function codeMentions(text: string): string {
-  return text.replace(/(^|[^A-Za-z0-9`])@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\/[\w.-]+)?)/g, '$1`@$2`');
+  return text.replace(/(?<![A-Za-z0-9`])(?<![A-Za-z0-9]_)@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\/[\w.-]*[\w-])?(?:@[\w.-]*[\w-])*)/g, '`@$1`');
 }
 
 /**
