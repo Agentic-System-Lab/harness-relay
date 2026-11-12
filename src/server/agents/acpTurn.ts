@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PROVIDER_LABEL, type Permission, type PlanEntry } from '../../shared/types';
+import { PROVIDER_LABEL, type Permission, type PlanEntry, type ToolCallKind } from '../../shared/types';
 import type { BackendRun } from '../backends';
 import { commandLine, isPublishCommand } from '../commands';
 import { t } from '../i18n';
@@ -16,6 +16,7 @@ import {
   imageData,
   summarizeInput,
   tailText,
+  toolCallKind,
   type AgentEvent,
   type AgentRunner,
   type ApprovalRequest,
@@ -183,6 +184,12 @@ export interface AcpAgentSpec extends OpenAgentProcess {
   planOf?(update: Record<string, any>): PlanEntry[] | undefined;
   /** The row's name for a tool call (default: its title, else its kind). */
   toolName?(update: Record<string, any>): string;
+  /**
+   * What a tool call does, for an agent whose `kind` says too little (Goose: `other` for every call):
+   * from its tool. Default: its `kind` (`toolCallKind()`). Kept on the row for AgentsView only, never for
+   * a permission (`describeCall` decides those).
+   */
+  toolKind?(update: Record<string, any>): ToolCallKind | undefined;
   /**
    * How a refusal reaches the model: fields added to the `reject_once` answer that the agent passes to
    * its model (Grok: `{ _meta: { followup_message: reason } }`). Without it the model only sees the
@@ -444,7 +451,7 @@ export const SANDBOX_REFUSAL_RE = /\b(?:Operation not permitted|EPERM|EROFS|Read
 
 export function createAcpUpdateHandler(
   emit: (e: AgentEvent) => void,
-  hooks: Pick<AcpAgentSpec, 'hideTool' | 'toolName' | 'planOf'> & {
+  hooks: Pick<AcpAgentSpec, 'hideTool' | 'toolName' | 'toolKind' | 'planOf'> & {
     /** Below full access: the sentence put before a tool's error that reads like the sandbox's refusal. */
     sandboxRefusal?: () => string;
   } = {},
@@ -476,7 +483,8 @@ export function createAcpUpdateHandler(
     names.set(id, name);
     const detail = summarizeInput(u.rawInput);
     if (!detail) vague.add(id);
-    emit({ type: 'tool_start', id, name, ...(detail ? { detail } : {}) });
+    const kind = hooks.toolKind ? hooks.toolKind(u) : toolCallKind(u.kind);
+    emit({ type: 'tool_start', id, name, ...(detail ? { detail } : {}), ...(kind ? { kind } : {}) });
   };
 
   const finish = (id: string, u: Record<string, any>) => {

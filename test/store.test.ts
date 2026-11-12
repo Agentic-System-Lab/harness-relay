@@ -68,7 +68,7 @@ const agentMsg: ChatMessage = {
   createdAt: 2200,
   parts: [
     { type: 'text', text: '先看檔案' },
-    { type: 'tool', id: 't1', name: 'Read', detail: 'src/a.ts', status: 'done' },
+    { type: 'tool', id: 't1', name: 'Read', detail: 'src/a.ts', kind: 'read', status: 'done' },
     { type: 'tool', id: 't2', name: 'Bash', status: 'error', error: 'Permission to use Bash has been denied' },
     { type: 'text', text: '計畫如下… @Builder' },
   ],
@@ -98,6 +98,20 @@ describe('Store (SQLite)', () => {
     expect(new Store(reopen()).get(conv.id)!.agentState.a1).toEqual({ provider: 'claude', sessionId: 'sess-2', backend: 'homelab', seen: [] });
     new Store(db).saveAgentState(conv.id, 'a1', { provider: 'claude', sessionId: 'sess-3', seen: [] });
     expect(new Store(reopen()).get(conv.id)!.agentState.a1).toEqual({ provider: 'claude', sessionId: 'sess-3', seen: [] });
+  });
+
+  it("keeps a tool call's kind, and drops one this server does not know", () => {
+    const store = new Store(db);
+    const conv = { ...sampleConversation(), messages: [agentMsg] };
+    store.create(conv);
+    expect(new Store(reopen()).get(conv.id)!.messages[0]!.parts[1]).toEqual({ type: 'tool', id: 't1', name: 'Read', detail: 'src/a.ts', kind: 'read', status: 'done' });
+    // A kind a newer server wrote, and data that is not an object: the call without a kind.
+    const setData = db.prepare(`UPDATE message_parts SET data = ? WHERE message_id = 'm2' AND idx = ?`);
+    setData.run('{"kind":"teleport"}', 1);
+    setData.run('null', 2);
+    const parts = new Store(reopen()).get(conv.id)!.messages[0]!.parts;
+    expect(parts[1]).toEqual({ type: 'tool', id: 't1', name: 'Read', detail: 'src/a.ts', status: 'done' });
+    expect(parts[2]).toEqual({ type: 'tool', id: 't2', name: 'Bash', status: 'error', error: 'Permission to use Bash has been denied' });
   });
 
   it('saves a branch with the messages it starts with, and where its copied messages end', () => {

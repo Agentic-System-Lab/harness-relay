@@ -1203,7 +1203,7 @@ export const en: Messages = {
     agentHomeOff: 'The CLIs use their usual homes again',
     agentsView: 'AgentsView',
     agentsViewHint:
-      "AgentsView is a tool for viewing agent sessions on this computer. With its address set, Harness Relay sends the conversation after every turn: each conversation is one thread in AgentsView, with each agent's own session under it, including tool calls, tokens and cost. Only addresses on this computer are accepted.",
+      "AgentsView is a tool for viewing agent sessions on this computer. With its address set, Harness Relay sends the conversation after every turn: each conversation is one thread in AgentsView, with each agent's own session under it, including tool calls, tokens and cost. For Cursor and the open-source agents, whose own sessions AgentsView cannot read, Harness Relay sends the session it recorded. Only addresses on this computer are accepted.",
     agentsViewOpen: 'Open AgentsView ↗',
     agentsViewLink: 'Address to open it (optional)',
     agentsViewLinkHint:

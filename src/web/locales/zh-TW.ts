@@ -1216,7 +1216,7 @@ export const zhTW = {
     agentHomeOff: '各 CLI 已改回使用平常的家目錄',
     agentsView: 'AgentsView',
     agentsViewHint:
-      'AgentsView 是在這台電腦上檢視 agent session 的工具。填入它的網址後，每個回合結束時，Harness Relay 會把對話送過去：一個對話在 AgentsView 中是一個 thread，底下是各 agent 自己的 session，包含工具呼叫、token 與成本。只接受這台電腦上的網址。',
+      'AgentsView 是在這台電腦上檢視 agent session 的工具。填入它的網址後，每個回合結束時，Harness Relay 會把對話送過去：一個對話在 AgentsView 中是一個 thread，底下是各 agent 自己的 session，包含工具呼叫、token 與成本。Cursor 與開源 agent 自己的 session AgentsView 讀不到，Harness Relay 改送它記下的 session。只接受這台電腦上的網址。',
     agentsViewOpen: '開啟 AgentsView ↗',
     agentsViewLink: '開啟用的網址（選用）',
     agentsViewLinkHint:

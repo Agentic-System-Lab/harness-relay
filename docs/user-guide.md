@@ -249,7 +249,7 @@ The links at the top of Settings stay on one row in every language (where they d
 
 Pick a folder outside your projects: Harness Relay refuses one inside its own folder or the default working directory, whose snapshots would take in the CLIs' sign-ins and session records. The folder can't be changed while a conversation runs. Empty the field to go back to the usual homes.
 
-**AgentsView** — [AgentsView](https://www.agentsview.io) is a free tool for browsing agent sessions on your computer: every message, tool call, token and cost. Enter its address here and Harness Relay sends it the conversation after every turn, and when you rename it. Each conversation becomes one session in AgentsView, named after the conversation, with each agent's own session nested under it (the lead agent's and the group sorter's too) and their costs added up. Cursor's and Antigravity's are not: each keeps its sessions in databases of its own (Antigravity in `antigravity-cli/conversations/`), which AgentsView does not read, so a Cursor or Antigravity agent's (or lead agent's) session is not linked; its replies are in the conversation's thread all the same. Only addresses on this computer are accepted. When an update fails (for example, AgentsView is not running), the card says why; the chat is not affected.
+**AgentsView** — [AgentsView](https://www.agentsview.io) is a free tool for browsing agent sessions on your computer: every message, tool call, token and cost. Enter its address here and Harness Relay sends it the conversation after every turn, and when you rename it. Each conversation becomes one session in AgentsView, named after the conversation, with each agent's own session nested under it (the lead agent's and the group sorter's too) and their costs added up. AgentsView cannot read Cursor's and the open-source agents' own sessions where they are (Cursor keeps its sessions in a database AgentsView does not read, and the open-source agents keep each member's in a folder of its own in Harness Relay's homes), so for those Harness Relay sends each member's session as it recorded it: before each reply what was said since the member's last one, then its thinking, its tool calls with the end of their output (a command, a file read or edited, a search or a fetch shown as Claude Code's own), the approvals it asked for and its reply, and its tokens. AgentsView prices the tokens when it knows the model; the cost the CLI reported is not added to the conversation's, and AgentsView shows it only in `agentsview session usage`, not on its web page (a model on your own endpoint reports none). If you delete such a session in AgentsView, it stays deleted. Such a session is named after the member and its CLI, and AgentsView lists it as a Claude Code session. A lead agent or group sorter on Cursor or an open-source agent has no session in AgentsView: Harness Relay keeps no record of what it did. Only addresses on this computer are accepted. When an update fails (for example, AgentsView is not running), the card says why; the chat is not affected.
 
 - Conversations from before you set the address are sent at their next turn.
 - Deleting a conversation in Harness Relay leaves what was sent in AgentsView; remove it there if you like.
@@ -271,9 +271,12 @@ To see only Harness Relay's sessions in AgentsView, set the CLIs' own folder (ab
 
    [agents.grok]
    dirs = ["~/.relay-agents/grok/sessions"]
+
+   [agents.antigravity-cli]
+   dirs = ["~/.relay-agents/antigravity/.gemini/antigravity-cli"]
    ```
 
-   AgentsView also reads the default folders of the other tools it supports (Cursor, Gemini CLI…) when they exist on your computer. To leave them out, list them in `disabled_agents` (see [AgentsView's configuration](https://www.agentsview.io/docs/configuration/)).
+   Cursor and the open-source agents need nothing here: Harness Relay sends their sessions itself. AgentsView also reads the default folders of the other tools it supports (Cursor, Gemini CLI…) when they exist on your computer. To leave them out, list them in `disabled_agents` (see [AgentsView's configuration](https://www.agentsview.io/docs/configuration/)).
 3. Start it with its data in that folder, on a port of your choice (9999 here). macOS and Linux:
 
    ```bash

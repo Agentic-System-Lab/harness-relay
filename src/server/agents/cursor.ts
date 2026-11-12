@@ -15,6 +15,7 @@ import {
   clip,
   summarizeInput,
   tailText,
+  toolCallKind,
   type AgentEvent,
   type AgentRunner,
   type ApprovalRequest,
@@ -411,7 +412,8 @@ export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnl
         if (!open.has(id)) {
           open.add(id);
           c.detail = detailOf(c);
-          emit({ type: 'tool_start', id, name: KIND_NAME[c.kind ?? ''] ?? (c.title || 'tool'), ...(c.detail ? { detail: c.detail } : {}) });
+          const kind = toolCallKind(c.kind);
+          emit({ type: 'tool_start', id, name: KIND_NAME[c.kind ?? ''] ?? (c.title || 'tool'), ...(c.detail ? { detail: c.detail } : {}), ...(kind ? { kind } : {}) });
         }
         if (DONE.has(u.status)) finish(id, c, u);
         break;

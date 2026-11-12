@@ -4,7 +4,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, real
 import { dirname, join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
-import { API_BACKENDS, PROVIDER_LABEL, type ModelOption, type NativeMemoryFile } from '../../shared/types';
+import { API_BACKENDS, PROVIDER_LABEL, type ModelOption, type NativeMemoryFile, type ToolCallKind } from '../../shared/types';
 import { commandLine } from '../commands';
 import { backendLabel, type BackendRun } from '../backends';
 import { t } from '../i18n';
@@ -595,6 +595,13 @@ export function piGateRequest(msg: Record<string, any>): PiGateRequest | null | 
 
 /** Pi's built-in tools as rows in the chat. */
 const TOOL_LABEL: Record<string, string> = { read: 'Read', bash: 'Bash', edit: 'Edit', write: 'Write', grep: 'Grep', find: 'Find', ls: 'List' };
+/** What Pi's built-in tools do (an MCP tool's is not known). */
+const TOOL_KIND: Record<string, ToolCallKind> = { read: 'read', bash: 'execute', edit: 'edit', write: 'edit', grep: 'search', find: 'search', ls: 'read' };
+
+/** What a Pi tool does: its built-in ones' kind, undefined for an MCP tool. */
+export function piToolKind(name: string): ToolCallKind | undefined {
+  return Object.hasOwn(TOOL_KIND, name) ? TOOL_KIND[name] : undefined;
+}
 
 /** A tool's row name: Pi's built-in ones as words, an MCP tool as `mcp__<server>__<tool>`. */
 export function piToolName(name: string): string {
@@ -771,7 +778,8 @@ export function createPiEventHandler(emit: (e: AgentEvent) => void) {
         open.add(id);
         const name = String(msg.toolName ?? 'tool');
         const detail = piToolDetail(name, msg.args);
-        emit({ type: 'tool_start', id, name: piToolName(name), ...(detail ? { detail } : {}) });
+        const kind = piToolKind(name);
+        emit({ type: 'tool_start', id, name: piToolName(name), ...(detail ? { detail } : {}), ...(kind ? { kind } : {}) });
         break;
       }
       case 'tool_execution_end': {

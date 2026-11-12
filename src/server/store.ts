@@ -21,12 +21,13 @@ import type {
   ScheduleResult,
   TeamPlan,
   TeamPreset,
+  ToolCallKind,
   ToolStatus,
   MessageStatus,
   SearchResult,
   SharedPage,
 } from '../shared/types';
-import { PERMISSION_ORDER, PROVIDERS, cwdSettings, pendingPlan } from '../shared/types';
+import { PERMISSION_ORDER, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan } from '../shared/types';
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
@@ -219,6 +220,13 @@ function toolsJson(a: AgentConfig): string | null {
   return a.tools && Object.keys(a.tools).length ? JSON.stringify(a.tools) : null;
 }
 
+/** What a tool part keeps in its `data` column: its kind, when it has one (one this server does not know is dropped). */
+function toolData(json: string | null): { kind?: ToolCallKind } {
+  const data = parseJson<unknown>(json, {});
+  const kind = data && typeof data === 'object' ? (data as { kind?: unknown }).kind : undefined;
+  return typeof kind === 'string' && (TOOL_CALL_KINDS as readonly string[]).includes(kind) ? { kind: kind as ToolCallKind } : {};
+}
+
 function toPart(r: PartRow): MessagePart {
   switch (r.type) {
     case 'tool':
@@ -227,6 +235,7 @@ function toPart(r: PartRow): MessagePart {
         id: r.tool_id ?? '',
         name: r.tool_name ?? 'tool',
         detail: opt(r.tool_detail),
+        ...toolData(r.data),
         status: r.tool_status ?? 'done',
         ...(r.tool_error ? { error: r.tool_error } : {}),
         ...(r.tool_output ? { output: r.tool_output } : {}),
@@ -251,7 +260,7 @@ function partColumns(p: MessagePart): (string | null)[] {
     case 'thinking':
       return [p.text, null, null, null, null, null, null, null];
     case 'tool':
-      return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), null];
+      return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), p.kind ? JSON.stringify({ kind: p.kind }) : null];
     case 'plan':
       return [null, null, null, null, null, null, null, JSON.stringify(p.entries)];
     case 'approval':

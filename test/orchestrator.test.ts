@@ -471,9 +471,11 @@ describe('tool calls', () => {
     const [alice] = agentMessages(conv);
     expect(alice!.parts.filter((p) => p.type === 'tool')).toMatchObject([
       { name: 'Web search', detail: "Alice's query", status: 'done' },
-      // A tool_end without a detail keeps the one from tool_start.
-      { name: 'Shell', detail: 'npm test', status: 'done', output: 'ok' },
+      // A tool_end without a detail keeps the one from tool_start, and the call keeps its kind.
+      { name: 'Shell', detail: 'npm test', kind: 'execute', status: 'done', output: 'ok' },
     ]);
+    // A call whose CLI did not say what it does has no kind.
+    expect(alice!.parts.find((p) => p.type === 'tool' && p.name === 'Web search')).not.toHaveProperty('kind');
   });
 });
 

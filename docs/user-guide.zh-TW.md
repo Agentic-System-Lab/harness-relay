@@ -249,7 +249,7 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 請選專案以外的資料夾：在 Harness Relay 自己的資料夾或預設工作目錄裡面的會被拒絕，因為那裡的快照會把各 CLI 的登入與 session 紀錄一起收進去。有對話正在執行時不能更改這個資料夾。把欄位清空，就會改回平常的家目錄。
 
-**AgentsView**：[AgentsView](https://www.agentsview.io) 是在你電腦上瀏覽 agent session 的免費工具，看得到每則訊息、每個工具呼叫、token 與成本。在這裡填入它的網址，Harness Relay 會在每個回合結束後、以及你重新命名對話時，把對話送過去。每個對話在 AgentsView 中是一個以對話標題命名的 session，底下是各 agent 自己的 session（首席 agent 和分群用的 session 也在內），成本也會加總。Cursor 與 Antigravity 的例外：它們都把 session 存在自己的資料庫裡（Antigravity 存在 `antigravity-cli/conversations/`），AgentsView 不會讀，所以 Cursor 或 Antigravity 成員（或用它們的首席 agent）的 session 不會連結到對話底下；它們的回覆照樣在這個對話的 thread 裡。只接受這台電腦上的網址。更新失敗時（例如 AgentsView 沒有在執行），卡片上會說明原因，不影響對話。
+**AgentsView**：[AgentsView](https://www.agentsview.io) 是在你電腦上瀏覽 agent session 的免費工具，看得到每則訊息、每個工具呼叫、token 與成本。在這裡填入它的網址，Harness Relay 會在每個回合結束後、以及你重新命名對話時，把對話送過去。每個對話在 AgentsView 中是一個以對話標題命名的 session，底下是各 agent 自己的 session（首席 agent 和分群用的 session 也在內），成本也會加總。Cursor 與開源 agent 自己的 session 所在之處 AgentsView 讀不到（Cursor 把 session 存在 AgentsView 不讀的資料庫裡；開源 agent 把每位成員的 session 存在 Harness Relay 家目錄中它自己的資料夾），所以這些成員改由 Harness Relay 送出它記下的 session：每次回覆前，上次回覆之後大家說了什麼；接著是它的思考、工具呼叫與輸出的結尾（指令、讀取或編輯的檔案、搜尋與擷取網頁，都像 Claude Code 自己的一樣顯示）、它請求的核准、它的回覆；最後是它的 token。AgentsView 認得模型時會依 token 算出成本；CLI 回報的成本不加到對話的成本，AgentsView 只在 `agentsview session usage` 中顯示它，網頁上看不到（你自己端點上的模型不回報成本）。在 AgentsView 刪掉這種 session 後，它會一直是刪掉的。這種 session 以成員名稱與它的 CLI 命名，AgentsView 會把它列為 Claude Code 的 session。用 Cursor 或開源 agent 的首席 agent 或分群在 AgentsView 中沒有 session：Harness Relay 沒有記下它做了什麼。只接受這台電腦上的網址。更新失敗時（例如 AgentsView 沒有在執行），卡片上會說明原因，不影響對話。
 
 - 設定網址之前就有的對話，會在它的下一回合結束後送出。
 - 在 Harness Relay 刪除對話，已經送到 AgentsView 的內容會留著；需要的話請在 AgentsView 裡移除。
@@ -271,9 +271,12 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
    [agents.grok]
    dirs = ["~/.relay-agents/grok/sessions"]
+
+   [agents.antigravity-cli]
+   dirs = ["~/.relay-agents/antigravity/.gemini/antigravity-cli"]
    ```
 
-   電腦上有 AgentsView 支援的其他工具（Cursor、Gemini CLI……）時，它也會讀那些工具的預設資料夾。不想要的話，把它們列在 `disabled_agents`（見 [AgentsView 的設定說明](https://www.agentsview.io/docs/configuration/)）。
+   Cursor 與開源 agent 在這裡什麼都不用設：Harness Relay 會自己送出它們的 session。電腦上有 AgentsView 支援的其他工具（Cursor、Gemini CLI……）時，它也會讀那些工具的預設資料夾。不想要的話，把它們列在 `disabled_agents`（見 [AgentsView 的設定說明](https://www.agentsview.io/docs/configuration/)）。
 3. 讓它的資料放在那個資料夾，用你選的 port 啟動（這裡用 9999）。macOS 與 Linux：
 
    ```bash

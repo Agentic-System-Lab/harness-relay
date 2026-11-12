@@ -4,10 +4,11 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
-import type { Provider, SettingsView } from '../../src/shared/types';
+import { memberSessionId } from '../../src/server/agentsview';
+import type { Conversation, Provider, SettingsView } from '../../src/shared/types';
 import { expect, test as base } from '../fixtures';
 import { acceptNextDialog, composer, finishedReply, openTeamChat, replies, send, settled, type Member } from '../support/app';
-import { chatOf, defaultHome, HALVES, logged, sessionFile, teamOf } from '../support/clis';
+import { chatOf, defaultHome, HALVES, logged, needsFake, sessionFile, teamOf } from '../support/clis';
 import { ROOT } from '../support/paths';
 import type { RelayServer } from '../support/relay';
 
@@ -265,6 +266,51 @@ test.describe('AgentsView', () => {
     await expect(page.locator('.chat-title')).toHaveText('Pelican census');
     await expect.poll(() => uploads().some((h) => records(h).some((r) => r.customTitle === 'Pelican census'))).toBe(true);
     expect((await relay.api<SettingsView>('/api/settings')).agentsViewError).toBeUndefined();
+  });
+
+  test("a Cursor member's session is the one Harness Relay recorded, sent after the thread and filed under it", async ({ page, relay, agentsView }) => {
+    needsFake('cursor');
+    const { view } = await sessionsCard(page, relay);
+    await view.getByPlaceholder('http://127.0.0.1:8080').fill(agentsView.url);
+    await view.getByRole('button', { name: 'Save' }).click();
+    await expect(view).toContainText('AgentsView is set; it is updated after every turn');
+
+    const team: Member[] = [VIEWED[1]!, { name: 'Cursor', provider: 'cursor' }];
+    const id = await openTeamChat(page, relay, team, {}, 'Pelican report');
+    await send(page, 'Count the pelicans e2e:think e2e:tool');
+    for (const m of team) await finishedReply(page, m.name);
+    await settled(relay, id);
+
+    const conv = await relay.api<Conversation>(`/api/conversations/${id}`);
+    const cursor = conv.agents.find((a) => a.provider === 'cursor')!;
+    const session = memberSessionId(id, cursor.id);
+    const uploads = () => agentsView.hits.filter((h) => h.method === 'POST' && h.path === '/api/v1/sessions/upload');
+    const recorded = () => uploads().filter((h) => h.body.includes(`filename="${session}.jsonl"`));
+    await expect.poll(() => recorded().some((h) => records(h).some((r) => r.type === 'custom-title'))).toBe(true);
+    // In the thread's place, after it.
+    const upload = recorded().at(-1)!;
+    expect(Object.fromEntries(upload.query)).toEqual({ project: 'e2e-project', machine: 'e2e-machine', allow_shorter: 'true' });
+    expect(agentsView.hits.indexOf(upload)).toBeGreaterThan(agentsView.hits.findIndex((h) => h.method === 'POST' && h.body.includes(`filename="${id}.jsonl"`)));
+
+    const r = records(upload);
+    expect(r.every((x) => !x.sessionId || x.sessionId === session)).toBe(true);
+    // What it heard, then its thinking and its call (listing the folder: Claude Code's Read, with the folder), the call's result, its reply.
+    expect(r[0]!).toMatchObject({ type: 'user', message: { content: expect.stringContaining('Count the pelicans') } });
+    const calls = r.filter((x) => x.type === 'assistant').flatMap((x) => x.message.content);
+    expect(calls.some((b: { type: string }) => b.type === 'thinking')).toBe(true);
+    const read = calls.find((b: { type: string }) => b.type === 'tool_use');
+    expect(read).toMatchObject({ name: 'Read', input: { file_path: expect.any(String) } });
+    const result = r.find((x) => x.type === 'user' && Array.isArray(x.message.content))!.message.content[0];
+    expect(result).toMatchObject({ type: 'tool_result', tool_use_id: read.id });
+    expect(calls.some((b: { type: string; text?: string }) => b.type === 'text' && b.text?.includes('Hello from Cursor'))).toBe(true);
+    expect(r.at(-1)).toEqual({ type: 'custom-title', customTitle: 'Cursor · Cursor — Pelican report', sessionId: session });
+
+    // Linked under the thread; Cursor's own session id is never sent.
+    const link = () => agentsView.hits.find((h) => h.method === 'PUT' && h.path === `/api/v1/sessions/${session}/parent`);
+    await expect.poll(() => Boolean(link())).toBe(true);
+    expect(JSON.parse(link()!.body)).toEqual({ parent_session_id: id });
+    const cursorSession = startedSessions(relay, 'cursor')[0]!;
+    expect(agentsView.hits.some((h) => h.path.includes(cursorSession))).toBe(false);
   });
 
   test('an address elsewhere is refused, and when an update fails Settings says why while the chat goes on', async ({ page, relay, agentsView }) => {

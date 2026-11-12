@@ -844,6 +844,10 @@ export type Author =
 
 export type ToolStatus = 'running' | 'done' | 'error';
 
+/** What a tool call does, as ACP names it (its `ToolKind`, `switch_mode` as `other`). */
+export const TOOL_CALL_KINDS = ['read', 'edit', 'delete', 'move', 'search', 'execute', 'think', 'fetch', 'other'] as const;
+export type ToolCallKind = (typeof TOOL_CALL_KINDS)[number];
+
 /** What an agent asks to be allowed to do. */
 export type ApprovalKind = 'command' | 'edit' | 'fetch' | 'other';
 
@@ -864,8 +868,10 @@ export type MessagePart =
   /**
    * `error`: why the call failed or was refused, when the CLI said so.
    * `output`: the end of what the call returned (command output, fetched text…).
+   * `kind`: what the call does, when its CLI says (or its adapter can tell from the tool); only
+   * AgentsView's record of a member's session uses it (`memberTranscript`).
    */
-  | { type: 'tool'; id: string; name: string; detail?: string; status: ToolStatus; error?: string; output?: string }
+  | { type: 'tool'; id: string; name: string; detail?: string; kind?: ToolCallKind; status: ToolStatus; error?: string; output?: string }
   /** The agent asked to do something its permission does not cover; the user decides. */
   | {
       type: 'approval';

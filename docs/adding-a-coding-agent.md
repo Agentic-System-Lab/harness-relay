@@ -53,7 +53,7 @@ Write the read-only / edit / full access row for it in [Architecture → Permiss
 
 ## 5. Write the adapter
 
-Follow the [developer guide's checklist](developer-guide.md#adding-a-new-agent-cli) (a native adapter or an open agent), then the places the typechecker cannot name: the lead agent's and the agents' briefings (the list of CLIs), `agentFolders()`, `agentsViewSessionId()`, and as needed `INHERITED_BACKEND_VARS`, `PROJECT_AGENT_CONFIG`, `keyOnlyAccount()` and `failedProbe()`. Then:
+Follow the [developer guide's checklist](developer-guide.md#adding-a-new-agent-cli) (a native adapter or an open agent), then the places the typechecker cannot name: the lead agent's and the agents' briefings (the list of CLIs), `agentFolders()`, and as needed `INHERITED_BACKEND_VARS`, `PROJECT_AGENT_CONFIG`, `keyOnlyAccount()` and `failedProbe()`. The typechecker names `AGENTSVIEW_SESSIONS`, but not what goes in it: find out in AgentsView's own source whether it reads the CLI's sessions where Harness Relay's runs leave them, and under what id, before giving it a prefix rather than `recorded`. Then:
 
 - Keep the parser pure (updates in, `AgentEvent`s out) and the decisions pure (`<name>PermissionDecision`, `<name>ApprovalRequest`), so tests can feed them recorded lines.
 - Start the CLI through `src/server/process.ts` only; never a shell; an open agent through `startOpenProcess()`.

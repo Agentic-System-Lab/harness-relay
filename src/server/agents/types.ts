@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
-import type { ApiBackend, ApprovalAnswer, ApprovalKind, NativeItemsOff, NativePart, Permission, PlanEntry, Provider } from '../../shared/types';
+import { TOOL_CALL_KINDS, type ApiBackend, type ApprovalAnswer, type ApprovalKind, type NativeItemsOff, type NativePart, type Permission, type PlanEntry, type Provider, type ToolCallKind } from '../../shared/types';
 import { CONFIG } from '../config';
 
 /** Normalised events every CLI adapter emits while an agent is working. */
@@ -13,7 +13,8 @@ export type AgentEvent =
   | { type: 'thinking'; text: string }
   /** The agent's plan / to-do list, replacing the previous one. */
   | { type: 'plan'; entries: PlanEntry[] }
-  | { type: 'tool_start'; id: string; name: string; detail?: string }
+  /** `kind`: what the call does, when the CLI says or its adapter can tell (`toolCallKind()`). */
+  | { type: 'tool_start'; id: string; name: string; detail?: string; kind?: ToolCallKind }
   /**
    * `error`: the CLI's stated reason when a call failed or was refused (shown under the tool).
    * `output`: the end of what the call returned.
@@ -207,6 +208,12 @@ export class AgentRunError extends Error {
  * `RELAY_TURN_TIMEOUT_MIN` says otherwise (`config.ts`); a turn waiting for the user's answer counts too.
  */
 export const TURN_TIMEOUT_MS = CONFIG.turnTimeoutMs;
+
+/** An ACP tool call's `kind` as a `ToolCallKind`: one ACP does not name (`switch_mode`, say) is `other`; none, undefined. */
+export function toolCallKind(kind: unknown): ToolCallKind | undefined {
+  if (typeof kind !== 'string' || !kind) return undefined;
+  return (TOOL_CALL_KINDS as readonly string[]).includes(kind) ? (kind as ToolCallKind) : 'other';
+}
 
 // `target_file` / `target_directory`: Grok's read_file and list_dir.
 const DETAIL_KEYS = ['command', 'cmd', 'file_path', 'filePath', 'target_file', 'path', 'target_directory', 'pattern', 'url', 'query', 'description', 'prompt'];

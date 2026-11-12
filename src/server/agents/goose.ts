@@ -14,6 +14,7 @@ import {
   type NativeSkill,
   type Permission,
   type PlanEntry,
+  type ToolCallKind,
 } from '../../shared/types';
 import { API_BACKEND_HOST, backendLabel, urlHost, type BackendRun } from '../backends';
 import { commandLine, parseCommandLine, parseShellSyntax } from '../commands';
@@ -1086,6 +1087,30 @@ export function gooseCallInfo(call: AcpToolCall, earlier: AcpToolCall | undefine
   }
 }
 
+/**
+ * What a Goose call does, from its tool (Goose's `kind` is `other` for every call): a shell command
+ * runs (also a read-only one, which `gooseCallInfo` lets read), `write` and `edit` change a file,
+ * `tree`, `analyze` and `read_image` read (`read_image` of a URL fetches). Undefined for the rest.
+ */
+export function gooseToolKind(u: Record<string, any>): ToolCallKind | undefined {
+  const tool = gooseToolOf(u as AcpToolCall);
+  const path = u?.rawInput?.path;
+  switch (tool) {
+    case 'shell':
+      return 'execute';
+    case 'write':
+    case 'edit':
+      return 'edit';
+    case 'read_image':
+      return typeof path === 'string' && /^https?:\/\//i.test(path) ? 'fetch' : 'read';
+    case 'tree':
+    case 'analyze':
+      return 'read';
+    default:
+      return undefined;
+  }
+}
+
 /** The todo tool: shown as the plan, not as a row. */
 export function gooseHideTool(u: Record<string, any>): boolean {
   return gooseToolOf(u as AcpToolCall) === 'todo__todo_write';
@@ -1126,6 +1151,7 @@ export const gooseAcp: AcpAgentSpec = {
   hideTool: gooseHideTool,
   planOf: goosePlan,
   toolName: gooseToolName,
+  toolKind: gooseToolKind,
   afterRefusal: gooseAfterRefusal,
   filterUpdate: gooseFilterUpdate,
   usage: gooseUsage,

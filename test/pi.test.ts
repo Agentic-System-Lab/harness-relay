@@ -585,7 +585,7 @@ describe('Pi: events from recorded runs', () => {
   it('read, edit (its diff), write and bash rows', () => {
     const read = replay('read-tool').events.filter((e) => e.type.startsWith('tool_'));
     expect(read).toEqual([
-      { type: 'tool_start', id: 'chatcmpl-tool-b1fb53c43c4e60aa', name: 'Read', detail: '…/home/user/project/notes.txt'.slice(1) },
+      { type: 'tool_start', id: 'chatcmpl-tool-b1fb53c43c4e60aa', name: 'Read', detail: '…/home/user/project/notes.txt'.slice(1), kind: 'read' },
       { type: 'tool_end', id: 'chatcmpl-tool-b1fb53c43c4e60aa', ok: true, output: 'hello from notes\nline two' },
     ]);
     const edit = replay('edit-tool').events.filter((e) => e.type === 'tool_end');
@@ -652,8 +652,8 @@ describe('Pi: events from recorded runs', () => {
     h.handle({ type: 'tool_execution_end', toolCallId: 'x' });
     h.closeOpen(false);
     expect(events).toEqual([
-      { type: 'tool_start', id: 't1', name: 'Bash', detail: 'sleep 9' },
-      { type: 'tool_start', id: 't2', name: 'Read' },
+      { type: 'tool_start', id: 't1', name: 'Bash', detail: 'sleep 9', kind: 'execute' },
+      { type: 'tool_start', id: 't2', name: 'Read', kind: 'read' },
       { type: 'tool_end', id: 't1', ok: false, error: expect.any(String) },
       { type: 'tool_end', id: 't2', ok: false, error: 'Refused' },
     ]);
@@ -665,7 +665,7 @@ describe('Pi: events from recorded runs', () => {
     g.closeOpen(true);
     expect(done.slice(1)).toEqual([
       { type: 'tool_end', id: 't3', ok: false, error: expect.any(String) },
-      { type: 'tool_start', id: 't4', name: 'List' },
+      { type: 'tool_start', id: 't4', name: 'List', kind: 'read' },
       { type: 'tool_end', id: 't4', ok: true },
     ]);
     expect(piRunUsage(g.usage, { kind: 'openai' })).toEqual({});

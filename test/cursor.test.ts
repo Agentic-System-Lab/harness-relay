@@ -193,9 +193,9 @@ describe('cursor session updates', () => {
       { type: 'text', text: 'the tests.' },
       { type: 'plan', entries: [{ text: 'Test', status: 'in_progress' }, { text: 'Fix', status: 'pending' }] },
       { type: 'text_end' },
-      { type: 'tool_start', id: 'c1\nfc1', name: 'Shell', detail: 'npm test' },
+      { type: 'tool_start', id: 'c1\nfc1', name: 'Shell', detail: 'npm test', kind: 'execute' },
       { type: 'tool_end', id: 'c1\nfc1', ok: true, output: '3 passed' },
-      { type: 'tool_start', id: 'c2', name: 'Shell', detail: 'false' },
+      { type: 'tool_start', id: 'c2', name: 'Shell', detail: 'false', kind: 'execute' },
       { type: 'tool_end', id: 'c2', ok: false, error: 'exit code 1', output: 'nope' },
     ]);
   });
@@ -209,9 +209,9 @@ describe('cursor session updates', () => {
       { sessionUpdate: 'tool_call_update', toolCallId: 'm1', status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'bad token' } }] },
     ]);
     expect(events).toEqual([
-      { type: 'tool_start', id: 'e1', name: 'Edit' },
+      { type: 'tool_start', id: 'e1', name: 'Edit', kind: 'edit' },
       { type: 'tool_end', id: 'e1', ok: true, detail: '/w/a.ts' },
-      { type: 'tool_start', id: 'm1', name: 'github: create_issue' },
+      { type: 'tool_start', id: 'm1', name: 'github: create_issue', kind: 'other' },
       { type: 'tool_end', id: 'm1', ok: false, error: 'bad token' },
     ]);
   });
@@ -538,7 +538,7 @@ rl.on('line', async (line) => {
       { type: 'thinking', text: 'Thinking.' },
       { type: 'text', text: 'Running it.' },
       { type: 'text_end' },
-      { type: 'tool_start', id: 'c1\nfc1', name: 'Shell', detail: 'npm test' },
+      { type: 'tool_start', id: 'c1\nfc1', name: 'Shell', detail: 'npm test', kind: 'execute' },
       { type: 'tool_end', id: 'c1\nfc1', ok: true, output: 'ok' },
       { type: 'text', text: 'Done.' },
       { type: 'text_end' },
