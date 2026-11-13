@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { LANGS, type Lang } from '../shared/types';
+import { loadPart } from './chunks';
 import type { Messages } from './locales/zh-TW';
 
 const STORAGE_KEY = 'relay:lang';
@@ -13,15 +14,12 @@ const MESSAGES: Partial<Record<Lang, Messages>> = {};
 
 /**
  * The messages in `lang`, loaded once; before the page is drawn, its language's (`main.tsx`, with its
- * file fetched beside the page's own: `languagePreload` in vite.config.ts). Rejects when they cannot
- * be loaded, also when the page reloads for them instead (`chunks.ts`).
+ * file fetched beside the page's own: `languagePreload` in vite.config.ts). When they cannot be
+ * loaded, the page reloads for them once, the promise waiting meanwhile; after that, it rejects
+ * (`loadPart` in chunks.ts).
  */
 export async function loadMessages(lang: Lang): Promise<Messages> {
-  const have = MESSAGES[lang];
-  if (have) return have;
-  const messages: Messages | undefined = await LOAD[lang]();
-  if (!messages) throw new Error(`could not load the messages in ${lang}`);
-  return (MESSAGES[lang] = messages);
+  return (MESSAGES[lang] ??= await loadPart(LOAD[lang]));
 }
 
 /**

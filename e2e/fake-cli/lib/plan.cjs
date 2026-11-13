@@ -29,6 +29,7 @@ const DIRECTIVES = {
   error: "fail the turn inside the CLI's protocol (Claude's error result, a failed Codex turn, a JSON-RPC error over ACP)",
   flaky: 'fail the first time this message is answered, answer the next time (a retry)',
   markdown: 'answer with a heading, a list, a table and a code block',
+  mermaid: 'answer with a Mermaid diagram (a ```mermaid code block)',
   memory: "say the tool library's memory notes its briefing holds",
   skills: "read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)",
 };
@@ -185,6 +186,7 @@ function plan(prompt, turn) {
   if (d.markdown) {
     text += '\n\n## Fake findings\n\n- first point\n- second point\n\n| CLI | Fake |\n| --- | --- |\n| ' + self.label() + ' | yes |\n\n```js\nconst answer = 42;\n```';
   }
+  if (d.mermaid) text += '\n\n```mermaid\ngraph TD\n  Question --> Answer\n```';
   if (typeof d.handoff === 'string' && d.handoff.toLowerCase() !== me.toLowerCase()) text += ` @${d.handoff}, over to you.`;
   if (d.ask) text += '\n\nWhich option do you prefer, A or B? [ASK_USER]';
   steps.push({ type: 'text', text, slow: slowMs(d.slow) });

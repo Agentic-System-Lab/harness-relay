@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import { finishedReply, homePage } from '../support/app';
+import { countPages, finishedReply, homePage } from '../support/app';
 
 test.describe('in Traditional Chinese', () => {
   test.use({ lang: 'zh-TW' });
@@ -63,16 +63,15 @@ test.describe("the page's words", () => {
   test('a language chosen whose words cannot be loaded: the page reloads once for them, then says so and stays as it was', async ({ page }) => {
     await page.route('**/assets/zh-TW-*.js', (route) => route.fulfill({ status: 404, body: '' }));
     await openSettings(page);
-    let loads = 0;
-    page.on('load', () => loads++);
+    const pages = await countPages(page);
     const chinese = languages(page, 'Language').getByRole('radio', { name: '繁體中文' });
     await chinese.click();
-    await expect.poll(() => loads).toBe(1);
+    await expect.poll(pages).toBe(1);
     // Missing again so soon after: no reload this time.
     await chinese.click();
     await expect(page.getByRole('alert').filter({ hasText: 'Could not load 繁體中文. Reload the page to try again.' })).toBeVisible();
     await expect(languages(page, 'Language').getByRole('radio', { name: 'English' })).toHaveAttribute('aria-checked', 'true');
-    expect(loads).toBe(1);
+    expect(await pages()).toBe(1);
 
     await page.unroute('**/assets/zh-TW-*.js');
     await page.reload();
@@ -80,15 +79,23 @@ test.describe("the page's words", () => {
     await expect(languages(page, '介面語言').getByRole('radio', { name: '繁體中文' })).toHaveAttribute('aria-checked', 'true');
   });
 
-  test('a page whose own words cannot be loaded reloads once for them, then says so in both languages', async ({ page }) => {
+});
+
+test.describe("the page's own words, missing from its first load", () => {
+  // The tab's first page: one that had them before could take them from its memory cache, which
+  // Playwright's WebKit does not route, and get them after all.
+  test.use({ signIn: false });
+
+  test('a page whose own words cannot be loaded reloads once for them, then says so in both languages', async ({ page, relay }) => {
     await page.route('**/assets/en-*.js', (route) => route.fulfill({ status: 404, body: '' }));
-    let loads = 0;
-    page.on('load', () => loads++);
-    await page.reload();
+    const pages = await countPages(page);
+    await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
     const note = page.getByRole('alert');
     await expect(note).toHaveText(/Harness Relay 無法載入這個頁面。Harness Relay could not load this page\./);
-    expect(loads).toBe(2);
+    // The page asked for, then the one it reloaded for its words.
+    expect(await pages()).toBe(2);
 
+    // Once they are there, the button brings the page back, signing the browser in with the link's code.
     await page.unroute('**/assets/en-*.js');
     await note.getByRole('button', { name: '重新載入 · Reload' }).click();
     await expect(homePage(page)).toBeVisible();

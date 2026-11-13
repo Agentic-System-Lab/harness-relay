@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 397 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 399 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -36,7 +36,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Area | Spec | Tests | Related docs |
 | --- | --- | --- | --- |
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
-| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 3 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
+| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 5 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
@@ -95,7 +95,9 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- |
 | The app opens on it, and the logo and name lead back to it | The home page shows the logo and its tagline; the sidebar's logo and **Harness Relay** (marked as the current page there) go back to it from the New chat page and from a chat (`#/`). |
 | The logo plays its animation once on each visit, with transform and opacity alone, and not with reduced motion | The logo's dots, its turn and the tagline animate for a while (not for no time, as a nameless `animation` shorthand minified to `none` would), once, changing only `transform` and `opacity`; they end by themselves and play again when the home page opens again; with reduced motion nothing animates. |
-| A part of the page that cannot be loaded: the page reloads once for it, then says so; the note closes, and Reload brings it | With the report dialog's file missing (404), as in a page left open across an update, **Report a problem** reloads the page once; a second click within the minute shows a note instead of an empty page, whose **Close** closes it and whose **Reload** reloads the page, after which the dialog opens. |
+| A part of the page that cannot be loaded: the page reloads once for it, then says so; the note closes, and Reload brings it | With the report dialog's file missing (404), as in a page left open across an update, **Report a problem** reloads the page once; a second click within the minute shows a note instead of an empty page, whose **Close** closes it and whose **Reload** reloads the page, after which the dialog opens. The pages are counted as each one starts, so that none goes uncounted. |
+| A part of the page that loads but fails to draw says so, not that it could not be loaded, and the page does not reload | With a report dialog that throws as it draws, **Report a problem** shows the note that it ran into a problem (not that it could not be loaded), the page does not reload, and **Close** closes the note. |
+| A diagram that cannot be loaded shows its source, and the page does not reload for it | With Mermaid's file missing, a reply with a diagram (`e2e:mermaid`) shows its source and says it could not be drawn; the page does not reload, as it does for the parts above. |
 
 ## A new chat and the lead agent's team
 
@@ -440,7 +442,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | The sign-in page and the server's own messages follow the language | The sign-in page and the server's error for a wrong code are in Chinese. |
 | Only the language shown is fetched, with the page's own files; the other once it is chosen | The page's head asks for the saved language's file (a `modulepreload` link), and only that language is fetched; choosing 繁體中文 in Settings fetches it, and after a reload the head asks for that one. |
 | A language chosen whose words cannot be loaded: the page reloads once for them, then says so and stays as it was | With the Chinese file missing (404), choosing 繁體中文 reloads the page once; choosing it again says it could not be loaded, and English stays chosen; once the file is there, after a reload, the page switches. |
-| A page whose own words cannot be loaded reloads once for them, then says so in both languages | With the English file missing, the page reloads once, then says in Chinese and English that it could not load, with a button that reloads it; once the file is there, the button brings the page back. |
+| A page whose own words cannot be loaded reloads once for them, then says so in both languages | With the English file missing from the tab's first page (a sign-in link: a page that had the file could take it from WebKit's memory cache, which the test cannot hold back), the page reloads once, then says in Chinese and English that it could not load, with a button that reloads it; once the file is there, the button brings the page back, signed in. |
 
 ## On a phone
 

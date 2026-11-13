@@ -1,4 +1,4 @@
-import { Fragment, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
   cwdsOf,
@@ -22,7 +22,7 @@ import { describeRepeat, scheduleState, scheduleTrouble } from '../schedule';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
-import { Deferred } from './Deferred';
+import { Deferred, lazyPart } from './Deferred';
 import { BranchIcon, ClockIcon, FolderIcon, MoreIcon, ShareIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
@@ -32,9 +32,9 @@ import { TeamReviser } from './TeamReviser';
 import { useDialog } from './useDialog';
 
 // Loaded when first opened, not with the chat: the file browser, the schedule and sharing.
-const FileBrowser = lazy(() => import('./FileBrowser').then((m) => ({ default: m.FileBrowser })));
-const ScheduleDrawer = lazy(() => import('./ScheduleDrawer').then((m) => ({ default: m.ScheduleDrawer })));
-const ShareDialog = lazy(() => import('./ShareDialog').then((m) => ({ default: m.ShareDialog })));
+const FileBrowser = lazyPart(() => import('./FileBrowser').then((m) => m.FileBrowser));
+const ScheduleDrawer = lazyPart(() => import('./ScheduleDrawer').then((m) => m.ScheduleDrawer));
+const ShareDialog = lazyPart(() => import('./ShareDialog').then((m) => m.ShareDialog));
 
 /** How long to wait before reconnecting when the browser gave up on the event stream. */
 const RECONNECT_MS = 3000;

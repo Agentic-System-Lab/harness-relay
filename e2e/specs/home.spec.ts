@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import { homePage, openNewChat, openTeamChat } from '../support/app';
+import { countPages, finishedReply, homePage, openNewChat, openTeamChat, send } from '../support/app';
 
 /** The home page's animations: each one's name, its duration, how often it plays and what it changes. */
 const animations = (page: Page) =>
@@ -62,11 +62,10 @@ test.describe('the home page', () => {
   test('a part of the page that cannot be loaded: the page reloads once for it, then says so; the note closes, and Reload brings it', async ({ page }) => {
     // As in a page left open across an update, whose dialogs the new version replaced (src/web/chunks.ts).
     await page.route('**/assets/ReportDialog-*.js', (route) => route.fulfill({ status: 404, body: '' }));
-    let loads = 0;
-    page.on('load', () => loads++);
+    const pages = await countPages(page);
     const report = page.getByRole('button', { name: 'Report a problem' });
     await report.click();
-    await expect.poll(() => loads).toBe(1);
+    await expect.poll(pages).toBe(1);
     await expect(homePage(page)).toBeVisible();
     // Missing again so soon after: no reload this time, but a note instead of an empty page.
     await report.click();
@@ -75,13 +74,40 @@ test.describe('the home page', () => {
     await note.getByRole('button', { name: 'Close' }).click();
     await expect(note).toBeHidden();
     await expect(homePage(page)).toBeVisible();
-    expect(loads).toBe(1);
+    expect(await pages()).toBe(1);
 
     await page.unroute('**/assets/ReportDialog-*.js');
     await report.click();
     await note.getByRole('button', { name: 'Reload' }).click();
-    await expect.poll(() => loads).toBe(2);
+    await expect.poll(pages).toBe(2);
     await report.click();
     await expect(page.getByRole('dialog', { name: 'Report a problem' })).toBeVisible();
+  });
+
+  test('a part of the page that loads but fails to draw says so, not that it could not be loaded, and the page does not reload', async ({ page }) => {
+    // A dialog with a bug in it: a reload would not help, so the note says to report it.
+    await page.route('**/assets/ReportDialog-*.js', (route) =>
+      route.fulfill({ contentType: 'text/javascript', body: "export function ReportDialog() { throw new Error('e2e: broken on purpose'); }" }),
+    );
+    const pages = await countPages(page);
+    await page.getByRole('button', { name: 'Report a problem' }).click();
+    const note = page.getByRole('alert').filter({ hasText: 'This part of the page ran into a problem and could not be shown.' });
+    await expect(note).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'could not be loaded' })).toHaveCount(0);
+    expect(await pages()).toBe(0);
+    await note.getByRole('button', { name: 'Close' }).click();
+    await expect(note).toBeHidden();
+  });
+
+  test('a diagram that cannot be loaded shows its source, and the page does not reload for it', async ({ page, relay }) => {
+    // Mermaid loads when a reply first has a diagram; it is not one of the parts the page reloads for.
+    await page.route('**/assets/mermaid.core-*.js', (route) => route.fulfill({ status: 404, body: '' }));
+    const pages = await countPages(page);
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await send(page, 'Draw it e2e:mermaid');
+    const reply = await finishedReply(page, 'Claude');
+    await expect(reply.locator('.mermaid-block code')).toContainText('Question --> Answer');
+    await expect(reply.getByText('This Mermaid diagram could not be drawn, so its source is shown.')).toBeVisible();
+    expect(await pages()).toBe(0);
   });
 });

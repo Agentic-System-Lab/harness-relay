@@ -1,9 +1,9 @@
-import { lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
 import { SIGNED_OUT_EVENT, api } from './api';
 import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
-import { Deferred } from './components/Deferred';
+import { Deferred, lazyPart } from './components/Deferred';
 import { Home } from './components/Home';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
@@ -30,8 +30,8 @@ import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
 import { onboardingDone } from './tour';
 
 // Loaded when first opened, not with the page: Settings and its panels, and the guided tour.
-const SettingsPage = lazy(() => import('./components/SettingsPage').then((m) => ({ default: m.SettingsPage })));
-const Onboarding = lazy(() => import('./components/Onboarding').then((m) => ({ default: m.Onboarding })));
+const SettingsPage = lazyPart(() => import('./components/SettingsPage').then((m) => m.SettingsPage));
+const Onboarding = lazyPart(() => import('./components/Onboarding').then((m) => m.Onboarding));
 
 type SeenMap = Record<string, number>;
 const SEEN_KEY = 'relay:seen';
@@ -451,7 +451,7 @@ function RelayApp() {
           />
         )}
         {route.page === 'settings' && (
-          <Deferred>
+          <Deferred inPage>
             <SettingsPage
               section={route.section}
               providers={providers}

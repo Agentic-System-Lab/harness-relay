@@ -2248,6 +2248,16 @@ details.sub .model-picker {
   flex: 1 1 260px;
 }
 
+/* For a page (Settings): in the page's own place, under nothing, so that a phone's sidebar stays clear. */
+.load-failed.in-page {
+  position: static;
+  transform: none;
+  z-index: auto;
+  width: auto;
+  max-width: min(560px, calc(100% - 32px));
+  margin: 48px auto;
+}
+
 .load-failed-buttons {
   display: flex;
   gap: 8px;

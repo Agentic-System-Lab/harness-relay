@@ -47,7 +47,7 @@ function languagePreload(): Plugin {
     },
     transformIndexHtml: {
       order: 'post',
-      handler(_html, ctx) {
+      handler(html, ctx) {
         const files: Record<string, string> = {};
         for (const file of Object.values(ctx.bundle ?? {})) {
           const lang = file.type === 'chunk' ? /[\\/]locales[\\/](zh-TW|en)\.ts$/.exec(file.facadeModuleId ?? '')?.[1] : undefined;
@@ -67,7 +67,11 @@ function languagePreload(): Plugin {
           '  } catch (e) {}',
           '})();',
         ].join('\n');
-        return [{ tag: 'script', children: script, injectTo: 'head' }];
+        // Right after the charset, before any stylesheet: an inline script after one waits for it to load
+        // before it runs, and so would the language's request.
+        const charset = /<meta charset="UTF-8" \/>\r?\n/;
+        if (!charset.test(html)) throw new Error('languagePreload: no <meta charset="UTF-8" /> line in index.html to put the script after');
+        return html.replace(charset, (line) => `${line}    <script>\n${script}\n    </script>\n`);
       },
     },
   };

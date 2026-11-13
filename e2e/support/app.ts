@@ -14,6 +14,22 @@ export interface NewChatOptions {
   title?: string;
 }
 
+/**
+ * Counts the pages the tab loads from now on (a reload is one more), each new page adding one in the
+ * tab's sessionStorage as it starts, so that no page goes uncounted however soon it reloads. Returns
+ * how many so far (-1 while a page is between two, to be polled).
+ */
+export async function countPages(page: Page): Promise<() => Promise<number>> {
+  await page.addInitScript(() => {
+    try {
+      sessionStorage.setItem('e2e:pages', String(Number(sessionStorage.getItem('e2e:pages') ?? 0) + 1));
+    } catch {
+      /* storage unavailable */
+    }
+  });
+  return () => page.evaluate(() => Number(sessionStorage.getItem('e2e:pages') ?? 0)).catch(() => -1);
+}
+
 /** The home page (#/), where the app opens: the logo and its tagline. Shows once the browser is signed in. */
 export const homePage = (page: Page) => page.getByRole('heading', { name: 'From now on, let your agent team work for you' });
 

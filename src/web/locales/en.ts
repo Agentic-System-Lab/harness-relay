@@ -27,6 +27,7 @@ export const en: Messages = {
     clickToCopy: 'Click to copy',
     listSeparator: ', ',
     partFailed: 'This part of the page could not be loaded (Harness Relay may have just been updated). Reload the page to try again.',
+    partBroken: 'This part of the page ran into a problem and could not be shown. Reload the page; if it happens again, please report the problem.',
     reload: 'Reload',
   },
   modes: {

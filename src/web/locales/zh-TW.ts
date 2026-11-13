@@ -48,6 +48,7 @@ export const zhTW = {
     clickToCopy: '點擊複製',
     listSeparator: '、',
     partFailed: '這部分的頁面無法載入（Harness Relay 可能剛更新過）。重新載入頁面再試一次。',
+    partBroken: '這部分的頁面出了問題，無法顯示。請重新載入頁面；如果再次發生，請回報問題。',
     reload: '重新載入',
   },
   modes: {

@@ -1,4 +1,4 @@
-import { lazy, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
   cwdSettings,
@@ -13,12 +13,12 @@ import { api, orCreateCwd } from '../api';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
 import { leadLabel } from '../util';
-import { Deferred } from './Deferred';
+import { Deferred, lazyPart } from './Deferred';
 import { MemberDots } from './MemberDots';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 
 // Loaded when a template is first opened, not with the page.
-const TemplateEditor = lazy(() => import('./TemplateEditor').then((m) => ({ default: m.TemplateEditor })));
+const TemplateEditor = lazyPart(() => import('./TemplateEditor').then((m) => m.TemplateEditor));
 
 /** Whether the last new chat used the lead agent's teams without asking ("1"), so the next one starts the same way. */
 const AUTO_CONFIRM_KEY = 'relay:autoConfirm';

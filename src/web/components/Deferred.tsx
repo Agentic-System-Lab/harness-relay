@@ -1,4 +1,5 @@
-import { Component, Suspense, type ReactNode } from 'react';
+import { Component, Suspense, lazy, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
+import { PartLoadError, loadPart } from '../chunks';
 import { useT } from '../i18n';
 
 /** What the page says when its own words could not be loaded either (`main.tsx`): both languages. */
@@ -7,10 +8,14 @@ export const PAGE_LOAD_FAILED = {
   reload: '重新載入 · Reload',
 };
 
-/** A note that a part of the page could not be loaded, with a button that reloads the page. */
-export function LoadFailed({ text, reload, close, onClose }: { text: string; reload: string; close?: string; onClose?: () => void }) {
+/**
+ * A note that a part of the page could not be loaded or shown, with a button that reloads the page:
+ * at the bottom of the screen, over everything (a dialog it stands for), or `inPage` in the page's own
+ * place (Settings), leaving the rest of the screen alone.
+ */
+export function LoadFailed({ text, reload, close, onClose, inPage }: { text: string; reload: string; close?: string; onClose?: () => void; inPage?: boolean }) {
   return (
-    <div className="load-failed" role="alert">
+    <div className={inPage ? 'load-failed in-page' : 'load-failed'} role="alert">
       <span>{text}</span>
       <span className="load-failed-buttons">
         {onClose && (
@@ -26,16 +31,25 @@ export function LoadFailed({ text, reload, close, onClose }: { text: string; rel
   );
 }
 
-function PartFailed({ onClose }: { onClose?: () => void }) {
+type Failed = 'load' | 'draw' | null;
+
+function PartFailed({ failed, onClose, inPage }: { failed: Exclude<Failed, null>; onClose?: () => void; inPage?: boolean }) {
   const t = useT();
-  return <LoadFailed text={t.common.partFailed} reload={t.common.reload} close={t.common.close} onClose={onClose} />;
+  const text = failed === 'load' ? t.common.partFailed : t.common.partBroken;
+  return <LoadFailed text={text} reload={t.common.reload} close={t.common.close} onClose={onClose} inPage={inPage} />;
 }
 
-class Boundary extends Component<{ children: ReactNode; onClose?: () => void }, { failed: boolean }> {
-  state = { failed: false };
+interface BoundaryProps {
+  children: ReactNode;
+  onClose?: () => void;
+  inPage?: boolean;
+}
 
-  static getDerivedStateFromError(): { failed: boolean } {
-    return { failed: true };
+class Boundary extends Component<BoundaryProps, { failed: Failed }> {
+  state: { failed: Failed } = { failed: null };
+
+  static getDerivedStateFromError(err: unknown): { failed: Failed } {
+    return { failed: err instanceof PartLoadError ? 'load' : 'draw' };
   }
 
   componentDidCatch(err: unknown): void {
@@ -43,18 +57,28 @@ class Boundary extends Component<{ children: ReactNode; onClose?: () => void }, 
   }
 
   render(): ReactNode {
-    return this.state.failed ? <PartFailed onClose={this.props.onClose} /> : this.props.children;
+    const { failed } = this.state;
+    return failed ? <PartFailed failed={failed} onClose={this.props.onClose} inPage={this.props.inPage} /> : this.props.children;
   }
 }
 
 /**
- * A part of the page loaded when first shown (`React.lazy`): nothing while it loads; when it cannot be
- * loaded (or drawn), a note offering to reload the page instead of an empty page. The page reloads by
- * itself once first (`chunks.ts`). `onClose`: what closing the note does (the dialog it stands for).
+ * A component loaded when first shown, through `loadPart`: the page reloads once for it when it
+ * cannot be loaded, and it fails with a `PartLoadError` when it still cannot. Show it in `Deferred`.
  */
-export function Deferred({ children, onClose }: { children: ReactNode; onClose?: () => void }) {
+export function lazyPart<P extends object>(load: () => Promise<ComponentType<P>>): LazyExoticComponent<ComponentType<P>> {
+  return lazy(() => loadPart(load).then((component) => ({ default: component })));
+}
+
+/**
+ * A part of the page loaded when first shown (`lazyPart`): nothing while it loads; when it cannot be
+ * loaded, or fails to draw, a note saying which, with a button to reload the page, instead of an
+ * empty page. `onClose`: what closing the note does (the dialog it stands for); `inPage`: the note in
+ * the part's place, for a page (Settings).
+ */
+export function Deferred({ children, onClose, inPage }: BoundaryProps) {
   return (
-    <Boundary onClose={onClose}>
+    <Boundary onClose={onClose} inPage={inPage}>
       <Suspense fallback={null}>{children}</Suspense>
     </Boundary>
   );
