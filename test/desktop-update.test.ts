@@ -1079,6 +1079,26 @@ describe('downloading an update in parts', () => {
     }
   });
 
+  it("names GitHub's own answer when an API that keeps answering with the file keeps refusing its parts", async () => {
+    const headers = downloadHeaders(PRIVATE)!;
+    const api: UpdateAsset = { ...copy, url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/7' };
+    for (const status of [429, 503]) {
+      const located: string[] = [];
+      const locate: Locate = async (url) => {
+        located.push(url);
+        return { status: 200 };
+      };
+      const served = cdn(body, 4, { answer: () => status });
+      const err = await failure(download({ fetch: single(body).fetch, connections: served.connections, locate, asset: api, to: join(dir, `parts-api-${status}.dmg`), minPart, headers }));
+      expect(err?.failure, String(status)).toBe('download');
+      expect(err?.message).toBe(`HTTP ${status}`);
+      // Asked again each time, up to PART_FAILURES, and never anywhere but the API with the token.
+      expect(located).toHaveLength(1 + PART_FAILURES);
+      expect(located.every((u) => u === api.url)).toBe(true);
+      expect(served.asked.every((a) => a.url === api.url)).toBe(true);
+    }
+  });
+
   it('fails, keeping nothing and the token at the API alone, when the installer cannot be found either, or there is none to fall back on', async () => {
     const headers = downloadHeaders(PRIVATE)!;
     const api: UpdateAsset = { ...copy, url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/7' };

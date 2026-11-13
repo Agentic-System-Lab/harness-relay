@@ -678,8 +678,9 @@ class NoRanges extends Error {
 /** The CDN refused a part (403): the signed `address` it was asked at has expired. */
 class Expired extends Error {
   readonly address: string;
-  constructor(address: string) {
-    super('HTTP 403');
+  /** What GitHub answered there (403, or, with the token at the asset's own address, `unavailable`'s), named should the download fail. */
+  constructor(address: string, status = 403) {
+    super(`HTTP ${status}`);
     this.address = address;
   }
 }
@@ -789,7 +790,7 @@ async function inParts(o: {
         if (res.status === 200) throw new NoRanges(at, sent);
         // An expired signed address, or the asset's own one refusing the token meanwhile (it answered with
         // the file itself): asked where the file is again, which falls back to the installer when refused.
-        if (res.status === 403 || (sent && unavailable(res.status, true))) throw new Expired(at);
+        if (res.status === 403 || (sent && unavailable(res.status, true))) throw new Expired(at, res.status);
         throw new UpdateError('download', `HTTP ${res.status}`);
       }
       const range = /^bytes (\d+)-\d+\/(\d+|\*)$/.exec(res.headers.get('content-range') ?? '');
