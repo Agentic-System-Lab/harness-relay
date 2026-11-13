@@ -5924,7 +5924,8 @@ details.sub summary {
   scroll-margin-top: calc(var(--settings-nav-height, 56px) + 16px);
 }
 
-/* With the sidebar collapsed its button sits in the corner (as for .chat-head): the stuck links start after it. */
+/* With the sidebar collapsed its button sits in the corner (as for .chat-head): once the links come up
+   to its height (.stuck, makeRoomForCorner in route.ts), they start after it. */
 @media (min-width: 821px) {
   .sidebar-collapsed .settings-nav.stuck {
     padding-left: max(var(--page-pad, 24px), calc(60px - max(0px, (100vw - 1000px) / 2)));
@@ -5932,7 +5933,8 @@ details.sub summary {
 }
 
 @media (max-width: 820px) {
-  /* Stuck to the top: the row starts right of the menu button (36px at 10px from the edge). */
+  /* Come up to the menu button's height (stuck to the top, or on their way there): the row starts
+     right of the button (36px at 10px from the edge), never under it. */
   .settings-nav.stuck {
     padding-left: 60px;
   }
@@ -5942,7 +5944,7 @@ details.sub summary {
   }
 }
 
-/* Zero-height marker just above the links: once it scrolls out of view, the links are stuck. */
+/* Zero-height marker just above the links: it sets where they sit under the page's title. */
 .settings-nav-marker {
   display: block;
   height: 0;
