@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test } from '../fixtures';
 import { finishedReply, openTeamChat, send, settled } from '../support/app';
-import { cli as factsOf, logged, member, needsFake } from '../support/clis';
+import { cli as factsOf, logged, member, needsFake, withClis } from '../support/clis';
 import { installFakeLaunchers, type FakeLaunchers } from '../support/fake-cli';
 
 /*
@@ -34,6 +34,7 @@ test.describe('CLIs that are scripts on Windows', () => {
     const cli = factsOf(provider);
     test.describe(() => {
       needsFake(provider);
+      withClis(provider);
 
       test(`${provider}: started through ${how}, it is found with its version and answers`, async ({ page, relay, fakeBinDir }) => {
         const launchers = installFakeLaunchers(fakeBinDir);

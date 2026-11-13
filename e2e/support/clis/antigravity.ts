@@ -14,6 +14,9 @@ export const antigravity: CliFacts = {
   version: 'v1.5.999',
   sandbox: 'none',
   belowFullOn: ['darwin', 'linux', 'win32'],
+  // Not on macOS, where it runs as on Linux; on Windows its account's home reaches the probes as
+  // `USERPROFILE`, not `HOME` (`antigravityProbeEnv`).
+  testedOn: ['linux', 'win32'],
   // Its `list_dir` is of kind `read`, which the chat calls Read.
   listTool: 'Read',
   approve: { permission: 'read-only', directive: 'e2e:approve', command: 'echo e2e-approval' },

@@ -79,7 +79,10 @@ describe('runProcess', () => {
     // Before, the run waited for stdout to close, which never happened.
     const { res, pid } = await stopAfterFirstLine(STUBBORN);
     expect(res.aborted).toBe(true);
-    expect(alive(pid)).toBe(false);
+    // The run ends once SIGKILL closed the subprocess's stdout. A killed process closes its files
+    // before it becomes a zombie, so on a busy runner it can still be exiting at that moment (seen on
+    // CI's Linux runners): it is gone a moment later.
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 2000, interval: 20 });
   }, 8000);
 
   it('keeps stdout byte for byte', async () => {

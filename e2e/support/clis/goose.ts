@@ -13,6 +13,9 @@ export const goose: CliFacts = {
   version: 'v1.58.999',
   sandbox: 'relay',
   belowFullOn: ['darwin', 'linux'],
+  // On macOS in Harness Relay's own sandbox as Seatbelt makes it (with trustd for HTTPS); on Windows
+  // it keeps its own shell, not the POSIX wrapper.
+  testedOn: ['linux', 'darwin', 'win32'],
   listTool: 'tree',
   // In read-only Harness Relay lets plain reading commands run without asking (`echo` among them), so the
   // fake asks to run `env echo e2e-approval`, which prints the same.

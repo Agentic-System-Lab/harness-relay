@@ -227,11 +227,6 @@ export async function ensureRepo(dir: string): Promise<{ root: string; created: 
   return { root: real, created: true };
 }
 
-async function headCommit(cwd: string): Promise<string | null> {
-  const r = await git(cwd, ['rev-parse', '--verify', '-q', 'HEAD'], { allowFail: true });
-  return r.code === 0 ? out(r) : null;
-}
-
 /** A folder's real path (links resolved), or the path itself when it does not exist. */
 function realOr(path: string): string {
   try {
@@ -266,7 +261,13 @@ export async function snapshot(root: string, exclude: string[] = []): Promise<{ 
   const dir = mkdtempSync(join(tmpdir(), 'relay-index-'));
   const index = join(dir, 'index');
   try {
-    const indexPath = out(await git(root, ['rev-parse', '--git-path', 'index']));
+    // The index's path and the commit HEAD names, in one git command (each one also reads the
+    // repository's config first, `repoDriverGuards`: on Windows a git process costs about half a
+    // second). A new repository has no commit yet: the path alone, exit code 1.
+    const where = await git(root, ['rev-parse', '--git-path', 'index', '--verify', '-q', 'HEAD'], { allowFail: true });
+    const [indexPath, head] = where.stdout.split('\n').map((line) => line.trim());
+    if (!indexPath) throw new GitError(t().gitFailed('rev-parse', tail(where.stderr || where.stdout, 500)));
+    const parent = where.code === 0 && head ? head : null;
     const realIndex = isAbsolute(indexPath) ? indexPath : resolve(root, indexPath);
     // Starting from the real index lets git reuse its stat cache instead of re-hashing every file.
     if (existsSync(realIndex)) copyFileSync(realIndex, index);
@@ -274,7 +275,6 @@ export async function snapshot(root: string, exclude: string[] = []): Promise<{ 
     const skip = excludePathspecs(root, exclude);
     await git(root, ['add', '-A', ...(skip.length ? ['--', '.', ...skip] : [])], { env });
     const tree = out(await git(root, ['write-tree'], { env }));
-    const parent = await headCommit(root);
     const commit = out(
       await git(root, ['commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', 'Harness Relay snapshot']),
     );
@@ -322,28 +322,33 @@ export async function treeOf(root: string, commit: string): Promise<string> {
 
 /** Files changed between two commits. NUL-separated output keeps unusual file names intact. */
 export async function diffFiles(root: string, base: string, head: string): Promise<FileChange[]> {
-  const opts = { maxCapture: MAX_OUTPUT_BYTES, complete: true };
-  const [names, nums] = await Promise.all([
-    git(root, ['diff', '--no-renames', '-z', '--name-status', base, head], opts),
-    git(root, ['diff', '--no-renames', '-z', '--numstat', base, head], opts),
-  ]);
-  // --numstat -z: "<added>\t<deleted>\t<path>\0" ("-" for binary files).
+  // One git command for the statuses (`--raw`) and the line counts (`--numstat`): each one also reads
+  // the repository's config first (`repoDriverGuards`), and on Windows a git process costs about half a
+  // second. Twice the output limit, as the two commands this was had one each.
+  const r = await git(root, ['diff', '--no-renames', '-z', '--raw', '--numstat', base, head], { maxCapture: 2 * MAX_OUTPUT_BYTES, complete: true });
+  return parseDiffFiles(r.stdout);
+}
+
+/**
+ * `git diff --no-renames -z --raw --numstat`'s output: first each file's raw entry,
+ * ":<mode> <mode> <object> <object> <status>\0<path>\0", then each one's counts,
+ * "<added>\t<deleted>\t<path>\0" ("-" for a binary file).
+ */
+export function parseDiffFiles(output: string): FileChange[] {
+  const fields = output.split('\0');
+  const changed: { path: string; status: FileChange['status'] }[] = [];
+  let i = 0;
+  // A raw entry's path is the field after its header, whatever it holds (even a leading ':').
+  for (; i + 1 < fields.length && fields[i]!.startsWith(':'); i += 2) {
+    const code = fields[i]!.slice(fields[i]!.lastIndexOf(' ') + 1);
+    changed.push({ path: fields[i + 1]!, status: code[0] === 'A' ? 'A' : code[0] === 'D' ? 'D' : 'M' });
+  }
   const counts = new Map<string, { added: number | null; deleted: number | null }>();
-  for (const entry of nums.stdout.split('\0')) {
-    const m = /^(-|\d+)\t(-|\d+)\t([\s\S]+)$/.exec(entry);
+  for (; i < fields.length; i++) {
+    const m = /^(-|\d+)\t(-|\d+)\t([\s\S]+)$/.exec(fields[i]!);
     if (m) counts.set(m[3]!, { added: m[1] === '-' ? null : Number(m[1]), deleted: m[2] === '-' ? null : Number(m[2]) });
   }
-  // --name-status -z: "<status>\0<path>\0" pairs.
-  const fields = names.stdout.split('\0');
-  const files: FileChange[] = [];
-  for (let i = 0; i + 1 < fields.length; i += 2) {
-    const code = fields[i]!;
-    const path = fields[i + 1]!;
-    if (!code) break;
-    const status = code[0] === 'A' ? 'A' : code[0] === 'D' ? 'D' : 'M';
-    files.push({ path, status, ...(counts.get(path) ?? { added: null, deleted: null }) });
-  }
-  return files;
+  return changed.map((c) => ({ ...c, ...(counts.get(c.path) ?? { added: null, deleted: null }) }));
 }
 
 /**

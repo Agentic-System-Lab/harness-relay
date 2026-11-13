@@ -5,7 +5,7 @@ import type { Download, Locator, Page } from '@playwright/test';
 import { FILE_LIMITS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, askAndConfirm, finishedReply, openTeamChat, send, startChat } from '../support/app';
-import { CLIS, eachCli, endsTurnNote, HALVES, member, needsBelowFull, teamOf, teams } from '../support/clis';
+import { CLIS, eachCli, eachHalf, endsTurnNote, member, needsBelowFull, teamOf, teams } from '../support/clis';
 
 /**
  * A ZIP file's entries, by name (a folder's ends with `/`), with each one's bytes: read from its central
@@ -95,7 +95,7 @@ test.describe('files and changes', () => {
 
   // The CLIs in two teams, each in a chat of its own: those that cannot run below full access here in
   // one with full access (`teams()`).
-  for (const half of HALVES) {
+  eachHalf((half) => {
     test(half.title('every CLI writes in edit mode, and each turn records its own change'), async ({ page, relay }) => {
       for (const team of teams(teamOf(half.clis), 'edit')) {
         await openTeamChat(page, relay, team.members.map((c) => member(c)), { permission: team.permission });
@@ -107,7 +107,7 @@ test.describe('files and changes', () => {
         }
       }
     });
-  }
+  });
 
   test('in parallel mode each member works in its own worktree, and a result can be applied', async ({ page, relay }) => {
     await openTeamChat(

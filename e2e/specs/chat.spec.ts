@@ -1,6 +1,6 @@
 import { expect, test } from '../fixtures';
 import { askAndConfirm, awaitingPlan, chatId, composer, confirmTeam, finishedReply, replies, send, settled, startChat } from '../support/app';
-import { HALVES, sharedPermission, teamOf } from '../support/clis';
+import { eachHalf, sharedPermission, teamOf } from '../support/clis';
 
 test.describe('a new chat', () => {
   test('the lead agent proposes a team, and once it is confirmed the team answers', async ({ page, relay }) => {
@@ -35,7 +35,7 @@ test.describe('a new chat', () => {
 
   // The CLIs with a sign-in, then the open agents (those whose fake is written), each a team the lead
   // agent picks, in a chat with the permission all of them can run with here.
-  for (const half of HALVES) {
+  eachHalf((half) => {
     test(half.title('a team of every CLI answers in turn'), async ({ page }) => {
       const team = teamOf(half.clis);
       await startChat(page, { permission: sharedPermission(team) });
@@ -48,7 +48,7 @@ test.describe('a new chat', () => {
       // Roundtable order: the team's.
       await expect(page.locator('.msg-agent .msg-head strong')).toHaveText(team.map((c) => `@${c.name}`));
     });
-  }
+  });
 
   test('a follow-up question gets a team again and the members answer it', async ({ page, relay }) => {
     await startChat(page);

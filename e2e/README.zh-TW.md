@@ -23,13 +23,13 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 ## 每個測試一開始有什麼
 
 - **自己的伺服器**：使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini` 與 `.config/cursor`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡，git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
-- **自己的假模型端點**：一個小 HTTP 伺服器，設成模型來源 `e2e`（**設定 → 模型來源**，Settings → Model backends），有 `e2e-model` 與 `e2e-model-mini` 兩個模型，每個開源 agent 的預設模型都設成 `e2e/e2e-model`，所以開源 agent 都已安裝且可使用（OpenHands 的終端機開關也已打開）。那裡沒有模型會回答：它只列出自己的模型，並收下在 Harness Relay 自己的沙箱裡執行的假 CLI 送來的紀錄。測試可以不要它（`openBackend: false`）、關掉 OpenHands 的開關（`sandboxTerminal: false`），或讓某些 CLI 未安裝（`missingClis`）。
+- **自己的假模型端點**：一個小 HTTP 伺服器，設成模型來源 `e2e`（**設定 → 模型來源**，Settings → Model backends），有 `e2e-model` 與 `e2e-model-mini` 兩個模型，每個開源 agent 的預設模型都設成 `e2e/e2e-model`，所以測試安裝的開源 agent 都可使用（OpenHands 的終端機開關也已打開）。那裡沒有模型會回答：它只列出自己的模型，並收下在 Harness Relay 自己的沙箱裡執行的假 CLI 送來的紀錄。測試可以不要它（`openBackend: false`）、關掉 OpenHands 的開關（`sandboxTerminal: false`），或讓某些 CLI 未安裝（`missingClis`）。
 - **一個工作目錄**，裡面是一個小專案：`README.md`、`src/hello.ts` 與 `src/lib/math.ts`（`seedProject()`）。需要其他資料夾的測試會在它旁邊新增（`relay.addProject()`）。
 - **已登入的瀏覽器頁面**：用一組新的一次性代碼登入，使用導覽已完成，介面為英文（[`fixtures.ts`](fixtures.ts)）。測試可用 `test.use()` 改變這些：`lang: 'zh-TW'`、`signIn: false`、`tour: true`，或給伺服器更多環境變數（`serverEnv`）。
-- **假的 CLI**（[`fake-cli/`](fake-cli/)），十個 CLI 各一個，說各 CLI 的協定，回答 `Hello from <名稱> (<CLI>). You said: “<使用者最新的訊息>”.`。測試用訊息中的 `e2e:` 指令操控它們（`e2e:write=notes.md`、`e2e:approve`、`e2e:slow`…）。假 CLI 總是會嘗試指令要求的事，成不成功只取決於 Harness Relay 給了 CLI 什麼（權限、參數與設定、沙箱、資料夾，以及它的核准請求得到的回答），所以在不該寫的地方寫檔的測試，能看出轉接器有沒有把 CLI 設定對。Claude Code、Codex 與 Grok 的假 CLI 自己推算它們 CLI 的沙箱會允許什麼；沒有沙箱的 Cursor 與 Antigravity，假 CLI 像真正的一樣先詢問；開源 agent 的假 CLI 則真的寫檔、真的連線，所以在完全存取以外，不屬於它們的事由 Harness Relay 自己的沙箱本身拒絕（在 macOS 與 Linux 上）。在沙箱裡的假 CLI 無法寫入假 CLI 的紀錄檔，所以把紀錄送到假模型端點。
+- **假的 CLI**（[`fake-cli/`](fake-cli/)），十個 CLI 各一個。測試的伺服器裝了 Claude Code、Codex 與 Grok，以及測試要用的 CLI（每個 CLI 各一的測試裝它自己，兩個團隊的測試裝它那一隊的，其他的用 [`support/clis.ts`](support/clis.ts) 的 `withClis()`）：其餘的在那裡都未安裝，因為每次開啟頁面時，伺服器會向每個已安裝的 CLI 詢問版本、登入、模型與它自己會載入的東西，每個大約啟動六次。它們說各 CLI 的協定，回答 `Hello from <名稱> (<CLI>). You said: “<使用者最新的訊息>”.`。測試用訊息中的 `e2e:` 指令操控它們（`e2e:write=notes.md`、`e2e:approve`、`e2e:slow`…）。假 CLI 總是會嘗試指令要求的事，成不成功只取決於 Harness Relay 給了 CLI 什麼（權限、參數與設定、沙箱、資料夾，以及它的核准請求得到的回答），所以在不該寫的地方寫檔的測試，能看出轉接器有沒有把 CLI 設定對。Claude Code、Codex 與 Grok 的假 CLI 自己推算它們 CLI 的沙箱會允許什麼；沒有沙箱的 Cursor 與 Antigravity，假 CLI 像真正的一樣先詢問；開源 agent 的假 CLI 則真的寫檔、真的連線，所以在完全存取以外，不屬於它們的事由 Harness Relay 自己的沙箱本身拒絕（在 macOS 與 Linux 上）。在沙箱裡的假 CLI 無法寫入假 CLI 的紀錄檔，所以把紀錄送到假模型端點。
 - **假的 `gh`**（[`fake-cli/fake-gh.cjs`](fake-cli/fake-gh.cjs)），用於分享與問題回報的截圖：它把 gist 存在測試自己的資料夾（`fake-github/`），從不送到 GitHub；`E2E_FAKE_SIGNED_OUT=gh` 會讓它處於未登入狀態。Linux 上還有假的選擇資料夾視窗（`zenity`）。AgentsView 則是 [`specs/sessions.spec.ts`](specs/sessions.spec.ts) 裡的一個小 HTTP 伺服器，因為 Harness Relay 只會送請求給它。
 
-下面的表格中，CLI 欄寫出測試用哪些 CLI 執行：「**各一**」表示十個 CLI 各跑一次；「**有登入的各一**」表示 Claude Code、Codex、Grok、Cursor 與 Antigravity 各跑一次；「**開源 agent 各一**」表示 OpenCode、Goose、Cline、OpenHands 與 Pi 各跑一次；「**兩個團隊**」表示測試跑兩次，一次是有登入的五個組成的團隊，一次是五個開源 agent 組成的團隊（這時標題以 `open agents:` 開頭）。某個 CLI 只能以完全存取執行的地方（Windows 上的開源 agent、Linux 上的 OpenCode），與權限有關的測試會跳過它並說明原因，其他測試則以完全存取執行它。
+下面的表格中，CLI 欄寫出測試用哪些 CLI 執行：「**各一**」表示十個 CLI 各跑一次；「**有登入的各一**」表示 Claude Code、Codex、Grok、Cursor 與 Antigravity 各跑一次；「**開源 agent 各一**」表示 OpenCode、Goose、Cline、OpenHands 與 Pi 各跑一次；「**兩個團隊**」表示測試跑兩次，一次是有登入的五個組成的團隊，一次是五個開源 agent 組成的團隊（這時標題以 `open agents:` 開頭）。某個 CLI 只能以完全存取執行的地方（Windows 上的開源 agent、Linux 上的 OpenCode），與權限有關的測試會跳過它並說明原因，其他測試則以完全存取執行它。在 CI 上，某個 CLI 自己的測試（各一的，以及它在兩個團隊中的位置）在 macOS 與 Windows 上只跑 Harness Relay 在那裡的執行方式和 Linux 不同的 CLI：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 分區
 
@@ -399,7 +399,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 設定會詢問瀏覽器、播放提示音試聽，並傳送測試通知 | 沒有推播時說明頁面開著時才會通知；**顯示系統通知**開啟前（開啟時會請瀏覽器允許）**傳送測試通知**不能按；**播放提示音**會先播一次；測試會跳出靜音的通知並播放提示音；重新載入後選擇仍在。 |
 | 視窗被擋住時，等待確認的團隊與回覆完成都會跳出通知，點一下會打開對話 | 首席 agent 的團隊等待確認（「…等你確認」）與回覆（「Claude finished replying」加上回覆的開頭），標題都是對話標題、tag 都是那個對話、都是靜音，並分別播放三個音與兩個音；在首頁點其中一則會打開對話。 |
 | agent 的提問會跳出通知，附上它問的內容 | `e2e:ask`：「Claude asked you something」與問題；提示音關掉時不播放。 |
-| 正在看的對話不通知，其他對話只播放提示音 | 視窗有焦點、正在看的對話回覆完：什麼都沒有。顯示首頁時才結束的慢回覆（`e2e:slow`）：只有提示音，沒有通知。在設定裡兩者都關掉：什麼都沒有。 |
+| 正在看的對話不通知，其他對話只播放提示音 | 視窗有焦點、正在看的對話回覆完：什麼都沒有。顯示首頁時才結束的慢回覆（`e2e:slow=5`）：只有提示音，沒有通知。在設定裡兩者都關掉：什麼都沒有。 |
 
 ## 環境變數設定的上限
 
@@ -433,7 +433,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 各 CLI 一覽
 
-每個 CLI 都測到的情境（大多是每個 CLI 一個測試，其餘用五個 CLI 組成的團隊），所以某個轉接器的改變會在這裡看出來。有自己登入的 CLI：
+每個 CLI 都測到的情境（大多是每個 CLI 一個測試，其餘用五個 CLI 組成的團隊），所以某個轉接器的改變會在這裡看出來：在 Linux 與本機上十個都測，在 CI 的 macOS 與 Windows 上則是各自執行方式不同的 CLI（[平台與瀏覽器](#平台與瀏覽器)）。有自己登入的 CLI：
 
 | 情境 | Claude Code | Codex | Grok | Cursor | Antigravity |
 | --- | --- | --- | --- | --- | --- |
@@ -490,8 +490,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 平台與瀏覽器
 
-- [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 24 在 Ubuntu、macOS 與 Windows 上，並以 Node 22 在 Ubuntu 上，用 Chromium 執行所有 spec。手動執行可以選擇其他瀏覽器；在本機則用 `E2E_BROWSERS=chromium,firefox,webkit`（[`playwright.config.ts`](../playwright.config.ts)）。在 Ubuntu 上它會安裝 Harness Relay 自己的沙箱需要的東西（bubblewrap、socat 與 ripgrep，以及讓 `/usr/bin/bwrap` 能建立 namespace 的 AppArmor 設定檔），在 Ubuntu 與 macOS 上先執行沙箱自己的檢查（`scripts/sandbox-check.ts`），並在那裡設定 `E2E_REQUIRE_RELAY_SANDBOX=1`，讓需要沙箱的測試失敗而不是跳過。
+- [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 24 在 Ubuntu、macOS 與 Windows 上，並以 Node 22 在 Ubuntu 上，用 Chromium 執行所有 spec：每一種都分成兩個 job，各跑一半的測試（Playwright 的 `--shard=1/2` 與 `2/2`），讓每個 job 都不超過七分鐘多少。手動執行可以選擇其他瀏覽器；在本機則用 `E2E_BROWSERS=chromium,firefox,webkit`（[`playwright.config.ts`](../playwright.config.ts)）。在 Ubuntu 上它會安裝 Harness Relay 自己的沙箱需要的東西（bubblewrap、socat 與 ripgrep，以及讓 `/usr/bin/bwrap` 能建立 namespace 的 AppArmor 設定檔），在 Ubuntu 與 macOS 上先執行沙箱自己的檢查（`scripts/sandbox-check.ts`），並在那裡設定 `E2E_REQUIRE_RELAY_SANDBOX=1`，讓需要沙箱的測試失敗而不是跳過。
 - 開源 agent 只在 macOS 與 Linux 上（Linux 需要 bubblewrap、socat 與 ripgrep）以完全存取以外的權限執行：在 Harness Relay 自己的沙箱不支援的 Windows 上，它們只能以完全存取執行，Linux 上的 OpenCode 也是。在那裡，與權限有關的測試會跳過它們並說明原因，其他測試以完全存取執行它們，而 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)會檢查權限低於完全存取的對話不會啟動它們。在沒有這個沙箱的 Mac 或 Linux 電腦上，需要它的測試會跳過並說明原因（`E2E_RELAY_SANDBOX`，由 `global-setup.ts` 判斷一次）。
+- 在 CI 上（`E2E_SYSTEM_CLIS=1`），每個 CLI 自己的測試在 Linux 上十個都跑，在 macOS 與 Windows 上只跑 Harness Relay 在那裡的執行方式和 Linux 不同、而且它的假 CLI 看得出差別的 CLI（`support/clis/<cli>.ts` 的 `testedOn`，那裡寫了原因）；在其他系統上會跳過並說明在哪裡執行。**macOS**：五個開源 agent（Harness Relay 自己的沙箱在那裡由 Seatbelt 構成，OpenCode 只在那裡以完全存取以外的權限執行，還有 OpenHands 的終端機開關），以及代表有登入的五個 CLI 的 Claude Code，它們的假 CLI 在那裡做的事和在 Linux 上一樣。**Windows**：有登入的五個（Claude Code 沒有沙箱設定、Codex 沒有權限設定檔、Grok 的 `workspace` 設定檔、Cursor 的 session 以 junction 連進來、Antigravity 的家目錄以 `USERPROFILE` 傳給它），OpenCode 與 Goose（用它們自己的 shell），以及 OpenHands（它的 PowerShell 終端機）；Cline 與 Pi 不在其中，它們在那裡只能以完全存取執行，和在 Linux 上以完全存取執行時一樣（[在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) 仍會在那裡啟動它們）。在本機沒有設定這個變數時，每個 CLI 的測試在每個系統上都跑；手動執行 workflow 並勾選 **every_cli**，macOS 與 Windows 上也會十個都跑。
 - OpenHands 在 macOS 上要在完全存取以外執行，需要沙箱裡的終端機：測試的伺服器會打開它的開關，而關掉開關的測試只在 macOS 上執行。
 - [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli)只在 Windows 上執行。
 - 選擇資料夾視窗的測試只在 Linux 上執行：Linux 從 PATH 找它的視窗，假的視窗可以替代；macOS 與 Windows 以完整路徑開啟自己的視窗。

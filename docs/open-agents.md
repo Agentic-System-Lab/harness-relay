@@ -308,7 +308,7 @@ Checked with `cline` 3.0.74 (npm `cline`; its source at the tag `cli-v3.0.74`), 
 - **Subagents** (its `task` tool, and the older `delegate`) run their own commands and edits without asking once started, so below full access the tool is taken out of its tools (`filter_tools_regex`), and refused without asking the user (`decide`) if one still comes. With full access they are there.
 - **Refusals**: OpenHands passes the model only its own fixed words ("User rejected the action. Please ask the user how they want to proceed."), never Harness Relay's reason or the user's note; the briefing says what a refused call means, and the chat row shows Harness Relay's reason and the note.
 
-**Briefing.** A skill without triggers in the run's home (`skills/harness-relay-briefing.md`), which OpenHands puts in its system prompt (in its repository-context block). Its system prompt is kept in the session when it starts, so when the briefing has changed since (another permission, another team), a resumed session gets the new one before the prompt too.
+**Briefing.** A skill without triggers in the run's home (`skills/harness-relay-briefing.md`), which OpenHands puts in its system prompt (in its repository-context block). Its system prompt is kept in the session when it starts, so when the briefing has changed since (another permission, another team, or the tool library's memory or skills left out, which come last and leave the new briefing only the start of the old one), a resumed session gets the new one before the prompt too: the session counts as having the briefing only where it holds it whole.
 
 **Tool library.** Its MCP servers go into the run's `mcp.json` (stdio and HTTP), for new and resumed sessions alike: `session/load` ignores ACP's `mcpServers`.
 

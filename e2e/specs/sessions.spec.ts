@@ -8,7 +8,7 @@ import { memberSessionId } from '../../src/server/agentsview';
 import type { Conversation, Provider, SettingsView } from '../../src/shared/types';
 import { expect, test as base } from '../fixtures';
 import { acceptNextDialog, composer, finishedReply, openTeamChat, replies, send, settled, type Member } from '../support/app';
-import { chatOf, defaultHome, HALVES, logged, needsFake, sessionFile, teamOf } from '../support/clis';
+import { chatOf, defaultHome, eachHalf, logged, needsFake, sessionFile, teamOf, withClis } from '../support/clis';
 import { ROOT } from '../support/paths';
 import type { RelayServer } from '../support/relay';
 
@@ -114,7 +114,7 @@ async function sessionsOf(relay: RelayServer, providers: Provider[], count: numb
 
 test.describe("the CLIs' own folder", () => {
   // Each with a team of the CLIs with a sign-in, and of the open agents (`open agents: …`).
-  for (const half of HALVES) {
+  eachHalf((half) => {
     test(half.title('the folder chosen in Settings is where each CLI keeps its sessions'), async ({ page, relay }) => {
       const TEAM = teamOf(half.clis);
       const { home } = await sessionsCard(page, relay);
@@ -174,7 +174,7 @@ test.describe("the CLIs' own folder", () => {
         expect(sessionFile(join(dir, m.provider), after!), `${m.provider}'s second session`).toBeDefined();
       }
     });
-  }
+  });
 
   test("a folder inside Harness Relay's own folder or the default working directory is refused", async ({ page, relay }) => {
     const { home } = await sessionsCard(page, relay);
@@ -268,49 +268,53 @@ test.describe('AgentsView', () => {
     expect((await relay.api<SettingsView>('/api/settings')).agentsViewError).toBeUndefined();
   });
 
-  test("a Cursor member's session is the one Harness Relay recorded, sent after the thread and filed under it", async ({ page, relay, agentsView }) => {
-    needsFake('cursor');
-    const { view } = await sessionsCard(page, relay);
-    await view.getByPlaceholder('http://127.0.0.1:8080').fill(agentsView.url);
-    await view.getByRole('button', { name: 'Save' }).click();
-    await expect(view).toContainText('AgentsView is set; it is updated after every turn');
+  test.describe(() => {
+    withClis('cursor');
 
-    const team: Member[] = [VIEWED[1]!, { name: 'Cursor', provider: 'cursor' }];
-    const id = await openTeamChat(page, relay, team, {}, 'Pelican report');
-    await send(page, 'Count the pelicans e2e:think e2e:tool');
-    for (const m of team) await finishedReply(page, m.name);
-    await settled(relay, id);
+    test("a Cursor member's session is the one Harness Relay recorded, sent after the thread and filed under it", async ({ page, relay, agentsView }) => {
+      needsFake('cursor');
+      const { view } = await sessionsCard(page, relay);
+      await view.getByPlaceholder('http://127.0.0.1:8080').fill(agentsView.url);
+      await view.getByRole('button', { name: 'Save' }).click();
+      await expect(view).toContainText('AgentsView is set; it is updated after every turn');
 
-    const conv = await relay.api<Conversation>(`/api/conversations/${id}`);
-    const cursor = conv.agents.find((a) => a.provider === 'cursor')!;
-    const session = memberSessionId(id, cursor.id);
-    const uploads = () => agentsView.hits.filter((h) => h.method === 'POST' && h.path === '/api/v1/sessions/upload');
-    const recorded = () => uploads().filter((h) => h.body.includes(`filename="${session}.jsonl"`));
-    await expect.poll(() => recorded().some((h) => records(h).some((r) => r.type === 'custom-title'))).toBe(true);
-    // In the thread's place, after it.
-    const upload = recorded().at(-1)!;
-    expect(Object.fromEntries(upload.query)).toEqual({ project: 'e2e-project', machine: 'e2e-machine', allow_shorter: 'true' });
-    expect(agentsView.hits.indexOf(upload)).toBeGreaterThan(agentsView.hits.findIndex((h) => h.method === 'POST' && h.body.includes(`filename="${id}.jsonl"`)));
+      const team: Member[] = [VIEWED[1]!, { name: 'Cursor', provider: 'cursor' }];
+      const id = await openTeamChat(page, relay, team, {}, 'Pelican report');
+      await send(page, 'Count the pelicans e2e:think e2e:tool');
+      for (const m of team) await finishedReply(page, m.name);
+      await settled(relay, id);
 
-    const r = records(upload);
-    expect(r.every((x) => !x.sessionId || x.sessionId === session)).toBe(true);
-    // What it heard, then its thinking and its call (listing the folder: Claude Code's Read, with the folder), the call's result, its reply.
-    expect(r[0]!).toMatchObject({ type: 'user', message: { content: expect.stringContaining('Count the pelicans') } });
-    const calls = r.filter((x) => x.type === 'assistant').flatMap((x) => x.message.content);
-    expect(calls.some((b: { type: string }) => b.type === 'thinking')).toBe(true);
-    const read = calls.find((b: { type: string }) => b.type === 'tool_use');
-    expect(read).toMatchObject({ name: 'Read', input: { file_path: expect.any(String) } });
-    const result = r.find((x) => x.type === 'user' && Array.isArray(x.message.content))!.message.content[0];
-    expect(result).toMatchObject({ type: 'tool_result', tool_use_id: read.id });
-    expect(calls.some((b: { type: string; text?: string }) => b.type === 'text' && b.text?.includes('Hello from Cursor'))).toBe(true);
-    expect(r.at(-1)).toEqual({ type: 'custom-title', customTitle: 'Cursor · Cursor — Pelican report', sessionId: session });
+      const conv = await relay.api<Conversation>(`/api/conversations/${id}`);
+      const cursor = conv.agents.find((a) => a.provider === 'cursor')!;
+      const session = memberSessionId(id, cursor.id);
+      const uploads = () => agentsView.hits.filter((h) => h.method === 'POST' && h.path === '/api/v1/sessions/upload');
+      const recorded = () => uploads().filter((h) => h.body.includes(`filename="${session}.jsonl"`));
+      await expect.poll(() => recorded().some((h) => records(h).some((r) => r.type === 'custom-title'))).toBe(true);
+      // In the thread's place, after it.
+      const upload = recorded().at(-1)!;
+      expect(Object.fromEntries(upload.query)).toEqual({ project: 'e2e-project', machine: 'e2e-machine', allow_shorter: 'true' });
+      expect(agentsView.hits.indexOf(upload)).toBeGreaterThan(agentsView.hits.findIndex((h) => h.method === 'POST' && h.body.includes(`filename="${id}.jsonl"`)));
 
-    // Linked under the thread; Cursor's own session id is never sent.
-    const link = () => agentsView.hits.find((h) => h.method === 'PUT' && h.path === `/api/v1/sessions/${session}/parent`);
-    await expect.poll(() => Boolean(link())).toBe(true);
-    expect(JSON.parse(link()!.body)).toEqual({ parent_session_id: id });
-    const cursorSession = startedSessions(relay, 'cursor')[0]!;
-    expect(agentsView.hits.some((h) => h.path.includes(cursorSession))).toBe(false);
+      const r = records(upload);
+      expect(r.every((x) => !x.sessionId || x.sessionId === session)).toBe(true);
+      // What it heard, then its thinking and its call (listing the folder: Claude Code's Read, with the folder), the call's result, its reply.
+      expect(r[0]!).toMatchObject({ type: 'user', message: { content: expect.stringContaining('Count the pelicans') } });
+      const calls = r.filter((x) => x.type === 'assistant').flatMap((x) => x.message.content);
+      expect(calls.some((b: { type: string }) => b.type === 'thinking')).toBe(true);
+      const read = calls.find((b: { type: string }) => b.type === 'tool_use');
+      expect(read).toMatchObject({ name: 'Read', input: { file_path: expect.any(String) } });
+      const result = r.find((x) => x.type === 'user' && Array.isArray(x.message.content))!.message.content[0];
+      expect(result).toMatchObject({ type: 'tool_result', tool_use_id: read.id });
+      expect(calls.some((b: { type: string; text?: string }) => b.type === 'text' && b.text?.includes('Hello from Cursor'))).toBe(true);
+      expect(r.at(-1)).toEqual({ type: 'custom-title', customTitle: 'Cursor · Cursor — Pelican report', sessionId: session });
+
+      // Linked under the thread; Cursor's own session id is never sent.
+      const link = () => agentsView.hits.find((h) => h.method === 'PUT' && h.path === `/api/v1/sessions/${session}/parent`);
+      await expect.poll(() => Boolean(link())).toBe(true);
+      expect(JSON.parse(link()!.body)).toEqual({ parent_session_id: id });
+      const cursorSession = startedSessions(relay, 'cursor')[0]!;
+      expect(agentsView.hits.some((h) => h.path.includes(cursorSession))).toBe(false);
+    });
   });
 
   test('an address elsewhere is refused, and when an update fails Settings says why while the chat goes on', async ({ page, relay, agentsView }) => {

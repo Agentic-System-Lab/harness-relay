@@ -17,6 +17,9 @@ export const openhands: CliFacts = {
   version: 'v1.16.999',
   sandbox: 'relay',
   belowFullOn: ['darwin', 'linux'],
+  // On macOS in Seatbelt, with its terminal switch; on Windows with its PowerShell terminal and
+  // `USERPROFILE` (`openhandsTerminal`, `prepareOpenhands`).
+  testedOn: ['linux', 'darwin', 'win32'],
   // Its row reads `file_editor view`.
   listTool: 'file_editor',
   approve: { permission: 'read-only', directive: 'e2e:approve', command: 'echo e2e-approval' },

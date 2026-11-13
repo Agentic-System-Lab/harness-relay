@@ -2,7 +2,8 @@
  * The CLIs as the specs see them: each one's facts (`clis/<provider>.ts`, one file per CLI, changed
  * with its fake), and what follows from them on this computer: whether a CLI runs below full access
  * here, the permission a test that is not about permissions runs it with, teams for tests of every
- * CLI, and where its fake keeps its home and sessions in a test server.
+ * CLI, which CLIs a test server has installed, on which systems a CLI's own tests run, and where its
+ * fake keeps its home and sessions in a test server.
  */
 import { readdirSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
@@ -11,6 +12,7 @@ import { DEFAULT_MAX_TEAM_AGENTS, isOpenProvider, PROVIDERS, type ConversationSe
 import { expect, test } from '../fixtures';
 import { openTeamChat, type Member } from './app';
 import { FACTS, type CliFacts } from './clis/all';
+import { NOT_YET_FAKED, notInstalledBut } from './fake-cli';
 import type { FakeLogEntry, RelayServer } from './relay';
 import { relaySandboxHere } from './sandbox';
 
@@ -45,11 +47,48 @@ export function needsFake(p: Provider): void {
   test.skip(!FACTS[p].implemented, `${FACTS[p].label}'s fake is not written yet (e2e/fake-cli/agents/${p}.cjs)`);
 }
 
-/** `body`'s tests once for each of `clis`, each CLI's in a group of its own that is skipped while its fake is not written. */
+/** Whether each CLI's own tests run on its systems only (`testedOn`): `E2E_SYSTEM_CLIS=1`, as on CI. */
+const bySystem = (): boolean => process.env.E2E_SYSTEM_CLIS === '1';
+
+const SYSTEM_NAMES: Partial<Record<NodeJS.Platform, string>> = { linux: 'Linux', darwin: 'macOS', win32: 'Windows' };
+
+/** Whether the CLI's own tests run on this system: everywhere, but only on its `testedOn` with `E2E_SYSTEM_CLIS=1`. */
+export const testedHere = (c: CliFacts): boolean => !bySystem() || c.testedOn.includes(process.platform);
+
+/**
+ * Skips the CLI's own test (or, in a `test.describe`, its tests, before any server starts) on a system
+ * its facts leave out with `E2E_SYSTEM_CLIS=1`, saying where it runs.
+ */
+export function needsSystem(c: CliFacts): void {
+  const where = c.testedOn.map((s) => SYSTEM_NAMES[s] ?? s).join(', ');
+  test.skip(!testedHere(c), `${c.label}'s own tests run on ${where} (E2E_SYSTEM_CLIS=1; e2e/support/clis/${c.provider}.ts says why)`);
+}
+
+/**
+ * Installs these CLIs in the test servers of the `test.describe` it is called in, besides Claude Code,
+ * Codex and Grok (`DEFAULT_CLIS`): the others are not installed, so the server asks fewer CLIs for their
+ * status and models as each page opens.
+ */
+export function withClis(...providers: Provider[]): void {
+  test.use({ missingClis: notInstalledBut(providers) });
+}
+
+/** Installs every CLI whose fake is written in the test servers of the `test.describe` it is called in: for a test of them all. */
+export function withEveryCli(): void {
+  test.use({ missingClis: NOT_YET_FAKED });
+}
+
+/**
+ * `body`'s tests once for each of `clis`, each CLI's in a group of its own whose servers have it
+ * installed, skipped while its fake is not written and, with `E2E_SYSTEM_CLIS=1`, on a system it is not
+ * tested on.
+ */
 export function eachCli(clis: readonly Cli[], body: (c: Cli) => void): void {
   for (const c of clis) {
     test.describe(() => {
       needsFake(c.provider);
+      needsSystem(c);
+      withClis(c.provider);
       body(c);
     });
   }
@@ -65,14 +104,33 @@ export const HALVES = [
   { title: (what: string) => `open agents: ${what}`, clis: OPEN },
 ] as const;
 
-/** The members of a half's team: its CLIs whose fake is written; the test is skipped when that is fewer than `least`. */
+export type Half = (typeof HALVES)[number];
+
+/** `body`'s tests once for each half, each half's in a group of its own whose servers have its CLIs installed (those tested here). */
+export function eachHalf(body: (half: Half) => void): void {
+  for (const half of HALVES) {
+    test.describe(() => {
+      withClis(...half.clis.filter(testedHere).map((c) => c.provider));
+      body(half);
+    });
+  }
+}
+
+/**
+ * The members of a half's team: its CLIs whose fake is written (and, with `E2E_SYSTEM_CLIS=1`, that
+ * are tested here); the test is skipped when that is fewer than `least`.
+ */
 export function teamOf(clis: readonly Cli[], least = 1): Cli[] {
-  const team = faked(clis);
-  test.skip(team.length < least, `${least === 1 ? 'none' : `fewer than ${least}`} of ${clis.map((c) => c.label).join(', ')} has a fake written yet`);
+  const team = faked(clis).filter(testedHere);
+  const why = bySystem() ? ' and is tested on this system (E2E_SYSTEM_CLIS=1)' : '';
+  test.skip(team.length < least, `${least === 1 ? 'none' : `fewer than ${least}`} of ${clis.map((c) => c.label).join(', ')} has a fake written yet${why}`);
   // Its members take their turns one after another, each CLI started anew (and an open agent's adapter
   // asks its CLI for its models before each turn): on Windows, slower to start programs, five of them
-  // need more than a test's minute.
-  test.slow(process.platform === 'win32' && team.length > 2, 'a team of several CLIs on Windows, each started anew in turn');
+  // need more than a test's minute. So do several open agents in Harness Relay's own sandbox, where each
+  // run's sandbox is made and torn down (its leftovers swept: on macOS 2 to 4 seconds a turn, against
+  // half a second with full access): the longest of these tests took up to 66 s on CI's macOS runners.
+  const sandboxed = team.filter((c) => c.open && belowFull(c.provider)).length;
+  test.slow(team.length > 2 && (process.platform === 'win32' || sandboxed > 2), 'a team of several CLIs started anew in turn, on Windows or in Harness Relay\'s own sandbox');
   return team;
 }
 
