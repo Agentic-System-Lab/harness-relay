@@ -39,17 +39,17 @@ Agent colours, each in four strengths:
 | Codex | `#10a37f` | `#0b7a5f` / dark `#34c79d` | `#34c79d` | `#0b7a5f` |
 | Grok | `#7c5cff` | `#6440f0` / dark `#a593ff` | `#a593ff` | `#6440f0` |
 
-The other eight take only their brand colour, the same in both themes as in the app (`src/web/styles.css`), for the dot in their list:
+The other nine take only their brand colour, the same in both themes as in the app (`src/web/styles.css`), for the dot in their list:
 
 | Agent | Token | Colour |
 | --- | --- | --- |
 | Cursor | `--cursor` | `#d6409f` |
 | Antigravity | `--antigravity` | `#65a30d` |
 | Copilot | `--copilot` | `#0f766e` |
-| Muse Code | `--muse` | `#0f766e` |
+| Muse Code | `--muse` | `#e11d48` |
 | OpenCode | `--opencode` | `#2563eb` |
 | Goose | `--goose` | `#b45309` |
-| Cline | `--cline` | `#c026d3` |
+| Cline | `--cline` | `#2e7d32` |
 | OpenHands | `--openhands` | `#0891b2` |
 | Pi | `--pi` | `#64748b` |
 
