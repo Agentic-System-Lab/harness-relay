@@ -44,9 +44,11 @@ export function updateCopyName(name) {
 }
 
 /**
- * Where the copies for the app's updates are: each release's under the same tag in this public
- * repository's releases (README: what it is), published there by the Release workflow before the
- * release itself.
+ * Where the copies for the app's updates are: each release's under the same tag in the releases of
+ * that repository (its README: what it is), published there by the Release workflow before the release
+ * itself.
+ * The workflow's UPDATES_REPO variable, and RELAY_UPDATES_REPO when the app is built, may name another
+ * (desktop/src/updateSource.ts), private too.
  */
 export const UPDATES_REPO = 'Agentic-System-Lab/harness-relay-updates';
 
@@ -55,12 +57,15 @@ const PLAIN_PART = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /**
  * Where an app's update downloads `installer` (an installer's name) of the release tagged `tag`: its
- * copy (`updateCopyName`) in UPDATES_REPO. Undefined for a file that is not an installer.
+ * copy (`updateCopyName`) in `repo` (`owner/name`, UPDATES_REPO unless the app was built with another).
+ * Undefined for a file that is not an installer.
  */
-export function updateCopyUrl(tag, installer) {
+export function updateCopyUrl(tag, installer, repo = UPDATES_REPO) {
   const copy = updateCopyName(installer);
   if (!copy || typeof tag !== 'string' || !PLAIN_PART.test(tag) || !PLAIN_PART.test(installer)) return undefined;
-  return `https://github.com/${UPDATES_REPO}/releases/download/${tag}/${copy}`;
+  // owner/name, a name not all dots (`..` would leave the repository's path).
+  if (typeof repo !== 'string' || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo) || /\/\.+$/.test(repo)) return undefined;
+  return `https://github.com/${repo}/releases/download/${tag}/${copy}`;
 }
 
 /** Where the installers are: links to anything else are not used (a forged or broken API answer). */

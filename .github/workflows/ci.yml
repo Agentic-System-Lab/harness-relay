@@ -136,6 +136,13 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
+      # A made-up token for the app's updates (fine-grained in form, put together here so that no
+      # token's text stands in this file), for the build and the check below: it finds the token in
+      # none of the server's files, and in the app's own only encoded, as in a release built with one.
+      - name: Make up a token for the app's updates
+        shell: bash
+        run: echo "RELAY_UPDATES_TOKEN=github_pat_$(printf 'ci%.0s' {1..20})" >> "$GITHUB_ENV"
+
       - name: Build the web app and the desktop app
         run: npm run build && npm --prefix desktop run build
 
@@ -147,8 +154,9 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.target }} --publish never
 
-      # Its fuses, its resources and its own check (--smoke-test), with the fake CLIs of the
-      # end-to-end tests answering a question (on Windows built as executables first).
+      # Its fuses, its resources, the made-up token for its updates (only encoded, in its main process
+      # alone) and its own check (--smoke-test), with the fake CLIs of the end-to-end tests answering a
+      # question (on Windows built as executables first).
       - name: Check the packaged app
         if: runner.os != 'Linux'
         run: npx tsx desktop/scripts/check-package.ts

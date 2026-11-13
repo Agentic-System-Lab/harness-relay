@@ -16,6 +16,15 @@
  * package.json, the version itself in its menu and log). Without it, the app is a build of the day,
  * in Taiwan as releases are, with the commit it was built from: 2026-11-10-dev (30f3d4f), semver
  * 2026.1110.0-dev, which any release of that day or later is newer than (the app offers it as an update).
+ *
+ * RELAY_UPDATES_REPO (owner/name) is the repository the app downloads its updates (the installers'
+ * copies) from, UPDATES_REPO (site/assets/downloads.js) when it is not set; RELAY_UPDATES_TOKEN, a token
+ * for GitHub's API the app downloads them with, for a private one (none: from a public one without
+ * signing in). The Release workflow sets them from its UPDATES_REPO variable and UPDATES_READ_TOKEN
+ * secret. Both go into the app's main process alone, the token encoded (src/updateSource.ts) so that
+ * no token's text stands in it; anyone with a copy can still read it. What it was built with is
+ * written beside the build as a fingerprint that names neither (build/update-source.txt,
+ * `updateSourceFingerprint`), for the Release workflow to check.
  */
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -24,6 +33,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { DESKTOP_ICONS, encodePngRgba, rasterizeIcon } from '../src/icons';
 import { appManifest } from '../src/manifest';
+import { encodeUpdateSource, updateSourceFingerprint, updateSourceFrom } from '../src/updateSource';
 import { devVersion, parseVersion, RELEASE_TIME_ZONE, semverOf, todayIn } from '../../scripts/release';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -58,8 +68,16 @@ if (release) {
   }
   version = { app: semverOf(parsed.value), shown: parsed.value.version };
 }
+const updates = updateSourceFrom(process.env);
+if (!updates.ok) {
+  console.error(updates.error);
+  process.exit(1);
+}
 
 rmSync(OUT, { recursive: true, force: true });
+mkdirSync(OUT, { recursive: true });
+// What it downloads its updates with, for the Release workflow to check against its own (updateSource.ts).
+writeFileSync(join(OUT, 'update-source.txt'), `${updateSourceFingerprint(updates.value)}\n`);
 
 // The server, as one ES module. `require` is for the keyring module, loaded with createRequire.
 await build({
@@ -122,7 +140,8 @@ await build({
   target: TARGET,
   external: ['electron'],
   // import.meta.url: scripts/release.ts (version rules) checks it to run as a script, never true in the app.
-  define: { __RELAY_VERSION__: JSON.stringify(version.shown), 'import.meta.url': 'undefined' },
+  // Where it downloads its updates from (main.ts), the token included, encoded (updateSource.ts).
+  define: { __RELAY_VERSION__: JSON.stringify(version.shown), __RELAY_UPDATE_SOURCE__: JSON.stringify(encodeUpdateSource(updates.value)), 'import.meta.url': 'undefined' },
   legalComments: 'none',
   logLevel: 'warning',
 });
@@ -136,4 +155,5 @@ for (const icon of DESKTOP_ICONS) {
   writeFileSync(join(dir, icon.file), encodePngRgba(icon.size, rasterizeIcon(icon)));
 }
 
-console.log(`Desktop app ${version.shown} (${version.app}) built in ${OUT} (keyring: ${keyring.filter((n) => n !== 'keyring').join(', ')})`);
+const from = `updates downloaded from ${updates.value.repo}${updates.value.token ? ', with a token' : ''}`;
+console.log(`Desktop app ${version.shown} (${version.app}) built in ${OUT} (keyring: ${keyring.filter((n) => n !== 'keyring').join(', ')}; ${from})`);

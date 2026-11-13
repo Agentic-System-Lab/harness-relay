@@ -25,7 +25,7 @@ npm install --prefix desktop     # Electron、electron-builder 與 esbuild，一
 | `npm run desktop:dist` | 同上，再於 `desktop/release/` 產生這個系統的安裝檔（`.dmg`、`.exe`、`.AppImage`；沒有為發佈簽署）；加上 `-- --output <資料夾>` 可放到別處 |
 | `npm run desktop:typecheck` | 檢查 app 的型別（`desktop/tsconfig.json`） |
 | `npx tsx desktop/scripts/smoke.ts` | 用 app 的方式執行打包好的伺服器（以一般的 Node 代替 Electron），檢查 app 需要它做到的事，包括由 e2e 的假 CLI 回答一個問題 |
-| `npx tsx desktop/scripts/check-package.ts` | 照發佈時的方式檢查 `desktop/release/` 裡打包好的 app：它的 fuse、資源，以及它自己的 `--smoke-test`（其中 e2e 的假 CLI 會回答一個問題；Linux 上要在 `xvfb-run` 下執行） |
+| `npx tsx desktop/scripts/check-package.ts` | 照發佈時的方式檢查 `desktop/release/` 裡打包好的 app：它的 fuse、資源、伺服器的檔案裡沒有 `github_pat_` token、app 的檔案裡也沒有 token 的文字、它自己的環境變數 `RELAY_UPDATES_REPO` 與 `RELAY_UPDATES_TOKEN` 指定的 repository 與（編碼後的）token（請給它建置時的值），以及它自己的 `--smoke-test`（其中 e2e 的假 CLI 會回答一個問題；Linux 上要在 `xvfb-run` 下執行） |
 
 有 Harness Relay 從 `desktop/release/` 執行時，`npm run desktop:dist` 會拒絕開始：請先結束它，或用 `-- --output <資料夾>` 建置。要和自己的資料分開試用建置結果，見[開發者說明](../docs/developer-guide.zh-TW.md#桌面-app)中「和自己的資料分開試用」的說明。
 
@@ -38,6 +38,8 @@ src/supervisor.ts    啟動、看顧與停止伺服器；登入連結，以及�
 src/env.ts           登入 shell 的環境（Windows 則是重新啟動時讀取的環境），以及伺服器的環境
 src/selftest.ts      app 需要伺服器透過 HTTP 做到的事（smoke.ts 與 --smoke-test）
 src/update.ts        更新到 GitHub 上最新的版本，等沒有對話的 agent 在工作時才切換
+src/updateSource.ts  app 從哪裡下載更新（建置時的 RELAY_UPDATES_REPO、RELAY_UPDATES_TOKEN），
+                     以及發佈 workflow 檢查建置之前讀得到那個 repository、安裝檔是用它們建置的、app 能下載副本
 src/traymenu.ts      系統匣選單開著時的處理
 src/lifecycle.ts     不需要 Electron 的決定，以及視窗的防護
 src/tailscale.ts     分享到 tailnet（tailscale serve）
@@ -48,7 +50,9 @@ src/log.ts           伺服器的紀錄
 src/manifest.ts      app 資料夾的 package.json
 src/i18n.ts          選單與對話框的文字，兩種語言
 src/icons.ts         系統匣圖示
-scripts/build.ts     把伺服器與 app 打包到 build/（發佈時用 RELAY_VERSION，否則是 -dev 建置）
+scripts/build.ts     把伺服器與 app 打包到 build/（發佈時用 RELAY_VERSION，否則是 -dev 建置；
+                     下載更新的地方用 RELAY_UPDATES_REPO 與 RELAY_UPDATES_TOKEN；它會寫出
+                     build/update-source.txt，也就是它們的指紋，給發佈 workflow 用）
 scripts/dist.ts      npm run desktop:dist（electron-builder）
 scripts/smoke.ts     以 app 的方式執行打包好的伺服器；parent-port.mjs 代替 Electron 的 parentPort
 scripts/check-package.ts、scripts/packaged.ts   打包好的 app 的檢查
@@ -60,12 +64,12 @@ electron-builder.yml 安裝檔；entitlements.mac.plist 與 macos/（各語言�
 ## 測試與檢查
 
 - **單元測試。**除了 `main.ts`，這裡的程式都不需要 Electron，和其他程式一樣在根目錄的 `test/` 測試（`npm test`）：`desktop-app.test.ts`、`desktop-env.test.ts`、`desktop-supervisor.test.ts`、`desktop-tailscale.test.ts`、`desktop-traymenu.test.ts`、`desktop-update.test.ts`，以及測試伺服器這一端的 `parent.test.ts`。`electron` 只在 `main.ts` 匯入，其他檔案才能這樣測試。
-- **打包好的伺服器**（`scripts/smoke.ts`）與**打包好的 app**（`scripts/check-package.ts`，會執行 app 自己的 `--smoke-test`）。兩者都會讓端對端測試的假 `claude`、`codex` 與 `grok`（[`e2e/fake-cli/`](../e2e/fake-cli/)）組成的團隊回答一個問題，確認伺服器找得到每個 CLI、說得通它的協定並把回答串流進對話；不會啟動真正的 CLI。CI（[`ci.yml`](../.github/workflows/ci.yml)）會檢查 app 的型別、建置它、執行 `smoke.ts`，並為 Linux 與 Windows 打包、執行 `check-package.ts`；[發佈 workflow](../.github/workflows/release.yml) 在發佈前會在每個系統上執行這兩者。各自檢查哪些項目，見[開發者說明](../docs/developer-guide.zh-TW.md#桌面-app)。
+- **打包好的伺服器**（`scripts/smoke.ts`）與**打包好的 app**（`scripts/check-package.ts`，會執行 app 自己的 `--smoke-test`）。兩者都會讓端對端測試的假 `claude`、`codex` 與 `grok`（[`e2e/fake-cli/`](../e2e/fake-cli/)）組成的團隊回答一個問題，確認伺服器找得到每個 CLI、說得通它的協定並把回答串流進對話；不會啟動真正的 CLI。CI（[`ci.yml`](../.github/workflows/ci.yml)）會檢查 app 的型別、建置它、執行 `smoke.ts`，並為 Linux 與 Windows 打包（更新用的 token 是編造的）、執行 `check-package.ts`；[發佈 workflow](../.github/workflows/release.yml) 在發佈前會在每個系統上執行這兩者。發佈 workflow 也會檢查 app 的更新：最先、在專用的 job 裡，寫入用的 token 有設定、讀取用的 token 不是它，兩者屬於同一個帳號或 GitHub 沒說屬於誰時發出警告；安裝任何東西之前，檢查更新來源（repository 的名稱、fine-grained 的讀取用 token，以及用它們建置的 app 讀得到那個 repository 的 release）；發佈副本之前，每個安裝檔都是用這次執行的 repository 與 token 建置的（它們的指紋）；發佈副本之後（發佈 release 之前），app 能下載副本。app 自己的檢查見[開發者說明](../docs/developer-guide.zh-TW.md#桌面-app)，發佈 workflow 的檢查見[發佈](../docs/developer-guide.zh-TW.md#發佈)。
 - 修改這裡之後、commit 之前，請執行 `npm run desktop:typecheck`（見 [AGENTS.md](../AGENTS.md)）。
 
 ## 發佈與更新
 
-只能由手動執行的發佈 workflow 發佈：它為 macOS（Apple Silicon）、Windows 與 Linux（x64 與 Arm64）建置安裝檔、檢查後發佈，並在每個安裝檔旁附上一份給 app 更新用的副本。見[發佈](../docs/developer-guide.zh-TW.md#發佈)。app 會自己更新到最新的版本（[使用者說明](../docs/user-guide.zh-TW.md#版本)）；安裝檔的名稱必須和 `site/assets/downloads.js`（`INSTALLERS`、`UPDATE_INSTALLERS`）一致。
+只能由手動執行的發佈 workflow 發佈：它為 macOS（Apple Silicon）、Windows 與 Linux（x64 與 Arm64）建置安裝檔、檢查後發佈，並把每個安裝檔再複製一份給 app 更新用，發佈在專用的 repository。見[發佈](../docs/developer-guide.zh-TW.md#發佈)。app 會自己更新到最新的版本（[使用者說明](../docs/user-guide.zh-TW.md#版本)），從 `Agentic-System-Lab/harness-relay-updates`、或建置時 `RELAY_UPDATES_REPO` 指定的 repository 下載它的副本，private 的再用 `RELAY_UPDATES_TOKEN` 給的 token（它會放進 app 裡，任何人都讀得到），拿不到副本時則下載安裝檔本身；見[桌面 app](../docs/developer-guide.zh-TW.md#桌面-app)，workflow 的 `UPDATES_REPO` 變數與 `UPDATES_READ_TOKEN` secret 見[發佈](../docs/developer-guide.zh-TW.md#發佈)。安裝檔的名稱必須和 `site/assets/downloads.js`（`INSTALLERS`、`UPDATE_INSTALLERS`）一致。
 
 ## 相關文件
 
