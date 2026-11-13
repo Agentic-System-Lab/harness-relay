@@ -33,7 +33,7 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent`、`ag
 
 **Copilot**（GitHub Copilot CLI）最後加入，以 `copilot` 1.0.109 在 Mac（arm64）、一台 Windows 11 Pro 虛擬機（arm64，build 26200）與 DGX Spark（Linux，aarch64）上確認：透過 Harness Relay 的轉接器試過它的 ACP 伺服器、設定與沙箱，用的是 OpenAI 相容 API 的腳本替身，以及透過它自己那組「使用者自己的模型供應商」變數（BYOK）接上的 Ollama（`gemma4:e4b`，在 DGX Spark 上），也用了真正的 GitHub Copilot 登入（裝置代碼），搭配 Copilot 自己服務上的 Claude Haiku 4.5 與 Claude Sonnet 5.5。它有自己的沙箱（`--sandbox`：macOS 上是 Seatbelt、Linux 上是 bubblewrap、Windows 上是行程容器（process container）），透過 ACP 也能運作，Harness Relay 在完全存取以外會開啟它。在 Mac 上，指令寫到工作目錄以外會以 `Operation not permitted` 失敗，受保護的路徑也讀不到，這台電腦的 loopback 則連得到（`127.0.0.1` 上的模型伺服器有回應）。在 Windows 上，寫到工作目錄以外會以 `Access to the path … is denied` 失敗，第二個工作目錄可以寫入，當作受保護路徑交給它的檔案也被拒絕。DGX Spark 一開始缺少 Copilot 的 Linux 沙箱需要的東西（見 [Linux](#linux)：slirp4netns，而且 Ubuntu 限制 unprivileged user namespace），它在沙箱中執行的每個指令都失敗，並附上 Copilot 自己的原因，沒有任何指令在沙箱外執行。裝好 slirp4netns 1.2.1、把 `kernel.apparmor_restrict_unprivileged_userns` 設為 0 之後，它在那裡和在 macOS 上一樣能用：指令寫入了工作目錄與交給它的第二個工作目錄；寫到它們以外的指令失敗（那個資料夾在 bubblewrap 裡根本不存在：`No such file or directory`），它的檔案工具也拒絕這種寫入（`Outside the sandbox's writable paths.`）；受保護的檔案被拒絕，detached 指令也被拒絕；完全存取時它哪裡都寫得進去。它的指令連得到網際網路（一個 HTTPS 請求回應 200），但連不到這台電腦自己 loopback 上的服務（`127.0.0.1`：`Couldn't connect`），因為它們的網路是 slirp4netns 自己的。live 測試（`npm run test:e2e:live`，用 DGX Spark 上的 Ollama）在那裡也通過了。只靠給 `/usr/bin/bwrap` 的 AppArmor 設定檔、不改 sysctl 夠不夠，沒有確認過。在每個系統上，中途停止後都沒有留下任何東西在執行（`sleep 30` 不見了），專案的 `sessionStart` hook 允許後，在另外啟動一次的檢查之後於沙箱內執行（它的檔案寫在工作目錄裡），寫入 Cargo registry 也被拒絕（在 macOS 與 Linux 上，寫入 go-build 快取與模組快取也是）。把 `.git` 改名、寫入 `.git/hooks` 再改回原名的指令，在 macOS 上成功了；在 Linux 上 bind mount 擋住了（`Read-only file system`）。沒有試過：GitHub Enterprise 的登入，以及 Copilot Business 或 Enterprise 組織的政策（例如由組織管理的沙箱政策）。
 
-**Muse Code** 接著加入，以 `muse` 1.4.18 在 Mac（arm64）、DGX Spark（Linux，aarch64，用 `muse` 自帶的 bubblewrap）與同一台 Windows 11 虛擬機上確認：透過 Harness Relay 的轉接器試過它的 ACP 伺服器、權限設定檔與沙箱，用的是假的 Meta API key，搭配 Meta API 的替身（後來也在 Mac 上用真正的 Meta 帳號與它的模型試過，表現一致）。在 Mac 與 DGX Spark 上，同樣錄下的執行表現一致：它的沙箱擋住了指令寫到工作目錄以外（`Operation not permitted`，允許後也一樣），它的拒絕規則讓它的 `read_file` 與 `cat` 都讀不到受保護的檔案，唯讀時每個指令都詢問，可編輯模式下會寫入工作目錄的指令照常執行，完全存取則能寫到外面。它在 Windows 上的沙箱需要先以系統管理員權限執行一次 Muse 自己的設定，而這台虛擬機沒有執行（它會在那裡建立 Windows 帳號與防火牆規則），所以在那裡完全存取以外的權限下，每個指令都在開始前就失敗；它的檔案工具、唯讀、網路擷取、接續 session 與完全存取都和在 Mac 上一樣。在 Windows 上它的 shell 工具是 PowerShell。
+**Muse Code** 接著加入，以 `muse` 1.4.18 在 Mac（arm64）、DGX Spark（Linux，aarch64，用 `muse` 自帶的 bubblewrap）與同一台 Windows 11 虛擬機上確認：透過 Harness Relay 的轉接器試過它的 ACP 伺服器、權限設定檔與沙箱，用的是假的 Meta API key，搭配 Meta API 的替身（後來也在 Mac 上用真正的 Meta 帳號與它的模型試過，表現一致）。在 Mac 與 DGX Spark 上，同樣錄下的執行表現一致：它的沙箱擋住了指令寫到工作目錄以外（`Operation not permitted`，允許後也一樣），它的拒絕規則讓它的 `read_file` 與 `cat` 都讀不到受保護的檔案，唯讀時每個指令都詢問，可編輯模式下會寫入工作目錄的指令照常執行，完全存取則能寫到外面。在 Windows 上，完全存取以外的權限下每個指令都在開始前就失敗，之後在虛擬機上以系統管理員權限執行了 Muse 自己的沙箱設定也一樣（它建立了沙箱帳號與防火牆過濾規則，`muse sandbox windows check` 也回報 `ready`）：它的 ACP 模式在那裡不用任何沙箱。它的檔案工具、唯讀、網路擷取、接續 session 與完全存取都和在 Mac 上一樣。在 Windows 上它的 shell 工具是 PowerShell。
 
 這些執行是從原始碼啟動的，跟 `npm start` 執行伺服器的方式一樣。[桌面 app](user-guide.zh-TW.md#桌面-app) 執行的是同一個伺服器，用同樣的轉接器與同樣的沙箱設定，只是使用它自己的資料夾；上面的執行沒有在它底下重做。在 macOS 上，你給桌面 app 的隱私權限（例如「文件」等資料夾、麥克風）也會給到它執行的 agent，因為 agent 在它裡面執行；用 `npm start` 時則是終端機的權限。
 
@@ -148,7 +148,7 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent`、`ag
 | **Cursor** | ❌ ACP 模式下沒有 | ❌ ACP 模式下沒有（沒有試過） | ❌ ACP 模式下沒有（沒有試過） | ❌ ACP 模式下沒有（沒有試過） |
 | **Antigravity** | ❌ 不開啟：透過 ACP 時，它自己的沙箱讓指令寫不進工作目錄 | ❌ 不開啟（試過：每個指令都詢問） | ❌ 不開啟（試過：每個指令都詢問） | ❌ 不開啟（沒有試過） |
 | **Copilot** | ✅ 自己的沙箱（Seatbelt）；在 Harness Relay 的執行中可以連網 | ✅ 自己的沙箱（bubblewrap），前提是 slirp4netns、network namespace 等都備齊（見下文；缺少時每個指令都會失敗，失敗就關起來）；指令連不到這台電腦的 loopback | ✅ 自己的沙箱（行程容器；在 Windows 11 arm64 上試過） | 沒有試過 |
-| **Muse Code** | ✅ Seatbelt | ✅ 它自帶的 bubblewrap（試過） | ⚠️ 它自己的沙箱，要先以系統管理員權限執行一次設定（`muse sandbox windows setup`）；在那之前，完全存取以外的權限下每個指令都會失敗（設定沒有試過） | 沒有試過 |
+| **Muse Code** | ✅ Seatbelt | ✅ 它自帶的 bubblewrap（試過） | ❌ 完全存取以外的權限不執行任何指令：它的 ACP 模式在那裡不用沙箱，完成它自己的設定（`muse sandbox windows setup`，試過）後也一樣；指令以關閉的方式失敗 | 沒有試過 |
 | **開源 agent**（Harness Relay 自己的沙箱） | ✅ Seatbelt | ✅ bubblewrap + socat + ripgrep，加上 seccomp（x64/arm64） | ❌ 完全存取以外拒絕執行（在 sandbox-runtime 還是 alpha） | ✅ Linux 的沙箱 |
 
 Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只有 Codex 與 Copilot 的沙箱裝好就能用，Muse Code 的則要先完成它自己的一次性設定；開源 agent 在完全存取以外拒絕在那裡執行（請在 WSL2 裡執行它們）。在 Harness Relay 的執行中，Cursor 與 Antigravity 在哪個平台上都沒有沙箱。
@@ -199,7 +199,7 @@ Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只
 - **Cursor** 在這裡也沒有沙箱。Harness Relay 在 Windows 上沒有受保護的路徑，所以在那裡它的讀取與寫入工具也沒有針對它們的拒絕規則（沒有用真正的 CLI 試過）。
 - **Antigravity**：同樣沒有；Windows 上沒有受保護的路徑，所以 Harness Relay 在那裡不會因為它們拒絕它的任何讀寫（用真正的 CLI 試過：每個指令都詢問，並以 PowerShell 執行）。
 - **Copilot** 在這裡有自己的沙箱，是一個行程容器，Harness Relay 在完全存取以外會開啟它，和 macOS 上一樣。以 `copilot` 1.0.109 在 Windows 11 Pro（arm64，build 26200）上試過：指令寫到工作目錄以外會以 `Access to the path … is denied` 失敗，第二個工作目錄可以寫入，當作受保護路徑交給它的檔案也被拒絕。Harness Relay 在 Windows 上沒有受保護的路徑，和每個 CLI 一樣，所以它的政策在那裡不禁止任何路徑；沙箱自己的讀取政策仍讓指令只能讀各工作目錄、工具與系統資料夾。它在那裡用 PowerShell。用 npm 安裝時，Copilot 在那裡是 npm 的 `copilot.cmd`，Harness Relay 會改為啟動它實際執行的程式（`winLaunch.ts`；試過：一輪回覆、一次拒絕、一次停止）。其他 Windows 版本沒有試過。
-- **Muse Code** 在 Windows 上有自己的沙箱，要先以系統管理員權限執行一次設定（會出現 UAC 提示）：`muse sandbox windows setup` 會建立 Windows 沙箱使用者、它們的權限、防火牆（WFP）規則與 `C:\ProgramData\muse`，每台電腦一次；`muse sandbox windows check` 會說明是否已完成（在那之前是 `setup_required`，「sandbox users are not ready」）。在那之前，完全存取以外的權限下每個指令都會在開始前失敗（「sandbox enforcement unavailable: windows_elevated setup_required…」）：Harness Relay 不會替你執行這個設定。沒有它，它的檔案工具、網路擷取與完全存取仍能用。它在那裡的 shell 工具是 PowerShell。Harness Relay 在 Windows 上不保留受保護的路徑，所以 Muse 在那裡沒有拒絕規則（反正它也會拒絕寫在規則裡的 Windows 路徑）。試用的那台虛擬機沒有執行這個設定，所以它在 Windows 沙箱裡的指令尚未驗證。
+- **Muse Code** 在 Windows 上有自己的沙箱，要由使用者以系統管理員權限執行一次設定（會出現 UAC 提示；以 SYSTEM 執行時它會拒絕：「runtime user SID is not a supported account SID」）：`muse sandbox windows setup` 會建立兩個本機帳號（`muse-sbx-r1`、`muse-sbx-u1`）與 `MuseSandboxUsers` 群組、它們的權限、不讓它們連線、監聽與接受連線的防火牆（WFP）過濾規則，以及 `C:\ProgramData\muse`（裡面有這些帳號的密碼），每台電腦一次；`muse sandbox windows check` 會說明是否已完成（之前是 `setup_required`，「sandbox users are not ready」；之後是 `ready`）。Muse 沒有移除它們的指令。但 Harness Relay 使用的 muse 1.4.18 ACP 模式不用這個沙箱：設定完成後（在 Windows 11、arm64 上試過），完全存取以外的權限下每個指令仍然在開始前失敗（「sandbox enforcement unavailable: windows_elevated setup_required…」；它的追蹤記錄寫著 `sandbox.prepare … platform="none"`），每種網路模式都一樣，直接驅動 `muse acp`、用 Muse 的預設設定時也一樣。指令會以關閉的方式失敗，所以沒有指令在沙箱外執行。它的檔案工具、網路擷取與完全存取都能用。它在那裡的 shell 工具是 PowerShell。Harness Relay 在 Windows 上不保留受保護的路徑，所以 Muse 在那裡沒有拒絕規則（反正它也會拒絕寫在規則裡的 Windows 路徑）。Muse 透過 `SystemDrive` 找到 `C:\ProgramData`，Harness Relay 會連同其他環境變數一起傳給它；沒有它時，連 `check` 都會說 `setup_required`。
 
 ### WSL
 
@@ -218,7 +218,7 @@ Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只
 | **Cursor** | 沒有可開啟的：它的 ACP 模式會忽略 `--sandbox` 與 `sandbox.mode` | 同左（沒有試過） | 同左（沒有試過） | 同左（沒有試過） | 同左（沒有試過） |
 | **Antigravity** | Harness Relay 的執行沒有可開啟的：透過 ACP 時，它的沙箱（`enableTerminalSandbox`）讓指令寫不進工作目錄 | 同左（試過） | 同左（試過） | 同左（沒有試過） | 同左（沒有試過） |
 | **Copilot** | `--sandbox`（只靠設定不會失敗就關起來） | bubblewrap 0.5 以上、slirp4netns、util-linux 2.35 以上、iproute2、iptables、`/dev/net/tun` 與 unprivileged user 及 network namespace，再加 `--sandbox` | `--sandbox`（在 Windows 11 上試過） | 同 Linux（沒有試過） | 同 Linux（沒有試過） |
-| **Muse Code** | 沒有要開啟的：除非給了 `--disable-sandbox`，否則就是開著 | 不需要安裝：它的 bubblewrap 隨它附上（試過） | 以系統管理員權限執行一次 `muse sandbox windows setup`（沒有試過） | 沒有試過 | 沒有試過 |
+| **Muse Code** | 沒有要開啟的：除非給了 `--disable-sandbox`，否則就是開著 | 不需要安裝：它的 bubblewrap 隨它附上（試過） | 沒有能幫上忙的：它的 ACP 模式在那裡不用沙箱，執行 `muse sandbox windows setup` 後也一樣（試過） | 沒有試過 | 沒有試過 |
 
 ### Harness Relay 的執行從哪裡讀這些設定
 
@@ -435,11 +435,11 @@ sandbox = "elevated"    # 或 "unelevated"
 
 - `codex sandbox uninstall` 會移除舊版沙箱建立的帳號與網路規則。記錄檔在 `%USERPROFILE%\.codex\.sandbox\sandbox.log`。
 
-**Muse Code**，每台電腦一次，在終端機執行（它會要求系統管理員權限；沒有試過）：
+**Muse Code**：它的設定能完成（試過），但 Harness Relay 使用的 muse 1.4.18 ACP 模式不用它設定好的沙箱，所以設定後完全存取以外的權限仍不會執行指令：
 
 ```powershell
-muse sandbox windows check    # 完成設定前是 setup_required
-muse sandbox windows setup    # 建立它的沙箱使用者與防火牆規則
+muse sandbox windows check    # 完成設定前是 setup_required，之後是 ready
+muse sandbox windows setup    # 建立它的沙箱帳號與防火牆過濾規則（UAC）
 ```
 
 **Claude Code 與 Grok** 在原生 Windows 上沒有沙箱：請在 WSL2 中執行它們與 Harness Relay。**Cursor** 與 **Antigravity** 在 Harness Relay 的執行中，在任何系統上都沒有沙箱，所以改用 WSL2 對它們沒有差別。**Copilot** 在那裡的沙箱不需要另外安裝任何東西：Harness Relay 會傳入 `--sandbox`（在 Windows 11 Pro，arm64，build 26200 上試過）。
@@ -468,7 +468,7 @@ wsl --set-version Ubuntu 2    # 把 WSL1 的發行版轉成 WSL2
 | Cursor | 它的 ACP 模式從不啟動沙箱，所以不會失敗，也不會有警告：在完全存取以外的權限，改為每個指令都要詢問（Cursor 團隊允許清單上的除外）。 |
 | Antigravity | Harness Relay 不開啟它的沙箱，所以不會失敗，也不會有警告：在完全存取以外的權限，改為每個指令都要詢問。你自己開啟的沙箱（它設定中的 `enableTerminalSandbox: true`）不會進到 Harness Relay 的執行，它們的設定只保留你的模型與服務。 |
 | Copilot | 只有 `--sandbox` 會失敗就關起來：只在設定中開啟的沙箱，在無法執行它的地方會被略過，而 Copilot 自己的沙箱功能開關關閉時，旗標也會被忽略。Harness Relay 傳入這個旗標，並在每次送出 prompt 前檢查 `/sandbox policy`：政策確實生效、不能繞過、有寫到時不能用鑰匙圈也不能做 git 或 gh 驗證、每個受保護的路徑與其他工作目錄都列在裡面，而且是 Copilot 自己回答、不是它的模型（沒有工具呼叫、思考或用量；這期間的任何權限請求都會被拒絕）。否則這一輪不會開始，並說明原因（*Copilot 的沙箱不是 Harness Relay 設定的樣子（…）*）。session 開啟時會自己執行東西的（hook、plugin、擴充功能、語言伺服器），會先在一次什麼都不會執行的啟動中檢查。在缺少沙箱所需條件的 Linux 上，政策仍會生效，但它在沙箱中執行的每個指令都會以 Copilot 自己的原因失敗，這一輪則繼續：沒有任何東西在沙箱外執行。 |
-| Muse Code | 它無法套用的設定檔會以關閉的方式失敗：`session/new` 不會開啟，這一輪以 Muse 的訊息失敗。在 Windows 上完成設定之前，每個指令都會在開始前失敗（「sandbox enforcement unavailable: windows_elevated setup_required…」），模型看到的是這個指令失敗；它的檔案工具仍能用。在 macOS 或 Linux 上沒有見過它的沙箱無法啟動。 |
+| Muse Code | 它無法套用的設定檔會以關閉的方式失敗：`session/new` 不會開啟，這一輪以 Muse 的訊息失敗。在 Windows 上，每個指令都會在開始前失敗（「sandbox enforcement unavailable: windows_elevated setup_required…」），完成它自己的沙箱設定後也一樣，模型看到的是這個指令失敗；它的檔案工具仍能用。在 macOS 或 Linux 上沒有見過它的沙箱無法啟動。 |
 
 Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原因。除了 Copilot 的政策以外，Harness Relay 不會檢查沙箱是否真的套用了。
 
@@ -513,4 +513,4 @@ Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原
 - Cursor：`cursor-agent` 2026.11.11-043ef28 本身：它的 ACP 伺服器與權限層，讀過程式碼並在 Mac 上試過。
 - Antigravity：`agy` 1.5.6 本身：它的 ACP 伺服器、設定與終端機沙箱，在 Mac 上透過 Harness Relay 的轉接器試過（它的執行也在 Linux 與 Windows 11 上試過，兩者都是 arm64），用的是 Gemini API key，搭配 Gemini API 的替身。
 - Copilot：`copilot` 1.0.109 本身：它的 ACP 伺服器、設定、`/sandbox policy` 與沙箱，透過 Harness Relay 的轉接器在一台 Mac、一台 Windows 11 虛擬機與 DGX Spark（都是 arm64）上試過，用的是 OpenAI 相容 API 的替身、Ollama，以及真正的 GitHub Copilot 登入。
-- Muse Code：`muse` 1.4.18 本身（它沒有公開原始碼）：它的 ACP 伺服器、權限設定檔與沙箱，透過 Harness Relay 的轉接器在 Mac、Linux（aarch64）與 Windows 11（arm64，沒有完成它沙箱的設定）上試過，用的是假的 Meta API key，搭配 Meta API 的替身；在 Mac 上也用真正的 Meta 帳號試過。
+- Muse Code：`muse` 1.4.18 本身（它沒有公開原始碼）：它的 ACP 伺服器、權限設定檔與沙箱，透過 Harness Relay 的轉接器在 Mac、Linux（aarch64）與 Windows 11（arm64，完成它沙箱的設定前後）上試過，用的是假的 Meta API key，搭配 Meta API 的替身；在 Mac 上也用真正的 Meta 帳號試過。
