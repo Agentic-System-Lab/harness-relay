@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 386 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 387 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -65,7 +65,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Notifications and sound](#notifications-and-sound) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [User guide → Notifications and sound](../docs/user-guide.md#notifications-and-sound), [Architecture → Notifications](../docs/architecture.md#notifications) |
 | [Limits the environment sets](#limits-the-environment-sets) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [Developer guide → Environment variables](../docs/developer-guide.md#environment-variables) |
 | [Languages](#languages) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 2 | [Architecture → Languages](../docs/architecture.md#languages) |
-| [On a phone](#on-a-phone) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 3 | [Use it from your phone](../docs/remote-access.md) |
+| [On a phone](#on-a-phone) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 4 | [Use it from your phone](../docs/remote-access.md) |
 
 ## Signing in
 
@@ -441,6 +441,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- | --- |
 | The sidebar opens from the menu, and a chat works by touch | Grok | The menu button's three lines (an icon) sit in the middle of it, within a tenth of a pixel; the sidebar is out of view until **Open sidebar**, and closes again on going somewhere; the send button sends (Enter is a new line on a touch screen); the header's actions are under **More**. |
 | A long message keeps the page from scrolling sideways | Claude Code | A 300-character word and a Markdown reply leave no sideways scroll. |
+| On a narrow phone, a template's editor and the team settings do not scroll sideways | — | At 320px (narrower than a 290px member card and its margins) and 280px (where English's **hand-offs / message** goes on a line of its own), the built-in relay template's editor and a relay chat's **Team settings** scroll no more than a pixel sideways. |
 | The home page's tagline is smaller, each of its lines on one line, and the logo closes the sidebar | — | The tagline is under its 22px, English on two lines and Chinese on one, without sideways scroll; tapping the sidebar's **Harness Relay** on the home page closes the sidebar. |
 
 ## Each CLI at a glance

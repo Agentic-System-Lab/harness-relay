@@ -52,6 +52,37 @@ test.describe('on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
+  test("on a narrow phone, a template's editor and the team settings do not scroll sideways", async ({ page, relay }) => {
+    /** How far a scrolling box scrolls sideways. */
+    const sideways = (box: string) => page.locator(box).evaluate((el) => el.scrollWidth - el.clientWidth);
+    // 320px: an iPhone SE (1st generation), or a mini with Display Zoom, narrower than a 290px member card
+    // and its margins; 280px: a foldable's cover screen, where English's "hand-offs / message" goes on a
+    // line of its own.
+    const widths = [320, 280];
+    await page.getByRole('button', { name: 'Open sidebar' }).tap();
+    await page.getByRole('button', { name: 'New chat' }).first().tap();
+    // A relay template: its rules have the hand-off limit, a number box with its unit.
+    await page.locator('.preset-card', { hasText: 'Architect → Builder → Reviewer' }).locator('.preset-main').tap();
+    const editor = page.getByRole('dialog');
+    await expect(editor.locator('input[value="Architect"]')).toBeVisible();
+    await expect(editor.getByText('hand-offs / message')).toBeAttached();
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 640 });
+      expect(await sideways('.template-editor-body')).toBeLessThanOrEqual(1);
+    }
+    await page.keyboard.press('Escape');
+
+    await page.setViewportSize(viewport);
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { mode: 'relay' });
+    await page.getByRole('button', { name: 'More' }).tap();
+    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).tap();
+    await expect(page.getByRole('dialog', { name: 'Team settings' }).locator('input[value="Claude"]')).toBeVisible();
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 640 });
+      expect(await sideways('.drawer')).toBeLessThanOrEqual(1);
+    }
+  });
+
   test("the home page's tagline is smaller, each of its lines on one line, and the logo closes the sidebar", async ({ page }) => {
     /** The tagline's size, how many lines it takes, and whether the page scrolls sideways. */
     const tagline = () =>

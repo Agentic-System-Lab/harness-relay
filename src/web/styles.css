@@ -1318,7 +1318,9 @@ p {
 
 .agent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  /* Never wider than the grid: on a phone narrower than about 334px (320px, or a larger display zoom),
+     a 290px column would scroll the template editor and the team settings sideways. */
+  grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr));
   /* Every row as tall as the tallest: the add card on a row of its own is as tall as the members too. */
   grid-auto-rows: 1fr;
   gap: 14px;
@@ -1526,6 +1528,13 @@ p {
 .field.inline .unit {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+/* Where even one line of label, box and unit is wider than the screen (English under about 300px),
+   the unit goes onto a line of its own, whole, rather than past the edge. */
+.field.inline:has(> .unit) {
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .field textarea {
