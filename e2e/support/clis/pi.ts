@@ -16,6 +16,10 @@ export const pi: CliFacts = {
   version: 'v1.5.998',
   sandbox: 'relay',
   belowFullOn: ['darwin', 'linux'],
+  // On macOS in Harness Relay's own sandbox as Seatbelt makes it, with its gate. Not on Windows: there
+  // it runs with full access only (no gate, no sandbox), as on Linux with full access, its adapter having
+  // nothing of its own for Windows; `windows.spec.ts` still starts it there, through npm's shim.
+  testedOn: ['linux', 'darwin'],
   // Its `ls` tool, one of read-only's. Pi's tools in edit mode and with full access have no `ls`: a
   // listing there is a `bash` `ls`, shown as `Bash` (as on Windows, where it runs with full access only).
   listTool: 'List',

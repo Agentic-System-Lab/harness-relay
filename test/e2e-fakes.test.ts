@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FACTS } from '../e2e/support/clis/all';
-import { bundleFakeCli, IMPLEMENTED_FAKES, NOT_YET_FAKED, writeFakeLaunchers } from '../e2e/support/fake-cli';
+import { bundleFakeCli, DEFAULT_CLIS, IMPLEMENTED_FAKES, NOT_YET_FAKED, notInstalledBut, writeFakeLaunchers } from '../e2e/support/fake-cli';
 import { FAKE_CLI_DIR } from '../e2e/support/paths';
 import { DATA_DIR_MAX } from '../e2e/support/relay';
 import { hostTmpRefusal } from '../src/server/relaySandbox';
@@ -89,6 +89,35 @@ describe('the fake CLIs', () => {
       expect(`v${/\d+\.\d+\.\d+[\w.-]*/.exec(m.version)?.[0]}`).toBe(FACTS[p].version);
       expect(m.versionRe.test(m.version)).toBe(true);
     }
+  });
+
+  it("run each CLI's own tests on Linux, and name no system the tests do not run on", () => {
+    for (const p of PROVIDERS) {
+      expect(FACTS[p].testedOn, p).toContain('linux');
+      for (const s of FACTS[p].testedOn) expect(['linux', 'darwin', 'win32'], p).toContain(s);
+      expect(new Set(FACTS[p].testedOn).size, p).toBe(FACTS[p].testedOn.length);
+    }
+  });
+
+  it('are installed in a test server as Claude Code, Codex and Grok, and the CLIs a test names', () => {
+    expect(DEFAULT_CLIS).toEqual(['claude', 'codex', 'grok']);
+    const installed = (missing: readonly Provider[]) => PROVIDERS.filter((p) => !missing.includes(p));
+    expect(installed(notInstalledBut())).toEqual(DEFAULT_CLIS.filter((p) => !NOT_YET_FAKED.includes(p)));
+    expect(installed(notInstalledBut(['cursor', 'pi']))).toEqual(PROVIDERS.filter((p) => ['claude', 'codex', 'grok', 'cursor', 'pi'].includes(p) && !NOT_YET_FAKED.includes(p)));
+    // A CLI whose fake is not written is never installed, named or not.
+    for (const p of NOT_YET_FAKED) expect(notInstalledBut([p])).toContain(p);
+  });
+
+  it('stream a slow reply over about ten seconds, or the seconds `e2e:slow=` gives', () => {
+    const plan = load(join(FAKE_CLI_DIR, 'lib', 'plan.cjs')) as { slowMs(v: unknown): number; pieceDelay(slow: number): number; pieces(text: string, slow: number): string[] };
+    expect(plan.slowMs(undefined)).toBe(0);
+    expect(plan.slowMs(true)).toBe(10_000);
+    expect(plan.slowMs('5')).toBe(5_000);
+    expect(plan.slowMs('0.5')).toBe(500);
+    expect(plan.slowMs('soon')).toBe(10_000);
+    const ms = plan.slowMs('5');
+    expect(plan.pieces('Hello', ms).length * plan.pieceDelay(ms)).toBe(5_000);
+    expect(plan.pieceDelay(0)).toBe(15);
   });
 
   it.each(IMPLEMENTED_FAKES.map((p) => [p]))('%s answers --version as its module says', (p) => {

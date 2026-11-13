@@ -43,8 +43,26 @@ import { FAKE_CLI_DIR, FAKE_DIALOG_SCRIPT, FAKE_GH_SCRIPT, ROOT } from './paths'
 /** The CLIs whose fake is written; the others' fakes say they are not and exit with code 2. */
 export const IMPLEMENTED_FAKES: readonly Provider[] = PROVIDERS.filter((p) => FACTS[p].implemented);
 
-/** The CLIs a test server leaves not installed unless a test says otherwise: those whose fake is not written yet. */
+/** The CLIs whose fake is not written yet: never installed in a test server, unless a test says otherwise. */
 export const NOT_YET_FAKED: readonly Provider[] = PROVIDERS.filter((p) => !FACTS[p].implemented);
+
+/**
+ * The CLIs a test server has installed unless the test says otherwise: Claude Code, Codex and Grok,
+ * which the tests about no CLI of their own use. As a page opens, the server asks every installed CLI
+ * for its version, its sign-in, its models and what it loads by itself, some six starts of it (each a
+ * Node process, and on Windows a single executable of about 100 MB): all ten made about 65 starts a
+ * test, these three about 20, and on CI each test took a second longer (three on Windows). A test
+ * about another CLI installs that one too (`eachCli()`, `eachHalf()` and `withClis()` in `clis.ts`).
+ */
+export const DEFAULT_CLIS: readonly Provider[] = ['claude', 'codex', 'grok'];
+
+/**
+ * A test server's `missingClis` for one that has `clis` installed besides `DEFAULT_CLIS`: every other
+ * CLI, and those whose fake is not written yet.
+ */
+export function notInstalledBut(clis: readonly Provider[] = []): Provider[] {
+  return PROVIDERS.filter((p) => !FACTS[p].implemented || !(DEFAULT_CLIS.includes(p) || clis.includes(p)));
+}
 
 const sea = process.platform === 'win32' || process.env.E2E_FAKE_SEA === '1';
 const exe = process.platform === 'win32' ? '.exe' : '';

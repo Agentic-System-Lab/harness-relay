@@ -13,6 +13,9 @@ export const codex: CliFacts = {
   version: 'v0.999.0',
   sandbox: 'own',
   belowFullOn: ['darwin', 'linux', 'win32'],
+  // Not on macOS, where its adapter and fake do what they do on Linux; on Windows it runs without a
+  // permission profile, in the legacy sandbox mode (`codexProfile`).
+  testedOn: ['linux', 'win32'],
   listTool: 'Shell',
   approve: { permission: 'read-only', directive: 'e2e:approve', command: 'echo e2e-approval' },
   decline: 'dropped',

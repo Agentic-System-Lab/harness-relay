@@ -13,6 +13,9 @@ export const opencode: CliFacts = {
   version: 'v1.19.999',
   sandbox: 'relay',
   belowFullOn: ['darwin'],
+  // macOS is the one system it runs below full access on, in Harness Relay's own sandbox (Seatbelt,
+  // with its server's port opened); on Windows it keeps its own shell (relay-shell is a POSIX script).
+  testedOn: ['linux', 'darwin', 'win32'],
   listTool: 'glob',
   // Its rules ask about every command below full access; Harness Relay asks the user in read-only.
   approve: { permission: 'read-only', directive: 'e2e:approve', command: 'echo e2e-approval' },

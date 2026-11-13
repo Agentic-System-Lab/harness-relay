@@ -3,9 +3,9 @@
  * with everything it keeps in a temporary folder of its own (data, the CLIs' homes, a home folder,
  * the default working directory), the fake CLIs first on its PATH and the OS credential store off.
  * Beside it runs the test's fake model endpoint (`FakeEndpoint`), which is set up as a model backend,
- * and the open agents' default model is one of its models, so they are ready to run. The CLIs whose
- * fake is not written yet (`NOT_YET_FAKED`), or those a test names (`missingClis`), are not installed
- * there. Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
+ * and the open agents' default model is one of its models, so they are ready to run. Only the CLIs the
+ * test is about are installed there, besides Claude Code, Codex and Grok (`missingClis`, by default
+ * `notInstalledBut()`). Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
@@ -14,7 +14,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { OPEN_PROVIDERS, PROVIDERS, type Provider } from '../../src/shared/types';
-import { fakeBin, NOT_YET_FAKED } from './fake-cli';
+import { fakeBin, notInstalledBut } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
 
 /**
@@ -119,7 +119,9 @@ export interface StartOptions {
   live?: boolean;
   /**
    * The CLIs not installed in this server: their executable is set to a path that does not exist.
-   * By default the CLIs whose fake is not written yet (`NOT_YET_FAKED`). Not in live runs.
+   * By default all but Claude Code, Codex and Grok (`DEFAULT_CLIS`), and those whose fake is not
+   * written yet (`notInstalledBut()`): each CLI installed is asked for its status, models and what it
+   * loads by itself whenever a page opens. Not in live runs.
    */
   missingClis?: readonly Provider[];
   /**
@@ -211,7 +213,7 @@ async function startFakeEndpoint(log: string): Promise<{ endpoint: FakeEndpoint;
 
 export async function startRelay(o: StartOptions): Promise<RelayServer> {
   if (!existsSync(join(WEB_DIR, 'index.html'))) throw new Error(`The UI is not built in ${WEB_DIR}: run \`npm run build\`.`);
-  const notInstalled = o.missingClis ?? NOT_YET_FAKED;
+  const notInstalled = o.missingClis ?? notInstalledBut();
   if (!o.live) {
     // Without its fakes, the server would find the real CLIs and gh on the PATH: refuse to start.
     const exe = process.platform === 'win32' ? '.exe' : '';
@@ -386,10 +388,10 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
       return (text ? JSON.parse(text) : undefined) as T;
     };
 
-    // The CLIs a test leaves out, and those whose fake is not written yet, are not installed here: their
-    // executable is set to a path that does not exist, before the page asks for any CLI's status. (The
-    // fake ones say they are not written yet; and should a real one be found, it would be started with
-    // whatever sign-in it keeps, and what each test sees would depend on what that computer has.)
+    // The CLIs the test does not need, and those whose fake is not written yet, are not installed here:
+    // their executable is set to a path that does not exist, before the page asks for any CLI's status.
+    // (Should a real one be found, it would be started with whatever sign-in it keeps, and what each
+    // test sees would depend on what that computer has.)
     // Then the fake endpoint becomes a model backend and its first model the open agents' default, so
     // that they are ready to run, and OpenHands may use a terminal in Harness Relay's own sandbox.
     // Live runs start the real CLIs, from the PATH or where E2E_LIVE_BIN_<PROVIDER> says.

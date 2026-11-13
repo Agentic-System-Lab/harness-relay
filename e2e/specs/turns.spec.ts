@@ -152,7 +152,7 @@ test.describe('how members take turns', () => {
       { name: 'Claude', provider: 'claude' },
       { name: 'Grok', provider: 'grok' },
     ]);
-    await send(page, 'Go slowly e2e:slow@claude');
+    await send(page, 'Go slowly e2e:slow=5@claude');
     await expect(replies(page, 'Claude').last().locator('.live-tag')).toBeVisible();
 
     await composer(page).fill('Also look at the tests');

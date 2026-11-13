@@ -16,6 +16,9 @@ export const cursor: CliFacts = {
   version: 'v2026.11.99-fake',
   sandbox: 'none',
   belowFullOn: ['darwin', 'linux', 'win32'],
+  // Not on macOS, where it runs as on Linux; on Windows the run's sessions folder is linked in as a
+  // junction (`prepareCursorRun`).
+  testedOn: ['linux', 'win32'],
   listTool: 'Read',
   approve: { permission: 'read-only', directive: 'e2e:approve', command: 'echo e2e-approval' },
   // It takes no message with a refusal: the model sees "Rejected: User rejected".

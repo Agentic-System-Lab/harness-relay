@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 import { PROVIDER_LABEL, PROVIDERS, type AboutInfo, type ProviderStatus } from '../../src/shared/types';
 import { MAILTO_MAX, REPORT_EMAIL } from '../../src/web/report';
 import { expect, test } from '../fixtures';
-import { CLIS, faked } from '../support/clis';
+import { CLIS, faked, withEveryCli } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
 /** What the dialog handed on, kept in the page instead of going anywhere (`catchMail`). */
@@ -81,47 +81,52 @@ function parseGmail(link: string) {
 }
 
 test.describe('reporting a problem', () => {
-  test("the mail's links carry the description and the version and system details", async ({ page, relay }) => {
-    const caught = await catchMail(page);
-    const info = await infoLines(page, relay);
-    await page.getByRole('button', { name: 'Report a problem' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Report a problem' });
-    const send = dialog.getByRole('button', { name: 'Send', exact: true });
-    // Nothing to report yet.
-    await expect(send).toBeDisabled();
+  // Every CLI installed, so that each one's version is in the report.
+  test.describe(() => {
+    withEveryCli();
 
-    // What goes along is shown before it goes: versions and the system, none of the user's paths.
-    await dialog.getByText('Version and system details are included').click();
-    const details = dialog.locator('.report-info-lines');
-    await expect(details).toHaveText(info.join('\n'));
-    await expect(details).not.toContainText(relay.root);
+    test("the mail's links carry the description and the version and system details", async ({ page, relay }) => {
+      const caught = await catchMail(page);
+      const info = await infoLines(page, relay);
+      await page.getByRole('button', { name: 'Report a problem' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Report a problem' });
+      const send = dialog.getByRole('button', { name: 'Send', exact: true });
+      // Nothing to report yet.
+      await expect(send).toBeDisabled();
 
-    const description = 'The export drops the last row.\nSteps: export a table of three rows.';
-    await dialog.getByRole('textbox', { name: 'Details' }).fill(description);
-    // The subject left empty: the description's first line stands in.
-    const subject = '[Harness Relay] Problem: The export drops the last row.';
-    const body = [...description.split('\n'), '', '---', 'Type: Problem', ...info, '', '(Drag screenshots into this mail.)'];
+      // What goes along is shown before it goes: versions and the system, none of the user's paths.
+      await dialog.getByText('Version and system details are included').click();
+      const details = dialog.locator('.report-info-lines');
+      await expect(details).toHaveText(info.join('\n'));
+      await expect(details).not.toContainText(relay.root);
 
-    await send.click();
-    await expect(dialog.getByRole('status')).toContainText('Your mail app is open');
-    await expect.poll(async () => (await caught()).opened.length).toBe(1);
-    const mail = parseMailto((await caught()).opened[0]!);
-    expect(mail).toEqual({ to: REPORT_EMAIL, subject, body: body.join('\r\n') });
+      const description = 'The export drops the last row.\nSteps: export a table of three rows.';
+      await dialog.getByRole('textbox', { name: 'Details' }).fill(description);
+      // The subject left empty: the description's first line stands in.
+      const subject = '[Harness Relay] Problem: The export drops the last row.';
+      const body = [...description.split('\n'), '', '---', 'Type: Problem', ...info, '', '(Drag screenshots into this mail.)'];
 
-    await dialog.getByRole('button', { name: 'Send with Gmail' }).click();
-    await expect(dialog.getByRole('status')).toContainText('Gmail is open in a new tab');
-    await expect.poll(async () => (await caught()).opened.length).toBe(2);
-    expect(parseGmail((await caught()).opened[1]!)).toEqual({ to: REPORT_EMAIL, subject, body: body.join('\n') });
+      await send.click();
+      await expect(dialog.getByRole('status')).toContainText('Your mail app is open');
+      await expect.poll(async () => (await caught()).opened.length).toBe(1);
+      const mail = parseMailto((await caught()).opened[0]!);
+      expect(mail).toEqual({ to: REPORT_EMAIL, subject, body: body.join('\r\n') });
 
-    // Copied, the whole mail, to paste into any mail.
-    await dialog.getByRole('button', { name: 'Copy report' }).click();
-    await expect.poll(async () => (await caught()).copied).toEqual([[`To: ${REPORT_EMAIL}`, `Subject: ${subject}`, '', ...body].join('\n')]);
+      await dialog.getByRole('button', { name: 'Send with Gmail' }).click();
+      await expect(dialog.getByRole('status')).toContainText('Gmail is open in a new tab');
+      await expect.poll(async () => (await caught()).opened.length).toBe(2);
+      expect(parseGmail((await caught()).opened[1]!)).toEqual({ to: REPORT_EMAIL, subject, body: body.join('\n') });
 
-    // Sent, it is forgotten once the dialog closes.
-    await dialog.getByRole('button', { name: 'Close' }).click();
-    await expect(dialog).toBeHidden();
-    await page.getByRole('button', { name: 'Report a problem' }).click();
-    await expect(dialog.getByRole('textbox', { name: 'Details' })).toHaveValue('');
+      // Copied, the whole mail, to paste into any mail.
+      await dialog.getByRole('button', { name: 'Copy report' }).click();
+      await expect.poll(async () => (await caught()).copied).toEqual([[`To: ${REPORT_EMAIL}`, `Subject: ${subject}`, '', ...body].join('\n')]);
+
+      // Sent, it is forgotten once the dialog closes.
+      await dialog.getByRole('button', { name: 'Close' }).click();
+      await expect(dialog).toBeHidden();
+      await page.getByRole('button', { name: 'Report a problem' }).click();
+      await expect(dialog.getByRole('textbox', { name: 'Details' })).toHaveValue('');
+    });
   });
 
   test('a report closed before it was sent is kept, and the kind and subject chosen go in the mail', async ({ page }) => {

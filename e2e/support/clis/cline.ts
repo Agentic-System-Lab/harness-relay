@@ -17,6 +17,11 @@ export const cline: CliFacts = {
   version: 'v3.99.999',
   sandbox: 'relay',
   belowFullOn: ['darwin', 'linux'],
+  // On macOS in Harness Relay's own sandbox as Seatbelt makes it. Not on Windows: there it runs with
+  // full access only, as on Linux with full access, and its own tests could tell nothing more (Settings
+  // cannot list what it loads by itself there, which no test of its own looks at); `windows.spec.ts`
+  // still starts it there, through npm's shim.
+  testedOn: ['linux', 'darwin'],
   listTool: 'read_files',
   approve: { permission: 'read-only', directive: 'e2e:approve', command: 'echo e2e-approval' },
   decline: 'dropped',

@@ -164,7 +164,7 @@ test.describe('notifications and sound', () => {
     await polled(page);
     expect(await recorded(page)).toEqual({ notes: [], tones: 0, focused: true, clicks: [] });
 
-    await send(page, 'Take your time e2e:slow');
+    await send(page, 'Take your time e2e:slow=5');
     await page.evaluate(() => (location.hash = '#/'));
     await expect(homePage(page)).toBeVisible();
     await settled(relay, id);
@@ -177,7 +177,7 @@ test.describe('notifications and sound', () => {
     await card.getByRole('checkbox', { name: 'Show notifications' }).uncheck();
     await card.getByRole('checkbox', { name: 'Play a sound' }).uncheck();
     await page.evaluate((chat) => (location.hash = `#/c/${chat}`), encodeURIComponent(id));
-    await send(page, 'Once more e2e:slow');
+    await send(page, 'Once more e2e:slow=5');
     await page.evaluate(() => (location.hash = '#/'));
     await expect(homePage(page)).toBeVisible();
     await settled(relay, id);

@@ -13,6 +13,9 @@ export const grok: CliFacts = {
   version: 'v1.0.999',
   sandbox: 'own',
   belowFullOn: ['darwin', 'linux', 'win32'],
+  // Not on macOS, where its fake does what it does on Linux (the programs its sandbox profile lists
+  // there are nothing a fake checks); on Windows its profile is `workspace`, which keeps it in no folder.
+  testedOn: ['linux', 'win32'],
   unconfinedOn: ['win32'],
   listTool: 'list_dir',
   approve: { permission: 'read-only', directive: 'e2e:approve', command: 'echo e2e-approval' },

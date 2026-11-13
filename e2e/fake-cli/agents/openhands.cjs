@@ -733,7 +733,7 @@ async function prompt(conn, s, p) {
       // It does not stream: the whole reply at once. A slow one takes its time afterwards (a stop pauses it).
       update({ content: { text: reply, type: 'text' }, sessionUpdate: 'agent_message_chunk' });
       log.append({ source: 'agent', llm_message: { role: 'assistant', content: [{ type: 'text', text: reply }] }, kind: 'MessageEvent' });
-      for (let waited = 0; step.slow && waited < 10_000; waited += 100) {
+      for (let waited = 0; waited < step.slow; waited += 100) {
         if (s.cancelled) return paused();
         await sleep(100);
       }
