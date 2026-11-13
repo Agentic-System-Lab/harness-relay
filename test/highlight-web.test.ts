@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { hastToHtml, highlightHtml } from '../src/web/highlight';
 
+/** Every tag in `html`, each of which must be a highlight.js span's start or an end of one. */
+const strayTags = (html: string) => [...html.matchAll(/<[^>]*>/g)].map((m) => m[0]).filter((tag) => !/^<span class="hljs-[a-z_-]+">$|^<\/span>$/.test(tag));
+
 describe("the file browser's highlighting", () => {
   it('highlights a language replies know too, as spans with highlight.js classes', () => {
-    const html = highlightHtml('const a = 1;', 'typescript')!;
-    expect(html).toContain('<span class="hljs-keyword">const</span>');
-    expect(html).toContain('<span class="hljs-number">1</span>');
-    // By an alias too, and the text is all there.
+    expect(highlightHtml('const a = 1;', 'typescript')).toBe('<span class="hljs-keyword">const</span> a = <span class="hljs-number">1</span>;');
+    // By an alias too.
     expect(highlightHtml('x = 1', 'py')).not.toBeNull();
-    expect(html.replace(/<[^>]+>/g, '')).toBe('const a = 1;');
   });
 
   it('gives null for a language it does not have', () => {
@@ -17,9 +17,18 @@ describe("the file browser's highlighting", () => {
 
   it('escapes the text, so a file cannot put markup in the page', () => {
     const html = highlightHtml('<img src=x onerror="alert(1)"> & \'q\'', 'xml')!;
-    expect(html).not.toMatch(/<img/);
-    expect(html).toContain('&lt;');
-    expect(html.replace(/<span[^>]*>|<\/span>/g, '')).toBe('&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &#39;q&#39;');
+    expect(html).toBe(
+      '<span class="hljs-tag">&lt;<span class="hljs-name">img</span> <span class="hljs-attr">src</span>=<span class="hljs-string">x</span> ' +
+        '<span class="hljs-attr">onerror</span>=<span class="hljs-string">&quot;alert(1)&quot;</span>&gt;</span> &amp; &#39;q&#39;',
+    );
+    // Whatever the file holds, no tag but the highlighter's own spans.
+    for (const [text, language] of [
+      ['<script>alert(1)</script>', 'xml'],
+      ['"><svg onload=alert(1)>', 'javascript'],
+      ['<<script>script>x', 'html'],
+    ]) {
+      expect(strayTags(highlightHtml(text!, language!)!)).toEqual([]);
+    }
   });
 
   it('keeps only spans and their classes from a tree, and the text of anything else', () => {
