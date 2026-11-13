@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { currentLang, isDefaultTitle, parseLang, t, withLang } from '../src/server/i18n';
 import { builtinPresets } from '../src/server/presets';
-import { browserLang } from '../src/web/i18n';
+import { LANG_NAMES, browserLang, loadMessages } from '../src/web/i18n';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
@@ -48,6 +48,13 @@ describe('web language', () => {
     expect(browserLang(['en-US', 'zh-TW'])).toBe('en');
     expect(browserLang(['ja-JP', 'ko'])).toBe('en');
     expect(browserLang([])).toBe('en');
+  });
+
+  it("loads each language's messages when asked, and names each language as its messages do", async () => {
+    // The page carries only the language it shows (i18n.tsx), so the switch names them without loading them.
+    expect(await loadMessages('en')).toBe(en);
+    expect(await loadMessages('zh-TW')).toBe(zhTW);
+    expect(LANG_NAMES).toEqual({ en: en.langName, 'zh-TW': zhTW.langName });
   });
 
   it('has the same messages in both languages', () => {

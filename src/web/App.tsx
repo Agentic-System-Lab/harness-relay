@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
 import { SIGNED_OUT_EVENT, api } from './api';
 import { keyArrived } from './auth';
@@ -6,8 +6,6 @@ import { ChatView } from './components/ChatView';
 import { Home } from './components/Home';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
-import { Onboarding, onboardingDone } from './components/Onboarding';
-import { SettingsPage } from './components/SettingsPage';
 import { SignIn } from './components/SignIn';
 import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route } from './route';
@@ -28,6 +26,11 @@ import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
 import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
 import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
+import { onboardingDone } from './tour';
+
+// Loaded when first opened, not with the page: Settings and its panels, and the guided tour.
+const SettingsPage = lazy(() => import('./components/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const Onboarding = lazy(() => import('./components/Onboarding').then((m) => ({ default: m.Onboarding })));
 
 type SeenMap = Record<string, number>;
 const SEEN_KEY = 'relay:seen';
@@ -447,19 +450,25 @@ function RelayApp() {
           />
         )}
         {route.page === 'settings' && (
-          <SettingsPage
-            section={route.section}
-            providers={providers}
-            catalog={catalog}
-            refreshProviders={refreshProviderInfo}
-            onShowTour={() => setTourOpen(true)}
-            update={update}
-            onCheckUpdate={checkUpdate}
-            onInstallUpdate={installUpdate}
-          />
+          <Suspense fallback={null}>
+            <SettingsPage
+              section={route.section}
+              providers={providers}
+              catalog={catalog}
+              refreshProviders={refreshProviderInfo}
+              onShowTour={() => setTourOpen(true)}
+              update={update}
+              onCheckUpdate={checkUpdate}
+              onInstallUpdate={installUpdate}
+            />
+          </Suspense>
         )}
       </main>
-      {tourOpen && <Onboarding onClose={() => setTourOpen(false)} />}
+      {tourOpen && (
+        <Suspense fallback={null}>
+          <Onboarding onClose={() => setTourOpen(false)} />
+        </Suspense>
+      )}
       {offer && update?.available && (
         <UpdateDialog
           version={update.available.version}

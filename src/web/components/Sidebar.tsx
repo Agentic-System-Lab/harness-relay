@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { PROVIDERS, PROVIDER_LABEL, accountUsable, isOpenProvider, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
@@ -7,9 +7,11 @@ import { useT, type Messages } from '../i18n';
 import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
 import { CalendarPlusIcon, ChevronIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
-import { ReportDialog } from './ReportDialog';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
 import { SearchBox, SearchResults } from './SidebarSearch';
+
+// Loaded when first opened, not with the page.
+const ReportDialog = lazy(() => import('./ReportDialog').then((m) => ({ default: m.ReportDialog })));
 
 interface Props {
   route: Route;
@@ -177,7 +179,11 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
           </button>
         </div>
       </div>
-      {reporting && <ReportDialog providers={providers} onClose={() => setReporting(false)} />}
+      {reporting && (
+        <Suspense fallback={null}>
+          <ReportDialog providers={providers} onClose={() => setReporting(false)} />
+        </Suspense>
+      )}
     </aside>
   );
 }

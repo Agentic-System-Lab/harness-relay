@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
   cwdSettings,
@@ -15,9 +15,11 @@ import { useLimits } from '../limits';
 import { leadLabel } from '../util';
 import { MemberDots } from './MemberDots';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
-import { TemplateEditor } from './TemplateEditor';
 
 /** Whether the last new chat used the lead agent's teams without asking ("1"), so the next one starts the same way. */
+// Loaded when a template is first opened, not with the page.
+const TemplateEditor = lazy(() => import('./TemplateEditor').then((m) => ({ default: m.TemplateEditor })));
+
 const AUTO_CONFIRM_KEY = 'relay:autoConfirm';
 
 function read(key: string): string {
@@ -206,14 +208,16 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         {(problems.length > 0 || error) && <p className="error-line">{error || problems[0]}</p>}
       </footer>
       {editing && (
-        <TemplateEditor
-          key={editing.key}
-          preset={editing.preset}
-          providers={providers}
-          catalog={catalog}
-          onSaved={saved}
-          onClose={() => setEditing(null)}
-        />
+        <Suspense fallback={null}>
+          <TemplateEditor
+            key={editing.key}
+            preset={editing.preset}
+            providers={providers}
+            catalog={catalog}
+            onSaved={saved}
+            onClose={() => setEditing(null)}
+          />
+        </Suspense>
       )}
     </div>
   );

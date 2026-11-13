@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useT, type Messages } from '../i18n';
+import { markDone } from '../tour';
 
-/** The version of the tour this browser last finished (or skipped); before versions, `'1'`. */
-const DONE_KEY = 'relay:onboarded';
-
-/**
- * Raise it when the steps change in a way worth seeing: people who finished an earlier version see the tour again
- * once, on their next visit. `test/tour.test.ts` fails when the steps change, as a reminder.
- */
-export const TOUR_VERSION = 14;
+export { TOUR_VERSION, onboardingDone, tourSeen } from '../tour';
 
 /**
  * Element each step points at (`data-tour`), by the index of the step in `t.tour.steps`; none = a centred card.
@@ -34,27 +28,6 @@ export const TOUR_TARGETS: (string | undefined)[] = [
   'settings', // agent sessions and AgentsView
   'settings', // settings
 ];
-
-/** Whether the stored version (`DONE_KEY`) means the current tour was seen; a newer one counts too. */
-export function tourSeen(stored: string | null, version = TOUR_VERSION): boolean {
-  return Number(stored) >= version;
-}
-
-export function onboardingDone(): boolean {
-  try {
-    return tourSeen(localStorage.getItem(DONE_KEY));
-  } catch {
-    return true; // no storage: don't show the tour on every visit
-  }
-}
-
-function markDone(): void {
-  try {
-    localStorage.setItem(DONE_KEY, String(TOUR_VERSION));
-  } catch {
-    /* storage unavailable */
-  }
-}
 
 interface Box {
   top: number;

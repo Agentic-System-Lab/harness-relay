@@ -1,11 +1,14 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig } from '../src/shared/types';
 import { parseMentions } from '../src/server/prompt';
 import { FileLink, Markdown, findMentions, mermaidSource, tableCellClass, textWidthEm } from '../src/web/components/Markdown';
 import { CHECK_DELAY_MS, checkDownload, checkLater, fileClicks } from '../src/web/download';
-import { I18nProvider } from '../src/web/i18n';
+import { I18nProvider, currentLang, loadMessages } from '../src/web/i18n';
+
+// As the page does before it draws anything: its language's messages, which load on their own.
+beforeAll(() => loadMessages(currentLang()));
 
 const html = (text: string, mentions = ['Claude', 'Bob']) =>
   renderToStaticMarkup(createElement(I18nProvider, null, createElement(Markdown, { text, mentions })));
