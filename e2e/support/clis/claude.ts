@@ -13,6 +13,9 @@ export const claude: CliFacts = {
   version: 'v2.1.999',
   sandbox: 'own',
   belowFullOn: ['darwin', 'linux', 'win32'],
+  // On macOS it stands for the five CLIs with a sign-in, whose fakes do there what they do on Linux;
+  // on Windows it has no sandbox settings (`claudeSandboxSettings`).
+  testedOn: ['linux', 'darwin', 'win32'],
   listTool: 'Bash',
   approve: { permission: 'read-only', directive: 'e2e:approve', command: 'echo e2e-approval' },
   decline: 'passed',

@@ -35,10 +35,19 @@ export function newestRelease(releases: unknown): NewestRelease | null;
 export const DOWNLOAD_PREFIX: string;
 export const STORAGE_KEY: string;
 export function isInstallerUrl(url: unknown): boolean;
+/** The download mirror's https origin, or '' for none. */
+export const MIRROR: string;
+export function isMirror(mirror: unknown): boolean;
+export function mirrorUrl(url: unknown, mirror?: unknown): string | undefined;
+export function mirrorCopyUrl(tag: unknown, installer: unknown, mirror?: unknown): string | undefined;
+export function mirrorHas(url: string, fetcher?: (url: string, init: RequestInit) => Promise<{ status: number }>): Promise<boolean>;
 export function wire(deps?: {
   doc?: unknown;
   nav?: unknown;
   storage?: { getItem(key: string): string | null; setItem(key: string, value: string): void } | null;
   fetchJson?: (url: string) => Promise<unknown>;
   now?: () => number;
+  /** The mirror's origin (MIRROR), and whether it has an installer (mirrorHas). */
+  mirror?: string;
+  hasInstaller?: (url: string) => Promise<boolean>;
 }): Promise<void>;

@@ -16,6 +16,11 @@ export const muse: CliFacts = {
   version: 'v1.4.999',
   sandbox: 'own',
   belowFullOn: ['darwin', 'linux', 'win32'],
+  // Not on macOS, where it runs as on Linux but for the folders its Linux sandbox leaves (removed on
+  // Linux only); on Windows its sign-in is copied, not linked, nothing else is linked, and its shell
+  // tool is PowerShell. Its fake runs commands below full access on Windows too, in the sandbox it
+  // works out; the real muse 1.4.18 runs none there (its ACP mode uses no sandbox on Windows).
+  testedOn: ['linux', 'win32'],
   // Its `search` tool (a glob), of kind `search`, which the chat calls Search.
   listTool: 'Search',
   // Read-only is its `promptUnmatched` mode, in which every command asks (in edit mode `echo` runs in its sandbox unasked).

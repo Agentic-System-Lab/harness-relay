@@ -1,6 +1,6 @@
 import { expect, test } from '../fixtures';
 import { askAndConfirm, awaitingPlan, chatId, composer, confirmTeam, finishedReply, replies, send, settled, startChat } from '../support/app';
-import { HALVES, sharedPermission, teamOf } from '../support/clis';
+import { eachHalf, sharedPermission, teamOf } from '../support/clis';
 
 /** The most members the lead agent puts in a team it designs for a new question (`newTeamLimit` in src/server/planner.ts). */
 const LEAD_TEAM_MAX = 5;
@@ -40,7 +40,7 @@ test.describe('a new chat', () => {
   // agent picks, in a chat with the permission all of them can run with here. A half with more CLIs
   // than the lead agent puts in a new team (`LEAD_TEAM_MAX`) answers as teams of about the same size,
   // each in a chat of its own.
-  for (const half of HALVES) {
+  eachHalf((half) => {
     test(half.title('a team of every CLI answers in turn'), async ({ page }) => {
       const all = teamOf(half.clis);
       const size = Math.ceil(all.length / Math.ceil(all.length / LEAD_TEAM_MAX));
@@ -57,7 +57,7 @@ test.describe('a new chat', () => {
         await expect(page.locator('.msg-agent .msg-head strong')).toHaveText(team.map((c) => `@${c.name}`));
       }
     });
-  }
+  });
 
   test('a follow-up question gets a team again and the members answer it', async ({ page, relay }) => {
     await startChat(page);

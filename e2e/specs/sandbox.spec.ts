@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
 import { finishedReply, openTeamChat, replies, send, settled } from '../support/app';
-import { CLIS, eachCli, fetchPermission, member, needsFake, needsRelaySandbox, OPEN, SIGNED_IN } from '../support/clis';
+import { CLIS, eachCli, fetchPermission, member, needsFake, needsRelaySandbox, OPEN, SIGNED_IN, withClis } from '../support/clis';
 
 /*
  * Harness Relay's own sandbox, which the open agents run in below full access (docs/sandboxing.md),
@@ -68,6 +68,7 @@ test.describe('below full access where an open agent runs with full access only'
 test.describe('OpenHands on macOS', () => {
   test.use({ sandboxTerminal: false });
   needsFake('openhands');
+  withClis('openhands');
   test.skip(process.platform !== 'darwin', 'only macOS needs the switch (Linux gives the sandbox a terminal of its own; Windows runs it with full access only)');
 
   test('openhands: below full access, it needs its terminal switch', async ({ page, relay }) => {
@@ -84,6 +85,7 @@ test.describe('OpenHands on macOS', () => {
  */
 test.describe("a project's own setup", () => {
   needsFake('antigravity');
+  withClis('antigravity');
 
   test("antigravity: is asked about before agy starts, and a refusal keeps it from starting", async ({ page, relay }) => {
     const cli = SIGNED_IN.find((c) => c.provider === 'antigravity')!;

@@ -88,6 +88,7 @@ import {
   type Updating,
 } from './update';
 import { decodeUpdateSource, type BuiltUpdateSource } from './updateSource';
+import { MIRROR } from '../../site/assets/downloads.js';
 import { findTailscale, sharePlan, Tailscale } from './tailscale';
 
 /** The version the app was built as (desktop/scripts/build.ts): a release's date version, or the package's. */
@@ -863,12 +864,14 @@ function run(): void {
       setUpdating({ kind: 'downloading', done });
     };
     const fetch: Fetch = (url, init) => net.fetch(url, init);
-    // The copy found with the token for a private copies' repository (the installer itself when it cannot be had).
+    // The copy found with the token for a private copies' repository (the installer itself when it cannot be
+    // had); from the download mirror first when the app was built with one (MIRROR), counted on GitHub.
     const fromGitHub = {
       fetch,
       connections: updateConnections(),
       locate: locateRedirect,
       source: UPDATE_SOURCE,
+      mirror: MIRROR,
       tag: release.version,
       lookupSignal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
       asset,

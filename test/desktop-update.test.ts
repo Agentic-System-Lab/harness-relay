@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { UPDATES_REPO } from '../site/assets/downloads.js';
+import { mirrorCopyUrl, UPDATES_REPO } from '../site/assets/downloads.js';
 import {
   appImageDownload,
   appImageTarget,
@@ -15,6 +15,7 @@ import {
   checkLatest,
   checkNow,
   copyToDownload,
+  countUpdate,
   DOWNLOAD_CONNECTIONS,
   DOWNLOAD_STALL_MS,
   download,
@@ -25,6 +26,7 @@ import {
   LATEST_RELEASE_API,
   macAppOf,
   macStaging,
+  mirrorAsset,
   MIN_PART_BYTES,
   mayAskGitHub,
   takesCandidates,
@@ -558,14 +560,35 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     for (const [name, size] of Object.entries(copies)) writeFileSync(join(at, 'updates', name), Buffer.alloc(size));
     return at;
   }
+  /**
+   * The stand-in for GitHub's API, loaded before a step's script: fixed code, which answers with what
+   * `github-answer.json` beside it holds and writes down each question (its URL, and the token it was
+   * asked with) in `github-asked.jsonl`. The answer is data it reads, never code written with it.
+   */
+  const GITHUB_STUB = [
+    "import { appendFileSync, readFileSync } from 'node:fs';",
+    "const answer = JSON.parse(readFileSync(new URL('github-answer.json', import.meta.url), 'utf8'));",
+    'globalThis.fetch = async (url, init) => {',
+    "  const asked = { url: String(url), authorization: init?.headers?.Authorization ?? null };",
+    "  appendFileSync(new URL('github-asked.jsonl', import.meta.url), JSON.stringify(asked) + '\\n');",
+    '  return new Response(JSON.stringify(answer.release), { status: answer.status });',
+    '};',
+    '',
+  ].join('\n');
   /** Node's options for a step's script: its types stripped, and GitHub's API answering `release` (or `status`). */
   function stubbed(at: string, answer: { release?: unknown; status?: number }) {
     const stub = join(at, 'github.mjs');
-    writeFileSync(
-      stub,
-      `globalThis.fetch = async (url, init) => { (globalThis.asked ??= []).push(url); return new Response(${JSON.stringify(JSON.stringify(answer.release ?? {}))}, { status: ${answer.status ?? 200} }); };\n`,
-    );
+    writeFileSync(stub, GITHUB_STUB);
+    writeFileSync(join(at, 'github-answer.json'), JSON.stringify({ release: answer.release ?? {}, status: answer.status ?? 200 }));
     return `--experimental-strip-types --no-warnings --import=${stub}`;
+  }
+  /** What the stand-in GitHub in `at` was asked since the last call: each question's URL and token. */
+  function githubAsked(at: string): { url: string; authorization: string | null }[] {
+    const log = join(at, 'github-asked.jsonl');
+    if (!existsSync(log)) return [];
+    const asked = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { url: string; authorization: string | null });
+    rmSync(log);
+    return asked;
   }
 
   it('stops a release without the write token at once, before anything is built', () => {
@@ -644,13 +667,21 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     const ok = run(script, at, { ...env, RELAY_UPDATES_REPO: PRIVATE.repo, RELAY_UPDATES_TOKEN: TOKEN });
     expect(ok.stderr).toBe('');
     expect(ok.stdout).toContain('The app will download its updates from acme/relay-updates, with the read token.');
-    expect(run(script, at, { ...env }).stdout).toContain('from Agentic-System-Lab/harness-relay-updates, without a token.');
+    // Asked with the read token, as the app asks, not with the workflow's.
+    expect(githubAsked(at)).toEqual([{ url: 'https://api.github.com/repos/acme/relay-updates/releases?per_page=1', authorization: `Bearer ${TOKEN}` }]);
+    // Neither the variable nor the secret set (the runner passes them empty): the default repository, asked with the workflow's token.
+    const open = run(script, at, { ...env, RELAY_UPDATES_REPO: '', RELAY_UPDATES_TOKEN: '' });
+    expect(open.stderr).toBe('');
+    expect(open.stdout).toContain('from Agentic-System-Lab/harness-relay-updates, without a token.');
+    expect(githubAsked(at)).toEqual([{ url: `https://api.github.com/repos/${UPDATES_REPO}/releases?per_page=1`, authorization: 'Bearer ghs_workflow' }]);
     // A read token GitHub refuses: the run stops here, before anything is built.
     const refusedAt = job([]);
     const refused = run(script, refusedAt, { NODE_OPTIONS: stubbed(refusedAt, { status: 401 }), GH_TOKEN: 'ghs_workflow', RELAY_UPDATES_REPO: PRIVATE.repo, RELAY_UPDATES_TOKEN: TOKEN });
     expect(refused.status).toBe(1);
     expect(refused.stderr).toMatch(/^::error::The app's token \(UPDATES_READ_TOKEN\) cannot read the releases of the copies' repository acme\/relay-updates \(GitHub answered 401\)/);
     expect(refused.stderr + refused.stdout).not.toContain(TOKEN);
+    expect(githubAsked(refusedAt)).toEqual([{ url: 'https://api.github.com/repos/acme/relay-updates/releases?per_page=1', authorization: `Bearer ${TOKEN}` }]);
+    // An update source that is not valid: stopped before GitHub is asked.
     for (const [name, value, error] of [
       ['RELAY_UPDATES_TOKEN', `ghp_${'a'.repeat(36)}`, /^::error::RELAY_UPDATES_TOKEN: not a fine-grained/],
       ['RELAY_UPDATES_REPO', 'Agentic-System-Lab/harness-relay', /^::error::RELAY_UPDATES_REPO: the copies go in a repository of their own/],
@@ -659,6 +690,7 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
       const r = run(script, at, { ...env, [name]: value });
       expect(r.status, value).toBe(1);
       expect(r.stderr).toMatch(error);
+      expect(githubAsked(at), value).toEqual([]);
     }
   });
 
@@ -742,15 +774,25 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     expect(passed.stderr).toBe('');
     expect(passed.status).toBe(0);
     expect(passed.stdout).toContain('An app built with the read token can download the 2 copies from acme/relay-updates.');
+    // The run's tag asked for, with the read token, as the app asks.
+    const tagged = { url: 'https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-13', authorization: `Bearer ${TOKEN}` };
+    expect(githubAsked(ok)).toEqual([tagged]);
+    // Neither the variable nor the secret set (the runner passes them empty): the default repository, asked with the workflow's token.
+    const open = run(script, ok, { ...env, RELAY_UPDATES_REPO: '', RELAY_UPDATES_TOKEN: '', NODE_OPTIONS: stubbed(ok, { release: listed }) });
+    expect(open.stderr).toBe('');
+    expect(open.stdout).toContain(`An app built with no token can download the 2 copies from ${UPDATES_REPO}.`);
+    expect(githubAsked(ok)).toEqual([{ url: `https://api.github.com/repos/${UPDATES_REPO}/releases/tags/2026-11-13`, authorization: 'Bearer ghs_workflow' }]);
     const short = job([], { ...copies, 'Harness-Relay-2026-11-13-win-x64-update.exe': 4 });
     const failed = run(script, short, { ...env, NODE_OPTIONS: stubbed(short, { release: listed }) });
     expect(failed.status).toBe(1);
     expect(failed.stderr).toMatch(/^::error::The release 2026-11-13 in acme\/relay-updates does not list Harness-Relay-2026-11-13-win-x64-update.exe, whole/);
+    expect(githubAsked(short)).toEqual([tagged]);
     const refused = job([], copies);
     const denied = run(script, refused, { ...env, NODE_OPTIONS: stubbed(refused, { status: 401 }) });
     expect(denied.status).toBe(1);
     expect(denied.stderr).toMatch(/^::error::The app's token \(UPDATES_READ_TOKEN\) cannot read/);
     expect(denied.stderr + denied.stdout).not.toContain(TOKEN);
+    expect(githubAsked(refused)).toEqual([tagged]);
   });
 });
 
@@ -1403,6 +1445,9 @@ describe('downloading an update', () => {
     expect(main).not.toMatch(/\b(download|copyToDownload)\(/);
     expect(main).toContain('for (const [name, value] of Object.entries(headers ?? {})) req.setHeader(name, value);');
     expect(main).toContain("const req = net.request({ url, redirect: 'manual', cache: 'no-store' });");
+    // From the download mirror first when the build has one (MIRROR, from the website's module).
+    expect(main).toContain("import { MIRROR } from '../../site/assets/downloads.js';");
+    expect(main).toMatch(/const fromGitHub = \{[^}]*\bmirror: MIRROR,[^}]*\};/);
   });
 
   it('saves the file once its checksum matches, telling how far it got', async () => {
@@ -2257,4 +2302,136 @@ describe('starting the new version', () => {
     },
     20_000,
   );
+});
+
+describe('downloading an update from the download mirror', () => {
+  // 64 KB: in parts of 16 KB on four connections, as from GitHub.
+  const body = Buffer.from(Array.from({ length: 64 * 1024 }, (_, i) => (i * 7 + (i >> 9)) & 0xff));
+  const minPart = 4 * 1024;
+  const MIRROR_AT = 'https://downloads.example.workers.dev';
+  const TAG = '2026-11-14';
+  const NAME = `Harness-Relay-${TAG}-mac-arm64.dmg`;
+  const AT_MIRROR = `${MIRROR_AT}/${TAG}/Harness-Relay-${TAG}-mac-arm64-update.dmg`;
+  /** Whether a request went to the mirror: by its origin, not by how its address starts (a host could follow). */
+  const atMirror = (url: string) => URL.canParse(url) && new URL(url).origin === MIRROR_AT;
+  const CDN = 'https://release-assets.githubusercontent.com/github-production-release-asset/9/h?sig=';
+  /** As parseRelease finds it: the copy on github.com, the installer as its fallback. */
+  const asset: UpdateAsset = { name: NAME, url: `${COPIES}/${TAG}/Harness-Relay-${TAG}-mac-arm64-update.dmg`, fallback: `${DOWNLOAD}/${TAG}/${NAME}`, size: body.length, sha256: sha(body) };
+
+  /**
+   * The mirror and GitHub as the app sees them. `mirror` is how the mirror answers ('ok', 'down': no
+   * connection, 'missing': 404, 'other': another file, 'stalls'); GitHub redirects every release address
+   * to its CDN (or answers `github` for the copy). Everything asked is recorded.
+   */
+  function world(mirror: 'ok' | 'down' | 'missing' | 'other' | 'stalls' = 'ok', github: { copy?: number } = {}) {
+    const located: { url: string; headers?: Record<string, string> }[] = [];
+    const fetched: { url: string; range?: string; authorization?: string }[] = [];
+    const served = (url: string) => (atMirror(url) && mirror === 'other' ? Buffer.from(body).reverse() : body);
+    const locate: Locate = async (url, signal, headers) => {
+      located.push({ url, headers });
+      if (atMirror(url)) {
+        if (mirror === 'down') throw new Error('getaddrinfo ENOTFOUND');
+        if (mirror === 'stalls') return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+        return { status: mirror === 'missing' ? 404 : 200 };
+      }
+      if (url === asset.url && github.copy) return { status: github.copy };
+      return { status: 302, location: `${CDN}${located.length}` };
+    };
+    const one: Fetch = async (url, init) => {
+      fetched.push({ url, range: init?.headers?.Range, authorization: init?.headers?.Authorization });
+      if (url.endsWith(`/releases/tags/${TAG}`)) return new Response(JSON.stringify({ assets: [{ id: 91, name: `Harness-Relay-${TAG}-mac-arm64-update.dmg` }] }));
+      const data = served(url);
+      const m = /^bytes=(\d+)-(\d+)$/.exec(init?.headers?.Range ?? '');
+      if (!m) return new Response(new Uint8Array(data), { headers: { 'content-length': String(data.length) } });
+      const [from, to] = [Number(m[1]), Number(m[2])];
+      return new Response(new Uint8Array(data.subarray(from, to + 1)), { status: 206, headers: { 'content-range': `bytes ${from}-${to}/${data.length}` } });
+    };
+    return { located, fetched, locate, fetch: one, connections: [one, one, one, one] };
+  }
+  const fromMirror = (f: { url: string }) => atMirror(f.url);
+  const fromCdn = (f: { url: string }) => f.url.startsWith(CDN);
+
+  it("is asked for an installer under its copy's name, with the same checksum and nothing to fall back to", () => {
+    expect(mirrorCopyUrl(TAG, NAME, MIRROR_AT)).toBe(AT_MIRROR);
+    expect(mirrorAsset(MIRROR_AT, TAG, asset)).toEqual({ name: NAME, url: AT_MIRROR, size: body.length, sha256: sha(body) });
+    for (const none of [undefined, '', 'http://downloads.example', `${MIRROR_AT}/dl`]) expect(mirrorAsset(none, TAG, asset), String(none)).toBeUndefined();
+    expect(mirrorAsset(MIRROR_AT, TAG, { ...asset, name: 'notes.txt' })).toBeUndefined();
+    expect(mirrorAsset(MIRROR_AT, '../x', asset)).toBeUndefined();
+    expect(mirrorCopyUrl(TAG, `Harness-Relay-${TAG}-mac-arm64-update.dmg`, MIRROR_AT)).toBeUndefined();
+  });
+
+  it('downloads the file from the mirror in parts, then has GitHub count the update against the copy, as a download from it would', async () => {
+    const w = world();
+    const to = join(dir, 'mirror-ok.dmg');
+    await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: w.locate, source: SOURCE, tag: TAG, asset, to, minPart, mirror: MIRROR_AT });
+    expect(readFileSync(to)).toEqual(body);
+    // Every byte from the mirror, a part on each connection.
+    const bytes = w.fetched.filter(fromMirror);
+    expect(bytes).toHaveLength(4);
+    expect(bytes.every((f) => f.range)).toBe(true);
+    // Then GitHub: the copy asked where it leads (counted), and the first byte at its CDN (counted), alone.
+    expect(w.located.map((l) => l.url)).toEqual([AT_MIRROR, asset.url]);
+    expect(w.fetched.filter(fromCdn)).toEqual([{ url: `${CDN}2`, range: 'bytes=0-0', authorization: undefined }]);
+    expect(w.fetched.some((f) => f.url === asset.fallback)).toBe(false);
+  });
+
+  it('counts the update against the copy in a private repository, with the token at GitHub’s API alone', async () => {
+    const w = world();
+    const to = join(dir, 'mirror-private.dmg');
+    await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: w.locate, source: PRIVATE, tag: TAG, asset, to, minPart, mirror: MIRROR_AT });
+    expect(readFileSync(to)).toEqual(body);
+    expect(w.located).toEqual([
+      { url: AT_MIRROR, headers: undefined },
+      { url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/91', headers: downloadHeaders(PRIVATE) },
+    ]);
+    // The token to the API alone: never to the mirror, nor to the CDN.
+    expect(w.fetched.filter((f) => f.authorization).map((f) => f.url)).toEqual(['https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-14']);
+    expect(w.fetched.filter(fromCdn).map((f) => f.range)).toEqual(['bytes=0-0']);
+  });
+
+  it('counts the update against the installer when the copy is not on GitHub, as a download from GitHub falls back to it', async () => {
+    const w = world('ok', { copy: 404 });
+    await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: w.locate, source: SOURCE, tag: TAG, asset, to: join(dir, 'mirror-nocopy.dmg'), minPart, mirror: MIRROR_AT });
+    expect(w.located.map((l) => l.url)).toEqual([AT_MIRROR, asset.url, asset.fallback]);
+    expect(w.fetched.filter(fromCdn).map((f) => f.range)).toEqual(['bytes=0-0']);
+  });
+
+  it('downloads from GitHub as without a mirror when the mirror cannot give the file, counted there once', async () => {
+    for (const how of ['down', 'missing', 'other', 'stalls'] as const) {
+      const w = world(how);
+      const to = join(dir, `mirror-${how}.dmg`);
+      await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: w.locate, source: SOURCE, tag: TAG, asset, to, minPart, mirror: MIRROR_AT, stallMs: 100 });
+      expect(readFileSync(to), how).toEqual(body);
+      expect(existsSync(`${to}.part`)).toBe(false);
+      // GitHub asked once where the copy is, by the download itself: the update counted once.
+      expect(w.located.filter((l) => !atMirror(l.url)).map((l) => l.url), how).toEqual([asset.url]);
+      // Its parts from the CDN, none of them the counting byte alone.
+      const parts = w.fetched.filter(fromCdn);
+      expect(parts.length, how).toBe(4);
+      expect(parts.some((f) => f.range === 'bytes=0-0'), how).toBe(false);
+    }
+  });
+
+  it('keeps the download when GitHub cannot be reached to count it', async () => {
+    const w = world();
+    const offline: Locate = async (url, signal, h) => (atMirror(url) ? w.locate(url, signal, h) : Promise.reject(new Error('offline')));
+    const to = join(dir, 'mirror-uncounted.dmg');
+    await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: offline, source: SOURCE, tag: TAG, asset, to, minPart, mirror: MIRROR_AT });
+    expect(readFileSync(to)).toEqual(body);
+    // And gives up on a GitHub that does not answer.
+    const silent: Locate = (_url, signal) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    await countUpdate({ fetch: w.fetch, locate: silent, asset, answerMs: 50 });
+  });
+
+  it('never asks a mirror the app was built without, nor one it cannot locate on', async () => {
+    for (const mirror of [undefined, '']) {
+      const w = world();
+      await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: w.locate, source: SOURCE, tag: TAG, asset, to: join(dir, 'mirror-none.dmg'), minPart, mirror });
+      expect(w.located.map((l) => l.url)).toEqual([asset.url]);
+      expect(w.fetched.some(fromMirror)).toBe(false);
+    }
+    const w = world();
+    await downloadUpdate({ fetch: w.fetch, source: SOURCE, tag: TAG, asset, to: join(dir, 'mirror-nolocate.dmg'), mirror: MIRROR_AT });
+    expect(w.fetched.map((f) => f.url)).toEqual([asset.url]);
+  });
 });

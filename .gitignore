@@ -7,6 +7,8 @@ playwright-report/
 playwright-report-live/
 *.log
 .DS_Store
+# wrangler's own files beside the download mirror's config (mirror/wrangler.toml)
+.wrangler/
 .impeccable/
 
 # Coding agents' own git worktrees (see AGENTS.md, "Worktrees")

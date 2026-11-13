@@ -28,6 +28,13 @@ export interface CliFacts {
   sandbox: 'own' | 'relay' | 'none';
   /** The systems it runs on below full access; on the others Harness Relay runs it with full access only. */
   belowFullOn: readonly NodeJS.Platform[];
+  /**
+   * The systems its own tests (`eachCli()`, and its place in the teams of `eachHalf()`) run on with
+   * `E2E_SYSTEM_CLIS=1`, as on CI: Linux always, and macOS or Windows where Harness Relay runs it
+   * differently from Linux in a way its fake can tell (a sandbox, a shell, how its folders are found).
+   * Elsewhere they are skipped, saying where they run. Without the variable they run everywhere.
+   */
+  testedOn: readonly NodeJS.Platform[];
   /** Systems where nothing keeps it in its folders below full access although it runs there (Grok on Windows). */
   unconfinedOn?: readonly NodeJS.Platform[];
   /** The tool its `e2e:tool` step (a listing of the working directory) shows as in the activity. */

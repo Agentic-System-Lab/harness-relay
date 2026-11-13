@@ -5,13 +5,14 @@
  * Options (`test.use({ … })`): `lang` ('en' | 'zh-TW'), `signIn` (false: the page is left on no
  * page, signed out), `tour` (true: the guided tour is not marked done), `serverEnv` (more
  * environment for the server and the CLIs it starts), `live` (the real CLIs: `e2e/live/`),
- * `missingClis` (the CLIs not installed: by default those whose fake is not written yet),
+ * `missingClis` (the CLIs not installed: by default all but Claude Code, Codex and Grok,
+ * `DEFAULT_CLIS`; `withClis()` and the per-CLI helpers of `support/clis.ts` set it),
  * `openBackend` (false: no model backend, so the open agents are installed but not ready) and
  * `sandboxTerminal` (false: OpenHands' terminal switch off).
  */
 import { test as base, expect } from '@playwright/test';
 import type { Provider } from '../src/shared/types';
-import { installFakeClis, NOT_YET_FAKED } from './support/fake-cli';
+import { installFakeClis, notInstalledBut } from './support/fake-cli';
 import { startRelay, type RelayServer } from './support/relay';
 
 export type Lang = 'en' | 'zh-TW';
@@ -42,7 +43,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   tour: [false, { option: true }],
   serverEnv: [{}, { option: true }],
   live: [false, { option: true }],
-  missingClis: [NOT_YET_FAKED, { option: true }],
+  missingClis: [notInstalledBut(), { option: true }],
   openBackend: [true, { option: true }],
   sandboxTerminal: [true, { option: true }],
 

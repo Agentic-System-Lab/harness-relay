@@ -309,7 +309,7 @@ Goose 每次存取都會重讀 `config.yaml`，而且任何設定鍵都先看同
 - **Subagent**（它的 `task` 工具，以及較舊的 `delegate`）一旦啟動，就會不經詢問執行自己的指令與修改，所以完全存取以外把這個工具從它的工具中拿掉（`filter_tools_regex`），萬一仍出現也不問使用者、直接拒絕（`decide`）。完全存取時照常提供。
 - **拒絕**：OpenHands 只把它自己固定的文字告訴模型（"User rejected the action. Please ask the user how they want to proceed."），不會轉達 Harness Relay 的理由或使用者的附註；角色說明會解釋被拒絕代表什麼，聊天裡的那一列則顯示 Harness Relay 的理由與附註。
 
-**角色說明。** 寫成這次執行家目錄裡沒有觸發條件的 skill（`skills/harness-relay-briefing.md`），OpenHands 會把它放進系統提示（它的 repository context 區塊）。系統提示在 session 開始時就存進 session，所以角色說明之後改變時（換了權限或團隊），接續的 session 也會在這次的提示前面收到新的說明。
+**角色說明。** 寫成這次執行家目錄裡沒有觸發條件的 skill（`skills/harness-relay-briefing.md`），OpenHands 會把它放進系統提示（它的 repository context 區塊）。系統提示在 session 開始時就存進 session，所以角色說明之後改變時（換了權限或團隊，或拿掉了工具庫的記憶或 skill：它們在最後，拿掉之後新的說明只是舊說明的開頭），接續的 session 也會在這次的提示前面收到新的說明：只有完整包含這份說明時，才算 session 已經有它。
 
 **工具庫。** 它的 MCP 伺服器寫進這次執行的 `mcp.json`（stdio 與 HTTP），新的與接續的 session 都一樣：`session/load` 會忽略 ACP 的 `mcpServers`。
 

@@ -4,7 +4,7 @@ import type { Locator, Page } from '@playwright/test';
 import { PROVIDER_LABEL, PROVIDERS, type Provider, type ToolLibraryView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, finishedReply, replies, send, settled } from '../support/app';
-import { chatOf, HALVES, libraryEnv, logged, skillReadAsks, teamOf, type Cli } from '../support/clis';
+import { chatOf, eachHalf, libraryEnv, logged, skillReadAsks, teamOf, type Cli } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
 /*
@@ -59,7 +59,7 @@ async function readingReply(page: Page, c: Cli) {
 /** What the tool library's summary says of an item given to every CLI but `off`. */
 const allBut = (off: Provider) => `Only ${PROVIDERS.filter((p) => p !== off).map((p) => PROVIDER_LABEL[p]).join(', ')}`;
 
-for (const half of HALVES) test.describe('the tool library', () => {
+eachHalf((half) => test.describe('the tool library', () => {
   test(half.title('an MCP server added on the page reaches every CLI, with its secret masked and kept off the command line'), async ({ page, relay }) => {
     const TEAM = teamOf(half.clis);
     const card = await toolLibrary(page, relay);
@@ -379,4 +379,4 @@ for (const half of HALVES) test.describe('the tool library', () => {
       expect(turn!.briefing).not.toContain('Lead with the conclusion.');
     }
   });
-});
+}));

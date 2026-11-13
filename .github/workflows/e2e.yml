@@ -13,6 +13,11 @@ on:
         description: 'Browsers, comma-separated (chromium, firefox, webkit)'
         default: chromium
         required: false
+      every_cli:
+        description: "Every CLI's own tests on macOS and Windows too, not only the CLIs each system runs differently from Linux"
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -24,18 +29,22 @@ concurrency:
 
 jobs:
   e2e:
-    name: End-to-end (${{ matrix.os }}, Node ${{ matrix.node }})
+    name: End-to-end (${{ matrix.os }}, Node ${{ matrix.node }}, part ${{ matrix.part }} of 2)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      # Each system in two jobs, half the tests each (Playwright's --shard, by test count): in one job
+      # Windows ran about 22 minutes, macOS about 13 and Linux about 11, nearly all of it the tests; the
+      # halves come out within a few minutes of each other.
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node: [24]
+        part: [1, 2]
         # The oldest supported major (package.json engines: >=22.13) too, on Linux.
         include:
-          - os: ubuntu-latest
-            node: 22
+          - { os: ubuntu-latest, node: 22, part: 1 }
+          - { os: ubuntu-latest, node: 22, part: 2 }
     env:
       E2E_BROWSERS: ${{ inputs.browsers || 'chromium' }}
     steps:
@@ -101,13 +110,18 @@ jobs:
         env:
           NODE_ENV: development
 
+      # In bash on every system: Windows PowerShell may drop the `--`, and npm would take --shard as its own.
       - name: Run the end-to-end tests
-        run: npm run test:e2e
+        shell: bash
+        run: npm run test:e2e -- --shard=${{ matrix.part }}/2
         env:
           # Built in the steps above.
           E2E_BUILD: never
           # A test that needs Harness Relay's own sandbox fails, not skips, when it cannot run here.
           E2E_REQUIRE_RELAY_SANDBOX: ${{ runner.os != 'Windows' && '1' || '' }}
+          # Each CLI's own tests on the systems its facts name (testedOn in e2e/support/clis/<cli>.ts):
+          # all twelve on Linux; on macOS and Windows those Harness Relay runs differently there.
+          E2E_SYSTEM_CLIS: ${{ !inputs.every_cli && '1' || '' }}
 
       # The HTML report, and for a failed test its trace, screenshot, video, server log and the fake
       # CLIs' log: `npx playwright show-report <folder>` or `npx playwright show-trace <trace.zip>`.
@@ -115,7 +129,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-report-${{ matrix.os }}-node${{ matrix.node }}
+          name: e2e-report-${{ matrix.os }}-node${{ matrix.node }}-part${{ matrix.part }}
           path: |
             playwright-report/
             test-results/

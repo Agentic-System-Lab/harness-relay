@@ -24,7 +24,7 @@ const DIRECTIVES = {
   writeother: 'write the file named in the first other working directory the CLI was given (none: it says so)',
   ask: 'end the reply with a question for the user ([ASK_USER])',
   handoff: 'mention the member named, to hand the floor to it (not when that member is speaking)',
-  slow: 'stream the reply slowly (about ten seconds), to be stopped',
+  slow: 'stream the reply slowly, about ten seconds (`=<seconds>` for another time), to be stopped or waited for',
   fail: 'exit with an error on stderr',
   error: "fail the turn inside the CLI's protocol (Claude's error result, a failed Codex turn, a JSON-RPC error over ACP)",
   flaky: 'fail the first time this message is answered, answer the next time (a retry)',
@@ -187,7 +187,7 @@ function plan(prompt, turn) {
   }
   if (typeof d.handoff === 'string' && d.handoff.toLowerCase() !== me.toLowerCase()) text += ` @${d.handoff}, over to you.`;
   if (d.ask) text += '\n\nWhich option do you prefer, A or B? [ASK_USER]';
-  steps.push({ type: 'text', text, slow: Boolean(d.slow) });
+  steps.push({ type: 'text', text, slow: slowMs(d.slow) });
   return steps;
 }
 
@@ -233,11 +233,24 @@ function recordMcpEnv(servers, http = {}) {
   if (Object.keys(servers).length) record({ mcpEnv: servers, ...(Object.keys(http).length ? { mcpHttp: http } : {}) });
 }
 
-/** Pieces of `text` to stream: a few words each, or many small ones for a slow reply. */
+/** How many pieces a slow reply comes in. */
+const SLOW_PIECES = 40;
+
+/**
+ * How long a slow reply takes, in milliseconds (`e2e:slow`: about ten seconds; `e2e:slow=<seconds>`);
+ * 0 for one that is not slow. A test that waits for the reply to end asks for a few seconds only.
+ */
+function slowMs(value) {
+  if (!value) return 0;
+  const seconds = value === true ? 10 : Number(value);
+  return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : 10_000;
+}
+
+/** Pieces of `text` to stream: a few words each, or many small ones for a slow reply (`slow`, its milliseconds). */
 function pieces(text, slow) {
   if (slow) {
     const out = [];
-    for (let i = 0; i < 40; i++) out.push(i === 0 ? text : ' …');
+    for (let i = 0; i < SLOW_PIECES; i++) out.push(i === 0 ? text : ' …');
     return out;
   }
   const words = text.split(/(?<=\s)/);
@@ -245,7 +258,8 @@ function pieces(text, slow) {
   for (let i = 0; i < words.length; i += 3) out.push(words.slice(i, i + 3).join(''));
   return out.length ? out : [text];
 }
-const pieceDelay = (slow) => (slow ? 250 : 15);
+/** The wait after each piece: a slow reply's time spread over its pieces. */
+const pieceDelay = (slow) => (slow ? slow / SLOW_PIECES : 15);
 
 /** The note the user gave with a decline, as Harness Relay passes it on ("Their message: …"). */
 function noteIn(message) {
@@ -271,6 +285,7 @@ module.exports = {
   recordMcpEnv,
   pieces,
   pieceDelay,
+  slowMs,
   noteIn,
   declined,
   noOther,

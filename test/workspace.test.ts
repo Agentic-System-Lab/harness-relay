@@ -15,6 +15,7 @@ import {
   ensureRepo,
   excludePathspecs,
   keepCommits,
+  parseDiffFiles,
   removeWorktree,
   repoDriverGuards,
   snapshot,
@@ -69,6 +70,17 @@ describe('ensureRepo', () => {
 });
 
 describe('snapshot', () => {
+  it("takes HEAD's commit as its parent, and none in a repository without a commit", async () => {
+    await ensureRepo(repo);
+    const first = await snapshot(repo);
+    expect(git(repo, 'rev-list', '--parents', '-n', '1', first.commit)).toBe(first.commit);
+    git(repo, 'add', '-A');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'first');
+    const head = git(repo, 'rev-parse', 'HEAD');
+    const second = await snapshot(repo);
+    expect(git(repo, 'rev-list', '--parents', '-n', '1', second.commit)).toBe(`${second.commit} ${head}`);
+  });
+
   it('captures tracked and untracked files without touching HEAD, index or files', async () => {
     await ensureRepo(repo);
     mkdirSync(join(repo, 'node_modules', 'pkg'), { recursive: true });
@@ -248,6 +260,38 @@ describe('diffFiles', () => {
     // "A\0<path>\0" each: about 125 KB.
     expect(files.reduce((bytes, f) => bytes + Buffer.byteLength(f.path) + 3, 0)).toBeGreaterThan(64 * 1024);
   }, slow(30_000));
+
+  it('gives each file its status and line counts from one diff: added, changed, deleted, binary, a name starting with a colon', async () => {
+    await ensureRepo(repo);
+    // Windows takes no colon in a file name (it names a stream of the file there).
+    const colon = process.platform === 'win32' ? '' : ':';
+    writeFileSync(join(repo, 'gone.txt'), 'x\n');
+    writeFileSync(join(repo, `${colon}odd.txt`), 'a\n');
+    const base = (await snapshot(repo)).commit;
+    rmSync(join(repo, 'gone.txt'));
+    writeFileSync(join(repo, `${colon}odd.txt`), 'a\nb\nc\n');
+    writeFileSync(join(repo, 'bin.dat'), Buffer.from([0, 1, 2, 3]));
+    writeFileSync(join(repo, `${colon}new.txt`), 'n\n');
+    const head = (await snapshot(repo)).commit;
+    const byPath = (a: { path: string }, b: { path: string }) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+    expect([...(await diffFiles(repo, base, head))].sort(byPath)).toEqual(
+      [
+        { path: `${colon}new.txt`, status: 'A', added: 1, deleted: 0 },
+        { path: `${colon}odd.txt`, status: 'M', added: 2, deleted: 0 },
+        { path: 'bin.dat', status: 'A', added: null, deleted: null },
+        { path: 'gone.txt', status: 'D', added: 0, deleted: 1 },
+      ].sort(byPath),
+    );
+  });
+
+  it('reads the raw entries before the counts, whatever a path holds', () => {
+    const out = [':000000 100644 0000000 1111111 A', ':x', ':100644 100644 2222222 3333333 M', 'tab\tand\nline', '-\t-\t:x', '3\t1\ttab\tand\nline', ''].join('\0');
+    expect(parseDiffFiles(out)).toEqual([
+      { path: ':x', status: 'A', added: null, deleted: null },
+      { path: 'tab\tand\nline', status: 'M', added: 3, deleted: 1 },
+    ]);
+    expect(parseDiffFiles('')).toEqual([]);
+  });
 
   it('keeps file names with quotes, tabs, backslashes and non-ASCII characters as they are', async () => {
     await ensureRepo(repo);

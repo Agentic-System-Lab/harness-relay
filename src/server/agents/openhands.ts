@@ -491,14 +491,18 @@ export function openhandsRejectLeftovers(sessionDir: string, log: OpenhandsEvent
   return log.actions.length;
 }
 
-/** Whether a session's stored system prompt (its first event) holds `text`. */
+/** Whether a session's stored system prompt (its first event) holds `text`, whole. */
 export function openhandsSessionHas(sessionDir: string, text: string): boolean {
   const events = join(sessionDir, 'events');
   const first = listDir(events).find((n) => n.startsWith('event-00000-') && n.endsWith('.json'));
   if (!first) return false;
   const want = text.trim();
+  // Whole: as the skill's whole content, which OpenHands ends with `[END Context]` (or at the very end).
+  // Not as the start of a longer briefing: the tool library's memory and skills come last, so one the
+  // user left out since (in the library or a member's Tools) leaves the new briefing a prefix of the old.
+  const whole = (s: string) => s.includes(`${want}\n[END Context]`) || s.trimEnd().endsWith(want);
   const found = (x: unknown): boolean =>
-    typeof x === 'string' ? x.includes(want) : Array.isArray(x) ? x.some(found) : Boolean(x) && typeof x === 'object' && Object.values(x as object).some(found);
+    typeof x === 'string' ? whole(x) : Array.isArray(x) ? x.some(found) : Boolean(x) && typeof x === 'object' && Object.values(x as object).some(found);
   try {
     return found(JSON.parse(readFileSync(join(events, first), 'utf8')));
   } catch {

@@ -14,6 +14,10 @@ export const copilot: CliFacts = {
   version: 'v1.0.999',
   sandbox: 'own',
   belowFullOn: ['darwin', 'linux', 'win32'],
+  // Not on macOS, where its fake does what it does on Linux (the caches its policy lists there are
+  // nothing a fake checks); on Windows the run's folders are linked in as junctions and its session
+  // store is not linked (`prepareCopilotRun`), and it starts through npm's shim.
+  testedOn: ['linux', 'win32'],
   // Its `view` of a folder is of kind `read`, which the chat calls Read.
   listTool: 'Read',
   // It runs `echo` without asking (it takes it for read-only); edit mode asks before publishing.

@@ -1,8 +1,8 @@
 import type { Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { askAndConfirm, finishedReply, openTeamChat, replies, send, startChat } from '../support/app';
-import { chatWith, CLIS, eachCli, faked, member, OPEN, SIGNED_IN } from '../support/clis';
-import { NOT_YET_FAKED } from '../support/fake-cli';
+import { chatWith, CLIS, eachCli, faked, member, OPEN, SIGNED_IN, withClis, withEveryCli } from '../support/clis';
+import { notInstalledBut } from '../support/fake-cli';
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -35,7 +35,8 @@ test.describe('a CLI that is not signed in', () => {
 });
 
 test.describe('a CLI that is not installed', () => {
-  test.use({ missingClis: [...new Set<Provider>([...NOT_YET_FAKED, 'cursor', 'antigravity'])] });
+  // Left out, as they are by default (the CLIs installed are Claude Code, Codex and Grok).
+  test.use({ missingClis: [...new Set<Provider>([...notInstalledBut(), 'cursor', 'antigravity'])] });
 
   test('shows so in Settings and the sidebar', async ({ page }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
@@ -48,6 +49,7 @@ test.describe('a CLI that is not installed', () => {
 
 test.describe('an open agent without a model backend', () => {
   test.use({ openBackend: false });
+  withClis(...faked(OPEN).slice(0, 1).map((c) => c.provider));
 
   test('is not ready, and its turn says to set one up', async ({ page, relay }) => {
     const cli = faked(OPEN)[0];
@@ -65,45 +67,50 @@ test.describe('an open agent without a model backend', () => {
 });
 
 test.describe('settings', () => {
-  test('each CLI is found, with its version, and signed in', async ({ page }) => {
-    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
-    await expect(page.getByRole('heading', { name: 'Settings & sign-in', level: 1 })).toBeVisible();
-    // Each CLI whose fake is written, with its version: signed in, or for an open agent ready on the
-    // test's fake endpoint. Those whose fake is not written yet are not installed here.
-    for (const cli of CLIS) {
-      const card = page.locator(`#settings-${cli.provider}`);
-      await expect(card.locator('.provider-head')).toContainText(cli.label);
-      if (!cli.implemented) {
-        await expect(card.locator('.provider-head .pill')).toHaveText('Not installed');
-        continue;
+  // Every CLI installed: the others' tests leave all but Claude Code, Codex, Grok and their own out.
+  test.describe(() => {
+    withEveryCli();
+
+    test('each CLI is found, with its version, and signed in', async ({ page }) => {
+      await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+      await expect(page.getByRole('heading', { name: 'Settings & sign-in', level: 1 })).toBeVisible();
+      // Each CLI whose fake is written, with its version: signed in, or for an open agent ready on the
+      // test's fake endpoint. Those whose fake is not written yet are not installed here.
+      for (const cli of CLIS) {
+        const card = page.locator(`#settings-${cli.provider}`);
+        await expect(card.locator('.provider-head')).toContainText(cli.label);
+        if (!cli.implemented) {
+          await expect(card.locator('.provider-head .pill')).toHaveText('Not installed');
+          continue;
+        }
+        await expect(card.locator('.provider-head')).toContainText(cli.version);
+        if (cli.open) await expect(card.locator('.provider-head .pill')).toHaveText('Ready');
+        else await expect(card).toContainText('Signed in');
       }
-      await expect(card.locator('.provider-head')).toContainText(cli.version);
-      if (cli.open) await expect(card.locator('.provider-head .pill')).toHaveText('Ready');
-      else await expect(card).toContainText('Signed in');
-    }
-    await expect(page.locator('#settings-claude')).toContainText('e2e@example.com');
-    // The sidebar's health dots say the same; the open agents get a dot only once installed.
-    for (const cli of faked(CLIS)) {
-      const dot = page.locator(`.provider-health .health.ok[href="#/settings/${cli.provider}"]`);
-      await expect(dot).toBeVisible();
-      if (cli.open) await expect(dot).toHaveAttribute('title', `${cli.label} · Model backends set up`);
-    }
-    for (const cli of SIGNED_IN.filter((c) => !c.implemented)) {
-      await expect(page.locator(`.provider-health .health.off[href="#/settings/${cli.provider}"]`)).toHaveAttribute('title', `${cli.label} · Not installed`);
-    }
-    const dots = SIGNED_IN.length + faked(OPEN).length;
-    await expect(page.locator('.provider-health .health')).toHaveCount(dots);
-    // Dots alone on one line, with how many are ready; their names beside them when asked for, kept after a reload.
-    const toggle = page.locator('.provider-health .health-toggle');
-    await expect(toggle).toHaveText(`${faked(CLIS).length}/${dots} ready`);
-    const nameWidth = async () => (await page.locator('.provider-health a[href="#/settings/grok"] .health-name').boundingBox())?.width ?? 0;
-    expect(await nameWidth()).toBeLessThanOrEqual(1);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.locator('.provider-health a[href="#/settings/grok"]')).toContainText('Grok');
-    await expect.poll(nameWidth).toBeGreaterThan(10);
-    await page.reload();
-    await expect(page.locator('.provider-health .health-toggle')).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.locator('#settings-claude')).toContainText('e2e@example.com');
+      // The sidebar's health dots say the same; the open agents get a dot only once installed.
+      for (const cli of faked(CLIS)) {
+        const dot = page.locator(`.provider-health .health.ok[href="#/settings/${cli.provider}"]`);
+        await expect(dot).toBeVisible();
+        if (cli.open) await expect(dot).toHaveAttribute('title', `${cli.label} · Model backends set up`);
+      }
+      for (const cli of SIGNED_IN.filter((c) => !c.implemented)) {
+        await expect(page.locator(`.provider-health .health.off[href="#/settings/${cli.provider}"]`)).toHaveAttribute('title', `${cli.label} · Not installed`);
+      }
+      const dots = SIGNED_IN.length + faked(OPEN).length;
+      await expect(page.locator('.provider-health .health')).toHaveCount(dots);
+      // Dots alone on one line, with how many are ready; their names beside them when asked for, kept after a reload.
+      const toggle = page.locator('.provider-health .health-toggle');
+      await expect(toggle).toHaveText(`${faked(CLIS).length}/${dots} ready`);
+      const nameWidth = async () => (await page.locator('.provider-health a[href="#/settings/grok"] .health-name').boundingBox())?.width ?? 0;
+      expect(await nameWidth()).toBeLessThanOrEqual(1);
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.locator('.provider-health a[href="#/settings/grok"]')).toContainText('Grok');
+      await expect.poll(nameWidth).toBeGreaterThan(10);
+      await page.reload();
+      await expect(page.locator('.provider-health .health-toggle')).toHaveAttribute('aria-expanded', 'true');
+    });
   });
 
   test("a CLI's executable path can be set, and a wrong one shows it as missing", async ({ page }) => {
