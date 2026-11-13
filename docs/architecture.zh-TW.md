@@ -311,7 +311,7 @@ Muse Code 的轉接器（`src/server/agents/muse.ts`）在工作目錄啟動 `mu
 
 ACP 沒有規定 CLI 的 `inputTokens` 與 `outputTokens` 是否包含快取的 token 與推理，還是另外列出：回應的 `totalTokens` 會透露，`acpTokens()` 會在總數多出輸入與輸出的部分恰好等於快取的 token（`cachedReadTokens`、`cachedWriteTokens`）、推理（`thoughtTokens`）或兩者時，把它們加回去。
 
-開源 agent 自己的資料庫（OpenCode 的、Goose 的）在它們的狀態資料夾裡，執行中的指令可以寫入，所以它們的用量在一個 worker thread 裡讀取，伺服器最多等 10 秒（超過就不顯示用量），每個資料庫同時只讀一次，而且只讀取一般檔案（不是連結，也不是開啟時會一直等待的具名管道，旁邊的日誌檔也一樣），以唯讀方式，在一個讀取交易中讀，並確認讀到的資料表真的是資料表、沒有 generated column（view 或 generated column 可能會跑一個永遠不會結束的查詢），數字在 SQL 裡加總，只回傳一列：`db.ts` 的 `readRunDatabase()`。永遠不會結束的 worker（卡在 SQLite 裡，或在檢查之後被換成具名管道而卡在開啟上）既不會卡住伺服器，也不會卡住它的結束：伺服器關閉自己的資料庫後就立刻結束（SIGKILL），不等它（`exitAfterRunDatabaseReads()`）。執行前會寫入的清理步驟，遇到連結或具名管道、殘留的 rollback 日誌（播放它可能會開啟另一個檔案）、超過 1 GiB 的 write-ahead log，或有 generated column、運算式索引或條件索引的資料表（兩個 CLI 都不會建立，而它們會在讀取或寫入時照指令設計的那麼慢執行）都會拒絕，也不執行 check 約束，這次執行接著從空的狀態重新開始（`openRunDatabase()`）。
+開源 agent 自己的資料庫（OpenCode 的、Goose 的）在它們的狀態資料夾裡，執行中的指令可以寫入，所以它們的用量在一個 worker thread 裡讀取，伺服器最多等 10 秒（超過就不顯示用量），每個資料庫同時只讀一次，而且只讀取一般檔案（不是連結，也不是開啟時會一直等待的具名管道，旁邊的日誌檔也一樣），以唯讀方式，在一個讀取交易中讀，並確認讀到的資料表真的是資料表、沒有 generated column（view 或 generated column 可能會跑一個永遠不會結束的查詢），數字在 SQL 裡加總，只回傳一列：`db.ts` 的 `readRunDatabase()`。永遠不會結束的 worker（卡在 SQLite 裡，或在檢查之後被換成具名管道而卡在開啟上）既不會卡住伺服器，也不會卡住它的結束：伺服器關閉自己的資料庫後，或遇到未捕捉的例外時，就立刻結束（SIGKILL），不等它（`exitAfterRunDatabaseReads()`、`exitOnUncaughtException()`）。執行前會寫入的清理步驟，遇到連結或具名管道、殘留的 rollback 日誌（播放它可能會開啟另一個檔案）、超過 1 GiB 的 write-ahead log，或有 generated column、運算式索引或條件索引的資料表（兩個 CLI 都不會建立，而它們會在讀取或寫入時照指令設計的那麼慢執行）都會拒絕，也不執行 check 約束，這次執行接著從空的狀態重新開始（`openRunDatabase()`）。
 
 ### 權限對應
 

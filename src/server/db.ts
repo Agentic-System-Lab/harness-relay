@@ -645,14 +645,24 @@ export function runDatabaseReadsLeft(): number {
 }
 
 /**
+ * For `uncaughtException`: says what was thrown and ends the process, as Node itself does, but at once
+ * (SIGKILL) when one of `readRunDatabase`'s workers is left, which Node would wait for, maybe for ever.
+ */
+export function exitOnUncaughtException(err: unknown, left: () => number = runDatabaseReadsLeft): void {
+  console.error('[server] uncaught exception:', err);
+  if (left()) process.kill(process.pid, 'SIGKILL');
+  process.exit(1);
+}
+
+/**
  * Ends the process. Node waits for every worker thread on its way out, and one of `readRunDatabase`'s
  * workers may never end: when any is left after `graceMs`, the process ends at once (SIGKILL), its
  * database already closed by the caller.
  */
-export async function exitAfterRunDatabaseReads(code: number, graceMs = 1000): Promise<never> {
-  for (let waited = 0; runDatabaseReads.size && waited < graceMs; waited += 50) await new Promise((r) => setTimeout(r, 50));
-  if (runDatabaseReads.size) process.kill(process.pid, 'SIGKILL');
-  process.exit(code);
+export async function exitAfterRunDatabaseReads(code: number, graceMs = 1000, left: () => number = runDatabaseReadsLeft): Promise<never> {
+  for (let waited = 0; left() && waited < graceMs; waited += 50) await new Promise((r) => setTimeout(r, 50));
+  if (left()) process.kill(process.pid, 'SIGKILL');
+  return process.exit(code);
 }
 
 /**

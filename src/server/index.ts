@@ -5,7 +5,7 @@ import { AlertWatcher } from './alerts';
 import { createApp } from './app';
 import { AuthStore, CODE_TTL_MS } from './auth';
 import { signInLink } from './signin';
-import { exitAfterRunDatabaseReads, lockDataDir, openDatabase, runDatabaseReadsLeft } from './db';
+import { exitAfterRunDatabaseReads, exitOnUncaughtException, lockDataDir, openDatabase, runDatabaseReadsLeft } from './db';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
 import { desktopParent } from './parent';
@@ -33,6 +33,9 @@ import { plannerContext } from './planner';
 // A failure in a background task (a run winding down, a stream write) must not take the server — and
 // every other conversation — down with it.
 process.on('unhandledRejection', (reason) => console.error('[server] unhandled rejection:', reason));
+// An uncaught exception ends the process, as Node's own handling does, but without waiting for a
+// database read that may never end.
+process.on('uncaughtException', (err) => exitOnUncaughtException(err));
 
 // A value of the environment that is not valid (a limit, a timeout, an address): refuse to start rather
 // than run with another one than the user meant.

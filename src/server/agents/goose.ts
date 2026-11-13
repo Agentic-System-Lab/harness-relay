@@ -738,6 +738,8 @@ export interface GooseTotals {
 /** A session not started yet. */
 export const GOOSE_NOTHING_USED: GooseTotals = { input: 0, output: 0, total: 0 };
 
+/** A column in SQL as a real when it holds a number (one a command wrote past 2^53 included), else NULL: text is no number. */
+const real = (v: string) => `(CASE WHEN typeof(${v}) IN ('integer', 'real') THEN CAST(${v} AS REAL) END)`;
 /** A number in SQL that counts: above 0 and finite (else 0). */
 const positive = (v: string) => `(CASE WHEN ${v} > 0 AND ${v} < 1e300 THEN ${v} ELSE 0 END)`;
 /** Whether a cost in SQL is one: 0 or more, and finite. */
@@ -748,7 +750,8 @@ const priced = (v: string) => `(${v} >= 0 AND ${v} < 1e300)`;
  * SQL so that one row comes back: for the session and every session started from it, the larger of
  * its running totals and the sum of its ledger rows. Every number is read as a real (an integer a
  * command wrote past 2^53 would otherwise fail every read), and a database from before Goose had a
- * ledger (it adds one when it starts) is read without it.
+ * ledger (it adds one when it starts) is read without it. Only numbers count (text, even of digits,
+ * counts as nothing), and a ledger row's count that is not above 0, or cost below 0, adds nothing.
  */
 const gooseTotalsSql = (ledger: boolean) => `
   WITH RECURSIVE tree(id) AS (
@@ -757,12 +760,12 @@ const gooseTotalsSql = (ledger: boolean) => `
     SELECT s.id FROM sessions s JOIN tree ON s.parent_session_id = tree.id
   ),
   per AS (
-    SELECT CAST(s.accumulated_input_tokens AS REAL) AS acc_input, CAST(s.accumulated_output_tokens AS REAL) AS acc_output,
-           CAST(s.accumulated_total_tokens AS REAL) AS acc_total, CAST(s.accumulated_cost AS REAL) AS acc_cost,
+    SELECT ${real('s.accumulated_input_tokens')} AS acc_input, ${real('s.accumulated_output_tokens')} AS acc_output,
+           ${real('s.accumulated_total_tokens')} AS acc_total, ${real('s.accumulated_cost')} AS acc_cost,
            ${
              ledger
-               ? `SUM(CAST(u.input_tokens AS REAL)) AS ledger_input, SUM(CAST(u.output_tokens AS REAL)) AS ledger_output,
-           SUM(CAST(u.total_tokens AS REAL)) AS ledger_total, SUM(CAST(u.cost AS REAL)) AS ledger_cost`
+               ? `TOTAL(${positive(real('u.input_tokens'))}) AS ledger_input, TOTAL(${positive(real('u.output_tokens'))}) AS ledger_output,
+           TOTAL(${positive(real('u.total_tokens'))}) AS ledger_total, SUM(CASE WHEN ${priced(real('u.cost'))} THEN ${real('u.cost')} END) AS ledger_cost`
                : 'NULL AS ledger_input, NULL AS ledger_output, NULL AS ledger_total, NULL AS ledger_cost'
            }
     FROM sessions s

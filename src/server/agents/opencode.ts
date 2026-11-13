@@ -586,10 +586,10 @@ export const OPENCODE_EMPTY_ENV = [
 /** What `prepare` keeps for the later hooks of the same run. */
 interface OpencodeState {
   /**
-   * The parts the session (and its subagents' sessions) had before this turn, by id: `usage` counts
-   * the model calls among the others. Undefined when they could not be read.
+   * The parts the session (and its subagents' sessions) had before this turn, as a JSON array of their
+   * ids: `usage` counts the model calls among the others. Undefined when they could not be read.
    */
-  partsBefore?: Set<string>;
+  partsBefore?: string;
   sessionId?: string;
   /** Each tool call's input so far: its end says nothing of it. */
   inputs?: Map<string, Record<string, unknown>>;
@@ -632,7 +632,7 @@ export async function prepareOpencode(ctx: OpenRunContext, port: () => Promise<n
     startStateOver(ctx, new AgentRunError(t().opencodeDatabaseNotChecked((err as Error).message)));
   }
   // The model calls made before this turn, read while OpenCode is not running (none for a new session).
-  stateOf(ctx).partsBefore = o.sessionId && existsSync(p.db) ? await opencodePartIds(p.db, o.sessionId) : new Set<string>();
+  stateOf(ctx).partsBefore = o.sessionId && existsSync(p.db) ? await opencodePartIds(p.db, o.sessionId) : '[]';
 
   const instructions = o.nativeOff?.includes('instructions') ? [] : opencodeProjectInstructions(o.cwd);
   const briefing = opencodeBriefing(o);
@@ -1440,32 +1440,39 @@ const MAX_PARTS_BEFORE = 200_000;
 
 /**
  * The parts a session and the sessions under it have so far (a reply's text, a tool call, a model
- * call's `step-finish`…), by id, read without their data from OpenCode's database: read before a
- * turn, for `opencodeTurnCalls` to leave them out after it. Undefined when it cannot be read
- * (`readRunDatabase`), or has more parts than the server takes.
+ * call's `step-finish`…), as a JSON array of their ids, read without their data from OpenCode's
+ * database (made there, and handed back to it as it is): read before a turn, for `opencodeTurnCalls`
+ * to leave them out after it. Undefined when it cannot be read (`readRunDatabase`), or has more parts
+ * than the server takes.
  */
-export async function opencodePartIds(dbPath: string, sessionId: string): Promise<Set<string> | undefined> {
-  const sql = `${SESSION_TREE} SELECT p.id AS id FROM "part" p WHERE p.session_id IN (SELECT id FROM tree) LIMIT ${MAX_PARTS_BEFORE + 1}`;
+export async function opencodePartIds(dbPath: string, sessionId: string): Promise<string | undefined> {
+  const sql = `${SESSION_TREE} SELECT count(*) AS n, CASE WHEN count(*) <= ${MAX_PARTS_BEFORE} THEN json_group_array(p.id) END AS ids
+    FROM "part" p WHERE p.session_id IN (SELECT id FROM tree)`;
   const read = await readRunDatabase(dbPath, ['session', 'part'], [{ sql, params: [sessionId], needs: ['session', 'part'] }]);
-  const rows = read?.results[0] ?? (read ? [] : undefined);
-  if (!rows || rows.length > MAX_PARTS_BEFORE) return undefined;
-  return new Set(rows.map((r) => r.id).filter((id): id is string => typeof id === 'string'));
+  if (!read) return undefined;
+  const row = read.results[0]?.[0];
+  if (!row) return '[]';
+  return typeof row.ids === 'string' ? row.ids : undefined;
 }
 
-/** A number of a `step-finish` part in SQL: one that is not a finite number, not above 0, counts as 0. */
+/**
+ * A number of the `step-finish` parts added up in SQL: one that is not a finite number above 0 counts
+ * as 0, and the sum is a real (`TOTAL`), which never fails as an integer sum past 2^63 would.
+ */
 const stepNumber = (path: string) => {
   const x = `json_extract(p.data, '${path}')`;
-  return `SUM(CASE WHEN typeof(${x}) IN ('integer', 'real') AND ${x} > 0 AND ${x} < 1e300 THEN ${x} ELSE 0 END)`;
+  return `TOTAL(CASE WHEN typeof(${x}) IN ('integer', 'real') AND ${x} > 0 AND ${x} < 1e300 THEN ${x} ELSE 0 END)`;
 };
 
 /**
- * The model calls of a session and of the sessions under it, but those of the parts in `skip` (the
- * parts there before the turn, whose data is never read), added up in OpenCode's database: only one
+ * The model calls of a session and of the sessions under it, but those of the parts in `skip` (a JSON
+ * array of the ids of the parts there before the turn, whose data is never read), added up in
+ * OpenCode's database: only one
  * row comes back. The database is the run's state, which its commands may write: read by
  * `readRunDatabase`, and only numbers that are finite and not negative count. Undefined when it
  * cannot be read.
  */
-export async function opencodeTurnCalls(dbPath: string, sessionId: string, skip: ReadonlySet<string> = new Set()): Promise<OpencodeCalls | undefined> {
+export async function opencodeTurnCalls(dbPath: string, sessionId: string, skip = '[]'): Promise<OpencodeCalls | undefined> {
   const sql = `${SESSION_TREE}
     SELECT COUNT(*) AS calls, ${stepNumber('$.cost')} AS cost, ${stepNumber('$.tokens.input')} AS input,
       ${stepNumber('$.tokens.output')} AS output, ${stepNumber('$.tokens.reasoning')} AS reasoning,
@@ -1473,7 +1480,7 @@ export async function opencodeTurnCalls(dbPath: string, sessionId: string, skip:
     FROM "part" p
     WHERE p.session_id IN (SELECT id FROM tree) AND p.id NOT IN (SELECT value FROM json_each(?))
       AND instr(p.data, 'step-finish') > 0 AND (CASE WHEN json_valid(p.data) THEN json_extract(p.data, '$.type') END) = 'step-finish'`;
-  const read = await readRunDatabase(dbPath, ['session', 'part'], [{ sql, params: [sessionId, JSON.stringify([...skip])], needs: ['session', 'part'] }]);
+  const read = await readRunDatabase(dbPath, ['session', 'part'], [{ sql, params: [sessionId, skip], needs: ['session', 'part'] }]);
   if (!read) return undefined;
   const row = read.results[0]?.[0] ?? {};
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);

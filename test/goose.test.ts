@@ -955,6 +955,14 @@ describe("a turn's usage", () => {
     w.exec("UPDATE sessions SET accumulated_input_tokens = 'lots', accumulated_cost = -5; UPDATE usage_ledger SET input_tokens = NULL, cost = NULL");
     w.close();
     expect(await gooseSessionTotals(db(odd), 's1')).toEqual({ input: 0, output: 1, total: 11 });
+    // Text is no number ('500' in an integer column is stored as the number 500, '5abc' stays text);
+    // a ledger row's negative count adds nothing.
+    const text = context();
+    gooseCalls(db(text), 's1', [{ input: 10, output: 1, cost: 0.1 }]);
+    const t = openSqliteFile(db(text));
+    t.exec("UPDATE sessions SET accumulated_input_tokens = '500', accumulated_output_tokens = '5abc'; UPDATE usage_ledger SET input_tokens = '5abc', output_tokens = -7");
+    t.close();
+    expect(await gooseSessionTotals(db(text), 's1')).toEqual({ input: 500, output: 0, total: 11, cost: 0.1 });
   });
 
   it("reads a database from before Goose's ledger, numbers past 2^53, and shows no cost on the user's endpoint", async () => {

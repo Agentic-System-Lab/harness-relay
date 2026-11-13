@@ -1,10 +1,9 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
-import { openRunDatabase, openSqliteFile, plainDatabaseFiles, readRunDatabase, runDatabaseReadsLeft } from '../src/server/db';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { exitAfterRunDatabaseReads, exitOnUncaughtException, openRunDatabase, openSqliteFile, plainDatabaseFiles, readRunDatabase, runDatabaseReadsLeft } from '../src/server/db';
 
 /*
  * An open agent's own SQLite database (OpenCode's, Goose's) is in its state folder, which a run's
@@ -53,15 +52,17 @@ describe("reading a run's database", () => {
     // A read that takes seconds (as one of a table a command made very large would).
     const slow = database('CREATE TABLE a (id INTEGER);');
     const long = 'WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 10000000) SELECT count(*) AS c FROM r';
-    let ticks = 0;
-    const tick = setInterval(() => ticks++, 10);
+    const ticks: number[] = [];
     const started = Date.now();
+    const tick = setInterval(() => ticks.push(Date.now()), 10);
     const read = await readRunDatabase(slow, ['a'], [{ sql: long, needs: ['a'] }], 100);
     clearInterval(tick);
     expect(read).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(2_000);
-    // The event loop kept running while the worker read.
-    expect(ticks).toBeGreaterThan(5);
+    // The event loop kept running while the worker read (the query alone takes far longer than this).
+    const gaps = [started, ...ticks, Date.now()].slice(1).map((t, i, all) => t - (i ? all[i - 1]! : started));
+    expect(ticks.length).toBeGreaterThan(2);
+    expect(Math.max(...gaps)).toBeLessThan(250);
   });
 
   it('refuses a generated column in a table it reads, and starts no second read of a database while one has not answered', async () => {
@@ -96,38 +97,40 @@ describe("reading a run's database", () => {
   });
 });
 
-describe('the server leaving with a read that never ends', () => {
-  it('ends the process anyway, once its own work is done', async () => {
-    // A read that goes on for minutes (as one blocked in SQLite or in opening a named pipe swapped in
-    // after the check would, for ever): Node would wait for its worker on the way out.
-    const slow = database('CREATE TABLE a (id INTEGER);');
-    const long = 'WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 100000000000) SELECT count(*) AS c FROM r';
-    const script = join(dir, 'leave.mts');
-    const db = pathToFileURL(resolve('src/server/db.ts')).href;
-    writeFileSync(
-      script,
-      `import { exitAfterRunDatabaseReads, readRunDatabase, runDatabaseReadsLeft } from ${JSON.stringify(db)};
-       const read = await readRunDatabase(${JSON.stringify(slow)}, ['a'], [{ sql: ${JSON.stringify(long)}, needs: ['a'] }], 200);
-       console.log('read', read === undefined, runDatabaseReadsLeft());
-       await exitAfterRunDatabaseReads(0, 200);`,
-    );
-    const child = spawn(process.execPath, ['--import', 'tsx', script], { stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    child.stdout.on('data', (d) => (out += d));
-    const ended = await new Promise<{ code: number | null; signal: string | null }>((done) => {
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL');
-        done({ code: null, signal: 'timeout' });
-      }, 20_000);
-      child.on('exit', (code, signal) => {
-        clearTimeout(timer);
-        done({ code, signal });
-      });
-    });
-    expect(out).toContain('read true 1');
-    // On Windows a killed process has no signal, only its exit code.
-    expect(ended.signal === 'SIGKILL' || (process.platform === 'win32' && ended.code !== null)).toBe(true);
-  }, 30_000);
+describe('the server ending with a read that never ends', () => {
+  // Node waits for every worker thread on its way out, and a read blocked in SQLite or in opening a
+  // named pipe may never end: with one left, the process ends at once (SIGKILL). Spied on here, with
+  // the reads left given (a read that never ends cannot be made on purpose here: the check refuses a
+  // named pipe before it is opened).
+  it('ends at once on its way out and on an uncaught exception while a read is left, as usual otherwise', async () => {
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      expect(runDatabaseReadsLeft()).toBe(0);
+      await exitAfterRunDatabaseReads(3, 50);
+      exitOnUncaughtException(new Error('a failure elsewhere'));
+      expect(kill).not.toHaveBeenCalled();
+      expect(exit.mock.calls).toEqual([[3], [1]]);
+      expect(error).toHaveBeenCalledWith('[server] uncaught exception:', expect.objectContaining({ message: 'a failure elsewhere' }));
+      // A read left that ends within the grace: an ordinary exit once it has.
+      let left = 1;
+      setTimeout(() => (left = 0), 60);
+      await exitAfterRunDatabaseReads(0, 1000, () => left);
+      expect(kill).not.toHaveBeenCalled();
+      // One that does not.
+      await exitAfterRunDatabaseReads(0, 100, () => 1);
+      exitOnUncaughtException(new Error('another failure'), () => 1);
+      expect(kill.mock.calls).toEqual([
+        [process.pid, 'SIGKILL'],
+        [process.pid, 'SIGKILL'],
+      ]);
+    } finally {
+      kill.mockRestore();
+      exit.mockRestore();
+      error.mockRestore();
+    }
+  });
 });
 
 describe("opening a run's database to take things out of it", () => {

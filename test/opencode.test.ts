@@ -1483,13 +1483,26 @@ describe('usage and errors', () => {
         {
           id: 'prt_odd',
           session: 'ses_a',
-          data: JSON.stringify({ type: 'step-finish', tokens: { input: -5, output: 'x', reasoning: null, cache: { read: 1e400 } }, cost: Number.NaN }),
+          // Written as a command could write it: JSON.stringify would make 1e400 null.
+          data: '{"type":"step-finish","tokens":{"input":-5,"output":"x","reasoning":null,"cache":{"read":1e400}},"cost":"NaN"}',
+        },
+        // Numbers past 2^63 together: a sum of integers would fail, the whole read with it.
+        {
+          id: 'prt_huge',
+          session: 'ses_other',
+          data: '{"type":"step-finish","tokens":{"input":9000000000000000000},"cost":0}',
+        },
+        {
+          id: 'prt_huge2',
+          session: 'ses_other',
+          data: '{"type":"step-finish","tokens":{"input":9000000000000000000},"cost":0}',
         },
       ],
     });
     // prt_1, prt_2, prt_3 and prt_odd (whose numbers count as 0), added up: one row comes back.
     expect(await opencodeTurnCalls(file, 'ses_a')).toEqual({ calls: 4, cost: 0.375, input: 6, output: 7, reasoning: 5, cacheRead: 6, cacheWrite: 7 });
     expect(await opencodeTurnCalls(file, 'ses_none')).toEqual({ calls: 0, cost: 0, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
+    expect((await opencodeTurnCalls(file, 'ses_other'))!.input).toBe(99 + 1.8e19);
     // No database, or not OpenCode's: not known.
     expect(await opencodeTurnCalls(join(root, 'no-such.db'), 'ses_a')).toBeUndefined();
     const notOurs = join(root, `usage-${++n}.db`);
@@ -1501,13 +1514,13 @@ describe('usage and errors', () => {
     const file = join(root, `usage-${++n}`, 'opencode.db');
     addOpencodeRows(file, { sessions: [{ id: 'ses_child', parent: 'ses_a' }], steps: [{ id: 'prt_1', session: 'ses_a', input: 1, output: 1 }], parts: [{ id: 'prt_t', session: 'ses_child', data: '{"type":"text"}' }] });
     const before = (await opencodePartIds(file, 'ses_a'))!;
-    expect([...before]).toEqual(['prt_1', 'prt_t']);
+    expect((JSON.parse(before) as string[]).sort()).toEqual(['prt_1', 'prt_t']);
     addOpencodeRows(file, { steps: [{ id: 'prt_2', session: 'ses_child', input: 2, output: 3, cost: 0.5 }] });
     expect(await opencodeTurnCalls(file, 'ses_a', before)).toEqual({ calls: 1, cost: 0.5, input: 2, output: 3, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
     // A database without OpenCode's tables yet has no parts; one that cannot be read, none known.
     const empty = join(root, `usage-${++n}.db`);
     new (createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')).DatabaseSync(empty).close();
-    expect(await opencodePartIds(empty, 'ses_a')).toEqual(new Set());
+    expect(await opencodePartIds(empty, 'ses_a')).toBe('[]');
     expect(await opencodeTurnCalls(empty, 'ses_a')).toEqual({ calls: 0, cost: 0, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
     expect(await opencodePartIds(join(root, 'no-such.db'), 'ses_a')).toBeUndefined();
   });
@@ -1574,14 +1587,14 @@ describe('usage and errors', () => {
     const db = join(state, 'data', 'opencode', 'opencode.db');
     addOpencodeRows(db, { steps: [{ id: 'prt_1', session: 'ses_a', input: 1, output: 1, cost: 0.5 }, { id: 'prt_2', session: 'ses_a', input: 2, output: 2, cost: 0.25 }] });
     const ctx = (st: Record<string, unknown>) => ({ state: st, home: { root: home, state, env: {}, statePaths: [], configPaths: [] }, run: backendRun(backends(), 'anthropic/claude-haiku-5-5', 'OpenCode') });
-    expect(await opencodeUsage(undefined, undefined, ctx({ sessionId: 'ses_a', partsBefore: new Set(['prt_1']) }))).toEqual({ inputTokens: 2, outputTokens: 2, costUsd: 0.25 });
+    expect(await opencodeUsage(undefined, undefined, ctx({ sessionId: 'ses_a', partsBefore: '["prt_1"]' }))).toEqual({ inputTokens: 2, outputTokens: 2, costUsd: 0.25 });
     // What ACP says is not used: the last call's tokens only, the session's total cost.
-    expect(await opencodeUsage({ usage: { inputTokens: 9, outputTokens: 9 } }, { cost: { amount: 9, currency: 'USD' } }, ctx({ sessionId: 'ses_a', partsBefore: new Set() }))).toEqual({
+    expect(await opencodeUsage({ usage: { inputTokens: 9, outputTokens: 9 } }, { cost: { amount: 9, currency: 'USD' } }, ctx({ sessionId: 'ses_a', partsBefore: '[]' }))).toEqual({
       inputTokens: 3,
       outputTokens: 3,
       costUsd: 0.75,
     });
-    expect(await opencodeUsage(undefined, undefined, ctx({ partsBefore: new Set() }))).toEqual({});
+    expect(await opencodeUsage(undefined, undefined, ctx({ partsBefore: '[]' }))).toEqual({});
     expect(await opencodeUsage(undefined, undefined, ctx({ sessionId: 'ses_a' }))).toEqual({});
     expect(stepData({ id: 'x', session: 'y' })).toContain('"type":"step-finish"');
   });
