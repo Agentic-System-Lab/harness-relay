@@ -1,3 +1,4 @@
+import type { Locator } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import { askAndConfirm, awaitingPlan, finishedReply, openNewChat, replies, send, settled, startChat } from '../support/app';
 
@@ -13,6 +14,33 @@ test.describe('templates', () => {
     for (const name of ['Proposer', 'Pragmatist', 'Skeptic']) await expect(editor.locator(`input[value="${name}"]`)).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(editor).toBeHidden();
+  });
+
+  test("in a template's editor, three columns wide, the add card lists every CLI on a row of its own and is as tall as a member beside it", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1300 });
+    await openNewChat(page);
+    await page.locator('.preset-card', { hasText: 'Architect → Builder → Reviewer' }).locator('.preset-main').click();
+    const editor = page.getByRole('dialog');
+    const members = editor.locator('.agent-card:not(.add-card)');
+    const add = editor.locator('.add-card');
+    const list = editor.getByRole('group', { name: 'Add member' });
+    const height = async (card: Locator) => (await card.boundingBox())!.height;
+    const scrolls = () => list.evaluate((el) => el.scrollHeight > el.clientHeight + 1);
+    await expect(members).toHaveCount(3);
+    expect(await editor.locator('.agent-grid').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(3);
+
+    // Its three members fill the first row: on a row of its own, every CLI is listed.
+    expect(await scrolls()).toBe(false);
+    // A fourth member: beside it, as tall as it, and the list scrolls.
+    await list.getByRole('button', { name: '＋ Codex' }).click();
+    await expect(members).toHaveCount(4);
+    expect(Math.abs((await height(add)) - (await height(members.nth(3))))).toBeLessThanOrEqual(1);
+    expect(await scrolls()).toBe(true);
+    // Two members: beside them, in the first row.
+    for (let i = 0; i < 2; i++) await members.first().getByRole('button', { name: 'Remove' }).click();
+    await expect(members).toHaveCount(2);
+    expect(Math.abs((await height(add)) - (await height(members.first())))).toBeLessThanOrEqual(1);
+    expect(await scrolls()).toBe(true);
   });
 
   test('the lead agent can pick a template as it is', async ({ page, relay }) => {

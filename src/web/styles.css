@@ -1372,6 +1372,9 @@ p {
 .add-card {
   border-style: dashed;
   background: transparent;
+  /* Its height while it takes its row's (below): a floor, never an empty box, should the column
+     count below ever be wrong (a zoom's fractional width, say). */
+  contain-intrinsic-block-size: 280px;
 }
 
 /*
@@ -1380,7 +1383,10 @@ p {
  * (no members, the members filling the rows above, or one column on a phone) it lists every CLI.
  * It comes after the members, so it starts a row when its place is one more than a multiple of the
  * columns' count; with 290px columns and 14px gaps there are two from 594px, three from 898px and
- * four from 1202px (the widest editor, the template's, has room for three).
+ * four from 1202px, five from 1506px. Change those with the column or the gap. The widest editor,
+ * the template's (about 960px), has room for three; from five columns on the add card is never
+ * contained: beside members it stretches them, as it did before, and on a row of its own it is
+ * as it should be.
  */
 @container agent-grid (594px <= width < 898px) {
   .agent-card + .add-card:nth-child(even) {
@@ -1394,7 +1400,7 @@ p {
   }
 }
 
-@container agent-grid (width >= 1202px) {
+@container agent-grid (1202px <= width < 1506px) {
   .agent-card + .add-card:not(:nth-child(4n + 1)) {
     contain: size;
   }

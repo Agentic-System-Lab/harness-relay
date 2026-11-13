@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 390 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 391 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -38,7 +38,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
 | [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 2 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
-| [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 3 | [User guide → Templates](../docs/user-guide.md#templates) |
+| [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 4 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
 | [A member's model and reasoning effort](#a-members-model-and-reasoning-effort) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [User guide → Default model and reasoning effort](../docs/user-guide.md#default-model-and-reasoning-effort), [Team members](../docs/user-guide.md#team-members) |
 | [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
@@ -114,6 +114,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
 | The built-in templates are listed, and one opens to show its members | — | "Three-way debate" is marked built-in, and its dialog lists Proposer, Pragmatist and Skeptic. |
+| In a template's editor, three columns wide, the add card lists every CLI on a row of its own and is as tall as a member beside it | — | At 1280px the editor's grid has three columns: with the built-in relay template's three members the add card is on a row of its own and lists every CLI without scrolling; beside a fourth member, and beside the first row's two once two are removed, it is as tall as they are and its list scrolls. |
 | The lead agent picks a template as it is | Claude Code, Codex, Grok | The card says it uses "Three-way debate"; over its two rounds each member answers with its CLI, then passes (six replies). |
 | A team the lead agent designed is saved as a template | Claude Code, Grok | **Save as template** suggests the team's name, the card says it was saved, and the template is on the New chat page. |
 
