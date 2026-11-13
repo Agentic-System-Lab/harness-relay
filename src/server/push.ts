@@ -1,6 +1,7 @@
 import { createCipheriv, createECDH, createHash, createHmac, createPrivateKey, randomBytes, sign, type KeyObject } from 'node:crypto';
 import type { AlertPayload, AlertPrefs, Lang, PushStatus, PushSubscriptionJson } from '../shared/types';
 import { LANGS } from '../shared/types';
+import { SESSION_MAX_AGE_S } from './auth';
 import { nul, transaction, type Database } from './db';
 import { t } from './i18n';
 
@@ -167,6 +168,9 @@ interface SubscriptionRow {
 /** The most subscriptions remembered as gone (`PushService.gone`); then it starts over. */
 const MAX_GONE = 1000;
 
+/** The most subscriptions a signed-in browser keeps (its latest). */
+export const MAX_PER_BROWSER = 5;
+
 /** The app setting with this server's VAPID key pair. */
 const VAPID_SETTING = 'push_vapid';
 
@@ -214,6 +218,7 @@ export function subscriptionKeys(s: Pick<PushSubscriptionRecord, 'p256dh' | 'aut
  */
 export class PushService {
   private keys?: VapidKeys;
+  /** Why there are no keys (the database's own words; translated where it is shown). */
   private keyError?: string;
   /** Subscriptions their push service said are gone, since the server started: not taken again. */
   private gone = new Set<string>();
@@ -227,7 +232,7 @@ export class PushService {
   /** The public key browsers subscribe with (made the first time it is asked for), or why there is none. */
   status(): PushStatus {
     const keys = this.vapid();
-    return keys ? { publicKey: keys.publicKey } : { error: this.keyError ?? t().pushUnavailable('') };
+    return keys ? { publicKey: keys.publicKey } : { error: t().pushUnavailable(this.keyError ?? '') };
   }
 
   /**
@@ -261,7 +266,7 @@ export class PushService {
         this.db.prepare('DELETE FROM push_subscriptions').run();
       });
     } catch (err) {
-      this.keyError = t().pushUnavailable((err as Error).message);
+      this.keyError = (err as Error).message;
       return undefined;
     }
     this.keys = fresh;
@@ -274,16 +279,27 @@ export class PushService {
    * subscribes anew; known while the server runs).
    */
   subscribe(sessionId: string | undefined, sub: PushSubscriptionJson, prefs: AlertPrefs, lang: Lang): 'ok' | 'taken' | 'gone' {
-    if (!this.vapid()) throw new Error(this.keyError ?? t().pushUnavailable(''));
+    if (!this.vapid()) throw new Error(t().pushUnavailable(this.keyError ?? ''));
     if (this.gone.has(sub.endpoint)) return 'gone';
-    const changed = this.db
-      .prepare(
-        `INSERT INTO push_subscriptions (endpoint, session_id, p256dh, auth, prefs, lang, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, prefs = excluded.prefs, lang = excluded.lang
-         WHERE push_subscriptions.session_id IS excluded.session_id`,
-      )
-      .run(sub.endpoint, nul(sessionId), sub.keys.p256dh, sub.keys.auth, JSON.stringify(prefs), lang, this.now()).changes;
-    return changed > 0 ? 'ok' : 'taken';
+    return transaction(this.db, () => {
+      const changed = this.db
+        .prepare(
+          `INSERT INTO push_subscriptions (endpoint, session_id, p256dh, auth, prefs, lang, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, prefs = excluded.prefs, lang = excluded.lang
+           WHERE push_subscriptions.session_id IS excluded.session_id`,
+        )
+        .run(sub.endpoint, nul(sessionId), sub.keys.p256dh, sub.keys.auth, JSON.stringify(prefs), lang, this.now()).changes;
+      if (!changed) return 'taken';
+      // A browser that keeps subscribing anew (its push service replaced the subscription, say)
+      // keeps its latest few only.
+      this.db
+        .prepare(
+          `DELETE FROM push_subscriptions WHERE session_id IS ? AND endpoint NOT IN
+             (SELECT endpoint FROM push_subscriptions WHERE session_id IS ? ORDER BY created_at DESC, rowid DESC LIMIT ?)`,
+        )
+        .run(nul(sessionId), nul(sessionId), MAX_PER_BROWSER);
+      return 'ok';
+    });
   }
 
   /** Removes a browser's subscription; only its own browser's session (or anyone without sign-in) may. */
@@ -291,9 +307,17 @@ export class PushService {
     return this.db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND session_id IS ?').run(endpoint, nul(sessionId)).changes > 0;
   }
 
-  /** Every browser's subscription. */
+  /**
+   * Every browser's subscription, but those of sessions past their time (`SESSION_MAX_AGE_S`): such a
+   * browser is signed out, though its session is removed only at the next sign-in anywhere.
+   */
   subscriptions(): PushSubscriptionRecord[] {
-    const rows = this.db.prepare('SELECT * FROM push_subscriptions ORDER BY created_at').all() as unknown as SubscriptionRow[];
+    const rows = this.db
+      .prepare(
+        `SELECT p.* FROM push_subscriptions p LEFT JOIN auth_sessions s ON s.id = p.session_id
+         WHERE p.session_id IS NULL OR s.created_at > ? ORDER BY p.created_at, p.rowid`,
+      )
+      .all(this.now() - SESSION_MAX_AGE_S * 1000) as unknown as SubscriptionRow[];
     return rows.map((r) => ({
       endpoint: r.endpoint,
       p256dh: r.p256dh,
@@ -310,7 +334,7 @@ export class PushService {
   }
 
   hasSubscriptions(): boolean {
-    return Boolean(this.db.prepare('SELECT 1 FROM push_subscriptions LIMIT 1').get());
+    return this.subscriptions().length > 0;
   }
 
   /**

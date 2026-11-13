@@ -111,10 +111,12 @@ export class AlertWatcher {
   }
 
   /**
-   * A browser's page said whether it is in front (`page`: its own id; its poll of the conversations,
-   * or going to the background). In front, what was held for its browser since that page was is
-   * dropped: the page had it. Gone to the background, what was held is sent now, unless another page
-   * of the browser is still in front.
+   * A browser's page said whether it is in front (`page`: its own id): with each poll of the
+   * conversations, and when it goes to the background. In front, what was held for its browser since
+   * that page was is dropped: the page had it. Not in front (a tab in the background, the first poll of
+   * a page that came back, which starts again from that list), what was held is sent now, unless
+   * another page of the browser is still in front: also when the message that the page went away was
+   * lost.
    */
   seen(session: string | undefined, page: string | undefined, visible: boolean): void {
     const key = sessionKey(session);

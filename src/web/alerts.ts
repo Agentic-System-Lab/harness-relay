@@ -16,7 +16,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { AlertTracker, alertDetail, alertTag, alertUrl, wanted } from '../shared/notify';
-import { PUSH_GONE, type AlertKind, type AlertPrefs, type Conversation, type ConversationSummary, type PushSubscriptionJson } from '../shared/types';
+import { PUSH_GONE, PUSH_TAKEN, type AlertKind, type AlertPrefs, type Conversation, type ConversationSummary, type PushSubscriptionJson } from '../shared/types';
 import type { Messages } from './i18n';
 import { isAppWindow } from './update';
 
@@ -92,6 +92,31 @@ export function notifySupport(env: NotifyEnv): { support: NotifySupport; push: b
   if (isIos(env) && !env.standalone) return { support: 'install', push: false };
   if (!env.hasNotification) return { support: 'unsupported', push: false };
   return { support: 'ok', push: env.hasServiceWorker && env.hasPushManager };
+}
+
+/**
+ * What Settings says under "Show notifications": what turning them on gives here (push, or only while
+ * the page is open, or the desktop app's window), or why it cannot be (the browser, the site blocked,
+ * subscribing failed, the server cannot send them).
+ */
+export function notifyNoteFor(
+  s: {
+    support: NotifySupport;
+    canPush: boolean;
+    app: boolean;
+    permission: NotificationPermission | 'unsupported';
+    notifying: boolean;
+    push: Pick<PushInfo, 'active' | 'error' | 'failure'>;
+  },
+  n: Messages['notifications'],
+): { text: string; warn?: boolean } {
+  if (s.support !== 'ok') return { text: n.support[s.support], warn: true };
+  if (s.permission === 'denied') return { text: n.denied, warn: true };
+  if (s.notifying && s.push.failure) return { text: n.pushFailed(s.push.failure), warn: true };
+  if (s.notifying && s.push.error) return { text: s.push.error, warn: true };
+  if (s.app) return { text: n.notifyApp };
+  if (!s.canPush || (s.notifying && !s.push.active)) return { text: n.notifyPage };
+  return { text: n.notifyPush };
 }
 
 /** Where the user is when an alert comes. */
@@ -335,8 +360,10 @@ async function syncOnce(api: PushApi, p: BrowserAlertPrefs): Promise<PushInfo> {
     try {
       await api.pushSubscribe(sub.toJSON() as PushSubscriptionJson, choices);
     } catch (err) {
-      // Its push service told the server it is gone: a new one, once.
-      if ((err as { code?: unknown }).code !== PUSH_GONE) throw err;
+      // Its push service told the server it is gone, or another session of this browser (signed in
+      // anew) still has it: a new one, once.
+      const code = (err as { code?: unknown }).code;
+      if (code !== PUSH_GONE && code !== PUSH_TAKEN) throw err;
       await sub.unsubscribe().catch(() => false);
       sub = await subscribe();
       await api.pushSubscribe(sub.toJSON() as PushSubscriptionJson, choices);
@@ -399,6 +426,12 @@ export function listenForClicks(): () => void {
 
 let audio: AudioContext | undefined;
 
+/**
+ * What the user does that lets the page play sound from then on. A tap's `pointerdown` does not count
+ * in Safari on an iPhone (its `pointerup`, `touchend` and `click` do), and a key's `keydown` does.
+ */
+export const SOUND_UNLOCK_EVENTS = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'] as const;
+
 /** Starts the page's sound: browsers let a page play one only after the user did something on it. */
 export function unlockSound(): void {
   try {
@@ -427,7 +460,9 @@ export const CHIMES: Record<'done' | 'needs', [number, number][]> = {
 export function playChime(kind: AlertKind | 'test'): void {
   unlockSound();
   const ctx = audio;
-  if (!ctx) return;
+  // Not allowed yet (nothing done on the page since it loaded): no sound, rather than every sound
+  // since then at once on the first click.
+  if (!ctx || ctx.state !== 'running') return;
   const notes = CHIMES[kind === 'approval' || kind === 'confirm' || kind === 'answer' ? 'needs' : 'done'];
   const start = ctx.currentTime + 0.02;
   for (const [freq, at] of notes) {
@@ -503,8 +538,12 @@ const pageId = () => `${Math.random().toString(36).slice(2, 10)}${Date.now().toS
  */
 export class PageAlerts {
   private tracker = new AlertTracker();
-  /** Back in front with push on: the next list is where it starts again. */
+  /** Back in front with push on: the next list asked for since then is where it starts again. */
   private rebase = false;
+  /** When the page came back (a list asked for before then does not end `rebase`). */
+  private returnedAt = 0;
+  /** It has heard its first list. */
+  private started = false;
   private readonly env: PageEnv;
   /** This page's id (its tab's claims; `?page=` for the server). */
   readonly id = pageId();
@@ -519,22 +558,27 @@ export class PageAlerts {
    * nothing: a phone opened again does not ring once more for what its lock screen showed.
    */
   returned(): void {
-    if (this.env.pushActive()) this.rebase = true;
+    if (!this.env.pushActive()) return;
+    this.rebase = true;
+    this.returnedAt = this.env.now();
   }
 
   /**
-   * Whether the page's next poll tells the server it is in front: not the first one after it came
-   * back, so that the server keeps pushing until the page has started again from that list.
+   * Whether the page's next poll tells the server it is in front: not before the page has a list to
+   * start from (its first, and its first after it came back), so that the server keeps pushing what
+   * changed before it, which the page will take as where it starts.
    */
   inFront(): boolean {
-    return this.env.visible() && !this.rebase;
+    return this.env.visible() && this.started && !this.rebase;
   }
 
-  /** A new list of the conversations. */
-  heard(list: ConversationSummary[]): void {
+  /** A new list of the conversations, asked for at `askedAt`. */
+  heard(list: ConversationSummary[], askedAt = this.env.now()): void {
     const alerts = this.tracker.next(list);
+    this.started = true;
     if (this.rebase) {
-      this.rebase = false;
+      // An answer to a poll from before the page came back is no place to start from.
+      if (askedAt >= this.returnedAt) this.rebase = false;
       return;
     }
     for (const { conv, kind } of alerts) {

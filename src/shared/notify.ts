@@ -21,12 +21,12 @@ export function needsOf(c: Pick<ConversationSummary, 'waiting' | 'confirmTeam' |
   return undefined;
 }
 
-/** The parts of a summary the alerts read. */
-export type AlertState = Pick<ConversationSummary, 'running' | 'waiting' | 'confirmTeam' | 'asking' | 'lastStatus' | 'lastReplyId'>;
+/** The parts of a summary the alerts read (`branchFrom`: only whether it is a branch). */
+export type AlertState = Pick<ConversationSummary, 'running' | 'waiting' | 'confirmTeam' | 'asking' | 'lastStatus' | 'lastReplyId' | 'branchFrom'>;
 
 /**
  * A conversation as the alerts last saw it: its state and, while it runs, its latest agent reply when
- * the run began (`runFrom`; absent when it was already running at the first look, so not known).
+ * the run began (`runFrom`; absent when that is not known: its reply was being written at the first look).
  */
 export interface Seen {
   state: AlertState;
@@ -51,6 +51,9 @@ const stateOf = (c: AlertState): AlertState => ({
  * run that began and ended between two looks counts by the reply it left.
  */
 export function alertFor(before: Seen | undefined, now: AlertState): AlertKind | undefined {
+  // A branch just made (the user made it, here or on another device) is no news, also when it waits
+  // for the answer to a question its last reply asked.
+  if (!before && now.branchFrom) return undefined;
   const needs = needsOf(now);
   if (needs) return needs === (before && needsOf(before.state)) ? undefined : needs;
   if (now.running || !before) return undefined;
@@ -60,12 +63,18 @@ export function alertFor(before: Seen | undefined, now: AlertState): AlertKind |
   return now.lastStatus === 'done' || now.lastStatus === 'error' ? now.lastStatus : undefined;
 }
 
-/** How a conversation is remembered after a look: a run seen beginning keeps the reply it began after. */
+/**
+ * How a conversation is remembered after a look: a run seen beginning keeps the reply it began after.
+ * One already running at the first look began after its latest reply, unless that reply is still
+ * being written (then it is the run's own, and when the run began is not known).
+ */
 export function seenAfter(before: Seen | undefined, now: AlertState): Seen {
   const state = stateOf(now);
   if (!now.running) return { state };
   if (before?.state.running) return before.runFrom ? { state, runFrom: before.runFrom } : { state };
-  return before ? { state, runFrom: before.state.lastReplyId ? { reply: before.state.lastReplyId } : {} } : { state };
+  if (before) return { state, runFrom: before.state.lastReplyId ? { reply: before.state.lastReplyId } : {} };
+  if (now.lastStatus === 'streaming') return { state };
+  return { state, runFrom: now.lastReplyId ? { reply: now.lastReplyId } : {} };
 }
 
 /**

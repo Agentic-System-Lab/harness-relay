@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { TOUR_TARGETS, TOUR_VERSION, tourSeen } from '../src/web/components/Onboarding';
+import { TOUR_TARGETS, TOUR_VERSION, scrollBy, tourSeen } from '../src/web/components/Onboarding';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
@@ -31,6 +31,19 @@ describe('guided tour', () => {
     expect(tourSeen('yes', 2)).toBe(false);
   });
 
+  it("scrolls a long step's text with the keys, while the focus is on its buttons", () => {
+    expect(scrollBy('ArrowDown', 300, 900)).toBe(40);
+    expect(scrollBy('ArrowUp', 300, 900)).toBe(-40);
+    expect(scrollBy('PageDown', 300, 900)).toBe(260);
+    expect(scrollBy('PageUp', 300, 900)).toBe(-260);
+    expect(scrollBy('PageDown', 30, 900)).toBe(40);
+    // All the way: a number the browser takes (Infinity would be 0 to it).
+    expect(scrollBy('End', 300, 900)).toBe(900);
+    expect(scrollBy('Home', 300, 900)).toBe(-900);
+    expect(scrollBy('ArrowRight', 300, 900)).toBeUndefined();
+    expect(scrollBy(' ', 300, 900)).toBeUndefined();
+  });
+
   it('gets a new version when its steps change', () => {
     const fingerprint = createHash('sha256')
       .update(JSON.stringify([zhTW.tour.steps, en.tour.steps]))
@@ -39,6 +52,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/components/Onboarding.tsx so people who finished the tour
     // see it again, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 13, fingerprint: '99d5931a455b' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 13, fingerprint: 'a8ffb23f4c41' });
   });
 });

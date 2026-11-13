@@ -23,7 +23,7 @@ import {
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
 import { useI18n, useT } from './i18n';
-import { PUSH_RESYNC_MS, PageAlerts, alertPrefsNow, listenForClicks, pushActive, syncPush, unlockSound, useAlertPrefs } from './alerts';
+import { PUSH_RESYNC_MS, PageAlerts, SOUND_UNLOCK_EVENTS, alertPrefsNow, listenForClicks, pushActive, syncPush, unlockSound, useAlertPrefs } from './alerts';
 import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
 import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
@@ -194,9 +194,12 @@ function RelayApp() {
   /** The latest refresh asked for, and the latest shown: an answer older than the one shown is dropped. */
   const asked = useRef(0);
   const shown = useRef(0);
+  /** When the list shown was asked for (the alerts start again only from a list asked for after the page came back). */
+  const listAskedAt = useRef(0);
   const refreshConversations = useCallback(() => {
     const n = ++asked.current;
-    Promise.allSettled([api.listConversations(alerts.inFront() ? alerts.id : undefined), api.listGroups()]).then(([list, g]) => {
+    const askedAt = Date.now();
+    Promise.allSettled([api.listConversations({ id: alerts.id, inFront: alerts.inFront() }), api.listGroups()]).then(([list, g]) => {
       if (n < shown.current) return;
       if (list.status === 'rejected') {
         unreachable.current = true;
@@ -204,6 +207,7 @@ function RelayApp() {
         return;
       }
       shown.current = n;
+      listAskedAt.current = askedAt;
       setConversations(list.value);
       if (g.status === 'fulfilled') setGroups(g.value);
       else console.error(g.reason);
@@ -262,7 +266,7 @@ function RelayApp() {
   // Notifications and sound when agents finish or need you (Settings → Notifications), from the same
   // lists as the sidebar; and this browser's push subscription, kept in step with its choices.
   useEffect(() => {
-    if (loaded) alerts.heard(conversations);
+    if (loaded) alerts.heard(conversations, listAskedAt.current);
   }, [loaded, conversations, alerts]);
   const alertPrefs = useAlertPrefs();
   const { lang } = useI18n();
@@ -288,14 +292,12 @@ function RelayApp() {
     const unlock = () => alertPrefsNow().sound && unlockSound();
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', onHide);
-    window.addEventListener('pointerdown', unlock, true);
-    window.addEventListener('keydown', unlock, true);
+    for (const type of SOUND_UNLOCK_EVENTS) window.addEventListener(type, unlock, true);
     const stopClicks = listenForClicks();
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onHide);
-      window.removeEventListener('pointerdown', unlock, true);
-      window.removeEventListener('keydown', unlock, true);
+      for (const type of SOUND_UNLOCK_EVENTS) window.removeEventListener(type, unlock, true);
       clearInterval(resync);
       stopClicks();
     };

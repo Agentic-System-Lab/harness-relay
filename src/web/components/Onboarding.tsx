@@ -75,6 +75,17 @@ function targetBox(name: string | undefined): Box | null {
 
 const CARD_WIDTH = 360;
 
+/**
+ * How far a key scrolls a step's text that shows `page` pixels of its `total`: a line for the arrows,
+ * nearly a page for Page Up and Down, all the way for Home and End; undefined for any other key.
+ */
+export function scrollBy(key: string, page: number, total: number): number | undefined {
+  const line = 40;
+  const full = Math.max(line, page - line);
+  const by: Record<string, number> = { ArrowDown: line, ArrowUp: -line, PageDown: full, PageUp: -full, Home: -total, End: total };
+  return by[key];
+}
+
 /** Next to the target when there is room on its right, otherwise below or above it. */
 function cardPosition(box: Box, cardHeight: number): { top: number; left: number } {
   const margin = 16;
@@ -121,11 +132,15 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     if (card.current) setCardHeight(card.current.offsetHeight);
   }, [i, box, t]);
 
-  // Each step starts at its top; whether its text scrolls (the line above the footer) follows the window's size.
+  // Each step starts at its top (not again when the window turns or is resized).
+  useLayoutEffect(() => {
+    if (body.current) body.current.scrollTop = 0;
+  }, [i]);
+
+  // Whether the step's text scrolls (the line above the footer) follows the window's size.
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
-    el.scrollTop = 0;
     const update = () => setScrolls(el.scrollHeight > el.clientHeight + 1);
     update();
     window.addEventListener('resize', update);
@@ -139,6 +154,16 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
       if (e.key === 'Escape') finish();
       else if (e.key === 'ArrowRight') setI((n) => Math.min(n + 1, steps.length - 1));
       else if (e.key === 'ArrowLeft') setI((n) => Math.max(n - 1, 0));
+      else {
+        // The focus is on the buttons: the keys that scroll scroll the step's text (it scrolls by
+        // itself when it has the focus).
+        const el = body.current;
+        const by = el && e.target !== el ? scrollBy(e.key, el.clientHeight, el.scrollHeight) : undefined;
+        if (el && by !== undefined) {
+          e.preventDefault();
+          el.scrollTop += by;
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -156,7 +181,12 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
         style={pos ? { top: pos.top, left: pos.left, width: CARD_WIDTH } : undefined}
       >
         {/* The step scrolls when it is taller than the screen allows; the dots and buttons stay below it. */}
-        <div ref={body} className="tour-body">
+        <div
+          ref={body}
+          className="tour-body"
+          // A stop for the keyboard only while the text scrolls.
+          {...(scrolls ? { tabIndex: 0, role: 'region', 'aria-labelledby': 'tour-title' } : {})}
+        >
           <div className="tour-top">
             <span className="tour-label">{t.tour.label}</span>
             <span className="tour-count">{t.tour.step(i + 1, steps.length)}</span>

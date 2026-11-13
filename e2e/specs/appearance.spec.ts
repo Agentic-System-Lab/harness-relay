@@ -72,6 +72,37 @@ test.describe('the guided tour', () => {
     await appShown(page);
     await expect(tour(page)).toHaveCount(0);
   });
+
+  test("on a short screen, a long step's text scrolls and its buttons stay at the bottom of the card", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 560 });
+    // The longest step: file permission and changes.
+    const long = en.tour.steps.findIndex((s) => s.title === 'File permission and changes');
+    expect(long).toBeGreaterThan(0);
+    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    for (let i = 0; i < long; i++) await tour(page).getByRole('button', { name: 'Next' }).click();
+    await expect(page.getByRole('dialog', { name: en.tour.steps[long]!.title })).toBeVisible();
+
+    const card = page.locator('.tour-card');
+    const text = card.locator('.tour-body');
+    const next = card.getByRole('button', { name: 'Next' });
+    const inView = async () => {
+      const [c, n] = [await card.boundingBox(), await next.boundingBox()];
+      return c!.y >= 0 && c!.y + c!.height <= 560 && n!.y + n!.height <= c!.y + c!.height;
+    };
+    expect(await inView()).toBe(true);
+    const sizes = () => text.evaluate((el) => ({ top: el.scrollTop, scrolls: el.scrollHeight > el.clientHeight, max: el.scrollHeight - el.clientHeight }));
+    expect(await sizes()).toMatchObject({ top: 0, scrolls: true });
+    // The text scrolls under the buttons, with the keys too while Next has the focus.
+    await next.focus();
+    await page.keyboard.press('End');
+    await expect.poll(async () => { const s = await sizes(); return s.top >= s.max - 1; }).toBe(true);
+    expect(await inView()).toBe(true);
+    await expect(card.locator('.tour-foot.scrolls')).toBeVisible();
+    // The next step starts at its top.
+    await next.click();
+    await expect(page.getByRole('dialog', { name: en.tour.steps[long + 1]!.title })).toBeVisible();
+    expect((await sizes()).top).toBe(0);
+  });
 });
 
 /** The page's background (`--bg`): the light theme's, or the dark one's. */

@@ -30,6 +30,7 @@ import {
   cwdsOf,
   pendingPlan,
   PUSH_GONE,
+  PUSH_TAKEN,
   type ApprovalAnswer,
   type Conversation,
   type ServerLimits,
@@ -826,7 +827,7 @@ export function createApp({
     } catch (err) {
       throw new HttpError(503, (err as Error).message);
     }
-    if (kept === 'taken') throw new HttpError(409, t().pushTaken);
+    if (kept === 'taken') throw new HttpError(409, t().pushTaken, PUSH_TAKEN);
     if (kept === 'gone') throw new HttpError(409, t().pushGone, PUSH_GONE);
     return c.json({ ok: true });
   });
@@ -856,10 +857,12 @@ export function createApp({
 
   // --- Conversations ---------------------------------------------------------------
 
-  // `visible=1`: the page asking (`page`: its own id) is in front, and tells this browser itself when
+  // `page`: the asking page's own id; `visible=1`: it is in front, and tells this browser itself when
   // agents finish or need the user (no push notification is sent to it meanwhile, `alerts.ts`).
   app.get('/api/conversations', (c) => {
-    if (c.req.query('visible') === '1') alerts?.seen(sessions.get(c.req.raw), c.req.query('page'), true);
+    const page = c.req.query('page');
+    const visible = c.req.query('visible') === '1';
+    if (page !== undefined || visible) alerts?.seen(sessions.get(c.req.raw), page, visible);
     return c.json(
       store.list(
         (id) => orchestrator.isRunning(id),

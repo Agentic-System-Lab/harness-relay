@@ -707,7 +707,7 @@ export const en: Messages = {
     hint: 'Tells you when an agent finishes replying or needs you (an approval, a team to confirm, a question), as the sidebar marks it. These settings are for this browser only: set them on each computer and phone.',
     notify: 'Show notifications',
     notifyPush:
-      "This browser gets push notifications too: you are told also when Harness Relay is closed or the phone is locked. They come through the browser's push service (Google's, Apple's, Mozilla's or Microsoft's), encrypted so that only this browser can read them.",
+      "This browser gets push notifications too: you are told also with no Harness Relay page open, or the phone locked, as long as the computer running it is on and online. They come through the browser's push service (Google's, Apple's, Mozilla's or Microsoft's), encrypted so that only this browser can read them.",
     notifyPage: 'Tells you while Harness Relay is open in this browser (in a background tab, or with its window behind another one).',
     notifyApp: "Tells you while the desktop app's window is open; not once it is closed.",
     sound: 'Play a sound',
@@ -725,6 +725,7 @@ export const en: Messages = {
       unsupported: 'This browser has no notifications.',
     },
     denied: "Notifications are blocked for this site: allow them in the browser's site settings, then come back to turn them on.",
+    notAllowed: 'The browser did not allow notifications: turn them on again, and choose Allow when the browser asks.',
     pushFailed: (why) => `Could not subscribe to push notifications (${why}): you are still told while Harness Relay is open.`,
     alert: {
       done: (agent) => (agent ? `${agent} finished replying` : 'The reply is done'),
@@ -1477,7 +1478,7 @@ export const en: Messages = {
         points: [
           'Show notifications: one pops up while the tab is in the background or its window is behind another; click it to open that chat',
           'Play a sound: two notes when a reply is done, three when you are needed',
-          'On a phone, add Harness Relay to the home screen and turn them on there: push notifications reach it even with the app closed or the phone locked',
+          'On a phone, open the https:// address (through Tailscale) and turn them on there (on an iPhone or iPad, from the home screen): push notifications reach it even with the app closed or the phone locked, while Harness Relay runs on the computer',
           'Choose only "A reply is done" or "I am needed" if you like, and send a test notification to try it',
         ],
       },

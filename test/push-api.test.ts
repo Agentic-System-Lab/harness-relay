@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AUTH_KEY_HEADER } from '../src/shared/auth';
-import { PUSH_GONE } from '../src/shared/types';
+import { PUSH_GONE, PUSH_TAKEN } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-push-api-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -104,8 +104,10 @@ describe('/api/push', () => {
     expect(await gone.json()).toMatchObject({ code: PUSH_GONE });
     const fresh = 'https://web.push.apple.com/phone-2';
     expect((await send(phone, 'PUT', '/api/push/subscription', { subscription: { endpoint: fresh, keys }, prefs })).status).toBe(200);
-    // Another browser cannot take it over.
-    expect((await send(laptop, 'PUT', '/api/push/subscription', { subscription: { endpoint: fresh, keys }, prefs })).status).toBe(409);
+    // Another browser cannot take it over (it subscribes anew, by the code).
+    const taken = await send(laptop, 'PUT', '/api/push/subscription', { subscription: { endpoint: fresh, keys }, prefs });
+    expect(taken.status).toBe(409);
+    expect(await taken.json()).toMatchObject({ code: PUSH_TAKEN });
     const owner = push.subscriptions()[0]!.sessionId;
     expect(push.subscriptions().map((s) => s.endpoint)).toEqual([fresh]);
     expect((await send(laptop, 'DELETE', '/api/push/subscription', { endpoint: fresh })).status).toBe(200);
@@ -117,12 +119,14 @@ describe('/api/push', () => {
   it('hears from a page whether it is in front: its polls, and going to the background', async () => {
     const seen = vi.spyOn(alerts, 'seen');
     const phone = await browser();
-    await app.request('/api/conversations?visible=1&page=p1', { headers: phone });
+    await app.request('/api/conversations?page=p1&visible=1', { headers: phone });
+    await app.request('/api/conversations?page=p1', { headers: phone });
     await app.request('/api/conversations', { headers: phone });
     await send(phone, 'POST', '/api/push/presence', { visible: false, page: 'p1' });
     const session = auth.sessions()[0]!.id;
     expect(seen.mock.calls).toEqual([
       [session, 'p1', true],
+      [session, 'p1', false],
       [session, 'p1', false],
     ]);
   });

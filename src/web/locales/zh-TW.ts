@@ -721,7 +721,7 @@ export const zhTW = {
     hint: 'agent 回覆完，或需要你（核准、確認團隊、回答問題）的時候告訴你，就像側邊欄的標記。這些設定只對這個瀏覽器有效：每台電腦、每支手機各自設定。',
     notify: '顯示系統通知',
     notifyPush:
-      '這個瀏覽器也會收到推播通知：Harness Relay 沒開著、手機鎖定時也會通知你。通知經由瀏覽器的推播服務（Google、Apple、Mozilla 或 Microsoft 的）送達，內容加密，只有這個瀏覽器讀得到。',
+      '這個瀏覽器也會收到推播通知：沒有打開 Harness Relay 的頁面、手機鎖定時也會通知你，只要執行它的電腦開著、連得上網路。通知經由瀏覽器的推播服務（Google、Apple、Mozilla 或 Microsoft 的）送達，內容加密，只有這個瀏覽器讀得到。',
     notifyPage: 'Harness Relay 在這個瀏覽器開著的時候通知你（分頁在背景，或視窗被別的程式擋住時）。',
     notifyApp: '桌面 app 的視窗開著的時候通知你；關掉視窗後就不會。',
     sound: '播放提示音',
@@ -739,6 +739,7 @@ export const zhTW = {
       unsupported: '這個瀏覽器不支援通知。',
     } as Record<'insecure' | 'install' | 'unsupported', string>,
     denied: '這個網站的通知被瀏覽器封鎖了：請在瀏覽器的網站設定裡允許通知，再回來開啟。',
+    notAllowed: '瀏覽器沒有允許通知：再開啟一次，並在瀏覽器詢問時選「允許」。',
     pushFailed: (why: string) => `無法訂閱推播通知（${why}）：Harness Relay 開著的時候仍會通知你。`,
     alert: {
       done: (agent?: string) => (agent ? `${agent} 回覆完了` : '回覆完了'),
@@ -1495,7 +1496,7 @@ export const zhTW = {
         points: [
           '顯示系統通知：分頁在背景或視窗被擋住時跳出通知，點一下就打開那個對話',
           '播放提示音：回覆完是兩個音，需要你是三個音',
-          '手機上把 Harness Relay 加到主畫面再開啟，即使 App 沒開著、手機鎖定了也收得到推播',
+          '手機用 https:// 網址（透過 Tailscale）打開，在那裡開啟（iPhone 與 iPad 要先加到主畫面）：即使 App 沒開著、手機鎖定了也收得到推播，只要電腦上的 Harness Relay 還在執行',
           '可以只選「回覆完成」或「需要你」，也能先傳一則測試通知試試看',
         ],
       },

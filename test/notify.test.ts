@@ -54,7 +54,9 @@ describe('alertFor', () => {
     expect(begun.runFrom).toEqual({ reply: 'm1' });
     expect(seenAfter(begun, { running: true, waiting: true, lastReplyId: 'm2' }).runFrom).toEqual({ reply: 'm1' });
     expect(seenAfter(seen({ running: false }), { running: true }).runFrom).toEqual({});
-    expect(seenAfter(undefined, { running: true }).runFrom).toBeUndefined();
+    // Already running at the first look: after its latest reply, unless that one is still being written.
+    expect(seenAfter(undefined, { running: true, lastStatus: 'done', lastReplyId: 'm1' }).runFrom).toEqual({ reply: 'm1' });
+    expect(seenAfter(undefined, { running: true, lastStatus: 'streaming', lastReplyId: 'm1' }).runFrom).toBeUndefined();
     expect(seenAfter(begun, idle('m2'))).toEqual({ state: idle('m2') });
   });
 
@@ -88,6 +90,22 @@ describe('AlertTracker', () => {
     expect(kinds(t, [summary('a', idle('a1'))])).toEqual([]);
     expect(kinds(t, [summary('a', { running: true, lastReplyId: 'a2' })])).toEqual([]);
     expect(kinds(t, [summary('a', idle('a2'))])).toEqual([['a', 'done']]);
+  });
+
+  it('tells of nothing for a run first seen going that ends without a reply of its own, and of one whose reply was being written', () => {
+    const t = new AlertTracker();
+    t.next([summary('a', { running: true, lastStatus: 'done', lastReplyId: 'a1' }), summary('b', { running: true, lastStatus: 'streaming', lastReplyId: 'b1' })]);
+    expect(kinds(t, [summary('a', idle('a1')), summary('b', idle('b1'))])).toEqual([['b', 'done']]);
+  });
+
+  it('tells of nothing for a branch just made, also one that waits for the answer to the question it was branched at', () => {
+    const t = new AlertTracker();
+    t.next([summary('a', idle('a1'))]);
+    const branch = summary('b', { running: false, asking: true, lastStatus: 'done', lastReplyId: 'a1', branchFrom: { id: 'a', title: 'a' } });
+    expect(kinds(t, [summary('a', idle('a1')), branch])).toEqual([]);
+    // From then on it is one like any other.
+    expect(kinds(t, [summary('a', idle('a1')), { ...branch, asking: false, running: true }])).toEqual([]);
+    expect(kinds(t, [summary('a', idle('a1')), { ...branch, asking: false, lastReplyId: 'b2' }])).toEqual([['b', 'done']]);
   });
 
   it('starts again after reset()', () => {

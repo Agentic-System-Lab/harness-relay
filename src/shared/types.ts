@@ -630,6 +630,12 @@ export interface AlertPrefs {
  */
 export const PUSH_GONE = 'push-gone';
 
+/**
+ * The same for a subscription another signed-in browser has (409): this browser, signed in anew while
+ * its old session lives on, drops it and subscribes anew.
+ */
+export const PUSH_TAKEN = 'push-taken';
+
 /** A browser's push subscription, as `PushSubscription.toJSON()` gives it (`PUT /api/push/subscription`). */
 export interface PushSubscriptionJson {
   endpoint: string;
@@ -638,7 +644,7 @@ export interface PushSubscriptionJson {
 
 /**
  * Whether this server can send push notifications (`GET /api/push`): the public key browsers subscribe
- * with (VAPID, base64url), or why it cannot (its key could not be read from the system keyring, say).
+ * with (VAPID, base64url), or why it cannot (its key could not be saved in the database, say).
  */
 export interface PushStatus {
   publicKey?: string;

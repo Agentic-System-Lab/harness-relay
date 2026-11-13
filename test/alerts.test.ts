@@ -58,7 +58,8 @@ describe('AlertWatcher', () => {
 
   beforeEach(() => {
     const db = openDatabase(':memory:');
-    db.exec(`INSERT INTO auth_sessions (id, cookie_hash, key_hash, created_at, last_used_at) VALUES ('phone', '', '', 0, 0), ('laptop', '', '', 0, 0)`);
+    const at = Date.now();
+    db.exec(`INSERT INTO auth_sessions (id, cookie_hash, key_hash, created_at, last_used_at) VALUES ('phone', '', '', ${at}, ${at}), ('laptop', '', '', ${at}, ${at})`);
     push = new RecordingPush(db, async (_req: PushRequest) => ({ status: 201, text: '' }));
     clock = 1_000_000;
     reads = 0;
@@ -189,6 +190,21 @@ describe('AlertWatcher', () => {
     clock += PRESENT_MS;
     await watcher.check();
     expect(sent()).toHaveLength(2);
+  });
+
+  it('sends what it held when a poll of the page says it is not in front, also when the message that it went away was lost', async () => {
+    push.subscribe('phone', { endpoint: PHONE, keys: key(1) }, prefs, 'en');
+    await watcher.check();
+    watcher.seen('phone', 'p1', true);
+    clock += 1000;
+    await c1Replies('m1');
+    expect(sent()).toEqual([]);
+    // The phone locked (its message lost) and was opened again within seconds: the page's first poll
+    // starts it again from that list, without saying it is in front.
+    clock += 3000;
+    watcher.seen('phone', 'p1', false);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent()).toEqual([['phone', 'done', 'Chat c1']]);
   });
 
   it('drops a held need the user already answered elsewhere', async () => {

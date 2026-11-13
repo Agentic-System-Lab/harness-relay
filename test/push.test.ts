@@ -1,8 +1,10 @@
 import { createDecipheriv, createECDH, createHmac, createPublicKey, verify } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { AuthStore, CODE_TTL_MS } from '../src/server/auth';
+import { AuthStore, CODE_TTL_MS, SESSION_MAX_AGE_S } from '../src/server/auth';
+import { withLang } from '../src/server/i18n';
 import { openDatabase, type Database } from '../src/server/db';
 import {
+  MAX_PER_BROWSER,
   MAX_PUSH_BYTES,
   PushService,
   VAPID_SUBJECT,
@@ -201,6 +203,35 @@ describe('PushService', () => {
     const third = new PushService(db, sender);
     expect(third.status().publicKey).not.toBe(fresh);
     expect(third.hasSubscriptions()).toBe(false);
+  });
+
+  it('says why it has no keys in the language of each request, not the first one', () => {
+    // The database refuses the new key (full, say).
+    db.exec("CREATE TRIGGER no_keys BEFORE INSERT ON app_settings BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+    const push = new PushService(db, sender);
+    expect(withLang('en', () => push.status().error)).toMatch(/^This server cannot send push notifications now \(disk full\)/);
+    expect(withLang('zh-TW', () => push.status().error)).toMatch(/^這台伺服器現在無法送出推播通知（disk full）/);
+  });
+
+  it('sends nothing to a browser whose session is past its time, though its session is still there', () => {
+    const auth = new AuthStore(db);
+    const old = auth.redeem(auth.createCode(CODE_TTL_MS.device).code, 'Safari · iOS')!.id;
+    db.prepare('UPDATE auth_sessions SET created_at = ? WHERE id = ?').run(Date.now() - SESSION_MAX_AGE_S * 1000 - 1, old);
+    const push = new PushService(db, sender);
+    push.subscribe(old, browser().sub, prefs, 'en');
+    expect(push.subscriptions()).toEqual([]);
+    expect(push.hasSubscriptions()).toBe(false);
+  });
+
+  it("keeps a browser's latest subscriptions only", () => {
+    let clock = 1_000;
+    const push = new PushService(db, sender, () => clock);
+    const endpoints = Array.from({ length: MAX_PER_BROWSER + 2 }, (_, i) => `https://fcm.googleapis.com/fcm/send/${i}`);
+    for (const e of endpoints) {
+      clock += 1;
+      push.subscribe(undefined, browser(e).sub, prefs, 'en');
+    }
+    expect(push.subscriptions().map((s) => s.endpoint)).toEqual(endpoints.slice(2));
   });
 
   it('keeps one subscription per browser, removed with its signed-in browser', () => {

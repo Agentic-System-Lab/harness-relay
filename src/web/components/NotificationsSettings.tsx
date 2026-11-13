@@ -3,6 +3,7 @@ import { api } from '../api';
 import {
   alertPrefsNow,
   browserSupport,
+  notifyNoteFor,
   notifyPermission,
   playChime,
   setAlertPrefs,
@@ -40,10 +41,11 @@ export function NotificationsCard() {
     // Asked while the click is still the user's: browsers ask only then.
     if (allowed === 'default') allowed = await Notification.requestPermission();
     setPermission(allowed);
-    if (allowed !== 'granted') return setNote({ text: n.denied, error: true });
+    // Blocked for the site, or the browser's question closed without an answer.
+    if (allowed !== 'granted') return setNote({ text: allowed === 'denied' ? n.denied : n.notAllowed, error: true });
     setAlertPrefs({ notify: true });
-    // Subscribed now, while the tap still counts as the user's (Safari asks for one); the app's own
-    // sync of the new choice comes after it.
+    // Subscribed now, right after the browser's question (asked in the tap); the app's own sync of
+    // the new choice comes after it.
     void syncPush(api, alertPrefsNow());
   };
 
@@ -75,18 +77,7 @@ export function NotificationsCard() {
     }
   };
 
-  // What turning notifications on gives here, or why it cannot be.
-  const reach = app ? n.notifyApp : canPush ? n.notifyPush : n.notifyPage;
-  const notifyNote =
-    support !== 'ok'
-      ? { text: n.support[support], warn: true }
-      : permission === 'denied'
-        ? { text: n.denied, warn: true }
-        : notifying && push.failure
-          ? { text: n.pushFailed(push.failure), warn: true }
-          : notifying && push.error
-            ? { text: push.error, warn: true }
-            : { text: notifying && canPush && !push.active ? n.notifyPage : reach };
+  const notifyNote = notifyNoteFor({ support, canPush, app, permission, notifying, push }, n);
 
   return (
     <section className="card" id={sectionId('notifications')}>

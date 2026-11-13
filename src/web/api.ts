@@ -236,11 +236,14 @@ export const api = {
 
   // conversations
   /**
-   * `page`: this page's id, given while it is in front: it tells the user itself when agents finish or
-   * need them, so its browser gets no push notification meanwhile.
+   * `page`: this page's id, and whether it is in front: then it tells the user itself when agents
+   * finish or need them, so its browser gets no push notification meanwhile.
    */
-  listConversations: (page?: string) =>
-    request<ConversationSummary[]>('GET', `/api/conversations${page ? `?visible=1&page=${encodeURIComponent(page)}` : ''}`),
+  listConversations: (page?: { id: string; inFront: boolean }) =>
+    request<ConversationSummary[]>(
+      'GET',
+      `/api/conversations${page ? `?page=${encodeURIComponent(page.id)}${page.inFront ? '&visible=1' : ''}` : ''}`,
+    ),
   getConversation: (id: string) => request<Conversation>('GET', `/api/conversations/${id}`),
   createConversation: (b: { title?: string; agents: AgentConfig[]; settings: ConversationSettings; createCwd?: boolean }) =>
     request<Conversation>('POST', '/api/conversations', b),
