@@ -63,7 +63,7 @@ Follow the [developer guide's checklist](developer-guide.md#adding-a-new-agent-c
 - Start the CLI through `src/server/process.ts` only; never a shell; an open agent through `startOpenProcess()`.
 - Write a run's settings in a folder of its own, owner-only, removed after the turn, never into the user's own files (Cursor's config folder, Antigravity's `--cli_dir_name` folder, Copilot's whole home, Muse Code's `XDG_CONFIG_HOME`), and take from the user's own settings only what the run needs (Antigravity: the model and service; Copilot: a list of the keys a run keeps; Muse Code: an allowlist of its settings, so that a setting it adds later cannot decide what runs without asking). Put that folder where the run's own sandbox lets its commands look (Muse Code's in the data folder's `muse-runs`, not in `data/tmp`, which its profile denies and where git then fails).
 - Watch for import cycles: `agents/index.ts` imports every adapter, so an adapter must not import a module that imports `agents/index.ts` back (`models.ts`, `native.ts`, `providers.ts`); a cycle shows as "Cannot access … before initialization" at the server's start (`test/parent.test.ts`).
-- Both languages for every message (`src/server/i18n.ts`, the locale files), and the UI parts (colour, Settings card, API key help, native notes, the bug report form, the pull request template, and the lists of CLIs in Settings → Agent sessions' texts: `sessionsHint`, `agentHomeHint`).
+- Both languages for every message (`src/server/i18n.ts`, the locale files), and the UI parts (colour, Settings card, API key help, native notes, the bug report form, the pull request template, and the lists of CLIs in the texts of Settings → Agent sessions: `sessionsHint`, `agentHomeHint`).
 
 ## 6. Record it and test it
 

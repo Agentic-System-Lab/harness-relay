@@ -352,7 +352,11 @@ test.describe('AgentsView', () => {
       // AgentsView reads these sessions itself: only the thread is uploaded, and no member's recorded session.
       const uploads = () => agentsView.hits.filter((h) => h.method === 'POST' && h.path === '/api/v1/sessions/upload');
       // Whichever member replied last, the newest upload holds the question, both replies and the title.
-      await expect.poll(() => records(uploads().at(-1)!).map((r) => r.type)).toEqual(['user', 'assistant', 'assistant', 'custom-title']);
+      const newest = () => {
+        const last = uploads().at(-1);
+        return last ? records(last).map((r) => r.type) : [];
+      };
+      await expect.poll(newest).toEqual(['user', 'assistant', 'assistant', 'custom-title']);
       for (const upload of uploads()) expect(upload.body).toContain(`filename="${id}.jsonl"`);
       const conv = await relay.api<Conversation>(`/api/conversations/${id}`);
       for (const a of conv.agents) {
