@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 387 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 388 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -39,7 +39,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 2 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 3 | [User guide → Templates](../docs/user-guide.md#templates) |
-| [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 3 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
+| [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
 | [A member's model and reasoning effort](#a-members-model-and-reasoning-effort) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [User guide → Default model and reasoning effort](../docs/user-guide.md#default-model-and-reasoning-effort), [Team members](../docs/user-guide.md#team-members) |
 | [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
 | [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
@@ -126,6 +126,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | The lead agent changes the team when asked, and the new member answers once it is saved | Claude Code, Grok | In **Team settings → Ask the lead agent**, the request reaches the lead agent, the drawer shows the member it added, and after **Save** both members answer. |
 | When the lead agent's answer cannot be read, a template stands in | Claude Code | An answer that is not JSON falls back to "General-question panel", whose three members answer. |
 | A team proposed for a new question is declined | Claude Code, Codex | **No, keep the current team**: the card says it was not used, the current team answers and the proposed member does not. |
+| The add card is as tall as the members beside it, lists every CLI on a row of its own, and one tall card stretches only its row | — | In **Team settings** (two columns at 1280px): beside one member the add card is as tall as it and its list of the twelve CLIs scrolls; with two members, on a row of its own, it lists them all without scrolling; beside a third it is as tall as that one again, and a role box made taller in the first row leaves the second row's cards as they were. |
 
 ## A member's model and reasoning effort
 
@@ -441,7 +442,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- | --- |
 | The sidebar opens from the menu, and a chat works by touch | Grok | The menu button's three lines (an icon) sit in the middle of it, within a tenth of a pixel; the sidebar is out of view until **Open sidebar**, and closes again on going somewhere; the send button sends (Enter is a new line on a touch screen); the header's actions are under **More**. |
 | A long message keeps the page from scrolling sideways | Claude Code | A 300-character word and a Markdown reply leave no sideways scroll. |
-| On a narrow phone, a template's editor and the team settings do not scroll sideways | — | At 320px (narrower than a 290px member card and its margins) and 280px (where English's **hand-offs / message** goes on a line of its own), the built-in relay template's editor and a relay chat's **Team settings** scroll no more than a pixel sideways. |
+| On a narrow phone, a template's editor and the team settings do not scroll sideways, and the add card lists every CLI | — | At 320px (narrower than a 290px member card and its margins) and 280px (where English's **hand-offs / message** goes on a line of its own), the built-in relay template's editor and a relay chat's **Team settings** scroll no more than a pixel sideways, and in their one column the add card lists every CLI without a scroll of its own. |
 | The home page's tagline is smaller, each of its lines on one line, and the logo closes the sidebar | — | The tagline is under its 22px, English on two lines and Chinese on one, without sideways scroll; tapping the sidebar's **Harness Relay** on the home page closes the sidebar. |
 
 ## Each CLI at a glance

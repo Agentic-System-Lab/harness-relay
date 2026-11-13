@@ -52,7 +52,7 @@ test.describe('on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("on a narrow phone, a template's editor and the team settings do not scroll sideways", async ({ page, relay }) => {
+  test("on a narrow phone, a template's editor and the team settings do not scroll sideways, and the add card lists every CLI", async ({ page, relay }) => {
     /** How far a scrolling box scrolls sideways. */
     const sideways = (box: string) => page.locator(box).evaluate((el) => el.scrollWidth - el.clientWidth);
     // 320px: an iPhone SE (1st generation), or a mini with Display Zoom, narrower than a 290px member card
@@ -69,6 +69,8 @@ test.describe('on a phone', () => {
     for (const width of widths) {
       await page.setViewportSize({ width, height: 640 });
       expect(await sideways('.template-editor-body')).toBeLessThanOrEqual(1);
+      // One column: the add card shares no row, so it lists every CLI without a scroll of its own.
+      expect(await editor.locator('.add-card-list').evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
     }
     await page.keyboard.press('Escape');
 
@@ -80,6 +82,7 @@ test.describe('on a phone', () => {
     for (const width of widths) {
       await page.setViewportSize({ width, height: 640 });
       expect(await sideways('.drawer')).toBeLessThanOrEqual(1);
+      expect(await page.locator('.drawer .add-card-list').evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
     }
   });
 

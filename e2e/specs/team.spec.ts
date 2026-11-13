@@ -1,3 +1,5 @@
+import type { Locator } from '@playwright/test';
+import { PROVIDERS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { askAndConfirm, awaitingPlan, finishedReply, openTeamChat, replies, send, settled, startChat } from '../support/app';
 
@@ -43,5 +45,41 @@ test.describe("changing a chat's team", () => {
     await expect(replies(page, 'Claude')).toHaveCount(2);
     await expect(await finishedReply(page, 'Claude')).toContainText('You said: “Second”.');
     await expect(replies(page, 'Codex')).toHaveCount(0);
+  });
+
+  test('the add card is as tall as the members beside it, lists every CLI on a row of its own, and one tall card stretches only its row', async ({ page, relay }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Team settings' });
+    const members = drawer.locator('.agent-card:not(.add-card)');
+    const add = drawer.locator('.add-card');
+    const height = async (card: Locator) => (await card.boundingBox())!.height;
+    const scrolls = () => add.locator('.add-card-list').evaluate((el) => el.scrollHeight > el.clientHeight + 1);
+    await expect(members).toHaveCount(1);
+    // The drawer has two columns here.
+    expect(await drawer.locator('.agent-grid').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(2);
+    await expect(add.getByRole('button', { name: /^＋ / })).toHaveCount(PROVIDERS.length);
+
+    // Beside a member: its height, not that of a button for every CLI, and the list scrolls.
+    expect(Math.abs((await height(add)) - (await height(members.first())))).toBeLessThanOrEqual(1);
+    expect(await scrolls()).toBe(true);
+
+    // Two members fill the first row: on a row of its own, every CLI is listed without scrolling.
+    await add.getByRole('button', { name: '＋ Codex' }).click();
+    await expect(members).toHaveCount(2);
+    expect(await scrolls()).toBe(false);
+
+    // A third member: beside it again.
+    await add.getByRole('button', { name: '＋ Grok' }).click();
+    await expect(members).toHaveCount(3);
+    const third = await height(members.nth(2));
+    expect(Math.abs((await height(add)) - third)).toBeLessThanOrEqual(1);
+    expect(await scrolls()).toBe(true);
+    // A role box made taller (its corner dragged) stretches the first row, not the second.
+    await members.first().locator('textarea').evaluate((el) => void ((el as HTMLElement).style.height = '500px'));
+    expect(await height(members.first())).toBeGreaterThan(third + 200);
+    expect(Math.abs((await height(members.nth(2))) - third)).toBeLessThanOrEqual(1);
+    expect(Math.abs((await height(add)) - third)).toBeLessThanOrEqual(1);
   });
 });

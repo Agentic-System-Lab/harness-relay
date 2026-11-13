@@ -1321,9 +1321,9 @@ p {
   /* Never wider than the grid: on a phone narrower than about 334px (320px, or a larger display zoom),
      a 290px column would scroll the template editor and the team settings sideways. */
   grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr));
-  /* Every row as tall as the tallest: the add card on a row of its own is as tall as the members too. */
-  grid-auto-rows: 1fr;
   gap: 14px;
+  /* Its width tells how many columns it has: the add card below needs to know whether it shares a row. */
+  container: agent-grid / inline-size;
 }
 
 .agent-card {
@@ -1376,10 +1376,28 @@ p {
 
 /*
  * Beside members, the add card takes their height instead of setting it (a button for each of the
- * twelve CLIs would make it the tallest card), and its list scrolls. With no members it shows them all.
+ * twelve CLIs would make it the tallest card of the row), and its list scrolls. On a row of its own
+ * (no members, the members filling the rows above, or one column on a phone) it lists every CLI.
+ * It comes after the members, so it starts a row when its place is one more than a multiple of the
+ * columns' count; with 290px columns and 14px gaps there are two from 594px, three from 898px and
+ * four from 1202px (the widest editor, the template's, has room for three).
  */
-.agent-card + .add-card {
-  contain: size;
+@container agent-grid (594px <= width < 898px) {
+  .agent-card + .add-card:nth-child(even) {
+    contain: size;
+  }
+}
+
+@container agent-grid (898px <= width < 1202px) {
+  .agent-card + .add-card:not(:nth-child(3n + 1)) {
+    contain: size;
+  }
+}
+
+@container agent-grid (width >= 1202px) {
+  .agent-card + .add-card:not(:nth-child(4n + 1)) {
+    contain: size;
+  }
 }
 
 .add-card-list {

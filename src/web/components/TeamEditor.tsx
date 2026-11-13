@@ -221,7 +221,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
 
             <div className="agent-card add-card">
               <span className="muted small">{t.team.addMember}</span>
-              {/* Beside members the card is as tall as theirs, and this list scrolls (styles.css, .add-card). */}
+              {/* Beside members the card is as tall as theirs and this list scrolls; on a row of its own it lists every CLI (styles.css, .add-card). */}
               <div className="add-card-list">
                 {PROVIDERS.map((p) => (
                   <button

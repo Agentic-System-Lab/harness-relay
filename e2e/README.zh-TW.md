@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 31 個 spec 檔、387 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 31 個 spec 檔、388 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -39,7 +39,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 2 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#3-開始對話新對話與範本) |
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 3 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
-| [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 3 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
+| [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
@@ -128,6 +128,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 請首席 agent 調整團隊，儲存後新成員回答 | Claude Code、Grok | 在**團隊設定 → 請首席 agent 調整**（Team settings → Ask the lead agent）中，要求會交給首席 agent，抽屜顯示它加入的成員，按**儲存**後兩位成員都回答。 |
 | 首席 agent 的回答無法解讀時，改用範本 | Claude Code | 回答不是 JSON 時改用「一般問題智囊團」（General-question panel），由它的三位成員回答。 |
 | 拒絕為新問題提議的團隊 | Claude Code、Codex | 按**不採用，沿用目前的團隊**（No, keep the current team）：卡片顯示沒有採用，由目前的團隊回答，提議的成員不回答。 |
+| 新增成員卡和旁邊的成員一樣高，自己一列時列出所有 CLI，一張卡變高只撐高自己那一列 | — | 在**團隊設定**中（1280px 下兩欄）：在一位成員旁邊時，新增成員卡和它一樣高，十二個 CLI 的清單可以捲動；兩位成員時它自己一列，全部列出、不用捲動；在第三位旁邊時又和那一位一樣高，而第一列的角色框拉高後，第二列的卡片高度不變。 |
 
 ## 成員的模型與推理強度
 
@@ -443,7 +444,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 從選單開啟側邊欄，以觸控使用對話 | Grok | 選單按鈕的三條線（圖示）在按鈕正中央，誤差在十分之一個像素內；按**開啟側邊欄**（Open sidebar）前側邊欄不在畫面上，前往別處時又會收起；送出按鈕會送出（觸控螢幕上 Enter 是換行）；標題列的動作收在**更多**（More）之下。 |
 | 很長的訊息不會讓頁面左右捲動 | Claude Code | 300 個字元的單字與 Markdown 回答都不會造成左右捲動。 |
-| 很窄的手機上，範本編輯視窗和團隊設定不會左右捲動 | — | 在 320px（比 290px 的成員卡加上邊距還窄）和 280px（英文的 **hand-offs / message** 會自己換到下一行）下，內建接力範本的編輯視窗和接力對話的**團隊設定**左右捲動都不超過一個像素。 |
+| 很窄的手機上，範本編輯視窗和團隊設定不會左右捲動，新增成員卡列出所有 CLI | — | 在 320px（比 290px 的成員卡加上邊距還窄）和 280px（英文的 **hand-offs / message** 會自己換到下一行）下，內建接力範本的編輯視窗和接力對話的**團隊設定**左右捲動都不超過一個像素；只有一欄時，新增成員卡全部列出所有 CLI，不必自己捲動。 |
 | 首頁的標語變小，每一行都不換行，點 logo 會收起側邊欄 | — | 標語小於 22px，英文兩行、中文一行，頁面不會左右捲動；在首頁點側邊欄的 **Harness Relay** 會收起側邊欄。 |
 
 ## 各 CLI 一覽
