@@ -627,6 +627,11 @@ export function copilotPolicyProblem(
   return notWritable ? `${notWritable} is not among its read-write paths` : undefined;
 }
 
+/** The temporary folders every CLI's commands may write: the environment's, and the system's (pnpm keeps its lock folders in `/tmp`). */
+export function copilotTempDirs(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string[] {
+  return [env.TMPDIR || env.TEMP || env.TMP || tmpdir(), ...(platform === 'win32' ? [] : ['/tmp', '/private/tmp', '/var/tmp'])];
+}
+
 /**
  * What the policy's dev-tool access lets commands write that none of the read-only paths the run gave
  * covers (a cache this computer keeps elsewhere, a tool `copilotToolCaches` does not know): the paths
@@ -636,7 +641,7 @@ export function copilotPolicyProblem(
 export function copilotDevWrites(
   text: string,
   readOnly: readonly string[],
-  tempDirs: readonly string[] = [tmpdir()],
+  tempDirs: readonly string[] = copilotTempDirs(process.env),
   platform: NodeJS.Platform = process.platform,
 ): string[] {
   const sep = platform === 'win32' ? '\\' : '/';
@@ -650,7 +655,7 @@ export function copilotDevWrites(
   };
   const covered = within(readOnly);
   // Every CLI's commands may write the temporary folders (pnpm's lock folders are there).
-  const temp = within([...tempDirs, ...(platform === 'win32' ? [] : ['/tmp', '/private/tmp', '/var/tmp'])]);
+  const temp = within(tempDirs);
   return (copilotPolicyPaths(text, 'Dev tools')['read-write'] ?? []).filter((p) => !covered(p) && !temp(p) && existsSync(p));
 }
 
@@ -1305,7 +1310,7 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
       const problem = copilotPolicyProblem(text, { protectedPaths, addDirs: o.addDirs });
       if (problem) throw new AgentRunError(t().copilotSandbox(problem));
       if (userAborted) throw new AgentRunError(t().stopped, true);
-      const more = copilotDevWrites(text, how.readOnly, [o.env.TMPDIR || o.env.TEMP || tmpdir()]);
+      const more = copilotDevWrites(text, how.readOnly, copilotTempDirs(o.env));
       if (more.length) throw new CopilotMoreReadOnly(more);
     }
     if (how.policyOnly) return { sessionId };

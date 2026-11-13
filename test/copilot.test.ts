@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 // A data folder of its own: each turn's home goes in its tmp folder.
 const dataDir = await vi.hoisted(async () => {
@@ -24,6 +24,7 @@ import {
   copilotCommandOutput,
   copilotConfigPath,
   copilotDevWrites,
+  copilotTempDirs,
   copilotStartsSomething,
   copilotEffortRefusal,
   copilotEnv,
@@ -615,6 +616,8 @@ describe("Copilot's sandbox policy, checked before each turn below full access",
       expect(copilotDevWrites(text, [`${gradle}-other`, npm, pip], elsewhere)).toEqual([join(gradle!, 'caches')]);
       // In the temporary folder (pnpm's lock folders), where every CLI's commands may write: left out.
       expect(copilotDevWrites(text, [npm, gradle!], [dir])).toEqual([]);
+      expect(copilotTempDirs({ TMPDIR: '/t' }, 'linux')).toEqual(['/t', '/tmp', '/private/tmp', '/var/tmp']);
+      expect(copilotTempDirs({ TEMP: 'C:\\T' }, 'win32')).toEqual(['C:\\T']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -912,16 +915,18 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
   });
 
   it('makes a cache its dev-tool access lets commands write read-only too, starting again with it', async () => {
-    const cache = join(root, `npm-cache-${n}`);
+    // Outside every temporary folder (the system's is /tmp on Linux), where a cache would be.
+    const outside = mkdtempSync(join(process.cwd(), 'node_modules', '.relay-copilot-cache-'));
+    const cache = join(outside, 'npm');
     mkdirSync(cache, { recursive: true });
-    const r = run(undefined, {}, undefined, { FAKE_COPILOT_DEV_WRITES: [cache, join(root, 'missing-cache')].join(delimiter) });
-    // Its temporary folder elsewhere, so that the test's folder is not one.
-    await copilotRunner.run({ ...r.o, env: { ...r.o.env, TMPDIR: join(root, 'not-temp') } });
+    onTestFinished(() => rmSync(outside, { recursive: true, force: true }));
+    const r = run(undefined, {}, undefined, { FAKE_COPILOT_DEV_WRITES: [cache, join(outside, 'missing-cache')].join(delimiter) });
+    await copilotRunner.run(r.o);
     const [first, second] = starts(r);
     expect(JSON.parse(first!.files['settings.json']).sandbox.userPolicy.filesystem.readonlyPaths).not.toContain(cache);
     // Only one that exists (a missing one its sandbox would not take); nothing was sent before the second start.
     expect(JSON.parse(second!.files['settings.json']).sandbox.userPolicy.filesystem.readonlyPaths).toContain(cache);
-    expect(JSON.parse(second!.files['settings.json']).sandbox.userPolicy.filesystem.readonlyPaths).not.toContain(join(root, 'missing-cache'));
+    expect(JSON.parse(second!.files['settings.json']).sandbox.userPolicy.filesystem.readonlyPaths).not.toContain(join(outside, 'missing-cache'));
     expect(starts(r)).toHaveLength(2);
     expect(r.log().filter((l) => l.method === 'session/prompt').map((l) => l.params.prompt[0].text)).toEqual(['/sandbox policy', '/sandbox policy', r.o.prompt]);
     expect(text(r)).toBe('hello');
