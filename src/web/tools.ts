@@ -59,6 +59,12 @@ export function ownSetupText(t: Messages, provider: Provider): string {
 /** A member's Tools while the tool library is empty: not "no tools", but what its CLI loads anyway. */
 export const emptyLibraryText = (t: Messages, provider: Provider): string => t.team.toolsEmpty(ownSetupText(t, provider));
 
+/**
+ * A member's Tools while the tool library holds nothing for its CLI: only other CLIs' memory notes,
+ * which `itemsFor` leaves out. Not "empty", which it is not.
+ */
+export const noneForCliText = (t: Messages, provider: Provider): string => t.team.toolsNoneForCli(ownSetupText(t, provider));
+
 /** The hint over a member's tool library items: they come on top of what its CLI loads by itself. */
 export const toolsHintText = (t: Messages, provider: Provider): string => t.team.toolsHint(ownSetupText(t, provider));
 

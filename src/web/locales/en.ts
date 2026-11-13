@@ -222,6 +222,8 @@ export const en: Messages = {
     toolsDone: 'Done',
     toolsEmpty: (setup) =>
       `The tool library is empty. ${setup} Add MCP servers, skills and memory to the tool library, shared by every CLI or given only to some.`,
+    toolsNoneForCli: (setup) =>
+      `The tool library has nothing for this CLI yet, only memory for other CLIs. ${setup} Add MCP servers, skills and memory to the tool library, shared by every CLI or given only to some.`,
     goToolLibrary: 'Go to Settings → Tool library',
     toolProblem: 'unavailable right now',
     problems: {

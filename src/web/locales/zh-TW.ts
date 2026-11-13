@@ -240,6 +240,9 @@ export const zhTW = {
     toolsDone: '收起',
     /** `setup`: `toolsOwnSetup`'s sentence for the member's CLI. */
     toolsEmpty: (setup: string) => `工具庫還是空的。${setup}工具庫可以加入 MCP 伺服器、skill 和記憶，給所有 CLI 共用，或只給某幾種 CLI。`,
+    /** The library holds only other CLIs' memory notes. `setup`: `toolsOwnSetup`'s sentence for the member's CLI. */
+    toolsNoneForCli: (setup: string) =>
+      `工具庫裡還沒有給這個 CLI 的項目，只有給其他 CLI 的記憶。${setup}工具庫可以加入 MCP 伺服器、skill 和記憶，給所有 CLI 共用，或只給某幾種 CLI。`,
     goToolLibrary: '前往設定 → 工具庫',
     toolProblem: '目前無法使用',
     problems: {

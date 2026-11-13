@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { PROVIDER_LABEL, PROVIDERS, type Provider, type ToolLibraryView } from '../../src/shared/types';
 import { en } from '../../src/web/locales/en';
-import { emptyLibraryText, toolsHintText } from '../../src/web/tools';
+import { emptyLibraryText, noneForCliText, toolsHintText } from '../../src/web/tools';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
 import { chatOf, eachHalf, libraryEnv, logged, skillReadAsks, teamOf, type Cli } from '../support/clis';
@@ -61,7 +61,7 @@ async function readingReply(page: Page, c: Cli) {
 /** What the tool library's summary says of an item given to every CLI but `off`. */
 const allBut = (off: Provider) => `Only ${PROVIDERS.filter((p) => p !== off).map((p) => PROVIDER_LABEL[p]).join(', ')}`;
 
-test("with an empty tool library, each member's Tools say what its own CLI loads by itself", async ({ page, relay }) => {
+test("with an empty tool library, or one with nothing for its CLI, each member's Tools say what its own CLI loads by itself", async ({ page, relay }) => {
   // A CLI with a sign-in and an open agent: the card names each one's own case, not "no tools".
   await openTeamChat(page, relay, [
     { name: 'Claude', provider: 'claude' },
@@ -75,6 +75,16 @@ test("with an empty tool library, each member's Tools say what its own CLI loads
   }
   await expect(memberCard(page, 0).locator('.agent-tools')).toContainText('Claude Code loads its own setup as usual');
   await expect(memberCard(page, 1).locator('.agent-tools')).toContainText("Goose runs with a config folder of Harness Relay's own");
+
+  // A memory note for another CLI only: the library is not empty, but it has nothing for theirs.
+  await relay.api('/api/tools', { method: 'PUT', body: { memory: { codex: 'Run the tests first.' } } });
+  await page.reload();
+  await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+  for (const [index, provider] of [[0, 'claude'], [1, 'goose']] as const) {
+    const tools = memberCard(page, index).locator('.agent-tools');
+    await expect(tools).toContainText(noneForCliText(en, provider));
+    await expect(tools).not.toContainText('is empty');
+  }
 });
 
 eachHalf((half) => test.describe('the tool library', () => {

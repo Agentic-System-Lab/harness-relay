@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { OPEN_PROVIDERS, PROVIDERS, PROVIDER_LABEL, isOpenProvider, type ToolLibraryView } from '../src/shared/types';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
-import { defaultOn, emptyLibraryText, hasTool, itemsFor, ownSetupText, setTool, toolItems, toolsHintText } from '../src/web/tools';
+import { defaultOn, emptyLibraryText, hasTool, itemsFor, noneForCliText, ownSetupText, setTool, toolItems, toolsHintText } from '../src/web/tools';
 
 const lib: ToolLibraryView = {
   mcpServers: [{ id: 'gh1', name: 'github', transport: 'stdio', command: 'x', args: [], url: '', env: [], headers: [], providers: ['claude'] }],
@@ -77,12 +77,14 @@ describe("what a member's Tools say about its CLI's own setup", () => {
     }
   });
 
-  it("says it both while the tool library is empty and in the hint over the member's items", () => {
+  it("says it while the tool library is empty or has nothing for the CLI, and in the hint over the member's items", () => {
     for (const p of PROVIDERS) {
       for (const t of [en, zhTW]) {
         const setup = ownSetupText(t, p);
         expect(emptyLibraryText(t, p)).toBe(t.team.toolsEmpty(setup));
         expect(emptyLibraryText(t, p)).toContain(setup);
+        expect(noneForCliText(t, p)).toBe(t.team.toolsNoneForCli(setup));
+        expect(noneForCliText(t, p)).toContain(setup);
         expect(toolsHintText(t, p)).toBe(t.team.toolsHint(setup));
         expect(toolsHintText(t, p)).toContain(setup);
       }
@@ -92,5 +94,10 @@ describe("what a member's Tools say about its CLI's own setup", () => {
     expect(emptyLibraryText(zhTW, 'goose')).toMatch(/^工具庫還是空的。Goose 在 Harness Relay 裡.*「設定 → Goose」。工具庫可以加入/);
     expect(toolsHintText(en, 'pi')).toMatch(/own setup\. In Harness Relay, Pi runs/);
     expect(toolsHintText(zhTW, 'codex')).toMatch(/自己的設定之外。Codex 照常載入/);
+    // A library of other CLIs' memory notes only is not called empty.
+    expect(noneForCliText(en, 'claude')).toMatch(/^The tool library has nothing for this CLI yet, only memory for other CLIs\. Claude Code loads /);
+    expect(noneForCliText(en, 'claude')).not.toContain('is empty');
+    expect(noneForCliText(zhTW, 'claude')).toMatch(/^工具庫裡還沒有給這個 CLI 的項目，只有給其他 CLI 的記憶。Claude Code 照常載入/);
+    expect(noneForCliText(zhTW, 'claude')).not.toContain('空的');
   });
 });

@@ -241,7 +241,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 工具庫是空的時候，每位成員的「工具」說明它自己的 CLI 會自己載入什麼 | Claude Code、Goose | 在**團隊設定**中，Claude Code 的卡片說它照常載入自己的設定，Goose 的說它用的是 Harness Relay 自己的設定資料夾，各是自己 CLI 的文字（`emptyLibraryText()`），並附上前往工具庫的連結。 |
+| 工具庫是空的、或沒有給它的 CLI 的項目時，每位成員的「工具」說明它自己的 CLI 會自己載入什麼 | Claude Code、Goose | 在**團隊設定**中，Claude Code 的卡片說它照常載入自己的設定，Goose 的說它用的是 Harness Relay 自己的設定資料夾，各是自己 CLI 的文字（`emptyLibraryText()`），並附上前往工具庫的連結。工具庫只有給 Codex 的記憶時，兩張卡片都不說工具庫是空的，而是說還沒有給這個 CLI 的項目（`noneForCliText()`）。 |
 | 在頁面上新增的 MCP 伺服器會交給每個 CLI，其秘密遮蔽顯示，也不在命令列上 | 兩個團隊 | 列上顯示給所有成員；編輯時值是空的，提示文字是遮蔽後的值；頁面與 `GET /api/tools` 都沒有秘密；每位成員都說出這個伺服器並拿到它的值，而值不在任何參數裡；回合結束後 Claude Code 的 `--mcp-config` 檔已經刪除。 |
 | 對某個 CLI 或在成員的工具中關掉的 MCP 伺服器不會給出去 | 兩個團隊 | 在「預設提供給」中關掉第二個 CLI（Codex；Goose），它就拿不到；在它的成員的**工具**中勾選、在第三位（Grok；Cline）的取消勾選後，第二位拿到它（保留存下的值），第三位則沒有。第二位成員的**工具**在項目上方說明它自己的 CLI 會自己載入什麼（`toolsHintText()`）。 |
 | 從資料夾挑選的 skill 出現在每個 CLI 的簡報中，每個 CLI 都讀了它的 SKILL.md | 兩個團隊 | 有兩個 skill 的資料夾中，加入的那個列在每份簡報中，每個 CLI 都讀出它的第一行；另一個從沒出現。Claude Code 只能透過轉接器加上的 `Read(…)` 規則讀取它（沒有這條規則時假 CLI 會拒絕）。 |
@@ -519,6 +519,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - 「對話沒有的資料夾碰不到」在 Windows 上跳過 Grok，因為它在那裡沒有沙箱（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md)）。
 - Copilot 在 macOS、Linux 與 Windows 上都以完全存取以外的權限執行，就像它自己的沙箱一樣：它的假 CLI 遵守這次執行的設定給的政策，所以它的測試不需要執行測試的電腦上有沙箱。
 - [在手機上](#在手機上)在 Firefox 中跳過。
+- [修改對話的團隊](#修改對話的團隊)的新增成員卡測試，只在支援捲動驅動動畫的瀏覽器（Chromium、WebKit）檢查清單的陰影，因為其他瀏覽器沒有陰影：在 Firefox 中只檢查其餘部分。
 - [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」則在 Windows 上跳過。
 - [修改對話的團隊](#修改對話的團隊)的新增成員卡測試，只在支援捲動驅動動畫的瀏覽器（Chromium、WebKit）檢查清單的陰影，因為其他瀏覽器沒有陰影：在 Firefox 中只檢查其餘部分。
 - [回報問題](#回報問題)中讀取郵件連結的三個測試，在沒有 Navigation API 的瀏覽器中跳過。
