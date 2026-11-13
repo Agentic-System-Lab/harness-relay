@@ -3,7 +3,6 @@ import type { AlertPayload, AlertPrefs, Lang, PushStatus, PushSubscriptionJson }
 import { LANGS } from '../shared/types';
 import { nul, transaction, type Database } from './db';
 import { t } from './i18n';
-import type { SecretStore } from './secrets';
 
 /*
  * Push notifications (Web Push), so that a phone, or a browser with no Harness Relay page open, hears
@@ -168,17 +167,8 @@ interface SubscriptionRow {
 /** The most subscriptions remembered as gone (`PushService.gone`); then it starts over. */
 const MAX_GONE = 1000;
 
-/** Where the private VAPID key is kept in the system keyring. */
-export const VAPID_KEY_NAME = 'push-vapid-key';
-/** The app setting with the public VAPID key (and the private one, when there is no keyring). */
+/** The app setting with this server's VAPID key pair. */
 const VAPID_SETTING = 'push_vapid';
-
-/** What `push_vapid` holds: the public key, and the private one or (`keyring`) that it is in the keyring. */
-interface SavedVapid {
-  publicKey?: string;
-  privateKey?: string;
-  keyring?: boolean;
-}
 
 /** The public key of a private VAPID key (base64url), or undefined when it is not one. */
 function publicKeyOf(privateKey: string): string | undefined {
@@ -220,8 +210,7 @@ export function subscriptionKeys(s: Pick<PushSubscriptionRecord, 'p256dh' | 'aut
 
 /**
  * The push subscriptions of signed-in browsers (`push_subscriptions`, removed with their browser's
- * session when it signs out), this server's VAPID keys (the private one in the system keyring when
- * there is one, else in the database, like API keys), and sending.
+ * session when it signs out), this server's VAPID keys, and sending.
  */
 export class PushService {
   private keys?: VapidKeys;
@@ -231,83 +220,52 @@ export class PushService {
 
   constructor(
     private readonly db: Database,
-    private readonly keyring?: SecretStore,
     private readonly send: PushSender = fetchPush,
     private readonly now: () => number = Date.now,
   ) {}
 
-  /**
-   * The public key browsers subscribe with, made the first time it is asked for. When the private key
-   * is gone (another keyring, say), a new pair is made and the subscriptions made with the old one,
-   * which no push service would take now, are removed: their browsers subscribe again when opened.
-   */
+  /** The public key browsers subscribe with (made the first time it is asked for), or why there is none. */
   status(): PushStatus {
     const keys = this.vapid();
     return keys ? { publicKey: keys.publicKey } : { error: this.keyError ?? t().pushUnavailable('') };
   }
 
+  /**
+   * This server's VAPID key pair, made the first time it is asked for and kept in the database
+   * (`app_settings`: owner-only, and kept from agents below full access like the rest of it). Never in
+   * the system keyring: a locked one asks to be unlocked, which a server running as a service cannot
+   * show and a dismissed prompt leaves unanswered, and push would stop. The key only signs this
+   * server's own notifications. A pair whose private key is missing or does not go with its public key
+   * (one an earlier build kept in the keyring) is made anew, and the subscriptions made with the old
+   * one are removed: their browsers subscribe again when opened.
+   */
   private vapid(): VapidKeys | undefined {
     if (this.keys) return this.keys;
     const row = this.db.prepare('SELECT value FROM app_settings WHERE key = ?').get(VAPID_SETTING) as { value: string } | undefined;
-    let saved: SavedVapid = {};
+    let saved: Partial<VapidKeys> = {};
     try {
-      saved = row ? (JSON.parse(row.value) as SavedVapid) : {};
+      saved = row ? (JSON.parse(row.value) as Partial<VapidKeys>) : {};
     } catch {
       /* broken: made again */
     }
-    let inKeyring: string | null = null;
-    if (this.keyring) {
-      try {
-        inKeyring = this.keyring.get(VAPID_KEY_NAME);
-      } catch (err) {
-        // Locked or unreadable: no pushes for now, rather than new keys that would drop every subscription.
-        this.keyError = t().pushUnavailable((err as Error).message);
-        return undefined;
-      }
-    }
-    // The private key that goes with the saved public one, wherever it is (the keyring may hold an
-    // older one, from before a start without it).
-    const privateKey = saved.publicKey ? [inKeyring, saved.privateKey].find((k) => k && publicKeyOf(k) === saved.publicKey) : undefined;
-    if (saved.publicKey && privateKey) {
-      this.keys = { publicKey: saved.publicKey, privateKey };
-      // Kept in the database (no keyring then), or only an older key in the keyring: moved into it.
-      if (this.keyring && (saved.privateKey || inKeyring !== privateKey)) {
-        try {
-          this.storeKeys(this.keys);
-        } catch (err) {
-          console.warn(`[push] could not move the push key into the system keyring: ${(err as Error).message}`);
-        }
-      }
+    if (saved.publicKey && saved.privateKey && publicKeyOf(saved.privateKey) === saved.publicKey) {
+      this.keys = { publicKey: saved.publicKey, privateKey: saved.privateKey };
       return this.keys;
-    }
-    // Kept in a keyring this start has not got (a server started without its desktop session, say):
-    // nothing is sent until it is back, rather than new keys that would drop every subscription.
-    if (saved.publicKey && saved.keyring && !this.keyring) {
-      this.keyError = t().pushUnavailable(t().pushKeyringMissing);
-      return undefined;
     }
     const fresh = generateVapidKeys();
     try {
-      this.storeKeys(fresh);
+      transaction(this.db, () => {
+        this.db
+          .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+          .run(VAPID_SETTING, JSON.stringify(fresh));
+        this.db.prepare('DELETE FROM push_subscriptions').run();
+      });
     } catch (err) {
       this.keyError = t().pushUnavailable((err as Error).message);
       return undefined;
     }
-    this.db.prepare('DELETE FROM push_subscriptions').run();
     this.keys = fresh;
     return fresh;
-  }
-
-  /**
-   * The private key in the keyring (never falling back to the database when there is one), the public
-   * one in the database, with where the private one is.
-   */
-  private storeKeys(keys: VapidKeys): void {
-    if (this.keyring) this.keyring.set(VAPID_KEY_NAME, keys.privateKey);
-    const value: SavedVapid = this.keyring ? { publicKey: keys.publicKey, keyring: true } : keys;
-    this.db
-      .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-      .run(VAPID_SETTING, JSON.stringify(value));
   }
 
   /**

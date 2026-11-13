@@ -45,7 +45,7 @@ describe('/api/push', () => {
     auth = new AuthStore(db);
     sent = [];
     status = 201;
-    push = new PushService(db, undefined, async (req) => {
+    push = new PushService(db, async (req) => {
       sent.push(req);
       return { status, text: '' };
     });

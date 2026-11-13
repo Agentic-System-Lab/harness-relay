@@ -161,7 +161,6 @@ const zhTW = {
   pushUnavailable: (detail: string) =>
     `這台伺服器現在無法送出推播通知${detail ? `（${detail}）` : ''}：Harness Relay 開著的時候，頁面仍會通知你。`,
   pushTestFailed: '測試通知沒有送出：瀏覽器的推播服務沒有接受。請關掉通知再打開，然後再試一次。',
-  pushKeyringMissing: '簽署推播用的金鑰在系統的金鑰儲存區，而這次啟動時沒有金鑰儲存區',
   pushTaken: '這個推播訂閱屬於另一個已登入的瀏覽器。',
   pushGone: '瀏覽器的推播服務說這個訂閱已經不存在：請重新訂閱。',
   cwdHoldsAgents: (dir: string, folder: string) =>
@@ -685,7 +684,6 @@ const en: ServerMessages = {
   pushUnavailable: (detail: string) =>
     `This server cannot send push notifications now${detail ? ` (${detail})` : ''}: while Harness Relay is open, the page still tells you.`,
   pushTestFailed: "The test notification was not sent: the browser's push service did not take it. Turn notifications off and on again, then try once more.",
-  pushKeyringMissing: "the key push notifications are signed with is in the system's credential store, which this start has not got",
   pushTaken: 'This push subscription belongs to another signed-in browser.',
   pushGone: "The browser's push service says this subscription is gone: subscribe again.",
   cwdHoldsAgents: (dir, folder) =>

@@ -5,7 +5,6 @@ import { openDatabase, type Database } from '../src/server/db';
 import {
   MAX_PUSH_BYTES,
   PushService,
-  VAPID_KEY_NAME,
   VAPID_SUBJECT,
   encryptPush,
   endpointProblem,
@@ -16,8 +15,8 @@ import {
   subscriptionKeys,
   vapidAuthorization,
   type PushRequest,
+  type VapidKeys,
 } from '../src/server/push';
-import type { SecretStore } from '../src/server/secrets';
 import type { AlertPayload } from '../src/shared/types';
 
 const b = (s: string) => Buffer.from(s.replace(/\s+/g, ''), 'base64url');
@@ -53,11 +52,6 @@ function browser(endpoint = 'https://fcm.googleapis.com/fcm/send/abc123') {
     auth,
     sub: { endpoint, keys: { p256dh: ecdh.getPublicKey().toString('base64url'), auth: auth.toString('base64url') } },
   };
-}
-
-function fakeKeyring(): SecretStore & { data: Map<string, string> } {
-  const data = new Map<string, string>();
-  return { storage: 'keychain', data, get: (n) => data.get(n) ?? null, set: (n, v) => void data.set(n, v), delete: (n) => void data.delete(n) };
 }
 
 const payload: AlertPayload = { title: 'Fix the login page', body: 'Claude finished replying', tag: 'relay-c1', url: '/#/c/c1', silent: false, kind: 'done' };
@@ -175,79 +169,38 @@ describe('PushService', () => {
     status = 201;
   });
 
-  it('makes its keys when first asked, the private one in the keyring, and keeps them', () => {
-    const keyring = fakeKeyring();
-    const push = new PushService(db, keyring, sender);
+  it('makes its keys when first asked and keeps them in the database, never in the keyring', () => {
+    const push = new PushService(db, sender);
     const { publicKey } = push.status();
     expect(publicKey && b(publicKey)).toHaveLength(65);
-    expect(b(keyring.data.get(VAPID_KEY_NAME)!)).toHaveLength(32);
-    const row = db.prepare("SELECT value FROM app_settings WHERE key = 'push_vapid'").get() as { value: string };
-    expect(JSON.parse(row.value)).toEqual({ publicKey, keyring: true });
-    expect(new PushService(db, keyring, sender).status()).toEqual({ publicKey });
+    const row = () => JSON.parse((db.prepare("SELECT value FROM app_settings WHERE key = 'push_vapid'").get() as { value: string }).value) as VapidKeys;
+    expect(row().publicKey).toBe(publicKey);
+    expect(b(row().privateKey)).toHaveLength(32);
+    // The same pair at the next start.
+    expect(new PushService(db, sender).status()).toEqual({ publicKey });
+    // The private key goes with the public one: what it signs, the public key verifies.
+    const header = vapidAuthorization('https://web.push.apple.com/x', row(), Date.now());
+    expect(header.endsWith(`k=${publicKey}`)).toBe(true);
   });
 
-  it('keeps both keys in the database without a keyring, and moves the private one into a keyring later', () => {
-    const { publicKey } = new PushService(db, undefined, sender).status();
-    const row = () => JSON.parse((db.prepare("SELECT value FROM app_settings WHERE key = 'push_vapid'").get() as { value: string }).value);
-    expect(row().privateKey).toBeTruthy();
-    const keyring = fakeKeyring();
-    expect(new PushService(db, keyring, sender).status()).toEqual({ publicKey });
-    expect(keyring.data.get(VAPID_KEY_NAME)).toBeTruthy();
-    expect(row()).toEqual({ publicKey, keyring: true });
-  });
-
-  it('makes new keys when the private one is gone, dropping the subscriptions made with the old', () => {
-    const keyring = fakeKeyring();
-    const push = new PushService(db, keyring, sender);
+  it('makes new keys when the private one is missing or not the public one\'s, dropping the subscriptions made with the old', () => {
+    const push = new PushService(db, sender);
     const { publicKey } = push.status();
     push.subscribe(undefined, browser().sub, prefs, 'en');
-    keyring.data.clear();
-    const again = new PushService(db, keyring, sender);
-    expect(again.status().publicKey).not.toBe(publicKey);
+    // As an earlier build left it: the private key in the system keyring, only the public one here.
+    db.prepare("UPDATE app_settings SET value = ? WHERE key = 'push_vapid'").run(JSON.stringify({ publicKey, keyring: true }));
+    const again = new PushService(db, sender);
+    const fresh = again.status().publicKey;
+    expect(fresh).toBeTruthy();
+    expect(fresh).not.toBe(publicKey);
     expect(again.subscriptions()).toEqual([]);
-  });
-
-  it('sends nothing, and says why, while the keyring cannot be read: no new keys either', () => {
-    const keyring = fakeKeyring();
-    new PushService(db, keyring, sender).status();
-    const locked = { ...keyring, get: () => { throw new Error('locked'); } };
-    const push = new PushService(db, locked, sender);
-    expect(push.status().error).toMatch(/locked/);
-    expect(keyring.data.get(VAPID_KEY_NAME)).toBeTruthy();
-  });
-
-  it('sends nothing while the keyring that holds its key is missing, and keeps the subscriptions', () => {
-    const keyring = fakeKeyring();
-    const { publicKey } = new PushService(db, keyring, sender).status();
-    new PushService(db, keyring, sender).subscribe(undefined, browser().sub, prefs, 'en');
-    // A start without the keyring (a service with no desktop session, RELAY_KEYRING=off).
-    const without = new PushService(db, undefined, sender);
-    expect(without.status().error).toMatch(/金鑰儲存區/);
-    expect(without.hasSubscriptions()).toBe(true);
-    expect(new PushService(db, keyring, sender).status()).toEqual({ publicKey });
-  });
-
-  it('signs with the private key that goes with its public key, wherever it is', () => {
-    // Made without a keyring (both in the database), while the keyring still holds an older one.
-    const keyring = fakeKeyring();
-    new PushService(db, keyring, sender).status();
-    const older = keyring.data.get(VAPID_KEY_NAME)!;
-    db.prepare("DELETE FROM app_settings WHERE key = 'push_vapid'").run();
-    const { publicKey } = new PushService(db, undefined, sender).status();
-    const push = new PushService(db, keyring, sender);
-    expect(push.status()).toEqual({ publicKey });
-    const kept = keyring.data.get(VAPID_KEY_NAME)!;
-    expect(kept).not.toBe(older);
-    const ecdh = createECDH('prime256v1');
-    ecdh.setPrivateKey(Buffer.from(kept, 'base64url'));
-    expect(ecdh.getPublicKey().toString('base64url')).toBe(publicKey);
-    // Moved into the keyring, gone from the database.
-    expect(JSON.parse((db.prepare("SELECT value FROM app_settings WHERE key = 'push_vapid'").get() as { value: string }).value)).toEqual({ publicKey, keyring: true });
-  });
-
-  it('says why when its new key cannot be put in the keyring', () => {
-    const keyring = { ...fakeKeyring(), set: () => { throw new Error('denied'); } };
-    expect(new PushService(db, keyring, sender).status().error).toMatch(/denied/);
+    // A private key of another pair.
+    const other = generateVapidKeys();
+    again.subscribe(undefined, browser().sub, prefs, 'en');
+    db.prepare("UPDATE app_settings SET value = ? WHERE key = 'push_vapid'").run(JSON.stringify({ publicKey: fresh, privateKey: other.privateKey }));
+    const third = new PushService(db, sender);
+    expect(third.status().publicKey).not.toBe(fresh);
+    expect(third.hasSubscriptions()).toBe(false);
   });
 
   it('keeps one subscription per browser, removed with its signed-in browser', () => {
@@ -255,7 +208,7 @@ describe('PushService', () => {
     const signIn = () => auth.redeem(auth.createCode(CODE_TTL_MS.device).code, 'Safari · iOS')!.id;
     const phone = signIn();
     const laptop = signIn();
-    const push = new PushService(db, undefined, sender);
+    const push = new PushService(db, sender);
     const a = browser('https://web.push.apple.com/a');
     const c = browser('https://fcm.googleapis.com/fcm/send/c');
     push.subscribe(phone, a.sub, prefs, 'zh-TW');
@@ -278,7 +231,7 @@ describe('PushService', () => {
   });
 
   it('posts an encrypted, signed message the browser can read', async () => {
-    const push = new PushService(db, undefined, sender, () => 1_700_000_000_000);
+    const push = new PushService(db, sender, () => 1_700_000_000_000);
     const ua = browser();
     push.subscribe(undefined, ua.sub, prefs, 'en');
     expect(await push.push(push.subscriptions()[0]!, payload, { urgency: 'high', ttl: 60, topic: pushTopic('c1') })).toBe('sent');
@@ -290,7 +243,7 @@ describe('PushService', () => {
   });
 
   it('removes a subscription its push service says is gone, and keeps one that failed for now', async () => {
-    const push = new PushService(db, undefined, sender);
+    const push = new PushService(db, sender);
     push.subscribe(undefined, browser().sub, prefs, 'en');
     const sub = push.subscriptions()[0]!;
     status = 500;
@@ -312,7 +265,7 @@ describe('PushService', () => {
     const before = sent.length;
     expect(await push.push({ ...sub, endpoint: 'https://127.0.0.1/push' }, payload)).toBe('failed');
     expect(sent).toHaveLength(before);
-    const thrown = new PushService(db, undefined, async () => {
+    const thrown = new PushService(db, async () => {
       throw new Error('offline');
     });
     thrown.subscribe(undefined, browser().sub, prefs, 'en');

@@ -59,7 +59,7 @@ describe('AlertWatcher', () => {
   beforeEach(() => {
     const db = openDatabase(':memory:');
     db.exec(`INSERT INTO auth_sessions (id, cookie_hash, key_hash, created_at, last_used_at) VALUES ('phone', '', '', 0, 0), ('laptop', '', '', 0, 0)`);
-    push = new RecordingPush(db, undefined, async (_req: PushRequest) => ({ status: 201, text: '' }));
+    push = new RecordingPush(db, async (_req: PushRequest) => ({ status: 201, text: '' }));
     clock = 1_000_000;
     reads = 0;
     list = [done('c1', 'm0'), done('c2', 'x')];

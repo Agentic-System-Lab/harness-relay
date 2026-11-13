@@ -237,7 +237,7 @@ flowchart LR
 - **頁面**（`src/web/alerts.ts` 的 `PageAlerts`，接收側邊欄每 3 秒輪詢的列表；比已顯示的還舊的回應會被丟掉）：視窗有焦點且正顯示那個對話時什麼都不做；在前景時播放提示音（Web Audio，回覆完兩個音、需要你三個音；頁面載入後，使用者在頁面上操作過，瀏覽器才會播放），視窗沒有焦點時再跳出通知；在背景時，只有瀏覽器沒有推播通知時，才在 3.5 秒後自己跳出通知、播放提示音。同一個瀏覽器的分頁中只有一個會處理每則通知（`claimAlert()`，記在 `localStorage`，依對話、種類與回覆）：前景的分頁會認領每一則通知，連它不出聲的也是，所以等待中的背景分頁不會重複。有 service worker 時經由它顯示通知（Android 的 Chrome 只接受這種），否則用 `new Notification()`（桌面 app 的視窗：它的權限處理允許伺服器頁面的通知）。
 - **推播**（`src/server/push.ts`、`src/server/alerts.ts`）送到手機，或沒有打開頁面的瀏覽器。開啟通知時會註冊 service worker（`src/web/public/sw.js`，手寫、原樣複製進建置），並在開啟通知的那一下點擊中（Safari 需要），以這台伺服器的 VAPID 金鑰（`GET /api/push`）向瀏覽器的推播服務訂閱；頁面把訂閱與選擇交給伺服器（`PUT /api/push/subscription`，每次載入、變更、回到前景與每 10 分鐘都會再送，所以伺服器丟掉的訂閱會回來）。訂閱（`push_subscriptions`：推播服務的網址、瀏覽器的 P-256 金鑰與 auth secret、它的選擇與語言）屬於一個已登入瀏覽器的 session，登出時一起移除（`ON DELETE CASCADE`）；其他已登入的瀏覽器不能接手（409）。有瀏覽器訂閱時，`AlertWatcher` 每 1.5 秒檢查一次，只在有對話事件傳來（`Hub.subscribeAll()`）或 agent 正在工作（`Orchestrator.busy()`）時才讀取對話，把每個訂閱者想要的通知送出：內容（標題、內文、tag、對話的網址、是否靜音）為那個瀏覽器加密（RFC 8291，`aes128gcm`），以伺服器的金鑰簽章（RFC 8292，ES256），附上 `Urgency`（需要你時為 high）、`TTL`（需要你一天、回覆完六小時）與每個對話一個 `Topic`，全部用 `node:crypto` 完成；送出不會拖住下一次檢查。推播服務回報已不存在（404、410）或不再接受這把金鑰（401、403）的訂閱會被移除，頁面再送來時會被拒絕（`code: "push-gone"`），頁面就重新訂閱。Service worker 會顯示收到的每則推播（Safari 會收回推播不顯示任何東西的訂閱），點一下就打開那個對話；推播服務換掉訂閱時，它會用同一把金鑰重新訂閱（`pushsubscriptionchange`；頁面下次打開時再把新的訂閱交給伺服器）。
 - **不重複通知。** 在前景的頁面會在輪詢時告訴伺服器（`GET /api/conversations?visible=1&page=<它的 id>`）：伺服器就先保留那個瀏覽器的通知而不推播，在通知之前就已在前景的頁面之後再輪詢時丟掉（頁面已經處理了）。每個頁面各自計算：頁面進到背景（`visibilitychange`、`pagehide`：以 `keepalive` 送出 `POST /api/push/presence`），或 7 秒都沒有它在前景的輪詢，等瀏覽器沒有任何頁面在前景時，就把保留的送出，使用者已經處理掉的「需要你」除外。開著推播的頁面回到前景時，會從下一份列表重新開始，而且那一次輪詢不說自己在前景，所以離開期間推播過的不會再說一次。
-- **金鑰。** VAPID 金鑰組在第一次有人問 `GET /api/push` 時產生：私鑰放在作業系統的金鑰儲存區（沒有的話跟 API key 一樣放在 `app_settings`），公鑰放在 `app_settings`，並記下私鑰放在哪裡（`push_vapid`）。使用的私鑰一定是與存下的公鑰成對的那一把，不論它在金鑰儲存區或資料庫（沒有金鑰儲存區時放在資料庫的私鑰，之後會搬進去）。金鑰儲存區讀不到，或金鑰在這次啟動沒有的金鑰儲存區裡（沒有桌面 session 時啟動的伺服器、`RELAY_KEYRING=off`）時，什麼都不送，也不產生新的金鑰。只有私鑰真的不見了，才產生新的一組，並移除用舊金鑰建立的訂閱（瀏覽器下次打開時會重新訂閱）。
+- **金鑰。** VAPID 金鑰組在第一次有人問 `GET /api/push` 時產生，存在資料庫（`app_settings` 的 `push_vapid`：只有擁有者能讀取，而且跟資料庫的其他部分一樣，權限低於完全存取的 agent 讀不到）。不放在作業系統的金鑰儲存區：鎖住的金鑰儲存區會要求解鎖，以服務方式執行的伺服器無法顯示這個提示，提示被關掉也就沒有回應，推播就會停止；而這把金鑰只用來簽署這台伺服器自己的通知。私鑰不見、或與公鑰不成對（較早的版本把它放在金鑰儲存區）時，會產生新的一組，並移除用舊金鑰建立的訂閱（瀏覽器下次打開時會重新訂閱）。
 
 ## 語言
 
@@ -484,7 +484,7 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 
 ## 資料保存
 
-除了 API key（以及簽署推播通知的金鑰）與附加檔案以外，所有資料都存在單一 SQLite 資料庫 `data/relay.db`（WAL 模式、開啟外鍵、開啟 `secure_delete` 讓刪除的資料被覆寫，檔案權限為 `0600`）。附加檔案存成 `data/attachments/<對話>/<附件 id>/<檔名>`（權限 `0600`），由 `message_parts.data` 中的 `attachment` part 參照；刪除對話時，或重新傳送、重試而刪掉它們所屬的訊息時，會一併移除。
+除了 API key 與附加檔案以外，所有資料都存在單一 SQLite 資料庫 `data/relay.db`（WAL 模式、開啟外鍵、開啟 `secure_delete` 讓刪除的資料被覆寫，檔案權限為 `0600`）。附加檔案存成 `data/attachments/<對話>/<附件 id>/<檔名>`（權限 `0600`），由 `message_parts.data` 中的 `attachment` part 參照；刪除對話時，或重新傳送、重試而刪掉它們所屬的訊息時，會一併移除。
 
 | 資料表 | 內容 |
 | --- | --- |
@@ -503,7 +503,7 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 | `provider_accounts` | 每個 CLI 預設帳號以外的帳號與順序（id、provider、名稱）；每個帳號自己的預設模型與推理強度，以及執行時不載入的項目（schema 版本 20：原有的帳號沿用它所屬 CLI 的值）；只有在系統沒有金鑰儲存區時才存帳號的 API key（schema 版本 19）。開源 agent 沒有其他帳號 |
 | `model_backends` | 開源 agent 的模型來源：你的 OpenAI 相容端點（id、名稱、base URL、模型），以及只有在系統沒有金鑰儲存區時才存的 API 來源（`openai`、`anthropic`、`xai`）或端點的金鑰（schema 版本 22；見[開源 agent](open-agents.zh-TW.md#模型來源)） |
 | `deleted_endpoints` | 在「設定」裡刪除的端點 id，直到再新增同 id 的端點，或忘掉這個 id 為止（**忘掉**，`DELETE /api/backends/deleted-endpoints/:id`）：仍指定其中某個端點模型的 Claude Code、Codex 或 Grok 成員，這一輪會失敗，不會帶著那個模型送到 CLI 自己的服務（schema 版本 26） |
-| `app_settings` | key/value 形式的應用程式設定（預設工作目錄與其後的工作目錄、首席 agent、語音輸入、工具庫、各 CLI 自己的資料夾與開源 agent 的家目錄待過的每個資料夾（`open_agent_roots`）、AgentsView 網址，以及簽署推播通知用的公鑰與私鑰放在哪裡：`push_vapid`） |
+| `app_settings` | key/value 形式的應用程式設定（預設工作目錄與其後的工作目錄、首席 agent、語音輸入、工具庫、各 CLI 自己的資料夾與開源 agent 的家目錄待過的每個資料夾（`open_agent_roots`）、AgentsView 網址，以及簽署推播通知用的金鑰組：`push_vapid`） |
 | `push_subscriptions` | 每個瀏覽器的推播訂閱（推播服務的網址、瀏覽器的 P-256 金鑰與 auth secret、它要哪些通知、用哪種語言），屬於一個已登入瀏覽器的 session，並跟著它一起移除（schema 版本 27；見[通知](#通知)） |
 | `shares` | 分享成 secret gist 的對話（頁面 gist 的 id、對話、當時的標題、結束的那則回覆、頁面與 gist 的連結、附上了幾個檔案與放附檔的 gist 的 id、是否只上傳了放附檔的 gist）；沒有外鍵，因為對話刪除後 gist 仍在（schema 第 15 版；附檔為第 16 版） |
 
@@ -647,7 +647,7 @@ sequenceDiagram
 - 對話只會送到這台電腦上的 AgentsView：`validAgentsViewUrl` 只接受 `localhost`、`127.0.0.1` 或 `[::1]` 的 `http(s)` 網址，不能帶帳號密碼，並只儲存 origin；也不跟隨重新導向。介面連結打開的網址（`agentsViewLink`）可以是任何 http(s) 網址，因為不會有資料送過去；
 - 瀏覽檔案（以及把資料夾下載成 ZIP 檔）只會讀取工作目錄或成員 worktree 裡的內容（跟隨符號連結之後），絕不讀 `.git`（不分大小寫，因為在不分大小寫的檔案系統上 `.GIT` 會開到 `.git`；結尾多一個點或空白，或 Windows 的短檔名如 `GIT~1` 也一樣，在 Windows 上會再用系統自己的真實路徑檢查），圖片與影片的提供方式和媒體端點相同，其他檔案只以下載提供（見[瀏覽檔案](#瀏覽檔案)）；
 - 完全存取以外，開源 agent 與它們啟動的一切都在 Harness Relay 自己的沙箱中執行（[各平台的作業系統沙箱](sandboxing.zh-TW.md#harness-relay-自己的沙箱)）：只能寫入權限允許的地方，受保護的路徑不能讀也不能寫，它們自己的設定唯讀，網路只到這次執行的模型來源（其他主機會詢問，但這台電腦自己與 link-local 的位址、安靜拒絕的主機，以及一次執行中第 30 個之後的主機會直接拒絕；Harness Relay 自己的埠（`PORT`（為 0 時是伺服器實際取得的埠）、8787、8789 與 5173：`npm start` 與桌面 app 的，以及 `npm run dev` 的 API 與 Vite）一律連不到）。沙箱無法啟動就不執行，在原生 Windows 上它們只能以完全存取執行，Linux 上的 OpenCode 也是。它們的模型金鑰只透過環境變數傳入，絕不寫進設定檔；
-- 推播通知只會送到瀏覽器的推播服務（`PUSH_HOSTS`：Google、Mozilla、Apple 與 Microsoft 的，走 HTTPS 與它們平常的 port，網址裡不能有帳密，也不跟隨轉址），所以訂閱沒辦法讓伺服器把請求送到別的地方；每則都只為它的瀏覽器加密，而訂閱屬於那個已登入的瀏覽器（登出時移除；只有它能測試或移除自己的訂閱）；
+- 推播通知只會送到瀏覽器的推播服務（`PUSH_HOSTS`：Google、Mozilla、Apple 與 Microsoft 的，走 HTTPS 與它們平常的 port，網址裡不能有帳密，也不跟隨轉址），所以訂閱沒辦法讓伺服器把請求送到別的地方；每則都只為它的瀏覽器加密，並以這台伺服器的金鑰簽章；這把金鑰跟訂閱一樣存在資料庫（不放在金鑰儲存區：以服務方式執行時無法回應它的解鎖提示），而訂閱屬於那個已登入的瀏覽器（登出時移除；只有它能測試或移除自己的訂閱）；
 - 語音輸入的錄音不會離開這台電腦：語音引擎只聽 `127.0.0.1`，並藏在隨機路徑前綴之後；它下載的引擎與模型固定在某個版本或 commit，並檢查 SHA-256（見[語音輸入](#語音輸入)）。
 - 桌面 app 的視窗只顯示伺服器自己的頁面（sandbox、沒有 Node；其他連結交給預設瀏覽器，`file:` 與 `javascript:` 一律不開），頁面只能使用麥克風、剪貼簿、全螢幕與通知。它的瀏覽器資料（cookie、localStorage：它的登入資訊）放在它自己的資料夾，以 `RELAY_APP_BROWSER_DIR` 告訴伺服器，`protectedReads()` 會像對待瀏覽器的資料夾一樣，讓權限低於完全存取的 agent 讀不到它。App 透過私有的 port 向伺服器拿登入連結，絕不經過記錄檔。在 Windows 與 Linux 上，它在瀏覽器打開的連結（「在瀏覽器打開」）會短暫出現在瀏覽器的指令列，其他程式可能讀得到，所以這些連結只在一分鐘內有效。除了伺服器的網址，app 只會在瀏覽器打開對話裡連結的網頁、Tailscale 的頁面（`login.tailscale.com`、`tailscale.com`）、Tailscale 下載頁，以及 GitHub 上該版本的頁面（只限 `github.com/Agentic-System-Lab/harness-relay/releases` 底下）。它只從這個 repository 的 release 下載網址下載更新（`isInstallerUrl()`），而且 SHA-256 相符才安裝。打包好的 app 關閉了 Electron 的 run-as-Node 模式、`NODE_OPTIONS` 與 `--inspect`（fuses），所以其他程式無法以這個 app 的身分執行程式碼、使用 macOS 給它的隱私權限；它只從自己的封存檔載入程式碼，並檢查封存檔（macOS、Windows），`file:` 頁面也不會得到額外權限。Cookie 加密維持關閉：視窗的資料夾本來就讓 agent 讀不到，localStorage 裡的 key 也不會被加密，而且 ad hoc 簽章的 app 每次更新後 macOS 都會詢問鑰匙圈。它的伺服器一律只聽 `127.0.0.1`；
 - 只有使用者在分享對話框中建立連結時，Harness Relay 才會把對話發佈出去（各 CLI 仍照常把每一輪送到它們的模型服務），對話框會先說明它會去哪裡（使用者 GitHub 帳號上的 secret gist）；頁面不含工具呼叫與思考過程、圖片都包在頁面裡，並以自己的 `Content-Security-Policy` 禁止執行腳本。回覆連結的檔案只有在使用者於對話框中保持勾選時才會附上（對話框會說明有連結的人都能下載，看起來像機密的檔案一開始不勾選），而且只限該回覆的下載連結能提供的檔案，建立連結時由伺服器重新讀取；它們放在自己的 secret gist 裡，由 git 從 Harness Relay 自己資料夾裡的 clone 推上去（絕不用有沙盒的 agent 可能寫得進去的系統暫存資料夾），而且只走 HTTPS，再由 `gist.githubusercontent.com` 以純文字、圖片或下載（`application/octet-stream`）提供，絕不會成為會執行的網頁。移除分享時只會把十六進位的 gist id 交給 `gh`，兩個 gist 都會刪除。

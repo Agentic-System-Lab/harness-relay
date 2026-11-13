@@ -53,8 +53,7 @@ if (!lockDataDir(DATA_DIR)) {
 
 const db = openDatabase(DB_FILE);
 const auth = new AuthStore(db);
-const keyring = openSystemKeyring();
-const settings = new SettingsStore(db, keyring);
+const settings = new SettingsStore(db, openSystemKeyring());
 const store = new Store(db);
 const hub = new Hub();
 const providers = new ProviderService(settings);
@@ -95,7 +94,7 @@ const orchestrator = new Orchestrator(
 const scheduler = new Scheduler(store, orchestrator);
 
 // Push notifications to the browsers that turned them on (a phone, say), when agents finish or need the user.
-const push = new PushService(db, keyring);
+const push = new PushService(db);
 const alerts = new AlertWatcher({
   list: () =>
     store.list(
