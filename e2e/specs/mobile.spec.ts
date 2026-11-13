@@ -86,6 +86,31 @@ test.describe('on a phone', () => {
     }
   });
 
+  test('on a narrow phone, a new schedule every few hours does not scroll sideways, in either language', async ({ page, relay }) => {
+    /** The boxes that scroll sideways, and how far. */
+    const sideways = () =>
+      page.evaluate(() =>
+        [document.documentElement, ...document.querySelectorAll<HTMLElement>('*')]
+          .filter((el) => el.scrollWidth > el.clientWidth + 1 && (el === document.documentElement || ['auto', 'scroll'].includes(getComputedStyle(el).overflowX)))
+          .map((el) => `${el.className || el.tagName} +${el.scrollWidth - el.clientWidth}`),
+      );
+    for (const [lang, kind, unit] of [['en', 'Every few hours', 'hours'], ['zh-TW', '每隔幾小時', '小時']] as const) {
+      await page.evaluate((l) => localStorage.setItem('relay:lang', l), lang);
+      await page.setViewportSize(viewport);
+      await page.goto(`${relay.base}/#/schedule`);
+      // Only the hash changes from one language to the next: load the page again in the new one.
+      await page.reload();
+      await page.getByRole('radio', { name: kind }).tap();
+      // The interval's unit is only "hours", next to its box; its hint is a line of its own.
+      await expect(page.locator('.schedule-form .field.inline .unit')).toHaveText(unit);
+      // 320px: the four kinds of schedule, too wide for one row in English, go two by two.
+      for (const width of [320, 280]) {
+        await page.setViewportSize({ width, height: 640 });
+        expect(await sideways()).toEqual([]);
+      }
+    }
+  });
+
   test("the home page's tagline is smaller, each of its lines on one line, and the logo closes the sidebar", async ({ page }) => {
     /** The tagline's size, how many lines it takes, and whether the page scrolls sideways. */
     const tagline = () =>

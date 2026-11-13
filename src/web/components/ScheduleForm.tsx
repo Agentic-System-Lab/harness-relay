@@ -59,7 +59,7 @@ export function ScheduleForm({
         {warning && <span className="small warn-text">{warning}</span>}
       </label>
 
-      <div className="field">
+      <div className="field schedule-repeat">
         <span>{t.schedule.repeat}</span>
         <div className="segmented wide" role="radiogroup" aria-label={t.schedule.repeat}>
           {SCHEDULE_KINDS.map((k) => (
@@ -110,19 +110,21 @@ export function ScheduleForm({
         )}
 
         {draft.kind === 'interval' && (
-          <label className="field inline">
-            <span>{t.schedule.every}</span>
-            <input
-              type="number"
-              min={1}
-              max={SCHEDULE_LIMITS.maxHours}
-              value={Number.isNaN(draft.hours) ? '' : draft.hours}
-              onChange={(e) => onEdit({ hours: e.target.value === '' ? NaN : Number(e.target.value) })}
-            />
-            <span className="unit muted small">
-              {t.schedule.hoursUnit} · {t.schedule.intervalHint}
-            </span>
-          </label>
+          <>
+            <label className="field inline">
+              <span>{t.schedule.every}</span>
+              <input
+                type="number"
+                min={1}
+                max={SCHEDULE_LIMITS.maxHours}
+                value={Number.isNaN(draft.hours) ? '' : draft.hours}
+                onChange={(e) => onEdit({ hours: e.target.value === '' ? NaN : Number(e.target.value) })}
+              />
+              <span className="unit muted small">{t.schedule.hoursUnit}</span>
+            </label>
+            {/* A line of its own: as part of the unit, which never wraps, it scrolled a phone's page sideways. */}
+            <span className="small muted">{t.schedule.intervalHint}</span>
+          </>
         )}
 
         <span className="small muted schedule-preview">
