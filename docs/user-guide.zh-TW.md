@@ -248,7 +248,7 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 ### 工具庫：MCP 伺服器、skill 與記憶
 
-**設定 → 工具庫** 讓你一次設定好工具，給每位成員使用，不管它跑在哪個 CLI。這些工具是加在各 CLI 自己的設定之外（你在 `~/.claude`、`~/.codex/config.toml`、`~/.grok`、`~/.cursor`、`~/.gemini`、`~/.copilot`、`~/.config/muse` 的設定照常有效），變更從成員的下一回合開始生效。
+**設定 → 工具庫** 讓你一次設定好工具，給每位成員使用，不管它跑在哪個 CLI。這些工具是加在各 CLI 自己的設定之外：有登入的 CLI 保有它資料夾裡的設定（預設帳號是你的 `~/.claude`、`~/.codex/config.toml`、`~/.grok`、`~/.cursor`、`~/.gemini`、`~/.copilot` 與 `~/.config/muse`；設定了 [設定 → Agent 的 session](#agent-的-session各-cli-自己的資料夾與-agentsview) 時是它給各 CLI 的資料夾；其他帳號是那個帳號自己的資料夾），不含在「設定 → 該 CLI」設成不載入的；開源 agent 則用 Harness Relay 自己的設定資料夾。變更從成員的下一回合開始生效。
 
 - **MCP 伺服器**：按 **新增 MCP 伺服器**，取一個名稱（英文字母、數字、`_` 和 `-`），再選 **本機指令**（stdio：指令、每行一個參數、環境變數）或 **網址**（Streamable HTTP，可加 HTTP 標頭）。環境變數和標頭的值通常是 token，會跟 API key 一樣存進系統的金鑰儲存區，頁面上只顯示遮蔽後的值；編輯時把值留空就會保留原本的值。工具呼叫和其他動作一樣受對話權限限制：權限範圍以外的會在對話中詢問你（對話設成自動拒絕時則直接拒絕）。
 - **Skills**：輸入有 `SKILL.md` 的資料夾，或包含多個 skill 的資料夾（例如 `~/.claude/skills`），按 **加入**。找到不只一個 skill 時，會列出裡面所有 skill（資料夾本身，以及往下兩層內的 skill 資料夾），勾選要加入的，也可以篩選後 **全選**。這些 skill 是加在各 CLI 自己的 skill 之外：CLI 本來就會讀的 skill（Claude Code、Grok 和 Cursor 會讀 `~/.claude/skills`）不管有沒有加到這裡都能用；加到這裡則讓每種 CLI 都能用，並能選擇給誰。每位成員的說明會列出 skill 的名稱和用途（取自 `SKILL.md` 開頭的 front matter），需要時 agent 會自己讀那個 `SKILL.md`。`SKILL.md` 不見了、或名稱和另一個 skill 重複的會被標示出來，不會提供給 agent。
