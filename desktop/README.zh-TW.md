@@ -39,7 +39,7 @@ src/env.ts           登入 shell 的環境（Windows 則是重新啟動時讀�
 src/selftest.ts      app 需要伺服器透過 HTTP 做到的事（smoke.ts 與 --smoke-test）
 src/update.ts        更新到 GitHub 上最新的版本，等沒有對話的 agent 在工作時才切換
 src/updateSource.ts  app 從哪裡下載更新（建置時的 RELAY_UPDATES_REPO、RELAY_UPDATES_TOKEN），
-                     以及發佈 workflow 檢查 app 能下載副本
+                     以及發佈 workflow 檢查安裝檔是用它們建置的、app 能下載副本
 src/traymenu.ts      系統匣選單開著時的處理
 src/lifecycle.ts     不需要 Electron 的決定，以及視窗的防護
 src/tailscale.ts     分享到 tailnet（tailscale serve）
@@ -51,7 +51,8 @@ src/manifest.ts      app 資料夾的 package.json
 src/i18n.ts          選單與對話框的文字，兩種語言
 src/icons.ts         系統匣圖示
 scripts/build.ts     把伺服器與 app 打包到 build/（發佈時用 RELAY_VERSION，否則是 -dev 建置；
-                     下載更新的地方用 RELAY_UPDATES_REPO 與 RELAY_UPDATES_TOKEN）
+                     下載更新的地方用 RELAY_UPDATES_REPO 與 RELAY_UPDATES_TOKEN；它會寫出
+                     build/update-source.txt，也就是它們的指紋，給發佈 workflow 用）
 scripts/dist.ts      npm run desktop:dist（electron-builder）
 scripts/smoke.ts     以 app 的方式執行打包好的伺服器；parent-port.mjs 代替 Electron 的 parentPort
 scripts/check-package.ts、scripts/packaged.ts   打包好的 app 的檢查

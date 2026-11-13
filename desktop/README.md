@@ -40,7 +40,8 @@ src/env.ts           the login shell's environment (Windows': at a restart), and
 src/selftest.ts      what the app needs of the server over HTTP (smoke.ts and --smoke-test)
 src/update.ts        updates to GitHub's newest release, switching once no conversation has agents at work
 src/updateSource.ts  where the app downloads its updates from (RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN at build time),
-                     and the Release workflow's check that an app can download the copies
+                     and the Release workflow's checks that the installers were built with them and that an app
+                     can download the copies
 src/traymenu.ts      the tray menu while it is open
 src/lifecycle.ts     its decisions without Electron, and the window's guards
 src/tailscale.ts     sharing with the tailnet (tailscale serve)
@@ -52,7 +53,8 @@ src/manifest.ts      the app folder's package.json
 src/i18n.ts          the menu's and dialogs' words, in both languages
 src/icons.ts         the tray icons
 scripts/build.ts     bundles the server and the app into build/ (RELAY_VERSION for a release, else a -dev build;
-                     RELAY_UPDATES_REPO and RELAY_UPDATES_TOKEN for where it downloads its updates)
+                     RELAY_UPDATES_REPO and RELAY_UPDATES_TOKEN for where it downloads its updates; it writes
+                     build/update-source.txt, their fingerprint, for the Release workflow)
 scripts/dist.ts      npm run desktop:dist (electron-builder)
 scripts/smoke.ts     the bundled server run as the app runs it; parent-port.mjs stands in for Electron's parentPort
 scripts/check-package.ts, scripts/packaged.ts   the packaged app's checks
