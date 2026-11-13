@@ -105,6 +105,44 @@ test.describe('the guided tour', () => {
     expect((await sizes()).top).toBe(0);
   });
 
+  test('on a phone, the tour slides up once as it opens, comes to rest at the bottom of the screen, and not with reduced motion', async ({ page }) => {
+    // Opened at a phone's size: Next takes the focus while the sheet is still below the screen.
+    await page.setViewportSize({ width: 390, height: 560 });
+    await page.reload();
+    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    const card = page.locator('.tour-card:not(.tour-measure)');
+    const next = card.getByRole('button', { name: 'Next' });
+    /** The sheet's and the dimmed backdrop's animations: name, state and when each started. */
+    const animations = () =>
+      page.evaluate(() =>
+        ['.tour-card:not(.tour-measure)', '.tour-scrim'].flatMap((sel) =>
+          document.querySelector(sel)!.getAnimations().map((a) => ({ name: (a as CSSAnimation).animationName, state: a.playState, start: a.startTime })),
+        ),
+      );
+    await expect.poll(async () => (await animations()).map((a) => a.name)).toEqual(['tour-sheet-in', 'tour-scrim-in']);
+    await expect.poll(async () => (await animations()).every((a) => a.state === 'finished')).toBe(true);
+    // At rest with its bottom at the screen's, Next in it: focusing Next as it slid in moved nothing.
+    const atBottom = async () => {
+      const c = (await card.boundingBox())!;
+      return c.y > 0 && Math.abs(c.y + c.height - 560) <= 1;
+    };
+    expect(await atBottom()).toBe(true);
+    await expect(next).toBeInViewport({ ratio: 1 });
+    await expect(next).toBeFocused();
+    // The next step keeps the sheet where it is: the animation does not play again.
+    const played = await animations();
+    await next.click();
+    await expect(page.getByRole('dialog', { name: en.tour.steps[1]!.title })).toBeVisible();
+    expect(await animations()).toEqual(played);
+    expect(await atBottom()).toBe(true);
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.reload();
+    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    expect(await animations()).toEqual([]);
+    expect(await atBottom()).toBe(true);
+  });
+
   test('on a wide screen, Next stays in one place through the steps in the middle of the screen', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();

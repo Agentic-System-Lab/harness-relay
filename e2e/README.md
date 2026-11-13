@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 332 tests in 30 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 333 tests in 30 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -60,7 +60,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 9 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
 | [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
 | [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 5 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
-| [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 6 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
+| [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 7 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
 | [Notifications and sound](#notifications-and-sound) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [User guide → Notifications and sound](../docs/user-guide.md#notifications-and-sound), [Architecture → Notifications](../docs/architecture.md#notifications) |
 | [Limits the environment sets](#limits-the-environment-sets) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [Developer guide → Environment variables](../docs/developer-guide.md#environment-variables) |
 | [Languages](#languages) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 2 | [Architecture → Languages](../docs/architecture.md#languages) |
@@ -383,6 +383,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | The tour shows on a first visit, steps through to the end, and is not shown again | It opens at step 1 without Back; Next, Back and the arrow keys move; the last step has no Skip, **Get started** closes it, and a reload does not bring it back. |
 | The tour can be skipped, and Settings starts it again | Skipped, it stays away after a reload; **Settings → Guided tour → Replay the tour** opens it at step 1, Escape closes it, and it stays done. |
 | On a phone, the tour is a sheet at the bottom of the screen, and a long step's text scrolls above its buttons | At 390×560, the longest step (file permission) sits at the bottom of the screen with **Next** inside it; its text scrolls, also with End while **Next** has the focus, a line shows above the buttons, and the next step starts at its top. |
+| On a phone, the tour slides up once as it opens, comes to rest at the bottom of the screen, and not with reduced motion | Opened at 390×560, the sheet slides up and the backdrop fades in (`tour-sheet-in`, `tour-scrim-in`), both ending by themselves; the sheet then rests with its bottom at the screen's and **Next** in view and focused (focusing **Next** while the sheet was still below the screen moved nothing); the next step keeps the same finished animations, so nothing plays again; with reduced motion nothing animates and the sheet is at the bottom. |
 | On a wide screen, Next stays in one place through the steps in the middle of the screen | At 1280×800, every step not pointing at the sidebar has **Next** at the same height: the card is as tall as the tallest step. |
 | Dark or light chosen in Settings is set on the page, kept after a reload, and wins over the system | Dark sets `data-theme`, the background and the `theme-color` metas, and survives a reload; Light stays light with the system dark. |
 | Following the system follows its light or dark mode | **Follow system** removes `data-theme`, and the page follows the emulated light or dark mode, open and after a reload. |
@@ -424,7 +425,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| The sidebar opens from the menu, and a chat works by touch | Grok | The sidebar is out of view until **Open sidebar**, and closes again on going somewhere; the send button sends (Enter is a new line on a touch screen); the header's actions are under **More**. |
+| The sidebar opens from the menu, and a chat works by touch | Grok | The menu button's three lines (an icon) sit in the middle of it, within half a pixel; the sidebar is out of view until **Open sidebar**, and closes again on going somewhere; the send button sends (Enter is a new line on a touch screen); the header's actions are under **More**. |
 | A long message keeps the page from scrolling sideways | Claude Code | A 300-character word and a Markdown reply leave no sideways scroll. |
 | The home page's tagline is smaller, each of its lines on one line, and the logo closes the sidebar | — | The tagline is under its 22px, English on two lines and Chinese on one, without sideways scroll; tapping the sidebar's **Harness Relay** on the home page closes the sidebar. |
 

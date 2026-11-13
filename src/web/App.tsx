@@ -21,7 +21,7 @@ import {
   type PageStart,
 } from './signin';
 import { Sidebar } from './components/Sidebar';
-import { PanelIcon } from './components/icons';
+import { MenuIcon, PanelIcon } from './components/icons';
 import { useI18n, useT } from './i18n';
 import { PUSH_RESYNC_MS, PageAlerts, SOUND_UNLOCK_EVENTS, alertPrefsNow, listenForClicks, pushActive, syncPush, unlockSound, useAlertPrefs } from './alerts';
 import { refreshLimits } from './limits';
@@ -406,7 +406,7 @@ function RelayApp() {
       <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />
       <main className="main">
         <button className="menu-button" aria-label={t.app.openSidebar} onClick={() => setSidebarOpen(true)}>
-          ☰
+          <MenuIcon />
         </button>
         {collapsed && (
           <div className="sidebar-tools">
