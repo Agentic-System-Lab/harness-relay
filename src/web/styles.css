@@ -5181,6 +5181,45 @@ details.sub summary {
   margin: 0;
 }
 
+.alert-option {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+}
+
+.alert-option .check-row {
+  align-items: flex-start;
+}
+
+.alert-option .check-row input {
+  margin-top: 3px;
+}
+
+.alert-option p {
+  margin: 0 0 0 24px;
+}
+
+/* Settings → Notifications: which alerts, under the two switches. */
+.alert-kinds {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.alert-kinds legend {
+  padding: 0;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+
+.alert-kinds:disabled .check-row {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .sandbox-terminal {
   display: grid;
   gap: 4px;

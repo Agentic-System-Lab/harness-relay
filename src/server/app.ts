@@ -92,6 +92,7 @@ import {
   validateLead,
   validateMcpServer,
   validateProviderUpdate,
+  validatePushSubscription,
   validateSchedule,
   validateSettings,
   validateToolLibraryUpdate,
@@ -102,6 +103,8 @@ import { VoiceService } from './voice';
 import { existingFolder, systemFolderPicker, type FolderPicker } from './folderPicker';
 import { nextRun } from '../shared/schedule';
 import { currentLang, parseLang, t, withLang } from './i18n';
+import { testPayload, type AlertWatcher } from './alerts';
+import type { PushService } from './push';
 
 export interface AppDeps {
   /**
@@ -149,6 +152,10 @@ export interface AppDeps {
     upload(files: GistUpload[]): Promise<ReportScreenshots>;
     remove(id: string): Promise<void>;
   };
+  /** Browsers' push subscriptions and sending to them (`push.ts`); without it, no push notifications. */
+  push?: PushService;
+  /** Tells subscribed browsers when agents finish or need the user, unless their page is in front (`alerts.ts`). */
+  alerts?: AlertWatcher;
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
@@ -203,6 +210,8 @@ export function createApp({
   screenshotGists = { upload: (files) => uploadScreenshots(files), remove: unshareGist },
   updates = new Updates(undefined, version),
   limits = limitsOf(CONFIG),
+  push,
+  alerts,
 }: AppDeps): Hono {
   const app = new Hono();
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
@@ -801,17 +810,60 @@ export function createApp({
     return c.json({ ok: true });
   });
 
+  // --- Notifications ---------------------------------------------------------------
+
+  /** Whether this server sends push notifications: the key browsers subscribe with, or why not. */
+  app.get('/api/push', (c) => c.json(push ? push.status() : { error: t().pushUnavailable('') }));
+
+  /** Keeps this browser's push subscription and which alerts it wants, in the request's language. */
+  app.put('/api/push/subscription', async (c) => {
+    if (!push) throw new HttpError(503, t().pushUnavailable(''));
+    const { subscription, prefs } = validatePushSubscription(await body<unknown>(c));
+    try {
+      push.subscribe(sessions.get(c.req.raw), subscription, prefs, currentLang());
+    } catch (err) {
+      throw new HttpError(503, (err as Error).message);
+    }
+    return c.json({ ok: true });
+  });
+
+  /** Removes this browser's push subscription (only its own). */
+  app.delete('/api/push/subscription', async (c) => {
+    const { endpoint } = await body<{ endpoint?: unknown }>(c);
+    if (push && typeof endpoint === 'string') push.unsubscribe(sessions.get(c.req.raw), endpoint);
+    return c.json({ ok: true });
+  });
+
+  /** Sends this browser a test notification through its push service. */
+  app.post('/api/push/test', async (c) => {
+    const { endpoint } = await body<{ endpoint?: unknown }>(c);
+    const sub = push && typeof endpoint === 'string' ? push.subscription(sessions.get(c.req.raw), endpoint) : undefined;
+    if (!push || !sub) throw new HttpError(404, t().pushNotSubscribed);
+    if ((await push.push(sub, testPayload(sub), { urgency: 'high', ttl: 60 })) !== 'sent') throw new HttpError(502, t().pushTestFailed);
+    return c.json({ ok: true });
+  });
+
+  /** The page went to the background (or came back): push notifications held for this browser go now. */
+  app.post('/api/push/presence', async (c) => {
+    const { visible } = await body<{ visible?: unknown }>(c);
+    alerts?.seen(sessions.get(c.req.raw), visible === true);
+    return c.json({ ok: true });
+  });
+
   // --- Conversations ---------------------------------------------------------------
 
-  app.get('/api/conversations', (c) =>
-    c.json(
+  // `visible=1`: the page asking is in front, and tells this browser itself when agents finish or need
+  // the user (no push notification is sent to it meanwhile, `alerts.ts`).
+  app.get('/api/conversations', (c) => {
+    if (c.req.query('visible') === '1') alerts?.seen(sessions.get(c.req.raw), true);
+    return c.json(
       store.list(
         (id) => orchestrator.isRunning(id),
         (id) => orchestrator.isWaiting(id),
         (id) => orchestrator.isSorting(id),
       ),
-    ),
-  );
+    );
+  });
 
   // Conversations whose title or messages contain every word of `q`.
   app.get('/api/search', (c) => c.json(store.search(c.req.query('q') ?? '')));

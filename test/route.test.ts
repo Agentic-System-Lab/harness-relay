@@ -31,6 +31,7 @@ describe('client routes', () => {
       'version',
       'language',
       'appearance',
+      'notifications',
       'backends',
       'claude',
       'codex',

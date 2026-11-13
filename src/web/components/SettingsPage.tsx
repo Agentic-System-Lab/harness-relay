@@ -47,6 +47,7 @@ import { BackendsCard } from './BackendsSettings';
 import { CwdInput } from './CwdInput';
 import { CliPicker } from './CliPicker';
 import { ModelPicker } from './ModelPicker';
+import { NotificationsCard } from './NotificationsSettings';
 import { NativeSetupPanel } from './NativeSetupPanel';
 import { SectionTitle } from './SectionTitle';
 import { BrowsersCard } from './BrowsersSettings';
@@ -187,6 +188,8 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
             ))}
           </div>
         </section>
+
+        <NotificationsCard />
 
         {/* The model backends first: the open agents run on them, and the other CLIs on their endpoints too. */}
         <BackendsCard onChanged={() => void refreshProviders(true)} />
@@ -1266,6 +1269,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     version: short.version,
     language: short.language,
     appearance: short.appearance,
+    notifications: short.notifications,
     claude: PROVIDER_LABEL.claude,
     codex: PROVIDER_LABEL.codex,
     grok: PROVIDER_LABEL.grok,

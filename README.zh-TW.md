@@ -38,6 +38,7 @@
 - **分支對話**：agent 回覆下方的 **分支對話**（分支圖示）會把到這則回覆為止的對話複製成新對話，讓你從那裡試另一個方向，原本的對話維持不變。
 - **分享**：分享整段對話，或到某位 agent 某則回覆為止的內容，不含工具呼叫與思考過程：可以複製成 Markdown，或建立公開連結，打開是和聊天室一樣的頁面，附上 Harness Relay 的名稱與 logo，可以連到它的網站（用你的 GitHub CLI 建立 secret gist，透過 gistpreview.github.io 顯示）。回覆連結的檔案不限種類（文字檔、PDF、簡報、圖片…，每個最多 50 MB），可以挑選後放進另一個 secret gist，有連結的人都能下載。**設定 → 分享的對話** 會列出所有連結，可以移除不要的（兩個 gist 都會刪除）。
 - **狀態一目了然**：側邊欄會標示需要你處理、正在回覆或有新回覆的對話；切換到其他對話時，原本的對話會繼續執行。
+- **通知與提示音**：回覆完或 agent 需要你時，跳出系統通知並播放短短的提示音，每個瀏覽器在 **設定 → 通知與提示音** 各自開啟；手機（把 Harness Relay 加到主畫面）即使鎖定也會收到推播通知。見[通知與提示音](docs/user-guide.zh-TW.md#通知與提示音)。
 - **群組與搜尋**：在側邊欄建立群組，把對話拖進去；首席 agent 會依新對話的第一則訊息把它放進最適合的群組（都不適合就留在 **其他**）。群組裡的分支會列在它分支出來的對話底下，換群組時整串一起移動。搜尋可以用對話裡寫過的任何內容找到對話。
 - **工具庫：MCP 伺服器、skill 與記憶**：在設定裡設定一次，不管成員跑在哪個 CLI 都能用，而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；記憶分成所有成員共用和各 CLI 專屬；也能針對單一成員調整。token 存在系統的金鑰儲存區。
 - **在 AgentsView 中檢視 agent 的 session（選用）**：讓各 CLI 在 Harness Relay 中使用自己的資料夾（例如 `~/.relay-agents`），和你平常直接使用時分開；並在 [AgentsView](https://www.agentsview.io) 中把每個對話看成一個 thread，底下是各 agent 自己的 session（工具呼叫、token 與成本），十種 CLI 都有：Cursor 與開源 agent 自己的 session AgentsView 讀不到，改用 Harness Relay 記下的 session（只有 AgentsView 認得的模型才有成本）。兩者都是設定，所以在 macOS、Linux、Windows 上都照常用 `npm start`。見[使用者說明](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)。

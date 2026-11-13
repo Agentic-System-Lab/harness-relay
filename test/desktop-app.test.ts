@@ -323,7 +323,10 @@ describe("the desktop app's decisions", () => {
     // A video's own full-screen button (Electron asks the permission handler for it).
     expect(permissionAllowed('fullscreen', 'http://127.0.0.1:8787/#/c/1', server)).toBe(true);
     expect(permissionAllowed('fullscreen', 'https://evil.example/', server)).toBe(false);
-    for (const p of ['notifications', 'geolocation', 'clipboard-read', 'openExternal', 'pointerLock']) {
+    // Notifications when agents finish or need you (Settings → Notifications), from its own pages only.
+    expect(permissionAllowed('notifications', 'http://127.0.0.1:8787/#/', server)).toBe(true);
+    expect(permissionAllowed('notifications', 'https://evil.example/', server)).toBe(false);
+    for (const p of ['geolocation', 'clipboard-read', 'openExternal', 'pointerLock']) {
       expect(permissionAllowed(p, 'http://127.0.0.1:8787/', server), p).toBe(false);
     }
     expect(permissionAllowed('media', 'https://evil.example/', server, ['audio'])).toBe(false);

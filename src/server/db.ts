@@ -392,6 +392,21 @@ const MIGRATIONS: string[] = [
   );
   ALTER TABLE agent_sessions ADD COLUMN backend TEXT;
   `,
+  // 27: the browsers' push subscriptions (push_subscriptions), for notifications when agents finish or
+  // need the user: the push service's address for the browser (endpoint) and the keys to encrypt for
+  // it, the signed-in browser it belongs to (removed with it when it signs out; NULL without sign-in),
+  // which alerts it wants (prefs, JSON: done, needs, sound) and the language to write them in.
+  `
+  CREATE TABLE push_subscriptions (
+    endpoint   TEXT PRIMARY KEY,
+    session_id TEXT REFERENCES auth_sessions(id) ON DELETE CASCADE,
+    p256dh     TEXT NOT NULL,
+    auth       TEXT NOT NULL,
+    prefs      TEXT NOT NULL,
+    lang       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 /**

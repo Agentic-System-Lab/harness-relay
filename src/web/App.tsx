@@ -22,7 +22,8 @@ import {
 } from './signin';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
-import { useT } from './i18n';
+import { useI18n, useT } from './i18n';
+import { PageAlerts, alertPrefsNow, listenForClicks, pushActive, syncPush, unlockSound, useAlertPrefs } from './alerts';
 import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
 import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
@@ -176,7 +177,7 @@ function RelayApp() {
   /** The last refresh failed: the server may be restarting (the desktop app's Restart server…). */
   const unreachable = useRef(false);
   const refreshConversations = useCallback(() => {
-    Promise.all([api.listConversations(), api.listGroups()])
+    Promise.all([api.listConversations(document.visibilityState === 'visible'), api.listGroups()])
       .then(([list, g]) => {
         setConversations(list);
         setGroups(g);
@@ -235,6 +236,53 @@ function RelayApp() {
   useEffect(() => {
     document.title = waiting ? t.approval.pageTitle(waiting) : 'Harness Relay';
   }, [waiting, t]);
+
+  // Notifications and sound when agents finish or need you (Settings → Notifications), from the same
+  // lists as the sidebar; and this browser's push subscription, kept in step with its choices.
+  const routeNow = useRef(route);
+  routeNow.current = route;
+  const messagesNow = useRef(t);
+  messagesNow.current = t;
+  const [alerts] = useState(
+    () =>
+      new PageAlerts({
+        viewing: () => (routeNow.current.page === 'chat' ? routeNow.current.id : undefined),
+        conversation: (id) => api.getConversation(id),
+        messages: () => messagesNow.current.notifications,
+      }),
+  );
+  useEffect(() => {
+    if (loaded) alerts.heard(conversations);
+  }, [loaded, conversations, alerts]);
+  const alertPrefs = useAlertPrefs();
+  const { lang } = useI18n();
+  useEffect(() => {
+    void syncPush(api, alertPrefs);
+  }, [alertPrefs, lang]);
+  useEffect(() => {
+    // The server holds this browser's push notifications while the page is in front: going to the
+    // background (a phone locking), it sends them; coming back, the list says so again.
+    const onVisibility = () => {
+      const visible = document.visibilityState === 'visible';
+      if (pushActive()) api.presence(visible);
+      if (visible) refreshConversations();
+    };
+    const onHide = () => pushActive() && api.presence(false);
+    // Browsers let a page play a sound only after the user did something on it.
+    const unlock = () => alertPrefsNow().sound && unlockSound();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onHide);
+    window.addEventListener('pointerdown', unlock, true);
+    window.addEventListener('keydown', unlock, true);
+    const stopClicks = listenForClicks();
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('pointerdown', unlock, true);
+      window.removeEventListener('keydown', unlock, true);
+      stopClicks();
+    };
+  }, [refreshConversations]);
 
   // Keep the sidebar's states fresh for every conversation, including runs started elsewhere
   // (another tab, or still going after you switched away). The list is a cheap local query.
