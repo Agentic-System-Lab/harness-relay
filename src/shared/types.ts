@@ -1,6 +1,6 @@
 // Types shared by the server and the web client.
 
-export type Provider = 'claude' | 'codex' | 'grok' | 'cursor' | 'antigravity' | 'copilot' | OpenProvider;
+export type Provider = 'claude' | 'codex' | 'grok' | 'cursor' | 'antigravity' | 'copilot' | 'muse' | OpenProvider;
 
 /**
  * The open-source coding agents ("open agents"): they use the model backends set up in Settings
@@ -10,7 +10,7 @@ export type Provider = 'claude' | 'codex' | 'grok' | 'cursor' | 'antigravity' | 
 export type OpenProvider = 'opencode' | 'goose' | 'cline' | 'openhands' | 'pi';
 export const OPEN_PROVIDERS: OpenProvider[] = ['opencode', 'goose', 'cline', 'openhands', 'pi'];
 
-export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok', 'cursor', 'antigravity', 'copilot', ...OPEN_PROVIDERS];
+export const PROVIDERS: Provider[] = ['claude', 'codex', 'grok', 'cursor', 'antigravity', 'copilot', 'muse', ...OPEN_PROVIDERS];
 
 export function isOpenProvider(p: Provider): p is OpenProvider {
   return (OPEN_PROVIDERS as Provider[]).includes(p);
@@ -19,7 +19,9 @@ export function isOpenProvider(p: Provider): p is OpenProvider {
 /**
  * The CLIs with a sign-in of their own that can also run on one of the user's own endpoints of
  * Settings → Model backends (Claude Code, Codex, Grok, Copilot): a member's model `<endpoint id>/<model>`.
- * Cursor and Antigravity have a sign-in too, but their models run only through their own services.
+ * Cursor, Antigravity and Muse Code have a sign-in too, but their models run only through their own
+ * services (Muse Code's needs the Meta API's own model catalog, `/muse-code/models`, which an
+ * OpenAI-compatible server does not serve).
  */
 export type EndpointCli = 'claude' | 'codex' | 'grok' | 'copilot';
 
@@ -74,6 +76,7 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   cursor: 'Cursor',
   antigravity: 'Antigravity',
   copilot: 'Copilot',
+  muse: 'Muse Code',
   opencode: 'OpenCode',
   goose: 'Goose',
   cline: 'Cline',
@@ -89,6 +92,7 @@ export const PROVIDER_INSTALL_URL: Record<Provider, string> = {
   cursor: 'https://cursor.com/cli',
   antigravity: 'https://antigravity.google/download',
   copilot: 'https://github.com/features/copilot/cli',
+  muse: 'https://dev.meta.ai/products/muse-code/',
   opencode: 'https://www.npmjs.com/package/opencode-ai',
   goose: 'https://formulae.brew.sh/formula/block-goose-cli',
   cline: 'https://www.npmjs.com/package/cline',
@@ -277,7 +281,8 @@ export type NativePart = (typeof NATIVE_PARTS)[number];
  * hold). Copilot's run has a home of its own (`prepareCopilotRun`): its skills are left out with its
  * skill tool (`--excluded-tools skill`), its MCP servers by not linking `mcp-config.json` and with
  * `--disable-builtin-mcps`, memory, hooks and plugins by the run's settings; its instruction files have
- * no switch over ACP (`--no-custom-instructions` is not applied there). Only Claude Code lists its
+ * no switch over ACP (`--no-custom-instructions` is not applied there). Muse Code's run has settings of its own, without the MCP servers and hooks left out. Only
+ * Claude Code lists its
  * built-in tools.
  */
 export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
@@ -287,6 +292,8 @@ export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
   cursor: [],
   antigravity: [],
   copilot: ['skills', 'mcp', 'memory', 'hooks', 'plugins'],
+  // Muse Code: its MCP servers and hooks are its settings', and each run has settings of its own.
+  muse: ['mcp', 'hooks'],
   // The open agents: each adapter lists what its CLI can really leave out (one line each, kept apart).
   // OpenCode: skills (denied with `permission.skill`, which turns off its skill tool), the project's instruction files Harness Relay passes on, its subagents (`agent.<name>.disable`).
   opencode: ['skills', 'instructions', 'agents'],
@@ -326,7 +333,8 @@ export type NativeItemsOff = Partial<Record<NativeItemKind, string[]>>;
  * built-in tools by permission rules (an MCP server still starts: only its tools are taken away),
  * instruction files by path (`claudeMdExcludes`), subagents by name, plugins by id. Codex: skills by
  * path, MCP servers and their tools, hooks by key, plugins by id. Copilot: skills by name
- * (`disabledSkills` in the run's settings), MCP servers by name (`--disable-mcp-server`). Grok, Cursor
+ * (`disabledSkills` in the run's settings), MCP servers by name (`--disable-mcp-server`). Muse Code: MCP servers by name (its
+ * run's own settings). Grok, Cursor
  * and Antigravity have no such setting for a single run.
  */
 export const NATIVE_ITEM_SUPPORT: Record<Provider, readonly NativeItemKind[]> = {
@@ -336,6 +344,8 @@ export const NATIVE_ITEM_SUPPORT: Record<Provider, readonly NativeItemKind[]> = 
   cursor: [],
   antigravity: [],
   copilot: ['skills', 'mcp'],
+  // Muse Code: an MCP server of its settings by name.
+  muse: ['mcp'],
   // The open agents: each adapter lists what its CLI can leave out alone (one line each, kept apart).
   // OpenCode: a skill by name (its `skill` permission), a subagent by name.
   opencode: ['skills', 'agents'],
@@ -1380,13 +1390,14 @@ export function accountUsable(a: Pick<AccountStatus, 'auth' | 'usingStoredApiKey
 }
 
 /**
- * Whether an account signs in with its API key only: Cursor's and Antigravity's accounts besides the
- * default one. Cursor keeps one sign-in per computer user (on macOS, in the keychain) whatever its
- * config folder; Antigravity keeps its Google sign-in in the system keyring too, under names its
- * folder may not change, so another account's sign-in could replace the default one's.
+ * Whether an account signs in with its API key only: Cursor's, Antigravity's and Muse Code's accounts
+ * besides the default one. Cursor keeps one sign-in per computer user (on macOS, in the keychain)
+ * whatever its config folder; Antigravity keeps its Google sign-in in the system keyring too, and Muse
+ * Code its Meta sign-in in the login keychain on macOS, under names their folders do not change, so
+ * another account's sign-in could replace the default one's.
  */
 export function keyOnlyAccount(p: Provider, account: string | undefined): boolean {
-  return (p === 'cursor' || p === 'antigravity') && Boolean(account);
+  return (p === 'cursor' || p === 'antigravity' || p === 'muse') && Boolean(account);
 }
 
 /**

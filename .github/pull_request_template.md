@@ -10,8 +10,8 @@ Thanks for the pull request! CONTRIBUTING.md says what a change needs. Write in 
 
 ## How it was tested · 怎麼測試
 
-<!-- Tests you added or changed. If it changes what agents see or do, which real CLIs (claude, codex, grok, cursor-agent, agy, copilot, the open-source agents) you tried it with. -->
-<!-- 新增或修改了哪些測試。如果會影響 agent 看到或做的事，用哪些真正的 CLI（claude、codex、grok、cursor-agent、agy、copilot、開源 agent）試過。 -->
+<!-- Tests you added or changed. If it changes what agents see or do, which real CLIs (claude, codex, grok, cursor-agent, agy, copilot, muse, the open-source agents) you tried it with. -->
+<!-- 新增或修改了哪些測試。如果會影響 agent 看到或做的事，用哪些真正的 CLI（claude、codex、grok、cursor-agent、agy、copilot、muse、開源 agent）試過。 -->
 
 ## Docs and translations · 文件與翻譯
 

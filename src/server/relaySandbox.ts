@@ -609,7 +609,8 @@ export function isWithin(path: string, dir: string): boolean {
  * access), Cursor's (its rules, subagents, skills and MCP servers; Cursor has no sandbox at all),
  * Antigravity's (`.agents` and its other spellings: its hooks and MCP servers, run outside any sandbox),
  * Copilot's (its project hooks, which it runs without asking, settings, MCP and language servers and
- * extensions in `.github`), and
+ * extensions in `.github`),
+ * Muse Code's (`.muse`: its hooks, run outside its sandbox in a trusted workspace), and
  * the open agents' own project config and plugins. In edit mode the working directory is
  * writable, so these are kept read-only in it: a run cannot plant what a later run, or another agent,
  * would start outside the sandbox. (sandbox-runtime itself keeps `.git/hooks`, `.git/config`,
@@ -644,6 +645,8 @@ export const PROJECT_AGENT_CONFIG = [
   '.github/lsp.json',
   '.github/extensions',
   '.github/agents',
+  // Muse Code's project hooks (`.muse/hooks.json`), which it runs outside its sandbox in a trusted workspace.
+  '.muse',
 ];
 
 /**

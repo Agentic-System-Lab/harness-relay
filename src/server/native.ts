@@ -44,6 +44,7 @@ import {
 } from './agents/codex';
 import { antigravityGeminiDir, antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
 import { copilotHome, copilotProbeEnv, copilotProjectHooks, readCopilotJson } from './agents/copilot';
+import { museConfigBase, museEnv, prepareMuseRun } from './agents/muse';
 import { grokNativeEnv } from './agents/grok';
 import { openAgents } from './agents/index';
 import { openHomeEnv } from './agents/open';
@@ -1617,6 +1618,116 @@ async function probeCopilot(
   };
 }
 
+// --- Muse Code ------------------------------------------------------------------------------------
+
+/** Muse Code's own settings (`<config>/muse/settings.json`), or none. */
+function museSettings(env: NodeJS.ProcessEnv): Json {
+  return jsonFile(join(museConfigBase(env), 'muse', 'settings.json')) ?? {};
+}
+
+/**
+ * Muse Code's MCP servers, by name only (their configs can hold tokens): its settings' `mcpServers`
+ * (what `muse mcp add` writes: `type` `stdio` or `streamable-http`) and `mcp_servers` (`transport`
+ * `stdio` or `streamable_http`), a name in the first one first; `enabled: false` turns one off.
+ */
+export function museMcpServers(settings: Json): NativeMcpServer[] {
+  const servers: NativeMcpServer[] = [];
+  for (const key of ['mcpServers', 'mcp_servers']) {
+    const list = settings[key];
+    if (!list || typeof list !== 'object' || Array.isArray(list)) continue;
+    for (const [name, config] of Object.entries(list as Json)) {
+      if (servers.some((x) => x.name === name)) continue;
+      const kind = String(config?.type ?? config?.transport ?? '');
+      servers.push({
+        name,
+        transport: /http/.test(kind) || typeof config?.url === 'string' ? 'http' : 'stdio',
+        source: 'user',
+        ...(config?.enabled === false ? { enabled: false, status: 'disabled' } : {}),
+      });
+    }
+  }
+  return servers;
+}
+
+/** Muse Code's own hooks (its settings' `hooks` block), by event and matcher, never their commands. */
+export function museHooks(settings: Json): NativeHook[] {
+  const hooks = settings.hooks;
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return [];
+  return Object.entries(hooks as Json).flatMap(([event, groups]) =>
+    (Array.isArray(groups) ? groups : []).map((g: Json) => ({
+      event,
+      ...(typeof g?.matcher === 'string' && g.matcher ? { matcher: g.matcher } : {}),
+      source: 'user settings',
+    })),
+  );
+}
+
+/** Muse Code's skills as `muse skills list --json` lists them (`skills[]`: name, description, scope, path, activation). */
+export function parseMuseSkills(data: unknown): NativeSkill[] {
+  const list = data && typeof data === 'object' && Array.isArray((data as Json).skills) ? ((data as Json).skills as Json[]) : [];
+  return list
+    .filter((x) => x && typeof x === 'object' && typeof x.name === 'string')
+    .map((x) => ({
+      name: String(x.name),
+      description: typeof x.description === 'string' ? x.description : '',
+      ...(typeof x.scope === 'string' ? { source: x.scope } : {}),
+      ...(typeof x.path === 'string' ? { path: x.path } : {}),
+      ...(x.activation === 'off' ? { enabled: false } : {}),
+    }));
+}
+
+/**
+ * What Muse Code loads by itself for `cwd`, asked as a run would load it: in a config folder of the
+ * probe's own (`prepareMuseRun`, read-only, without what is left out, `cwd` untrusted), so that a
+ * project's skills it would load only in a trusted workspace are not listed, and `muse skills list`
+ * answers rather than asking for a terminal to decide the folder's trust. Its skills (`muse skills list --json`), and
+ * its MCP servers and hooks from its settings.
+ */
+async function probeMuse(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  off: readonly NativePart[],
+  items: NativeItemsOff,
+  timeoutMs = PROBE_TIMEOUT_MS,
+): Promise<NativeProbe> {
+  const settings = museSettings(env);
+  const problems: NativeProblem[] = [];
+  let skills: NativeSkill[] = [];
+  let run;
+  try {
+    run = prepareMuseRun(env, 'read-only', [], { nativeOff: off, nativeItems: items, dirs: [cwd] });
+  } catch (err) {
+    problems.push({ kind: 'failed', detail: short((err as Error).message) });
+  }
+  if (run) {
+    try {
+      const res = await runProcess({ bin, args: ['skills', 'list', '--json'], cwd, env: museEnv(env, run.dir), timeoutMs, maxCapture: 8 * 1024 * 1024 });
+      try {
+        skills = parseMuseSkills(JSON.parse(res.stdout.trim()));
+      } catch {
+        problems.push(missing([], true, res)[0]!);
+      }
+    } finally {
+      run.done();
+    }
+  }
+  return {
+    provider: 'muse',
+    cwd,
+    skills,
+    mcpServers: museMcpServers(settings),
+    hooks: museHooks(settings),
+    memory: [],
+    memoryFromFiles: false,
+    nativeOff: [...off],
+    nativeItems: items,
+    asRun: true,
+    problems,
+    checkedAt: Date.now(),
+  };
+}
+
 const PROBES: Record<
   Provider,
   (
@@ -1636,6 +1747,7 @@ const PROBES: Record<
   cursor: probeCursor,
   antigravity: probeAntigravity,
   copilot: probeCopilot,
+  muse: probeMuse,
   opencode: probeOpen('opencode'),
   goose: probeOpen('goose'),
   cline: probeOpen('cline'),

@@ -527,7 +527,7 @@ function within(cwd: string, path: string, dir: string): boolean {
 const GITHUB_AGENT_CONFIG = new Set(['hooks', 'copilot', 'mcp.json', 'lsp.json', 'extensions', 'agents']);
 
 const AGENT_CONFIG = new Set([
-  '.agents', '.agent', '_agents', '_agent', '.gemini', '.claude', '.codex', '.grok', '.cursor', '.opencode', '.goose', '.cline', '.clinerules', '.openhands', '.pi',
+  '.agents', '.agent', '_agents', '_agent', '.gemini', '.muse', '.claude', '.codex', '.grok', '.cursor', '.opencode', '.goose', '.cline', '.clinerules', '.openhands', '.pi',
   '.vscode', '.idea', '.mcp.json', '.gitmodules', '.gitconfig', '.envrc',
 ]);
 

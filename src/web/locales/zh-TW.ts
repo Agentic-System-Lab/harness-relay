@@ -1109,6 +1109,16 @@ export const zhTW = {
         agents: 'Copilot 沒有能單次略過自訂 agent 的設定',
         plugins: '每個已安裝的 plugin，連同它的 skill 與 MCP 伺服器',
       },
+      muse: {
+        skills: 'Muse Code 沒有能單次略過 skill 的設定（它內建的、~/.config/muse/skills 的，以及你 Claude Code 與 Codex 的 skill 都會載入；專案的 skill 只在完全存取時載入，那時工作區才受信任）',
+        mcp: '把 Muse Code 設定裡的 MCP 伺服器從這一輪自己的設定中拿掉',
+        tools: 'Muse Code 不回報它的內建工具',
+        instructions: 'Muse Code 沒有能單次略過指示檔的設定（它自己的規則，以及你 Claude Code 與 Codex 的都會載入；專案的 AGENTS.md、CLAUDE.md 只在完全存取時載入，那時工作區才受信任）',
+        memory: 'Muse Code 沒有能單次略過記憶的設定',
+        hooks: '把 Muse Code 設定裡的 hook 從這一輪自己的設定中拿掉（專案的 .muse/hooks.json 只在完全存取時載入，那時工作區才受信任）',
+        agents: 'Muse Code 沒有能單次略過自訂 agent 的設定',
+        plugins: 'Muse Code 沒有能單次略過 plugin 的設定',
+      },
       goose: {
         skills: 'Goose 沒有關掉 skill 的設定：專案裡 .goose/skills、.claude/skills、.agents/skills 的 skill 一定會載入（它的家目錄是 Harness Relay 自己的，所以不會讀你 ~/.claude/skills 等處的 skill）',
         mcp: '專案 plugin 的 MCP 伺服器都不啟動，只保留工具庫的；從新的對話開始生效（接續的 session 沿用開始時的清單）',
@@ -1255,7 +1265,7 @@ export const zhTW = {
     sessionsHint: 'Harness Relay 啟動 claude、codex、grok、cursor-agent、agy 時，它們把登入、設定與 session 紀錄放在哪裡，以及是否在 AgentsView 中檢視每個對話。',
     agentHome: '各 CLI 自己的資料夾',
     agentHomeHint:
-      '設定後，Harness Relay 讓 claude、codex、grok、cursor-agent、agy、copilot 分別用這個資料夾下的 claude、codex、grok、cursor、antigravity、copilot 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們也不再讀你平常家目錄裡的設定、MCP、skill、記憶與 plugin，Harness Relay 工具庫裡的照常提供。Cursor 例外：只有它的設定與 session 紀錄會放到那裡；它的登入，以及 ~/.cursor 裡的 skill、MCP 與 hooks，仍留在 Cursor 為你的使用者保存的地方。Antigravity 的 .gemini 資料夾（設定、skill、MCP、hook 與對話紀錄）會放到那裡，它的 Google 登入則留在系統的 keyring。留空則使用各 CLI 平常的家目錄。',
+      '設定後，Harness Relay 讓 claude、codex、grok、cursor-agent、agy、copilot、muse 分別用這個資料夾下的 claude、codex、grok、cursor、antigravity、copilot、muse 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們也不再讀你平常家目錄裡的設定、MCP、skill、記憶與 plugin，Harness Relay 工具庫裡的照常提供。Cursor 例外：只有它的設定與 session 紀錄會放到那裡；它的登入，以及 ~/.cursor 裡的 skill、MCP 與 hooks，仍留在 Cursor 為你的使用者保存的地方。Antigravity 的 .gemini 資料夾（設定、skill、MCP、hook 與對話紀錄）會放到那裡，它的 Google 登入則留在系統的 keyring。Muse Code 的設定與資料資料夾（設定、登入與 session）也會放到那裡。留空則使用各 CLI 平常的家目錄。',
     agentHomeUse: (dir: string) => `使用 ${dir}`,
     agentHomeSaved: (dir: string) => `各 CLI 現在使用 ${dir} 下的資料夾，請在上方重新登入`,
     agentHomeOff: '各 CLI 已改回使用平常的家目錄',
@@ -1372,6 +1382,7 @@ export const zhTW = {
         '儲存後，Harness Relay 啟動 Antigravity 時會帶入 GEMINI_API_KEY，並在那次執行自己的設定中加上 modelProvider: "gemini"，讓它改用 Gemini API（依用量計費）而不是 Google 登入；你自己的設定檔不會被改動。',
       copilot:
         '儲存後，Harness Relay 啟動 Copilot 時會帶入 COPILOT_GITHUB_TOKEN（優先於它保存的 GitHub 登入）。請用有「Copilot Requests」權限的 fine-grained personal access token；Copilot 不接受 classic token（ghp_）。',
+      muse: '儲存後，Harness Relay 啟動 Muse Code 時會帶入 META_API_KEY，它就改用這把金鑰（Meta API 計費），而不是你的 Meta 帳號登入。',
     },
     cliMissing: (bin: string) => `找不到 ${bin}`,
     setBinBelow: '（可在下方「執行檔」指定路徑）',
@@ -1386,6 +1397,8 @@ export const zhTW = {
       'Cursor 在每個電腦使用者只保留一個登入（macOS 上存在鑰匙圈裡，不論它的資料夾在哪），所以這個額外帳號只能用 API key：請在下方設定。Cursor 自己的登入只屬於預設帳號。',
     keyOnlyAntigravity:
       'Antigravity 把 Google 登入存在系統的 keyring 裡，Harness Relay 無法確定另一個帳號的登入不會取代預設帳號的，所以這個額外帳號只能用 Gemini API key：請在下方設定。Google 登入只屬於預設帳號。',
+    keyOnlyMuse:
+      'Muse Code 在 macOS 把 Meta 登入存在登入鑰匙圈裡，名稱不隨它的資料夾改變，另一個帳號的登入可能取代預設帳號的，所以這個額外帳號只能用 Meta API key：請在下方設定。Meta 帳號登入只屬於預設帳號。',
     keySaved: '已儲存 API key',
     keyRemoved: '已移除 API key',
     saved: '已儲存',

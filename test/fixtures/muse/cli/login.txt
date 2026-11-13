@@ -1,0 +1,6 @@
+Open this page to sign in:
+  https://auth.meta.com/oauth/device/?code=ABCD-EFGH
+confirm this code matches:
+  ABCD-EFGH
+
+Waiting for approval…

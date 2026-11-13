@@ -111,6 +111,8 @@ export const INHERITED_BACKEND_VARS = [
   'COPILOT_PROVIDER_BASE_URL',
   'COPILOT_PROVIDER_API_KEY',
   'COPILOT_PROVIDER_BEARER_TOKEN',
+  // Muse Code's sign-in by key (Meta's Model API).
+  'META_API_KEY',
 ];
 
 /** The keyring account of a backend's key. */

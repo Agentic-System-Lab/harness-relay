@@ -222,6 +222,18 @@ describe("the fakes as launchers start them on Windows (e2e/specs/windows.spec.t
     says('cursor', launch.args, launch.env);
   });
 
+  it("starts Muse Code's launcher as the binary its .muse-version names, which runs as Muse Code", () => {
+    expect(win(bins.muse)).toBe(`${WIN}\\muse\\muse.cmd`);
+    const launch = windowsLaunch('muse', ['--version'], env('muse'), fs, null);
+    expect(launch).toEqual({ file: `${WIN}\\muse\\muse-bin-1.4.999-R1.exe`, args: ['--version'] });
+    expect(readFileSync(local(launch.file), 'utf8')).toBe('a stand-in for the fakes’ executable');
+    // The fakes' executable under that name is Muse Code's fake.
+    writeFileSync(script('muse-bin-1.4.999-R1'), bundleFakeCli());
+    const r = run('muse-bin-1.4.999-R1', ['--version']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(fakeModule('muse').versionRe);
+  });
+
   it.each([['cline'], ['pi']] as const)("starts %s's npm shim as the PATH's Node with its script", (p) => {
     const launch = windowsLaunch(p, ['--version'], env('npm'), fs, 'C:\\relay\\node.exe');
     expect(launch).toEqual({ file: 'C:\\relay\\node.exe', args: [`${WIN}\\npm\\node_modules\\${p}\\${p}.cjs`, '--version'] });

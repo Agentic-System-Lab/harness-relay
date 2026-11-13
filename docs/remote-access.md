@@ -8,7 +8,7 @@ Harness Relay runs on one computer: the agents, your projects and the CLIs' logi
 flowchart LR
   P["Phone or tablet<br/>(Tailscale app)"] -- "HTTPS, inside your tailnet" --> S["tailscale serve<br/>(on the computer)"]
   S -- "http://127.0.0.1:8787" --> R["Harness Relay"]
-  R --> A["claude · codex · grok · cursor-agent · agy · copilot<br/>opencode · goose · cline · openhands · pi"]
+  R --> A["claude · codex · grok · cursor-agent · agy · copilot · muse<br/>opencode · goose · cline · openhands · pi"]
 ```
 
 The server stays bound to `127.0.0.1`. `tailscale serve`, on the same computer, takes the requests that come in from your tailnet and passes them on. So:
@@ -81,7 +81,7 @@ Turn Tailscale on in the phone and open the address from step 1, for example `ht
 
 - **Working directories** are folders on the computer, not on the phone.
 - **Files the agents make** (a PDF, slides, a spreadsheet…): tap the link in the reply, or **Download** in **Files**, and the file is saved on the phone: on an iPhone or iPad in the Files app under **Downloads** (Safari may ask first), on Android in **Downloads**.
-- **Signing in an agent** from the phone: pick a method that shows a link or a code. Codex's *ChatGPT browser sign-in* opens a browser on the computer, not on the phone; use *ChatGPT device code* instead. Cursor's *Cursor account* shows its link instead of opening a browser, so it works from the phone too. So does Antigravity's *Google account*: open its link on the phone, sign in to Google, and paste the code the page shows (or the page's whole address) back into the box. Copilot's *GitHub account (device code)* shows GitHub's link and a code: open the link on the phone and enter the code.
+- **Signing in an agent** from the phone: pick a method that shows a link or a code. Codex's *ChatGPT browser sign-in* opens a browser on the computer, not on the phone; use *ChatGPT device code* instead. Cursor's *Cursor account* shows its link instead of opening a browser, so it works from the phone too. So does Antigravity's *Google account*: open its link on the phone, sign in to Google, and paste the code the page shows (or the page's whole address) back into the box. Copilot's *GitHub account (device code)* shows GitHub's link and a code: open the link on the phone and enter the code. And so does Muse Code's *Meta account*: open its link on the phone, sign in to your Meta account, and check that the page shows the code under the link (not tried with a real Meta account).
 - **Conversations keep running** on the computer when the phone locks or you close the page. When you come back, the page reconnects and catches up.
 - **Voice input**: allow the microphone when the browser asks. The recording goes to the computer, which turns it into text; it is never sent anywhere else.
 
@@ -168,7 +168,7 @@ WorkingDirectory=%h/harness-relay
 Environment=PORT=8787
 Environment=RELAY_ALLOWED_HOSTS=my-computer.tail1234.ts.net
 # systemd does not read your shell profile. Paste the output of `echo $PATH` here,
-# so the server finds node and the agents' commands: claude, codex, grok, cursor-agent, agy, copilot,
+# so the server finds node and the agents' commands: claude, codex, grok, cursor-agent, agy, copilot, muse,
 # and the open-source agents' opencode, goose, cline, openhands and pi (often in
 # ~/.local/bin, or where npm, Homebrew or uv put them).
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
@@ -185,7 +185,7 @@ RestartSec=3
 WantedBy=default.target
 ```
 
-Below full access, the agents' commands run in sandboxes that on Linux need programs of their own: Claude Code's needs `bubblewrap` and `socat`; Codex's uses `bubblewrap` (the copy it ships with when none is installed; installing it is recommended); Grok's needs `bubblewrap` (and kernel 5.13 or later); Copilot's needs bubblewrap 0.5 or later, slirp4netns, util-linux 2.35 or later, iproute2, iptables, `/dev/net/tun` and unprivileged user and network namespaces (without them every command it runs fails; with them its commands cannot reach services on the server's own loopback); and Harness Relay's own, which the open-source agents run in, needs `bubblewrap`, `socat` and `ripgrep`. So run `sudo apt-get install bubblewrap socat ripgrep` (and `slirp4netns iproute2 iptables` for Copilot), and on Ubuntu 23.10 or later add the AppArmor profile in [OS sandboxes by platform](sandboxing.md#on-linux) (for Copilot, only lifting the restriction was tried: see [Linux](sandboxing.md#linux)). Cursor and Antigravity need none: neither has a sandbox in Harness Relay's runs, so their commands ask you (but Cursor's on a Cursor team's allowlist), or are refused when the chat refuses automatically. The service finds these programs on the same `PATH`.
+Below full access, the agents' commands run in sandboxes that on Linux need programs of their own: Claude Code's needs `bubblewrap` and `socat`; Codex's uses `bubblewrap` (the copy it ships with when none is installed; installing it is recommended); Grok's needs `bubblewrap` (and kernel 5.13 or later); Muse Code's brings its own; Copilot's needs bubblewrap 0.5 or later, slirp4netns, util-linux 2.35 or later, iproute2, iptables, `/dev/net/tun` and unprivileged user and network namespaces (without them every command it runs fails; with them its commands cannot reach services on the server's own loopback); and Harness Relay's own, which the open-source agents run in, needs `bubblewrap`, `socat` and `ripgrep`. So run `sudo apt-get install bubblewrap socat ripgrep` (and `slirp4netns iproute2 iptables` for Copilot), and on Ubuntu 23.10 or later add the AppArmor profile in [OS sandboxes by platform](sandboxing.md#on-linux) (for Copilot, only lifting the restriction was tried: see [Linux](sandboxing.md#linux)). Cursor and Antigravity need none: neither has a sandbox in Harness Relay's runs, so their commands ask you (but Cursor's on a Cursor team's allowlist), or are refused when the chat refuses automatically. The service finds these programs on the same `PATH`.
 
 Then start it, and let it run while you are logged out:
 
@@ -216,8 +216,8 @@ A restart stops any agent turn that is running, so update when no conversation i
 On a server:
 
 - **Port already taken:** if another program already uses port 8787, set another `PORT` in the unit file and share that port in step 1.
-- **Signing in the CLIs:** sign in from **Settings & sign-in** in the browser (with a device code or a link), or over SSH with each CLI's own login command. Antigravity opens no browser on the server in Harness Relay's sign-in: open its link on any device and paste the code back. Copilot's device code works the same way, but Copilot keeps its token in the system's credential store, which a machine without a desktop session usually lacks: there `copilot login` ends with *Login succeeded, but the token was not saved…*, and Harness Relay shows that sign-in as failed. Set `"storeTokenPlaintext": true` in the account's Copilot `settings.json` (`~/.copilot/settings.json`, or the one in the account's folder) and sign in again, or use a GitHub token instead (`COPILOT_GITHUB_TOKEN`, a fine-grained one with the "Copilot Requests" permission).
-- **API keys:** a machine without a desktop session usually has no Secret Service, so API keys saved in Settings stay in `data/relay.db` (see [API keys](user-guide.md#api-keys-optional)). To avoid that, add `Environment=ANTHROPIC_API_KEY=…`, `XAI_API_KEY`, `GEMINI_API_KEY` (Antigravity's) or `COPILOT_GITHUB_TOKEN` (Copilot's) to the unit file instead.
+- **Signing in the CLIs:** sign in from **Settings & sign-in** in the browser (with a device code or a link), or over SSH with each CLI's own login command. Antigravity opens no browser on the server in Harness Relay's sign-in: open its link on any device and paste the code back. Copilot's device code works the same way, but Copilot keeps its token in the system's credential store, which a machine without a desktop session usually lacks: there `copilot login` ends with *Login succeeded, but the token was not saved…*, and Harness Relay shows that sign-in as failed. Set `"storeTokenPlaintext": true` in the account's Copilot `settings.json` (`~/.copilot/settings.json`, or the one in the account's folder) and sign in again, or use a GitHub token instead (`COPILOT_GITHUB_TOKEN`, a fine-grained one with the "Copilot Requests" permission). Muse Code's neither: open its link on any device and check the code.
+- **API keys:** a machine without a desktop session usually has no Secret Service, so API keys saved in Settings stay in `data/relay.db` (see [API keys](user-guide.md#api-keys-optional)). To avoid that, add `Environment=ANTHROPIC_API_KEY=…`, `XAI_API_KEY`, `GEMINI_API_KEY` (Antigravity's) or `COPILOT_GITHUB_TOKEN` (Copilot's) or `META_API_KEY` (Muse Code's) to the unit file instead.
 
 ## Security
 
@@ -239,7 +239,7 @@ On a server:
 | The desktop app says it could not read what this computer shares | `tailscale serve status --json` failed or did not answer in time, so the app shared nothing. Check that Tailscale runs and is signed in (`tailscale status`), then choose **Share with your phone** again, or share by hand as in [step 1](#1-share-the-server-with-your-tailnet). |
 | Another program's page or certificate shows up | Another program on the computer listens on port 443 and answers when nothing is shared. Check `tailscale serve status`: if the address is gone, run step 1 again. If it is listed and the other program still answers, share on another port: `tailscale serve --bg --https=8443 8787`, then open `https://my-computer.tail1234.ts.net:8443` (`RELAY_ALLOWED_HOSTS` stays the same). |
 | AgentsView's page opens on the phone but stays empty | Its requests are refused because `public_url` doesn't match the address you opened. Check the line at the top of `~/.relay-agents/agentsview/config.toml` (the exact address, with `https://` and `:9999`), then restart AgentsView. |
-| An agent shows *Command not found* only when it runs as a service | The service's `PATH` doesn't include that CLI. Find it with `command -v claude` (or `codex`, `grok`, `cursor-agent`, `agy`, `copilot`, `opencode`, `goose`, `cline`, `openhands`, `pi`), add its folder to `Environment=PATH=` and restart. |
+| An agent shows *Command not found* only when it runs as a service | The service's `PATH` doesn't include that CLI. Find it with `command -v claude` (or `codex`, `grok`, `cursor-agent`, `agy`, `copilot`, `muse`, `opencode`, `goose`, `cline`, `openhands`, `pi`), add its folder to `Environment=PATH=` and restart. |
 | 🎙 says the microphone is not available on the phone | Open the `https://` address, not an `http://` one. Allow the microphone for this site in the browser, and in the phone's settings for that browser. |
 | The home-screen icon opens a blank or error page | Turn Tailscale on in the phone, then open the icon again. |
 | **Show notifications** cannot be turned on on an iPhone or iPad | Open Harness Relay from its icon on the home screen (step 4), not in Safari, on iOS 16.4 or later. If it says notifications are blocked, allow them for Harness Relay in the phone's **Settings → Notifications**. |

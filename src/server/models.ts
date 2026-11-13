@@ -16,6 +16,7 @@ import {
 } from '../shared/types';
 import { antigravityAppDir, antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
 import { askCopilotModels, parseCopilotModels } from './agents/copilot';
+import { museConfigBase, MUSE_EFFORTS } from './agents/muse';
 import { openAgents } from './agents/index';
 import { openHomeEnv, type OpenCatalog } from './agents/open';
 import { capture, converse, stripAnsi, tail } from './process';
@@ -31,6 +32,21 @@ const CURSOR_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const ANTIGRAVITY_EFFORTS = ['low', 'medium', 'high'];
 /** Copilot's reasoning efforts (`--reasoning-effort`); each model takes some of them. */
 const COPILOT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** Muse Code's efforts (`MUSE_EFFORTS`): its Meta provider refuses `none`, and `ultra` is not open to everyone. */
+const MUSE_EFFORT_LIST = [...MUSE_EFFORTS];
+
+/**
+ * Muse Code's models (dev.meta.ai/docs/muse-code, checked with muse 1.4.18): it lists them only inside a
+ * session (`/models`), from the Meta API's catalog, so the list is a fixed one; the `-contributor`
+ * ones trade the use of the session's data for a lower price.
+ */
+const MUSE_MODELS: ModelOption[] = [
+  { id: 'muse-spark-1.3', label: 'Muse Spark 1.3' },
+  { id: 'muse-spark-1.3-contributor', label: 'Muse Spark 1.3 (contributor)' },
+  { id: 'muse-spark-1.2', label: 'Muse Spark 1.2' },
+  { id: 'muse-spark-1.2-contributor', label: 'Muse Spark 1.2 (contributor)' },
+  { id: 'muse-ember-1.0', label: 'Muse Ember 1.0' },
+];
 
 /** Claude Code accepts aliases that always point at the latest model of each family. */
 const CLAUDE_MODELS: ModelOption[] = [
@@ -362,6 +378,23 @@ export function withEndpointModels(p: EndpointCli, d: DiscoveredModels, endpoint
   return fromEndpoints.length ? { ...d, models: [...d.models, ...fromEndpoints] } : d;
 }
 
+/**
+ * Muse Code's models: the fixed list (`MUSE_MODELS`), with the account's own default model and effort
+ * from its `settings.json` (`model`, `reasoning_effort`), else Muse's (`high`).
+ */
+export function discoverMuse(env: NodeJS.ProcessEnv): DiscoveredModels {
+  let own: Record<string, unknown> = {};
+  try {
+    own = JSON.parse(readFileSync(join(museConfigBase(env), 'muse', 'settings.json'), 'utf8')) as Record<string, unknown>;
+  } catch {
+    // none yet: Muse's defaults
+  }
+  const model = typeof own.model === 'string' && own.model.trim() ? own.model.trim() : undefined;
+  const effort = typeof own.reasoning_effort === 'string' && MUSE_EFFORT_LIST.includes(own.reasoning_effort as never) ? own.reasoning_effort : 'high';
+  const models = model && !MUSE_MODELS.some((m) => m.id === model) ? [...MUSE_MODELS, { id: model }] : MUSE_MODELS;
+  return { provider: 'muse', models, efforts: MUSE_EFFORT_LIST, ...(model ? { cliDefaultModel: model } : {}), cliDefaultEffort: effort, source: 'builtin' };
+}
+
 export async function discoverModels(
   p: Provider,
   bin: string,
@@ -382,12 +415,13 @@ export async function discoverModels(
     else if (p === 'cursor') own = await discoverCursor(bin, env);
     else if (p === 'antigravity') own = await discoverAntigravity(bin, env);
     else if (p === 'copilot') own = await discoverCopilot(bin, env);
+    else if (p === 'muse') own = discoverMuse(env);
     else own = await discoverGrok(bin, env);
   } catch (err) {
-    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS, antigravity: ANTIGRAVITY_EFFORTS, copilot: COPILOT_EFFORTS }[p];
-    own = { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
+    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS, antigravity: ANTIGRAVITY_EFFORTS, copilot: COPILOT_EFFORTS, muse: MUSE_EFFORT_LIST }[p];
+    own = { provider: p, models: p === 'claude' ? CLAUDE_MODELS : p === 'muse' ? MUSE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
   }
-  // Cursor's and Antigravity's models run only through their own services, so the endpoints' models are not theirs.
+  // Cursor's, Antigravity's and Muse Code's models run only through their own services, so the endpoints' models are not theirs.
   return isEndpointCli(p) ? withEndpointModels(p, own, backends.endpoints) : own;
 }
 

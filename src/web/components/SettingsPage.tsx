@@ -84,10 +84,11 @@ const KEY_ENV: Record<SignInCli, string> = {
   cursor: 'CURSOR_API_KEY',
   antigravity: 'GEMINI_API_KEY',
   copilot: 'COPILOT_GITHUB_TOKEN',
+  muse: 'META_API_KEY',
 };
 
 /** How each CLI's API keys start, as the key box's placeholder. */
-const KEY_PLACEHOLDER: Record<SignInCli, string> = { claude: 'sk-ant-…', codex: 'sk-…', grok: 'xai-…', cursor: 'key_…', antigravity: 'AIza…', copilot: 'github_pat_…' };
+const KEY_PLACEHOLDER: Record<SignInCli, string> = { claude: 'sk-ant-…', codex: 'sk-…', grok: 'xai-…', cursor: 'key_…', antigravity: 'AIza…', copilot: 'github_pat_…', muse: 'meta-…' };
 
 export function SettingsPage({ section, providers, catalog, refreshProviders, onShowTour, update, onCheckUpdate, onInstallUpdate }: Props) {
   const { t, lang, setLang } = useI18n();
@@ -735,7 +736,7 @@ function AccountBlock({
       {id && account?.home && <p className="muted small mono-path">{t.accounts.folder(account.home)}</p>}
 
       {keyOnly ? (
-        <p className="muted small">{provider === 'antigravity' ? t.settings.keyOnlyAntigravity : t.settings.keyOnlyAccount}</p>
+        <p className="muted small">{provider === 'antigravity' ? t.settings.keyOnlyAntigravity : provider === 'muse' ? t.settings.keyOnlyMuse : t.settings.keyOnlyAccount}</p>
       ) : (
         <>
           <div className="method-list" role="radiogroup">
@@ -1300,6 +1301,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     cursor: PROVIDER_LABEL.cursor,
     antigravity: PROVIDER_LABEL.antigravity,
     copilot: PROVIDER_LABEL.copilot,
+    muse: PROVIDER_LABEL.muse,
     backends: short.backends,
     opencode: PROVIDER_LABEL.opencode,
     goose: PROVIDER_LABEL.goose,

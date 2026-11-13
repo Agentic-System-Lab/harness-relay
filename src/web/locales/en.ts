@@ -1093,6 +1093,16 @@ export const en: Messages = {
         agents: 'Copilot has no setting to skip custom agents for one run',
         plugins: 'Every installed plugin, with its skills and MCP servers',
       },
+      muse: {
+        skills: "Muse Code has no setting to skip skills for one run (its bundled ones, those in ~/.config/muse/skills, and your Claude Code and Codex skills load; a project's only in full access, where the workspace is trusted)",
+        mcp: "Leaves the MCP servers of Muse Code's settings out of this run's own settings",
+        tools: 'Muse Code does not report its built-in tools',
+        instructions: "Muse Code has no setting to skip instruction files for one run (its own rules, and your Claude Code and Codex ones, load; a project's AGENTS.md and CLAUDE.md only in full access, where the workspace is trusted)",
+        memory: 'Muse Code has no setting to skip its memory for one run',
+        hooks: "Leaves the hooks of Muse Code's settings out of this run's own settings (a project's .muse/hooks.json loads only in full access, where the workspace is trusted)",
+        agents: 'Muse Code has no setting to skip custom agents for one run',
+        plugins: 'Muse Code has no setting to skip plugins for one run',
+      },
       goose: {
         skills: "Goose has no setting that turns skills off: those in the project's .goose/skills, .claude/skills and .agents/skills always load (its home is Harness Relay's own, so it does not read your ~/.claude/skills and the like)",
         mcp: "the MCP servers of the project's plugins do not start; only the tool library's do. From a new conversation on (a resumed session keeps the list it started with)",
@@ -1242,7 +1252,7 @@ export const en: Messages = {
       'Where claude, codex, grok, cursor-agent and agy keep their sign-in, settings and session records when Harness Relay runs them, and whether to view each conversation in AgentsView.',
     agentHome: "The CLIs' own folder",
     agentHomeHint:
-      "When set, Harness Relay has claude, codex, grok, cursor-agent, agy and copilot use its claude, codex, grok, cursor, antigravity and copilot subfolders as their homes: their sign-in, settings and session records go there, apart from your own use of the CLIs. Sign in to each CLI again above (or set an API key). They also stop reading the settings, MCP servers, skills, memory and plugins in your usual homes; those in Harness Relay's tool library are still given. Cursor is the exception: only its settings and session records move there; its sign-in, and the skills, MCP servers and hooks in ~/.cursor, stay where Cursor keeps them for your user. Antigravity's .gemini folder (its settings, skills, MCP servers, hooks and conversations) moves there, while its Google sign-in stays in the system keyring. Leave it empty to use each CLI's usual home.",
+      "When set, Harness Relay has claude, codex, grok, cursor-agent, agy, copilot and muse use its claude, codex, grok, cursor, antigravity, copilot and muse subfolders as their homes: their sign-in, settings and session records go there, apart from your own use of the CLIs. Sign in to each CLI again above (or set an API key). They also stop reading the settings, MCP servers, skills, memory and plugins in your usual homes; those in Harness Relay's tool library are still given. Cursor is the exception: only its settings and session records move there; its sign-in, and the skills, MCP servers and hooks in ~/.cursor, stay where Cursor keeps them for your user. Antigravity's .gemini folder (its settings, skills, MCP servers, hooks and conversations) moves there, while its Google sign-in stays in the system keyring. Muse Code's config and data folders (its settings, sign-in and sessions) move there too. Leave it empty to use each CLI's usual home.",
     agentHomeUse: (dir: string) => `Use ${dir}`,
     agentHomeSaved: (dir: string) => `The CLIs now use the folders in ${dir}. Sign in to them again above.`,
     agentHomeOff: 'The CLIs use their usual homes again',
@@ -1354,6 +1364,7 @@ export const en: Messages = {
         'Once saved, Harness Relay passes GEMINI_API_KEY when it starts Antigravity, and adds modelProvider: "gemini" to that run\'s own settings, so it runs on the Gemini API (billed by usage) instead of your Google sign-in; your own settings file is not changed.',
       copilot:
         "Once saved, Harness Relay passes COPILOT_GITHUB_TOKEN when it starts Copilot (ahead of the GitHub sign-in it keeps). Use a fine-grained personal access token with the \"Copilot Requests\" permission; Copilot does not take classic tokens (ghp_).",
+      muse: 'Once saved, Harness Relay passes META_API_KEY when it starts Muse Code, which then runs on that key (Meta API billing) instead of your Meta account sign-in.',
     },
     cliMissing: (bin) => `${bin} not found`,
     setBinBelow: ' (set its path under "Executable" below)',
@@ -1368,6 +1379,8 @@ export const en: Messages = {
       "Cursor keeps one sign-in per computer user (on macOS in the keychain, wherever its folder is), so this extra account can only use an API key: set one below. Cursor's own sign-in belongs to the default account.",
     keyOnlyAntigravity:
       "Antigravity keeps its Google sign-in in the system keyring, and Harness Relay cannot be sure that another account's sign-in would not replace the default one's, so this extra account can only use a Gemini API key: set one below. The Google sign-in belongs to the default account.",
+    keyOnlyMuse:
+      "On macOS Muse Code keeps its Meta sign-in in the login keychain under names its folders do not change, so another account's sign-in could replace the default one's: this extra account can only use a Meta API key. Set one below. The Meta account sign-in belongs to the default account.",
     keySaved: 'API key saved',
     keyRemoved: 'API key removed',
     saved: 'Saved',
