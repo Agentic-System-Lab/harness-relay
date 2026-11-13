@@ -30,3 +30,19 @@ describe('Hub', () => {
     expect(b).toEqual([status]);
   });
 });
+
+describe('Hub.subscribeAll', () => {
+  it("hears every conversation's events, with the conversation, until it unsubscribes", () => {
+    const hub = new Hub();
+    const heard: [string, string][] = [];
+    const off = hub.subscribeAll((id, e) => heard.push([id, e.type]));
+    hub.emit('c1', { type: 'status', running: true, activeAgentIds: [] });
+    hub.emit('c2', { type: 'queue', queue: [] });
+    off();
+    hub.emit('c1', { type: 'status', running: false, activeAgentIds: [] });
+    expect(heard).toEqual([
+      ['c1', 'status'],
+      ['c2', 'queue'],
+    ]);
+  });
+});

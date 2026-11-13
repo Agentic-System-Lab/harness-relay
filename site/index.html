@@ -802,6 +802,7 @@
             <li><b>Share a conversation as a link</b>Share the whole conversation, or everything up to one reply, as a page that looks like the conversation on screen, without tool calls and thinking. It goes up as a secret gist with your GitHub CLI and opens on gistpreview.github.io; Settings lists every link, to remove the ones that should go.</li>
             <li><b>Messages on a schedule</b>Send the team a message at set times, in the same conversation or in a new one each time: once, every day, every week on the days you pick, or every few hours. Or start from New schedule, and the lead agent picks the team. Nobody may be watching, so by default anything beyond the permission is refused automatically, unless you always allow it in that conversation. A time missed while Harness Relay was closed is skipped or, if you choose, sent once when it starts.</li>
             <li><b>Status at a glance</b>The sidebar marks conversations that need you, are replying or have a new reply. Conversations keep running when you switch away.</li>
+            <li><b>Notifications and sound</b>When a reply is done or an agent needs you, a system notification and a short sound, turned on for each browser in Settings. On a phone with Harness Relay on its home screen, push notifications arrive even with the app closed or the phone locked.</li>
             <li><b>Sign in from the app</b>Device-code, browser and paste-code sign-in for Claude Code, Codex, Grok, Cursor and Antigravity, model backends for the open-source agents, plus API keys, executable paths and default models. See the skills, MCP tools, built-in tools, hooks, subagents, plugins, instructions and memory each CLI loads by itself, and leave them out of Harness Relay's runs, all of a kind or one by one (Cursor and Antigravity have no way to).</li>
             <li><b>Images and video in the conversation</b>Images and videos an agent saves in the working directory show up right in the conversation.</li>
             <li><b>Browse the working directory</b>Files in the header lists the working directory, or an agent’s worktree, and previews code with line numbers, Markdown, images and video. Download any file, or a folder as a ZIP file.</li>
@@ -951,7 +952,8 @@
                   Sign the phone in with a code from <b>Settings → Signed-in browsers → Sign in another device</b> on the
                   computer. Only devices in your tailnet can reach it, and the server stays on <code>127.0.0.1</code>. To add it
                   to the home screen: <b>Share → Add to Home Screen</b> in Safari on iPhone, <b>⋮ → Install app</b> in Chrome on
-                  Android.
+                  Android. Then turn on <b>Settings → Notifications and sound</b> there, to be told when the team finishes or
+                  needs you, even with the phone locked.
                 </p>
                 <p><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md">Step by step, with keeping it running and troubleshooting</a></p>
               </div>

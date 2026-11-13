@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { serve } from '@hono/node-server';
 import { AgentsViewSync } from './agentsview';
+import { AlertWatcher } from './alerts';
 import { createApp } from './app';
 import { AuthStore, CODE_TTL_MS } from './auth';
 import { signInLink } from './signin';
@@ -13,6 +14,7 @@ import { relayVersion } from './about';
 import { apiPort, isDevRun } from './ports';
 import { killAll } from './process';
 import { ProviderService } from './providers';
+import { PushService } from './push';
 import { Scheduler } from './scheduler';
 import { clearShareTmp } from './share';
 import { openSystemKeyring } from './secrets';
@@ -91,13 +93,29 @@ const orchestrator = new Orchestrator(
 // Sends each conversation's scheduled message when it comes due.
 const scheduler = new Scheduler(store, orchestrator);
 
+// Push notifications to the browsers that turned them on (a phone, say), when agents finish or need the user.
+const push = new PushService(db);
+const alerts = new AlertWatcher({
+  list: () =>
+    store.list(
+      (id) => orchestrator.isRunning(id),
+      (id) => orchestrator.isWaiting(id),
+      (id) => orchestrator.isSorting(id),
+    ),
+  get: (id) => store.get(id),
+  push,
+  busy: () => orchestrator.busy() > 0,
+});
+// A conversation's event (a run starting or ending, a message): the watcher reads the states again.
+hub.subscribeAll(() => alerts.touch());
+
 // The desktop app, when it started this server (desktop/); undefined for `npm start` and `npm run dev`.
 const parent = desktopParent();
 
 const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
 // What the desktop app says of its updates, for the chat to show (only the version otherwise).
 const updates = new Updates(parent, relayVersion);
-const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, agentsView, native, extraHosts, desktopApp: Boolean(parent), updates });
+const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, agentsView, native, extraHosts, desktopApp: Boolean(parent), updates, push, alerts });
 
 // --- Static web app (production build) ------------------------------------------
 
@@ -157,6 +175,7 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   }
   // Times missed while the server was not running are handled now, by each schedule's choice.
   scheduler.start();
+  alerts.start();
 });
 // Without a listener, a port already in use would end the process with a stack trace.
 server.on('error', (err: NodeJS.ErrnoException) => {
@@ -173,6 +192,7 @@ async function shutdown(code = 0): Promise<void> {
   setTimeout(() => process.exit(1), 10_000).unref(); // never hang on the way out
   server.close();
   scheduler.stop();
+  alerts.stop();
   orchestrator.stopAll();
   providers.shutdown();
   voice.shutdown();

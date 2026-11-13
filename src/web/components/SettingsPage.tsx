@@ -33,6 +33,7 @@ import { setThemeChoice, THEMES, useThemeChoice } from '../theme';
 import {
   SETTINGS_SECTIONS,
   currentSection,
+  makeRoomForCorner,
   readingLine,
   revealLink,
   scrollToSection,
@@ -47,6 +48,7 @@ import { BackendsCard } from './BackendsSettings';
 import { CwdInput } from './CwdInput';
 import { CliPicker } from './CliPicker';
 import { ModelPicker } from './ModelPicker';
+import { NotificationsCard } from './NotificationsSettings';
 import { NativeSetupPanel } from './NativeSetupPanel';
 import { SectionTitle } from './SectionTitle';
 import { BrowsersCard } from './BrowsersSettings';
@@ -187,6 +189,8 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
             ))}
           </div>
         </section>
+
+        <NotificationsCard />
 
         {/* The model backends first: the open agents run on them, and the other CLIs on their endpoints too. */}
         <BackendsCard onChanged={() => void refreshProviders(true)} />
@@ -1150,20 +1154,42 @@ function LoginPanel({
 /** Links to every card of the page, in page order; they stay at the top while the page scrolls. */
 function SettingsNav({ section }: { section?: SettingsSection }) {
   const t = useT();
-  // Whether the links are stuck to the top: on phones they then make room for the menu button.
   const marker = useRef<HTMLSpanElement>(null);
+  const nav = useRef<HTMLElement>(null);
+  const row = useRef<HTMLDivElement>(null);
+  // Whether the links make room for the button in the top-left corner (the menu on phones, the
+  // collapsed sidebar's): from the moment their row comes up to it as the page scrolls, so that it never
+  // covers a link (`makeRoomForCorner`). Checked as the page scrolls, and when the window or the main
+  // area changes size (the sidebar collapsed or opened).
   const [stuck, setStuck] = useState(false);
   useEffect(() => {
-    const el = marker.current;
-    if (!el || typeof IntersectionObserver === 'undefined') return;
-    const observer = new IntersectionObserver(([e]) => setStuck(!e!.isIntersecting), { root: el.closest('.scroll') });
-    observer.observe(el);
-    return () => observer.disconnect();
+    const links = row.current;
+    const scroller = links?.closest<HTMLElement>('.scroll');
+    const main = links?.closest<HTMLElement>('.main');
+    if (!links || !scroller || !main) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const corner = [...main.querySelectorAll<HTMLElement>(':scope > .menu-button, :scope > .sidebar-tools')].find((el) => el.getClientRects().length > 0);
+      setStuck(makeRoomForCorner(links.getBoundingClientRect().top, corner?.getBoundingClientRect().bottom));
+    };
+    const later = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    scroller.addEventListener('scroll', later, { passive: true });
+    window.addEventListener('resize', later);
+    const sizes = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(later);
+    sizes?.observe(main);
+    update();
+    return () => {
+      cancelAnimationFrame(frame);
+      scroller.removeEventListener('scroll', later);
+      window.removeEventListener('resize', later);
+      sizes?.disconnect();
+    };
   }, []);
 
   // The card being read is highlighted: checked as the page scrolls, and when cards change size (they load their content).
-  const nav = useRef<HTMLElement>(null);
-  const row = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<SettingsSection>();
   // A card picked with a link stays highlighted while the page scrolls there, and until the reader scrolls on.
   const picked = useRef<{ until: number } | null>(null);
@@ -1266,6 +1292,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     version: short.version,
     language: short.language,
     appearance: short.appearance,
+    notifications: short.notifications,
     claude: PROVIDER_LABEL.claude,
     codex: PROVIDER_LABEL.codex,
     grok: PROVIDER_LABEL.grok,

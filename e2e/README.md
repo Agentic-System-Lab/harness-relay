@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 326 tests in 29 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 332 tests in 30 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -60,7 +60,8 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 9 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
 | [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
 | [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 5 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
-| [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 4 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
+| [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 6 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
+| [Notifications and sound](#notifications-and-sound) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [User guide → Notifications and sound](../docs/user-guide.md#notifications-and-sound), [Architecture → Notifications](../docs/architecture.md#notifications) |
 | [Limits the environment sets](#limits-the-environment-sets) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [Developer guide → Environment variables](../docs/developer-guide.md#environment-variables) |
 | [Languages](#languages) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 2 | [Architecture → Languages](../docs/architecture.md#languages) |
 | [On a phone](#on-a-phone) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 3 | [Use it from your phone](../docs/remote-access.md) |
@@ -381,8 +382,21 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- |
 | The tour shows on a first visit, steps through to the end, and is not shown again | It opens at step 1 without Back; Next, Back and the arrow keys move; the last step has no Skip, **Get started** closes it, and a reload does not bring it back. |
 | The tour can be skipped, and Settings starts it again | Skipped, it stays away after a reload; **Settings → Guided tour → Replay the tour** opens it at step 1, Escape closes it, and it stays done. |
+| On a phone, the tour is a sheet at the bottom of the screen, and a long step's text scrolls above its buttons | At 390×560, the longest step (file permission) sits at the bottom of the screen with **Next** inside it; its text scrolls, also with End while **Next** has the focus, a line shows above the buttons, and the next step starts at its top. |
+| On a wide screen, Next stays in one place through the steps in the middle of the screen | At 1280×800, every step not pointing at the sidebar has **Next** at the same height: the card is as tall as the tallest step. |
 | Dark or light chosen in Settings is set on the page, kept after a reload, and wins over the system | Dark sets `data-theme`, the background and the `theme-color` metas, and survives a reload; Light stays light with the system dark. |
 | Following the system follows its light or dark mode | **Follow system** removes `data-theme`, and the page follows the emulated light or dark mode, open and after a reload. |
+
+## Notifications and sound
+
+[`notifications.spec.ts`](specs/notifications.spec.ts): **Settings → Notifications and sound**, and what the page does when the team finishes or needs the user. The browser's notifications and sound are recorded by stand-ins (`Notification`, `AudioContext`, and `document.hasFocus()` for a window behind another), set before the app's scripts, and the browser has no push service (`PushManager` taken away), so the page tells the user itself, as in the desktop app's window. The team is one Claude member.
+
+| Scenario | What is checked |
+| --- | --- |
+| Settings asks the browser, plays the sound to try it, and sends a test notification | Without push it says notifications come while the page is open; **Send a test notification** is off until **Show notifications** is on (which asks the browser's permission); **Play a sound** plays it once; the test shows a silent notification with the sound; the choices stay after a reload. |
+| With its window behind another, a team to confirm and a finished reply each show a notification, and a click opens the chat | The lead agent's team waiting ("…ready for you to confirm") and the reply ("Claude finished replying" with the start of the reply), each titled with the conversation and tagged with it, silent, with three notes and two; clicking one from the home page opens the chat. |
+| An agent's question shows a notification with what it asked | `e2e:ask`: "Claude asked you something" and the question; the sound off plays nothing. |
+| Says nothing of the chat the user is looking at, and only plays the sound for another one | A reply in the chat in front, its window focused: nothing. A slow reply (`e2e:slow`) that ends while the home page is shown: the sound and no notification. Both turned off in Settings: nothing. |
 
 ## Limits the environment sets
 
@@ -489,6 +503,7 @@ The open agents, in Harness Relay's own sandbox below full access:
 - **The CLIs' own sandboxes.** The fakes of Claude Code, Codex and Grok work out from what Harness Relay gave them what their CLI's sandbox would allow; only Harness Relay's own sandbox, around the open agents, is the real one. That the real CLIs below full access write nowhere outside the chat's folders is tried by the live tests (`live/sandbox.spec.ts`).
 - **What Cursor does without asking in a temporary folder.** The real Cursor writes in a temporary folder (`/tmp`, macOS' `/private/var/folders`) without asking; its fake does not, as the tests' folders are all in one and every write outside the workspace would then go through unasked. Nor does a spec try a Cursor team's auto-run allowlist (the fake has one, `E2E_FAKE_CURSOR_TEAM_ALLOW`).
 - **How smoothly the home logo's animation runs.** [The home page](#the-home-page) checks that it animates `transform` and `opacity` alone, once; that Chrome runs it on the compositor, with no layout or paint after the page is drawn, was checked by hand in a Chrome trace.
+- **Push notifications and the system's own notifications.** [Notifications and sound](#notifications-and-sound) records them with stand-ins; push needs a real push service (Google's, Apple's…), so the server's side (subscriptions, encryption, signing, what it sends and holds) is covered by unit tests (`test/push.test.ts`, `test/alerts.test.ts`, `test/push-api.test.ts`) the page's side by `test/alerts-web.test.ts`, and the service worker's handlers, with a stand-in `self`, by `test/sw.test.ts`; a browser subscribing with its push service and a real push reaching a phone are not tried by any test.
 - **Features no spec goes through yet**: voice input itself, recording and transcribing (it downloads its engine and models, and needs a microphone; only its install's panel is tried); the files a shared reply links to, and uploading a report's screenshots (both push to a gist with git, which the fake `gh` does not stand in for); API keys in the OS credential store (the tests keep it off, so they go to the database); signing Codex, Grok, Cursor and Antigravity in from Settings (their own flows), and what the real Codex does with a key `codex login --with-api-key` was given; AgentsView's links to the lead agent's and the group sorter's sessions, conversations sent once an address is set, and the members' sessions Harness Relay records for the open agents (`test/agentsview.test.ts` covers them, and Cursor's, which a spec tries too); a ZIP too large even without what git ignores; and the desktop app's window beyond signing in (its own checks, `desktop/scripts/smoke.ts` and `desktop/scripts/check-package.ts`, start a read-only chat of these fake claude, codex and grok and have each answer a question, on the bundled server and in the packaged app: in CI on Linux and Windows, and on every system before a release). Some of them have unit tests in [`test/`](../test/), listed in the developer guide's [Testing](../docs/developer-guide.md#testing).
 
 ## The live tests
