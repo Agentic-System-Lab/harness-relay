@@ -1150,7 +1150,7 @@ export const en: Messages = {
         skills: "Muse Code has no setting to skip skills for one run (its bundled ones, those in ~/.config/muse/skills and ~/.agents/skills, and your Claude Code and Codex skills load; a project's only in full access, where the workspace is trusted)",
         mcp: "Leaves the MCP servers of Muse Code's settings out of this run's own settings",
         tools: 'Muse Code does not report its built-in tools',
-        instructions: "Muse Code has no setting to skip instruction files for one run (its own rules in ~/.config/muse/AGENTS.md load, or, without them, your ~/.claude/CLAUDE.md; a project's AGENTS.md and CLAUDE.md only in full access, where the workspace is trusted)",
+        instructions: "Muse Code has no setting to skip instruction files for one run (its own rules, AGENTS.md in its config folder (~/.config/muse for the default account), load, or, without them, your ~/.claude/CLAUDE.md; a project's AGENTS.md and CLAUDE.md only in full access, where the workspace is trusted)",
         memory: 'Muse Code has no setting to skip its memory for one run',
         hooks: "Leaves the hooks of Muse Code's settings out of this run's own settings (a project's .muse/hooks.json loads only in full access, where the workspace is trusted)",
         agents: 'Muse Code has no setting to skip custom agents for one run',
