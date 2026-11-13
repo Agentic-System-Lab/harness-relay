@@ -973,8 +973,10 @@ describe('the release workflow', () => {
     expect(release.slice(published)).not.toContain('updates/');
   });
 
-  it('hands the write token to the copies’ step and the comparison only, and the read token to the app’s build, the comparison and the checks only', () => {
+  it('hands the write token to the copies’ step and the tokens job only, and the read token to the app’s build, the tokens job and the checks only', () => {
     expect(workflow.match(/secrets\.[A-Z_]+/g)).toEqual([
+      // That it is set at all, in the shell alone, in the tokens job.
+      'secrets.UPDATES_TOKEN',
       // The comparison of the two, in the shell alone, in the tokens job.
       'secrets.UPDATES_TOKEN',
       'secrets.UPDATES_READ_TOKEN',
@@ -1007,9 +1009,13 @@ describe('the release workflow', () => {
     // The write token's two checks in a job of their own: nothing checked out or installed there, since a
     // runner keeps the secrets a job names for the whole job; and no job that runs npm's packages names it.
     const tokensJob = job('tokens');
+    expect(tokensJob).toContain('- name: Expect the write token');
     expect(tokensJob).toContain('- name: Refuse a read token that is the write token');
     expect(tokensJob).toContain("- name: Warn when the read token's account also owns the write token");
-    expect(tokensJob.match(/WRITE_TOKEN: \$\{\{ secrets\.UPDATES_TOKEN \}\}/g)).toHaveLength(2);
+    expect(tokensJob.match(/WRITE_TOKEN: \$\{\{ secrets\.UPDATES_TOKEN \}\}/g)).toHaveLength(3);
+    // Each token goes to curl on its standard input, never among its arguments.
+    expect(tokensJob).toContain("printf 'Authorization: Bearer %s\\n' \"$1\" | curl -fsS --max-time 30 -H @- ");
+    expect(tokensJob).not.toMatch(/-H "Authorization/);
     expect(tokensJob.match(/READ_TOKEN: \$\{\{ secrets\.UPDATES_READ_TOKEN \}\}/g)).toHaveLength(2);
     expect(tokensJob).not.toMatch(/\buses:|\bnode\b|\bgh\b|\bnpm\b/);
     expect(job('check')).toMatch(/^\s+needs: tokens$/m);

@@ -454,12 +454,15 @@ export type Locate = (url: string, signal: AbortSignal, headers?: Record<string,
  * main.ts gives each a session of its own, as one session's requests to a host share one connection)
  * and `locate`, a file of twice `minPart` or more comes in parts, one a connection (`inParts`); any
  * other, and one from a server that takes no ranges, in one request. `headers` (`copyToDownload`: the
- * token, for a copy in a private repository) go to the asset's own address alone: it is asked where it
- * leads first (`locate`; without one, the fallback is fetched instead), and neither the CDN it sends to
- * nor the fallback gets them. `onProgress` gets the share done, from 0 to 1. Given up on after
+ * token, for a copy in a private repository) go to the asset's own address alone, which must be on
+ * GitHub's API: it is asked where it leads first (`locate`; without one, the fallback is fetched
+ * instead), and neither the CDN it sends to nor the fallback gets them; a request with them that is not
+ * answered within `answerMs` counts as refused. `onProgress` gets the share done, from 0 to 1. Given up on after
  * `stallMs` without a byte (DOWNLOAD_STALL_MS).
  */
 export async function download(o: DownloadOptions): Promise<void> {
+  // The headers (the token) go to GitHub's API alone, whoever asks for the download.
+  if (o.headers && !isApiAddress(o.asset.url)) throw new UpdateError('download', "headers are sent to GitHub's API alone");
   const went = { toFallback: false };
   try {
     await downloadOnce(o, went);
@@ -484,6 +487,41 @@ export interface DownloadOptions {
   locate?: Locate;
   minPart?: number;
   headers?: Record<string, string>;
+  /**
+   * How long a request with `headers` (to GitHub's API) may go unanswered before it counts as no answer,
+   * and the installer is fetched instead (CHECK_TIMEOUT_MS): a stalled download is given up on only
+   * after `stallMs`, which would fail the update instead.
+   */
+  answerMs?: number;
+}
+
+/** Whether `url` is on GitHub's API, the only place `download` sends its headers to. */
+function isApiAddress(url: string): boolean {
+  return URL.canParse(url) && new URL(url).origin === 'https://api.github.com';
+}
+
+/**
+ * `ask(signal)` (a fetch, a locate), given up on after `ms` without an answer besides `signal` (it then
+ * rejects): only until it answers, so that a body coming after is not cut off.
+ */
+async function answeredWithin<T>(ms: number, signal: AbortSignal, ask: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const late = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const gaveUp = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(`no answer in ${Math.round(ms / 1000)} s`);
+      late.abort(err);
+      reject(err);
+    }, ms);
+  });
+  const asked = ask(AbortSignal.any([signal, late.signal]));
+  // Its failure after the time limit is no one's to see.
+  asked.catch(() => undefined);
+  try {
+    return await Promise.race([asked, gaveUp]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -512,6 +550,7 @@ async function downloadOnce(o: DownloadOptions, went: { toFallback: boolean }): 
   rmSync(part, { force: true });
   const stallMs = o.stallMs ?? DOWNLOAD_STALL_MS;
   const minPart = o.minPart ?? MIN_PART_BYTES;
+  const answerMs = o.answerMs ?? CHECK_TIMEOUT_MS;
   const size = o.asset.size ?? 0;
   const stall = new Stall(stallMs);
   let file: FileHandle | undefined;
@@ -522,15 +561,15 @@ async function downloadOnce(o: DownloadOptions, went: { toFallback: boolean }): 
     const write = writer(file);
     if (o.connections && o.connections.length > 1 && o.locate && size >= 2 * minPart) {
       try {
-        await inParts({ connections: o.connections, locate: o.locate, asset: o.asset, headers: o.headers, size, minPart, stall, stallMs, write, onProgress: o.onProgress, fellBack });
+        await inParts({ connections: o.connections, locate: o.locate, asset: o.asset, headers: o.headers, size, minPart, stall, stallMs, answerMs, write, onProgress: o.onProgress, fellBack });
       } catch (err) {
         if (!(err instanceof NoRanges)) throw err;
         // A server (or a proxy) that sends the whole file for a part of it: all of it in one request, from there.
         await file.truncate(0);
-        await whole({ fetch: o.fetch, locate: o.locate, url: err.address, headers: err.headers, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress, fellBack });
+        await whole({ fetch: o.fetch, locate: o.locate, url: err.address, headers: err.headers, fallback: o.asset.fallback, size, stall, answerMs, write, onProgress: o.onProgress, fellBack });
       }
     } else {
-      await whole({ fetch: o.fetch, locate: o.locate, url: o.asset.url, headers: o.headers, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress, fellBack });
+      await whole({ fetch: o.fetch, locate: o.locate, url: o.asset.url, headers: o.headers, fallback: o.asset.fallback, size, stall, answerMs, write, onProgress: o.onProgress, fellBack });
     }
   } catch (err) {
     failed = true;
@@ -636,13 +675,13 @@ function unavailable(status: number, authorized: boolean): boolean {
 }
 
 /**
- * `locate(url)` asked with the token: no answer at all (the network, GitHub's API) counts as one that
- * is `unavailable` (status 0), so that the installer is fetched instead, unless the download itself was
- * given up on (`signal`).
+ * `locate(url)` asked with the token: no answer at all (the network, GitHub's API), also none within
+ * `answerMs`, counts as one that is `unavailable` (status 0), so that the installer is fetched instead,
+ * unless the download itself was given up on (`signal`).
  */
-async function locateWithToken(locate: Locate, url: string, signal: AbortSignal, headers: Record<string, string>): Promise<{ status: number; location?: string }> {
+async function locateWithToken(locate: Locate, url: string, signal: AbortSignal, headers: Record<string, string>, answerMs: number): Promise<{ status: number; location?: string }> {
   try {
-    return await locate(url, signal, headers);
+    return await answeredWithin(answerMs, signal, (s) => locate(url, s, headers));
   } catch (err) {
     if (signal.aborted) throw err;
     return { status: 0 };
@@ -678,6 +717,8 @@ async function whole(o: {
   fallback?: string;
   size: number;
   stall: Stall;
+  /** How long a request with `headers` may go unanswered (`DownloadOptions.answerMs`). */
+  answerMs: number;
   write: Write;
   onProgress?: (done: number) => void;
   /** Told when the bytes come from `fallback`. */
@@ -687,7 +728,7 @@ async function whole(o: {
   // Where the file is asked for, and with what: the headers at the asset's own address alone.
   let target: { url: string; headers?: Record<string, string> } | undefined = { url: o.url };
   if (o.headers) {
-    const found = o.locate ? await locateWithToken(o.locate, o.url, signal, o.headers) : undefined;
+    const found = o.locate ? await locateWithToken(o.locate, o.url, signal, o.headers, o.answerMs) : undefined;
     if (found && unavailable(found.status, true) && !o.fallback) throw new UpdateError('download', found.status ? `HTTP ${found.status}` : 'no answer');
     if (!found || unavailable(found.status, true)) target = undefined;
     else {
@@ -698,9 +739,11 @@ async function whole(o: {
   let res: Response | undefined;
   if (target) {
     try {
-      res = await o.fetch(target.url, target.headers ? { headers: target.headers, signal, redirect: 'error' } : { signal });
+      const { url, headers } = target;
+      res = headers ? await answeredWithin(o.answerMs, signal, (s) => o.fetch(url, { headers, signal: s, redirect: 'error' })) : await o.fetch(url, { signal });
     } catch (err) {
-      // No answer where the token went (GitHub's API answering with the file itself): the installer, as below.
+      // No answer where the token went (GitHub's API answering with the file itself), also none within
+      // `answerMs`: the installer, as below.
       if (!target.headers || !o.fallback || signal.aborted) throw err;
     }
   }
@@ -744,7 +787,7 @@ class Expired extends Error {
   readonly address: string;
   /** What GitHub answered there (403, or, with the token at the asset's own address, `unavailable`'s), named should the download fail. */
   constructor(address: string, status = 403) {
-    super(`HTTP ${status}`);
+    super(status ? `HTTP ${status}` : 'no answer');
     this.address = address;
   }
 }
@@ -772,6 +815,8 @@ async function inParts(o: {
   minPart: number;
   stall: Stall;
   stallMs: number;
+  /** How long a request with `headers` may go unanswered (`DownloadOptions.answerMs`). */
+  answerMs: number;
   write: Write;
   onProgress?: (done: number) => void;
   /** Told when the parts come from the asset's fallback. */
@@ -780,7 +825,7 @@ async function inParts(o: {
   const { size, stall } = o;
   let source = o.asset.url;
   let headers = o.headers;
-  let found = headers ? await locateWithToken(o.locate, source, stall.signal, headers) : await o.locate(source, stall.signal, headers);
+  let found = headers ? await locateWithToken(o.locate, source, stall.signal, headers, o.answerMs) : await o.locate(source, stall.signal, headers);
   // Its copy for updates cannot be had (a release published before the copies, its repository gone, the
   // token expired): the installer itself, without the token.
   if (unavailable(found.status, !!headers) && o.asset.fallback) {
@@ -808,16 +853,22 @@ async function inParts(o: {
    * same file, checked by its SHA-256 at the end.
    */
   const relocate = () => {
-    relocating ??= (headers ? locateWithToken(o.locate, source, stop, headers) : o.locate(source, stop, headers)).then(
+    relocating ??= (headers ? locateWithToken(o.locate, source, stop, headers, o.answerMs) : o.locate(source, stop, headers)).then(
       async (f) => {
         // Not told as a fall back (`fellBack`): the bytes so far came from the copy, so that a checksum
         // that fails is fetched again from the installer whole.
-        if (headers && unavailable(f.status, true) && o.asset.fallback) {
-          source = o.asset.fallback;
-          headers = undefined;
-          f = await o.locate(source, stop);
+        let from = source;
+        let sending = headers;
+        if (sending && unavailable(f.status, true) && o.asset.fallback) {
+          from = o.asset.fallback;
+          sending = undefined;
+          f = await o.locate(from, stop);
         }
-        address = addressFrom(f, source);
+        // All three at once: a part started meanwhile goes on to the address it was given, with its headers.
+        const at = addressFrom(f, from);
+        source = from;
+        headers = sending;
+        address = at;
         relocating = undefined;
       },
       (err: unknown) => {
@@ -853,7 +904,17 @@ async function inParts(o: {
     const watch = new Stall(o.stallMs);
     const signal = AbortSignal.any([stop, watch.signal]);
     try {
-      const res = await fetch(at, { headers: { ...sent, Range: `bytes=${from}-${part.end - 1}` }, signal, ...(sent ? { redirect: 'error' as const } : {}) });
+      const ask = (s: AbortSignal) => fetch(at, { headers: { ...sent, Range: `bytes=${from}-${part.end - 1}` }, signal: s, ...(sent ? { redirect: 'error' as const } : {}) });
+      let res: Response;
+      try {
+        res = sent ? await answeredWithin(o.answerMs, signal, ask) : await ask(signal);
+      } catch (err) {
+        // No answer where the token went (the asset's own address answered with the file itself), also
+        // none within `answerMs`: asked where the file is again, which falls back to the installer when
+        // GitHub's API does not answer either.
+        if (sent && !stop.aborted) throw new Expired(at, 0);
+        throw err;
+      }
       if (res.status !== 206 || !res.body) {
         res.body?.cancel().catch(() => undefined);
         if (res.status === 200) throw new NoRanges(at, sent);
@@ -888,7 +949,7 @@ async function inParts(o: {
       });
       if (part.pos < part.end) throw new UpdateError('download', `connection closed at byte ${part.pos}`);
     } catch (err) {
-      throw watch.signal.aborted && !stop.aborted ? watch.signal.reason : err;
+      throw watch.signal.aborted && !stop.aborted && !(err instanceof Expired) ? watch.signal.reason : err;
     } finally {
       watch.stop();
     }

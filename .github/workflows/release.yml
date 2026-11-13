@@ -45,6 +45,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # The copies are published with it after the builds: a release without it stops here, at once,
+      # rather than some 30 minutes later.
+      - name: Expect the write token
+        env:
+          WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}
+        run: |
+          if [ -z "${WRITE_TOKEN//[[:space:]]/}" ]; then
+            echo "::error::The UPDATES_TOKEN secret is not set: the copies for the app's updates are published with it (docs/developer-guide.md, \"Releasing\")."
+            exit 1
+          fi
+
       # The read token goes into every installer, where anyone can read it, and the build legs upload
       # theirs as artifacts: never the write token, with which anyone could replace the copies. The
       # likeliest slip is the same token set as both, caught here before anything is built, compared as
@@ -66,7 +77,8 @@ jobs:
       # Anyone with the app has the read token, and may use up its account's requests (5,000 an hour):
       # when that account also owns the write token, publishing the copies is held up with it. Warned
       # about, not refused (an account of its own is best: docs/developer-guide.md, "Releasing"), and
-      # also when GitHub does not say whose they are (a token expired or revoked, say).
+      # also when GitHub does not say whose they are (a token expired or revoked, say). Each token goes to
+      # curl on its standard input, never in its arguments, which other programs could read.
       - name: Warn when the read token's account also owns the write token
         env:
           WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}
@@ -74,7 +86,7 @@ jobs:
         run: |
           trim() { local v="$1"; v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; printf '%s' "$v"; }
           owner() {
-            curl -fsS --max-time 30 -H "Authorization: Bearer $1" -H 'Accept: application/vnd.github+json' https://api.github.com/user |
+            printf 'Authorization: Bearer %s\n' "$1" | curl -fsS --max-time 30 -H @- -H 'Accept: application/vnd.github+json' https://api.github.com/user |
               grep -o '"login": *"[^"]*"' | head -n 1 | sed 's/.*"\([^"]*\)"$/\1/'
           }
           read=$(trim "$READ_TOKEN")
@@ -116,10 +128,10 @@ jobs:
 
       # The update source the builds will take, checked before anything is installed: a read token that
       # is not a fine-grained one, or a repository that is not owner/name (or is this one), stops the run
-      # here rather than in each build; and so does one that cannot read that repository (no access,
-      # expired, revoked, waiting for an organization's approval), or a private repository without one,
-      # asked of GitHub as an app would (repositoryReadable; without a read token, with this job's own in
-      # its place). The repository's own code alone, no dependencies; the read token is public anyway.
+      # here rather than in each build; and so does one that cannot read that repository's releases (no
+      # access to it or to its contents, expired, revoked, waiting for an organization's approval), or a
+      # private repository without one, asked of GitHub as an app would (repositoryReadable; without a
+      # read token, with this job's own in its place). The repository's own code alone, no dependencies; the read token is public anyway.
       - name: Check the update source
         env:
           GH_TOKEN: ${{ github.token }}

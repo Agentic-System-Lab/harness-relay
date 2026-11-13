@@ -63,7 +63,8 @@ const PLAIN_PART = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export function updateCopyUrl(tag, installer, repo = UPDATES_REPO) {
   const copy = updateCopyName(installer);
   if (!copy || typeof tag !== 'string' || !PLAIN_PART.test(tag) || !PLAIN_PART.test(installer)) return undefined;
-  if (typeof repo !== 'string' || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo)) return undefined;
+  // owner/name, a name not all dots (`..` would leave the repository's path).
+  if (typeof repo !== 'string' || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo) || /\/\.+$/.test(repo)) return undefined;
   return `https://github.com/${repo}/releases/download/${tag}/${copy}`;
 }
 

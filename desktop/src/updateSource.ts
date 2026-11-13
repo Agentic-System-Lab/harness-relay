@@ -194,18 +194,20 @@ export async function copiesReadable(
 /**
  * Why the copies' repository of `source` cannot be read as an app built with it would (`error`), or a
  * `warning` when GitHub would not say: the Release workflow asks before anything is built, so that a
- * read token without access to it, expired, revoked or waiting for an organization's approval (or a
- * private repository without one) stops the run at once, not after the builds. Asked with the read
- * token, else with `token` in its place (the workflow's own), as `copiesReadable` asks. GitHub's
- * failures, its limit on requests or no answer leave a warning: the copies' check after the builds
- * asks again. Its answer never names a token.
+ * read token without access to it, without Contents: Read on it, expired, revoked or waiting for an
+ * organization's approval (or a private repository without one) stops the run at once, not after the
+ * builds. Its releases are asked for, as an app asks for one (`releases?per_page=1`, an empty list while
+ * there are none): the repository alone needs only the Metadata permission GitHub gives every token.
+ * Asked with the read token, else with `token` in its place (the workflow's own), as `copiesReadable`
+ * asks. GitHub's failures, its limit on requests or no answer leave a warning: the copies' check after
+ * the builds asks again. Its answer never names a token.
  */
 export async function repositoryReadable(
   fetch: CopiesFetch,
   o: { source: UpdateSource; token?: string; now?: Date; sleep?: (ms: number) => Promise<void>; timeoutMs?: number },
 ): Promise<{ error?: string; warning?: string }> {
   const { repo } = o.source;
-  const asked = await askGitHub(fetch, `https://api.github.com/repos/${repo}`, o.source.token ?? o.token, o);
+  const asked = await askGitHub(fetch, `https://api.github.com/repos/${repo}/releases?per_page=1`, o.source.token ?? o.token, o);
   const later = 'the copies\' check after the builds will ask again';
   if ('limited' in asked) return { warning: `GitHub's limit on requests (answered ${asked.limited}) kept the copies' repository ${repo} from being checked now: ${later}` };
   if ('failure' in asked) return { warning: `GitHub could not be asked for the copies' repository ${repo} (${asked.failure}): ${later}` };
@@ -220,8 +222,8 @@ export async function repositoryReadable(
   if (!res.ok) {
     return {
       error: o.source.token
-        ? `The app's token (UPDATES_READ_TOKEN) cannot read the copies' repository ${repo} (GitHub answered ${res.status}): it has no access to it, has expired or was revoked, or waits for the organization's approval. Set a token that can, or wait for the approval, then run the workflow again`
-        : `The copies' repository ${repo} cannot be read without a token of its own (GitHub answered ${res.status}): for a private repository, set the UPDATES_READ_TOKEN secret, then run the workflow again`,
+        ? `The app's token (UPDATES_READ_TOKEN) cannot read the releases of the copies' repository ${repo} (GitHub answered ${res.status}): it has no access to it or may not read its contents (Contents: Read-only), has expired or was revoked, or waits for the organization's approval. Set a token that can, or wait for the approval, then run the workflow again`
+        : `The releases of the copies' repository ${repo} cannot be read without a token of its own (GitHub answered ${res.status}): for a private repository, set the UPDATES_READ_TOKEN secret, then run the workflow again`,
     };
   }
   return {};
