@@ -202,6 +202,15 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # What this build downloads its updates with (desktop/scripts/build.ts: a fingerprint naming
+      # neither the repository nor the token), for the release job to check against its own.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: update-source-${{ matrix.name }}
+          path: ${{ env.BUILD_DIR }}/desktop/build/update-source.txt
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Publish the release
     needs: [check, build]
@@ -242,6 +251,12 @@ jobs:
           pattern: installer-*
           path: installers
           merge-multiple: true
+
+      # One folder for each build's: checked against this run's below.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: update-source-*
+          path: update-sources
 
       # The ends of the installers' names are the ones the website and the app's updates look for
       # (INSTALLERS in site/assets/downloads.js).
@@ -313,11 +328,15 @@ jobs:
             gh release create "$TAG" updates/* --repo "$repo" --title "$TITLE" --notes "$notes" "${channel[@]}"
           fi
 
-      # An app downloads the copies as it was built to (desktop/src/updateSource.ts, copiesReadable):
-      # checked here, asked as it asks, so that a read token missing, expired, waiting for an
-      # organization's approval or without access to that repository stops the release before it is
-      # published, instead of every update quietly counting as a new install. Without a read token,
-      # asked with this job's own token, which reads a public repository and no other's private one.
+      # An app downloads the copies as it was built to (desktop/src/updateSource.ts): checked here,
+      # so that a read token missing, expired, waiting for an organization's approval or without
+      # access to that repository stops the release before it is published, instead of every update
+      # quietly counting as a new install. First, that every installer was built with this run's
+      # variable and secret (sameUpdateSource: "Re-run failed jobs" builds nothing again, so one
+      # changed since would be checked here and not be in them); then, that the copies can be had as
+      # the app has them (copiesReadable): with the read token, else, as the app then downloads from
+      # github.com without one, with this job's own token in its place, which reads a public
+      # repository and no other's private one.
       - name: Check that the app can download the copies
         env:
           GH_TOKEN: ${{ github.token }}
@@ -326,11 +345,15 @@ jobs:
           TAG: ${{ needs.check.outputs.tag }}
         run: |
           node --input-type=module -e "
-          import { readdirSync } from 'node:fs';
-          import { copiesReadable, updateSourceFrom } from './desktop/src/updateSource.ts';
+          import { readdirSync, readFileSync, statSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { copiesReadable, sameUpdateSource, updateSourceFrom } from './desktop/src/updateSource.ts';
           const source = updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN: process.env.RELAY_UPDATES_TOKEN });
           if (!source.ok) { console.error('::error::' + source.error); process.exit(1); }
-          const copies = readdirSync('updates');
+          const built = readdirSync('update-sources', { recursive: true }).filter((f) => f.endsWith('update-source.txt')).map((f) => readFileSync(join('update-sources', f), 'utf8'));
+          const changed = sameUpdateSource(built, source.value, readdirSync('installers').length);
+          if (changed) { console.error('::error::' + changed); process.exit(1); }
+          const copies = readdirSync('updates').map((name) => ({ name, size: statSync(join('updates', name)).size }));
           const error = await copiesReadable(fetch, { source: source.value, tag: process.env.TAG, copies, token: process.env.GH_TOKEN });
           if (error) { console.error('::error::' + error); process.exit(1); }
           console.log('An app built with ' + (source.value.token ? 'the read token' : 'no token') + ' can download the ' + copies.length + ' copies from ' + source.value.repo + '.');"

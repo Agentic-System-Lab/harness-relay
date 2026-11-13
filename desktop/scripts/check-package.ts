@@ -134,7 +134,8 @@ async function main(): Promise<number> {
     check(fromArchive(join(app.resources, 'app.asar'), 'LICENSE')?.equals(license), "the repository's LICENSE is in its archive, beside its package.json");
     // The token for the app's updates, if it was built with one, is its main process's alone (desktop/scripts/build.ts).
     const bundles = ['server.mjs', 'relaySandboxHost.mjs', 'piGate.js'].map((name) => join(server, name)).filter((path) => existsSync(path));
-    check(bundles.length === 3 && bundles.every((path) => !readFileSync(path, 'latin1').includes('github_pat_')), 'no file the server runs holds a GitHub token');
+    const token = /github_pat_[A-Za-z0-9_]{20,}/;
+    check(bundles.length === 3 && bundles.every((path) => !token.test(readFileSync(path, 'latin1'))), 'no file the server runs holds a GitHub token');
     const { code, report } = await selfCheck(app.exe, clis);
     process.stdout.write(report.replace(/^/gm, '  '));
     check(code === 0, `the app checks itself (--smoke-test): exit code ${code}`);

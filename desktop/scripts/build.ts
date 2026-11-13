@@ -22,6 +22,8 @@
  * for GitHub's API the app downloads them with, for a private one (none: from a public one without
  * signing in). The Release workflow sets them from its UPDATES_REPO variable and UPDATES_READ_TOKEN
  * secret. Both go into the app as they are (src/updateSource.ts): anyone with a copy can read the token.
+ * What it was built with is written beside the build as a fingerprint that names neither
+ * (build/update-source.txt, `updateSourceFingerprint`), for the Release workflow to check.
  */
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -30,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { DESKTOP_ICONS, encodePngRgba, rasterizeIcon } from '../src/icons';
 import { appManifest } from '../src/manifest';
-import { updateSourceFrom } from '../src/updateSource';
+import { updateSourceFingerprint, updateSourceFrom } from '../src/updateSource';
 import { devVersion, parseVersion, RELEASE_TIME_ZONE, semverOf, todayIn } from '../../scripts/release';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -72,6 +74,9 @@ if (!updates.ok) {
 }
 
 rmSync(OUT, { recursive: true, force: true });
+mkdirSync(OUT, { recursive: true });
+// What it downloads its updates with, for the Release workflow to check against its own (updateSource.ts).
+writeFileSync(join(OUT, 'update-source.txt'), `${updateSourceFingerprint(updates.value)}\n`);
 
 // The server, as one ES module. `require` is for the keyring module, loaded with createRequire.
 await build({

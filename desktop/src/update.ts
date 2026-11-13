@@ -168,7 +168,7 @@ export interface UpdateAsset {
   url: string;
   /**
    * The installer itself, fetched when its copy cannot be had: not there (404; a release published before
-   * the copies, say), or, asked with the token, not given (401, 403: expired, revoked).
+   * the copies, say), or, asked with the token, not given (401, 403, 429, 5xx: `unavailable`).
    */
   fallback?: string;
   size?: number;
@@ -450,7 +450,7 @@ export type Locate = (url: string, signal: AbortSignal, headers?: Record<string,
 /**
  * Downloads `asset` to `to` (through `to`.part, so a broken download never looks like a whole one) and
  * checks it against its SHA-256: from its `url`, or from its `fallback` when GitHub has nothing there
- * (404) or, asked with `headers`, will not give it (401, 403). Given `connections` (a fetch for each:
+ * (404) or, asked with `headers`, will not give it (401, 403, 429, 5xx: `unavailable`). Given `connections` (a fetch for each:
  * main.ts gives each a session of its own, as one session's requests to a host share one connection)
  * and `locate`, a file of twice `minPart` or more comes in parts, one a connection (`inParts`); any
  * other, and one from a server that takes no ranges, in one request. `headers` (`copyToDownload`: the
@@ -787,7 +787,9 @@ async function inParts(o: {
       if (res.status !== 206 || !res.body) {
         res.body?.cancel().catch(() => undefined);
         if (res.status === 200) throw new NoRanges(at, sent);
-        if (res.status === 403) throw new Expired(at);
+        // An expired signed address, or the asset's own one refusing the token meanwhile (it answered with
+        // the file itself): asked where the file is again, which falls back to the installer when refused.
+        if (res.status === 403 || (sent && unavailable(res.status, true))) throw new Expired(at);
         throw new UpdateError('download', `HTTP ${res.status}`);
       }
       const range = /^bytes (\d+)-\d+\/(\d+|\*)$/.exec(res.headers.get('content-range') ?? '');

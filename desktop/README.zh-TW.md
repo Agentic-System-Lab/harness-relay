@@ -38,7 +38,8 @@ src/supervisor.ts    啟動、看顧與停止伺服器；登入連結，以及�
 src/env.ts           登入 shell 的環境（Windows 則是重新啟動時讀取的環境），以及伺服器的環境
 src/selftest.ts      app 需要伺服器透過 HTTP 做到的事（smoke.ts 與 --smoke-test）
 src/update.ts        更新到 GitHub 上最新的版本，等沒有對話的 agent 在工作時才切換
-src/updateSource.ts  app 從哪裡下載更新（建置時的 RELAY_UPDATES_REPO、RELAY_UPDATES_TOKEN）
+src/updateSource.ts  app 從哪裡下載更新（建置時的 RELAY_UPDATES_REPO、RELAY_UPDATES_TOKEN），
+                     以及發佈 workflow 檢查 app 能下載副本
 src/traymenu.ts      系統匣選單開著時的處理
 src/lifecycle.ts     不需要 Electron 的決定，以及視窗的防護
 src/tailscale.ts     分享到 tailnet（tailscale serve）

@@ -39,7 +39,8 @@ src/supervisor.ts    starting, watching and stopping the server; sign-in links a
 src/env.ts           the login shell's environment (Windows': at a restart), and the server's
 src/selftest.ts      what the app needs of the server over HTTP (smoke.ts and --smoke-test)
 src/update.ts        updates to GitHub's newest release, switching once no conversation has agents at work
-src/updateSource.ts  where the app downloads its updates from (RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN at build time)
+src/updateSource.ts  where the app downloads its updates from (RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN at build time),
+                     and the Release workflow's check that an app can download the copies
 src/traymenu.ts      the tray menu while it is open
 src/lifecycle.ts     its decisions without Electron, and the window's guards
 src/tailscale.ts     sharing with the tailnet (tailscale serve)

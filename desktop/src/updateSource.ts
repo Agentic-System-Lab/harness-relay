@@ -10,6 +10,7 @@
  * The token goes into every copy of the app, where anyone who has one can read it: give it nothing
  * but read access to the contents of that one repository (docs/developer-guide.md, "Releasing").
  */
+import { createHash } from 'node:crypto';
 import { REPO as MAIN_REPO, UPDATES_REPO } from '../../site/assets/downloads.js';
 
 export interface UpdateSource {
@@ -56,21 +57,49 @@ export function updateSourceFrom(env: Record<string, string | undefined>): { ok:
   return { ok: true, value: token ? { repo, token } : { repo } };
 }
 
+/**
+ * What an app was built to download its updates with, as a SHA-256 that names neither: written next to
+ * the build (desktop/scripts/build.ts, `update-source.txt`) and compared by the Release workflow with
+ * this run's (`sameUpdateSource`). The repository in any letter case, as GitHub takes it.
+ */
+export function updateSourceFingerprint(source: UpdateSource): string {
+  return createHash('sha256').update(JSON.stringify([source.repo.toLowerCase(), source.token ?? ''])).digest('hex');
+}
+
+/**
+ * Why the installers a run is about to publish were not all built with `source` (the fingerprints their
+ * builds wrote, `built`, one for each of the `installers`), or undefined when they were. "Re-run failed
+ * jobs" builds nothing again that built before, so a secret or a variable changed in between would
+ * otherwise be checked (`copiesReadable`) and not be in the installers.
+ */
+export function sameUpdateSource(built: string[], source: UpdateSource, installers: number): string | undefined {
+  const expected = updateSourceFingerprint(source);
+  if (built.length === installers && built.every((f) => f.trim() === expected)) return undefined;
+  return (
+    `${built.filter((f) => f.trim() === expected).length} of the ${installers} installers were built to download their updates as this run would ` +
+    `(the UPDATES_REPO variable and the UPDATES_READ_TOKEN secret as they are now): run the whole workflow again, not only its failed jobs`
+  );
+}
+
 /** What fetching `copiesReadable` needs: the global fetch, or a stand-in for it. */
 export type CopiesFetch = (url: string, init: { headers: Record<string, string>; redirect: 'error' }) => Promise<Response>;
 
 /**
- * Why an app built with `source` could not download the copies named `copies` (file names) of the
- * release tagged `tag`, or undefined when it could: GitHub's API is asked for that release as the app
- * asks it (with the token for a private repository), and each copy must be listed with its id. The
- * Release workflow runs this once it published the copies and before the release itself, so that a
- * read token missing, expired, waiting for an organization's approval or without access to that
- * repository stops the release, instead of every update quietly counting as a new install. Without a
- * token in `source`, it asks with `token` (the workflow's own: it reads a public repository, and no
+ * Why an app built with `source` could not download the copies (`copies`: each file's name and size)
+ * of the release tagged `tag`, or undefined when it could: GitHub's API is asked for that release, with
+ * the token for a private repository as the app asks, and each copy must be listed with its id, whole
+ * (uploaded, at its size). The Release workflow runs this once it published the copies and before the
+ * release itself, so that a read token missing, expired, waiting for an organization's approval or
+ * without access to that repository stops the release, instead of every update quietly counting as a
+ * new install. Without a token in `source` (the app then downloads from github.com without signing
+ * in), it asks with `token` in its place (the workflow's own: it reads a public repository, and no
  * other's private one), so that GitHub's limit on requests without one does not get in the way. Its
  * answer never names a token.
  */
-export async function copiesReadable(fetch: CopiesFetch, o: { source: UpdateSource; tag: string; copies: string[]; token?: string }): Promise<string | undefined> {
+export async function copiesReadable(
+  fetch: CopiesFetch,
+  o: { source: UpdateSource; tag: string; copies: { name: string; size?: number }[]; token?: string },
+): Promise<string | undefined> {
   const { repo } = o.source;
   const token = o.source.token ?? o.token;
   let res: Response;
@@ -84,15 +113,19 @@ export async function copiesReadable(fetch: CopiesFetch, o: { source: UpdateSour
   }
   if (!res.ok) {
     const limited = res.status === 403 || res.status === 429 ? ", or GitHub's limit on requests was reached" : '';
+    const again = ', then run the whole workflow again (not only its failed jobs), so that the installers are built with it';
     return o.source.token
-      ? `The app's token (UPDATES_READ_TOKEN) cannot read the release ${o.tag} in ${repo} (GitHub answered ${res.status}): it has no access to that repository, has expired or was revoked, or waits for the organization's approval${limited}`
-      : `The release ${o.tag} in ${repo} cannot be read without a token of its own (GitHub answered ${res.status}): for a private repository, set the UPDATES_READ_TOKEN secret${limited}`;
+      ? `The app's token (UPDATES_READ_TOKEN) cannot read the release ${o.tag} in ${repo} (GitHub answered ${res.status}): it has no access to that repository, has expired or was revoked, or waits for the organization's approval${limited}. Set a token that can${again}`
+      : `The release ${o.tag} in ${repo} cannot be read without a token of its own (GitHub answered ${res.status}): for a private repository, set the UPDATES_READ_TOKEN secret${again}${limited}`;
   }
-  const release = (await res.json().catch(() => null)) as { assets?: { id?: unknown; name?: unknown }[] } | null;
-  const ids = new Map((Array.isArray(release?.assets) ? release.assets : []).map((a) => [a?.name, a?.id]));
-  const missing = o.copies.filter((name) => {
-    const id = ids.get(name);
-    return !(typeof id === 'number' && Number.isSafeInteger(id) && id > 0);
+  const release = (await res.json().catch(() => null)) as { assets?: { id?: unknown; name?: unknown; state?: unknown; size?: unknown }[] } | null;
+  const listed = new Map((Array.isArray(release?.assets) ? release.assets : []).map((a) => [a?.name, a]));
+  const missing = o.copies.filter(({ name, size }) => {
+    const a = listed.get(name);
+    const id = a?.id;
+    const whole = a?.state === undefined || a.state === 'uploaded';
+    const sized = size === undefined || a?.size === size;
+    return !(typeof id === 'number' && Number.isSafeInteger(id) && id > 0 && whole && sized);
   });
-  return missing.length ? `The release ${o.tag} in ${repo} does not list ${missing.join(', ')}` : undefined;
+  return missing.length ? `The release ${o.tag} in ${repo} does not list ${missing.map((c) => c.name).join(', ')}, whole` : undefined;
 }
