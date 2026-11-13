@@ -47,7 +47,7 @@ test.describe("changing a chat's team", () => {
     await expect(replies(page, 'Codex')).toHaveCount(0);
   });
 
-  test('the add card is as tall as the members beside it, lists every CLI on a row of its own, and one tall card stretches only its row', async ({ page, relay }) => {
+  test('the add card is as tall as the members beside it with a shadow while more CLIs are below, lists every CLI on a row of its own, and one tall card stretches only its row', async ({ page, relay }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
@@ -55,7 +55,12 @@ test.describe("changing a chat's team", () => {
     const members = drawer.locator('.agent-card:not(.add-card)');
     const add = drawer.locator('.add-card');
     const height = async (card: Locator) => (await card.boundingBox())!.height;
-    const scrolls = () => add.locator('.add-card-list').evaluate((el) => el.scrollHeight > el.clientHeight + 1);
+    const list = add.locator('.add-card-list');
+    const scrolls = () => list.evaluate((el) => el.scrollHeight > el.clientHeight + 1);
+    /** The shadow along the list's bottom edge, which says that more CLIs are below. */
+    const shadow = () => list.evaluate((el) => getComputedStyle(el, '::after').opacity);
+    // Only where the browser has scroll-driven animations (Chromium, Safari); elsewhere there is none.
+    const timelines = await page.evaluate(() => CSS.supports('animation-timeline: scroll()'));
     await expect(members).toHaveCount(1);
     // The drawer has two columns here.
     expect(await drawer.locator('.agent-grid').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(2);
@@ -64,11 +69,18 @@ test.describe("changing a chat's team", () => {
     // Beside a member: its height, not that of a button for every CLI, and the list scrolls.
     expect(Math.abs((await height(add)) - (await height(members.first())))).toBeLessThanOrEqual(1);
     expect(await scrolls()).toBe(true);
+    // The shadow shows while more are below, and is gone once the list is scrolled to its end.
+    if (timelines) {
+      await expect.poll(shadow).toBe('1');
+      await list.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await expect.poll(shadow).toBe('0');
+    }
 
     // Two members fill the first row: on a row of its own, every CLI is listed without scrolling.
     await add.getByRole('button', { name: '＋ Codex' }).click();
     await expect(members).toHaveCount(2);
     expect(await scrolls()).toBe(false);
+    if (timelines) await expect.poll(shadow).toBe('0');
 
     // A third member: beside it again.
     await add.getByRole('button', { name: '＋ Grok' }).click();

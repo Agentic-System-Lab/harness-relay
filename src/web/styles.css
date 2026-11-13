@@ -1412,6 +1412,58 @@ p {
   padding: 3px;
 }
 
+/*
+ * While more CLIs are below, a shadow fades in along the list's bottom edge: a sign that it scrolls
+ * where the scrollbar hides until used (macOS's overlay scrollbars). Fading the buttons out would not
+ * do: where the list's edge falls between two buttons there is nothing to fade, and the list looks
+ * complete. The shadow is pinned to the edge (sticky, over the last buttons, taking no room), follows
+ * the list's own scroll and is gone at its end; a list that does not scroll has no scroll timeline,
+ * so the shadow stays at its resting opacity, 0. Without scroll-driven animations (Firefox) there is
+ * none, as before.
+ */
+@keyframes add-list-more {
+  from,
+  85% {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  .add-card-list::after {
+    content: '';
+    flex: none;
+    position: sticky;
+    /* The list's own 3px padding: flush with the bottom of what shows. */
+    bottom: -3px;
+    height: 14px;
+    /* Over the last buttons, taking no room: its height and the gap before it. */
+    margin: -26px -3px 0;
+    background: radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--text) 22%, transparent), transparent);
+    pointer-events: none;
+    opacity: 0;
+    animation: add-list-more linear both;
+    animation-timeline: scroll(nearest);
+  }
+
+  /* A button the keys move to stops above the shadow. */
+  .add-card-list {
+    scroll-padding-block-end: 16px;
+  }
+
+  /* Not motion: the shadow follows the list's scroll, as a scrollbar does, so it stays with reduced
+     motion too (the rule further down turns every animation off). */
+  @media (prefers-reduced-motion: reduce) {
+    .add-card-list::after {
+      animation: add-list-more linear both !important;
+      animation-timeline: scroll(nearest) !important;
+    }
+  }
+}
+
 .add-agent {
   border: 1px solid var(--border);
   background: var(--bg);
