@@ -17,7 +17,7 @@ export const INSTALLERS: Record<InstallerSystem, string>;
 export const UPDATE_INSTALLERS: Record<InstallerSystem, string>;
 export function updateCopyName(name: unknown): string | undefined;
 export const UPDATES_REPO: string;
-export function updateCopyUrl(tag: unknown, installer: unknown): string | undefined;
+export function updateCopyUrl(tag: unknown, installer: unknown, repo?: unknown): string | undefined;
 export function systemOf(o?: {
   userAgent?: string;
   platform?: string;

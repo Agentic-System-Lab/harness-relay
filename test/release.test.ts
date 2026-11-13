@@ -961,7 +961,10 @@ describe('the release workflow', () => {
     expect(copies).toBeGreaterThan(copied);
     expect(published).toBeGreaterThan(copies);
     const step = release.slice(copies, published);
-    expect(step).toContain("import { UPDATES_REPO } from './site/assets/downloads.js'");
+    // In the repository the app downloads them from: the one the build named, read as the build reads it.
+    expect(step).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
+    expect(step).toContain("import { updateSourceFrom } from './desktop/src/updateSource.ts';");
+    expect(step).toContain('updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO })');
     expect(step).toContain('gh release create "$TAG" updates/* --repo "$repo"');
     // Tried again: the copies uploaded again over the ones there.
     expect(step).toContain('gh release upload "$TAG" updates/* --repo "$repo" --clobber');
@@ -970,11 +973,81 @@ describe('the release workflow', () => {
     expect(release.slice(published)).not.toContain('updates/');
   });
 
-  it('hands the token for the copies’ repository to the step that publishes them only', () => {
-    expect(workflow.match(/secrets\./g)).toEqual(['secrets.']);
+  it('hands the write token to the copies’ step and the tokens job only, and the read token to the app’s build, the tokens job and the checks only', () => {
+    expect(workflow.match(/secrets\.[A-Z_]+/g)).toEqual([
+      // That it is set at all, in the shell alone, in the tokens job.
+      'secrets.UPDATES_TOKEN',
+      // The comparison of the two, in the shell alone, in the tokens job.
+      'secrets.UPDATES_TOKEN',
+      'secrets.UPDATES_READ_TOKEN',
+      // Whose they are, asked of GitHub in the shell alone, in the tokens job too.
+      'secrets.UPDATES_TOKEN',
+      'secrets.UPDATES_READ_TOKEN',
+      // The update source checked, with the repository's own code, before anything is installed.
+      'secrets.UPDATES_READ_TOKEN',
+      // The app's build, and the checks of the packaged app, which find it there.
+      'secrets.UPDATES_READ_TOKEN',
+      'secrets.UPDATES_READ_TOKEN',
+      'secrets.UPDATES_READ_TOKEN',
+      // The check of the builds' fingerprints.
+      'secrets.UPDATES_READ_TOKEN',
+      // The copies' publishing.
+      'secrets.UPDATES_TOKEN',
+      // The check that an app can download them.
+      'secrets.UPDATES_READ_TOKEN',
+    ]);
     const release = job('release');
-    const copies = release.slice(release.indexOf("- name: Publish the copies for the app's updates"), release.indexOf('- name: Publish\n'));
+    const step = (name: string) => {
+      const from = release.indexOf(`- name: ${name}`);
+      expect(from, name).toBeGreaterThan(0);
+      const next = release.indexOf('- name: ', from + 1);
+      return release.slice(from, next < 0 ? undefined : next);
+    };
+    const copies = step("Publish the copies for the app's updates");
     expect(copies).toContain('GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
+    expect(copies).not.toContain('UPDATES_READ_TOKEN');
+    // The write token's two checks in a job of their own: nothing checked out or installed there, since a
+    // runner keeps the secrets a job names for the whole job; and no job that runs npm's packages names it.
+    const tokensJob = job('tokens');
+    expect(tokensJob).toContain('- name: Expect the write token');
+    expect(tokensJob).toContain('- name: Refuse a read token that is the write token');
+    expect(tokensJob).toContain("- name: Warn when the read token's account also owns the write token");
+    expect(tokensJob.match(/WRITE_TOKEN: \$\{\{ secrets\.UPDATES_TOKEN \}\}/g)).toHaveLength(3);
+    // Each token goes to curl on its standard input, never among its arguments.
+    expect(tokensJob).toContain("printf 'Authorization: Bearer %s\\n' \"$1\" | curl -fsS --max-time 30 -H @- ");
+    expect(tokensJob).not.toMatch(/-H "Authorization/);
+    expect(tokensJob.match(/READ_TOKEN: \$\{\{ secrets\.UPDATES_READ_TOKEN \}\}/g)).toHaveLength(2);
+    expect(tokensJob).not.toMatch(/\buses:|\bnode\b|\bgh\b|\bnpm\b/);
+    expect(job('check')).toMatch(/^\s+needs: tokens$/m);
+    for (const name of ['check', 'build']) expect(job(name), name).not.toContain('secrets.UPDATES_TOKEN');
+    const checkJob = job('check');
+    const source = checkJob.slice(checkJob.indexOf('- name: Check the update source'), checkJob.indexOf('- name: Install'));
+    expect(source).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+    expect(source).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(source).toContain('repositoryReadable(fetch, { source: source.value, token: process.env.GH_TOKEN })');
+    expect(source).not.toContain('secrets.UPDATES_TOKEN');
+    expect(checkJob.indexOf('- name: Check the update source')).toBeLessThan(checkJob.indexOf('- name: Install'));
+    expect(release).not.toContain('Refuse a read token');
+    for (const name of ["Check that the installers were built with this run's update source", 'Check that the app can download the copies']) {
+      const check = step(name);
+      expect(check, name).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
+      expect(check, name).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+      expect(check, name).not.toContain('secrets.UPDATES_TOKEN');
+    }
+    // The app's build, given where it downloads its updates from (the same variable the copies follow) and the token it downloads them with.
+    const build = job('build');
+    const built = build.slice(build.indexOf('- name: Build the desktop app'), build.indexOf('- name: Run the bundled server as the desktop app does'));
+    expect(built).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
+    expect(built).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+    expect(built).toContain('run: npm --prefix desktop run build');
+    expect(workflow.match(/vars\.UPDATES_REPO/g)).toHaveLength(7);
+    for (const name of ['Check the packaged app', 'Check the packaged app (Linux, on a virtual display)']) {
+      const checked = build.slice(build.indexOf(`- name: ${name}\n`), build.indexOf('- name: ', build.indexOf(`- name: ${name}\n`) + 1));
+      expect(checked, name).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+      expect(checked, name).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
+    }
+    // A build run again in a later attempt replaces what it uploaded.
+    expect(build.match(/overwrite: true/g)).toHaveLength(2);
   });
 
   it('may write to the repository only in the job that publishes', () => {

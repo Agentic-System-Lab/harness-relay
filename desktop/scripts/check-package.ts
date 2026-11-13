@@ -10,6 +10,12 @@
  *   and the sandbox runtime (on Linux, with its seccomp helper executable);
  * - the repository's LICENSE is in its resources and in its archive (beside the package.json whose
  *   `license` names it), the same file;
+ * - no file the server runs holds a GitHub token (`github_pat_`), and the app's own main process holds
+ *   none as text: the token an app may be built with to download its updates (RELAY_UPDATES_TOKEN) goes
+ *   into its main process alone, encoded. Its main process holds the repository and the token this
+ *   script's own environment names (RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN; the default repository
+ *   without them), encoded (src/updateSource.ts): it cannot tell what the app was built with, so it is
+ *   run with the build's values, as the Release workflow and CI run it;
  * - the app passes its own check (`--smoke-test`, desktop/src/main.ts): in Electron as it ships, the
  *   server starts in a utility process, a team of claude, codex and grok answers a question (the fake
  *   CLIs of the end-to-end tests, e2e/fake-cli/, built here and given to it with `--smoke-test-clis`),
@@ -29,6 +35,7 @@ import { extractFile } from '@electron/asar';
 import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 import { installFakeClis } from '../../e2e/support/fake-cli';
 import { withoutOwnSettings } from '../src/selftest';
+import { encodeUpdateSource, updateSourceFrom } from '../src/updateSource';
 import { packagedApps } from './packaged';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -130,6 +137,22 @@ async function main(): Promise<number> {
     const shipped = join(app.resources, 'LICENSE');
     check(existsSync(shipped) && readFileSync(shipped).equals(license), "the repository's LICENSE is in its resources");
     check(fromArchive(join(app.resources, 'app.asar'), 'LICENSE')?.equals(license), "the repository's LICENSE is in its archive, beside its package.json");
+    // The token for the app's updates, if it was built with one, is its main process's alone (desktop/scripts/build.ts).
+    const bundles = ['server.mjs', 'relaySandboxHost.mjs', 'piGate.js'].map((name) => join(server, name)).filter((path) => existsSync(path));
+    const token = /github_pat_[A-Za-z0-9_]{20,}/;
+    check(bundles.length === 3 && bundles.every((path) => !token.test(readFileSync(path, 'latin1'))), 'no file the server runs holds a GitHub token');
+    const main = fromArchive(join(app.resources, 'app.asar'), 'main.cjs')?.toString('latin1');
+    check(main !== undefined && !token.test(main), "the app's main process holds no GitHub token as text (only encoded)");
+    // What it was built to download its updates with, as this environment names it.
+    const source = updateSourceFrom(process.env);
+    if (source.ok) {
+      const { repo, encodedToken } = encodeUpdateSource(source.value);
+      // As the build's define puts it (`repo: "…"`): the default repository's name is in the app's code anyway.
+      check(main?.includes(`repo: ${JSON.stringify(repo)}`), `the app downloads its updates from ${repo}`);
+      if (encodedToken) check(main?.includes(JSON.stringify(encodedToken)), "the app holds the read token it was built with, encoded");
+    } else {
+      check(false, source.error);
+    }
     const { code, report } = await selfCheck(app.exe, clis);
     process.stdout.write(report.replace(/^/gm, '  '));
     check(code === 0, `the app checks itself (--smoke-test): exit code ${code}`);

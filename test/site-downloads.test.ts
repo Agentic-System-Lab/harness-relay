@@ -198,6 +198,11 @@ describe('the download buttons and the Release workflow', () => {
     expect(updateCopyUrl('2026-11-12', 'Harness-Relay-2026-11-12-mac-arm64-update.dmg')).toBeUndefined();
     for (const tag of ['..', '.', 'a/b', '', 'x?y', undefined]) expect(updateCopyUrl(tag, 'Harness-Relay-2026-11-12-mac-arm64.dmg'), String(tag)).toBeUndefined();
     expect(updateCopyUrl('2026-11-12', '../Harness-Relay-2026-11-12-mac-arm64.dmg')).toBeUndefined();
+    // In another repository, when the app was built to download its updates from one (RELAY_UPDATES_REPO).
+    expect(updateCopyUrl('2026-11-12', 'Harness-Relay-2026-11-12-win-x64.exe', 'acme/relay-updates')).toBe(
+      'https://github.com/acme/relay-updates/releases/download/2026-11-12/Harness-Relay-2026-11-12-win-x64-update.exe',
+    );
+    for (const repo of ['acme', 'acme/u/x', '../u', 'acme/u?x', 'acme/..', 'acme/.', '', 42]) expect(updateCopyUrl('2026-11-12', 'Harness-Relay-2026-11-12-win-x64.exe', repo), String(repo)).toBeUndefined();
     expect(workflow).toMatch(/target: --mac dmg --arm64/);
     expect(workflow).toMatch(/target: --win nsis --x64/);
     expect(workflow).toMatch(/target: --linux AppImage --x64/);

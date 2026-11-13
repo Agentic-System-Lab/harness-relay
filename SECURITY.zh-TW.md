@@ -54,7 +54,9 @@ Harness Relay 會啟動可以修改你的檔案、執行指令的 coding agent�
 - 模型來源或端點的金鑰交給了沒用到它的執行，或成員在你自己端點上的一輪改送到了 CLI 自己的服務；
 - 分享出去的對話公開了使用者沒有選擇分享的內容；
 - 推播通知送到瀏覽器推播服務（`PUSH_HOSTS`）以外的地方、被它要送達的瀏覽器以外的人讀到，或送到已登出、沒有訂閱的瀏覽器；
-- 桌面 app 的視窗載入其他網站，或取得 Node 的能力。
+- 桌面 app 的視窗載入其他網站，或取得 Node 的能力；
+- 桌面 app 把它為了更新而可能帶著的 token 送到 GitHub 的 API 以外的地方；
+- 發佈的桌面 app 建置進去的 token 能做的事不只是讀取副本的 repository。
 
 ## 不算是漏洞的情況
 
@@ -65,6 +67,7 @@ Harness Relay 會啟動可以修改你的檔案、執行指令的 coding agent�
 - Cursor 在 Harness Relay 執行它的模式下沒有沙箱：你允許的指令以你的完整權限執行，Cursor 團隊的自動執行允許清單可以讓指令不經詢問就執行，而讓它自己的檔案工具碰不到受保護路徑的拒絕規則，是拿寫下來的路徑去比對（換個大小寫，或用連結，都擋不住）；
 - 登入擋不住的事，如[架構 → 登入](docs/architecture.zh-TW.md#登入)所述：沙箱外、能讀取你瀏覽器設定檔或寫入 Harness Relay `data/` 資料夾的程式；agent 在這台電腦另一個 port 提供的網頁，若你打開了，就會拿到 cookie，而瀏覽器自己載入的唯讀路由只需要 cookie；不斷送出錯誤代碼的程式，在它這麼做的期間讓新的瀏覽器無法登入；
 - 在沒有金鑰儲存區的系統上，API key 存在 `data/relay.db` 裡，如 [README](README.zh-TW.md#安全性) 所述；
+- 桌面 app 為了從 private repository 下載更新而可能帶著的唯讀 token：任何拿到一份 app 的人都讀得到它（agent 執行的指令也是）。建置只接受 fine-grained token，把它編碼只是為了不讓 GitHub 的 secret scanning 撤銷它（擋不了任何人）；維護者把它限制成只能讀那個 repository，而那裡只放公開安裝檔的副本（[開發者說明 → 發佈](docs/developer-guide.zh-TW.md#發佈)）。有人用完它的請求額度、或讓它被撤銷，只會讓更新改下載安裝檔（如果發佈副本的 token 屬於同一個帳號，也會讓副本要等額度恢復才能發佈：維護者會用一個專用的帳號建立讀取用的 token）；
 - 簽署推播通知的金鑰與瀏覽器的推播訂閱存在 `data/relay.db` 裡（[架構 → 通知](docs/architecture.zh-TW.md#通知)）：拿到它副本的人可以傳通知到你的裝置（點通知仍然只會打開你的 Harness Relay），所以 `data/` 資料夾請勿外流；
 - 用 `tailscale serve` 分享伺服器之後，tailnet 裡每台裝置都連得到的東西：它的登入頁，以及沒有登入機制的 AgentsView（[用手機連線 → 安全性](docs/remote-access.zh-TW.md#安全性)）；
 - 用其他方式連到伺服器（綁定到 `0.0.0.0`、`tailscale funnel`），那份文件已經警告過不要這麼做；

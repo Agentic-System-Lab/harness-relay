@@ -5,9 +5,12 @@ name: Release
 # builds the desktop app's installers on macOS, Windows and Linux (x64, and Arm64 on GitHub's Arm
 # runners), and publishes the five as one GitHub release, tagged with the version; first, a copy of
 # each for the app's updates (counted apart from new installs) under the same tag in a repository of
-# their own (UPDATES_REPO in site/assets/downloads.js), with the UPDATES_TOKEN secret. A release
-# candidate is published as a pre-release. Its notes list every commit that came into main since the
-# version before (scripts/release.ts notes), pushed to main or merged from a pull request.
+# their own (the UPDATES_REPO variable, else UPDATES_REPO in site/assets/downloads.js), with the
+# UPDATES_TOKEN secret; the app downloads them with the UPDATES_READ_TOKEN secret, when that is set
+# (for a private one), which must not be the write token and is checked to read them before the
+# release is published. A release candidate is published as a pre-release. Its notes list every
+# commit that came into main since the version before (scripts/release.ts notes), pushed to main or
+# merged from a pull request.
 on:
   workflow_dispatch:
     inputs:
@@ -34,8 +37,72 @@ defaults:
     shell: bash
 
 jobs:
+  # The write token (UPDATES_TOKEN) in a job of its own, with nothing checked out and nothing installed:
+  # a runner keeps the secrets a job names for the whole job, so a job that runs npm's packages must
+  # never name it. Only the release job's step that publishes the copies names it besides.
+  tokens:
+    name: Check the update tokens
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The copies are published with it after the builds: a release without it stops here, at once,
+      # rather than some 30 minutes later.
+      - name: Expect the write token
+        env:
+          WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}
+        run: |
+          if [ -z "${WRITE_TOKEN//[[:space:]]/}" ]; then
+            echo "::error::The UPDATES_TOKEN secret is not set: the copies for the app's updates are published with it (docs/developer-guide.md, \"Releasing\")."
+            exit 1
+          fi
+
+      # The read token goes into every installer, where anyone can read it, and the build legs upload
+      # theirs as artifacts: never the write token, with which anyone could replace the copies. The
+      # likeliest slip is the same token set as both, caught here before anything is built, compared as
+      # the build reads them (trimmed), in the shell alone. A different token that may write is not
+      # caught here (docs/developer-guide.md, "Releasing").
+      - name: Refuse a read token that is the write token
+        env:
+          WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}
+          READ_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
+        run: |
+          trim() { local v="$1"; v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; printf '%s' "$v"; }
+          read=$(trim "$READ_TOKEN")
+          write=$(trim "$WRITE_TOKEN")
+          if [ -n "$read" ] && [ "$read" = "$write" ]; then
+            echo "::error::UPDATES_READ_TOKEN is the same token as UPDATES_TOKEN, which may write to the copies' repository, and it would go into every installer. Revoke that token and make two: one that may only read the copies' repository for UPDATES_READ_TOKEN, one that may write there for UPDATES_TOKEN (docs/developer-guide.md, \"Releasing\"), then run the workflow again."
+            exit 1
+          fi
+
+      # Anyone with the app has the read token, and may use up its account's requests (5,000 an hour):
+      # when that account also owns the write token, publishing the copies is held up with it. Warned
+      # about, not refused (an account of its own is best: docs/developer-guide.md, "Releasing"), and
+      # also when GitHub does not say whose they are (a token expired or revoked, say). Each token goes to
+      # curl on its standard input, never in its arguments, which other programs could read.
+      - name: Warn when the read token's account also owns the write token
+        env:
+          WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}
+          READ_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
+        run: |
+          trim() { local v="$1"; v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; printf '%s' "$v"; }
+          owner() {
+            printf 'Authorization: Bearer %s\n' "$1" | curl -fsS --max-time 30 -H @- -H 'Accept: application/vnd.github+json' https://api.github.com/user |
+              grep -o '"login": *"[^"]*"' | head -n 1 | sed 's/.*"\([^"]*\)"$/\1/'
+          }
+          read=$(trim "$READ_TOKEN")
+          write=$(trim "$WRITE_TOKEN")
+          if [ -z "$read" ] || [ -z "$write" ]; then exit 0; fi
+          reader=$(owner "$read" || true)
+          writer=$(owner "$write" || true)
+          if [ -z "$reader" ] || [ -z "$writer" ]; then
+            echo "::warning::Could not tell which accounts UPDATES_READ_TOKEN and UPDATES_TOKEN belong to (GitHub did not say)."
+          elif [ "$reader" = "$writer" ]; then
+            echo "::warning::UPDATES_READ_TOKEN and UPDATES_TOKEN both belong to $reader. Anyone with the app can use up that account's requests with the read token, and publishing the copies with the write token is then held up too: make the read token with an account of its own (docs/developer-guide.md, \"Releasing\")."
+          fi
+
   check:
     name: Check the version and the code
+    needs: tokens
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -58,6 +125,27 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: node scripts/release.ts check "$VERSION" --remote
+
+      # The update source the builds will take, checked before anything is installed: a read token that
+      # is not a fine-grained one, or a repository that is not owner/name (or is this one), stops the run
+      # here rather than in each build; and so does one that cannot read that repository's releases (no
+      # access to it or to its contents, expired, revoked, waiting for an organization's approval), or a
+      # private repository without one, asked of GitHub as an app would (repositoryReadable; without a
+      # read token, with this job's own in its place). The repository's own code alone, no dependencies; the read token is public anyway.
+      - name: Check the update source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
+          RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
+        run: |
+          node --input-type=module -e "
+          import { repositoryReadable, updateSourceFrom } from './desktop/src/updateSource.ts';
+          const source = updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN: process.env.RELAY_UPDATES_TOKEN });
+          if (!source.ok) { console.error('::error::' + source.error); process.exit(1); }
+          const { error, warning } = await repositoryReadable(fetch, { source: source.value, token: process.env.GH_TOKEN });
+          if (warning) console.log('::warning::' + warning);
+          if (error) { console.error('::error::' + error); process.exit(1); }
+          console.log('The app will download its updates from ' + source.value.repo + (source.value.token ? ', with the read token.' : ', without a token.'));"
 
       - name: Install
         run: npm ci
@@ -149,7 +237,17 @@ jobs:
       - name: Build the web app
         run: npm run build
 
+      # Where the app downloads its updates from (desktop/src/updateSource.ts): the repository the
+      # copies are published in below (the UPDATES_REPO variable, else UPDATES_REPO in
+      # site/assets/downloads.js), with the UPDATES_READ_TOKEN secret when it is set, for a private one.
+      # The token goes into every installer, where anyone can read it: it may read that repository's
+      # contents and nothing else (docs/developer-guide.md, "Releasing"). In this job, this step and the
+      # packaged app's checks below get it (and, before, the tokens job's two steps and the check job's
+      # update-source check; after, the release job's two update checks).
       - name: Build the desktop app
+        env:
+          RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
+          RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
         run: npm --prefix desktop run build
 
       # On each system: the bundled server listens, signs a browser in, has a team of the fake CLIs
@@ -169,26 +267,45 @@ jobs:
       # The packaged app itself, as it ships (desktop/scripts/check-package.ts): its fuses, the keyring
       # module in its resources, and its own check in Electron (--smoke-test: the server in a utility
       # process, a question answered by a team of the fake CLIs, a sandboxed window signed in). On
-      # Linux it needs a display.
+      # Linux it needs a display. Given what the app was built to download its updates with, it finds the
+      # repository there and the read token encoded (and as text nowhere).
       - name: Check the packaged app
         if: runner.os != 'Linux'
+        env:
+          RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
+          RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
         run: npx tsx desktop/scripts/check-package.ts
 
       - name: Check the packaged app (Linux, on a virtual display)
         if: runner.os == 'Linux'
+        env:
+          RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
+          RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
         run: |
           # A virtual display and Electron's own libraries: GitHub's x64 image has them, its Arm image not all.
           missing=$(for p in xvfb libnss3 libgtk-3-0t64 libgbm1 libasound2t64; do dpkg -s "$p" >/dev/null 2>&1 || echo "$p"; done)
           if [ -n "$missing" ]; then sudo apt-get update -q && sudo apt-get install -y -q $missing; fi
           xvfb-run -a npx tsx desktop/scripts/check-package.ts
 
+      # overwrite: a build run again in a later attempt replaces what it uploaded before.
       - uses: actions/upload-artifact@v7
         with:
           name: installer-${{ matrix.name }}
+          overwrite: true
           path: |
             ${{ env.BUILD_DIR }}/desktop/release/Harness-Relay-*.dmg
             ${{ env.BUILD_DIR }}/desktop/release/Harness-Relay-*.exe
             ${{ env.BUILD_DIR }}/desktop/release/Harness-Relay-*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+      # What this build downloads its updates with (desktop/scripts/build.ts: a fingerprint naming
+      # neither the repository nor the token), for the release job to check against its own.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: update-source-${{ matrix.name }}
+          overwrite: true
+          path: ${{ env.BUILD_DIR }}/desktop/build/update-source.txt
           if-no-files-found: error
           retention-days: 7
 
@@ -233,6 +350,12 @@ jobs:
           path: installers
           merge-multiple: true
 
+      # One folder for each build's: checked against this run's below.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: update-source-*
+          path: update-sources
+
       # The ends of the installers' names are the ones the website and the app's updates look for
       # (INSTALLERS in site/assets/downloads.js).
       - name: Expect one installer per system and processor
@@ -270,14 +393,37 @@ jobs:
           }"
           ls -l updates
 
+      # Every installer was built with this run's variable and secret (desktop/src/updateSource.ts,
+      # sameUpdateSource): "Re-run failed jobs" builds nothing again that built before, so one changed
+      # since would be checked below and not be in them. Before the copies are published, from the
+      # fingerprints the builds left, which name neither the repository nor the token.
+      - name: Check that the installers were built with this run's update source
+        env:
+          RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
+          RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
+        run: |
+          node --input-type=module -e "
+          import { readdirSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { sameUpdateSource, updateSourceFrom } from './desktop/src/updateSource.ts';
+          const source = updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN: process.env.RELAY_UPDATES_TOKEN });
+          if (!source.ok) { console.error('::error::' + source.error); process.exit(1); }
+          const built = readdirSync('update-sources', { recursive: true }).filter((f) => f.endsWith('update-source.txt')).map((f) => readFileSync(join('update-sources', f), 'utf8'));
+          const changed = sameUpdateSource(built, source.value, readdirSync('installers').length);
+          if (changed) { console.error('::error::' + changed); process.exit(1); }
+          console.log('The ' + built.length + ' installers were built with this run\'s update source.');"
+
       # Before the release, so that no app is offered it before its copies are there (it would download
-      # the installer itself, counted as a new install). Under the same tag in the public repository
-      # UPDATES_REPO (site/assets/downloads.js), with a token that may write there alone (UPDATES_TOKEN,
-      # see docs/developer-guide.md, "Releasing"): this job's own token writes to this repository only.
-      # A run tried again uploads the copies again.
+      # the installer itself, counted as a new install). Under the same tag in the repository the app
+      # downloads them from, the one the build named (RELAY_UPDATES_REPO: the UPDATES_REPO variable,
+      # else UPDATES_REPO in site/assets/downloads.js, read as desktop/src/updateSource.ts reads it),
+      # with a token that may write there alone (UPDATES_TOKEN, see docs/developer-guide.md,
+      # "Releasing"): this job's own token writes to this repository only. A run tried again uploads
+      # the copies again.
       - name: Publish the copies for the app's updates
         env:
           GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}
+          RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
           TAG: ${{ needs.check.outputs.tag }}
           TITLE: ${{ needs.check.outputs.title }}
           PRERELEASE: ${{ needs.check.outputs.prerelease }}
@@ -286,7 +432,11 @@ jobs:
             echo "::error::The UPDATES_TOKEN secret is not set (docs/developer-guide.md, \"Releasing\")."
             exit 1
           fi
-          repo=$(node --input-type=module -e "import { UPDATES_REPO } from './site/assets/downloads.js'; console.log(UPDATES_REPO)")
+          repo=$(node --input-type=module -e "
+          import { updateSourceFrom } from './desktop/src/updateSource.ts';
+          const source = updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO });
+          if (!source.ok) { console.error('::error::' + source.error); process.exit(1); }
+          console.log(source.value.repo);")
           if gh release view "$TAG" --repo "$repo" >/dev/null 2>&1; then
             gh release upload "$TAG" updates/* --repo "$repo" --clobber
           else
@@ -295,6 +445,32 @@ jobs:
             notes="Copies of the installers of [$TITLE](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}), which an installed Harness Relay downloads to update itself. To install Harness Relay, download the installers there."
             gh release create "$TAG" updates/* --repo "$repo" --title "$TITLE" --notes "$notes" "${channel[@]}"
           fi
+
+      # An app downloads the copies as it was built to (desktop/src/updateSource.ts, copiesReadable):
+      # checked here, so that a read token missing, expired, waiting for an organization's approval or
+      # without access to that repository stops the release before it is published, instead of every
+      # update quietly counting as a new install. Each copy must be listed whole where the app will ask
+      # for it (nothing is downloaded, so no download is counted): with the read token, else, as the app
+      # then downloads from github.com without one, with this job's own token in its place, which reads
+      # a public repository and no other's private one. A read token that expires soon is warned about.
+      - name: Check that the app can download the copies
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
+          RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          node --input-type=module -e "
+          import { readdirSync, statSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { copiesReadable, updateSourceFrom } from './desktop/src/updateSource.ts';
+          const source = updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN: process.env.RELAY_UPDATES_TOKEN });
+          if (!source.ok) { console.error('::error::' + source.error); process.exit(1); }
+          const copies = readdirSync('updates').map((name) => ({ name, size: statSync(join('updates', name)).size }));
+          const { error, warning } = await copiesReadable(fetch, { source: source.value, tag: process.env.TAG, copies, token: process.env.GH_TOKEN });
+          if (warning) console.log('::warning::' + warning);
+          if (error) { console.error('::error::' + error); process.exit(1); }
+          console.log('An app built with ' + (source.value.token ? 'the read token' : 'no token') + ' can download the ' + copies.length + ' copies from ' + source.value.repo + '.');"
 
       - name: Publish
         env:
