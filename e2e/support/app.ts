@@ -156,6 +156,9 @@ export async function openTeamChat(
  * beside it proves nothing, as the cards of a grid row are always as tall as each other.
  */
 export async function heightWithoutAddCard(page: Page, card: Locator): Promise<{ shown: number; hidden: number }> {
+  // Once the tool library has loaded, the card's Tools say more than their label: before that it is
+  // shorter, and an answer landing between the two measurements would change its height.
+  await expect(card.locator('.agent-tools > :nth-child(2)')).toBeAttached();
   const shown = (await card.boundingBox())!.height;
   const style = await page.addStyleTag({ content: '.add-card { display: none !important; }' });
   const hidden = (await card.boundingBox())!.height;
