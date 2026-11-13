@@ -97,13 +97,17 @@ test.describe('on a phone', () => {
           .filter((el) => el.scrollWidth > el.clientWidth + 1 && (el === document.documentElement || ['auto', 'scroll'].includes(getComputedStyle(el).overflowX)))
           .map((el) => `${el.className || el.tagName} +${el.scrollWidth - el.clientWidth}`),
       );
-    /** How many rows the four kinds of schedule take. */
-    const kindRows = () =>
-      page.locator('.schedule-repeat [role="radiogroup"]').evaluate((g) => new Set([...g.children].map((b) => Math.round(b.getBoundingClientRect().top))).size);
-    // 320px: the four kinds of schedule go two by two in English (they need about 340px on one row),
-    // and the week's seven days onto two rows in both languages. In Chinese the kinds need about 222px:
-    // at 250px (a 218px column) they go two by two too.
+    /** How many rows the buttons in `box` take. */
+    const rows = (box: string) =>
+      page.locator(box).evaluate((g) => new Set([...g.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top))).size);
+    // The four kinds of schedule go two by two in English below a 380px column (they need about 340px
+    // on one row, more with a wider font): at 400px (368px) too, not at 430px (398px). In Chinese they
+    // need about 222px: at 250px (a 218px column) they go two by two. The week's seven days need about
+    // 310px in English and 276px in Chinese: below that they go onto two rows.
     const widths = [320, 280];
+    const widthsOf = { en: [...widths, 400, 430], 'zh-TW': [...widths, 250] };
+    const kindRows = (lang: 'en' | 'zh-TW', width: number) => (lang === 'en' ? (width <= 400 ? 2 : 1) : width <= 250 ? 2 : 1);
+    const dayRows = (lang: 'en' | 'zh-TW', width: number) => (lang === 'en' ? (width <= 320 ? 2 : 1) : width <= 280 ? 2 : 1);
     for (const [lang, messages] of [['en', en], ['zh-TW', zhTW]] as const) {
       const s = messages.schedule;
       await page.evaluate((l) => localStorage.setItem('relay:lang', l), lang);
@@ -119,10 +123,11 @@ test.describe('on a phone', () => {
           await expect(page.locator('.schedule-form .field.inline .unit')).toHaveText(s.hoursUnit);
           await expect(page.locator('.schedule-form input[type="number"]')).toHaveAccessibleDescription(s.intervalHint);
         }
-        for (const width of lang === 'zh-TW' ? [...widths, 250] : widths) {
+        for (const width of widthsOf[lang]) {
           await page.setViewportSize({ width, height: 640 });
           expect(await sideways(), `${lang}, ${kind}, ${width}px`).toEqual([]);
-          expect(await kindRows(), `${lang}, ${width}px`).toBe(lang === 'en' || width === 250 ? 2 : 1);
+          expect(await rows('.schedule-repeat [role="radiogroup"]'), `the kinds, ${lang}, ${width}px`).toBe(kindRows(lang, width));
+          if (kind === 'weekly') expect(await rows('.day-picker'), `the days, ${lang}, ${width}px`).toBe(dayRows(lang, width));
         }
       }
     }
