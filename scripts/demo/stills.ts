@@ -70,18 +70,26 @@ function encodePng(pixels: Buffer, w: number, h: number): Buffer {
   return ffmpeg(['-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${w}x${h}`, '-i', 'pipe:0', '-pred', 'mixed', '-f', 'image2pipe', '-c:v', 'png', 'pipe:1'], pixels);
 }
 
+/** Whether pixel (x, y) of a w×h screen lies outside its rounded corners (radius r), its centre beyond the arc. */
+function outsideCorner(x: number, y: number, w: number, h: number, r: number): boolean {
+  const px = x + 0.5;
+  const py = y + 0.5;
+  const cx = px < r ? r : px > w - r ? w - r : px;
+  const cy = py < r ? r : py > h - r ? h - r : py;
+  return (px - cx) ** 2 + (py - cy) ** 2 > r * r;
+}
+
 /**
- * Pixels of `card` (w×h RGB) inside `box` that match `old` (what the box showed: the old poster at
- * the box's size) within `tolerance` are replaced by `next`. Anything drawn over the screen (its
- * frame, its rounded corners) differs from the old poster, so it stays. Returns how many changed.
+ * Draws `next` (an image at the box's size, RGB) into `card` (w×h RGB) inside `box`, all but the
+ * screen's rounded corners (radius `radius`), where the frame around it shows. What the screen
+ * showed before does not matter. Returns how many pixels were drawn.
  */
 export function swapScreen(
   card: Buffer,
   cardWidth: number,
   box: { x: number; y: number; w: number; h: number },
-  old: Buffer,
   next: Buffer,
-  tolerance = 40,
+  radius = 0,
 ): number {
   const cardHeight = card.length / 3 / cardWidth;
   const visW = Math.min(box.w, cardWidth - box.x);
@@ -89,11 +97,9 @@ export function swapScreen(
   let changed = 0;
   for (let y = 0; y < visH; y++) {
     for (let x = 0; x < visW; x++) {
+      if (radius > 0 && outsideCorner(x, y, box.w, box.h, radius)) continue;
       const c = ((box.y + y) * cardWidth + box.x + x) * 3;
       const s = (y * box.w + x) * 3;
-      let diff = 0;
-      for (let k = 0; k < 3; k++) diff = Math.max(diff, Math.abs(card[c + k] - old[s + k]));
-      if (diff > tolerance) continue;
       for (let k = 0; k < 3; k++) card[c + k] = next[s + k];
       changed++;
     }
@@ -101,9 +107,24 @@ export function swapScreen(
   return changed;
 }
 
-/** Where the social card shows the poster: 600×375 at (650, 80), cut off by the card's right edge. */
-const OG_SCREEN = { x: 650, y: 80, w: 600, h: 375 };
+/**
+ * Where the social card shows its screen: 600×375 at (650, 80), cut off by the card's right edge,
+ * with corners of a 6-pixel radius inside the frame.
+ */
+const OG_SCREEN = { x: 650, y: 80, w: 600, h: 375, radius: 6 };
 const OG_SIZE = { w: 1200, h: 630 };
+
+/**
+ * The social card for `lang` with `screen` (any image file, scaled to the screen) drawn into its
+ * screen, and `origin` as its PNG text. Returns how many pixels were drawn.
+ */
+export function drawCardScreen(lang: DemoLang, screen: string, origin: string): number {
+  const ogPath = join(ROOT, `site/assets/media/og-${lang}.png`);
+  const card = rgb(ogPath, OG_SIZE.w, OG_SIZE.h);
+  const changed = swapScreen(card, OG_SIZE.w, OG_SCREEN, rgb(screen, OG_SCREEN.w, OG_SCREEN.h), OG_SCREEN.radius);
+  writeFileSync(ogPath, withPngText(encodePng(card, OG_SIZE.w, OG_SIZE.h), 'impeccable:prompt', origin));
+  return changed;
+}
 
 /** Re-cuts every still for `lang` from the frame at `at` seconds of docs/media/demo-<lang>.mp4. */
 export function cutStills(lang: DemoLang, at: number, workDir: string, log: (...a: unknown[]) => void): void {
@@ -112,20 +133,14 @@ export function cutStills(lang: DemoLang, at: number, workDir: string, log: (...
   const frame = join(workDir, 'still.png');
   ffmpeg(['-ss', at.toFixed(3), '-i', join(ROOT, video), '-frames:v', '1', frame]);
 
-  // The social card first: it is compared with the poster it shows now.
-  const posterPath = join(ROOT, `site/assets/media/poster-${lang}.webp`);
-  const ogPath = join(ROOT, `site/assets/media/og-${lang}.png`);
-  const card = rgb(ogPath, OG_SIZE.w, OG_SIZE.h);
-  const changed = swapScreen(card, OG_SIZE.w, OG_SCREEN, rgb(posterPath, OG_SCREEN.w, OG_SCREEN.h), rgb(frame, OG_SCREEN.w, OG_SCREEN.h));
+  // The social card's screen.
   const ogText =
-    `Origin: social preview card rendered with Playwright from an HTML card using site/assets/site.css and poster-${lang}.webp; ` +
-    `its screen updated with the re-recorded poster-${lang}.webp (frame at ${when} of ${video}) by scripts/demo/stills.ts; no generated imagery.\n`;
-  writeFileSync(ogPath, withPngText(encodePng(card, OG_SIZE.w, OG_SIZE.h), 'impeccable:prompt', ogText));
-  const visible = Math.min(OG_SCREEN.w, OG_SIZE.w - OG_SCREEN.x) * OG_SCREEN.h;
-  log(`og-${lang}.png: ${changed} of ${visible} screen pixels replaced`);
-  if (changed < visible * 0.5) log(`WARNING: og-${lang}.png: under half its screen matched the old poster; check the card`);
+    'Origin: social preview card rendered with Playwright from an HTML card using site/assets/site.css; ' +
+    `its screen the frame at ${when} of ${video} (the poster's), drawn in by scripts/demo/stills.ts; no generated imagery.\n`;
+  log(`og-${lang}.png: ${drawCardScreen(lang, frame, ogText)} screen pixels drawn`);
 
   // The poster, and where it came from.
+  const posterPath = join(ROOT, `site/assets/media/poster-${lang}.webp`);
   execFileSync('cwebp', ['-quiet', '-q', '82', frame, '-o', posterPath]);
   const sidecar = {
     prompt: `Origin: frame at ${when} of ${video} (Harness Relay's own demo recording), extracted with ffmpeg, encoded with cwebp -q 82.\n`,

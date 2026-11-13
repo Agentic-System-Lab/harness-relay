@@ -255,16 +255,37 @@ describe('stills', () => {
     }
   });
 
-  it('swaps only the social card’s screen: pixels that showed the old poster', () => {
+  it('draws the social card’s screen inside its box, whatever it showed before', () => {
     // A 4×2 card; the screen is the 2×2 box at x = 2, cut off by nothing.
     const card = Buffer.alloc(4 * 2 * 3, 200);
-    const old = Buffer.alloc(2 * 2 * 3, 200);
+    card[(1 * 4 + 3) * 3] = 0; // the screen showed something else here
     const next = Buffer.alloc(2 * 2 * 3, 10);
-    card[(1 * 4 + 3) * 3] = 0; // something drawn over the screen's corner
-    const changed = swapScreen(card, 4, { x: 2, y: 0, w: 2, h: 2 }, old, next);
-    expect(changed).toBe(3);
+    expect(swapScreen(card, 4, { x: 2, y: 0, w: 2, h: 2 }, next)).toBe(4);
     expect([...card.subarray(0, 6)]).toEqual([200, 200, 200, 200, 200, 200]); // outside the box
     expect(card[(0 * 4 + 2) * 3]).toBe(10);
-    expect(card[(1 * 4 + 3) * 3]).toBe(0);
+    expect(card[(1 * 4 + 3) * 3]).toBe(10);
+  });
+
+  it('keeps the frame in the screen’s rounded corners, and draws only what the card shows of it', () => {
+    // A 14×12 card, all frame (1); a 16×10 screen at (2, 1), whose last 4 columns (and right
+    // corners) lie past the card's right edge.
+    const W = 14;
+    const card = Buffer.alloc(W * 12 * 3, 1);
+    const box = { x: 2, y: 1, w: 16, h: 10 };
+    const next = Buffer.alloc(box.w * box.h * 3, 9);
+    const at = (x: number, y: number) => card[((box.y + y) * W + box.x + x) * 3];
+    const drawn = swapScreen(card, W, box, next, 4);
+    // Each corner of radius 4 keeps the three pixels whose centres lie beyond its arc.
+    expect(at(0, 0)).toBe(1);
+    expect(at(1, 0)).toBe(1);
+    expect(at(0, 1)).toBe(1);
+    expect(at(3, 0)).toBe(9);
+    expect(at(0, 3)).toBe(9);
+    expect(at(1, 1)).toBe(9);
+    expect(at(0, 9)).toBe(1); // bottom-left corner
+    expect(at(0, 5)).toBe(9); // the left edge between the corners
+    expect(at(11, 0)).toBe(9); // the right corners lie past the card's edge
+    expect(card[(0 * W + 2) * 3]).toBe(1); // above the box
+    expect(drawn).toBe(12 * 10 - 2 * 3);
   });
 });
