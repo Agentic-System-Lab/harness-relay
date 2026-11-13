@@ -6,6 +6,7 @@ import { codexRunner } from './codex';
 import { cursorRunner } from './cursor';
 import { gooseAgent } from './goose';
 import { grokRunner } from './grok';
+import { museRunner } from './muse';
 import type { OpenAgentDefinition } from './open';
 import { opencodeAgent } from './opencode';
 import { openhandsAgent } from './openhands';
@@ -27,6 +28,7 @@ export const runners: Record<Provider, AgentRunner> = {
   grok: grokRunner,
   cursor: cursorRunner,
   antigravity: antigravityRunner,
+  muse: museRunner,
   opencode: opencodeAgent.runner,
   goose: gooseAgent.runner,
   cline: clineAgent.runner,

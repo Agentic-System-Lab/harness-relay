@@ -2,9 +2,9 @@
 
 # 各平台的作業系統沙箱
 
-Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent` 和 `agy`（Antigravity）CLI，沙箱由各 CLI 自己提供，或者沒有（Cursor 在 Harness Relay 的執行中沒有提供，Antigravity 的則會讓它的指令寫不進工作目錄，所以兩者都在沒有沙箱的情況下執行）。五個開源 agent（OpenCode、Goose、Cline、OpenHands、Pi）自己也沒有沙箱，所以 Harness Relay 用[自己的沙箱](#harness-relay-自己的沙箱)把它們關起來（用的是同一套機制：macOS 的 Seatbelt、Linux 的 bubblewrap、網路用過濾代理）。這一頁說明 Harness Relay 目前哪些執行用了沙箱、各沙箱能在哪些平台上運作、在那裡需要什麼前提、無法啟動時會怎樣，以及它管不到哪些事。
+Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent`、`agy`（Antigravity）和 `muse`（Muse Code）CLI，沙箱由各 CLI 自己提供，或者沒有（Cursor 在 Harness Relay 的執行中沒有提供，Antigravity 的則會讓它的指令寫不進工作目錄，所以兩者都在沒有沙箱的情況下執行）。五個開源 agent（OpenCode、Goose、Cline、OpenHands、Pi）自己也沒有沙箱，所以 Harness Relay 用[自己的沙箱](#harness-relay-自己的沙箱)把它們關起來（用的是同一套機制：macOS 的 Seatbelt、Linux 的 bubblewrap、網路用過濾代理）。這一頁說明 Harness Relay 目前哪些執行用了沙箱、各沙箱能在哪些平台上運作、在那裡需要什麼前提、無法啟動時會怎樣，以及它管不到哪些事。
 
-於 2026 年 11 月 10 日確認，Cursor 於 2026 年 11 月 11 日確認，Antigravity 則於 2026 年 11 月 12 日以 `agy` 1.5.6 確認。實際試過什麼、在哪些系統上、用哪些版本，見[已測試的範圍](#已測試的範圍)：一台 Mac（macOS 26.6）與一台 NVIDIA DGX Spark（Ubuntu 24.04，aarch64）；Cursor 只在 Mac 上試過；Antigravity 在這兩台與一台 Windows 11 虛擬機（arm64）上都試過。其他內容，包括所有 Windows 與 WSL 的部分，都來自各 CLI 自己的文件（見[資料來源](#資料來源)）。這些 CLI 變動很快，要依賴某個細節之前請再確認一次。
+於 2026 年 11 月 10 日確認，Cursor 於 2026 年 11 月 11 日確認，Antigravity 於 2026 年 11 月 12 日以 `agy` 1.5.6 確認，Muse Code 則於 2026 年 11 月 13 日以 `muse` 1.4.18 確認。實際試過什麼、在哪些系統上、用哪些版本，見[已測試的範圍](#已測試的範圍)：一台 Mac（macOS 26.6）與一台 NVIDIA DGX Spark（Ubuntu 24.04，aarch64）；Cursor 只在 Mac 上試過；Antigravity 與 Muse Code 在這兩台與一台 Windows 11 虛擬機（arm64）上都試過，Muse Code 在那裡沒有完成它沙箱的設定。其他內容，包括所有 Windows 與 WSL 的部分，都來自各 CLI 自己的文件（見[資料來源](#資料來源)）。這些 CLI 變動很快，要依賴某個細節之前請再確認一次。
 
 ## 已測試的範圍
 
@@ -14,7 +14,7 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent` 和 `
 | --- | --- | --- |
 | 系統 | macOS 26.6.2，arm64 | Ubuntu 24.04.5 LTS，aarch64，kernel 7.0.0-1019-nvidia（AppArmor 限制 unprivileged user namespace） |
 | 沙箱 | Seatbelt | bubblewrap 0.9.0 與 socat 1.8.0，加上[在 Linux 上](#在-linux-上)中給 `/usr/bin/bwrap` 的 AppArmor 設定檔（沒有它時，三者都拒絕在沙箱中執行） |
-| CLI | Claude Code 2.1.322、Codex 0.167.0、Grok 1.0.77；Cursor（`cursor-agent`）2026.11.11-043ef28，11 月 11 日；Antigravity（`agy`）1.5.6，11 月 12 日 | Claude Code 2.1.321、Codex 0.167.0、Grok 1.0.77；Antigravity（`agy`）1.5.6，11 月 12 日；Cursor 沒有試過 |
+| CLI | Claude Code 2.1.322、Codex 0.167.0、Grok 1.0.77；Cursor（`cursor-agent`）2026.11.11-043ef28，11 月 11 日；Antigravity（`agy`）1.5.6，11 月 12 日；Muse Code（`muse`）1.4.18，11 月 13 日 | Claude Code 2.1.321、Codex 0.167.0、Grok 1.0.77；Antigravity（`agy`）1.5.6，11 月 12 日；Muse Code（`muse`）1.4.18，11 月 13 日；Cursor 沒有試過 |
 | git | 2.50.1 | 2.43.0 |
 
 每個 CLI 在唯讀與可編輯模式下、在兩台機器上被要求做的事：寫入工作目錄、寫入家目錄、連到 example.com、列出某個瀏覽器的資料夾、用 shell 讀取 `data/relay.db`（Claude Code 與 Grok 也用它們自己的檔案工具讀）。除了離開沙箱與連到主機以外，核准請求都允許。
@@ -31,6 +31,8 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent` 和 `
 
 **Antigravity** 是在那之後加入的，以 `agy` 1.5.6 在 Mac（arm64）上確認，之後也在 DGX Spark（Linux，aarch64）與一台 Windows 11 虛擬機（arm64）上確認：透過 Harness Relay 的轉接器試過它的 ACP 伺服器與設定，用的是 Gemini API key，搭配 Gemini API 的替身（沒有真正的 Google 登入與真正的 Gemini 模型可用）。它有自己的終端機沙箱（`--sandbox`，或設定中的 `enableTerminalSandbox`），但透過 ACP 時，這個沙箱讓指令在工作目錄中哪裡都寫不進去，只能寫暫存資料夾（agy 的記錄中沒有任何工作區資料夾），每種模式下都一樣，加上 `--add-dir` 或 `additionalDirectories` 也一樣。所以 Harness Relay 不開啟它，在完全存取以外，Antigravity 要執行的每個 shell 指令都送到 Harness Relay 詢問。在 Linux 與 Windows 上，同樣的執行（登出、拒絕、受保護的路徑、完全存取、中途停止、接續 session、它的模型與清單）都和在 Mac 上一樣；它的沙箱在那裡沒有試，因為 Harness Relay 不開啟它。在 Windows 上，agy 用 PowerShell 執行指令。
 
+**Muse Code** 接著加入，以 `muse` 1.4.18 在 Mac（arm64）、DGX Spark（Linux，aarch64，用 `muse` 自帶的 bubblewrap）與同一台 Windows 11 虛擬機上確認：透過 Harness Relay 的轉接器試過它的 ACP 伺服器、權限設定檔與沙箱，用的是假的 Meta API key，搭配 Meta API 的替身（沒有真正的 Meta 登入與真正的 Muse 模型可用）。在 Mac 與 DGX Spark 上，同樣錄下的執行表現一致：它的沙箱擋住了指令寫到工作目錄以外（`Operation not permitted`，允許後也一樣），它的拒絕規則讓它的 `read_file` 與 `cat` 都讀不到受保護的檔案，唯讀時每個指令都詢問，可編輯模式下會寫入工作目錄的指令照常執行，完全存取則能寫到外面。它在 Windows 上的沙箱需要先以系統管理員權限執行一次 Muse 自己的設定，而這台虛擬機沒有執行（它會在那裡建立 Windows 帳號與防火牆規則），所以在那裡完全存取以外的權限下，每個指令都在開始前就失敗；它的檔案工具、唯讀、網路擷取、接續 session 與完全存取都和在 Mac 上一樣。在 Windows 上它的 shell 工具是 PowerShell。
+
 這些執行是從原始碼啟動的，跟 `npm start` 執行伺服器的方式一樣。[桌面 app](user-guide.zh-TW.md#桌面-app) 執行的是同一個伺服器，用同樣的轉接器與同樣的沙箱設定，只是使用它自己的資料夾；上面的執行沒有在它底下重做。在 macOS 上，你給桌面 app 的隱私權限（例如「文件」等資料夾、麥克風）也會給到它執行的 agent，因為 agent 在它裡面執行；用 `npm start` 時則是終端機的權限。
 
 ## 什麼是作業系統沙箱
@@ -46,19 +48,20 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent` 和 `
 
 ## Harness Relay 目前的執行用了什麼
 
-| Relay 權限 | Claude Code | Codex | Grok | Cursor | Antigravity | 開源 agent（OpenCode、Goose、Cline、OpenHands、Pi） |
-| --- | --- | --- | --- | --- | --- | --- |
-| 唯讀 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 由 `:read-only` 延伸的設定檔 `harness-relay-…` | 由 `workspace` 延伸的設定檔 `harness-relay`，可以連網 | 沒有沙箱：每個指令都要詢問（Cursor 團隊允許清單上的除外）；拒絕規則讓它自己的讀取與寫入工具碰不到受保護的路徑（照寫下來的路徑，見下文），寫入工具也不能寫入或刪除 | 沒有沙箱：每個指令與每個寫入都要詢問；它的讀取與網路搜尋直接執行，但讀寫受保護路徑時不經詢問就拒絕（見下文） | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)：不能寫工作目錄；這次執行用的模型主機可連，其他主機都會詢問 |
-| 可編輯 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 由 `:workspace` 延伸的設定檔 `harness-relay-…`，關閉網路 | 由 `workspace` 延伸的設定檔 `harness-relay`，可以連網 | 沒有沙箱：每個指令都要詢問（Cursor 團隊允許清單上的除外），Cursor 詢問的每個寫入也一樣（也包括它不在其中執行的、這個對話的其他工作目錄）；拒絕規則讓它自己的讀取與寫入工具碰不到受保護的路徑（照寫下來的路徑，見下文） | 沒有沙箱：每個指令都要詢問，寫到工作目錄以外、或寫進決定 agent 怎麼執行的資料夾（`.agents`、`.gemini`、`.claude`、`.git/hooks`……）也要詢問；工作目錄內的其他寫入直接執行；受保護路徑同上，一律拒絕 | Harness Relay 自己的沙箱：也能寫各工作目錄；網路同上 |
-| 完全存取 | 沒有沙箱 | 沒有（`danger-full-access`） | 沒有 | 沒有（`--force`） | 沒有（`--dangerously-skip-permissions`） | 沒有 |
+| Relay 權限 | Claude Code | Codex | Grok | Cursor | Antigravity | Muse Code | 開源 agent（OpenCode、Goose、Cline、OpenHands、Pi） |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 唯讀 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 由 `:read-only` 延伸的設定檔 `harness-relay-…` | 由 `workspace` 延伸的設定檔 `harness-relay`，可以連網 | 沒有沙箱：每個指令都要詢問（Cursor 團隊允許清單上的除外）；拒絕規則讓它自己的讀取與寫入工具碰不到受保護的路徑（照寫下來的路徑，見下文），寫入工具也不能寫入或刪除 | 沒有沙箱：每個指令與每個寫入都要詢問；它的讀取與網路搜尋直接執行，但讀寫受保護路徑時不經詢問就拒絕（見下文） | 它的沙箱：寫入限於工作目錄與暫存資料夾（`.git`、`.muse`、`.agents` 是唯讀的），每個主機都會詢問；它的檔案工具不能寫入（`--disable-write`），每個指令都要詢問（允許的在沙箱裡執行）；受保護路徑的拒絕規則（見下文） | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)：不能寫工作目錄；這次執行用的模型主機可連，其他主機都會詢問 |
+| 可編輯 | 它的沙箱：寫入限於工作目錄與暫存資料夾，每個主機都會詢問 | 由 `:workspace` 延伸的設定檔 `harness-relay-…`，關閉網路 | 由 `workspace` 延伸的設定檔 `harness-relay`，可以連網 | 沒有沙箱：每個指令都要詢問（Cursor 團隊允許清單上的除外），Cursor 詢問的每個寫入也一樣（也包括它不在其中執行的、這個對話的其他工作目錄）；拒絕規則讓它自己的讀取與寫入工具碰不到受保護的路徑（照寫下來的路徑，見下文） | 沒有沙箱：每個指令都要詢問，寫到工作目錄以外、或寫進決定 agent 怎麼執行的資料夾（`.agents`、`.gemini`、`.claude`、`.git/hooks`……）也要詢問；工作目錄內的其他寫入直接執行；受保護路徑同上，一律拒絕 | 它的沙箱，和唯讀一樣；它的檔案工具可寫入工作目錄；指令照常執行，但推送與發佈要詢問，指令要連網也要詢問；Muse 詢問的寫入（`.git`、`.muse`、`.agents` 底下，以及 `.envrc`）中，寫進 agent 設定的要詢問 | Harness Relay 自己的沙箱：也能寫各工作目錄；網路同上 |
+| 完全存取 | 沒有沙箱 | 沒有（`danger-full-access`） | 沒有 | 沒有（`--force`） | 沒有（`--dangerously-skip-permissions`） | 沒有（`--disable-sandbox`） | 沒有 |
 
-有多個工作目錄的對話，會以和第一個相同的權限把其他工作目錄交給每個 CLI：Claude Code 用 `--add-dir`（它的沙箱也能寫入那裡），Codex 在可編輯模式下於設定檔中為每一個加上 `write` 項目（舊版沙箱用 `writable_roots`），Grok 則用這次執行專用的設定檔，名稱是 `harness-relay-` 加上這些資料夾的雜湊，也就是 `harness-relay` 再加上這些資料夾的 `read_write`。在 Mac 上以可編輯模式逐一試過每個 CLI：在第二個資料夾中，用檔案工具寫的檔案與用 `touch` 建立的檔案都寫成了，而且沒有詢問；沒有給它那個資料夾時，Claude Code 與 Codex 會先詢問，Grok 的沙箱則兩個都拒絕（`Operation not permitted`）。開源 agent 在 Harness Relay 自己的沙箱中得到其他工作目錄，權限和第一個相同（可編輯模式下每一個都能寫入）。Cursor 沒有沙箱，在第一個工作目錄中執行：可編輯模式下，它用自己的工具寫入另一個工作目錄時會先詢問，卡片會說明檔案在對話的另一個工作目錄中（以 cursor-agent 2026.11.11 在 macOS 與 Linux 上試過）；但在 `/tmp` 這類暫存資料夾中，Cursor 寫入時不會詢問。它的指令則和其他地方一樣都會詢問。Antigravity 以它 session 的 `additionalDirectories` 得到其他工作目錄；它沒有沙箱，可編輯模式下它在其中任何一個的寫入都不經詢問就執行（決定 agent 怎麼執行的資料夾除外），它的指令則和其他地方一樣都會詢問（沒有用多個資料夾試過）。
+有多個工作目錄的對話，會以和第一個相同的權限把其他工作目錄交給每個 CLI：Claude Code 用 `--add-dir`（它的沙箱也能寫入那裡），Codex 在可編輯模式下於設定檔中為每一個加上 `write` 項目（舊版沙箱用 `writable_roots`），Grok 則用這次執行專用的設定檔，名稱是 `harness-relay-` 加上這些資料夾的雜湊，也就是 `harness-relay` 再加上這些資料夾的 `read_write`。在 Mac 上以可編輯模式逐一試過每個 CLI：在第二個資料夾中，用檔案工具寫的檔案與用 `touch` 建立的檔案都寫成了，而且沒有詢問；沒有給它那個資料夾時，Claude Code 與 Codex 會先詢問，Grok 的沙箱則兩個都拒絕（`Operation not permitted`）。開源 agent 在 Harness Relay 自己的沙箱中得到其他工作目錄，權限和第一個相同（可編輯模式下每一個都能寫入）。Cursor 沒有沙箱，在第一個工作目錄中執行：可編輯模式下，它用自己的工具寫入另一個工作目錄時會先詢問，卡片會說明檔案在對話的另一個工作目錄中（以 cursor-agent 2026.11.11 在 macOS 與 Linux 上試過）；但在 `/tmp` 這類暫存資料夾中，Cursor 寫入時不會詢問。它的指令則和其他地方一樣都會詢問。Antigravity 以它 session 的 `additionalDirectories` 得到其他工作目錄；它沒有沙箱，可編輯模式下它在其中任何一個的寫入都不經詢問就執行（決定 agent 怎麼執行的資料夾除外），它的指令則和其他地方一樣都會詢問（沒有用多個資料夾試過）。Muse Code 也以它 session 的 `additionalDirectories` 得到它們，它的檔案工具與沙箱都把它們當成工作區的一部分：可編輯模式下，它的 `write_file` 寫在另一個資料夾的檔案不經詢問就寫入了（以 `muse` 1.4.18 試過；它在那裡的指令沒有試過）。
 
 - **Claude Code** 的沙箱涵蓋它的 Bash 工具（`sandbox` 設定）。在完全存取以外的權限，Harness Relay 會在這一輪的 `--settings` 中開啟它，並設定 `failIfUnavailable`（沒有沙箱就不執行）、`autoAllowBashIfSandboxed: false`（哪些操作不必詢問仍由權限決定），以及詢問規則 `Bash(dangerouslyDisableSandbox:true)`（模型要在沙箱外執行的每個指令都會詢問）；在 Claude Code 沒有沙箱的原生 Windows 上，則不使用沙箱執行。在 Mac 上兩種模式都試過：在工作目錄中寫入可以（唯讀模式下要先允許）；寫入家目錄會先詢問並註明會在沙箱外執行，拒絕後就失敗；連到 example.com 會先詢問，拒絕後就被擋下。
 - **Codex** 在完全存取以外的權限，每個指令都在沙箱中執行，使用的是 Harness Relay 在 thread 的設定中定義的權限設定檔（`harness-relay-` 加上每次執行都不同的隨機部分，由 `:read-only` 或 `:workspace` 延伸），並在 thread 中指名它（`permissions`，它選擇使用的實驗性欄位）；這會勝過你設定中的 `sandbox_mode`。Codex 沒有回報它套用了這個設定檔時（舊版 Codex 會忽略這個欄位），這次執行會失敗。在原生 Windows 上則和以前一樣使用舊的沙箱模式。在 Mac 上以 `workspace-write` 試過：在工作目錄中寫入可以；寫入家目錄或 `~/.npm`、連到 github.com 都被拒絕；讀取家目錄可以。
 - **Grok** 在唯讀與可編輯模式下使用它的自訂設定檔 `harness-relay`：Grok 的 `workspace` 加上下文的路徑。唯讀模式不使用它的 `read-only` 設定檔，因為後者在某些機器上無法啟動：在裝了 OrbStack 的 Mac 上，`/var/run/docker.sock` 是 symlink，Grok 會以 `could not apply the 'read-only' sandbox profile … Refusing to start with its protections missing` 停止。在 Mac 上兩種模式都試過：在工作目錄中寫入可以，寫入家目錄會以 `Operation not permitted` 失敗，也連得到 example.com，因為 `workspace` 允許連網（`~/.grok/sessions/sandbox-events.jsonl` 中為 `"restrict_network": false`，並有 `"enforced": true`）。這些是在 `harness-relay` 之前以 `workspace` 試的；`harness-relay` 也確實套用了（`"enforced": true`，並有它的 `deny_paths`）。Harness Relay 只在完全存取以外的權限設定設定檔（`GROK_SANDBOX`），所以完全存取時，Grok 自己 `config.toml` 中的 `[sandbox] profile`，或啟動伺服器時的 `GROK_SANDBOX`，仍會生效。
 - **Cursor** 透過 ACP（`cursor-agent acp`）執行，它的權限層從不套用 Cursor 的沙箱，不論它設定中的 `--sandbox` 或 `sandbox.mode` 怎麼寫，在任何平台上都一樣。所以 Harness Relay 只能靠核准管住它的指令：在完全存取以外的權限，沒有任何指令能不經詢問就執行（Cursor 團隊自動執行允許清單上的除外，見[沙箱管不到的事](#沙箱管不到的事)），包括測試與建置；使用者允許的指令則在任何沙箱之外，以使用者的完整權限執行，包括連網。它自己的工具能讀取任何位置（下文受保護的路徑除外，以它的拒絕規則擋得住的為限），可編輯模式下也不經詢問就修改工作目錄內的檔案，但 Cursor 受保護的檔案（`.git/hooks/**`、`.git/config`、`.vscode/**`、`.claude/*.json`、`.cursor/*.json`、`*.code-workspace`……）除外：寫入這些檔案時 Cursor 會詢問，寫入工作目錄外的任何檔案時也會詢問（`/tmp` 這類暫存資料夾除外，它在那裡寫入不會詢問），而 Harness Relay 會把 Cursor 詢問的每個寫入交給使用者（或拒絕），因為這種寫入可能讓程式碼之後在任何沙箱之外執行；卡片會說是哪一種。Cursor 每次刪除都會詢問；可編輯模式會核准這個對話任一個工作目錄內的刪除，路上的連結以它指向的地方為準，`~/…` 的路徑則以家目錄為準。Cursor 在第一個工作目錄裡執行：它詢問的、在其他工作目錄裡的寫入也會交給使用者，卡片上會說明檔案在哪裡。唯讀模式下，它的寫入工具既不能寫入也不能刪除（`Write(**)`，Cursor 在詢問之前就會檢查）。讀網頁與網路搜尋直接執行，subagent 的也是。每一輪的私有設定資料夾沒有允許規則，所以你自己的 Cursor 允許規則和專案的 `.cursor/cli.json`（不會讀取：`--disable-project-configs`）都無法讓指令通過（見[架構 → 權限對應](architecture.zh-TW.md#權限對應)）。
 - **Antigravity** 透過 ACP（`agy acp`）執行。在 `agy` 1.5.6 中，它的終端機沙箱透過 ACP 時讓指令在工作目錄中哪裡都寫不進去（只能寫暫存資料夾），所以 Harness Relay 在任何平台上都不開啟它，而和 Cursor 一樣靠核准管住它的指令：在完全存取以外的權限，沒有任何指令能不經詢問就執行，包括測試與建置；使用者允許的指令則在任何沙箱之外，以使用者的完整權限執行，包括連網（卡片會註明）。透過 ACP 時，agy 會忽略它自己的權限規則（它設定中的 `permissions.allow` 與 `permissions.deny`：試過，兩者都沒有作用），但它的 `toolPermission` 設定有作用，而 `proceed-in-sandbox` 或 `always-proceed` 會讓指令不經詢問就執行。所以每一輪都有自己的設定（`--cli_dir_name harness-relay-<亂數>`，在帳號的 `.gemini/antigravity-cli` 裡的一個資料夾，只有擁有者能存取，這一輪結束後刪除）：只有帳號自己 `settings.json` 裡的模型與服務（`model`、`modelProvider`、`gcp`、`customModelsConfig`），加上 `toolPermission: "request-review"`、`allowNonWorkspaceAccess: false` 與預設模式；agy 讀這份，而不讀帳號的。這樣 agy 在每個 shell 指令、每次寫入或編輯、每次讀取工作區以外的檔案之前都會詢問；工作區內的讀取與網路搜尋則不經詢問就執行。Harness Relay 會直接執行讀取（下文受保護的路徑除外）、網路搜尋與讀網頁；可編輯模式下也直接執行對話各工作目錄內的寫入（路上的連結以它指向的地方為準，`~/…` 以家目錄為準），但寫入可能改變 agent 之後怎麼執行的地方（`.agents`、`.agent`、`_agents`、`_agent`、`.gemini`、`.claude`、`.codex`、`.grok`、`.cursor`、`.opencode`、`.goose`、`.cline`、`.clinerules`、`.openhands`、`.pi`、`.vscode`、`.idea`、`.mcp.json`、`.gitmodules`、`.gitconfig`、`.envrc`、`.git/hooks`、`.git/config`，以及 submodule 的 `.git/modules/<名稱>/hooks` 與 `…/config`，比對時不分大小寫，也像 Windows 一樣忽略結尾的點與空白）除外：這些會交給使用者，卡片會說明原因，寫到工作目錄以外也一樣。移動，或指名好幾個路徑的呼叫，會依所有路徑決定。指令、MCP 工具呼叫、subagent 與其他一切都交給使用者（或拒絕）。唯讀模式下，使用者允許的寫入會真的寫入：沒有沙箱擋住它。任何一種拒絕都會結束它的這一輪（見[核准能做的事](#沙箱管不到的事)）。帳號的其他設定不會進到這一輪，使用者自己設定的 `enableTerminalSandbox: true` 也一樣。在完全存取以外的權限，agy 一開啟 session 就會不經詢問啟動的專案 MCP 伺服器、hook 與 plugin，會在 agy 啟動前先詢問（見[沙箱管不到的事](#沙箱管不到的事)）。它留著執行的指令會隨這一輪結束：agy 把每個指令放在自己的 process group 裡啟動，而它移到背景的指令在它結束時仍會留著執行，所以在 macOS 與 Linux 上，Harness Relay 會在 agy 結束後，結束這些群組裡仍在執行的行程（只限這一輪中啟動的）；在 Windows 上，它們會隨 agy 一起結束（以 `agy` 1.5.6 確認過）。完全存取時，Harness Relay 傳入 `--dangerously-skip-permissions` 與 `toolPermission: "always-proceed"`：什麼都不會詢問。
+- **Muse Code** 透過 ACP（`muse acp`）執行，在完全存取以外的權限，於它自己的作業系統沙箱中執行：macOS 上是 Seatbelt，Linux 上是它自帶的 bubblewrap，Windows 上則是完成設定後它自己的沙箱（見 [Windows](#windows)）。它的指令只能寫入工作區（工作目錄與它的 `additionalDirectories`）與系統的暫存資料夾（`/tmp`、`/private/tmp`），`.git`、`.muse` 與 `.agents` 維持唯讀；指令或它的網路擷取連到的每個主機都會詢問（`--sandbox-network proxy-only`，它的預設）。哪些不經詢問就執行，由它的權限設定檔與 session 模式決定，而設定檔只能在它的 `settings.json` 裡選，所以每一輪都有自己的設定資料夾（`XDG_CONFIG_HOME`，Harness Relay 資料夾裡 `muse-runs` 中的一個 `run-…` 資料夾，只有擁有者能存取，這一輪結束後刪除；不放在 `data/tmp`，因為設定檔拒絕那裡，而 git 連看都不能看它的 `XDG_CONFIG_HOME` 時就會失敗），其中的設定放的是 Harness Relay 的設定檔 `harness-relay`：Muse 的 `:ask-me`（由人審核），每個受保護的路徑一條 `"deny"` 規則（見下文）。Muse 自己的 `:read-only` 不接受拒絕規則（「deny cannot be enforced」），所以唯讀是那個設定檔拿掉 Muse 寫入檔案的工具（`--disable-write`），用 session 模式 `promptUnmatched`，每個指令都要詢問；使用者允許的指令在沙箱裡執行，沙箱讓它可以寫入工作目錄。可編輯是 `onRequest` 模式，指令在沙箱裡執行，寫入或連網的指令會詢問；Harness Relay 會允許寫入的指令，但推送、發佈，以及 shell 或直譯器執行它從標準輸入讀到的內容要交給使用者，而且允許後它仍在沙箱裡執行（試過：寫到工作區外的指令被問了兩次，允許後仍以 `Operation not permitted` 失敗）。指令要連網時，完全存取以外不論哪種模式都交給使用者。可編輯模式下它的檔案工具寫入工作目錄不必詢問，但 `.git`、`.muse` 與 `.agents` 底下（以及 `.envrc`）Muse 會詢問，寫進 agent 設定的 Harness Relay 會交給使用者；寫到工作目錄以外 Muse 自己就會拒絕，而工作目錄裡其他 agent 的設定（`.claude`、`.vscode`、`.mcp.json`…）它不經詢問就寫入，和 Claude Code、Codex 與 Grok 一樣。Muse 預設設定檔的評審（會判斷呼叫的模型）是關掉的（`MUSE_DISABLE_APPROVAL_JUDGE=1`），完全存取以外的權限下，這一輪的設定資料夾有它自己的 `trust.json`，把工作目錄標成不受信任（絕不用帳號的，也不給 `--trust-workspace`），所以不信任任何工作區，專案的 hook（`.muse/hooks.json`，在受信任的工作區裡 Muse 會在沙箱外執行它）絕不會載入。在 Linux 上，它的 bubblewrap 會在每個工作目錄替它掛載覆蓋的每個路徑留下一個空資料夾（`.agents` 與 `.muse` 維持唯讀；`.hg`、`.sl` 與 `.eden` 被隱藏）；這一輪之前不存在的，Harness Relay 會在那個資料夾裡最後一次執行結束後刪除，前提是它們是空的，或只有已不在執行的沙箱程序留下的 `.tbh-sandbox-mountpoint.<pid>` 標記（停止的回合會留下）。完全存取時，Harness Relay 傳入 `--disable-sandbox` 與 `--trust-workspace`，用 Muse 的 `:unrestricted` 設定檔與 `allowAll` 模式：什麼都不會詢問。Muse 會沿用 session 建立時的設定檔與沙箱（試過：以完全存取建立、再以可編輯的設定接續的 session，仍讀到了被拒絕的檔案，也寫到了外面），所以只有同一個伺服器程序以相同的權限與受保護路徑建立的 Muse session，Harness Relay 才會接續，否則就開新的。
 
 ## Harness Relay 自己的沙箱
 
@@ -76,7 +79,7 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent` 和 `
 | 可編輯 | 同上 | 上述加上各工作目錄與這個對話的附件資料夾 |
 
 - 完全不能讀**也**不能寫（`denyRead` + `denyWrite`）：受保護路徑（`protectedReads()`：瀏覽器自己的資料夾、Harness Relay 的資料庫與暫存資料夾，與其他 CLI 相同，見[agent 不能讀寫的地方](#agent-不能讀寫的地方)）。
-- 永遠不能寫（`denyWrite`），即使上層資料夾可寫：agent 的設定路徑（所有啟動時會改變 CLI 行為的東西——它的設定、plugin、擴充功能、hook、MCP 設定、指示檔），這樣一次執行就不能放寬它下一次執行；可編輯模式下，工作目錄裡其他 CLI 與這些開源 agent 自己的設定（`.claude`、`.codex`、`.grok`、`.cursor`（Cursor 沒有沙箱，會從這裡讀它的規則、subagent、skill 與 MCP 伺服器）、`.mcp.json`、`.opencode`、`opencode.json`、`opencode.jsonc`、`.goose`、`.cline`、`.clinerules`（Cline 會不經詢問執行 `.clinerules/hooks` 裡的 hook）、`.openhands`、`.pi`、`.agents`，以及 `.agent`、`_agents` 與 `_agent`，沒有沙箱的 Antigravity 也會從這些地方讀專案的 hook 與 MCP 伺服器）、沙箱要執行的程式所在的資料夾，以及 sandbox-runtime 原本會讓任何指令寫入的地方（`/tmp/claude`、`~/.npm/_logs`、`~/.claude/debug`）。sandbox-runtime 自己也會把 `.git/hooks`、`.git/config`、`.gitmodules` 與 shell 的設定檔設為唯讀。
+- 永遠不能寫（`denyWrite`），即使上層資料夾可寫：agent 的設定路徑（所有啟動時會改變 CLI 行為的東西——它的設定、plugin、擴充功能、hook、MCP 設定、指示檔），這樣一次執行就不能放寬它下一次執行；可編輯模式下，工作目錄裡其他 CLI 與這些開源 agent 自己的設定（`.claude`、`.codex`、`.grok`、`.cursor`（Cursor 沒有沙箱，會從這裡讀它的規則、subagent、skill 與 MCP 伺服器）、`.mcp.json`、`.opencode`、`opencode.json`、`opencode.jsonc`、`.goose`、`.cline`、`.clinerules`（Cline 會不經詢問執行 `.clinerules/hooks` 裡的 hook）、`.openhands`、`.pi`、`.agents`，以及 `.agent`、`_agents` 與 `_agent`，沒有沙箱的 Antigravity 也會從這些地方讀專案的 hook 與 MCP 伺服器，以及 `.muse`，在受信任的工作區裡 Muse Code 會在它的沙箱外執行其中的 hook）、沙箱要執行的程式所在的資料夾，以及 sandbox-runtime 原本會讓任何指令寫入的地方（`/tmp/claude`、`~/.npm/_logs`、`~/.claude/debug`）。sandbox-runtime 自己也會把 `.git/hooks`、`.git/config`、`.gitmodules` 與 shell 的設定檔設為唯讀。
 - **每次執行寫自己全新的暫存資料夾**（在 Harness Relay 的資料夾裡，執行結束時刪除），不是共用的。sandbox-runtime 預設給每次執行同一個 `TMPDIR`（`/tmp/claude`）；Harness Relay 把它改掉，這樣一次執行就不能留下一個檔案（例如一份轉譯或編譯快取）讓下一次執行——也許是另一個對話的——載入並執行。
 - **host 自己的暫存資料夾**（sandbox-runtime 的 socket、它的 CA bundle）也在資料夾裡，`data/srt/<亂數>`，其他執行都讀不到：絕不放在系統的暫存資料夾，那裡其他 CLI 沙箱中的指令可以替換或刪除裡面的東西。Unix socket 的路徑在 macOS 上必須放得進 104 個位元組、Linux 上 108 個，所以資料夾路徑太長、放不下這些 socket 時（macOS 上超過 70 個位元組，Linux 上超過 61 個，以 UTF-8 計：中文字每個佔 3 個），完全存取以外會拒絕執行，並提示把 `RELAY_DATA_DIR` 設成較短的資料夾。桌面 app 的資料夾放得下，除非使用者名稱很長；很深的 checkout（例如 `.claude/worktrees/` 下的 worktree）可能放不下。
 - 下列情況不會開始執行：受保護路徑或設定路徑的名稱含有 `*`、`?` 或 `[`（沙箱會把它當成樣式，可能擋不住）；這次執行可以寫的資料夾包含了 Harness Relay、家目錄或其他 CLI 自己的資料夾（那它就能改到沙箱外會執行的東西）；或者在可編輯模式下，工作目錄本身就是上述之一（`relayFolderRefusal()`，和其他 CLI 一樣）。
@@ -122,13 +125,14 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent` 和 `
 - **Grok**：它的自訂設定檔 `harness-relay` 的 `deny` 清單。Harness Relay 在每次執行前把它寫進 Grok 自己資料夾（`~/.grok`，或各 CLI 自己的資料夾中的 `grok`）的 `sandbox.toml`，放在 `# >>> harness-relay` 與 `# <<< harness-relay` 之間，檔案的其餘部分保持原樣。Grok 無法套用自訂設定檔時會拒絕啟動；在 Linux 上，它的 `deny` 清單需要 bubblewrap。Grok 的 `workspace` 讓它的指令能寫入整個 Grok 資料夾，而它自己的程式就在那裡（`downloads`、`bin`）：清單也禁止這些，以及 Harness Relay 啟動的程式所在的資料夾。Grok 在沙箱套用後才讀取那裡的設定（Harness Relay 區塊以外的 `sandbox.toml`、`config.toml`、`managed_config.toml`、`requirements.toml`、`trusted_folders.toml`、`permission.toml`、`hooks-paths`），所以無法禁止：Harness Relay 會在每一輪前讀取它們（連結就當作連結；空檔案視同沒有，因為它們不存在時 Grok 的沙箱會建立空的檔案），這一輪改動了其中之一時，就把改動後的版本移到旁邊（`….changed-<時間>`，以改名的方式，不跟著連結走）、把它改回原樣，並讓這一輪失敗並說明；`skills` 資料夾被改動時同樣會回報，但不會改回。同時執行的 Grok 各輪共用第一輪開始前的設定，後開始的一輪會先把另一輪的指令改動的地方改回。在這樣的一輪中，Grok 自己或你對這些檔案做的改動，也會同樣被改回。在這樣的一輪中於 Harness Relay 信任資料夾時，會先把這一輪的指令改動的地方改回，再把信任記錄到這一輪開始時的信任紀錄中，這一輪會保留它。（Grok 設定檔的 `read_only` 是授予讀取，並不會禁止寫入。）在 Linux 上，Grok 會透過 bubblewrap 再執行一次自己的程式來啟動沙箱，所以被禁止的程式根本無法啟動（試過）：在那裡它的程式不禁止，改為檢查：`~/.grok/bin` 中的連結與程式檔案，並在 `data/tmp` 保留一份副本；被改動時，會在另一個沙箱中的一輪啟動它之前、以及每一輪之後，從副本改回原樣，並讓那一輪失敗。
 - **Cursor**：這一輪自己的 `cli-config.json` 中的拒絕規則，每個路徑都有 `Read(<路徑>)`、`Read(<路徑>/**)`、`Write(<路徑>)` 與 `Write(<路徑>/**)`（路徑本身，給資料庫的檔案用，以及它底下的一切），和你在帳號的 `cli-config.json` 中自己的拒絕規則放在一起。它們只約束 Cursor 自己的讀取與寫入工具，而 Cursor 是拿寫下來的路徑去比對，分大小寫，也不解析連結：受保護路徑的另一種寫法（換個大小寫，在 macOS 一般不分大小寫的磁碟上）或專案裡指向它的連結都不會被拒絕，它的讀取工具不經詢問就能讀。它的 shell 指令沒有沙箱，所以只能靠詢問擋在這些路徑之外：使用者允許的指令（或 Cursor 團隊允許清單上的指令）讀寫得到它們。
 - **Antigravity**：agy 詢問的呼叫若要讀寫這些路徑之一（比對時會解析路上的連結），Harness Relay 不經詢問就拒絕（聊天中會說明原因），而拒絕會結束它的這一輪，所以這一輪就在那裡結束。agy 只在讀取工作區以外的檔案時才詢問，經由連結讀到工作區以外的也算（它會解析連結；以 `agy` 1.5.6 確認過），所以這樣讀取受保護的路徑也會被拒絕；轉接器看不出路徑的讀取會詢問。Harness Relay 看不到的，是 agy 不經詢問、在工作區內的讀取。它的 shell 指令沒有沙箱，所以只能靠詢問擋在這些路徑之外：使用者允許的指令讀寫得到它們。
+- **Muse Code**：在這一輪自己的 `settings.json` 裡，Harness Relay 權限設定檔（`harness-relay`，由 `:ask-me` 延伸）的 `filesystem` 中，每個路徑一條 `"deny"`，檔案與資料夾都可以，存不存在都行。它對 Muse 自己的檔案工具與沙箱都有效（在 macOS 與 Linux 上試過：`read_file` 讀受保護的檔案被拒絕，沙箱裡的 `cat` 則以 `Operation not permitted` 失敗）。替不存在的路徑寫 `"read"` 或 `"write"` 規則會讓 Muse 拒絕執行（「cannot be enforced」），所以只用 `deny`；Muse 無法套用的設定檔會以關閉的方式失敗。Muse 詢問的呼叫若指名受保護的路徑，Harness Relay 也會不經詢問就拒絕。Muse 會把規則裡的 `*`、`?` 與 `[` 當成樣式（見下文）。
 - **開源 agent**（OpenCode、Goose、Cline、OpenHands、Pi）：在 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)裡，對相同的路徑以字面名稱設 `denyRead` + `denyWrite`；agent 的 config 路徑也設 `denyWrite`，這樣一次執行就不能放寬它下一次執行。
 
 在 Mac 上以可編輯模式對 Claude Code、Codex 與 Grok 都試過：用 shell 列出 `~/Library/Application Support/Firefox`、讀取 `data/relay.db` 都以 `Operation not permitted` 失敗，用 Claude Code 的 Read 工具或 Grok 的檔案工具讀取資料庫會被拒絕，而在工作目錄中寫入可以。Claude Code 的 Read 工具讀取 Firefox 資料夾中的檔案（含空格的路徑）也會被拒絕。Grok 的指令無法寫入 `~/.grok/downloads`，也無法改名 `~/.grok/bin`（在這之前可以），在 `~/.grok/config.toml` 後面附加內容則被 Grok 自己拒絕；它的 sessions 仍可寫入。
 
-它涵蓋不到的：無法使用自訂設定檔的 Codex（見上文）；沒有沙箱的 Cursor 與 Antigravity 指令，以及它們的 hook 與 MCP 伺服器；拿到受保護路徑另一種寫法或指向它的連結的 Cursor 讀取與寫入工具；Antigravity 不會詢問的工作區內讀取（例如工作目錄裡的受保護路徑）；資料夾不在清單上的瀏覽器（新的、可攜版，或用 `--user-data-dir` 放在別處的 Chrome）；使用者允許在沙箱外執行的指令；CLI 在沙箱外執行的東西，例如 Claude Code 的 hooks 與本機 MCP 伺服器（見[沙箱管不到的事](#沙箱管不到的事)）；專案自己的 Claude Code 設定（`.claude/settings.json`、`.claude/settings.local.json`），可編輯模式下其他 agent 能寫入它們，而下一輪 Claude Code 會採用其中的 hooks、`sandbox.excludedCommands` 與 `network.allowUnixSockets`；Grok 在它資料夾中自己維護的 plugin 資料夾（`marketplace-cache`、`installed-plugins`、`bundles`、`bundled`），它的指令能為之後完全存取的執行改動它們；某個指令在它那一輪結束後還留著執行的行程對 Grok 設定所做的改動，下一輪會照它看到的樣子接受；完全存取；原生 Windows。名稱含 `*`、`?` 或 `[` 的受保護路徑，沙箱會把它當成樣式，因此完全存取以外的執行會拒絕開始，並指出是哪一個。
+它涵蓋不到的：無法使用自訂設定檔的 Codex（見上文）；沒有沙箱的 Cursor 與 Antigravity 指令，以及它們的 hook 與 MCP 伺服器；拿到受保護路徑另一種寫法或指向它的連結的 Cursor 讀取與寫入工具；Antigravity 不會詢問的工作區內讀取（例如工作目錄裡的受保護路徑）；Muse Code 自己的 hook 與 MCP 伺服器（它們是否在它的沙箱裡執行，沒有確認過）；資料夾不在清單上的瀏覽器（新的、可攜版，或用 `--user-data-dir` 放在別處的 Chrome）；使用者允許在沙箱外執行的指令；CLI 在沙箱外執行的東西，例如 Claude Code 的 hooks 與本機 MCP 伺服器（見[沙箱管不到的事](#沙箱管不到的事)）；專案自己的 Claude Code 設定（`.claude/settings.json`、`.claude/settings.local.json`），可編輯模式下其他 agent 能寫入它們，而下一輪 Claude Code 會採用其中的 hooks、`sandbox.excludedCommands` 與 `network.allowUnixSockets`；Grok 在它資料夾中自己維護的 plugin 資料夾（`marketplace-cache`、`installed-plugins`、`bundles`、`bundled`），它的指令能為之後完全存取的執行改動它們；某個指令在它那一輪結束後還留著執行的行程對 Grok 設定所做的改動，下一輪會照它看到的樣子接受；完全存取；原生 Windows。名稱含 `*`、`?` 或 `[` 的受保護路徑，沙箱會把它當成樣式，因此完全存取以外的執行會拒絕開始，並指出是哪一個。
 
-工作目錄包含 Harness Relay 本身（它的資料夾或資料資料夾；平行模式的 worktree 位於資料資料夾內，不受影響）或語音輸入的資料夾（`data/voice`，或 `RELAY_VOICE_DIR` 指定的位置，在它裡面的資料夾也一樣：Harness Relay 會在沙箱外執行那裡的引擎），或決定 agent 怎麼執行的地方時，也會拒絕可編輯模式：你的家目錄（裡面的專案不受影響）、CLI 自己的資料夾（`~/.claude`、`~/.claude.json`、`~/.codex`、`~/.grok`、`~/.cursor`、`~/.gemini`（Antigravity 的，或某個帳號的 `.gemini`），或它們的環境變數指定的位置——Cursor 的設定放在 `$XDG_CONFIG_HOME/cursor` 時也包括那裡；即使如此，`~/.cursor` 仍會被拒絕；不論它的設定在哪裡，Cursor 在 Linux 與 Windows 上保存登入的 `$XDG_CONFIG_HOME/cursor`（沒有設定時是 `~/.config/cursor`）與 `%APPDATA%\Cursor` 也會被拒絕）、Harness Relay 給各 CLI 的資料夾，或 CLI 程式所在的資料夾；包含它或位於它之內都算。agent 在那裡不經詢問就能修改檔案，也就能改動 Harness Relay 的程式碼、CLI 的設定或程式，或你的 shell 設定。對話在建立、排程或改成這樣時會被拒絕（在建立不存在的資料夾之前），每一輪開始時也會。唯讀模式在那裡仍可使用，因為它寫入前會詢問（Codex 則完全不能寫）。要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。
+工作目錄包含 Harness Relay 本身（它的資料夾或資料資料夾；平行模式的 worktree 位於資料資料夾內，不受影響）或語音輸入的資料夾（`data/voice`，或 `RELAY_VOICE_DIR` 指定的位置，在它裡面的資料夾也一樣：Harness Relay 會在沙箱外執行那裡的引擎），或決定 agent 怎麼執行的地方時，也會拒絕可編輯模式：你的家目錄（裡面的專案不受影響）、CLI 自己的資料夾（`~/.claude`、`~/.claude.json`、`~/.codex`、`~/.grok`、`~/.cursor`、`~/.gemini`（Antigravity 的，或某個帳號的 `.gemini`）、Muse Code 的設定與資料資料夾（`~/.config/muse`、`~/.local/share/muse`，或某個帳號的），或它們的環境變數指定的位置——Cursor 的設定放在 `$XDG_CONFIG_HOME/cursor` 時也包括那裡；即使如此，`~/.cursor` 仍會被拒絕；不論它的設定在哪裡，Cursor 在 Linux 與 Windows 上保存登入的 `$XDG_CONFIG_HOME/cursor`（沒有設定時是 `~/.config/cursor`）與 `%APPDATA%\Cursor` 也會被拒絕）、Harness Relay 給各 CLI 的資料夾，或 CLI 程式所在的資料夾；包含它或位於它之內都算。agent 在那裡不經詢問就能修改檔案，也就能改動 Harness Relay 的程式碼、CLI 的設定或程式，或你的 shell 設定。對話在建立、排程或改成這樣時會被拒絕（在建立不存在的資料夾之前），每一輪開始時也會。唯讀模式在那裡仍可使用，因為它寫入前會詢問（Codex 則完全不能寫）。要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。
 
 ## 各平台
 
@@ -139,15 +143,17 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent` 和 `
 | **Grok** | ⚠️ Seatbelt，但擋不了網路 | ✅ Landlock + seccomp，Harness Relay 的執行還要 bubblewrap | ❌ 文件中沒有列出 | 未驗證 |
 | **Cursor** | ❌ ACP 模式下沒有 | ❌ ACP 模式下沒有（沒有試過） | ❌ ACP 模式下沒有（沒有試過） | ❌ ACP 模式下沒有（沒有試過） |
 | **Antigravity** | ❌ 不開啟：透過 ACP 時，它自己的沙箱讓指令寫不進工作目錄 | ❌ 不開啟（試過：每個指令都詢問） | ❌ 不開啟（試過：每個指令都詢問） | ❌ 不開啟（沒有試過） |
+| **Muse Code** | ✅ Seatbelt | ✅ 它自帶的 bubblewrap（試過） | ⚠️ 它自己的沙箱，要先以系統管理員權限執行一次設定（`muse sandbox windows setup`）；在那之前，完全存取以外的權限下每個指令都會失敗（設定沒有試過） | 沒有試過 |
 | **開源 agent**（Harness Relay 自己的沙箱） | ✅ Seatbelt | ✅ bubblewrap + socat + ripgrep，加上 seccomp（x64/arm64） | ❌ 完全存取以外拒絕執行（在 sandbox-runtime 還是 alpha） | ✅ Linux 的沙箱 |
 
-Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只有 Codex 有沙箱；開源 agent 在完全存取以外拒絕在那裡執行（請在 WSL2 裡執行它們）。在 Harness Relay 的執行中，Cursor 與 Antigravity 在哪個平台上都沒有沙箱。
+Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只有 Codex 的沙箱裝好就能用，Muse Code 的則要先完成它自己的一次性設定；開源 agent 在完全存取以外拒絕在那裡執行（請在 WSL2 裡執行它們）。在 Harness Relay 的執行中，Cursor 與 Antigravity 在哪個平台上都沒有沙箱。
 
 ### macOS
 
 - Claude Code、Codex 與 Grok 都使用 macOS 內建的 Seatbelt，不需要另外安裝。
 - **Cursor** 在 Harness Relay 的執行中不套用沙箱（以 `cursor-agent` 2026.11.11 試過）：在完全存取以外的權限，它執行的每個指令都要詢問（Cursor 團隊允許清單上的除外），使用者允許的指令則以使用者的完整權限執行，包括連網。
 - **Antigravity** 有自己的終端機沙箱，在 macOS 上還會擋網路，但 Harness Relay 不開啟它：在 `agy` 1.5.6 中透過 ACP 時，它讓沙箱中的指令只能寫暫存資料夾，在工作目錄中哪裡都寫不進去。在完全存取以外的權限，它執行的每個指令都要詢問，使用者允許的指令則以使用者的完整權限執行，包括連網。
+- **Muse Code** 使用 Seatbelt，不需要安裝任何東西：在完全存取以外的權限，它的指令只能寫入工作目錄與暫存資料夾，連到的每個主機都會詢問（以 `muse` 1.4.18 試過）。
 - **Grok 在 macOS 上擋不了網路。** 它的文件說，封鎖它所執行指令的網路只在 Linux 上（透過 seccomp）生效，在 macOS 上沒有作用，所有設定檔都一樣，`read-only` 和 `strict` 也不例外。在任何平台上，Grok 自己做的事（網路搜尋、讀網頁、模型的 API）都不會被擋。
 - runtime socket 是 symlink 時，Grok 的 `read-only` 與 `strict` 設定檔可能無法啟動（見上文；兩者都試過）。
 - Claude Code 的文件列出在它的 Seatbelt 沙箱中會失敗的事：`gh`、`gcloud` 和 `terraform` 的 TLS 驗證可能會失敗；`open`、`osascript` 和在瀏覽器中登入會被擋（Apple Events）；走 SSH 的 git 會失敗（它經由沙箱 proxy 的通道在 macOS 上無法驗證身分）；指令要監聽或連到 localhost 的 port，必須設定 `network.allowLocalBinding`。
@@ -160,6 +166,7 @@ Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只
 - bubblewrap 需要 unprivileged user namespace。Ubuntu 從 23.10 起用 AppArmor 限制它，這可能讓 bubblewrap 無法運作；Claude Code 的文件說，這時要為 `/usr/bin/bwrap` 加上 AppArmor 設定檔，其他位置的 `bwrap` 則用 `sysctl` 解除限制。
 - **Cursor** 在這裡什麼都不需要，因為它的 ACP 模式在 Linux 上也不套用沙箱（從它的程式碼看；沒有在 Linux 上試過）。它的指令只靠詢問把關。
 - **Antigravity** 在這裡也什麼都不需要：Harness Relay 不開啟它的沙箱（在 Linux 上試過：每個指令都詢問）。它的指令只靠詢問把關。
+- **Muse Code** 自帶 bubblewrap，所以不需要安裝任何東西（在 DGX Spark 的 Ubuntu 24.04 上試過）。它會在工作目錄裡替它掛載覆蓋的路徑留下空的 `.agents`、`.muse`、`.hg`、`.sl` 與 `.eden` 資料夾，沙箱執行中被停止的回合還會在裡面留下 `.tbh-sandbox-mountpoint.<pid>` 標記。一輪留下的這些，Harness Relay 會在那個資料夾裡最後一次執行結束後刪除，前提是它們是空的，或只有已不在執行的沙箱程序留下的標記；裡面有其他東西時就保留。
 
 ### Docker 與 dev container
 
@@ -170,6 +177,7 @@ Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只
 - **Grok**：Landlock 本身不需要 user namespace，但 `deny` 清單需要 bubblewrap，內建設定檔的唯讀掛載（見上方 Linux）可能也需要 mount namespace（未驗證）。沒有在容器中試過。
 - **Cursor** 沒有會被容器弄壞的沙箱：在那裡，容器本身就是它的指令唯一的隔離（沒有試過）。
 - **Antigravity**：同上，因為 Harness Relay 不開啟它的沙箱（沒有試過）。
+- **Muse Code**：它的 bubblewrap 需要 bubblewrap 需要的東西（沒有試過）。
 
 ### Windows
 
@@ -182,10 +190,11 @@ Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只
 - **Grok**：它的文件只列出 macOS 與 Linux。Grok 在 Windows 上是會在沒有沙箱的情況下執行（它的文件說無法套用的內建設定檔只會顯示警告，見下文），還是拒絕啟動，沒有驗證過。
 - **Cursor** 在這裡也沒有沙箱。Harness Relay 在 Windows 上沒有受保護的路徑，所以在那裡它的讀取與寫入工具也沒有針對它們的拒絕規則（沒有用真正的 CLI 試過）。
 - **Antigravity**：同樣沒有；Windows 上沒有受保護的路徑，所以 Harness Relay 在那裡不會因為它們拒絕它的任何讀寫（用真正的 CLI 試過：每個指令都詢問，並以 PowerShell 執行）。
+- **Muse Code** 在 Windows 上有自己的沙箱，要先以系統管理員權限執行一次設定（會出現 UAC 提示）：`muse sandbox windows setup` 會建立 Windows 沙箱使用者、它們的權限、防火牆（WFP）規則與 `C:\ProgramData\muse`，每台電腦一次；`muse sandbox windows check` 會說明是否已完成（在那之前是 `setup_required`，「sandbox users are not ready」）。在那之前，完全存取以外的權限下每個指令都會在開始前失敗（「sandbox enforcement unavailable: windows_elevated setup_required…」）：Harness Relay 不會替你執行這個設定。沒有它，它的檔案工具、網路擷取與完全存取仍能用。它在那裡的 shell 工具是 PowerShell。Harness Relay 在 Windows 上不保留受保護的路徑，所以 Muse 在那裡沒有拒絕規則（反正它也會拒絕寫在規則裡的 Windows 路徑）。試用的那台虛擬機沒有執行這個設定，所以它在 Windows 沙箱裡的指令尚未驗證。
 
 ### WSL
 
-- **WSL2**：Codex 與 Claude Code 使用它們的 Linux 沙箱，前提相同（bubblewrap；Claude Code 還需要 `socat`）。Grok 的 Landlock 能不能用，要看 WSL2 的 kernel（未驗證）。Cursor 與 Antigravity 在這裡也沒有沙箱。
+- **WSL2**：Codex 與 Claude Code 使用它們的 Linux 沙箱，前提相同（bubblewrap；Claude Code 還需要 `socat`）。Grok 的 Landlock 能不能用，要看 WSL2 的 kernel（未驗證）。Cursor 與 Antigravity 在這裡也沒有沙箱。Muse Code 在這裡沒有試過。
 - **WSL1** 無法建立 user namespace。Claude Code 的沙箱需要 WSL2；Codex（從 0.115 起）會拒絕執行需要 bubblewrap 的沙箱指令。
 
 ## 開啟各個沙箱
@@ -199,6 +208,7 @@ Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只
 | **Grok** | 只需設定 | kernel 5.13 以上且有 Landlock，Harness Relay 的執行還要 `bubblewrap`，再設定 | 文件中沒有：改用 WSL2 | 同 Linux，前提是它的 kernel 有 Landlock（未驗證） | 沒有試過 |
 | **Cursor** | 沒有可開啟的：它的 ACP 模式會忽略 `--sandbox` 與 `sandbox.mode` | 同左（沒有試過） | 同左（沒有試過） | 同左（沒有試過） | 同左（沒有試過） |
 | **Antigravity** | Harness Relay 的執行沒有可開啟的：透過 ACP 時，它的沙箱（`enableTerminalSandbox`）讓指令寫不進工作目錄 | 同左（試過） | 同左（試過） | 同左（沒有試過） | 同左（沒有試過） |
+| **Muse Code** | 沒有要開啟的：除非給了 `--disable-sandbox`，否則就是開著 | 不需要安裝：它的 bubblewrap 隨它附上（試過） | 以系統管理員權限執行一次 `muse sandbox windows setup`（沒有試過） | 沒有試過 | 沒有試過 |
 
 ### Harness Relay 的執行從哪裡讀這些設定
 
@@ -209,6 +219,7 @@ Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只
 | Grok | 啟動 Harness Relay 時環境中的 `GROK_SANDBOX`；沒有的話，是 `~/.grok/config.toml`，或各 CLI 自己的資料夾中 `grok/config.toml` 的 `[sandbox] profile` | 唯讀與可編輯模式設定 `GROK_SANDBOX=harness-relay`（Windows 上為 `workspace`），以及 Grok 自己資料夾中 `sandbox.toml` 的 `[profiles.harness-relay]` 區塊（見下文）；完全存取時，你設定的會生效 |
 | Cursor | 它設定資料夾中的 `cli-config.json`（`~/.cursor`、各 CLI 自己的資料夾中的 `cursor`，或其他帳號的家目錄），複製到每一輪自己的設定資料夾；絕不讀專案的 `.cursor/cli.json`（`--disable-project-configs`） | 在每一輪的設定資料夾中：沒有允許規則，你的拒絕規則再加上（完全存取以外的權限）受保護的路徑（唯讀模式還有 `Write(**)`），`approvalMode: "allowlist"`（完全存取：`"unrestricted"`，並加 `--force`）；`sandbox.mode` 透過 ACP 沒有作用 |
 | Antigravity | 它 `.gemini` 資料夾（`~/.gemini`、各 CLI 自己的資料夾中的 `antigravity/.gemini`，或其他帳號的家目錄）裡 `antigravity-cli` 中的 `settings.json`，其中只有 `model`、`modelProvider`、`gcp` 與 `customModelsConfig` 會放進每一輪自己的設定資料夾（`--cli_dir_name`），agy 改讀那裡；它的 `permissions.allow` 與 `permissions.deny` 透過 ACP 沒有作用 | 在每一輪的設定中：`toolPermission: "request-review"`（完全存取：`"always-proceed"`，並加 `--dangerously-skip-permissions`）、`agentMode: ""`、完全存取以外的 `allowNonWorkspaceAccess: false`，有 Gemini API key 或不是預設帳號時再加 `modelProvider: "gemini"`；你的其他設定（`enableTerminalSandbox`、權限、信任的工作區、狀態列……）不會進到這一輪 |
+| Muse Code | 它設定資料夾裡的 `settings.json`（`$XDG_CONFIG_HOME/muse`，沒有設定時是 `~/.config/muse`；各 CLI 自己的資料夾裡的 `muse/config/muse`，或另一個帳號的家目錄），每一輪自己的設定資料夾只保留允許清單上的（`MUSE_KEPT_SETTINGS`：模型、推理強度、provider、endpoint transport、MCP 伺服器、hook、plugin、skill、context 與工具……；不保留 `permissions`、自訂 agent、`run`、runtime capabilities 或 feature config），並拿掉不載入的 MCP 伺服器與 hook | 每一輪的設定裡：`permissions` 是設定檔 `harness-relay`（由 `:ask-me` 延伸，每個受保護的路徑一條 `"deny"`），完全存取時則是 `:unrestricted`；完全存取以外，一個把工作目錄標成不受信任的 `trust.json`；`MUSE_DISABLE_APPROVAL_JUDGE=1`；唯讀時 `--disable-write`，完全存取時 `--disable-sandbox --trust-workspace`；session 模式（`promptUnmatched`、`onRequest`、`allowAll`）；你自己的設定檔與信任的資料夾不會進到這一輪 |
 
 Grok 會讓一個 session 在整個生命週期都使用它開始時的設定檔，並拒絕以不同的設定檔續用它（它的文件）。Harness Relay 每一輪都會續用各 agent 的 session，續用失敗時會帶著目前為止的對話開始新的 session。唯讀與可編輯使用同一個設定檔，所以只有切換到完全存取或從完全存取切回來，或改變你設定的設定檔，才會這樣（`harness-relay` 之前的 Grok session 也會重新開始一次）。
 
@@ -287,6 +298,8 @@ deny = ["~/.ssh", "**/.env", "**/*.pem"]
 
 **Antigravity。** Harness Relay 的執行沒有可開啟的沙箱：透過 ACP 時（`agy` 1.5.6），`enableTerminalSandbox`（或 `--sandbox`）會讓它的指令寫不進工作目錄。在那裡管住它的指令的是詢問，和 Cursor 一樣。
 
+**Muse Code。** 沒有要開啟的：Seatbelt 是 macOS 內建的，除非給了 `--disable-sandbox`，Muse 都會在它的沙箱裡執行指令（Harness Relay 只在完全存取時給這個旗標）。
+
 ### 在 Linux 上
 
 先確認沙箱需要的條件（這些檢查不是出自各 CLI 的文件，也沒有試過）：
@@ -346,6 +359,8 @@ restrict_network = true
 
 **Antigravity。** 同樣不需要安裝任何東西：Harness Relay 不開啟它的沙箱（在 Linux 上試過）。
 
+**Muse Code。** 不需要安裝任何東西：它自帶 bubblewrap（在 Ubuntu 24.04 上試過）。
+
 ### 在 Docker 與 dev container 中
 
 - **Claude Code**：在 unprivileged 容器中，於 `sandbox` 底下加上 `"enableWeakerNestedSandbox": true`；隔離會較弱。
@@ -353,6 +368,7 @@ restrict_network = true
 - **Grok**：沒有試過；上面 Linux 的檢查在容器中同樣適用。
 - **Cursor**：不需要設定；容器就是它的指令唯一的沙箱（沒有試過）。
 - **Antigravity**：同上（沒有試過）。
+- **Muse Code**：上面 Linux 的檢查在容器裡同樣適用（沒有試過）。
 
 ### 在 Windows 上
 
@@ -385,6 +401,13 @@ sandbox = "elevated"    # 或 "unelevated"
 
 - `codex sandbox uninstall` 會移除舊版沙箱建立的帳號與網路規則。記錄檔在 `%USERPROFILE%\.codex\.sandbox\sandbox.log`。
 
+**Muse Code**，每台電腦一次，在終端機執行（它會要求系統管理員權限；沒有試過）：
+
+```powershell
+muse sandbox windows check    # 完成設定前是 setup_required
+muse sandbox windows setup    # 建立它的沙箱使用者與防火牆規則
+```
+
 **Claude Code 與 Grok** 在原生 Windows 上沒有沙箱：請在 WSL2 中執行它們與 Harness Relay。**Cursor** 與 **Antigravity** 在 Harness Relay 的執行中，在任何系統上都沒有沙箱，所以改用 WSL2 對它們沒有差別。
 
 ### 在 WSL2 上
@@ -410,36 +433,40 @@ wsl --set-version Ubuntu 2    # 把 WSL1 的發行版轉成 WSL2
 | Grok | 內建設定檔：它的文件說會顯示警告，並在沒有限制的情況下繼續執行；但有些失敗（例如上文的 symlink socket，或 Linux 上沒有唯讀掛載）會讓它直接拒絕啟動。自訂設定檔（`sandbox.toml`）一律拒絕啟動。Grok 的 `sessions` 資料夾（`~/.grok/sessions`，或各 CLI 自己的資料夾中的 `grok/sessions`）裡 `sandbox-events.jsonl` 的 `"enforced": true` 表示設定檔確實套用了。 |
 | Cursor | 它的 ACP 模式從不啟動沙箱，所以不會失敗，也不會有警告：在完全存取以外的權限，改為每個指令都要詢問（Cursor 團隊允許清單上的除外）。 |
 | Antigravity | Harness Relay 不開啟它的沙箱，所以不會失敗，也不會有警告：在完全存取以外的權限，改為每個指令都要詢問。你自己開啟的沙箱（它設定中的 `enableTerminalSandbox: true`）不會進到 Harness Relay 的執行，它們的設定只保留你的模型與服務。 |
+| Muse Code | 它無法套用的設定檔會以關閉的方式失敗：`session/new` 不會開啟，這一輪以 Muse 的訊息失敗。在 Windows 上完成設定之前，每個指令都會在開始前失敗（「sandbox enforcement unavailable: windows_elevated setup_required…」），模型看到的是這個指令失敗；它的檔案工具仍能用。在 macOS 或 Linux 上沒有見過它的沙箱無法啟動。 |
 
 Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原因。Harness Relay 不會檢查沙箱是否真的套用了。
 
 ## 沙箱管不到的事
 
-- **讀取。** 各沙箱預設都讓指令讀取幾乎整台電腦，包括 `~/.ssh` 和 `~/.aws`；只有 Grok 的 `strict` 設定檔會限制讀取（工作目錄、系統路徑與 `~/.grok`）。Harness Relay 不讓任何沙箱（包括[它自己的](#harness-relay-自己的沙箱)）讀取瀏覽器的資料夾（包括桌面 app 視窗的）與它自己的資料庫（見 [agent 不能讀寫的地方](#agent-不能讀寫的地方)），其他的不在此限。使用者允許的 Cursor 指令（或 Cursor 團隊允許清單上的指令），以及使用者允許的 Antigravity 指令，都沒有沙箱，使用者讀寫得到的，它們都讀寫得到。要讓機密不離開這台電腦，靠的是擋網路，而 Grok 在 macOS 上做不到，Cursor 與 Antigravity 在 Harness Relay 的執行中在哪裡都做不到；Harness Relay 自己的沙箱在兩個平台都擋網路，但你允許的模型來源整個可達，所以有心的 agent 仍可能透過它把資料帶出去（允許清單是按主機、不是按流量內容）。
+- **讀取。** 各沙箱預設都讓指令讀取幾乎整台電腦，包括 `~/.ssh` 和 `~/.aws`；只有 Grok 的 `strict` 設定檔會限制讀取（工作目錄、系統路徑與 `~/.grok`）。Harness Relay 不讓任何沙箱（包括[它自己的](#harness-relay-自己的沙箱)）讀取瀏覽器的資料夾（包括桌面 app 視窗的）與它自己的資料庫（見 [agent 不能讀寫的地方](#agent-不能讀寫的地方)），其他的不在此限。使用者允許的 Cursor 指令（或 Cursor 團隊允許清單上的指令），以及使用者允許的 Antigravity 指令，都沒有沙箱，使用者讀寫得到的，它們都讀寫得到。要讓機密不離開這台電腦，靠的是擋網路，而 Grok 在 macOS 上做不到，Muse Code 的沙箱靠詢問指令能不能連網，Harness Relay 會把它交給使用者，Cursor 與 Antigravity 在 Harness Relay 的執行中在哪裡都做不到；Harness Relay 自己的沙箱在兩個平台都擋網路，但你允許的模型來源整個可達，所以有心的 agent 仍可能透過它把資料帶出去（允許清單是按主機、不是按流量內容）。
 - **Harness Relay 自己的 API。** Grok 的沙箱讓指令連得到 localhost（在 Mac 上試過：可編輯模式下，Grok 執行的 `curl http://127.0.0.1:…` 得到了回應），但 Harness Relay 在 `127.0.0.1:8787` 的 API 只接受已登入的瀏覽器：沒有瀏覽器 cookie 與金鑰的程式會收到 401（用 `curl` 試過），所以這類指令無法開始一輪執行（它擋不住的見[架構 → 登入](architecture.zh-TW.md#登入)）。同樣的測試中，Claude Code、Codex 與 Harness Relay 自己的沙箱都擋下了 localhost——Harness Relay 自己的沙箱還按名字拒絕它的連接埠，所以即使是被授予自己 loopback 連接埠的 agent（OpenCode）也連不到它。使用者允許的 Cursor 指令沒有沙箱，同樣連得到 localhost，也會收到同樣的 401（Antigravity 的指令也會如此：沒有試過）。
 - **開源 agent 在自己工具外執行的東西。** Harness Relay 自己的沙箱涵蓋 agent 與它的子行程所做的一切；agent 沒有任何部分在沙箱外執行（不像 Claude Code 的 hooks 與 MCP 伺服器）。Linux 上它無法允許單一一個 Unix socket（所以在那裡需要 socket 的 CLI 必須不用它），macOS 上透過系統驗證 TLS 的 CLI（Goose）會被授予 trustd 服務，那是一條可能的出口（見 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)）。
 - **Claude Code 自己的工具。** 它的沙箱只涵蓋 Bash 指令及它們啟動的行程，不包括它的 Read、Edit、Write、WebFetch、WebSearch 工具（這些由它的權限規則管）、hooks、本機的 MCP 伺服器（包括工具庫的）和 LSP 伺服器。
 - **Cursor 自己的工具。** 它的拒絕規則只約束它的讀取與寫入工具，不約束它的指令，而且只照寫下來的路徑：Cursor 比對時分大小寫，也不解析連結，所以受保護路徑的另一種寫法（換個大小寫，在 macOS 一般不分大小寫的磁碟上）或專案裡指向它的連結都不會被拒絕，它的讀取工具不經詢問就能讀。它的 hook（`~/.cursor/hooks.json`、組織的，以及 Cursor 也會載入的 `~/.claude/settings.json` 裡 Claude Code 的，不論 Claude Code 自己的執行不載入哪些）每次執行都會在它的工具呼叫上執行，沒有能在單次執行中關掉的開關；它啟動的 MCP 伺服器也在任何沙箱之外執行。
 - **Antigravity 自己的工具。** Harness Relay 只能決定 agy 詢問的呼叫：工作區內的讀取從不會送到它（經由連結讀到工作區以外的會送到，指向受保護路徑時會被拒絕）。`~/.gemini/config/`（或某個帳號的 `.gemini`）裡的 hook 與 MCP 伺服器在 Harness Relay 的執行中也會載入，並在任何沙箱之外執行：agy 沒有能在單次執行中略過它們的開關。專案自己的 MCP 伺服器、hook 與 plugin（從每個工作目錄往上到它的 repository 根目錄，`.agents`、`.agent`、`_agents` 或 `_agent` 裡的 `mcp_config.json`、`hooks.json`、`plugins/` 與 `plugins.json`），agy 一開啟 session 就會啟動，在任何沙箱之外執行，也不送出權限請求，唯讀模式下也一樣（以 `agy` 1.5.6 確認過）。可編輯模式下的其他 agent 寫得到這些檔案（Claude Code、Codex、Grok 與 Cursor 都會寫入工作目錄；只有 Harness Relay 自己的沙箱讓開源 agent 無法寫入），做出這個 repository 的人也寫得到。所以在完全存取以外的權限，工作目錄裡有其中任何一個時，Harness Relay 會在 agy 啟動前先問使用者，卡片上列出這些檔案；只要它們的內容不變，「本對話都允許」就一直有效。被拒絕，或被自動拒絕時，這一輪不會開始。完全存取時什麼都不問。
+- **Muse Code 自己的工具。** 它的檔案工具遵守它的設定檔，包括拒絕規則；它的網路擷取與搜尋會詢問，在完全存取以外的權限會被允許。唯讀時，使用者允許的指令在它的沙箱裡執行，沙箱讓它可以寫入工作目錄：Muse 的 `:read-only` 設定檔不會，但它不接受拒絕規則。可編輯模式下，它的檔案工具不經詢問就會寫入工作目錄裡其他 agent 的設定（`.claude`、`.vscode`、`.mcp.json`、`.codex`、`.cursor`…），就像 Claude Code、Codex 與 Grok 也會寫入工作目錄：Muse 只對 `.git`、`.muse` 與 `.agents` 底下（以及 `.envrc`）的寫入詢問。它的 skill 與指示檔，它自己的以及它從 Claude Code 與 Codex 拿來的，每次執行都會載入。受信任工作區的 hook（`.muse/hooks.json`）在它的沙箱外執行（測試中有一個寫到了工作區外）：完全存取以外的權限不信任任何工作區，所以它們不會載入。
 - **Cursor 團隊的允許清單。** Cursor 團隊自動執行允許清單上的指令（由團隊管理員在 Cursor 的後台設定，從 Cursor 的伺服器讀取）可能不經詢問就在任何沙箱之外執行。Harness Relay 無法清除它。
 - **寫到工作目錄與暫存資料夾以外會失敗**，包括套件快取（`~/.npm`、pip、cargo、Go 的 build cache）。如果網路也關閉，安裝相依套件就會失敗。
-- **Git。** Codex 的 `workspace-write` 把 `.git` 設為唯讀：`git add` 與 `git commit` 會以 `.git/index.lock: Operation not permitted` 失敗（在 Mac 上試過）。Claude Code 不讓指令寫入 `.git/config` 與 `.git/hooks`。平行模式下，worktree 的 git 資料放在主 repository 的 `.git/worktrees/<name>`，在工作目錄之外。Harness Relay 的快照和 worktree 結果的 commit 都由伺服器在沙箱外執行，所以不受影響。Grok 的沙箱讓指令能寫入 `.git/config`、`.git/info` 與 `.git/hooks`（在 Mac 上試過：`git config core.fsmonitor …` 可以執行），使用者允許的 Cursor 或 Antigravity 指令，或使用者允許 Cursor 或 Antigravity 對它們的寫入，也能，所以 Harness Relay 自己在沙箱外執行的 git 指令，絕不執行 repository 自己的設定所指定的東西：它的 hooks 與 fsmonitor 都關閉，它的設定（或其包含的檔案）定義的每個 filter、diff 與 merge driver 都被清空，diff 也不執行外部 diff 或 textconv（`repoDriverGuards()`）。它的 submodule 所在的 repository 也一樣，因為 `git add` 會在其中執行 `git status`：agent 能寫入它們的設定，在 worktree 中也能在 submodule 的空資料夾裡建立一個。git 不會抓取缺少的物件（`GIT_NO_LAZY_FETCH`，git 2.44 以上），因為 partial clone 的遠端要透過設定所指定的指令連線；`core.worktree` 指向 repository 自己以外的資料夾時會拒絕，因為快照會把那個資料夾的檔案收進來，套用時也會寫到那裡。使用者自己的 driver，例如 `~/.gitconfig` 中 git-lfs 的，仍會執行。
+- **Git。** Codex 的 `workspace-write` 把 `.git` 設為唯讀：`git add` 與 `git commit` 會以 `.git/index.lock: Operation not permitted` 失敗（在 Mac 上試過）。Claude Code 不讓指令寫入 `.git/config` 與 `.git/hooks`，Muse Code 的沙箱則讓整個 `.git` 都寫不進去。平行模式下，worktree 的 git 資料放在主 repository 的 `.git/worktrees/<name>`，在工作目錄之外。Harness Relay 的快照和 worktree 結果的 commit 都由伺服器在沙箱外執行，所以不受影響。Grok 的沙箱讓指令能寫入 `.git/config`、`.git/info` 與 `.git/hooks`（在 Mac 上試過：`git config core.fsmonitor …` 可以執行），使用者允許的 Cursor 或 Antigravity 指令，或使用者允許 Cursor 或 Antigravity 對它們的寫入，也能，所以 Harness Relay 自己在沙箱外執行的 git 指令，絕不執行 repository 自己的設定所指定的東西：它的 hooks 與 fsmonitor 都關閉，它的設定（或其包含的檔案）定義的每個 filter、diff 與 merge driver 都被清空，diff 也不執行外部 diff 或 textconv（`repoDriverGuards()`）。它的 submodule 所在的 repository 也一樣，因為 `git add` 會在其中執行 `git status`：agent 能寫入它們的設定，在 worktree 中也能在 submodule 的空資料夾裡建立一個。git 不會抓取缺少的物件（`GIT_NO_LAZY_FETCH`，git 2.44 以上），因為 partial clone 的遠端要透過設定所指定的指令連線；`core.worktree` 指向 repository 自己以外的資料夾時會拒絕，因為快照會把那個資料夾的檔案收進來，套用時也會寫到那裡。使用者自己的 driver，例如 `~/.gitconfig` 中 git-lfs 的，仍會執行。
 - **在沙箱中常會壞掉的工具**（來自 Claude Code 的文件）：Docker 與 ssh-agent（Unix socket）、走 SSH 的 git 與 `open`、`osascript`（在 macOS 上）、watchman（請用 `jest --no-watchman`）、Linux 上的 Chromium（會啟動它的 Playwright 沒有試過）。
 - **核准能做的事。** 在沙箱中，詢問使用者的意思變成詢問某個指令能不能離開沙箱：
   - Claude Code：模型可能會帶著 `dangerouslyDisableSandbox` 在沙箱外再執行一次指令（`sandbox.allowUnsandboxedCommands: false` 會拿掉這個出口）。這種重試，以及連到不在網路允許清單上的主機，在 `manual` 與 `acceptEdits` 中會詢問，在 `dontAsk` 中會被拒絕。在非互動的 `-p` 執行中，它們以 `can_use_tool` 請求送來（在 Mac 上試過）：主機以 `SandboxNetworkAccess` 送來，Harness Relay 把它顯示成讀取那個主機的網頁；Claude Code 因為某個沙箱無法寫入的路徑（`blocked_path`）而詢問的指令，就算允許了在沙箱中也會失敗，所以使用者允許時 Harness Relay 會讓它在沙箱外執行，卡片也會註明。設定為拒絕時，`acceptEdits` 仍會送來主機的請求，由 Harness Relay 拒絕。
   - Codex：和現在一樣，只有在模型要求超出沙箱允許的範圍時才會詢問。
   - Grok：設定檔一旦套用就無法撤除，所以就算核准了某個呼叫，它也不能寫到設定檔允許的路徑以外。
   - Cursor：沒有可離開的沙箱，所以允許一個指令，就是讓它以使用者的完整權限執行。
-  - Antigravity：同上；而且任何一種拒絕（使用者的、自動的，或受保護的路徑）都會立刻結束它的這一輪：agy 會停下（`stopReason: "end_turn"`），什麼都不告訴模型，所以拒絕時附上的說明傳不過去。
+  - Muse Code：允許一個指令，它就會執行，但仍在沙箱裡：寫到工作目錄以外仍會失敗（試過）。指令要連網時，完全存取以外不論哪種模式，都會另外詢問使用者。拒絕時模型收不到任何說明，只有 Muse 自己的話，這一輪會繼續。
+  - Antigravity：和 Cursor 一樣；而且任何一種拒絕（使用者的、自動的，或受保護的路徑）都會立刻結束它的這一輪：agy 會停下（`stopReason: "end_turn"`），什麼都不告訴模型，所以拒絕時附上的說明傳不過去。
   - 開源 agent：只有沒有規則決定的主機會被詢問（一張 `fetch` 類型的核准卡），允許後這次執行就能透過代理連到那個主機；檔案規則無法撤除，所以核准什麼都不會讓 agent 寫到它權限允許的資料夾以外。這台電腦上的主機，或 Harness Relay 自己的連接埠，不詢問就直接拒絕。
 
 ## 尚未處理的部分
 
-唯讀與可編輯現在在 Claude Code、Codex、Grok 與開源 agent（用 Harness Relay 自己的沙箱）上都會使用沙箱（平台有沙箱時）；Cursor 與 Antigravity 的指令在任何平台上都不在沙箱中，只靠詢問把關。完全存取本來就是要在沙箱外執行：Docker、推送、安裝和寫到資料夾以外，正是它的用途。尚未處理的有：
+唯讀與可編輯現在在 Claude Code、Codex、Grok、Muse Code 與開源 agent（用 Harness Relay 自己的沙箱）上都會使用沙箱（平台有沙箱時）；Cursor 與 Antigravity 的指令在任何平台上都不在沙箱中，只靠詢問把關。完全存取本來就是要在沙箱外執行：Docker、推送、安裝和寫到資料夾以外，正是它的用途。尚未處理的有：
 
 1. **不能把設定當成沙箱。** 原生 Windows 上的 Claude Code 與 Grok，以及 macOS 上 Grok 的網路，都是設定了也不會生效，Cursor 的 ACP 模式完全不套用沙箱，而 Antigravity 的終端機沙箱透過 ACP 無法使用（`agy` 1.5.6：它的指令寫不進工作目錄）。UI 應該說明每個 agent 在這台電腦上是否真的在沙箱中，或在這些情況下拒絕使用沙箱模式。
 2. **在 Linux 上執行前先檢查前提。** Claude Code 的沙箱無法執行時，這一輪會失敗並說明要安裝 `bubblewrap` 與 `socat`；Codex 與 Grok 的前提（`bwrap`、kernel 版本、在容器中能否使用 user namespace）則沒有檢查，也沒有用使用者的語言說明要為它們安裝什麼。
 3. **Codex 在 Windows 上的 `elevated` 沙箱**需要做一次設定，其中有 UAC 提示；在背景啟動的 `codex app-server` 能不能顯示它，沒有驗證過。可以由管理員先執行 `codex sandbox setup --elevated`，或在 Windows 支援時改用 `mxc`。
+4. **Muse Code 的 Windows 沙箱**需要以系統管理員權限做一次設定。Harness Relay 不會執行它，也不會在一輪開始前檢查它是否已完成（在那之前它的指令都會失敗），而在這個沙箱裡執行的指令沒有試過。
 
 ## 資料來源
 
@@ -448,3 +475,4 @@ Grok 因為沙箱而拒絕啟動時，這一輪會失敗並顯示 Grok 給的原
 - Grok：`grok` 1.0.77 附帶的沙箱文件（設定檔、平台支援、網路限制）。
 - Cursor：`cursor-agent` 2026.11.11-043ef28 本身：它的 ACP 伺服器與權限層，讀過程式碼並在 Mac 上試過。
 - Antigravity：`agy` 1.5.6 本身：它的 ACP 伺服器、設定與終端機沙箱，在 Mac 上透過 Harness Relay 的轉接器試過（它的執行也在 Linux 與 Windows 11 上試過，兩者都是 arm64），用的是 Gemini API key，搭配 Gemini API 的替身。
+- Muse Code：`muse` 1.4.18 本身（它沒有公開原始碼）：它的 ACP 伺服器、權限設定檔與沙箱，透過 Harness Relay 的轉接器在 Mac、Linux（aarch64）與 Windows 11（arm64，沒有完成它沙箱的設定）上試過，用的是假的 Meta API key，搭配 Meta API 的替身。

@@ -1,0 +1,68 @@
+{
+  "skills": [
+    {
+      "id": "bundled:blender",
+      "name": "blender",
+      "display_name": "blender",
+      "description": "Build, edit, animate and render 3D content in Blender with Python (bpy), usually headless. Covers modeling objects and assemblies from a description or referenc",
+      "short_description": null,
+      "scope": "bundled",
+      "source": {
+        "type": "local"
+      },
+      "path": "bundled://muse-core/skills/blender/SKILL.md",
+      "activation": "on",
+      "diagnostics": [],
+      "provenance": null,
+      "context_cost": {
+        "startup_bytes": 950,
+        "startup_estimated_tokens": 238,
+        "invoke_bytes": null,
+        "invoke_estimated_tokens": null
+      }
+    },
+    {
+      "id": "bundled:browser-app-delivery",
+      "name": "browser-app-delivery",
+      "display_name": "browser-app-delivery",
+      "description": "Deliver a runnable local browser app so the user can operate it on the first handoff. This delivery skill does not choose whether a requested local system shoul",
+      "short_description": null,
+      "scope": "bundled",
+      "source": {
+        "type": "local"
+      },
+      "path": "bundled://muse-core/skills/browser-app-delivery/SKILL.md",
+      "activation": "on",
+      "diagnostics": [],
+      "provenance": null,
+      "context_cost": {
+        "startup_bytes": 1884,
+        "startup_estimated_tokens": 471,
+        "invoke_bytes": null,
+        "invoke_estimated_tokens": null
+      }
+    },
+    {
+      "id": "bundled:browser-game",
+      "name": "browser-game",
+      "display_name": "browser-game",
+      "description": "Spawn an art director subagent and run three critic rounds for every playable browser game (2D, 2.5D or 3D) built from a brief or design document, or a material",
+      "short_description": "Art director subagent plus three critic rounds for full browser-game builds, short game asks stay light; switch to it now even if game code already exists",
+      "scope": "bundled",
+      "source": {
+        "type": "local"
+      },
+      "path": "bundled://muse-core/skills/browser-game/SKILL.md",
+      "activation": "on",
+      "diagnostics": [],
+      "provenance": null,
+      "context_cost": {
+        "startup_bytes": 814,
+        "startup_estimated_tokens": 204,
+        "invoke_bytes": null,
+        "invoke_estimated_tokens": null
+      }
+    }
+  ],
+  "diagnostics": []
+}

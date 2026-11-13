@@ -24,9 +24,9 @@ export interface Cli extends CliFacts {
 /** A CLI's facts. */
 export const cli = (p: Provider): Cli => ({ ...FACTS[p], open: isOpenProvider(p) });
 
-/** All ten CLIs, in Harness Relay's order (`PROVIDERS`). */
+/** All eleven CLIs, in Harness Relay's order (`PROVIDERS`). */
 export const CLIS: Cli[] = PROVIDERS.map(cli);
-/** The five with a sign-in of their own (accounts, API keys): Claude Code, Codex, Grok, Cursor, Antigravity. */
+/** The six with a sign-in of their own (accounts, API keys): Claude Code, Codex, Grok, Cursor, Antigravity, Muse Code. */
 export const SIGNED_IN: Cli[] = CLIS.filter((c) => !c.open);
 /** The five open agents: OpenCode, Goose, Cline, OpenHands, Pi. */
 export const OPEN: Cli[] = CLIS.filter((c) => c.open);

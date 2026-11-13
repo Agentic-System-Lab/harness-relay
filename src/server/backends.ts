@@ -105,6 +105,8 @@ export const INHERITED_BACKEND_VARS = [
   'CURSOR_AUTH_TOKEN',
   // Antigravity's sign-in with Application Default Credentials (its Gemini API key is above).
   'AGY_ADC_AUTH',
+  // Muse Code's sign-in by key (Meta's Model API).
+  'META_API_KEY',
 ];
 
 /** The keyring account of a backend's key. */

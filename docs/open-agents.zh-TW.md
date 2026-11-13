@@ -2,7 +2,7 @@
 
 # 開源 agent
 
-除了 `claude`、`codex`、`grok`、`cursor-agent` 與 `agy`（Antigravity），Harness Relay 也能執行五個開源的 coding agent CLI。程式裡稱它們為「open agents」（`src/shared/types.ts` 的 `OPEN_PROVIDERS`）：
+除了 `claude`、`codex`、`grok`、`cursor-agent`、`agy`（Antigravity）與 `muse`（Muse Code），Harness Relay 也能執行五個開源的 coding agent CLI。程式裡稱它們為「open agents」（`src/shared/types.ts` 的 `OPEN_PROVIDERS`）：
 
 | Provider id | CLI | 協定 | 轉接器 |
 | --- | --- | --- | --- |
@@ -12,7 +12,7 @@
 | `openhands` | OpenHands（`openhands`，`uv tool install openhands`） | ACP：`openhands acp` | `src/server/agents/openhands.ts` |
 | `pi` | Pi（`pi`，npm `@earendil-works/pi-coding-agent`） | JSONL RPC：`pi --mode rpc` | `src/server/agents/pi.ts` |
 
-它們和另外五個 CLI 不同的地方在於模型從哪裡來：它們在 Harness Relay 裡沒有自己的登入，而是使用「設定」裡的**模型來源**（OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容端點）。這份文件說明它們共用的部分，最後每個 agent 各有一節。
+它們和另外六個 CLI 不同的地方在於模型從哪裡來：它們在 Harness Relay 裡沒有自己的登入，而是使用「設定」裡的**模型來源**（OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容端點）。這份文件說明它們共用的部分，最後每個 agent 各有一節。
 
 一個 agent 的轉接器完成之前（它的檔案裡 `implemented: true`），它的每次執行都會在任何東西啟動前就失敗，說明「not implemented yet」，「設定」中也顯示它尚未就緒。
 
@@ -29,7 +29,7 @@
 
 **每次執行拿到什麼。** `backendRun(o.backends, o.model, …)` 給每次執行它的模型來源與模型；沒有模型、id 不是 `<模型來源>/<模型>`，或模型來源還沒設定時，執行會失敗並說明該怎麼做：
 
-- 只有這次執行自己的 API 來源的金鑰，放在各 CLI 讀取的變數（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 或 `XAI_API_KEY`），沒有其他的：agent 執行的指令會繼承這個環境，所以用 Anthropic 的執行絕不會拿到 OpenAI 的金鑰。伺服器保存的每一把金鑰，以及從你的 shell 繼承來的每個模型供應商的金鑰、登入憑證或位址，都會先移除（`backends.ts` 的 `INHERITED_BACKEND_VARS`）：OpenAI、Anthropic 與 xAI 的金鑰、base URL、組織與專案，`CLAUDE_CODE_OAUTH_TOKEN`，Google 的（`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_GENERATIVE_AI_API_KEY`、`GOOGLE_APPLICATION_CREDENTIALS`、`VERTEX_API_KEY`），OpenRouter、Mistral、Groq、DeepSeek、Together、Fireworks、Azure OpenAI、Cohere、Hugging Face、Perplexity、Cerebras、NVIDIA、Replicate、Voyage、Moonshot、DashScope、Z.ai、LiteLLM 的，Ollama 的（`OLLAMA_HOST`、`OLLAMA_API_KEY`），Bedrock 的 bearer token（`AWS_BEARER_TOKEN_BEDROCK`），Cursor 用來登入的金鑰（`CURSOR_API_KEY`、`CURSOR_AUTH_TOKEN`），以及 Antigravity 用 Application Default Credentials 登入的設定（`AGY_ADC_AUTH`）。不屬於模型來源的仍會傳給 agent，和其他 CLI 一樣：`PATH`、`HOME`、SSH agent、`GITHUB_TOKEN`、AWS 的其他變數。CLI 需要所有已設定金鑰的轉接器，必須說明並寫出原因（`allBackendKeys`）；目前沒有一個需要；
+- 只有這次執行自己的 API 來源的金鑰，放在各 CLI 讀取的變數（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 或 `XAI_API_KEY`），沒有其他的：agent 執行的指令會繼承這個環境，所以用 Anthropic 的執行絕不會拿到 OpenAI 的金鑰。伺服器保存的每一把金鑰，以及從你的 shell 繼承來的每個模型供應商的金鑰、登入憑證或位址，都會先移除（`backends.ts` 的 `INHERITED_BACKEND_VARS`）：OpenAI、Anthropic 與 xAI 的金鑰、base URL、組織與專案，`CLAUDE_CODE_OAUTH_TOKEN`，Google 的（`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_GENERATIVE_AI_API_KEY`、`GOOGLE_APPLICATION_CREDENTIALS`、`VERTEX_API_KEY`），OpenRouter、Mistral、Groq、DeepSeek、Together、Fireworks、Azure OpenAI、Cohere、Hugging Face、Perplexity、Cerebras、NVIDIA、Replicate、Voyage、Moonshot、DashScope、Z.ai、LiteLLM 的，Ollama 的（`OLLAMA_HOST`、`OLLAMA_API_KEY`），Bedrock 的 bearer token（`AWS_BEARER_TOKEN_BEDROCK`），Cursor 用來登入的金鑰（`CURSOR_API_KEY`、`CURSOR_AUTH_TOKEN`），Antigravity 用 Application Default Credentials 登入的設定（`AGY_ADC_AUTH`），以及 Muse Code 用來登入的金鑰（`META_API_KEY`）。不屬於模型來源的仍會傳給 agent，和其他 CLI 一樣：`PATH`、`HOME`、SSH agent、`GITHUB_TOKEN`、AWS 的其他變數。CLI 需要所有已設定金鑰的轉接器，必須說明並寫出原因（`allBackendKeys`）；目前沒有一個需要；
 - 模型在自訂端點上時，該端點的 base URL 與金鑰：轉接器把金鑰放在它的 CLI 設定所指定的變數，絕不寫進設定檔；
 - 這次執行需要連到的主機（`api.openai.com`、`api.anthropic.com`、`api.x.ai`、端點的 `host:port`），交給 Harness Relay 的沙箱。
 
@@ -66,7 +66,7 @@ orchestrator 把模型來源傳給每次 開源 agent 的執行（`RunOptions.ba
 
 ### 每位成員自己的狀態
 
-一次執行能寫入的一切都屬於它自己：對話中一位成員的 session、記錄與快取，放在它自己的資料夾 `<家目錄>/private/<key>`，其他對話或其他成員的開源 agent 在沙箱中（完全存取以外）的執行都不能讀寫，其他在沙箱中的 agent 也都不能寫入。完全存取以外的 Claude Code、Codex、Grok、Cursor 與 Antigravity 讀得到它，就像它們讀得到彼此的 session：它們的沙箱（Cursor 與 Antigravity 沒有沙箱，則是 Cursor 的拒絕規則，以及 Antigravity 詢問時的拒絕）只擋住受保護路徑的讀取（[沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）。完全存取時沒有沙箱，和其他 CLI 一樣（曾有一個對話的執行在另一個對話的 session 檔加上一則假的使用者訊息，那個對話的下一個回答就照著做了）。
+一次執行能寫入的一切都屬於它自己：對話中一位成員的 session、記錄與快取，放在它自己的資料夾 `<家目錄>/private/<key>`，其他對話或其他成員的開源 agent 在沙箱中（完全存取以外）的執行都不能讀寫，其他在沙箱中的 agent 也都不能寫入。完全存取以外的 Claude Code、Codex、Grok、Cursor、Antigravity 與 Muse Code 讀得到它，就像它們讀得到彼此的 session：它們的沙箱（Cursor 與 Antigravity 沒有沙箱，則是 Cursor 的拒絕規則，以及 Antigravity 詢問時的拒絕）只擋住受保護路徑的讀取（[沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）。完全存取時沒有沙箱，和其他 CLI 一樣（曾有一個對話的執行在另一個對話的 session 檔加上一則假的使用者訊息，那個對話的下一個回答就照著做了）。
 
 - **key** 由 orchestrator 給出（`RunOptions.stateKey`，`src/server/agents/types.ts` 的 `stateKeys`）：成員是 `conv.<對話>.<成員>`，每一輪都相同，所以它的 session 可以接續；首席 agent 設計團隊、依你的要求修改團隊、把對話分進群組，分別是 `lead.<對話>`、`revise.<對話>` 與 `sort.<對話>`。分支出來的對話是另一個對話，所以它的成員從自己的狀態開始，session 也和以前一樣重新開始。沒有 key 的執行有一個自己的資料夾，執行後刪除。
 - **寫入。** 轉接器的 `home(root, state)` 把每個可寫入的路徑（`statePaths`）放在 `state` 裡；完全存取以外，有一個在它之外時就不會執行。伺服器為一個 key 留給之後執行的東西（Goose 的擴充清單）放在它旁邊的封存資料夾（`<家目錄>/private/.sealed-<key>`，`sealedFolder`），任何執行都不能讀寫，並和狀態資料夾一起清空。家目錄中共用的部分（每次執行前寫入的設定、模型清單）留在 `root`，沙箱中的執行絕不能寫入。

@@ -8,12 +8,14 @@ import { installFakeLaunchers, type FakeLaunchers } from '../support/fake-cli';
  * Windows: how Harness Relay finds and starts a CLI that is not a program (`src/server/winLaunch.ts`).
  * Everywhere else the fakes are `.exe` files found on the PATH; here each CLI's executable path is set
  * (Settings, as a user does) to a launcher of the kind it comes with on Windows: Cursor's own
- * (`cursor-agent.cmd`, which runs a Node and a script of Cursor's), npm's shim for a Node script
- * (Cline, Pi), and npm's shim for a program (OpenCode). Through it, Settings asks the CLI's version,
+ * (`cursor-agent.cmd`, which runs a Node and a script of Cursor's), Muse Code's own (`muse.cmd`, whose
+ * script runs the binary `.muse-version` names), npm's shim for a Node script (Cline, Pi), and npm's
+ * shim for a program (OpenCode). Through it, Settings asks the CLI's version,
  * and a turn runs (with full access, which every CLI has on Windows).
  */
 const LAUNCHED: { provider: keyof FakeLaunchers['bins']; how: string }[] = [
   { provider: 'cursor', how: "Cursor's own launcher" },
+  { provider: 'muse', how: "Muse Code's own launcher" },
   { provider: 'cline', how: "npm's shim for a Node script" },
   { provider: 'pi', how: "npm's shim for a Node script" },
   { provider: 'opencode', how: "npm's shim for a program" },

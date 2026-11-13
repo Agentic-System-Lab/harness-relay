@@ -15,6 +15,9 @@
  *   whole version folder's `node.exe` with its `index.js` (`versions\2026.11.11-b912975\…`), with
  *   `CURSOR_INVOKED_AS` set to the script's name. Its first step, promoting an update Cursor staged, is
  *   left to Cursor's next start from a shell.
+ * - Muse Code's launcher (`muse.cmd`, which runs `.muse-launcher.ps1` beside it): as that script does,
+ *   the active binary, `muse-bin-<version>.exe` for the version its `.muse-version` names. Its update
+ *   check is left to Muse's next start from a shell.
  *
  * Any other script is not started, nor a shim whose program is not there: the run fails saying so.
  * A CLI that is not found at all is reported missing (`missing`), not started bare, which would have
@@ -204,6 +207,20 @@ function cursorLauncher(dir: string, fs: LaunchFs): { node: string; index: strin
   return undefined;
 }
 
+/** Muse Code's launcher (`muse.cmd`): it runs `.muse-launcher.ps1` beside it with PowerShell. */
+const isMuseLauncher = (text: string) => /%~dp0\.muse-launcher\.ps1"/i.test(text);
+
+/** Muse Code's versions as its launcher takes them (`1.4.18-R8587.1`). */
+const MUSE_VERSION = /^[0-9]+\.[0-9]+\.[0-9]+-R[0-9]+(\.[0-9]+)?$/;
+
+/** The binary Muse Code's launcher would start: the one its `.muse-version` names, if it is there. */
+function museLauncher(dir: string, fs: LaunchFs): string | undefined {
+  const version = fs.read(win32.join(dir, '.muse-version'))?.trim();
+  if (!version || !MUSE_VERSION.test(version)) return undefined;
+  const binary = win32.join(dir, `muse-bin-${version}.exe`);
+  return fs.isFile(binary) ? binary : undefined;
+}
+
 /**
  * Node for a shim's script when none is beside it or on the PATH: the one that runs Harness Relay,
  * but not in the desktop app, where that is the app itself (Electron, its run-as-Node switch off).
@@ -248,6 +265,11 @@ export function windowsLaunch(
       args: [cursor.index, ...args],
       env: { CURSOR_INVOKED_AS: win32.basename(found), ...(cache ? { NODE_COMPILE_CACHE: win32.join(cache, 'cursor-compile-cache') } : {}) },
     };
+  }
+  if (isMuseLauncher(text)) {
+    const binary = museLauncher(dir, fs);
+    if (!binary) throw new WindowsScriptError(t().windowsShimBroken(bin, found, win32.join(dir, '.muse-version')));
+    return { file: binary, args: [...args] };
   }
   throw new WindowsScriptError(t().windowsScript(bin, found));
 }

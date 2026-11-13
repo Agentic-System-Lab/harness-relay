@@ -6,9 +6,9 @@
  *   http://127.0.0.1:11434/v1; E2E_LIVE_OLLAMA_MODEL its model (default gemma4:e4b), and
  *   E2E_LIVE_OLLAMA_TYPED another model it serves, for a model typed for the endpoint.
  * - E2E_LIVE_VLLM, E2E_LIVE_VLLM_MODEL, E2E_LIVE_VLLM_KEY: a vLLM server, its model and its key.
- * - E2E_LIVE_CLIS: the CLIs to try, comma-separated (default: all ten).
- * - E2E_LIVE_CLOUD=1: also the CLIs' own cloud models (Claude Code's, Codex's, Grok's, Cursor's and
- *   Antigravity's), which the user's sign-ins pay for.
+ * - E2E_LIVE_CLIS: the CLIs to try, comma-separated (default: all eleven).
+ * - E2E_LIVE_CLOUD=1: also the CLIs' own cloud models (Claude Code's, Codex's, Grok's, Cursor's,
+ *   Antigravity's and Muse Code's), which the user's sign-ins pay for.
  * - E2E_LIVE_MODEL_<CLI> (E2E_LIVE_MODEL_ANTIGRAVITY=gemini-3.8-flash, say): a model of that CLI's own,
  *   picked in Team settings for its cloud tests; unset, its default model.
  */
@@ -37,11 +37,11 @@ export const ENDPOINTS: LiveEndpoint[] = [
 ];
 export const TYPED_MODEL = env.E2E_LIVE_OLLAMA_TYPED;
 export const CLOUD = env.E2E_LIVE_CLOUD === '1';
-export const CLIS = (env.E2E_LIVE_CLIS || 'claude,codex,grok,cursor,antigravity,opencode,goose,cline,openhands,pi').split(',').map((c) => c.trim()) as Provider[];
+export const CLIS = (env.E2E_LIVE_CLIS || 'claude,codex,grok,cursor,antigravity,muse,opencode,goose,cline,openhands,pi').split(',').map((c) => c.trim()) as Provider[];
 export const OPEN = ['opencode', 'goose', 'cline', 'openhands', 'pi'] as const;
 export const ENDPOINT_CLIS = ['claude', 'codex', 'grok'] as const;
-/** The CLIs with models of their own service (Cursor and Antigravity have nothing else: no endpoints). */
-export const CLOUD_CLIS = ['claude', 'codex', 'grok', 'cursor', 'antigravity'] as const;
+/** The CLIs with models of their own service (Cursor, Antigravity and Muse Code have nothing else: no endpoints). */
+export const CLOUD_CLIS = ['claude', 'codex', 'grok', 'cursor', 'antigravity', 'muse'] as const;
 /** A model of the CLI's own to pick for its cloud tests (`E2E_LIVE_MODEL_<CLI>`), or undefined: its default. */
 export const ownModel = (p: Provider): string | undefined => env[`E2E_LIVE_MODEL_${p.toUpperCase()}`] || undefined;
 /**

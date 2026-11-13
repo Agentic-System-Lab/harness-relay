@@ -1,5 +1,5 @@
 /* Harness Relay landing page. Tokens follow the app (src/web/styles.css): neutrals, the three
-   agent colours (the other seven CLIs' only on their dots in the CLI lists), 14px radius, system UI text. Bricolage Grotesque is the display face. */
+   agent colours (the other eight CLIs' only on their dots in the CLI lists), 14px radius, system UI text. Bricolage Grotesque is the display face. */
 
 @font-face {
   font-family: 'Bricolage Grotesque';
@@ -34,9 +34,10 @@
   --claude-deep: #b2502c;
   --codex-deep: #0b7a5f;
   --grok-deep: #6440f0;
-  /* The other seven CLIs' colours, as in the app (the same in both themes): only the dots in their lists. */
+  /* The other eight CLIs' colours, as in the app (the same in both themes): only the dots in their lists. */
   --cursor: #d6409f;
   --antigravity: #65a30d;
+  --muse: #0f766e;
   --opencode: #2563eb;
   --goose: #b45309;
   --cline: #c026d3;
@@ -331,13 +332,17 @@ p {
   --agent-deep: var(--grok-deep);
 }
 
-/* The other seven: their brand colour only, for the dot in their list. */
+/* The other eight: their brand colour only, for the dot in their list. */
 .t-cursor {
   --agent: var(--cursor);
 }
 
 .t-antigravity {
   --agent: var(--antigravity);
+}
+
+.t-muse {
+  --agent: var(--muse);
 }
 
 .t-opencode {

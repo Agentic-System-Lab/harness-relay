@@ -101,6 +101,14 @@ describe("the agents' sessions", () => {
     expect(agentSessionIds(conv)).toContain('antigravity-cli:c3471ccd');
   });
 
+  it("names Muse Code's as AgentsView's Muse Code does, after its session's id", () => {
+    expect(agentsViewSessionId('muse', '01a1d2b6-32bc-7741-9ad9-901d5dc0d0c7')).toBe('muse:01a1d2b6-32bc-7741-9ad9-901d5dc0d0c7');
+    expect(recordedSession('muse')).toBe(false);
+    const conv = conversation();
+    conv.agentState.mu = { provider: 'muse', sessionId: '01a1d2b6-32bc-7741-9ad9-901d5dc0d0c7', seen: [] };
+    expect(agentSessionIds(conv)).toContain('muse:01a1d2b6-32bc-7741-9ad9-901d5dc0d0c7');
+  });
+
   it("leaves out Cursor's and the open agents', which AgentsView cannot read where they are: Harness Relay records those itself", () => {
     const recorded = PROVIDERS.filter(recordedSession);
     expect(recorded).toEqual(['cursor', ...OPEN_PROVIDERS]);
@@ -793,10 +801,11 @@ describe('sending a conversation to AgentsView', () => {
     sync.link(conv, 'cursor', 'lead-2'); // not one AgentsView reads, nor one Harness Relay keeps a record of
     sync.link(conv, 'opencode', 'sorter-2');
     sync.link(conv, 'antigravity', 'lead-3');
+    sync.link(conv, 'muse', 'lead-4');
     sync.schedule(conv);
     await sync.idle();
     const linked = av.calls.filter((c) => c.method === 'PUT').map((c) => decodeURIComponent(c.url.pathname).split('/')[4]);
-    expect(linked).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0', 'grok:lead-1', 'sorter-1', 'antigravity-cli:lead-3']);
+    expect(linked).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0', 'grok:lead-1', 'sorter-1', 'antigravity-cli:lead-3', 'muse:lead-4']);
   });
 
   it('drops what still waits to be sent for a conversation being deleted', async () => {

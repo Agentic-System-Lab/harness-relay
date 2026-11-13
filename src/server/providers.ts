@@ -16,6 +16,7 @@ import {
 } from '../shared/types';
 import { antigravityKeyOnly, antigravityLogout, antigravityProbeEnv, antigravityProbeSettings, ANTIGRAVITY_NO_BROWSER } from './agents/antigravity';
 import { openAgents } from './agents/index';
+import { museKeyOnly, museProbeEnv } from './agents/muse';
 import { openHomeEnv } from './agents/open';
 import { backendLabel } from './backends';
 import { HttpError } from './errors';
@@ -102,6 +103,17 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
       const out = stripAnsi(`${r.stdout}\n${r.stderr}`);
       if (/please sign in|not signed in|authentication required/i.test(out)) return { loggedIn: false };
       return r.code === 0 ? { loggedIn: true } : { loggedIn: null, detail: tail(out, 200) };
+    }
+    case 'muse': {
+      // `META_API_KEY` comes before any sign-in Muse keeps.
+      if (env.META_API_KEY) return { loggedIn: true, method: 'API key' };
+      // An account besides the default one runs on its own key only (`keyOnlyAccount`).
+      if (museKeyOnly(env)) return { loggedIn: false };
+      // `muse usage` answers signed in, and says "not logged in" otherwise; it opens no browser.
+      const r = await capture(bin, ['usage'], museProbeEnv(env), { timeoutMs: 30_000 });
+      const out = stripAnsi(`${r.stdout}\n${r.stderr}`).trim();
+      if (/not logged in|run `?muse login/i.test(out)) return { loggedIn: false };
+      return r.code === 0 ? { loggedIn: true, detail: out.split('\n')[0] || undefined } : { loggedIn: null, detail: tail(out, 200) };
     }
     default:
       return { loggedIn: null };
@@ -254,9 +266,10 @@ export class ProviderService {
     const method = LOGIN_METHODS[p].find((m) => m.id === methodId) ?? LOGIN_METHODS[p][0];
     if (!method) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     this.logins.get(slot(p, account))?.cancel();
-    // Antigravity's sign-in (`agy acp --login`) finds the account's home by `HOME` (`antigravityProbeEnv`).
+    // Antigravity's sign-in (`agy acp --login`) finds the account's home by `HOME` (`antigravityProbeEnv`),
+    // Muse Code's by its XDG folders (`museProbeEnv`).
     const own = this.settings.env(p, account);
-    const env = { ...(p === 'antigravity' ? antigravityProbeEnv(own) : own), ...method.env };
+    const env = { ...(p === 'antigravity' ? antigravityProbeEnv(own) : p === 'muse' ? museProbeEnv(own) : own), ...method.env };
     let session: LoginSession;
     try {
       session = new LoginSession(p, account, method, this.settings.bin(p), env, () => this.invalidate(p));
@@ -317,7 +330,7 @@ export class ProviderService {
   async logoutIn(p: Provider, env: NodeJS.ProcessEnv, timeoutMs = 30_000, keyOnly = false): Promise<string> {
     // Signed in for the one run only (an API key, an account besides the default): nothing is kept to sign out of.
     // An Antigravity account that signs in with its key only has no Google sign-in of its own to drop: the one agy keeps is the default account's.
-    if ((p === 'cursor' && env[CURSOR_SHARED_SIGN_IN] === 'memory') || (p === 'antigravity' && keyOnly)) {
+    if ((p === 'cursor' && env[CURSOR_SHARED_SIGN_IN] === 'memory') || ((p === 'antigravity' || p === 'muse') && keyOnly)) {
       this.invalidate(p);
       return '';
     }
@@ -331,7 +344,8 @@ export class ProviderService {
       return '';
     }
     const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
-    const r = await capture(bin, args, env, { timeoutMs });
+    // `muse logout` drops the stored key and the Meta sign-in, not a `META_API_KEY`.
+    const r = await capture(bin, args, p === 'muse' ? museProbeEnv(env) : env, { timeoutMs });
     this.invalidate(p);
     if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || t().logoutFailed(r.code));
     return tail(r.stdout || r.stderr, 300);
@@ -416,6 +430,14 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[];
       env: { ...ANTIGRAVITY_NO_BROWSER },
     },
   ],
+  // `muse login` prints its device link and code (it opens a browser only when Enter is pressed in a terminal).
+  muse: [
+    {
+      id: 'meta',
+      key: 'museMeta',
+      args: ['login'],
+    },
+  ],
   // The open agents have no sign-in: they use the model backends in Settings.
   opencode: [],
   goose: [],
@@ -427,7 +449,7 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[];
 /** A browser sign-in asked for an account that signs in with its API key only (`keyOnlyAccount`). */
 export class KeyOnlyAccountError extends Error {
   constructor(p: Provider) {
-    super(p === 'antigravity' ? t().antigravityAccountLogin : t().cursorAccountLogin);
+    super(p === 'antigravity' ? t().antigravityAccountLogin : p === 'muse' ? t().museAccountLogin : t().cursorAccountLogin);
   }
 }
 

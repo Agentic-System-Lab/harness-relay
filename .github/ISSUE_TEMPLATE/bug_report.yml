@@ -44,9 +44,9 @@ body:
     attributes:
       label: Versions and system · 版本與系統
       description: |
-        In the app, **Report a problem** (beside Settings & sign-in) lists them under *Version and system details are included*. From a clone: `git rev-parse --short HEAD`, `node --version`, `claude --version`, `codex --version`, `grok --version`, `cursor-agent --version`, `agy --version`, and for an open-source agent its `--version` and the kind of model backend (an API, or your own endpoint and which server).
+        In the app, **Report a problem** (beside Settings & sign-in) lists them under *Version and system details are included*. From a clone: `git rev-parse --short HEAD`, `node --version`, `claude --version`, `codex --version`, `grok --version`, `cursor-agent --version`, `agy --version`, `muse --version`, and for an open-source agent its `--version` and the kind of model backend (an API, or your own endpoint and which server).
 
-        在 app 裡，**回報問題**（在「設定與登入」旁）的「會一併附上版本與系統資訊」底下列有這些資訊。從 clone 下來的專案執行時：`git rev-parse --short HEAD`、`node --version`、`claude --version`、`codex --version`、`grok --version`、`cursor-agent --version`、`agy --version`，開源 agent 則是它的 `--version` 與模型來源的種類（API，或你自己的端點與哪一種伺服器）。
+        在 app 裡，**回報問題**（在「設定與登入」旁）的「會一併附上版本與系統資訊」底下列有這些資訊。從 clone 下來的專案執行時：`git rev-parse --short HEAD`、`node --version`、`claude --version`、`codex --version`、`grok --version`、`cursor-agent --version`、`agy --version`、`muse --version`，開源 agent 則是它的 `--version` 與模型來源的種類（API，或你自己的端點與哪一種伺服器）。
       placeholder: |
         Harness Relay: 2026-11-11.1 · desktop app
         OS: darwin 25.6.0 (arm64)
@@ -56,6 +56,7 @@ body:
         Grok: …
         Cursor: …
         Antigravity: …
+        Muse Code: …
       render: text
     validations:
       required: true
@@ -71,6 +72,7 @@ body:
         - Grok
         - Cursor
         - Antigravity
+        - Muse Code
         - OpenCode
         - Goose
         - Cline

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { PROVIDERS, type Provider } from '../shared/types';
 import { CONFIG } from './config';
 import { t } from './i18n';
-import { ANTIGRAVITY_HOME_ENV, DATA_DIR } from './settings';
+import { ANTIGRAVITY_HOME_ENV, DATA_DIR, MUSE_HOME_ENV } from './settings';
 
 /*
  * What agents below full access must not reach, besides what their sandbox already keeps them from
@@ -287,7 +287,8 @@ export interface AgentFolderOptions {
 /**
  * The folders that decide how the agents run, outside any project: each CLI's own folder (its
  * settings, hooks, MCP servers and, for Codex and Grok, its program; for Cursor its config folder and
- * `~/.cursor`, where its hooks and MCP servers stay; for Antigravity its `.gemini` folder), Claude
+ * `~/.cursor`, where its hooks and MCP servers stay; for Antigravity its `.gemini` folder; for Muse
+ * Code its XDG config and data folders), Claude
  * Code's `~/.claude.json`,
  * the CLIs' own folder Harness Relay gives them (`agentHome`), the folder of the other accounts' homes
  * (`accountsDir`), and the folders their programs are in (`bins`, from `commandPaths`).
@@ -313,6 +314,13 @@ export function agentFolders(o: AgentFolderOptions = {}): string[] {
     // Antigravity's `.gemini` folder (its settings, hooks, MCP servers, plugins, conversations), the
     // account's (`ANTIGRAVITY_HOME_ENV`) and the user's own.
     ...new Set([join(env[ANTIGRAVITY_HOME_ENV] || home, '.gemini'), join(home, '.gemini')]),
+    // Muse Code's config and data folders (its settings, sign-in, hooks, MCP servers, plugins, sessions),
+    // the account's (`MUSE_HOME_ENV`) and the user's own (XDG folders, on every system).
+    ...new Set([
+      ...(env[MUSE_HOME_ENV] ? [join(env[MUSE_HOME_ENV], 'config', 'muse'), join(env[MUSE_HOME_ENV], 'data', 'muse')] : []),
+      join(env.XDG_CONFIG_HOME || join(home, '.config'), 'muse'),
+      join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'muse'),
+    ]),
     ...(o.agentHome ? [o.agentHome] : []),
     ...(o.accountsDir && o.accountsDir !== o.agentHome ? [o.accountsDir] : []),
     ...(o.bins ?? []).map((bin) => dirname(bin)),

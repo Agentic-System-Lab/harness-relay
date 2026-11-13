@@ -76,6 +76,7 @@ export const API_KEY_ENV: Partial<Record<Provider, string>> = {
   grok: 'XAI_API_KEY',
   cursor: 'CURSOR_API_KEY',
   antigravity: 'GEMINI_API_KEY',
+  muse: 'META_API_KEY',
 };
 
 /**
@@ -83,7 +84,7 @@ export const API_KEY_ENV: Partial<Record<Provider, string>> = {
  * `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`)
  * before its own sign-in, Codex an API key from `CODEX_API_KEY` or `OPENAI_API_KEY`, Grok from
  * `XAI_API_KEY`, Cursor from `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN`, Antigravity from `GEMINI_API_KEY`
- * (which its adapter makes it use: `antigravityRunSettings`). An account besides the default
+ * (which its adapter makes it use: `antigravityRunSettings`), Muse Code from `META_API_KEY`. An account besides the default
  * one gets none of them from the server's environment (only its own key), or every such account would
  * run as whoever they sign in. The open agents have no sign-in, nor accounts: their keys are the model
  * backends' (`INHERITED_BACKEND_VARS`).
@@ -94,6 +95,7 @@ export const CREDENTIAL_ENV: Record<Provider, readonly string[]> = {
   grok: ['XAI_API_KEY'],
   cursor: ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'],
   antigravity: ['GEMINI_API_KEY', 'AGY_ADC_AUTH'],
+  muse: ['META_API_KEY'],
   opencode: [],
   goose: [],
   cline: [],
@@ -107,6 +109,7 @@ const DEFAULT_BIN: Record<Provider, string> = {
   grok: 'grok',
   cursor: 'cursor-agent',
   antigravity: 'agy',
+  muse: 'muse',
   opencode: 'opencode',
   goose: 'goose',
   cline: 'cline',
@@ -145,10 +148,26 @@ export const ANTIGRAVITY_HOME_ENV = 'HARNESS_RELAY_ANTIGRAVITY_HOME';
 export const ANTIGRAVITY_KEY_ONLY_ENV = 'HARNESS_RELAY_ANTIGRAVITY_KEY_ONLY';
 
 /**
+ * Where a Muse Code account's home is: its config folder is `<home>/config/muse` and its data folder
+ * (sessions) `<home>/data/muse`. Muse has no variable of its own for them, only the XDG ones, which its
+ * adapter sets from this one (`museProbeEnv`, `museEnv`). Unset: the user's own (`~/.config/muse`,
+ * `~/.local/share/muse`).
+ */
+export const MUSE_HOME_ENV = 'HARNESS_RELAY_MUSE_HOME';
+
+/**
+ * Set ('1') for a Muse Code account besides the default one, which runs on its own Meta API key only
+ * (`keyOnlyAccount`): Muse keeps its Meta sign-in in the login keychain on macOS under names its
+ * folders do not change, so its runs never link the default account's sign-in. Not passed on to Muse.
+ */
+export const MUSE_KEY_ONLY_ENV = 'HARNESS_RELAY_MUSE_KEY_ONLY';
+
+/**
  * The variable that moves each CLI's home: its sign-in, settings and session transcripts. Cursor's
  * moves its settings and sessions only: its sign-in stays where Cursor keeps it for the computer user
  * (on macOS, the keychain), see `CURSOR_SHARED_SIGN_IN`; Antigravity's is Harness Relay's own
- * (`ANTIGRAVITY_HOME_ENV`), and its Google sign-in stays in the system keyring.
+ * (`ANTIGRAVITY_HOME_ENV`), and its Google sign-in stays in the system keyring; so is Muse Code's
+ * (`MUSE_HOME_ENV`).
  */
 export const AGENT_HOME_ENV: Record<Provider, string> = {
   claude: 'CLAUDE_CONFIG_DIR',
@@ -156,6 +175,7 @@ export const AGENT_HOME_ENV: Record<Provider, string> = {
   grok: 'GROK_HOME',
   cursor: 'CURSOR_CONFIG_DIR',
   antigravity: ANTIGRAVITY_HOME_ENV,
+  muse: MUSE_HOME_ENV,
   opencode: OPEN_AGENT_HOME_ENV,
   goose: OPEN_AGENT_HOME_ENV,
   cline: OPEN_AGENT_HOME_ENV,
@@ -862,6 +882,7 @@ export class SettingsStore {
     if (keyVar && key) env[keyVar] = key;
     if (p === 'cursor' && (id || CREDENTIAL_ENV.cursor.some((k) => env[k]))) env[CURSOR_SHARED_SIGN_IN] = 'memory';
     if (p === 'antigravity' && id) env[ANTIGRAVITY_KEY_ONLY_ENV] = '1';
+    if (p === 'muse' && id) env[MUSE_KEY_ONLY_ENV] = '1';
     const home = this.accountHome(p, id);
     if (home) {
       // Codex refuses a CODEX_HOME that does not exist.
