@@ -1472,6 +1472,16 @@ export const en: Messages = {
         ],
       },
       {
+        title: 'Notifications and sound',
+        body: "No need to keep an eye on the sidebar: turn them on in Settings → Notifications and sound, and you are told when the team finishes replying or needs you. Each browser and each phone has its own choice:",
+        points: [
+          'Show notifications: one pops up while the tab is in the background or its window is behind another; click it to open that chat',
+          'Play a sound: two notes when a reply is done, three when you are needed',
+          'On a phone, add Harness Relay to the home screen and turn them on there: push notifications reach it even with the app closed or the phone locked',
+          'Choose only "A reply is done" or "I am needed" if you like, and send a test notification to try it',
+        ],
+      },
+      {
         title: 'File permission and changes',
         body: 'Every chat has a file permission:',
         points: [
@@ -1542,7 +1552,7 @@ export const en: Messages = {
       },
       {
         title: 'Adjust any time',
-        body: 'In Settings you can switch the language (繁體中文 / English), set up the model backends (the open-source agents run on them, and Claude Code, Codex and Grok on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
+        body: 'In Settings you can switch the language (繁體中文 / English), set up the model backends (the open-source agents run on them, and Claude Code, Codex and Grok on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
         points: [
           'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
           'The button beside Settings & sign-in reports a problem or an idea by email, with the version and system details, and screenshots if you like',

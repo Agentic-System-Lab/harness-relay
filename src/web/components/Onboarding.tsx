@@ -8,7 +8,7 @@ const DONE_KEY = 'relay:onboarded';
  * Raise it when the steps change in a way worth seeing: people who finished an earlier version see the tour again
  * once, on their next visit. `test/tour.test.ts` fails when the steps change, as a reminder.
  */
-export const TOUR_VERSION = 12;
+export const TOUR_VERSION = 13;
 
 /**
  * Element each step points at (`data-tour`), by the index of the step in `t.tour.steps`; none = a centred card.
@@ -24,6 +24,7 @@ export const TOUR_TARGETS: (string | undefined)[] = [
   undefined, // writing a message
   undefined, // while the team replies
   undefined, // when the team needs you
+  'settings', // notifications and sound
   undefined, // file permission
   undefined, // browsing files (the button is in a chat's header)
   undefined, // sharing a conversation (in a chat's header, and under each reply)
