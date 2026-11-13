@@ -2312,6 +2312,8 @@ describe('downloading an update from the download mirror', () => {
   const TAG = '2026-11-14';
   const NAME = `Harness-Relay-${TAG}-mac-arm64.dmg`;
   const AT_MIRROR = `${MIRROR_AT}/${TAG}/Harness-Relay-${TAG}-mac-arm64-update.dmg`;
+  /** Whether a request went to the mirror: by its origin, not by how its address starts (a host could follow). */
+  const atMirror = (url: string) => URL.canParse(url) && new URL(url).origin === MIRROR_AT;
   const CDN = 'https://release-assets.githubusercontent.com/github-production-release-asset/9/h?sig=';
   /** As parseRelease finds it: the copy on github.com, the installer as its fallback. */
   const asset: UpdateAsset = { name: NAME, url: `${COPIES}/${TAG}/Harness-Relay-${TAG}-mac-arm64-update.dmg`, fallback: `${DOWNLOAD}/${TAG}/${NAME}`, size: body.length, sha256: sha(body) };
@@ -2324,10 +2326,10 @@ describe('downloading an update from the download mirror', () => {
   function world(mirror: 'ok' | 'down' | 'missing' | 'other' | 'stalls' = 'ok', github: { copy?: number } = {}) {
     const located: { url: string; headers?: Record<string, string> }[] = [];
     const fetched: { url: string; range?: string; authorization?: string }[] = [];
-    const served = (url: string) => (url.startsWith(MIRROR_AT) && mirror === 'other' ? Buffer.from(body).reverse() : body);
+    const served = (url: string) => (atMirror(url) && mirror === 'other' ? Buffer.from(body).reverse() : body);
     const locate: Locate = async (url, signal, headers) => {
       located.push({ url, headers });
-      if (url.startsWith(MIRROR_AT)) {
+      if (atMirror(url)) {
         if (mirror === 'down') throw new Error('getaddrinfo ENOTFOUND');
         if (mirror === 'stalls') return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
         return { status: mirror === 'missing' ? 404 : 200 };
@@ -2346,7 +2348,7 @@ describe('downloading an update from the download mirror', () => {
     };
     return { located, fetched, locate, fetch: one, connections: [one, one, one, one] };
   }
-  const fromMirror = (f: { url: string }) => f.url.startsWith(MIRROR_AT);
+  const fromMirror = (f: { url: string }) => atMirror(f.url);
   const fromCdn = (f: { url: string }) => f.url.startsWith(CDN);
 
   it("is asked for an installer under its copy's name, with the same checksum and nothing to fall back to", () => {
@@ -2402,7 +2404,7 @@ describe('downloading an update from the download mirror', () => {
       expect(readFileSync(to), how).toEqual(body);
       expect(existsSync(`${to}.part`)).toBe(false);
       // GitHub asked once where the copy is, by the download itself: the update counted once.
-      expect(w.located.filter((l) => !l.url.startsWith(MIRROR_AT)).map((l) => l.url), how).toEqual([asset.url]);
+      expect(w.located.filter((l) => !atMirror(l.url)).map((l) => l.url), how).toEqual([asset.url]);
       // Its parts from the CDN, none of them the counting byte alone.
       const parts = w.fetched.filter(fromCdn);
       expect(parts.length, how).toBe(4);
@@ -2412,7 +2414,7 @@ describe('downloading an update from the download mirror', () => {
 
   it('keeps the download when GitHub cannot be reached to count it', async () => {
     const w = world();
-    const offline: Locate = async (url, signal, h) => (url.startsWith(MIRROR_AT) ? w.locate(url, signal, h) : Promise.reject(new Error('offline')));
+    const offline: Locate = async (url, signal, h) => (atMirror(url) ? w.locate(url, signal, h) : Promise.reject(new Error('offline')));
     const to = join(dir, 'mirror-uncounted.dmg');
     await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: offline, source: SOURCE, tag: TAG, asset, to, minPart, mirror: MIRROR_AT });
     expect(readFileSync(to)).toEqual(body);
