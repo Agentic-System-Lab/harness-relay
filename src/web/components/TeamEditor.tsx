@@ -221,21 +221,24 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
 
             <div className="agent-card add-card">
               <span className="muted small">{t.team.addMember}</span>
-              {PROVIDERS.map((p) => (
-                <button
-                  key={p}
-                  className="add-agent"
-                  style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
-                  disabled={agents.length >= maxTeamAgents}
-                  onClick={() => {
-                    const agent = newAgent(p, agents.map((a) => a.name));
-                    const account = readyAccount(providers.find((s) => s.provider === p));
-                    setAgents([...agents, account ? { ...agent, account } : agent]);
-                  }}
-                >
-                  ＋ {PROVIDER_LABEL[p]}
-                </button>
-              ))}
+              {/* Beside members the card is as tall as theirs, and this list scrolls (styles.css, .add-card). */}
+              <div className="add-card-list">
+                {PROVIDERS.map((p) => (
+                  <button
+                    key={p}
+                    className="add-agent"
+                    style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
+                    disabled={agents.length >= maxTeamAgents}
+                    onClick={() => {
+                      const agent = newAgent(p, agents.map((a) => a.name));
+                      const account = readyAccount(providers.find((s) => s.provider === p));
+                      setAgents([...agents, account ? { ...agent, account } : agent]);
+                    }}
+                  >
+                    ＋ {PROVIDER_LABEL[p]}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </section>

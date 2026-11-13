@@ -1319,6 +1319,8 @@ p {
 .agent-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  /* Every row as tall as the tallest: the add card on a row of its own is as tall as the members too. */
+  grid-auto-rows: 1fr;
   gap: 14px;
 }
 
@@ -1367,9 +1369,27 @@ p {
 
 .add-card {
   border-style: dashed;
-  justify-content: center;
-  align-items: stretch;
   background: transparent;
+}
+
+/*
+ * Beside members, the add card takes their height instead of setting it (a button for each of the
+ * twelve CLIs would make it the tallest card), and its list scrolls. With no members it shows them all.
+ */
+.agent-card + .add-card {
+  contain: size;
+}
+
+.add-card-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Room for the buttons' focus rings, which the scrolling list would clip. */
+  margin: -3px;
+  padding: 3px;
 }
 
 .add-agent {
