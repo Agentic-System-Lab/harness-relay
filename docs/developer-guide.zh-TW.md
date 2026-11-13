@@ -683,7 +683,7 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/native.spec.ts` — 各 CLI 自己載入的內容：列出它自己的 skill，並在下一次執行時不載入（Claude Code、Codex），以及 Grok 對資料夾的信任（從 Grok 卡片，以及從新對話的團隊卡片信任或拒絕）。
 - `e2e/specs/sessions.spec.ts` — 各 CLI 自己的資料夾，分成兩個團隊：session 存在那裡、改變後開始新的 session、被拒絕的資料夾、對話執行中不能改；AgentsView（代替的伺服器）：送出對話與成員的 session、Cursor 成員記下的 session 在 thread 之後送出並連在它底下、拒絕其他位置的網址、在設定中顯示更新失敗。
 - `e2e/specs/report.spec.ts` — 問題回報：郵件的 `mailto:` 與 Gmail 連結帶著資訊、保留草稿、太長而放不進連結的回報、要先上傳的截圖，以及無法上傳的截圖（`gh` 未登入）。
-- `e2e/specs/appearance.spec.ts` — 使用導覽（一步步走完、跳過、從設定重新觀看、在矮螢幕上長步驟的內容在按鈕之上捲動）與主題（保留深色或淺色、跟隨系統）。
+- `e2e/specs/appearance.spec.ts` — 使用導覽（一步步走完、跳過、從設定重新觀看、手機上貼齊底部、長步驟的內容在按鈕之上捲動，寬螢幕上「下一步」位置固定）與主題（保留深色或淺色、跟隨系統）。
 - `e2e/specs/templates.spec.ts` — 內建範本與其成員、首席 agent 直接使用範本、把設計好的團隊存成範本。
 - `e2e/specs/limits.spec.ts` — 用 `RELAY_MAX_TEAM_AGENTS`、`RELAY_MAX_ACCOUNTS` 與 `RELAY_TURN_TIMEOUT_MIN` 啟動的伺服器：`GET /api/limits`、團隊編輯器不再能新增成員（人數更多的範本也被拒絕）、設定不再能新增帳號、內建範本（三位成員）說明它為何不能用，且首席 agent 改用截成兩位的通用範本，以及排程的說明顯示設定的逾時。
 - `e2e/specs/schedule.spec.ts` — 儲存對話的排程並立即執行一次。

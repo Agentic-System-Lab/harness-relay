@@ -4638,6 +4638,8 @@ details.sub summary {
   position: fixed;
   inset: 0;
   z-index: 80;
+  /* Keeps the copy that measures the steps (.tour-measure) out of sight. */
+  overflow: hidden;
 }
 
 .tour-scrim {
@@ -4703,6 +4705,27 @@ details.sub summary {
   width: min(440px, calc(100vw - 32px));
 }
 
+/* A centered card is as tall as the tallest step (measured, --tour-body-height), so that its buttons
+   stay in one place from step to step; a short screen cuts it to the screen, and the text scrolls. */
+.tour-card.centered .tour-body {
+  flex: 0 1 var(--tour-body-height, auto);
+}
+
+/* Every step's text, out of sight, at a centered card's width: where the tallest is measured. */
+.tour-card.tour-measure {
+  top: 0;
+  left: 0;
+  width: min(440px, calc(100vw - 32px));
+  max-height: none;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tour-card.tour-measure .tour-body {
+  flex: none;
+  overflow: visible;
+}
+
 .tour-card h2 {
   margin: 0;
   font-size: 18px;
@@ -4761,9 +4784,27 @@ details.sub summary {
 }
 
 @media (max-width: 820px) {
-  .tour-card.anchored {
-    left: 16px !important;
-    width: calc(100vw - 32px) !important;
+  /* Phones: the tour is a sheet at the bottom of the screen, as tall as its step, with its buttons at
+     the very bottom, in reach of a thumb (no step has a target there: the sidebar is off-screen). */
+  .tour-card.anchored,
+  .tour-card.centered {
+    top: auto !important;
+    left: 0 !important;
+    right: 0;
+    bottom: 0;
+    width: auto !important;
+    transform: none;
+    max-height: calc(100dvh - 48px);
+    border-bottom: 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  .tour-card.centered .tour-body {
+    flex: 1 1 auto;
+  }
+
+  .tour-foot {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
   }
 
   .plan-actions .msg-meta {

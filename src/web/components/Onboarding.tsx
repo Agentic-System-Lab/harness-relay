@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useT } from '../i18n';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useT, type Messages } from '../i18n';
 
 /** The version of the tour this browser last finished (or skipped); before versions, `'1'`. */
 const DONE_KEY = 'relay:onboarded';
@@ -100,6 +100,27 @@ function cardPosition(box: Box, cardHeight: number): { top: number; left: number
   return below + cardHeight <= vh - margin ? { top: below, left } : { top: clampTop(box.top - cardHeight - margin), left };
 }
 
+/** A step's text: the tour's name and where it is, the title, the text and its points. */
+function StepText({ step, label, count, titleId }: { step: Messages['tour']['steps'][number]; label: string; count: string; titleId?: string }) {
+  return (
+    <>
+      <div className="tour-top">
+        <span className="tour-label">{label}</span>
+        <span className="tour-count">{count}</span>
+      </div>
+      <h2 id={titleId}>{step.title}</h2>
+      <p>{step.body}</p>
+      {step.points && (
+        <ul>
+          {step.points.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
 /** A step-by-step guide to the main features, shown on the first visit and from Settings. */
 export function Onboarding({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -111,6 +132,12 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   const [scrolls, setScrolls] = useState(false);
   const card = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
+  const measure = useRef<HTMLDivElement>(null);
+  /**
+   * The tallest step's text (px): a centered card is that tall at every step (on a wide screen), so
+   * that its buttons stay in one place; on a short screen it is cut to the screen, and the text scrolls.
+   */
+  const [tallest, setTallest] = useState<number>();
   const primary = useRef<HTMLButtonElement>(null);
   const step = steps[i]!;
   const last = i === steps.length - 1;
@@ -137,6 +164,16 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     if (body.current) body.current.scrollTop = 0;
   }, [i]);
 
+  // The tallest step, measured again when the window's width or the language changes.
+  useLayoutEffect(() => {
+    const el = measure.current;
+    if (!el) return;
+    const update = () => setTallest(Math.max(0, ...[...el.children].map((c) => (c as HTMLElement).offsetHeight)) || undefined);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [t]);
+
   // Whether the step's text scrolls (the line above the footer) follows the window's size.
   useLayoutEffect(() => {
     const el = body.current;
@@ -145,7 +182,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
-  }, [i, box, t]);
+  }, [i, box, t, tallest]);
 
   useEffect(() => primary.current?.focus(), [i]);
 
@@ -175,10 +212,25 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     <div className="tour" role="dialog" aria-modal="true" aria-labelledby="tour-title">
       <div className={`tour-scrim ${box ? '' : 'dim'}`} />
       {box && <div className="tour-spot" style={box} aria-hidden />}
+      {/* Every step's text, out of sight, to measure the tallest: a centered card is that tall. Its
+          count is left blank (only the line's height counts), so the page shows one "3 / 18". */}
+      <div ref={measure} className="tour-card tour-measure" aria-hidden inert>
+        {steps.map((s, n) => (
+          <div key={n} className="tour-body">
+            <StepText step={s} label={t.tour.label} count={'\u00a0'} />
+          </div>
+        ))}
+      </div>
       <div
         ref={card}
         className={`tour-card ${pos ? 'anchored' : 'centered'}`}
-        style={pos ? { top: pos.top, left: pos.left, width: CARD_WIDTH } : undefined}
+        style={
+          pos
+            ? { top: pos.top, left: pos.left, width: CARD_WIDTH }
+            : tallest
+              ? ({ '--tour-body-height': `${tallest}px` } as CSSProperties)
+              : undefined
+        }
       >
         {/* The step scrolls when it is taller than the screen allows; the dots and buttons stay below it. */}
         <div
@@ -187,19 +239,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
           // A stop for the keyboard only while the text scrolls.
           {...(scrolls ? { tabIndex: 0, role: 'region', 'aria-labelledby': 'tour-title' } : {})}
         >
-          <div className="tour-top">
-            <span className="tour-label">{t.tour.label}</span>
-            <span className="tour-count">{t.tour.step(i + 1, steps.length)}</span>
-          </div>
-          <h2 id="tour-title">{step.title}</h2>
-          <p>{step.body}</p>
-          {step.points && (
-            <ul>
-              {step.points.map((p) => (
-                <li key={p}>{p}</li>
-              ))}
-            </ul>
-          )}
+          <StepText step={step} label={t.tour.label} count={t.tour.step(i + 1, steps.length)} titleId="tour-title" />
         </div>
         <div className={`tour-foot ${scrolls ? 'scrolls' : ''}`}>
           <div className="tour-dots" aria-hidden>
