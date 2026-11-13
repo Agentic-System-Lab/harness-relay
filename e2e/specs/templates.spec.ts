@@ -1,6 +1,6 @@
 import type { Locator } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import { askAndConfirm, awaitingPlan, finishedReply, openNewChat, replies, send, settled, startChat } from '../support/app';
+import { askAndConfirm, awaitingPlan, finishedReply, heightWithoutAddCard, openNewChat, replies, send, settled, startChat } from '../support/app';
 
 test.describe('templates', () => {
   test('the built-in templates are listed, and one opens to show its members', async ({ page }) => {
@@ -31,15 +31,18 @@ test.describe('templates', () => {
 
     // Its three members fill the first row: on a row of its own, every CLI is listed.
     expect(await scrolls()).toBe(false);
-    // A fourth member: beside it, as tall as it, and the list scrolls.
+    // A fourth member: beside it, the member keeps its own height and the list scrolls.
     await list.getByRole('button', { name: '＋ Codex' }).click();
     await expect(members).toHaveCount(4);
-    expect(Math.abs((await height(add)) - (await height(members.nth(3))))).toBeLessThanOrEqual(1);
+    const fourth = await heightWithoutAddCard(page, members.nth(3));
+    expect(Math.abs(fourth.shown - fourth.hidden)).toBeLessThanOrEqual(1);
     expect(await scrolls()).toBe(true);
     // Two members: beside them, in the first row.
     for (let i = 0; i < 2; i++) await members.first().getByRole('button', { name: 'Remove' }).click();
     await expect(members).toHaveCount(2);
-    expect(Math.abs((await height(add)) - (await height(members.first())))).toBeLessThanOrEqual(1);
+    const two = await heightWithoutAddCard(page, members.first());
+    expect(Math.abs(two.shown - two.hidden)).toBeLessThanOrEqual(1);
+    expect(Math.abs((await height(add)) - two.shown)).toBeLessThanOrEqual(1);
     expect(await scrolls()).toBe(true);
   });
 

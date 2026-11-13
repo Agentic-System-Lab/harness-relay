@@ -150,6 +150,19 @@ export async function openTeamChat(
   return conv.id;
 }
 
+/**
+ * A team editor card's height, and its height with the add card hidden. They are the same when the
+ * add card takes its row's height rather than setting it: comparing the add card with the member
+ * beside it proves nothing, as the cards of a grid row are always as tall as each other.
+ */
+export async function heightWithoutAddCard(page: Page, card: Locator): Promise<{ shown: number; hidden: number }> {
+  const shown = (await card.boundingBox())!.height;
+  const style = await page.addStyleTag({ content: '.add-card { display: none !important; }' });
+  const hidden = (await card.boundingBox())!.height;
+  await style.evaluate((el) => (el as Element).remove());
+  return { shown, hidden };
+}
+
 /** Accepts the next `confirm()` / `alert()` the page shows (Playwright dismisses them by default). */
 export function acceptNextDialog(page: Page, answer?: string): void {
   page.once('dialog', (d) => void d.accept(answer));

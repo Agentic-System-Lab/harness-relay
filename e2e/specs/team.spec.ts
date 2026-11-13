@@ -1,7 +1,7 @@
 import type { Locator } from '@playwright/test';
 import { PROVIDERS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { askAndConfirm, awaitingPlan, finishedReply, openTeamChat, replies, send, settled, startChat } from '../support/app';
+import { askAndConfirm, awaitingPlan, finishedReply, heightWithoutAddCard, openTeamChat, replies, send, settled, startChat } from '../support/app';
 
 test.describe("changing a chat's team", () => {
   test('the lead agent changes the team when asked, and the new member answers once it is saved', async ({ page, relay }) => {
@@ -68,8 +68,9 @@ test.describe("changing a chat's team", () => {
     expect(await drawer.locator('.agent-grid').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(2);
     await expect(add.getByRole('button', { name: /^＋ / })).toHaveCount(PROVIDERS.length);
 
-    // Beside a member: its height, not that of a button for every CLI, and the list scrolls.
-    expect(Math.abs((await height(add)) - (await height(members.first())))).toBeLessThanOrEqual(1);
+    // Beside a member: the member keeps its own height (not that of a button for every CLI), and the list scrolls.
+    const first = await heightWithoutAddCard(page, members.first());
+    expect(Math.abs(first.shown - first.hidden)).toBeLessThanOrEqual(1);
     expect(await scrolls()).toBe(true);
     // The shadow shows while more are below, and is gone once the list is scrolled to its end.
     if (timelines) {
@@ -105,12 +106,19 @@ test.describe("changing a chat's team", () => {
     await expect(members).toHaveCount(2);
     expect(await scrolls()).toBe(false);
     if (timelines) await expect.poll(shadow).toBe('0');
+    // Should the column count ever be wrong and the card take a height not given to it, it has a
+    // floor: a short list that scrolls, never an empty box.
+    const wrong = await page.addStyleTag({ content: '.add-card { contain: size !important; }' });
+    expect(await height(add)).toBeGreaterThanOrEqual(280);
+    expect(await scrolls()).toBe(true);
+    await wrong.evaluate((el) => (el as Element).remove());
 
     // A third member: beside it again.
     await add.getByRole('button', { name: '＋ Grok' }).click();
     await expect(members).toHaveCount(3);
     const third = await height(members.nth(2));
-    expect(Math.abs((await height(add)) - third)).toBeLessThanOrEqual(1);
+    const beside = await heightWithoutAddCard(page, members.nth(2));
+    expect(Math.abs(beside.shown - beside.hidden)).toBeLessThanOrEqual(1);
     expect(await scrolls()).toBe(true);
     // A role box made taller (its corner dragged) stretches the first row, not the second.
     await members.first().locator('textarea').evaluate((el) => void ((el as HTMLElement).style.height = '500px'));
