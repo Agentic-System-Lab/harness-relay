@@ -98,7 +98,10 @@ test.describe('how members take turns', () => {
     test(`${cli.provider}: an error inside the CLI's protocol is shown on the reply`, async ({ page, relay }) => {
       await chatWith(page, relay, cli);
       await send(page, 'Go e2e:error');
-      await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText(`fake ${cli.provider}: the model returned an error (e2e:error)`);
+      // Waited for as long as a reply (on Windows the open agents run with full access, so the turn
+      // first snapshots the working directory, many git processes there).
+      const failed = await finishedReply(page, cli.name);
+      await expect(failed.locator('.msg-error')).toContainText(`fake ${cli.provider}: the model returned an error (e2e:error)`);
     });
 
     test(`${cli.provider}: a member's next turn resumes its own session`, async ({ page, relay }) => {
@@ -137,7 +140,8 @@ test.describe('how members take turns', () => {
     test(`${cli.provider}: a failed reply shows the CLI's error, and Retry answers again`, async ({ page, relay }) => {
       await chatWith(page, relay, cli);
       await send(page, 'Try this e2e:flaky');
-      const failed = replies(page, cli.name).last();
+      // As long as a reply, as above.
+      const failed = await finishedReply(page, cli.name);
       await expect(failed.locator('.msg-error')).toContainText(`fake ${cli.provider}: failing this once (e2e:flaky)`);
 
       await failed.getByRole('button', { name: 'Retry' }).click();
