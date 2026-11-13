@@ -89,7 +89,7 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 
 [`e2e/README.zh-TW.md`](e2e/README.zh-TW.md) 列出每個端對端測試的情境：新增、修改或刪除端對端測試時，請在同一個 pull request 中一起更新它與英文版。[`desktop/README.zh-TW.md`](desktop/README.zh-TW.md) 是寫給開發者的桌面 app 說明：app 的檔案、指令或檢查改變時，請更新它（兩種語言）。
 
-`site/` 裡的網站有英文與中文兩個頁面。修改前請先讀 [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md)，兩個頁面一起改，並用 `npm run site:preview` 預覽。`site/assets/downloads.js` 裡安裝檔的檔名結尾，必須跟發佈 workflow 給安裝檔的名稱一致：下載按鈕與桌面 app 的更新都靠它們找到安裝檔。`UPDATE_INSTALLERS`（workflow 另外發佈到專用 repository（`UPDATES_REPO`）、給 app 更新用的副本的名稱）也一樣。
+`site/` 裡的網站有英文與中文兩個頁面。修改前請先讀 [`site/DESIGN-GUIDELINES.md`](site/DESIGN-GUIDELINES.md)，兩個頁面一起改，並用 `npm run site:preview` 預覽。`site/assets/downloads.js` 裡安裝檔的檔名結尾，必須跟發佈 workflow 給安裝檔的名稱一致：下載按鈕與桌面 app 的更新都靠它們找到安裝檔。`UPDATE_INSTALLERS`（workflow 另外發佈到專用 repository（`UPDATES_REPO`）、給 app 更新用的副本的名稱）也一樣。下載鏡像（`mirror/worker.ts`，`MIRROR` 有設定時網站按鈕使用的 Cloudflare Worker）也靠這些結尾找到安裝檔：它們改了的話，要重新部署它（開發者指南，「發佈」）。
 
 ### 測試
 

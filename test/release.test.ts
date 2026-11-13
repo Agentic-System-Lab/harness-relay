@@ -974,7 +974,7 @@ describe('the release workflow', () => {
   });
 
   it('hands the write token to the copies’ step and the tokens job only, and the read token to the app’s build, the tokens job and the checks only', () => {
-    expect(workflow.match(/secrets\.[A-Z_]+/g)).toEqual([
+    expect(workflow.match(/secrets\.[A-Z_]+/g)?.filter((s) => !s.startsWith('secrets.MIRROR_'))).toEqual([
       // That it is set at all, in the shell alone, in the tokens job.
       'secrets.UPDATES_TOKEN',
       // The comparison of the two, in the shell alone, in the tokens job.
@@ -1048,6 +1048,49 @@ describe('the release workflow', () => {
     }
     // A build run again in a later attempt replaces what it uploaded.
     expect(build.match(/overwrite: true/g)).toHaveLength(2);
+  });
+
+  it('uploads a release’s installers to the download mirror before publishing it, checks it serves them, and prunes it after', () => {
+    const release = job('release');
+    const step = (name: string) => {
+      const from = release.indexOf(`- name: ${name}\n`);
+      expect(from, name).toBeGreaterThan(0);
+      const next = release.indexOf('- name: ', from + 1);
+      return release.slice(from, next < 0 ? undefined : next);
+    };
+    const at = (name: string) => release.indexOf(`- name: ${name}\n`);
+    // After the copies are checked (nothing is uploaded for a run that stops there), before the release.
+    expect(at('Upload the installers to the download mirror')).toBeGreaterThan(at('Check that the app can download the copies'));
+    expect(at('Check that the download mirror serves the installers')).toBeGreaterThan(at('Upload the installers to the download mirror'));
+    expect(at('Publish')).toBeGreaterThan(at('Check that the download mirror serves the installers'));
+    expect(at('Remove older releases from the download mirror')).toBeGreaterThan(at('Publish'));
+    const upload = step('Upload the installers to the download mirror');
+    // The mirror the website uses, and none for a release candidate, which the website never offers.
+    expect(upload).toContain("import { MIRROR, isMirror } from './site/assets/downloads.js';");
+    expect(upload).toContain('if [ -z "$mirror" ]; then');
+    expect(upload).toContain('if [ "$PRERELEASE" = true ]; then');
+    expect(upload).toContain('needs the MIRROR_ACCESS_KEY_ID and MIRROR_SECRET_ACCESS_KEY secrets and the MIRROR_ENDPOINT variable');
+    expect(upload).toContain('aws s3 cp "$file" "s3://$MIRROR_BUCKET/$TAG/$(basename "$file")" --endpoint-url "$MIRROR_ENDPOINT"');
+    expect(upload).toContain('echo "url=$mirror" >> "$GITHUB_OUTPUT"');
+    // Its last byte asked for, a redirect to GitHub not followed: neither is counted as a download there.
+    const check = step('Check that the download mirror serves the installers');
+    expect(check).toContain("if: steps.mirror.outputs.url != ''");
+    expect(check).toContain('curl -sS --max-time 30 -r -1 -o /dev/null -D - "$MIRROR/$TAG/$name"');
+    expect(check).not.toMatch(/curl[^\n]* -L/);
+    expect(check).toContain('expected="bytes $((size - 1))-$((size - 1))/$size"');
+    const prune = step('Remove older releases from the download mirror');
+    expect(prune).toContain("if: steps.mirror.outputs.url != ''");
+    expect(prune).toContain("sort -V | head -n -2");
+    expect(prune).not.toMatch(/exit 1/);
+    // The mirror's secrets go to its two steps that use the bucket, in the job that installs no npm package.
+    expect(workflow.match(/secrets\.MIRROR_[A-Z_]+/g)).toEqual(['secrets.MIRROR_ACCESS_KEY_ID', 'secrets.MIRROR_SECRET_ACCESS_KEY', 'secrets.MIRROR_ACCESS_KEY_ID', 'secrets.MIRROR_SECRET_ACCESS_KEY']);
+    for (const s of [upload, prune]) {
+      expect(s).toContain('AWS_ACCESS_KEY_ID: ${{ secrets.MIRROR_ACCESS_KEY_ID }}');
+      expect(s).toContain('AWS_SECRET_ACCESS_KEY: ${{ secrets.MIRROR_SECRET_ACCESS_KEY }}');
+      expect(s).toContain('MIRROR_ENDPOINT: ${{ vars.MIRROR_ENDPOINT }}');
+    }
+    expect(check).not.toContain('secrets.');
+    expect(release).not.toMatch(/\bnpm (ci|install)\b/);
   });
 
   it('may write to the repository only in the job that publishes', () => {
