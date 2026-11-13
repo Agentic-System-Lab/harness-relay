@@ -154,8 +154,9 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.target }} --publish never
 
-      # Its fuses, its resources and its own check (--smoke-test), with the fake CLIs of the
-      # end-to-end tests answering a question (on Windows built as executables first).
+      # Its fuses, its resources, the made-up token for its updates (only encoded, in its main process
+      # alone) and its own check (--smoke-test), with the fake CLIs of the end-to-end tests answering a
+      # question (on Windows built as executables first).
       - name: Check the packaged app
         if: runner.os != 'Linux'
         run: npx tsx desktop/scripts/check-package.ts

@@ -25,7 +25,7 @@ npm install --prefix desktop     # Electron、electron-builder 與 esbuild，一
 | `npm run desktop:dist` | 同上，再於 `desktop/release/` 產生這個系統的安裝檔（`.dmg`、`.exe`、`.AppImage`；沒有為發佈簽署）；加上 `-- --output <資料夾>` 可放到別處 |
 | `npm run desktop:typecheck` | 檢查 app 的型別（`desktop/tsconfig.json`） |
 | `npx tsx desktop/scripts/smoke.ts` | 用 app 的方式執行打包好的伺服器（以一般的 Node 代替 Electron），檢查 app 需要它做到的事，包括由 e2e 的假 CLI 回答一個問題 |
-| `npx tsx desktop/scripts/check-package.ts` | 照發佈時的方式檢查 `desktop/release/` 裡打包好的 app：它的 fuse、資源、伺服器的檔案裡沒有 `github_pat_` token、app 的檔案裡也沒有 token 的文字，以及它自己的 `--smoke-test`（其中 e2e 的假 CLI 會回答一個問題；Linux 上要在 `xvfb-run` 下執行） |
+| `npx tsx desktop/scripts/check-package.ts` | 照發佈時的方式檢查 `desktop/release/` 裡打包好的 app：它的 fuse、資源、伺服器的檔案裡沒有 `github_pat_` token、app 的檔案裡也沒有 token 的文字、它建置時更新用的 repository 與（編碼後的）token，以及它自己的 `--smoke-test`（其中 e2e 的假 CLI 會回答一個問題；Linux 上要在 `xvfb-run` 下執行） |
 
 有 Harness Relay 從 `desktop/release/` 執行時，`npm run desktop:dist` 會拒絕開始：請先結束它，或用 `-- --output <資料夾>` 建置。要和自己的資料分開試用建置結果，見[開發者說明](../docs/developer-guide.zh-TW.md#桌面-app)中「和自己的資料分開試用」的說明。
 
@@ -69,7 +69,7 @@ electron-builder.yml 安裝檔；entitlements.mac.plist 與 macos/（各語言�
 
 ## 發佈與更新
 
-只能由手動執行的發佈 workflow 發佈：它為 macOS（Apple Silicon）、Windows 與 Linux（x64 與 Arm64）建置安裝檔、檢查後發佈，並在每個安裝檔旁附上一份給 app 更新用的副本。見[發佈](../docs/developer-guide.zh-TW.md#發佈)。app 會自己更新到最新的版本（[使用者說明](../docs/user-guide.zh-TW.md#版本)），從 `Agentic-System-Lab/harness-relay-updates`、或建置時 `RELAY_UPDATES_REPO` 指定的 repository 下載它的副本，private 的再用 `RELAY_UPDATES_TOKEN` 給的 token（它會放進 app 裡，任何人都讀得到），拿不到副本時則下載安裝檔本身；見[桌面 app](../docs/developer-guide.zh-TW.md#桌面-app)，workflow 的 `UPDATES_REPO` 變數與 `UPDATES_READ_TOKEN` secret 見[發佈](../docs/developer-guide.zh-TW.md#發佈)。安裝檔的名稱必須和 `site/assets/downloads.js`（`INSTALLERS`、`UPDATE_INSTALLERS`）一致。
+只能由手動執行的發佈 workflow 發佈：它為 macOS（Apple Silicon）、Windows 與 Linux（x64 與 Arm64）建置安裝檔、檢查後發佈，並把每個安裝檔再複製一份給 app 更新用，發佈在專用的 repository。見[發佈](../docs/developer-guide.zh-TW.md#發佈)。app 會自己更新到最新的版本（[使用者說明](../docs/user-guide.zh-TW.md#版本)），從 `Agentic-System-Lab/harness-relay-updates`、或建置時 `RELAY_UPDATES_REPO` 指定的 repository 下載它的副本，private 的再用 `RELAY_UPDATES_TOKEN` 給的 token（它會放進 app 裡，任何人都讀得到），拿不到副本時則下載安裝檔本身；見[桌面 app](../docs/developer-guide.zh-TW.md#桌面-app)，workflow 的 `UPDATES_REPO` 變數與 `UPDATES_READ_TOKEN` secret 見[發佈](../docs/developer-guide.zh-TW.md#發佈)。安裝檔的名稱必須和 `site/assets/downloads.js`（`INSTALLERS`、`UPDATE_INSTALLERS`）一致。
 
 ## 相關文件
 

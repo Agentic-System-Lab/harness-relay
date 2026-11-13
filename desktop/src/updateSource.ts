@@ -106,7 +106,7 @@ export function sameUpdateSource(built: string[], source: UpdateSource, installe
 }
 
 /** What fetching `copiesReadable` needs: the global fetch, or a stand-in for it. */
-export type CopiesFetch = (url: string, init: { headers: Record<string, string>; redirect: 'error' }) => Promise<Response>;
+export type CopiesFetch = (url: string, init: { headers: Record<string, string>; redirect: 'manual' }) => Promise<Response>;
 
 /**
  * Why an app built with `source` could not download the copies (`copies`: each file's name and size)
@@ -117,8 +117,10 @@ export type CopiesFetch = (url: string, init: { headers: Record<string, string>;
  * copies and before the release itself, so that a read token missing, expired, waiting for an
  * organization's approval or without access to that repository stops the release, instead of every
  * update quietly counting as a new install. A failure of GitHub's (5xx, no answer) is asked again,
- * COPIES_TRIES times in all; its limit on requests is waited out when it ends soon, else left as a
- * warning, since the apps then only update from the installers. Without a token in `source` (the app
+ * COPIES_TRIES times in all, and a 404 once more (a release just made may not be found at once); its
+ * limit on requests, its secondary one too, is waited out when it ends soon (COPIES_LIMIT_WAIT_MS for
+ * all the waits together), else left as a warning, since the apps then only update from the
+ * installers; a repository moved (301) is said so. Without a token in `source` (the app
  * then downloads from github.com without signing in), it asks with `token` in its place (the
  * workflow's own: it reads a public repository, and no other's private one), so that GitHub's limit on
  * requests without one does not get in the way. Its answer never names a token, and says whether the
@@ -142,22 +144,28 @@ export async function copiesReadable(
   const at = `the release ${o.tag} in ${repo}`;
   let res: Response | undefined;
   let failure = '';
+  // All the waiting for GitHub's limit on requests together, kept within COPIES_LIMIT_WAIT_MS.
+  let waited = 0;
+  let notFound = 0;
   for (let attempt = 1; ; attempt++) {
     try {
       res = await fetch(`https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(o.tag)}`, {
         headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        redirect: 'error',
+        // Not followed, so that the token goes nowhere else: a repository renamed or moved answers 301.
+        redirect: 'manual',
       });
     } catch (err) {
       res = undefined;
       failure = err instanceof Error ? err.message : String(err);
     }
     if (res?.ok) break;
-    // GitHub's limit on requests (every installed app shares the read token's): waited out when it ends
-    // soon, else the check is left undone, with a warning, rather than holding the release back.
-    const wait = res ? limitedFor(res, (o.now ?? new Date()).getTime()) : undefined;
+    // GitHub's limit on requests (every installed app shares the read token's), its secondary limit too:
+    // waited out when it ends soon, else the check is left undone, with a warning, rather than holding
+    // the release back.
+    const wait = res ? await limitedFor(res, (o.now ?? new Date()).getTime()) : undefined;
     if (wait !== undefined) {
-      if (attempt < COPIES_TRIES && wait <= COPIES_LIMIT_WAIT_MS) {
+      if (attempt < COPIES_TRIES && waited + wait <= COPIES_LIMIT_WAIT_MS) {
+        waited += wait;
         await sleep(wait);
         continue;
       }
@@ -167,6 +175,11 @@ export async function copiesReadable(
           'Until it can, apps update from the installers, their updates counting as new installs',
       };
     }
+    // The release just made, not to be found yet everywhere GitHub answers from: asked once more.
+    if (res?.status === 404 && notFound++ === 0 && attempt < COPIES_TRIES) {
+      await sleep(COPIES_RETRY_MS);
+      continue;
+    }
     // A failure of GitHub's, or none at all: asked again a few times.
     if (res && res.status < 500) break;
     if (res) failure = `GitHub answered ${res.status}`;
@@ -175,11 +188,19 @@ export async function copiesReadable(
     }
     await sleep(COPIES_RETRY_MS * attempt);
   }
+  if (res.status >= 300 && res.status < 400) {
+    return {
+      error:
+        `The copies' repository ${repo} has moved (GitHub answered ${res.status}${res.headers.get('location') ? ` for ${res.headers.get('location')}` : ''}): ` +
+        'set the UPDATES_REPO variable to its new name (owner/name), then run the whole workflow again (Re-run all jobs), so that the installers are built for it',
+    };
+  }
   if (!res.ok) {
     const again = ', then run the whole workflow again (Re-run all jobs, not only the failed ones), so that the installers are built with it';
     return {
       error: o.source.token
-        ? `The app's token (UPDATES_READ_TOKEN) cannot read ${at} (GitHub answered ${res.status}): it has no access to that repository, has expired or was revoked, or waits for the organization's approval. Set a token that can${again}`
+        ? `The app's token (UPDATES_READ_TOKEN) cannot read ${at} (GitHub answered ${res.status}): it has no access to that repository, has expired or was revoked, or waits for the organization's approval. ` +
+          `Set a token that can${again}. If it only waited for the organization's approval and has it now, Re-run failed jobs is enough: the installers already hold it`
         : `${at[0]!.toUpperCase()}${at.slice(1)} cannot be read without a token of its own (GitHub answered ${res.status}): for a private repository, set the UPDATES_READ_TOKEN secret${again}`,
     };
   }
@@ -208,18 +229,20 @@ export const COPIES_TRIES = 3;
 /** How long `copiesReadable` waits before asking again after a failure: this, then twice this. */
 export const COPIES_RETRY_MS = 10_000;
 
-/** The longest `copiesReadable` waits for GitHub's limit on requests to end, within the release job's time. */
+/** The longest `copiesReadable` waits for GitHub's limit on requests to end, all its waits together, within the release job's time. */
 export const COPIES_LIMIT_WAIT_MS = 5 * 60_000;
 
 /**
  * How long until GitHub takes requests again, when `res` says its limit was reached (429, or 403 with
- * none left, or one asking to retry after a while), from `retry-after` or `x-ratelimit-reset`; else
- * undefined. A limit whose end is not said counts as one minute.
+ * none left, one asking to retry after a while, or its secondary limit, which it names in the answer),
+ * from `retry-after` or `x-ratelimit-reset`; else undefined. A limit whose end is not said counts as
+ * one minute.
  */
-function limitedFor(res: Response, now: number): number | undefined {
+async function limitedFor(res: Response, now: number): Promise<number | undefined> {
   const retryAfter = Number(res.headers.get('retry-after'));
   const reset = Number(res.headers.get('x-ratelimit-reset'));
-  const limited = res.status === 429 || (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after')));
+  let limited = res.status === 429 || (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after')));
+  if (!limited && res.status === 403) limited = /secondary rate limit/i.test(await res.clone().text().catch(() => ''));
   if (!limited) return undefined;
   if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter * 1000;
   if (Number.isFinite(reset) && reset > 0) return Math.max(0, reset * 1000 - now) + 1000;

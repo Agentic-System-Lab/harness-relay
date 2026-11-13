@@ -499,8 +499,9 @@ export async function downloadUpdate(o: Omit<DownloadOptions, 'headers'> & { sou
 }
 
 /**
- * One download of `asset`, checked against its SHA-256 (`download`). `went.toFallback` is set once the
- * bytes come from the asset's fallback (the installer itself) instead of its own address.
+ * One download of `asset`, checked against its SHA-256 (`download`). `went.toFallback` is set once all
+ * the bytes come from the asset's fallback (the installer itself) instead of its own address, from the
+ * start; not when a download in parts goes on from it halfway through.
  */
 async function downloadOnce(o: DownloadOptions, went: { toFallback: boolean }): Promise<void> {
   const fellBack = () => {
@@ -809,10 +810,11 @@ async function inParts(o: {
   const relocate = () => {
     relocating ??= (headers ? locateWithToken(o.locate, source, stop, headers) : o.locate(source, stop, headers)).then(
       async (f) => {
+        // Not told as a fall back (`fellBack`): the bytes so far came from the copy, so that a checksum
+        // that fails is fetched again from the installer whole.
         if (headers && unavailable(f.status, true) && o.asset.fallback) {
           source = o.asset.fallback;
           headers = undefined;
-          o.fellBack?.();
           f = await o.locate(source, stop);
         }
         address = addressFrom(f, source);

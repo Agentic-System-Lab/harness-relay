@@ -146,7 +146,8 @@ async function main(): Promise<number> {
     const source = updateSourceFrom(process.env);
     if (source.ok) {
       const { repo, encodedToken } = encodeUpdateSource(source.value);
-      check(main?.includes(JSON.stringify(repo)), `the app downloads its updates from ${repo}`);
+      // As the build's define puts it (`repo: "…"`): the default repository's name is in the app's code anyway.
+      check(main?.includes(`repo: ${JSON.stringify(repo)}`), `the app downloads its updates from ${repo}`);
       if (encodedToken) check(main?.includes(JSON.stringify(encodedToken)), "the app holds the read token it was built with, encoded");
     } else {
       check(false, source.error);

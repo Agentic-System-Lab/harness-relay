@@ -978,6 +978,11 @@ describe('the release workflow', () => {
       // The comparison of the two, in the shell alone, before anything else.
       'secrets.UPDATES_TOKEN',
       'secrets.UPDATES_READ_TOKEN',
+      // Whose they are, asked of GitHub in the shell alone, before anything else too.
+      'secrets.UPDATES_TOKEN',
+      'secrets.UPDATES_READ_TOKEN',
+      // The update source checked, with the repository's own code, before anything is installed.
+      'secrets.UPDATES_READ_TOKEN',
       // The app's build, and the checks of the packaged app, which find it there.
       'secrets.UPDATES_READ_TOKEN',
       'secrets.UPDATES_READ_TOKEN',
@@ -1000,10 +1005,17 @@ describe('the release workflow', () => {
     expect(copies).toContain('GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
     expect(copies).not.toContain('UPDATES_READ_TOKEN');
     const checkJob = job('check');
-    const refuse = checkJob.slice(checkJob.indexOf('- name: Refuse a read token that is the write token'), checkJob.indexOf('- uses: actions/checkout'));
-    expect(refuse).toContain('WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
-    expect(refuse).toContain('READ_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
-    expect(refuse).not.toMatch(/\bnode\b|\bgh\b|\bnpm\b/);
+    const first = checkJob.slice(checkJob.indexOf('- name: Refuse a read token that is the write token'), checkJob.indexOf('- uses: actions/checkout'));
+    expect(first.indexOf('- name: Refuse a read token that is the write token')).toBe(0);
+    expect(first).toContain("- name: Warn when the read token's account also owns the write token");
+    expect(first.match(/WRITE_TOKEN: \$\{\{ secrets\.UPDATES_TOKEN \}\}/g)).toHaveLength(2);
+    expect(first.match(/READ_TOKEN: \$\{\{ secrets\.UPDATES_READ_TOKEN \}\}/g)).toHaveLength(2);
+    // Before checkout, nothing of the repository's or of npm's runs with the write token.
+    expect(first).not.toMatch(/\bnode\b|\bgh\b|\bnpm\b/);
+    const source = checkJob.slice(checkJob.indexOf('- name: Check the update source'), checkJob.indexOf('- name: Install'));
+    expect(source).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+    expect(source).not.toContain('secrets.UPDATES_TOKEN');
+    expect(checkJob.indexOf('- name: Check the update source')).toBeLessThan(checkJob.indexOf('- name: Install'));
     expect(release).not.toContain('Refuse a read token');
     for (const name of ["Check that the installers were built with this run's update source", 'Check that the app can download the copies']) {
       const check = step(name);
@@ -1017,7 +1029,7 @@ describe('the release workflow', () => {
     expect(built).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
     expect(built).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
     expect(built).toContain('run: npm --prefix desktop run build');
-    expect(workflow.match(/vars\.UPDATES_REPO/g)).toHaveLength(6);
+    expect(workflow.match(/vars\.UPDATES_REPO/g)).toHaveLength(7);
     for (const name of ['Check the packaged app', 'Check the packaged app (Linux, on a virtual display)']) {
       const checked = build.slice(build.indexOf(`- name: ${name}\n`), build.indexOf('- name: ', build.indexOf(`- name: ${name}\n`) + 1));
       expect(checked, name).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');

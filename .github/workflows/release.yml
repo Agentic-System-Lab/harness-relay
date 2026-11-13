@@ -65,6 +65,31 @@ jobs:
             exit 1
           fi
 
+      # Anyone with the app has the read token, and may use up its account's requests (5,000 an hour):
+      # when that account also owns the write token, publishing the copies is held up with it. Warned
+      # about, not refused (an account of its own is best: docs/developer-guide.md, "Releasing"); asked
+      # of GitHub before anything else runs on this machine, as above.
+      - name: Warn when the read token's account also owns the write token
+        env:
+          WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}
+          READ_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
+        run: |
+          trim() { local v="$1"; v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; printf '%s' "$v"; }
+          owner() {
+            curl -fsS --max-time 30 -H "Authorization: Bearer $1" -H 'Accept: application/vnd.github+json' https://api.github.com/user |
+              grep -o '"login": *"[^"]*"' | head -n 1 | sed 's/.*"\([^"]*\)"$/\1/'
+          }
+          read=$(trim "$READ_TOKEN")
+          write=$(trim "$WRITE_TOKEN")
+          if [ -z "$read" ] || [ -z "$write" ]; then exit 0; fi
+          reader=$(owner "$read" || true)
+          writer=$(owner "$write" || true)
+          if [ -z "$reader" ] || [ -z "$writer" ]; then
+            echo "::warning::Could not tell which accounts UPDATES_READ_TOKEN and UPDATES_TOKEN belong to (GitHub did not say)."
+          elif [ "$reader" = "$writer" ]; then
+            echo "::warning::UPDATES_READ_TOKEN and UPDATES_TOKEN both belong to $reader. Anyone with the app can use up that account's requests with the read token, and publishing the copies with the write token is then held up too: make the read token with an account of its own (docs/developer-guide.md, \"Releasing\")."
+          fi
+
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
@@ -79,6 +104,20 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: node scripts/release.ts check "$VERSION" --remote
+
+      # The update source the builds will take, checked before anything is installed: a read token that
+      # is not a fine-grained one, or a repository that is not owner/name (or is this one), stops the run
+      # here rather than in each build. The repository's own code alone, no dependencies.
+      - name: Check the update source
+        env:
+          RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
+          RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
+        run: |
+          node --input-type=module -e "
+          import { updateSourceFrom } from './desktop/src/updateSource.ts';
+          const source = updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN: process.env.RELAY_UPDATES_TOKEN });
+          if (!source.ok) { console.error('::error::' + source.error); process.exit(1); }
+          console.log('The app will download its updates from ' + source.value.repo + (source.value.token ? ', with the read token.' : ', without a token.'));"
 
       - name: Install
         run: npm ci
@@ -174,8 +213,9 @@ jobs:
       # copies are published in below (the UPDATES_REPO variable, else UPDATES_REPO in
       # site/assets/downloads.js), with the UPDATES_READ_TOKEN secret when it is set, for a private one.
       # The token goes into every installer, where anyone can read it: it may read that repository's
-      # contents and nothing else (docs/developer-guide.md, "Releasing"). In this job, this step alone
-      # gets it (the release job's checks below get it too).
+      # contents and nothing else (docs/developer-guide.md, "Releasing"). In this job, this step and the
+      # packaged app's checks below get it (and, before, the check job's first steps; after, the release
+      # job's two update checks).
       - name: Build the desktop app
         env:
           RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
