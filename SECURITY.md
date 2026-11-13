@@ -52,6 +52,7 @@ Only browsers the user signed in may use the server. Below full access, the comm
 - a Cursor command, or a write Cursor asks about, running below full access without the user allowing it (other than one on a Cursor team's auto-run allowlist);
 - a model backend's or an endpoint's key reaching a run that does not use it, or a member's turn on one of your endpoints going to the CLI's own service instead;
 - a shared conversation publishing something the user did not choose to share;
+- push notifications sent anywhere but a browser's push service (`PUSH_HOSTS`), readable by anyone but the browser they are for, or reaching a browser that is signed out or did not subscribe;
 - the desktop app's window loading another site or reaching Node.
 
 ## What doesn't count
@@ -63,6 +64,7 @@ These are known and documented, so they are not vulnerabilities:
 - Cursor having no sandbox in the mode Harness Relay runs it in: a command you allow runs with your full rights, a Cursor team's auto-run allowlist runs commands without asking, and the deny rules that keep its own file tools from the protected paths match the path as written (another letter case, or a link, gets past them);
 - what sign-in does not stop, as [Architecture → Signing in](docs/architecture.md#signing-in) describes: a program outside the sandboxes that can read your browser's profile or write Harness Relay's `data/` folder; a page an agent serves on another port of this computer getting the cookie if you open it, which is all the read-only routes the browser loads by itself need; a program that keeps sending wrong codes, so that new browsers cannot sign in while it does;
 - API keys kept in `data/relay.db` on a system without a credential store, as the [README](README.md#safety) says;
+- the key push notifications are signed with, and the browsers' push subscriptions, kept in `data/relay.db` ([Architecture → Notifications](docs/architecture.md#notifications)): someone with a copy of it could send notifications to your devices (a click on one still opens only your Harness Relay), so keep the `data/` folder to yourself;
 - what every device in your tailnet can reach once you share the server with `tailscale serve`: its sign-in page, and AgentsView, which has no sign-in ([Use it from your phone → Security](docs/remote-access.md#security));
 - reaching the server some other way (binding it to `0.0.0.0`, `tailscale funnel`), which that page warns against;
 - problems in the agent CLIs themselves or in their own sandboxes: report those to their makers (`claude` to Anthropic, `codex` to OpenAI, `grok` to xAI, `cursor-agent` to Cursor, and OpenCode, Goose, Cline, OpenHands and Pi to their projects). If Harness Relay makes one worse, report it here as well.

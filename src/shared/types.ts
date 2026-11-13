@@ -607,6 +607,63 @@ export interface AuthSessionView {
   current: boolean;
 }
 
+/**
+ * What a browser is alerted to (`src/shared/notify.ts`): the team's reply ended (`done`) or ended with
+ * an error (`error`); an agent asks to do something its permission does not cover (`approval`), the
+ * lead agent's team waits to be confirmed (`confirm`), or an agent asked the user something (`answer`).
+ */
+export type AlertKind = 'done' | 'error' | 'approval' | 'confirm' | 'answer';
+
+/**
+ * Which alerts a browser wants (Settings → Notifications): replies that ended (`done` and `error`),
+ * what needs the user (`approval`, `confirm`, `answer`), and with a sound or without.
+ */
+export interface AlertPrefs {
+  done: boolean;
+  needs: boolean;
+  sound: boolean;
+}
+
+/**
+ * The error code of `PUT /api/push/subscription` for a subscription its push service said is gone
+ * (409): the browser drops it and subscribes anew.
+ */
+export const PUSH_GONE = 'push-gone';
+
+/**
+ * The same for a subscription another signed-in browser has (409): this browser, signed in anew while
+ * its old session lives on, drops it and subscribes anew.
+ */
+export const PUSH_TAKEN = 'push-taken';
+
+/** A browser's push subscription, as `PushSubscription.toJSON()` gives it (`PUT /api/push/subscription`). */
+export interface PushSubscriptionJson {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+/**
+ * Whether this server can send push notifications (`GET /api/push`): the public key browsers subscribe
+ * with (VAPID, base64url), or why it cannot (its key could not be saved in the database, say).
+ */
+export interface PushStatus {
+  publicKey?: string;
+  error?: string;
+}
+
+/** What a push notification carries (encrypted for its browser), and what the service worker shows. */
+export interface AlertPayload {
+  title: string;
+  body: string;
+  /** One notification per conversation: a newer one replaces it. */
+  tag: string;
+  /** Where clicking it goes (the chat, `#/c/<id>`). */
+  url: string;
+  /** No sound (sound off in Settings → Notifications). */
+  silent: boolean;
+  kind: AlertKind | 'test';
+}
+
 /** A conversation put on the web, as Harness Relay keeps track of it (Settings lists them to remove). */
 export interface SharedPage extends ShareLink {
   conversationId: string;
@@ -1198,6 +1255,11 @@ export interface ConversationSummary {
   asking?: boolean;
   /** How the latest agent reply ended (absent before the first one). */
   lastStatus?: MessageStatus;
+  /**
+   * The latest agent reply's id: another one since the last look means the team replied, also in a
+   * run shorter than the time between two looks (the alerts, `src/shared/notify.ts`).
+   */
+  lastReplyId?: string;
   /**
    * The sidebar group it is in; absent = the default group, "Other". A family of branched
    * conversations is in one group: its oldest conversation's (see `src/shared/family.ts`).

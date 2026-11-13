@@ -367,10 +367,13 @@ function scheduleSummary(
   };
 }
 
-/** The latest agent reply's status, from memory when the conversation is open (it may be streaming). */
-function statusOf(live: Conversation | undefined, stored: MessageStatus | undefined): { lastStatus?: MessageStatus } {
-  const last = live ? [...live.messages].reverse().find((m) => m.author.kind === 'agent')?.status : stored;
-  return last ? { lastStatus: last } : {};
+/** The latest agent reply's id and status, from memory when the conversation is open (it may be streaming). */
+function statusOf(
+  live: Conversation | undefined,
+  stored: { id: string; status: MessageStatus } | undefined,
+): Pick<ConversationSummary, 'lastStatus' | 'lastReplyId'> {
+  const last = live ? [...live.messages].reverse().find((m) => m.author.kind === 'agent') : stored;
+  return last ? { lastStatus: last.status, lastReplyId: last.id } : {};
 }
 
 /**
@@ -541,17 +544,17 @@ export class Store {
     const agents = this.db
       .prepare('SELECT conversation_id, name, provider FROM conversation_agents ORDER BY conversation_id, position')
       .all() as { conversation_id: string; name: string; provider: Provider }[];
-    // How each conversation's latest agent reply ended.
+    // Each conversation's latest agent reply: which, and how it ended.
     const lastStatus = new Map(
       (
         this.db
           .prepare(
-            `SELECT m.conversation_id, m.status FROM messages m
+            `SELECT m.conversation_id, m.id, m.status FROM messages m
              JOIN (SELECT conversation_id, MAX(seq) AS seq FROM messages WHERE author_kind = 'agent' GROUP BY conversation_id) l
                ON l.conversation_id = m.conversation_id AND l.seq = m.seq`,
           )
-          .all() as { conversation_id: string; status: MessageStatus }[]
-      ).map((r) => [r.conversation_id, r.status]),
+          .all() as { conversation_id: string; id: string; status: MessageStatus }[]
+      ).map((r) => [r.conversation_id, { id: r.id, status: r.status }]),
     );
     // Team designs waiting for the user's confirmation (JSON.stringify writes the flag this way).
     const confirming = new Set(

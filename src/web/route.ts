@@ -20,6 +20,7 @@ export const SETTINGS_SECTIONS = [
   'version',
   'language',
   'appearance',
+  'notifications',
   'backends',
   ...PROVIDERS.filter((p) => !isOpenProvider(p)),
   ...OPEN_PROVIDERS,
@@ -94,6 +95,19 @@ export function revealLink(
   if (link.left >= row.scrollLeft && right <= row.scrollLeft + row.clientWidth) return undefined;
   const target = link.left < row.scrollLeft ? link.left - fade : right + fade - row.clientWidth;
   return Math.round(Math.min(Math.max(0, row.scrollWidth - row.clientWidth), Math.max(0, target)));
+}
+
+/** The least room left between the corner button and the settings links' row below it (px). */
+export const CORNER_GAP = 6;
+
+/**
+ * Whether the settings links make room for the button in the page's top-left corner (the menu on
+ * phones, the collapsed sidebar's on wide screens): as soon as their row comes up to the button's
+ * bottom edge (`cornerBottom`, none without such a button), not only once stuck to the top, so that
+ * the button never covers a link.
+ */
+export function makeRoomForCorner(linksTop: number, cornerBottom: number | undefined, gap = CORNER_GAP): boolean {
+  return cornerBottom !== undefined && linksTop < cornerBottom + gap;
 }
 
 /**

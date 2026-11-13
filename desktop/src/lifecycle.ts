@@ -49,13 +49,13 @@ export function linkAction(url: string, serverUrl: string): 'in-app' | 'external
 
 /**
  * Whether the chat's window may use something the page asks for: only the server's own pages, and
- * only the microphone (voice input, no camera), writing to the clipboard (the copy buttons) and full
- * screen (a video's own button).
+ * only the microphone (voice input, no camera), writing to the clipboard (the copy buttons), full
+ * screen (a video's own button) and notifications (Settings → Notifications: agents finished or need you).
  */
 export function permissionAllowed(permission: string, requestingUrl: string | undefined, serverUrl: string, mediaTypes: readonly string[] = []): boolean {
   if (!requestingUrl || linkAction(requestingUrl, serverUrl) !== 'in-app') return false;
   if (permission === 'media') return mediaTypes.length > 0 && mediaTypes.every((type) => type === 'audio');
-  return permission === 'clipboard-sanitized-write' || permission === 'fullscreen';
+  return permission === 'clipboard-sanitized-write' || permission === 'fullscreen' || permission === 'notifications';
 }
 
 /**
