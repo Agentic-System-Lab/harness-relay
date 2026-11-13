@@ -184,7 +184,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('resize', update);
   }, [i, box, t, tallest]);
 
-  useEffect(() => primary.current?.focus(), [i]);
+  // Without scrolling: on a phone the sheet is still below the screen, sliding up, when Next takes the focus.
+  useEffect(() => primary.current?.focus({ preventScroll: true }), [i]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

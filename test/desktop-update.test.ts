@@ -560,14 +560,35 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     for (const [name, size] of Object.entries(copies)) writeFileSync(join(at, 'updates', name), Buffer.alloc(size));
     return at;
   }
+  /**
+   * The stand-in for GitHub's API, loaded before a step's script: fixed code, which answers with what
+   * `github-answer.json` beside it holds and writes down each question (its URL, and the token it was
+   * asked with) in `github-asked.jsonl`. The answer is data it reads, never code written with it.
+   */
+  const GITHUB_STUB = [
+    "import { appendFileSync, readFileSync } from 'node:fs';",
+    "const answer = JSON.parse(readFileSync(new URL('github-answer.json', import.meta.url), 'utf8'));",
+    'globalThis.fetch = async (url, init) => {',
+    "  const asked = { url: String(url), authorization: init?.headers?.Authorization ?? null };",
+    "  appendFileSync(new URL('github-asked.jsonl', import.meta.url), JSON.stringify(asked) + '\\n');",
+    '  return new Response(JSON.stringify(answer.release), { status: answer.status });',
+    '};',
+    '',
+  ].join('\n');
   /** Node's options for a step's script: its types stripped, and GitHub's API answering `release` (or `status`). */
   function stubbed(at: string, answer: { release?: unknown; status?: number }) {
     const stub = join(at, 'github.mjs');
-    writeFileSync(
-      stub,
-      `globalThis.fetch = async (url, init) => { (globalThis.asked ??= []).push(url); return new Response(${JSON.stringify(JSON.stringify(answer.release ?? {}))}, { status: ${answer.status ?? 200} }); };\n`,
-    );
+    writeFileSync(stub, GITHUB_STUB);
+    writeFileSync(join(at, 'github-answer.json'), JSON.stringify({ release: answer.release ?? {}, status: answer.status ?? 200 }));
     return `--experimental-strip-types --no-warnings --import=${stub}`;
+  }
+  /** What the stand-in GitHub in `at` was asked since the last call: each question's URL and token. */
+  function githubAsked(at: string): { url: string; authorization: string | null }[] {
+    const log = join(at, 'github-asked.jsonl');
+    if (!existsSync(log)) return [];
+    const asked = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { url: string; authorization: string | null });
+    rmSync(log);
+    return asked;
   }
 
   it('stops a release without the write token at once, before anything is built', () => {
@@ -646,13 +667,21 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     const ok = run(script, at, { ...env, RELAY_UPDATES_REPO: PRIVATE.repo, RELAY_UPDATES_TOKEN: TOKEN });
     expect(ok.stderr).toBe('');
     expect(ok.stdout).toContain('The app will download its updates from acme/relay-updates, with the read token.');
-    expect(run(script, at, { ...env }).stdout).toContain('from Agentic-System-Lab/harness-relay-updates, without a token.');
+    // Asked with the read token, as the app asks, not with the workflow's.
+    expect(githubAsked(at)).toEqual([{ url: 'https://api.github.com/repos/acme/relay-updates/releases?per_page=1', authorization: `Bearer ${TOKEN}` }]);
+    // Neither the variable nor the secret set (the runner passes them empty): the default repository, asked with the workflow's token.
+    const open = run(script, at, { ...env, RELAY_UPDATES_REPO: '', RELAY_UPDATES_TOKEN: '' });
+    expect(open.stderr).toBe('');
+    expect(open.stdout).toContain('from Agentic-System-Lab/harness-relay-updates, without a token.');
+    expect(githubAsked(at)).toEqual([{ url: `https://api.github.com/repos/${UPDATES_REPO}/releases?per_page=1`, authorization: 'Bearer ghs_workflow' }]);
     // A read token GitHub refuses: the run stops here, before anything is built.
     const refusedAt = job([]);
     const refused = run(script, refusedAt, { NODE_OPTIONS: stubbed(refusedAt, { status: 401 }), GH_TOKEN: 'ghs_workflow', RELAY_UPDATES_REPO: PRIVATE.repo, RELAY_UPDATES_TOKEN: TOKEN });
     expect(refused.status).toBe(1);
     expect(refused.stderr).toMatch(/^::error::The app's token \(UPDATES_READ_TOKEN\) cannot read the releases of the copies' repository acme\/relay-updates \(GitHub answered 401\)/);
     expect(refused.stderr + refused.stdout).not.toContain(TOKEN);
+    expect(githubAsked(refusedAt)).toEqual([{ url: 'https://api.github.com/repos/acme/relay-updates/releases?per_page=1', authorization: `Bearer ${TOKEN}` }]);
+    // An update source that is not valid: stopped before GitHub is asked.
     for (const [name, value, error] of [
       ['RELAY_UPDATES_TOKEN', `ghp_${'a'.repeat(36)}`, /^::error::RELAY_UPDATES_TOKEN: not a fine-grained/],
       ['RELAY_UPDATES_REPO', 'Agentic-System-Lab/harness-relay', /^::error::RELAY_UPDATES_REPO: the copies go in a repository of their own/],
@@ -661,6 +690,7 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
       const r = run(script, at, { ...env, [name]: value });
       expect(r.status, value).toBe(1);
       expect(r.stderr).toMatch(error);
+      expect(githubAsked(at), value).toEqual([]);
     }
   });
 
@@ -744,15 +774,25 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     expect(passed.stderr).toBe('');
     expect(passed.status).toBe(0);
     expect(passed.stdout).toContain('An app built with the read token can download the 2 copies from acme/relay-updates.');
+    // The run's tag asked for, with the read token, as the app asks.
+    const tagged = { url: 'https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-13', authorization: `Bearer ${TOKEN}` };
+    expect(githubAsked(ok)).toEqual([tagged]);
+    // Neither the variable nor the secret set (the runner passes them empty): the default repository, asked with the workflow's token.
+    const open = run(script, ok, { ...env, RELAY_UPDATES_REPO: '', RELAY_UPDATES_TOKEN: '', NODE_OPTIONS: stubbed(ok, { release: listed }) });
+    expect(open.stderr).toBe('');
+    expect(open.stdout).toContain(`An app built with no token can download the 2 copies from ${UPDATES_REPO}.`);
+    expect(githubAsked(ok)).toEqual([{ url: `https://api.github.com/repos/${UPDATES_REPO}/releases/tags/2026-11-13`, authorization: 'Bearer ghs_workflow' }]);
     const short = job([], { ...copies, 'Harness-Relay-2026-11-13-win-x64-update.exe': 4 });
     const failed = run(script, short, { ...env, NODE_OPTIONS: stubbed(short, { release: listed }) });
     expect(failed.status).toBe(1);
     expect(failed.stderr).toMatch(/^::error::The release 2026-11-13 in acme\/relay-updates does not list Harness-Relay-2026-11-13-win-x64-update.exe, whole/);
+    expect(githubAsked(short)).toEqual([tagged]);
     const refused = job([], copies);
     const denied = run(script, refused, { ...env, NODE_OPTIONS: stubbed(refused, { status: 401 }) });
     expect(denied.status).toBe(1);
     expect(denied.stderr).toMatch(/^::error::The app's token \(UPDATES_READ_TOKEN\) cannot read/);
     expect(denied.stderr + denied.stdout).not.toContain(TOKEN);
+    expect(githubAsked(refused)).toEqual([tagged]);
   });
 });
 

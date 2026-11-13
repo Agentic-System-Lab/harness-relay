@@ -28,6 +28,15 @@ export function PanelIcon({ size }: { size?: number }) {
   );
 }
 
+/** Three lines: open the sidebar on a narrow screen. */
+export function MenuIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </Svg>
+  );
+}
+
 export function PlusIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>
