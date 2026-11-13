@@ -1,13 +1,14 @@
 /**
  * Updating the desktop app to GitHub's newest release, from its menu. The app asks GitHub now and then
- * for its releases and takes the newest version (`checkLatest`, never a draft): a release candidate
+ * for the releases of the repository it was built to update from (`UpdateSource`, updateSource.ts:
+ * UPDATES_REPO unless the build named another, with a token for a private one), where the Release
+ * workflow publishes each release's installers again under the same tag (`-update`, so that GitHub
+ * counts updates apart from new installs and the release page lists the installers alone), and takes
+ * the newest version (`checkLatest`, never a draft): a release candidate
  * too when the app is one (or a build of your own), only a release when it is a release
  * (`takesCandidates`); when it is newer than the running app and has an installer for this system (`updateSystem`:
- * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer (its
- * copy for updates, `-update`, from the releases of a repository of their own, so that GitHub counts
- * updates apart from new installs and the release page lists the installers alone; the installer itself
- * where that copy is not there), checks it against the SHA-256 GitHub publishes for the installer
- * (`download`), waits until no conversation has
+ * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer,
+ * checks it against the SHA-256 GitHub publishes for it (`download`), waits until no conversation has
  * agents at work (`whenIdle`), and puts it in place of the running app, which then quits and the new
  * one starts:
  *
@@ -33,27 +34,59 @@ import { open, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { compareSemver, parseVersion, semverOf } from '../../scripts/release';
-import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO, updateCopyUrl } from '../../site/assets/downloads.js';
+import { INSTALLERS, UPDATE_INSTALLERS } from '../../site/assets/downloads.js';
 import { capture } from '../../src/server/process';
 import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
+import type { UpdateSource } from './updateSource';
+
+/** The version of GitHub's REST API the app asks for. */
+const API_VERSION = '2022-11-28';
 
 /**
- * GitHub's releases, newest first: release candidates included, which `releases/latest` leaves out
- * (as the website's download buttons do, site/assets/downloads.js).
+ * The releases of `repo` on GitHub, newest first: release candidates included, which `releases/latest`
+ * leaves out (as the website's download buttons do, site/assets/downloads.js).
  */
-export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=20`;
+export function releasesApi(repo: string): string {
+  return `https://api.github.com/repos/${repo}/releases?per_page=20`;
+}
 
 /**
- * GitHub's newest release, never a release candidate (the Release workflow marks each release the
+ * The newest release of `repo`, never a release candidate (the Release workflow marks each release the
  * latest, and no release candidate): what an app that is a release asks for, however many release
  * candidates came out since.
  */
-export const LATEST_RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+export function latestReleaseApi(repo: string): string {
+  return `https://api.github.com/repos/${repo}/releases/latest`;
+}
 
 /**
- * How often the app asks: one request an hour, of the 60 an hour GitHub allows each address without
- * signing in (shared by everything on that address: many apps behind one office network could use them
- * up, and a check that fails only waits for the next one).
+ * What a check sends GitHub's API: the token too for a private repository. Only ever sent to
+ * api.github.com (`releasesApi`, `latestReleaseApi`, and `downloadHeaders` for a release file there).
+ */
+export function apiHeaders(source: UpdateSource): Record<string, string> {
+  return {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': API_VERSION,
+    ...(source.token ? { Authorization: `Bearer ${source.token}` } : {}),
+  };
+}
+
+/**
+ * What a download sends with its first request, to the file's address on GitHub's API (`UpdateAsset.url`
+ * for a private repository): the token, asking for the file itself. None for a public repository,
+ * whose files are downloaded from github.com without signing in. `download` sends them to that address
+ * alone, never to the CDN it redirects to.
+ */
+export function downloadHeaders(source: UpdateSource): Record<string, string> | undefined {
+  if (!source.token) return undefined;
+  return { Accept: 'application/octet-stream', 'X-GitHub-Api-Version': API_VERSION, Authorization: `Bearer ${source.token}` };
+}
+
+/**
+ * How often the app asks: one request an hour. Without a token, of the 60 an hour GitHub allows each
+ * address (shared by everything on that address: many apps behind one office network could use them
+ * up, and a check that fails only waits for the next one); with one, of the 5,000 an hour of the
+ * token's account, shared by every installed app and anything else that account does.
  */
 export const CHECK_EVERY_MS = 60 * 60_000;
 
@@ -150,16 +183,17 @@ export function oneAtATime(fn: () => Promise<void>): () => Promise<void> {
 
 export interface UpdateAsset {
   /**
-   * The installer's name, such as Harness-Relay-2026-11-12-mac-arm64.dmg (also when it is fetched from
-   * its copy for updates: the AppImage takes this name).
+   * The installer's name, such as Harness-Relay-2026-11-12-mac-arm64.dmg, although it is fetched from
+   * its copy for updates (Harness-Relay-2026-11-12-mac-arm64-update.dmg): the AppImage takes this name.
    */
   name: string;
-  /** Where it is fetched from: its copy for the app's updates (`-update`, `updateCopyUrl`), else the installer itself. */
+  /**
+   * Where it is fetched from: its address on github.com for a public repository; for a private one,
+   * its address on GitHub's API, asked with `downloadHeaders`.
+   */
   url: string;
-  /** The installer itself, fetched when its copy is not there (404): a release published before the copies, say. */
-  fallback?: string;
   size?: number;
-  /** Lowercase hex, from GitHub's `digest` of the installer (its copy is the same file). */
+  /** Lowercase hex, from GitHub's `digest` of the file. */
   sha256?: string;
 }
 
@@ -178,33 +212,44 @@ export interface UpdateRelease {
 /** A file name that stays in the folder it is put in. */
 const PLAIN_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-/** One release in GitHub's answer, when it is a release of ours (a release candidate too, never a draft). */
-export function parseRelease(json: unknown): UpdateRelease | undefined {
+/**
+ * One release in GitHub's answer, when it is a release of ours (a release candidate too, never a draft),
+ * as `source` holds it: each system's installer is its copy for updates (`UPDATE_INSTALLERS`), named as
+ * the installer (`INSTALLERS`), fetched from that repository alone (its address on github.com, or on
+ * GitHub's API for a private one) and checked against GitHub's `digest` of it.
+ */
+export function parseRelease(json: unknown, source: UpdateSource): UpdateRelease | undefined {
   const r = json as {
     tag_name?: unknown;
     draft?: unknown;
     html_url?: unknown;
-    assets?: { name?: unknown; browser_download_url?: unknown; size?: unknown; digest?: unknown }[];
+    assets?: { id?: unknown; name?: unknown; browser_download_url?: unknown; size?: unknown; digest?: unknown }[];
   } | null;
   if (!r || typeof r !== 'object' || r.draft || typeof r.tag_name !== 'string') return undefined;
   const parsed = parseVersion(r.tag_name);
   if (!parsed.ok) return undefined;
-  // Each system's installer, fetched from its copy for updates (`updateCopyUrl`: the same file, in the
-  // releases of a repository of its own), so that GitHub counts updates apart from new installs; the
-  // installer itself where that copy is not there. Copies in the release itself (2026-11-12-rc) are not
-  // read: they end as no installer does.
+  const tag = r.tag_name;
   const assets: UpdateRelease['assets'] = {};
   for (const a of Array.isArray(r.assets) ? r.assets : []) {
-    if (typeof a?.name !== 'string' || !PLAIN_NAME.test(a.name) || !isInstallerUrl(a.browser_download_url)) continue;
-    for (const [system, end] of Object.entries(INSTALLERS) as [UpdateSystem, string][]) {
+    if (typeof a?.name !== 'string' || !PLAIN_NAME.test(a.name)) continue;
+    for (const [system, end] of Object.entries(UPDATE_INSTALLERS) as [UpdateSystem, string][]) {
       if (!a.name.endsWith(end)) continue;
-      const installer = a.browser_download_url as string;
-      const copy = updateCopyUrl(r.tag_name, a.name);
+      // Where GitHub keeps it, as this repository's file: never a link the answer gives to somewhere else.
+      let url: string | undefined;
+      if (source.token) {
+        if (typeof a.id === 'number' && Number.isSafeInteger(a.id) && a.id > 0) url = `https://api.github.com/repos/${source.repo}/releases/assets/${a.id}`;
+      } else {
+        const expected = `https://github.com/${source.repo}/releases/download/${tag}/${a.name}`;
+        if (a.browser_download_url === expected) url = expected;
+      }
+      if (!url) continue;
       const sha256 = typeof a.digest === 'string' ? /^sha256:([0-9a-f]{64})$/i.exec(a.digest)?.[1]?.toLowerCase() : undefined;
-      assets[system] = { name: a.name, ...(copy ? { url: copy, fallback: installer } : { url: installer }), size: typeof a.size === 'number' ? a.size : undefined, sha256 };
+      const name = a.name.slice(0, -end.length) + INSTALLERS[system];
+      assets[system] = { name, url, size: typeof a.size === 'number' ? a.size : undefined, sha256 };
     }
   }
-  const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${RELEASES_PAGE}/tag/`) ? r.html_url : RELEASES_PAGE;
+  const releases = `https://github.com/${source.repo}/releases`;
+  const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${releases}/tag/`) ? r.html_url : releases;
   return { version: parsed.value.version, semver: semverOf(parsed.value), page, candidate: parsed.value.rc, assets };
 }
 
@@ -214,11 +259,11 @@ export function parseRelease(json: unknown): UpdateRelease | undefined {
  * 2026-11-12.1-rc after 2026-11-12), never one that sorts before the release it is a candidate of
  * (2026-11-12-rc.1 before 2026-11-12); without, releases and their patches only.
  */
-export function newestRelease(json: unknown, candidates = true): UpdateRelease | undefined {
+export function newestRelease(json: unknown, source: UpdateSource, candidates = true): UpdateRelease | undefined {
   if (!Array.isArray(json)) return undefined;
   let newest: UpdateRelease | undefined;
   for (const r of json) {
-    const release = parseRelease(r);
+    const release = parseRelease(r, source);
     if (!release || (release.candidate && !candidates)) continue;
     if (!newest || compareSemver(release.semver, newest.semver) > 0) newest = release;
   }
@@ -251,22 +296,25 @@ export function updateSystem(platform: NodeJS.Platform, arch: string): UpdateSys
   return undefined;
 }
 
-export type Fetch = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
+export type Fetch = (
+  url: string,
+  init?: { headers?: Record<string, string>; signal?: AbortSignal; redirect?: 'follow' | 'error' | 'manual' },
+) => Promise<Response>;
 
-/** Asks GitHub for the newest release, release candidates included; undefined when there is none yet. */
-export async function checkLatest(fetch: Fetch, o: { candidates?: boolean; signal?: AbortSignal } = {}): Promise<UpdateRelease | undefined> {
-  const { candidates = true, signal } = o;
+/**
+ * Asks GitHub for the newest release in `source`, release candidates included; undefined when there is
+ * none yet. With a token, a 404 is an error: the repository is not there, or the token may not read it.
+ */
+export async function checkLatest(fetch: Fetch, o: { source: UpdateSource; candidates?: boolean; signal?: AbortSignal }): Promise<UpdateRelease | undefined> {
+  const { source, candidates = true, signal } = o;
   // A release candidate (or a build of your own) looks through the newest releases, candidates too; a
   // release asks for the newest release alone.
-  const res = await fetch(candidates ? RELEASES_API : LATEST_RELEASE_API, {
-    headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
-    signal,
-  });
-  if (res.status === 404) return undefined;
+  const res = await fetch(candidates ? releasesApi(source.repo) : latestReleaseApi(source.repo), { headers: apiHeaders(source), signal });
+  if (res.status === 404 && !source.token) return undefined;
   if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
   const json: unknown = await res.json();
-  if (candidates) return newestRelease(json, true);
-  const latest = parseRelease(json);
+  if (candidates) return newestRelease(json, source, true);
+  const latest = parseRelease(json, source);
   return latest && !latest.candidate ? latest : undefined;
 }
 
@@ -368,20 +416,22 @@ export const MIN_PART_BYTES = 1024 * 1024;
 export const PART_FAILURES = 3;
 
 /**
- * Where a download's address leads, asked without following it: GitHub answers a release file's address
- * with a redirect to the file on its CDN (signed, for up to an hour), and the parts are fetched from there,
- * so that GitHub counts the download once, not once a part. No `location` for an answer that is no redirect.
+ * Where a download's address leads, asked (with `headers`) without following it: GitHub answers a release
+ * file's address with a redirect to the file on its CDN (signed, for up to an hour), and the parts are
+ * fetched from there, so that GitHub counts the download once, not once a part. No `location` for an
+ * answer that is no redirect.
  */
-export type Locate = (url: string, signal: AbortSignal) => Promise<{ status: number; location?: string }>;
+export type Locate = (url: string, signal: AbortSignal, headers?: Record<string, string>) => Promise<{ status: number; location?: string }>;
 
 /**
  * Downloads `asset` to `to` (through `to`.part, so a broken download never looks like a whole one) and
- * checks it against its SHA-256: from its `url`, or from its `fallback` when GitHub has nothing there
- * (404). Given `connections` (a fetch for each: main.ts gives each a session of its own, as one session's
- * requests to a host share one connection) and `locate`, a file of twice `minPart` or more comes in parts,
- * one a connection (`inParts`); any other, and one from a server that takes no ranges, in one request.
- * `onProgress` gets the share done, from 0 to 1. Given up on after `stallMs` without a byte
- * (DOWNLOAD_STALL_MS).
+ * checks it against its SHA-256. Given `connections` (a fetch for each: main.ts gives each a session of
+ * its own, as one session's requests to a host share one connection) and `locate`, a file of twice
+ * `minPart` or more comes in parts, one a connection (`inParts`); any other, and one from a server that
+ * takes no ranges, in one request. `headers` (`downloadHeaders`: the token, for a private repository)
+ * go to the asset's own address alone: it is asked where it leads first (`locate`, which they need),
+ * and the CDN it sends to never gets them. `onProgress` gets the share done, from 0 to 1. Given up on
+ * after `stallMs` without a byte (DOWNLOAD_STALL_MS).
  */
 export async function download(o: {
   fetch: Fetch;
@@ -392,6 +442,7 @@ export async function download(o: {
   connections?: Fetch[];
   locate?: Locate;
   minPart?: number;
+  headers?: Record<string, string>;
 }): Promise<void> {
   if (!o.asset.sha256) throw new UpdateError('checksum', 'no checksum');
   const part = `${o.to}.part`;
@@ -408,15 +459,15 @@ export async function download(o: {
     const write = writer(file);
     if (o.connections && o.connections.length > 1 && o.locate && size >= 2 * minPart) {
       try {
-        await inParts({ connections: o.connections, locate: o.locate, asset: o.asset, size, minPart, stall, stallMs, write, onProgress: o.onProgress });
+        await inParts({ connections: o.connections, locate: o.locate, asset: o.asset, headers: o.headers, size, minPart, stall, stallMs, write, onProgress: o.onProgress });
       } catch (err) {
         if (!(err instanceof NoRanges)) throw err;
         // A server (or a proxy) that sends the whole file for a part of it: all of it in one request, from there.
         await file.truncate(0);
-        await whole({ fetch: o.fetch, url: err.address, size, stall, write, onProgress: o.onProgress });
+        await whole({ fetch: o.fetch, locate: o.locate, url: err.address, headers: err.headers, size, stall, write, onProgress: o.onProgress });
       }
     } else {
-      await whole({ fetch: o.fetch, url: o.asset.url, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress });
+      await whole({ fetch: o.fetch, locate: o.locate, url: o.asset.url, headers: o.headers, size, stall, write, onProgress: o.onProgress });
     }
   } catch (err) {
     failed = true;
@@ -510,15 +561,44 @@ async function sha256Of(file: string): Promise<string> {
   return hash.digest('hex');
 }
 
-/** The whole file in one request: from `url`, or from `fallback` when there is nothing there (404). */
-async function whole(o: { fetch: Fetch; url: string; fallback?: string; size: number; stall: Stall; write: Write; onProgress?: (done: number) => void }): Promise<void> {
-  const signal = o.stall.signal;
-  let res = await o.fetch(o.url, { signal });
-  // Its copy for updates is not there (a release published before the copies, its repository gone): the installer itself.
-  if (res.status === 404 && o.fallback) {
-    res.body?.cancel().catch(() => undefined);
-    res = await o.fetch(o.fallback, { signal });
+/**
+ * Where an answer to `locate(source)` says the file is: where it redirects to (over HTTPS only), or
+ * `source` itself when it answered with the file.
+ */
+function addressFrom(found: { status: number; location?: string }, source: string): string {
+  if (found.location !== undefined) {
+    const url = URL.canParse(found.location, source) ? new URL(found.location, source) : undefined;
+    if (url?.protocol !== 'https:') throw new UpdateError('download', `redirected to ${found.location}`);
+    return url.href;
   }
+  if (found.status >= 200 && found.status < 300) return source;
+  throw new UpdateError('download', `HTTP ${found.status}`);
+}
+
+/**
+ * The whole file in one request, from `url`. With `headers` (the token), `url` is asked where it leads
+ * first (`locate`), and the file fetched from there without them; a request that still carries them
+ * (`url` answered with the file itself) follows no redirect, so they never leave that address.
+ */
+async function whole(o: {
+  fetch: Fetch;
+  locate?: Locate;
+  url: string;
+  headers?: Record<string, string>;
+  size: number;
+  stall: Stall;
+  write: Write;
+  onProgress?: (done: number) => void;
+}): Promise<void> {
+  const signal = o.stall.signal;
+  let url = o.url;
+  let headers = o.headers;
+  if (headers) {
+    if (!o.locate) throw new UpdateError('download', 'no way to ask where the file is without its headers going along');
+    url = addressFrom(await o.locate(url, signal, headers), url);
+    if (url !== o.url) headers = undefined;
+  }
+  const res = await o.fetch(url, headers ? { headers, signal, redirect: 'error' } : { signal });
   if (!res.ok || !res.body) throw new UpdateError('download', `HTTP ${res.status}`);
   const total = Number(res.headers.get('content-length')) || o.size;
   let received = 0;
@@ -532,12 +612,17 @@ async function whole(o: { fetch: Fetch; url: string; fallback?: string; size: nu
   });
 }
 
-/** A server sent the whole file for a part of it (it takes no ranges): the file is then downloaded in one request, from `address`. */
+/**
+ * A server sent the whole file for a part of it (it takes no ranges): the file is then downloaded in one
+ * request, from `address`, with the `headers` a request there takes.
+ */
 class NoRanges extends Error {
   readonly address: string;
-  constructor(address: string) {
+  readonly headers?: Record<string, string>;
+  constructor(address: string, headers?: Record<string, string>) {
     super('ranges not taken');
     this.address = address;
+    this.headers = headers;
   }
 }
 
@@ -559,9 +644,8 @@ interface Part {
 
 /**
  * Downloads the file in parts, one a connection, from where its address leads (`locate`: GitHub is asked
- * once, the copy's address or the fallback's when the copy is not there, and the parts are fetched from
- * its CDN). A connection done with its part takes the second half of what the part with the most left
- * has still to go (while that is at least twice `minPart`), so that a slow connection holds the end up
+ * once, with `headers`, and the parts are fetched from its CDN, without them). A connection done with
+ * its part takes the second half of what the part with the most left has still to go (while that is at least twice `minPart`), so that a slow connection holds the end up
  * less. A part that fails, or goes `stallMs` without a byte, is asked for again from where it stopped,
  * up to PART_FAILURES times in all; when its signed address has expired (403), at a new one.
  */
@@ -569,6 +653,7 @@ async function inParts(o: {
   connections: Fetch[];
   locate: Locate;
   asset: UpdateAsset;
+  headers?: Record<string, string>;
   size: number;
   minPart: number;
   stall: Stall;
@@ -577,23 +662,10 @@ async function inParts(o: {
   onProgress?: (done: number) => void;
 }): Promise<void> {
   const { size, stall } = o;
-  let source = o.asset.url;
-  let found = await o.locate(source, stall.signal);
-  // Its copy for updates is not there (a release published before the copies, its repository gone): the installer itself.
-  if (found.status === 404 && o.asset.fallback) {
-    source = o.asset.fallback;
-    found = await o.locate(source, stall.signal);
-  }
-  const addressOf = (f: { status: number; location?: string }): string => {
-    if (f.location !== undefined) {
-      const url = URL.canParse(f.location, source) ? new URL(f.location, source) : undefined;
-      if (url?.protocol !== 'https:') throw new UpdateError('download', `redirected to ${f.location}`);
-      return url.href;
-    }
-    if (f.status >= 200 && f.status < 300) return source;
-    throw new UpdateError('download', `HTTP ${f.status}`);
-  };
-  let address = addressOf(found);
+  const source = o.asset.url;
+  let address = addressFrom(await o.locate(source, stall.signal, o.headers), source);
+  /** What a request to `at` takes: the asset's headers at its own address alone (it answered with the file), none at the CDN's. */
+  const headersAt = (at: string) => (at === source ? o.headers : undefined);
   // Stops every connection: given up on for no data, or when a part fails for good.
   const failed = new AbortController();
   const stop = AbortSignal.any([stall.signal, failed.signal]);
@@ -606,9 +678,9 @@ async function inParts(o: {
   let relocating: Promise<void> | undefined;
   /** Asks where the file is again, for a new signed address (once at a time). */
   const relocate = () => {
-    relocating ??= o.locate(source, stop).then(
+    relocating ??= o.locate(source, stop, o.headers).then(
       (f) => {
-        address = addressOf(f);
+        address = addressFrom(f, source);
         relocating = undefined;
       },
       (err: unknown) => {
@@ -640,13 +712,14 @@ async function inParts(o: {
   const fetchPart = async (fetch: Fetch, part: Part): Promise<void> => {
     const from = part.pos;
     const at = address;
+    const sent = headersAt(at);
     const watch = new Stall(o.stallMs);
     const signal = AbortSignal.any([stop, watch.signal]);
     try {
-      const res = await fetch(at, { headers: { Range: `bytes=${from}-${part.end - 1}` }, signal });
+      const res = await fetch(at, { headers: { ...sent, Range: `bytes=${from}-${part.end - 1}` }, signal, ...(sent ? { redirect: 'error' as const } : {}) });
       if (res.status !== 206 || !res.body) {
         res.body?.cancel().catch(() => undefined);
-        if (res.status === 200) throw new NoRanges(at);
+        if (res.status === 200) throw new NoRanges(at, sent);
         if (res.status === 403) throw new Expired(at);
         throw new UpdateError('download', `HTTP ${res.status}`);
       }

@@ -961,8 +961,15 @@ describe('the release workflow', () => {
     expect(copies).toBeGreaterThan(copied);
     expect(published).toBeGreaterThan(copies);
     const step = release.slice(copies, published);
-    expect(step).toContain("import { UPDATES_REPO } from './site/assets/downloads.js'");
+    // In the repository the app updates from: the one the build named, read as the build reads it.
+    expect(step).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
+    expect(step).toContain("import { updateSourceFrom } from './desktop/src/updateSource.ts';");
+    expect(step).toContain('updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO })');
     expect(step).toContain('gh release create "$TAG" updates/* --repo "$repo"');
+    // Their notes list the release's changes too: an app's Release notes open their page.
+    expect(step).toContain('cat "$RUNNER_TEMP/changes.md" >> "$RUNNER_TEMP/copies.md"');
+    expect(step).toContain('--notes-file "$RUNNER_TEMP/copies.md"');
+    expect(release.indexOf('- name: List the changes since the version before')).toBeLessThan(copies);
     // Tried again: the copies uploaded again over the ones there.
     expect(step).toContain('gh release upload "$TAG" updates/* --repo "$repo" --clobber');
     expect(step).toContain('The UPDATES_TOKEN secret is not set');
@@ -970,11 +977,18 @@ describe('the release workflow', () => {
     expect(release.slice(published)).not.toContain('updates/');
   });
 
-  it('hands the token for the copies’ repository to the step that publishes them only', () => {
-    expect(workflow.match(/secrets\./g)).toEqual(['secrets.']);
+  it('hands the token for the copies’ repository to the step that publishes them only, and the one the app reads it with to the build of the app only', () => {
+    expect(workflow.match(/secrets\.[A-Z_]+/g)).toEqual(['secrets.UPDATES_READ_TOKEN', 'secrets.UPDATES_TOKEN']);
     const release = job('release');
     const copies = release.slice(release.indexOf("- name: Publish the copies for the app's updates"), release.indexOf('- name: Publish\n'));
     expect(copies).toContain('GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
+    // The app's build, given where it updates from (the same variable the copies follow) and the token it reads it with.
+    const build = job('build');
+    const step = build.slice(build.indexOf('- name: Build the desktop app'), build.indexOf('- name: Run the bundled server as the desktop app does'));
+    expect(step).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
+    expect(step).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+    expect(step).toContain('run: npm --prefix desktop run build');
+    expect(workflow.match(/vars\.UPDATES_REPO/g)).toHaveLength(2);
   });
 
   it('may write to the repository only in the job that publishes', () => {

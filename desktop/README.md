@@ -39,6 +39,7 @@ src/supervisor.ts    starting, watching and stopping the server; sign-in links a
 src/env.ts           the login shell's environment (Windows': at a restart), and the server's
 src/selftest.ts      what the app needs of the server over HTTP (smoke.ts and --smoke-test)
 src/update.ts        updates to GitHub's newest release, switching once no conversation has agents at work
+src/updateSource.ts  where the app finds its updates (RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN at build time)
 src/traymenu.ts      the tray menu while it is open
 src/lifecycle.ts     its decisions without Electron, and the window's guards
 src/tailscale.ts     sharing with the tailnet (tailscale serve)
@@ -49,7 +50,8 @@ src/log.ts           the server's log
 src/manifest.ts      the app folder's package.json
 src/i18n.ts          the menu's and dialogs' words, in both languages
 src/icons.ts         the tray icons
-scripts/build.ts     bundles the server and the app into build/ (RELAY_VERSION for a release, else a -dev build)
+scripts/build.ts     bundles the server and the app into build/ (RELAY_VERSION for a release, else a -dev build;
+                     RELAY_UPDATES_REPO and RELAY_UPDATES_TOKEN for where it updates from)
 scripts/dist.ts      npm run desktop:dist (electron-builder)
 scripts/smoke.ts     the bundled server run as the app runs it; parent-port.mjs stands in for Electron's parentPort
 scripts/check-package.ts, scripts/packaged.ts   the packaged app's checks
@@ -66,7 +68,7 @@ The server's side of the app is `src/server/parent.ts` (the messages over Electr
 
 ## Releases and updates
 
-Releases are made only by the Release workflow, run by hand: it builds the installers for macOS (Apple Silicon), Windows and Linux (x64 and Arm64), checks them and publishes them with a copy of each for the app's updates. See [Releasing](../docs/developer-guide.md#releasing). The app updates itself to the newest release ([user guide](../docs/user-guide.md#versions)); the installers' names must stay in step with `site/assets/downloads.js` (`INSTALLERS`, `UPDATE_INSTALLERS`).
+Releases are made only by the Release workflow, run by hand: it builds the installers for macOS (Apple Silicon), Windows and Linux (x64 and Arm64), checks them and publishes them with a copy of each for the app's updates. See [Releasing](../docs/developer-guide.md#releasing). The app updates itself to the newest release ([user guide](../docs/user-guide.md#versions)) of the repository it was built to update from: `Agentic-System-Lab/harness-relay-updates`, or the one `RELAY_UPDATES_REPO` names when it is built, with the token `RELAY_UPDATES_TOKEN` gives for a private one (it goes into the app, where anyone can read it; see [the desktop app](../docs/developer-guide.md#the-desktop-app) and, for the workflow's `UPDATES_REPO` variable and `UPDATES_READ_TOKEN` secret, [Releasing](../docs/developer-guide.md#releasing)). The installers' names must stay in step with `site/assets/downloads.js` (`INSTALLERS`, `UPDATE_INSTALLERS`).
 
 ## Related docs
 

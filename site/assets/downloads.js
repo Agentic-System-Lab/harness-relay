@@ -44,24 +44,12 @@ export function updateCopyName(name) {
 }
 
 /**
- * Where the copies for the app's updates are: each release's under the same tag in this public
- * repository's releases (README: what it is), published there by the Release workflow before the
- * release itself.
+ * The repository the copies for the app's updates are published in, each release's under the same
+ * tag, by the Release workflow before the release itself (README: what it is), and which an installed
+ * app reads its updates from: the default of the workflow's UPDATES_REPO variable, and of an app built
+ * without RELAY_UPDATES_REPO (desktop/src/updateSource.ts).
  */
 export const UPDATES_REPO = 'Agentic-System-Lab/harness-relay-updates';
-
-/** A tag or a file name that stays in its place in a download's path (no `.` or `..`, no `/`). */
-const PLAIN_PART = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-/**
- * Where an app's update downloads `installer` (an installer's name) of the release tagged `tag`: its
- * copy (`updateCopyName`) in UPDATES_REPO. Undefined for a file that is not an installer.
- */
-export function updateCopyUrl(tag, installer) {
-  const copy = updateCopyName(installer);
-  if (!copy || typeof tag !== 'string' || !PLAIN_PART.test(tag) || !PLAIN_PART.test(installer)) return undefined;
-  return `https://github.com/${UPDATES_REPO}/releases/download/${tag}/${copy}`;
-}
 
 /** Where the installers are: links to anything else are not used (a forged or broken API answer). */
 export const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`;

@@ -64,6 +64,7 @@ import {
   checkLatest,
   download,
   DOWNLOAD_CONNECTIONS,
+  downloadHeaders,
   type Fetch,
   FIRST_CHECK_MS,
   installPlan,
@@ -87,10 +88,18 @@ import {
   type UpdateRelease,
   type Updating,
 } from './update';
+import type { UpdateSource } from './updateSource';
 import { findTailscale, sharePlan, Tailscale } from './tailscale';
 
 /** The version the app was built as (desktop/scripts/build.ts): a release's date version, or the package's. */
 declare const __RELAY_VERSION__: string;
+
+/**
+ * Where the app finds its updates, as it was built (desktop/scripts/build.ts, from RELAY_UPDATES_REPO
+ * and RELAY_UPDATES_TOKEN: updateSource.ts). The token, if any, goes to GitHub's API alone, never into
+ * the log or the chat.
+ */
+declare const __RELAY_UPDATE_SOURCE__: UpdateSource;
 
 /** Matches appId in electron-builder.yml (Windows needs it for notifications). */
 const APP_ID = 'io.github.agentic-system-lab.harness-relay';
@@ -134,10 +143,11 @@ function updateConnections(): Fetch[] {
  * Where a download's address leads (`Locate`), asked without following it: net.fetch follows a
  * redirect and keeps nothing of where it went (its Response's url stays empty).
  */
-const locateRedirect: Locate = (url, signal) =>
+const locateRedirect: Locate = (url, signal, headers) =>
   new Promise((resolve, reject) => {
     signal.throwIfAborted();
     const req = net.request({ url, redirect: 'manual', cache: 'no-store' });
+    for (const [name, value] of Object.entries(headers ?? {})) req.setHeader(name, value);
     const onAbort = () => {
       req.abort();
       reject(signal.reason);
@@ -663,6 +673,7 @@ function run(): void {
     try {
       // A release candidate is offered only to an app that is one (or a build of your own): a release, only releases.
       const latest = await checkLatest((url, init) => net.fetch(url, init), {
+        source: __RELAY_UPDATE_SOURCE__,
         candidates: takesCandidates(app.getVersion()),
         signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
       });
@@ -841,7 +852,7 @@ function run(): void {
       setUpdating({ kind: 'downloading', done });
     };
     const fetch: Fetch = (url, init) => net.fetch(url, init);
-    const parts = { connections: updateConnections(), locate: locateRedirect };
+    const parts = { connections: updateConnections(), locate: locateRedirect, headers: downloadHeaders(__RELAY_UPDATE_SOURCE__) };
     let installer: string | undefined;
     try {
       if (plan.kind === 'linux') {
