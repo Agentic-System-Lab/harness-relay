@@ -268,10 +268,9 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
   - **Codex**：`~/.agents/skills` 的 skill。
   - **Grok**：這些；`~/.claude/skills` 與 `~/.cursor/skills` 的 skill；Claude Code 的指令、subagent 與 plugin（plugin 的 hook 會執行）；`~/.claude.json` 與 `~/.cursor/mcp.json` 的 MCP 伺服器；以及 `~/.claude/CLAUDE.md` 與 `~/.claude/rules`。
   - **Muse Code**：`~/.agents/skills`、`~/.claude/skills` 與 `~/.codex/skills` 的 skill，以及它沒有自己的規則時的 `~/.claude/CLAUDE.md`。
-  - **Cursor**：它的登入，以及 `~/.cursor` 裡它的 skill、MCP 伺服器與 hook（只有它的設定與 session 會移動）；`~/.claude`、`~/.codex`、`~/.grok` 與 `~/.agents` 的 skill；`~/.claude/settings.json` 裡 Claude Code 的 hook；以及專案在你家目錄底下時的 `~/AGENTS.md`、`~/CLAUDE.md`、`~/CLAUDE.local.md` 與 `~/.cursor/rules`。
-  - **Antigravity** 與 **Copilot** 都不讀，唯讀的對話除外，因為那時 Harness Relay 不會把工作目錄變成 git repository：工作目錄在你家目錄底下、又不在任何 repository 裡時，Copilot 會載入 `~/.agents/skills`、`~/.github/skills` 與 `~/.github/agents`；你的家目錄本身是 git repository 時，Antigravity 會載入 `~/.agents` 裡的內容。所有 Antigravity 帳號也共用 agy 自己的使用者資料夾（Linux 上是 `~/.config/antigravity`）。
-
-  「設定 → 各 CLI」列出它會載入的 skill、MCP 伺服器與 hook，但不是每個指示檔都列。[工具庫](#工具庫mcp-伺服器skill-與記憶)裡的工具照常提供給每位成員。
+  - **Cursor**：`~/.cursor` 裡它的 skill、MCP 伺服器與 hook（只有它的設定與 session 會移動，它的登入本來就屬於你的電腦使用者）；`~/.claude`、`~/.codex`、`~/.grok` 與 `~/.agents` 的 skill；`~/.claude/settings.json` 裡 Claude Code 的 hook；以及專案在你家目錄底下時的 `~/AGENTS.md`、`~/CLAUDE.md`、`~/CLAUDE.local.md` 與 `~/.cursor/rules`。
+  - **Antigravity** 與 **Copilot** 都不讀，唯讀的對話除外，因為那時 Harness Relay 不會把工作目錄變成 git repository：工作目錄在你家目錄底下、又不在任何 repository 裡時，Copilot 會載入 `~/.agents/skills`、`~/.github/skills` 與 `~/.github/agents`；你的家目錄本身是 git repository 時（有些人這樣管理 dotfiles），Antigravity 會載入專案放在那裡的東西：`~/GEMINI.md`、`~/AGENTS.md`，以及 `~/.agents`（或 `~/.agent`、`~/_agents`、`~/_agent`）裡的規則、skill、MCP 伺服器、hook 與外掛，其中的 MCP 伺服器、hook 與外掛會執行，低於完全存取時要等你在回合開始前允許（見[核准](#核准)）。所有 Antigravity 帳號也共用 agy 自己的使用者資料夾（Linux 上是 `~/.config/antigravity`）。
+- 「設定 → 各 CLI」列出它會載入的 skill、MCP 伺服器與 hook，但不是每個指示檔都列。[工具庫](#工具庫mcp-伺服器skill-與記憶)裡的工具照常提供給每位成員。
 - 成員在下一回合會開新的 session，並取得對話的完整紀錄：之前的 session 留在原本的家目錄。
 - session 紀錄在那個資料夾的 `claude/projects/`、`codex/sessions/`、`grok/sessions/`、`cursor/acp-sessions/`、`antigravity/.gemini/antigravity-cli/conversations/`、`copilot/session-state/` 與 `muse/data/muse/sessions/`。
 - 開源 agent 的家目錄也放在這裡（`opencode`、`goose`、`cline`、`openhands`、`pi`）；沒有設定資料夾時，它們的家目錄在 `data/agent-homes/`。
