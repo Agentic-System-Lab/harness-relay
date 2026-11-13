@@ -45,7 +45,7 @@
 - **多個工作目錄**：一個對話最多可以有八個資料夾：輸入路徑後按 Enter、從使用中的工作目錄挑選，或在系統的選擇資料夾視窗中選取。agent 從第一個開始，其他的也以同樣的權限交給它們（Cursor 只在第一個裡工作；可編輯模式下，寫入其他的之前會先問你）；每一個都會變成有自己快照的 git repository，平行模式下也有自己的 worktree，所以一個團隊可以同時在多個 repository 中工作（例如一個應用程式和它的文件）。
 - **瀏覽工作目錄**：對話上方的 **檔案** 會列出工作目錄（平行模式下也可以看某位成員的 worktree），並預覽程式碼（附行號和語法上色）、Markdown、圖片與影片；任何檔案都可以下載，任何資料夾（包括目前所在的資料夾）也可以下載成 ZIP 檔。
 - **每個 CLI 多個帳號**：每個 CLI 都能登入多個帳號，例如兩個 Claude 訂閱、Codex 的三個 ChatGPT 帳號、Grok 的三個 xAI 帳號（Cursor 在每個電腦使用者只保留一個登入，所以它額外的帳號用 API key 登入；Antigravity 把 Google 登入存在系統的金鑰儲存區，所以它額外的帳號用 Gemini API key 登入；Muse Code 把 Meta 登入存在 macOS 的登入鑰匙圈，所以它額外的帳號用 Meta API key 登入），各自有自己的登入、API key、資料夾、預設模型與推理強度，以及不載入哪些項目，並為每位團隊成員（以及首席 agent）選擇要用哪個帳號。見[使用說明](docs/user-guide.zh-TW.md#多個帳號)。
-- **設定與登入頁**：分別登入各個 CLI（裝置碼、瀏覽器、貼上授權碼），設定執行檔路徑、模型來源與首席 agent，並為每個帳號設定 API key、預設模型與推理強度；也能查看各 CLI 在每個帳號裡自己載入的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶，並讓 Harness Relay 執行時整類或逐項不載入（Cursor 與 Antigravity 沒辦法，Muse Code 只能對它的 MCP 伺服器與 hook 這樣做）。
+- **設定與登入頁**：分別登入各個 CLI（裝置碼、瀏覽器、貼上授權碼），設定執行檔路徑、模型來源與首席 agent，並為每個帳號設定 API key、預設模型與推理強度；查看每個帳號的方案還剩多少（Claude Code、Codex、Grok、Copilot、Antigravity 與 Muse Code 回報的額度；Cursor 的方案）；也能查看各 CLI 在每個帳號裡自己載入的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶，並讓 Harness Relay 執行時整類或逐項不載入（Cursor 與 Antigravity 沒辦法，Muse Code 只能對它的 MCP 伺服器與 hook 這樣做）。
 - **回報問題**：側邊欄「設定」旁的圖示會用你的郵件程式或 Gmail 寫信給開發者，回報內容與版本、系統資訊都已填好；截圖可以拖進信裡，或用 `gh` 上傳成 secret gist 讓信裡附上連結，再寄出。
 - **English 與繁體中文**：介面跟著瀏覽器的語言（可在設定頁切換）；第一次開啟時會有使用導覽介紹主要功能。
 - **完全在本機**：所有資料存在單一 SQLite 檔案；伺服器只監聽 `127.0.0.1`。

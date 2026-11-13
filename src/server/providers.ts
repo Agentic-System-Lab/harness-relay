@@ -7,6 +7,7 @@ import {
   isOpenProvider,
   keyOnlyAccount,
   type AccountStatus,
+  type AccountUsage,
   type LoginMethod,
   type LoginSessionView,
   type Provider,
@@ -25,6 +26,7 @@ import { discoverModels, type DiscoveredModels } from './models';
 import { CommandNotFoundError, capture, killTree, spawnInteractive, stripAnsi, tail } from './process';
 import { CREDENTIAL_ENV, CURSOR_SHARED_SIGN_IN, type SettingsStore } from './settings';
 import { t } from './i18n';
+import { askUsage } from './usage';
 import { WindowsScriptError } from './winLaunch';
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,9 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
   }
 }
 
+/** How long an account's usage is kept before its CLI is asked again. */
+export const USAGE_TTL_MS = 2 * 60_000;
+
 /** One account of one CLI, as a key of a map. */
 const slot = (p: Provider, account = '') => `${p}\0${account}`;
 
@@ -153,17 +158,71 @@ export class ProviderService {
   private logins = new Map<string, LoginSession>();
   /** Models each account's CLI offers (`slot`): asked in its home, whose config has the CLI's own defaults. */
   private modelCache = new Map<string, { at: number; models: Promise<DiscoveredModels> }>();
+  /**
+   * How much of each account's plan is used (`slot`), as its CLI said: kept for `USAGE_TTL_MS`, and
+   * the ask stopped (`stop`) when it is dropped while under way.
+   */
+  private usageCache = new Map<string, { at: number; done: boolean; stop: AbortController; usage: Promise<AccountUsage> }>();
+  /** Each account's sign-in as its status check found it last (`slot`): a change drops its usage. */
+  private lastSignIn = new Map<string, string>();
 
-  constructor(private settings: SettingsStore) {}
+  constructor(
+    private settings: SettingsStore,
+    /** Asks a CLI about an account's usage (a stand-in in tests). */
+    private ask: typeof askUsage = askUsage,
+  ) {}
 
   invalidate(p?: Provider): void {
     for (const q of p ? [p] : PROVIDERS) this.generation.set(q, (this.generation.get(q) ?? 0) + 1);
     if (p) {
       this.cache.delete(p);
       for (const key of this.modelCache.keys()) if (key.startsWith(slot(p))) this.modelCache.delete(key);
+      for (const key of [...this.usageCache.keys()]) if (key.startsWith(slot(p))) this.dropUsage(key);
     } else {
       this.cache.clear();
       this.modelCache.clear();
+      for (const key of [...this.usageCache.keys()]) this.dropUsage(key);
+    }
+  }
+
+  /** Forgets an account's usage (`slot`), stopping its ask if it is under way. */
+  private dropUsage(key: string): void {
+    const entry = this.usageCache.get(key);
+    if (!entry) return;
+    this.usageCache.delete(key);
+    if (!entry.done) entry.stop.abort();
+  }
+
+  /**
+   * How much of an account's plan is used (empty `account`: the default one), asked of its CLI in that
+   * account's home without a prompt; kept for a while, as each ask starts the CLI. `refresh` asks
+   * again, unless an ask is still under way (its answer is the fresh one).
+   */
+  usage(p: Provider, account = '', refresh = false): Promise<AccountUsage> {
+    const id = this.settings.resolveAccount(p, account);
+    const key = slot(p, id);
+    const entry = this.usageCache.get(key);
+    if (entry && (!entry.done || (!refresh && Date.now() - entry.at < USAGE_TTL_MS))) return entry.usage;
+    const stop = new AbortController();
+    const fresh = { at: Date.now(), done: false, stop, usage: this.askAccountUsage(p, id, stop.signal) };
+    void fresh.usage.finally(() => (fresh.done = true));
+    this.usageCache.set(key, fresh);
+    return fresh.usage;
+  }
+
+  private async askAccountUsage(p: Provider, id: string, signal: AbortSignal): Promise<AccountUsage> {
+    const base = { provider: p, account: id };
+    const env = this.settings.env(p, id);
+    // An account that signs in with its key only has no plan without one (`keyOnlyAccount`); asking
+    // its CLI would answer for the default account's sign-in.
+    if (isOpenProvider(p) || (keyOnlyAccount(p, id) && !CREDENTIAL_ENV[p].some((k) => env[k]))) {
+      return { ...base, limits: [], none: isOpenProvider(p) ? 'notReported' : 'signedOut', checkedAt: Date.now() };
+    }
+    try {
+      return { ...base, ...(await this.ask(p, this.settings.bin(p), env, signal)), checkedAt: Date.now() };
+    } catch (err) {
+      // Kept a while and given to every browser: no translated text (the UI words `problem`).
+      return { ...base, limits: [], ...(err instanceof CommandNotFoundError ? { problem: 'cliMissing' as const } : { error: (err as Error).message }), checkedAt: Date.now() };
     }
   }
 
@@ -227,6 +286,14 @@ export class ProviderService {
       );
       const first = accounts[0]!;
       status = { provider: p, installed: true, bin, version, auth: first.auth, usingStoredApiKey: first.usingStoredApiKey, accounts, checkedAt };
+      // Signed in as someone else (in a terminal, say), or on another key: its plan's usage is asked again.
+      for (const a of accounts) {
+        const now = JSON.stringify([a.auth.loggedIn, a.auth.account ?? '', a.auth.method ?? '', a.usingStoredApiKey]);
+        const key = slot(p, a.id);
+        const before = this.lastSignIn.get(key);
+        this.lastSignIn.set(key, now);
+        if (before !== undefined && before !== now) this.dropUsage(key);
+      }
     } catch (err) {
       // Not found: Settings says so in its own words, with where to install it. Anything else (the
       // file is there but cannot run, say) is told as it happened.
@@ -320,10 +387,12 @@ export class ProviderService {
     this.logins.clear();
   }
 
-  /** Forgets an account's sign-in, stopping it if it still runs (the account was removed). */
+  /** Forgets an account's sign-in and usage, stopping them if they still run (the account was removed). */
   forgetLogin(p: Provider, account: string): void {
     this.cancelLogin(p, account);
     this.logins.delete(slot(p, account));
+    this.dropUsage(slot(p, account));
+    this.lastSignIn.delete(slot(p, account));
   }
 
   async logout(p: Provider, account = '', timeoutMs = 30_000): Promise<string> {

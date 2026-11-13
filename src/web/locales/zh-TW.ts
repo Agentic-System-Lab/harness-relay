@@ -237,6 +237,46 @@ export const zhTW = {
     },
   },
 
+  /** An account's plan usage in Settings, as its CLI reports it (`components/UsagePanel.tsx`). */
+  usage: {
+    title: '方案用量',
+    plan: (plan: string) => `方案：${plan}`,
+    refresh: '重新查詢',
+    refreshFor: (account: string) => `重新查詢：「${account}」的方案用量`,
+    loading: '查詢中…',
+    checked: (when: string) => `${when}查詢`,
+    span: { fiveHour: '5 小時額度', day: '每日額度', week: '每週額度', month: '每月額度' },
+    minutes: (m: number) => (m % 1440 === 0 ? `${m / 1440} 天額度` : m % 60 === 0 ? `${m / 60} 小時額度` : `${m} 分鐘額度`),
+    allowance: '訂閱額度',
+    kind: { premiumRequests: 'Premium 請求', chat: '聊天', completions: '程式碼補全' },
+    left: (n: number) => `剩 ${n}%`,
+    used: (n: number) => `已用 ${n}%`,
+    requests: (used: string, total: string) => `已用 ${used} / ${total} 次請求`,
+    resetsIn: (s: string) => `${s}後重置`,
+    resetsAt: (s: string) => `${s} 重置`,
+    inMinutes: (n: number) => `${n} 分鐘`,
+    inHours: (n: number) => `${n} 小時`,
+    credits: (n: string) => `點數餘額：${n}`,
+    creditsUnlimited: '點數：無上限',
+    none: {
+      apiKey: '這個帳號用 API key 執行：供應商按用量計費，沒有方案額度；一般的 API key 也查不到剩餘餘額，請到供應商的主控台查看。',
+      signedOut: '尚未登入，沒有方案用量。',
+      noAllowance: '這個帳號的方案沒有訂閱額度（按用量計費）。',
+      unlimited: '這個帳號的方案沒有用量上限。',
+      noData: '還沒有這個時段的用量資料（新時段第一次使用前可能如此）。',
+      unavailable: 'CLI 不回報這個帳號登入方式的方案額度（例如 claude setup-token 產生的 token、Bedrock 或 Vertex）。',
+    },
+    problem: {
+      timedOut: 'CLI 沒有及時回答。',
+      noAnswer: 'CLI 沒有回報用量。',
+      cliMissing: (cli: string) => `找不到 ${cli} 的 CLI。`,
+    },
+    notReported: {
+      cursor: 'Cursor 的 CLI 只在它自己的終端畫面（/usage）顯示用量，沒有其他程式能查詢的方式：請到 Cursor 網站的 Dashboard 查看。',
+      other: '這個 CLI 不回報方案用量。',
+    },
+  },
+
   accounts: {
     account: '帳號',
     default: '預設帳號',

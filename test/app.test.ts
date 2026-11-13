@@ -629,6 +629,27 @@ describe('accounts', () => {
     expect((await call('PUT', '/api/settings/providers/nope/accounts/default', { label: 'x' })).status).toBe(404);
   });
 
+  it("gives each account's plan usage, asked again on request, for accounts the CLI has", async () => {
+    const { call, read, providers } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
+    const usage = vi
+      .spyOn(providers, 'usage')
+      .mockImplementation(async (p, account = '') => ({ provider: p, account, plan: 'max', limits: [{ span: 'week', usedPercent: 55 }], checkedAt: 1 }));
+    const def = await read('/api/providers/claude/usage');
+    expect(def.status).toBe(200);
+    expect(await def.json()).toEqual({ provider: 'claude', account: '', plan: 'max', limits: [{ span: 'week', usedPercent: 55 }], checkedAt: 1 });
+    expect((await (await read(`/api/providers/claude/usage?account=${id}&refresh=1`)).json()) as { account: string }).toMatchObject({ account: id });
+    expect((await read('/api/providers/claude/usage?account=default')).status).toBe(200);
+    expect(usage.mock.calls).toEqual([
+      ['claude', '', false],
+      ['claude', id, true],
+      ['claude', '', false],
+    ]);
+    expect((await read('/api/providers/claude/usage?account=nope')).status).toBe(404);
+    expect((await read('/api/providers/nope/usage')).status).toBe(404);
+    expect(usage).toHaveBeenCalledTimes(3);
+  });
+
   it("keeps each account's defaults and what its runs leave out apart, without asking the CLIs again", async () => {
     const { call, settings, providers } = accountsApp();
     const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;

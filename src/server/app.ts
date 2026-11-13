@@ -587,6 +587,14 @@ export function createApp({
 
   app.get('/api/providers', async (c) => c.json(await providers.statusAll(c.req.query('refresh') === '1')));
 
+  // How much of an account's plan is used (`?account=<id>`, the default one without), as its CLI
+  // reports it: asked without a prompt, in the account's home, and kept for a while (`?refresh=1`
+  // asks again). Settings shows it in each account's block.
+  app.get('/api/providers/:provider/usage', async (c) => {
+    const p = provider(c);
+    return c.json(await providers.usage(p, account(c, p), c.req.query('refresh') === '1'));
+  });
+
   // What the server's environment sets that the UI keeps to or shows: accounts per CLI, team size, the
   // turn timeout (`RELAY_MAX_ACCOUNTS`, `RELAY_MAX_TEAM_AGENTS`, `RELAY_TURN_TIMEOUT_MIN`).
   app.get('/api/limits', (c) => c.json(limits));

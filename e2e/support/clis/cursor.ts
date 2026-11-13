@@ -36,4 +36,6 @@ export const cursor: CliFacts = {
   apiKeyPlaceholder: 'key_…',
   // Its `authenticate` fails, as the real one's does without a sign-in (src/server/i18n.ts `cursorSignIn`).
   signedOutError: 'Cursor is not signed in (Failed to open browser for login)',
+  // Its usage shows in its own terminal UI only: Settings names its plan, from `about`.
+  usage: { plan: 'Pro', note: "Cursor's CLI shows usage only in its own terminal UI" },
 };

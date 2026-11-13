@@ -10,7 +10,7 @@ process.env.RELAY_DATA_DIR = join(root, 'data');
 afterAll(() => removeTree(root, { restore: true }));
 
 const { openDatabase } = await import('../src/server/db');
-const { ProviderService } = await import('../src/server/providers');
+const { ProviderService, USAGE_TTL_MS } = await import('../src/server/providers');
 const { SettingsStore } = await import('../src/server/settings');
 const { OPEN_PROVIDERS, catalogFor } = await import('../src/shared/types');
 
@@ -590,5 +590,161 @@ echo "  - grok-run-$n"
       { id: '', label: '', auth: { loggedIn: null }, usingStoredApiKey: false },
       { id: team, label: 'Team', auth: { loggedIn: null }, usingStoredApiKey: true },
     ]);
+  });
+});
+
+describe("each account's plan usage", () => {
+  type Ask = NonNullable<ConstructorParameters<typeof ProviderService>[1]>;
+  const setup = () => {
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    settings.setAgentHome(join(root, 'usage-homes'));
+    const envs: NodeJS.ProcessEnv[] = [];
+    let n = 0;
+    const ask = vi.fn<Ask>(async (_p, _bin, env) => {
+      envs.push(env);
+      n++;
+      return { plan: `plan ${n}`, limits: [{ usedPercent: n }] };
+    });
+    return { settings, service: new ProviderService(settings, ask), ask, envs };
+  };
+
+  it("asks each account's CLI in that account's own home, and keeps each answer a while", async () => {
+    const { settings, service, ask, envs } = setup();
+    const work = settings.addAccount('claude', 'Work');
+    expect(await service.usage('claude')).toMatchObject({ provider: 'claude', account: '', plan: 'plan 1', limits: [{ usedPercent: 1 }] });
+    expect(await service.usage('claude', work)).toMatchObject({ provider: 'claude', account: work, plan: 'plan 2' });
+    expect(envs[1]!.CLAUDE_CONFIG_DIR).toBe(settings.env('claude', work).CLAUDE_CONFIG_DIR);
+    expect(envs[1]!.CLAUDE_CONFIG_DIR).not.toBe(envs[0]!.CLAUDE_CONFIG_DIR);
+
+    // Kept: not asked again, for either account.
+    expect((await service.usage('claude')).plan).toBe('plan 1');
+    expect((await service.usage('claude', work)).plan).toBe('plan 2');
+    expect(ask).toHaveBeenCalledTimes(2);
+
+    // Asked again on request, for that account only; and after a sign-in changed (`invalidate`).
+    expect((await service.usage('claude', work, true)).plan).toBe('plan 3');
+    expect((await service.usage('claude')).plan).toBe('plan 1');
+    service.invalidate('claude');
+    expect((await service.usage('claude')).plan).toBe('plan 4');
+    // Another CLI's answers are not dropped with it.
+    await service.usage('codex');
+    service.invalidate('claude');
+    await service.usage('codex');
+    expect(ask).toHaveBeenCalledTimes(5);
+  });
+
+  it('asks once for requests that come while an ask is under way, Check again included', async () => {
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    let release: () => void = () => undefined;
+    const ask = vi.fn<Ask>(() => new Promise((resolve) => (release = () => resolve({ limits: [{ usedPercent: 7 }] }))));
+    const service = new ProviderService(settings, ask);
+    const first = service.usage('grok');
+    const second = service.usage('grok', '', true);
+    release();
+    expect(await first).toEqual(await second);
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives an account of a CLI that signs in with its key only no plan without its key, without asking (the CLI would answer for the default account's sign-in)", async () => {
+    const { settings, service, ask } = setup();
+    vi.stubEnv('CURSOR_API_KEY', '');
+    vi.stubEnv('CURSOR_AUTH_TOKEN', '');
+    try {
+      const team = settings.addAccount('cursor', 'Team');
+      expect(await service.usage('cursor', team)).toMatchObject({ account: team, limits: [], none: 'signedOut' });
+      expect(ask).not.toHaveBeenCalled();
+      settings.updateAccount('cursor', team, { apiKey: 'key_team' });
+      service.invalidate('cursor');
+      await service.usage('cursor', team);
+      expect(ask).toHaveBeenCalledTimes(1);
+      expect(ask.mock.calls[0]![2].CURSOR_API_KEY).toBe('key_team');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('gives an open agent no plan, without asking', async () => {
+    const { service, ask } = setup();
+    expect(await service.usage('opencode')).toMatchObject({ provider: 'opencode', limits: [], none: 'notReported' });
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("says when the CLI is not there with a code the UI words, no translated text being kept for every browser", async () => {
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    settings.update('codex', { bin: join(root, 'no-such-codex') });
+    const usage = await new ProviderService(settings).usage('codex');
+    expect(usage).toMatchObject({ provider: 'codex', limits: [], problem: 'cliMissing' });
+    expect(usage.error).toBeUndefined();
+  });
+
+  it('asks again once an answer is older than USAGE_TTL_MS', async () => {
+    const { service, ask } = setup();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.parse('2026-11-13T12:00:00Z'));
+      await service.usage('grok');
+      vi.setSystemTime(Date.now() + USAGE_TTL_MS - 1);
+      await service.usage('grok');
+      expect(ask).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(Date.now() + 2);
+      expect((await service.usage('grok')).plan).toBe('plan 2');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops an ask under way when its CLI is invalidated or its account removed, and asks anew after', async () => {
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    const signals: AbortSignal[] = [];
+    const ask = vi.fn<Ask>((_p, _bin, _env, signal) => {
+      signals.push(signal!);
+      return new Promise((resolve) => signal!.addEventListener('abort', () => resolve({ limits: [] }), { once: true }));
+    });
+    const service = new ProviderService(settings, ask);
+    void service.usage('claude');
+    service.invalidate('claude');
+    expect(signals[0]!.aborted).toBe(true);
+    const work = settings.addAccount('claude', 'Work');
+    void service.usage('claude', work);
+    expect(ask).toHaveBeenCalledTimes(2);
+    service.forgetLogin('claude', work);
+    expect(signals[1]!.aborted).toBe(true);
+    void service.usage('claude');
+    expect(ask).toHaveBeenCalledTimes(3);
+    expect(signals[2]!.aborted).toBe(false);
+    service.invalidate();
+    expect(signals[2]!.aborted).toBe(true);
+  });
+
+  // A stand-in `claude` signed in as the address its home's `who` file names.
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+  posixIt('asks again once a status check finds the account signed in as someone else (in a terminal, say), and not otherwise', async () => {
+    const dir = join(root, 'usage-sign-in');
+    mkdirSync(dir, { recursive: true });
+    const who = join(dir, 'who');
+    const bin = join(dir, 'claude');
+    writeFileSync(
+      bin,
+      `#!/usr/bin/env node
+const fs = require('node:fs');
+if (process.argv.includes('--version')) { console.log('2.1.323 (Claude Code)'); process.exit(0); }
+console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', email: fs.readFileSync(${JSON.stringify(who)}, 'utf8').trim() }));
+`,
+      { mode: 0o755 },
+    );
+    writeFileSync(who, 'me@example.com');
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    settings.update('claude', { bin });
+    let n = 0;
+    const ask = vi.fn<Ask>(async () => ({ plan: `plan ${++n}`, limits: [] }));
+    const service = new ProviderService(settings, ask);
+
+    await service.status('claude', true);
+    expect((await service.usage('claude')).plan).toBe('plan 1');
+    await service.status('claude', true);
+    expect((await service.usage('claude')).plan).toBe('plan 1');
+    writeFileSync(who, 'someone-else@example.com');
+    await service.status('claude', true);
+    expect((await service.usage('claude')).plan).toBe('plan 2');
   });
 });

@@ -102,4 +102,11 @@ export interface CliFacts {
    * that what the account runs by itself when a session opens (its hooks) does not run for it.
    */
   statusInOwnFolder?: boolean;
+  /**
+   * What Settings shows of a signed-in account's plan usage (`usage.spec.ts`), as its fake reports it:
+   * its plan (none: it names none), its first limit's name and, for a limit of requests, how many are
+   * used (else the percent); or, when its CLI does not report usage, the start of the note that says so.
+   * `inQuestionHome`: it is asked in a home of the question's own (Copilot), not the account's. None for the open agents, which have no plan.
+   */
+  usage?: { plan?: string; limit?: string; used?: string; note?: string; inQuestionHome?: boolean };
 }

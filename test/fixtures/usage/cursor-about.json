@@ -1,0 +1,14 @@
+{
+  "cliVersion": "2026.11.11-043ef28",
+  "latestStatus": "update_available",
+  "latestVersion": "2026.11.11-b912975",
+  "agentHost": null,
+  "model": "Auto",
+  "subscriptionTier": "Free",
+  "osPlatform": "darwin",
+  "osArch": "arm64",
+  "userEmail": "user@example.com",
+  "terminalProgram": "zed",
+  "shell": "zsh",
+  "lastRequestId": null
+}

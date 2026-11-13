@@ -32,4 +32,5 @@ export const grok: CliFacts = {
   apiKeyEnv: 'XAI_API_KEY',
   apiKeyPlaceholder: 'xai-…',
   signedOutError: 'not authenticated',
+  usage: { plan: 'SuperGrok', limit: 'Weekly limit' },
 };

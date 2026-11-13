@@ -3,7 +3,9 @@
  * The fake GitHub Copilot CLI (`copilot`, 1.0.109 as Harness Relay drives it): `copilot --acp` (ACP:
  * sessions with `session/new` and `session/load`, config options `mode` and `allow_all`,
  * `session/request_permission` with allow-once, allow-always and deny, `logout`), `login
- * --device-code`, `--version`, and `mcp|skill|instruction|plugin list --json`.
+ * --device-code`, `--version`, `mcp|skill|instruction|plugin list --json`, and its headless server
+ * (`--headless --stdio`: JSON-RPC framed by `Content-Length:` headers; `connect`, `account.getQuota`,
+ * `account.getCurrentAuth`, the plan's premium requests).
  *
  * Its home is COPILOT_HOME, else ~/.copilot. A run's home is a folder of its own whose
  * `session-state` links to the account's: the account's home is then where that link leads (its
@@ -34,7 +36,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { acpAgent, picked, requestPermission, sessionUpdates } = require('../lib/acp.cjs');
 const { inside, notAWorkingDirectory, ownSkills, targetOf } = require('../lib/files.cjs');
-const { keyVerdict, sessions, signIn, signedOut } = require('../lib/home.cjs');
+const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { exitAfterLog, record, tryWrite } = require('../lib/log.cjs');
 const { directivesIn, lastUserMessage, noOther, plan, recordMcpEnv, skillsIn, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError } = require('../lib/rpc.cjs');
@@ -138,8 +140,55 @@ function copilotStatic(args) {
     if (args[0] === 'instruction' || args[0] === 'plugin') return void process.stdout.write('[]\n');
   }
   if (args[0] === '--acp') return copilotAcp();
+  if (args[0] === '--headless' && args.includes('--stdio')) return copilotHeadless();
   process.stderr.write(`fake copilot: unknown command ${args.join(' ') || '(none: no interactive mode here)'}\n`);
   process.exitCode = 1;
+}
+
+// --- `copilot --headless --stdio` -------------------------------------------------------------------
+
+/**
+ * Its headless server, as its SDK speaks to it: JSON-RPC with `Content-Length:` headers. It answers
+ * `connect` and the account's quota (300 premium requests a month, `planUsedPercent()` of them used;
+ * signed out, or signed out with no GitHub token, it is not authenticated) and auth.
+ */
+function copilotHeadless() {
+  let buf = Buffer.alloc(0);
+  const send = (msg) => {
+    const body = Buffer.from(JSON.stringify({ jsonrpc: '2.0', ...msg }), 'utf8');
+    process.stdout.write(Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'ascii'), body]));
+  };
+  const authed = () => !isSignedOut() || Boolean(process.env.COPILOT_GITHUB_TOKEN);
+  const answer = (m) => {
+    if (m.method === 'connect') return send({ id: m.id, result: { ok: true, protocolVersion: 3, version: VERSION } });
+    if (m.method === 'account.getQuota') {
+      if (!authed()) return send({ id: m.id, error: { code: -32603, message: 'Request account.getQuota failed with message: Not authenticated. Please authenticate first.' } });
+      const used = Math.round((300 * planUsedPercent()) / 100);
+      const unlimited = { isUnlimitedEntitlement: true, entitlementRequests: 0, usedRequests: 0, remainingPercentage: 100, hasQuota: true };
+      return send({
+        id: m.id,
+        result: { quotaSnapshots: { chat: unlimited, completions: unlimited, premium_interactions: { isUnlimitedEntitlement: false, entitlementRequests: 300, usedRequests: used, remainingPercentage: ((300 - used) / 300) * 100, hasQuota: true } } },
+      });
+    }
+    if (m.method === 'account.getCurrentAuth') {
+      if (!authed()) return send({ id: m.id, result: {} });
+      return send({ id: m.id, result: { authInfo: { type: process.env.COPILOT_GITHUB_TOKEN ? 'env' : 'user', login: 'e2e', copilotUser: { login: 'e2e', copilot_plan: 'individual', quota_reset_date_utc: new Date(planResets.week()).toISOString() } } } });
+    }
+    send({ id: m.id, error: { code: -32601, message: `Unhandled method ${m.method}` } });
+  };
+  process.stdin.on('data', (chunk) => {
+    buf = Buffer.concat([buf, chunk]);
+    for (;;) {
+      const end = buf.indexOf('\r\n\r\n');
+      if (end < 0) return;
+      const length = Number(/content-length:\s*(\d+)/i.exec(buf.subarray(0, end).toString('latin1'))?.[1]);
+      if (buf.length < end + 4 + length) return;
+      const m = JSON.parse(buf.subarray(end + 4, end + 4 + length).toString('utf8'));
+      buf = buf.subarray(end + 4 + length);
+      if (m.id !== undefined) answer(m);
+    }
+  });
+  process.stdin.on('end', () => exitAfterLog(0));
 }
 
 // --- `copilot --acp` ------------------------------------------------------------------------------
