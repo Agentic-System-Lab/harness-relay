@@ -107,9 +107,8 @@ describe('the server ending with a read that never ends', () => {
     const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
-      expect(runDatabaseReadsLeft()).toBe(0);
-      await exitAfterRunDatabaseReads(3, 50);
-      exitOnUncaughtException(new Error('a failure elsewhere'));
+      await exitAfterRunDatabaseReads(3, 50, () => 0);
+      exitOnUncaughtException(new Error('a failure elsewhere'), () => 0);
       expect(kill).not.toHaveBeenCalled();
       expect(exit.mock.calls).toEqual([[3], [1]]);
       expect(error).toHaveBeenCalledWith('[server] uncaught exception:', expect.objectContaining({ message: 'a failure elsewhere' }));

@@ -1446,8 +1446,9 @@ const MAX_PARTS_BEFORE = 200_000;
  * than the server takes.
  */
 export async function opencodePartIds(dbPath: string, sessionId: string): Promise<string | undefined> {
-  const sql = `${SESSION_TREE} SELECT count(*) AS n, CASE WHEN count(*) <= ${MAX_PARTS_BEFORE} THEN json_group_array(p.id) END AS ids
-    FROM "part" p WHERE p.session_id IN (SELECT id FROM tree)`;
+  // Text ids only (a NULL in the list would leave every part out); no further than one past the cap.
+  const sql = `${SESSION_TREE} SELECT count(*) AS n, CASE WHEN count(*) <= ${MAX_PARTS_BEFORE} THEN json_group_array(id) END AS ids
+    FROM (SELECT p.id AS id FROM "part" p WHERE p.session_id IN (SELECT id FROM tree) AND typeof(p.id) = 'text' LIMIT ${MAX_PARTS_BEFORE + 1})`;
   const read = await readRunDatabase(dbPath, ['session', 'part'], [{ sql, params: [sessionId], needs: ['session', 'part'] }]);
   if (!read) return undefined;
   const row = read.results[0]?.[0];
@@ -1478,7 +1479,7 @@ export async function opencodeTurnCalls(dbPath: string, sessionId: string, skip 
       ${stepNumber('$.tokens.output')} AS output, ${stepNumber('$.tokens.reasoning')} AS reasoning,
       ${stepNumber('$.tokens.cache.read')} AS cacheRead, ${stepNumber('$.tokens.cache.write')} AS cacheWrite
     FROM "part" p
-    WHERE p.session_id IN (SELECT id FROM tree) AND p.id NOT IN (SELECT value FROM json_each(?))
+    WHERE p.session_id IN (SELECT id FROM tree) AND typeof(p.id) = 'text' AND p.id NOT IN (SELECT value FROM json_each(?) WHERE typeof(value) = 'text')
       AND instr(p.data, 'step-finish') > 0 AND (CASE WHEN json_valid(p.data) THEN json_extract(p.data, '$.type') END) = 'step-finish'`;
   const read = await readRunDatabase(dbPath, ['session', 'part'], [{ sql, params: [sessionId, skip], needs: ['session', 'part'] }]);
   if (!read) return undefined;

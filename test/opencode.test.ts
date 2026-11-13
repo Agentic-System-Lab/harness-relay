@@ -1513,10 +1513,25 @@ describe('usage and errors', () => {
   it('reads the parts there before a turn without their data, and leaves them out after it', async () => {
     const file = join(root, `usage-${++n}`, 'opencode.db');
     addOpencodeRows(file, { sessions: [{ id: 'ses_child', parent: 'ses_a' }], steps: [{ id: 'prt_1', session: 'ses_a', input: 1, output: 1 }], parts: [{ id: 'prt_t', session: 'ses_child', data: '{"type":"text"}' }] });
+    // A part a command added without a text id: left out of the list (a NULL there would leave every part out).
+    const odd = new (createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')).DatabaseSync(file);
+    odd.exec(`INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (NULL, 'm', 'ses_a', 0, '{}'), (x'01', 'm', 'ses_a', 0, '{}')`);
+    odd.close();
     const before = (await opencodePartIds(file, 'ses_a'))!;
     expect((JSON.parse(before) as string[]).sort()).toEqual(['prt_1', 'prt_t']);
+    // And a NULL in a list handed back does not leave the turn's calls out either.
+    expect(await opencodeTurnCalls(file, 'ses_a', '["prt_1", null, "prt_t"]')).toEqual({ calls: 0, cost: 0, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
     addOpencodeRows(file, { steps: [{ id: 'prt_2', session: 'ses_child', input: 2, output: 3, cost: 0.5 }] });
     expect(await opencodeTurnCalls(file, 'ses_a', before)).toEqual({ calls: 1, cost: 0.5, input: 2, output: 3, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
+    expect(await opencodeTurnCalls(file, 'ses_a', JSON.stringify([...(JSON.parse(before) as string[]), null]))).toEqual({
+      calls: 1,
+      cost: 0.5,
+      input: 2,
+      output: 3,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    });
     // A database without OpenCode's tables yet has no parts; one that cannot be read, none known.
     const empty = join(root, `usage-${++n}.db`);
     new (createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')).DatabaseSync(empty).close();
