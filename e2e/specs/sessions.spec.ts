@@ -317,6 +317,55 @@ test.describe('AgentsView', () => {
     });
   });
 
+  test.describe(() => {
+    withClis('copilot', 'muse');
+
+    test("Copilot's and Muse Code's own sessions are filed under the thread as AgentsView names them, with none recorded for them", async ({ page, relay, agentsView }) => {
+      needsFake('copilot');
+      needsFake('muse');
+      const { view } = await sessionsCard(page, relay);
+      await view.getByPlaceholder('http://127.0.0.1:8080').fill(agentsView.url);
+      await view.getByRole('button', { name: 'Save' }).click();
+      await expect(view).toContainText('AgentsView is set; it is updated after every turn');
+
+      const team: Member[] = [
+        { name: 'Copilot', provider: 'copilot' },
+        { name: 'Muse', provider: 'muse' },
+      ];
+      const id = await openTeamChat(page, relay, team, {}, 'Pelican report');
+      await send(page, 'Count the pelicans');
+      for (const m of team) await finishedReply(page, m.name);
+      await settled(relay, id);
+
+      // Each member's own session, by the id its CLI gave it after AgentsView's prefix for that CLI
+      // (its Copilot and Muse Code read `session-state/<id>/` and `muse/sessions/…/<id>/`): asked where
+      // it is for the thread's place, then linked under the thread.
+      const own = [`copilot:${startedSessions(relay, 'copilot')[0]!}`, `muse:${startedSessions(relay, 'muse')[0]!}`];
+      for (const session of own) {
+        const link = () => agentsView.hits.find((h) => h.method === 'PUT' && h.path === `/api/v1/sessions/${session}/parent`);
+        await expect.poll(() => Boolean(link()), { message: session }).toBe(true);
+        expect(JSON.parse(link()!.body)).toEqual({ parent_session_id: id });
+        expect(link()!.origin).toBe(agentsView.url);
+        expect(agentsView.hits.some((h) => h.method === 'GET' && h.path === `/api/v1/sessions/${session}`)).toBe(true);
+      }
+
+      // AgentsView reads these sessions itself: only the thread is uploaded, and no member's recorded session.
+      const uploads = () => agentsView.hits.filter((h) => h.method === 'POST' && h.path === '/api/v1/sessions/upload');
+      // Whichever member replied last, the newest upload holds the question, both replies and the title.
+      const newest = () => {
+        const last = uploads().at(-1);
+        return last ? records(last).map((r) => r.type) : [];
+      };
+      await expect.poll(newest).toEqual(['user', 'assistant', 'assistant', 'custom-title']);
+      for (const upload of uploads()) expect(upload.body).toContain(`filename="${id}.jsonl"`);
+      const conv = await relay.api<Conversation>(`/api/conversations/${id}`);
+      for (const a of conv.agents) {
+        const recorded = memberSessionId(id, a.id);
+        expect(agentsView.hits.some((h) => h.path.includes(recorded) || h.body.includes(recorded)), a.name).toBe(false);
+      }
+    });
+  });
+
   test('an address elsewhere is refused, and when an update fails Settings says why while the chat goes on', async ({ page, relay, agentsView }) => {
     const { view } = await sessionsCard(page, relay);
     const box = view.getByPlaceholder('http://127.0.0.1:8080');

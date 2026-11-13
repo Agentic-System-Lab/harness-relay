@@ -63,7 +63,7 @@
 - 只透過 `src/server/process.ts` 啟動 CLI，絕不透過 shell；開源 agent 透過 `startOpenProcess()`。
 - 每次執行的設定寫在它自己的資料夾，只有擁有者能存取，這一輪結束就刪掉，絕不寫進使用者自己的檔案（Cursor 的設定資料夾、Antigravity 的 `--cli_dir_name` 資料夾、Copilot 的整個家目錄、Muse Code 的 `XDG_CONFIG_HOME`），也只從使用者自己的設定拿這次執行需要的部分（Antigravity：模型與服務；Copilot：一份執行要保留的鍵的清單；Muse Code：它設定的一份允許清單，這樣它之後新增的設定就無法決定哪些事不詢問就執行）。這個資料夾要放在這次執行自己的沙箱讓它的指令能看的地方（Muse Code 的放在資料夾的 `muse-runs` 裡，不放在 `data/tmp`，因為它的設定檔拒絕那裡，git 在那裡就會失敗）。
 - 小心循環 import：`agents/index.ts` 會 import 每個 adapter，所以 adapter 不能 import 會反過來 import `agents/index.ts` 的模組（`models.ts`、`native.ts`、`providers.ts`）；循環會在伺服器啟動時出現「Cannot access … before initialization」（`test/parent.test.ts`）。
-- 每則訊息都要有兩種語言（`src/server/i18n.ts`、語系檔），以及 UI 的部分（顏色、「設定」卡片、API key 說明、原生設定附註、問題回報表單、pull request 範本）。
+- 每則訊息都要有兩種語言（`src/server/i18n.ts`、語系檔），以及 UI 的部分（顏色、「設定」卡片、API key 說明、原生設定附註、問題回報表單、pull request 範本，以及「設定 → Agent 的 session」說明文字中的 CLI 清單：`sessionsHint`、`agentHomeHint`）。
 
 ## 6. 錄製與測試
 
@@ -81,7 +81,7 @@
 
 ## 8. 寫文件，兩種語言
 
-先把你確認過的事實（含版本與系統）整理成一份清單，文件才會一致；然後更新以下每一份及它的 `.zh-TW.md`：[README](../README.zh-TW.md)、[使用者說明](user-guide.zh-TW.md)、[架構](architecture.zh-TW.md)（每個逐 CLI 表格的一欄、adapter 段落、權限對應、providers 與帳號、安全性與已知限制）、[各平台的作業系統沙箱](sandboxing.zh-TW.md)、[開發者說明](developer-guide.zh-TW.md)（專案結構、測試清單）、[端對端測試情境](../e2e/README.zh-TW.md)（各區的表格與「各 CLI 一覽」）、開源 agent 的話還有[開源 agent](open-agents.zh-TW.md)（每個 agent 一節，附上確認過的版本）、[遠端存取](remote-access.zh-TW.md)、CONTRIBUTING、AGENTS.md 與 [SECURITY.md](../SECURITY.zh-TW.md)（什麼算是漏洞，以及 CLI 本身的問題要回報給誰），以及官網（`site/`，照 `site/DESIGN-GUIDELINES.md`）。確認不了的要寫出來。
+先把你確認過的事實（含版本與系統）整理成一份清單，文件才會一致；然後更新以下每一份及它的 `.zh-TW.md`：[README](../README.zh-TW.md)、[使用者說明](user-guide.zh-TW.md)（包括「Agent 的 session」中專用 AgentsView 的 `config.toml`：它從哪裡讀這個 CLI 的 session，要用真正的 AgentsView 試過；由 Harness Relay 記下 session 的則不用設）、[架構](architecture.zh-TW.md)（每個逐 CLI 表格的一欄、adapter 段落、權限對應、providers 與帳號、安全性與已知限制）、[各平台的作業系統沙箱](sandboxing.zh-TW.md)、[開發者說明](developer-guide.zh-TW.md)（專案結構、測試清單）、[端對端測試情境](../e2e/README.zh-TW.md)（各區的表格與「各 CLI 一覽」）、開源 agent 的話還有[開源 agent](open-agents.zh-TW.md)（每個 agent 一節，附上確認過的版本）、[遠端存取](remote-access.zh-TW.md)、CONTRIBUTING、AGENTS.md 與 [SECURITY.md](../SECURITY.zh-TW.md)（什麼算是漏洞，以及 CLI 本身的問題要回報給誰），以及官網（`site/`，照 `site/DESIGN-GUIDELINES.md`）。確認不了的要寫出來。
 
 ## 9. Commit 與 review
 

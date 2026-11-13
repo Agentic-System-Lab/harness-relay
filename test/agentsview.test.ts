@@ -809,10 +809,11 @@ describe('sending a conversation to AgentsView', () => {
     sync.link(conv, 'opencode', 'sorter-2');
     sync.link(conv, 'antigravity', 'lead-3');
     sync.link(conv, 'muse', 'lead-4');
+    sync.link(conv, 'copilot', 'sorter-3');
     sync.schedule(conv);
     await sync.idle();
     const linked = av.calls.filter((c) => c.method === 'PUT').map((c) => decodeURIComponent(c.url.pathname).split('/')[4]);
-    expect(linked).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0', 'grok:lead-1', 'sorter-1', 'antigravity-cli:lead-3', 'muse:lead-4']);
+    expect(linked).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0', 'grok:lead-1', 'sorter-1', 'antigravity-cli:lead-3', 'muse:lead-4', 'copilot:sorter-3']);
   });
 
   it('drops what still waits to be sent for a conversation being deleted', async () => {
