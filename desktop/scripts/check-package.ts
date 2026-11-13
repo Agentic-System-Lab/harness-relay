@@ -10,6 +10,8 @@
  *   and the sandbox runtime (on Linux, with its seccomp helper executable);
  * - the repository's LICENSE is in its resources and in its archive (beside the package.json whose
  *   `license` names it), the same file;
+ * - no file the server runs holds a GitHub token (`github_pat_`): the token an app may be built with to
+ *   download its updates (RELAY_UPDATES_TOKEN) goes into the app's own main process alone;
  * - the app passes its own check (`--smoke-test`, desktop/src/main.ts): in Electron as it ships, the
  *   server starts in a utility process, a team of claude, codex and grok answers a question (the fake
  *   CLIs of the end-to-end tests, e2e/fake-cli/, built here and given to it with `--smoke-test-clis`),
@@ -130,6 +132,9 @@ async function main(): Promise<number> {
     const shipped = join(app.resources, 'LICENSE');
     check(existsSync(shipped) && readFileSync(shipped).equals(license), "the repository's LICENSE is in its resources");
     check(fromArchive(join(app.resources, 'app.asar'), 'LICENSE')?.equals(license), "the repository's LICENSE is in its archive, beside its package.json");
+    // The token for the app's updates, if it was built with one, is its main process's alone (desktop/scripts/build.ts).
+    const bundles = ['server.mjs', 'relaySandboxHost.mjs', 'piGate.js'].map((name) => join(server, name)).filter((path) => existsSync(path));
+    check(bundles.length === 3 && bundles.every((path) => !readFileSync(path, 'latin1').includes('github_pat_')), 'no file the server runs holds a GitHub token');
     const { code, report } = await selfCheck(app.exe, clis);
     process.stdout.write(report.replace(/^/gm, '  '));
     check(code === 0, `the app checks itself (--smoke-test): exit code ${code}`);

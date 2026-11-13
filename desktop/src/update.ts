@@ -490,7 +490,7 @@ export async function download(o: {
         if (!(err instanceof NoRanges)) throw err;
         // A server (or a proxy) that sends the whole file for a part of it: all of it in one request, from there.
         await file.truncate(0);
-        await whole({ fetch: o.fetch, locate: o.locate, url: err.address, headers: err.headers, size, stall, write, onProgress: o.onProgress });
+        await whole({ fetch: o.fetch, locate: o.locate, url: err.address, headers: err.headers, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress });
       }
     } else {
       await whole({ fetch: o.fetch, locate: o.locate, url: o.asset.url, headers: o.headers, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress });
@@ -589,10 +589,12 @@ async function sha256Of(file: string): Promise<string> {
 
 /**
  * Whether GitHub has nothing for us at an address (404), or, asked with the token (`authorized`), will
- * not give it (401, 403: expired, revoked, out of requests): the installer itself is then fetched.
+ * not give it (401, 403: expired or revoked; 403, 429: out of requests, which every installed app shares;
+ * 5xx: its API failing): the installer itself is then fetched, the same file, from where no token is
+ * needed. Without the token, any answer but 404 is GitHub's to fix, as before.
  */
 function unavailable(status: number, authorized: boolean): boolean {
-  return status === 404 || (authorized && (status === 401 || status === 403));
+  return status === 404 || (authorized && (status === 401 || status === 403 || status === 429 || status >= 500));
 }
 
 /**
@@ -732,10 +734,19 @@ async function inParts(o: {
   };
 
   let relocating: Promise<void> | undefined;
-  /** Asks where the file is again, for a new signed address (once at a time). */
+  /**
+   * Asks where the file is again, for a new signed address (once at a time). Refused with the token
+   * meanwhile (revoked, out of requests): the parts left come from the installer itself, without it, the
+   * same file, checked by its SHA-256 at the end.
+   */
   const relocate = () => {
     relocating ??= o.locate(source, stop, headers).then(
-      (f) => {
+      async (f) => {
+        if (headers && unavailable(f.status, true) && o.asset.fallback) {
+          source = o.asset.fallback;
+          headers = undefined;
+          f = await o.locate(source, stop);
+        }
         address = addressFrom(f, source);
         relocating = undefined;
       },

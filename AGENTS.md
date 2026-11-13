@@ -39,7 +39,7 @@ Read these before a larger change; they are kept up to date and go deeper than t
 | `npm install --prefix desktop` | Once, for the desktop app only: Electron and electron-builder (`desktop/` is a package of its own) |
 | `npm run desktop` | Build the UI and the desktop app (`desktop/build/`) and run it without installing it |
 | `npm run desktop:dist` | The same, then make the installer for this system in `desktop/release/` (`.dmg`, `.exe`, `.AppImage`; not signed); `npm run desktop:dist -- --output <folder>` puts it elsewhere |
-| `npx tsx desktop/scripts/check-package.ts` | Check the packaged app in `desktop/release/` as a release is checked: its fuses, its resources and its own `--smoke-test`, in which the e2e fake CLIs answer a question (on Linux, under `xvfb-run`) |
+| `npx tsx desktop/scripts/check-package.ts` | Check the packaged app in `desktop/release/` as a release is checked: its fuses, its resources, no GitHub token in the server's files, and its own `--smoke-test`, in which the e2e fake CLIs answer a question (on Linux, under `xvfb-run`) |
 | `npm run desktop:typecheck` | Typecheck the desktop app (`desktop/tsconfig.json`) |
 | `npm run release:next` | Today's next release and release candidate versions (from GitHub's tags) |
 | `npm run release:check -- <version>` | Check a release version against the rules (`scripts/release.ts`), as the Release workflow does (add `--remote` after the version for GitHub's tags) |
