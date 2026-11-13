@@ -629,7 +629,7 @@ async function sha256Of(file: string): Promise<string> {
  * not give it: any answer but the file or a redirect to it (401, 403: expired or revoked; 403, 429: out
  * of requests, which every installed app shares; 5xx: its API failing; 0: no answer, `locateWithToken`).
  * The installer itself is then fetched, the same file, checked by the same SHA-256, from where no token
- * is needed. Without the token, any answer but 404 is GitHub's to fix, as before.
+ * is needed. Without the token, any answer but 404 fails the update, which then offers the release's page.
  */
 function unavailable(status: number, authorized: boolean): boolean {
   return status === 404 || (authorized && !(status >= 200 && status < 400));

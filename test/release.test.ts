@@ -975,10 +975,10 @@ describe('the release workflow', () => {
 
   it('hands the write token to the copies’ step and the comparison only, and the read token to the app’s build, the comparison and the checks only', () => {
     expect(workflow.match(/secrets\.[A-Z_]+/g)).toEqual([
-      // The comparison of the two, in the shell alone, before anything else.
+      // The comparison of the two, in the shell alone, in the tokens job.
       'secrets.UPDATES_TOKEN',
       'secrets.UPDATES_READ_TOKEN',
-      // Whose they are, asked of GitHub in the shell alone, before anything else too.
+      // Whose they are, asked of GitHub in the shell alone, in the tokens job too.
       'secrets.UPDATES_TOKEN',
       'secrets.UPDATES_READ_TOKEN',
       // The update source checked, with the repository's own code, before anything is installed.
@@ -1004,16 +1004,21 @@ describe('the release workflow', () => {
     const copies = step("Publish the copies for the app's updates");
     expect(copies).toContain('GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
     expect(copies).not.toContain('UPDATES_READ_TOKEN');
+    // The write token's two checks in a job of their own: nothing checked out or installed there, since a
+    // runner keeps the secrets a job names for the whole job; and no job that runs npm's packages names it.
+    const tokensJob = job('tokens');
+    expect(tokensJob).toContain('- name: Refuse a read token that is the write token');
+    expect(tokensJob).toContain("- name: Warn when the read token's account also owns the write token");
+    expect(tokensJob.match(/WRITE_TOKEN: \$\{\{ secrets\.UPDATES_TOKEN \}\}/g)).toHaveLength(2);
+    expect(tokensJob.match(/READ_TOKEN: \$\{\{ secrets\.UPDATES_READ_TOKEN \}\}/g)).toHaveLength(2);
+    expect(tokensJob).not.toMatch(/\buses:|\bnode\b|\bgh\b|\bnpm\b/);
+    expect(job('check')).toMatch(/^\s+needs: tokens$/m);
+    for (const name of ['check', 'build']) expect(job(name), name).not.toContain('secrets.UPDATES_TOKEN');
     const checkJob = job('check');
-    const first = checkJob.slice(checkJob.indexOf('- name: Refuse a read token that is the write token'), checkJob.indexOf('- uses: actions/checkout'));
-    expect(first.indexOf('- name: Refuse a read token that is the write token')).toBe(0);
-    expect(first).toContain("- name: Warn when the read token's account also owns the write token");
-    expect(first.match(/WRITE_TOKEN: \$\{\{ secrets\.UPDATES_TOKEN \}\}/g)).toHaveLength(2);
-    expect(first.match(/READ_TOKEN: \$\{\{ secrets\.UPDATES_READ_TOKEN \}\}/g)).toHaveLength(2);
-    // Before checkout, nothing of the repository's or of npm's runs with the write token.
-    expect(first).not.toMatch(/\bnode\b|\bgh\b|\bnpm\b/);
     const source = checkJob.slice(checkJob.indexOf('- name: Check the update source'), checkJob.indexOf('- name: Install'));
     expect(source).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+    expect(source).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(source).toContain('repositoryReadable(fetch, { source: source.value, token: process.env.GH_TOKEN })');
     expect(source).not.toContain('secrets.UPDATES_TOKEN');
     expect(checkJob.indexOf('- name: Check the update source')).toBeLessThan(checkJob.indexOf('- name: Install'));
     expect(release).not.toContain('Refuse a read token');

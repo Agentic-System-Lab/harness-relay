@@ -25,7 +25,7 @@ npm install --prefix desktop     # Electron、electron-builder 與 esbuild，一
 | `npm run desktop:dist` | 同上，再於 `desktop/release/` 產生這個系統的安裝檔（`.dmg`、`.exe`、`.AppImage`；沒有為發佈簽署）；加上 `-- --output <資料夾>` 可放到別處 |
 | `npm run desktop:typecheck` | 檢查 app 的型別（`desktop/tsconfig.json`） |
 | `npx tsx desktop/scripts/smoke.ts` | 用 app 的方式執行打包好的伺服器（以一般的 Node 代替 Electron），檢查 app 需要它做到的事，包括由 e2e 的假 CLI 回答一個問題 |
-| `npx tsx desktop/scripts/check-package.ts` | 照發佈時的方式檢查 `desktop/release/` 裡打包好的 app：它的 fuse、資源、伺服器的檔案裡沒有 `github_pat_` token、app 的檔案裡也沒有 token 的文字、它建置時更新用的 repository 與（編碼後的）token，以及它自己的 `--smoke-test`（其中 e2e 的假 CLI 會回答一個問題；Linux 上要在 `xvfb-run` 下執行） |
+| `npx tsx desktop/scripts/check-package.ts` | 照發佈時的方式檢查 `desktop/release/` 裡打包好的 app：它的 fuse、資源、伺服器的檔案裡沒有 `github_pat_` token、app 的檔案裡也沒有 token 的文字、它自己的環境變數 `RELAY_UPDATES_REPO` 與 `RELAY_UPDATES_TOKEN` 指定的 repository 與（編碼後的）token（請給它建置時的值），以及它自己的 `--smoke-test`（其中 e2e 的假 CLI 會回答一個問題；Linux 上要在 `xvfb-run` 下執行） |
 
 有 Harness Relay 從 `desktop/release/` 執行時，`npm run desktop:dist` 會拒絕開始：請先結束它，或用 `-- --output <資料夾>` 建置。要和自己的資料分開試用建置結果，見[開發者說明](../docs/developer-guide.zh-TW.md#桌面-app)中「和自己的資料分開試用」的說明。
 
@@ -64,7 +64,7 @@ electron-builder.yml 安裝檔；entitlements.mac.plist 與 macos/（各語言�
 ## 測試與檢查
 
 - **單元測試。**除了 `main.ts`，這裡的程式都不需要 Electron，和其他程式一樣在根目錄的 `test/` 測試（`npm test`）：`desktop-app.test.ts`、`desktop-env.test.ts`、`desktop-supervisor.test.ts`、`desktop-tailscale.test.ts`、`desktop-traymenu.test.ts`、`desktop-update.test.ts`，以及測試伺服器這一端的 `parent.test.ts`。`electron` 只在 `main.ts` 匯入，其他檔案才能這樣測試。
-- **打包好的伺服器**（`scripts/smoke.ts`）與**打包好的 app**（`scripts/check-package.ts`，會執行 app 自己的 `--smoke-test`）。兩者都會讓端對端測試的假 `claude`、`codex` 與 `grok`（[`e2e/fake-cli/`](../e2e/fake-cli/)）組成的團隊回答一個問題，確認伺服器找得到每個 CLI、說得通它的協定並把回答串流進對話；不會啟動真正的 CLI。CI（[`ci.yml`](../.github/workflows/ci.yml)）會檢查 app 的型別、建置它、執行 `smoke.ts`，並為 Linux 與 Windows 打包（更新用的 token 是編造的）、執行 `check-package.ts`；[發佈 workflow](../.github/workflows/release.yml) 在發佈前會在每個系統上執行這兩者。發佈 workflow 也會檢查 app 的更新：建置任何東西之前，讀取用的 token 不是寫入用的；發佈副本之前，每個安裝檔都是用這次執行的 repository 與 token 建置的（它們的指紋）；發佈之後，app 能下載副本。各自檢查哪些項目，見[開發者說明](../docs/developer-guide.zh-TW.md#桌面-app)。
+- **打包好的伺服器**（`scripts/smoke.ts`）與**打包好的 app**（`scripts/check-package.ts`，會執行 app 自己的 `--smoke-test`）。兩者都會讓端對端測試的假 `claude`、`codex` 與 `grok`（[`e2e/fake-cli/`](../e2e/fake-cli/)）組成的團隊回答一個問題，確認伺服器找得到每個 CLI、說得通它的協定並把回答串流進對話；不會啟動真正的 CLI。CI（[`ci.yml`](../.github/workflows/ci.yml)）會檢查 app 的型別、建置它、執行 `smoke.ts`，並為 Linux 與 Windows 打包（更新用的 token 是編造的）、執行 `check-package.ts`；[發佈 workflow](../.github/workflows/release.yml) 在發佈前會在每個系統上執行這兩者。發佈 workflow 也會檢查 app 的更新：最先、在專用的 job 裡，讀取用的 token 不是寫入用的，兩者屬於同一個帳號或 GitHub 沒說屬於誰時發出警告；安裝任何東西之前，檢查更新來源（repository 的名稱、fine-grained 的讀取用 token，以及用它們建置的 app 讀得到那個 repository）；發佈副本之前，每個安裝檔都是用這次執行的 repository 與 token 建置的（它們的指紋）；發佈之後，app 能下載副本。各自檢查哪些項目，見[開發者說明](../docs/developer-guide.zh-TW.md#桌面-app)。
 - 修改這裡之後、commit 之前，請執行 `npm run desktop:typecheck`（見 [AGENTS.md](../AGENTS.md)）。
 
 ## 發佈與更新

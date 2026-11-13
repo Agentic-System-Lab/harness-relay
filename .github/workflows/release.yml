@@ -7,7 +7,7 @@ name: Release
 # each for the app's updates (counted apart from new installs) under the same tag in a repository of
 # their own (the UPDATES_REPO variable, else UPDATES_REPO in site/assets/downloads.js), with the
 # UPDATES_TOKEN secret; the app downloads them with the UPDATES_READ_TOKEN secret, when that is set
-# (for a private one), which may not be the write token and is checked to read them before the
+# (for a private one), which must not be the write token and is checked to read them before the
 # release is published. A release candidate is published as a pre-release. Its notes list every
 # commit that came into main since the version before (scripts/release.ts notes), pushed to main or
 # merged from a pull request.
@@ -37,21 +37,19 @@ defaults:
     shell: bash
 
 jobs:
-  check:
-    name: Check the version and the code
+  # The write token (UPDATES_TOKEN) in a job of its own, with nothing checked out and nothing installed:
+  # a runner keeps the secrets a job names for the whole job, so a job that runs npm's packages must
+  # never name it. Only the release job's step that publishes the copies names it besides.
+  tokens:
+    name: Check the update tokens
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    outputs:
-      tag: ${{ steps.version.outputs.tag }}
-      title: ${{ steps.version.outputs.title }}
-      prerelease: ${{ steps.version.outputs.prerelease }}
-      today: ${{ steps.version.outputs.today }}
+    timeout-minutes: 5
     steps:
       # The read token goes into every installer, where anyone can read it, and the build legs upload
       # theirs as artifacts: never the write token, with which anyone could replace the copies. The
       # likeliest slip is the same token set as both, caught here before anything is built, compared as
-      # the build reads them (trimmed), in the shell alone and before anything else runs on this machine.
-      # A different token that may write is not caught here (docs/developer-guide.md, "Releasing").
+      # the build reads them (trimmed), in the shell alone. A different token that may write is not
+      # caught here (docs/developer-guide.md, "Releasing").
       - name: Refuse a read token that is the write token
         env:
           WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}
@@ -67,8 +65,8 @@ jobs:
 
       # Anyone with the app has the read token, and may use up its account's requests (5,000 an hour):
       # when that account also owns the write token, publishing the copies is held up with it. Warned
-      # about, not refused (an account of its own is best: docs/developer-guide.md, "Releasing"); asked
-      # of GitHub before anything else runs on this machine, as above.
+      # about, not refused (an account of its own is best: docs/developer-guide.md, "Releasing"), and
+      # also when GitHub does not say whose they are (a token expired or revoked, say).
       - name: Warn when the read token's account also owns the write token
         env:
           WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}
@@ -90,6 +88,17 @@ jobs:
             echo "::warning::UPDATES_READ_TOKEN and UPDATES_TOKEN both belong to $reader. Anyone with the app can use up that account's requests with the read token, and publishing the copies with the write token is then held up too: make the read token with an account of its own (docs/developer-guide.md, \"Releasing\")."
           fi
 
+  check:
+    name: Check the version and the code
+    needs: tokens
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      title: ${{ steps.version.outputs.title }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      today: ${{ steps.version.outputs.today }}
+    steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
@@ -107,16 +116,23 @@ jobs:
 
       # The update source the builds will take, checked before anything is installed: a read token that
       # is not a fine-grained one, or a repository that is not owner/name (or is this one), stops the run
-      # here rather than in each build. The repository's own code alone, no dependencies.
+      # here rather than in each build; and so does one that cannot read that repository (no access,
+      # expired, revoked, waiting for an organization's approval), or a private repository without one,
+      # asked of GitHub as an app would (repositoryReadable; without a read token, with this job's own in
+      # its place). The repository's own code alone, no dependencies; the read token is public anyway.
       - name: Check the update source
         env:
+          GH_TOKEN: ${{ github.token }}
           RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
           RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
         run: |
           node --input-type=module -e "
-          import { updateSourceFrom } from './desktop/src/updateSource.ts';
+          import { repositoryReadable, updateSourceFrom } from './desktop/src/updateSource.ts';
           const source = updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN: process.env.RELAY_UPDATES_TOKEN });
           if (!source.ok) { console.error('::error::' + source.error); process.exit(1); }
+          const { error, warning } = await repositoryReadable(fetch, { source: source.value, token: process.env.GH_TOKEN });
+          if (warning) console.log('::warning::' + warning);
+          if (error) { console.error('::error::' + error); process.exit(1); }
           console.log('The app will download its updates from ' + source.value.repo + (source.value.token ? ', with the read token.' : ', without a token.'));"
 
       - name: Install
@@ -214,8 +230,8 @@ jobs:
       # site/assets/downloads.js), with the UPDATES_READ_TOKEN secret when it is set, for a private one.
       # The token goes into every installer, where anyone can read it: it may read that repository's
       # contents and nothing else (docs/developer-guide.md, "Releasing"). In this job, this step and the
-      # packaged app's checks below get it (and, before, the check job's first steps; after, the release
-      # job's two update checks).
+      # packaged app's checks below get it (and, before, the tokens job's two steps and the check job's
+      # update-source check; after, the release job's two update checks).
       - name: Build the desktop app
         env:
           RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}

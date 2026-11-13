@@ -12,9 +12,10 @@
  *   `license` names it), the same file;
  * - no file the server runs holds a GitHub token (`github_pat_`), and the app's own main process holds
  *   none as text: the token an app may be built with to download its updates (RELAY_UPDATES_TOKEN) goes
- *   into its main process alone, encoded. Given what it was built with (RELAY_UPDATES_REPO,
- *   RELAY_UPDATES_TOKEN, as the Release workflow and CI give them), its main process holds that
- *   repository and that token, encoded (src/updateSource.ts);
+ *   into its main process alone, encoded. Its main process holds the repository and the token this
+ *   script's own environment names (RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN; the default repository
+ *   without them), encoded (src/updateSource.ts): it cannot tell what the app was built with, so it is
+ *   run with the build's values, as the Release workflow and CI run it;
  * - the app passes its own check (`--smoke-test`, desktop/src/main.ts): in Electron as it ships, the
  *   server starts in a utility process, a team of claude, codex and grok answers a question (the fake
  *   CLIs of the end-to-end tests, e2e/fake-cli/, built here and given to it with `--smoke-test-clis`),
