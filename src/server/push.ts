@@ -165,10 +165,33 @@ interface SubscriptionRow {
   lang: string;
 }
 
+/** The most subscriptions remembered as gone (`PushService.gone`); then it starts over. */
+const MAX_GONE = 1000;
+
 /** Where the private VAPID key is kept in the system keyring. */
 export const VAPID_KEY_NAME = 'push-vapid-key';
 /** The app setting with the public VAPID key (and the private one, when there is no keyring). */
 const VAPID_SETTING = 'push_vapid';
+
+/** What `push_vapid` holds: the public key, and the private one or (`keyring`) that it is in the keyring. */
+interface SavedVapid {
+  publicKey?: string;
+  privateKey?: string;
+  keyring?: boolean;
+}
+
+/** The public key of a private VAPID key (base64url), or undefined when it is not one. */
+function publicKeyOf(privateKey: string): string | undefined {
+  const d = decodeKey(privateKey, 32);
+  if (!d) return undefined;
+  try {
+    const ecdh = createECDH('prime256v1');
+    ecdh.setPrivateKey(d);
+    return b64(ecdh.getPublicKey());
+  } catch {
+    return undefined;
+  }
+}
 
 const decodeKey = (value: string, bytes: number, first?: number): Buffer | undefined => {
   if (!/^[A-Za-z0-9_-]+={0,2}$/.test(value)) return undefined;
@@ -203,6 +226,8 @@ export function subscriptionKeys(s: Pick<PushSubscriptionRecord, 'p256dh' | 'aut
 export class PushService {
   private keys?: VapidKeys;
   private keyError?: string;
+  /** Subscriptions their push service said are gone, since the server started: not taken again. */
+  private gone = new Set<string>();
 
   constructor(
     private readonly db: Database,
@@ -224,27 +249,42 @@ export class PushService {
   private vapid(): VapidKeys | undefined {
     if (this.keys) return this.keys;
     const row = this.db.prepare('SELECT value FROM app_settings WHERE key = ?').get(VAPID_SETTING) as { value: string } | undefined;
-    let saved: Partial<VapidKeys> = {};
+    let saved: SavedVapid = {};
     try {
-      saved = row ? (JSON.parse(row.value) as Partial<VapidKeys>) : {};
+      saved = row ? (JSON.parse(row.value) as SavedVapid) : {};
     } catch {
       /* broken: made again */
     }
-    let privateKey = saved.privateKey;
+    let inKeyring: string | null = null;
     if (this.keyring) {
       try {
-        privateKey = this.keyring.get(VAPID_KEY_NAME) ?? privateKey;
+        inKeyring = this.keyring.get(VAPID_KEY_NAME);
       } catch (err) {
         // Locked or unreadable: no pushes for now, rather than new keys that would drop every subscription.
         this.keyError = t().pushUnavailable((err as Error).message);
         return undefined;
       }
     }
-    if (saved.publicKey && privateKey && decodeKey(saved.publicKey, 65, 4) && decodeKey(privateKey, 32)) {
+    // The private key that goes with the saved public one, wherever it is (the keyring may hold an
+    // older one, from before a start without it).
+    const privateKey = saved.publicKey ? [inKeyring, saved.privateKey].find((k) => k && publicKeyOf(k) === saved.publicKey) : undefined;
+    if (saved.publicKey && privateKey) {
       this.keys = { publicKey: saved.publicKey, privateKey };
-      // Kept in the database before the keyring was there: moved into it.
-      if (this.keyring && saved.privateKey) this.storeKeys(this.keys);
+      // Kept in the database (no keyring then), or only an older key in the keyring: moved into it.
+      if (this.keyring && (saved.privateKey || inKeyring !== privateKey)) {
+        try {
+          this.storeKeys(this.keys);
+        } catch (err) {
+          console.warn(`[push] could not move the push key into the system keyring: ${(err as Error).message}`);
+        }
+      }
       return this.keys;
+    }
+    // Kept in a keyring this start has not got (a server started without its desktop session, say):
+    // nothing is sent until it is back, rather than new keys that would drop every subscription.
+    if (saved.publicKey && saved.keyring && !this.keyring) {
+      this.keyError = t().pushUnavailable(t().pushKeyringMissing);
+      return undefined;
     }
     const fresh = generateVapidKeys();
     try {
@@ -258,25 +298,34 @@ export class PushService {
     return fresh;
   }
 
-  /** The private key in the keyring (never falling back to the database when there is one), the public one in the database. */
+  /**
+   * The private key in the keyring (never falling back to the database when there is one), the public
+   * one in the database, with where the private one is.
+   */
   private storeKeys(keys: VapidKeys): void {
     if (this.keyring) this.keyring.set(VAPID_KEY_NAME, keys.privateKey);
-    const value = JSON.stringify(this.keyring ? { publicKey: keys.publicKey } : keys);
+    const value: SavedVapid = this.keyring ? { publicKey: keys.publicKey, keyring: true } : keys;
     this.db
       .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-      .run(VAPID_SETTING, value);
+      .run(VAPID_SETTING, JSON.stringify(value));
   }
 
-  /** Keeps (or updates) a browser's subscription, for the signed-in browser `sessionId`. */
-  subscribe(sessionId: string | undefined, sub: PushSubscriptionJson, prefs: AlertPrefs, lang: Lang): void {
+  /**
+   * Keeps (or updates) a browser's subscription, for the signed-in browser `sessionId`: `taken` when
+   * another signed-in browser has it, `gone` when its push service said it is gone (the browser then
+   * subscribes anew; known while the server runs).
+   */
+  subscribe(sessionId: string | undefined, sub: PushSubscriptionJson, prefs: AlertPrefs, lang: Lang): 'ok' | 'taken' | 'gone' {
     if (!this.vapid()) throw new Error(this.keyError ?? t().pushUnavailable(''));
-    this.db
+    if (this.gone.has(sub.endpoint)) return 'gone';
+    const changed = this.db
       .prepare(
         `INSERT INTO push_subscriptions (endpoint, session_id, p256dh, auth, prefs, lang, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(endpoint) DO UPDATE SET session_id = excluded.session_id, p256dh = excluded.p256dh, auth = excluded.auth,
-           prefs = excluded.prefs, lang = excluded.lang`,
+         ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, prefs = excluded.prefs, lang = excluded.lang
+         WHERE push_subscriptions.session_id IS excluded.session_id`,
       )
-      .run(sub.endpoint, nul(sessionId), sub.keys.p256dh, sub.keys.auth, JSON.stringify(prefs), lang, this.now());
+      .run(sub.endpoint, nul(sessionId), sub.keys.p256dh, sub.keys.auth, JSON.stringify(prefs), lang, this.now()).changes;
+    return changed > 0 ? 'ok' : 'taken';
   }
 
   /** Removes a browser's subscription; only its own browser's session (or anyone without sign-in) may. */
@@ -334,6 +383,8 @@ export class PushService {
       if (res.status >= 200 && res.status < 300) return 'sent';
       if ([401, 403, 404, 410].includes(res.status)) {
         transaction(this.db, () => this.db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(sub.endpoint));
+        if (this.gone.size >= MAX_GONE) this.gone.clear();
+        this.gone.add(sub.endpoint);
         return 'gone';
       }
       console.warn(`[push] ${new URL(sub.endpoint).host} answered ${res.status}: ${res.text}`);

@@ -54,3 +54,11 @@ self.addEventListener('notificationclick', (event) => {
     })(),
   );
 });
+
+// The push service replaced the subscription (Firefox does now and then): subscribed again with the
+// same key. The page gives the server the new one when it is next opened (it checks at each start).
+self.addEventListener('pushsubscriptionchange', (event) => {
+  const options = event.oldSubscription && event.oldSubscription.options;
+  if (!options) return;
+  event.waitUntil(self.registration.pushManager.subscribe(options).catch(() => undefined));
+});

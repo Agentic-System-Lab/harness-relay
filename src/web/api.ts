@@ -220,11 +220,14 @@ export const api = {
   /** Has the server send this browser a test notification through its push service. */
   pushTest: (endpoint: string) => request<{ ok: true }>('POST', '/api/push/test', { endpoint }),
   /**
-   * This page went to the background, or came back: kept alive as the page goes away (a phone
-   * locking), so the server sends the push notifications it held for this browser now. Never fails.
+   * This page (`page`: its id) went to the background: kept alive as the page goes away (a phone
+   * locking), so the server sends the push notifications it held for this browser now, unless another
+   * page of it is still in front. Never fails.
    */
-  presence: (visible: boolean) =>
-    void fetch('/api/push/presence', { method: 'POST', keepalive: true, headers: headers(true, readKey()), body: JSON.stringify({ visible }) }).catch(() => undefined),
+  presence: (visible: boolean, page: string) =>
+    void fetch('/api/push/presence', { method: 'POST', keepalive: true, headers: headers(true, readKey()), body: JSON.stringify({ visible, page }) }).catch(
+      () => undefined,
+    ),
   /** The conversation's live updates. EventSource sends no headers, so the key goes in the query. */
   eventsUrl: (id: string) => {
     const key = readKey();
@@ -232,8 +235,12 @@ export const api = {
   },
 
   // conversations
-  /** `visible`: this page is in front, and tells the user itself when agents finish or need them (no push meanwhile). */
-  listConversations: (visible = false) => request<ConversationSummary[]>('GET', `/api/conversations${visible ? '?visible=1' : ''}`),
+  /**
+   * `page`: this page's id, given while it is in front: it tells the user itself when agents finish or
+   * need them, so its browser gets no push notification meanwhile.
+   */
+  listConversations: (page?: string) =>
+    request<ConversationSummary[]>('GET', `/api/conversations${page ? `?visible=1&page=${encodeURIComponent(page)}` : ''}`),
   getConversation: (id: string) => request<Conversation>('GET', `/api/conversations/${id}`),
   createConversation: (b: { title?: string; agents: AgentConfig[]; settings: ConversationSettings; createCwd?: boolean }) =>
     request<Conversation>('POST', '/api/conversations', b),

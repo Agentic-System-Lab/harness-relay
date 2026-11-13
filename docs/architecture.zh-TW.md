@@ -232,12 +232,12 @@ flowchart LR
 
 ## 通知
 
-除了側邊欄，瀏覽器也能在對話的團隊回覆完（`done`，或出錯 `error`）、或需要使用者（`approval`、`confirm`、`answer`）時收到系統通知與提示音（**設定 → 通知與提示音**，每個瀏覽器各自記在 `localStorage` 的 `relay:alerts`）。怎樣才算，是同一條規則：`src/shared/notify.ts` 的 `alertsBetween()`，頁面與伺服器都把它套用在前後兩份對話列表上：對話需要了先前沒有需要的東西；否則，在它的執行結束時，看最新的 agent 回覆怎麼結束（被停止的不算消息）。對話先前在執行，或列表裡有先前沒有的 agent 回覆（摘要裡的 `lastReplyId`，所以比兩次查看間隔還短的執行也算），就是執行結束了。`alertDetail()` 寫出是哪個 agent、說了什麼（回覆的開頭、等待核准的指令、問的問題），成為一行短文字。
+除了側邊欄，瀏覽器也能在對話的團隊回覆完（`done`，或出錯 `error`）、或需要使用者（`approval`、`confirm`、`answer`）時收到系統通知與提示音（**設定 → 通知與提示音**，每個瀏覽器各自記在 `localStorage` 的 `relay:alerts`）。怎樣才算，是同一條規則：`src/shared/notify.ts` 的 `AlertTracker`，頁面與伺服器都把它依序套用在一份份對話列表上：對話需要了先前沒有需要的東西；否則，在執行結束、而且留下了執行開始時對話還沒有的 agent 回覆時，看那則回覆怎麼結束（被停止的不算消息）。追蹤器在看到執行開始時記住當時最新的回覆（摘要裡的 `lastReplyId`），所以沒有留下自己回覆的執行（首席 agent 設計團隊、還沒有人回答就被停止的執行）不會通知，而在兩次查看之間開始又結束的執行，則依它留下的新回覆算數。第一份列表是起點：之前的都不算消息。`alertDetail()` 寫出是哪個 agent、說了什麼（回覆的開頭、等待核准的指令、問的問題），成為一行短文字。
 
-- **頁面**（`src/web/alerts.ts` 的 `PageAlerts`，接收側邊欄每 3 秒輪詢的列表）：視窗有焦點且正顯示那個對話時什麼都不做；在前景時播放提示音（Web Audio，回覆完兩個音、需要你三個音），視窗沒有焦點時再跳出通知；在背景時，只有瀏覽器沒有推播通知時，才自己跳出通知、播放提示音。同一個瀏覽器的分頁中只有一個會處理每則通知（`claimAlert()`，記在 `localStorage`）。有 service worker 時經由它顯示通知（Android 的 Chrome 只接受這種），否則用 `new Notification()`（桌面 app 的視窗：它的權限處理允許伺服器頁面的通知）。
-- **推播**（`src/server/push.ts`、`src/server/alerts.ts`）送到手機，或沒有打開頁面的瀏覽器。開啟通知時會註冊 service worker（`src/web/public/sw.js`，手寫、原樣複製進建置），並以這台伺服器的 VAPID 金鑰（`GET /api/push`）向瀏覽器的推播服務訂閱；頁面把訂閱與選擇交給伺服器（`PUT /api/push/subscription`，每次載入與變更都會再送，所以伺服器丟掉的訂閱會回來）。訂閱（`push_subscriptions`：推播服務的網址、瀏覽器的 P-256 金鑰與 auth secret、它的選擇與語言）屬於一個已登入瀏覽器的 session，登出時一起移除（`ON DELETE CASCADE`）。有瀏覽器訂閱時，`AlertWatcher` 每 1.5 秒檢查一次對話，把每個訂閱者想要的通知送出：內容（標題、內文、tag、對話的網址、是否靜音）為那個瀏覽器加密（RFC 8291，`aes128gcm`），以伺服器的金鑰簽章（RFC 8292，ES256），附上 `Urgency`（需要你時為 high）、`TTL`（需要你一天、回覆完六小時）與每個對話一個 `Topic`，全部用 `node:crypto` 完成。推播服務回報已不存在（404、410）或不再接受這把金鑰（401、403）的訂閱會被移除。Service worker 會顯示收到的每則推播（Safari 會收回推播不顯示任何東西的訂閱），點一下就打開那個對話。
-- **不重複通知。** 在前景的頁面會在輪詢時告訴伺服器（`GET /api/conversations?visible=1`）：伺服器就先保留那個瀏覽器的通知而不推播，在頁面下次輪詢時丟掉（頁面已經處理了）。頁面進到背景（`visibilitychange`、`pagehide`：以 `keepalive` 送出 `POST /api/push/presence`），或 7 秒都沒有前景的輪詢，就把保留的送出，使用者已經處理掉的「需要你」除外。
-- **金鑰。** VAPID 金鑰組在第一次有人問 `GET /api/push` 時產生：私鑰放在作業系統的金鑰儲存區（沒有的話跟 API key 一樣放在 `app_settings`），公鑰放在 `app_settings`。私鑰不見時會產生新的一組，並移除用舊金鑰建立的訂閱（瀏覽器下次打開時會重新訂閱）；金鑰儲存區讀不到時，什麼都不送，也不產生新的金鑰。
+- **頁面**（`src/web/alerts.ts` 的 `PageAlerts`，接收側邊欄每 3 秒輪詢的列表；比已顯示的還舊的回應會被丟掉）：視窗有焦點且正顯示那個對話時什麼都不做；在前景時播放提示音（Web Audio，回覆完兩個音、需要你三個音；頁面載入後，使用者在頁面上操作過，瀏覽器才會播放），視窗沒有焦點時再跳出通知；在背景時，只有瀏覽器沒有推播通知時，才在 3.5 秒後自己跳出通知、播放提示音。同一個瀏覽器的分頁中只有一個會處理每則通知（`claimAlert()`，記在 `localStorage`，依對話、種類與回覆）：前景的分頁會認領每一則通知，連它不出聲的也是，所以等待中的背景分頁不會重複。有 service worker 時經由它顯示通知（Android 的 Chrome 只接受這種），否則用 `new Notification()`（桌面 app 的視窗：它的權限處理允許伺服器頁面的通知）。
+- **推播**（`src/server/push.ts`、`src/server/alerts.ts`）送到手機，或沒有打開頁面的瀏覽器。開啟通知時會註冊 service worker（`src/web/public/sw.js`，手寫、原樣複製進建置），並在開啟通知的那一下點擊中（Safari 需要），以這台伺服器的 VAPID 金鑰（`GET /api/push`）向瀏覽器的推播服務訂閱；頁面把訂閱與選擇交給伺服器（`PUT /api/push/subscription`，每次載入、變更、回到前景與每 10 分鐘都會再送，所以伺服器丟掉的訂閱會回來）。訂閱（`push_subscriptions`：推播服務的網址、瀏覽器的 P-256 金鑰與 auth secret、它的選擇與語言）屬於一個已登入瀏覽器的 session，登出時一起移除（`ON DELETE CASCADE`）；其他已登入的瀏覽器不能接手（409）。有瀏覽器訂閱時，`AlertWatcher` 每 1.5 秒檢查一次，只在有對話事件傳來（`Hub.subscribeAll()`）或 agent 正在工作（`Orchestrator.busy()`）時才讀取對話，把每個訂閱者想要的通知送出：內容（標題、內文、tag、對話的網址、是否靜音）為那個瀏覽器加密（RFC 8291，`aes128gcm`），以伺服器的金鑰簽章（RFC 8292，ES256），附上 `Urgency`（需要你時為 high）、`TTL`（需要你一天、回覆完六小時）與每個對話一個 `Topic`，全部用 `node:crypto` 完成；送出不會拖住下一次檢查。推播服務回報已不存在（404、410）或不再接受這把金鑰（401、403）的訂閱會被移除，頁面再送來時會被拒絕（`code: "push-gone"`），頁面就重新訂閱。Service worker 會顯示收到的每則推播（Safari 會收回推播不顯示任何東西的訂閱），點一下就打開那個對話；推播服務換掉訂閱時，它會用同一把金鑰重新訂閱（`pushsubscriptionchange`；頁面下次打開時再把新的訂閱交給伺服器）。
+- **不重複通知。** 在前景的頁面會在輪詢時告訴伺服器（`GET /api/conversations?visible=1&page=<它的 id>`）：伺服器就先保留那個瀏覽器的通知而不推播，在通知之前就已在前景的頁面之後再輪詢時丟掉（頁面已經處理了）。每個頁面各自計算：頁面進到背景（`visibilitychange`、`pagehide`：以 `keepalive` 送出 `POST /api/push/presence`），或 7 秒都沒有它在前景的輪詢，等瀏覽器沒有任何頁面在前景時，就把保留的送出，使用者已經處理掉的「需要你」除外。開著推播的頁面回到前景時，會從下一份列表重新開始，而且那一次輪詢不說自己在前景，所以離開期間推播過的不會再說一次。
+- **金鑰。** VAPID 金鑰組在第一次有人問 `GET /api/push` 時產生：私鑰放在作業系統的金鑰儲存區（沒有的話跟 API key 一樣放在 `app_settings`），公鑰放在 `app_settings`，並記下私鑰放在哪裡（`push_vapid`）。使用的私鑰一定是與存下的公鑰成對的那一把，不論它在金鑰儲存區或資料庫（沒有金鑰儲存區時放在資料庫的私鑰，之後會搬進去）。金鑰儲存區讀不到，或金鑰在這次啟動沒有的金鑰儲存區裡（沒有桌面 session 時啟動的伺服器、`RELAY_KEYRING=off`）時，什麼都不送，也不產生新的金鑰。只有私鑰真的不見了，才產生新的一組，並移除用舊金鑰建立的訂閱（瀏覽器下次打開時會重新訂閱）。
 
 ## 語言
 
@@ -484,7 +484,7 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 
 ## 資料保存
 
-除了 API key 與附加檔案以外，所有資料都存在單一 SQLite 資料庫 `data/relay.db`（WAL 模式、開啟外鍵、開啟 `secure_delete` 讓刪除的資料被覆寫，檔案權限為 `0600`）。附加檔案存成 `data/attachments/<對話>/<附件 id>/<檔名>`（權限 `0600`），由 `message_parts.data` 中的 `attachment` part 參照；刪除對話時，或重新傳送、重試而刪掉它們所屬的訊息時，會一併移除。
+除了 API key（以及簽署推播通知的金鑰）與附加檔案以外，所有資料都存在單一 SQLite 資料庫 `data/relay.db`（WAL 模式、開啟外鍵、開啟 `secure_delete` 讓刪除的資料被覆寫，檔案權限為 `0600`）。附加檔案存成 `data/attachments/<對話>/<附件 id>/<檔名>`（權限 `0600`），由 `message_parts.data` 中的 `attachment` part 參照；刪除對話時，或重新傳送、重試而刪掉它們所屬的訊息時，會一併移除。
 
 | 資料表 | 內容 |
 | --- | --- |
@@ -503,7 +503,8 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 | `provider_accounts` | 每個 CLI 預設帳號以外的帳號與順序（id、provider、名稱）；每個帳號自己的預設模型與推理強度，以及執行時不載入的項目（schema 版本 20：原有的帳號沿用它所屬 CLI 的值）；只有在系統沒有金鑰儲存區時才存帳號的 API key（schema 版本 19）。開源 agent 沒有其他帳號 |
 | `model_backends` | 開源 agent 的模型來源：你的 OpenAI 相容端點（id、名稱、base URL、模型），以及只有在系統沒有金鑰儲存區時才存的 API 來源（`openai`、`anthropic`、`xai`）或端點的金鑰（schema 版本 22；見[開源 agent](open-agents.zh-TW.md#模型來源)） |
 | `deleted_endpoints` | 在「設定」裡刪除的端點 id，直到再新增同 id 的端點，或忘掉這個 id 為止（**忘掉**，`DELETE /api/backends/deleted-endpoints/:id`）：仍指定其中某個端點模型的 Claude Code、Codex 或 Grok 成員，這一輪會失敗，不會帶著那個模型送到 CLI 自己的服務（schema 版本 26） |
-| `app_settings` | key/value 形式的應用程式設定（預設工作目錄與其後的工作目錄、首席 agent、語音輸入、工具庫、各 CLI 自己的資料夾與開源 agent 的家目錄待過的每個資料夾（`open_agent_roots`）、AgentsView 網址） |
+| `app_settings` | key/value 形式的應用程式設定（預設工作目錄與其後的工作目錄、首席 agent、語音輸入、工具庫、各 CLI 自己的資料夾與開源 agent 的家目錄待過的每個資料夾（`open_agent_roots`）、AgentsView 網址，以及簽署推播通知用的公鑰與私鑰放在哪裡：`push_vapid`） |
+| `push_subscriptions` | 每個瀏覽器的推播訂閱（推播服務的網址、瀏覽器的 P-256 金鑰與 auth secret、它要哪些通知、用哪種語言），屬於一個已登入瀏覽器的 session，並跟著它一起移除（schema 版本 27；見[通知](#通知)） |
 | `shares` | 分享成 secret gist 的對話（頁面 gist 的 id、對話、當時的標題、結束的那則回覆、頁面與 gist 的連結、附上了幾個檔案與放附檔的 gist 的 id、是否只上傳了放附檔的 gist）；沒有外鍵，因為對話刪除後 gist 仍在（schema 第 15 版；附檔為第 16 版） |
 
 使用中的對話會保留在記憶體中，因為協調器在串流時會直接修改它們。寫入是明確觸發的：使用者訊息、新的 agent 訊息、結束的回合與 session id 會立即寫入；串流中的變動則批次處理，每秒最多寫一次，而且只寫有變動的訊息。伺服器當機時留下的 `streaming` 訊息，會在下次啟動時標為 `aborted`；它們等待中的核准標為過期，仍顯示執行中的工具呼叫則和停止的執行一樣，標為沒有結果就結束。

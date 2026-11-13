@@ -15,8 +15,8 @@
  * the window is open. The DOM-free parts are tested in test/alerts-web.test.ts.
  */
 import { useSyncExternalStore } from 'react';
-import { alertDetail, alertTag, alertUrl, alertsBetween, wanted, type AlertState } from '../shared/notify';
-import type { AlertKind, AlertPrefs, Conversation, ConversationSummary, PushSubscriptionJson } from '../shared/types';
+import { AlertTracker, alertDetail, alertTag, alertUrl, wanted } from '../shared/notify';
+import { PUSH_GONE, type AlertKind, type AlertPrefs, type Conversation, type ConversationSummary, type PushSubscriptionJson } from '../shared/types';
 import type { Messages } from './i18n';
 import { isAppWindow } from './update';
 
@@ -119,28 +119,34 @@ export const ALERTED_KEY = 'relay:alerted';
 const ALERTED_FOR_MS = 10 * 60_000;
 
 /**
- * Whether this tab is the first of this browser to handle an alert (`key`: its conversation, kind and
- * time); records it when it is. Without storage, every tab is.
+ * Whether this tab (`tab`: its own id) is the one of this browser to handle an alert (`key`); records
+ * it when it is. Another tab's claim of the same alert in the last ten minutes wins; this tab's own
+ * does not (the same need again, a second approval in one reply). Without storage, every tab is.
  */
-export function claimAlert(storage: PrefStorage | null | undefined, key: string, now: number): boolean {
-  let seen: Record<string, number> = {};
+export function claimAlert(storage: PrefStorage | null | undefined, key: string, tab: string, now: number): boolean {
+  let seen: Record<string, { tab?: unknown; at?: unknown }> = {};
   try {
-    seen = (JSON.parse(storage?.getItem(ALERTED_KEY) ?? '{}') as Record<string, number>) ?? {};
+    seen = (JSON.parse(storage?.getItem(ALERTED_KEY) ?? '{}') as typeof seen) ?? {};
   } catch {
     seen = {};
   }
-  if (typeof seen[key] === 'number' && now - seen[key] < ALERTED_FOR_MS) return false;
-  const kept = Object.fromEntries(Object.entries(seen).filter(([, at]) => typeof at === 'number' && now - at < ALERTED_FOR_MS));
+  const live = (e: { at?: unknown } | undefined) => typeof e?.at === 'number' && now - e.at < ALERTED_FOR_MS;
+  const mine = seen[key];
+  if (live(mine) && mine!.tab !== tab) return false;
+  const kept = Object.fromEntries(Object.entries(seen).filter(([, e]) => live(e)));
   try {
-    storage?.setItem(ALERTED_KEY, JSON.stringify({ ...kept, [key]: now }));
+    storage?.setItem(ALERTED_KEY, JSON.stringify({ ...kept, [key]: { tab, at: now } }));
   } catch {
     /* storage unavailable */
   }
   return true;
 }
 
-/** An alert's key among the tabs: the same news in every tab. */
-export const alertKey = (conv: Pick<ConversationSummary, 'id' | 'updatedAt'>, kind: AlertKind) => `${conv.id}:${kind}:${conv.updatedAt}`;
+/**
+ * An alert's key among the tabs: the same news in every tab, whenever each polled (the conversation,
+ * the kind, and the latest reply it is about).
+ */
+export const alertKey = (conv: Pick<ConversationSummary, 'id' | 'lastReplyId'>, kind: AlertKind) => `${conv.id}:${kind}:${conv.lastReplyId ?? ''}`;
 
 /** A notification's text: the conversation's title, then what happened and what the agent said. */
 export function alertText(
@@ -248,6 +254,9 @@ export function usePushInfo(): PushInfo {
   );
 }
 
+/** How often an open page checks its push subscription (the server may have dropped it). */
+export const PUSH_RESYNC_MS = 10 * 60_000;
+
 /** Whether this browser gets push notifications now. */
 export const pushActive = () => push.active;
 
@@ -286,10 +295,11 @@ async function registration(register: boolean): Promise<ServiceWorkerRegistratio
 
 /**
  * Puts this browser's push subscription in step with its choices: subscribed (with this server's
- * key, made again when the key changed) and the server told of it and of the choices, while
- * notifications are on and allowed; else unsubscribed, on both sides. Run at start and on each change
- * (the server may have dropped a subscription its push service no longer took). One at a time: a
- * call waits for the one before it.
+ * key, made again when the key changed; anew when its push service told the server it is gone) and
+ * the server told of it and of the choices, while notifications are on and allowed; else
+ * unsubscribed, on both sides. Run at start, on each change, when the page comes back to the front
+ * and now and then (the server may have dropped a subscription its push service no longer took).
+ * One at a time: a call waits for the one before it.
  */
 export function syncPush(api: PushApi, p: BrowserAlertPrefs): Promise<PushInfo> {
   syncing = syncing.then(() => syncOnce(api, p));
@@ -319,8 +329,18 @@ async function syncOnce(api: PushApi, p: BrowserAlertPrefs): Promise<PushInfo> {
       await sub.unsubscribe().catch(() => false);
       sub = null;
     }
-    sub ??= await reg!.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(status.publicKey) });
-    await api.pushSubscribe(sub.toJSON() as PushSubscriptionJson, { done: p.done, needs: p.needs, sound: p.sound });
+    const subscribe = () => reg!.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(status.publicKey!) });
+    const choices = { done: p.done, needs: p.needs, sound: p.sound };
+    sub ??= await subscribe();
+    try {
+      await api.pushSubscribe(sub.toJSON() as PushSubscriptionJson, choices);
+    } catch (err) {
+      // Its push service told the server it is gone: a new one, once.
+      if ((err as { code?: unknown }).code !== PUSH_GONE) throw err;
+      await sub.unsubscribe().catch(() => false);
+      sub = await subscribe();
+      await api.pushSubscribe(sub.toJSON() as PushSubscriptionJson, choices);
+    }
     return setPushInfo({ active: true, endpoint: sub.endpoint });
   } catch (err) {
     return setPushInfo({ active: false, failure: (err as Error).message || String(err) });
@@ -383,7 +403,8 @@ let audio: AudioContext | undefined;
 export function unlockSound(): void {
   try {
     audio ??= new AudioContext();
-    if (audio.state === 'suspended') void audio.resume().catch(() => undefined);
+    // Suspended until the user does something on the page; Safari also has 'interrupted'.
+    if (audio.state !== 'running') void audio.resume().catch(() => undefined);
   } catch {
     /* no Web Audio */
   }
@@ -425,6 +446,38 @@ export function playChime(kind: AlertKind | 'test'): void {
 
 // ---------- Watching the conversations ----------
 
+/** Where the page is and what it can do, now (`browserPage()`; a fake one in the tests). */
+export interface PageEnv {
+  visible(): boolean;
+  focused(): boolean;
+  /** The browser allows notifications. */
+  allowed(): boolean;
+  pushActive(): boolean;
+  prefs(): BrowserAlertPrefs;
+  storage: PrefStorage | null | undefined;
+  now(): number;
+  /** Runs `fn` after `ms`. */
+  later(fn: () => void, ms: number): void;
+  play(kind: AlertKind): void;
+  show(title: string, body: string, tag: string, url: string): Promise<void>;
+}
+
+/** The real page. */
+export function browserPage(): PageEnv {
+  return {
+    visible: () => document.visibilityState === 'visible',
+    focused: () => document.hasFocus(),
+    allowed: () => notifyPermission() === 'granted',
+    pushActive,
+    prefs: currentPrefs,
+    storage: browserStorage(),
+    now: Date.now,
+    later: (fn, ms) => void setTimeout(fn, ms),
+    play: playChime,
+    show: showNotification,
+  };
+}
+
 /** What `PageAlerts` needs from the page. */
 export interface PageAlertDeps {
   /** The conversation shown now, if any. */
@@ -432,47 +485,83 @@ export interface PageAlertDeps {
   /** A conversation in full, for who replied and what they said. */
   conversation(id: string): Promise<Conversation>;
   messages(): Messages['notifications'];
+  env?: PageEnv;
 }
+
+/**
+ * How long a tab in the background waits before it handles an alert: a tab in front asks for the
+ * conversations every 3 seconds, and claims each alert first (also one it says nothing of).
+ */
+export const BACKGROUND_DELAY_MS = 3500;
+
+/** An id of the page's own, for its tab's claims and to tell the server which page is in front. */
+const pageId = () => `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 
 /**
  * The page's side: hears the conversations the sidebar polls, and alerts the user to what changed
  * (`alertActions`). The first list it hears is where it starts: nothing before is news.
  */
 export class PageAlerts {
-  private last?: Map<string, AlertState>;
+  private tracker = new AlertTracker();
+  /** Back in front with push on: the next list is where it starts again. */
+  private rebase = false;
+  private readonly env: PageEnv;
+  /** This page's id (its tab's claims; `?page=` for the server). */
+  readonly id = pageId();
 
-  constructor(private readonly deps: PageAlertDeps) {}
+  constructor(private readonly deps: PageAlertDeps) {
+    this.env = deps.env ?? browserPage();
+  }
+
+  /**
+   * The page came back to the front. With push on, what happened while it was away was pushed (or
+   * held for the page while it was still in front, and sent once it went), so the next list tells of
+   * nothing: a phone opened again does not ring once more for what its lock screen showed.
+   */
+  returned(): void {
+    if (this.env.pushActive()) this.rebase = true;
+  }
+
+  /**
+   * Whether the page's next poll tells the server it is in front: not the first one after it came
+   * back, so that the server keeps pushing until the page has started again from that list.
+   */
+  inFront(): boolean {
+    return this.env.visible() && !this.rebase;
+  }
 
   /** A new list of the conversations. */
   heard(list: ConversationSummary[]): void {
-    const before = this.last;
-    this.last = new Map(list.map((c) => [c.id, c]));
-    if (!before) return;
-    const p = currentPrefs();
-    for (const { conv, kind } of alertsBetween(before, list)) {
-      if (!wanted(kind, p)) continue;
-      const allowed = notifyPermission() === 'granted';
-      const act = alertActions(
-        { notify: p.notify && allowed, sound: p.sound },
-        {
-          visible: document.visibilityState === 'visible',
-          focused: document.hasFocus(),
-          viewing: this.deps.viewing() === conv.id,
-          pushActive: pushActive(),
-        },
-      );
-      if (!act.sound && !act.notify) continue;
-      if (!claimAlert(browserStorage(), alertKey(conv, kind), Date.now())) continue;
-      if (act.sound) playChime(kind);
-      if (act.notify) void this.show(conv, kind);
+    const alerts = this.tracker.next(list);
+    if (this.rebase) {
+      this.rebase = false;
+      return;
     }
+    for (const { conv, kind } of alerts) {
+      if (!wanted(kind, this.env.prefs())) continue;
+      if (this.env.visible()) this.handle(conv, kind);
+      else this.env.later(() => this.handle(conv, kind), BACKGROUND_DELAY_MS);
+    }
+  }
+
+  private handle(conv: ConversationSummary, kind: AlertKind): void {
+    const p = this.env.prefs();
+    const visible = this.env.visible();
+    const act = alertActions(
+      { notify: p.notify && this.env.allowed(), sound: p.sound },
+      { visible, focused: this.env.focused(), viewing: this.deps.viewing() === conv.id, pushActive: this.env.pushActive() },
+    );
+    // A tab in front claims every alert, also one it says nothing of (the chat it shows): no tab in
+    // the background then tells of it.
+    if (!visible && !act.sound && !act.notify) return;
+    if (!claimAlert(this.env.storage, alertKey(conv, kind), this.id, this.env.now())) return;
+    if (act.sound) this.env.play(kind);
+    if (act.notify) void this.show(conv, kind);
   }
 
   private async show(conv: ConversationSummary, kind: AlertKind): Promise<void> {
     const full = await this.deps.conversation(conv.id).catch(() => undefined);
     const { title, body } = alertText(conv, kind, full, this.deps.messages());
-    await showNotification(title, body, alertTag(conv.id), alertUrl(conv.id)).catch((err: unknown) =>
-      console.warn('[alerts] could not show a notification:', err),
-    );
+    await this.env.show(title, body, alertTag(conv.id), alertUrl(conv.id)).catch((err: unknown) => console.warn('[alerts] could not show a notification:', err));
   }
 }

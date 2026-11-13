@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALERTED_KEY,
+  BACKGROUND_DELAY_MS,
   CHIMES,
   DEFAULT_ALERT_PREFS,
   alertActions,
@@ -14,11 +15,14 @@ import {
   readAlertPrefs,
   sameKey,
   saveAlertPrefs,
+  PageAlerts,
+  type BrowserAlertPrefs,
   type NotifyEnv,
+  type PageEnv,
 } from '../src/web/alerts';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
-import type { Conversation } from '../src/shared/types';
+import type { Conversation, ConversationSummary } from '../src/shared/types';
 
 function memoryStorage() {
   const data = new Map<string, string>();
@@ -98,16 +102,125 @@ describe('alertActions', () => {
 });
 
 describe('claimAlert', () => {
-  it('lets one tab of the browser handle each alert, and forgets old ones', () => {
+  it('lets one tab of the browser handle each alert, the same tab again, and forgets old ones', () => {
     const storage = memoryStorage();
-    const key = alertKey({ id: 'c1', updatedAt: 5 }, 'done');
-    expect(key).toBe('c1:done:5');
-    expect(claimAlert(storage, key, 1000)).toBe(true);
-    expect(claimAlert(storage, key, 2000)).toBe(false);
-    expect(claimAlert(storage, 'c2:done:5', 2000)).toBe(true);
-    expect(claimAlert(storage, 'c3:done:1', 11 * 60_000)).toBe(true);
-    expect(Object.keys(JSON.parse(storage.data.get(ALERTED_KEY)!))).toEqual(['c3:done:1']);
-    expect(claimAlert(undefined, key, 0)).toBe(true);
+    const key = alertKey({ id: 'c1', lastReplyId: 'm5' }, 'done');
+    expect(key).toBe('c1:done:m5');
+    expect(claimAlert(storage, key, 'tabA', 1000)).toBe(true);
+    expect(claimAlert(storage, key, 'tabB', 2000)).toBe(false);
+    // The same tab: a second approval in one reply, say.
+    expect(claimAlert(storage, key, 'tabA', 2000)).toBe(true);
+    expect(claimAlert(storage, 'c2:done:m1', 'tabB', 2000)).toBe(true);
+    expect(claimAlert(storage, key, 'tabB', 11 * 60_000)).toBe(true);
+    expect(Object.keys(JSON.parse(storage.data.get(ALERTED_KEY)!))).toEqual([key]);
+    expect(claimAlert(undefined, key, 'tabC', 0)).toBe(true);
+  });
+});
+
+describe('PageAlerts', () => {
+  const summary = (id: string, s: Partial<ConversationSummary> = {}): ConversationSummary => ({
+    id,
+    title: `Chat ${id}`,
+    createdAt: 0,
+    updatedAt: 0,
+    agents: [],
+    running: false,
+    lastStatus: 'done',
+    ...s,
+  });
+  const full = {
+    agents: [{ id: 'a1', name: 'Claude' }],
+    messages: [{ id: 'm2', author: { kind: 'agent', agentId: 'a1' }, createdAt: 0, parts: [{ type: 'text', text: 'All done.' }], status: 'done' }],
+  } as unknown as Conversation;
+
+  /** A page: where it is, what it plays and shows, and what it put off. */
+  function page(o: { visible?: boolean; focused?: boolean; push?: boolean; viewing?: string; prefs?: Partial<BrowserAlertPrefs>; storage?: ReturnType<typeof memoryStorage> } = {}) {
+    const state = { visible: o.visible ?? true, focused: o.focused ?? true, push: o.push ?? false, viewing: o.viewing };
+    const played: string[] = [];
+    const shown: { title: string; body: string; tag: string; url: string }[] = [];
+    const later: (() => void)[] = [];
+    const env: PageEnv = {
+      visible: () => state.visible,
+      focused: () => state.focused,
+      allowed: () => true,
+      pushActive: () => state.push,
+      prefs: () => ({ notify: true, sound: true, done: true, needs: true, ...o.prefs }),
+      storage: o.storage ?? memoryStorage(),
+      now: () => 1000,
+      later: (fn, ms) => {
+        expect(ms).toBe(BACKGROUND_DELAY_MS);
+        later.push(fn);
+      },
+      play: (kind) => void played.push(kind),
+      show: async (title, body, tag, url) => void shown.push({ title, body, tag, url }),
+    };
+    const alerts = new PageAlerts({ viewing: () => state.viewing, conversation: async () => full, messages: () => en.notifications, env });
+    // The first list is where it starts; the second has c1's reply.
+    const start = () => alerts.heard([summary('c1', { running: true, lastReplyId: 'm1' })]);
+    const reply = () => alerts.heard([summary('c1', { lastReplyId: 'm2' })]);
+    return { state, played, shown, later, alerts, start, reply };
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  it('says nothing of the chat it shows in front, and keeps a tab in the background from saying it', async () => {
+    const storage = memoryStorage();
+    const front = page({ viewing: 'c1', storage });
+    const back = page({ visible: false, focused: false, storage });
+    for (const p of [front, back]) p.start();
+    front.reply();
+    back.reply();
+    back.later.forEach((fn) => fn());
+    await settle();
+    expect([front.played, front.shown, back.played, back.shown]).toEqual([[], [], [], []]);
+  });
+
+  it('plays the sound in front, and shows the notification, with who replied and what, when its window is behind another', async () => {
+    const p = page({ focused: false });
+    p.start();
+    p.reply();
+    await settle();
+    expect(p.played).toEqual(['done']);
+    expect(p.shown).toEqual([{ title: 'Chat c1', body: 'Claude finished replying\nAll done.', tag: 'relay-c1', url: '/#/c/c1' }]);
+  });
+
+  it('in the background, leaves it to push where the browser has it, and else says it after the tab in front had its turn', async () => {
+    const pushed = page({ visible: false, focused: false, push: true });
+    pushed.start();
+    pushed.reply();
+    pushed.later.forEach((fn) => fn());
+    expect(pushed.played).toEqual([]);
+
+    const alone = page({ visible: false, focused: false });
+    alone.start();
+    alone.reply();
+    expect(alone.played).toEqual([]);
+    alone.later.forEach((fn) => fn());
+    await settle();
+    expect(alone.played).toEqual(['done']);
+    expect(alone.shown).toHaveLength(1);
+  });
+
+  it('tells nothing of what happened while it was away, once back with push on, and says it is in front only after that', () => {
+    const p = page({ push: true });
+    p.start();
+    p.state.visible = false;
+    expect(p.alerts.inFront()).toBe(false);
+    p.state.visible = true;
+    p.alerts.returned();
+    expect(p.alerts.inFront()).toBe(false);
+    p.reply();
+    expect(p.alerts.inFront()).toBe(true);
+    expect(p.played).toEqual([]);
+    p.alerts.heard([summary('c1', { running: true, lastReplyId: 'm2' })]);
+    p.alerts.heard([summary('c1', { lastReplyId: 'm3' })]);
+    expect(p.played).toEqual(['done']);
+  });
+
+  it('says only what this browser asked for', () => {
+    const p = page({ prefs: { done: false } });
+    p.start();
+    p.reply();
+    expect(p.played).toEqual([]);
   });
 });
 

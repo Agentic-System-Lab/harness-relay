@@ -105,7 +105,10 @@ const alerts = new AlertWatcher({
     ),
   get: (id) => store.get(id),
   push,
+  busy: () => orchestrator.busy() > 0,
 });
+// A conversation's event (a run starting or ending, a message): the watcher reads the states again.
+hub.subscribeAll(() => alerts.touch());
 
 // The desktop app, when it started this server (desktop/); undefined for `npm start` and `npm run dev`.
 const parent = desktopParent();

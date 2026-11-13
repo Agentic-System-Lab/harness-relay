@@ -624,6 +624,12 @@ export interface AlertPrefs {
   sound: boolean;
 }
 
+/**
+ * The error code of `PUT /api/push/subscription` for a subscription its push service said is gone
+ * (409): the browser drops it and subscribes anew.
+ */
+export const PUSH_GONE = 'push-gone';
+
 /** A browser's push subscription, as `PushSubscription.toJSON()` gives it (`PUT /api/push/subscription`). */
 export interface PushSubscriptionJson {
   endpoint: string;

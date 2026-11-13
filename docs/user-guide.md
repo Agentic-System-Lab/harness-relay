@@ -544,15 +544,15 @@ To make room, collapse the sidebar with the panel button next to *Harness Relay*
 Besides the sidebar's badges, Harness Relay can tell you when the team **finishes replying** (or the reply ends with an error), and when it **needs you**: an approval, a team to confirm or a question. Turn it on under **Settings & sign-in → Notifications and sound**, in each browser and on each phone you use: the settings are kept in that browser only.
 
 - **Show notifications** asks the browser for permission the first time, and then shows a system notification with the conversation's title, who replied and the start of what they said (or the command an approval is about, or the question). Clicking it opens the chat.
-- **Play a sound**: two notes when a reply is done, three when you are needed. It plays once when you turn it on, so you can hear it.
+- **Play a sound**: two notes when a reply is done, three when you are needed. It plays once when you turn it on, so you can hear it. Browsers let a page play sounds only once you have clicked or typed in it since it was loaded, so after a reload, or a phone app opened from a notification, the first sound comes after your first tap.
 - **Tell me when** picks which of the two (a reply done, you are needed) you hear about.
 - **Send a test notification** tries it out.
 
-Nothing is shown for the conversation you are looking at. While Harness Relay is in front, you only hear the sound (the sidebar shows the rest); a notification appears when its tab is in the background or its window is behind another one.
+Nothing is shown for the conversation you are looking at while its window is in front and focused. While Harness Relay is in front, you only hear the sound (the sidebar shows the rest); a notification appears when its tab is in the background or its window is behind another one. With several tabs open, only one of them tells you. A notification shows the start of the reply, or the command an approval is about, so it may show on a locked phone: to keep that private, choose in the phone's notification settings to hide notification previews on the lock screen.
 
 **On a phone, or with Harness Relay closed.** In a browser with push notifications (Chrome, Edge, Firefox and Safari on a computer; Chrome on Android; on an iPhone or iPad, Harness Relay [added to the Home Screen](remote-access.md#4-add-it-to-the-home-screen), iOS 16.4 or later), turning notifications on also subscribes that browser to them: the server sends each notification through the browser's push service (Google's, Apple's, Mozilla's or Microsoft's), encrypted so that only that browser can read it. So a locked phone gets them too, with the system's notification sound (none when **Play a sound** is off). The server sends none to a browser while its Harness Relay page is in front, since the page tells you itself. Push needs the page served over HTTPS (on a phone, the address `tailscale serve` gives: see [Use it from your phone](remote-access.md)), and the computer running Harness Relay must be on and reach the internet. Signing a browser out (**Settings & sign-in → Signed-in browsers**) also stops its notifications.
 
-**In the desktop app**, notifications show while its window is open (there is no push service in the app's window). To hear about replies with the window closed, open Harness Relay in your browser too and turn notifications on there.
+**In the desktop app**, notifications show while its window is open (there is no push service in the app's window). To hear about replies with the window closed, open Harness Relay in your browser too and turn notifications on there; while the app's window is in front, that browser may then tell you of the same reply as well.
 
 ### Groups
 

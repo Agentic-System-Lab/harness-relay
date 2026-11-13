@@ -25,31 +25,75 @@ export function needsOf(c: Pick<ConversationSummary, 'waiting' | 'confirmTeam' |
 export type AlertState = Pick<ConversationSummary, 'running' | 'waiting' | 'confirmTeam' | 'asking' | 'lastStatus' | 'lastReplyId'>;
 
 /**
- * What to alert the user to, from a conversation's state before (undefined: a conversation not seen
- * before, which was then neither running nor needing anything) to now: something it needs that it did
- * not before; else, when its run ended, how its latest reply ended (`done`, `error`; a reply the user
- * stopped is no news). A run ended when it was running before, or when there is a reply it did not
- * have (a run shorter than the time between the two looks).
+ * A conversation as the alerts last saw it: its state and, while it runs, its latest agent reply when
+ * the run began (`runFrom`; absent when it was already running at the first look, so not known).
  */
-export function alertFor(before: AlertState | undefined, now: AlertState): AlertKind | undefined {
+export interface Seen {
+  state: AlertState;
+  runFrom?: { reply?: string };
+}
+
+const stateOf = (c: AlertState): AlertState => ({
+  running: c.running,
+  ...(c.waiting ? { waiting: true } : {}),
+  ...(c.confirmTeam ? { confirmTeam: true } : {}),
+  ...(c.asking ? { asking: true } : {}),
+  ...(c.lastStatus ? { lastStatus: c.lastStatus } : {}),
+  ...(c.lastReplyId ? { lastReplyId: c.lastReplyId } : {}),
+});
+
+/**
+ * What to alert the user to, from how a conversation was last seen (undefined: not seen before, which
+ * is no news unless it needs something) to its state now: something it needs that it did not before;
+ * else, when a run ended with an agent reply it did not have when it began, how that reply ended
+ * (`done`, `error`; a reply the user stopped is no news). So a run that ended without a reply of its
+ * own (the lead agent designing a team, a run stopped before anyone answered) tells of nothing, and a
+ * run that began and ended between two looks counts by the reply it left.
+ */
+export function alertFor(before: Seen | undefined, now: AlertState): AlertKind | undefined {
   const needs = needsOf(now);
-  if (needs) return needs === (before && needsOf(before)) ? undefined : needs;
-  const replied = before !== undefined && now.lastReplyId !== undefined && now.lastReplyId !== before.lastReplyId;
-  if (now.running || !(before?.running || replied)) return undefined;
+  if (needs) return needs === (before && needsOf(before.state)) ? undefined : needs;
+  if (now.running || !before) return undefined;
+  const from = before.state.running ? before.runFrom : { reply: before.state.lastReplyId };
+  const replied = !from || (now.lastReplyId !== undefined && now.lastReplyId !== from.reply);
+  if (!replied) return undefined;
   return now.lastStatus === 'done' || now.lastStatus === 'error' ? now.lastStatus : undefined;
 }
 
-/** The conversations' alerts between two lists of their summaries (`before` keyed by id). */
-export function alertsBetween(
-  before: ReadonlyMap<string, AlertState>,
-  now: readonly ConversationSummary[],
-): { conv: ConversationSummary; kind: AlertKind }[] {
-  const alerts: { conv: ConversationSummary; kind: AlertKind }[] = [];
-  for (const conv of now) {
-    const kind = alertFor(before.get(conv.id), conv);
-    if (kind) alerts.push({ conv, kind });
+/** How a conversation is remembered after a look: a run seen beginning keeps the reply it began after. */
+export function seenAfter(before: Seen | undefined, now: AlertState): Seen {
+  const state = stateOf(now);
+  if (!now.running) return { state };
+  if (before?.state.running) return before.runFrom ? { state, runFrom: before.runFrom } : { state };
+  return before ? { state, runFrom: before.state.lastReplyId ? { reply: before.state.lastReplyId } : {} } : { state };
+}
+
+/**
+ * The alerts of the conversations' lists, one list after another (the page's polls, the server's
+ * checks). The first list, or the first after `reset()`, is where it starts: nothing before is news.
+ */
+export class AlertTracker {
+  private seen?: Map<string, Seen>;
+
+  /** The alerts between the list before and this one. */
+  next(list: readonly ConversationSummary[]): { conv: ConversationSummary; kind: AlertKind }[] {
+    const before = this.seen;
+    const seen = new Map<string, Seen>();
+    const alerts: { conv: ConversationSummary; kind: AlertKind }[] = [];
+    for (const conv of list) {
+      const was = before?.get(conv.id);
+      const kind = before ? alertFor(was, conv) : undefined;
+      if (kind) alerts.push({ conv, kind });
+      seen.set(conv.id, seenAfter(was, conv));
+    }
+    this.seen = seen;
+    return alerts;
   }
-  return alerts;
+
+  /** The next list is where it starts again. */
+  reset(): void {
+    this.seen = undefined;
+  }
 }
 
 /** The longest snippet of a reply or question an alert shows. */

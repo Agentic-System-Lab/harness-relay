@@ -29,6 +29,7 @@ import {
   VOICE_MAX_SECONDS,
   cwdsOf,
   pendingPlan,
+  PUSH_GONE,
   type ApprovalAnswer,
   type Conversation,
   type ServerLimits,
@@ -819,11 +820,14 @@ export function createApp({
   app.put('/api/push/subscription', async (c) => {
     if (!push) throw new HttpError(503, t().pushUnavailable(''));
     const { subscription, prefs } = validatePushSubscription(await body<unknown>(c));
+    let kept: ReturnType<PushService['subscribe']>;
     try {
-      push.subscribe(sessions.get(c.req.raw), subscription, prefs, currentLang());
+      kept = push.subscribe(sessions.get(c.req.raw), subscription, prefs, currentLang());
     } catch (err) {
       throw new HttpError(503, (err as Error).message);
     }
+    if (kept === 'taken') throw new HttpError(409, t().pushTaken);
+    if (kept === 'gone') throw new HttpError(409, t().pushGone, PUSH_GONE);
     return c.json({ ok: true });
   });
 
@@ -845,17 +849,17 @@ export function createApp({
 
   /** The page went to the background (or came back): push notifications held for this browser go now. */
   app.post('/api/push/presence', async (c) => {
-    const { visible } = await body<{ visible?: unknown }>(c);
-    alerts?.seen(sessions.get(c.req.raw), visible === true);
+    const { visible, page } = await body<{ visible?: unknown; page?: unknown }>(c);
+    alerts?.seen(sessions.get(c.req.raw), typeof page === 'string' ? page : undefined, visible === true);
     return c.json({ ok: true });
   });
 
   // --- Conversations ---------------------------------------------------------------
 
-  // `visible=1`: the page asking is in front, and tells this browser itself when agents finish or need
-  // the user (no push notification is sent to it meanwhile, `alerts.ts`).
+  // `visible=1`: the page asking (`page`: its own id) is in front, and tells this browser itself when
+  // agents finish or need the user (no push notification is sent to it meanwhile, `alerts.ts`).
   app.get('/api/conversations', (c) => {
-    if (c.req.query('visible') === '1') alerts?.seen(sessions.get(c.req.raw), true);
+    if (c.req.query('visible') === '1') alerts?.seen(sessions.get(c.req.raw), c.req.query('page'), true);
     return c.json(
       store.list(
         (id) => orchestrator.isRunning(id),

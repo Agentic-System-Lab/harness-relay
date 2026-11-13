@@ -340,6 +340,9 @@ describe("the desktop app's decisions", () => {
     expect(permissionChecked('media', 'http://127.0.0.1:8787', server, 'video')).toBe(false);
     expect(permissionChecked('media', 'http://127.0.0.1:8787', undefined)).toBe(false); // the server stopped
     expect(permissionChecked('geolocation', 'http://127.0.0.1:8787', server)).toBe(false);
+    // Notifications' permission, as the page reads it (Notification.permission), for its own pages.
+    expect(permissionChecked('notifications', 'http://127.0.0.1:8787', server)).toBe(true);
+    expect(permissionChecked('notifications', 'https://evil.example', server)).toBe(false);
   });
 
   describe("guarding a window's pages", () => {
