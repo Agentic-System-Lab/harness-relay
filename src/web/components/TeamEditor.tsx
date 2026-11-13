@@ -20,7 +20,7 @@ import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
 import { useLimits } from '../limits';
 import { settingsHref } from '../route';
-import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
+import { defaultOn, emptyLibraryText, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
 import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, initials, newAgent, readyAccount, switchProvider, type ModelChoice } from '../util';
 import { AccountPicker } from './AccountPicker';
 import { CwdInput } from './CwdInput';
@@ -417,7 +417,7 @@ function AgentTools({
         <p className="warn-line small">{error}</p>
       ) : items.length === 0 ? (
         <p className="muted small">
-          {t.team.toolsEmpty} <a href={settingsHref('tools')}>{t.team.goToolLibrary}</a>
+          {emptyLibraryText(t, agent.provider)} <a href={settingsHref('tools')}>{t.team.goToolLibrary}</a>
         </p>
       ) : (
         <>

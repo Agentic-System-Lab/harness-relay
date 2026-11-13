@@ -207,6 +207,11 @@ export const en: Messages = {
     cliDecides: 'decided by the CLI',
     noDefaultModel: 'No default model: pick one',
     tools: 'Tools',
+    toolsOwnSetup: {
+      own: (cli) => `${cli} loads its own setup as usual, such as its skills and MCP servers (Settings → ${cli} lists them).`,
+      open: (cli) =>
+        `In Harness Relay, ${cli} runs with a config folder of Harness Relay's own, so the MCP servers and skills you set up for it yourself do not load; what it still loads by itself (the project's AGENTS.md, say) is listed in Settings → ${cli}.`,
+    },
     toolsHint: "Choose what this member gets from the tool library (managed in Settings → Tool library). These come in addition to the CLI's own setup: its own skills and MCP servers keep working.",
     toolMemory: 'Shared memory',
     toolProviderMemory: (p) => `Memory for ${p}`,
@@ -214,7 +219,8 @@ export const en: Messages = {
     toolsNone: 'Nothing from the tool library',
     toolsEdit: 'Change',
     toolsDone: 'Done',
-    toolsEmpty: 'The tool library is empty: add MCP servers, skills and memory, shared by every CLI or given only to some.',
+    toolsEmpty: (setup) =>
+      `The tool library is empty. ${setup} Add MCP servers, skills and memory to it, shared by every CLI or given only to some.`,
     goToolLibrary: 'Go to Settings → Tool library',
     toolProblem: 'unavailable right now',
     problems: {
