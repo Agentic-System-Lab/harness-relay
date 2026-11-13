@@ -46,16 +46,22 @@ async function ask(path: string, init: RequestInit & { files?: Record<string, Ui
 }
 
 describe('the download mirror', () => {
-  it('serves only the installers of a release, by the names the Release workflow gives them', () => {
-    for (const end of Object.values(INSTALLERS)) expect(installerOf(`/${TAG}/Harness-Relay-${TAG}${end}`), end).toEqual({ tag: TAG, file: `Harness-Relay-${TAG}${end}` });
-    expect(installerOf('/2026-11-13.1/Harness-Relay-2026-11-13.1-win-arm64.exe')).toEqual({ tag: '2026-11-13.1', file: 'Harness-Relay-2026-11-13.1-win-arm64.exe' });
+  it('serves only the installers of a release, by the names the Release workflow gives them, and under their copies’ names for the app’s updates', () => {
+    for (const [system, end] of Object.entries(INSTALLERS)) {
+      const installer = `Harness-Relay-${TAG}${end}`;
+      expect(installerOf(`/${TAG}/${installer}`), end).toEqual({ tag: TAG, file: installer, key: `${TAG}/${installer}`, update: false });
+      // The copy's name is the same file in the bucket.
+      const copy = `Harness-Relay-${TAG}${UPDATE_INSTALLERS[system as keyof typeof UPDATE_INSTALLERS]}`;
+      expect(installerOf(`/${TAG}/${copy}`), copy).toEqual({ tag: TAG, file: copy, key: `${TAG}/${installer}`, update: true });
+    }
+    expect(installerOf('/2026-11-13.1/Harness-Relay-2026-11-13.1-win-arm64.exe')).toMatchObject({ tag: '2026-11-13.1', file: 'Harness-Relay-2026-11-13.1-win-arm64.exe' });
     for (const path of [
       // Another release's installer, or none of the five.
       `/${TAG}/Harness-Relay-2026-11-12-mac-arm64.dmg`,
       `/${TAG}/notes.txt`,
       `/${TAG}/Harness-Relay-${TAG}-mac-universal.dmg`,
-      // The copies for the app's updates are not on the mirror.
-      ...Object.values(UPDATE_INSTALLERS).map((end) => `/${TAG}/Harness-Relay-${TAG}${end}`),
+      // Another release's copy.
+      `/${TAG}/Harness-Relay-2026-11-12-mac-arm64-update.dmg`,
       // Paths that would leave the release's folder in the bucket.
       `/../${MAC}`,
       `/${TAG}/../${MAC}`,
@@ -191,7 +197,7 @@ describe('the download mirror', () => {
   });
 
   it('serves nothing else, and takes nothing', async () => {
-    for (const path of ['/', `/${TAG}/notes.txt`, `/${TAG}/Harness-Relay-${TAG}-mac-arm64-update.dmg`, `/${TAG}/sub/${MAC}`]) {
+    for (const path of ['/', `/${TAG}/notes.txt`, `/${TAG}/Harness-Relay-2026-11-12-mac-arm64-update.dmg`, `/${TAG}/sub/${MAC}`]) {
       const { res, asked, counted } = await ask(path);
       expect(res.status, path).toBe(404);
       expect(asked).toEqual([]);
@@ -202,6 +208,39 @@ describe('the download mirror', () => {
       expect(res.status, method).toBe(405);
       expect(res.headers.get('Allow')).toBe('GET, HEAD');
       expect(asked).toEqual([]);
+    }
+  });
+
+  it("serves an app's update under its copy's name from the installer's file, never counted, and says so when it cannot (the app then goes to GitHub)", async () => {
+    const COPY = `Harness-Relay-${TAG}-mac-arm64-update.dmg`;
+    const whole = await ask(`/${TAG}/${COPY}`, { headers: { 'User-Agent': UA } });
+    expect(whole.res.status).toBe(200);
+    expect(whole.body).toEqual(bytes(1000));
+    expect(whole.res.headers.get('Content-Disposition')).toBe(`attachment; filename="${COPY}"`);
+    expect(whole.asked).toEqual([`head ${TAG}/${MAC}`, `get ${TAG}/${MAC}`]);
+    // The app counts its update on GitHub itself, against the copy: never here, from the first byte either.
+    expect(whole.counted).toEqual([]);
+    const first = await ask(`/${TAG}/${COPY}`, { headers: { Range: 'bytes=0-99' } });
+    expect(first.res.status).toBe(206);
+    expect(first.res.headers.get('Content-Range')).toBe('bytes 0-99/1000');
+    expect(first.counted).toEqual([]);
+    expect((await ask(`/${TAG}/${COPY}`, { method: 'HEAD' })).res.status).toBe(200);
+    // Not in the bucket (a release candidate, an older release), or the bucket failing: no redirect to
+    // the installer, which GitHub would count as a new install. The app downloads the copy from GitHub.
+    for (const method of ['GET', 'HEAD']) {
+      const missing = await ask(`/${TAG}/${COPY}`, { method, files: {} });
+      expect(missing.res.status, method).toBe(404);
+      expect(missing.res.headers.get('Location')).toBeNull();
+      expect(missing.counted).toEqual([]);
+    }
+    const gone = await ask(`/${TAG}/${COPY}`, { gone: new Set([`${TAG}/${MAC}`]) });
+    expect(gone.res.status).toBe(404);
+    for (const fails of ['head', 'get'] as const) {
+      const { b } = bucket({ [`${TAG}/${MAC}`]: bytes(1000) });
+      b[fails] = async () => Promise.reject(new Error('R2 is down'));
+      const res = await handle(new Request(`https://mirror.example/${TAG}/${COPY}`), { BUCKET: b }, { waitUntil: () => {} }, async () => new Response());
+      expect(res.status, fails).toBe(503);
+      expect(res.headers.get('Location')).toBeNull();
     }
   });
 

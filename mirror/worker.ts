@@ -5,7 +5,10 @@
 //
 // GET /<tag>/<file>, for an installer of that release (Harness-Relay-<tag><end>, an end of INSTALLERS):
 // the file from the bucket, or a redirect to the same file on GitHub when the bucket does not have it
-// (an older release, removed from it) or fails. For each download it serves itself (a GET of the whole file or
+// (an older release, removed from it) or fails. Under its copy's name for the app's updates (an end of
+// UPDATE_INSTALLERS), the same file, for an installed app's update: never counted here (the app counts
+// the update on GitHub itself, against the copy, once it has the file), and a 404 or 503 instead of a
+// redirect, as the app then downloads it from GitHub as it did without a mirror (desktop/src/update.ts). For each download it serves itself (a GET of the whole file or
 // of a part from its first byte, not a resumed or later part), it asks GitHub for the installer's first
 // byte as a download there does (github.com's redirect, then GitHub's CDN), with the visitor's user
 // agent, so that GitHub's download counts count it as before. A HEAD (the website's check) and a part
@@ -14,7 +17,7 @@
 // Deployed by hand with wrangler (mirror/wrangler.toml); tested in test/mirror.test.ts. No build step
 // and no dependency: wrangler bundles it with the site module it shares the installers' names with.
 
-import { INSTALLERS, REPO } from '../site/assets/downloads.js';
+import { INSTALLERS, REPO, UPDATE_INSTALLERS } from '../site/assets/downloads.js';
 
 /** What the Worker uses of R2 (Cloudflare's R2Bucket binding). */
 export interface MirrorObject {
@@ -42,19 +45,33 @@ export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 /** A tag or file name as the Release workflow makes them: plain characters, never `.` or `..`. */
 const PLAIN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-/**
- * The installer a path names: /<tag>/<file>, the file being one of that release's installers
- * (Harness-Relay-<tag> and an end of INSTALLERS). Undefined for any other path: the bucket's other
- * keys, if any, are never served.
- */
-export function installerOf(pathname: string): { tag: string; file: string } | undefined {
-  const [, tag, file, ...rest] = pathname.split('/');
-  if (rest.length || !tag || !file || !PLAIN.test(tag) || !PLAIN.test(file)) return undefined;
-  if (!Object.values(INSTALLERS).some((end) => file === `Harness-Relay-${tag}${end}`)) return undefined;
-  return { tag, file };
+/** An installer a path names: its tag, the file name asked for, the bucket's key, and whether for an app's update. */
+export interface Installer {
+  tag: string;
+  file: string;
+  /** <tag>/<the installer's name>: a copy's name is served from the installer's file. */
+  key: string;
+  /** Asked for under its copy's name for the app's updates (UPDATE_INSTALLERS). */
+  update: boolean;
 }
 
-/** The same installer on GitHub. */
+/**
+ * The installer a path names: /<tag>/<file>, the file being one of that release's installers
+ * (Harness-Relay-<tag> and an end of INSTALLERS), or one's copy for the app's updates (an end of
+ * UPDATE_INSTALLERS). Undefined for any other path: the bucket's other keys, if any, are never served.
+ */
+export function installerOf(pathname: string): Installer | undefined {
+  const [, tag, file, ...rest] = pathname.split('/');
+  if (rest.length || !tag || !file || !PLAIN.test(tag) || !PLAIN.test(file)) return undefined;
+  for (const [system, end] of Object.entries(INSTALLERS) as [keyof typeof INSTALLERS, string][]) {
+    const installer = `Harness-Relay-${tag}${end}`;
+    if (file === installer) return { tag, file, key: `${tag}/${installer}`, update: false };
+    if (file === `Harness-Relay-${tag}${UPDATE_INSTALLERS[system]}`) return { tag, file, key: `${tag}/${installer}`, update: true };
+  }
+  return undefined;
+}
+
+/** The same installer on GitHub (this repository's release; never asked for an update's copy). */
 export function githubUrl({ tag, file }: { tag: string; file: string }): string {
   return `https://github.com/${REPO}/releases/download/${tag}/${file}`;
 }
@@ -124,12 +141,17 @@ export async function handle(request: Request, env: Env, ctx: Context, fetcher: 
   }
   const installer = installerOf(new URL(request.url).pathname);
   if (!installer) return new Response('Not found\n', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-  const key = `${installer.tag}/${installer.file}`;
-  const toGitHub = () => new Response(null, { status: 302, headers: { Location: githubUrl(installer), 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' } });
+  const { key } = installer;
+  // Not in the bucket, or the bucket out of order (an R2 outage while the Worker runs): GitHub has every
+  // installer. An app's update says so instead, and downloads it from GitHub as it would without a mirror.
+  const elsewhere = (failed: boolean) =>
+    installer.update
+      ? new Response(failed ? 'Unavailable\n' : 'Not found\n', { status: failed ? 503 : 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } })
+      : new Response(null, { status: 302, headers: { Location: githubUrl(installer), 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' } });
 
-  // The bucket out of order (an R2 outage while the Worker runs): GitHub has every installer.
-  const object = await env.BUCKET.head(key).catch(() => null);
-  if (!object) return toGitHub();
+  let failed = false;
+  const object = await env.BUCKET.head(key).catch(() => ((failed = true), null));
+  if (!object) return elsewhere(failed);
   const headers = fileHeaders(installer.file, object);
   if (unchanged(request.headers.get('If-None-Match'), object.httpEtag)) return new Response(null, { status: 304, headers });
   if (request.method === 'HEAD') {
@@ -146,10 +168,11 @@ export async function handle(request: Request, env: Env, ctx: Context, fetcher: 
     return new Response(null, { status: 416, headers });
   }
   const part = range === 'whole' ? undefined : range;
-  const body = await env.BUCKET.get(key, part ? { range: part } : undefined).catch(() => null);
+  const body = await env.BUCKET.get(key, part ? { range: part } : undefined).catch(() => ((failed = true), null));
   // Removed since the HEAD above (a release pruned from the bucket), or the bucket failing: GitHub has it.
-  if (!body) return toGitHub();
-  if (!part || part.offset === 0) ctx.waitUntil(countOnGitHub(githubUrl(installer), request.headers.get('User-Agent'), fetcher));
+  if (!body) return elsewhere(failed);
+  // An app's update is counted by the app, on GitHub, against its copy.
+  if (!installer.update && (!part || part.offset === 0)) ctx.waitUntil(countOnGitHub(githubUrl(installer), request.headers.get('User-Agent'), fetcher));
   if (!part) return new Response(body.body, { status: 200, headers });
   headers.set('Content-Range', `bytes ${part.offset}-${part.offset + part.length - 1}/${object.size}`);
   return new Response(body.body, { status: 206, headers });

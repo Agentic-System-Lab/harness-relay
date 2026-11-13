@@ -39,6 +39,7 @@ export function isInstallerUrl(url: unknown): boolean;
 export const MIRROR: string;
 export function isMirror(mirror: unknown): boolean;
 export function mirrorUrl(url: unknown, mirror?: unknown): string | undefined;
+export function mirrorCopyUrl(tag: unknown, installer: unknown, mirror?: unknown): string | undefined;
 export function mirrorHas(url: string, fetcher?: (url: string, init: RequestInit) => Promise<{ status: number }>): Promise<boolean>;
 export function wire(deps?: {
   doc?: unknown;

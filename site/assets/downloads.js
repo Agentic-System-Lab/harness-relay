@@ -106,7 +106,8 @@ export function isInstallerUrl(url) {
  * GitHub's own downloads are slow in parts of the world (some 0.25 MB/s in Taiwan, where Cloudflare
  * gives 40 MB/s). The Release workflow uploads each release's installers there before it publishes the
  * release, and for each download it serves the mirror asks GitHub for the installer's first byte, as
- * a download there would, so that GitHub's download counts still count it. Empty: no mirror, and the
+ * a download there would, so that GitHub's download counts still count it. The desktop app, built with
+ * this module, downloads its updates from there first too (`mirrorCopyUrl`). Empty: no mirror, and the
  * buttons point at GitHub. An https origin, with no path (docs/developer-guide.md, "Releasing").
  */
 export const MIRROR = '';
@@ -131,6 +132,19 @@ export function mirrorUrl(url, mirror = MIRROR) {
   // /<owner>/<repo>/releases/download/<tag>/<file>
   const [tag, file] = new URL(url).pathname.split('/').slice(5);
   return `${mirror}/${tag}/${file}`;
+}
+
+/**
+ * Where an app's update downloads `installer` (an installer's name) of the release tagged `tag` first,
+ * when it was built with a mirror: under its copy's name (`updateCopyName`), which the mirror serves from
+ * the installer's file and never counts, as the app counts the update on GitHub itself, against the copy
+ * in UPDATES_REPO (desktop/src/update.ts, `downloadUpdate`). Undefined for a file that is not an
+ * installer, or without a mirror.
+ */
+export function mirrorCopyUrl(tag, installer, mirror = MIRROR) {
+  const copy = updateCopyName(installer);
+  if (!copy || !isMirror(mirror) || typeof tag !== 'string' || !PLAIN_PART.test(tag) || !PLAIN_PART.test(installer)) return undefined;
+  return `${mirror}/${tag}/${copy}`;
 }
 
 /**

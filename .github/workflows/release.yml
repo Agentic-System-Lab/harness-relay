@@ -479,8 +479,9 @@ jobs:
       # The website's download buttons point at the download mirror when there is one (MIRROR in
       # site/assets/downloads.js: a Cloudflare Worker in front of an R2 bucket, mirror/worker.ts), as
       # GitHub's own downloads are slow in parts of the world. Before the release is published, so that
-      # the website, which finds the newest release on GitHub, never offers one the mirror lacks; a
-      # release only, as the website offers no release candidate. With an R2 API token that may read and
+      # the website, which finds the newest release on GitHub, never offers one the mirror lacks (and an
+      # app built with it downloads its update from there); a release only, as the website offers no
+      # release candidate (a release candidate's update comes from GitHub). With an R2 API token that may read and
       # write that bucket alone (the MIRROR_ACCESS_KEY_ID and MIRROR_SECRET_ACCESS_KEY secrets), at the
       # account's S3 address (the MIRROR_ENDPOINT variable), through the runner's own AWS CLI: this job
       # installs no npm package. A run tried again uploads them again.

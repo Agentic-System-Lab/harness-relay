@@ -35,7 +35,7 @@ import { open, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { compareSemver, parseVersion, semverOf } from '../../scripts/release';
-import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO, updateCopyName, updateCopyUrl } from '../../site/assets/downloads.js';
+import { INSTALLERS, isInstallerUrl, mirrorCopyUrl, RELEASES_PAGE, REPO, updateCopyName, updateCopyUrl } from '../../site/assets/downloads.js';
 import { capture } from '../../src/server/process';
 import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
 import type { UpdateSource } from './updateSource';
@@ -525,14 +525,72 @@ async function answeredWithin<T>(ms: number, signal: AbortSignal, ask: (signal: 
 }
 
 /**
+ * Where an update downloads `asset` (an installer of the release tagged `tag`) from first, when the app
+ * was built with a download mirror (MIRROR in site/assets/downloads.js, mirror/worker.ts): under its
+ * copy's name there (`mirrorCopyUrl`), which the mirror serves from the installer's file and never
+ * counts; checked against the same SHA-256, with nowhere else to fall back to. Undefined without a
+ * mirror, or for a file that is not an installer.
+ */
+export function mirrorAsset(mirror: string | undefined, tag: string, asset: UpdateAsset): UpdateAsset | undefined {
+  const url = mirrorCopyUrl(tag, asset.name, mirror);
+  return url ? { name: asset.name, url, size: asset.size, sha256: asset.sha256 } : undefined;
+}
+
+/**
+ * GitHub counts an update downloaded from the mirror as it counts one downloaded from it: `asset` (as
+ * `copyToDownload` found it, with its `headers`) is asked where it leads, as a download asks (`locate`:
+ * the token to GitHub's API alone; the installer itself when the copy cannot be had, as a download falls
+ * back to it), and the CDN it redirects to for the file's first byte, without the headers. GitHub counts
+ * both, as for a download from GitHub (docs/developer-guide.md, "Releasing", "Download counts"). Never
+ * fails: GitHub not reached within `answerMs`, the update goes uncounted.
+ */
+export async function countUpdate(o: { fetch: Fetch; locate: Locate; asset: UpdateAsset; headers?: Record<string, string>; answerMs?: number }): Promise<void> {
+  const ms = o.answerMs ?? CHECK_TIMEOUT_MS;
+  const signal = AbortSignal.timeout(ms);
+  try {
+    let source = o.asset.url;
+    let headers = o.headers;
+    let found = headers ? await locateWithToken(o.locate, source, signal, headers, ms) : await o.locate(source, signal);
+    if (unavailable(found.status, !!headers) && o.asset.fallback) {
+      source = o.asset.fallback;
+      headers = undefined;
+      found = await o.locate(source, signal);
+    }
+    // Answered with the file itself (or not at all): that request was all GitHub had to count.
+    if (found.location === undefined) return;
+    const res = await o.fetch(addressFrom(found, source), { headers: { Range: 'bytes=0-0' }, signal });
+    await res.body?.cancel();
+  } catch {
+    // GitHub not reached: this update goes uncounted.
+  }
+}
+
+/**
  * Downloads `asset` of the release tagged `tag` for an update, as the app was built to (`source`): its
  * copy found with the token for a private copies' repository (`copyToDownload`, given up on after
  * `lookupSignal`), then `download` with what that found, so that an asset and its headers always go
- * together. What main.ts calls.
+ * together. With a download `mirror` (MIRROR, which the build takes from site/assets/downloads.js) and
+ * `locate`, from the mirror first (`mirrorAsset`), and only once that has the whole file, checked, GitHub
+ * is asked as a download from it would (`countUpdate`), so that the update is counted there, against
+ * the copy, as before; any failure on the mirror (not reached, without this release, a release candidate
+ * say, stalled, its file not the installer) and the download is made from GitHub as without a mirror,
+ * counted there by itself. What main.ts calls.
  */
-export async function downloadUpdate(o: Omit<DownloadOptions, 'headers'> & { source: UpdateSource; tag: string; lookupSignal?: AbortSignal }): Promise<void> {
-  const { source, tag, lookupSignal, ...rest } = o;
+export async function downloadUpdate(o: Omit<DownloadOptions, 'headers'> & { source: UpdateSource; tag: string; lookupSignal?: AbortSignal; mirror?: string }): Promise<void> {
+  const { source, tag, lookupSignal, mirror, ...rest } = o;
   const from = await copyToDownload(o.fetch, source, tag, o.asset, lookupSignal);
+  const { locate } = o;
+  const mirrored = locate ? mirrorAsset(mirror, tag, o.asset) : undefined;
+  if (locate && mirrored) {
+    let got = false;
+    try {
+      await download({ ...rest, asset: mirrored });
+      got = true;
+    } catch {
+      // From GitHub, below.
+    }
+    if (got) return countUpdate({ fetch: o.fetch, locate, asset: from.asset, headers: from.headers, answerMs: o.answerMs });
+  }
   await download({ ...rest, asset: from.asset, headers: from.headers });
 }
 
