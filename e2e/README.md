@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 376 tests in 30 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 377 tests in 30 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -57,7 +57,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [CLIs that are scripts on Windows](#clis-that-are-scripts-on-windows) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [Architecture → CLI adapters](../docs/architecture.md#cli-adapters) |
 | [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 35 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
 | [What each CLI loads by itself, and Grok's trust](#what-each-cli-loads-by-itself-and-groks-trust) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [User guide → What each CLI loads by itself](../docs/user-guide.md#what-each-cli-loads-by-itself), [Architecture → What each CLI loads by itself](../docs/architecture.md#what-each-cli-loads-by-itself) |
-| [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 9 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
+| [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 10 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
 | [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
 | [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 5 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
 | [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 7 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
@@ -353,6 +353,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | The folder cannot change while a conversation runs | Claude Code | During a slow reply Save says a conversation is running; once it is stopped, Save works. |
 | A conversation is sent to AgentsView after each turn and when it is renamed, with its members' sessions under it | Claude Code, Codex | The upload carries AgentsView's own `Origin` and the project and machine of a session it knows; the transcript holds the question, both replies and the title; each member's session is linked under it; a rename sends the new title. |
 | A Cursor member's session is the one Harness Relay recorded, sent after the thread and filed under it | Codex, Cursor | The session (its id derived from the conversation's and the member's) goes after the thread, in its project and machine; it holds what the member heard, its thinking, its call listing the folder as Claude Code's `Read` with the folder as `file_path`, the call's result and its reply, and is named after the member, its CLI and the conversation; it is linked under the thread, and Cursor's own session id is never sent. |
+| Copilot's and Muse Code's own sessions are filed under the thread as AgentsView names them, with none recorded for them | Copilot, Muse Code | Each member's own session is asked for and linked under the thread by the id its CLI gave it, as `copilot:<id>` and `muse:<id>`; only the thread is uploaded (both replies and the title), and no member's recorded session is sent or linked. |
 | An address elsewhere is refused, and when an update fails Settings says why while the chat goes on | Claude Code | An address off this computer is refused with the reason, and the setting stays empty; when AgentsView answers 503, the reply has no error and the card says the last update failed, and why. |
 
 ## Reporting a problem
@@ -461,7 +462,7 @@ The scenarios tried with each CLI (most of them as a test per CLI, the rest with
 | Removing an added account | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | A project's own setup asked about before the CLI starts | — | — | — | — | ✓ | ✓ (its project hooks) | — |
 | Started through a `.cmd` launcher on Windows | — | — | — | ✓ (its own) | — | — | ✓ (its own) |
-| Its session in AgentsView, under the conversation's thread | ✓ | ✓ | — | ✓ (recorded by Harness Relay) | — | — | — |
+| Its session in AgentsView, under the conversation's thread | ✓ | ✓ | — | ✓ (recorded by Harness Relay) | — | ✓ (`copilot:<id>`) | ✓ (`muse:<id>`) |
 
 The open agents, in Harness Relay's own sandbox below full access:
 

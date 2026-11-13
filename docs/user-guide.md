@@ -287,11 +287,14 @@ To see only Harness Relay's sessions in AgentsView, set the CLIs' own folder (ab
    [agents.antigravity-cli]
    dirs = ["~/.relay-agents/antigravity/.gemini/antigravity-cli"]
 
+   [agents.copilot]
+   dirs = ["~/.relay-agents/copilot"]
+
    [agents.muse]
    dirs = ["~/.relay-agents/muse/data/muse/sessions"]
    ```
 
-   Cursor and the open-source agents need nothing here: Harness Relay sends their sessions itself. Copilot's are in `~/.relay-agents/copilot/session-state`; how to point an AgentsView of its own at them was not checked (see [AgentsView's configuration](https://www.agentsview.io/docs/configuration/)). AgentsView also reads the default folders of the other tools it supports (Cursor, Gemini CLI…) when they exist on your computer. To leave them out, list them in `disabled_agents` (see [AgentsView's configuration](https://www.agentsview.io/docs/configuration/)).
+   Copilot's folder is its whole home: AgentsView reads its sessions from `session-state` in it, and their token counts from its `session-store.db` (not on Windows, see above). Cursor and the open-source agents need nothing here: Harness Relay sends their sessions itself. Each [other account](#more-than-one-account) of a CLI has a folder of its own beside these, `<cli>-<id>` (such as `copilot-1a2b3c4d`): add it to that CLI's list, with the same path below it (`"~/.relay-agents/copilot-1a2b3c4d"`, `"~/.relay-agents/muse-1a2b3c4d/data/muse/sessions"`, and for Claude Code and Codex in `homes`), or the sessions of the members on that account do not show up. AgentsView also reads the default folders of the other tools it supports (Cursor, Gemini CLI…) when they exist on your computer. To leave them out, list them in `disabled_agents` (see [AgentsView's configuration](https://www.agentsview.io/docs/configuration/)).
 3. Start it with its data in that folder, on a port of your choice (9999 here). macOS and Linux:
 
    ```bash

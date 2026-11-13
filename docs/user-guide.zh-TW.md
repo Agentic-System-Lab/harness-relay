@@ -287,11 +287,14 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
    [agents.antigravity-cli]
    dirs = ["~/.relay-agents/antigravity/.gemini/antigravity-cli"]
 
+   [agents.copilot]
+   dirs = ["~/.relay-agents/copilot"]
+
    [agents.muse]
    dirs = ["~/.relay-agents/muse/data/muse/sessions"]
    ```
 
-   Cursor 與開源 agent 在這裡什麼都不用設：Harness Relay 會自己送出它們的 session。Copilot 的在 `~/.relay-agents/copilot/session-state`；怎麼讓專用的 AgentsView 讀它們，沒有確認過（見 [AgentsView 的設定說明](https://www.agentsview.io/docs/configuration/)）。電腦上有 AgentsView 支援的其他工具（Cursor、Gemini CLI……）時，它也會讀那些工具的預設資料夾。不想要的話，把它們列在 `disabled_agents`（見 [AgentsView 的設定說明](https://www.agentsview.io/docs/configuration/)）。
+   Copilot 填的是它整個家目錄：AgentsView 從其中的 `session-state` 讀它的 session，從它的 `session-store.db` 讀這些 session 的 token 數（Windows 上沒有，見上方）。Cursor 與開源 agent 在這裡什麼都不用設：Harness Relay 會自己送出它們的 session。CLI 的每個[其他帳號](#多個帳號)在這些資料夾旁邊都有自己的資料夾 `<cli>-<id>`（例如 `copilot-1a2b3c4d`）：把它加進那個 CLI 的清單，底下的路徑相同（`"~/.relay-agents/copilot-1a2b3c4d"`、`"~/.relay-agents/muse-1a2b3c4d/data/muse/sessions"`；Claude Code 與 Codex 則加在 `homes`），否則用那個帳號的成員，它們的 session 不會出現。電腦上有 AgentsView 支援的其他工具（Cursor、Gemini CLI……）時，它也會讀那些工具的預設資料夾。不想要的話，把它們列在 `disabled_agents`（見 [AgentsView 的設定說明](https://www.agentsview.io/docs/configuration/)）。
 3. 讓它的資料放在那個資料夾，用你選的 port 啟動（這裡用 9999）。macOS 與 Linux：
 
    ```bash
