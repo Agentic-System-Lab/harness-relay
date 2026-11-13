@@ -208,9 +208,9 @@ export const en: Messages = {
     noDefaultModel: 'No default model: pick one',
     tools: 'Tools',
     toolsOwnSetup: {
-      own: (cli) => `${cli} also loads its own setup, such as its skills and MCP servers: Settings → ${cli} lists what it loads.`,
+      own: (cli) => `${cli} also loads its own setup, such as its skills and MCP servers: Settings → ${cli} lists what it loads in the default working directory.`,
       open: (cli) =>
-        `In Harness Relay, ${cli} runs with a config folder of Harness Relay's own instead of its own one in your home folder, so what you set up there (MCP servers, say) is not read; what it still loads by itself (the project's AGENTS.md, say) is listed in Settings → ${cli}.`,
+        `In Harness Relay, ${cli} runs with a config folder of Harness Relay's own instead of its own one in your home folder, so what you set up there (MCP servers, say) is not read; what it still loads by itself (the project's AGENTS.md, say) is listed in Settings → ${cli}, for the default working directory.`,
     },
     toolsHint: (setup) =>
       `Choose what this member gets from the tool library (managed in Settings → Tool library), in addition to the CLI's own setup. ${setup}`,

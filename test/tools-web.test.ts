@@ -52,11 +52,13 @@ describe("what a member's Tools say about its CLI's own setup", () => {
       const cli = PROVIDER_LABEL[p];
       expect(ownSetupText(en, p)).toBe(en.team.toolsOwnSetup.own(cli));
       expect(ownSetupText(en, p)).toContain(`${cli} also loads its own setup`);
-      expect(ownSetupText(en, p)).toContain(`Settings → ${cli} lists what it loads`);
+      // Settings asks each CLI about the default working directory only: a chat elsewhere may load another project's setup.
+      expect(ownSetupText(en, p)).toContain(`Settings → ${cli} lists what it loads in the default working directory`);
       // Not "as usual": its home may be Harness Relay's or another account's, and some of it left out.
       expect(ownSetupText(en, p)).not.toContain('as usual');
       expect(ownSetupText(zhTW, p)).toBe(zhTW.team.toolsOwnSetup.own(cli));
       expect(ownSetupText(zhTW, p)).toContain(`${cli} 也會載入它自己的設定`);
+      expect(ownSetupText(zhTW, p)).toContain(`「設定 → ${cli}」列出它在預設工作目錄中會載入哪些`);
       expect(ownSetupText(zhTW, p)).not.toContain('照常');
       expect(ownSetupText(zhTW, p)).toContain(`「設定 → ${cli}」`);
     }
@@ -67,14 +69,14 @@ describe("what a member's Tools say about its CLI's own setup", () => {
       const cli = PROVIDER_LABEL[p];
       expect(ownSetupText(en, p)).toBe(en.team.toolsOwnSetup.open(cli));
       expect(ownSetupText(en, p)).toContain("a config folder of Harness Relay's own instead of its own one in your home folder");
-      expect(ownSetupText(en, p)).toContain(`Settings → ${cli}`);
+      expect(ownSetupText(en, p)).toContain(`Settings → ${cli}, for the default working directory`);
       expect(ownSetupText(en, p)).not.toContain('also loads its own setup');
       // Never that its skills do not load: a project's skills do for most open agents, and Cline reads
       // the user's ~/.agents/skills too.
       expect(ownSetupText(en, p)).not.toMatch(/skill/i);
       expect(ownSetupText(zhTW, p)).toBe(zhTW.team.toolsOwnSetup.open(cli));
       expect(ownSetupText(zhTW, p)).toContain('而不是你家目錄裡它自己的那個，所以你在那裡的設定（例如 MCP 伺服器）不會被讀取');
-      expect(ownSetupText(zhTW, p)).toContain(`「設定 → ${cli}」`);
+      expect(ownSetupText(zhTW, p)).toContain(`「設定 → ${cli}」，以預設工作目錄為準`);
       expect(ownSetupText(zhTW, p)).not.toContain('照常');
       expect(ownSetupText(zhTW, p)).not.toMatch(/skill/i);
     }
@@ -93,8 +95,8 @@ describe("what a member's Tools say about its CLI's own setup", () => {
       }
     }
     // The CLI's own sentence goes between the others, as each language writes sentences.
-    expect(emptyLibraryText(en, 'claude')).toMatch(/^The tool library is empty\. Claude Code also loads .*lists what it loads\. Add MCP servers, skills and memory to the tool library,/);
-    expect(emptyLibraryText(zhTW, 'goose')).toMatch(/^工具庫還是空的。Goose 在 Harness Relay 裡.*「設定 → Goose」。工具庫可以加入/);
+    expect(emptyLibraryText(en, 'claude')).toMatch(/^The tool library is empty\. Claude Code also loads .*lists what it loads in the default working directory\. Add MCP servers, skills and memory to the tool library,/);
+    expect(emptyLibraryText(zhTW, 'goose')).toMatch(/^工具庫還是空的。Goose 在 Harness Relay 裡.*「設定 → Goose」，以預設工作目錄為準。工具庫可以加入/);
     expect(toolsHintText(en, 'pi')).toMatch(/own setup\. In Harness Relay, Pi runs/);
     expect(toolsHintText(zhTW, 'codex')).toMatch(/自己的設定之外。Codex 也會載入/);
     // A library of other CLIs' memory notes only is not called empty.
