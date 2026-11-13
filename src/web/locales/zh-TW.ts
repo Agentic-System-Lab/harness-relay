@@ -1170,7 +1170,7 @@ export const zhTW = {
         plugins: '每個已安裝的 plugin，連同它的 skill 與 MCP 伺服器',
       },
       muse: {
-        skills: 'Muse Code 沒有能單次略過 skill 的設定（它內建的、~/.config/muse/skills 的，以及你 Claude Code 與 Codex 的 skill 都會載入；專案的 skill 只在完全存取時載入，那時工作區才受信任）',
+        skills: 'Muse Code 沒有能單次略過 skill 的設定（它內建的、~/.config/muse/skills 與 ~/.agents/skills 的，以及你 Claude Code 與 Codex 的 skill 都會載入；專案的 skill 只在完全存取時載入，那時工作區才受信任）',
         mcp: '把 Muse Code 設定裡的 MCP 伺服器從這一輪自己的設定中拿掉',
         tools: 'Muse Code 不回報它的內建工具',
         instructions: 'Muse Code 沒有能單次略過指示檔的設定（它自己的規則，以及你 Claude Code 與 Codex 的都會載入；專案的 AGENTS.md、CLAUDE.md 只在完全存取時載入，那時工作區才受信任）',

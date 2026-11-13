@@ -371,6 +371,15 @@ export function prepareMuseRun(
     );
     if (authLinked) symlinkSync(auth, runAuth, 'file');
     if (authCopied) copyFileSync(auth, runAuth);
+    // What Muse loads by itself from its own config folder besides its settings: its skills and its own
+    // rules (`AGENTS.md`, which come before `~/.claude/CLAUDE.md`), found there in the user's own Muse but
+    // missing from the runs until linked (tried with muse 1.4.18). Not its approval policy
+    // (`approval-policy.json`), which would decide what runs without asking, nor its workflows, which the
+    // runs turn off. Muse has no switch that leaves its skills or rules out of one run.
+    const skills = join(own, 'skills');
+    if (existsSync(skills)) symlinkSync(skills, join(cfg, 'skills'), platform === 'win32' ? 'junction' : 'dir');
+    const rules = join(own, 'AGENTS.md');
+    if (existsSync(rules)) copyFileSync(rules, join(cfg, 'AGENTS.md'));
     if (permission !== 'full') writeFileSync(join(cfg, 'trust.json'), `${JSON.stringify(museTrust(opts.dirs ?? []), null, 2)}\n`, { mode: 0o600 });
     // The commands Muse runs find the rest of the user's config folder where they look for it.
     if (platform !== 'win32') {

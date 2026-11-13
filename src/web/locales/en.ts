@@ -1143,7 +1143,7 @@ export const en: Messages = {
         plugins: 'Every installed plugin, with its skills and MCP servers',
       },
       muse: {
-        skills: "Muse Code has no setting to skip skills for one run (its bundled ones, those in ~/.config/muse/skills, and your Claude Code and Codex skills load; a project's only in full access, where the workspace is trusted)",
+        skills: "Muse Code has no setting to skip skills for one run (its bundled ones, those in ~/.config/muse/skills and ~/.agents/skills, and your Claude Code and Codex skills load; a project's only in full access, where the workspace is trusted)",
         mcp: "Leaves the MCP servers of Muse Code's settings out of this run's own settings",
         tools: 'Muse Code does not report its built-in tools',
         instructions: "Muse Code has no setting to skip instruction files for one run (its own rules, and your Claude Code and Codex ones, load; a project's AGENTS.md and CLAUDE.md only in full access, where the workspace is trusted)",

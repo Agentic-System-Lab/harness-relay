@@ -470,8 +470,10 @@ describe("Copilot's home and settings for one run", () => {
     const env = copilotEnv({ PATH: '/bin', COPILOT_ALLOW_ALL: 'true', COPILOT_ASSISTED_APPROVAL: '1', COPILOT_SKILLS_DIRS: '/s', COPILOT_HOME: '/acct' }, '/run', ['skills', 'plugins']);
     expect(env).toEqual({ PATH: '/bin', COPILOT_HOME: '/run', COPILOT_PLUGIN_DIR_ONLY: 'true' });
     const endpoint = { id: 'homelab/gemma4', model: 'gemma4', endpoint: { id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.2:11434/v1/', models: ['gemma4'], apiKey: 'k-1' } };
-    expect(copilotEnv({ COPILOT_PROVIDERS_CONFIG: '/p.json', COPILOT_PROVIDER_HEADERS: 'X: 1', COPILOT_MODEL: 'old' }, '/run', [], endpoint)).toEqual({
+    const home = join('/', 'home', 'u');
+    expect(copilotEnv({ COPILOT_PROVIDERS_CONFIG: '/p.json', COPILOT_PROVIDER_HEADERS: 'X: 1', COPILOT_MODEL: 'old' }, '/run', [], endpoint, home)).toEqual({
       COPILOT_HOME: '/run',
+      COPILOT_SKILLS_DIRS: join(home, '.agents', 'skills'),
       COPILOT_PROVIDER_BASE_URL: 'http://10.0.0.2:11434/v1',
       COPILOT_PROVIDER_TYPE: 'openai',
       COPILOT_PROVIDER_WIRE_API: 'completions',
@@ -479,6 +481,22 @@ describe("Copilot's home and settings for one run", () => {
       COPILOT_PROVIDER_API_KEY: 'k-1',
     });
     expect(copilotEnv({ COPILOT_PROVIDER_API_KEY: 'stale' }, '/run', [], { ...endpoint, endpoint: { ...endpoint.endpoint, apiKey: undefined } })).not.toHaveProperty('COPILOT_PROVIDER_API_KEY');
+  });
+
+  it("gives the default account's runs the skills in ~/.agents/skills, which Copilot reads only in its usual home", () => {
+    // Copilot 1.0.111 lists them (`skill list`, as Settings asks) while its home is ~/.copilot itself, and a
+    // run's own home made it skip them; given as a skill folder (comma-separated), a run's turn had them.
+    const home = join('/', 'home', 'u');
+    const agents = join(home, '.agents', 'skills');
+    expect(copilotEnv({}, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(agents);
+    expect(copilotEnv({ COPILOT_HOME: join(home, '.copilot') }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(agents);
+    // The user's own skill folders stay, first.
+    expect(copilotEnv({ COPILOT_SKILLS_DIRS: '/s' }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(`/s,${agents}`);
+    // Another account, or the CLIs' own folder (Settings → Agent sessions): Copilot does not read them in
+    // that home, nor does its run.
+    expect(copilotEnv({ COPILOT_HOME: '/acct' }, '/run', [], undefined, home)).not.toHaveProperty('COPILOT_SKILLS_DIRS');
+    // Skills left out: no skill folder at all.
+    expect(copilotEnv({ COPILOT_SKILLS_DIRS: '/s' }, '/run', ['skills'], undefined, home)).not.toHaveProperty('COPILOT_SKILLS_DIRS');
   });
 });
 

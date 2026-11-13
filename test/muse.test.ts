@@ -605,6 +605,40 @@ describe("Muse Code's config folder for one run", () => {
     expect(JSON.parse(readFileSync(join(a.muse, 'trust.json'), 'utf8')).projects[a.work].decision).toBe('trusted');
   });
 
+  it("brings the account's own skills and rules (AGENTS.md) into the run, not its approval policy or workflows", () => {
+    // In the user's own Muse (muse 1.4.18) these load from its config folder; a run's has only what it writes.
+    const a = account();
+    mkdirSync(join(a.muse, 'skills', 'mine'), { recursive: true });
+    writeFileSync(join(a.muse, 'skills', 'mine', 'SKILL.md'), '---\nname: mine\ndescription: Mine.\n---\n');
+    writeFileSync(join(a.muse, 'AGENTS.md'), 'Be brief.\n');
+    writeFileSync(join(a.muse, 'approval-policy.json'), '{"default":"allow"}');
+    mkdirSync(join(a.muse, 'workflows'));
+    for (const platform of ['linux', 'win32'] as const) {
+      const run = prepareMuseRun(a.env, 'edit', [], { root: a.root, dirs: [a.work], platform });
+      const cfg = join(run.dir, 'muse');
+      // A link to the skills (a junction on Windows) and a copy of the rules; not approval-policy.json or workflows.
+      expect(readdirSync(cfg).sort()).toEqual(['AGENTS.md', 'auth.json', 'settings.json', 'skills', 'trust.json']);
+      expect(readFileSync(join(cfg, 'skills', 'mine', 'SKILL.md'), 'utf8')).toContain('name: mine');
+      expect(readFileSync(join(cfg, 'AGENTS.md'), 'utf8')).toBe('Be brief.\n');
+      run.done();
+      // The link went, not the skills.
+      expect(readFileSync(join(a.muse, 'skills', 'mine', 'SKILL.md'), 'utf8')).toContain('name: mine');
+    }
+    // None of them: nothing added.
+    const b = account();
+    const bare = prepareMuseRun(b.env, 'edit', [], { root: b.root, dirs: [b.work] });
+    expect(readdirSync(join(bare.dir, 'muse')).sort()).toEqual(['auth.json', 'settings.json', 'trust.json']);
+    bare.done();
+  });
+
+  it.skipIf(process.platform === 'win32')("links the account's skills folder itself, so that skills added meanwhile are there too", () => {
+    const a = account();
+    mkdirSync(join(a.muse, 'skills'));
+    const run = prepareMuseRun(a.env, 'edit', [], { root: a.root, dirs: [a.work] });
+    expect(readlinkSync(join(run.dir, 'muse', 'skills'))).toBe(join(a.muse, 'skills'));
+    run.done();
+  });
+
   it('trusts nothing by a file with full access (its flag trusts the workspace), and every working directory is untrusted below it', () => {
     const a = account();
     const full = prepareMuseRun(a.env, 'full', [], { root: a.root, dirs: [a.work], platform: 'win32' });
