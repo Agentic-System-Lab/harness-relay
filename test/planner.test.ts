@@ -834,7 +834,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       { path: '/skills/pdf', name: 'pdf', description: 'Make PDFs', providers: ['claude', 'codex', 'grok'] },
       { path: '/skills/broken', name: 'broken', description: '', providers: ['claude'], problem: 'no SKILL.md' },
     ],
-    memory: { all: 'We use pnpm.\n  Always.', claude: '', codex: 'Codex: run tests', grok: '', cursor: '', antigravity: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' },
+    memory: { all: 'We use pnpm.\n  Always.', claude: '', codex: 'Codex: run tests', grok: '', cursor: '', antigravity: '', copilot: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' },
   });
 
   it('reads the tool library: MCP servers, usable skills and the memory parts that are set, with their keys', () => {
@@ -988,7 +988,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       ],
       catalog: async () => catalog,
       presets: () => [],
-      library: () => ({ mcpServers: [], skills: [], memory: { all: 'notes', claude: '', codex: '', grok: '', cursor: '', antigravity: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' } }),
+      library: () => ({ mcpServers: [], skills: [], memory: { all: 'notes', claude: '', codex: '', grok: '', cursor: '', antigravity: '', copilot: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' } }),
       native: async (p, cwd, acc) => {
         asked.push(`${p} ${cwd} ${acc || 'default'}`);
         if (p === 'codex') return new Promise(() => {}); // never answers
@@ -1016,7 +1016,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       statuses: async () => [{ provider: 'claude', installed: true, bin: 'claude', auth: { loggedIn: true }, usingStoredApiKey: false, accounts: [{ id: '', label: '', auth: { loggedIn: true }, usingStoredApiKey: false }] }],
       catalog: async () => catalog,
       presets: () => [],
-      library: () => ({ mcpServers: [], skills: [], memory: { all: '', claude: '', codex: '', grok: '', cursor: '', antigravity: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' } }),
+      library: () => ({ mcpServers: [], skills: [], memory: { all: '', claude: '', codex: '', grok: '', cursor: '', antigravity: '', copilot: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' } }),
       native,
     });
     const refused = await plannerContext(with_(async () => ({ ...answered, problems: [{ kind: 'failed', detail: 'Unsupported control request subtype: get_hooks_listing' }] })), '/w', 50);

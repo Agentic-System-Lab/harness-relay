@@ -15,6 +15,7 @@ import {
   type ProviderModels,
 } from '../shared/types';
 import { antigravityAppDir, antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
+import { askCopilotModels, parseCopilotModels } from './agents/copilot';
 import { openAgents } from './agents/index';
 import { openHomeEnv, type OpenCatalog } from './agents/open';
 import { capture, converse, stripAnsi, tail } from './process';
@@ -28,6 +29,8 @@ const GROK_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
 const CURSOR_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const ANTIGRAVITY_EFFORTS = ['low', 'medium', 'high'];
+/** Copilot's reasoning efforts (`--reasoning-effort`); each model takes some of them. */
+const COPILOT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 /** Claude Code accepts aliases that always point at the latest model of each family. */
 const CLAUDE_MODELS: ModelOption[] = [
@@ -288,6 +291,26 @@ export interface ConfiguredBackends {
  * up, then each endpoint's typed models (`<endpoint id>/<model>`). Harness Relay never asks a model
  * API for its list.
  */
+/**
+ * Asks Copilot for its models the way Harness Relay runs it (a session opened over ACP in a home and
+ * folder of its own, `askCopilotModels`): signed in, those of the account's plan, and the account's
+ * default (`currentModelId`). The reasoning efforts are the default model's, else Copilot's own list.
+ */
+async function discoverCopilot(bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
+  const { opened, error } = await askCopilotModels(bin, env);
+  const parsed = parseCopilotModels(opened);
+  const models: ModelOption[] = parsed.models.map((m) => ({ id: m.id, ...(m.label ? { label: m.label } : {}) }));
+  return {
+    provider: 'copilot',
+    models,
+    efforts: parsed.efforts.length ? parsed.efforts : COPILOT_EFFORTS,
+    ...(parsed.current ? { cliDefaultModel: parsed.current } : {}),
+    ...(parsed.effort ? { cliDefaultEffort: parsed.effort } : {}),
+    source: models.length ? 'cli' : 'builtin',
+    error: models.length ? undefined : (error ? tail(stripAnsi(error), 200) : undefined) || t().copilotModelsFailed,
+  };
+}
+
 export async function discoverOpenModels(p: OpenProvider, bin: string, env: NodeJS.ProcessEnv, backends: ConfiguredBackends): Promise<DiscoveredModels> {
   const agent = openAgents[p];
   let catalog: OpenCatalog = { models: [] };
@@ -358,9 +381,10 @@ export async function discoverModels(
     else if (p === 'codex') own = await discoverCodex(bin, env);
     else if (p === 'cursor') own = await discoverCursor(bin, env);
     else if (p === 'antigravity') own = await discoverAntigravity(bin, env);
+    else if (p === 'copilot') own = await discoverCopilot(bin, env);
     else own = await discoverGrok(bin, env);
   } catch (err) {
-    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS, antigravity: ANTIGRAVITY_EFFORTS }[p];
+    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS, antigravity: ANTIGRAVITY_EFFORTS, copilot: COPILOT_EFFORTS }[p];
     own = { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
   }
   // Cursor's and Antigravity's models run only through their own services, so the endpoints' models are not theirs.

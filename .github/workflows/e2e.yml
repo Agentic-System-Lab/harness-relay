@@ -1,6 +1,6 @@
 name: End-to-end tests
 
-# The UI in a real browser against the real server (npm run test:e2e), with a fake for each of the ten
+# The UI in a real browser against the real server (npm run test:e2e), with a fake for each of the eleven
 # agent CLIs (e2e/fake-cli/), on Linux, macOS and Windows: no agent is paid for and nothing signs in.
 # Below full access the open agents' fakes run in Harness Relay's own sandbox for real (Linux, macOS).
 on:

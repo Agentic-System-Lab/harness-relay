@@ -89,4 +89,10 @@ export interface CliFacts {
    * temp folder).
    */
   mcpEnvAdded?: readonly string[];
+  /**
+   * Whether its sign-in is asked of the CLI in an account's own folder (default true). Copilot is asked
+   * in a home of the question's own, with a copy of the account's sign-in state (`config.json`), so
+   * that what the account runs by itself when a session opens (its hooks) does not run for it.
+   */
+  statusInOwnFolder?: boolean;
 }

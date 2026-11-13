@@ -2,11 +2,11 @@
 
 # 端對端測試的情境
 
-端對端測試（`npm run test:e2e`）目前測到的情境，依功能分區列出。它們在真正的瀏覽器中（[Playwright](https://playwright.dev)）操作建置好的 UI，面對真正的伺服器，十個 agent CLI 則各有一個假的代替（Claude Code、Codex、Grok、Cursor、Antigravity，以及五個開源 agent：OpenCode、Goose、Cline、OpenHands 與 Pi），所以不連網路、不花費用，在 macOS、Linux 與 Windows 上的執行方式也一樣，只差在各系統的沙箱允許什麼（見[平台與瀏覽器](#平台與瀏覽器)）。
+端對端測試（`npm run test:e2e`）目前測到的情境，依功能分區列出。它們在真正的瀏覽器中（[Playwright](https://playwright.dev)）操作建置好的 UI，面對真正的伺服器，十一個 agent CLI 則各有一個假的代替（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot，以及五個開源 agent：OpenCode、Goose、Cline、OpenHands 與 Pi），所以不連網路、不花費用，在 macOS、Linux 與 Windows 上的執行方式也一樣，只差在各系統的沙箱允許什麼（見[平台與瀏覽器](#平台與瀏覽器)）。
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 29 個 spec 檔、326 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 29 個 spec 檔、348 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -22,14 +22,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 每個測試一開始有什麼
 
-- **自己的伺服器**：使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini` 與 `.config/cursor`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡，git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
+- **自己的伺服器**：使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini`、`.copilot` 與 `.config/cursor`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡，git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
 - **自己的假模型端點**：一個小 HTTP 伺服器，設成模型來源 `e2e`（**設定 → 模型來源**，Settings → Model backends），有 `e2e-model` 與 `e2e-model-mini` 兩個模型，每個開源 agent 的預設模型都設成 `e2e/e2e-model`，所以開源 agent 都已安裝且可使用（OpenHands 的終端機開關也已打開）。那裡沒有模型會回答：它只列出自己的模型，並收下在 Harness Relay 自己的沙箱裡執行的假 CLI 送來的紀錄。測試可以不要它（`openBackend: false`）、關掉 OpenHands 的開關（`sandboxTerminal: false`），或讓某些 CLI 未安裝（`missingClis`）。
 - **一個工作目錄**，裡面是一個小專案：`README.md`、`src/hello.ts` 與 `src/lib/math.ts`（`seedProject()`）。需要其他資料夾的測試會在它旁邊新增（`relay.addProject()`）。
 - **已登入的瀏覽器頁面**：用一組新的一次性代碼登入，使用導覽已完成，介面為英文（[`fixtures.ts`](fixtures.ts)）。測試可用 `test.use()` 改變這些：`lang: 'zh-TW'`、`signIn: false`、`tour: true`，或給伺服器更多環境變數（`serverEnv`）。
-- **假的 CLI**（[`fake-cli/`](fake-cli/)），十個 CLI 各一個，說各 CLI 的協定，回答 `Hello from <名稱> (<CLI>). You said: “<使用者最新的訊息>”.`。測試用訊息中的 `e2e:` 指令操控它們（`e2e:write=notes.md`、`e2e:approve`、`e2e:slow`…）。假 CLI 總是會嘗試指令要求的事，成不成功只取決於 Harness Relay 給了 CLI 什麼（權限、參數與設定、沙箱、資料夾，以及它的核准請求得到的回答），所以在不該寫的地方寫檔的測試，能看出轉接器有沒有把 CLI 設定對。Claude Code、Codex 與 Grok 的假 CLI 自己推算它們 CLI 的沙箱會允許什麼；沒有沙箱的 Cursor 與 Antigravity，假 CLI 像真正的一樣先詢問；開源 agent 的假 CLI 則真的寫檔、真的連線，所以在完全存取以外，不屬於它們的事由 Harness Relay 自己的沙箱本身拒絕（在 macOS 與 Linux 上）。在沙箱裡的假 CLI 無法寫入假 CLI 的紀錄檔，所以把紀錄送到假模型端點。
+- **假的 CLI**（[`fake-cli/`](fake-cli/)），十一個 CLI 各一個，說各 CLI 的協定，回答 `Hello from <名稱> (<CLI>). You said: “<使用者最新的訊息>”.`。測試用訊息中的 `e2e:` 指令操控它們（`e2e:write=notes.md`、`e2e:approve`、`e2e:slow`…）。假 CLI 總是會嘗試指令要求的事，成不成功只取決於 Harness Relay 給了 CLI 什麼（權限、參數與設定、沙箱、資料夾，以及它的核准請求得到的回答），所以在不該寫的地方寫檔的測試，能看出轉接器有沒有把 CLI 設定對。Claude Code、Codex、Grok 與 Copilot 的假 CLI 自己推算它們 CLI 的沙箱會允許什麼；沒有沙箱的 Cursor 與 Antigravity，假 CLI 像真正的一樣先詢問；開源 agent 的假 CLI 則真的寫檔、真的連線，所以在完全存取以外，不屬於它們的事由 Harness Relay 自己的沙箱本身拒絕（在 macOS 與 Linux 上）。在沙箱裡的假 CLI 無法寫入假 CLI 的紀錄檔，所以把紀錄送到假模型端點。
 - **假的 `gh`**（[`fake-cli/fake-gh.cjs`](fake-cli/fake-gh.cjs)），用於分享與問題回報的截圖：它把 gist 存在測試自己的資料夾（`fake-github/`），從不送到 GitHub；`E2E_FAKE_SIGNED_OUT=gh` 會讓它處於未登入狀態。Linux 上還有假的選擇資料夾視窗（`zenity`）。AgentsView 則是 [`specs/sessions.spec.ts`](specs/sessions.spec.ts) 裡的一個小 HTTP 伺服器，因為 Harness Relay 只會送請求給它。
 
-下面的表格中，CLI 欄寫出測試用哪些 CLI 執行：「**各一**」表示十個 CLI 各跑一次；「**有登入的各一**」表示 Claude Code、Codex、Grok、Cursor 與 Antigravity 各跑一次；「**開源 agent 各一**」表示 OpenCode、Goose、Cline、OpenHands 與 Pi 各跑一次；「**兩個團隊**」表示測試跑兩次，一次是有登入的五個組成的團隊，一次是五個開源 agent 組成的團隊（這時標題以 `open agents:` 開頭）。某個 CLI 只能以完全存取執行的地方（Windows 上的開源 agent、Linux 上的 OpenCode），與權限有關的測試會跳過它並說明原因，其他測試則以完全存取執行它。
+下面的表格中，CLI 欄寫出測試用哪些 CLI 執行：「**各一**」表示十一個 CLI 各跑一次；「**有登入的各一**」表示 Claude Code、Codex、Grok、Cursor、Antigravity 與 Copilot 各跑一次；「**開源 agent 各一**」表示 OpenCode、Goose、Cline、OpenHands 與 Pi 各跑一次；「**兩個團隊**」表示測試跑兩次，一次是有登入的六個組成的團隊，一次是五個開源 agent 組成的團隊（這時標題以 `open agents:` 開頭）。某個 CLI 只能以完全存取執行的地方（Windows 上的開源 agent、Linux 上的 OpenCode），與權限有關的測試會跳過它並說明原因，其他測試則以完全存取執行它。
 
 ## 分區
 
@@ -40,22 +40,22 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 3 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 3 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
-| [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 11 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
-| [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 47 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
-| [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 11 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
-| [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 33 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
-| [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 18 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
-| [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 30 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
-| [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 16 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
-| [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 28 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
+| [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 12 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
+| [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 51 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
+| [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 12 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
+| [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 36 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
+| [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 19 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
+| [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 32 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
+| [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
+| [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 31 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 14 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 5 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 7 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[搜尋](../docs/user-guide.zh-TW.md#搜尋) |
 | [排程](#排程) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [使用者說明 → 排程](../docs/user-guide.zh-TW.md#排程)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
-| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 11 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
+| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 12 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) | [`windows.spec.ts`](specs/windows.spec.ts) | 4 | [架構 → CLI 轉接器](../docs/architecture.zh-TW.md#cli-轉接器) |
-| [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 26 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
+| [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 31 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
 | [各 CLI 自己載入的內容，以及 Grok 的信任](#各-cli-自己載入的內容以及-grok-的信任) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [使用者說明 → 各 CLI 自己載入的內容](../docs/user-guide.zh-TW.md#各-cli-自己載入的內容)、[架構 → 各 CLI 自己載入的內容](../docs/architecture.zh-TW.md#各-cli-自己載入的內容) |
 | [Agent 的 session 與 AgentsView](#agent-的-session-與-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 9 | [使用者說明 → Agent 的 session](../docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)、[架構 → Agent 的家目錄與 AgentsView](../docs/architecture.zh-TW.md#agent-的家目錄與-agentsview) |
 | [語音輸入的安裝](#語音輸入的安裝) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [使用者說明 → 語音輸入](../docs/user-guide.zh-TW.md#語音輸入)、[架構 → 語音輸入](../docs/architecture.zh-TW.md#語音輸入) |
@@ -104,7 +104,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 首席 agent 提議團隊，確認後團隊回答 | Claude Code | 團隊卡片寫出團隊、理由與成員；按**確認團隊**（Confirm team）後，回答帶著它的 CLI 標籤；對話以第一個問題列在側邊欄，回答存成已完成。 |
 | 不詢問直接採用首席 agent 組的團隊 | Claude Code | 卡片寫著**已直接採用**（Used without asking），團隊不必等待就回答。 |
-| 所有 CLI 組成的團隊依序回答 | 兩個團隊 | 每位成員帶著自己 CLI 的標籤回答，依圓桌順序：Claude Code、Codex、Grok、Cursor、Antigravity；以及 OpenCode、Goose、Cline、OpenHands、Pi（團隊裡有在這裡只能以完全存取執行的 CLI 時，對話以完全存取執行）。 |
+| 所有 CLI 組成的團隊依序回答 | 兩個團隊 | 每位成員帶著自己 CLI 的標籤回答，依圓桌順序，每個團隊最多五位，因為首席 agent 不會設計更大的團隊：Claude Code、Codex、Grok、Cursor、Antigravity，接著 Copilot 在它自己的對話中；以及 OpenCode、Goose、Cline、OpenHands、Pi（團隊裡有在這裡只能以完全存取執行的 CLI 時，對話以完全存取執行）。 |
 | 追問時再組一次團隊 | Claude Code、Codex | 第二個問題有自己的團隊，只有那位成員回答。 |
 
 ## 範本
@@ -134,7 +134,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 為成員選的模型與推理強度以 `--model` 與 `--effort` 交給 Claude Code | Claude Code | `opus` 與 High 存在成員上，它的回合拿到 `--model opus --effort high`。 |
-| 為成員選的模型與推理強度會交給它的 CLI | Claude Code 以外各一 | CLI 自己清單裡的模型（`codex debug models`、`grok models`、Cursor 與 Antigravity 列出的那些；開源 agent 的則來自它的模型來源：假端點的 `e2e/e2e-model-mini`）與它為這個模型提供的推理強度存在成員上，假 CLI 記下回合以它們執行，依轉接器交給它的方式（Codex 的 `thread/start` 參數、Grok 在 prompt 之前的 `session/set_config_option`…），以及 CLI 自己的名稱（OpenCode 與 Pi 的 `relay-e2e/e2e-model-mini`、OpenHands 的 `openai/e2e-model-mini`）。OpenCode 對這個模型不提供推理強度，所以不會存下；Goose 用於端點的 provider 只提供 `off`，它的回合就以 `off` 執行。 |
+| 為成員選的模型與推理強度會交給它的 CLI | Claude Code 以外各一 | CLI 自己清單裡的模型（`codex debug models`、`grok models`、Cursor、Antigravity 與 Copilot 列出的那些；開源 agent 的則來自它的模型來源：假端點的 `e2e/e2e-model-mini`）與它為這個模型提供的推理強度存在成員上，假 CLI 記下回合以它們執行，依轉接器交給它的方式（Codex 的 `thread/start` 參數、Grok 在 prompt 之前的 `session/set_config_option`、Copilot 的 `--model` 與 `--reasoning-effort`…），以及 CLI 自己的名稱（OpenCode 與 Pi 的 `relay-e2e/e2e-model-mini`、OpenHands 的 `openai/e2e-model-mini`）。OpenCode 對這個模型不提供推理強度，所以不會存下；Goose 用於端點的 provider 只提供 `off`，它的回合就以 `off` 執行。 |
 | 設定中的預設模型與推理強度，就是保留「預設」的成員執行時用的 | Claude Code | 把 sonnet 與 Low 存成預設後，抽屜顯示「Default: sonnet」，成員仍是預設，它的回合拿到 `--model sonnet --effort low`。 |
 
 ## 成員如何輪流發言
@@ -161,17 +161,17 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 思考、工具呼叫與待辦清單和回答一起顯示 | 各一 | 這些步驟收合成列；展開後可看到思考、CLI 自己列出工作目錄的工具已完成與它的輸出（Claude 的 `Bash`、Codex 的 `Shell`、Grok 的 `list_dir`、Cursor 與 Antigravity 的 `Read`、OpenCode 的 `glob`、Goose 的 `tree`、Cline 的 `read_files`、OpenHands 的 `file_editor`、Pi 的 `List`，完全存取時是 `Bash`），以及三項中完成一項、進行中一項的待辦清單（Cline 與 Pi 沒有待辦清單可顯示）。 |
+| 思考、工具呼叫與待辦清單和回答一起顯示 | 各一 | 這些步驟收合成列；展開後可看到思考、CLI 自己列出工作目錄的工具已完成與它的輸出（Claude 的 `Bash`、Codex 的 `Shell`、Grok 的 `list_dir`、Cursor、Antigravity 與 Copilot 的 `Read`、OpenCode 的 `glob`、Goose 的 `tree`、Cline 的 `read_files`、OpenHands 的 `file_editor`、Pi 的 `List`，完全存取時是 `Bash`），以及三項中完成一項、進行中一項的待辦清單（Cline 與 Pi 沒有待辦清單可顯示）。 |
 | Markdown 回答會轉成格式 | Claude Code | 標題、清單、表格與上色的程式碼。 |
 
 ## 核准
 
-[`approvals.spec.ts`](specs/approvals.spec.ts)：在會詢問使用者的對話中，agent 想執行指令（`echo e2e-approval`）。除了 Pi 之外都是唯讀對話：Pi 在唯讀時沒有執行指令的工具，所以在編輯模式下，針對那裡唯一會詢問的那種指令詢問（`npm publish e2e-approval`，用 `e2e:approve=publish`）。Goose 要求執行的是 `env echo e2e-approval`，因為在唯讀時 Harness Relay 讓它不詢問就執行 `echo` 這類單純讀取的指令。回答會交給各 CLI 自己的請求：Claude Code 的 `can_use_tool`、Codex 的核准請求、ACP agent 的 `session/request_permission`（Grok、Cursor、Antigravity、OpenCode、Goose、Cline、OpenHands），以及 Pi 的 gate 擴充功能的對話框。
+[`approvals.spec.ts`](specs/approvals.spec.ts)：在會詢問使用者的對話中，agent 想執行指令（`echo e2e-approval`）。除了 Pi 與 Copilot 之外都是唯讀對話：Pi 在唯讀時沒有執行指令的工具，Copilot 不詢問就執行 `echo`（它把它當成唯讀指令），所以它們在編輯模式下，針對那裡唯一會詢問的那種指令詢問（`npm publish e2e-approval`，用 `e2e:approve=publish`）。Goose 要求執行的是 `env echo e2e-approval`，因為在唯讀時 Harness Relay 讓它不詢問就執行 `echo` 這類單純讀取的指令。回答會交給各 CLI 自己的請求：Claude Code 的 `can_use_tool`、Codex 的核准請求、ACP agent 的 `session/request_permission`（Grok、Cursor、Antigravity、Copilot、OpenCode、Goose、Cline、OpenHands），以及 Pi 的 gate 擴充功能的對話框。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 使用者允許的指令會執行 | 各一 | 卡片顯示指令，側邊欄顯示**等你核准**（Needs you）；按**允許**（Allow）後指令執行，卡片顯示已允許。CLI 只能以完全存取執行的地方跳過。 |
-| 使用者拒絕的指令不會執行，附註會一起交給它 | 各一 | 卡片顯示「Declined: Not now」。Claude Code、Grok、OpenCode、Goose 與 Pi 拒絕時會收到附註；Codex 的回答沒有附註的位置，Cursor、Cline 與 OpenHands 則丟掉附註（回答只說指令被拒絕）；Antigravity 一被拒絕就結束它的回合，回答只說明這一點，不再多說。CLI 只能以完全存取執行的地方跳過。 |
+| 使用者拒絕的指令不會執行，附註會一起交給它 | 各一 | 卡片顯示「Declined: Not now」。Claude Code、Grok、OpenCode、Goose 與 Pi 拒絕時會收到附註；Codex 的回答沒有附註的位置，Cursor、Cline 與 OpenHands 則丟掉附註（回答只說指令被拒絕）；Antigravity 與 Copilot 一被拒絕就結束它們的回合，回答只說明這一點，不再多說。CLI 只能以完全存取執行的地方跳過。 |
 | 「本對話都允許」讓下一次同樣的請求自動通過 | Claude Code | 第二次請求自動允許，沒有卡片。 |
 | 請求等待時停止團隊，指令不會執行 | Claude Code | 回答以「(stopped)」結束，請求被拒絕或沒有回答。 |
 | 完全存取時，指令直接執行，也能不詢問就寫到任何地方 | 各一 | 標題列警告**完全存取**（Full access）；指令執行，檔案寫到另一個資料夾，沒有卡片（在每個系統上都一樣：完全存取的 CLI 外面沒有沙箱）。 |
@@ -184,7 +184,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 編輯模式下 agent 修改檔案，聊天中顯示改了什麼 | Claude Code | 檔案在工作目錄裡，工作目錄也變成 git repository；變更卡片列出它，並能打開這一回合的 diff。 |
-| 唯讀對話中不會寫入任何檔案 | 各一 | Claude Code 與 Pi 執行時沒有檔案工具，Cursor 的寫入被它自己的規則拒絕，都沒有卡片；其他的會詢問，然後被拒絕（Antigravity 接著結束它的回合）；沒有寫入檔案，也沒有變更卡片。CLI 只能以完全存取執行的地方跳過。（使用者允許的寫入仍然寫不進資料夾：見 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)。） |
+| 唯讀對話中不會寫入任何檔案 | 各一 | Claude Code 與 Pi 執行時沒有檔案工具，Cursor 的寫入被它自己的規則拒絕，都沒有卡片；其他的會詢問，然後被拒絕（Antigravity 與 Copilot 接著結束它們的回合）；沒有寫入檔案，也沒有變更卡片。CLI 只能以完全存取執行的地方跳過。（使用者允許的寫入仍然寫不進資料夾：見 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)。） |
 | 自動拒絕的唯讀對話中，Grok 說明原因 | Grok | 工具的錯誤寫著唯讀模式下不允許。 |
 | 每個 CLI 都能在編輯模式寫檔，每一回合各自記下變更 | 兩個團隊 | 每位成員寫自己的檔案（`<cli>.txt`），每則回答的變更卡片都列出它。在這裡只能以完全存取執行的 CLI，在自己的對話中以完全存取執行。 |
 | 平行模式中每位成員在自己的 worktree 工作，可以套用其中一份結果 | Claude Code、Codex | 兩張變更卡片都寫著「in worktree」，工作目錄裡什麼都沒有，直到按**套用到工作目錄**（Apply to working directory）帶進 Codex 的檔案。 |
@@ -198,8 +198,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 編輯模式下，對話沒有的資料夾碰不到 | 各一（Grok 不在 Windows 上） | 自動拒絕時，隔壁的資料夾不會寫入任何東西：有登入的 CLI 會詢問，然後被拒絕（Antigravity 接著結束它的回合）；開源 agent 不詢問就寫，由 Harness Relay 自己的沙箱拒絕。CLI 只能以完全存取執行的地方跳過；Grok 在原生 Windows 上沒有沙箱，所以那裡也跳過。 |
-| 寫到對話沒有的資料夾前先詢問，使用者允許後才寫 | Claude Code、Codex、Cursor、Antigravity | 在「想修改檔案」卡片按**允許**，檔案就寫在那裡。Grok 不在其中，因為它的沙箱照樣會拒絕；開源 agent 也不在其中，因為沒有任何回答能放寬它們的沙箱。 |
+| 編輯模式下，對話沒有的資料夾碰不到 | 各一（Grok 不在 Windows 上） | 自動拒絕時，隔壁的資料夾不會寫入任何東西：Copilot 以外有登入的 CLI 會詢問，然後被拒絕（Antigravity 接著結束它的回合）；Copilot 的寫入由它自己的沙箱不詢問就拒絕，它的回合繼續；開源 agent 不詢問就寫，由 Harness Relay 自己的沙箱拒絕。CLI 只能以完全存取執行的地方跳過；Grok 在原生 Windows 上沒有沙箱，所以那裡也跳過。 |
+| 寫到對話沒有的資料夾前先詢問，使用者允許後才寫 | Claude Code、Codex、Cursor、Antigravity | 在「想修改檔案」卡片按**允許**，檔案就寫在那裡。Grok 不在其中，因為它的沙箱照樣會拒絕；Copilot 也不在其中，因為它的沙箱不詢問就拒絕；開源 agent 也不在其中，因為沒有任何回答能放寬它們的沙箱。 |
 | 在輸入框加入與移除資料夾，對話在所有資料夾中工作 | Claude Code | 在**工作目錄**（Working directories）輸入的資料夾變成標籤，也能移除；對話存下留下的資料夾，agent 在第一個與第二個寫檔，被移除的沒有。 |
 | 各 CLI 在每個資料夾寫檔，變更卡片依資料夾列出 | 各一 | 兩個資料夾各一個檔案：卡片寫著「Changed 2 files」，每個資料夾一組，diff 兩個都有。Cursor 寫入第二個資料夾前會詢問，並得到允許。 |
 | 檔案瀏覽器列出每個工作目錄 | Claude Code | **檔案**有**資料夾**（Folder）選單，列出兩個資料夾；第二個顯示它自己的檔案。 |
@@ -210,7 +210,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## Harness Relay 自己的沙箱
 
-[`sandbox.spec.ts`](specs/sandbox.spec.ts)：開源 agent 在完全存取以外執行時所在的沙箱（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)），以及沒有沙箱的地方 Harness Relay 怎麼做。開源 agent 的假 CLI 會真的寫檔、真的連到主機，所以它們不能做的事是由真正的沙箱拒絕，而不是假 CLI 自己。需要沙箱的測試只在沙箱能運作的地方執行（macOS，以及裝了 bubblewrap、socat 與 ripgrep 的 Linux），其他地方會跳過並說明原因；設定 `E2E_REQUIRE_RELAY_SANDBOX=1` 要求沙箱一定要能運作時（CI），則改為失敗。
+[`sandbox.spec.ts`](specs/sandbox.spec.ts)：開源 agent 在完全存取以外執行時所在的沙箱（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)），以及沒有沙箱、或 CLI 會自己執行專案設定的地方 Harness Relay 怎麼做。開源 agent 的假 CLI 會真的寫檔、真的連到主機，所以它們不能做的事是由真正的沙箱拒絕，而不是假 CLI 自己。需要沙箱的測試只在沙箱能運作的地方執行（macOS，以及裝了 bubblewrap、socat 與 ripgrep 的 Linux），其他地方會跳過並說明原因；設定 `E2E_REQUIRE_RELAY_SANDBOX=1` 要求沙箱一定要能運作時（CI），則改為失敗。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
@@ -219,6 +219,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在這裡只能以完全存取執行的開源 agent，在完全存取以外不會執行，並說明原因 | 開源 agent 各一 | 在 Windows 上（五個都是）與 Linux 上（OpenCode）：回答的錯誤說它只能以完全存取執行，它的 CLI 也從沒收到 prompt。能在完全存取以外執行的地方跳過。 |
 | OpenHands 在完全存取以外需要它的終端機開關 | OpenHands | 開關關掉時（`sandboxTerminal: false`），回答的錯誤說 OpenHands 在完全存取以外只能在沙箱裡有終端機時執行。只在 macOS：Linux 會給沙箱自己的終端機，Windows 則只以完全存取執行它。 |
 | agy 啟動前會先詢問專案自己的設定，拒絕後就不會啟動 | Antigravity | 工作目錄裡有 `.agents/mcp_config.json` 時，「想使用工具」卡片寫出它；拒絕後回合不會開始（錯誤說明原因），agy 也從沒收到 prompt。在每個系統上都執行：Antigravity 沒有沙箱。 |
+| Copilot 啟動前會先詢問專案的 hook，拒絕後就不會啟動，允許後這一輪就會執行 | Copilot | 工作目錄裡有 `.github/hooks/audit.json` 時，「想使用工具」卡片寫出它；拒絕後回合不會開始（錯誤說明原因），Copilot 也從沒收到 prompt；下一則訊息按**允許**後這一輪就會執行，假 CLI 也找到了它開啟 session 時會執行的 hook。在每個系統上都執行：不管沙箱（以及它的 `disableAllHooks`）如何，Copilot 都會自己執行專案的 hook。 |
 
 ## 除了 prompt 之外交給各 CLI 的東西
 
@@ -232,7 +233,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 工具庫
 
-[`tools.spec.ts`](specs/tools.spec.ts)：**設定 → 工具庫**，每個測試跑兩次：一次在有登入的五個 CLI 各一位成員的對話中，一次在五個開源 agent 各一位成員的對話中（`open agents: …`）。對某個 CLI 關掉項目、或對某位成員打開或關掉項目的測試，用的是團隊的第二與第三位成員（Codex 與 Grok；Goose 與 Cline）。
+[`tools.spec.ts`](specs/tools.spec.ts)：**設定 → 工具庫**，每個測試跑兩次：一次在有登入的六個 CLI 各一位成員的對話中，一次在五個開源 agent 各一位成員的對話中（`open agents: …`）。對某個 CLI 關掉項目、或對某位成員打開或關掉項目的測試，用的是團隊的第二與第三位成員（Codex 與 Grok；Goose 與 Cline）。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
@@ -278,7 +279,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在 UI 開始的對話保留一開始給的標題 | Claude Code | 第一個問題之後標題不變。 |
 | 拖進群組的對話會留在那裡，拖出來則回到「其他」 | — | 伺服器存下群組，重新載入後仍在；拖到「其他」後群組被清除，群組裡又顯示可以把對話拖到這裡。 |
 | 分支對話的家族在群組之間一起移動 | Codex | 拖動分支時，原本的對話跟著移動，分支仍在它底下；把原本的對話拖回來時兩個都回來。 |
-| 每個 CLI 的狀態點與可用數量排得進一行 | — | 十個 CLI 都已安裝且可用時（在傳到頁面的途中改掉伺服器的回答，「10/10 ready」），這一行沒有超出邊界，第一個點在設定的 ⚙ 正下方，箭頭的尖端對齊下方回報問題圖示的右緣；顯示名稱、箭頭轉向下時也一樣。 |
+| 每個 CLI 的狀態點與可用數量排得進一行 | — | 十一個 CLI 都已安裝且可用時（在傳到頁面的途中改掉伺服器的回答，「11/11 ready」），這一行沒有超出邊界，第一個點在設定的 ⚙ 正下方，箭頭的尖端對齊下方回報問題圖示的右緣；顯示名稱、箭頭轉向下時也一樣。 |
 
 ## 排程
 
@@ -294,7 +295,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 找到每個 CLI，顯示版本，且已登入 | 各一，同一個測試 | 每張卡片顯示 CLI 的版本，以及**已登入**（Claude Code 附帳號），開源 agent 在假端點上則是**可使用**（Ready）；側邊欄十個狀態點都正常（「10/10 ready」，開源 agent 的標題是「Model backends set up」）；要求時顯示它們的名稱，重新載入後仍保留。 |
+| 找到每個 CLI，顯示版本，且已登入 | 各一，同一個測試 | 每張卡片顯示 CLI 的版本，以及**已登入**（Claude Code 附帳號），開源 agent 在假端點上則是**可使用**（Ready）；側邊欄十一個狀態點都正常（「11/11 ready」，開源 agent 的標題是「Model backends set up」）；要求時顯示它們的名稱，重新載入後仍保留。 |
 | 未安裝的 CLI 在設定與側邊欄顯示未安裝 | Cursor、Antigravity | 設成未安裝（`missingClis`）：它們的狀態點與卡片顯示**未安裝**（Not installed）。 |
 | 沒有模型來源的開源 agent 還不能用，它的回合說明要先設定一個 | OpenCode | `openBackend: false`：狀態點寫著「No model backend yet」，卡片顯示**尚未就緒**（Not ready）與「No model backend set up yet (Settings → Model backends)」，回答的錯誤說 OpenCode 沒有模型。 |
 | 可以指定 CLI 的執行檔路徑，錯誤的路徑顯示找不到 | Grok | 不存在的路徑顯示**未安裝**（Not installed）；清空後又找到它。 |
@@ -314,16 +315,16 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 帳號
 
-[`accounts.spec.ts`](specs/accounts.spec.ts)：**設定 → 各 CLI 的卡片 → 新增帳號**，針對有自己登入的五個 CLI（開源 agent 沒有帳號：它們使用模型來源）。Cursor 與 Antigravity 新增的帳號只能用 API key 登入，由這些測試給它們。
+[`accounts.spec.ts`](specs/accounts.spec.ts)：**設定 → 各 CLI 的卡片 → 新增帳號**，針對有自己登入的六個 CLI（開源 agent 沒有帳號：它們使用模型來源）。Cursor 與 Antigravity 新增的帳號只能用 API key 登入，由這些測試給它們。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 新增的帳號有自己的資料夾，設定使用它的成員在那裡執行 | 有登入的各一 | 帳號放在 `<資料>/accounts/<cli>-<id>`，卡片上顯示這個資料夾，並在那裡登入（Cursor 與 Antigravity 用給它的 key：「Using an API key」）；使用它的成員以這個家目錄執行（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`、Cursor 的帳號資料夾、裡面 Antigravity 的 `.gemini`），使用預設帳號的成員則用預設的。 |
+| 新增的帳號有自己的資料夾，設定使用它的成員在那裡執行 | 有登入的各一 | 帳號放在 `<資料>/accounts/<cli>-<id>`，卡片上顯示這個資料夾，並在那裡登入（Cursor 與 Antigravity 用給它的 key：「Using an API key」；Copilot 的登入狀態在這次詢問自己的家目錄中詢問，放在資料資料夾的 `tmp` 裡，帶著帳號登入狀態的副本）；使用它的成員以這個家目錄執行（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`、Cursor 的帳號資料夾、裡面 Antigravity 的 `.gemini`、Copilot 這次執行自己的家目錄，它的 session 連到那個資料夾），使用預設帳號的成員則用預設的。 |
 | 每個帳號各自登入與登出 | Claude Code | **登出**只在新增帳號的家目錄執行 `auth logout`；**登入**走 CLI 自己的流程（一個連結，再貼上代碼），之後顯示這個帳號已登入。 |
-| 登出新增的帳號，只會登出那個帳號 | Codex、Grok | `logout` 只在那個帳號的資料夾執行；它的卡片顯示**未登入**，預設帳號仍然登入。 |
-| 金鑰儲存區關閉時，帳號的 API key 存在資料庫、遮蔽顯示，並只交給它的 CLI | Claude Code、Grok、Cursor、Antigravity | API key 欄位說明金鑰存在哪裡（只能用 key 登入的帳號，欄位一開始就展開）；儲存後顯示遮蔽的值與「Using an API key」，`/api/settings` 裡從沒有它；那個帳號的執行拿到它（`ANTHROPIC_API_KEY`、`XAI_API_KEY`、`CURSOR_API_KEY`、`GEMINI_API_KEY`），不在任何參數裡，預設帳號的執行則沒有。 |
+| 登出新增的帳號，只會登出那個帳號 | Codex、Grok、Copilot | `logout`（Copilot 的透過 ACP）只在那個帳號的資料夾執行；它的卡片顯示**未登入**，預設帳號仍然登入。 |
+| 金鑰儲存區關閉時，帳號的 API key 存在資料庫、遮蔽顯示，並只交給它的 CLI | Claude Code、Grok、Cursor、Antigravity、Copilot | API key 欄位說明金鑰存在哪裡（只能用 key 登入的帳號，欄位一開始就展開）；儲存後顯示遮蔽的值與「Using an API key」，`/api/settings` 裡從沒有它；那個帳號的執行拿到它（`ANTHROPIC_API_KEY`、`XAI_API_KEY`、`CURSOR_API_KEY`、`GEMINI_API_KEY`、`COPILOT_GITHUB_TOKEN`），不在任何參數裡，預設帳號的執行則沒有。 |
 | 帳號的 API key 用 Codex 自己的登入讓那個帳號登入 | Codex | Codex 不從環境變數拿 key：key 經由 stdin 交給只在那個帳號資料夾執行的 `codex login --with-api-key`，Harness Relay 不保存它，只有那個帳號的執行拿得到。 |
-| 啟動 Harness Relay 時帶的 API key 只屬於預設帳號 | 有登入的各一 | 伺服器自己環境中的 key（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`XAI_API_KEY`、`CURSOR_API_KEY`、`GEMINI_API_KEY`）會交給預設帳號的回合，不會交給新增的帳號（Cursor 與 Antigravity 新增的帳號用自己的 key）。 |
+| 啟動 Harness Relay 時帶的 API key 只屬於預設帳號 | 有登入的各一 | 伺服器自己環境中的 key（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`XAI_API_KEY`、`CURSOR_API_KEY`、`GEMINI_API_KEY`、`COPILOT_GITHUB_TOKEN`）會交給預設帳號的回合，不會交給新增的帳號（Cursor 與 Antigravity 新增的帳號用自己的 key）。 |
 | 移除新增的帳號會登出它並刪除它的資料夾，它的成員與首席 agent 改用預設帳號 | 有登入的各一 | 確認時寫出資料夾；帳號在那裡登出（只能用 key 登入的帳號沒有東西要登出），之後資料夾與其中的 session 都刪除；首席 agent 回到預設帳號；成員的下一回合在預設的家目錄、以新的 session 執行。 |
 | 在 CLI 狀態的回答還在路上時新增帳號，保留較新回答的狀態 | Claude Code | 頁面的下一個狀態回答被擋到帳號新增之後（`page.route`）：這個較舊、沒有該帳號的回答最後才到時，帳號的狀態仍是**已登入**，不會變回「檢查中…」。 |
 | 在 Harness Relay 以外登出的 CLI，重新打開設定時會顯示出來 | Claude Code | 在它的家目錄登出（就像在終端機執行 `claude auth logout`），而伺服器的快取仍說已登入。重新打開時，設定再檢查一次，app 則拿到快取的回答，這個回答被擋到（`page.route`）設定自己的回答之後：最後才到也不會勝出，狀態顯示**未登入**。 |
@@ -418,35 +419,35 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 各 CLI 一覽
 
-每個 CLI 都測到的情境（大多是每個 CLI 一個測試，其餘用五個 CLI 組成的團隊），所以某個轉接器的改變會在這裡看出來。有自己登入的 CLI：
+每個 CLI 都測到的情境（大多是每個 CLI 一個測試，其餘用表格中的 CLI 組成的團隊），所以某個轉接器的改變會在這裡看出來。有自己登入的 CLI：
 
-| 情境 | Claude Code | Codex | Grok | Cursor | Antigravity |
-| --- | --- | --- | --- | --- | --- |
-| 思考、工具呼叫與待辦清單 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 允許指令，以及附註後拒絕 | ✓ | ✓（沒有附註） | ✓ | ✓（丟掉附註） | ✓（被拒絕就結束回合） |
-| 完全存取：不詢問就執行並寫到任何地方 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 唯讀對話不寫入任何檔案 | ✓（沒有檔案工具） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕） | ✓（被自己的規則拒絕，沒有卡片） | ✓（詢問後被拒絕；結束回合） |
-| 對話沒有的資料夾碰不到 | ✓（詢問後被拒絕） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕；不在 Windows 上） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕；結束回合） |
-| 使用者允許後寫到那裡 | ✓ | ✓ | —（它的沙箱會拒絕） | ✓ | ✓ |
-| 多個工作目錄：每個都寫一個檔案 | ✓ | ✓ | ✓ | ✓（第二個先詢問） | ✓ |
-| 工具庫的 MCP 伺服器，秘密不在命令列上 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | —（不提供） |
-| 附加的圖片 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 下一回合接續自己的 session | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 設定中的版本與登入，以及未登入 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 在設定與側邊欄顯示未安裝 | — | — | ✓（錯誤的執行檔路徑） | ✓ | ✓ |
-| 成員的模型與推理強度 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 在五個組成的團隊中：依序回答、編輯模式的變更、工具庫、各 CLI 存放 session 的資料夾 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 列出它自己的 skill，並在下一次執行時不載入 | ✓ | ✓ | ✓（信任資料夾之後） | — | — |
-| 新增帳號自己的家目錄 | ✓ | ✓ | ✓ | ✓（用它的 API key） | ✓（用它的 API key） |
-| 新增的帳號各自登出 | ✓ | ✓ | ✓ | —（只用 key） | —（只用 key） |
-| 帳號的 API key 只交給那個帳號 | ✓ | ✓（透過 `codex login`） | ✓ | ✓ | ✓ |
-| 伺服器自己的 API key 只交給預設帳號 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 移除新增的帳號 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| CLI 啟動前先詢問專案自己的設定 | — | — | — | — | ✓ |
-| 在 Windows 上透過 `.cmd` 啟動器啟動 | — | — | — | ✓（它自己的） | — |
-| 它在 AgentsView 中的 session，放在對話的討論串底下 | ✓ | ✓ | — | ✓（由 Harness Relay 記下） | — |
+| 情境 | Claude Code | Codex | Grok | Cursor | Antigravity | Copilot |
+| --- | --- | --- | --- | --- | --- | --- |
+| 思考、工具呼叫與待辦清單 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 允許指令，以及附註後拒絕 | ✓ | ✓（沒有附註） | ✓ | ✓（丟掉附註） | ✓（被拒絕就結束回合） | ✓（編輯模式下的 `npm publish`；被拒絕就結束回合） |
+| 完全存取：不詢問就執行並寫到任何地方 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 唯讀對話不寫入任何檔案 | ✓（沒有檔案工具） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕） | ✓（被自己的規則拒絕，沒有卡片） | ✓（詢問後被拒絕；結束回合） | ✓（詢問後被拒絕；結束回合） |
+| 對話沒有的資料夾碰不到 | ✓（詢問後被拒絕） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕；不在 Windows 上） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕；結束回合） | ✓（它的沙箱不詢問就拒絕） |
+| 使用者允許後寫到那裡 | ✓ | ✓ | —（它的沙箱會拒絕） | ✓ | ✓ | —（它的沙箱不詢問就拒絕） |
+| 多個工作目錄：每個都寫一個檔案 | ✓ | ✓ | ✓ | ✓（第二個先詢問） | ✓ | ✓ |
+| 工具庫的 MCP 伺服器，秘密不在命令列上 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | —（不提供） | ✓ |
+| 附加的圖片 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 下一回合接續自己的 session | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 設定中的版本與登入，以及未登入 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 在設定與側邊欄顯示未安裝 | — | — | ✓（錯誤的執行檔路徑） | ✓ | ✓ | — |
+| 成員的模型與推理強度 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 在六個組成的團隊中：依序回答（照首席 agent 設計的方式五人一組）、編輯模式的變更、工具庫、各 CLI 存放 session 的資料夾 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 列出它自己的 skill，並在下一次執行時不載入 | ✓ | ✓ | ✓（信任資料夾之後） | — | — | — |
+| 新增帳號自己的家目錄 | ✓ | ✓ | ✓ | ✓（用它的 API key） | ✓（用它的 API key） | ✓（登入狀態在它自己的家目錄中詢問） |
+| 新增的帳號各自登出 | ✓ | ✓ | ✓ | —（只用 key） | —（只用 key） | ✓（透過 ACP） |
+| 帳號的 API key 只交給那個帳號 | ✓ | ✓（透過 `codex login`） | ✓ | ✓ | ✓ | ✓ |
+| 伺服器自己的 API key 只交給預設帳號 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 移除新增的帳號 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| CLI 啟動前先詢問專案自己的設定 | — | — | — | — | ✓ | ✓（它專案的 hook） |
+| 在 Windows 上透過 `.cmd` 啟動器啟動 | — | — | — | ✓（它自己的） | — | — |
+| 它在 AgentsView 中的 session，放在對話的討論串底下 | ✓ | ✓ | — | ✓（由 Harness Relay 記下） | — | — |
 
 開源 agent，在完全存取以外於 Harness Relay 自己的沙箱中執行：
 
@@ -481,21 +482,22 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli)只在 Windows 上執行。
 - 選擇資料夾視窗的測試只在 Linux 上執行：Linux 從 PATH 找它的視窗，假的視窗可以替代；macOS 與 Windows 以完整路徑開啟自己的視窗。
 - 「對話沒有的資料夾碰不到」在 Windows 上跳過 Grok，因為它在那裡沒有沙箱（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md)）。
+- Copilot 在 macOS、Linux 與 Windows 上都以完全存取以外的權限執行，就像它自己的沙箱一樣：它的假 CLI 遵守這次執行的設定給的政策，所以它的測試不需要執行測試的電腦上有沙箱。
 - [在手機上](#在手機上)在 Firefox 中跳過。
 - [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」則在 Windows 上跳過。
 - [回報問題](#回報問題)中讀取郵件連結的三個測試，在沒有 Navigation API 的瀏覽器中跳過。
 
 ## 沒有測到的部分
 
-- **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現。
-- **CLI 自己的沙箱。**Claude Code、Codex 與 Grok 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。
+- **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts`、`test/copilot.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現。
+- **CLI 自己的沙箱。**Claude Code、Codex、Grok 與 Copilot 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼（Copilot 的從這次執行的設定推算，並且像 Copilot 那樣，用這些設定給的政策回答 `/sandbox policy`）；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。
 - **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。
-- **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex、Grok、Cursor 與 Antigravity（它們自己的登入流程），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
+- **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity 與 Copilot（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試
 
-[`live/`](live/) 裡是第二套測試，`npm run test:e2e:live`，設定是 [`playwright.live.config.ts`](../playwright.live.config.ts)：真正的 CLI，用你自己的登入，跑在真正的模型上，所以會花一點費用，也從不在 CI 上執行，不算在上面的數量裡。它預設試用全部十個 CLI，環境沒有提供某個測試需要的東西時（一個端點，或各 CLI 自己的雲端模型所需的 `E2E_LIVE_CLOUD=1`），那個測試就會跳過：在 Mac 上，有一個端點時是三個檔案、40 個測試，再加上雲端模型時是 47 個（每個 `E2E_LIVE_MODEL_<CLI>` 再多一個；什麼都沒設定時列出 16 個，全部跳過）。它們涵蓋：每個 CLI 用在「團隊設定」中選的端點模型、在設定中把 CLI 的預設模型設為某個端點的模型、有登入的五個 CLI 自己的雲端模型（Claude Code、Codex、Grok、Cursor 與 Antigravity 的）、成員用的端點被刪除、替端點手動輸入的模型、原生 Windows 上權限低於完全存取的開源 agent、雲端與本機模型一起組成的團隊、每個 CLI 用它的 shell 在對話的兩個工作目錄中各寫一個檔案（用端點的模型，有登入的五個也用它們自己的模型）、Cursor 用自己的檔案工具寫入第二個工作目錄、Antigravity 在指令被拒絕時結束它的回合，以及啟動前先詢問專案自己的 MCP 伺服器，還有每個 CLI 在完全存取以外都不會寫到對話的資料夾之外。執行方式見開發者說明的[實機測試](../docs/developer-guide.zh-TW.md#實機測試)。
+[`live/`](live/) 裡是第二套測試，`npm run test:e2e:live`，設定是 [`playwright.live.config.ts`](../playwright.live.config.ts)：真正的 CLI，用你自己的登入，跑在真正的模型上，所以會花一點費用，也從不在 CI 上執行，不算在上面的數量裡。它預設試用全部十一個 CLI，環境沒有提供某個測試需要的東西時（一個端點，或各 CLI 自己的雲端模型所需的 `E2E_LIVE_CLOUD=1`），那個測試就會跳過：在 Mac 上，有一個端點時是三個檔案、47 個測試，再加上雲端模型時是 55 個（每個 `E2E_LIVE_MODEL_<CLI>` 再多一個；什麼都沒設定時列出 20 個，全部跳過）。它們涵蓋：每個 CLI 用在「團隊設定」中選的端點模型、在設定中把 CLI 的預設模型設為某個端點的模型、有登入的六個 CLI 自己的雲端模型（Claude Code、Codex、Grok、Cursor、Antigravity 與 Copilot 的）、成員用的端點被刪除、替端點手動輸入的模型、原生 Windows 上權限低於完全存取的開源 agent、雲端與本機模型一起組成的團隊、每個 CLI 用它的 shell 在對話的兩個工作目錄中各寫一個檔案（用端點的模型，有登入的六個也用它們自己的模型）、Cursor 用自己的檔案工具寫入第二個工作目錄、Antigravity 在指令被拒絕時結束它的回合，以及啟動前先詢問專案自己的 MCP 伺服器、Copilot 同樣在指令被拒絕時結束回合，以及啟動前先詢問專案自己的 hook，還有每個 CLI 在完全存取以外都不會寫到對話的資料夾之外。執行方式見開發者說明的[實機測試](../docs/developer-guide.zh-TW.md#實機測試)。
 
 ## 相關文件
 

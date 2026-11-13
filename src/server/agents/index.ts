@@ -3,6 +3,7 @@ import { antigravityRunner } from './antigravity';
 import { claudeRunner } from './claude';
 import { clineAgent } from './cline';
 import { codexRunner } from './codex';
+import { copilotRunner } from './copilot';
 import { cursorRunner } from './cursor';
 import { gooseAgent } from './goose';
 import { grokRunner } from './grok';
@@ -27,6 +28,7 @@ export const runners: Record<Provider, AgentRunner> = {
   grok: grokRunner,
   cursor: cursorRunner,
   antigravity: antigravityRunner,
+  copilot: copilotRunner,
   opencode: opencodeAgent.runner,
   goose: gooseAgent.runner,
   cline: clineAgent.runner,

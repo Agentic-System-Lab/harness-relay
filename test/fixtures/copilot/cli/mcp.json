@@ -1,0 +1,48 @@
+{
+  "mcpServers": {
+    "computer-use": {
+      "tools": [
+        "*"
+      ],
+      "type": "stdio",
+      "command": "/home/user/.cache/copilot/pkg/darwin-arm64/1.0.109/plugins/computer-use/computer-use-mcp",
+      "args": [],
+      "cwd": "${PLUGIN_ROOT}",
+      "sourcePlugin": "computer-use",
+      "sourcePluginVersion": "0.1.97",
+      "source": "builtin",
+      "sourcePluginSpec": true,
+      "env": {
+        "CLAUDE_PLUGIN_ROOT": "/home/user/.cache/copilot/pkg/darwin-arm64/1.0.109/plugins/computer-use",
+        "COPILOT_PLUGIN_ROOT": "/home/user/.cache/copilot/pkg/darwin-arm64/1.0.109/plugins/computer-use",
+        "PLUGIN_ROOT": "/home/user/.cache/copilot/pkg/darwin-arm64/1.0.109/plugins/computer-use",
+        "CLAUDE_PLUGIN_DATA": "/home/user/.copilot/plugin-data/_direct/aa08198d50306af26b9082e83643ee078188417da6f2764eba8000e89831df76",
+        "COPILOT_PLUGIN_DATA": "/home/user/.copilot/plugin-data/_direct/aa08198d50306af26b9082e83643ee078188417da6f2764eba8000e89831df76",
+        "PLUGIN_DATA": "/home/user/.copilot/plugin-data/_direct/aa08198d50306af26b9082e83643ee078188417da6f2764eba8000e89831df76"
+      },
+      "isDefaultServer": true,
+      "events": [
+        "assistant.turn_start",
+        "assistant.turn_end",
+        "agent.turn_start",
+        "agent.turn_end"
+      ],
+      "notifications": [
+        "user.abort"
+      ],
+      "enabled": true
+    },
+    "user-srv": {
+      "tools": [
+        "*"
+      ],
+      "type": "local",
+      "command": "echo",
+      "args": [
+        "x"
+      ],
+      "source": "user",
+      "enabled": true
+    }
+  }
+}

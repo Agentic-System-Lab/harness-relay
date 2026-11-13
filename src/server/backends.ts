@@ -105,6 +105,12 @@ export const INHERITED_BACKEND_VARS = [
   'CURSOR_AUTH_TOKEN',
   // Antigravity's sign-in with Application Default Credentials (its Gemini API key is above).
   'AGY_ADC_AUTH',
+  // Copilot's sign-in by token, and its own model provider's address and key (BYOK). GH_TOKEN and
+  // GITHUB_TOKEN, which it takes too, stay: they are the shell's GitHub token, as for the other CLIs.
+  'COPILOT_GITHUB_TOKEN',
+  'COPILOT_PROVIDER_BASE_URL',
+  'COPILOT_PROVIDER_API_KEY',
+  'COPILOT_PROVIDER_BEARER_TOKEN',
 ];
 
 /** The keyring account of a backend's key. */

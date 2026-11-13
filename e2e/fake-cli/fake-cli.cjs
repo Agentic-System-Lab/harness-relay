@@ -60,6 +60,7 @@ const AGENTS = [
   require('./agents/grok.cjs'),
   require('./agents/cursor.cjs'),
   require('./agents/antigravity.cjs'),
+  require('./agents/copilot.cjs'),
   require('./agents/opencode.cjs'),
   require('./agents/goose.cjs'),
   require('./agents/cline.cjs'),

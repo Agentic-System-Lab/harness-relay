@@ -101,6 +101,13 @@ describe("the agents' sessions", () => {
     expect(agentSessionIds(conv)).toContain('antigravity-cli:c3471ccd');
   });
 
+  it("names Copilot's as AgentsView's Copilot does, after its session-state folder", () => {
+    expect(agentsViewSessionId('copilot', 'da742fbc')).toBe('copilot:da742fbc');
+    const conv = conversation();
+    conv.agentState.cp = { provider: 'copilot', sessionId: 'da742fbc', seen: [] };
+    expect(agentSessionIds(conv)).toContain('copilot:da742fbc');
+  });
+
   it("leaves out Cursor's and the open agents', which AgentsView cannot read where they are: Harness Relay records those itself", () => {
     const recorded = PROVIDERS.filter(recordedSession);
     expect(recorded).toEqual(['cursor', ...OPEN_PROVIDERS]);

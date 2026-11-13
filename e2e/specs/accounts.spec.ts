@@ -4,7 +4,7 @@ import type { Locator, Page, Request } from '@playwright/test';
 import type { Provider, SettingsView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
-import { defaultHome, eachCli, homeIn, logoutArgs, sessionFile, SIGNED_IN, type Cli } from '../support/clis';
+import { defaultHome, eachCli, homeIn, logoutArgs, sessionFile, SIGNED_IN, statusInOwnFolder, type Cli } from '../support/clis';
 import type { FakeLogEntry, RelayServer } from '../support/relay';
 
 /*
@@ -101,8 +101,9 @@ test.describe('more than one account', () => {
         await expect(accountBlock(page, cli.provider, 'Work').locator('.pill')).toHaveText('Using an API key');
       } else {
         await expect(accountBlock(page, cli.provider, 'Work').locator('.pill')).toHaveText('Signed in');
-        // Its sign-in was asked of the CLI in that folder.
-        expect(relay.fakeLog().some((e) => e.cli === cli.provider && e.home === homeOf(cli, work.home!) && e.args)).toBe(true);
+        // Its sign-in was asked of the CLI in that folder (Copilot: in a home of the question's own, with a copy of its sign-in state).
+        if (statusInOwnFolder(cli)) expect(relay.fakeLog().some((e) => e.cli === cli.provider && e.home === homeOf(cli, work.home!) && e.args)).toBe(true);
+        else expect(relay.fakeLog().some((e) => e.cli === cli.provider && e.args && !e.home?.startsWith(work.home!) && e.home?.startsWith(join(relay.dataDir, 'tmp')))).toBe(true);
       }
 
       const id = await openTeamChat(page, relay, [

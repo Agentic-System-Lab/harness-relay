@@ -607,7 +607,9 @@ export function isWithin(path: string, dir: string): boolean {
  * What decides how other agent CLIs run, in a project: Claude Code's, Codex's and Grok's project
  * settings (hooks, MCP servers, sandbox settings, which they run outside any sandbox or with full
  * access), Cursor's (its rules, subagents, skills and MCP servers; Cursor has no sandbox at all),
- * Antigravity's (`.agents` and its other spellings: its hooks and MCP servers, run outside any sandbox), and
+ * Antigravity's (`.agents` and its other spellings: its hooks and MCP servers, run outside any sandbox),
+ * Copilot's (its project hooks, which it runs without asking, settings, MCP and language servers and
+ * extensions in `.github`), and
  * the open agents' own project config and plugins. In edit mode the working directory is
  * writable, so these are kept read-only in it: a run cannot plant what a later run, or another agent,
  * would start outside the sandbox. (sandbox-runtime itself keeps `.git/hooks`, `.git/config`,
@@ -634,7 +636,24 @@ export const PROJECT_AGENT_CONFIG = [
   '.agent',
   '_agents',
   '_agent',
+  // Copilot runs a project's `.github/hooks` without asking, and reads its settings, MCP and language
+  // servers, extensions and custom agents (which may name MCP servers) from `.github` too.
+  '.github/hooks',
+  '.github/copilot',
+  '.github/mcp.json',
+  '.github/lsp.json',
+  '.github/extensions',
+  '.github/agents',
 ];
+
+/**
+ * `PROJECT_AGENT_CONFIG` in a working directory, kept read-only in edit mode. A path in a folder that
+ * does not exist (Copilot's in `.github`, in a project with none) is left out: sandbox-runtime would
+ * deny the first missing part of it on Linux, so the folder itself (`.github`) could not be made.
+ */
+export function projectAgentConfig(cwd: string): string[] {
+  return PROJECT_AGENT_CONFIG.filter((name) => !name.includes('/') || existsSync(join(cwd, dirname(name)))).map((name) => join(cwd, name));
+}
 
 /** Paths sandbox-runtime lets every command write unless denied; a run writes its own temporary folder instead. */
 function srtDefaultWrites(home: string): string[] {
@@ -673,7 +692,7 @@ export function relaySandboxPaths(
   const denyWrite = withReal([
     ...denyRead,
     ...spec.readOnly,
-    ...(edit ? cwds.flatMap((cwd) => PROJECT_AGENT_CONFIG.map((name) => join(cwd, name))) : []),
+    ...(edit ? cwds.flatMap((cwd) => projectAgentConfig(cwd)) : []),
     ...(run.programs ?? []).map((p) => dirname(p)),
     ...srtDefaultWrites(ctx.home),
   ]);

@@ -86,7 +86,7 @@ describe('the fake CLIs', () => {
       expect(m.name).toMatch(/^[A-Za-z0-9_-]+$/);
       for (const f of ['home', 'apiKey', 'main'] as const) expect(typeof m[f]).toBe('function');
       // What Settings shows: `v` and the version Harness Relay reads from `--version` (`parseVersion`).
-      expect(`v${/\d+\.\d+\.\d+[\w.-]*/.exec(m.version)?.[0]}`).toBe(FACTS[p].version);
+      expect(`v${/\d+\.\d+\.\d+[\w.-]*/.exec(m.version)?.[0].replace(/[.-]+$/, '')}`).toBe(FACTS[p].version);
       expect(m.versionRe.test(m.version)).toBe(true);
     }
   });

@@ -198,6 +198,11 @@ describe('what decides how the agents run, as a working directory', () => {
     const account = { ...o, env: { HARNESS_RELAY_ANTIGRAVITY_HOME: join(root, 'accounts/antigravity-a1') } };
     expect(agentFolderOverlap(join(root, 'accounts/antigravity-a1/.gemini/antigravity-cli'), account)).toBe(join(root, 'accounts/antigravity-a1/.gemini'));
     expect(agentFolderOverlap(join(home, '.gemini'), account)).toBe(join(home, '.gemini'));
+    // Copilot's home (its settings, sign-in state, sessions, hooks), the user's own and the account's.
+    expect(agentFolderOverlap(join(home, '.copilot/session-state'), o)).toBe(join(home, '.copilot'));
+    const copilot = { ...o, env: { COPILOT_HOME: join(root, 'accounts/copilot-a1') } };
+    expect(agentFolderOverlap(join(root, 'accounts/copilot-a1/hooks'), copilot)).toBe(join(root, 'accounts/copilot-a1'));
+    expect(agentFolderOverlap(join(home, '.copilot'), copilot)).toBe(join(home, '.copilot'));
   });
 
   it("refuses the folder of the other accounts' homes, and a project in one of them", () => {

@@ -99,3 +99,35 @@ test.describe("a project's own setup", () => {
     expect(relay.fakeLog().some((e) => e.cli === 'antigravity' && e.prompt)).toBe(false);
   });
 });
+
+/*
+ * Copilot runs a project's hooks by itself (`.github/hooks/*.json` up to the repository's root, and the
+ * hooks in a project's Copilot or Claude Code settings), without a permission request, and also when
+ * the account leaves hooks out: below full access they are asked about before Copilot starts.
+ */
+test.describe("a project's hooks", () => {
+  needsFake('copilot');
+
+  test('copilot: are asked about before Copilot starts; a refusal keeps it from starting, and once allowed the turn runs', async ({ page, relay }) => {
+    const cli = SIGNED_IN.find((c) => c.provider === 'copilot')!;
+    const hook = join('.github', 'hooks', 'audit.json');
+    mkdirSync(join(relay.workDir, '.github', 'hooks'), { recursive: true });
+    writeFileSync(join(relay.workDir, hook), '{"version":1,"hooks":{"sessionStart":[]}}\n');
+    const id = await openTeamChat(page, relay, [member(cli)]);
+    await send(page, 'Anyone there?');
+    const card = page.getByRole('region', { name: `@${cli.name} wants to use a tool` });
+    await expect(card.locator('.approval-detail')).toContainText(hook);
+    await card.getByRole('button', { name: 'Decline' }).click();
+    await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText('The turn did not start: this project has hooks Copilot would run by itself');
+    await settled(relay, id);
+    const copilot = () => relay.fakeLog().filter((e) => e.cli === 'copilot');
+    expect(copilot().some((e) => e.prompt)).toBe(false);
+
+    await send(page, 'And now?');
+    await page.getByRole('region', { name: `@${cli.name} wants to use a tool` }).last().getByRole('button', { name: 'Allow', exact: true }).click();
+    await finishedReply(page, cli.name);
+    expect(copilot().some((e) => e.prompt)).toBe(true);
+    // The fake found the hook Copilot would have run when its session opened.
+    expect(copilot().flatMap((e) => e.projectHooks ?? []).some((p) => p.endsWith(hook))).toBe(true);
+  });
+});

@@ -76,6 +76,7 @@ export const API_KEY_ENV: Partial<Record<Provider, string>> = {
   grok: 'XAI_API_KEY',
   cursor: 'CURSOR_API_KEY',
   antigravity: 'GEMINI_API_KEY',
+  copilot: 'COPILOT_GITHUB_TOKEN',
 };
 
 /**
@@ -83,7 +84,8 @@ export const API_KEY_ENV: Partial<Record<Provider, string>> = {
  * `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`)
  * before its own sign-in, Codex an API key from `CODEX_API_KEY` or `OPENAI_API_KEY`, Grok from
  * `XAI_API_KEY`, Cursor from `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN`, Antigravity from `GEMINI_API_KEY`
- * (which its adapter makes it use: `antigravityRunSettings`). An account besides the default
+ * (which its adapter makes it use: `antigravityRunSettings`), Copilot from `COPILOT_GITHUB_TOKEN`,
+ * `GH_TOKEN` or `GITHUB_TOKEN` (a GitHub token, in that order). An account besides the default
  * one gets none of them from the server's environment (only its own key), or every such account would
  * run as whoever they sign in. The open agents have no sign-in, nor accounts: their keys are the model
  * backends' (`INHERITED_BACKEND_VARS`).
@@ -94,6 +96,7 @@ export const CREDENTIAL_ENV: Record<Provider, readonly string[]> = {
   grok: ['XAI_API_KEY'],
   cursor: ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'],
   antigravity: ['GEMINI_API_KEY', 'AGY_ADC_AUTH'],
+  copilot: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'],
   opencode: [],
   goose: [],
   cline: [],
@@ -107,6 +110,7 @@ const DEFAULT_BIN: Record<Provider, string> = {
   grok: 'grok',
   cursor: 'cursor-agent',
   antigravity: 'agy',
+  copilot: 'copilot',
   opencode: 'opencode',
   goose: 'goose',
   cline: 'cline',
@@ -156,6 +160,7 @@ export const AGENT_HOME_ENV: Record<Provider, string> = {
   grok: 'GROK_HOME',
   cursor: 'CURSOR_CONFIG_DIR',
   antigravity: ANTIGRAVITY_HOME_ENV,
+  copilot: 'COPILOT_HOME',
   opencode: OPEN_AGENT_HOME_ENV,
   goose: OPEN_AGENT_HOME_ENV,
   cline: OPEN_AGENT_HOME_ENV,

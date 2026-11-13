@@ -135,3 +135,43 @@ test.describe('Antigravity', () => {
     expect(existsSync(marker)).toBe(false);
   });
 });
+
+test.describe('Copilot', () => {
+  const first = ENDPOINTS[0];
+  /** On the user's own endpoint when there is one, else on its own service (E2E_LIVE_CLOUD=1). */
+  const member = (): LiveMember => (first ? { provider: 'copilot', name: 'Ada', model: modelId(first) } : { provider: 'copilot', name: 'Ada', ...(ownModel('copilot') ? { model: ownModel('copilot') } : {}) });
+  test.skip(!has('copilot') || (!first && !CLOUD), 'needs Copilot, and an endpoint or E2E_LIVE_CLOUD=1');
+
+  test('copilot: a refused command ends its turn, and the chat says so', async ({ relay }) => {
+    await setUpEndpoints(relay);
+    const dir = folder(relay, 'refused');
+    // In read-only it asks before a command that writes, which the live tests refuse (liveAllows).
+    const r = await liveTurn(relay, [member()], 'Use your shell tool to run exactly this command: echo no > refused.txt\nThen reply with the word DONE.', {
+      cwd: dir,
+      permission: 'read-only',
+      approvals: 'ask',
+    });
+    const calls = `tools: ${r.tools.join('; ') || 'none'}; approvals: ${r.approvals.map((a) => `${a.kind} ${a.detail ?? ''}`).join('; ') || 'none'}`;
+    test.skip(!r.tools.length && !r.approvals.length, `the model did not try the command; ${calls}`);
+    expect(r.approvals.some((a) => a.kind === 'command' && !a.allowed), `the command was asked about; ${calls}`).toBe(true);
+    expect(existsSync(join(dir, 'refused.txt')), calls).toBe(false);
+    // Copilot ends its turn at a refusal: the call says so, and nothing follows it.
+    expect(r.tools.join('\n'), calls).toContain('Copilot ends its turn after a refusal');
+    expect(r.replies[0]?.error, 'the turn failed').toBeUndefined();
+    expect(r.replies[0]?.text ?? '', calls).not.toMatch(/\bDONE\b/);
+  });
+
+  test("copilot: a project's own hook is asked about before copilot starts, and refused, never runs", async ({ relay }) => {
+    await setUpEndpoints(relay);
+    const dir = folder(relay, 'project');
+    const marker = join(relay.root, 'live', 'hook-ran');
+    // A project hook Copilot would run as its session opens, without asking: it leaves a marker.
+    mkdirSync(join(dir, '.github', 'hooks'), { recursive: true });
+    const run = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(`require('fs').writeFileSync(${JSON.stringify(marker)}, '')`)}`;
+    writeFileSync(join(dir, '.github', 'hooks', 'marker.json'), JSON.stringify({ version: 1, hooks: { sessionStart: [{ type: 'command', bash: run, powershell: `& ${run}`, timeoutSec: 30 }] } }));
+    const r = await liveTurn(relay, [member()], 'Say hello.', { cwd: dir, permission: 'read-only', approvals: 'ask' });
+    expect(r.approvals.map((a) => `${a.kind} ${a.detail ?? ''}`)).toContainEqual(expect.stringMatching(/^other .*marker\.json/));
+    expect(r.replies[0]?.error ?? '').toMatch(/The turn did not start: this project has hooks Copilot would run by itself/);
+    expect(existsSync(marker)).toBe(false);
+  });
+});

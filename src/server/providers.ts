@@ -15,6 +15,7 @@ import {
   type ProviderStatus,
 } from '../shared/types';
 import { antigravityKeyOnly, antigravityLogout, antigravityProbeEnv, antigravityProbeSettings, ANTIGRAVITY_NO_BROWSER } from './agents/antigravity';
+import { askCopilotModels, copilotHome, copilotLogout, copilotSignedInAs, copilotSignedOut } from './agents/copilot';
 import { openAgents } from './agents/index';
 import { openHomeEnv } from './agents/open';
 import { backendLabel } from './backends';
@@ -30,7 +31,8 @@ import { WindowsScriptError } from './winLaunch';
 
 function parseVersion(out: string): string | undefined {
   const m = stripAnsi(out).match(/\d+\.\d+\.\d+[\w.-]*/);
-  return m?.[0];
+  // Not the sentence's full stop: Copilot prints "GitHub Copilot CLI 1.0.109."
+  return m?.[0].replace(/[.-]+$/, '');
 }
 
 function firstJsonObject(s: string): Record<string, any> | null {
@@ -102,6 +104,21 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
       const out = stripAnsi(`${r.stdout}\n${r.stderr}`);
       if (/please sign in|not signed in|authentication required/i.test(out)) return { loggedIn: false };
       return r.code === 0 ? { loggedIn: true } : { loggedIn: null, detail: tail(out, 200) };
+    }
+    case 'copilot': {
+      // It has no status command: a session opened over ACP, in a home and an empty folder of its own
+      // (`askCopilotModels`), needs a working sign-in ("Authentication required" otherwise). No prompt
+      // is sent. A GitHub token in its environment comes before the sign-in it keeps (Copilot's own
+      // order), and is asked about too: one Copilot does not take (a classic token) fails the same way.
+      // Who it is signed in as is in the account's `config.json`.
+      const { opened, error } = await askCopilotModels(bin, env);
+      if (opened) {
+        if (CREDENTIAL_ENV.copilot.some((k) => env[k])) return { loggedIn: true, method: 'GitHub token' };
+        const login = copilotSignedInAs(copilotHome(env));
+        return { loggedIn: true, ...(login ? { account: login } : {}) };
+      }
+      if (error && copilotSignedOut(error)) return { loggedIn: false };
+      return { loggedIn: null, detail: error ? tail(stripAnsi(error), 200) : undefined };
     }
     default:
       return { loggedIn: null };
@@ -322,9 +339,9 @@ export class ProviderService {
       return '';
     }
     const bin = this.settings.bin(p);
-    if (p === 'antigravity') {
+    if (p === 'antigravity' || p === 'copilot') {
       try {
-        await antigravityLogout(bin, env, timeoutMs);
+        await (p === 'antigravity' ? antigravityLogout : copilotLogout)(bin, env, timeoutMs);
       } finally {
         this.invalidate(p);
       }
@@ -360,7 +377,7 @@ export class ProviderService {
  * `key` names the method's label and description in the server messages (i18n.ts); `env` is added to
  * the CLI's environment for the sign-in.
  */
-const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[]; env?: Record<string, string> }[]> = {
+const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[]; env?: Record<string, string>; failsWith?: RegExp }[]> = {
   claude: [
     {
       id: 'claudeai',
@@ -416,6 +433,17 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[];
       env: { ...ANTIGRAVITY_NO_BROWSER },
     },
   ],
+  // `copilot login --device-code` prints GitHub's device link and a code, and waits for it to be
+  // authorized. Where it finds no credential store to keep the token in (a Linux server without a
+  // keyring), it says so and exits 0 all the same: that sign-in failed, and its words say what to do.
+  copilot: [
+    {
+      id: 'device',
+      key: 'copilotDevice',
+      args: ['login', '--device-code'],
+      failsWith: /token was not saved/i,
+    },
+  ],
   // The open agents have no sign-in: they use the model backends in Settings.
   opencode: [],
   goose: [],
@@ -447,7 +475,8 @@ class LoginSession {
   constructor(
     readonly provider: Provider,
     readonly account: string,
-    readonly method: { id: string; args: string[] },
+    /** `failsWith`: what in its output means the sign-in failed, whatever its exit code. */
+    readonly method: { id: string; args: string[]; failsWith?: RegExp },
     bin: string,
     env: NodeJS.ProcessEnv,
     private onDone: () => void,
@@ -465,7 +494,8 @@ class LoginSession {
       this.finish('failed', null);
     });
     this.child.on('close', (code) => {
-      if (this.state === 'running') this.finish(code === 0 ? 'success' : 'failed', code);
+      const failed = code !== 0 || Boolean(this.method.failsWith?.test(stripAnsi(this.output)));
+      if (this.state === 'running') this.finish(failed ? 'failed' : 'success', code);
     });
     this.timer = setTimeout(() => this.cancel(), LOGIN_TIMEOUT_MS);
   }

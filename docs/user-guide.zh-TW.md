@@ -6,7 +6,7 @@
 
 ## 1. 安裝與啟動
 
-需要 Node.js 22.13 以上，以及至少一個 agent CLI：`claude`、`codex`、`grok`、`cursor-agent`、`agy`（[Antigravity](https://antigravity.google/download)），或五個開源 agent 之一（`opencode`、`goose`、`cline`、`openhands`、`pi`；各自的安裝方式與驗證過的版本見 [README](../README.zh-TW.md#需求)）。編輯與平行模式還需要 [Git](https://git-scm.com/downloads)，Harness Relay 用它做快照與 worktree。
+需要 Node.js 22.13 以上，以及至少一個 agent CLI：`claude`、`codex`、`grok`、`cursor-agent`、`agy`（[Antigravity](https://antigravity.google/download)）、`copilot`（[GitHub Copilot CLI](https://github.com/features/copilot/cli)，npm `@github/copilot`），或五個開源 agent 之一（`opencode`、`goose`、`cline`、`openhands`、`pi`；各自的安裝方式與驗證過的版本見 [README](../README.zh-TW.md#需求)）。編輯與平行模式還需要 [Git](https://git-scm.com/downloads)，Harness Relay 用它做快照與 worktree。
 
 ```bash
 npm install
@@ -16,7 +16,7 @@ npm start
 
 打開 `npm start` 在終端機印出的登入連結（`http://127.0.0.1:8787/#code=…`）：Harness Relay 只接受登入過的瀏覽器，所以你電腦上的其他程式，包括 agent 執行的程式碼，都無法操作它。這個連結只能用一次，一小時內有效；之後要讓另一個瀏覽器登入，請執行 `npm run login`，或使用「**設定 → 已登入的瀏覽器 → 讓另一個裝置登入**」，那裡也會列出已登入的瀏覽器，讓你登出。`git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。（要開發 Harness Relay 本身，改用 `npm run dev` 並打開 <http://localhost:5173>；詳見[開發者說明](developer-guide.zh-TW.md)。）
 
-側邊欄底部的圓點代表各 agent 的狀態：綠色＝可以使用、橘色＝尚未登入（開源 agent 則是還沒有模型來源）、紅色＝找不到 CLI。開源 agent 要等它的 CLI 安裝好才會出現圓點。這些圓點排成一行，後面是可用的數目（*4/10 可用*）；把滑鼠移到圓點上可以看到它的名稱與狀態，點它會打開那個 agent 的設定。旁邊的箭頭可以顯示名稱，再按一次就收起來；這個瀏覽器會記住你的選擇。
+側邊欄底部的圓點代表各 agent 的狀態：綠色＝可以使用、橘色＝尚未登入（開源 agent 則是還沒有模型來源）、紅色＝找不到 CLI。開源 agent 要等它的 CLI 安裝好才會出現圓點。這些圓點排成一行，後面是可用的數目（*4/11 可用*）；把滑鼠移到圓點上可以看到它的名稱與狀態，點它會打開那個 agent 的設定。旁邊的箭頭可以顯示名稱，再按一次就收起來；這個瀏覽器會記住你的選擇。
 
 要用手機、平板或另一台電腦使用 Harness Relay，用 `tailscale serve` 把它分享到你的 tailnet，也可以加到手機主畫面：詳見[用手機連線（Tailscale）](remote-access.zh-TW.md)。在電腦上，Chrome 與 Edge 也能把它安裝成 App（網址列的安裝按鈕），macOS 的 Safari 則能把它加到 Dock（**檔案 → 加入 Dock**）。
 
@@ -114,7 +114,7 @@ Harness Relay 更新時開著的聊天頁面，會在一分鐘內（或你回到
 
 ## 2. 分別登入各個 agent：設定與登入
 
-點側邊欄的 **⚙ 設定與登入**。**模型來源** 排在最前面，在所有 CLI 之前：五個開源 agent 用它執行，Claude Code、Codex 與 Grok 也能用它的自訂端點執行（見[開源 agent 與模型來源](#開源-agent-與模型來源)）。每個 CLI 有一張卡片，顯示版本，並把它的每個帳號放在自己的框裡（只有預設帳號時也一樣），顯示帳號名稱、登入狀態，以及 CLI 回報的 email。帳號框裡的一切都屬於那個帳號：登入、API key、[預設模型與推理強度](#預設模型與推理強度)，以及 CLI 在那裡[自己載入的內容](#各-cli-自己載入的內容)。只有 CLI 的 **執行檔** 是所有帳號共用一個設定。五個開源 agent 沒有登入流程，所以也沒有其他帳號。
+點側邊欄的 **⚙ 設定與登入**。**模型來源** 排在最前面，在所有 CLI 之前：五個開源 agent 用它執行，Claude Code、Codex、Grok 與 Copilot 也能用它的自訂端點執行（見[開源 agent 與模型來源](#開源-agent-與模型來源)）。每個 CLI 有一張卡片，顯示版本，並把它的每個帳號放在自己的框裡（只有預設帳號時也一樣），顯示帳號名稱、登入狀態，以及 CLI 回報的 email。帳號框裡的一切都屬於那個帳號：登入、API key、[預設模型與推理強度](#預設模型與推理強度)，以及 CLI 在那裡[自己載入的內容](#各-cli-自己載入的內容)。只有 CLI 的 **執行檔** 是所有帳號共用一個設定。五個開源 agent 沒有登入流程，所以也沒有其他帳號。
 
 ### 登入
 
@@ -128,6 +128,7 @@ Harness Relay 更新時開著的聊天頁面，會在一分鐘內（或你回到
 | Grok | xAI 裝置碼 / xAI 瀏覽器登入 | 開啟連結並確認代碼。 |
 | Cursor | Cursor 帳號 | 在任何一台裝置的瀏覽器開啟連結（不會在這台電腦開瀏覽器），登入 Cursor 並允許 CLI。 |
 | Antigravity | Google 帳號 | 在任何一台裝置的瀏覽器開啟連結（不會在這台電腦開瀏覽器）並登入 Google，再把頁面顯示的授權碼（或整個網址）貼到輸入框，按 **送出**。 |
+| Copilot | GitHub 帳號（裝置代碼） | 在任何一台裝置的瀏覽器開啟 GitHub 連結（`https://github.com/login/device`），輸入畫面上的代碼（點一下即可複製）並授權。 |
 
 CLI 完成後，面板會變成綠色的 **登入成功 ✓**。若出了問題，展開 **CLI 輸出** 可以看到原始輸出。
 
@@ -136,6 +137,8 @@ CLI 完成後，面板會變成綠色的 **登入成功 ✓**。若出了問題�
 > **Cursor：**不管用哪個資料夾執行，Cursor 在每個電腦使用者只保留一個登入（macOS 上存在登入鑰匙圈）。只有 Cursor 的預設帳號用這種方式登入；Cursor 的[其他帳號](#多個帳號)使用 API key。
 
 > **Antigravity：**它把 Google 登入存在系統的 keyring（macOS 鑰匙圈、Linux 的 Secret Service、Windows 認證管理員）。只有 Antigravity 的預設帳號用這種方式登入；Antigravity 的[其他帳號](#多個帳號)使用 Gemini API key。
+
+> **Copilot：**它把 GitHub token 存在系統的金鑰儲存區（macOS 上是鑰匙圈），依你的 GitHub 帳號名稱存放，而不是依它的資料夾；登入的是誰則記在它的資料夾裡。它的每個[帳號](#多個帳號)都用這種方式登入。登入在 macOS 上確認過，也在一台沒有桌面環境的 Linux 上試過（裝置碼可以用，token 則如下所述沒有存下來）；Windows 與 GitHub Enterprise 都沒有確認。在沒有桌面金鑰圈的 Linux 上（例如沒有桌面環境的伺服器），`copilot login` 最後會說 *Login succeeded, but the token was not saved…*，Harness Relay 會把它顯示為登入失敗，因為下一次執行找不到 token：在帳號的 Copilot `settings.json`（`~/.copilot/settings.json`，或帳號資料夾裡的那一個）設定 `"storeTokenPlaintext": true`，讓 Copilot 可以用明文保存 token，再登入一次；或把 GitHub token 存成帳號的 API key（見下方「API key（選用）」）。
 
 **登出** 會讓這台電腦上的該 CLI 登出，也會影響你在其他地方使用這個 CLI。
 
@@ -148,16 +151,17 @@ CLI 完成後，面板會變成綠色的 **登入成功 ✓**。若出了問題�
 - **Codex**：交給 `codex login --with-api-key`，由 Codex 自己保存，會取代 ChatGPT 登入。
 - **Cursor**：以 `CURSOR_API_KEY` 傳入，只用在 Harness Relay 的執行：Cursor 不會把它存進去蓋掉你自己的 Cursor 登入，你的登入維持原樣。Cursor 只在每次執行時用金鑰登入，`cursor-agent status` 看不到，所以有金鑰的帳號（包括從啟動 Harness Relay 時環境中的 `CURSOR_API_KEY` 或 `CURSOR_AUTH_TOKEN` 拿到金鑰的）會顯示為以 *API key* 登入。
 - **Antigravity**：Gemini API key，以 `GEMINI_API_KEY` 傳入；這次執行自己的設定也會加上 `modelProvider: "gemini"`，讓 Antigravity 改用 Gemini API（依用量計費），而不是你的 Google 登入。你自己的 Antigravity 設定檔不會被改動。有金鑰的帳號（預設帳號也包括從啟動 Harness Relay 時環境中的 `GEMINI_API_KEY` 拿到金鑰的）會顯示為以 *API key* 登入。
+- **Copilot**：GitHub token，以 `COPILOT_GITHUB_TOKEN` 傳入，Copilot 會優先用它，而不是它保存的 GitHub 登入：請用有「Copilot Requests」權限的 fine-grained personal access token（Copilot 不接受 classic 的 `ghp_` token）。有 token 的帳號（預設帳號也包括從啟動 Harness Relay 時環境中的 `COPILOT_GITHUB_TOKEN`、`GH_TOKEN` 或 `GITHUB_TOKEN` 拿到的，依 Copilot 自己的順序）在 Copilot 接受它時，會顯示為以 *GitHub token* 登入：Harness Relay 會直接問 Copilot（在它自己的資料夾開一個 session，不送 prompt），所以 Copilot 不接受的 token（例如 classic 的）會顯示為未登入。
 
-Claude Code、Grok、Cursor 與 Antigravity 的金鑰由 Harness Relay 存放在系統的金鑰儲存區，名稱為 `harness-relay`（[桌面 app](#桌面-app) 則是 `harness-relay-desktop`）：macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service（GNOME Keyring、KWallet）。卡片上會寫出存放位置。在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，金鑰會改存在只有你的帳號能讀取的資料庫；若不想這樣，可以不填這個欄位，改在啟動 Harness Relay 前設定環境變數 `ANTHROPIC_API_KEY` / `XAI_API_KEY` / `CURSOR_API_KEY` / `GEMINI_API_KEY`。如果你在 macOS 上使用開源 agent，請不要這樣做：在那裡，它們執行的指令讀得到上層每個程序啟動時的環境變數，包括 Harness Relay 的伺服器與啟動它的 shell（見[檔案權限](#對話規則)）。舊版存在資料庫裡的金鑰，會在伺服器下次啟動時移出資料庫。macOS 可能會詢問是否允許 `node` 使用這把金鑰（例如更新 Node.js 之後），請選 **永遠允許**。
+Claude Code、Grok、Cursor 與 Antigravity 的金鑰，以及 Copilot 的 token，由 Harness Relay 存放在系統的金鑰儲存區，名稱為 `harness-relay`（[桌面 app](#桌面-app) 則是 `harness-relay-desktop`）：macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service（GNOME Keyring、KWallet）。卡片上會寫出存放位置。在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，金鑰會改存在只有你的帳號能讀取的資料庫；若不想這樣，可以不填這個欄位，改在啟動 Harness Relay 前設定環境變數 `ANTHROPIC_API_KEY` / `XAI_API_KEY` / `CURSOR_API_KEY` / `GEMINI_API_KEY` / `COPILOT_GITHUB_TOKEN`。如果你在 macOS 上使用開源 agent，請不要這樣做：在那裡，它們執行的指令讀得到上層每個程序啟動時的環境變數，包括 Harness Relay 的伺服器與啟動它的 shell（見[檔案權限](#對話規則)）。舊版存在資料庫裡的金鑰，會在伺服器下次啟動時移出資料庫。macOS 可能會詢問是否允許 `node` 使用這把金鑰（例如更新 Node.js 之後），請選 **永遠允許**。
 
 ### 開源 agent 與模型來源
 
 OpenCode、Goose、Cline、OpenHands 與 Pi 使用你在 **設定 → 模型來源** 設定的模型來源執行，從不使用它們自己的登入。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）：請給它們 API key 或你自己的端點。Claude Code 與 Grok 本身的模型照常使用它們的登入。
 
-**Claude Code、Codex 與 Grok 在你自己的端點上執行。** 它們的模型選單會在自己的模型後面列出每個自訂端點的模型，例如 `homelab/gemma4:e4b`：給成員選其中一個（或在「設定」裡那個 CLI 卡片上、某個帳號區塊的[預設模型與推理強度](#預設模型與推理強度)選一個當作那個帳號的預設，它沒有指定模型的成員就用它；選單會把它們列在「**你自己的端點**」底下），那個 CLI 就在你的伺服器上執行，帶著端點的金鑰（有的話），絕不帶你的 Claude、ChatGPT 或 Grok 登入或它們的 API key。伺服器也要提供那個 CLI 用的 API：Claude Code 用 Anthropic Messages API（`/v1/messages`），Codex 用 Responses API（`/v1/responses`），Grok 用 Chat Completions（`/v1/chat/completions`）；vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供。這時 Claude Code 與 Codex 不需要登入；Grok 啟動時仍需要它自己的登入。這些模型只提供這類伺服器都接受的推理強度：Claude Code 是 low 到 high，Codex 是 none 到 high（原本會用的其他值，例如你的 Codex 設定裡的 `xhigh`，改成 medium），Grok 不送。Grok 的部分，Harness Relay 會在 Grok 成員第一次用到端點的模型時，把端點的模型加進 Grok 自己的 `config.toml`，放在一段有標記的區塊裡，不出現在 Grok 自己的模型選單（Grok 重寫自己的設定時會丟掉區塊的標記、卻留下這些模型，Harness Relay 寫入區塊前會先把這些殘留拿掉，所以 Grok 不會讀到重複定義的模型）。成員的模型在 CLI 自己的模型與端點的模型之間切換，或換到另一個端點時，會帶著完整的對話開始新的 session。Cursor 與 Antigravity 的模型只透過它們自己的服務執行，所以兩者都不能在端點上執行。（Antigravity 自己的自訂模型只能是 Google 託管的，在 Gemini API 或 Vertex AI 上；它唯一能改的位址 `GOOGLE_GEMINI_BASE_URL` 必須提供 Gemini API（`/v1beta/models/<模型>:streamGenerateContent`），這些伺服器都沒有提供，而且它送過去的只會是它自己清單裡的模型名稱。以 agy 1.5.6 確認。）
+**Claude Code、Codex、Grok 與 Copilot 在你自己的端點上執行。** 它們的模型選單會在自己的模型後面列出每個自訂端點的模型，例如 `homelab/gemma4:e4b`：給成員選其中一個（或在「設定」裡那個 CLI 卡片上、某個帳號區塊的[預設模型與推理強度](#預設模型與推理強度)選一個當作那個帳號的預設，它沒有指定模型的成員就用它；選單會把它們列在「**你自己的端點**」底下），那個 CLI 就在你的伺服器上執行，帶著端點的金鑰（有的話），絕不帶你的 Claude、ChatGPT、Grok 或 GitHub 登入或它們的 API key。伺服器也要提供那個 CLI 用的 API：Claude Code 用 Anthropic Messages API（`/v1/messages`），Codex 用 Responses API（`/v1/responses`），Grok 與 Copilot 用 Chat Completions（`/v1/chat/completions`）；vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供。這時 Claude Code、Codex 與 Copilot 不需要登入；Grok 啟動時仍需要它自己的登入。這些模型只提供這類伺服器都接受的推理強度：Claude Code 是 low 到 high，Codex 是 none 到 high（原本會用的其他值，例如你的 Codex 設定裡的 `xhigh`，改成 medium），Grok 不送，Copilot 是 low 到 high（以 `reasoning_effort` 送出）。Copilot 是用它自己那組「你自己的模型供應商」變數（`COPILOT_PROVIDER_BASE_URL` 等）指向伺服器；以這類伺服器的替身與 Ollama 確認過。Grok 的部分，Harness Relay 會在 Grok 成員第一次用到端點的模型時，把端點的模型加進 Grok 自己的 `config.toml`，放在一段有標記的區塊裡，不出現在 Grok 自己的模型選單（Grok 重寫自己的設定時會丟掉區塊的標記、卻留下這些模型，Harness Relay 寫入區塊前會先把這些殘留拿掉，所以 Grok 不會讀到重複定義的模型）。成員的模型在 CLI 自己的模型與端點的模型之間切換，或換到另一個端點時，會帶著完整的對話開始新的 session。Cursor 與 Antigravity 的模型只透過它們自己的服務執行，所以兩者都不能在端點上執行。（Antigravity 自己的自訂模型只能是 Google 託管的，在 Gemini API 或 Vertex AI 上；它唯一能改的位址 `GOOGLE_GEMINI_BASE_URL` 必須提供 Gemini API（`/v1beta/models/<模型>:streamGenerateContent`），這些伺服器都沒有提供，而且它送過去的只會是它自己清單裡的模型名稱。以 agy 1.5.6 確認。）
 
-- **API key**：**OpenAI**、**Anthropic**、**xAI** 各一把：貼上後按 **儲存**，**移除** 則刪掉它。金鑰和各 CLI 的 API key 一樣存在系統的金鑰儲存區（卡片上會註明存在哪裡），畫面上只會顯示遮蔽過的內容。Harness Relay 環境變數裡的金鑰（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`XAI_API_KEY`，其他模型供應商的，例如 `GEMINI_API_KEY` 或 `OPENROUTER_API_KEY`，Cursor 的 `CURSOR_API_KEY` 與 `CURSOR_AUTH_TOKEN`，以及 Antigravity 的 `AGY_ADC_AUTH`）不會被使用，也不會傳給這些 agent：每次執行只拿到它的模型所屬來源的那一把金鑰（也就是這裡儲存的），絕不會拿到其他來源的。那個環境裡的其他憑證，例如 `GITHUB_TOKEN` 或 AWS 的變數，仍會傳給這些 agent 與它們執行的指令，和其他 CLI 一樣。金鑰顯示成 `••••` 加最後四個字元，短的金鑰只顯示 `••••`。
+- **API key**：**OpenAI**、**Anthropic**、**xAI** 各一把：貼上後按 **儲存**，**移除** 則刪掉它。金鑰和各 CLI 的 API key 一樣存在系統的金鑰儲存區（卡片上會註明存在哪裡），畫面上只會顯示遮蔽過的內容。Harness Relay 環境變數裡的金鑰（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`XAI_API_KEY`，其他模型供應商的，例如 `GEMINI_API_KEY` 或 `OPENROUTER_API_KEY`，Cursor 的 `CURSOR_API_KEY` 與 `CURSOR_AUTH_TOKEN`，以及 Antigravity 的 `AGY_ADC_AUTH`）不會被使用，也不會傳給這些 agent：每次執行只拿到它的模型所屬來源的那一把金鑰（也就是這裡儲存的），絕不會拿到其他來源的。Copilot 的 `COPILOT_GITHUB_TOKEN`，以及 Copilot 自己的模型供應商的位址與金鑰（`COPILOT_PROVIDER_BASE_URL`、`COPILOT_PROVIDER_API_KEY`、`COPILOT_PROVIDER_BEARER_TOKEN`）也一樣不會傳給它們。那個環境裡的其他憑證，例如 `GITHUB_TOKEN` 或 AWS 的變數，仍會傳給這些 agent 與它們執行的指令，和其他 CLI 一樣。金鑰顯示成 `••••` 加最後四個字元，短的金鑰只顯示 `••••`。
 - **自訂端點**：你自己的 OpenAI 相容伺服器，例如 vLLM、Ollama、LM Studio 或 llama.cpp。**＋ 新增端點** 要填：
   - **名稱**：設定頁上顯示的名字，例如 *Homelab vLLM*。
   - **id**：它的模型 id 的開頭，例如 `homelab`：只能有小寫字母、數字與 `-`（不能在開頭或結尾），最多 32 個字元，也不能是 `openai`、`anthropic` 或 `xai`。在你自己輸入之前，它會跟著名稱產生；建立後不能修改（端點改名時 id 不變）。
@@ -165,7 +169,7 @@ OpenCode、Goose、Cline、OpenHands 與 Pi 使用你在 **設定 → 模型來�
   - **模型名稱**：一行一個，寫成伺服器認得的名稱（不能有空白）。Harness Relay 不會向伺服器查詢模型清單，所以請自己輸入。
   - **API key（選填）**：給需要金鑰的伺服器；修改時留空則保留目前的金鑰。
 
-  **修改** 可以改端點，**刪除** 會連同它的金鑰一起刪除；使用它的模型的成員，要改選其他模型才能執行。Claude Code、Codex 與 Grok 的成員也一樣：它們的這一輪會說端點已被刪除，也不會改送到那個 CLI 自己的服務。重新新增同 id 的端點後，它們就能再在上面執行。端點被刪除期間跑過一輪的 Claude Code、Codex 或 Grok 成員，會在那裡開始新的 session；其他成員則接續它的 session，和修改端點之後一樣。刪除的 id 會列在 **已刪除的端點**，直到你再新增同 id 的端點或按 **忘掉**：如果某個 CLI 自己的模型剛好以同樣的名稱開頭（例如刪掉端點 `qwen` 之後，你 Codex 設定裡的 `qwen/…`），忘掉它，那個模型就能再交給那個 CLI。
+  **修改** 可以改端點，**刪除** 會連同它的金鑰一起刪除；使用它的模型的成員，要改選其他模型才能執行。Claude Code、Codex、Grok 與 Copilot 的成員也一樣：它們的這一輪會說端點已被刪除，也不會改送到那個 CLI 自己的服務。重新新增同 id 的端點後，它們就能再在上面執行。端點被刪除期間跑過一輪的 Claude Code、Codex、Grok 或 Copilot 成員，會在那裡開始新的 session；其他成員則接續它的 session，和修改端點之後一樣。刪除的 id 會列在 **已刪除的端點**，直到你再新增同 id 的端點或按 **忘掉**：如果某個 CLI 自己的模型剛好以同樣的名稱開頭（例如刪掉端點 `qwen` 之後，你 Codex 設定裡的 `qwen/…`），忘掉它，那個模型就能再交給那個 CLI。
 
 成員的模型寫成「模型來源/模型」：`openai/…`、`anthropic/…`、`xai/…`，或端點的 id 加上模型名稱，例如 `homelab/muse-glimmer-30b-nvfp4`。第一個 `/` 之前是模型來源，所以模型名稱本身也可以含 `/`。
 
@@ -183,34 +187,35 @@ Harness Relay 讓這些 agent 在它自己的家目錄中執行，絕不使用�
 | **OpenHands** | 每個動作都詢問；它一起發出的呼叫會合成一張列出全部的卡片（好幾個修改時列出每個檔案），一次回答就涵蓋全部；唯讀時，叫用 skill 也會詢問，因為 skill 可能執行指令；完全存取以外，不提供它會不經詢問執行指令的 subagent | 不會：只有 OpenHands 自己固定的話 | 在 macOS 上，要等你在「設定」打開它的開關（**讓 OpenHands 在沙箱裡使用終端機**，預設關閉），它才會在完全存取以外執行：它的終端機這時會讓它的指令能在你其他的終端機視窗印出文字、讀取內容。啟動較慢（約 2.5 秒）。**停止** 會暫停它，但不會中止正在執行的指令：它的程序在兩秒後結束。被停止或當掉的回合留下、還在等待的動作，會在下一輪接續前被拒絕，所以絕不會沒經過你同意就執行。沒有 tmux 時，它的終端機偶爾會顯示一個沒有發生的失敗。很長的 session 會用同一個模型額外呼叫幾次來做摘要。專案的 `AGENTS.md`、`.agents/skills` 與 `.openhands/hooks.json` 一定會載入，它也可能把 `AGENTS.md` 當作記憶來修改。 |
 | **Pi** | Pi 自己不會詢問：完全存取以外，Harness Relay 的 gate 擴充功能在每個工具呼叫前詢問，MCP 工具也是；唯讀時它只有讀取的工具 | 會 | 沒有計畫或待辦清單。只有 session 檔寫明屬於這個工作目錄時才會接續。它會載入從工作目錄往上直到 `/` 的每個 `AGENTS.md` / `CLAUDE.md`，只能全部一起排除。它的 `find` 需要 fd，`grep` 需要 ripgrep。 |
 
-五個都一樣：每位對話成員的 session、記錄與快取都是它自己的，其他對話或其他成員的開源 agent 執行都無法讀取或修改（完全存取以外的 Claude Code、Codex、Grok、Cursor 與 Antigravity 讀得到，就像它們讀得到彼此的）；token 與成本來自各 CLI 的回報（端點的模型沒有成本）；在原生 Windows 上只能以完全存取執行，Linux 上的 OpenCode 也一樣；在 Linux 上，完全存取以外需要 bubblewrap、socat 與 ripgrep（見[檔案權限](#對話規則)）。細節見[開源 agent](open-agents.zh-TW.md)。
+五個都一樣：每位對話成員的 session、記錄與快取都是它自己的，其他對話或其他成員的開源 agent 執行都無法讀取或修改（完全存取以外的 Claude Code、Codex、Grok、Cursor 與 Antigravity 讀得到，就像它們讀得到彼此的；Copilot 的沙箱讓它的指令讀不到你的家目錄，而這些資料夾通常就在那裡）；token 與成本來自各 CLI 的回報（端點的模型沒有成本）；在原生 Windows 上只能以完全存取執行，Linux 上的 OpenCode 也一樣；在 Linux 上，完全存取以外需要 bubblewrap、socat 與 ripgrep（見[檔案權限](#對話規則)）。細節見[開源 agent](open-agents.zh-TW.md)。
 
 ### 多個帳號
 
 每個 CLI 都能同時登入多個帳號，例如兩個 Claude 訂閱（公司和個人）、Codex 的三個 ChatGPT 帳號、Grok 的三個 xAI 帳號：每個 CLI 最多 10 個，含預設帳號（可用 `RELAY_MAX_ACCOUNTS` 調整）。打開 CLI 各帳號下方的 **新增帳號**，取個名稱（或用建議的名稱），按 **新增帳號**。它會和預設帳號一樣有自己的框；每個帳號都各自登入、登出、設定 API key，也有自己的預設模型與推理強度、自己決定不載入哪些項目，做法和上面相同。
 
 - **預設帳號** 就是你原本的帳號：CLI 平常的家目錄（或[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)），以及啟動 Harness Relay 時環境變數裡的 API key。按 **重新命名** 也能幫它取名。
-- **其他每個帳號** 都有自己的 CLI 資料夾（登入、設定與 session 紀錄），路徑顯示在名稱下方：設定了各 CLI 自己的資料夾時放在裡面，否則放在 Harness Relay 的資料夾（`data/accounts/<cli>-<id>`）。它只用自己的 API key：啟動 Harness Relay 的環境變數裡的憑證都不會傳給它（Claude Code 的 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`CLAUDE_CODE_OAUTH_TOKEN`，Codex 的 `CODEX_API_KEY`、`OPENAI_API_KEY`，Grok 的 `XAI_API_KEY`，Cursor 的 `CURSOR_API_KEY`、`CURSOR_AUTH_TOKEN`，Antigravity 的 `GEMINI_API_KEY`），所以它的成員執行的指令也看不到它們。在某個帳號開始 Codex 登入，只會登出那個帳號。因為是新的資料夾，那裡的 CLI 不會讀你自己的設定、MCP 伺服器、skill 與記憶；[工具庫](#工具庫mcp-伺服器skill-與記憶)照常提供。新帳號使用 CLI 自己的預設模型與推理強度，也不略過任何項目。
+- **其他每個帳號** 都有自己的 CLI 資料夾（登入、設定與 session 紀錄），路徑顯示在名稱下方：設定了各 CLI 自己的資料夾時放在裡面，否則放在 Harness Relay 的資料夾（`data/accounts/<cli>-<id>`）。它只用自己的 API key：啟動 Harness Relay 的環境變數裡的憑證都不會傳給它（Claude Code 的 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`CLAUDE_CODE_OAUTH_TOKEN`，Codex 的 `CODEX_API_KEY`、`OPENAI_API_KEY`，Grok 的 `XAI_API_KEY`，Cursor 的 `CURSOR_API_KEY`、`CURSOR_AUTH_TOKEN`，Antigravity 的 `GEMINI_API_KEY`，Copilot 的 `COPILOT_GITHUB_TOKEN`、`GH_TOKEN`、`GITHUB_TOKEN`），所以它的成員執行的指令也看不到它們。在某個帳號開始 Codex 登入，只會登出那個帳號。因為是新的資料夾，那裡的 CLI 不會讀你自己的設定、MCP 伺服器、skill 與記憶；[工具庫](#工具庫mcp-伺服器skill-與記憶)照常提供。新帳號使用 CLI 自己的預設模型與推理強度，也不略過任何項目。
 - **選擇帳號**：在團隊設定裡用每位成員的 **帳號** 選擇，[首席 agent](#首席-agent) 則在它的卡片上選。CLI 有不只一個帳號時才會出現這個選單；選單會標出尚未登入的帳號，成員的帳號尚未登入時卡片也會提醒。沒有選帳號的成員使用預設帳號。新成員、以及首席 agent 設計的團隊中的成員，預設帳號已登入時用預設帳號，否則用第一個已登入的帳號；留任的成員保留原本的帳號。
 - 成員換到另一個帳號時，會開始新的 CLI session（並收到目前為止的對話），因為原本的 session 存在另一個帳號的資料夾。
 - **移除** 會登出這個帳號，刪除它的 API key 和資料夾（包括 CLI 在裡面的 session 紀錄）；原本用它的成員之後改用預設帳號。有對話正在執行時不能移除。預設帳號不能移除。
 - Grok 的資料夾信任會一次記錄到每個 Grok 帳號；之後新增的 Grok 帳號，一開始就信任預設帳號信任的資料夾。
 - **Cursor 的其他帳號只能用 API key 登入。** Cursor 在每個電腦使用者只保留一個登入（macOS 上存在登入鑰匙圈；Linux 與 Windows 上存在一個不會跟著它的資料夾移動的檔案），所以再登入一個帳號就會蓋掉預設帳號的登入。額外的 Cursor 帳號框裡會說明這一點，不提供 **登入**，並直接展開它的 **API key**；這把金鑰只用在這個帳號的執行。它的資料夾只放 Cursor 的設定與 session，沒有登入，所以 **移除** 不會在 Cursor 登出任何東西。預設帳號的 **登出** 會登出這台電腦上 Cursor 自己的登入，即使這個帳號設了 API key 也一樣。
 - **Antigravity 的其他帳號只能用 Gemini API key 登入。** Antigravity 把 Google 登入存在系統的 keyring 裡，而 Harness Relay 無法確認另一個資料夾會把另一個登入分開保存，所以額外的 Antigravity 帳號框裡不提供 Google 登入，而是直接展開它的 **API key**；這把金鑰只用在這個帳號的執行，這個帳號也只用它執行：沒有自己的金鑰時，它顯示為未登入，而且絕不會用預設帳號的 Google 登入執行，也不會用啟動 Harness Relay 時環境中的 `GEMINI_API_KEY` 或 `AGY_ADC_AUTH`。它的資料夾放的是 Antigravity 的 `.gemini` 資料夾（設定、對話紀錄、skill、MCP 伺服器與 hook），沒有登入，所以登出它或 **移除** 都不會在 Antigravity 登出任何東西。
+- **Copilot 的其他帳號各自登入**，每個帳號有自己的 Copilot 家目錄，用 GitHub 裝置代碼或 GitHub token 登入。Copilot 把 token 依 GitHub 帳號名稱存在系統的金鑰儲存區，而不是依資料夾，所以兩個以同一個 GitHub 使用者登入的帳號會共用它，登出其中一個也會讓另一個登出（沒有確認過）。
 
 ### 預設模型與推理強度
 
-在帳號框裡的 **預設模型與推理強度** 區塊，設定使用這個帳號的成員（以及首席 agent 用這個帳號時）模型 / 推理強度選「預設」時要用什麼。每個帳號各自設定；模型清單與 CLI 的預設值是在這個帳號的資料夾裡查詢的。若這裡也維持 **CLI 預設**，就交給 CLI 在這個帳號資料夾裡的設定（例如預設帳號的 `~/.codex/config.toml`）；Cursor 則是它自己設定裡的模型，沒有另外選過就是 Auto。Cursor 會列出每個模型各自能用的推理強度：Auto（由它自己挑模型）和只有思考開關的模型沒有推理強度，以它們自己的強度執行；模型不支援的推理強度不會傳給它。Antigravity 的模型清單來自在這個帳號資料夾裡執行的 `agy models`，每個 Gemini 模型一項（例如 `gemini-3.8-flash` 或 `gemini-3.1-pro`），它提供的思考等級就是它的推理強度（low、medium 與 high，或只有 low 與 high）；它的 **CLI 預設** 是它自己設定裡指定的模型（與等級），前提是指定的是其中之一。開源 agent 只有一組設定、沒有其他帳號，它的 **CLI 預設** 是 CLI 自己的預設模型（那個模型的來源已設定時）。在團隊設定裡，成員的模型選單會顯示它所用帳號的模型與預設值。各帳號下方的 **執行檔** 可以指定路徑，用於 CLI 不在 `PATH` 中的情況，這個 CLI 的所有帳號都會使用。找不到 CLI 時，該卡片會說明，並附上到官網安裝的連結（[Claude Code](https://claude.com/product/claude-code)、[Codex](https://openai.com/codex/)、[Grok](https://x.ai/build)、[Cursor](https://cursor.com/cli)、[Antigravity](https://antigravity.google/download)、[OpenCode](https://www.npmjs.com/package/opencode-ai)、[Goose](https://formulae.brew.sh/formula/block-goose-cli)、[Cline](https://www.npmjs.com/package/cline)、[OpenHands](https://pypi.org/project/openhands/)、[Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)）。
+在帳號框裡的 **預設模型與推理強度** 區塊，設定使用這個帳號的成員（以及首席 agent 用這個帳號時）模型 / 推理強度選「預設」時要用什麼。每個帳號各自設定；模型清單與 CLI 的預設值是在這個帳號的資料夾裡查詢的。若這裡也維持 **CLI 預設**，就交給 CLI 在這個帳號資料夾裡的設定（例如預設帳號的 `~/.codex/config.toml`）；Cursor 則是它自己設定裡的模型，沒有另外選過就是 Auto。Cursor 會列出每個模型各自能用的推理強度：Auto（由它自己挑模型）和只有思考開關的模型沒有推理強度，以它們自己的強度執行；模型不支援的推理強度不會傳給它。Antigravity 的模型清單來自在這個帳號資料夾裡執行的 `agy models`，每個 Gemini 模型一項（例如 `gemini-3.8-flash` 或 `gemini-3.1-pro`），它提供的思考等級就是它的推理強度（low、medium 與 high，或只有 low 與 high）；它的 **CLI 預設** 是它自己設定裡指定的模型（與等級），前提是指定的是其中之一。Copilot 列出這個帳號方案中的模型，是在它自己的資料夾裡開啟一個不送 prompt 的 session 來查詢的（所以不會執行任何專案的 hook，也不會留下 session）；它的 **CLI 預設** 是帳號自己的預設模型，列出的推理強度是那個模型的（沒有的話是 low 到 max）。不接受推理強度的模型（例如 Claude Haiku 4.5）會不帶推理強度執行。開源 agent 只有一組設定、沒有其他帳號，它的 **CLI 預設** 是 CLI 自己的預設模型（那個模型的來源已設定時）。在團隊設定裡，成員的模型選單會顯示它所用帳號的模型與預設值。各帳號下方的 **執行檔** 可以指定路徑，用於 CLI 不在 `PATH` 中的情況，這個 CLI 的所有帳號都會使用。找不到 CLI 時，該卡片會說明，並附上到官網安裝的連結（[Claude Code](https://claude.com/product/claude-code)、[Codex](https://openai.com/codex/)、[Grok](https://x.ai/build)、[Cursor](https://cursor.com/cli)、[Antigravity](https://antigravity.google/download)、[Copilot](https://github.com/features/copilot/cli)、[OpenCode](https://www.npmjs.com/package/opencode-ai)、[Goose](https://formulae.brew.sh/formula/block-goose-cli)、[Cline](https://www.npmjs.com/package/cline)、[OpenHands](https://pypi.org/project/openhands/)、[Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)）。
 
 ### 首席 agent
 
-**✦ 首席 agent** 決定在[自動組隊](#自動組隊)的對話中，由哪個 CLI（以及選填的模型與推理強度）來設計團隊，也由它把新對話分到你的[群組](#群組)。請選一個已登入的 CLI，或已有模型來源（與模型）的開源 agent；通常小而快的模型就夠用。
+**✦ 首席 agent** 決定在[自動組隊](#自動組隊)的對話中，由哪個 CLI（以及選填的模型與推理強度）來設計團隊，也由它把新對話分到你的[群組](#群組)。請選一個已登入的 CLI，或已有模型來源（與模型）的開源 agent；通常小而快的模型就夠用。首席 agent 不能問你任何事：工作目錄裡有專案替 Copilot 準備的 hook 時，Copilot 不會啟動；有專案自己的設定時，Antigravity 也一樣，因為這些都要先問過你（見[核准](#核准)）；設計團隊時會像首席 agent 失敗時那樣改用替代方案。這種專案請選其他 CLI。
 
 **預設工作目錄** 決定新對話預設在哪些資料夾工作（agent 從第一個開始；見下方的 **工作目錄**）。有資料夾還不存在時，Harness Relay 會列出不存在的資料夾，詢問是否要建立（新對話的工作目錄、在團隊設定裡修改的工作目錄也一樣）。
 
 ### 各 CLI 自己載入的內容
 
-每個帳號的框裡都有 **這個 CLI 自己載入的 skill、MCP、hook 與記憶等**：展開後按 **查詢**，就能看這個 CLI 在這個帳號的資料夾、預設工作目錄下自己的設定（Claude Code 也包含預設工作目錄之後的那些，它也會載入其中的 skill），和工具庫分開，每類一個分頁：它的 **Skills**（附來源）、**MCP 工具**（每個 MCP 伺服器，CLI 有回報時附狀態，以及它提供的工具）、**內建工具**（Claude Code）、**Hooks**（何時執行、在哪裡設定，不顯示指令）、**Subagents**（Claude Code、Grok 與 Cursor，以及 Antigravity 的自訂 agent）、**Plugins**，以及它會讀的 **指示** 和 **記憶** 檔。Harness Relay 查詢時不會送 prompt，所以不會呼叫模型：Claude Code 與 Codex 回答時會啟動它們的 MCP 伺服器，Claude Code 也會執行你設定的 hooks。Cursor 沒有這種查詢，它的清單來自它已知會讀的檔案，不會啟動它。Antigravity 用 `agy -p /skills`、`/hooks` 與 `/agents` 列出它的 skill、hook 與自訂 agent，這些指令不必呼叫模型、不會開對話，也不耗用額度（未登入時會失敗，只顯示一則說明），再用 `agy plugin list` 列出 plugin；它的 MCP 伺服器與指示檔則來自它會讀的檔案。為了列出工具，會送給 Claude Code `/usage`，這是它自己回答的指令（不花費用量，也不會留下 session）；如果你有名為 `usage` 的 skill 或指令，就不送，內建工具也就不會列出。展開這一區不會查詢，所以你可以先改不載入的設定，不必啟動 CLI。Claude Code 和 Codex 沒有提供指示檔清單，所以列出的是依它們的讀檔規則找到、目前存在的檔案。點檔案或有路徑的 skill 就能閱讀內容（Markdown 可切換預覽與原始內容）。
+每個帳號的框裡都有 **這個 CLI 自己載入的 skill、MCP、hook 與記憶等**：展開後按 **查詢**，就能看這個 CLI 在這個帳號的資料夾、預設工作目錄下自己的設定（Claude Code 也包含預設工作目錄之後的那些，它也會載入其中的 skill），和工具庫分開，每類一個分頁：它的 **Skills**（附來源）、**MCP 工具**（每個 MCP 伺服器，CLI 有回報時附狀態，以及它提供的工具）、**內建工具**（Claude Code）、**Hooks**（何時執行、在哪裡設定，不顯示指令）、**Subagents**（Claude Code、Grok 與 Cursor，以及 Antigravity 與 Copilot 的自訂 agent）、**Plugins**，以及它會讀的 **指示** 和 **記憶** 檔。Harness Relay 查詢時不會送 prompt，所以不會呼叫模型：Claude Code 與 Codex 回答時會啟動它們的 MCP 伺服器，Claude Code 也會執行你設定的 hooks。Cursor 沒有這種查詢，它的清單來自它已知會讀的檔案，不會啟動它。Antigravity 用 `agy -p /skills`、`/hooks` 與 `/agents` 列出它的 skill、hook 與自訂 agent，這些指令不必呼叫模型、不會開對話，也不耗用額度（未登入時會失敗，只顯示一則說明），再用 `agy plugin list` 列出 plugin；它的 MCP 伺服器與指示檔則來自它會讀的檔案。Copilot 用 `copilot mcp list`、`skill list`、`instruction list` 與 `plugin list` 列出它的 MCP 伺服器、skill、指示檔與 plugin，這些指令不會開啟 session；它的 hook 與自訂 agent 則來自它會讀的檔案。為了列出工具，會送給 Claude Code `/usage`，這是它自己回答的指令（不花費用量，也不會留下 session）；如果你有名為 `usage` 的 skill 或指令，就不送，內建工具也就不會列出。展開這一區不會查詢，所以你可以先改不載入的設定，不必啟動 CLI。Claude Code 和 Codex 沒有提供指示檔清單，所以列出的是依它們的讀檔規則找到、目前存在的檔案。點檔案或有路徑的 skill 就能閱讀內容（Markdown 可切換預覽與原始內容）。
 
 每個分頁也能讓 Harness Relay 以這個帳號啟動這個 CLI 的每一次執行（使用這個帳號的成員的回合；首席 agent 用這個帳號時，它的執行與把對話分類到群組）不載入其中的項目。每個帳號各自設定，因為各有自己的 skill、MCP 伺服器與 hook。分頁最上方的 **全部不載入** 會關掉這一類的全部；查詢之後，每個項目前的勾選框可以只關掉那一項（CLI 能做到時）。每次變更都會立刻儲存，分頁上會標示不載入的情形，這一區的標題會顯示總共不載入幾項。開啟 **全部不載入** 時，這個分頁裡個別的勾選會保留，取消後恢復。CLI 自己的設定檔不會被修改，所以在終端機使用它不受影響，工具庫的項目也照常提供。有項目設為不載入時，**查詢** 也會依 Harness Relay 啟動它的方式再問一次，把那時不會載入的項目標示為 **不載入**，讓你看到執行時實際拿到什麼（例如拒絕 Claude Code 的 `Bash`，它的 `Monitor` 工具也會一起消失）；勾選了但 CLI 仍然載入的項目會標示為 **仍會載入**。查詢結果裡已經沒有的勾選項目（之後被刪掉，或屬於預設工作目錄以外的專案的檔案或 skill）會在清單下方列出數量，並可一鍵清除。查詢後若改了不載入的設定，請重新查詢；再問一次時若逾時，CLI 已回答的部分仍會標示，其餘會說明沒有標示。各 CLI 能不載入哪些：
 
@@ -219,6 +224,7 @@ Harness Relay 讓這些 agent 在它自己的家目錄中執行，絕不使用�
 - **Grok**：只能全部不載入，而且 skill、MCP 伺服器與 hook 只有從 Claude Code、Cursor 匯入的（包括專案的 `.claude/skills` 與 Claude Code plugin 的 skill，但不包括它們的 hook）。Grok 自己找到的 skill 照常載入，包括 `~/.agents/skills`、`~/.grok/skills`、專案的 `.grok/skills` 與 `.agents/skills`，以及內建的：要關掉，請在 `~/.grok/config.toml` 的 `skills.disabled` 列出名稱，Grok 自己的 MCP 伺服器也在那裡關閉。這個檔案是 Grok 的全域設定：在那裡的變更也會影響你在終端機使用 Grok，Harness Relay 不會修改它。個別項目、指示檔與它的 plugin 都沒有單次執行的開關（plugin 要在 `~/.grok/config.toml` 的 `plugins.disabled` 關閉），也沒有只略過它自己 subagent 的開關（它的 subagent 開關會連內建的一起關掉）。
 - **Cursor**：都不行。它沒有任何設定或變數能讓單次執行不載入這些項目，所以它的分頁（Skills、MCP 工具、Hooks、Subagents、指示）只顯示它會載入什麼：工作目錄與家目錄裡 `.cursor`、`.claude`、`.codex`、`.grok`、`.agents` 底下 `skills` 資料夾的 skill，以及它內建的；`~/.cursor/mcp.json` 的 MCP 伺服器（專案 `.cursor/mcp.json` 裡的會標示 `needs approval`：要先在 Cursor 裡核准才會載入，而 Harness Relay 的執行從不詢問，所以不會載入）；`~/.cursor/hooks.json` 與你組織的 hook，以及 `~/.claude/settings.json` 裡 Claude Code 的 hook（列為 *Claude Code*：Cursor 也會載入，一律從這個檔案，不論你讓 Claude Code 的執行不載入哪些），它們在 Harness Relay 的執行中也會在它的工具呼叫上執行；工作目錄 `.cursor/agents` 與 `.claude/agents` 裡的 subagent；以及工作目錄與它上層每個資料夾的 `AGENTS.md`、`CLAUDE.md`、`CLAUDE.local.md` 與 `.cursor/rules`。設在 Cursor 帳號上的規則不是檔案，所以不會列出。
 - **Antigravity**：都不行。`agy acp` 沒有任何旗標或設定能讓單次執行不載入這些項目，所以它的分頁（Skills、MCP 工具、Hooks、Subagents、Plugins、指示）只顯示它會載入什麼：它的 skill（內建的、你在 `~/.gemini/config/skills` 的、專案 `.agents/skills` 的，以及 plugin 的）；`~/.gemini/config/mcp_config.json` 以及從工作目錄到 repository 根目錄之間、專案 `.agents/mcp_config.json`（或 `.agent`、`_agents`、`_agent`）的 MCP 伺服器，專案的優先（只列名稱，絕不列出它們的設定）；它的 hook，附事件、matcher 與檔案，絕不列出指令；它的自訂 agent 與 plugin；以及從工作目錄到 repository 根目錄之間的 `GEMINI.md`、`AGENTS.md` 與 `.agents/rules/*.md`。它的 hook 與 MCP 伺服器在 Harness Relay 的執行中也會執行，而且在任何沙箱之外；在完全存取以外的權限，專案自己的（以及它的 plugin）要在這一輪開始前經你允許才會執行（見[核准](#核准)）。
+- **Copilot**：skill（它的 skill 工具與 skill 清單都不提供給這次執行）、MCP 伺服器（它自己的都不啟動：`~/.copilot/mcp-config.json` 裡的與內建的 GitHub MCP 伺服器；工具庫的照樣啟動，plugin 的則跟著 plugin 走，沒有略過 plugin 時仍會啟動）、記憶、hook（你在 `~/.copilot` 的：專案的 hook 照樣會執行，因為不管設定怎麼寫，Copilot 都會執行它們，所以在完全存取以外的權限，這一輪開始前會先問你）與 plugin（一個都不載入，也不載入它們帶來的東西）都能整類略過；skill 與 MCP 伺服器也能依名稱逐一略過。它的指示檔無法略過（Copilot 透過 ACP 執行時不套用 `--no-custom-instructions`：`AGENTS.md`、`CLAUDE.md`、`.github/copilot-instructions.md` 與你自己的 `copilot-instructions.md` 照常載入），它的自訂 agent 與內建工具也不行。專案自己的 MCP 伺服器（`.mcp.json`、`.github/mcp.json`）在 Harness Relay 的執行中從不載入，因為這些執行不信任任何資料夾，所以它們一律標為略過。它的分頁會列出它的 hook（你在 `~/.copilot/hooks` 與它的 `settings.json` 裡的，以及專案 `.github/hooks` 裡的），附事件與 matcher，以及它的自訂 agent（在 `~/.copilot/agents`，以及專案的 `.github/agents` 與 `.claude/agents`）。在完全存取以外的權限，專案的 hook 要在這一輪開始前經你允許才會執行（見[核准](#核准)）。
 - **開源 agent** 在 Harness Relay 自己的家目錄中執行，所以只會列出專案的檔案與它們自己找到的東西。**OpenCode**：skill（全部，或依名稱）、Harness Relay 交給它的指示檔，以及 subagent（全部，或依名稱；完全存取以外本來就關閉）。**Goose**：它的 plugin（全部，或依資料夾）、plugin 啟動的 MCP 伺服器，以及指示檔（`.goosehints`、`AGENTS.md`），後兩者只能全部一起；它的 skill 無法排除。**Cline**：skill 只能全部一起，內建工具與 plugin 可以逐項；它的規則與 hook 無法排除。**OpenHands**：什麼都不能排除（會列出專案的指示、skill、subagent 與 hook）。**Pi**：它的指示檔，只能全部一起。
 
 Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / `CLAUDE.md`、skill、MCP 伺服器與 hooks。資料夾尚未信任時，Grok 卡片會標示出來；團隊裡有 Grok 成員時，團隊編輯器的工作目錄下方也會提示。在這種資料夾開始一個有 Grok 成員的新對話時，會先問你：**信任並開始**、**不信任，直接開始**或 **取消**。Grok 是以整個專案決定信任：工作目錄在 git 儲存庫裡時，被信任的是儲存庫的根目錄（解析連結後），確認時也會這樣說明。按 **信任這個資料夾** 會先請你確認這個資料夾，再用和 `grok --trust` 相同的方式記錄（在 `~/.grok/trusted_folders.toml`，或 `$GROK_HOME`）。請只信任你信任的專案：信任後 Grok 也會執行專案的 hooks。工具庫的項目不管有沒有信任都會提供給 Grok。**重新查詢** 會更新結果（結果保留一分鐘）。
@@ -227,29 +233,29 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 ### 工具庫：MCP 伺服器、skill 與記憶
 
-**設定 → 工具庫** 讓你一次設定好工具，給每位成員使用，不管它跑在哪個 CLI。這些工具是加在各 CLI 自己的設定之外（你在 `~/.claude`、`~/.codex/config.toml`、`~/.grok`、`~/.cursor`、`~/.gemini` 的設定照常有效），變更從成員的下一回合開始生效。
+**設定 → 工具庫** 讓你一次設定好工具，給每位成員使用，不管它跑在哪個 CLI。這些工具是加在各 CLI 自己的設定之外（你在 `~/.claude`、`~/.codex/config.toml`、`~/.grok`、`~/.cursor`、`~/.gemini`、`~/.copilot` 的設定照常有效），變更從成員的下一回合開始生效。
 
 - **MCP 伺服器**：按 **新增 MCP 伺服器**，取一個名稱（英文字母、數字、`_` 和 `-`），再選 **本機指令**（stdio：指令、每行一個參數、環境變數）或 **網址**（Streamable HTTP，可加 HTTP 標頭）。環境變數和標頭的值通常是 token，會跟 API key 一樣存進系統的金鑰儲存區，頁面上只顯示遮蔽後的值；編輯時把值留空就會保留原本的值。工具呼叫和其他動作一樣受對話權限限制：權限範圍以外的會在對話中詢問你（對話設成自動拒絕時則直接拒絕）。
 - **Skills**：輸入有 `SKILL.md` 的資料夾，或包含多個 skill 的資料夾（例如 `~/.claude/skills`），按 **加入**。找到不只一個 skill 時，會列出裡面所有 skill（資料夾本身，以及往下兩層內的 skill 資料夾），勾選要加入的，也可以篩選後 **全選**。這些 skill 是加在各 CLI 自己的 skill 之外：CLI 本來就會讀的 skill（Claude Code、Grok 和 Cursor 會讀 `~/.claude/skills`）不管有沒有加到這裡都能用；加到這裡則讓每種 CLI 都能用，並能選擇給誰。每位成員的說明會列出 skill 的名稱和用途（取自 `SKILL.md` 開頭的 front matter），需要時 agent 會自己讀那個 `SKILL.md`。`SKILL.md` 不見了、或名稱和另一個 skill 重複的會被標示出來，不會提供給 agent。
-- **記憶**：放進每個對話成員說明裡的筆記，例如你的偏好和專案慣例。**所有成員** 每個人都收到；每個 CLI 的分頁（**Claude Code**、**Codex**、**Grok**、**Cursor**、**Antigravity**、**OpenCode**…）只給該 CLI 的成員，接在共用記憶後面。
+- **記憶**：放進每個對話成員說明裡的筆記，例如你的偏好和專案慣例。**所有成員** 每個人都收到；每個 CLI 的分頁（**Claude Code**、**Codex**、**Grok**、**Cursor**、**Antigravity**、**Copilot**、**OpenCode**…）只給該 CLI 的成員，接在共用記憶後面。
 
-**預設提供給**：每個 MCP 伺服器和 skill 都可以選要給哪幾種 CLI 的成員：全部都給（預設）、只給其中幾種，或都不給（這時只給你在團隊設定裡勾選的成員）。Harness Relay 能執行 Cursor、Antigravity 與開源 agent 之前就加入的項目，維持原本給的那幾種 CLI：勾選這些 CLI 才會也給它們的成員。要針對單一成員調整，見[團隊成員](#團隊成員)的 **工具**。
+**預設提供給**：每個 MCP 伺服器和 skill 都可以選要給哪幾種 CLI 的成員：全部都給（預設）、只給其中幾種，或都不給（這時只給你在團隊設定裡勾選的成員）。Harness Relay 能執行 Cursor、Antigravity、Copilot 與開源 agent 之前就加入的項目，維持原本給的那幾種 CLI：勾選這些 CLI 才會也給它們的成員。要針對單一成員調整，見[團隊成員](#團隊成員)的 **工具**。
 
 ### Agent 的 session：各 CLI 自己的資料夾與 AgentsView
 
 **設定 → Agent 的 session** 有兩個選用的設定。它們和其他設定一起存在 Harness Relay 裡，所以不論 macOS、Linux 或 Windows，都照常用 `npm start`（或 `npm run dev`）啟動。
 
-**各 CLI 自己的資料夾**：預設各 CLI 用它們平常的家目錄（`~/.claude`、`~/.codex`、`~/.grok`、`~/.cursor`，以及 Antigravity 的 `~/.gemini`），也就是你自己執行 CLI 時用的那一個。在這裡填入一個資料夾（完整路徑，或以 `~` 開頭的路徑），或按 **使用 ~/.relay-agents**，Harness Relay 就會在裡面替每個 CLI 準備自己的家目錄：`claude`、`codex`、`grok`、`cursor` 與 `antigravity` 子資料夾（Antigravity 的 `.gemini` 資料夾放在最後一個裡）。之後各 CLI 的登入、設定與 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。
+**各 CLI 自己的資料夾**：預設各 CLI 用它們平常的家目錄（`~/.claude`、`~/.codex`、`~/.grok`、`~/.cursor`、`~/.copilot`，以及 Antigravity 的 `~/.gemini`），也就是你自己執行 CLI 時用的那一個。在這裡填入一個資料夾（完整路徑，或以 `~` 開頭的路徑），或按 **使用 ~/.relay-agents**，Harness Relay 就會在裡面替每個 CLI 準備自己的家目錄：`claude`、`codex`、`grok`、`cursor`、`antigravity` 與 `copilot` 子資料夾（Antigravity 的 `.gemini` 資料夾放在 `antigravity` 裡）。之後各 CLI 的登入、設定與 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。
 
-- 各 CLI 要重新登入一次（在上方各 CLI 的卡片，或設定 API key）：新的家目錄一開始是空的。[每個帳號](#多個帳號)都是如此：其他帳號的資料夾也會改放在新的資料夾裡，舊的則連同登入資料留在原處，要自己刪除（**移除** 只會刪掉帳號目前的資料夾）。Cursor 例外：它的登入屬於你的電腦使用者，不在它的資料夾裡，所以仍然是登入狀態；移過去的只有它的設定與 session。Antigravity 把 Google 登入存在系統的 keyring，不在它的資料夾裡（之後是否仍算登入沒有驗證過：它的卡片顯示未登入時請重新登入）；移過去的是它的設定、skill、MCP 伺服器、hook 與對話紀錄。
+- 各 CLI 要重新登入一次（在上方各 CLI 的卡片，或設定 API key）：新的家目錄一開始是空的。[每個帳號](#多個帳號)都是如此：其他帳號的資料夾也會改放在新的資料夾裡，舊的則連同登入資料留在原處，要自己刪除（**移除** 只會刪掉帳號目前的資料夾）。Cursor 例外：它的登入屬於你的電腦使用者，不在它的資料夾裡，所以仍然是登入狀態；移過去的只有它的設定與 session。Antigravity 把 Google 登入存在系統的 keyring，不在它的資料夾裡（之後是否仍算登入沒有驗證過：它的卡片顯示未登入時請重新登入）；移過去的是它的設定、skill、MCP 伺服器、hook 與對話紀錄。Copilot 把登入的是誰記在它的資料夾（`config.json`），token 則依你的 GitHub 帳號名稱存在系統的金鑰儲存區：它的卡片顯示未登入時請重新登入（沒有確認過）。
 - 各 CLI 不再讀你平常家目錄裡的設定、MCP 伺服器、skill、記憶與 plugin（Cursor 仍會從 `~/.cursor` 讀它的 skill、MCP 伺服器與 hook，也會從 `~/.claude/settings.json` 讀 Claude Code 的 hook）；[工具庫](#工具庫mcp-伺服器skill-與記憶)裡的工具照常提供給每位成員。
 - 成員在下一回合會開新的 session，並取得對話的完整紀錄：之前的 session 留在原本的家目錄。
-- session 紀錄在那個資料夾的 `claude/projects/`、`codex/sessions/`、`grok/sessions/`、`cursor/acp-sessions/` 與 `antigravity/.gemini/antigravity-cli/conversations/`。
+- session 紀錄在那個資料夾的 `claude/projects/`、`codex/sessions/`、`grok/sessions/`、`cursor/acp-sessions/`、`antigravity/.gemini/antigravity-cli/conversations/` 與 `copilot/session-state/`。
 - 開源 agent 的家目錄也放在這裡（`opencode`、`goose`、`cline`、`openhands`、`pi`）；沒有設定資料夾時，它們的家目錄在 `data/agent-homes/`。
 
 請選專案以外的資料夾：在 Harness Relay 自己的資料夾或預設工作目錄裡面的會被拒絕，因為那裡的快照會把各 CLI 的登入與 session 紀錄一起收進去。有對話正在執行時不能更改這個資料夾。把欄位清空，就會改回平常的家目錄。
 
-**AgentsView**：[AgentsView](https://www.agentsview.io) 是在你電腦上瀏覽 agent session 的免費工具，看得到每則訊息、每個工具呼叫、token 與成本。在這裡填入它的網址，Harness Relay 會在每個回合結束後、以及你重新命名對話時，把對話送過去。每個對話在 AgentsView 中是一個以對話標題命名的 session，底下是各 agent 自己的 session（首席 agent 和分群用的 session 也在內），成本也會加總。Cursor 與開源 agent 自己的 session 所在之處 AgentsView 讀不到（Cursor 把 session 存在 AgentsView 不讀的資料庫裡；開源 agent 把每位成員的 session 存在 Harness Relay 家目錄中它自己的資料夾），所以這些成員改由 Harness Relay 送出它記下的 session：每次回覆前，上次回覆之後大家說了什麼；接著是它的思考、工具呼叫與輸出的結尾（指令、讀取或編輯的檔案、搜尋與擷取網頁，都像 Claude Code 自己的一樣顯示）、它請求的核准、它的回覆；最後是它的 token。AgentsView 認得模型時會依 token 算出成本；CLI 回報的成本不加到對話的成本，AgentsView 只在 `agentsview session usage` 中顯示它，網頁上看不到（你自己端點上的模型不回報成本）。在 AgentsView 刪掉這種 session 後，它會一直是刪掉的。這種 session 以成員名稱與它的 CLI 命名，AgentsView 會把它列為 Claude Code 的 session。用 Cursor 或開源 agent 的首席 agent 或分群在 AgentsView 中沒有 session：Harness Relay 沒有記下它做了什麼。只接受這台電腦上的網址。更新失敗時（例如 AgentsView 沒有在執行），卡片上會說明原因，不影響對話。
+**AgentsView**：[AgentsView](https://www.agentsview.io) 是在你電腦上瀏覽 agent session 的免費工具，看得到每則訊息、每個工具呼叫、token 與成本。在這裡填入它的網址，Harness Relay 會在每個回合結束後、以及你重新命名對話時，把對話送過去。每個對話在 AgentsView 中是一個以對話標題命名的 session，底下是各 agent 自己的 session（首席 agent 和分群用的 session 也在內），成本也會加總。Cursor 與開源 agent 自己的 session 所在之處 AgentsView 讀不到（Cursor 把 session 存在 AgentsView 不讀的資料庫裡；開源 agent 把每位成員的 session 存在 Harness Relay 家目錄中它自己的資料夾），所以這些成員改由 Harness Relay 送出它記下的 session：每次回覆前，上次回覆之後大家說了什麼；接著是它的思考、工具呼叫與輸出的結尾（指令、讀取或編輯的檔案、搜尋與擷取網頁，都像 Claude Code 自己的一樣顯示）、它請求的核准、它的回覆；最後是它的 token。AgentsView 認得模型時會依 token 算出成本；CLI 回報的成本不加到對話的成本，AgentsView 只在 `agentsview session usage` 中顯示它，網頁上看不到（你自己端點上的模型不回報成本）。在 AgentsView 刪掉這種 session 後，它會一直是刪掉的。這種 session 以成員名稱與它的 CLI 命名，AgentsView 會把它列為 Claude Code 的 session。用 Cursor 或開源 agent 的首席 agent 或分群在 AgentsView 中沒有 session：Harness Relay 沒有記下它做了什麼。Copilot 的 session 由 AgentsView 自己讀取，來自它家目錄裡的 `session-state`，每次執行都會連結到帳號的那一個。在 macOS 與 Linux 上，AgentsView 也會顯示它們的 token 數，從 Copilot 的 `session-store.db` 讀取：每次執行的家目錄也會把這個檔案連結到帳號的那一個。在 Windows 上則不會顯示：那裡要連結到檔案需要開發人員模式，所以執行的家目錄只把 `session-state` 資料夾連結過去（用 junction），`session-store.db` 是它自己的，會跟著它一起刪除。只接受這台電腦上的網址。更新失敗時（例如 AgentsView 沒有在執行），卡片上會說明原因，不影響對話。
 
 - 設定網址之前就有的對話，會在它的下一回合結束後送出。
 - 在 Harness Relay 刪除對話，已經送到 AgentsView 的內容會留著；需要的話請在 AgentsView 裡移除。
@@ -276,7 +282,7 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
    dirs = ["~/.relay-agents/antigravity/.gemini/antigravity-cli"]
    ```
 
-   Cursor 與開源 agent 在這裡什麼都不用設：Harness Relay 會自己送出它們的 session。電腦上有 AgentsView 支援的其他工具（Cursor、Gemini CLI……）時，它也會讀那些工具的預設資料夾。不想要的話，把它們列在 `disabled_agents`（見 [AgentsView 的設定說明](https://www.agentsview.io/docs/configuration/)）。
+   Cursor 與開源 agent 在這裡什麼都不用設：Harness Relay 會自己送出它們的 session。Copilot 的在 `~/.relay-agents/copilot/session-state`；怎麼讓專用的 AgentsView 讀它們，沒有確認過（見 [AgentsView 的設定說明](https://www.agentsview.io/docs/configuration/)）。電腦上有 AgentsView 支援的其他工具（Cursor、Gemini CLI……）時，它也會讀那些工具的預設資料夾。不想要的話，把它們列在 `disabled_agents`（見 [AgentsView 的設定說明](https://www.agentsview.io/docs/configuration/)）。
 3. 讓它的資料放在那個資料夾，用你選的 port 啟動（這裡用 9999）。macOS 與 Linux：
 
    ```bash
@@ -348,15 +354,15 @@ app 打開時是首頁：只有 logo 與一句標語。點側邊欄最上面的 
 每張卡片是一個 agent：
 
 - **@名稱**：用於 `@` 的名稱。可用字母、數字、`_`、`-`（中文也可以），團隊內不能重複。
-- **Claude Code / Codex / Grok / Cursor / Antigravity / OpenCode / Goose / Cline / OpenHands / Pi**：由哪個 CLI 執行這個 agent。同一個 CLI 可以有多個 agent（例如兩個不同角色的 Claude）。CLI 尚未就緒的卡片會說明原因（未登入、沒有模型來源、找不到 CLI），並附上前往它設定卡片的連結。
+- **Claude Code / Codex / Grok / Cursor / Antigravity / Copilot / OpenCode / Goose / Cline / OpenHands / Pi**：由哪個 CLI 執行這個 agent。同一個 CLI 可以有多個 agent（例如兩個不同角色的 Claude）。CLI 尚未就緒的卡片會說明原因（未登入、沒有模型來源、找不到 CLI），並附上前往它設定卡片的連結。
 - **帳號**：由這個 CLI 的哪個帳號執行這個 agent，CLI 有[多個帳號](#多個帳號)時才會出現。例如三位 Codex 成員可以各用一個帳號。
 - **定位 / 角色**：自由描述這個 agent 的定位與職責。這是最重要的欄位：告訴它負責什麼、*不*該做什麼、要交棒給誰。
-- **模型**：CLI 回報的可用模型，或選 **自訂…** 自行輸入模型 ID。「預設」會使用設定頁的預設值，沒有的話用 CLI 自己的預設。開源 agent 的模型寫成「模型來源/模型」（見[開源 agent 與模型來源](#開源-agent-與模型來源)）：從你設定好的模型來源中挑一個，或在設定頁指定它的預設模型。Claude Code、Codex 與 Grok 也會列出你的自訂端點的模型，讓它們在你自己的伺服器上執行。
+- **模型**：CLI 回報的可用模型，或選 **自訂…** 自行輸入模型 ID。「預設」會使用設定頁的預設值，沒有的話用 CLI 自己的預設。開源 agent 的模型寫成「模型來源/模型」（見[開源 agent 與模型來源](#開源-agent-與模型來源)）：從你設定好的模型來源中挑一個，或在設定頁指定它的預設模型。Claude Code、Codex、Grok 與 Copilot 也會列出你的自訂端點的模型，讓它們在你自己的伺服器上執行。
 - **推理強度**：只列出所選模型支援的等級（例如 low / medium / high / xhigh）。換成不支援目前等級的模型時，會自動改回預設。
 - **↑ ↓**：調整順序。在圓桌模式中就是發言順序；在接力模式中第一位是**隊長**。
 - **工具**：這位成員從[工具庫](#工具庫mcp-伺服器skill-與記憶)拿到的項目會以標籤列出，按 **調整** 打開清單勾選。預設勾選狀態依成員的 CLI 而定（預設不給這個 CLI 的項目會註明），其他 CLI 的記憶分頁不會列出。伺服器或 skill 改名後選擇仍保留。工具庫是空的時候，有連結帶你過去。這些是加在 CLI 自己的 skill 和 MCP 之外，原本的照常可用。
 
-用 **＋ Claude Code**、**＋ Codex**、**＋ Grok**、**＋ Cursor**、**＋ Antigravity** 或各開源 agent 的按鈕新增成員（最多 8 位，或 `RELAY_MAX_TEAM_AGENTS` 允許的人數）。
+用 **＋ Claude Code**、**＋ Codex**、**＋ Grok**、**＋ Cursor**、**＋ Antigravity**、**＋ Copilot** 或各開源 agent 的按鈕新增成員（最多 8 位，或 `RELAY_MAX_TEAM_AGENTS` 允許的人數）。
 
 ### 對話規則
 
@@ -374,11 +380,11 @@ app 打開時是首頁：只有 logo 與一句標語。點側邊欄最上面的 
 
 | 等級 | 不必詢問就能做 |
 | --- | --- |
-| 唯讀 | 讀檔、搜尋、上網查資料。 |
-| 可編輯 | 另外還能修改工作目錄中的檔案，並執行測試、建置等專案指令（Claude Code 限常用的一組指令；Codex 則是沙箱內的任何操作，沙箱無法連網；Cursor 沒有，每個指令都會詢問，你的 Cursor 團隊允許清單上的除外；寫入那些一改就可能讓程式碼之後執行的檔案，例如 `.git/config` 與 `.vscode/`，也會詢問；Antigravity 同樣沒有，每個指令都會詢問，寫到工作目錄以外、或寫進那些一改就可能讓程式碼之後執行的資料夾，例如 `.agents` 與 `.git/config`，也會詢問）。不包含推送與發佈。 |
+| 唯讀 | 讀檔、搜尋、上網查資料（Copilot 也會在它的沙箱中執行它認為是唯讀的指令，例如 `ls`、`cat`、`git status` 與 `echo`）。 |
+| 可編輯 | 另外還能修改工作目錄中的檔案，並執行測試、建置等專案指令（Claude Code 限常用的一組指令；Codex 則是沙箱內的任何操作，沙箱無法連網；Cursor 沒有，每個指令都會詢問，你的 Cursor 團隊允許清單上的除外；寫入那些一改就可能讓程式碼之後執行的檔案，例如 `.git/config` 與 `.vscode/`，也會詢問；Antigravity 同樣沒有，每個指令都會詢問，寫到工作目錄以外、或寫進那些一改就可能讓程式碼之後執行的資料夾，例如 `.agents` 與 `.git/config`，也會詢問；Copilot 則是沙箱內的任何操作，但寫進那些一改就可能讓程式碼之後執行的資料夾，例如 `.github/hooks` 與 `.git/hooks`，會詢問，MCP 工具呼叫與儲存記憶也會詢問）。不包含推送與發佈。 |
 | 完全存取 | 所有操作，不再詢問。請只在信任的目錄使用。 |
 
-在完全存取以外的權限，Claude Code、Codex 與 Grok 的指令都在它們那個 CLI 的作業系統沙箱中執行，只能寫入工作目錄與暫存資料夾（有多個工作目錄時，每一個都可以）。Codex 的沙箱也讓指令無法連網，Claude Code 的沙箱會在指令要連到每個主機時詢問你；Grok 的沙箱只有在 Linux 上擋得了網路。在原生 Windows 上只有 Codex 有沙箱（見[各平台的作業系統沙箱](sandboxing.zh-TW.md)）。Cursor 在 Harness Relay 執行它的模式下，不管哪個系統都沒有沙箱：在完全存取以外的權限，它要執行的每個指令都會詢問你（對話設為自動拒絕時則直接拒絕），測試與建置也一樣，但 Cursor 團隊管理員放進團隊自動執行允許清單的指令除外（Harness Relay 無法清除它）；你允許的指令會以你的權限執行，也能連網。它自己的工具讀檔不必詢問，在可編輯模式下修改工作目錄裡的檔案也不必詢問，但那些一改就可能讓程式碼之後在任何沙箱之外執行的檔案（`.git/hooks`、`.git/config`、`.vscode/`、`.claude/*.json`、`.cursor/*.json`、`*.code-workspace`……）除外：Cursor 會詢問這些，也會詢問寫入工作目錄外的檔案（寫成 `~/…` 的家目錄路徑也算；`/tmp` 這類暫存資料夾除外，它在那裡寫入不會詢問），以及寫入這個對話其他工作目錄的檔案（它只在第一個裡工作），Harness Relay 則會問你，卡片上會說明是哪一種。Antigravity 在 Harness Relay 的執行中同樣沒有沙箱（它自己的沙箱會讓它的指令寫不進工作目錄，所以 Harness Relay 不開啟它；你自己的 Antigravity 設定，它的執行只保留模型與服務，所以你的終端機沙箱、權限或信任的資料夾在那裡都不適用）：在完全存取以外的權限，它要執行的每個指令都會詢問你（對話設為自動拒絕時則直接拒絕），測試與建置也一樣；你允許的指令會以你的權限執行，也能連網。它自己的工具讀檔與網路搜尋不必詢問，在可編輯模式下寫入各工作目錄也不必詢問，但那些一改就可能讓程式碼之後執行的資料夾（`.agents`、`.gemini`、`.claude`、`.cursor`、`.vscode`、`.mcp.json`、`.git/hooks`、`.git/config`……，不分大小寫）除外：這些會詢問，寫到工作目錄以外也會。沙箱也讓 agent 碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫（Cursor 自己的檔案工具只靠它這次執行設定裡的拒絕規則，而 Cursor 是拿寫下來的路徑去比對：受保護路徑換個大小寫，或指向它的連結，都擋不住；Antigravity 的只限於它會詢問的呼叫，而它在各工作目錄內的讀取不在其中（經由連結讀到工作目錄以外的會詢問，指向受保護路徑時會被拒絕）；它們的指令只靠詢問）；工作目錄包含 Harness Relay 本身、語音輸入的資料夾（或位於它裡面）、你的家目錄或 CLI 自己的資料夾時，則會拒絕可編輯模式。要開發 Harness Relay，請從另一個資料夾執行你使用的那份。可編輯模式適合你信任的程式碼：測試、建置和專案腳本執行的都是 agent 能修改的程式碼，所以使用 Grok 時，agent 仍可能透過它們連上網路。使用 Grok 與開源 agent 時，可編輯模式會在推送或發佈前詢問，指令包在 shell 語法裡（`if`、`while`、`!`、`{ }`、`eval`、`sudo sh -c`、heredoc）時也一樣，shell 或直譯器要執行從管線拿到的內容（`curl … | sh`）時也會詢問。這只是盡力而為：腳本與程式自己做的事（`npm run`、`make`、腳本檔、git alias、`find -exec`、`ssh`、`python -c`）不會被解讀。提高對話的權限時，每個 agent 下一輪都會帶著完整的歷史開始新的 session，所以以較低權限執行過的 session 絕不會以較高權限接續。這是依 CLI 分別記錄的，所以成員換回一個上次以較低權限執行的 CLI 時，在那裡也會重新開始；開源 agent 為這位成員保存的資料夾會先清空，清不掉時這一輪不執行。不信任的程式碼或指示，請使用唯讀，或把權限範圍以外的動作設為自動拒絕。唯讀模式下，Claude Code 修改檔案的工具會完全關閉，Cursor 的則既不能寫入也不能刪除（兩者都會顯示「唯讀模式不允許寫入」）；Antigravity 的每個寫入都會詢問，你允許的就會寫入。
+在完全存取以外的權限，Claude Code、Codex、Grok 與 Copilot 的指令都在它們那個 CLI 的作業系統沙箱中執行，只能寫入工作目錄與暫存資料夾（有多個工作目錄時，每一個都可以）。Codex 的沙箱也讓指令無法連網，Claude Code 的沙箱會在指令要連到每個主機時詢問你；Grok 的沙箱只有在 Linux 上擋得了網路；Copilot 的沙箱讓指令可以連網，但讀不到你的家目錄（Harness Relay 會讓它們讀你的 git 設定，git 少了它就不能執行：`~/.gitconfig`，以及 `~/.config/git` 裡的 `config`、`ignore` 與 `attributes` 檔，不包括 git 可能放在那裡的憑證檔）。在原生 Windows 上只有 Codex 與 Copilot 有沙箱（見[各平台的作業系統沙箱](sandboxing.zh-TW.md)）。Copilot 的沙箱在 macOS 與 Windows 上不需要另外安裝；在 Linux 上需要 bubblewrap 0.5 以上、slirp4netns、util-linux 2.35 以上、iproute2、iptables、`/dev/net/tun`，以及 unprivileged user namespace 與 network namespace（Ubuntu 24.04 會限制它們），缺少時它執行的每個指令都會失敗，不會有任何指令在沙箱外執行（見[各平台的作業系統沙箱 → Linux](sandboxing.zh-TW.md#linux)）；都備齊時，它的指令連得到網際網路，但連不到這台電腦自己 loopback（`127.0.0.1`）上的服務，所以在那裡，連到你啟動的本機資料庫或 dev server 的測試會失敗：請改用這台電腦的區域網路位址。每一輪 Copilot 開始前，Harness Relay 會檢查 Copilot 回報的沙箱政策，不是 Harness Relay 設定的那一份時（或 Copilot 沒有回報它的 allow-all 開關，那時它可能是開著的），這一輪就不會開始。專案的 hook，或你自己的 Copilot hook、plugin、擴充功能或語言伺服器，會在 Copilot 的 session 開啟時執行的話，會先另外短短啟動一次、在什麼都不會執行的地方檢查沙箱，所以它們也在沙箱內執行。你自己的 Copilot 設定，它的執行只保留模型、proxy、你拒絕的網址、Copilot 是否把 session 同步到 GitHub（`remoteExport`）與是否自動更新，以及它自己載入的內容，絕不保留你的沙箱、允許的網址、權限模式或存下的核准。在可編輯模式下，Copilot 寫入各工作目錄不必詢問，但那些一改就可能讓程式碼之後執行的資料夾（`.github/hooks`、`.github/copilot`、`.github/mcp.json`、`.agents`、`.claude`、`.vscode`、`.git/hooks`……，不分大小寫）除外，這些會詢問；寫到工作目錄以外，Copilot 自己會不經詢問就拒絕。它的指令也改不了這些資料夾：這一輪開始時已經存在的那些（`.git/hooks`、`.git/config`、`.vscode`、`.claude`……），Harness Relay 會交給 Copilot 的沙箱設為唯讀；它的 dev-tool access 本來會讓指令寫入的共用套件與建置快取（npm、pnpm、Yarn、Bun、Deno、pip、uv、Poetry、Cargo、Go、Maven、Gradle、Playwright 等）也一樣，所以之後在沙箱外的建置或指令，不會執行指令留在那裡的東西。和 Codex 與 Claude Code 一樣，在完全存取以外的權限，會寫入這些快取的安裝相依套件會失敗；請交給完全存取的一輪，或自己安裝。在 macOS 上，指令可以把工作目錄裡那些唯讀資料夾的上一層改名再改回來（`mv .git .g`…）來繞過它們；Harness Relay 自己的 git 絕不執行 repository 的 hook，但你之後自己執行的 git 會。可編輯模式下，它的 MCP 工具呼叫與儲存記憶也會詢問（Copilot 內建的 GitHub MCP 伺服器能推送檔案、開 pull request，而且在任何沙箱之外；記憶則存在 GitHub 上，給所有使用這個 repository 記憶的人）。Cursor 在 Harness Relay 執行它的模式下，不管哪個系統都沒有沙箱：在完全存取以外的權限，它要執行的每個指令都會詢問你（對話設為自動拒絕時則直接拒絕），測試與建置也一樣，但 Cursor 團隊管理員放進團隊自動執行允許清單的指令除外（Harness Relay 無法清除它）；你允許的指令會以你的權限執行，也能連網。它自己的工具讀檔不必詢問，在可編輯模式下修改工作目錄裡的檔案也不必詢問，但那些一改就可能讓程式碼之後在任何沙箱之外執行的檔案（`.git/hooks`、`.git/config`、`.vscode/`、`.claude/*.json`、`.cursor/*.json`、`*.code-workspace`……）除外：Cursor 會詢問這些，也會詢問寫入工作目錄外的檔案（寫成 `~/…` 的家目錄路徑也算；`/tmp` 這類暫存資料夾除外，它在那裡寫入不會詢問），以及寫入這個對話其他工作目錄的檔案（它只在第一個裡工作），Harness Relay 則會問你，卡片上會說明是哪一種。Antigravity 在 Harness Relay 的執行中同樣沒有沙箱（它自己的沙箱會讓它的指令寫不進工作目錄，所以 Harness Relay 不開啟它；你自己的 Antigravity 設定，它的執行只保留模型與服務，所以你的終端機沙箱、權限或信任的資料夾在那裡都不適用）：在完全存取以外的權限，它要執行的每個指令都會詢問你（對話設為自動拒絕時則直接拒絕），測試與建置也一樣；你允許的指令會以你的權限執行，也能連網。它自己的工具讀檔與網路搜尋不必詢問，在可編輯模式下寫入各工作目錄也不必詢問，但那些一改就可能讓程式碼之後執行的資料夾（`.agents`、`.gemini`、`.claude`、`.cursor`、`.vscode`、`.mcp.json`、Copilot 的 `.github/hooks` 與 `.github/agents`、`.git/hooks`、`.git/config`……，不分大小寫）除外：這些會詢問，寫到工作目錄以外也會。沙箱也讓 agent 碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫（Cursor 自己的檔案工具只靠它這次執行設定裡的拒絕規則，而 Cursor 是拿寫下來的路徑去比對：受保護路徑換個大小寫，或指向它的連結，都擋不住；Antigravity 的只限於它會詢問的呼叫，而它在各工作目錄內的讀取不在其中（經由連結讀到工作目錄以外的會詢問，指向受保護路徑時會被拒絕）；它們的指令只靠詢問）；工作目錄包含 Harness Relay 本身、語音輸入的資料夾（或位於它裡面）、你的家目錄或 CLI 自己的資料夾時，則會拒絕可編輯模式。要開發 Harness Relay，請從另一個資料夾執行你使用的那份。可編輯模式適合你信任的程式碼：測試、建置和專案腳本執行的都是 agent 能修改的程式碼，所以使用 Grok 時，agent 仍可能透過它們連上網路。使用 Grok、Copilot 與開源 agent 時，可編輯模式會在推送或發佈前詢問，指令包在 shell 語法裡（`if`、`while`、`!`、`{ }`、`eval`、`sudo sh -c`、heredoc）時也一樣，shell 或直譯器要執行從管線拿到的內容（`curl … | sh`）時也會詢問。這只是盡力而為：腳本與程式自己做的事（`npm run`、`make`、腳本檔、git alias、`find -exec`、`ssh`、`python -c`）不會被解讀。提高對話的權限時，每個 agent 下一輪都會帶著完整的歷史開始新的 session，所以以較低權限執行過的 session 絕不會以較高權限接續。這是依 CLI 分別記錄的，所以成員換回一個上次以較低權限執行的 CLI 時，在那裡也會重新開始；開源 agent 為這位成員保存的資料夾會先清空，清不掉時這一輪不執行。不信任的程式碼或指示，請使用唯讀，或把權限範圍以外的動作設為自動拒絕。唯讀模式下，Claude Code 修改檔案的工具會完全關閉，Cursor 的則既不能寫入也不能刪除（兩者都會顯示「唯讀模式不允許寫入」）；Antigravity 與 Copilot 的每個寫入都會詢問，你允許的就會寫入（你允許的 Copilot 指令在各工作目錄裡寫入的也是）。
 
 **開源 agent**（OpenCode、Goose、Cline、OpenHands、Pi）沒有自己的沙箱，所以在完全存取以外，Harness Relay 會把它們每一個，連同它們啟動的一切，放進[它自己的沙箱](sandboxing.zh-TW.md#harness-relay-自己的沙箱)執行：
 
@@ -413,7 +419,7 @@ app 打開時是首頁：只有 logo 與一句標語。點側邊欄最上面的 
 - **PASS 的回覆**：沒有補充的 agent 會回覆 `[PASS]`，以淡色的「沒有補充（PASS）」顯示。
 - **向你提問**：好答案取決於只有你知道的事（你的情況、目標或偏好）時，agent 會先問你、不亂猜，團隊也會停下來：其他人不會發言，問題下方標示 **等你回答**，側邊欄顯示 **等你回答**。直接在輸入框回覆：提問的 agent 會先依你的回答給出完整答案，接著這一輪的其他成員繼續（平行模式中，提問的成員會在下一輪前重新回答；接力模式則把發言權交回提問的成員）。回覆中 @ 了提問者以外的成員，會重新開始一次執行。**略過問題**（或問題下方的 **略過，讓團隊繼續**）讓其他成員不等你的答案繼續做。提問的 agent 回覆期間你送出的訊息，會等你回答時一起送出。
 - **agent 的思考與動作**：agent 的推理過程和工具步驟收在同一個摺疊列中（串流時顯示 **思考中…** 和最新一行）；展開這一列後，每段思考以第一行列出，點一下可以看完整內容。它的計畫 / 待辦清單會以 **計畫** 核對清單顯示並隨進度更新，每個工具步驟也都能展開查看輸出。
-- 每則回覆會顯示耗時；CLI 有回報時也會顯示費用與 token 數（Cursor 兩者都不回報；Antigravity 回報 token 數，不回報費用）。
+- 每則回覆會顯示耗時；CLI 有回報時也會顯示費用與 token 數（Cursor 兩者都不回報；Antigravity 與 Copilot 回報 token 數，不回報費用）。
 
 ### 核准
 
@@ -421,13 +427,17 @@ agent 想做權限沒涵蓋的事時（安裝套件、在唯讀模式執行指�
 
 - **允許**：只允許這一次。
 - **本對話都允許「…」**：這次以及之後類似的請求，在這個對話接下來都不再詢問（指令的話，指的是同一個程式與子指令，例如 `npm install`；串接的指令要每一段都符合才會允許；設定了會決定執行什麼的變數，例如 `PATH` 或 `LD_PRELOAD`，或把內容用管線交給 shell 的那一行，只依它完整的原文比對）。
-- **拒絕**：可以先輸入要它改做什麼（選填）；agent 會收到你的訊息（Cursor、Cline 與 OpenHands 的 agent 只會知道你拒絕了）並繼續（Antigravity 的 agent 則會結束這一輪：見下文）。
+- **拒絕**：可以先輸入要它改做什麼（選填）；agent 會收到你的訊息（Cursor、Cline 與 OpenHands 的 agent 只會知道你拒絕了）並繼續（Antigravity 或 Copilot 的 agent 則會結束這一輪：見下文）。
 
 訊息框上方的橫幅會指出正在等待的請求；側邊欄會把這個對話標為 **等你核准**，瀏覽器分頁標題也會顯示有幾個對話在等你。按 **■ 停止** 會拒絕所有還在等待的請求；agent 已經停止（當掉或逾時）的請求也會失效；Harness Relay 本身停止時還在等待的請求，會在它重新啟動時失效。在唯讀對話中允許某個動作時，若另一個對話正在修改同一個目錄，這個動作會被拒絕，並告知 agent 原因。Codex 在自己的沙箱中執行指令，只有在它判斷需要超出沙箱允許的範圍時才會詢問。Cursor 沒有沙箱，所以在完全存取以外的權限，它的每個指令都會詢問（你的 Cursor 團隊允許清單上的除外），你允許它執行的每個指令都在沙箱外執行（它的卡片會註明）。拒絕時附上的說明會顯示在對話中，但 Cursor 的拒絕不能附帶訊息，所以它的 agent 收不到。Cursor 自己要問你的問題會略過：agent 改透過 Harness Relay 問你。
 
 Antigravity 同樣沒有沙箱，所以在完全存取以外的權限，它的每個指令都會詢問，你允許它執行的每個指令都在沙箱外執行（它的卡片會註明）。任何一種拒絕（你的、自動的，或不經詢問就拒絕的受保護路徑）都會立刻結束它的這一輪：Antigravity 什麼都不告訴它的模型就停下，對話中被拒絕的呼叫會標上「（Antigravity 在拒絕後會結束這一輪）」；你的說明只會顯示在對話中，所以要它改做什麼，請在下一則訊息裡說。它的簡報（Harness Relay 把它加進 Antigravity 的系統提示）也會告訴它這件事：在可能需要你核准的呼叫之前，先說明它要做什麼、為什麼；要問你問題時，照 Harness Relay 的 agent 的方式問，不要用它自己的 `ask_question` 工具（它若還是那樣問，問題會成為它的回覆，並結束這一輪）。
 
 在完全存取以外的權限，工作目錄裡有專案替 Antigravity 準備的設定時，Harness Relay 會在 Antigravity 的這一輪開始前先問你：MCP 伺服器、hook 或 plugin（從每個工作目錄往上到它的 repository 根目錄，`.agents`、`.agent`、`_agents` 或 `_agent` 裡的 `mcp_config.json`、`hooks.json`、`plugins/` 或 `plugins.json`）。Antigravity 一開啟就會啟動它們，在任何沙箱之外執行，也不經詢問，唯讀模式下也一樣；而可編輯模式下的另一個 agent，或做出這個 repository 的人，都可能放進這些檔案。卡片會列出這些檔案；只要它們的內容不變，**本對話都允許** 就一直有效。你拒絕（或對話設為自動拒絕）時，這一輪不會開始。Antigravity agent 移到背景的指令，例如它啟動的伺服器，會隨它的這一輪結束；你停止這一輪時還在執行的指令也一樣。
+
+Copilot 在完全存取以外的權限，在它的沙箱中執行指令，所以你允許它執行的指令也在沙箱中執行。它和 Antigravity 一樣，任何一種拒絕（你的、自動的，或不經詢問就拒絕的受保護路徑）都會立刻結束它的這一輪：Copilot 只告訴它的模型那個呼叫被拒絕了，就停下，對話中被拒絕的呼叫會標上「（Copilot 在拒絕後會結束這一輪）」；你的說明只會顯示在對話中，所以要它改做什麼，請在下一則訊息裡說。它的簡報（Copilot 每次啟動時都會當成它自己的指示讀取）也會告訴它這件事，並請它在可能需要你核准的呼叫之前，先說明它要做什麼、為什麼。寫到工作目錄以外的檔案，以及它要以 detached（在背景）執行的指令，它的沙箱不允許，Copilot 自己會不經詢問就拒絕；它的這一輪會繼續。透過 ACP 執行時，Copilot 沒有自己的提問工具（它在那裡的工具裡沒有 `ask_user`），所以它的簡報會請它照 Harness Relay 的方式（`[ASK_USER]`）問你，就像上面的 **向你提問**。
+
+在完全存取以外的權限，工作目錄裡有專案替 Copilot 準備的 hook 時，Harness Relay 會在 Copilot 的這一輪開始前先問你：從每個工作目錄往上到它的 repository 根目錄的 `.github/hooks/*.json`，以及專案的 `.github/copilot/settings.json` 或 `settings.local.json`、`.claude/settings.json` 或 `settings.local.json` 裡定義的 hook。Copilot 會在它的 session 開啟時與每次使用工具前執行那些 hook 檔，不經詢問，唯讀模式下也一樣（在它的沙箱中）；它的說明也說會執行那些設定檔裡的 hook（在不信任任何資料夾的 Harness Relay 執行中，它們沒有執行，但還是會問你）。可編輯模式下的另一個 agent，或做出這個 repository 的人，都可能放進這些檔案。卡片會列出這些檔案；只要每個完整 `.github/hooks` 資料夾（包括 JSON 檔旁邊的 script）與那些設定檔的內容不變，**本對話都允許** 就一直有效（hook 執行的、放在別處的 script 不算在內）。你拒絕（或對話設為自動拒絕）時，這一輪不會開始；所以不能問你的 Copilot [首席 agent](#首席-agent)，在這種專案裡不會啟動。你允許之後，Harness Relay 會先另外短短啟動一次、在什麼都不會執行的地方檢查 Copilot 的沙箱，hook 接著在沙箱內執行。帳號設定裡略過了 hook 時（見[各 CLI 自己載入的內容](#各-cli-自己載入的內容)）也會詢問：那只會關掉你自己的 hook，因為不管設定怎麼寫，Copilot 都會執行專案的 hook（以 copilot 1.0.109 試過）。完全存取時不會詢問。
 
 開源 agent 也透過同樣的卡片詢問。Harness Relay 對它們的每個請求都只回答「這一次」：**本對話都允許** 由 Harness Relay 自己在這個對話裡記住，所以 agent 不會因此不再詢問，也不會改寫它自己的設定。唯讀時，允許修改、指令或 MCP 工具並不會讓它寫得進去：沙箱仍然會拒絕，卡片也會說明；需要時請把對話改成可編輯。MCP 工具的卡片會顯示交給工具的內容（OpenCode 的請求只寫出工具名稱）。它們的沙箱擋下某個程式連到這次執行的模型來源以外的主機時，卡片會詢問那個主機（選 **本對話都允許**，這個對話之後的執行也會允許，但只限那個主機的那個埠號）。完全沒說是什麼的請求（例如 OpenHands 之前沒有宣告任何動作的請求）只能允許一次：**本對話都允許** 會允許所有這類請求。它們的請求還在等待時按 **■ 停止**，會取消這個請求，而不是拒絕它；在 prompt 送出前停止，則什麼都不會送出。agent 的回合結束後才來的請求不會出現卡片，直接拒絕。權限提高時，它們的每位成員也會從清空的狀態開始；刪除對話時，會移除這些 agent 為它保存的東西。你拒絕時的留言會不會傳給模型，要看是哪個 agent：OpenCode、Goose 與 Pi 會轉交；Cline 與 OpenHands 只會告訴它們的模型你拒絕了，留言只顯示在對話中（見[各 agent 要注意的地方](#各-agent-要注意的地方)）。
 
@@ -572,7 +582,7 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 
 ## 6. 資料存在哪裡
 
-所有對話、範本與設定都存在專案資料夾的 `data/relay.db`（SQLite），只有你的帳號能讀取。你分享的連結也記在那裡；頁面本身（連同附上的檔案）是 GitHub 上的 secret gist。API key 例外：它們放在系統的金鑰儲存區（見上方「API key（選用）」），模型來源的金鑰也一樣（端點本身則存在 `data/relay.db`）。附加的檔案存在 `data/attachments/<對話>/`，只有你的帳號能讀取，刪除對話時（或編輯較早的訊息而刪掉它們所屬的訊息時）會一併刪除。平行模式的 worktree 放在 `data/worktrees/`（對應你 repository 中的 `relay/…` 分支），刪除對話時會一併移除。各 CLI 也會在它們平常的位置（`~/.claude…`、`~/.codex`、`~/.grok`、`~/.cursor`、`~/.gemini`）保存自己的 session 紀錄；設定了[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)時則放在那個資料夾；[其他帳號](#多個帳號)放在各自的資料夾，沒有設定各 CLI 自己的資料夾時位於 `data/accounts/`。開源 agent 把它們的紀錄放在那個資料夾裡它們的家目錄，或 `data/agent-homes/`，在每位對話成員自己的資料夾（`private/<key>`）裡；它們每次執行另有自己的暫存資料夾，執行結束就刪除（完全存取以外在 `data/relay-sandbox/`，完全存取時在 `data/run-tmp/`）；伺服器在執行中停止時，則在下次啟動時刪除。刪除對話時，會移除這些 agent 為它保存的東西。語音輸入的模型（以及 Linux 與 Windows 上的引擎）放在 `data/voice/`；**設定 → 語音輸入 → 移除語音輸入** 會把它們刪除。[工具庫](#工具庫mcp-伺服器skill-與記憶)也存在 `data/relay.db`，但 MCP 伺服器變數和標頭的值例外，它們跟 API key 一樣放在金鑰儲存區。介面語言、外觀與看完的導覽版本則記在瀏覽器中。要備份時，先停止程式再複製 `data/`。[桌面 app](#桌面-app) 則把同樣的檔案存在它自己的資料夾，而不是 `data/`。
+所有對話、範本與設定都存在專案資料夾的 `data/relay.db`（SQLite），只有你的帳號能讀取。你分享的連結也記在那裡；頁面本身（連同附上的檔案）是 GitHub 上的 secret gist。API key 例外：它們放在系統的金鑰儲存區（見上方「API key（選用）」），模型來源的金鑰也一樣（端點本身則存在 `data/relay.db`）。附加的檔案存在 `data/attachments/<對話>/`，只有你的帳號能讀取，刪除對話時（或編輯較早的訊息而刪掉它們所屬的訊息時）會一併刪除。平行模式的 worktree 放在 `data/worktrees/`（對應你 repository 中的 `relay/…` 分支），刪除對話時會一併移除。各 CLI 也會在它們平常的位置（`~/.claude…`、`~/.codex`、`~/.grok`、`~/.cursor`、`~/.gemini`、`~/.copilot`）保存自己的 session 紀錄；設定了[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)時則放在那個資料夾；[其他帳號](#多個帳號)放在各自的資料夾，沒有設定各 CLI 自己的資料夾時位於 `data/accounts/`。開源 agent 把它們的紀錄放在那個資料夾裡它們的家目錄，或 `data/agent-homes/`，在每位對話成員自己的資料夾（`private/<key>`）裡；它們每次執行另有自己的暫存資料夾，執行結束就刪除（完全存取以外在 `data/relay-sandbox/`，完全存取時在 `data/run-tmp/`）；伺服器在執行中停止時，則在下次啟動時刪除。刪除對話時，會移除這些 agent 為它保存的東西。語音輸入的模型（以及 Linux 與 Windows 上的引擎）放在 `data/voice/`；**設定 → 語音輸入 → 移除語音輸入** 會把它們刪除。[工具庫](#工具庫mcp-伺服器skill-與記憶)也存在 `data/relay.db`，但 MCP 伺服器變數和標頭的值例外，它們跟 API key 一樣放在金鑰儲存區。介面語言、外觀與看完的導覽版本則記在瀏覽器中。要備份時，先停止程式再複製 `data/`。[桌面 app](#桌面-app) 則把同樣的檔案存在它自己的資料夾，而不是 `data/`。
 
 ## 7. 疑難排解
 
@@ -585,7 +595,7 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 | 「模型來源…在這台電腦上，卻沒有寫連接埠」 | 在端點的網址加上伺服器的埠號（例如 `http://localhost:11434/v1`）。 |
 | 「Harness Relay 自己的沙箱無法啟動」或「需要…」 | 在 Linux 上安裝 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`），Ubuntu 23.10 以上再加上[各平台的作業系統沙箱](sandboxing.zh-TW.md#在-linux-上)裡的 AppArmor 設定檔。在 macOS 上，請從一般的終端機啟動 Harness Relay，而不是從另一個沙箱裡。或改用完全存取。 |
 | 開源 agent 在 Windows 上無法執行 | 它的沙箱在原生 Windows 上無法使用：請在 WSL2 中執行 Harness Relay，或改用完全存取。 |
-| 在 Windows 上，CLI 說它是 Harness Relay 無法啟動的腳本 | Harness Relay 只啟動程式，從不經過 shell。它會讀 npm 的 `.cmd` 包裝檔與 Cursor 的啟動檔，找出它們執行的程式；其他 `.cmd` 或 `.bat`，請在「設定」中把這個 CLI 的路徑改成它執行的程式（`.exe`）。 |
+| 在 Windows 上，CLI 說它是 Harness Relay 無法啟動的腳本 | Harness Relay 只啟動程式，從不經過 shell。它會讀 npm 的 `.cmd` 包裝檔（包括 Copilot 的 `copilot.cmd`，試過）與 Cursor 的啟動檔，找出它們執行的程式；其他 `.cmd` 或 `.bat`，請在「設定」中把這個 CLI 的路徑改成它執行的程式（`.exe`）。 |
 | 在 Windows 上，Pi 的指令失敗並顯示「No bash shell found」 | Pi 在 bash 中執行指令：請安裝 [Git for Windows](https://git-scm.com/download/win)（MinGit 沒有 bash），或把其他的 bash 放上 PATH（MSYS2、Cygwin），或在 Pi 的 `settings.json` 設定 `shellPath`。 |
 | 開源 agent 詢問要連到 github.com 之類的主機 | 它的沙箱會詢問模型來源以外的主機。例如 OpenCode 在沒有安裝 `rg` 時，會從 GitHub 下載 ripgrep：請安裝 ripgrep，或允許它。 |
 | 「找不到指令」 | 安裝該 CLI（設定頁的卡片附有官網連結），或在設定頁該 provider 卡片的 **執行檔** 區塊（在各帳號下方）指定路徑。 |
@@ -605,6 +615,14 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 | Antigravity 的回合以「Antigravity 尚未登入（…）」失敗 | 到設定頁的 Antigravity 登入（預設帳號），或設定 Gemini API key。 |
 | Antigravity 的這一輪沒有開始：「這一輪沒有開始：這個專案有 Antigravity 會在沙箱外自己執行的設定……」 | 工作目錄裡有給 Antigravity 的 MCP 伺服器、hook 或 plugin（在 `.agents` 或它的其他寫法裡），它一啟動就會在任何沙箱之外執行它們，而你拒絕了（或對話設為自動拒絕）。檢查訊息裡列出的檔案，然後移除它們、在詢問時允許它們，或改用完全存取。 |
 | Antigravity agent 啟動的伺服器在這一輪結束時停了 | 正常現象：Antigravity 的這一輪結束後，Harness Relay 會結束它的指令留著執行的東西（在 Windows 上，它們會隨 Antigravity 一起結束）。想讓伺服器一直執行，請自己啟動它。 |
+| 一拒絕某個操作，Copilot 的這一輪就停了 | 正常現象：Copilot 在任何拒絕之後都會結束它的這一輪，它的模型也看不到你的說明。請在下一則訊息裡說要它改做什麼，或允許這個請求。 |
+| Copilot 的這一輪失敗，顯示 *Copilot 尚未登入（…）* | 到「設定」的 Copilot 登入 GitHub，或設定 GitHub token（有「Copilot Requests」權限的 fine-grained token）。 |
+| 在 Linux 上，Copilot 登入失敗，顯示 *Login succeeded, but the token was not saved…* | Copilot 找不到可以存放 token 的金鑰儲存區（例如沒有桌面金鑰圈的伺服器）。在帳號的 Copilot `settings.json`（`~/.copilot/settings.json`，或帳號資料夾裡的那一個）設定 `"storeTokenPlaintext": true` 再登入一次，或把 fine-grained GitHub token（有「Copilot Requests」權限）存成帳號的 API key。 |
+| Copilot 的這一輪沒有開始：*這一輪沒有開始：這個專案有 Copilot 會自己執行的 hook……* | 工作目錄裡有專案替 Copilot 準備的 hook（`.github/hooks/*.json` 檔案，或專案的 Copilot 或 Claude Code 設定裡的 hook），Copilot 會不經詢問執行它們，而你拒絕了（或對話設為自動拒絕）。檢查它列出的檔案，然後移除它們、在它詢問時允許，或改用完全存取。在帳號設定裡略過 hook 沒有用：Copilot 照樣會執行專案的 hook。首席 agent 不能詢問，所以在這種專案裡，Copilot 首席 agent 一定會遇到這個：請改選其他 CLI 當首席 agent。 |
+| Copilot 的這一輪沒有開始：*這一輪沒有開始：Copilot 的沙箱不是 Harness Relay 設定的樣子（…）* | Copilot 回報的政策不是 Harness Relay 給它的那一份：它的沙箱沒有開啟、可以被繞過、讓指令能用你的鑰匙圈或 git 與 gh 的憑證，或少了某個路徑。請更新 Copilot CLI，確認這台電腦能執行它的沙箱（Linux 見下一列），或改用完全存取。 |
+| 在 Linux 上，Copilot agent 執行的每個指令都以 *Cannot start sandboxed command: …* 失敗 | 它的沙箱無法啟動：安裝 bubblewrap 0.5 以上、slirp4netns、iproute2 與 iptables（也需要 util-linux 2.35 以上與 `/dev/net/tun`），並允許 unprivileged user namespace 與 network namespace（在 Ubuntu 上，`kernel.apparmor_restrict_unprivileged_userns=1` 會擋住它們）；見[各平台的作業系統沙箱 → Linux](sandboxing.zh-TW.md#linux)。或改用完全存取。 |
+| 在 Linux 上，Copilot 的指令連不到這台電腦上的伺服器（`127.0.0.1`：*Couldn't connect*） | 正常現象：在 Linux 上它的沙箱裡，指令有自己的網路（slirp4netns 的），連得到網際網路，但連不到這台電腦的 loopback。改用這台電腦的區域網路位址（伺服器也要在那個位址上接受連線，不能只聽 `127.0.0.1`），把這種測試交給另一個 agent，或改用完全存取。 |
+| 可編輯模式下，Copilot 沒有寫入工作目錄以外的檔案，也沒有詢問 | 正常現象：它的沙箱只讓它寫入各工作目錄與暫存資料夾，Copilot 會自己拒絕這種寫入。把那個資料夾加為工作目錄，或改用完全存取。 |
 | 儲存 API key 失敗（「無法把 API key 存進系統的金鑰儲存區」） | 鑰匙圈 / 金鑰圈被鎖定或拒絕存取。解鎖（或在詢問時允許存取）後再儲存一次，或改用環境變數。 |
 | 一直顯示「重新連線中」 | 伺服器停止或正在重新啟動；恢復後頁面會自動重新連線。 |
 | 用手機或其他裝置打開時出現 *Forbidden host* | 啟動 Harness Relay 時，把那個網址的名稱加進 `RELAY_ALLOWED_HOSTS`；詳見[用手機連線](remote-access.zh-TW.md#疑難排解)。 |

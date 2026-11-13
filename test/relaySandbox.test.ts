@@ -13,6 +13,7 @@ import {
   DENY_REASONS,
   canonicalHost,
   PROJECT_AGENT_CONFIG,
+  projectAgentConfig,
   RELAY_SANDBOX_HOST,
   RelaySandboxRun,
   clearRelaySandboxLeftovers,
@@ -96,8 +97,8 @@ const runDirs = { tmp: join(data, 'relay-sandbox', 'run1'), hostTmp: join(data, 
 
 // Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
 describe.skipIf(process.platform === 'win32')('relaySandboxPaths', () => {
-  it("keeps every agent's project config and hook folders read-only in edit mode, Cline's .clinerules and Antigravity's other spellings of .agents too", () => {
-    for (const name of ['.clinerules', '.cline', 'opencode.json', 'opencode.jsonc', '.opencode', '.openhands', '.pi', '.agents', '.agent', '_agents', '_agent', '.goose', '.claude', '.codex', '.grok', '.cursor', '.mcp.json']) {
+  it("keeps every agent's project config and hook folders read-only in edit mode, Cline's .clinerules, Antigravity's other spellings of .agents and Copilot's in .github too", () => {
+    for (const name of ['.clinerules', '.cline', 'opencode.json', 'opencode.jsonc', '.opencode', '.openhands', '.pi', '.agents', '.agent', '_agents', '_agent', '.goose', '.claude', '.codex', '.grok', '.cursor', '.mcp.json', '.github/hooks', '.github/copilot', '.github/mcp.json', '.github/lsp.json', '.github/extensions', '.github/agents']) {
       expect(PROJECT_AGENT_CONFIG).toContain(name);
     }
     const p = relaySandboxPaths(spec({ permission: 'edit' }), ctx, runDirs);
@@ -160,8 +161,20 @@ describe.skipIf(process.platform === 'win32')('relaySandboxPaths', () => {
   it('lets edit also write the working directory and the attachments, but not the agent config in it', () => {
     const p = relaySandboxPaths(spec({ permission: 'edit' }), ctx, runDirs);
     expect(p.allowWrite).toEqual(expect.arrayContaining([runDirs.tmp, state, cwd, attachments]));
-    for (const name of PROJECT_AGENT_CONFIG) expect(p.denyWrite).toContain(join(cwd, name));
+    for (const path of projectAgentConfig(cwd)) expect(p.denyWrite).toContain(path);
     expect(PROJECT_AGENT_CONFIG).toEqual(expect.arrayContaining(['.claude', '.codex', '.grok', '.cursor', '.opencode', 'opencode.json', '.pi', '.openhands']));
+  });
+
+  it("keeps Copilot's config in .github read-only only where .github exists, so that the folder can still be made", () => {
+    const root = mkdtempSync(join(tmpdir(), 'relay-agent-config-'));
+    try {
+      expect(projectAgentConfig(root)).toContain(join(root, '.claude'));
+      expect(projectAgentConfig(root).some((p) => p.includes('.github'))).toBe(false);
+      mkdirSync(join(root, '.github'));
+      expect(projectAgentConfig(root)).toEqual(expect.arrayContaining([join(root, '.github/hooks'), join(root, '.github/copilot'), join(root, '.github/mcp.json')]));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('denies reading and writing the protected paths, with the database and temporary folder in any case', () => {

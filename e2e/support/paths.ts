@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 /** The repository. */
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-/** The fake CLIs' modules, bundled into one script for all ten CLIs (`support/fake-cli.ts`). */
+/** The fake CLIs' modules, bundled into one script for all eleven CLIs (`support/fake-cli.ts`). */
 export const FAKE_CLI_DIR = join(ROOT, 'e2e', 'fake-cli');
 /** The fake CLIs' entry module, in `FAKE_CLI_DIR`. */
 export const FAKE_CLI_SCRIPT = join(FAKE_CLI_DIR, 'fake-cli.cjs');

@@ -43,6 +43,7 @@ import {
   codexUserMcpConfig,
 } from './agents/codex';
 import { antigravityGeminiDir, antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
+import { copilotHome, copilotProbeEnv, copilotProjectHooks, readCopilotJson } from './agents/copilot';
 import { grokNativeEnv } from './agents/grok';
 import { openAgents } from './agents/index';
 import { openHomeEnv } from './agents/open';
@@ -1440,6 +1441,182 @@ async function probeAntigravity(
   };
 }
 
+// --- Copilot --------------------------------------------------------------------------------------
+
+/** What Copilot answered to `mcp list`, `skill list`, `instruction list` and `plugin list` (each `--json`). */
+export interface CopilotAnswers {
+  mcp?: unknown;
+  skills?: unknown;
+  instructions?: unknown;
+  plugins?: unknown;
+}
+
+/** One of Copilot's `list --json` answers, or what went wrong. */
+async function askCopilot(bin: string, env: NodeJS.ProcessEnv, cwd: string, what: 'mcp' | 'skill' | 'instruction' | 'plugin', timeoutMs: number): Promise<{ data?: unknown; problem?: NativeProblem }> {
+  const res = await runProcess({ bin, args: [what, 'list', '--json'], cwd, env: copilotProbeEnv(env), timeoutMs, maxCapture: 8 * 1024 * 1024 });
+  try {
+    return { data: JSON.parse(res.stdout.trim()) };
+  } catch {
+    const part = what === 'mcp' ? 'mcp' : what === 'skill' ? 'skills' : what === 'plugin' ? 'plugins' : 'all';
+    return { problem: res.timedOut ? { kind: 'timeout' } : short(res.stderr) ? { kind: 'failed', detail: short(res.stderr), refused: true } : { kind: 'no-answer', part } };
+  }
+}
+
+/** The hooks of one of Copilot's hook files (`{ version, hooks: { <event>: [{ type, bash, … }] } }`), one per entry. */
+function copilotHooksIn(file: string, source: string, hooks: unknown = readCopilotJson(file)?.hooks): NativeHook[] {
+  if (!hooks || typeof hooks !== 'object') return [];
+  return Object.entries(hooks as Json).flatMap(([event, list]) =>
+    (Array.isArray(list) ? list : []).map((h: Json) => ({
+      event,
+      ...(typeof h?.matcher === 'string' && h.matcher ? { matcher: h.matcher } : {}),
+      source,
+      file,
+    })),
+  );
+}
+
+/**
+ * Copilot's hooks: the user's (`hooks/*.json` in its home, and `hooks` in its `settings.json`) and the
+ * project's (`.github/hooks/*.json`, from the working directory up to the repository's root).
+ */
+export function copilotHooks(cwd: string, home: string): NativeHook[] {
+  const userFiles = (() => {
+    try {
+      return readdirSync(join(home, 'hooks'))
+        .filter((n) => n.toLowerCase().endsWith('.json'))
+        .sort()
+        .map((n) => join(home, 'hooks', n));
+    } catch {
+      return [];
+    }
+  })();
+  const settings = join(home, 'settings.json');
+  return [
+    ...userFiles.flatMap((f) => copilotHooksIn(f, 'user')),
+    ...copilotHooksIn(settings, 'user', readCopilotJson(settings)?.hooks),
+    ...copilotProjectHooks([cwd]).flatMap((f) => copilotHooksIn(f, 'project')),
+  ];
+}
+
+/** Copilot's custom agents: the Markdown files in its home's `agents`, and in the project's `.github/agents` and `.claude/agents`. */
+export function copilotAgents(cwd: string, home: string): NativeAgent[] {
+  const agents: NativeAgent[] = [];
+  const root = gitRoot(cwd) ?? resolve(cwd);
+  const places: [string, string][] = [
+    [join(home, 'agents'), 'user'],
+    [join(root, '.github', 'agents'), 'project'],
+    [join(root, '.claude', 'agents'), 'project'],
+  ];
+  for (const [dir, source] of places) {
+    for (const path of markdownIn(dir)) {
+      const fm = frontMatter(path);
+      const name = fm.name || path.slice(dir.length + 1).replace(/(\.agent)?\.md$/i, '');
+      if (!agents.some((a) => a.name === name)) agents.push({ name, description: fm.description ?? '', source });
+    }
+  }
+  return agents;
+}
+
+/**
+ * Copilot's lists from its answers: skills by name (the id they are left out by), MCP servers by
+ * name (from where each is set), instruction files (a repository's are named from its root), plugins.
+ */
+export function parseCopilotProbe(a: CopilotAnswers, cwd: string): Pick<NativeLists, 'skills' | 'mcpServers' | 'memory' | 'plugins'> {
+  const skills: NativeSkill[] = (Array.isArray(a.skills) ? a.skills : []).flatMap((s: Json) =>
+    typeof s?.name === 'string' && s.name
+      ? [{ name: s.name, description: typeof s.description === 'string' ? s.description : '', ...(typeof s.source === 'string' ? { source: s.source } : {}), ...(typeof s.path === 'string' ? { path: s.path } : {}), ...(s.enabled === false ? { enabled: false } : {}), id: s.name }]
+      : [],
+  );
+  const servers = (a.mcp as Json | undefined)?.mcpServers;
+  const mcpServers: NativeMcpServer[] =
+    servers && typeof servers === 'object'
+      ? Object.entries(servers as Json).map(([name, v]: [string, Json]) => ({
+          name,
+          ...(typeof v?.type === 'string' ? { transport: v.type === 'local' ? 'stdio' : v.type } : {}),
+          ...(typeof v?.source === 'string' ? { source: v.source } : {}),
+          ...(v?.enabled === false ? { enabled: false } : {}),
+          id: name,
+        }))
+      : [];
+  const root = gitRoot(cwd) ?? resolve(cwd);
+  const memory: NativeMemoryFile[] = (Array.isArray(a.instructions) ? a.instructions : []).flatMap((i: Json) => {
+    const path = typeof i?.sourcePath === 'string' ? i.sourcePath : '';
+    if (!path) return [];
+    return [{ path: isAbsolute(path) ? path : join(root, path), kind: 'instructions' as const, ...(i.defaultDisabled === true ? { enabled: false } : {}) }];
+  });
+  const plugins: NativePlugin[] = (Array.isArray(a.plugins) ? a.plugins : []).flatMap((p: Json) =>
+    typeof p?.name === 'string' && p.name
+      ? [{ name: p.marketplace ? `${p.name}@${p.marketplace}` : p.name, ...(typeof p.source === 'string' ? { source: p.source } : {}), ...(p.enabled === false ? { enabled: false } : {}) }]
+      : [],
+  );
+  return { skills, mcpServers, memory, plugins };
+}
+
+/**
+ * Copilot's lists as its runs load them (for `markLeftOut`): no workspace MCP server (a run trusts no
+ * folder), and none of what the run leaves out: skills (its skill tool is gone; one alone by name), the
+ * MCP servers of its home and the built-in ones (one alone by name; a plugin's go with plugins), hooks,
+ * plugins and what they bring.
+ */
+export function copilotAsRun(own: NativeLists, off: readonly NativePart[], items: NativeItemsOff = {}): Partial<NativeLists> {
+  const has = (p: NativePart) => off.includes(p);
+  const fromPlugin = (source?: string) => source === 'plugin';
+  const skillsOff = new Set(items.skills ?? []);
+  const serversOff = new Set(items.mcp ?? []);
+  return {
+    skills: has('skills') ? [] : own.skills.filter((s) => !(has('plugins') && fromPlugin(s.source)) && !skillsOff.has(s.id ?? s.name)),
+    mcpServers: own.mcpServers.filter(
+      (s) => s.source !== 'workspace' && !serversOff.has(s.id ?? s.name) && (fromPlugin(s.source) ? !has('plugins') : !has('mcp')),
+    ),
+    // A project's hooks run whatever its disableAllHooks says (each run asks before them instead).
+    ...(own.hooks ? { hooks: has('hooks') ? own.hooks.filter((h) => h.source === 'project') : own.hooks } : {}),
+    ...(own.plugins ? { plugins: has('plugins') ? [] : own.plugins } : {}),
+    ...(own.agents ? { agents: own.agents } : {}),
+    memory: own.memory,
+  };
+}
+
+/**
+ * What Copilot loads by itself for `cwd`, in the account's home: its MCP servers, skills, instruction
+ * files and plugins as it lists them (`<what> list --json`, which start no session), and its hooks and
+ * custom agents from the files it reads. What the runs leave out is marked by their rules
+ * (`copilotAsRun`), and a single skill or MCP server by its name.
+ */
+async function probeCopilot(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  off: readonly NativePart[],
+  items: NativeItemsOff,
+  timeoutMs = PROBE_TIMEOUT_MS,
+): Promise<NativeProbe> {
+  const home = copilotHome(env);
+  const [mcp, skills, instructions, plugins] = await Promise.all([
+    askCopilot(bin, env, cwd, 'mcp', timeoutMs),
+    askCopilot(bin, env, cwd, 'skill', timeoutMs),
+    askCopilot(bin, env, cwd, 'instruction', timeoutMs),
+    askCopilot(bin, env, cwd, 'plugin', timeoutMs),
+  ]);
+  const problems = [mcp, skills, instructions, plugins].flatMap((r) => (r.problem ? [r.problem] : []));
+  const own: NativeLists = {
+    ...parseCopilotProbe({ mcp: mcp.data, skills: skills.data, instructions: instructions.data, plugins: plugins.data }, cwd),
+    hooks: copilotHooks(cwd, home),
+    agents: copilotAgents(cwd, home),
+  };
+  const lists = markLeftOut(own, copilotAsRun(own, off, items), items);
+  return {
+    provider: 'copilot',
+    cwd,
+    ...lists,
+    memoryFromFiles: false,
+    nativeOff: [...off],
+    nativeItems: items,
+    asRun: true,
+    problems: problems.filter((p, i) => problems.findIndex((q) => JSON.stringify(q) === JSON.stringify(p)) === i),
+    checkedAt: Date.now(),
+  };
+}
+
 const PROBES: Record<
   Provider,
   (
@@ -1458,6 +1635,7 @@ const PROBES: Record<
   grok: probeGrok,
   cursor: probeCursor,
   antigravity: probeAntigravity,
+  copilot: probeCopilot,
   opencode: probeOpen('opencode'),
   goose: probeOpen('goose'),
   cline: probeOpen('cline'),

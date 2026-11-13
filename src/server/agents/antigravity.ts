@@ -274,8 +274,11 @@ export function antigravityProjectFiles(dirs: readonly string[]): string[] {
   return [...out];
 }
 
-/** What tells these files apart from what they were: their contents (a folder's files' names, sizes and times). */
-export function antigravityProjectFingerprint(files: readonly string[]): string {
+/**
+ * What tells these files apart from what they were: their contents (a folder's files' too, a few
+ * levels down), as `length` hex digits.
+ */
+export function antigravityProjectFingerprint(files: readonly string[], length = 8): string {
   const h = createHash('sha256');
   const add = (path: string, depth: number) => {
     let st;
@@ -296,8 +299,8 @@ export function antigravityProjectFingerprint(files: readonly string[]): string 
       }
     } else h.update(`${st.size}:${st.mtimeMs}`);
   };
-  for (const f of [...files].sort()) add(f, 0);
-  return h.digest('hex').slice(0, 8);
+  for (const f of [...new Set(files)].sort()) add(f, 0);
+  return h.digest('hex').slice(0, length);
 }
 
 /**
@@ -517,6 +520,12 @@ function within(cwd: string, path: string, dir: string): boolean {
  * reads from the working directory up to the repository's root), the other CLIs', git's hooks and
  * config, and the editor's tasks.
  */
+/**
+ * Copilot's own in a `.github` folder: the hooks it runs without asking, its settings, MCP and language
+ * servers, extensions and custom agents (which may name MCP servers of their own).
+ */
+const GITHUB_AGENT_CONFIG = new Set(['hooks', 'copilot', 'mcp.json', 'lsp.json', 'extensions', 'agents']);
+
 const AGENT_CONFIG = new Set([
   '.agents', '.agent', '_agents', '_agent', '.gemini', '.claude', '.codex', '.grok', '.cursor', '.opencode', '.goose', '.cline', '.clinerules', '.openhands', '.pi',
   '.vscode', '.idea', '.mcp.json', '.gitmodules', '.gitconfig', '.envrc',
@@ -530,12 +539,13 @@ const folded = (part: string) => part.replace(/[. ]+$/, (m) => (m === part ? m :
 
 /**
  * Whether a path inside `dir` is one where a write could change how agents run: `AGENT_CONFIG` at any
- * depth, and git's hooks and config, a submodule's (`.git/modules/<name>/hooks`, `…/config`) too.
+ * depth, Copilot's in a `.github` folder (`GITHUB_AGENT_CONFIG`), and git's hooks and config, a
+ * submodule's (`.git/modules/<name>/hooks`, `…/config`) too.
  */
 export function agentConfigPath(cwd: string, path: string, dir: string): boolean {
   const rel = relative(realPath(resolve(dir)), realPath(resolve(cwd, homePath(path))));
   const parts = rel.split(/[\\/]/).filter(Boolean).map(folded);
-  if (parts.some((p) => AGENT_CONFIG.has(p))) return true;
+  if (parts.some((p, i) => AGENT_CONFIG.has(p) || (p === '.github' && GITHUB_AGENT_CONFIG.has(parts[i + 1] ?? '')))) return true;
   const git = parts.indexOf('.git');
   if (git < 0) return false;
   const inGit = parts.slice(git + 1);

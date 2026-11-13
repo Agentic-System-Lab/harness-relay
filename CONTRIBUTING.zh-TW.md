@@ -15,7 +15,7 @@
 - 你做了什麼、預期會發生什麼，以及實際發生了什麼；
 - 你怎麼執行 Harness Relay（桌面 app、`npm start` 或 `npm run dev`）；
 - 作業系統、Node.js 版本（`node --version`）與 Harness Relay 的版本（桌面 app 在**設定與登入 → 版本**，或是 commit：`git rev-parse --short HEAD`）；
-- 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`、`cursor-agent --version`、`agy --version`、`opencode --version`…），開源 agent 再加上模型來源的種類（API 或你自己的端點，以及哪一種伺服器）；
+- 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`、`cursor-agent --version`、`agy --version`、`copilot --version`、`opencode --version`…），開源 agent 再加上模型來源的種類（API 或你自己的端點，以及哪一種伺服器）；
 - 對話的模式（圓桌、平行或接力）、權限（唯讀、可編輯或完全存取），以及是否直接採用首席 agent 組的團隊；
 - 訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間伺服器的輸出（用 `npm run dev` 時是其中的 `[server]` 行；桌面 app 則是選單裡的**查看記錄檔**）。
 
@@ -31,11 +31,11 @@
 
 請用 **Feature request · 功能建議** 表單開一個 issue，先描述你想解決的問題，再談解法。比小修正更大的改動（新的對話模式、新的 agent CLI、schema 變更、新的設定）請先在 issue 中討論再動手寫程式，讓這份工作能符合整體設計。
 
-要新增 coding agent？請照[新增 coding agent 的流程](docs/adding-a-coding-agent.zh-TW.md)做：Grok、Cursor、開源 agent 與 Antigravity 都走過這套流程，從把 CLI 裝在你自己的環境之外、弄清楚它實際的行為，到錄製、在 macOS、Linux 與 Windows 上確認，以及寫文件。
+要新增 coding agent？請照[新增 coding agent 的流程](docs/adding-a-coding-agent.zh-TW.md)做：Grok、Cursor、開源 agent、Antigravity 與 Copilot 都走過這套流程，從把 CLI 裝在你自己的環境之外、弄清楚它實際的行為，到錄製、在 macOS、Linux 與 Windows 上確認，以及寫文件。
 
 ## 建立開發環境
 
-需要 Node.js **22.13 以上**。agent CLI（`claude`、`codex`、`grok`、`cursor-agent`、`agy`，以及開源的 `opencode`、`goose`、`cline`、`openhands`、`pi`）只有在手動試用 app 時才需要；測試從不執行它們，也從不啟動真正的沙箱（那是手動執行的 `scripts/sandbox-check.ts` 做的事）。
+需要 Node.js **22.13 以上**。agent CLI（`claude`、`codex`、`grok`、`cursor-agent`、`agy`、`copilot`，以及開源的 `opencode`、`goose`、`cline`、`openhands`、`pi`）只有在手動試用 app 時才需要；測試從不執行它們，也從不啟動真正的沙箱（那是手動執行的 `scripts/sandbox-check.ts` 做的事）。
 
 ```bash
 git clone https://github.com/Agentic-System-Lab/harness-relay.git

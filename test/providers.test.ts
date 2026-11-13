@@ -227,6 +227,89 @@ describe("Antigravity's sign-in", () => {
   });
 });
 
+describe("Copilot's sign-in", () => {
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+
+  posixIt("signs each account in to GitHub with a device code in its own home, tells who it is signed in as, and signs out over ACP", async () => {
+    const { writeFakeCopilot } = await import('./fake-copilot');
+    const dir = join(root, 'copilot-sign-in');
+    mkdirSync(dir, { recursive: true });
+    const bin = writeFakeCopilot(join(dir, 'copilot'));
+    const logFile = join(dir, 'log.jsonl');
+    vi.stubEnv('FAKE_COPILOT_LOG', logFile);
+    // A GitHub token in the server's environment is the default account's only.
+    vi.stubEnv('GH_TOKEN', '');
+    vi.stubEnv('GITHUB_TOKEN', '');
+    vi.stubEnv('COPILOT_GITHUB_TOKEN', '');
+    try {
+      const settings = new SettingsStore(openDatabase(':memory:'));
+      settings.update('copilot', { bin });
+      settings.setAgentHome(join(dir, 'homes'));
+      const team = settings.addAccount('copilot', 'Team');
+      const service = new ProviderService(settings);
+      const log = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>) : []);
+      const starts = () => log().filter((l) => l.start);
+      const home = join(dir, 'homes', 'copilot');
+
+      // Nobody signed in yet: a session it opens (in a home of its own, with the account's sign-in state) says so.
+      let out = await service.status('copilot', true);
+      expect(out).toMatchObject({ installed: true, version: '1.0.109' });
+      expect(out.accounts.map((a) => [a.id, a.auth.loggedIn])).toEqual([
+        ['', false],
+        [team, false],
+      ]);
+
+      // Where it cannot keep the token (no credential store), it says so and exits 0: a failed sign-in.
+      vi.stubEnv('FAKE_COPILOT_NO_KEYRING', '1');
+      service.startLogin('copilot');
+      await vi.waitFor(() => expect(service.login('copilot')?.state).toBe('failed'));
+      expect(service.login('copilot')?.output).toContain('the token was not saved');
+      expect((await service.status('copilot', true)).accounts[0]!.auth.loggedIn).toBe(false);
+      vi.stubEnv('FAKE_COPILOT_NO_KEYRING', '');
+
+      // Its device sign-in prints GitHub's link and code, in the account's home.
+      const view = service.startLogin('copilot');
+      expect(view.method).toBe('device');
+      await vi.waitFor(() => expect(service.login('copilot')?.state).toBe('success'));
+      expect(service.login('copilot')?.urls).toEqual(['https://github.com/login/device']);
+      expect(service.login('copilot')?.codes).toEqual(['ABCD-1234']);
+      const login = starts().find((l) => l.argv[0] === 'login')!;
+      expect(login.argv).toEqual(['login', '--device-code']);
+      expect(login.env.COPILOT_HOME).toBe(home);
+      out = await service.status('copilot', true);
+      expect(out.accounts[0]!.auth).toEqual({ loggedIn: true, account: 'octocat' });
+      expect(out.accounts[1]!.auth.loggedIn).toBe(false);
+
+      // Another account signs in in its own home; with a token of its own it runs on that.
+      settings.updateAccount('copilot', team, { apiKey: 'github_pat_team' });
+      service.invalidate('copilot');
+      expect((await service.status('copilot', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'GitHub token' }, usingStoredApiKey: true });
+      expect(settings.env('copilot', team).COPILOT_GITHUB_TOKEN).toBe('github_pat_team');
+      // A token is asked about too: one Copilot does not take (a classic token) is not signed in, though it is set.
+      vi.stubEnv('FAKE_COPILOT_SIGNED_OUT', '1');
+      service.invalidate('copilot');
+      expect((await service.status('copilot', true)).accounts[1]!.auth.loggedIn).toBe(false);
+      vi.stubEnv('FAKE_COPILOT_SIGNED_OUT', '');
+      service.invalidate('copilot');
+
+      // The status asked Copilot itself: a session in a home of its own, never the account's, with no prompt.
+      const asks = starts().filter((l) => l.argv.join(' ') === '--acp');
+      expect(asks.length).toBeGreaterThan(0);
+      expect(asks.every((l) => l.env.COPILOT_HOME !== home)).toBe(true);
+      expect(log().some((l) => l.method === 'session/prompt')).toBe(false);
+
+      // The default account signs out with Copilot's ACP logout, in its home.
+      await service.logout('copilot');
+      const logout = starts().filter((l) => l.env.COPILOT_HOME === home).at(-1)!;
+      expect(logout.argv).toEqual(['--acp']);
+      expect(log().filter((l) => l.method === 'logout')).toHaveLength(1);
+      expect((await service.status('copilot', true)).accounts[0]!.auth.loggedIn).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe('accounts of a CLI', () => {
   // A stand-in for `claude` that keeps its sign-in in its home, as the real one does.
   const FAKE_CLAUDE = `#!/bin/sh
@@ -355,6 +438,7 @@ esac
         ['grok', team],
         ['cursor', ''],
         ['antigravity', ''],
+        ['copilot', ''],
         ...OPEN_PROVIDERS.map((p) => [p, '']),
       ]);
       expect(catalogFor(all, 'claude', work)?.defaultModel).toBe('haiku');

@@ -686,6 +686,7 @@ describe('accounts', () => {
       ['grok', '', undefined],
       ['cursor', '', undefined],
       ['antigravity', '', undefined],
+      ['copilot', '', undefined],
       // The open agents have their default account only.
       ...OPEN_PROVIDERS.map((p) => [p, '', undefined]),
     ]);
@@ -1678,7 +1679,7 @@ describe('tool library', () => {
     expect(res.status).toBe(200);
     const view = await res.json();
     expect(view.skills).toEqual([{ path: skills, name: 'commit', description: 'Commit well.', providers: ['codex'] }]);
-    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '', cursor: '', antigravity: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
+    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '', cursor: '', antigravity: '', copilot: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
     expect((await app.request('/api/tools', json('PUT', { memory: { gemini: 'x' } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);

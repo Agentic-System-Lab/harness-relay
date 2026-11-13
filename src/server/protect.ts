@@ -148,9 +148,10 @@ export function relayTmpDir(dataDir = DATA_DIR): string {
 /**
  * How the folders a turn makes in `relayTmpDir` for its own files begin: a Claude Code turn's
  * `--settings` and `--mcp-config` files (the settings hold an endpoint's key when it runs on one, the
- * MCP config the servers' secret values), and a Cursor turn's config folder.
+ * MCP config the servers' secret values), a Cursor turn's config folder, and a Copilot turn's home
+ * (its settings, which decide its sandbox, and a copy of the account's sign-in state).
  */
-export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-' } as const;
+export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-', copilot: 'copilot-' } as const;
 
 /**
  * Removes the folders of turns the server was stopped during (`RUN_TMP_PREFIXES`; a turn removes its
@@ -313,6 +314,8 @@ export function agentFolders(o: AgentFolderOptions = {}): string[] {
     // Antigravity's `.gemini` folder (its settings, hooks, MCP servers, plugins, conversations), the
     // account's (`ANTIGRAVITY_HOME_ENV`) and the user's own.
     ...new Set([join(env[ANTIGRAVITY_HOME_ENV] || home, '.gemini'), join(home, '.gemini')]),
+    // Copilot's home (its settings, sign-in state, sessions, hooks, MCP servers), the account's and the user's own.
+    ...new Set([env.COPILOT_HOME || join(home, '.copilot'), join(home, '.copilot')]),
     ...(o.agentHome ? [o.agentHome] : []),
     ...(o.accountsDir && o.accountsDir !== o.agentHome ? [o.accountsDir] : []),
     ...(o.bins ?? []).map((bin) => dirname(bin)),
