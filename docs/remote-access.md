@@ -105,6 +105,10 @@ The icon opens Harness Relay as a web app: full screen, without Safari's address
 
 Installed this way, Harness Relay opens as its own app, without Chrome's address bar, and shows up with your other apps. If Chrome offers only **Create shortcut** (for example on an `http://` address), the shortcut opens the page in Chrome; you can tell it by the small Chrome logo on its icon. Samsung Internet has the same under its menu: **Add page to → Home screen**.
 
+### Notifications on the phone
+
+To hear when agents finish or need you with the phone in your pocket, open **Settings & sign-in → Notifications and sound** on the phone (on an iPhone or iPad, in the icon on the home screen: Safari's own tabs get no notifications) and turn on **Show notifications**. The phone then gets push notifications even when Harness Relay is closed or the phone is locked, while the computer runs Harness Relay and reaches the internet; Tailscale need not be on in the phone for them, only to open the chat. See [Notifications and sound](user-guide.md#notifications-and-sound).
+
 ## 5. Browse AgentsView too (optional)
 
 If you send conversations to [AgentsView](user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), you can browse it from the phone as well. It stays on `127.0.0.1` too, and `tailscale serve` shares it on a port of its own. These steps assume the setup from the user guide: AgentsView's data in `~/.relay-agents/agentsview`, listening on port 9999.
@@ -238,3 +242,5 @@ On a server:
 | An agent shows *Command not found* only when it runs as a service | The service's `PATH` doesn't include that CLI. Find it with `command -v claude` (or `codex`, `grok`, `cursor-agent`, `agy`, `copilot`, `opencode`, `goose`, `cline`, `openhands`, `pi`), add its folder to `Environment=PATH=` and restart. |
 | 🎙 says the microphone is not available on the phone | Open the `https://` address, not an `http://` one. Allow the microphone for this site in the browser, and in the phone's settings for that browser. |
 | The home-screen icon opens a blank or error page | Turn Tailscale on in the phone, then open the icon again. |
+| **Show notifications** cannot be turned on on an iPhone or iPad | Open Harness Relay from its icon on the home screen (step 4), not in Safari, on iOS 16.4 or later. If it says notifications are blocked, allow them for Harness Relay in the phone's **Settings → Notifications**. |
+| No notifications arrive on the phone while it is locked | Press **Send a test notification** on the phone. If it says the push service did not take it, turn **Show notifications** off and on again. Check that the computer running Harness Relay is awake and online, and that notifications for the browser (or the home-screen app) are allowed in the phone's settings and not held back by a Focus mode. |

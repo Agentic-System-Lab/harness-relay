@@ -25,6 +25,7 @@ import {
   cwdSettings,
   VOICE_MODELS,
   type AgentConfig,
+  type AlertPrefs,
   type ApiBackend,
   type ConversationGroup,
   type ConversationSettings,
@@ -37,6 +38,7 @@ import {
   type Provider,
   type ProviderAccountUpdate,
   type ProviderSettingsUpdate,
+  type PushSubscriptionJson,
   type ScheduleRepeat,
   type ScheduleUpdate,
   type ToolLibraryUpdate,
@@ -50,6 +52,7 @@ import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
 import { apiPort } from './ports';
 import { isLocalHost, localAddresses, relayPorts } from './relaySandbox';
+import { endpointProblem, subscriptionKeys } from './push';
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
@@ -652,4 +655,28 @@ export function validateEndpoint(input: unknown, relayPort?: number): ModelEndpo
     out.apiKey = key || null;
   }
   return out;
+}
+
+/**
+ * A browser's push subscription and which alerts it wants (`PUT /api/push/subscription`): a push
+ * service's HTTPS address (one of `PUSH_HOSTS`), and its keys (the browser's P-256 public key and
+ * auth secret, base64url); each preference a boolean.
+ */
+export function validatePushSubscription(input: unknown): { subscription: PushSubscriptionJson; prefs: AlertPrefs } {
+  const u = (input ?? {}) as { subscription?: unknown; prefs?: unknown };
+  const sub = (u.subscription ?? {}) as { endpoint?: unknown; keys?: unknown };
+  if (typeof sub.endpoint !== 'string') bad(t().invalidField('subscription.endpoint'));
+  const endpoint = sub.endpoint as string;
+  const problem = endpointProblem(endpoint);
+  if (problem) bad(problem);
+  const keys = (sub.keys ?? {}) as { p256dh?: unknown; auth?: unknown };
+  const p256dh = typeof keys.p256dh === 'string' ? keys.p256dh : '';
+  const auth = typeof keys.auth === 'string' ? keys.auth : '';
+  if (!subscriptionKeys({ p256dh, auth })) bad(t().pushBadKeys);
+  const p = (u.prefs ?? {}) as Record<string, unknown>;
+  const flag = (name: keyof AlertPrefs) => {
+    if (typeof p[name] !== 'boolean') bad(t().invalidField(`prefs.${name}`));
+    return p[name] as boolean;
+  };
+  return { subscription: { endpoint, keys: { p256dh, auth } }, prefs: { done: flag('done'), needs: flag('needs'), sound: flag('sound') } };
 }

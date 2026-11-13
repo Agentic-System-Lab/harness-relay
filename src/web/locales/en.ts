@@ -702,6 +702,41 @@ export const en: Messages = {
     whereOther: 'Or from a browser that is signed in: Settings → Signed-in browsers → Sign in another device (a phone, say).',
   },
 
+  notifications: {
+    title: 'Notifications and sound',
+    hint: 'Tells you when an agent finishes replying or needs you (an approval, a team to confirm, a question), as the sidebar marks it. These settings are for this browser only: set them on each computer and phone.',
+    notify: 'Show notifications',
+    notifyPush:
+      "This browser gets push notifications too: you are told also with no Harness Relay page open, or the phone locked, as long as the computer running it is on and online. They come through the browser's push service (Google's, Apple's, Mozilla's or Microsoft's), encrypted so that only this browser can read them.",
+    notifyPage: 'Tells you while Harness Relay is open in this browser (in a background tab, or with its window behind another one).',
+    notifyApp: "Tells you while the desktop app's window is open; not once it is closed.",
+    sound: 'Play a sound',
+    soundHint: "Played while the page is open: two notes when a reply is done, three when you are needed. A push notification on a locked phone makes the system's notification sound.",
+    when: 'Tell me when',
+    done: 'A reply is done (or ended with an error)',
+    needs: 'I am needed: an approval, a team to confirm, a question',
+    test: 'Send a test notification',
+    testSent: "Test notification sent: it may take a moment to arrive. If it never does, check that the browser and the system allow this site's notifications.",
+    testLocal: 'Test notification shown.',
+    support: {
+      insecure:
+        'This address is not HTTPS, so the browser allows no notifications. On a phone, open the https:// address tailscale serve gives (see "Use it from your phone" in the docs); on this computer, open it at localhost.',
+      install: 'On an iPhone or iPad, add Harness Relay to the Home Screen first (Share → Add to Home Screen) and open it from there to turn notifications on.',
+      unsupported: 'This browser has no notifications.',
+    },
+    denied: "Notifications are blocked for this site: allow them in the browser's site settings, then come back to turn them on.",
+    notAllowed: 'The browser did not allow notifications: turn them on again, and choose Allow when the browser asks.',
+    pushFailed: (why) => `Could not subscribe to push notifications (${why}): you are still told while Harness Relay is open.`,
+    alert: {
+      done: (agent) => (agent ? `${agent} finished replying` : 'The reply is done'),
+      error: (agent) => (agent ? `${agent} ran into an error` : 'The reply ran into an error'),
+      approval: (agent) => (agent ? `${agent} is waiting for your approval` : 'An agent is waiting for your approval'),
+      confirm: () => "The lead agent's team is ready for you to confirm",
+      answer: (agent) => (agent ? `${agent} asked you something` : 'An agent asked you something'),
+    },
+    testTitle: 'Harness Relay',
+    testBody: "Notifications are on: you'll be told here when an agent finishes or needs you.",
+  },
   browsers: {
     title: 'Signed-in browsers',
     hint: 'The browsers that can drive Harness Relay, the latest used first. Sign out the ones you no longer use.',
@@ -1193,7 +1228,7 @@ export const en: Messages = {
     goCard: (p) => `Go to ${p} →`,
     goSignIn: (p) => `Sign in to ${p} →`,
     sections: 'Sections of this page',
-    nav: { version: 'Version', language: 'Language', appearance: 'Appearance', backends: 'Backends', lead: 'Lead agent', tools: 'Tools', voice: 'Voice', cwd: 'Default folder', sessions: 'Sessions', shares: 'Shares', browsers: 'Browsers', tour: 'Tour' },
+    nav: { version: 'Version', language: 'Language', appearance: 'Appearance', notifications: 'Notifications', backends: 'Backends', lead: 'Lead agent', tools: 'Tools', voice: 'Voice', cwd: 'Default folder', sessions: 'Sessions', shares: 'Shares', browsers: 'Browsers', tour: 'Tour' },
     tour: 'Guided tour',
     tourHint: 'A step-by-step introduction to the main features.',
     replayTour: 'Replay the tour',
@@ -1452,6 +1487,16 @@ export const en: Messages = {
         ],
       },
       {
+        title: 'Notifications and sound',
+        body: "No need to keep an eye on the sidebar: turn them on in Settings → Notifications and sound, and you are told when the team finishes replying or needs you. Each browser and each phone has its own choice:",
+        points: [
+          'Show notifications: one pops up while the tab is in the background or its window is behind another; click it to open that chat',
+          'Play a sound: two notes when a reply is done, three when you are needed',
+          'On a phone, open the https:// address (through Tailscale) and turn them on there (on an iPhone or iPad, from the home screen): push notifications reach it even with the app closed or the phone locked, while Harness Relay runs on the computer',
+          'Choose only "A reply is done" or "I am needed" if you like, and send a test notification to try it',
+        ],
+      },
+      {
         title: 'File permission and changes',
         body: 'Every chat has a file permission:',
         points: [
@@ -1522,7 +1567,7 @@ export const en: Messages = {
       },
       {
         title: 'Adjust any time',
-        body: 'In Settings you can switch the language (繁體中文 / English), set up the model backends (the open-source agents run on them, and Claude Code, Codex and Grok on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
+        body: 'In Settings you can switch the language (繁體中文 / English), set up the model backends (the open-source agents run on them, and Claude Code, Codex and Grok on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
         points: [
           'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
           'The button beside Settings & sign-in reports a problem or an idea by email, with the version and system details, and screenshots if you like',

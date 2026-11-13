@@ -162,6 +162,25 @@ const zhTW = {
   signInWrongCode: '代碼錯誤或已過期。',
   signInTooMany: '錯誤的代碼太多次了，請等一分鐘再試。',
   signInNoSession: '找不到這個已登入的瀏覽器。',
+  // Notifications (push.ts, alerts.ts): what a phone or a closed browser is told
+  alert: {
+    done: (agent?: string) => (agent ? `${agent} 回覆完了` : '回覆完了'),
+    error: (agent?: string) => (agent ? `${agent} 出錯了` : '回覆出錯了'),
+    approval: (agent?: string) => (agent ? `${agent} 等你核准` : '有 agent 等你核准'),
+    confirm: (_agent?: string) => '首席 agent 設計好團隊了，等你確認',
+    answer: (agent?: string) => (agent ? `${agent} 問了你一個問題` : '有 agent 問了你一個問題'),
+    testTitle: 'Harness Relay',
+    testBody: '通知已開啟：agent 回覆完或需要你的時候，會在這裡通知你。',
+  },
+  pushEndpointRefused: (host: string) =>
+    `Harness Relay 不會把通知送到「${host}」：它只送到瀏覽器的推播服務（Google、Apple、Mozilla、Microsoft 的），而且要用 HTTPS。`,
+  pushBadKeys: '這個推播訂閱的金鑰不正確。',
+  pushNotSubscribed: '這個瀏覽器還沒有訂閱推播通知。',
+  pushUnavailable: (detail: string) =>
+    `這台伺服器現在無法送出推播通知${detail ? `（${detail}）` : ''}：Harness Relay 開著的時候，頁面仍會通知你。`,
+  pushTestFailed: '測試通知沒有送出：瀏覽器的推播服務沒有接受。請關掉通知再打開，然後再試一次。',
+  pushTaken: '這個推播訂閱屬於另一個已登入的瀏覽器。',
+  pushGone: '瀏覽器的推播服務說這個訂閱已經不存在：請重新訂閱。',
   cwdHoldsAgents: (dir: string, folder: string) =>
     `工作目錄「${dir}」包含或位於「${folder}」，那裡的檔案決定 agent 怎麼執行（家目錄裡的設定、CLI 自己的資料夾或它的程式）。可編輯模式下，agent 不經詢問就能修改這些檔案，也就能繞過它們的沙箱。請改用專案的資料夾，或唯讀模式。`,
   protectedPattern: (path: string) =>
@@ -687,6 +706,24 @@ const en: ServerMessages = {
   signInWrongCode: 'That code is wrong or has expired.',
   signInTooMany: 'Too many wrong codes. Wait a minute and try again.',
   signInNoSession: 'No such signed-in browser.',
+  alert: {
+    done: (agent?: string) => (agent ? `${agent} finished replying` : 'The reply is done'),
+    error: (agent?: string) => (agent ? `${agent} ran into an error` : 'The reply ran into an error'),
+    approval: (agent?: string) => (agent ? `${agent} is waiting for your approval` : 'An agent is waiting for your approval'),
+    confirm: (_agent?: string) => "The lead agent's team is ready for you to confirm",
+    answer: (agent?: string) => (agent ? `${agent} asked you something` : 'An agent asked you something'),
+    testTitle: 'Harness Relay',
+    testBody: "Notifications are on: you'll be told here when an agent finishes or needs you.",
+  },
+  pushEndpointRefused: (host: string) =>
+    `Harness Relay does not send notifications to "${host}": only to a browser's push service (Google's, Apple's, Mozilla's or Microsoft's), over HTTPS.`,
+  pushBadKeys: "This push subscription's keys are not valid.",
+  pushNotSubscribed: 'This browser has not subscribed to push notifications.',
+  pushUnavailable: (detail: string) =>
+    `This server cannot send push notifications now${detail ? ` (${detail})` : ''}: while Harness Relay is open, the page still tells you.`,
+  pushTestFailed: "The test notification was not sent: the browser's push service did not take it. Turn notifications off and on again, then try once more.",
+  pushTaken: 'This push subscription belongs to another signed-in browser.',
+  pushGone: "The browser's push service says this subscription is gone: subscribe again.",
   cwdHoldsAgents: (dir, folder) =>
     `The working directory ${dir} holds or is inside ${folder}, where files decide how the agents run (the settings in your home folder, a CLI's own folder or its program). In edit mode agents change files there without asking, so they could get around their sandbox. Choose your project's folder instead, or read-only.`,
   protectedPattern: (path) =>

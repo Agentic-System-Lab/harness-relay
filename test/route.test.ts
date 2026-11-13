@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SETTINGS_SECTIONS, currentSection, hashFor, readingLine, revealLink, routeFromHash, sectionId, settingsHref } from '../src/web/route';
+import { CORNER_GAP, SETTINGS_SECTIONS, currentSection, hashFor, makeRoomForCorner, readingLine, revealLink, routeFromHash, sectionId, settingsHref } from '../src/web/route';
 
 describe('client routes', () => {
   it('reads the hash', () => {
@@ -31,6 +31,7 @@ describe('client routes', () => {
       'version',
       'language',
       'appearance',
+      'notifications',
       'backends',
       'claude',
       'codex',
@@ -77,6 +78,18 @@ describe('the settings card being read', () => {
     expect(readingLine({ ...view, scrollTop: 2100 })).toBe(900); // the end: the bottom of the view
     // A page that does not scroll keeps the line under the links.
     expect(readingLine({ ...view, scrollHeight: 900, scrollTop: 0 })).toBe(84);
+  });
+});
+
+describe('the settings links and the button in the corner', () => {
+  it('make room for it as soon as their row comes up to its bottom edge, not only once stuck to the top', () => {
+    // The menu button: 36px at 10px from the top.
+    expect(makeRoomForCorner(200, 46)).toBe(false);
+    expect(makeRoomForCorner(46 + CORNER_GAP, 46)).toBe(false);
+    expect(makeRoomForCorner(46 + CORNER_GAP - 1, 46)).toBe(true);
+    expect(makeRoomForCorner(12, 46)).toBe(true);
+    // No button there (a wide screen with the sidebar open).
+    expect(makeRoomForCorner(12, undefined)).toBe(false);
   });
 });
 

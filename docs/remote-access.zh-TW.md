@@ -105,6 +105,10 @@ npm start
 
 這樣安裝後，Harness Relay 會像獨立的 App 一樣打開，沒有 Chrome 的網址列，也會出現在你的應用程式清單裡。如果 Chrome 只提供 **建立捷徑**（Create shortcut），例如用 `http://` 網址打開時，這個捷徑會在 Chrome 裡打開頁面，圖示上會有小小的 Chrome 標誌。Samsung Internet 也有同樣的功能，在選單的 **新增頁面至 → 主螢幕**（Add page to → Home screen）。
 
+### 手機上的通知
+
+想把手機放在口袋裡也知道 agent 回覆完或需要你，就在手機上打開 **設定與登入 → 通知與提示音**（iPhone 與 iPad 要在主畫面的圖示裡打開：Safari 自己的分頁收不到通知），開啟 **顯示系統通知**。之後只要電腦在執行 Harness Relay、而且連得上網路，手機就會收到推播通知，即使 Harness Relay 沒開著、手機鎖定了也會。收通知不需要手機開著 Tailscale，打開對話才需要。詳見[通知與提示音](user-guide.zh-TW.md#通知與提示音)。
+
 ## 5. 也瀏覽 AgentsView（選用）
 
 如果你把對話送到 [AgentsView](user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)，也可以用手機瀏覽它。它同樣留在 `127.0.0.1`，由 `tailscale serve` 用另一個 port 分享。以下步驟沿用使用者說明中的設定：AgentsView 的資料放在 `~/.relay-agents/agentsview`，監聽 port 9999。
@@ -238,3 +242,5 @@ systemctl --user restart harness-relay
 | 只有以 service 執行時，agent 顯示「找不到指令」 | service 的 `PATH` 裡沒有那個 CLI。用 `command -v claude`（或 `codex`、`grok`、`cursor-agent`、`agy`、`copilot`、`opencode`、`goose`、`cline`、`openhands`、`pi`）找到它的位置，把所在資料夾加進 `Environment=PATH=`，再重新啟動。 |
 | 手機上 🎙 顯示無法使用麥克風 | 請打開 `https://` 開頭的網址，不要用 `http://`。在瀏覽器允許這個網站使用麥克風，並在手機設定中允許該瀏覽器使用麥克風。 |
 | 主畫面圖示打開後是空白或錯誤頁 | 開啟手機的 Tailscale，再點一次圖示。 |
+| 在 iPhone 或 iPad 上無法開啟 **顯示系統通知** | 從主畫面的圖示打開 Harness Relay（第 4 步），不要在 Safari 裡打開，而且要 iOS 16.4 以上。如果顯示通知被封鎖，請在手機的 **設定 → 通知** 允許 Harness Relay 的通知。 |
+| 手機鎖定時收不到通知 | 在手機上按 **傳送測試通知**。如果說推播服務沒有接受，就把 **顯示系統通知** 關掉再打開。確認執行 Harness Relay 的電腦醒著、連得上網路，而且手機設定裡允許這個瀏覽器（或主畫面 App）的通知，也沒有被專注模式擋住。 |

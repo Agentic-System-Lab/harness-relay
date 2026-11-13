@@ -2,6 +2,7 @@ import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT } from '../shared/types';
 import type {
   AboutInfo,
+  AlertPrefs,
   ApiBackend,
   ModelBackendsView,
   ModelEndpointUpdate,
@@ -28,6 +29,8 @@ import type {
   ProviderModels,
   ProviderSettingsUpdate,
   ProviderStatus,
+  PushStatus,
+  PushSubscriptionJson,
   ReportScreenshots,
   ScheduleUpdate,
   SearchResult,
@@ -208,6 +211,23 @@ export const api = {
     await request<{ ok: true }>('DELETE', `/api/auth/sessions/${encodeURIComponent(id)}`);
     if (current) clearKey();
   },
+  // notifications
+  /** Whether the server sends push notifications: the key to subscribe with, or why not. */
+  pushStatus: () => request<PushStatus>('GET', '/api/push'),
+  /** Keeps this browser's push subscription and which alerts it wants. */
+  pushSubscribe: (subscription: PushSubscriptionJson, prefs: AlertPrefs) => request<{ ok: true }>('PUT', '/api/push/subscription', { subscription, prefs }),
+  pushUnsubscribe: (endpoint: string) => request<{ ok: true }>('DELETE', '/api/push/subscription', { endpoint }),
+  /** Has the server send this browser a test notification through its push service. */
+  pushTest: (endpoint: string) => request<{ ok: true }>('POST', '/api/push/test', { endpoint }),
+  /**
+   * This page (`page`: its id) went to the background: kept alive as the page goes away (a phone
+   * locking), so the server sends the push notifications it held for this browser now, unless another
+   * page of it is still in front. Never fails.
+   */
+  presence: (visible: boolean, page: string) =>
+    void fetch('/api/push/presence', { method: 'POST', keepalive: true, headers: headers(true, readKey()), body: JSON.stringify({ visible, page }) }).catch(
+      () => undefined,
+    ),
   /** The conversation's live updates. EventSource sends no headers, so the key goes in the query. */
   eventsUrl: (id: string) => {
     const key = readKey();
@@ -215,7 +235,15 @@ export const api = {
   },
 
   // conversations
-  listConversations: () => request<ConversationSummary[]>('GET', '/api/conversations'),
+  /**
+   * `page`: this page's id, and whether it is in front: then it tells the user itself when agents
+   * finish or need them, so its browser gets no push notification meanwhile.
+   */
+  listConversations: (page?: { id: string; inFront: boolean }) =>
+    request<ConversationSummary[]>(
+      'GET',
+      `/api/conversations${page ? `?page=${encodeURIComponent(page.id)}${page.inFront ? '&visible=1' : ''}` : ''}`,
+    ),
   getConversation: (id: string) => request<Conversation>('GET', `/api/conversations/${id}`),
   createConversation: (b: { title?: string; agents: AgentConfig[]; settings: ConversationSettings; createCwd?: boolean }) =>
     request<Conversation>('POST', '/api/conversations', b),

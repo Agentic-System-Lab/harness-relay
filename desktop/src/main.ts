@@ -528,7 +528,17 @@ function run(): void {
       return;
     }
     const size = prefs.window ?? { width: 1280, height: 860 };
-    const opened = new BrowserWindow({ ...windowOptions(), ...size, minWidth: 360, minHeight: 400, show: false });
+    const options = windowOptions();
+    const opened = new BrowserWindow({
+      ...options,
+      ...size,
+      minWidth: 360,
+      minHeight: 400,
+      show: false,
+      // The chat tells you when agents finish or need you (it has no push service): its checks keep
+      // their pace behind other windows, instead of Chromium's once a minute for a page long hidden.
+      webPreferences: { ...options.webPreferences, backgroundThrottling: false },
+    });
     win = opened;
     guard(opened.webContents);
     opened.once('ready-to-show', () => opened.show());

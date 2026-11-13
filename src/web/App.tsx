@@ -22,7 +22,8 @@ import {
 } from './signin';
 import { Sidebar } from './components/Sidebar';
 import { PanelIcon } from './components/icons';
-import { useT } from './i18n';
+import { useI18n, useT } from './i18n';
+import { PUSH_RESYNC_MS, PageAlerts, SOUND_UNLOCK_EVENTS, alertPrefsNow, listenForClicks, pushActive, syncPush, unlockSound, useAlertPrefs } from './alerts';
 import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
 import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
@@ -171,25 +172,51 @@ function RelayApp() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // What tells you of replies and needs (notifications and sound, `src/web/alerts.ts`): it hears each
+  // list of the conversations, and says with each poll whether this page is in front.
+  const routeNow = useRef(route);
+  routeNow.current = route;
+  const messagesNow = useRef(t);
+  messagesNow.current = t;
+  const [alerts] = useState(
+    () =>
+      new PageAlerts({
+        viewing: () => (routeNow.current.page === 'chat' ? routeNow.current.id : undefined),
+        conversation: (id) => api.getConversation(id),
+        messages: () => messagesNow.current.notifications,
+      }),
+  );
+
   const [loaded, setLoaded] = useState(false);
   // The conversations and the groups they are in (the lead agent sorts new ones in the background).
   /** The last refresh failed: the server may be restarting (the desktop app's Restart server…). */
   const unreachable = useRef(false);
+  /** The latest refresh asked for, and the latest shown: an answer older than the one shown is dropped. */
+  const asked = useRef(0);
+  const shown = useRef(0);
+  /** When the list shown was asked for (the alerts start again only from a list asked for after the page came back). */
+  const listAskedAt = useRef(0);
   const refreshConversations = useCallback(() => {
-    Promise.all([api.listConversations(), api.listGroups()])
-      .then(([list, g]) => {
-        setConversations(list);
-        setGroups(g);
-        setLoaded(true);
-        // Back after a restart, perhaps with other limits in its environment.
-        if (unreachable.current) refreshLimits();
-        unreachable.current = false;
-      })
-      .catch((err: unknown) => {
+    const n = ++asked.current;
+    const askedAt = Date.now();
+    Promise.allSettled([api.listConversations({ id: alerts.id, inFront: alerts.inFront() }), api.listGroups()]).then(([list, g]) => {
+      if (n < shown.current) return;
+      if (list.status === 'rejected') {
         unreachable.current = true;
-        console.error(err);
-      });
-  }, []);
+        console.error(list.reason);
+        return;
+      }
+      shown.current = n;
+      listAskedAt.current = askedAt;
+      setConversations(list.value);
+      if (g.status === 'fulfilled') setGroups(g.value);
+      else console.error(g.reason);
+      setLoaded(true);
+      // Back after a restart, perhaps with other limits in its environment.
+      if (unreachable.current) refreshLimits();
+      unreachable.current = false;
+    });
+  }, [alerts]);
 
   // Each CLI's status as the server checked it last (`newerStatuses`): an answer that comes in after a
   // newer one (asked before an account was added, or from the server's cache) cannot put it back.
@@ -235,6 +262,46 @@ function RelayApp() {
   useEffect(() => {
     document.title = waiting ? t.approval.pageTitle(waiting) : 'Harness Relay';
   }, [waiting, t]);
+
+  // Notifications and sound when agents finish or need you (Settings → Notifications), from the same
+  // lists as the sidebar; and this browser's push subscription, kept in step with its choices.
+  useEffect(() => {
+    if (loaded) alerts.heard(conversations, listAskedAt.current);
+  }, [loaded, conversations, alerts]);
+  const alertPrefs = useAlertPrefs();
+  const { lang } = useI18n();
+  useEffect(() => {
+    void syncPush(api, alertPrefs);
+  }, [alertPrefs, lang]);
+  useEffect(() => {
+    // The server holds this browser's push notifications while the page is in front: going to the
+    // background (a phone locking), it sends them; coming back, the page starts again from the next
+    // list, and its subscription is checked (the server may have dropped it).
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') {
+        if (pushActive()) api.presence(false, alerts.id);
+        return;
+      }
+      alerts.returned();
+      refreshConversations();
+      void syncPush(api, alertPrefsNow());
+    };
+    const onHide = () => pushActive() && api.presence(false, alerts.id);
+    const resync = setInterval(() => void syncPush(api, alertPrefsNow()), PUSH_RESYNC_MS);
+    // Browsers let a page play a sound only after the user did something on it.
+    const unlock = () => alertPrefsNow().sound && unlockSound();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onHide);
+    for (const type of SOUND_UNLOCK_EVENTS) window.addEventListener(type, unlock, true);
+    const stopClicks = listenForClicks();
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onHide);
+      for (const type of SOUND_UNLOCK_EVENTS) window.removeEventListener(type, unlock, true);
+      clearInterval(resync);
+      stopClicks();
+    };
+  }, [refreshConversations, alerts]);
 
   // Keep the sidebar's states fresh for every conversation, including runs started elsewhere
   // (another tab, or still going after you switched away). The list is a cheap local query.

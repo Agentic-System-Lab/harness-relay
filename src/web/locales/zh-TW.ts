@@ -716,6 +716,41 @@ export const zhTW = {
     whereOther: '或從另一個已登入的瀏覽器：設定 → 已登入的瀏覽器 → 讓另一個裝置登入（例如手機）。',
   },
 
+  notifications: {
+    title: '通知與提示音',
+    hint: 'agent 回覆完，或需要你（核准、確認團隊、回答問題）的時候告訴你，就像側邊欄的標記。這些設定只對這個瀏覽器有效：每台電腦、每支手機各自設定。',
+    notify: '顯示系統通知',
+    notifyPush:
+      '這個瀏覽器也會收到推播通知：沒有打開 Harness Relay 的頁面、手機鎖定時也會通知你，只要執行它的電腦開著、連得上網路。通知經由瀏覽器的推播服務（Google、Apple、Mozilla 或 Microsoft 的）送達，內容加密，只有這個瀏覽器讀得到。',
+    notifyPage: 'Harness Relay 在這個瀏覽器開著的時候通知你（分頁在背景，或視窗被別的程式擋住時）。',
+    notifyApp: '桌面 app 的視窗開著的時候通知你；關掉視窗後就不會。',
+    sound: '播放提示音',
+    soundHint: '頁面開著時播放；回覆完是兩個音，需要你是三個音。手機鎖定時的推播通知使用系統的通知音。',
+    when: '通知我',
+    done: '回覆完成（或出錯）',
+    needs: '需要你：核准、確認團隊、回答問題',
+    test: '傳送測試通知',
+    testSent: '已送出測試通知，可能要稍等片刻才會出現。如果一直沒收到，請確認瀏覽器與系統都允許這個網站的通知。',
+    testLocal: '已顯示測試通知。',
+    support: {
+      insecure:
+        '這個網址不是 HTTPS，瀏覽器不允許通知。在手機上請用 tailscale serve 給的 https:// 網址打開（見文件「從手機使用」），在這台電腦上則用 localhost 打開。',
+      install: '在 iPhone 和 iPad 上，請先把 Harness Relay 加入主畫面（分享 → 加入主畫面），再從主畫面打開，才能開啟通知。',
+      unsupported: '這個瀏覽器不支援通知。',
+    } as Record<'insecure' | 'install' | 'unsupported', string>,
+    denied: '這個網站的通知被瀏覽器封鎖了：請在瀏覽器的網站設定裡允許通知，再回來開啟。',
+    notAllowed: '瀏覽器沒有允許通知：再開啟一次，並在瀏覽器詢問時選「允許」。',
+    pushFailed: (why: string) => `無法訂閱推播通知（${why}）：Harness Relay 開著的時候仍會通知你。`,
+    alert: {
+      done: (agent?: string) => (agent ? `${agent} 回覆完了` : '回覆完了'),
+      error: (agent?: string) => (agent ? `${agent} 出錯了` : '回覆出錯了'),
+      approval: (agent?: string) => (agent ? `${agent} 等你核准` : '有 agent 等你核准'),
+      confirm: (_agent?: string) => '首席 agent 設計好團隊了，等你確認',
+      answer: (agent?: string) => (agent ? `${agent} 問了你一個問題` : '有 agent 問了你一個問題'),
+    },
+    testTitle: 'Harness Relay',
+    testBody: '通知已開啟：agent 回覆完或需要你的時候，會在這裡通知你。',
+  },
   browsers: {
     title: '已登入的瀏覽器',
     hint: '能操作 Harness Relay 的瀏覽器，最近使用的在前。不再使用的請登出。',
@@ -1207,7 +1242,7 @@ export const zhTW = {
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
-    nav: { version: '版本', language: '介面語言', appearance: '外觀', backends: '模型來源', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
+    nav: { version: '版本', language: '介面語言', appearance: '外觀', notifications: '通知', backends: '模型來源', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
     tour: '使用導覽',
     tourHint: '一步一步介紹主要功能。',
     replayTour: '重新觀看導覽',
@@ -1470,6 +1505,16 @@ export const zhTW = {
         ],
       },
       {
+        title: '通知與提示音',
+        body: '不用一直盯著側邊欄：在「設定 → 通知與提示音」開啟後，團隊回覆完或需要你時會告訴你。每個瀏覽器、每支手機各自設定：',
+        points: [
+          '顯示系統通知：分頁在背景或視窗被擋住時跳出通知，點一下就打開那個對話',
+          '播放提示音：回覆完是兩個音，需要你是三個音',
+          '手機用 https:// 網址（透過 Tailscale）打開，在那裡開啟（iPhone 與 iPad 要先加到主畫面）：即使 App 沒開著、手機鎖定了也收得到推播，只要電腦上的 Harness Relay 還在執行',
+          '可以只選「回覆完成」或「需要你」，也能先傳一則測試通知試試看',
+        ],
+      },
+      {
         title: '檔案權限與修改',
         body: '每個對話都有一個檔案權限：',
         points: [
@@ -1540,7 +1585,7 @@ export const zhTW = {
       },
       {
         title: '隨時調整',
-        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定模型來源（開源 agent 用它，Claude Code、Codex 與 Grok 也能用它的自訂端點）、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
+        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定模型來源（開源 agent 用它，Claude Code、Codex 與 Grok 也能用它的自訂端點）、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、開關通知與提示音、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
         points: [
           '最前面的「版本」：目前的版本；桌面版每小時檢查一次有沒有新版本，有的話會跳出一次對話框，可以從那裡、這張卡片或選單更新',
           '「設定與登入」右邊的按鈕可以用電子郵件回報問題或建議，附上版本與系統資訊，也可以附上截圖',
