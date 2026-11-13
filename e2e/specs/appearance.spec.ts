@@ -12,6 +12,28 @@ async function tourSteps(page: Page): Promise<number> {
   return Number((await count.textContent())!.split('/')[1]);
 }
 
+/**
+ * The animations in the tour (none while it is closed): each one's name, state, start, duration,
+ * the properties it changes and the value it starts from.
+ */
+function tourAnimations(page: Page) {
+  return page.evaluate(() =>
+    (document.querySelector('.tour')?.getAnimations({ subtree: true }) ?? []).map((a) => {
+      const effect = a.effect as KeyframeEffect;
+      const [first] = effect.getKeyframes();
+      const changed = Object.keys(first ?? {}).filter((k) => !['offset', 'computedOffset', 'easing', 'composite'].includes(k));
+      return {
+        name: (a as CSSAnimation).animationName,
+        state: a.playState,
+        start: a.startTime as number | null,
+        duration: Number(effect.getComputedTiming().duration),
+        changed,
+        from: changed.length === 1 ? String(first![changed[0]!]) : undefined,
+      };
+    }),
+  );
+}
+
 /** The app is drawn (signed in): the tour, when it is due, shows from the first frame. */
 async function appShown(page: Page): Promise<void> {
   await expect(page.locator('.app main.main')).toBeVisible();
@@ -105,11 +127,69 @@ test.describe('the guided tour', () => {
     expect((await sizes()).top).toBe(0);
   });
 
+  test('on a phone, the tour slides up once as it opens, also from Settings, comes to rest at the bottom of the screen, and not with reduced motion', async ({ page }) => {
+    // Opened at a phone's size: Next takes the focus while the sheet is still below the screen.
+    await page.setViewportSize({ width: 390, height: 560 });
+    await page.reload();
+    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    const card = page.locator('.tour-card:not(.tour-measure)');
+    const next = card.getByRole('button', { name: 'Next' });
+    await expect.poll(() => tourAnimations(page).then((a) => a.map((x) => x.name))).toEqual(['tour-scrim-in', 'tour-sheet-in']);
+    await expect.poll(() => tourAnimations(page).then((a) => a.every((x) => x.state === 'finished'))).toBe(true);
+    const opened = await tourAnimations(page);
+    // The sheet comes up from below the screen, the backdrop fades in, and nothing else changes
+    // (transform and opacity alone: no layout or paint on each frame).
+    expect(opened.map((a) => [a.changed, a.from])).toEqual([
+      [['opacity'], '0'],
+      [['transform'], 'translateY(100%)'],
+    ]);
+    expect(opened.every((a) => a.duration > 0)).toBe(true);
+    // At rest with its bottom at the screen's, Next in it: focusing Next as it slid in moved nothing.
+    const atBottom = async () => {
+      const c = (await card.boundingBox())!;
+      return c.y > 0 && Math.abs(c.y + c.height - 560) <= 1;
+    };
+    expect(await atBottom()).toBe(true);
+    await expect(next).toBeInViewport({ ratio: 1 });
+    await expect(next).toBeFocused();
+    // The next step keeps the sheet where it is: the animation does not play again.
+    await next.click();
+    await expect(page.getByRole('dialog', { name: en.tour.steps[1]!.title })).toBeVisible();
+    expect(await tourAnimations(page)).toEqual(opened);
+    expect(await atBottom()).toBe(true);
+
+    // Replayed from Settings, it slides up again.
+    await page.keyboard.press('Escape');
+    await expect(tour(page)).toBeHidden();
+    const replay = async () => {
+      await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
+      await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    };
+    await page.getByRole('button', { name: 'Open sidebar' }).click();
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    await replay();
+    await expect.poll(() => tourAnimations(page).then((a) => a.map((x) => x.name))).toEqual(['tour-scrim-in', 'tour-sheet-in']);
+    await expect.poll(() => tourAnimations(page).then((a) => a.every((x) => x.state === 'finished'))).toBe(true);
+    const replayed = await tourAnimations(page);
+    expect(replayed.every((a, n) => a.start! > opened[n]!.start!)).toBe(true);
+    expect(await atBottom()).toBe(true);
+    await expect(next).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(tour(page)).toBeHidden();
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await replay();
+    expect(await tourAnimations(page)).toEqual([]);
+    expect(await atBottom()).toBe(true);
+  });
+
   test('on a wide screen, Next stays in one place through the steps in the middle of the screen', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
     const card = page.locator('.tour-card:not(.tour-measure)');
     const next = card.getByRole('button', { name: 'Next' });
+    // Only a phone's sheet slides in: here the card and the backdrop are still.
+    expect(await tourAnimations(page)).toEqual([]);
     // Where Next is at each step in the middle of the screen (the others point at the sidebar).
     const places = new Set<number>();
     for (let i = 0; i < en.tour.steps.length - 1; i++) {

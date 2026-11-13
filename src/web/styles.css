@@ -4278,6 +4278,7 @@ details.sub summary {
     z-index: 20;
     width: 36px;
     height: 36px;
+    padding: 0;
     border-radius: 10px;
     border: 1px solid var(--border);
     background: var(--bg);
@@ -4640,8 +4641,10 @@ details.sub summary {
   position: fixed;
   inset: 0;
   z-index: 80;
-  /* Keeps the copy that measures the steps (.tour-measure) out of sight. */
-  overflow: hidden;
+  /* Keeps the copy that measures the steps (.tour-measure) out of sight. Clip, not hidden: hidden can
+     still be scrolled, and focusing Next while a phone's sheet slides up from below would scroll it,
+     leaving the sheet above the screen. */
+  overflow: clip;
 }
 
 .tour-scrim {
@@ -4799,6 +4802,15 @@ details.sub summary {
     max-height: calc(100dvh - 48px);
     border-bottom: 0;
     border-radius: var(--radius) var(--radius) 0 0;
+    /* Slides up when the tour opens, and again when the window narrows to a phone's width; the same
+       animation through the steps, so a step does not play it again. */
+    animation: tour-sheet-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* On the scrim itself, not on .dim: a step pointing at something visible takes .dim away, and its
+     coming back would fade the backdrop in again (without .dim the scrim is clear anyway). */
+  .tour-scrim {
+    animation: tour-scrim-in 0.24s ease-out both;
   }
 
   .tour-card.centered .tour-body {
@@ -4811,6 +4823,18 @@ details.sub summary {
 
   .plan-actions .msg-meta {
     margin-left: 0;
+  }
+}
+
+@keyframes tour-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes tour-scrim-in {
+  from {
+    opacity: 0;
   }
 }
 

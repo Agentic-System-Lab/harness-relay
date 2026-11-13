@@ -14,7 +14,13 @@ test.describe('on a phone', () => {
     await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'On the go');
     // The sidebar is tucked away until the menu opens it.
     await expect(page.locator('.sidebar')).not.toBeInViewport();
-    await page.getByRole('button', { name: 'Open sidebar' }).tap();
+    // The menu's three lines sit in the middle of its button (an icon, not a text glyph on a baseline; no
+    // padding, which WebKit's default puts 1px more of below than above).
+    const menu = page.getByRole('button', { name: 'Open sidebar' });
+    const [box, icon] = [(await menu.boundingBox())!, (await menu.locator('svg').boundingBox())!];
+    expect(Math.abs(icon.x + icon.width / 2 - (box.x + box.width / 2))).toBeLessThanOrEqual(0.1);
+    expect(Math.abs(icon.y + icon.height / 2 - (box.y + box.height / 2))).toBeLessThanOrEqual(0.1);
+    await menu.tap();
     await expect(page.locator('.conv-link', { hasText: 'On the go' })).toBeInViewport();
     // Going somewhere closes it again.
     await page.getByRole('button', { name: 'New chat' }).first().tap();
