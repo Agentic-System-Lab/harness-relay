@@ -1289,7 +1289,7 @@ export const en: Messages = {
     cwdCreated: (dirs: string) => `Created ${dirs}; the default working directories are saved`,
     sessions: 'Agent sessions',
     sessionsHint:
-      'Where claude, codex, grok, cursor-agent and agy keep their sign-in, settings and session records when Harness Relay runs them, and whether to view each conversation in AgentsView.',
+      'Where claude, codex, grok, cursor-agent, agy, copilot and muse keep their sign-in, settings and session records when Harness Relay runs them, and whether to view each conversation in AgentsView.',
     agentHome: "The CLIs' own folder",
     agentHomeHint:
       "When set, Harness Relay has claude, codex, grok, cursor-agent, agy, copilot and muse use its claude, codex, grok, cursor, antigravity, copilot and muse subfolders as their homes: their sign-in, settings and session records go there, apart from your own use of the CLIs. Sign in to each CLI again above (or set an API key). They also stop reading the settings, MCP servers, skills, memory and plugins in your usual homes; those in Harness Relay's tool library are still given. Cursor is the exception: only its settings and session records move there; its sign-in, and the skills, MCP servers and hooks in ~/.cursor, stay where Cursor keeps them for your user. Antigravity's .gemini folder (its settings, skills, MCP servers, hooks and conversations) moves there, while its Google sign-in stays in the system keyring. Muse Code's config and data folders (its settings, sign-in and sessions) move there too. Leave it empty to use each CLI's usual home.",
