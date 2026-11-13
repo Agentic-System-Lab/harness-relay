@@ -1,6 +1,29 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { INSTALLERS, UPDATE_INSTALLERS, UPDATES_REPO, updateCopyName, updateCopyUrl, installersOf, isCandidate, isInstallerUrl, newestRelease, processorHints, RELEASES_PAGE, STORAGE_KEY, systemOf, wire, wordKey } from '../site/assets/downloads.js';
+import {
+  INSTALLERS,
+  UPDATE_INSTALLERS,
+  UPDATES_REPO,
+  updateCopyName,
+  updateCopyUrl,
+  installersOf,
+  isCandidate,
+  isInstallerUrl,
+  isMirror,
+  MIRROR,
+  mirrorHas,
+  mirrorUrl,
+  newestRelease,
+  processorHints,
+  RELEASES_PAGE,
+  STORAGE_KEY,
+  systemOf,
+  wire as wirePage,
+  wordKey,
+} from '../site/assets/downloads.js';
+
+/** wire(), offline whatever MIRROR is: a mirror is never asked unless a test says what it answers. */
+const wire: typeof wirePage = (deps = {}) => wirePage({ hasInstaller: async () => false, ...deps });
 
 const UA = {
   mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
@@ -537,5 +560,139 @@ describe('the download buttons on the page', () => {
 
   it('do nothing on a page without download buttons', async () => {
     await wire({ doc: { querySelector: () => null, querySelectorAll: () => [] }, nav: MAC, storage: memoryStorage(), fetchJson: async () => [], now: () => 0 });
+  });
+});
+
+const MIRROR_AT = 'https://downloads.example.workers.dev';
+const at = (tag: string, file: string) => `https://github.com/Agentic-System-Lab/harness-relay/releases/download/${tag}/Harness-Relay-${tag}-${file}`;
+
+describe('the download mirror', () => {
+  it('is none, or an https origin as written', () => {
+    expect(MIRROR === '' || isMirror(MIRROR)).toBe(true);
+    expect(isMirror(MIRROR_AT)).toBe(true);
+    expect(isMirror('https://dl.harness-relay.dev')).toBe(true);
+    for (const mirror of ['', 'http://downloads.example', `${MIRROR_AT}/`, `${MIRROR_AT}/dl`, `${MIRROR_AT}:8443`, 'https://user@downloads.example', `${MIRROR_AT}?x`, `${MIRROR_AT}#x`, 'https://DOWNLOADS.example', 'javascript:alert(1)', undefined, 42]) {
+      expect(isMirror(mirror), String(mirror)).toBe(false);
+    }
+  });
+
+  it("has each installer at the same tag and file as GitHub, and nothing else", () => {
+    expect(mirrorUrl(at('2026-11-13', 'mac-arm64.dmg'), MIRROR_AT)).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`);
+    expect(mirrorUrl(at('2026-11-13.1', 'linux-arm64.AppImage'), MIRROR_AT)).toBe(`${MIRROR_AT}/2026-11-13.1/Harness-Relay-2026-11-13.1-linux-arm64.AppImage`);
+    for (const url of [RELEASES_PAGE, 'https://github.com/someone/else/releases/download/v/x.dmg', `${at('v', 'x.dmg')}?x`, 'javascript:alert(1)', undefined]) {
+      expect(mirrorUrl(url, MIRROR_AT), String(url)).toBeUndefined();
+    }
+    // Without a mirror (or with an address that is not one), none.
+    expect(mirrorUrl(at('2026-11-13', 'mac-arm64.dmg'), '')).toBeUndefined();
+    expect(mirrorUrl(at('2026-11-13', 'mac-arm64.dmg'), 'http://downloads.example')).toBeUndefined();
+  });
+
+  it('is asked with a HEAD whether it has an installer, its redirect to GitHub not followed (GitHub would count it)', async () => {
+    const asked: [string, RequestInit][] = [];
+    const answer = (status: number) => async (url: string, init: RequestInit) => (asked.push([url, init]), { status });
+    expect(await mirrorHas(`${MIRROR_AT}/a/b`, answer(200))).toBe(true);
+    expect(asked).toEqual([[`${MIRROR_AT}/a/b`, { method: 'HEAD', redirect: 'manual', cache: 'no-store', credentials: 'omit' }]]);
+    // Not in its bucket: a redirect, which a browser shows as an opaque one (status 0).
+    for (const status of [0, 302, 404, 500]) expect(await mirrorHas(`${MIRROR_AT}/a/b`, answer(status)), String(status)).toBe(false);
+    expect(await mirrorHas(`${MIRROR_AT}/a/b`, async () => Promise.reject(new TypeError('Failed to fetch')))).toBe(false);
+    expect(
+      await mirrorHas(`${MIRROR_AT}/a/b`, () => {
+        throw new TypeError('blocked');
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('the download buttons on the page, with a mirror', () => {
+  /** A mirror that has the installers (or not), recording what it is asked. */
+  const mirrorThat = (has: boolean | Error) => {
+    const asked: string[] = [];
+    return { asked, hasInstaller: async (url: string) => (asked.push(url), has instanceof Error ? Promise.reject(has) : has) };
+  };
+
+  it('point at the mirror once it has the visitor’s installer, and keep GitHub’s addresses for the next visit', async () => {
+    const { el, doc } = page();
+    const storage = memoryStorage();
+    const mirror = mirrorThat(true);
+    await wire({ doc, nav: MAC, storage, fetchJson: async () => [release('2026-11-13')], now: () => 1000, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+    expect(mirror.asked).toEqual([`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`]);
+    expect(el.primary.attrs.href).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`);
+    for (const [system, end] of Object.entries(INSTALLERS)) expect(el.cards[system]!.attrs.href, system).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13${end}`);
+    expect(el.line.textContent).toBe('Release 2026-11-13');
+    const kept = JSON.parse(storage.data.get(STORAGE_KEY)!);
+    expect(kept.release.installers.mac.url).toBe(at('2026-11-13', 'mac-arm64.dmg'));
+    expect(JSON.stringify(kept)).not.toContain(MIRROR_AT);
+  });
+
+  it('stay on GitHub when the mirror does not have it, cannot be reached, or there is none', async () => {
+    for (const has of [false, new Error('offline')]) {
+      const { el, doc } = page();
+      const mirror = mirrorThat(has);
+      await wire({ doc, nav: MAC, storage: memoryStorage(), fetchJson: async () => [release('2026-11-13')], now: () => 0, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+      expect(mirror.asked, String(has)).toHaveLength(1);
+      expect(el.primary.attrs.href).toBe(at('2026-11-13', 'mac-arm64.dmg'));
+      expect(el.cards.win!.attrs.href).toBe(at('2026-11-13', 'win-x64.exe'));
+    }
+    for (const none of ['', 'http://downloads.example', `${MIRROR_AT}/dl`]) {
+      const { el, doc } = page();
+      const mirror = mirrorThat(true);
+      await wire({ doc, nav: MAC, storage: memoryStorage(), fetchJson: async () => [release('2026-11-13')], now: () => 0, mirror: none, hasInstaller: mirror.hasInstaller });
+      expect(mirror.asked, none).toEqual([]);
+      expect(el.primary.attrs.href).toBe(at('2026-11-13', 'mac-arm64.dmg'));
+    }
+  });
+
+  it('ask the mirror nothing without a release, and keep the releases page where the release has no installer', async () => {
+    const none = page();
+    const nothing = mirrorThat(true);
+    await wire({ doc: none.doc, nav: MAC, storage: memoryStorage(), fetchJson: async () => [], now: () => 0, mirror: MIRROR_AT, hasInstaller: nothing.hasInstaller });
+    expect(nothing.asked).toEqual([]);
+    expect(none.el.primary.attrs.href).toBe(RELEASES_PAGE);
+    // Linux without an AppImage in this release: the mirror is asked for the first installer it has.
+    const newer = release('2026-11-13');
+    newer.assets = newer.assets.filter((a) => !a.name.endsWith('.AppImage'));
+    const { el, doc } = page();
+    const mirror = mirrorThat(true);
+    await wire({ doc, nav: { userAgent: UA.linux, platform: 'Linux x86_64' }, storage: memoryStorage(), fetchJson: async () => [newer], now: () => 0, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+    expect(mirror.asked).toEqual([`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`]);
+    expect(el.primary.attrs.href).toBe(RELEASES_PAGE);
+    expect(el.cards.linux!.attrs.href).toBe(RELEASES_PAGE);
+    expect(el.cards.win!.attrs.href).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-win-x64.exe`);
+  });
+
+  it('give a phone the quick start, and the mirror’s installers on its cards', async () => {
+    const { el, doc } = page();
+    const mirror = mirrorThat(true);
+    await wire({ doc, nav: { userAgent: UA.iphone, platform: 'iPhone', maxTouchPoints: 5 }, storage: memoryStorage(), fetchJson: async () => [release('2026-11-13')], now: () => 0, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+    expect(el.primary.attrs.href).toBe('#start');
+    expect(el.cards.mac!.attrs.href).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`);
+  });
+
+  it('use the mirror for the release kept from an earlier visit too, also when GitHub cannot be reached', async () => {
+    for (const [now, fetchJson] of [
+      // Kept for ten minutes: GitHub is not asked.
+      [60_000, async () => [release('2026-11-14')]],
+      // Older, and GitHub not reached: the kept release stays.
+      [60 * 60_000, async () => Promise.reject(new Error('offline'))],
+    ] as const) {
+      const storage = memoryStorage();
+      storage.setItem(STORAGE_KEY, JSON.stringify({ release: newestRelease([release('2026-11-13')]), at: 0 }));
+      const { el, doc } = page();
+      const mirror = mirrorThat(true);
+      await wire({ doc, nav: MAC, storage, fetchJson, now: () => now, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+      expect(mirror.asked, String(now)).toEqual([`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`]);
+      expect(el.primary.attrs.href).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`);
+      expect(el.line.textContent).toBe('Release 2026-11-13');
+    }
+  });
+
+  it('ask the mirror for the newer release GitHub gives, not the one kept before', async () => {
+    const storage = memoryStorage();
+    storage.setItem(STORAGE_KEY, JSON.stringify({ release: newestRelease([release('2026-11-13')]), at: 0 }));
+    const { el, doc } = page();
+    const mirror = mirrorThat(true);
+    await wire({ doc, nav: MAC, storage, fetchJson: async () => [release('2026-11-14')], now: () => 60 * 60_000, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+    expect(mirror.asked).toEqual([`${MIRROR_AT}/2026-11-14/Harness-Relay-2026-11-14-mac-arm64.dmg`]);
+    expect(el.primary.attrs.href).toBe(`${MIRROR_AT}/2026-11-14/Harness-Relay-2026-11-14-mac-arm64.dmg`);
   });
 });

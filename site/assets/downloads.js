@@ -101,6 +101,51 @@ export function isInstallerUrl(url) {
 }
 
 /**
+ * The download mirror the buttons point at, when there is one: a Cloudflare Worker in front of an R2
+ * bucket that holds the newest releases' installers (mirror/worker.ts), at /<tag>/<file> as on GitHub.
+ * GitHub's own downloads are slow in parts of the world (some 0.25 MB/s in Taiwan, where Cloudflare
+ * gives 40 MB/s). The Release workflow uploads each release's installers there before it publishes the
+ * release, and for each download it serves the mirror asks GitHub for the installer's first byte, as
+ * a download there would, so that GitHub's download counts still count it. Empty: no mirror, and the
+ * buttons point at GitHub. An https origin, with no path (docs/developer-guide.md, "Releasing").
+ */
+export const MIRROR = '';
+
+/** Whether `mirror` is a mirror's address: an https origin as written, no user name, port or path. */
+export function isMirror(mirror) {
+  if (typeof mirror !== 'string' || !mirror.startsWith('https://')) return false;
+  try {
+    const parsed = new URL(mirror);
+    return parsed.origin === mirror && !parsed.port && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The mirror's address for an installer's address on GitHub (isInstallerUrl): the same tag and file
+ * under `mirror`. Undefined for anything else, or without a mirror.
+ */
+export function mirrorUrl(url, mirror = MIRROR) {
+  if (!isMirror(mirror) || !isInstallerUrl(url)) return undefined;
+  // /<owner>/<repo>/releases/download/<tag>/<file>
+  const [tag, file] = new URL(url).pathname.split('/').slice(5);
+  return `${mirror}/${tag}/${file}`;
+}
+
+/**
+ * Whether the mirror has an installer: a HEAD that it answers itself (200). Not in its bucket, it
+ * redirects to GitHub, which is not followed (GitHub would count a HEAD there as a download); not
+ * reached, or out of order, it is not used. A HEAD is never counted.
+ */
+export function mirrorHas(url, fetcher = globalThis.fetch) {
+  return Promise.resolve()
+    .then(() => fetcher(url, { method: 'HEAD', redirect: 'manual', cache: 'no-store', credentials: 'omit' }))
+    .then((res) => res?.status === 200)
+    .catch(() => false);
+}
+
+/**
  * The visitor's system: an installer's key ('mac', 'win', 'win-arm64', 'linux', 'linux-arm64') for
  * the computers with one, 'mobile' for a phone or tablet (iPadOS says it is a Mac, but has touch),
  * else 'other': an Intel Mac (when Chromium's hints say so: Safari and Firefox say "Intel" on every
@@ -188,7 +233,8 @@ export const STORAGE_KEY = 'harness-relay.release';
 const FRESH_MS = 10 * 60 * 1000;
 
 /**
- * Points the page's download links at the newest release. The page's own words come from data
+ * Points the page's download links at the newest release: at the mirror (MIRROR), once it says it has
+ * the visitor's installer, else at GitHub. The page's own words come from data
  * attributes on [data-downloads] (both languages): data-mac / data-win / data-win-arm64 / data-linux
  * / data-linux-arm64 (the main button for each system), data-release (before the version on its line),
  * data-mobile (on a phone). The browser's objects are passed in, so the tests can give fakes.
@@ -211,15 +257,17 @@ export function wire({
       res.ok ? res.json() : Promise.reject(new Error(String(res.status))),
     ),
   now = Date.now,
+  mirror = MIRROR,
+  hasInstaller = (url) => mirrorHas(url),
 } = {}) {
   const root = doc?.querySelector('[data-downloads]');
   if (!root) return Promise.resolve();
   // Chromium tells the processor only when asked (a Windows or Linux computer on Arm).
-  return processorHints(nav).then((hints) => wireButtons({ doc, root, nav, hints, storage, fetchJson, now }));
+  return processorHints(nav).then((hints) => wireButtons({ doc, root, nav, hints, storage, fetchJson, now, mirror, hasInstaller }));
 }
 
 /** wire(), once the processor hints are known. */
-function wireButtons({ doc, root, nav, hints, storage, fetchJson, now }) {
+function wireButtons({ doc, root, nav, hints, storage, fetchJson, now, mirror, hasInstaller }) {
   const words = root.dataset;
   const system = systemOf({
     userAgent: nav?.userAgent,
@@ -260,16 +308,34 @@ function wireButtons({ doc, root, nav, hints, storage, fetchJson, now }) {
    * `release`: the newest one. With none (null), the buttons keep the releases page and no version
    * shows. A system it has no installer for goes back to the releases page (one shown before, from
    * the release kept from an earlier visit, would be of an older release than the version line says).
+   * `mirrored`: each installer's link on the mirror instead of GitHub (mirrorTo).
    */
-  const show = (release) => {
+  let shown = null;
+  const show = (release, mirrored = false) => {
     if (!release || typeof release.tag !== 'string') return;
-    for (const link of doc.querySelectorAll('[data-download]')) {
-      const found = release.installers?.[link.dataset.download];
-      link.setAttribute('href', isInstallerUrl(found?.url) ? found.url : RELEASES_PAGE);
-    }
-    const mine = release.installers?.[system];
-    if (primary && system in INSTALLERS) primary.setAttribute('href', isInstallerUrl(mine?.url) ? mine.url : RELEASES_PAGE);
+    shown = release;
+    const href = (found) => (!isInstallerUrl(found?.url) ? RELEASES_PAGE : (mirrored && mirrorUrl(found.url, mirror)) || found.url);
+    for (const link of doc.querySelectorAll('[data-download]')) link.setAttribute('href', href(release.installers?.[link.dataset.download]));
+    if (primary && system in INSTALLERS) primary.setAttribute('href', href(release.installers?.[system]));
     for (const slot of meta) if (!slot.hasAttribute('data-hero')) slot.textContent = `${words.release} ${release.tag}`;
+  };
+
+  /**
+   * The links on the mirror, once it answers that it has the visitor's installer (else the first one
+   * the release has: the Release workflow uploads them all before it publishes the release). Until
+   * then, and whenever it does not, they stay on GitHub. Only for the release still shown by then.
+   */
+  const mirrorTo = (release) => {
+    if (!release || !isMirror(mirror)) return Promise.resolve();
+    const urls = Object.entries(release.installers ?? {}).filter(([, found]) => isInstallerUrl(found?.url));
+    const asked = (urls.find(([key]) => key === system) ?? urls[0])?.[1];
+    if (!asked) return Promise.resolve();
+    return Promise.resolve()
+      .then(() => hasInstaller(mirrorUrl(asked.url, mirror)))
+      .then((has) => {
+        if (has === true && shown === release) show(release, true);
+      })
+      .catch(() => {});
   };
 
   let saved = null;
@@ -282,7 +348,7 @@ function wireButtons({ doc, root, nav, hints, storage, fetchJson, now }) {
   const valid = saved && typeof saved.at === 'number' && 'release' in saved && !(kept && isCandidate(kept.tag, kept.prerelease));
   if (valid) show(saved.release);
   // A time in the future is not fresh: it would keep that release for good.
-  if (valid && saved.at <= now() && now() - saved.at < FRESH_MS) return Promise.resolve();
+  if (valid && saved.at <= now() && now() - saved.at < FRESH_MS) return mirrorTo(saved.release);
   // The API allows a visitor 60 unauthenticated requests an hour: kept for ten minutes, like the stars.
   return Promise.resolve()
     .then(() => fetchJson(`https://api.github.com/repos/${REPO}/releases?per_page=20`))
@@ -290,9 +356,12 @@ function wireButtons({ doc, root, nav, hints, storage, fetchJson, now }) {
       const release = newestRelease(releases);
       show(release);
       store(JSON.stringify({ release, at: now() }));
+      return mirrorTo(release);
     })
     .catch(() => {
-      // GitHub can't be reached: the buttons keep the releases page (or the last release seen).
+      // GitHub can't be reached: the buttons keep the releases page (or the last release seen, on the
+      // mirror when it has it).
+      return valid ? mirrorTo(shown) : undefined;
     });
 }
 

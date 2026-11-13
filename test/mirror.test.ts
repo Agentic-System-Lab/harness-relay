@@ -1,0 +1,232 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import worker, { countOnGitHub, githubUrl, handle, installerOf, rangeOf, type Fetcher, type MirrorBucket } from '../mirror/worker.ts';
+import { INSTALLERS, MIRROR, UPDATE_INSTALLERS, isMirror } from '../site/assets/downloads.js';
+
+const TAG = '2026-11-13';
+const MAC = `Harness-Relay-${TAG}-mac-arm64.dmg`;
+const GITHUB = `https://github.com/Agentic-System-Lab/harness-relay/releases/download/${TAG}/${MAC}`;
+const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+const UPLOADED = new Date('2026-11-13T04:00:00Z');
+
+/** A bucket holding `files`, as R2's binding answers, recording what it was asked. */
+function bucket(files: Record<string, Uint8Array<ArrayBuffer>>, gone = new Set<string>()) {
+  const asked: string[] = [];
+  const meta = (key: string) => ({ size: files[key]!.length, httpEtag: `"etag-${key.length}"`, uploaded: UPLOADED });
+  const b: MirrorBucket = {
+    head: async (key) => (asked.push(`head ${key}`), key in files ? meta(key) : null),
+    get: async (key, options) => {
+      asked.push(`get ${key}${options?.range ? ` ${options.range.offset}+${options.range.length}` : ''}`);
+      // Removed between the HEAD and the GET.
+      if (!(key in files) || gone.has(key)) return null;
+      const data = files[key]!;
+      const part = options?.range ? data.slice(options.range.offset, options.range.offset + options.range.length) : data;
+      return { ...meta(key), body: new Response(part).body! };
+    },
+  };
+  return { b, asked };
+}
+
+const bytes = (n: number) => Uint8Array.from({ length: n }, (_, i) => i % 251);
+
+/** The Worker asked for `path`, with GitHub's counting requests recorded and awaited. */
+async function ask(path: string, init: RequestInit & { files?: Record<string, Uint8Array<ArrayBuffer>>; gone?: Set<string>; github?: Fetcher } = {}) {
+  const { b, asked } = bucket(init.files ?? { [`${TAG}/${MAC}`]: bytes(1000) }, init.gone);
+  const counted: { url: string; init: RequestInit }[] = [];
+  const later: Promise<unknown>[] = [];
+  const github: Fetcher =
+    init.github ??
+    (async (url, i) => {
+      counted.push({ url, init: i });
+      return new Response('x', { status: 206 });
+    });
+  const res = await handle(new Request(`https://mirror.example${path}`, init), { BUCKET: b }, { waitUntil: (p) => void later.push(p) }, github);
+  await Promise.all(later);
+  return { res, counted, asked, body: res.body ? new Uint8Array(await res.arrayBuffer()) : null };
+}
+
+describe('the download mirror', () => {
+  it('serves only the installers of a release, by the names the Release workflow gives them', () => {
+    for (const end of Object.values(INSTALLERS)) expect(installerOf(`/${TAG}/Harness-Relay-${TAG}${end}`), end).toEqual({ tag: TAG, file: `Harness-Relay-${TAG}${end}` });
+    expect(installerOf('/2026-11-13.1/Harness-Relay-2026-11-13.1-win-arm64.exe')).toEqual({ tag: '2026-11-13.1', file: 'Harness-Relay-2026-11-13.1-win-arm64.exe' });
+    for (const path of [
+      // Another release's installer, or none of the five.
+      `/${TAG}/Harness-Relay-2026-11-12-mac-arm64.dmg`,
+      `/${TAG}/notes.txt`,
+      `/${TAG}/Harness-Relay-${TAG}-mac-universal.dmg`,
+      // The copies for the app's updates are not on the mirror.
+      ...Object.values(UPDATE_INSTALLERS).map((end) => `/${TAG}/Harness-Relay-${TAG}${end}`),
+      // Paths that would leave the release's folder in the bucket.
+      `/../${MAC}`,
+      `/${TAG}/../${MAC}`,
+      `/${TAG}/%2e%2e/${MAC}`,
+      `/${TAG}/sub/${MAC}`,
+      `/${TAG}/${MAC}/`,
+      `/${MAC}`,
+      '/',
+      '',
+    ]) {
+      expect(installerOf(path), path).toBeUndefined();
+    }
+    expect(githubUrl({ tag: TAG, file: MAC })).toBe(GITHUB);
+  });
+
+  it('reads one byte range, and answers anything else with the whole file', () => {
+    expect(rangeOf(null, 100)).toBe('whole');
+    expect(rangeOf('bytes=0-9', 100)).toEqual({ offset: 0, length: 10 });
+    expect(rangeOf(' bytes=10- ', 100)).toEqual({ offset: 10, length: 90 });
+    expect(rangeOf('bytes=-1', 100)).toEqual({ offset: 99, length: 1 });
+    expect(rangeOf('bytes=-500', 100)).toEqual({ offset: 0, length: 100 });
+    expect(rangeOf('bytes=90-500', 100)).toEqual({ offset: 90, length: 10 });
+    for (const header of ['bytes=0-9,20-29', 'bytes=9-0', 'items=0-9', 'bytes=-', 'bytes=a-b', '']) expect(rangeOf(header, 100), header).toBe('whole');
+    expect(rangeOf('bytes=100-', 100)).toBe('unsatisfiable');
+    expect(rangeOf('bytes=-0', 100)).toBe('unsatisfiable');
+  });
+
+  it('serves a download from its bucket, as a download to save, and has GitHub count it', async () => {
+    const { res, body, counted, asked } = await ask(`/${TAG}/${MAC}`, { headers: { 'User-Agent': UA } });
+    expect(res.status).toBe(200);
+    expect(body).toEqual(bytes(1000));
+    expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+    expect(res.headers.get('Content-Disposition')).toBe(`attachment; filename="${MAC}"`);
+    expect(res.headers.get('ETag')).toBe(`"etag-${`${TAG}/${MAC}`.length}"`);
+    expect(res.headers.get('Last-Modified')).toBe(UPLOADED.toUTCString());
+    expect(res.headers.get('Accept-Ranges')).toBe('bytes');
+    // The website asks whether the mirror has it.
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(asked).toEqual([`head ${TAG}/${MAC}`, `get ${TAG}/${MAC}`]);
+    // Counted on GitHub as a download there is: its first byte, the redirect to GitHub's CDN followed,
+    // with the visitor's user agent, never from a cache.
+    expect(counted).toEqual([{ url: GITHUB, init: { headers: { Range: 'bytes=0-0', 'User-Agent': UA }, redirect: 'follow', cache: 'no-store' } }]);
+  });
+
+  it('counts a download in parts once, by its part from the first byte', async () => {
+    const first = await ask(`/${TAG}/${MAC}`, { headers: { Range: 'bytes=0-99' } });
+    expect(first.res.status).toBe(206);
+    expect(first.res.headers.get('Content-Range')).toBe('bytes 0-99/1000');
+    expect(first.body).toEqual(bytes(1000).slice(0, 100));
+    expect(first.asked).toContain(`get ${TAG}/${MAC} 0+100`);
+    expect(first.counted).toHaveLength(1);
+    // A resumed download, or a later part, is the same download.
+    const later = await ask(`/${TAG}/${MAC}`, { headers: { Range: 'bytes=100-' } });
+    expect(later.res.status).toBe(206);
+    expect(later.res.headers.get('Content-Range')).toBe('bytes 100-999/1000');
+    expect(later.body).toEqual(bytes(1000).slice(100));
+    expect(later.counted).toEqual([]);
+    // The Release workflow's check asks for the last byte: never counted.
+    const last = await ask(`/${TAG}/${MAC}`, { headers: { Range: 'bytes=-1' } });
+    expect(last.res.headers.get('Content-Range')).toBe('bytes 999-999/1000');
+    expect(last.counted).toEqual([]);
+  });
+
+  it('sends the whole file to a resumed download whose file changed since (If-Range), and counts it', async () => {
+    const changed = await ask(`/${TAG}/${MAC}`, { headers: { Range: 'bytes=500-', 'If-Range': '"another"' } });
+    expect(changed.res.status).toBe(200);
+    expect(changed.body).toHaveLength(1000);
+    expect(changed.counted).toHaveLength(1);
+    const etag = `"etag-${`${TAG}/${MAC}`.length}"`;
+    const same = await ask(`/${TAG}/${MAC}`, { headers: { Range: 'bytes=500-', 'If-Range': etag } });
+    expect(same.res.status).toBe(206);
+    expect(same.counted).toEqual([]);
+    const byDate = await ask(`/${TAG}/${MAC}`, { headers: { Range: 'bytes=500-', 'If-Range': UPLOADED.toUTCString() } });
+    expect(byDate.res.status).toBe(206);
+  });
+
+  it('answers a range past the end as unsatisfiable, uncounted', async () => {
+    const { res, counted } = await ask(`/${TAG}/${MAC}`, { headers: { Range: 'bytes=1000-' } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get('Content-Range')).toBe('bytes */1000');
+    expect(counted).toEqual([]);
+  });
+
+  it('answers a HEAD (the website asks whether it has an installer) from the bucket, uncounted', async () => {
+    const { res, body, counted, asked } = await ask(`/${TAG}/${MAC}`, { method: 'HEAD' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Length')).toBe('1000');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(body).toBeNull();
+    expect(asked).toEqual([`head ${TAG}/${MAC}`]);
+    expect(counted).toEqual([]);
+  });
+
+  it("tells a browser its copy is current, uncounted", async () => {
+    const etag = `"etag-${`${TAG}/${MAC}`.length}"`;
+    for (const tag of [etag, `W/${etag}`, `"x", ${etag}`, '*']) {
+      const { res, counted } = await ask(`/${TAG}/${MAC}`, { headers: { 'If-None-Match': tag } });
+      expect(res.status, tag).toBe(304);
+      expect(counted).toEqual([]);
+    }
+    expect((await ask(`/${TAG}/${MAC}`, { headers: { 'If-None-Match': '"x"' } })).res.status).toBe(200);
+  });
+
+  it('sends an installer its bucket does not have to GitHub, which counts it itself', async () => {
+    for (const method of ['GET', 'HEAD']) {
+      const { res, counted } = await ask(`/${TAG}/${MAC}`, { method, files: {} });
+      expect(res.status, method).toBe(302);
+      expect(res.headers.get('Location')).toBe(GITHUB);
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+      expect(counted).toEqual([]);
+    }
+    // Also when the bucket fails (an R2 outage while the Worker runs), for the website's HEAD too.
+    for (const fails of ['head', 'get'] as const) {
+      for (const method of ['GET', 'HEAD']) {
+        const { b } = bucket({ [`${TAG}/${MAC}`]: bytes(1000) });
+        b[fails] = async () => Promise.reject(new Error('R2 is down'));
+        const counted: string[] = [];
+        const res = await handle(new Request(`https://mirror.example/${TAG}/${MAC}`, { method }), { BUCKET: b }, { waitUntil: () => {} }, async (url) => (counted.push(url), new Response()));
+        if (fails === 'get' && method === 'HEAD') {
+          expect(res.status).toBe(200);
+          continue;
+        }
+        expect(res.status, `${fails} ${method}`).toBe(302);
+        expect(res.headers.get('Location')).toBe(GITHUB);
+        expect(counted).toEqual([]);
+      }
+    }
+    // Also when it was removed between the bucket's two answers (a release pruned).
+    const gone = await ask(`/${TAG}/${MAC}`, { gone: new Set([`${TAG}/${MAC}`]) });
+    expect(gone.res.status).toBe(302);
+    expect(gone.res.headers.get('Location')).toBe(GITHUB);
+    expect(gone.counted).toEqual([]);
+  });
+
+  it('serves nothing else, and takes nothing', async () => {
+    for (const path of ['/', `/${TAG}/notes.txt`, `/${TAG}/Harness-Relay-${TAG}-mac-arm64-update.dmg`, `/${TAG}/sub/${MAC}`]) {
+      const { res, asked, counted } = await ask(path);
+      expect(res.status, path).toBe(404);
+      expect(asked).toEqual([]);
+      expect(counted).toEqual([]);
+    }
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      const { res, asked } = await ask(`/${TAG}/${MAC}`, { method, body: method === 'DELETE' ? undefined : 'x' });
+      expect(res.status, method).toBe(405);
+      expect(res.headers.get('Allow')).toBe('GET, HEAD');
+      expect(asked).toEqual([]);
+    }
+  });
+
+  it('serves the download when GitHub cannot be reached to count it', async () => {
+    const { res, body } = await ask(`/${TAG}/${MAC}`, { github: async () => Promise.reject(new Error('offline')) });
+    expect(res.status).toBe(200);
+    expect(body).toHaveLength(1000);
+    // GitHub's answer is not read: only its first byte is asked for, and its body let go.
+    let cancelled = false;
+    const stream = new ReadableStream({ cancel: () => void (cancelled = true) });
+    await countOnGitHub(GITHUB, null, async (_url, init) => {
+      expect(init.headers).toEqual({ Range: 'bytes=0-0' });
+      return new Response(stream, { status: 206 });
+    });
+    expect(cancelled).toBe(true);
+  });
+
+  it('is deployed with its bucket, the one the Release workflow uploads to', () => {
+    expect(typeof worker.fetch).toBe('function');
+    const config = readFileSync('mirror/wrangler.toml', 'utf8');
+    expect(config).toMatch(/^main = "worker\.ts"$/m);
+    expect(config).toMatch(/^\[\[r2_buckets\]\]\nbinding = "BUCKET"\nbucket_name = "harness-relay-downloads"$/m);
+    const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
+    expect(workflow).toMatch(/^ {2}MIRROR_BUCKET: harness-relay-downloads$/m);
+    // The website's mirror is none, or an https origin the workflow can upload to.
+    expect(MIRROR === '' || isMirror(MIRROR)).toBe(true);
+  });
+});

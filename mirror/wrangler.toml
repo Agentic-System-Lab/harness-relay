@@ -1,0 +1,18 @@
+# Harness Relay's download mirror (worker.ts): a Cloudflare Worker in front of an R2 bucket. Deployed by
+# hand, once and after a change to worker.ts: `npx wrangler deploy --config mirror/wrangler.toml`
+# (docs/developer-guide.md, "Releasing"). The Release workflow uploads the installers to the bucket
+# (MIRROR_BUCKET there, which test/mirror.test.ts checks against bucket_name below).
+name = "harness-relay-downloads"
+main = "worker.ts"
+compatibility_date = "2026-07-01"
+# Served at https://harness-relay-downloads.<your workers.dev subdomain>.workers.dev: that address goes
+# into MIRROR in site/assets/downloads.js. A custom domain can take its place (routes).
+workers_dev = true
+preview_urls = false
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "harness-relay-downloads"
+
+[observability]
+enabled = true
