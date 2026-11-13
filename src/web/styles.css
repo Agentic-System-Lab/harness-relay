@@ -2220,6 +2220,39 @@ details.sub .model-picker {
   color: var(--warn);
 }
 
+/* A part of the page that could not be loaded (components/Deferred.tsx): above everything, dialogs and
+   the tour included, since it stands for one of them. */
+.load-failed {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 90;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.load-failed > span:first-child {
+  flex: 1 1 260px;
+}
+
+.load-failed-buttons {
+  display: flex;
+  gap: 8px;
+}
+
 .messages {
   flex: 1;
   overflow-y: auto;

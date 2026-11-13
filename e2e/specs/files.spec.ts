@@ -143,6 +143,9 @@ test.describe('files and changes', () => {
     await list.locator('.file-name', { hasText: /^src$/ }).click();
     await list.locator('.file-name', { hasText: /^hello\.ts$/ }).click();
     await expect(browser.locator('.code-text')).toContainText('export function hello(name: string): string {');
+    // Highlighted as TypeScript (src/web/highlight.ts): its keywords and types in their own colours.
+    await expect(browser.locator('.code-text.hljs .hljs-keyword').first()).toHaveText('export');
+    await expect(browser.locator('.code-text.hljs .hljs-built_in, .code-text.hljs .hljs-type').first()).toHaveText('string');
     await page.keyboard.press('Escape');
     await expect(browser).toBeHidden();
   });

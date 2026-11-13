@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 31 個 spec 檔、393 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 31 個 spec 檔、397 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -36,7 +36,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 分區 | Spec | 測試數 | 相關文件 |
 | --- | --- | --- | --- |
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
-| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 2 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#3-開始對話新對話與範本) |
+| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 3 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#3-開始對話新對話與範本) |
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
@@ -64,7 +64,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [使用導覽與主題](#使用導覽與主題) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 7 | [使用者說明 → 介面語言與使用導覽](../docs/user-guide.zh-TW.md#介面語言與使用導覽) |
 | [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
-| [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 2 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
+| [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 5 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
 | [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 5 | [用手機連線](../docs/remote-access.zh-TW.md) |
 
 測試以英文介面執行，所以下面括號裡附上測試實際操作的英文標籤。
@@ -97,6 +97,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- |
 | app 打開時是首頁，點 logo 與名稱會回到首頁 | 首頁顯示 logo 與下面的標語；從新對話頁和對話中點側邊欄的 logo 與 **Harness Relay**（在首頁時標為目前的頁面），都會回到首頁（`#/`）。 |
 | logo 每次進入首頁播放一次動畫，只動 transform 與 opacity，減少動態效果時不播放 | logo 的圓點、轉圈與標語都有一段播放時間（而不是像沒寫名稱的 `animation` 簡寫被壓縮成 `none` 那樣完全不播），只播一次，只改變 `transform` 與 `opacity`；播完會自己結束，再次打開首頁時會重播；開啟減少動態效果時完全沒有動畫。 |
+| 載入不了的頁面部分：頁面為它重新載入一次，之後說明原因；說明可以關閉，「重新載入」會把它找回來 | 回報對話框的檔案不見時（404，就像頁面在更新前就開著），點 **回報問題** 會讓頁面重新載入一次；一分鐘內再點一次，會顯示說明而不是一片空白：按 **關閉** 會關掉它，按 **重新載入** 會重新載入頁面，之後對話框就能打開。 |
 
 ## 新對話與首席 agent 的團隊
 
@@ -194,7 +195,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 自動拒絕的唯讀對話中，Grok 說明原因 | Grok | 工具的錯誤寫著唯讀模式下不允許。 |
 | 每個 CLI 都能在編輯模式寫檔，每一回合各自記下變更 | 兩個團隊 | 每位成員寫自己的檔案（`<cli>.txt`），每則回答的變更卡片都列出它。在這裡只能以完全存取執行的 CLI，在自己的對話中以完全存取執行。 |
 | 平行模式中每位成員在自己的 worktree 工作，可以套用其中一份結果 | Claude Code、Codex | 兩張變更卡片都寫著「in worktree」，工作目錄裡什麼都沒有，直到按**套用到工作目錄**（Apply to working directory）帶進 Codex 的檔案。 |
-| 檔案瀏覽器顯示工作目錄並預覽檔案 | Claude Code | **檔案**（Files）列出專案；`src/hello.ts` 打開後顯示程式碼；按 Escape 關閉。 |
+| 檔案瀏覽器顯示工作目錄並預覽檔案 | Claude Code | **檔案**（Files）列出專案；`src/hello.ts` 打開後顯示程式碼，並以 TypeScript 上色（關鍵字與型別各有自己的 class）；按 Escape 關閉。 |
 | 資料夾可下載成 ZIP 檔，裡面沒有 .git | Claude Code | 工作目錄的 ZIP（`work.zip`）剛好包含它的檔案與內容，沒有 `.git`；某個資料夾自己的 ZIP（`src.zip`）只有那個資料夾。 |
 | 太大而無法整個壓縮的資料夾，改為提供不含 git 忽略的檔案 | Claude Code | 一個長度設為超過 1 GiB、但沒有真的寫入的被忽略檔案（Windows 上仍會佔用磁碟空間）讓資料夾太大：拒絕時不下載任何東西，接受時得到不含被忽略資料夾的 ZIP。 |
 
@@ -439,6 +440,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- |
 | app、範本與首席 agent 的卡片都是中文，agent 收到英文 prompt | 在 zh-TW 下，首頁的標語、新對話頁、內建範本、輸入框的提示與團隊卡片都是中文，而回合的 prompt 是英文（見 [AGENTS.md](../AGENTS.md) 的「Prompts and languages」）。 |
 | 登入頁與伺服器自己的訊息跟著語言 | 登入頁與伺服器對錯誤代碼的訊息都是中文。 |
+| 只抓取顯示的語言，和頁面自己的檔案一起；另一種在選了之後才抓 | 頁面的 head 會要求記住的語言的檔案（`modulepreload` 連結），而且只抓取這種語言；在設定裡選繁體中文時才抓它，重新載入後 head 就改要求它。 |
+| 選了文字載入不了的語言：頁面為它重新載入一次，之後說明原因並維持原樣 | 中文的檔案不見時（404），選繁體中文會讓頁面重新載入一次；再選一次會說無法載入，而且仍選著 English；檔案回來後重新載入，頁面就會切換。 |
+| 頁面自己的文字載入不了時重新載入一次，之後用兩種語言說明 | 英文的檔案不見時，頁面重新載入一次，之後用中文與英文說無法載入，並有重新載入的按鈕；檔案回來後，按鈕會把頁面找回來。 |
 
 ## 在手機上
 

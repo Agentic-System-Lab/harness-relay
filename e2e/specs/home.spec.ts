@@ -58,4 +58,30 @@ test.describe('the home page', () => {
     await expect(homePage(page)).toBeVisible();
     expect(await animations(page)).toEqual([]);
   });
+
+  test('a part of the page that cannot be loaded: the page reloads once for it, then says so; the note closes, and Reload brings it', async ({ page }) => {
+    // As in a page left open across an update, whose dialogs the new version replaced (src/web/chunks.ts).
+    await page.route('**/assets/ReportDialog-*.js', (route) => route.fulfill({ status: 404, body: '' }));
+    let loads = 0;
+    page.on('load', () => loads++);
+    const report = page.getByRole('button', { name: 'Report a problem' });
+    await report.click();
+    await expect.poll(() => loads).toBe(1);
+    await expect(homePage(page)).toBeVisible();
+    // Missing again so soon after: no reload this time, but a note instead of an empty page.
+    await report.click();
+    const note = page.getByRole('alert').filter({ hasText: 'This part of the page could not be loaded (Harness Relay may have just been updated).' });
+    await expect(note).toBeVisible();
+    await note.getByRole('button', { name: 'Close' }).click();
+    await expect(note).toBeHidden();
+    await expect(homePage(page)).toBeVisible();
+    expect(loads).toBe(1);
+
+    await page.unroute('**/assets/ReportDialog-*.js');
+    await report.click();
+    await note.getByRole('button', { name: 'Reload' }).click();
+    await expect.poll(() => loads).toBe(2);
+    await report.click();
+    await expect(page.getByRole('dialog', { name: 'Report a problem' })).toBeVisible();
+  });
 });

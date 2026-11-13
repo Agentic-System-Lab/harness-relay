@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 393 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 397 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -36,7 +36,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Area | Spec | Tests | Related docs |
 | --- | --- | --- | --- |
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
-| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 2 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
+| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 3 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
@@ -64,7 +64,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 7 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
 | [Notifications and sound](#notifications-and-sound) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [User guide → Notifications and sound](../docs/user-guide.md#notifications-and-sound), [Architecture → Notifications](../docs/architecture.md#notifications) |
 | [Limits the environment sets](#limits-the-environment-sets) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [Developer guide → Environment variables](../docs/developer-guide.md#environment-variables) |
-| [Languages](#languages) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 2 | [Architecture → Languages](../docs/architecture.md#languages) |
+| [Languages](#languages) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 5 | [Architecture → Languages](../docs/architecture.md#languages) |
 | [On a phone](#on-a-phone) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 5 | [Use it from your phone](../docs/remote-access.md) |
 
 ## Signing in
@@ -95,6 +95,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- |
 | The app opens on it, and the logo and name lead back to it | The home page shows the logo and its tagline; the sidebar's logo and **Harness Relay** (marked as the current page there) go back to it from the New chat page and from a chat (`#/`). |
 | The logo plays its animation once on each visit, with transform and opacity alone, and not with reduced motion | The logo's dots, its turn and the tagline animate for a while (not for no time, as a nameless `animation` shorthand minified to `none` would), once, changing only `transform` and `opacity`; they end by themselves and play again when the home page opens again; with reduced motion nothing animates. |
+| A part of the page that cannot be loaded: the page reloads once for it, then says so; the note closes, and Reload brings it | With the report dialog's file missing (404), as in a page left open across an update, **Report a problem** reloads the page once; a second click within the minute shows a note instead of an empty page, whose **Close** closes it and whose **Reload** reloads the page, after which the dialog opens. |
 
 ## A new chat and the lead agent's team
 
@@ -192,7 +193,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Grok in a read-only chat that refuses automatically says why | Grok | The tool's error says it is not allowed in read-only mode. |
 | Every CLI writes in edit mode, and each turn records its own change | two teams | Each member writes its own file (`<cli>.txt`), and each reply's changes card lists it. A CLI that runs only with full access here does so in a chat of its own. |
 | In parallel mode each member works in its own worktree, and a result can be applied | Claude Code, Codex | Both changes cards say "in worktree" and nothing reaches the working directory until **Apply to working directory** brings in Codex's file. |
-| The file browser shows the working directory and previews a file | Claude Code | **Files** lists the project; `src/hello.ts` opens with its code; Escape closes it. |
+| The file browser shows the working directory and previews a file | Claude Code | **Files** lists the project; `src/hello.ts` opens with its code, highlighted as TypeScript (its keywords and types in their own classes); Escape closes it. |
 | A folder downloads as a ZIP file of its files, without .git | Claude Code | The working directory's ZIP (`work.zip`) holds exactly its files, with their contents, and no `.git`; a folder's own (`src.zip`) only that folder. |
 | A folder too large to zip in full is offered without what git ignores | Claude Code | An ignored file set to more than 1 GiB without writing to it (on Windows it still takes the space on disk) makes it too large: declining the offer downloads nothing, accepting gives the ZIP without the ignored folder. |
 
@@ -437,6 +438,9 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- |
 | The app, its templates and the lead agent's card are in Chinese; the agents get English prompts | In zh-TW, the home page's tagline, the New chat page, a built-in template, the composer's hint and the team card are in Chinese, and the turn prompt is in English ([AGENTS.md](../AGENTS.md), "Prompts and languages"). |
 | The sign-in page and the server's own messages follow the language | The sign-in page and the server's error for a wrong code are in Chinese. |
+| Only the language shown is fetched, with the page's own files; the other once it is chosen | The page's head asks for the saved language's file (a `modulepreload` link), and only that language is fetched; choosing 繁體中文 in Settings fetches it, and after a reload the head asks for that one. |
+| A language chosen whose words cannot be loaded: the page reloads once for them, then says so and stays as it was | With the Chinese file missing (404), choosing 繁體中文 reloads the page once; choosing it again says it could not be loaded, and English stays chosen; once the file is there, after a reload, the page switches. |
+| A page whose own words cannot be loaded reloads once for them, then says so in both languages | With the English file missing, the page reloads once, then says in Chinese and English that it could not load, with a button that reloads it; once the file is there, the button brings the page back. |
 
 ## On a phone
 

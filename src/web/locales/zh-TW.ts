@@ -47,6 +47,8 @@ export const zhTW = {
     sending: '傳送中…',
     clickToCopy: '點擊複製',
     listSeparator: '、',
+    partFailed: '這部分的頁面無法載入（Harness Relay 可能剛更新過）。重新載入頁面再試一次。',
+    reload: '重新載入',
   },
   modes: {
     roundtable: { label: '圓桌', hint: '依序發言，後面的人看得到前面說了什麼；可設定多輪，全部 [PASS] 時提前結束。' },
@@ -1301,6 +1303,7 @@ export const zhTW = {
     },
     language: '介面語言',
     languageHint: '第一次開啟時依瀏覽器語言決定，之後記在這個瀏覽器。',
+    languageFailed: (name: string) => `無法載入${name}。重新載入頁面再試一次。`,
     appearance: '外觀',
     appearanceHint: '介面要用淺色還是深色背景。記在這個瀏覽器；「跟隨系統」會隨電腦或手機的淺色／深色模式切換。',
     themes: { system: '跟隨系統', light: '淺色', dark: '深色' } as Record<ThemeChoice, string>,

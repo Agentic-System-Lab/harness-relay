@@ -26,6 +26,8 @@ export const en: Messages = {
     sending: 'Sending…',
     clickToCopy: 'Click to copy',
     listSeparator: ', ',
+    partFailed: 'This part of the page could not be loaded (Harness Relay may have just been updated). Reload the page to try again.',
+    reload: 'Reload',
   },
   modes: {
     roundtable: {
@@ -1276,6 +1278,7 @@ export const en: Messages = {
     },
     language: 'Language',
     languageHint: 'Chosen from your browser language on the first visit, then remembered in this browser.',
+    languageFailed: (name) => `Could not load ${name}. Reload the page to try again.`,
     appearance: 'Appearance',
     appearanceHint: "A light or dark background for the interface. Remembered in this browser; Follow system switches with your computer's or phone's light or dark mode.",
     themes: { system: 'Follow system', light: 'Light', dark: 'Dark' },

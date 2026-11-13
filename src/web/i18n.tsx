@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { LANGS, type Lang } from '../shared/types';
 import type { Messages } from './locales/zh-TW';
 
@@ -11,9 +11,38 @@ const LOAD: Record<Lang, () => Promise<Messages>> = {
 };
 const MESSAGES: Partial<Record<Lang, Messages>> = {};
 
-/** The messages in `lang`, loaded once; before the page is drawn, its language's (`main.tsx`). */
+/**
+ * The messages in `lang`, loaded once; before the page is drawn, its language's (`main.tsx`, with its
+ * file fetched beside the page's own: `languagePreload` in vite.config.ts). Rejects when they cannot
+ * be loaded, also when the page reloads for them instead (`chunks.ts`).
+ */
 export async function loadMessages(lang: Lang): Promise<Messages> {
-  return (MESSAGES[lang] ??= await LOAD[lang]());
+  const have = MESSAGES[lang];
+  if (have) return have;
+  const messages: Messages | undefined = await LOAD[lang]();
+  if (!messages) throw new Error(`could not load the messages in ${lang}`);
+  return (MESSAGES[lang] = messages);
+}
+
+/**
+ * Loads each choice (`load`) and applies (`apply`) only the last one made, once loaded: one made
+ * before it that finishes loading after it does not undo it. A choice that cannot be loaded rejects,
+ * unless another came after it.
+ */
+export function lastChoice<T>(load: (choice: T) => Promise<unknown>, apply: (choice: T) => void): (choice: T) => Promise<void> {
+  let last: object | undefined;
+  return async (choice) => {
+    const mine = {};
+    last = mine;
+    try {
+      await load(choice);
+    } catch (err) {
+      if (last !== mine) return;
+      last = undefined;
+      throw err;
+    }
+    if (last === mine) apply(choice);
+  };
 }
 
 /** Each language named in itself, for the language switch: its `langName`, here so that neither is loaded for it. */
@@ -76,7 +105,8 @@ function loaded(lang: Lang): Messages {
 
 interface I18n {
   lang: Lang;
-  setLang: (lang: Lang) => void;
+  /** Shows the page in `lang` once its messages are loaded; rejects when they cannot be. */
+  setLang: (lang: Lang) => Promise<void>;
   t: Messages;
 }
 
@@ -88,14 +118,17 @@ function applyToDocument(lang: Lang): void {
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(current);
-  // The other language is loaded first, then shown: the page keeps its words meanwhile.
-  const setLang = useCallback((next: Lang) => {
-    void loadMessages(next).then(() => {
-      current = next;
-      save(next);
-      setLangState(next);
-    });
-  }, []);
+  // The other language is loaded first, then shown: the page keeps its words meanwhile, and the
+  // language last chosen is the one shown.
+  const setLang = useMemo(
+    () =>
+      lastChoice(loadMessages, (next: Lang) => {
+        current = next;
+        save(next);
+        setLangState(next);
+      }),
+    [],
+  );
   useEffect(() => applyToDocument(lang), [lang]);
   const value = useMemo(() => ({ lang, setLang, t: loaded(lang) }), [lang, setLang]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

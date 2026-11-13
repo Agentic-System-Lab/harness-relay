@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
   cwdsOf,
@@ -22,6 +22,7 @@ import { describeRepeat, scheduleState, scheduleTrouble } from '../schedule';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
+import { Deferred } from './Deferred';
 import { BranchIcon, ClockIcon, FolderIcon, MoreIcon, ShareIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
@@ -747,7 +748,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
       {diff && <DiffModal title={diff.title} load={diff.load} onClose={() => setDiff(null)} />}
 
       {scheduleOpen && (
-        <Suspense fallback={null}>
+        <Deferred onClose={() => setScheduleOpen(false)}>
           <ScheduleDrawer
             conv={conv}
             running={running}
@@ -757,7 +758,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               setTeamOpen(true);
             }}
           />
-        </Suspense>
+        </Deferred>
       )}
       {teamOpen && (
         <TeamDrawer
@@ -771,14 +772,14 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         />
       )}
       {filesOpen && (
-        <Suspense fallback={null}>
+        <Deferred onClose={() => setFilesOpen(false)}>
           <FileBrowser conv={conv} onClose={() => setFilesOpen(false)} />
-        </Suspense>
+        </Deferred>
       )}
       {share && (
-        <Suspense fallback={null}>
+        <Deferred onClose={() => setShare(null)}>
           <ShareDialog conv={conv} upTo={share.upTo} chat={() => chatRef.current} onClose={() => setShare(null)} />
-        </Suspense>
+        </Deferred>
       )}
     </div>
   );

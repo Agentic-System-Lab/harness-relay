@@ -1,8 +1,9 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, useCallback, useEffect, useRef, useState } from 'react';
 import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
 import { SIGNED_OUT_EVENT, api } from './api';
 import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
+import { Deferred } from './components/Deferred';
 import { Home } from './components/Home';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
@@ -450,7 +451,7 @@ function RelayApp() {
           />
         )}
         {route.page === 'settings' && (
-          <Suspense fallback={null}>
+          <Deferred>
             <SettingsPage
               section={route.section}
               providers={providers}
@@ -461,13 +462,13 @@ function RelayApp() {
               onCheckUpdate={checkUpdate}
               onInstallUpdate={installUpdate}
             />
-          </Suspense>
+          </Deferred>
         )}
       </main>
       {tourOpen && (
-        <Suspense fallback={null}>
+        <Deferred onClose={() => setTourOpen(false)}>
           <Onboarding onClose={() => setTourOpen(false)} />
-        </Suspense>
+        </Deferred>
       )}
       {offer && update?.available && (
         <UpdateDialog

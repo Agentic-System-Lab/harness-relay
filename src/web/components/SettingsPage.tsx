@@ -15,6 +15,7 @@ import {
   isEndpointCli,
   isOpenProvider,
   type AccountStatus,
+  type Lang,
   type LeadAgentSettings,
   type LoginMethod,
   type LoginSessionView,
@@ -94,6 +95,8 @@ const KEY_PLACEHOLDER: Record<SignInCli, string> = { claude: 'sk-ant-…', codex
 
 export function SettingsPage({ section, providers, catalog, refreshProviders, onShowTour, update, onCheckUpdate, onInstallUpdate }: Props) {
   const { t, lang, setLang } = useI18n();
+  /** A language chosen whose words could not be loaded. */
+  const [langFailed, setLangFailed] = useState<Lang | null>(null);
   const theme = useThemeChoice();
   const [settings, setSettings] = useState<SettingsView | null>(null);
   /** The default working directories, as the box has them (saved or not). */
@@ -169,11 +172,25 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
           <p className="muted small">{t.settings.languageHint}</p>
           <div className="segmented lang-switch" role="radiogroup" aria-label={t.settings.language}>
             {LANGS.map((l) => (
-              <button key={l} role="radio" aria-checked={lang === l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)}>
+              <button
+                key={l}
+                role="radio"
+                aria-checked={lang === l}
+                className={lang === l ? 'on' : ''}
+                onClick={() => {
+                  setLangFailed(null);
+                  setLang(l).catch(() => setLangFailed(l));
+                }}
+              >
                 {LANG_NAMES[l]}
               </button>
             ))}
           </div>
+          {langFailed && (
+            <p className="error-line" role="alert">
+              {t.settings.languageFailed(LANG_NAMES[langFailed])}
+            </p>
+          )}
         </section>
 
         <section className="card" id={sectionId('appearance')}>

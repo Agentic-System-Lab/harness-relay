@@ -1,10 +1,11 @@
-import { Suspense, lazy, useState } from 'react';
+import { lazy, useState } from 'react';
 import { PROVIDERS, PROVIDER_LABEL, accountUsable, isOpenProvider, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { hashFor, settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
 import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
+import { Deferred } from './Deferred';
 import { CalendarPlusIcon, ChevronIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
@@ -180,9 +181,9 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
         </div>
       </div>
       {reporting && (
-        <Suspense fallback={null}>
+        <Deferred onClose={() => setReporting(false)}>
           <ReportDialog providers={providers} onClose={() => setReporting(false)} />
-        </Suspense>
+        </Deferred>
       )}
     </aside>
   );
