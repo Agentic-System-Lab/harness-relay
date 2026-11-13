@@ -48,7 +48,8 @@ export function toolItems(lib: ToolLibraryView): ToolItem[] {
 /**
  * What a member's CLI loads besides the tool library, as its Tools say it: a CLI with a sign-in loads
  * its own setup as usual (Settings lists it); an open agent runs with a config folder of Harness
- * Relay's own (docs/open-agents.md, "Agent homes"), so what the user set up for it does not load.
+ * Relay's own instead of its own one in the user's home, which is not read (docs/open-agents.md,
+ * "Agent homes"); what else it loads (a project's skills, Cline's ~/.agents) Settings lists.
  */
 export function ownSetupText(t: Messages, provider: Provider): string {
   const cli = PROVIDER_LABEL[provider];

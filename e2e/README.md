@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 388 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 389 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -48,7 +48,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
-| [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 14 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
+| [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 15 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [Changing a chat's history](#changing-a-chats-history) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [User guide → Copying, editing and retrying](../docs/user-guide.md#copying-editing-and-retrying), [Branching a conversation](../docs/user-guide.md#branching-a-conversation) |
 | [Copying and sharing](#copying-and-sharing) | [`share.spec.ts`](specs/share.spec.ts) | 5 | [User guide → Sharing a conversation](../docs/user-guide.md#sharing-a-conversation), [Architecture → Sharing a conversation](../docs/architecture.md#sharing-a-conversation) |
 | [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 7 | [User guide → Groups](../docs/user-guide.md#groups), [Search](../docs/user-guide.md#search) |
@@ -234,12 +234,13 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 ## The tool library
 
-[`tools.spec.ts`](specs/tools.spec.ts): **Settings → Tool library**, each test twice: in a chat with a member of each CLI with a sign-in, and in one with a member of each open agent (`open agents: …`). A test that turns an item off for a CLI, or on or off for a member, takes the team's second and third members for that (Codex and Grok; Goose and Cline).
+[`tools.spec.ts`](specs/tools.spec.ts): **Settings → Tool library**. What a member's Tools say with the library empty is checked once; every other test runs twice: in a chat with a member of each CLI with a sign-in, and in one with a member of each open agent (`open agents: …`). A test that turns an item off for a CLI, or on or off for a member, takes the team's second and third members for that (Codex and Grok; Goose and Cline).
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
+| With an empty tool library, each member's Tools say what its own CLI loads by itself | Claude Code, Goose | In **Team settings**, Claude Code's card says it loads its own setup as usual and Goose's that it runs with a config folder of Harness Relay's own, each the text for its own CLI (`emptyLibraryText()`), with the link to the tool library. |
 | An MCP server added on the page reaches every CLI, its secret masked and kept off the command line | two teams | The row says "All members"; editing shows the value empty with a masked placeholder; neither the page nor `GET /api/tools` holds the secret; each member names the server and got its value, in no argument; Claude Code's `--mcp-config` file is gone after the turn. |
-| An MCP server turned off for a CLI, or in a member's Tools, is not given | two teams | Off for the second CLI (Codex; Goose) in "Given by default to", it gets nothing; ticked in its member's **Tools** and unticked in the third's (Grok; Cline), the second gets it (its saved value kept) and the third does not. |
+| An MCP server turned off for a CLI, or in a member's Tools, is not given | two teams | Off for the second CLI (Codex; Goose) in "Given by default to", it gets nothing; ticked in its member's **Tools** and unticked in the third's (Grok; Cline), the second gets it (its saved value kept) and the third does not. Over its items, the second member's **Tools** say what its own CLI loads by itself (`toolsHintText()`). |
 | A skill picked from a folder is in each CLI's briefing, and each reads its SKILL.md | two teams | Of a folder with two skills, the one added is in each briefing and each reads its first line; the other never shows. Claude Code may read it only through the `Read(…)` rule its adapter adds (the fake refuses without it). |
 | A skill turned off for a CLI, or in a member's Tools, is not given | two teams | Off for the third CLI (Grok; Cline) and unticked in the first's **Tools** (Claude; OpenCode), neither gets it, and Claude Code's arguments name it nowhere. |
 | Memory for all members and for one CLI reaches each briefing, and a member's Tools can leave it out | two teams | The second CLI (Codex; Goose) gets the shared memory and its own note, in order, the others only the shared one; unticking "Shared memory" in the third's **Tools** (Grok; Cline) leaves it none. |

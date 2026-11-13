@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 31 個 spec 檔、388 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 31 個 spec 檔、389 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -48,7 +48,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
-| [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 14 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
+| [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 15 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 5 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 7 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[搜尋](../docs/user-guide.zh-TW.md#搜尋) |
@@ -236,12 +236,13 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 工具庫
 
-[`tools.spec.ts`](specs/tools.spec.ts)：**設定 → 工具庫**，每個測試跑兩次：一次在有登入的七個 CLI 各一位成員的對話中，一次在五個開源 agent 各一位成員的對話中（`open agents: …`）。對某個 CLI 關掉項目、或對某位成員打開或關掉項目的測試，用的是團隊的第二與第三位成員（Codex 與 Grok；Goose 與 Cline）。
+[`tools.spec.ts`](specs/tools.spec.ts)：**設定 → 工具庫**。工具庫是空的時候成員的「工具」怎麼說，只檢查一次；其他每個測試都跑兩次：一次在有登入的七個 CLI 各一位成員的對話中，一次在五個開源 agent 各一位成員的對話中（`open agents: …`）。對某個 CLI 關掉項目、或對某位成員打開或關掉項目的測試，用的是團隊的第二與第三位成員（Codex 與 Grok；Goose 與 Cline）。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
+| 工具庫是空的時候，每位成員的「工具」說明它自己的 CLI 會自己載入什麼 | Claude Code、Goose | 在**團隊設定**中，Claude Code 的卡片說它照常載入自己的設定，Goose 的說它用的是 Harness Relay 自己的設定資料夾，各是自己 CLI 的文字（`emptyLibraryText()`），並附上前往工具庫的連結。 |
 | 在頁面上新增的 MCP 伺服器會交給每個 CLI，其秘密遮蔽顯示，也不在命令列上 | 兩個團隊 | 列上顯示給所有成員；編輯時值是空的，提示文字是遮蔽後的值；頁面與 `GET /api/tools` 都沒有秘密；每位成員都說出這個伺服器並拿到它的值，而值不在任何參數裡；回合結束後 Claude Code 的 `--mcp-config` 檔已經刪除。 |
-| 對某個 CLI 或在成員的工具中關掉的 MCP 伺服器不會給出去 | 兩個團隊 | 在「預設提供給」中關掉第二個 CLI（Codex；Goose），它就拿不到；在它的成員的**工具**中勾選、在第三位（Grok；Cline）的取消勾選後，第二位拿到它（保留存下的值），第三位則沒有。 |
+| 對某個 CLI 或在成員的工具中關掉的 MCP 伺服器不會給出去 | 兩個團隊 | 在「預設提供給」中關掉第二個 CLI（Codex；Goose），它就拿不到；在它的成員的**工具**中勾選、在第三位（Grok；Cline）的取消勾選後，第二位拿到它（保留存下的值），第三位則沒有。第二位成員的**工具**在項目上方說明它自己的 CLI 會自己載入什麼（`toolsHintText()`）。 |
 | 從資料夾挑選的 skill 出現在每個 CLI 的簡報中，每個 CLI 都讀了它的 SKILL.md | 兩個團隊 | 有兩個 skill 的資料夾中，加入的那個列在每份簡報中，每個 CLI 都讀出它的第一行；另一個從沒出現。Claude Code 只能透過轉接器加上的 `Read(…)` 規則讀取它（沒有這條規則時假 CLI 會拒絕）。 |
 | 對某個 CLI 或在成員的工具中關掉的 skill 不會給出去 | 兩個團隊 | 對第三個 CLI（Grok；Cline）關掉、在第一位（Claude；OpenCode）的**工具**中取消勾選後，兩者都拿不到，Claude Code 的參數裡也沒有它。 |
 | 給所有成員與給某個 CLI 的記憶會進入各自的簡報，成員的工具可以不帶 | 兩個團隊 | 第二個 CLI（Codex；Goose）依序拿到共享記憶與它自己的筆記，其他人只有共享記憶；在第三位（Grok；Cline）的**工具**中取消勾選**共享記憶**後，它一則都沒有。 |

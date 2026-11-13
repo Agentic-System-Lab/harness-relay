@@ -2,8 +2,10 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { PROVIDER_LABEL, PROVIDERS, type Provider, type ToolLibraryView } from '../../src/shared/types';
+import { en } from '../../src/web/locales/en';
+import { emptyLibraryText, toolsHintText } from '../../src/web/tools';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, finishedReply, replies, send, settled } from '../support/app';
+import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
 import { chatOf, eachHalf, libraryEnv, logged, skillReadAsks, teamOf, type Cli } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
@@ -58,6 +60,22 @@ async function readingReply(page: Page, c: Cli) {
 
 /** What the tool library's summary says of an item given to every CLI but `off`. */
 const allBut = (off: Provider) => `Only ${PROVIDERS.filter((p) => p !== off).map((p) => PROVIDER_LABEL[p]).join(', ')}`;
+
+test("with an empty tool library, each member's Tools say what its own CLI loads by itself", async ({ page, relay }) => {
+  // A CLI with a sign-in and an open agent: the card names each one's own case, not "no tools".
+  await openTeamChat(page, relay, [
+    { name: 'Claude', provider: 'claude' },
+    { name: 'Goose', provider: 'goose' },
+  ]);
+  await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+  for (const [index, provider] of [[0, 'claude'], [1, 'goose']] as const) {
+    const tools = memberCard(page, index).locator('.agent-tools');
+    await expect(tools).toContainText(emptyLibraryText(en, provider));
+    await expect(tools.getByRole('link', { name: 'Go to Settings → Tool library' })).toBeVisible();
+  }
+  await expect(memberCard(page, 0).locator('.agent-tools')).toContainText('Claude Code loads its own setup as usual');
+  await expect(memberCard(page, 1).locator('.agent-tools')).toContainText("Goose runs with a config folder of Harness Relay's own");
+});
 
 eachHalf((half) => test.describe('the tool library', () => {
   test(half.title('an MCP server added on the page reaches every CLI, with its secret masked and kept off the command line'), async ({ page, relay }) => {
@@ -137,6 +155,11 @@ eachHalf((half) => test.describe('the tool library', () => {
 
     // A member's Tools: given to the member of the CLI it is off for after all, taken away from the next.
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    // Over the items, what the member's own CLI loads by itself (an open agent: not its config folder in the home folder).
+    const tools = memberCard(page, 1).locator('.agent-tools');
+    await tools.getByRole('button', { name: 'Change' }).click();
+    await expect(tools).toContainText(toolsHintText(en, off.provider));
+    await tools.getByRole('button', { name: 'Done' }).click();
     await setMemberTool(page, 1, 'e2e-tools', true);
     await setMemberTool(page, 2, 'e2e-tools', false);
     await page.getByRole('dialog', { name: 'Team settings' }).getByRole('button', { name: 'Save', exact: true }).click();
