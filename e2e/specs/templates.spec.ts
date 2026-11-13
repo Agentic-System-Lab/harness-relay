@@ -1,6 +1,58 @@
-import type { Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import { askAndConfirm, awaitingPlan, finishedReply, heightWithoutAddCard, openNewChat, replies, send, settled, startChat } from '../support/app';
+import { notInstalledBut } from '../support/fake-cli';
+
+/** The CLI each member of the open template is on, in order. */
+const memberClis = (page: Page) =>
+  page.getByRole('dialog').locator('.agent-card:not(.add-card)').evaluateAll((cards) => cards.map((c) => c.querySelector('.cli-picker [aria-checked="true"]')?.textContent));
+
+test.describe('templates on the CLIs that can run here', () => {
+  test("a new template has a member for each CLI installed here only, also when opened before the CLIs' statuses came", async ({ page }) => {
+    // The page reloaded and the template opened while the statuses were still on their way.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(/\/api\/providers$/, async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.reload();
+    await openNewChat(page);
+    await page.locator('.preset-card.new-template .preset-main').click();
+    const editor = page.getByRole('dialog');
+    await expect(editor.getByRole('heading', { name: 'New template' })).toBeVisible();
+    // Not one member per CLI, installed or not: none until the statuses come.
+    expect(await memberClis(page)).toEqual([]);
+    release();
+    // Then one for each CLI installed and signed in here (the test server's three).
+    await expect.poll(() => memberClis(page)).toEqual(['Claude Code', 'Codex', 'Grok']);
+    // Nothing was changed by the user: closing asks nothing.
+    await page.keyboard.press('Escape');
+    await expect(editor).toBeHidden();
+  });
+
+  test.describe('without Grok', () => {
+    test.use({ missingClis: [...notInstalledBut(), 'grok'] });
+
+    test("a template's member on a CLI not installed here moves to one that is, says so, and the template can be saved so", async ({ page }) => {
+      await openNewChat(page);
+      // A new template: only the two installed.
+      await page.locator('.preset-card.new-template .preset-main').click();
+      await expect.poll(() => memberClis(page)).toEqual(['Claude Code', 'Codex']);
+      await page.keyboard.press('Escape');
+      // A built-in one: Grok's member moves to a CLI that can run (both are taken, so the first).
+      await page.locator('.preset-card', { hasText: 'Three-way debate' }).locator('.preset-main').click();
+      const editor = page.getByRole('dialog');
+      await expect.poll(() => memberClis(page)).toEqual(['Claude Code', 'Codex', 'Claude Code']);
+      await expect(editor.locator('input[value="Skeptic"]')).toBeVisible();
+      await expect(editor).toContainText('Skeptic used a CLI that cannot run on this computer yet (not installed, or not signed in)');
+      // Unchanged otherwise, it can still be saved as the user's, with the member moved.
+      await expect(editor.getByRole('button', { name: 'Save as my template' })).toBeEnabled();
+      await page.keyboard.press('Escape');
+      await expect(editor).toBeHidden();
+    });
+  });
+});
 
 test.describe('templates', () => {
   test('the built-in templates are listed, and one opens to show its members', async ({ page }) => {

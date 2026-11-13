@@ -1,27 +1,11 @@
-import { useRef, useState } from 'react';
-import { PROVIDERS, accountUsable, type AgentConfig, type ProviderModels, type ProviderStatus, type TeamPreset } from '../../shared/types';
+import { useEffect, useRef, useState } from 'react';
+import type { ProviderModels, ProviderStatus, TeamPreset } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { useLimits } from '../limits';
-import { templateKey } from '../templates';
-import { newAgent, readyAccount } from '../util';
+import { blankAgents, fitTemplateAgents, templateKey } from '../templates';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 import { useDialog } from './useDialog';
-
-/**
- * One member per CLI that is ready to use (all of them when none is known yet), roles left to the
- * user; each one runs as the CLI's first account that is ready (the default one, when it is).
- */
-function blankAgents(providers: ProviderStatus[]): AgentConfig[] {
-  const ready = providers.filter((s) => s.installed && s.accounts.some(accountUsable));
-  const agents: AgentConfig[] = [];
-  for (const p of ready.length ? ready.map((s) => s.provider) : PROVIDERS) {
-    const agent = newAgent(p, agents.map((a) => a.name));
-    const account = readyAccount(ready.find((s) => s.provider === p));
-    agents.push(account ? { ...agent, account } : agent);
-  }
-  return agents;
-}
 
 /** A template's team as the editor holds it (a template has no working directory). */
 function teamOf(p: TeamPreset): Team {
@@ -30,6 +14,21 @@ function teamOf(p: TeamPreset): Team {
     agents: p.agents.map((a) => ({ ...a, id: crypto.randomUUID() })),
     settings: { ...p.settings, cwd: '' },
   };
+}
+
+/**
+ * The team the editor opens with: a new template's members on the CLIs ready here, a template's
+ * own moved off the CLIs that cannot run here (`moved`, their names). Only once the CLIs' statuses
+ * have come (`known`); before that, a new template has no members and a template stays as it is.
+ */
+function opening(preset: TeamPreset | undefined, providers: ProviderStatus[]): { team: Team; moved: string[]; known: boolean } {
+  const known = providers.length > 0;
+  if (!preset) {
+    return { team: { agents: blankAgents(providers), settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '' } }, moved: [], known };
+  }
+  const team = teamOf(preset);
+  const fit = fitTemplateAgents(team.agents, providers);
+  return { team: { ...team, agents: fit.agents }, moved: fit.moved, known };
 }
 
 interface Props {
@@ -52,16 +51,28 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
   const builtin = Boolean(preset?.builtin);
   const [name, setName] = useState(() => (preset ? (builtin ? t.template.copyName(preset.name) : preset.name) : ''));
   const [description, setDescription] = useState(preset?.description ?? '');
-  const [team, setTeam] = useState<Team>(() =>
-    preset
-      ? teamOf(preset)
-      : { agents: blankAgents(providers), settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '' } },
-  );
+  const [start] = useState(() => opening(preset, providers));
+  const [team, setTeam] = useState<Team>(start.team);
+  const [moved, setMoved] = useState(start.moved);
   // What the editor opened with: a template that exists is saved (or copied) only once something
-  // changed, and closing asks before dropping changes.
-  const [opened] = useState(() => templateKey({ name, description, agents: team.agents, settings: team.settings }));
-  const changed = templateKey({ name, description, agents: team.agents, settings: team.settings }) !== opened;
-  const unchanged = Boolean(preset) && !changed;
+  // changed, or its members moved off CLIs that cannot run here, and closing asks before dropping
+  // changes the user made.
+  const keyOf = (agents: Team['agents'], settings: Team['settings']) => templateKey({ name, description, agents, settings });
+  const [opened, setOpened] = useState(() => keyOf(start.team.agents, start.team.settings));
+  const changed = keyOf(team.agents, team.settings) !== opened;
+  const unchanged = Boolean(preset) && !changed && moved.length === 0;
+  // Opened before the CLIs' statuses came (the page had just loaded): once they do, and while the
+  // user has changed nothing, the members are set as they would have been.
+  const known = useRef(start.known);
+  useEffect(() => {
+    if (known.current || !providers.length) return;
+    known.current = true;
+    if (changed) return;
+    const next = opening(preset, providers);
+    setTeam(next.team);
+    setMoved(next.moved);
+    setOpened(keyOf(next.team.agents, next.team.settings));
+  }, [providers]); // once, when the statuses first come
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const problems = [...(name.trim() ? [] : [t.template.needName]), ...teamProblems(team, t, { members: true, template: true, maxAgents: maxTeamAgents })];
@@ -113,6 +124,7 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
         </header>
         <div className="template-editor-body">
           {builtin && <p className="muted small">{t.template.builtinNote}</p>}
+          {moved.length > 0 && <p className="muted small template-moved">{t.template.moved(moved.join(t.common.listSeparator))}</p>}
           <div className="template-fields">
             <label className="field">
               <span>{t.template.name}</span>

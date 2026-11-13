@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 31 個 spec 檔、391 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 31 個 spec 檔、393 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -38,7 +38,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
 | [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 2 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#3-開始對話新對話與範本) |
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
-| [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 4 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
+| [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
@@ -116,6 +116,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 列出內建範本，打開其中一個可看到成員 | — | 「三方辯論」（Three-way debate）標為內建，對話框列出 Proposer、Pragmatist 與 Skeptic。 |
+| 新範本只放這裡已安裝 CLI 的成員，在各 CLI 狀態還沒到時打開也一樣 | — | 重新載入後擋住 `/api/providers`，**＋ 新增範本**打開時沒有成員；狀態到了之後，Claude Code、Codex 與 Grok（測試伺服器的）各一位，關閉時不會詢問。 |
+| 範本裡用了這裡沒安裝的 CLI 的成員改用已安裝的，會說明，也能照這樣儲存 | — | 沒有安裝 Grok 時：新範本只有 Claude Code 與 Codex；打開「三方辯論」時 Skeptic 改用 Claude Code（另外兩個 CLI 都已用到），對話框列出 Skeptic 被改過，雖然沒有其他修改，**另存成我的範本**（Save as my template）也可以按。 |
 | 範本編輯視窗有三欄時，新增成員卡自己一列就列出所有 CLI，在成員旁邊就和成員一樣高 | — | 1280px 下編輯視窗的格線有三欄：內建接力範本的三位成員填滿第一列，新增成員卡自己一列，全部列出、不用捲動；加入第四位、以及移除兩位後在第一列兩位成員旁邊時，清單可以捲動，那些成員保有自己的高度（隱藏新增成員卡再量一次比對：同一列的卡片本來就一樣高，互相比較證明不了什麼）。 |
 | 首席 agent 直接使用範本 | Claude Code、Codex、Grok | 卡片寫著使用「三方辯論」；兩輪中每位成員先以自己的 CLI 回答，再 PASS（共六則回答）。 |
 | 把首席 agent 設計的團隊存成範本 | Claude Code、Grok | **存成範本**（Save as template）預設帶入團隊的名稱，卡片顯示已儲存，新對話頁也出現這個範本。 |

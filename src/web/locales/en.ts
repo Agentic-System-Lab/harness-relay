@@ -138,6 +138,7 @@ export const en: Messages = {
     editTitle: (name) => `Edit the template "${name}"`,
     builtinTitle: (name) => `Built-in template "${name}"`,
     builtinNote: 'Built-in templates cannot be changed; adjust this one and save it as a template of your own.',
+    moved: (names) => `${names} used a CLI that cannot run on this computer yet (not installed, or not signed in), so they now use one that can; saving the template keeps them so.`,
     name: 'Template name',
     namePlaceholder: 'e.g. Frontend and backend',
     description: 'Description',

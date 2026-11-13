@@ -150,6 +150,8 @@ export const zhTW = {
     editTitle: (name: string) => `修改範本「${name}」`,
     builtinTitle: (name: string) => `內建範本「${name}」`,
     builtinNote: '內建範本不能直接修改；調整後可以另存成你自己的範本。',
+    /** Members whose CLI cannot run here moved to one that can (`fitTemplateAgents`); `names` joined. */
+    moved: (names: string) => `${names} 原本用的 CLI 在這台電腦還不能用（沒有安裝或沒有登入），已改用可以用的 CLI；儲存範本就會照這樣保存。`,
     name: '範本名稱',
     namePlaceholder: '例如：前後端分工',
     description: '說明',
