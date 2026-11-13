@@ -126,7 +126,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | The lead agent changes the team when asked, and the new member answers once it is saved | Claude Code, Grok | In **Team settings → Ask the lead agent**, the request reaches the lead agent, the drawer shows the member it added, and after **Save** both members answer. |
 | When the lead agent's answer cannot be read, a template stands in | Claude Code | An answer that is not JSON falls back to "General-question panel", whose three members answer. |
 | A team proposed for a new question is declined | Claude Code, Codex | **No, keep the current team**: the card says it was not used, the current team answers and the proposed member does not. |
-| The add card is as tall as the members beside it with a shadow while more CLIs are below, lists every CLI on a row of its own, and one tall card stretches only its row | — | In **Team settings** (two columns at 1280px): beside one member the add card is as tall as it and its list of the twelve CLIs scrolls, with a shadow along its bottom edge until it is scrolled to the end (where the browser has scroll-driven animations); with two members, on a row of its own, it lists them all without scrolling or shadow; beside a third it is as tall as that one again, and a role box made taller in the first row leaves the second row's cards as they were. |
+| The add card is as tall as the members beside it with a shadow while more CLIs are below, lists every CLI on a row of its own, and one tall card stretches only its row | — | In **Team settings** (two columns at 1280px), the list being a group named **Add member**: beside one member the add card is as tall as it and its list of the twelve CLIs scrolls. Where the browser has scroll-driven animations, a shadow shows along the list's bottom edge (a screenshot of that strip differs without it), also with reduced motion, each button Tab moves to stops above it, and it is gone once the list is scrolled to its end. With two members, on a row of its own, the card lists them all without scrolling or shadow; beside a third it is as tall as that one again, and a role box made taller in the first row leaves the second row's cards as they were. |
 
 ## A member's model and reasoning effort
 
@@ -517,6 +517,7 @@ The open agents, in Harness Relay's own sandbox below full access:
 - Copilot runs below full access on macOS, Linux and Windows alike, as its own sandbox does: its fake keeps to the policy its run's settings give, so its tests need no sandbox on the computer that runs them.
 - [On a phone](#on-a-phone) is skipped in Firefox.
 - The two copy tests in [Copying and sharing](#copying-and-sharing) run in Chromium only (reading the clipboard), and "Without gh" is skipped on Windows.
+- The add card test in [Changing a chat's team](#changing-a-chats-team) checks the list's shadow only in a browser with scroll-driven animations (Chromium, WebKit), as there is no shadow elsewhere: in Firefox it checks the rest.
 - The three tests of [Reporting a problem](#reporting-a-problem) that read the mail's links are skipped in a browser without the Navigation API.
 
 ## What they do not cover

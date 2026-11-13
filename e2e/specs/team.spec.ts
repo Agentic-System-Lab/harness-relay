@@ -48,14 +48,16 @@ test.describe("changing a chat's team", () => {
   });
 
   test('the add card is as tall as the members beside it with a shadow while more CLIs are below, lists every CLI on a row of its own, and one tall card stretches only its row', async ({ page, relay }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
+    // Tall enough to show the whole card above the drawer's buttons.
+    await page.setViewportSize({ width: 1280, height: 1300 });
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     const members = drawer.locator('.agent-card:not(.add-card)');
     const add = drawer.locator('.add-card');
     const height = async (card: Locator) => (await card.boundingBox())!.height;
-    const list = add.locator('.add-card-list');
+    // A group named by its heading: a list that scrolls may take the focus itself.
+    const list = drawer.getByRole('group', { name: 'Add member' });
     const scrolls = () => list.evaluate((el) => el.scrollHeight > el.clientHeight + 1);
     /** The shadow along the list's bottom edge, which says that more CLIs are below. */
     const shadow = () => list.evaluate((el) => getComputedStyle(el, '::after').opacity);
@@ -72,6 +74,28 @@ test.describe("changing a chat's team", () => {
     // The shadow shows while more are below, and is gone once the list is scrolled to its end.
     if (timelines) {
       await expect.poll(shadow).toBe('1');
+      // On screen, along the list's bottom edge: that strip looks different without it.
+      const box = (await list.boundingBox())!;
+      const strip = () => page.screenshot({ clip: { x: box.x, y: box.y + box.height - 12, width: box.width, height: 12 } });
+      const shown = await strip();
+      const off = await page.addStyleTag({ content: '.add-card-list::after { display: none !important; }' });
+      expect(Buffer.compare(shown, await strip())).not.toBe(0);
+      await off.evaluate((style) => (style as Element).remove());
+      // Not motion, so it stays with reduced motion (every animation is off there).
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await expect.poll(shadow).toBe('1');
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      // Each button that takes the focus, in order as Tab moves it (WebKit's Tab skips buttons on a
+      // Mac, as Safari does by default), stops above the shadow, but where the list has reached its end.
+      const buttons = list.getByRole('button');
+      for (let i = 0; i < PROVIDERS.length; i++) {
+        await buttons.nth(i).focus();
+        const { above, end } = await list.evaluate((el) => ({
+          above: el.getBoundingClientRect().bottom - document.activeElement!.getBoundingClientRect().bottom,
+          end: el.scrollTop >= el.scrollHeight - el.clientHeight - 1,
+        }));
+        if (!end) expect(above).toBeGreaterThanOrEqual(14);
+      }
       await list.evaluate((el) => el.scrollTo(0, el.scrollHeight));
       await expect.poll(shadow).toBe('0');
     }

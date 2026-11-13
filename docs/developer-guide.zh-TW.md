@@ -692,7 +692,7 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/folders.spec.ts` — 編輯模式下，自動拒絕時對話沒有的資料夾各 CLI 都碰不到（開源 agent 的寫入由 Harness Relay 自己的沙箱拒絕，Copilot 的由它自己的沙箱不詢問就拒絕），而使用者允許後 Claude Code、Codex、Cursor 與 Antigravity 能寫到那裡；多個工作目錄：在輸入框中加入與移除資料夾、各 CLI 在每個資料夾寫檔且變更卡片依資料夾列出（Windows 上的 Grok 只從簡報得知它們，Cursor 寫入第二個前會詢問）、檔案瀏覽器的資料夾、平行模式中每個資料夾的 worktree 一起套用，以及設定中的預設工作目錄。在 Linux 上測試選擇資料夾視窗（假的 zenity）：在視窗中選的資料夾加進輸入框、對話在這些資料夾中開始、視窗開在最後一個資料夾裡並允許多選，以及在沒有 UTF-8 locale 的伺服器上用中文時，視窗標題是中文並帶 `LC_CTYPE=C.UTF-8`，按取消則不加入任何資料夾。
 - `e2e/specs/turns.spec.ts` — 向使用者提問並取得回答、略過問題、接力交棒、只有被 @ 的成員回答、之後的回合 PASS、各 CLI 的回答被停止、它的錯誤（結束程式與協定之內的錯誤）與重試、下一回合接續自己的 session、CLI 遺失 session 的成員帶著到目前為止的對話重新開始、回答途中送出的訊息交給下一位成員。
 - `e2e/specs/history.spec.ts` — 編輯訊息後重新送出（取代它之後的內容）、對已完成的回答重試、從某則回答分支出新對話。
-- `e2e/specs/team.spec.ts` — 在團隊設定中請首席 agent 加入成員，儲存後新成員回答；首席 agent 的回答無法解讀時改用範本；拒絕為新問題提議的團隊，由目前的團隊回答。
+- `e2e/specs/team.spec.ts` — 在團隊設定中請首席 agent 加入成員，儲存後新成員回答；首席 agent 的回答無法解讀時改用範本；拒絕為新問題提議的團隊，由目前的團隊回答；新增成員卡和旁邊的成員一樣高（清單是有名稱、可以捲動的群組，下面還有時底部有陰影），自己一列時列出所有 CLI，一張卡變高只撐高自己那一列。
 - `e2e/specs/inputs.spec.ts` — 除了 prompt 之外交給各 CLI 的東西：工具庫的 MCP 伺服器（其秘密不會出現在命令列上）、透過 HTTP 的 MCP 伺服器（其秘密標頭也一樣；Antigravity 除外，它的轉接器不給它）與附加的圖片（Cline 除外，它不接受圖片）。
 - `e2e/specs/sandbox.spec.ts` — 包住開源 agent 的 Harness Relay 自己的沙箱：唯讀對話中使用者允許的寫入仍被拒絕，這次執行不能連的主機會先詢問、拒絕後就不連；在只能以完全存取執行的地方（Windows；Linux 上的 OpenCode），權限低於完全存取的開源 agent 不會啟動，並說明原因；macOS 上沒有終端機開關的 OpenHands；Antigravity 在 agy 啟動前先詢問專案自己的設定，被拒絕時就不啟動；Copilot 在啟動前先詢問專案的 hook，被拒絕時不啟動，允許後這一輪就執行。
 - `e2e/specs/sidebar.spec.ts` — 群組與首席 agent 把新對話分進群組、重新命名與刪除（刪除開著的對話後改為顯示首頁）、依 agent 寫的內容搜尋、一開始就給的標題；把對話拖進與拖出群組，以及分支對話的家族一起移動；每個 CLI 的狀態點與可用數量排在一行，箭頭尖端對齊回報問題圖示的右緣。

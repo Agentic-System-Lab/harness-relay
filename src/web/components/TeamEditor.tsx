@@ -100,6 +100,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
   const auto = Boolean(settings.autoTeam) && !template;
   const confirmHint = useId();
   const cwdId = useId();
+  const addMemberId = useId();
   const showMembers = members ?? !auto;
   // Members renamed or removed: the schedule's message may @mention someone the team no longer has.
   const names = agents.map((a) => a.name).join('\n');
@@ -220,9 +221,12 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
             })}
 
             <div className="agent-card add-card">
-              <span className="muted small">{t.team.addMember}</span>
-              {/* Beside members the card is as tall as theirs and this list scrolls; on a row of its own it lists every CLI (styles.css, .add-card). */}
-              <div className="add-card-list">
+              <span id={addMemberId} className="muted small">
+                {t.team.addMember}
+              </span>
+              {/* Beside members the card is as tall as theirs and this list scrolls; on a row of its own it lists every CLI (styles.css, .add-card).
+                  Named: a list that scrolls takes the focus itself where all its buttons are disabled (a full team). */}
+              <div className="add-card-list" role="group" aria-labelledby={addMemberId}>
                 {PROVIDERS.map((p) => (
                   <button
                     key={p}
