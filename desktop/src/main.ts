@@ -62,9 +62,8 @@ import {
   CHECK_TIMEOUT_MS,
   checkNow,
   checkLatest,
-  copyToDownload,
-  download,
   DOWNLOAD_CONNECTIONS,
+  downloadUpdate,
   type Fetch,
   FIRST_CHECK_MS,
   installPlan,
@@ -88,7 +87,7 @@ import {
   type UpdateRelease,
   type Updating,
 } from './update';
-import type { UpdateSource } from './updateSource';
+import { decodeUpdateSource, type BuiltUpdateSource } from './updateSource';
 import { findTailscale, sharePlan, Tailscale } from './tailscale';
 
 /** The version the app was built as (desktop/scripts/build.ts): a release's date version, or the package's. */
@@ -96,10 +95,12 @@ declare const __RELAY_VERSION__: string;
 
 /**
  * Where the app downloads its updates from, as it was built (desktop/scripts/build.ts, from
- * RELAY_UPDATES_REPO and RELAY_UPDATES_TOKEN: updateSource.ts). The token, if any, goes to GitHub's API
- * alone, and only when the app updates; never into the log or the chat.
+ * RELAY_UPDATES_REPO and RELAY_UPDATES_TOKEN: updateSource.ts), the token encoded there so that it never
+ * stands in the app as a token's text. The token, if any, goes to GitHub's API alone, and only when the
+ * app updates; never into the log or the chat.
  */
-declare const __RELAY_UPDATE_SOURCE__: UpdateSource;
+declare const __RELAY_UPDATE_SOURCE__: BuiltUpdateSource;
+const UPDATE_SOURCE = decodeUpdateSource(__RELAY_UPDATE_SOURCE__);
 
 /** Matches appId in electron-builder.yml (Windows needs it for notifications). */
 const APP_ID = 'io.github.agentic-system-lab.harness-relay';
@@ -673,7 +674,7 @@ function run(): void {
     try {
       // A release candidate is offered only to an app that is one (or a build of your own): a release, only releases.
       const latest = await checkLatest((url, init) => net.fetch(url, init), {
-        source: __RELAY_UPDATE_SOURCE__,
+        source: UPDATE_SOURCE,
         candidates: takesCandidates(app.getVersion()),
         signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
       });
@@ -852,16 +853,24 @@ function run(): void {
       setUpdating({ kind: 'downloading', done });
     };
     const fetch: Fetch = (url, init) => net.fetch(url, init);
-    // A private copies' repository: the copy found with the token (the installer itself when it cannot be had).
-    const from = await copyToDownload(fetch, __RELAY_UPDATE_SOURCE__, release.version, asset, AbortSignal.timeout(CHECK_TIMEOUT_MS));
-    const parts = { connections: updateConnections(), locate: locateRedirect, headers: from.headers };
+    // The copy found with the token for a private copies' repository (the installer itself when it cannot be had).
+    const fromGitHub = {
+      fetch,
+      connections: updateConnections(),
+      locate: locateRedirect,
+      source: UPDATE_SOURCE,
+      tag: release.version,
+      lookupSignal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+      asset,
+      onProgress,
+    };
     let installer: string | undefined;
     try {
       if (plan.kind === 'linux') {
         // Downloaded next to the AppImage, so that putting it in place is a rename.
         const target = appImageTarget(plan.appImage, asset.name, __RELAY_VERSION__);
         const downloaded = appImageDownload(plan.appImage, asset.name);
-        await download({ fetch, ...parts, asset: from.asset, to: downloaded, onProgress });
+        await downloadUpdate({ ...fromGitHub, to: downloaded });
         setUpdating({ kind: 'installing' });
         if (!(await waitForConversations())) return;
         placeAppImage(downloaded, target, plan.appImage);
@@ -871,7 +880,7 @@ function run(): void {
       }
       mkdirSync(updatesDir, { recursive: true });
       installer = join(updatesDir, asset.name);
-      await download({ fetch, ...parts, asset: from.asset, to: installer, onProgress });
+      await downloadUpdate({ ...fromGitHub, to: installer });
       setUpdating({ kind: 'installing' });
       if (plan.kind === 'mac') {
         await stageMacApp({ dmg: installer, app: plan.app, bundleId: APP_ID, semver: release.semver, env });

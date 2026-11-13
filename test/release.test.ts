@@ -973,25 +973,49 @@ describe('the release workflow', () => {
     expect(release.slice(published)).not.toContain('updates/');
   });
 
-  it('hands the token for the copies’ repository to the step that publishes them only, and the one the app downloads them with to the build of the app and the check of it only', () => {
-    expect(workflow.match(/secrets\.[A-Z_]+/g)).toEqual(['secrets.UPDATES_READ_TOKEN', 'secrets.UPDATES_TOKEN', 'secrets.UPDATES_READ_TOKEN']);
+  it('hands the write token to the copies’ step and the comparison only, and the read token to the app’s build, the comparison and the checks only', () => {
+    expect(workflow.match(/secrets\.[A-Z_]+/g)).toEqual([
+      // The app's build.
+      'secrets.UPDATES_READ_TOKEN',
+      // The comparison of the two, in the shell alone.
+      'secrets.UPDATES_TOKEN',
+      'secrets.UPDATES_READ_TOKEN',
+      // The check of the builds' fingerprints.
+      'secrets.UPDATES_READ_TOKEN',
+      // The copies' publishing.
+      'secrets.UPDATES_TOKEN',
+      // The check that an app can download them.
+      'secrets.UPDATES_READ_TOKEN',
+    ]);
     const release = job('release');
-    const copies = release.slice(release.indexOf("- name: Publish the copies for the app's updates"), release.indexOf('- name: Check that the app can download the copies'));
+    const step = (name: string) => {
+      const from = release.indexOf(`- name: ${name}`);
+      expect(from, name).toBeGreaterThan(0);
+      const next = release.indexOf('- name: ', from + 1);
+      return release.slice(from, next < 0 ? undefined : next);
+    };
+    const copies = step("Publish the copies for the app's updates");
     expect(copies).toContain('GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
     expect(copies).not.toContain('UPDATES_READ_TOKEN');
+    const refuse = step('Refuse a read token that is the write token');
+    expect(refuse).toContain('WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
+    expect(refuse).toContain('READ_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+    expect(refuse).not.toMatch(/\bnode\b|\bgh\b|\bnpm\b/);
+    for (const name of ["Check that the installers were built with this run's update source", 'Check that the app can download the copies']) {
+      const check = step(name);
+      expect(check, name).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
+      expect(check, name).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+      expect(check, name).not.toContain('secrets.UPDATES_TOKEN');
+    }
     // The app's build, given where it downloads its updates from (the same variable the copies follow) and the token it downloads them with.
     const build = job('build');
-    const step = build.slice(build.indexOf('- name: Build the desktop app'), build.indexOf('- name: Run the bundled server as the desktop app does'));
-    expect(step).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
-    expect(step).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
-    expect(step).toContain('run: npm --prefix desktop run build');
-    // Then, once the copies are published and before the release, the check that an app built so can download them.
-    const check = release.slice(release.indexOf('- name: Check that the app can download the copies'), release.indexOf('- name: Publish\n'));
-    expect(check).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
-    expect(check).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
-    expect(check).toContain('GH_TOKEN: ${{ github.token }}');
-    expect(check).not.toContain('UPDATES_TOKEN }}');
-    expect(workflow.match(/vars\.UPDATES_REPO/g)).toHaveLength(3);
+    const built = build.slice(build.indexOf('- name: Build the desktop app'), build.indexOf('- name: Run the bundled server as the desktop app does'));
+    expect(built).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
+    expect(built).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+    expect(built).toContain('run: npm --prefix desktop run build');
+    expect(workflow.match(/vars\.UPDATES_REPO/g)).toHaveLength(4);
+    // A build run again in a later attempt replaces what it uploaded.
+    expect(build.match(/overwrite: true/g)).toHaveLength(2);
   });
 
   it('may write to the repository only in the job that publishes', () => {

@@ -136,8 +136,14 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
+      # With a made-up token for the app's updates (fine-grained in form, put together here so that no
+      # token's text stands in this file), so that the check below finds it in none of the server's
+      # files, and in the app's own only encoded, as in a release built with one.
       - name: Build the web app and the desktop app
-        run: npm run build && npm --prefix desktop run build
+        shell: bash
+        run: |
+          export RELAY_UPDATES_TOKEN="github_pat_$(printf 'ci%.0s' {1..20})"
+          npm run build && npm --prefix desktop run build
 
       # The app as electron-builder packages it (unpacked: no installer), with the fuses, the archive
       # and the resources of a release, then checked as the Release workflow checks it.

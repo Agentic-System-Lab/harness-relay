@@ -58,6 +58,30 @@ export function updateSourceFrom(env: Record<string, string | undefined>): { ok:
 }
 
 /**
+ * The update source as the build puts it into the app (`__RELAY_UPDATE_SOURCE__` in main.cjs): the token
+ * encoded (`encodeUpdateSource`). Not to keep it secret, which it cannot be, but so that it never stands
+ * in the app as a token's text: GitHub revokes a token it finds pushed to a public repository or gist,
+ * and anyone could push an unpacked app.
+ */
+export interface BuiltUpdateSource {
+  repo: string;
+  /** The token's UTF-8 bytes in base64, reversed. */
+  encodedToken?: string;
+}
+
+/** `source` as the build puts it into the app (`BuiltUpdateSource`). */
+export function encodeUpdateSource(source: UpdateSource): BuiltUpdateSource {
+  if (!source.token) return { repo: source.repo };
+  return { repo: source.repo, encodedToken: [...Buffer.from(source.token, 'utf8').toString('base64')].reverse().join('') };
+}
+
+/** The update source an app was built with, from what the build put into it (`encodeUpdateSource`). */
+export function decodeUpdateSource(built: BuiltUpdateSource): UpdateSource {
+  if (!built.encodedToken) return { repo: built.repo };
+  return { repo: built.repo, token: Buffer.from([...built.encodedToken].reverse().join(''), 'base64').toString('utf8') };
+}
+
+/**
  * What an app was built to download its updates with, as a SHA-256 that names neither: written next to
  * the build (desktop/scripts/build.ts, `update-source.txt`) and compared by the Release workflow with
  * this run's (`sameUpdateSource`). The repository in any letter case, as GitHub takes it.
@@ -77,7 +101,7 @@ export function sameUpdateSource(built: string[], source: UpdateSource, installe
   if (built.length === installers && built.every((f) => f.trim() === expected)) return undefined;
   return (
     `${built.filter((f) => f.trim() === expected).length} of the ${installers} installers were built to download their updates as this run would ` +
-    `(the UPDATES_REPO variable and the UPDATES_READ_TOKEN secret as they are now): run the whole workflow again, not only its failed jobs`
+    `(the UPDATES_REPO variable and the UPDATES_READ_TOKEN secret as they are now): run the whole workflow again (Re-run all jobs), not only its failed jobs`
   );
 }
 
@@ -86,7 +110,8 @@ export type CopiesFetch = (url: string, init: { headers: Record<string, string>;
 
 /**
  * Why an app built with `source` could not download the copies (`copies`: each file's name and size)
- * of the release tagged `tag`, or undefined when it could: GitHub's API is asked for that release, with
+ * of the release tagged `tag` (`error`, none when it could), and a `warning` when its token expires soon
+ * (`expiryWarning`): GitHub's API is asked for that release, with
  * the token for a private repository as the app asks, and each copy must be listed with its id, whole
  * (uploaded, at its size). The Release workflow runs this once it published the copies and before the
  * release itself, so that a read token missing, expired, waiting for an organization's approval or
@@ -98,8 +123,8 @@ export type CopiesFetch = (url: string, init: { headers: Record<string, string>;
  */
 export async function copiesReadable(
   fetch: CopiesFetch,
-  o: { source: UpdateSource; tag: string; copies: { name: string; size?: number }[]; token?: string },
-): Promise<string | undefined> {
+  o: { source: UpdateSource; tag: string; copies: { name: string; size?: number }[]; token?: string; now?: Date },
+): Promise<{ error?: string; warning?: string }> {
   const { repo } = o.source;
   const token = o.source.token ?? o.token;
   let res: Response;
@@ -109,15 +134,18 @@ export async function copiesReadable(
       redirect: 'error',
     });
   } catch (err) {
-    return `GitHub could not be asked for the release ${o.tag} in ${repo}: ${err instanceof Error ? err.message : String(err)}`;
+    return { error: `GitHub could not be asked for the release ${o.tag} in ${repo}: ${err instanceof Error ? err.message : String(err)}` };
   }
   if (!res.ok) {
     const limited = res.status === 403 || res.status === 429 ? ", or GitHub's limit on requests was reached" : '';
-    const again = ', then run the whole workflow again (not only its failed jobs), so that the installers are built with it';
-    return o.source.token
-      ? `The app's token (UPDATES_READ_TOKEN) cannot read the release ${o.tag} in ${repo} (GitHub answered ${res.status}): it has no access to that repository, has expired or was revoked, or waits for the organization's approval${limited}. Set a token that can${again}`
-      : `The release ${o.tag} in ${repo} cannot be read without a token of its own (GitHub answered ${res.status}): for a private repository, set the UPDATES_READ_TOKEN secret${again}${limited}`;
+    const again = ', then run the whole workflow again (Re-run all jobs, not only the failed ones), so that the installers are built with it';
+    return {
+      error: o.source.token
+        ? `The app's token (UPDATES_READ_TOKEN) cannot read the release ${o.tag} in ${repo} (GitHub answered ${res.status}): it has no access to that repository, has expired or was revoked, or waits for the organization's approval${limited}. Set a token that can${again}`
+        : `The release ${o.tag} in ${repo} cannot be read without a token of its own (GitHub answered ${res.status}): for a private repository, set the UPDATES_READ_TOKEN secret${again}${limited}`,
+    };
   }
+  const warning = o.source.token ? expiryWarning(res.headers.get('github-authentication-token-expiration'), o.now ?? new Date()) : undefined;
   const release = (await res.json().catch(() => null)) as { assets?: { id?: unknown; name?: unknown; state?: unknown; size?: unknown }[] } | null;
   const listed = new Map((Array.isArray(release?.assets) ? release.assets : []).map((a) => [a?.name, a]));
   const missing = o.copies.filter(({ name, size }) => {
@@ -127,5 +155,30 @@ export async function copiesReadable(
     const sized = size === undefined || a?.size === size;
     return !(typeof id === 'number' && Number.isSafeInteger(id) && id > 0 && whole && sized);
   });
-  return missing.length ? `The release ${o.tag} in ${repo} does not list ${missing.map((c) => c.name).join(', ')}, whole` : undefined;
+  if (missing.length) return { error: `The release ${o.tag} in ${repo} does not list ${missing.map((c) => c.name).join(', ')}, whole`, warning };
+  return warning ? { warning } : {};
+}
+
+/** How long before the app's token expires the Release workflow warns: what a release built with it has left to be updated from. */
+export const EXPIRY_WARNING_DAYS = 90;
+
+/**
+ * A warning when the app's token expires within EXPIRY_WARNING_DAYS of `now`, from the expiry GitHub
+ * gives with an answer to a request made with it (`github-authentication-token-expiration`, such as
+ * `2026-12-31 23:59:59 UTC` or `… +0800`; none for a token that never expires): every installed app
+ * built with it then counts its updates as new installs until it updates to a release built with a new
+ * one. Undefined for a token that never expires, or an expiry it cannot read.
+ */
+export function expiryWarning(header: string | null, now: Date): string | undefined {
+  const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) (UTC|[+-]\d{4})$/.exec(header?.trim() ?? '');
+  if (!m) return undefined;
+  const zone = m[3] === 'UTC' ? 'Z' : `${m[3]!.slice(0, 3)}:${m[3]!.slice(3)}`;
+  const at = Date.parse(`${m[1]}T${m[2]}${zone}`);
+  if (Number.isNaN(at)) return undefined;
+  const days = Math.floor((at - now.getTime()) / 86_400_000);
+  if (days >= EXPIRY_WARNING_DAYS) return undefined;
+  return (
+    `The app's token (UPDATES_READ_TOKEN) expires on ${new Date(at).toISOString().slice(0, 10)}, in ${Math.max(days, 0)} days: from then on the apps built with it ` +
+    'count their updates as new installs until they update to a release built with a new one. Set a new one and release with it before then, and revoke the old one later'
+  );
 }

@@ -19,6 +19,7 @@ import {
   DOWNLOAD_STALL_MS,
   download,
   downloadHeaders,
+  downloadUpdate,
   installPlan,
   isNewer,
   LATEST_RELEASE_API,
@@ -50,7 +51,19 @@ import {
   type Locate,
   type UpdateAsset,
 } from '../desktop/src/update';
-import { copiesReadable, DEFAULT_UPDATE_SOURCE, sameUpdateSource, updateSourceFingerprint, updateSourceFrom, type CopiesFetch, type UpdateSource } from '../desktop/src/updateSource';
+import {
+  copiesReadable,
+  decodeUpdateSource,
+  DEFAULT_UPDATE_SOURCE,
+  encodeUpdateSource,
+  EXPIRY_WARNING_DAYS,
+  expiryWarning,
+  sameUpdateSource,
+  updateSourceFingerprint,
+  updateSourceFrom,
+  type CopiesFetch,
+  type UpdateSource,
+} from '../desktop/src/updateSource';
 import { spawnDetached } from '../src/server/process';
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-update-')));
@@ -141,6 +154,14 @@ describe('where the app downloads its updates from', () => {
     expect(updateSourceFrom({ RELAY_UPDATES_REPO: 'Agentic-System-Lab/harness-relay-updates' }).ok).toBe(true);
   });
 
+  it("is checked in CI's packaged app with a made-up token, put together so that no token's text stands in the workflow", () => {
+    const ci = readFileSync(join(__dirname, '../.github/workflows/ci.yml'), 'utf8');
+    expect(ci).toContain(`export RELAY_UPDATES_TOKEN="github_pat_$(printf 'ci%.0s' {1..20})"`);
+    expect(ci).not.toMatch(/github_pat_[A-Za-z0-9_]{20,}/);
+    // What bash puts together, a token in form for the build.
+    expect(updateSourceFrom({ RELAY_UPDATES_TOKEN: `github_pat_${'ci'.repeat(20)}` }).ok).toBe(true);
+  });
+
   it("is built into the app's main process alone, never into the server's bundle, which agents' runs come near", () => {
     const build = readFileSync(join(__dirname, '../desktop/scripts/build.ts'), 'utf8');
     const bundles = build.split('await build({').slice(1);
@@ -148,7 +169,7 @@ describe('where the app downloads its updates from', () => {
     expect(bundles.length).toBeGreaterThanOrEqual(3);
     expect(withSource).toHaveLength(1);
     expect(withSource[0]).toContain("outfile: join(OUT, 'app/main.cjs')");
-    expect(build).toContain('__RELAY_UPDATE_SOURCE__: JSON.stringify(updates.value)');
+    expect(build).toContain('__RELAY_UPDATE_SOURCE__: JSON.stringify(encodeUpdateSource(updates.value))');
     expect(build).toContain('const updates = updateSourceFrom(process.env);');
   });
 
@@ -194,7 +215,7 @@ describe('the Release workflow’s check that an app can download the copies', (
     for (const before of [{ repo: 'acme/relay-updates' }, { repo: 'acme/relay-updates', token: `${TOKEN}old` }, { repo: 'acme/other', token: TOKEN }]) {
       const error = sameUpdateSource([now, updateSourceFingerprint(before), now, now, now], PRIVATE, 5);
       expect(error).toMatch(/^4 of the 5 installers were built/);
-      expect(error).toMatch(/run the whole workflow again, not only its failed jobs$/);
+      expect(error).toMatch(/run the whole workflow again \(Re-run all jobs\), not only its failed jobs$/);
       expect(error).not.toContain(TOKEN);
     }
     // A build that left none.
@@ -204,7 +225,7 @@ describe('the Release workflow’s check that an app can download the copies', (
 
   it('asks for the release as the app asks with the read token, and, without one, with the workflow’s own in its place', async () => {
     const own = api(both);
-    expect(await copiesReadable(own.fetch, { source: PRIVATE, tag: '2026-11-13', copies, token: WORKFLOW })).toBeUndefined();
+    expect(await copiesReadable(own.fetch, { source: PRIVATE, tag: '2026-11-13', copies, token: WORKFLOW })).toEqual({});
     expect(own.asked).toEqual([
       {
         url: 'https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-13',
@@ -212,7 +233,7 @@ describe('the Release workflow’s check that an app can download the copies', (
       },
     ]);
     const open = api(both);
-    expect(await copiesReadable(open.fetch, { source: SOURCE, tag: '2026-11-13', copies, token: WORKFLOW })).toBeUndefined();
+    expect(await copiesReadable(open.fetch, { source: SOURCE, tag: '2026-11-13', copies, token: WORKFLOW })).toEqual({});
     expect(open.asked[0]!.url).toBe('https://api.github.com/repos/Agentic-System-Lab/harness-relay-updates/releases/tags/2026-11-13');
     expect(open.asked[0]!.init.headers.Authorization).toBe(`Bearer ${WORKFLOW}`);
     const anonymous = api(both);
@@ -222,52 +243,114 @@ describe('the Release workflow’s check that an app can download the copies', (
 
   it('says why when the token cannot read the release, a private repository has none, or a copy is not listed whole, never naming a token', async () => {
     const refused = (status: number) => () => new Response('{"message":"no"}', { status });
+    const errorOf = async (answer: () => Response | Promise<Response>, source = PRIVATE, token?: string) => (await copiesReadable(api(answer).fetch, { source, tag: '2026-11-13', copies, token })).error;
     for (const status of [401, 403, 404]) {
-      const error = await copiesReadable(api(refused(status)).fetch, { source: PRIVATE, tag: '2026-11-13', copies, token: WORKFLOW });
+      const error = await errorOf(refused(status), PRIVATE, WORKFLOW);
       expect(error, String(status)).toMatch(new RegExp(`^The app's token \\(UPDATES_READ_TOKEN\\) cannot read the release 2026-11-13 in acme/relay-updates \\(GitHub answered ${status}\\)`));
-      expect(error).toMatch(/run the whole workflow again \(not only its failed jobs\)/);
+      expect(error).toMatch(/run the whole workflow again \(Re-run all jobs, not only the failed ones\)/);
       expect(error).not.toContain(TOKEN);
       expect(error).not.toContain(WORKFLOW);
     }
-    expect(await copiesReadable(api(refused(403)).fetch, { source: PRIVATE, tag: '2026-11-13', copies })).toMatch(/limit on requests/);
-    expect(await copiesReadable(api(refused(404)).fetch, { source: PRIVATE, tag: '2026-11-13', copies })).not.toMatch(/limit on requests/);
-    const unset = await copiesReadable(api(refused(404)).fetch, { source: { repo: 'acme/relay-updates' }, tag: '2026-11-13', copies, token: WORKFLOW });
-    expect(unset).toMatch(/cannot be read without a token of its own \(GitHub answered 404\): for a private repository, set the UPDATES_READ_TOKEN secret, then run the whole workflow again/);
-    expect(await copiesReadable(api(listing([uploaded(41, copies[0]!)])).fetch, { source: PRIVATE, tag: '2026-11-13', copies })).toBe(
-      `The release 2026-11-13 in acme/relay-updates does not list ${copies[1]!.name}, whole`,
+    expect(await errorOf(refused(403))).toMatch(/limit on requests/);
+    expect(await errorOf(refused(404))).not.toMatch(/limit on requests/);
+    expect(await errorOf(refused(404), { repo: 'acme/relay-updates' }, WORKFLOW)).toMatch(
+      /cannot be read without a token of its own \(GitHub answered 404\): for a private repository, set the UPDATES_READ_TOKEN secret, then run the whole workflow again/,
     );
+    expect(await errorOf(listing([uploaded(41, copies[0]!)]))).toBe(`The release 2026-11-13 in acme/relay-updates does not list ${copies[1]!.name}, whole`);
     // Listed, but not whole: an id that is not one, an upload not finished, another size.
     const halves = listing([
       { ...uploaded(41, copies[0]!), id: '41' },
       { ...uploaded(42, copies[1]!), state: 'starter' },
     ]);
-    expect(await copiesReadable(api(halves).fetch, { source: PRIVATE, tag: '2026-11-13', copies })).toBe(
-      `The release 2026-11-13 in acme/relay-updates does not list ${copies[0]!.name}, ${copies[1]!.name}, whole`,
-    );
-    const short = listing([uploaded(41, copies[0]!), { ...uploaded(42, copies[1]!), size: 1999 }]);
-    expect(await copiesReadable(api(short).fetch, { source: PRIVATE, tag: '2026-11-13', copies })).toMatch(/does not list Harness-Relay-2026-11-13-win-x64-update.exe, whole$/);
-    expect(await copiesReadable(api(() => new Response('not json')).fetch, { source: PRIVATE, tag: '2026-11-13', copies })).toMatch(/does not list/);
-    expect(await copiesReadable(api(() => Promise.reject(new Error('offline'))).fetch, { source: PRIVATE, tag: '2026-11-13', copies })).toBe(
-      'GitHub could not be asked for the release 2026-11-13 in acme/relay-updates: offline',
-    );
+    expect(await errorOf(halves)).toBe(`The release 2026-11-13 in acme/relay-updates does not list ${copies[0]!.name}, ${copies[1]!.name}, whole`);
+    expect(await errorOf(listing([uploaded(41, copies[0]!), { ...uploaded(42, copies[1]!), size: 1999 }]))).toMatch(/does not list Harness-Relay-2026-11-13-win-x64-update.exe, whole$/);
+    expect(await errorOf(() => new Response('not json'))).toMatch(/does not list/);
+    expect(await errorOf(() => Promise.reject(new Error('offline')))).toBe('GitHub could not be asked for the release 2026-11-13 in acme/relay-updates: offline');
   });
 
-  it("runs in the Release workflow after the copies are published and before the release, against each build's fingerprint, with the read token", () => {
+  it('warns when the read token expires soon, as GitHub says with its answer, and never for the workflow’s own', async () => {
+    const now = new Date('2026-11-13T00:00:00Z');
+    const expiring = (header: string) => () =>
+      new Response(JSON.stringify({ assets: [uploaded(41, copies[0]!), uploaded(42, copies[1]!)] }), { headers: { 'github-authentication-token-expiration': header } });
+    const soon = await copiesReadable(api(expiring('2027-01-01 00:00:00 UTC')).fetch, { source: PRIVATE, tag: '2026-11-13', copies, now });
+    expect(soon.error).toBeUndefined();
+    expect(soon.warning).toMatch(/^The app's token \(UPDATES_READ_TOKEN\) expires on 2027-01-01, in 49 days: /);
+    expect(soon.warning).toMatch(/Set a new one and release with it before then, and revoke the old one later$/);
+    expect(soon.warning).not.toContain(TOKEN);
+    // Far enough, never, or another kind of answer: no warning.
+    expect((await copiesReadable(api(expiring('2028-01-01 00:00:00 UTC')).fetch, { source: PRIVATE, tag: '2026-11-13', copies, now })).warning).toBeUndefined();
+    expect((await copiesReadable(api(both).fetch, { source: PRIVATE, tag: '2026-11-13', copies, now })).warning).toBeUndefined();
+    // The workflow's own token, asked with in place of none, is not the app's.
+    expect((await copiesReadable(api(expiring('2026-11-20 00:00:00 UTC')).fetch, { source: SOURCE, tag: '2026-11-13', copies, token: WORKFLOW, now })).warning).toBeUndefined();
+    // A copy missing, and the token expiring: both said.
+    const both2 = await copiesReadable(
+      api(() => new Response(JSON.stringify({ assets: [uploaded(41, copies[0]!)] }), { headers: { 'github-authentication-token-expiration': '2026-12-01 00:00:00 UTC' } })).fetch,
+      { source: PRIVATE, tag: '2026-11-13', copies, now },
+    );
+    expect(both2.error).toMatch(/does not list/);
+    expect(both2.warning).toMatch(/in 18 days/);
+  });
+
+  it('reads the expiry GitHub gives in UTC or with an offset, and nothing else', () => {
+    const now = new Date('2026-11-13T00:00:00Z');
+    expect(EXPIRY_WARNING_DAYS).toBe(90);
+    expect(expiryWarning('2026-12-13 00:00:00 UTC', now)).toMatch(/expires on 2026-12-13, in 30 days/);
+    expect(expiryWarning('2026-12-13 08:00:00 +0800', now)).toMatch(/expires on 2026-12-13, in 30 days/);
+    expect(expiryWarning('2026-11-01 00:00:00 UTC', now)).toMatch(/in 0 days/);
+    // Up to 90 days ahead.
+    expect(expiryWarning('2027-02-10 00:00:00 UTC', now)).toMatch(/in 89 days/);
+    expect(expiryWarning('2027-02-11 00:00:00 UTC', now)).toBeUndefined();
+    expect(expiryWarning('2027-03-01 00:00:00 UTC', now)).toBeUndefined();
+    for (const header of [null, '', 'never', '2026-12-13', '2026-13-45 00:00:00 UTC', '2026-12-13T00:00:00Z']) expect(expiryWarning(header, now), String(header)).toBeUndefined();
+  });
+
+  it('puts the token into the app encoded, so that no token’s text stands in it, and reads it back', () => {
+    const built = encodeUpdateSource(PRIVATE);
+    expect(built.repo).toBe('acme/relay-updates');
+    expect(JSON.stringify(built)).not.toMatch(/github_pat_/);
+    expect(JSON.stringify(built)).not.toContain(TOKEN);
+    expect(decodeUpdateSource(built)).toEqual(PRIVATE);
+    expect(encodeUpdateSource(SOURCE)).toEqual({ repo: SOURCE.repo });
+    expect(decodeUpdateSource(encodeUpdateSource(SOURCE))).toEqual(SOURCE);
+  });
+
+  it("runs in the Release workflow: the fingerprints before the copies are published, the copies' check after, both before the release", () => {
     const workflow = readFileSync(join(__dirname, '../.github/workflows/release.yml'), 'utf8');
-    const step = workflow.slice(workflow.indexOf('- name: Check that the app can download the copies'), workflow.indexOf('- name: Publish\n'));
-    expect(workflow.indexOf("- name: Publish the copies for the app's updates")).toBeLessThan(workflow.indexOf('- name: Check that the app can download the copies'));
-    expect(step).toContain("import { copiesReadable, sameUpdateSource, updateSourceFrom } from './desktop/src/updateSource.ts';");
-    expect(step).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
-    expect(step).toContain('GH_TOKEN: ${{ github.token }}');
-    expect(step).toContain("sameUpdateSource(built, source.value, readdirSync('installers').length)");
-    expect(step).toContain("size: statSync(join('updates', name)).size");
-    expect(step).toContain('process.exit(1)');
-    // Each build leaves its fingerprint (desktop/scripts/build.ts), which the release job reads.
+    const at = (name: string) => workflow.indexOf(`- name: ${name}`);
+    const refuse = at('Refuse a read token that is the write token');
+    const built = at("Check that the installers were built with this run's update source");
+    const copiesAt = at("Publish the copies for the app's updates");
+    const checked = at('Check that the app can download the copies');
+    const published = workflow.indexOf('- name: Publish\n');
+    expect(refuse).toBeGreaterThan(0);
+    expect(refuse).toBeLessThan(built);
+    expect(built).toBeLessThan(copiesAt);
+    expect(copiesAt).toBeLessThan(checked);
+    expect(checked).toBeLessThan(published);
+    // The read token and the write token compared in the shell alone.
+    const refusing = workflow.slice(refuse, built);
+    expect(refusing).toContain('WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
+    expect(refusing).toContain('READ_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+    expect(refusing).toContain('if [ -n "$READ_TOKEN" ] && [ "$READ_TOKEN" = "$WRITE_TOKEN" ]; then');
+    expect(refusing).not.toContain('node');
+    // Each build's fingerprint (desktop/scripts/build.ts) against this run's, before anything is published.
+    const fingerprints = workflow.slice(built, copiesAt);
+    expect(fingerprints).toContain("import { sameUpdateSource, updateSourceFrom } from './desktop/src/updateSource.ts';");
+    expect(fingerprints).toContain("sameUpdateSource(built, source.value, readdirSync('installers').length)");
+    expect(fingerprints).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
     expect(workflow).toContain('name: update-source-${{ matrix.name }}');
     expect(workflow).toContain('path: ${{ env.BUILD_DIR }}/desktop/build/update-source.txt');
     expect(workflow).toMatch(/pattern: update-source-\*\n\s+path: update-sources\n/);
     const build = readFileSync(join(__dirname, '../desktop/scripts/build.ts'), 'utf8');
     expect(build).toContain("writeFileSync(join(OUT, 'update-source.txt'), `${updateSourceFingerprint(updates.value)}\\n`);");
+    // The copies, as the app has them, with the read token, and a warning when it expires soon.
+    const step = workflow.slice(checked, published);
+    expect(step).toContain("import { copiesReadable, updateSourceFrom } from './desktop/src/updateSource.ts';");
+    expect(step).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
+    expect(step).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(step).toContain("size: statSync(join('updates', name)).size");
+    expect(step).toContain("if (warning) console.log('::warning::' + warning);");
+    expect(step).toContain('process.exit(1)');
   });
 });
 
@@ -719,14 +802,27 @@ describe('downloading an update', () => {
     asked.length = 0;
     await download({ fetch, locate: answers({ status: 200 }), asset: api, to, headers });
     expect(asked).toEqual([{ url: api.url, init: { headers, signal, redirect: 'error' } }]);
-    // The token no longer works, the requests every app shares ran out, GitHub's API fails, or the copy
-    // is not there: the installer itself, without it.
-    for (const status of [401, 403, 404, 429, 500, 502, 503]) {
+    // The token no longer works, the requests every app shares ran out, GitHub's API fails or answers
+    // anything but the file or a redirect, or the copy is not there: the installer itself, without it.
+    for (const status of [400, 401, 403, 404, 410, 422, 429, 451, 500, 502, 503]) {
       asked.length = 0;
       await download({ fetch, locate: answers({ status }), asset: api, to, headers });
       expect(asked, String(status)).toEqual([{ url: api.fallback, init: { signal } }]);
       expect(readFileSync(to)).toEqual(body);
     }
+    // No answer at all where the token went (the network, GitHub's API): the installer too.
+    asked.length = 0;
+    await download({ fetch, locate: async () => Promise.reject(new Error('socket hang up')), asset: api, to, headers });
+    expect(asked).toEqual([{ url: api.fallback, init: { signal } }]);
+    asked.length = 0;
+    const dropping: Fetch = async (url, init) => {
+      asked.push({ url, init });
+      if (url === api.url) throw new Error('socket hang up');
+      return new Response(new Uint8Array(body));
+    };
+    await download({ fetch: dropping, locate: answers({ status: 200 }), asset: api, to, headers });
+    expect(asked.map((a) => a.url)).toEqual([api.url, api.fallback]);
+    expect(asked[1]!.init).toEqual({ signal });
     // Refused where it answered with the file: the installer itself.
     for (const status of [401, 429, 502]) {
       asked.length = 0;
@@ -750,12 +846,84 @@ describe('downloading an update', () => {
     asked.length = 0;
     await download({ fetch, asset: api, to, headers });
     expect(asked).toEqual([{ url: api.fallback, init: { signal } }]);
-    // GitHub failing otherwise, or sending anywhere but HTTPS: nothing fetched.
+    // Sent anywhere but to HTTPS, or nowhere to fall back on: nothing fetched.
     asked.length = 0;
-    expect((await failed(download({ fetch, locate: answers({ status: 400 }), asset: api, to, headers })))?.message).toBe('HTTP 400');
     expect((await failed(download({ fetch, locate: answers({ status: 302, location: 'http://example.com/h' }), asset: api, to, headers })))?.failure).toBe('download');
     expect((await failed(download({ fetch, asset: { ...api, fallback: undefined }, to, headers })))?.failure).toBe('download');
+    expect((await failed(download({ fetch, locate: answers({ status: 401 }), asset: { ...api, fallback: undefined }, to, headers })))?.message).toBe('HTTP 401');
     expect(asked).toEqual([]);
+  });
+
+  it('fetches the installer itself, once and without the token, when the copy does not match its checksum', async () => {
+    const api: UpdateAsset = { ...asset, url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/7', fallback: `${DOWNLOAD}/v/H.dmg` };
+    const headers = downloadHeaders(PRIVATE)!;
+    const asked: { url: string; init?: Parameters<Fetch>[1] }[] = [];
+    // The copy was replaced in its repository (anyone with a write token could): other bytes there.
+    const replaced: Fetch = async (url, init) => {
+      asked.push({ url, init });
+      return new Response(new Uint8Array(url === api.fallback ? body : Buffer.from('something else')));
+    };
+    const to = join(dir, 'replaced.dmg');
+    await download({ fetch: replaced, locate: async () => ({ status: 302, location: 'https://release-assets.githubusercontent.com/x?sig=1' }), asset: api, to, headers });
+    expect(readFileSync(to)).toEqual(body);
+    expect(asked.map((a) => a.url)).toEqual(['https://release-assets.githubusercontent.com/x?sig=1', api.fallback]);
+    expect(asked[1]!.init).toEqual({ signal: expect.any(AbortSignal) });
+    // The installer itself does not match either: given up on, keeping nothing.
+    const wrong = (async () => new Response(new Uint8Array(Buffer.from('something else')))) as Fetch;
+    const bad = join(dir, 'replaced-both.dmg');
+    const err = (await download({ fetch: wrong, asset: { ...asset, fallback: `${DOWNLOAD}/v/H2.dmg` }, to: bad }).catch((e: unknown) => e)) as UpdateError;
+    expect(err.failure).toBe('checksum');
+    expect(existsSync(bad)).toBe(false);
+    expect(existsSync(`${bad}.part`)).toBe(false);
+    // Nothing to fall back on, or already the installer: once only.
+    let tries = 0;
+    const counting: Fetch = async () => {
+      tries++;
+      return new Response(new Uint8Array(Buffer.from('something else')));
+    };
+    await download({ fetch: counting, asset, to }).catch(() => undefined);
+    expect(tries).toBe(1);
+    tries = 0;
+    await download({ fetch: counting, asset: { ...asset, fallback: asset.url }, to }).catch(() => undefined);
+    expect(tries).toBe(1);
+  });
+
+  it('downloads an update as the app was built to: the copy as found from a public repository, through the API with the token from a private one', async () => {
+    const release = parseRelease(githubRelease('2026-11-12'), PRIVATE)!;
+    const copy = { ...release.assets.mac!, size: body.length, sha256: sha(body) };
+    const asked: { url: string; init?: Parameters<Fetch>[1] }[] = [];
+    const fetch: Fetch = async (url, init) => {
+      asked.push({ url, init });
+      if (url.endsWith('/releases/tags/2026-11-12')) return new Response(JSON.stringify({ assets: [{ id: 77, name: 'Harness-Relay-2026-11-12-mac-arm64-update.dmg' }] }));
+      return new Response(new Uint8Array(body));
+    };
+    const located: { url: string; headers?: Record<string, string> }[] = [];
+    const locate: Locate = async (url, _signal, h) => {
+      located.push({ url, headers: h });
+      return { status: 302, location: 'https://release-assets.githubusercontent.com/x?sig=1' };
+    };
+    const to = join(dir, 'update-private.dmg');
+    await downloadUpdate({ fetch, locate, source: PRIVATE, tag: '2026-11-12', asset: copy, to });
+    expect(readFileSync(to)).toEqual(body);
+    expect(asked.map((a) => a.url)).toEqual(['https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-12', 'https://release-assets.githubusercontent.com/x?sig=1']);
+    expect(located).toEqual([{ url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/77', headers: downloadHeaders(PRIVATE) }]);
+    expect(asked[1]!.init?.headers).toBeUndefined();
+    // A public repository: no question, the copy on github.com, with no headers anywhere.
+    asked.length = 0;
+    const open = parse(githubRelease('2026-11-12'))!.assets.mac!;
+    await downloadUpdate({ fetch, source: SOURCE, tag: '2026-11-12', asset: { ...open, size: body.length, sha256: sha(body) }, to });
+    expect(asked).toEqual([{ url: open.url, init: { signal: expect.any(AbortSignal) } }]);
+  });
+
+  it("is wired in the app's main process through downloadUpdate alone, from the source the build encoded, with the headers set where it locates", () => {
+    const main = readFileSync(join(__dirname, '../desktop/src/main.ts'), 'utf8');
+    expect(main).toContain('const UPDATE_SOURCE = decodeUpdateSource(__RELAY_UPDATE_SOURCE__);');
+    expect(main).toContain('source: UPDATE_SOURCE,');
+    expect(main.match(/await downloadUpdate\(\{ \.\.\.fromGitHub, to: (downloaded|installer) \}\)/g)).toHaveLength(2);
+    // Never the pieces by themselves, which could take an asset without its headers or the other way round.
+    expect(main).not.toMatch(/\b(download|copyToDownload)\(/);
+    expect(main).toContain('for (const [name, value] of Object.entries(headers ?? {})) req.setHeader(name, value);');
+    expect(main).toContain("const req = net.request({ url, redirect: 'manual', cache: 'no-store' });");
   });
 
   it('saves the file once its checksum matches, telling how far it got', async () => {

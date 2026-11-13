@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { DESKTOP_ICONS, encodePngRgba, rasterizeIcon } from '../src/icons';
 import { appManifest } from '../src/manifest';
-import { updateSourceFingerprint, updateSourceFrom } from '../src/updateSource';
+import { encodeUpdateSource, updateSourceFingerprint, updateSourceFrom } from '../src/updateSource';
 import { devVersion, parseVersion, RELEASE_TIME_ZONE, semverOf, todayIn } from '../../scripts/release';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -139,8 +139,8 @@ await build({
   target: TARGET,
   external: ['electron'],
   // import.meta.url: scripts/release.ts (version rules) checks it to run as a script, never true in the app.
-  // Where it downloads its updates from (main.ts), the token included.
-  define: { __RELAY_VERSION__: JSON.stringify(version.shown), __RELAY_UPDATE_SOURCE__: JSON.stringify(updates.value), 'import.meta.url': 'undefined' },
+  // Where it downloads its updates from (main.ts), the token included, encoded (updateSource.ts).
+  define: { __RELAY_VERSION__: JSON.stringify(version.shown), __RELAY_UPDATE_SOURCE__: JSON.stringify(encodeUpdateSource(updates.value)), 'import.meta.url': 'undefined' },
   legalComments: 'none',
   logLevel: 'warning',
 });

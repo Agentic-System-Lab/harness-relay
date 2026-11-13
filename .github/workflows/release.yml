@@ -155,7 +155,8 @@ jobs:
       # copies are published in below (the UPDATES_REPO variable, else UPDATES_REPO in
       # site/assets/downloads.js), with the UPDATES_READ_TOKEN secret when it is set, for a private one.
       # The token goes into every installer, where anyone can read it: it may read that repository's
-      # contents and nothing else (docs/developer-guide.md, "Releasing"). This step alone gets it.
+      # contents and nothing else (docs/developer-guide.md, "Releasing"). In this job, this step alone
+      # gets it (the release job's checks below get it too).
       - name: Build the desktop app
         env:
           RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
@@ -298,6 +299,39 @@ jobs:
           }"
           ls -l updates
 
+      # The read token goes into every installer, where anyone can read it: never the write token. The
+      # likeliest slip is the same token set as both; with it, anyone could replace the copies. Compared
+      # in the shell alone, with nothing else run here.
+      - name: Refuse a read token that is the write token
+        env:
+          WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}
+          READ_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
+        run: |
+          if [ -n "$READ_TOKEN" ] && [ "$READ_TOKEN" = "$WRITE_TOKEN" ]; then
+            echo "::error::UPDATES_READ_TOKEN is the same token as UPDATES_TOKEN, which may write to the copies' repository, and it goes into every installer: set a token that may only read it (docs/developer-guide.md, \"Releasing\"), then run the whole workflow again (Re-run all jobs)."
+            exit 1
+          fi
+
+      # Every installer was built with this run's variable and secret (desktop/src/updateSource.ts,
+      # sameUpdateSource): "Re-run failed jobs" builds nothing again that built before, so one changed
+      # since would be checked below and not be in them. Before the copies are published, from the
+      # fingerprints the builds left, which name neither the repository nor the token.
+      - name: Check that the installers were built with this run's update source
+        env:
+          RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
+          RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
+        run: |
+          node --input-type=module -e "
+          import { readdirSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { sameUpdateSource, updateSourceFrom } from './desktop/src/updateSource.ts';
+          const source = updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN: process.env.RELAY_UPDATES_TOKEN });
+          if (!source.ok) { console.error('::error::' + source.error); process.exit(1); }
+          const built = readdirSync('update-sources', { recursive: true }).filter((f) => f.endsWith('update-source.txt')).map((f) => readFileSync(join('update-sources', f), 'utf8'));
+          const changed = sameUpdateSource(built, source.value, readdirSync('installers').length);
+          if (changed) { console.error('::error::' + changed); process.exit(1); }
+          console.log('The ' + built.length + ' installers were built with this run\'s update source.');"
+
       # Before the release, so that no app is offered it before its copies are there (it would download
       # the installer itself, counted as a new install). Under the same tag in the repository the app
       # downloads them from, the one the build named (RELAY_UPDATES_REPO: the UPDATES_REPO variable,
@@ -331,15 +365,13 @@ jobs:
             gh release create "$TAG" updates/* --repo "$repo" --title "$TITLE" --notes "$notes" "${channel[@]}"
           fi
 
-      # An app downloads the copies as it was built to (desktop/src/updateSource.ts): checked here,
-      # so that a read token missing, expired, waiting for an organization's approval or without
-      # access to that repository stops the release before it is published, instead of every update
-      # quietly counting as a new install. First, that every installer was built with this run's
-      # variable and secret (sameUpdateSource: "Re-run failed jobs" builds nothing again, so one
-      # changed since would be checked here and not be in them); then, that the copies can be had as
-      # the app has them (copiesReadable): with the read token, else, as the app then downloads from
-      # github.com without one, with this job's own token in its place, which reads a public
-      # repository and no other's private one.
+      # An app downloads the copies as it was built to (desktop/src/updateSource.ts, copiesReadable):
+      # checked here, so that a read token missing, expired, waiting for an organization's approval or
+      # without access to that repository stops the release before it is published, instead of every
+      # update quietly counting as a new install. Each copy must be listed whole where the app will ask
+      # for it (nothing is downloaded, so no download is counted): with the read token, else, as the app
+      # then downloads from github.com without one, with this job's own token in its place, which reads
+      # a public repository and no other's private one. A read token that expires soon is warned about.
       - name: Check that the app can download the copies
         env:
           GH_TOKEN: ${{ github.token }}
@@ -348,16 +380,14 @@ jobs:
           TAG: ${{ needs.check.outputs.tag }}
         run: |
           node --input-type=module -e "
-          import { readdirSync, readFileSync, statSync } from 'node:fs';
+          import { readdirSync, statSync } from 'node:fs';
           import { join } from 'node:path';
-          import { copiesReadable, sameUpdateSource, updateSourceFrom } from './desktop/src/updateSource.ts';
+          import { copiesReadable, updateSourceFrom } from './desktop/src/updateSource.ts';
           const source = updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN: process.env.RELAY_UPDATES_TOKEN });
           if (!source.ok) { console.error('::error::' + source.error); process.exit(1); }
-          const built = readdirSync('update-sources', { recursive: true }).filter((f) => f.endsWith('update-source.txt')).map((f) => readFileSync(join('update-sources', f), 'utf8'));
-          const changed = sameUpdateSource(built, source.value, readdirSync('installers').length);
-          if (changed) { console.error('::error::' + changed); process.exit(1); }
           const copies = readdirSync('updates').map((name) => ({ name, size: statSync(join('updates', name)).size }));
-          const error = await copiesReadable(fetch, { source: source.value, tag: process.env.TAG, copies, token: process.env.GH_TOKEN });
+          const { error, warning } = await copiesReadable(fetch, { source: source.value, tag: process.env.TAG, copies, token: process.env.GH_TOKEN });
+          if (warning) console.log('::warning::' + warning);
           if (error) { console.error('::error::' + error); process.exit(1); }
           console.log('An app built with ' + (source.value.token ? 'the read token' : 'no token') + ' can download the ' + copies.length + ' copies from ' + source.value.repo + '.');"
 

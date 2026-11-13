@@ -25,7 +25,7 @@ Run them from the repository's root.
 | `npm run desktop:dist` | The same, then make the installer for this system in `desktop/release/` (`.dmg`, `.exe`, `.AppImage`; not signed for distribution); `-- --output <folder>` puts it elsewhere |
 | `npm run desktop:typecheck` | Typecheck the app (`desktop/tsconfig.json`) |
 | `npx tsx desktop/scripts/smoke.ts` | Run the bundled server the way the app does, with plain Node standing in for Electron, and check what the app needs of it, a question answered by the e2e fake CLIs included |
-| `npx tsx desktop/scripts/check-package.ts` | Check the packaged app in `desktop/release/` as a release is checked: its fuses, its resources, no GitHub token in the server's files, and its own `--smoke-test`, in which the e2e fake CLIs answer a question (on Linux, under `xvfb-run`) |
+| `npx tsx desktop/scripts/check-package.ts` | Check the packaged app in `desktop/release/` as a release is checked: its fuses, its resources, no GitHub token in the server's files nor as text in the app's, and its own `--smoke-test`, in which the e2e fake CLIs answer a question (on Linux, under `xvfb-run`) |
 
 `npm run desktop:dist` refuses to start while a Harness Relay runs from `desktop/release/`: quit it first, or build with `-- --output <folder>`. To try a build apart from your own data, see "To try it apart from your own data" in the [developer guide](../docs/developer-guide.md#the-desktop-app).
 

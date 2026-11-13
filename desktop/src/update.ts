@@ -459,7 +459,20 @@ export type Locate = (url: string, signal: AbortSignal, headers?: Record<string,
  * nor the fallback gets them. `onProgress` gets the share done, from 0 to 1. Given up on after
  * `stallMs` without a byte (DOWNLOAD_STALL_MS).
  */
-export async function download(o: {
+export async function download(o: DownloadOptions): Promise<void> {
+  try {
+    await downloadOnce(o);
+  } catch (err) {
+    // A copy that is not the installer (replaced in its repository, or broken on the way): the installer
+    // itself, once, without the token, checked against the same SHA-256.
+    const { fallback } = o.asset;
+    if (!(err instanceof UpdateError) || err.failure !== 'checksum' || !o.asset.sha256 || !fallback || fallback === o.asset.url) throw err;
+    await downloadOnce({ ...o, asset: { ...o.asset, url: fallback, fallback: undefined }, headers: undefined });
+  }
+}
+
+/** What `download` takes. */
+export interface DownloadOptions {
   fetch: Fetch;
   asset: UpdateAsset;
   to: string;
@@ -469,7 +482,22 @@ export async function download(o: {
   locate?: Locate;
   minPart?: number;
   headers?: Record<string, string>;
-}): Promise<void> {
+}
+
+/**
+ * Downloads `asset` of the release tagged `tag` for an update, as the app was built to (`source`): its
+ * copy found with the token for a private copies' repository (`copyToDownload`, given up on after
+ * `lookupSignal`), then `download` with what that found, so that an asset and its headers always go
+ * together. What main.ts calls.
+ */
+export async function downloadUpdate(o: Omit<DownloadOptions, 'headers'> & { source: UpdateSource; tag: string; lookupSignal?: AbortSignal }): Promise<void> {
+  const { source, tag, lookupSignal, ...rest } = o;
+  const from = await copyToDownload(o.fetch, source, tag, o.asset, lookupSignal);
+  await download({ ...rest, asset: from.asset, headers: from.headers });
+}
+
+/** One download of `asset`, checked against its SHA-256 (`download`). */
+async function downloadOnce(o: DownloadOptions): Promise<void> {
   if (!o.asset.sha256) throw new UpdateError('checksum', 'no checksum');
   const part = `${o.to}.part`;
   rmSync(part, { force: true });
@@ -589,12 +617,27 @@ async function sha256Of(file: string): Promise<string> {
 
 /**
  * Whether GitHub has nothing for us at an address (404), or, asked with the token (`authorized`), will
- * not give it (401, 403: expired or revoked; 403, 429: out of requests, which every installed app shares;
- * 5xx: its API failing): the installer itself is then fetched, the same file, from where no token is
- * needed. Without the token, any answer but 404 is GitHub's to fix, as before.
+ * not give it: any answer but the file or a redirect to it (401, 403: expired or revoked; 403, 429: out
+ * of requests, which every installed app shares; 5xx: its API failing; 0: no answer, `locateWithToken`).
+ * The installer itself is then fetched, the same file, checked by the same SHA-256, from where no token
+ * is needed. Without the token, any answer but 404 is GitHub's to fix, as before.
  */
 function unavailable(status: number, authorized: boolean): boolean {
-  return status === 404 || (authorized && (status === 401 || status === 403 || status === 429 || status >= 500));
+  return status === 404 || (authorized && !(status >= 200 && status < 400));
+}
+
+/**
+ * `locate(url)` asked with the token: no answer at all (the network, GitHub's API) counts as one that
+ * is `unavailable` (status 0), so that the installer is fetched instead, unless the download itself was
+ * given up on (`signal`).
+ */
+async function locateWithToken(locate: Locate, url: string, signal: AbortSignal, headers: Record<string, string>): Promise<{ status: number; location?: string }> {
+  try {
+    return await locate(url, signal, headers);
+  } catch (err) {
+    if (signal.aborted) throw err;
+    return { status: 0 };
+  }
 }
 
 /**
@@ -633,14 +676,23 @@ async function whole(o: {
   // Where the file is asked for, and with what: the headers at the asset's own address alone.
   let target: { url: string; headers?: Record<string, string> } | undefined = { url: o.url };
   if (o.headers) {
-    const found = o.locate ? await o.locate(o.url, signal, o.headers) : undefined;
+    const found = o.locate ? await locateWithToken(o.locate, o.url, signal, o.headers) : undefined;
+    if (found && unavailable(found.status, true) && !o.fallback) throw new UpdateError('download', found.status ? `HTTP ${found.status}` : 'no answer');
     if (!found || unavailable(found.status, true)) target = undefined;
     else {
       const at = addressFrom(found, o.url);
       target = at === o.url ? { url: at, headers: o.headers } : { url: at };
     }
   }
-  let res = target ? await o.fetch(target.url, target.headers ? { headers: target.headers, signal, redirect: 'error' } : { signal }) : undefined;
+  let res: Response | undefined;
+  if (target) {
+    try {
+      res = await o.fetch(target.url, target.headers ? { headers: target.headers, signal, redirect: 'error' } : { signal });
+    } catch (err) {
+      // No answer where the token went (GitHub's API answering with the file itself): the installer, as below.
+      if (!target.headers || !o.fallback || signal.aborted) throw err;
+    }
+  }
   // Its copy for updates cannot be had (a release published before the copies, its repository gone, the
   // token expired): the installer itself.
   if ((!res || unavailable(res.status, !!target?.headers)) && o.fallback) {
@@ -714,7 +766,7 @@ async function inParts(o: {
   const { size, stall } = o;
   let source = o.asset.url;
   let headers = o.headers;
-  let found = await o.locate(source, stall.signal, headers);
+  let found = headers ? await locateWithToken(o.locate, source, stall.signal, headers) : await o.locate(source, stall.signal, headers);
   // Its copy for updates cannot be had (a release published before the copies, its repository gone, the
   // token expired): the installer itself, without the token.
   if (unavailable(found.status, !!headers) && o.asset.fallback) {
@@ -741,7 +793,7 @@ async function inParts(o: {
    * same file, checked by its SHA-256 at the end.
    */
   const relocate = () => {
-    relocating ??= o.locate(source, stop, headers).then(
+    relocating ??= (headers ? locateWithToken(o.locate, source, stop, headers) : o.locate(source, stop, headers)).then(
       async (f) => {
         if (headers && unavailable(f.status, true) && o.asset.fallback) {
           source = o.asset.fallback;
