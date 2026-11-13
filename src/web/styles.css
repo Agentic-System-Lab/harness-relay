@@ -4664,13 +4664,36 @@ details.sub summary {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  /* Never taller than the screen: a long step scrolls in its body, the footer stays at the bottom. */
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+
+.tour-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 20px 10px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* Long steps scroll inside the card on short screens. */
-  max-height: calc(100dvh - 32px);
-  overflow-y: auto;
+}
+
+.tour-foot {
+  flex: none;
+  padding: 2px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* A line between the step's text and the footer, while the text scrolls under it. */
+.tour-foot.scrolls {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
 }
 
 .tour-card.centered {

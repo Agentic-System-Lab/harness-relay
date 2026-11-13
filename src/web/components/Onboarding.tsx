@@ -96,7 +96,10 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   const [i, setI] = useState(0);
   const [box, setBox] = useState<Box | null>(null);
   const [cardHeight, setCardHeight] = useState(240);
+  /** The step's text is taller than the card has room for: it scrolls, above the footer. */
+  const [scrolls, setScrolls] = useState(false);
   const card = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const primary = useRef<HTMLButtonElement>(null);
   const step = steps[i]!;
   const last = i === steps.length - 1;
@@ -116,6 +119,17 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
 
   useLayoutEffect(() => {
     if (card.current) setCardHeight(card.current.offsetHeight);
+  }, [i, box, t]);
+
+  // Each step starts at its top; whether its text scrolls (the line above the footer) follows the window's size.
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    const update = () => setScrolls(el.scrollHeight > el.clientHeight + 1);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
   }, [i, box, t]);
 
   useEffect(() => primary.current?.focus(), [i]);
@@ -141,43 +155,48 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
         className={`tour-card ${pos ? 'anchored' : 'centered'}`}
         style={pos ? { top: pos.top, left: pos.left, width: CARD_WIDTH } : undefined}
       >
-        <div className="tour-top">
-          <span className="tour-label">{t.tour.label}</span>
-          <span className="tour-count">{t.tour.step(i + 1, steps.length)}</span>
+        {/* The step scrolls when it is taller than the screen allows; the dots and buttons stay below it. */}
+        <div ref={body} className="tour-body">
+          <div className="tour-top">
+            <span className="tour-label">{t.tour.label}</span>
+            <span className="tour-count">{t.tour.step(i + 1, steps.length)}</span>
+          </div>
+          <h2 id="tour-title">{step.title}</h2>
+          <p>{step.body}</p>
+          {step.points && (
+            <ul>
+              {step.points.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          )}
         </div>
-        <h2 id="tour-title">{step.title}</h2>
-        <p>{step.body}</p>
-        {step.points && (
-          <ul>
-            {step.points.map((p) => (
-              <li key={p}>{p}</li>
+        <div className={`tour-foot ${scrolls ? 'scrolls' : ''}`}>
+          <div className="tour-dots" aria-hidden>
+            {steps.map((_, n) => (
+              <i key={n} className={n === i ? 'on' : ''} />
             ))}
-          </ul>
-        )}
-        <div className="tour-dots" aria-hidden>
-          {steps.map((_, n) => (
-            <i key={n} className={n === i ? 'on' : ''} />
-          ))}
-        </div>
-        <div className="tour-actions">
-          {!last && (
-            <button type="button" className="link-button tour-skip" onClick={finish}>
-              {t.tour.skip}
+          </div>
+          <div className="tour-actions">
+            {!last && (
+              <button type="button" className="link-button tour-skip" onClick={finish}>
+                {t.tour.skip}
+              </button>
+            )}
+            {i > 0 && (
+              <button type="button" className="ghost small-button" onClick={() => setI(i - 1)}>
+                {t.tour.back}
+              </button>
+            )}
+            <button
+              ref={primary}
+              type="button"
+              className="primary small-button"
+              onClick={() => (last ? finish() : setI(i + 1))}
+            >
+              {last ? t.tour.done : t.tour.next}
             </button>
-          )}
-          {i > 0 && (
-            <button type="button" className="ghost small-button" onClick={() => setI(i - 1)}>
-              {t.tour.back}
-            </button>
-          )}
-          <button
-            ref={primary}
-            type="button"
-            className="primary small-button"
-            onClick={() => (last ? finish() : setI(i + 1))}
-          >
-            {last ? t.tour.done : t.tour.next}
-          </button>
+          </div>
         </div>
       </div>
     </div>
