@@ -532,7 +532,8 @@ async function answeredWithin<T>(ms: number, signal: AbortSignal, ask: (signal: 
  * mirror, or for a file that is not an installer.
  */
 export function mirrorAsset(mirror: string | undefined, tag: string, asset: UpdateAsset): UpdateAsset | undefined {
-  const url = mirrorCopyUrl(tag, asset.name, mirror);
+  // No mirror given is none: never mirrorCopyUrl's own default (MIRROR), which `undefined` would take.
+  const url = mirrorCopyUrl(tag, asset.name, mirror ?? '');
   return url ? { name: asset.name, url, size: asset.size, sha256: asset.sha256 } : undefined;
 }
 

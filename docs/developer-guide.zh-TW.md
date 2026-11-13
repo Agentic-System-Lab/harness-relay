@@ -827,7 +827,7 @@ gh api repos/Agentic-System-Lab/harness-relay/releases --paginate --jq '.[] | .t
 gh api repos/<owner>/<name>/releases --paginate --jq '.[] | .tag_name as $t | .assets[] | "\($t)\t\(.name)\t\(.download_count)"'   # 副本的 repository
 ```
 
-**下載鏡像。** 在世界上某些地方，從 GitHub 下載很慢：從台灣，它的 CDN 送安裝檔大約只有 0.25 MB/s（130 MB 的安裝檔要 8 到 9 分鐘），而 Cloudflare 的網路有 40 MB/s。所以網站的下載按鈕可以改指向鏡像：R2 bucket（`harness-relay-downloads`）前面的 Cloudflare Worker（[`mirror/worker.ts`](../mirror/worker.ts)），路徑跟 GitHub 一樣是 `/<tag>/<檔名>`，它的網址就是 `site/assets/downloads.js` 裡的 `MIRROR`（空的：沒有鏡像，按鈕指向 GitHub）。
+**下載鏡像。** 在世界上某些地方，從 GitHub 下載很慢：從台灣（HiNet 的線路），它的 CDN 單條連線送安裝檔大約只有 0.25 MB/s（130 MB 的安裝檔要 8 到 9 分鐘），六條連線 1.5 MB/s，而鏡像單條連線有 7 到 10 MB/s，六條 5 到 10 MB/s。所以網站的下載按鈕與 app 的更新可以改用鏡像：R2 bucket（`harness-relay-mirror`）前面的 Cloudflare Worker（[`mirror/worker.ts`](../mirror/worker.ts)，`harness-relay-downloads`），路徑跟 GitHub 一樣是 `/<tag>/<檔名>`，它的網址就是 `site/assets/downloads.js` 裡的 `MIRROR`（空的：沒有鏡像，按鈕指向 GitHub）。
 
 - **它提供什麼。** 只有一個正式版本的五個安裝檔（`Harness-Relay-<tag>` 加上 `INSTALLERS` 的某個結尾；bucket 裡的其他東西都不提供），以下載存檔的方式提供，整個檔案或一段位元組範圍（續傳、`If-Range`），只接受 `GET` 與 `HEAD`；另外也用每個安裝檔給 app 更新用的副本檔名（`UPDATE_INSTALLERS` 的結尾）提供，在 bucket 裡是同一個檔案。bucket 裡沒有的安裝檔（較舊、已從 bucket 移除的版本），或 bucket 給不出來時（Worker 還在、R2 出問題），會轉址到 GitHub。
 - **在 GitHub 上計數。** 它自己送出的每次下載（整個檔案的 `GET`，或從第一個位元組開始的一段；續傳或後面的段落、`HEAD` 與 `304` 都不算），Worker 都會在回應開始之後（`waitUntil`）像從 GitHub 下載那樣，向 GitHub 要安裝檔的第一個位元組（`Range: bytes=0-0`，跟隨轉址到 GitHub 的 CDN，帶訪客的 user agent）。所以 GitHub 會像算從 GitHub 下載一樣算它，上面的次數仍然完整；連不上 GitHub 時這次就沒有算到，但訪客還是拿得到檔案。
@@ -837,7 +837,7 @@ gh api repos/<owner>/<name>/releases --paginate --jq '.[] | .tag_name as $t | .a
 
 設定一次即可，需要 Cloudflare 帳號（R2 需要先登錄付款方式，不過這樣的用量在免費額度內：上面的儲存空間、下載流量不收費、每月一千萬次讀取）：
 
-1. 在 Cloudflare 主控台 **R2 → Create bucket**，命名為 `harness-relay-downloads`（`mirror/wrangler.toml` 的 `bucket_name`、workflow 的 `MIRROR_BUCKET`）。位置選大多數訪客所在、GitHub 最慢的區域（台灣選 Asia-Pacific）。
+1. 在 Cloudflare 主控台 **R2 → Create bucket**，命名為 `harness-relay-mirror`（`mirror/wrangler.toml` 的 `bucket_name`、workflow 的 `MIRROR_BUCKET`），或執行 `npx wrangler r2 bucket create harness-relay-mirror --location wnam`。位置選 **Western North America**：Cloudflare 的免費方案從聖荷西服務台灣 HiNet 線路上的 Worker（`cf-ray` 結尾是 `SJC`，而它自己的測速網站從台北服務），從那裡讀美西的 bucket，單條連線跟 Asia-Pacific 的差不多快，六條連線（app 的更新）快兩到三倍。bucket 的位置在它的名稱第一次建立時就決定了：刪掉再用同一個名字建立，會沿用原本的位置，所以要換位置就得換名字。
 2. 部署 Worker：`npx wrangler login`，再 `npx wrangler deploy --config mirror/wrangler.toml`。它會印出網址 `https://harness-relay-downloads.<subdomain>.workers.dev`（也可以改用自訂網域，設成 route）。改了 `mirror/worker.ts`，或改了它從 `site/assets/downloads.js` 匯入的名稱（`INSTALLERS`、`UPDATE_INSTALLERS`）之後，要再部署一次。
 3. **R2 → Manage API tokens → Create API token**：**Object Read & Write**，只給那個 bucket。把它的 access key ID、secret access key，以及它顯示的帳號 S3 位址（`https://<account id>.r2.cloudflarestorage.com`）設好：`gh secret set MIRROR_ACCESS_KEY_ID --repo Agentic-System-Lab/harness-relay`、`gh secret set MIRROR_SECRET_ACCESS_KEY --repo Agentic-System-Lab/harness-relay`（都會詢問值），以及 `gh variable set MIRROR_ENDPOINT --body https://<account id>.r2.cloudflarestorage.com --repo Agentic-System-Lab/harness-relay`。
 4. 把 Worker 的網址填進 `site/assets/downloads.js` 的 `MIRROR` 並 commit：Pages workflow 會用它發佈網站，下一個正式版本的執行會上傳它的安裝檔。從那之後建置的 app 會從鏡像下載更新（從它們更新到下一個版本開始）。在鏡像上還沒有任何版本之前，網站維持 GitHub 的連結（鏡像會說它沒有）。`MIRROR` 有設定，但缺少 secret 或變數時，正式版本的執行會在發佈任何東西之前停下。

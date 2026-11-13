@@ -34,7 +34,7 @@ env:
   # scripts/release.ts).
   RELEASE_TIME_ZONE: Asia/Taipei
   # The download mirror's R2 bucket (bucket_name in mirror/wrangler.toml).
-  MIRROR_BUCKET: harness-relay-downloads
+  MIRROR_BUCKET: harness-relay-mirror
 
 defaults:
   run:

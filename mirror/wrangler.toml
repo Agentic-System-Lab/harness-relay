@@ -10,9 +10,11 @@ compatibility_date = "2026-07-01"
 workers_dev = true
 preview_urls = false
 
+# In Western North America (WNAM): Cloudflare served the Worker to a HiNet connection in Taiwan from
+# San Jose, where this bucket read faster than one in Asia-Pacific (docs/developer-guide.md, "Releasing").
 [[r2_buckets]]
 binding = "BUCKET"
-bucket_name = "harness-relay-downloads"
+bucket_name = "harness-relay-mirror"
 
 [observability]
 enabled = true

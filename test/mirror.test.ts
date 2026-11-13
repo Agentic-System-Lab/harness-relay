@@ -262,9 +262,9 @@ describe('the download mirror', () => {
     expect(typeof worker.fetch).toBe('function');
     const config = readFileSync('mirror/wrangler.toml', 'utf8');
     expect(config).toMatch(/^main = "worker\.ts"$/m);
-    expect(config).toMatch(/^\[\[r2_buckets\]\]\nbinding = "BUCKET"\nbucket_name = "harness-relay-downloads"$/m);
+    expect(config).toMatch(/^\[\[r2_buckets\]\]\nbinding = "BUCKET"\nbucket_name = "harness-relay-mirror"$/m);
     const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
-    expect(workflow).toMatch(/^ {2}MIRROR_BUCKET: harness-relay-downloads$/m);
+    expect(workflow).toMatch(/^ {2}MIRROR_BUCKET: harness-relay-mirror$/m);
     // The website's mirror is none, or an https origin the workflow can upload to.
     expect(MIRROR === '' || isMirror(MIRROR)).toBe(true);
   });

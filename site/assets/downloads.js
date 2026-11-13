@@ -103,14 +103,14 @@ export function isInstallerUrl(url) {
 /**
  * The download mirror the buttons point at, when there is one: a Cloudflare Worker in front of an R2
  * bucket that holds the newest releases' installers (mirror/worker.ts), at /<tag>/<file> as on GitHub.
- * GitHub's own downloads are slow in parts of the world (some 0.25 MB/s in Taiwan, where Cloudflare
- * gives 40 MB/s). The Release workflow uploads each release's installers there before it publishes the
+ * GitHub's own downloads are slow in parts of the world (some 0.25 MB/s on one connection in Taiwan,
+ * where the mirror gave 7 to 10 MB/s). The Release workflow uploads each release's installers there before it publishes the
  * release, and for each download it serves the mirror asks GitHub for the installer's first byte, as
  * a download there would, so that GitHub's download counts still count it. The desktop app, built with
  * this module, downloads its updates from there first too (`mirrorCopyUrl`). Empty: no mirror, and the
  * buttons point at GitHub. An https origin, with no path (docs/developer-guide.md, "Releasing").
  */
-export const MIRROR = '';
+export const MIRROR = 'https://harness-relay-downloads.chihyu-jimmy-yeh.workers.dev';
 
 /** Whether `mirror` is a mirror's address: an https origin as written, no user name, port or path. */
 export function isMirror(mirror) {
