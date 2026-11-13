@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { INSTALLERS, UPDATE_INSTALLERS, UPDATES_REPO, updateCopyName, installersOf, isCandidate, isInstallerUrl, newestRelease, processorHints, RELEASES_PAGE, STORAGE_KEY, systemOf, wire, wordKey } from '../site/assets/downloads.js';
+import { INSTALLERS, UPDATE_INSTALLERS, UPDATES_REPO, updateCopyName, updateCopyUrl, installersOf, isCandidate, isInstallerUrl, newestRelease, processorHints, RELEASES_PAGE, STORAGE_KEY, systemOf, wire, wordKey } from '../site/assets/downloads.js';
 
 const UA = {
   mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
@@ -191,6 +191,18 @@ describe('the download buttons and the Release workflow', () => {
     expect(updateCopyName(undefined)).toBeUndefined();
     // Published under the same tag in a repository of their own, so that the release page lists the installers alone.
     expect(UPDATES_REPO).toBe('Agentic-System-Lab/harness-relay-updates');
+    expect(updateCopyUrl('2026-11-12-rc.1', 'Harness-Relay-2026-11-12-rc.1-linux-arm64.AppImage')).toBe(
+      'https://github.com/Agentic-System-Lab/harness-relay-updates/releases/download/2026-11-12-rc.1/Harness-Relay-2026-11-12-rc.1-linux-arm64-update.AppImage',
+    );
+    expect(updateCopyUrl('2026-11-12', 'notes.txt')).toBeUndefined();
+    expect(updateCopyUrl('2026-11-12', 'Harness-Relay-2026-11-12-mac-arm64-update.dmg')).toBeUndefined();
+    for (const tag of ['..', '.', 'a/b', '', 'x?y', undefined]) expect(updateCopyUrl(tag, 'Harness-Relay-2026-11-12-mac-arm64.dmg'), String(tag)).toBeUndefined();
+    expect(updateCopyUrl('2026-11-12', '../Harness-Relay-2026-11-12-mac-arm64.dmg')).toBeUndefined();
+    // In another repository, when the app was built to download its updates from one (RELAY_UPDATES_REPO).
+    expect(updateCopyUrl('2026-11-12', 'Harness-Relay-2026-11-12-win-x64.exe', 'acme/relay-updates')).toBe(
+      'https://github.com/acme/relay-updates/releases/download/2026-11-12/Harness-Relay-2026-11-12-win-x64-update.exe',
+    );
+    for (const repo of ['acme', 'acme/u/x', '../u', 'acme/u?x', '', 42]) expect(updateCopyUrl('2026-11-12', 'Harness-Relay-2026-11-12-win-x64.exe', repo), String(repo)).toBeUndefined();
     expect(workflow).toMatch(/target: --mac dmg --arm64/);
     expect(workflow).toMatch(/target: --win nsis --x64/);
     expect(workflow).toMatch(/target: --linux AppImage --x64/);

@@ -961,15 +961,11 @@ describe('the release workflow', () => {
     expect(copies).toBeGreaterThan(copied);
     expect(published).toBeGreaterThan(copies);
     const step = release.slice(copies, published);
-    // In the repository the app updates from: the one the build named, read as the build reads it.
+    // In the repository the app downloads them from: the one the build named, read as the build reads it.
     expect(step).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
     expect(step).toContain("import { updateSourceFrom } from './desktop/src/updateSource.ts';");
     expect(step).toContain('updateSourceFrom({ RELAY_UPDATES_REPO: process.env.RELAY_UPDATES_REPO })');
     expect(step).toContain('gh release create "$TAG" updates/* --repo "$repo"');
-    // Their notes list the release's changes too: an app's Release notes open their page.
-    expect(step).toContain('cat "$RUNNER_TEMP/changes.md" >> "$RUNNER_TEMP/copies.md"');
-    expect(step).toContain('--notes-file "$RUNNER_TEMP/copies.md"');
-    expect(release.indexOf('- name: List the changes since the version before')).toBeLessThan(copies);
     // Tried again: the copies uploaded again over the ones there.
     expect(step).toContain('gh release upload "$TAG" updates/* --repo "$repo" --clobber');
     expect(step).toContain('The UPDATES_TOKEN secret is not set');
@@ -982,7 +978,7 @@ describe('the release workflow', () => {
     const release = job('release');
     const copies = release.slice(release.indexOf("- name: Publish the copies for the app's updates"), release.indexOf('- name: Publish\n'));
     expect(copies).toContain('GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
-    // The app's build, given where it updates from (the same variable the copies follow) and the token it reads it with.
+    // The app's build, given where it downloads its updates from (the same variable the copies follow) and the token it downloads them with.
     const build = job('build');
     const step = build.slice(build.indexOf('- name: Build the desktop app'), build.indexOf('- name: Run the bundled server as the desktop app does'));
     expect(step).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');

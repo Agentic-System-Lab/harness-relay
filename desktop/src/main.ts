@@ -62,9 +62,9 @@ import {
   CHECK_TIMEOUT_MS,
   checkNow,
   checkLatest,
+  copyToDownload,
   download,
   DOWNLOAD_CONNECTIONS,
-  downloadHeaders,
   type Fetch,
   FIRST_CHECK_MS,
   installPlan,
@@ -95,9 +95,9 @@ import { findTailscale, sharePlan, Tailscale } from './tailscale';
 declare const __RELAY_VERSION__: string;
 
 /**
- * Where the app finds its updates, as it was built (desktop/scripts/build.ts, from RELAY_UPDATES_REPO
- * and RELAY_UPDATES_TOKEN: updateSource.ts). The token, if any, goes to GitHub's API alone, never into
- * the log or the chat.
+ * Where the app downloads its updates from, as it was built (desktop/scripts/build.ts, from
+ * RELAY_UPDATES_REPO and RELAY_UPDATES_TOKEN: updateSource.ts). The token, if any, goes to GitHub's API
+ * alone, and only when the app updates; never into the log or the chat.
  */
 declare const __RELAY_UPDATE_SOURCE__: UpdateSource;
 
@@ -852,14 +852,16 @@ function run(): void {
       setUpdating({ kind: 'downloading', done });
     };
     const fetch: Fetch = (url, init) => net.fetch(url, init);
-    const parts = { connections: updateConnections(), locate: locateRedirect, headers: downloadHeaders(__RELAY_UPDATE_SOURCE__) };
+    // A private copies' repository: the copy found with the token (the installer itself when it cannot be had).
+    const from = await copyToDownload(fetch, __RELAY_UPDATE_SOURCE__, release.version, asset, AbortSignal.timeout(CHECK_TIMEOUT_MS));
+    const parts = { connections: updateConnections(), locate: locateRedirect, headers: from.headers };
     let installer: string | undefined;
     try {
       if (plan.kind === 'linux') {
         // Downloaded next to the AppImage, so that putting it in place is a rename.
         const target = appImageTarget(plan.appImage, asset.name, __RELAY_VERSION__);
         const downloaded = appImageDownload(plan.appImage, asset.name);
-        await download({ fetch, ...parts, asset, to: downloaded, onProgress });
+        await download({ fetch, ...parts, asset: from.asset, to: downloaded, onProgress });
         setUpdating({ kind: 'installing' });
         if (!(await waitForConversations())) return;
         placeAppImage(downloaded, target, plan.appImage);
@@ -869,7 +871,7 @@ function run(): void {
       }
       mkdirSync(updatesDir, { recursive: true });
       installer = join(updatesDir, asset.name);
-      await download({ fetch, ...parts, asset, to: installer, onProgress });
+      await download({ fetch, ...parts, asset: from.asset, to: installer, onProgress });
       setUpdating({ kind: 'installing' });
       if (plan.kind === 'mac') {
         await stageMacApp({ dmg: installer, app: plan.app, bundleId: APP_ID, semver: release.semver, env });

@@ -5,9 +5,9 @@ name: Release
 # builds the desktop app's installers on macOS, Windows and Linux (x64, and Arm64 on GitHub's Arm
 # runners), and publishes the five as one GitHub release, tagged with the version; first, a copy of
 # each for the app's updates (counted apart from new installs) under the same tag in a repository of
-# their own, which the app reads its updates from (the UPDATES_REPO variable, else UPDATES_REPO in
-# site/assets/downloads.js), with the UPDATES_TOKEN secret; the app reads it with the
-# UPDATES_READ_TOKEN secret, when that is set (for a private one). A release
+# their own (the UPDATES_REPO variable, else UPDATES_REPO in site/assets/downloads.js), with the
+# UPDATES_TOKEN secret; the app downloads them with the UPDATES_READ_TOKEN secret, when that is set
+# (for a private one). A release
 # candidate is published as a pre-release. Its notes list every commit that came into main since the
 # version before (scripts/release.ts notes), pushed to main or merged from a pull request.
 on:
@@ -151,11 +151,11 @@ jobs:
       - name: Build the web app
         run: npm run build
 
-      # Where the app updates from (desktop/src/updateSource.ts): the repository the copies are
-      # published in below (the UPDATES_REPO variable, else UPDATES_REPO in site/assets/downloads.js),
-      # read with the UPDATES_READ_TOKEN secret when it is set, for a private one. The token goes into
-      # every installer, where anyone can read it: it may read that repository's contents and nothing
-      # else (docs/developer-guide.md, "Releasing"). This step alone gets it.
+      # Where the app downloads its updates from (desktop/src/updateSource.ts): the repository the
+      # copies are published in below (the UPDATES_REPO variable, else UPDATES_REPO in
+      # site/assets/downloads.js), with the UPDATES_READ_TOKEN secret when it is set, for a private one.
+      # The token goes into every installer, where anyone can read it: it may read that repository's
+      # contents and nothing else (docs/developer-guide.md, "Releasing"). This step alone gets it.
       - name: Build the desktop app
         env:
           RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
@@ -280,14 +280,13 @@ jobs:
           }"
           ls -l updates
 
-      # Under the same tag in the repository the app reads its updates from, the one the build named
-      # (RELAY_UPDATES_REPO: the UPDATES_REPO variable, else UPDATES_REPO in site/assets/downloads.js,
-      # read as desktop/src/updateSource.ts reads it), with a token that may write there alone
-      # (UPDATES_TOKEN, see docs/developer-guide.md, "Releasing"): this job's own token writes to this
-      # repository only. Before the release, so that an app built before the apps read that repository
-      # (they read this one's releases and download the copies) is not offered it before its copies
-      # are there: it would download the installer itself, counted as a new install. A run tried again
-      # uploads the copies again.
+      # Before the release, so that no app is offered it before its copies are there (it would download
+      # the installer itself, counted as a new install). Under the same tag in the repository the app
+      # downloads them from, the one the build named (RELAY_UPDATES_REPO: the UPDATES_REPO variable,
+      # else UPDATES_REPO in site/assets/downloads.js, read as desktop/src/updateSource.ts reads it),
+      # with a token that may write there alone (UPDATES_TOKEN, see docs/developer-guide.md,
+      # "Releasing"): this job's own token writes to this repository only. A run tried again uploads
+      # the copies again.
       - name: Publish the copies for the app's updates
         env:
           GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}
@@ -311,10 +310,7 @@ jobs:
             channel=(--latest)
             if [ "$PRERELEASE" = true ]; then channel=(--prerelease --latest=false); fi
             notes="Copies of the installers of [$TITLE](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}), which an installed Harness Relay downloads to update itself. To install Harness Relay, download the installers there."
-            # With the release's changes, listed above: an app's Release notes open this page.
-            printf '%s\n\n' "$notes" > "$RUNNER_TEMP/copies.md"
-            cat "$RUNNER_TEMP/changes.md" >> "$RUNNER_TEMP/copies.md"
-            gh release create "$TAG" updates/* --repo "$repo" --title "$TITLE" --notes-file "$RUNNER_TEMP/copies.md" "${channel[@]}"
+            gh release create "$TAG" updates/* --repo "$repo" --title "$TITLE" --notes "$notes" "${channel[@]}"
           fi
 
       - name: Publish

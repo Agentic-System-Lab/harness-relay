@@ -1,14 +1,15 @@
 /**
  * Updating the desktop app to GitHub's newest release, from its menu. The app asks GitHub now and then
- * for the releases of the repository it was built to update from (`UpdateSource`, updateSource.ts:
- * UPDATES_REPO unless the build named another, with a token for a private one), where the Release
- * workflow publishes each release's installers again under the same tag (`-update`, so that GitHub
- * counts updates apart from new installs and the release page lists the installers alone), and takes
- * the newest version (`checkLatest`, never a draft): a release candidate
+ * for its releases and takes the newest version (`checkLatest`, never a draft): a release candidate
  * too when the app is one (or a build of your own), only a release when it is a release
  * (`takesCandidates`); when it is newer than the running app and has an installer for this system (`updateSystem`:
- * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer,
- * checks it against the SHA-256 GitHub publishes for it (`download`), waits until no conversation has
+ * its processor's on Windows and Linux), the menu offers it. Choosing it downloads the installer (its
+ * copy for updates, `-update`, from the releases of a repository of their own, so that GitHub counts
+ * updates apart from new installs and the release page lists the installers alone: UPDATES_REPO unless
+ * the app was built with another, and for a private one with the token it was built with, which goes to
+ * GitHub's API alone, `UpdateSource` in updateSource.ts and `copyToDownload`; the installer itself where
+ * that copy cannot be had), checks it against the SHA-256 GitHub publishes for the installer
+ * (`download`), waits until no conversation has
  * agents at work (`whenIdle`), and puts it in place of the running app, which then quits and the new
  * one starts:
  *
@@ -34,59 +35,32 @@ import { open, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { compareSemver, parseVersion, semverOf } from '../../scripts/release';
-import { INSTALLERS, UPDATE_INSTALLERS } from '../../site/assets/downloads.js';
+import { INSTALLERS, isInstallerUrl, RELEASES_PAGE, REPO, updateCopyName, updateCopyUrl } from '../../site/assets/downloads.js';
 import { capture } from '../../src/server/process';
 import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
 import type { UpdateSource } from './updateSource';
 
-/** The version of GitHub's REST API the app asks for. */
-const API_VERSION = '2022-11-28';
-
 /**
- * The releases of `repo` on GitHub, newest first: release candidates included, which `releases/latest`
- * leaves out (as the website's download buttons do, site/assets/downloads.js).
+ * GitHub's releases, newest first: release candidates included, which `releases/latest` leaves out
+ * (as the website's download buttons do, site/assets/downloads.js).
  */
-export function releasesApi(repo: string): string {
-  return `https://api.github.com/repos/${repo}/releases?per_page=20`;
-}
+export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=20`;
 
 /**
- * The newest release of `repo`, never a release candidate (the Release workflow marks each release the
+ * GitHub's newest release, never a release candidate (the Release workflow marks each release the
  * latest, and no release candidate): what an app that is a release asks for, however many release
  * candidates came out since.
  */
-export function latestReleaseApi(repo: string): string {
-  return `https://api.github.com/repos/${repo}/releases/latest`;
-}
+export const LATEST_RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+
+/** What a question to GitHub's API asks for: JSON, of the REST API's version the app was written for. */
+const API_HEADERS = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
 
 /**
- * What a check sends GitHub's API: the token too for a private repository. Only ever sent to
- * api.github.com (`releasesApi`, `latestReleaseApi`, and `downloadHeaders` for a release file there).
- */
-export function apiHeaders(source: UpdateSource): Record<string, string> {
-  return {
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': API_VERSION,
-    ...(source.token ? { Authorization: `Bearer ${source.token}` } : {}),
-  };
-}
-
-/**
- * What a download sends with its first request, to the file's address on GitHub's API (`UpdateAsset.url`
- * for a private repository): the token, asking for the file itself. None for a public repository,
- * whose files are downloaded from github.com without signing in. `download` sends them to that address
- * alone, never to the CDN it redirects to.
- */
-export function downloadHeaders(source: UpdateSource): Record<string, string> | undefined {
-  if (!source.token) return undefined;
-  return { Accept: 'application/octet-stream', 'X-GitHub-Api-Version': API_VERSION, Authorization: `Bearer ${source.token}` };
-}
-
-/**
- * How often the app asks: one request an hour. Without a token, of the 60 an hour GitHub allows each
- * address (shared by everything on that address: many apps behind one office network could use them
- * up, and a check that fails only waits for the next one); with one, of the 5,000 an hour of the
- * token's account, shared by every installed app and anything else that account does.
+ * How often the app asks: one request an hour, of the 60 an hour GitHub allows each address without
+ * signing in (shared by everything on that address: many apps behind one office network could use them
+ * up, and a check that fails only waits for the next one). A check never sends the token of a private
+ * copies' repository: that goes only with an update (`copyToDownload`).
  */
 export const CHECK_EVERY_MS = 60 * 60_000;
 
@@ -183,17 +157,22 @@ export function oneAtATime(fn: () => Promise<void>): () => Promise<void> {
 
 export interface UpdateAsset {
   /**
-   * The installer's name, such as Harness-Relay-2026-11-12-mac-arm64.dmg, although it is fetched from
-   * its copy for updates (Harness-Relay-2026-11-12-mac-arm64-update.dmg): the AppImage takes this name.
+   * The installer's name, such as Harness-Relay-2026-11-12-mac-arm64.dmg (also when it is fetched from
+   * its copy for updates: the AppImage takes this name).
    */
   name: string;
   /**
-   * Where it is fetched from: its address on github.com for a public repository; for a private one,
-   * its address on GitHub's API, asked with `downloadHeaders`.
+   * Where it is fetched from: its copy for the app's updates (`-update`, `updateCopyUrl`) on github.com,
+   * or on GitHub's API for a private copies' repository (`copyToDownload`); else the installer itself.
    */
   url: string;
+  /**
+   * The installer itself, fetched when its copy cannot be had: not there (404; a release published before
+   * the copies, say), or, asked with the token, not given (401, 403: expired, revoked).
+   */
+  fallback?: string;
   size?: number;
-  /** Lowercase hex, from GitHub's `digest` of the file. */
+  /** Lowercase hex, from GitHub's `digest` of the installer (its copy is the same file). */
   sha256?: string;
 }
 
@@ -214,42 +193,34 @@ const PLAIN_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /**
  * One release in GitHub's answer, when it is a release of ours (a release candidate too, never a draft),
- * as `source` holds it: each system's installer is its copy for updates (`UPDATE_INSTALLERS`), named as
- * the installer (`INSTALLERS`), fetched from that repository alone (its address on github.com, or on
- * GitHub's API for a private one) and checked against GitHub's `digest` of it.
+ * each installer fetched from its copy in the copies' repository of `source`.
  */
 export function parseRelease(json: unknown, source: UpdateSource): UpdateRelease | undefined {
   const r = json as {
     tag_name?: unknown;
     draft?: unknown;
     html_url?: unknown;
-    assets?: { id?: unknown; name?: unknown; browser_download_url?: unknown; size?: unknown; digest?: unknown }[];
+    assets?: { name?: unknown; browser_download_url?: unknown; size?: unknown; digest?: unknown }[];
   } | null;
   if (!r || typeof r !== 'object' || r.draft || typeof r.tag_name !== 'string') return undefined;
   const parsed = parseVersion(r.tag_name);
   if (!parsed.ok) return undefined;
-  const tag = r.tag_name;
+  // Each system's installer, fetched from its copy for updates (`updateCopyUrl`: the same file, in the
+  // releases of a repository of its own), so that GitHub counts updates apart from new installs; the
+  // installer itself where that copy is not there. Copies in the release itself (2026-11-12-rc) are not
+  // read: they end as no installer does.
   const assets: UpdateRelease['assets'] = {};
   for (const a of Array.isArray(r.assets) ? r.assets : []) {
-    if (typeof a?.name !== 'string' || !PLAIN_NAME.test(a.name)) continue;
-    for (const [system, end] of Object.entries(UPDATE_INSTALLERS) as [UpdateSystem, string][]) {
+    if (typeof a?.name !== 'string' || !PLAIN_NAME.test(a.name) || !isInstallerUrl(a.browser_download_url)) continue;
+    for (const [system, end] of Object.entries(INSTALLERS) as [UpdateSystem, string][]) {
       if (!a.name.endsWith(end)) continue;
-      // Where GitHub keeps it, as this repository's file: never a link the answer gives to somewhere else.
-      let url: string | undefined;
-      if (source.token) {
-        if (typeof a.id === 'number' && Number.isSafeInteger(a.id) && a.id > 0) url = `https://api.github.com/repos/${source.repo}/releases/assets/${a.id}`;
-      } else {
-        const expected = `https://github.com/${source.repo}/releases/download/${tag}/${a.name}`;
-        if (a.browser_download_url === expected) url = expected;
-      }
-      if (!url) continue;
+      const installer = a.browser_download_url as string;
+      const copy = updateCopyUrl(r.tag_name, a.name, source.repo);
       const sha256 = typeof a.digest === 'string' ? /^sha256:([0-9a-f]{64})$/i.exec(a.digest)?.[1]?.toLowerCase() : undefined;
-      const name = a.name.slice(0, -end.length) + INSTALLERS[system];
-      assets[system] = { name, url, size: typeof a.size === 'number' ? a.size : undefined, sha256 };
+      assets[system] = { name: a.name, ...(copy ? { url: copy, fallback: installer } : { url: installer }), size: typeof a.size === 'number' ? a.size : undefined, sha256 };
     }
   }
-  const releases = `https://github.com/${source.repo}/releases`;
-  const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${releases}/tag/`) ? r.html_url : releases;
+  const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${RELEASES_PAGE}/tag/`) ? r.html_url : RELEASES_PAGE;
   return { version: parsed.value.version, semver: semverOf(parsed.value), page, candidate: parsed.value.rc, assets };
 }
 
@@ -302,20 +273,73 @@ export type Fetch = (
 ) => Promise<Response>;
 
 /**
- * Asks GitHub for the newest release in `source`, release candidates included; undefined when there is
- * none yet. With a token, a 404 is an error: the repository is not there, or the token may not read it.
+ * Asks GitHub for the newest release, release candidates included; undefined when there is none yet.
+ * Each installer is fetched from its copy in the copies' repository of `source` (never asked here).
  */
 export async function checkLatest(fetch: Fetch, o: { source: UpdateSource; candidates?: boolean; signal?: AbortSignal }): Promise<UpdateRelease | undefined> {
   const { source, candidates = true, signal } = o;
   // A release candidate (or a build of your own) looks through the newest releases, candidates too; a
   // release asks for the newest release alone.
-  const res = await fetch(candidates ? releasesApi(source.repo) : latestReleaseApi(source.repo), { headers: apiHeaders(source), signal });
-  if (res.status === 404 && !source.token) return undefined;
+  const res = await fetch(candidates ? RELEASES_API : LATEST_RELEASE_API, { headers: API_HEADERS, signal });
+  if (res.status === 404) return undefined;
   if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
   const json: unknown = await res.json();
   if (candidates) return newestRelease(json, source, true);
   const latest = parseRelease(json, source);
   return latest && !latest.candidate ? latest : undefined;
+}
+
+/**
+ * What a download sends with its first request, to a copy's address on GitHub's API (a private copies'
+ * repository, `copyToDownload`): the token, asking for the file itself. None for a public repository,
+ * whose copies are downloaded from github.com without signing in.
+ */
+export function downloadHeaders(source: UpdateSource): Record<string, string> | undefined {
+  if (!source.token) return undefined;
+  return { ...API_HEADERS, Accept: 'application/octet-stream', Authorization: `Bearer ${source.token}` };
+}
+
+/**
+ * Where `asset` (of the release tagged `tag`) is downloaded from, with the headers its first request
+ * takes. A public copies' repository: as `parseRelease` found it, with none. A private one (a token):
+ * the release under that tag there is asked for with the token on GitHub's API, and the copy is
+ * downloaded from its address there, by its id (`/releases/assets/<id>`), with `downloadHeaders`,
+ * and the installer itself as its `fallback`; when the copy cannot be had (the release or the file is
+ * not there, the token expired or was revoked, GitHub cannot be reached), the installer itself, with
+ * none, so a token gone bad keeps no one from updating. Never fails.
+ */
+export async function copyToDownload(
+  fetch: Fetch,
+  source: UpdateSource,
+  tag: string,
+  asset: UpdateAsset,
+  signal?: AbortSignal,
+): Promise<{ asset: UpdateAsset; headers?: Record<string, string> }> {
+  if (!source.token) return { asset };
+  const installer: UpdateAsset = { ...asset, url: asset.fallback ?? asset.url, fallback: undefined };
+  const copy = updateCopyName(asset.name);
+  if (!copy || !installer.url) return { asset: installer };
+  try {
+    const res = await fetch(`https://api.github.com/repos/${source.repo}/releases/tags/${encodeURIComponent(tag)}`, {
+      headers: { ...API_HEADERS, Authorization: `Bearer ${source.token}` },
+      signal,
+      redirect: 'error',
+    });
+    if (!res.ok) {
+      res.body?.cancel().catch(() => undefined);
+      return { asset: installer };
+    }
+    const release = (await res.json()) as { assets?: { id?: unknown; name?: unknown }[] } | null;
+    const found = Array.isArray(release?.assets) ? release.assets.find((a) => a?.name === copy) : undefined;
+    const id = found?.id;
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) return { asset: installer };
+    return {
+      asset: { ...asset, url: `https://api.github.com/repos/${source.repo}/releases/assets/${id}`, fallback: installer.url },
+      headers: downloadHeaders(source),
+    };
+  } catch {
+    return { asset: installer };
+  }
 }
 
 export type ManualReason =
@@ -425,13 +449,15 @@ export type Locate = (url: string, signal: AbortSignal, headers?: Record<string,
 
 /**
  * Downloads `asset` to `to` (through `to`.part, so a broken download never looks like a whole one) and
- * checks it against its SHA-256. Given `connections` (a fetch for each: main.ts gives each a session of
- * its own, as one session's requests to a host share one connection) and `locate`, a file of twice
- * `minPart` or more comes in parts, one a connection (`inParts`); any other, and one from a server that
- * takes no ranges, in one request. `headers` (`downloadHeaders`: the token, for a private repository)
- * go to the asset's own address alone: it is asked where it leads first (`locate`, which they need),
- * and the CDN it sends to never gets them. `onProgress` gets the share done, from 0 to 1. Given up on
- * after `stallMs` without a byte (DOWNLOAD_STALL_MS).
+ * checks it against its SHA-256: from its `url`, or from its `fallback` when GitHub has nothing there
+ * (404) or, asked with `headers`, will not give it (401, 403). Given `connections` (a fetch for each:
+ * main.ts gives each a session of its own, as one session's requests to a host share one connection)
+ * and `locate`, a file of twice `minPart` or more comes in parts, one a connection (`inParts`); any
+ * other, and one from a server that takes no ranges, in one request. `headers` (`copyToDownload`: the
+ * token, for a copy in a private repository) go to the asset's own address alone: it is asked where it
+ * leads first (`locate`; without one, the fallback is fetched instead), and neither the CDN it sends to
+ * nor the fallback gets them. `onProgress` gets the share done, from 0 to 1. Given up on after
+ * `stallMs` without a byte (DOWNLOAD_STALL_MS).
  */
 export async function download(o: {
   fetch: Fetch;
@@ -467,7 +493,7 @@ export async function download(o: {
         await whole({ fetch: o.fetch, locate: o.locate, url: err.address, headers: err.headers, size, stall, write, onProgress: o.onProgress });
       }
     } else {
-      await whole({ fetch: o.fetch, locate: o.locate, url: o.asset.url, headers: o.headers, size, stall, write, onProgress: o.onProgress });
+      await whole({ fetch: o.fetch, locate: o.locate, url: o.asset.url, headers: o.headers, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress });
     }
   } catch (err) {
     failed = true;
@@ -562,6 +588,14 @@ async function sha256Of(file: string): Promise<string> {
 }
 
 /**
+ * Whether GitHub has nothing for us at an address (404), or, asked with the token (`authorized`), will
+ * not give it (401, 403: expired, revoked, out of requests): the installer itself is then fetched.
+ */
+function unavailable(status: number, authorized: boolean): boolean {
+  return status === 404 || (authorized && (status === 401 || status === 403));
+}
+
+/**
  * Where an answer to `locate(source)` says the file is: where it redirects to (over HTTPS only), or
  * `source` itself when it answered with the file.
  */
@@ -576,29 +610,42 @@ function addressFrom(found: { status: number; location?: string }, source: strin
 }
 
 /**
- * The whole file in one request, from `url`. With `headers` (the token), `url` is asked where it leads
- * first (`locate`), and the file fetched from there without them; a request that still carries them
- * (`url` answered with the file itself) follows no redirect, so they never leave that address.
+ * The whole file in one request: from `url`, or from `fallback` when GitHub has nothing there or will
+ * not give it (`unavailable`). With `headers` (the token), `url` is asked where it leads first
+ * (`locate`), and the file fetched from there without them; a request that still carries them (`url`
+ * answered with the file itself) follows no redirect, so they never leave that address. Without
+ * `locate`, the fallback is fetched instead: the token is never sent on.
  */
 async function whole(o: {
   fetch: Fetch;
   locate?: Locate;
   url: string;
   headers?: Record<string, string>;
+  fallback?: string;
   size: number;
   stall: Stall;
   write: Write;
   onProgress?: (done: number) => void;
 }): Promise<void> {
   const signal = o.stall.signal;
-  let url = o.url;
-  let headers = o.headers;
-  if (headers) {
-    if (!o.locate) throw new UpdateError('download', 'no way to ask where the file is without its headers going along');
-    url = addressFrom(await o.locate(url, signal, headers), url);
-    if (url !== o.url) headers = undefined;
+  // Where the file is asked for, and with what: the headers at the asset's own address alone.
+  let target: { url: string; headers?: Record<string, string> } | undefined = { url: o.url };
+  if (o.headers) {
+    const found = o.locate ? await o.locate(o.url, signal, o.headers) : undefined;
+    if (!found || unavailable(found.status, true)) target = undefined;
+    else {
+      const at = addressFrom(found, o.url);
+      target = at === o.url ? { url: at, headers: o.headers } : { url: at };
+    }
   }
-  const res = await o.fetch(url, headers ? { headers, signal, redirect: 'error' } : { signal });
+  let res = target ? await o.fetch(target.url, target.headers ? { headers: target.headers, signal, redirect: 'error' } : { signal }) : undefined;
+  // Its copy for updates cannot be had (a release published before the copies, its repository gone, the
+  // token expired): the installer itself.
+  if ((!res || unavailable(res.status, !!target?.headers)) && o.fallback) {
+    res?.body?.cancel().catch(() => undefined);
+    res = await o.fetch(o.fallback, { signal });
+  }
+  if (!res) throw new UpdateError('download', 'no way to ask where the file is without its headers going along');
   if (!res.ok || !res.body) throw new UpdateError('download', `HTTP ${res.status}`);
   const total = Number(res.headers.get('content-length')) || o.size;
   let received = 0;
@@ -644,8 +691,8 @@ interface Part {
 
 /**
  * Downloads the file in parts, one a connection, from where its address leads (`locate`: GitHub is asked
- * once, with `headers`, and the parts are fetched from its CDN, without them). A connection done with
- * its part takes the second half of what the part with the most left has still to go (while that is at least twice `minPart`), so that a slow connection holds the end up
+ * once, the copy's address with `headers` or the fallback's, without them, when the copy cannot be had,
+ * and the parts are fetched from its CDN, without them). A connection done with its part takes the second half of what the part with the most left has still to go (while that is at least twice `minPart`), so that a slow connection holds the end up
  * less. A part that fails, or goes `stallMs` without a byte, is asked for again from where it stopped,
  * up to PART_FAILURES times in all; when its signed address has expired (403), at a new one.
  */
@@ -662,10 +709,19 @@ async function inParts(o: {
   onProgress?: (done: number) => void;
 }): Promise<void> {
   const { size, stall } = o;
-  const source = o.asset.url;
-  let address = addressFrom(await o.locate(source, stall.signal, o.headers), source);
+  let source = o.asset.url;
+  let headers = o.headers;
+  let found = await o.locate(source, stall.signal, headers);
+  // Its copy for updates cannot be had (a release published before the copies, its repository gone, the
+  // token expired): the installer itself, without the token.
+  if (unavailable(found.status, !!headers) && o.asset.fallback) {
+    source = o.asset.fallback;
+    headers = undefined;
+    found = await o.locate(source, stall.signal);
+  }
+  let address = addressFrom(found, source);
   /** What a request to `at` takes: the asset's headers at its own address alone (it answered with the file), none at the CDN's. */
-  const headersAt = (at: string) => (at === source ? o.headers : undefined);
+  const headersAt = (at: string) => (at === source ? headers : undefined);
   // Stops every connection: given up on for no data, or when a part fails for good.
   const failed = new AbortController();
   const stop = AbortSignal.any([stall.signal, failed.signal]);
@@ -678,7 +734,7 @@ async function inParts(o: {
   let relocating: Promise<void> | undefined;
   /** Asks where the file is again, for a new signed address (once at a time). */
   const relocate = () => {
-    relocating ??= o.locate(source, stop, o.headers).then(
+    relocating ??= o.locate(source, stop, headers).then(
       (f) => {
         address = addressFrom(f, source);
         relocating = undefined;
