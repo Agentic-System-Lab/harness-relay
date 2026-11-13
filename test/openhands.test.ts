@@ -461,6 +461,12 @@ describe('the run home and settings', () => {
     const changed = make(JSON.stringify({ kind: 'SystemPromptEvent', id: 'sp', dynamic_context: { text: 'You are @Otto, read-only.' }, tools: [1, null] }));
     expect(changed.state.briefingInPrompt).toBe('You are @Otto, now with edit.');
     expect(openhandsPromptText('Go on.', changed)).toBe('<harness-relay-briefing>\nYou are @Otto, now with edit.\n</harness-relay-briefing>\n\nGo on.');
+    // The tool library's memory (or skills), which come last, left out since: the new briefing is only the
+    // start of the stored one, which is not the same briefing.
+    const shorter = make(JSON.stringify({ kind: 'SystemPromptEvent', id: 'sp', dynamic_context: { text: '[BEGIN context from [harness-relay-briefing]]\nYou are @Otto, now with edit.\n\n# Memory\n<memory>\nLead with the conclusion.\n</memory>\n[END Context]' } }));
+    expect(shorter.state.briefingInPrompt).toBe('You are @Otto, now with edit.');
+    // Stored as the very end of the text, without the block's end: the same briefing.
+    expect(make(JSON.stringify({ kind: 'SystemPromptEvent', id: 'sp', dynamic_context: { text: 'Context:\nYou are @Otto, now with edit.\n' } })).state.briefingInPrompt).toBeUndefined();
     expect(make(undefined).state.briefingInPrompt).toBe('You are @Otto, now with edit.');
     expect(() => make('{broken')).toThrow(AgentRunError);
     expect(openhandsSessionHas(join(root, 'nowhere'), 'x')).toBe(false);
