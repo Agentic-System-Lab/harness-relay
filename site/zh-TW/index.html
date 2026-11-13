@@ -766,6 +766,7 @@
             <li><b>把對話分享成連結</b>把整段對話，或到某則回覆為止的內容，分享成和對話畫面一樣的頁面，不含工具呼叫和思考過程。它會用你的 GitHub CLI 上傳成 secret gist，在 gistpreview.github.io 打開；設定頁列出所有連結，可以移除不要的。</li>
             <li><b>排程傳訊息</b>在設定的時間把訊息傳給團隊，在同一個對話裡或每次開新對話：一次、每天、每週選定的星期幾，或每隔幾小時。也可以從「新排程」開始，由首席 agent 挑選團隊。排程執行時可能沒人看著，所以預設會自動拒絕權限範圍以外的動作（設為本對話都允許的除外）。Harness Relay 關閉期間錯過的時間會略過，也可以選擇在開啟後補送一次。</li>
             <li><b>狀態一目了然</b>側邊欄標示需要你處理、正在回覆或有新回覆的對話；切換到別的對話時，原本的對話會繼續執行。</li>
+            <li><b>通知與提示音</b>回覆完或 agent 需要你時，跳出系統通知並播放短短的提示音，每個瀏覽器在設定裡各自開啟。把 Harness Relay 加到手機主畫面後，即使 App 沒開著、手機鎖定了，也收得到推播通知。</li>
             <li><b>在 app 裡登入</b>Claude Code、Codex、Grok、Cursor 和 Antigravity 都能用裝置碼、瀏覽器或貼上授權碼登入，開源 agent 則設定模型來源；也能設定 API key、執行檔路徑與預設模型，並查看各 CLI 自己載入的 skill、MCP 工具、內建工具、hook、subagent、plugin、指示與記憶，也能讓 Harness Relay 執行時整類或逐項不載入（Cursor 與 Antigravity 沒辦法）。</li>
             <li><b>對話裡的圖片與影片</b>agent 存在工作目錄裡的圖片與影片，會直接顯示在對話中。</li>
             <li><b>瀏覽工作目錄</b>上方的「檔案」列出工作目錄或某位成員的 worktree，並預覽附行號的程式碼、Markdown、圖片與影片。任何檔案都能下載，資料夾也能下載成 ZIP 檔。</li>
@@ -891,7 +892,7 @@
                   選用。在電腦和手機都裝好 <a href="https://tailscale.com">Tailscale</a>，再從 Harness Relay 的選單選<b>分享到手機（Tailscale）…</b>。它會把伺服器分享到你的 tailnet，並顯示手機要打開的 <b>https://</b> 網址。
                 </p>
                 <p>
-                  用電腦上「<b>設定 → 已登入的瀏覽器 → 讓另一個裝置登入</b>」產生的代碼讓手機登入。只有 tailnet 裡的裝置連得到，伺服器仍然只綁定 <code>127.0.0.1</code>。加到主畫面：iPhone 用 Safari 點<b>分享 → 加入主畫面</b>，Android 用 Chrome 點 <b>⋮ → 安裝應用程式</b>。
+                  用電腦上「<b>設定 → 已登入的瀏覽器 → 讓另一個裝置登入</b>」產生的代碼讓手機登入。只有 tailnet 裡的裝置連得到，伺服器仍然只綁定 <code>127.0.0.1</code>。加到主畫面：iPhone 用 Safari 點<b>分享 → 加入主畫面</b>，Android 用 Chrome 點 <b>⋮ → 安裝應用程式</b>。再在那裡開啟<b>設定 → 通知與提示音</b>，團隊回覆完或需要你時，即使手機鎖定也會通知你。
                 </p>
                 <p><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.zh-TW.md">完整步驟，以及讓它一直執行與疑難排解</a></p>
               </div>
