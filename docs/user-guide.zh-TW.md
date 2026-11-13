@@ -652,7 +652,9 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 | Muse Code 的回合以「Muse Code 尚未登入（…）」失敗 | 到設定頁的 Muse Code 登入（預設帳號），或設定 Meta API key。額外的 Muse Code 帳號需要它自己的 Meta API key。 |
 | Muse Code 的這一輪沒有開始：「受保護的路徑 … 含有 \*、? 或 [」 | Muse Code 會把規則裡的這些字元當成萬用字元樣式，所以無法照原樣拒絕那個路徑。請改名或移走它，或改用完全存取。 |
 | 在 Windows 上，Muse Code 的每個指令都以「sandbox enforcement unavailable: windows_elevated setup_required…」失敗 | 這台電腦還沒完成 Muse 的 Windows 沙箱設定。在終端機執行一次 `muse sandbox windows setup` 並允許它取得系統管理員權限（`muse sandbox windows check` 會告訴你是否已完成），或改用完全存取。在這個沙箱裡執行的指令尚未用 Harness Relay 驗證過。 |
-| Muse Code 的模型選單沒有列出你有的模型 | Muse Code 只在 session 裡列出它的模型，所以 Harness Relay 提供一份固定的清單。選 **自訂…** 並輸入模型的 id。 |
+| Muse Code 的模型選單沒有列出你有的模型 | Muse Code 只在 session 裡列出它的模型。Harness Relay 會讀 Muse 登入並執行過後存下的目錄，在那之前提供一份固定的清單。選 **自訂…** 並輸入模型的 id，或先跑一輪。 |
+| Muse Code 用掉的 Meta 額度或 API 費用比它的回覆看起來需要的多 | Muse 的提醒（skill、目標、檢查自己的工作、記憶、它的待辦清單與範圍）會在每一輪旁邊自己送出模型請求：簡短的回合裡，比回合本身還多。在 Muse 自己的設定 `~/.config/muse/settings.json` 裡關掉你不需要的，例如 `"runtime_capabilities": {"plugin:tbh-reminders:reminder:verify-reminder": {"enabled": false}}`（其他的是 `skill-reminder`、`goal-reminder`、`todo-reminder`、`scope-reminder`、`memory`）。Harness Relay 的執行會保留這些開關。 |
+| Muse Code 說 workflow 已關閉 | Harness Relay 關掉了 Muse 的 workflow：一輪會在它們的 agent 完成前結束。請它自己做這件事，或在團隊裡多加幾位成員。 |
 | 儲存 API key 失敗（「無法把 API key 存進系統的金鑰儲存區」） | 鑰匙圈 / 金鑰圈被鎖定或拒絕存取。解鎖（或在詢問時允許存取）後再儲存一次，或改用環境變數。 |
 | 一直顯示「重新連線中」 | 伺服器停止或正在重新啟動；恢復後頁面會自動重新連線。 |
 | 用手機或其他裝置打開時出現 *Forbidden host* | 啟動 Harness Relay 時，把那個網址的名稱加進 `RELAY_ALLOWED_HOSTS`；詳見[用手機連線](remote-access.zh-TW.md#疑難排解)。 |

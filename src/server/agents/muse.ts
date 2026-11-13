@@ -125,7 +125,8 @@ export function museProbeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  * MCP servers, hooks, plugins and skills, as the other CLIs' runs keep theirs), its tools' and context
  * settings. Nothing else is kept, so that no setting of the user's (or of a later Muse) decides what
  * runs without asking: not `permissions`, its custom agents' definitions (`agents`, `agent_definitions`),
- * `run` (its system prompt and tool set), `runtime_capabilities` (computer use…), `feature_config`.
+ * `run` (its system prompt and tool set), `runtime_capabilities` (computer use…: only its reminders'
+ * switches are kept, `museReminderSwitches`), `feature_config`.
  */
 export const MUSE_KEPT_SETTINGS = [
   'model',
@@ -149,6 +150,33 @@ export const MUSE_KEPT_SETTINGS = [
   'provider_retry',
   'context_compaction',
 ] as const;
+
+/**
+ * A reminder's capability in `runtime_capabilities` (`plugin:tbh-reminders:reminder:verify-reminder`, or a
+ * plugin's own): Muse's reminders are model requests of their own that run beside a turn (skills, goals,
+ * verification, memory, its to-do list and scope), which the user may turn off in Muse's settings.
+ */
+const REMINDER_CAPABILITY = /^plugin:[^:]+:reminder:[^:]+$/;
+
+/**
+ * Of the account's `runtime_capabilities`, its reminders' switches only (`{ enabled }`), so that a reminder
+ * the user turned off stays off in Harness Relay's runs (each one sends model requests of its own: with
+ * muse 1.4.18 more of a short turn's requests than the turn itself), and no other capability is turned on.
+ */
+export function museReminderSwitches(capabilities: unknown): Record<string, { enabled: boolean }> | undefined {
+  if (!isObject(capabilities)) return undefined;
+  const kept = Object.entries(capabilities).flatMap(([id, v]) =>
+    REMINDER_CAPABILITY.test(id) && isObject(v) && typeof v.enabled === 'boolean' ? [[id, { enabled: v.enabled }] as const] : [],
+  );
+  return kept.length ? Object.fromEntries(kept) : undefined;
+}
+
+/**
+ * The `run` settings of every run: workflows off. Muse's `workflow` tool starts its agents in the
+ * background and ends the turn at once, to be woken by their result later; a run ends with its turn, so
+ * they were always cancelled before they did anything (muse 1.4.18, on a real Meta account).
+ */
+export const MUSE_RUN_RUN_SETTINGS = { workflow_trigger_mode: 'off' } as const;
 
 /** The two places Muse keeps MCP servers in its settings: `muse mcp add` writes `mcpServers`. */
 const MCP_KEYS = ['mcpServers', 'mcp_servers'] as const;
@@ -181,8 +209,9 @@ export function musePermissions(permission: Permission, protectedPaths: readonly
 const isObject = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
 /**
- * The settings of one run: what it keeps of the account's own (`MUSE_KEPT_SETTINGS`), with Harness
- * Relay's `permissions` (`musePermissions`), and without the MCP servers and hooks left out of the run
+ * The settings of one run: what it keeps of the account's own (`MUSE_KEPT_SETTINGS`, and its reminders'
+ * switches: `museReminderSwitches`), with Harness
+ * Relay's `permissions` (`musePermissions`) and workflows off (`MUSE_RUN_RUN_SETTINGS`), and without the MCP servers and hooks left out of the run
  * (`nativeOff`: all of them, its managed hooks too; `nativeItems.mcp`: a server by its name).
  */
 export function museRunSettings(
@@ -194,6 +223,8 @@ export function museRunSettings(
 ): Record<string, unknown> {
   const base: Record<string, any> = isObject(own) ? own : {};
   const out: Record<string, any> = Object.fromEntries(MUSE_KEPT_SETTINGS.filter((k) => base[k] !== undefined).map((k) => [k, base[k]]));
+  const reminders = museReminderSwitches(base.runtime_capabilities);
+  if (reminders) out.runtime_capabilities = reminders;
   if (nativeOff.includes('hooks')) {
     delete out.hooks;
     delete out.managed_hooks_path;
@@ -204,7 +235,7 @@ export function museRunSettings(
       out[key] = Object.fromEntries(Object.entries(out[key]).filter(([name]) => !nativeItems.mcp!.includes(name)));
     }
   }
-  return { ...out, schema_version: 1, permissions: musePermissions(permission, protectedPaths) };
+  return { ...out, schema_version: 1, run: { ...MUSE_RUN_RUN_SETTINGS }, permissions: musePermissions(permission, protectedPaths) };
 }
 
 /** A run's own config folder (`XDG_CONFIG_HOME`), and how to put things back and remove it. */
@@ -390,10 +421,14 @@ export function putBackAuth(auth: string, runAuth: string, original: Buffer): vo
  */
 export const MUSE_WINDOWS_BRIEFING_MAX = 24_000;
 
-/** What the briefing adds for Muse Code: a refusal reaches it as Muse's own words, without a reason. */
+/**
+ * What the briefing adds for Muse Code: a refusal reaches it as Muse's own words, without a reason; and
+ * workflows are off (`MUSE_RUN_RUN_SETTINGS`), which the user cannot change in Harness Relay.
+ */
 export const MUSE_NOTES =
   'In this app, a tool call that is refused (by the user, or because the conversation\'s permission does not cover it) comes back to you as ' +
-  '"The user rejected this action", without the reason. Do not retry it; say what you needed it for, or ask the user as these instructions say.';
+  '"The user rejected this action", without the reason. Do not retry it; say what you needed it for, or ask the user as these instructions say. ' +
+  'Workflows are off in this app, since your turn ends before their agents could finish; this is not a setting the user can change here, so do the work yourself.';
 
 /**
  * The briefing as Muse's developer prompt. A lone surrogate (a role cut in the middle of an emoji) is

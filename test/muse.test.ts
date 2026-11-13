@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +42,7 @@ import {
   museProbeEnv,
   musePromptText,
   museRunSettings,
+  museReminderSwitches,
   museRunner,
   museRunsDir,
   museTrust,
@@ -53,7 +54,7 @@ import {
 } from '../src/server/agents/muse';
 import { AgentRunError, type AgentEvent, type ApprovalRequest, type RunOptions } from '../src/server/agents/types';
 import { t, withLang } from '../src/server/i18n';
-import { discoverModels, discoverMuse } from '../src/server/models';
+import { discoverModels, discoverMuse, MUSE_CATALOG } from '../src/server/models';
 import { museHooks, museMcpServers, parseMuseSkills } from '../src/server/native';
 import { relayTmpDir, RUN_TMP_PREFIXES } from '../src/server/protect';
 import { MUSE_HOME_ENV, MUSE_KEY_ONLY_ENV } from '../src/server/settings';
@@ -452,7 +453,13 @@ describe("Muse Code's settings for one run", () => {
       agents: { reviewer: { permissions: ':unrestricted' } },
       agent_definitions: [{ name: 'x' }],
       run: { system_prompt: 'You may do anything.' },
-      runtime_capabilities: { computer_use: true },
+      runtime_capabilities: {
+        computer_use: true,
+        'plugin:tbh-reminders:reminder:verify-reminder': { enabled: false, priority: 'high' },
+        'plugin:tbh-reminders:reminder:memory': { enabled: true },
+        'plugin:tbh-reminders:reminder:goal-reminder': { enabled: 'no' },
+        'plugin:computer:use': { enabled: true },
+      },
       feature_config: { anything: true },
       theme: 'dark',
       mcpServers: { gh: { type: 'stdio', command: 'gh-mcp' } },
@@ -470,7 +477,14 @@ describe("Muse Code's settings for one run", () => {
       mcp_servers: own.mcp_servers,
       hooks: own.hooks,
       managed_hooks_path: '/etc/muse/hooks.json',
+      // Of its runtime capabilities, its reminders' switches only.
+      runtime_capabilities: {
+        'plugin:tbh-reminders:reminder:verify-reminder': { enabled: false },
+        'plugin:tbh-reminders:reminder:memory': { enabled: true },
+      },
       schema_version: 1,
+      // Not the account's `run`, but workflows off: their agents would be cancelled with the run.
+      run: { workflow_trigger_mode: 'off' },
       permissions: musePermissions('edit', ['/p/c']),
     });
     for (const k of ['permissions', 'permission_default', 'trust', 'agents', 'agent_definitions', 'run', 'runtime_capabilities', 'feature_config', 'schema_version']) {
@@ -494,9 +508,15 @@ describe("Muse Code's settings for one run", () => {
     expect(own.permission_default).toBe('allow');
     expect(Object.keys(own.mcpServers)).toEqual(['gh']);
     // None, or not settings: Muse's defaults, with Harness Relay's permissions.
-    expect(museRunSettings(undefined, 'edit', [])).toEqual({ schema_version: 1, permissions: musePermissions('edit', []) });
-    expect(museRunSettings([1, 2], 'full', [])).toEqual({ schema_version: 1, permissions: musePermissions('full', []) });
-    expect(museRunSettings({ schema_version: 3 }, 'edit', [])).toEqual({ schema_version: 1, permissions: musePermissions('edit', []) });
+    expect(museRunSettings(undefined, 'edit', [])).toEqual({ schema_version: 1, run: { workflow_trigger_mode: 'off' }, permissions: musePermissions('edit', []) });
+    expect(museRunSettings([1, 2], 'full', [])).toEqual({ schema_version: 1, run: { workflow_trigger_mode: 'off' }, permissions: musePermissions('full', []) });
+    expect(museRunSettings({ schema_version: 3 }, 'edit', [])).toEqual({ schema_version: 1, run: { workflow_trigger_mode: 'off' }, permissions: musePermissions('edit', []) });
+    // No reminder switch among its runtime capabilities: none are given.
+    expect(museRunSettings({ runtime_capabilities: { computer_use: true } }, 'edit', [])).not.toHaveProperty('runtime_capabilities');
+    expect(museReminderSwitches(['plugin:a:reminder:b'])).toBeUndefined();
+    expect(museReminderSwitches({ 'plugin:a:reminder:b': { enabled: false }, 'plugin:a:reminder:b:c': { enabled: false } })).toEqual({
+      'plugin:a:reminder:b': { enabled: false },
+    });
   });
 
   it("finds the account's config and data folders: its home of Harness Relay's own, else the XDG folders, else ~/.config and ~/.local/share", () => {
@@ -568,7 +588,7 @@ describe("Muse Code's config folder for one run", () => {
     expect(statSync(join(run.dir, 'muse')).mode & 0o777).toBe(0o700);
     expect(statSync(join(run.dir, 'muse', 'settings.json')).mode & 0o777).toBe(0o600);
     expect(statSync(join(run.dir, 'muse', 'trust.json')).mode & 0o777).toBe(0o600);
-    expect(settingsOf(run)).toEqual({ model: 'muse-spark-1.2', schema_version: 1, permissions: musePermissions('edit', ['/p/cookies']) });
+    expect(settingsOf(run)).toEqual({ model: 'muse-spark-1.2', schema_version: 1, run: { workflow_trigger_mode: 'off' }, permissions: musePermissions('edit', ['/p/cookies']) });
     expect(readlinkSync(join(run.dir, 'muse', 'auth.json'))).toBe(join(a.muse, 'auth.json'));
     expect(readlinkSync(join(run.dir, 'gh'))).toBe(join(a.xdg, 'gh'));
     expect(readdirSync(run.dir).sort()).toEqual(['gh', 'muse']);
@@ -759,11 +779,11 @@ describe("Muse Code's config folder for one run", () => {
     keyOnly.done();
     // No account folder yet, or settings that are not JSON: Muse's defaults.
     const none = prepareMuseRun({ [MUSE_HOME_ENV]: join(root, 'none') }, 'full', [], { root: runs, userConfig });
-    expect(settingsOf(none)).toEqual({ schema_version: 1, permissions: musePermissions('full', []) });
+    expect(settingsOf(none)).toEqual({ schema_version: 1, run: { workflow_trigger_mode: 'off' }, permissions: musePermissions('full', []) });
     none.done();
     writeFileSync(join(home, 'config', 'muse', 'settings.json'), '{ not json');
     const bad = prepareMuseRun({ [MUSE_HOME_ENV]: home }, 'edit', [], { root: runs, userConfig });
-    expect(settingsOf(bad)).toEqual({ schema_version: 1, permissions: musePermissions('edit', []) });
+    expect(settingsOf(bad)).toEqual({ schema_version: 1, run: { workflow_trigger_mode: 'off' }, permissions: musePermissions('edit', []) });
     bad.done();
     expect(readdirSync(runs)).toEqual([]);
   });
@@ -813,7 +833,7 @@ describe("Muse Code's config folder for one run", () => {
     const a = account();
     writeFileSync(join(a.muse, 'settings.json'), JSON.stringify({ mcp_servers: { docs: {} }, hooks: { Stop: [] } }));
     const run = prepareMuseRun(a.env, 'read-only', [], { root: a.root, nativeOff: ['hooks'], nativeItems: { mcp: ['docs'] }, platform: 'win32' });
-    expect(settingsOf(run)).toEqual({ mcp_servers: {}, schema_version: 1, permissions: musePermissions('read-only', []) });
+    expect(settingsOf(run)).toEqual({ mcp_servers: {}, schema_version: 1, run: { workflow_trigger_mode: 'off' }, permissions: musePermissions('read-only', []) });
     run.done();
   });
 });
@@ -953,6 +973,7 @@ describe('its arguments, briefing and mode', () => {
     expect(text.endsWith('</harness-relay-briefing>')).toBe(true);
     expect(MUSE_NOTES).toMatch(/The user rejected this action/);
     expect(MUSE_NOTES).toMatch(/Do not retry/);
+    expect(MUSE_NOTES).toMatch(/Workflows are off/);
   });
 
   it('makes a lone half of an emoji (a role cut in the middle of one) a replacement character, which Muse takes as JSON text', () => {
@@ -1008,7 +1029,8 @@ describe("Muse Code's models and what it loads by itself", () => {
     const none = discoverMuse(env);
     expect(none).toMatchObject({ provider: 'muse', efforts: [...MUSE_EFFORTS], cliDefaultEffort: 'high', source: 'builtin' });
     expect(none.cliDefaultModel).toBeUndefined();
-    expect(none.models.map((m) => m.id)).toEqual(['muse-spark-1.3', 'muse-spark-1.3-contributor', 'muse-spark-1.2', 'muse-spark-1.2-contributor', 'muse-ember-1.0']);
+    expect(none.models.map((m) => m.id)).toEqual(['muse-wonder-1.0', 'muse-ember-1.0', 'muse-spark-1.3', 'muse-spark-1.3-contributor', 'muse-spark-1.2', 'muse-spark-1.2-contributor']);
+    expect(none.models.find((m) => m.id === 'muse-spark-1.2')?.efforts).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh']);
     mkdirSync(join(home, 'config', 'muse'), { recursive: true });
     writeFileSync(join(home, 'config', 'muse', 'settings.json'), JSON.stringify({ model: 'muse-spark-1.2', reasoning_effort: 'max' }));
     expect(discoverMuse(env)).toMatchObject({ cliDefaultModel: 'muse-spark-1.2', cliDefaultEffort: 'max', models: none.models });
@@ -1022,6 +1044,30 @@ describe("Muse Code's models and what it loads by itself", () => {
     expect(listed).toMatchObject({ provider: 'muse', cliDefaultModel: 'muse-next' });
     expect(listed.error).toBeUndefined();
     expect(isEndpointCli('muse')).toBe(false);
+  });
+
+  it('lists the models of the catalog Muse keeps once signed in, with their efforts and its default, the account\'s own default first', () => {
+    const home = join(root, 'a2');
+    const env = { [MUSE_HOME_ENV]: home };
+    // The catalog a signed-in muse 1.4.18 kept (test/fixtures/muse/cli/model-catalog.json): six visible models and a hidden one.
+    mkdirSync(join(home, 'data', 'muse', 'model-catalog'), { recursive: true });
+    copyFileSync(join(FIX, 'cli', 'model-catalog.json'), join(home, 'data', MUSE_CATALOG));
+    const listed = discoverMuse(env);
+    expect(listed).toMatchObject({ source: 'cli', cliDefaultModel: 'muse-spark-1.3-contributor', cliDefaultEffort: 'high' });
+    expect(listed.models.map((m) => m.id)).toEqual(['muse-wonder-1.0', 'muse-ember-1.0', 'muse-spark-1.3', 'muse-spark-1.3-contributor', 'muse-spark-1.2', 'muse-spark-1.2-contributor']);
+    expect(listed.models.find((m) => m.id === 'muse-spark-1.3')?.efforts).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(listed.models.find((m) => m.id === 'muse-spark-1.2')?.efforts).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh']);
+    // The hidden one (an image model) is not listed.
+    expect(listed.models.some((m) => m.id === 'muse-image-1.0')).toBe(false);
+    // The account's own default model comes before the catalog's.
+    mkdirSync(join(home, 'config', 'muse'), { recursive: true });
+    writeFileSync(join(home, 'config', 'muse', 'settings.json'), JSON.stringify({ model: 'muse-ember-1.0' }));
+    expect(discoverMuse(env).cliDefaultModel).toBe('muse-ember-1.0');
+    // A catalog it cannot read, or without a visible model: the fixed list.
+    writeFileSync(join(home, 'data', MUSE_CATALOG), '{"rows":[{"model_id":"x","visibility":"hidden"}]}');
+    expect(discoverMuse(env).source).toBe('builtin');
+    writeFileSync(join(home, 'data', MUSE_CATALOG), 'not json');
+    expect(discoverMuse(env).models.map((m) => m.id)[0]).toBe('muse-wonder-1.0');
   });
 
   it('lists its skills from its own answer, and its MCP servers (names only) and hooks (never their commands) from its settings', () => {
@@ -1181,7 +1227,7 @@ describe.skipIf(process.platform === 'win32')('a Muse Code turn (with a stand-in
       META_API_KEY: true,
     });
     // Only the settings it knows are kept: not its permissions, not one it does not know.
-    expect(start.settings).toEqual({ reasoning_effort: 'high', schema_version: 1, permissions: musePermissions('edit', [join(r.outside, 'secret.txt')]) });
+    expect(start.settings).toEqual({ reasoning_effort: 'high', schema_version: 1, run: { workflow_trigger_mode: 'off' }, permissions: musePermissions('edit', [join(r.outside, 'secret.txt')]) });
     // Its sign-in is the account's; the workspace the account trusts is untrusted in the run.
     expect(start.auth).toEqual({ link: join(r.config, 'auth.json') });
     expect(start.trust).toEqual({ schema_version: 1, projects: { [r.o.cwd]: { decision: 'untrusted' } } });
@@ -1519,7 +1565,7 @@ describe.skipIf(process.platform === 'win32')('a Muse Code turn (with a stand-in
     const r = run(undefined, { nativeOff: ['hooks'], nativeItems: { mcp: ['docs'] } });
     writeFileSync(join(r.config, 'settings.json'), JSON.stringify({ mcp_servers: { docs: { command: 'docs' }, web: { url: 'https://x' } }, hooks: { Stop: [] } }));
     await museRunner.run(r.o);
-    expect(r.log()[0]!.settings).toEqual({ mcp_servers: { web: { url: 'https://x' } }, schema_version: 1, permissions: musePermissions('edit', [join(r.outside, 'secret.txt')]) });
+    expect(r.log()[0]!.settings).toEqual({ mcp_servers: { web: { url: 'https://x' } }, schema_version: 1, run: { workflow_trigger_mode: 'off' }, permissions: musePermissions('edit', [join(r.outside, 'secret.txt')]) });
   });
 
   it("keeps an account besides the default one on its own key: Muse never gets the default account's sign-in", async () => {
