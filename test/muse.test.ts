@@ -1,8 +1,8 @@
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 // A data folder of its own: each turn's config folder goes in it (`museRunsDir`).
 const dataDir = await vi.hoisted(async () => {
@@ -629,6 +629,28 @@ describe("Muse Code's config folder for one run", () => {
     const bare = prepareMuseRun(b.env, 'edit', [], { root: b.root, dirs: [b.work] });
     expect(readdirSync(join(bare.dir, 'muse')).sort()).toEqual(['auth.json', 'settings.json', 'trust.json']);
     bare.done();
+  });
+
+  it("goes on without a skills folder or rules it cannot use: a file named skills, a folder named AGENTS.md", () => {
+    const a = account();
+    writeFileSync(join(a.muse, 'skills'), 'not a folder\n');
+    mkdirSync(join(a.muse, 'AGENTS.md'));
+    const run = prepareMuseRun(a.env, 'edit', [], { root: a.root, dirs: [a.work] });
+    expect(readdirSync(join(run.dir, 'muse')).sort()).toEqual(['auth.json', 'settings.json', 'trust.json']);
+    run.done();
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('goes on without rules it cannot read', () => {
+    const a = account();
+    writeFileSync(join(a.muse, 'AGENTS.md'), 'Be brief.\n');
+    chmodSync(join(a.muse, 'AGENTS.md'), 0o000);
+    onTestFinished(() => chmodSync(join(a.muse, 'AGENTS.md'), 0o600));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    onTestFinished(() => warn.mockRestore());
+    const run = prepareMuseRun(a.env, 'edit', [], { root: a.root, dirs: [a.work] });
+    expect(readdirSync(join(run.dir, 'muse')).sort()).toEqual(['auth.json', 'settings.json', 'trust.json']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not read'));
+    run.done();
   });
 
   it.skipIf(process.platform === 'win32')("links the account's skills folder itself, so that skills added meanwhile are there too", () => {

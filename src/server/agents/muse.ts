@@ -297,6 +297,16 @@ export function museTrust(dirs: readonly string[]): Record<string, unknown> {
   return { schema_version: 1, projects: Object.fromEntries([...new Set(dirs.map(realOr))].map((d) => [d, { decision: 'untrusted' }])) };
 }
 
+/** What is at `path` (a link followed): a folder, a file, or nothing (also what cannot be looked at). */
+function kindOf(path: string): 'dir' | 'file' | undefined {
+  try {
+    const st = statSync(path, { throwIfNoEntry: false });
+    return st?.isDirectory() ? 'dir' : st?.isFile() ? 'file' : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Makes a run's config folder (`museRunsDir`, owner only, removed after the turn; one the server was
  * stopped during goes once older than a turn may last):
@@ -307,6 +317,8 @@ export function museTrust(dirs: readonly string[]): Record<string, unknown> {
  *   a file of its own is put back into the account's, unless that changed meanwhile;
  * - `muse/trust.json`: below full access, the working directories untrusted (`museTrust`): never the
  *   account's own trust, so no workspace is trusted below full access;
+ * - `muse/skills` and `muse/AGENTS.md`: a link to the account's skills folder and a copy of its rules,
+ *   where it has them;
  * - links to the user's other XDG config folders (`gh`, `git`…; not on Windows), since the commands Muse
  *   runs get its `XDG_CONFIG_HOME` too.
  */
@@ -376,10 +388,18 @@ export function prepareMuseRun(
     // missing from the runs until linked (tried with muse 1.4.18). Not its approval policy
     // (`approval-policy.json`), which would decide what runs without asking, nor its workflows, which the
     // runs turn off. Muse has no switch that leaves its skills or rules out of one run.
+    // Either one that is not what Muse looks for (a file named `skills`, a rules file it cannot read) is
+    // left out, as Muse itself skips it, and the run goes on.
     const skills = join(own, 'skills');
-    if (existsSync(skills)) symlinkSync(skills, join(cfg, 'skills'), platform === 'win32' ? 'junction' : 'dir');
+    if (kindOf(skills) === 'dir') symlinkSync(skills, join(cfg, 'skills'), platform === 'win32' ? 'junction' : 'dir');
     const rules = join(own, 'AGENTS.md');
-    if (existsSync(rules)) copyFileSync(rules, join(cfg, 'AGENTS.md'));
+    if (kindOf(rules) === 'file') {
+      try {
+        copyFileSync(rules, join(cfg, 'AGENTS.md'));
+      } catch (err) {
+        console.warn(`[muse] could not read ${rules}: ${(err as Error).message}`);
+      }
+    }
     if (permission !== 'full') writeFileSync(join(cfg, 'trust.json'), `${JSON.stringify(museTrust(opts.dirs ?? []), null, 2)}\n`, { mode: 0o600 });
     // The commands Muse runs find the rest of the user's config folder where they look for it.
     if (platform !== 'win32') {

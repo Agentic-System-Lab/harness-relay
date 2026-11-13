@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -497,6 +497,27 @@ describe("Copilot's home and settings for one run", () => {
     expect(copilotEnv({ COPILOT_HOME: '/acct' }, '/run', [], undefined, home)).not.toHaveProperty('COPILOT_SKILLS_DIRS');
     // Skills left out: no skill folder at all.
     expect(copilotEnv({ COPILOT_SKILLS_DIRS: '/s' }, '/run', ['skills'], undefined, home)).not.toHaveProperty('COPILOT_SKILLS_DIRS');
+    // A home whose path has a comma in it would split the list: its runs go without them.
+    const comma = join('/', 'home', 'a,b');
+    expect(copilotEnv({}, '/run', [], undefined, comma)).not.toHaveProperty('COPILOT_SKILLS_DIRS');
+    expect(copilotEnv({ COPILOT_SKILLS_DIRS: '/s' }, '/run', [], undefined, comma).COPILOT_SKILLS_DIRS).toBe('/s');
+  });
+
+  it('tells the usual home however COPILOT_HOME spells it: a trailing slash, a link, another letter case', () => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), 'relay-copilot-home-')));
+    onTestFinished(() => rmSync(home, { recursive: true, force: true }));
+    mkdirSync(join(home, '.copilot'));
+    const agents = join(home, '.agents', 'skills');
+    expect(copilotEnv({ COPILOT_HOME: `${join(home, '.copilot')}/` }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(agents);
+    expect(copilotEnv({ COPILOT_HOME: join(home, 'x', '..', '.copilot') }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(agents);
+    symlinkSync(join(home, '.copilot'), join(home, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
+    expect(copilotEnv({ COPILOT_HOME: join(home, 'link') }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(agents);
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      expect(copilotEnv({ COPILOT_HOME: join(home, '.COPILOT') }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(agents);
+    }
+    // Another folder beside it is not.
+    mkdirSync(join(home, 'other'));
+    expect(copilotEnv({ COPILOT_HOME: join(home, 'other') }, '/run', [], undefined, home)).not.toHaveProperty('COPILOT_SKILLS_DIRS');
   });
 });
 
