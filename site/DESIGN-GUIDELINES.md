@@ -5,14 +5,14 @@ How the Harness Relay landing page (`site/`) looks, reads and behaves, and what 
 ## Goal
 
 - **Reader:** a developer who already uses one or more of the Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code CLIs, or an open-source coding agent (OpenCode, Goose, Cline, OpenHands, Pi) on their own API keys or model.
-- **Job of the page:** within a minute, show three real CLIs working in one chat (the demo's: Claude Code, Codex and Grok), then get the reader to download the desktop app for their system, or open the repository. There are no commands to start it: running from source (`npm start`, and `npm run dev` for people working on Harness Relay itself) is one line at the end of the quick start, for servers without a desktop, linking to the README.
+- **Job of the page:** within a minute, show that the coding agents the reader already has (any mix of the twelve, and one is enough) work in one chat, as three real CLIs do in the demo (Claude Code, Codex and Grok), then get the reader to download the desktop app for their system, or open the repository. There are no commands to start it: running from source (`npm start`, and `npm run dev` for people working on Harness Relay itself) is one line at the end of the quick start, for servers without a desktop, linking to the README.
 - **Primary action:** the download button in the hero, named after the visitor's system ("Download for macOS"), with the link to the requirements and the other systems beside it; the GitHub button sits under them. The buttons' column takes only the width they need, and the lead sentence the rest (up to its 38em), so that it reads in a few long lines. The hero is as wide as the header: the headline fills the width (`text-wrap: pretty`, not balanced shorter), and the buttons end at the right edge, under the header's GitHub button (on one column, 920px and narrower, they start at the left). The page ends on the quick start, never on a dead end.
 
 ## Principles
 
 1. **Show the run, don't describe it.** The first viewport is the real demo recording with a chapter rail. Every section after it shows the mechanism (mode diagrams, the app's own UI) before it explains it.
 2. **The app's world, at poster scale.** The page is recognisably the same product as the app: same neutrals, same agent colours, same three-dot mark, same avatars and pills. It is bolder in scale, not in new decoration.
-3. **Colour means an agent.** Claude Code orange, Codex green and Grok violet appear only where that agent acts or is named. Never use them for generic accents, links or section themes. The one other colour is the GitHub star's yellow, only on that star. Cursor, Antigravity, Copilot, Muse Code and the five open-source agents have their colours from the app (Settings shows them the same), but only on the dot before their name in their list ("Your CLIs" and "Open-source agents"); their names and everything else about them stay plain: the demo does not show them. So the headline and the mark keep the demo's three.
+3. **Colour means an agent.** Claude Code orange, Codex green and Grok violet appear only where that agent acts or is named. Never use them for generic accents, links or section themes. The one other colour is the GitHub star's yellow, only on that star. Cursor, Antigravity, Copilot, Muse Code and the five open-source agents have their colours from the app (Settings shows them the same), but only on the dot before their name in their list ("The agents you installed" and "Open-source agents"); their names and everything else about them stay plain: the demo does not show them. So the mark keeps the demo's three. The headline names no agent: it says the reader's own agents, in any mix, work together, so that it never reads as a list of CLIs (and subscriptions) the reader needs. Its one colour is the bar under "coding agent(s)", split in the three (`.team-mark`), as when all three act together; the words themselves stay ink; the lead sentence under it names all twelve, plainly, and says one kind of agent is enough.
 4. **Facts only.** Every claim must be true of the code in this repository. There are no testimonials, user counts, download counts or benchmarks; do not add any. The numbers about the project are the GitHub star count on the two GitHub buttons and the newest release's version in the quick start, read live from GitHub's API; never write them into the page. The download cards show no installer sizes.
 5. **Two languages, equal.** English and 繁體中文 pages have the same sections, order and facts.
 
@@ -20,7 +20,7 @@ How the Harness Relay landing page (`site/`) looks, reads and behaves, and what 
 
 ### Colour
 
-Tokens live at the top of [`assets/site.css`](assets/site.css) and follow the app (`src/web/styles.css`). The page follows the visitor's light/dark setting, like the app, until they pick a theme with the theme button (see Components). The dark values are written twice, for the system's dark mode (unless `<html data-theme="light">`) and for `data-theme="dark"`, and `test/site-theme.test.ts` checks the two lists are the same. So anything that differs in dark mode is a token in those lists (`--claude-name`, `--warn`, `--danger`, `--when-light` and `--when-dark` for what shows in one theme only), never a `prefers-color-scheme` query of its own.
+Tokens live at the top of [`assets/site.css`](assets/site.css) and follow the app (`src/web/styles.css`). The page follows the visitor's light/dark setting, like the app, until they pick a theme with the theme button (see Components). The dark values are written twice, for the system's dark mode (unless `<html data-theme="light">`) and for `data-theme="dark"`, and `test/site-theme.test.ts` checks the two lists are the same. So anything that differs in dark mode is a token in those lists (`--warn`, `--danger`, `--when-light` and `--when-dark` for what shows in one theme only), never a `prefers-color-scheme` query of its own.
 
 | Role | Light | Dark | Use |
 | --- | --- | --- | --- |
@@ -55,10 +55,10 @@ The other nine take only their brand colour, the same in both themes as in the a
 
 Rules:
 
-- Brand colours as text only at large sizes (the agent names in the headline, 3:1 or better). Small coloured text uses `-ink` on the page and `-lit` on the band.
+- Brand colours as text only at large sizes, 3:1 or better (none is on the page now: the headline names no agent). Small coloured text uses `-ink` on the page and `-lit` on the band.
 - On the big discs, Claude Code and Codex take dark text (`#18181b`); Grok takes white, and only at large bold sizes.
 - Set the agent with a helper class: `.t-claude`, `.t-codex` or `.t-grok` define `--agent`, `--agent-ink`, `--agent-lit` and `--agent-deep` for everything inside. `.t-cursor`, `.t-antigravity`, `.t-copilot`, `.t-muse`, `.t-opencode`, `.t-goose`, `.t-cline`, `.t-openhands` and `.t-pi` define `--agent` only, for their list's dot; keep them changed with the app's colours.
-- When all three act together (`.t-team`), show all three: stacked avatars, and a progress bar split in three.
+- When all three act together (`.t-team`), show all three: stacked avatars, and a progress bar split in three. The headline's "coding agent(s)" takes the same split as its underline (`.team-mark`), for the agents together.
 - Body text meets 4.5:1, large text 3:1. Check new pairs before shipping.
 
 ### Type
@@ -81,7 +81,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 
 ### Components
 
-- **Mark:** the three circles from the favicon (`#i-mark` symbol), same geometry as `src/web/components/Logo.tsx`. At page scale it becomes the three agent discs in "Your CLIs, not imitations": the app's mark and the demo's three, not a count of the CLIs (the list beside it names Cursor, Antigravity, Copilot and Muse Code too).
+- **Mark:** the three circles from the favicon (`#i-mark` symbol), same geometry as `src/web/components/Logo.tsx`. At page scale it becomes the three agent discs in "The agents you installed, as they are": the app's mark and the demo's three, not a count of the CLIs (the list beside it names Cursor, Antigravity, Copilot and Muse Code too).
 - **Avatar** (`.av`): the member's initial on a `-deep` fill, like the app. Initials match the template or demo member names.
 - **Pill** (`.pill`): the app's CLI badge, tinted agent colour with `-ink` text. **Chip** (`.chip`): neutral outline for mode, permission and round labels.
 - **Buttons:** primary is ink on light (`.btn-primary`), secondary is outlined (`.btn-ghost`). One primary per view: in the hero, the download button.
@@ -99,9 +99,9 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | # | Section | Purpose |
 | --- | --- | --- |
 | 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count, the theme button |
-| 2 | Hero | Headline with the three agent names in their colours, one sentence, the download button for the visitor's system with the link to the requirements beside it, GitHub button with the star count |
+| 2 | Hero | Headline about the reader's own agents in any mix (no agent names, so it never reads as a list to have), a lead that names the twelve, says one kind of agent is enough and that the lead agent designs the team for each question, the download button for the visitor's system with the link to the requirements beside it, GitHub button with the star count |
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
-| 4 | Your CLIs (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
+| 4 | The agents you installed (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
 | 5 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |
 | 6 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
 | 7 | Teams (`#teams`) | A team for every question: the lead agent picks it, you design the templates; the five built-in templates |
@@ -124,6 +124,7 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 ## Copy and languages
 
 - Voice: plain, specific, second person, short sentences. Name real things (`claude`, `codex app-server`, `127.0.0.1`). No hype words.
+- Say *agent*, not *CLI*: "The agents you installed", "one kind of agent is enough", "the twelve agents" (中文「agent」，例如「一種 agent 就能組隊」). *CLI* stays only in a product's name (Codex CLI, Grok CLI, Cursor CLI, Antigravity CLI, GitHub Copilot CLI, GitHub CLI); a program itself is named as code (`claude`, `codex app-server`).
 - Use the app's own terms. English: Auto team, Roundtable, Parallel, Relay, Read-only, Edit, Full access, lead agent, model backends, custom endpoints. 繁體中文: 自動組隊、圓桌、平行、接力、唯讀、可編輯、完全存取、首席 agent、模型來源、自訂端點、開源 agent (see `src/web/locales/zh-TW.ts`).
 - English page: `site/index.html`. Chinese page: `site/zh-TW/index.html` (`lang="zh-Hant-TW"`). A change to one is a change to both.
 - The site remembers the visitor's language. Clicking the language switch in the header (`data-lang`) stores the choice in `localStorage` under `harness-relay.lang` (`en` or `zh-TW`). On every later visit the inline script in each page's `<head>` sends the visitor to the page in that language before anything renders, keeping the `#section` anchor. Until they choose, the English page follows the browser like the app does: a browser whose first language is Chinese gets `zh-TW/`; a Chinese page opened directly stays as it is.

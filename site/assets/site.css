@@ -62,10 +62,6 @@
   --star-inverse: #e3b341;
   --star-inverse-edge: #e3b341;
 
-  /* The headline's agent names: the brand colours on the light page, the -lit ones on the dark. */
-  --claude-name: var(--claude);
-  --codex-name: var(--codex);
-  --grok-name: var(--grok);
   /* A file changed or removed, and the amber of a waiting approval, in the UI excerpts (as in the app). */
   --warn: #b45309;
   --danger: #dc2626;
@@ -106,9 +102,6 @@
     --star-edge: #e3b341;
     --star-inverse: #eac54f;
     --star-inverse-edge: #bf8700;
-    --claude-name: var(--claude-lit);
-    --codex-name: var(--codex-lit);
-    --grok-name: var(--grok-lit);
     --warn: #fbbf24;
     --danger: #f87171;
     --when-light: none;
@@ -136,9 +129,6 @@
   --star-edge: #e3b341;
   --star-inverse: #eac54f;
   --star-inverse-edge: #bf8700;
-  --claude-name: var(--claude-lit);
-  --codex-name: var(--codex-lit);
-  --grok-name: var(--grok-lit);
   --warn: #fbbf24;
   --danger: #f87171;
   --when-light: none;
@@ -368,18 +358,6 @@ p {
 
 .t-pi {
   --agent: var(--pi);
-}
-
-.name-claude {
-  color: var(--claude-name);
-}
-
-.name-codex {
-  color: var(--codex-name);
-}
-
-.name-grok {
-  color: var(--grok-name);
 }
 
 /* The app's avatar: a coloured disc with the member's initial. */
@@ -645,6 +623,29 @@ html:not(.js) .theme-toggle {
 /* A phrase the headline never breaks inside (Chinese breaks between any two characters). */
 .phrase {
   white-space: nowrap;
+}
+
+/* "coding agent(s)" in the headline: underlined in the three agents' colours, as when they act together
+   (the chapter rail's team bar), never the words themselves. An outline in the page colour around the
+   glyphs keeps the bar off the descenders. */
+.team-mark {
+  background-image: linear-gradient(
+    90deg,
+    var(--claude) 0 32.73%,
+    transparent 0 33.93%,
+    var(--codex) 0 66.06%,
+    transparent 0 67.26%,
+    var(--grok) 0 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 0.085em;
+  background-position: 0 88%;
+  text-shadow:
+    0.03em 0 var(--bg),
+    -0.03em 0 var(--bg),
+    0 0.03em var(--bg),
+    0.05em 0 var(--bg),
+    -0.05em 0 var(--bg);
 }
 
 .hero-grid h1 {
