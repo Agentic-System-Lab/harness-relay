@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import {
   API_BACKENDS,
   isApiBackend,
@@ -20,13 +20,12 @@ import { API_BACKEND_HOST, backendLabel, urlHost, type BackendRun } from '../bac
 import { commandLine, parseCommandLine, parseShellSyntax } from '../commands';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
-import { openRunDatabase, openSqliteFile } from '../db';
+import { openRunDatabase, openSqliteFile, plainDatabaseFiles, readRunDatabase } from '../db';
 import { converse } from '../process';
 import type { JsonRpcConnection } from './acp';
 import {
   acpBriefing,
   acpMcpServers,
-  acpUsage,
   acpTurn,
   defaultAcpDeps,
   type AcpAgentSpec,
@@ -69,7 +68,8 @@ import { AgentRunError, type AgentRunner, type McpServerSpec, type RunOptions, t
  *   from the tool's name (`_meta.goose.toolCall.toolName`, or the title's first part).
  * - Goose has no tool that reads a file: it reads with `shell`. In read-only, plain reading commands
  *   (`cat`, `ls`, `rg`… without redirection or substitution) count as reading.
- * - The cost Goose reports is the session's total: a turn's cost is what it added.
+ * - A turn's tokens and cost are what the session's totals in Goose's sessions database (its subagents'
+ *   sessions included) grew by: the prompt's answer gives the last model call's tokens only.
  */
 
 /** The goose provider id of a Harness Relay endpoint (kept apart from Goose's own providers, such as `ollama`). */
@@ -418,6 +418,8 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
   // GOOSE_PATH_ROOT and HOME: the conversation member's own folder.
   const own = home.state;
   checkGooseSessions(ctx);
+  // Where an earlier version kept each session's cost between turns.
+  rmSync(join(root, 'relay-cost'), { recursive: true, force: true });
   for (const dir of home.statePaths) mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Its config folders hold only what Harness Relay writes in them, every run (a run with full access
   // may have left anything there; a sandboxed one cannot write them).
@@ -515,7 +517,7 @@ function storedExtensions(extensionData: unknown): GooseExtension[] | undefined 
  */
 export function sealGooseExtensions(state: string, sealed: string, sessionId: string): void {
   const file = gooseSessionsDb(state);
-  if (!existsSync(file)) return;
+  if (!plainDatabaseFiles(file)) return;
   try {
     const db = openSqliteFile(file);
     try {
@@ -714,67 +716,136 @@ export async function gooseAfterRefusal(conn: JsonRpcConnection, refusal: { sess
   });
 }
 
-/** Keeps what the updates say about the run: the running turn's id (for steering), the session's cost so far. */
+/** Keeps what the updates say about the run: the running turn's id (for steering). */
 export function gooseFilterUpdate(params: { sessionId: string; update: Record<string, any> }, ctx: OpenRunContext): Record<string, any> | undefined {
   const u = params.update;
-  switch (u?.sessionUpdate) {
-    case 'session_info_update':
-      if (u._meta?.goose && 'activeRunId' in u._meta.goose) ctx.state.activeRunId = u._meta.goose.activeRunId ?? undefined;
-      break;
-    case 'usage_update':
-      // Before the turn's first output it is still the session's total from before the turn.
-      if (typeof u.cost?.amount === 'number' && !ctx.state.output && ctx.state.costBefore === undefined) ctx.state.costBefore = u.cost.amount;
-      break;
-    case 'agent_message_chunk':
-    case 'agent_thought_chunk':
-    case 'tool_call':
-      ctx.state.output = true;
-      break;
-  }
+  if (u?.sessionUpdate === 'session_info_update' && u._meta?.goose && 'activeRunId' in u._meta.goose) ctx.state.activeRunId = u._meta.goose.activeRunId ?? undefined;
   return u;
 }
 
 /**
- * Where the session's cost so far is kept between turns (Goose reports the session's total): in the
- * shared home, which Harness Relay writes and no sandboxed run may, by the member's state folder and
- * the session, so that the agent cannot change what its turns are said to cost.
+ * What Goose has counted for a session and the subagents' sessions started from it: tokens (input
+ * with the cached ones read and written, as Goose counts it), and the cost when any of its model
+ * calls had a price.
  */
-export function gooseCostFile(home: Pick<OpenRunContext['home'], 'root' | 'state'>, sessionId: string): string {
-  const member = createHash('sha256').update(home.state).digest('hex').slice(0, 16);
-  return join(home.root, 'relay-cost', member, sessionId.replace(/[^A-Za-z0-9_.-]/g, '_'));
+export interface GooseTotals {
+  input: number;
+  output: number;
+  total: number;
+  cost?: number;
+}
+
+/** A session not started yet. */
+export const GOOSE_NOTHING_USED: GooseTotals = { input: 0, output: 0, total: 0 };
+
+/** A number in SQL that counts: above 0 and finite (else 0). */
+const positive = (v: string) => `(CASE WHEN ${v} > 0 AND ${v} < 1e300 THEN ${v} ELSE 0 END)`;
+/** Whether a cost in SQL is one: 0 or more, and finite. */
+const priced = (v: string) => `(${v} >= 0 AND ${v} < 1e300)`;
+
+/**
+ * Goose's own count of a session's usage (`get_session_usage_totals` in Goose 1.58.1), added up in
+ * SQL so that one row comes back: for the session and every session started from it, the larger of
+ * its running totals and the sum of its ledger rows. Every number is read as a real (an integer a
+ * command wrote past 2^53 would otherwise fail every read), and a database from before Goose had a
+ * ledger (it adds one when it starts) is read without it.
+ */
+const gooseTotalsSql = (ledger: boolean) => `
+  WITH RECURSIVE tree(id) AS (
+    SELECT id FROM sessions WHERE id = ?
+    UNION
+    SELECT s.id FROM sessions s JOIN tree ON s.parent_session_id = tree.id
+  ),
+  per AS (
+    SELECT CAST(s.accumulated_input_tokens AS REAL) AS acc_input, CAST(s.accumulated_output_tokens AS REAL) AS acc_output,
+           CAST(s.accumulated_total_tokens AS REAL) AS acc_total, CAST(s.accumulated_cost AS REAL) AS acc_cost,
+           ${
+             ledger
+               ? `SUM(CAST(u.input_tokens AS REAL)) AS ledger_input, SUM(CAST(u.output_tokens AS REAL)) AS ledger_output,
+           SUM(CAST(u.total_tokens AS REAL)) AS ledger_total, SUM(CAST(u.cost AS REAL)) AS ledger_cost`
+               : 'NULL AS ledger_input, NULL AS ledger_output, NULL AS ledger_total, NULL AS ledger_cost'
+           }
+    FROM sessions s
+    ${ledger ? 'LEFT JOIN usage_ledger u ON u.session_id = s.id' : ''}
+    WHERE s.id IN (SELECT id FROM tree)
+    GROUP BY s.id
+  )
+  SELECT SUM(MAX(${positive('acc_input')}, ${positive('ledger_input')})) AS input,
+         SUM(MAX(${positive('acc_output')}, ${positive('ledger_output')})) AS output,
+         SUM(MAX(${positive('acc_total')}, ${positive('ledger_total')})) AS total,
+         SUM(CASE WHEN ${priced('acc_cost')} OR ${priced('ledger_cost')} THEN MAX(${positive('acc_cost')}, ${positive('ledger_cost')}) END) AS cost
+  FROM per`;
+
+/**
+ * A session's totals in Goose's sessions database, counted as Goose counts them for its
+ * `usage_update`: the session and every session started from it (`parent_session_id`: its
+ * `delegate` subagents), each the larger of its running totals and the sum of its ledger rows (one
+ * per model call, compaction's included). Nothing for a session the database does not have. The
+ * database is the run's state, which its commands may write, read as `readRunDatabase` reads one;
+ * undefined when it cannot be read. Opened read-only: Goose may be running.
+ */
+export async function gooseSessionTotals(file: string, sessionId: string): Promise<GooseTotals | undefined> {
+  const read = await readRunDatabase(file, ['sessions', 'usage_ledger'], [
+    { sql: gooseTotalsSql(true), params: [sessionId], needs: ['sessions', 'usage_ledger'] },
+    { sql: gooseTotalsSql(false), params: [sessionId], needs: ['sessions'], unless: ['usage_ledger'] },
+  ]);
+  if (!read) return undefined;
+  const row = (read.results[0] ?? read.results[1])?.[0] ?? {};
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+  const cost = row.cost;
+  return {
+    input: num(row.input),
+    output: num(row.output),
+    total: num(row.total),
+    ...(typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? { cost } : {}),
+  };
 }
 
 /**
- * Tokens of the turn's last model call (what Goose's answer says) and the turn's cost: Goose's cost
- * is the session's total, so a loaded session's turn costs what it added to the total kept after its
- * previous turn (or, without one, to the total Goose reported before the turn's first output). The
- * new total is kept for the next turn.
+ * What a resumed session (with its subagents' sessions) had used before this turn, read once the run
+ * is prepared and before Goose starts: the turn's usage is what it adds (`gooseUsage`).
  */
-export function gooseUsage(result: Record<string, any> | undefined, last: AcpUsageUpdate | undefined, ctx: OpenRunContext): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
-  const usage = acpUsage(result, last);
-  if (usage.costUsd === undefined) return usage;
-  const total = usage.costUsd;
+export async function gooseTotalsBefore(ctx: OpenRunContext): Promise<void> {
+  if (ctx.o.sessionId) ctx.state.totalsBefore = await gooseSessionTotals(gooseSessionsDb(ctx.home.state), ctx.o.sessionId);
+}
+
+/**
+ * The turn's tokens and cost: what the session's totals (its subagents' included) grew by. Goose's
+ * output leaves out the reasoning of some providers (xAI's) that its total counts, so the output is
+ * at least the total less the input. No numbers when either side is not known or the totals went
+ * down (not the same session's); no cost when no model call of the session had a price, nor on the
+ * user's own endpoint (`priced` false), whose model Goose prices by its name as a vendor's.
+ */
+export function gooseTurnUsage(before: GooseTotals | undefined, after: GooseTotals | undefined, priced = true): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
+  if (!before || !after) return {};
+  const input = after.input - before.input;
+  const output = after.output - before.output;
+  const total = after.total - before.total;
+  if (input < 0 || output < 0 || total < 0) return {};
+  const cost = after.cost === undefined || !priced ? undefined : after.cost - (before.cost ?? 0);
+  if (!input && !output && !total && !cost) return {};
+  return {
+    inputTokens: input,
+    outputTokens: Math.max(output, total - input),
+    ...(cost !== undefined && cost >= -1e-9 ? { costUsd: Math.max(0, Math.round(cost * 1e10) / 1e10) } : {}),
+  };
+}
+
+/**
+ * The turn's usage, from Goose's sessions database: its totals when the prompt answered (Goose has
+ * stored every call of the turn by then) less those read before Goose started (`prepareGoose`). The
+ * prompt's answer and `usage_update` are not used: the answer's tokens are the turn's last model
+ * call only, and a total kept from an earlier turn's answer would miss a failed turn's calls.
+ */
+export async function gooseUsage(
+  _result: Record<string, any> | undefined,
+  _last: AcpUsageUpdate | undefined,
+  ctx: OpenRunContext,
+): Promise<Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'>> {
   const sessionId = typeof ctx.state.sessionId === 'string' ? ctx.state.sessionId : undefined;
-  const file = sessionId ? gooseCostFile(ctx.home, sessionId) : undefined;
-  let before: number | undefined = ctx.state.method === 'new' ? 0 : undefined;
-  if (before === undefined && file) {
-    try {
-      const kept = Number(readFileSync(file, 'utf8'));
-      if (Number.isFinite(kept)) before = kept;
-    } catch {
-      // not kept (a session from before Harness Relay kept it)
-    }
-  }
-  if (before === undefined && typeof ctx.state.costBefore === 'number') before = ctx.state.costBefore;
-  if (file) {
-    try {
-      writeIfChanged(file, String(total));
-    } catch (err) {
-      console.warn('[goose] could not keep the session cost:', (err as Error).message);
-    }
-  }
-  const cost = before === undefined ? undefined : total - before;
-  return { ...usage, costUsd: cost !== undefined && cost >= 0 ? Math.round(cost * 1e10) / 1e10 : undefined };
+  if (!sessionId) return {};
+  const before = ctx.state.method === 'new' ? GOOSE_NOTHING_USED : (ctx.state.totalsBefore as GooseTotals | undefined);
+  return gooseTurnUsage(before, await gooseSessionTotals(gooseSessionsDb(ctx.home.state), sessionId), ctx.run.kind !== 'endpoint');
 }
 
 // --- Tool calls -----------------------------------------------------------------------------
@@ -1139,7 +1210,10 @@ export const gooseAcp: AcpAgentSpec = {
   home: gooseHome,
   // Rust's reqwest takes the sandbox's HTTP(S)_PROXY as it is.
   proxyEnv: {},
-  prepare: (ctx) => prepareGoose(ctx),
+  prepare: async (ctx) => {
+    prepareGoose(ctx);
+    await gooseTotalsBefore(ctx);
+  },
   sandbox: gooseSandbox,
   // Set again after every session/load, in Goose's order (`gooseAfterSession`).
   model: { via: 'config' },

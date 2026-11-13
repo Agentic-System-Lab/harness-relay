@@ -5,7 +5,7 @@ import { AlertWatcher } from './alerts';
 import { createApp } from './app';
 import { AuthStore, CODE_TTL_MS } from './auth';
 import { signInLink } from './signin';
-import { lockDataDir, openDatabase } from './db';
+import { exitAfterRunDatabaseReads, lockDataDir, openDatabase, runDatabaseReadsLeft } from './db';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
 import { desktopParent } from './parent';
@@ -189,7 +189,11 @@ let shuttingDown = false;
 async function shutdown(code = 0): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  setTimeout(() => process.exit(1), 10_000).unref(); // never hang on the way out
+  // Never hang on the way out (Node would wait for a stuck database read: `exitAfterRunDatabaseReads`).
+  setTimeout(() => {
+    if (runDatabaseReadsLeft()) process.kill(process.pid, 'SIGKILL');
+    process.exit(1);
+  }, 10_000).unref();
   server.close();
   scheduler.stop();
   alerts.stop();
@@ -204,7 +208,7 @@ async function shutdown(code = 0): Promise<void> {
   await killAll();
   store.flushAll();
   db.close();
-  process.exit(code);
+  await exitAfterRunDatabaseReads(code);
 }
 process.on('SIGINT', () => void shutdown());
 process.on('SIGTERM', () => void shutdown());

@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { endpointEffort, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
@@ -137,6 +138,194 @@ export function claudeDenyReadRules(path: string): string[] {
 /** The user's own Claude Code settings file, in its home (`CLAUDE_CONFIG_DIR`, else `~/.claude`). */
 export function claudeUserSettings(env: NodeJS.ProcessEnv): string {
   return join(env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'settings.json');
+}
+
+// --- Usage --------------------------------------------------------------------------------------
+
+/** Cost and tokens as Claude Code counts them (input with the cached tokens read and written). */
+export interface ClaudeTally {
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+const NOTHING_USED: ClaudeTally = { costUsd: 0, inputTokens: 0, outputTokens: 0 };
+
+/**
+ * Claude Code's record of a session: `<its home>/projects/<folder>/<session id>.jsonl`, the folder
+ * being the working directory's path with every character but a letter or digit as `-` (cut and
+ * hashed when that is too long), so it is otherwise looked for in every project folder by its name.
+ */
+export function claudeSessionFile(env: NodeJS.ProcessEnv, cwd: string, sessionId: string): string | undefined {
+  if (!/^[\w-]+$/.test(sessionId)) return undefined;
+  const projects = join(env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects');
+  const name = `${sessionId}.jsonl`;
+  let real = cwd;
+  try {
+    real = realpathSync(cwd);
+  } catch {
+    // the path as given
+  }
+  const named = [...new Set([cwd, real].map((p) => p.replace(/[^a-zA-Z0-9]/g, '-')))];
+  let all: string[] = [];
+  try {
+    all = readdirSync(projects);
+  } catch {
+    return undefined;
+  }
+  for (const folder of [...named, ...all]) {
+    const file = join(projects, folder, name);
+    if (existsSync(file)) return file;
+  }
+  return undefined;
+}
+
+/** The tokens of every model in a `modelUsage` (a result's, or a `cost-state` record's), or undefined without one. */
+export function claudeModelTokens(modelUsage: unknown): Pick<ClaudeTally, 'inputTokens' | 'outputTokens'> | undefined {
+  if (!modelUsage || typeof modelUsage !== 'object' || Array.isArray(modelUsage)) return undefined;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+  let inputTokens = 0;
+  let outputTokens = 0;
+  for (const m of Object.values(modelUsage as Record<string, any>)) {
+    inputTokens += num(m?.inputTokens) + num(m?.cacheReadInputTokens) + num(m?.cacheCreationInputTokens);
+    outputTokens += num(m?.outputTokens);
+  }
+  return { inputTokens, outputTokens };
+}
+
+/** The cost of every model in a `modelUsage` (`costUSD`), or undefined when none has one. */
+function claudeModelCost(modelUsage: unknown): number | undefined {
+  if (!modelUsage || typeof modelUsage !== 'object' || Array.isArray(modelUsage)) return undefined;
+  let cost: number | undefined;
+  for (const m of Object.values(modelUsage as Record<string, any>)) {
+    if (typeof m?.costUSD === 'number' && Number.isFinite(m.costUSD) && m.costUSD >= 0) cost = (cost ?? 0) + m.costUSD;
+  }
+  return cost;
+}
+
+/** Two `modelUsage`s added up, model by model (undefined when neither is one). */
+export function addModelUsage(a: unknown, b: unknown): Record<string, Record<string, unknown>> | undefined {
+  const isUsage = (v: unknown): v is Record<string, Record<string, unknown>> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+  if (!isUsage(a)) return isUsage(b) ? b : undefined;
+  if (!isUsage(b)) return a;
+  const sum: Record<string, Record<string, unknown>> = { ...a };
+  for (const [model, m] of Object.entries(b)) {
+    const was = sum[model];
+    if (!was || typeof was !== 'object' || !m || typeof m !== 'object') {
+      sum[model] = m;
+      continue;
+    }
+    const both: Record<string, unknown> = { ...was, ...m };
+    for (const key of ['inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens']) {
+      both[key] = (typeof was[key] === 'number' ? was[key] : 0) + (typeof m[key] === 'number' ? m[key] : 0);
+    }
+    // A cost only one of them has is not the model's cost: not known then.
+    if (typeof was.costUSD === 'number' && typeof m.costUSD === 'number') both.costUSD = was.costUSD + m.costUSD;
+    else delete both.costUSD;
+    sum[model] = both;
+  }
+  return sum;
+}
+
+/** How far back from the end of a session's file its last `cost-state` record is looked for. */
+const COST_STATE_SCAN = 16 * 1024 * 1024;
+
+/**
+ * What a session has used so far, as Claude Code keeps it: the session's last `cost-state` record in
+ * its file (Claude Code writes one as each run ends, and a resumed run starts its `total_cost_usd` and
+ * `modelUsage` from it; only a record of this session, with a cost Claude Code would take, counts).
+ * Nothing when the file has none: a run of a Claude Code that keeps none starts from nothing too.
+ * Undefined when the file cannot be read, or has no record in its last `limit` bytes.
+ */
+export async function claudeSessionTally(file: string, sessionId: string, limit = COST_STATE_SCAN): Promise<ClaudeTally | undefined> {
+  try {
+    const found = await lastLine(file, '"cost-state"', limit, (line) => {
+      try {
+        const r = JSON.parse(line);
+        const cost = r?.totalCostUSD;
+        return r?.type === 'cost-state' && r.sessionId === sessionId && typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 && cost <= 1e9
+          ? (r as { totalCostUSD: number; modelUsage?: unknown })
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    });
+    if (!found.line) return found.whole ? NOTHING_USED : undefined;
+    return { costUsd: found.line.totalCostUSD, ...(claudeModelTokens(found.line.modelUsage) ?? { inputTokens: 0, outputTokens: 0 }) };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The last line of a file that `pick` takes, read from the end a block at a time without holding up
+ * the server (a session's file can be large): only lines with `marker` in them are decoded and given
+ * to `pick`. `whole` says whether the file was read to its start (it stops `limit` bytes from the end).
+ */
+async function lastLine<T>(file: string, marker: string, limit: number, pick: (line: string) => T | undefined): Promise<{ line?: T; whole: boolean }> {
+  const fh = await open(file, 'r');
+  try {
+    const size = (await fh.stat()).size;
+    let end = size;
+    let pieces: Buffer[] = []; // the rest of a line whose start is not read yet, in order
+    const take = (parts: Buffer[]) => {
+      const line = parts.length === 1 ? parts[0]! : Buffer.concat(parts);
+      return line.includes(marker) ? pick(line.toString('utf8')) : undefined;
+    };
+    while (end > 0) {
+      if (size - end >= limit) return { whole: false };
+      const start = Math.max(0, end - 64 * 1024);
+      const block = Buffer.alloc(end - start);
+      for (let got = 0; got < block.length; ) {
+        const { bytesRead } = await fh.read(block, got, block.length - got, start + got);
+        if (bytesRead <= 0) throw new Error('the file got shorter');
+        got += bytesRead;
+      }
+      let stop = block.length;
+      for (let i = block.length - 1; i >= 0; i--) {
+        if (block[i] !== 0x0a) continue;
+        const line = take([block.subarray(i + 1, stop), ...pieces]);
+        pieces = [];
+        if (line !== undefined) return { line, whole: true };
+        stop = i;
+      }
+      if (stop > 0) pieces.unshift(block.subarray(0, stop));
+      end = start;
+    }
+    return { line: pieces.length ? take(pieces) : undefined, whole: true };
+  } finally {
+    await fh.close();
+  }
+}
+
+/**
+ * The turn's cost and tokens. Claude Code 2.1.323 gives them in `model_usage_since_last_result`:
+ * every model's usage since its process started, which runs this turn alone (subagents and its own
+ * side calls included). One without it reports only a resumed session's totals so far
+ * (`total_cost_usd`, and every model's tokens in `modelUsage`), so the turn's are those less what the
+ * session had used before it (`before`, nothing for a new session). Without that, or when the totals
+ * do not add up, the tokens are the main conversation's (`usage`) and the cost is not known.
+ */
+export function claudeTurnUsage(r: Record<string, any>, before: ClaudeTally | undefined): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
+  const round = (n: number) => Math.round(n * 1e10) / 1e10;
+  const turn = r.model_usage_since_last_result;
+  const turnTokens = claudeModelTokens(turn);
+  if (turnTokens) {
+    // Nothing counted (`{}`): no model was called, which cost nothing.
+    const cost = Object.keys(turn).length ? claudeModelCost(turn) : 0;
+    return { costUsd: cost === undefined ? undefined : round(cost), ...turnTokens };
+  }
+  const since = (total: number, was: number) => {
+    const d = total - was;
+    return d >= -1e-9 ? Math.max(0, round(d)) : undefined;
+  };
+  const total = typeof r.total_cost_usd === 'number' && Number.isFinite(r.total_cost_usd) ? r.total_cost_usd : undefined;
+  const costUsd = total !== undefined && before ? since(total, before.costUsd) : undefined;
+  const models = before ? claudeModelTokens(r.modelUsage) : undefined;
+  const input = models && before ? since(models.inputTokens, before.inputTokens) : undefined;
+  const output = models && before ? since(models.outputTokens, before.outputTokens) : undefined;
+  if (input !== undefined && output !== undefined && (input > 0 || output > 0)) return { costUsd, inputTokens: input, outputTokens: output };
+  return { costUsd, inputTokens: sumInput(r.usage), outputTokens: r.usage?.output_tokens };
 }
 
 /**
@@ -895,9 +1084,13 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
         }
         break;
       }
-      case 'result':
-        result = ev;
+      case 'result': {
+        // A call that ends after a result is counted on the next one (Claude Code 2.1.323): the run's
+        // own usage is that of all its results.
+        const since = addModelUsage(result?.model_usage_since_last_result, ev.model_usage_since_last_result);
+        result = since ? { ...ev, model_usage_since_last_result: since } : ev;
         break;
+      }
     }
   }
 
@@ -1002,6 +1195,10 @@ async function runClaudeTurn(
   },
 ): Promise<RunResult> {
   const newSessionId = o.sessionId ? undefined : randomUUID();
+  // What the session had used before this turn, for a Claude Code that does not say what the run alone
+  // used (it then reports the session's totals; `claudeTurnUsage`).
+  const resumed = o.sessionId ? claudeSessionFile(o.env, o.cwd, o.sessionId) : undefined;
+  const before = o.sessionId ? (resumed ? await claudeSessionTally(resumed, o.sessionId) : undefined) : NOTHING_USED;
   const ask = Boolean(o.requestApproval) && o.permission !== 'full';
   const sandboxed = Boolean(claudeSandboxSettings(o.permission));
   const writes = claudeSandboxWrites(o.permission, [o.cwd, ...(o.addDirs ?? []), o.attachmentsDir]);
@@ -1122,9 +1319,7 @@ async function runClaudeTurn(
   }
   return {
     sessionId: parser.sessionId ?? newSessionId ?? o.sessionId,
-    costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : undefined,
-    inputTokens: sumInput(r.usage),
-    outputTokens: r.usage?.output_tokens,
+    ...claudeTurnUsage(r, before),
   };
 }
 

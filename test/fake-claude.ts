@@ -32,6 +32,15 @@ import { writeFileSync } from 'node:fs';
  * user message when started with `--settings` (a server slow to connect, say);
  * FAKE_CLAUDE_NO_SANDBOX exits at start when `--settings` turns on its sandbox with
  * `failIfUnavailable`, as Claude Code does where the sandbox cannot run (no bubblewrap, say).
+ * FAKE_CLAUDE_RUN_USAGE (JSON `{cost, input, cacheRead, cacheWrite, output, subagent?: {input,
+ * output, cost}, perRun?: boolean, fail?: boolean}`) makes a user message's run count usage as Claude
+ * Code does: the session (from `--session-id` or `--resume`) is a file in
+ * `CLAUDE_CONFIG_DIR/projects/<the folder, as a name>/`, a resumed run starts from the last
+ * `cost-state` record there (and fails without the file), the result's `total_cost_usd` and
+ * `modelUsage` are the session's totals and its `usage` the run's main conversation only (a
+ * subagent's tokens are in `modelUsage`), and a `cost-state` record of the new totals is written as it
+ * ends, also when the run fails (`fail`). With `perRun`, as Claude Code 2.1.323, the result also has
+ * `model_usage_since_last_result`: every model's usage of the run alone, with its cost.
  */
 export const FAKE_CLAUDE = `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -119,10 +128,46 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     const tools = (args[args.indexOf('--tools') + 1] === '' && has('--tools') ? [] : ['Bash', 'Read', 'Edit', 'WebSearch'])
       .concat(strictMcp ? [] : ['mcp__local__search', 'mcp__local__fetch'])
       .filter((name) => !rules.some((r) => r === name || (r.startsWith('mcp__') && name.startsWith(r + '__'))));
+    if (process.env.FAKE_CLAUDE_RUN_USAGE) return usageRun(JSON.parse(process.env.FAKE_CLAUDE_RUN_USAGE), tools);
     out({ type: 'system', subtype: 'init', session_id: 'fake-session', tools, mcp_servers: strictMcp ? [] : [{ name: 'local', status: 'connected' }] });
     out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'fake-session', total_cost_usd: 0.25, usage: { input_tokens: 1, output_tokens: 1 } });
   }
 });
+function usageRun(u, tools) {
+  const path = require('node:path');
+  const sid = flag('--resume') || flag('--session-id');
+  const folder = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', process.cwd().replace(/[^a-zA-Z0-9]/g, '-'));
+  const file = path.join(folder, sid + '.jsonl');
+  if (has('--resume') && !fs.existsSync(file)) {
+    return out({ type: 'result', subtype: 'error_during_execution', is_error: true, session_id: sid, errors: ['No conversation found with session ID: ' + sid] });
+  }
+  let was = { totalCostUSD: 0, modelUsage: {} };
+  if (fs.existsSync(file)) {
+    for (const line of fs.readFileSync(file, 'utf8').split('\\n')) if (line.includes('"cost-state"')) was = JSON.parse(line);
+  }
+  const modelUsage = JSON.parse(JSON.stringify(was.modelUsage || {}));
+  const perRun = {};
+  const add = (into, model, input, cacheRead, cacheWrite, output, cost) => {
+    const m = into[model] || { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0 };
+    into[model] = { inputTokens: m.inputTokens + input, outputTokens: m.outputTokens + output, cacheReadInputTokens: m.cacheReadInputTokens + cacheRead, cacheCreationInputTokens: m.cacheCreationInputTokens + cacheWrite, costUSD: (m.costUSD || 0) + cost };
+  };
+  const subCost = u.subagent ? u.subagent.cost || 0 : 0;
+  for (const into of [modelUsage, perRun]) {
+    add(into, 'claude-main', u.input, u.cacheRead, u.cacheWrite, u.output, u.cost - subCost);
+    if (u.subagent) add(into, 'claude-small', u.subagent.input, 0, 0, u.subagent.output, subCost);
+  }
+  const total = was.totalCostUSD + u.cost;
+  fs.mkdirSync(folder, { recursive: true });
+  fs.appendFileSync(file, JSON.stringify({ type: 'user', sessionId: sid, message: { role: 'user', content: 'a "cost-state" in a message' } }) + '\\n');
+  fs.appendFileSync(file, JSON.stringify({ type: 'cost-state', sessionId: sid, totalCostUSD: total, modelUsage }) + '\\n');
+  out({ type: 'system', subtype: 'init', session_id: sid, tools, mcp_servers: [] });
+  out({
+    type: 'result', session_id: sid, total_cost_usd: total, modelUsage,
+    ...(u.fail ? { subtype: 'error_during_execution', is_error: true, errors: ['the model failed'] } : { subtype: 'success', is_error: false, result: 'done' }),
+    ...(u.perRun ? { model_usage_since_last_result: perRun } : {}),
+    usage: { input_tokens: u.input, cache_read_input_tokens: u.cacheRead, cache_creation_input_tokens: u.cacheWrite, output_tokens: u.output },
+  });
+}
 `;
 
 /** Writes the stand-in to `path`, executable. */

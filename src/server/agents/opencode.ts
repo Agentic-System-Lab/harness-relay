@@ -15,13 +15,13 @@ import {
 } from '../../shared/types';
 import { API_BACKEND_ENV, backendLabel, type BackendRun } from '../backends';
 import { commandLine } from '../commands';
-import { openRunDatabase } from '../db';
+import { openRunDatabase, readRunDatabase } from '../db';
 import { t } from '../i18n';
 import type { NativeProbe, NativeProblem } from '../native';
 import { runProcess } from '../process';
 import { freeLoopbackPort } from '../relaySandbox';
 import { RpcError, type JsonRpcConnection } from './acp';
-import { acpRunner, acpUsage, type AcpAgentSpec, type AcpCallInfo, type AcpSessionState, type AcpToolCall, type AcpTurnDeps } from './acpTurn';
+import { acpRunner, type AcpAgentSpec, type AcpCallInfo, type AcpSessionState, type AcpToolCall, type AcpTurnDeps } from './acpTurn';
 import { openAgentHome, startStateOver, type OpenAgentDefinition, type OpenCatalog, type OpenHomeLayout, type OpenRunContext, type OpenSandboxNeeds } from './open';
 import { AgentRunError, type AgentRunner, type RunOptions, type RunResult } from './types';
 
@@ -62,8 +62,9 @@ import { AgentRunError, type AgentRunner, type RunOptions, type RunResult } from
  *   and the briefing says what a rejection means). After an allowed edit it sends `fs/write_text_file`
  *   although `initialize` said the client cannot write: answered `null`, never done.
  * - Its to-do list only comes as the `todowrite` tool's input (`planOf`); tool calls say what they do
- *   only on their `in_progress` update (`filterUpdate` keeps it for the row); its cost is the session's
- *   total so far (`usage` keeps each session's last total to report the turn's part).
+ *   only on their `in_progress` update (`filterUpdate` keeps it for the row); what ACP says of usage is
+ *   the last model call's tokens and the session's total cost, so `usage` reads the turn's model calls
+ *   from its database instead (`opencodeTurnCalls`).
  */
 
 const CLI = PROVIDER_LABEL.opencode;
@@ -119,8 +120,6 @@ export function opencodePaths(root: string, state = root) {
     models: join(cache, 'opencode', 'models.json'),
     /** OPENCODE_TEST_HOME: an empty folder in place of the user's home for its own lookups. */
     home: join(root, 'home'),
-    /** What Harness Relay keeps about each session (its cost so far): never the agent's to write. */
-    relay: join(root, 'relay'),
   };
 }
 
@@ -353,6 +352,8 @@ export function ensureOpencodeHome(root: string): void {
   mkdirSync(p.home, { recursive: true, mode: 0o555 });
   if (readdirSync(p.home).length) emptyDir(p.home);
   chmodSync(p.home, 0o555);
+  // Where each session's cost so far was kept before the turn's usage came from its database.
+  rmSync(join(root, 'relay'), { recursive: true, force: true });
 }
 
 /** OpenCode's tables of console accounts: an active one makes it fetch config from the account's server at start. */
@@ -425,7 +426,7 @@ export function opencodeHome(root: string, state?: string): OpenHomeLayout {
     env: homeEnv(root, state),
     statePaths: [p.data, p.state],
     // The catalog in the cache changes what the runs can pick; the user's-home stand-in must stay empty.
-    configPaths: [p.config, p.home, p.cache, p.relay],
+    configPaths: [p.config, p.home, p.cache],
   };
 }
 
@@ -584,8 +585,11 @@ export const OPENCODE_EMPTY_ENV = [
 
 /** What `prepare` keeps for the later hooks of the same run. */
 interface OpencodeState {
-  /** The session's total cost before this turn (`usage` reports the difference). */
-  costBefore?: number;
+  /**
+   * The parts the session (and its subagents' sessions) had before this turn, by id: `usage` counts
+   * the model calls among the others. Undefined when they could not be read.
+   */
+  partsBefore?: Set<string>;
   sessionId?: string;
   /** Each tool call's input so far: its end says nothing of it. */
   inputs?: Map<string, Record<string, unknown>>;
@@ -627,7 +631,8 @@ export async function prepareOpencode(ctx: OpenRunContext, port: () => Promise<n
   } catch (err) {
     startStateOver(ctx, new AgentRunError(t().opencodeDatabaseNotChecked((err as Error).message)));
   }
-  mkdirSync(p.relay, { recursive: true, mode: 0o700 });
+  // The model calls made before this turn, read while OpenCode is not running (none for a new session).
+  stateOf(ctx).partsBefore = o.sessionId && existsSync(p.db) ? await opencodePartIds(p.db, o.sessionId) : new Set<string>();
 
   const instructions = o.nativeOff?.includes('instructions') ? [] : opencodeProjectInstructions(o.cwd);
   const briefing = opencodeBriefing(o);
@@ -1322,7 +1327,7 @@ async function setOption(
 /**
  * Once the session is there, in OpenCode's own order: its mode (`build`; a resumed session keeps the
  * one it had), its model (one session restores the model it had), then the effort (a model's variants;
- * changing the model resets it). Also reads the session's cost so far, for `usage`.
+ * changing the model resets it).
  */
 /**
  * Below full access: watches its server (`watchOpencode`) for the run; what it sees ends the run with a
@@ -1383,7 +1388,6 @@ export async function opencodeAfterSession(
   st.sessionId = sessionId;
   opencodeRefusalBridge(conn, ctx, sessionId);
   if (ctx.sandboxed) await startWatch(conn, sessionId, ctx, watch);
-  st.costBefore = readSessionCost(ctx.home.root, sessionId);
   let options = (session.state.configOptions ?? []) as ConfigOption[];
   const current = (id: string) => options.find((c) => c?.id === id)?.currentValue;
 
@@ -1413,45 +1417,105 @@ function rpcText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-const COST_FILE = /^[A-Za-z0-9_-]{1,100}$/;
-
-/** The session's total cost when its last turn ended, as Harness Relay kept it (undefined: not known). */
-export function readSessionCost(root: string, sessionId: string): number | undefined {
-  if (!COST_FILE.test(sessionId)) return undefined;
-  try {
-    const v = JSON.parse(readFileSync(join(opencodePaths(root).relay, `${sessionId}.json`), 'utf8')) as { total?: unknown };
-    return typeof v.total === 'number' && Number.isFinite(v.total) ? v.total : undefined;
-  } catch {
-    return undefined;
-  }
+/**
+ * Model calls, added up, as OpenCode records each in a `step-finish` part (`processor.ts` in 1.19.5,
+ * `{type: "step-finish", tokens: {input, output, reasoning, cache: {read, write}}, cost}` in
+ * `part.data`): `input` without the cache read and written, `output` without the reasoning.
+ */
+export interface OpencodeCalls {
+  calls: number;
+  cost: number;
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
 }
 
-export function writeSessionCost(root: string, sessionId: string, total: number): void {
-  if (!COST_FILE.test(sessionId)) return;
-  try {
-    const dir = opencodePaths(root).relay;
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    writeFileSync(join(dir, `${sessionId}.json`), JSON.stringify({ total }), { mode: 0o600 });
-  } catch (err) {
-    console.warn('[opencode] could not keep the session cost:', (err as Error).message);
-  }
+/** The session and the sessions under it (a subagent's, through the `task` tool, and theirs). */
+const SESSION_TREE = 'WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT s.id FROM "session" s JOIN tree t ON s.parent_id = t.id)';
+
+/** The most parts of a session tree read before a turn; past it, the turn's usage is not known. */
+const MAX_PARTS_BEFORE = 200_000;
+
+/**
+ * The parts a session and the sessions under it have so far (a reply's text, a tool call, a model
+ * call's `step-finish`…), by id, read without their data from OpenCode's database: read before a
+ * turn, for `opencodeTurnCalls` to leave them out after it. Undefined when it cannot be read
+ * (`readRunDatabase`), or has more parts than the server takes.
+ */
+export async function opencodePartIds(dbPath: string, sessionId: string): Promise<Set<string> | undefined> {
+  const sql = `${SESSION_TREE} SELECT p.id AS id FROM "part" p WHERE p.session_id IN (SELECT id FROM tree) LIMIT ${MAX_PARTS_BEFORE + 1}`;
+  const read = await readRunDatabase(dbPath, ['session', 'part'], [{ sql, params: [sessionId], needs: ['session', 'part'] }]);
+  const rows = read?.results[0] ?? (read ? [] : undefined);
+  if (!rows || rows.length > MAX_PARTS_BEFORE) return undefined;
+  return new Set(rows.map((r) => r.id).filter((id): id is string => typeof id === 'string'));
+}
+
+/** A number of a `step-finish` part in SQL: one that is not a finite number, not above 0, counts as 0. */
+const stepNumber = (path: string) => {
+  const x = `json_extract(p.data, '${path}')`;
+  return `SUM(CASE WHEN typeof(${x}) IN ('integer', 'real') AND ${x} > 0 AND ${x} < 1e300 THEN ${x} ELSE 0 END)`;
+};
+
+/**
+ * The model calls of a session and of the sessions under it, but those of the parts in `skip` (the
+ * parts there before the turn, whose data is never read), added up in OpenCode's database: only one
+ * row comes back. The database is the run's state, which its commands may write: read by
+ * `readRunDatabase`, and only numbers that are finite and not negative count. Undefined when it
+ * cannot be read.
+ */
+export async function opencodeTurnCalls(dbPath: string, sessionId: string, skip: ReadonlySet<string> = new Set()): Promise<OpencodeCalls | undefined> {
+  const sql = `${SESSION_TREE}
+    SELECT COUNT(*) AS calls, ${stepNumber('$.cost')} AS cost, ${stepNumber('$.tokens.input')} AS input,
+      ${stepNumber('$.tokens.output')} AS output, ${stepNumber('$.tokens.reasoning')} AS reasoning,
+      ${stepNumber('$.tokens.cache.read')} AS cacheRead, ${stepNumber('$.tokens.cache.write')} AS cacheWrite
+    FROM "part" p
+    WHERE p.session_id IN (SELECT id FROM tree) AND p.id NOT IN (SELECT value FROM json_each(?))
+      AND instr(p.data, 'step-finish') > 0 AND (CASE WHEN json_valid(p.data) THEN json_extract(p.data, '$.type') END) = 'step-finish'`;
+  const read = await readRunDatabase(dbPath, ['session', 'part'], [{ sql, params: [sessionId, JSON.stringify([...skip])], needs: ['session', 'part'] }]);
+  if (!read) return undefined;
+  const row = read.results[0]?.[0] ?? {};
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+  return {
+    calls: num(row.calls),
+    cost: num(row.cost),
+    input: num(row.input),
+    output: num(row.output),
+    reasoning: num(row.reasoning),
+    cacheRead: num(row.cacheRead),
+    cacheWrite: num(row.cacheWrite),
+  };
 }
 
 /**
- * Tokens and cost of the turn: the tokens are those of the turn's last model call (all ACP gives);
- * OpenCode's `usage_update` cost is the session's total, so the turn's is that minus the total
- * kept when the session's previous turn ended (the whole total for a session not seen before).
+ * The turn's tokens and cost: every model call the session (with its subagents') made in this turn,
+ * those of the parts there before it left out, a failed or stopped turn's among them. What ACP says is
+ * not used: its tokens are the last call's only, and its cost the session's total. Input counts the
+ * cached tokens read and written, output the reasoning (OpenCode keeps both apart). An endpoint has no
+ * price list: no cost there unless OpenCode counted one. Nothing when the calls could not be read, or
+ * there were none.
  */
-export function opencodeUsage(
-  result: Record<string, any> | undefined,
-  last: Parameters<typeof acpUsage>[1],
-  ctx: Pick<OpenRunContext, 'state' | 'home'>,
-): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
-  const usage = acpUsage(result, last);
+export function opencodeTurnUsage(calls: OpencodeCalls | undefined, run: Pick<BackendRun, 'kind'>): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
+  if (!calls?.calls) return {};
+  const cost = Math.round(calls.cost * 1e10) / 1e10;
+  return {
+    inputTokens: calls.input + calls.cacheRead + calls.cacheWrite,
+    outputTokens: calls.output + calls.reasoning,
+    ...(cost > 0 || run.kind !== 'endpoint' ? { costUsd: cost } : {}),
+  };
+}
+
+/** The turn's usage, read from the database once the prompt has answered (OpenCode has saved its calls by then). */
+export async function opencodeUsage(
+  _result: Record<string, any> | undefined,
+  _last: unknown,
+  ctx: Pick<OpenRunContext, 'state' | 'home' | 'run'>,
+): Promise<Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'>> {
   const st = ctx.state as OpencodeState;
-  if (usage.costUsd === undefined || !st.sessionId) return usage;
-  writeSessionCost(ctx.home.root, st.sessionId, usage.costUsd);
-  return { ...usage, costUsd: Math.max(0, usage.costUsd - (st.costBefore ?? 0)) };
+  if (!st.sessionId) return {};
+  const db = opencodePaths(ctx.home.root, ctx.home.state).db;
+  return st.partsBefore ? opencodeTurnUsage(await opencodeTurnCalls(db, st.sessionId, st.partsBefore), ctx.run) : {};
 }
 
 // --- Errors -------------------------------------------------------------------------------------

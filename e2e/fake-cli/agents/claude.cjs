@@ -10,6 +10,12 @@
  * `Read(//<folder>/**)` rule in `--allowedTools`, or with full access). The skills it loads by
  * itself are its home's skills/ and the projects' .claude/skills/ (`--disable-slash-commands`,
  * `skillOverrides` in `--settings` leave them out).
+ *
+ * Its usage is counted as Claude Code 2.1.323's: each run that reaches the model costs $0.0012, 120
+ * tokens in and 40 out (a failed one too); a kept session's result reports the session's totals
+ * (`total_cost_usd`, `modelUsage`), counted on from the last `cost-state` record of its file
+ * (`<home>/projects/<folder>/<id>.jsonl`), where a new one is written as the run ends; `usage` and
+ * `model_usage_since_last_result` are the run's own.
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -137,6 +143,7 @@ function claudeStream() {
   const addDirs = values('--add-dir');
   const o = {
     sessionId,
+    keep: Boolean(resume) || persist,
     mode,
     asks,
     noWrite: disallowed.includes('Write'),
@@ -233,19 +240,51 @@ function claudeStream() {
       model: flag('--model') || 'claude-fake',
       permissionMode: mode,
     });
-    if (signedOut()) return claudeResult(o, { is_error: true, subtype: 'error_during_execution', result: 'Not logged in · Please run /login' });
+    if (signedOut()) return claudeResult(o, { is_error: true, subtype: 'error_during_execution', result: 'Not logged in · Please run /login' }, false);
     await claudeTurn(plan(prompt, turn), o);
   });
 }
 
-function claudeResult(o, r) {
+/** What one run uses. */
+const RUN = { cost: 0.0012, input: 120, output: 40 };
+
+/**
+ * The session's totals with this run's, kept in its file as a `cost-state` record, as Claude Code
+ * does; a session that is not kept (`--no-session-persistence`) has only the run's.
+ */
+function sessionTotals(o) {
+  if (!o.keep) return RUN;
+  const file = path.join(home(), 'projects', process.cwd().replace(/[^a-zA-Z0-9]/g, '-'), `${o.sessionId}.jsonl`);
+  let was = { totalCostUSD: 0, modelUsage: {} };
+  try {
+    for (const line of fs.readFileSync(file, 'utf8').split('\n')) if (line.includes('"cost-state"')) was = JSON.parse(line);
+  } catch {
+    // its first run
+  }
+  const m = (was.modelUsage || {})['claude-fake'] || {};
+  const totals = { cost: Math.round((was.totalCostUSD + RUN.cost) * 1e8) / 1e8, input: (m.inputTokens || 0) + RUN.input, output: (m.outputTokens || 0) + RUN.output };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, JSON.stringify({ type: 'cost-state', sessionId: o.sessionId, totalCostUSD: totals.cost, modelUsage: modelUsageOf(totals) }) + '\n');
+  return totals;
+}
+
+/** `modelUsage` as Claude Code writes it, for `totals` of the one model. */
+const modelUsageOf = (totals) => ({
+  'claude-fake': { inputTokens: totals.input, outputTokens: totals.output, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: totals.cost },
+});
+
+/** The run's result; `spent` false for a run that never reached the model (signed out). */
+function claudeResult(o, r, spent = true) {
+  const totals = spent ? sessionTotals(o) : { cost: 0, input: 0, output: 0 };
   out({
     type: 'result',
     duration_ms: 50,
     num_turns: 1,
     session_id: o.sessionId,
-    total_cost_usd: 0.0012,
-    usage: { input_tokens: 120, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 40 },
+    total_cost_usd: totals.cost,
+    modelUsage: modelUsageOf(totals),
+    model_usage_since_last_result: spent ? modelUsageOf(RUN) : {},
+    usage: spent ? { input_tokens: RUN.input, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: RUN.output } : { input_tokens: 0, output_tokens: 0 },
     ...r,
   });
 }

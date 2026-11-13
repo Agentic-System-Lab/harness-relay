@@ -511,6 +511,7 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
   /** File paths of file-change items, to show what an approval request is about. */
   const filePaths = new Map<string, string>();
   let usage = { input: 0, output: 0, seen: false };
+  let threadTotal: number | undefined; // the thread's total tokens at the last update
 
   const startTool = (item: Record<string, any>) => {
     const d = describeCodexItem(item);
@@ -567,12 +568,18 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
         break;
       }
       case 'thread/tokenUsage/updated': {
-        // One update per model call; `last` is that call's usage.
+        // One update per model call; `last` is that call's usage. Its input counts the cached tokens
+        // (`cachedInputTokens` is part of it) and its output the reasoning (`reasoningOutputTokens` is
+        // part of it: `totalTokens` is input plus output). Codex sends the same count again at times
+        // (with its rate limits): an update whose thread total did not change is no new call.
         const last = p.tokenUsage?.last;
+        const total = p.tokenUsage?.total?.totalTokens;
+        if (typeof total === 'number' && total === threadTotal) break;
+        if (typeof total === 'number') threadTotal = total;
         if (last) {
           usage = {
             input: usage.input + (last.inputTokens ?? 0),
-            output: usage.output + (last.outputTokens ?? 0) + (last.reasoningOutputTokens ?? 0),
+            output: usage.output + (last.outputTokens ?? 0),
             seen: true,
           };
         }

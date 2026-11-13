@@ -56,8 +56,17 @@ describe('codex app-server events', () => {
     h.handle('item/agentMessage/delta', { itemId: 'm1', delta: 'Tests pass.' });
     h.handle('item/completed', { item: { type: 'agentMessage', id: 'm1', text: 'Tests pass.' } });
     h.handle('item/completed', { item: { type: 'reasoning', id: 'r1', summary: ['Checking the tests.'], content: [] } });
-    h.handle('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 100, outputTokens: 10, reasoningOutputTokens: 5 } } });
-    h.handle('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 50, outputTokens: 2, reasoningOutputTokens: 0 } } });
+    // As codex sends them: the output already counts the reasoning (total = input + output).
+    h.handle('thread/tokenUsage/updated', {
+      tokenUsage: { last: { inputTokens: 100, cachedInputTokens: 80, outputTokens: 10, reasoningOutputTokens: 5, totalTokens: 110 }, total: { totalTokens: 110 } },
+    });
+    h.handle('thread/tokenUsage/updated', {
+      tokenUsage: { last: { inputTokens: 50, cachedInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 52 }, total: { totalTokens: 162 } },
+    });
+    // The same count again (as Codex sends it with its rate limits): no new call.
+    h.handle('thread/tokenUsage/updated', {
+      tokenUsage: { last: { inputTokens: 50, cachedInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 52 }, total: { totalTokens: 162 } },
+    });
 
     expect(events).toEqual([
       { type: 'thinking', text: 'Checking the tests.' },
@@ -67,7 +76,7 @@ describe('codex app-server events', () => {
       { type: 'text', text: 'Tests pass.' },
       { type: 'text_end' },
     ]);
-    expect(h.usage).toEqual({ inputTokens: 150, outputTokens: 17 });
+    expect(h.usage).toEqual({ inputTokens: 150, outputTokens: 12 });
   });
 
   it('reports failed and declined commands', () => {

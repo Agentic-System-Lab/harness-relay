@@ -1,5 +1,6 @@
-import { chmodSync, closeSync, mkdirSync, openSync, statSync } from 'node:fs';
+import { chmodSync, closeSync, lstatSync, mkdirSync, openSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { Worker } from 'node:worker_threads';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 
@@ -462,16 +463,196 @@ export function openSqliteFile(file: string): Database {
  * reads back what it changed.
  */
 export function openRunDatabase(file: string): Database {
+  // A hot journal is played back on opening, and can name another file SQLite then opens.
+  if (!plainDatabaseFiles(file, true)) throw new Error(`${file}: not a plain file (a link, a named pipe…), or a journal beside it is not, is left over or is too large`);
   const db = new DatabaseSync(file);
   try {
     db.exec('PRAGMA busy_timeout = 3000; PRAGMA trusted_schema = OFF;');
     const planted = db.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view')").all() as { type: string; name: string }[];
     for (const { type, name } of planted) db.exec(`DROP ${type === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS "${name.replaceAll('"', '""')}"`);
+    // What a command could add for the server's own writes to run as slowly as it likes: a generated
+    // column (run on every read of its row) and an index on an expression or with a condition (run on
+    // every write) are refused, neither CLI makes one; a check (run on every write) is not run.
+    const slow = db
+      .prepare(
+        `SELECT 1 FROM sqlite_master m, pragma_table_xinfo(m.name) x WHERE m.type = 'table' AND x.hidden IN (2, 3)
+         UNION ALL SELECT 1 FROM sqlite_master m, pragma_index_list(m.name) i WHERE m.type = 'table' AND i.partial = 1
+         UNION ALL SELECT 1 FROM sqlite_master m, pragma_index_list(m.name) i, pragma_index_xinfo(i.name) c WHERE m.type = 'table' AND c.cid = -2
+         LIMIT 1`,
+      )
+      .get();
+    if (slow) throw new Error(`${file}: a table has a generated column or an index on an expression or a condition, which neither CLI makes`);
+    db.exec('PRAGMA ignore_check_constraints = ON');
     return db;
   } catch (err) {
     db.close();
     throw err;
   }
+}
+
+/** The largest write-ahead log `openRunDatabase` opens a database with: SQLite reads it all on opening. */
+const MAX_RUN_WAL_BYTES = 1024 * 1024 * 1024;
+
+/**
+ * Whether an open agent's database and the journal files SQLite would open beside it are plain files
+ * (or missing, for the journals): a run's commands could have put a link there, or a named pipe, which
+ * SQLite's open would wait on forever, holding up the whole server. `forWriting` also refuses a
+ * rollback journal with anything in it, which opening the database read-write would play back, and a
+ * write-ahead log larger than any the CLIs leave (SQLite reads it all, on the thread that opens it).
+ */
+export function plainDatabaseFiles(file: string, forWriting = false): boolean {
+  try {
+    if (!lstatSync(file).isFile()) return false;
+  } catch {
+    return false;
+  }
+  for (const journal of ['-wal', '-shm', '-journal']) {
+    try {
+      const st = lstatSync(file + journal);
+      if (!st.isFile()) return false;
+      if (forWriting && journal === '-journal' && st.size > 0) return false;
+      if (forWriting && journal === '-wal' && st.size > MAX_RUN_WAL_BYTES) return false;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return false;
+    }
+  }
+  return true;
+}
+
+/** A query `readRunDatabase` runs, only when the tables it `needs` are there and those it runs `unless` are not. */
+export interface RunDatabaseQuery {
+  sql: string;
+  params?: (string | number | null)[];
+  needs?: string[];
+  unless?: string[];
+}
+
+/** What `readRunDatabase` read: which of the tables are there, and each query's rows (null for one not run). */
+export interface RunDatabaseRead {
+  present: Set<string>;
+  results: (Record<string, unknown>[] | null)[];
+}
+
+/**
+ * The worker thread that reads one database for `readRunDatabase`: plain files only, read-only, the
+ * schema's functions not trusted, one read transaction, each of the tables that is there checked to be
+ * a plain table without a generated column. Plain JavaScript, so that it runs as it is wherever the
+ * server runs (no file of its own to bundle beside the desktop app's server).
+ */
+const RUN_DATABASE_WORKER = `
+const { parentPort, workerData } = require('node:worker_threads');
+const { lstatSync } = require('node:fs');
+const emit = process.emitWarning;
+process.emitWarning = (w, ...rest) => (String(w).includes('SQLite is an experimental feature') ? undefined : emit.call(process, w, ...rest));
+const { DatabaseSync } = require('node:sqlite');
+process.emitWarning = emit;
+const { file, tables, queries } = workerData;
+const plain = (f, optional) => {
+  try {
+    return lstatSync(f).isFile();
+  } catch (err) {
+    return optional && err.code === 'ENOENT';
+  }
+};
+let out = { ok: false };
+try {
+  if (plain(file, false) && ['-wal', '-shm', '-journal'].every((j) => plain(file + j, true))) {
+    const db = new DatabaseSync(file, { readOnly: true });
+    try {
+      db.exec('PRAGMA busy_timeout = 3000; PRAGMA trusted_schema = OFF; BEGIN');
+      const kinds = db.prepare('SELECT name, type FROM sqlite_master WHERE name IN (' + tables.map(() => '?').join(', ') + ')').all(...tables);
+      const generated = db.prepare('SELECT 1 FROM pragma_table_xinfo(?) WHERE hidden IN (2, 3) LIMIT 1');
+      if (!kinds.some((k) => k.type !== 'table' || generated.get(k.name))) {
+        const present = new Set(kinds.map((k) => k.name));
+        const runs = (q) => (q.needs || []).every((t) => present.has(t)) && !(q.unless || []).some((t) => present.has(t));
+        out = { ok: true, present: [...present], results: queries.map((q) => (runs(q) ? db.prepare(q.sql).all(...(q.params || [])) : null)) };
+      }
+      try {
+        db.exec('COMMIT');
+      } catch {}
+    } finally {
+      db.close();
+    }
+  }
+} catch {
+  out = { ok: false };
+}
+parentPort.postMessage(out);
+`;
+
+/** How long `readRunDatabase` waits for its worker. */
+export const RUN_DATABASE_TIMEOUT_MS = 10_000;
+
+/**
+ * The workers `readRunDatabase` started that have not answered, by database. One it gave up on may
+ * never end (blocked in SQLite, or in opening a named pipe): no other is started for that database,
+ * and the server's exit does not wait for it (`exitAfterRunDatabaseReads`).
+ */
+const runDatabaseReads = new Map<string, Worker>();
+
+/**
+ * Reads an open agent's own SQLite database in its state folder, which the run's commands may have
+ * written (while its CLI may still be writing it), in a worker thread the server only waits for up
+ * to `timeoutMs`: nothing put there (a link or a named pipe an open would wait on, a view or a
+ * generated column whose query takes forever, a table made too large) can hold up the server. See
+ * `RUN_DATABASE_WORKER` for how it reads; the queries should return few rows (sums, or with a limit).
+ * Undefined when the read fails, does not end in time (the worker is asked to stop, and may not), or
+ * an earlier read of the same database has not ended.
+ */
+export function readRunDatabase(file: string, tables: readonly string[], queries: RunDatabaseQuery[], timeoutMs = RUN_DATABASE_TIMEOUT_MS): Promise<RunDatabaseRead | undefined> {
+  return new Promise((resolve) => {
+    if (runDatabaseReads.has(file)) return resolve(undefined);
+    let worker: Worker;
+    try {
+      worker = new Worker(RUN_DATABASE_WORKER, { eval: true, workerData: { file, tables: [...tables], queries } });
+    } catch {
+      return resolve(undefined);
+    }
+    runDatabaseReads.set(file, worker);
+    worker.unref();
+    let settled = false;
+    const done = (read: RunDatabaseRead | undefined) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(read);
+      void worker.terminate().catch(() => undefined);
+    };
+    const timer = setTimeout(() => done(undefined), timeoutMs);
+    timer.unref();
+    // A worker that answered is ending: only one that has not answered holds its database's place.
+    const ended = () => {
+      if (runDatabaseReads.get(file) === worker) runDatabaseReads.delete(file);
+    };
+    worker.once('message', (m: { ok?: boolean; present?: string[]; results?: RunDatabaseRead['results'] }) => {
+      ended();
+      done(m?.ok && Array.isArray(m.present) && Array.isArray(m.results) ? { present: new Set(m.present), results: m.results } : undefined);
+    });
+    worker.once('error', () => {
+      ended();
+      done(undefined);
+    });
+    worker.once('exit', () => {
+      ended();
+      done(undefined);
+    });
+  });
+}
+
+/** How many of `readRunDatabase`'s workers have not answered. */
+export function runDatabaseReadsLeft(): number {
+  return runDatabaseReads.size;
+}
+
+/**
+ * Ends the process. Node waits for every worker thread on its way out, and one of `readRunDatabase`'s
+ * workers may never end: when any is left after `graceMs`, the process ends at once (SIGKILL), its
+ * database already closed by the caller.
+ */
+export async function exitAfterRunDatabaseReads(code: number, graceMs = 1000): Promise<never> {
+  for (let waited = 0; runDatabaseReads.size && waited < graceMs; waited += 50) await new Promise((r) => setTimeout(r, 50));
+  if (runDatabaseReads.size) process.kill(process.pid, 'SIGKILL');
+  process.exit(code);
 }
 
 /**

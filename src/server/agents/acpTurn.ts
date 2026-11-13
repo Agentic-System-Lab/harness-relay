@@ -7,7 +7,7 @@ import { commandLine, isPublishCommand } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { RELAY_ROOT } from '../protect';
-import { JsonRpcConnection, RpcError } from './acp';
+import { acpTokens, JsonRpcConnection, RpcError } from './acp';
 import { defaultOpenDeps, startOpenProcess, type OpenAgentProcess, type OpenProcessDeps, type OpenRunContext } from './open';
 import {
   AgentRunError,
@@ -235,9 +235,14 @@ export interface AcpAgentSpec extends OpenAgentProcess {
   heldUpdates?(ctx: OpenRunContext): Record<string, any>[];
   /**
    * Tokens and cost of the turn (default: ACP's `usage` on the answer and the last `usage_update`,
-   * `acpUsage`). An agent that counts for the whole conversation reports the turn's part (`ctx.state`).
+   * `acpUsage`). An agent whose ACP numbers are not the turn's reads its own instead: OpenCode's and
+   * Goose's databases, Cline's session file, OpenHands' metrics.
    */
-  usage?(result: Record<string, any> | undefined, last: AcpUsageUpdate | undefined, ctx: OpenRunContext): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'>;
+  usage?(
+    result: Record<string, any> | undefined,
+    last: AcpUsageUpdate | undefined,
+    ctx: OpenRunContext,
+  ): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> | Promise<Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'>>;
   /**
    * After the prompt returned as an ordinary end of turn (not cancelled, not refused): throws an
    * `AgentRunError` when the agent ended it without finishing (OpenHands' stuck detector stops a turn
@@ -420,14 +425,15 @@ export function acpMcpServers(servers: McpServerSpec[], caps: AcpAgentCapabiliti
     );
 }
 
-/** Tokens from the prompt's answer (`usage`, or `_meta.usage`), and the cost of the last `usage_update` in USD. */
+/**
+ * Tokens from the prompt's answer (`usage`, or `_meta.usage`; `acpTokens`), and the cost of the last
+ * `usage_update` in USD.
+ */
 export function acpUsage(result: Record<string, any> | undefined, last: AcpUsageUpdate | undefined): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
-  const u = (result?.usage ?? result?._meta?.usage ?? {}) as Record<string, unknown>;
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
   const cost = last?.cost;
   return {
-    inputTokens: num(u.inputTokens),
-    outputTokens: num(u.outputTokens),
+    ...acpTokens(result?.usage ?? result?._meta?.usage),
     costUsd: cost && (cost.currency ?? 'USD').toUpperCase() === 'USD' ? num(cost.amount) : undefined,
   };
 }
@@ -877,7 +883,7 @@ async function acpSession(
     // A turn the agent ended without finishing it (`endTurn` throws): its open rows did not finish either.
     spec.endTurn?.(result, ctx, sessionId);
     ended = ending;
-    return { sessionId, ...(spec.usage ? spec.usage(result, updates.lastUsage, ctx) : acpUsage(result, updates.lastUsage)) };
+    return { sessionId, ...(spec.usage ? await spec.usage(result, updates.lastUsage, ctx) : acpUsage(result, updates.lastUsage)) };
   } catch (err) {
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (err instanceof AgentRunError) throw err;

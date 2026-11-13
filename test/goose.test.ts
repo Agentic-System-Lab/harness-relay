@@ -31,7 +31,6 @@ import {
   gooseAfterSession,
   gooseBriefing,
   gooseCallInfo,
-  gooseCostFile,
   gooseEndpointFile,
   gooseEndpointKeyVar,
   gooseEndpointProvider,
@@ -61,7 +60,11 @@ import {
   gooseToolKind,
   gooseToolName,
   gooseToolOf,
+  gooseSessionTotals,
+  gooseTotalsBefore,
+  gooseTurnUsage,
   gooseUsage,
+  GOOSE_NOTHING_USED,
   isReadOnlyCommand,
   parseGooseCatalog,
   parseGooseSkills,
@@ -71,8 +74,9 @@ import {
   resetGooseDir,
   shellMask,
 } from '../src/server/agents/goose';
-import { emptyStateFolder, sealedFolder, type OpenRunContext } from '../src/server/agents/open';
+import { emptyStateFolder, sealedFolder, stateFolder, type OpenRunContext } from '../src/server/agents/open';
 import { openSqliteFile } from '../src/server/db';
+import { GOOSE_USAGE_SCHEMA, gooseCalls } from './goose-usage-db';
 import { AgentRunError, type AgentEvent, type ApprovalRequest, type RunBackends, type RunOptions } from '../src/server/agents/types';
 import { backendRun } from '../src/server/backends';
 import { withLang } from '../src/server/i18n';
@@ -758,7 +762,7 @@ describe('Goose updates → events', () => {
     return { events, updates, result, ctx };
   };
 
-  it('a read through its shell, with live output and the result', () => {
+  it('a read through its shell, with live output and the result', async () => {
     const { events, result, updates, ctx } = replay('read-openai');
     expect(events).toEqual([
       { type: 'tool_start', id: 'call_60fmPeq3mDITD7IRTdG5cxYR', name: 'shell', detail: 'cat hello.txt', kind: 'execute' },
@@ -770,8 +774,12 @@ describe('Goose updates → events', () => {
     expect(events.at(-1)).toEqual({ type: 'text_end' });
     // The run's id is kept for steering, and cleared when the turn is over.
     expect(ctx.state.activeRunId).toBeUndefined();
+    // The answer's tokens are the last model call's and its cost the session's: neither is the turn's,
+    // which comes from Goose's sessions database (none here).
+    expect(result.result.usage).toMatchObject({ inputTokens: 2933, outputTokens: 16 });
     ctx.state.method = 'new';
-    expect(gooseUsage(result.result, updates.lastUsage, ctx)).toEqual({ inputTokens: 2933, outputTokens: 16, costUsd: 0.0026502 });
+    ctx.state.sessionId = '20261110_1';
+    expect(await gooseUsage(result.result, updates.lastUsage, ctx)).toEqual({});
   });
 
   it('a write and an edit (no diff: what changed is in the call)', () => {
@@ -852,60 +860,131 @@ describe('Goose updates → events', () => {
   });
 });
 
-describe("a turn's cost", () => {
-  const usage = (cost: number | undefined) => ({ used: 1, size: 2, ...(cost === undefined ? {} : { cost: { amount: cost, currency: 'USD' } }) });
+describe("a turn's usage", () => {
+  const db = (ctx: OpenRunContext) => gooseSessionsDb(ctx.home.state);
+  const usage = (ctx: OpenRunContext) => gooseUsage({ usage: { inputTokens: 1, outputTokens: 1 } }, { used: 1, size: 2, cost: { amount: 9, currency: 'USD' } }, ctx);
+  /** A run's context once its session is there (`gooseAfterSession` keeps its method and id). */
+  const ran = (ctx: OpenRunContext, sessionId: string, method: 'new' | 'load') => Object.assign(ctx.state, { sessionId, method });
+
+  it('is every model call of a new session, its subagents\' and its compaction\'s, whatever ACP said', async () => {
+    const ctx = context();
+    gooseCalls(db(ctx), 's1', [
+      { input: 1450, output: 5, cost: 0.0013 },
+      { input: 1483, output: 11, cost: 0.0013502 },
+      { input: 900, output: 40, cost: 0.0001, compaction: true },
+    ]);
+    // A delegate's session, and one its subagent started.
+    gooseCalls(db(ctx), 's1-sub', [{ input: 300, output: 20, cost: 0.0002 }], { parent: 's1' });
+    gooseCalls(db(ctx), 's1-sub-sub', [{ input: 100, output: 2, cost: 0.00001 }], { parent: 's1-sub' });
+    // Another session of the member is not this one's.
+    gooseCalls(db(ctx), 's2', [{ input: 5000, output: 500, cost: 1 }]);
+    ran(ctx, 's1', 'new');
+    expect(await usage(ctx)).toEqual({ inputTokens: 4233, outputTokens: 78, costUsd: 0.0029602 });
+  });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.
-  it.skipIf(process.platform === 'win32')('is the session total for a new session, and what a loaded one added', () => {
-    const ctx = context();
-    ctx.state.method = 'new';
-    ctx.state.sessionId = '20261110_9';
-    expect(gooseUsage({ usage: { inputTokens: 1, outputTokens: 2 } }, usage(0.002), ctx)).toEqual({ inputTokens: 1, outputTokens: 2, costUsd: 0.002 });
-    // The total is kept for the next turn of the session.
-    expect(readFileSync(gooseCostFile(ctx.home, '20261110_9'), 'utf8')).toBe('0.002');
-    // Kept in the shared home, which no sandboxed run may write; by the member and the session.
-    const kept = gooseCostFile(ctx.home, '20261110_9');
-    expect(kept.startsWith(join(ctx.home.root, 'relay-cost') + '/')).toBe(true);
-    expect(kept.startsWith(ctx.home.state)).toBe(false);
-    for (const p of ctx.home.statePaths) expect(kept.startsWith(p)).toBe(false);
-    expect(gooseCostFile({ root: '/r', state: '/r/private/a' }, 's')).not.toBe(gooseCostFile({ root: '/r', state: '/r/private/b' }, 's'));
-    expect(gooseCostFile({ root: '/r', state: '/r/private/a' }, '../x')).toMatch(/\/\.\._x$/);
-    const next = { ...context(), home: ctx.home, state: { method: 'load', sessionId: '20261110_9', costBefore: 0.001 } } as OpenRunContext;
-    expect(gooseUsage({}, usage(0.0035), next).costUsd).toBe(0.0015);
+  it.skipIf(process.platform === 'win32')("is only what a loaded session added, read before Goose starts, a failed turn's calls included in neither", async () => {
+    const first = context({ stateKey: 'conv.u1.a1' });
+    gooseCalls(db(first), 's1', [{ input: 1000, output: 10, cost: 0.001 }]);
+    ran(first, 's1', 'new');
+    expect(await usage(first)).toEqual({ inputTokens: 1000, outputTokens: 10, costUsd: 0.001 });
+    // A turn that failed after two calls: no usage is reported for it, and the next turn does not count them.
+    gooseCalls(db(first), 's1', [{ input: 1100, output: 30, cost: 0.002 }, { input: 1200, output: 0, cost: 0.002 }]);
+    const next = context({ stateKey: 'conv.u1.a1', sessionId: 's1' });
+    next.home = first.home;
+    prepareGoose(next, { realHome: '/h', bash: '/bin/bash' });
+    await gooseTotalsBefore(next);
+    expect(next.state.totalsBefore).toEqual({ input: 3300, output: 40, total: 3340, cost: expect.closeTo(0.005, 12) });
+    gooseCalls(db(next), 's1', [{ input: 1300, output: 12, cost: 0.0015 }]);
+    gooseCalls(db(next), 's1-sub', [{ input: 200, output: 3, cost: 0.0005 }], { parent: 's1' });
+    ran(next, 's1', 'load');
+    expect(await usage(next)).toEqual({ inputTokens: 1500, outputTokens: 15, costUsd: 0.002 });
+    // A new session's prepare reads nothing: it starts from nothing.
+    const fresh = context({ stateKey: 'conv.u1.a1' });
+    fresh.home = first.home;
+    prepareGoose(fresh, { realHome: '/h', bash: '/bin/bash' });
+    await gooseTotalsBefore(fresh);
+    expect(fresh.state.totalsBefore).toBeUndefined();
   });
 
-  it('falls back to the total before the first output, and says nothing when it cannot tell', () => {
+  it("counts as Goose does: a running total that lost an update, xAI's reasoning, a model without a price", async () => {
     const ctx = context();
-    ctx.state.method = 'load';
-    gooseFilterUpdate({ sessionId: 's', update: { sessionUpdate: 'usage_update', ...usage(0.004) } }, ctx);
-    gooseFilterUpdate({ sessionId: 's', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'x' } } }, ctx);
-    gooseFilterUpdate({ sessionId: 's', update: { sessionUpdate: 'usage_update', ...usage(0.005) } }, ctx);
-    expect(ctx.state.costBefore).toBe(0.004);
-    expect(gooseUsage({}, usage(0.005), ctx).costUsd).toBe(0.001);
-    const unknown = context();
-    unknown.state.method = 'load';
-    expect(gooseUsage({}, usage(0.005), unknown).costUsd).toBeUndefined();
-    // A first report after output started is already the turn's: no baseline from it.
-    const late = context();
-    gooseFilterUpdate({ sessionId: 's', update: { sessionUpdate: 'tool_call', toolCallId: 't' } }, late);
-    gooseFilterUpdate({ sessionId: 's', update: { sessionUpdate: 'usage_update', ...usage(0.009) } }, late);
-    expect(late.state.costBefore).toBeUndefined();
-    // No cost (a custom endpoint): tokens only.
-    expect(gooseUsage({ usage: { inputTokens: 5, outputTokens: 6 } }, usage(undefined), context())).toEqual({ inputTokens: 5, outputTokens: 6, costUsd: undefined });
-    // A total lower than before (another provider's prices): not a cost.
-    const lower = { ...context(), state: { method: 'load', costBefore: 0.01 } } as OpenRunContext;
-    expect(gooseUsage({}, usage(0.002), lower).costUsd).toBeUndefined();
+    gooseCalls(db(ctx), 's1', [{ input: 100, output: 5, cost: 0.01 }]);
+    // Calls whose running totals were lost: the ledger's sum is larger, and counts.
+    gooseCalls(db(ctx), 's1', [{ input: 200, output: 7, cost: 0.02 }], { ledgerOnly: true });
+    expect(await gooseSessionTotals(db(ctx), 's1')).toEqual({ input: 300, output: 12, total: 312, cost: expect.closeTo(0.03, 12) });
+    // xAI's reasoning is in Goose's total but not its output: the output is the total less the input.
+    gooseCalls(db(ctx), 'x1', [{ input: 3704, output: 1, total: 3788, cost: 0.004 }]);
+    ran(ctx, 'x1', 'new');
+    expect(await usage(ctx)).toEqual({ inputTokens: 3704, outputTokens: 84, costUsd: 0.004 });
+    // An endpoint's model has no price: tokens, no cost.
+    gooseCalls(db(ctx), 'e1', [{ input: 50, output: 5 }]);
+    ran(ctx, 'e1', 'new');
+    expect(await usage(ctx)).toEqual({ inputTokens: 50, outputTokens: 5 });
+    expect(await gooseSessionTotals(db(ctx), 'missing')).toEqual(GOOSE_NOTHING_USED);
   });
 
-  it('warns and goes on when the total cannot be kept', () => {
+  it('says nothing it cannot tell: no database, one it cannot read, a view for a table, totals that went down', async () => {
     const ctx = context();
-    ctx.state.method = 'new';
-    ctx.state.sessionId = 'x';
-    writeFileSync(join(ctx.home.root, 'relay-cost'), 'a file where a folder goes');
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    expect(gooseUsage({}, usage(0.003), ctx).costUsd).toBe(0.003);
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
+    ran(ctx, 's1', 'new');
+    expect(await usage(ctx)).toEqual({});
+    mkdirSync(dirname(db(ctx)), { recursive: true });
+    writeFileSync(db(ctx), 'not a database');
+    expect(await gooseSessionTotals(db(ctx), 's1')).toBeUndefined();
+    expect(await usage(ctx)).toEqual({});
+    // A command of a run put a view where Goose's ledger was.
+    const viewed = context();
+    gooseCalls(db(viewed), 's1', [{ input: 10, output: 1, cost: 0.1 }]);
+    const conn = openSqliteFile(db(viewed));
+    conn.exec("DROP TABLE usage_ledger; CREATE VIEW usage_ledger AS SELECT 's1' AS session_id, 1 AS input_tokens, 1 AS output_tokens, 2 AS total_tokens, 0 AS cost");
+    conn.close();
+    expect(await gooseSessionTotals(db(viewed), 's1')).toBeUndefined();
+    // A loaded session whose totals before the turn are not known, or are more than after it.
+    const loaded = context();
+    gooseCalls(db(loaded), 's1', [{ input: 10, output: 1, cost: 0.1 }]);
+    ran(loaded, 's1', 'load');
+    expect(await usage(loaded)).toEqual({});
+    loaded.state.totalsBefore = { input: 99, output: 9, total: 108, cost: 1 };
+    expect(await usage(loaded)).toEqual({});
+    // Nothing used (a turn stopped before its first call).
+    expect(gooseTurnUsage({ input: 10, output: 1, total: 11, cost: 0.1 }, { input: 10, output: 1, total: 11, cost: 0.1 })).toEqual({});
+    // Garbage a command wrote counts as nothing.
+    const odd = context();
+    gooseCalls(db(odd), 's1', [{ input: 10, output: 1, cost: 0.1 }]);
+    const w = openSqliteFile(db(odd));
+    w.exec("UPDATE sessions SET accumulated_input_tokens = 'lots', accumulated_cost = -5; UPDATE usage_ledger SET input_tokens = NULL, cost = NULL");
+    w.close();
+    expect(await gooseSessionTotals(db(odd), 's1')).toEqual({ input: 0, output: 1, total: 11 });
+  });
+
+  it("reads a database from before Goose's ledger, numbers past 2^53, and shows no cost on the user's endpoint", async () => {
+    // From before Goose kept a ledger (it adds one when it starts): its running totals.
+    const old = context();
+    mkdirSync(dirname(db(old)), { recursive: true });
+    const c = openSqliteFile(db(old));
+    c.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, accumulated_input_tokens INTEGER,
+      accumulated_output_tokens INTEGER, accumulated_total_tokens INTEGER, accumulated_cost REAL);
+      INSERT INTO sessions VALUES ('s1', NULL, 100, 5, 105, 0.5)`);
+    c.close();
+    expect(await gooseSessionTotals(db(old), 's1')).toEqual({ input: 100, output: 5, total: 105, cost: 0.5 });
+    // A number a command wrote past 2^53 is read as a real, not a failure of every later read.
+    const big = context();
+    gooseCalls(db(big), 's1', [{ input: 10, output: 1, cost: 0.1 }]);
+    const w = openSqliteFile(db(big));
+    w.exec('UPDATE sessions SET accumulated_input_tokens = 9007199254740993; UPDATE usage_ledger SET total_tokens = 9007199254740993');
+    w.close();
+    expect((await gooseSessionTotals(db(big), 's1'))!.input).toBeGreaterThanOrEqual(2 ** 53);
+    // On the user's own endpoint Goose prices a model by its name as a vendor's: no cost shown.
+    const own = context({ model: 'homelab/gpt-oss-120b', backends: { apis: {}, endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:8000/v1', models: ['gpt-oss-120b'] }] } });
+    expect(own.run.kind).toBe('endpoint');
+    gooseCalls(db(own), 'p1', [{ input: 50, output: 5, cost: 0.2 }]);
+    ran(own, 'p1', 'new');
+    expect(await usage(own)).toEqual({ inputTokens: 50, outputTokens: 5 });
+    // A named pipe beside the database (its shared memory) is not opened: that would wait for a writer.
+    if (process.platform !== 'win32') {
+      spawnSync('mkfifo', [`${db(big)}-shm`]);
+      expect(await gooseSessionTotals(db(big), 's1')).toBeUndefined();
+    }
   });
 });
 
@@ -1025,14 +1104,16 @@ describe("Goose's catalog and what it loads by itself", () => {
  * A stand-in for `goose acp` that speaks as Goose 1.58.1 did in the recorded runs:
  * - `initialize`: the recorded answer; `session/new`: a session in the mode, provider and model of
  *   its variables (`GOOSE_MODE`, `GOOSE_PROVIDER`, `GOOSE_MODEL`); `session/load`: replays two updates,
- *   then the session as `FAKE_GOOSE_STORED` (JSON) says (a prompt then starts with the
- *   session's cost so far, `FAKE_GOOSE_COST`); fails with Goose's "Session not found" for `FAKE_GOOSE_LOAD_FAIL`;
+ *   then the session as `FAKE_GOOSE_STORED` (JSON) says (a prompt then starts with a `usage_update`
+ *   of `FAKE_GOOSE_COST`); fails with Goose's "Session not found" for `FAKE_GOOSE_LOAD_FAIL`;
  * - `session/set_config_option` (a new provider resets the model) and `session/set_mode`; either fails for
  *   the value in `FAKE_GOOSE_REJECT`; `_goose/unstable/session/system-prompt/set`, `…/steer`,
  *   `…/providers/list` and `…/sources/list` (their recorded answers);
  * - `session/prompt` plays `FAKE_GOOSE_REPLAY` (a recorded transcript's first prompt: its updates and
  *   permission requests, waiting for each answer), `hang` (a shell call, until `session/cancel`) or
- *   `auth` (Goose's error turn for a bad key).
+ *   `auth` (Goose's error turn for a bad key); before it answers, it records the model calls of
+ *   `FAKE_GOOSE_CALLS` (JSON `[{input, output, total?, cost?, session?, parent?}]`) in its sessions
+ *   database as Goose does (`data/sessions/sessions.db` under `GOOSE_PATH_ROOT`).
  * Every message it gets is logged to `FAKE_GOOSE_LOG`, with the variables it started with.
  */
 const FAKE_GOOSE = `#!/usr/bin/env node
@@ -1082,10 +1163,30 @@ async function prompt(id, p) {
   for (const l of all.slice(at + 1)) {
     if (l.from !== 'agent') continue;
     const m = l.msg;
-    if (m.id === pid && !m.method) return send({ id, ...(m.error ? { error: m.error } : { result: m.result }) });
+    if (m.id === pid && !m.method) {
+      if (env.FAKE_GOOSE_CALLS) record(s, JSON.parse(env.FAKE_GOOSE_CALLS));
+      return send({ id, ...(m.error ? { error: m.error } : { result: m.result }) });
+    }
     if (m.method === 'session/update') send({ method: m.method, params: { ...m.params, sessionId: s } });
     else if (m.method === 'session/request_permission') log({ answered: await ask(m.method, { ...m.params, sessionId: s }) });
   }
+}
+
+function record(s, calls) {
+  const file = path.join(env.GOOSE_PATH_ROOT, 'data', 'sessions', 'sessions.db');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(file);
+  db.exec(\`${GOOSE_USAGE_SCHEMA}\`);
+  for (const c of calls) {
+    const id = c.session || s;
+    const total = c.total === undefined ? c.input + c.output : c.total;
+    const cost = c.cost === undefined ? null : c.cost;
+    db.prepare('INSERT OR IGNORE INTO sessions (id, working_dir, parent_session_id) VALUES (?, ?, ?)').run(id, '/p', c.parent || null);
+    db.prepare('UPDATE sessions SET accumulated_total_tokens = COALESCE(accumulated_total_tokens, 0) + ?, accumulated_input_tokens = COALESCE(accumulated_input_tokens, 0) + ?, accumulated_output_tokens = COALESCE(accumulated_output_tokens, 0) + ?, accumulated_cost = CASE WHEN ? IS NULL THEN accumulated_cost ELSE COALESCE(accumulated_cost, 0) + ? END WHERE id = ?').run(total, c.input, c.output, cost, cost, id);
+    db.prepare('INSERT INTO usage_ledger (session_id, created_timestamp, input_tokens, output_tokens, total_tokens, cost) VALUES (?, 0, ?, ?, ?, ?)').run(id, c.input, c.output, total, cost);
+  }
+  db.close();
 }
 
 readline.createInterface({ input: process.stdin }).on('line', async (line) => {
@@ -1205,9 +1306,14 @@ const deps = (): Partial<AcpTurnDeps> => ({
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
 describe('a Goose turn', () => {
   it.skipIf(process.platform === 'win32')('starts with its variables, a new session, the briefing, and reports the turn', async () => {
-    const r = turn({ FAKE_GOOSE_REPLAY: 'read-openai' }, { effort: 'low' });
+    // The recorded turn's two model calls (its answer has the last one's tokens only: 2933 in, 16 out).
+    const calls = [
+      { input: 2875, output: 58, total: 2933, cost: 0.0012 },
+      { input: 2917, output: 16, total: 2933, cost: 0.0014502 },
+    ];
+    const r = turn({ FAKE_GOOSE_REPLAY: 'read-openai', FAKE_GOOSE_CALLS: JSON.stringify(calls) }, { effort: 'low' });
     const result = await gooseRunner(deps()).run(r.o);
-    expect(result).toEqual({ sessionId: '20261110_1', inputTokens: 2933, outputTokens: 16, costUsd: 0.0026502 });
+    expect(result).toEqual({ sessionId: '20261110_1', inputTokens: 5792, outputTokens: 74, costUsd: 0.0026502 });
     const start = r.log().find((m) => m.start)!;
     expect(start.argv).toEqual(['acp']);
     expect(start.env).toMatchObject({ GOOSE_PROVIDER: 'openai', GOOSE_MODEL: 'gpt-5.4-mini', GOOSE_MODE: 'auto', GOOSE_DISABLE_KEYRING: '1', CONTEXT_FILE_NAMES: '[".goosehints","AGENTS.md"]' });
@@ -1222,9 +1328,17 @@ describe('a Goose turn', () => {
 
   it.skipIf(process.platform === 'win32')('sets provider, model, effort and mode again after a load, in that order, and drops the replay', async () => {
     const r = turn(
-      { FAKE_GOOSE_REPLAY: 'text-anthropic', FAKE_GOOSE_STORED: JSON.stringify({ provider: 'openai', model: 'gpt-5.4-nano', mode: 'auto', effort: 'off' }), FAKE_GOOSE_COST: '0.0007' },
-      { sessionId: '20261110_7', model: 'anthropic/claude-haiku-5-5', effort: 'high', permission: 'edit' },
+      {
+        FAKE_GOOSE_REPLAY: 'text-anthropic',
+        FAKE_GOOSE_STORED: JSON.stringify({ provider: 'openai', model: 'gpt-5.4-nano', mode: 'auto', effort: 'off' }),
+        // What Goose sends a loaded session's prompt (its total so far): not used.
+        FAKE_GOOSE_COST: '0.0007',
+        FAKE_GOOSE_CALLS: JSON.stringify([{ input: 1200, output: 9, cost: 0.0000969 }]),
+      },
+      { sessionId: '20261110_7', model: 'anthropic/claude-haiku-5-5', effort: 'high', permission: 'edit', stateKey: 'conv.load.a1' },
     );
+    // The session's earlier turns, in the member's sessions database.
+    gooseCalls(gooseSessionsDb(stateFolder(r.o.env[OPEN_AGENT_HOME_ENV]!, 'conv.load.a1')), '20261110_7', [{ input: 5000, output: 50, cost: 0.0007 }]);
     const result = await gooseRunner(deps()).run(r.o);
     const order = r.log().filter((m) => m.method === 'session/set_config_option' || m.method === 'session/set_mode' || m.method?.startsWith('_goose'));
     expect(order.map((m) => [m.method, m.params.configId ?? m.params.modeId ?? m.params.key])).toEqual([
@@ -1238,8 +1352,8 @@ describe('a Goose turn', () => {
     expect(order[2]!.params.value).toBe('claude-haiku-5-5');
     expect(sent(r, 'session/load')[0]!.params).toMatchObject({ sessionId: '20261110_7', _meta: { replayTail: 1 } });
     expect(r.events.some((e) => e.type === 'text' && e.text.includes('old reply'))).toBe(false);
-    // Its cost is what the turn added to the session's total before it (0.0007).
-    expect(result.costUsd).toBe(0.0000969);
+    // Its usage is what the turn added to the session's totals before it.
+    expect(result).toMatchObject({ inputTokens: 1200, outputTokens: 9, costUsd: 0.0000969 });
   });
 
   it.skipIf(process.platform === 'win32')('runs below full access in the relay sandbox, with its home, its backend and its opt-ins', async () => {

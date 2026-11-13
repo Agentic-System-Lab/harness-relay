@@ -1,5 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -48,6 +48,10 @@ import {
   opencodeRunner,
   opencodeSandbox,
   opencodeToolKind,
+  opencodePartIds,
+  opencodeTurnCalls,
+  opencodeTurnUsage,
+  type OpencodeCalls,
   opencodeUsage,
   opencodeUserShell,
   opencodeShellScript,
@@ -62,10 +66,8 @@ import {
   parseOpencodeModels,
   parseOpencodeSkills,
   prepareOpencode,
-  readSessionCost,
   rejectWithReason,
   scrubOpencodeDatabase,
-  writeSessionCost,
 } from '../src/server/agents/opencode';
 import { AgentRunError, type AgentEvent, type ApprovalRequest, type McpServerSpec, type RunBackends, type RunOptions } from '../src/server/agents/types';
 import { backendRun } from '../src/server/backends';
@@ -74,6 +76,7 @@ import type { SpawnOptions, SpawnResult } from '../src/server/process';
 import type { RelaySandboxCommand, RelaySandboxSpec } from '../src/server/relaySandbox';
 import { OPEN_AGENT_HOME_ENV } from '../src/server/settings';
 import { writeFakeOpencode } from './fake-opencode';
+import { addOpencodeRows, rowsEnv, stepData, writeOpencodeWithRows, type StepRow } from './opencode-db';
 
 
 /** The state key of the runs here: their state is in `<home>/private/<key>`. */
@@ -81,11 +84,14 @@ const STATE_KEY = 'conv.c1.a1';
 const FIXTURES = join(__dirname, 'fixtures', 'opencode');
 let root: string;
 let bin: string;
+/** The fake, adding the turn's model calls to its database as it starts (`withCalls`). */
+let binWithCalls: string;
 let n = 0;
 
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), 'relay-opencode-'));
   bin = writeFakeOpencode(join(root, 'opencode'));
+  binWithCalls = writeOpencodeWithRows(join(root, 'opencode-with-calls'), bin);
 });
 
 afterAll(() => {
@@ -187,6 +193,13 @@ function turn(fixture: string, over: Partial<RunOptions> = {}, answer?: (req: Ap
 }
 
 const runTurn = (r: Turn) => opencodeRunner({ ...fakeSandbox(r.dir), runTmpDir: join(r.dir, 'run-tmp') }).run(r.o);
+/** The turn's member's OpenCode database. */
+const dbOf = (r: Turn) => join(r.home, 'private', STATE_KEY, 'data', 'opencode', 'opencode.db');
+/** The turn's model calls, written to its database as the fake starts (after the run read what was there). */
+const withCalls = (r: Turn, rows: { sessions?: { id: string; parent?: string }[]; steps: StepRow[] }): Turn => {
+  r.o = { ...r.o, bin: binWithCalls, env: { ...r.o.env, FAKE_OC_ROWS: rowsEnv(rows) } };
+  return r;
+};
 const sent = (r: Turn, method: string) => r.log().filter((m) => m.method === method);
 /** The client's answers to the agent's requests (no method, an id). */
 const answers = (r: Turn) => r.log().filter((m) => m.method === undefined && m.id !== undefined && !m.start);
@@ -200,9 +213,12 @@ const textOf = (r: Turn) =>
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
 describe('OpenCode turns replayed from the real CLI', () => {
   it.skipIf(process.platform === 'win32')('runs a text turn on an endpoint: its model as relay-<id>, thinking and text, tokens', async () => {
-    const r = turn('text-only', { model: 'homelab/muse-glimmer-30b-nvfp4' });
+    const r = withCalls(turn('text-only', { model: 'homelab/muse-glimmer-30b-nvfp4' }), {
+      steps: [{ id: 'prt_1', session: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2', input: 7000, cacheRead: 700, cacheWrite: 21, output: 40, reasoning: 12, cost: 0 }],
+    });
     const result = await runTurn(r);
-    expect(result).toEqual({ sessionId: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2', inputTokens: 7721, outputTokens: 52, costUsd: 0 });
+    // An endpoint has no price list: no cost.
+    expect(result).toEqual({ sessionId: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2', inputTokens: 7721, outputTokens: 52 });
     expect(r.events.some((e) => e.type === 'thinking')).toBe(true);
     expect(textOf(r)).toBe('pong');
     expect(r.events[0]).toEqual({ type: 'session', sessionId: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2' });
@@ -290,16 +306,19 @@ describe('OpenCode turns replayed from the real CLI', () => {
     expect(end.error).toBe(`${withLang('en', () => t().approvalDeclined)} not now`);
   });
 
-  it.skipIf(process.platform === 'win32')('full access on Anthropic: no approvals, model then effort set in its order, the cost of the turn', async () => {
-    const r = turn('anthropic-read-write-bash', { effort: 'low' });
+  it.skipIf(process.platform === 'win32')('full access on Anthropic: no approvals, model then effort set in its order, the cost and tokens of every call of the turn', async () => {
+    const session = 'ses_e3a82337bffen0E28XT7dK76JK';
+    const call = (i: number, more: Partial<StepRow> = {}): StepRow => ({ id: `prt_${i}`, session, input: 2, cacheRead: 10915, cacheWrite: 575, output: 59, cost: 0.0004, ...more });
+    // Four calls (a read, a write, a command, the reply), the third with some reasoning.
+    const r = withCalls(turn('anthropic-read-write-bash', { effort: 'low' }), { steps: [call(1), call(2), call(3, { reasoning: 30 }), call(4, { cost: 0.0005484999999999998 })] });
     const result = await runTurn(r);
     expect(r.approvals).toEqual([]);
     expect(answers(r).map((x) => x.result?.outcome?.optionId ?? x.result)).toEqual(['once', null, 'once']);
     expect(sent(r, 'session/set_config_option').map((m) => [m.params.configId, m.params.value])).toEqual([
       ['model', 'anthropic/claude-haiku-5-5'],
     ]);
-    expect(result).toMatchObject({ inputTokens: 2, outputTokens: 59, costUsd: 0.0017484999999999998 });
-    expect(readSessionCost(r.home, result.sessionId!)).toBe(0.0017484999999999998);
+    expect(result.sessionId).toBe(session);
+    expect(result).toMatchObject({ inputTokens: 4 * 11492, outputTokens: 4 * 59 + 30, costUsd: 0.0017485 });
     const config = JSON.parse(r.log()[0]!.env.OPENCODE_CONFIG_CONTENT);
     expect(config).toMatchObject({ model: 'anthropic/claude-haiku-5-5', enabled_providers: ['anthropic'], permission: { '*': 'allow', skill: 'allow' } });
     expect(config.provider).toBeUndefined();
@@ -420,15 +439,32 @@ describe('OpenCode turns replayed from the real CLI', () => {
     expect(sent(r, 'session/cancel')).toHaveLength(1);
   });
 
-  it.skipIf(process.platform === 'win32')('resumes with session/resume, and counts only this turn of the session cost', async () => {
-    const r = turn('resume-3-session-resume', { sessionId: 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO', effort: 'low' });
-    writeSessionCost(r.home, 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO', 0.0001);
+  it.skipIf(process.platform === 'win32')("resumes with session/resume, and counts only this turn's calls, a stopped turn's before it not among them", async () => {
+    const session = 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO';
+    const r = turn('resume-3-session-resume', { sessionId: session, effort: 'low' });
+    // Earlier turns' calls, a stopped turn's and a subagent's among them, all made before this turn.
+    addOpencodeRows(dbOf(r), {
+      sessions: [{ id: 'ses_child', parent: session }],
+      steps: [
+        { id: 'prt_a', session, input: 100, output: 10, cost: 0.0001 },
+        { id: 'prt_stopped', session, input: 200, output: 20, cost: 0.0002 },
+        { id: 'prt_child_old', session: 'ses_child', input: 50, output: 5, cost: 0.00005 },
+      ],
+    });
+    withCalls(r, {
+      sessions: [{ id: 'ses_grandchild', parent: 'ses_child' }],
+      steps: [
+        { id: 'prt_b', session, input: 3, cacheRead: 9000, cacheWrite: 41, output: 8, reasoning: 2, cost: 0.0003 },
+        // The subagent it had (resumed by the task tool) and the one that one started.
+        { id: 'prt_child_new', session: 'ses_child', input: 7, output: 1, cost: 0.00004 },
+        { id: 'prt_grandchild', session: 'ses_grandchild', input: 5, cacheRead: 5, output: 1, cost: 0.00002044 },
+      ],
+    });
     const result = await runTurn(r);
     expect(sent(r, 'session/resume')[0]!.params).toMatchObject({ sessionId: 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO', mcpServers: [] });
     expect(sent(r, 'session/set_config_option')).toEqual([]); // model and effort as the session has them
     expect(textOf(r)).toBe('BLUE-HERON-42');
-    expect(result.costUsd).toBeCloseTo(0.00036044 - 0.0001, 10);
-    expect(readSessionCost(r.home, 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO')).toBe(0.00036044);
+    expect(result).toEqual({ sessionId: session, inputTokens: 9044 + 7 + 10, outputTokens: 10 + 1 + 1, costUsd: 0.00036044 });
   });
 
   it.skipIf(process.platform === 'win32')('a session it cannot resume fails before anything is said, without its error data', async () => {
@@ -526,7 +562,7 @@ describe('its home', () => {
       OPENCODE_PURE: '1',
     });
     expect(h.statePaths).toEqual(['/h/data', '/h/state']);
-    expect(h.configPaths).toEqual(['/h/config', '/h/home', '/h/cache', '/h/relay']);
+    expect(h.configPaths).toEqual(['/h/config', '/h/home', '/h/cache']);
     expect(opencodePaths('/h').db).toBe('/h/data/opencode/opencode.db');
   });
 
@@ -1426,19 +1462,128 @@ describe('keeping its server to Harness Relay', () => {
 });
 
 describe('usage and errors', () => {
-  it("reports the turn's part of the session's cost", () => {
-    const home = join(root, `cost-${++n}`);
-    const ctx = { state: { sessionId: 'ses_a', costBefore: 0.5 }, home: { root: home, state: home, env: {}, statePaths: [], configPaths: [] } };
-    expect(opencodeUsage({ usage: { inputTokens: 1, outputTokens: 2 } }, { cost: { amount: 0.75, currency: 'USD' } }, ctx)).toEqual({ inputTokens: 1, outputTokens: 2, costUsd: 0.25 });
-    expect(readSessionCost(home, 'ses_a')).toBe(0.75);
-    // No cost reported: tokens only, nothing kept.
-    expect(opencodeUsage({ usage: { inputTokens: 1 } }, undefined, { ...ctx, state: { sessionId: 'ses_b' } })).toEqual({ inputTokens: 1, outputTokens: undefined, costUsd: undefined });
-    expect(readSessionCost(home, 'ses_b')).toBeUndefined();
-    // Ids that are no file name are not kept.
-    writeSessionCost(home, '../x', 1);
-    expect(readSessionCost(home, '../x')).toBeUndefined();
-    writeFileSync(join(home, 'relay', 'ses_c.json'), 'not json');
-    expect(readSessionCost(home, 'ses_c')).toBeUndefined();
+  it("reads every model call of a session and of the sessions under it, from OpenCode's database", async () => {
+    const file = join(root, `usage-${++n}`, 'opencode.db');
+    addOpencodeRows(file, {
+      sessions: [
+        { id: 'ses_child', parent: 'ses_a' },
+        { id: 'ses_grandchild', parent: 'ses_child' },
+        { id: 'ses_other' },
+      ],
+      steps: [
+        { id: 'prt_1', session: 'ses_a', input: 3, output: 4, reasoning: 5, cacheRead: 6, cacheWrite: 7, cost: 0.25 },
+        { id: 'prt_2', session: 'ses_child', input: 1, output: 1, cost: 0.125 },
+        { id: 'prt_3', session: 'ses_grandchild', input: 2, output: 2 },
+        { id: 'prt_x', session: 'ses_other', input: 99, output: 99, cost: 9 },
+      ],
+      parts: [
+        // Other parts, one of them saying "step-finish" in its text, and ones that are no JSON or no numbers.
+        { id: 'prt_t', session: 'ses_a', data: JSON.stringify({ type: 'text', text: 'a step-finish part' }) },
+        { id: 'prt_bad', session: 'ses_a', data: 'step-finish, not JSON' },
+        {
+          id: 'prt_odd',
+          session: 'ses_a',
+          data: JSON.stringify({ type: 'step-finish', tokens: { input: -5, output: 'x', reasoning: null, cache: { read: 1e400 } }, cost: Number.NaN }),
+        },
+      ],
+    });
+    // prt_1, prt_2, prt_3 and prt_odd (whose numbers count as 0), added up: one row comes back.
+    expect(await opencodeTurnCalls(file, 'ses_a')).toEqual({ calls: 4, cost: 0.375, input: 6, output: 7, reasoning: 5, cacheRead: 6, cacheWrite: 7 });
+    expect(await opencodeTurnCalls(file, 'ses_none')).toEqual({ calls: 0, cost: 0, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
+    // No database, or not OpenCode's: not known.
+    expect(await opencodeTurnCalls(join(root, 'no-such.db'), 'ses_a')).toBeUndefined();
+    const notOurs = join(root, `usage-${++n}.db`);
+    writeFileSync(notOurs, 'not a database');
+    expect(await opencodeTurnCalls(notOurs, 'ses_a')).toBeUndefined();
+  });
+
+  it('reads the parts there before a turn without their data, and leaves them out after it', async () => {
+    const file = join(root, `usage-${++n}`, 'opencode.db');
+    addOpencodeRows(file, { sessions: [{ id: 'ses_child', parent: 'ses_a' }], steps: [{ id: 'prt_1', session: 'ses_a', input: 1, output: 1 }], parts: [{ id: 'prt_t', session: 'ses_child', data: '{"type":"text"}' }] });
+    const before = (await opencodePartIds(file, 'ses_a'))!;
+    expect([...before]).toEqual(['prt_1', 'prt_t']);
+    addOpencodeRows(file, { steps: [{ id: 'prt_2', session: 'ses_child', input: 2, output: 3, cost: 0.5 }] });
+    expect(await opencodeTurnCalls(file, 'ses_a', before)).toEqual({ calls: 1, cost: 0.5, input: 2, output: 3, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
+    // A database without OpenCode's tables yet has no parts; one that cannot be read, none known.
+    const empty = join(root, `usage-${++n}.db`);
+    new (createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')).DatabaseSync(empty).close();
+    expect(await opencodePartIds(empty, 'ses_a')).toEqual(new Set());
+    expect(await opencodeTurnCalls(empty, 'ses_a')).toEqual({ calls: 0, cost: 0, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
+    expect(await opencodePartIds(join(root, 'no-such.db'), 'ses_a')).toBeUndefined();
+  });
+
+  it("does not let a run's commands hold up the server: a view in place of a table, a link, a named pipe", async () => {
+    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+    // A view where `part` was, whose query would never end.
+    const viewed = join(root, `usage-${++n}`, 'opencode.db');
+    addOpencodeRows(viewed, { steps: [{ id: 'prt_1', session: 'ses_a', input: 1, output: 1 }] });
+    const db = new DatabaseSync(viewed);
+    db.exec(`ALTER TABLE part RENAME TO part_old;
+      CREATE VIEW part AS WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r) SELECT 'prt_' || i AS id, 'ses_a' AS session_id, '{}' AS data FROM r;`);
+    db.close();
+    expect(await opencodeTurnCalls(viewed, 'ses_a')).toBeUndefined();
+    expect(await opencodePartIds(viewed, 'ses_a')).toBeUndefined();
+    // Links need a privilege on Windows, and named pipes are made with mkfifo.
+    if (process.platform === 'win32') return;
+    // A link to a database.
+    const real = join(root, `usage-${++n}`, 'opencode.db');
+    addOpencodeRows(real, { steps: [{ id: 'prt_1', session: 'ses_a', input: 1, output: 1 }] });
+    const link = join(root, `usage-${++n}.db`);
+    symlinkSync(real, link);
+    expect(await opencodeTurnCalls(link, 'ses_a')).toBeUndefined();
+    // A named pipe as the database, or as its write-ahead log: opening it would wait for a writer.
+    const pipe = join(root, `usage-${++n}.db`);
+    execFileSync('mkfifo', [pipe]);
+    expect(await opencodeTurnCalls(pipe, 'ses_a')).toBeUndefined();
+    execFileSync('mkfifo', [`${real}-wal`]);
+    expect(await opencodeTurnCalls(real, 'ses_a')).toBeUndefined();
+    expect(await opencodePartIds(real, 'ses_a')).toBeUndefined();
+    // The scrub before a run refuses it too (the run then starts its state over).
+    expect(() => scrubOpencodeDatabase(real)).toThrow(/not a plain file/);
+  });
+
+  it("counts the turn's calls with the cached input and the reasoning; an endpoint's zero cost is none", () => {
+    const calls = (more: Partial<OpencodeCalls> = {}): OpencodeCalls => ({ calls: 2, cost: 0.3, input: 2, output: 4, reasoning: 6, cacheRead: 80, cacheWrite: 100, ...more });
+    const api = { kind: 'anthropic' as const };
+    const endpoint = { kind: 'endpoint' as const };
+    expect(opencodeTurnUsage(calls(), api)).toEqual({ inputTokens: 182, outputTokens: 10, costUsd: 0.3 });
+    // No price: 0 on an API backend (OpenCode counted it so), none on an endpoint.
+    expect(opencodeTurnUsage(calls({ cost: 0 }), api)).toEqual({ inputTokens: 182, outputTokens: 10, costUsd: 0 });
+    expect(opencodeTurnUsage(calls({ cost: 0 }), endpoint)).toEqual({ inputTokens: 182, outputTokens: 10 });
+    expect(opencodeTurnUsage(calls(), endpoint)).toEqual({ inputTokens: 182, outputTokens: 10, costUsd: 0.3 });
+    // Float noise is rounded off.
+    expect(opencodeTurnUsage(calls({ cost: 0.1 + 0.2 }), api).costUsd).toBe(0.3);
+    // No call in the turn, or the calls not known: nothing rather than a wrong number.
+    expect(opencodeTurnUsage(calls({ calls: 0 }), api)).toEqual({});
+    expect(opencodeTurnUsage(undefined, api)).toEqual({});
+  });
+
+  it('gives up on a session with more parts before a turn than it reads', async () => {
+    const file = join(root, `usage-${++n}`, 'opencode.db');
+    addOpencodeRows(file, { parts: [{ id: 'prt_0', session: 'ses_a', data: '{}' }] });
+    const db = new (createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')).DatabaseSync(file);
+    db.exec(`WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 200000)
+      INSERT INTO part (id, message_id, session_id, time_created, data) SELECT 'prt_' || i, 'msg', 'ses_a', 0, '{}' FROM r`);
+    db.close();
+    expect(await opencodePartIds(file, 'ses_a')).toBeUndefined();
+  });
+
+  it("reads the turn's usage from the member's database once the prompt has answered", async () => {
+    const home = join(root, `usage-home-${++n}`);
+    const state = join(home, 'private', 'k');
+    const db = join(state, 'data', 'opencode', 'opencode.db');
+    addOpencodeRows(db, { steps: [{ id: 'prt_1', session: 'ses_a', input: 1, output: 1, cost: 0.5 }, { id: 'prt_2', session: 'ses_a', input: 2, output: 2, cost: 0.25 }] });
+    const ctx = (st: Record<string, unknown>) => ({ state: st, home: { root: home, state, env: {}, statePaths: [], configPaths: [] }, run: backendRun(backends(), 'anthropic/claude-haiku-5-5', 'OpenCode') });
+    expect(await opencodeUsage(undefined, undefined, ctx({ sessionId: 'ses_a', partsBefore: new Set(['prt_1']) }))).toEqual({ inputTokens: 2, outputTokens: 2, costUsd: 0.25 });
+    // What ACP says is not used: the last call's tokens only, the session's total cost.
+    expect(await opencodeUsage({ usage: { inputTokens: 9, outputTokens: 9 } }, { cost: { amount: 9, currency: 'USD' } }, ctx({ sessionId: 'ses_a', partsBefore: new Set() }))).toEqual({
+      inputTokens: 3,
+      outputTokens: 3,
+      costUsd: 0.75,
+    });
+    expect(await opencodeUsage(undefined, undefined, ctx({ partsBefore: new Set() }))).toEqual({});
+    expect(await opencodeUsage(undefined, undefined, ctx({ sessionId: 'ses_a' }))).toEqual({});
+    expect(stepData({ id: 'x', session: 'y' })).toContain('"type":"step-finish"');
   });
 
   it('says the backend error, an authentication problem, and strips the data of others', () => {
