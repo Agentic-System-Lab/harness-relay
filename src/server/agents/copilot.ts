@@ -9,7 +9,7 @@ import { t } from '../i18n';
 import { converse, runProcess, stripAnsi, tail } from '../process';
 import { patternPath, protectedReads, realPath, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
 import { PROJECT_AGENT_CONFIG } from '../relaySandbox';
-import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, answerPermission, type AcpDecision } from './acp';
+import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, acpTokens, answerPermission, type AcpDecision } from './acp';
 import { agentConfigPath, antigravityProjectFingerprint } from './antigravity';
 import {
   AgentRunError,
@@ -1320,12 +1320,8 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (failed) throw new AgentRunError(failed);
     if (result?.stopReason === 'cancelled') throw new AgentRunError(t().copilotCancelled);
-    const usage = result?.usage ?? {};
-    return {
-      sessionId,
-      inputTokens: typeof usage.inputTokens === 'number' ? usage.inputTokens : undefined,
-      outputTokens: typeof usage.outputTokens === 'number' ? usage.outputTokens : undefined,
-    };
+    // The turn's: one process per turn, and its count starts when the process opens the session.
+    return { sessionId, ...acpTokens(result?.usage) };
   } catch (err) {
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (err instanceof AgentRunError) throw err;

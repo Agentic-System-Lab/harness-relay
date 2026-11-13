@@ -29,6 +29,8 @@ import {
   claudeEndpointProcessEnv,
   claudeEndpointUrl,
   claudeMcpConfig,
+  claudeModelTokens,
+  addModelUsage,
   claudeExcludePattern,
   claudeItemsBesideLibrary,
   claudeMcpName,
@@ -39,6 +41,9 @@ import {
   claudeRunner,
   claudeSandboxSettings,
   claudeSandboxWrites,
+  claudeSessionFile,
+  claudeSessionTally,
+  claudeTurnUsage,
   createClaudeParser,
   parseClaudePluginList,
   type ClaudeControlRequest,
@@ -897,5 +902,214 @@ describe("the user's own Claude Code settings", () => {
     const broken = join(dir, 'broken.json');
     writeFileSync(broken, '{ not json');
     expect(claudeReopening([broken], guarded)).toBeUndefined();
+  });
+});
+
+describe("a turn's cost and tokens", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-usage-')));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const costState = (totalCostUSD: number, modelUsage: Record<string, unknown> = {}) =>
+    JSON.stringify({ type: 'cost-state', sessionId: 's', totalCostUSD, modelUsage });
+  const usage = (input: number, cacheRead: number, cacheWrite: number, output: number) => ({
+    inputTokens: input,
+    cacheReadInputTokens: cacheRead,
+    cacheCreationInputTokens: cacheWrite,
+    outputTokens: output,
+  });
+
+  it("finds a session's file by the working directory's name, or in any project folder", () => {
+    const home = join(dir, 'home');
+    const cwd = join(dir, 'work space');
+    mkdirSync(cwd, { recursive: true });
+    const named = join(home, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+    mkdirSync(named, { recursive: true });
+    writeFileSync(join(named, 'aaaa-1.jsonl'), '');
+    expect(claudeSessionFile({ CLAUDE_CONFIG_DIR: home }, cwd, 'aaaa-1')).toBe(join(named, 'aaaa-1.jsonl'));
+    // A long path's folder is cut and hashed by Claude Code: found by the file's name.
+    const other = join(home, 'projects', '-cut-and-hashed-1234');
+    mkdirSync(other, { recursive: true });
+    writeFileSync(join(other, 'bbbb-2.jsonl'), '');
+    expect(claudeSessionFile({ CLAUDE_CONFIG_DIR: home }, cwd, 'bbbb-2')).toBe(join(other, 'bbbb-2.jsonl'));
+    expect(claudeSessionFile({ CLAUDE_CONFIG_DIR: home }, cwd, 'cccc-3')).toBeUndefined();
+    expect(claudeSessionFile({ CLAUDE_CONFIG_DIR: home }, cwd, '../aaaa-1')).toBeUndefined();
+    expect(claudeSessionFile({ CLAUDE_CONFIG_DIR: join(dir, 'no-home') }, cwd, 'aaaa-1')).toBeUndefined();
+  });
+
+  it("reads what a session used so far from its last cost-state record, however large the file", async () => {
+    const file = join(dir, 'session.jsonl');
+    // A line longer than a block, with characters of several bytes across the blocks' edges.
+    const long = JSON.stringify({ type: 'assistant', message: { content: '說明'.repeat(70_000) + ' "cost-state" ' + 'é'.repeat(50_000) } });
+    writeFileSync(
+      file,
+      [
+        costState(0.5, { a: usage(1, 2, 3, 4) }),
+        JSON.stringify({ type: 'user', message: { content: 'x' } }),
+        costState(1.25, { a: usage(10, 1000, 200, 50), b: usage(300, 0, 0, 7) }),
+        long,
+        JSON.stringify({ type: 'user', message: { content: 'the words "cost-state" in a message' } }),
+        JSON.stringify({ type: 'progress', kind: 'cost-state', totalCostUSD: 99 }),
+        // Another session's record (a session copied from it), and costs Claude Code would not take.
+        JSON.stringify({ type: 'cost-state', sessionId: 'other', totalCostUSD: 7 }),
+        JSON.stringify({ type: 'cost-state', sessionId: 's', totalCostUSD: 2e9 }),
+        JSON.stringify({ type: 'cost-state', sessionId: 's', totalCostUSD: -1 }),
+        '',
+      ].join('\n'),
+    );
+    expect(await claudeSessionTally(file, 's')).toEqual({ costUsd: 1.25, inputTokens: 1510, outputTokens: 57 });
+    // Not read further back than it is asked to: not known then.
+    expect(await claudeSessionTally(file, 's', 100_000)).toBeUndefined();
+    // The last record also when it ends the file without a newline, or is its only line.
+    writeFileSync(file, [long, costState(2, { a: usage(1, 0, 0, 1) })].join('\n'));
+    expect(await claudeSessionTally(file, 's')).toEqual({ costUsd: 2, inputTokens: 1, outputTokens: 1 });
+    writeFileSync(file, costState(2.5));
+    expect(await claudeSessionTally(file, 's')).toEqual({ costUsd: 2.5, inputTokens: 0, outputTokens: 0 });
+    // None yet (or a Claude Code that keeps none): nothing used, as the run starts from nothing.
+    writeFileSync(file, [long, JSON.stringify({ type: 'user', message: { content: 'x' } })].join('\n'));
+    expect(await claudeSessionTally(file, 's')).toEqual({ costUsd: 0, inputTokens: 0, outputTokens: 0 });
+    writeFileSync(file, '');
+    expect(await claudeSessionTally(file, 's')).toEqual({ costUsd: 0, inputTokens: 0, outputTokens: 0 });
+    // A record that is not one, and a file that cannot be read.
+    writeFileSync(file, [costState(3), '{"type":"cost-state","sessionId":"s","totalCostUSD":"4"}', '{"type":"cost-state", broken'].join('\n'));
+    expect(await claudeSessionTally(file, 's')).toEqual({ costUsd: 3, inputTokens: 0, outputTokens: 0 });
+    expect(await claudeSessionTally(join(dir, 'missing.jsonl'), 's')).toBeUndefined();
+  });
+
+  it('reads a large file without lines over a block slowing it down', async () => {
+    // 40 MB of 1.3 MB lines and no record: read to its start (no record: nothing used) in good time.
+    const file = join(dir, 'large.jsonl');
+    const line = JSON.stringify({ type: 'assistant', message: { content: 'x'.repeat(1_300_000) } });
+    writeFileSync(file, Array.from({ length: 30 }, () => line).join('\n'));
+    const started = Date.now();
+    expect(await claudeSessionTally(file, 's', 64 * 1024 * 1024)).toEqual({ costUsd: 0, inputTokens: 0, outputTokens: 0 });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    // By default it stops 16 MB from the end.
+    expect(await claudeSessionTally(file, 's')).toBeUndefined();
+  });
+
+  it('counts every model of a modelUsage, with the cached input', () => {
+    expect(claudeModelTokens({ a: usage(10, 1000, 200, 50), b: { inputTokens: 5, outputTokens: 1, costUSD: 0.1 } })).toEqual({ inputTokens: 1215, outputTokens: 51 });
+    expect(claudeModelTokens({ a: { inputTokens: -1, outputTokens: Number.NaN, cacheReadInputTokens: '3' } })).toEqual({ inputTokens: 0, outputTokens: 0 });
+    expect(claudeModelTokens(undefined)).toBeUndefined();
+    expect(claudeModelTokens([])).toBeUndefined();
+  });
+
+  it("takes what the session used before the turn off the totals Claude Code reports", () => {
+    const r = {
+      total_cost_usd: 1.75,
+      modelUsage: { a: usage(15, 2200, 230, 70), b: usage(300, 0, 0, 7) },
+      usage: { input_tokens: 5, cache_read_input_tokens: 1200, cache_creation_input_tokens: 30, output_tokens: 20 },
+    };
+    const before = { costUsd: 1.25, inputTokens: 1510, outputTokens: 57 };
+    // The subagent's tokens (model b) are in modelUsage, not in the main conversation's usage.
+    expect(claudeTurnUsage({ ...r, modelUsage: { a: usage(15, 2200, 230, 70), b: usage(600, 0, 0, 14) } }, before)).toEqual({
+      costUsd: 0.5,
+      inputTokens: 1535,
+      outputTokens: 27,
+    });
+    // A new session: everything is the turn's.
+    expect(claudeTurnUsage(r, { costUsd: 0, inputTokens: 0, outputTokens: 0 })).toEqual({ costUsd: 1.75, inputTokens: 2745, outputTokens: 77 });
+    // Not known what the session used before: no cost, the main conversation's tokens.
+    expect(claudeTurnUsage(r, undefined)).toEqual({ costUsd: undefined, inputTokens: 1235, outputTokens: 20 });
+    // Totals below what it had used (not the session's, then): the same.
+    expect(claudeTurnUsage(r, { costUsd: 5, inputTokens: 9999, outputTokens: 999 })).toEqual({ costUsd: undefined, inputTokens: 1235, outputTokens: 20 });
+    // No modelUsage: the main conversation's tokens; float noise is rounded off.
+    expect(claudeTurnUsage({ total_cost_usd: 0.00508843, usage: r.usage }, { costUsd: 0.00483632, inputTokens: 0, outputTokens: 0 })).toEqual({
+      costUsd: 0.00025211,
+      inputTokens: 1235,
+      outputTokens: 20,
+    });
+  });
+
+  it("takes the run's own usage when Claude Code gives it (2.1.323), whatever the totals say", () => {
+    // As Claude Code 2.1.323 answered a resumed run: the totals are the session's, the since-field the run's.
+    const r = {
+      total_cost_usd: 0.004575,
+      modelUsage: { 'claude-haiku-5-5': { ...usage(4, 25939, 21561, 6), costUSD: 0.00457499 } },
+      model_usage_since_last_result: {
+        'claude-haiku-5-5': { ...usage(2, 14567, 9201, 3), costUSD: 0.00198757, thinkingTokens: 0, webSearchRequests: 0 },
+        'claude-small': { ...usage(300, 0, 0, 7), costUSD: 0.0003 },
+      },
+      usage: { input_tokens: 2, cache_read_input_tokens: 14567, cache_creation_input_tokens: 9201, output_tokens: 3 },
+    };
+    const expected = { costUsd: 0.00228757, inputTokens: 24070, outputTokens: 10 };
+    expect(claudeTurnUsage(r, { costUsd: 0.002587, inputTokens: 23734, outputTokens: 3 })).toEqual(expected);
+    // Also when what came before is not known, or not what Claude Code counted on from.
+    expect(claudeTurnUsage(r, undefined)).toEqual(expected);
+    expect(claudeTurnUsage(r, { costUsd: 9, inputTokens: 1e6, outputTokens: 1e6 })).toEqual(expected);
+    // A run that called no model; a model without a cost.
+    expect(claudeTurnUsage({ ...r, model_usage_since_last_result: {} }, undefined)).toEqual({ costUsd: 0, inputTokens: 0, outputTokens: 0 });
+    expect(claudeTurnUsage({ ...r, model_usage_since_last_result: { m: usage(1, 2, 3, 4) } }, undefined)).toEqual({ costUsd: undefined, inputTokens: 6, outputTokens: 4 });
+  });
+
+  it("adds up the run's own usage over every result of the run (a call that ended after one is on the next)", () => {
+    const events: AgentEvent[] = [];
+    const parser = createClaudeParser((e) => events.push(e));
+    const result = (since: unknown) => JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: 's', total_cost_usd: 1, model_usage_since_last_result: since });
+    parser.handle(result({ a: { ...usage(1, 10, 0, 2), costUSD: 0.5 } }));
+    parser.handle(result({ a: { ...usage(1, 0, 5, 1), costUSD: 0.25 }, b: { ...usage(3, 0, 0, 4), costUSD: 0.125 } }));
+    expect(claudeTurnUsage(parser.result!, undefined)).toEqual({ costUsd: 0.875, inputTokens: 20, outputTokens: 7 });
+    // A cost only one of them has: the model's cost is not known (the turn's then neither).
+    expect(addModelUsage({ a: { inputTokens: 1, costUSD: 0.5 } }, { a: { inputTokens: 2 } })).toEqual({ a: { inputTokens: 3, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } });
+    expect(addModelUsage(undefined, { a: { inputTokens: 1 } })).toEqual({ a: { inputTokens: 1 } });
+    expect(addModelUsage({ a: { inputTokens: 1 } }, 'x')).toEqual({ a: { inputTokens: 1 } });
+    expect(addModelUsage(undefined, [])).toBeUndefined();
+  });
+
+  // The stand-in is a script run by its `#!` line, which Windows cannot start.
+  describe.skipIf(process.platform === 'win32')('each turn of a resumed session, with a stand-in claude', () => {
+    let n = 0;
+    const setup = () => {
+      const bin = writeFakeClaude(join(dir, `claude-${++n}`));
+      const home = join(dir, `claude-home-${n}`);
+      const cwd = join(dir, `project-${n}`);
+      mkdirSync(cwd, { recursive: true });
+      const run = (u: Record<string, unknown>, sessionId?: string, more: Partial<Parameters<typeof claudeRunner.run>[0]> = {}, env: Record<string, string> = {}) =>
+        claudeRunner.run({
+          bin,
+          env: { ...process.env, CLAUDE_CONFIG_DIR: home, FAKE_CLAUDE_RUN_USAGE: JSON.stringify(u), ...env },
+          prompt: 'hello',
+          systemPrompt: 'briefing',
+          cwd,
+          permission: 'full',
+          ...(sessionId ? { sessionId } : {}),
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+          ...more,
+        });
+      return { run, home, cwd };
+    };
+
+    it('shows its own cost and tokens where Claude Code reports only the totals (from its file), a failed turn left out', async () => {
+      const { run } = setup();
+      const first = await run({ cost: 0.5, input: 10, cacheRead: 1000, cacheWrite: 200, output: 50 });
+      expect(first).toEqual({ sessionId: expect.any(String), costUsd: 0.5, inputTokens: 1210, outputTokens: 50 });
+      const second = await run({ cost: 0.25, input: 5, cacheRead: 1200, cacheWrite: 30, output: 20, subagent: { input: 300, output: 7 } }, first.sessionId);
+      expect(second).toEqual({ sessionId: first.sessionId, costUsd: 0.25, inputTokens: 1535, outputTokens: 27 });
+      // A turn that failed: Claude Code still counted what it used, and the next turn does not show it.
+      await expect(run({ cost: 1, input: 1, cacheRead: 5000, cacheWrite: 0, output: 1, fail: true }, first.sessionId)).rejects.toThrow('the model failed');
+      const fourth = await run({ cost: 0.125, input: 1, cacheRead: 1300, cacheWrite: 0, output: 3 }, first.sessionId);
+      expect(fourth).toEqual({ sessionId: first.sessionId, costUsd: 0.125, inputTokens: 1301, outputTokens: 3 });
+    });
+
+    it("shows its own when run again without a flag an older Claude Code rejects, and on the user's own endpoint (no cost)", async () => {
+      const { run } = setup();
+      const first = await run({ cost: 0.5, input: 10, cacheRead: 1000, cacheWrite: 0, output: 50 });
+      const again = await run({ cost: 0.25, input: 5, cacheRead: 1100, cacheWrite: 0, output: 20 }, first.sessionId, {}, { FAKE_CLAUDE_REJECT: '--system-prompt-snapshot' });
+      expect(again).toEqual({ sessionId: first.sessionId, costUsd: 0.25, inputTokens: 1105, outputTokens: 20 });
+      const backends = { apis: {}, endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'] }] };
+      const onEndpoint = await run({ cost: 0.75, input: 7, cacheRead: 1200, cacheWrite: 0, output: 9 }, first.sessionId, { backends, model: 'homelab/gemma4:e4b' });
+      expect(onEndpoint).toEqual({ sessionId: first.sessionId, costUsd: undefined, inputTokens: 1207, outputTokens: 9 });
+    });
+
+    it("takes the run's own usage where Claude Code gives it, also after a record it would not take", async () => {
+      const { run, home, cwd } = setup();
+      const first = await run({ cost: 0.5, input: 10, cacheRead: 1000, cacheWrite: 200, output: 50, perRun: true });
+      expect(first).toEqual({ sessionId: expect.any(String), costUsd: 0.5, inputTokens: 1210, outputTokens: 50 });
+      // A record the stand-in counts on from but Harness Relay does not take (another session's).
+      const file = join(home, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${first.sessionId}.jsonl`);
+      writeFileSync(file, readFileSync(file, 'utf8') + JSON.stringify({ type: 'cost-state', sessionId: 'other', totalCostUSD: 100 }) + '\n');
+      const second = await run({ cost: 0.25, input: 5, cacheRead: 1200, cacheWrite: 30, output: 20, subagent: { input: 300, output: 7, cost: 0.05 }, perRun: true }, first.sessionId);
+      expect(second).toEqual({ sessionId: first.sessionId, costUsd: 0.25, inputTokens: 1535, outputTokens: 27 });
+    });
   });
 });

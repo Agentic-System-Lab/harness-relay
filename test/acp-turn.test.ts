@@ -19,6 +19,7 @@ import {
   type AcpAgentSpec,
   type AcpTurnDeps,
 } from '../src/server/agents/acpTurn';
+import { acpTokens } from '../src/server/agents/acp';
 import { startOpenProcess } from '../src/server/agents/open';
 import { AgentRunError, toolCallKind, type AgentEvent, type ApprovalRequest, type McpServerSpec, type RunOptions } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
@@ -757,6 +758,29 @@ describe('ACP pieces', () => {
   it('reads usage from the answer and the cost from the last usage update, in USD only', () => {
     expect(acpUsage({ usage: { inputTokens: 3, outputTokens: 4 } }, { cost: { amount: 0.5, currency: 'USD' } })).toEqual({ inputTokens: 3, outputTokens: 4, costUsd: 0.5 });
     expect(acpUsage({ _meta: { usage: { inputTokens: 1 } } }, { cost: { amount: 9, currency: 'EUR' } })).toEqual({ inputTokens: 1, outputTokens: undefined, costUsd: undefined });
+  });
+
+  it('counts the cached tokens in the input and the reasoning in the output, as the total says they were counted', () => {
+    // Copilot 1.0.109 (real-tools): input with the cache, output with the reasoning; total = input + output.
+    expect(acpTokens({ inputTokens: 65022, outputTokens: 274, totalTokens: 65296, thoughtTokens: 0, cachedReadTokens: 56217, cachedWriteTokens: 8799 })).toEqual({
+      inputTokens: 65022,
+      outputTokens: 274,
+    });
+    // OpenCode 1.19.5 over ACP: the cache and the reasoning beside input and output.
+    expect(acpTokens({ inputTokens: 2, outputTokens: 59, totalTokens: 11651, cachedReadTokens: 10915, cachedWriteTokens: 575, thoughtTokens: 100 })).toEqual({
+      inputTokens: 11492,
+      outputTokens: 159,
+    });
+    expect(acpTokens({ inputTokens: 2, outputTokens: 59, totalTokens: 11551, cachedReadTokens: 10915, cachedWriteTokens: 575, thoughtTokens: 0 })).toEqual({
+      inputTokens: 11492,
+      outputTokens: 59,
+    });
+    expect(acpTokens({ inputTokens: 300, outputTokens: 60, totalTokens: 400, cachedReadTokens: 200, thoughtTokens: 40 })).toEqual({ inputTokens: 300, outputTokens: 100 });
+    // A total that is neither: taken as it is; without one, nothing to go by.
+    expect(acpTokens({ inputTokens: 300, outputTokens: 60, totalTokens: 999, cachedReadTokens: 200, thoughtTokens: 40 })).toEqual({ inputTokens: 300, outputTokens: 60 });
+    expect(acpTokens({ inputTokens: 300, outputTokens: 60, cachedReadTokens: 200, thoughtTokens: 40 })).toEqual({ inputTokens: 300, outputTokens: 60 });
+    expect(acpTokens({ inputTokens: -1, outputTokens: '2' })).toEqual({ inputTokens: undefined, outputTokens: undefined });
+    expect(acpTokens(undefined)).toEqual({ inputTokens: undefined, outputTokens: undefined });
   });
 
   it('puts the briefing in the prompt only when asked, and images only when the agent takes them', () => {

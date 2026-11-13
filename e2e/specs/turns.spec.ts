@@ -111,11 +111,19 @@ test.describe('how members take turns', () => {
       await send(page, 'Second');
       await expect(replies(page, cli.name)).toHaveCount(2);
       await expect(await finishedReply(page, cli.name)).toContainText('You said: “Second”.');
-      await settled(relay, id);
+      const conv = await settled(relay, id);
       // The fakes keep their sessions and refuse to resume one they never started, as the real CLIs do.
       const sessions = () => relay.fakeLog().filter((e) => e.cli === cli.provider && e.session);
       await expect.poll(() => sessions().map((e) => e.resumed)).toEqual([false, true]);
       expect(sessions()[1]!.session).toBe(sessions()[0]!.session);
+      // Each reply shows its own turn's cost and tokens, though a CLI may report the session's so far
+      // (every run of a fake uses the same).
+      const usage = conv.messages
+        .filter((m) => m.author.kind === 'agent')
+        .map((m) => ({ cost: m.meta?.costUsd, input: m.meta?.inputTokens, output: m.meta?.outputTokens }));
+      expect(usage).toHaveLength(2);
+      expect(usage[1]).toEqual(usage[0]);
+      if (cli.provider === 'claude') expect(usage[1]).toEqual({ cost: 0.0012, input: 120, output: 40 });
     });
   });
 

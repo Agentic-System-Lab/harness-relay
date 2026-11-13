@@ -149,3 +149,28 @@ export function acpContentText(content: unknown): string | undefined {
     .trim();
   return text || undefined;
 }
+
+/**
+ * The tokens of an ACP prompt answer's `usage` (`inputTokens`, `outputTokens`, and maybe
+ * `totalTokens`, `cachedReadTokens`, `cachedWriteTokens`, `thoughtTokens`), counted as Harness
+ * Relay shows them: the input with the cached tokens read and written, the output with the reasoning.
+ * ACP does not say whether a CLI counts those in its input and output or beside them; its total says
+ * it: what the total has beyond input and output is what was counted beside them, and is added back
+ * when it is exactly the cached tokens, the reasoning, or both. Otherwise the numbers are taken as
+ * they are.
+ */
+export function acpTokens(usage: unknown): { inputTokens?: number; outputTokens?: number } {
+  const u = (usage && typeof usage === 'object' ? usage : {}) as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined);
+  const input = num(u.inputTokens);
+  const output = num(u.outputTokens);
+  const total = num(u.totalTokens);
+  if (input === undefined || output === undefined || total === undefined) return { inputTokens: input, outputTokens: output };
+  const cached = (num(u.cachedReadTokens) ?? 0) + (num(u.cachedWriteTokens) ?? 0);
+  const thought = num(u.thoughtTokens) ?? 0;
+  const beside = total - input - output;
+  if (beside > 0 && beside === cached + thought) return { inputTokens: input + cached, outputTokens: output + thought };
+  if (beside > 0 && beside === cached) return { inputTokens: input + cached, outputTokens: output };
+  if (beside > 0 && beside === thought) return { inputTokens: input, outputTokens: output + thought };
+  return { inputTokens: input, outputTokens: output };
+}

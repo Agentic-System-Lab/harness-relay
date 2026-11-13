@@ -8,7 +8,7 @@ import { t } from '../i18n';
 import { converse, runProcess, runSync, tail } from '../process';
 import { protectedReads, realPath } from '../protect';
 import { ANTIGRAVITY_HOME_ENV, ANTIGRAVITY_KEY_ONLY_ENV } from '../settings';
-import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, answerPermission, type AcpDecision } from './acp';
+import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, acpTokens, answerPermission, type AcpDecision } from './acp';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
@@ -927,12 +927,8 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
     updates.finish();
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (result?.stopReason === 'cancelled') throw new AgentRunError(t().antigravityCancelled);
-    const usage = result?.usage ?? {};
-    return {
-      sessionId,
-      inputTokens: typeof usage.inputTokens === 'number' ? usage.inputTokens : undefined,
-      outputTokens: typeof usage.outputTokens === 'number' ? usage.outputTokens : undefined,
-    };
+    // The turn's: one process per turn (a resumed session's answer counts only the turn's calls).
+    return { sessionId, ...acpTokens(result?.usage) };
   } catch (err) {
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (err instanceof AgentRunError) throw err;

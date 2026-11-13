@@ -151,7 +151,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 之後的回合沒有補充的成員 PASS，提前結束 | Claude Code、Codex | 設定三輪：兩人都回答、兩人都 PASS，沒有第三輪。 |
 | 回答可以停止 | 各一 | 回答串流時按**停止**（Stop），回答以「(stopped)」結束，即時標籤與停止按鈕都消失。 |
 | CLI 協定之內的錯誤顯示在回答上 | 各一 | 各 CLI 以自己的方式回報的錯誤都顯示在回答上：Claude 的錯誤結果、失敗的 Codex 回合、ACP agent 的 JSON-RPC 錯誤（Cursor 則像它實際那樣，把錯誤文字放在回答裡）、Pi 失敗的訊息。 |
-| 成員的下一回合接續自己的 session | 各一 | 第二回合接續第一回合開始的 session（假 CLI 和真正的 CLI 一樣，拒絕接續從沒開始過的 session）。 |
+| 成員的下一回合接續自己的 session | 各一 | 第二回合接續第一回合開始的 session（假 CLI 和真正的 CLI 一樣，拒絕接續從沒開始過的 session），它的回覆顯示這一輪自己的費用與 token，和第一回合的相同（Cursor、Muse Code、OpenCode 與 Goose 沒有用量，見[沒有測到的部分](#沒有測到的部分)）；假 CLI 像真正的 CLI 一樣回報整個 session 的累計時也是如此（Claude Code 的從它檔案最後一筆 `cost-state` 紀錄接著算，並像 2.1.323 一樣附上這次執行自己的用量；Cline 的；OpenHands 的）。 |
 | CLI 遺失 session 的成員，帶著到目前為止的對話重新開始 | Claude Code | 刪掉 CLI 的 session 後，下一個 prompt 帶著整段對話，連第一則訊息也在。 |
 | 失敗的回答顯示 CLI 的錯誤，重試後再回答 | 各一 | CLI 帶著錯誤結束：錯誤顯示在回答上，按**重試**（Retry）後回答。 |
 | 團隊回答途中送出的訊息先等待，再交給下一位成員 | Claude Code、Grok | 第一位成員慢慢回答時，訊息在等待送出的區塊裡，下一位成員會回答它。 |
@@ -513,6 +513,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。真正的 Muse Code 的沙箱也讓它的指令寫入暫存資料夾；它的假 CLI 因為同樣的原因不會這樣。
 - **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。
 - **推播通知與系統本身的通知。**[通知與提示音](#通知與提示音)用替身記錄它們；推播需要真正的推播服務（Google、Apple 的…），所以伺服器這一端（訂閱、加密、簽章、送出與保留什麼）由單元測試涵蓋（`test/push.test.ts`、`test/alerts.test.ts`、`test/push-api.test.ts`），頁面這一端由 `test/alerts-web.test.ts` 涵蓋，service worker 的處理程序則以替身的 `self` 由 `test/sw.test.ts` 涵蓋；瀏覽器向推播服務訂閱、真正的推播送到手機，則沒有任何測試走過。
+- **OpenCode 與 Goose 的 token 和費用。** Harness Relay 從這兩個 CLI 自己的 SQLite 資料庫（`opencode.db`、`sessions.db`）讀取，它們的假 CLI 不保存這些資料庫，所以在這裡它們的回覆不顯示用量；轉接器的測試（`test/opencode.test.ts`、`test/goose.test.ts`）會對照真正 CLI 寫法寫成的資料庫跑完整的回合。
 - **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試

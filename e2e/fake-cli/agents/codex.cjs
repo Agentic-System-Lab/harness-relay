@@ -272,7 +272,7 @@ async function codexTurn(peer, threadId, turnId, t, steps) {
       note('item/completed', { item: { type: 'agentMessage', id, text } });
     }
   }
-  note('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 150, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 185 }, total: {} } });
+  note('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 150, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 180 }, total: {} } });
   note('turn/completed', { turn: { id: turnId, items: [], status: stopped() ? 'interrupted' : 'completed', error: null } });
 }
 
