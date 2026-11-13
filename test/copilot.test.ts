@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
@@ -503,21 +503,22 @@ describe("Copilot's home and settings for one run", () => {
     expect(copilotEnv({ COPILOT_SKILLS_DIRS: '/s' }, '/run', [], undefined, comma).COPILOT_SKILLS_DIRS).toBe('/s');
   });
 
-  it('tells the usual home however COPILOT_HOME spells it: a trailing slash, a link, another letter case', () => {
+  it('tells the usual home as Copilot does: the path resolved, compared as text', () => {
+    // copilot 1.0.111 on macOS and Linux (`skill list` with each spelling of COPILOT_HOME, one home):
+    // a trailing slash and `..` still gave ~/.agents/skills; a link to ~/.copilot and, on macOS, where it
+    // is the same folder, ~/.COPILOT did not. A run gets them exactly where the user's own Copilot would.
     const home = realpathSync(mkdtempSync(join(tmpdir(), 'relay-copilot-home-')));
     onTestFinished(() => rmSync(home, { recursive: true, force: true }));
     mkdirSync(join(home, '.copilot'));
     const agents = join(home, '.agents', 'skills');
-    expect(copilotEnv({ COPILOT_HOME: `${join(home, '.copilot')}/` }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(agents);
-    expect(copilotEnv({ COPILOT_HOME: join(home, 'x', '..', '.copilot') }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(agents);
+    const skillDirs = (COPILOT_HOME: string) => copilotEnv({ COPILOT_HOME }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS;
+    // Spelled as text, not with join(), which would already tidy them.
+    expect(skillDirs(`${home}${sep}.copilot${sep}`)).toBe(agents);
+    expect(skillDirs([home, 'x', '..', '.copilot'].join(sep))).toBe(agents);
     symlinkSync(join(home, '.copilot'), join(home, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
-    expect(copilotEnv({ COPILOT_HOME: join(home, 'link') }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(agents);
-    if (process.platform === 'darwin' || process.platform === 'win32') {
-      expect(copilotEnv({ COPILOT_HOME: join(home, '.COPILOT') }, '/run', [], undefined, home).COPILOT_SKILLS_DIRS).toBe(agents);
-    }
-    // Another folder beside it is not.
-    mkdirSync(join(home, 'other'));
-    expect(copilotEnv({ COPILOT_HOME: join(home, 'other') }, '/run', [], undefined, home)).not.toHaveProperty('COPILOT_SKILLS_DIRS');
+    expect(skillDirs(join(home, 'link'))).toBeUndefined();
+    expect(skillDirs(join(home, '.COPILOT'))).toBeUndefined();
+    expect(skillDirs(join(home, 'other'))).toBeUndefined();
   });
 });
 

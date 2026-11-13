@@ -473,13 +473,15 @@ export function copilotEnv(
   const out: NodeJS.ProcessEnv = { ...env, COPILOT_HOME: runHome };
   for (const k of DROPPED_VARS) delete out[k];
   if (nativeOff.includes('skills')) delete out.COPILOT_SKILLS_DIRS;
-  else if (realPath(resolve(copilotHome(env, home))) === realPath(join(home, '.copilot'))) {
-    // Copilot reads `~/.agents/skills` only while its home is `~/.copilot` itself (however `COPILOT_HOME`
-    // spells it: a trailing slash, a link, another letter case), which a run's own home is not; given as
-    // one of its skill folders (a comma-separated list; a missing folder is skipped), the default
-    // account's runs get them as the user's own Copilot does, and as Settings lists them (`skill list`
-    // there, in that home). Tried with copilot 1.0.111. A path with a comma in it cannot be one of the
-    // list's: such a home's runs go without them.
+  else if (resolve(copilotHome(env, home)) === resolve(home, '.copilot')) {
+    // Copilot reads `~/.agents/skills` only while its home is `~/.copilot` itself, which a run's own home
+    // is not; given as one of its skill folders (a comma-separated list; a missing folder is skipped),
+    // the default account's runs get them as the user's own Copilot does, and as Settings lists them
+    // (`skill list` there, in that home). Its own test is the path resolved, compared as text: a
+    // `COPILOT_HOME` with a trailing slash or `..` counts, a link to `~/.copilot` or another letter case
+    // of it does not, not even on macOS, where it is the same folder (copilot 1.0.111 on macOS and
+    // Linux; not tried on Windows), so neither does it here. A path with a comma in it cannot be one
+    // of the list's: such a home's runs go without them.
     const agents = join(home, '.agents', 'skills');
     if (!agents.includes(',')) out.COPILOT_SKILLS_DIRS = env.COPILOT_SKILLS_DIRS ? `${env.COPILOT_SKILLS_DIRS},${agents}` : agents;
   }
