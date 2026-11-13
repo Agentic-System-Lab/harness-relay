@@ -730,7 +730,7 @@ export const zhTW = {
     done: '回覆完成（或出錯）',
     needs: '需要你：核准、確認團隊、回答問題',
     test: '傳送測試通知',
-    testSent: '已送出測試通知。',
+    testSent: '已送出測試通知，可能要稍等片刻才會出現。如果一直沒收到，請確認瀏覽器與系統都允許這個網站的通知。',
     testLocal: '已顯示測試通知。',
     support: {
       insecure:

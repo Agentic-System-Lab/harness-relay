@@ -716,7 +716,7 @@ export const en: Messages = {
     done: 'A reply is done (or ended with an error)',
     needs: 'I am needed: an approval, a team to confirm, a question',
     test: 'Send a test notification',
-    testSent: 'Test notification sent.',
+    testSent: "Test notification sent: it may take a moment to arrive. If it never does, check that the browser and the system allow this site's notifications.",
     testLocal: 'Test notification shown.',
     support: {
       insecure:
