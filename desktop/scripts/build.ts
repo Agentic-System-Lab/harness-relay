@@ -21,9 +21,10 @@
  * copies) from, UPDATES_REPO (site/assets/downloads.js) when it is not set; RELAY_UPDATES_TOKEN, a token
  * for GitHub's API the app downloads them with, for a private one (none: from a public one without
  * signing in). The Release workflow sets them from its UPDATES_REPO variable and UPDATES_READ_TOKEN
- * secret. Both go into the app as they are (src/updateSource.ts): anyone with a copy can read the token.
- * What it was built with is written beside the build as a fingerprint that names neither
- * (build/update-source.txt, `updateSourceFingerprint`), for the Release workflow to check.
+ * secret. Both go into the app's main process alone, the token encoded (src/updateSource.ts) so that
+ * no token's text stands in it; anyone with a copy can still read it. What it was built with is
+ * written beside the build as a fingerprint that names neither (build/update-source.txt,
+ * `updateSourceFingerprint`), for the Release workflow to check.
  */
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

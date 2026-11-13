@@ -44,8 +44,9 @@ export function updateCopyName(name) {
 }
 
 /**
- * Where the copies for the app's updates are: each release's under the same tag in this repository's
- * releases (README: what it is), published there by the Release workflow before the release itself.
+ * Where the copies for the app's updates are: each release's under the same tag in the releases of
+ * that repository (its README: what it is), published there by the Release workflow before the release
+ * itself.
  * The workflow's UPDATES_REPO variable, and RELAY_UPDATES_REPO when the app is built, may name another
  * (desktop/src/updateSource.ts), private too.
  */

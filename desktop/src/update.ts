@@ -460,14 +460,16 @@ export type Locate = (url: string, signal: AbortSignal, headers?: Record<string,
  * `stallMs` without a byte (DOWNLOAD_STALL_MS).
  */
 export async function download(o: DownloadOptions): Promise<void> {
+  const went = { toFallback: false };
   try {
-    await downloadOnce(o);
+    await downloadOnce(o, went);
   } catch (err) {
     // A copy that is not the installer (replaced in its repository, or broken on the way): the installer
-    // itself, once, without the token, checked against the same SHA-256.
+    // itself, once, without the token, checked against the same SHA-256. Not when the bytes came from
+    // the installer already (the copy could not be had): it would only be fetched again.
     const { fallback } = o.asset;
-    if (!(err instanceof UpdateError) || err.failure !== 'checksum' || !o.asset.sha256 || !fallback || fallback === o.asset.url) throw err;
-    await downloadOnce({ ...o, asset: { ...o.asset, url: fallback, fallback: undefined }, headers: undefined });
+    if (!(err instanceof UpdateError) || err.failure !== 'checksum' || !o.asset.sha256 || !fallback || fallback === o.asset.url || went.toFallback) throw err;
+    await downloadOnce({ ...o, asset: { ...o.asset, url: fallback, fallback: undefined }, headers: undefined }, went);
   }
 }
 
@@ -496,8 +498,14 @@ export async function downloadUpdate(o: Omit<DownloadOptions, 'headers'> & { sou
   await download({ ...rest, asset: from.asset, headers: from.headers });
 }
 
-/** One download of `asset`, checked against its SHA-256 (`download`). */
-async function downloadOnce(o: DownloadOptions): Promise<void> {
+/**
+ * One download of `asset`, checked against its SHA-256 (`download`). `went.toFallback` is set once the
+ * bytes come from the asset's fallback (the installer itself) instead of its own address.
+ */
+async function downloadOnce(o: DownloadOptions, went: { toFallback: boolean }): Promise<void> {
+  const fellBack = () => {
+    went.toFallback = true;
+  };
   if (!o.asset.sha256) throw new UpdateError('checksum', 'no checksum');
   const part = `${o.to}.part`;
   rmSync(part, { force: true });
@@ -513,15 +521,15 @@ async function downloadOnce(o: DownloadOptions): Promise<void> {
     const write = writer(file);
     if (o.connections && o.connections.length > 1 && o.locate && size >= 2 * minPart) {
       try {
-        await inParts({ connections: o.connections, locate: o.locate, asset: o.asset, headers: o.headers, size, minPart, stall, stallMs, write, onProgress: o.onProgress });
+        await inParts({ connections: o.connections, locate: o.locate, asset: o.asset, headers: o.headers, size, minPart, stall, stallMs, write, onProgress: o.onProgress, fellBack });
       } catch (err) {
         if (!(err instanceof NoRanges)) throw err;
         // A server (or a proxy) that sends the whole file for a part of it: all of it in one request, from there.
         await file.truncate(0);
-        await whole({ fetch: o.fetch, locate: o.locate, url: err.address, headers: err.headers, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress });
+        await whole({ fetch: o.fetch, locate: o.locate, url: err.address, headers: err.headers, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress, fellBack });
       }
     } else {
-      await whole({ fetch: o.fetch, locate: o.locate, url: o.asset.url, headers: o.headers, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress });
+      await whole({ fetch: o.fetch, locate: o.locate, url: o.asset.url, headers: o.headers, fallback: o.asset.fallback, size, stall, write, onProgress: o.onProgress, fellBack });
     }
   } catch (err) {
     failed = true;
@@ -671,6 +679,8 @@ async function whole(o: {
   stall: Stall;
   write: Write;
   onProgress?: (done: number) => void;
+  /** Told when the bytes come from `fallback`. */
+  fellBack?: () => void;
 }): Promise<void> {
   const signal = o.stall.signal;
   // Where the file is asked for, and with what: the headers at the asset's own address alone.
@@ -697,6 +707,7 @@ async function whole(o: {
   // token expired): the installer itself.
   if ((!res || unavailable(res.status, !!target?.headers)) && o.fallback) {
     res?.body?.cancel().catch(() => undefined);
+    o.fellBack?.();
     res = await o.fetch(o.fallback, { signal });
   }
   if (!res) throw new UpdateError('download', 'no way to ask where the file is without its headers going along');
@@ -762,6 +773,8 @@ async function inParts(o: {
   stallMs: number;
   write: Write;
   onProgress?: (done: number) => void;
+  /** Told when the parts come from the asset's fallback. */
+  fellBack?: () => void;
 }): Promise<void> {
   const { size, stall } = o;
   let source = o.asset.url;
@@ -772,6 +785,7 @@ async function inParts(o: {
   if (unavailable(found.status, !!headers) && o.asset.fallback) {
     source = o.asset.fallback;
     headers = undefined;
+    o.fellBack?.();
     found = await o.locate(source, stall.signal);
   }
   let address = addressFrom(found, source);
@@ -798,6 +812,7 @@ async function inParts(o: {
         if (headers && unavailable(f.status, true) && o.asset.fallback) {
           source = o.asset.fallback;
           headers = undefined;
+          o.fellBack?.();
           f = await o.locate(source, stop);
         }
         address = addressFrom(f, source);

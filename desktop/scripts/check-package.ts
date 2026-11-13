@@ -12,7 +12,9 @@
  *   `license` names it), the same file;
  * - no file the server runs holds a GitHub token (`github_pat_`), and the app's own main process holds
  *   none as text: the token an app may be built with to download its updates (RELAY_UPDATES_TOKEN) goes
- *   into its main process alone, encoded;
+ *   into its main process alone, encoded. Given what it was built with (RELAY_UPDATES_REPO,
+ *   RELAY_UPDATES_TOKEN, as the Release workflow and CI give them), its main process holds that
+ *   repository and that token, encoded (src/updateSource.ts);
  * - the app passes its own check (`--smoke-test`, desktop/src/main.ts): in Electron as it ships, the
  *   server starts in a utility process, a team of claude, codex and grok answers a question (the fake
  *   CLIs of the end-to-end tests, e2e/fake-cli/, built here and given to it with `--smoke-test-clis`),
@@ -32,6 +34,7 @@ import { extractFile } from '@electron/asar';
 import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 import { installFakeClis } from '../../e2e/support/fake-cli';
 import { withoutOwnSettings } from '../src/selftest';
+import { encodeUpdateSource, updateSourceFrom } from '../src/updateSource';
 import { packagedApps } from './packaged';
 
 const DESKTOP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -137,8 +140,17 @@ async function main(): Promise<number> {
     const bundles = ['server.mjs', 'relaySandboxHost.mjs', 'piGate.js'].map((name) => join(server, name)).filter((path) => existsSync(path));
     const token = /github_pat_[A-Za-z0-9_]{20,}/;
     check(bundles.length === 3 && bundles.every((path) => !token.test(readFileSync(path, 'latin1'))), 'no file the server runs holds a GitHub token');
-    const main = fromArchive(join(app.resources, 'app.asar'), 'main.cjs');
-    check(main !== undefined && !token.test(main.toString('latin1')), "the app's main process holds no GitHub token as text (only encoded)");
+    const main = fromArchive(join(app.resources, 'app.asar'), 'main.cjs')?.toString('latin1');
+    check(main !== undefined && !token.test(main), "the app's main process holds no GitHub token as text (only encoded)");
+    // What it was built to download its updates with, as this environment names it.
+    const source = updateSourceFrom(process.env);
+    if (source.ok) {
+      const { repo, encodedToken } = encodeUpdateSource(source.value);
+      check(main?.includes(JSON.stringify(repo)), `the app downloads its updates from ${repo}`);
+      if (encodedToken) check(main?.includes(JSON.stringify(encodedToken)), "the app holds the read token it was built with, encoded");
+    } else {
+      check(false, source.error);
+    }
     const { code, report } = await selfCheck(app.exe, clis);
     process.stdout.write(report.replace(/^/gm, '  '));
     check(code === 0, `the app checks itself (--smoke-test): exit code ${code}`);
