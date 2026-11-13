@@ -58,6 +58,9 @@ export function ownSetupText(t: Messages, provider: Provider): string {
 /** A member's Tools while the tool library is empty: not "no tools", but what its CLI loads anyway. */
 export const emptyLibraryText = (t: Messages, provider: Provider): string => t.team.toolsEmpty(ownSetupText(t, provider));
 
+/** The hint over a member's tool library items: they come on top of what its CLI loads by itself. */
+export const toolsHintText = (t: Messages, provider: Provider): string => t.team.toolsHint(ownSetupText(t, provider));
+
 /** The items that apply to an agent of `provider`: all but the memory parts for other CLIs. */
 export function itemsFor(items: ToolItem[], provider: Provider): ToolItem[] {
   return items.filter((i) => i.kind !== 'memory' || i.name === 'all' || i.name === provider);

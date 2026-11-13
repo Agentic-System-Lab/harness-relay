@@ -212,7 +212,8 @@ export const en: Messages = {
       open: (cli) =>
         `In Harness Relay, ${cli} runs with a config folder of Harness Relay's own, so the MCP servers and skills you set up for it yourself do not load; what it still loads by itself (the project's AGENTS.md, say) is listed in Settings → ${cli}.`,
     },
-    toolsHint: "Choose what this member gets from the tool library (managed in Settings → Tool library). These come in addition to the CLI's own setup: its own skills and MCP servers keep working.",
+    toolsHint: (setup) =>
+      `Choose what this member gets from the tool library (managed in Settings → Tool library), in addition to the CLI's own setup. ${setup}`,
     toolMemory: 'Shared memory',
     toolProviderMemory: (p) => `Memory for ${p}`,
     toolOffByDefault: 'not given to this CLI by default',

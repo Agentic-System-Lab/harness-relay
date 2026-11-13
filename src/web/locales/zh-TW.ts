@@ -228,7 +228,8 @@ export const zhTW = {
       open: (cli: string) =>
         `${cli} 在 Harness Relay 裡用的是 Harness Relay 自己的設定資料夾，不會載入你自己為它設定的 MCP 伺服器和 skill；它還會自己載入的（例如專案的 AGENTS.md）列在「設定 → ${cli}」。`,
     },
-    toolsHint: '勾選這位成員可以用的工具庫項目（在「設定 → 工具庫」管理）。這些是加在 CLI 自己的設定之外，CLI 本來就有的 skill、MCP 照常可用。',
+    /** `setup`: `toolsOwnSetup`'s sentence for the member's CLI. */
+    toolsHint: (setup: string) => `勾選這位成員可以用的工具庫項目（在「設定 → 工具庫」管理），它們加在 CLI 自己的設定之外。${setup}`,
     toolMemory: '共享記憶',
     toolProviderMemory: (p: string) => `${p} 專屬記憶`,
     toolOffByDefault: '預設不給這個 CLI',

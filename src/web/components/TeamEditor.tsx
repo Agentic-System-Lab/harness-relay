@@ -20,7 +20,7 @@ import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
 import { useLimits } from '../limits';
 import { settingsHref } from '../route';
-import { defaultOn, emptyLibraryText, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
+import { defaultOn, emptyLibraryText, hasTool, itemsFor, setTool, toolItems, toolsHintText, type ToolItem } from '../tools';
 import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, initials, newAgent, readyAccount, switchProvider, type ModelChoice } from '../util';
 import { AccountPicker } from './AccountPicker';
 import { CwdInput } from './CwdInput';
@@ -438,7 +438,7 @@ function AgentTools({
           </div>
           {open && (
             <>
-              <p className="muted small">{t.team.toolsHint}</p>
+              <p className="muted small">{toolsHintText(t, agent.provider)}</p>
               <ul>
                 {items.map((i) => (
                   <li key={i.key}>
