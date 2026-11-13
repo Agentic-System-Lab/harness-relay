@@ -89,7 +89,8 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
   const { agents, settings } = value;
   /** Per member: the model, effort and account picked for each CLI, so switching a member's CLI and back restores them. */
   const kept = useRef(new Map<string, Partial<Record<Provider, ModelChoice>>>());
-  const [tools, setTools] = useState<ToolItem[]>([]);
+  /** The tool library's items; null until it has loaded, when a member's Tools say nothing yet (not "empty"). */
+  const [tools, setTools] = useState<ToolItem[] | null>(null);
   const [toolsError, setToolsError] = useState('');
   useEffect(() => {
     api.tools().then(
@@ -402,14 +403,15 @@ function AgentTools({
   onChange,
 }: {
   agent: AgentConfig;
-  items: ToolItem[];
+  /** Null while the library loads. */
+  items: ToolItem[] | null;
   /** The library could not be loaded: say so rather than call it empty. */
   error: string;
   onChange: (tools: AgentConfig['tools']) => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const items = itemsFor(all, agent.provider);
+  const items = itemsFor(all ?? [], agent.provider);
   const given = items.filter((i) => hasTool(agent, i));
   const label = (i: ToolItem) =>
     i.kind !== 'memory' ? i.name : i.name === 'all' ? t.team.toolMemory : t.team.toolProviderMemory(PROVIDER_LABEL[agent.provider]);
@@ -419,7 +421,7 @@ function AgentTools({
       <span>{t.team.tools}</span>
       {error ? (
         <p className="warn-line small">{error}</p>
-      ) : items.length === 0 ? (
+      ) : !all ? null : items.length === 0 ? (
         <p className="muted small">
           {/* Not empty, but nothing for this CLI: only other CLIs' memory notes (itemsFor leaves them out). */}
           {all.length ? noneForCliText(t, agent.provider) : emptyLibraryText(t, agent.provider)}{' '}

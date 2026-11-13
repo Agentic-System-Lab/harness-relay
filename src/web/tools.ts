@@ -47,7 +47,7 @@ export function toolItems(lib: ToolLibraryView): ToolItem[] {
 
 /**
  * What a member's CLI loads besides the tool library, as its Tools say it: a CLI with a sign-in loads
- * its own setup as usual (Settings lists it); an open agent runs with a config folder of Harness
+ * its own setup, which Settings lists for each account; an open agent runs with a config folder of Harness
  * Relay's own instead of its own one in the user's home, which is not read (docs/open-agents.md,
  * "Agent homes"); what else it loads (a project's skills, Cline's ~/.agents) Settings lists.
  */

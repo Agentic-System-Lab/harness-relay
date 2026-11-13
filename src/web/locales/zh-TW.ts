@@ -220,13 +220,15 @@ export const zhTW = {
     tools: '工具',
     /**
      * What a member's CLI loads besides the tool library, said in its Tools (`ownSetupText()`): a CLI
-     * with a sign-in, its own setup; an open agent runs with a config folder of Harness Relay's own
+     * with a sign-in, its own setup, which Settings lists for the member's account (not "as usual": its
+     * home may be Harness Relay's, Settings → Agent sessions, or the account's own, and some of it may
+     * be left out there); an open agent runs with a config folder of Harness Relay's own
      * instead of its own one in the user's home (~/.config/opencode, ~/.cline…), which is not read.
      * Never that its skills do not load: a project's skills do for most of them, and Cline also reads
      * the user's ~/.agents and ~/Documents/Cline (docs/open-agents.md).
      */
     toolsOwnSetup: {
-      own: (cli: string) => `${cli} 照常載入它自己的設定，例如它的 skill 和 MCP 伺服器（「設定 → ${cli}」列出有哪些）。`,
+      own: (cli: string) => `${cli} 也會載入它自己的設定，例如它的 skill 和 MCP 伺服器：「設定 → ${cli}」列出它會載入哪些。`,
       open: (cli: string) =>
         `${cli} 在 Harness Relay 裡用的是 Harness Relay 自己的設定資料夾，而不是你家目錄裡它自己的那個，所以你在那裡的設定（例如 MCP 伺服器）不會被讀取；它還會自己載入的（例如專案的 AGENTS.md）列在「設定 → ${cli}」。`,
     },

@@ -67,16 +67,27 @@ test("with an empty tool library, or one with nothing for its CLI, each member's
     { name: 'Claude', provider: 'claude' },
     { name: 'Goose', provider: 'goose' },
   ]);
+  // While the library loads, a card says nothing of it: not that it is empty.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/tools', async (route) => {
+    await held;
+    await route.continue();
+  });
   await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+  await expect(memberCard(page, 0).locator('.agent-tools')).toBeVisible();
+  await expect(memberCard(page, 0).locator('.agent-tools')).toHaveText('Tools');
+  release();
   for (const [index, provider] of [[0, 'claude'], [1, 'goose']] as const) {
     const tools = memberCard(page, index).locator('.agent-tools');
     await expect(tools).toContainText(emptyLibraryText(en, provider));
     await expect(tools.getByRole('link', { name: 'Go to Settings → Tool library' })).toBeVisible();
   }
-  await expect(memberCard(page, 0).locator('.agent-tools')).toContainText('Claude Code loads its own setup as usual');
+  await expect(memberCard(page, 0).locator('.agent-tools')).toContainText('Claude Code also loads its own setup');
   await expect(memberCard(page, 1).locator('.agent-tools')).toContainText("Goose runs with a config folder of Harness Relay's own");
 
   // A memory note for another CLI only: the library is not empty, but it has nothing for theirs.
+  await page.unroute('**/api/tools');
   await relay.api('/api/tools', { method: 'PUT', body: { memory: { codex: 'Run the tests first.' } } });
   await page.reload();
   await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
