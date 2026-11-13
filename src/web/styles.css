@@ -3752,8 +3752,9 @@ video.chat-media {
   gap: 18px;
 }
 
-/* The four kinds of schedule need about 220px on one row in Chinese and 340px in English; narrower
-   than that (a phone), they go two by two, as the voice input's languages do, and a label may wrap. */
+/* The four kinds of schedule need about 220px on one row in Chinese and 340px in English (about 366px
+   with a wider font, such as Linux's DejaVu Sans); narrower than that (a phone), they go two by two,
+   as the voice input's languages do, and a label may wrap. */
 .schedule-repeat {
   container: schedule-repeat / inline-size;
 }
@@ -3769,7 +3770,7 @@ video.chat-media {
   }
 }
 
-@container schedule-repeat (width < 350px) {
+@container schedule-repeat (width < 380px) {
   :lang(en) .schedule-repeat .segmented {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
