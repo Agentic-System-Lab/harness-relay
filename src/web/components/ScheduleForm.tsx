@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import { SCHEDULE_KINDS, SCHEDULE_LIMITS, type ConversationSchedule, type ConversationSettings } from '../../shared/types';
 import { mentionWarning } from '../copy';
 import { useI18n } from '../i18n';
@@ -30,6 +30,7 @@ export function ScheduleForm({
 }) {
   const { t, lang } = useI18n();
   const { turnTimeoutMinutes } = useLimits();
+  const intervalHintId = useId();
   // @mentions that reach nobody on the team.
   const warning = useMemo(() => (team ? mentionWarning(draft.text, team, t, 'form') : undefined), [draft.text, team, t]);
   const now = Date.now();
@@ -119,11 +120,15 @@ export function ScheduleForm({
                 max={SCHEDULE_LIMITS.maxHours}
                 value={Number.isNaN(draft.hours) ? '' : draft.hours}
                 onChange={(e) => onEdit({ hours: e.target.value === '' ? NaN : Number(e.target.value) })}
+                aria-describedby={intervalHintId}
               />
               <span className="unit muted small">{t.schedule.hoursUnit}</span>
             </label>
-            {/* A line of its own: as part of the unit, which never wraps, it scrolled a phone's page sideways. */}
-            <span className="small muted">{t.schedule.intervalHint}</span>
+            {/* A line of its own (as part of the unit, which never wraps, it scrolled a phone's page
+                sideways), and still the hours box's description. */}
+            <span id={intervalHintId} className="small muted">
+              {t.schedule.intervalHint}
+            </span>
           </>
         )}
 

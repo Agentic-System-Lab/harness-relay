@@ -1,4 +1,7 @@
 import { devices } from '@playwright/test';
+import { SCHEDULE_KINDS } from '../../src/shared/types';
+import { en } from '../../src/web/locales/en';
+import { zhTW } from '../../src/web/locales/zh-TW';
 import { expect, test } from '../fixtures';
 import { composer, finishedReply, homePage, openTeamChat } from '../support/app';
 
@@ -86,7 +89,7 @@ test.describe('on a phone', () => {
     }
   });
 
-  test('on a narrow phone, a new schedule every few hours does not scroll sideways, in either language', async ({ page, relay }) => {
+  test('on a narrow phone, a new schedule of any kind does not scroll sideways, in either language, nor does a chat\'s Schedule', async ({ page, relay }) => {
     /** The boxes that scroll sideways, and how far. */
     const sideways = () =>
       page.evaluate(() =>
@@ -94,20 +97,45 @@ test.describe('on a phone', () => {
           .filter((el) => el.scrollWidth > el.clientWidth + 1 && (el === document.documentElement || ['auto', 'scroll'].includes(getComputedStyle(el).overflowX)))
           .map((el) => `${el.className || el.tagName} +${el.scrollWidth - el.clientWidth}`),
       );
-    for (const [lang, kind, unit] of [['en', 'Every few hours', 'hours'], ['zh-TW', '每隔幾小時', '小時']] as const) {
+    // 320px: the four kinds of schedule go two by two in English, and the week's seven days onto two
+    // rows in both languages.
+    const widths = [320, 280];
+    for (const [lang, messages] of [['en', en], ['zh-TW', zhTW]] as const) {
+      const s = messages.schedule;
       await page.evaluate((l) => localStorage.setItem('relay:lang', l), lang);
       await page.setViewportSize(viewport);
       await page.goto(`${relay.base}/#/schedule`);
       // Only the hash changes from one language to the next: load the page again in the new one.
       await page.reload();
-      await page.getByRole('radio', { name: kind }).tap();
-      // The interval's unit is only "hours", next to its box; its hint is a line of its own.
-      await expect(page.locator('.schedule-form .field.inline .unit')).toHaveText(unit);
-      // 320px: the four kinds of schedule, too wide for one row in English, go two by two.
-      for (const width of [320, 280]) {
-        await page.setViewportSize({ width, height: 640 });
-        expect(await sideways()).toEqual([]);
+      for (const kind of SCHEDULE_KINDS) {
+        await page.setViewportSize(viewport);
+        await page.getByRole('radiogroup', { name: s.repeat }).getByRole('radio', { name: s.kinds[kind], exact: true }).tap();
+        if (kind === 'interval') {
+          // The interval's unit is only "hours", next to its box; its hint, a line of its own, still describes the box.
+          await expect(page.locator('.schedule-form .field.inline .unit')).toHaveText(s.hoursUnit);
+          await expect(page.locator('.schedule-form input[type="number"]')).toHaveAccessibleDescription(s.intervalHint);
+        }
+        for (const width of widths) {
+          await page.setViewportSize({ width, height: 640 });
+          expect(await sideways(), `${lang}, ${kind}, ${width}px`).toEqual([]);
+        }
       }
+    }
+
+    // A chat's Schedule drawer, with the week's days.
+    await page.evaluate(() => localStorage.setItem('relay:lang', 'en'));
+    await page.setViewportSize(viewport);
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    // Only the hash changed: load the chat again in English.
+    await page.reload();
+    await expect(composer(page)).toBeVisible();
+    await page.getByRole('button', { name: 'More' }).tap();
+    await page.locator('.chat-head').getByRole('button', { name: 'Schedule' }).tap();
+    const drawer = page.getByRole('dialog', { name: 'Schedule' });
+    await drawer.getByRole('radiogroup', { name: 'When' }).getByRole('radio', { name: 'Every week', exact: true }).tap();
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 640 });
+      expect(await sideways(), `the drawer, ${width}px`).toEqual([]);
     }
   });
 

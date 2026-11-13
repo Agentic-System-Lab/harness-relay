@@ -3798,6 +3798,9 @@ video.chat-media {
 
 .day-picker {
   display: flex;
+  /* The seven days need about 310px in English: on a narrower phone they go on two rows rather
+     than past the edge. */
+  flex-wrap: wrap;
   gap: 4px;
 }
 
