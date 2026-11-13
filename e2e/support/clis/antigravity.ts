@@ -40,4 +40,5 @@ export const antigravity: CliFacts = {
   signedOutError: 'Authentication required',
   // It asks before reading outside the workspace, and its adapter allows any read but of the protected paths.
   skillReadAsks: false,
+  usage: { plan: 'Google AI Pro', limit: '5-hour limit · Gemini 3.1 Pro' },
 };

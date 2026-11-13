@@ -330,7 +330,7 @@ export async function capture(
 /**
  * Runs a CLI that speaks JSON lines on stdin/stdout, for a short exchange: `open` writes the first
  * message, `onMessage` answers and calls `finish` when it has what it needs (which stops the CLI).
- * Resolves on finish, exit or timeout.
+ * Resolves on finish, exit, timeout or `signal`.
  */
 export async function converse(o: {
   bin: string;
@@ -338,10 +338,12 @@ export async function converse(o: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
+  /** Stops the CLI from outside, as `finish` does. */
+  signal?: AbortSignal;
   open: (write: (msg: unknown) => void) => void;
   onMessage: (msg: Record<string, any>, write: (msg: unknown) => void, finish: () => void) => void;
 }): Promise<{ stderr: string; timedOut: boolean }> {
-  const stop = new AbortController();
+  const stop = linkedAbort(o.signal);
   let write: (msg: unknown) => void = () => undefined;
   const res = await runProcess({
     bin: o.bin,
@@ -368,6 +370,99 @@ export async function converse(o: {
         return;
       }
       o.onMessage(msg, write, () => stop.abort());
+    },
+  });
+  return { stderr: res.stderr, timedOut: res.timedOut };
+}
+
+/** An AbortController that also aborts when `outer` does (already aborted: at once). */
+function linkedAbort(outer?: AbortSignal): AbortController {
+  const stop = new AbortController();
+  if (outer?.aborted) stop.abort();
+  else outer?.addEventListener('abort', () => stop.abort(), { once: true });
+  return stop;
+}
+
+/**
+ * Reads JSON-RPC messages framed as LSP frames them (`Content-Length: <n>` headers, a blank line,
+ * then `n` bytes of body with no newline), from chunks split or joined anywhere. `push` takes a chunk
+ * and returns the messages it completed; a frame without a length is skipped, a body that is not a
+ * JSON object is dropped.
+ */
+export class FrameDecoder {
+  private buf = Buffer.alloc(0);
+
+  push(chunk: Buffer): Record<string, any>[] {
+    this.buf = Buffer.concat([this.buf, chunk]);
+    const out: Record<string, any>[] = [];
+    for (;;) {
+      const end = this.buf.indexOf('\r\n\r\n');
+      if (end < 0) return out;
+      const length = Number(/content-length:\s*(\d+)/i.exec(this.buf.subarray(0, end).toString('latin1'))?.[1]);
+      if (!Number.isFinite(length)) {
+        this.buf = this.buf.subarray(end + 4);
+        continue;
+      }
+      if (this.buf.length < end + 4 + length) return out;
+      const body = this.buf.subarray(end + 4, end + 4 + length).toString('utf8');
+      this.buf = this.buf.subarray(end + 4 + length);
+      try {
+        const msg: unknown = JSON.parse(body);
+        if (msg && typeof msg === 'object' && !Array.isArray(msg)) out.push(msg as Record<string, any>);
+      } catch {
+        // not JSON: dropped
+      }
+    }
+  }
+}
+
+/** A JSON-RPC message framed as LSP frames it (`FrameDecoder` reads it back). */
+export function frame(msg: unknown): Buffer {
+  const body = Buffer.from(JSON.stringify(msg), 'utf8');
+  return Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'ascii'), body]);
+}
+
+/**
+ * `converse()` for a CLI that frames its JSON-RPC messages as LSP does (Copilot's headless server):
+ * `open` writes the first message, `onMessage` answers and calls `finish` when it has what it needs.
+ * Resolves on finish, exit, timeout or `signal`. A handler that throws is logged, not let out.
+ */
+export async function converseFramed(o: {
+  bin: string;
+  args: string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  timeoutMs: number;
+  signal?: AbortSignal;
+  open: (write: (msg: unknown) => void) => void;
+  onMessage: (msg: Record<string, any>, write: (msg: unknown) => void, finish: () => void) => void;
+}): Promise<{ stderr: string; timedOut: boolean }> {
+  const stop = linkedAbort(o.signal);
+  const res = await runProcess({
+    bin: o.bin,
+    args: o.args,
+    cwd: o.cwd,
+    env: o.env,
+    keepStdinOpen: true,
+    signal: stop.signal,
+    timeoutMs: o.timeoutMs,
+    maxCapture: 1024,
+    onSpawn: (child) => {
+      const write = (msg: unknown) => {
+        if (child.stdin?.writable) child.stdin.write(frame(msg));
+      };
+      const frames = new FrameDecoder();
+      child.stdout?.on('data', (chunk: Buffer) => {
+        for (const msg of frames.push(chunk)) {
+          if (stop.signal.aborted) return;
+          try {
+            o.onMessage(msg, write, () => stop.abort());
+          } catch (err) {
+            console.error('[process] message handler failed:', err);
+          }
+        }
+      });
+      o.open(write);
     },
   });
   return { stderr: res.stderr, timedOut: res.timedOut };

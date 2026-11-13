@@ -4,7 +4,8 @@
  * acp` (ACP: `initialize`, `session/new`, `session/resume`, `session/set_config_option` of the
  * session's mode, `session/prompt`, `session/cancel`, and `session/request_permission` naming the call
  * by its `toolCallId` only, its details in the `tool_call` update before), and what the server asks
- * it besides: `--version`, `usage`, `login`, `logout`, `skills list --json`, `mcp list --json`.
+ * it besides: `--version`, `usage` (and `usage --json`), `login`, `logout`, `skills list --json`,
+ * `mcp list --json`.
  * Anything else exits at once with an error.
  *
  * Its folders are XDG's, on every system as the real one's: its config folder `$XDG_CONFIG_HOME/muse`
@@ -73,7 +74,7 @@ const path = require('node:path');
 const readline = require('node:readline');
 const { acpAgent, picked, requestPermission, sessionUpdates } = require('../lib/acp.cjs');
 const { inside, notAWorkingDirectory, ownSkills, realLocation, targetOf } = require('../lib/files.cjs');
-const { keyVerdict, sessions, signIn, signedOut } = require('../lib/home.cjs');
+const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { exitAfterLog, record, tryWrite } = require('../lib/log.cjs');
 const { declined, directivesIn, lastUserMessage, noOther, plan, recordMcpEnv, skillsIn, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError } = require('../lib/rpc.cjs');
@@ -235,6 +236,16 @@ function museStatic() {
 
 /** `muse usage`: the subscription allowance, which needs no model turn. */
 function usage() {
+  if (has('--json')) {
+    if (process.env.META_API_KEY) return void process.stdout.write(JSON.stringify({ schemaVersion: 1, allowance: null, reason: 'api_key', hint: null }) + '\n');
+    if (signedOut()) {
+      process.stderr.write('not logged in: run `muse login` first\n');
+      process.exitCode = 1;
+      return;
+    }
+    const allowance = { usedPercent: planUsedPercent(), resetsAtMs: planResets.fiveHour() };
+    return void process.stdout.write(JSON.stringify({ schemaVersion: 1, allowance, reason: null, hint: null }) + '\n');
+  }
   if (process.env.META_API_KEY) return void process.stdout.write('No subscription allowance (api_key)\n\n');
   if (signedOut()) {
     process.stderr.write('muse usage: not logged in: run `muse login` first\n');

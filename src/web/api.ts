@@ -2,6 +2,7 @@ import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT } from '../shared/types';
 import type {
   AboutInfo,
+  AccountUsage,
   AlertPrefs,
   ApiBackend,
   ModelBackendsView,
@@ -398,6 +399,11 @@ export const api = {
     request<ReportScreenshots>('POST', '/api/report/screenshots', { files: images.map((data) => ({ data })) }),
   /** Deletes the screenshots' gist again (one uploaded since the server started). */
   removeScreenshots: (id: string) => request<{ ok: true }>('DELETE', `/api/report/screenshots/${encodeURIComponent(id)}`),
+  /** How much of an account's plan is used, as its CLI reports it (`refresh` asks the CLI again). */
+  usage: (p: Provider, account = '', refresh = false) => {
+    const query = [account && `account=${encodeURIComponent(account)}`, refresh && 'refresh=1'].filter(Boolean).join('&');
+    return request<AccountUsage>('GET', `/api/providers/${p}/usage${query ? `?${query}` : ''}`);
+  },
   /** What a CLI loads by itself in an account's home (empty: the default account's), with what its runs leave out. */
   nativeSetup: (p: Provider, refresh = false, account = '') =>
     request<NativeSetup>('POST', `/api/providers/${p}/native${accountQuery(account)}`, { refresh }),

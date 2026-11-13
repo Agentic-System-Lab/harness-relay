@@ -45,4 +45,5 @@ export const muse: CliFacts = {
   homeIn: ['data', 'muse'],
   // `session/new` fails signed out (src/server/i18n.ts `museSignIn` quotes it).
   signedOutError: 'log in to Muse',
+  usage: { limit: 'Allowance' },
 };

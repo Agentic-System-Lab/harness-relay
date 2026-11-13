@@ -41,4 +41,6 @@ export const copilot: CliFacts = {
   skillReadAsks: false,
   // Its sign-in is asked in a home of the question's own, with a copy of the account's sign-in state.
   statusInOwnFolder: false,
+  // Counted in requests (`account.getQuota` on its headless server): 126 of its fake's 300 used.
+  usage: { plan: 'individual', limit: 'Monthly limit · Premium requests', used: '126 of 300 requests used', inQuestionHome: true },
 };

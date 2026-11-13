@@ -1389,6 +1389,65 @@ export function accountUsable(a: Pick<AccountStatus, 'auth' | 'usingStoredApiKey
   return a.auth.loggedIn !== false || a.usingStoredApiKey;
 }
 
+/** How long one of a plan's limits runs before it starts over, when it is one of the usual spans. */
+export type UsageSpan = 'fiveHour' | 'day' | 'week' | 'month';
+
+/** What one of a plan's limits counts, when the UI names it: Copilot's premium requests, chat messages and code completions. */
+export type UsageKind = 'premiumRequests' | 'chat' | 'completions';
+
+/** One limit of an account's plan, as its CLI reports it: how much of it is used, and when it starts over. */
+export interface UsageLimit {
+  span?: UsageSpan;
+  /** Its length in minutes, when the CLI says and it is none of the usual spans. */
+  minutes?: number;
+  /** What it counts, when that is one of the kinds the UI names (Copilot's premium requests, chat, completions). */
+  kind?: UsageKind;
+  /** What it is for, when not the whole plan: a model ("Fable"), or the CLI's own name for the limit. */
+  scope?: string;
+  /** How much of it is used, 0–100. */
+  usedPercent: number;
+  /** When it starts over (ms since the epoch). */
+  resetsAt?: number;
+  /** A limit of a number of requests (Copilot's premium requests): how many are used, of how many. */
+  used?: number;
+  total?: number;
+}
+
+/**
+ * Why an account has no plan limits to show: it runs on an API key the provider bills by use (no
+ * limits, and no balance the key can read), it is signed out, its plan has no allowance, its plan has
+ * no limits at all, its CLI has no usage yet in this window, its CLI reports no plan limits for how
+ * the account signs in (Claude Code on a token from `claude setup-token`, Bedrock or Vertex), or its
+ * CLI does not report usage (not at all, or not outside its own terminal UI).
+ */
+export type UsageNone = 'apiKey' | 'signedOut' | 'noAllowance' | 'unlimited' | 'noData' | 'unavailable' | 'notReported';
+
+/**
+ * Why Harness Relay could not tell an account's usage, in its own words (the UI words it in its
+ * language): the CLI took too long, gave no answer it could read, or was not found.
+ */
+export type UsageProblem = 'timedOut' | 'noAnswer' | 'cliMissing';
+
+/** How much of an account's plan is used, as its CLI reports it (`GET /api/providers/:provider/usage`). */
+export interface AccountUsage {
+  provider: Provider;
+  /** Empty for the default account. */
+  account: string;
+  /** The plan, as the CLI names it ("max", "prolite", "SuperGrok"). */
+  plan?: string;
+  limits: UsageLimit[];
+  /** Credits beside the plan's limits (Codex's), when the account has some. */
+  credits?: { balance?: number; unlimited?: boolean };
+  /** No limits to show, and why. */
+  none?: UsageNone;
+  /** The CLI could not be asked, or refused: in its own words. */
+  error?: string;
+  /** The CLI could not be asked, or did not answer, in Harness Relay's words (`UsageProblem`). */
+  problem?: UsageProblem;
+  /** When the CLI was asked (ms since the epoch). */
+  checkedAt: number;
+}
+
 /**
  * Whether an account signs in with its API key only: Cursor's, Antigravity's and Muse Code's accounts
  * besides the default one. Cursor keeps one sign-in per computer user (on macOS, in the keychain)

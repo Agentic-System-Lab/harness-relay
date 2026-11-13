@@ -31,4 +31,5 @@ export const codex: CliFacts = {
   apiKeyEnv: 'OPENAI_API_KEY',
   apiKeyPlaceholder: 'sk-…',
   signedOutError: 'Not logged in',
+  usage: { plan: 'plus', limit: '5-hour limit' },
 };

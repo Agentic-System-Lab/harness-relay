@@ -6910,3 +6910,82 @@ a.share-action {
 .version-muted {
   color: var(--muted);
 }
+
+/* An account's plan usage (UsagePanel): each limit as a bar of what is used, with what is left beside it. */
+.usage-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.usage-panel p {
+  margin: 0;
+}
+
+.usage-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.usage-head .small-button {
+  margin-left: auto;
+}
+
+.usage-limits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(80px, 1fr) minmax(0, max-content);
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.usage-limit {
+  display: contents;
+}
+
+.usage-label {
+  overflow-wrap: anywhere;
+}
+
+.usage-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.usage-bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--accent, var(--ok));
+}
+
+.usage-limit.warn .usage-bar > span {
+  background: var(--warn);
+}
+
+.usage-limit.out .usage-bar > span {
+  background: var(--danger);
+}
+
+/* A phone: each limit's name, bar and line one under the other. */
+@media (max-width: 560px) {
+  .usage-limits {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .usage-limit .muted {
+    margin-bottom: 4px;
+  }
+}

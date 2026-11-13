@@ -1,0 +1,60 @@
+{
+  "authInfo": {
+    "type": "env",
+    "host": "https://github.com",
+    "login": "stub-user",
+    "copilotUser": {
+      "login": "stub-user",
+      "access_type_sku": "monthly_subscriber_quota",
+      "chat_enabled": true,
+      "copilot_plan": "individual",
+      "endpoints": {
+        "api": "https://api.individual.githubcopilot.com",
+        "proxy": "https://api.individual.githubcopilot.com",
+        "telemetry": "https://api.individual.githubcopilot.com"
+      },
+      "quota_reset_date": "2026-12-01",
+      "quota_snapshots": {
+        "chat": {
+          "entitlement": 0,
+          "overage_count": 0,
+          "overage_permitted": false,
+          "percent_remaining": 100,
+          "quota_id": "chat",
+          "quota_remaining": 0,
+          "remaining": 0,
+          "unlimited": true,
+          "has_quota": true,
+          "quota_reset_at": 1796083200
+        },
+        "completions": {
+          "entitlement": 0,
+          "overage_count": 0,
+          "overage_permitted": false,
+          "percent_remaining": 100,
+          "quota_id": "completions",
+          "quota_remaining": 0,
+          "remaining": 0,
+          "unlimited": true,
+          "has_quota": true,
+          "quota_reset_at": 1796083200
+        },
+        "premium_interactions": {
+          "entitlement": 300,
+          "overage_count": 0,
+          "overage_permitted": false,
+          "percent_remaining": 41.16666666666667,
+          "quota_id": "premium_interactions",
+          "quota_remaining": 123.5,
+          "remaining": 123.5,
+          "unlimited": false,
+          "has_quota": true,
+          "quota_reset_at": 1796083200
+        }
+      },
+      "token_based_billing": false,
+      "quota_reset_date_utc": "2026-12-01T00:00:00Z"
+    },
+    "envVar": "COPILOT_GITHUB_TOKEN"
+  }
+}

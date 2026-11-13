@@ -3,7 +3,8 @@
  * The fake Cursor (`cursor-agent`, provider id `cursor`): `cursor-agent [--disable-project-configs]
  * [--force] acp` (ACP: `initialize`, `authenticate`, `cursor/list_available_models`, `session/new`,
  * `session/load` with its history replayed first, `session/set_config_option`, `session/prompt`,
- * `session/request_permission`), `--version`, `status --format json`, `login`, `logout`.
+ * `session/request_permission`), `--version`, `status --format json`, `about --format json` (the shared
+ * sign-in's plan), `login`, `logout`.
  *
  * Cursor has no OS sandbox. What it does is decided only by what Harness Relay gave it, as with the
  * real one (cursor-agent 2026.11.11): `--force` or `approvalMode: "unrestricted"` (run everything),
@@ -119,6 +120,13 @@ function cursorStatic() {
       return void process.stdout.write(JSON.stringify(status) + '\n');
     }
     return void process.stdout.write(email ? `\n ✓ Logged in as ${email}\n` : '\n Not logged in\n');
+  }
+  if (args[0] === 'about') {
+    // The shared sign-in's plan, whatever key is in the environment (as the real one's `about`).
+    const email = storedSignIn();
+    const about = { cliVersion: module.exports.version, model: 'Auto', subscriptionTier: email ? 'Pro' : null, userEmail: email || null };
+    if (args.includes('json')) return void process.stdout.write(JSON.stringify(about, null, 2) + '\n');
+    return void process.stdout.write(`About Cursor CLI\n\nCLI Version         ${about.cliVersion}\nSubscription Tier   ${about.subscriptionTier || 'n/a'}\n`);
   }
   if (args[0] === 'login') return cursorLogin(store, noBrowser);
   if (args[0] === 'logout') {

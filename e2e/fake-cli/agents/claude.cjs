@@ -1,7 +1,8 @@
 'use strict';
 /*
  * The fake Claude Code (`claude`): `claude -p --input-format stream-json --output-format stream-json …`
- * (control requests, partial messages, tool calls, `can_use_tool` approvals over stdio), `--version`,
+ * (control requests, `get_usage` among them, partial messages, tool calls, `can_use_tool` approvals
+ * over stdio), `--version`,
  * `auth status|login|logout`, `plugin list --json`, `mcp list`.
  *
  * Whether a write or a read happens is decided only by what Harness Relay gave it, as with the real
@@ -16,7 +17,7 @@ const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
 const { inside, notAWorkingDirectory, ownSkills, targetOf, writeFile } = require('../lib/files.cjs');
-const { keyVerdict, sessions, signIn, signedOut } = require('../lib/home.cjs');
+const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { exitAfterLog, record } = require('../lib/log.cjs');
 const { declined, noOther, noteIn, pieceDelay, pieces, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
 const { fail, onLines, out } = require('../lib/rpc.cjs');
@@ -195,6 +196,24 @@ function claudeStream() {
           return reply(m, { hooks: [] });
         case 'get_settings':
           return reply(m, { effective: {} });
+        case 'get_usage': {
+          // What its /usage shows: no plan limits on an API key (or signed out), else the plan's.
+          const plan = !signedOut() && !process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN;
+          const used = planUsedPercent();
+          return reply(m, {
+            session: { total_cost_usd: 0 },
+            subscription_type: plan ? 'max' : null,
+            rate_limits_available: plan,
+            rate_limits: plan
+              ? {
+                  limits: [
+                    { kind: 'session', group: 'session', percent: used, resets_at: new Date(planResets.fiveHour()).toISOString(), scope: null, is_active: true },
+                    { kind: 'weekly_all', group: 'weekly', percent: Math.round(used / 2), resets_at: new Date(planResets.week()).toISOString(), scope: null, is_active: true },
+                  ],
+                }
+              : null,
+          });
+        }
         default:
           return refuse(m, `Unsupported control request subtype: ${m.request && m.request.subtype}`);
       }

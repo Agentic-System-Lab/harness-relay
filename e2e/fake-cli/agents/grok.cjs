@@ -1,7 +1,7 @@
 'use strict';
 /*
  * The fake Grok (`grok`): `grok agent --no-leader stdio` (ACP: sessions, `session/update`,
- * `session/request_permission`), `--version`, `models`, `inspect --json`, `logout`.
+ * `session/request_permission`, `_x.ai/billing`), `--version`, `models`, `inspect --json`, `logout`.
  *
  * Whether a write happens is decided only by what Harness Relay gave it, as with the real one: yolo
  * mode, the answers to `session/request_permission`, and the folders of the sandbox profile
@@ -15,7 +15,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { acpAgent, followup, picked, requestPermission, sessionUpdates } = require('../lib/acp.cjs');
 const { inside, ownSkills, realLocation, targetOf, writeFile } = require('../lib/files.cjs');
-const { keyVerdict, sessions, signIn, signedOut } = require('../lib/home.cjs');
+const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { record } = require('../lib/log.cjs');
 const { declined, noOther, noteIn, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError } = require('../lib/rpc.cjs');
@@ -142,6 +142,14 @@ function grokAgent() {
   acpAgent({
     initialize: () => ({ protocolVersion: 1, agentCapabilities: { loadSession: true, promptCapabilities: { image: true }, mcpCapabilities: { http: true } }, authMethods: [] }),
     'session/new': (p, { sessions: open }) => openSession('session/new', p, open),
+    // Its plan's billing (what its /usage shows), read from the grok.com sign-in.
+    '_x.ai/billing': () => {
+      if (signedOut()) throw rpcError('Authentication required to fetch billing data');
+      return {
+        subscription_tier: 'SuperGrok',
+        config: { creditUsagePercent: planUsedPercent(), currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: new Date(planResets.week()).toISOString() } },
+      };
+    },
     'session/resume': (p, { sessions: open }) => openSession('session/resume', p, open),
     'session/set_config_option': (p, { sessions: open }) => {
       const s = open.get(p.sessionId);

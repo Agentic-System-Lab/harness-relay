@@ -1,8 +1,8 @@
 'use strict';
 /*
  * The fake Codex (`codex`): `codex app-server` (JSON-RPC without the version field: threads, turns,
- * items, approval requests), `--version`, `login status`, `login --with-api-key`, `logout`,
- * `debug models`.
+ * items, approval requests; `account/read` and `account/rateLimits/read`, the plan's limits),
+ * `--version`, `login status`, `login --with-api-key`, `logout`, `debug models`.
  *
  * Whether a write happens is decided only by what Harness Relay gave it, as with the real one: the
  * thread's sandbox (`sandbox`, or the permission profile it names, with its `write` entries;
@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { inside, ownSkills, targetOf, writeFile } = require('../lib/files.cjs');
-const { keyVerdict, sessions, signIn, signedOut } = require('../lib/home.cjs');
+const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { exitAfterLog, record } = require('../lib/log.cjs');
 const { declined, noOther, pieceDelay, pieces, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError, rpcPeer, track } = require('../lib/rpc.cjs');
@@ -164,6 +164,24 @@ function codexAppServer() {
           return { marketplaces: [] };
         case 'mcpServerStatus/list':
           return { data: [] };
+        // Who it is signed in as, and its plan's limits (Settings shows them in the account's block).
+        case 'account/read':
+          if (signedOut()) return { account: null, requiresOpenaiAuth: true };
+          if (fs.existsSync(signIn.apiKey())) return { account: { type: 'apiKey' }, requiresOpenaiAuth: true };
+          return { account: { type: 'chatgpt', email: signIn.email(), planType: 'plus' }, requiresOpenaiAuth: true };
+        case 'account/rateLimits/read': {
+          const used = planUsedPercent();
+          const at = (ms) => Math.round(ms / 1000);
+          return {
+            rateLimits: {
+              limitId: 'codex',
+              primary: { usedPercent: used, windowDurationMins: 300, resetsAt: at(planResets.fiveHour()) },
+              secondary: { usedPercent: Math.round(used / 2), windowDurationMins: 10080, resetsAt: at(planResets.week()) },
+              credits: { hasCredits: false, unlimited: false, balance: null },
+              planType: 'plus',
+            },
+          };
+        }
         default:
           throw rpcError(`unknown method ${method}`, -32601);
       }

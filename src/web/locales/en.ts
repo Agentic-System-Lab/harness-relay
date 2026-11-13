@@ -226,6 +226,46 @@ export const en: Messages = {
     },
   },
 
+  /** An account's plan usage in Settings, as its CLI reports it (`components/UsagePanel.tsx`). */
+  usage: {
+    title: 'Plan usage',
+    plan: (plan) => `Plan: ${plan}`,
+    refresh: 'Check again',
+    refreshFor: (account) => `Check again: the plan usage of "${account}"`,
+    loading: 'Checking…',
+    checked: (when) => `Checked ${when}`,
+    span: { fiveHour: '5-hour limit', day: 'Daily limit', week: 'Weekly limit', month: 'Monthly limit' },
+    minutes: (m) => (m % 1440 === 0 ? `${m / 1440}-day limit` : m % 60 === 0 ? `${m / 60}-hour limit` : `${m}-minute limit`),
+    allowance: 'Allowance',
+    kind: { premiumRequests: 'Premium requests', chat: 'Chat', completions: 'Code completions' },
+    left: (n) => `${n}% left`,
+    used: (n) => `${n}% used`,
+    requests: (used, total) => `${used} of ${total} requests used`,
+    resetsIn: (s) => `resets in ${s}`,
+    resetsAt: (s) => `resets ${s}`,
+    inMinutes: (n) => `${n} min`,
+    inHours: (n) => `${n} h`,
+    credits: (n) => `Credits left: ${n}`,
+    creditsUnlimited: 'Credits: unlimited',
+    none: {
+      apiKey: "This account runs on an API key: the provider bills it by use, so it has no plan limits, and a regular API key cannot read the balance left. See the provider's console.",
+      signedOut: 'Not signed in: no plan usage.',
+      noAllowance: "This account's plan has no subscription allowance (it is billed by use).",
+      unlimited: "This account's plan has no usage limits.",
+      noData: 'No usage yet in this window (the CLI may have none before its first use in a new window).',
+      unavailable: 'The CLI reports no plan limits for how this account signs in (such as a token from claude setup-token, Bedrock or Vertex).',
+    },
+    problem: {
+      timedOut: 'The CLI did not answer in time.',
+      noAnswer: 'The CLI did not report its usage.',
+      cliMissing: (cli) => `${cli}'s CLI was not found.`,
+    },
+    notReported: {
+      cursor: "Cursor's CLI shows usage only in its own terminal UI (/usage), with no way for another program to ask: see the dashboard on Cursor's website.",
+      other: 'This CLI does not report plan usage.',
+    },
+  },
+
   accounts: {
     account: 'Account',
     default: 'Default account',

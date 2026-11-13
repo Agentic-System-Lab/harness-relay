@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { CommandNotFoundError, capture, killAll, runProcess, runShellScript, runSync, sleepSync, spawnDetached } from '../src/server/process';
+import { CommandNotFoundError, FrameDecoder, capture, frame, killAll, runProcess, runShellScript, runSync, sleepSync, spawnDetached } from '../src/server/process';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-proc-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -191,5 +191,30 @@ describe('spawnDetached', () => {
 
   it('rejects for a program that does not exist', async () => {
     await expect(spawnDetached(join(tmpdir(), 'no-such-program-here'), [], process.env)).rejects.toThrow();
+  });
+});
+
+describe('JSON-RPC framed as LSP frames it (Copilot\'s headless server)', () => {
+  const a = { jsonrpc: '2.0', id: 1, result: { ok: true, note: 'é ✓' } };
+  const b = { jsonrpc: '2.0', id: 2, error: { code: -32603, message: 'Not authenticated' } };
+
+  it('reads back what it frames, a body\'s length counted in bytes (not characters)', () => {
+    expect(new FrameDecoder().push(frame(a))).toEqual([a]);
+  });
+
+  it('reads frames split anywhere, header and body alike, and frames joined in one chunk', () => {
+    const both = Buffer.concat([frame(a), frame(b)]);
+    for (let cut = 1; cut < both.length; cut++) {
+      const d = new FrameDecoder();
+      expect([...d.push(both.subarray(0, cut)), ...d.push(both.subarray(cut))]).toEqual([a, b]);
+    }
+    const d = new FrameDecoder();
+    expect([...both].flatMap((byte) => d.push(Buffer.from([byte])))).toEqual([a, b]);
+  });
+
+  it('skips a frame without a length, and drops a body that is not a JSON object', () => {
+    const bad = (body: string) => Buffer.from(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+    const d = new FrameDecoder();
+    expect(d.push(Buffer.concat([Buffer.from('X-Other: 1\r\n\r\n'), bad('null'), bad('[1]'), bad('{oops'), frame(b)]))).toEqual([b]);
   });
 });

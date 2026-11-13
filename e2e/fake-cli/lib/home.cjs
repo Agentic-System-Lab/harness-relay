@@ -92,4 +92,18 @@ function firstTime(text) {
   return true;
 }
 
-module.exports = { keyVerdict, signIn, signedOut, sessions, firstTime };
+/**
+ * How much of its plan the account signed in here has used, as each fake reports it (Claude Code's
+ * `get_usage`, Codex's `account/rateLimits/read`, Grok's `_x.ai/billing`, `muse usage --json`): 42%
+ * for the default sign-in (e2e@example.com), 7% for any other, so that each account shows its own.
+ */
+function planUsedPercent() {
+  const used = signIn.email() === 'e2e@example.com' ? 42 : 7;
+  record({ usage: used, home: self.home() });
+  return used;
+}
+
+/** When the fakes' plan windows start over: five hours, and a week, from now (ms since the epoch). */
+const planResets = { fiveHour: () => Date.now() + 5 * 3600_000, week: () => Date.now() + 7 * 86_400_000 };
+
+module.exports = { keyVerdict, signIn, signedOut, sessions, firstTime, planUsedPercent, planResets };

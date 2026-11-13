@@ -3,7 +3,7 @@
  * The fake Antigravity (`agy`, 1.5.6 as Harness Relay drives it): `agy acp` (ACP: sessions with the
  * briefing in `_meta.antigravity.systemPrompt.append`, config options `model`, `thought_level` and
  * `mode`, `session/request_permission` with allow-once and deny-once only, and `logout`),
- * `acp --login`, `--version`, `models`, `-p /skills|/hooks|/agents --output-format json`,
+ * `acp --login`, `--version`, `models`, `-p /skills|/hooks|/agents|/usage|/credits --output-format json`,
  * `plugin list --json`; `--settings <json>` (one command's settings) anywhere before them.
  *
  * Its home is its `.gemini` folder: `--gemini-dir` (an account's own, `agy acp` only), else
@@ -38,7 +38,7 @@ const path = require('node:path');
 const readline = require('node:readline');
 const { acpAgent, followup, picked, requestPermission, sessionUpdates } = require('../lib/acp.cjs');
 const { inside, notAWorkingDirectory, ownSkills, targetOf } = require('../lib/files.cjs');
-const { keyVerdict, sessions, signIn, signedOut } = require('../lib/home.cjs');
+const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { exitAfterLog, record, tryWrite } = require('../lib/log.cjs');
 const { directivesIn, lastUserMessage, noOther, plan, recordMcpEnv, skillsIn, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError } = require('../lib/rpc.cjs');
@@ -180,6 +180,13 @@ function printList(command, settings) {
   }
   if (command === '/hooks') return void process.stdout.write(answer('hooks', { hooks: [] }, ''));
   if (command === '/agents') return void process.stdout.write(answer('agents', { agents: [] }, ''));
+  // The plan's quota, as agy 1.5.8 types it: one group of buckets, each with the fraction left.
+  if (command === '/usage') {
+    const left = 1 - planUsedPercent() / 100;
+    const bucket = { name: 'Gemini 3.1 Pro', window: '5h', remaining_fraction: left, reset_time: new Date(planResets.fiveHour()).toISOString() };
+    return void process.stdout.write(answer('usage', { groups: [{ name: 'Gemini models', buckets: [bucket] }] }, `Gemini 3.1 Pro\t${Math.round(left * 100)}%\n`));
+  }
+  if (command === '/credits') return void process.stdout.write(answer('credits', { remaining_credits: 1000, plan_name: 'Google AI Pro' }, 'Credits\t1000\n'));
   // Anything else would be a prompt for a model, which no fake has.
   process.stderr.write(`fake antigravity: print mode runs no model here (${command})\n`);
   process.exitCode = 1;

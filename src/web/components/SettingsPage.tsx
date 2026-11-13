@@ -7,6 +7,7 @@ import {
   PROVIDER_INSTALL_URL,
   PROVIDER_LABEL,
   SANDBOX_TERMINAL_SUPPORT,
+  accountUsable,
   catalogFor,
   cwdsOf,
   keyOnlyAccount,
@@ -50,6 +51,7 @@ import { CliPicker } from './CliPicker';
 import { ModelPicker } from './ModelPicker';
 import { NotificationsCard } from './NotificationsSettings';
 import { NativeSetupPanel } from './NativeSetupPanel';
+import { UsagePanel } from './UsagePanel';
 import { SectionTitle } from './SectionTitle';
 import { BrowsersCard } from './BrowsersSettings';
 import { SessionsCard } from './SessionsSettings';
@@ -734,6 +736,14 @@ function AccountBlock({
         )}
       </div>
       {id && account?.home && <p className="muted small mono-path">{t.accounts.folder(account.home)}</p>}
+
+      <UsagePanel
+        provider={provider}
+        account={id}
+        name={name}
+        usable={installed && status !== undefined && accountUsable(status)}
+        signIn={status ? [status.auth.loggedIn, status.auth.account, status.auth.method, status.usingStoredApiKey, account?.apiKeyMasked].join('|') : ''}
+      />
 
       {keyOnly ? (
         <p className="muted small">{provider === 'antigravity' ? t.settings.keyOnlyAntigravity : provider === 'muse' ? t.settings.keyOnlyMuse : t.settings.keyOnlyAccount}</p>

@@ -32,4 +32,5 @@ export const claude: CliFacts = {
   apiKeyPlaceholder: 'sk-ant-…',
   logout: 'auth logout',
   signedOutError: 'Not logged in',
+  usage: { plan: 'max', limit: '5-hour limit' },
 };
